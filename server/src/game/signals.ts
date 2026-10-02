@@ -47,7 +47,8 @@
 // msgpack key order follows object insertion order. Every materialize() below
 // builds its wire object in the exact historical field order (Contact:
 // id,x,y,heading,speed,cls; BallisticEvent: k,id,x,y,vx,vy,t; stripped boom:
-// k,id,x,y; MineView: id,x,y,own,by; LitZoneView and BurnZoneView:
+// k,id,x,y; MineView: id,x,y,own,by,c (the kind rides EVERY row since cycle
+// 162, PV 68); LitZoneView and BurnZoneView:
 // id,x,y,r,until,by (the lit zone's `phos`/`daz` tail is DELETED, Story
 // 8.17); SmokeView: id,x,y,t0 (Story 8.18); SplashEvent/HitCallEvent: k,id,x,y;
 // MuzzleEvent: k,x,y — Story 4.3; SmokeEvent: k,x,y,tier — Story 4.4;
@@ -76,6 +77,7 @@ import {
   type DecoyView,
   type FoghornEvent,
   type GameEvent,
+  type GhostPaint,
   type HealEvent,
   type HeightRaster,
   type HitCallEvent,
@@ -510,8 +512,16 @@ function inRadarAnnulus(me: ShipRecord, p: Vec2, now: number): boolean {
   const dy = p.y - me.state.y;
   const d2 = dx * dx + dy * dy;
   const sight = sightOf(me, now);
-  const radar2 = me.stats.radarRange * me.stats.radarRange;
-  return d2 > sight * sight && d2 <= radar2;
+  return d2 > sight * sight && withinRadarRange(me, p);
+}
+
+/** The annulus's OUTER edge alone — the point is within the observer's
+ *  effective radar range (`stats.radarRange`, inclusive `<=`). One read for
+ *  both callers: inRadarAnnulus and the chaff owner's ghost gate. */
+function withinRadarRange(me: ShipRecord, p: Vec2): boolean {
+  const dx = p.x - me.state.x;
+  const dy = p.y - me.state.y;
+  return dx * dx + dy * dy <= me.stats.radarRange * me.stats.radarRange;
 }
 
 /**
@@ -623,8 +633,17 @@ function paintMask(cls: HullId, p: Vec2, heading: number, t: number): HullCovera
 }
 
 function blipShape(ctx: SignalContext, p: Vec2, cls: HullId, heading: number): BlipEvent {
+  return { k: 'blip', t: ctx.now, ...paintRect(ctx, p, cls, heading) };
+}
+
+/** THE COVERAGE RECT — the blip's payload minus `k` and `t` (`GhostPaint`,
+ *  cycle 162), in the SAME key order the blip carries it (gx,gy,w,h,bits).
+ *  Two callers: blipShape (every `events` blip) and the chaff owner's ghosts
+ *  (ownerChaffGhosts) — one function so the two shapes cannot drift: a ghost
+ *  IS the rect everyone else receives as a blip for the same fake this tick. */
+function paintRect(ctx: SignalContext, p: Vec2, cls: HullId, heading: number): GhostPaint {
   const c = paintMask(cls, p, heading, ctx.now);
-  return { k: 'blip', t: ctx.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
+  return { gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
 }
 
 // ---------------------------------------------------------------------------
@@ -710,20 +729,22 @@ const mineSignal: SignalSpec<MineState, MineView> = {
     );
   },
   materialize(ctx, mine) {
-    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,own,by[,c]. `by` (Story 1.12)
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,own,by,c. `by` (Story 1.12)
     // is the dropper's ship id — roster-resolved to the dropper's personal hue
     // for every observer (a deliberate intel grant, Eric 2026-07-23).
     //
-    // `c` — THE MINE'S KIND, OWN MINES ONLY (Story 8.13, epic-8 amendment 76):
-    // the owner's rings differ by kind (captive: trip ring; naval/fouling:
-    // blast + trigger), so the owner's own view carries it, appended LAST.
-    // Every other observer gets the kind-less marker they always did — the
-    // KEY IS ABSENT, not undefined-valued (a present key would still be a
-    // structural tell to a JSON encoder that serializes `undefined` slots),
-    // hence the conditional spread. Own-only on an own-only distinction: no
-    // new disclosure, the perception exception count stays at SIX.
-    const own = mine.ownerId === ctx.observerId;
-    return { id: mine.id, x: mine.x, y: mine.y, own, by: mine.ownerId, ...(own ? { c: mine.kind } : {}) };
+    // `c` — THE MINE'S KIND, FOR EVERY OBSERVER (Eric ruling 2026-10-01,
+    // "Everyone sees the kind"; cycle 162, PV 68). This SUPERSEDES Story
+    // 8.13's own-only rule (epic-8 amendment 76), under which the key was
+    // stripped for every non-owner: the marker on the water now draws the
+    // kind's own glyph in the dropper's hue for whoever sees it (owner,
+    // enemy, spectator alike), so every materialized row carries it, LAST.
+    // ANTI-CHEAT: this row is already sight-gated (visible() above — owner
+    // always, else detect + island LOS, else an owned flare), so the kind is
+    // a field on a delivered row, not a new delivery: it discloses nothing
+    // beyond the mine's presence, and the perception exception count stays
+    // at SIX.
+    return { id: mine.id, x: mine.x, y: mine.y, own: mine.ownerId === ctx.observerId, by: mine.ownerId, c: mine.kind };
   },
 };
 
@@ -1038,10 +1059,13 @@ function chaffFakes(ctx: SignalContext, source: FakeSource): readonly Fake[] {
  *     (amendment 147 — exactly where a real hull would paint too), and the
  *     ownZoneCovers skip extends the same truth-wins rule to a flare you
  *     hung over the cloud;
- *   • the OWNER NEVER receives their own chaff's fakes (a source whose
- *     `ownerId` is the observer is skipped entirely) — no readout, no `src`
- *     tag; the cloud is WORLD-owned (amendment 127), so it keeps painting
- *     after its owner sinks, redeploys, respawns or leaves;
+ *   • the OWNER NEVER receives their own chaff's fakes AS BLIPS (a source
+ *     whose `ownerId` is the observer is skipped entirely here) — no `src`
+ *     tag, nothing in `events`; since cycle 162 the owner instead receives
+ *     the rects of its own fakes its beam painted as the self-private
+ *     `you.chaffGhosts` (ownerChaffGhosts below — Eric 2026-10-01); the
+ *     cloud is WORLD-owned (amendment 127), so it keeps painting after its
+ *     owner sinks, redeploys, respawns or leaves;
  *   • deterministic per (source, epoch), identical for every observer in a
  *     tick, WATER-FILTERED (no fake lies on land or off the disk), and a
  *     lapsed source (`until <= now`) paints nothing — lazy expiry.
@@ -1067,6 +1091,53 @@ function pushGatedFakes(ctx: FoggedSignalContext, fakes: readonly Fake[], out: B
     if (!blipGate(ctx.me, fake, ctx.heightRaster, ctx.now, ctx.islands, ctx.smoke)) continue;
     out.push(blipShape(ctx, fake, fake.cls, fake.heading));
   }
+}
+
+/**
+ * THE CHAFF OWNER'S OWN GHOSTS (Eric 2026-10-01, cycle 162, PV 68 —
+ * supersedes amendment 191's "never the fakes"): the coverage rects of the
+ * OBSERVER'S OWN live chaff fakes that the observer's beam painted this tick,
+ * for the self-private `you.chaffGhosts` (frames.ts emits the list beside
+ * `you.chaff`, OMITTED when empty). The fakes are THE SAME SET everyone else
+ * is painting — the memoized `chaffFakes` scatter on the same seed and epoch
+ * — and each rect is THE SAME shape (`paintRect`, which blipShape wraps), so
+ * what the owner sees in grey is exactly what its enemies see as blips.
+ *
+ * THE OWNER'S GATE (orchestrator ruling, Eric may veto): the fake is within
+ * the owner's effective radar range (withinRadarRange — the annulus's OUTER
+ * edge, inclusive) ∧ the beam crossed the fake's bearing this tick
+ * (sweptThisTick) ∧ the fake is at least partially lit under the
+ * height-aware radar shadow (visibilityTo > 0) ∧ no flare the owner owns
+ * covers it (ownZoneCovers — the truth-wins rule blipGate's callers apply).
+ * It is blipGate with its annulus's INNER (sight) edge and its
+ * smokedInBubble alternative dropped, deliberately: the cloud bursts AT THE
+ * OWNER'S OWN POSITION (R39), inside its sight bubble, where the annulus
+ * never paints — an owner gated by the full blipGate would see its ghosts
+ * only once it had sailed `sight` u away from its own cloud. The OUTER edge
+ * stays: a ghost is the owner's picture of a radar return, and no observer
+ * is ever painted anything beyond its radar — an owner who sails (or is
+ * redeployed) away from its world-owned cloud stops seeing the ghosts past
+ * radar range, exactly as an enemy would. Everything else is byte-for-byte
+ * the enemy's gate. Not a seventh perception exception: the rects disclose
+ * nothing real (their poses come off the server-private scatter stream) and
+ * ride `you` only — never `events`, never another observer's frame (the
+ * `shield` / `inSmoke` / `chaff` precedent) — so the exception count stays
+ * at SIX and every non-owner frame is byte-identical to before. FOGGED PATH
+ * ONLY: a spectator has no beam, no raster state and no `you`.
+ */
+export function ownerChaffGhosts(ctx: FoggedSignalContext): GhostPaint[] {
+  const out: GhostPaint[] = [];
+  const me = ctx.me;
+  const source = ctx.chaffSources.get(me.id);
+  if (source === undefined || source.until <= ctx.now) return out;
+  for (const fake of chaffFakes(ctx, source)) {
+    if (ownZoneCovers(ctx, fake)) continue;
+    if (!withinRadarRange(me, fake)) continue;
+    if (!sweptThisTick(me, bearing(me.state, fake))) continue;
+    if (visibilityTo(ctx.heightRaster, me.state.x, me.state.y, fake.x, fake.y) <= 0) continue;
+    out.push(paintRect(ctx, fake, fake.cls, fake.heading));
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

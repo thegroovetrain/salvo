@@ -13,6 +13,7 @@ import {
   isAfloat,
   isSunk,
   type FrameMsg,
+  type GhostPaint,
   type MatchPhase,
   type OwnShip,
   type ShipClassId,
@@ -53,14 +54,30 @@ function ownDraft(ship: ShipRecord): Pick<OwnShip, 'draft'> {
  *  `{ chaff: {x, y, until} }` — the owner's live CHAFF burst point and the
  *  cloud's expiry — while `now < until`, else an EMPTY object so the spread
  *  leaves the key absent. A re-fire REPLACES the World's source, so the key
- *  simply follows it. The fakes themselves stay withheld from the owner
- *  (amendment 127's skip); this is only where the cloud is. */
+ *  simply follows it. The fakes themselves never ride `events` for the owner
+ *  (amendment 127's skip); since cycle 162 the owner receives the ones its
+ *  own beam painted as `chaffGhosts` (ownChaffGhosts below). */
 function ownChaff(source: FakeSource | undefined, now: number): Pick<OwnShip, 'chaff'> {
   if (source === undefined || now >= source.until) return {};
   return { chaff: { x: source.x, y: source.y, until: source.until } };
 }
 
-function toOwnShip(ship: ShipRecord, now: number, chaff: FakeSource | undefined): OwnShip {
+/** The own-ship `chaffGhosts` key (Eric 2026-10-01, cycle 162, PV 68):
+ *  `{ chaffGhosts: GhostPaint[] }` — the coverage rects of the owner's OWN
+ *  chaff fakes its beam painted this tick, computed by perception.observe()
+ *  (signals.ts ownerChaffGhosts: the same scatter and the same rect shaper
+ *  every enemy's blips come from, gated by the owner's beam and the radar
+ *  shadow but not the sight annulus) — PRESENT IFF non-empty, else an EMPTY
+ *  object so the spread leaves the key absent (never `[]`, never
+ *  `undefined`). SELF-PRIVATE BY CONSTRUCTION (the `chaff` / `shield` /
+ *  `inSmoke` precedent): rides `you` and NOTHING else — the owner's fakes
+ *  never reach `events` and no other observer's frame changes by a byte —
+ *  so the perception exception count stays at SIX. */
+function ownChaffGhosts(ghosts: readonly GhostPaint[]): Pick<OwnShip, 'chaffGhosts'> {
+  return ghosts.length > 0 ? { chaffGhosts: [...ghosts] } : {};
+}
+
+function toOwnShip(ship: ShipRecord, now: number, chaff: FakeSource | undefined, ghosts: readonly GhostPaint[]): OwnShip {
   // Anti-cheat/invariant guard: OwnShip only ever describes a human client's
   // own ship, whose hullId is ALWAYS a ShipClassId. A drone hull id reaching
   // here means a drone record was routed to a client frame — an upstream bug,
@@ -209,6 +226,10 @@ function toOwnShip(ship: ShipRecord, now: number, chaff: FakeSource | undefined)
     // (the shield / inSmoke precedent): it rides `you` and NOTHING else — no
     // other observer ever receives it — so the exception count stays at SIX.
     ...ownChaff(chaff, now),
+    // ...and the ghosts of its own fakes its beam painted this tick (cycle
+    // 162): present IFF any, OMITTED otherwise. SELF-PRIVATE BY CONSTRUCTION
+    // on the same terms — `you` and NOTHING else — so the count stays at SIX.
+    ...ownChaffGhosts(ghosts),
   };
 }
 
@@ -296,7 +317,7 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
   const denied = world.denialsFor(playerId);
   return {
     ...base,
-    you: ship ? toOwnShip(ship, world.now, world.chaffSources.get(ship.id)) : undefined,
+    you: ship ? toOwnShip(ship, world.now, world.chaffSources.get(ship.id), view.chaffGhosts) : undefined,
     contacts: view.contacts,
     events: view.events,
     mines: view.mines,

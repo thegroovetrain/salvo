@@ -181,6 +181,21 @@ export function canOpenSurface(surface: keyof OpenSurfaces, open: OpenSurfaces):
 }
 
 /**
+ * Pure: does a WHEEL tick belong to an open SCROLLABLE surface rather than to
+ * the camera? The results modal and the settings overlay are both scrollable
+ * DOM panels; while either is up, a wheel is the player scrolling that panel,
+ * never a zoom (Eric 2026-10-01, cycle 162: *"if the ESC menu is open in-game,
+ * the scroll wheel does NOT zoom in/out … the intent of the user when that is
+ * open is to scroll that menu"*; the results half is the cycle-100 review
+ * finding this generalizes). The refit modal is NOT scrollable and is not in
+ * this set — zoom stays live under it. The one `window` wheel listener
+ * (main.ts bindWheelZoom) consults this before touching either zoom path.
+ */
+export function wheelScrollsSurface(open: OpenSurfaces): boolean {
+  return open.results || open.settings;
+}
+
+/**
  * Pure: may ABANDON MATCH be offered right now? Amendment 19 renders it "only
  * while in a live match", which rules out one state: `finished` / matchOver —
  * the match is over and the results modal's RETURN TO PORT is the one way home;

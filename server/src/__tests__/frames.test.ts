@@ -243,7 +243,7 @@ describe('buildFrame — the `smoke` channel (Story 8.18)', () => {
     const quiet = buildFrame(w, 'a');
     expect('smoke' in quiet).toBe(false); // the litZones / burnZones / decoys rule, applied to smoke
     // A puff laid by `b` (a raw store write — the injectMine posture) 56.6 u off
-    // `a` — `a` stands INSIDE the fresh 82.5 u disc (delivered trivially; this
+    // `a` — `a` stands INSIDE the fresh 123.75 u disc (delivered trivially; this
     // test pins the wire shape, not the gate).
     w.smoke.set('sk1', { id: 'sk1', ownerId: 'b', x: 40, y: 40, bornAt: w.now, until: w.now + CONFIG.smokeScreen.lifeMs });
     const f = buildFrame(w, 'a');
@@ -294,5 +294,40 @@ describe('buildFrame — the self-private chaff cloud (amendment 191)', () => {
     // Expired (the source may still sit in the map): the key is gone.
     w.chaffSources.get('a')!.until = w.now;
     expect('chaff' in buildFrame(w, 'a').you!).toBe(false);
+  });
+
+  it('carries `you.chaffGhosts` (cycle 162) ONLY in the owner\'s `you` — present iff the owner\'s beam painted a fake, never in `events`, never anywhere in another hull\'s frame', () => {
+    const w = makeWorld();
+    const a = w.ships.get('a')!;
+    expect('chaffGhosts' in buildFrame(w, 'a').you!).toBe(false); // no source: absent, never undefined or []
+    const until = w.now + CONFIG.chaff.durationMs;
+    w.chaffSources.set('a', {
+      ownerId: 'a', x: 0, y: 0, radius: CONFIG.chaff.radius, count: CONFIG.chaff.count,
+      until, seed: 7, at: w.now, sweepPeriodMs: a.stats.sweepPeriodMs,
+    });
+    // Beam closed: the cloud is live (`chaff` rides) but nothing was painted.
+    a.prevSweepAngle = 0;
+    a.sweepAngle = 0;
+    const dark = buildFrame(w, 'a');
+    expect('chaff' in dark.you!).toBe(true);
+    expect('chaffGhosts' in dark.you!).toBe(false);
+    // Beam wide open over the cloud at a's own position: the ghosts ride `you`.
+    a.prevSweepAngle = 0;
+    a.sweepAngle = Math.PI * 2 - 1e-9;
+    const lit = buildFrame(w, 'a');
+    const ghosts = lit.you!.chaffGhosts!;
+    expect(ghosts.length).toBeGreaterThan(0);
+    for (const g of ghosts) expect(Object.keys(g)).toEqual(['gx', 'gy', 'w', 'h', 'bits']); // the blip rect, no `k`, no `t`
+    expect(lit.events.filter((e) => e.k === 'blip')).toEqual([]); // the owner's fakes never ride `events`
+    expect(JSON.stringify({ ...lit, you: undefined })).not.toContain('chaffGhosts');
+    // The other hull: no ghost list anywhere in its frame.
+    const other = buildFrame(w, 'b');
+    expect('chaffGhosts' in other.you!).toBe(false);
+    expect(JSON.stringify(other)).not.toContain('chaffGhosts');
+    // Expired: both keys gone together.
+    w.chaffSources.get('a')!.until = w.now;
+    const gone = buildFrame(w, 'a');
+    expect('chaff' in gone.you!).toBe(false);
+    expect('chaffGhosts' in gone.you!).toBe(false);
   });
 });

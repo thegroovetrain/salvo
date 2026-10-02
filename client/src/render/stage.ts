@@ -186,6 +186,22 @@ export interface StageLayers {
    *  litZone's own stated reason — blips, mines and the reticle must stay
    *  readable on top of it, and a plume is soft ambient texture, not a mark. */
   smoke: Container;
+  /**
+   * THE CHAFF OWNER'S RADAR PICTURE — the dashed ring (render/chaffRing.ts) and
+   * the grey ghost paints (render/chaffGhosts.ts). Fog-immune, directly ABOVE
+   * `smoke` and below `mineChart`.
+   *
+   * Eric, 2026-10-01: *"Radar returns should never be below the smoke screen."*
+   * Not `litZone` (where both lived until that ruling): `litZone` sits UNDER
+   * `smoke`, so a smoke screen laid over the cloud buried the ghost returns.
+   * Not `blip` either, though the real returns live there: `blip` carries the
+   * radar's near-range DIM MASK (amendment 181 — 20 % across the whole sight
+   * bubble), and the cloud bursts at the owner's own position, always inside
+   * that bubble, so a ghost on `blip` would draw at 20 % of half alpha —
+   * invisible. A layer of its own is the one seat that is both over the smoke
+   * and outside the mask.
+   */
+  chaff: Container;
   /** Own mines (render/mines.ts) — fog-immune so your field is always readable. */
   mineChart: Container;
   /** OWN decoy buoys (render/decoys.ts) — fog-immune chart markers so your own
@@ -270,6 +286,8 @@ export const CHART_LAYER_ORDER = [
   'zone',
   'litZone',
   'smoke',
+  // Eric 2026-10-01: "Radar returns should never be below the smoke screen."
+  'chaff',
   'mineChart',
   'decoyChart',
   'blip',

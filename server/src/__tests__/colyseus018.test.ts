@@ -165,8 +165,12 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 66 and admits 67', () => {
-  it('PROTOCOL_VERSION is 67', () => {
+describe('the PV join gate refuses 67 and admits 68', () => {
+  it('PROTOCOL_VERSION is 68', () => {
+    // Cycle 162 bumped 67 -> 68 (Eric 2026-10-01): MineView.c rides every
+    // observer's mine row (not the owner's only), OwnShip gains the self-
+    // private `chaffGhosts` list, the client reads the ×1.5 chaff / smoke-
+    // screen radii and the supercav torpedo's damage (85) off CONFIG.
     // Cycle 161 bumped 66 -> 67: STAR SHELLS / PHOSPHOR SHELLS burst bases
     // swapped (Eric 2026-10-01, amendment 208); the refit card prints CONFIG.
     // Amendment 200 bumped 65 -> 66: the client reads CONFIG.mine.hitRadiusU
@@ -189,15 +193,16 @@ describe('the PV join gate refuses 66 and admits 67', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(67);
+    expect(PROTOCOL_VERSION).toBe(68);
   });
 
   it('refuses the immediately-previous protocol', () => {
-    // 65 is the one that matters now: a client built one cycle before this
-    // one draws its mine ring off a literal rather than the shared hit disc;
-    // a 64 client still offers and prints the two deleted gun cards; a 63 client
-    // also resolves the machine-gun ladder without its `rateMs` steps (a tier
-    // card and a stat readout that disagree with the server's cadence).
+    // 67 is the one that matters now: a client built one cycle before this
+    // one draws every enemy mine kind-less, never renders the owner's chaff
+    // ghosts, and draws the chaff ring and smoke discs at 2/3 of the server's
+    // radii; a 65 client draws its mine ring off a literal rather than the
+    // shared hit disc; a 64 client still offers the two deleted gun cards.
+    expect(protocolVersionError(67)).toMatch(/refresh/i);
     expect(protocolVersionError(66)).toMatch(/refresh/i);
     expect(protocolVersionError(65)).toMatch(/refresh/i);
     expect(protocolVersionError(64)).toMatch(/refresh/i);
@@ -216,12 +221,12 @@ describe('the PV join gate refuses 66 and admits 67', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(68)).toMatch(/refresh/i);
+    expect(protocolVersionError(69)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(67)).toBeNull();
+    expect(protocolVersionError(68)).toBeNull();
   });
 });
 

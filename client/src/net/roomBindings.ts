@@ -50,6 +50,8 @@ import type { Projectiles } from '../render/projectiles.js';
 import type { Effects } from '../render/effects.js';
 import type { Radar } from '../render/radar.js';
 import type { Smoke } from '../render/smoke.js';
+import type { Fire } from '../render/fire.js';
+import type { ChaffGhosts } from '../render/chaffGhosts.js';
 import { bearingTo, bandGain, type Foghorn } from '../render/foghorn.js';
 import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
@@ -99,6 +101,13 @@ export interface RoomBindingDeps {
   /** Wounded-smoke plumes (render/smoke.ts) — accumulated from the anonymous
    *  `sm` pulses, exactly as radar blips are accumulated from `blip`. */
   smoke: Smoke;
+  /** ON FIRE (render/fire.ts, cycle 162) — flame tongues fanned out of the
+   *  SAME `sm` pulse beside `smoke`; only tier 2 (hull under 25 %) spawns. */
+  fire: Fire;
+  /** THE CHAFF OWNER'S GHOSTS (render/chaffGhosts.ts, cycle 162) — fed from
+   *  the self-private `you.chaffGhosts` at the frame's server time; never an
+   *  `events` blip, so the scope's `radar` never receives one. */
+  chaffGhosts: ChaffGhosts;
   /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
    *  visual twin, accumulated from `fh` exactly as plumes are from `sm`. */
   foghorn: Foghorn;
@@ -736,6 +745,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });
     if (deps.state.mode === 'predict') deps.predictor.onServerState(f.you, f.ackSeq);
     deps.radar.onSweepSample(f.you.sweep, f.t); // authoritative sweep anchor
+    routeChaffGhosts(f.you, f.t, deps);
     // First authoritative pose after a reconnect: snap the camera to the resumed
     // hull (completes the handleSpawn mirror), consuming the one-shot flag.
     if (s.pendingSnap) {
@@ -749,6 +759,18 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   trackBurning(f, deps, s);
   routeDenials(f, deps);
   handleEvents(f, deps, s);
+}
+
+/**
+ * THE CHAFF OWNER'S GHOSTS (cycle 162, Eric 2026-10-01): the self-private
+ * `you.chaffGhosts` — this hull's OWN fakes its beam painted this tick — go to
+ * their own grey renderer at the frame's server time, and NEVER to the scope
+ * (`radar.onBlip`): the scope's three colors and its identity-free blips stay
+ * exactly what every other observer gets. Omitted on the wire when nothing was
+ * painted, so an absent key routes nothing.
+ */
+function routeChaffGhosts(you: OwnShip, t: number, deps: RoomBindingDeps): void {
+  if (you.chaffGhosts !== undefined) deps.chaffGhosts.onGhosts(you.chaffGhosts, t);
 }
 
 /**
@@ -936,6 +958,8 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindSt
  *     plume (render/smoke.ts), which is deliberately the BLIP's arrangement and
  *     not a contact's. `f.t` is the pulse's timestamp — the row carries no time
  *     of its own and the decay is server-clock math, never accumulated dt.
+ *     The SAME row fans out to the flame tongues (render/fire.ts, cycle 162),
+ *     which spawn only for tier 2 — a second rendering of a row already here.
  *   • `fh` THE FOGHORN (Story 4.5) — a captain SPENT a bearing. The first row
  *     whose payload varies by observer in substance (amendment 51): `self` for
  *     the honker, `b`+`v` for a fogged listener, `x`+`y` for a spectator.
@@ -946,7 +970,7 @@ function handlePulseEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: B
   switch (e.k) {
     case 'blip': deps.radar.onBlip(e); return;
     case 'wk': deps.radar.onWakeBlip(e); return;
-    case 'sm': deps.smoke.onSmoke(e, f.t); return;
+    case 'sm': deps.smoke.onSmoke(e, f.t); deps.fire.onSmoke(e, f.t); return; // fire: tier 2 only (render/fire.ts)
     case 'fh': handleFoghorn(e, f, deps); return;
   }
   handleGunneryEvent(e, f, deps, s);

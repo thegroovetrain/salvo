@@ -35,6 +35,7 @@ import {
   escapeAction,
   nextArmed,
   scaleOptions,
+  wheelScrollsSurface,
 } from '../ui/settings.js';
 import { CLIENT_CONFIG } from '../config.js';
 
@@ -248,6 +249,25 @@ describe('escapeAction — ESC closes the TOPMOST surface, never returns to port
   it('the results modal outranks everything — ESC closes it (= SPECTATE)', () => {
     expect(escapeAction({ results: true, refit: true, settings: true })).toBe('closeResults');
     expect(escapeAction({ ...none, results: true })).toBe('closeResults');
+  });
+});
+
+// --- the wheel belongs to an open scrollable surface (Eric 2026-10-01) -------
+
+describe('wheelScrollsSurface — a wheel over the ESC menu or results is a scroll, not a zoom', () => {
+  const none = { results: false, refit: false, settings: false };
+
+  it('claims the wheel while the settings overlay (ESC menu) is open', () => {
+    expect(wheelScrollsSurface({ ...none, settings: true })).toBe(true);
+  });
+
+  it('claims the wheel while the results modal is open', () => {
+    expect(wheelScrollsSurface({ ...none, results: true })).toBe(true);
+  });
+
+  it('leaves the wheel to the camera when nothing scrollable is open — the refit modal is not scrollable', () => {
+    expect(wheelScrollsSurface(none)).toBe(false);
+    expect(wheelScrollsSurface({ ...none, refit: true })).toBe(false);
   });
 
   // ERIC RULING 2026-08-19 — from spectate, ESC puts the SCORE SCREEN back,

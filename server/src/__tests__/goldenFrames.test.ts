@@ -97,7 +97,7 @@ const EXPECTED_SUBCASES = [
   'litzone-sunk-reveal',
   'litzone-thirdparty-radar-circle',
   'mine-burst-detonation',
-  'mine-kind-own-only',
+  'mine-kind-for-all',
   'mine-trip-blast-multivictim',
   'muzzle-flash-beyond-halo-silent',
   'muzzle-flash-inside-halo',
@@ -1030,14 +1030,15 @@ function scnTorpReReveal(g: Golden): void {
 }
 
 /**
- * The own-only mine kind (Story 8.13, epic-8 amendment 76): Mine Layer `o`
+ * The mine kind for EVERY observer (Eric 2026-10-01, cycle 162, PV 68 —
+ * superseding Story 8.13's own-only rule, epic-8 amendment 76): Mine Layer `o`
  * holds all three mine lines and has one of each kind in the water; `o`'s own
- * frame carries `c` on every mine (naval / captive / fouling), while enemy
- * `a`, who detects all three, receives the kind-less marker — the `c` KEY is
- * absent from every one of its rows. Both frames are captured, so the snapshot
- * pins the exact bytes of each.
+ * frame carries `c` on every mine (naval / captive / fouling), AND enemy `a`,
+ * who detects all three, receives the kind on every row too — LAST, after
+ * `by`, so the historical prefix stays byte-stable. Both frames are captured,
+ * so the snapshot pins the exact bytes of each.
  */
-function scnMineKindOwnOnly(g: Golden): void {
+function scnMineKindForAll(g: Golden): void {
   const w = bareWorld(1022);
   const o = place(w, 'o', 0, 0, 0, 'mineLayer'); // holds NAVAL MINES (class weapon)...
   w.applyCard(o, 'captiveMines'); // ...plus the other two lines
@@ -1050,8 +1051,9 @@ function scnMineKindOwnOnly(g: Golden): void {
   const ownRows = fo.mines.filter((m) => m.own);
   const ownCarriesKind = ownRows.length === 3 && ownRows.every((m) => 'c' in m && m.c === w.mines.get(m.id)!.kind);
   const enemyRows = fa.mines as readonly MineView[];
-  const enemyKindless = enemyRows.length === 3 && enemyRows.every((m) => !m.own && !('c' in m) && Object.keys(m).join() === 'id,x,y,own,by');
-  prove(g, 'mine-kind-own-only', ownCarriesKind && enemyKindless);
+  const enemyCarriesKind =
+    enemyRows.length === 3 && enemyRows.every((m) => !m.own && m.c === w.mines.get(m.id)!.kind && Object.keys(m).join() === 'id,x,y,own,by,c');
+  prove(g, 'mine-kind-for-all', ownCarriesKind && enemyCarriesKind);
 }
 
 /** The full scenario battery + the self-validating coverage assertions —
@@ -1178,8 +1180,13 @@ function runScenarios(g: Golden): void {
   // Story 8.13 additions (appended KNOWINGLY — the snapshot regenerated with
   // PV 56: the re-reveal is a change to the ballistic gate's MEMORY, so no
   // earlier scenario's bytes move — none of them ever carried a projectile out
-  // of a gate and back — and the own-only mine kind adds a trailing `c` to the
-  // OWNER'S mine rows only: scnMines' `own` row and scnSpectator's `sm` row).
+  // of a gate and back — and the own-only mine kind added a trailing `c` to
+  // the OWNER'S mine rows only: scnMines' `own` row and scnSpectator's `sm`
+  // row). Cycle 162 (PV 68, Eric 2026-10-01 "Everyone sees the kind"): the
+  // snapshot regenerated once more — every NON-OWN mine row across the battery
+  // gains the same trailing `c`, and nothing else moves (the chaff ghosts ride
+  // `you` only when the owner's beam paints its own fakes, which no golden
+  // world arranges).
   scnTorpReReveal(g);
-  scnMineKindOwnOnly(g);
+  scnMineKindForAll(g);
 }

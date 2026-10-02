@@ -22,7 +22,8 @@ describe('chaffRingAlpha — a function of server time, nothing else', () => {
     expect(chaffRingAlpha(until, until - D)).toBeCloseTo(K.alpha, 9);
     expect(chaffRingAlpha(until, until - D / 2)).toBeCloseTo(K.alpha / 2, 9);
     expect(chaffRingAlpha(until, until)).toBe(0);
-    expect(K.alpha).toBe(0.45);
+    expect(K.alpha).toBe(0.85); // cycle 162 draft (Eric 2026-10-01: "more visible"; was 0.45)
+    expect(K.width).toBe(2.5); // cycle 162 draft (was 1.5)
   });
 
   it('clamps: never above the base before the fresh point, never below 0 after expiry', () => {
@@ -38,9 +39,9 @@ describe('chaffRingAlpha — a function of server time, nothing else', () => {
 });
 
 describe('the ring geometry comes off CONFIG', () => {
-  it('draws at the cloud\'s own scatter radius (120 u)', () => {
+  it('draws at the cloud\'s own scatter radius (180 u since cycle 162)', () => {
     expect(CHAFF_RING_RADIUS).toBe(CONFIG.chaff.radius);
-    expect(CHAFF_RING_RADIUS).toBe(120);
+    expect(CHAFF_RING_RADIUS).toBe(180);
   });
 
   it('is DASHED: the dash + gap pitch around the circumference, at least 8 dashes', () => {
@@ -51,9 +52,9 @@ describe('the ring geometry comes off CONFIG', () => {
   });
 
   it('a NON-POSITIVE dash + gap pitch (a bad feel knob) returns a fixed 8 dashes, never Infinity (review gate P5)', () => {
-    expect(chaffDashSegments(120, 0, 0)).toBe(8);
-    expect(chaffDashSegments(120, -4, 2)).toBe(8);
-    expect(chaffDashSegments(120, Number.NaN, 4)).toBe(8);
+    expect(chaffDashSegments(CONFIG.chaff.radius, 0, 0)).toBe(8);
+    expect(chaffDashSegments(CONFIG.chaff.radius, -4, 2)).toBe(8);
+    expect(chaffDashSegments(CONFIG.chaff.radius, Number.NaN, 4)).toBe(8);
     expect(chaffDashSegments(Number.POSITIVE_INFINITY)).toBe(8);
     expect(chaffDashFraction(0, 0)).toBe(0.5);
     expect(chaffDashFraction(K.dash, K.gap)).toBeCloseTo(K.dash / (K.dash + K.gap), 12);
