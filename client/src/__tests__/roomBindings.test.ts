@@ -1419,7 +1419,7 @@ describe('bindRoom drone-drop receipt (`dp`)', () => {
   });
 
   it('a captain sunk LATER IN THE SAME TICK still gets the receipt (the copy is stocked; the frame reads dead)', () => {
-    // Cycle-162 review gate (Codex, CONFIRMED): the server guard is "afloat at
+    // Cycle-163 review gate (Codex, CONFIRMED): the server guard is "afloat at
     // the drone's sink"; a mine/storm later in the tick can sink the killer, so
     // the end-of-tick frame carries `alive: false` AND a legitimate `dp`.
     document.body.replaceChildren();
@@ -1525,6 +1525,8 @@ function setupWater(
     burnZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     smokeScreen: { sync: vi.fn() },
+    // Cycle 162: the chaff owner's grey ghosts (render/chaffGhosts.ts).
+    chaffGhosts: { onGhosts: vi.fn() },
     projectiles: {
       onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn(),
       ownFireOf: () => null, isKnown: (id: string) => knownIds.has(id),
@@ -2162,6 +2164,29 @@ describe('the in-smoke own-ship read (Story 8.18)', () => {
   });
 });
 
+// CYCLE 162 (Eric 2026-10-01): the chaff owner's OWN fakes ride the
+// self-private `you.chaffGhosts` and go to their own grey renderer at the
+// frame's server time — NEVER to the scope, whose blips stay identity-free.
+describe('the chaff owner\'s ghosts (cycle 162)', () => {
+  const rect = { gx: 3, gy: -4, w: 2, h: 2, bits: [15] };
+
+  it('routes you.chaffGhosts to the ghost renderer at the FRAME\'s time, and never to the scope', () => {
+    const { sink, deps } = setupWater();
+    sink.handler(victimFrame([], { chaffGhosts: [rect] }));
+    const onGhosts = (deps.chaffGhosts as unknown as { onGhosts: ReturnType<typeof vi.fn> }).onGhosts;
+    expect(onGhosts).toHaveBeenCalledTimes(1);
+    expect(onGhosts).toHaveBeenCalledWith([rect], 1000);
+    expect((deps.radar as unknown as { onBlip: ReturnType<typeof vi.fn> }).onBlip).not.toHaveBeenCalled();
+  });
+
+  it('an omitted key (nothing painted this tick) routes nothing', () => {
+    const { sink, deps } = setupWater();
+    sink.handler(victimFrame([], {}));
+    sink.handler(victimFrame([], null)); // a spectator frame carries no `you` at all
+    expect((deps.chaffGhosts as unknown as { onGhosts: ReturnType<typeof vi.fn> }).onGhosts).not.toHaveBeenCalled();
+  });
+});
+
 describe('victim tells (Story 2.9) — SLOWED / DAZZLED cue edges', () => {
   it('fires each cue ONCE on the rising edge, and never on a refresh', () => {
     const { sink, play } = setupWater();
@@ -2255,6 +2280,7 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
     const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
     const onBlip = vi.fn();
     const onSmoke = vi.fn();
+    const onFire = vi.fn();
     const onHonk = vi.fn();
     const playHorn = vi.fn();
     const play = vi.fn();
@@ -2272,6 +2298,7 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
       ownMineRings: () => undefined,
       radar: { onSweepSample: vi.fn(), onBlip },
       smoke: { onSmoke },
+      fire: { onSmoke: onFire },
       foghorn: { onHonk },
       cameraCenter: () => ({ x: 0, y: 0 }),
       effects: { spawnEffect },
@@ -2282,7 +2309,7 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
       ordnanceHue: vi.fn(() => 0),
     } as unknown as RoomBindingDeps;
     bindRoom(conn, deps);
-    return { sink, onBlip, onSmoke, onHonk, playHorn, play };
+    return { sink, onBlip, onSmoke, onFire, onHonk, playHorn, play };
   }
 
   it('fans blip, sm and fh out of ONE frame, each to its own subsystem', () => {
@@ -2299,6 +2326,17 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
     expect(onSmoke).toHaveBeenCalledTimes(1);
     expect(onHonk).toHaveBeenCalledWith(1.25, 2, 400); // the FRAME's timestamp
     expect(playHorn).toHaveBeenCalledTimes(1);
+  });
+
+  it('fans every `sm` out to BOTH the smoke plume and the fire (cycle 162), at the frame\'s time', () => {
+    // The fire decides tier itself (render/fire.ts spawns only for tier 2), so
+    // the binding hands it every pulse, exactly as it hands smoke every pulse.
+    const { sink, onSmoke, onFire } = setupPulses();
+    const light = { k: 'sm', x: 30, y: 40, tier: 1 };
+    const heavy = { k: 'sm', x: 50, y: 60, tier: 2 };
+    sink.handler({ t: 400, tick: 4, ackSeq: 0, spec: true, contacts: [], mines: [], events: [light, heavy] });
+    expect(onSmoke.mock.calls).toEqual([[light, 400], [heavy, 400]]);
+    expect(onFire.mock.calls).toEqual([[light, 400], [heavy, 400]]);
   });
 
   it('a honk plays on its OWN path — never through the short-tone table', () => {

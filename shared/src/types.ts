@@ -569,13 +569,34 @@ export interface OwnShip {
    * time it expires (`until`) — what the client's dim dashed ring of
    * `CONFIG.chaff.radius` is drawn around. Present IFF the owner's chaff
    * source is live (`now < until`); OMITTED otherwise, never an `undefined`
-   * value; a re-fire replaces the source, so the key follows it. The FAKES
-   * stay withheld from the owner (amendment 127). SELF-PRIVATE BY
+   * value; a re-fire replaces the source, so the key follows it. The owner's
+   * FAKES never ride `events` (amendment 127); the owner receives them only
+   * as `chaffGhosts` below (Eric 2026-10-01). SELF-PRIVATE BY
    * CONSTRUCTION (the `shield` / `inSmoke` precedent): rides `you` and
    * NOTHING else — never on any other observer's frame — so the perception
    * exception count stays at SIX.
    */
   chaff?: { x: number; y: number; until: number };
+  /**
+   * THE CHAFF OWNER'S OWN GHOSTS (Eric 2026-10-01, cycle 162; PROTOCOL_VERSION
+   * 68 — supersedes amendment 191's "never the fakes"): the coverage rects of
+   * THIS hull's OWN chaff fakes that THIS hull's beam painted this tick, in
+   * EXACTLY the blip's payload shape minus `k` and `t` (`GhostPaint`, which
+   * `ReturnBlipEvent` extends, so the two can never drift). Gated by the
+   * owner's beam crossing and the height-raster shadow but NOT by the sight
+   * annulus (the cloud bursts at the owner's position, inside their own
+   * bubble — orchestrator ruling). The client renders them greyscale at half
+   * the scope's alpha (Eric 2026-10-01), on a separate grid from the scope.
+   * OMITTED when no fake was painted this tick, never an empty array or an
+   * `undefined` value.
+   *
+   * SELF-PRIVATE BY CONSTRUCTION (rides `you`, like `chaff` / `shield` /
+   * `inSmoke`): never on any other observer's frame and never an `events`
+   * blip, so the wire `BlipEvent` stays seven keys and fake-vs-real stays
+   * indistinguishable for every other observer; the perception exception
+   * count stays at SIX.
+   */
+  chaffGhosts?: GhostPaint[];
   /**
    * The WAKE-DRAFT lift (Story 8.19, Eric rulings 2026-09-30, epic-8
    * amendments 151–155) the server folded into this hull's forward speed cap
@@ -684,9 +705,19 @@ export interface Contact {
  * attribution) was DELETED with the radar buoy in Story 8.16 (PV 59), so every
  * blip is untagged and fake-vs-real stays wire-indistinguishable.
  */
-export interface ReturnBlipEvent {
+export interface ReturnBlipEvent extends GhostPaint {
   k: 'blip';
   t: number; // ms — server time the blip was painted (drives phosphor decay)
+}
+
+/**
+ * The blip's COVERAGE RECT — `ReturnBlipEvent`'s payload minus `k` and `t`
+ * (cycle 162). `ReturnBlipEvent` extends it, so `OwnShip.chaffGhosts` (the
+ * chaff owner's self-private ghost paints) can never drift from the blip
+ * rect. Same semantics as the blip's: absolute world cell indices of the min
+ * corner, rect in cells, packed row-major mask of signed int32 words.
+ */
+export interface GhostPaint {
   gx: number; // absolute world cell index (x) of the rect's min corner
   gy: number; // absolute world cell index (y) of the rect's min corner
   w: number; // rect width in cells
@@ -1282,22 +1313,23 @@ export interface MineView {
   own: boolean;
   by: string; // the dropper's ship id (personal-hue + roster attribution)
   /**
-   * THE MINE'S KIND — PRESENT ONLY ON THE OWNER'S OWN MINES (Eric ruling
-   * 2026-09-19, epic-8 amendment 76; PROTOCOL_VERSION 56).
+   * THE MINE'S KIND — PRESENT ON EVERY MINE ROW, for EVERY observer who
+   * receives the mine (Eric ruling 2026-10-01, "Everyone sees the kind";
+   * PROTOCOL_VERSION 68). This SUPERSEDES epic-8 amendment 76's own-only rule
+   * (PROTOCOL_VERSION 56), under which the server stripped the kind for every
+   * non-owner.
    *
-   * One hull may now lay naval, captive and fouling mines at once, and the
-   * OWNER's rings differ by kind (a captive draws one trip ring; the other two
-   * draw blast + trigger), so the owner needs to know which is which. NOBODY
-   * ELSE DOES: the server emits this field iff `own === true` and STRIPS it for
-   * every other observer, who receives exactly the kind-less marker they always
-   * did and cannot tell the kinds apart by sight. Rejected: the kind visible to
-   * everyone.
+   * One hull may lay naval, captive and fouling mines at once; the marker on
+   * the water draws the kind's own glyph in the dropper's hue, and the owner's
+   * rings differ by kind (a captive draws one trip ring; the other two draw
+   * blast + trigger).
    *
-   * ANTI-CHEAT: this is an own-only field on an own-only distinction, so it
-   * opens no new disclosure and adds no perception exception — the count stays
-   * at SIX. It is OPTIONAL on the wire (the established `aggro` style):
-   * absent is the normal case, and a client that reads it off another
-   * observer's mine finds `undefined`, never a guess.
+   * ANTI-CHEAT: the kind rides a row that is ALREADY sight-gated (owner always;
+   * anyone else only within sight + island LOS, or their own lit zone) — it is
+   * a field on a delivered row, not a new delivery, so it adds no perception
+   * exception and the count stays at SIX. It stays OPTIONAL on the type so a
+   * frame from an older server (PV < 68, where non-owners received no kind)
+   * still type-checks; a client that finds it absent must not guess.
    */
   c?: MineKind;
 }
@@ -1372,10 +1404,11 @@ export interface BurnZoneView {
  * tell is accepted (amendment 122): only an observer who already SEES the decoy
  * receives `by`, and a sighted observer already sees the hue.
  *
- * `hp` is PRESENT ONLY WHEN `own` (the `MineView.c` idiom): the owner's readout
- * of the decoy's remaining hull; the key is ABSENT for every other observer,
- * never an `undefined` value. Own-only field on an own-only object — it opens no
- * new disclosure and the perception exception count stays at SIX. A decoy
+ * `hp` is PRESENT ONLY WHEN `own` (SELF-PRIVATE, the `OwnShip` `shield` /
+ * `chaff` / `inSmoke` privacy idiom): the owner's readout of the decoy's
+ * remaining hull; the key is ABSENT for every other observer, never an
+ * `undefined` value. Own-only field on an own-only object — it opens no new
+ * disclosure and the perception exception count stays at SIX. A decoy
  * dropping out of the list means DESTROYED or out of view — the client cannot
  * tell (the mines precedent); it has no lifetime and outlives its owner.
  */
@@ -1385,7 +1418,7 @@ export interface DecoyView {
   y: number; // u
   own: boolean; // true iff the receiving observer OWNS this decoy (per-observer, the mines precedent)
   by: string; // the owner's ship id (personal-hue + roster attribution) — every observer
-  hp?: number; // hp left — PRESENT ONLY when `own` (the MineView.c idiom)
+  hp?: number; // hp left — PRESENT ONLY when `own` (self-private, the OwnShip shield/chaff idiom)
 }
 
 /**

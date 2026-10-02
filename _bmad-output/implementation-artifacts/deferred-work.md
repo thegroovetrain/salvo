@@ -2787,3 +2787,30 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   status: OPEN — Eric, another session ("I will make sure everything has an icon in another session", 2026-10-01)
   summary: THE FIVE SHIP LADDERS HAVE NO GLYPH. ARMOR / SPEED / TURNING / RADAR SWEEP / RELOAD have no entry in `render/equipmentIcons.ts`; the refit card draws an empty box for them and How-to-Play renders their names alone. Eric will author the icons himself; no agent draws one.
   evidence: `client/src/render/equipmentIcons.ts` glyph registry; `how-to-play/main.ts` `entryGlyphId`.
+
+## 2026-10-01 — cycle 162 (interstitial legibility cleanup) — open threads
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-epic-8-legibility-cleanup.md`
+  status: OPEN — Eric's eye on staging
+  summary: THE CYCLE'S LOOK-AND-FEEL NUMBERS ARE IMPLEMENTER DRAFTS. The three ghost greys (`ghostFaint` 0x4a4a4a / `ghostFuzzy` 0x8c8c8c / `ghostSolid` 0xd0d0d0); `mineRings` width 2, blastAlpha 0.6, triggerAlpha 0.65; `chaffRing` alpha 0.85, width 2.5; and the whole fire look (2 tongues per tier-2 pulse, 600 ms, r6 → 14 u, rise 14 u/s, 6 Hz flicker at 0.25, peak alpha 0.9). The glyph drawings are NOT drafts — Eric approved the sheet.
+  evidence: `client/src/config.ts` (`COLORS.ghost*`, `mineRings`, `chaffRing`, `fire`); epic-8 amendments 216, 217, 219, 222(a).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-epic-8-legibility-cleanup.md`
+  status: RESOLVED 2026-10-01 at the cycle-162 review gate — Eric: "Radar returns should never be below the smoke screen." The ghosts and the chaff ring moved to a new `chaff` chart layer above `smoke` (epic-8 amendment 224(b)); the annulus-free gate stands, now bounded by the owner's radar range (224(e)).
+  summary: THE CHAFF OWNER'S GHOSTS DREW UNDER SMOKE-SCREEN DISCS (first build). They sit on the `litZone` chart layer beside the chaff ring (the `blip` layer's in-bubble dim mask would have drawn them at 20 % of half alpha), so a smoke-screen disc over the cloud covers them. The ghost gate also omits the sight annulus (orchestrator ruling, flagged for Eric's veto).
+  evidence: `client/src/render/chaffGhosts.ts` header; epic-8 amendments 217, 222(b)(c).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-epic-8-legibility-cleanup.md`
+  status: OPEN — note only
+  summary: THE DECOY HP ARC SHARES `mineRings.width`, so it thickened 1 → 2 with the louder mine rings. It still reads as a clock face at the topmark, not a mine ring; split the knob if Eric wants the arc back at 1.
+  evidence: `client/src/render/decoys.ts`; `CLIENT_CONFIG.mineRings` comment; epic-8 amendment 216.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-epic-8-legibility-cleanup.md`
+  status: OPEN — note only
+  summary: THE REFIT MODAL IS NOT WHEEL-GATED. `wheelScrollsSurface` answers results ∨ settings; the refit modal is not scrollable, so the wheel still zooms under it. If the refit modal ever scrolls, it joins the set.
+  evidence: `client/src/ui/settings.ts` `wheelScrollsSurface`; `main.ts` `bindWheelZoom`; epic-8 amendment 220.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-epic-8-legibility-cleanup.md`
+  status: RESOLVED 2026-10-01 — cycle 162
+  summary: THE ICON GAP IS CLOSED. Every card line but the stub DEPTH CHARGE draws its own glyph (Eric: "All cards need their own unique icon"; he approved the sheet before it was built). This resolves the 8.7 "ICON GAP", the 8.12 "the icon gap stays with UX-DR50", the 8.13 "THE ICON PASS STAYS OWED" and the 8.22 "THE FIVE SHIP LADDERS HAVE NO GLYPH" entries above.
+  evidence: `client/src/render/equipmentIcons.ts` (`LINE_GLYPHS`, `glyphPaths`); `client/src/__tests__/lineGlyphs.test.ts`; epic-8 amendment 213.

@@ -1,12 +1,13 @@
 // SMOKE SCREEN — the server half of Story 8.18 (catalog-v3 R38; Eric rulings
 // 2026-09-29, epic-8 amendments 138–145; radii re-ruled 2026-09-30 to 1/8 →
-// 2/8 of intel range, 82.5 → 165 u), every server-side row of the spec's I/O
-// matrix as a directed case:
+// 2/8 of intel range, 82.5 → 165 u, then ×1.5 by Eric 2026-10-01, cycle 162:
+// 123.75 → 247.5 u), every server-side row of the spec's I/O matrix as a
+// directed case:
 //
 //   • the LAY: one copy opens a 5 s window; a puff drops at the hull's CENTER
 //     (Eric 2026-09-30, amendment 190 — it was the stern) every 500 ms — ten
 //     per copy, an eleventh never (rulings 138 / setSmokeScreen);
-//   • GROWTH: r82.5 at birth → r123.75 at 15 s → deleted at 30 s (ruling 139), read
+//   • GROWTH: r123.75 at birth → r185.625 at 15 s → deleted at 30 s (ruling 139), read
 //     through the sim clock — a puff that MISSES a segment fresh BLOCKS it once
 //     it has grown, and the segment clears again when the puff dies;
 //   • RE-PRESS restarts the clock (ruling 140), grid kept mid-lay: 16 puffs;
@@ -40,7 +41,7 @@
 // perception.test.ts; the perf pin in smokePerf.test.ts.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, CONSUMABLE_SLOTS, isAfloat, isSinking, wrapPositive, type FrameMsg, type GameEvent, type WakeRibbon } from '@salvo/shared';
+import { CONFIG, CONSUMABLE_SLOTS, isAfloat, isSinking, puffRadius, wrapPositive, type FrameMsg, type GameEvent, type WakeRibbon } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { sightOf } from '../game/signals.js';
@@ -82,7 +83,7 @@ const press = (w: World, ship: ShipRecord): unknown => w.sinkingActivationGate(s
 const copies = (ship: ShipRecord): number => ship.loadout[BELT].state?.n ?? 0;
 
 /** Drop a puff straight into the store (the injectMine posture): a fresh
- *  82.5 u disc owned by `ownerId`, alive for the full 30 s unless told
+ *  123.75 u disc owned by `ownerId`, alive for the full 30 s unless told
  *  otherwise. */
 function injectPuff(w: World, id: string, ownerId: string, x: number, y: number, bornAt = w.now, until = bornAt + SC.lifeMs): void {
   w.smoke.set(id, { id, ownerId, x, y, bornAt, until });
@@ -126,8 +127,9 @@ function torpWater(w: World, x: number): WakeRibbon {
 // ---------------------------------------------------------------------------
 
 describe('SMOKE SCREEN — the lay (rulings 138 / 140 / 144)', () => {
-  it('the numbers are the rulings: 82.5 → 165 u (1/8 → 2/8 of intel range) over 30 s, a 5 s trail at 500 ms, and the wounded-smoke block is untouched', () => {
-    expect(SC).toEqual({ r0: 82.5, r1: 165, lifeMs: 30_000, layMs: 5_000, puffIntervalMs: 500, expandMs: 30_000, inSmokeSightFraction: 0.125 });
+  it('the numbers are the rulings: 123.75 → 247.5 u (1.5/8 → 3/8 of intel range — Eric 2026-10-01, ×1.5 from 82.5 → 165) over 30 s, a 5 s trail at 500 ms, and the wounded-smoke block is untouched', () => {
+    expect(SC).toEqual({ r0: 123.75, r1: 247.5, lifeMs: 30_000, layMs: 5_000, puffIntervalMs: 500, expandMs: 30_000, inSmokeSightFraction: 0.125 });
+    expect(SC.inSmokeSightFraction * CONFIG.vision.radar).toBe(82.5); // the in-smoke SIGHT dial did not move: 1/8 of intel range, a separate number from r0 since cycle 162
     expect(CONFIG.smoke.puffIntervalMs).toBe(250); // CONFIG.smoke is the damage-band plume, never conflated
   });
 
@@ -287,13 +289,13 @@ describe('SMOKE SCREEN — occlusion (the sightClear predicate at every sight-ti
     expect(contactIds(buildFrame(w, 'a'))).toEqual(['b']);
   });
 
-  it('GROWTH through the sim clock (ruling 139): a puff that MISSES the segment at r82.5 BLOCKS it at r123.75 after 15 s, and the segment clears when the puff dies at 30 s', () => {
+  it('GROWTH through the sim clock (ruling 139): a puff that MISSES the segment at r123.75 BLOCKS it at r185.625 after 15 s, and the segment clears when the puff dies at 30 s', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
     place(w, 'b', 200, 0);
-    injectPuff(w, 'sk1', 'b', 100, 100); // 100 u off the a→b line: fresh r82.5 misses it (and a, b sit 141 u from its centre — never in it)
+    injectPuff(w, 'sk1', 'b', 100, 160); // 160 u off the a→b line: fresh r123.75 misses it (and a, b sit 188.7 u from its centre — never in it, even at r185.625)
     expect(contactIds(buildFrame(w, 'a'))).toEqual(['b']);
-    steps(w, 300); // +15 s: r = 123.75 ≥ 100 — the grown disc now lies on the segment
+    steps(w, 300); // +15 s: r = 185.625 ≥ 160 — the grown disc now lies on the segment
     expect(w.smoke.size).toBe(1);
     expect(contactIds(buildFrame(w, 'a'))).toEqual([]);
     steps(w, 300); // +30 s: deleted at exactly bornAt + lifeMs
@@ -317,7 +319,7 @@ describe('SMOKE SCREEN — occlusion (the sightClear predicate at every sight-ti
   describe('IN-BUBBLE radar (Eric ruling 2026-09-29, amendment 147): radar paints a hull inside the sight bubble that smoke alone hides', () => {
     const BLIP_KEYS = ['k', 't', 'gx', 'gy', 'w', 'h', 'bits'];
 
-    it('observer (0,0) sweeping bearing 0, hull (200,0), puff r82.5 at (100,0): no contact, ONE blip — the same wire shape as an annulus paint (no id/class/heading)', () => {
+    it('observer (0,0) sweeping bearing 0, hull (200,0), puff r123.75 at (100,90) across the segment (containing neither hull): no contact, ONE blip — the same wire shape as an annulus paint (no id/class/heading)', () => {
       const w = bareWorld();
       const a = place(w, 'a', 0, 0);
       place(w, 'b', 200, 0);
@@ -326,7 +328,7 @@ describe('SMOKE SCREEN — occlusion (the sightClear predicate at every sight-ti
       const clear = buildFrame(w, 'a');
       expect(contactIds(clear)).toEqual(['b']);
       expect(eventsOf(clear, 'blip')).toHaveLength(1); // c alone — b is a contact, never doubled
-      injectPuff(w, 'sk1', 'z', 100, 0);
+      injectPuff(w, 'sk1', 'z', 100, 90); // 90 u off the a→b line (≤ 123.75: crosses it); 134.5 u from either hull (neither stands in it)
       const smoked = buildFrame(w, 'a');
       expect(contactIds(smoked)).toEqual([]);
       const blips = eventsOf(smoked, 'blip');
@@ -351,7 +353,7 @@ describe('SMOKE SCREEN — occlusion (the sightClear predicate at every sight-ti
       const w = bareWorld();
       const a = place(w, 'a', 0, 0);
       place(w, 'b', 200, 0);
-      injectPuff(w, 'sk1', 'z', 100, 0);
+      injectPuff(w, 'sk1', 'z', 100, 90); // across the segment, containing neither hull
       windowAround(a, Math.PI); // the beam is on the far side
       const f = buildFrame(w, 'a');
       expect(contactIds(f)).toEqual([]);
@@ -365,7 +367,7 @@ describe('SMOKE SCREEN — occlusion (the sightClear predicate at every sight-ti
       addDecoy(w.decoys, 'b', 200, 0, 'd1');
       windowAround(a, 0);
       expect((buildFrame(w, 'a').decoys ?? []).map((d) => d.id)).toEqual(['d1']);
-      injectPuff(w, 'sk1', 'b', 100, 0);
+      injectPuff(w, 'sk1', 'b', 100, 90); // across the a→decoy segment, containing neither
       const f = buildFrame(w, 'a');
       expect(f.decoys).toBeUndefined();
       expect(eventsOf(f, 'blip')).toHaveLength(1);
@@ -377,10 +379,10 @@ describe('SMOKE SCREEN — occlusion (the sightClear predicate at every sight-ti
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0);
     place(w, 'c', 60, 0);
-    // a stands 80 u from the centre of a fresh r82.5 puff centred BEHIND it
-    // (2.5 u inside its rim — the puff grows, so the margin only widens), so
+    // a stands 80 u from the centre of a fresh r123.75 puff centred BEHIND it
+    // (43.75 u inside its rim — the puff grows, so the margin only widens), so
     // its forward water is clear: b (180 u off the centre) and c (140 u) are
-    // out in the clear. (A puff centred ON a would now cover a's whole 82.5 u
+    // out in the clear. (A puff centred ON a would cover a's whole 82.5 u
     // in-smoke bubble.)
     injectPuff(w, 'sk1', 'z', -80, 0);
     steps(w, 1); // the per-tick stamp
@@ -395,7 +397,7 @@ describe('SMOKE SCREEN — occlusion (the sightClear predicate at every sight-ti
     const w = bareWorld();
     place(w, 'a', 0, 0);
     place(w, 'b', 200, 0);
-    injectPuff(w, 'sk1', 'a', 100, 0); // a's own trail, on the a→b segment
+    injectPuff(w, 'sk1', 'a', 100, 90); // a's own trail, across the a→b segment (90 u off it) and containing neither hull — a stays a CLEAR observer
     steps(w, 1);
     expect(contactIds(buildFrame(w, 'a'))).toEqual([]);
     expect(contactIds(buildFrame(w, 'b'))).toEqual([]);
@@ -411,7 +413,7 @@ describe('SMOKE SCREEN — occlusion (the sightClear predicate at every sight-ti
     injectPuff(w, 'sk1', 'b', 250, 0); // between them
     expect(contactIds(buildFrame(w, 'a'))).toEqual([]); // smoke hides hulls even under a flare
     w.smoke.delete('sk1');
-    injectPuff(w, 'sk2', 'b', 600, 0); // BEHIND b — off the a→b segment (100 u past its end, r82.5)
+    injectPuff(w, 'sk2', 'b', 700, 0); // BEHIND b — off the a→b segment (200 u past its end, r123.75: b is not in it)
     expect(contactIds(buildFrame(w, 'a'))).toEqual(['b']);
     w.smoke.delete('sk2');
     w.map.islands.push(circleIsland(250, 0, 60)); // land between them
@@ -483,12 +485,12 @@ describe('SMOKE SCREEN — occlusion (the sightClear predicate at every sight-ti
 describe('SMOKE SCREEN — the `smoke` channel (sight + radius, island-only LOS, owner / spectator always)', () => {
   const smokeIds = (f: FrameMsg): string[] => (f.smoke ?? []).map((s) => s.id);
 
-  it('a puff whose centre is within sight + radius rides; one 100 u past sight does not; behind an island it does not', () => {
+  it('a puff whose centre is within sight + radius rides; one 150 u past sight does not; behind an island it does not', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
     place(w, 'b', 900, 900);
-    injectPuff(w, 'near', 'b', SIGHT + 20, 0); // 350 ≤ 330 + 82.5
-    injectPuff(w, 'far', 'b', 0, SIGHT + 100); // 430 > 412.5
+    injectPuff(w, 'near', 'b', SIGHT + 20, 0); // 350 ≤ 330 + 123.75
+    injectPuff(w, 'far', 'b', 0, SIGHT + 150); // 480 > 453.75
     expect(smokeIds(buildFrame(w, 'a'))).toEqual(['near']);
     w.map.islands.push(circleIsland(175, 0, 50)); // land between a and `near`
     expect(smokeIds(buildFrame(w, 'a'))).toEqual([]);
@@ -499,7 +501,7 @@ describe('SMOKE SCREEN — the `smoke` channel (sight + radius, island-only LOS,
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 300, 0);
     w.map.islands.push(circleIsland(150, 35, 30)); // hides the puff's CENTRE from a, not the a→b line (35 > 30)
-    injectPuff(w, 'sk1', 'b', 150, 35); // r82.5: crosses the a→b line (35 ≤ 82.5); its rim toward a (≈70, 16) is 82.5 u off the island's centre — clear
+    injectPuff(w, 'sk1', 'b', 150, 35); // r123.75: crosses the a→b line (35 ≤ 123.75), contains neither hull (154 u from each); its rim toward a (≈30, 7) is 123.75 u off the island's centre — clear
     windowAround(a, 0);
     const f = buildFrame(w, 'a');
     expect(smokeIds(f)).toEqual(['sk1']);
@@ -558,10 +560,10 @@ describe('SMOKE SCREEN — the `smoke` channel (sight + radius, island-only LOS,
 // ---------------------------------------------------------------------------
 
 describe('SMOKE SCREEN — STANDING IN SMOKE (Eric ruling 2026-09-29, amendment 149, final)', () => {
-  /** Observer `a` at the origin standing in a fresh r82.5 puff (nobody's),
+  /** Observer `a` at the origin standing in a fresh r123.75 puff (nobody's),
    *  stamped. The puff is centred 80 u BEHIND a (at (-80, 0)), so a is in it
-   *  while the +x half of a's 82.5 u in-smoke bubble is clear water — a puff
-   *  centred ON a would now cover that whole bubble. */
+   *  while a's 82.5 u in-smoke bubble beyond x = 43.75 is clear water — a
+   *  puff centred ON a would cover that whole bubble. */
   function inSmokeWorld(): { w: World; a: ShipRecord } {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
@@ -582,23 +584,36 @@ describe('SMOKE SCREEN — STANDING IN SMOKE (Eric ruling 2026-09-29, amendment 
     expect(sightOf(a, w.now)).toBe(a.stats.sightRange);
   });
 
-  it('the boundary: the centre ON the disc edge (82.5 u) is in smoke; 83 u is not', () => {
+  it('the boundary: the centre ON the disc edge (123.75 u) is in smoke; 124 u is not', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 82.5, 0);
-    const b = place(w, 'b', 83, 0);
+    const a = place(w, 'a', 123.75, 0);
+    const b = place(w, 'b', 124, 0);
     injectPuff(w, 'p', 'z', 0, 0);
     steps(w, 1);
     expect(a.inSmoke).toBe(true);
     expect(b.inSmoke).toBe(false);
   });
 
-  it('sees INTO other smoke within 82.5 u, nothing optical beyond it, and its radar still works: (200,0) blip only; (60,0) inside another puff a CONTACT; (150,0) in the clear a blip, not a contact', () => {
+  it('sees INTO other smoke within 82.5 u, nothing optical beyond it, and its radar still works: (200,0) blip only; (60,0) inside another puff a CONTACT; (175,0) in the clear a blip, not a contact', () => {
     const { w, a } = inSmokeWorld();
-    place(w, 'far', 200, 0);
-    place(w, 'near', 60, 0);
-    place(w, 'mid', 150, 0);
-    injectPuff(w, 'other', 'z', 60, 70); // `near` (70 u off) stands in a second puff; a (≈92 u off) does not; mid (≈114) and far (≈157) are clear of it
+    const far = place(w, 'far', 200, 0);
+    const near = place(w, 'near', 60, 0);
+    const mid = place(w, 'mid', 175, 0);
+    // `near` (70 u off) stands in a second puff — so does a (≈92.2 u), which
+    // changes nothing: a is in smoke either way. `mid` is in the CLEAR: ≈134.6 u
+    // from this puff's centre and 255 u from a's own (-80,0) puff, both beyond
+    // the ≈123.96 u radius at the sampled tick; far is ≈156.5 / 280 u off.
+    injectPuff(w, 'other', 'z', 60, 70);
     steps(w, 1);
+    const r = puffRadius(w.now - DT, w.now); // both puffs were laid one step ago
+    const off = (s: ShipRecord, x: number, y: number): number => Math.hypot(s.state.x - x, s.state.y - y);
+    expect(off(near, 60, 70)).toBeLessThanOrEqual(r);
+    for (const s of [mid, far]) {
+      expect(off(s, 60, 70)).toBeGreaterThan(r);
+      expect(off(s, -80, 0)).toBeGreaterThan(r);
+      expect(off(s, 0, 0)).toBeGreaterThan(82.5); // beyond the in-smoke bubble: radar's
+    }
+    expect(off(mid, 60, 70)).toBeCloseTo(134.6, 1);
     expect(a.inSmoke).toBe(true);
     windowAround(a, 0);
     const f = buildFrame(w, 'a');
@@ -611,12 +626,23 @@ describe('SMOKE SCREEN — STANDING IN SMOKE (Eric ruling 2026-09-29, amendment 
     expect(eventsOf(dark, 'blip')).toHaveLength(0);
   });
 
-  it('a hull at 100 u in the CLEAR is not a contact for an in-smoke observer (82.5 is the whole optical world); at 60 u behind a THIRD puff on the segment it still is', () => {
+  it('a hull at 100 u in the CLEAR is not a contact for an in-smoke observer (82.5 is the whole optical world); at 80 u behind a THIRD puff on the segment it still is', () => {
     const { w, a } = inSmokeWorld();
-    place(w, 'b', 100, 0);
-    place(w, 'c', 60, 0);
-    injectPuff(w, 'between', 'z', 30, 80); // crosses the a→c segment (80 u off it ≤ 82.5), containing neither centre (≈85.4 u from both a and c)
+    const b = place(w, 'b', 100, 0);
+    const c = place(w, 'c', 80, 0);
+    // The third puff at (40,120) crosses the a→c segment (120 u off its
+    // midpoint, inside the ≈123.96 u radius at the sampled tick) yet contains
+    // NEITHER centre: ≈126.5 u from a and from c; b is ≈134.2 u off it.
+    injectPuff(w, 'between', 'z', 40, 120);
     steps(w, 1);
+    const r = puffRadius(w.now - DT, w.now);
+    const off = (s: ShipRecord): number => Math.hypot(s.state.x - 40, s.state.y - 120);
+    expect(120).toBeLessThan(r); // the disc reaches the segment's midpoint (40,0)
+    for (const s of [a, c, b]) expect(off(s)).toBeGreaterThan(r);
+    expect(off(a)).toBeCloseTo(126.5, 1);
+    expect(off(c)).toBeCloseTo(126.5, 1);
+    expect(Math.hypot(c.state.x, c.state.y)).toBeLessThanOrEqual(82.5); // c inside a's in-smoke bubble
+    expect(Math.hypot(b.state.x, b.state.y)).toBeGreaterThan(82.5); // b beyond it
     expect(a.inSmoke).toBe(true);
     expect(contactIds(buildFrame(w, 'a'))).toEqual(['c']);
   });
@@ -695,7 +721,7 @@ describe('SMOKE SCREEN — STANDING IN SMOKE (Eric ruling 2026-09-29, amendment 
     const { w, a } = inSmokeWorld();
     place(w, 'near', 60, 0);
     place(w, 'far', 100, 0);
-    injectPuff(w, 'other', 'z', 60, 70); // `near` stands inside another puff (70 u off its centre), a (≈92 u) does not; `far`, 100 u out, is beyond a's 82.5 u either way
+    injectPuff(w, 'other', 'z', 60, 70); // `near` stands inside another puff (70 u off its centre), as does a (≈92 u) at r123.75 — in smoke either way; `far`, 100 u out, is beyond a's 82.5 u either way
     steps(w, 1);
     expect(a.inSmoke).toBe(true);
     w.sinkShip('a');

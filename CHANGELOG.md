@@ -1,16 +1,34 @@
 # Changelog
 
-## [0.18.27] - 2026-10-01
+## [0.18.28] - 2026-10-01
 
 ### Added
 - **Drone kills drop consumables** — the captain who gets the last hit on a PvE drone rolls for loot: one 50 % roll for a small drone, two for a medium, three for a large (so 0–1 / 0–2 / 0–3 items). Each successful roll stocks one random consumable straight into your belt and shows the usual `◆ <LINE> STOCKED` toast. The pick is drawn from every live consumable you could legally take at that moment: with a full belt you only get more of what you already hold, and a line already at five copies is skipped. Bots get drops by the same rule. (Eric, 2026-10-01.)
 
 ### Internal
 - `CONFIG.droneDrops` (`chance: 0.5`, `rolls: { droneSmall: 1, droneMedium: 2, droneLarge: 3 }`). The roll runs in `World.creditKill`'s fleet-hull branch for an afloat participant killer, off a NEW dedicated `dropRng` stream (spawns and refit offers are pinned byte-identical to before); eligibility is the refit card's own `pickRefusal` predicate, re-evaluated per roll; the copy enters through `applyCard`. A new self-private `dp` event (killer only, not a seventh fog exception — the SIX stand) drives the toast, the stock tone and the belt flash without the spend ack.
-- PROTOCOL_VERSION 67 -> 68 (new event kind).
+- PROTOCOL_VERSION 68 -> 69 (new event kind).
 - The toast stack holds 4 lines (was 3): a large drone's three STOCKED receipts plus the kill's LEVEL UP can land in one frame (Eric, review gate). A drop that lands while your refit hand is open is accepted as designed: the hand never rerolls, a card the drop made unpickable greys SLOTS FULL until you fire a stack (amendment 44). The drop receipt shows even if you are sunk later in the same tick (the copy is stocked).
-- Tests: shared 1024 (unchanged; PV pins re-cut), server 2316 -> 2337 (`droneDrops.test.ts`: 21 pins through the real sink path incl. determinism, the untouched spawn/offer streams and the open-hand cases), client 3761 -> 3766 (`roomBindings.test.ts`: the `dp` handler); hook test 266; lint 0 errors; golden-frame snapshot unchanged.
-- Epic-8 amendments 213–215; GDD roving-fleet bullet; DESIGN.md toast row stamped (max 4); `spec-drone-kill-consumable-drops.md`. How-to-Play is untouched (Eric holds the pen on `[ EXPERIENCE ]`).
+- Tests (on top of 0.18.27): shared 1025 (unchanged; PV pins re-cut), server 2326 -> 2347 (`droneDrops.test.ts`: 21 pins through the real sink path incl. determinism, the untouched spawn/offer streams and the open-hand cases), client 3806 -> 3811 (`roomBindings.test.ts`: the `dp` handler); hook test 266; lint 0 errors; golden-frame snapshot unchanged.
+- Epic-8 amendments 225–227; GDD roving-fleet bullet; DESIGN.md toast row stamped (max 4); `spec-drone-kill-consumable-drops.md`. How-to-Play is untouched (Eric holds the pen on `[ EXPERIENCE ]`).
+
+## [0.18.27] - 2026-10-01
+
+### Changed
+- **Every card has its own icon** — the three torpedoes, the three mines, the CANNON card and the five ship upgrades no longer share a drawing or show an empty box. LIGHT TORPEDO is a slim torpedo with speed dashes, SUPERCAV TORPEDO rides inside a bubble, CAPTIVE MINES is a triangle with a small torpedo inside, FOULING MINES is a small spiked sphere on a tether, HULL REPAIR is a rod of Asclepius instead of a plus, and ARMOR / SPEED / TURNING / RADAR SWEEP / RELOAD each get one (plates, arrow, rudder, dish, hourglass). Eric approved the sheet before it was built. The same icon shows on the refit card, the hotbar, the results LOADOUT and How to Play.
+- **Mines on the water show their icon** — a laid mine draws its hotbar icon in the dropper's color instead of a ring and a dot, and everyone who can see a mine can now tell naval, captive and fouling apart (Eric: "Everyone sees the kind").
+- **Mine rings are easier to see** — the blast and trigger rings on your mines are twice as thick and about twice as bright; an arming mine still reads dimmer.
+- **Chaff is easier to read** — the dashed ring around your cloud is brighter and thicker, and you now see your own fake radar returns, in grey at half strength, so you know where the decoys are. Enemies still cannot tell a fake from a real return.
+- **Bigger chaff and smoke** — chaff scatters its fakes over 180 u (was 120). A SMOKE SCREEN puff now starts at 123.75 u and grows to 247.5 u (was 82.5 → 165). Seeing out of smoke is unchanged.
+- **Ships under 25 % hull are on fire** — flames flicker at the hull alongside the heavy smoke. They stay visible with motion turned off; only the flicker stops.
+- **The Supercav Torpedo hits for 85** (was 50).
+- **The mouse wheel scrolls the ESC menu** — while the settings menu is open, the wheel no longer zooms the camera.
+
+### Internal
+- PROTOCOL_VERSION 67 -> 68: `MineView.c` rides every observer's mine row (was owner-only, amendment 76); the self-private `OwnShip.chaffGhosts?: GhostPaint[]` carries the owner's own beam-painted fake rects (`ReturnBlipEvent` now extends `GhostPaint`; the wire blip stays seven keys); the client reads `chaff.radius`, `smokeScreen.r0` / `r1` and `supercavTorpedo.damage` from CONFIG. Perception exception count stays SIX.
+- Client: `render/equipmentIcons.ts` gains `LINE_GLYPHS` and `glyphPaths` resolves consumable → equipment → line ids (every line but the stub DEPTH CHARGE answers a distinct glyph); new `render/chaffGhosts.ts` (the scope's own march/heatmap functions into a separate grey sprite on a new `chaff` chart layer above the smoke discs — Eric: radar returns are never below the smoke screen) and `render/fire.ts` (rides the tier-2 `sm` pulse, no wire change); three DRAFT grey tokens `ghostFaint` / `ghostFuzzy` / `ghostSolid`; `mineRings` and `chaffRing` knobs raised (drafts); `wheelScrollsSurface` gates the one wheel listener.
+- Tests: shared 1024 -> 1025, client 3761 -> 3806, server 2316 -> 2326 (chaff ghosts + their radar-range bound, frames, perception ghost oracle, the chaff layer seat); hook test 266.
+- Epic-8 amendments 213–224; GDD, catalog-v3, DESIGN and EXPERIENCE carry dated stamps; `spec-epic-8-legibility-cleanup.md`.
 
 ## [0.18.26] - 2026-10-01
 

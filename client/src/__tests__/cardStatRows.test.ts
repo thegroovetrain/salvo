@@ -541,11 +541,13 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
     expect(cardStatRows(CATALOG.smokeScreen, 0, TB)).toEqual([
       { label: 'TRAIL', cur: null, next: `${k.layMs / 1000} S` },
       { label: 'PUFF', cur: null, next: `${k.lifeMs / 1000} S` },
-      { label: 'RADIUS', cur: null, next: `${k.r0} → ${k.r1} U` },
+      { label: 'RADIUS', cur: null, next: '123.8 → 247.5 U' },
     ]);
-    // The 2026-09-30 radii (1/8 → 2/8 of intel range) through the row's
-    // one-decimal `num()` formatter, as the card prints them.
-    expect(cardStatRows(CATALOG.smokeScreen, 0, TB)[2].next).toBe('82.5 → 165 U');
+    // The cycle-162 radii (1.5/8 → 3/8 of intel range, Eric 2026-10-01 ×1.5)
+    // through the row's one-decimal `num()` formatter, as the card prints them:
+    // 123.75 rounds to 123.8 on the face.
+    expect(k.r0).toBe(123.75);
+    expect(k.r1).toBe(247.5);
   });
 
   // THE THREE 8.16 CONSUMABLES (catalog-v3 R36/R37/R39): absolute rows in the

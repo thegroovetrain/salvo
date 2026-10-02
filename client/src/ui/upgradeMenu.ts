@@ -1282,8 +1282,10 @@ function lineEl(css: string, text: string): HTMLSpanElement {
   return el;
 }
 
-/** The 40px icon box, holding the line's glyph when one exists. An unbuilt
- *  weapon, a ladder, an add-on and every consumable leave it EMPTY — no
+/** The 40px icon box, holding the line's glyph. `id` is the card's LINE id,
+ *  passed straight to the one glyph lookup, which answers every card line
+ *  since cycle 162 (ladders included; the CANNON ladder draws the gun). Only
+ *  the stub DEPTH CHARGE has no glyph, and its box stays EMPTY — no
  *  placeholder, no word, no invented art (ruling 11). */
 function iconBoxEl(id: string): HTMLDivElement {
   const box = document.createElement('div');

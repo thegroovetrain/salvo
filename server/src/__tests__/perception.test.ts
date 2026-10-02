@@ -57,7 +57,13 @@
 // bearing toward a hidden hull within one wake length (~250 u); honest
 // clients show nothing, and Eric accepted it because prediction needs the
 // exact double. It may exist NOWHERE but the observer's own `you` (see
-// verifyFrame), so the count stays SIX. The checks below
+// verifyFrame), so the count stays SIX. Cycle 162 (Eric 2026-10-01, PV 68)
+// adds two things inside the invariant, neither a seventh exception: the
+// mine KIND `c` rides EVERY delivered mine row (a field on a row the sight
+// gate already admitted — see verifyMine), and the chaff OWNER's own fakes
+// its beam painted ride `you.chaffGhosts` as bare rects (see
+// verifyChaffGhosts: own source only, beam + radar shadow, no annulus; never
+// `events`, nowhere but `you`). The checks below
 // are a deliberate test-local reimplementation of the
 // visibility predicates so a refactor of perception.ts cannot silently agree
 // with its own bug.
@@ -95,12 +101,14 @@ import {
   type DamageEvent,
   type GameEvent,
   type FrameMsg,
+  type GhostPaint,
   type GunId,
   type HealEvent,
   type HitCallEvent,
   type MatchPhase,
   type MineKind,
   type MineView,
+  type OwnShip,
   type DecoyView,
   type PointEvent,
   type SpawnEvent,
@@ -151,9 +159,10 @@ function dist(a: { x: number; y: number }, b: { x: number; y: number }): number 
 
 // ---------- Story 8.18: the SMOKE SCREEN oracle (independently re-derived) ----
 //
-// A puff is a stationary disc born at 82.5 u and growing LINEARLY to 165 u
+// A puff is a stationary disc born at 123.75 u and growing LINEARLY to 247.5 u
 // over its whole 30 s life (Eric rulings 138–139; radii re-ruled 2026-09-30 to
-// 1/8 → 2/8 of the 660 u intel range), written here as LITERALS —
+// 1/8 → 2/8 of the 660 u intel range, then ×1.5 by Eric 2026-10-01, cycle 162
+// — amendment 176: this curve stays a LITERAL), written here as LITERALS —
 // deliberately NOT CONFIG.smokeScreen and NEVER the shared `puffRadius`. A
 // segment is BLOCKED by a puff iff the disc's centre lies within its radius of
 // the segment — the closest-point test written out below, NEVER the shared
@@ -166,7 +175,7 @@ function dist(a: { x: number; y: number }, b: { x: number; y: number }): number 
 // but the oracle states the rule rather than trusting the sweep.
 function puffRadiusOracle(bornAt: number, now: number): number {
   const age = Math.max(0, now - bornAt);
-  return 82.5 + 82.5 * Math.min(1, age / 30_000);
+  return 123.75 + 123.75 * Math.min(1, age / 30_000);
 }
 
 function segPointDistOracle(a: { x: number; y: number }, b: { x: number; y: number }, p: { x: number; y: number }): number {
@@ -543,7 +552,7 @@ function injectBurnZone(
 
 /** Drop a SMOKE SCREEN puff directly into world state (Story 8.18) — the
  *  injectMine posture: a raw store write, never the production lay path.
- *  `bornAt` defaults to "now" (a fresh 82.5 u disc); `until` to a 30 s life. */
+ *  `bornAt` defaults to "now" (a fresh 123.75 u disc); `until` to a 30 s life. */
 function injectPuff(w: World, id: string, ownerId: string, x: number, y: number, bornAt = w.now, until = bornAt + 30_000): void {
   w.smoke.set(id, { id, ownerId, x, y, bornAt, until });
 }
@@ -1190,7 +1199,7 @@ describe('perception — mine visibility (owner-always, else DETECT+LOS — Stor
     const w = bareWorld();
     place(w, 'a', 0, 0);
     injectMine(w, 'm1', 'b', DETECT, 0); // exactly at detect — inclusive
-    expect(buildFrame(w, 'a').mines).toEqual([{ id: 'm1', x: DETECT, y: 0, own: false, by: 'b' }]);
+    expect(buildFrame(w, 'a').mines).toEqual([{ id: 'm1', x: DETECT, y: 0, own: false, by: 'b', c: 'naval' }]); // the kind rides for the enemy too (cycle 162)
     w.mines.clear();
     injectMine(w, 'm2', 'b', DETECT + 0.01, 0); // a hair beyond detect
     expect(buildFrame(w, 'a').mines).toEqual([]);
@@ -1585,7 +1594,7 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
     injectMine(w, 'm1', 'b', 890, 0); // inside the zone, far beyond a's sight
     injectMine(w, 'm2', 'b', 900 + LIT_R + 1, 0); // outside the zone edge — stays hidden
     injectZone(w, 'z1', 'a', 900, 0);
-    expect(buildFrame(w, 'a').mines).toEqual([{ id: 'm1', x: 890, y: 0, own: false, by: 'b' }]);
+    expect(buildFrame(w, 'a').mines).toEqual([{ id: 'm1', x: 890, y: 0, own: false, by: 'b', c: 'naval' }]);
   });
 
   it("an unseen ballistic inside the firer's zone materializes exactly once, with current params", () => {
@@ -2388,6 +2397,13 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     expect('chaff' in f.you).toBe(live);
     if (live) expect(f.you.chaff).toEqual({ x: src.x, y: src.y, until: src.until });
   }
+  // THE CHAFF OWNER'S GHOSTS (Eric 2026-10-01, cycle 162, PV 68): `chaffGhosts`
+  // may exist NOWHERE but `you` (the `chaff` text scan above already proves
+  // the string is absent from every frame with `you` spliced out — this names
+  // the key on its own terms too), and on `you` it is EXACTLY the set the
+  // oracle re-derives — see verifyChaffGhosts.
+  expect(JSON.stringify(withoutYou)).not.toContain('chaffGhosts');
+  if (f.you !== undefined) verifyChaffGhosts(w, me, f.you);
   if (f.you !== undefined) {
     const sh = me.shield;
     const up = sh !== null && sh.hpLeft > 0 && w.now < sh.until;
@@ -2698,12 +2714,14 @@ function verifyMine(w: World, me: ShipRecord, m: MineView): void {
   expect(m.own).toBe(own);
   expect(m.by).toBe(mine.ownerId); // Story 1.12: every visible mine carries its dropper id (personal hue)
   if (!own) expect(detected(w, me, mine) || zoneCovers(w, me, mine)).toBe(true); // never radar, never merely sighted
-  // THE KIND IS OWN-ONLY (Story 8.13, epic-8 amendment 76): the `c` KEY exists
-  // on a view iff the view is the owner's — a present-but-undefined key would
-  // still be a structural tell, so this is a KEY test, not a value test — and
-  // when it exists it names the laid mine's true kind.
-  expect('c' in m).toBe(own);
-  if (own) expect(m.c).toBe(mine.kind);
+  // THE KIND RIDES EVERY ROW (Eric 2026-10-01, cycle 162, PV 68 — "Everyone
+  // sees the kind", superseding Story 8.13's own-only rule, amendment 76):
+  // every delivered mine view names the laid mine's true kind, LAST, after
+  // `by`, in the one key order — owner, enemy and spectator alike. It is a
+  // field on a row the gate above already admitted, not a delivery of its
+  // own, so the exception count stays SIX.
+  expect(Object.keys(m)).toEqual(['id', 'x', 'y', 'own', 'by', 'c']);
+  expect(m.c).toBe(mine.kind);
 }
 
 /** A DECOY may reach a frame only if the viewer OWNS it (own field awareness,
@@ -2725,7 +2743,7 @@ function verifyDecoy(w: World, me: ShipRecord, d: DecoyView): void {
 /** A SMOKE SCREEN puff (Story 8.18) may reach a fogged frame only if the
  *  viewer OWNS it (own field awareness) or its CENTRE is within the viewer's
  *  effective sight PLUS the puff's current radius (the disc's near edge
- *  touches the bubble — the 82.5 → 165 u literal curve) with ISLAND-only LOS to
+ *  touches the bubble — the 123.75 → 247.5 u literal curve) with ISLAND-only LOS to
  *  the point of the disc NEAREST the viewer (Eric ruling 2026-09-29,
  *  amendment 148 — "a puff is delivered if any part of it is island-
  *  visible"; written out here as `centre − r · (centre − me) / |centre − me|`,
@@ -2902,6 +2920,65 @@ function chaffFakesOracle(w: World, src: FakeSource): { x: number; y: number; he
   return out;
 }
 
+/** THE OWNER'S GHOST PREDICATE (cycle 162), written out EXPLICITLY — never
+ *  `blipPredicate`, whose annulus/in-bubble-smoke term the ghosts deliberately
+ *  lack (the cloud bursts at the owner's own position, inside its bubble, where
+ *  the annulus never paints — orchestrator ruling, Eric may veto): the owner's
+ *  paint window crossed the fake's bearing this tick ∧ the fake is at least
+ *  partially lit under the height-aware radar shadow ∧ no flare the owner owns
+ *  covers it (truth wins, as for every blip) ∧ the fake is within the owner's
+ *  radar range (inclusive — the annulus's OUTER edge, which a ghost keeps: no
+ *  observer is painted anything beyond its radar). The annulus's INNER (sight)
+ *  edge is the one range term it drops. */
+function ghostPredicate(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
+  return dist(me.state, p) <= effRadar() && inPaintWindow(me, bearing(me.state, p)) && shadowVisible(w, me, p) && !zoneCovers(w, me, p);
+}
+
+/** The ghost set the OWNER must receive this tick, re-derived: its OWN live
+ *  source (`until > now`, read off the world-owned map — never another
+ *  owner's), every fake of chaffFakesOracle passing ghostPredicate, as the
+ *  independent mask oracle's rect. Empty under the radar lock (the ghosts are
+ *  the owner's radar returns and share every blip's lock), with no live source,
+ *  or when the beam crossed none. */
+function expectedGhosts(w: World, me: ShipRecord): MaskOracle[] {
+  const src = w.chaffSources.get(me.id);
+  if (!w.radarEnabled || src === undefined || src.until <= w.now) return [];
+  const out: MaskOracle[] = [];
+  for (const fake of chaffFakesOracle(w, src)) {
+    if (!ghostPredicate(w, me, fake)) continue;
+    out.push(maskOracle(fake.cls, fake.x, fake.y, fake.heading, w.now));
+  }
+  return out;
+}
+
+/** Non-vacuity counter for the ghost arm (amendment 40's rule): the fuzz must
+ *  see the owner's own beam cross its own fakes, or the present-and-exact arm
+ *  below never ran. The seeding plants one such owner per world. */
+const GHOSTS_EXPECTED = { n: 0 };
+
+/** `you.chaffGhosts` against the oracle, in BOTH directions and order-
+ *  insensitively (production emits the scatter's order; the contract is the
+ *  SET): the key is PRESENT iff the expected set is non-empty (never `[]`,
+ *  never `undefined`); every rect is exactly {gx,gy,w,h,bits} — the blip's
+ *  payload minus `k` and `t`, nothing more; every expected ghost pairs with
+ *  exactly ONE emitted rect by EXACT mask equality, and nothing is left over
+ *  (the verifyBlipCompleteness consumption idiom — an omitted ghost fails, a
+ *  ghost of a fake the beam never crossed fails, a duplicate fails). */
+function verifyChaffGhosts(w: World, me: ShipRecord, you: OwnShip): void {
+  const expected = expectedGhosts(w, me);
+  GHOSTS_EXPECTED.n += expected.length;
+  expect('chaffGhosts' in you, `${me.id}: ghosts present iff the owner's beam crossed an own fake`).toBe(expected.length > 0);
+  if (expected.length === 0) return;
+  const unmatched: GhostPaint[] = [...you.chaffGhosts!];
+  for (const g of unmatched) expect(Object.keys(g).sort()).toEqual(['bits', 'gx', 'gy', 'h', 'w']);
+  for (const exp of expected) {
+    const i = unmatched.findIndex((g) => maskEquals(exp, g));
+    expect(i, `${me.id}: own fake ghost accounted for by its own rect`).toBeGreaterThanOrEqual(0);
+    unmatched.splice(i, 1); // CONSUMED — it can never justify a second fake
+  }
+  expect(unmatched, 'every ghost traces to an own fake the beam crossed (nothing unaccounted)').toEqual([]);
+}
+
 // --- the cycle-63 `return`-grammar COVERAGE oracle (amendments 155-157) ------
 //
 // Re-DERIVED against the new payload, not adapted from the retired `ext`
@@ -3066,8 +3143,10 @@ function maskOracle(cls: HullId, x: number, y: number, heading: number, t: numbe
   return { gx: s.gx0 + minC, gy: s.gy0 + minR, w, h, bits };
 }
 
-/** EXACT footprint equality — rect and every mask word. */
-function maskEquals(a: MaskOracle, ev: ReturnBlipEvent): boolean {
+/** EXACT footprint equality — rect and every mask word. Takes the RECT
+ *  (`GhostPaint`), which a `ReturnBlipEvent` extends, so one comparator serves
+ *  the blips and the owner's ghosts (cycle 162). */
+function maskEquals(a: MaskOracle, ev: GhostPaint): boolean {
   if (a.gx !== ev.gx || a.gy !== ev.gy || a.w !== ev.w || a.h !== ev.h) return false;
   return a.bits.length === ev.bits.length && a.bits.every((v, i) => v === ev.bits[i]);
 }
@@ -3910,6 +3989,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     SMOKE_OCCLUDED.n = 0;
     SMOKED_BLIP.n = 0;
     IN_SMOKE_SEES.n = 0;
+    GHOSTS_EXPECTED.n = 0;
     DRAFT_SEEN.n = 0;
     let wkSeen = 0; // Story 4.12: proves the wake oracle ran non-vacuously
     let reReveals = 0; // Story 8.13: proves the per-visit ledger saw a re-entry
@@ -3959,30 +4039,31 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
       // A GUARANTEED NEIGHBOUR (Story 8.18): the random ring above seats hulls
       // kilometres apart, so two hulls inside one sight bubble were rare and
       // the smoke occluder could pass vacuously. One extra hull per world
-      // sits 180–300 u off ids[0] on a random bearing — inside sight, in the
+      // sits 260–320 u off ids[0] on a random bearing — inside sight, in the
       // clear — and most of the puffs below are seated on THAT segment. (The
-      // floor was 120 u while a fresh puff was 40 u; at 82.5 u it rose to 180
-      // so the EVEN-world midpoint puff below still contains neither centre.)
+      // floor was 120 u while a fresh puff was 40 u; at 82.5 u it rose to 180;
+      // at 123.75 u — cycle 162 — it rose to 260, so the EVEN-world midpoint
+      // puff below, 130–160 u from either hull, still contains neither centre.)
       {
         const anchor = w.ships.get(ids[0])!.state;
         const brg = rng.float(0, TAU);
-        const d = rng.float(180, 300);
+        const d = rng.float(260, 320);
         const rec = place(w, 'pn', anchor.x + Math.cos(brg) * d, anchor.y + Math.sin(brg) * d, rng.float(0, TAU), GUN_IDS[rng.int(0, GUN_IDS.length - 1)]);
         rec.sweepAngle = rng.float(0, TAU);
         ids.push('pn');
         // ...and the two amendment-147/149 arrangements the random ring never
         // produces on its own (the ruling's "arrange a seeded scenario"):
-        //   • EVEN worlds: a fresh r82.5 puff at the MIDPOINT of anchor→pn
-        //     (≥ 90 u from either centre, so it contains neither) and the anchor's beam
+        //   • EVEN worlds: a fresh r123.75 puff at the MIDPOINT of anchor→pn
+        //     (≥ 130 u from either centre, so it contains neither) and the anchor's beam
         //     parked just short of pn's bearing, so the first step's paint
         //     window crosses a hull inside sight that smoke alone hides — the
         //     in-bubble BLIP arm (SMOKED_BLIP) runs against a real frame;
         //   • ODD worlds: a close neighbour 'pq' 40–80 u off the anchor (inside
-        //     the 82.5 u in-smoke bubble — and, now that a puff is ≥ 82.5 u,
+        //     the 82.5 u in-smoke bubble — and, a puff being ≥ 123.75 u,
         //     inside the puff too, which still puts the puff on the segment)
         //     and a puff of random age centred on the anchor, so a hull
         //     STANDING IN SMOKE sees through it (IN_SMOKE_SEES) while pn,
-        //     180–300 u out, is clamped away.
+        //     260–320 u out, is clamped away.
         const anchorRec = w.ships.get(ids[0])!;
         if (world % 2 === 0) {
           const pn = rec.state;
@@ -4086,6 +4167,35 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           sweepPeriodMs: owner.stats.sweepPeriodMs,
         });
       }
+      // THE OWNER'S GHOSTS (cycle 162, Eric 2026-10-01): the loop above seats
+      // clouds in OTHER ships' annuli, so an owner's own beam over its own
+      // cloud — the R39 geometry, a burst AT the owner's position — would be
+      // rare. 'pn' therefore carries a fresh source at its own position every
+      // world (replacing any the loop gave it), and its sweep is parked just
+      // short of its first fake's bearing (the anchor idiom above) so the first
+      // step's window crosses that fake: GHOSTS_EXPECTED is exercised, not
+      // vacuous. Later ticks sweep on, so the ABSENT arm runs on the same
+      // owner too. The fake is re-derived by the oracle, never read back.
+      {
+        const pn = w.ships.get('pn')!;
+        const src: FakeSource = {
+          ownerId: pn.id,
+          x: pn.state.x,
+          y: pn.state.y,
+          radius: CONFIG.chaff.radius,
+          count: CONFIG.chaff.count,
+          until: w.now + CONFIG.chaff.durationMs,
+          seed: rng.int(0, 0xffffffff),
+          at: w.now,
+          sweepPeriodMs: pn.stats.sweepPeriodMs,
+        };
+        w.chaffSources.set(pn.id, src);
+        const first = chaffFakesOracle(w, src)[0];
+        if (first !== undefined) {
+          pn.sweepAngle = wrapPositive(bearing(pn.state, first) - 0.01);
+          pn.prevSweepAngle = pn.sweepAngle;
+        }
+      }
       // DECOYS (Story 8.16): 1-3 live decoys on random owners, minted through
       // production addDecoy; most seated in another ship's beam annulus (the
       // paint arm), the rest anywhere (the detect / lit-zone / owner views).
@@ -4097,8 +4207,8 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         addDecoy(w.decoys, owner.id, obs.state.x + Math.cos(brg) * d, obs.state.y + Math.sin(brg) * d, `decoy${di}`).hp =
           rng.float(1, CONFIG.decoyBuoy.hp);
       }
-      // SMOKE SCREEN (Story 8.18): 0-4 live puffs of RANDOM age (fresh 82.5 u
-      // to nearly-expired 165 u), seated so the occluder is EXERCISED rather
+      // SMOKE SCREEN (Story 8.18): 0-4 live puffs of RANDOM age (fresh 123.75 u
+      // to nearly-expired 247.5 u), seated so the occluder is EXERCISED rather
       // than vacuous (SMOKE_OCCLUDED below): most STRADDLE the segment
       // between two hulls (a random point along it, the puff's edge across
       // the line), some sit ON an observer (a hull standing inside a puff —
@@ -4257,6 +4367,22 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     // actually reached (and were consumed from) real frames.
     expect(CHAFF_EXPECTED.n).toBeGreaterThan(0);
     expect(DECOY_PAINT_EXPECTED.n).toBeGreaterThan(0);
+    // ...and the cycle-162 ghost arm: at least one owner's beam crossed its
+    // OWN fakes (the 'pn' source planted at its own position, its sweep parked
+    // short of its first fake's bearing — the anchor idiom), so the present-
+    // and-exact half of verifyChaffGhosts ran against real frames, not only
+    // the absent-key half.
+    expect(GHOSTS_EXPECTED.n).toBeGreaterThan(0);
+    // The ledger values, under the perf pins' opt-in flag (smokePerf.test.ts
+    // idiom) — so a re-lay of the fuzz geometry can be checked for how far
+    // above zero each arm actually sits, not only that it cleared the bar.
+    if (process.env.HC_PERF_LOG) {
+      console.log(
+        `perception fuzz ledgers: SMOKE_OCCLUDED ${SMOKE_OCCLUDED.n} | SMOKED_BLIP ${SMOKED_BLIP.n} | IN_SMOKE_SEES ${IN_SMOKE_SEES.n} | ` +
+          `CHAFF_EXPECTED ${CHAFF_EXPECTED.n} | DECOY_PAINT_EXPECTED ${DECOY_PAINT_EXPECTED.n} | GHOSTS_EXPECTED ${GHOSTS_EXPECTED.n} | ` +
+          `DRAFT_SEEN ${DRAFT_SEEN.n} | wk ${wkSeen} | reReveals ${reReveals}`,
+      );
+    }
   });
 });
 

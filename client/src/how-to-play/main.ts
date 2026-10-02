@@ -50,7 +50,6 @@ import {
 import { consumableTable, shipUpgradeTable, tierTable, type StatTable } from './weaponTables.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
-import { CATALOG, tierTargetOf } from '@salvo/shared';
 
 /** An entry's derived table, or null (a consumable with no live rows). */
 function entryTable(entry: HowToEntry): StatTable | null {
@@ -60,17 +59,13 @@ function entryTable(entry: HowToEntry): StatTable | null {
 }
 
 /**
- * The glyph id an entry draws — the SAME id the refit card and the hotbar feed
- * `equipmentGlyphSvg`. A tiered weapon line draws its equipment row's glyph
- * (`tierTargetOf`: the CANNON ladder `deckGun` -> the mounted `gun`, a weapon
- * line -> its own row, as the hotbar draws it); a consumable draws its own id.
- * The ship ladders have no glyph anywhere, so they resolve to nothing.
+ * The glyph id an entry draws — its LINE id, the SAME id the refit card feeds
+ * `equipmentGlyphSvg`. The one glyph lookup answers every card line since
+ * cycle 162 (the CANNON ladder `deckGun` draws the mounted gun; the ship
+ * ladders have their own glyphs), so there is nothing to map.
  */
 export function entryGlyphId(entry: HowToEntry): string | null {
-  if (entry.table === 'shipUpgrade') return null;
-  if (entry.table === 'consumable') return entry.lineId;
-  const line = Object.hasOwn(CATALOG, entry.lineId) ? CATALOG[entry.lineId] : undefined;
-  return (line === undefined ? undefined : tierTargetOf(line)) ?? entry.lineId;
+  return entry.lineId;
 }
 
 /** An entry's name — the uppercase mono system register, like the headings —

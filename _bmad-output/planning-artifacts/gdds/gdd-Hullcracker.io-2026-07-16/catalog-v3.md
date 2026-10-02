@@ -8,6 +8,7 @@ superseded_in_part_2: '2026-09-29 (Story 8.17, epic-8 amendments 130–134): R31
 superseded_in_part_3: '2026-09-30 (epic-8 amendment 197, Eric): R15 DECK GUN TURRET and R16 DECK GUN BARREL are DELETED — every upgrade is tiered, no one-copy cards; the second turret is the CANNON rung to tier III and a second barrel per turret its rung to tier V; the FLAK ladder gains a turret at its rungs to III and V (pool 1 → 2 → 3); 24 lines, 114 cards'
 superseded_in_part_4: '2026-10-01 (cycle 161, epic-8 amendments 208 and 210, Eric): STAR SHELLS and PHOSPHOR SHELLS swap their burst-damage ladders — star 20/22/25/27/30, phosphor 10/12/15/17/20 (phosphor burn 5→10 hp/s, zone and durations unchanged); FLAK reloads 4 s at tier I (was 6 s), 3.2 s at V; PROTOCOL_VERSION 66→67'
 superseded_in_part_4: '2026-10-01 (epic-8 amendment 200, Eric): every mine has 10 hp that only a deck gun click ON the mine can take (cannon/flak one shot, machine gun three at tier I); bursts covering a mine and non-deck-gun shells no longer set mines off; naval mines alone chain; arming mines pop; captive mines can be destroyed by gunfire'
+superseded_in_part_5: '2026-10-01 (cycle 162, epic-8 amendments 218 and 221, Eric): R39/R41 CHAFF r120u → r180u (×1.5); R38 SMOKE SCREEN puffs r82.5 → r165u (amendment 174) → r123.75 → r247.5u (×1.5); R19 SUPERCAVITATING TORPEDO damage 50 → 85 (a consumable since amendment 74); PROTOCOL_VERSION 67→68'
 source: 'Eric spreadsheet, shared 2026-09-09 (screenshot); brainstorming-session-2026-09-04.md; GDD v3 (2026-09-03)'
 ---
 
@@ -150,7 +151,7 @@ Sensor ladder (frozen): detect 247.5 · sight 330 · muzzle/smoke 412.5 · radar
 
 **R18 (Eric) — LIGHT TORPEDO.** Tier I: **twin sector, both beams, ±45° about 90°** (90° dead zones fore and aft), 45 u/s, 40 dmg, 1 tube, 25 s reload. Tiers II–V: **same shape as the heavy** (−5% reload, +5 dmg, +2.5 u/s, +0.5 tube) — V: 80% (20 s), 60 dmg, 55 u/s, 3 tubes.
 
-**R19 (Eric) — SUPERCAVITATING TORPEDO.** Tier I: bow ±15°, **195 u/s**, 50 dmg, 1 fish, 45 s reload; a straight-runner (never homes). Tiers II–V: **−5% reload + 5 dmg** only — V: 80% (36 s), 70 dmg; speed and tubes fixed. The launcher-gated consumable version from the brainstorm is NOT on the sheet (R1: the sheet is the launch catalog).
+**R19 (Eric) — SUPERCAVITATING TORPEDO.** Tier I: bow ±15°, **195 u/s**, 50 dmg, 1 fish, 45 s reload; a straight-runner (never homes). Tiers II–V: **−5% reload + 5 dmg** only — V: 80% (36 s), 70 dmg; speed and tubes fixed. The launcher-gated consumable version from the brainstorm is NOT on the sheet (R1: the sheet is the launch catalog). *(2026-10-01, cycle 162, epic-8 amendment 221: damage SUPERSEDED — 85; a consumable with no tiers since amendment 74.)*
 
 **R20 (Eric) — MACHINE GUN: a HELD-FIRE STREAM at short range.** Click-and-hold inside its arc; a stream of small direct-hit shells (no burst). Tiers II–V: **−5% reload + 1 damage per shell**; range and rate fixed. The illustrative numbers in the option Eric picked (4 dmg every 0.25 s, 250u, 6 s of ammo, 15 s reload, bow arc) are FACILITATOR-PROPOSED [DRAFT] — confirmed or replaced at R21. **SUPERSEDED IN PART 2026-09-30 (epic-8 amendment 189): tiers II–V ALSO step the shot delay — 0.35 / 0.31 / 0.27 / 0.23 / 0.20 s (rateMs −40/−40/−40/−30 ms); the reload base is 10 s with the standing −5 %/tier on top (10 → 8 s at V); the 5 s idle-reload delay is deleted (the swap starts the tick the stream stops with shells left; a shot with shells left cancels a running swap; an empty magazine cannot interrupt).**
 
@@ -178,9 +179,9 @@ Sensor ladder (frozen): detect 247.5 · sight 330 · muzzle/smoke 412.5 · radar
 
 **R38 (Eric) — SMOKE SCREEN (consumable, cap 5): a trail laid astern for 5 s; each puff lasts 30 s, starts at r40u and slowly EXPANDS to r60u.** Blocks SIGHT only (radar unaffected); a hull inside or behind the smoke is not sighted. Whether the puff hides its OWN occupant from truesight as well as what lies behind it: assumed yes (it blocks the LOS segment like an island does for sight) [DRAFT, facilitator assumption].
 
-*(2026-09-30, cycle 156, epic-8 amendment 174: the radii are SUPERSEDED — r82.5 → r165 u, 1/8 → 2/8 of intel range; everything else in R38 stands.)* *(2026-09-29, Story 8.18, epic-8 amendments 138–149: built — cadence 500 ms, growth over the full 30 s; the self-hiding `[DRAFT]` is confirmed by construction (symmetric segment test); re-press restarts the 5 s trail; laying stops at sink entry; smoke also hides hulls under a star-shell flare; in smoke you see 1/8 intel range into other smoke and nothing optical beyond (amendment 149); radar paints a smoke-hidden hull inside the bubble (147); a puff is delivered when any part is visible (148).)*
+*(2026-09-30, cycle 156, epic-8 amendment 174: the radii are SUPERSEDED — r82.5 → r165 u, 1/8 → 2/8 of intel range; everything else in R38 stands.)* *(2026-10-01, cycle 162, epic-8 amendment 218: SUPERSEDED again — r123.75 → r247.5 u, 1.5/8 → 3/8 of intel range.)* *(2026-09-29, Story 8.18, epic-8 amendments 138–149: built — cadence 500 ms, growth over the full 30 s; the self-hiding `[DRAFT]` is confirmed by construction (symmetric segment test); re-press restarts the 5 s trail; laying stops at sink entry; smoke also hides hulls under a star-shell flare; in smoke you see 1/8 intel range into other smoke and nothing optical beyond (amendment 149); radar paints a smoke-hidden hull inside the bubble (147); a puff is delivered when any part is visible (148).)*
 
-**R39 (Eric) — CHAFF (consumable, cap 5): bursts at YOUR OWN position** — fake radar returns around you to hide your true echo among them (the brainstorm's fire-to-the-click delivery is NOT taken). **R41: 10 fakes in r120u around you, for 15 s.**
+**R39 (Eric) — CHAFF (consumable, cap 5): bursts at YOUR OWN position** — fake radar returns around you to hide your true echo among them (the brainstorm's fire-to-the-click delivery is NOT taken). **R41: 10 fakes in r120u around you, for 15 s.** *(2026-10-01, cycle 162, epic-8 amendment 218: the radius is SUPERSEDED — r180u; 10 fakes and 15 s stand.)*
 
 **R28 (Eric) — FOULING MINES: NAVAL MINES ONLY, numbers as shipped** (×0.75 both speed caps for 5 s, refresh not stack); the captive's fish is a torpedo and does not foul.
 
@@ -225,7 +226,7 @@ Base gun unchanged: 360°, 500 u/s, 15 dmg burst r15u, 6 contact, range 660u, 5 
 |---|---|---|---|---|
 | LIGHT TORPEDO | twin sector both beams ±45° about 90°, 45 u/s, 40 dmg, 1 tube, 25 s, no max range | −5% reload, +5 dmg, +2.5 u/s, +0.5 tube | 20 s, 60 dmg, 55 u/s, 3 tubes | TB 5 |
 | HEAVY TORPEDO | bow ±30°, **65 u/s**, 50 dmg, 1 tube, 30 s, no max range | −5% reload, +5 dmg, +2.5 u/s, +0.5 tube | 24 s, 70 dmg, 75 u/s, 3 tubes | TB 5 |
-| SUPERCAVITATING TORPEDO | bow ±15°, 195 u/s, 50 dmg, 1 fish, 45 s; straight-runner, never homes | −5% reload, +5 dmg | 36 s, 70 dmg | — |
+| SUPERCAVITATING TORPEDO | bow ±15°, 195 u/s, 50 dmg, 1 fish, 45 s; straight-runner, never homes *(superseded 2026-10-01, amendment 221: 85 dmg)* | −5% reload, +5 dmg | 36 s, 70 dmg | — |
 | NAVAL MINES | rear ±60°, place 150u, arm 3 s, trigger 32u / blast 48u, 55 dmg, pool 2, 15 s; **NO live cap** — exists until triggered or destroyed | −5% reload, +5 dmg, ×1.1 blast (trigger = 2/3 blast), +1 held | 12 s, 75 dmg, blast 70.3u / trigger 46.9u, pool 6 | ML 5 |
 | CAPTIVE MINES | mine chassis, trigger 144u / blast 32u, one un-upgraded fish at mine dmg (55), no self-detonate *(2026-10-01, amendment 200: a deck gun click destroys it — 10 hp, no fish)*, no max range; pool 1, 20 s `[D]`; no live cap | −5% reload, +5 fish dmg, ×1.1 trigger ring, +0.5 held | 16 s, 75 dmg fish, trigger 210.8u, pool 3 | ML 5 |
 | HORIZONTAL MISSILE | bow ±50°, 250 u/s, 40 dmg, bursts r20u at the click (en-route hull = direct hit), range 660u, islands block, 1 missile, 30 s | −5% reload, +5 dmg, +0.5 missile | 24 s, 60 dmg, 3 missiles | BS 5 |
@@ -253,8 +254,8 @@ Dazzle + Phosphor stack on one flare (no exclusivity).
 |---|---|---|
 | HULL REPAIR | 50 hp instant + 50 hp pooled at 5 hp/s (100 total), as shipped DAMAGE CONTROL | 5/5/5 |
 | SHIELD BLOCK | absorbs the next 100 hp of damage for 10 s; unused expires. All damage sources `[D]` | — |
-| SMOKE SCREEN | trail astern laid for 5 s; each puff lives 30 s, r40u expanding slowly to r60u *(superseded 2026-09-30, amendment 174: r82.5 → r165 u)*; blocks SIGHT only, radar unaffected. Hides its occupant as well as what lies behind `[D]` | — |
-| CHAFF | bursts at YOUR position: 10 fake radar returns in r120u for 15 s | — |
+| SMOKE SCREEN | trail astern laid for 5 s; each puff lives 30 s, r40u expanding slowly to r60u *(superseded 2026-09-30, amendment 174: r82.5 → r165 u; superseded 2026-10-01, amendment 218: r123.75 → r247.5 u)*; blocks SIGHT only, radar unaffected. Hides its occupant as well as what lies behind `[D]` | — |
+| CHAFF | bursts at YOUR position: 10 fake radar returns in r120u for 15 s *(superseded 2026-10-01, amendment 218: r180u)* | — |
 | DECOY BUOY | dropped astern in the mine's rear arc; 50 hp; lasts until destroyed; homing ordnance retargets onto it AND it physically blocks any torpedo/missile that runs into it | — |
 
 **THE MATCH CONSUMABLE POOL (R4/R44):** every match rolls 10 consumables at random, respecting each line's cap within the pool alone, hidden from everyone, and shuffles the SAME 10 into every deck. Deck at queue = 40 authored + 10 = 50.

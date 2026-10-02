@@ -376,7 +376,7 @@ describe('drone drops — determinism and stream isolation', () => {
   });
 });
 
-describe('drone drops — a drop landing while a refit hand is open (Eric 2026-10-01, amendment 215)', () => {
+describe('drone drops — a drop landing while a refit hand is open (Eric 2026-10-01, amendment 227)', () => {
   const HELD = ['hullRepair', 'shieldBlock', 'chaff'];
   const spendStock = (w: World, s: ShipRecord, id: string) =>
     (w as unknown as { spendStock(ship: ShipRecord, line: string): void }).spendStock(s, id);

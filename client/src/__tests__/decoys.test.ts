@@ -145,7 +145,7 @@ describe('the decoy silhouette is distinct from a mine marker (Eric, 7-5-decks.m
     return { decoy: pathActions(soleSprite(decoyLayer)), mine: pathActions(soleSprite(mineLayer)) };
   }
 
-  it('the mine marker is circles and the decoy marker has none', () => {
+  it('the mine marker has a circle and the decoy marker has none', () => {
     const { decoy: b, mine: m } = markers();
     expect(m).toContain('circle');
     expect(b).not.toContain('circle');
@@ -158,11 +158,18 @@ describe('the decoy silhouette is distinct from a mine marker (Eric, 7-5-decks.m
     expect(b.filter((a) => a === 'lineTo').length).toBeGreaterThanOrEqual(2); // waterline + spar
   });
 
-  it('the two markers share no drawing primitive at all', () => {
+  // Re-pinned in cycle 162: the mine marker became the naval mine's GLYPH
+  // (a spiked sphere — a circle plus eight `lineTo` spikes), so both markers
+  // now stroke straight lines and "no shared primitive" no longer holds. What
+  // must hold is that neither can be mistaken for the other: each draws a
+  // shape the other never does, and the full drawing sequences differ.
+  it('each marker draws a shape the other never does, and the drawings differ', () => {
     const { decoy: b, mine: m } = markers();
-    const shared = new Set(b.filter((a) => m.includes(a)));
-    shared.delete('moveTo'); // path bookkeeping; nothing that DRAWS may overlap
-    expect([...shared]).toEqual([]);
+    expect(m).toContain('circle'); // the mine's sphere
+    expect(b).not.toContain('circle');
+    expect(b).toContain('poly'); // the decoy's diamond daymark
+    expect(m).not.toContain('poly');
+    expect(b.join(',')).not.toBe(m.join(','));
   });
 
   it('the exported geometry is a waterline, a spar and a 4-point diamond', () => {

@@ -397,9 +397,9 @@ describe('showResults — the elimination modal', () => {
       expect(LOADOUT_PX.beltSlot).toBe(Math.round(CLIENT_CONFIG.hudBar.beltSlot * 0.72));
       expect(square(0).style.width).toBe(`${LOADOUT_PX.slot}px`);
       expect(square(5).style.width).toBe(`${LOADOUT_PX.beltSlot}px`);
-      // Every fitted square — the belt's HULL REPAIR included, which takes the
-      // mock's plus from the ONE glyph source (equipmentIcons.ts), never art
-      // drawn by this block.
+      // Every fitted square — the belt's HULL REPAIR included, which takes its
+      // rod of Asclepius (cycle 162) from the ONE glyph source
+      // (equipmentIcons.ts), never art drawn by this block.
       for (const slot of [0, 1, 2, 3, 4, 5]) expect(square(slot).querySelector('svg'), `slot ${slot}`).not.toBeNull();
       expect(square(5).style.borderStyle).toBe('solid');
     });

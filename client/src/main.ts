@@ -65,6 +65,8 @@ import { BurnZones } from './render/burnZones.js';
 import { Smoke } from './render/smoke.js';
 import { SmokeScreen } from './render/smokeScreen.js';
 import { ChaffRing } from './render/chaffRing.js';
+import { ChaffGhosts } from './render/chaffGhosts.js';
+import { Fire } from './render/fire.js';
 import { Foghorn } from './render/foghorn.js';
 import { Fog, hullSightSoftness, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
@@ -160,7 +162,7 @@ import {
   type ResultsOwn,
   type ResultsView,
 } from './ui/results.js';
-import { SettingsOverlay, canAbandon, canOpenSurface, escapeAction } from './ui/settings.js';
+import { SettingsOverlay, canAbandon, canOpenSurface, escapeAction, wheelScrollsSurface } from './ui/settings.js';
 import { effectiveScale, motionIntensity, scaleFactor, settings } from './settings/store.js';
 import { setUiScaleVar } from './ui/theme.js';
 import {
@@ -266,6 +268,10 @@ interface Game {
    *  the anonymous `sm` pulses on the fog-immune chart, since a hurt hull is
    *  disclosed out to 412.5u and the plume must read past the sight bubble. */
   smoke: Smoke;
+  /** ON FIRE (render/fire.ts, cycle 162) — flame tongues fanned out of the same
+   *  `sm` pulses as `smoke`, tier 2 only (hull under 25 %), at the bottom of the
+   *  same fog-immune `smoke` layer so the puffs draw over them. */
+  fire: Fire;
   /** SMOKE SCREEN puffs (render/smokeScreen.ts, Story 8.18) — synced from
    *  FrameMsg.smoke into the same fog-immune `smoke` layer as the wounded
    *  plumes; grown along the shared `puffRadius` and faded per render frame. */
@@ -274,6 +280,10 @@ interface Game {
    *  — read each frame off the self-private `net.you.chaff`, in the fog-immune
    *  lit-zone chart layer; never anyone else's cloud, never the fakes. */
   chaffRing: ChaffRing;
+  /** THE CHAFF OWNER'S GHOSTS (render/chaffGhosts.ts, cycle 162) — the owner's
+   *  OWN fake returns off the self-private `you.chaffGhosts`, grey at half the
+   *  scope's alpha, on their own grid beside the ring (never the scope's). */
+  chaffGhosts: ChaffGhosts;
   /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
    *  visual twin, screen-space and above every HUD readout. */
   foghorn: Foghorn;
@@ -2154,6 +2164,8 @@ function makeGameReturnToPort(getG: () => Game | null): () => void {
       // reload, stale smoke must not survive to render at pre-reset
       // coordinates on the next match.
       g.smoke.clear();
+      g.fire.clear(); // ...and the flames that ride the same pulses (cycle 162)
+      g.chaffGhosts.clear(); // ...and the owner's ghosts, true world cells too
       // Same defence for the foghorn chevrons (Story 4.5): a bearing is a fact
       // about one moment on one ocean, and it must not survive into the next.
       g.foghorn.clear();
@@ -2885,8 +2897,14 @@ function buildGame(
     litZones: new LitZones(stage.layers.litZone),
     burnZones: new BurnZones(stage.layers.litZone),
     smoke: new Smoke(stage.layers.smoke),
+    fire: new Fire(stage.layers.smoke), // pins itself to the layer's bottom: under every puff
     smokeScreen: new SmokeScreen(stage.layers.smoke),
-    chaffRing: new ChaffRing(stage.layers.litZone),
+    // `chaff`, above `smoke` (Eric 2026-10-01: "Radar returns should never be
+    // below the smoke screen") and not `blip`: the blip layer's near-range dim
+    // mask would cut a ghost (always inside the owner's own bubble) to 20 % —
+    // see stage.ts / chaffGhosts.ts.
+    chaffRing: new ChaffRing(stage.layers.chaff),
+    chaffGhosts: new ChaffGhosts(stage.layers.chaff),
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
     nextHonkAt: 0,
     fog: new Fog(stage.fogSprite),
@@ -2940,6 +2958,9 @@ function buildGame(
   // shipped coastline's own mask, and its elevation is what makes a steep
   // headland paint red where a low sandy island of the same size paints blue.
   g.radar.setHeightRaster(map.heightRaster);
+  // The owner's chaff ghosts march through the SAME raster object (cycle 162):
+  // one bake, two consumers, so a ghost shadows exactly as the scope would.
+  g.chaffGhosts.setHeightRaster(map.heightRaster);
   // THE IN-TRUESIGHT WAKE SEAM (Story 4.12). One tracker, two renderings: the
   // emitter owns the ribbons and draws the water, the scope stamps the SAME
   // segments onto the radar lattice for the inner half the server does not
@@ -3073,6 +3094,7 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   }
   if (!classChanged && !visionChanged(prev, stats)) return;
   g.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
+  g.chaffGhosts.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
   g.camera.setRadarRange(stats.radarRange);
   g.fog.setSightRange(stats.sightRange, stats.radarRange);
   // ONE plumbed value, TWO dead-reckoning cull rings: shells and our OWN fish
@@ -4247,6 +4269,17 @@ function frameAttention(g: Game, status: OwnStatus, inStorm: boolean, ringUrgent
   return { tier1, tier2, freeze: freezeAtDimKeyframe(tier1, tier2) };
 }
 
+/**
+ * The own chaff cloud's two owner-private renderings, on the server clock: the
+ * dashed ring off `you.chaff` (amendment 191) and the grey ghosts of the fakes
+ * (cycle 162, fed from `you.chaffGhosts` in roomBindings), marched from the
+ * own pose and drawn into the camera's world rect exactly as the scope is.
+ */
+function renderOwnChaff(g: Game, pose: RenderPose | null, now: number): void {
+  g.chaffRing.render(g.state.net.you?.chaff, now);
+  g.chaffGhosts.render(pose, now, g.camera.worldView);
+}
+
 function renderAlive(
   g: Game,
   alpha: number,
@@ -4353,6 +4386,7 @@ function renderAlive(
   // about it depends on the own ship — your own plume rides the same anonymous
   // row as everyone else's (amendment 46).
   g.smoke.render(now);
+  g.fire.render(now); // flames age on the same server clock (cycle 162)
   // The chevron ray originates at the own hull's screen position — same rule
   // as the fog hole just below, and for the same reason: the camera's forward
   // lead means screen centre is NOT where the hull sits (review fix).
@@ -4364,7 +4398,7 @@ function renderAlive(
   g.litZones.render(now);
   g.burnZones.render(now, now / 1000);
   g.smokeScreen.render(now); // SMOKE SCREEN puffs grow + fade on the server clock
-  g.chaffRing.render(g.state.net.you?.chaff, now); // own chaff cloud's ring, fading on the server clock
+  renderOwnChaff(g, pose, now);
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
@@ -4423,6 +4457,7 @@ function enterSpectateVisuals(g: Game): void {
   const wrecked = g.state.net.you?.alive === false;
   g.fog.setVisible(false);
   g.radar.clearBlips();
+  g.chaffGhosts.clear(); // the scope's twin: a spectator owns no chaff ghosts
   if (!wrecked) {
     g.ownView.gfx.visible = false;
     g.nameplates.hide(g.state.net.sessionId);
@@ -4611,6 +4646,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // observer to freeze a paint against, so no source opens (Story 4.10).
   g.radar.render(null, now, null, null);
   g.smoke.render(now); // a spectator receives every `sm` pulse — the plumes keep drifting
+  g.fire.render(now); // ...and the flames on every tier-2 one
   // Spectator origin is the camera centre — honkBearing (roomBindings.ts)
   // derives the spectator bearing from the camera centre too, so origin and
   // bearing must agree (review fix).
@@ -4619,6 +4655,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   g.burnZones.render(now, now / 1000); // ...and every burning zone
   g.smokeScreen.render(now); // ...and every SMOKE SCREEN puff
   g.chaffRing.render(null, now); // a spectator owns no chaff cloud
+  g.chaffGhosts.render(null, now); // ...and no ghosts: nothing renders
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
   // A spectator owns no Tier-1 channel (no hull, no fire control), so the bar's
@@ -4998,7 +5035,11 @@ function bindWheelZoom(game: Game): () => void {
     // near-invisible before (the dim was almost opaque and the zoom stayed
     // inside [0.5, 1]); against the 0.62 dim it destroys the reveal by
     // reading a scroll as a zoom.
-    if (resultsVisible()) return;
+    //
+    // THE ESC MENU IS THE SAME CASE (Eric 2026-10-01, cycle 162): the settings
+    // overlay is a scrollable panel too, and a wheel over it is the player
+    // scrolling the menu — the pure `wheelScrollsSurface` names both surfaces.
+    if (wheelScrollsSurface(openSurfaces(game))) return;
     if (game.state.spectating) {
       game.camera.setZoomFactor(wheelZoom(game.camera.zoomFactor, e.deltaY));
       return;

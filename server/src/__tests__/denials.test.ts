@@ -270,10 +270,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 65→66 bump (PV 66, amendment 200: the client reads CONFIG.mine.hitRadiusU; PV 65 was amendment 197: DECK GUN TURRET and DECK GUN BARREL left the catalog — their effects are CANNON ladder rungs; PV 64 was cycle 158: the machine-gun ladder authors rateMs, the stats row drops idleReloadMs, OwnShip.chaff is self-private) is enforced at matchmake', () => {
-  it('rejects pv-65 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(68);
-    expect(protocolVersionError(67)).toMatch(/refresh/); // PV 68: the self-private `dp` drone-drop event
+describe('pv join gate — the 67→68 bump (PV 68, cycle 162: MineView.c for every observer, the self-private OwnShip.chaffGhosts, chaff/smoke radii ×1.5, supercav damage 85; PV 67 was amendment 208: star / phosphor burst bases swapped; PV 66 was amendment 200: the client reads CONFIG.mine.hitRadiusU; PV 65 was amendment 197: DECK GUN TURRET and DECK GUN BARREL left the catalog) is enforced at matchmake', () => {
+  it('rejects pv-67 and older protocols and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(69);
+    expect(protocolVersionError(68)).toMatch(/refresh/); // PV 69: the self-private `dp` drone-drop event (cycle 163); 68 was mine kind for all, chaff ghosts, radii ×1.5 (cycle 162)
     expect(protocolVersionError(66)).toMatch(/refresh/); // PV 67: star / phosphor burst bases swapped (amendment 208)
     expect(protocolVersionError(65)).toMatch(/refresh/);
     expect(protocolVersionError(64)).toMatch(/refresh/);

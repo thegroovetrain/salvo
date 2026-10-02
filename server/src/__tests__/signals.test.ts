@@ -282,7 +282,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(row.visible(foggedCtx(w, me), wireShaped as never)).toBe(false);
   });
 
-  it('mine row: [id,x,y,own,by,c] for the OWNER — `by` (dropper id, Story 1.12) then the own-only kind `c` LAST (Story 8.13)', () => {
+  it('mine row: [id,x,y,own,by,c] for the OWNER — `by` (dropper id, Story 1.12) then the kind `c` LAST (Story 8.13; for everyone since cycle 162)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const mine = makeMine({ ownerId: 'a', x: 50, y: 0, kind: 'captive' }); // owner sees it always
@@ -295,7 +295,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect((wire as MineView).c).toBe('captive');
   });
 
-  it('mine row: [id,x,y,own,by] for EVERY OTHER observer — the `c` KEY is absent, not undefined-valued (Story 8.13, amendment 76)', () => {
+  it('mine row: [id,x,y,own,by,c] for EVERY OTHER observer too — the kind rides every delivered row (Eric 2026-10-01, cycle 162, PV 68; supersedes amendment 76)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const row = SIGNAL_REGISTRY.mine;
@@ -303,11 +303,13 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
       const mine = makeMine({ id: kind, ownerId: 'z', x: 50, y: 0, kind }); // enemy mine, inside detect
       expect(row.visible(foggedCtx(w, a), mine)).toBe(true);
       const wire = row.materialize(foggedCtx(w, a), mine) as MineView;
-      expect(Object.keys(wire)).toEqual(['id', 'x', 'y', 'own', 'by']); // byte-identical to the pre-8.13 marker
-      expect('c' in wire).toBe(false);
-      expect(JSON.stringify(wire)).not.toContain('"c"');
-      // The spectator path is not the owner either: kind-less there too.
-      expect('c' in (row.materialize(specCtx(w), mine) as object)).toBe(false);
+      expect(Object.keys(wire)).toEqual(['id', 'x', 'y', 'own', 'by', 'c']); // the historical prefix, then the kind LAST
+      expect(wire).toEqual({ id: kind, x: 50, y: 0, own: false, by: 'z', c: kind });
+      // The spectator path carries it too (it is a field on a delivered row,
+      // not a new delivery — the sight gate above is what guards the mine).
+      const spec = row.materialize(specCtx(w), mine) as MineView;
+      expect(Object.keys(spec)).toEqual(['id', 'x', 'y', 'own', 'by', 'c']);
+      expect(spec.c).toBe(kind);
     }
   });
 

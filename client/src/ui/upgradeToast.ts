@@ -3,8 +3,8 @@
 // (boonFitToastLine, ui/boonCopy.ts). Both line builders are pure (unit-
 // tested); the DOM stack is a thin adapter mirroring ui/killFeed.ts. Lines
 // expire after ~3s; the stack is capped at 4 so a burst cannot wallpaper the
-// screen — 4, not 3, since cycle 162 (Eric ruling 2026-10-01, epic-8 amendment
-// 215): a large drone's three `◆ … STOCKED` drops plus the same kill's
+// screen — 4, not 3, since cycle 163 (Eric ruling 2026-10-01, epic-8 amendment
+// 227): a large drone's three `◆ … STOCKED` drops plus the same kill's
 // `▲ LEVEL UP` can land in one frame, and at 3 the first receipt was evicted
 // before it ever rendered.
 //
