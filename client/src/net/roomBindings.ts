@@ -20,6 +20,7 @@ import {
   type BurnZoneView,
   type BurstEvent,
   type DeniedView,
+  type DropEvent,
   type FoghornEvent,
   type FrameMsg,
   type GameEvent,
@@ -1293,11 +1294,12 @@ function handleHitCall(e: HitCallEvent, f: FrameMsg, deps: RoomBindingDeps, s: B
  *  spend — Story 2.1, PV 12 — came back at PV 23 as the DAMAGE CONTROL rail's
  *  confirmation, and since Story 8.8 confirms a HULL REPAIR copy fired out of
  *  the belt; the killer-private 'upg' grant left with the legacy upgrade strip
- *  — Story 2.8, PV 16.) */
+ *  — Story 2.8, PV 16), and (PV 68) the drone-drop stock. */
 function handleRewardEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   switch (e.k) {
     case 'pt': handlePoint(e, f, deps); return;
     case 'bn': handleBoonFit(e, deps); return;
+    case 'dp': handleDrop(e, f, deps); return;
     case 'heal': handleHeal(e, deps); return;
   }
 }
@@ -1399,6 +1401,24 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
   deps.audio.play(fitTone(line?.kind), { detune: fitDetune(line?.kind ?? '') });
   deps.onBoonFitted(e.boon);
   deps.onSpendAck();
+}
+
+/**
+ * A drone kill STOCKED a consumable (Eric ruling 2026-10-01): the existing
+ * `◆ <LINE> STOCKED` toast, the consumable fit cue and the belt flash — the
+ * `bn` receipt's UX exactly, MINUS the spend ack (nothing was spent, so the
+ * spend latch must not release on it). `dp` is self-private (perception
+ * forwards it only to the killer), so the id check is defensive. Dead-gated
+ * like `pt`: a captain sunk in the same tick as the drone gets no drop at all
+ * server-side, and a spectating frame has no belt to flash. The authoritative
+ * card list rides OwnShip.cards; this is UX only.
+ */
+function handleDrop(e: DropEvent, f: FrameMsg, deps: RoomBindingDeps): void {
+  if (e.id !== deps.state.net.sessionId) return;
+  if (frameIsDeadOrSpectating(f)) return;
+  pushUpgradeToast(boonFitToastLine(e.boon, boonStackCount(deps.state.net.you?.cards ?? [], e.boon), 'consumable'));
+  deps.audio.play(fitTone('consumable'), { detune: fitDetune('consumable') });
+  deps.onBoonFitted(e.boon);
 }
 
 /**

@@ -1996,6 +1996,26 @@ export const CONFIG = {
   },
 
   /**
+   * DRONE DROPS (Eric ruling 2026-10-01) — sinking a PvE drone also rolls
+   * consumables for the credited killer (the same `by` the drone-kill XP pays),
+   * but ONLY an afloat participant (human or bot) rolls; a fleet hull, a
+   * sinking killer, a storm/self/unattributed sink and a captain victim never do.
+   *
+   * `rolls` is keyed by DRONE HULL ID (the victim's `hullId`): one roll for a
+   * small drone, two for a medium, three for a large. Each roll passes with
+   * `chance`; a passing roll stocks ONE copy of a consumable picked uniformly
+   * from the lines the ship could legally take right now by the refit card's
+   * own predicate (`pickRefusal === null` — a stub or a line at its cap is
+   * skipped, and a full belt limits the pick to the lines already held). An
+   * empty eligible set wastes the roll. Server-only; the killer sees the
+   * STOCKED toast via the self-private `dp` event.
+   */
+  droneDrops: {
+    chance: 0.5,
+    rolls: { droneSmall: 1, droneMedium: 2, droneLarge: 3 } satisfies Record<DroneHullId, number>,
+  },
+
+  /**
    * OFFERS (Story 2.7, re-cut for THE COMMON POOL in Story 8.14) — the shape of
    * the pre-rolled offer a banked level carries, and the one dial pair behind
    * the draw. It is gameplay-authoritative (it bounds the server's accepted

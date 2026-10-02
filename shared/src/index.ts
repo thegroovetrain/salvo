@@ -3,6 +3,10 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  68 — cycle 162: new self-private `dp` GameEvent (DropEvent {k,id,boon} —
+ *  a consumable stocked by a drone kill, Eric 2026-10-01), riding the
+ *  killer's frame only like `pt`/`bn`; server-only CONFIG.droneDrops (the
+ *  client does not read it). Perception exception count stays SIX.
  *  67 — cycle 161: STAR SHELLS burst damage 10→20 / PHOSPHOR SHELLS burst
  *  20→10 by tier (swapped, Eric 2026-10-01, amendment 208); FLAK reload
  *  6 → 4 s at tier I (amendment 210); the refit card and tooltips print
@@ -768,7 +772,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 67;
+export const PROTOCOL_VERSION = 68;
 
 // Tunables
 export * from './constants.js';

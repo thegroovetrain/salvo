@@ -1,6 +1,6 @@
 // The SIGNAL REGISTRY — one declarative home per spatial signal (Story 1.1).
 // Every channel that can put per-observer spatial knowledge into a frame is a
-// row here: the 18 GameEvent kinds plus the six contact-like frame channels
+// row here: the 19 GameEvent kinds plus the six contact-like frame channels
 // (`contact`, `mine`, `litzone`, `burnzone`, `decoy` and `smoke` — pseudo event
 // types: not GameEvents, but the invariant suite iterates them like everything
 // else; the RADAR BUOY's `buoy` channel was deleted with the buoy in Story 8.16
@@ -88,6 +88,7 @@ import {
   type MineView,
   type MuzzleEvent,
   type BoonFitEvent,
+  type DropEvent,
   type PointEvent,
   type ShellState,
   type SmokeEvent,
@@ -1898,7 +1899,8 @@ const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
 
 /**
  * SELF-PRIVATE kinds: forwarded ONLY to the ship the event names — dmg
- * (victim), pt (earner), bn (the boon a spend FITTED — Story 2.7), heal (the
+ * (victim), pt (earner), bn (the boon a spend FITTED — Story 2.7), dp (a
+ * consumable a drone kill STOCKED — Eric ruling 2026-10-01), heal (the
  * DAMAGE CONTROL spend — Eric rulings 2026-08-04). Enemy hp, builds, boons,
  * level banks, and repairs all stay hidden by this one gate (levels / boon ids
  * ride ONLY on OwnShip, never on contacts/blips/booms). (The 'upg' row died
@@ -1906,7 +1908,7 @@ const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
  *
  * `spectatorPublic`: dmg alone passes through unfiltered to spectators (they
  * may watch a fight's hp — a dead player has no channel back into the match).
- * pt/bn/heal stay self-private even in UNFOGGED spectator frames: a
+ * pt/bn/dp/heal stay self-private even in UNFOGGED spectator frames: a
  * dead-in-active captain still gets its own level/fit toasts (spending while
  * dead is legal), but no other spectator may learn a living ship's fitted
  * boon, level bank, or that it just repaired. (The 'heal' row LEFT with the
@@ -1914,7 +1916,7 @@ const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
  * DAMAGE CONTROL strip, 2026-08-04, on strictly tighter terms: no hp amount,
  * no total, no victim id, nothing derivable about another ship.)
  */
-function selfPrivateSignal<E extends DamageEvent | PointEvent | BoonFitEvent | HealEvent>(
+function selfPrivateSignal<E extends DamageEvent | PointEvent | BoonFitEvent | DropEvent | HealEvent>(
   kind: E['k'],
   spectatorPublic: boolean,
 ): SignalSpec<E, E> {
@@ -2201,7 +2203,7 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 };
 
 /**
- * String-keyed registry of every signal channel — the 18 GameEvent kinds plus
+ * String-keyed registry of every signal channel — the 19 GameEvent kinds plus
  * the `contact`/`mine`/`litzone`/`burnzone`/`decoy`/`smoke` pseudo-types.
  * perception.ts dispatches world events by `e.k` (an emitted kind with no row
  * is a hard fail-closed drop) and drives the contact/blip/ballistic/mine/
@@ -2239,6 +2241,11 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   dmg: selfPrivateSignal<DamageEvent>('dmg', true),
   pt: selfPrivateSignal<PointEvent>('pt', false),
   bn: selfPrivateSignal<BoonFitEvent>('bn', false),
+  // Drone drops (Eric ruling 2026-10-01): a consumable a drone kill stocked.
+  // The pt/bn terms exactly — killer-only, never a fog exception, and
+  // spectatorPublic FALSE (another ship's belt is a build, and builds stay
+  // hidden).
+  dp: selfPrivateSignal<DropEvent>('dp', false),
   // DAMAGE CONTROL (Eric rulings 2026-08-04): the heal spend's own toast.
   // spectatorPublic FALSE — the pt/bn terms, deliberately NOT dmg's: a heal is
   // an economy act, and "that hull just repaired" must never reach anyone but
@@ -2278,7 +2285,7 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
 
 /**
  * Row lookup for WORLD-EVENT dispatch (perception.forwardedEvents). Resolves
- * ONLY the 18 GameEvent-kind rows. It excludes the contact/mine/litzone
+ * ONLY the 19 GameEvent-kind rows. It excludes the contact/mine/litzone
  * pseudo-rows so a fabricated `k:'mine'` (or `k:'litzone'`) world
  * event can never materialize (restoring the old dispatcher's
  * `default: return null` guarantee), and uses an OWN-property lookup

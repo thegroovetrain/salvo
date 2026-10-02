@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.18.27] - 2026-10-01
+
+### Added
+- **Drone kills drop consumables** — the captain who gets the last hit on a PvE drone rolls for loot: one 50 % roll for a small drone, two for a medium, three for a large (so 0–1 / 0–2 / 0–3 items). Each successful roll stocks one random consumable straight into your belt and shows the usual `◆ <LINE> STOCKED` toast. The pick is drawn from every live consumable you could legally take at that moment: with a full belt you only get more of what you already hold, and a line already at five copies is skipped. Bots get drops by the same rule. (Eric, 2026-10-01.)
+
+### Internal
+- `CONFIG.droneDrops` (`chance: 0.5`, `rolls: { droneSmall: 1, droneMedium: 2, droneLarge: 3 }`). The roll runs in `World.creditKill`'s fleet-hull branch for an afloat participant killer, off a NEW dedicated `dropRng` stream (spawns and refit offers are pinned byte-identical to before); eligibility is the refit card's own `pickRefusal` predicate, re-evaluated per roll; the copy enters through `applyCard`. A new self-private `dp` event (killer only, not a seventh fog exception — the SIX stand) drives the toast, the stock tone and the belt flash without the spend ack.
+- PROTOCOL_VERSION 67 -> 68 (new event kind).
+- Tests: shared 1024 (unchanged; PV pins re-cut), server 2316 -> 2335 (`droneDrops.test.ts`: 19 pins through the real sink path incl. determinism and the untouched spawn/offer streams), client 3761 -> 3765 (`roomBindings.test.ts`: the `dp` handler); hook test 266; lint 0 errors; golden-frame snapshot unchanged.
+- Epic-8 amendments 213–215; GDD roving-fleet bullet; `spec-drone-kill-consumable-drops.md`. How-to-Play is untouched (Eric holds the pen on `[ EXPERIENCE ]`).
+
 ## [0.18.26] - 2026-10-01
 
 ### Changed

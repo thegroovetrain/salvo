@@ -118,6 +118,8 @@ const REGISTRY_KEYS = [
   'torpU',
   'pt',
   'bn',
+  // Drone drops (Eric ruling 2026-10-01) — the killer-private STOCKED receipt.
+  'dp',
   // Story 4.3 — the gunnery conversation's three declared fog exceptions.
   'sp',
   'hc',
@@ -140,9 +142,9 @@ const REGISTRY_KEYS = [
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 24 known channels (18 event kinds + 6 contact-like; Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added; Story 4.12: `wk` added; Story 8.17: `burnzone` added; Story 8.18: `smoke` added)', () => {
+  it('has exactly the 25 known channels (19 event kinds + 6 contact-like; Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added; Story 4.12: `wk` added; Story 8.17: `burnzone` added; Story 8.18: `smoke` added; 2026-10-01: `dp` added)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(24);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(25);
   });
 
   it('every row: eventType matches its registry key, visible/materialize are callable; NO row carries a counterIntel seam any more (Story 7-5 wave 2)', () => {
@@ -1130,7 +1132,7 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
   // kinds. The three contact/mine/litzone pseudo-rows are unreachable from
   // it (a fabricated k:'mine'/'litzone' world event can never
   // materialize), and inherited prototype keys resolve to nothing (Object.hasOwn).
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm'];
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'dp', 'sp', 'hc', 'mz', 'heal', 'sm'];
 
   it('signalFor returns undefined for an unknown kind', () => {
     expect(signalFor('nonexistent')).toBeUndefined();

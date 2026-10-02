@@ -392,7 +392,9 @@ describe('shared barrel', () => {
     // exception count stays SIX.
     // 66 -> 67: STAR SHELLS / PHOSPHOR SHELLS burst bases swapped (star 20,
     // phosphor 10; Eric 2026-10-01, amendment 208). No wire shape moved.
-    expect(PROTOCOL_VERSION).toBe(67);
+    // 67 -> 68: new self-private `dp` GameEvent (a consumable a drone kill
+    // stocked, Eric 2026-10-01). The exception count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(68);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
