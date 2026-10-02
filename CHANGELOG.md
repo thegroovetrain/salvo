@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.31] - 2026-10-02
+
+### Changed
+- **Machine gun re-tuned** — damage 5 / 6 / 6 / 7 / 7 by tier, magazine 12 / 16 / 20 / 24 / 28 shells, 0.30 / 0.25 / 0.20 / 0.15 / 0.10 s between shots, and a 12 s reload at tier I that shortens 5 % per tier (9.6 s at V). Was 4 to 8 damage, 16 to 24 shells, 0.35 to 0.20 s and a 10 s reload. A tier-I stream now pops a 10 hp mine in two shells. (Eric, 2026-10-02.)
+- **Cannon re-tuned** — damage 15 / 16 / 17 / 19 / 20 by tier, and barrels 1 / 2 / 2 / 3 / 3: the second barrel arrives at tier II and a third at tier IV (it was a single second barrel at tier V). A fully upgraded cannon lands 3 x 20 = 60 hp in one click, so it takes a 45 hp small drone in one click again; Eric accepted this.
+- **Flak re-tuned** — damage 12 / 20 / 28 / 36 / 44 by tier (a flat +8 per tier) and a 3.5 s reload at tier I that shortens 5 % per tier (2.8 s at V). Turret count (1 / 1 / 2 / 2 / 3) and the 50 u blast are unchanged.
+- **How to Play, flak line** — now reads "Faster reload and a larger blast radius than the Cannon; its damage climbs steeply with tier." The stat tables are derived and show the new numbers on their own.
+
+### Internal
+- PROTOCOL_VERSION 69 -> 70 (catalog content and `CONFIG.machineGun` / `CONFIG.flak` values the client reads). `CONFIG` moves: `machineGun` maxAmmo 16 -> 12, rateMs 350 -> 300, reloadMs 10000 -> 12000, damage 4 -> 5; `flak.reloadMs` 4000 -> 3500. The ladders are authored per rung in the catalog so every table lands exactly on Eric's integers (the machine gun's rungs to III and V carry no damage step).
+- Epic-8 amendments 232–233; `spec-deck-gun-numbers-retune.md`.
+- Tests: see gate
+
 ## [0.18.30] - 2026-10-02
 
 ### Changed

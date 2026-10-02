@@ -121,10 +121,10 @@ export const EQUIPMENT_STAT_FIELDS = {
   // what is addressable in principle, not what a card writes today.
   foulingMines: ['reloadMs', 'maxAmmo', 'damage', 'blastRadius', 'slowFactor'],
   // THE TWO PICKABLE GUNS (Story 8.15, amendments 103–105). The MACHINE GUN
-  // ladder steps the magazine (+2), the per-shell damage (+1) and the shot
-  // delay (`rateMs` −40/−40/−40/−30 ms, Eric 2026-09-30); the FLAK
-  // ladder steps damage (+2). `flak.burstRadius` and `flak.contactDamage`
-  // are deliberately ABSENT: the blast is FIXED by ruling (amendment 105) and
+  // ladder steps the magazine (+4), the per-shell damage (+1 on the rungs to
+  // II and IV) and the shot delay (`rateMs` −50 ms × 4, 300 → 100 ms; Eric
+  // 2026-10-02, amendment 232); the FLAK ladder steps damage (+8).
+  // `flak.burstRadius` and `flak.contactDamage` are deliberately ABSENT: the blast is FIXED by ruling (amendment 105) and
   // the 4 hp bodyblock is a CONFIG constant, and this table is the authoring
   // gate — the captive's fixed-burst precedent (both still flow CONFIG ->
   // stats row as pass-throughs; a harness `--tune flak.*` reaches CONFIG).
@@ -156,8 +156,8 @@ export const EQUIPMENT_STAT_FIELDS = {
  */
 // `damage` and `contactDamage` are integers too (Eric 2026-09-17, epic-8
 // amendment 39): a shell NEVER deals a fractional hit point. The deck-gun
-// ladder accumulates +1.25 per tier and the floor lands it on Eric's own scale
-// 15 → 16 → 17 → 18 → 20.
+// ladder now steps whole numbers per rung (+1, +1, +2, +1 → 15 / 16 / 17 /
+// 19 / 20, Eric 2026-10-02, amendment 232), so the floor is a no-op on it.
 export const EQUIPMENT_INT_FIELDS: readonly string[] = ['maxAmmo', 'barrels', 'turrets', 'damage', 'contactDamage'];
 
 /**

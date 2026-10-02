@@ -999,9 +999,10 @@ export const CONFIG = {
     // hard. HEAVY SHELLS ×5 (+3/card) used to top the ladder at 30; that CARD
     // IS GONE (`gunDamage`, deleted in Story 7-5 wave 1 — Eric: *"The gun is
     // absurdly powerful and does not need damage bonuses"*), so 15 is now the
-    // gun's damage at every build. Note the knock-on: a max-stacked TRIPLE
-    // MOUNT click is now 3 × 15 = 45, exactly the 45hp small drone rather than
-    // double it (damageGuardrail.test carries the margin note).
+    // gun's BASE damage. Since 2026-10-02 (Eric, epic-8 amendment 232) the
+    // `deckGun` ladder steps it +1/+1/+2/+1 to 20 at tier V with 3 barrels, so
+    // the max cannon click is 3 × 20 = 60 — the 45hp small drone one-clicks
+    // again, an ACCEPTED consequence (damageGuardrail.test pins the ceiling).
     damage: 15,
     // hp to an early interceptor outside the blast (bodyblock). RETUNED 10 → 6
     // (Eric ruling 2026-08-04, weapon balance pass) — held at 40% of `damage`,
@@ -1033,30 +1034,31 @@ export const CONFIG = {
    * cancels it and it restarts from the full time when the stream stops
    * again; an EMPTY magazine's reload cannot be interrupted; a completed
    * reload always FILLS the magazine (amendment 103: every reload takes the
-   * full time — 10 s at tier I since 2026-09-30).
+   * full time — 12 s at tier I since 2026-10-02, amendment 232).
    *
    * DIRECT-HIT SHELLS WITH NO BURST: a shell that strikes a hull deals `damage`
    * on contact; a shell reaching its aim point simply EXPIRES (the shooter's
    * `sp` splash, no `burst` event). A shell that arrives within
    * `mine.hitRadiusU` of a mine deals its `damage` to the mine's hp (amendment
-   * 200 — three tier-I shells pop one); a shell in flight never touches a mine
+   * 200 — two tier-I shells pop one since 2026-10-02, amendment 232); a shell in flight never touches a mine
    * (amendment 20), and one spent on a hull on the way never arrives. NO
    * `burstRadius` and NO range field: range is DERIVED = the radar rung
    * (660 u, re-pinned in effectiveStats like `gun.rangeU`; Eric: "set the
    * Machine Gun range to 660"). 360° (amendment 106: "There
-   * is no 'arc.'"). Its ladder (+2 shells, +1 damage and −40/−40/−40/−30 ms
-   * of shot delay per tier — 0.35 → 0.20 s, Eric 2026-09-30 — and −5 % reload
-   * from the tier step) is the `machineGun` catalog line. Every number is a
-   * harness dial.
+   * is no 'arc.'"). Its ladder (+4 shells and −50 ms of shot delay per tier,
+   * +1 damage on the rungs to II and IV only — magazine 12/16/20/24/28,
+   * damage 5/6/6/7/7, delay 0.30 → 0.10 s, Eric 2026-10-02, epic-8 amendment
+   * 232 — and −5 % reload from the tier step) is the `machineGun` catalog
+   * line. Every number is a harness dial.
    */
   machineGun: {
     arc: 'full', // 360° — amendment 106
     hits: HITS_HULL_MINE_DECOY, // direct hit, no burst; a mine it ARRIVES on takes its damage (amendment 200)
     shellSpeed: 500, // u/s — the gun family's muzzle velocity (amendment 103)
-    maxAmmo: 16, // shells — the MAGAZINE at tier I (amendment 103)
-    rateMs: 350, // ms — one shell per 0.35 s while held at tier I (Eric 2026-09-30; was 500, amendment 103)
-    reloadMs: 10000, // ms — the full-magazine reload, always the whole 10 s at tier I (Eric 2026-09-30; was 15 s)
-    damage: 4, // hp per shell (amendment 103)
+    maxAmmo: 12, // shells — the MAGAZINE at tier I (Eric 2026-10-02, amendment 232; was 16)
+    rateMs: 300, // ms — one shell per 0.30 s while held at tier I (Eric 2026-10-02, amendment 232; was 350, earlier 500)
+    reloadMs: 12000, // ms — the full-magazine reload, always the whole 12 s at tier I (Eric 2026-10-02, amendment 232; was 10 s, earlier 15 s)
+    damage: 5, // hp per shell (Eric 2026-10-02, amendment 232; was 4) — two tier-I shells pop a 10 hp mine
     shellRadius: 2, // u — shell collision radius (the gun family's)
   },
 
@@ -1076,7 +1078,8 @@ export const CONFIG = {
    * in flight inside the blast) is a SIDE EFFECT that might go away
    * (amendment 105) — nothing in the design, copy or balance may lean on it.
    * `mine`, as for every deck gun, is by LANDING on it only (amendment 200).
-   * Its ladder (+2 damage, −5 % reload per tier, blast FIXED) is the `flak`
+   * Its ladder (damage +8 per tier → 12/20/28/36/44, Eric 2026-10-02,
+   * epic-8 amendment 232; −5 % reload per tier; blast FIXED) is the `flak`
    * catalog line.
    * Every number is a harness dial.
    */
@@ -1085,11 +1088,11 @@ export const CONFIG = {
     hits: HITS_HULL_MINE_DECOY_ORDNANCE, // AR44 / amendment 96(f)
     shellSpeed: 500, // u/s (amendment 105)
     maxAmmo: 1, // one shell (amendment 105)
-    reloadMs: 4000, // ms (6 s → 4 s, Eric 2026-10-01, epic-8 amendment 210; was amendment 105's 6 s) — the −5 %/tier step runs it to 3.2 s at V
+    reloadMs: 3500, // ms (4 s → 3.5 s, Eric 2026-10-02, epic-8 amendment 232; was 6 s → 4 s, amendment 210; amendment 105's 6 s before) — the −5 %/tier step runs it to 2.8 s at V
     damage: 12, // hp per burst victim (amendment 105)
     // hp to an early interceptor — a FIXED 4 hp bodyblock, derived ONCE from
     // the base damage (floor(40 % × 12), like `gun.contactDamage`) and NOT
-    // re-derived per tier: the ladder's +2 damage never moves it.
+    // re-derived per tier: the ladder's damage steps never move it.
     contactDamage: 4,
     burstRadius: 50, // u — FIXED; the ladder never grows it (amendment 105)
     shellRadius: 2, // u — shell collision radius (the gun family's)
@@ -1328,7 +1331,8 @@ export const CONFIG = {
     // SERVER-SIDE ONLY, never on the wire (Eric 2026-10-01, amendment 200).
     // Only a DECK GUN shell (cannon, flak, machine gun) that LANDS on the mine
     // takes them, for the shell's full damage: cannon and flak pop one in a
-    // single shell, the machine gun needs three at tier I. Nothing else ever
+    // single shell, the machine gun needs two at every tier (5..7 hp a shell,
+    // amendment 232). Nothing else ever
     // damages a mine. At 0 a naval/fouling mine detonates; a captive is
     // destroyed (a boom, no blast, no fish).
     hp: 10,

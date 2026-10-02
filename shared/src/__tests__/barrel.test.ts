@@ -401,7 +401,13 @@ describe('shared barrel', () => {
     // CONFIG. The exception count stays SIX. 68 -> 69 (cycle 163): the new
     // self-private `dp` GameEvent (a consumable a drone kill stocked, Eric
     // 2026-10-01). The exception count still stays SIX.
-    expect(PROTOCOL_VERSION).toBe(69);
+    // 69 -> 70 (cycle 166): catalog content — the three deck-gun ladders
+    // re-authored to Eric's 2026-10-02 tables (amendment 232: cannon barrels
+    // at II and IV, damage 15/16/17/19/20; machine gun +4 shells / -50 ms,
+    // damage 5/6/6/7/7; flak damage 12/20/28/36/44) and CONFIG.machineGun /
+    // CONFIG.flak.reloadMs, which the client reads. No wire shape moved; the
+    // exception count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(70);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -867,7 +873,7 @@ describe('shared barrel', () => {
   });
 
   it("CONFIG.mine carries Eric's mine hp and the one 'on the mine' radius (amendments 200/201)", () => {
-    expect(CONFIG.mine.hp).toBe(10); // cannon/flak pop in one, the tier-I machine gun in three
+    expect(CONFIG.mine.hp).toBe(10); // cannon/flak pop in one, the machine gun in two (amendment 232)
     expect(CONFIG.mine.hitRadiusU).toBe(10); // = the client's drawn marker ring
   });
 
@@ -1118,14 +1124,15 @@ describe('shared barrel', () => {
     expect(classShift('torpedoBoat')).toBe('boost');
     expect(classShift('mineLayer')).toBe('instantReload');
     expect(classShift('battleship')).toBe('damageCut');
-    // Eric's numbers, verbatim (amendments 97, 99, 103, 105).
+    // Eric's numbers, verbatim (amendments 97, 99, 103, 105; the machine gun
+    // and the flak reload as of 2026-10-02, amendment 232).
     expect(CONFIG.machineGun).toEqual({
-      arc: 'full', hits: ['hull', 'mine', 'decoy'], shellSpeed: 500, maxAmmo: 16, rateMs: 350,
-      reloadMs: 10000, damage: 4, shellRadius: 2,
+      arc: 'full', hits: ['hull', 'mine', 'decoy'], shellSpeed: 500, maxAmmo: 12, rateMs: 300,
+      reloadMs: 12000, damage: 5, shellRadius: 2,
     });
     expect(CONFIG.flak).toEqual({
       arc: 'full', hits: ['hull', 'mine', 'decoy', 'ordnance'], shellSpeed: 500, maxAmmo: 1,
-      reloadMs: 4000, damage: 12, contactDamage: 4, burstRadius: 50, shellRadius: 2, // 6000 → 4000, amendment 210
+      reloadMs: 3500, damage: 12, contactDamage: 4, burstRadius: 50, shellRadius: 2, // 4000 → 3500, amendment 232
     });
     expect(CONFIG.instantReload).toEqual({ maxAmmo: 1, reloadMs: 45000 });
     expect(CONFIG.damageCut).toEqual({ factor: 0.5, durationMs: 8000, maxAmmo: 1, reloadMs: 30000 });
