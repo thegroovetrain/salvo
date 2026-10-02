@@ -299,6 +299,13 @@ export interface BotMind {
    *  in every hand-built test mind — only the controller's enroll ever sets
    *  it, and only when the harness set BotController.spend first. */
   spendRandom?: boolean;
+  /** GUN-FIRST SPEND OVERRIDE (balance campaign, 2026-10-01) — the
+   *  `spendRandom` sibling, stamped at enroll from BotController.spend ===
+   *  'gun' (batch-sim `--bot-spend gun` only). A weighted row keeps its whole
+   *  temperament; its card pick takes the mounted gun's ladder card whenever
+   *  the hand deals it, else the shipped weighted scorer. OPTIONAL, absent =
+   *  false on every production path and hand-built test mind. */
+  spendGunFirst?: boolean;
   /** Deliberation-stagger slot in [0, cadenceTicks) — botPhase(id,
    *  cadenceTicks). Staggers DECISION work, never perception. */
   phase: number;

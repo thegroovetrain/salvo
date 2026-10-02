@@ -114,9 +114,11 @@ export interface BotProfile {
    * the offer off the mind's decorrelated spendRng stream, for the
    * blind-vacuum test rows only. The heal rule is NOT randomized in either
    * mode (Eric ruling: card pick only), so damage control never becomes a
-   * confound in the survival data.
+   * confound in the survival data. 'gunFirst' — HARNESS-ONLY (batch-sim
+   * `--bot-spend gun`, never a shipped row): take the mounted gun's ladder
+   * card whenever the hand deals it, else the 'weighted' scorer.
    */
-  spend: 'weighted' | 'random';
+  spend: 'weighted' | 'random' | 'gunFirst';
   /** The build taste the 'weighted' scorer reads (see BotTaste). */
   taste: BotTaste;
   /** Preferred engagement band, as fractions of the bot's own intel range —

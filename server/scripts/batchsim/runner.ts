@@ -87,8 +87,9 @@ export interface RunSpec {
   /** SPEND MODE (balance campaign, 2026-08-24): 'random' makes every rolled
    *  in-game profile keep its temperament but pick cards uniformly at random
    *  (BotController.spend — the engage-gate seam's sibling). Default
-   *  undefined = 'profile', the shipped weighted policy, byte-identical. */
-  botSpend?: 'profile' | 'random';
+   *  undefined = 'profile', the shipped weighted policy, byte-identical.
+   *  'gun' takes the mounted gun's ladder card whenever dealt, else weighted. */
+  botSpend?: 'profile' | 'random' | 'gun';
   /** Force every rolled-path bot's hull (mono-class arms with tuned
    *  temperaments); personalities still roll among all six (Story 8.20: any
    *  personality on any hull). args.ts

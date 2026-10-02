@@ -41,7 +41,7 @@ export interface CliOptions {
    *  weighted policy) | 'random' — rolled IN-GAME profiles keep their whole
    *  temperament but pick cards uniformly at random, the tuned-profile
    *  instance of the blind-vacuum measurement design. */
-  botSpend: 'profile' | 'random';
+  botSpend: 'profile' | 'random' | 'gun';
   /** FORCED HULL for every bot on the ROLLED-profile path (mono-class arms
    *  with tuned temperaments): each bot still rolls an in-game profile for
    *  that hull. Null = the roster policy deals as usual. */
@@ -122,7 +122,9 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
   --bot-spend MODE   'profile' (default; the shipped weighted boon policy) or
                      'random': rolled in-game profiles keep their temperament
                      but pick cards uniformly at random (tuned-profile
-                     instance of the randomized-pick measurement design)
+                     instance of the randomized-pick measurement design), or
+                     'gun': take the mounted gun's ladder card whenever the
+                     hand deals it, else the weighted policy (reaches tier V)
   --bot-hull CLASS   force every rolled-path bot onto one hull
                      (${SHIP_CLASS_IDS.join(' | ')}); personalities still roll
                      among all six, as on any hull. Mono-class arms with tuned
@@ -262,8 +264,8 @@ const VALUE_FLAGS: Record<string, ValueHandler> = {
     o.botEngage = v;
   },
   '--bot-spend': (o, v) => {
-    if (v !== 'profile' && v !== 'random') {
-      throw new UsageError(`--bot-spend: expected 'profile' or 'random', got '${v}'`);
+    if (v !== 'profile' && v !== 'random' && v !== 'gun') {
+      throw new UsageError(`--bot-spend: expected 'profile', 'random' or 'gun', got '${v}'`);
     }
     o.botSpend = v;
   },
