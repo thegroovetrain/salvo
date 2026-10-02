@@ -8,13 +8,16 @@
 // (placeholder `OPTIONAL`) or, for everyone else, the seed text as typed
 // (ruling 9: every player sees it), and `BOT-FILL` then the host's `YES` |
 // `NO` chips (exactly one lit) or the status word; `N/20 ABOARD`; TWENTY slots,
-// two columns of ten, filled left to right then top to bottom in join order,
-// each a circle (phosphor when ready, denied red when not) and the callsign;
-// `STARTS IN m:ss` while the server's countdown runs; `READY` / `UNREADY`,
-// `LEAVE` (ESC too) and, for the host, `START NOW` — which ARMS the server's
-// countdown, so it is disabled while one runs, and while ineligible with `2
-// CAPTAINS OR BOT-FILL REQUIRED` under the row (ruling 2). lobbyModal.test.ts
-// pins the whole text.
+// two columns of ten, each captain at the server's STICKY slot (Eric R2: a
+// leaver's slot stays empty, names never move), each a circle (phosphor when
+// ready, denied red when not) and the callsign; `STARTS IN m:ss` while the
+// server's countdown runs; `READY` / `UNREADY`, `LEAVE` (ESC too) and, for the
+// host, `START NOW` — which FORCES the countdown, so it is lit with no count and
+// during an all-ready one, and dim once forced (Eric R3), and dim while
+// ineligible with `2 CAPTAINS OR BOT-FILL REQUIRED` under the row (ruling 2).
+// Once the lobby has FORMED (phase 'started', waiting for the seat) every
+// control but LEAVE is dead and STARTS IN keeps its last text.
+// lobbyModal.test.ts pins the whole text.
 //
 // ONE FIXED GEOMETRY (ui/lobbyLayout.ts): nothing here may resize the panel.
 // HOST CONTROLS EXIST ONLY FOR THE HOST — built into their fixed boxes when
@@ -80,9 +83,17 @@ export function startEligible(v: LobbyView): boolean {
   return v.players.length >= 2 || v.botFill;
 }
 
-/** START NOW arms the server's countdown, so it is dead while one runs. */
+/**
+ * Eric R3: START NOW forces the countdown — lit with no countdown and during an
+ * all-ready one, dim once forced, and dead once the lobby has formed.
+ */
 export function startEnabled(v: LobbyView): boolean {
-  return startEligible(v) && !(v.countdownEndT > 0);
+  return startEligible(v) && v.phase === 'open' && !(v.countdownEndT > 0 && v.forced);
+}
+
+/** Has the lobby formed? Then only LEAVE stays live. */
+function lobbyOpen(v: LobbyView | null): boolean {
+  return v === null || v.phase === 'open';
 }
 
 export const START_BLOCKED = '2 CAPTAINS OR BOT-FILL REQUIRED';
@@ -205,12 +216,21 @@ function paintBotFillChips(h: HostEls, on: boolean): void {
   paintChip(h.no, !on);
 }
 
+/** START NOW and the reason line, read with the host's pending BOT-FILL choice. */
+function paintStart(m: Mounted, h: HostEls, v: LobbyView): void {
+  const intended = { ...v, botFill: shownBotFill(h) };
+  setButtonEnabled(h.start, startEnabled(intended));
+  paintSlot(m.reason, startEligible(intended) ? '' : START_BLOCKED);
+}
+
 /** YES / NO: choosing the lit chip sends nothing; the other sends its value. */
 function chooseBotFill(h: HostEls, actions: LobbyActions, on: boolean): void {
   if (shownBotFill(h) === on) return;
   h.wantBotFill = on;
   actions.onBotFill(on);
   paintBotFillChips(h, on);
+  const m = mounted;
+  if (m?.view) paintStart(m, h, m.view);
 }
 
 function makeHostEls(actions: LobbyActions): HostEls {
@@ -234,8 +254,9 @@ function paintHost(m: Mounted, h: HostEls, v: LobbyView): void {
   if (document.activeElement !== h.seed) h.seed.value = v.seedText;
   if (h.wantBotFill === v.botFill) h.wantBotFill = null; // the lobby caught up
   paintBotFillChips(h, h.wantBotFill ?? v.botFill);
-  setButtonEnabled(h.start, startEnabled(v));
-  paintSlot(m.reason, startEligible(v) ? '' : START_BLOCKED);
+  setButtonEnabled(h.yes, lobbyOpen(v));
+  setButtonEnabled(h.no, lobbyOpen(v));
+  paintStart(m, h, v);
 }
 
 function paintGuest(m: Mounted, g: GuestEls, v: LobbyView): void {
@@ -271,9 +292,9 @@ function paintCountdown(m: Mounted): void {
   paintSlot(m.countdown, lobbyCountdownLine(m.view?.deadlineAt ?? null, Date.now()));
 }
 
-/** The local repaint tick exists only while a countdown stands. */
+/** The local repaint tick exists only while a countdown stands in an open lobby. */
 function retick(m: Mounted): void {
-  const counting = (m.view?.deadlineAt ?? null) !== null;
+  const counting = (m.view?.deadlineAt ?? null) !== null && lobbyOpen(m.view);
   if (counting && m.tick === null) m.tick = setInterval(() => paintCountdown(m), TICK_MS);
   else if (!counting && m.tick !== null) {
     clearInterval(m.tick);
@@ -297,17 +318,18 @@ function paintReady(m: Mounted): void {
 }
 
 function toggleReady(m: Mounted): void {
-  if (m.view === null) return;
+  if (m.view === null || !lobbyOpen(m.view)) return;
   const next = !shownReady(m);
   m.wantReady = next;
   m.actions.onReady(next);
   paintReady(m);
 }
 
-/** Join order fills slot 1, 2, 3 … = r1c1, r1c2, r2c1 …; the rest stay empty. */
+/** Each captain at the server's sticky slot (r1c1, r1c2, r2c1 …); the rest stay empty. */
 function paintRoster(m: Mounted, v: LobbyView): void {
   m.aboard.textContent = aboardLine(v.players.length);
-  m.slots.forEach((s, i) => paintSlotEls(s, v.players[i]));
+  const bySlot = new Map(v.players.map((p) => [p.slot, p]));
+  m.slots.forEach((s, i) => paintSlotEls(s, bySlot.get(i)));
 }
 
 function mountParts(
@@ -378,7 +400,9 @@ export function updateLobbyModal(v: LobbyView): void {
   if (m.guest !== null) paintGuest(m, m.guest, v);
   if (m.wantReady === myReady(v)) m.wantReady = null; // the lobby caught up
   paintReady(m);
-  paintCountdown(m);
+  setButtonEnabled(m.ready, lobbyOpen(v));
+  // Formed: the server has cleared the count — STARTS IN keeps its last text.
+  if (lobbyOpen(v)) paintCountdown(m);
   retick(m);
 }
 

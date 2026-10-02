@@ -17,6 +17,10 @@
 //     duration if the rest are all ready and still eligible, else it stops.
 //   - Host = the longest-present captain (lowest join sequence) when the host
 //     leaves (ruling 6).
+//   - SEATING (Eric 2026-10-02): a joiner takes the LOWEST free slot (0..cap-1,
+//     the 2x10 grid read left to right, top to bottom); a leave leaves its slot
+//     empty; a seated captain's slot never changes. Slot is display order
+//     only — host succession and arena seat order still follow joinSeq.
 //   - The host's START NOW ARMS the same countdown, FORCED (Eric 2026-10-02:
 //     START NOW "triggers the countdown, not an instant teleport into game").
 //     A forced count runs regardless of ready status: un-ready, a late join
@@ -33,6 +37,9 @@ export interface LobbyCaptain {
   ready: boolean;
   /** Monotonic per lobby: the order captains arrived in (host succession). */
   joinSeq: number;
+  /** Grid slot (Eric 2026-10-02): the lowest free one at join, held until
+   *  the captain leaves — names never move once seated. */
+  slot: number;
 }
 
 /** What one evaluation step asks the adapter to do. */
@@ -69,7 +76,7 @@ export class LobbyPolicy {
   /** A captain boards. The first one is host. Cancels a running all-ready
    *  count; a forced count carries the newcomer along. */
   onJoin(id: string, name: string): LobbyCaptain {
-    const captain: LobbyCaptain = { id, name, ready: false, joinSeq: this.seq++ };
+    const captain: LobbyCaptain = { id, name, ready: false, joinSeq: this.seq++, slot: this.lowestFreeSlot() };
     this.captains.set(id, captain);
     if (this.hostId === '') this.hostId = id;
     if (!this.forced) this.clearCount();
@@ -148,6 +155,20 @@ export class LobbyPolicy {
   /** Captains in join order — the order seats are reserved in. */
   inJoinOrder(): LobbyCaptain[] {
     return [...this.captains.values()].sort((a, b) => a.joinSeq - b.joinSeq);
+  }
+
+  /** Captains in grid-slot order (left to right, top to bottom). */
+  inSlotOrder(): LobbyCaptain[] {
+    return [...this.captains.values()].sort((a, b) => a.slot - b.slot);
+  }
+
+  /** The lowest slot no captain aboard holds (a leave's slot is reused). */
+  private lowestFreeSlot(): number {
+    const taken = new Set<number>();
+    for (const c of this.captains.values()) taken.add(c.slot);
+    let slot = 0;
+    while (taken.has(slot)) slot += 1;
+    return slot;
   }
 
   /** Stop any running count, forced or not. */

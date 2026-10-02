@@ -10,6 +10,7 @@
 //      1. the host creates a lobby and reads its 6-letter code off the schema;
 //         a bogus code resolves 404 NO SUCH LOBBY;
 //      2. a guest resolves the code typed in LOWERCASE -> roomId, joinById;
+//         both clients see the host in slot 0 and the guest in slot 1;
 //      3. both READY -> countdownEndT > 0; the guest UNREADY -> 0; READY again;
 //      4. the countdown fires: both receive MSG.seat; the old code now answers
 //         409 MATCH STARTED (the lobby lingers);
@@ -180,7 +181,15 @@ async function proveCreateAndJoin(a) {
   const lobby = await client.joinById(ok.body.roomId, joinOptions('BRAVO'));
   const b = track('BRAVO', client, lobby);
   await waitFor(() => a.lobby.state.players.size === 2 && b.lobby.state?.players?.size === 2, 5000, 'both rosters show 2');
-  return { b, line: `code ${code}; bogus -> 404 NO SUCH LOBBY; '${code.toLowerCase()}' -> roomId ${ok.body.roomId}; both rosters 2/${CAP}` };
+  // Seating (Eric 2026-10-02): the server assigns the lowest free slot, so
+  // BOTH clients — including the joiner, who got the full state at once —
+  // see the host in slot 0 and the joiner in slot 1.
+  for (const view of [a, b]) {
+    const host = view.lobby.state.players.get(a.lobby.sessionId);
+    const guest = view.lobby.state.players.get(b.lobby.sessionId);
+    assert(host?.slot === 0 && guest?.slot === 1, `${view.name} sees slots host=${host?.slot} joiner=${guest?.slot} (want 0/1)`);
+  }
+  return { b, line: `code ${code}; bogus -> 404 NO SUCH LOBBY; '${code.toLowerCase()}' -> roomId ${ok.body.roomId}; both rosters 2/${CAP}; host slot 0 + joiner slot 1 on both clients` };
 }
 
 async function proveReadyCountdown(a, b) {

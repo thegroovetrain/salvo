@@ -12,6 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { LobbyCaptain, LobbyView } from '../net/lobby.js';
+import { LAYOUT } from '../ui/lobbyLayout.js';
 import { LOBBY_SEED_DEBOUNCE_MS } from '../config.js';
 import {
   aboardLine,
@@ -21,6 +22,7 @@ import {
   lobbyModalVisible,
   showLobbyModal,
   startEligible,
+  startEnabled,
   updateLobbyModal,
   type LobbyActions,
 } from '../ui/lobbyModal.js';
@@ -37,14 +39,14 @@ function view(over: Partial<LobbyView> = {}): LobbyView {
     countdownEndT: 0,
     deadlineAt: null,
     forced: false,
-    players: [{ id: 'me', name: 'NEMO', ready: false }],
+    players: [{ id: 'me', name: 'NEMO', ready: false, slot: 0 }],
     phase: 'open',
     ...over,
   };
 }
 
 function captains(n: number): LobbyCaptain[] {
-  return Array.from({ length: n }, (_, i) => ({ id: i === 0 ? 'me' : `c${i}`, name: `CAPT${i + 1}`, ready: i % 2 === 0 }));
+  return Array.from({ length: n }, (_, i) => ({ id: i === 0 ? 'me' : `c${i}`, name: `CAPT${i + 1}`, ready: i % 2 === 0, slot: i }));
 }
 
 function actions(): LobbyActions & Record<string, ReturnType<typeof vi.fn>> {
@@ -167,8 +169,8 @@ describe('the whole rendered text', () => {
         countdownEndT: 5,
         deadlineAt: NOW + 9_000,
         players: [
-          { id: 'h', name: 'AHAB', ready: true },
-          { id: 'me', name: 'NEMO', ready: true },
+          { id: 'h', name: 'AHAB', ready: true, slot: 0 },
+          { id: 'me', name: 'NEMO', ready: true, slot: 1 },
         ],
       }),
     );
@@ -190,7 +192,7 @@ describe('the whole rendered text', () => {
 
   it("a NON-HOST sees bot-fill's status as YES, and a blank seed as nothing", () => {
     showLobbyModal(actions());
-    updateLobbyModal(view({ hostId: 'h', botFill: true, players: [{ id: 'h', name: 'AHAB', ready: false }, ...captains(1)] }));
+    updateLobbyModal(view({ hostId: 'h', botFill: true, players: [{ id: 'h', name: 'AHAB', ready: false, slot: 0 }, { ...captains(1)[0], slot: 1 }] }));
     expect(rendered()).toEqual(['LOBBY', 'CODE QWERTY', 'SEED', 'BOT-FILL', 'YES', '2/20 ABOARD', 'AHAB', 'CAPT1', 'UNREADY', 'LEAVE']);
   });
 
@@ -202,14 +204,51 @@ describe('the whole rendered text', () => {
 });
 
 describe('fixed geometry (Eric: "the modal changes size … poor attention to detail")', () => {
-  it('the panel is 600 × 700 px and the grid 536 × 294 px', () => {
+  it('the panel is 600 × 598 px (Eric R1: fits a 768-tall laptop) and the grid 544 × 236 px', () => {
     showLobbyModal(actions());
     updateLobbyModal(view());
     const panel = role('panel')[0];
     expect(panel.style.width).toBe('600px');
-    expect(panel.style.height).toBe('700px');
-    expect(role('grid')[0].style.width).toBe('536px');
-    expect(role('grid')[0].style.height).toBe('294px');
+    expect(parseInt(panel.style.height, 10)).toBeLessThanOrEqual(620);
+    expect(panel.style.height).toBe('598px');
+    expect(role('grid')[0].style.width).toBe('544px');
+    expect(role('grid')[0].style.height).toBe('236px');
+  });
+
+  // R1 + review: the shared shell's max-width/max-height:100% and overflow-y:auto
+  // could clamp the fixed panel and scroll it. They are overridden.
+  it('the panel can never be clamped by the shell or scrolled', () => {
+    showLobbyModal(actions());
+    updateLobbyModal(view());
+    const panel = role('panel')[0];
+    expect(panel.style.maxHeight).toBe('none');
+    expect(panel.style.maxWidth).toBe('none');
+    expect(panel.style.overflow).toBe('hidden');
+    expect(panel.style.overflowY).toBe('hidden');
+  });
+
+  it('every reserved region + the gaps + the padding sum to exactly the panel height', () => {
+    showLobbyModal(actions());
+    updateLobbyModal(view());
+    const panel = role('panel')[0];
+    const kids = [...panel.children] as HTMLElement[];
+    const regions = kids.reduce((sum, el) => sum + parseInt(el.style.height, 10), 0);
+    const total = regions + (kids.length - 1) * parseInt(panel.style.gap, 10) + 2 * LAYOUT.padV;
+    expect(panel.style.padding).toBe(`${LAYOUT.padV}px ${LAYOUT.padH}px`);
+    expect(total).toBe(LAYOUT.panelH);
+    expect(panel.style.height).toBe(`${LAYOUT.panelH}px`);
+    // The same sum from the exported budget alone.
+    const budget =
+      LAYOUT.lineH.heading +
+      LAYOUT.lineH.notice +
+      LAYOUT.lineH.code +
+      LAYOUT.optionsH +
+      LAYOUT.lineH.aboard +
+      LAYOUT.gridH +
+      LAYOUT.lineH.countdown +
+      LAYOUT.buttonH +
+      LAYOUT.lineH.reason;
+    expect(budget + 8 * LAYOUT.gap + 2 * LAYOUT.padV).toBe(LAYOUT.panelH);
   });
 
   it('every sized region is identical across roster size, role, bot-fill, countdown and seed length', () => {
@@ -228,7 +267,7 @@ describe('fixed geometry (Eric: "the modal changes size … poor attention to de
     ];
     updateLobbyModal(states[0]);
     const first = geometry();
-    expect(first).toContain('panel=600pxx700px');
+    expect(first).toContain('panel=600pxx598px');
     for (const v of states) {
       updateLobbyModal(v);
       expect(geometry()).toBe(first);
@@ -264,11 +303,12 @@ describe('the slot grid', () => {
     updateLobbyModal(view({ hostId: 'c1', players: captains(2) }));
     expect(role('slot').length).toBe(20);
     const grid = role('grid')[0];
-    expect(grid.style.gridTemplateColumns).toBe('repeat(2, 256px)');
-    expect(grid.style.gridTemplateRows).toBe('repeat(10, 24px)');
+    expect(grid.style.gridTemplateColumns).toBe('repeat(2, 260px)');
+    expect(grid.style.gridTemplateRows).toBe('repeat(10, 20px)');
+    expect(grid.style.rowGap).toBe('4px');
   });
 
-  it('fills left to right, top to bottom in join order', () => {
+  it('slot i is row floor(i/2)+1, column i%2+1 (left to right, top to bottom)', () => {
     showLobbyModal(actions());
     updateLobbyModal(view({ players: captains(3) }));
     const slots = role('slot');
@@ -280,13 +320,48 @@ describe('the slot grid', () => {
     expect(at(19)).toBe('10/2:');
   });
 
+  // Eric R2: "Leave the slot empty; next joiner fills the first empty slot —
+  // names never move once seated." The slot is the server's, not array order.
+  it("places each captain by the server's slot; the other 17 stay empty", () => {
+    showLobbyModal(actions());
+    updateLobbyModal(
+      view({
+        players: [
+          { id: 'me', name: 'NEMO', ready: true, slot: 0 },
+          { id: 'b', name: 'AHAB', ready: false, slot: 2 },
+          { id: 'c', name: 'ISHMAEL', ready: true, slot: 5 },
+        ],
+      }),
+    );
+    const slots = role('slot');
+    const at = (i: number): string => `${slots[i].style.gridRow}/${slots[i].style.gridColumn}:${slots[i].textContent}`;
+    expect(at(0)).toBe('1/1:NEMO');
+    expect(at(2)).toBe('2/1:AHAB');
+    expect(at(5)).toBe('3/2:ISHMAEL');
+    const filled = slots.map((s, i) => (s.textContent === '' ? -1 : i)).filter((i) => i >= 0);
+    expect(filled).toEqual([0, 2, 5]);
+    expect(role('dot').filter((d) => d.dataset.state === 'empty').length).toBe(17);
+    expect(rendered()).toContain('3/20 ABOARD');
+  });
+
+  it('a vacated slot renders empty — nobody below it moves up', () => {
+    showLobbyModal(actions());
+    updateLobbyModal(view({ players: captains(3) }));
+    updateLobbyModal(view({ players: [captains(3)[0], captains(3)[2]] })); // slot 1 left
+    const slots = role('slot');
+    expect(slots[0].textContent).toBe('CAPT1');
+    expect(slots[1].textContent).toBe('');
+    expect(role('dot')[1].dataset.state).toBe('empty');
+    expect(slots[2].textContent).toBe('CAPT3');
+  });
+
   it('the circle is phosphor green when ready, denied red otherwise, a hairline ring when empty', () => {
     showLobbyModal(actions());
     updateLobbyModal(
       view({
         players: [
-          { id: 'me', name: 'NEMO', ready: true },
-          { id: 'b', name: 'AHAB', ready: false },
+          { id: 'me', name: 'NEMO', ready: true, slot: 0 },
+          { id: 'b', name: 'AHAB', ready: false, slot: 1 },
         ],
       }),
     );
@@ -301,7 +376,7 @@ describe('the slot grid', () => {
     expect(dots[2].style.borderColor).toBe('var(--hc-hairline)');
     expect(dots[0].style.width).toBe('10px');
     expect(dots[0].style.borderRadius).toBe('50%');
-    updateLobbyModal(view({ players: [{ id: 'me', name: 'NEMO', ready: false }] }));
+    updateLobbyModal(view({ players: [{ id: 'me', name: 'NEMO', ready: false, slot: 0 }] }));
     expect(role('dot')[0].dataset.state).toBe('unready');
   });
 
@@ -309,7 +384,7 @@ describe('the slot grid', () => {
     showLobbyModal(actions());
     updateLobbyModal(view());
     const name = role('name')[0];
-    expect(name.style.width).toBe('236px');
+    expect(name.style.width).toBe('240px');
     expect(name.style.textOverflow).toBe('ellipsis');
     expect(name.style.overflow).toBe('hidden');
   });
@@ -331,7 +406,7 @@ describe('the options block', () => {
 
   it('label then status for a non-host — no input, no buttons', () => {
     showLobbyModal(actions());
-    updateLobbyModal(view({ hostId: 'h', seedText: 'bananas', botFill: true, players: [{ id: 'h', name: 'AHAB', ready: false }, ...captains(1)] }));
+    updateLobbyModal(view({ hostId: 'h', seedText: 'bananas', botFill: true, players: [{ id: 'h', name: 'AHAB', ready: false, slot: 0 }, { ...captains(1)[0], slot: 1 }] }));
     const [seedRow, botRow] = role('option');
     expect(seedRow.querySelector('[data-lobby="option-label"]')?.textContent).toBe('SEED');
     expect(seedRow.querySelector('[data-lobby="option-value"]')?.textContent).toBe('bananas');
@@ -366,7 +441,7 @@ describe('the options block', () => {
 describe('host controls', () => {
   it('exist ONLY for the host — a non-host has no YES/NO, START NOW or seed input', () => {
     showLobbyModal(actions());
-    updateLobbyModal(view({ hostId: 'h', players: [{ id: 'h', name: 'AHAB', ready: false }, { id: 'me', name: 'NEMO', ready: false }] }));
+    updateLobbyModal(view({ hostId: 'h', players: [{ id: 'h', name: 'AHAB', ready: false, slot: 0 }, { id: 'me', name: 'NEMO', ready: false, slot: 1 }] }));
     expect(button('YES')).toBeUndefined();
     expect(button('NO')).toBeUndefined();
     expect(button('START NOW')).toBeUndefined();
@@ -390,17 +465,43 @@ describe('host controls', () => {
     expect(button('START NOW').disabled).toBe(false);
   });
 
-  it('START NOW is disabled while any countdown runs — forced or all-ready', () => {
+  // Eric R3: "START NOW locks it … START NOW stays lit during an all-ready
+  // countdown and goes dim once forced."
+  it('startEnabled: lit with no countdown, lit during an all-ready countdown, dim once forced', () => {
+    const two = captains(2);
+    expect(startEnabled(view({ players: two }))).toBe(true);
+    expect(startEnabled(view({ players: two, countdownEndT: 6, deadlineAt: NOW + 10_000 }))).toBe(true);
+    expect(startEnabled(view({ players: two, countdownEndT: 6, deadlineAt: NOW + 10_000, forced: true }))).toBe(false);
+    expect(startEnabled(view())).toBe(false); // ineligible
+  });
+
+  it('START NOW stays lit during an all-ready countdown and goes dim once forced', () => {
     const a = actions();
     showLobbyModal(a);
-    updateLobbyModal(view({ botFill: true, countdownEndT: 5, deadlineAt: NOW + 10_000, forced: true }));
+    updateLobbyModal(view({ players: captains(2), countdownEndT: 6, deadlineAt: NOW + 10_000 }));
+    expect(button('START NOW').disabled).toBe(false);
+    button('START NOW').click();
+    expect(a.onStart).toHaveBeenCalledTimes(1);
+    updateLobbyModal(view({ botFill: true, countdownEndT: 6, deadlineAt: NOW + 10_000, forced: true }));
     expect(button('START NOW').disabled).toBe(true);
     button('START NOW').click();
-    expect(a.onStart).not.toHaveBeenCalled();
+    expect(a.onStart).toHaveBeenCalledTimes(1);
     expect(rendered()).not.toContain('2 CAPTAINS OR BOT-FILL REQUIRED');
-    updateLobbyModal(view({ players: captains(2), countdownEndT: 6, deadlineAt: NOW + 10_000 }));
-    expect(button('START NOW').disabled).toBe(true);
     updateLobbyModal(view({ players: captains(2) }));
+    expect(button('START NOW').disabled).toBe(false);
+  });
+
+  // Review (low): the reason line and START NOW followed the server's botFill,
+  // so YES left "2 CAPTAINS OR BOT-FILL REQUIRED" up until the patch landed.
+  it('a YES click clears the reason line and lights START NOW before the patch lands', () => {
+    showLobbyModal(actions());
+    updateLobbyModal(view());
+    expect(rendered()).toContain('2 CAPTAINS OR BOT-FILL REQUIRED');
+    button('YES').click();
+    expect(rendered()).not.toContain('2 CAPTAINS OR BOT-FILL REQUIRED');
+    expect(button('START NOW').disabled).toBe(false);
+    updateLobbyModal(view()); // a stale patch (botFill still false) keeps the intent
+    expect(rendered()).not.toContain('2 CAPTAINS OR BOT-FILL REQUIRED');
     expect(button('START NOW').disabled).toBe(false);
   });
 
@@ -439,6 +540,33 @@ describe('host controls', () => {
   });
 });
 
+// Review (Opus): between the lobby forming and the seat landing the server
+// clears the countdown and sets phase 'started'; the modal must not look live.
+describe("phase 'started' (formed, waiting for the seat)", () => {
+  it('disables START NOW, READY and YES/NO, and the countdown line keeps its last text', () => {
+    const a = actions();
+    showLobbyModal(a);
+    updateLobbyModal(view({ players: captains(2), countdownEndT: 6, deadlineAt: NOW + 10_000 }));
+    vi.advanceTimersByTime(9_600);
+    expect(rendered()).toContain('STARTS IN 0:01');
+    updateLobbyModal(view({ players: captains(2), countdownEndT: 0, deadlineAt: null, phase: 'started' }));
+    expect(button('START NOW').disabled).toBe(true);
+    expect(button('UNREADY').disabled).toBe(true);
+    expect(button('YES').disabled).toBe(true);
+    expect(button('NO').disabled).toBe(true);
+    expect(button('LEAVE').disabled).toBe(false);
+    expect(rendered()).toContain('STARTS IN 0:01');
+    vi.advanceTimersByTime(2_000);
+    expect(rendered()).toContain('STARTS IN 0:01');
+    button('START NOW').click();
+    button('UNREADY').click();
+    button('YES').click();
+    expect(a.onStart).not.toHaveBeenCalled();
+    expect(a.onReady).not.toHaveBeenCalled();
+    expect(a.onBotFill).not.toHaveBeenCalled();
+  });
+});
+
 describe('READY / UNREADY', () => {
   it('reads READY until the player is ready, then UNREADY, and sends the flip', () => {
     const a = actions();
@@ -446,7 +574,7 @@ describe('READY / UNREADY', () => {
     updateLobbyModal(view());
     button('READY').click();
     expect(a.onReady).toHaveBeenLastCalledWith(true);
-    updateLobbyModal(view({ players: [{ id: 'me', name: 'NEMO', ready: true }] }));
+    updateLobbyModal(view({ players: [{ id: 'me', name: 'NEMO', ready: true, slot: 0 }] }));
     expect(button('READY')).toBeUndefined();
     button('UNREADY').click();
     expect(a.onReady).toHaveBeenLastCalledWith(false);
@@ -473,10 +601,10 @@ describe('rapid double clicks', () => {
     updateLobbyModal(view());
     button('READY').click();
     button('UNREADY').click(); // intent: not ready
-    updateLobbyModal(view({ players: [{ id: 'me', name: 'NEMO', ready: true }] })); // the first send's echo
+    updateLobbyModal(view({ players: [{ id: 'me', name: 'NEMO', ready: true, slot: 0 }] })); // the first send's echo
     expect(button('READY')).toBeDefined();
     updateLobbyModal(view()); // the second send's echo — the view now matches
-    updateLobbyModal(view({ players: [{ id: 'me', name: 'NEMO', ready: true }] })); // ready set elsewhere
+    updateLobbyModal(view({ players: [{ id: 'me', name: 'NEMO', ready: true, slot: 0 }] })); // ready set elsewhere
     expect(button('UNREADY')).toBeDefined(); // the view rules again
   });
 
@@ -554,8 +682,8 @@ describe('STARTS IN', () => {
 
 describe('YOU ARE HOST', () => {
   const two = [
-    { id: 'h', name: 'AHAB', ready: false },
-    { id: 'me', name: 'NEMO', ready: false },
+    { id: 'h', name: 'AHAB', ready: false, slot: 0 },
+    { id: 'me', name: 'NEMO', ready: false, slot: 1 },
   ];
 
   it('never shows for the creator, who was host from the start', () => {

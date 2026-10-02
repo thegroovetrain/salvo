@@ -9,11 +9,15 @@
 // unmounting anything that sizes the layout. Text that could outgrow its box
 // (a callsign, a seed) is clipped with an ellipsis inside it.
 //
-// The budget (top to bottom, 10 px gaps, 24 px padding) — 684 of the panel's
-// 700 px: heading 24 · notice 18 · code 30 · options 88 (two 40 px rows +
-// 8) · aboard 18 · grid 294 (ten 24 px rows + nine 6 px gaps) · countdown 22 ·
-// buttons 44 · reason 18. Width: 600 px panel, 32 px side padding → 536 px
-// inner = two 256 px columns + a 24 px gutter.
+// The budget (Eric R1, 2026-10-02: "Shrink the design to fit 650 px … never
+// scrolls on a 768-tall laptop") — top to bottom, 10 px gaps, 20 px top and
+// bottom padding, every region reserved: heading 22 · notice 18 · code 26 ·
+// options 80 (two 36 px rows + 8) · aboard 18 · grid 236 (ten 20 px rows +
+// nine 4 px gaps) · countdown 20 · buttons 40 · reason 18 = 478, + 8 gaps × 10
+// + 2 × 20 = 598 px, which IS the panel height (computed below, not typed).
+// Width: 600 px panel, 28 px side padding → 544 px inner = two 260 px columns
+// + a 24 px gutter. `fixPanel` also lifts the shell's max-width/max-height and
+// overflow-y so the panel can be neither clamped nor scrolled.
 
 import { CONFIG } from '@salvo/shared';
 import type { LobbyCaptain } from '../net/lobby.js';
@@ -21,14 +25,14 @@ import { applyHairline, makeLine, makeModalButton, makeModalInput } from './port
 import { registerCss } from './theme.js';
 
 const PANEL_W = 600;
-const PANEL_H = 700;
-const PAD_V = 24;
-const PAD_H = 32;
+const PAD_V = 20;
+const PAD_H = 28;
 const GAP = 10;
 const INNER_W = PANEL_W - 2 * PAD_H;
 
-const OPTION_H = 40;
+const OPTION_H = 36;
 const OPTION_GAP = 8;
+const OPTIONS_H = 2 * OPTION_H + OPTION_GAP;
 const LABEL_W = 140;
 const VALUE_W = 300;
 const OPTION_COL_GAP = 16;
@@ -38,8 +42,8 @@ const CHIP_GAP = 8;
 export const SLOT_COUNT = CONFIG.map.playerCap;
 const COLS = 2;
 const ROWS = Math.ceil(SLOT_COUNT / COLS);
-const ROW_H = 24;
-const ROW_GAP = 6;
+const ROW_H = 20;
+const ROW_GAP = 4;
 const COL_GAP = 24;
 const COL_W = (INNER_W - COL_GAP) / COLS;
 const GRID_H = ROWS * ROW_H + (ROWS - 1) * ROW_GAP;
@@ -49,16 +53,43 @@ const NAME_W = COL_W - DOT - DOT_GAP;
 
 const CELL_W = 160;
 const CELL_GAP = 12;
-const BUTTON_H = 44;
+const BUTTON_H = 40;
 
 /** The one-line regions and their fixed heights. */
 export const LINE_H = {
-  heading: 24,
+  heading: 22,
   notice: 18,
-  code: 30,
+  code: 26,
   aboard: 18,
-  countdown: 22,
+  countdown: 20,
   reason: 18,
+} as const;
+
+/** Every region's height in panel order — the panel is their sum, never a guess. */
+const REGION_H = [
+  LINE_H.heading,
+  LINE_H.notice,
+  LINE_H.code,
+  OPTIONS_H,
+  LINE_H.aboard,
+  GRID_H,
+  LINE_H.countdown,
+  BUTTON_H,
+  LINE_H.reason,
+];
+const PANEL_H = REGION_H.reduce((a, b) => a + b, 0) + (REGION_H.length - 1) * GAP + 2 * PAD_V;
+
+/** The pixel budget, exported so the test can re-add it. */
+export const LAYOUT = {
+  panelW: PANEL_W,
+  panelH: PANEL_H,
+  padV: PAD_V,
+  padH: PAD_H,
+  gap: GAP,
+  lineH: LINE_H,
+  optionsH: OPTIONS_H,
+  gridH: GRID_H,
+  buttonH: BUTTON_H,
 } as const;
 
 const ELLIPSIS = 'overflow:hidden;white-space:nowrap;text-overflow:ellipsis';
@@ -80,6 +111,16 @@ function tag<T extends HTMLElement>(el: T, role: string): T {
 export function fixPanel(panel: HTMLElement): void {
   tag(panel, 'panel');
   size(panel, PANEL_W, PANEL_H);
+  // The shell's `max-width/max-height:100%` + `overflow-y:auto` would clamp and
+  // scroll a tall panel on a short window; this one is never clamped or scrolled.
+  panel.style.maxWidth = 'none';
+  panel.style.maxHeight = 'none';
+  panel.style.minWidth = '0';
+  panel.style.overflow = 'hidden';
+  // The longhands too: the shell sets `overflow-y`, which the shorthand alone
+  // does not reliably displace in every CSSOM.
+  panel.style.overflowX = 'hidden';
+  panel.style.overflowY = 'hidden';
   panel.style.padding = `${PAD_V}px ${PAD_H}px`;
   panel.style.gap = `${GAP}px`;
   panel.style.alignItems = 'center';
@@ -130,7 +171,7 @@ function makeOptionRow(label: string): OptionRow {
 /** `SEED` and `BOT-FILL`, each a label then a fixed value box. */
 export function makeOptionsBlock(): { root: HTMLElement; seed: OptionRow; botFill: OptionRow } {
   const root = tag(document.createElement('div'), 'options');
-  size(root, INNER_W, 2 * OPTION_H + OPTION_GAP);
+  size(root, INNER_W, OPTIONS_H);
   root.style.display = 'flex';
   root.style.flexDirection = 'column';
   root.style.alignItems = 'center';

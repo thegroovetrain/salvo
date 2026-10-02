@@ -43,7 +43,7 @@ function view(): LobbyView {
     forced: false,
     countdownEndT: 0,
     deadlineAt: null,
-    players: [{ id: 'me', name: 'NEMO', ready: false }],
+    players: [{ id: 'me', name: 'NEMO', ready: false, slot: 0 }],
     phase: 'open',
   };
 }

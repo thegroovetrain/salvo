@@ -231,6 +231,49 @@ describe('LobbyPolicy — host (ruling 6)', () => {
   });
 });
 
+// --- seating: lowest free slot, names never move (Eric 2026-10-02) ---------------
+
+describe('LobbyPolicy — slots (lowest free, never moved)', () => {
+  const slots = (p: LobbyPolicy): Record<string, number> =>
+    Object.fromEntries([...p.captains.values()].map((c) => [c.id, c.slot]));
+
+  it('join A, B, C -> slots 0, 1, 2', () => {
+    expect(slots(lobby(3))).toEqual({ a: 0, b: 1, c: 2 });
+  });
+
+  it("B leaves, D joins -> D takes B's empty slot 1; A and C never move", () => {
+    const p = lobby(3);
+    p.onLeave('b', T0);
+    expect(slots(p)).toEqual({ a: 0, c: 2 });
+    p.onJoin('d', 'D');
+    expect(slots(p)).toEqual({ a: 0, c: 2, d: 1 });
+  });
+
+  it('A leaves, then E and F join -> E 0, F 3 (earliest empty first)', () => {
+    const p = lobby(3);
+    p.onLeave('a', T0);
+    p.onJoin('e', 'E');
+    p.onJoin('f', 'F');
+    expect(slots(p)).toEqual({ b: 1, c: 2, e: 0, f: 3 });
+    expect(p.inSlotOrder().map((c) => c.id)).toEqual(['e', 'b', 'c', 'f']);
+  });
+
+  it('a full lobby fills slots 0..cap-1 exactly once', () => {
+    const p = new LobbyPolicy();
+    for (let i = 0; i < CONFIG.map.playerCap; i += 1) p.onJoin(`p${i}`, `P${i}`);
+    expect([...p.captains.values()].map((c) => c.slot)).toEqual([...Array(CONFIG.map.playerCap).keys()]);
+  });
+
+  it('host succession follows joinSeq, not slot', () => {
+    const p = lobby(3); // a0 b1 c2
+    p.onLeave('b', T0);
+    p.onJoin('d', 'D'); // d takes slot 1 but joined last
+    p.onLeave('a', T0); // host: c (joinSeq 2) beats d (slot 1, joinSeq 3)
+    expect(p.hostId).toBe('c');
+    expect(p.inJoinOrder().map((c) => c.id)).toEqual(['c', 'd']);
+  });
+});
+
 // --- START NOW arms a FORCED countdown (Eric 2026-10-02) -------------------------
 
 describe('LobbyPolicy — START NOW arms a forced countdown', () => {
@@ -618,6 +661,18 @@ describe('LobbyRoom — the adapter', () => {
     expect(r.state.countdownEndT).toBe(0);
     send(b, MSG.lobbyReady, { ready: 'yes' }); // non-boolean dropped
     expect(r.state.players.get('b')?.ready).toBe(false);
+  });
+
+  it("mirrors each captain's slot; a vacated slot is refilled by the next joiner", async () => {
+    const { r, join } = await lobbyRoom();
+    join('a');
+    const b = join('b');
+    join('c');
+    r.clients.splice(1, 1);
+    r.onLeave(b);
+    join('d');
+    const seen = Object.fromEntries([...r.state.players.values()].map((p) => [p.id, p.slot]));
+    expect(seen).toEqual({ a: 0, c: 2, d: 1 });
   });
 
   it('non-host control messages are silently dropped', async () => {

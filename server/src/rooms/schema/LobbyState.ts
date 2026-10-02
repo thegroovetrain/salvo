@@ -8,6 +8,9 @@ export class LobbyPlayer extends Schema {
   @type('string') id = '';
   @type('string') name = '';
   @type('boolean') ready = false;
+  /** Grid slot 0..19 (Eric 2026-10-02): row floor(slot/2), column slot%2;
+   *  the lowest free slot at join, never changed while seated. */
+  @type('uint8') slot = 0;
 }
 
 /**
