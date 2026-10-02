@@ -27,6 +27,7 @@ vi.mock('../net/lobby.js', async (orig) => {
   };
 });
 
+import { leaveLobby } from '../net/lobby.js';
 import { createPrivateLobby, openJoinPrivateLobby, type PrivateLobbyDeps } from '../app/privateLobby.js';
 import { hideJoinCodeModal } from '../ui/joinCodeModal.js';
 import { hideLobbyModal } from '../ui/lobbyModal.js';
@@ -150,7 +151,8 @@ describe('JOIN', () => {
     await flush();
     expect(joinModal()?.textContent).toContain('LOBBY FULL');
     expect((joinModal()?.querySelector('input') as HTMLInputElement).value).toBe('QWERTY');
-    expect(d.log.at(-1)).toBe('backToPort');
+    // The port is returned, then the doors are held again under the still-open modal.
+    expect(d.log.slice(-2)).toEqual(['backToPort', 'busy:true']);
     expect(d.log.some((l) => l.startsWith('status:LOBBY FULL'))).toBe(false);
   });
 
@@ -176,5 +178,85 @@ describe('JOIN', () => {
     expect(lobbyModal()).toBeNull();
     expect(d.log.at(-1)).toBe('backToPort');
     expect(d.log.some((l) => l.startsWith('status:'))).toBe(false);
+  });
+});
+
+function pressEscape(): void {
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+}
+
+const lastBusy = (log: string[]): string | undefined => log.filter((l) => l.startsWith('busy:')).at(-1);
+
+// REVIEW C5: ESC while the join is in the air must not let the lobby open
+// behind the player's back.
+describe('ESC during an in-flight JOIN', () => {
+  it('the arriving lobby is left at once and no lobby modal opens', async () => {
+    vi.mocked(leaveLobby).mockClear();
+    const d = deps();
+    openJoinPrivateLobby(d, {});
+    typeAndJoin('qwerty');
+    await flush();
+    pressEscape();
+    expect(joinModal()).toBeNull();
+    capturedHooks?.onLobby(view());
+    expect(lobbyModal()).toBeNull();
+    expect(leaveLobby).toHaveBeenCalledTimes(1);
+    expect(d.log).not.toContain('serverReady');
+    capturedHooks?.onLeft();
+    settle?.(null);
+    await flush();
+    expect(d.log.at(-1)).toBe('backToPort');
+  });
+
+  it('a refusal arriving after ESC says nothing on the status line', async () => {
+    const d = deps();
+    openJoinPrivateLobby(d, {});
+    typeAndJoin('qwerty');
+    await flush();
+    pressEscape();
+    capturedHooks?.onError('NO SUCH LOBBY');
+    settle?.(null);
+    await flush();
+    expect(d.log.some((l) => l.startsWith('status:'))).toBe(false);
+    expect(d.log.at(-1)).toBe('backToPort');
+  });
+
+  it('ESC before the session lock answers never starts the join', async () => {
+    const d = deps();
+    let grant: (ok: boolean) => void = () => undefined;
+    d.claimPort = () => new Promise((r) => (grant = r));
+    openJoinPrivateLobby(d, {});
+    typeAndJoin('qwerty');
+    pressEscape();
+    grant(true);
+    await flush();
+    expect(capturedHooks).toBeNull();
+    expect(d.log.at(-1)).toBe('backToPort');
+  });
+});
+
+// REVIEW C6: the join modal's backdrop blocks clicks, not Tab + Space — the
+// home's doors are held busy for as long as it is up.
+describe('the home doors under the join modal', () => {
+  it('are busy while the modal is open and live again after ESC', () => {
+    const d = deps();
+    openJoinPrivateLobby(d, {});
+    expect(lastBusy(d.log)).toBe('busy:true');
+    pressEscape();
+    expect(lastBusy(d.log)).toBe('busy:false');
+  });
+
+  it('stay busy after a refusal leaves the modal up', async () => {
+    const d = deps();
+    openJoinPrivateLobby(d, {});
+    typeAndJoin('qwerty');
+    await flush();
+    capturedHooks?.onError('NO SUCH LOBBY');
+    settle?.(null);
+    await flush();
+    expect(joinModal()).not.toBeNull();
+    expect(d.log.at(-1)).toBe('busy:true');
+    pressEscape();
+    expect(lastBusy(d.log)).toBe('busy:false');
   });
 });

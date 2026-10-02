@@ -114,7 +114,7 @@ import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
 import { OwnFireLatch } from './sim/ownFire.js';
 import { startLoop, type LoopCallbacks, type LoopPhase } from './app/loop.js';
 import { makeReturnToPort } from './app/returnToPort.js';
-import { collapseAutoQueues, makeRequeue } from './app/requeue.js';
+import { collapseLanding, makeRequeue } from './app/requeue.js';
 import { createPrivateLobby, openJoinPrivateLobby, type PrivateLobbyDeps } from './app/privateLobby.js';
 import { acquireSessionLock, claimSessionForDeploy, releaseSessionLock } from './app/sessionLock.js';
 import {
@@ -127,7 +127,7 @@ import {
   resumeFailedStatus,
   type Connection,
 } from './net/connection.js';
-import { clearResumeToken, loadResumeToken } from './net/resumeToken.js';
+import { clearResumeToken, loadPrivateMatch, loadResumeToken, savePrivateMatch } from './net/resumeToken.js';
 import { ServerClock } from './net/clock.js';
 import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
 import { bindRoom, type RoomUnbind } from './net/roomBindings.js';
@@ -2219,8 +2219,9 @@ function requeueAfterCollapse(g: Game): void {
 function makeGameRequeue(getG: () => Game | null): () => void {
   return makeRequeue({
     leaveRoom: () => getG()?.room.leave() ?? Promise.resolve(),
-    // A private arena's collapse goes home WITHOUT re-queueing (cycle 167).
-    enterPort: () => void requeueToPort(collapseAutoQueues(privateSession)),
+    // A private arena's collapse goes home WITHOUT re-queueing (cycle 167) —
+    // and so hands the session lock back, as every other way home does.
+    enterPort: () => void requeueToPort(collapseLanding(privateSession, releaseSessionLock)),
     onStart: () => {
       const g = getG();
       if (!g) return;
@@ -5195,8 +5196,15 @@ let lastDeploy: { name: string; cls: ShipClassId; gun: GunId; mode: DeployMode }
 
 /** Did the live session come through a private lobby (cycle 167)? Read only by
  *  the collapse requeue, which sends a private captain home instead of into the
- *  Standard queue. Set at each launch; never persisted. */
+ *  Standard queue. Set at each launch through `markPrivateSession`, which also
+ *  persists it beside the resume token so a refresh-resume restores it
+ *  (`tryResumeMatch`); cleared from storage wherever the token is. */
 let privateSession = false;
+
+function markPrivateSession(on: boolean): void {
+  privateSession = on;
+  savePrivateMatch(on);
+}
 
 // RETIRED (Eric rulings 2026-08-18): `REQUEUE_STATUS_HOLD_MS` and
 // `makeStatusHold`. Both existed for ONE reason — the home had a single status
@@ -5411,7 +5419,7 @@ async function startGame(
     return;
   }
   lastDeploy = { name, cls, gun, mode }; // what the auto-requeue re-deploys with
-  privateSession = false;
+  markPrivateSession(false);
   saveMode(mode); // ...and what a RELOAD re-deploys with (Story 6.6)
   // Every deploy opens on CONNECTING… now, the auto-requeue included: the
   // collapse's own opening register is gone (Eric ruling 2026-08-18), so there
@@ -5536,7 +5544,7 @@ function privateDeps(
       startHomeLiveness(home);
     },
     launch: (conn) => {
-      privateSession = true;
+      markPrivateSession(true);
       launchFromPort(shell, home, stopAmbient, conn, cls);
     },
   };
@@ -5592,6 +5600,8 @@ function launchSession(shell: Shell, conn: Connection, cls: ShipClassId): Game {
 async function tryResumeMatch(shell: Shell): Promise<'none' | 'resumed' | 'failed'> {
   if (loadResumeToken() === null) return 'none';
   if (!(await acquireSessionLock())) return 'none'; // another tab holds the port
+  // Read BEFORE the rejoin: a failed resume clears the token and this flag with it.
+  privateSession = loadPrivateMatch();
   let conn: Connection | null;
   try {
     conn = await resumeConnection();

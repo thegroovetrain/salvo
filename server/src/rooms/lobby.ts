@@ -160,6 +160,33 @@ export function mintCode(
   throw new Error(`mintCode: no free code within ${MINT_ATTEMPTS} attempts`);
 }
 
+/**
+ * Codes minted by THIS process and not yet released. The live-lobby query
+ * (matchMaker.query) and setMetadata are both async, so two creates landing in
+ * the same window could read the same `taken` set and mint the same code; the
+ * reservation is taken SYNCHRONOUSLY at mint, which closes that window for
+ * every lobby on this process. Released on the room's dispose.
+ */
+const reservedCodes = new Set<string>();
+
+/** Mint a code avoiding both `taken` (live listings) and every in-process
+ *  reservation, and reserve it before returning. */
+export function reserveCode(rng: () => number, taken: ReadonlySet<string>): string {
+  const code = mintCode(rng, new Set([...taken, ...reservedCodes]));
+  reservedCodes.add(code);
+  return code;
+}
+
+/** Give a code back (the lobby that held it disposed). Unknown codes no-op. */
+export function releaseCode(code: string): void {
+  reservedCodes.delete(code);
+}
+
+/** Whether a code is currently reserved by this process (tests). */
+export function isCodeReserved(code: string): boolean {
+  return reservedCodes.has(code);
+}
+
 /** A join code as typed: trimmed + uppercased; null unless exactly
  *  CONFIG.lobby.codeLength letters A–Z (malformed answers NO SUCH LOBBY). */
 export function normalizeCode(raw: unknown, length: number = CONFIG.lobby.codeLength): string | null {

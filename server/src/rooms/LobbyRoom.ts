@@ -25,7 +25,7 @@ import { protocolVersionError, sanitizeGun, type JoinOptions } from './roomOptio
 import { stagingGateError } from '../stagingGate.js';
 import { assertSoloCreateAllowed } from './createThrottle.js';
 import { formArena, sanitizeArenaOptions, type SeatedCaptain } from './formArena.js';
-import { LobbyPolicy, cleanSeedText, mintCode } from './lobby.js';
+import { LobbyPolicy, cleanSeedText, releaseCode, reserveCode } from './lobby.js';
 import { lobbyTicket } from './lobbyTicket.js';
 import { LobbyPlayer, LobbyState } from './schema/LobbyState.js';
 import { createLogger, type Logger } from '../log.js';
@@ -34,8 +34,11 @@ import { createLogger, type Logger } from '../log.js';
 export const LOBBY_ROOM = 'lobby';
 /** Telemetry mode tag. */
 const MODE = 'lobby';
-/** Policy cadence: 1 Hz on the room clock, like the queue. Also the cadence
- *  the host's seed text is resolved at (see onSeed). */
+/** The error a captain whose seat was reserved just before the form gets
+ *  when its join lands after it (ruling 9 copy): Colyseus reserves a lobby
+ *  seat without checking the lock, so this window is real. */
+export const LOBBY_STARTED_ERROR = 'MATCH STARTED';
+/** Policy cadence: 1 Hz on the room clock, like the queue. */
 const TICK_MS = 1000;
 
 /** The listing-metadata block (read by `GET /lobby/resolve`). Every key is
@@ -72,21 +75,30 @@ function cryptoRng(): number {
   return randomInt(0x1000000) / 0x1000000;
 }
 
+/** The real map generator the seed probe drives — same arguments as World's
+ *  own generateMap(seed, playerCap) call. */
+function generateArenaMap(seed: number): unknown {
+  return generateMap(seed, CONFIG.map.playerCap);
+}
+
 /**
  * The seed probe (ruling 3): does this uint32 generate a map? Only
  * MapGenerationError means "no" — the deferred map-gen throw that the suffix
  * retry routes around (the throw itself stays UNFIXED, Eric 2026-09-16). Any
- * other error is a real bug and propagates. Same arguments as World's own
- * generateMap(seed, playerCap) call.
+ * other error propagates to form(), which falls back to a random map.
  */
-function seedGenerates(seed: number): boolean {
+function seedGenerates(generate: (seed: number) => unknown, seed: number): boolean {
   try {
-    generateMap(seed, CONFIG.map.playerCap);
+    generate(seed);
     return true;
   } catch (err) {
     if (err instanceof MapGenerationError) return false;
     throw err;
   }
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'unknown';
 }
 
 export class LobbyRoom extends Room<{ state: LobbyState }> {
@@ -118,17 +130,20 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
   /** Sanitized identity + frozen gun per captain, ready for formArena. */
   private readonly seats = new Map<string, SeatedCaptain>();
   private phase: LobbyPhase = 'open';
-  /** The resolved uint32 seed, or null = random map (ruling 3). */
+  /** The resolved uint32 seed, or null = random map (ruling 3). Decided ONCE,
+   *  at form time (see resolveSeed). */
   private resolvedSeed: number | null = null;
-  /** Host text awaiting resolution on the next tick (null = nothing new). */
-  private pendingSeed: string | null = null;
+  /** The map generator the seed probe runs. A full synchronous generation
+   *  (80–200 ms+), which is why it runs once per lobby, at form time, never
+   *  per keystroke or per tick. A field so tests can count / fail it. */
+  protected generateMapForSeed: (seed: number) => unknown = generateArenaMap;
   private joinCounter = 0;
   private log: Logger = createLogger({ mode: MODE });
 
   async onCreate(): Promise<void> {
     this.log = createLogger({ roomId: this.roomId, mode: MODE });
     this.state = new LobbyState();
-    this.state.code = mintCode(cryptoRng, await this.liveCodes());
+    this.state.code = reserveCode(cryptoRng, await this.liveCodes());
     // PRIVATE in the listing: `join` / `joinOrCreate` skip private rooms
     // (MatchMaker.findOneRoomAvailable filters `private: false`), so the
     // only way in is joinById after a resolve. Free during CREATING.
@@ -143,14 +158,22 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
   }
 
   onJoin(client: Client, options: JoinOptions = {}): void {
-    if (this.phase !== 'open') return;
+    if (this.phase !== 'open') {
+      this.refuseLateJoin(client);
+      return;
+    }
     // Sanitized and frozen at THIS door, exactly like the queue (Story 8.14):
     // identity options ride the seat's options, the gun rides its `auth`.
     const arenaOptions = sanitizeArenaOptions(options);
     const gun = sanitizeGun(options.gun, this.log);
-    this.seats.set(client.sessionId, { client, options: arenaOptions, gun });
     this.joinCounter += 1;
+    // The blank-callsign fallback is resolved HERE and carried on the seat:
+    // the arena's own CAPTAIN-n counts ITS joins, so letting it re-draw would
+    // rename the captain at boarding. A non-blank name passes the arena's
+    // sanitizeName unchanged, so the roster name IS the arena name.
     const name = arenaOptions.name ?? `CAPTAIN-${this.joinCounter}`;
+    arenaOptions.name = name;
+    this.seats.set(client.sessionId, { client, options: arenaOptions, gun });
     this.policy.onJoin(client.sessionId, name);
     const row = new LobbyPlayer();
     row.id = client.sessionId;
@@ -171,7 +194,20 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
   }
 
   onDispose(): void {
+    releaseCode(this.state.code);
     this.log.info('lobby.dispose', { phase: this.phase });
+  }
+
+  /**
+   * A join that lands after the form: Colyseus reserved this seat before the
+   * lock, so the client is here with no lobby left to sit in. Tell it the way
+   * formArena's failSeats tells a failed captain (client.error + close), so
+   * the client leaves rather than waiting on a dead room.
+   */
+  private refuseLateJoin(client: Client): void {
+    this.log.info('lobby.lateJoin', { sessionId: client.sessionId });
+    client.error(ErrorCode.MATCHMAKE_UNHANDLED, LOBBY_STARTED_ERROR);
+    client.leave(CloseCode.WITH_ERROR);
   }
 
   // --- messages --------------------------------------------------------------
@@ -185,19 +221,16 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
   }
 
   /**
-   * `ls` — host only. The typed text shows to everyone at once; RESOLVING it
-   * (a full test map generation per candidate) is coalesced onto the 1 Hz
-   * tick, so a host spamming keystrokes costs at most one generation per
-   * second rather than one per message. Blank clears the seed.
+   * `ls` — host only. The typed text is stored and shown to everyone at once;
+   * it is NOT resolved here. Resolving (a full synchronous map generation per
+   * candidate) happens exactly once, at form time, so no amount of seed
+   * editing can stall the event loop. Blank clears the seed.
    */
   private onSeed(client: Client, raw: unknown): void {
     if (!this.isHostControl(client)) return;
     const text = cleanSeedText((raw as { text?: unknown } | null)?.text);
     if (text === null || text === this.state.seedText) return;
     this.state.seedText = text;
-    this.state.seedResolved = '';
-    this.resolvedSeed = null;
-    this.pendingSeed = text === '' ? null : text;
   }
 
   /** `lb` — host only, boolean only. */
@@ -211,7 +244,7 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
   /** `lg` — host only, and only while a start is legal (ruling 2). */
   private onStart(client: Client): void {
     if (!this.isHostControl(client) || !this.policy.forceStart(client.sessionId)) return;
-    void this.form();
+    this.startForm();
   }
 
   /** Host-only control messages from anyone else are silently dropped. */
@@ -221,22 +254,43 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
 
   // --- the tick, the mirror, the form ----------------------------------------
 
+  /** The 1 Hz step. Nothing thrown here may escape into the clock interval. */
   private tick(): void {
     if (this.phase !== 'open') return;
-    this.flushSeed();
-    const verdict = this.policy.evaluate(Date.now());
-    this.sync();
-    if (verdict === 'form') void this.form();
+    try {
+      const verdict = this.policy.evaluate(Date.now());
+      this.sync();
+      if (verdict === 'form') this.startForm();
+    } catch (err) {
+      this.log.error('lobby.tickFailed', { error: errorMessage(err) });
+    }
   }
 
-  /** Resolve the pending host text (ruling 3: hash, probe, suffix retry). */
-  private flushSeed(): void {
-    const text = this.pendingSeed;
-    if (text === null) return;
-    this.pendingSeed = null;
-    const resolved = resolveSeedText(text, seedGenerates);
-    this.resolvedSeed = resolved?.seed ?? null;
-    this.state.seedResolved = resolved?.text ?? '';
+  /** Kick off a form; its failures are logged, never an unhandled rejection. */
+  private startForm(): void {
+    this.form().catch((err: unknown) => {
+      this.log.error('lobby.formThrew', { error: errorMessage(err) });
+    });
+  }
+
+  /**
+   * Resolve the host's text ONCE (ruling 3: hash, probe, suffix retry). Any
+   * throw — the resolver's attempt cap or an unexpected generator error — is
+   * logged and falls back to NO seed (a random map): a lobby that has already
+   * gone 'started' must still form rather than wedge.
+   */
+  private resolveSeed(): void {
+    this.resolvedSeed = null;
+    this.state.seedResolved = '';
+    const text = this.state.seedText;
+    if (text === '') return;
+    try {
+      const resolved = resolveSeedText(text, (seed) => seedGenerates(this.generateMapForSeed, seed));
+      this.resolvedSeed = resolved?.seed ?? null;
+      this.state.seedResolved = resolved?.text ?? '';
+    } catch (err) {
+      this.log.error('lobby.seedFailed', { error: errorMessage(err) });
+    }
   }
 
   /** Mirror the policy into the schema (host, bot-fill, countdown, READY). */
@@ -255,12 +309,13 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
    * answers MATCH STARTED), the room locks, and every captain is seated in
    * join order through formArena. On success the room lingers
    * CONFIG.lobby.startedLingerMs and then closes itself; on failure formArena
-   * has already errored and closed every socket, so the empty room disposes.
+   * has already errored and closed every socket, and the room disconnects so
+   * no straggler (a late joiner mid-handshake) keeps a failed lobby alive.
    */
   private async form(): Promise<void> {
     if (this.phase !== 'open') return;
     this.phase = 'started';
-    this.flushSeed();
+    this.resolveSeed();
     this.state.phase = 'started';
     this.state.countdownEndT = 0;
     this.publishListing();
@@ -277,6 +332,7 @@ export class LobbyRoom extends Room<{ state: LobbyState }> {
       formFields: () => ({ botFill: this.policy.botFill, seeded: this.resolvedSeed !== null }),
     });
     if (ok) this.linger();
+    else void this.disconnect();
   }
 
   /** The arena's create bag. The trust ticket is what lets mapSeed / botFill /

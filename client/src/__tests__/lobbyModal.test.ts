@@ -8,6 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { LobbyView } from '../net/lobby.js';
+import { LOBBY_SEED_DEBOUNCE_MS } from '../config.js';
 import {
   aboardLine,
   codeLine,
@@ -235,6 +236,80 @@ describe('READY / UNREADY', () => {
     expect(button('READY')).toBeUndefined();
     button('UNREADY').click();
     expect(a.onReady).toHaveBeenLastCalledWith(false);
+  });
+});
+
+// REVIEW C4: two clicks before the server's patch lands must flip twice. The
+// modal keeps a local intended value per toggle until the view catches up.
+describe('rapid double clicks', () => {
+  it('READY twice before the patch sends true then false, and the label follows the intent', () => {
+    const a = actions();
+    showLobbyModal(a);
+    updateLobbyModal(view());
+    button('READY').click();
+    expect(button('UNREADY')).toBeDefined();
+    button('UNREADY').click();
+    expect(vi.mocked(a.onReady).mock.calls).toEqual([[true], [false]]);
+    expect(button('READY')).toBeDefined();
+  });
+
+  it('a stale patch does not flip the label back; the matching one drops the intent', () => {
+    const a = actions();
+    showLobbyModal(a);
+    updateLobbyModal(view());
+    button('READY').click();
+    button('UNREADY').click(); // intent: not ready
+    updateLobbyModal(view({ players: [{ id: 'me', name: 'NEMO', ready: true }] })); // the first send's echo
+    expect(button('READY')).toBeDefined();
+    updateLobbyModal(view()); // the second send's echo — the view now matches
+    updateLobbyModal(view({ players: [{ id: 'me', name: 'NEMO', ready: true }] })); // ready set elsewhere
+    expect(button('UNREADY')).toBeDefined(); // the view rules again
+  });
+
+  it('BOT-FILL twice before the patch sends true then false', () => {
+    const a = actions();
+    showLobbyModal(a);
+    updateLobbyModal(view());
+    button('BOT-FILL').click();
+    expect(button('BOT-FILL').getAttribute('aria-pressed')).toBe('true');
+    button('BOT-FILL').click();
+    expect(vi.mocked(a.onBotFill).mock.calls).toEqual([[true], [false]]);
+    expect(button('BOT-FILL').getAttribute('aria-pressed')).toBe('false');
+  });
+});
+
+// REVIEW C7: text typed during a countdown without Enter/blur must still reach
+// the lobby before it forms.
+describe('seed debounce', () => {
+  it('typing sends once after the debounce, without Enter or blur', () => {
+    const a = actions();
+    showLobbyModal(a);
+    updateLobbyModal(view());
+    const input = seedInput() as HTMLInputElement;
+    input.focus();
+    input.value = 'ban';
+    input.dispatchEvent(new Event('input'));
+    vi.advanceTimersByTime(LOBBY_SEED_DEBOUNCE_MS - 1);
+    input.value = 'bananas';
+    input.dispatchEvent(new Event('input'));
+    vi.advanceTimersByTime(LOBBY_SEED_DEBOUNCE_MS - 1);
+    expect(a.onSeed).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(vi.mocked(a.onSeed).mock.calls).toEqual([['bananas']]);
+    input.blur(); // already sent — blur adds nothing
+    expect(a.onSeed).toHaveBeenCalledTimes(1);
+  });
+
+  it('closing the modal cancels a pending send', () => {
+    const a = actions();
+    showLobbyModal(a);
+    updateLobbyModal(view());
+    const input = seedInput() as HTMLInputElement;
+    input.value = 'bananas';
+    input.dispatchEvent(new Event('input'));
+    hideLobbyModal();
+    vi.advanceTimersByTime(LOBBY_SEED_DEBOUNCE_MS * 2);
+    expect(a.onSeed).not.toHaveBeenCalled();
   });
 });
 

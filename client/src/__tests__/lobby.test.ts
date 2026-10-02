@@ -25,7 +25,7 @@ interface FakeRoom {
   fire: (type: string, msg: unknown) => void;
   fireState: (s: unknown) => void;
   fireLeave: (code: number) => void;
-  fireError: (code: number) => void;
+  fireError: (code: number, message?: string) => void;
   has: (type: string) => boolean;
 }
 
@@ -54,7 +54,7 @@ function fakeRoom(sessionId = 'me'): FakeRoom {
     fire: (type, msg) => handlers.get(type)?.(msg),
     fireState: (s) => stateCbs.forEach((cb) => cb(s)),
     fireLeave: (c) => leaveCbs.forEach((cb) => cb(c)),
-    fireError: (c) => errorCbs.forEach((cb) => cb(c)),
+    fireError: (c, m) => errorCbs.forEach((cb) => cb(c, m)),
     has: (type) => handlers.has(type),
   };
   return self;
@@ -161,7 +161,11 @@ afterEach(() => {
 describe('pure helpers', () => {
   it('normalizes a code: uppercase, A–Z only, six at most', () => {
     expect(normalizeCode('k7x-q2m')).toBe('KXQM');
-    expect(normalizeCode('qwertyuiop')).toBe('QWERTY');
+    // More than six letters keeps the LAST six (review C8): a pasted
+    // "CODE ABCDEF" is the code, not CODEAB.
+    expect(normalizeCode('qwertyuiop')).toBe('TYUIOP');
+    expect(normalizeCode('CODE ABCDEF')).toBe('ABCDEF');
+    expect(normalizeCode('code: k7x-q2m-abc')).toBe('XQMABC');
     expect(isWellFormedCode('QWERTY')).toBe(true);
     expect(isWellFormedCode('QWERT')).toBe(false);
     expect(isWellFormedCode('QWERT1')).toBe(false);
@@ -176,8 +180,13 @@ describe('pure helpers', () => {
     expect(lobbyResolveUrl('QWERTY')).toBe('http://localhost:2567/lobby/resolve?code=QWERTY');
   });
 
-  it('maps a joinById rejection: locked → LOBBY FULL, gone → NO SUCH LOBBY, else null', () => {
-    expect(joinByIdRefusal({ code: 522, message: 'room "x" is locked' })).toBe('LOBBY FULL');
+  it('maps a joinById rejection: locked → MATCH STARTED, full → LOBBY FULL, gone → NO SUCH LOBBY, else null', () => {
+    // A lobby locks only when it forms (review C3) — locked means the match started.
+    expect(joinByIdRefusal({ code: 522, message: 'room "x" is locked' })).toBe('MATCH STARTED');
+    // A full room fails at the seat reservation (Colyseus SeatReservationError,
+    // re-thrown by the matchmake controller as MATCHMAKE_UNHANDLED 523).
+    expect(joinByIdRefusal({ code: 523, message: 'x is already full.' })).toBe('LOBBY FULL');
+    expect(joinByIdRefusal({ code: 522, message: 'room "x" has been disposed.' })).toBe('NO SUCH LOBBY');
     expect(joinByIdRefusal({ code: 522, message: 'room "x" not found' })).toBe('NO SUCH LOBBY');
     expect(joinByIdRefusal({ code: 525, message: 'version mismatch' })).toBeNull();
     expect(joinByIdRefusal(new Error('socket'))).toBeNull();
@@ -329,10 +338,40 @@ describe('JOIN', () => {
 
   it('a joinById that loses the race to a full room reads LOBBY FULL', async () => {
     stubFetch(200, { roomId: 'room-42' });
-    joinByIdRejection = Object.assign(new Error('room "room-42" is locked'), { code: 522 });
+    joinByIdRejection = Object.assign(new Error('room-42 is already full.'), { code: 523 });
     const h = hooks();
     expect(await joinLobby('QWERTY', {}, h)).toBeNull();
     expect(h.calls).toEqual(['error:LOBBY FULL']);
+  });
+
+  it('a joinById that loses the race to the lobby forming reads MATCH STARTED', async () => {
+    stubFetch(200, { roomId: 'room-42' });
+    joinByIdRejection = Object.assign(new Error('room "room-42" is locked'), { code: 522 });
+    const h = hooks();
+    expect(await joinLobby('QWERTY', {}, h)).toBeNull();
+    expect(h.calls).toEqual(['error:MATCH STARTED']);
+  });
+
+  it("the server's late-joiner refusal rejecting the join itself (client.error in onJoin) reads MATCH STARTED", async () => {
+    // The SDK's consumeSeatReservation rejects with ServerError(code, message)
+    // when the room's ERROR frame beats JOIN_ROOM — the usual shape of the
+    // LobbyRoom's refuseLateJoin.
+    stubFetch(200, { roomId: 'room-42' });
+    joinByIdRejection = Object.assign(new Error('MATCH STARTED'), { code: 523 });
+    const h = hooks();
+    expect(await joinLobby('QWERTY', {}, h)).toBeNull();
+    expect(h.calls).toEqual(['error:MATCH STARTED']);
+  });
+
+  it("the server's late-joiner refusal (client.error 'MATCH STARTED', then a leave) reads MATCH STARTED", async () => {
+    stubFetch(200, { roomId: 'room-42' });
+    const h = hooks();
+    const pending = joinLobby('QWERTY', {}, h);
+    await vi.waitFor(() => expect(lobbyRoom.has(MSG.seat)).toBe(true));
+    lobbyRoom.fireError(4000, 'MATCH STARTED');
+    lobbyRoom.fireLeave(4002);
+    expect(await pending).toBeNull();
+    expect(h.calls).toEqual(['error:MATCH STARTED']);
   });
 
   it('a version-gate rejection at joinById takes the queue door copy', async () => {

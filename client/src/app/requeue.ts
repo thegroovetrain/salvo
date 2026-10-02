@@ -109,3 +109,17 @@ export function makeRequeue(deps: RequeueDeps): () => void {
 export function collapseAutoQueues(privateMatch: boolean): boolean {
   return !privateMatch;
 }
+
+/**
+ * The collapse's landing, as `requeueToPort` takes it: whether to auto-queue —
+ * and, when it does NOT (a private arena), hand the single-session lock back
+ * first. Every other way home releases it (return to port, a disconnect, a
+ * failed connect); the auto-queue keeps it only because `startGame` re-uses it
+ * at once. A private captain idling on the home screen must not hold the port
+ * against a second tab.
+ */
+export function collapseLanding(privateMatch: boolean, releaseLock: () => void): boolean {
+  const autoQueue = collapseAutoQueues(privateMatch);
+  if (!autoQueue) releaseLock();
+  return autoQueue;
+}

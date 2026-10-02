@@ -8,13 +8,13 @@
 // option bag it hands the arena.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ClientState } from 'colyseus';
-import { CONFIG, MSG, PROTOCOL_VERSION, hashSeedText } from '@salvo/shared';
-import { LobbyPolicy, cleanSeedText, mintCode, normalizeCode } from '../rooms/lobby.js';
+import { ClientState, CloseCode, ErrorCode } from 'colyseus';
+import { CONFIG, MSG, MapGenerationError, PROTOCOL_VERSION, hashSeedText } from '@salvo/shared';
+import { LobbyPolicy, cleanSeedText, isCodeReserved, mintCode, normalizeCode, releaseCode, reserveCode } from '../rooms/lobby.js';
 import { resolveLobby, resolveLobbyCode, type LobbyListing } from '../lobbyResolve.js';
-import { LobbyRoom, matchmakeMethodOf } from '../rooms/LobbyRoom.js';
+import { LOBBY_STARTED_ERROR, LobbyRoom, matchmakeMethodOf } from '../rooms/LobbyRoom.js';
 import { isTrustedTicket, lobbyTicket } from '../rooms/lobbyTicket.js';
-import { sanitizeRoomOptions } from '../rooms/roomOptions.js';
+import { sanitizeName, sanitizeRoomOptions } from '../rooms/roomOptions.js';
 import { resetSoloCreateThrottle } from '../rooms/createThrottle.js';
 import type { LobbyState } from '../rooms/schema/LobbyState.js';
 
@@ -257,6 +257,24 @@ describe('mintCode / normalizeCode (ruling 5)', () => {
     expect(() => mintCode(() => 0, new Set(['AAAAAA']))).toThrow(/no free code/);
   });
 
+  it('S3: two creates racing on the SAME taken set and rng still get different codes (in-process reservation)', () => {
+    const seeded = () => {
+      let x = 7;
+      return () => ((x = (x * 9301 + 49297) % 233280) / 233280);
+    };
+    const taken = new Set<string>();
+    const first = reserveCode(seeded(), taken);
+    const second = reserveCode(seeded(), taken);
+    expect(second).not.toBe(first);
+    expect(isCodeReserved(first)).toBe(true);
+    releaseCode(first);
+    releaseCode(second);
+    expect(isCodeReserved(first)).toBe(false);
+    // Released, the same draw mints it again.
+    expect(reserveCode(seeded(), taken)).toBe(first);
+    releaseCode(first);
+  });
+
   it('normalizes case and whitespace; anything else is null', () => {
     expect(normalizeCode(' k7xqzm ')).toBeNull(); // a digit is not a code letter
     expect(normalizeCode(' kxqzma ')).toBe('KXQZMA');
@@ -383,6 +401,10 @@ interface LobbyHarness {
   setMetadata: ReturnType<typeof vi.fn>;
   setPrivate: ReturnType<typeof vi.fn>;
   lock: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
+  onDispose(): void;
+  generateMapForSeed: (seed: number) => unknown;
+  policy: { evaluate: (now: number) => unknown };
   autoDispose: boolean;
 }
 
@@ -508,18 +530,112 @@ describe('LobbyRoom — the adapter', () => {
     expect(r.state.players.has('a')).toBe(false);
   });
 
-  it('seed: shown at once, resolved on the tick, blank clears it', async () => {
+  it('seed: shown at once, blank clears it', async () => {
     const { r, send, tick, join } = await lobbyRoom();
     const a = join('a');
     send(a, MSG.lobbySeed, { text: '  bananas  ' });
     expect(r.state.seedText).toBe('bananas');
-    expect(r.state.seedResolved).toBe('');
-    tick();
-    expect(r.state.seedResolved).toMatch(/^bananas\d*$/);
     send(a, MSG.lobbySeed, { text: '' });
     tick();
     expect(r.state.seedText).toBe('');
     expect(r.state.seedResolved).toBe('');
+  });
+
+  it('S1: seed spam never probes the map; the form probes ONCE, with the final text', async () => {
+    const { r, send, tick, join } = await lobbyRoom();
+    const gen = vi.fn(() => ({}));
+    r.generateMapForSeed = gen;
+    const a = join('a');
+    join('b');
+    for (const text of ['b', 'ba', 'ban', 'bana', 'bananas']) {
+      send(a, MSG.lobbySeed, { text });
+      tick();
+    }
+    expect(gen).not.toHaveBeenCalled();
+    expect(r.state.seedResolved).toBe('');
+    send(a, MSG.lobbyStart);
+    await settle();
+    expect(gen).toHaveBeenCalledTimes(1);
+    expect(gen).toHaveBeenCalledWith(hashSeedText('bananas'));
+    expect(r.state.seedResolved).toBe('bananas');
+    expect(created[0].options.mapSeed).toBe(hashSeedText('bananas'));
+  });
+
+  it('S1: a MapGenerationError at form time takes the suffix retry (ruling 3)', async () => {
+    const { r, send, join } = await lobbyRoom();
+    r.generateMapForSeed = vi.fn((seed: number) => {
+      if (seed === hashSeedText('bananas')) throw new MapGenerationError(seed, CONFIG.map.playerCap, 1);
+      return {};
+    });
+    const a = join('a');
+    join('b');
+    send(a, MSG.lobbySeed, { text: 'bananas' });
+    send(a, MSG.lobbyStart);
+    await settle();
+    expect(r.state.seedResolved).toBe('bananas0');
+    expect(created[0].options.mapSeed).toBe(hashSeedText('bananas0'));
+  });
+
+  it('S1: a probe that throws anything else still forms the arena, with NO seed (random map)', async () => {
+    const { r, send, join } = await lobbyRoom();
+    r.generateMapForSeed = vi.fn(() => {
+      throw new Error('unexpected');
+    });
+    const a = join('a');
+    join('b');
+    send(a, MSG.lobbySeed, { text: 'bananas' });
+    send(a, MSG.lobbyStart);
+    await settle();
+    expect(created).toHaveLength(1);
+    expect(created[0].options).not.toHaveProperty('mapSeed');
+    expect(r.state.seedResolved).toBe('');
+    expect(r.state.seedText).toBe('bananas');
+    expect(a.send).toHaveBeenCalledWith(MSG.seat, { sessionId: 'a' });
+  });
+
+  it('S1: nothing thrown inside the tick escapes into the clock interval', async () => {
+    const { r, tick, join } = await lobbyRoom();
+    join('a');
+    vi.spyOn(r.policy, 'evaluate').mockImplementation(() => {
+      throw new Error('policy bug');
+    });
+    expect(() => tick()).not.toThrow();
+  });
+
+  it('S2: a captain whose join lands AFTER the form is told MATCH STARTED and closed', async () => {
+    const { r, send, join } = await lobbyRoom();
+    const a = join('a');
+    join('b');
+    send(a, MSG.lobbyStart);
+    await settle();
+    const late = join('c');
+    expect(LOBBY_STARTED_ERROR).toBe('MATCH STARTED');
+    expect(late.error).toHaveBeenCalledWith(ErrorCode.MATCHMAKE_UNHANDLED, 'MATCH STARTED');
+    expect(late.leave).toHaveBeenCalledWith(CloseCode.WITH_ERROR);
+    expect(r.state.players.has('c')).toBe(false);
+    expect(late.send).not.toHaveBeenCalled();
+  });
+
+  it('S3: a lobby holds its code reserved until it disposes', async () => {
+    const { r } = await lobbyRoom();
+    const code = r.state.code;
+    expect(isCodeReserved(code)).toBe(true);
+    r.onDispose();
+    expect(isCodeReserved(code)).toBe(false);
+  });
+
+  it('S4: a blank callsign is resolved at the lobby door and carried on the seat, so the arena shows the same name', async () => {
+    const { r, send, join } = await lobbyRoom();
+    const a = join('a', { name: '   ' });
+    join('b', { name: 'BRAVO' });
+    expect(r.state.players.get('a')?.name).toBe('CAPTAIN-1');
+    send(a, MSG.lobbyStart);
+    await settle();
+    const seats = matchMaker.reserveMultipleSeatsFor.mock.calls[0][1] as Array<{ options: Record<string, unknown> }>;
+    expect(seats[0].options.name).toBe('CAPTAIN-1');
+    expect(seats[1].options.name).toBe('BRAVO');
+    // ...and the arena's own sanitizer keeps it verbatim (no CAPTAIN-n re-draw).
+    expect(sanitizeName(seats[0].options.name)).toBe('CAPTAIN-1');
   });
 
   it('a lone host with bot-fill + seed forces a start: the arena bag is trusted and complete', async () => {
@@ -530,9 +646,10 @@ describe('LobbyRoom — the adapter', () => {
     send(a, MSG.lobbyBotFill, { on: true });
     send(a, MSG.lobbySeed, { text: 'bananas' });
     tick();
-    const resolvedText = r.state.seedResolved;
     send(a, MSG.lobbyStart);
     await settle();
+    const resolvedText = r.state.seedResolved;
+    expect(resolvedText).toMatch(/^bananas\d*$/);
     expect(created).toHaveLength(1);
     const { name, options } = created[0];
     expect(name).toBe('arena');
@@ -594,6 +711,8 @@ describe('LobbyRoom — the adapter', () => {
     expect(a.error).toHaveBeenCalled();
     expect(a.leave).toHaveBeenCalled();
     expect(r.autoDispose).toBe(true);
+    // S2: the failed lobby closes itself; no straggler keeps it alive.
+    expect(r.disconnect).toHaveBeenCalled();
   });
 
   it('the ticket never reaches a client', async () => {

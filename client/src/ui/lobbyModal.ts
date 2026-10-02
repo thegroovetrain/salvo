@@ -19,6 +19,7 @@
 // the join-code modal — modals never stack.
 
 import { CONFIG } from '@salvo/shared';
+import { LOBBY_SEED_DEBOUNCE_MS } from '../config.js';
 import type { LobbyView } from '../net/lobby.js';
 import {
   applyHairline,
@@ -80,6 +81,10 @@ export function lobbyCountdownLine(deadlineAt: number | null, nowMs: number): st
 interface HostEls {
   root: HTMLElement;
   seed: HTMLInputElement;
+  /** Drops a pending debounced seed send (teardown). */
+  cancelSeed: () => void;
+  /** The BOT-FILL value last clicked, until the lobby's view agrees (see `Mounted.wantReady`). */
+  wantBotFill: boolean | null;
   botFill: HTMLButtonElement;
   start: HTMLButtonElement;
   reason: HTMLElement;
@@ -95,6 +100,13 @@ interface Mounted {
   hostSlot: HTMLElement;
   countdown: HTMLElement;
   ready: HTMLButtonElement;
+  /**
+   * The READY value last clicked, until the lobby's view agrees with it. Two
+   * clicks before the server's patch lands must send true THEN false — a
+   * toggle computed from the stale view would send the same value twice. The
+   * label follows this intent; null = the view rules.
+   */
+  wantReady: boolean | null;
   actions: LobbyActions;
   view: LobbyView | null;
   host: HostEls | null;
@@ -145,27 +157,41 @@ function makeRosterRow(name: string, ready: boolean): HTMLElement {
   return row;
 }
 
-function makeSeedInput(actions: LobbyActions): HTMLInputElement {
+function makeSeedInput(actions: LobbyActions): { input: HTMLInputElement; cancel: () => void } {
   const input = makeModalInput();
   input.placeholder = 'SEED (OPTIONAL)';
   // The seed is free text hashed AS TYPED, so it is shown as typed — an
   // uppercased display would hide the difference between two different maps.
   input.style.textTransform = 'none';
   input.maxLength = CONFIG.lobby.seedTextMax;
-  // Sent on Enter and on blur, and only when it differs from what the lobby
-  // already holds — a focus that wanders through the field sends nothing.
+  // Sent on Enter, on blur, and LOBBY_SEED_DEBOUNCE_MS after the last
+  // keystroke (text typed during a countdown must not be lost at form) — and
+  // only when it differs from what was last sent (or, before any send, from
+  // what the lobby holds): a focus that wanders through the field sends nothing.
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let lastSent: string | null = null;
+  const cancel = (): void => {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+  };
   const send = (): void => {
+    cancel();
     const text = input.value.trim();
-    if (text === (mounted?.view?.seedText ?? '')) return;
+    if (text === (lastSent ?? mounted?.view?.seedText ?? '')) return;
+    lastSent = text;
     actions.onSeed(text);
   };
+  input.addEventListener('input', () => {
+    cancel();
+    timer = setTimeout(send, LOBBY_SEED_DEBOUNCE_MS);
+  });
   input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     e.stopPropagation();
     send();
   });
   input.addEventListener('blur', send);
-  return input;
+  return { input, cancel };
 }
 
 /** BOT-FILL is a toggle chip: lit phosphor when on, hairline + muted when off. */
@@ -175,24 +201,37 @@ function paintBotFill(btn: HTMLButtonElement, on: boolean): void {
   applyHairline(btn, on ? 'var(--hc-phosphor)' : 'var(--hc-hairline)');
 }
 
+/** BOT-FILL as the host last asked for it, else as the lobby holds it. */
+function shownBotFill(h: HostEls): boolean {
+  return h.wantBotFill ?? mounted?.view?.botFill ?? false;
+}
+
+function toggleBotFill(h: HostEls, actions: LobbyActions): void {
+  const next = !shownBotFill(h);
+  h.wantBotFill = next;
+  actions.onBotFill(next);
+  paintBotFill(h.botFill, next);
+}
+
 function makeHostEls(actions: LobbyActions): HostEls {
   const root = document.createElement('div');
   root.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:10px';
-  const botFill = makeModalButton('BOT-FILL', 'var(--hc-phosphor)', () =>
-    actions.onBotFill(!(mounted?.view?.botFill ?? false)),
-  );
+  const botFill = makeModalButton('BOT-FILL', 'var(--hc-phosphor)', () => toggleBotFill(h, actions));
   const start = makeModalButton('START NOW', 'var(--hc-phosphor)', () => actions.onStart());
   const reason = makeLine('hudMicro', 'var(--hc-text-secondary)');
   const row = document.createElement('div');
   row.style.cssText = 'display:flex;gap:12px;justify-content:center;flex-wrap:wrap';
   row.append(botFill, start);
   root.append(row, reason);
-  return { root, seed: makeSeedInput(actions), botFill, start, reason };
+  const seed = makeSeedInput(actions);
+  const h: HostEls = { root, seed: seed.input, cancelSeed: seed.cancel, wantBotFill: null, botFill, start, reason };
+  return h;
 }
 
 function paintHost(h: HostEls, v: LobbyView): void {
   if (document.activeElement !== h.seed) h.seed.value = v.seedText;
-  paintBotFill(h.botFill, v.botFill);
+  if (h.wantBotFill === v.botFill) h.wantBotFill = null; // the lobby caught up
+  paintBotFill(h.botFill, h.wantBotFill ?? v.botFill);
   const eligible = startEligible(v);
   setButtonEnabled(h.start, eligible);
   paintSlot(h.reason, eligible ? '' : START_BLOCKED);
@@ -206,6 +245,7 @@ function syncRole(m: Mounted, host: boolean): void {
     m.seedSlot.replaceChildren(m.host.seed);
     m.hostSlot.replaceChildren(m.host.root);
   } else if (!host && (m.host !== null || m.readOnlySeed === null)) {
+    m.host?.cancelSeed();
     m.host = null;
     m.readOnlySeed = makeLine('label', 'var(--hc-text-primary)');
     m.readOnlySeed.style.textTransform = 'none'; // as typed — see makeSeedInput
@@ -232,6 +272,23 @@ function noteHandOff(m: Mounted, v: LobbyView): void {
   const prev = m.view;
   if (prev !== null && prev.hostId !== '' && prev.hostId !== v.hostId && isHost(v)) m.handedOff = true;
   if (!isHost(v)) m.handedOff = false;
+}
+
+/** READY as the player last asked for it, else as the lobby holds it. */
+function shownReady(m: Mounted): boolean {
+  return m.wantReady ?? (m.view !== null && myReady(m.view));
+}
+
+function paintReady(m: Mounted): void {
+  m.ready.textContent = shownReady(m) ? 'UNREADY' : 'READY';
+}
+
+function toggleReady(m: Mounted): void {
+  if (m.view === null) return;
+  const next = !shownReady(m);
+  m.wantReady = next;
+  m.actions.onReady(next);
+  paintReady(m);
 }
 
 function paintRoster(m: Mounted, v: LobbyView): void {
@@ -261,9 +318,8 @@ export function showLobbyModal(actions: LobbyActions): void {
     seedSlot: document.createElement('div'),
     hostSlot: document.createElement('div'),
     countdown: makeLine('hudMicro', 'var(--hc-phosphor)'),
-    ready: makeModalButton('READY', 'var(--hc-amber)', () => {
-      if (m.view !== null) actions.onReady(!myReady(m.view));
-    }),
+    ready: makeModalButton('READY', 'var(--hc-amber)', () => toggleReady(m)),
+    wantReady: null,
     actions,
     view: null,
     host: null,
@@ -293,7 +349,8 @@ export function updateLobbyModal(v: LobbyView): void {
   paintRoster(m, v);
   if (m.host !== null) paintHost(m.host, v);
   if (m.readOnlySeed !== null) paintSlot(m.readOnlySeed, v.seedText);
-  m.ready.textContent = myReady(v) ? 'UNREADY' : 'READY';
+  if (m.wantReady === myReady(v)) m.wantReady = null; // the lobby caught up
+  paintReady(m);
   paintCountdown(m);
   retick(m);
 }
@@ -304,6 +361,7 @@ export function hideLobbyModal(): void {
   mounted = null;
   if (m !== null) {
     if (m.tick !== null) clearInterval(m.tick);
+    m.host?.cancelSeed();
     m.detachKeys();
     m.overlay.remove();
   }

@@ -73,7 +73,11 @@ describe('the join-code modal', () => {
     open();
     type('k7x-q2m');
     expect(input().value).toBe('KXQM');
+    // Past six letters the LAST six are kept (review C8) — a pasted
+    // "CODE ABCDEF" lands as the code, not CODEAB.
     type('abcdefgh');
+    expect(input().value).toBe('CDEFGH');
+    type('CODE ABCDEF');
     expect(input().value).toBe('ABCDEF');
     type('a b\tc😀d');
     expect(input().value).toBe('ABCD');

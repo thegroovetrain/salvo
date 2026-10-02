@@ -20,7 +20,8 @@
 //   B. LONE HOST, BOT FILL, SEED, START NOW — bot fill on, seed 'bananas',
 //      'lg' -> a seat -> an arena with 20 roster rows (1 + 19 bots) whose
 //      mapSeed is hashSeedText(the lobby's seedResolved) and whose resolved
-//      text is 'bananas' or 'bananas' + a retry suffix.
+//      text is 'bananas' or 'bananas' + a retry suffix — resolved only at
+//      form time (seedResolved is still '' before START NOW).
 //
 // Run: node server/scripts/lobbySmoke.mjs
 import { spawn } from 'node:child_process';
@@ -228,11 +229,13 @@ async function proveLoneHostBotFill() {
     assert(h.seat === null, 'a lone host without bot fill was seated by START NOW');
     h.lobby.send(MSG.lobbyBotFill, { on: true });
     h.lobby.send(MSG.lobbySeed, { text: 'bananas' });
-    await waitFor(() => h.lobby.state.botFill && h.lobby.state.seedText === 'bananas' && h.lobby.state.seedResolved !== '', 5000, 'seed resolved');
+    await waitFor(() => h.lobby.state.botFill && h.lobby.state.seedText === 'bananas', 5000, 'seed text shown');
+    // The seed is resolved ONCE, at form time (never per keystroke/tick).
+    assert(h.lobby.state.seedResolved === '', `seed resolved before the form ('${h.lobby.state.seedResolved}')`);
+    h.lobby.send(MSG.lobbyStart);
+    await waitFor(() => h.seat !== null && h.lobby.state.seedResolved !== '', 15000, 'seat + seed resolved at form');
     const resolved = h.lobby.state.seedResolved;
     assert(/^bananas\d*$/.test(resolved), `seedResolved '${resolved}' is not bananas[+suffix]`);
-    h.lobby.send(MSG.lobbyStart);
-    await waitFor(() => h.seat !== null, 15000, 'seat');
     await board(h);
     await waitFor(() => h.welcome !== null, 15000, 'welcome');
     await waitFor(() => h.arena.state?.players?.size === CAP, 15000, `arena roster ${CAP}`);

@@ -100,9 +100,14 @@ export interface LobbyDeploy {
 
 // --- pure helpers (tested) ---------------------------------------------------
 
-/** What the code field holds: uppercased, A–Z only, at most `codeLength`. */
+/**
+ * What the code field holds: uppercased, A–Z only, at most `codeLength`. When
+ * more letters than that survive, the LAST `codeLength` are kept: a pasted
+ * "CODE ABCDEF" carries its prefix in front, so the code is the tail.
+ */
 export function normalizeCode(raw: string): string {
-  return raw.toUpperCase().replace(/[^A-Z]/g, '').slice(0, CONFIG.lobby.codeLength);
+  const letters = raw.toUpperCase().replace(/[^A-Z]/g, '');
+  return letters.slice(Math.max(0, letters.length - CONFIG.lobby.codeLength));
 }
 
 /** Exactly `codeLength` letters A–Z — the only shape worth a resolve. */
@@ -122,15 +127,37 @@ export function lobbyResolveUrl(code: string): string {
 }
 
 /**
- * A `joinById` rejection that is really a refusal. The matchmaker answers
- * MATCHMAKE_INVALID_ROOM_ID (522) both for a room that filled (Colyseus locks a
- * room at `maxClients`: `is locked`) and for one that vanished between the
- * resolve and the join (`not found`). Anything else is a connect failure.
+ * A `joinById` rejection that is really a refusal (@colyseus/core MatchMaker):
+ *   • `room "…" is locked` (MATCHMAKE_INVALID_ROOM_ID, 522) — the lobby locks
+ *     when it FORMS, so this is MATCH STARTED;
+ *   • `… is already full.` (a SeatReservationError, re-thrown by the matchmake
+ *     controller as MATCHMAKE_UNHANDLED, 523) — LOBBY FULL;
+ *   • any other 522 (`not found`, `has been disposed.`) — the room vanished
+ *     between the resolve and the join: NO SUCH LOBBY;
+ *   • a message that IS a refusal — the LobbyRoom's late-joiner refusal
+ *     (`client.error(…, 'MATCH STARTED')` inside its onJoin) reaches the SDK
+ *     before JOIN_ROOM, so `joinById` itself rejects with it.
+ * Anything else is a connect failure.
  */
 export function joinByIdRefusal(err: unknown): LobbyRefusal | null {
   const e = err as { code?: unknown; message?: unknown } | null | undefined;
+  const message = String(e?.message ?? '');
+  if (isLobbyRefusal(message)) return message;
+  if (/already full/i.test(message)) return 'LOBBY FULL';
   if (e?.code !== 522) return null;
-  return /locked/i.test(String(e.message ?? '')) ? 'LOBBY FULL' : 'NO SUCH LOBBY';
+  return /locked/i.test(message) ? 'MATCH STARTED' : 'NO SUCH LOBBY';
+}
+
+const LOBBY_CLOSED = (): string => connectErrorStatus(new QueueError('lobby closed'));
+
+/**
+ * What a server-side close of the lobby socket says. The room refuses a late
+ * joiner (its seat consumed after the lobby formed) with `client.error(…,
+ * 'MATCH STARTED')` and a leave; a refusal named in the error or the close
+ * reason is shown as that refusal, anything else is the queue door's copy.
+ */
+export function lobbyCloseReason(message?: string): string {
+  return isLobbyRefusal(message) ? message : LOBBY_CLOSED();
 }
 
 /** Turns successive `countdownEndT` values into client-epoch deadlines. */
@@ -204,8 +231,6 @@ let active: Session | null = null;
 
 type Outcome = { seat: SeatReservation } | { left: true } | { error: string };
 
-const LOBBY_CLOSED = (): string => connectErrorStatus(new QueueError('lobby closed'));
-
 /**
  * Sit in the lobby until it ends: the seat, the player's LEAVE, or a failure.
  * Views stop flowing the moment any of those lands.
@@ -226,8 +251,10 @@ function sitInLobby(s: Session, hooks: LobbyHooks): Promise<Outcome> {
     };
     s.room.onStateChange((state: LobbyStateLike) => push(state));
     s.room.onMessage(MSG.seat, (res: SeatReservation) => end({ seat: res }));
-    s.room.onError(() => end({ error: LOBBY_CLOSED() }));
-    s.room.onLeave(() => end(s.leaving ? { left: true } : { error: LOBBY_CLOSED() }));
+    s.room.onError((_code: number, message?: string) => end({ error: lobbyCloseReason(message) }));
+    s.room.onLeave((_code: number, reason?: string) =>
+      end(s.leaving ? { left: true } : { error: lobbyCloseReason(reason) }),
+    );
     const initial = s.room.state as LobbyStateLike | undefined;
     if (initial?.code) push(initial);
   });
