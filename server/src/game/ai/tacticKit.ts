@@ -40,6 +40,7 @@ import type { BotMind, BotPosture, BotSelf, BotWorldPort } from './types.js';
 import { isActionable, lineBlocked, tracksOf, type BotSituation, type BotTrack } from './utility.js';
 import type { BotProfile } from './profiles.js';
 import { torpedoInbound } from './torpedoThreat.js';
+import { predictedPos, trackVelocity } from './plot.js';
 
 const TAU = Math.PI * 2;
 
@@ -195,21 +196,26 @@ export const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 const LEAD_ITERATIONS = 3;
 
 /**
- * The lead-corrected intercept point for a track at `speed` u/s of ordnance.
- * A track with no disclosed pose — the identity-free `return`-grammar plot —
- * cannot be led at all, so its last-known point IS the aim point.
+ * The lead-corrected intercept point for a track at `speed` u/s of ordnance,
+ * solved from where the plot should be NOW (ai/plot.ts `predictedPos` — the
+ * last-known position dead-reckoned on its course since the last refresh)
+ * with its course (`trackVelocity` — the disclosed pose, else the bot's
+ * estimate from the wake or a paint pair; cycle 165: "course feeds every
+ * weapon", Eric 2026-10-02). Only a COURSE-LESS plot cannot be led at all,
+ * so its last-known point IS the aim point. A live sighting was refreshed
+ * this tick, so its prediction is its position and the solve is the old one.
  */
 function leadPoint(sit: BotSituation, t: BotTrack, speed: number): Vec2 {
-  if (t.heading === null || t.speed === null) return { x: t.x, y: t.y };
-  const vx = Math.cos(t.heading) * t.speed;
-  const vy = Math.sin(t.heading) * t.speed;
+  const base = predictedPos(t, sit.now);
+  const v = trackVelocity(t);
+  if (v === null) return base;
   let tof = 0;
   for (let i = 0; i < LEAD_ITERATIONS; i += 1) {
-    const px = t.x + vx * tof;
-    const py = t.y + vy * tof;
+    const px = base.x + v.vx * tof;
+    const py = base.y + v.vy * tof;
     tof = Math.hypot(px - sit.x, py - sit.y) / speed;
   }
-  return { x: t.x + vx * tof, y: t.y + vy * tof };
+  return { x: base.x + v.vx * tof, y: base.y + v.vy * tof };
 }
 
 /**
@@ -269,7 +275,7 @@ export function solveTorpedoShot(
   reachU: number,
 ): Shot | null {
   const t = ctx.target;
-  if (t === null || t.heading === null) return null; // a return-grammar plot cannot be led
+  if (t === null || trackVelocity(t) === null) return null; // a course-less plot cannot be led
   if (distTo(ctx.sit, t) > reachU) return null;
   const p = aimPoint(ctx.mind, ctx.sit, t, speed);
   const aim = bearing(ctx.self.state, p);

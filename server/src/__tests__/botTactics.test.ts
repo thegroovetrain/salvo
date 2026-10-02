@@ -96,6 +96,7 @@ function mkMind(profile: BotProfileId, seed = 7): BotMind {
     view: null,
     viewAt: -1,
     contacts: new Map(),
+    wakeCells: [],
     targetKey: null,
     posture: 'reposition',
     stuckMs: 0,
@@ -136,6 +137,14 @@ function track(now: number, over: Partial<RememberedContact> = {}): RememberedCo
     fleet: false,
     firstSeenAt: now - CONFIG.bots.reactionMs * 4,
     hits: 0,
+    vx: null,
+    vy: null,
+    vAt: -1,
+    vSrc: null,
+    paintX: 0,
+    paintY: 0,
+    paintAt: -1,
+    missSweptAt: -1,
     ...over,
   };
 }
@@ -932,7 +941,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     expect(b.aimDist).toBeCloseTo(a.aimDist, 10);
   });
 
-  it('a `return`-grammar plot is AIMED AT, never led — and no long-reload weapon is spent on it', () => {
+  it('a COURSE-LESS `return`-grammar plot is AIMED AT, never led — and no long-reload weapon is spent on it; an ESTIMATED course is led', () => {
     const w = openWorld(205);
     const port = fakePort(w);
     const rec = mkBot(w, 'battleship', 0, 0, 0);
@@ -949,7 +958,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const led = mkMind('bulwark');
     plot(led, track(port.now, { ...at, heading: 0, speed: 45 }));
     expect(Math.abs(angleDiff(direct, COMBAT_BRAIN.decide(rec, led, port).aim))).toBeGreaterThan(0.05);
-    // A 30-second BROADSIDE reload is not spent on a plot that cannot be led.
+    // A 30-second BROADSIDE reload is not spent on a COURSE-LESS plot.
     // (The target is due north of a bow-east hull, so it is ABEAM — inside
     // the barrage's beam sector, which is what makes it a candidate at all.)
     expect(blind.fireSlot).toBe(slotOf(rec, 'gun'));
@@ -959,6 +968,18 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const tbMind = mkMind('duelist');
     plot(tbMind, track(port.now, { id: null, x: 0, y: 150, heading: null, speed: null, cls: null }));
     expect(COMBAT_BRAIN.decide(tb, tbMind, port).fireSlot).toBe(slotOf(tb, 'gun'));
+    // CYCLE 165 ("course feeds every weapon", Eric 2026-10-02): the SAME
+    // identity-free plot carrying an ESTIMATED course (a paint pair here) is
+    // led exactly like a disclosed one — and, once it has persisted a sweep,
+    // the broadside may be spent on it.
+    const est = mkMind('bulwark');
+    plot(est, track(port.now, {
+      id: null, ...at, heading: null, speed: null, cls: null, live: false,
+      firstSeenAt: port.now - 5000, vx: 45, vy: 0, vAt: port.now, vSrc: 'paint',
+    }));
+    const estLed = COMBAT_BRAIN.decide(rec, est, port);
+    expect(Math.abs(angleDiff(direct, estLed.aim))).toBeGreaterThan(0.05);
+    expect(estLed.fireSlot).toBe(slotOf(rec, 'broadside'));
   });
 
   it('never fires an EMPTY pool — the reloading gun holds fire with a perfect target', () => {

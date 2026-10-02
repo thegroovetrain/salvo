@@ -840,7 +840,9 @@ function helmFor(
  */
 function ingest(self: BotSelf, mind: BotMind, port: BotWorldPort): void {
   if (mind.view === null || mind.viewAt !== port.now) return;
-  foldView(mind, mind.view, port.now);
+  // Cycle 165: the bot's OWN beam (BotSelf's self-read) and its situation feed
+  // the sweep-miss drop — the plot whose predicted spot was swept clean goes.
+  foldView(mind, mind.view, port.now, { beam: self, site: situationOf(self, mind, port) });
   // Story 8.15, amendment 115: the seen-torpedo table (DAMAGE CUT's inbound trigger).
   noteTorpedoes(mind, self, port.now);
 }

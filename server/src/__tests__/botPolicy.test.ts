@@ -89,6 +89,7 @@ function mind(profile: BotProfileId = 'duelist'): BotMind {
     view: null,
     viewAt: -1,
     contacts: new Map(),
+    wakeCells: [],
     targetKey: null,
     posture: 'reposition',
     stuckMs: 0,
@@ -493,6 +494,14 @@ describe('ai/utility — LAND IN THE WAY is scored and postured on', () => {
       fleet: false,
       firstSeenAt: 0,
       hits: 0,
+      vx: null,
+      vy: null,
+      vAt: -1,
+      vSrc: null,
+      paintX: 0,
+      paintY: 0,
+      paintAt: -1,
+      missSweptAt: -1,
       ...over,
     };
   }
@@ -1236,6 +1245,7 @@ describe('ai/utility — track persistence (the chaff counter; the jamming buoy 
     return {
       id: null, x: 400, y: 0, heading: null, speed: null, seenAt: now,
       live: false, cls: null, fleet: false, firstSeenAt, hits: 0,
+      vx: null, vy: null, vAt: -1, vSrc: null, paintX: 0, paintY: 0, paintAt: -1, missSweptAt: -1,
     };
   }
 

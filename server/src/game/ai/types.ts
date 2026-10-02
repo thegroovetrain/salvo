@@ -129,6 +129,18 @@ export interface BotSelf {
    * predate it stay valid; absent reads as "no shield".
    */
   readonly shield?: { readonly hpLeft: number; readonly until: number } | null;
+  /**
+   * This hull's OWN radar beam — the post-advance angle and the angle before
+   * this tick's advance, so this tick's paint window is the half-open arc
+   * [prevSweepAngle, sweepAngle) (rad, wrapped to [0, 2π)). PARITY, not a
+   * widening: a human client is sent `OwnShip.sweep` every frame, and the
+   * previous frame's value IS the previous angle. Read by ai/plot.ts's
+   * sweep-miss drop (cycle 165): a plot whose predicted spot the beam just
+   * crossed without a paint is gone — exactly what a human watching the
+   * sweep line pass an empty scope concludes. World's ShipRecord carries both.
+   */
+  readonly sweepAngle: number;
+  readonly prevSweepAngle: number;
 }
 
 /**
@@ -262,6 +274,50 @@ export interface RememberedContact {
   /** Self-private Hit Calls that landed on this track — the ONLY damage
    *  estimate a bot can legitimately have (no hp, no severity, ever). */
   hits: number;
+  /**
+   * THE ESTIMATED COURSE (cycle 165), u/s — the velocity the bot INFERRED for
+   * a plot whose source disclosed no pose (a radar paint carries none), or
+   * null when it has no estimate. `heading`/`speed` above stay the DISCLOSED
+   * pose and win whenever present (ai/plot.ts `trackVelocity`); a live
+   * sighting writes its disclosed pose here too, so the estimate a plot
+   * carries into the fog is the last thing the bot actually saw.
+   */
+  vx: number | null;
+  vy: number | null;
+  /** Server ms the estimate was made; -1 = none. */
+  vAt: number;
+  /** Where the estimate came from: a live sighting, two radar paints of the
+   *  same plot (the measurement), or the age gradient of the wake ribbon
+   *  painted near it (the first-paint guess a paint pair later overrides). */
+  vSrc: 'sight' | 'paint' | 'wake' | null;
+  /**
+   * THE RADAR PAINT BASELINE — where and when this plot was last PAINTED
+   * (paintAt -1 = never). Kept apart from x/y/seenAt on purpose: a Hit Call
+   * also refreshes the plot, and a paint-to-paint velocity measured against a
+   * burst point would be a velocity of the bot's own aim error. Only a radar
+   * paint ever writes these.
+   */
+  paintX: number;
+  paintY: number;
+  paintAt: number;
+  /**
+   * THE SWEEP-MISS MARK (cycle 165 grace) — server ms the bot's own beam
+   * crossed this plot's PREDICTED spot without a paint; -1 = not marked. The
+   * plot is dropped only if it is still unrefreshed two ticks later
+   * (ai/plot.ts `settleSweptMisses`); any refresh — paint, sighting, Hit Call —
+   * clears the mark.
+   */
+  missSweptAt: number;
+}
+
+/** One painted WAKE segment remembered for the course fit (ai/plot.ts): the
+ *  centroid of its lit cells, its water-age bucket (`WakeBlipEvent.a`) and
+ *  the server ms it was painted. Identity-free, exactly like the wire row. */
+export interface WakeCell {
+  x: number;
+  y: number;
+  bucket: number;
+  t: number;
 }
 
 /**
@@ -310,6 +366,11 @@ export interface BotMind {
   viewAt: number;
   /** Contact memory across grammar gaps (ai/utility.ts is the only writer). */
   contacts: Map<string, RememberedContact>;
+  /** THE WAKE BUFFER (cycle 165): every wake segment this hull's beam painted
+   *  within the last base sweep revolution, folded from the view's `wk` rows
+   *  (ai/plot.ts `foldWakeCells` is the only writer). The course fit for a
+   *  first radar paint reads it. Created at enroll, cleared with the life. */
+  wakeCells: WakeCell[];
   /** THE DELIBERATED TARGET: the `contacts` key of the track chosen on the
    *  last decision tick, or null. Re-resolved against the live track store
    *  every tick (so steering/firing follow the track's freshest plot between
