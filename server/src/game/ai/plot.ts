@@ -74,6 +74,11 @@ export const WAKE_REACH_U = FASTEST_HULL_SPEED * (CONFIG.vision.wakeLifeMs / 100
  *  not a course. */
 const WAKE_MIN_BASELINE_U = 2 * CONFIG.vision.radarCellU;
 
+/** u — the shortest baseline the YOUNG-bucket fit accepts (four lattice
+ *  cells): below it the 9 u quantization is too large a share of the chord to
+ *  trust the direction, and the fit falls back to the oldest bucket. */
+const WAKE_YOUNG_BASELINE_U = 4 * CONFIG.vision.radarCellU;
+
 /** Painted wake cells a course fit needs, at minimum. */
 const WAKE_MIN_CELLS = 3;
 
@@ -160,9 +165,19 @@ export function predictedPos(t: RememberedContact, now: number): Vec2 {
   return { x: t.x + v.vx * dt, y: t.y + v.vy * dt };
 }
 
+/** u — a paint-to-paint displacement shorter than this is MEASURED
+ *  STATIONARY (orchestrator ruling F4, cycle 165): two lattice cells. A
+ *  parked hull's paint centroids jitter by up to a cell between sweeps (the
+ *  mask is fuzzed on the 9 u lattice), and reading that jitter as a slow
+ *  crawl dead-reckons the parked plot off its hull — a few u per second,
+ *  compounding for the whole sweep. */
+const PAINT_STILL_U = 2 * CONFIG.vision.radarCellU;
+
 /** Paint-to-paint velocity: the displacement between the plot's last radar
  *  paint and this one over the time between them — or null when there is no
- *  earlier paint or the pair is too close in time to measure. */
+ *  earlier paint or the pair is too close in time to measure. A displacement
+ *  under PAINT_STILL_U is a measured ZERO course ({0, 0}): the plot HAS a
+ *  course (it is stationary), which is not the same as having none. */
 export function paintVelocity(
   prev: Pick<RememberedContact, 'paintX' | 'paintY' | 'paintAt'>,
   x: number,
@@ -172,8 +187,11 @@ export function paintVelocity(
   if (prev.paintAt < 0) return null;
   const dt = now - prev.paintAt;
   if (dt < PAINT_BASELINE_MIN_MS) return null;
+  const dx = x - prev.paintX;
+  const dy = y - prev.paintY;
+  if (Math.hypot(dx, dy) < PAINT_STILL_U) return { vx: 0, vy: 0 };
   const s = dt / 1000;
-  return { vx: (x - prev.paintX) / s, vy: (y - prev.paintY) / s };
+  return { vx: dx / s, vy: dy / s };
 }
 
 // ---------------------------------------------------------------------------
@@ -194,16 +212,44 @@ export function foldWakeCells(mind: BotMind, events: readonly GameEvent[], now: 
   mind.wakeCells = kept;
 }
 
+/** Painted cells per age bucket. */
+function bucketCounts(cells: readonly WakeCell[]): number[] {
+  const counts = new Array<number>(WAKE_AGE_BUCKETS).fill(0);
+  for (const c of cells) counts[c.bucket] = (counts[c.bucket] ?? 0) + 1;
+  return counts;
+}
+
 /** The cells of the OLDEST age bucket that holds two or more cells — the
  *  far end of the ribbon, measured with some redundancy — else the oldest
  *  bucket present at all (one cell; the baseline-length gate decides whether
  *  a lone cell is far enough out to mean anything). */
 function oldestBucketCells(cells: readonly WakeCell[]): WakeCell[] {
-  const counts = new Array<number>(WAKE_AGE_BUCKETS).fill(0);
-  for (const c of cells) counts[c.bucket] = (counts[c.bucket] ?? 0) + 1;
+  const counts = bucketCounts(cells);
   const pair = oldestBucketWith(counts, 2);
   const pick = pair >= 0 ? pair : oldestBucketWith(counts, 1);
   return cells.filter((c) => c.bucket === pick);
+}
+
+/**
+ * THE REFERENCE WATER for the course fit (cycle 165 review, orchestrator
+ * ruling F3): the YOUNGEST bucket holding two or more cells whose centroid
+ * lies at least WAKE_YOUNG_BASELINE_U from the plot; else the oldest-bucket
+ * rule above. WHY YOUNG FIRST: the fit draws a straight CHORD from the old
+ * water to the paint, and a turning hull's ribbon is an arc — the chord's
+ * direction is off the hull's present heading by half the arc angle. On a
+ * 500 u orbit at 45 u/s the oldest bucket (~4.8 s, ~216 u of arc) reads ~12°
+ * off (20° measured with quantization); bucket 1 (~2 s) reads ~5°. A short
+ * chord is noisier, hence the four-cell floor before it is trusted.
+ */
+function referenceCells(cells: readonly WakeCell[], t: Pick<RememberedContact, 'x' | 'y'>): WakeCell[] {
+  const counts = bucketCounts(cells);
+  for (let b = 0; b < WAKE_AGE_BUCKETS; b += 1) {
+    if ((counts[b] ?? 0) < 2) continue;
+    const mine = cells.filter((c) => c.bucket === b);
+    const c = centroidOf(mine);
+    if (Math.hypot(t.x - c.x, t.y - c.y) >= WAKE_YOUNG_BASELINE_U) return mine;
+  }
+  return oldestBucketCells(cells);
 }
 
 /** The oldest bucket holding at least `min` cells, or -1. */
@@ -243,7 +289,7 @@ function nearCells(t: Pick<RememberedContact, 'x' | 'y'>, cells: readonly WakeCe
  * THE FIRST-PAINT COURSE: fit a velocity to the wake ribbon painted near a
  * plot, or null when the ribbon cannot support one.
  *
- * The oldest well-populated bucket's centroid C is where the hull WAS; the
+ * The reference bucket's centroid C (referenceCells) is where the hull WAS; the
  * plot is where it IS. The water in bucket `a` was `(a + 0.5) / BUCKETS ×
  * wakeLifeMs` old (the bucket's mean) WHEN IT WAS PAINTED, and the plot was
  * last refreshed at `seenAt` — so the hull covered |plot − C| in that mean
@@ -259,7 +305,7 @@ export function fitWakeVelocity(
 ): { vx: number; vy: number } | null {
   const near = nearCells(t, cells, now);
   if (near.length < WAKE_MIN_CELLS) return null;
-  const ref = oldestBucketCells(near);
+  const ref = referenceCells(near, t);
   if (ref.length === 0) return null;
   const c = centroidOf(ref);
   const dx = t.x - c.x;
@@ -303,6 +349,48 @@ export function nearestPredicted(
   return best;
 }
 
+/**
+ * × FASTEST_HULL_SPEED — how fast the association radius of a plot WITH A
+ * COURSE grows with its prediction's age (orchestrator ruling F2, cycle 165).
+ * A course is an estimate: heading error and a turning hull carry the real
+ * hull off the dead-reckoned line, and the error grows with every second
+ * since the last refresh. Measured on the orbit and straight-runner probes,
+ * the next paint landed 55–97 u from the prediction at 1.5–4.25 s — just
+ * past the fixed 54 u radius, so each of those paints opened a NEW plot and
+ * the paint-to-paint course (1–12° of heading error, against the wake
+ * chord's ~20° on a turn) was never measured. A third of the fastest hull's
+ * speed per second covers that band (~118 u at 4.25 s) without reaching the
+ * next hull over in a normal fight. Nearest still wins.
+ */
+const ASSOC_GROWTH_FRAC = 1 / 3;
+
+/** u — rule (a)'s radius for one plot: the fixed slop for a course-less plot
+ *  (its second chance is rule b), plus prediction-age growth for one with a
+ *  course. */
+function predictedAssocRadius(t: RememberedContact, now: number): number {
+  if (trackVelocity(t) === null) return ANON_ASSOC_U;
+  const ageS = Math.max(0, now - t.seenAt) / 1000;
+  return ANON_ASSOC_U + FASTEST_HULL_SPEED * ASSOC_GROWTH_FRAC * ageS;
+}
+
+/** Rule (a): the identity-free plot whose PREDICTED position is nearest `p`
+ *  among those within their own radius (predictedAssocRadius), or null. Ties
+ *  keep the earliest insertion (Map order). */
+function nearestPredictedAnon(tracks: TrackMap, p: Vec2, now: number): string | null {
+  let best: string | null = null;
+  let bestD = Infinity;
+  for (const [key, t] of tracks) {
+    if (t.id !== null) continue;
+    const q = predictedPos(t, now);
+    const d = Math.hypot(q.x - p.x, q.y - p.y);
+    if (d <= predictedAssocRadius(t, now) && d < bestD) {
+      bestD = d;
+      best = key;
+    }
+  }
+  return best;
+}
+
 /** u — how far a course-less plot could have sailed since its last paint (or
  *  its last refresh, if it was never painted), plus the association slop. */
 function courselessReach(t: RememberedContact, now: number): number {
@@ -326,16 +414,17 @@ function soleCourselessCandidate(tracks: TrackMap, p: Vec2, now: number): string
 
 /**
  * Which identity-free plot does a position at `p` belong to (cycle 165)?
- *   (a) the nearest plot whose PREDICTED position is within ANON_ASSOC_U —
- *       one hull stays one plot however far it sailed between sweeps, as long
- *       as the bot has its course;
+ *   (a) the nearest plot whose PREDICTED position is within its radius —
+ *       ANON_ASSOC_U, growing with the prediction's age for a plot with a
+ *       course — so one hull stays one plot however far it sailed between
+ *       sweeps, as long as the bot has its course;
  *   (b) else the SOLE course-less plot that could have sailed there since its
  *       last paint at the fastest hull's speed — the second paint that gives
  *       a plot its first measured course;
  *   else null (the caller opens a new plot).
  */
 export function associatePaint(tracks: TrackMap, p: Vec2, now: number): string | null {
-  return nearestPredicted(tracks, p, now, ANON_ASSOC_U, true) ?? soleCourselessCandidate(tracks, p, now);
+  return nearestPredictedAnon(tracks, p, now) ?? soleCourselessCandidate(tracks, p, now);
 }
 
 // ---------------------------------------------------------------------------
@@ -416,14 +505,16 @@ export function settleSweptMisses(tracks: TrackMap, beam: SweepBeam, site: Sweep
  * sighting-sourced estimate. The beam paints a ribbon across several ticks —
  * before or after the hull, by sweep direction — so the fit re-runs every
  * tick while the buffer holds water near the plot. A PAINT measurement is
- * kept until something refreshed the plot after it (its `vAt` predates
- * `seenAt`); a wake fit never overrides a fresher paint pair.
+ * STICKY until the next paint (orchestrator ruling F4, cycle 165): a wake fit
+ * never replaces it — not even after a Hit Call has bumped `seenAt`. A paint
+ * pair is a measurement of THIS plot; wake cells near it may be anyone's
+ * water passing by, and a measured-stationary plot must not be talked into
+ * moving by another hull's ribbon.
  */
 export function refitWakeCourses(tracks: TrackMap, cells: readonly WakeCell[], now: number): void {
   if (cells.length === 0) return;
   for (const t of tracks.values()) {
-    if (t.vSrc === 'sight' || t.heading !== null) continue;
-    if (t.vSrc === 'paint' && t.vAt >= t.seenAt) continue;
+    if (t.vSrc === 'sight' || t.vSrc === 'paint' || t.heading !== null) continue;
     const v = fitWakeVelocity(t, cells, now);
     if (v === null) continue;
     t.vx = v.vx;

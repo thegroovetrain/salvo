@@ -143,6 +143,25 @@ describe('ai/plot — kinematics', () => {
     expect(predictedPos(anon({ seenAt: NOW, vx: 45, vy: 0 }), NOW)).toEqual({ x: 500, y: 0 });
   });
 
+  it('MEASURED STATIONARY (F4): a displacement under two lattice cells is a ZERO course, 40 u is the real one', () => {
+    expect(paintVelocity(anon({ paintX: 500, paintY: 0, paintAt: NOW - 4000 }), 510, 0, NOW)).toEqual({ vx: 0, vy: 0 });
+    const v = paintVelocity(anon({ paintX: 500, paintY: 0, paintAt: NOW - 4000 }), 540, 0, NOW)!;
+    expect(v.vx).toBeCloseTo(10, 9);
+    expect(v.vy).toBeCloseTo(0, 9);
+  });
+
+  it('a PAINT course is sticky: a Hit Call refresh does not let someone else\'s passing wake replace it', () => {
+    const m = mkMind();
+    m.contacts.set('p', anon({ x: 500, y: 0, seenAt: NOW - 2000, paintX: 500, paintY: 0, paintAt: NOW - 2000, vx: 0, vy: 0, vSrc: 'paint', vAt: NOW - 2000 }));
+    // A Hit Call bumps seenAt past vAt; a ribbon (another hull's) lies next to it this tick.
+    const events: GameEvent[] = ribbon(500, 40, NOW).map((c) => wakeAt(c.x, c.y, c.bucket, NOW));
+    events.push({ k: 'hc', id: 'me', x: 501, y: 1 });
+    foldView(m, view(events), NOW);
+    const t = m.contacts.get('p')!;
+    expect(t.seenAt).toBe(NOW);
+    expect([t.vx, t.vy, t.vSrc]).toEqual([0, 0, 'paint']);
+  });
+
   it('paintVelocity: displacement over Δt, and null with no earlier paint or a sub-second pair', () => {
     expect(paintVelocity(anon(), 680, 0, NOW)).toBeNull();
     expect(paintVelocity(anon({ paintX: 500, paintY: 0, paintAt: NOW - 500 }), 520, 0, NOW)).toBeNull();
@@ -168,6 +187,25 @@ describe('ai/plot — the wake-ribbon course fit (first paint)', () => {
     const cells = ribbon(500 + 40 * 0.4, 40, NOW);
     const v = fitWakeVelocity(anon({ x: 500, y: 0, seenAt: NOW - 400 }), cells, NOW)!;
     expect(Math.abs(v.vx - 40) / 40).toBeLessThan(0.2);
+  });
+
+  it('CHORD BIAS (F3): the YOUNGEST bucket with a ≥ 36 u baseline is the reference; a too-short young chord falls back to the oldest', () => {
+    const t = anon({ x: 500, y: 0, seenAt: NOW });
+    // Bucket 1 says "+x"; bucket 3 (a turn's old water) says "+x, -y".
+    const turned: WakeCell[] = [
+      { x: 420, y: 0, bucket: 1, t: NOW }, { x: 420, y: 0, bucket: 1, t: NOW },
+      { x: 300, y: 100, bucket: 3, t: NOW }, { x: 300, y: 100, bucket: 3, t: NOW },
+    ];
+    const young = fitWakeVelocity(t, turned, NOW)!;
+    expect(young.vy).toBeCloseTo(0, 9);
+    expect(young.vx).toBeCloseTo(80 / ((1.5 / WAKE_AGE_BUCKETS) * LIFE / 1000), 6);
+    // Bucket 0 is only 20 u back (< 36 u): skipped, and the oldest rule takes bucket 3.
+    const short: WakeCell[] = [
+      { x: 480, y: 0, bucket: 0, t: NOW }, { x: 480, y: 0, bucket: 0, t: NOW },
+      { x: 300, y: 0, bucket: 3, t: NOW }, { x: 300, y: 0, bucket: 3, t: NOW },
+    ];
+    const old = fitWakeVelocity(t, short, NOW)!;
+    expect(old.vx).toBeCloseTo(200 / ((3.5 / WAKE_AGE_BUCKETS) * LIFE / 1000), 6);
   });
 
   it('too short a ribbon is no course: fewer than three cells, or a baseline under two lattice cells', () => {
@@ -260,9 +298,49 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
     const t = m.contacts.get('a:500:0')!;
     expect(t.hits).toBe(1);
     expect(t.seenAt).toBe(NOW);
-    expect(t.x).toBe(592);
+    expect([t.x, t.y]).toEqual([590, 0]); // the dead-reckoned spot, not the impact (F1)
     expect([t.paintX, t.paintY, t.paintAt]).toEqual([500, 0, NOW - 2000]);
     expect([t.vx, t.vy, t.vSrc]).toEqual([45, 0, 'paint']);
+  });
+
+  it('NO HIT-CALL WALK (F1): a course plot moves to its prediction, never the impact point; a course-less one takes the impact', () => {
+    const m = mkMind();
+    m.contacts.set('c', anon({ x: 500, y: 0, seenAt: NOW - 1000, vx: 0, vy: 45, vSrc: 'paint', vAt: NOW - 1000 }));
+    m.contacts.set('n', anon({ x: -500, y: 0, seenAt: NOW - 1000 }));
+    // Strikes 20 u down each hull from its centre (a 100 u hull takes them anywhere along it).
+    foldView(m, view([{ k: 'hc', id: 'me', x: 500, y: 65 }, { k: 'hc', id: 'me', x: -500, y: 20 }]), NOW);
+    const c = m.contacts.get('c')!;
+    expect([c.x, c.y, c.hits, c.seenAt]).toEqual([500, 45, 1, NOW]);
+    const n = m.contacts.get('n')!;
+    expect([n.x, n.y, n.hits]).toEqual([-500, 20, 1]);
+    // A second hit one tick later re-solves from the prediction again: no drift.
+    foldView(m, view([{ k: 'hc', id: 'me', x: 500, y: 70 }]), NOW + 50);
+    const c2 = m.contacts.get('c')!;
+    expect(c2.x).toBe(500);
+    expect(c2.y).toBeCloseTo(45 + 45 * 0.05, 9);
+  });
+
+  it('AGE-GROWN ASSOCIATION (F2): a course plot 4 s old takes a paint 90 u off its prediction, not one 200 u off', () => {
+    const plotAt = (m: BotMind): void => {
+      m.contacts.set('c', anon({ x: 300, y: 0, seenAt: NOW - 4000, paintX: 300, paintY: 0, paintAt: NOW - 4000, vx: 45, vy: 0, vSrc: 'wake', vAt: NOW - 4000 }));
+    };
+    // Predicted (480, 0); radius = 54 + 15 × 4 = 114 u.
+    expect(ANON_ASSOC_U + (FASTEST_HULL_SPEED / 3) * 4).toBeCloseTo(114, 6);
+    const near = mkMind();
+    plotAt(near);
+    foldView(near, view([blipAt(480, 90, NOW)]), NOW);
+    expect([...near.contacts.keys()]).toEqual(['c']);
+    expect(near.contacts.get('c')!.vSrc).toBe('paint');
+    const far = mkMind();
+    plotAt(far);
+    foldView(far, view([blipAt(480, 200, NOW)]), NOW);
+    expect(far.contacts.size).toBe(2);
+    expect(far.contacts.get('c')!.paintAt).toBe(NOW - 4000);
+    // A FRESH course plot keeps the fixed 54 u: 90 u off is a new plot.
+    const fresh = mkMind();
+    fresh.contacts.set('c', anon({ x: 480, y: 0, seenAt: NOW - 50, paintX: 480, paintY: 0, paintAt: NOW - 50, vx: 45, vy: 0, vSrc: 'wake', vAt: NOW - 50 }));
+    foldView(fresh, view([blipAt(482, 90, NOW)]), NOW);
+    expect(fresh.contacts.size).toBe(2);
   });
 
   it('a Hit Call in empty water opens a plot with NO paint baseline', () => {
@@ -413,6 +491,8 @@ describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
     expect(solve(anon({ x: 300, y: 0, seenAt: NOW - TRACK_PERSIST_MS - 1 }))).toBeNull();
     expect(solve(anon({ x: 300, y: 0, seenAt: NOW - TRACK_PERSIST_MS + 1 }))?.held).toBe(true);
     expect(solve(anon({ x: 300, y: 0, seenAt: NOW - 8000, vx: 0, vy: 5, vSrc: 'paint', vAt: NOW - 8000 }))?.held).toBe(true);
+    // A plot MEASURED STATIONARY has a course (zero): it streams, however old (F4).
+    expect(solve(anon({ x: 300, y: 0, seenAt: NOW - 6000, vx: 0, vy: 0, vSrc: 'paint', vAt: NOW - 6000 }))?.held).toBe(true);
     // A live sighting is never held, however the clock reads.
     expect(solve(anon({ x: 300, y: 0, live: true, seenAt: NOW - 8000 }))?.held).toBe(true);
   });

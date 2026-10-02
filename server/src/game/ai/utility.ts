@@ -65,6 +65,7 @@ import {
   type GameEvent,
   type HullId,
   type Island,
+  type Vec2,
   type ZoneRing,
 } from '@salvo/shared';
 import type { PerceptionView } from '../perception.js';
@@ -79,7 +80,9 @@ import {
   nearestPredicted,
   paintCenter,
   paintVelocity,
+  predictedPos,
   refitWakeCourses,
+  trackVelocity,
   type SweepBeam,
   type SweepSite,
 } from './plot.js';
@@ -281,7 +284,8 @@ function foldAnonymous(tracks: TrackMap, x: number, y: number, now: number): str
 
 /** Fold one radar paint at (x, y): associate it, then measure. A paint a
  *  second or more after the plot's previous paint is a velocity measurement
- *  and overrides any wake guess; every paint then becomes the new baseline. */
+ *  and overrides any wake guess (and stays until the next paint — a wake fit
+ *  never replaces it); every paint then becomes the new baseline. */
 function foldPaint(tracks: TrackMap, x: number, y: number, now: number): void {
   const key = associatePaint(tracks, { x, y }, now) ?? anonKey(x, y);
   const prev = tracks.get(key);
@@ -304,6 +308,22 @@ function foldBlip(tracks: TrackMap, e: BlipEvent, now: number): void {
   if (c !== null) foldPaint(tracks, c.x, c.y, now);
 }
 
+/**
+ * Where a Hit Call puts the plot it credits. A LIVE track has better position
+ * data than the burst point, so it stays put. A plot WITH A COURSE moves to
+ * its own dead-reckoned position (orchestrator ruling F1, cycle 165), NEVER
+ * the impact point: a machine-gun round connects anywhere along a 100 u hull,
+ * and re-solving the next lead from wherever the last one struck carries that
+ * offset forward — measured, the stream walked 4–6 u along the hull per hit
+ * until it walked off the end. A course-less plot has nothing better than the
+ * impact point, so the impact point becomes its new plot (as before).
+ */
+function hitCallPosition(t: BotTrack, x: number, y: number, now: number): Vec2 {
+  if (t.live) return { x: t.x, y: t.y };
+  if (trackVelocity(t) !== null) return predictedPos(t, now);
+  return { x, y };
+}
+
 /** Fold the bot's own Hit Call: something of ours connected HERE. Credits the
  *  plot whose PREDICTED position is nearest (the bot aims at the predicted
  *  spot, so that is where its connections land — cycle 165), refreshing it,
@@ -313,14 +333,13 @@ function foldHitCall(tracks: TrackMap, x: number, y: number, now: number): void 
   const key = nearestPredicted(tracks, { x, y }, now, HIT_ASSOC_U, false) ?? foldAnonymous(tracks, x, y, now);
   const t = tracks.get(key);
   if (t === undefined) return;
-  // A LIVE track has better position data than the burst point; a stale one
-  // does not, so the impact point becomes its new plot.
+  const at = hitCallPosition(t, x, y, now);
   const hit: BotTrack = {
     ...t,
     hits: t.hits + 1,
     seenAt: now,
-    x: t.live ? t.x : x,
-    y: t.live ? t.y : y,
+    x: at.x,
+    y: at.y,
     missSweptAt: -1, // a connection proves presence: no longer a miss
   };
   tracks.set(key, hit);
