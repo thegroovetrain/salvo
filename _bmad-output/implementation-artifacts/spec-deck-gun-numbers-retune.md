@@ -2,7 +2,7 @@
 title: 'Deck gun numbers retune: machine gun, cannon and flak ladders to Eric''s 2026-10-02 tables'
 type: 'feature'
 created: '2026-10-02'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '58ee5b8f'
 review_loop_iteration: 0
 followup_review_recommended: false

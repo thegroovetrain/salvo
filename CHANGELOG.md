@@ -12,7 +12,7 @@
 ### Internal
 - PROTOCOL_VERSION 69 -> 70 (catalog content and `CONFIG.machineGun` / `CONFIG.flak` values the client reads). `CONFIG` moves: `gun.damage` 15 -> 16; `machineGun` maxAmmo 16 -> 12, rateMs 350 -> 300, reloadMs 10000 -> 12000, damage 4 -> 5; `flak.reloadMs` 4000 -> 3500; `instantReload.reloadMs` 45000 -> 60000. The ladders are authored per rung in the catalog so every table lands exactly on Eric's integers (the machine gun's rungs to III and V carry no damage step).
 - Epic-8 amendments 232–233; `spec-deck-gun-numbers-retune.md`.
-- Tests: see gate
+- Tests: shared 1025 (re-pinned, none added), server 2412 -> 2413 (+1: the tier-II 250 ms cadence pin; machineGunStream's carry-over tests now run on an injected 310 ms because every ruled delay is a whole 50 ms tick), client 3811 -> 3813 (+2: aimPreview 1 card = 2 barrels straddling, 4 cards = 3 with one on the click). Golden-frames snapshot regenerated: four cannon-hit amounts 15 -> 16, nothing else.
 
 ## [0.18.30] - 2026-10-02
 
