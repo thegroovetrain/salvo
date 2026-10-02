@@ -214,6 +214,7 @@ describe('pure helpers', () => {
       botFill: false,
       countdownEndT: 0,
       deadlineAt: null,
+      forced: false,
       players: [
         { id: 'me', name: 'NEMO', ready: false },
         { id: 'b', name: 'AHAB', ready: true },

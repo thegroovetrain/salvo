@@ -40,6 +40,7 @@ function view(): LobbyView {
     mySessionId: 'me',
     seedText: '',
     botFill: false,
+    forced: false,
     countdownEndT: 0,
     deadlineAt: null,
     players: [{ id: 'me', name: 'NEMO', ready: false }],

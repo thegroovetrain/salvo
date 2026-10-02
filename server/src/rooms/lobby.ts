@@ -17,6 +17,13 @@
 //     duration if the rest are all ready and still eligible, else it stops.
 //   - Host = the longest-present captain (lowest join sequence) when the host
 //     leaves (ruling 6).
+//   - The host's START NOW ARMS the same countdown, FORCED (Eric 2026-10-02:
+//     START NOW "triggers the countdown, not an instant teleport into game").
+//     A forced count runs regardless of ready status: un-ready, a late join
+//     (who rides along) and a leave that keeps the lobby eligible all leave it
+//     alone. Only lost eligibility cancels it. START NOW on a running
+//     all-ready count converts it to forced (same end time); on a running
+//     forced count it is a no-op.
 
 import { CONFIG } from '@salvo/shared';
 
@@ -39,6 +46,9 @@ export class LobbyPolicy {
   botFill = false;
   /** Epoch ms the countdown ends at; 0 = no countdown running. */
   countdownEndT = 0;
+  /** The running count was armed (or converted) by the host's START NOW:
+   *  immune to un-ready / late join / an eligible leave. False when idle. */
+  forced = false;
   private seq = 0;
 
   constructor(private readonly countdownMs: number = CONFIG.lobby.countdownMs) {}
@@ -56,18 +66,20 @@ export class LobbyPolicy {
     return true;
   }
 
-  /** A captain boards. The first one is host. Cancels a running count. */
+  /** A captain boards. The first one is host. Cancels a running all-ready
+   *  count; a forced count carries the newcomer along. */
   onJoin(id: string, name: string): LobbyCaptain {
     const captain: LobbyCaptain = { id, name, ready: false, joinSeq: this.seq++ };
     this.captains.set(id, captain);
     if (this.hostId === '') this.hostId = id;
-    this.countdownEndT = 0;
+    if (!this.forced) this.clearCount();
     return captain;
   }
 
   /**
-   * A captain leaves. Host passes to the longest-present captain; the count
-   * is re-decided from scratch (restart if the rest are all ready + eligible).
+   * A captain leaves. Host passes to the longest-present captain. A forced
+   * count that is still eligible keeps its end time; otherwise the count is
+   * re-decided from scratch (restart if the rest are all ready + eligible).
    * Returns true when the host changed.
    */
   onLeave(id: string, now: number): boolean {
@@ -77,18 +89,20 @@ export class LobbyPolicy {
       this.hostId = this.nextHost();
       hostChanged = true;
     }
-    this.countdownEndT = 0;
+    if (this.forced && this.startEligible()) return hostChanged;
+    this.clearCount();
     this.armIfReady(now);
     return hostChanged;
   }
 
-  /** A ready toggle. Un-ready cancels; ready may arm. Unknown ids ignored. */
+  /** A ready toggle. Un-ready cancels an all-ready count (never a forced
+   *  one); ready may arm. Unknown ids ignored. */
   onReady(id: string, ready: boolean, now: number): void {
     const captain = this.captains.get(id);
     if (!captain) return;
     captain.ready = ready;
-    if (!ready) this.countdownEndT = 0;
-    else this.armIfReady(now);
+    if (ready) this.armIfReady(now);
+    else if (!this.forced) this.clearCount();
   }
 
   /** The host's bot-fill toggle: a count that becomes ineligible stops; an
@@ -96,20 +110,29 @@ export class LobbyPolicy {
   onBotFill(id: string, on: boolean, now: number): void {
     if (id !== this.hostId) return;
     this.botFill = on;
-    if (!this.startEligible()) this.countdownEndT = 0;
+    if (!this.startEligible()) this.clearCount();
     else this.armIfReady(now);
   }
 
-  /** The host's START NOW: true when the adapter should form immediately. */
-  forceStart(id: string): boolean {
-    return id === this.hostId && this.startEligible();
+  /**
+   * The host's START NOW (`lg`): ARMS a forced countdown, or converts a
+   * running all-ready count to forced (same end time). Returns true when it
+   * changed anything; non-host, ineligible, or an already-forced count = no-op.
+   */
+  forceStart(id: string, now: number): boolean {
+    if (id !== this.hostId || !this.startEligible() || this.forced) return false;
+    if (this.countdownEndT === 0) this.countdownEndT = now + this.countdownMs;
+    this.forced = true;
+    return true;
   }
 
-  /** One tick: has the count elapsed? Re-checks eligibility at fire time. */
+  /** One tick: has the count elapsed? Re-checks the count's own rule at fire
+   *  time (forced: eligibility only; all-ready: all ready AND eligible). */
   evaluate(now: number): LobbyVerdict {
     if (this.countdownEndT === 0) return 'idle';
-    if (!this.allReady() || !this.startEligible()) {
-      this.countdownEndT = 0;
+    const holds = this.startEligible() && (this.forced || this.allReady());
+    if (!holds) {
+      this.clearCount();
       return 'idle';
     }
     return now >= this.countdownEndT ? 'form' : 'counting';
@@ -125,6 +148,12 @@ export class LobbyPolicy {
   /** Captains in join order — the order seats are reserved in. */
   inJoinOrder(): LobbyCaptain[] {
     return [...this.captains.values()].sort((a, b) => a.joinSeq - b.joinSeq);
+  }
+
+  /** Stop any running count, forced or not. */
+  private clearCount(): void {
+    this.countdownEndT = 0;
+    this.forced = false;
   }
 
   /** Arm a fresh count at an all-ready, eligible moment (never extends one). */

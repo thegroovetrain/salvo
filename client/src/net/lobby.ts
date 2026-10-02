@@ -75,7 +75,17 @@ export interface LobbyView {
   countdownEndT: number;
   /** The same deadline in THIS client's epoch (see the header), or null. */
   deadlineAt: number | null;
-  /** In join order — the MapSchema's insertion order. */
+  /** The running countdown was armed by the host's START NOW (ready changes
+   *  do not stop it). No copy of its own — the modal only reads it. */
+  forced: boolean;
+  /**
+   * In JOIN ORDER — the lobby modal fills its 20 slots from this, left to
+   * right then top to bottom. The schema carries no join sequence; the order
+   * is the MapSchema's insertion order: the server `set`s a captain on join
+   * and `delete`s on leave (session ids are never reused), and the decoder
+   * iterates its map in the order the ADD operations arrived — the server's
+   * insertion order, both in the initial full state and in every patch.
+   */
   players: LobbyCaptain[];
   phase: LobbyPhase;
 }
@@ -183,6 +193,7 @@ export interface LobbyStateLike {
   seedText?: string;
   botFill?: boolean;
   countdownEndT?: number;
+  forced?: boolean;
   phase?: string;
   players?: {
     forEach(fn: (p: { id?: string; name?: string; ready?: boolean }, key: string) => void): void;
@@ -210,6 +221,7 @@ export function lobbyView(
     botFill: state.botFill === true,
     countdownEndT: state.countdownEndT ?? 0,
     deadlineAt,
+    forced: state.forced === true,
     players: rosterOf(state),
     phase: state.phase === 'started' ? 'started' : 'open',
   };
