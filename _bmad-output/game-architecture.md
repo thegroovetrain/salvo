@@ -44,6 +44,8 @@ brief: '_bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2026-07-15/b
 > `render.yaml`, `@colyseus/database` + `@colyseus/auth` (OAuth only, curated) + `@colyseus/admin`,
 > the deck loaded at BOTH doors, and the sim never learning the store exists.
 
+> **RENUMBERING NOTICE — 2026-10-06** (`sprint-change-proposal-2026-10-06.md`). Every "E9" in this document means **The Account**, which is now **Epic 10 / E10**; the new **Epic 9 is Tune and Clean** (an Eric-steered balance pass plus two or three consumables and the test audit — no new component, no new store, no architectural decision; its only architecture-shaped rule is that the HEALING BUOY is a signal-registry row whose frame invariant is EXTENDED, the exception count staying SIX). The dated text below is left as written; Story 10.11 reconciles.
+
 > **AMENDMENT NOTICE — 2026-09-10 (The Deck, E8 / upgrades v3).** A second scoped
 > `gds-game-architecture` pass covers the systems catalog v3 (2026-09-09) and GDD epic *The Deck*
 > add: **D2 is AMENDED, D19–D31 ADDED, Novel Patterns 2–3 AMENDED and 10–13 ADDED**, with
