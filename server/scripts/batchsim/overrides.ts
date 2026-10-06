@@ -24,12 +24,19 @@
 // walks any dotted path, array indices included). map.baseRadius joins for the
 // 3.1 map-radius × ring evidence sweeps (amendment 7).
 
-import { CATALOG, CONFIG, effectiveStats } from '@salvo/shared';
+import { CATALOG, CONFIG, TERRAIN_PARAMS, effectiveStats } from '@salvo/shared';
 
 /** Unknown / non-tunable / non-numeric --set key — main prints and exits 2. */
 export class TunableError extends Error {}
 
-const TUNABLE_FAMILIES = ['xp.', 'zone.'];
+// `terrain.*` (Epic 9 tuning pass, 2026-10-06): the map-generation panel
+// `TERRAIN_PARAMS` (shared/src/sim/heightField.ts) — the island cover band
+// (`coverTarget`/`coverMin`/`coverMax`) and `regionWavelength`. A board dial
+// like `map.baseRadius`, so it rides the --set surface. Keys are resolved
+// against TERRAIN_PARAMS instead of CONFIG (see resolveLeaf); the --set
+// whitelist is otherwise untouched.
+const TERRAIN_PREFIX = 'terrain.';
+const TUNABLE_FAMILIES = ['xp.', 'zone.', TERRAIN_PREFIX];
 const TUNABLE_EXACT = new Set(['offer.size', 'match.fillTo', 'map.baseRadius']);
 
 export function isTunableKey(key: string): boolean {
@@ -154,7 +161,7 @@ function assertKeyAllowed(key: string, allowTune: boolean): void {
   }
   if (isTunableKey(key)) return;
   throw new TunableError(
-    `'${key}' is not a tunable dial (allowed: xp.*, offer.size, match.fillTo, map.baseRadius, zone.*)`,
+    `'${key}' is not a tunable dial (allowed: xp.*, offer.size, match.fillTo, map.baseRadius, zone.*, terrain.*)`,
   );
 }
 
@@ -170,8 +177,11 @@ interface Leaf {
  *  exactly as it did before --tune existed. */
 function resolveLeaf(key: string, allowTune = false): Leaf {
   assertKeyAllowed(key, allowTune);
-  const parts = key.split('.');
-  let node: unknown = CONFIG;
+  // `terrain.*` walks TERRAIN_PARAMS (a flat numeric panel); everything else
+  // walks CONFIG. Same own-property walk, same leaf rules, different root.
+  const terrain = !allowTune && key.startsWith(TERRAIN_PREFIX);
+  const parts = (terrain ? key.slice(TERRAIN_PREFIX.length) : key).split('.');
+  let node: unknown = terrain ? TERRAIN_PARAMS : CONFIG;
   for (const part of parts.slice(0, -1)) {
     node = step(node, part, key);
   }
@@ -227,11 +237,21 @@ export function validateTunableKey(key: string): void {
  *  nonsense), and `map.baseRadius` 0 is a zero-area board. Everything else may
  *  legitimately be 0 — `zone.offsetCap=0` (concentric rings), `zone.ringSteps.N=0`
  *  (a hold-at-map-radius ring) are real evidence values. */
-const MIN_ONE_KEYS = new Set(['xp.levelMs', 'offer.size', 'zone.beatMs', 'map.baseRadius']);
+const MIN_ONE_KEYS = new Set(['xp.levelMs', 'offer.size', 'zone.beatMs', 'map.baseRadius', 'terrain.regionWavelength']);
+
+/** The cover band is a FRACTION of the ocean's area: (0, 1) exclusive. 0 is
+ *  an all-water board mapgen refuses (>= 1 landmass) and 1 is all land. */
+const SET_UNIT_INTERVAL_KEYS = new Set(['terrain.coverTarget', 'terrain.coverMin', 'terrain.coverMax']);
 
 /** Floor-check a --set/--sweep VALUE (arg-parse time and again at apply time).
  *  Rejecting here is what keeps a non-positive dial from reaching a sim loop. */
 export function validateTunableValue(key: string, value: number): void {
+  if (SET_UNIT_INTERVAL_KEYS.has(key)) {
+    if (!Number.isFinite(value) || value <= 0 || value >= 1) {
+      throw new TunableError(`'${key}': expected a finite fraction in (0, 1), got '${value}'`);
+    }
+    return;
+  }
   const floor = MIN_ONE_KEYS.has(key) ? 1 : 0;
   if (!Number.isFinite(value) || value < floor) {
     throw new TunableError(`'${key}': expected a finite value >= ${floor}, got '${value}'`);
@@ -389,6 +409,7 @@ function validateUnitInterval(key: string, value: number): void {
  */
 function validateCrossKeyInvariants(): void {
   validateWeightingPair();
+  validateCoverBand();
   const { durationMs, maxAmmo } = CONFIG.boost;
   if (maxAmmo !== 1) {
     throw new TunableError(
@@ -407,6 +428,22 @@ function validateCrossKeyInvariants(): void {
       `'boost.reloadMs' × the RELOAD ladder at cap must stay >= 'boost.durationMs' (raw ${rawReloadMs} ` +
         `-> ${maxedReloadMs} live at five RELOAD copies < ${durationMs}): an active window must ` +
         'always imply a cooling pool',
+    );
+  }
+}
+
+/**
+ * `terrain.coverMin <= terrain.coverTarget <= terrain.coverMax` (Epic 9 tuning
+ * pass): `retargetCover` (shared/src/sim/map.ts) steers toward the target and
+ * `validateMap` accepts only the band, so a target outside its own band makes
+ * EVERY seed fail validation and the run throws MapGenerationError on each
+ * match — honest but useless. Refused up front on the finished panel.
+ */
+function validateCoverBand(): void {
+  const { coverMin, coverTarget, coverMax } = TERRAIN_PARAMS;
+  if (!(coverMin <= coverTarget && coverTarget <= coverMax)) {
+    throw new TunableError(
+      `terrain cover band must satisfy coverMin <= coverTarget <= coverMax (got ${coverMin} <= ${coverTarget} <= ${coverMax})`,
     );
   }
 }
@@ -461,6 +498,15 @@ export function applyOverrides(
   // A failed apply must leave CONFIG exactly as it found it.
   try {
     for (const key of Object.keys(set)) write(key, set[key], false);
+    // THE REGION TERM TRACKS THE BOARD. `TERRAIN_PARAMS.regionWavelength` is
+    // initialised from `CONFIG.map.baseRadius` at module load (heightField.ts),
+    // so a `--set map.baseRadius` alone would leave it at the OLD radius and
+    // the arm would measure a board whose macro land-clustering repeats —
+    // not the board a CONFIG change would ship. Follow it unless the arm set
+    // the wavelength explicitly. Same undo list, same restore.
+    if (Object.hasOwn(set, 'map.baseRadius') && !Object.hasOwn(set, 'terrain.regionWavelength')) {
+      write('terrain.regionWavelength', set['map.baseRadius'], false);
+    }
     for (const key of Object.keys(tune)) write(key, tune[key], true);
     // Relations between leaves, on the FINISHED CONFIG — inside the try, so a
     // violation rolls every write back exactly like a bad leaf does.
