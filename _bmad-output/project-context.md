@@ -1,7 +1,7 @@
 ---
 project_name: 'Hullcracker.io'
 user_name: 'Eric'
-date: '2026-09-14'
+date: '2026-10-06'
 sections_completed:
   [
     'technology_stack',
@@ -41,7 +41,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Both sides run the SAME shared sim functions (`stepShip`, `stepShell`, `generateMap`, zone math) at the same fixed 50ms dt. Any behavior change to the simulation goes in `shared/` — never fork logic per side, or prediction desyncs.
 - `effectiveStats()` (`shared/src/sim/stats.ts`) is the ONLY legal path from (ship class + upgrade counts) to any derived stat. Never re-derive an upgraded value ad hoc, on either side.
 - `CONFIG` (`shared/src/constants.ts`) is the single source of truth for every gameplay tunable. Client-only feel knobs live in `CLIENT_CONFIG` (`client/src/config.ts`); promote a value to shared CONFIG the moment it becomes gameplay-load-bearing.
-- `PROTOCOL_VERSION` (`shared/src/index.ts`, currently 50) must be bumped on ANY wire-contract break (`shared/src/types.ts`).
+- `PROTOCOL_VERSION` (`shared/src/index.ts`, 71 at the Epic 8 close) must be bumped on ANY wire-contract break (`shared/src/types.ts`).
 - Colyseus schema syncs the roster (`ArenaState`/`PlayerMeta`), the map seed/radius, the revealed zone rings, `matchPhase` and `bountyId` — nothing PER-SHIP spatial. All spatial state travels in per-client frames. Never add per-ship spatial fields to the schema.
 - `game/world.ts` and `game/match.ts` keep ZERO Colyseus imports; `ArenaRoom` stays a thin adapter. This is what keeps the sim unit-testable.
 - No `Math.random()` or `Date.now()` in sim code — all randomness is seeded `mulberry32` streams; the map rebuilds deterministically from `mapSeed` (islands never travel on the wire); `World` owns the single server clock.
@@ -54,7 +54,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - The invariant: nothing outside (sight bubble ∪ this-tick radar paints) may appear in any frame. Property-style tests enforce it — new event types must be added to those invariants.
 - Per-event visibility rules: projectiles materialize at the sight boundary with current pos/velocity ONLY — never add range-derivable fields to wire events (the muzzle becomes solvable); a boom's victim id is stripped unless the victim's center is sighted; damage is victim-private; upgrade/point events are self-private.
 - Player intent enters the sim ONLY through `game/inputs.ts` (every field finite-checked, axes clamped, malformed silently dropped). New input fields must be validated there.
-- Boon offers are DRAWN at earn time from the player's own deck (`drawOffer`, `shared/src/sim/deck.ts`) and held server-side as a `BoonOffer` (`shared/src/sim/offers.ts`) — reopening the refit window must NEVER reroll.
+- Card offers are DRAWN at earn time from the one common pool (`shared/src/sim/offers.ts`; decks are gone since Story 8-14, amendment 89) and held server-side as a `BoonOffer` — reopening the refit window must NEVER reroll.
 
 ### Performance Rules
 
@@ -78,6 +78,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - The PvE fleet envelope table and the three beta classes are pinned by an identity test (`shared/src/__tests__/shipClasses.test.ts`); the fleet table is NOT the retired prototype kinematics byte-for-byte (deliberately re-pinned at Story 5.6) — any change to either table must update that test knowingly.
 - Headless smokes (`server/scripts/*.mjs`) prove full flows over real sockets and require `HC_DEV_OPTIONS=1`.
 - Vitest versions differ: shared/server on 2.x, client on 4.x + jsdom — don't assume API parity across workspaces.
+- A test asserts a CONTRACT of the function under test (Eric, epic-8 retro 2026-10-06, amendment 243). Never pin vocabulary or copy strings, wall-clock timing, or geometry standing in for a perf claim — such a test breaks for reasons unrelated to what it guards and is debt, not coverage. If a test cannot name the contract it would catch failing, do not write it.
 
 ### Platform & Build Rules
 
@@ -85,14 +86,14 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - The server must boot from `server/` (or with `--tsconfig server/tsconfig.json`) — Colyseus schema decorators need that tsconfig.
 - Dev-only room options (`matchOverride`/`zoneOverride`) are honored only under `HC_DEV_OPTIONS=1`; production behavior must never depend on them, and `sanitizeRoomOptions()` gates everything client-supplied.
 - Versioning: `0.18.X` from cycle 136 — +1 per landed build cycle across epics (Eric ruling 2026-09-15); the `0.17.X` freeze is superseded. `VERSION` + root `package.json`, single-sourced into the client by Vite at build time.
-- Deploy is Render auto-deploy on push to a service's own branch: `main` -> production (https://hullcracker.io/), `development` -> the staging host. BRANCH FROM `development`, NOT `main` — merging to `main` deploys the public game, and the staging QA pass is the gate in front of it. `render.yaml` is the live Blueprint source for BOTH services: make config changes there, never in the Render dashboard or API. Ports: game server `:2567`, Vite `:5173`. NEVER start the dev server — the user manages it; curl-check `:5173` before any browser-based work.
+- Deploy is Render auto-deploy on push to a service's own branch: `main` -> production (https://hullcracker.io/), `development` -> the staging host. BRANCH FROM `development`, NOT `main` — merging to `main` deploys the public game, and the staging QA pass is the gate in front of it. `render.yaml` is the live Blueprint source for BOTH services: make config changes there, never in the Render dashboard or API. Ports: game server `:2567`, Vite `:5173`. Never start the dev server in Eric's checkout (he manages that one); in your own worktree you may, and must kill it after; curl-check `:5173` before any browser-based work.
 
 ### Critical Don't-Miss Rules
 
 - Never invent game mechanics, balance values, or design decisions without consulting Eric — design questions go to the GDD, not improvisation.
 - **Deleted docs:** root `TODOS.md` and root `DESIGN.md` were deleted at cycle 126 (Eric ruling 2026-08-21) — both were hex-era and the latter shared a filename with the real design source of truth, which is how a reader ends up in the wrong document. Git history preserves them, and an archival copy of the v0.16 root design doc lives at `_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/imports/DESIGN-v0.16-root.md`. Design source of truth: `_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESIGN.md` (+ `EXPERIENCE.md`); gameplay design: the GDD in `_bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/`.
 - Every completed gds-* phase updates `_bmad-output/gds-workflow-status.yaml` in the same PR as its artifacts.
-- Torpedoes spawn with real bow clearance + owner-only grace and must outrun every hull — speed changes must preserve "can't self-hit at base speed".
+- NO FRIENDLY FIRE: own ordnance never damages own hull (epic-8 amendments 54–55); the only exception is shooting your own mines to trigger them early. The old "torpedoes must outrun every hull" rule is retired.
 - The win check counts afloat PARTICIPANTS (`role !== 'fleet'` — humans AND combat bots contest it; only PvE fleet hulls are excluded), and a sinking hull holds the transition open. Fleet hulls and bots are ordinary ships driven through the same input pipeline — never special-case their physics or visibility.
 - Use the shared math primitives (`wrapPositive` for angles, `segCircleHit` for LOS) — don't hand-roll geometry that already exists.
 - Plans are one unit of work — never split into multiple PRs without explicit advance approval; halt on ANY error and surface it rather than working around it.
@@ -115,4 +116,4 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Update when the technology stack or architecture invariants change
 - Review periodically for outdated rules; remove rules that become obvious over time
 
-Last Updated: 2026-09-14
+Last Updated: 2026-10-06 (epic-8 retro: PV, offers, dev-server, friendly-fire lines corrected; test-contract rule added)
