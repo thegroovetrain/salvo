@@ -98,6 +98,8 @@ FR38: Disconnection: the ship keeps simulating under its last input and remains 
 
 **Epic 8 · The Pool (upgrades v3 + catalog v4; "The Deck" through 8.13) and Epic 9 · The Account — inventory added 2026-09-11, re-cut 2026-09-21**
 
+> *Renumbering note 2026-10-06 (`sprint-change-proposal-2026-10-06.md`): in this inventory "Epic 9" / "E9" means **The Account**, which is now **Epic 10 / E10**; the new **Epic 9 is Tune and Clean**. The dated text below is left as written.*
+
 Latest-wins notes for this block. Sources run 2026-09-03 (deck model v3 folded into the GDD) → 2026-09-09 (catalog v3; account-store architecture amendment) → 2026-09-10 (deck architecture amendment) → 2026-09-10/11 (UX v3 pass, `.decision-log.md` "Corrections owed upstream"). The UX pass is the most recent Eric-ruled source and GOVERNS where it conflicts with the GDD or architecture text; each such correction is named where it lands below:
 
 - The **draw-pile counter is DELETED** (Eric 2026-09-10: *"Nowhere. This is inferrable from level."*) — the GDD's *"Eric: 'Yes'"* and the architecture's `OwnShip.deckLeft` render are superseded; see FR44 and AR56.
@@ -582,17 +584,17 @@ FR58: Epic 8 — Arcs, flight and denial for the new register
 FR59: Epic 8 — Bots sail authored decks; total consumable tactics; harness arms and pinned bars
 FR60: Epic 8 — Results show the final LOADOUT only; MatchRecord emitted, never ResultsMsg
 FR61: Epic 8 — Anonymous vs signed-in, match side (Epic 8 works in full anonymously); staging account-only
-FR62: Epic 9 — Two states, OAuth-only (Google / Discord), opaque identity, second provider links
-FR63: Epic 9 — Legality checked BEFORE queueing (no mode with an illegal deck); the server door as backstop; deckId never contents; SAIL DEFAULT DECK
-FR64: Epic 9 — The merged Ship & Deck screen: several named decks per hull, shared legality, DEFAULT deck 1
-FR65: Epic 9 — Per-copy unlocks with tokens; account level from placement-scaled XP; `matchesToCatalog` open
-FR66: Epic 9 — Match history: own rows only; drawn pool cards only; every deck recorded for Eric's metrics
-FR67: Epic 9 — Two-state preferences and settings; SIGN OUT and DELETE ACCOUNT
-FR68: Epic 9 — Self-serve deletion, anonymised match rows retained
-FR69: Epic 9 — Eric's admin console (`@colyseus/admin`)
-FR70: Epic 9 — The privacy-policy paragraph on signed-in accounts
-FR71: Epic 8 — How-to-Play re-cut for decks, slots, consumables, Shift, REDRAW (no glossary, no in-game copy) — moved from Epic 9 (Eric 2026-09-11: "where it matters")
-FR72: Epic 9 — Key rebinding: localStorage anonymous, account setting signed in
+FR62: Epic 10 (The Account; Epic 9 until 2026-10-06) — Two states, OAuth-only (Google / Discord), opaque identity, second provider links
+FR63: Epic 10 (The Account; Epic 9 until 2026-10-06) — Legality checked BEFORE queueing (no mode with an illegal deck); the server door as backstop; deckId never contents; SAIL DEFAULT DECK
+FR64: Epic 10 (The Account; Epic 9 until 2026-10-06) — The merged Ship & Deck screen: several named decks per hull, shared legality, DEFAULT deck 1
+FR65: Epic 10 (The Account; Epic 9 until 2026-10-06) — Per-copy unlocks with tokens; account level from placement-scaled XP; `matchesToCatalog` open
+FR66: Epic 10 (The Account; Epic 9 until 2026-10-06) — Match history: own rows only; drawn pool cards only; every deck recorded for Eric's metrics
+FR67: Epic 10 (The Account; Epic 9 until 2026-10-06) — Two-state preferences and settings; SIGN OUT and DELETE ACCOUNT
+FR68: Epic 10 (The Account; Epic 9 until 2026-10-06) — Self-serve deletion, anonymised match rows retained
+FR69: Epic 10 (The Account; Epic 9 until 2026-10-06) — Eric's admin console (`@colyseus/admin`)
+FR70: Epic 10 (The Account; Epic 9 until 2026-10-06) — The privacy-policy paragraph on signed-in accounts
+FR71: Epic 8 — How-to-Play re-cut for decks, slots, consumables, Shift, REDRAW (no glossary, no in-game copy) — moved from the account epic (now Epic 10) (Eric 2026-09-11: "where it matters")
+FR72: Epic 10 (The Account; Epic 9 until 2026-10-06) — Key rebinding: localStorage anonymous, account setting signed in
 
 Cross-cutting NFRs (NFR1 frame budget, NFR3 latency proxies, NFR4 anti-cheat, NFR5 determinism, NFR11–NFR13, NFR16–NFR17) bind acceptance criteria in every epic; NFR2/NFR8/NFR18/NFR19 concentrate in Epic 7; NFR10/NFR14/NFR15 concentrate in Epic 0.
 
@@ -636,14 +638,19 @@ Two real modes with honest matches: no bot-fill, min-2 fill-or-timer, cap 20, ro
 The beta, self-published: 60 FPS on the reference i7 MacBook, fast cold load, GA4 + a certified CMP + a privacy policy, AdSense H5 Games Ads behind the seam, a How-to-Play page, the upgrade-cards v2 pass, the DESIGN.md real-time-era refresh, ~~split frontend/backend deploys at 0.1.0 / 0.1.0~~ (DEFERRED 2026-08-21 — beta ships one deployable at 0.17.X), and the release gate. Rescoped 2026-08-18 — the portal launch and the Chromebook reference device are retired.
 **FRs covered:** FR39, FR40 (hardens NFR1, NFR2, NFR7, NFR8, NFR9, NFR18, NFR19) · **Also:** AR11 (AdSense implementation), AR17, UX-DR29, UX-DR39
 
-**Extension 2026-09-11 — Epics 8 and 9 (Eric-approved structure).** The sequence continues **7 → 8 → 9**, shipped as ONE unit before the traffic push (*"go big or go home"*). Epic 8 is complete on its own and needs nothing from Epic 9: it plays in full anonymously on the default decks, and the pieces Epic 9 later leans on (the shared deck-legality rules, the door's deck loader, the match record) are built in Epic 8 with the default-deck / no-account path. The Colyseus 0.17 → 0.18 framework upgrade — which the architecture wrote as "E9 story 0, sequenced first" — is homed as **Story 8.0** (Eric 2026-09-11), on the Epic 0 / Story 0.1 pattern, so no epic depends on a later one; its own PR, its own PV bump, a full smoke pass, and it lands before any deck code. *(Re-cut 2026-09-21: decks are retired from Story 8.14 on — the legality rules and the deck loader Epic 9 was to lean on never reach it; see `sprint-change-proposal-2026-09-21.md`.)*
+**Extension 2026-09-11 — Epics 8 and 9 (Eric-approved structure).** The sequence continues **7 → 8 → 9**, shipped as ONE unit before the traffic push (*"go big or go home"*). Epic 8 is complete on its own and needs nothing from Epic 9: it plays in full anonymously on the default decks, and the pieces Epic 9 later leans on (the shared deck-legality rules, the door's deck loader, the match record) are built in Epic 8 with the default-deck / no-account path. The Colyseus 0.17 → 0.18 framework upgrade — which the architecture wrote as "E9 story 0, sequenced first" — is homed as **Story 8.0** (Eric 2026-09-11), on the Epic 0 / Story 0.1 pattern, so no epic depends on a later one; its own PR, its own PV bump, a full smoke pass, and it lands before any deck code. *(Re-cut 2026-09-21: decks are retired from Story 8.14 on — the legality rules and the deck loader Epic 9 was to lean on never reach it; see `sprint-change-proposal-2026-09-21.md`.)* *(Renumbered 2026-10-06: the account epic is **Epic 10**; **Epic 9 is Tune and Clean**, inserted by `sprint-change-proposal-2026-10-06.md`. The "one unit" release reading above is LEFT STANDING by Eric's ruling of 2026-10-06 — only the renumbering is noted here.)*
 
 ### Epic 8: The Pool *(GDD E8 — upgrades v3 + catalog v4; "The Deck" through 8.13, re-cut 2026-09-21)*
 Pick a hull, pick its gun, sail its `Shift`: spawn with the mounted gun and the class ability, redraw the opening offer during the countdown, draw from the one pool every captain shares into `Q`/`E`/`R`, stock and fire consumables on `1`–`4`, heal from a card, read your final loadout in results, and read How-to-Play's re-cut EQUIPMENT and UPGRADING sections — identical rules for humans and bots. **Two separate claims, deliberately kept apart:** Epic 8 NEEDS NOTHING FROM EPIC 9 (every code path runs with no account module: everything unlocked, a null writer); whether the production door admits anonymous players is Eric's open question and is not decided by anything here. Under it: the common pool (every line, unlimited copies, a weapon guaranteed while a slot is open, a match-wide tilt), the gun pick and the three fixed class Shifts, the nine-slot loadout, consumables on the existing Equipment interface, the level-zero opening with one REDRAW, wake drafting, the damage gate and ordnance collector, smoke as a sight occluder, the held-fire stream, chaff's server-side fakes, uncapped mines and the decoy, bots that draw from the same pool, and the catalog's lines as content. Decks (the 40-card authored deck, its legality rules, the hidden match pool) were built in 8.1–8.13 and are retired by 8.14 — see `sprint-change-proposal-2026-09-21.md`. Opens with Story 8.0, the Colyseus 0.18 upgrade — a FLOOR story with no player-visible change, on the Story 0.1 precedent (the "an epic delivers player value" rule reads "…except for floors").
 **FRs covered:** FR41–FR61, FR71 · **Also:** NFR20–NFR23, NFR29, AR19–AR21, AR35–AR50, AR52–AR60, UX-DR40–UX-DR59, UX-DR72 (its How-to-Play half)
 **Standing constraints:** the `Tab` offer is untouched; the passive XP tick stays the anti-snowball floor; the master perception invariant keeps exactly six exceptions; no friendly fire, ever; never invent a card, a number or a consumable — every `[DRAFT]` is Eric's, and the harness tunes but never re-designs.
 
-### Epic 9: The Account *(GDD E9; re-cut 2026-09-21 — no decks)*
+### Epic 9: Tune and Clean *(inserted 2026-10-06 — Sprint Change Proposal `sprint-change-proposal-2026-10-06.md`; GDD E9)*
+Eric's zero-in epic after The Pool, built in his order — **balance and features FIRST, then the tests**: a steered tuning pass on time-to-kill and escaping combat (hull hp, map size, island proportion, the spawn layout — one outer ring of 12 and one inner ring of 8 instead of one ring of 20 are his named dials), a SPEED BOOST consumable that stacks with the Speedboat's Shift, a neutral HEALING BUOY that heals every hull in its radius, the optional DEPTH CHARGE (its stub line exists since epic-8 amendment 83; mechanism Eric's), then the test-purposefulness audit (every test names the contract it guards or goes), the two smoke flakes fixed, harness and ledger hygiene (the 6-4 bot bars, the deferred-work triage, the 12 dangling follow-up-review flags), and the How-to-Play entries in Eric's copy. Every number is Eric's, ruled at each story's spec step via AskUserQuestion; the spec author never fills one in.
+**FRs covered:** none new — tunes FR1–FR12 (hulls), FR24–FR25 (the ring), FR26 (the map), FR41–FR61 (the pool's lines) in place · **Also:** the project-context Testing Rule (retro 2026-10-06), NFR20–NFR23 (the six-exception invariant is EXTENDED for the buoy, never widened)
+**Standing constraints:** guns are balanced by Eric's math, never by sim (2026-10-02); the sim measures attrition and class share only, quick runs ≤ 99 matches and never unprompted; no friendly fire, ever — a neutral buoy heals, it never hurts; new card glyphs are rendered and shown to Eric before commit; a design gap found at review is an AskUserQuestion before the PR, never a ledger entry.
+
+### Epic 10: The Account *(GDD E10; was Epic 9 until 2026-10-06; re-cut 2026-09-21 — no decks)*
 Sign in with Google or Discord and keep things — lines, guns and hulls unlocked with tokens earned by playing on the Ship screen, a history of your own matches (hull, gun, cards taken), your key bindings, and a delete-my-account button — while an anonymous captain beside you sails the same rules with everything unlocked. Under it: the first persistent store (Render Postgres behind an absence-gated in-process module), OAuth-only auth verified at both doors, the server-only unlock check at the door and the match-record writer, two-state settings, self-serve deletion, Eric's admin console, the privacy paragraph, and key rebinding. **Closes with a design & doc reconciliation story** (the Story 7.6 pattern, Eric 2026-09-11) that writes the v3 corrections back into `gdd.md`, `game-architecture.md`, the deferred-work ledger and both tracker files, so no implementing agent ever again reads a sentence the rulings retired.
 **FRs covered:** FR62–FR70, FR72 · **Also:** NFR24–NFR28, NFR30, AR22–AR34, AR51, AR61, AR63, UX-DR60–UX-DR78 (UX-DR72's privacy half)
 **Standing constraints:** store very little (provider + opaque id); signing in never changes what you can do in a match; unlocks are variety, never power; the account layer never takes the game down; Story 7-7 stays deferred and this adds no deployable; anonymous play on production is Eric's open question and is not pre-empted by any story.
@@ -1769,7 +1776,7 @@ Pick a hull and sail its gun and its `Shift`: spawn with the mounted gun and the
 
 As the operator (Eric),
 I want the game running on Colyseus 0.18 before any deck code lands,
-So that Epic 8 and Epic 9 build on a current runtime and the account modules that exist only on 0.18 are reachable.
+So that Epic 8 and the account epic (Epic 10; Epic 9 until 2026-10-06) build on a current runtime and the account modules that exist only on 0.18 are reachable.
 
 **This is a FLOOR story on the Story 0.1 precedent — no player-visible change.** A framework upgrade and a feature never share a PR (AR19).
 
@@ -1817,7 +1824,7 @@ So that everyone in the match plays by the same deck rules and nobody can bring 
 **Then** `shared/src/sim/deckRules.ts` exposes ONE pure `checkDeck()` enforcing exactly two composition rules — exactly `CONFIG.deck.size` (40) cards, and no more than `CONFIG.deck.maxEquipmentLines` (3) lines whose copy 1 fits an equipment slot — plus the two ownership bounds (every line owned; copies ≤ cap), and nothing else: a pure-gunboat deck and a zero-heal deck both pass (FR41, AR40)
 **And** `catalog.ts` carries the three DEFAULT decks (Torpedo Boat / Battleship / Mine Layer) at Eric's delivered counts, each passing `checkDeck` against a fresh account's unlocks (the defaults' cards) — pinned — and `FLEET_FIT` (heavy torpedo + naval mines at tier I) for PvE hulls (FR56, FR45)
 **And** ONE shared `loadDeckFor(userId, deckId, hull)` is called at BOTH doors (`StandardQueueRoom.onJoin`, `ArenaRoom.onJoin`) and, with no account module present, always resolves the hull's default deck — so EVERY Epic 8 path runs anonymously and signing in can never change what a captain can do in a match (FR61); it returns the 40 line ids into the seat reservation and the deck is FROZEN there — Solo vs AI has no queue, so its freeze point is the arena's `onJoin` (FR41, FR63, AR32)
-**And** `sanitizeRoomOptions` REJECTS any client-supplied `deck` key at both doors and accepts only `deckId` (unused until Epic 9); `deckOverride` (line ids) is honoured ONLY under `HC_DEV_OPTIONS=1`, gated exactly like `matchOverride` (AR32, AR55, NFR20)
+**And** `sanitizeRoomOptions` REJECTS any client-supplied `deck` key at both doors and accepts only `deckId` (unused until Epic 10 — the account epic, Epic 9 until 2026-10-06); `deckOverride` (line ids) is honoured ONLY under `HC_DEV_OPTIONS=1`, gated exactly like `matchOverride` (AR32, AR55, NFR20)
 **And** `DeckState { cards: LineId[] }` is server-private, built at the seat, never on the wire (AR40)
 **And** the room's `pacifist` storm-control posture is expressible as a legal deck of zero equipment lines (AR55)
 **And** a test proves a deck of 41, a deck with four equipment lines, and a deck with an unowned line are each refused with a stable `deck.illegal { rule }` reason and never silently substituted.
@@ -2145,7 +2152,7 @@ So that I see what I built and Eric can see what everyone built — without anyo
 **Given** the bar (8.6) and all catalog lines
 **When** the results and record land
 **Then** the results modal's BOONS ACCRUED / LAST OFFER blocks are RETIRED (their two-line cut taken — `deferred-work.md:964` closed) and replaced by ONE `LOADOUT` block (ratified copy): the hud-bar's slot row as it ended — the mounted gun leading — at scale .72 with tier numerals on the absolute ramp and `×n` stock badges (a depleted consumable reads EMPTY), and beneath it one line of the five ship ladders `ARMOR III · SPEED IV · TURNING II · RADAR SWEEP II · RELOAD III` in ramp colours; modal ≈ 735 px at the floor is accepted; everything else on the modal stands (FR60, UX-DR55)
-**And** drawn / taken appears NOWHERE in results (it is Epic 9 history content); enemy draws are shown to no player by any surface (FR60)
+**And** drawn / taken appears NOWHERE in results (it is Epic 10 match-history content — the account epic, Epic 9 until 2026-10-06); enemy draws are shown to no player by any surface (FR60)
 **And** the room builds a server-only `MatchRecord` from `World` + `Match` (`game/matchRecord.ts`: per participant the hull, the gun, cards drawn and taken with `T+` stamps, placement, kills; `MatchEndSummary` — no deck, no pool: neither exists after 8.14) and calls `accountWriter.recordMatch(record)` at ONE site (the results hook), fire-and-forget, never awaited on the tick; the writer is a PORT the room is handed and this story ships the `NullWriter` (Epic 9 plugs in the store); **`MatchRecord` is NEVER `ResultsMsg`** — a pin asserts no `deck*` key on `ResultsMsg` (FR60, AR33, NFR20)
 **And** the `endedBy: 'lastHumanLeft'` reachability note (`:921`) is checked before the enum is persisted; no PV change (the record never rides the wire).
 
@@ -2167,11 +2174,141 @@ So that the only place a feature is explained is not describing the old one.
 *(Built 2026-10-01, cycle 161 — epic-8 amendments 204–207. Eric's rulings in-run: the three classes print **SPEEDBOAT · REPEATER · DREADNOUGHT** (204); the toasts stay `◆ <LINE> FITTED` / `◆ <LINE> STOCKED` — the `card fitted` / `consumable stocked` line above is shorthand for 8.7 ruling 14 (205); the page ALSO describes every weapon, in a human voice, never "fish" — "no glossary" was never "no weapon descriptions" (206). SHOOTING is re-cut with the gun pick too, and the Settings key rows that became false are fixed (207).)*
 
 
-## Epic 9: The Account *(GDD E9; re-cut 2026-09-21 — no decks)*
+## Epic 9: Tune and Clean *(inserted 2026-10-06 — `sprint-change-proposal-2026-10-06.md`; GDD E9)*
 
-Sign in with Google or Discord and keep things — lines, guns and hulls unlocked with tokens earned by playing on the Ship screen, a history of your own matches (hull, gun, cards taken), your key bindings, and a delete-my-account button — while an anonymous captain beside you sails the same rules with everything unlocked. Ten stories in build order (Eric-approved 2026-09-11; Story 9.5 deleted and 9.4 / 9.6 / 9.7 / 9.11 re-scoped by the 2026-09-21 Sprint Change Proposal). Standing constraints on every story: store very little (provider + opaque id); signing in never changes what you can do in a match; unlocks are variety, never power; **the account layer never takes the game down** (nothing in a tick ever awaits the database); Story 7-7 stays deferred and nothing here adds a deployable, CORS or a cross-origin cookie; the account HTTP API is NOT part of `PROTOCOL_VERSION` (its contract is the endpoint path set, pinned by test); every log line obeys the PII rule (NFR24); **anonymous play on production is Eric's open question and no story pre-empts it**; the dev/staging host is account-only (FIRM — built in 9.2). File homes, naming and placement rules per AR56–AR58.
+Eric's zero-in epic between The Pool and The Account, in HIS order: the balance and feature stories first, the test audit and the fixes after (*"The tuning pass and new stuff are going to happen before the test audit and other fixes."*). Eight stories. Standing constraints on every story: **every number is Eric's**, ruled at the story's spec step through AskUserQuestion — the spec author never fills one in and marks any unruled clause as unruled; guns are balanced by Eric's math, never by sim (2026-10-02), and the sim measures attrition and class share only (quick runs ≤ 99 matches, never unprompted); the master perception invariant keeps exactly SIX exceptions and is EXTENDED, never widened, for any new event; no friendly fire, ever; new card glyphs are rendered and shown to Eric before they are committed; new-feature explanations go to How-to-Play only, in Eric's copy; a design gap found at review is an AskUserQuestion before the PR, never a ledger entry. The epic's own rulings live in `epic-9-context-amendments.md`.
 
-### Story 9.1: The Account Store Foundation (floor story)
+### Story 9.1: The Tuning Pass (Eric steers)
+
+As Eric,
+I want one story dedicated to time-to-kill and to escaping combat, where I turn the dials live against the staging build,
+So that a fight lasts long enough to be a fight and breaking off is a real option.
+
+**Eric's brief (2026-10-06, verbatim):** *"I have my own ideas for some fixes. We simply want to have a story dedicated towards adjusting this, and I will steer it there. Hull HP is one metric to tweak, but I also want to play with the size of the map, the proportion of islands and landmasses, and perhaps even switching from one ring of 20 spawns around the outside, to one outer ring of 12 and one inner ring of 8, just to mix things up."* On escape, the main reason it is too hard today: **too few escape tools** (Story 9.2 is the first new one).
+
+**Acceptance Criteria:**
+
+**Given** the shipped 0.18.33 game and Eric at the helm of this story
+**When** the pass runs
+**Then** the dials Eric named are reachable as `CONFIG` values or map-generation parameters, each one a single source of truth: the three hulls' `hp` (`CONFIG.shipClasses.*`), the map radius (`CONFIG.map.baseRadius`), the island coverage band (`TERRAIN_PARAMS` cover bounds in `sim/map.ts`), and the spawn layout — today one ring of 20 at `spawnFraction` of the radius; the two-ring layout (outer 12, inner 8) is built only if Eric rules it in, with its radii his numbers
+**And** every value Eric changes is recorded in `epic-9-context-amendments.md` as his ruling with the date, and `[DRAFT]` marks anything he has not yet ruled
+**And** map generation keeps zero transcendentals and stays byte-identical across engines; any spawn-layout change passes the navigability and coastline-clearance guards in `sim/map.ts` and is covered by the existing property tests
+**And** gun numbers are not touched off sim evidence; any gun change is Eric's math, stated as such
+**And** `PROTOCOL_VERSION` bumps only where the client reads a changed block; both trackers stamped; How-to-Play's derived stat tables follow `effectiveStats()` with no hand edit.
+
+### Story 9.2: Speed Boost Consumable
+
+As a captain under fire,
+I want a consumable that makes my ship markedly faster for a while,
+So that I can break contact and live.
+
+**Eric (2026-10-06):** *"a Speed Boost consumable to aid in getting away (probably stronger than Speedboat's boost)."* It **STACKS** with the Speedboat's Shift boost — both multipliers apply at once.
+
+**Acceptance Criteria:**
+
+**Given** the common pool (8.14), the belt (8.7) and the Shift boost (8.9)
+**When** the line lands
+**Then** a new `consumable` line joins `LINE_IDS` and the catalog with cap 5 like every launch consumable; one press fires one copy; the boost factor, duration and any cooldown are Eric's numbers ruled at the spec step (`[DRAFT]` until then) and live in `CONFIG`
+**And** it stacks with the Speedboat's Shift: while both are active both multipliers apply through the ONE fold (`boostedKinematics` / `effectiveStats()`), on both sides identically — no per-side sim
+**And** the How-to-Play stat table for it derives from the sim; its glyph is rendered and shown to Eric before commit; the kind color and card layout are the shipped consumable card's
+**And** bots take and fire it by the 8-20 rule in THIS story (a disengage trigger is a bot-tactics row, not a new code path); drone drops can roll it (amendment 225)
+**And** `PROTOCOL_VERSION` bumps (catalog content is wire contract); the catalog and offer invariants extend to the new line; both trackers stamped.
+
+### Story 9.3: Healing Buoy
+
+As a hurt captain,
+I want to drop a buoy that heals every ship around it for a while,
+So that there is a second way to heal besides the HULL REPAIR card — and a contested one.
+
+**Eric (2026-10-06):** *"a Healing Buoy that grants passive healing in a radius around it to all ships in range."* Rulings: **neutral** — every hull in range heals, the enemy included; it **expires** after a set time; it is **shootable like a mine** — 10 hp, hurt only by a deck gun shell landing on its marker (amendment 200's rule); it is **visible on radar and in sight like the DECOY BUOY**; it is **dropped by a click astern like the DECOY BUOY**.
+
+**Acceptance Criteria:**
+
+**Given** the decoy buoy (8.16), mines with hp (cycle 160), out-of-combat regen and HULL REPAIR (8.8)
+**When** the line lands
+**Then** a new `consumable` line (cap 5) places a world entity at the clicked point astern using the decoy's placement interaction; the entity heals every afloat hull inside its radius each tick — owner, enemy and bot alike; whether PvE drones heal is Eric's call at the spec step — at a rate, radius and lifetime that are Eric's numbers (`[DRAFT]` until the spec step); healing goes through the one hp write (`applyDamage`'s heal path), never a second channel
+**And** it carries 10 hp and dies only to a deck gun shell landing within its marker radius, exactly as a mine does (cannon or flak one shot, machine gun two at tier I); bursts covering it and other ordnance do nothing to it
+**And** it is a signal-registry row observed like the decoy — painted by radar and seen in sight, with its own glyph on the water and on the card (shown to Eric first); the frame invariants gain its row with an oracle mirror and a non-vacuity counter; the exception count stays SIX
+**And** no friendly fire and no hostile effect: the buoy never damages anything; whether it heals inside the storm is Eric's call at the spec step (regen's existing rule is that nobody regens in the storm)
+**And** bots drop it by the 8-20 rule in this story; drone drops can roll it; How-to-Play table derived; `PROTOCOL_VERSION` bumps; both trackers stamped.
+
+### Story 9.4: Depth Charge *(OPTIONAL — Eric: "Maybe we can add the Depth Charge, idk.")*
+
+As a captain,
+I want the DEPTH CHARGE to do something,
+So that the stub line from amendment 83 becomes a card or is cut on purpose.
+
+**Acceptance Criteria:**
+
+**Given** the `depthCharge` stub consumable line (epic-8 amendment 83: *"Depth charge will be a CONSUMABLE. not a line."*; never dealt, no glyph)
+**When** this story is opened
+**Then** the FIRST step is a design sitting with Eric via AskUserQuestion — what it does, how it is aimed, what it hits, and every number; nothing is built before he rules, and if he cuts the story the line stays a stub and the sprint tracker records `cancelled`
+**And** if built: `stub` is cleared, it gets a glyph Eric approved on sight, bots fire it by the 8-20 rule, drone drops can roll it, the How-to-Play table derives from the sim, `PROTOCOL_VERSION` bumps, and the no-friendly-fire rule holds (own charges never hurt own hull).
+
+### Story 9.5: Test Purposefulness Audit
+
+As the next developer to change a function,
+I want every test in the suite to guard a contract of the thing it tests,
+So that a test fails only when the behavior it names is broken, never because a word, a copy string, a clock or a geometry constant moved.
+
+**The rule (project-context.md Testing Rules, written at the Epic 8 retro):** a test asserts a contract of the function under test — never vocabulary, copy strings, wall-clock timing, or geometry standing in for a perf claim.
+
+**Acceptance Criteria:**
+
+**Given** 7,467 tests across shared / server / client plus 266 hook tests at cycle 168
+**When** the audit runs
+**Then** every test file is read and each test either names the contract it guards (in its title or a one-line comment) or is deleted; the known offenders go first — the word-police test (amendment 211), the fogSmoke tautology (8-0), the 160-tick leader pin (161a), the perf pins that test geometry (176, 223f), the smoke fixtures (224f), the phantom height raster (231l) — and spec 8-16's "2,000 fuzz worlds" claim is corrected to the real count or the count is raised on purpose
+**And** an audit record (`test-audit-<date>.md` in implementation-artifacts) lists per workspace: tests before, kept, rewritten, deleted, and the reason class for each deletion; the pinned invariants that protect the architecture (perception exceptions, `applyDamage` as the only hp write, bots never importing `world.js`, map determinism, `effectiveStats()` parity) are named as KEPT contracts
+**And** no production code changes in this story (a bug a test exposes is a separate quiet fix or a ledger entry with Eric's call); `npm run check` green; lint complexity unchanged; both trackers stamped.
+
+### Story 9.6: Smoke Flakes Fixed
+
+As the person running the gate,
+I want matchSmoke and weaponsSmoke to pass or fail on what they claim to test,
+So that a flake is never "ledgered as awareness" again (the Epic 7 "flake is P1" agreement).
+
+**Acceptance Criteria:**
+
+**Given** `server/scripts/matchSmoke.mjs` and `weaponsSmoke.mjs` (retries in 8-1/8-2/8-3; pass on run 4 in 8-14; four failures in 8-16 including on the untouched baseline; skipped in 8-17 and 8-18)
+**When** the rewrite lands
+**Then** each smoke's outcome no longer depends on bot piloting: scripted inputs through `inputs.ts`, `fitOverride` dev options (amendment 65) and fixed seeds drive the scenario, and the assertions name the contract (a shell lands, a hull sinks, a match ends) rather than a bot's choice
+**And** three consecutive clean first-try runs on a quiet box are recorded in the spec; the ledger's flake entries are stamped RESOLVED with the run log
+**And** the smokes stay dev-option-gated (`HC_DEV_OPTIONS=1`), boot their own server where they already do, and kill only their own PID; both trackers stamped.
+
+### Story 9.7: Harness and Ledger Hygiene
+
+As the next agent to open the harness report or the deferred-work ledger,
+I want both to say only what is still true,
+So that I do not re-derive 168 open threads or read a PASS/FAIL bar that measures a retired rule.
+
+**Acceptance Criteria:**
+
+**Given** `server/scripts/batchsim/botReport.ts`, `deferred-work.md` (168 open entries, 2,848 lines at the retro) and the 12 specs flagged "follow-up review recommended" (8-1, 8-2, 8-4..8-7, 8-10, 8-13..8-16, 8-19)
+**When** the hygiene pass lands
+**Then** the two 6-4 bot bars are retired from `botReport.ts` (the Epic 7 carry, twice missed) and `batch-sim-evidence-2026-09-30.md`'s re-ask is answered by the removal
+**And** every open ledger entry is re-stamped open / RESOLVED (with the closing story or cycle) / MOOT (with the ruling that mooted it), appended in the ledger's own format — old text is never rewritten
+**And** the 12 follow-up-review flags are each either run (a review gate on the story's landed code, findings into the ledger or quiet fixes) or dropped by Eric's ruling, and the spec template loses the flag if he rules it dead
+**And** the `shared/src/index.ts` barrel comment that still names `sim/deck.ts` as the engine is corrected; no gameplay change; both trackers stamped.
+
+### Story 9.8: How-to-Play and Record
+
+As a new captain reading How-to-Play,
+I want every item in the game described there in Eric's words,
+So that nothing I can draw is a mystery.
+
+**Acceptance Criteria:**
+
+**Given** Stories 9.1–9.7 landed
+**When** the record closes
+**Then** How-to-Play gains an entry for each new item (SPEED BOOST, HEALING BUOY, DEPTH CHARGE if built) with Eric's copy and a derived stat table; the two entries already owed — private lobbies (amendment 235) and drone drops (226g) — land in the same pass, copy Eric's
+**And** the GDD's Development Epics table and the mechanics sections 9.1 changed carry dated supersession stamps, never rewrites (the amendment-89(k) pattern); `catalog-v3.md` gains the new lines as a dated addendum
+**And** `epic-9-context-amendments.md` holds every ruling; the epic-9 retrospective is scheduled; both trackers stamped with one line each; no in-game copy is added unasked.
+
+## Epic 10: The Account *(GDD E10 — was Epic 9 / E9 until the 2026-10-06 Sprint Change Proposal inserted Epic 9 Tune and Clean; stories 9.N → 10.N, text unchanged; re-cut 2026-09-21 — no decks)*
+
+Sign in with Google or Discord and keep things — lines, guns and hulls unlocked with tokens earned by playing on the Ship screen, a history of your own matches (hull, gun, cards taken), your key bindings, and a delete-my-account button — while an anonymous captain beside you sails the same rules with everything unlocked. Ten stories in build order (Eric-approved 2026-09-11; Story 10.5 deleted and 10.4 / 10.6 / 10.7 / 10.11 re-scoped by the 2026-09-21 Sprint Change Proposal). Standing constraints on every story: store very little (provider + opaque id); signing in never changes what you can do in a match; unlocks are variety, never power; **the account layer never takes the game down** (nothing in a tick ever awaits the database); Story 7-7 stays deferred and nothing here adds a deployable, CORS or a cross-origin cookie; the account HTTP API is NOT part of `PROTOCOL_VERSION` (its contract is the endpoint path set, pinned by test); every log line obeys the PII rule (NFR24); **anonymous play on production is Eric's open question and no story pre-empts it**; the dev/staging host is account-only (FIRM — built in 10.2). File homes, naming and placement rules per AR56–AR58.
+
+### Story 10.1: The Account Store Foundation (floor story)
 
 As the operator (Eric),
 I want a database the game can write to, that is completely inert when it isn't configured,
@@ -2192,7 +2329,7 @@ So that accounts can be built on it without the game ever depending on it to boo
 **And** the env table is documented (`DATABASE_URL`, `JWT_SECRET`, `SESSION_SECRET`, `HC_OAUTH_GOOGLE_ID/_SECRET`, `HC_OAUTH_DISCORD_ID/_SECRET`, `HC_SITE_ORIGIN` in the clear); **no secret is ever a `VITE_` variable**; `client/.env.*` is added to `.gitignore` (`deferred-work.md:1789`) (NFR27)
 **And** `/metrics` gains the `account` block; `/liveness` is proposed as `healthCheckPath` in the same PR (Eric's yes, `:1710`); the staging host gets its own database and OAuth apps so accounts ARE QA'd there (AR23, AR54).
 
-### Story 9.2: Sign In with Google or Discord
+### Story 10.2: Sign In with Google or Discord
 
 As a captain,
 I want to sign in with Google or Discord and be recognised at the door,
@@ -2200,7 +2337,7 @@ So that the game can keep things for me — and nothing about my match changes b
 
 **Acceptance Criteria:**
 
-**Given** the store foundation (9.1)
+**Given** the store foundation (10.1)
 **When** OAuth sign-in lands
 **Then** auth is `@colyseus/auth` 0.18 on a CURATED endpoint subset (userdata + OAuth start + OUR callback) — Google `openid`, Discord `identify`, no email scope on either; `auth-login`, `auth-register`, `auth-anonymous` and forgot/reset/confirm are NEVER mounted (a pin test asserts the mounted path set); the popup callback is REPLACED by `oauthCallback.ts`, which `postMessage`s to `HC_SITE_ORIGIN` (never `'*'`, never derived from the `Host` header) (FR62, AR27)
 **And** identity is keyed `(provider, subject)` through the module's own `onOAuthProviderCallback` upsert into `account_identities` + `account_profiles`; the callback writes `anonymous: false` (the module's default is `true`); `colyseus_users.email` is NULL for every player permanently; **a signed-in caller completing OAuth with a SECOND provider gets that identity LINKED to the same user** (Eric 2026-09-09) — never merged by email, never a second account (FR62, AR26, AR27)
@@ -2209,9 +2346,9 @@ So that the game can keep things for me — and nothing about my match changes b
 **And** the client: a `SIGN IN` row (`GOOGLE · DISCORD`, Primary Button register, 30 px) renders on the anonymous home ONLY while `/liveness` reports `account: true` — ABSENT otherwise, never disabled; a popup closed/blocked or a provider error leaves the home anonymous and reports on the home status line in the `denied` register; signed in, the row is absent and the **Account Chip** (`LV n · n ⬢`, top-right by the settings gear, 34 px) stands, updating on sign-in, sign-out and every token spent; the signed-in home is today's home + the chip and NOTHING else — no `DECKS` link (UX-DR67, UX-DR68)
 **And** Settings gains SIGN OUT; `state.ts` gains one `account` slice written ONLY by `net/account.ts`; `/liveness` `account: true` is the client's only signal; the log gains `account.signin { provider, userId }`, `account.link`, `account.signout` under the PII rule (AR51, AR53, UX-DR69)
 **And** **the dev/staging host is ACCOUNT-ONLY** (Eric, FIRM — UX-DR73): behind a server env flag set on `hullcracker-dev` only (never on production, where anonymous play stays Eric's open question), an anonymous verification result at EITHER door is refused with a stable reason after the staging-key gate, the anonymous home renders the SIGN IN row and no mode buttons, and a mid-match reconnect is not re-gated (the resume token is the auth — the same posture as the PV and staging gates); the flag's absence leaves production byte-identical; pinned by a test at both doors (FR61, UX-DR73)
-**And** a signed-in player's MATCH is byte-identical to an anonymous player's (deck loading stays on the default path until 9.5); the `dev.hullcracker.io`-style staging name question (`deferred-work.md:1720`) is raised because OAuth redirect URIs must name the host; `PROTOCOL_VERSION` does NOT bump (HTTP only).
+**And** a signed-in player's MATCH is byte-identical to an anonymous player's (deck loading stays on the default path until 10.5); the `dev.hullcracker.io`-style staging name question (`deferred-work.md:1720`) is raised because OAuth redirect URIs must name the host; `PROTOCOL_VERSION` does NOT bump (HTTP only).
 
-### Story 9.3: Two-State Settings and Profile
+### Story 10.3: Two-State Settings and Profile
 
 As a signed-in captain,
 I want my callsign, colour, last class and settings to follow my account,
@@ -2219,16 +2356,16 @@ So that I get the same ship on any browser — while an anonymous player keeps t
 
 **Acceptance Criteria:**
 
-**Given** sign-in (9.2) and the shipped localStorage settings store
+**Given** sign-in (10.2) and the shipped localStorage settings store
 **When** D17 / Novel Pattern 9 lands
 **Then** the settings store is ONE store with two backends, `SettingsSource = 'local' | 'account'`, flipped only by `net/account.ts`; ANONYMOUS is byte-identical to today (`hullcracker.*` localStorage, no progression, no deck editor); SIGNED IN makes `account_profiles` the source of truth for callsign, colour preference, last class AND the settings store (FR67, AR31)
 **And** the first sign-in of a fresh account SEEDS the profile from local (never wiping a carried callsign); every later sign-in overwrites local; edits while signed in write both; sign-out leaves local as it was (Eric 2026-09-09 verbatim) (FR67)
 **And** `color_pref` is a PREFERENCE, never the server-assigned wheel index; the client-side random default `colorPref` (`deferred-work.md:321`) is re-homed so the server's no-pref branch is reachable; the colorblind-assist repaint seam (`:324`) is the settings→home seam this story builds (AR26)
 **And** `hullcracker.mode` either gains a reachable reader or is deleted — decided here, not carried (`:1193`); the settings ANALYTICS row's EEA truth and the consent-storage fail-open (`:1389`, `:1404`) are NOT papered over by the migration and are called out if untouched (AR61)
-**And** the Settings overlay's binding reference lists the v3 scheme (Q/E/R generic, `Shift`, 1–4 belt, no `5`) — view-only until 9.9 (UX-DR69)
+**And** the Settings overlay's binding reference lists the v3 scheme (Q/E/R generic, `Shift`, 1–4 belt, no `5`) — view-only until 10.9 (UX-DR69)
 **And** the log gains nothing new with PII; no PV change.
 
-### Story 9.4: The Ship Screen
+### Story 10.4: The Ship Screen
 
 As a captain,
 I want one screen where I pick my ship, pick its gun, see its `Shift`, and see everything I have unlocked,
@@ -2236,7 +2373,7 @@ So that choosing a hull and seeing what I own are the same act — and the anony
 
 **Acceptance Criteria:**
 
-**Given** sign-in (9.2), the catalog (8.1), the gun pick and the class Shifts (8.14, 8.15) and the shipped class-select layer
+**Given** sign-in (10.2), the catalog (8.1), the gun pick and the class Shifts (8.14, 8.15) and the shipped class-select layer
 **When** the merged screen lands (ratified as the Ship & Deck screen, Eric 2026-09-11; the deck column DELETED and the tile widened by the 2026-09-21 Sprint Change Proposal — UX-DR60–66 await the designer's re-cut, see the proposal §4.5)
 **Then** ONE DOM layer replaces the shipped class-select layer (scroll rail, ghost card, class frame retired; `classSelect.ts` and any `deckEditor.ts` idea MERGE) — no route, no `DECKS` link; opened ONLY by the deploy buttons / the Class Chip (`SELECT CLASS` / `CHANGE`); at the class layer's 1318 px; panes left→right class tiles · collection grid (widths re-cut by the designer now the 280 px deck column is gone); **CONFIRM SELECTION pinned bottom-right** (50 px amber Primary Button); header `SELECT CLASS · WHAT WILL YOU SAIL?` with the account chip hard right; 1–3 / arrows highlight, **Enter = CONFIRM SELECTION** unless a text field has focus, ESC returns home; the grid is the only thing that scrolls (FR64, UX-DR60)
 **And** the Class Tile keeps its silhouette · class designation (`[NAME PENDING — Eric]`) · SPEED / ARMOR / TURNING pip rows on absolute anchors · a 14 px hue swatch, and REGAINS two rows the 8.10 tile lost: a **`Shift` ability line** (the hull's fixed ability, one glyph and one label) and a **gun picker** (three chips — deck gun preselected, machine gun, flak gun — the pick rides the seat as `gun`, 8.14); still no Q/E rows, no deck row, no fantasy line; selected = personal-hue outline + glow; **the Color Hoist sits at the FOOT of the tile column** (UX-DR26's sole home moves here); **the ghost "MORE CLASSES IN DEVELOPMENT" card is DROPPED** (Eric 2026-09-11) (UX-DR61)
@@ -2245,11 +2382,11 @@ So that choosing a hull and seeing what I own are the same act — and the anony
 **And** CONFIRM SELECTION returns to home with the Class Chip updated (sub-line class · gun); first-run `SELECT CLASS` with the first hull pre-focused stands; the layer follows the yield rule (no inline `visibility` survives a hidden ancestor — `deferred-work.md:1374`, `:1379`); every register ≥ 9 px; the z register is left as the class layer's (UX-DR60, UX-DR84-equivalent)
 **And** client-only, no PV change (the `gun` seat field is 8.14's bump).
 
-### Story 9.5: ~~Named Decks and the Pre-Queue Gate~~ — DELETED 2026-09-21
+### Story 10.5: ~~Named Decks and the Pre-Queue Gate~~ — DELETED 2026-09-21
 
-Deleted by the 2026-09-21 Sprint Change Proposal: there are no decks to name, build, save or check. The only pre-queue check that survives is "hull and gun unlocked", done at the door in 9.6. The `decks` table, `/api/account/decks`, the deck dropdown, the legality line, the `−`/`+` steppers, `deckId`, `loadDeckFor`, `SAIL DEFAULT DECK`, `deck.rejected` and UX-DR64 / UX-DR65 / UX-DR71 / UX-DR75 never ship. The number is kept so 9.6–9.11 do not renumber.
+Deleted by the 2026-09-21 Sprint Change Proposal: there are no decks to name, build, save or check. The only pre-queue check that survives is "hull and gun unlocked", done at the door in 10.6. The `decks` table, `/api/account/decks`, the deck dropdown, the legality line, the `−`/`+` steppers, `deckId`, `loadDeckFor`, `SAIL DEFAULT DECK`, `deck.rejected` and UX-DR64 / UX-DR65 / UX-DR71 / UX-DR75 never ship. The number is kept so 10.6–10.11 do not renumber.
 
-### Story 9.6: Tokens, XP and Unlocks
+### Story 10.6: Tokens, XP and Unlocks
 
 As a signed-in captain,
 I want to earn tokens by playing and spend them on lines, guns and hulls I don't yet have,
@@ -2259,16 +2396,16 @@ So that my collection grows by variety, never by power — and a new player's De
 
 **Acceptance Criteria:**
 
-**Given** the Ship screen (9.4) and the `NullWriter` port (8.21)
+**Given** the Ship screen (10.4) and the `NullWriter` port (8.21)
 **When** progression lands
 **Then** `account_progress (user_id, xp, tokens_spent)` and `unlocks (user_id, kind: line | gun | hull, id)` exist; level and available tokens are DERIVED (`level = f(xp)`, `available = level − tokens_spent`), never stored, so the match-end write is one atomic `UPDATE … SET xp = xp + $1` (FR65, AR26)
 **And** `shared/src/sim/progression.ts` + `CONFIG.progression` carry the placement-scaled per-match XP curve, `soloXpFactor` (Solo vs AI discounted), `matchesToCatalog` (the OPEN intent dial, measured over the catalog as built) and the `[DRAFT]` prices per kind; one token per account level; `PROTOCOL_VERSION` bumps ONLY if the client reads the block (the `CONFIG.fleet` precedent) (FR65, AR52)
 **And** **THREE unlock surfaces, one currency** (Eric 2026-09-21): a **line** is unlocked WHOLE (its copies are unlimited in the pool, 8.14 — there is nothing per copy to buy), a **gun** (deck gun, machine gun, flak gun) and a **hull**; never bought with money; the **Default Set** (`CONFIG.progression.defaultSet`, the lines / guns / hulls every account and every anonymous captain has from day one) is EVERYTHING until Eric pares it down from playtest data; the door checks the seat's hull and gun against the account's unlocks, and `drawOffer` filters each participant's pool by theirs (FR65)
 **And** the collection tile becomes the control: **PRESS, THEN CONFIRM on the SAME tile** — the first press turns a locked tile AMBER with `⬢ n` (the price), the second press buys it; a pending tile cancels on ESC or any click elsewhere; an unaffordable tile is inert with its price dimmed; no armory page; unlocked IN PLACE (Hearthstone / MTG Arena shape) (UX-DR63 as re-cut)
-**And** the REAL `AccountWriter` replaces the `NullWriter`: `recordMatch(record)` computes XP and tokens through `progression.ts` INSIDE the same transaction as the history rows (9.7 reads them), an in-process FIFO, retry once, `flush()` on shutdown (Render's SIGTERM on every deploy must not lose twenty XP grants); bots, anonymous captains and mid-match-deleted captains are written with `user_id = NULL`; nothing on the tick ever awaits it (AR33, AR34, NFR25)
+**And** the REAL `AccountWriter` replaces the `NullWriter`: `recordMatch(record)` computes XP and tokens through `progression.ts` INSIDE the same transaction as the history rows (10.7 reads them), an in-process FIFO, retry once, `flush()` on shutdown (Render's SIGTERM on every deploy must not lose twenty XP grants); bots, anonymous captains and mid-match-deleted captains are written with `user_id = NULL`; nothing on the tick ever awaits it (AR33, AR34, NFR25)
 **And** the account chip's `LV n · n ⬢` updates on every token spent; the log gains `account.write.ok { matchId, rows }` / `account.write.failed`; `/metrics` `account.writeOk / writeFailed / queueDepth`; the gun-mix win band (8.20) is the measurement that unlocks are variety, never power; token count and account level surface on the chip and on the Ship screen; nothing is ever bought with money (FR61, FR65, UX-DR74).
 
-### Story 9.7: Match History and the Admin Console
+### Story 10.7: Match History and the Admin Console
 
 As a signed-in captain,
 I want to read back my own draws — hull, gun, cards taken — from every match I've played, and as the operator, I want to read everyone's,
@@ -2276,7 +2413,7 @@ So that I learn from what I brought, drew and took, and Eric can see how the cat
 
 **Acceptance Criteria:**
 
-**Given** the real writer (9.6)
+**Given** the real writer (10.6)
 **When** history and admin land
 **Then** `matches (id, mode, started_at, ended_at, roster_size, winner_class)` and `match_participants (match_id, user_id nullable FK ON DELETE SET NULL, role, class, placement, kills, gun, drawn [{lineId, atMs}], taken [{lineId, atMs}])` exist and are written by the writer; `MatchRecord.pool` is stored whole (FR66, AR26)
 **And** `GET /api/account/history?cursor=` returns ONLY the caller's own rows — hull, gun, drawn / taken with `T+mm:ss` stamps, placement, kills — cursor-paged, keyed on the caller's user id and never on match id, so **enemy draws are never returned by any route**; **the hidden pool appears only as the pool cards that player DREW** (Eric 2026-09-11) (FR66, AR30)
@@ -2285,7 +2422,7 @@ So that I learn from what I brought, drew and took, and Eric can see how the cat
 **And** the reconnect `sunk` catch-up note (`deferred-work.md:544`) and the quitter-wins question (`:1212`) are checked against what history now persists and either carried or raised; the `endedBy` enum persists only after `:921` is resolved (8.21)
 **And** the log's one-line-per-match rule holds; no PV change.
 
-### Story 9.8: Delete My Account
+### Story 10.8: Delete My Account
 
 As a signed-in captain,
 I want to delete my account and everything it holds,
@@ -2293,13 +2430,13 @@ So that leaving is one honest action — and the match records stay, with my nam
 
 **Acceptance Criteria:**
 
-**Given** every account table (9.2–9.7)
+**Given** every account table (10.2–10.7)
 **When** deletion lands
 **Then** an authenticated `DELETE /api/account` runs ONE transaction: bump the token version FIRST, delete identities, profile, unlocks and progress, delete the `colyseus_users` row, set `match_participants.user_id = NULL` on every referencing row, respond 204; the anonymised match rows are RETAINED (Eric's metrics survive as anonymous rows) (FR68, AR30)
 **And** Settings gains **DELETE ACCOUNT** with a confirm; after deletion the client is anonymous with local settings as they were; a mid-match deletion writes that captain's record with `user_id = NULL` (FR67, FR68, UX-DR69)
-**And** the log gains `account.delete { userId }`; Google's and Discord's developer-terms expectation of a deletion path is met and cited in 9.10; no PV change.
+**And** the log gains `account.delete { userId }`; Google's and Discord's developer-terms expectation of a deletion path is met and cited in 10.10; no PV change.
 
-### Story 9.9: Key Rebinding
+### Story 10.9: Key Rebinding
 
 As a captain,
 I want to rebind the keys I play with,
@@ -2309,14 +2446,14 @@ So that the scheme fits my hands — saved in my browser if I'm anonymous, and w
 
 **Acceptance Criteria:**
 
-**Given** two-state settings (9.3) and the shipped fixed v3 bindings
+**Given** two-state settings (10.3) and the shipped fixed v3 bindings
 **When** rebinding lands (Eric 2026-09-11 — reversing the post-beta deferral)
 **Then** bindings are per ACTION, never per key: helm W/S/A/D, weapon slots Q/E/R, `Shift` boost, belt 1–4 (**a belt digit and its refit-card pick are ONE action with two contexts — rebinding one rebinds both**), Tab, F, M, zoom; defaults are the v3 scheme; a binding conflict is REFUSED with a `denied` pulse on the clashing row, never silently swapped; RESET TO DEFAULTS exists (FR72, UX-DR78)
 **And** bindings persist through the two-state settings source — localStorage when anonymous, an account setting when signed in (seed-from-local on first sign-in, account wins after, edits write both) (FR72, FR67)
 **And** the Settings overlay's binding reference becomes the editor: one row per action in the existing key-chip family, click a chip and press a key; every chip everywhere (hotbar, refit cards, helm globe, How-to-Play keycaps) renders the live binding; the keyboard chokepoint's `preventDefault` set follows the bindings; rebinding `Shift` keeps the tap semantics and `Shift+Tab` still reaches Tab (UX-DR78, UX-DR59)
-**And** AR17's and UX-DR31's "key remapping deferred post-beta" are recorded as REVERSED in Story 9.11's list; client-only plus the account settings field; no PV change.
+**And** AR17's and UX-DR31's "key remapping deferred post-beta" are recorded as REVERSED in Story 10.11's list; client-only plus the account settings field; no PV change.
 
-### Story 9.10: The Privacy Paragraph
+### Story 10.10: The Privacy Paragraph
 
 As a signed-in captain,
 I want the privacy policy to say plainly what the account holds and how to delete it,
@@ -2324,28 +2461,28 @@ So that every sentence on that page is still a claim about shipped behaviour.
 
 **Acceptance Criteria:**
 
-**Given** every account feature landed (9.2–9.9)
+**Given** every account feature landed (10.2–10.9)
 **When** the paragraph lands in `client/src/privacy/policyCopy.ts`
 **Then** ONE added paragraph on signed-in accounts states: what is held (provider name + opaque subject id; chosen callsign, colour preference, last class; the settings store incl. key bindings; unlocks and progress; per-match rows of own deck, draws and picks with placement and kills), the 30-day session token in localStorage, self-serve deletion leaving match rows with no account reference, that nothing is stored for a player who does not sign in, that the operator's admin console can read these tables, and Google and Discord named as providers (FR70, UX-DR72)
 **And** the voice is third-person Hullcracker.io throughout — `Hullcracker.io` as the subject, never the passive, never an agentless absolute the code cannot support (the cycle-108 traps); the absence of a named controller IS the standing ruling and is not reopened (FR70)
 **And** the policy's contact address and Google URLs render as links, not plain text (`deferred-work.md:1234`), through a helper How-to-Play can share
 **And** `client/src/__tests__/privacyPolicy.test.ts` pins the new paragraph's claims and still carries NO name denylist; text only, no PV change.
 
-### Story 9.11: Design & Doc Reconciliation (Epics 8–9)
+### Story 10.11: Design & Doc Reconciliation (Epics 8–10)
 
 As the next agent to open these documents,
-I want `gdd.md`, `game-architecture.md`, `DESIGN.md`, the ledger and the trackers to say what Epics 8 and 9 actually built,
+I want `gdd.md`, `game-architecture.md`, `DESIGN.md`, the ledger and the trackers to say what Epics 8, 9 and 10 actually built,
 So that I never build a draw-pile counter because a sentence Eric retired is still standing.
 
-**The Story 7.6 pattern (AR63).** This is the LAST story of the pair and it pays every correction the two epics accrued.
+**The Story 7.6 pattern (AR63).** This is the LAST story of the run and it pays every correction the three epics (8, 9, 10) accrued — including whatever Epic 9's tuning pass moved in `CONFIG` and map generation.
 
 **Acceptance Criteria:**
 
-**Given** Epics 8 and 9 landed
+**Given** Epics 8, 9 and 10 landed
 **When** the reconciliation runs
 **Then** the UX pass's "corrections owed upstream" are written into `gdd.md` and `game-architecture.md` with dated supersession stamps: **the 2026-09-21 Sprint Change Proposal's re-cut** (decks retired, the common pool and its tilt, the gun pick, the three class Shifts, missile / monitor / heat seeking cut, the class designations, the retired match pool) reconciled across `gdd.md`, `catalog-v3.md`, `game-architecture.md` (the deck door and `checkDeck` amendment already ledgered at `deferred-work.md:1843`, now also the `gun` seat) and the `DESIGN.md` flags in the proposal's §4.5; the draw-pile counter DELETED (GDD deck model § / E8 story 3; D22's `OwnShip.deckLeft` off the wire); results = final LOADOUT, brought/drawn/taken history-only; ARMOR / SPEED / TURNING / DECK GUN start at Tier I equipped (catalog R14 wording); deck NAMES allowed (forge/GDD "Rejected" list; D12 `decks.name`); COPIES acquired per copy (GDD § Account progression; D12 `unlocks`; `matchesToCatalog` over 114 cards); the standalone `/decks` route gone (E9 story 3; `deckEditor.ts` + `classSelect.ts` merged); the dev/staging host account-only; keyboard-only out of scope (NFR wording); Sticky Keys accepted (AR63)
 **And** this run's own rulings are written back the same way: NO FRIENDLY FIRE retires FR7's outrun law and the D25 non-exempt readings; the pre-queue legality gate supersedes D18's door-first framing; "starter" → `DEFAULT` in copy; key rebinding IN (AR17 / UX-DR31 reversed); the free auto-heal's actual mechanism recorded; `shield-ring` retired from DESIGN.md; the party-round wording fixes (AR63)
 **And** every ledger thread named RESOLVED in AR59–AR62 is stamped in `deferred-work.md` with its closing story; every thread CARRIED that a story parked is stamped with where it now lives; the Story 7-7 revival brief gains the account-API CORS line (`deferred-work.md:1817`)
-**And** `sprint-status.yaml` and `gds-workflow-status.yaml` carry their one-line stamps for Epics 8–9 (status, date, cycle, PV range, pointer) — never narrative; `epic-8-context-amendments.md` / `epic-9-context-amendments.md` hold the rulings; CLAUDE.md's Key Decisions gains the E8/E9 entries in the house style
+**And** `sprint-status.yaml` and `gds-workflow-status.yaml` carry their one-line stamps for Epics 8–10 (status, date, cycle, PV range, pointer) — never narrative; `epic-8-context-amendments.md` / `epic-9-context-amendments.md` / `epic-10-context-amendments.md` hold the rulings; `docs/key-decisions.md` gains the E8/E9/E10 entries in the house style (CLAUDE.md itself is frozen — Eric 2026-09-14)
 **And** `DESIGN.md`'s `components:` marks the 18 added tokens BUILT (minus `shield-ring`, retired), the 4 retired tokens gone, and the ratified mocks stamped; `EXPERIENCE.md`'s Journey C loses its `[ASSUMPTION]` tags where Eric redlined them
 **And** no code changes; `npm run check` green; both trackers diffed against the previous story's PR to prove the stamp rule held.

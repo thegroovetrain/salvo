@@ -3,7 +3,7 @@ title: Hullcracker.io - Game Design Document
 game_type: shooter
 platforms: [desktop-browser]
 created: 2026-07-16
-updated: 2026-10-02
+updated: 2026-10-06
 ---
 
 # Hullcracker.io - Game Design Document
@@ -445,9 +445,10 @@ Detailed breakdown with stories, scope boundaries, and dependencies: `epics.md`.
 | E6 | **Information Texture** | ~~Listening ring + torpedo pips~~ (deferred), hit call, fall-of-shot, muzzle flash carries, wounded smoke, foghorn, eighths ladder + radar shadows + wakes | Every fight is legible through the fog |
 | E7 | **Launch Readiness** | 60 FPS on the reference device, <10 s load, ads + consent, privacy policy, how-to-play page | Shippable at `hullcracker.io` |
 | E8 | **The Deck** (v3 + catalog v3) | Card model (A) + hull-agnostic catalog hooks, legal 40-card authored decks + starter decks frozen at queue, **the match consumable pool** (10 hidden, same for all, 50 at queue), equal-weight draw, deck gun + three generic weapon slots (at most three equipment lines per deck, slot keeps its clock), four consumable slots, heal as a card (`5` retired), gun-and-Shift spawn + level zero + mulligan + weighted first draw, draw-pile counter, **catalog v3's content** (11 equipment lines incl. six new weapons, TURNING, the retuned RELOAD + equipment reload step, five add-ons, five consumables; the radar buoy deleted, no live-mine cap, shoot-any-spotted-mine), **the Shift boost as a universal ability**, wake drafting, bot decks + consumable tactics + harness arms and bars, own deck in results | Every match — anonymous or signed in — is played on a deck, under the same rules for everyone |
-| E9 | **The Account** (v3) | OAuth sign-in (no guest tier), the first persistent store, deck editor (several decks per hull), account level → unlock tokens → whole-line unlocks, placement-scaled XP, match history (own deck to the player, every deck to Eric's metrics), privacy-policy delta | Sign in and keep your decks, unlocks and history — nothing changes inside a match |
+| E9 | **Tune and Clean** *(inserted 2026-10-06 — `sprint-change-proposal-2026-10-06.md`)* | Eric-steered tuning pass on time-to-kill and escaping combat (hull hp, map size, island proportion, spawn layout — one outer ring of 12 + one inner ring of 8 is his named candidate), SPEED BOOST consumable (stacks with the Speedboat Shift), neutral HEALING BUOY (heals every hull in range, expires, 10 hp like a mine, visible and dropped like the decoy), DEPTH CHARGE optional, then the test-purposefulness audit, the two smoke flakes, harness + ledger hygiene, How-to-Play entries in Eric's copy | Fights last long enough to be fights, breaking off is a real option, and every test guards a contract |
+| E10 *(was E9 until 2026-10-06)* | **The Account** (v3) | OAuth sign-in (no guest tier), the first persistent store, deck editor (several decks per hull), account level → unlock tokens → whole-line unlocks, placement-scaled XP, match history (own deck to the player, every deck to Eric's metrics), privacy-policy delta | Sign in and keep your decks, unlocks and history — nothing changes inside a match |
 
-**Sequence: E1 → E2 → E3 → E6 → E4 → E5 → E7 → E8 → E9.** Identity and economy first (the spine everything touches), match shape third, then texture, world, modes, launch — E1–E7 have shipped. **E8 and E9 ship together as one unit before the traffic push** (Eric declined releasing the match-side rework without accounts — *"go big or go home"*); the split is a build seam, not a release seam — E8 is everything that changes on the water and plays anonymously on starter decks, E9 is everything an account keeps (seam ratified by Eric, 2026-09-03).
+**Sequence: E1 → E2 → E3 → E6 → E4 → E5 → E7 → E8 → E9 → E10** *(2026-10-06: E9 Tune and Clean inserted; The Account is E10)*. Identity and economy first (the spine everything touches), match shape third, then texture, world, modes, launch — E1–E7 have shipped. **E8 and E9 ship together as one unit before the traffic push** (Eric declined releasing the match-side rework without accounts — *"go big or go home"*); the split is a build seam, not a release seam — E8 is everything that changes on the water and plays anonymously on starter decks, E9 is everything an account keeps (seam ratified by Eric, 2026-09-03).
 
 ---
 
@@ -543,7 +544,7 @@ The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on 
 **Dependencies:**
 
 - **Boon catalog — DELIVERED, and its v3 re-cut is WRITTEN** (`catalog-v3.md`, 2026-09-09: E2's catalog, rewritten wholesale by Eric on 2026-08-19, re-cut by him again as 29 lines / 114 cards with three 40-card starters and the match consumable pool). This GDD specifies the model — the 40-card authored deck plus the pool, ladders-as-tiers / add-ons-as-nature-changers, copies = tier ceiling, consumables — and the catalog is the per-tier authority, its `[DRAFT]` cells harness-tuned once bots sail v3 decks. E8 builds against both.
-- **The account store (v3)** — the first persistent store and non-ops HTTP API; `gds-game-architecture` owns the design. E9 depends on it; the privacy policy gains one paragraph on signed-in accounts.
+- **The account store (v3)** — the first persistent store and non-ops HTTP API; `gds-game-architecture` owns the design. E10 (The Account; E9 until 2026-10-06) depends on it; the privacy policy gains one paragraph on signed-in accounts.
 - **Combat-bot AI — DELIVERED** (E5), distinct from PvE defensive AI; priority profiles, not a difficulty ladder. *(2026-09-30, Story 8.20, epic-8 amendment 167: six personalities, any hull.)*
 - **Self-publishing** replaces the portal dependency: the launch gate is the operator's own — hosting, ad + consent handling, and the privacy policy (E7). There is no third-party portal compliance dependency.
 - **Aim reconciliation under latency** (lag compensation vs shoot-at-server-state) is a feel-defining, expertise-heavy call — explicitly delegated to the architecture phase (`gds-game-architecture`); the design requirement is only "feel intact at ~150 ms."

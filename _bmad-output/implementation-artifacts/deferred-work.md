@@ -2846,3 +2846,10 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   status: open — note only
   summary: A JOINER RACING A LOBBY THAT JUST HIT 20 CAPTAINS GETS COLYSEUS "IS LOCKED" AND READS `MATCH STARTED` INSTEAD OF `LOBBY FULL`, because Colyseus auto-locks a room at `maxClients` between the resolve answer and `joinById`. The resolve route answers `LOBBY FULL` for the common (non-racing) case. Found by the client patch agent at the cycle-167 review gate.
   evidence: `client/src/net/lobby.ts` join-error mapping (locked -> `MATCH STARTED`, full -> `LOBBY FULL`); `server/src/lobbyResolve.ts`; epic-8 amendment 239(iii).
+
+## 2026-10-06 — correct-course (no cycle) — renumbering note
+
+- source_spec: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-10-06.md`
+  status: open — note only
+  summary: EPIC 9 IS NOW "TUNE AND CLEAN" AND THE ACCOUNT IS EPIC 10. Every entry above that says "Epic 9", "E9", "Story 9.N" or "9-N" meaning The Account now means Epic 10 / Story 10.N / 10-N; the text is left as written (this ledger is append-only). Story 9-7 (Harness and Ledger Hygiene) re-stamps every open entry and may add the renumbered pointer where it helps. Eric's rulings for the new epic: epic-9-context-amendments.md #1.
+  evidence: `_bmad-output/planning-artifacts/epics.md` §Epic 9 / §Epic 10; `sprint-status.yaml` epic-9 / epic-10 blocks; epic-8-retro-2026-10-06.md §6.
