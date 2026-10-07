@@ -74,7 +74,7 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
   // that is what the three scans above assert, and they are the substance of
   // this file. This line only witnesses that a bump, when it happens, happens
   // deliberately.
-  it('PROTOCOL_VERSION is 71 — bumped by the private-lobby contract (70 by cycle 166 the deck-gun catalog retune; 69 by cycle 163 the drone-drop `dp` event; 68 by cycle 162: MineView.c for every observer, OwnShip.chaffGhosts, chaff/smoke radii ×1.5), not by masks', () => {
+  it('PROTOCOL_VERSION is 72 — bumped by the Story 9.1 big ocean (71 by the private-lobby contract; 70 by cycle 166 the deck-gun catalog retune; 69 by cycle 163 the drone-drop `dp` event; 68 by cycle 162: MineView.c for every observer, OwnShip.chaffGhosts, chaff/smoke radii ×1.5), not by masks', () => {
     // 55 until Story 8.13, whose ONE bump covered the catalog content, the id
     // moves and `MineView`'s own-only kind field (epic-8 amendment 76); 56
     // until Story 8.14, whose ONE bump covers the seat's `gun` join option,
@@ -121,6 +121,6 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // (cycle 163) is the self-private `dp` drone-drop event; 69 -> 70 (cycle 166) is the deck-gun catalog content — no mask moved;
     // 70 -> 71 (cycle 167) is the private-lobby contract (MSG lr/ls/lb/lg,
     // CONFIG.lobby read by the client, arena mode 'private') — no mask moved.
-    expect(PROTOCOL_VERSION).toBe(71);
+    expect(PROTOCOL_VERSION).toBe(72);
   });
 });

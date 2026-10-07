@@ -678,7 +678,7 @@ describe('fleet waves — the anchor rule (amendment 37)', () => {
     const w = bareWorld(41, smallRing);
     // Full closure for a three-group timeline: every wave beat has passed, so
     // all of them land together into the terminal ring.
-    armWaveClock(w, smallRing.beatMs * 4 * (smallRing.ringSteps.length + 1));
+    armWaveClock(w, smallRing.beatMs * 4 * (smallRing.ringSteps!.length + 1));
     w.step();
 
     const ring = w.zoneLiveRing;

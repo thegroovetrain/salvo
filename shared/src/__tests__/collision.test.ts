@@ -273,7 +273,9 @@ describe('open-ocean pin — pressing the map edge is not grounding', () => {
 
   /** Drive the repro and return the final state. */
   function pressEdge(ticks: number, rudder: number): ShipState {
-    const s: ShipState = { x: 1200, y: 0, heading: 0, speed: kin.maxSpeed };
+    // Start 780 u inside the edge (what x=1200 was on the old 1980 u cap-10
+    // disc) so 600 ticks at flank reach it on ANY map radius.
+    const s: ShipState = { x: map.radius - 780, y: 0, heading: 0, speed: kin.maxSpeed };
     let prev: Pose = { x: s.x, y: s.y, heading: s.heading };
     for (let t = 0; t < ticks; t++) {
       stepShip(s, { throttle: 1, rudder }, kin, DT);
@@ -799,7 +801,9 @@ describe('no-escape invariant on a REAL generated map', () => {
       const d = Math.hypot(isle.x, isle.y);
       const toCentre = { x: -isle.x / d, y: -isle.y / d };
       let s: ShipState | null = null;
-      for (let back = isle.r + polyMax + 20; back < isle.r + polyMax + 400; back += 8) {
+      // Up to 1600 u back: on the 10 % archipelago (Story 9.1) the biggest
+      // landmass often has a neighbour inside the old 400 u search.
+      for (let back = isle.r + polyMax + 20; back < isle.r + polyMax + 1600; back += 8) {
         const cand: ShipState = {
           x: isle.x + toCentre.x * back,
           y: isle.y + toCentre.y * back,
@@ -865,16 +869,34 @@ function tickPushLimit(hullId: HullId, spd: number): number {
   return Math.abs(spd) * DT + hullEnvelope(hullId).hull.beam;
 }
 
-describe('push-out teleport — seed 555555 arm graze (deterministic repro)', () => {
+describe('push-out teleport — the arm graze (deterministic repro, synthetic coast)', () => {
   it('resolves the mineLayer bow-in-arm overlap within a tick-scaled bound', () => {
-    const map = generateMap(555555, 20);
+    // Originally a pose on seed 555555's coastline at the 2800 u / 2.5 % ocean;
+    // Story 9.1 (2026-10-07) regenerated every ocean, so the geometry is now
+    // BUILT rather than found: an east-west coastal arm to the NORTH of the
+    // hull and a separate block of land 41 u EAST of the centre, so the
+    // centre's nearest coast (east) does not describe what the bow is in
+    // (the arm). The retired centre aim pointed due WEST, parallel to the arm,
+    // and one 2 u step ahead resolved 209.6 u west in a single tick.
     const kin = CONFIG.shipClasses.mineLayer.kinematics;
-    // Prev pose with the bow a hair inside an east-west coastal arm to the
-    // NORTH while the centre sits on open water 41.2u from its nearest coast
-    // to the EAST — so the retired centre aim pointed due WEST, parallel to
-    // the arm. One 2u step ahead resolved to (-1213.3, -200.4): 209.6u due
-    // west in a single tick.
-    const prev: Pose = { x: -1004.08, y: -202.34, heading: 1.401 };
+    const half = CONFIG.shipClasses.mineLayer.hull.length / 2;
+    const prev: Pose = { x: 0, y: 0, heading: -Math.PI / 2 + 0.17 }; // bow north, a hair east of straight up
+    // The arm's south coast sits 0.5 u ABOVE the bow tip at `prev` (bow a hair
+    // inside), so the 2 u step ahead puts it ~2.5 u in.
+    const bowY = -half * Math.cos(0.17);
+    const arm = islandFromPolygon([
+      { x: -900, y: bowY + 0.5 },
+      { x: 900, y: bowY + 0.5 },
+      { x: 900, y: bowY - 300 },
+      { x: -900, y: bowY - 300 },
+    ]);
+    const block = islandFromPolygon([
+      { x: 41.2 + half, y: -40 },
+      { x: 41.2 + half + 300, y: -40 },
+      { x: 41.2 + half + 300, y: 260 },
+      { x: 41.2 + half, y: 260 },
+    ]);
+    const map = { islands: [arm, block], radius: BIG_MAP };
     const s: ShipState = {
       x: prev.x + Math.cos(prev.heading) * 2,
       y: prev.y + Math.sin(prev.heading) * 2,

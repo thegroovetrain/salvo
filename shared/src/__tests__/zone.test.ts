@@ -66,28 +66,46 @@ describe('zone timeline shape — the ratified design targets', () => {
     expect(zoneEndgameAtMs({ ...CONFIG.zone, beatMs: 0 })).toBe(0);
   });
 
-  it('terminal radius is DERIVED from CONFIG.vision.sight (never a literal) — and sudden death does NOT move it', () => {
-    expect(zoneTerminalRadius(CONFIG.zone)).toBe(CONFIG.zone.terminalSightFactor * CONFIG.vision.sight);
-    expect(zoneTerminalRadius(CONFIG.zone)).toBe(2 * CONFIG.vision.sight);
-    // zoneTerminalRadius means the 660u ENDGAME ring, before and after the
-    // ruling: the collapse ring is appended past the clamp chain, never
-    // produced by it, so Story 3.4's constraint pins below are untouched.
-    expect(zoneTerminalRadius({ ...CONFIG.zone, suddenDeath: false })).toBe(zoneTerminalRadius(CONFIG.zone));
+  // RING SIZES ARE NOT A TEST SUBJECT (Eric 2026-10-07: *"Any tests that test
+  // to make sure the ring is a certain size are fucking useless. I need to know
+  // that the function to generate them works. Its set server-side, its not an
+  // avenue for a client to cheat."*). Everything below exercises the FUNCTION
+  // on a ladder it is handed; nothing pins what CONFIG.zone happens to say.
+  const LADDER: ZoneTimeline = { beatMs: BEAT, ringRadii: [3000, 1500, 700], offsetCap: 1, suddenDeath: true };
+
+  it('a literal ladder is returned verbatim behind ring 0 (the map), then the collapse ring', () => {
+    expect(zoneRingRadii(5000, LADDER)).toEqual([5000, 3000, 1500, 700, 0]);
+    expect(zoneTerminalRadius(LADDER)).toBe(700);
+    expect(zoneGroups(LADDER)).toBe(4);
+    // Flag off: same geometric prefix, no collapse ring, one group fewer.
+    const off = { ...LADDER, suddenDeath: false };
+    expect(zoneRingRadii(5000, off)).toEqual([5000, 3000, 1500, 700]);
+    expect(zoneTerminalRadius(off)).toBe(700);
+    expect(zoneGroups(off)).toBe(3);
   });
 
-  it('intermediate radii step down geometrically (equal ratio steps map → terminal), then collapse to 0', () => {
-    const radii = zoneRingRadii(MAP_R, CONFIG.zone);
-    expect(radii).toHaveLength(5); // ring 0 (full map) .. terminal .. collapse
-    expect(radii[0]).toBe(MAP_R);
-    expect(radii[3]).toBeCloseTo(2 * CONFIG.vision.sight, 9);
-    expect(radii[4]).toBe(0); // the collapse ring — EXACTLY zero, never a float
-    // The equal-ratio pin covers the GEOMETRIC prefix only: the collapse step is
-    // not a geometric shrink, it is the ring closing onto its own center.
+  it('a ladder entry can never grow a ring, drop below the terminal, or NaN — the clamp chain is path-independent', () => {
+    // Out of order: the 4000 is clamped to the previous ring (3000).
+    expect(zoneRingRadii(5000, { ...LADDER, ringRadii: [3000, 4000, 700] })).toEqual([5000, 3000, 3000, 700, 0]);
+    // Below the terminal: clamped up to it.
+    expect(zoneRingRadii(5000, { ...LADDER, ringRadii: [3000, 500, 700] })).toEqual([5000, 3000, 700, 700, 0]);
+    // NaN: falls to the previous ring.
+    expect(zoneRingRadii(5000, { ...LADDER, ringRadii: [3000, NaN, 700] })).toEqual([5000, 3000, 3000, 700, 0]);
+    // A ladder taller than the map is clamped to the map; a 0 terminal floors at 1 u.
+    expect(zoneRingRadii(2000, LADDER)).toEqual([2000, 2000, 1500, 700, 0]);
+    expect(zoneRingRadii(5000, { ...LADDER, ringRadii: [3000, 1500, 0] })[3]).toBe(1);
+    // An EMPTY ladder is no ladder: the formula path takes over.
+    expect(zoneTerminalRadius({ ...LADDER, ringRadii: [], terminalSightFactor: 2 })).toBe(2 * CONFIG.vision.sight);
+  });
+
+  it('the retired formula still drives a timeline that carries no ladder (dev zoneOverride literals, smokes)', () => {
+    const formula: ZoneTimeline = { beatMs: BEAT, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2, suddenDeath: true };
+    const radii = zoneRingRadii(MAP_R, formula);
+    expect(zoneTerminalRadius(formula)).toBe(2 * CONFIG.vision.sight);
     const ratio = radii[1] / radii[0];
     expect(radii[2] / radii[1]).toBeCloseTo(ratio, 9);
     expect(radii[3] / radii[2]).toBeCloseTo(ratio, 9);
-    // ...and that prefix is BYTE-IDENTICAL to the pre-ruling chain.
-    expect(radii.slice(0, 4)).toEqual(zoneRingRadii(MAP_R, { ...CONFIG.zone, suddenDeath: false }));
+    expect(radii[4]).toBe(0);
   });
 });
 
@@ -141,17 +159,6 @@ describe('Endgame Guarantee (Story 3.4) — sensor-vs-ring constraints', () => {
     expect(CONFIG.vision.radar / eighth).toBe(8);
   });
 
-  it('radar reaches the terminal ring radius — reduces to terminalSightFactor <= 2 (sight cancels; a truesight-only retune cannot fail this)', () => {
-    expect(CONFIG.vision.radar).toBeGreaterThanOrEqual(zoneTerminalRadius(CONFIG.zone));
-  });
-
-  it('sight does NOT reach the terminal ring radius — reduces to terminalSightFactor > 1 (sight cancels; a truesight-only retune cannot fail this)', () => {
-    expect(CONFIG.vision.sight).toBeLessThan(zoneTerminalRadius(CONFIG.zone));
-  });
-
-  it('terminalSightFactor is finite (a NaN factor would otherwise silently pass both pins above via the fail-closed ×2 fallback in zoneTerminalRadius)', () => {
-    expect(Number.isFinite(CONFIG.zone.terminalSightFactor)).toBe(true);
-  });
 });
 
 // Radar-shadow constants (Story 4.11), pinned BUILD-FAILING beside the ladder
@@ -264,56 +271,6 @@ describe('radar wakes (Story 4.12) — the wake clock and cadence pins', () => {
   });
 });
 
-describe('closing-rate criterion (epic-5 amendment 43, re-ratifying epic-3 amendment 7) — pinned over committed CONFIG', () => {
-  const battleshipMinute =
-    CONFIG.shipClasses.battleship.kinematics.maxSpeed * (CONFIG.zone.beatMs / 1000); // 2100u at the targets
-
-  it('worst-case escape per close = (1 + offsetCap) × max Δr ≈ 1.019 battleship-minutes', () => {
-    // TWO independent changes landed on this criterion on the same day and they
-    // COMPOSE rather than collide, which is worth stating because each looks
-    // like it should have moved the other:
-    //
-    //  * SUDDEN DEATH appended a fourth ring group (the concentric collapse,
-    //    660 → 0). That step is SMALLER than the largest geometric step
-    //    (2800 → 1729.7 = 1070.3), so it does not move maxDelta and the band
-    //    still binds the same close it always did. It also carries no offset
-    //    (it is concentric), so it cannot move the worst case either.
-    //  * THE BIGGER OCEAN grew baseRadius 2400 → 2800, which DID move maxDelta,
-    //    from 839.2 to 1070.3.
-    //
-    // So a battleship caught at the worst possible position can no longer
-    // out-escape a close beat: it must run the ENTIRE beat at flank speed and
-    // still just misses safety, taking a bite of storm rather than dying. That
-    // is the forced-movement outcome Eric asked for ("the map is a little too
-    // small, so each stage doesn't force enough movement"), so the old
-    // `worstEscape <= battleshipMinute` ceiling is DELETED rather than widened —
-    // it is now deliberately, narrowly false. The ratified target band is
-    // ≈1.019, replacing the 0.75-0.85 ("neither dilly nor dally") band that the
-    // radius change blew through.
-    const radii = zoneRingRadii(MAP_R, CONFIG.zone);
-    let maxDelta = 0;
-    for (let g = 1; g < radii.length; g += 1) maxDelta = Math.max(maxDelta, radii[g - 1] - radii[g]);
-    const worstEscape = (1 + CONFIG.zone.offsetCap) * maxDelta;
-    const fraction = worstEscape / battleshipMinute;
-    expect(fraction).toBeGreaterThan(1.0);
-    expect(fraction).toBeLessThan(1.05);
-  });
-
-  it('the COLLAPSE close is the gentlest of them all — it is concentric, so the escape is a bare radius', () => {
-    // A geometric close can move the center too, which is why the criterion
-    // carries the (1 + offsetCap) term. The collapse cannot: it closes onto its
-    // OWN center, so the worst case is a hull on the rim sailing to the middle
-    // — exactly the terminal radius, and nothing more.
-    const worstEscape = zoneTerminalRadius(CONFIG.zone); // 660u, rim → center
-    expect(worstEscape).toBeLessThan(battleshipMinute * 0.35);
-    // And it is genuinely the easiest close in the timeline to survive.
-    const radii = zoneRingRadii(MAP_R, CONFIG.zone);
-    for (let g = 1; g < radii.length - 1; g += 1) {
-      expect(worstEscape).toBeLessThanOrEqual((1 + CONFIG.zone.offsetCap) * (radii[g - 1] - radii[g]));
-    }
-  });
-});
-
 describe('rollZoneRings — containment + determinism (property, ∀ seeds)', () => {
   it('every next ring is fully contained in the current ring, for 200 seeds', () => {
     for (let seed = 1; seed <= 200; seed += 1) {
@@ -327,7 +284,7 @@ describe('rollZoneRings — containment + determinism (property, ∀ seeds)', ()
       // the collapse ring is CONCENTRIC with it at radius exactly 0.
       const endgame = rings[rings.length - 2];
       const collapse = rings[rings.length - 1];
-      expect(endgame.r).toBeCloseTo(2 * CONFIG.vision.sight, 9);
+      expect(endgame.r).toBeCloseTo(zoneTerminalRadius(CONFIG.zone), 9);
       expect(collapse).toEqual({ cx: endgame.cx, cy: endgame.cy, r: 0 });
     }
   });
@@ -514,7 +471,7 @@ describe('degenerate timelines — fail closed, never NaN, never a hang', () => 
     // suddenDeath OFF here on purpose: this pins what `ringSteps` alone decides
     // (the geometric descent), and the appended collapse group is the subject of
     // its own suite. With the flag on the same cfg is a 2-group timeline.
-    const cfg: ZoneTimeline = { ...CONFIG.zone, ringSteps: [], suddenDeath: false };
+    const cfg: ZoneTimeline = { ...CONFIG.zone, ringRadii: undefined, ringSteps: [], terminalSightFactor: 2, suddenDeath: false };
     expect(zoneGroups(cfg)).toBe(1);
     expect(zoneClosedAtMs(cfg)).toBe(ZONE_BEATS_PER_GROUP * BEAT);
     const radii = zoneRingRadii(MAP_R, cfg);
@@ -522,7 +479,7 @@ describe('degenerate timelines — fail closed, never NaN, never a hang', () => 
   });
 
   it('NaN/negative ringSteps and offsetCap never produce NaN or growing rings', () => {
-    const cfg: ZoneTimeline = { ...CONFIG.zone, ringSteps: [NaN, -3], offsetCap: NaN };
+    const cfg: ZoneTimeline = { ...CONFIG.zone, ringRadii: undefined, ringSteps: [NaN, -3], terminalSightFactor: 2, offsetCap: NaN };
     const rings = rollZoneRings(MAP_R, cfg, seedsFor(3, cfg));
     let prev = Infinity;
     for (const r of rings) {
@@ -534,11 +491,13 @@ describe('degenerate timelines — fail closed, never NaN, never a hang', () => 
   });
 
   it('a NaN terminalSightFactor falls back to the ratified ×2', () => {
-    expect(zoneTerminalRadius({ ...CONFIG.zone, terminalSightFactor: NaN })).toBe(2 * CONFIG.vision.sight);
+    expect(zoneTerminalRadius({ ...CONFIG.zone, ringRadii: undefined, terminalSightFactor: NaN })).toBe(2 * CONFIG.vision.sight);
+    // ...and so does a NaN terminal on the literal ladder.
+    expect(zoneTerminalRadius({ ...CONFIG.zone, ringRadii: [3500, 2000, NaN] })).toBe(2 * CONFIG.vision.sight);
   });
 
   it('a map smaller than the terminal radius clamps every ring to the map', () => {
-    const radii = zoneRingRadii(300, CONFIG.zone); // terminal 660 > map 300
+    const radii = zoneRingRadii(300, CONFIG.zone); // any shipped terminal > map 300
     for (const r of radii) expect(r).toBeLessThanOrEqual(300);
     expect(radii[radii.length - 2]).toBe(300); // the GEOMETRIC terminal, clamped to the map
     expect(radii[radii.length - 1]).toBe(0); // ...then the collapse ring
@@ -553,9 +512,11 @@ describe('degenerate timelines — fail closed, never NaN, never a hang', () => 
     // it is NEVER read off the wire: both sides synthesize it (see
     // effectiveNext / the wire-parity suite above), so the sentinel and it can
     // never be confused.
-    const cfg: ZoneTimeline = { ...CONFIG.zone, terminalSightFactor: 0 };
+    const cfg: ZoneTimeline = { ...CONFIG.zone, ringRadii: undefined, ringSteps: [1 / 3, 2 / 3], terminalSightFactor: 0 };
     const radii = zoneRingRadii(MAP_R, cfg);
     expect(radii[radii.length - 2]).toBe(1); // the geometric terminal: floored
+    // The literal ladder floors the same way: a 0 u terminal entry reads as 1 u.
+    expect(zoneRingRadii(MAP_R, { ...CONFIG.zone, ringRadii: [3500, 2000, 0] })[3]).toBe(1);
     expect(radii[radii.length - 1]).toBe(0); // the collapse ring: exactly zero
     const rings = rollZoneRings(MAP_R, cfg, seedsFor(9, cfg));
     for (const ring of rings.slice(0, -1)) expect(ring.r).toBeGreaterThanOrEqual(1);
@@ -576,7 +537,7 @@ describe('degenerate timelines — fail closed, never NaN, never a hang', () => 
 // ---------------------------------------------------------------------------
 describe('sudden death — the collapse group', () => {
   const rings = ringsFor(17);
-  const ENDGAME = rings[rings.length - 2]; // the 660u terminal ring
+  const ENDGAME = rings[rings.length - 2]; // the terminal ring
   const COLLAPSE = rings[rings.length - 1]; // its center, radius 0
   /** The final group's beats on Eric's clock, at the shipped 60s beat. */
   const CLEAR = START + 720_000; // 12:00
@@ -602,7 +563,7 @@ describe('sudden death — the collapse group', () => {
     expect(s.current).toEqual(ENDGAME); // the live ring still HOLDS through the mark
   });
 
-  it('interpolates 660 → 0 with the center held EXACTLY fixed (concentric collapse, no drift)', () => {
+  it('interpolates terminal → 0 with the center held EXACTLY fixed (concentric collapse, no drift)', () => {
     for (const f of [0, 0.25, 0.5, 0.75, 0.999]) {
       const s = zoneStateAt(CLOSE + f * BEAT, START, rings);
       expect(s.phase).toBe('closing');
@@ -610,7 +571,7 @@ describe('sudden death — the collapse group', () => {
       expect(s.current.cy).toBe(ENDGAME.cy);
       expect(s.current.r).toBeCloseTo(ENDGAME.r * (1 - f), 9);
     }
-    expect(zoneStateAt(CLOSE + BEAT / 2, START, rings).current.r).toBeCloseTo(2 * CONFIG.vision.sight / 2, 9);
+    expect(zoneStateAt(CLOSE + BEAT / 2, START, rings).current.r).toBeCloseTo(ENDGAME.r / 2, 9);
   });
 
   it('is CLOSED on a radius-0 ring forever after 16:00', () => {
@@ -683,8 +644,8 @@ describe('sudden death — the collapse group', () => {
       const s = zoneStateAt(START + ms, START, offRings, off);
       if (ms >= 720_000) {
         expect(s.phase).toBe('closed');
-        expect(s.current).toEqual(offRings[offRings.length - 1]); // terminal HELD, r = 660
-        expect(s.current.r).toBeCloseTo(2 * CONFIG.vision.sight, 9);
+        expect(s.current).toEqual(offRings[offRings.length - 1]); // terminal HELD
+        expect(s.current.r).toBeCloseTo(zoneTerminalRadius(off), 9);
       } else {
         // Every pre-closure tick is the same state the collapsing timeline has.
         expect(s).toEqual(zoneStateAt(START + ms, START, rings, CONFIG.zone));

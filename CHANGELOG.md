@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.34] - 2026-10-07
+
+### Changed
+- **The ocean is twice as wide and four times as island-y** — the map radius goes 2,800 → 5,500 units and land covers 10 % of the water instead of 2.5 % (about 140 landmasses per match instead of 24). The storm now closes on Eric's own ladder: ocean diameter 11,000 → 7,000 → 4,000 → 2,000 → 0, so the last ring before the collapse is 2,000 wide instead of 1,320. Hull hp, guns, heals and the spawn ring are untouched. This is Story 9.1's first cut, shipped for Eric to play on staging after his own balance-harness session (`batch-sim-evidence-2026-10-06.md`): in the sim this board was the first to leave 10 hulls afloat at 4:00 (7 before) and lifted the 8:00 count from 1.3 to 3.8 against his target of 5.
+
+### Internal
+- PROTOCOL_VERSION 71 -> 72 (same seed, different ocean; the client derives the map and the storm rhythm locally from `CONFIG.map`, `TERRAIN_PARAMS` and `CONFIG.zone`).
+- `CONFIG.zone.ringRadii` [3500, 2000, 1000] is the ring ladder in world units (terminal last); `ringSteps` and `terminalSightFactor` are gone from the shipped config and survive only as the formula fallback in `sim/zone.ts` for dev `zoneOverride` literals, smokes and fixtures. The 1,000 u terminal is wider than radar reach (660 u): Story 3.4's "radar reaches the endgame ring" reading no longer holds; the sudden-death collapse ends the match.
+- **The map generator never gives up** (Eric 2026-10-07: *"Generate maps until you have a valid map"*): a draw that fails an invariant is reseeded deterministically and generation continues, on both sides from the same wire seed. Before this, roughly 1 seed in 30–100 on the new board threw and would have closed the queue for that lobby; the 2026-09-16 "map-gen throw" thread is closed by construction. `MapGenerationError` remains only as a bug guard after 1,000 consecutive invalid draws.
+- Harness: `--set terrain.*` (cover band, `regionWavelength`, which follows a `map.baseRadius` override), `--spawn-rings slots@fraction,...` (harness-only multi-ring lattice with a seated-hull readout), `zone.ringRadii.N`; the retired zone dials are refused with the live one named.
+- `mapIsNavigable(map)` exported from `sim/map.ts` (validateMap's navigability half).
+- Tests: ring sizes are no longer a test subject (Eric 2026-10-07) — the zone suite exercises the ladder functions on synthetic input; the closing-rate band suite, the 2×sight terminal pins and the cover-value pins are deleted. Re-bases with their measurements in epic-9 amendment 9 (radar land-crossing share 14.8 % → 33.5 %; raster-vs-coastline depth 30 → 60 u for 92-vertex landmasses; production raster 405² → 791²; collision fixtures re-seated; golden snapshot re-recorded — only spawn event positions moved). Tests: shared 1034 -> 1030 (number pins deleted, function pins added), server 2504 -> 2514 (+10: spawn layout, terrain dials), client 3929 (unchanged); lint 0 errors; `npm run check` green.
+- Epic-9 amendments 2–9; `spec-9-1-the-tuning-pass.md`; GDD dated supersessions (storm, ocean, generation parameters). No How-to-Play or README change.
+
 ## [0.18.33] - 2026-10-02
 
 ### Changed

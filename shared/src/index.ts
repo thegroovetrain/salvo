@@ -3,6 +3,13 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  72 — cycle 169 (Story 9.1, the tuning pass): THE OCEAN — CONFIG.map
+ *  .baseRadius 2800 → 5500 (the same seed now builds a different ocean, the
+ *  PV 36 precedent), TERRAIN_PARAMS cover 2.5 % → 10 %, and CONFIG.zone
+ *  carries the ring ladder literally (`ringRadii` [3500, 2000, 1000];
+ *  `ringSteps` / `terminalSightFactor` retired from the shipped config) —
+ *  the client derives the storm rhythm and the map locally from all three.
+ *  Perception exception count stays SIX.
  *  71 — cycle 167: private lobbies: CONFIG.lobby read by the client, arena
  *  mode 'private'; new lobby-room channels lr/ls/lb/lg and shared
  *  sim/seedText.ts (host seed text → uint32). Perception exception count
@@ -792,7 +799,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 71;
+export const PROTOCOL_VERSION = 72;
 
 // Tunables
 export * from './constants.js';

@@ -16,6 +16,15 @@
 //                    from ring g to ring g+1 over the beat.
 // After the last group the timeline is CLOSED forever on the terminal ring.
 //
+// THE LADDER IS LITERAL SINCE CYCLE 169 (Eric ruling 2026-10-07, Story 9.1):
+// `ringRadii` carries every ring radius in world units — the shipped ocean is
+// 5500 u with rings 3500 / 2000 / 1000 (diameters 11000 -> 7000 -> 4000 ->
+// 2000 -> 0). The geometric-exponent formula (`ringSteps` + a terminal derived
+// from truesight) is RETIRED from the shipped CONFIG and kept only as the
+// fallback for timelines that carry no ladder (dev zoneOverride literals,
+// smokes, test fixtures). Rhythm, reveal, roll, containment and the collapse
+// are untouched — only where the radii come from changed.
+//
 // SUDDEN DEATH — THE FINAL COLLAPSE (Eric ruling 2026-08-14, superseding
 // epic-3 amendment 24's "no post-closure mechanic" for the collapse case).
 // With `suddenDeath` set, ONE MORE ring group is appended to the same four-beat
@@ -75,19 +84,36 @@ export interface ZoneTimeline {
   /** ms — one beat; a ring group is ZONE_BEATS_PER_GROUP of these. */
   beatMs: number;
   /**
-   * Per-group geometric position (0..1 exponent) of each INTERMEDIATE ring in
-   * the descent from map radius R to the terminal radius T:
-   * r_g = R · (T/R)^ringSteps[g−1]. Length defines the group count
-   * (groups = length + 1); the shipped defaults are equal ratio steps
-   * (pure geometric shrink). Values outside (0,1) are clamped structurally.
+   * THE RING LADDER IN WORLD UNITS (Eric ruling 2026-10-07, Story 9.1 — the
+   * shipped shape since cycle 169): the radius of every ring AFTER ring 0 (the
+   * full map), intermediate rings first and the TERMINAL (endgame) ring LAST.
+   * Length defines the group count (groups = length). The shipped ladder is
+   * his numbers literally — *"11000 -> 7000 -> 4000 -> 2000 -> 0"* in
+   * diameters on the 5500 u ocean = [3500, 2000, 1000]. Each entry is clamped
+   * structurally into [terminal, previous] (and the terminal to [1, map]), so
+   * no degenerate ladder can produce a growing, NaN or r=0 geometric ring.
+   * When present it REPLACES the geometric formula below; the fixed
+   * sight-derived terminal (660 u) is retired with it (*"The fixed 1320 no
+   * longer makes sense."*).
    */
-  ringSteps: readonly number[];
+  ringRadii?: readonly number[];
+  /**
+   * THE RETIRED FORMULA — kept as the fallback for timelines that carry no
+   * `ringRadii` (every dev-only `zoneOverride` literal, every headless smoke,
+   * the test fixtures): per-group geometric position (0..1 exponent) of each
+   * INTERMEDIATE ring in the descent from map radius R to the terminal radius
+   * T: r_g = R · (T/R)^ringSteps[g−1]. Length defines the group count
+   * (groups = length + 1). Values outside (0,1) are clamped structurally.
+   * Ignored, by design, whenever `ringRadii` is set.
+   */
+  ringSteps?: readonly number[];
   /** 0..1 — max next-ring center offset as a fraction of (r_cur − r_next).
    *  Clamped into [0,1] so containment holds for ANY stream values. */
   offsetCap: number;
-  /** × CONFIG.vision.sight — the terminal (endgame) ring radius. The default 2
-   *  is the ratified "two truesight diameters across" reading (amendment 4). */
-  terminalSightFactor: number;
+  /** × CONFIG.vision.sight — the terminal (endgame) ring radius of the RETIRED
+   *  formula (the ratified "two truesight diameters across" reading, amendment
+   *  4; fail-closed default 2). Ignored whenever `ringRadii` is set. */
+  terminalSightFactor?: number;
   /**
    * SUDDEN DEATH (Eric ruling 2026-08-14): append one more ring group whose
    * ring is the terminal ring's own center at radius 0 — the final collapse
@@ -142,9 +168,17 @@ export function zoneCollapses(cfg: ZoneTimeline = CONFIG.zone): boolean {
   return cfg.suddenDeath === true;
 }
 
+/** The literal ladder, or null when the timeline carries none (formula path).
+ *  An EMPTY array is "none" too — a ladder with no terminal is no ladder. */
+function ringRadiiOf(cfg: ZoneTimeline): readonly number[] | null {
+  return Array.isArray(cfg.ringRadii) && cfg.ringRadii.length > 0 ? cfg.ringRadii : null;
+}
+
 /** Ring groups from the GEOMETRIC descent alone (map → terminal), i.e. the
  *  whole timeline before sudden death appends its collapse group. */
 function geometricGroups(cfg: ZoneTimeline): number {
+  const ladder = ringRadiiOf(cfg);
+  if (ladder !== null) return ladder.length;
   return (Array.isArray(cfg.ringSteps) ? cfg.ringSteps.length : 0) + 1;
 }
 
@@ -168,11 +202,19 @@ function beatMsOf(cfg: ZoneTimeline): number | null {
   return Number.isFinite(cfg.beatMs) && cfg.beatMs > 0 ? cfg.beatMs : null;
 }
 
-/** Terminal ring radius (u): terminalSightFactor × CONFIG.vision.sight —
- *  COMPUTED from the truesight tunable (Story 3.4's endgame guarantee),
- *  clamped non-negative and fail-closed to the ratified ×2 on NaN. */
+/** Terminal ring radius (u). With a literal ladder (`ringRadii`, the shipped
+ *  shape since 2026-10-07) it is the ladder's LAST entry, clamped non-negative
+ *  and fail-closed to the old ×2-sight reading on NaN. On the formula path it
+ *  is terminalSightFactor × CONFIG.vision.sight — COMPUTED from the truesight
+ *  tunable (Story 3.4's original endgame guarantee), clamped non-negative and
+ *  fail-closed to the ratified ×2 on NaN. */
 export function zoneTerminalRadius(cfg: ZoneTimeline = CONFIG.zone): number {
-  const factor = Number.isFinite(cfg.terminalSightFactor) ? Math.max(cfg.terminalSightFactor, 0) : 2;
+  const ladder = ringRadiiOf(cfg);
+  if (ladder !== null) {
+    const last = ladder[ladder.length - 1];
+    return Number.isFinite(last) ? Math.max(last, 0) : 2 * CONFIG.vision.sight;
+  }
+  const factor = Number.isFinite(cfg.terminalSightFactor) ? Math.max(cfg.terminalSightFactor as number, 0) : 2;
   return factor * CONFIG.vision.sight;
 }
 
@@ -223,10 +265,12 @@ export function zoneRingRadii(mapRadius: number, cfg: ZoneTimeline = CONFIG.zone
   const groups = geometricGroups(cfg);
   const terminal = Math.max(1, Math.min(zoneTerminalRadius(cfg), mapRadius));
   const radii = [mapRadius];
+  const ladder = ringRadiiOf(cfg);
   for (let g = 1; g < groups; g += 1) {
     const prev = radii[g - 1];
-    const step = clamp01(cfg.ringSteps[g - 1]);
-    const r = mapRadius * Math.pow(terminal / mapRadius, step);
+    // Literal ladder: the entry itself; formula: R · (T/R)^step. Same clamp
+    // chain for both, so the structural guarantees do not depend on the path.
+    const r = ladder !== null ? ladder[g - 1] : mapRadius * Math.pow(terminal / mapRadius, clamp01(cfg.ringSteps?.[g - 1] as number));
     radii.push(Number.isFinite(r) ? Math.min(Math.max(r, terminal), prev) : prev);
   }
   radii.push(Math.min(terminal, radii[radii.length - 1]));

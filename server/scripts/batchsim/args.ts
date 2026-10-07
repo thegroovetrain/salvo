@@ -52,6 +52,11 @@ export interface CliOptions {
   botGun: GunId | null;
   /** CONFIG overrides (tunable dials only), applied before any World is built. */
   set: Record<string, number>;
+  /** HARNESS SPAWN LAYOUT (Epic 9 tuning pass, 2026-10-06): rings of
+   *  `slots@fraction` installed on server/src/game/spawn.ts for the run; null
+   *  = the shipped single ring. A different lobby geometry, so it joins the
+   *  run key and the JSON variant. */
+  spawnRings: { slots: number; fraction: number }[] | null;
   /** EQUIPMENT CONFIG overrides (--tune), applied alongside `set` before any
    *  World is built. A SEPARATE surface from --set/--sweep with its own env
    *  gate (HC_BALANCE=1) enforced in batchSim.mjs and re-checked in main.ts —
@@ -95,8 +100,15 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      class
   --set key=value    CONFIG override, repeatable. Tunable dials ONLY:
                      xp.*, offer.size, match.fillTo, map.baseRadius,
-                     zone.* (phased shape: beatMs, ringSteps.N, offsetCap,
-                     terminalSightFactor, stormDps)
+                     zone.* (phased shape: beatMs, ringRadii.N — the ring
+                     ladder in world units, terminal last — offsetCap,
+                     stormDps),
+                     terrain.* (TERRAIN_PARAMS: coverTarget / coverMin /
+                     coverMax as fractions in (0,1), regionWavelength —
+                     which FOLLOWS a map.baseRadius override unless set)
+  --spawn-rings SPEC harness spawn layout: comma list of slots@fraction of
+                     the map radius, e.g. 12@0.8,8@0.4 (outer 12, inner 8).
+                     Default: the shipped single ring of playerCap slots
   --sweep key=v1,v2  run the full batch per value and compare side-by-side
                      (repeatable; repeats form a cartesian variant grid)
   --tune key=value   EQUIPMENT CONFIG override, repeatable. Combat dials only:
@@ -151,6 +163,7 @@ function defaults(): CliOptions {
     botHull: null,
     botGun: null,
     set: {},
+    spawnRings: null,
     tune: {},
     roster: 'rolled',
     sweeps: [],
@@ -234,6 +247,17 @@ function parseSweep(opts: CliOptions, raw: string): void {
 
 type ValueHandler = (opts: CliOptions, value: string) => void;
 
+/** One `slots@fraction` ring of a --spawn-rings spec. */
+function parseSpawnRing(part: string): { slots: number; fraction: number } {
+  const m = /^(\d+)@(\d*\.?\d+)$/.exec(part);
+  if (m === null) throw new UsageError(`--spawn-rings: expected slots@fraction[,...], got '${part}'`);
+  const slots = Number(m[1]);
+  const fraction = Number(m[2]);
+  if (slots < 1) throw new UsageError(`--spawn-rings: a ring needs >= 1 slot, got '${part}'`);
+  if (!(fraction > 0 && fraction <= 1)) throw new UsageError(`--spawn-rings: fraction must be in (0, 1], got '${part}'`);
+  return { slots, fraction };
+}
+
 const VALUE_FLAGS: Record<string, ValueHandler> = {
   '--matches': (o, v) => void (o.matches = parseCount(v, '--matches', 1)),
   '--seed': (o, v) => void (o.seed = toUint32Seed(parseCount(v, '--seed', 0))),
@@ -282,6 +306,9 @@ const VALUE_FLAGS: Record<string, ValueHandler> = {
   '--set': parseSet,
   '--sweep': parseSweep,
   '--tune': parseTune,
+  '--spawn-rings': (o, v) => {
+    o.spawnRings = v.split(',').map((part) => parseSpawnRing(part.trim()));
+  },
   '--roster': (o, v) => {
     if (v !== 'even' && v !== 'rolled') {
       throw new UsageError(`--roster: expected 'even' or 'rolled', got '${v}'`);

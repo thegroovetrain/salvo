@@ -189,6 +189,8 @@ No consumable ships without a bot use rule (see Enemy Design and AI).
 
 **The storm (Pillar 4).** A damage-only zone shrinks the ocean in **legible phases** — **four ring groups** of ~4 minutes each, on an internal minute rhythm (see Difficulty Curve). Groups 1–3 bring the ocean down to the Endgame Guarantee ring by **12:00**; group 4 is **sudden death**, collapsing that final ring onto its own centre between **15:00 and 16:00**, at which point the whole map is storm. Storm never blinds sensors; it only damages (reference 4 hp/s, with **no damage ramp** — the collapse is geometry, not escalation). The **Endgame Guarantee**: the endgame ring's diameter is **2 standard truesight diameters** — close enough to force combat, far enough that radar is still needed and close-range hulls hold no clear advantage over long-range ones.
 
+*(SUPERSEDED 2026-10-07, Story 9.1, cycle 169, epic-9 amendment 7 — Eric: "It should really be proportional. The fixed 1320 no longer makes sense." The rings are now a literal ladder in world units, his numbers: ocean diameter 11,000 → 7,000 → 4,000 → 2,000 → 0 (`CONFIG.zone.ringRadii` [3500, 2000, 1000] on the 5,500 u radius). The Endgame Guarantee's "2 standard truesight diameters" terminal (660 u, radar-reachable) is retired; the 1,000 u terminal is wider than radar reach, and the sudden-death collapse is what ends the match. Rhythm, reveal and collapse unchanged.)*
+
 ### Controls and Input
 
 Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left hand helms the ship, right hand fights it.
@@ -294,6 +296,8 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 
 **The ocean.** One large circular map per match. Islands are procedurally generated from a seed; both sides rebuild the map deterministically from that seed (the map never travels on the wire). **Map size is fixed** — one radius for every roster. Roster-scaled oceans were designed and then **cancelled** (epic-6 amendment 11): at a two-captain size the fixed endgame ring would already be over half the water.
 
+*(SUPERSEDED 2026-10-07, Story 9.1, cycle 169, epic-9 amendment 7 — the fixed radius is 5,500 u (was 2,800; Eric: "2800 is TINY") and land cover is 10 % of the ocean (was 2.5 %), the board that met his 10-alive-at-4:00 target in the 2026-10-06 harness session. Still one fixed size for every roster.)*
+
 **Islands** are the terrain system: they block line of sight (the LOS rule for every sensor tier), block shells and torpedoes (~~the arcing MONITOR GUN shell is the one exception — catalog v3 R30~~ no exception since 2026-09-21: the monitor gun is cut), and impose collision. They are what makes needle-threading a skill shot, radar shadows a hiding place, and positioning a deduction input.
 
 **Spawning.** Participants spawn on an outer ring, placed for maximum mutual distance and island clearance.
@@ -379,6 +383,8 @@ One arena type: the circular island ocean, procedurally generated per match from
 - **Map size is fixed** — every roster gets the same ocean; roster-scaled sizing was cancelled.
 
 Generation parameters (island density, size distribution, land coverage — plus fog-bank frequency and whirlpool rarity if those return) are tuning work, with one fairness rule: spawn placement is maximum-mutual-distance and island-clear.
+
+*(2026-10-07, Story 9.1, cycle 169: land coverage band 8–12 % (target 10 %). Generation never gives up — a draw that fails the fairness or coverage invariants is reseeded deterministically until a valid ocean comes out, on both sides from the same seed (Eric: "Generate maps until you have a valid map"; epic-9 amendment 10).)*
 
 ### Level Progression
 

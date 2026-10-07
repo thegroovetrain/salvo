@@ -1843,7 +1843,10 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
   // is deliberately not contact (cycle 59 grounding ruling), which is exactly
   // the distinction a speed heuristic cannot make.
   it('ShipRecord.landContact is written every tick, and the MAP EDGE is not land', () => {
-    const w = new World(3104, 8);
+    // 3104 -> 3101 (Story 9.1, 2026-10-07): on the 5500 u / 10 % ocean seed
+    // 3104's seaward berth no longer grounds the drill; 3101 grounds on tick 0
+    // and keeps 14.8 u/s of way while aground (the making-way clause below).
+    const w = new World(3101, 8);
     const rec = w.ships.get(w.addBot(undefined, undefined).id)!;
     const berth = seawardBerth(w);
 

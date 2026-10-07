@@ -53,6 +53,68 @@ export const SPAWN_CANDIDATES = CONFIG.map.playerCap;
 /** Finer deterministic ring sweep for the validated fallback. */
 const FALLBACK_CANDIDATES = 256;
 
+/**
+ * HARNESS-ONLY SPAWN LAYOUT (Epic 9 tuning pass, Story 9.1 instrument,
+ * 2026-10-06). The shipped game places on ONE ring (`map.spawnRing`,
+ * `playerCap` slots). A balance arm may ask for several rings — Eric's first
+ * candidate is outer 12 at 0.8 R + inner 8 at 0.4 R — by installing a layout
+ * here. `null` (the default, and the only value production ever sees) is the
+ * shipped single-ring path, candidate for candidate. Fractions are of the MAP
+ * RADIUS. Installed only by batchSim (`--spawn-rings`); no production code
+ * path calls the setter, so this is a measurement dial, not a mechanic — the
+ * mechanic, if Eric rules it in, is Story 9.1's to promote into CONFIG.
+ * KNOWN LIMIT: mapgen keeps its coastline keep-clear band only around the
+ * shipped ring, so an inner slot may sit near land and be skipped (island
+ * clearance is still enforced; the hull takes the next clear slot or the
+ * validated fallback ladder). The harness reports how often that happened.
+ */
+export interface SpawnRing {
+  /** Ring radius as a fraction of the map radius. */
+  fraction: number;
+  /** Evenly spaced candidate slots on this ring. */
+  slots: number;
+}
+
+export interface SpawnLayout {
+  rings: readonly SpawnRing[];
+}
+
+let spawnLayout: SpawnLayout | null = null;
+
+export function setSpawnLayout(layout: SpawnLayout | null): void {
+  spawnLayout = layout;
+}
+
+export function getSpawnLayout(): SpawnLayout | null {
+  return spawnLayout;
+}
+
+/** Ring radii the candidate lattice sits on under the installed layout (or the
+ *  shipped ring) — the harness classifies a placed hull as on-lattice or a
+ *  fallback by distance to these. */
+export function spawnRingRadii(map: MapShape): number[] {
+  if (spawnLayout === null) return [map.spawnRing];
+  return spawnLayout.rings.map((ring) => ring.fraction * map.radius);
+}
+
+/** The coarse candidate lattice at phase `offset`: the shipped ring when no
+ *  layout is installed, else every ring of the layout, all sharing the phase. */
+function spawnCandidates(map: MapShape, offset: number): Vec2[] {
+  const out: Vec2[] = [];
+  if (spawnLayout === null) {
+    for (let i = 0; i < SPAWN_CANDIDATES; i++) out.push(ringPoint(map, offset + (i * TAU) / SPAWN_CANDIDATES));
+    return out;
+  }
+  for (const ring of spawnLayout.rings) {
+    const r = ring.fraction * map.radius;
+    for (let i = 0; i < ring.slots; i++) {
+      const a = offset + (i * TAU) / ring.slots;
+      out.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+    }
+  }
+  return out;
+}
+
 // Min clearance between a spawn point and any island edge: the LARGEST hull
 // bounding radius (max distance from ship origin to any silhouette vert) over
 // EVERY hull id — player classes AND drone envelopes (drones spawn on the same
@@ -259,8 +321,7 @@ export function pickSpawn(map: MapShape, occupied: readonly Vec2[], rng: Rng, ph
   const offset = phase ?? rng.float(0, TAU);
   let best: Vec2 | null = null;
   let bestScore = -Infinity;
-  for (let i = 0; i < SPAWN_CANDIDATES; i++) {
-    const p = ringPoint(map, offset + (i * TAU) / SPAWN_CANDIDATES);
+  for (const p of spawnCandidates(map, offset)) {
     if (!clearOfIslands(p, map.islands)) continue;
     const score = minDistTo(p, occupied);
     // AN OCCUPIED SLOT IS NOT A FREE SLOT. Without this a shared lattice can

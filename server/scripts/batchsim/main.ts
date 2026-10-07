@@ -24,6 +24,7 @@ import { USAGE, UsageError, buildVariants, parseArgs, type CliOptions } from './
 import { TunableError, applyOverrides } from './overrides.js';
 import { CONTROL_REGISTRY } from './controls.js';
 import { runBatch, type BatchResult, type RunSpec } from './runner.js';
+import { setSpawnLayout } from '../../src/game/spawn.js';
 import {
   buildAggregate,
   renderBatchReport,
@@ -71,7 +72,9 @@ function headerLines(opts: CliOptions): string[] {
   const botHull = opts.botHull !== null ? ` botHull=${opts.botHull}` : '';
   // Story 8.15: a forced gun is a different lobby (NFR5), printed only when set.
   const botGun = opts.botGun !== null ? ` botGun=${opts.botGun}` : '';
-  const roster = ` captains=${opts.captains}${bots}${hull}${botProfile}${botEngage}${botSpend}${botHull}${botGun} control=${opts.control}`;
+  // Epic 9 tuning pass: a spawn layout is a different lobby geometry (NFR5).
+  const rings = opts.spawnRings !== null ? ` spawnRings=${spawnRingsLine(opts)}` : '';
+  const roster = ` captains=${opts.captains}${bots}${hull}${botProfile}${botEngage}${botSpend}${botHull}${botGun}${rings} control=${opts.control}`;
   const tune = Object.keys(opts.tune).length > 0 ? ` tune=${tuneLine(opts.tune)}` : '';
   return [
     'HULLCRACKER ECONOMY BATCH-SIM',
@@ -79,6 +82,25 @@ function headerLines(opts: CliOptions): string[] {
     '(body below is deterministic per run key; the trailing meta: line is not)',
     '',
   ];
+}
+
+/** `12@0.8,8@0.4` — the --spawn-rings spelling, for the run key and the JSON. */
+function spawnRingsLine(opts: CliOptions): string | null {
+  if (opts.spawnRings === null) return null;
+  return opts.spawnRings.map((r) => `${r.slots}@${r.fraction}`).join(',');
+}
+
+/** Spawn-lattice readout for a layout arm: how many hulls the coarse lattice
+ *  could not seat (they took the validated fallback ladder instead). Summed
+ *  over the batch; `hulls` is the denominator. */
+function spawnDiagOf(result: BatchResult): { hulls: number; offLattice: number } {
+  let hulls = 0;
+  let offLattice = 0;
+  for (const m of result.matches) {
+    hulls += m.spawnHulls ?? 0;
+    offLattice += m.spawnOffLattice ?? 0;
+  }
+  return { hulls, offLattice };
 }
 
 /** One `--json` envelope entry. `overrides`/`aggregate`/`bots` are the frozen
@@ -99,6 +121,10 @@ interface JsonVariant {
   botGun: string | null;
   botHull: string | null;
   botSpend: string | null;
+  /** The harness spawn layout (`--spawn-rings` spelling) or null = shipped
+   *  ring; `spawnDiag` counts hulls the lattice could not seat. ADDITIVE. */
+  spawnRings: string | null;
+  spawnDiag: { hulls: number; offLattice: number };
   aggregate: unknown;
   bots?: unknown;
   /** RAW per-match bot rows (--raw only): the per-upgrade evidence surface —
@@ -138,6 +164,26 @@ function batchMode(opts: CliOptions): ModeOutput {
   const rendered: { label: string; agg: BatchAggregate }[] = [];
   const variants = buildVariants(opts);
   const out: ModeOutput = { body, exitCode: 0, variants: [] };
+  // The layout is installed for the whole run and cleared after it, so a
+  // layout arm never leaks into a later in-process call (tests).
+  setSpawnLayout(opts.spawnRings === null ? null : { rings: opts.spawnRings });
+  try {
+    runVariants(opts, variants, out, rendered);
+  } finally {
+    setSpawnLayout(null);
+  }
+  if (variants.length > 1) body.push(...renderComparison(rendered), '');
+  if (rendered.every((r) => r.agg.matches === 0)) out.exitCode = 1;
+  return out;
+}
+
+function runVariants(
+  opts: CliOptions,
+  variants: ReturnType<typeof buildVariants>,
+  out: ModeOutput,
+  rendered: { label: string; agg: BatchAggregate }[],
+): void {
+  const { body } = out;
   for (const variant of variants) {
     const restore = applyOverrides(variant.set, opts.tune);
     try {
@@ -168,6 +214,8 @@ function batchMode(opts: CliOptions): ModeOutput {
         tune: opts.tune,
         roster: opts.roster,
         ...botArmOf(opts),
+        spawnRings: spawnRingsLine(opts),
+        spawnDiag: spawnDiagOf(result),
         aggregate: agg,
         bots: botAgg,
         ...(opts.raw ? { raw: rawRows(result) } : {}),
@@ -176,8 +224,7 @@ function batchMode(opts: CliOptions): ModeOutput {
       restore();
     }
   }
-  if (variants.length > 1) body.push(...renderComparison(rendered), '');
-  if (rendered.every((r) => r.agg.matches === 0)) out.exitCode = 1;
+
   return out;
 }
 

@@ -133,6 +133,7 @@ function room(options: RoomOptions): SoloRoom {
   return r;
 }
 
+
 /** The solo room the production client asks for (plus a pinned map seed and a
  *  short countdown where a test needs to reach 'active' — dev options only). */
 function soloRoom(extra: RoomOptions = {}): SoloRoom {

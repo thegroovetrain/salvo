@@ -3981,6 +3981,9 @@ class VisitLedger {
   }
 }
 
+/** 0.85 × 2800 u — the sampling arena the invariant's oracles were tuned on. */
+const INVARIANT_ARENA_U = 2380;
+
 describe('perception — THE INVARIANT (random worlds, seeded)', () => {
   it('no frame ever references anything outside sight ∪ this-tick paints', () => {
     const rng = mulberry32(0x5eed_f0f0);
@@ -4001,7 +4004,14 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const id = `p${i}`;
         ids.push(id);
         const ang = rng.float(0, TAU);
-        const r = rng.float(0, w.map.radius * 0.85);
+        // A FIXED sampling arena, not a fraction of the map (Story 9.1,
+        // 2026-10-07): the oracles below are non-vacuous because 3–6 hulls
+        // share one patch of water dense enough for radar (660 u) to paint
+        // each other's wakes within 6 ticks. 0.85 × the OLD 2800 u radius is
+        // that density; scaling it with the 5500 u ocean spread the hulls so
+        // thin that `wkSeen` read 0 across 20 worlds — a sampling artefact,
+        // not a dead channel. The 10 % archipelago is still under the hulls.
+        const r = rng.float(0, INVARIANT_ARENA_U);
         // Story 8.15: every seat draws a RANDOM GUN, so cannon salvos, flak
         // bursts and machine-gun streams (driven by the random `held` level
         // below) all flow through the oracle — `w` on every shell reveal,
