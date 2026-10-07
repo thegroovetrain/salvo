@@ -75,10 +75,40 @@ Alive-at-T is the exact bot-level survivorship (1,820 bot-lives per arm); the CI
 
 **What none of the singles did:** change the SHAPE. Ring 1 kills 59–67 % of the field in every arm (target 50 %); ring 2 kills 73–82 % of what is left (target 50 %). The map dials buy time at the rate of about one extra survivor per checkpoint for a doubling of either map area or land fraction. Reaching 10 alive at 4:00 on map dials alone would need more than the ×2 / 10 % arms deliver, which points at hull hp or the heal channels for the rest — not measured this session, and Eric's dials to choose.
 
-## 3. Combination arms — Eric's call (singles read 20:40)
+## 3. Combination arm — C1: map ×2 + cover 10 % (Eric picked C1 alone; landed 22:34)
 
-Candidates, in the order the singles suggest (none run yet; 91 matches each):
-- **C1 r200 + cov10** — the two significant movers together. If they add, alive@4:00 ≈ 9, alive@8:00 ≈ 3; if they overlap (a bigger map already has more islands), less.
-- **C2 r150 + cov10** — the cheaper map with the strong cover arm.
-- **C3 r200 + cov10 + rings** — whether the two-ring spawn stops hurting once the inner ring is outside radar reach.
-- **C4 r200 + rings** — the ring question on its own at the larger size.
+Candidates offered after the singles: C1 r200 + cov10; C2 r150 + cov10; C3 r200 + cov10 + rings; C4 r200 + rings. **Eric ran C1 only.** (`--set map.baseRadius=5600 --set terrain.coverTarget=0.10 --set terrain.coverMin=0.08 --set terrain.coverMax=0.12`, seed 20261300, 91 matches asked.)
+
+| arm | alive@4:00 (Δ vs 7.44) | alive@8:00 (Δ vs 1.29) | running @8:00 | alive@12:00 | running @12:00 | median match | mean bot life | BS / ML / TB share (Δ pp) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| baseline | 7.44 | 1.29 | 52 % | 0.0 | 1 % | 8:04 | 220 s | 38 / 33 / 29 |
+| r200 | 8.23 (+0.79) | 2.09 (+0.80) | 80 % | 0.3 | 14 % | 9:21 | 261 s | 37 / 38 / 24 |
+| cov10 | 8.15 (+0.71) | 2.20 (+0.91) | 78 % | 0.4 | 17 % | 9:17 | 268 s | 40 / 33 / 27 |
+| **C1 r200 + cov10** | **11.18 ± 0.46 (+3.74 [+3.10, +4.38])** | **2.74 ± 0.32 (+1.45 [+1.06, +1.85])** | 92 % | 0.5 | 23 % | **9:51** | 294 s | 36 / 37 / 28 (−3 / +4 / −1, all n.s.) |
+
+**Readings.**
+- **The two dials are more than additive at ring 1.** Singly they gave +0.8 and +0.7; together +3.7 — the first arm this session to reach Eric's 4:00 target (11.2 alive against 10; the target band is now crossed from above). A 2× board at 10 % land is ~145 islands (the eye-check renders in `~/hc-campaigns/tune-2026-10-06/maps/`): captains spend the first four minutes finding each other.
+- **Ring 2 is still far too lethal:** 2.7 alive at 8:00 against 5, i.e. 76 % of the 4:00 survivors die in the second cycle (baseline 83 %). The combination buys time before the first fight, not inside it. 23 % of matches now reach 12:00 (ring 3 is becoming measurable; 0.5 alive against 2.5).
+- **Class share flat** (36 / 37 / 28, every delta inside its CI). No hull fell off the lattice (0 / 1,760).
+- **Three of 91 seeds could not generate a map at 5600 u / 10 % land** — `MapGenerationError … after 4 repair attempts (coverage band [0.08, 0.12] + navigability + ≥1 landmass)`, match seeds 2675118670, 4043286079, 3028359684; the harness recorded them as failures and the arm stands on 88 matches. The single arms (2800 u / 10 %, 5600 u / 2.5 %) had **zero** failures in 91, and the 12-seed feasibility probe missed it. **This is the map-gen throw Eric deferred on 2026-09-16** (a throw at the retry cap kicks a queued group, "QUEUE CLOSED"); at these settings it would fire on roughly 1 lobby in 30. Not fixed here — his open thread, now with a settings pair that makes it frequent. One C1 match ended `lastHumanSunk` rather than `fieldCleared` (a bot-only lobby; the harness end-cause edge at the tick budget), 87 / 88 resolved by field cleared.
+
+## 4. Proposals (ranked by measured effect; Eric rules line by line)
+
+| # | dial(s) | current → proposed | measured effect (both targets) | sample | cost elsewhere | ruling |
+| --- | --- | --- | --- | --- | --- | --- |
+| P1 | `CONFIG.map.baseRadius` + `TERRAIN_PARAMS.cover{Target,Min,Max}` together | 2800 → 5600 and 0.025 / 0.02 / 0.03 → 0.10 / 0.08 / 0.12 | alive@4:00 7.4 → 11.2 (target 10, **met**); alive@8:00 1.3 → 2.7 (target 5, not met); median match 8:04 → 9:51; class share flat | 88 | mapgen throws on ~3 % of seeds at this pair (the deferred throw becomes live); mapgen ~0.5 s/map and a 810×810 height raster on every client; the storm closes twice as fast in absolute terms (`CONFIG.zone` untouched — Eric: not a concern); PV bump (same seed, different ocean); `heightField.test`/`map.test`/`zone.test` pins re-based | PENDING |
+| P2 | `TERRAIN_PARAMS.cover*` alone | 0.025 → 0.10 (band 0.08–0.12) | +0.7 / +0.9 alive; median 9:17 | 91 | none measured; 0 generation failures in 91 at 2800 u; map is ~47 islands (seed 42 render) | PENDING |
+| P3 | `CONFIG.map.baseRadius` alone | 2800 → 5600 | +0.8 / +0.8 alive; median 9:21 | 91 | storm closes 2× faster in absolute terms; mapgen cost ×4; PV bump | PENDING |
+| P4 | two spawn rings 12 @ 0.8 R + 8 @ 0.4 R | one ring of 20 | **−1.0 alive at 4:00** (worse), 0 at 8:00 | 91 at 2800 u | inner hulls start inside radar reach | NOT RECOMMENDED at today's radius; **unmeasured** on a 2× board (inner spacing 1,714 u, outside radar) |
+| — | radius ×1.5; cover 5 % | | each ≈ half of P2/P3, inside CI | 91 each | | no proposal (null at this tier) |
+
+**Unmeasured, stated as reasoning only:** nothing in this session touched what kills people inside ring 2 — hull hp, the heal channels, gun numbers (Eric's math, off limits to the sim). Every map arm leaves ring 2 killing ≥ 75 % of its entrants. Reaching 5 alive at 8:00 is not a map-dial outcome on this evidence. C2 / C3 / C4 remain unrun; C3 (C1 + rings) is the one that would answer whether the ring layout inverts on the big board.
+
+## 5. Standing limits carried forward
+
+- ±10 pp tier only; class claims are "consistent with", never "in band".
+- No gun readings this session (Eric 2026-10-02).
+- Attrition CIs are bot-level (1,820 lives per arm) and ignore within-match clustering.
+- Two bot bars fail on every arm (anyKill < 60 %, storm deaths < 5 %); Eric's 2026-09-30 ruling: measurements, not gates.
+- Ring 3 is measurable only in the C1 arm (23 % of matches reach 12:00) and only barely.
+- The map-gen throw is live at 5600 u / 10 % (3 / 91): Eric's deferred thread, now with numbers.
