@@ -115,13 +115,14 @@ describe('spawn ring candidate count — derived from the player cap', () => {
   it('CONSTRAINT: the candidate lattice out-spaces radar range at a full lobby', () => {
     // THE PIN. Every term is live CONFIG, so retuning the player cap, the map
     // radius, the spawn fraction OR radar range fails the build here rather
-    // than silently shrinking the lattice back under radar. The margin is only
-    // ~6% (700.8u of spacing against 660u of radar) — a TIGHT constraint, and
-    // any of those four knobs moving much will trip it. That is the point.
+    // than silently shrinking the lattice back under radar. On the 2800 u
+    // ocean the margin was ~6 % (700.8 u against 660 u of radar); the 5500 u
+    // ocean (Story 9.1, 2026-10-07) widens it to 1,376 u, so the retired
+    // 32-slot counter-example (439 u then, 861 u now) no longer sits inside
+    // radar and is not pinned — the contract is the inequality, not the
+    // history.
     const spawnRing = CONFIG.map.baseRadius * CONFIG.map.spawnFraction;
     expect(evenSpacing(spawnRing, CONFIG.map.playerCap)).toBeGreaterThan(CONFIG.vision.radar);
-    // ...and the retired 32-slot ring is the counter-example the pin exists for.
-    expect(evenSpacing(spawnRing, 32)).toBeLessThan(CONFIG.vision.radar);
   });
 
   it('a full lobby still lands every hull on the ring, island-clear', () => {
