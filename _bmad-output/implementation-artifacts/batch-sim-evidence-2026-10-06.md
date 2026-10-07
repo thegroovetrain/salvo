@@ -117,7 +117,9 @@ Candidates offered after the singles: C1 r200 + cov10; C2 r150 + cov10; C3 r200 
 | baseline | 2800 / 2.5 % | 5600 / 3459 / 2137 / 1320 | 7.44 | 1.29 | 1 % | 8:04 | 1.8 % | 38 / 33 / 29 |
 | C1 | 5600 / 10 % | 11200 / 5491 / 2692 / 1320 | 11.18 | 2.74 | 23 % | 9:51 | **15.4 %** | 36 / 37 / 28 |
 | **h5600** | 5600 / 10 % | 11200 / 5600 / 2800 / 1400 | 11.52 (+0.34 vs C1, n.s.) | 2.84 (+0.10 vs C1, n.s.) | 25 % | 9:50 | 16.6 % | 47 / 30 / 23 (BS +8 vs baseline, n.s.) |
-| h6000 | 6000 / 10 % | 12000 / 6000 / 3000 / 1500 | _running_ | | | | | |
+| h6000 | 6000 / 10 % | 12000 / 6000 / 3000 / 1500 | 11.85 (+0.67 vs C1, n.s.) | 2.92 (+0.18 vs C1, n.s.) | 24 % | 9:34 | 15.4 % | 47 / 34 / 18 (BS +9, TB −10 vs baseline; neither clears its CI) |
+
+**Readings (h6000, landed 13:20).** Same story one size up: ring 1 a hair better (11.9 alive), ring 2 unchanged (2.9), storm share unchanged. 4 of 91 seeds threw the map-gen error at 6000 u / 10 % (87 matches stand) — the throw rate rises with the board. **The SPEEDBOAT drifts down on both halving arms** (23 % → 18 % share; −10 pp vs baseline, CI just touching zero) while the DREADNOUGHT drifts up (+9) — two arms pointing the same way is a flag for Eric, not a finding; a ±5 pp campaign on the chosen board would settle it.
 
 **Readings (h5600).**
 - Attrition identical to C1 within noise, as the geometry predicts. 1 of 91 seeds threw the map-gen error (vs 3 in C1); 90 matches stand.
