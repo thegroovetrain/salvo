@@ -119,6 +119,12 @@ Candidates offered after the singles: C1 r200 + cov10; C2 r150 + cov10; C3 r200 
 | **h5600** | 5600 / 10 % | 11200 / 5600 / 2800 / 1400 | 11.52 (+0.34 vs C1, n.s.) | 2.84 (+0.10 vs C1, n.s.) | 25 % | 9:50 | 16.6 % | 47 / 30 / 23 (BS +8 vs baseline, n.s.) |
 | h6000 | 6000 / 10 % | 12000 / 6000 / 3000 / 1500 | 11.85 (+0.67 vs C1, n.s.) | 2.92 (+0.18 vs C1, n.s.) | 24 % | 9:34 | 15.4 % | 47 / 34 / 18 (BS +9, TB −10 vs baseline; neither clears its CI) |
 
+| **w5500** (Eric: *"11000 -> 7000 -> 4000 -> 2000 -> 0"*) | 5500 / 10 % | 11000 / 7000 / 4000 / 2000 | 11.26 (+0.08 vs C1, n.s.) | **3.77 ± 0.36 (+1.03 vs C1 [+0.55, +1.51]; +2.48 vs baseline)** | **47 %** (1.2 alive) | **11:20** | 12.9 % | 41 / 26 / 33 (all n.s.) |
+
+Dials for w5500: `map.baseRadius 5500`, `zone.terminalSightFactor 3.0303030` (terminal 1,000 u), `zone.ringSteps.0 0.2651331`, `zone.ringSteps.1 0.5934020` — verified to reproduce the ladder exactly before launch. 1 of 91 seeds threw the map-gen error; 90 stand.
+
+**Readings (w5500, landed 14:14).** The wider ladder is the first arm to move ring 2: 3.8 alive at 8:00 against C1's 2.7 (a +1.0 difference that clears its CI), 95 % of matches still running at 8:00, and **47 % of matches reach 12:00** (23 % on C1) with 1.2 alive there — ring 3 becomes a measurable cycle for the first time. Median match 11:20 (C1 9:51). Ring 1 unchanged (11.3). Storm share eases to 12.9 % because each close sweeps less water. Against Eric's 20 → 10 → 5 → 2-3: ring 1 met, ring 2 at 3.8 of 5, ring 3 at 1.2 of 2.5 — the gap is now one to two hulls per checkpoint instead of three. Class share 41 / 26 / 33, every delta inside its CI; the SPEEDBOAT drift seen on the two halving arms did not repeat here.
+
 **Readings (h6000, landed 13:20).** Same story one size up: ring 1 a hair better (11.9 alive), ring 2 unchanged (2.9), storm share unchanged. 4 of 91 seeds threw the map-gen error at 6000 u / 10 % (87 matches stand) — the throw rate rises with the board. **The SPEEDBOAT drifts down on both halving arms** (23 % → 18 % share; −10 pp vs baseline, CI just touching zero) while the DREADNOUGHT drifts up (+9) — two arms pointing the same way is a flag for Eric, not a finding; a ±5 pp campaign on the chosen board would settle it.
 
 **Readings (h5600).**
