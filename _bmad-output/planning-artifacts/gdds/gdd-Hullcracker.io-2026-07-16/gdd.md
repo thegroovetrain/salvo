@@ -384,7 +384,7 @@ One arena type: the circular island ocean, procedurally generated per match from
 
 Generation parameters (island density, size distribution, land coverage — plus fog-bank frequency and whirlpool rarity if those return) are tuning work, with one fairness rule: spawn placement is maximum-mutual-distance and island-clear.
 
-*(2026-10-07, Story 9.1, cycle 169: land coverage band 8–12 % (target 10 %). Known cost, accepted by Eric with the ruling: the generator gives up on roughly 1 seed in 30–100 at this pair (the deferred map-gen-throw thread, 2026-09-16).)*
+*(2026-10-07, Story 9.1, cycle 169: land coverage band 8–12 % (target 10 %). Generation never gives up — a draw that fails the fairness or coverage invariants is reseeded deterministically until a valid ocean comes out, on both sides from the same seed (Eric: "Generate maps until you have a valid map"; epic-9 amendment 10).)*
 
 ### Level Progression
 

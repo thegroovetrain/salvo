@@ -723,7 +723,7 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
   });
 
   it('a LATER DEEPER fouling deepens the factor; a fouling after the window lapsed lands as-is', () => {
-    const w = bareWorld(53); // seed moved (Story 9.1, 2026-10-07): the old one is a map-generation throw on the 5500 u / 10 % ocean
+    const w = bareWorld(52);
     const deep = place(w, 'deep', 600, 600, 0, 'mineLayer');
     fitTier(w, deep, 'foulingMines', 5);
     const shallow = place(w, 'shallow', -600, 600, 0, 'mineLayer');
@@ -755,7 +755,7 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
   // A NAVAL MINE NO LONGER FOULS ANYTHING (amendment 81). The verb left the
   // rack with the add-on card; this is the pin that keeps it gone.
   it('a NAVAL mine never fouls — full naval damage, no clock, no factor', () => {
-    const w = bareWorld(53); // seed moved (Story 9.1, 2026-10-07): the old one is a map-generation throw on the 5500 u / 10 % ocean
+    const w = bareWorld(52);
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
     fitTier(w, o, 'foulingMines', 5); // the fouling rack IS aboard, deep
     const b = place(w, 'b', 0, 10);

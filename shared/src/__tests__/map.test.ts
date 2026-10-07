@@ -14,6 +14,7 @@ import {
   mapIsNavigable,
   validateMap,
   MapGenerationError,
+  RESEED_CAP,
   MAP_RULES,
   type GameMap,
   type MapShape,
@@ -40,18 +41,8 @@ const P = TERRAIN_PARAMS;
 
 const SWEEP_SEEDS = 100;
 const sweep: { seed: number; map: GameMap }[] = [];
-/** Seeds the generator gave up on (MapGenerationError) — see the exhaustion
- *  suite: at 5500 u / 10 % land (Story 9.1) this is a measured, Eric-accepted
- *  cost (2026-10-07: 10 % *"as measured"*, told the throw is ~1 lobby in 30–90),
- *  and the deferred map-gen-throw thread (2026-09-16) is where the fix lives. */
-const exhausted: number[] = [];
 for (let seed = 0; seed < SWEEP_SEEDS; seed++) {
-  try {
-    sweep.push({ seed, map: generateMap(seed, 20) });
-  } catch (err) {
-    if (!(err instanceof MapGenerationError)) throw err;
-    exhausted.push(seed);
-  }
+  sweep.push({ seed, map: generateMap(seed, 20) });
 }
 
 /** FNV-1a over a byte array — the raster/geometry fingerprint. */
@@ -513,25 +504,37 @@ describe('navigability is 4-CONNECTED (corner-pocket regression)', () => {
 
 // --- Failure is loud ----------------------------------------------------------
 
-describe('exhaustion is LOUD, never a silently-invalid map', () => {
-  it('MapGenerationError carries the deterministic context', () => {
-    const err = new MapGenerationError(7, 20, 4);
+describe('THERE IS NO GIVE-UP (Eric 2026-10-07) — an invalid draw is reseeded, never thrown', () => {
+  it('every sweep seed yields a valid map — including the ones whose first draw fails an invariant', () => {
+    // The 100-map sweep above IS the proof: before this ruling seed 52 threw
+    // on the 5500 u / 10 % ocean (its first draw failed the cover band +
+    // navigability after repair); now it reseeds and ships a valid ocean like
+    // every other seed. Nothing in the sweep is skipped.
+    expect(sweep).toHaveLength(SWEEP_SEEDS);
+    for (const { seed, map } of sweep) {
+      expect(map.islands.length, `seed ${seed}`).toBeGreaterThanOrEqual(1);
+      expect(validateMap(map), `seed ${seed}`).toBe(true);
+    }
+    for (const seed of [1234, 99991, 424242]) expect(() => generateMap(seed, 20)).not.toThrow();
+  });
+
+  it('the reseed chain is deterministic and seed-specific (both sides rebuild the same ocean from the wire seed)', () => {
+    const a = generateMap(52, 20);
+    const b = generateMap(52, 20);
+    expect(a.islands.length).toBe(b.islands.length);
+    expect(a.islands.map((i) => [i.x, i.y, i.r])).toEqual(b.islands.map((i) => [i.x, i.y, i.r]));
+    const other = generateMap(53, 20);
+    expect(a.islands.map((i) => [i.x, i.y])).not.toEqual(other.islands.map((i) => [i.x, i.y]));
+  });
+
+  it('MapGenerationError survives only as the bug guard, and still carries the deterministic context', () => {
+    expect(RESEED_CAP).toBeGreaterThanOrEqual(100);
+    const err = new MapGenerationError(7, 20, RESEED_CAP);
     expect(err.name).toBe('MapGenerationError');
     expect(err.seed).toBe(7);
     expect(err.playerCap).toBe(20);
     expect(err.message).toContain('seed=7');
-  });
-
-  it('the production path throws RARELY and LOUDLY (measured across the sweep; the rate is a recorded cost, not a target)', () => {
-    // The 100-map sweep above IS the measurement. Before Story 9.1 (2800 u,
-    // 2.5 % land) it was 0 of 100; at 5500 u / 10 % it is seed 52 alone. The
-    // bound guards the GENERATOR (a change that made exhaustion common would
-    // fail here); the fix for the throw itself is Eric's deferred thread.
-    expect(exhausted.length).toBeLessThanOrEqual(3);
-    for (const seed of exhausted) expect(() => generateMap(seed, 20)).toThrow(MapGenerationError);
-    for (const seed of [1234, 99991, 424242]) {
-      expect(() => generateMap(seed, 20)).not.toThrow();
-    }
+    expect(err.message).toContain('reseeded');
   });
 });
 

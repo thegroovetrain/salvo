@@ -14,7 +14,6 @@
 // 2.6/2.7 earn/queue/spend/lifecycle/privacy guarantees the deck slots into.
 
 import { describe, it, expect, vi } from 'vitest';
-import { MapGenerationError } from '@salvo/shared';
 import {
   isAfloat,
   CATALOG,
@@ -507,15 +506,7 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
     // and it does come back up.
     let seen = false;
     for (let i = 0; i < 200 && !seen; i++) {
-      // A seed the generator refuses is not a world (Story 9.1: seed 1010
-      // throws on the 5500 u / 10 % ocean) — skip it, the stream is the subject.
-      let twin: World;
-      try {
-        twin = bareWorld(1000 + i);
-      } catch (err) {
-        if (err instanceof MapGenerationError) continue;
-        throw err;
-      }
+      const twin = bareWorld(1000 + i);
       const t = place(twin, 'a', 0, 0);
       bank(twin, t, 1);
       seen = front(t).includes(passed);

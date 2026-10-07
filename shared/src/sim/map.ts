@@ -546,11 +546,17 @@ export function mapIsNavigable(map: MapShape): boolean {
 }
 
 /**
- * Thrown when generation cannot satisfy EVERY invariant (coverage band,
- * >=1 landmass, navigability after repair). Deterministic like the generator
- * itself, so server and client fail identically on the same (seed, playerCap)
- * — never one of them silently sailing a different ocean. Measured never to
- * fire across the test sweeps; the throw is the guarantee's teeth.
+ * THERE IS NO GIVE-UP (Eric ruling 2026-10-07, Story 9.1): *"There is no
+ * 'give up.' Generate maps until you have a valid fucking map."* A draw whose
+ * field cannot satisfy every invariant (coverage band, >=1 landmass,
+ * navigability after repair) is RESEEDED — deterministically, from the
+ * requested seed and the attempt number, by integer hashing only — and
+ * generation continues until a valid ocean comes out. Both sides run the same
+ * chain from the same wire seed, so the client still rebuilds the identical
+ * map. This error survives ONLY as a bug guard: it fires after RESEED_CAP
+ * consecutive invalid draws, which at the measured ~1 % per-draw failure rate
+ * on the shipped panel cannot happen (10^-2000); a broken TERRAIN_PARAMS
+ * panel (a band no field can land in) must crash loudly rather than hang.
  */
 export class MapGenerationError extends Error {
   constructor(
@@ -560,19 +566,28 @@ export class MapGenerationError extends Error {
   ) {
     super(
       `generateMap: no map satisfying all invariants for seed=${seed} ` +
-        `playerCap=${playerCap} after ${attempts} repair attempts ` +
-        `(coverage band [${P.coverMin}, ${P.coverMax}] + navigability + >=1 landmass)`,
+        `playerCap=${playerCap} after ${attempts} reseeded draws ` +
+        `(coverage band [${P.coverMin}, ${P.coverMax}] + navigability + >=1 landmass) — the terrain panel is broken`,
     );
     this.name = 'MapGenerationError';
   }
 }
 
+/** Consecutive invalid draws before the bug guard fires (see the class doc). */
+export const RESEED_CAP = 1000;
+
+/** The seed of draw `attempt` for a requested `seed`: the seed itself first,
+ *  then an integer hash of (seed, attempt). Pure integer arithmetic — the
+ *  determinism guard scans this file for transcendentals. */
+function drawSeed(seed: number, attempt: number): number {
+  return attempt === 0 ? seed : (seed ^ Math.imul(attempt, 0x9e3779b9)) >>> 0;
+}
+
 // --- The generator ------------------------------------------------------------
 
-/** Throw (deterministically) unless every invariant holds on the final map. */
-function assertValid(seed: number, playerCap: number, map: MapShape): void {
-  if (map.islands.length >= 1 && validateMap(map)) return;
-  throw new MapGenerationError(seed, playerCap, P.navRepairAttempts);
+/** True iff every invariant holds on the final map. */
+function isValid(map: MapShape): boolean {
+  return map.islands.length >= 1 && validateMap(map);
 }
 
 /**
@@ -590,6 +605,18 @@ function assertValid(seed: number, playerCap: number, map: MapShape): void {
 export function generateMap(seed: number, playerCap: number = CONFIG.map.playerCap): GameMap {
   const radius = mapRadius(playerCap);
   const spawnRing = radius * CONFIG.map.spawnFraction;
+  // NO GIVE-UP (Eric 2026-10-07): an invalid draw is reseeded and generation
+  // goes on; see MapGenerationError for the one case that still throws.
+  for (let attempt = 0; attempt < RESEED_CAP; attempt++) {
+    const map = drawMap(drawSeed(seed, attempt), radius, spawnRing);
+    if (map !== null) return map;
+  }
+  throw new MapGenerationError(seed, playerCap, RESEED_CAP);
+}
+
+/** One draw of the generator at `seed`; null when the finished field fails an
+ *  invariant (the caller reseeds). */
+function drawMap(seed: number, radius: number, spawnRing: number): GameMap | null {
   const field: HeightField = buildField(seed, radius, spawnRing, P);
   const g = makeGrid(field, radius);
   g.navPad = P.navPadCells;
@@ -604,7 +631,7 @@ export function generateMap(seed: number, playerCap: number = CONFIG.map.playerC
   // mask ONLY (never the field), so the mask — not the raw field — is the
   // raster's land/water authority (see buildHeightRaster).
   const land = snapshotLand(g);
-  assertValid(seed, playerCap, { radius, spawnRing, islands });
+  if (!isValid({ radius, spawnRing, islands })) return null;
 
   islands.sort((a, b) => a.x - b.x || a.y - b.y);
   attachContours(g, level, islands);

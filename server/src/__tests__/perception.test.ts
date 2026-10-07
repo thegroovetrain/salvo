@@ -69,7 +69,6 @@
 // with its own bug.
 
 import { describe, it, expect } from 'vitest';
-import { MapGenerationError } from '@salvo/shared';
 import {
   isAfloat,
   isSinking,
@@ -3997,23 +3996,8 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     DRAFT_SEEN.n = 0;
     let wkSeen = 0; // Story 4.12: proves the wake oracle ran non-vacuously
     let reReveals = 0; // Story 8.13: proves the per-visit ledger saw a re-entry
-    let exhausted = 0;
     for (let world = 0; world < 20; world++) {
-      // A seed the generator refuses (MapGenerationError — ~1 in 30–100 on the
-      // 5500 u / 10 % ocean, Story 9.1) is not a world: draw the next one. The
-      // count is asserted below so a generator that started refusing often
-      // would fail here rather than quietly shrink the sample.
-      let w: World;
-      for (;;) {
-        try {
-          w = new World(rng.int(0, 2 ** 31 - 1), CONFIG.match.fillTo, CONFIG.zone);
-          break;
-        } catch (err) {
-          if (!(err instanceof MapGenerationError)) throw err;
-          exhausted++;
-          expect(exhausted).toBeLessThan(5);
-        }
-      }
+      const w = new World(rng.int(0, 2 ** 31 - 1), CONFIG.match.fillTo, CONFIG.zone);
       const ids: string[] = [];
       const shipCount = rng.int(3, 6);
       for (let i = 0; i < shipCount; i++) {

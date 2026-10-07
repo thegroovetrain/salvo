@@ -62,7 +62,7 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
   const FORBIDDEN = ['id', 'x', 'y', 'ext', 'cls', 'heading', 'speed'];
 
   it('a frame carries EXACTLY {k,t,gx,gy,w,h,bits} on every blip — no id, no position, no ext, no pose (amendment 152)', () => {
-    const w = bareWorld(53); // seed moved (Story 9.1, 2026-10-07): the old one is a map-generation throw on the 5500 u / 10 % ocean
+    const w = bareWorld(52);
     const a = place(w, 'a', 0, 0);
     place(w, 'bb', 400, 0, 0.9, 'battleship');
     place(w, 'tb', 0, 420, 2.1, 'torpedoBoat');

@@ -130,7 +130,8 @@ Claude Fable 5.1 (claude-fable-5-1), session 2026-10-06 → 2026-10-07, driven l
 
 - Session 1 ships the board Eric chose to test on development: radius 5500 u, 10 % land, ring ladder 11000 → 7000 → 4000 → 2000 → 0 as literal `CONFIG.zone.ringRadii`. Hull hp, guns, heals, spawn layout untouched.
 - Rulings in epic-9 amendments 2–9. Ring sizes are not a test subject (amendment 8).
-- Open for Eric after his play: ring 2 (3.8 alive at 8:00 in sim vs 5); the map-gen throw now ~1 in 30–100 lobbies at this board (his deferred thread); the 92-vertex cap on very large islands (map look); storm share 13–17 % of bot deaths with the 4-minute beat; the 1000 u terminal vs 660 u radar reach.
+- Map generation never gives up (amendment 10, same day): an invalid draw reseeds deterministically until a valid ocean comes out.
+- Open for Eric after his play: ring 2 (3.8 alive at 8:00 in sim vs 5); the 92-vertex cap on very large islands (map look); storm share 13–17 % of bot deaths with the 4-minute beat; the 1000 u terminal vs 660 u radar reach.
 
 ### File List
 

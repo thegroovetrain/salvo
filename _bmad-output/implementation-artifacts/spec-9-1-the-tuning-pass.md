@@ -34,7 +34,7 @@ warnings: [eric-steered, no-review-gate-yet]
 
 **Never:**
 - Propose or measure anything at 2800 u again (amendment 6). Re-propose the two-ring spawn at the big board without Eric asking (unmeasured there).
-- Fix the map-generation throw (Eric's deferred thread, 2026-09-16) — now ~1 seed in 30–100 at this board, told to him and accepted with the 10 % ruling.
+- Let map generation give up (amendment 10): an invalid draw is reseeded until a valid map comes out; `MapGenerationError` is a bug guard, not an outcome.
 - Pin a CONFIG number in a test re-based this cycle (cover band values, ring radii, vertex average).
 
 </intent-contract>
@@ -53,11 +53,11 @@ warnings: [eric-steered, no-review-gate-yet]
 
 ## Test re-bases (each with its measurement — amendment 9)
 
-See amendment 9 (a)–(g). The one that is a design observation for Eric rather than a test matter: the biggest landmasses on the 10 % board sit AT the 92-vertex hard cap and run up to 37 u off the raster mask — a finer cap for very large islands is a map-look question.
+See amendment 9 (b)–(g); 9(a) is superseded by amendment 10 (the sweep generates every seed again and pins that it does). The one that is a design observation for Eric rather than a test matter: the biggest landmasses on the 10 % board sit AT the 92-vertex hard cap and run up to 37 u off the raster mask — a finer cap for very large islands is a map-look question.
 
 ## Known costs told to Eric with the ruling
 
-- Map generation gives up on ~1 seed in 30–100 at 5500 u / 10 % (his deferred throw thread). On production that kicks the queued group ("QUEUE CLOSED").
+- ~~Map generation gives up on ~1 seed in 30–100~~ — REJECTED by Eric the same day (amendment 10): the generator reseeds until valid; no lobby is ever closed by the generator.
 - The 1000 u terminal ring is wider than radar reach (660 u); the sudden-death collapse ends the match.
 - The storm takes 13–17 % of bot deaths on the big board (1.8 % before), the 4-minute beat unchanged.
 - Map generation ~0.7 s per map; height raster 791² (was 405²).

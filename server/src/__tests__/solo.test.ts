@@ -129,35 +129,10 @@ function room(options: RoomOptions): SoloRoom {
   r.setTimestep = vi.fn();
   r.clock = { setInterval: vi.fn(), setTimeout: vi.fn() };
   r.clients = [];
-  // THE MAP SEED IS DRAWN FROM A KNOWN-GOOD LIST (Story 9.1, 2026-10-07): a
-  // production room seeds its ocean from Math.random(), and on the 5500 u /
-  // 10 % ocean roughly 1 seed in 30–100 is a map-generation throw (Eric's
-  // deferred thread, accepted with the 10 % ruling). These tests are about
-  // the ROOM, so the FIRST Math.random of the construction call — the map
-  // seed — rotates through fractions whose seeds generate; every later draw
-  // (zone nonces, pseudonym seed) comes from a small seeded stream so rooms
-  // still differ from each other (the odd-seat variety test below).
-  const first = GOOD_SEED_FRACTIONS[roomsBuilt % GOOD_SEED_FRACTIONS.length];
-  let k = 0;
-  let lcg = (roomsBuilt + 1) * 0x9e3779b9;
-  const draw = vi.spyOn(Math, 'random').mockImplementation(() => {
-    if (k++ === 0) return first;
-    lcg = (Math.imul(lcg, 1664525) + 1013904223) >>> 0;
-    return lcg / 0x100000000;
-  });
-  roomsBuilt += 1;
-  try {
-    r.onCreate(options);
-  } finally {
-    draw.mockRestore();
-  }
+  r.onCreate(options);
   return r;
 }
 
-/** Fractions f whose seed floor(f × 0xffffffff) generates on the shipped ocean
- *  (probed 2026-10-07: 0.25, 0.5, 0.75, 0.125, 0.375 all build). */
-const GOOD_SEED_FRACTIONS = [0.25, 0.5, 0.75, 0.125, 0.375];
-let roomsBuilt = 0;
 
 /** The solo room the production client asks for (plus a pinned map seed and a
  *  short countdown where a test needs to reach 'active' — dev options only). */

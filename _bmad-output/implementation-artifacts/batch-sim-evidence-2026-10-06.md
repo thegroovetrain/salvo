@@ -172,3 +172,7 @@ Exact replays of the first 3 matches per shard (36 each, same seeds) with `--raw
 - Two bot bars fail on every arm (anyKill < 60 %, storm deaths < 5 %); Eric's 2026-09-30 ruling: measurements, not gates.
 - Ring 3 is measurable only in the C1 arm (23 % of matches reach 12:00) and only barely.
 - The map-gen throw is live at 5600 u / 10 % (3 / 91): Eric's deferred thread, now with numbers.
+
+## 8. Closing ruling on the generator (Eric, 2026-10-07)
+
+The arms above recorded map-generation failures as harness `failures` (3/91 on C1, 1/91 on w5500 and h5600, 4/91 on h6000). Eric, on the PR text calling that an accepted cost: *"There is no 'give up.' Generate maps until you have a valid fucking map."* Built in cycle 169: `generateMap` reseeds deterministically on an invalid draw and continues (epic-9 amendment 10). Future arms will show 0 failures; the attrition and class readings above stand (a failed match was simply not played, and 88–91 matches per arm is the sample stated in each table).
