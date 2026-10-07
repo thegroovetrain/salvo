@@ -104,6 +104,26 @@ Candidates offered after the singles: C1 r200 + cov10; C2 r150 + cov10; C3 r200 
 
 **Unmeasured, stated as reasoning only:** nothing in this session touched what kills people inside ring 2 — hull hp, the heal channels, gun numbers (Eric's math, off limits to the sim). Every map arm leaves ring 2 killing ≥ 75 % of its entrants. Reaching 5 alive at 8:00 is not a map-dial outcome on this evidence. C2 / C3 / C4 remain unrun; C3 (C1 + rings) is the one that would answer whether the ring layout inverts on the big board.
 
+## 6. The proportional storm — Eric's ruling and two arms (2026-10-07)
+
+**Eric, 2026-10-07, on the ring sizes (ocean 11,200 → rings 5,491 / 2,692 / 1,320 diameter at 2×, against 5,600 / 3,459 / 2,137 / 1,320 today):** *"It should really be proportional. Its closing far too much at ring 2 and 3. The fixed 1320 no longer makes sense. Perhaps the map drops 50% of its remaining radius each ring? So 11200 -> 5600 -> 2800 -> 1400 -> 0? Try a run with that, and lets also try 12000 -> 6000 -> 3000 -> 1500 -> 0."* Cover 10 % for both (his pick, so the board is C1's).
+
+**Instrument:** no code change. `zoneRingRadii` already steps geometrically from R to the terminal ring with `ringSteps [1/3, 2/3]`; setting the terminal ring to R/8 (`--set zone.terminalSightFactor = R / 8 / 330` → 2.121212 at 5600, 2.272727 at 6000) makes every close exactly a halving. Verified before launch: 11200 → 5600 → 2800 → 1400 → 0 and 12000 → 6000 → 3000 → 1500 → 0.
+
+**A fact that should have been said before the run, not after:** at R = 5600 the shipped ladder was ALREADY a halving to within 4 % (5,491 / 2,692 / 1,320 vs 5,600 / 2,800 / 1,400). The "closing far too much at ring 2 and 3" reading was the shipped ladder at today's 2,800 radius (62 % of the radius kept per close, 1,320 terminal), which the ×2 board had already fixed by accident. So `h5600` is C1 with rings 2–6 % larger — a near-null test by construction, and it measured as one.
+
+| arm | board | ring diameters | alive@4:00 | alive@8:00 | running @12:00 | median | storm deaths (share of bot deaths) | BS / ML / TB |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| baseline | 2800 / 2.5 % | 5600 / 3459 / 2137 / 1320 | 7.44 | 1.29 | 1 % | 8:04 | 1.8 % | 38 / 33 / 29 |
+| C1 | 5600 / 10 % | 11200 / 5491 / 2692 / 1320 | 11.18 | 2.74 | 23 % | 9:51 | **15.4 %** | 36 / 37 / 28 |
+| **h5600** | 5600 / 10 % | 11200 / 5600 / 2800 / 1400 | 11.52 (+0.34 vs C1, n.s.) | 2.84 (+0.10 vs C1, n.s.) | 25 % | 9:50 | 16.6 % | 47 / 30 / 23 (BS +8 vs baseline, n.s.) |
+| h6000 | 6000 / 10 % | 12000 / 6000 / 3000 / 1500 | _running_ | | | | | |
+
+**Readings (h5600).**
+- Attrition identical to C1 within noise, as the geometry predicts. 1 of 91 seeds threw the map-gen error (vs 3 in C1); 90 matches stand.
+- **The storm IS a killer on the 2× board**: 15–17 % of bot deaths against 1.8 % today, because the beat did not change and each close now sweeps twice the distance. That is the number to watch when the ladder or `zone.beatMs` moves; it does not by itself contradict Eric's "nobody fails to outrun it unless bad" — bots are not people.
+- DREADNOUGHT share drifted up (+8 pp vs baseline, +11 vs C1, neither significant at n = 90). A larger terminal ring (1,400 vs 1,320) is a small thing; one arm is not evidence of a class effect.
+
 ## 5. Standing limits carried forward
 
 - ±10 pp tier only; class claims are "consistent with", never "in band".
