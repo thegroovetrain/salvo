@@ -1,6 +1,6 @@
 # Story 9.1: The Tuning Pass (Eric steers)
 
-Status: ready-for-dev
+Status: in-progress (session 1 built 2026-10-07, cycle 169 — Eric tests on development; ring 2 is his next dial)
 
 <!-- Created 2026-10-06 by gds-create-story; revised the same day on Eric's correction. THE DIALS ARE WHATEVER ERIC DECIDES THEY ARE — the ones mapped below are the ones he named on 2026-10-06, written up so the facts are to hand; they are not the list, and nothing limits him to them. Every number is his, asked through AskUserQuestion, never filled in by an agent. Eric's next step is HIS OWN session with the balance harness (/balance-sim, `server/scripts/batchSim.mjs`), not a dev-story run; dev work starts when he says so. Epic 9 rulings live in epic-9-context-amendments.md (append-only). -->
 
@@ -119,8 +119,22 @@ On escape, his diagnosis (one of four offered): **too few escape tools**. The fi
 
 ### Agent Model Used
 
+Claude Fable 5.1 (claude-fable-5-1), session 2026-10-06 → 2026-10-07, driven live by Eric.
+
 ### Debug Log References
+
+- `batch-sim-evidence-2026-10-06.md` — the harness session: baseline, 5 single arms, C1, h5600, h6000, w5500, raw death timelines.
+- `~/hc-campaigns/tune-2026-10-06/` — campaign JSONs, raw replays, map renders (`maps/`).
 
 ### Completion Notes List
 
+- Session 1 ships the board Eric chose to test on development: radius 5500 u, 10 % land, ring ladder 11000 → 7000 → 4000 → 2000 → 0 as literal `CONFIG.zone.ringRadii`. Hull hp, guns, heals, spawn layout untouched.
+- Rulings in epic-9 amendments 2–9. Ring sizes are not a test subject (amendment 8).
+- Open for Eric after his play: ring 2 (3.8 alive at 8:00 in sim vs 5); the map-gen throw now ~1 in 30–100 lobbies at this board (his deferred thread); the 92-vertex cap on very large islands (map look); storm share 13–17 % of bot deaths with the 4-minute beat; the 1000 u terminal vs 660 u radar reach.
+
 ### File List
+
+- shared: `src/constants.ts`, `src/sim/zone.ts`, `src/sim/map.ts`, `src/sim/heightField.ts`, `src/index.ts`; tests `zone`, `map`, `heightField`, `radarShadow`, `collision`, `barrel`, `radarRaster`.
+- server: `src/game/spawn.ts`; `scripts/batchsim/{overrides,args,main,runner}.ts`; tests `spawnLayout` (new), `drones`, `botTactics`, `bots`, `doctrines`, `radarWire`, `upgrades`, `perception`, `colyseus018`, `denials`, `goldenFrames` (+ snapshot); `scripts/batchsim/__tests__/{terrainDials (new), batchSim, poolReadouts}.test.ts`.
+- client: tests `zone`, `ordnanceMasksAreServerOnly`.
+- docs: `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `_bmad-output/implementation-artifacts/{epic-9-context-amendments.md, batch-sim-evidence-2026-10-06.md, spec-9-1-the-tuning-pass.md, sprint-status.yaml}`, `_bmad-output/gds-workflow-status.yaml`, `_bmad-output/planning-artifacts/{epics.md, gdds/.../gdd.md}`.

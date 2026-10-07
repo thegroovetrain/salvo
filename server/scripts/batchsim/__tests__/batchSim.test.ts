@@ -185,11 +185,11 @@ describe('overrides — per-key value floors (review gate 2026-07-31)', () => {
 
   it('keeps the legitimate ZERO sweep arms legal (they are real ratification evidence)', () => {
     expect(parseArgs(['--set', 'zone.offsetCap=0']).set).toEqual({ 'zone.offsetCap': 0 });
-    const restore = applyOverrides({ 'zone.offsetCap': 0, 'zone.ringSteps.0': 0 });
+    const restore = applyOverrides({ 'zone.offsetCap': 0, 'zone.ringRadii.0': 3000 });
     expect(CONFIG.zone.offsetCap).toBe(0);
-    expect(CONFIG.zone.ringSteps[0]).toBe(0);
+    expect(CONFIG.zone.ringRadii[0]).toBe(3000);
     restore();
-    expect(CONFIG.zone.ringSteps[0]).toBeCloseTo(1 / 3, 12);
+    expect(CONFIG.zone.ringRadii[0]).toBe(3500);
   });
 });
 
@@ -210,25 +210,31 @@ describe('overrides — tunable CONFIG dials', () => {
     expect(CONFIG.xp.droneTierLevels.droneSmall).toBe(before);
   });
 
-  it('addresses the phased-timeline shape: beatMs, ringSteps by index, offsetCap, map.baseRadius', () => {
+  it('addresses the phased-timeline shape: beatMs, ringRadii by index, offsetCap, map.baseRadius', () => {
     const restore = applyOverrides({
       'zone.beatMs': 30000,
-      'zone.ringSteps.1': 0.8,
+      'zone.ringRadii.1': 1800,
       'zone.offsetCap': 0.5,
-      'zone.terminalSightFactor': 3,
+      'zone.ringRadii.2': 900,
       'map.baseRadius': 1200,
     });
     expect(CONFIG.zone.beatMs).toBe(30000);
-    expect(CONFIG.zone.ringSteps[1]).toBe(0.8);
+    expect(CONFIG.zone.ringRadii[1]).toBe(1800);
     expect(CONFIG.zone.offsetCap).toBe(0.5);
-    expect(CONFIG.zone.terminalSightFactor).toBe(3);
+    expect(CONFIG.zone.ringRadii[2]).toBe(900);
     expect(CONFIG.map.baseRadius).toBe(1200);
     restore();
     expect(CONFIG.zone.beatMs).toBe(60000);
-    expect(CONFIG.zone.ringSteps[1]).toBeCloseTo(2 / 3, 12);
-    expect(CONFIG.map.baseRadius).toBe(2800); // Story 5.6 amendment 42: the bigger ocean
-    // An out-of-range ringSteps index is a real rejection, not a silent no-op.
-    expect(() => applyOverrides({ 'zone.ringSteps.7': 0.5 })).toThrow(TunableError);
+    expect(CONFIG.zone.ringRadii[1]).toBe(2000);
+    expect(CONFIG.zone.ringRadii[2]).toBe(1000);
+    expect(CONFIG.map.baseRadius).toBe(5500); // Story 9.1 (2026-10-07): the big ocean
+    // An out-of-range ringRadii index is a real rejection, not a silent no-op.
+    expect(() => applyOverrides({ 'zone.ringRadii.7': 500 })).toThrow(TunableError);
+    // The retired formula dials are refused WITH the live dial named (Story 9.1).
+    expect(() => applyOverrides({ 'zone.ringSteps.0': 0.5 })).toThrow(/RETIRED.*ringRadii/);
+    expect(() => applyOverrides({ 'zone.terminalSightFactor': 3 })).toThrow(/RETIRED.*ringRadii/);
+    // A ring radius floors at 1 u like the geometric terminal does.
+    expect(() => applyOverrides({ 'zone.ringRadii.2': 0 })).toThrow(/>= 1/);
   });
 
   it('rejects non-tunable keys, unknown paths, and non-numeric leaves', () => {
@@ -313,8 +319,8 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(CONFIG.broadside.turretMountSpreadDeg.length).toBe(mountLenBefore);
     expect(Array.prototype.length).toBe(0);
     // The legitimate array dial still works — the rule is "index only", not
-    // "no arrays". zone.ringSteps.N is documented and must keep resolving.
-    expect(() => validateTunableKey('zone.ringSteps.0')).not.toThrow();
+    // "no arrays". zone.ringRadii.N is documented and must keep resolving.
+    expect(() => validateTunableKey('zone.ringRadii.0')).not.toThrow();
   });
 
   it('applies ALL-OR-NOTHING: a throw mid-apply leaves CONFIG untouched', () => {
@@ -572,7 +578,7 @@ describe('roster — even bot hulls (balance-sim harness prep)', () => {
   function campaign(roster: 'even' | 'rolled', matches = 3): Record<string, number>[] {
     const restore = applyOverrides({
       'zone.beatMs': 1,
-      'zone.terminalSightFactor': 0,
+      'zone.ringRadii.0': 1, 'zone.ringRadii.1': 1, 'zone.ringRadii.2': 1,
       'zone.stormDps': 100000,
     });
     try {
@@ -632,7 +638,7 @@ describe('roster — even bot hulls (balance-sim harness prep)', () => {
     // The captain loop used to deal a bare `i % 3` with no match-index offset,
     // so `--captains 2` was short the SAME class in every match — and
     // BatchAggregate.winnerClass pools captains and bots into one tally.
-    const restore = applyOverrides({ 'zone.beatMs': 1, 'zone.terminalSightFactor': 0, 'zone.stormDps': 100000 });
+    const restore = applyOverrides({ 'zone.beatMs': 1, 'zone.ringRadii.0': 1, 'zone.ringRadii.1': 1, 'zone.ringRadii.2': 1, 'zone.stormDps': 100000 });
     try {
       const even = runBatch({ seed: 5, matches: 3, captains: 2, bots: 0, roster: 'even' });
       const cls = even.matches.map((m) => m.captains.map((c) => c.cls));
@@ -663,7 +669,7 @@ describe('--json contract pin (the shape /balance-sim reads)', () => {
   it('pins the frozen keys on aggregate and bots', () => {
     const restore = applyOverrides({
       'zone.beatMs': 1,
-      'zone.terminalSightFactor': 0,
+      'zone.ringRadii.0': 1, 'zone.ringRadii.1': 1, 'zone.ringRadii.2': 1,
       'zone.stormDps': 100000,
     });
     let result;
@@ -811,7 +817,7 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
   it('same run key => deep-equal batch results; different seed differs', () => {
     const restore = applyOverrides({
       'zone.beatMs': 2000,
-      'zone.terminalSightFactor': 0,
+      'zone.ringRadii.0': 1, 'zone.ringRadii.1': 1, 'zone.ringRadii.2': 1,
       'zone.stormDps': 40,
     });
     try {
@@ -844,7 +850,7 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
   it('endedBy lastHumanSunk: an instant lethal storm sinks the last captains', () => {
     const restore = applyOverrides({
       'zone.beatMs': 1,
-      'zone.terminalSightFactor': 0,
+      'zone.ringRadii.0': 1, 'zone.ringRadii.1': 1, 'zone.ringRadii.2': 1,
       'zone.stormDps': 100000,
     });
     try {
@@ -866,7 +872,7 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
     const cleared = runBatch({ seed: 3, matches: 1, captains: 1 });
     const restore = applyOverrides({
       'zone.beatMs': 1,
-      'zone.terminalSightFactor': 0,
+      'zone.ringRadii.0': 1, 'zone.ringRadii.1': 1, 'zone.ringRadii.2': 1,
       'zone.stormDps': 100000,
     });
     let sunk;

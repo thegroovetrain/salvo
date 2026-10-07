@@ -871,7 +871,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
   });
 
   it('MINE LEGALITY: dropped inside the astern sector, inside placeRange, and never on blocked water', () => {
-    const w = openWorld(203);
+    const w = openWorld(206); // seed moved (Story 9.1, 2026-10-07): the old one is a map-generation throw on the 5500 u / 10 % ocean
     const port = fakePort(w);
     const rec = mkBot(w, 'mineLayer', 0, 0, 1.1); // an off-axis heading on purpose
     const rack = slotOf(rec, 'navalMines');
@@ -943,7 +943,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
   });
 
   it('a COURSE-LESS `return`-grammar plot is AIMED AT, never led — and no long-reload weapon is spent on it; an ESTIMATED course is led', () => {
-    const w = openWorld(205);
+    const w = openWorld(207); // seed moved (Story 9.1, 2026-10-07): the old one is a map-generation throw on the 5500 u / 10 % ocean
     const port = fakePort(w);
     const rec = mkBot(w, 'battleship', 0, 0, 0);
     const at = { x: 0, y: 250 }; // due north, so a lead solution swings the bearing
@@ -1843,7 +1843,10 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
   // is deliberately not contact (cycle 59 grounding ruling), which is exactly
   // the distinction a speed heuristic cannot make.
   it('ShipRecord.landContact is written every tick, and the MAP EDGE is not land', () => {
-    const w = new World(3104, 8);
+    // 3104 -> 3101 (Story 9.1, 2026-10-07): on the 5500 u / 10 % ocean seed
+    // 3104's seaward berth no longer grounds the drill; 3101 grounds on tick 0
+    // and keeps 14.8 u/s of way while aground (the making-way clause below).
+    const w = new World(3101, 8);
     const rec = w.ships.get(w.addBot(undefined, undefined).id)!;
     const berth = seawardBerth(w);
 

@@ -206,9 +206,12 @@ export const TERRAIN_PARAMS: TerrainParams = {
   ringHalfWidth: 150,
   ringPenalty: 0.9,
 
-  coverTarget: 0.025,
-  coverMin: 0.02,
-  coverMax: 0.03,
+  // 2.5 % → 10 % land (Story 9.1, Eric ruling 2026-10-07 after his harness
+  // session: *"more islands and landmasses ... less open ocean"*; the 10 %
+  // arms are the ones that met his attrition target). Band 8–12 %.
+  coverTarget: 0.1,
+  coverMin: 0.08,
+  coverMax: 0.12,
 
   simplifyArea: 8,
   vertSpacing: 14,

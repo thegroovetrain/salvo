@@ -487,7 +487,7 @@ function scnSpectatorBallistic(g: Golden): void {
  * the burst event as the bare {k,id,x,y} shape.
  */
 function scnBurst(g: Golden): void {
-  const w = bareWorld(1010);
+  const w = bareWorld(1015); // 1010 -> 1015 (Story 9.1, 2026-10-07): 1010 is a map-generation throw on the 5500 u / 10 % ocean
   place(w, 'a', 0, 0);
   const b = place(w, 'b', 120, 0);
   b.hp = 100; // survives the 25 burst — a clean dmg, no sunk

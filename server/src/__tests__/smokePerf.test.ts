@@ -89,7 +89,8 @@ describe('the 200-live-puff perception pin (Story 8.18)', () => {
     let contactsClear = 0;
     let puffsSeen = 0;
     for (let run = 0; run < 5; run += 1) {
-      const { w, ids } = smokedField(818 + run); // built OUTSIDE the clock — a fresh field every run
+      // 818 -> 821 (Story 9.1, 2026-10-07): seed 820 is a map-generation throw at this cap on the 5500 u / 10 % ocean.
+      const { w, ids } = smokedField(821 + run); // built OUTSIDE the clock — a fresh field every run
       expect(w.smoke.size).toBe(PUFFS);
       const t0 = performance.now();
       let contacts = 0;

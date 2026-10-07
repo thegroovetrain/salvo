@@ -604,8 +604,14 @@ describe('the shadow character at radarMastQ (amendment 184 guardrail)', () => {
     // recorded 17.4%. A generator that pushed this past a quarter of the scope
     // would be a different game whatever the hard-cover share did.
     const crossing = land / rays;
-    expect(crossing).toBeGreaterThan(0.09);
-    expect(crossing).toBeLessThan(0.22);
+    // RE-BASED BY STORY 9.1 (Eric ruling 2026-10-07): land 2.5 % → 10 % of the
+    // ocean, on purpose — *"more islands and landmasses ... more things that
+    // can block vision/radar"*. Measured 14.8 % of bearings crossing land at
+    // the old board; 33.5 % here. The guard keeps its job (a generator that
+    // pushed this past HALF the scope would be a different game again) with
+    // the floor raised so a silent return to the old open ocean fails too.
+    expect(crossing).toBeGreaterThan(0.2);
+    expect(crossing).toBeLessThan(0.5);
   });
 });
 

@@ -393,7 +393,7 @@ describe('state lifecycle — created with the ship, silent while down, released
   });
 
   it('removeShip releases the mind (and an unknown id never crashes the tick)', () => {
-    const { w, ids } = botWorld(52, 3);
+    const { w, ids } = botWorld(53, 3); // seed moved (Story 9.1, 2026-10-07): the old one is a map-generation throw on the 5500 u / 10 % ocean
     expect(w.bots.size).toBe(3);
     w.removeShip(ids[1]);
     expect(w.bots.size).toBe(2);

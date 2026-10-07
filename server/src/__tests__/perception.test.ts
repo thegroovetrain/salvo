@@ -69,6 +69,7 @@
 // with its own bug.
 
 import { describe, it, expect } from 'vitest';
+import { MapGenerationError } from '@salvo/shared';
 import {
   isAfloat,
   isSinking,
@@ -3981,6 +3982,9 @@ class VisitLedger {
   }
 }
 
+/** 0.85 × 2800 u — the sampling arena the invariant's oracles were tuned on. */
+const INVARIANT_ARENA_U = 2380;
+
 describe('perception — THE INVARIANT (random worlds, seeded)', () => {
   it('no frame ever references anything outside sight ∪ this-tick paints', () => {
     const rng = mulberry32(0x5eed_f0f0);
@@ -3993,15 +3997,37 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     DRAFT_SEEN.n = 0;
     let wkSeen = 0; // Story 4.12: proves the wake oracle ran non-vacuously
     let reReveals = 0; // Story 8.13: proves the per-visit ledger saw a re-entry
+    let exhausted = 0;
     for (let world = 0; world < 20; world++) {
-      const w = new World(rng.int(0, 2 ** 31 - 1), CONFIG.match.fillTo, CONFIG.zone);
+      // A seed the generator refuses (MapGenerationError — ~1 in 30–100 on the
+      // 5500 u / 10 % ocean, Story 9.1) is not a world: draw the next one. The
+      // count is asserted below so a generator that started refusing often
+      // would fail here rather than quietly shrink the sample.
+      let w: World;
+      for (;;) {
+        try {
+          w = new World(rng.int(0, 2 ** 31 - 1), CONFIG.match.fillTo, CONFIG.zone);
+          break;
+        } catch (err) {
+          if (!(err instanceof MapGenerationError)) throw err;
+          exhausted++;
+          expect(exhausted).toBeLessThan(5);
+        }
+      }
       const ids: string[] = [];
       const shipCount = rng.int(3, 6);
       for (let i = 0; i < shipCount; i++) {
         const id = `p${i}`;
         ids.push(id);
         const ang = rng.float(0, TAU);
-        const r = rng.float(0, w.map.radius * 0.85);
+        // A FIXED sampling arena, not a fraction of the map (Story 9.1,
+        // 2026-10-07): the oracles below are non-vacuous because 3–6 hulls
+        // share one patch of water dense enough for radar (660 u) to paint
+        // each other's wakes within 6 ticks. 0.85 × the OLD 2800 u radius is
+        // that density; scaling it with the 5500 u ocean spread the hulls so
+        // thin that `wkSeen` read 0 across 20 worlds — a sampling artefact,
+        // not a dead channel. The 10 % archipelago is still under the hulls.
+        const r = rng.float(0, INVARIANT_ARENA_U);
         // Story 8.15: every seat draws a RANDOM GUN, so cannon salvos, flak
         // bursts and machine-gun streams (driven by the random `held` level
         // below) all flow through the oracle — `w` on every shell reveal,

@@ -19,8 +19,11 @@
 // `[DRAFT]` weighting dials (amendment 90), which ARE tunable: they sit on the
 // --tune surface because they are balance numbers Eric expects to move.
 // zone.* keys address the PHASED timeline shape (Story 3.1): zone.beatMs,
-// zone.offsetCap, zone.terminalSightFactor, zone.stormDps, and the per-group
-// ring exponents by INDEX — zone.ringSteps.0 / zone.ringSteps.1 (resolveLeaf
+// zone.offsetCap, zone.stormDps, and SINCE CYCLE 169 the ring ladder by
+// INDEX — zone.ringRadii.0 / .1 / .2 in world units (Story 9.1; the old
+// zone.ringSteps.N exponents and zone.terminalSightFactor are gone from the
+// shipped CONFIG and are refused with that advice, see RETIRED_SET_KEYS;
+// resolveLeaf
 // walks any dotted path, array indices included). map.baseRadius joins for the
 // 3.1 map-radius × ring evidence sweeps (amendment 7).
 
@@ -149,9 +152,22 @@ function assertNotDerived(key: string): void {
   }
 }
 
+/** --set keys that left the shipped CONFIG with the literal ring ladder
+ *  (Story 9.1, 2026-10-07). Refused with the live dial named, so an old arm
+ *  script fails loudly instead of running on a silently unchanged storm. */
+const RETIRED_SET_KEYS: readonly (readonly [RegExp, string])[] = [
+  [/^zone\.ringSteps(\.|$)/, "retired 2026-10-07 — the ladder is literal: tune 'zone.ringRadii.N' (world units, terminal last)"],
+  [/^zone\.terminalSightFactor$/, "retired 2026-10-07 — the terminal ring is 'zone.ringRadii.<last>' (world units)"],
+];
+
 /** The family gate, split out of resolveLeaf so the --set rejection message
  *  stays byte-identical to the one shipped before --tune existed. */
 function assertKeyAllowed(key: string, allowTune: boolean): void {
+  if (!allowTune) {
+    for (const [pattern, advice] of RETIRED_SET_KEYS) {
+      if (pattern.test(key)) throw new TunableError(`'${key}' is RETIRED: ${advice}`);
+    }
+  }
   if (allowTune) {
     assertNotDerived(key);
     if (isTuneKey(key)) return;
@@ -186,8 +202,8 @@ function resolveLeaf(key: string, allowTune = false): Leaf {
     node = step(node, part, key);
   }
   const prop = parts[parts.length - 1];
-  // An array entry may be addressed ONLY by index. `zone.ringSteps.0` is a
-  // documented, legitimate dial; `broadside.traverseDeg.length` is a numeric
+  // An array entry may be addressed ONLY by index. `zone.ringRadii.0` is a
+  // documented, legitimate dial (as `zone.ringSteps.0` was before 2026-10-07); `broadside.traverseDeg.length` is a numeric
   // own property that would TRUNCATE a live CONFIG array and then run the batch
   // as if nothing had happened. The index rule admits the first and refuses the
   // second without needing to enumerate array internals — and because it is
@@ -239,6 +255,10 @@ export function validateTunableKey(key: string): void {
  *  (a hold-at-map-radius ring) are real evidence values. */
 const MIN_ONE_KEYS = new Set(['xp.levelMs', 'offer.size', 'zone.beatMs', 'map.baseRadius', 'terrain.regionWavelength']);
 
+/** A ring radius of 0 is the collapse ring's job (synthesized, never a dial);
+ *  the geometric ladder floors at 1 u structurally, so the dial does too. */
+const MIN_ONE_PATTERNS: readonly RegExp[] = [/^zone\.ringRadii\.\d+$/];
+
 /** The cover band is a FRACTION of the ocean's area: (0, 1) exclusive. 0 is
  *  an all-water board mapgen refuses (>= 1 landmass) and 1 is all land. */
 const SET_UNIT_INTERVAL_KEYS = new Set(['terrain.coverTarget', 'terrain.coverMin', 'terrain.coverMax']);
@@ -252,7 +272,7 @@ export function validateTunableValue(key: string, value: number): void {
     }
     return;
   }
-  const floor = MIN_ONE_KEYS.has(key) ? 1 : 0;
+  const floor = MIN_ONE_KEYS.has(key) || MIN_ONE_PATTERNS.some((p) => p.test(key)) ? 1 : 0;
   if (!Number.isFinite(value) || value < floor) {
     throw new TunableError(`'${key}': expected a finite value >= ${floor}, got '${value}'`);
   }

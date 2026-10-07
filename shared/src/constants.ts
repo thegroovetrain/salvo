@@ -91,7 +91,13 @@ export const CONFIG = {
    * 885u, where the fixed 660u endgame ring is already 56% of the water.
    */
   map: {
-    baseRadius: 2800, // u — map radius tuned for capRef players (2400 → 2800, amendment 42)
+    // 2800 → 5500 (Story 9.1, Eric ruling 2026-10-07 after his own harness
+    // session, batch-sim-evidence-2026-10-06.md): *"2800 is TINY. That is a
+    // TINY MAP."* The 5500 u ocean with 10 % land and the literal ring ladder
+    // below is the board that met his 10-alive-at-4:00 target (w5500 arm).
+    // The closing-rate band note above is HISTORY: the ladder is his numbers
+    // now, and he ruled the storm's closing speed is not a design concern.
+    baseRadius: 5500, // u — map radius (2400 → 2800 amendment 42; 2800 → 5500 Story 9.1, 2026-10-07)
     capRef: 20, // players the base radius is scaled against
     playerCap: 20, // u — max clients per arena room
     spawnFraction: 0.8, // spawn ring radius as a fraction of map radius
@@ -2172,12 +2178,22 @@ export const CONFIG = {
    */
   zone: {
     beatMs: 60000, // ms — one beat; a ring group is 4 of these
-    // Per-group geometric exponents of the intermediate rings in the descent
-    // map radius → terminal (r_g = R·(T/R)^step): equal ratio steps — the
-    // ratified pure-geometric shrink (amendment 5). Length sets the group count.
-    ringSteps: [1 / 3, 2 / 3],
+    /**
+     * THE RING LADDER, IN WORLD UNITS (Eric ruling 2026-10-07, Story 9.1).
+     * Ring 0 is the full 5500 u ocean; then, in his words, *"11000 -> 7000 ->
+     * 4000 -> 2000 -> 0"* (diameters) — intermediate rings 3500 and 2000,
+     * terminal 1000, and the sudden-death collapse to 0 appended below. Three
+     * geometric groups, exactly as before; only where the radii come from
+     * changed. This RETIRES the pure-geometric shrink (`ringSteps`, amendment
+     * 5) and the truesight-derived terminal (`terminalSightFactor`, amendment
+     * 4 — *"The fixed 1320 no longer makes sense."*); both survive only as the
+     * formula fallback for dev `zoneOverride` literals and smokes (sim/zone.ts).
+     * Consequence recorded with the ruling: the 1000 u terminal is wider than
+     * radar reach (660 u), so Story 3.4's "radar reaches the endgame ring"
+     * reading no longer holds; the collapse still ends the match.
+     */
+    ringRadii: [3500, 2000, 1000],
     offsetCap: 1.0, // ≤ this × (r_cur − r_next) next-ring center offset (structurally clamped 0..1)
-    terminalSightFactor: 2, // × CONFIG.vision.sight — the endgame ring radius (660u at sight 330)
     /**
      * SUDDEN DEATH — THE FINAL COLLAPSE (Eric ruling 2026-08-14, authorizing the
      * long-parked contingency he wrote on 2026-08-04: *"sudden death at 15

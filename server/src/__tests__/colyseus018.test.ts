@@ -165,8 +165,10 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 70 and admits 71', () => {
-  it('PROTOCOL_VERSION is 71', () => {
+describe('the PV join gate refuses 71 and admits 72', () => {
+  it('PROTOCOL_VERSION is 72', () => {
+    // Cycle 169 bumped 71 -> 72: Story 9.1's big ocean — map radius 5500,
+    // 10 % land, the literal ring ladder; the client derives all three locally.
     // Cycle 167 bumped 70 -> 71: private lobbies — the client reads
     // CONFIG.lobby, the arena carries a new listing mode 'private', and the
     // lobby room's lr/ls/lb/lg channels join the wire (Eric 2026-10-02).
@@ -201,7 +203,7 @@ describe('the PV join gate refuses 70 and admits 71', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(71);
+    expect(PROTOCOL_VERSION).toBe(72);
   });
 
   it('refuses the immediately-previous protocol', () => {
@@ -233,12 +235,12 @@ describe('the PV join gate refuses 70 and admits 71', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(72)).toMatch(/refresh/i);
+    expect(protocolVersionError(73)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(71)).toBeNull();
+    expect(protocolVersionError(72)).toBeNull();
   });
 });
 

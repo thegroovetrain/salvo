@@ -270,9 +270,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 70→71 bump (PV 71, cycle 167: private lobbies — CONFIG.lobby, arena mode \'private\', lobby channels lr/ls/lb/lg; PV 70, cycle 166: Eric\'s 2026-10-02 deck gun ladders; PV 69, cycle 163: the self-private `dp` event; PV 68, cycle 162: MineView.c for every observer, the self-private OwnShip.chaffGhosts, chaff/smoke radii ×1.5, supercav damage 85; PV 67 was amendment 208: star / phosphor burst bases swapped; PV 66 was amendment 200: the client reads CONFIG.mine.hitRadiusU; PV 65 was amendment 197: DECK GUN TURRET and DECK GUN BARREL left the catalog) is enforced at matchmake', () => {
+describe('pv join gate — the 71→72 bump (PV 72, cycle 169: Story 9.1 big ocean — radius 5500, 10 % land, literal ring ladder; PV 71, cycle 167: private lobbies — CONFIG.lobby, arena mode \'private\', lobby channels lr/ls/lb/lg; PV 70, cycle 166: Eric\'s 2026-10-02 deck gun ladders; PV 69, cycle 163: the self-private `dp` event; PV 68, cycle 162: MineView.c for every observer, the self-private OwnShip.chaffGhosts, chaff/smoke radii ×1.5, supercav damage 85; PV 67 was amendment 208: star / phosphor burst bases swapped; PV 66 was amendment 200: the client reads CONFIG.mine.hitRadiusU; PV 65 was amendment 197: DECK GUN TURRET and DECK GUN BARREL left the catalog) is enforced at matchmake', () => {
   it('rejects pv-67 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(71);
+    expect(PROTOCOL_VERSION).toBe(72);
+    expect(protocolVersionError(71)).toMatch(/refresh/); // PV 72: the big ocean (cycle 169)
     expect(protocolVersionError(70)).toMatch(/refresh/); // PV 71: private lobbies — CONFIG.lobby and arena mode 'private' (cycle 167)
     expect(protocolVersionError(69)).toMatch(/refresh/); // PV 70: the deck gun ladders and CONFIG.machineGun / flak / instantReload (cycle 166)
     expect(protocolVersionError(68)).toMatch(/refresh/); // PV 69: the self-private `dp` drone-drop event (cycle 163); 68 was mine kind for all, chaff ghosts, radii ×1.5 (cycle 162)

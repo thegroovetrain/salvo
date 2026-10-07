@@ -266,7 +266,7 @@ describe('PoolCollector — reading a hand-built world tick by tick', () => {
 function tinyRun(): BatchResult {
   // The --json contract pin's sizing: a compressed, lethal storm so a 4-bot
   // lobby concludes in a few sim-seconds.
-  const restore = applyOverrides({ 'zone.beatMs': 1, 'zone.terminalSightFactor': 0, 'zone.stormDps': 100000 });
+  const restore = applyOverrides({ 'zone.beatMs': 1, 'zone.ringRadii.0': 1, 'zone.ringRadii.1': 1, 'zone.ringRadii.2': 1, 'zone.stormDps': 100000 });
   try {
     return runBatch({ seed: 9, matches: 2, captains: 0, bots: 4 });
   } finally {

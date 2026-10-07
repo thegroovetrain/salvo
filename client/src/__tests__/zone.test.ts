@@ -218,15 +218,18 @@ describe('fillOuterRadius — the FULL-AREA storm fill (amendment 15)', () => {
   });
 
   it('BUCKETS upward, so a panning camera does not re-tessellate every frame', () => {
-    const base = view({ camX: 29_000, zoom: 0.2 });
+    // A SMALL map here on purpose: the bucketing is the subject, and the
+    // map-radius FLOOR (fillOuterFactor × mapRadius) must not be the term that
+    // wins — on the 5500 u ocean (Story 9.1) it would swallow a 4000 u pan.
+    const base = view({ camX: 29_000, zoom: 0.2, mapRadius: 1000 });
     const r = fillOuterRadius(base);
     expect(r % Z.fillBucketU).toBe(0); // always on a bucket step
     // Creeping the camera a few hundred units cannot move the drawn radius.
     for (const dx of [1, 50, 400]) {
-      expect(fillOuterRadius(view({ camX: 29_000 + dx, zoom: 0.2 }))).toBe(r);
+      expect(fillOuterRadius(view({ camX: 29_000 + dx, zoom: 0.2, mapRadius: 1000 }))).toBe(r);
     }
     // ...but a genuine pan past a step does.
-    expect(fillOuterRadius(view({ camX: 29_000 + Z.fillBucketU * 2, zoom: 0.2 }))).toBeGreaterThan(r);
+    expect(fillOuterRadius(view({ camX: 29_000 + Z.fillBucketU * 2, zoom: 0.2, mapRadius: 1000 }))).toBeGreaterThan(r);
   });
 
   it('stays finite and positive for a degenerate map radius or camera', () => {

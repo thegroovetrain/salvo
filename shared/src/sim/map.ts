@@ -535,6 +535,13 @@ export function landCoverage(map: MapShape): number {
 export function validateMap(map: MapShape): boolean {
   const cover = landCoverage(map);
   if (cover < P.coverMin || cover > P.coverMax) return false;
+  return mapIsNavigable(map);
+}
+
+/** validateMap's navigability half on its own — every water cell reachable
+ *  from the spawn ring at hull clearance, 4-connected. Exported so a test can
+ *  ask about navigability without first having to sit inside the cover band. */
+export function mapIsNavigable(map: MapShape): boolean {
   return navigableCheck(map.islands, map.radius, map.spawnRing).ok;
 }
 
