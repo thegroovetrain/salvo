@@ -132,6 +132,38 @@ Dials for w5500: `map.baseRadius 5500`, `zone.terminalSightFactor 3.0303030` (te
 - **The storm IS a killer on the 2× board**: 15–17 % of bot deaths against 1.8 % today, because the beat did not change and each close now sweeps twice the distance. That is the number to watch when the ladder or `zone.beatMs` moves; it does not by itself contradict Eric's "nobody fails to outrun it unless bad" — bots are not people.
 - DREADNOUGHT share drifted up (+8 pp vs baseline, +11 vs C1, neither significant at n = 90). A larger terminal ring (1,400 vs 1,320) is a small thing; one arm is not evidence of a class effect.
 
+## 7. Time and cause of every death (Eric's ask, 2026-10-07) — raw replays of w5500 and C1
+
+Exact replays of the first 3 matches per shard (36 each, same seeds) with `--raw` per-bot rows; `~/hc-campaigns/tune-2026-10-06/raw/`. Storm schedule (zone.ts header): each ring group is CLEAR / SUPPLY / REVEAL / CLOSING minutes, so the live ring shrinks during 3:00–4:00, 7:00–8:00, 11:00–12:00 and the collapse 15:00–16:00. Bot deaths only (drones excluded); `lifeS` is seconds from activation.
+
+| minute | w5500 ship / storm | C1 ship / storm | |
+| --- | --- | --- | --- |
+| 0–1 | 0 / 0 | 0 / 0 | |
+| 1–2 | 37 / 0 | 36 / 0 | |
+| 2–3 | 141 / 0 | 121 / 0 | |
+| 3–4 | 141 / 1 | 138 / 5 | ring 0 → 1 closes |
+| 4–5 | 99 / **11** | 99 / **46** | |
+| 5–6 | 62 / **14** | 70 / **33** | |
+| 6–7 | 51 / 1 | 30 / 4 | |
+| 7–8 | 23 / 0 | 20 / 1 | ring 1 → 2 closes |
+| 8–9 | 18 / **17** | 11 / **8** | |
+| 9–10 | 16 / **15** | 7 / **8** | |
+| 10–11 | 6 / 2 | 7 / 1 | |
+| 11–12 | 4 / 0 | 7 / 2 | ring 2 → 3 closes |
+| 12–13 | 7 / 5 | 5 / 3 | sudden death group |
+| 13–14 | 1 / 4 | 2 / 1 | |
+| 14–18 | 3 / 5 | 0 / 0 | collapse 15–16 |
+
+| window | w5500 ship / storm (storm share) | C1 ship / storm (storm share) |
+| --- | --- | --- |
+| 0:00–4:00 | 319 / 1 (0.3 %) | 295 / 5 (1.7 %) |
+| 4:00–8:00 | 235 / 26 (9.9 %) | 219 / 84 (27.7 %) |
+| 8:00–12:00 | 44 / 34 (43.6 %) | 32 / 19 (36.5 %) |
+| 12:00–16:00 | 11 / 9 (45 %) | 7 / 4 (36 %) |
+| totals (36 / 35 matches) | 609 ship, 75 storm, 2 fleet, 34 alive at the end | 553 ship, 112 storm, 1 fleet, 34 alive |
+
+**Reading.** Storm deaths are ring-related and they are NOT during the close — they land in the one to two minutes AFTER each close (4–6, 8–10, 12–14), which is how long 4 hp/s takes to sink a hull left outside the new ring. On C1's shipped-shape ladder the first close (11,200 → 5,491) is the killer: 79 of 112 storm deaths fall in 4:00–6:00, a quarter of all deaths in that window. The wide ladder (first close 11,000 → 7,000) cuts that first-close toll to 25 and moves the storm's weight to the second close (8:00–10:00: 32 of 75), where the field is already small. Storm deaths by class, w5500: DREADNOUGHT 44 · REPEATER 17 · SPEEDBOAT 14 (C1: 54 / 34 / 24) — the slow hull is the one that does not get out. Guns remain the killer everywhere before 8:00 (≥ 90 % of deaths in minutes 0–8 on w5500).
+
 ## 5. Standing limits carried forward
 
 - ±10 pp tier only; class claims are "consistent with", never "in band".
