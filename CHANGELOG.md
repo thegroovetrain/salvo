@@ -8,7 +8,7 @@
 
 ### Internal
 - PROTOCOL_VERSION 73 -> 74 (`CONFIG.vision.detectFactor` is read by the client).
-- `CONFIG.vision.detect` = sight, `detectFactor` 1. Tests: the eighths-ladder pins read the 4/8 rung (detect ≤ sight, detect / eighth = 4); the signals detect gate re-derives 4/8 as a literal; the two pins that tied the wake clock to the detect rung are deleted (a pinned coincidence, not a rule — Eric 2026-10-08); wake capacity / bucket / torpedo half-life pins now read their formulas. TEST_COUNTS_PLACEHOLDER
+- `CONFIG.vision.detect` = sight, `detectFactor` 1. Tests: the eighths-ladder pins read the 4/8 rung (detect ≤ sight, detect / eighth = 4); the signals detect gate re-derives 4/8 as a literal; the two pins that tied the wake clock to the detect rung are deleted (a pinned coincidence, not a rule — Eric 2026-10-08); wake capacity / bucket / torpedo half-life pins now read their formulas. Tests: shared 1033 -> 1031 (the two wake-vs-rung coincidence pins deleted), server 2515, client 3929; lint 0 errors; `npm run check` green.
 - `equipmentIcons.ts`: `MINE_R` (one circle), `CAPTIVE_ORIGINAL` kept verbatim and scaled through `intoMineCircle`; fouling re-cut.
 - Epic-9 amendments 14–17; GDD dated supersessions (eighths ladder, wakes). No How-to-Play or README change.
 
