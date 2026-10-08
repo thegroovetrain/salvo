@@ -185,11 +185,12 @@ describe('overrides — per-key value floors (review gate 2026-07-31)', () => {
 
   it('keeps the legitimate ZERO sweep arms legal (they are real ratification evidence)', () => {
     expect(parseArgs(['--set', 'zone.offsetCap=0']).set).toEqual({ 'zone.offsetCap': 0 });
+    const ring0 = CONFIG.zone.ringRadii[0];
     const restore = applyOverrides({ 'zone.offsetCap': 0, 'zone.ringRadii.0': 3000 });
     expect(CONFIG.zone.offsetCap).toBe(0);
     expect(CONFIG.zone.ringRadii[0]).toBe(3000);
     restore();
-    expect(CONFIG.zone.ringRadii[0]).toBe(3500);
+    expect(CONFIG.zone.ringRadii[0]).toBe(ring0); // restored to whatever CONFIG ships (never a number pin)
   });
 });
 
@@ -211,6 +212,9 @@ describe('overrides — tunable CONFIG dials', () => {
   });
 
   it('addresses the phased-timeline shape: beatMs, ringRadii by index, offsetCap, map.baseRadius', () => {
+    const baseRadius = CONFIG.map.baseRadius;
+    const ring1 = CONFIG.zone.ringRadii[1];
+    const ring2 = CONFIG.zone.ringRadii[2];
     const restore = applyOverrides({
       'zone.beatMs': 30000,
       'zone.ringRadii.1': 1800,
@@ -225,9 +229,9 @@ describe('overrides — tunable CONFIG dials', () => {
     expect(CONFIG.map.baseRadius).toBe(1200);
     restore();
     expect(CONFIG.zone.beatMs).toBe(60000);
-    expect(CONFIG.zone.ringRadii[1]).toBe(2000);
-    expect(CONFIG.zone.ringRadii[2]).toBe(1000);
-    expect(CONFIG.map.baseRadius).toBe(5500); // Story 9.1 (2026-10-07): the big ocean
+    expect(CONFIG.zone.ringRadii[1]).toBe(ring1);
+    expect(CONFIG.zone.ringRadii[2]).toBe(ring2);
+    expect(CONFIG.map.baseRadius).toBe(baseRadius); // restored to whatever CONFIG ships (never a number pin)
     // An out-of-range ringRadii index is a real rejection, not a silent no-op.
     expect(() => applyOverrides({ 'zone.ringRadii.7': 500 })).toThrow(TunableError);
     // The retired formula dials are refused WITH the live dial named (Story 9.1).
