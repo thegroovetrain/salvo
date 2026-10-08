@@ -87,7 +87,9 @@ function rawSources(): { label: string; amount: number }[] {
     { label: 'torpedo', amount: CONFIG.torpedo.damage },
     { label: 'mine', amount: CONFIG.mine.damage },
     { label: 'fleetGun', amount: CONFIG.drones.small.gun.damage },
-    { label: 'storm', amount: CONFIG.zone.stormDps * tickS },
+    // The storm is a RAMP since 2026-10-07 (Story 9.1): one row per distinct
+    // rung, all labelled `storm`, so a bite at any close classifies as storm.
+    ...[...new Set(CONFIG.zone.stormDps)].map((dps) => ({ label: 'storm', amount: dps * tickS })),
     // Story 8.17: the burn is PHOSPHOR SHELLS' own zone (tier-I dps here; a
     // tiered zone's per-tick bite prints under whichever label it collides
     // with, and the ledger says so) — plus the two new burst amounts.

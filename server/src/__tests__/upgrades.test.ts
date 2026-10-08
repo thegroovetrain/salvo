@@ -14,6 +14,7 @@
 // 2.6/2.7 earn/queue/spend/lifecycle/privacy guarantees the deck slots into.
 
 import { describe, it, expect, vi } from 'vitest';
+import { stormDpsFor } from '@salvo/shared';
 import {
   isAfloat,
   CATALOG,
@@ -802,7 +803,9 @@ describe('HULL REPAIR — the paid heal as a card (Eric rulings 2026-08-04; Stor
     stock(w, a, 1, 100);
     expect(press(w, a)).toEqual({ ok: true });
     const hpAfterInstant = a.hp;
-    const stormPerTick = CONFIG.zone.stormDps * (DT / 1000);
+    // An instant (1 ms beat) timeline is fully closed by the first step, so
+    // the bite is the ramp's LAST rung (Story 9.1, 2026-10-07).
+    const stormPerTick = stormDpsFor({ phase: 'closed', groupIndex: 0 }, CONFIG.zone) * (DT / 1000);
     const ticks = HR.regenMs / DT;
     for (let i = 0; i < ticks; i++) w.step();
     expect(a.repairHp).toBeCloseTo(0, 9);

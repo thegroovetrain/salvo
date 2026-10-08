@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.35] - 2026-10-07
+
+### Changed
+- **The storm ramps instead of biting flat** — outside the live ring you now take 1 hp/s from the first close, 2 from the second, 3 from the third, 4 during the final collapse and 5 once the storm has fully closed in (it was a flat 4 hp/s from the first close). Eric's numbers after playing 0.18.34 on staging.
+- **The ocean is 8,000 wide** — radius 4,000 (was 5,500: *"11000 diameter is too big"*), rings closing 8,000 → 5,000 → 3,000 → 2,000 → 0 in diameter. Land stays 10 %.
+
+### Internal
+- PROTOCOL_VERSION 72 -> 73 (the client derives the map and the storm rhythm locally; a same-seed ocean differs).
+- `CONFIG.zone.stormDps` is a ladder `[1, 2, 3, 4, 5]` read through `stormDpsFor(state)` (`sim/zone.ts`): rung k from the start of close k, last rung once closed, 0 before the first close. `applyStorm` is the only biter. Harness: `--set zone.stormDps=X` flattens every rung (storm-kill / storm-off arms keep working), `zone.stormDps.N` sets one.
+- `CONFIG.map.baseRadius` 4000; `CONFIG.zone.ringRadii` [2500, 1500, 1000]. Height raster 577² (was 791²).
+- Tests: `stormDpsFor` contract tests on a synthetic ladder; the ramp walked through a real one-tick-per-beat timeline in `server/src/__tests__/zone.test.ts`; the NFR6 ceiling and the storm-granularity pins read the fully-closed rung through the function (no number pins). Tests: shared 1030 -> 1033, server 2514 -> 2515, client 3929 (unchanged); lint 0 errors; `npm run check` green.
+- Epic-9 amendments 11–13; `batch-sim-evidence-2026-10-06.md` §9 (the harness run Eric asked for); GDD dated supersessions (storm rate, ocean size). No How-to-Play or README change.
+
 ## [0.18.34] - 2026-10-07
 
 ### Changed

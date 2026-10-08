@@ -97,7 +97,10 @@ export const CONFIG = {
     // below is the board that met his 10-alive-at-4:00 target (w5500 arm).
     // The closing-rate band note above is HISTORY: the ladder is his numbers
     // now, and he ruled the storm's closing speed is not a design concern.
-    baseRadius: 5500, // u — map radius (2400 → 2800 amendment 42; 2800 → 5500 Story 9.1, 2026-10-07)
+    // 5500 → 4000 (Story 9.1 session 2, Eric 2026-10-07 after playing the
+    // 11,000 u ocean on staging: *"11000 diameter is too big, and I feel like
+    // there are performance hits"*). Diameter 8,000.
+    baseRadius: 4000, // u — map radius (2400 → 2800 amendment 42; 2800 → 5500 → 4000 Story 9.1, 2026-10-07)
     capRef: 20, // players the base radius is scaled against
     playerCap: 20, // u — max clients per arena room
     spawnFraction: 0.8, // spawn ring radius as a fraction of map radius
@@ -2192,7 +2195,9 @@ export const CONFIG = {
      * radar reach (660 u), so Story 3.4's "radar reaches the endgame ring"
      * reading no longer holds; the collapse still ends the match.
      */
-    ringRadii: [3500, 2000, 1000],
+    // Session 2 (Eric, same day, after playing it): *"8000 -> 5000 -> 3000 ->
+    // 2000 -> 0"* on the 4,000 u radius — rings 2500 / 1500 / 1000.
+    ringRadii: [2500, 1500, 1000],
     offsetCap: 1.0, // ≤ this × (r_cur − r_next) next-ring center offset (structurally clamped 0..1)
     /**
      * SUDDEN DEATH — THE FINAL COLLAPSE (Eric ruling 2026-08-14, authorizing the
@@ -2214,7 +2219,18 @@ export const CONFIG = {
      * 12:00 timeline byte-for-byte.
      */
     suddenDeath: true,
-    stormDps: 4, // hp/s — damage while outside the live ring, every phase
+    /**
+     * THE DAMAGE RAMP (Eric ruling 2026-10-07, replacing the flat 4 hp/s and
+     * the "no damage ramp" clause of the storm's design): hp/s outside the live
+     * ring, by close — `[k-1]` from the START of close k onward, the LAST entry
+     * once fully closed. *"1 damage/sec during/after the first closing, 2
+     * during/after the second, 3 during/after the third, 4 during the final
+     * closing, and 5 after the storm has fully closed in."* Read through
+     * `stormDpsFor(state)` (sim/zone.ts); still OUTSIDE the dev `zoneOverride`
+     * shape (damage is never overridable there). The harness may write it
+     * (`--set zone.stormDps.N`, or `zone.stormDps=X` to flatten every rung).
+     */
+    stormDps: [1, 2, 3, 4, 5],
   },
 
   /** Match lifecycle. */

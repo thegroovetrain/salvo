@@ -821,9 +821,15 @@ describe('no-escape invariant on a REAL generated map', () => {
       const rng = mulberry32(seed * 7919);
       let prev: Pose = { x: ship.x, y: ship.y, heading: ship.heading };
       let contacts = 0;
-      for (let t = 0; t < 1200; t++) {
-        const throttle = t < 600 ? 1 : rng.float(-1, 1); // ram first, wander after
-        stepShip(ship, { throttle, rudder: t < 600 ? 0 : rng.float(-1, 1) }, kin, DT);
+      // RAM UNTIL THE COAST IS REACHED, then wander: the start can sit up to
+      // 1,600 u off the coast on the archipelago (Story 9.1), further than a
+      // fixed 30 s ram at flank covers, so the ram phase ends on the first
+      // contact (bounded) rather than on a tick count.
+      let ramming = true;
+      for (let t = 0; t < 2400; t++) {
+        if (ramming && (contacts > 0 || t >= 1800)) ramming = false;
+        const throttle = ramming ? 1 : rng.float(-1, 1); // ram first, wander after
+        stepShip(ship, { throttle, rudder: ramming ? 0 : rng.float(-1, 1) }, kin, DT);
         if (resolve(prev, ship, map.islands, 'battleship', map.radius).contact) contacts++;
         expect(clearOfAll(ship, 'battleship', map.islands)).toBe(true);
         expect(insideMapCircle(ship, 'battleship', map.radius)).toBe(true); // hull-exact edge invariant

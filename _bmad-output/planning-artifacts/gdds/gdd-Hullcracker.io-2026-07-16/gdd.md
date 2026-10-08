@@ -191,6 +191,8 @@ No consumable ships without a bot use rule (see Enemy Design and AI).
 
 *(SUPERSEDED 2026-10-07, Story 9.1, cycle 169, epic-9 amendment 7 — Eric: "It should really be proportional. The fixed 1320 no longer makes sense." The rings are now a literal ladder in world units, his numbers: ocean diameter 11,000 → 7,000 → 4,000 → 2,000 → 0 (`CONFIG.zone.ringRadii` [3500, 2000, 1000] on the 5,500 u radius). The Endgame Guarantee's "2 standard truesight diameters" terminal (660 u, radar-reachable) is retired; the 1,000 u terminal is wider than radar reach, and the sudden-death collapse is what ends the match. Rhythm, reveal and collapse unchanged.)*
 
+*(SUPERSEDED AGAIN 2026-10-07, Story 9.1 session 2, cycle 170, epic-9 amendments 11–12 — after playing it: the ocean is 8,000 wide (radius 4,000) with rings 8,000 → 5,000 → 3,000 → 2,000 → 0, and the storm RAMPS: 1 / 2 / 3 / 4 hp/s from the first / second / third / final close, 5 hp/s once fully closed. The "no damage ramp" clause is retired.)*
+
 ### Controls and Input
 
 Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left hand helms the ship, right hand fights it.
@@ -297,6 +299,8 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 **The ocean.** One large circular map per match. Islands are procedurally generated from a seed; both sides rebuild the map deterministically from that seed (the map never travels on the wire). **Map size is fixed** — one radius for every roster. Roster-scaled oceans were designed and then **cancelled** (epic-6 amendment 11): at a two-captain size the fixed endgame ring would already be over half the water.
 
 *(SUPERSEDED 2026-10-07, Story 9.1, cycle 169, epic-9 amendment 7 — the fixed radius is 5,500 u (was 2,800; Eric: "2800 is TINY") and land cover is 10 % of the ocean (was 2.5 %), the board that met his 10-alive-at-4:00 target in the 2026-10-06 harness session. Still one fixed size for every roster.)*
+
+*(SUPERSEDED AGAIN 2026-10-07, cycle 170, epic-9 amendment 12: radius 4,000 u — Eric after playing the 5,500 u ocean: "11000 diameter is too big.")*
 
 **Islands** are the terrain system: they block line of sight (the LOS rule for every sensor tier), block shells and torpedoes (~~the arcing MONITOR GUN shell is the one exception — catalog v3 R30~~ no exception since 2026-09-21: the monitor gun is cut), and impose collision. They are what makes needle-threading a skill shot, radar shadows a hiding place, and positioning a deduction input.
 

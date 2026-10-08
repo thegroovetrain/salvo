@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { stormDpsFor } from '@salvo/shared';
 import {
   isAfloat,
   CONFIG,
@@ -304,7 +305,8 @@ describe('the collapse group — the whole map is storm at closure', () => {
     expect(w.zonePhase).toBe('closed');
     // NOWHERE IS SAFE: every afloat hull is outside the collapsed ring and
     // every one of them took the tick, the hull on the collapse point included.
-    const perTick = CONFIG.zone.stormDps * (CONFIG.tick.simDtMs / 1000);
+    // Fully closed: the ramp's LAST rung (Story 9.1, 2026-10-07).
+    const perTick = stormDpsFor({ phase: 'closed', groupIndex: 0 }, CONFIG.zone) * (CONFIG.tick.simDtMs / 1000);
     const ring = w.zoneLiveRing;
     expect(ring.r).toBe(0);
     crew.forEach((rec, i) => {
@@ -340,7 +342,7 @@ describe('the collapse group — the whole map is storm at closure', () => {
     stepTo(w, 4 * GROUP - 1); // the last tick before the ring reaches r=0
     expect(w.zonePhase).toBe('closing');
     expect(rec.hp).toBe(CONFIG.shipClasses.battleship.hp); // full HP into the collapse
-    const sunkS = CONFIG.shipClasses.battleship.hp / CONFIG.zone.stormDps;
+    const sunkS = CONFIG.shipClasses.battleship.hp / stormDpsFor({ phase: 'closed', groupIndex: 0 }, CONFIG.zone);
     expect(sunkS).toBeLessThanOrEqual(90); // was 45 pre-doubling — see the note above
     // NOTHING LENGTHENS THE TAIL ANY MORE (Story 8.8, epic-8 amendments 46 +
     // 47). The free per-level auto-heal that used to patch levelMissingPct of
@@ -372,13 +374,13 @@ describe('the collapse group — the whole map is storm at closure', () => {
 });
 
 describe('storm damage', () => {
-  it('accumulates at stormDps granularity (4 HP/s => 0.2 per 50ms tick) outside', () => {
+  it('accumulates at the live rung × dt per tick outside (an instant timeline is fully closed: the last rung)', () => {
     const w = new World(3, CONFIG.match.fillTo, instant(1));
     const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     placeClear(w, 'a', w.map.radius * 0.8);
     w.startZone();
-    const perTick = CONFIG.zone.stormDps * (CONFIG.tick.simDtMs / 1000);
-    expect(perTick).toBeCloseTo(0.2, 9);
+    const perTick = stormDpsFor({ phase: 'closed', groupIndex: 0 }, CONFIG.zone) * (CONFIG.tick.simDtMs / 1000);
+    expect(perTick).toBeGreaterThan(0);
     w.step();
     const ring = w.zoneLiveRing;
     expect(isOutside(rec.state, ring.cx, ring.cy, ring.r)).toBe(true);
@@ -497,5 +499,46 @@ describe('storm damage', () => {
     w.step();
     expect(rec.hp).toBeLessThan(CONFIG.shipClasses.torpedoBoat.hp); // took storm damage
     expect(w.tickEvents.some((e) => e.k === 'dmg')).toBe(false); // but emitted no dmg spam
+  });
+});
+
+describe('THE DAMAGE RAMP (Eric 2026-10-07, Story 9.1) — the bite follows the close count', () => {
+  it('a hull outside every ring bleeds rung k from the start of close k, and the last rung once fully closed', () => {
+    // One tick per beat (beatMs = simDtMs), concentric rings, sudden death on:
+    // group g occupies ticks 4g..4g+3 and its CLOSING beat is tick 4g+3. The
+    // hull sits at 0.95 R — outside every ring the moment close 1 starts.
+    const dt = CONFIG.tick.simDtMs;
+    const cfg: ZoneTimeline = { beatMs: dt, ringRadii: [1200, 800, 500], offsetCap: 0, suddenDeath: true };
+    const w = new World(5, CONFIG.match.fillTo, cfg);
+    w.map.islands.length = 0;
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
+    placeClear(w, 'a', w.map.radius * 0.95);
+    w.startZone();
+    const ladder = CONFIG.zone.stormDps;
+    // Walk the timeline and derive the expected rate from the OBSERVED phase:
+    // each entry into a closing beat is one more close started; the rate is
+    // rung k while k closes have started, the last rung once closed, and 0
+    // whenever the hull is not outside the live ring (the first closing tick
+    // still has the ring at full size, so the hull is inside it).
+    let closes = 0;
+    let prevPhase = w.zonePhase;
+    let prev = rec.hp;
+    const seen = new Set<number>();
+    for (let tick = 0; tick < 4 * 4 + 3; tick++) {
+      w.step();
+      const phase = w.zonePhase;
+      if (phase === 'closing' && prevPhase !== 'closing') closes += 1;
+      prevPhase = phase;
+      const ring = w.zoneLiveRing;
+      const outside = isOutside(rec.state, ring.cx, ring.cy, ring.r);
+      const rate = phase === 'closed' ? ladder[ladder.length - 1] : closes === 0 ? 0 : ladder[Math.min(closes, ladder.length - 1) - 1];
+      const expected = outside ? rate : 0;
+      const bite = (prev - rec.hp) / (dt / 1000);
+      expect(bite, `tick ${tick} phase ${phase}`).toBeCloseTo(expected, 6);
+      if (expected > 0) seen.add(expected);
+      prev = rec.hp;
+    }
+    // Non-vacuity: every rung of the ladder actually bit at least once.
+    expect([...seen].sort((x, y) => x - y)).toEqual([...new Set(ladder)].sort((x, y) => x - y));
   });
 });

@@ -3,6 +3,12 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  73 — cycle 170 (Story 9.1 session 2, Eric after playing the 11,000 u
+ *  ocean): CONFIG.map.baseRadius 5500 → 4000 (diameter 8,000), the ring
+ *  ladder [2500, 1500, 1000] (8000 → 5000 → 3000 → 2000 → 0) and
+ *  CONFIG.zone.stormDps becomes the damage RAMP [1, 2, 3, 4, 5] by close
+ *  (the client derives the map and the storm locally; a same-seed ocean
+ *  differs again). Perception exception count stays SIX.
  *  72 — cycle 169 (Story 9.1, the tuning pass): THE OCEAN — CONFIG.map
  *  .baseRadius 2800 → 5500 (the same seed now builds a different ocean, the
  *  PV 36 precedent), TERRAIN_PARAMS cover 2.5 % → 10 %, and CONFIG.zone
@@ -799,7 +805,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 72;
+export const PROTOCOL_VERSION = 73;
 
 // Tunables
 export * from './constants.js';

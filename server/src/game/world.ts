@@ -73,6 +73,7 @@ import {
   rollZoneRings,
   zoneCollapses,
   zoneGroups,
+  stormDpsFor,
   zoneStateAt,
   isOutside,
   type BallisticEvent,
@@ -3931,8 +3932,13 @@ export class World {
    */
   private applyStorm(dt: number): void {
     if (this.zoneStartT === null || !this.damageEnabled) return;
-    const ring = this.zoneLiveRing;
-    const bite = CONFIG.zone.stormDps * dt;
+    const state = this.zoneTimelineState();
+    const ring = state?.current ?? this.idleRing();
+    // THE RAMP (Eric 2026-10-07): the rate is a function of how many closes
+    // have started — see stormDpsFor. 0 before the first close (nobody can be
+    // outside ring 0 anyway), the ladder's last rung once fully closed.
+    const bite = stormDpsFor(state, CONFIG.zone) * dt;
+    if (bite <= 0) return;
     for (const ship of this.ships.values()) {
       if (!isAfloat(ship.lifecycle) || !isOutside(ship.state, ring.cx, ring.cy, ring.r)) continue;
       // THE GATE (Story 8.4 / AR47): `byId` undefined is what makes "the storm

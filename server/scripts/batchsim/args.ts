@@ -102,7 +102,8 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      xp.*, offer.size, match.fillTo, map.baseRadius,
                      zone.* (phased shape: beatMs, ringRadii.N — the ring
                      ladder in world units, terminal last — offsetCap,
-                     stormDps),
+                     stormDps.N — the damage ramp by close, hp/s, last =
+                     fully closed; bare zone.stormDps=X flattens every rung),
                      terrain.* (TERRAIN_PARAMS: coverTarget / coverMin /
                      coverMax as fractions in (0,1), regionWavelength —
                      which FOLLOWS a map.baseRadius override unless set)
