@@ -657,13 +657,16 @@ export const CONFIG = {
     // that once did (intelTruesight, merged into intelRange in cycle 92) was
     // deleted in cycle 119, so the only live scale is dazzle. The resolver
     // stays observer-scaled rather than flat — see epic-7 amendment 31.
-    detect: SIGHT * 0.75,
+    // 3/8 → 4/8 (Story 9.1, Eric ruling 2026-10-08: *"adjust the detection range
+    // of all mines and torpedoes to 4/8, regular normal sight range"* — captive
+    // mines were firing before they could be seen).
+    detect: SIGHT * 1,
     // The runtime scale the detect gate multiplies an observer's own
     // dazzle-scaled, boon-widened sight by. It is the SAME number as detect's
     // multiple above, by construction: `detect === sight * detectFactor` is
     // pinned in zone.test.ts precisely so the base rung and the runtime factor
     // can never drift apart. Never edit one without the other.
-    detectFactor: 0.75,
+    detectFactor: 1, // 0.75 → 1 with the rung above (2026-10-08); never edit one without the other
     sight: SIGHT, // u — 4/8: true-sight bubble (actual ships visible; Eric ruling 2026-07-23, was 220)
     // THE RUNTIME SCALE FOR THE 5/8 RUNG (Eric ruling 2026-08-16: *"It scales.
     // Intel range means your detection range on all levels gets further."*).

@@ -961,7 +961,7 @@ describe('effectiveStats — derived ranges and rings', () => {
     const detect = s.sightRange * CONFIG.vision.detectFactor;
     const muzzle = s.radarRange * CONFIG.vision.muzzleFlashFactor;
     const farRadar = s.radarRange * 0.875;
-    expect(detect).toBeLessThan(s.sightRange);
+    expect(detect).toBeLessThanOrEqual(s.sightRange); // equal since the 4/8 rung (2026-10-08)
     expect(s.sightRange).toBeLessThan(muzzle);
     expect(muzzle).toBeLessThan(farRadar);
     expect(farRadar).toBeLessThan(s.radarRange);

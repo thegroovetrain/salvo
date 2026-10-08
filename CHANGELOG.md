@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.18.36] - 2026-10-08
+
+### Changed
+- **Mines and torpedoes are seen at sight range** — they appear at the 4/8 rung (330 u, the same distance a ship becomes visible) instead of 3/8 (247.5 u). Eric: captive mines could be upgraded to fire before they were seen. Nothing else moves (the wake clock stays 5.5 s).
+- **Every mine glyph carries the same circle** — the naval mine's sphere, which on the water is the 10-unit ring a deck-gun shell must land inside. The fouling mine loses its tether squiggle and its sphere grows to that size; the captive mine's triangle-and-torpedo icon sits inside that circle. Card and on-water marker alike.
+
+### Internal
+- PROTOCOL_VERSION 73 -> 74 (`CONFIG.vision.detectFactor` is read by the client).
+- `CONFIG.vision.detect` = sight, `detectFactor` 1. Tests: the eighths-ladder pins read the 4/8 rung (detect ≤ sight, detect / eighth = 4); the signals detect gate re-derives 4/8 as a literal; the two pins that tied the wake clock to the detect rung are deleted (a pinned coincidence, not a rule — Eric 2026-10-08); wake capacity / bucket / torpedo half-life pins now read their formulas. TEST_COUNTS_PLACEHOLDER
+- `equipmentIcons.ts`: `MINE_R` (one circle), `CAPTIVE_ORIGINAL` kept verbatim and scaled through `intoMineCircle`; fouling re-cut.
+- Epic-9 amendments 14–17; GDD dated supersessions (eighths ladder, wakes). No How-to-Play or README change.
+
 ## [0.18.35] - 2026-10-07
 
 ### Changed

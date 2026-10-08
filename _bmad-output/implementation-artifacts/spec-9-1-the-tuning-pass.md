@@ -66,6 +66,10 @@ See amendment 9 (b)–(g); 9(a) is superseded by amendment 10 (the sweep generat
 
 Eric after playing 0.18.34 on staging: storm damage RAMP 1 / 2 / 3 / 4 / 5 hp/s by close (`CONFIG.zone.stormDps` ladder, `stormDpsFor`), ocean radius 5500 → 4000 (diameter 8000), rings 8000 → 5000 → 3000 → 2000 → 0 (`ringRadii` [2500, 1500, 1000]); amendments 11–13; the harness run at these numbers is the ledger's §9.
 
+## Session 3 (cycle 171, 0.18.36, PV 74)
+
+Eric 2026-10-08 after spectating 0.18.35: the board stands; mines and torpedoes detected at 4/8 (sight), the wake clock untouched, one mine circle on the naval / fouling / captive glyphs (shown twice before commit; the captive is the original icon inside the circle). Amendments 14–17. Next: progressive trigger / blast radius experiments for all three mine lines.
+
 ## Gate
 
 `npm run check` — results in the CHANGELOG entry. No review gate run this cycle (Eric's call to see it first); `followup_review_recommended: true`.

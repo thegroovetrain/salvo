@@ -3,6 +3,10 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  74 — cycle 171 (Story 9.1, Eric 2026-10-08): the mine / torpedo DETECT
+ *  rung 3/8 → 4/8 (CONFIG.vision.detect = sight, detectFactor 0.75 → 1 —
+ *  read by the client's torpedo cull and wake reach). Mine glyphs re-cut
+ *  (client-only). Perception exception count stays SIX.
  *  73 — cycle 170 (Story 9.1 session 2, Eric after playing the 11,000 u
  *  ocean): CONFIG.map.baseRadius 5500 → 4000 (diameter 8,000), the ring
  *  ladder [2500, 1500, 1000] (8000 → 5000 → 3000 → 2000 → 0) and
@@ -805,7 +809,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 73;
+export const PROTOCOL_VERSION = 74;
 
 // Tunables
 export * from './constants.js';

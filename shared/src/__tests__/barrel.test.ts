@@ -410,7 +410,7 @@ describe('shared barrel', () => {
     // 70 -> 71 (cycle 167): private lobbies — CONFIG.lobby read by the client,
     // arena mode 'private', lobby-room channels lr/ls/lb/lg. The exception
     // count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(73);
+    expect(PROTOCOL_VERSION).toBe(74);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
