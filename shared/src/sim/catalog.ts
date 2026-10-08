@@ -496,7 +496,7 @@ export const CATALOG: Catalog = deepFreezeRows({
   // CAPTIVE MINES (R25, amendments 77/82/84d): tiers II–V each +5 fish damage,
   // +0.5 held and +0.075 rad/s of homing — 75 dmg, 3 held, 0.3 rad/s, 16 s at
   // V. THE TRIP RING'S ×1.1 STEP IS NOT AN EFFECT: it is derived from the
-  // row's tier in sim/stats.ts (144 → 210.8 u), and the 32 u burst is fixed.
+  // row's tier in sim/stats.ts (120 → 175.7 u since 2026-10-08; 144 → 210.8 before), and the 32 u burst is fixed.
   captiveMines: tieredWeapon('captiveMines', 'captiveMines', [
     statEffect('equipment.captiveMines.damage', { add: 5 }),
     statEffect('equipment.captiveMines.maxAmmo', { add: 0.5 }),

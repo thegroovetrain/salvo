@@ -131,7 +131,7 @@ Claude Fable 5.1 (claude-fable-5-1), session 2026-10-06 → 2026-10-07, driven l
 - Session 1 ships the board Eric chose to test on development: radius 5500 u, 10 % land, ring ladder 11000 → 7000 → 4000 → 2000 → 0 as literal `CONFIG.zone.ringRadii`. Hull hp, guns, heals, spawn layout untouched.
 - Rulings in epic-9 amendments 2–9. Ring sizes are not a test subject (amendment 8).
 - Map generation never gives up (amendment 10, same day): an invalid draw reseeds deterministically until a valid ocean comes out.
-- Session 3 (cycle 171, amendments 14–17): the 0.18.35 board stands (bot navigation is a later fix); mines and torpedoes detected at 4/8 = sight (wake unchanged), one mine circle on all three glyphs; next: trigger/blast radius experiments for all mine lines.
+- Session 3 (cycle 171, amendments 14–17): the 0.18.35 board stands (bot navigation is a later fix); mines and torpedoes detected at 4/8 = sight (wake unchanged), one mine circle on all three glyphs; five mine arms (naval blast 40/32, captive trigger 120/96) moved nothing beyond noise; Eric stopped the rest and set the captive trip ring to 120 u (amendment 19).
 - Session 2 (cycle 170, amendments 11–13): after Eric played 0.18.34 — storm damage ramp 1/2/3/4/5 hp/s by close, ocean radius 4000 (diameter 8000), rings 8000 → 5000 → 3000 → 2000 → 0; harness run at these numbers in the ledger §9.
 - Open for Eric after his play: ring 2 (3.8 alive at 8:00 in sim vs 5); the 92-vertex cap on very large islands (map look); storm share 13–17 % of bot deaths with the 4-minute beat; the 1000 u terminal vs 660 u radar reach.
 

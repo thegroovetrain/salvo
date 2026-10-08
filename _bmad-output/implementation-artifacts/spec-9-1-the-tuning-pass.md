@@ -68,7 +68,7 @@ Eric after playing 0.18.34 on staging: storm damage RAMP 1 / 2 / 3 / 4 / 5 hp/s 
 
 ## Session 3 (cycle 171, 0.18.36, PV 74)
 
-Eric 2026-10-08 after spectating 0.18.35: the board stands; mines and torpedoes detected at 4/8 (sight), the wake clock untouched, one mine circle on the naval / fouling / captive glyphs (shown twice before commit; the captive is the original icon inside the circle). Amendments 14–17. Next: progressive trigger / blast radius experiments for all three mine lines.
+Eric 2026-10-08 after spectating 0.18.35: the board stands; mines and torpedoes detected at 4/8 (sight), the wake clock untouched, one mine circle on the naval / fouling / captive glyphs (shown twice before commit; the captive is the original icon inside the circle). Five mine arms run (ledger §10): naval blast 40 / 32, captive trigger 120 / 96 — every delta inside its CI; Eric stopped the rest and ruled the captive trip ring 120 u (amendment 19). Amendments 14–19.
 
 ## Gate
 

@@ -227,9 +227,10 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
       .toEqual([30000, 65, 50, 1]);
     expect([eq.navalMines.reloadMs, eq.navalMines.damage, eq.navalMines.blastRadius, eq.navalMines.triggerRadius])
       .toEqual([15000, 55, 48, 32]);
-    // The captive rings: 144u trip / 32u blast at base (catalog-v3 R25) — now
-    // its OWN CONFIG pair rather than a transform (amendment 84d).
-    expect([eq.captiveMines.triggerRadius, eq.captiveMines.blastRadius]).toEqual([144, 32]);
+    // The captive rings: the CONFIG trip ring (120 u since 2026-10-08; 144 before) /
+    // 32u blast at base (catalog-v3 R25) — its OWN CONFIG pair rather than a
+    // transform (amendment 84d).
+    expect([eq.captiveMines.triggerRadius, eq.captiveMines.blastRadius]).toEqual([CONFIG.captiveMines.triggerRadius, 32]);
   });
 
   it('the STORY 8.13 tier-I rows come from their own CONFIG blocks (STUB_ROWS is gone since 8.15)', () => {
@@ -693,13 +694,15 @@ describe('STORY 8.13 — the three mine ladders (amendments 77/81/82/84d)', () =
   });
 
   it('CAPTIVE MINES: +5 fish dmg, +0.5 held, +0.075 rad/s — and a TIER-DRIVEN trip ring on a FIXED 32u burst', () => {
+    const TRIP = CONFIG.captiveMines.triggerRadius;
     const table: [number, number, number, number, number][] = [
-      // fish damage, held, reloadMs, homingTurnRate, triggerRadius
-      [55, 1, 20000, 0, 144],
-      [60, 1, 19000, 0.075, 158.4],
-      [65, 2, 18000, 0.15, 174.24],
-      [70, 2, 17000, 0.225, 191.664],
-      [75, 3, 16000, 0.3, 210.8304],
+      // fish damage, held, reloadMs, homingTurnRate, triggerRadius (the
+      // CONFIG ring × 1.1 per tier — 120 u base since 2026-10-08, was 144)
+      [55, 1, 20000, 0, TRIP],
+      [60, 1, 19000, 0.075, TRIP * 1.1],
+      [65, 2, 18000, 0.15, TRIP * 1.1 ** 2],
+      [70, 2, 17000, 0.225, TRIP * 1.1 ** 3],
+      [75, 3, 16000, 0.3, TRIP * 1.1 ** 4],
     ];
     table.forEach(([damage, held, reloadMs, turn, trip], i) => {
       const row = effectiveStats(BASE, stack('captiveMines', i + 1)).equipment.captiveMines;
@@ -712,9 +715,9 @@ describe('STORY 8.13 — the three mine ladders (amendments 77/81/82/84d)', () =
       // size of the bang (amendment 84d).
       expect(row.blastRadius, `x${i + 1}: blast`).toBe(32);
     });
-    // The matrix's headline number.
+    // The matrix's headline number: the tier-V ring is the base × 1.1⁴.
     expect(effectiveStats(BASE, stack('captiveMines', 5)).equipment.captiveMines.triggerRadius)
-      .toBeCloseTo(210.8, 1);
+      .toBeCloseTo(TRIP * 1.1 ** 4, 4);
   });
 
   it('FOULING MINES: x1.1 blast (trip follows), +1 held, -0.05 slow — damage and duration FIXED', () => {

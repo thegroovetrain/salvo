@@ -447,18 +447,18 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
   // FAIL-FIRST REGRESSION (amendment 84d): the TRIP RING steps ×1.1 per rung
   // and is DERIVED from the tier inside the stat clamp — while the 32u burst
   // is fixed, so the line grows the reach of the trap and never the bang.
-  it('the trip ring at tier V is 210.8u (144 × 1.1⁴) and the burst is still 32u', () => {
+  it('the trip ring at tier V is the CONFIG ring × 1.1⁴ (175.7 u at the 120 u ring, 2026-10-08) and the burst is still 32u', () => {
     const w = bareWorld(46);
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
     fitTier(w, o, 'captiveMines', 5);
     const row = o.stats.equipment.captiveMines;
     expect(row.tier).toBe(5);
-    expect(row.triggerRadius).toBeCloseTo(210.8, 1);
     expect(row.triggerRadius).toBeCloseTo(captiveTriggerRadius(5), 9);
+    expect(row.triggerRadius).toBeCloseTo(CONFIG.captiveMines.triggerRadius * 1.1 ** 4, 6);
     expect(row.blastRadius).toBe(32);
-    // And it TRIPS out there: a hull 200u away is inside the tier-V ring and
-    // was outside the tier-I one (144u).
-    place(w, 'b', 0, 200);
+    // And it TRIPS out there: a hull 160u away is inside the tier-V ring (175.7)
+    // and outside the tier-I one (120).
+    place(w, 'b', 0, 160);
     lay(w, 'm1', 'o', 0, 0, 'captive');
     w.step();
     expect(w.mines.size).toBe(0);

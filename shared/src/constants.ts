@@ -1412,7 +1412,11 @@ export const CONFIG = {
   captiveMines: {
     reloadMs: 20000, // ms — tier I (amendment 77); −5 %/tier → 16 s at V
     maxAmmo: 1, // held mines — tier I (amendment 77); +0.5/tier, FLOORED → 1,1,2,2,3
-    triggerRadius: 144, // u — the TRIP ring at tier I (R25)
+    // 144 → 120 (Story 9.1 session 3, Eric 2026-10-08, off the mine experiments:
+    // the captive mine "can upgrade to having a range where they will fire before
+    // even being seen pretty quickly" — with detect at 330 u and ×1.1/tier the
+    // tier-V ring is 175.7 u, was 210.8).
+    triggerRadius: 120, // u — the TRIP ring at tier I (R25; 144 until 2026-10-08)
     triggerStepPerTier: 1.1, // × per tier on the trip ring (amendment 84d) → 210.8 u at V
     blastRadius: 32, // u — the fish's burst. FIXED: it never steps (amendment 84d)
     damage: 55, // hp — the fish's warhead at tier I (R25); +5/tier → 75 at V
