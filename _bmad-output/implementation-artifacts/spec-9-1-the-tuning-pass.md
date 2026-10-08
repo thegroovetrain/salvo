@@ -2,9 +2,9 @@
 title: 'Story 9.1: The Tuning Pass — session 1, the big ocean'
 type: 'balance'
 created: '2026-10-07'
-status: 'built (session 2: cycle 170)'
+status: 'done'
 baseline_revision: '50f189f4'
-final_revision: 'pending'
+final_revision: 'PR #262 merge (2026-10-08)'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:

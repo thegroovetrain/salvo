@@ -1,6 +1,6 @@
 # Story 9.1: The Tuning Pass (Eric steers)
 
-Status: in-progress (session 1 built 2026-10-07, cycle 169 — Eric tests on development; ring 2 is his next dial)
+Status: done (closed by Eric 2026-10-08 at cycle 171 / 0.18.36 / PV 74 — three sessions, cycles 169–171; see Completion Notes)
 
 <!-- Created 2026-10-06 by gds-create-story; revised the same day on Eric's correction. THE DIALS ARE WHATEVER ERIC DECIDES THEY ARE — the ones mapped below are the ones he named on 2026-10-06, written up so the facts are to hand; they are not the list, and nothing limits him to them. Every number is his, asked through AskUserQuestion, never filled in by an agent. Eric's next step is HIS OWN session with the balance harness (/balance-sim, `server/scripts/batchSim.mjs`), not a dev-story run; dev work starts when he says so. Epic 9 rulings live in epic-9-context-amendments.md (append-only). -->
 
@@ -134,6 +134,8 @@ Claude Fable 5.1 (claude-fable-5-1), session 2026-10-06 → 2026-10-07, driven l
 - Session 3 (cycle 171, amendments 14–17): the 0.18.35 board stands (bot navigation is a later fix); mines and torpedoes detected at 4/8 = sight (wake unchanged), one mine circle on all three glyphs; five mine arms (naval blast 40/32, captive trigger 120/96) moved nothing beyond noise; Eric stopped the rest and set the captive trip ring to 120 u (amendment 19).
 - Session 2 (cycle 170, amendments 11–13): after Eric played 0.18.34 — storm damage ramp 1/2/3/4/5 hp/s by close, ocean radius 4000 (diameter 8000), rings 8000 → 5000 → 3000 → 2000 → 0; harness run at these numbers in the ledger §9.
 - Open for Eric after his play: ring 2 (3.8 alive at 8:00 in sim vs 5); the 92-vertex cap on very large islands (map look); storm share 13–17 % of bot deaths with the 4-minute beat; the 1000 u terminal vs 660 u radar reach.
+
+- CLOSED 2026-10-08 (Eric: *"lets merge this PR, ff, and then close out this story"*). Shipped across cycles 169–171: ocean 4,000 u / 10 % land; storm rings 8000 → 5000 → 3000 → 2000 → 0 with the 1-2-3-4-5 damage ramp; map generation that never gives up; mines and torpedoes detected at sight; one mine circle; captive trip ring 120. Open threads handed to deferred-work.md (bot grounding on the archipelago, the 92-vertex cap, the SPEEDBOAT share drift, kills-by-weapon in the harness JSON, the storm's share of deaths). Ring 2 (3.6 alive at 8:00 vs Eric's 5) is his next dial, not this story's.
 
 ### File List
 
