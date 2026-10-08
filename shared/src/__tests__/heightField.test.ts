@@ -343,15 +343,15 @@ describe('max-height pyramid — the radar-shadow substrate', () => {
   });
 });
 
-describe('production map size (radius 5500 — Story 9.1, 2026-10-07: was 2800 since Story 5.6, amendment 42)', () => {
+describe('production map size (whatever CONFIG.map.baseRadius ships — 2800 → 5500 → 4000 across Story 9.1)', () => {
   const R_PROD = CONFIG.map.baseRadius;
   const r = rasterFor(2026, R_PROD);
 
-  it('builds the ~626KB raster the radar-shadow pass marches', () => {
-    // n = 2R / cell + 5 margin cells (405 at 2800, 791 at 5500).
-    expect(r.n).toBe(791);
-    expect(r.height.length).toBe(791 * 791); // 625,681 bytes at cell 14
-    expect(r.pyramid).toHaveLength(11); // 791 -> 1
+  it('builds the raster the radar-shadow pass marches, sized by the board: n = ceil(2R / cell) + 5 margin cells, one byte per cell, a pyramid down to 1', () => {
+    const n = Math.ceil((2 * R_PROD) / TERRAIN_PARAMS.cell) + 5; // 405 at 2800, 791 at 5500, 577 at 4000
+    expect(r.n).toBe(n);
+    expect(r.height.length).toBe(n * n);
+    expect(r.pyramid).toHaveLength(Math.ceil(Math.log2(n)) + 1);
   });
 
   it('is deterministic at production size', () => {
