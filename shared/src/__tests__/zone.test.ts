@@ -18,6 +18,8 @@ import {
   zoneTerminalRadius,
   type ZoneRing,
   type ZoneTimeline,
+  type ZonePhase,
+  stormDpsFor,
 } from '../index.js';
 
 const MAP_R = mapRadius(CONFIG.match.fillTo); // the production board (2400 at the shipped targets)
@@ -717,5 +719,36 @@ describe('isOutside — center-aware, boundary INCLUSIVE-SAFE', () => {
     for (const r of [NaN, -1, -Infinity]) {
       expect(isOutside({ x: 0, y: 0 }, 0, 0, r)).toBe(true);
     }
+  });
+});
+
+describe('stormDpsFor — the damage ramp by close (Eric 2026-10-07)', () => {
+  const ladder = { stormDps: [1, 2, 3, 4, 5] };
+  const at = (phase: Exclude<ZonePhase, 'idle'>, groupIndex: number): number => stormDpsFor({ phase, groupIndex }, ladder);
+
+  it('is 0 before the first close, rung k from the start of close k, and the last rung once closed', () => {
+    for (const phase of ['clear', 'supply', 'reveal'] as const) expect(at(phase, 0)).toBe(0);
+    expect(at('closing', 0)).toBe(1); // close 1 starts
+    for (const phase of ['clear', 'supply', 'reveal'] as const) expect(at(phase, 1)).toBe(1);
+    expect(at('closing', 1)).toBe(2);
+    expect(at('closing', 2)).toBe(3);
+    expect(at('closing', 3)).toBe(4); // the collapse close
+    expect(at('closed', 3)).toBe(5);
+    expect(at('closed', 0)).toBe(5); // closed is closed, whatever the index says
+  });
+
+  it('fails closed to 0 — no ladder, an empty ladder, a non-finite rung, a null state', () => {
+    expect(stormDpsFor({ phase: 'closing', groupIndex: 0 }, {})).toBe(0);
+    expect(stormDpsFor({ phase: 'closed', groupIndex: 0 }, { stormDps: [] })).toBe(0);
+    expect(stormDpsFor({ phase: 'closing', groupIndex: 0 }, { stormDps: [NaN, 2] })).toBe(0);
+    expect(stormDpsFor({ phase: 'closing', groupIndex: 0 }, { stormDps: [-3, 2] })).toBe(0);
+    expect(stormDpsFor(null, ladder)).toBe(0);
+  });
+
+  it('a ladder shorter than the close count holds its second-to-last rung for the extra closes', () => {
+    const short = { stormDps: [2, 9] };
+    expect(stormDpsFor({ phase: 'closing', groupIndex: 0 }, short)).toBe(2);
+    expect(stormDpsFor({ phase: 'closing', groupIndex: 5 }, short)).toBe(2);
+    expect(stormDpsFor({ phase: 'closed', groupIndex: 5 }, short)).toBe(9);
   });
 });

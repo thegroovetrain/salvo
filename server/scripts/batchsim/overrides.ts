@@ -239,8 +239,19 @@ function step(node: unknown, part: string, key: string): unknown {
   return next;
 }
 
+/** `zone.stormDps` is a LADDER since 2026-10-07 (Story 9.1: 1/2/3/4/5 hp/s by
+ *  close). The bare key still works on the --set / --sweep surface and means
+ *  "flatten every rung to this value" — the pre-ramp meaning, which is what a
+ *  storm-kill or storm-off arm wants; a single rung is `zone.stormDps.N`. */
+const STORM_LADDER_KEY = 'zone.stormDps';
+
+function stormLadderKeys(): string[] {
+  return CONFIG.zone.stormDps.map((_, i) => `${STORM_LADDER_KEY}.${i}`);
+}
+
 /** Validate a --set/--sweep key without touching CONFIG (arg-parse time). */
 export function validateTunableKey(key: string): void {
+  if (key === STORM_LADDER_KEY) return; // expands to every rung at apply time
   resolveLeaf(key);
 }
 
@@ -517,7 +528,13 @@ export function applyOverrides(
   // silently poisoned CONFIG and report its numbers as if nothing were wrong.
   // A failed apply must leave CONFIG exactly as it found it.
   try {
-    for (const key of Object.keys(set)) write(key, set[key], false);
+    for (const key of Object.keys(set)) {
+      if (key === STORM_LADDER_KEY) {
+        for (const rung of stormLadderKeys()) write(rung, set[key], false);
+        continue;
+      }
+      write(key, set[key], false);
+    }
     // THE REGION TERM TRACKS THE BOARD. `TERRAIN_PARAMS.regionWavelength` is
     // initialised from `CONFIG.map.baseRadius` at module load (heightField.ts),
     // so a `--set map.baseRadius` alone would leave it at the OLD radius and

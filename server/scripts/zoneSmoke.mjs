@@ -303,7 +303,13 @@ async function main() {
 
     const dps = measuredDps(a.outsideSamples);
     assert(dps !== null, 'A never logged a contiguous outside window');
-    assert(Math.abs(dps - CONFIG.zone.stormDps) < 1.0, `A storm dps ${dps?.toFixed(2)} != ${CONFIG.zone.stormDps}`);
+    // THE RAMP (Story 9.1, 2026-10-07): the bite is 1/2/3/4/5 hp/s by close, so
+    // a window that straddles a close averages between two rungs — accept any
+    // rate inside the ladder's range (the ramp itself is pinned in zone.test).
+    const ladder = CONFIG.zone.stormDps;
+    const lo = Math.min(...ladder);
+    const hi = Math.max(...ladder);
+    assert(dps >= lo - 1.0 && dps <= hi + 1.0, `A storm dps ${dps?.toFixed(2)} outside the ramp [${lo}, ${hi}]`);
     // LIVE-boundary honesty (review FIX 6): A's damage must begin when it
     // crossed the INTERPOLATED ring (mid-close), never before it, and not
     // only after the beat-edge ring promotion. Small slop covers the 20Hz

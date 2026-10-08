@@ -19,6 +19,7 @@ import {
   effectiveStats,
   hullIsFull,
   isStubLine,
+  stormDpsFor,
 } from '../index.js';
 
 describe('CONFIG.hullRepair — the paid heal, flat on every hull (Eric rulings 2026-08-04)', () => {
@@ -139,7 +140,7 @@ describe('NFR6 — the authored heal budget and the collapse ceiling', () => {
     expect(CATALOG.hullRepair.cap * HEAL_PER_COPY).toBe(500);
   });
 
-  it('the collapse ceiling is 362.5 s — (max hull 450 + heal bound 500 + shield bound 500) / stormDps', () => {
+  it('the collapse ceiling is (max hull + heal bound + shield bound) / the fully-closed storm rung — the storm always wins in the end', () => {
     // MAX HULL IS DERIVED, never typed: the ARMOR ladder (R8, +25 max hp per
     // tier) run to its own cap on whichever hull starts highest. That is the
     // battleship at 350 + 4 × 25 = 450.
@@ -159,12 +160,16 @@ describe('NFR6 — the authored heal budget and the collapse ceiling', () => {
     // the real ceiling in play is far lower than this pin.
     const shieldBound = CATALOG.shieldBlock.cap * CONFIG.shieldBlock.hp;
     expect(shieldBound).toBe(500);
-    const ceilingS = (maxHull + healBound + shieldBound) / CONFIG.zone.stormDps;
-    // 1450 hp at 4 hp/s = 362.5 s of continuous storm to sink the most healed,
-    // most shielded, most armoured hull in the game: the storm always wins in
-    // the end.
-    expect(ceilingS).toBe(362.5);
-    expect(ceilingS).toBe((maxHull + healBound + shieldBound) / CONFIG.zone.stormDps);
+    // THE RAMP (Story 9.1, 2026-10-07): once the storm has fully closed the
+    // rate is the ladder's LAST rung — the only rate that matters for the
+    // ceiling, since the collapse is where the last hull must drown. The
+    // ceiling's VALUE is Eric's numbers and is not pinned; the contract is
+    // that it is finite and positive, i.e. the storm ends every match.
+    const closedDps = stormDpsFor({ phase: 'closed', groupIndex: 0 }, CONFIG.zone);
+    expect(closedDps).toBeGreaterThan(0);
+    const ceilingS = (maxHull + healBound + shieldBound) / closedDps;
+    expect(Number.isFinite(ceilingS)).toBe(true);
+    expect(ceilingS).toBeGreaterThan(0);
   });
 });
 

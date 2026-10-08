@@ -2,7 +2,7 @@
 title: 'Story 9.1: The Tuning Pass — session 1, the big ocean'
 type: 'balance'
 created: '2026-10-07'
-status: 'built'
+status: 'built (session 2: cycle 170)'
 baseline_revision: '50f189f4'
 final_revision: 'pending'
 review_loop_iteration: 0
@@ -61,6 +61,10 @@ See amendment 9 (b)–(g); 9(a) is superseded by amendment 10 (the sweep generat
 - The 1000 u terminal ring is wider than radar reach (660 u); the sudden-death collapse ends the match.
 - The storm takes 13–17 % of bot deaths on the big board (1.8 % before), the 4-minute beat unchanged.
 - Map generation ~0.7 s per map; height raster 791² (was 405²).
+
+## Session 2 (cycle 170, 0.18.35, PV 73)
+
+Eric after playing 0.18.34 on staging: storm damage RAMP 1 / 2 / 3 / 4 / 5 hp/s by close (`CONFIG.zone.stormDps` ladder, `stormDpsFor`), ocean radius 5500 → 4000 (diameter 8000), rings 8000 → 5000 → 3000 → 2000 → 0 (`ringRadii` [2500, 1500, 1000]); amendments 11–13; the harness run at these numbers is the ledger's §9.
 
 ## Gate
 

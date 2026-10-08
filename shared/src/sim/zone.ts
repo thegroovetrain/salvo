@@ -202,6 +202,38 @@ function beatMsOf(cfg: ZoneTimeline): number | null {
   return Number.isFinite(cfg.beatMs) && cfg.beatMs > 0 ? cfg.beatMs : null;
 }
 
+/**
+ * THE STORM DAMAGE RAMP (Eric ruling 2026-10-07, Story 9.1 session 2):
+ * *"1 damage/sec during/after the first closing, 2 damage/sec during/after
+ * the second closing, 3 damage/sec during/after the third closing, and 4
+ * damage/sec during the final closing, and 5 damage/sec after the storm has
+ * fully closed in."* `ladder[k-1]` is the hp/s from the START of close k
+ * onward (the closing beat and the whole next group), and the LAST entry is
+ * the hp/s once the timeline is closed. Before the first close nobody can be
+ * outside ring 0 (the map edge is a wall), and the rate is 0 by construction.
+ * A ladder shorter than the close count clamps to its second-to-last entry
+ * for the extra closes; an empty, missing or non-finite entry reads as 0 —
+ * fail-closed to "no bite", never to NaN hp.
+ */
+export function stormDpsFor(
+  state: Pick<ZoneState, 'phase' | 'groupIndex'> | null,
+  cfg: { readonly stormDps?: readonly number[] } = CONFIG.zone,
+): number {
+  const ladder = cfg.stormDps;
+  if (state === null || !Array.isArray(ladder) || ladder.length === 0) return 0;
+  const last = ladder.length - 1;
+  let index: number;
+  if (state.phase === 'closed') {
+    index = last;
+  } else {
+    const closesStarted = state.groupIndex + (state.phase === 'closing' ? 1 : 0);
+    if (closesStarted <= 0) return 0;
+    index = Math.min(closesStarted, Math.max(last, 1)) - 1;
+  }
+  const dps = ladder[index];
+  return Number.isFinite(dps) && dps > 0 ? dps : 0;
+}
+
 /** Terminal ring radius (u). With a literal ladder (`ringRadii`, the shipped
  *  shape since 2026-10-07) it is the ladder's LAST entry, clamped non-negative
  *  and fail-closed to the old ×2-sight reading on NaN. On the formula path it

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { stormDpsFor } from '@salvo/shared';
 import {
   isAfloat,
   CONFIG,
@@ -304,7 +305,8 @@ describe('the collapse group — the whole map is storm at closure', () => {
     expect(w.zonePhase).toBe('closed');
     // NOWHERE IS SAFE: every afloat hull is outside the collapsed ring and
     // every one of them took the tick, the hull on the collapse point included.
-    const perTick = CONFIG.zone.stormDps * (CONFIG.tick.simDtMs / 1000);
+    // Fully closed: the ramp's LAST rung (Story 9.1, 2026-10-07).
+    const perTick = stormDpsFor({ phase: 'closed', groupIndex: 0 }, CONFIG.zone) * (CONFIG.tick.simDtMs / 1000);
     const ring = w.zoneLiveRing;
     expect(ring.r).toBe(0);
     crew.forEach((rec, i) => {
@@ -340,7 +342,7 @@ describe('the collapse group — the whole map is storm at closure', () => {
     stepTo(w, 4 * GROUP - 1); // the last tick before the ring reaches r=0
     expect(w.zonePhase).toBe('closing');
     expect(rec.hp).toBe(CONFIG.shipClasses.battleship.hp); // full HP into the collapse
-    const sunkS = CONFIG.shipClasses.battleship.hp / CONFIG.zone.stormDps;
+    const sunkS = CONFIG.shipClasses.battleship.hp / stormDpsFor({ phase: 'closed', groupIndex: 0 }, CONFIG.zone);
     expect(sunkS).toBeLessThanOrEqual(90); // was 45 pre-doubling — see the note above
     // NOTHING LENGTHENS THE TAIL ANY MORE (Story 8.8, epic-8 amendments 46 +
     // 47). The free per-level auto-heal that used to patch levelMissingPct of
@@ -372,13 +374,13 @@ describe('the collapse group — the whole map is storm at closure', () => {
 });
 
 describe('storm damage', () => {
-  it('accumulates at stormDps granularity (4 HP/s => 0.2 per 50ms tick) outside', () => {
+  it('accumulates at the live rung × dt per tick outside (an instant timeline is fully closed: the last rung)', () => {
     const w = new World(3, CONFIG.match.fillTo, instant(1));
     const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
     placeClear(w, 'a', w.map.radius * 0.8);
     w.startZone();
-    const perTick = CONFIG.zone.stormDps * (CONFIG.tick.simDtMs / 1000);
-    expect(perTick).toBeCloseTo(0.2, 9);
+    const perTick = stormDpsFor({ phase: 'closed', groupIndex: 0 }, CONFIG.zone) * (CONFIG.tick.simDtMs / 1000);
+    expect(perTick).toBeGreaterThan(0);
     w.step();
     const ring = w.zoneLiveRing;
     expect(isOutside(rec.state, ring.cx, ring.cy, ring.r)).toBe(true);
@@ -497,5 +499,38 @@ describe('storm damage', () => {
     w.step();
     expect(rec.hp).toBeLessThan(CONFIG.shipClasses.torpedoBoat.hp); // took storm damage
     expect(w.tickEvents.some((e) => e.k === 'dmg')).toBe(false); // but emitted no dmg spam
+  });
+});
+
+describe('THE DAMAGE RAMP (Eric 2026-10-07, Story 9.1) — the bite follows the close count', () => {
+  it('a hull outside every ring bleeds rung k from the start of close k, and the last rung once fully closed', () => {
+    // One tick per beat (beatMs = simDtMs), concentric rings, sudden death on:
+    // group g occupies ticks 4g..4g+3 and its CLOSING beat is tick 4g+3. The
+    // hull sits at 0.95 R — outside every ring the moment close 1 starts.
+    const dt = CONFIG.tick.simDtMs;
+    const cfg: ZoneTimeline = { beatMs: dt, ringRadii: [1200, 800, 500], offsetCap: 0, suddenDeath: true };
+    const w = new World(5, CONFIG.match.fillTo, cfg);
+    w.map.islands.length = 0;
+    const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
+    placeClear(w, 'a', w.map.radius * 0.95);
+    w.startZone();
+    const ladder = CONFIG.zone.stormDps;
+    const bites: number[] = [];
+    let prev = rec.hp;
+    for (let tick = 0; tick < 4 * 4 + 3; tick++) {
+      w.step();
+      bites.push(Math.round(((prev - rec.hp) / (dt / 1000)) * 1e6) / 1e6);
+      prev = rec.hp;
+    }
+    // Ticks 0..2: group 0 clear/supply/reveal — inside ring 0 (the map), no bite.
+    expect(bites.slice(0, 3)).toEqual([0, 0, 0]);
+    // Tick 3: close 1 starts — rung 1 from here through group 1.
+    expect(bites.slice(3, 7).every((b) => b === ladder[0])).toBe(true);
+    // Tick 7: close 2 — rung 2 through group 2; tick 11: close 3 — rung 3.
+    expect(bites.slice(7, 11).every((b) => b === ladder[1])).toBe(true);
+    expect(bites.slice(11, 15).every((b) => b === ladder[2])).toBe(true);
+    // Tick 15: the collapse close — rung 4; from tick 16 the timeline is closed: the last rung.
+    expect(bites[15]).toBe(ladder[3]);
+    expect(bites.slice(16).every((b) => b === ladder[ladder.length - 1])).toBe(true);
   });
 });
