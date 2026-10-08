@@ -176,3 +176,22 @@ Exact replays of the first 3 matches per shard (36 each, same seeds) with `--raw
 ## 8. Closing ruling on the generator (Eric, 2026-10-07)
 
 The arms above recorded map-generation failures as harness `failures` (3/91 on C1, 1/91 on w5500 and h5600, 4/91 on h6000). Eric, on the PR text calling that an accepted cost: *"There is no 'give up.' Generate maps until you have a valid fucking map."* Built in cycle 169: `generateMap` reseeds deterministically on an invalid draw and continues (epic-9 amendment 10). Future arms will show 0 failures; the attrition and class readings above stand (a failed match was simply not played, and 88–91 matches per arm is the sample stated in each table).
+
+## 9. The shipped board after Eric's staging test (cycle 170, 0.18.35): 8,000 wide, rings 8000 → 5000 → 3000 → 2000 → 0, storm ramp 1 / 2 / 3 / 4 / 5 hp/s
+
+Run AFTER PR #260 merged, on the merged code, shipped CONFIG with no overrides (`e8000ramp`, seed 20261900, 91 matches, even roster, `--raw`). Eric's order of operations: ramp → ladder → PR → merge → this run.
+
+| arm | board / storm | alive@4:00 (target 10) | alive@8:00 (target 5) | alive@12:00 (target 2.5) | matches reaching 12:00 | median match | storm deaths (share) | BS / ML / TB |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| baseline 0.18.33 | 2800 / 2.5 % / flat 4 | 7.44 | 1.29 | 0.0 | 1 % | 8:04 | 1.8 % | 38 / 33 / 29 |
+| C1 | 5600 / 10 % / flat 4 | 11.18 | 2.74 | 0.5 | 23 % | 9:51 | 15.4 % | 36 / 37 / 28 |
+| w5500 (0.18.34) | 5500 / 10 % / flat 4, 11000 → 7000 → 4000 → 2000 | 11.26 | 3.77 | 1.2 | 47 % | 11:20 | 12.9 % | 41 / 26 / 33 |
+| **e8000ramp (0.18.35)** | **4000 / 10 % / ramp 1-2-3-4-5, 8000 → 5000 → 3000 → 2000** | **9.89 ± 0.46** (+2.45 vs baseline) | **3.33 ± 0.34** (+2.04 vs baseline) | **0.8** | **33 %** | **11:14** | **7.0 %** | 40 / 41 / 20 |
+
+**Readings.**
+- Ring 1 lands just under the target (9.9 against 10, inside its CI); ring 2 at 3.3 against 5 (w5500 had 3.8 on the bigger board); a third of matches reach 12:00 with ~1 hull alive. Median match 11:14 — the smaller ocean cost ~nothing in match length because the ramp keeps the storm gentle early.
+- **The ramp moved the storm's kills late**, which is the point of it: storm deaths are 0.3 % of ring-1 deaths and 4 % of ring-2 deaths (C1 on the flat 4 hp/s: 28 % in 4:00–8:00), then 41 % of deaths in 8:00–12:00 and the collapse. Overall storm share 7.0 % of bot deaths (flat-4 boards: 13–17 %). The storm still takes the DREADNOUGHT most (78 of 121).
+- Class share 40 / 41 / 20: the SPEEDBOAT reads low (−9 pp vs baseline, CI touching zero) for the second time on a 10 % board; the REPEATER up. Two readings pointing one way on this board; a ±5 pp run would settle it if Eric wants.
+- **Bots beach far more on this board**: afloat bot-ticks in land contact **7.3 %** (bar < 1 %; 0.6 % on the 2.5 % ocean). The 10 % archipelago at 4,000 u has narrow channels and the bot helm grounds in them. That is a bot-quality finding (the land-contact bar fails for the first time) and it depresses every bot reading a little: a hull aground is not fighting. Not fixed here; Eric's call whether a bot-helm pass belongs in Story 9.x.
+
+Death timeline (bot deaths by minute, gun / storm): 1–2 min 245 / 0 · 2–3 352 / 0 · 3–4 314 / 3 · 4–5 260 / 6 · 5–6 142 / 0 · 6–7 87 / 3 · 7–8 74 / 16 · 8–9 52 / 21 · 9–10 26 / 13 · 10–11 12 / 20 · 11–12 15 / 21 · 12–13 16 / 4 · 13–14 2 / 7 · 14–15 3 / 2 · 16–17 0 / 5. Totals: 1605 gun, 121 storm, 4 fleet, 90 alive at the end.
