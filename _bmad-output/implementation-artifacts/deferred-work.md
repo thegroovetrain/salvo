@@ -2853,3 +2853,30 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   status: open — note only
   summary: EPIC 9 IS NOW "TUNE AND CLEAN" AND THE ACCOUNT IS EPIC 10. Every entry above that says "Epic 9", "E9", "Story 9.N" or "9-N" meaning The Account now means Epic 10 / Story 10.N / 10-N; the text is left as written (this ledger is append-only). Story 9-7 (Harness and Ledger Hygiene) re-stamps every open entry and may add the renumbered pointer where it helps. Eric's rulings for the new epic: epic-9-context-amendments.md #1.
   evidence: `_bmad-output/planning-artifacts/epics.md` §Epic 9 / §Epic 10; `sprint-status.yaml` epic-9 / epic-10 blocks; epic-8-retro-2026-10-06.md §6.
+
+## 2026-10-08 — Story 9.1 close-out (cycles 169–171)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-1-the-tuning-pass.md`
+  status: open — Eric: "fixable later"
+  summary: BOTS GROUND ON 7.3 % OF AFLOAT TICKS ON THE 10 % ARCHIPELAGO (bar < 1 %; 0.6 % on the old 2.5 % ocean) — the bot helm cannot thread the narrow channels; Eric watched it in spectate ("exceptionally bad at navigating"). A hull aground is not fighting, so every bot reading on this board is a little depressed. Fix shape: a bot-helm pass (channel-aware coast avoidance), its own story.
+  evidence: ledger `batch-sim-evidence-2026-10-06.md` §9 (land-contact bar), epic-9 amendments 12/14.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-1-the-tuning-pass.md`
+  status: open — map look, Eric's call
+  summary: THE BIGGEST LANDMASSES SIT AT THE 92-VERTEX HARD CAP on the 10 % board (r ≈ 1,000–1,700 u), so their coastlines run up to ~37 u off the raster mask and read coarser than a small island's. A size-scaled vertex cap is the shape if he wants it.
+  evidence: `shared/src/__tests__/map.test.ts` raster ⟷ coastline depth 60 u (amendment 9(c)); seeds 30 and 70 at 5500 u.
+
+- source_spec: `_bmad-output/implementation-artifacts/batch-sim-evidence-2026-10-06.md`
+  status: open — note only
+  summary: THE SPEEDBOAT'S WIN SHARE READ LOW ON TWO 10 % ARMS (18 % and 20 % against a 31–35 % band; −9 to −10 pp vs baseline, CI touching zero at n = 91) and recovered on a third (33 %). Two readings one way is a flag, not a finding; a ±5 pp (360-match) run on the shipped board would settle it.
+  evidence: ledger §6 (h5600 / h6000), §9 (e8000ramp), §10 (mine arms: 20–25 %).
+
+- source_spec: `_bmad-output/implementation-artifacts/batch-sim-evidence-2026-10-06.md`
+  status: open — instrument
+  summary: THE HARNESS'S KILLS-BY-WEAPON LEDGER IS STDOUT-ONLY: the campaign runner keeps the `--json` envelope and discards the text body, so "how many kills were mines / torpedoes / which gun" cannot be read back from a saved campaign (the mine experiments of 2026-10-08 could report attrition and death cause but not mine kills per type). Fix shape: carry the ordnance ledger in the JSON variant.
+  evidence: `server/scripts/batchsim/main.ts` (`JsonVariant`), `catalogReport.ts` `renderOrdnanceLedger`; ledger §10 limit note.
+
+- source_spec: `_bmad-output/implementation-artifacts/batch-sim-evidence-2026-10-06.md`
+  status: open — note only, Eric's dial
+  summary: THE STORM'S SHARE OF BOT DEATHS ON THE BIG BOARD is 7 % under the 1-2-3-4-5 ramp (15–17 % under the flat 4 hp/s), concentrated in the one to two minutes after each close and falling mostly on the DREADNOUGHT. Not a problem by Eric's reading ("nobody fails to outrun it unless bad"); recorded so the next ladder or ramp change has a baseline.
+  evidence: ledger §7 (death timelines), §9.

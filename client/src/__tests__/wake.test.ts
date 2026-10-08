@@ -185,11 +185,11 @@ describe('wake length is speed × the SHARED life, per class', () => {
 
   it('runs 247.5u / 220u / 192.5u at full ahead for the three captain classes', () => {
     const at = (cls: HullId): number => hullEnvelope(cls).kinematics.maxSpeed * (LIFE_MS / 1000);
-    // Cut from 540 / 480 / 420 by amendment 213. The torpedo boat's figure is
-    // the ruled one and is EXACTLY the 3/8 detect rung — the other two fall out
-    // of it, since length is `speed x life` and only speed differs.
+    // Cut from 540 / 480 / 420 by amendment 213. The other two fall out of the
+    // torpedo boat's figure, since length is `speed x life` and only speed
+    // differs. (That it once equalled the 3/8 detect rung was a coincidence,
+    // not a rule — Eric 2026-10-08 — and is no longer pinned.)
     expect(at('torpedoBoat')).toBeCloseTo(247.5, 6);
-    expect(at('torpedoBoat')).toBeCloseTo(CONFIG.vision.detect, 6);
     expect(at('mineLayer')).toBeCloseTo(220, 6);
     expect(at('battleship')).toBeCloseTo(192.5, 6);
   });
@@ -1019,10 +1019,11 @@ describe('a torpedo lays the same one wake the scope paints', () => {
     near.observe(a, 50);
     expect(buildTruesightWakeStamp(near, own, CONFIG.vision.sight, 50, CELL, MODEL).size).toBeGreaterThan(0);
 
-    // Between detect and sight: the SERVER discloses this water, so the client
-    // must not — one cell claimed twice would be a double paint.
+    // Past the rung (detect = sight since 2026-10-08): the SERVER discloses
+    // this water, so the client must not — one cell claimed twice would be a
+    // double paint.
     const mid = new WakeSources();
-    const b = fish('mid', (detect + CONFIG.vision.sight) / 2);
+    const b = fish('mid', CONFIG.vision.sight + STEP_U + 5);
     mid.observe(b, 0);
     b.x += STEP_U + 1;
     mid.observe(b, 50);
@@ -1031,7 +1032,7 @@ describe('a torpedo lays the same one wake the scope paints', () => {
     // ...while a HULL at that same range IS the client's, because its inner
     // bound is the sight bubble. The two bounds are per source, not one radius.
     const hulls = new WakeSources();
-    const c = hull('hull', 'battleship', (detect + CONFIG.vision.sight) / 2, 30);
+    const c = hull('hull', 'battleship', CONFIG.vision.sight * 0.9, 30); // inside the sight bubble (the old mid-band point is AT sight now)
     hulls.observe(c, 0);
     c.x += STEP_U + 1;
     hulls.observe(c, 50);

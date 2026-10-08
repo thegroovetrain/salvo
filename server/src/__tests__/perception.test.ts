@@ -23,7 +23,7 @@
 // band to max(5, floored + 2), never a position or id for any
 // fogged observer, see the fh verifier). Story 4.9 also TIGHTENS three rows
 // WITHIN the invariant: mines, torpedoes, and torpU updates now reveal at
-// the DETECT range — 0.75 × the observer's effective sight, a strict subset
+// the DETECT range — 1 × the observer's effective sight since the 4/8 rung (2026-10-08; was 0.75 ×), a strict subset
 // of the sight bubble — so their oracles below bind them to the narrower
 // gate (see `detected`); shells, booms, bursts, sunk-witness and
 // spawns stay on truesight. Story 8.15 adds ONE DECLARED DISCLOSURE WIDENING
@@ -286,14 +286,14 @@ function sighted(w: World, me: ShipRecord, p: { x: number; y: number }): boolean
 }
 
 // The Story 4.9 DETECT oracle (amendments 119/121), INDEPENDENTLY RE-DERIVED:
-// 0.75 × the observer's effective sight (the 3/8 rung written out as a
+// 1 × the observer's effective sight (the 4/8 rung since 2026-10-08, written out as a
 // LITERAL — deliberately NOT CONFIG.vision.detectFactor and NEVER the
 // production pointDetected), dazzle-scaled through effSight exactly as the
 // ruling scales it, island LOS applied unchanged. Binds mines,
 // torpedoes, and torpU updates; NON-VACUOUS by the directed cases below (a
 // mine/torpedo at 300u — inside sight, outside detect — must be excluded).
 function detected(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
-  return dist(me.state, p) <= 0.75 * effSight(w, me) && sightClearOracle(w, me, p);
+  return dist(me.state, p) <= 1 * effSight(w, me) && sightClearOracle(w, me, p);
 }
 
 // The Story 1.7 owned-zone reveal source, reimplemented test-locally (NEVER
@@ -1182,7 +1182,7 @@ describe('perception — burst visibility (owner always, else burst point sighte
 describe('perception — mine visibility (owner-always, else DETECT+LOS — Story 4.9, never radar)', () => {
   // The 3/8 detect rung, INDEPENDENTLY RE-DERIVED as a literal (never
   // CONFIG.vision.detect / detectFactor — the oracle rule).
-  const DETECT = SIGHT * 0.75;
+  const DETECT = SIGHT * 1; // the 4/8 rung (Story 9.1, Eric 2026-10-08; was 3/8) — independently re-derived, never CONFIG.vision.detect
 
   it('the owner sees all its own mines everywhere; the enemy never radar-paints them', () => {
     const w = bareWorld();
@@ -1205,13 +1205,14 @@ describe('perception — mine visibility (owner-always, else DETECT+LOS — Stor
     expect(buildFrame(w, 'a').mines).toEqual([]);
   });
 
-  it('NON-VACUITY of the detect oracle: an enemy mine INSIDE SIGHT but beyond detect is invisible (would have been a contact-tier reveal before Story 4.9)', () => {
+  it('the 3/8 band is GONE (Story 9.1, 2026-10-08): a mine at 300 u and one at sight itself are detected; a hair past sight is not', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    injectMine(w, 'm1', 'b', 300, 0); // 247.5 < 300 ≤ 330 — sighted, NOT detected
-    expect(buildFrame(w, 'a').mines).toEqual([]);
-    injectMine(w, 'm2', 'b', SIGHT, 0); // the old boundary itself is now fogged
-    expect(buildFrame(w, 'a').mines).toEqual([]);
+    injectMine(w, 'm1', 'b', 300, 0); // 247.5 < 300 ≤ 330 — fogged under the old rung, detected under 4/8
+    injectMine(w, 'm2', 'b', SIGHT, 0); // the boundary itself, inclusive
+    expect(buildFrame(w, 'a').mines.map((m) => m.id).sort()).toEqual(['m1', 'm2']);
+    injectMine(w, 'm3', 'b', SIGHT + 0.01, 0);
+    expect(buildFrame(w, 'a').mines.map((m) => m.id).sort()).toEqual(['m1', 'm2']);
   });
 
   it('detect is OBSERVER-SCALED (amendment 121): a flash dazzle collapses it to the 1/8 rung; a sightRange boon widens it', () => {
@@ -1230,9 +1231,9 @@ describe('perception — mine visibility (owner-always, else DETECT+LOS — Stor
   it('an enemy mine inside an OWNED lit zone stays visible beyond detect (the OR-path is untouched)', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    injectMine(w, 'm1', 'b', 300, 0); // beyond detect — fogged on its own
+    injectMine(w, 'm1', 'b', 400, 0); // beyond detect (330 since 2026-10-08) — fogged on its own
     expect(buildFrame(w, 'a').mines).toEqual([]);
-    injectZone(w, 'z1', 'a', 300, 0);
+    injectZone(w, 'z1', 'a', 400, 0);
     expect(buildFrame(w, 'a').mines.map((m) => m.id)).toEqual(['m1']);
   });
 
@@ -1254,17 +1255,25 @@ describe('perception — mine visibility (owner-always, else DETECT+LOS — Stor
 });
 
 describe('perception — torpedo DETECT gate vs shell truesight (Story 4.9: the sibling fork — SHELLS DO NOT MOVE)', () => {
-  const DETECT = SIGHT * 0.75; // independently re-derived, never CONFIG.vision.detect
+  const DETECT = SIGHT * 1; // the 4/8 rung (Story 9.1, Eric 2026-10-08; was 3/8) — independently re-derived, never CONFIG.vision.detect
   const torpsOf = (f: FrameMsg) => f.events.filter((e): e is BallisticEvent => e.k === 'torp');
 
-  it('a shell at exactly the truesight boundary reveals; a torpedo at the same point does NOT', () => {
+  it('a shell at exactly the truesight boundary reveals; since the 4/8 rung (2026-10-08) a torpedo at the same point reveals too — the fork closed', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
     injectShell(w, 's1', 'b', SIGHT, 0, Math.PI, 400, false, 'shell');
     injectShell(w, 't1', 'b', 0, SIGHT, -Math.PI / 2, 400, false, 'torp');
     const f = buildFrame(w, 'a');
     expect(shellsOf(f).map((e) => e.id)).toEqual(['s1']); // shells unchanged at 330
-    expect(torpsOf(f)).toEqual([]); // the torpedo is still fogged there
+    expect(torpsOf(f).map((e) => e.id)).toEqual(['t1']); // the torpedo's rung is sight now
+    // ...and the two rows still part company a hair further out: neither reveals.
+    const w2 = bareWorld();
+    place(w2, 'a', 0, 0);
+    injectShell(w2, 's2', 'b', SIGHT + 0.01, 0, Math.PI, 400, false, 'shell');
+    injectShell(w2, 't2', 'b', 0, SIGHT + 0.01, -Math.PI / 2, 400, false, 'torp');
+    const f2 = buildFrame(w2, 'a');
+    expect(shellsOf(f2)).toEqual([]);
+    expect(torpsOf(f2)).toEqual([]);
   });
 
   it('a torpedo reveals at exactly the detect boundary (inclusive), not a hair beyond', () => {
@@ -1278,11 +1287,12 @@ describe('perception — torpedo DETECT gate vs shell truesight (Story 4.9: the 
     expect(torpsOf(buildFrame(w2, 'a'))).toEqual([]);
   });
 
-  it('NON-VACUITY: a torpedo inside sight but beyond detect (300u) stays hidden — the pre-4.9 gate would have revealed it', () => {
+  it('a torpedo at 300 u is revealed (the old 3/8 band is gone) and one at 340 u, past sight, is not', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
     injectShell(w, 't1', 'b', 300, 0, Math.PI, 400, false, 'torp');
-    expect(torpsOf(buildFrame(w, 'a'))).toEqual([]);
+    injectShell(w, 't2', 'b', 340, 0, Math.PI, 400, false, 'torp');
+    expect(torpsOf(buildFrame(w, 'a')).map((e) => e.id)).toEqual(['t1']);
   });
 
   it('the owner-always and owned-zone paths on the torp row are untouched', () => {
@@ -1308,7 +1318,7 @@ describe('perception — torpedo DETECT gate vs shell truesight (Story 4.9: the 
 // events across the WHOLE run, so a duplicate anywhere fails.
 
 describe('perception — ballistic re-reveal on gate re-entry (Story 8.13, amendment 78)', () => {
-  const DETECT = SIGHT * 0.75;
+  const DETECT = SIGHT * 1; // the 4/8 rung (Story 9.1, Eric 2026-10-08; was 3/8) — independently re-derived, never CONFIG.vision.detect
   const torpsOf = (f: FrameMsg) => f.events.filter((e): e is BallisticEvent => e.k === 'torp');
   const ballisticsOf = (f: FrameMsg, kind: 'shell' | 'torp') => f.events.filter((e): e is BallisticEvent => e.k === kind);
   const isBallisticEvent = (e: GameEvent): e is BallisticEvent => e.k === 'shell' || e.k === 'torp';
@@ -2182,21 +2192,29 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     expect(new Set(wks.map((e) => e.a)).size).toBeGreaterThan(1);
   });
 
-  it("torpedo water discloses through the (detect, sight] band — the fish's own tier, not the ship annulus (review-gate P2)", () => {
+  it("torpedo water discloses beyond the fish's own tier — which is sight since the 4/8 rung (2026-10-08) — never inside it (review-gate P2, re-cut)", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    // Torpedo water wholly inside (247.5, 330]: the band where the fish has
-    // no entity (beyond detect) and a SHIP's wake has no disclosure (inside
-    // sight). Amendment 196's tell must survive exactly here — the terminal
-    // approach is the only part that matters.
+    // The (detect, sight] band that review-gate P2 was about is EMPTY now
+    // (detect = sight): torpedo water at 264..300 sits where the fish is a
+    // revealed entity, so its water is NOT disclosed as `wk`; water at
+    // 364..400 — past sight, inside the radar window — is.
     const cap = 20;
     const tw: WakeRibbon = { xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), cap, head: 0, count: 0, lifeMs: 2_750, widthU: 9, torp: true, hullAheadU: 0 };
-    injectWakeTrack(tw, 300, 0, 0, 4, w.now, 2_000); // 264..300 along y=0
+    injectWakeTrack(tw, 400, 0, 0, 4, w.now, 2_000); // 364..400 along y=0 — past sight
     w.torpWakes.set('fish', tw);
     windowAround(a, 0);
     const f = buildFrame(w, 'a');
     verifyFrame(w, 'a', f);
     expect(f.events.some((e) => e.k === 'wk')).toBe(true);
+    // Water at 264..300 — inside the fish's tier now — is not disclosed.
+    const band: WakeRibbon = { ...tw, xs: new Float64Array(cap), ys: new Float64Array(cap), ts: new Float64Array(cap), head: 0, count: 0 };
+    injectWakeTrack(band, 300, 0, 0, 4, w.now, 2_000);
+    w.torpWakes.set('fish', band);
+    const fb = buildFrame(w, 'a');
+    verifyFrame(w, 'a', fb);
+    expect(fb.events.some((e) => e.k === 'wk')).toBe(false);
+    w.torpWakes.set('fish', tw);
     // The detect radius is the torpedo wake's INNER bound: water at or inside
     // 247.5u stays undisclosed (the fish there is a revealed entity — that
     // band belongs to the torp row and truesight rendering, not this one).
@@ -3253,7 +3271,7 @@ function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
 }
 
 // shell AND torp share one verifier — with the Story 4.9 fork: a shell
-// reveals at first-SIGHT, a torpedo at first-DETECT (0.75×sight, the tighter
+// reveals at first-SIGHT, a torpedo at first-DETECT (1×sight since 2026-10-08 — the once-tighter
 // oracle above). Both live in world.shells, keyed by projectile id.
 function verifyBallistic(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as BallisticEvent;
@@ -3488,7 +3506,7 @@ function hornBandOracle(w: World, me: ShipRecord, p: { x: number; y: number }): 
 // (review-gate P2): inner bound < dist ≤ radar ∧ this-tick paint window ∧
 // occlusion — where a SHIP's water uses the sight bubble as its inner bound
 // with the height-aware shadow beyond it, and a TORPEDO's water uses the 3/8
-// DETECT radius (0.75 × effective sight, the `detected` oracle's literal)
+// DETECT radius (1 × effective sight since 2026-10-08, the `detected` oracle's literal)
 // with BINARY island LOS inside the sight bubble (the sensor that band
 // stands in for) and the shadow march beyond it. NO owned-zone term (water
 // has no contact tier to double into) and NO self-exclusion (your own wake
@@ -3561,7 +3579,7 @@ function wakeSegmentsOracle(r: WakeRibbon, now: number): WakeSegOracle[] {
 
 /** The per-segment wake gate, reimplemented test-locally (see the oracle
  *  header): PER-SOURCE inner bound — sight for a ship's water, the
- *  0.75-literal detect radius for a torpedo's (P2); the this-tick paint
+ *  1-literal (4/8, 2026-10-08) detect radius for a torpedo's (P2); the this-tick paint
  *  window; and band-consistent occlusion — binary island LOS inside the
  *  sight bubble (only torpedo water can reach it), the shadow march beyond.
  *  NO zone term and NO self term (deliberate). */
@@ -3569,7 +3587,7 @@ function wakeDisclosed(w: World, me: ShipRecord, seg: WakeSegOracle, torp: boole
   const mid = { x: seg.mx, y: seg.my };
   const d = dist(me.state, mid);
   const sight = effSight(w, me);
-  const inner = torp ? 0.75 * sight : sight; // the `detected` oracle's 3/8 literal
+  const inner = torp ? 1 * sight : sight; // the `detected` oracle's 4/8 literal (2026-10-08)
   if (d <= inner || d > effRadar()) return false;
   if (!inPaintWindow(me, bearing(me.state, mid))) return false;
   // In-bubble (torpedo) water: BINARY island LOS ∧ smoke (Story 8.18, ruling

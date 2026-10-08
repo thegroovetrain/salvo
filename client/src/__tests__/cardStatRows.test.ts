@@ -122,7 +122,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
       { label: 'RELOAD', cur: null, next: '20.0 s' },
       { label: 'ROUNDS', cur: null, next: '1' },
       { label: 'DAMAGE', cur: null, next: '55' },
-      { label: 'TRIGGER RADIUS', cur: null, next: '144' },
+      { label: 'TRIGGER RADIUS', cur: null, next: String(CONFIG.captiveMines.triggerRadius) },
       { label: 'HOMING', cur: null, next: '0 rad/s' },
     ]);
     // No blast circle is printed, because the fish's 32 u burst is not a circle

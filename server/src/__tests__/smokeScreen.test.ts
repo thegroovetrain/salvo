@@ -422,13 +422,13 @@ describe('SMOKE SCREEN — occlusion (the sightClear predicate at every sight-ti
     expect(contactIds(buildFrame(w, 'a'))).toEqual([]); // ...but the puff still does
   });
 
-  it('TORPEDO WATER (ruling 143): an in-bubble `wk` segment behind a puff is not emitted; the radar half is governed by the height march alone', () => {
+  it('TORPEDO WATER (ruling 143): since the 4/8 rung (2026-10-08) there is no in-bubble torpedo water at all — the fish is an entity inside sight; the radar half is governed by the height march alone', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     windowAround(a, 0);
-    w.torpWakes.set('tw', torpWater(w, 250)); // inside sight, beyond the fish's detect bound (247.5)
-    expect(eventsOf(buildFrame(w, 'a'), 'wk')).toHaveLength(1);
-    injectPuff(w, 'sk1', 'z', 125, 0); // on the a→midpoint segment
+    w.torpWakes.set('tw', torpWater(w, 250)); // inside sight = inside the fish's detect bound now
+    expect(eventsOf(buildFrame(w, 'a'), 'wk')).toHaveLength(0);
+    injectPuff(w, 'sk1', 'z', 125, 0); // a puff changes nothing: there was nothing to hide
     expect(eventsOf(buildFrame(w, 'a'), 'wk')).toHaveLength(0);
     // The RADAR half: the same water at 500 u, the same puff geometry — the
     // shadow march over a flat raster sees no smoke.

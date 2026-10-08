@@ -983,7 +983,7 @@ describe('SIGNAL_REGISTRY — ballistic reveal is exactly-once per observer', ()
 // ---------- Story 8.13: ONE gate predicate, and a mark that is per-visit -----
 
 describe('SIGNAL_REGISTRY — ballisticGateOpen is THE reveal gate (Story 8.13, amendment 78): rows and the clear step share one boolean', () => {
-  const DETECT = SIGHT * 0.75;
+  const DETECT = SIGHT * 1; // the 4/8 rung (Story 9.1, Eric 2026-10-08; was 3/8) — a literal, never CONFIG.vision.detect
 
   it('answers the torp row\'s gate: owner-always / DETECT+LOS / owned zone; spectator open; record-less spectator closed', () => {
     const w = bareWorld();
@@ -992,7 +992,8 @@ describe('SIGNAL_REGISTRY — ballisticGateOpen is THE reveal gate (Story 8.13, 
     expect(ballisticGateOpen(ctx, makeShell({ id: 'own', ownerId: 'a', kind: 'torp', x: 5_000, y: 0 }))).toBe(true);
     expect(ballisticGateOpen(ctx, makeShell({ id: 'in', ownerId: 'z', kind: 'torp', x: DETECT, y: 0 }))).toBe(true);
     expect(ballisticGateOpen(ctx, makeShell({ id: 'out', ownerId: 'z', kind: 'torp', x: DETECT + 0.01, y: 0 }))).toBe(false);
-    expect(ballisticGateOpen(ctx, makeShell({ id: 'sighted', ownerId: 'z', kind: 'torp', x: 300, y: 0 }))).toBe(false); // sighted ≠ detected
+    expect(ballisticGateOpen(ctx, makeShell({ id: 'sighted', ownerId: 'z', kind: 'torp', x: 300, y: 0 }))).toBe(true); // sighted = detected since the 4/8 rung (2026-10-08)
+    expect(ballisticGateOpen(ctx, makeShell({ id: 'past', ownerId: 'z', kind: 'torp', x: SIGHT + 0.01, y: 0 }))).toBe(false);
     injectZone(w, 'z1', 'a', 500, 0);
     expect(ballisticGateOpen(ctx, makeShell({ id: 'zoned', ownerId: 'z', kind: 'torp', x: 500, y: 0 }))).toBe(true);
     w.map.islands.push(circleIsland(100, 0, 40));
@@ -1001,13 +1002,14 @@ describe('SIGNAL_REGISTRY — ballisticGateOpen is THE reveal gate (Story 8.13, 
     expect(ballisticGateOpen({ ...specCtx(w), me: a }, makeShell({ id: 'spec', ownerId: 'z', kind: 'torp', x: 5_000, y: 0 }))).toBe(true);
   });
 
-  it('branches on the record\'s own kind: a shell opens at truesight where a torpedo stays closed', () => {
+  it('branches on the record\'s own kind — and since the 4/8 rung (2026-10-08) a shell and a torpedo both open at truesight and both close a hair past it', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const ctx = foggedCtx(w, a);
     expect(ballisticGateOpen(ctx, makeShell({ id: 's', ownerId: 'z', kind: 'shell', x: SIGHT, y: 0 }))).toBe(true);
     expect(ballisticGateOpen(ctx, makeShell({ id: 's2', ownerId: 'z', kind: 'shell', x: SIGHT + 0.01, y: 0 }))).toBe(false);
-    expect(ballisticGateOpen(ctx, makeShell({ id: 't', ownerId: 'z', kind: 'torp', x: SIGHT, y: 0 }))).toBe(false);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 't', ownerId: 'z', kind: 'torp', x: SIGHT, y: 0 }))).toBe(true);
+    expect(ballisticGateOpen(ctx, makeShell({ id: 't2', ownerId: 'z', kind: 'torp', x: SIGHT + 0.01, y: 0 }))).toBe(false);
   });
 
   it('the rows AGREE with the gate on every probe: visible() ⇔ (unmarked ∧ gate open), for shell, torp, and — with a drifted baseline — torpU', () => {
@@ -1051,7 +1053,7 @@ describe('SIGNAL_REGISTRY — ballisticGateOpen is THE reveal gate (Story 8.13, 
     expect(a.torpDirs.has('t1')).toBe(true);
     expect(torps()).toEqual([]); // inside, marked: silent, mark kept
     expect(a.seenBallistics.has('t1')).toBe(true);
-    torp.x = 300; // sighted but NOT detected: outside the torp gate
+    torp.x = 340; // past sight (= detect since 2026-10-08): outside the torp gate
     expect(torps()).toEqual([]);
     expect(a.seenBallistics.has('t1')).toBe(false); // the clear step ran
     expect(a.torpDirs.has('t1')).toBe(false); // ...and took the homing baseline with it
@@ -1064,29 +1066,31 @@ describe('SIGNAL_REGISTRY — ballisticGateOpen is THE reveal gate (Story 8.13, 
 // ---------- the Story 4.9 detect gate (mine / torp / torpU — and ONLY those) --
 
 describe('SIGNAL_REGISTRY — the DETECT gate (Story 4.9, amendments 119/121): mine, torp, and torpU rows only', () => {
-  // The 3/8 rung, independently re-derived as a literal — never
-  // CONFIG.vision.detect / detectFactor (the perception-suite oracle rule,
-  // applied here too so a constants edit cannot silently agree with a bug).
-  const DETECT = SIGHT * 0.75;
+  // The 4/8 rung (Story 9.1, Eric 2026-10-08; was 3/8), independently
+  // re-derived as a literal — never CONFIG.vision.detect / detectFactor (the
+  // perception-suite oracle rule, applied here too so a constants edit cannot
+  // silently agree with a bug).
+  const DETECT = SIGHT * 1;
 
-  it('mine row: an enemy mine at the detect boundary is visible (inclusive); inside sight but beyond detect it is NOT', () => {
+  it('mine row: an enemy mine at the detect boundary is visible (inclusive); a hair past it is NOT', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const row = SIGNAL_REGISTRY.mine;
     expect(row.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: DETECT, y: 0 }))).toBe(true);
     expect(row.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: DETECT + 0.01, y: 0 }))).toBe(false);
-    expect(row.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 300, y: 0 }))).toBe(false); // sighted ≠ detected
-    expect(row.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: SIGHT, y: 0 }))).toBe(false); // the old gate is gone
+    expect(row.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 300, y: 0 }))).toBe(true); // sighted = detected since the 4/8 rung
+    expect(row.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: SIGHT, y: 0 }))).toBe(true); // the boundary, inclusive
   });
 
-  it('torp row: the detect boundary, inclusive — while the SHELL row still reveals at truesight (the sibling fork)', () => {
+  it('torp row: the detect boundary, inclusive — now the same boundary the SHELL row reveals at (the fork closed 2026-10-08)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const torpRow = signalFor('torp')!;
     const shellRow = signalFor('shell')!;
     expect(torpRow.visible(foggedCtx(w, a), makeShell({ id: 't1', ownerId: 'z', kind: 'torp', x: DETECT, y: 0 }))).toBe(true);
-    expect(torpRow.visible(foggedCtx(w, a), makeShell({ id: 't2', ownerId: 'z', kind: 'torp', x: 300, y: 0 }))).toBe(false);
-    expect(torpRow.visible(foggedCtx(w, a), makeShell({ id: 't3', ownerId: 'z', kind: 'torp', x: SIGHT, y: 0 }))).toBe(false);
+    expect(torpRow.visible(foggedCtx(w, a), makeShell({ id: 't2', ownerId: 'z', kind: 'torp', x: 300, y: 0 }))).toBe(true); // 4/8 rung
+    expect(torpRow.visible(foggedCtx(w, a), makeShell({ id: 't3', ownerId: 'z', kind: 'torp', x: SIGHT, y: 0 }))).toBe(true);
+    expect(torpRow.visible(foggedCtx(w, a), makeShell({ id: 't4', ownerId: 'z', kind: 'torp', x: SIGHT + 0.01, y: 0 }))).toBe(false);
     // SHELLS DO NOT MOVE: same owner, same positions, wire kind 'shell'.
     expect(shellRow.visible(foggedCtx(w, a), makeShell({ id: 's1', ownerId: 'z', kind: 'shell', x: 300, y: 0 }))).toBe(true);
     expect(shellRow.visible(foggedCtx(w, a), makeShell({ id: 's2', ownerId: 'z', kind: 'shell', x: SIGHT, y: 0 }))).toBe(true);
@@ -1102,7 +1106,7 @@ describe('SIGNAL_REGISTRY — the DETECT gate (Story 4.9, amendments 119/121): m
     // baseline dir 0, live velocity due +y (π/2).
     const drifted = (id: string, x: number, y: number) =>
       makeShell({ id, ownerId: 'z', kind: 'torp', x, y, vx: 0, vy: 60, homing });
-    for (const [id, x, visible] of [['u1', DETECT, true], ['u2', DETECT + 0.01, false], ['u3', 300, false]] as const) {
+    for (const [id, x, visible] of [['u1', DETECT, true], ['u2', DETECT + 0.01, false], ['u3', 300, true]] as const) {
       a.seenBallistics.add(id);
       a.torpDirs.set(id, 0);
       expect(row.visible(foggedCtx(w, a), drifted(id, x, 0))).toBe(visible);
@@ -1112,13 +1116,12 @@ describe('SIGNAL_REGISTRY — the DETECT gate (Story 4.9, amendments 119/121): m
   it('detect is the OBSERVER\'S OWN scaled sight (amendment 121): a FLASH dazzle collapses it on all three rows', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    // Story 8.17 (amendment 132): dazzled sight is radarRange / 8 = 82.5, so
-    // detect collapses to 0.75 × 82.5 = 61.875 (it was 123.75 under the ×0.5
-    // star-shell verb).
+    // Story 8.17 (amendment 132): dazzled sight is radarRange / 8 = 82.5, and
+    // detect is 1 × that since the 4/8 rung (2026-10-08; it was 0.75 × 82.5).
     a.dazzledUntil = w.now + 10_000;
     expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 120, y: 0 }))).toBe(false);
-    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 61.875, y: 0 }))).toBe(true);
-    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 62, y: 0 }))).toBe(false);
+    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 82.5, y: 0 }))).toBe(true);
+    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 82.6, y: 0 }))).toBe(false);
     expect(signalFor('torp')!.visible(foggedCtx(w, a), makeShell({ id: 'tz', ownerId: 'z', kind: 'torp', x: 120, y: 0 }))).toBe(false);
   });
 

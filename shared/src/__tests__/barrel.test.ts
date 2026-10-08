@@ -410,7 +410,7 @@ describe('shared barrel', () => {
     // 70 -> 71 (cycle 167): private lobbies — CONFIG.lobby read by the client,
     // arena mode 'private', lobby-room channels lr/ls/lb/lg. The exception
     // count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(73);
+    expect(PROTOCOL_VERSION).toBe(74);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -845,8 +845,8 @@ describe('shared barrel', () => {
     expect(CONFIG.captiveMines).toEqual({
       reloadMs: 20000, // amendment 77 lifted the [DRAFT]: 20 s, NOT the naval 15 s
       maxAmmo: 1, // ...and 1 held, NOT the naval 2
-      triggerRadius: 144, // the TRIP ring — the BIG one
-      triggerStepPerTier: 1.1, // x1.1 per tier off the ROW'S TIER -> 210.8 u at V
+      triggerRadius: 120, // the TRIP ring — the BIG one (144 → 120, Story 9.1, Eric 2026-10-08)
+      triggerStepPerTier: 1.1, // x1.1 per tier off the ROW'S TIER -> 175.7 u at V
       blastRadius: 32, // the fish's burst — FIXED, it never steps
       damage: 55,
     });
@@ -964,7 +964,7 @@ describe('shared barrel', () => {
     expect(mineTriggerRadius(72)).toBeCloseTo(48, 9);
     // ...and the CAPTIVE's rides its TIER instead (epic-8 amendment 84d).
     expect(captiveTriggerRadius(1)).toBe(CONFIG.captiveMines.triggerRadius);
-    expect(captiveTriggerRadius(5)).toBeCloseTo(210.8304, 4);
+    expect(captiveTriggerRadius(5)).toBeCloseTo(CONFIG.captiveMines.triggerRadius * CONFIG.captiveMines.triggerStepPerTier ** 4, 6); // 175.692 u at the 2026-10-08 ring
     // Non-finite / sub-1 tiers clamp to the tier-I ring, never NaN.
     for (const bad of [NaN, Infinity, -Infinity, 0, -3]) {
       expect(Number.isFinite(captiveTriggerRadius(bad)), `${bad}`).toBe(true);

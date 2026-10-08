@@ -90,13 +90,10 @@ describe('wakeCapacity — the DERIVED ring capacity (never a literal)', () => {
       const speed = CONFIG.shipClasses[cls].kinematics.maxSpeed;
       expect(wakeCapacity(speed, LIFE)).toBe(Math.ceil(((LIFE / 1000) * speed) / STEP) + 2);
     }
-    // The concrete values at the shipped envelope, as a character note. They
-    // roughly HALVED at the cycle-71 clock cut (amendment 213, 12s -> 5.5s):
-    // the ring is sized from the clock, so a shorter wake is a cheaper one.
-    expect(wakeCapacity(45, LIFE)).toBe(23); // torpedo boat
-    expect(wakeCapacity(35, LIFE)).toBe(19); // battleship
-    expect(wakeCapacity(40, LIFE)).toBe(21); // mine layer
-    expect(wakeCapacity(CONFIG.torpedo.speed, torpWakeLifeMs())).toBe(17); // torpedo (65 u/s, catalog-v3 R17)
+    // The ring is sized from the clock (the cycle-71 cut roughly halved it;
+    // the 2026-10-08 4/8 rung grew it back a third) — the formula is the pin,
+    // the concrete sizes are character, not contract.
+    expect(wakeCapacity(CONFIG.torpedo.speed, torpWakeLifeMs())).toBe(Math.ceil(((torpWakeLifeMs() / 1000) * CONFIG.torpedo.speed) / STEP) + 2);
   });
 
   it('degenerate speed/life inputs yield the 2-sample floor, never NaN or zero allocation', () => {
@@ -272,11 +269,11 @@ describe('segment geometry and the older-endpoint age rule', () => {
     appendWakeSample(r, 2 * STEP, 0, 2000);
     const segs = segmentsOf(r, 2500);
     expect(segs).toHaveLength(2);
-    // Both land in bucket 1 at the 5.5s clock (a bucket is 1375ms): the ages
-    // here are fixed wall-clock ms, so the cycle-71 cut moved them up a rung
-    // without the geometry this test is about changing at all.
-    expect(segs[0]).toMatchObject({ ax: 0, ay: 0, bx: STEP, by: 0, mx: STEP / 2, my: 0, ageMs: 2500, bucket: 1 });
-    expect(segs[1]).toMatchObject({ ax: STEP, bx: 2 * STEP, mx: (3 * STEP) / 2, ageMs: 1500, bucket: 1 });
+    // The ages here are fixed wall-clock ms; the BUCKET is a quarter of the
+    // live clock, so it is read through the one quantizer rather than pinned
+    // (the cycle-71 cut and the 2026-10-08 clock both moved it).
+    expect(segs[0]).toMatchObject({ ax: 0, ay: 0, bx: STEP, by: 0, mx: STEP / 2, my: 0, ageMs: 2500, bucket: wakeAgeBucket(2500, LIFE) });
+    expect(segs[1]).toMatchObject({ ax: STEP, bx: 2 * STEP, mx: (3 * STEP) / 2, ageMs: 1500, bucket: wakeAgeBucket(1500, LIFE) });
   });
 
   it('a segment expires when its OLDER endpoint is strictly older than life — the tail shortens sample by sample', () => {
@@ -298,8 +295,11 @@ describe('torpedo wake — half life, one-cell core, fixed fish speed (amendment
     // 360u track, so the torpedo shrank with everything else: 165u at the
     // then-60 u/s fish, now 178.75u since catalog-v3 R17 (2026-09-15) moved
     // the fish to 65 u/s.
-    expect(torpWakeLifeMs()).toBe(2750);
-    expect(torpWakeLifeMs() * CONFIG.torpedo.speed / 1000).toBe(178.75);
+    // The concrete figures (2750 ms / 178.75 u at the 5.5 s clock; 3666.5 ms /
+    // 238.3 u at the 7.333 s clock) are character, not contract — the factor
+    // is the pin, and the fish track is derived here from the same two numbers.
+    expect(CONFIG.vision.wakeTorpLifeFactor).toBe(0.5);
+    expect((torpWakeLifeMs() * CONFIG.torpedo.speed) / 1000).toBeCloseTo((CONFIG.vision.wakeLifeMs * 0.5 * CONFIG.torpedo.speed) / 1000, 9);
   });
 
   it('a torpedo ribbon expires at half a ship life', () => {

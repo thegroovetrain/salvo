@@ -132,8 +132,8 @@ describe('Endgame Guarantee (Story 3.4) — sensor-vs-ring constraints', () => {
     expect(CONFIG.vision.muzzleFlash).toBe(1.25 * CONFIG.vision.sight);
   });
 
-  it('detect is structurally 0.75 × sight — the ladder 3/8 rung, mines + torpedoes (Story 4.9, amendment 119 — derivation pin)', () => {
-    expect(CONFIG.vision.detect).toBe(0.75 * CONFIG.vision.sight);
+  it('detect is structurally 1 × sight — the ladder 4/8 rung, mines + torpedoes (Story 9.1, Eric 2026-10-08; was 3/8 since amendment 119 — derivation pin)', () => {
+    expect(CONFIG.vision.detect).toBe(1 * CONFIG.vision.sight);
   });
 
   it('farRadar is structurally 1.75 × sight — the ladder 7/8 rung (Story 4.9, amendment 118 — derivation pin; deliberately unconsumed, it is 4.10 calibration)', () => {
@@ -141,12 +141,12 @@ describe('Endgame Guarantee (Story 3.4) — sensor-vs-ring constraints', () => {
   });
 
   it('the detect RUNG and the runtime detectFactor can never drift: detect === sight × detectFactor (amendment 121 — the gate is observer-scaled, the rung is what it equals at base stats)', () => {
-    expect(CONFIG.vision.detectFactor).toBe(0.75);
+    expect(CONFIG.vision.detectFactor).toBe(1);
     expect(CONFIG.vision.detect).toBe(CONFIG.vision.sight * CONFIG.vision.detectFactor);
   });
 
   it('the full eighths ladder is ordered: detect < sight < muzzleFlash < farRadar < radar (amendments 113/119 — one ruler, no rung out of place)', () => {
-    expect(CONFIG.vision.detect).toBeLessThan(CONFIG.vision.sight);
+    expect(CONFIG.vision.detect).toBeLessThanOrEqual(CONFIG.vision.sight); // equal since 2026-10-08 (4/8 = sight)
     expect(CONFIG.vision.sight).toBeLessThan(CONFIG.vision.muzzleFlash);
     expect(CONFIG.vision.muzzleFlash).toBeLessThan(CONFIG.vision.farRadar);
     expect(CONFIG.vision.farRadar).toBeLessThan(CONFIG.vision.radar);
@@ -154,7 +154,7 @@ describe('Endgame Guarantee (Story 3.4) — sensor-vs-ring constraints', () => {
 
   it('every rung is an EIGHTH of intel range — radar/8 divides each one exactly (the ruler is real, not approximate)', () => {
     const eighth = CONFIG.vision.radar / 8;
-    expect(CONFIG.vision.detect / eighth).toBe(3);
+    expect(CONFIG.vision.detect / eighth).toBe(4);
     expect(CONFIG.vision.sight / eighth).toBe(4);
     expect(CONFIG.vision.muzzleFlash / eighth).toBe(5);
     expect(CONFIG.vision.farRadar / eighth).toBe(7);
@@ -198,36 +198,12 @@ describe('radar wakes (Story 4.12) — the wake clock and cadence pins', () => {
     expect(Number.isInteger(CONFIG.vision.wakeLifeMs)).toBe(true);
   });
 
-  // THE RUNG THE CLOCK WAS CUT TO (cycle 71, amendment 213). Eric cut 12s ->
-  // 5.5s on seeing a full-ahead torpedo boat: *"that wake trail is far as
-  // fuck"*. The replacement is not a feel number but an eighths-ladder rung —
-  // the FASTEST hull's full-ahead track is exactly `detect`, so your wake
-  // reaches as far behind you as detect reaches around you.
-  //
-  // ASSERTED, NOT COMPUTED IN constants.ts, and that is the whole point of
-  // this test: deriving the clock from `maxSpeed` in the object literal would
-  // let a kinematics retune silently move a value Eric SET. Here it fails the
-  // build instead, and a human re-decides which of the two should move.
-  it('and it puts the fastest PLAYABLE hull\'s full-ahead track exactly on the 3/8 detect rung (amendment 213)', () => {
-    const fastest = SHIP_CLASS_IDS.reduce((top, id) => Math.max(top, hullEnvelope(id).kinematics.maxSpeed), 0);
-    expect(fastest).toBeGreaterThan(0);
-    expect((CONFIG.vision.wakeLifeMs / 1000) * fastest).toBeCloseTo(CONFIG.vision.detect, 9);
-  });
-
-  // PLAYABLE, not "every hull", and the distinction is Eric's rather than a
-  // convenience: he ruled the cut from the cockpit of a torpedo boat at full
-  // ahead, so the anchor is the fastest thing a CAPTAIN can drive (45 u/s).
-  // One drone envelope runs a single unit hotter — the retired destroyer's 46
-  // u/s, preserved byte-for-byte by the shipClasses identity test — so a drone
-  // lays 253u against the rung's 247.5u. That 2% overshoot is recorded here so
-  // it reads as a known consequence rather than a broken invariant, and it is
-  // bounded above by this assertion.
-  it('and a drone envelope overshoots the rung by no more than a hair (it is 1 u/s faster than any captain)', () => {
-    const fastestAny = HULL_IDS.reduce((top, id) => Math.max(top, hullEnvelope(id).kinematics.maxSpeed), 0);
-    const track = (CONFIG.vision.wakeLifeMs / 1000) * fastestAny;
-    expect(track).toBeGreaterThanOrEqual(CONFIG.vision.detect);
-    expect(track).toBeLessThan(CONFIG.vision.detect * 1.05);
-  });
+  // The wake clock was cut to 5.5 s on 2026-08-?? by eye from a full-ahead
+  // torpedo boat (amendment 213). The cycle that recorded it also pinned the
+  // COINCIDENCE that 45 u/s × 5.5 s landed on the then-3/8 detect rung; when
+  // the rung moved to 4/8 (2026-10-08) Eric ruled there is no such rule —
+  // *"We aren't talking about wake"* — so the two track-vs-rung pins are gone
+  // and the clock stands on its own literal above.
 
   it('wakeSampleU is the FIXED literal 12 — one sample per lattice cell plus margin, never a computed quantity', () => {
     expect(CONFIG.vision.wakeSampleU).toBe(12);
