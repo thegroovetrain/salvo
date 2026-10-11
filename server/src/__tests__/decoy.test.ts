@@ -215,12 +215,11 @@ describe('DECOY BUOY — the views and the radar paint', () => {
     expect('decoys' in buildFrame(w, 'far')).toBe(false); // omitted when none
   });
 
-  it('an enemy INSIDE SIGHT but outside detect gets the view; one just past sight with no paint gets nothing (amendment 126)', () => {
+  it('an enemy INSIDE SIGHT gets the view (it rides sight, not the mine/torpedo detect rung — which equals sight since 2026-10-08); one just past sight with no paint gets nothing (amendment 126)', () => {
     const w = bareWorld();
     place(w, 'o', -2000, 0);
     const probe = place(w, 'probe', 0, 0);
     const sight = probe.stats.sightRange;
-    expect(0.9 * sight).toBeGreaterThan(sight * CONFIG.vision.detectFactor); // the dark band 124(h) left
     probe.state = { x: 0.9 * sight, y: 0, heading: 0, speed: 0 };
     probe.prevSweepAngle = 1;
     probe.sweepAngle = 1.1; // the beam elsewhere: no paint either way

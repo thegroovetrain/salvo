@@ -2,9 +2,9 @@
 title: 'Story 9.1: The Tuning Pass — session 1, the big ocean'
 type: 'balance'
 created: '2026-10-07'
-status: 'built (session 2: cycle 170)'
+status: 'done'
 baseline_revision: '50f189f4'
-final_revision: 'pending'
+final_revision: 'PR #262 merge (2026-10-08)'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -65,6 +65,10 @@ See amendment 9 (b)–(g); 9(a) is superseded by amendment 10 (the sweep generat
 ## Session 2 (cycle 170, 0.18.35, PV 73)
 
 Eric after playing 0.18.34 on staging: storm damage RAMP 1 / 2 / 3 / 4 / 5 hp/s by close (`CONFIG.zone.stormDps` ladder, `stormDpsFor`), ocean radius 5500 → 4000 (diameter 8000), rings 8000 → 5000 → 3000 → 2000 → 0 (`ringRadii` [2500, 1500, 1000]); amendments 11–13; the harness run at these numbers is the ledger's §9.
+
+## Session 3 (cycle 171, 0.18.36, PV 74)
+
+Eric 2026-10-08 after spectating 0.18.35: the board stands; mines and torpedoes detected at 4/8 (sight), the wake clock untouched, one mine circle on the naval / fouling / captive glyphs (shown twice before commit; the captive is the original icon inside the circle). Five mine arms run (ledger §10): naval blast 40 / 32, captive trigger 120 / 96 — every delta inside its CI; Eric stopped the rest and ruled the captive trip ring 120 u (amendment 19). Amendments 14–19.
 
 ## Gate
 

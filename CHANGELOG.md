@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.36] - 2026-10-08
+
+### Changed
+- **Mines and torpedoes are seen at sight range** — they appear at the 4/8 rung (330 u, the same distance a ship becomes visible) instead of 3/8 (247.5 u). Eric: captive mines could be upgraded to fire before they were seen. Nothing else moves (the wake clock stays 5.5 s).
+- **Captive mines trip at 120 units instead of 144** (176 at tier V, was 211), so even a fully upgraded captive mine fires from inside the range you can now see it at. Eric's call off the mine experiments (five arms; none of the naval or captive dials moved attrition or class share beyond noise).
+- **Every mine glyph carries the same circle** — the naval mine's sphere, which on the water is the 10-unit ring a deck-gun shell must land inside. The fouling mine loses its tether squiggle and its sphere grows to that size; the captive mine's triangle-and-torpedo icon sits inside that circle. Card and on-water marker alike.
+
+### Internal
+- PROTOCOL_VERSION 73 -> 74 (`CONFIG.vision.detectFactor` is read by the client).
+- `CONFIG.vision.detect` = sight, `detectFactor` 1. Tests: the eighths-ladder pins read the 4/8 rung (detect ≤ sight, detect / eighth = 4); the signals detect gate re-derives 4/8 as a literal; the two pins that tied the wake clock to the detect rung are deleted (a pinned coincidence, not a rule — Eric 2026-10-08); wake capacity / bucket / torpedo half-life pins now read their formulas. Tests: shared 1033 -> 1031 (the two wake-vs-rung coincidence pins deleted), server 2515, client 3929; lint 0 errors; `npm run check` green.
+- `equipmentIcons.ts`: `MINE_R` (one circle), `CAPTIVE_ORIGINAL` kept verbatim and scaled through `intoMineCircle`; fouling re-cut.
+- `CONFIG.captiveMines.triggerRadius` 120; the captive ring tests read the CONFIG ring × 1.1ⁿ (no number pins).
+- Epic-9 amendments 14–19; `batch-sim-evidence-2026-10-06.md` §10 (the mine arms); GDD dated supersessions (eighths ladder, wakes, the captive trigger ring). No How-to-Play or README change.
+
 ## [0.18.35] - 2026-10-07
 
 ### Changed

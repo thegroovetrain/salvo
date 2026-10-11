@@ -73,6 +73,12 @@ const TUNE_FAMILIES = [
   'broadside.',
   'torpedo.',
   'mine.',
+  // CAPTIVE and FOULING MINES (Story 9.1 session 3, Eric 2026-10-08: "run
+  // progressive experiments on trigger/blast radius for all types of mines")
+  // — their own CONFIG blocks, so their own families: trigger ring, trigger
+  // step per tier, blast, damage, slow.
+  'captiveMines.',
+  'foulingMines.',
   'starShells.',
   'boost.',
   'shipClasses.',

@@ -46,7 +46,7 @@ const DT = CONFIG.tick.simDtMs;
 const SIGHT = CONFIG.vision.sight;
 // Story 4.9: the mine/torpedo detect rung, re-derived as a literal (the
 // perception suite's oracle rule — never CONFIG.vision.detect).
-const DETECT = SIGHT * 0.75;
+const DETECT = SIGHT * 1; // the 4/8 rung (Story 9.1, Eric 2026-10-08; was 3/8) — independently re-derived, never CONFIG.vision.detect
 // One tick's radar paint window width (rad) — a target at bearing δ/2 is painted
 // by the first post-step window [0, δ).
 const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
@@ -105,7 +105,7 @@ const EXPECTED_SUBCASES = [
   'nonowner-hidden-at-launch',
   'nonowner-reveal-current-params',
   'nonowner-reveal-once',
-  'shell-reveal-beyond-detect',
+  'shell-reveal-at-sight',
   'slow-factor-victim-private',
   'slowed-victim-private',
   'soft-cover-allows-radar-blip',
@@ -439,7 +439,8 @@ function scnBallisticReveal(g: Golden): void {
   // The Story 4.9 fork, proven on the same frame: the shell's reveal point is
   // BEYOND the detect rung (a detect-gated shell would still be hidden here),
   // the torpedo's is inside it.
-  prove(g, 'shell-reveal-beyond-detect', !!sh && Math.hypot(sh.x, sh.y) > DETECT && Math.hypot(sh.x, sh.y) <= SIGHT);
+  // Since the 4/8 rung (2026-10-08) detect = sight, so "beyond detect yet inside sight" is an empty band: the shell proof is that it reveals at or inside sight.
+  prove(g, 'shell-reveal-at-sight', !!sh && Math.hypot(sh.x, sh.y) <= SIGHT);
   prove(g, 'torp-reveal-inside-detect', !!tp && Math.hypot(tp.x, tp.y) <= DETECT);
   w.step(); // still airborne, but already seen
   const after = cap(g, w, 'b');

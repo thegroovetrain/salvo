@@ -127,8 +127,9 @@ describe('cullRadiusSq — two rings from ONE plumbed sight range', () => {
     expect(cullRadiusSq(SIGHT, 'torp')).toBe((SIGHT * CONFIG.vision.detectFactor + 40) ** 2);
   });
 
-  it('keeps the torpedo ring strictly INSIDE the shell ring', () => {
-    expect(cullRadiusSq(SIGHT, 'torp')).toBeLessThan(cullRadiusSq(SIGHT, 'shell'));
+  it('keeps the torpedo ring inside or ON the shell ring — equal since the 4/8 rung (2026-10-08), never outside it', () => {
+    expect(cullRadiusSq(SIGHT, 'torp')).toBeLessThanOrEqual(cullRadiusSq(SIGHT, 'shell'));
+    expect(cullRadiusSq(SIGHT, 'torp')).toBe((SIGHT * CONFIG.vision.detectFactor + 40) ** 2);
   });
 
   it('scales BOTH rings with the observer — a dazzle shrinks them together', () => {
@@ -164,12 +165,10 @@ describe('Projectiles.render — the torpedo cull is genuinely separate from the
     expect(live(torpAt(justOutside))).toBe(0);
   });
 
-  it('KEEPS a SHELL at the very same distance — the two culls are separate', () => {
-    // The proof the fork is real: one distance, two outcomes. A shell out here
-    // is still inside its own truesight ring (330 + 40 = 370u).
-    expect(live(shellAt(justOutside))).toBe(1);
+  it('a SHELL culls at ITS ring — truesight + 40, which since the 4/8 rung (2026-10-08) is the same radius the torpedo culls at', () => {
     expect(live(shellAt(CONFIG.vision.sight + 40 - 1))).toBe(1);
-    expect(live(shellAt(CONFIG.vision.sight + 40 + 1))).toBe(0); // ...and still culls at ITS ring
+    expect(live(shellAt(CONFIG.vision.sight + 40 + 1))).toBe(0);
+    expect(live(shellAt(justOutside))).toBe(justOutside <= CONFIG.vision.sight + 40 ? 1 : 0); // two reads of ONE plumbed radius
   });
 
   it('leaves the lit-zone exemption applying to torpedoes exactly as it does today', () => {
@@ -215,8 +214,9 @@ describe('Projectiles.render — the detect cull applies to ENEMY fish only (rev
     return p.liveCount;
   };
 
-  it('KEEPS an OWN torpedo out past the detect ring — the server never stopped correcting it', () => {
-    expect(liveTorp(DETECT_CULL + 1, true)).toBe(1);
+  it('KEEPS an OWN torpedo anywhere inside the truesight ring — the server never stopped correcting it', () => {
+    // (DETECT_CULL === SIGHT_CULL since the 4/8 rung, 2026-10-08, so the
+    // "past detect, inside sight" probe this test was born with is empty.)
     expect(liveTorp(SIGHT_CULL - 1, true)).toBe(1);
   });
 
@@ -249,9 +249,9 @@ describe('Projectiles.render — the detect cull applies to ENEMY fish only (rev
     p.onShell(torpAt(0), 'heavyTorpedo', 'heavyTorpedo');
     p.render(1, { x: -100_000, y: 0 }, []); // observer teleport → the track is culled
     expect(p.liveCount).toBe(0);
-    p.onBallisticUpdate({ k: 'torpU', id: 't1', x: DETECT_CULL + 1, y: 0, vx: 0, vy: 0, t: 0 });
+    p.onBallisticUpdate({ k: 'torpU', id: 't1', x: SIGHT_CULL - 1, y: 0, vx: 0, vy: 0, t: 0 });
     p.render(1, own, []);
-    expect(p.liveCount).toBe(1); // ours → the truesight ring, not the detect ring
+    expect(p.liveCount).toBe(1); // ours → kept inside the truesight ring (equal to the detect ring since 2026-10-08)
   });
 });
 
@@ -673,7 +673,7 @@ describe('a reveal for a KNOWN id re-anchors the track (amendment 78)', () => {
     // The observer closes again and the server re-reveals it. `own` is null on
     // this path — the reveal is nowhere near our hull, so roomBindings cannot
     // claim it a second time — and the CLAIM TOMBSTONE is what keeps it ours.
-    const near = Math.sqrt(cullRadiusSq(CONFIG.vision.sight, 'torp')) + 20;
+    const near = Math.sqrt(cullRadiusSq(CONFIG.vision.sight, 'torp')) - 20; // inside the (now shared) ring
     p.onShell(fish({ x: near, y: 0, t: 5000 }));
     expect(p.liveCount).toBe(1);
     // An ENEMY fish at that distance would be culled on the next frame (it is

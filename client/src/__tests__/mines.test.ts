@@ -203,12 +203,12 @@ describe('ownMineRings — the owner-private radius set', () => {
   // came from through its own wire kind. The trip ring is DERIVED from the
   // line's tier inside the fold (144 u at I, ×1.1 a rung) and its 32 u burst is
   // fixed, so the ring set READS both and re-derives neither.
-  it('CAPTIVE: draws the 144u trip ring alone — no 32u contact-blast ring', () => {
+  it('CAPTIVE: draws the CONFIG trip ring alone (120 u since 2026-10-08) — no 32u contact-blast ring', () => {
     const stats = effectiveStats(CONFIG.shipClasses.mineLayer, []);
-    expect(stats.equipment.captiveMines.triggerRadius).toBeCloseTo(144, 9);
+    expect(stats.equipment.captiveMines.triggerRadius).toBeCloseTo(CONFIG.captiveMines.triggerRadius, 9);
     expect(stats.equipment.captiveMines.blastRadius).toBeCloseTo(32, 9);
     const rings = ownMineRings(liveParams(), 'captive', true);
-    expect(rings.map((r) => [r.r, r.style])).toEqual([[144, 'dotted']]);
+    expect(rings.map((r) => [r.r, r.style])).toEqual([[CONFIG.captiveMines.triggerRadius, 'dotted']]);
     // ...and specifically NOT the blast radius, in any style.
     expect(rings.some((r) => r.r === stats.equipment.captiveMines.blastRadius)).toBe(false);
   });
@@ -219,7 +219,7 @@ describe('ownMineRings — the owner-private radius set', () => {
   it('CAPTIVE: the trip ring follows the fold to tier V without re-deriving it', () => {
     const maxed = Array<string>(5).fill('captiveMines');
     const e = effectiveStats(CONFIG.shipClasses.mineLayer, maxed).equipment.captiveMines;
-    expect(e.triggerRadius).toBeCloseTo(210.8, 1);
+    expect(e.triggerRadius).toBeCloseTo(CONFIG.captiveMines.triggerRadius * CONFIG.captiveMines.triggerStepPerTier ** 4, 6); // 175.7 u at the 120 u ring
     expect(e.blastRadius).toBeCloseTo(32, 9);
     const [ring] = ownMineRings(liveParams(maxed), 'captive', true);
     expect(ring.r).toBe(e.triggerRadius);

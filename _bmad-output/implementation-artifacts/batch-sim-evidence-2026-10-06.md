@@ -195,3 +195,17 @@ Run AFTER PR #260 merged, on the merged code, shipped CONFIG with no overrides (
 - **Bots beach far more on this board**: afloat bot-ticks in land contact **7.3 %** (bar < 1 %; 0.6 % on the 2.5 % ocean). The 10 % archipelago at 4,000 u has narrow channels and the bot helm grounds in them. That is a bot-quality finding (the land-contact bar fails for the first time) and it depresses every bot reading a little: a hull aground is not fighting. Not fixed here; Eric's call whether a bot-helm pass belongs in Story 9.x.
 
 Death timeline (bot deaths by minute, gun / storm): 1–2 min 245 / 0 · 2–3 352 / 0 · 3–4 314 / 3 · 4–5 260 / 6 · 5–6 142 / 0 · 6–7 87 / 3 · 7–8 74 / 16 · 8–9 52 / 21 · 9–10 26 / 13 · 10–11 12 / 20 · 11–12 15 / 21 · 12–13 16 / 4 · 13–14 2 / 7 · 14–15 3 / 2 · 16–17 0 / 5. Totals: 1605 gun, 121 storm, 4 fleet, 90 alive at the end.
+=======
+## 10. Mine trigger / blast arms (2026-10-08, cycle 171 branch: detect 4/8, one mine circle) — stopped at five by Eric
+
+Campaign `~/hc-campaigns/mines-2026-10-08/`, 91 matches each, even roster, `--raw`, baseline = this branch's CONFIG. Eric's ask: *"run progressive experiments on trigger/blast radius for all types of mines"* — singles first. He stopped the run after five (*"stop the remaining harnesses. Drop the captive trigger radius to 120 units."*); the captive per-tier-step arm and both fouling arms are unrun.
+
+| arm | dial | alive@4:00 | alive@8:00 | alive@12:00 | median | BS / ML / TB | REPEATER Δ pp (95 % CI) | bot deaths gun / storm / fleet |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| m_base | — | 10.1 | 3.6 | 0.9 | 10:58 | 43 / 33 / 24 | — | 1581 / 147 / 6 |
+| naval40 | `mine.blastRadius` 48 → 40 (trip 26.7) | 9.9 | 3.2 | 0.8 | 10:39 | 35 / 40 / 25 | +6.6 [−7, +21] | 1619 / 105 / 5 |
+| naval32 | `mine.blastRadius` 48 → 32 (trip 21.3) | 10.0 | 3.6 | 1.0 | 11:12 | 37 / 40 / 23 | +6.6 [−7, +21] | 1580 / 143 / 6 |
+| cap120 | `captiveMines.triggerRadius` 144 → 120 | 10.6 | 3.5 | 0.7 | 10:45 | 43 / 32 / 25 | −1.1 [−15, +13] | 1585 / 144 / 2 |
+| cap96 | `captiveMines.triggerRadius` 144 → 96 | 9.9 | 3.6 | 0.7 | 10:57 | 45 / 35 / 20 | +2.2 [−12, +16] | 1583 / 140 / 9 |
+
+**Readings.** None of the four dials moves attrition, class share or death cause beyond noise at n = 91. The branch baseline (mines and torpedoes seen at 330 u) reads 10.1 / 3.6 against the shipped 0.18.35 board's 9.9 / 3.3 — within noise. **Limit:** the saved JSON carries who died and how (gun / storm / fleet), not WHICH weapon; the kills-by-weapon ledger is stdout-only in the harness and the campaign runner discards it, so "mine kills per type" is unmeasured here. Eric's ruling: captive trigger 120 u ships (cycle 171); the other dials stay.

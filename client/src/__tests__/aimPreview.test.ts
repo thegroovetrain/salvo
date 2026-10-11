@@ -693,11 +693,11 @@ describe('mine placement — both rings at the drop point', () => {
   // driven by WHICH LINE IS PRIMED and reads that line's own row. The old pin
   // had to smuggle the captive row into the `navalMines` slot because no
   // captive id could ever be primed; now it simply primes `captiveMines`.
-  it('CAPTIVE: previews the 144u trip ring, not the 32u contact-blast ring', () => {
+  it('CAPTIVE: previews the CONFIG trip ring (120 u since 2026-10-08), not the 32u contact-blast ring', () => {
     const s = stats();
     const m = computeAimPreview(input({ id: 'captiveMines', stats: s, aim: 0, aimDist: 60 }));
     expect(m.place!.kind).toBe('captive');
-    expect(m.place!.trigger).toBeCloseTo(144, 9);
+    expect(m.place!.trigger).toBeCloseTo(CONFIG.captiveMines.triggerRadius, 9);
     expect(m.place!.blast).toBeCloseTo(32, 9);
     // The numbers are the firewall's, never re-derived here — and off the
     // CAPTIVE row, which is the whole point.

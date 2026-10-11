@@ -380,7 +380,7 @@ export function mineTriggerRadius(blastRadius: number): number {
 
 /**
  * u — the CAPTIVE mine's TRIP RING at a 1-based tier: 144 u at tier I, stepping
- * ×1.1 per rung to 210.8 u at tier V (catalog-v3 R25 as amended by epic-8
+ * ×1.1 per rung to 175.7 u at tier V from the 120 u ring of 2026-10-08 (catalog-v3 R25 as amended by epic-8
  * amendment 84d). It reads the TIER, not the blast radius, for two reasons:
  * trigger radii are deliberately off the stat whitelist, and the captive's
  * 32 u burst is FIXED — the line's tiers grow the reach of the trap, never the

@@ -165,7 +165,16 @@ const torpedo: GlyphPaths = [
 ];
 
 /** Mine: spiked sphere. */
-const mine: GlyphPaths = [circle(0, 0, 0.52), ...spokes(8, () => 0.52, () => 0.92)];
+/**
+ * THE ONE MINE CIRCLE (Eric ruling 2026-10-08, Story 9.1): every mine glyph
+ * carries a circle of THIS radius — the naval mine's sphere as shipped, which
+ * in the 20 u on-water marker box is the 10 u click ring a deck-gun shell
+ * must land inside (amendment 200). *"For all mine types, the circle should
+ * be the same size."*
+ */
+const MINE_R = 0.52;
+
+const mine: GlyphPaths = [circle(0, 0, MINE_R), ...spokes(8, () => MINE_R, () => 0.92)];
 
 /**
  * Light torpedo (cycle 162 DRAFT): a SLIMMER, SHORTER fish — about half the
@@ -199,41 +208,60 @@ const supercavTorpedo: GlyphPaths = [
  * of a small torpedo inside it"): an upright triangle outline holding a small
  * horizontal torpedo — the moored casing that launches a fish.
  */
-const captiveMines: GlyphPaths = [
+
+/** The captive mine's ORIGINAL linework (cycle 162): a tall triangle with a
+ *  small torpedo inside it, in its own ±0.95 frame. Kept verbatim; the
+ *  shipped glyph below is this drawing scaled into the common circle. */
+const CAPTIVE_ORIGINAL: GlyphPaths = [
   path([0, -0.95], [0.95, 0.75], [-0.95, 0.75], [0, -0.95]),
   path([-0.4, 0.18], [0.18, 0.18], [0.42, 0.3], [0.18, 0.42], [-0.4, 0.42], [-0.4, 0.18]),
   path([-0.4, 0.18], [-0.52, 0.08]),
   path([-0.4, 0.42], [-0.52, 0.52]),
 ];
+/** The original triangle's circumcircle: centre (0, 0.165), radius 1.115 —
+ *  the circle that passes through all three corners. */
+const CAPTIVE_CIRCUM_CY = 0.165;
+const CAPTIVE_CIRCUM_R = 1.115;
 
-/** Fouling mine's sphere centre, radius and spike reach. */
-const FOUL_CY = -0.2;
-const FOUL_R = 0.34;
-const FOUL_SPIKE = 0.68;
-
-/** One fouling spike at angle `a`: a stalk out of the sphere ending in a barb
- *  that hooks back (rotated 135° off the stalk). */
-function barbedSpike(a: number): GlyphPart {
-  const tip: GlyphPoint = [Math.cos(a) * FOUL_SPIKE, FOUL_CY + Math.sin(a) * FOUL_SPIKE];
-  const b = a + (3 * Math.PI) / 4;
-  return path(
-    [Math.cos(a) * FOUL_R, FOUL_CY + Math.sin(a) * FOUL_R],
-    tip,
-    [tip[0] + Math.cos(b) * 0.2, tip[1] + Math.sin(b) * 0.2],
+/** Uniformly scale a drawing so a circle of `fromR` about (0, fromCy) lands on
+ *  the common mine circle about (0, 0). */
+function intoMineCircle(parts: GlyphPaths, fromCy: number, fromR: number): GlyphPart[] {
+  const s = MINE_R / fromR;
+  const map = ([x, y]: GlyphPoint): GlyphPoint => [x * s, (y - fromCy) * s];
+  return parts.map((part) =>
+    part.kind === 'circle' ? circle(...map(part.c), part.r * s) : path(...part.pts.map(map)),
   );
 }
 
 /**
- * Fouling mines (cycle 162 DRAFT, Eric: "naval-like but clearly distinct"): a
- * SMALLER sphere with FOUR diagonal spikes that end in hooked barbs, and a
- * zigzag tether trailing from its bottom toward the frame edge — the line that
- * fouls a screw.
+ * Captive mines (Eric 2026-10-08: *"take the original icon and put a circle
+ * around it"*): the original triangle-and-torpedo, scaled so its circumcircle
+ * IS the common mine circle, with that circle drawn.
  */
-const foulingMines: GlyphPaths = [
-  circle(0, FOUL_CY, FOUL_R),
-  ...[1, 3, 5, 7].map((k) => barbedSpike((k * Math.PI) / 4)),
-  path([0, FOUL_CY + FOUL_R], [0.13, 0.35], [-0.13, 0.55], [0.13, 0.75], [0, 0.95]),
+const captiveMines: GlyphPaths = [
+  circle(0, 0, MINE_R),
+  ...intoMineCircle(CAPTIVE_ORIGINAL, CAPTIVE_CIRCUM_CY, CAPTIVE_CIRCUM_R),
 ];
+
+/** Fouling spike reach — the naval mine's spoke reach, so the two read as kin. */
+const FOUL_SPIKE = 0.92;
+
+/** One fouling spike at angle `a`: a stalk out of the common circle ending in
+ *  a barb that hooks back (rotated 135° off the stalk). */
+function barbedSpike(a: number): GlyphPart {
+  const tip: GlyphPoint = [Math.cos(a) * FOUL_SPIKE, Math.sin(a) * FOUL_SPIKE];
+  const b = a + (3 * Math.PI) / 4;
+  return path([Math.cos(a) * MINE_R, Math.sin(a) * MINE_R], tip, [tip[0] + Math.cos(b) * 0.2, tip[1] + Math.sin(b) * 0.2]);
+}
+
+/**
+ * Fouling mines (Eric 2026-10-08, Story 9.1 — re-cut from the cycle 162
+ * draft): the COMMON mine circle, centred, with FOUR diagonal spikes that end
+ * in hooked barbs. The zigzag tether that trailed from the sphere is gone
+ * (*"get rid of the little squiggle"*) and the sphere is the naval mine's
+ * size (*"make the circle part the same size as the normal naval mine"*).
+ */
+const foulingMines: GlyphPaths = [circle(0, 0, MINE_R), ...[1, 3, 5, 7].map((k) => barbedSpike((k * Math.PI) / 4))];
 
 /** Speed boost: a double chevron. */
 const boost: GlyphPaths = [-0.5, 0.05].map((dx) => path([dx, -0.7], [dx + 0.55, 0], [dx, 0.7]));

@@ -2180,7 +2180,7 @@ Eric's zero-in epic between The Pool and The Account, in HIS order: the balance 
 
 ### Story 9.1: The Tuning Pass (Eric steers)
 
-*(Cycle 169, 2026-10-07, PR pending: Eric's own harness session first (batch-sim-evidence-2026-10-06.md); shipped the 5,500 u ocean, 10 % land and the literal ring ladder 11000 → 7000 → 4000 → 2000 → 0 for him to test on development; hull hp and the spawn layout untouched; epic-9 amendments 2–9. The "dials" below are the ones he named on 2026-10-06, not a list — amendment 2.)*
+*(DONE 2026-10-08 — closed by Eric at cycle 171 / PR #262 after three sessions: cycle 169 the big ocean, 170 the storm ramp + 8,000 wide, 171 mines at sight + the mine circle + captive 120; amendments 2–20. Cycle 169, 2026-10-07: Eric's own harness session first (batch-sim-evidence-2026-10-06.md); shipped the 5,500 u ocean, 10 % land and the literal ring ladder 11000 → 7000 → 4000 → 2000 → 0 for him to test on development; hull hp and the spawn layout untouched; epic-9 amendments 2–9. The "dials" below are the ones he named on 2026-10-06, not a list — amendment 2.)*
 
 As Eric,
 I want one story dedicated to time-to-kill and to escaping combat, where I turn the dials live against the staging build,
