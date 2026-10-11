@@ -3,6 +3,12 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  75 — cycle 172 (Story 9.2, Eric 2026-10-11, epic-9 amendments 21/31):
+ *  every consumable has a fixed key — SLOT_COUNT 9 → 11 (`InputMsg.slot` /
+ *  `actSlot` 0..10, `OwnShip.ammo` length 11), each consumable kind bound to
+ *  one slot (5..10 in CONSUMABLE_KEY_ORDER, no packing; `beltFull` gone);
+ *  CHAFF retired (catalog content, `CONFIG.chaff`, `OwnShip.chaff` and
+ *  `OwnShip.chaffGhosts` gone). Perception exception count stays SIX.
  *  74 — cycle 171 (Story 9.1, Eric 2026-10-08): the mine / torpedo DETECT
  *  rung 3/8 → 4/8 (CONFIG.vision.detect = sight, detectFactor 0.75 → 1 —
  *  read by the client's torpedo cull and wake reach). Mine glyphs re-cut
@@ -809,7 +815,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 74;
+export const PROTOCOL_VERSION = 75;
 
 // Tunables
 export * from './constants.js';

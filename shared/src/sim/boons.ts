@@ -11,8 +11,9 @@
 //   4. `behavior(hookId, params)` executes registered hooks (sim/hooks.ts)
 //      per-tick on BOTH sides, so prediction survives;
 //   5. `stock` effects mutate the same LoadoutSlot[] through the same
-//      applySlotEffect, in the four-wide BELT (Story 8.7): the slot that
-//      already holds the line, else the first empty belt slot, else nowhere.
+//      applySlotEffect, in the kind's OWN FIXED consumable slot (Story 9.2,
+//      epic-9 amendments 21/31 — the packed belt of Story 8.7 is retired):
+//      nothing packs, nothing shifts, an unkeyed stub stocks nowhere.
 // Nothing else moves — a stat-only card leaves the loadout reference-equal, a
 // slot-only card leaves stats byte-identical (property-pinned in tests).
 //
@@ -36,10 +37,10 @@
 
 import type { EquipmentId, GunId, LoadoutSlot, ShiftId, SlotItemId } from './loadout.js';
 import {
-  CONSUMABLE_SLOTS,
   DEFAULT_GUN,
   DEFAULT_SHIFT,
   WEAPON_SLOTS,
+  consumableSlotFor,
   equipmentMaxAmmo,
   isConsumableId,
   loadoutFor,
@@ -253,7 +254,7 @@ function freshSlotState(stats: EffectiveStats, id: EquipmentId): LoadoutSlot['st
  * loadout's `EQUIPMENT_IDS` — so a catalog import in loadout.ts closes a module
  * cycle that makes the catalog validate against an empty id set (observed:
  * `deckGun: appliesTo unknown equipment 'gun'`). loadout.ts stays a leaf; this
- * module already owns both sides of the belt.
+ * module already owns both the weapon row and the consumable slots.
  */
 export function slotMaxAmmo(stats: EffectiveStats, id: SlotItemId, catalog: Catalog = CATALOG): number {
   if (!isConsumableId(id)) return equipmentMaxAmmo(stats, id);
@@ -261,35 +262,22 @@ export function slotMaxAmmo(stats: EffectiveStats, id: SlotItemId, catalog: Cata
 }
 
 /**
- * THE BELT SLOT a copy of `lineId` would go into: the slot that ALREADY HOLDS
- * that line (a second copy deepens the stack it is already carrying), else the
- * FIRST EMPTY belt slot, else `null` — the belt is full of four other lines and
- * this copy has nowhere to go.
+ * THE SLOT a copy of `lineId` would go into: the kind's OWN FIXED slot
+ * (`consumableSlotFor`, Story 9.2) — whether it already holds a stack (a second
+ * copy deepens it) or is empty (a first copy opens it). `null` when the kind
+ * has no key (the DEPTH CHARGE stub) or when the slot holds something else or
+ * is missing (a malformed array is fail-closed: a missing slot is never
+ * "empty"). There is no packing: another kind's stack can never move it.
  *
  * Pure over the slot ids alone, so both sides call the same function over the
  * same data: the server passes `loadout.map(s => s.equipmentId)` and the client
- * passes the ids it replayed from `OwnShip.cards`. A short or malformed array
- * is fail-closed (a missing slot is never "empty").
+ * passes the ids it replayed from `OwnShip.cards`.
  */
 export function stockSlotFor(slotIds: readonly (SlotItemId | null)[], lineId: ConsumableId): number | null {
-  for (const i of CONSUMABLE_SLOTS) {
-    if (slotIds[i] === lineId) return i;
-  }
-  for (const i of CONSUMABLE_SLOTS) {
-    if (slotIds[i] === null) return i;
-  }
-  return null;
-}
-
-/**
- * Can this belt take another copy of `lineId`? Exactly "the belt already holds
- * the line ∨ a belt slot is empty" — ONE derivation, shared by the server's
- * spend refusal (which returns false BEFORE mutating anything, so the offer is
- * byte-identical next frame) and the client's greyed `SLOTS FULL` card, so the
- * two can never disagree about whether a pick is legal.
- */
-export function canStock(slotIds: readonly (SlotItemId | null)[], lineId: ConsumableId): boolean {
-  return stockSlotFor(slotIds, lineId) !== null;
+  const slot = consumableSlotFor(lineId);
+  if (slot === null) return null;
+  const held = slotIds[slot];
+  return held === null || held === lineId ? slot : null;
 }
 
 /**
@@ -300,34 +288,35 @@ export function canStock(slotIds: readonly (SlotItemId | null)[], lineId: Consum
  * every directed grant), `World.spendCard` (which returns BEFORE consuming the
  * level, so a refused pick leaves the offer byte-identical), the client's
  * greyed refit card, the bot spend scorer and the batch-sim spend instrument.
- * Before it existed each of those asked only `canStock`, so a line that already
- * OWNED a belt slot walked straight past its own `cap`: five HULL REPAIR could
- * be followed by a sixth copy that cost a level, never reached the belt, and
- * silently refilled the stack after the first use.
+ * Before it existed each of those asked only whether the belt could stock the
+ * line, so a line that already OWNED a slot walked straight past its own
+ * `cap`: five HULL REPAIR could be followed by a sixth copy that cost a level
+ * and silently refilled the stack after the first use.
  *
- * The four refusals, in the order they are decided:
+ * The three refusals, in the order they are decided:
  *   - `stub` — the line's mechanism is not built (amendment 11), or the id is
  *     not an OWN PROPERTY of the catalog at all (fail closed: an unknown id and
  *     a prototype key are both refusals, never a grant).
  *   - `atCap` — the ship already holds `cap` copies. TRUE FOR EVERY KIND,
  *     consumables included: the draw deals a consumable at its cap on purpose
- *     (amendment 94), and THIS is what makes that card unpickable rather than
- *     merely unstockable.
- *   - `beltFull` — a consumable whose four-wide belt holds four OTHER lines.
+ *     (amendment 94), and THIS is what makes that card unpickable. Since Story
+ *     9.2 it is the ONLY consumable refusal besides `stub`: every kind owns a
+ *     fixed slot, so there is no full belt to refuse into (the old `beltFull`
+ *     is deleted — epic-9 amendment 21).
  *   - `noWeaponSlot` — copy 1 of an equipment line (the bare weapon) with all
  *     three of Q/E/R occupied: it would land in `cards` with no slot to live in.
  *
- * Pure over plain data — the held card ids (one entry per copy) and the same
- * replayed slot ids `canStock` takes — so both sides evaluate one function over
- * one set of facts and can never disagree about whether a pick is legal. A
- * short or malformed slot array is fail-closed exactly as `stockSlotFor` is: a
- * missing slot is never "empty".
+ * Pure over plain data — the held card ids (one entry per copy) and the
+ * replayed slot ids — so both sides evaluate one function over one set of
+ * facts and can never disagree about whether a pick is legal. A short or
+ * malformed slot array is fail-closed for the weapon row: a missing slot is
+ * never "empty".
  *
- * NOTE the client states every one of these with the SAME ratified foot word
- * (`SLOTS FULL`, Eric's copy) — this enum is a reason for the ENGINE, not new
- * player-facing text.
+ * This enum is a reason for the ENGINE, not player-facing text (since Story
+ * 9.2 the client's `SLOTS FULL` foot is for `noWeaponSlot` only; a capped
+ * consumable card carries no foot word — epic-9 amendment 32).
  */
-export type PickRefusal = 'stub' | 'atCap' | 'beltFull' | 'noWeaponSlot';
+export type PickRefusal = 'stub' | 'atCap' | 'noWeaponSlot';
 
 export function pickRefusal(
   held: readonly string[],
@@ -339,16 +328,8 @@ export function pickRefusal(
   if (line === undefined || line.stub === true) return 'stub';
   const copies = boonStackCount(held, lineId);
   if (copies >= line.cap) return 'atCap';
-  if (line.kind === 'consumable') return beltRefusal(slotIds, lineId);
   if (line.kind === 'equipment' && copies === 0) return weaponRowRefusal(slotIds);
   return null;
-}
-
-/** The belt half of `pickRefusal`. A `consumable` LINE whose id is not a known
- *  consumable carries no `stock` effect, so it has no belt claim to refuse. */
-function beltRefusal(slotIds: readonly (SlotItemId | null)[], lineId: string): PickRefusal | null {
-  if (!isConsumableId(lineId)) return null;
-  return canStock(slotIds, lineId) ? null : 'beltFull';
 }
 
 /** The weapon-row half of `pickRefusal`: copy 1 needs one of Q/E/R empty. */
@@ -357,10 +338,11 @@ function weaponRowRefusal(slotIds: readonly (SlotItemId | null)[]): PickRefusal 
 }
 
 /**
- * Stock ONE copy: `n += 1` in the slot already holding the line, or a fresh
- * `{ n: 1, reloadMsLeft: 0 }` stack in the first empty belt slot. A STUB line
- * is refused by the same catalog-driven gate `slotFill` uses; a full belt is a
- * SILENT no-op that leaves the loadout byte-identical.
+ * Stock ONE copy at the kind's FIXED slot (Story 9.2): `n += 1` on the stack
+ * already there, or a fresh `{ n: 1, reloadMsLeft: 0 }` stack in that empty
+ * slot. A STUB line is refused by the same catalog-driven gate `slotFill` uses;
+ * an unkeyed kind or a malformed slot is a SILENT no-op that leaves the loadout
+ * byte-identical. No other slot is ever read or written.
  */
 function applyStock(loadout: LoadoutSlot[], effect: BoonStockEffect, catalog: Catalog): void {
   // The consumable's line IS its id (a consumable line fills its own rack), so
@@ -369,7 +351,7 @@ function applyStock(loadout: LoadoutSlot[], effect: BoonStockEffect, catalog: Ca
   const line = catalog[effect.equipmentId];
   if (line?.stub === true) return;
   const index = stockSlotFor(loadout.map((s) => s.equipmentId), effect.equipmentId);
-  if (index === null) return; // belt full of other lines: nothing moves
+  if (index === null) return; // unkeyed kind or malformed slot: nothing moves
   const slot = loadout[index];
   if (slot === undefined) return;
   if (slot.equipmentId === effect.equipmentId && slot.state !== null) {
@@ -388,9 +370,9 @@ function applyStock(loadout: LoadoutSlot[], effect: BoonStockEffect, catalog: Ca
  * `stat`/`behavior`/`doctrine` effects are structural no-ops here.
  *
  * TWO HOMES INSIDE THE ONE ARRAY: a `slotFill` takes the first empty WEAPON
- * slot, a `stock` takes its BELT slot (applyStock above). Neither can reach the
- * other's row, which is why a full weapon row never spills into the belt and a
- * fifth consumable line never displaces a weapon.
+ * slot, a `stock` takes its kind's FIXED consumable slot (applyStock above).
+ * Neither can reach the other's row, which is why a full weapon row never
+ * spills into the consumable slots and a consumable never displaces a weapon.
  *
  * THE FILL RULE (Story 8.5): a `slotFill` takes the FIRST slot in
  * `WEAPON_SLOTS` (2, 3, 4) that is still empty, and touches NOTHING else — no
@@ -410,7 +392,7 @@ export function applySlotEffect(
   catalog: Catalog = CATALOG,
 ): void {
   if (effect.kind === 'stock') {
-    applyStock(loadout, effect, catalog); // the belt (Story 8.7)
+    applyStock(loadout, effect, catalog); // the kind's fixed slot (Story 9.2)
     return;
   }
   if (effect.kind !== 'slotFill') return; // not a slot home
@@ -438,7 +420,7 @@ export function applySlotEffect(
 
 /**
  * The client-side loadout derivation (ONE derivation, both sides): the
- * universal nine-slot loadoutFor fit with every held card's slot effects
+ * universal loadoutFor fit with every held card's slot effects
  * replayed over it, IN FIT ORDER. `fleet` selects the gun-only drone fit;
  * `gun` is the seat's pick (slot 0) and `shift` the hull's class Shift (slot 1,
  * Story 8.15 — resolve it with `classShift(cls)`).
@@ -455,9 +437,10 @@ export function applySlotEffect(
  * Pool STATE here is the fresh full-pool baseline (the live counts ride
  * OwnShip.ammo, slot-aligned).
  *
- * THE BELT NEEDS NO CODE HERE (Story 8.7). Every copy of a consumable line is
- * replayed like any other card, and each one runs the same `stock` branch the
- * server ran on grant — so k copies held IS `n = k` in that line's belt slot,
+ * THE CONSUMABLE SLOTS NEED NO CODE HERE (Story 8.7; fixed slots since 9.2).
+ * Every copy of a consumable line is replayed like any other card, and each one
+ * runs the same `stock` branch the server ran on grant — so k copies held IS
+ * `n = k` in that kind's own fixed slot, whatever order the kinds arrived in,
  * with no wire field to carry the count. A copy SPENT in play leaves
  * `ship.cards` server-side, so the next replay lands on `n − 1` by itself.
  */

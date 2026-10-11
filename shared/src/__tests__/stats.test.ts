@@ -831,7 +831,7 @@ describe('THE EQUIPMENT RELOAD STEP (catalog-v3 §3 standing rule)', () => {
     // Story 8.17 re-pin (amendments 131/132): this used the two add-ons, and
     // there are none left — FLASH SHELLS is a consumable and PHOSPHOR SHELLS a
     // real equipment line (whose own tier it DOES move).
-    const s = effectiveStats(BASE, ['dazzleShells', 'hullRepair', 'chaff']);
+    const s = effectiveStats(BASE, ['dazzleShells', 'hullRepair', 'decoyBuoy']);
     for (const id of EQUIPMENT_IDS) expect(s.equipment[id].tier, id).toBe(1);
   });
 });
@@ -1017,7 +1017,7 @@ describe('effectiveStats — every NON-STUB line folds (no dead cards)', () => {
     for (const id of LINE_IDS) {
       if (isStubLine(id)) continue;
       // A CONSUMABLE IS EXEMPT BY DESIGN, not by omission: its copies carry a
-      // `stock` effect, which fills a BELT SLOT and addresses no stat at all —
+      // `stock` effect, which fills its kind's SLOT and addresses no stat at all —
       // pinned two tests down. HULL REPAIR is the first live one (Story 8.8),
       // so this loop stopped being "non-stub ⇒ moves a number" the day a
       // consumable became dealable.
@@ -1057,7 +1057,7 @@ describe('effectiveStats — every NON-STUB line folds (no dead cards)', () => {
     // row: five copies of it move nothing at all.
     // FLASH SHELLS (`dazzleShells`) joined in Story 8.17 (amendment 132): it
     // moved from the add-on space and, like supercav, carries no stat row.
-    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy',
+    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'decoyBuoy',
       'depthCharge', 'supercavTorpedo', 'dazzleShells'] as const) {
       expect(effectiveStats(BASE, stack(id, 5)), id).toEqual(effectiveStats(BASE));
     }

@@ -432,7 +432,7 @@ export const CONFIG = {
      */
     disengageHpFrac: 0.35,
     /**
-     * Fraction of max hp below which a bot PRESSES a stocked HULL REPAIR belt
+     * Fraction of max hp below which a bot PRESSES a stocked HULL REPAIR
      * slot (epic-8 amendment 49). The same threshold that used to buy the
      * always-available -1 heal spend (D2) — the heal is a card now,
      * so it gates firing one, never the spend. Above it, bots never heal.
@@ -1235,11 +1235,11 @@ export const CONFIG = {
   },
 
   /**
-   * SUPERCAV TORPEDO — a prime-and-click BELT CONSUMABLE, not an equipment
+   * SUPERCAV TORPEDO — a prime-and-click CONSUMABLE, not an equipment
    * line (Eric ruling 2026-09-19, epic-8 amendment 74, verbatim: *"I have
    * decided that Supercavitating Torpedos should be a consumable item, rather
    * than a weapon line."*). The digit primes, a click inside the bow ±15°
-   * sector fires ONE fish per copy, and the copy leaves the belt.
+   * sector fires ONE fish per copy, and the copy leaves its slot.
    *
    * SO IT HAS NO RELOAD AND NO TIERS. Consumables never reload (catalog-v3
    * R40, Story 8.7) and a consumable line's copies STOCK rather than step, so
@@ -1504,7 +1504,7 @@ export const CONFIG = {
    * nothing: for the mounted gun and every fitted Q/E/R weapon whose reload is
    * RUNNING, that ONE reload completes at once (one round tops up, timer to
    * zero; the machine gun's magazine fills); rounds spent beyond that stay
-   * spent, and the belt and the Shift slot itself are never touched. One
+   * spent, and the consumable slots and the Shift slot itself are never touched. One
    * charge on a 60 s cooldown (Eric 2026-10-02, amendment 232; was 45 s,
    * amendment 97) — longer than the longest weapon reload, so it never acts
    * as a permanent second tube. `reloadMs` takes `cooldownScale` through the
@@ -1769,7 +1769,7 @@ export const CONFIG = {
 
   /**
    * FLASH SHELLS (Story 8.17, Eric ruling 2026-09-29, epic-8 amendments
-   * 131/132) — the DAZZLE SHELLS line re-cut as a belt CONSUMABLE (display
+   * 131/132) — the DAZZLE SHELLS line re-cut as a CONSUMABLE (display
    * name FLASH SHELLS; the internal id stays `dazzleShells`). The key primes,
    * a click fires ONE 360° gun-pattern shell to the radar rung that bursts
    * ONCE in `radius`: every non-friendly afloat hull whose centre is inside is
@@ -1808,22 +1808,6 @@ export const CONFIG = {
   },
 
   /**
-   * CHAFF (catalog-v3 R39; Story 8.16, epic-8 amendment 124(b)(c)) — a
-   * key-fired consumable that bursts at the owner's position at activation
-   * and paints `count` server-generated false returns inside `radius`,
-   * re-scattered once per the OWNER's sweep period, water-filtered, for
-   * `durationMs`. The fakes never ride the owner's `events`; the owner receives
-   * their OWN ghosts only via the self-private `OwnShip.chaffGhosts` (Eric
-   * 2026-10-01, cycle 162). A second copy REPLACES the source (fresh seed,
-   * fresh duration). No `EffectiveStats` row.
-   */
-  chaff: {
-    radius: 180, // u — scatter circle around the burst point (R39's 120 ×1.5, Eric 2026-10-01 "to 150 %")
-    count: 10, // fake returns per scatter (R39; fewer is legal beside an island)
-    durationMs: 15000, // ms the fakes keep painting (R39)
-  },
-
-  /**
    * DECOY BUOY (catalog-v3 R36/R41; Story 8.16, epic-8 amendments 119–124) —
    * a click-placed consumable dropped in the MINE's rear sector
    * (`CONFIG.mine.offset` ± `placeHalfArcDeg`, out to `placeRange`). It floats
@@ -1846,7 +1830,7 @@ export const CONFIG = {
    * `layMs` lay window: every `puffIntervalMs` the hull drops a stationary
    * puff at its CENTER (its own position, amendment 190), so one copy lays 10 puffs. A re-press while laying
    * RESTARTS the lay clock (a fresh `layMs` from the press; the copy is spent —
-   * the shield/chaff "replaces" posture). Each puff lives `lifeMs` and grows
+   * the shield's "replaces" posture). Each puff lives `lifeMs` and grows
    * linearly from `r0` to `r1` over `expandMs` (the whole life) — the one pure
    * curve is `puffRadius` in sim/smoke.ts, run by both sides, so no radius
    * rides the wire. A puff blocks every SIGHT-tier sensor like an island
@@ -2032,9 +2016,11 @@ export const CONFIG = {
    * `chance`; a passing roll stocks ONE copy of a consumable picked uniformly
    * from the lines the ship could legally take right now by the refit card's
    * own predicate (`pickRefusal === null` — a stub or a line at its cap is
-   * skipped, and a full belt limits the pick to the lines already held). An
-   * empty eligible set wastes the roll. Server-only; the killer sees the
-   * STOCKED toast via the self-private `dp` event.
+   * skipped). Since Story 9.2 (epic-9 amendments 21/31) every kind owns a fixed
+   * slot, so the eligible set is simply every non-stub consumable under its cap
+   * of 5 — there is no belt to fill. An empty eligible set wastes the roll.
+   * Server-only; the killer sees the STOCKED toast via the self-private `dp`
+   * event.
    */
   droneDrops: {
     chance: 0.5,
@@ -2071,9 +2057,9 @@ export const CONFIG = {
    * are `[DRAFT]` harness dials, reachable by `--tune`.
    *
    * THE OFFER IS NEVER EMPTY (amendment 94): consumable lines are always dealt
-   * — at their cap or with a full belt they are dealt anyway, greyed by the
-   * existing SLOTS FULL treatment, and the pick is a silent no-op until space
-   * frees. An offer is SHORTER than `size` only when fewer than `size` dealable
+   * — at their cap they are dealt anyway, greyed (with no foot word since Story
+   * 9.2, epic-9 amendment 32), and the pick is a silent no-op until a copy is
+   * used. An offer is SHORTER than `size` only when fewer than `size` dealable
    * lines exist at all; there is no exhaustion and no banked-empty branch.
    */
   offer: {

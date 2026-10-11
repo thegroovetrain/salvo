@@ -1,4 +1,5 @@
-// NINE SLOTS (Story 8.5, re-cut for THE COMMON POOL in Story 8.14) — the two
+// THE SLOTS (Story 8.5, re-cut for THE COMMON POOL in Story 8.14; eleven slots,
+// one per keyed consumable, since Story 9.2) — the
 // properties that tie the moving parts of the slot grammar together: the DRAW
 // RULE (a ship is never dealt copy 1 of an equipment line with all three weapon
 // slots full — sim/draw.ts), the FILL RULE (a `slotFill` takes the first empty
@@ -25,6 +26,9 @@
 //    mounts slot 0 from MOUNTED_GUN — each seat gun on its OWN module since
 //    Story 8.15 (amendments 103–105).
 //
+// 3. THE FIXED-PLACEMENT PROPERTY (Story 9.2): every consumable stack sits at
+//    its kind's own slot over any reachable hand, in any pick order.
+//
 // Pure, zero I/O. Seeded PRNG (mulberry32), so a failure is reproducible.
 
 import { describe, it, expect } from 'vitest';
@@ -39,10 +43,13 @@ import {
   SHIP_CLASS_IDS,
   WEAPON_SLOTS,
   CONSUMABLE_SLOTS,
+  CONSUMABLE_KEY_ORDER,
+  consumableKindAt,
+  consumableSlotFor,
   SLOT_BOOST,
+  SLOT_COUNT,
   SLOT_GUN,
   applySlotEffect,
-  canStock,
   classShift,
   effectiveStats,
   isGunId,
@@ -53,10 +60,8 @@ import {
   slotsWithCards,
   type Catalog,
   type CatalogLine,
-  type ConsumableId,
   type EquipmentId,
   type LineId,
-  type LoadoutSlot,
   type Rng,
 } from '../index.js';
 
@@ -145,12 +150,12 @@ describe('THE REACHABLE-HAND PROPERTY — a reachable hand can never out-card th
       const expected = equipment.filter((id) => !isStubLine(id));
       const fitted = WEAPON_SLOTS.map((i) => loadout[i].equipmentId).filter((id) => id !== null);
       expect([...fitted].sort(), label).toEqual([...(expected as unknown as EquipmentId[])].sort());
-      // ...and the fill never left the weapon row: gun, boost and the belt are
+      // ...and the fill never left the weapon row: gun, boost and the consumable slots are
       // exactly as loadoutFor built them.
       expect(loadout[SLOT_GUN].equipmentId, label).toBe('gun');
       expect(loadout[SLOT_BOOST].equipmentId, label).toBe('boost');
       for (const i of CONSUMABLE_SLOTS) {
-        expect(loadout[i], `${label}:belt ${i}`).toEqual({ equipmentId: null, state: null });
+        expect(loadout[i], `${label}:consumable ${i}`).toEqual({ equipmentId: null, state: null });
       }
     }
   });
@@ -183,7 +188,7 @@ describe("loadoutFor(stats, fleet, gun) — slot 0 is the SEAT'S gun", () => {
     const loadout = loadoutFor(stats, false, gun);
     expect(loadout[SLOT_GUN]).toEqual({ equipmentId: eq, state: { n: stats.equipment[eq].maxAmmo, reloadMsLeft: 0 } });
     expect(loadout[SLOT_BOOST].equipmentId).toBe('boost');
-    expect(loadout).toHaveLength(9);
+    expect(loadout).toHaveLength(SLOT_COUNT);
     expect(EQUIPMENT_IS_WEAPON[eq]).toBe(true);
   });
 
@@ -225,17 +230,17 @@ describe("loadoutFor(stats, fleet, gun) — slot 0 is the SEAT'S gun", () => {
 });
 
 // ---------------------------------------------------------------------------
-// THE RACK PROPERTY (Story 8.7). The belt's fill rule is the weapon row's
-// sibling — held-line-first, then first-empty — and it has to hold over any
-// legal deck taken in any order. The production catalog cannot exercise it on
-// its own (every consumable but DEPTH CHARGE is live since Story 8.18; it is
-// still a stub, epic-8 amendment 83), so the property runs on
-// the production catalog with every consumable UN-STUBBED: exactly the catalog
-// the remaining consumable stories ship, one flag at a time.
+// THE FIXED-PLACEMENT PROPERTY (Story 8.7's rack, re-cut in Story 9.2 — epic-9
+// amendments 21/31). The packed belt is retired: every keyed consumable kind
+// owns ONE fixed slot (`consumableSlotFor`), so over any reachable hand taken
+// in any order each stack sits at its own slot, nothing packs and nothing
+// shifts. The property runs on the production catalog with every consumable
+// UN-STUBBED, so the unkeyed DEPTH CHARGE is exercised as a live line that
+// still has nowhere to go.
 // ---------------------------------------------------------------------------
 
 /** The production catalog, consumables un-stubbed — nothing else changed. */
-const LIVE_BELT: Catalog = (() => {
+const UNSTUBBED: Catalog = (() => {
   const rows: Record<string, CatalogLine> = { ...CATALOG };
   for (const id of CONSUMABLE_IDS) {
     const { stub: _stub, ...rest } = CATALOG[id];
@@ -244,91 +249,48 @@ const LIVE_BELT: Catalog = (() => {
   return rows;
 })();
 
-/** The consumable lines of a hand, in FIT ORDER, first occurrence only. */
-function consumableOrder(cards: readonly LineId[]): ConsumableId[] {
-  const out: ConsumableId[] = [];
-  for (const id of cards) {
-    if (!(CONSUMABLE_IDS as readonly string[]).includes(id)) continue;
-    if (!out.includes(id as ConsumableId)) out.push(id as ConsumableId);
-  }
-  return out;
-}
-
-/** `[id:n, ...]` for the four belt slots, sorted — the permutation-invariant
- *  shape (WHICH slot a line lands in is a fact about pick order, the multiset
- *  of stacks is not). */
-const beltMultiset = (loadout: readonly LoadoutSlot[]): string[] =>
-  CONSUMABLE_SLOTS.map((i) => `${String(loadout[i].equipmentId)}:${loadout[i].state?.n ?? 0}`).sort();
-
-describe('THE RACK PROPERTY — the belt over random legal decks and random pick orders', () => {
-  it('over 200 random reachable hands: one slot per line, n = copies held, canStock ≡ held ∨ empty, and the multiset is permutation-invariant', () => {
+describe('THE FIXED-PLACEMENT PROPERTY — the consumable slots over random reachable hands and random pick orders', () => {
+  it('over 200 random reachable hands: each kind at its own slot, n = copies held, weapons untouched, order-invariant', () => {
     const rng = mulberry32(0x8_7_be17);
     const stats = effectiveStats(hullEnvelope('torpedoBoat'));
     for (let trial = 0; trial < 200; trial += 1) {
       const { cards } = randomReachableHand(rng);
       const label = `trial ${trial}`;
-      const loadout = slotsWithCards(stats, cards, LIVE_BELT);
-      const belt = CONSUMABLE_SLOTS.map((i) => loadout[i]);
-      const held = belt.map((s) => s.equipmentId).filter((id) => id !== null);
-
-      // 1. THE BELT NEVER HOLDS TWO SLOTS OF ONE LINE.
-      expect(new Set(held).size, label).toBe(held.length);
-
-      // 2. The belt holds the FIRST FOUR DISTINCT consumable lines, in fit
-      //    order — the fifth and beyond are silent no-ops.
-      const order = consumableOrder(cards);
-      expect(held, label).toEqual(order.slice(0, CONSUMABLE_SLOTS.length));
-
-      // 3. n PER SLOT IS COPIES HELD (capped by the line), and a stack never
-      //    carries a reload.
+      const loadout = slotsWithCards(stats, cards, UNSTUBBED);
       const copies = new Map<string, number>();
       for (const id of cards) copies.set(id, (copies.get(id) ?? 0) + 1);
-      for (const slot of belt) {
-        if (slot.equipmentId === null) {
-          expect(slot.state, label).toBeNull();
-          continue;
-        }
-        const id = slot.equipmentId;
-        const n = Math.min(copies.get(id) ?? 0, LIVE_BELT[id].cap);
-        expect(slot.state, `${label}:${id}`).toEqual({ n, reloadMsLeft: 0 });
+
+      // 1. EVERY CONSUMABLE SLOT HOLDS ITS OWN KIND OR NOTHING, with n = copies
+      //    held (capped by the line) and no reload; an unheld kind's slot is empty.
+      for (const i of CONSUMABLE_SLOTS) {
+        const kind = consumableKindAt(i);
+        expect(kind, `${label}: slot ${i} is bound`).not.toBeNull();
+        if (kind === null) continue;
+        const n = Math.min(copies.get(kind) ?? 0, UNSTUBBED[kind].cap);
+        const want = n === 0 ? { equipmentId: null, state: null } : { equipmentId: kind, state: { n, reloadMsLeft: 0 } };
+        expect(loadout[i], `${label}: ${kind}`).toEqual(want);
       }
 
-      // 4. canStock IS EXACTLY "held ∨ an empty belt slot".
-      const slotIds = loadout.map((s) => s.equipmentId);
-      const hasEmpty = held.length < CONSUMABLE_SLOTS.length;
+      // 2. AN UNKEYED KIND STOCKS NOWHERE, even un-stubbed.
       for (const id of CONSUMABLE_IDS) {
-        expect(canStock(slotIds, id), `${label}:${id}`).toBe(held.includes(id) || hasEmpty);
+        if (consumableSlotFor(id) !== null) continue;
+        expect(loadout.some((s) => s.equipmentId === id), `${label}: ${id}`).toBe(false);
       }
 
-      // 5. THE WEAPON ROW IS UNTOUCHED BY THE RACK: slots 0–4 are byte-identical
-      //    to the same hand folded through the production catalog, whose belt
-      //    takes the hand's LIVE consumable lines only — today every line but
-      //    DEPTH CHARGE (still a stub, amendment 83; Story 8.16 flipped SHIELD
-      //    BLOCK, CHAFF and DECOY BUOY, Story 8.18 SMOKE SCREEN).
+      // 3. THE WEAPON ROW IS UNTOUCHED: slots 0–4 are byte-identical to the
+      //    same hand folded through the production catalog, and the consumable
+      //    slots match it too (every keyed kind is live in production).
       const production = slotsWithCards(stats, cards, CATALOG);
-      expect(loadout.slice(0, CONSUMABLE_SLOTS[0]), label).toEqual(production.slice(0, CONSUMABLE_SLOTS[0]));
-      const live = order.filter((id) => CATALOG[id].stub !== true).slice(0, CONSUMABLE_SLOTS.length);
-      const productionBelt = CONSUMABLE_SLOTS.map((i) => production[i].equipmentId);
-      expect(productionBelt, `${label}:production belt`)
-        .toEqual([...live, ...new Array<null>(CONSUMABLE_SLOTS.length - live.length).fill(null)]);
+      expect(loadout, label).toEqual(production);
 
-      // 6. PERMUTATION INVARIANCE. Re-taking the same cards in another order
-      //    moves WHICH slot holds what only while the belt has room to spare;
-      //    the multiset of stacks is invariant whenever the hand's consumable
-      //    lines fit the belt, and a full belt stays full either way.
-      const other = slotsWithCards(stats, shuffled(rng, cards), LIVE_BELT);
-      if (order.length <= CONSUMABLE_SLOTS.length) {
-        expect(beltMultiset(other), label).toEqual(beltMultiset(loadout));
-      } else {
-        const otherHeld = CONSUMABLE_SLOTS.map((i) => other[i].equipmentId).filter((id) => id !== null);
-        expect(otherHeld, label).toHaveLength(CONSUMABLE_SLOTS.length);
-        for (const id of otherHeld) expect(order, label).toContain(id);
-      }
+      // 4. ORDER INVARIANCE. Re-taking the same cards in another order lands
+      //    every stack in the SAME slot — nothing depends on pick order now.
+      const other = slotsWithCards(stats, shuffled(rng, cards), UNSTUBBED);
+      for (const i of CONSUMABLE_SLOTS) expect(other[i], `${label}: slot ${i}`).toEqual(loadout[i]);
     }
   });
 
-  it('the belt is exactly as wide as the number of lines a hand can stock at once (4 == 4)', () => {
-    expect(CONSUMABLE_SLOTS).toHaveLength(4);
-    expect(CONSUMABLE_IDS.length).toBeGreaterThan(CONSUMABLE_SLOTS.length); // eight lines (since 8.17), four slots: refusals are real
+  it('there is one consumable slot per keyed kind — no kind ever competes for room', () => {
+    expect(CONSUMABLE_SLOTS.map((i) => consumableKindAt(i))).toEqual([...CONSUMABLE_KEY_ORDER]);
   });
 });

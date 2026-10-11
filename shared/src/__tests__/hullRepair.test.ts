@@ -96,16 +96,17 @@ describe('CONFIG.regen — the out-of-combat regen (Eric ruling 2026-09-17, amen
   });
 });
 
-describe('HULL REPAIR is a LIVE consumable; one of the eight is still a stub', () => {
-  it('hullRepair is dealt, and so are the SUPERCAV TORPEDO, SHIELD BLOCK, SMOKE SCREEN, CHAFF, DECOY BUOY and FLASH SHELLS — DEPTH CHARGE is not', () => {
+describe('HULL REPAIR is a LIVE consumable; one of the seven is still a stub', () => {
+  it('hullRepair is dealt, and so are the SUPERCAV TORPEDO, SHIELD BLOCK, SMOKE SCREEN, DECOY BUOY and FLASH SHELLS — DEPTH CHARGE is not', () => {
     // Story 8.13 made SUPERCAV TORPEDO the second live consumable line (Eric
     // ruling 2026-09-19, epic-8 amendment 74) and added one more stub,
-    // DEPTH CHARGE (amendment 83). Story 8.16 flipped SHIELD BLOCK, CHAFF and
-    // DECOY BUOY live (amendments 116–124); Story 8.17 moved FLASH SHELLS
+    // DEPTH CHARGE (amendment 83). Story 8.16 flipped SHIELD BLOCK and DECOY
+    // BUOY live (amendments 116–124); Story 8.17 moved FLASH SHELLS
     // (`dazzleShells`) in from the add-on space, live (amendment 132); Story
     // 8.18 flipped SMOKE SCREEN live (amendments 138-145). DEPTH CHARGE stays.
+    // CHAFF retired in Story 9.2 (epic-9 amendment 31).
     const LIVE: readonly string[] = [
-      'hullRepair', 'supercavTorpedo', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'dazzleShells',
+      'hullRepair', 'supercavTorpedo', 'shieldBlock', 'smokeScreen', 'decoyBuoy', 'dazzleShells',
     ];
     for (const id of CONSUMABLE_IDS) {
       expect(isStubLine(id), id).toBe(!LIVE.includes(id));
@@ -187,7 +188,7 @@ describe('the four-card draw is untouched (regression pin)', () => {
 // geometrically, so a hull sits at 349.x of 350 for minutes. `hp >= maxHp` as
 // the test would spend a whole scarce HULL REPAIR copy for under 1 hp. Under
 // 1 hp missing IS full: the row refuses on it, the regen snaps on it, and the
-// client's belt pre-denial mirrors it — one predicate, three callers.
+// client's slot pre-denial mirrors it — one predicate, three callers.
 // ---------------------------------------------------------------------------
 describe('hullIsFull — under 1 hp missing is FULL (amendment 53)', () => {
   it('349.0 of 350 is NOT full — a whole point of weapon damage is worth a copy', () => {
