@@ -647,6 +647,7 @@ Pick a hull, pick its gun, sail its `Shift`: spawn with the mounted gun and the 
 
 ### Epic 9: Tune and Clean *(inserted 2026-10-06 — Sprint Change Proposal `sprint-change-proposal-2026-10-06.md`; GDD E9)*
 Eric's zero-in epic after The Pool, built in his order — **balance and features FIRST, then the tests**: a steered tuning pass on time-to-kill and escaping combat (hull hp, map size, island proportion, the spawn layout — one outer ring of 12 and one inner ring of 8 instead of one ring of 20 are his named dials), a SPEED BOOST consumable that stacks with the Speedboat's Shift, a neutral HEALING BUOY that heals every hull in its radius, the optional DEPTH CHARGE (its stub line exists since epic-8 amendment 83; mechanism Eric's), then the test-purposefulness audit (every test names the contract it guards or goes), the two smoke flakes fixed, harness and ledger hygiene (the 6-4 bot bars, the deferred-work triage, the 12 dangling follow-up-review flags), and the How-to-Play entries in Eric's copy. Every number is Eric's, ruled at each story's spec step via AskUserQuestion; the spec author never fills one in.
+*(Re-cut 2026-10-11 — `sprint-change-proposal-2026-10-11.md`, epic-9 amendments 21–30: SPEED BOOST and HEALING BUOY are CANCELLED; the middle of the epic is now, in Eric's order, 9.2 every consumable on a fixed key (belt retired, HUD option D′), 9.3 the MULTI-SPECTRAL COUNTERMEASURE replacing SMOKE SCREEN + CHAFF, 9.4 the FOULING SHELL replacing FLASH SHELLS, 9.5 ramming and contact damage, 9.6 five tiers on every ship upgrade with HULL POINTS +50 and a PASSIVE HEALING ladder; DEPTH CHARGE is 9.7 and the four cleanup stories are 9.8–9.11. The paragraph above is left as written.)*
 **FRs covered:** none new — tunes FR1–FR12 (hulls), FR24–FR25 (the ring), FR26 (the map), FR41–FR61 (the pool's lines) in place · **Also:** the project-context Testing Rule (retro 2026-10-06), NFR20–NFR23 (the six-exception invariant is EXTENDED for the buoy, never widened)
 **Standing constraints:** guns are balanced by Eric's math, never by sim (2026-10-02); the sim measures attrition and class share only, quick runs ≤ 99 matches and never unprompted; no friendly fire, ever — a neutral buoy heals, it never hurts; new card glyphs are rendered and shown to Eric before commit; a design gap found at review is an AskUserQuestion before the PR, never a ledger entry.
 
@@ -2176,7 +2177,7 @@ So that the only place a feature is explained is not describing the old one.
 
 ## Epic 9: Tune and Clean *(inserted 2026-10-06 — `sprint-change-proposal-2026-10-06.md`; GDD E9)*
 
-Eric's zero-in epic between The Pool and The Account, in HIS order: the balance and feature stories first, the test audit and the fixes after (*"The tuning pass and new stuff are going to happen before the test audit and other fixes."*). Eight stories. Standing constraints on every story: **every number is Eric's**, ruled at the story's spec step through AskUserQuestion — the spec author never fills one in and marks any unruled clause as unruled; guns are balanced by Eric's math, never by sim (2026-10-02), and the sim measures attrition and class share only (quick runs ≤ 99 matches, never unprompted); the master perception invariant keeps exactly SIX exceptions and is EXTENDED, never widened, for any new event; no friendly fire, ever; new card glyphs are rendered and shown to Eric before they are committed; new-feature explanations go to How-to-Play only, in Eric's copy; a design gap found at review is an AskUserQuestion before the PR, never a ledger entry. The epic's own rulings live in `epic-9-context-amendments.md`.
+Eric's zero-in epic between The Pool and The Account, in HIS order: the balance and feature stories first, the test audit and the fixes after (*"The tuning pass and new stuff are going to happen before the test audit and other fixes."*). Eight stories *(re-cut 2026-10-11 to eleven by `sprint-change-proposal-2026-10-11.md`: 9.2 Speed Boost and 9.3 Healing Buoy CANCELLED; 9.2 keys, 9.3 countermeasure, 9.4 fouling shell, 9.5 ramming, 9.6 five tiers inserted in Eric's numbered order; the old 9.4–9.8 are 9.7–9.11)*. Standing constraints on every story: **every number is Eric's**, ruled at the story's spec step through AskUserQuestion — the spec author never fills one in and marks any unruled clause as unruled; guns are balanced by Eric's math, never by sim (2026-10-02), and the sim measures attrition and class share only (quick runs ≤ 99 matches, never unprompted); the master perception invariant keeps exactly SIX exceptions and is EXTENDED, never widened, for any new event; no friendly fire, ever; new card glyphs are rendered and shown to Eric before they are committed; new-feature explanations go to How-to-Play only, in Eric's copy; a design gap found at review is an AskUserQuestion before the PR, never a ledger entry. The epic's own rulings live in `epic-9-context-amendments.md`.
 
 ### Story 9.1: The Tuning Pass (Eric steers)
 
@@ -2198,43 +2199,97 @@ So that a fight lasts long enough to be a fight and breaking off is a real optio
 **And** gun numbers are not touched off sim evidence; any gun change is Eric's math, stated as such
 **And** `PROTOCOL_VERSION` bumps only where the client reads a changed block; both trackers stamped; How-to-Play's derived stat tables follow `effectiveStats()` with no hand edit.
 
-### Story 9.2: Speed Boost Consumable
+### Story 9.2: Speed Boost Consumable *(CANCELLED 2026-10-11 — Eric: "Speed Boost and Healing Buoy will not be being added, after all." `sprint-change-proposal-2026-10-11.md`; the original text is in that proposal's predecessor, `sprint-change-proposal-2026-10-06.md` §2.)*
 
-As a captain under fire,
-I want a consumable that makes my ship markedly faster for a while,
-So that I can break contact and live.
+### Story 9.3: Healing Buoy *(CANCELLED 2026-10-11 — same ruling. The 9.2–9.6 numbers below are re-used for the five stories Eric set on 2026-10-11, in his numbered order.)*
 
-**Eric (2026-10-06):** *"a Speed Boost consumable to aid in getting away (probably stronger than Speedboat's boost)."* It **STACKS** with the Speedboat's Shift boost — both multipliers apply at once.
+### Story 9.2: Every Consumable Has a Key *(inserted 2026-10-11 — `sprint-change-proposal-2026-10-11.md` §4.1)*
 
-**Acceptance Criteria:**
+As a captain,
+I want every consumable kind on its own fixed key, always,
+So that I never lose a pick to a full belt and my hands learn one layout.
 
-**Given** the common pool (8.14), the belt (8.7) and the Shift boost (8.9)
-**When** the line lands
-**Then** a new `consumable` line joins `LINE_IDS` and the catalog with cap 5 like every launch consumable; one press fires one copy; the boost factor, duration and any cooldown are Eric's numbers ruled at the spec step (`[DRAFT]` until then) and live in `CONFIG`
-**And** it stacks with the Speedboat's Shift: while both are active both multipliers apply through the ONE fold (`boostedKinematics` / `effectiveStats()`), on both sides identically — no per-side sim
-**And** the How-to-Play stat table for it derives from the sim; its glyph is rendered and shown to Eric before commit; the kind color and card layout are the shipped consumable card's
-**And** bots take and fire it by the 8-20 rule in THIS story (a disengage trigger is a bot-tactics row, not a new code path); drone drops can roll it (amendment 225)
-**And** `PROTOCOL_VERSION` bumps (catalog content is wire contract); the catalog and offer invariants extend to the new line; both trackers stamped.
-
-### Story 9.3: Healing Buoy
-
-As a hurt captain,
-I want to drop a buoy that heals every ship around it for a while,
-So that there is a second way to heal besides the HULL REPAIR card — and a contested one.
-
-**Eric (2026-10-06):** *"a Healing Buoy that grants passive healing in a radius around it to all ships in range."* Rulings: **neutral** — every hull in range heals, the enemy included; it **expires** after a set time; it is **shootable like a mine** — 10 hp, hurt only by a deck gun shell landing on its marker (amendment 200's rule); it is **visible on radar and in sight like the DECOY BUOY**; it is **dropped by a click astern like the DECOY BUOY**.
+**Eric (2026-10-11, verbatim):** *"Consumable belt is being phased out. All captains can carry all consumables. Each is tied to a specific number key by default, changeable once keyboard controls are changeable, (for example, HULL REPAIR could be on 1, SHIELD on 2, etc.). This is still limited by the max carry count."* Cap is 5 per kind. HUD direction ruled on sight: option D′ of `ux-designs/…/mockups/hud-consumables-1.html` — *"D is the 'correct' approach imo. Perhaps we also scale up the HP/speed circles a little bit, and scale down the icons, so it looks like a more coherent panel with 'edges' (even if just implied)"* … *"Without the 'hairline panel' outline is perfect."*
 
 **Acceptance Criteria:**
 
-**Given** the decoy buoy (8.16), mines with hp (cycle 160), out-of-combat regen and HULL REPAIR (8.8)
-**When** the line lands
-**Then** a new `consumable` line (cap 5) places a world entity at the clicked point astern using the decoy's placement interaction; the entity heals every afloat hull inside its radius each tick — owner, enemy and bot alike; whether PvE drones heal is Eric's call at the spec step — at a rate, radius and lifetime that are Eric's numbers (`[DRAFT]` until the spec step); healing goes through the one hp write (`applyDamage`'s heal path), never a second channel
-**And** it carries 10 hp and dies only to a deck gun shell landing within its marker radius, exactly as a mine does (cannon or flak one shot, machine gun two at tier I); bursts covering it and other ordnance do nothing to it
-**And** it is a signal-registry row observed like the decoy — painted by radar and seen in sight, with its own glyph on the water and on the card (shown to Eric first); the frame invariants gain its row with an oracle mirror and a non-vacuity counter; the exception count stays SIX
-**And** no friendly fire and no hostile effect: the buoy never damages anything; whether it heals inside the storm is Eric's call at the spec step (regen's existing rule is that nobody regens in the storm)
-**And** bots drop it by the 8-20 rule in this story; drone drops can roll it; How-to-Play table derived; `PROTOCOL_VERSION` bumps; both trackers stamped.
+**Given** the nine-slot loadout with four belt slots (8.5, 8.7) and the common pool (8.14)
+**When** the story lands
+**Then** the four belt slots are gone from the loadout: stock is a per-kind count with cap 5 the ONLY consumable refusal (`atCap`); `beltFull` and the "SLOTS FULL" card treatment are deleted; drone drops stock any legal kind (amendment 226's full-belt branch is moot); bots read per-kind counts
+**And** every consumable kind has a fixed default key — `1` HULL REPAIR · `2` SHIELD BLOCK · `3` MULTI-SPECTRAL COUNTERMEASURE · `4` FOULING SHELL · `5` DECOY BUOY · `6` SUPERCAVITATING TORPEDO (the order Eric accepted 2026-10-11; a stub line has no key) — on Digit and Numpad rows; the refit window's digit pick and its close grace cover `1`–`6`; rebinding is out of scope until controls are configurable
+**And** the HUD bar is re-laid to D′: globes 124 px, weapon squares 46 px with 24 px icons, an unframed strip of six 34 px squares (16 px icons, 4 px gap) stacked above the weapon row, key chips under every square, stack height equal to the globe so the globes' tangents are the panel's edges, NO drawn panel; a new ZERO-STOCK slot state (fixed kind at 0: dashed edge, icon at .45, no badge); every other slot state, the refit dim, the XP strip and the UI scale untouched; the mock is read literally unless Eric nudges a number at the spec step, and the live bar is shown to him before commit
+**And** `hudBarLayout` stays pure and pinned against the mock; `PROTOCOL_VERSION` bumps (loadout shape is wire contract); How-to-Play's consumable section states the keys in Eric's copy at 9.11; both trackers stamped.
 
-### Story 9.4: Depth Charge *(OPTIONAL — Eric: "Maybe we can add the Depth Charge, idk.")*
+### Story 9.3: Multi-Spectral Countermeasure *(inserted 2026-10-11 — proposal §4.2)*
+
+As a captain breaking contact,
+I want one countermeasure that blinds eyes and radar alike,
+So that the cloud I make is the thing hiding me, not a trick of fake echoes.
+
+**Eric (2026-10-11, verbatim):** *"Smoke and Chaff is being merged into one consumable: A Multi-Spectral Countermeasure. Instead of leaving a smoke trail, it should puff out in a wide region at first and grow. Rather than being a translucent circle, i want the smoke effect to be done with pixels. Rather than doing the random ship-like returns, those pixels will actually directly interfere with both vision and radar, until they fully dissipate."* Rulings: *"It blocks the owner's sight, but not radar. Blocking should fade with pixels wrt radar."* Timing starts from chaff's; *"a little bigger initially and a lot bigger as it dissipates."*
+
+**Acceptance Criteria:**
+
+**Given** SMOKE SCREEN (8.18, cycle 156/162 sizes) and CHAFF (8.16) and the 9.2 key row
+**When** the line lands
+**Then** `smokeScreen` and `chaff` leave `CONSUMABLE_IDS` and the catalog, replaced by one `consumable` line (cap 5) named MULTI-SPECTRAL COUNTERMEASURE on key `3`; `fakes.ts` and the chaff ghosts are deleted; the in-smoke one-eighth sight rule (`inSmokeSightFraction`, `stampInSmoke`) is retired
+**And** one press makes ONE cloud centered on the hull (no lay window, no trail) whose pixels are a pure seeded function of `(id, now − t0)` in `shared/src/sim/` — both sides derive identical pixels from the existing `{id,x,y,t0}` wire shape; nothing new leaves the server; the SIX perception exceptions are unchanged
+**And** a sight line is blocked when it crosses any living pixel's footprint, for every observer INCLUDING the owner; a radar ray is blocked the same way for every observer EXCEPT the owner; as pixels die and spread, more lines pass — that decay IS the fade; the numbers Eric accepted 2026-10-11 are the CONFIG defaults offered back at the spec step: lifetime 15 s, pixels born inside r 200 u drifting to r 500 u by end of life, per-pixel death times spread over about 6–15 s, footprint about 6 u, a few hundred pixels, with a bounding-circle pre-test ahead of the per-pixel segment test
+**And** the client draws the cloud as those same pixels (no disc), in the fog-immune layer, with the chart order of amendment 224(b) kept (radar returns never beneath the cloud); the glyph is shown to Eric before commit
+**And** the perception invariants gain the countermeasure's row with an oracle mirror and non-vacuity counters for sight AND radar; bots use it in `disengage` by the 8-20 rule; drone drops can roll it; `PROTOCOL_VERSION` bumps; both trackers stamped.
+
+### Story 9.4: Fouling Shell *(inserted 2026-10-11 — proposal §4.3)*
+
+As a captain,
+I want a shell that leaves a patch of water nobody can run through at speed,
+So that I can pin a chaser or stall a target — at the cost of fouling myself if I sail into it.
+
+**Eric (2026-10-11):** *"a consumable that can be used to create a region that slows movement, as though anyone in it was hit by a fouling mine. This is either a separate item, or a strict replacement for the Flash/Dazzle Shell."* Ruled: *"lets call it a replacement as they serve the same purpose... engage/disengage."* *"Yes it does slow you."* *"instead of 'strongest slow wins,' lets stack these as they are different sources."* Name FOULING SHELL accepted.
+
+**Acceptance Criteria:**
+
+**Given** FLASH SHELLS (8.17; `dazzleShells`) and the fouling mine's slow (8.13)
+**When** the line lands
+**Then** `dazzleShells` leaves `CONSUMABLE_IDS` and the catalog, replaced by `foulingShell` (cap 5, key `4`); `CONFIG.flashShells`, `applyFlash` and `dazzledUntil` are deleted on both sides
+**And** it fires exactly as FLASH did — one click-aimed ballistic shell to radar range, zero damage, bursts once, hits nothing — and the burst leaves a stationary slow REGION; defaults Eric accepted, offered back at the spec step: r 150 u, 15 s, factor 0.75 inside, the slow lingering 5 s after a hull leaves
+**And** every afloat hull inside is slowed, the OWNER included (not damage, so the no-friendly-fire rule does not exempt it — Eric's ruling); slows from different sources STACK multiplicatively through the one `slowedKinematics` fold on both sides (shell × mine), and the predictor mirrors the region
+**And** the region is a signal-registry row observed like a mine ring (painted and sighted, its own glyph on the water and on the card, shown to Eric first); invariants extended; `PROTOCOL_VERSION` bumps; bots fire it by the 8-20 rule; both trackers stamped.
+
+### Story 9.5: Ramming and Contact Damage *(inserted 2026-10-11 — proposal §4.4)*
+
+As a captain,
+I want hull contact to hurt — a full-speed ram as a last-ditch way to sink, a grind as a slow bleed, a grounding as a mistake that costs,
+So that keeping my distance and steering clear of land are real decisions.
+
+**Eric (2026-10-11):** *"I would like to add RAMMING and contact hull damage into the game, creating an incentive to stay away from other ships and avoid running aground. Obviously, all bot/drone profiles will need to account for this."* *"this should work fairly realistically, in that flat out ramming an enemy ship at full speed is a last ditch effort to sink it, while grinding up against another ship could deal lesser damage over the duration of contact."* Rulings: **energy law** (damage with speed squared), **mass split** (the lighter hull absorbs more), **mass = effective max hull** (*"Abstracting around only Max Hull would work better"* — length × beam rejected), bots get a **ram disposition** whose trigger is a playtest question.
+
+**Acceptance Criteria:**
+
+**Given** `resolveShipPose` / `applyGroundingDamp` (islands only; hulls pass through each other today) and the bots' island-avoidance terms
+**When** the story lands
+**Then** hulls are SOLID: a new pure shared resolver pushes overlapping hulls apart as the coast pushes a hull, in `STEP_ORDER` and in the client predictor identically
+**And** contact damage follows the model of record: relative velocity split into normal `v_n` and tangential `v_t`; a HIT once per contact when `v_n` exceeds the allowance — `E = ½·μ·v_n²`, `μ = mA·mB/(mA+mB)`, hull A takes `E · mB/(mA+mB) / K`; a GRIND per second while pressed together — `g · v_t · mB/(mA+mB)`; LAND as infinite mass times a softness factor, the quarter-speed cap kept; masses are `effectiveStats().maxHp`; all damage through `applyDamage`, floored to integers; the dials Eric accepted (K from "speedboat head-on speedboat at 90 costs each 200" ≈ 1,266 per hp; g from "speedboat scraping a stopped speedboat at 45 costs each 5/s" ≈ 0.222; allowance 5 u/s; land softness 0.25) live in `CONFIG.ram` and are offered back at the spec step
+**And** rams hit PvE drones; a ram that sinks credits the rammer (kill feed, XP by the existing rules); buoys and mines are not rammable; no friendly fire question arises (two hulls, two owners)
+**And** EVERY bot personality and the PvE drones gain a hull-avoidance steering term beside island avoidance, drones learn land contact hurts, and a `ram` tactic row exists in the bot table (available disposition; its trigger is `[DRAFT]` for playtesting, never invented); the batch-sim harness reports contact deaths and land-contact damage so the deferred 7.3 % grounding thread (amendment 14) has a cost readout
+**And** a contact hit is legible on the client (implementer craft shown to Eric); How-to-Play gets a ramming entry at 9.11; `PROTOCOL_VERSION` bumps where the client reads the block; both trackers stamped.
+
+### Story 9.6: Five Tiers and Passive Healing *(inserted 2026-10-11 — proposal §4.5)*
+
+As a captain building a hull,
+I want every ship upgrade to climb five tiers, hull by fifties, and my passive healing to be a ladder too,
+So that a long match keeps giving me something to buy.
+
+**Eric (2026-10-11):** *"ALL Tiered upgrades will have 5 upgrade tiers in the pool. This means that all of the 'ship upgrades' are considered to start on Tier 0 and go up to Tier V."* *"the extra Hull Points upgrade needs to provide +50 current and max hp."* *"Passive Healing gets a Tiered upgrade. Each tier gives it +0.2% missing health restoration (maxing out at 2% for Tier V)"* and the wait *"could drop to 10 over 5 tiers as well"* — yes. Guns: *"The three deck guns are weapons and by the same logic as all other weapons you start with them at Tier I. Don't get hung up on semantics."*
+
+**Acceptance Criteria:**
+
+**Given** ARMOR +25 × 4, SPEED +2.5 × 4, TURNING +0.05 × 4, RADAR SWEEP and RELOAD × 5, regen 1 %/s after 15 s
+**When** the story lands
+**Then** HULL POINTS is cap 5 at +50 max hp per rung, healing the gained 50 on grant (as today) — 500 / 550 / 600 at V; SPEED and TURNING are cap 5 at today's step (+12.5 u/s, +0.25 rad/s at V — Eric accepted keep-and-extend); the gun ladders, RADAR SWEEP and RELOAD are untouched
+**And** a new universal ladder PASSIVE HEALING (cap 5) folds through `effectiveStats()` into two derived stats — regen rate `0.01 + 0.002 × tier` of missing hp per second and out-of-combat wait `15 − 1 × tier` seconds — read by `tickRegen` on the server and by every client readout (the hard-coded "15 seconds" in `copy.ts` becomes derived); drones still never regen
+**And** the `shipClasses` max-hp pins and the NFR6 ceiling test are re-based knowingly with the ruling cited; the catalog and offer invariants cover the new line; its glyph is shown to Eric first; How-to-Play tables derive; `PROTOCOL_VERSION` bumps (catalog content); both trackers stamped.
+
+### Story 9.7: Depth Charge *(OPTIONAL — Eric: "Maybe we can add the Depth Charge, idk."; was 9.4 until 2026-10-11)*
 
 As a captain,
 I want the DEPTH CHARGE to do something,
@@ -2242,12 +2297,12 @@ So that the stub line from amendment 83 becomes a card or is cut on purpose.
 
 **Acceptance Criteria:**
 
-**Given** the `depthCharge` stub consumable line (epic-8 amendment 83: *"Depth charge will be a CONSUMABLE. not a line."*; never dealt, no glyph)
+**Given** the `depthCharge` stub consumable line (epic-8 amendment 83: *"Depth charge will be a CONSUMABLE. not a line."*; never dealt, no glyph, no key)
 **When** this story is opened
 **Then** the FIRST step is a design sitting with Eric via AskUserQuestion — what it does, how it is aimed, what it hits, and every number; nothing is built before he rules, and if he cuts the story the line stays a stub and the sprint tracker records `cancelled`
-**And** if built: `stub` is cleared, it gets a glyph Eric approved on sight, bots fire it by the 8-20 rule, drone drops can roll it, the How-to-Play table derives from the sim, `PROTOCOL_VERSION` bumps, and the no-friendly-fire rule holds (own charges never hurt own hull).
+**And** if built: `stub` is cleared, it takes key `7`, it gets a glyph Eric approved on sight, bots fire it by the 8-20 rule, drone drops can roll it, the How-to-Play table derives from the sim, `PROTOCOL_VERSION` bumps, and the no-friendly-fire rule holds (own charges never hurt own hull).
 
-### Story 9.5: Test Purposefulness Audit
+### Story 9.8: Test Purposefulness Audit *(was 9.5 until 2026-10-11)*
 
 As the next developer to change a function,
 I want every test in the suite to guard a contract of the thing it tests,
@@ -2263,7 +2318,7 @@ So that a test fails only when the behavior it names is broken, never because a 
 **And** an audit record (`test-audit-<date>.md` in implementation-artifacts) lists per workspace: tests before, kept, rewritten, deleted, and the reason class for each deletion; the pinned invariants that protect the architecture (perception exceptions, `applyDamage` as the only hp write, bots never importing `world.js`, map determinism, `effectiveStats()` parity) are named as KEPT contracts
 **And** no production code changes in this story (a bug a test exposes is a separate quiet fix or a ledger entry with Eric's call); `npm run check` green; lint complexity unchanged; both trackers stamped.
 
-### Story 9.6: Smoke Flakes Fixed
+### Story 9.9: Smoke Flakes Fixed *(was 9.6 until 2026-10-11)*
 
 As the person running the gate,
 I want matchSmoke and weaponsSmoke to pass or fail on what they claim to test,
@@ -2277,7 +2332,7 @@ So that a flake is never "ledgered as awareness" again (the Epic 7 "flake is P1"
 **And** three consecutive clean first-try runs on a quiet box are recorded in the spec; the ledger's flake entries are stamped RESOLVED with the run log
 **And** the smokes stay dev-option-gated (`HC_DEV_OPTIONS=1`), boot their own server where they already do, and kill only their own PID; both trackers stamped.
 
-### Story 9.7: Harness and Ledger Hygiene
+### Story 9.10: Harness and Ledger Hygiene *(was 9.7 until 2026-10-11)*
 
 As the next agent to open the harness report or the deferred-work ledger,
 I want both to say only what is still true,
@@ -2288,11 +2343,11 @@ So that I do not re-derive 168 open threads or read a PASS/FAIL bar that measure
 **Given** `server/scripts/batchsim/botReport.ts`, `deferred-work.md` (168 open entries, 2,848 lines at the retro) and the 12 specs flagged "follow-up review recommended" (8-1, 8-2, 8-4..8-7, 8-10, 8-13..8-16, 8-19)
 **When** the hygiene pass lands
 **Then** the two 6-4 bot bars are retired from `botReport.ts` (the Epic 7 carry, twice missed) and `batch-sim-evidence-2026-09-30.md`'s re-ask is answered by the removal
-**And** every open ledger entry is re-stamped open / RESOLVED (with the closing story or cycle) / MOOT (with the ruling that mooted it), appended in the ledger's own format — old text is never rewritten
+**And** every open ledger entry is re-stamped open / RESOLVED (with the closing story or cycle) / MOOT (with the ruling that mooted it), appended in the ledger's own format — old text is never rewritten; the healing-buoy and speed-boost forward pointers are MOOT by the 2026-10-11 proposal
 **And** the 12 follow-up-review flags are each either run (a review gate on the story's landed code, findings into the ledger or quiet fixes) or dropped by Eric's ruling, and the spec template loses the flag if he rules it dead
 **And** the `shared/src/index.ts` barrel comment that still names `sim/deck.ts` as the engine is corrected; no gameplay change; both trackers stamped.
 
-### Story 9.8: How-to-Play and Record
+### Story 9.11: How-to-Play and Record *(was 9.8 until 2026-10-11)*
 
 As a new captain reading How-to-Play,
 I want every item in the game described there in Eric's words,
@@ -2300,10 +2355,10 @@ So that nothing I can draw is a mystery.
 
 **Acceptance Criteria:**
 
-**Given** Stories 9.1–9.7 landed
+**Given** Stories 9.1–9.10 landed
 **When** the record closes
-**Then** How-to-Play gains an entry for each new item (SPEED BOOST, HEALING BUOY, DEPTH CHARGE if built) with Eric's copy and a derived stat table; the two entries already owed — private lobbies (amendment 235) and drone drops (226g) — land in the same pass, copy Eric's
-**And** the GDD's Development Epics table and the mechanics sections 9.1 changed carry dated supersession stamps, never rewrites (the amendment-89(k) pattern); `catalog-v3.md` gains the new lines as a dated addendum
+**Then** How-to-Play gains an entry for each new item (MULTI-SPECTRAL COUNTERMEASURE, FOULING SHELL, PASSIVE HEALING, ramming and grounding, the fixed key row, DEPTH CHARGE if built) with Eric's copy and a derived stat table, and loses SMOKE SCREEN, CHAFF and FLASH SHELLS; the two entries already owed — private lobbies (amendment 235) and drone drops (226g) — land in the same pass, copy Eric's
+**And** the GDD's Development Epics table and the mechanics sections 9.1–9.6 changed carry dated supersession stamps, never rewrites (the amendment-89(k) pattern); `catalog-v3.md` gains the new lines and the three retirements as a dated addendum; `game-architecture.md` gains a dated notice for the smoke-occluder and chaff-fakes patterns
 **And** `epic-9-context-amendments.md` holds every ruling; the epic-9 retrospective is scheduled; both trackers stamped with one line each; no in-game copy is added unasked.
 
 ## Epic 10: The Account *(GDD E10 — was Epic 9 / E9 until the 2026-10-06 Sprint Change Proposal inserted Epic 9 Tune and Clean; stories 9.N → 10.N, text unchanged; re-cut 2026-09-21 — no decks)*
