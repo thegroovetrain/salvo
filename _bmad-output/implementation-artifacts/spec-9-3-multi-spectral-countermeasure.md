@@ -218,7 +218,7 @@ Status: done — PR #266 open to `development` (never merged by the agent; Eric 
 
 **Recorded, not ruled (Eric's eye):** (1) the halo is a plain disc — haze behind an island inside 5/8 still draws (wounded smoke on the server also needs island LOS) — RULED in session 6, amendment 60; (2) a frame with no own pose while alive (respawn / prediction toggle gap) shows all delivered haze unmasked — the radar dim's "show rather than hide" choice, a brief leak for a smoke effect; (3) the haze is active at the start line.
 
-## Session 6 — the haze is hidden by islands (2026-10-12; cycle 179, 0.18.44, PV 77 unchanged; epic-9 amendment 60)
+## Session 6 — the haze is hidden by islands (2026-10-12; cycle 179, 0.18.44, PV 77 unchanged; epic-9 amendment 60; PR #271 open to `development`, never merged by the agent)
 
 **Trigger:** Eric on the session-5 reading: *"Yes, if I can't see it because of an island or any other sight block, don't render it."*
 
