@@ -208,7 +208,7 @@ Status: done — PR #266 open to `development` (never merged by the agent; Eric 
 
 **Recorded, not ruled (Eric's staging eye):** (1) in-bubble dim — your own cloud sits mostly inside your sight bubble, so on YOUR scope its returns show at 20 % until the disc passes 1.25× sight late in its life; on an enemy's scope beyond their sight it paints at full strength; (2) no range falloff — returns by thickness alone, per the ruling; (3) hulls and land still beat smoke in their own cells; a thick core reads in the strongest band and will swamp nearby echoes; (4) every client the server delivers the cloud to paints it, which shows where it was dropped.
 
-## Session 5 — the haze obeys the 5/8 smoke rung (2026-10-12; cycle 178, 0.18.43, PV 77 unchanged; epic-9 amendment 59)
+## Session 5 — the haze obeys the 5/8 smoke rung (2026-10-12; cycle 178, 0.18.43, PV 77 unchanged; epic-9 amendment 59; PR #270, merged on Eric's standing instruction "merge when done")
 
 **Trigger:** Eric on 0.18.42 on staging: *"The smoke is visible outside of 5/8 intel range. Why?"* — *"That's the range in which I can see smoke effects … I cannot see the smoke outside of that range, I can only infer it from radar returns."* Cause: the server delivers a cloud to anyone whose radar sweeps it (amendment 57 needs that) and the client drew the haze on the fog-immune `cloud` layer at full strength wherever delivered.
 
