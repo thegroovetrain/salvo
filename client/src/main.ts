@@ -65,6 +65,7 @@ import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/li
 import { BurnZones } from './render/burnZones.js';
 import { Smoke } from './render/smoke.js';
 import { Countermeasure } from './render/countermeasure.js';
+import { hazeHaloU } from './render/hazeHalo.js';
 import { Fire } from './render/fire.js';
 import { Foghorn } from './render/foghorn.js';
 import { Fog, hullSightSoftness, type FogHole } from './render/fog.js';
@@ -3097,6 +3098,8 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   }
   if (!classChanged && !visionChanged(prev, stats)) return;
   g.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
+  // the haze halo is the wounded-smoke 5/8 rung off the same live intel range
+  g.countermeasure.setHaloU(hazeHaloU(stats.radarRange));
   g.camera.setRadarRange(stats.radarRange);
   g.fog.setSightRange(stats.sightRange, stats.radarRange);
   // ONE plumbed value, TWO dead-reckoning cull rings: shells and our OWN fish
@@ -4368,8 +4371,9 @@ function renderAlive(
   g.litZones.render(now);
   g.burnZones.render(now, now / 1000);
   // spray + fade each countermeasure cloud to its server-clock age (the radar
-  // marched it above, through setCloudSource, as one more return source)
-  g.countermeasure.render(now);
+  // marched it above, through setCloudSource, as one more return source) —
+  // seen by eye only inside the 5/8 halo centred on the own hull (session 5)
+  g.countermeasure.render(now, pose);
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);

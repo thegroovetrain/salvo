@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.18.43] - 2026-10-12
+
+### Changed
+- **The countermeasure haze is a smoke effect and obeys the smoke rule** (Story 9.3, session 5 — Eric on 0.18.42: *"The smoke is visible outside of 5/8 intel range. Why? … I cannot see the smoke outside of that range, I can only infer it from radar returns."*). By eye you now see a cloud only inside your 5/8 intel halo, the same range a wounded ship's smoke shows at, with a soft edge; past that the only sign of it is its radar returns. The halo grows with RADAR SWEEP upgrades like the rest of the ladder.
+
+### Internal
+- Why it showed before: the server delivers a cloud to anyone whose radar sweeps it (so the radar can paint it) and the client drew the haze on the fog-immune `cloud` chart layer at full strength wherever delivered.
+- `client/src/render/hazeHalo.ts` (pure: `hazeHaloU = radarRange × CONFIG.vision.muzzleFlashFactor`, the `sm` rung; `haloAlphaAt`), `textures.ts` `bakeHaloMaskTexture` (512², redrawn in place like the dim mask), `countermeasure.ts` owns the mask sprite at index 0 of the `cloud` layer and sets `layer.mask` at the own hull each frame (no pose → no mask, the radar dim's rule), `setHaloU` re-bakes only on change; `main.ts` wires `setHaloU(hazeHaloU(stats.radarRange))` beside `radar.setRanges`. `CLIENT_CONFIG.countermeasure.haloFeatherU 40`; the radius is not a knob.
+- Delivery, retention, the radar returns and the nameplate hide are untouched (contacts live inside sight, always inside the halo). Client only; PROTOCOL_VERSION unchanged (77). Tests: client 3930 (125 files), shared 1028, server 2469.
+- Epic-9 amendment 59. Cycle 178.
+
 ## [0.18.42] - 2026-10-12
 
 ### Changed

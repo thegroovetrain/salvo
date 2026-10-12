@@ -22,6 +22,8 @@ vi.mock('../render/textures.js', async (importOriginal) => {
     bakeSweepTexture: (): Texture => Texture.EMPTY,
     bakeDimMaskTexture: (_sightU: number, into?: Texture | null): Texture =>
       into ?? new Texture({ source: new TextureSource({ width: 8, height: 8 }) }),
+    bakeHaloMaskTexture: (_haloU: number, into?: Texture | null): Texture =>
+      into ?? new Texture({ source: new TextureSource({ width: 8, height: 8 }) }),
   };
 });
 

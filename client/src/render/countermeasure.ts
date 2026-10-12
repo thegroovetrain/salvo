@@ -41,6 +41,18 @@
 //
 // MOTION-BLIND: a cloud's presence and extent are information — the motion
 // setting never hides or shrinks one.
+//
+// THE HALO (session 5, Eric 2026-10-12: "The smoke is visible outside of 5/8
+// intel range. Why? … I cannot see the smoke outside of that range, I can only
+// infer it from radar returns."): the haze is a smoke effect, seen by eye only
+// within the viewer's 5/8 rung — the wounded-smoke reach. A cloud is still
+// DELIVERED to anyone whose radar sweeps it (the radar paints it), so the eye's
+// limit is a display-time mask on the `cloud` layer: one Sprite baked by
+// textures.ts `bakeHaloMaskTexture` (opaque inside the halo, feathered to 0
+// past it — render/hazeHalo.ts), centred on the own hull every frame — the
+// radar's in-bubble dim mask pattern exactly. No own pose (a spectator) → no
+// mask: a spectator sees everything. `coverAt` and the radar returns read the
+// FIELD, never the mask, so neither changes.
 
 import { BufferImageSource, Sprite, Texture } from 'pixi.js';
 import type { Container } from 'pixi.js';
@@ -54,6 +66,11 @@ import {
   makeField,
   type CloudField,
 } from './cloudPaint.js';
+import { BASE_HAZE_HALO_U, haloSpanU } from './hazeHalo.js';
+import { HALO_MASK_TEXTURE_SIZE, bakeHaloMaskTexture } from './textures.js';
+
+/** Scene-graph label of the haze halo mask (test seam). */
+export const HALO_MASK_LABEL = 'hazeHaloMask';
 
 const K = CLIENT_CONFIG.countermeasure;
 const COLOR = CLIENT_CONFIG.colors.countermeasureSmoke;
@@ -73,13 +90,68 @@ interface CloudSprite {
 
 export class Countermeasure {
   private readonly clouds = new Map<string, CloudSprite>();
+  /** The halo mask sprite — never drawn, always transformed (radar.ts `dim`). */
+  private readonly halo: Sprite;
+  /** The halo radius (u) the current mask texture was baked at. */
+  private haloBakedAtU = BASE_HAZE_HALO_U;
 
   /** `layer` = chartRoot's `cloud` layer. `rng` = the one brush RNG (purely
    *  visual, never shared with the server; a test passes a seeded one). */
   constructor(
     private readonly layer: Container,
     private readonly rng: () => number = Math.random,
-  ) {}
+  ) {
+    this.halo = new Sprite(bakeHaloMaskTexture(this.haloBakedAtU));
+    this.halo.label = HALO_MASK_LABEL;
+    this.halo.anchor.set(0.5);
+    this.scaleHalo();
+    // renderable=false keeps the live world transform without painting a grey
+    // square (the radar dim mask's reasoning); first child, so cloud sprites
+    // never depend on where it lands.
+    this.halo.renderable = false;
+    layer.addChildAt(this.halo, 0);
+  }
+
+  /**
+   * The viewer's halo radius — `hazeHaloU(radarRange)`, fed from the same place
+   * `radar.setRanges` is (main.ts), so it follows RADAR SWEEP upgrades.
+   * Re-bakes only on a real change, IN PLACE (never destroying the bound mask
+   * source — textures.ts `bakeDimMaskTexture`'s crash). A non-finite or
+   * non-positive radius holds the last good one. Commits before baking, so a
+   * throwing bake costs one call, not every call (radar.ts `syncDimMask`).
+   */
+  setHaloU(haloU: number): void {
+    if (!Number.isFinite(haloU) || haloU <= 0 || haloU === this.haloBakedAtU) return;
+    this.haloBakedAtU = haloU;
+    this.scaleHalo();
+    this.halo.texture = bakeHaloMaskTexture(haloU, this.halo.texture);
+  }
+
+  /** The halo radius (u) the mask is baked at (test seam). */
+  get haloU(): number {
+    return this.haloBakedAtU;
+  }
+
+  /** The halo mask sprite (test seam). */
+  get haloMask(): Sprite {
+    return this.halo;
+  }
+
+  /** One texel = `2 × spanU / size` world units. */
+  private scaleHalo(): void {
+    this.halo.scale.set((2 * haloSpanU(this.haloBakedAtU)) / HALO_MASK_TEXTURE_SIZE);
+  }
+
+  /** Centre the halo on own hull, or take it off (spectator / non-finite pose —
+   *  the radar dim's rule: a sprite mask at NaN would clip the whole layer). */
+  private placeHalo(own: { x: number; y: number } | null): void {
+    if (own === null || !Number.isFinite(own.x + own.y)) {
+      this.layer.mask = null;
+      return;
+    }
+    this.halo.position.set(own.x, own.y);
+    if (this.layer.mask !== this.halo) this.layer.mask = this.halo;
+  }
 
   /** ADD every cloud on the held list not already held; an id ABSENT from
    *  the list is never removed here (render / clear do that). */
@@ -89,8 +161,10 @@ export class Countermeasure {
 
   /** Per render frame: advance every field to its server-clock age (a first
    *  render of a mid-life cloud pre-rolls it), upload it, and drop every cloud
-   *  whose spray is over and whose paint has faded. `serverNow` in ms. */
-  render(serverNow: number): void {
+   *  whose spray is over and whose paint has faded. `serverNow` in ms. `own` =
+   *  the own hull's pose (the halo's centre); null for a spectator (no halo). */
+  render(serverNow: number, own: { x: number; y: number } | null = null): void {
+    this.placeHalo(own);
     for (const [id, s] of this.clouds) {
       const age = Math.max(0, serverNow - s.t0);
       advanceField(s.field, age, this.rng);

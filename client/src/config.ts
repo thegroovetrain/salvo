@@ -2412,6 +2412,14 @@ export const CLIENT_CONFIG = {
      *  nameplate sticking out from behind the smoke"). Plates only — a hull is
      *  never hidden by cover (partials show through the overlay). */
     plateHideAlpha: 0.35,
+    /** u — THE HAZE HALO'S SOFT EDGE (Story 9.3 session 5, Eric 2026-10-12:
+     *  "The smoke is visible outside of 5/8 intel range. Why? … I cannot see
+     *  the smoke outside of that range, I can only infer it from radar
+     *  returns."). The grey haze is drawn by eye only within the viewer's 5/8
+     *  rung (`radarRange × CONFIG.vision.muzzleFlashFactor`, the wounded-smoke
+     *  reach — NOT a knob, render/hazeHalo.ts); it fades linearly to nothing
+     *  over this many units past that rung. Feel only. */
+    haloFeatherU: 40,
   },
 
   /**

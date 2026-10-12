@@ -6,10 +6,10 @@
 // the radar reads its haze as a return source — radarCloudReturns.test.ts).
 // Contracts only: no literal alpha, no pixel pins.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Container } from 'pixi.js';
+import { CanvasSource, Container, Texture, TextureSource } from 'pixi.js';
 import { CONFIG, cloudOutlineRadius, mulberry32, wrapPositive, type CloudView } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { Countermeasure } from '../render/countermeasure.js';
@@ -28,6 +28,26 @@ import {
   type CloudField,
 } from '../render/cloudPaint.js';
 import { CHART_LAYER_ORDER } from '../render/stage.js';
+import { BASE_HAZE_HALO_U, haloAlphaAt, haloSpanU, hazeHaloU } from '../render/hazeHalo.js';
+// Re-exported through the mock's `...actual` spread, so this is the real constant.
+import { HALO_MASK_TEXTURE_SIZE } from '../render/textures.js';
+
+// jsdom has no 2d canvas, so the halo bake is stubbed the way the radar suites
+// stub the dim bake — MIRRORING the real reuse contract (a live texture is
+// redrawn in place and handed back; only a bare call mints) and recording each
+// call. The last suite drops the stub and pins the real draw.
+const haloBakes = vi.hoisted(() => ({ calls: [] as Array<{ haloU: number; into: unknown }> }));
+
+vi.mock('../render/textures.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../render/textures.js')>();
+  return {
+    ...actual,
+    bakeHaloMaskTexture: (haloU: number, into?: Texture | null): Texture => {
+      haloBakes.calls.push({ haloU, into });
+      return into ?? new Texture({ source: new TextureSource({ width: 8, height: 8 }) });
+    },
+  };
+});
 
 const LIFE = CONFIG.countermeasure.lifeMs;
 const K = CLIENT_CONFIG.countermeasure;
@@ -67,7 +87,7 @@ describe('one bitmap per held cloud, on the `cloud` layer', () => {
     const cm = new Countermeasure(layer, seeded());
     cm.sync([cloud('c1', 0, 300, -120)]);
     const s = cm.spriteOf('c1')!;
-    expect(layer.children).toEqual([s]);
+    expect(layer.children, 'the halo mask leads, then the cloud').toEqual([cm.haloMask, s]);
     expect(s.texture.source.width).toBe(CLOUD_CELLS);
     expect(s.texture.source.height).toBe(CLOUD_CELLS);
     expect(s.texture.source.scaleMode).toBe('linear');
@@ -94,6 +114,200 @@ describe('one bitmap per held cloud, on the `cloud` layer', () => {
     expect(main).toContain('new Countermeasure(stage.layers.cloud)');
     expect(main, 'the radar reads the clouds as a return source').toContain('radar.setCloudSource(countermeasure)');
     expect(main).toContain('stage.layers.ownShip.addChild(ownView.gfx)');
+    expect(main, 'the halo follows the live intel range, beside radar.setRanges')
+      .toContain('g.countermeasure.setHaloU(hazeHaloU(stats.radarRange))');
+    expect(main, 'the alive path centres the halo on the own pose').toContain('g.countermeasure.render(now, pose)');
+  });
+});
+
+describe('the haze is seen by eye only inside the 5/8 halo (Eric 2026-10-12)', () => {
+  const OWN = { x: 120, y: -340 };
+  const fresh = (): { cm: Countermeasure; layer: Container } => {
+    haloBakes.calls.length = 0;
+    const layer = new Container();
+    return { cm: new Countermeasure(layer, seeded()), layer };
+  };
+
+  it('the halo radius is the wounded-smoke rung: radarRange × muzzleFlashFactor, starting at the base intel range', () => {
+    expect(hazeHaloU(CONFIG.vision.radar)).toBe(CONFIG.vision.muzzleFlash);
+    expect(BASE_HAZE_HALO_U).toBe(CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor);
+    const { cm } = fresh();
+    expect(cm.haloU).toBe(BASE_HAZE_HALO_U);
+    expect(haloBakes.calls).toEqual([{ haloU: BASE_HAZE_HALO_U, into: undefined }]);
+  });
+
+  it('with an own pose, the cloud layer is masked by the halo sprite, centred on the own hull', () => {
+    const { cm, layer } = fresh();
+    cm.sync([cloud('c1', 0, 900, 900)]);
+    cm.render(100, OWN);
+    expect(layer.mask).toBe(cm.haloMask);
+    expect([cm.haloMask.x, cm.haloMask.y]).toEqual([OWN.x, OWN.y]);
+    expect(cm.haloMask.renderable, 'a mask, never painted').toBe(false);
+    cm.render(116, { x: 5, y: 6 });
+    expect([cm.haloMask.x, cm.haloMask.y], 'it follows the hull').toEqual([5, 6]);
+  });
+
+  it('the mask sprite covers the halo plus its feather, at one texel = 2·span/size world units', () => {
+    const { cm } = fresh();
+    const span = haloSpanU(cm.haloU);
+    expect(span).toBeGreaterThanOrEqual(cm.haloU + K.haloFeatherU);
+    expect(cm.haloMask.scale.x).toBeCloseTo((2 * span) / HALO_MASK_TEXTURE_SIZE, 9);
+  });
+
+  it('no own pose (a spectator) → no mask: the haze shows everywhere; a non-finite pose likewise', () => {
+    const { cm, layer } = fresh();
+    cm.render(100, OWN);
+    cm.render(116, null);
+    expect(layer.mask ?? null).toBeNull();
+    cm.render(132);
+    expect(layer.mask ?? null).toBeNull();
+    cm.render(148, { x: Number.NaN, y: 0 });
+    expect(layer.mask ?? null).toBeNull();
+  });
+
+  it('setHaloU re-bakes IN PLACE only on a real change; the texture is never swapped or destroyed', () => {
+    const { cm } = fresh();
+    const tex = cm.haloMask.texture;
+    cm.setHaloU(cm.haloU);
+    cm.setHaloU(Number.NaN);
+    cm.setHaloU(0);
+    expect(haloBakes.calls, 'no-change / degenerate values cost nothing').toHaveLength(1);
+    const wider = hazeHaloU(CONFIG.vision.radar * 1.2);
+    cm.setHaloU(wider);
+    expect(haloBakes.calls.at(-1)).toEqual({ haloU: wider, into: tex });
+    expect(cm.haloMask.texture).toBe(tex);
+    expect(tex.source.destroyed).toBe(false);
+    cm.setHaloU(wider);
+    expect(haloBakes.calls).toHaveLength(2);
+  });
+
+  it('a radar-range rise widens the opaque disc and the sprite with it', () => {
+    const { cm } = fresh();
+    const before = cm.haloMask.scale.x;
+    const wider = hazeHaloU(CONFIG.vision.radar * 1.2);
+    cm.setHaloU(wider);
+    expect(cm.haloU).toBe(wider);
+    expect(cm.haloMask.scale.x).toBeGreaterThan(before);
+    // water just inside the new halo but past the old feather: hidden before, seen now
+    const d = wider - 1;
+    expect(d).toBeGreaterThan(BASE_HAZE_HALO_U + K.haloFeatherU);
+    expect(haloAlphaAt(d, BASE_HAZE_HALO_U), 'hidden at the base range').toBe(0);
+    expect(haloAlphaAt(d, cm.haloU), 'seen after the rise').toBe(1);
+  });
+
+  it('clear() leaves the mask on the layer', () => {
+    const { cm, layer } = fresh();
+    cm.sync([cloud('c1')]);
+    cm.render(100, OWN);
+    cm.clear();
+    expect(layer.children).toEqual([cm.haloMask]);
+    expect(cm.haloMask.destroyed).toBe(false);
+  });
+});
+
+describe('the halo profile: opaque inside, a monotone feather, nothing beyond', () => {
+  const H = BASE_HAZE_HALO_U;
+  const F = K.haloFeatherU;
+
+  it('is opaque at the centre and just inside the halo, zero at and beyond halo + feather', () => {
+    expect(haloAlphaAt(0, H)).toBe(1);
+    expect(haloAlphaAt(H - 0.5, H)).toBe(1);
+    expect(haloAlphaAt(H, H)).toBe(1);
+    expect(haloAlphaAt(H + F, H)).toBe(0);
+    expect(haloAlphaAt(H + F + 1, H)).toBe(0);
+    expect(haloAlphaAt(10 * H, H)).toBe(0);
+  });
+
+  it('falls monotonically across the feather, strictly inside it', () => {
+    let prev = 1;
+    for (let d = H + 1; d < H + F; d += 1) {
+      const a = haloAlphaAt(d, H);
+      expect(a).toBeLessThan(prev);
+      expect(a).toBeGreaterThan(0);
+      prev = a;
+    }
+  });
+
+  describe('the real bake draws that profile', () => {
+    const actual = async (): Promise<typeof import('../render/textures.js')> =>
+      vi.importActual<typeof import('../render/textures.js')>('../render/textures.js');
+    const SIZE = HALO_MASK_TEXTURE_SIZE;
+
+    /** A 2d-context stand-in recording the draw (jsdom cannot rasterize). */
+    const recording = (): {
+      canvas: unknown;
+      rect: number[] | null;
+      rectStyle: string;
+      grad: number[] | null;
+      stops: Array<[number, string]>;
+      arcR: number | null;
+    } => {
+      const rec = {
+        rect: null as number[] | null,
+        rectStyle: '',
+        grad: null as number[] | null,
+        stops: [] as Array<[number, string]>,
+        arcR: null as number | null,
+      };
+      const ctx = {
+        fillStyle: '' as string | object,
+        globalAlpha: 0.5,
+        globalCompositeOperation: 'destination-out',
+        setTransform: (): void => {},
+        fillRect: (x: number, y: number, w: number, h: number): void => {
+          rec.rect = [x, y, w, h];
+          rec.rectStyle = String(ctx.fillStyle);
+        },
+        createRadialGradient: (...a: number[]): { addColorStop: (o: number, c: string) => void } => {
+          rec.grad = a;
+          return { addColorStop: (o: number, c: string): void => void rec.stops.push([o, c]) };
+        },
+        beginPath: (): void => {},
+        arc: (_x: number, _y: number, r: number): void => {
+          rec.arcR = r;
+        },
+        fill: (): void => {},
+      };
+      const canvas = { width: SIZE, height: SIZE, getContext: (): unknown => ctx };
+      return Object.assign(rec, { canvas });
+    };
+
+    /** Parse an `rgba(r, g, b, a)` / `rgb(...)` string's red channel. */
+    const red = (css: string): number => Number(/\d+/.exec(css)![0]);
+
+    it('black to the corners, a white disc to haloU, linear to black at haloU + feather — redrawn in place', async () => {
+      const { bakeHaloMaskTexture } = await actual();
+      const rec = recording();
+      const source = new CanvasSource({ resource: rec.canvas as HTMLCanvasElement, width: SIZE, height: SIZE });
+      const tex = new Texture({ source });
+      const update = vi.spyOn(source, 'update');
+      expect(bakeHaloMaskTexture(H, tex)).toBe(tex);
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(rec.rect).toEqual([0, 0, SIZE, SIZE]);
+      expect(red(rec.rectStyle), 'beyond: zero').toBe(0);
+      const px = SIZE / 2 / haloSpanU(H);
+      const [, , r0, , , r1] = rec.grad!;
+      expect(r0).toBeCloseTo(H * px, 6);
+      expect(r1).toBeCloseTo((H + F) * px, 6);
+      expect(rec.arcR).toBeCloseTo(r1, 6);
+      expect(r1, 'the feathered disc fits inside the texture').toBeLessThanOrEqual(SIZE / 2);
+      expect(rec.stops.map(([o, c]) => [o, red(c)])).toEqual([[0, 255], [1, 0]]);
+    });
+
+    it('a wider halo pushes both radii out', async () => {
+      const { bakeHaloMaskTexture } = await actual();
+      const radiiU = (h: number): number[] => {
+        const rec = recording();
+        const source = new CanvasSource({ resource: rec.canvas as HTMLCanvasElement, width: SIZE, height: SIZE });
+        bakeHaloMaskTexture(h, new Texture({ source }));
+        const px = SIZE / 2 / haloSpanU(h);
+        return [rec.grad![2] / px, rec.grad![5] / px];
+      };
+      const [a0, a1] = radiiU(H);
+      const [b0, b1] = radiiU(H * 1.3);
+      expect(b0).toBeGreaterThan(a0);
+      expect(b1).toBeGreaterThan(a1);
+    });
   });
 });
 
@@ -252,7 +466,7 @@ describe('a cloud leaves only after its spray is over AND its paint has faded', 
     expect(cm.size).toBe(0);
     expect(cm.spriteOf('old')).toBeNull();
     expect(s.destroyed).toBe(true);
-    expect(layer.children).toHaveLength(0);
+    expect(layer.children, 'only the halo mask is left').toEqual([cm.haloMask]);
   });
 
   it('clear() empties every held cloud (the match-start edge)', () => {
@@ -262,7 +476,7 @@ describe('a cloud leaves only after its spray is over AND its paint has faded', 
     cm.render(1000);
     cm.clear();
     expect(cm.size).toBe(0);
-    expect(layer.children).toHaveLength(0);
+    expect(layer.children, 'only the halo mask is left').toEqual([cm.haloMask]);
   });
 });
 
