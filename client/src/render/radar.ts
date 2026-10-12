@@ -280,21 +280,13 @@ export interface ViewRect {
 // is untouched and is where the ring is legible.
 
 /**
- * THE BEAM'S LAST FRAME (Story 9.3, "the countermeasure also paints radar") —
- * the arc the beam swept between the previous rendered frame and this one,
- * `prev → cur` increasing (mod 2π, `sweepRotation`'s own angles), the observer
- * it was swept from, the phosphor life the radar paints use, and the radar
- * range the beam reaches (`rangeU`, the same number `marchSlice` clips its
- * rays to). One object per Radar, rewritten in place every frame: read it,
- * never hold it.
+ * What the radar reads a countermeasure cloud through (Story 9.3 session 4) —
+ * structurally `Countermeasure`: how many clouds are held, and the drawn haze
+ * (0..maxAlpha, max across clouds) under a world point.
  */
-export interface BeamWindow {
-  prev: number;
-  cur: number;
-  x: number;
-  y: number;
-  lifeMs: number;
-  rangeU: number;
+export interface CloudReturnSource {
+  readonly size: number;
+  coverAt(x: number, y: number): number;
 }
 
 export class Radar {
@@ -351,23 +343,8 @@ export class Radar {
    *  compare sits on the per-frame placement path rather than on the stat and
    *  dazzle setters, which are two ways in for one number. */
   private dimBakedAtU: number;
-  /**
-   * THE COUNTERMEASURE'S PHOSPHOR COPIES (Story 9.3, Eric 2026-10-12: "THIS
-   * SMOKE ALSO PAINTS RADAR RETURNS"). A child of `blipLayer`, so the in-bubble
-   * `dim` mask applies to a cloud's radar copy exactly as it does to a paint,
-   * and kept ABOVE the heat sprite — `fitHeat` re-inserts a rebuilt heat
-   * sprite below it. render/countermeasure.ts owns what goes in it.
-   */
-  readonly cloudPaintLayer = new Container();
-  /** The beam window handed out by `beamWindow` — rewritten in place. */
-  private readonly beam: BeamWindow = { prev: 0, cur: 0, x: 0, y: 0, lifeMs: 0, rangeU: 0 };
-  /** Did the last `render` sweep an arc (both ends known, own pose known)? */
-  private beamLive = false;
   /** Latest authoritative sweep sample (angle at server time t). */
   private lastSweep: { angle: number; t: number } | null = null;
-  /** Beam angle at the PREVIOUS frame — the arc the march walks is measured
-   *  against it. Null whenever the sweep is hidden. */
-  private lastRotation: number | null = null;
   /** Last rendered own position — the observer an echo's bearing and range are
    *  measured from. Null before the first render (and in any later gap where the
    *  own pose is unknown), in which case an echo's geometry is DEFERRED rather
@@ -422,6 +399,18 @@ export class Radar {
    *  case nothing blocks, which is the pre-P5 behaviour. */
   private wakeIslands: readonly Island[] = [];
   private readonly wakeCache = new WakeStampCache();
+  /**
+   * THE COUNTERMEASURE CLOUDS AS A RETURN SOURCE (Story 9.3 session 4, Eric
+   * 2026-10-12: "Don't forget to composite it onto the radar layer so it can
+   * be painted. It should give returns in strength based on how thick the
+   * smoke is."). `setWakeSources`' sibling: main.ts hands the Countermeasure
+   * over once, and every march pulls the drawn haze through it per sample
+   * (`FieldSpec.cloud` → `cloudSample`). The cloud is then a field material
+   * like any other — swept, shadowed, grained, frozen, banded, decayed and
+   * dimmed by the heat grid's own rules, with no drawing of its own. Null (or
+   * no cloud held) leaves the field exactly as it was.
+   */
+  private cloudSource: CloudReturnSource | null = null;
 
   constructor(blipLayer: Container, sweepLayer: Container) {
     this.blipLayer = blipLayer;
@@ -442,7 +431,6 @@ export class Radar {
     // is deliberately NOT used: it drops the node out of the build entirely.
     this.dim.renderable = false;
     blipLayer.addChild(this.dim);
-    blipLayer.addChild(this.cloudPaintLayer);
 
     this.rings = new Graphics();
     this.rings.visible = false;
@@ -558,8 +546,7 @@ export class Radar {
     sprite.blendMode = 'add';
     sprite.scale.set(grid.cellU); // one texel = one world cell
     sprite.visible = false;
-    // Below the countermeasure's phosphor copies, which ride above the paints.
-    this.blipLayer.addChildAt(sprite, this.blipLayer.getChildIndex(this.cloudPaintLayer));
+    this.blipLayer.addChild(sprite);
     this.heat = { grid, rgba, source, sprite };
   }
 
@@ -939,27 +926,6 @@ export class Radar {
     this.updateDimMask(own);
     const rot = this.updateSweep(own, serverNow);
     this.renderReturn(own, rot, serverNow, contacts);
-    this.recordBeam(own, rot);
-    this.lastRotation = rot;
-  }
-
-  /** The arc the beam swept on the last `render` — `prev` is the previous
-   *  frame's `sweepRotation`, `cur` this frame's — or null when the sweep was
-   *  hidden on either frame (no own pose, start line, spectating). */
-  beamWindow(): Readonly<BeamWindow> | null {
-    return this.beamLive ? this.beam : null;
-  }
-
-  private recordBeam(own: OwnPoint | null, rot: number | null): void {
-    this.beamLive = false;
-    if (own === null || rot === null || this.lastRotation === null) return;
-    this.beamLive = true;
-    this.beam.prev = this.lastRotation;
-    this.beam.cur = rot;
-    this.beam.x = own.x;
-    this.beam.y = own.y;
-    this.beam.lifeMs = blipLifeMs(this.sweepPeriodMs);
-    this.beam.rangeU = this.radarRange;
   }
 
   /** The whole frame: resolve parked echoes, march the swept arc, drop
@@ -1019,6 +985,7 @@ export class Radar {
       raster: this.heightRaster,
       ships: this.shipStamp(own, serverNow, contacts),
       wake: this.wakeStamp(own, serverNow),
+      cloud: this.cloudHaze(),
       cellU: cfg.cellU,
       model: cfg.model,
     });
@@ -1179,6 +1146,20 @@ export class Radar {
   ): void {
     this.wakeSources = sources;
     this.wakeIslands = islands;
+  }
+
+  /** Hand the scope the countermeasure clouds (main.ts passes the one
+   *  Countermeasure). Null takes the layer off. */
+  setCloudSource(source: CloudReturnSource | null): void {
+    this.cloudSource = source;
+  }
+
+  /** The cloud layer's per-sample haze lookup for this frame's field, or
+   *  undefined when no cloud is held (the field then skips the layer). */
+  private cloudHaze(): ((x: number, y: number) => number) | undefined {
+    const src = this.cloudSource;
+    if (src === null || src.size === 0) return undefined;
+    return (x, y) => src.coverAt(x, y);
   }
 
   /**

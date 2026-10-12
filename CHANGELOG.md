@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.42] - 2026-10-12
+
+### Changed
+- **The countermeasure cloud gives radar returns by how thick it is** (Story 9.3, session 4 — Eric on 0.18.41: *"Visually, that is perfect. It's not being read by radar. Don't forget to composite it onto the radar layer so it can be painted. It should give returns in strength based on how thick the smoke is."*). The cloud is now a material the radar beam samples like water, hulls and wakes: where the beam sweeps smoke within radar range it paints a return whose strength is the smoke's thickness, banded, dimmed inside your sight bubble, shadowed by islands and fading on the phosphor like every other return. Thick smoke paints bright, thin edges faint, unswept or out-of-range smoke not at all.
+- **The haze is thicker** (Eric: *"I can still kinda see ships under it a lot of the time"*). The dense body is now fully opaque; the rim stays wispy.
+
+### Internal
+- Why the 0.18.41 phosphor copy showed nothing: it painted on the CPU (3,391 cells in a replay of the real chain) but a cloud dropped on your own hull sits inside your sight bubble, where the radar's in-bubble dim shows paint at 20 %, and the copy drew as a flat tint at 0.02–0.17 alpha over grey smoke. Deleted: the copy sprite/buffer, `cloudPaintLayer`, `BeamWindow`/`beamWindow()`, `beamCrosses`.
+- Built: `Radar.setCloudSource(countermeasure)` (the `setWakeSources` sibling); `FieldSpec.cloud` in `radarField.ts`; `cloudSample` in `radarSources.ts` — reflectivity `radarGain × haze` above `radarPaintMin`, VOLUME geometry, no range term, `terrainQ 0` so the mast-height shadow rule applies; ranks below terrain and hulls, above surf, wake and clutter. One `coverAt` per march sample in the swept slices; no cloud cell loop.
+- Knobs: `radarAlpha` → `radarGain 1.0`; `maxAlpha 0.92 → 1.0`, `puffMinAlpha 0.04 → 0.1`, `puffMaxAlpha 0.12 → 0.3`, `puffsPerSec 400 → 800` (re-rendered off the real field before the PR).
+- Client only; PROTOCOL_VERSION unchanged (77). Tests: client 3919 (125 files; nine new `radarCloudReturns` contracts incl. thick > thin, range, shadow, decay), shared 1028, server 2469.
+- Epic-9 amendments 57-58. Cycle 177.
+
 ## [0.18.41] - 2026-10-12
 
 ### Changed
