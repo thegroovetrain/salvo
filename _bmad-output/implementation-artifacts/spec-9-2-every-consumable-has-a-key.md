@@ -89,8 +89,8 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution (wave 1 — shared, one agent):**
-- [ ] `shared/src/sim/loadout.ts`, `effects.ts`, `boons.ts`, `catalog.ts`, `constants.ts`, `types.ts`, `index.ts` -- fixed kind → slot model, chaff removed from the model, PV 75 -- the one source both sides replay
-- [ ] `shared/src/__tests__/*` -- re-base: `CONSUMABLE_SLOTS` is one slot per keyed kind in `CONSUMABLE_KEY_ORDER`; property: for any legal `cards`, every stack sits at `consumableSlotFor(kind)` and no slot holds a different kind; `'beltFull'` gone; chaff gone; `npm test -w shared` green; `npm run build -w shared`
+- [x] `shared/src/sim/loadout.ts`, `effects.ts`, `boons.ts`, `catalog.ts`, `constants.ts`, `types.ts`, `index.ts` -- fixed kind → slot model, chaff removed from the model, PV 75 -- the one source both sides replay
+- [x] `shared/src/__tests__/*` -- re-base: `CONSUMABLE_SLOTS` is one slot per keyed kind in `CONSUMABLE_KEY_ORDER`; property: for any legal `cards`, every stack sits at `consumableSlotFor(kind)` and no slot holds a different kind; `'beltFull'` gone; chaff gone; `npm test -w shared` green; `npm run build -w shared`
 
 **Execution (wave 2 — server and client in parallel, shared frozen):**
 - [ ] `server/src/game/{world,signals,perception,frames}.ts`, `equipment/*`, `fakes.ts` (delete), `ai/*`, `inputs.ts`, `scripts/batchsim/spendPolicy.ts` -- chaff and fakes retired, drops eligibility per amendment 226 without the belt branch, bots on fixed slots -- the six exceptions untouched

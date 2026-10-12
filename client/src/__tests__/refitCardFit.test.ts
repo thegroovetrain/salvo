@@ -129,9 +129,10 @@ describe('the ratified face is a FIXED box, and its content is a constant', () =
     // flipped SHIELD BLOCK, CHAFF and DECOY BUOY — TWENTY-FOUR live against two.
     // Story 8.18 flipped SMOKE SCREEN — TWENTY-FIVE live against one. DECK GUN
     // TURRET and DECK GUN BARREL folded into the CANNON ladder (2026-09-30,
-    // amendment 197) — 24 lines, TWENTY-THREE live against one.
-    expect(LINES).toHaveLength(24);
-    expect(LIVE).toHaveLength(23);
+    // amendment 197) — 24 lines, TWENTY-THREE live against one. CHAFF left the
+    // catalog in Story 9.2 (epic-9 amendment 31) — 23 lines, TWENTY-TWO live.
+    expect(LINES).toHaveLength(23);
+    expect(LIVE).toHaveLength(22);
     expect(LIVE.some((l) => l.id === 'hullRepair')).toBe(true);
     expect(FACES.length).toBe(LIVE.reduce((n, d) => n + d.cap, 0) * CLASSES.length * 2);
   });

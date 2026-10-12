@@ -31,18 +31,16 @@
 //                  cannot machine-gun it), suspended with Q/E/R while the refit
 //                  modal is open and swallowed by a focused overlay
 //   TAB            toggles the refit modal (main.ts owns open/close policy)
-//   1–4            TWO MEANINGS, decided at the keydown itself (Story 8.7,
-//                  ruling 7 — this retires epic-8 amendments 27 and 30, which
-//                  held only while the belt could not be stocked): with the
-//                  refit window OPEN they pick a card; with it CLOSED they are
-//                  the four BELT slots' keys (shared CONSUMABLE_SLOTS), acting
-//                  through the very same slotAction the weapon keys use. In
-//                  between sits the CLOSE GRACE (ruling 8): for a few hundred
-//                  ms after the window closes by ANY path a digit is swallowed,
-//                  so the key that spent the last banked level cannot fall
-//                  through onto the belt. They are the ONLY digits bound:
-//                  Story 8.8 deleted the DAMAGE CONTROL rail, so 5 is unbound
-//                  and inert in both meanings
+//   1–6            TWO MEANINGS, decided at the keydown itself (Story 8.7,
+//                  ruling 7; Story 9.2 re-cut): with the refit window OPEN
+//                  1–4 pick a card and 5/6 are inert; with it CLOSED 1–6 are
+//                  the six consumable kinds' FIXED keys (shared
+//                  CONSUMABLE_SLOTS, in CONSUMABLE_KEY_ORDER), acting through
+//                  the very same slotAction the weapon keys use. In between
+//                  sits the CLOSE GRACE (ruling 8): for a few hundred ms after
+//                  the window closes by ANY path every digit is swallowed, so
+//                  the key that spent the last banked level cannot fall
+//                  through onto a consumable. Digits 7+ are unbound
 //   ESC            closes the TOPMOST open surface (results modal / refit modal
 //                  / settings overlay) and, with nothing open, toggles settings
 //                  — the uniform law (Story 2.3, amendment 23). Never leaves the
@@ -151,14 +149,12 @@ export const BOOST_KEY_CODES: readonly string[] = ['ShiftLeft', 'ShiftRight'];
 
 /**
  * Digit key → the refit choice it sends (top row + numpad): card indices 0..3,
- * and nothing else. EVERY choice on the wire is an offer index now — Story 8.8
- * deleted the DAMAGE CONTROL rail and with it the reserved negative sentinel
- * `HEAL_CHOICE` (-1) that `5` used to carry, so `Digit5`/`Numpad5` are UNBOUND:
- * they are not preventDefault-ed, they pick nothing, and they reach no belt
- * square (the belt has four).
+ * and nothing else. EVERY choice on the wire is an offer index; `5`/`6` carry
+ * no choice, so while the window is open they are bound-inert (they pick
+ * nothing and reach no consumable square).
  *
- * This is the OPEN-WINDOW meaning of the digits; `1`-`4` gained their second,
- * CLOSED-window meaning in Story 8.7 — see BELT_KEY_CODES.
+ * This is the OPEN-WINDOW meaning of the digits; the CLOSED-window meaning is
+ * CONSUMABLE_KEY_CODES.
  */
 export const REFIT_DIGIT_CODES: Record<string, number> = {
   Digit1: 0, Numpad1: 0,
@@ -168,28 +164,24 @@ export const REFIT_DIGIT_CODES: Record<string, number> = {
 };
 
 /**
- * THE SECOND MEANING (Story 8.7, ruling 7): digit key → the BELT slot it fires
- * while the refit window is CLOSED. Four keys for four squares, read out of the
- * shared `CONSUMABLE_SLOTS` tuple rather than re-typed as literals — the same
- * rule SLOT_KEY_CODES follows, so a re-cut of the slot grammar moves the keys
- * with it. `5` is deliberately absent: the belt has four squares, and since
- * Story 8.8 the fifth key has nothing to address in either meaning.
- *
- * Epic-8 amendments 27 ("1-4 stay refit-only") and 30 ("a belt press is
- * silent") are RETIRED by this table: both were true only while nothing could
- * enter the belt.
+ * THE SECOND MEANING (Story 9.2, epic-9 amendments 21/31): digit key → the
+ * consumable slot it fires while the refit window is CLOSED. Every consumable
+ * kind owns one FIXED slot (shared `CONSUMABLE_SLOTS`, in
+ * `CONSUMABLE_KEY_ORDER`), and key `n` is the n-th of them — derived from the
+ * shared tuple, never re-typed as literals, so a re-cut of the key row moves
+ * the keys with it. Top row and numpad are the same key.
  */
-export const BELT_KEY_CODES: Record<string, number> = {
-  Digit1: CONSUMABLE_SLOTS[0], Numpad1: CONSUMABLE_SLOTS[0],
-  Digit2: CONSUMABLE_SLOTS[1], Numpad2: CONSUMABLE_SLOTS[1],
-  Digit3: CONSUMABLE_SLOTS[2], Numpad3: CONSUMABLE_SLOTS[2],
-  Digit4: CONSUMABLE_SLOTS[3], Numpad4: CONSUMABLE_SLOTS[3],
-};
+export const CONSUMABLE_KEY_CODES: Readonly<Record<string, number>> = Object.fromEntries(
+  CONSUMABLE_SLOTS.flatMap((slot, i) => [
+    [`Digit${i + 1}`, slot],
+    [`Numpad${i + 1}`, slot],
+  ]),
+);
 
 /**
  * The slots whose EMPTY press DENIES on the client — the two rows a card fills:
- * the weapon row (Story 8.5, epic-8 amendment 26) and, since Story 8.7, the
- * BELT. The gun is never empty and slot 1 is empty only on a PvE drone
+ * the weapon row (Story 8.5, epic-8 amendment 26) and the six consumable
+ * squares (a kind at ZERO stock — Story 9.2, epic-9 amendment 35). The gun is never empty and slot 1 is empty only on a PvE drone
  * (amendment 24), which no keyboard is attached to, so a denial on either could
  * only ever be a construction-gap artefact.
  */
@@ -432,8 +424,8 @@ export interface KeyboardHooks {
    *  with the actSeq it WILL ride once drained — main.ts predicts the verdict
    *  for feedback. */
   onAbility?: (slot: number, actSeq: number) => void;
-  /** A press hit the full FIFO (pendingActs at SLOT_COUNT — NINE since Story
-   *  8.5, and still only reachable by mashing: it is nine presses inside one
+  /** A press hit the full FIFO (pendingActs at SLOT_COUNT — ELEVEN since Story
+   *  9.2, and still only reachable by mashing: it is eleven presses inside one
    *  50ms sample window): the press is dropped and this fires INSTEAD — denied
    *  feedback, never silence. */
   onAbilityCapped?: (slot: number) => void;
@@ -521,8 +513,8 @@ export class KeyboardInput {
    * evaluation, but the WIRE carries at most one press per input — multiple
    * presses inside one 50ms sample window MUST be spread across successive
    * inputs; consumeActivation() drains exactly one per built input. Capped at
-   * SLOT_COUNT (NINE since Story 8.5 — the cap simply follows the slot count,
-   * so it is nine presses inside ONE 50ms window); a press against a full queue
+   * SLOT_COUNT (ELEVEN since Story 9.2 — the cap simply follows the slot
+   * count, so it is eleven presses inside ONE 50ms window); a press against a full queue
    * fires onAbilityCapped (denied feedback — Story 2.1 closes the silent-drop
    * debt, and the drop at the cap stays reachable only by mashing). Cleared on the hard
    * state boundaries (death / respawn / spectate / reconnect) so a queued
@@ -580,7 +572,7 @@ export class KeyboardInput {
     // SHIFT+TAB is unaffected: onDown evaluates that special case BEFORE the
     // binding lookup, and the Tab keydown is a different event from this one.
     bind([...BOOST_KEY_CODES], this.edge(() => this.boostAction()));
-    bind(Object.keys(REFIT_DIGIT_CODES), this.handleDigitKey);
+    bind([...new Set([...Object.keys(REFIT_DIGIT_CODES), ...Object.keys(CONSUMABLE_KEY_CODES)])], this.handleDigitKey);
     // F: the FOGHORN (Story 4.5) — edge-gated so a held key is ONE honk, and
     // suspended by the refit modal exactly as Q/E/R are (handleSlotKey's rule,
     // reused rather than re-derived). Space stays BOUND-INERT: prevented (page
@@ -804,29 +796,31 @@ export class KeyboardInput {
   }
 
   /**
-   * Digits 1–4, and they mean TWO different things (Story 8.7, ruling 7). The
-   * meaning is read against the window's state AT THIS KEYDOWN — never at the
-   * key-up, never at sample time:
-   *   • window OPEN → a refit pick (1–4 → card 0..3). A GREYED card's digit is
-   *     swallowed downstream by main.ts's handleRefitPick (ruling 10), not here
-   *     — the chokepoint does not know what is on the cards;
-   *   • window CLOSED → the BELT: 1–4 are slots 5–8 through the very same
-   *     `slotAction` a hotbar click and the weapon keys use. Inside the CLOSE
-   *     GRACE the key does not act at all — see `isRefitGrace`.
-   * The old digit slot-priming of the WEAPON row stays dead (amendment 3): no
-   * digit addresses slots 2–4 in either meaning, and `5` addresses nothing at
-   * all since Story 8.8 deleted the DAMAGE CONTROL rail.
+   * Digits 1–6, and they mean TWO different things (Story 8.7, ruling 7; Story
+   * 9.2). The meaning is read against the window's state AT THIS KEYDOWN —
+   * never at the key-up, never at sample time:
+   *   • window OPEN → a refit pick (1–4 → card 0..3; 5/6 inert). A GREYED
+   *     card's digit is swallowed downstream by main.ts's handleRefitPick
+   *     (ruling 10), not here — the chokepoint does not know what is on the
+   *     cards;
+   *   • window CLOSED → the consumable row: 1–6 are slots 5–10 through the
+   *     very same `slotAction` a hotbar click and the weapon keys use. A kind
+   *     at zero stock is an empty slot, so its press is the empty-slot denial
+   *     (epic-9 amendment 35). Inside the CLOSE GRACE the key does not act at
+   *     all — see `isRefitGrace`.
+   * No digit addresses slots 2–4 in either meaning (amendment 3).
    */
   private readonly handleDigitKey = (e: KeyboardEvent): void => {
     if (e.repeat) return;
     if (this.hooks.isModalOpen?.() === true) {
-      this.hooks.onRefitPick?.(REFIT_DIGIT_CODES[e.code]);
+      const choice = REFIT_DIGIT_CODES[e.code];
+      if (choice !== undefined) this.hooks.onRefitPick?.(choice);
       return;
     }
-    const beltSlot = BELT_KEY_CODES[e.code];
-    if (beltSlot === undefined) return; // digit 5 with the window closed: inert
+    const slot = CONSUMABLE_KEY_CODES[e.code];
+    if (slot === undefined) return;
     if (this.hooks.isRefitGrace?.() === true) return;
-    this.slotAction(beltSlot);
+    this.slotAction(slot);
   };
 
   /**

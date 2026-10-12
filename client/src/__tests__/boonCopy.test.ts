@@ -45,11 +45,12 @@ import {
 const TB = { cls: 'torpedoBoat' as const, cards: [] as string[] };
 
 describe('coverage — every catalog line has a name and a kind word', () => {
-  it('names every one of the 24 lines (never the humanized fallback)', () => {
+  it('names every one of the 23 lines (never the humanized fallback)', () => {
     // 29 until Story 8.15 CUT missile, monitor and heat seeking (amendment 89e);
     // 26 until DECK GUN TURRET and DECK GUN BARREL folded into the CANNON
-    // ladder (2026-09-30, amendment 197).
-    expect(LINE_IDS).toHaveLength(24);
+    // ladder (2026-09-30, amendment 197); 24 until CHAFF left the catalog in
+    // Story 9.2 (epic-9 amendment 31).
+    expect(LINE_IDS).toHaveLength(23);
     for (const id of LINE_IDS) {
       const name = boonName(id);
       expect(name.length, id).toBeGreaterThan(0);
@@ -287,7 +288,7 @@ describe('cardKind — what the card does for the player', () => {
   });
 
   it('a consumable is a CONSUMABLE, an add-on an ADD-ON, and the words map one to one', () => {
-    for (const id of ['hullRepair', 'smokeScreen', 'chaff', 'supercavTorpedo', 'dazzleShells']) {
+    for (const id of ['hullRepair', 'smokeScreen', 'supercavTorpedo', 'dazzleShells']) {
       expect(cardKind(CATALOG[id], 0), id).toBe('consumable');
     }
     expect(cardKind({ ...CATALOG.armor, kind: 'addon' } as CatalogLine, 0)).toBe('addon');

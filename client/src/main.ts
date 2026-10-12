@@ -64,8 +64,6 @@ import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/li
 import { BurnZones } from './render/burnZones.js';
 import { Smoke } from './render/smoke.js';
 import { SmokeScreen } from './render/smokeScreen.js';
-import { ChaffRing } from './render/chaffRing.js';
-import { ChaffGhosts } from './render/chaffGhosts.js';
 import { Fire } from './render/fire.js';
 import { Foghorn } from './render/foghorn.js';
 import { Fog, hullSightSoftness, type FogHole } from './render/fog.js';
@@ -277,14 +275,6 @@ interface Game {
    *  FrameMsg.smoke into the same fog-immune `smoke` layer as the wounded
    *  plumes; grown along the shared `puffRadius` and faded per render frame. */
   smokeScreen: SmokeScreen;
-  /** THE CHAFF OWNER'S DASHED RING (render/chaffRing.ts, epic-8 amendment 191)
-   *  — read each frame off the self-private `net.you.chaff`, in the fog-immune
-   *  lit-zone chart layer; never anyone else's cloud, never the fakes. */
-  chaffRing: ChaffRing;
-  /** THE CHAFF OWNER'S GHOSTS (render/chaffGhosts.ts, cycle 162) — the owner's
-   *  OWN fake returns off the self-private `you.chaffGhosts`, grey at half the
-   *  scope's alpha, on their own grid beside the ring (never the scope's). */
-  chaffGhosts: ChaffGhosts;
   /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
    *  visual twin, screen-space and above every HUD readout. */
   foghorn: Foghorn;
@@ -298,8 +288,8 @@ interface Game {
   hud: Hud;
   /**
    * THE HUD BAR (render/hudBar.ts, Story 8.6) — the ONE bottom-centre cluster
-   * that replaced the three corners: the HP globe, the nine-slot row with its
-   * framed consumable belt (the loadout surface, its full state grammar, hover
+   * that replaced the three corners: the HP globe, the eleven-slot stack (the
+   * six-kind consumable strip over the weapon row — the loadout surface, its full state grammar, hover
    * tooltip and key-equivalent slot clicks), the helm globe and the XP strip
    * with its banked-level chip. Shown only while conning a hull in-match.
    */
@@ -1079,10 +1069,10 @@ function baseOfferView(g: Game): OfferView | null {
     g.state.spectating,
     g.spendInFlight !== null,
     isSinkingNow(g.state.net.you, g.clock.serverNow(), g.state.spectating),
-    // The REPLAYED slot ids (Story 8.7, ruling 10): what `canStock` reads to
-    // decide whether an offered consumable can reach the belt at all. The same
-    // shared predicate the server runs in `spendCard`, over ids derived the
-    // same way, so a greyed card and a server refusal cannot disagree.
+    // The REPLAYED slot ids (Story 8.7, ruling 10): what `pickRefusal` reads
+    // to decide whether an offered card can be taken at all. The same shared
+    // predicate the server runs in `spendCard`, over ids derived the same way,
+    // so a greyed card and a server refusal cannot disagree.
     g.ownSlots,
   );
 }
@@ -1127,11 +1117,11 @@ function handleRefitPick(g: Game, choice: number): void {
   // reserved negative sentinel are gone — healing is a card you stock and fire
   // from the belt — so the bound below is the whole of the addressing rule.
   if (choice < 0 || choice >= view.options.length) return;
-  // A GREYED CARD SENDS NOTHING (Story 8.7, ruling 10 / UX-DR52). The belt is
-  // full and this consumable has nowhere to go — the server would refuse it as
-  // a silent no-op — so the client refuses it first, with no MSG.spend, no
+  // A GREYED CARD SENDS NOTHING (Story 8.7, ruling 10 / UX-DR52). The line is
+  // at its cap, or a weapon has no free Q/E/R slot — the server would refuse it
+  // as a silent no-op — so the client refuses it first, with no MSG.spend, no
   // spend latch and NO denied pulse. The refusal is already on screen (the card
-  // is dim, its chip dashed, its foot reads SLOTS FULL); a pulse would be the
+  // is dim, its chip dashed; a weapon's foot reads SLOTS FULL); a pulse would be the
   // game shouting a fact the player is looking at, and a latch would spend 1.5s
   // waiting for a reply that is never coming.
   if (view.options[choice]?.greyed) return;
@@ -2166,7 +2156,6 @@ function makeGameReturnToPort(getG: () => Game | null): () => void {
       // coordinates on the next match.
       g.smoke.clear();
       g.fire.clear(); // ...and the flames that ride the same pulses (cycle 162)
-      g.chaffGhosts.clear(); // ...and the owner's ghosts, true world cells too
       // Same defence for the foghorn chevrons (Story 4.5): a bearing is a fact
       // about one moment on one ocean, and it must not survive into the next.
       g.foghorn.clear();
@@ -2902,12 +2891,6 @@ function buildGame(
     smoke: new Smoke(stage.layers.smoke),
     fire: new Fire(stage.layers.smoke), // pins itself to the layer's bottom: under every puff
     smokeScreen: new SmokeScreen(stage.layers.smoke),
-    // `chaff`, above `smoke` (Eric 2026-10-01: "Radar returns should never be
-    // below the smoke screen") and not `blip`: the blip layer's near-range dim
-    // mask would cut a ghost (always inside the owner's own bubble) to 20 % —
-    // see stage.ts / chaffGhosts.ts.
-    chaffRing: new ChaffRing(stage.layers.chaff),
-    chaffGhosts: new ChaffGhosts(stage.layers.chaff),
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
     nextHonkAt: 0,
     fog: new Fog(stage.fogSprite),
@@ -2961,9 +2944,6 @@ function buildGame(
   // shipped coastline's own mask, and its elevation is what makes a steep
   // headland paint red where a low sandy island of the same size paints blue.
   g.radar.setHeightRaster(map.heightRaster);
-  // The owner's chaff ghosts march through the SAME raster object (cycle 162):
-  // one bake, two consumers, so a ghost shadows exactly as the scope would.
-  g.chaffGhosts.setHeightRaster(map.heightRaster);
   // THE IN-TRUESIGHT WAKE SEAM (Story 4.12). One tracker, two renderings: the
   // emitter owns the ribbons and draws the water, the scope stamps the SAME
   // segments onto the radar lattice for the inner half the server does not
@@ -3057,9 +3037,9 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   // from here — derived via the SAME shared slot-effect replay the server
   // applies incrementally (slotsWithCards), so slot ids agree by construction.
   g.ownSlots = slotIdsFor(stats, cards, cls, gun);
-  // A PRIME CANNOT OUTLIVE ITS SLOT (review patch P8). The belt empties itself:
-  // the last copy of a stocked line is spent and the square goes back to
-  // dashed. A prime left standing on it would swallow every click that follows
+  // A PRIME CANNOT OUTLIVE ITS SLOT (review patch P8). A consumable square
+  // empties itself: the last copy of a stocked kind is spent and the square
+  // goes to ZERO-STOCK (dashed). A prime left standing on it would swallow every click that follows
   // — the wire carries a slot holding nothing, the server denies it, and the
   // player has no way to see why. The gun is slot 0 and is never null, so this
   // is a no-op for every fit that does not take a primed slot away.
@@ -3097,7 +3077,6 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   }
   if (!classChanged && !visionChanged(prev, stats)) return;
   g.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
-  g.chaffGhosts.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
   g.camera.setRadarRange(stats.radarRange);
   g.fog.setSightRange(stats.sightRange, stats.radarRange);
   // ONE plumbed value, TWO dead-reckoning cull rings: shells and our OWN fish
@@ -3522,8 +3501,8 @@ function hotbarDeniedDegraded(g: Game, status: OwnStatus): boolean[] {
 }
 
 /**
- * The slot row's half of the bar's frame (the nine squares, the belt frame, the
- * key chips, the wipe and the tooltip). `dim` is set here for shape's sake and
+ * The slot stack's half of the bar's frame (the eleven squares, the key chips,
+ * the wipe and the tooltip). `dim` is set here for shape's sake and
  * OVERWRITTEN by the HudBar from the bar-wide `dim` — one predicate, applied
  * once, to the exactly-two groups that carry it (ruling 9).
  */
@@ -4272,17 +4251,6 @@ function frameAttention(g: Game, status: OwnStatus, inStorm: boolean, ringUrgent
   return { tier1, tier2, freeze: freezeAtDimKeyframe(tier1, tier2) };
 }
 
-/**
- * The own chaff cloud's two owner-private renderings, on the server clock: the
- * dashed ring off `you.chaff` (amendment 191) and the grey ghosts of the fakes
- * (cycle 162, fed from `you.chaffGhosts` in roomBindings), marched from the
- * own pose and drawn into the camera's world rect exactly as the scope is.
- */
-function renderOwnChaff(g: Game, pose: RenderPose | null, now: number): void {
-  g.chaffRing.render(g.state.net.you?.chaff, now);
-  g.chaffGhosts.render(pose, now, g.camera.worldView);
-}
-
 function renderAlive(
   g: Game,
   alpha: number,
@@ -4401,7 +4369,6 @@ function renderAlive(
   g.litZones.render(now);
   g.burnZones.render(now, now / 1000);
   g.smokeScreen.render(now); // SMOKE SCREEN puffs grow + fade on the server clock
-  renderOwnChaff(g, pose, now);
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
@@ -4460,7 +4427,6 @@ function enterSpectateVisuals(g: Game): void {
   const wrecked = g.state.net.you?.alive === false;
   g.fog.setVisible(false);
   g.radar.clearBlips();
-  g.chaffGhosts.clear(); // the scope's twin: a spectator owns no chaff ghosts
   if (!wrecked) {
     g.ownView.gfx.visible = false;
     g.nameplates.hide(g.state.net.sessionId);
@@ -4657,8 +4623,6 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   g.litZones.render(now); // spectators see all zones
   g.burnZones.render(now, now / 1000); // ...and every burning zone
   g.smokeScreen.render(now); // ...and every SMOKE SCREEN puff
-  g.chaffRing.render(null, now); // a spectator owns no chaff cloud
-  g.chaffGhosts.render(null, now); // ...and no ghosts: nothing renders
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
   // A spectator owns no Tier-1 channel (no hull, no fire control), so the bar's

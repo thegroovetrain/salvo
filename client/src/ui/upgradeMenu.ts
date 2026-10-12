@@ -432,14 +432,19 @@ export interface OfferCard {
    * take one the server would refuse).
    */
   greyed: boolean;
+  /** The foot's reason word: `SLOTS FULL` on an equipment card refused for want
+   *  of a free Q/E/R slot, '' on every other card — a consumable at its cap is
+   *  greyed with an EMPTY foot (epic-9 amendment 32: no cap copy). */
+  foot: string;
   /** How many of this line the player already holds, and how many the line has
    *  in total — the ladder's rung count and its filled prefix. */
   stack: number;
   cap: number;
 }
 
-/** The foot's one word today: the belt is full and this consumable has nowhere
- *  to go. Ratified copy (UX-DR52) — the card's non-colour refusal channel. */
+/** The foot's one word: an equipment card with no free Q/E/R slot to land in.
+ *  Ratified copy (UX-DR52) — the card's non-colour refusal channel. Since Story
+ *  9.2 it is printed for the `noWeaponSlot` refusal ONLY (epic-9 amendment 32). */
 export const SLOTS_FULL = 'SLOTS FULL';
 
 /** The spendable state the band renders — derived purely from `you`. */
@@ -547,15 +552,11 @@ export function shouldAutoOpen(s: { latched: boolean; phase: string; visible: bo
  * evaluates before it mutates anything. Two evaluations of one function, so the
  * greyed face and the server's refusal can never disagree.
  *
- * THREE REFUSALS CAN REACH A DEALT CARD: a consumable the belt cannot take, a
+ * TWO REFUSALS CAN REACH A DEALT CARD since Story 9.2 retired the belt: a
  * line already at its `cap` (the draw deals a capped consumable on purpose —
- * amendment 94 — and it owns a belt slot, so `canStock` alone said yes to a
- * sixth copy), and copy 1 of a weapon with Q/E/R full (the draw closes that
- * kind, so it is the fail-closed twin of the server's own guard).
- *
- * THE FOOT WORD DOES NOT BRANCH. Every refusal shows the ratified `SLOTS FULL`
- * (Eric's copy) — this predicate is a boolean for the face, and no new
- * player-facing text comes with it.
+ * amendment 94 — greyed, never rerolled), and copy 1 of a weapon with Q/E/R
+ * full (the draw closes that kind, so it is the fail-closed twin of the
+ * server's own guard). The foot word is `cardFoot`'s, not this predicate's.
  */
 export function cardGreyed(
   line: CatalogLine,
@@ -563,6 +564,22 @@ export function cardGreyed(
   ownCards: readonly string[] = [],
 ): boolean {
   return pickRefusal(ownCards, ownSlots, line.id) !== null;
+}
+
+/**
+ * Pure: the refused card's foot word — `SLOTS FULL` ONLY for `noWeaponSlot`
+ * (an equipment card with Q/E/R full), '' for every other card. A consumable
+ * dealt at its cap of 5 is greyed with NO foot word (epic-9 amendment 32,
+ * Eric: "There's no need for 'cap copy,' if it is simply known that items have
+ * a cap of 5"). Same shared `pickRefusal`, so it can never name a refusal the
+ * server would not make.
+ */
+export function cardFoot(
+  line: CatalogLine,
+  ownSlots: readonly (SlotItemId | null)[],
+  ownCards: readonly string[] = [],
+): string {
+  return pickRefusal(ownCards, ownSlots, line.id) === 'noWeaponSlot' ? SLOTS_FULL : '';
 }
 
 /**
@@ -585,6 +602,7 @@ function toCard(line: CatalogLine, you: OwnShip, ownSlots: readonly (SlotItemId 
     rows: cardStatRows(line, stack, you),
     hover: cardHoverRows(line, stack, you),
     greyed: cardGreyed(line, ownSlots, you.cards),
+    foot: cardFoot(line, ownSlots, you.cards),
     stack,
     cap: line.cap,
   };
@@ -1393,16 +1411,18 @@ function valueEl(row: CardStatRow): HTMLSpanElement {
 }
 
 /**
- * The foot: blank on every card but a REFUSED one, where it carries the boxed
- * `SLOTS FULL` reason word (mock `.rc.grey .foot`) in `silver` at FULL alpha, so
- * it still reads through the card's own `greyedAlpha` dim. The dim is never the
- * refusal's only channel — that is the whole point of the word and the box.
+ * The foot: blank on every card but one refused for want of a weapon slot,
+ * where it carries the boxed `SLOTS FULL` reason word (mock `.rc.grey .foot`)
+ * in `silver` at FULL alpha, so it still reads through the card's own
+ * `greyedAlpha` dim. A consumable greyed at its cap keeps the BARE foot (epic-9
+ * amendment 32): its refusal channels are the dim, the dashed chip and the
+ * full ladder.
  */
-function footEl(greyed: boolean): HTMLDivElement {
+function footEl(foot: string): HTMLDivElement {
   const el = document.createElement('div');
   el.style.cssText = FOOT_CSS;
-  if (!greyed) return el;
-  el.textContent = SLOTS_FULL;
+  if (foot === '') return el;
+  el.textContent = foot;
   el.style.color = SILVER;
   el.style.borderWidth = '1px';
   el.style.borderStyle = 'solid';
@@ -1419,7 +1439,7 @@ function footEl(greyed: boolean): HTMLDivElement {
 function cardSignature(card: OfferCard): string {
   const rows = card.rows.map((r) => `${r.label}=${r.cur ?? ''}>${r.next}`).join('|');
   const hover = card.hover.map((r) => `${r.label}=${r.cur ?? ''}>${r.next}`).join('|');
-  return [card.id, card.kind, card.kindTone, card.name, card.tier ?? '', card.stack, card.cap, rows, hover, card.greyed ? 'g' : ''].join('~');
+  return [card.id, card.kind, card.kindTone, card.name, card.tier ?? '', card.stack, card.cap, rows, hover, card.greyed ? 'g' : '', card.foot].join('~');
 }
 
 /** The DOM handles of one built card — the marks `paintCard` repaints on arm. */
@@ -1748,7 +1768,7 @@ export class UpgradeMenu {
     // chip stays the button's FIRST child — the pinned digit-to-slot mapping.
     const body = document.createElement('div');
     body.style.cssText = CARD_BODY_CSS;
-    body.append(icon, name, ladderEl(card), kind, rowsEl(card.rows), footEl(card.greyed));
+    body.append(icon, name, ladderEl(card), kind, rowsEl(card.rows), footEl(card.foot));
     btn.appendChild(body);
     const els: RefitCardEls = { root: btn, chip, icon, kind, name, tone: card.kindTone, greyed: card.greyed };
     if (card.greyed) {

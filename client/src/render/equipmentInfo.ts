@@ -19,6 +19,7 @@
 
 import {
   CATALOG,
+  CONSUMABLE_KEY_ORDER,
   EQUIPMENT_IS_WEAPON,
   LINE_IDS,
   SLOT_GUN,
@@ -47,11 +48,15 @@ import {
  * padding each side), and the arrow — which players read as "up" as often as
  * "shift" — no longer has to stand in for a key that has a name.
  *
- * Slots 2-4 are the three generic weapon slots; slots 5-8 are the consumable
- * belt, whose digits are REFIT-ONLY until Story 8.7 wires the rack (amendment
- * 27) — the chips are drawn now because the squares they label exist now.
+ * Slots 2-4 are the three generic weapon slots; slots 5-10 are the six
+ * consumable kinds' FIXED squares (Story 9.2, epic-9 amendments 21/31), keyed
+ * `1`…`6` in shared `CONSUMABLE_KEY_ORDER` — the digits are derived from that
+ * tuple's length so the chips follow the key row.
  */
-export const SLOT_KEY_GLYPHS: readonly string[] = ['', 'Shift', 'Q', 'E', 'R', '1', '2', '3', '4'];
+export const SLOT_KEY_GLYPHS: readonly string[] = [
+  '', 'Shift', 'Q', 'E', 'R',
+  ...CONSUMABLE_KEY_ORDER.map((_, i) => String(i + 1)),
+];
 
 /**
  * Display name per equipment id. The BUILT ids keep their shipped names
@@ -386,6 +391,6 @@ export function equipmentInfo(stats: EffectiveStats, id: EquipmentId): Equipment
  * block, which is why it lives here with the slot predicates and not in the
  * bar's render module (Story 8.21 review gate).
  */
-export function beltBadgeText(ammo: WeaponAmmo | null): string | null {
+export function stockBadgeText(ammo: WeaponAmmo | null): string | null {
   return ammo === null || ammo.n <= 0 ? null : `×${ammo.n}`;
 }

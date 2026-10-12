@@ -12,7 +12,7 @@
 // no-instant-re-queue guarantee a test rather than a construction.
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { CONFIG, effectiveStats, type ResultsMsg, type ResultsRow, type SlotItemId, type WeaponAmmo } from '@salvo/shared';
+import { CONFIG, CONSUMABLE_SLOTS, effectiveStats, type ResultsMsg, type ResultsRow, type SlotItemId, type WeaponAmmo } from '@salvo/shared';
 import { LOADOUT_PX, LOADOUT_TEXT_FLOOR_PX, ladderEntries } from '../ui/loadoutBlock.js';
 import { LINEAGE_TIERS } from '../ui/tierRamp.js';
 import {
@@ -107,7 +107,7 @@ function mockOwn(over: { radarSweep?: number; hullRepair?: number } = {}): Resul
   ];
   const repair = over.hullRepair ?? 1;
   const slots: (SlotItemId | null)[] = [
-    'gun', 'boost', 'lightTorpedo', 'navalMines', 'heavyTorpedo', repair > 0 ? 'hullRepair' : null, null, null, null,
+    'gun', 'boost', 'lightTorpedo', 'navalMines', 'heavyTorpedo', repair > 0 ? 'hullRepair' : null, null, null, null, null, null,
   ];
   const ammo: (WeaponAmmo | null)[] = slots.map((id) => (id === null ? null : { n: 1, reloadMsLeft: 0 }));
   ammo[5] = repair > 0 ? { n: repair, reloadMsLeft: 0 } : null;
@@ -381,22 +381,26 @@ describe('showResults — the elimination modal', () => {
     const ladder = (): string => block().querySelector('[data-loadout-ladder]')?.textContent ?? '';
     const open = (o: ResultsOwn): void => showResults(view({ own: o }), { onSpectate: () => undefined, onReturn: () => undefined });
 
-    it('heads the block LOADOUT and draws nine squares in the bar order, each over its key chip', () => {
+    it('heads the block LOADOUT and draws eleven squares, the strip (1–6) above the weapon row, each over its key chip', () => {
       open(mockOwn());
       expect(block().firstElementChild?.textContent).toBe('LOADOUT');
-      expect(block().querySelectorAll('[data-loadout-slot]')).toHaveLength(9);
+      expect(block().querySelectorAll('[data-loadout-slot]')).toHaveLength(11);
+      // The D-prime stack (epic-9 amendment 34): the consumable strip in key
+      // order FIRST (it sits above), then the weapon row.
       const chips = [...block().querySelectorAll('[data-loadout-chip]')].map((c) => c.textContent);
-      expect(chips).toEqual(['·', 'Shift', 'Q', 'E', 'R', '1', '2', '3', '4']);
+      expect(chips).toEqual(['1', '2', '3', '4', '5', '6', '·', 'Shift', 'Q', 'E', 'R']);
+      const slots = [...block().querySelectorAll<HTMLElement>('[data-loadout-slot]')].map((e) => Number(e.dataset.loadoutSlot));
+      expect(slots).toEqual([...CONSUMABLE_SLOTS, 0, 1, 2, 3, 4]);
       // The gun's chip is a GHOST: laid out for the baseline, never seen.
       expect((block().querySelector('[data-loadout-chip="0"]') as HTMLElement).style.color).toBe('transparent');
     });
 
-    it('squares are the bar × .72 (54→39, belt 44→32) and every fitted square wears its glyph', () => {
+    it('squares are the bar × .72 (weapons 46→33, strip 34→24) and every fitted square wears its glyph', () => {
       open(mockOwn());
       expect(LOADOUT_PX.slot).toBe(Math.round(CLIENT_CONFIG.hudBar.slot * 0.72));
-      expect(LOADOUT_PX.beltSlot).toBe(Math.round(CLIENT_CONFIG.hudBar.beltSlot * 0.72));
+      expect(LOADOUT_PX.stockSlot).toBe(Math.round(CLIENT_CONFIG.hudBar.stockSlot * 0.72));
       expect(square(0).style.width).toBe(`${LOADOUT_PX.slot}px`);
-      expect(square(5).style.width).toBe(`${LOADOUT_PX.beltSlot}px`);
+      expect(square(5).style.width).toBe(`${LOADOUT_PX.stockSlot}px`);
       // Every fitted square — the belt's HULL REPAIR included, which takes its
       // rod of Asclepius (cycle 162) from the ONE glyph source
       // (equipmentIcons.ts), never art drawn by this block.
@@ -412,24 +416,28 @@ describe('showResults — the elimination modal', () => {
         expect(tierOf(slot)?.style.color, `slot ${slot}`).toBe(LINEAGE_TIERS[rung]);
       }
       expect(tierOf(1)).toBeNull(); // Shift carries no rung
-      for (const slot of [5, 6, 7, 8]) expect(tierOf(slot), `belt ${slot}`).toBeNull();
+      for (const slot of CONSUMABLE_SLOTS) expect(tierOf(slot), `consumable ${slot}`).toBeNull();
     });
 
-    it('badges the belt stock `×1` and draws the three empties as the bar\'s dash (no ×0, no word)', () => {
+    it('badges the stock `×1` and draws the five zero-stock kinds DASHED with their own faint glyph (no ×0, no word)', () => {
       open(mockOwn());
       expect(square(5).querySelector('[data-loadout-badge]')?.textContent).toBe('×1');
-      for (const slot of [6, 7, 8]) {
-        expect(square(slot).textContent, `belt ${slot}`).toBe('—');
-        expect(square(slot).querySelector('svg')).toBeNull();
+      for (const slot of CONSUMABLE_SLOTS.slice(1)) {
+        const svg = square(slot).querySelector<SVGElement>('svg');
+        expect(svg, `consumable ${slot}`).not.toBeNull(); // the kind's own glyph…
+        expect(svg?.dataset.loadoutZeroStock, `consumable ${slot}`).toBe('');
+        expect(Number(svg?.style.opacity), `consumable ${slot}`).toBeCloseTo(0.45, 9); // …faint
+        expect(square(slot).querySelector('[data-loadout-badge]')).toBeNull();
         expect(square(slot).style.borderStyle).toBe('dashed');
       }
       expect(block().textContent).not.toContain('×0');
       expect(block().textContent).not.toContain('EMPTY');
     });
 
-    it('a belt stack fired to zero reads as the empty square (Eric R4)', () => {
+    it('a stack fired to zero reads as its ZERO-STOCK square (Eric R4, amendment 34)', () => {
       open(mockOwn({ hullRepair: 0 }));
-      expect(square(5).textContent).toBe('—');
+      expect(square(5).querySelector('svg')?.dataset.loadoutZeroStock).toBe('');
+      expect(square(5).style.borderStyle).toBe('dashed');
       expect(block().querySelectorAll('[data-loadout-badge]')).toHaveLength(0);
     });
 
@@ -481,7 +489,7 @@ describe('showResults — the elimination modal', () => {
       const texted = [block(), ...block().querySelectorAll<HTMLElement>('*')].filter((el) =>
         [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim() !== ''),
       );
-      expect(texted.length).toBeGreaterThan(20); // head + 9 chips + 4 marks + 1 badge + 3 dashes + ladder
+      expect(texted.length).toBeGreaterThan(20); // head + 11 chips + 4 marks + 1 badge + ladder
       for (const el of texted) {
         const px = sizeOf(el);
         expect(Number.isFinite(px), `"${el.textContent}" has no font size`).toBe(true);

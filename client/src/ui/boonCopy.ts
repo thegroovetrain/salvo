@@ -117,11 +117,10 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   flak: 'FLAK',
   broadside: 'BROADSIDE GUN',
   starShells: 'STAR SHELLS',
-  // --- the seven consumables ------------------------------------------------
+  // --- the six consumables (+ the depth-charge stub) ------------------------------------------------
   hullRepair: 'HULL REPAIR',
   shieldBlock: 'SHIELD BLOCK',
   smokeScreen: 'SMOKE SCREEN',
-  chaff: 'CHAFF',
   decoyBuoy: 'DECOY BUOY',
   // `SUPERCAV TORPEDO`, NOT `SUPERCAVITATING TORPEDO` (Eric ruling 2026-09-19,
   // epic-8 amendment 75). The sheet's full word never fitted the refit card's
@@ -895,9 +894,9 @@ function triggerFollows(field: string, fields: readonly string[]): boolean {
  * CONTROL rail's readout followed, kept.
  *
  * HULL REPAIR was the first live consumable (amendment 41 flipped its stub in
- * Story 8.8); the SUPERCAV TORPEDO (8.13) and SHIELD BLOCK, CHAFF and DECOY
- * BUOY (8.16), FLASH SHELLS (8.17) and SMOKE SCREEN (8.18) follow below. The
- * one remaining stub is never dealt and gets no rows.
+ * Story 8.8); the SUPERCAV TORPEDO (8.13), SHIELD BLOCK and DECOY BUOY (8.16;
+ * CHAFF retired in 9.2), FLASH SHELLS (8.17) and SMOKE SCREEN (8.18) follow
+ * below. The one remaining stub is never dealt and gets no rows.
  */
 function hullRepairRows(): CardStatRow[] {
   const h = CONFIG.hullRepair;
@@ -933,27 +932,17 @@ function supercavTorpedoRows(): CardStatRow[] {
 }
 
 /**
- * THE THREE 8.16 CONSUMABLES' ROWS (Story 8.16, catalog-v3 R36/R37/R39). Every
+ * THE 8.16 CONSUMABLES' ROWS (Story 8.16, catalog-v3 R36/R37). Every
  * number is read off `CONFIG` — never a literal — in the hullRepair shape
  * (`cur` null, absolute): what the line does, and for how long.
  *   - SHIELD BLOCK: how much it absorbs, and for how long.
- *   - CHAFF: how many fakes, the radius they scatter in, and for how long.
- *   - DECOY BUOY: its hull, and where it drops (the mine's rear arc).
+ * *   - DECOY BUOY: its hull, and where it drops (the mine's rear arc).
  */
 function shieldBlockRows(): CardStatRow[] {
   const s = CONFIG.shieldBlock;
   return [
     { label: 'ABSORBS', cur: null, next: `${num(s.hp)} HP` },
     { label: 'LASTS', cur: null, next: `${num(s.durationMs / 1000)} S` },
-  ];
-}
-
-function chaffRows(): CardStatRow[] {
-  const c = CONFIG.chaff;
-  return [
-    { label: 'FAKES', cur: null, next: num(c.count) },
-    { label: 'RADIUS', cur: null, next: `${num(c.radius)} U` },
-    { label: 'LASTS', cur: null, next: `${num(c.durationMs / 1000)} S` },
   ];
 }
 
@@ -1002,7 +991,6 @@ const CONSUMABLE_ROWS: Readonly<Partial<Record<LineId, () => CardStatRow[]>>> = 
   hullRepair: hullRepairRows,
   supercavTorpedo: supercavTorpedoRows,
   shieldBlock: shieldBlockRows,
-  chaff: chaffRows,
   decoyBuoy: decoyBuoyRows,
   dazzleShells: flashShellRows, // FLASH SHELLS (Story 8.17)
   smokeScreen: smokeScreenRows, // Story 8.18

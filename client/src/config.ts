@@ -100,15 +100,6 @@ const COLORS = {
   echoFaint: 0x00ff00, // "honestly not sure, could be something tiny" — green
   echoFuzzy: 0x0000ff, // "probably a thing, but fuzzy" — blue
   echoSolid: 0xff0000, // "this is definitely a thing" — red
-  // THE CHAFF OWNER'S GHOST GREYS (cycle 162, Eric 2026-10-01: the owner sees
-  // their own fake returns "greyscale rather than green/blue/red", at half the
-  // scope's alpha). NOT scope registers — they paint a SEPARATE sprite
-  // (render/chaffGhosts.ts) and never reach the scope's buffer, which still
-  // has exactly the three colors above. DRAFT values for Eric's eye, ordered
-  // faint → solid at the scope's own band thresholds.
-  ghostFaint: 0x4a4a4a,
-  ghostFuzzy: 0x8c8c8c,
-  ghostSolid: 0xd0d0d0,
   // THERE IS NO FOURTH APPEARANCE ON THE SCOPE (cycle 69). Story 4.11 added an
   // `echoNoData` grey here — a fourth token drawn wherever terrain had shadowed
   // the beam. Eric, on the shipped 0.17.68 build: *"i don't like the grey showing
@@ -294,9 +285,7 @@ const TYPE = {
  *  exactly at 7/8 intel range. Stated once, used twice. */
 const HEAT_RED_AT = 0.7;
 
-/** The GREEN->BLUE boundary: `bands[1].at` — hoisted (cycle 162) so the chaff
- *  owner's grey ghost bands (`chaffGhost.bands`) share the scope's thresholds
- *  rather than restating them. */
+/** The GREEN->BLUE boundary: `bands[1].at`. */
 const HEAT_BLUE_AT = 0.36;
 
 /** The TRANSPARENCY threshold: `bands[0].at`. Below it a cell draws nothing at
@@ -1747,69 +1736,80 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * THE HUD BAR (Story 8.6) — the ONE bottom-centre cluster that replaces the
-   * three corners (bottom-left hotbar stack, bottom-right vitals cluster,
-   * bottom-left XP rail). Direction B "TRISTRAM", ratified by Eric 2026-09-11.
+   * THE HUD BAR (Story 8.6; RE-CUT TO OPTION D-PRIME in Story 9.2) — the ONE
+   * bottom-centre cluster that replaces the three corners (bottom-left hotbar
+   * stack, bottom-right vitals cluster, bottom-left XP rail). Direction B
+   * "TRISTRAM", ratified by Eric 2026-09-11.
    *
-   * SOURCE: `mockups/hud-composite-3.html`, read literally. Epic-8 amendment 31
-   * — every size on the bar is THE MOCK'S: the July 1.6x micro lift (epic-2
-   * amendment 15) does NOT apply to the bar's surfaces, which is why `slot` is
-   * 54 here against the retired bottom-left hotbar's lifted 62, and `type.chip`
-   * is 9 against the `type.registers.hudMicro` 14. Epic-8 amendment 32 lifts
-   * the HP globe from
-   * the mock's 96 to the helm globe's 104, so ONE `globe` number serves both.
+   * SOURCE SINCE STORY 9.2: `mockups/hud-consumables-1.html`, frame D-prime
+   * (`.rev`), read literally (epic-9 amendment 22 — "edges implied, no drawn
+   * panel"), with the 9 px floor winning on the strip (amendment 33). Every
+   * number the D-prime frame does not re-cut is still
+   * `mockups/hud-composite-3.html`'s (epic-8 amendment 31: the July 1.6x micro
+   * lift does NOT apply to the bar).
    *
-   * Anatomy of the 768 px bar, left to right:
-   *   HP globe 104 | 16 | Gun Shift Q E R (5 x 54, 8 gaps) | 16 |
-   *   framed belt 1-4 (8 + 4 x 44 + 3 x 6 + 8) | 16 | helm globe 104
-   * with the XP strip's 24 px row 8 px beneath the 104 px main row.
+   * Anatomy of the 538 px bar, left to right:
+   *   HP globe 124 | 14 | STACK (262 wide) | 14 | helm globe 124
+   * where the STACK, centred between the globes, is two rows:
+   *   the consumable STRIP  six 34 px squares, 4 px gaps, chips 3 px below
+   *   4 px
+   *   the WEAPON row        Gun Shift Q E R, five 46 px squares, 8 px gaps,
+   *                         chips 5 px below
+   * (34 + 3 + 16) + 4 + (46 + 5 + 16) = 124 = the globe, so the globes'
+   * tangents ARE the bar's edges and no panel is drawn. The XP strip's 24 px
+   * row sits 8 px beneath, at the full bar width.
    *
    * LOGICAL UNITS: main.ts already divides the screen by the UI scale, so every
    * number here is pre-scale. The one exception is the 9 px type register,
    * which `render/hudBar.ts`'s `microScale()` counter-scales at 90% so no mono
-   * glyph ever renders under 9 px (DESIGN.md: "the 90% setting scales geometry
-   * and exempts the micro type tier").
+   * glyph ever renders under 9 px (epic-8 amendment 43).
    *
    * Colors are NOT here — every stroke/fill reads a `colors` token at an alpha
-   * (UX-DR76: Story 8.6 mints no new token).
+   * (UX-DR76: no new token).
    */
   hudBar: {
     /** Px from the viewport floor to the bar's bottom edge (mock `.B-hud`
      *  `bottom: 18px`). */
     floor: 18,
-    /** Globe diameter (px) — BOTH globes, epic-8 amendment 32. The mock draws
-     *  the HP globe at 96 and the helm at 104; Eric lifted them to one size. */
-    globe: 104,
-    /** The bar's one horizontal gap (mock `.B-main { gap: 16px }`): globe to
-     *  slots, slots to belt, belt to globe. */
-    globeGap: 16,
-    /** Weapon slot square (px) and the gap between them (mock `.slot`,
-     *  `.B-slots { gap: 8px }`). */
-    slot: 54,
+    /** Globe diameter (px) — BOTH globes (D-prime `.rev .globe` 124; epic-9
+     *  amendment 22). The strip + weapon stack is exactly this tall. */
+    globe: 124,
+    /** The bar's horizontal gap, globe to stack (`.rev .main { gap: 14px }`). */
+    globeGap: 14,
+    /** Weapon square (px) and the gap between them (`.rev .slots .slot` 46,
+     *  `.slots { gap: 8px }`). */
+    slot: 46,
     slotGap: 8,
-    /** Consumable belt square (px) and its tighter gap (mock `.belt .slot`,
-     *  `.belt { gap: 6px }`). */
-    beltSlot: 44,
-    beltGap: 6,
-    /** Belt frame padding (mock `.belt { padding: 8px 8px 6px }`). The frame
-     *  ENCLOSES the key chips, exactly as the mock's `.belt > .sw` column does,
-     *  so `bottom` is measured under the chip, not under the square. */
-    beltPad: { top: 8, side: 8, bottom: 6 },
+    /** Consumable STRIP square (px) and its tighter gap (`.rev .strip .slot`
+     *  34, `.strip { gap: 4px }`). Unframed: the belt frame retired in 9.2.
+     *  (`stock*` keys, because `strip*` below already names the XP strip.) */
+    stockSlot: 34,
+    stockGap: 4,
+    /** The seam between the strip's chips and the weapon row's squares — the
+     *  mock's 6 px `.rev .stack` gap, taken to 4 by amendment 33 so the 16 px
+     *  strip chips still close the stack at exactly the globe's 124. */
+    stackGap: 4,
     /** Key chip (mock `.kc`): 16 px tall, 16 px minimum width, 3 px of padding
-     *  each side of the glyph, and 5 px under its square (mock `.sw { gap: 5px }`). */
+     *  each side of the glyph — on BOTH rows (amendment 33: the strip's 14 px
+     *  box with an 8 px glyph loses to the 9 px floor). `chipGap` is the weapon
+     *  row's square-to-chip seam (mock `.sw { gap: 5px }`), `stockChipGap` the
+     *  strip's (`.strip .sw { gap: 3px }`). */
     chipH: 16,
     chipMinW: 16,
     chipPadX: 3,
     chipGap: 5,
-    /** Icon linework box (px) in a weapon square / a belt square (mock
-     *  `.slot > svg` 28, `.belt .slot > svg` 22). */
-    icon: 28,
-    beltIcon: 22,
-    /** Ammo badge square (px) and its top-right overhang on both axes — the
-     *  belt's badge rides 1 px tighter (mock `.badge`, `.belt .badge`). */
+    stockChipGap: 3,
+    /** Icon linework box (px) in a weapon square / a strip square
+     *  (`.rev .slots .slot > svg` 24, `.rev .strip .slot > svg` 16). */
+    icon: 24,
+    stockIcon: 16,
+    /** Ammo badge box (px) and its top-right overhang on both axes — weapon
+     *  row (mock `.badge` 16 / -7) and strip stock badge (`.strip .badge` 14 /
+     *  -6, its digit at the 9 px register `type.stockBadge`). */
     badge: 16,
     badgeOverhang: 7,
-    beltBadgeOverhang: 6,
+    stockBadge: 14,
+    stockBadgeOverhang: 6,
     /** XP STRIP. `stripGap` is the main row to strip row gap (mock `.B-xp
      *  { margin-top: 8px }`); `strip` the track's own height (mock `.B-xp
      *  .hbar.xp { height: 4px }`); `stripRowH` the row the strip's items are
@@ -1823,12 +1823,12 @@ export const CLIENT_CONFIG = {
     stripItemGap: 10,
     bankChip: 24,
     cueGap: 8,
-    /** Alpha the TWO dim groups (the five weapon slots, the framed belt) drop
+    /** Alpha the TWO dim groups (the consumable strip, the weapon row) drop
      *  to while the refit window is open or the start line is held — mock
      *  `.B-hud.dim .B-slots, .B-hud.dim .belt { opacity: .38 }`. The globes and
      *  the XP strip deliberately stay at 1. */
     dimAlpha: 0.38,
-    /** Hairline width (px) — every 1 px rule on the bar (frames, rings, chip
+    /** Hairline width (px) — every 1 px rule on the bar (square edges, rings, chip
      *  boxes, the strip's border). */
     lineW: 1,
     /** Globe bed alpha over the water — mock `rgba(3,6,5,.7)` on `cardScrim`. */
@@ -1850,13 +1850,17 @@ export const CLIENT_CONFIG = {
        *  the badge is a COUNT read at a glance against a phosphor border, and
        *  the mock gives it a px more than the key chips. */
       badge: 10,
+      /** The STRIP's stock-badge digit — mock `.strip .badge { font-size: 9px }`,
+       *  a 9 px register, so it counter-scales at 90% (`microScale`). */
+      stockBadge: 9,
       /** `LV n` at the strip's head — mock `.B-xp .lv { font: 600 11px }`. */
       lv: 11,
-      /** The cooldown wipe's centred seconds numeral — mock `.cd { font: 600 18px }`. */
-      wipe: 18,
-      /** HP globe readout: `212` value, ` /250` max, `HULL` label (mock
-       *  `.globe .gt b` 18 / `.globe .gt em` 10 / `.globe .gt` 9). */
-      hull: 18,
+      /** The cooldown wipe's centred seconds numeral — D-prime `.rev .slots .cd
+       *  { font-size: 16px }` (the composite mock's 18 sat on 54 px squares). */
+      wipe: 16,
+      /** HP globe readout: `212` value, ` /250` max, `HULL` label (D-prime
+       *  `.rev .globe .gt b` 21 / `.globe .gt em` 10 / `.globe .gt` 9). */
+      hull: 21,
       hullMax: 10,
       hullLabel: 9,
       /** Helm globe readout: `271°` value over its `HDG` caption. */
@@ -2355,51 +2359,6 @@ export const CLIENT_CONFIG = {
     /** 1 u rim alpha — a hair stronger than the fill, so the EDGE (the
      *  occlusion boundary) reads crisply. */
     rimAlpha: 0.6,
-  },
-
-  /**
-   * THE CHAFF OWNER'S RING (cycle 158, Eric 2026-09-30, epic-8 amendment 191) —
-   * render/chaffRing.ts. A dim phosphor DASHED circle of `CONFIG.chaff.radius`
-   * around the owner's own burst point (self-private `you.chaff`), fading to
-   * nothing at the cloud's expiry. Client-only feel: none of these is gameplay.
-   *
-   * MORE VISIBLE SINCE CYCLE 162 (Eric 2026-10-01: "the chaff ring more
-   * visible"): alpha 0.45 → 0.85, width 1.5 → 2.5 — IMPLEMENTER DRAFTS for his
-   * eye on staging. Dash and gap unchanged.
-   */
-  chaffRing: {
-    /** Stroke alpha of a FRESH cloud; it falls linearly to 0 at `until`. */
-    alpha: 0.85,
-    /** Dash and gap lengths (world u) along the circumference. */
-    dash: 10,
-    gap: 8,
-    /** Stroke width (world u). */
-    width: 2.5,
-  },
-
-  /**
-   * THE CHAFF OWNER'S GHOSTS (cycle 162, Eric 2026-10-01 — reversing amendment
-   * 191's "never the fakes": the owner now sees their own fake returns "at 50 %
-   * of their normal alpha in greyscale") — render/chaffGhosts.ts. The server
-   * hands the owner the coverage rects of their OWN fakes on the self-private
-   * `you.chaffGhosts`; they are marched and rasterized through the scope's own
-   * pure functions into a SEPARATE grid and sprite, so the scope's three-color
-   * contract is untouched.
-   *
-   * DERIVED FROM `blip.heatmap`, never restated: the band THRESHOLDS are the
-   * scope's own (`HEAT_*_AT`), only the colors swap to the three grey tokens,
-   * and the opacity is the scope's `bandAlpha × alphaScale` ("50 % whatever
-   * alpha it would be otherwise"). Grey VALUES are drafts (see `COLORS.ghost*`).
-   */
-  chaffGhost: {
-    /** Multiplier on `blip.heatmap.bandAlpha` (Eric: 50 %). */
-    alphaScale: 0.5,
-    /** The scope's thresholds, grey colors — ascending, exactly three. */
-    bands: [
-      { at: HEAT_GREEN_AT, color: COLORS.ghostFaint },
-      { at: HEAT_BLUE_AT, color: COLORS.ghostFuzzy },
-      { at: HEAT_RED_AT, color: COLORS.ghostSolid },
-    ],
   },
 
   /**
