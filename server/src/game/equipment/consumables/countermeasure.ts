@@ -1,15 +1,12 @@
 // MULTI-SPECTRAL COUNTERMEASURE (Story 9.3; Eric rulings 2026-10-11, epic-9
 // amendments 40–47) — the key-fired consumable on key 3 that REPLACES SMOKE
 // SCREEN (Story 8.18) and absorbs CHAFF's role (retired in 9.2). One copy =
-// ONE stationary pixel cloud made at the activating hull's CENTRE
-// (`CONFIG.countermeasure`: 300 pixels born inside r0 = 200 u, scaling
-// outward to r1 = 500 u over a 15 s life, each pixel dying at its own age in
-// 6–15 s, each living pixel a 6 u footprint — shared/src/sim/cloud.ts, the
-// one pixel function both sides run). A living pixel blocks SIGHT for every
-// observer, the owner included (amendment 40 — "blind by eye inside their own
-// cloud, radar only"); for everyone EXCEPT the owner it also drops a RADAR
-// return on a point inside the cloud's outline (amendment 41 — no shadow
-// beyond). The decay IS the fade.
+// ONE stationary cloud made at the activating hull's CENTRE, living
+// `CONFIG.countermeasure.lifeMs` (15 s) while its spray disc grows r0 → r1
+// (200 → 500 u). A CLIENT VISUAL OVERLAY (Story 9.3 session 2, Eric ruling
+// 2026-10-12: "just draw it on top of ships"): the server hides NOTHING
+// behind or inside it — it only places and times the cloud; every client
+// that senses it paints it.
 //
 // A NEW CLOUD EVERY PRESS (amendment 46): no lay window, no restart, no
 // refuse-while-live — five copies can stack five clouds. Clouds already made

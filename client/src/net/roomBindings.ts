@@ -789,8 +789,9 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   // until it dies — delivery is per-sweep, Eric 2026-10-12: "If it's detected
   // by my radar, I want my radar to paint it"; nothing new is disclosed by
   // holding what was already sent, a cloud being stationary and fully derived
-  // from {id,x,y,t0}), and the held, unexpired list is what the renderer and
-  // the wake mirror see. The held set lives on `net` (state.ts) so the
+  // from {id,x,y,t0}), and the held, unexpired list is what the renderer
+  // sees (a held cloud's sprite then outlives the list until its paint fades —
+  // render/countermeasure.ts). The held set lives on `net` (state.ts) so the
   // match-start edge in main.ts can clear it with the renderer.
   const clouds = holdClouds(f, (net.heldClouds ??= new Map()));
   deps.countermeasure.sync(clouds);
@@ -799,7 +800,7 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   // (projectiles) and clear the own fog over them (fog).
   net.litZones = litZones;
   net.burnZones = burnZones; // the burn classifier's zone list (trackBurning)
-  net.clouds = clouds; // the HELD list — the wake mirror's occluder list (render/wake.ts)
+  net.clouds = clouds; // the HELD list (the match-start edge clears it)
 }
 
 /**

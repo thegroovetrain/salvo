@@ -1,154 +1,217 @@
 // MULTI-SPECTRAL COUNTERMEASURE cloud rendering from FrameMsg.clouds (Story
-// 9.3, Eric rulings 2026-10-11, epic-9 amendments 40–47). Contact-like
-// per-observer state, not events, drawn in the fog-immune `smoke` chart
-// layer, which sits BELOW `blip` so a radar return is never beneath the cloud
-// (amendment 224(b)).
+// 9.3). SMOKE IS PAINT (Eric 2026-10-12): "rather than fucking with whether I
+// can see something, just draw it on top of ships" — the server hides nothing
+// behind a cloud any more; the cloud is purely a visual overlay painted from
+// the wire's {id,x,y,t0}.
 //
-// HELD, NOT RECONCILED (epic-9 amendment 51): a cloud once seen is held until
-// it dies — delivery is per-sweep (Eric 2026-10-12: "If it's detected by my
-// radar, I want my radar to paint it"); nothing new is disclosed by holding
-// what was already sent. `sync` only ADDS (a frame without a held id never
-// removes it); a cloud is removed by `render` once its server-clock age
-// reaches `CONFIG.countermeasure.lifeMs`, or by `clear`, and the shared base
-// memo is pruned at that removal, never per frame.
+// THE LAYER: chartRoot's `cloud` layer, above enemy hulls and nameplates and
+// below radar paints and the own hull (Eric: "If I'm the user, I should be on
+// top so I can see where I am. If I am not the user then it should render
+// above everything except radar paints." — render/stage.ts).
 //
-// THE PIXELS ARE THE SHARED FUNCTION. The wire carries only {id,x,y,t0}; every
-// pixel's position and death age come from shared sim/cloud.ts
-// (`forEachLivingPixel` over the memoized `cloudBase(id)`, render/cloudBases.ts)
-// — the very function the server's sight and radar predicates evaluate. Each
-// living pixel is drawn as a filled square of side
-// `CLIENT_CONFIG.countermeasure.drawSizeU`, centered on the exact point the
-// server's footprint test uses. The square is drawn LARGER than the blocking
-// footprint (`CONFIG.countermeasure.footprintU`, untouched) so the cloud reads
-// dense on screen (Eric 2026-10-11). No disc, no rim, no outline.
+// THE LOOK: one spraypaint bitmap per cloud (render/cloudPaint.ts holds the
+// pure field) uploaded the way the radar heat raster is — a Uint8Array rgba
+// buffer in a BufferImageSource, NEAREST-scaled, on one Sprite whose texel is
+// one `CLIENT_CONFIG.countermeasure.cellU` cell, centred on the cloud, color
+// `colors.woundedSmoke` with the alpha channel carrying the field.
 //
-// NOT WOUNDED SMOKE (render/smoke.ts, CLIENT_CONFIG.smoke, the `sm` event).
-// The two share `colors.woundedSmoke` and are told apart by SHAPE: a cloud is a
-// field of hard-edged squares; a wounded plume is small soft blobs trailing a
-// hull.
+// HELD, NOT RECONCILED (epic-9 amendment 51): a cloud once seen is held — the
+// caller passes the held list (net/roomBindings.ts holdClouds), `sync` only
+// ADDS, and a cloud leaves only when `render` finds its spray over (age ≥
+// lifeMs) AND its field faded out, or at `clear` (the match-start edge).
+//
+// THE PHOSPHOR COPY (Eric 2026-10-12: "THIS IS NOT JUST SMOKE. THIS IS A
+// MULTISPECTRAL COUNTERMEASURE. THIS SMOKE ALSO PAINTS RADAR RETURNS. RADAR
+// DOES NOT BEAT IT, IT LETS YOU GET THE FUCK AWAY."): each held cloud has a
+// SECOND Sprite on the SAME texture — one buffer, one upload per frame — tinted
+// `colors.phosphor`, in the Radar's `cloudPaintLayer` (inside `layers.blip`,
+// above the paints, under the same in-bubble dim mask). The buffer's rgb is
+// white so each Sprite's tint IS its color. Its alpha is SWEEP-DRIVEN: when the
+// beam's last-frame arc crosses the cloud's bearing span (centre ± asin(r/d),
+// r = `cloudOutlineRadius(age)`; any arc when the viewer is inside the disc)
+// the cloud is painted at that instant, and the copy decays on the radar's own
+// phosphor life (`blipAlpha`) from `radarAlpha`. Never painted = invisible.
+//
+// COVER (`coverAt`): the field alpha under a world point — contacts.ts hides a
+// NAMEPLATE under thick paint ("I don't want someone's nameplate sticking out
+// from behind the smoke"). Never a hull: partials show through the overlay.
 //
 // MOTION-BLIND: a cloud's presence and extent are information — the motion
-// setting never hides or shrinks one. Only each pixel's own end-of-life fade
-// (timestamp math off the wire `t0`; the client keeps no timers) moves alpha.
+// setting never hides or shrinks one.
 
-import { Graphics } from 'pixi.js';
+import { BufferImageSource, Sprite, Texture } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import { CONFIG, forEachLivingPixel, type CloudBase, type CloudView } from '@salvo/shared';
+import { CONFIG, cloudOutlineRadius, wrapPositive, type CloudView } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { clamp01 } from '../util/math.js';
-import { cloudBaseFor, retainCloudBases } from './cloudBases.js';
+import { blipAlpha, blipLifeMs } from './phosphor.js';
+import type { BeamWindow } from './radar.js';
+import {
+  CLOUD_CELLS,
+  advanceField,
+  fieldSpent,
+  fieldToRgba,
+  makeField,
+  type CloudField,
+} from './cloudPaint.js';
 
 const K = CLIENT_CONFIG.countermeasure;
 const COLOR = CLIENT_CONFIG.colors.woundedSmoke;
-/** u — a pixel square's drawn side (a feel knob, larger than the footprint). */
-const SIDE = K.drawSizeU;
-const HALF = SIDE / 2;
-
-/**
- * Pure: the alpha multiplier of a pixel that dies at age `dieAtMs`, at age
- * `ageMs` — 1 until its own last `fadeMs`, then linear to 0 at its death.
- */
-export function pixelFade(dieAtMs: number, ageMs: number): number {
-  return clamp01((dieAtMs - ageMs) / K.fadeMs);
-}
+const PHOSPHOR = CLIENT_CONFIG.colors.phosphor;
+/** The centre cell index — cell i's centre sits at (i − MID)·cellU. */
+const MID = (CLOUD_CELLS - 1) / 2;
 
 interface CloudSprite {
-  g: Graphics; // positioned at the cloud center; squares drawn center-relative
-  base: CloudBase; // the shared memo's entry for this id
-  t0: number; // server-clock birth stamp — drives the pixel age
-  drawn: number; // squares drawn on the last render (test seam)
+  sprite: Sprite;
+  /** The phosphor copy: same texture, radar paint layer, sweep-driven alpha. */
+  radar: Sprite;
+  source: BufferImageSource;
+  rgba: Uint8Array;
+  field: CloudField;
+  x: number;
+  y: number;
+  t0: number; // server-clock birth stamp — drives the field's age
+  /** Server ms the beam last crossed this cloud; -Infinity = never. */
+  paintedAt: number;
 }
 
 export class Countermeasure {
-  private readonly sprites = new Map<string, CloudSprite>();
-  // The draw callback's per-cloud inputs, set before each `forEachLivingPixel`
-  // pass so the callback is ONE bound function, never a per-frame closure.
-  private cur: CloudSprite | null = null;
-  private curAge = 0;
-  private readonly drawPixel = (x: number, y: number, i: number): void => {
-    const s = this.cur!;
-    const alpha = K.fillAlpha * pixelFade(s.base.dieAt[i], this.curAge);
-    s.g.rect(x - HALF, y - HALF, SIDE, SIDE).fill({ color: COLOR, alpha });
-    s.drawn++;
-  };
+  private readonly clouds = new Map<string, CloudSprite>();
+  /** The radar paint life the copies decay on — the last beam's, else base. */
+  private lifeMs = blipLifeMs(60000 / CONFIG.vision.sweepRpm);
 
-  /** `layer` = chartRoot's `smoke` layer (fog-immune, beneath `blip`). */
-  constructor(private readonly layer: Container) {}
+  /** `layer` = chartRoot's `cloud` layer. `radarLayer` = the Radar's
+   *  `cloudPaintLayer` (the phosphor copies). `rng` = the one spray RNG (purely
+   *  visual, never shared with the server; a test passes a seeded one). */
+  constructor(
+    private readonly layer: Container,
+    private readonly radarLayer: Container,
+    private readonly rng: () => number = Math.random,
+  ) {}
 
-  /**
-   * ADD every cloud on the list not already held (the caller passes the held
-   * list — net/roomBindings.ts holdClouds). Clouds never move, so a held id is
-   * left alone, and an id ABSENT from the list is NOT removed: the channel is
-   * per-sweep, and a cloud once seen is held until it dies (render / clear).
-   */
+  /** ADD every cloud on the held list not already held; an id ABSENT from
+   *  the list is never removed here (render / clear do that). */
   sync(clouds: readonly CloudView[]): void {
-    for (const c of clouds) if (!this.sprites.has(c.id)) this.spawn(c);
+    for (const c of clouds) if (!this.clouds.has(c.id)) this.spawn(c);
   }
 
-  /** Per render frame: redraw every living pixel of every cloud at its age,
-   *  and REMOVE every cloud whose age has reached its life (then prune the
-   *  shared base memo to the clouds still held). `serverNow` is the
-   *  server-clock estimate (ms). */
-  render(serverNow: number): void {
-    let expired = false;
-    for (const [id, s] of this.sprites) {
+  /** Per render frame: advance every field to its server-clock age (a first
+   *  render of a mid-life cloud pre-rolls it), upload it, and drop every cloud
+   *  whose spray is over and whose paint has faded. `serverNow` in ms. `beam` =
+   *  the Radar's `beamWindow()` this frame (null: nothing swept) — it paints
+   *  the phosphor copy of every cloud whose bearing span it crossed. */
+  render(serverNow: number, beam: Readonly<BeamWindow> | null = null): void {
+    if (beam !== null) this.lifeMs = beam.lifeMs;
+    for (const [id, s] of this.clouds) {
       const age = Math.max(0, serverNow - s.t0);
-      if (age >= CONFIG.countermeasure.lifeMs) {
+      advanceField(s.field, age, this.rng);
+      if (fieldSpent(s.field)) {
         this.despawn(id);
-        expired = true;
         continue;
       }
-      s.g.clear();
-      s.drawn = 0;
-      this.cur = s;
-      this.curAge = age;
-      forEachLivingPixel(s.base, 0, 0, age, this.drawPixel);
+      fieldToRgba(s.field, s.rgba);
+      s.source.update();
+      if (beam !== null && beamCrosses(beam, s.x, s.y, cloudOutlineRadius(age))) s.paintedAt = serverNow;
+      s.radar.alpha = K.radarAlpha * blipAlpha(serverNow - s.paintedAt, this.lifeMs);
     }
-    this.cur = null;
-    if (expired) this.pruneBases();
   }
 
-  /** Drop every held cloud and its memoized base (a match-boundary reset). */
+  /** The thickest cloud paint (field alpha, 0..maxAlpha) under world (x, y)
+   *  across every held cloud; 0 outside every cloud's grid. */
+  coverAt(x: number, y: number): number {
+    let best = 0;
+    for (const s of this.clouds.values()) {
+      const i = Math.round((x - s.x) / K.cellU + MID);
+      const j = Math.round((y - s.y) / K.cellU + MID);
+      if (i < 0 || j < 0 || i >= CLOUD_CELLS || j >= CLOUD_CELLS) continue;
+      const a = s.field.alpha[j * CLOUD_CELLS + i];
+      if (a > best) best = a;
+    }
+    return best;
+  }
+
+  /** Drop every held cloud (the match-boundary reset). */
   clear(): void {
-    for (const id of [...this.sprites.keys()]) this.despawn(id);
-    this.pruneBases();
+    for (const id of [...this.clouds.keys()]) this.despawn(id);
   }
 
-  /** The memoized pixel constants of a held cloud (test seam). */
-  baseOf(id: string): CloudBase | null {
-    return this.sprites.get(id)?.base ?? null;
+  /** The alpha field of a held cloud (test seam). */
+  fieldOf(id: string): CloudField | null {
+    return this.clouds.get(id)?.field ?? null;
   }
 
-  /** Squares drawn for a held cloud on the last render (test seam). */
-  squaresOf(id: string): number | null {
-    return this.sprites.get(id)?.drawn ?? null;
+  /** The Sprite of a held cloud (test seam). */
+  spriteOf(id: string): Sprite | null {
+    return this.clouds.get(id)?.sprite ?? null;
   }
 
-  /** The Graphics of a held cloud (test seam). */
-  graphicsOf(id: string): Graphics | null {
-    return this.sprites.get(id)?.g ?? null;
+  /** The phosphor (radar) copy of a held cloud (test seam). */
+  radarSpriteOf(id: string): Sprite | null {
+    return this.clouds.get(id)?.radar ?? null;
   }
 
   /** How many clouds are held (test seam). */
   get size(): number {
-    return this.sprites.size;
+    return this.clouds.size;
   }
 
   private spawn(c: CloudView): void {
-    const g = new Graphics();
-    g.position.set(c.x, c.y);
-    this.layer.addChild(g);
-    this.sprites.set(c.id, { g, base: cloudBaseFor(c.id), t0: c.t0, drawn: 0 });
-  }
-
-  private pruneBases(): void {
-    retainCloudBases(new Set(this.sprites.keys()));
+    // WHITE rgb: the buffer is shared by two Sprites, so each one's TINT is
+    // its color (grey smoke on the chart, phosphor on the scope).
+    const rgba = new Uint8Array(CLOUD_CELLS * CLOUD_CELLS * 4);
+    for (let k = 0; k < rgba.length; k += 4) {
+      rgba[k] = 255;
+      rgba[k + 1] = 255;
+      rgba[k + 2] = 255;
+    }
+    // NEAREST, like the radar grid: a cell is a cell, no invented blends.
+    const source = new BufferImageSource({
+      resource: rgba,
+      width: CLOUD_CELLS,
+      height: CLOUD_CELLS,
+      scaleMode: 'nearest',
+      alphaMode: 'premultiply-alpha-on-upload',
+    });
+    const texture = new Texture({ source });
+    const sprite = placed(new Sprite(texture), c, COLOR, 1);
+    const radar = placed(new Sprite(texture), c, PHOSPHOR, 0); // dark until the beam crosses it
+    this.layer.addChild(sprite);
+    this.radarLayer.addChild(radar);
+    this.clouds.set(c.id, {
+      sprite, radar, source, rgba, field: makeField(), x: c.x, y: c.y, t0: c.t0, paintedAt: -Infinity,
+    });
   }
 
   private despawn(id: string): void {
-    const s = this.sprites.get(id);
+    const s = this.clouds.get(id);
     if (!s) return;
-    s.g.destroy();
-    this.sprites.delete(id);
+    s.radar.destroy(); // the shared texture goes with the grey sprite, once
+    s.sprite.destroy({ texture: true, textureSource: true });
+    this.clouds.delete(id);
   }
+}
+
+/** A cloud Sprite: centred, one texel per cell, at the cloud, tinted. */
+function placed(sprite: Sprite, c: CloudView, tint: number, alpha: number): Sprite {
+  sprite.anchor.set(0.5);
+  sprite.scale.set(K.cellU); // one texel = one cell
+  sprite.position.set(c.x, c.y);
+  sprite.tint = tint;
+  sprite.alpha = alpha;
+  return sprite;
+}
+
+/**
+ * Did the beam's arc `prev → cur` (increasing, mod 2π) cross the bearing span
+ * of a disc of radius `r` at (x, y) seen from the beam's observer? The span is
+ * centre ± asin(min(1, r/d)); an observer inside the disc is crossed by any arc.
+ */
+export function beamCrosses(beam: Readonly<BeamWindow>, x: number, y: number, r: number): boolean {
+  const dx = x - beam.x;
+  const dy = y - beam.y;
+  const d = Math.hypot(dx, dy);
+  if (d <= r) return true;
+  const half = Math.asin(Math.min(1, r / d));
+  const swept = wrapPositive(beam.cur - beam.prev);
+  const start = Math.atan2(dy, dx) - half; // the span is [start, start + 2·half]
+  return wrapPositive(start - beam.prev) <= swept || wrapPositive(beam.prev - start) <= 2 * half;
 }

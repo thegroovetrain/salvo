@@ -7,7 +7,7 @@
 // ONE stub line remains since Story 8.18 (DEPTH CHARGE — SMOKE SCREEN went
 // live); every other line is live, so 6 of the 7 consumables are live.
 // Story 9.3 (Eric 2026-10-11): SMOKE SCREEN's slot is now `countermeasure`
-// (MULTI-SPECTRAL COUNTERMEASURE, one pixel cloud per press); counts unchanged.
+// (MULTI-SPECTRAL COUNTERMEASURE, one cloud per press); counts unchanged.
 //
 // THE COUNT MOVED 24/114 -> 23/109 IN STORY 9.2 (Eric 2026-10-11, epic-9
 // amendment 31): CHAFF is RETIRED so the key row is six keys. Every surviving
@@ -574,7 +574,7 @@ export const CATALOG: Catalog = deepFreezeRows({
   // CONSUMABLE_KEY_ORDER) — the belt and its `1`–`4` keys are gone.
   hullRepair: consumable('hullRepair'), // R13 — 50 instant + 50 pooled (CONFIG.hullRepair)
   shieldBlock: consumable('shieldBlock'), // R37 — absorbs 100 hp for 10 s (CONFIG.shieldBlock)
-  countermeasure: consumable('countermeasure'), // Story 9.3 (Eric 2026-10-11) — one pixel cloud per press, 15 s life (CONFIG.countermeasure)
+  countermeasure: consumable('countermeasure'), // Story 9.3 (Eric 2026-10-11) — one cloud per press, 15 s life (CONFIG.countermeasure)
   decoyBuoy: consumable('decoyBuoy'), // R36 — a 50 hp rear-dropped decoy (CONFIG.decoyBuoy)
   // DEPTH CHARGE (amendment 83): Eric's line, mechanism a later story — a STUB
   // in full shape so the id is final, and the Mine Layer's 40th default card.

@@ -43,7 +43,8 @@ export type VisionRanges = Pick<EffectiveStats, 'sightRange' | 'radarRange'>;
  * server reveals nothing, i.e. the fog circle would LIE.
  *
  * (Story 9.3, epic-9 amendment 40, deleted the in-smoke third argument: a
- * countermeasure cloud blocks sight by its pixels, never by shrinking the hole.)
+ * countermeasure cloud never shrinks the hole — and since 2026-10-12 it blocks
+ * nothing at all: it is paint over the chart.)
  */
 export function fogHoleRadiusU(ranges: VisionRanges, dazzled: boolean): number {
   return effectiveSight(ranges, dazzled);

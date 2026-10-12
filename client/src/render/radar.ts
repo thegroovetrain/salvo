@@ -130,8 +130,7 @@
 // (kept subtle). The faint map-centered rings in map.ts remain as the chart
 // grid. Thin Pixi adapter; the math lives in phosphor.ts and radarHeatmap.ts.
 
-import { BufferImageSource, Graphics, Sprite, Texture } from 'pixi.js';
-import type { Container } from 'pixi.js';
+import { BufferImageSource, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import {
   CONFIG,
   HULL_IDS,
@@ -144,7 +143,6 @@ import {
   type BlipEvent,
   type HeightRaster,
   type HullCoverage,
-  type CloudView,
   type Island,
   type WakeBlipEvent,
   WAKE_AGE_BUCKETS,
@@ -186,10 +184,6 @@ import { echoArc, marchSlice, mergeSlices, planMarch, type MarchSlice } from './
 import { wakeLitFloor } from './radarSources.js';
 import { WakeStampCache, type WakeSources } from './wake.js';
 import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
-
-/** The empty cloud list — the wake synthesis's default when no countermeasure
- *  cloud source is wired (headless tests). */
-const NO_CLOUDS = (): readonly CloudView[] => [];
 
 /**
  * Hard cap on the pending echo/wake parks. Radar paints arrive from network
@@ -285,6 +279,21 @@ export interface ViewRect {
 // material that no longer exists. The storm's on-water rendering (render/zone.ts)
 // is untouched and is where the ring is legible.
 
+/**
+ * THE BEAM'S LAST FRAME (Story 9.3, "the countermeasure also paints radar") —
+ * the arc the beam swept between the previous rendered frame and this one,
+ * `prev → cur` increasing (mod 2π, `sweepRotation`'s own angles), the observer
+ * it was swept from, and the phosphor life the radar paints use. One object
+ * per Radar, rewritten in place every frame: read it, never hold it.
+ */
+export interface BeamWindow {
+  prev: number;
+  cur: number;
+  x: number;
+  y: number;
+  lifeMs: number;
+}
+
 export class Radar {
   private readonly sweep: Sprite;
   private readonly rings: Graphics;
@@ -339,6 +348,18 @@ export class Radar {
    *  compare sits on the per-frame placement path rather than on the stat and
    *  dazzle setters, which are two ways in for one number. */
   private dimBakedAtU: number;
+  /**
+   * THE COUNTERMEASURE'S PHOSPHOR COPIES (Story 9.3, Eric 2026-10-12: "THIS
+   * SMOKE ALSO PAINTS RADAR RETURNS"). A child of `blipLayer`, so the in-bubble
+   * `dim` mask applies to a cloud's radar copy exactly as it does to a paint,
+   * and kept ABOVE the heat sprite — `fitHeat` re-inserts a rebuilt heat
+   * sprite below it. render/countermeasure.ts owns what goes in it.
+   */
+  readonly cloudPaintLayer = new Container();
+  /** The beam window handed out by `beamWindow` — rewritten in place. */
+  private readonly beam: BeamWindow = { prev: 0, cur: 0, x: 0, y: 0, lifeMs: 0 };
+  /** Did the last `render` sweep an arc (both ends known, own pose known)? */
+  private beamLive = false;
   /** Latest authoritative sweep sample (angle at server time t). */
   private lastSweep: { angle: number; t: number } | null = null;
   /** Beam angle at the PREVIOUS frame — the arc the march walks is measured
@@ -397,10 +418,6 @@ export class Radar {
    *  stamp's binary-LOS clause. Empty for a caller that has none — in which
    *  case nothing blocks, which is the pre-P5 behaviour. */
   private wakeIslands: readonly Island[] = [];
-  /** The live COUNTERMEASURE cloud list (Story 9.3) — a thunk over
-   *  `state.net.clouds`, read at each stamp build, so the synthesis hides water
-   *  behind a cloud's pixels exactly as the server's sight predicate does. */
-  private wakeClouds: () => readonly CloudView[] = NO_CLOUDS;
   private readonly wakeCache = new WakeStampCache();
 
   constructor(blipLayer: Container, sweepLayer: Container) {
@@ -422,6 +439,7 @@ export class Radar {
     // is deliberately NOT used: it drops the node out of the build entirely.
     this.dim.renderable = false;
     blipLayer.addChild(this.dim);
+    blipLayer.addChild(this.cloudPaintLayer);
 
     this.rings = new Graphics();
     this.rings.visible = false;
@@ -537,7 +555,8 @@ export class Radar {
     sprite.blendMode = 'add';
     sprite.scale.set(grid.cellU); // one texel = one world cell
     sprite.visible = false;
-    this.blipLayer.addChild(sprite);
+    // Below the countermeasure's phosphor copies, which ride above the paints.
+    this.blipLayer.addChildAt(sprite, this.blipLayer.getChildIndex(this.cloudPaintLayer));
     this.heat = { grid, rgba, source, sprite };
   }
 
@@ -917,7 +936,26 @@ export class Radar {
     this.updateDimMask(own);
     const rot = this.updateSweep(own, serverNow);
     this.renderReturn(own, rot, serverNow, contacts);
+    this.recordBeam(own, rot);
     this.lastRotation = rot;
+  }
+
+  /** The arc the beam swept on the last `render` — `prev` is the previous
+   *  frame's `sweepRotation`, `cur` this frame's — or null when the sweep was
+   *  hidden on either frame (no own pose, start line, spectating). */
+  beamWindow(): Readonly<BeamWindow> | null {
+    return this.beamLive ? this.beam : null;
+  }
+
+  private recordBeam(own: OwnPoint | null, rot: number | null): void {
+    this.beamLive = false;
+    if (own === null || rot === null || this.lastRotation === null) return;
+    this.beamLive = true;
+    this.beam.prev = this.lastRotation;
+    this.beam.cur = rot;
+    this.beam.x = own.x;
+    this.beam.y = own.y;
+    this.beam.lifeMs = blipLifeMs(this.sweepPeriodMs);
   }
 
   /** The whole frame: resolve parked echoes, march the swept arc, drop
@@ -1129,18 +1167,14 @@ export class Radar {
    * `islands` is the binary-LOS geometry the synthesis owes (P5); omitted, the
    * stamp blocks on nothing, which is the correct degradation for a caller that
    * genuinely has no map (headless tests) and never a silent loosening in play,
-   * because main.ts always passes the set. `clouds` (Story 9.3) is the same
-   * owed test's CLOUD half — a thunk over the live `state.net.clouds`, read at
-   * each stamp build; omitted, nothing is clouded, on the same headless terms.
+   * because main.ts always passes the set.
    */
   setWakeSources(
     sources: WakeSources | null,
     islands: readonly Island[] = [],
-    clouds: () => readonly CloudView[] = NO_CLOUDS,
   ): void {
     this.wakeSources = sources;
     this.wakeIslands = islands;
-    this.wakeClouds = clouds;
   }
 
   /**
@@ -1189,7 +1223,6 @@ export class Radar {
       cfg.model,
       this.wakeIslands,
       Math.floor(at / this.sweepPeriodMs),
-      this.wakeClouds(),
     );
   }
 

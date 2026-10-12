@@ -2224,7 +2224,7 @@ So that I never lose a pick to a full belt and my hands learn one layout.
 
 ### Story 9.3: Multi-Spectral Countermeasure *(inserted 2026-10-11 — proposal §4.2)*
 
-*(BUILT 2026-10-11 — cycle 174, 0.18.39, PV 75 → 76, epic-9 amendments 40–51; the card prints MULTI-SPECTRAL CM (amendment 48); the hover sentence seeds 9.11 (amendment 49); `spec-9-3-multi-spectral-countermeasure.md`.)*
+*(BUILT 2026-10-11 — cycle 174, 0.18.39, PV 75 → 76, epic-9 amendments 40–51; the card prints MULTI-SPECTRAL CM (amendment 48); the hover sentence seeds 9.11 (amendment 49); `spec-9-3-multi-spectral-countermeasure.md`.)* *(SESSION 2 BUILT 2026-10-12 — cycle 175, 0.18.40, PV 76 → 77, epic-9 amendments 52–54: after Eric's staging look the cloud is a CLIENT OVERLAY, a spray-painted bitmap like the radar layer, drawn above every other hull and name AND as a phosphor copy above the radar paints — "THIS SMOKE ALSO PAINTS RADAR RETURNS"; the server hides nothing behind it; the "pixels block sight / radar" clauses above are superseded.)*
 
 As a captain breaking contact,
 I want one countermeasure that blinds eyes and radar alike,

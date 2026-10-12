@@ -1,8 +1,8 @@
 // Firing UX, split across two camera-transformed layers (see render/stage.ts
 // for the full z-order rationale):
-//   - The AIM-GATED sector arcs go in the `ship` layer — which since this cycle
-//     lives in chartRoot, above the fog and above the radar paint, along with
-//     every hull it draws behind (render/stage.ts). Nothing about the arcs
+//   - The AIM-GATED sector arcs go in the `ownShip` layer with the own hull
+//     (2026-10-12; the `ship` layer before) — chartRoot, above the fog, the
+//     countermeasure cloud and the radar paint (render/stage.ts). Nothing about the arcs
 //     changes with the lift: they rotate with the own ship and sit inside the
 //     sight bubble, where the fog was already clear. Three ids draw one: the
 //     torpedo's BOW arc; (Story 2.8, amendment 45) the mine's REAR PLACEMENT
@@ -201,10 +201,10 @@ export class FiringUX {
   private rangeU: number = CONFIG.vision.radar;
 
   /**
-   * `shipLayer` (chartRoot's `ship` — the hull layer) hosts the torpedo/mine
-   * markers; `aimLayer` (chartRoot's `aim`, one layer up) hosts the crosshair +
-   * bearing line. Both are fog-immune; `aim` stays above `ship` so the reticle is
-   * never occluded by a hull.
+   * `shipLayer` (chartRoot's `ownShip` — the own-hull layer since 2026-10-12)
+   * hosts the torpedo/mine markers; `aimLayer` (chartRoot's `aim`, one layer
+   * up) hosts the crosshair + bearing line. Both are fog-immune; `aim` stays
+   * above the hulls so the reticle is never occluded by one.
    */
   constructor(shipLayer: Container, aimLayer: Container) {
     shipLayer.addChild(this.arcs);

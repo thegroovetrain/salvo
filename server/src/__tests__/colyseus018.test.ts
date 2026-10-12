@@ -165,8 +165,10 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 75 and admits 76', () => {
-  it('PROTOCOL_VERSION is 76', () => {
+describe('the PV join gate refuses 76 and admits 77', () => {
+  it('PROTOCOL_VERSION is 77', () => {
+    // Story 9.3 session 2 bumped 76 -> 77: the countermeasure cloud is a
+    // client overlay; CONFIG.countermeasure shrinks to lifeMs/r0/r1.
     // Cycle 174 bumped 75 -> 76 (Story 9.3): SMOKE SCREEN became the
     // MULTI-SPECTRAL COUNTERMEASURE (catalog content), the frame's `smoke`
     // channel became `clouds` (CloudView {id,x,y,t0}, pixels from the shared
@@ -212,12 +214,13 @@ describe('the PV join gate refuses 75 and admits 76', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(76);
+    expect(PROTOCOL_VERSION).toBe(77);
   });
 
   it('refuses the immediately-previous protocol', () => {
-    // 75 is the one that matters now: a client built one cycle before this
-    // one reads a `smoke` channel that no longer exists and draws smoke discs
+    // 76 is the one that matters now: a client built one cycle before this
+    // one reads CONFIG.countermeasure.pixels that no longer exist; a 75
+    // client reads a `smoke` channel that no longer exists and draws smoke discs
     // where pixel clouds stand; a 74 client replays a nine-slot loadout and
     // packs its belt; a 70 client has no
     // lobby door and does not know CONFIG.lobby; a 69 client
@@ -226,6 +229,7 @@ describe('the PV join gate refuses 75 and admits 76', () => {
     // ghosts, and draws the chaff ring and smoke discs at 2/3 of the server's
     // radii; a 65 client draws its mine ring off a literal rather than the
     // shared hit disc; a 64 client still offers the two deleted gun cards.
+    expect(protocolVersionError(76)).toMatch(/refresh/i);
     expect(protocolVersionError(75)).toMatch(/refresh/i);
     expect(protocolVersionError(74)).toMatch(/refresh/i);
     expect(protocolVersionError(73)).toMatch(/refresh/i);
@@ -250,12 +254,12 @@ describe('the PV join gate refuses 75 and admits 76', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(77)).toMatch(/refresh/i);
+    expect(protocolVersionError(78)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(76)).toBeNull();
+    expect(protocolVersionError(77)).toBeNull();
   });
 });
 

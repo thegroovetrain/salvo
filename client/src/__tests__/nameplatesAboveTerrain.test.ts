@@ -150,14 +150,18 @@ describe('the declared CHART order: a name reads over terrain, under the reticle
     expect(at('plate')).toBeLessThan(at('sweep'));
   });
 
-  it('leaves it directly between the two, so nothing slipped in on either side', () => {
+  // RE-BASED 2026-10-12 (Story 9.3, "smoke is paint"): `aim` used to be
+  // `plate + 1`. Eric: the countermeasure cloud renders "above everything
+  // except radar paints", and the own hull is "on top so I can see where I am"
+  // — so `cloud`, `blip` and `ownShip` now sit between the plate and the
+  // reticle. The plate still sits directly above contact hulls.
+  it('leaves it directly above contact hulls, with only cloud, returns and the own hull between it and the reticle', () => {
     expect(at('plate')).toBe(at('ship') + 1);
-    expect(at('aim')).toBe(at('plate') + 1);
+    const between = CHART_LAYER_ORDER.slice(at('plate') + 1, at('aim'));
+    expect([...between].sort()).toEqual(['blip', 'cloud', 'ownShip']);
   });
 
-  it("does NOT disturb the hull lift's own seat: `ship` still sits directly "
-    + 'above `blip`', () => {
-    expect(at('ship')).toBe(at('blip') + 1);
+  it('hulls are still charted, never fogged', () => {
     expect(WORLD_LAYER_ORDER as readonly string[], 'and hulls are still charted')
       .not.toContain('ship');
   });
@@ -529,5 +533,53 @@ describe('drivePlate samples the feather at the hull pose, and multiplies it in'
     store.pushFrame(0, droneContact());
     views.render(store, 0, 0, 16, rosterIndex, plateFrame); // softness omitted => NO_SOFTENING
     expect(textLog[0].alpha, 'a full feather changes nothing').toBeCloseTo(withFeather, 12);
+  });
+});
+
+// Story 9.3 (Eric 2026-10-12): "I don't want someone's nameplate sticking out
+// from behind the smoke, that gives it away right?" — a plate whose HULL sits
+// under countermeasure paint at least `plateHideAlpha` thick is hidden
+// outright; the hull itself is never hidden by cover (the overlay shows
+// partials: "if the bow is sticking out of the smoke I want to see it").
+describe('a nameplate under thick countermeasure paint is hidden; the hull never is', () => {
+  const WORLD = { x: 40, y: -20 };
+  const camera = { worldToScreen: (p: { x: number; y: number }) => ({ x: p.x, y: p.y }), zoom: 1 };
+  const plateFrame = { nameOf: (): string | null => null, camera, pad: 8 };
+  const HIDE = CLIENT_CONFIG.countermeasure.plateHideAlpha;
+
+  const drive = (cover: number) => {
+    textLog.length = 0;
+    const shipLayer = new Container();
+    const sampled: { x: number; y: number }[] = [];
+    const coverAt = (x: number, y: number): number => {
+      sampled.push({ x, y });
+      return cover;
+    };
+    const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()), () => {}, coverAt);
+    const store = new ContactStore();
+    store.pushFrame(0, [{ id: 'f1', x: WORLD.x, y: WORLD.y, heading: 0, speed: 10, cls: 'droneSmall' }]);
+    views.render(store, 0, 0, 16, () => null, plateFrame);
+    const hull = shipLayer.children[0];
+    return { plate: textLog[0], hull: { alpha: hull.alpha, visible: hull.visible }, sampled };
+  };
+
+  it('thick cover (≥ plateHideAlpha) places the plate at alpha 0, i.e. not visible, sampled at the hull pose', () => {
+    const r = drive(HIDE);
+    expect(r.plate.alpha).toBe(0);
+    expect(r.plate.visible).toBe(false);
+    expect(r.sampled.length).toBeGreaterThan(0);
+    for (const p of r.sampled) expect([p.x, p.y]).toEqual([WORLD.x, WORLD.y]);
+  });
+
+  it('light cover keeps the plate exactly as it is with no cover', () => {
+    const none = drive(0).plate.alpha;
+    const light = drive(HIDE * 0.5).plate;
+    expect(none).toBeGreaterThan(0);
+    expect(light.alpha).toBe(none);
+    expect(light.visible).toBe(true);
+  });
+
+  it('the hull graphic is identical under thick cover and under none', () => {
+    expect(drive(1).hull).toEqual(drive(0).hull);
   });
 });

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.18.40] - 2026-10-12
+
+### Changed
+- **The MULTI-SPECTRAL COUNTERMEASURE is a spray-painted cloud that fools eyes and radar alike** (Story 9.3, session 2 — Eric after his staging look: *"treat it as a 2d bitmap more or less the same way the radar layer is … like the spraypaint tool … each 'paint' itself fades to 0 alpha"*; *"THIS SMOKE ALSO PAINTS RADAR RETURNS. RADAR DOES NOT BEAT IT, IT LETS YOU GET THE FUCK AWAY."*). One press still makes one cloud for 15 s where you stand, but the cloud is now paint landing the whole time inside a disc that grows from 200 to 500 units, each dab fading over about 8 seconds, so the haze thickens, spreads and dies away like smoke.
+- **What it hides.** The haze is drawn over every other ship and its name, and a phosphor copy of the same haze is drawn over the radar paints, lit each time your beam crosses it, so a return inside the cloud is buried in clutter. Your own hull is always drawn on top, so you can see where you are inside anyone's cloud. A ship with its bow sticking out of the haze shows its bow; a name under thick paint is hidden outright so it never gives a ship away.
+- **The server no longer hides anything behind a cloud.** The 0.18.39 rule that pixels blocked sight for everyone and enemy radar inside the cloud is gone; the hiding is done by the drawing (Eric: *"whatever is easier"*).
+
+### Internal
+- `shared/src/sim/cloud.ts` keeps only `cloudScale` / `cloudOutlineRadius` (the spray disc); `CONFIG.countermeasure` = `{ lifeMs, r0, r1 }`; PROTOCOL_VERSION 76 -> 77 (the client reads the shrunken block).
+- `server/src/game/signals.ts`: `sightClear` is island line of sight again; `radarClear`, `smokedInBubble`, `cloudCrossed` and the pixel scans deleted; the blip gate is annulus ∧ swept ∧ shadow march; the `cloud` row is delivered when the spray disc is sensed (rim within sight with island LOS to the nearest rim point, or within radar range with the beam crossing the disc's bearing span and the march reaching the centre). `StoredCloud` is the plain record. Harness `--tune` floors keep `r0` / `lifeMs`.
+- Client: `render/cloudPaint.ts` (pure spray field: 113 × 113 cells of 9 u, linear decay, rejection-sampled dabs, pre-roll in 100 ms steps) + `render/countermeasure.ts` (one `BufferImageSource` per cloud shared by the grey sprite on the new `cloud` chart layer and the phosphor sprite above the radar paints, sweep-lit on the blip phosphor life); `coverAt(x, y)` feeds the contact nameplate hide; the wake's cloud mirror and `cloudBases.ts` deleted; new `ownShip` chart layer for the viewer's own hull and firing arcs. `CLIENT_CONFIG.countermeasure { cellU 9, fadeMs 8000, paintsPerSec 240, dotCells 2.5, maxAlpha 0.85, radarAlpha 0.9, plateHideAlpha 0.35 }` — feel knobs for Eric's staging eye.
+- Chart order: `map, zone, litZone, smoke, mineChart, decoyChart, ship, plate, cloud, blip, ownShip, aim, burstFx, sweep` (contact hulls now sit below the radar paints; the own hull above them).
+- Tests: shared 1028, server 2469, client 3914 (125 files) green; lint 0 errors; goldenFrames unchanged. Perception oracle re-derives the disc delivery gate; ledgers CLOUD_SIGHT_THROUGH / CLOUD_DELIVERED_BY_SIGHT / CLOUD_DELIVERED_BY_RADAR; `cloudPerf.test.ts` deleted (nothing left to pin).
+- Epic-9 amendments 52-54. Cycle 175. PROTOCOL_VERSION 76 -> 77.
+
 ## [0.18.39] - 2026-10-11
 
 ### Changed

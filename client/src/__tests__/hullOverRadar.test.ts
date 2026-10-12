@@ -260,24 +260,34 @@ describe('the hull sight-boundary feather (what the fog used to do for free)', (
   });
 });
 
-describe('the declared z-order: hulls over returns, reticle over hulls', () => {
+// RE-BASED 2026-10-12 (Story 9.3, "smoke is paint"). The lift put `ship`
+// directly above `blip`; Eric's countermeasure ruling re-cut that: "If I'm the
+// user, I should be on top so I can see where I am. If I am not the user then
+// it should render above everything except radar paints." A cloud above
+// contact hulls with paints above the cloud means paints above contact hulls,
+// so the OWN hull moved to its own `ownShip` layer above `blip`, and contact
+// hulls (`ship`) now sit below the returns.
+describe('the declared z-order: the own hull over returns, reticle over hulls', () => {
   const at = (name: string): number => CHART_LAYER_ORDER.indexOf(name as never);
 
-  it('puts `ship` ABOVE `blip` — the whole point of the lift', () => {
-    expect(at('ship'), 'ship is charted now').toBeGreaterThanOrEqual(0);
-    expect(at('ship')).toBeGreaterThan(at('blip'));
-    expect(WORLD_LAYER_ORDER as readonly string[], 'and no longer fogged')
+  it('puts the own hull (`ownShip`) ABOVE `blip`, and every hull layer is charted', () => {
+    expect(at('ownShip')).toBeGreaterThan(at('blip'));
+    expect(at('ship'), 'contact hulls are charted').toBeGreaterThanOrEqual(0);
+    expect(WORLD_LAYER_ORDER as readonly string[], 'and not fogged')
       .not.toContain('ship');
+    expect(WORLD_LAYER_ORDER as readonly string[]).not.toContain('ownShip');
   });
 
-  it('keeps `ship` BELOW the reticle and the burst rings', () => {
-    expect(at('ship')).toBeLessThan(at('aim'));
-    expect(at('ship')).toBeLessThan(at('burstFx'));
-    expect(at('ship')).toBeLessThan(at('sweep'));
+  it('keeps both hull layers BELOW the reticle and the burst rings', () => {
+    for (const hull of ['ship', 'ownShip']) {
+      expect(at(hull)).toBeLessThan(at('aim'));
+      expect(at(hull)).toBeLessThan(at('burstFx'));
+      expect(at(hull)).toBeLessThan(at('sweep'));
+    }
   });
 
-  it('leaves it directly above `blip`, so nothing slipped in underneath', () => {
-    expect(at('ship')).toBe(at('blip') + 1);
+  it('contact hulls sit below the returns (the 2026-10-12 re-cut)', () => {
+    expect(at('ship')).toBeLessThan(at('blip'));
   });
 
   // `aim` was `ship + 1` when this file was written, asserted as "nothing
