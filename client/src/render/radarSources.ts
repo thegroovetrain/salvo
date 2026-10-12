@@ -76,7 +76,8 @@
 // LOS, which Story 4.11 owns wholesale and will do against the height raster.
 
 import { WAKE_AGE_BUCKETS, type Vec2 } from '@salvo/shared';
-import { SURFACE } from './radarFalloff.js';
+import { CLIENT_CONFIG } from '../config.js';
+import { SURFACE, VOLUME } from './radarFalloff.js';
 import type { FieldSample } from './radarField.js';
 import type { ReturnModelOpts } from './radarHeatmap.js';
 
@@ -277,4 +278,30 @@ export function wakeKeepFraction(m: ReturnModelOpts, bucket: number): number {
  */
 export function chopSample(m: ReturnModelOpts): FieldSample {
   return { refl: m.clutter, geom: SURFACE, ref: m.wakeRef, floor: m.floor, min: 0, terrainQ: 0 };
+}
+
+/**
+ * THE COUNTERMEASURE CLOUD'S MATERIAL (Story 9.3 session 4, Eric 2026-10-12:
+ * "Don't forget to composite it onto the radar layer so it can be painted. It
+ * should give returns in strength based on how thick the smoke is.").
+ *
+ * `haze` is the cloud's drawn thickness under the sample (render/cloudPaint.ts's
+ * field alpha, 0..`maxAlpha`, the max across held clouds — `Countermeasure.coverAt`).
+ * The coefficient IS the thickness: `radarGain × haze`, and nothing else, so a
+ * thick core returns strongly (the hot band) and a thin rim faintly; under
+ * `radarPaintMin` (a wisp) the cloud answers nothing and the field falls
+ * through to the water underneath.
+ *
+ * NO RANGE TERM (`ref: 0` — `attenuation` answers 1): Eric's rule is strength by
+ * thickness, so a cloud reads by its smoke alone at any range inside the scope.
+ * It is still lit by the march's MAST instance of the shadow rule (`terrainQ: 0`
+ * — the cloud stands on the water, like a hull or a wake), grained by the
+ * ambient SNR envelope, frozen into the slice, banded and phosphor-decayed by
+ * the heat grid like every other return. `geom` is VOLUME because that is what a
+ * cloud physically is; with no reference range it selects no curve.
+ */
+export function cloudSample(haze: number, m: ReturnModelOpts): FieldSample | null {
+  const k = CLIENT_CONFIG.countermeasure;
+  if (!(haze >= k.radarPaintMin)) return null; // NaN-safe
+  return { refl: k.radarGain * haze, geom: VOLUME, ref: 0, floor: m.floor, min: 0, terrainQ: 0 };
 }

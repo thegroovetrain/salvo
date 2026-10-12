@@ -2370,32 +2370,41 @@ export const CLIENT_CONFIG = {
     /** THE SMOKE BRUSH (Eric 2026-10-12: "a smoke brush, soft overlapping
      *  puffs of many sizes and greys, not dots" — "I said PIXELS, not blobs").
      *  Puffs stamped per second of cloud life (the fractional remainder
-     *  carries, so a low frame rate stamps the same amount). */
-    puffsPerSec: 400,
+     *  carries, so a low frame rate stamps the same amount). 400 → 500 on
+     *  Eric's "while visually great, it's not thick enough. I can still kinda
+     *  see ships under it a lot of the time" (2026-10-12). */
+    puffsPerSec: 800,
     /** u — one puff's radius is drawn uniformly from [puffMinU, puffMaxU];
      *  its falloff is the smooth bell (1 − (d/R)²)², never a hard edge. */
     puffMinU: 25,
     puffMaxU: 70,
     /** One puff's centre strength is drawn uniformly from this range; it
-     *  composites "over" the cell (a ← a + s·(1 − a)), saturating softly. */
-    puffMinAlpha: 0.04,
-    puffMaxAlpha: 0.12,
-    /** A cell's alpha never exceeds this. */
-    maxAlpha: 0.92,
+     *  composites "over" the cell (a ← a + s·(1 − a)), saturating softly.
+     *  0.04–0.12 → 0.06–0.2 on Eric's "it's not thick enough. I can still
+     *  kinda see ships under it a lot of the time" (2026-10-12): the middle
+     *  saturates sooner, while the rim stays wispy (landing is centre-biased). */
+    puffMinAlpha: 0.1,
+    puffMaxAlpha: 0.3,
+    /** A cell's alpha never exceeds this. 0.92 → 1.0 on the same ruling ("I
+     *  can still kinda see ships under it"): the dense body goes fully opaque,
+     *  so nothing shows through the core. */
+    maxAlpha: 1.0,
     /** One puff's grey, as a multiplier of `colors.woundedSmoke`, drawn
      *  uniformly from [shadeMin, shadeMax] and blended into the cell with the
      *  puff's own over-weight — the tone the reference smoke has. */
     shadeMin: 0.55,
     shadeMax: 1.0,
-    /** Peak alpha of the cloud's PHOSPHOR copy on the radar paint layer (Eric
-     *  2026-10-12 — the cloud is a countermeasure, it paints on radar like
-     *  clutter: "THIS SMOKE ALSO PAINTS RADAR RETURNS"). PER CELL, by the
-     *  radar's own rule ("IF THE BEAM PASSES, IT PAINTS THOSE PIXELS AND
-     *  THOSE PIXELS ONLY"): a cell the beam's last-frame arc sweeps, inside
-     *  radar range, is painted at that instant at radarAlpha × its haze, then
-     *  decays on the radar paints' phosphor life (`blipLifeMs`). */
-    radarAlpha: 0.9,
-    /** A cell whose haze alpha is under this never paints on radar (thin
+    /** THE CLOUD IS A RADAR RETURN SOURCE (Eric 2026-10-12: "Don't forget to
+     *  composite it onto the radar layer so it can be painted. It should give
+     *  returns in strength based on how thick the smoke is."). The beam march
+     *  samples the cloud haze as one more field material (render/radarSources.ts
+     *  `cloudSample`): its return coefficient is radarGain × the haze under the
+     *  sample (0..maxAlpha), lit by the same mast instance of the shadow rule a
+     *  hull gets, then grained, frozen into the slice, banded, phosphor-decayed
+     *  and in-bubble dimmed by the heat grid exactly as every other return —
+     *  no cloud-specific drawing. Thicker smoke → stronger band. */
+    radarGain: 1.0,
+    /** A cell whose haze alpha is under this returns nothing on radar (thin
      *  wisps return nothing). */
     radarPaintMin: 0.05,
     /** A contact's NAMEPLATE is hidden outright when the cloud paint under its

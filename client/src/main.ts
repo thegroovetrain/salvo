@@ -2866,11 +2866,13 @@ function buildGame(
   // per-element/per-region aggregate would silently become six.
   const flashBudget = createFlashBudget();
 
-  // HOISTED (Story 9.3): the countermeasure's phosphor copies live in the
-  // radar's own paint container (under its dim mask), and the contact plates
-  // read the countermeasure's cover — so both are built before the literal.
+  // HOISTED (Story 9.3): the contact plates read the countermeasure's cover,
+  // and the radar reads the same cover as a RETURN SOURCE (session 4, Eric
+  // 2026-10-12: "composite it onto the radar layer so it can be painted") —
+  // so both are built, and wired, before the literal.
   const radar = new Radar(stage.layers.blip, stage.layers.sweep);
-  const countermeasure = new Countermeasure(stage.layers.cloud, radar.cloudPaintLayer);
+  const countermeasure = new Countermeasure(stage.layers.cloud);
+  radar.setCloudSource(countermeasure);
 
   const g: Game = {
     stage,
@@ -4365,9 +4367,9 @@ function renderAlive(
   // (Story 2.9's treatment, moved to render/burnZones.ts in Story 8.17).
   g.litZones.render(now);
   g.burnZones.render(now, now / 1000);
-  // spray + fade each countermeasure cloud to its server-clock age, and paint
-  // its phosphor copy wherever the radar beam just swept (null at the start line)
-  g.countermeasure.render(now, g.radar.beamWindow());
+  // spray + fade each countermeasure cloud to its server-clock age (the radar
+  // marched it above, through setCloudSource, as one more return source)
+  g.countermeasure.render(now);
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
