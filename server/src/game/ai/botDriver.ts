@@ -321,7 +321,6 @@ export class BotController {
     // live bot per tick, EVERY tick (the exactly-once-and-always pin).
     mind.view = e.observe();
     mind.viewAt = this.port.now;
-    mind.chaffUntil = e.chaffUntil; // the bot's OWN cloud (amendment 127 — world-owned)
     mind.smokeUntil = e.smokeUntil; // the bot's OWN lay window (Story 8.18)
     this.observesLastTickCount += 1;
     // Deliberation (target reselection, posture, spends) runs on this bot's

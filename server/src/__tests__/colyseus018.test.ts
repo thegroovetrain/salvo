@@ -165,8 +165,11 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 73 and admits 74', () => {
-  it('PROTOCOL_VERSION is 74', () => {
+describe('the PV join gate refuses 74 and admits 75', () => {
+  it('PROTOCOL_VERSION is 75', () => {
+    // Cycle 172 bumped 74 -> 75 (Story 9.2): the loadout is eleven fixed
+    // slots (one per consumable kind), CHAFF left the catalog and
+    // `OwnShip.chaff` / `OwnShip.chaffGhosts` left the wire.
     // Cycle 171 bumped 73 -> 74: the mine / torpedo detect rung 3/8 -> 4/8.
     // Cycle 170 bumped 72 -> 73: the 8,000 u ocean and the storm damage ramp.
     // Cycle 169 bumped 71 -> 72: Story 9.1's big ocean — map radius 5500,
@@ -205,17 +208,20 @@ describe('the PV join gate refuses 73 and admits 74', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(74);
+    expect(PROTOCOL_VERSION).toBe(75);
   });
 
   it('refuses the immediately-previous protocol', () => {
-    // 70 is the one that matters now: a client built one cycle before this
-    // one has no lobby door and does not know CONFIG.lobby; a 69 client
+    // 74 is the one that matters now: a client built one cycle before this
+    // one replays a nine-slot loadout and packs its belt; a 70 client has no
+    // lobby door and does not know CONFIG.lobby; a 69 client
     // prints and predicts the old deck gun ladders; a 67 client draws
     // every enemy mine kind-less, never renders the owner's chaff
     // ghosts, and draws the chaff ring and smoke discs at 2/3 of the server's
     // radii; a 65 client draws its mine ring off a literal rather than the
     // shared hit disc; a 64 client still offers the two deleted gun cards.
+    expect(protocolVersionError(74)).toMatch(/refresh/i);
+    expect(protocolVersionError(73)).toMatch(/refresh/i);
     expect(protocolVersionError(70)).toMatch(/refresh/i);
     expect(protocolVersionError(69)).toMatch(/refresh/i);
     expect(protocolVersionError(68)).toMatch(/refresh/i);
@@ -237,12 +243,12 @@ describe('the PV join gate refuses 73 and admits 74', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(75)).toMatch(/refresh/i);
+    expect(protocolVersionError(76)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(74)).toBeNull();
+    expect(protocolVersionError(75)).toBeNull();
   });
 });
 

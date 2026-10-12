@@ -49,8 +49,8 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
  *  and the radar modes + pseudonym resolver (radar realism cycle) — off the world. */
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
   return {
-    mode: 'fogged', observerId: me.id, now, islands: w.map.islands, mapRadius: w.map.radius, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, burnZones: w.burnZones, decoys: w.decoys, chaffSources: w.chaffSources, smoke: w.smokePuffs, me, wakes: w.wakeRibbons,
+    mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
+    litZones: w.litZones, burnZones: w.burnZones, decoys: w.decoys, smoke: w.smokePuffs, me, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
@@ -59,8 +59,8 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
 /** The spectator sibling of foggedCtx (the record-less 'ghost' observer). */
 function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
   return {
-    mode: 'spectator', observerId, now: w.now, islands: w.map.islands, mapRadius: w.map.radius, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, burnZones: w.burnZones, decoys: w.decoys, chaffSources: w.chaffSources, smoke: w.smokePuffs, me: undefined, wakes: w.wakeRibbons,
+    mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
+    litZones: w.litZones, burnZones: w.burnZones, decoys: w.decoys, smoke: w.smokePuffs, me: undefined, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
@@ -154,8 +154,8 @@ describe('SIGNAL_REGISTRY — row shape', () => {
       expect(typeof row.materialize).toBe('function');
       // The blip row carried the game's ONLY counterIntel implementation — the
       // decoy's radar-double lie. The decoy is deleted (R2.6) and the seam went
-      // with it. CHAFF's fakes (Story 8.16) are not a row seam: they merge
-      // into the blip subsequence with their own oracle carve-out.
+      // with it. (CHAFF's fakes — Story 8.16, never a row seam — were retired
+      // with the line in Story 9.2.)
       expect((row as { counterIntel?: unknown }).counterIntel).toBeUndefined();
     }
   });

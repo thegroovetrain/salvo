@@ -489,8 +489,9 @@ function courselessReach(t: RememberedContact, now: number): number {
 /**
  * WAKE EVIDENCE AT A PAINT (cycle 165 review, E4): some wake water painted
  * within the last sweep revolution, within wake reach of `p`. Rule (b) lets a
- * course-less plot take a paint up to ~230 u away, and a CHAFF fake is a paint
- * with nothing behind it — a fake lays no wake (the decoy precedent,
+ * course-less plot take a paint up to ~230 u away, and a paint with nothing
+ * behind it (a CHAFF fake, until CHAFF's retirement in Story 9.2; a decoy's
+ * paint today) lays no wake (the decoy precedent,
  * amendment 123) — so without this a fake could hand a real plot along, or a
  * chain of fakes could survive as ONE coherent plot across sweeps, breaking
  * the premise `hasPersistence` (utility.ts) stands on: no fake survives
@@ -539,7 +540,7 @@ function soleCourselessCandidate(tracks: TrackMap, p: Vec2, now: number, cells: 
  *   (b) else the SOLE identity-free course-less (or wake-guessed) plot that could have sailed there since its
  *       last paint at the fastest hull's speed — the second paint that gives
  *       a plot its first measured course — and only with wake water near the
- *       paint (wakeNear: a chaff fake leaves none);
+ *       paint (wakeNear: a hull-less paint leaves none);
  *   else null (the caller opens a new plot).
  * ONE PAINT PER PLOT PER TICK (cycle 165 review): a plot already refreshed
  * this tick is skipped by both rules, so a second same-tick paint (two hulls

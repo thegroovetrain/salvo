@@ -17,12 +17,13 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  SLOT_COUNT,
   isAfloat,
   CONFIG,
   SLOT_GUN,
   WEAPON_SLOTS,
   effectiveStats,
-  CONSUMABLE_SLOTS,
+  consumableSlotFor,
   equipmentMaxAmmo,
   isConsumableId,
   type Catalog,
@@ -47,10 +48,10 @@ const DT = CONFIG.tick.simDtMs;
 // which is exactly the content-independence these pins are built on.
 /** Where this suite's one slotFill card lands on the fixture. */
 const SLOT_FILL = WEAPON_SLOTS[0];
-/** The full nine-slot id list: the fitted ids in slot order, then nulls. */
+/** The full SLOT_COUNT id list: the fitted ids in slot order, then nulls. */
 const ids = (...fitted: (string | null)[]): (string | null)[] => [
   ...fitted,
-  ...Array<null>(9 - fitted.length).fill(null),
+  ...Array<null>(SLOT_COUNT - fitted.length).fill(null),
 ];
 
 // --- The injected TEST registries (never the production rows) ---------------
@@ -295,13 +296,14 @@ describe('World.applyCard — two homes, nothing else', () => {
     expect(a.stats.sightRange).toBeCloseTo((CONFIG.vision.radar * 1.25) / 2, 9);
     // Home 2 — slots: BOTH slot effects landed in the one structure, each in
     // its own row (Story 8.7). The `slotFill` took the first WEAPON slot; the
-    // `stock` took the first BELT slot as a fresh one-copy stack that never
+    // `stock` took its kind's fixed slot as a fresh one-copy stack that never
     // reloads. Neither can reach the other's row.
-    expect(a.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'boost', 'starShells', null, null, 'hullRepair', null, null, null,
-    ]);
+    // Since Story 9.2 the stock lands in HULL REPAIR's own fixed slot.
+    const expected: (string | null)[] = ['gun', 'boost', 'starShells', ...new Array<null>(SLOT_COUNT - 3).fill(null)];
+    expected[consumableSlotFor('hullRepair')!] = 'hullRepair';
+    expect(a.loadout.map((s) => s.equipmentId)).toEqual(expected);
     expect(a.loadout[SLOT_FILL].state).toEqual({ n: CONFIG.starShells.maxAmmo, reloadMsLeft: 0 });
-    expect(a.loadout[CONSUMABLE_SLOTS[0]].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(a.loadout[consumableSlotFor('hullRepair')!].state).toEqual({ n: 1, reloadMsLeft: 0 });
     // Hooks — the behavior effect executes on the real tick (outruns control).
     a.input.throttle = 1;
     c.input.throttle = 1;

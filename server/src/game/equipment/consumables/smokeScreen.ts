@@ -12,12 +12,12 @@
 // 142, hides a hull even under the observer's own flare. Radar is untouched.
 //
 // A second copy while laying RESTARTS the 5 s clock (ruling 140 — the
-// shield/chaff "replaces" posture; the copy is spent). Puffs already laid live
+// shield "replaces" posture; the copy is spent). Puffs already laid live
 // out their 30 s whatever happens to the hull (amendment 127: everything on
 // the water outlives its owner); laying STOPS at sink entry (ruling 144 —
 // World resets `smokeUntil` where it nulls the shield), and a NEW press while
 // sinking is refused `blocked` here, nothing spent (the ONE SPEND LAW; the
-// chaff row's one guard, verbatim). The World owns every write (`setSmokeScreen`
+// shield row's not-afloat guard). The World owns every write (`setSmokeScreen`
 // — the ActivationContext capability); this row keeps only the guard.
 
 import { isAfloat, type LoadoutSlot } from '@salvo/shared';

@@ -36,7 +36,7 @@ import {
   type SlotItemId,
 } from '@salvo/shared';
 
-/** A hull nobody described: every slot empty. The nine-null array matters —
+/** A hull nobody described: every slot empty (SLOT_COUNT nulls). The full array matters —
  *  `pickRefusal` is fail-closed on a SHORT array (a missing slot is never
  *  "empty"), so `[]` would refuse every weapon and every consumable. */
 const EMPTY_SLOTS: readonly (SlotItemId | null)[] = Object.freeze(Array.from({ length: SLOT_COUNT }, () => null));
@@ -59,7 +59,7 @@ function preferenceRank(id: string, fitted: readonly string[]): number {
 
 /**
  * The deterministic spend policy used by the scripted control. `fitted` = the
- * ship's currently-fitted card line ids (ship.cards); `slotIds` = its nine slot
+ * ship's currently-fitted card line ids (ship.cards); `slotIds` = its SLOT_COUNT slot
  * contents (`loadout.map(s => s.equipmentId)`).
  *
  * IT ONLY EVER NAMES A CARD THE SERVER WOULD ACCEPT (Story 8.14 review, F4).

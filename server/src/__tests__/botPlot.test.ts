@@ -96,7 +96,7 @@ function anon(over: Partial<RememberedContact> = {}): RememberedContact {
 }
 
 function view(events: GameEvent[]): PerceptionView {
-  return { contacts: [], events, mines: [], litZones: [], burnZones: [], decoys: [], smoke: [], chaffGhosts: [] };
+  return { contacts: [], events, mines: [], litZones: [], burnZones: [], decoys: [], smoke: [] };
 }
 
 /** The lattice cell centre the fold will derive for a one-cell rect at (x, y). */

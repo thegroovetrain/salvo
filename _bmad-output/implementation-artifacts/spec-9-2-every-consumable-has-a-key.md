@@ -95,8 +95,8 @@ warnings: [oversized]
 **Execution (wave 2 — server and client in parallel, shared frozen):**
 - [ ] `server/src/game/{world,signals,perception,frames}.ts`, `equipment/*`, `fakes.ts` (delete), `ai/*`, `inputs.ts`, `scripts/batchsim/spendPolicy.ts` -- chaff and fakes retired, drops eligibility per amendment 226 without the belt branch, bots on fixed slots -- the six exceptions untouched
 - [ ] `server/src/__tests__/*` -- chaff suite deleted, carve-out oracle deleted (invariant stricter), fixed-slot pins, goldenFrames re-recorded ONLY if the diff is the retired field (note the diff in this spec); `npm test -w server` green
-- [ ] `client/src/input/keyboard.ts`, `render/{equipmentInfo,hudBar,hotbar,equipmentIcons,stage}.ts`, `config.ts`, `main.ts`, `net/roomBindings.ts`, `ui/{upgradeMenu,refitCardFit,loadoutBlock,boonCopy}.ts`, chaff renderers deleted -- D′ bar, ZERO-STOCK, six keys, no cap copy, LOADOUT twin
-- [ ] `client/src/__tests__/*` -- `hudBarLayout` pinned against the mock's D′ numbers (124 / 46 / 34 / 4 / stack = globe / two dim groups / no panel), `'zeroStock'` state, key map 1–6 both rows, grace unchanged, greyed consumable foot empty, LOADOUT six squares; `npm test -w client` green
+- [x] `client/src/input/keyboard.ts`, `render/{equipmentInfo,hudBar,hotbar,equipmentIcons,stage}.ts`, `config.ts`, `main.ts`, `net/roomBindings.ts`, `ui/{upgradeMenu,refitCardFit,loadoutBlock,boonCopy}.ts`, chaff renderers deleted -- D′ bar, ZERO-STOCK, six keys, no cap copy, LOADOUT twin
+- [x] `client/src/__tests__/*` -- `hudBarLayout` pinned against the mock's D′ numbers (124 / 46 / 34 / 4 / stack = globe / two dim groups / no panel), `'zeroStock'` state, key map 1–6 both rows, grace unchanged, greyed consumable foot empty, LOADOUT six squares; `npm test -w client` green
 
 **Execution (wave 3 — record):**
 - [ ] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `DESIGN.md`, `epics.md`, both trackers, `deferred-work.md` (review defers only) -- 0.18.37 / cycle 172 / PV 75 / amendments 31–37 (+ any implementer readings appended as 38+)

@@ -30,8 +30,7 @@
 // counter-intel paints merged into the same subsequence and source order would
 // have de-anonymized them; that decoy is DELETED (Story 7-5 wave 2) and the
 // sort is DELIBERATELY KEPT — a payload-only order can never leak, and the
-// DECOY BUOY's paint and CHAFF's server-generated fakes (Story 8.16) merge
-// here.
+// DECOY BUOY's paint (Story 8.16) merges here.
 // Contacts, mines and lit zones keep their Map-insertion iteration order in
 // their own frame channels.
 //
@@ -43,9 +42,9 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type DecoyView, type GameEvent, type GhostPaint, type LitZoneView, type MineView, type ShellState, type SmokeView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
+import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type DecoyView, type GameEvent, type LitZoneView, type MineView, type ShellState, type SmokeView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
-import { SIGNAL_REGISTRY, ballisticGateOpen, chaffFakeBlips, decoyRadarBlips, ownerChaffGhosts, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
+import { SIGNAL_REGISTRY, ballisticGateOpen, decoyRadarBlips, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
 
 /** Everything one observer may know this tick. */
 export interface PerceptionView {
@@ -65,12 +64,6 @@ export interface PerceptionView {
    *  alone rides here (`{id,x,y,t0}`); the puff's OCCLUSION of everything
    *  else flows through `sightClear` inside every sight-tier row. */
   smoke: SmokeView[];
-  /** THE CHAFF OWNER'S OWN GHOSTS (cycle 162, Eric 2026-10-01): the rects of
-   *  the observer's OWN live chaff fakes its beam painted this tick — the
-   *  self-private `you.chaffGhosts` payload (frames.ts emits it beside
-   *  `you.chaff`, omitted when empty). ALWAYS `[]` on the spectator path and
-   *  under the radar lock; never an `events` blip (ownerChaffGhosts). */
-  chaffGhosts: GhostPaint[];
 }
 
 /** The narrow row context for the FOGGED path (observe() fail-closes before
@@ -82,7 +75,6 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     observerId: me.id,
     now: world.now,
     islands: world.map.islands,
-    mapRadius: world.map.radius, // Story 8.16: the chaff scatter's water filter
     // Story 4.11: the blip gate's shadow-march substrate (the raster alone,
     // never the whole GameMap — the narrow-context principle).
     heightRaster: world.map.heightRaster,
@@ -95,8 +87,6 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     // Story 8.18: every live SMOKE SCREEN puff — the ONE occluder input of
     // every sight-tier predicate (sightClear) and the smoke channel's subjects.
     smoke: world.smokePuffs,
-    // Story 8.16 / amendment 127: the world-owned chaff clouds (fake sources).
-    chaffSources: world.chaffSources,
     // Story 4.12: the wake scan's subject list (every live ribbon — active,
     // torpedo, and detached water), riding the context like the raster does.
     wakes: world.wakeRibbons,
@@ -116,7 +106,6 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     observerId,
     now: world.now,
     islands: world.map.islands,
-    mapRadius: world.map.radius, // inert here (no blips) — one context shape
     // Inert on this path (spectators get live contacts, never blips) — rides
     // every context uniformly so the context stays one shape.
     heightRaster: world.map.heightRaster,
@@ -129,9 +118,6 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     // Story 8.18: the smoke channel's subjects (spectators see every puff);
     // the occlusion term is inert here (no spectator row reads sightClear).
     smoke: world.smokePuffs,
-    // Inert on this path (spectators get no blips, so no chaff fakes) —
-    // rides uniformly so the context stays one shape.
-    chaffSources: world.chaffSources,
     // Inert on this path too (spectators have no radar, so no wake events) —
     // rides uniformly so the context stays one shape.
     wakes: world.wakeRibbons,
@@ -443,15 +429,11 @@ function view(world: World, ctx: SignalContext): PerceptionView {
   // rather than derived. Everything else — contacts, mines, lit zones,
   // every forwarded event — is UNTOUCHED: truesight is not radar.
   if (world.radarEnabled) {
-    // NON-SHIP blip sources (Story 8.16), fogged observers only: the DECOY
-    // BUOY's anonymous paint plus CHAFF's server-generated false returns
-    // (never the observer's own chaff). These join the ONE blip subsequence
+    // NON-SHIP blip source (Story 8.16), fogged observers only: the DECOY
+    // BUOY's anonymous paint. It joins the ONE blip subsequence
     // BEFORE the payload-only sort, so a frame's blip ordering still carries
     // zero source information — the exact property the sort was kept for.
-    if (ctx.mode === 'fogged') {
-      blips.push(...decoyRadarBlips(ctx));
-      chaffFakeBlips(ctx, blips);
-    }
+    if (ctx.mode === 'fogged') blips.push(...decoyRadarBlips(ctx));
     events.push(...blips.sort(blipOrder));
     // Wake segments (Story 4.12) CLOSE the frame as a new trailing subsequence
     // — every historical kind keeps its exact position — sorted by wakeOrder
@@ -466,10 +448,6 @@ function view(world: World, ctx: SignalContext): PerceptionView {
     burnZones: burnZoneScan(world, ctx),
     decoys: decoyScan(world, ctx),
     smoke: smokeScan(world, ctx),
-    // The chaff owner's own ghosts (cycle 162): fogged observers only, and
-    // under the SAME radar lock as every blip — the ghosts are the owner's
-    // radar returns, so with the sensor off none leaves this function.
-    chaffGhosts: world.radarEnabled && ctx.mode === 'fogged' ? ownerChaffGhosts(ctx) : [],
   };
 }
 
@@ -482,7 +460,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
  */
 export function observe(world: World, observerId: string): PerceptionView {
   const me = world.ships.get(observerId);
-  if (!me) return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], decoys: [], smoke: [], chaffGhosts: [] };
+  if (!me) return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], decoys: [], smoke: [] };
   return view(world, foggedContext(world, me));
 }
 

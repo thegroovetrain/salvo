@@ -41,7 +41,7 @@
 // perception.test.ts; the perf pin in smokePerf.test.ts.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, CONSUMABLE_SLOTS, isAfloat, isSinking, puffRadius, wrapPositive, type FrameMsg, type GameEvent, type WakeRibbon } from '@salvo/shared';
+import { CONFIG, consumableSlotFor, isAfloat, isSinking, puffRadius, wrapPositive, type FrameMsg, type GameEvent, type WakeRibbon } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { sightOf } from '../game/signals.js';
@@ -51,7 +51,7 @@ import { circleIsland, flatRaster } from './islandFixture.js';
 const SC = CONFIG.smokeScreen;
 const DT = CONFIG.tick.simDtMs;
 const SIGHT = CONFIG.vision.sight;
-const BELT = CONSUMABLE_SLOTS[0];
+const BELT = consumableSlotFor('smokeScreen')!;
 
 function bareWorld(seed = 1): World {
   const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone);
@@ -215,7 +215,7 @@ describe('SMOKE SCREEN — the lay (rulings 138 / 140 / 144)', () => {
     expect(w.smoke.size).toBe(16);
   });
 
-  it('a SINKING press is refused `blocked` by the row and the copy is kept (ruling 144, the chaff guard verbatim)', () => {
+  it('a SINKING press is refused `blocked` by the row and the copy is kept (ruling 144, the shield row not-afloat guard)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     stock(w, a, 1);
@@ -252,7 +252,7 @@ describe('SMOKE SCREEN — the lay (rulings 138 / 140 / 144)', () => {
     expect(w.smoke.size).toBe(0);
   });
 
-  it('resetForMatchStart clears every puff and every lay window (the mines / decoys / chaff precedent)', () => {
+  it('resetForMatchStart clears every puff and every lay window (the mines / decoys precedent)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 900, 0);

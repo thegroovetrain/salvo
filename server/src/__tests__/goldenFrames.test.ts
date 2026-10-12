@@ -22,7 +22,7 @@ import {
   isAfloat,
   transitionLifecycle,
   CONFIG,
-  CONSUMABLE_SLOTS,
+  consumableSlotFor,
   coverageHas,
   wrapPositive,
   type BallisticEvent,
@@ -894,7 +894,7 @@ function scnHeal(g: Golden): void {
   place(w, 'b', 60, 0); // hull-to-hull: fully sighted, and still told nothing
   a.hp -= 60;
   w.applyCard(a, 'hullRepair');
-  expect(w.sinkingActivationGate(a, CONSUMABLE_SLOTS[0])).toEqual({ ok: true });
+  expect(w.sinkingActivationGate(a, consumableSlotFor('hullRepair')!)).toEqual({ ok: true });
   w.step();
   const fa = cap(g, w, 'a');
   const fb = cap(g, w, 'b');
@@ -1125,6 +1125,15 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // 'chaff','dazzleShells','radarSweep'], row 31 dealt 'armor' where it dealt
   // 'speed'. No contact, event, blip, mine, zone, position or hp byte moved
   // (verified by diffing the rows with `offer` masked out).
+  // REGENERATED KNOWINGLY IN STORY 9.2 (PV 75). 156 of 167 lines moved, read
+  // by diffing old against new: in 155 the ONLY difference is `you.ammo`
+  // growing from nine to eleven entries by two trailing `null`s (SLOT_COUNT
+  // 11 — the two new consumable slots are empty in every golden world); in
+  // the ONE other (row 8) the same two nulls plus `you.offer`'s content —
+  // CHAFF left the catalog (amendment 31), so the seeded draw deals
+  // 'decoyBuoy' where it dealt 'chaff'. No golden frame ever carried
+  // `you.chaff` / `you.chaffGhosts`; no contact, event, blip, mine, zone,
+  // position or hp byte moved.
   it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
     expect(runBattery()).toMatchSnapshot();
   });

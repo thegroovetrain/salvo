@@ -23,18 +23,22 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
+  CONSUMABLE_KEY_ORDER,
   CONSUMABLE_SLOTS,
+  SLOT_COUNT,
   GUN_IDS,
   MOUNTED_GUN,
   MULLIGAN_CHOICE,
   SHIP_CLASS_IDS,
   WEAPON_SLOTS,
   classShift,
+  consumableSlotFor,
   drawOffer,
   effectiveStats,
   hullEnvelope,
   mulberry32,
   slotsWithCards,
+  type ConsumableId,
   type Contact,
   type EffectiveStats,
   type EquipmentId,
@@ -99,7 +103,7 @@ function mind(profile: BotProfileId = 'duelist'): BotMind {
 }
 
 function view(over: Partial<PerceptionView> = {}): PerceptionView {
-  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], decoys: [], smoke: [], chaffGhosts: [], ...over };
+  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], decoys: [], smoke: [], ...over };
 }
 
 function contact(id: string, x: number, y: number, cls: HullId = 'battleship'): Contact {
@@ -183,7 +187,7 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
       raider: {
         style: 'specialist',
         favoriteUpgrades: ['speed', 'weapons'],
-        favoriteConsumables: ['smokeScreen', 'chaff'],
+        favoriteConsumables: ['smokeScreen'],
         favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
         beltHunger: 'medium',
       },
@@ -218,7 +222,7 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
       trapper: {
         style: 'rounded',
         favoriteUpgrades: ['weapons', 'speed'],
-        favoriteConsumables: ['smokeScreen', 'decoyBuoy', 'chaff'],
+        favoriteConsumables: ['smokeScreen', 'decoyBuoy'],
         favoriteWeapons: ['navalMines', 'captiveMines', 'foulingMines'],
         beltHunger: 'high',
       },
@@ -812,16 +816,18 @@ function spendState(over: Partial<BotSpendState> = {}): BotSpendState {
   return { bankedLevels: 1, offer: null, cards: [], hp: 100, maxHp: 100, ...over };
 }
 
-/** Nine slot ids: the given gun, the boost, then Q/E/R and the belt as named
- *  (missing entries are empty). */
+/** SLOT_COUNT slot ids: the given gun, the boost, then Q/E/R as named, and
+ *  each named consumable in ITS OWN fixed slot (`consumableSlotFor`, Story
+ *  9.2) — every other slot empty. */
 function slotsOf(
   weapons: readonly (SlotItemId | null)[] = [],
-  belt: readonly (SlotItemId | null)[] = [],
+  consumables: readonly ConsumableId[] = [],
   gun: EquipmentId = 'gun',
 ): (SlotItemId | null)[] {
   const out: (SlotItemId | null)[] = [gun, 'boost'];
   for (let i = 0; i < WEAPON_SLOTS.length; i += 1) out.push(weapons[i] ?? null);
-  for (let i = 0; i < CONSUMABLE_SLOTS.length; i += 1) out.push(belt[i] ?? null);
+  for (let i = 0; i < CONSUMABLE_SLOTS.length; i += 1) out.push(null);
+  for (const id of consumables) out[consumableSlotFor(id)!] = id;
   return out;
 }
 
@@ -912,13 +918,16 @@ describe('ai/spending — the card policy', () => {
     expect(cardScore(profileOf('siege'), spendState({ cards: five }), 'hullRepair')).toBeNull();
   });
 
-  it('SKIPS copy 1 of a weapon with Q/E/R full, and a consumable with a full belt', () => {
-    const rowFull = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null] as const;
+  it('SKIPS copy 1 of a weapon with Q/E/R full — and never a consumable for want of a slot (Story 9.2)', () => {
+    const rowFull: (SlotItemId | null)[] = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', ...new Array<null>(SLOT_COUNT - 5).fill(null)];
     const idx = chooseSpend(profileOf('siege'), spendState({ slotIds: rowFull, offer: ['broadside', 'armor'] }));
     expect(idx).toBe(1); // `broadside` is copy 1 with nowhere to go
-    const beltFull = ['gun', 'boost', null, null, null, 'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as const;
-    expect(chooseSpend(profileOf('siege'), spendState({ slotIds: beltFull, offer: ['supercavTorpedo', 'armor'] })))
-      .toBe(1);
+    // Every OTHER keyed kind stocked in its own fixed slot: the last kind's
+    // slot is still its own, so the card is scored, never refused.
+    const slotIds: (SlotItemId | null)[] = ['gun', 'boost', null, null, null, ...new Array<null>(SLOT_COUNT - 5).fill(null)];
+    const others = CONSUMABLE_KEY_ORDER.filter((k) => k !== 'supercavTorpedo');
+    for (const k of others) slotIds[consumableSlotFor(k)!] = k;
+    expect(cardScore(profileOf('siege'), spendState({ slotIds, cards: [...others] }), 'supercavTorpedo')).not.toBeNull();
   });
 
   it('DOES NOT SPEND when every card in the hand is refused — the level stays banked (matrix: Dead hand)', () => {
@@ -1025,14 +1034,14 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
     expect(chooseSpend(duelist, { ...s, offer: ['hullRepair', 'armor'] })).toBe(1);
   });
 
-  it('Already carried: bulwark carrying shieldBlock takes chaff 3 over shieldBlock 2', () => {
+  it('Already carried: bulwark carrying shieldBlock takes smokeScreen 3 over shieldBlock 2', () => {
     const bulwark = profileOf('bulwark');
     const s = spendState({ cards: ['shieldBlock'], slotIds: slotsOf([], ['shieldBlock']) });
     expect(cardScore(bulwark, s, 'shieldBlock')).toBe(P.base + P.favorite + P.carried);
     expect(cardScore(bulwark, s, 'shieldBlock')).toBe(2);
-    expect(cardScore(bulwark, s, 'chaff')).toBe(P.base + P.beltHunger.high);
-    expect(cardScore(bulwark, s, 'chaff')).toBe(3);
-    expect(chooseSpend(bulwark, { ...s, offer: ['shieldBlock', 'chaff'] })).toBe(1);
+    expect(cardScore(bulwark, s, 'smokeScreen')).toBe(P.base + P.beltHunger.high);
+    expect(cardScore(bulwark, s, 'smokeScreen')).toBe(3);
+    expect(chooseSpend(bulwark, { ...s, offer: ['shieldBlock', 'smokeScreen'] })).toBe(1);
   });
 
   it('Style rounded: bulwark armor 3, speed 0 → speed 3 (min of U) ties armor 3 (favorite)', () => {
@@ -1238,8 +1247,9 @@ describe('ai/spending — ten seeded levels through the real draw (Story 8.20)',
 
 // --- track persistence: the structural jamming counter -----------------------
 
-describe('ai/utility — track persistence (the chaff counter; the jamming buoy before it)', () => {
-  // A chaff cloud scatters 10 fakes per sweep period, wire-indistinguishable
+describe('ai/utility — track persistence (built as the chaff counter; the jamming buoy before it)', () => {
+  // (CHAFF was retired in Story 9.2; the gate is kept unchanged.) A chaff
+  // cloud scattered 10 fakes per sweep period, wire-indistinguishable
   // from real blips and folded into memory as ordinary tracks — but fakes
   // RE-SCATTER WHOLESALE each revolution, so no fake persists as one coherent
   // track across a full sweep period. Persistence is therefore the honest

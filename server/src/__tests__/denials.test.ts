@@ -11,7 +11,7 @@
 // must be rejected at matchmake time after the 16→17 bump (Story 2.9).
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, CONSUMABLE_SLOTS, PROTOCOL_VERSION, SLOT_BOOST, type InputMsg } from '@salvo/shared';
+import { CONFIG, consumableSlotFor, PROTOCOL_VERSION, SLOT_BOOST, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -122,7 +122,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyCard(a, 'hullRepair');
-    const belt = CONSUMABLE_SLOTS[0];
+    const belt = consumableSlotFor('hullRepair')!;
     expect(a.hp).toBe(a.stats.maxHp);
     w.submitInput('a', input(1, { actSeq: 1, actSlot: belt }));
     w.step();
@@ -148,7 +148,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyCard(a, 'hullRepair');
-    const belt = CONSUMABLE_SLOTS[0];
+    const belt = consumableSlotFor('hullRepair')!;
     a.hp = a.stats.maxHp - 0.4;
     w.submitInput('a', input(1, { actSeq: 1, actSlot: belt }));
     w.step();
@@ -165,7 +165,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyCard(a, 'hullRepair');
-    const belt = CONSUMABLE_SLOTS[0];
+    const belt = consumableSlotFor('hullRepair')!;
     a.hp = a.stats.maxHp - 1;
     w.submitInput('a', input(1, { actSeq: 1, actSlot: belt }));
     w.step();
@@ -270,9 +270,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 73→74 bump (PV 74, cycle 171: mine/torpedo detect rung 3/8 -> 4/8; PV 73, cycle 170: the 8,000 u ocean + storm damage ramp; PV 72, cycle 169: Story 9.1 big ocean — radius 5500, 10 % land, literal ring ladder; PV 71, cycle 167: private lobbies — CONFIG.lobby, arena mode \'private\', lobby channels lr/ls/lb/lg; PV 70, cycle 166: Eric\'s 2026-10-02 deck gun ladders; PV 69, cycle 163: the self-private `dp` event; PV 68, cycle 162: MineView.c for every observer, the self-private OwnShip.chaffGhosts, chaff/smoke radii ×1.5, supercav damage 85; PV 67 was amendment 208: star / phosphor burst bases swapped; PV 66 was amendment 200: the client reads CONFIG.mine.hitRadiusU; PV 65 was amendment 197: DECK GUN TURRET and DECK GUN BARREL left the catalog) is enforced at matchmake', () => {
+describe('pv join gate — the 74→75 bump (PV 75, cycle 172: Story 9.2 — eleven fixed slots, CHAFF and OwnShip.chaff / chaffGhosts retired; PV 74, cycle 171: mine/torpedo detect rung 3/8 -> 4/8; PV 73, cycle 170: the 8,000 u ocean + storm damage ramp; PV 72, cycle 169: Story 9.1 big ocean — radius 5500, 10 % land, literal ring ladder; PV 71, cycle 167: private lobbies — CONFIG.lobby, arena mode \'private\', lobby channels lr/ls/lb/lg; PV 70, cycle 166: Eric\'s 2026-10-02 deck gun ladders; PV 69, cycle 163: the self-private `dp` event; PV 68, cycle 162: MineView.c for every observer, the self-private OwnShip.chaffGhosts, chaff/smoke radii ×1.5, supercav damage 85; PV 67 was amendment 208: star / phosphor burst bases swapped; PV 66 was amendment 200: the client reads CONFIG.mine.hitRadiusU; PV 65 was amendment 197: DECK GUN TURRET and DECK GUN BARREL left the catalog) is enforced at matchmake', () => {
   it('rejects pv-67 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(74);
+    expect(PROTOCOL_VERSION).toBe(75);
+    expect(protocolVersionError(74)).toMatch(/refresh/); // PV 75: eleven fixed slots, CHAFF retired (cycle 172, Story 9.2)
     expect(protocolVersionError(73)).toMatch(/refresh/); // PV 74: the 4/8 detect rung (cycle 171)
     expect(protocolVersionError(72)).toMatch(/refresh/); // PV 73: the 8,000 u ocean + the damage ramp (cycle 170)
     expect(protocolVersionError(71)).toMatch(/refresh/); // PV 72: the big ocean (cycle 169)

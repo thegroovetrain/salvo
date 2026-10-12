@@ -148,7 +148,7 @@ export interface TacticContext {
 
 /**
  * ONE SLOT ITEM'S BOT TACTIC — the shape every row shares. A fitted slot may
- * hold a piece of EQUIPMENT (slots 0-4) or a CONSUMABLE stack (the belt, 5-8),
+ * hold a piece of EQUIPMENT (slots 0-4) or a CONSUMABLE stack (its kind's fixed slot, 5-10),
  * the two id spaces are disjoint, and each has its OWN registry keyed by its
  * OWN id (`EQUIPMENT_TACTICS` / `CONSUMABLE_TACTICS`) so neither record ever
  * grows a fake row. `tacticFor` is the one lookup that spans them, narrowing

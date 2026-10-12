@@ -155,17 +155,9 @@ export interface BotTickEntry {
   /** The bot's own record (see BotSelf). */
   readonly self: BotSelf;
   /**
-   * ms — when THIS bot's own CHAFF cloud stops painting (0 = none). The cloud
-   * is WORLD-owned (amendment 127: it outlives the hull), so it is no longer
-   * on the record; world.ts reads the bot's OWN entry of the chaff map and
-   * hands only this one number in. A self-read of the bot's own action (a
-   * human knows when they pressed it): no fake, no other owner's cloud.
-   */
-  readonly chaffUntil: number;
-  /**
    * ms — when THIS bot's own SMOKE SCREEN lay window closes (0 = not laying;
-   * Story 8.18). A self-read of the bot's own press exactly like chaffUntil
-   * (`ShipRecord.smokeUntil`, copied by world.ts): the SMOKE SCREEN tactic never
+   * Story 8.18). A self-read of the bot's own press (`ShipRecord.smokeUntil`,
+   * copied by world.ts): the SMOKE SCREEN tactic never
    * re-presses while a trail is still being laid. No puff position, no other
    * owner's window.
    */
@@ -410,11 +402,6 @@ export interface BotMind {
    *  tactic's inbound-fish trigger reads it. OPTIONAL, created lazily;
    *  released with the life (BotController.releasePerLifeState). */
   torps?: Map<string, SeenTorpedo> | null;
-  /** ms — this bot's own CHAFF cloud's `until` as of this tick (Story 8.16,
-   *  amendment 127), copied from BotTickEntry.chaffUntil by the driver before
-   *  every decide. The CHAFF tactic never throws a second cloud over
-   *  one still painting. OPTIONAL: absent reads as "no cloud". */
-  chaffUntil?: number;
   /** ms — this bot's own SMOKE SCREEN lay-window end as of this tick (Story
    *  8.18), copied from BotTickEntry.smokeUntil by the driver before every
    *  decide. The SMOKE SCREEN tactic never presses while one of its own

@@ -22,7 +22,9 @@ import {
   classShift,
   equipmentMaxAmmo,
   MULLIGAN_CHOICE,
+  CONSUMABLE_KEY_ORDER,
   CONSUMABLE_SLOTS,
+  SLOT_COUNT,
   DEFAULT_GUN,
   GUN_IDS,
   LINE_IDS,
@@ -31,7 +33,8 @@ import {
   SLOT_BOOST,
   WEAPON_SLOTS,
   boonStackCount,
-  canStock,
+  consumableSlotFor,
+  stockSlotFor,
   effectiveStats,
   isStubLine,
   loadoutFor,
@@ -124,11 +127,10 @@ function front(ship: ShipRecord): string[] {
 
 /** Spend the front offer on its first FITTABLE card. Catalog v3 has no
  *  acquisition card and no subdeck, so every accepted pick moves the build by
- *  exactly one card. Since Story 8.16 five consumable lines are live against a
- *  four-slot belt, so a long spend run CAN meet a hand whose first card is a
- *  refused pick (a fifth distinct belt line — `beltFull`); the helper skips
- *  to the first card the shared `pickRefusal` admits, which is exactly the
- *  card a human could take. Returns the fitted id. */
+ *  exactly one card. A long spend run CAN meet a hand whose first card is a
+ *  refused pick (a line at its cap, or copy 1 of a weapon with Q/E/R full);
+ *  the helper skips to the first card the shared `pickRefusal` admits, which
+ *  is exactly the card a human could take. Returns the fitted id. */
 function spendPlainCard(w: World, ship: ShipRecord): string {
   const hand = front(ship);
   const slotIds = ship.loadout.map((s) => s.equipmentId);
@@ -664,8 +666,8 @@ describe('spendPoint — validation table', () => {
 
 const HEALS_OF = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'heal');
 const HR = CONFIG.hullRepair;
-/** The first belt slot — where a stocked HULL REPAIR lands. */
-const SLOT_BELT = CONSUMABLE_SLOTS[0];
+/** HULL REPAIR's fixed slot (Story 9.2) — where a stocked copy lands. */
+const SLOT_BELT = consumableSlotFor('hullRepair')!;
 /** hp per 50ms tick at the fixed regen rate (50hp / 5000ms = 10 hp/s). */
 const REGEN_PER_TICK = (HR.regenHp / HR.regenMs) * DT;
 
@@ -950,7 +952,7 @@ describe('equipment lines — copy 1 fits the weapon into the first EMPTY weapon
     // pick takes slot 2 (Q) — first-empty-first across the row, never a fixed
     // 'extra' slot.
     expect(a.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'boost', 'navalMines', null, null, null, null, null, null,
+      'gun', 'boost', 'navalMines', ...new Array<null>(SLOT_COUNT - 3).fill(null),
     ]);
     expect(a.loadout[2].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 });
   });
@@ -1138,8 +1140,8 @@ describe('the offer is never empty — consumables are never filtered out (Story
   // materializes, and exhaustion is reported ONCE". Eric deleted the whole
   // state (amendment 94): *"There's no such thing as an 'empty draw.' If
   // someone is out of slots and out of upgrades there are still consumables."*
-  // A consumable line is ALWAYS eligible — at its cap, with a full belt,
-  // whatever the ship holds — so `ShipRecord.deckExhausted`, `reportExhaustion`
+  // A consumable line is ALWAYS eligible — at its cap, whatever the ship
+  // holds — so `ShipRecord.deckExhausted`, `reportExhaustion`
   // and the `deck.*` metrics are gone with no replacement.
   it('a ship at its absolute ceiling is STILL dealt a full offer of consumables', () => {
     const w = bareWorld();
@@ -1156,37 +1158,31 @@ describe('the offer is never empty — consumables are never filtered out (Story
     expect(eligibleFor(a)).toContain('hullRepair');
   });
 
-  it('a consumable the belt cannot take is STILL dealt, and picking it is a SILENT no-op', () => {
-    // Eric, amendment 94: *"If you can't hold any more consumables (no open
-    // slots, hit duplicate cap on each) then you are still shown a FULL ASS
-    // OFFER, you just can't pick anything until you clear up space."*
-    // Four DIFFERENT consumable lines fill the belt; a fifth has nowhere to go.
+  it('with every OTHER kind stocked, the last kind is still dealt AND stocks in its own fixed slot (Story 9.2: no full belt)', () => {
+    // Amendment 94 (Eric): a captain is always shown a FULL offer. Since Story
+    // 9.2 (epic-9 amendment 21) every consumable kind owns its own slot, so
+    // holding every other kind can never crowd one out.
     const w = bareWorld(1, { catalog: BELT_CATALOG });
     const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
     a.state.speed = 0;
-    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as LineId[]) w.applyCard(a, id);
-    expect(CONSUMABLE_SLOTS.every((i) => a.loadout[i].equipmentId !== null)).toBe(true);
-    // THE FIFTH LINE IS STILL ELIGIBLE — it is never filtered out of the draw.
+    const others = CONSUMABLE_KEY_ORDER.filter((k) => k !== 'decoyBuoy');
+    for (const id of others) w.applyCard(a, id);
+    for (const id of others) expect(a.loadout[consumableSlotFor(id)!].equipmentId, id).toBe(id);
     expect(eligibleLines(
       { held: a.cards as readonly LineId[], slotIds: a.loadout.map((s) => s.equipmentId), mountedGun: 'gun' },
       BELT_CATALOG,
     ).map((e) => e.id)).toContain('decoyBuoy');
-    const held = [...a.cards];
     a.bankedLevels = 1;
     a.offer = ['decoyBuoy'];
-    const offer = a.offer;
-    // ...and the PICK is refused before anything moves: the level stays banked
-    // and the next frame's offer is the SAME array, byte for byte.
-    expect(w.spendPoint('a', 0)).toBe(false);
-    expect(a.cards).toEqual(held);
-    expect(a.bankedLevels).toBe(1);
-    expect(a.offer).toBe(offer);
+    expect(w.spendPoint('a', 0)).toBe(true);
+    expect(a.loadout[consumableSlotFor('decoyBuoy')!]).toEqual({ equipmentId: 'decoyBuoy', state: { n: 1, reloadMsLeft: 0 } });
+    for (const id of others) expect(a.loadout[consumableSlotFor(id)!].equipmentId, id).toBe(id); // nothing moved
   });
 
   // --- THE AT-CAP PICK (Story 8.14 review, F1) ------------------------------
   // Amendment 94 deals a consumable AT ITS CAP on purpose. Until this review
-  // the only pick gate was `canStock`, and a line already holding a belt slot
-  // always passes it — so a hull with five HULL REPAIR could buy a sixth: the
+  // the only pick gate was the belt's stock check, and a line already holding
+  // a belt slot always passed it — so a hull with five HULL REPAIR could buy a sixth: the
   // level was spent, `cards` grew to six, the belt stayed at n = 5, and the
   // hidden copy refilled the stack after the first use. An unbounded heal
   // reserve, on the REAL production catalog.
@@ -1196,11 +1192,11 @@ describe('the offer is never empty — consumables are never filtered out (Story
     const a = place(w, 'a', 0, 0);
     for (let i = 0; i < CATALOG.hullRepair.cap; i += 1) w.applyCard(a, 'hullRepair');
     expect(a.cards).toHaveLength(CATALOG.hullRepair.cap);
-    const beltSlot = CONSUMABLE_SLOTS.find((i) => a.loadout[i].equipmentId === 'hullRepair')!;
+    const beltSlot = consumableSlotFor('hullRepair')!;
     expect(a.loadout[beltSlot].state!.n).toBe(CATALOG.hullRepair.cap);
-    // The belt would still TAKE a copy — the line owns a square, so `canStock`
-    // says yes. The CAP is what refuses it.
-    expect(canStock(a.loadout.map((sl) => sl.equipmentId), 'hullRepair')).toBe(true);
+    // The slot would still TAKE a copy — it is the line's own — so the CAP is
+    // what refuses it.
+    expect(stockSlotFor(a.loadout.map((sl) => sl.equipmentId), 'hullRepair')).toBe(beltSlot);
 
     a.bankedLevels = 1;
     a.offer = ['hullRepair'];
@@ -1398,7 +1394,7 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     expect(a.xpMs).toBe(0);
     expect(a.stats).toEqual(effectiveStats(a.cls, ['navalMines']));
     expect(a.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'boost', 'navalMines', null, null, null, null, null, null,
+      'gun', 'boost', 'navalMines', ...new Array<null>(SLOT_COUNT - 3).fill(null),
     ]);
     // ...on a FRESH clock: the loadout is REBUILT from the kept cards, so no
     // pool is short and nothing is reloading.
@@ -1894,13 +1890,17 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
     const d = w.addShip('d1', 'DRONE', 'fleet', 'droneSmall', undefined, undefined);
     expect(d.cards).toEqual([]);
     // A fleet hull fits the GUN ALONE — never the Shift boost (amendment 24).
-    expect(d.loadout.map((x) => x.equipmentId)).toEqual(['gun', null, null, null, null, null, null, null, null]);
+    expect(d.loadout.map((x) => x.equipmentId)).toEqual(['gun', ...new Array<null>(SLOT_COUNT - 1).fill(null)]);
   });
 });
 
 
-// ---------- THE BELT (Story 8.7) ---------------------------------------------
+// ---------- THE CONSUMABLE SLOTS (Story 8.7's belt; fixed slots since 9.2) ---
 
+// Since Story 9.2 (epic-9 amendment 21) every consumable kind owns ONE FIXED
+// slot (`consumableSlotFor`, 5-10 in CONSUMABLE_KEY_ORDER): nothing packs,
+// nothing re-packs, and the only consumable refusal is the cap.
+//
 // STOCK, REFUSE, USE, CLEAR — the whole consumable mechanism, end to end
 // through the REAL seams (spendPoint -> settleSpend -> applyCard -> the shared
 // fold; submitInput -> the two dispatch channels -> the sinking-activation
@@ -1918,22 +1918,21 @@ function consumableLine(id: ConsumableId, cap = 5): CatalogLine {
   return { id, kind: 'consumable', cap, tiers } as unknown as CatalogLine;
 }
 
-/** Four KEY-FIRES lines + the one click-placed line (decoyBuoy is the only
- *  `CONSUMABLE_IS_WEAPON` true, catalog-v3 R1), all NON-STUB. Module-scope
- *  since Story 8.14: the never-empty-offer suite needs a belt a captain can
- *  actually FILL, and production ships only two live consumable lines. */
+/** Every KEYED consumable kind (CONSUMABLE_KEY_ORDER — Story 9.2), all
+ *  NON-STUB, plus a non-consumable control line. Module-scope since Story
+ *  8.14: the never-empty-offer suite needs every kind a captain can stock. */
 const BELT_CATALOG: Catalog = {
-  hullRepair: consumableLine('hullRepair'),
-  shieldBlock: consumableLine('shieldBlock'),
-  smokeScreen: consumableLine('smokeScreen'),
-  chaff: consumableLine('chaff'),
-  decoyBuoy: consumableLine('decoyBuoy'),
-  depthCharge: consumableLine('depthCharge'), // the one production stub, un-stubbed HERE only (the no-row subject)
+  ...Object.fromEntries(CONSUMABLE_KEY_ORDER.map((id) => [id, consumableLine(id)])),
   gunUp: ladderLine('gunUp', 9), // a non-consumable control line
 };
 
-describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Story 8.7)', () => {
-  const [B0, B1, B2, B3] = CONSUMABLE_SLOTS;
+describe('the consumable slots — stock, the cap refusal, use, and clear-at-zero (Story 8.7 / 9.2)', () => {
+  /** HULL REPAIR's fixed slot — the subject of most cases below. */
+  const HR_SLOT = consumableSlotFor('hullRepair')!;
+  /** The DECOY BUOY's fixed slot — the `isWeapon` (click-channel) subject. */
+  const DB = consumableSlotFor('decoyBuoy')!;
+  /** Every consumable slot but `slot`. */
+  const othersThan = (slot: number): number[] => CONSUMABLE_SLOTS.filter((i) => i !== slot);
   /** A World on the belt catalog with ONE key-fires row and ONE `isWeapon` row
    *  (the future decoy's shape). `used` records every effect that ran. */
   function beltWorld(seed = 1): { w: World; used: string[] } {
@@ -1981,7 +1980,7 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
 
   // --- stock ---------------------------------------------------------------
 
-  it('a consumable pick STOCKS the first belt slot and queues its bn', () => {
+  it('a consumable pick STOCKS its kind\'s fixed slot and queues its bn', () => {
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
     expect(a.cards).toEqual([]);
@@ -1989,12 +1988,12 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     a.offer = ['hullRepair'];
     expect(w.spendPoint('a', 0)).toBe(true);
     // The stack: one copy, and a timer that is 0 for its whole life.
-    expect(a.loadout[B0]).toEqual({ equipmentId: 'hullRepair', state: { n: 1, reloadMsLeft: 0 } });
+    expect(a.loadout[HR_SLOT]).toEqual({ equipmentId: 'hullRepair', state: { n: 1, reloadMsLeft: 0 } });
     expect(a.cards).toEqual(['hullRepair']);
     w.step(); // the tick swap is what publishes the queued event
     expect(bnsOf(buildFrame(w, 'a').events)).toEqual([{ k: 'bn', id: 'a', boon: 'hullRepair' }]);
-    // The weapon row and the other three belt slots are untouched.
-    for (const i of [...WEAPON_SLOTS, B1, B2, B3]) {
+    // The weapon row and every other consumable slot are untouched.
+    for (const i of [...WEAPON_SLOTS, ...othersThan(HR_SLOT)]) {
       expect(a.loadout[i], String(i)).toEqual({ equipmentId: null, state: null });
     }
   });
@@ -2004,38 +2003,41 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
     arm(a, ['hullRepair'], 2);
     expect(w.spendPoint('a', 0)).toBe(true);
-    const state = a.loadout[B0].state; // the identical state object must survive
+    const state = a.loadout[HR_SLOT].state; // the identical state object must survive
     arm(a, ['hullRepair'], 1);
     expect(w.spendPoint('a', 0)).toBe(true);
-    expect(a.loadout[B0].state).toBe(state);
-    expect(a.loadout[B0]).toEqual({ equipmentId: 'hullRepair', state: { n: 2, reloadMsLeft: 0 } });
+    expect(a.loadout[HR_SLOT].state).toBe(state);
+    expect(a.loadout[HR_SLOT]).toEqual({ equipmentId: 'hullRepair', state: { n: 2, reloadMsLeft: 0 } });
     expect(a.cards).toEqual(['hullRepair', 'hullRepair']);
-    for (const i of [B1, B2, B3]) expect(a.loadout[i]).toEqual({ equipmentId: null, state: null });
+    for (const i of othersThan(HR_SLOT)) expect(a.loadout[i]).toEqual({ equipmentId: null, state: null });
   });
 
-  it('four DISTINCT lines fill the belt 5-8 in pick order; the weapon row never takes one', () => {
+  it('every kind lands in ITS OWN fixed slot whatever the pick order; a second kind never moves the first; the weapon row never takes one', () => {
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
-    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff']) w.applyCard(a, id);
-    expect(CONSUMABLE_SLOTS.map((i) => a.loadout[i].equipmentId)).toEqual([
-      'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff',
-    ]);
+    const order = [...CONSUMABLE_KEY_ORDER].reverse(); // the opposite of key order
+    for (const [n, id] of order.entries()) {
+      w.applyCard(a, id);
+      // Every kind stocked so far still sits in its own slot — nothing moved.
+      for (const held of order.slice(0, n + 1)) expect(a.loadout[consumableSlotFor(held)!].equipmentId, held).toBe(held);
+    }
     for (const i of CONSUMABLE_SLOTS) expect(a.loadout[i].state).toEqual({ n: 1, reloadMsLeft: 0 });
     for (const i of WEAPON_SLOTS) expect(a.loadout[i]).toEqual({ equipmentId: null, state: null });
   });
 
   // --- the refusal ---------------------------------------------------------
 
-  it('a FIFTH line on a full belt is refused BEFORE any mutation — the offer is byte-identical next frame', () => {
+  it('a kind AT ITS CAP is refused BEFORE any mutation — the offer is byte-identical next frame', () => {
     const { w } = beltWorld();
-    const a = placeBelt(w, 'a', deckOf('decoyBuoy'));
-    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff']) w.applyCard(a, id);
-    arm(a, ['decoyBuoy']);
+    const a = placeBelt(w, 'a', deckOf('hullRepair'));
+    for (let i = 0; i < BELT_CATALOG.hullRepair.cap; i += 1) w.applyCard(a, 'hullRepair');
+    for (const id of ['shieldBlock', 'smokeScreen']) w.applyCard(a, id);
+    arm(a, ['hullRepair']);
     w.step(); // let any queued event age out, so the frames below are clean
     w.step();
     expect(bnsOf(buildFrame(w, 'a').events)).toEqual([]);
     expect(ptsOf(buildFrame(w, 'a').events)).toEqual([]);
-    expect(front(a)).toEqual(['decoyBuoy']);
+    expect(front(a)).toEqual(['hullRepair']);
     const offerRef = a.offer;
     const offerCopy = [...a.offer!];
     const banked = a.bankedLevels;
@@ -2062,19 +2064,19 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     expect([...buildFrame(w, 'a').you!.offer]).toEqual(offerCopy);
   });
 
-  it('a full belt still takes another copy of a line it ALREADY HOLDS (canStock is held-OR-empty)', () => {
+  it('with EVERY kind stocked, a held kind under its cap still takes another copy in its own slot', () => {
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
-    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff']) w.applyCard(a, id);
+    for (const id of CONSUMABLE_KEY_ORDER) w.applyCard(a, id);
     arm(a, ['hullRepair']);
     expect(w.spendPoint('a', 0)).toBe(true);
-    expect(a.loadout[B0]).toEqual({ equipmentId: 'hullRepair', state: { n: 2, reloadMsLeft: 0 } });
+    expect(a.loadout[HR_SLOT]).toEqual({ equipmentId: 'hullRepair', state: { n: 2, reloadMsLeft: 0 } });
   });
 
-  it('a NON-consumable pick is never gated by the belt (a full belt does not refuse a ladder)', () => {
+  it('a NON-consumable pick is never gated by the consumable slots (every kind stocked does not refuse a ladder)', () => {
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', new Array<LineId>(9).fill('gunUp' as LineId));
-    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff']) w.applyCard(a, id);
+    for (const id of CONSUMABLE_KEY_ORDER) w.applyCard(a, id);
     arm(a, ['gunUp' as LineId]);
     expect(w.spendPoint('a', 0)).toBe(true);
   });
@@ -2087,9 +2089,9 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     w.applyCard(a, 'hullRepair');
     w.applyCard(a, 'hullRepair');
     const stats = a.stats;
-    expect(w.sinkingActivationGate(a, B0)).toEqual({ ok: true });
+    expect(w.sinkingActivationGate(a, HR_SLOT)).toEqual({ ok: true });
     expect(used).toEqual(['hullRepair']);
-    expect(a.loadout[B0]).toEqual({ equipmentId: 'hullRepair', state: { n: 1, reloadMsLeft: 0 } });
+    expect(a.loadout[HR_SLOT]).toEqual({ equipmentId: 'hullRepair', state: { n: 1, reloadMsLeft: 0 } });
     expect(a.cards).toEqual(['hullRepair']); // one copy left the build
     // A consumable carries no stat effect, so the re-fold moves NOTHING.
     expect(a.stats).toEqual(stats);
@@ -2103,9 +2105,9 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
     w.applyCard(a, 'hullRepair');
-    expect(w.sinkingActivationGate(a, B0)).toEqual({ ok: true });
-    expect(a.loadout[B0]).toEqual({ equipmentId: null, state: null });
-    expect(slotAmmo(a)[B0]).toBeNull();
+    expect(w.sinkingActivationGate(a, HR_SLOT)).toEqual({ ok: true });
+    expect(a.loadout[HR_SLOT]).toEqual({ equipmentId: null, state: null });
+    expect(slotAmmo(a)[HR_SLOT]).toBeNull();
     expect(a.cards).toEqual([]);
     expect(slotsWithCards(a.stats, a.cards, BELT_CATALOG)).toEqual(a.loadout);
   });
@@ -2114,7 +2116,7 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
     for (const id of ['hullRepair', 'gunUp', 'hullRepair', 'gunUp']) w.applyCard(a, id);
-    expect(w.sinkingActivationGate(a, B0)).toEqual({ ok: true });
+    expect(w.sinkingActivationGate(a, HR_SLOT)).toEqual({ ok: true });
     expect(a.cards).toEqual(['hullRepair', 'gunUp', 'gunUp']);
   });
 
@@ -2123,56 +2125,51 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
     w.applyCard(a, 'hullRepair');
     w.applyCard(a, 'hullRepair');
-    expect(w.sinkingActivationGate(a, B0)).toEqual({ ok: true }); // 2 -> 1
+    expect(w.sinkingActivationGate(a, HR_SLOT)).toEqual({ ok: true }); // 2 -> 1
     // The REBUILD (respawn / redeploy / the client's replay) is this one shared
     // derivation over `cards` — it can only ever show what is still held.
-    expect(slotsWithCards(a.stats, a.cards, BELT_CATALOG)[B0]).toEqual({
+    expect(slotsWithCards(a.stats, a.cards, BELT_CATALOG)[HR_SLOT]).toEqual({
       equipmentId: 'hullRepair', state: { n: 1, reloadMsLeft: 0 },
     });
     w.applyCard(a, 'hullRepair'); // ...and a fresh copy deepens it again
-    expect(a.loadout[B0].state).toEqual({ n: 2, reloadMsLeft: 0 });
+    expect(a.loadout[HR_SLOT].state).toEqual({ n: 2, reloadMsLeft: 0 });
   });
 
-  // --- THE BELT IS ALWAYS THE REPLAY (Story 8.7 review patch P1) -----------
+  // --- THE SLOTS ARE ALWAYS THE REPLAY (Story 8.7 review patch P1) ---------
   //
   // The client never sees `loadout`: it REPLAYS `OwnShip.cards` through
-  // `slotsWithCards`, which packs the belt left-to-right in fit order. So the
-  // moment a spent stack clears IN PLACE the two sides hold different keys:
-  // the server's `[null, B, C, D]` against the client's `[B, C, D, null]`, and
-  // key 2 fires a different line on each side. The server therefore REBUILDS
-  // the four belt slots from that same replay after every spend.
+  // `slotsWithCards`. The server rebuilds the consumable slots from that same
+  // replay after every spend, so the two agree by construction. Since Story
+  // 9.2 the replay binds each kind to its FIXED slot and never packs: a
+  // spent-to-zero stack clears where it sits and nothing else moves (Story
+  // 8.7's leftward re-pack is gone with the belt).
 
-  it('a spent-to-zero slot RE-PACKS the belt leftward, exactly as the client replay does', () => {
+  it('a spent-to-zero slot clears IN PLACE — nothing re-packs, exactly as the client replay does', () => {
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
-    for (const id of ['hullRepair', 'shieldBlock', 'shieldBlock', 'smokeScreen', 'chaff']) {
+    for (const id of ['hullRepair', 'shieldBlock', 'shieldBlock', 'smokeScreen', 'decoyBuoy']) {
       w.applyCard(a, id);
     }
-    expect(CONSUMABLE_SLOTS.map((i) => a.loadout[i].equipmentId)).toEqual([
-      'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff',
-    ]);
+    const before = CONSUMABLE_SLOTS.map((i) => a.loadout[i].equipmentId);
     // The GUN's live pool is the control: weapon slots keep their own state.
     a.loadout[SLOT_GUN].state = { n: 3, reloadMsLeft: 777 };
 
-    expect(w.sinkingActivationGate(a, B0)).toEqual({ ok: true }); // hullRepair 1 -> 0
+    expect(w.sinkingActivationGate(a, HR_SLOT)).toEqual({ ok: true }); // hullRepair 1 -> 0
 
-    expect(CONSUMABLE_SLOTS.map((i) => a.loadout[i].equipmentId)).toEqual([
-      'shieldBlock', 'smokeScreen', 'chaff', null,
-    ]);
-    expect(a.loadout[B0].state).toEqual({ n: 2, reloadMsLeft: 0 }); // B's count survives the re-pack
-    expect(a.loadout[B3]).toEqual({ equipmentId: null, state: null });
+    expect(a.loadout[HR_SLOT]).toEqual({ equipmentId: null, state: null }); // cleared in its own slot
+    // Every OTHER slot is exactly as it was: same kind, same count.
+    expect(CONSUMABLE_SLOTS.map((i) => a.loadout[i].equipmentId)).toEqual(before.map((id, k) => (CONSUMABLE_SLOTS[k] === HR_SLOT ? null : id)));
+    expect(a.loadout[consumableSlotFor('shieldBlock')!].state).toEqual({ n: 2, reloadMsLeft: 0 });
     expect(a.loadout.slice(5)).toEqual(slotsWithCards(a.stats, a.cards, BELT_CATALOG).slice(5));
-    expect(slotAmmo(a).slice(5)).toEqual([
-      { n: 2, reloadMsLeft: 0 }, { n: 1, reloadMsLeft: 0 }, { n: 1, reloadMsLeft: 0 }, null,
-    ]);
+    expect(slotAmmo(a)[HR_SLOT]).toBeNull();
     // ...and slots 0-4 were never touched: the gun's live timer is intact.
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: 3, reloadMsLeft: 777 });
   });
 
-  it('PROPERTY: after EVERY stock and EVERY use the belt equals the replay, ids and n, and slotAmmo agrees', () => {
-    const LINES: ConsumableId[] = ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'];
+  it('PROPERTY: after EVERY stock and EVERY use the slots equal the replay, every stack sits in its kind\'s fixed slot, and slotAmmo agrees', () => {
+    const LINES: readonly ConsumableId[] = CONSUMABLE_KEY_ORDER;
     for (let seed = 1; seed <= 24; seed++) {
-      // Every one of the four lines gets a row, so any belt key can be pressed.
+      // Every keyed kind gets a row, so any key can be pressed.
       const reg = buildConsumableRegistry(LINES.map((id) => consumableRow(id, () => ({ ok: true }))));
       const w = bareWorld(seed, { catalog: BELT_CATALOG, consumables: reg });
       const a = placeBelt(w, 'a', deckOf('hullRepair'));
@@ -2187,13 +2184,17 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
           w.applyCard(a, LINES[next(LINES.length)]); // a STOCK (refused if it cannot land)
         } else {
           actSeq += 1; // a USE — through the real ability channel, as a key press
-          send(w, 'a', actSeq, { actSeq, actSlot: CONSUMABLE_SLOTS[next(4)] });
+          send(w, 'a', actSeq, { actSeq, actSlot: next(SLOT_COUNT) }); // any slot 0..10
           w.step();
         }
         const replay = slotsWithCards(a.stats, a.cards, BELT_CATALOG);
         const where = `seed ${seed} step ${step} cards ${a.cards.join(',')}`;
         expect(a.loadout.slice(5), where).toEqual(replay.slice(5));
         expect(slotAmmo(a).slice(5), where).toEqual(slotAmmo({ ...a, loadout: replay } as ShipRecord).slice(5));
+        for (const i of CONSUMABLE_SLOTS) {
+          const id = a.loadout[i].equipmentId;
+          if (id !== null) expect(consumableSlotFor(id as ConsumableId), where).toBe(i); // never packed
+        }
       }
     }
   });
@@ -2208,26 +2209,27 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
     w.applyCard(a, 'hullRepair');
     const cards = [...a.cards];
-    expect(w.sinkingActivationGate(a, B0)).toEqual({ ok: false, reason: 'blocked' });
-    expect(a.loadout[B0]).toEqual({ equipmentId: 'hullRepair', state: { n: 1, reloadMsLeft: 0 } });
+    expect(w.sinkingActivationGate(a, HR_SLOT)).toEqual({ ok: false, reason: 'blocked' });
+    expect(a.loadout[HR_SLOT]).toEqual({ equipmentId: 'hullRepair', state: { n: 1, reloadMsLeft: 0 } });
     expect(a.cards).toEqual(cards); // no `{n:0}` zombie, no copy refunded on respawn
     expect(slotsWithCards(a.stats, a.cards, BELT_CATALOG)).toEqual(a.loadout);
     // ...and the copy is still there to try again with.
-    expect(w.sinkingActivationGate(a, B0)).toEqual({ ok: false, reason: 'blocked' });
-    expect(a.loadout[B0].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(w.sinkingActivationGate(a, HR_SLOT)).toEqual({ ok: false, reason: 'blocked' });
+    expect(a.loadout[HR_SLOT].state).toEqual({ n: 1, reloadMsLeft: 0 });
   });
 
   // --- NO PHANTOM COPIES (Story 8.7 review patch P4) -----------------------
 
-  it('a DIRECTED applyCard of a fifth line on a full belt changes nothing at all', () => {
+  it('a DIRECTED applyCard of a kind at its cap changes nothing at all', () => {
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
-    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff']) w.applyCard(a, id);
+    for (let i = 0; i < BELT_CATALOG.hullRepair.cap; i += 1) w.applyCard(a, 'hullRepair');
+    for (const id of ['shieldBlock', 'smokeScreen']) w.applyCard(a, id);
     const cards = [...a.cards];
     const loadout = JSON.parse(JSON.stringify(a.loadout)) as unknown;
     const stats = a.stats;
 
-    w.applyCard(a, 'decoyBuoy'); // the fifth LINE: nowhere to go
+    w.applyCard(a, 'hullRepair'); // a sixth copy: over the cap
 
     // The copy never entered `cards` — a card no slot holds would ride the wire
     // and the client's replay would conjure a stack the server does not have.
@@ -2235,9 +2237,9 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     expect(JSON.parse(JSON.stringify(a.loadout))).toEqual(loadout);
     expect(a.stats).toBe(stats);
     expect(slotsWithCards(a.stats, a.cards, BELT_CATALOG)).toEqual(a.loadout);
-    // ...while a line the belt ALREADY HOLDS still lands.
-    w.applyCard(a, 'chaff');
-    expect(a.loadout[B3].state).toEqual({ n: 2, reloadMsLeft: 0 });
+    // ...while a held kind under its cap still lands, in its own slot.
+    w.applyCard(a, 'smokeScreen');
+    expect(a.loadout[consumableSlotFor('smokeScreen')!].state).toEqual({ n: 2, reloadMsLeft: 0 });
   });
 
   it('SINKING policy is unchanged: a belt slot activates while going down', () => {
@@ -2245,7 +2247,7 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
     w.applyCard(a, 'hullRepair');
     a.lifecycle = { kind: 'sinking', since: w.now };
-    expect(w.sinkingActivationGate(a, B0)).toEqual({ ok: true });
+    expect(w.sinkingActivationGate(a, HR_SLOT)).toEqual({ ok: true });
     expect(used).toEqual(['hullRepair']);
     // ...while the ECONOMY stays closed to a sinking hull (amendment 10).
     a.bankedLevels = 1;
@@ -2260,15 +2262,15 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     w.applyCard(a, 'hullRepair');
     w.applyCard(a, 'hullRepair');
     // A CLICK naming the belt slot is inert — the weapon-only wall.
-    send(w, 'a', 1, { fireSeq: 1, slot: B0, aimDist: 100 });
+    send(w, 'a', 1, { fireSeq: 1, slot: HR_SLOT, aimDist: 100 });
     w.step();
     expect(used).toEqual([]);
-    expect(a.loadout[B0].state).toEqual({ n: 2, reloadMsLeft: 0 });
+    expect(a.loadout[HR_SLOT].state).toEqual({ n: 2, reloadMsLeft: 0 });
     // The PRESS activates it.
-    send(w, 'a', 2, { actSeq: 1, actSlot: B0 });
+    send(w, 'a', 2, { actSeq: 1, actSlot: HR_SLOT });
     w.step();
     expect(used).toEqual(['hullRepair']);
-    expect(a.loadout[B0].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(a.loadout[HR_SLOT].state).toEqual({ n: 1, reloadMsLeft: 0 });
     expect(a.cards).toEqual(['hullRepair']);
   });
 
@@ -2278,46 +2280,46 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     w.applyCard(a, 'decoyBuoy');
     w.applyCard(a, 'decoyBuoy');
     // A PRESS naming the belt slot is inert — the ability-only wall.
-    send(w, 'a', 1, { actSeq: 1, actSlot: B0 });
+    send(w, 'a', 1, { actSeq: 1, actSlot: DB });
     w.step();
     expect(used).toEqual([]);
-    expect(a.loadout[B0].state).toEqual({ n: 2, reloadMsLeft: 0 });
+    expect(a.loadout[DB].state).toEqual({ n: 2, reloadMsLeft: 0 });
     // The CLICK activates it.
-    send(w, 'a', 2, { fireSeq: 1, slot: B0, aimDist: 100 });
+    send(w, 'a', 2, { fireSeq: 1, slot: DB, aimDist: 100 });
     w.step();
     expect(used).toEqual(['decoyBuoy']);
-    expect(a.loadout[B0].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(a.loadout[DB].state).toEqual({ n: 1, reloadMsLeft: 0 });
   });
 
   it('pressing a CLEARED belt slot yields the server-internal empty-slot, never a wired denial (amendment 26)', () => {
     const { w, used } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
     w.applyCard(a, 'hullRepair');
-    send(w, 'a', 1, { actSeq: 1, actSlot: B0 });
+    send(w, 'a', 1, { actSeq: 1, actSlot: HR_SLOT });
     w.step();
     expect(used).toEqual(['hullRepair']);
-    expect(a.loadout[B0]).toEqual({ equipmentId: null, state: null }); // cleared at zero
+    expect(a.loadout[HR_SLOT]).toEqual({ equipmentId: null, state: null }); // cleared at zero
     // The second press finds nothing: no row runs, and NOTHING reaches the wire.
-    send(w, 'a', 2, { actSeq: 2, actSlot: B0 });
+    send(w, 'a', 2, { actSeq: 2, actSlot: HR_SLOT });
     w.step();
     expect(used).toEqual(['hullRepair']);
     expect('denied' in buildFrame(w, 'a')).toBe(false);
     // ...and the gate's own answer stays server-internal.
-    expect(w.sinkingActivationGate(a, B0)).toEqual({ ok: false, reason: 'empty-slot' });
+    expect(w.sinkingActivationGate(a, HR_SLOT)).toEqual({ ok: false, reason: 'empty-slot' });
     expect('denied' in buildFrame(w, 'a')).toBe(false);
   });
 
-  it('a belt slot whose line has NO row fails closed at the gate', () => {
-    // Story 8.18 built SMOKE SCREEN, so the one UNBUILT subject left is the
-    // DEPTH CHARGE (amendment 83 — never built). The injected catalog
-    // un-stubs it so it can be stocked at all; production CONSUMABLES has no
-    // row for it.
-    const w = bareWorld(1, { catalog: BELT_CATALOG });
-    const a = placeBelt(w, 'a', deckOf('depthCharge'));
-    w.applyCard(a, 'depthCharge');
-    expect(a.loadout[B0].state).toEqual({ n: 1, reloadMsLeft: 0 }); // stocked...
-    expect(w.sinkingActivationGate(a, B0)).toEqual({ ok: false, reason: 'empty-slot' }); // ...but inert
-    expect(a.loadout[B0].state).toEqual({ n: 1, reloadMsLeft: 0 }); // nothing spent
+  it('a consumable slot whose line has NO row fails closed at the gate', () => {
+    // The DEPTH CHARGE (amendment 83 — never built) has no key and no slot
+    // since Story 9.2, so the no-row subject is a KEYED kind stocked against
+    // an injected registry that carries no row for it.
+    const w = bareWorld(1, { catalog: BELT_CATALOG, consumables: buildConsumableRegistry([]) });
+    const a = placeBelt(w, 'a', deckOf('shieldBlock'));
+    w.applyCard(a, 'shieldBlock');
+    const SB = consumableSlotFor('shieldBlock')!;
+    expect(a.loadout[SB].state).toEqual({ n: 1, reloadMsLeft: 0 }); // stocked...
+    expect(w.sinkingActivationGate(a, SB)).toEqual({ ok: false, reason: 'empty-slot' }); // ...but inert
+    expect(a.loadout[SB].state).toEqual({ n: 1, reloadMsLeft: 0 }); // nothing spent
   });
 
   // --- the belt is not a pool ----------------------------------------------
@@ -2328,9 +2330,9 @@ describe('the belt — stock, the full-belt refusal, use, and clear-at-zero (Sto
     w.applyCard(a, 'hullRepair');
     w.applyCard(a, 'hullRepair');
     for (let i = 0; i < 9; i++) w.applyCard(a, 'gunUp'); // moves gun stats + cooldowns
-    expect(a.loadout[B0]).toEqual({ equipmentId: 'hullRepair', state: { n: 2, reloadMsLeft: 0 } });
+    expect(a.loadout[HR_SLOT]).toEqual({ equipmentId: 'hullRepair', state: { n: 2, reloadMsLeft: 0 } });
     for (let i = 0; i < 20; i++) w.step();
-    expect(a.loadout[B0]).toEqual({ equipmentId: 'hullRepair', state: { n: 2, reloadMsLeft: 0 } });
+    expect(a.loadout[HR_SLOT]).toEqual({ equipmentId: 'hullRepair', state: { n: 2, reloadMsLeft: 0 } });
   });
 });
 

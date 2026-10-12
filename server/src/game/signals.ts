@@ -111,7 +111,6 @@ import type { BurnZone, LitZone, ShipRecord } from './world.js';
 import { isFleetHull, isParticipant } from './participants.js';
 import type { MineState } from './equipment/index.js';
 import type { DecoyState } from './decoys.js';
-import { fakeEpoch, scatterFakes, type Fake, type FakeSource } from './fakes.js';
 
 // ---------------------------------------------------------------------------
 // The narrow per-observer context rows receive (imitates equipment's
@@ -125,9 +124,6 @@ interface SignalContextBase {
   now: number;
   /** Island landmasses for the one LOS rule (bounding circle + coastline). */
   islands: readonly Island[];
-  /** Water-disk radius (u) — the CHAFF scatter's water filter (Story 8.16:
-   *  a fake is never drawn off the disk). No sight/radar gate reads it. */
-  mapRadius: number;
   /** The map's quantized height raster + max-height pyramid — the radar blip
    *  gate's ONLY occlusion input (Story 4.11: the shared shadow march). The
    *  raster alone rides the context, never the whole GameMap (the narrow-
@@ -156,10 +152,6 @@ interface SignalContextBase {
    *  wakeGate or visibilityTo (a puff is optical, ruling of record). Rides
    *  both paths uniformly. */
   readonly smoke: readonly SmokePuff[];
-  /** All CHAFF clouds by owner id (Story 8.16, amendment 127 — world-owned,
-   *  so a cloud outlives its owner's hull) — chaffFakeBlips' sources. Rides
-   *  the context like decoys does; inert on the spectator path (no blips). */
-  chaffSources: ReadonlyMap<string, FakeSource>;
   /** Ship id → stable per-match track id (World.pseudonymFor — the server-
    *  private stream; see World.trackIds for the honest correlation bound).
    *  The `return` blip payload carries no id at all (amendment 152), so no
@@ -212,10 +204,10 @@ export type SignalContext = FoggedSignalContext | SpectatorSignalContext;
  * materialize() is only ever called after visible() passes.
  *
  * THE `counterIntel` SEAM IS DELETED (Story 7-5 wave 2): the decoy buoy's
- * radar-double lie was its only implementer and its only caller. The one
- * deliberate false signal today — CHAFF (Story 8.16) — is not a row: its fakes
- * merge into the blip subsequence via chaffFakeBlips, with the explicit
- * carve-out the perception oracle declares.
+ * radar-double lie was its only implementer and its only caller. CHAFF's
+ * server-generated fakes (Story 8.16) and their perception carve-out were
+ * retired with the CHAFF line (Story 9.2, epic-9 amendment 31): no false
+ * signal leaves perception today.
  */
 export interface SignalSpec<S = unknown, O = unknown> {
   /** Registry key: a GameEvent `k`, or a pseudo-type for a non-event frame
@@ -507,7 +499,7 @@ function sweptThisTick(me: SweepWindow, brg: number): boolean {
  *  block every sensor). The in-bubble smoke clause is the one deliberate
  *  re-entry into the bubble, and it keeps the island rule intact (island LOS
  *  must be CLEAR). Point-based so a non-ship subject can share it (Story 1.8)
- *  runs the IDENTICAL test on a decoy or chaff-fake position. */
+ *  runs the IDENTICAL test on a decoy position. */
 function inRadarAnnulus(me: ShipRecord, p: Vec2, now: number): boolean {
   const dx = p.x - me.state.x;
   const dy = p.y - me.state.y;
@@ -517,8 +509,7 @@ function inRadarAnnulus(me: ShipRecord, p: Vec2, now: number): boolean {
 }
 
 /** The annulus's OUTER edge alone — the point is within the observer's
- *  effective radar range (`stats.radarRange`, inclusive `<=`). One read for
- *  both callers: inRadarAnnulus and the chaff owner's ghost gate. */
+ *  effective radar range (`stats.radarRange`, inclusive `<=`). */
 function withinRadarRange(me: ShipRecord, p: Vec2): boolean {
   const dx = p.x - me.state.x;
   const dy = p.y - me.state.y;
@@ -564,10 +555,10 @@ function smokedInBubble(me: ShipRecord, p: Vec2, now: number, islands: readonly 
  * keeps the scope and the gate from ever disagreeing. Term ordering is
  * load-bearing for cost: annulus (or the in-bubble clause) → swept-this-tick →
  * shadow march, so the expensive term runs only for candidates already in
- * this tick's beam wedge. The genuine ship scan, the decoy paint and the
- * chaff fakes all call THIS, so anything afloat at a position paints exactly
- * when a ship there would — same tick, same boundaries, same shadowing; a
- * decoy or a fake behind smoke inside your bubble paints too. Do not fork it,
+ * this tick's beam wedge. The genuine ship scan and the decoy paint both
+ * call THIS, so anything afloat at a position paints exactly when a ship
+ * there would — same tick, same boundaries, same shadowing; a decoy behind
+ * smoke inside your bubble paints too. Do not fork it,
  * and do not give a non-ship subject its own height: observer and target are
  * both at mast height (amendment 101), which is what makes the model
  * symmetric. The wire shape is the SAME footprint either way (blipShape) — an
@@ -639,9 +630,7 @@ function blipShape(ctx: SignalContext, p: Vec2, cls: HullId, heading: number): B
 
 /** THE COVERAGE RECT — the blip's payload minus `k` and `t` (`GhostPaint`,
  *  cycle 162), in the SAME key order the blip carries it (gx,gy,w,h,bits).
- *  Two callers: blipShape (every `events` blip) and the chaff owner's ghosts
- *  (ownerChaffGhosts) — one function so the two shapes cannot drift: a ghost
- *  IS the rect everyone else receives as a blip for the same fake this tick. */
+ *  One caller since CHAFF's retirement (Story 9.2): blipShape. */
 function paintRect(ctx: SignalContext, p: Vec2, cls: HullId, heading: number): GhostPaint {
   const c = paintMask(cls, p, heading, ctx.now);
   return { gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
@@ -950,10 +939,10 @@ const smokeSignal: SignalSpec<SmokePuff, SmokeView> = {
  * than leaning on the scan's contact-first ordering. Spectators get live
  * contacts instead, never blips.
  *
- * COUNTER-INTEL IS DELETED (Story 7-5 wave 2). The two non-ship additions to
- * the blip subsequence — the DECOY BUOY's anonymous paint and CHAFF's fakes
- * (Story 8.16) — are not rows: they merge through decoyRadarBlips /
- * chaffFakeBlips below, gated by the SAME blipGate.
+ * COUNTER-INTEL IS DELETED (Story 7-5 wave 2). The one non-ship addition to
+ * the blip subsequence — the DECOY BUOY's anonymous paint (Story 8.16) — is
+ * not a row: it merges through decoyRadarBlips below, gated by the SAME
+ * blipGate.
  */
 const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
   eventType: 'blip',
@@ -986,7 +975,7 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
 // self-paint, own scope and jamming) — perception-generated additions to the
 // ONE blip subsequence, called only by perception's fogged view and merged
 // before the payload-only blipOrder sort, so a frame's blip ordering never
-// leaks which member came from a hull, a decoy, or a chaff fake. Every one is
+// leaks which member came from a hull or a decoy. Every one is
 // UNTAGGED: the `src` sensor tag died with the buoy (PV 59).
 // ---------------------------------------------------------------------------
 
@@ -1018,125 +1007,6 @@ export function decoyRadarBlips(ctx: FoggedSignalContext): BlipEvent[] {
   for (const decoy of ctx.decoys.values()) {
     if (ownZoneCovers(ctx, decoy)) continue;
     if (blipGate(ctx.me, decoy, ctx.heightRaster, ctx.now, ctx.islands, ctx.smoke)) out.push(decoyPaintBlip(ctx, decoy));
-  }
-  return out;
-}
-
-/**
- * THE CHAFF SCATTER MEMO — one fake set per (source, epoch). Keyed on the
- * SOURCE OBJECT (a WeakMap: a replaced or nulled source is collected with its
- * entry), so every observer in a tick reads the identical set and a set is
- * scattered once per source per epoch, not once per observer. The islands and
- * map radius are fixed for the world a source belongs to, so they need not be
- * in the key.
- */
-const FAKE_MEMO = new WeakMap<FakeSource, { epoch: number; fakes: readonly Fake[] }>();
-
-/** The live fake set of one chaff source this tick (the epoch unit is the
- *  owner's sweep period captured AT ACTIVATION — amendment 127). */
-function chaffFakes(ctx: SignalContext, source: FakeSource): readonly Fake[] {
-  const epoch = fakeEpoch(source, ctx.now);
-  const memo = FAKE_MEMO.get(source);
-  if (memo !== undefined && memo.epoch === epoch) return memo.fakes;
-  const fakes = scatterFakes(source.seed, epoch, source.x, source.y, source.radius, source.count, ctx.islands, ctx.mapRadius);
-  FAKE_MEMO.set(source, { epoch, fakes });
-  return fakes;
-}
-
-/**
- * CHAFF'S FALSE RETURNS (Story 8.16, catalog-v3 R39, amendment 124(b)(c)) —
- * the one DELIBERATE emission of a false signal through perception.observe().
- * Chaff's whole purpose is DENYING information, so a client that dropped the
- * fakes would gain an advantage — therefore THE SERVER emits them, and they
- * are wire-indistinguishable from real blips BY CONSTRUCTION: each fake is a
- * (pose, hull class) scattered on the source's server-private seed
- * (game/fakes.ts), shaped by blipShape — the ONE shaper every genuine ship
- * paint goes through — and gated per observer by blipGate — the ONE gate every
- * genuine ship paint passes — so a fake appears exactly when a real hull at
- * that pose would. The rules:
- *   • it ADDS fakes; it NEVER deletes a real return;
- *   • RADAR ONLY — the annulus inside blipGate means a fake can never appear
- *     inside your sight bubble EXCEPT where smoke alone hides that spot
- *     (amendment 147 — exactly where a real hull would paint too), and the
- *     ownZoneCovers skip extends the same truth-wins rule to a flare you
- *     hung over the cloud;
- *   • the OWNER NEVER receives their own chaff's fakes AS BLIPS (a source
- *     whose `ownerId` is the observer is skipped entirely here) — no `src`
- *     tag, nothing in `events`; since cycle 162 the owner instead receives
- *     the rects of its own fakes its beam painted as the self-private
- *     `you.chaffGhosts` (ownerChaffGhosts below — Eric 2026-10-01); the
- *     cloud is WORLD-owned (amendment 127), so it keeps painting after its
- *     owner sinks, redeploys, respawns or leaves;
- *   • deterministic per (source, epoch), identical for every observer in a
- *     tick, WATER-FILTERED (no fake lies on land or off the disk), and a
- *     lapsed source (`until <= now`) paints nothing — lazy expiry.
- *
- * THE PERCEPTION CARVE-OUT: a fake discloses NOTHING REAL (its pose comes off
- * a private RNG, not off any ship), so it is NOT a seventh declared exception
- * — the count stays at SIX. perception.test.ts's verifyBlip carries the
- * matching arm: a blip may byte-match an independently re-derived fake
- * (recomputed from seed, epoch and source with the same filter), which can
- * never hide a genuine leak.
- */
-export function chaffFakeBlips(ctx: FoggedSignalContext, out: BlipEvent[]): void {
-  for (const source of ctx.chaffSources.values()) {
-    if (source.ownerId === ctx.me.id || source.until <= ctx.now) continue;
-    pushGatedFakes(ctx, chaffFakes(ctx, source), out);
-  }
-}
-
-/** The per-fake half of chaffFakeBlips (split for the complexity gate). */
-function pushGatedFakes(ctx: FoggedSignalContext, fakes: readonly Fake[], out: BlipEvent[]): void {
-  for (const fake of fakes) {
-    if (ownZoneCovers(ctx, fake)) continue; // your own flare shows the truth: no ship there
-    if (!blipGate(ctx.me, fake, ctx.heightRaster, ctx.now, ctx.islands, ctx.smoke)) continue;
-    out.push(blipShape(ctx, fake, fake.cls, fake.heading));
-  }
-}
-
-/**
- * THE CHAFF OWNER'S OWN GHOSTS (Eric 2026-10-01, cycle 162, PV 68 —
- * supersedes amendment 191's "never the fakes"): the coverage rects of the
- * OBSERVER'S OWN live chaff fakes that the observer's beam painted this tick,
- * for the self-private `you.chaffGhosts` (frames.ts emits the list beside
- * `you.chaff`, OMITTED when empty). The fakes are THE SAME SET everyone else
- * is painting — the memoized `chaffFakes` scatter on the same seed and epoch
- * — and each rect is THE SAME shape (`paintRect`, which blipShape wraps), so
- * what the owner sees in grey is exactly what its enemies see as blips.
- *
- * THE OWNER'S GATE (orchestrator ruling, Eric may veto): the fake is within
- * the owner's effective radar range (withinRadarRange — the annulus's OUTER
- * edge, inclusive) ∧ the beam crossed the fake's bearing this tick
- * (sweptThisTick) ∧ the fake is at least partially lit under the
- * height-aware radar shadow (visibilityTo > 0) ∧ no flare the owner owns
- * covers it (ownZoneCovers — the truth-wins rule blipGate's callers apply).
- * It is blipGate with its annulus's INNER (sight) edge and its
- * smokedInBubble alternative dropped, deliberately: the cloud bursts AT THE
- * OWNER'S OWN POSITION (R39), inside its sight bubble, where the annulus
- * never paints — an owner gated by the full blipGate would see its ghosts
- * only once it had sailed `sight` u away from its own cloud. The OUTER edge
- * stays: a ghost is the owner's picture of a radar return, and no observer
- * is ever painted anything beyond its radar — an owner who sails (or is
- * redeployed) away from its world-owned cloud stops seeing the ghosts past
- * radar range, exactly as an enemy would. Everything else is byte-for-byte
- * the enemy's gate. Not a seventh perception exception: the rects disclose
- * nothing real (their poses come off the server-private scatter stream) and
- * ride `you` only — never `events`, never another observer's frame (the
- * `shield` / `inSmoke` / `chaff` precedent) — so the exception count stays
- * at SIX and every non-owner frame is byte-identical to before. FOGGED PATH
- * ONLY: a spectator has no beam, no raster state and no `you`.
- */
-export function ownerChaffGhosts(ctx: FoggedSignalContext): GhostPaint[] {
-  const out: GhostPaint[] = [];
-  const me = ctx.me;
-  const source = ctx.chaffSources.get(me.id);
-  if (source === undefined || source.until <= ctx.now) return out;
-  for (const fake of chaffFakes(ctx, source)) {
-    if (ownZoneCovers(ctx, fake)) continue;
-    if (!withinRadarRange(me, fake)) continue;
-    if (!sweptThisTick(me, bearing(me.state, fake))) continue;
-    if (visibilityTo(ctx.heightRaster, me.state.x, me.state.y, fake.x, fake.y) <= 0) continue;
-    out.push(paintRect(ctx, fake, fake.cls, fake.heading));
   }
   return out;
 }
@@ -2292,9 +2162,8 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   burnzone: burnZoneSignal,
   // Story 8.16: the DECOY BUOY's contact-like frame channel (owner always /
   // SIGHTED like a ship, amendment 126 / owned-zone / spectators), in the seat the
-  // deleted RADAR BUOY's `buoy` row held. Its anonymous radar paint and
-  // CHAFF's fakes are NOT rows: they merge into the `blip` subsequence via
-  // decoyRadarBlips / chaffFakeBlips above.
+  // deleted RADAR BUOY's `buoy` row held. Its anonymous radar paint is NOT
+  // a row: it merges into the `blip` subsequence via decoyRadarBlips above.
   decoy: decoySignal,
   // Story 8.18: the SMOKE SCREEN puff's contact-like frame channel (owner
   // always / spectators / centre within sight + radius with island-only LOS).

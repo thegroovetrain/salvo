@@ -8,7 +8,7 @@
 // NEGATIVE: the reserved -1 heal sentinel left the wire in Story 8.8.
 //
 // THE HEAL IS NOT A SPEND (epic-8 amendments 46 + 49). Healing is a CARD a bot
-// draws, stocks in its belt and FIRES — so `healHpFrac` gates the belt press
+// draws, stocks in its own slot and FIRES — so `healHpFrac` gates the key press
 // in the HULL REPAIR tactic. The only thing this policy does with hp is WANT a HULL
 // REPAIR card more while hurt (below).
 //
@@ -29,9 +29,12 @@
 //     every line in it holds the same count (the flat level-zero build), no
 //     upgrade earns it, so a favorite ladder scores 3 and a weapon opens.
 //   - A CONSUMABLE is `base`, + `favorite` if it is one, then + the taste's
-//     belt hunger if the belt carries none of it, or + `carried` (a
-//     negative) if it already does. HULL REPAIR while hurt and carrying none
-//     is `base + hurtRepair` (+ `favorite`) with belt hunger NOT applied.
+//     belt hunger if it carries none of it (the kind's fixed slot is empty),
+//     or + `carried` (a negative) if it already does. HULL REPAIR while hurt
+//     and carrying none is `base + hurtRepair` (+ `favorite`) with belt
+//     hunger NOT applied. (`beltHunger` keeps its name since Story 9.2 retired
+//     the belt: it means "a consumable it carries none of". No slot is ever
+//     scarce — every kind owns its own slot, epic-9 amendment 21.)
 //
 // THE ORDER THAT PRODUCES: a two-bonus upgrade and a needed repair (both 4 or
 // more) beat any new weapon; a favorite weapon (3.75) beats any other weapon
@@ -50,12 +53,12 @@
 import {
   CATALOG,
   CONFIG,
-  CONSUMABLE_SLOTS,
   DEFAULT_GUN,
   MOUNTED_GUN,
   SLOT_COUNT,
   SLOT_GUN,
   boonStackCount,
+  consumableSlotFor,
   isConsumableId,
   ladderHost,
   pickRefusal,
@@ -79,14 +82,15 @@ export interface BotSpendState {
   /** Card line ids already fitted, in fit order (repeats = stacks). */
   cards: readonly string[];
   /**
-   * The bot's NINE SLOT CONTENTS (`loadout.map(s => s.equipmentId)`) — the same
+   * The bot's ELEVEN SLOT CONTENTS (`loadout.map(s => s.equipmentId)`) — the same
    * array the server's `pickRefusal` takes, read off the bot's own ShipRecord
    * by the driver like everything else here (ai/ never sees a World).
    *
    * The scorer reads three things off it: which cards `spendCard` would refuse
    * (Story 8.14 review, F4 — the offer does NOT reroll on a refusal, so naming
    * a refused card would spend the same level into a no-op every tick), which
-   * consumables the belt already carries, and the mounted gun (slot 0).
+   * consumables it already carries (each in its kind's fixed slot), and the
+   * mounted gun (slot 0).
    * OPTIONAL: absent reads as "the cannon mounted, every other slot empty", so
    * the many hand-built test states keep compiling.
    */
@@ -119,7 +123,7 @@ function slotIdsOf(s: BotSpendState): readonly (SlotItemId | null)[] {
  * cards `World.spendCard` would not refuse, through the one shared predicate
  * both sides run. An empty result means the whole hand is refused, and the
  * right answer is the human one (amendment 44): DO NOT SPEND — the level stays
- * banked until firing a consumable frees a slot.
+ * banked until firing a consumable brings its line back under its cap.
  */
 function spendableIndices(s: BotSpendState, catalog: Catalog): number[] {
   const offer = s.offer ?? [];
@@ -206,10 +210,11 @@ function isHurt(profile: BotProfile, s: BotSpendState): boolean {
   return s.maxHp > 0 && (s.hp + (s.repairHp ?? 0)) / s.maxHp < profile.healHpFrac;
 }
 
-/** Does a BELT slot already carry this consumable? */
+/** Does this consumable's FIXED slot (`consumableSlotFor`, Story 9.2) hold a
+ *  stack? */
 function carries(s: BotSpendState, id: string): boolean {
-  const slotIds = slotIdsOf(s);
-  return CONSUMABLE_SLOTS.some((i) => slotIds[i] === id);
+  const slot = isConsumableId(id) ? consumableSlotFor(id) : null;
+  return slot !== null && slotIdsOf(s)[slot] === id;
 }
 
 function consumableScore(profile: BotProfile, s: BotSpendState, id: string): number {
@@ -223,7 +228,7 @@ function consumableScore(profile: BotProfile, s: BotSpendState, id: string): num
 
 /**
  * ONE CARD'S SCORE for this bot, or null when the hull cannot take it
- * (`pickRefusal` — unknown, stub, at cap, belt full, no weapon slot). Pure:
+ * (`pickRefusal` — unknown, stub, at cap, no weapon slot). Pure:
  * no rng, no clock. Exported so tests and tuning tools can read the policy
  * without running a spend.
  */
