@@ -1828,6 +1828,12 @@ export const CLIENT_CONFIG = {
      *  `.B-hud.dim .B-slots, .B-hud.dim .belt { opacity: .38 }`. The globes and
      *  the XP strip deliberately stay at 1. */
     dimAlpha: 0.38,
+    /** Gaussian blur reach (px) of the glow layer under the squares — the ONE
+     *  filter that turns each skin's `glowPx` / `glowAlpha` ring into a soft
+     *  bloom (Eric 2026-10-11, epic-9 amendment 39: no emulated shadow glow).
+     *  A feel knob: bigger = softer, wider halos; the per-state reach and peak
+     *  stay the mock's numbers in the skin table. */
+    glowBlurPx: 8,
     /** Hairline width (px) — every 1 px rule on the bar (square edges, rings, chip
      *  boxes, the strip's border). */
     lineW: 1,

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.18.38] - 2026-10-11
+
+### Changed
+- **The HUD bar's glow is a real glow.** The faint stacked boxes around a ready, selected or just-activated square — three outline rings standing in for the mock's soft shadow — are gone; each halo is now a true blurred bloom in the square's own color, sitting outside the box like a shadow. Eric 2026-10-11: *"I don't want an emulated shadow glow."* The fit pulse (the flash when a card lands on a square) uses the same bloom. Per-state reach and strength are the mock's numbers, unchanged.
+
+### Internal
+- `client/src/render/hotbar.ts`: a `glowGfx` layer under the squares with one `BlurFilter` (`CLIENT_CONFIG.hudBar.glowBlurPx` 8, quality 4); `drawGlow` fills an inflated ring with the square cut out; `drawFitPulse` likewise; `inflate` deleted. Tests: the probe reads the square layer (child 1) and the glow layer (child 0); contract tests for the bloom (one filled ring per lit square at the skin's color/alpha, a cut hole, no outline rings, no halo on zero-stock or empty squares).
+- PROTOCOL_VERSION unchanged (75). Epic-9 amendment 39. Cycle 173.
+
 ## [0.18.37] - 2026-10-11
 
 ### Changed

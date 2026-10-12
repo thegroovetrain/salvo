@@ -63,7 +63,7 @@
 // Nothing here drives net or sim: clicks are routed back out through the SAME
 // keyboard slot-action path the keys use.
 
-import { Container, Graphics, Text } from 'pixi.js';
+import { BlurFilter, Container, Graphics, Text } from 'pixi.js';
 import {
   CONSUMABLE_SLOTS,
   SLOT_COUNT,
@@ -830,6 +830,11 @@ export function degradedSkin(skin: SlotSkin): SlotSkin {
 
 /** Outset (px) of a fit pulse's ring from the surface it flashes around. */
 export const FIT_PULSE_PX = 6;
+/** The fit pulse's peak alpha on the glow layer (was the inner ring's .55). */
+const FIT_PULSE_ALPHA = 0.55;
+/** BlurFilter quality (passes) for the glow layer — 4 is smooth at the bar's
+ *  size; the cost is one filter over ~540×124 px per frame, not per square. */
+const GLOW_BLUR_QUALITY = 4;
 
 /** Peak alpha of the RANK-WIDE fit frame's stroke (amendment 51's one-shot). */
 export const FIT_FRAME_ALPHA = 0.5;
@@ -1037,14 +1042,6 @@ function squarePoints(r: Rect): PolyPoint[] {
   return [{ x: r.x, y: r.y }, { x: r.x + r.w, y: r.y }, { x: r.x + r.w, y: r.y + r.h }, { x: r.x, y: r.y + r.h }];
 }
 
-/** Inflate an outline outward from the square's center (the glow rings). */
-function inflate(pts: PolyPoint[], r: Rect, px: number): PolyPoint[] {
-  const cx = r.x + r.w / 2;
-  const cy = r.y + r.h / 2;
-  const k = (r.w / 2 + px) / (r.w / 2);
-  return pts.map((p) => ({ x: cx + (p.x - cx) * k, y: cy + (p.y - cy) * k }));
-}
-
 /** Pure: the smallest box containing both dim groups — the rank-wide fit
  *  frame's target (the strip plus the weapon row, which is exactly what dims). */
 function groupsBounds(layout: HudBarLayout): Rect {
@@ -1124,6 +1121,11 @@ function sameBoonList(a: readonly string[], b: readonly string[]): boolean {
  */
 export class Hotbar {
   private readonly root = new Container();
+  /** THE GLOW LAYER (Eric 2026-10-11, epic-9 amendment 39): every lit square's
+   *  halo is a filled ring on this one Graphics UNDER the squares, blurred once
+   *  per frame by a single BlurFilter — a true gaussian bloom in the skin's own
+   *  color, in place of the three stacked outline rings that read as boxes. */
+  private readonly glowGfx = new Graphics();
   private readonly gfx = new Graphics();
   private readonly slotText: SlotText[];
   private readonly tipRoot = new Container();
@@ -1146,7 +1148,10 @@ export class Hotbar {
 
   constructor(hudLayer: Container) {
     hudLayer.addChild(this.root);
-    this.root.addChild(this.gfx);
+    const blur = new BlurFilter({ strength: B.glowBlurPx, quality: GLOW_BLUR_QUALITY });
+    blur.padding = B.glowBlurPx * 2;
+    this.glowGfx.filters = [blur];
+    this.root.addChild(this.glowGfx, this.gfx);
     this.slotText = Array.from({ length: SLOT_COUNT }, (_, slot) => this.buildSlotText(slot));
     this.tipName = new Text({ text: '', style: TIP_NAME_STYLE });
     this.tipInteraction = new Text({ text: '', style: TIP_INTERACTION_STYLE });
@@ -1220,6 +1225,7 @@ export class Hotbar {
     this.cachedLayout = layout;
     const models = slotViewModels(view);
     this.gfx.clear();
+    this.glowGfx.clear();
     const breath = activeBreath(this.advanceBreath(view.nowSec), motionScaled(ACTIVE_PULSE_AMP, view.motion ?? 'full'));
     for (const m of models) this.drawSlot(m, layout, breath);
     this.drawFitFrame(view, layout);
@@ -1279,8 +1285,8 @@ export class Hotbar {
     if (skin.dashed) traceDashed(g, pts);
     else g.poly(flat);
     g.stroke({ width: skin.borderWidth, color: skin.border, alpha: skin.borderAlpha });
-    this.drawGlow(pts, square, skin);
-    if (m.fitFlash) this.drawFitPulse(pts, square);
+    this.drawGlow(square, skin);
+    if (m.fitFlash) this.drawFitPulse(square);
   }
 
   /**
@@ -1303,24 +1309,31 @@ export class Hotbar {
    *  whose family just took a boon — the ACTIVATED pop's register applied to
    *  the economy channel, deliberately OUTSIDE the box so it reads as something
    *  arriving ON the slot rather than the slot activating. */
-  private drawFitPulse(pts: PolyPoint[], square: Rect): void {
-    for (let i = 1; i <= 2; i++) {
-      const ring = inflate(pts, square, (FIT_PULSE_PX * i) / 2);
-      this.gfx
-        .poly(ring.flatMap((p) => [p.x, p.y]))
-        .stroke({ width: 1.5, color: C.phosphorBright, alpha: 0.55 / i });
-    }
+  private drawFitPulse(square: Rect): void {
+    // The same bloom mechanism as the glow (amendment 39): a bright ring on the
+    // blurred layer, so the pulse is a soft halo and never a stacked box.
+    const pad = FIT_PULSE_PX;
+    this.glowGfx
+      .rect(square.x - pad, square.y - pad, square.w + pad * 2, square.h + pad * 2)
+      .fill({ color: C.phosphorBright, alpha: FIT_PULSE_ALPHA })
+      .rect(square.x, square.y, square.w, square.h)
+      .cut();
   }
 
-  /** Layered low-alpha rings approximating the DESIGN.md box glow. */
-  private drawGlow(pts: PolyPoint[], square: Rect, skin: SlotSkin): void {
-    if (skin.glowPx <= 0) return;
-    for (let i = 1; i <= 3; i++) {
-      const ring = inflate(pts, square, (skin.glowPx * i) / 3);
-      this.gfx
-        .poly(ring.flatMap((p) => [p.x, p.y]))
-        .stroke({ width: 1.5, color: skin.border, alpha: (skin.glowAlpha * (4 - i)) / 4 });
-    }
+  /** The DESIGN.md box glow (`box-shadow: 0 0 <glowPx> <color at glowAlpha>`)
+   *  as a real bloom: a ring of the skin's border color — the square inflated
+   *  by half the glow reach, the square itself cut out so the halo sits OUTSIDE
+   *  the box like a shadow — on the blurred glow layer. The filter's blur does
+   *  the falloff; `glowPx` sets the reach and `glowAlpha` the peak, exactly the
+   *  two numbers the skin table carries from the mock. */
+  private drawGlow(square: Rect, skin: SlotSkin): void {
+    if (skin.glowPx <= 0 || skin.glowAlpha <= 0) return;
+    const pad = skin.glowPx / 2;
+    this.glowGfx
+      .rect(square.x - pad, square.y - pad, square.w + pad * 2, square.h + pad * 2)
+      .fill({ color: skin.border, alpha: skin.glowAlpha })
+      .rect(square.x, square.y, square.w, square.h)
+      .cut();
   }
 
   /** The equipment glyph — 24px in a weapon square, 16px in a strip one (mock
