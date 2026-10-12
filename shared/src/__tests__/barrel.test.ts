@@ -424,7 +424,12 @@ describe('shared barrel', () => {
     // 76 -> 77 (Story 9.3 session 2, Eric 2026-10-12): smoke is a client
     // overlay; CONFIG.countermeasure shrinks to lifeMs/r0/r1. The exception
     // count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(77);
+    // 77 -> 78 (Story 9.4, Eric 2026-10-11, epic-9 amendments 61-68): FLASH
+    // SHELLS -> FOULING SHELL (catalog content + CONFIG.foulingShell replaces
+    // CONFIG.flashShells), OwnShip.dazzledUntil -> fouledUntil, new
+    // FrameMsg.foulZones (FoulZoneView {id,x,y,r,until,by}). The exception
+    // count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(78);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -737,7 +742,7 @@ describe('shared barrel', () => {
     expect(CONFIG.starShells.litRadius).toBe(CONFIG.vision.sight / 2);
   });
 
-  it('CONFIG.phosphorShells + CONFIG.flashShells: Eric\'s 2026-09-29 numbers (Story 8.17, amendments 131/132)', () => {
+  it('CONFIG.phosphorShells: Eric\'s 2026-09-29 numbers (Story 8.17, amendment 131)', () => {
     expect(CONFIG.phosphorShells).toEqual({
       arc: 'full',
       // Never a mine (amendment 200, superseding 135(c)): only a deck gun's
@@ -753,17 +758,18 @@ describe('shared barrel', () => {
       shellRadius: 2,
     });
     expect('rangeU' in CONFIG.phosphorShells).toBe(false); // derived = radarRange
-    expect(CONFIG.flashShells).toEqual({
-      arc: 'full',
-      // The star shell's mask — a flash never detonates a mine (amendment 135(d)).
-      hits: ['hull', 'decoy'],
-      shellSpeed: 500,
-      shellRadius: 2,
-      radius: 150,
-      durationMs: 10000,
-      sightFraction: 0.125,
-    });
-    expect('damage' in CONFIG.flashShells).toBe(false); // a flash deals no damage
+  });
+
+  it('CONFIG.foulingShell: no damage, no tiers, and a slow that leaves the hull moving (Story 9.4, epic-9 amendments 61–68)', () => {
+    // FLASH SHELLS' block is gone with its dazzle; the FOULING SHELL took its seat.
+    expect('flashShells' in CONFIG).toBe(false);
+    const fs = CONFIG.foulingShell;
+    expect('damage' in fs).toBe(false); // zero damage — a slow is not damage
+    expect('rangeU' in fs).toBe(false); // reach is derived (the firer's radarRange)
+    expect(fs.hits).toEqual(['hull', 'decoy']); // the star shell's mask — never a mine
+    expect(fs.slowFactor).toBeGreaterThan(0); // never a full stop
+    expect(fs.slowFactor).toBeLessThan(1); // it does slow
+    expect(fs.lingerMs).toBeGreaterThan(0);
   });
 
   it('CONFIG.mine: aimed-placement + chain-era fields (Story 2.8) over the 1.8 geometry', () => {
@@ -1049,8 +1055,8 @@ describe('shared barrel', () => {
     // `phosphor`/`dazzle` went with their add-ons. The table itself stays,
     // empty — the machinery is kept for a future add-on.
     expect(Object.keys(DOCTRINE_MODES)).toEqual([]);
-    // ...and `dazzleShells` has no paths — FLASH SHELLS is a CONSUMABLE.
-    for (const path of BOON_STAT_PATHS) expect(path.startsWith('equipment.dazzleShells.')).toBe(false);
+    // ...and `foulingShell` has no paths — the FOULING SHELL is a CONSUMABLE.
+    for (const path of BOON_STAT_PATHS) expect(path.startsWith('equipment.foulingShell.')).toBe(false);
     // DELETED WITH RARITY AND THE SUBDECK WALK (Story 8.1): there is no card
     // scarcity tier, no offer category and no acquisition card left anywhere.
     for (const gone of [

@@ -59,6 +59,10 @@ export type BoonId = string;
  *
  * STORY 9.3 (Eric 2026-10-11): `smokeScreen` is REPLACED by `countermeasure`
  * (MULTI-SPECTRAL COUNTERMEASURE) in the same place; still seven.
+ *
+ * STORY 9.4 (Eric 2026-10-11, epic-9 amendments 61–68): `dazzleShells` (FLASH
+ * SHELLS) is REPLACED by `foulingShell` (FOULING SHELL) in the same place;
+ * still seven.
  */
 export const CONSUMABLE_IDS = [
   'hullRepair',
@@ -67,7 +71,7 @@ export const CONSUMABLE_IDS = [
   'decoyBuoy',
   'depthCharge',
   'supercavTorpedo',
-  'dazzleShells',
+  'foulingShell',
 ] as const;
 
 /** One of the seven consumables. */
@@ -227,7 +231,7 @@ export const BOON_STAT_PATH_SET: ReadonlySet<string> = new Set(BOON_STAT_PATHS);
  * the missile — Eric ruling 2026-09-21, epic-8 amendment 89e), and STORY 8.17
  * EMPTIED IT (Eric ruling 2026-09-29, epic-8 amendments 131–134): PHOSPHOR
  * SHELLS became its own tiered weapon line and DAZZLE the FLASH SHELLS
- * consumable, so the star shell's `phosphor`/`dazzle` verbs are DELETED and no
+ * consumable (itself replaced by the FOULING SHELL in Story 9.4), so the star shell's `phosphor`/`dazzle` verbs are DELETED and no
  * add-on line remains in the catalog. THE MACHINERY STAYS IN PLACE, UNUSED
  * (amendment 134 — ledgered for Eric): the `addon` kind, the `doctrine`
  * effect and this table, empty, so a future add-on needs no engine work.

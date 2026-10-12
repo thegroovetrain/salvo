@@ -853,7 +853,7 @@ describe('pickRefusal — every branch', () => {
     expect(pickRefusal([], OPEN_SLOTS, 'lightTorpedo')).toBeNull(); // copy 1, row open
     expect(pickRefusal(['lightTorpedo'], ROW_FULL, 'lightTorpedo')).toBeNull(); // a TIER card
     expect(pickRefusal([], OPEN_SLOTS, 'armor')).toBeNull(); // a ladder
-    expect(pickRefusal([], OPEN_SLOTS, 'dazzleShells')).toBeNull(); // FLASH SHELLS, a consumable (no add-on is left since 8.17)
+    expect(pickRefusal([], OPEN_SLOTS, 'foulingShell')).toBeNull(); // FOULING SHELL, a consumable (no add-on is left since 8.17)
     expect(pickRefusal([], OPEN_SLOTS, 'hullRepair')).toBeNull(); // a consumable
   });
 
@@ -899,10 +899,9 @@ describe('pickRefusal — every branch', () => {
   it("'noWeaponSlot' — copy 1 of an equipment line with Q/E/R full, never a later copy", () => {
     expect(pickRefusal([], ROW_FULL, 'starShells')).toBe('noWeaponSlot');
     expect(pickRefusal(['starShells'], ROW_FULL, 'starShells')).toBeNull(); // tier II lands on the hull
-    // Only EQUIPMENT claims the row: a ladder and two consumables (FLASH
-    // SHELLS — an add-on until Story 8.17 — and HULL REPAIR) all pass with the
-    // row full.
-    for (const id of ['armor', 'dazzleShells', 'hullRepair']) {
+    // Only EQUIPMENT claims the row: a ladder and two consumables (the
+    // FOULING SHELL and HULL REPAIR) all pass with the row full.
+    for (const id of ['armor', 'foulingShell', 'hullRepair']) {
       expect(pickRefusal([], ROW_FULL, id), id).toBeNull();
     }
   });

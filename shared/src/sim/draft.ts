@@ -10,14 +10,16 @@
 // accel, decel, turnRate and steerageSpeed are untouched, so the hull merely
 // accelerates toward a slightly higher ceiling and decays back at its class
 // decel once it leaves the lane. The lift is a fraction of the cap AS IT
-// STANDS at this step — after the boost and the slow — and is never written
+// STANDS at this step — after the boost and both slows — and is never written
 // into `EffectiveStats.kinematics`. Pure, zero I/O, plain objects — never
 // mutates its input.
 //
 // PINNED COMPOSITION ORDER (server AND predictor, byte-identical):
-//   boostedKinematics → slowedKinematics → draftedKinematics → hookKinematics
-// (boost first, the prop-fouling slow second, the wake draft third, hooks
-// last — see sim/boost.ts, sim/slow.ts and sim/hooks.ts).
+//   boostedKinematics → slowedKinematics (mine) → slowedKinematics (shell)
+//     → draftedKinematics → hookKinematics
+// (boost first, the two prop-fouling slows — mine then fouling shell zone —
+// next, the wake draft fourth, hooks last — see sim/boost.ts, sim/slow.ts and
+// sim/hooks.ts).
 
 import type { ShipConfig } from './ship.js';
 

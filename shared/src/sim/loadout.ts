@@ -174,11 +174,10 @@ export const CONSUMABLE_IS_WEAPON: Readonly<Record<ConsumableId, boolean>> = {
   // the mechanical sense besides the decoy: the digit primes, a click inside
   // the bow ±15° sector fires one fish (`KEY PRIMES · CLICK FIRES`).
   supercavTorpedo: true,
-  // FLASH SHELLS (internal id `dazzleShells` — Story 8.17, Eric ruling
-  // 2026-09-29, epic-8 amendment 132): the digit primes, a click fires one
-  // 360° shell to the radar rung that dazzles every non-friendly hull inside
-  // its one-time r150 burst.
-  dazzleShells: true,
+  // FOULING SHELL (Story 9.4, Eric 2026-10-11, epic-9 amendments 61–68;
+  // replaces FLASH SHELLS): the digit primes, a click fires one 360° shell to
+  // the radar rung whose burst leaves a stationary slowing zone.
+  foulingShell: true,
 };
 
 /** Membership over the ONE consumable id list (sim/effects.ts) — never a second
@@ -290,13 +289,14 @@ export interface LoadoutSlot {
  *
  * `depthCharge` is absent on purpose: a STUB line (never dealt) has no slot and
  * no key. `countermeasure` holds `3` (Story 9.3, Eric 2026-10-11) and
- * `dazzleShells` (FLASH SHELLS) holds `4` until 9.4's fouling shell.
+ * `foulingShell` (FOULING SHELL) holds `4` (Story 9.4, Eric 2026-10-11 — it
+ * took FLASH SHELLS' key, as the 9.2 key row planned).
  */
 export const CONSUMABLE_KEY_ORDER: readonly ConsumableId[] = Object.freeze([
   'hullRepair',
   'shieldBlock',
   'countermeasure',
-  'dazzleShells',
+  'foulingShell',
   'decoyBuoy',
   'supercavTorpedo',
 ] as const);

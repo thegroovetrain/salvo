@@ -829,9 +829,10 @@ describe('THE EQUIPMENT RELOAD STEP (catalog-v3 §3 standing rule)', () => {
 
   it('a line with no tier target moves no tier at all (a consumable is not a rung)', () => {
     // Story 8.17 re-pin (amendments 131/132): this used the two add-ons, and
-    // there are none left — FLASH SHELLS is a consumable and PHOSPHOR SHELLS a
-    // real equipment line (whose own tier it DOES move).
-    const s = effectiveStats(BASE, ['dazzleShells', 'hullRepair', 'decoyBuoy']);
+    // there are none left — FLASH SHELLS (the FOULING SHELL since Story 9.4) is
+    // a consumable and PHOSPHOR SHELLS a real equipment line (whose own tier it
+    // DOES move).
+    const s = effectiveStats(BASE, ['foulingShell', 'hullRepair', 'decoyBuoy']);
     for (const id of EQUIPMENT_IDS) expect(s.equipment[id].tier, id).toBe(1);
   });
 });
@@ -875,8 +876,9 @@ describe('effectiveStats — doctrine verb folds (NO add-on is left since Story 
     // asserted — each add-on sets its own verb — is no longer true of the game.
     const eq = effectiveStats(BASE).equipment as unknown as Record<string, Record<string, unknown>>;
     for (const verb of ['phosphor', 'dazzle']) expect(verb in eq.starShells!, verb).toBe(false);
-    // FLASH SHELLS is a consumable: five copies move no derived number at all.
-    expect(effectiveStats(BASE, stack('dazzleShells', 5))).toEqual(effectiveStats(BASE));
+    // The FOULING SHELL (FLASH SHELLS' slot since Story 9.4) is a consumable:
+    // five copies move no derived number at all.
+    expect(effectiveStats(BASE, stack('foulingShell', 5))).toEqual(effectiveStats(BASE));
     // PHOSPHOR SHELLS copy 1 is the bare weapon: it fits and moves no number.
     expect(effectiveStats(BASE, ['phosphorShells'])).toEqual(effectiveStats(BASE));
   });
@@ -1055,10 +1057,10 @@ describe('effectiveStats — every NON-STUB line folds (no dead cards)', () => {
     // SUPERCAV TORPEDO and DEPTH CHARGE joined the list in Story 8.13 — and
     // supercav is the proof that the id MOVED id spaces rather than keeping a
     // row: five copies of it move nothing at all.
-    // FLASH SHELLS (`dazzleShells`) joined in Story 8.17 (amendment 132): it
-    // moved from the add-on space and, like supercav, carries no stat row.
+    // FLASH SHELLS joined in Story 8.17 (amendment 132) and became the
+    // FOULING SHELL in Story 9.4: like supercav, it carries no stat row.
     for (const id of ['hullRepair', 'shieldBlock', 'countermeasure', 'decoyBuoy',
-      'depthCharge', 'supercavTorpedo', 'dazzleShells'] as const) {
+      'depthCharge', 'supercavTorpedo', 'foulingShell'] as const) {
       expect(effectiveStats(BASE, stack(id, 5)), id).toEqual(effectiveStats(BASE));
     }
   });

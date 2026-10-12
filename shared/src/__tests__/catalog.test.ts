@@ -27,7 +27,9 @@
 // STORY 8.17 RE-CUT THE LAST TWO ADD-ONS' KINDS (Eric 2026-09-29, epic-8
 // amendments 130–133): 109 -> 117 cards, still 26 lines. `phosphorShells` went
 // from a 1-card add-on to a 5-card EQUIPMENT line (+4) and `dazzleShells`
-// (FLASH SHELLS) to a 5-card CONSUMABLE (+4). No add-on line remains.
+// (FLASH SHELLS) to a 5-card CONSUMABLE (+4). No add-on line remains. Story
+// 9.4 replaced FLASH SHELLS with `foulingShell` (FOULING SHELL) in the same
+// slot, same kind and cap — the counts did not move.
 //
 // STORY 8.15 CUT THREE LINES AND RE-CUT TWO (Eric rulings 2026-09-21/28, epic-8
 // amendments 89e and 103–105): 29/122 -> 26/109. −11 (`missile` 5, `monitor`
@@ -94,8 +96,9 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   depthCharge: { cap: 5, kind: 'consumable', stub: true }, // NEW in 8.13 (amendment 83)
   // AN EQUIPMENT LINE since 8.13 (amendment 81) — it keeps its LINE_IDS slot.
   foulingMines: { cap: 5, kind: 'equipment', stub: false },
-  // FLASH SHELLS — a CONSUMABLE since 8.17 (amendment 132), slot kept.
-  dazzleShells: { cap: 5, kind: 'consumable', stub: false },
+  // FOULING SHELL — replaced FLASH SHELLS (a CONSUMABLE since 8.17) in its
+  // slot in Story 9.4.
+  foulingShell: { cap: 5, kind: 'consumable', stub: false },
   // An EQUIPMENT line since 8.17 (amendment 131), slot kept.
   phosphorShells: { cap: 5, kind: 'equipment', stub: false },
 };
@@ -295,14 +298,15 @@ describe('catalog v3 identity', () => {
     // the torpedo lines) and FOULING MINES became its own tiered EQUIPMENT line.
     // A THIRD WENT IN 8.15: HEAT SEEKING is CUT with the missile (89e). THE LAST
     // TWO WENT IN 8.17: PHOSPHOR SHELLS is its own weapon and DAZZLE SHELLS the
-    // FLASH SHELLS consumable. The `addon` kind itself stays (amendment 134).
+    // FLASH SHELLS consumable (the FOULING SHELL since Story 9.4). The `addon`
+    // kind itself stays (amendment 134).
     expect(LINE_IDS.filter((id) => CATALOG[id].kind === 'addon')).toEqual([]);
     expect(CATALOG.phosphorShells.kind).toBe('equipment');
-    expect(CATALOG.dazzleShells.kind).toBe('consumable');
+    expect(CATALOG.foulingShell.kind).toBe('consumable');
     expect(CATALOG.phosphorShells.appliesTo).toBeUndefined();
-    expect(CATALOG.dazzleShells.appliesTo).toBeUndefined();
+    expect(CATALOG.foulingShell.appliesTo).toBeUndefined();
     expect(tierTargetOf(CATALOG.phosphorShells)).toBe('phosphorShells');
-    expect(tierTargetOf(CATALOG.dazzleShells)).toBeUndefined();
+    expect(tierTargetOf(CATALOG.foulingShell)).toBeUndefined();
     expect((CATALOG as Record<string, unknown>).acousticHoming).toBeUndefined();
   });
 
@@ -465,9 +469,9 @@ describe('validateCatalog', () => {
     // (8.15) — still passes.
     const bad: Catalog = {
       heavyTorpedo: { id: 'heavyTorpedo', kind: 'equipment', cap: 1, stub: true, tiers: [[{ kind: 'slotFill', equipmentId: 'heavyTorpedo' }]] },
-      dazzleShells: { id: 'dazzleShells', kind: 'addon', cap: 1, appliesTo: ['heavyTorpedo'], tiers: [[{ kind: 'doctrine', weapon: 'starShells', mode: 'dazzle' }]] },
+      foulingShell: { id: 'foulingShell', kind: 'addon', cap: 1, appliesTo: ['heavyTorpedo'], tiers: [[{ kind: 'doctrine', weapon: 'starShells', mode: 'dazzle' }]] },
     };
-    expect(validateCatalog(bad).join(' | ')).toContain('dazzleShells: live add-on applies only to STUB equipment');
+    expect(validateCatalog(bad).join(' | ')).toContain('foulingShell: live add-on applies only to STUB equipment');
     expect(validateCatalog()).toEqual([]);
   });
 

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   burstVictims,
+  polyInBlast,
   stepShell,
   type ShellOutcome,
   type ShellState,
@@ -12,6 +13,7 @@ import { islandFromPolygon } from '../sim/map.js';
 import { segCircleHit } from '../math/geom.js';
 import { CONFIG, type HullId } from '../constants.js';
 import type { Island } from '../types.js';
+import type { Vec2 } from '../math/vec.js';
 
 const DT = CONFIG.tick.simDtMs / 1000;
 
@@ -500,6 +502,37 @@ describe('burstVictims — blast membership (silhouette within burstRadius, owne
 function mineAt(x: number, y: number, id = 'm1'): Target {
   return { id, kind: 'mine', poly: [{ x, y }] };
 }
+
+// polyInBlast is exported for the server's FOULING SHELL foul-zone OUTLINE
+// test (Story 9.4, epic-9 amendment 62): a hull is inside while ANY part of its
+// outline is within the radius — edges count, not just vertices.
+describe('polyInBlast — outline-touches-circle membership', () => {
+  /** Axis-aligned rectangle from its min/max corners. */
+  const rect = (x0: number, y0: number, x1: number, y1: number): Vec2[] =>
+    [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+  const O: Vec2 = { x: 0, y: 0 };
+
+  it('a polygon with a vertex inside the circle is in', () => {
+    // nearest vertex (95, ±5) sits 95.13 u from the centre
+    expect(polyInBlast(O, 96, rect(95, -5, 105, 5))).toBe(true);
+  });
+
+  it('a polygon wholly outside the circle is out', () => {
+    expect(polyInBlast(O, 90, rect(95, -5, 105, 5))).toBe(false);
+  });
+
+  it('an edge crossing the circle with NO vertex inside is in (edge-aware, not vertex-only)', () => {
+    // every vertex is ~53.9 u out; the near edge y = 20 passes 20 u from the centre
+    const poly = rect(-50, 20, 50, 22);
+    expect(poly.every((v) => Math.hypot(v.x, v.y) > 21)).toBe(true);
+    expect(polyInBlast(O, 21, poly)).toBe(true);
+    expect(polyInBlast(O, 19, poly)).toBe(false);
+  });
+
+  it('a centre inside the polygon is in, however small the radius', () => {
+    expect(polyInBlast(O, 0, rect(-100, -100, 100, 100))).toBe(true);
+  });
+});
 
 describe('stepShell — a mine is NEVER a collision subject in flight (amendment 20)', () => {
   // Eric, 2026-09-16: "If I did not DIRECTLY click on the mine, then UNDER NO
