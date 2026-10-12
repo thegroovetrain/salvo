@@ -4,7 +4,7 @@ type: 'feature'
 created: '2026-10-11'
 status: 'done'
 baseline_revision: '6e3efd3c'
-final_revision: 'PR pending (2026-10-11)'
+final_revision: 'PR #265 open (2026-10-11)'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: []
@@ -70,4 +70,4 @@ warnings: []
 
 ## Auto Run Result
 
-Status: done — PR pending to `development`; Eric judges the bloom on staging.
+Status: done — PR #265 open to `development`; Eric judges the bloom on staging.
