@@ -95,21 +95,21 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution (wave 1 — shared, one agent, Opus):**
-- [ ] `shared/src/sim/cloud.ts`, `constants.ts`, `sight.ts`, `catalog.ts`, `effects.ts`, `loadout.ts`, `types.ts`, `index.ts` -- the pixel function, CONFIG, ids, wire shapes, PV 76 -- the one source both sides run
-- [ ] `shared/src/__tests__/*` -- `cloud.test.ts` (determinism, bounds, decay, no transcendentals), re-bases; `npm test -w shared`, `npm run build -w shared`
+- [x] `shared/src/sim/cloud.ts`, `constants.ts`, `sight.ts`, `catalog.ts`, `effects.ts`, `loadout.ts`, `types.ts`, `index.ts` -- the pixel function, CONFIG, ids, wire shapes, PV 76 -- the one source both sides run
+- [x] `shared/src/__tests__/*` -- `cloud.test.ts` (determinism, bounds, decay, no transcendentals), re-bases; `npm test -w shared`, `npm run build -w shared`
 
 **Visual gate (orchestrator, after wave 1, before the client wave commits):**
-- [ ] Artifact: three card-glyph candidates + a cloud time-lapse (0 / 5 / 10 / 13 / 15 s) rendered from the built shared function; Eric's pick via AskUserQuestion (ruling 47)
+- [x] Artifact: three card-glyph candidates + a cloud time-lapse (0 / 5 / 10 / 13 / 15 s) rendered from the built shared function; Eric's pick via AskUserQuestion (ruling 47)
 
 **Execution (wave 2 — server Fable and client Opus in parallel, shared frozen):**
-- [ ] `server/src/game/{signals,perception,frames,world,drones}.ts`, `equipment/*`, `ai/*`, `metrics.ts`, `rooms/ArenaRoom.ts`, batchsim regex -- predicates, gate, store, step, bots -- six exceptions untouched
-- [ ] `server/src/__tests__/*` -- oracle arm + ledgers + fuzz, `countermeasure.test.ts` (every matrix row), `cloudPerf.test.ts`, goldenFrames re-recorded ONLY if the diff is the retired field (note it here); `npm test -w server`
-- [ ] `client/src/render/countermeasure.ts`, `config.ts`, `state.ts`, `net/roomBindings.ts`, `main.ts`, `render/{radar,projectiles,fog,wake,equipmentIcons}.ts`, `ui/boonCopy.ts` -- pixel renderer, mirrors, glyph, copy
-- [ ] `client/src/__tests__/*` -- renderer contract (one square per living pixel, none for dead, layer), wake mirror, copy rows from CONFIG, bindings; `npm test -w client`
+- [x] `server/src/game/{signals,perception,frames,world,drones}.ts`, `equipment/*`, `ai/*`, `metrics.ts`, `rooms/ArenaRoom.ts`, batchsim regex -- predicates, gate, store, step, bots -- six exceptions untouched
+- [x] `server/src/__tests__/*` -- oracle arm + ledgers + fuzz, `countermeasure.test.ts` (every matrix row), `cloudPerf.test.ts`, goldenFrames re-recorded ONLY if the diff is the retired field (note it here); `npm test -w server`
+- [x] `client/src/render/countermeasure.ts`, `config.ts`, `state.ts`, `net/roomBindings.ts`, `main.ts`, `render/{radar,projectiles,fog,wake,equipmentIcons}.ts`, `ui/boonCopy.ts` -- pixel renderer, mirrors, glyph, copy
+- [x] `client/src/__tests__/*` -- renderer contract (one square per living pixel, none for dead, layer), wake mirror, copy rows from CONFIG, bindings; `npm test -w client`
 
 **Execution (wave 3 — record, Sonnet):**
-- [ ] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `epics.md`, both trackers, amendments 40–47 (+ implementer readings) in BOTH homes, `deferred-work.md` (review defers only), `DESIGN.md` if false -- 0.18.39 / cycle 174 / PV 76
-- [ ] `npm run check` green; results recorded under Verification
+- [x] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `epics.md`, both trackers, amendments 40–47 (+ implementer readings) in BOTH homes, `deferred-work.md` (review defers only), `DESIGN.md` if false -- 0.18.39 / cycle 174 / PV 76
+- [x] `npm run check` green; results recorded under Verification
 
 **Acceptance Criteria:**
 - Given any seeded world in the perception fuzz, when `observe()` runs for every observer, then no contact, mine, decoy, ballistic, mark, blip or wake that the independent cloud oracle hides reaches a client, every delivered cloud passes gate (42), all four non-vacuity ledgers are positive, and the exception count is six.
@@ -134,7 +134,7 @@ warnings: [oversized]
 - `npm run build -w shared` -- expected: clean (before server/client tests)
 - `npm test -w shared && npm test -w server && npm test -w client` -- expected: all green
 - `npm run lint` -- expected: zero errors (complexity ≤ 10)
-- `npm run check` -- expected: green; counts recorded in CHANGELOG
+- `npm run check` -- expected: green; counts recorded in CHANGELOG -- RESULT 2026-10-11: green — shared 41 files / 1040 tests, server 89 / 2474, client 124 files green, lint 0 errors (2 pre-existing max-lines warnings), hook test green
 - `grep -rn "smokeScreen\|inSmoke\|SmokePuff\|SmokeView\|puffRadius\|puffCrossed\|smokeUntil\|nextPuffAt" shared/src server/src client/src --include=*.ts | grep -v __tests__` -- expected: no hits outside `how-to-play/copy.ts` (Eric's freeze, amendment 36) and dated doc comments
 
 **Manual checks:**

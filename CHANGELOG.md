@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.39] - 2026-10-11
+
+### Changed
+- **SMOKE SCREEN is now the MULTI-SPECTRAL COUNTERMEASURE** (Story 9.3). One press drops one stationary cloud of 300 scattered pixels where you stand; its radius swells from 200 to 500 units over 15 seconds while individual pixels die off between 6 and 15 seconds, so the cloud thins and fades instead of vanishing at once. Every press makes a new cloud.
+- **The pixels block sight for everyone, you included.** Nobody can see through the cloud by eye, and the owner is blind inside it too. **Enemy radar** is blocked only for targets sitting inside the cloud (no shadow behind it); your own radar sees through it. A cloud is shown to whoever's radar range reaches its center.
+- It lives on key `3` (cap 5 copies, like every consumable); the card prints MULTI-SPECTRAL CM and has a new glyph. The old rule that a ship inside smoke was seen at 1/8 range, the lay window and the round disc drawing are retired; the cloud is drawn as 20-unit squares in the wounded-smoke grey that fade as each pixel dies.
+
+### Internal
+- `shared/src/sim/cloud.ts`: seeded disc-sampled pixel function (no transcendentals), scale-outward drift, `cloudBlocks`. `CONFIG.countermeasure` replaces `CONFIG.smokeScreen`; `OwnShip.inSmoke` deleted; `FrameMsg.smoke` -> `clouds` (`CloudView`).
+- `server/src/game/signals.ts`: `sightClear` over cloud pixels for everyone, new `radarClear` as the blip gate's fourth term (hides only targets inside the outline), and the `cloud` pseudo-row (the SIX exceptions unchanged). `world.ts`: `StoredCloud` memo + `stepClouds`; bots press once per disengage; harness `--set countermeasure.*`.
+- Client: `render/countermeasure.ts` pixel renderer + `cloudBases.ts` memo, `CLIENT_CONFIG.countermeasure { fillAlpha .55, fadeMs 2000, drawSizeU 20 }`; the `inSmoke` client chain deleted; wake sight mirror.
+- Tests: shared 1040, server 2474, client 124 files green (perception oracle cloud arm + four non-vacuity ledgers, `countermeasure.test.ts` 26 directed cases, `cloudPerf.test.ts` 1.1 ms vs the 50 ms budget, goldenFrames unchanged).
+- Epic-9 amendments 40-50. Cycle 174. PROTOCOL_VERSION 75 -> 76.
+
 ## [0.18.38] - 2026-10-11
 
 ### Changed

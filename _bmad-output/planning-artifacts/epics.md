@@ -2224,6 +2224,8 @@ So that I never lose a pick to a full belt and my hands learn one layout.
 
 ### Story 9.3: Multi-Spectral Countermeasure *(inserted 2026-10-11 — proposal §4.2)*
 
+*(BUILT 2026-10-11 — cycle 174, 0.18.39, PV 75 → 76, epic-9 amendments 40–50; the card prints MULTI-SPECTRAL CM (amendment 48); the hover sentence seeds 9.11 (amendment 49); `spec-9-3-multi-spectral-countermeasure.md`.)*
+
 As a captain breaking contact,
 I want one countermeasure that blinds eyes and radar alike,
 So that the cloud I make is the thing hiding me, not a trick of fake echoes.
