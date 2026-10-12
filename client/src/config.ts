@@ -2372,6 +2372,17 @@ export const CLIENT_CONFIG = {
     dotCells: 2.5,
     /** A cell's alpha saturates here (one paint's centre adds this much). */
     maxAlpha: 0.85,
+    /** Peak alpha of the cloud's PHOSPHOR copy on the radar paint layer (Eric
+     *  2026-10-12 — the cloud is a countermeasure, it paints on radar like
+     *  clutter: "THIS SMOKE ALSO PAINTS RADAR RETURNS"). Painted by the sweep
+     *  when the beam crosses the cloud's bearing span, then decays on the
+     *  same phosphor life the radar paints use (`blipLifeMs`). */
+    radarAlpha: 0.9,
+    /** A contact's NAMEPLATE is hidden outright when the cloud paint under its
+     *  hull is at least this thick (Eric 2026-10-12: "I don't want someone's
+     *  nameplate sticking out from behind the smoke"). Plates only — a hull is
+     *  never hidden by cover (partials show through the overlay). */
+    plateHideAlpha: 0.35,
   },
 
   /**

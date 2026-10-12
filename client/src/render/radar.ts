@@ -130,8 +130,7 @@
 // (kept subtle). The faint map-centered rings in map.ts remain as the chart
 // grid. Thin Pixi adapter; the math lives in phosphor.ts and radarHeatmap.ts.
 
-import { BufferImageSource, Graphics, Sprite, Texture } from 'pixi.js';
-import type { Container } from 'pixi.js';
+import { BufferImageSource, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import {
   CONFIG,
   HULL_IDS,
@@ -280,6 +279,21 @@ export interface ViewRect {
 // material that no longer exists. The storm's on-water rendering (render/zone.ts)
 // is untouched and is where the ring is legible.
 
+/**
+ * THE BEAM'S LAST FRAME (Story 9.3, "the countermeasure also paints radar") —
+ * the arc the beam swept between the previous rendered frame and this one,
+ * `prev → cur` increasing (mod 2π, `sweepRotation`'s own angles), the observer
+ * it was swept from, and the phosphor life the radar paints use. One object
+ * per Radar, rewritten in place every frame: read it, never hold it.
+ */
+export interface BeamWindow {
+  prev: number;
+  cur: number;
+  x: number;
+  y: number;
+  lifeMs: number;
+}
+
 export class Radar {
   private readonly sweep: Sprite;
   private readonly rings: Graphics;
@@ -334,6 +348,18 @@ export class Radar {
    *  compare sits on the per-frame placement path rather than on the stat and
    *  dazzle setters, which are two ways in for one number. */
   private dimBakedAtU: number;
+  /**
+   * THE COUNTERMEASURE'S PHOSPHOR COPIES (Story 9.3, Eric 2026-10-12: "THIS
+   * SMOKE ALSO PAINTS RADAR RETURNS"). A child of `blipLayer`, so the in-bubble
+   * `dim` mask applies to a cloud's radar copy exactly as it does to a paint,
+   * and kept ABOVE the heat sprite — `fitHeat` re-inserts a rebuilt heat
+   * sprite below it. render/countermeasure.ts owns what goes in it.
+   */
+  readonly cloudPaintLayer = new Container();
+  /** The beam window handed out by `beamWindow` — rewritten in place. */
+  private readonly beam: BeamWindow = { prev: 0, cur: 0, x: 0, y: 0, lifeMs: 0 };
+  /** Did the last `render` sweep an arc (both ends known, own pose known)? */
+  private beamLive = false;
   /** Latest authoritative sweep sample (angle at server time t). */
   private lastSweep: { angle: number; t: number } | null = null;
   /** Beam angle at the PREVIOUS frame — the arc the march walks is measured
@@ -413,6 +439,7 @@ export class Radar {
     // is deliberately NOT used: it drops the node out of the build entirely.
     this.dim.renderable = false;
     blipLayer.addChild(this.dim);
+    blipLayer.addChild(this.cloudPaintLayer);
 
     this.rings = new Graphics();
     this.rings.visible = false;
@@ -528,7 +555,8 @@ export class Radar {
     sprite.blendMode = 'add';
     sprite.scale.set(grid.cellU); // one texel = one world cell
     sprite.visible = false;
-    this.blipLayer.addChild(sprite);
+    // Below the countermeasure's phosphor copies, which ride above the paints.
+    this.blipLayer.addChildAt(sprite, this.blipLayer.getChildIndex(this.cloudPaintLayer));
     this.heat = { grid, rgba, source, sprite };
   }
 
@@ -908,7 +936,26 @@ export class Radar {
     this.updateDimMask(own);
     const rot = this.updateSweep(own, serverNow);
     this.renderReturn(own, rot, serverNow, contacts);
+    this.recordBeam(own, rot);
     this.lastRotation = rot;
+  }
+
+  /** The arc the beam swept on the last `render` — `prev` is the previous
+   *  frame's `sweepRotation`, `cur` this frame's — or null when the sweep was
+   *  hidden on either frame (no own pose, start line, spectating). */
+  beamWindow(): Readonly<BeamWindow> | null {
+    return this.beamLive ? this.beam : null;
+  }
+
+  private recordBeam(own: OwnPoint | null, rot: number | null): void {
+    this.beamLive = false;
+    if (own === null || rot === null || this.lastRotation === null) return;
+    this.beamLive = true;
+    this.beam.prev = this.lastRotation;
+    this.beam.cur = rot;
+    this.beam.x = own.x;
+    this.beam.y = own.y;
+    this.beam.lifeMs = blipLifeMs(this.sweepPeriodMs);
   }
 
   /** The whole frame: resolve parked echoes, march the swept arc, drop

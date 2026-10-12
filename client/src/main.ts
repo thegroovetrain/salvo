@@ -2866,6 +2866,12 @@ function buildGame(
   // per-element/per-region aggregate would silently become six.
   const flashBudget = createFlashBudget();
 
+  // HOISTED (Story 9.3): the countermeasure's phosphor copies live in the
+  // radar's own paint container (under its dim mask), and the contact plates
+  // read the countermeasure's cover — so both are built before the literal.
+  const radar = new Radar(stage.layers.blip, stage.layers.sweep);
+  const countermeasure = new Countermeasure(stage.layers.cloud, radar.cloudPaintLayer);
+
   const g: Game = {
     stage,
     state: createGameState(welcome.sessionId),
@@ -2882,7 +2888,7 @@ function buildGame(
     // (it is the only thing holding per-hull lock state) and calls back with the
     // TRANSITION; the sound stays here, on the data flow's audio side, so
     // render/ never reaches into audio/.
-    contactViews: new ContactViews(stage.layers.ship, nameplates, (kind) => audio.play(kind === 'acquired' ? 'aggroLock' : 'aggroRelease')),
+    contactViews: new ContactViews(stage.layers.ship, nameplates, (kind) => audio.play(kind === 'acquired' ? 'aggroLock' : 'aggroRelease'), (x, y) => countermeasure.coverAt(x, y)),
     nameplates,
     // NO TRAIL CALLBACK ANY MORE (cycle-69 review gate, P10): a fish's water is
     // the one shared wake ribbon, pulled by `wakeHulls` from
@@ -2902,11 +2908,11 @@ function buildGame(
     burnZones: new BurnZones(stage.layers.litZone),
     smoke: new Smoke(stage.layers.smoke),
     fire: new Fire(stage.layers.smoke), // pins itself to the layer's bottom: under every puff
-    countermeasure: new Countermeasure(stage.layers.cloud),
+    countermeasure,
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
     nextHonkAt: 0,
     fog: new Fog(stage.fogSprite),
-    radar: new Radar(stage.layers.blip, stage.layers.sweep),
+    radar,
     zone: new Zone(stage.layers.zone, stage.layers.vignette),
     hud: new Hud(stage.layers.hud),
     hudBar: new HudBar(stage.layers.hud),
@@ -4359,7 +4365,9 @@ function renderAlive(
   // (Story 2.9's treatment, moved to render/burnZones.ts in Story 8.17).
   g.litZones.render(now);
   g.burnZones.render(now, now / 1000);
-  g.countermeasure.render(now); // spray + fade each countermeasure cloud to its server-clock age
+  // spray + fade each countermeasure cloud to its server-clock age, and paint
+  // its phosphor copy wherever the radar beam just swept (null at the start line)
+  g.countermeasure.render(now, g.radar.beamWindow());
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
