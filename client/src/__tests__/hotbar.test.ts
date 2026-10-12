@@ -1241,7 +1241,7 @@ describe('the tooltip memo keys on the slot\'s own stock (P5)', () => {
     const c = cached(2);
     expect(tipCacheHit(null, BELT_1, 'hullRepair', stats, cards, 2)).toBe(false);
     expect(tipCacheHit(c, BELT_1 + 1, 'hullRepair', stats, cards, 2)).toBe(false);
-    expect(tipCacheHit(c, BELT_1, 'smokeScreen', stats, cards, 2)).toBe(false);
+    expect(tipCacheHit(c, BELT_1, 'countermeasure', stats, cards, 2)).toBe(false);
     expect(tipCacheHit(c, BELT_1, 'hullRepair', statsFor('mineLayer'), cards, 2)).toBe(false);
     expect(tipCacheHit(c, BELT_1, 'hullRepair', stats, ['hullRepair'], 2)).toBe(false);
   });
@@ -1542,7 +1542,7 @@ describe('a stocked BELT square', () => {
   // STORY 8.16 — THREE BELT GLYPHS, IMPLEMENTER DRAFTS for Eric's eye (epic-8
   // amendment 124(f)), in the shipped unit-box line-glyph style. The radar
   // buoy's glyph is DELETED with the buoy; the DECOY BUOY takes the on-water
-  // spar-buoy marker's linework. (SMOKE SCREEN drew blank here until 8.18.)
+  // spar-buoy marker's linework.
   it('draws the two surviving 8.16 consumables, each distinct, and no radar buoy or chaff', () => {
     const ids = ['shieldBlock', 'decoyBuoy'] as const;
     for (const id of ids) {
@@ -1563,10 +1563,10 @@ describe('a stocked BELT square', () => {
     expect(glyphPaths('radarBuoy')).toBeNull();
   });
 
-  // STORY 8.18 — SMOKE SCREEN's DRAFT glyph: overlapping puffs over a waterline.
+  // STORY 9.3 — the MULTI-SPECTRAL COUNTERMEASURE glyph (Eric's pick 2026-10-11).
   // Stricter than the 8.16 check: every circle's WHOLE extent stays in the box.
-  it('draws SMOKE SCREEN inside the unit box, distinct from every other belt glyph', () => {
-    const parts = glyphPaths('smokeScreen');
+  it('draws the COUNTERMEASURE inside the unit box, distinct from every other belt glyph', () => {
+    const parts = glyphPaths('countermeasure');
     expect(parts).not.toBeNull();
     for (const part of parts!) {
       if (part.kind === 'circle') {
@@ -1576,11 +1576,10 @@ describe('a stocked BELT square', () => {
         for (const [x, y] of part.pts) expect(Math.max(Math.abs(x), Math.abs(y))).toBeLessThanOrEqual(1);
       }
     }
-    expect(parts!.filter((p) => p.kind === 'circle')).toHaveLength(3);
     for (const other of ['shieldBlock', 'decoyBuoy', 'dazzleShells', 'navalMines', 'starShells']) {
       expect(parts, other).not.toEqual(glyphPaths(other));
     }
-    expect(equipmentGlyphSvg('smokeScreen', 24)?.tagName.toLowerCase()).toBe('svg');
+    expect(equipmentGlyphSvg('countermeasure', 24)?.tagName.toLowerCase()).toBe('svg');
   });
 });
 

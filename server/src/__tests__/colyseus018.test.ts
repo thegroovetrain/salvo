@@ -165,8 +165,12 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 74 and admits 75', () => {
-  it('PROTOCOL_VERSION is 75', () => {
+describe('the PV join gate refuses 75 and admits 76', () => {
+  it('PROTOCOL_VERSION is 76', () => {
+    // Cycle 174 bumped 75 -> 76 (Story 9.3): SMOKE SCREEN became the
+    // MULTI-SPECTRAL COUNTERMEASURE (catalog content), the frame's `smoke`
+    // channel became `clouds` (CloudView {id,x,y,t0}, pixels from the shared
+    // cloud function) and `OwnShip.inSmoke` left the wire.
     // Cycle 172 bumped 74 -> 75 (Story 9.2): the loadout is eleven fixed
     // slots (one per consumable kind), CHAFF left the catalog and
     // `OwnShip.chaff` / `OwnShip.chaffGhosts` left the wire.
@@ -208,18 +212,21 @@ describe('the PV join gate refuses 74 and admits 75', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(75);
+    expect(PROTOCOL_VERSION).toBe(76);
   });
 
   it('refuses the immediately-previous protocol', () => {
-    // 74 is the one that matters now: a client built one cycle before this
-    // one replays a nine-slot loadout and packs its belt; a 70 client has no
+    // 75 is the one that matters now: a client built one cycle before this
+    // one reads a `smoke` channel that no longer exists and draws smoke discs
+    // where pixel clouds stand; a 74 client replays a nine-slot loadout and
+    // packs its belt; a 70 client has no
     // lobby door and does not know CONFIG.lobby; a 69 client
     // prints and predicts the old deck gun ladders; a 67 client draws
     // every enemy mine kind-less, never renders the owner's chaff
     // ghosts, and draws the chaff ring and smoke discs at 2/3 of the server's
     // radii; a 65 client draws its mine ring off a literal rather than the
     // shared hit disc; a 64 client still offers the two deleted gun cards.
+    expect(protocolVersionError(75)).toMatch(/refresh/i);
     expect(protocolVersionError(74)).toMatch(/refresh/i);
     expect(protocolVersionError(73)).toMatch(/refresh/i);
     expect(protocolVersionError(70)).toMatch(/refresh/i);
@@ -243,12 +250,12 @@ describe('the PV join gate refuses 74 and admits 75', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(76)).toMatch(/refresh/i);
+    expect(protocolVersionError(77)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(75)).toBeNull();
+    expect(protocolVersionError(76)).toBeNull();
   });
 });
 

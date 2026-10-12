@@ -143,7 +143,8 @@ interface LiveFlame {
 /**
  * The Pixi adapter. Thin by design: every number it draws comes from the pure
  * functions above. Its container sits at the BOTTOM of the `smoke` chart layer,
- * so the smoke puffs (wounded and SMOKE SCREEN alike) draw over the flames.
+ * so the smoke (wounded puffs and countermeasure clouds alike) draws over the
+ * flames.
  */
 export class Fire {
   private readonly root = new Container();

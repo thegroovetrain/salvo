@@ -308,7 +308,7 @@ function chooseShot(
 /**
  * The ability press, if any: the 'ability' rows of EITHER registry — the class
  * Shift (the speed boost on the way out or into a fight, INSTANT RELOAD, DAMAGE
- * CUT) and the consumable abilities (HULL REPAIR, SHIELD BLOCK, SMOKE SCREEN). Abilities ride the actSeq channel, so this composes with a shot in
+ * CUT) and the consumable abilities (HULL REPAIR, SHIELD BLOCK, MULTI-SPECTRAL COUNTERMEASURE). Abilities ride the actSeq channel, so this composes with a shot in
  * the same tick.
  */
 function chooseAct(

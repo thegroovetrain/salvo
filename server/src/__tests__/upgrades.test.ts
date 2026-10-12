@@ -2031,7 +2031,7 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
     for (let i = 0; i < BELT_CATALOG.hullRepair.cap; i += 1) w.applyCard(a, 'hullRepair');
-    for (const id of ['shieldBlock', 'smokeScreen']) w.applyCard(a, id);
+    for (const id of ['shieldBlock', 'countermeasure']) w.applyCard(a, id);
     arm(a, ['hullRepair']);
     w.step(); // let any queued event age out, so the frames below are clean
     w.step();
@@ -2147,7 +2147,7 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
   it('a spent-to-zero slot clears IN PLACE — nothing re-packs, exactly as the client replay does', () => {
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
-    for (const id of ['hullRepair', 'shieldBlock', 'shieldBlock', 'smokeScreen', 'decoyBuoy']) {
+    for (const id of ['hullRepair', 'shieldBlock', 'shieldBlock', 'countermeasure', 'decoyBuoy']) {
       w.applyCard(a, id);
     }
     const before = CONSUMABLE_SLOTS.map((i) => a.loadout[i].equipmentId);
@@ -2224,7 +2224,7 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
     for (let i = 0; i < BELT_CATALOG.hullRepair.cap; i += 1) w.applyCard(a, 'hullRepair');
-    for (const id of ['shieldBlock', 'smokeScreen']) w.applyCard(a, id);
+    for (const id of ['shieldBlock', 'countermeasure']) w.applyCard(a, id);
     const cards = [...a.cards];
     const loadout = JSON.parse(JSON.stringify(a.loadout)) as unknown;
     const stats = a.stats;
@@ -2238,8 +2238,8 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
     expect(a.stats).toBe(stats);
     expect(slotsWithCards(a.stats, a.cards, BELT_CATALOG)).toEqual(a.loadout);
     // ...while a held kind under its cap still lands, in its own slot.
-    w.applyCard(a, 'smokeScreen');
-    expect(a.loadout[consumableSlotFor('smokeScreen')!].state).toEqual({ n: 2, reloadMsLeft: 0 });
+    w.applyCard(a, 'countermeasure');
+    expect(a.loadout[consumableSlotFor('countermeasure')!].state).toEqual({ n: 2, reloadMsLeft: 0 });
   });
 
   it('SINKING policy is unchanged: a belt slot activates while going down', () => {

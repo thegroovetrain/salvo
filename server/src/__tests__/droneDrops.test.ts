@@ -180,7 +180,7 @@ describe('drone drops — the eligible set is the refit card\'s predicate', () =
   // Since Story 9.2 (epic-9 amendment 21; amendment 226 without its belt
   // branch) every keyed kind owns its own fixed slot, so the eligible set is
   // simply every non-stub consumable kind under its cap.
-  const FOUR = ['hullRepair', 'shieldBlock', 'smokeScreen', 'decoyBuoy'];
+  const FOUR = ['hullRepair', 'shieldBlock', 'countermeasure', 'decoyBuoy'];
 
   it('HOLDING FOUR KINDS narrows nothing: every live kind under cap stays eligible, and a new kind lands in its own slot', () => {
     const w = bareWorld();
@@ -404,7 +404,7 @@ describe('drone drops — determinism and stream isolation', () => {
 });
 
 describe('drone drops — a drop landing while a refit hand is open (Eric 2026-10-01, amendment 227)', () => {
-  const HELD = ['hullRepair', 'shieldBlock', 'smokeScreen'];
+  const HELD = ['hullRepair', 'shieldBlock', 'countermeasure'];
   const spendStock = (w: World, s: ShipRecord, id: string) =>
     (w as unknown as { spendStock(ship: ShipRecord, line: string): void }).spendStock(s, id);
 

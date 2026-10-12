@@ -64,32 +64,12 @@ describe('Fog.setDazzled — the rebake staleness edge', () => {
   });
 });
 
-// IN SMOKE (Story 8.18, Eric ruling 2026-09-29, amendment 149): the server
-// stamps the self-private `you.inSmoke` while the own hull's centre is in any
-// live puff and perceives it at the smoke tier of the SAME `effectiveSight` —
-// so the hole takes the same third argument and the same staleness edge.
-describe('IN SMOKE — the hole shrinks through the shared effectiveSight', () => {
-  it('is 1/8 of the intel range in smoke, the plain sight out of it', () => {
-    expect(fogHoleRadiusU(BASE, false, false)).toBe(CONFIG.vision.sight);
-    expect(fogHoleRadiusU(BASE, false, true)).toBe(CONFIG.vision.radar * CONFIG.smokeScreen.inSmokeSightFraction);
-    expect(fogHoleRadiusU({ ...BASE, radarRange: 800 }, false, true)).toBe(800 * CONFIG.smokeScreen.inSmokeSightFraction);
-    for (const d of [false, true]) {
-      for (const m of [false, true]) expect(fogHoleRadiusU(BASE, d, m)).toBe(effectiveSight(BASE, d, m));
-    }
-  });
-
-  it('Fog.setInSmoke reports a rebake only on a real flip, independent of dazzle', () => {
-    const fog = new Fog(new Container());
-    expect(fog.isInSmoke).toBe(false);
-    expect(fog.setInSmoke(false)).toBe(false);
-    expect(fog.setInSmoke(true)).toBe(true);
-    expect(fog.isInSmoke).toBe(true);
-    expect(fog.setInSmoke(true)).toBe(false);
-    // A dazzle flip neither consumes nor resets the smoke state.
-    expect(fog.setDazzled(true)).toBe(true);
-    expect(fog.isInSmoke).toBe(true);
-    expect(fog.setInSmoke(false)).toBe(true);
-    expect(fog.isDazzled).toBe(true);
+// Story 9.3 (epic-9 amendment 40) deleted the in-smoke shrink: the hole is the
+// shared two-argument `effectiveSight`, dazzle its only modifier.
+describe('fogHoleRadiusU is the shared effectiveSight', () => {
+  it('matches effectiveSight(ranges, dazzled) for both dazzle states', () => {
+    for (const d of [false, true]) expect(fogHoleRadiusU(BASE, d)).toBe(effectiveSight(BASE, d));
+    expect(fogHoleRadiusU(BASE, false)).toBe(CONFIG.vision.sight);
   });
 });
 

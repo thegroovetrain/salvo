@@ -172,7 +172,7 @@ function viewWithOwnMines(mind: BotMind, n: number): void {
     litZones: [],
     burnZones: [],
     decoys: [],
-    smoke: [],
+    clouds: [],
   };
 }
 
@@ -604,11 +604,11 @@ describe('steering — the priority order is the policy', () => {
     // Ring centre dead ahead so the posture bearing contributes nothing.
     port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
     const ahead = { id: 'm1', x: 60, y: 20, by: 'enemy' };
-    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: false }], litZones: [], burnZones: [], decoys: [], smoke: [] };
+    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: false }], litZones: [], burnZones: [], decoys: [], clouds: [] };
     mind.viewAt = -1; // not fresh: nothing is folded, only the mine probe reads it
     const dodged = COMBAT_BRAIN.decide(rec, mind, port);
     expect(dodged.rudder).toBeLessThan(0); // mine to port -> steer starboard
-    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: true }], litZones: [], burnZones: [], decoys: [], smoke: [] };
+    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: true }], litZones: [], burnZones: [], decoys: [], clouds: [] };
     const own = COMBAT_BRAIN.decide(rec, mind, port);
     expect(own.rudder).toBe(0); // an owner never trips its own rack
   });
@@ -2043,7 +2043,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
 
   /** Hand the mind a fresh (this-tick) view carrying only `events`. */
   function viewOf(mind: BotMind, now: number, events: GameEvent[]): void {
-    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], decoys: [], smoke: [] };
+    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], decoys: [], clouds: [] };
     mind.viewAt = now;
   }
 
@@ -2309,14 +2309,15 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
 
 // ---------------------------------------------------------------------------
 // STORY 8.16 — SHIELD BLOCK, DECOY BUOY (CHAFF retired in 9.2): the belt rows (epic-8
-// amendment 124(g)); SMOKE SCREEN never while its own is running (Eric ruling R12).
+// amendment 124(g)); the MULTI-SPECTRAL COUNTERMEASURE (Story 9.3, SMOKE
+// SCREEN's seat) never while one of its own clouds is up (Eric ruling R12).
 // ---------------------------------------------------------------------------
 
 describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
   /** A TORPEDO BOAT with its boost AND its tube stripped, so the stocked belt
    *  line is the only ability/placement the brain can choose (the tests are
    *  about the belt row, not about ranking). */
-  function beltOnly(seed: number, line: 'shieldBlock' | 'decoyBuoy' | 'smokeScreen'): {
+  function beltOnly(seed: number, line: 'shieldBlock' | 'decoyBuoy' | 'countermeasure'): {
     w: World;
     port: FakePort;
     rec: ShipRecord;
@@ -2334,7 +2335,7 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
 
   /** Hand the mind a fresh (this-tick) view carrying only `events`. */
   function viewOf(mind: BotMind, now: number, events: GameEvent[]): void {
-    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], decoys: [], smoke: [] };
+    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], decoys: [], clouds: [] };
     mind.viewAt = now;
   }
 
@@ -2346,22 +2347,21 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
   it('the belt rows carry their kinds', () => {
     expect(CONSUMABLE_TACTICS.shieldBlock.kind).toBe('ability');
     expect(CONSUMABLE_TACTICS.decoyBuoy.kind).toBe('placement');
-    expect(CONSUMABLE_TACTICS.smokeScreen.kind).toBe('ability');
+    expect(CONSUMABLE_TACTICS.countermeasure.kind).toBe('ability');
   });
 
-  // SMOKE SCREEN IS NEVER PRESSED WHILE ONE OF THE BOT'S OWN IS RUNNING (Eric
-  // ruling R12, 2026-09-30 — supersedes R8's once-per-retreat bookkeeping):
-  // laid on the way out, and not again until the last puff of the previous
-  // press can no longer be alive (`now >= smokeUntil + lifeMs`). The drill
-  // drives the real brain tick by tick and plays the World's half by hand — a
-  // press spends a copy and opens the lay window (`smokeUntil = now + layMs`,
-  // which the World keeps after it lapses; the driver copies it onto the mind
-  // every tick).
-  describe('SMOKE SCREEN — never while its own is running (R12)', () => {
+  // THE COUNTERMEASURE IS NEVER PRESSED WHILE ONE OF THE BOT'S OWN CLOUDS IS
+  // UP (Eric ruling R12, 2026-09-30 — supersedes R8's once-per-retreat
+  // bookkeeping; re-based on Story 9.3's one-cloud-per-press): pressed on the
+  // way out, and not again until the most recent cloud has expired
+  // (`now >= cloudUntil`). The drill drives the real brain tick by tick and
+  // plays the World's half by hand — a press spends a copy and stamps
+  // `cloudUntil = now + lifeMs` (which the World keeps after the cloud dies;
+  // the driver copies it onto the mind every tick).
+  describe('COUNTERMEASURE — never while one of its own clouds is up (R12)', () => {
     const TICK = CONFIG.tick.simDtMs;
     const TWELVE_S = 12000 / TICK;
-    const LAY = CONFIG.smokeScreen.layMs;
-    const LIFE = CONFIG.smokeScreen.lifeMs;
+    const LIFE = CONFIG.countermeasure.lifeMs;
 
     function drill(seed: number, copies: number): {
       w: World;
@@ -2371,20 +2371,20 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
       run: (ticks: number) => number;
       runUntil: (t: number) => number;
     } {
-      const { w, port, rec } = beltOnly(seed, 'smokeScreen');
-      for (let i = 1; i < copies; i += 1) w.applyCard(rec, 'smokeScreen');
+      const { w, port, rec } = beltOnly(seed, 'countermeasure');
+      for (let i = 1; i < copies; i += 1) w.applyCard(rec, 'countermeasure');
       const mind = mkMind('duelist');
-      mind.smokeUntil = 0; // the World's reset value, as the driver copies it
+      mind.cloudUntil = 0; // the World's reset value, as the driver copies it
       const run = (ticks: number): number => {
         let presses = 0;
         for (let i = 0; i < ticks; i += 1) {
-          const belt = slotOf(rec, 'smokeScreen');
+          const belt = slotOf(rec, 'countermeasure');
           const d = COMBAT_BRAIN.decide(rec, mind, port);
           if (belt >= 0 && d.actSlot === belt) {
             presses += 1;
             const state = rec.loadout[belt].state!;
             state.n -= 1;
-            mind.smokeUntil = port.now + LAY;
+            mind.cloudUntil = port.now + LIFE;
           }
           port.now += TICK;
         }
@@ -2401,9 +2401,9 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
     const healed = (rec: ShipRecord): void => {
       rec.hp = rec.stats.maxHp;
     };
-    const stock = (rec: ShipRecord): number => rec.loadout[slotOf(rec, 'smokeScreen')].state!.n;
+    const stock = (rec: ShipRecord): number => rec.loadout[slotOf(rec, 'countermeasure')].state!.n;
 
-    it('Smoke once: entering disengage holding 3, 12 s in disengage -> exactly one press', () => {
+    it('once: entering disengage holding 3, 12 s in disengage -> exactly one press', () => {
       const { rec, mind, run } = drill(81618, 3);
       expect(stock(rec)).toBe(3);
       expect(run(20)).toBe(0); // healthy: not retreating
@@ -2413,28 +2413,28 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
       expect(stock(rec)).toBe(2);
     });
 
-    it('Smoke still running (R12): leaving disengage and re-entering 20 s after the press -> no press while its puffs can live', () => {
+    it('still up (R12): leaving disengage and re-entering 5 s after the press -> no press anywhere before the cloud expires', () => {
       const { port, rec, mind, run, runUntil } = drill(81619, 3);
       hurt(rec);
       expect(run(10)).toBe(1);
-      const pressedAt = mind.smokeUntil! - LAY;
+      const pressedAt = mind.cloudUntil! - LIFE;
       healed(rec);
-      expect(runUntil(pressedAt + 20000)).toBe(0);
+      expect(runUntil(pressedAt + 5000)).toBe(0);
       expect(mind.posture).not.toBe('disengage');
       hurt(rec);
-      // Re-entered 20 s after the press: the lay window is long over, but the
-      // puffs it dropped still float — no press anywhere before they are gone.
-      expect(runUntil(pressedAt + LAY + LIFE)).toBe(0);
+      // Re-entered 5 s after the press: the cloud it made is still on the
+      // water — no press anywhere before it is gone.
+      expect(runUntil(pressedAt + LIFE)).toBe(0);
       expect(mind.posture).toBe('disengage');
-      expect(port.now).toBe(pressedAt + LAY + LIFE);
+      expect(port.now).toBe(pressedAt + LIFE);
       expect(stock(rec)).toBe(2);
     });
 
-    it('Smoke still running (R12): a storm-edge ringRun interlude and an hp pop-up above the flee line re-arm nothing', () => {
+    it('still up (R12): a storm-edge ringRun interlude and an hp pop-up above the flee line re-arm nothing', () => {
       const { port, rec, mind, run, runUntil } = drill(81620, 3);
       hurt(rec);
       expect(run(10)).toBe(1);
-      const pressedAt = mind.smokeUntil! - LAY;
+      const pressedAt = mind.cloudUntil! - LIFE;
       // A storm-edge dodge: outside the ring (r = 0 is outside everywhere).
       const ring = port.zoneLiveRing;
       port.zoneLiveRing = { cx: 0, cy: 0, r: 0 };
@@ -2448,80 +2448,80 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
       expect(run(20)).toBe(0);
       expect(mind.posture).not.toBe('disengage');
       hurt(rec);
-      expect(runUntil(pressedAt + LAY + LIFE)).toBe(0);
+      expect(runUntil(pressedAt + LIFE)).toBe(0);
       expect(mind.posture).toBe('disengage');
       expect(stock(rec)).toBe(2);
     });
 
-    it('Smoke gone (R12): still in disengage 36 s after the press -> one more press', () => {
+    it('gone (R12): still in disengage past the cloud\'s life -> one more press', () => {
       const { rec, mind, run, runUntil } = drill(81625, 3);
       hurt(rec);
       expect(run(10)).toBe(1);
-      const pressedAt = mind.smokeUntil! - LAY;
-      expect(runUntil(pressedAt + 36000)).toBe(1);
+      const pressedAt = mind.cloudUntil! - LIFE;
+      expect(runUntil(pressedAt + LIFE + 5000)).toBe(1);
       expect(mind.posture).toBe('disengage');
       expect(stock(rec)).toBe(1);
     });
 
-    it('Smoke gone (R12): AGAIN in disengage 36 s after the press -> one more press', () => {
+    it('gone (R12): AGAIN in disengage past the cloud\'s life -> one more press', () => {
       const { rec, mind, run, runUntil } = drill(81626, 3);
       hurt(rec);
       expect(run(10)).toBe(1);
-      const pressedAt = mind.smokeUntil! - LAY;
+      const pressedAt = mind.cloudUntil! - LIFE;
       healed(rec);
-      expect(runUntil(pressedAt + 36000)).toBe(0);
+      expect(runUntil(pressedAt + LIFE + 5000)).toBe(0);
       expect(mind.posture).not.toBe('disengage');
       hurt(rec);
       expect(run(TWELVE_S)).toBe(1);
       expect(stock(rec)).toBe(1);
     });
 
-    it('Smoke late stock: a copy stocked mid-retreat, none of its own running -> pressed once', () => {
+    it('late stock: a copy stocked mid-retreat, none of its own up -> pressed once', () => {
       const { w, rec, mind, run } = drill(81621, 1);
       // Empty the belt, then retreat with nothing to press.
-      const belt = slotOf(rec, 'smokeScreen');
+      const belt = slotOf(rec, 'countermeasure');
       rec.loadout[belt] = { equipmentId: null, state: null };
       hurt(rec);
       expect(run(100)).toBe(0);
       expect(mind.posture).toBe('disengage');
       // Stock arrives mid-retreat.
-      w.applyCard(rec, 'smokeScreen');
-      w.applyCard(rec, 'smokeScreen');
-      expect(slotOf(rec, 'smokeScreen')).toBeGreaterThanOrEqual(5);
+      w.applyCard(rec, 'countermeasure');
+      w.applyCard(rec, 'countermeasure');
+      expect(slotOf(rec, 'countermeasure')).toBeGreaterThanOrEqual(5);
       expect(run(TWELVE_S)).toBe(1);
     });
 
-    it('want() reads only the lay stamp + lifeMs, and is write-free', () => {
+    it('want() reads only the own-cloud stamp, and is write-free', () => {
       const { port, rec, mind } = drill(81623, 1);
       hurt(rec);
-      type Ctx = Parameters<typeof CONSUMABLE_TACTICS.smokeScreen.want>[0];
+      type Ctx = Parameters<typeof CONSUMABLE_TACTICS.countermeasure.want>[0];
       const at = (now: number): Ctx => ({ self: rec, mind, sit: { now }, posture: 'disengage' }) as unknown as Ctx;
       const now = port.now;
       const before = { ...mind };
-      expect(CONSUMABLE_TACTICS.smokeScreen.want(at(now))).toBe(true);
+      expect(CONSUMABLE_TACTICS.countermeasure.want(at(now))).toBe(true);
       expect(mind).toEqual(before);
-      // A 0 (World reset) or absent stamp is "nothing running" — even early in
-      // a match, when `now < lifeMs`.
-      expect(CONSUMABLE_TACTICS.smokeScreen.want(at(1000))).toBe(true);
-      mind.smokeUntil = undefined;
-      expect(CONSUMABLE_TACTICS.smokeScreen.want(at(1000))).toBe(true);
-      // Still laying: held.
-      mind.smokeUntil = now - 500 + LAY;
-      expect(CONSUMABLE_TACTICS.smokeScreen.want(at(now))).toBe(false);
-      // Lay window over, the last puff still alive: held.
-      mind.smokeUntil = now - LIFE + 1;
-      expect(CONSUMABLE_TACTICS.smokeScreen.want(at(now))).toBe(false);
-      // The last puff is gone: pressed.
-      mind.smokeUntil = now - LIFE;
-      expect(CONSUMABLE_TACTICS.smokeScreen.want(at(now))).toBe(true);
-      expect(mind.smokeUntil).toBe(now - LIFE);
+      // A 0 (World reset) or absent stamp is "nothing up" — even early in a
+      // match, when `now < lifeMs`.
+      expect(CONSUMABLE_TACTICS.countermeasure.want(at(1000))).toBe(true);
+      mind.cloudUntil = undefined;
+      expect(CONSUMABLE_TACTICS.countermeasure.want(at(1000))).toBe(true);
+      // The most recent cloud still up: held.
+      mind.cloudUntil = now + 1;
+      expect(CONSUMABLE_TACTICS.countermeasure.want(at(now))).toBe(false);
+      // Its last tick of life: still held.
+      mind.cloudUntil = now + TICK;
+      expect(CONSUMABLE_TACTICS.countermeasure.want(at(now))).toBe(false);
+      // Expired this very tick: pressed.
+      mind.cloudUntil = now;
+      expect(CONSUMABLE_TACTICS.countermeasure.want(at(now))).toBe(true);
+      expect(mind.cloudUntil).toBe(now);
     });
 
-    it('END TO END: a real World and its driver — no press while its own smoke runs, one once it is gone', () => {
+    it('END TO END: a real World and its driver — no press while its own cloud is up, one once it is gone', () => {
       const w = openWorld(81624, 4);
       const rec = w.addBot('torpedoBoat', 'duelist');
-      for (let i = 0; i < 3; i += 1) w.applyCard(rec, 'smokeScreen');
-      const belt = slotOf(rec, 'smokeScreen');
+      for (let i = 0; i < 3; i += 1) w.applyCard(rec, 'countermeasure');
+      const belt = slotOf(rec, 'countermeasure');
       expect(rec.loadout[belt].state!.n).toBe(3);
       const step = (ms: number): void => {
         for (let i = 0; i < ms / TICK; i += 1) w.step();
@@ -2529,14 +2529,19 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
       rec.hp = rec.stats.maxHp * 0.1;
       step(12000);
       expect(rec.loadout[belt].state!.n).toBe(2);
+      expect(w.clouds.size).toBe(1); // the press made ONE cloud at the bot's centre (Story 9.3)
+      expect(rec.cloudUntil).toBeGreaterThan(w.now);
       rec.hp = rec.stats.maxHp;
       step(1000);
       expect(rec.loadout[belt].state!.n).toBe(2);
       rec.hp = rec.stats.maxHp * 0.1;
-      step(12000);
-      expect(rec.loadout[belt].state!.n).toBe(2); // its own smoke is still running
-      step(LAY + LIFE - 25000 + 2000); // past the last puff's life
+      step(1000);
+      expect(rec.loadout[belt].state!.n).toBe(2); // its own cloud is still up (pressed < 14 s ago)
+      const firstUntil = rec.cloudUntil;
+      expect(firstUntil).toBeGreaterThan(w.now);
+      while (w.now < firstUntil + 2000) w.step(); // just past the first cloud's life — one more press, whose cloud is still up
       expect(rec.loadout[belt].state!.n).toBe(1);
+      expect(rec.cloudUntil).toBeGreaterThan(w.now);
     });
   });
 

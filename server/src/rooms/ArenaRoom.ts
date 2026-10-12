@@ -45,7 +45,7 @@ import { buildMatchRecord, handCount } from '../game/matchRecord.js';
 import { getAccountWriter, getGameVersion } from '../game/accountWriter.js';
 import {
   recordMinesLive,
-  recordSmokeLive,
+  recordCloudsLive,
   registerRoom,
   type RoomMetricsHandle,
 } from '../metrics.js';
@@ -1259,8 +1259,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // peak. A count, nothing else — and read right after the step, so a
       // cascade that cleared the water is already reflected.
       recordMinesLive(this.world.mineCount);
-      // ...and the live SMOKE SCREEN puff count (Story 8.18), on the same terms.
-      recordSmokeLive(this.world.smokeCount);
+      // ...and the live COUNTERMEASURE cloud count (Story 8.18 / 9.3), on the same terms.
+      recordCloudsLive(this.world.cloudCount);
       this.match?.update();
       this.observeMatchActivation();
       this.afterStep();

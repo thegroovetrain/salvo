@@ -205,7 +205,7 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
       `INSTANT +${CONFIG.hullRepair.instantHp} HP`,
       `OVER TIME +${CONFIG.hullRepair.regenHp} HP / ${CONFIG.hullRepair.regenMs / 1000} S`,
     ]);
-    expect(tooltipModel(BELT_2, 'smokeScreen', STATS, [], 3)!.stats).toEqual(consumableStatRows('smokeScreen'));
+    expect(tooltipModel(BELT_2, 'countermeasure', STATS, [], 3)!.stats).toEqual(consumableStatRows('countermeasure'));
     // The one stub left (DEPTH CHARGE) has no mechanism, so no rows.
     expect(tooltipModel(BELT_1, 'depthCharge', STATS, [], 1)!.stats).toEqual([]);
   });
@@ -410,7 +410,7 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
 describe('a BELT slot has NO interaction line (amendment 203)', () => {
   it('prints nothing for any consumable, whatever its shape or stock', () => {
     expect(interactionLine(BELT_1, 'hullRepair', [], 2)).toBe('');
-    expect(interactionLine(BELT_2, 'smokeScreen', [], 1)).toBe('');
+    expect(interactionLine(BELT_2, 'countermeasure', [], 1)).toBe('');
     expect(interactionLine(BELT_1, 'decoyBuoy', [], 3)).toBe('');
     expect(interactionLine(BELT_2, 'supercavTorpedo', [], 2)).toBe('');
   });

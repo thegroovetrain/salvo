@@ -35,25 +35,37 @@
 // seat's `gun` and the held-fire level `held` may exist NOWHERE but the
 // observer's own `you` (see verifyFrame). The fuzz seats every ship with a
 // RANDOM gun and drives a random `held` level, so machine-gun streams, flak
-// bursts and cannon salvos all flow through the oracle. Story 8.18 (SMOKE
-// SCREEN, Eric rulings 2026-09-29, amendments 138–145) adds ONE OCCLUDER to
-// the sight side of the invariant, not a seventh exception: a live puff on
-// the observer→subject segment hides a contact, mine, decoy, ballistic, the
-// mz/sm marks and in-bubble torpedo water exactly as an island does, muffles
-// the foghorn the same one step, and — ruling 142 — hides a hull even under
-// the observer's OWN flare (the only smoke term with no island twin). Radar
-// never reads a puff. The puff itself reaches a client through the `smoke`
-// channel on its own gate (owner / spectator / centre within sight + radius
-// with ISLAND-only LOS) — see verifySmoke — carrying `{id,x,y,t0}` and no
-// owner, radius or `until`. Every term is re-derived here (puffRadiusOracle,
-// puffBlocks, sightClearOracle) from the rulings as LITERALS, never from
-// `puffRadius`/`segCircleHit`/`sightClear`. Story 8.19 (WAKE DRAFTING,
+// bursts and cannon salvos all flow through the oracle. Story 9.3 (the
+// MULTI-SPECTRAL COUNTERMEASURE, Eric rulings 2026-10-11, epic-9 amendments
+// 40–47 — Story 8.18's SMOKE SCREEN seat) adds ONE OCCLUDER to the invariant,
+// not a seventh exception: a LIVING PIXEL of a cloud on the observer→subject
+// segment hides a contact, mine, decoy, ballistic, the mz/sm marks and
+// in-bubble torpedo water exactly as an island does — for EVERY observer,
+// the cloud's owner included (amendment 40: no in-cloud bubble, no sight
+// floor) — muffles the foghorn the same one step, and (amendment 142,
+// standing) hides a hull even under the observer's OWN flare (the only cloud
+// term with no island twin). On the RADAR side (amendment 41) a NON-OWNER's
+// return on a point INSIDE a cloud's outline with a pixel on the path is
+// dropped — no shadow beyond the cloud, and the owner's radar ignores its own
+// pixels entirely; the amendment-147 in-bubble paint stays (the hull a cloud
+// alone hides paints for whoever's radar is allowed through). The cloud
+// itself reaches a client through the `clouds` channel on its own gate
+// (amendment 42: owner / spectator / centre within the observer's RADAR range
+// with ISLAND-only LOS to the outline's nearest rim) — see verifyClouds —
+// carrying `{id,x,y,t0}` and no owner, pixels, radius or `until`. The pixel
+// GENERATOR is the shared `cloudBase` / `forEachLivingPixel` (the one
+// function both sides run — there is no second source of truth for where a
+// pixel is); every RULE over the pixels is re-derived here (the literal 6 u
+// footprint, the literal 200 × (1 + 1.5 × min(1, age / 15 s)) outline, the
+// inside rule, the owner rule — cloudPixelOnSegment, cloudBlocksSight,
+// cloudHidesRadar, sightClearOracle), never from `cloudBlocks` /
+// `pointInCloud` / `sightClear` / `radarClear`. Story 8.19 (WAKE DRAFTING,
 // amendments 151–155) adds ONE own-ship field, not a seventh exception:
 // `you.draft` — the wake-draft lift folded into the observer's own cap — is
 // own-ship state, a DECLARED disclosure (NFR21; Eric 2026-09-30, amendment
 // 160): the exact scalar is `lift × ageFactor × headFactor`, so a MODIFIED
 // client varying its heading over a few ticks can recover the direction and
-// rough age of a wake it cannot see (island- or smoke-hidden) — a rough
+// rough age of a wake it cannot see (island- or cloud-hidden) — a rough
 // bearing toward a hidden hull within one wake length (~250 u); honest
 // clients show nothing, and Eric accepted it because prediction needs the
 // exact double. It may exist NOWHERE but the observer's own `you` (see
@@ -81,8 +93,10 @@ import {
   HORN_IDS,
   SHELL_FAMILIES,
   bearing,
+  cloudBase,
   coverageHas,
   effectiveStats,
+  forEachLivingPixel,
   hullSilhouette,
   mulberry32,
   paintSeed,
@@ -97,6 +111,7 @@ import {
   type BoonFitEvent,
   type DropEvent,
   type BurstEvent,
+  type CloudBase,
   type Contact,
   type Island,
   type DamageEvent,
@@ -156,25 +171,32 @@ function dist(a: { x: number; y: number }, b: { x: number; y: number }): number 
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-// ---------- Story 8.18: the SMOKE SCREEN oracle (independently re-derived) ----
+// ---------- Story 9.3: the MULTI-SPECTRAL COUNTERMEASURE oracle (independently re-derived) ----
 //
-// A puff is a stationary disc born at 123.75 u and growing LINEARLY to 247.5 u
-// over its whole 30 s life (Eric rulings 138–139; radii re-ruled 2026-09-30 to
-// 1/8 → 2/8 of the 660 u intel range, then ×1.5 by Eric 2026-10-01, cycle 162
-// — amendment 176: this curve stays a LITERAL), written here as LITERALS —
-// deliberately NOT CONFIG.smokeScreen and NEVER the shared `puffRadius`. A
-// segment is BLOCKED by a puff iff the disc's centre lies within its radius of
-// the segment — the closest-point test written out below, NEVER the shared
-// `segCircleHit` — which is the geometric statement of "the segment enters,
-// exits, or lies inside the disc": an observer standing in a puff has every
-// segment blocked (its start is inside), a subject standing in a puff has its
-// segment blocked (its end is inside), and the rule is symmetric. Only LIVE
-// puffs count (`until` in the future) — production deletes an expired puff
+// A cloud is 300 pixels, each a pure seeded function of the cloud's id (birth
+// offset inside 200 u, death age in 6–15 s), scaled outward keeping bearing so
+// the OUTLINE grows from 200 u at birth to 500 u at the end of its 15 s life
+// (Eric rulings 43–44). THE GENERATOR IS SHARED AND NOT RE-DERIVED — the
+// shared `cloudBase` + `forEachLivingPixel` are the ONE pixel function both
+// sides run, and an oracle that re-rolled its own pixels would be testing a
+// different cloud. Every RULE over those pixels is written here as a LITERAL,
+// deliberately NOT CONFIG.countermeasure and NEVER the shared `cloudBlocks` /
+// `pointInCloud`: a segment is BLOCKED by a cloud iff some LIVING pixel's
+// centre lies within the 6 u footprint of the segment — the closest-point
+// test written out below, never `segCircleHit` — so a cloud with no living
+// pixel on the line blocks nothing (the decay IS the fade), an observer
+// standing on a pixel has every segment blocked, and the rule is symmetric.
+// The OUTLINE is `200 × (1 + 1.5 × min(1, age / 15000))` as a literal; a point
+// is INSIDE a cloud iff its distance to the centre is ≤ that. Only LIVE
+// clouds count (`until` in the future) — production deletes an expired cloud
 // in the step that expires it, so a frame can never be built against one,
 // but the oracle states the rule rather than trusting the sweep.
-function puffRadiusOracle(bornAt: number, now: number): number {
+const CLOUD_FOOTPRINT_U = 6;
+const CLOUD_LIFE_MS = 15_000;
+
+function cloudOutlineOracle(bornAt: number, now: number): number {
   const age = Math.max(0, now - bornAt);
-  return 123.75 + 123.75 * Math.min(1, age / 30_000);
+  return 200 * (1 + 1.5 * Math.min(1, age / CLOUD_LIFE_MS));
 }
 
 function segPointDistOracle(a: { x: number; y: number }, b: { x: number; y: number }, p: { x: number; y: number }): number {
@@ -185,59 +207,97 @@ function segPointDistOracle(a: { x: number; y: number }, b: { x: number; y: numb
   return Math.hypot(a.x + t * dx - p.x, a.y + t * dy - p.y);
 }
 
-/** Does ANY live smoke puff lie on the segment a→b at the world's clock? */
-function puffBlocks(w: World, a: { x: number; y: number }, b: { x: number; y: number }): boolean {
-  for (const puff of w.smoke.values()) {
-    if (w.now >= puff.until) continue;
-    if (segPointDistOracle(a, b, puff) <= puffRadiusOracle(puff.bornAt, w.now)) return true;
+/** The shared generator, memoized per id exactly as both sides memoize it. */
+const CLOUD_BASES = new Map<string, CloudBase>();
+function baseOf(id: string): CloudBase {
+  let b = CLOUD_BASES.get(id);
+  if (!b) {
+    b = cloudBase(id);
+    CLOUD_BASES.set(id, b);
+  }
+  return b;
+}
+
+type CloudLike = { id: string; ownerId: string; x: number; y: number; bornAt: number; until: number };
+
+/** Does a LIVING pixel of THIS cloud lie within the 6 u footprint of the
+ *  segment a→b at the world's clock? (own closest-point test; the shared
+ *  generator for where the pixels are) */
+function cloudPixelOnSegment(w: World, a: { x: number; y: number }, b: { x: number; y: number }, cloud: CloudLike): boolean {
+  if (w.now >= cloud.until) return false;
+  let hit = false;
+  forEachLivingPixel(baseOf(cloud.id), cloud.x, cloud.y, w.now - cloud.bornAt, (px, py) => {
+    if (!hit && segPointDistOracle(a, b, { x: px, y: py }) <= CLOUD_FOOTPRINT_U) hit = true;
+  });
+  return hit;
+}
+
+/** THE SIGHT HALF (amendment 40): does ANY live cloud — whoever owns it — put
+ *  a living pixel on the segment a→b? */
+function cloudBlocksSight(w: World, a: { x: number; y: number }, b: { x: number; y: number }): boolean {
+  for (const cloud of w.clouds.values()) {
+    if (cloudPixelOnSegment(w, a, b, cloud)) return true;
   }
   return false;
 }
 
-/** STANDING IN SMOKE (Story 8.18, Eric ruling 2026-09-29, amendment 149,
- *  final — "if I'm in smoke, I should be able to see at 1/8 intel range,
- *  including into other smoke. If I'm not in smoke, I can't see into it. If
- *  I'm in it, go ahead and occlude everything outside of that range, no
- *  matter what. Radar still works."): an AFLOAT observer whose centre lies
- *  within some live puff's current radius — whoever laid it. Re-derived from
- *  the store with the literal curve, NEVER production's per-tick
- *  `ShipRecord.inSmoke` stamp (which this oracle therefore checks, see
- *  verifyFrame's `you` pin). A sinking hull is not "in smoke" (production
- *  stamps afloat hulls only — it keeps the ordinary rule and is blind from
- *  inside a puff). */
-function inSmokeOracle(w: World, me: ShipRecord): boolean {
-  if (!isAfloat(me.lifecycle) && !isSinking(me.lifecycle)) return false;
-  for (const puff of w.smoke.values()) {
-    if (w.now >= puff.until) continue;
-    if (dist(me.state, puff) <= puffRadiusOracle(puff.bornAt, w.now)) return true;
+/** Is `p` inside this cloud's current outline (the literal curve)? */
+function insideOutlineOracle(w: World, p: { x: number; y: number }, cloud: CloudLike): boolean {
+  return w.now < cloud.until && dist(p, cloud) <= cloudOutlineOracle(cloud.bornAt, w.now);
+}
+
+/** THE RADAR HALF (amendment 41): is observer `me`'s radar return on `p`
+ *  hidden by a cloud? Iff some live cloud `me` does NOT own has `p` inside
+ *  its outline AND a living pixel on the me→p segment. A point outside every
+ *  outline is never hidden (no shadow beyond the cloud); the owner's own
+ *  clouds never hide anything from the owner's radar. */
+function cloudHidesRadar(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
+  for (const cloud of w.clouds.values()) {
+    if (cloud.ownerId === me.id) continue;
+    if (insideOutlineOracle(w, p, cloud) && cloudPixelOnSegment(w, me.state, p, cloud)) return true;
   }
   return false;
 }
 
-/** THE sight oracle (Story 8.18): the ONE predicate every sight-tier check
- *  below composes (never production's `sightClear`). Observer NOT in smoke:
- *  island LOS ∧ no puff on the segment. Observer IN smoke (amendment 149):
- *  island LOS ∧ dist ≤ its 1/8-intel sight — NO puff term (it sees INTO other
- *  smoke inside that bubble) and nothing optical beyond it, whatever the
- *  row's own reach. `clearLos` alone stays the ISLAND half, still used where
- *  a puff deliberately does not block: the smoke channel's own gate. */
+/** ...and its owner twin, for the ledger: `p` is inside one of `me`'s OWN
+ *  clouds with a living pixel on the path — a point only the owner's radar
+ *  may paint. */
+function insideOwnCloudBehindPixel(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
+  for (const cloud of w.clouds.values()) {
+    if (cloud.ownerId !== me.id) continue;
+    if (insideOutlineOracle(w, p, cloud) && cloudPixelOnSegment(w, me.state, p, cloud)) return true;
+  }
+  return false;
+}
+
+/** THE sight oracle (Story 8.18 / 9.3): the ONE predicate every sight-tier
+ *  check below composes (never production's `sightClear`): island LOS ∧ no
+ *  living cloud pixel on the segment — ownership-blind, no in-cloud carve-out
+ *  (amendment 40). `clearLos` alone stays the ISLAND half, still used where a
+ *  cloud deliberately does not block: the cloud channel's own gate. */
 function sightClearOracle(w: World, me: ShipRecord, b: { x: number; y: number }): boolean {
-  if (!clearLos(me.state, b, w.map.islands)) return false;
-  if (inSmokeOracle(w, me)) return dist(me.state, b) <= effSight(w, me);
-  return !puffBlocks(w, me.state, b);
+  return clearLos(me.state, b, w.map.islands) && !cloudBlocksSight(w, me.state, b);
 }
 
-/** Non-vacuity ledger for the smoke occluder (the DECOY_PAINT_EXPECTED idiom):
- *  how many (observer, hull) pairs the fuzz met that were inside sight with
- *  island LOS clear and were hidden ONLY by smoke — the invariant must have
- *  been EXERCISED against a smoked contact, not merely satisfied. */
-const SMOKE_OCCLUDED = { n: 0 };
-/** ...and its two amendment-147/149 siblings: how many in-bubble smoke-hidden
- *  points the fuzz saw PAINTED as blips (the oracle's in-bubble blip arm was
- *  exercised), and how many contacts an IN-SMOKE observer received THROUGH a
- *  puff inside its 1/8 bubble (the "see into other smoke" arm was exercised). */
+/** Non-vacuity ledgers for the cloud occluder (the DECOY_PAINT_EXPECTED
+ *  idiom) — the invariant must have been EXERCISED against each arm, not
+ *  merely satisfied. CLOUD_SIGHT_OCCLUDED: (observer, hull) pairs inside
+ *  sight with island LOS clear and hidden ONLY by a cloud pixel (verified
+ *  absent). CLOUD_RADAR_OCCLUDED: a NON-owner's would-be blip dropped by the
+ *  inside-the-outline + pixel-on-the-path rule (verified absent through the
+ *  blip completeness oracle). OWNER_RADAR_THROUGH: an owner's blip on a point
+ *  inside its OWN cloud behind a pixel (verified present). CLOUD_FADE_PASS:
+ *  an in-sight, island-clear line crossing the OUTLINE of a cloud aged ≥ 13 s
+ *  that no pixel blocks (the fade arm: verified present as a contact). */
+const CLOUD_SIGHT_OCCLUDED = { n: 0 };
+const CLOUD_RADAR_OCCLUDED = { n: 0 };
+const OWNER_RADAR_THROUGH = { n: 0 };
+const CLOUD_FADE_PASS = { n: 0 };
+/** ...and the amendment-147 sibling: how many in-bubble cloud-hidden points
+ *  the fuzz saw PAINTED as blips (the oracle's in-bubble blip arm was
+ *  exercised — the owner's radar-only view of its own cloud, or a non-owner's
+ *  paint on a hull the cloud's pixels hide without containing). */
 const SMOKED_BLIP = { n: 0 };
-const IN_SMOKE_SEES = { n: 0 };
 /** Story 8.19: how many frames carried a POSITIVE `you.draft` (the drafting
  *  arm of the self-private clause ran against a real lift, not only the
  *  omitted-at-0 arm). */
@@ -257,16 +317,13 @@ const DRAFT_SEEN = { n: 0 };
 // by the 2026-08-20 INTEL RANGE deletion). Re-derived here INDEPENDENTLY, as
 // literals, per this file's reimplementation rule: sight is half of intel
 // range, a dazzled hull sees an eighth of it (the 1/8 rung, written as the
-// literal `/ 8` — never CONFIG.flashShells.sightFraction), a hull STANDING IN
-// SMOKE also sees an eighth of it (Story 8.18, amendment 149 — its own
-// literal `/ 8`, never CONFIG.smokeScreen.inSmokeSightFraction; dazzle is
-// listed first, as the ruling lists it), and both scale sight ONLY — intel
-// range itself is never scaled, which is what keeps the 5/8 muzzle/smoke halo
-// un-dazzled by construction (the in-smoke clamp on those halos is
-// sightClearOracle's job, not this number's).
+// literal `/ 8` — never CONFIG.flashShells.sightFraction), and dazzle scales
+// sight ONLY — intel range itself is never scaled, which is what keeps the
+// 5/8 muzzle/smoke halo un-dazzled by construction. (Story 9.3, amendment
+// 40: the 8.18 in-smoke eighth is GONE — a cloud never scales sight; its
+// pixels block it, which is sightClearOracle's job, not this number's.)
 function effSight(w: World, me: ShipRecord): number {
   if (w.now < me.dazzledUntil) return effRadar() / 8;
-  if (inSmokeOracle(w, me)) return effRadar() / 8;
   return effRadar() / 2;
 }
 
@@ -298,16 +355,16 @@ function detected(w: World, me: ShipRecord, p: { x: number; y: number }): boolea
 // The Story 1.7 owned-zone reveal source, reimplemented test-locally (NEVER
 // the production ownZoneCovers): a lit zone OWNED by the observer covers `p`
 // iff dist(p, center) ≤ r — deliberately NO island-LOS term ("lit from above")
-// and NEVER anyone else's zone — AND (Story 8.18, Eric ruling 142) no live
-// SMOKE PUFF lies on the observer→p segment: smoke hides a hull even under the
-// observer's own flare. The term is SMOKE ONLY (`puffBlocks`, never
-// `sightClearOracle`): an island under the flare still blocks nothing. And an
-// observer STANDING IN SMOKE gets nothing from its flare at all (amendment
-// 149 — "occlude everything outside of that range, no matter what").
+// and NEVER anyone else's zone — AND (Story 8.18, Eric ruling 142; standing
+// under Story 9.3) no living CLOUD PIXEL lies on the observer→p segment: a
+// cloud hides a hull even under the observer's own flare. The term is CLOUD
+// ONLY (`cloudBlocksSight`, never `sightClearOracle`): an island under the
+// flare still blocks nothing. (The 8.18 in-smoke early return is gone with
+// amendment 40 — an observer inside a cloud keeps its flare; the pixels on
+// the segment are what blind it.)
 function zoneCovers(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
-  if (inSmokeOracle(w, me)) return false;
   for (const zone of w.litZones.values()) {
-    if (zone.ownerId === me.id && dist(zone, p) <= zone.r) return !puffBlocks(w, me.state, p);
+    if (zone.ownerId === me.id && dist(zone, p) <= zone.r) return !cloudBlocksSight(w, me.state, p);
   }
   return false;
 }
@@ -549,11 +606,13 @@ function injectBurnZone(
   w.burnZones.set(id, { id, ownerId, x, y, r, until, dps });
 }
 
-/** Drop a SMOKE SCREEN puff directly into world state (Story 8.18) — the
- *  injectMine posture: a raw store write, never the production lay path.
- *  `bornAt` defaults to "now" (a fresh 123.75 u disc); `until` to a 30 s life. */
-function injectPuff(w: World, id: string, ownerId: string, x: number, y: number, bornAt = w.now, until = bornAt + 30_000): void {
-  w.smoke.set(id, { id, ownerId, x, y, bornAt, until });
+/** Drop a MULTI-SPECTRAL COUNTERMEASURE cloud directly into world state
+ *  (Story 9.3) — the injectMine posture: a raw store write, never the
+ *  production press path. `bornAt` defaults to "now" (a fresh cloud); `until`
+ *  is the literal 15 s life; the cached base is the shared generator's (the
+ *  store's own memo, exactly as production caches it at the press). */
+function injectCloud(w: World, id: string, ownerId: string, x: number, y: number, bornAt = w.now): void {
+  w.clouds.set(id, { id, ownerId, x, y, bornAt, until: bornAt + CLOUD_LIFE_MS, base: cloudBase(id) });
 }
 
 /** Push a raw world-emitted event onto the world's tick-event list — the exact
@@ -2447,37 +2506,32 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // ...and the hand is never bigger than the dial that sizes it (a pool with
   // fewer dealable lines than the offer size draws SHORT, never long).
   if (f.you) expect(f.you.offer.length).toBeLessThanOrEqual(CONFIG.offer.size);
-  // Story 8.18 NON-VACUITY LEDGERS. (1) For an observer NOT standing in
-  // smoke: every other hull inside its sight with island LOS clear but a puff
-  // on the segment — and under no owned flare that itself clears the smoke —
-  // must be ABSENT from contacts (it may PAINT — amendment 147 — but never
-  // resolve). (2) For an observer STANDING IN SMOKE (amendment 149): every
-  // other afloat hull inside its 82.5 u bubble with island LOS clear and a
-  // puff on the segment must be PRESENT as a contact — it sees into other
-  // smoke. Count both so the fuzz can prove each arm was exercised.
-  const meInSmoke = inSmokeOracle(w, me);
+  // Story 9.3 NON-VACUITY LEDGERS (sight side). (1) Every other afloat hull
+  // inside this observer's sight with island LOS clear but a living cloud
+  // pixel on the segment — and under no owned flare that itself clears the
+  // cloud — must be ABSENT from contacts (it may PAINT — amendment 147 — but
+  // never resolve); the owner of the cloud is no exception (amendment 40).
+  // (2) THE FADE: for every live cloud aged ≥ 13 s whose OUTLINE the
+  // observer→hull line crosses, if no pixel of any cloud blocks that line and
+  // the hull is in sight with island LOS clear, the hull must be PRESENT —
+  // the decay opened the line (CLOUD_FADE_PASS). Count both so the fuzz can
+  // prove each arm was exercised.
   for (const other of w.ships.values()) {
     if (other.id === me.id || !isAfloat(other.lifecycle)) continue;
     const inRange = dist(me.state, other.state) <= effSight(w, me) && clearLos(me.state, other.state, w.map.islands);
-    if (!inRange || !puffBlocks(w, me.state, other.state)) continue;
-    if (meInSmoke) {
-      IN_SMOKE_SEES.n += 1;
-      expect(f.contacts.some((c) => c.id === other.id), `in-smoke ${me.id} must see ${other.id} through smoke inside 82.5 u`).toBe(true);
-    } else if (!zoneCovers(w, me, other.state)) {
-      SMOKE_OCCLUDED.n += 1;
-      expect(f.contacts.some((c) => c.id === other.id), `smoked hull ${other.id} leaked to ${me.id}`).toBe(false);
+    if (!inRange) continue;
+    if (cloudBlocksSight(w, me.state, other.state)) {
+      if (zoneCovers(w, me, other.state)) continue;
+      CLOUD_SIGHT_OCCLUDED.n += 1;
+      expect(f.contacts.some((c) => c.id === other.id), `cloud-hidden hull ${other.id} leaked to ${me.id}`).toBe(false);
+      continue;
     }
-  }
-  // STANDING IN SMOKE IS SELF-PRIVATE (amendment 149): `inSmoke` may exist
-  // NOWHERE but `you` — never on a contact (the string is absent from the
-  // frame with `you` spliced out) — and on `you` it is `true` IFF the oracle's
-  // own store read says this afloat observer's centre is inside a live puff,
-  // and ABSENT (never `false`) otherwise: production's per-tick stamp and the
-  // oracle's literal-curve derivation must agree on every fuzzed frame.
-  expect(JSON.stringify(withoutYou)).not.toContain('inSmoke');
-  if (f.you !== undefined) {
-    expect('inSmoke' in f.you).toBe(meInSmoke);
-    if (meInSmoke) expect(f.you.inSmoke).toBe(true);
+    for (const cloud of w.clouds.values()) {
+      if (w.now >= cloud.until || w.now - cloud.bornAt < 13_000) continue;
+      if (segPointDistOracle(me.state, other.state, cloud) > cloudOutlineOracle(cloud.bornAt, w.now)) continue;
+      CLOUD_FADE_PASS.n += 1;
+      expect(f.contacts.some((c) => c.id === other.id), `faded cloud ${cloud.id} still hid ${other.id} from ${me.id}`).toBe(true);
+    }
   }
   // THE WAKE-DRAFT LIFT IS SELF-PRIVATE (Story 8.19): `draft` may exist
   // NOWHERE but `you` — never on a contact, never in a frame without `you` —
@@ -2509,7 +2563,6 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     expect('stats' in c).toBe(false);
     expect('lvl' in c).toBe(false); // ...and so is the economy (Story 2.6)
     expect('xp' in c).toBe(false);
-    expect('inSmoke' in c).toBe(false); // ...and whether they stand in smoke (Story 8.18, amendment 149)
     expect('draft' in c).toBe(false); // ...and whether they ride a wake (Story 8.19)
     // Sight tier (dist + LOS) OR the ship's CENTER inside a zone the viewer
     // OWNS (Story 1.7 firer-only truesight parity) — nothing else.
@@ -2534,16 +2587,19 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   for (const d of w.decoys.values()) {
     if (d.ownerId === me.id) expect((f.decoys ?? []).some((v) => v.id === d.id), `own decoy ${d.id} delivered`).toBe(true);
   }
-  // SMOKE SCREEN (Story 8.18): every delivered puff passes its own gate, the
-  // OWNER always receives its own live puffs, and the store-private fields
-  // (`ownerId`, `bornAt`, `until`) exist NOWHERE in the frame text — a puff
-  // on the wire is `{id,x,y,t0}` and nothing else.
-  for (const p of f.smoke ?? []) verifySmoke(w, me, p);
-  for (const p of w.smoke.values()) {
-    if (p.ownerId === me.id && w.now < p.until) expect((f.smoke ?? []).some((v) => v.id === p.id), `own puff ${p.id} delivered`).toBe(true);
+  // THE COUNTERMEASURE CLOUD (Story 9.3): every delivered cloud passes its
+  // own gate, the OWNER always receives its own live clouds, and the store-
+  // private fields (`ownerId`, `bornAt`, `until`, the cached pixel `base`)
+  // exist NOWHERE in the frame text — a cloud on the wire is `{id,x,y,t0}`
+  // and nothing else.
+  for (const v of f.clouds ?? []) verifyClouds(w, me, v);
+  for (const cloud of w.clouds.values()) {
+    if (cloud.ownerId === me.id && w.now < cloud.until) expect((f.clouds ?? []).some((v) => v.id === cloud.id), `own cloud ${cloud.id} delivered`).toBe(true);
   }
   expect(JSON.stringify(f)).not.toContain('ownerId');
   expect(JSON.stringify(f)).not.toContain('bornAt');
+  expect(JSON.stringify(f)).not.toContain('"base"');
+  expect(JSON.stringify(f)).not.toContain('dieAt');
   for (const d of f.denied ?? []) verifyDenied(me, d);
   verifyBlipOrdering(w, f);
   verifyBlipCompleteness(w, me, f);
@@ -2718,29 +2774,28 @@ function verifyDecoy(w: World, me: ShipRecord, d: DecoyView): void {
   if (!own) expect(sighted(w, me, decoy) || zoneCovers(w, me, decoy)).toBe(true);
 }
 
-/** A SMOKE SCREEN puff (Story 8.18) may reach a fogged frame only if the
- *  viewer OWNS it (own field awareness) or its CENTRE is within the viewer's
- *  effective sight PLUS the puff's current radius (the disc's near edge
- *  touches the bubble — the 123.75 → 247.5 u literal curve) with ISLAND-only LOS to
- *  the point of the disc NEAREST the viewer (Eric ruling 2026-09-29,
- *  amendment 148 — "a puff is delivered if any part of it is island-
- *  visible"; written out here as `centre − r · (centre − me) / |centre − me|`,
- *  the viewer itself when it stands inside the disc; `clearLos`, never the
- *  smoke term: a puff never hides a puff, so an observer standing in one
- *  still sees the next). Never a lit-zone path, never radar. Wire shape is
- *  exactly {id,x,y,t0} in that key order — no owner, no own-flag (amendment
- *  149) — `t0` the store's birth stamp; the puff must be live in the store. */
-function verifySmoke(w: World, me: ShipRecord, p: { id: string; x: number; y: number; t0: number }): void {
-  const puff = w.smoke.get(p.id)!;
-  expect(puff).toBeDefined();
-  expect(w.now).toBeLessThan(puff.until); // an expired puff never materializes
-  expect(Object.keys(p)).toEqual(['id', 'x', 'y', 't0']);
-  expect(p).toEqual({ id: puff.id, x: puff.x, y: puff.y, t0: puff.bornAt });
-  if (puff.ownerId === me.id) return;
-  const r = puffRadiusOracle(puff.bornAt, w.now);
-  const d = dist(me.state, puff);
-  expect(d).toBeLessThanOrEqual(effSight(w, me) + r);
-  const rim = d <= r ? me.state : { x: puff.x - ((puff.x - me.state.x) * r) / d, y: puff.y - ((puff.y - me.state.y) * r) / d };
+/** A COUNTERMEASURE cloud (Story 9.3, amendment 42) may reach a fogged frame
+ *  only if the viewer OWNS it (own field awareness) or its CENTRE is within
+ *  the viewer's RADAR range (the burning-zone reach — effRadar, inclusive)
+ *  with ISLAND-only LOS to the point of the OUTLINE nearest the viewer (the
+ *  8.18 amendment-148 rim rule on the literal 200 → 500 u curve; written out
+ *  here as `centre − r · (centre − me) / |centre − me|`, the viewer itself
+ *  when it stands inside the outline; `clearLos`, never the pixel term: a
+ *  cloud never hides a cloud, so an observer standing in one still sees the
+ *  next). Never a lit-zone path, never a sweep term. Wire shape is exactly
+ *  {id,x,y,t0} in that key order — no owner, no own-flag, no pixel count,
+ *  no radius — `t0` the store's birth stamp; the cloud must be live. */
+function verifyClouds(w: World, me: ShipRecord, v: { id: string; x: number; y: number; t0: number }): void {
+  const cloud = w.clouds.get(v.id)!;
+  expect(cloud).toBeDefined();
+  expect(w.now).toBeLessThan(cloud.until); // an expired cloud never materializes
+  expect(Object.keys(v)).toEqual(['id', 'x', 'y', 't0']);
+  expect(v).toEqual({ id: cloud.id, x: cloud.x, y: cloud.y, t0: cloud.bornAt });
+  if (cloud.ownerId === me.id) return;
+  const d = dist(me.state, cloud);
+  expect(d).toBeLessThanOrEqual(effRadar());
+  const r = cloudOutlineOracle(cloud.bornAt, w.now);
+  const rim = d <= r ? me.state : { x: cloud.x - ((cloud.x - me.state.x) * r) / d, y: cloud.y - ((cloud.y - me.state.y) * r) / d };
   expect(clearLos(me.state, rim, w.map.islands)).toBe(true);
 }
 
@@ -2804,21 +2859,31 @@ type EventVerifier = (w: World, me: ShipRecord, e: GameEvent) => void;
  *  differ on, amendment 101). */
 /** THE POINT-BLIP PREDICATE, independently re-derived: the annulus (sight <
  *  d ≤ intel) — OR, since Story 8.18 (Eric ruling 2026-09-29, amendment 147),
- *  a point INSIDE sight that the sight tier would show BUT FOR SMOKE: island
- *  LOS clear (islands block every sensor — Eric 2026-08-02) and the sight
- *  oracle false. For an observer standing in smoke (amendment 149) that arm
- *  is unreachable by construction — inside its 82.5 u bubble the sight oracle
- *  is island LOS alone, so a clear point there is a contact — and everything
- *  beyond is the ordinary annulus ("radar still works"). Then the paint
- *  window, the shadow march and no owned flare over the point, as ever. */
+ *  a point INSIDE sight that the sight tier would show BUT FOR A CLOUD:
+ *  island LOS clear (islands block every sensor — Eric 2026-08-02) and the
+ *  sight oracle false. Then the paint window, the shadow march, no owned
+ *  flare over the point, AND (Story 9.3, amendment 41) not hidden by a cloud
+ *  on the radar rule: a NON-owner's return on a point inside a cloud's
+ *  outline behind a living pixel is dropped; a point beyond the outline is
+ *  untouched; the owner's radar paints through its own cloud. The two cloud
+ *  ledgers are kept here, where every caller (ship and decoy paints) meets
+ *  the rule: a would-be paint the radar rule dropped (CLOUD_RADAR_OCCLUDED),
+ *  and a paint on a point inside the observer's OWN cloud behind a pixel
+ *  (OWNER_RADAR_THROUGH). */
 function blipPredicate(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
   const d = dist(me.state, p);
   const inBubble = d <= effSight(w, me);
   const smokedInBubble = inBubble && clearLos(me.state, p, w.map.islands) && !sightClearOracle(w, me, p);
   const reach = inBubble ? smokedInBubble : d <= effRadar();
-  const painted = reach && shadowVisible(w, me, p) && inPaintWindow(me, bearing(me.state, p)) && !zoneCovers(w, me, p);
-  if (painted && smokedInBubble) SMOKED_BLIP.n += 1;
-  return painted;
+  const wouldPaint = reach && shadowVisible(w, me, p) && inPaintWindow(me, bearing(me.state, p)) && !zoneCovers(w, me, p);
+  if (!wouldPaint) return false;
+  if (cloudHidesRadar(w, me, p)) {
+    CLOUD_RADAR_OCCLUDED.n += 1;
+    return false;
+  }
+  if (smokedInBubble) SMOKED_BLIP.n += 1;
+  if (insideOwnCloudBehindPixel(w, me, p)) OWNER_RADAR_THROUGH.n += 1;
+  return true;
 }
 
 // ---------- Story 8.16: the DECOY BUOY oracle (independently re-derived) ----------
@@ -3281,7 +3346,7 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
  * deafen" true by construction) the honker sits in: ceil(8 × d / intel), d ==
  * 0 → band 1, boundaries inclusive; beyond band 8 → inaudible. Islands MUFFLE
  * once, post-resolution, to max(5, band + 2) — silent past 8 — and since Story
- * 8.18 a SMOKE PUFF on the segment muffles the identical step. Amendment 53's
+ * 8.18 / 9.3 a cloud pixel on the segment muffles the identical step. Amendment 53's
  * max() clamps are RETIRED; nothing here reads effSight or muzzleFlash.
  *
  * THE PLATEAU FLOOR (review fix, anti-cheat): the RAW band is floored to
@@ -3306,7 +3371,7 @@ function hornBandOracle(w: World, me: ShipRecord, p: { x: number; y: number }): 
   const band = d === 0 ? 1 : Math.ceil((8 * d) / intel);
   if (!Number.isInteger(band) || band < 1 || band > 8) return null;
   const floored = Math.max(band, 4);
-  const emitted = sightClearOracle(w, me, p) ? floored : Math.max(5, floored + 2); // a puff muffles the same step (Story 8.18); an in-smoke listener is muffled beyond 82.5 u (amendment 149)
+  const emitted = sightClearOracle(w, me, p) ? floored : Math.max(5, floored + 2); // a cloud pixel muffles the same step (Story 8.18 / 9.3)
   return emitted > 8 ? null : emitted;
 }
 
@@ -3402,9 +3467,11 @@ function wakeDisclosed(w: World, me: ShipRecord, seg: WakeSegOracle, torp: boole
   const inner = torp ? 1 * sight : sight; // the `detected` oracle's 4/8 literal (2026-10-08)
   if (d <= inner || d > effRadar()) return false;
   if (!inPaintWindow(me, bearing(me.state, mid))) return false;
-  // In-bubble (torpedo) water: BINARY island LOS ∧ smoke (Story 8.18, ruling
-  // 143); beyond sight: the radar shadow march, which never reads a puff.
-  return d <= sight ? sightClearOracle(w, me, mid) : shadowVisible(w, me, mid);
+  // In-bubble (torpedo) water: BINARY island LOS ∧ cloud pixels (Story 8.18,
+  // ruling 143); beyond sight: the radar shadow march ∧ the radar cloud rule
+  // (Story 9.3, amendment 41 — water inside a non-owner's cloud behind a
+  // pixel is dropped; beyond the cloud, untouched).
+  return d <= sight ? sightClearOracle(w, me, mid) : shadowVisible(w, me, mid) && !cloudHidesRadar(w, me, mid);
 }
 
 /** Test-local SEGMENT mask oracle (the maskOracle sibling, re-derived from
@@ -3651,7 +3718,7 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
     const ev = e as { k: 'mz'; x: number; y: number };
     expect(Object.keys(ev).sort()).toEqual(['k', 'x', 'y']);
     expect(dist(me.state, ev)).toBeLessThanOrEqual(me.stats.radarRange * 0.625);
-    expect(sightClearOracle(w, me, ev)).toBe(true); // island LOS ∧ no puff — or, in smoke, within 82.5 u (Story 8.18, amendments 138–149)
+    expect(sightClearOracle(w, me, ev)).toBe(true); // island LOS ∧ no cloud pixel (Story 8.18 / 9.3)
   },
   sm: (w, me, e) => {
     // WOUNDED SMOKE (Story 4.4, amendments 40-50; reach MOVED with the
@@ -3673,7 +3740,7 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
     expect(Object.keys(ev).sort()).toEqual(['k', 'tier', 'x', 'y']);
     expect([1, 2]).toContain(ev.tier);
     expect(dist(me.state, ev)).toBeLessThanOrEqual(me.stats.radarRange * 0.625);
-    expect(sightClearOracle(w, me, ev)).toBe(true); // island LOS ∧ no puff — or, in smoke, within 82.5 u (Story 8.18, amendments 138–149)
+    expect(sightClearOracle(w, me, ev)).toBe(true); // island LOS ∧ no cloud pixel (Story 8.18 / 9.3)
   },
   fh: (w, me, e) => {
     // THE FOGHORN (Story 4.5, amendments 51-58; Story 4.9's eight-band
@@ -3818,9 +3885,11 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
   it('no frame ever references anything outside sight ∪ this-tick paints', () => {
     const rng = mulberry32(0x5eed_f0f0);
     DECOY_PAINT_EXPECTED.n = 0;
-    SMOKE_OCCLUDED.n = 0;
+    CLOUD_SIGHT_OCCLUDED.n = 0;
+    CLOUD_RADAR_OCCLUDED.n = 0;
+    OWNER_RADAR_THROUGH.n = 0;
+    CLOUD_FADE_PASS.n = 0;
     SMOKED_BLIP.n = 0;
-    IN_SMOKE_SEES.n = 0;
     DRAFT_SEEN.n = 0;
     let wkSeen = 0; // Story 4.12: proves the wake oracle ran non-vacuously
     let reReveals = 0; // Story 8.13: proves the per-visit ledger saw a re-entry
@@ -3874,14 +3943,11 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           injectWakeTrack(rec.wake, rec.state.x, rec.state.y, rng.float(0, TAU), rng.int(3, 24), w.now, 11_000);
         }
       }
-      // A GUARANTEED NEIGHBOUR (Story 8.18): the random ring above seats hulls
-      // kilometres apart, so two hulls inside one sight bubble were rare and
-      // the smoke occluder could pass vacuously. One extra hull per world
+      // A GUARANTEED NEIGHBOUR (Story 8.18 / 9.3): the random ring above seats
+      // hulls kilometres apart, so two hulls inside one sight bubble were rare
+      // and the cloud occluder could pass vacuously. One extra hull per world
       // sits 260–320 u off ids[0] on a random bearing — inside sight, in the
-      // clear — and most of the puffs below are seated on THAT segment. (The
-      // floor was 120 u while a fresh puff was 40 u; at 82.5 u it rose to 180;
-      // at 123.75 u — cycle 162 — it rose to 260, so the EVEN-world midpoint
-      // puff below, 130–160 u from either hull, still contains neither centre.)
+      // clear — and most of the clouds below are seated on THAT segment.
       {
         const anchor = w.ships.get(ids[0])!.state;
         const brg = rng.float(0, TAU);
@@ -3889,23 +3955,29 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const rec = place(w, 'pn', anchor.x + Math.cos(brg) * d, anchor.y + Math.sin(brg) * d, rng.float(0, TAU), GUN_IDS[rng.int(0, GUN_IDS.length - 1)]);
         rec.sweepAngle = rng.float(0, TAU);
         ids.push('pn');
-        // ...and the two amendment-147/149 arrangements the random ring never
+        // ...and the amendment-41/47 arrangements the random ring never
         // produces on its own (the ruling's "arrange a seeded scenario"):
-        //   • EVEN worlds: a fresh r123.75 puff at the MIDPOINT of anchor→pn
-        //     (≥ 130 u from either centre, so it contains neither) and the anchor's beam
+        //   • EVEN worlds: a FRESH cloud at the MIDPOINT of anchor→pn (both
+        //     hulls 130–160 u from its centre — INSIDE its 200 u outline,
+        //     with the dense fresh centre on the line) and the anchor's beam
         //     parked just short of pn's bearing, so the first step's paint
-        //     window crosses a hull inside sight that smoke alone hides — the
-        //     in-bubble BLIP arm (SMOKED_BLIP) runs against a real frame;
-        //   • ODD worlds: a close neighbour 'pq' 40–80 u off the anchor (inside
-        //     the 82.5 u in-smoke bubble — and, a puff being ≥ 123.75 u,
-        //     inside the puff too, which still puts the puff on the segment)
-        //     and a puff of random age centred on the anchor, so a hull
-        //     STANDING IN SMOKE sees through it (IN_SMOKE_SEES) while pn,
-        //     260–320 u out, is clamped away.
+        //     window crosses a hull inside sight that the cloud alone hides —
+        //     the in-bubble BLIP arm (SMOKED_BLIP) runs against a real frame.
+        //     The cloud's OWNER alternates: the anchor itself in every fourth
+        //     world (its radar paints pn THROUGH its own cloud —
+        //     OWNER_RADAR_THROUGH), otherwise ids[1] (the anchor's would-be
+        //     paint on a hull inside someone else's cloud is DROPPED —
+        //     CLOUD_RADAR_OCCLUDED);
+        //   • ODD worlds: a close neighbour 'pq' 40–80 u off the anchor and a
+        //     cloud of random age centred ON the anchor (an observer standing
+        //     in a cloud — blind by eye out of it, amendment 40, whoever owns
+        //     it: the anchor in every fourth world, ids[1] otherwise), the
+        //     anchor's beam parked short of pq's bearing.
         const anchorRec = w.ships.get(ids[0])!;
+        const owner = world % 4 === 0 || world % 4 === 1 ? ids[0] : ids[1];
         if (world % 2 === 0) {
           const pn = rec.state;
-          injectPuff(w, 'straddle', ids[1], (anchor.x + pn.x) / 2, (anchor.y + pn.y) / 2, w.now, w.now + 30_000);
+          injectCloud(w, 'straddle', owner, (anchor.x + pn.x) / 2, (anchor.y + pn.y) / 2, w.now);
           anchorRec.sweepAngle = wrapPositive(bearing(anchor, pn) - 0.01);
           anchorRec.prevSweepAngle = anchorRec.sweepAngle;
         } else {
@@ -3914,8 +3986,9 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           const pq = place(w, 'pq', anchor.x + Math.cos(qb) * qd, anchor.y + Math.sin(qb) * qd, rng.float(0, TAU), GUN_IDS[rng.int(0, GUN_IDS.length - 1)]);
           pq.sweepAngle = rng.float(0, TAU);
           ids.push('pq');
-          const bornAt = w.now - rng.float(0, 29_000);
-          injectPuff(w, 'onAnchor', ids[1], anchor.x, anchor.y, bornAt, bornAt + 30_000);
+          injectCloud(w, 'onAnchor', owner, anchor.x, anchor.y, w.now - rng.float(0, 12_000));
+          anchorRec.sweepAngle = wrapPositive(bearing(anchor, pq.state) - 0.01);
+          anchorRec.prevSweepAngle = anchorRec.sweepAngle;
         }
       }
       // WOUNDED SMOKE (Story 4.4): guarantee the sm oracle is EXERCISED, not
@@ -4001,14 +4074,17 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         addDecoy(w.decoys, owner.id, obs.state.x + Math.cos(brg) * d, obs.state.y + Math.sin(brg) * d, `decoy${di}`).hp =
           rng.float(1, CONFIG.decoyBuoy.hp);
       }
-      // SMOKE SCREEN (Story 8.18): 0-4 live puffs of RANDOM age (fresh 123.75 u
-      // to nearly-expired 247.5 u), seated so the occluder is EXERCISED rather
-      // than vacuous (SMOKE_OCCLUDED below): most STRADDLE the segment
-      // between two hulls (a random point along it, the puff's edge across
-      // the line), some sit ON an observer (a hull standing inside a puff —
-      // blind out, hidden in, symmetric), the rest anywhere on the water. A
-      // raw store write, like injectMine; production lays them at the laying
-      // hull's center (amendment 190).
+      // COUNTERMEASURE CLOUDS (Story 9.3): 0–4 live clouds of RANDOM age (a
+      // fresh 200 u cloud to a nearly-expired, nearly-empty 500 u one), each
+      // owned by a RANDOM hull (so the owner arm of the radar rule is
+      // exercised), seated so the occluder is EXERCISED rather than vacuous
+      // (the ledgers below): most STRADDLE the segment between two hulls (a
+      // random point along it), some sit ON an observer (a hull standing
+      // inside a cloud — blind out, hidden in, symmetric), the rest anywhere
+      // on the water. The FIRST cloud of every world is OLD (13–14.5 s) so the
+      // fade arm (CLOUD_FADE_PASS) meets thinned clouds on real lines. A raw
+      // store write, like injectMine; production makes them at the pressing
+      // hull's centre.
       for (let sp = 0; sp < rng.int(1, 4); sp++) {
         const roll = rng.float(0, 1);
         // Half the pairs are the guaranteed in-sight pair (ids[0] ↔ 'pn').
@@ -4030,8 +4106,8 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           px = Math.cos(ang) * r;
           py = Math.sin(ang) * r;
         }
-        const bornAt = w.now - rng.float(0, 29_000);
-        injectPuff(w, `puff${sp}`, ids[rng.int(0, ids.length - 1)], px, py, bornAt, bornAt + 30_000);
+        const bornAt = w.now - (sp === 0 ? rng.float(13_000, 14_500) : rng.float(0, 14_900));
+        injectCloud(w, `cloud${world}_${sp}`, ids[rng.int(0, ids.length - 1)], px, py, bornAt);
       }
       // SHIELD BLOCK (Story 8.16): ~a third of the hulls carry a shield seat —
       // some up, some lapsed — so the self-private `shield` pin is exercised
@@ -4121,31 +4197,36 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           ledger.verify(w, id, f);
         }
         // THE PER-VISIT MARK (Story 8.13, amendment 78) must be EXERCISED, not
-        // vacuous: after tick 2's frames, two random observers are DAZZLED for
-        // ticks 3-4 (their gate halves — projectiles between the dazzled and
-        // the full ring LEAVE it) and clear again on tick 5, when whatever is
+        // vacuous: after tick 2's frames, EVERY hull is DAZZLED for ticks 3-4
+        // (their gates halve — projectiles between the dazzled ring and the
+        // full ring LEAVE it) and clear again on tick 5, when whatever is
         // still live and still inside the full ring RE-ENTERS and must be
         // revealed again. A real gameplay exit (a star shell's dazzle), not a
-        // teleport, so every other oracle stays on the same footing.
+        // teleport, so every other oracle stays on the same footing. (Story
+        // 9.3 widened this from two hulls to all: the anchor pair now stands
+        // in or behind a cloud, which hides the third-party shells the
+        // re-entry needs, so the ledger is fed from the whole ring.)
         if (tick === 2) {
-          for (const id of [ids[0], ids[1]]) w.ships.get(id)!.dazzledUntil = w.now + 2 * DT + 1;
+          for (const id of ids) w.ships.get(id)!.dazzledUntil = w.now + 2 * DT + 1;
         }
       }
       reReveals += ledger.reReveals;
     }
-    // The SMOKE occluder must have been EXERCISED (Story 8.18, the same
-    // vacuity rule): across 20 worlds × 6 ticks with puffs seated on hull-to-
-    // hull segments, the ledger must have met hulls that were inside sight
-    // with island LOS clear and hidden ONLY by smoke — and verifyFrame proved
-    // each one absent from the frame.
-    expect(SMOKE_OCCLUDED.n).toBeGreaterThan(0);
-    // ...and both of its siblings: an in-bubble smoke-hidden point was PAINTED
-    // as a blip at least once (amendment 147 — the blip oracle's new arm ran
-    // against a real frame), and an observer standing in smoke received a
-    // contact THROUGH a puff inside its 82.5 u bubble at least once
-    // (amendment 149 — puffs are seated ON observers by the seeding above).
+    // The CLOUD occluder must have been EXERCISED (Story 9.3, the same
+    // vacuity rule), on EVERY arm: across 20 worlds × 6 ticks with clouds
+    // seated on hull-to-hull segments, the ledger must have met hulls that
+    // were inside sight with island LOS clear and hidden ONLY by a pixel
+    // (verifyFrame proved each absent); a NON-owner's would-be paint on a
+    // point inside a cloud behind a pixel was DROPPED; an OWNER's radar
+    // painted a point inside its own cloud behind a pixel; and a line through
+    // the outline of a thinned (≥ 13 s) cloud PASSED, the hull present. Plus
+    // the amendment-147 sibling: an in-bubble cloud-hidden point was PAINTED
+    // as a blip at least once.
+    expect(CLOUD_SIGHT_OCCLUDED.n).toBeGreaterThan(0);
+    expect(CLOUD_RADAR_OCCLUDED.n).toBeGreaterThan(0);
+    expect(OWNER_RADAR_THROUGH.n).toBeGreaterThan(0);
+    expect(CLOUD_FADE_PASS.n).toBeGreaterThan(0);
     expect(SMOKED_BLIP.n).toBeGreaterThan(0);
-    expect(IN_SMOKE_SEES.n).toBeGreaterThan(0);
     // ...and the wake-draft clause saw a POSITIVE `you.draft` at least once
     // (Story 8.19 — the value is PLANTED on ids[0] on odd ticks, above), so
     // its present-and-exact arm ran, not only the omitted-at-0 one.
@@ -4160,12 +4241,13 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     // ...and so must the Story 8.16 decoy-paint arm: decoy paints actually
     // reached (and were consumed from) real frames.
     expect(DECOY_PAINT_EXPECTED.n).toBeGreaterThan(0);
-    // The ledger values, under the perf pins' opt-in flag (smokePerf.test.ts
+    // The ledger values, under the perf pins' opt-in flag (cloudPerf.test.ts
     // idiom) — so a re-lay of the fuzz geometry can be checked for how far
     // above zero each arm actually sits, not only that it cleared the bar.
     if (process.env.HC_PERF_LOG) {
       console.log(
-        `perception fuzz ledgers: SMOKE_OCCLUDED ${SMOKE_OCCLUDED.n} | SMOKED_BLIP ${SMOKED_BLIP.n} | IN_SMOKE_SEES ${IN_SMOKE_SEES.n} | ` +
+        `perception fuzz ledgers: CLOUD_SIGHT_OCCLUDED ${CLOUD_SIGHT_OCCLUDED.n} | CLOUD_RADAR_OCCLUDED ${CLOUD_RADAR_OCCLUDED.n} | ` +
+          `OWNER_RADAR_THROUGH ${OWNER_RADAR_THROUGH.n} | CLOUD_FADE_PASS ${CLOUD_FADE_PASS.n} | SMOKED_BLIP ${SMOKED_BLIP.n} | ` +
           `DECOY_PAINT_EXPECTED ${DECOY_PAINT_EXPECTED.n} | ` +
           `DRAFT_SEEN ${DRAFT_SEEN.n} | wk ${wkSeen} | reReveals ${reReveals}`,
       );
@@ -4264,17 +4346,18 @@ describe('perception — the completeness oracle cannot be satisfied by substitu
 
 describe('perception — SIGNAL REGISTRY completeness', () => {
   // The six contact-like pseudo-rows are verified through the contacts/
-  // mines/litZones/burnZones/decoys/smoke frame channels (verifyFrame/
-  // verifyMine/verifyLitZone/verifyBurnZone/verifyDecoy/verifySmoke), not
+  // mines/litZones/burnZones/decoys/clouds frame channels (verifyFrame/
+  // verifyMine/verifyLitZone/verifyBurnZone/verifyDecoy/verifyClouds), not
   // through EVENT_VERIFIERS.
   // The RADAR BUOY's `buoy` row is DELETED (Story 8.16) along with its oracle;
   // `decoy` is the DECOY BUOY's channel on the mine row's rules, with its own
   // oracle (verifyDecoy); `burnzone` (Story 8.17) is the PHOSPHOR burning
   // zone's channel on the lit zone's gate, with its own oracle (verifyBurnZone).
-  // `smoke` (Story 8.18) is the SMOKE SCREEN puff's channel, with its own
-  // oracle (verifySmoke); the puff's OCCLUSION is verified through every
-  // sight-tier oracle's `sightClearOracle` term, not through a row.
-  const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'burnzone', 'decoy', 'smoke'];
+  // `cloud` (Story 9.3 — 8.18's `smoke` seat) is the COUNTERMEASURE cloud's
+  // channel, with its own oracle (verifyClouds); the cloud's OCCLUSION is
+  // verified through every sight-tier oracle's `sightClearOracle` term and
+  // the blip/wake oracles' `cloudHidesRadar` term, not through a row.
+  const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'burnzone', 'decoy', 'cloud'];
   // The 19 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
   // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private
   // 'bn'; Story 4.3 added the gunnery rows 'sp'/'hc'/'mz'; 2026-08-04's DAMAGE
@@ -4285,7 +4368,7 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'dp', 'sp', 'hc', 'mz', 'heal', 'sm', 'fh', 'wk'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 25 expected channel keys (19 event kinds + contact + mine + litzone + burnzone + decoy + smoke)', () => {
+  it('has exactly the 25 expected channel keys (19 event kinds + contact + mine + litzone + burnzone + decoy + cloud)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
     expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(25);
   });
@@ -4296,13 +4379,13 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
     }
   });
 
-  it('the six contact-like pseudo-rows exist (verified via the contacts/mines/litZones/burnZones/decoys/smoke channels)', () => {
+  it('the six contact-like pseudo-rows exist (verified via the contacts/mines/litZones/burnZones/decoys/clouds channels)', () => {
     expect(SIGNAL_REGISTRY.contact).toBeDefined();
     expect(SIGNAL_REGISTRY.mine).toBeDefined();
     expect(SIGNAL_REGISTRY.litzone).toBeDefined();
     expect(SIGNAL_REGISTRY.burnzone).toBeDefined(); // Story 8.17
     expect(SIGNAL_REGISTRY.decoy).toBeDefined();
-    expect(SIGNAL_REGISTRY.smoke).toBeDefined(); // Story 8.18
+    expect(SIGNAL_REGISTRY.cloud).toBeDefined(); // Story 9.3 (8.18's smoke seat)
     expect(Object.hasOwn(SIGNAL_REGISTRY, 'buoy')).toBe(false); // deleted with the radar buoy (Story 8.16)
   });
 

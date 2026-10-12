@@ -60,9 +60,9 @@ const radarCtx = (w: World) => ({
   pseudonymOf: (id: string) => w.pseudonymFor(id),
   // Story 8.16: the decoy channel's subjects; the fh row reads none.
   decoys: w.decoys,
-  // Story 8.18: the live smoke puffs — the fh row's muffle DOES read these
-  // (sightClear), so the World's own live list passes through.
-  smoke: w.smokePuffs,
+  // Story 8.18 / 9.3: the live countermeasure clouds — the fh row's muffle
+  // DOES read these (sightClear), so the World's own live list passes through.
+  clouds: w.cloudRecords,
   // Story 4.12: the wake subject list rides every context; the fh row reads
   // none of it, so the World's own live list passes through.
   wakes: w.wakeRibbons,

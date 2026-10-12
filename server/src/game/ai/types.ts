@@ -155,13 +155,13 @@ export interface BotTickEntry {
   /** The bot's own record (see BotSelf). */
   readonly self: BotSelf;
   /**
-   * ms — when THIS bot's own SMOKE SCREEN lay window closes (0 = not laying;
-   * Story 8.18). A self-read of the bot's own press (`ShipRecord.smokeUntil`,
-   * copied by world.ts): the SMOKE SCREEN tactic never
-   * re-presses while a trail is still being laid. No puff position, no other
-   * owner's window.
+   * ms — when THIS bot's own most recent MULTI-SPECTRAL COUNTERMEASURE cloud
+   * expires (0 = none this life; Story 9.3 — 8.18's `smokeUntil` seat). A
+   * self-read of the bot's own press (`ShipRecord.cloudUntil`, copied by
+   * world.ts): the countermeasure tactic never re-presses while one of its
+   * own clouds is up. No cloud position, no other owner's stamp.
    */
-  readonly smokeUntil: number;
+  readonly cloudUntil: number;
   /** This bot's fogged perception view for THIS tick — perception.observe()
    *  bound to this bot's id by world.ts. Called exactly once per live bot per
    *  tick by the driver (observe() mutates per-observer reveal memory, so the
@@ -402,12 +402,12 @@ export interface BotMind {
    *  tactic's inbound-fish trigger reads it. OPTIONAL, created lazily;
    *  released with the life (BotController.releasePerLifeState). */
   torps?: Map<string, SeenTorpedo> | null;
-  /** ms — this bot's own SMOKE SCREEN lay-window end as of this tick (Story
-   *  8.18), copied from BotTickEntry.smokeUntil by the driver before every
-   *  decide. The SMOKE SCREEN tactic never presses while one of its own
-   *  puffs can still be alive (`now < smokeUntil + lifeMs`, Eric ruling R12).
+  /** ms — this bot's own most recent COUNTERMEASURE cloud's expiry as of this
+   *  tick (Story 9.3), copied from BotTickEntry.cloudUntil by the driver
+   *  before every decide. The countermeasure tactic never presses while one
+   *  of its own clouds is up (`now < cloudUntil`, Eric ruling R12).
    *  OPTIONAL: absent (or 0) reads as "nothing running". */
-  smokeUntil?: number;
+  cloudUntil?: number;
 }
 
 /** One remembered torpedo (ai/torpedoThreat.ts): its last revealed kinematics

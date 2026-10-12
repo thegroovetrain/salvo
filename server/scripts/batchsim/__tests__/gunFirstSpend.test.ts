@@ -54,7 +54,7 @@ describe('chooseSpend — gunFirst', () => {
   it('gun ladder card absent -> exactly the weighted profile choice', () => {
     const hands: (readonly string[])[] = [
       ['armor', 'heavyTorpedo', 'hullRepair'],
-      ['speed', 'reload', 'smokeScreen'],
+      ['speed', 'reload', 'countermeasure'],
       ['machineGun', 'flak', 'turning'], // other guns' ladders while the cannon is mounted
     ];
     for (const offer of hands) {

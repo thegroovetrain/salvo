@@ -50,7 +50,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
   return {
     mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, burnZones: w.burnZones, decoys: w.decoys, smoke: w.smokePuffs, me, wakes: w.wakeRibbons,
+    litZones: w.litZones, burnZones: w.burnZones, decoys: w.decoys, clouds: w.cloudRecords, me, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
@@ -60,7 +60,7 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
 function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
   return {
     mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, burnZones: w.burnZones, decoys: w.decoys, smoke: w.smokePuffs, me: undefined, wakes: w.wakeRibbons,
+    litZones: w.litZones, burnZones: w.burnZones, decoys: w.decoys, clouds: w.cloudRecords, me: undefined, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
   };
@@ -104,7 +104,7 @@ const REGISTRY_KEYS = [
   'litzone',
   'burnzone', // Story 8.17: the PHOSPHOR burning zone's contact-like channel, on the lit zone's gate (amendment 135(f))
   'decoy', // Story 8.16: the DECOY BUOY's contact-like frame channel (the deleted radar buoy's `buoy` seat)
-  'smoke', // Story 8.18: the SMOKE SCREEN puff's contact-like frame channel (owner / spectator / sight + radius with island-only LOS)
+  'cloud', // Story 9.3: the MULTI-SPECTRAL COUNTERMEASURE cloud's contact-like frame channel (owner / spectator / centre within radar range with island-only LOS to the rim) — 8.18's `smoke` seat
   'blip',
   'shell',
   'torp',
@@ -142,7 +142,7 @@ const REGISTRY_KEYS = [
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 25 known channels (19 event kinds + 6 contact-like; Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added; Story 4.12: `wk` added; Story 8.17: `burnzone` added; Story 8.18: `smoke` added; 2026-10-01: `dp` added)', () => {
+  it('has exactly the 25 known channels (19 event kinds + 6 contact-like; Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added; Story 4.12: `wk` added; Story 8.17: `burnzone` added; Story 8.18: `smoke` added, renamed `cloud` in Story 9.3; 2026-10-01: `dp` added)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
     expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(25);
   });
@@ -1156,8 +1156,9 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
     expect(signalFor('mine')).toBeUndefined();
     expect(signalFor('litzone')).toBeUndefined();
     expect(signalFor('burnzone')).toBeUndefined(); // Story 8.17: the fifth pseudo-row, never a world event
-    expect(signalFor('smoke')).toBeUndefined(); // Story 8.18: the sixth pseudo-row — a forged k:'smoke' world event never materializes a SmokeView
-    expect(SIGNAL_REGISTRY.smoke).toBeDefined();
+    expect(signalFor('cloud')).toBeUndefined(); // Story 9.3: the sixth pseudo-row — a forged k:'cloud' world event never materializes a CloudView
+    expect(signalFor('smoke')).toBeUndefined(); // ...and 8.18's retired key resolves to nothing at all
+    expect(SIGNAL_REGISTRY.cloud).toBeDefined();
     // ...but the rows themselves still exist for direct scan-driven access.
     expect(SIGNAL_REGISTRY.contact).toBeDefined();
     expect(SIGNAL_REGISTRY.mine).toBeDefined();

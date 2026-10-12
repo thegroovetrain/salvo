@@ -57,7 +57,7 @@ import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
 import type { BurnZones } from '../render/burnZones.js';
 import type { Decoys } from '../render/decoys.js';
-import type { SmokeScreen } from '../render/smokeScreen.js';
+import type { Countermeasure } from '../render/countermeasure.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { bountyKillLine } from '../ui/bounty.js';
 import { fleetSizeName, killLine, pinDroneColor, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
@@ -125,10 +125,10 @@ export interface RoomBindingDeps {
   /** DECOY BUOY markers (render/decoys.ts, Story 8.16) — synced contact-like
    *  from FrameMsg.decoys every tick, exactly like mines/litZones. */
   decoys: Decoys;
-  /** SMOKE SCREEN puffs (render/smokeScreen.ts, Story 8.18) — synced
-   *  contact-like from FrameMsg.smoke every tick, exactly like burnZones. NOT
-   *  `smoke` above (that is WOUNDED smoke, an event-built plume). */
-  smokeScreen: SmokeScreen;
+  /** MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts, Story
+   *  9.3) — synced contact-like from FrameMsg.clouds every tick, exactly like
+   *  burnZones. NOT `smoke` above (that is WOUNDED smoke, an event-built plume). */
+  countermeasure: Countermeasure;
   /** Screen-shake driver (render/shake.ts) — triggered on own-ship damage. */
   shake: ShakeDriver;
   /** Tone player (audio/context.ts) — a minimal play-only surface here. The
@@ -783,15 +783,15 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   // observer sees no decoys, so treat a missing key as an empty list.
   const decoys = f.decoys ?? [];
   deps.decoys.sync(decoys, deps.ordnanceHue);
-  // SMOKE SCREEN puffs (Story 8.18), same reconcile, same omitted-key rule.
-  const smoke = f.smoke ?? [];
-  deps.smokeScreen.sync(smoke);
+  // COUNTERMEASURE clouds (Story 9.3), same reconcile, same omitted-key rule.
+  const clouds = f.clouds ?? [];
+  deps.countermeasure.sync(clouds);
   // Mirror the raw list into state (net → state → render): the render loop
   // derives the own ACTIVE zones from it to keep beyond-sight shells alive
   // (projectiles) and clear the own fog over them (fog).
   net.litZones = litZones;
   net.burnZones = burnZones; // the burn classifier's zone list (trackBurning)
-  net.smoke = smoke; // the wake mirror's occluder list (render/wake.ts)
+  net.clouds = clouds; // the wake mirror's occluder list (render/wake.ts)
 }
 
 /**

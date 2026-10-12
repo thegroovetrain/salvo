@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, SLOT_COUNT } from '@salvo/shared';
+import { isAfloat, CONFIG, SLOT_COUNT, cloudBase } from '@salvo/shared';
 
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -231,25 +231,27 @@ describe('buildFrame — events (fogged via perception)', () => {
   });
 });
 
-describe('buildFrame — the `smoke` channel (Story 8.18)', () => {
-  it('is OMITTED (not []) when the observer sees no puff, and carries {id,x,y,t0} — nothing else — when it does', () => {
+describe('buildFrame — the `clouds` channel (Story 9.3)', () => {
+  it('is OMITTED (not []) when the observer sees no cloud, and carries {id,x,y,t0} — nothing else — when it does', () => {
     const w = makeWorld();
     w.step();
     const quiet = buildFrame(w, 'a');
-    expect('smoke' in quiet).toBe(false); // the litZones / burnZones / decoys rule, applied to smoke
-    // A puff laid by `b` (a raw store write — the injectMine posture) 56.6 u off
-    // `a` — `a` stands INSIDE the fresh 123.75 u disc (delivered trivially; this
+    expect('clouds' in quiet).toBe(false); // the litZones / burnZones / decoys rule, applied to clouds
+    expect('smoke' in quiet).toBe(false); // 8.18's channel name is gone from the wire
+    // A cloud made by `b` (a raw store write — the injectMine posture) 56.6 u
+    // off `a` — well inside `a`'s radar range, no island (delivered; this
     // test pins the wire shape, not the gate).
-    w.smoke.set('sk1', { id: 'sk1', ownerId: 'b', x: 40, y: 40, bornAt: w.now, until: w.now + CONFIG.smokeScreen.lifeMs });
+    w.clouds.set('cl1', { id: 'cl1', ownerId: 'b', x: 40, y: 40, bornAt: w.now, until: w.now + CONFIG.countermeasure.lifeMs, base: cloudBase('cl1') });
     const f = buildFrame(w, 'a');
-    expect(f.smoke).toEqual([{ id: 'sk1', x: 40, y: 40, t0: w.now }]);
-    expect(Object.keys(f.smoke![0])).toEqual(['id', 'x', 'y', 't0']); // key order is the wire order
+    expect(f.clouds).toEqual([{ id: 'cl1', x: 40, y: 40, t0: w.now }]);
+    expect(Object.keys(f.clouds![0])).toEqual(['id', 'x', 'y', 't0']); // key order is the wire order
     expect(JSON.stringify(f)).not.toContain('ownerId');
     expect(JSON.stringify(f)).not.toContain('until'); // no zone in this frame, so the store's `until` may appear nowhere
+    expect(JSON.stringify(f)).not.toContain('base'); // the cached pixel base never rides
     // The spectator path carries the same optional channel on the same rule.
     const spec = buildFrame(w, 'a', 'finished');
     expect(spec.spec).toBe(true);
-    expect(spec.smoke).toEqual([{ id: 'sk1', x: 40, y: 40, t0: w.now }]);
+    expect(spec.clouds).toEqual([{ id: 'cl1', x: 40, y: 40, t0: w.now }]);
   });
 });
 

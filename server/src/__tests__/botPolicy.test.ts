@@ -103,7 +103,7 @@ function mind(profile: BotProfileId = 'duelist'): BotMind {
 }
 
 function view(over: Partial<PerceptionView> = {}): PerceptionView {
-  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], decoys: [], smoke: [], ...over };
+  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], decoys: [], clouds: [], ...over };
 }
 
 function contact(id: string, x: number, y: number, cls: HullId = 'battleship'): Contact {
@@ -187,7 +187,7 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
       raider: {
         style: 'specialist',
         favoriteUpgrades: ['speed', 'weapons'],
-        favoriteConsumables: ['smokeScreen'],
+        favoriteConsumables: ['countermeasure'],
         favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
         beltHunger: 'medium',
       },
@@ -222,7 +222,7 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
       trapper: {
         style: 'rounded',
         favoriteUpgrades: ['weapons', 'speed'],
-        favoriteConsumables: ['smokeScreen', 'decoyBuoy'],
+        favoriteConsumables: ['countermeasure', 'decoyBuoy'],
         favoriteWeapons: ['navalMines', 'captiveMines', 'foulingMines'],
         beltHunger: 'high',
       },
@@ -959,7 +959,7 @@ describe('ai/spending — the card policy', () => {
 // through `cardScore` and its outcome through `chooseSpend`.
 
 describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
-  it('Eric\'s example: raider, heavy torpedo at 4 (its highest), slots full → torpedo 4 beats smoke 3', () => {
+  it('Eric\'s example: raider, heavy torpedo at 4 (its highest), slots full → torpedo 4 beats countermeasure 3', () => {
     const raider = profileOf('raider');
     const s = spendState({
       cards: ['heavyTorpedo', 'heavyTorpedo', 'heavyTorpedo', 'heavyTorpedo', 'lightTorpedo', 'navalMines'],
@@ -967,9 +967,9 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
     });
     expect(cardScore(raider, s, 'heavyTorpedo')).toBe(P.base + P.favorite + P.style);
     expect(cardScore(raider, s, 'heavyTorpedo')).toBe(4);
-    expect(cardScore(raider, s, 'smokeScreen')).toBe(P.base + P.favorite + P.beltHunger.medium);
-    expect(cardScore(raider, s, 'smokeScreen')).toBe(3);
-    expect(chooseSpend(raider, { ...s, offer: ['smokeScreen', 'heavyTorpedo'] })).toBe(1);
+    expect(cardScore(raider, s, 'countermeasure')).toBe(P.base + P.favorite + P.beltHunger.medium);
+    expect(cardScore(raider, s, 'countermeasure')).toBe(3);
+    expect(chooseSpend(raider, { ...s, offer: ['countermeasure', 'heavyTorpedo'] })).toBe(1);
   });
 
   it('Weapon vs plain upgrade: every personality takes a non-favorite weapon (3.5) over a no-bonus ladder (2)', () => {
@@ -1034,14 +1034,14 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
     expect(chooseSpend(duelist, { ...s, offer: ['hullRepair', 'armor'] })).toBe(1);
   });
 
-  it('Already carried: bulwark carrying shieldBlock takes smokeScreen 3 over shieldBlock 2', () => {
+  it('Already carried: bulwark carrying shieldBlock takes countermeasure 3 over shieldBlock 2', () => {
     const bulwark = profileOf('bulwark');
     const s = spendState({ cards: ['shieldBlock'], slotIds: slotsOf([], ['shieldBlock']) });
     expect(cardScore(bulwark, s, 'shieldBlock')).toBe(P.base + P.favorite + P.carried);
     expect(cardScore(bulwark, s, 'shieldBlock')).toBe(2);
-    expect(cardScore(bulwark, s, 'smokeScreen')).toBe(P.base + P.beltHunger.high);
-    expect(cardScore(bulwark, s, 'smokeScreen')).toBe(3);
-    expect(chooseSpend(bulwark, { ...s, offer: ['shieldBlock', 'smokeScreen'] })).toBe(1);
+    expect(cardScore(bulwark, s, 'countermeasure')).toBe(P.base + P.beltHunger.high);
+    expect(cardScore(bulwark, s, 'countermeasure')).toBe(3);
+    expect(chooseSpend(bulwark, { ...s, offer: ['shieldBlock', 'countermeasure'] })).toBe(1);
   });
 
   it('Style rounded: bulwark armor 3, speed 0 → speed 3 (min of U) ties armor 3 (favorite)', () => {

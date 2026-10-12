@@ -381,7 +381,7 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
   // nothing else is drawable or stockable in play, and the PARTIAL registry is
   // what makes even a forged press fail closed.
   it('the PRODUCTION consumable registry holds the SIX built lines, and every stub line is absent', () => {
-    const BUILT = ['dazzleShells', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'smokeScreen', 'supercavTorpedo'];
+    const BUILT = ['countermeasure', 'dazzleShells', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
     expect(Object.keys(CONSUMABLES).sort()).toEqual(BUILT);
     expect(Object.isFrozen(CONSUMABLES)).toBe(true);
     for (const id of BUILT) expect(Object.isFrozen(CONSUMABLES[id as keyof typeof CONSUMABLES]), id).toBe(true);
@@ -390,7 +390,7 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     expect(CONSUMABLES.dazzleShells!.isWeapon).toBe(true); // FLASH SHELLS: prime-and-click (Story 8.17)
     expect(CONSUMABLES.hullRepair!.isWeapon).toBe(false);
     expect(CONSUMABLES.shieldBlock!.isWeapon).toBe(false); // key-fired (Story 8.16)
-    expect(CONSUMABLES.smokeScreen!.isWeapon).toBe(false); // key-fired (Story 8.18)
+    expect(CONSUMABLES.countermeasure!.isWeapon).toBe(false); // key-fired (Story 9.3 — SMOKE SCREEN's 8.18 seat)
     for (const id of CONSUMABLE_IDS) {
       if (BUILT.includes(id)) continue;
       expect(isStubLine(id), id).toBe(true); // every absent line is absent BECAUSE it is a stub
@@ -428,7 +428,7 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     // ...and production resolves the BUILT belt lines, never a stub one
     expect(slotRow('hullRepair')).toBe(hullRepairRow);
     expect(slotRow('shieldBlock')).toBe(CONSUMABLES.shieldBlock); // built in Story 8.16
-    expect(slotRow('smokeScreen')).toBe(CONSUMABLES.smokeScreen); // built in Story 8.18
+    expect(slotRow('countermeasure')).toBe(CONSUMABLES.countermeasure); // built in Story 9.3 (8.18's smokeScreen seat)
     expect(slotRow('depthCharge')).toBeUndefined(); // the one stub left
     expect(slotRow(null, reg)).toBeUndefined();
   });

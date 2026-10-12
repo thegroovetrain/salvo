@@ -142,16 +142,15 @@ export interface ActivationContext {
    */
   setShield: (shield: { hpLeft: number; until: number }) => void;
   /**
-   * SMOKE SCREEN's whole body (Story 8.18, catalog-v3 R38, amendments
-   * 138–145): open the ACTIVATING ship's lay window — `smokeUntil = now +
-   * CONFIG.smokeScreen.layMs`, `nextPuffAt = now` — so World.stepSmoke drops a
-   * puff at the hull's center (amendment 190) on the very next tick and every `puffIntervalMs` after,
-   * until the window closes (10 puffs per copy). A second call while laying
-   * RESTARTS the clock (fresh 5 s from the re-press — ruling 140; the copy is
-   * spent, the shield "replaces" posture). Puffs are WORLD-owned
-   * (World.smoke) and outlive the hull.
+   * MULTI-SPECTRAL COUNTERMEASURE's whole body (Story 9.3; Eric rulings
+   * 2026-10-11, epic-9 amendments 40–47): make ONE new cloud at the
+   * ACTIVATING ship's centre — `bornAt = now`, `until = now +
+   * CONFIG.countermeasure.lifeMs`, pixel base cached — EVERY call (amendment
+   * 46: no lay window, no restart, no refuse-while-live; five copies stack
+   * five clouds). A non-finite hull position makes nothing. Clouds are
+   * WORLD-owned (World.clouds) and outlive the hull.
    */
-  setSmokeScreen: () => void;
+  setCountermeasure: () => void;
 }
 
 /** Per-spawn options for `ActivationContext.spawnBallistic`. */

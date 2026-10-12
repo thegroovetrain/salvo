@@ -79,6 +79,9 @@ const TUNE_FAMILIES = [
   // step per tier, blast, damage, slow.
   'captiveMines.',
   'foulingMines.',
+  // MULTI-SPECTRAL COUNTERMEASURE (Story 9.3, Eric 2026-10-11): the cloud's
+  // life, pixel count, radii, death window and footprint are harness dials.
+  'countermeasure.',
   'starShells.',
   'boost.',
   'shipClasses.',

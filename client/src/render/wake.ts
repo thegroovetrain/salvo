@@ -53,6 +53,7 @@ import {
   CONFIG,
   WAKE_AGE_BUCKETS,
   appendWakeSample,
+  cloudBlocks,
   createShipWake,
   createTorpWake,
   eachWakeSegment,
@@ -60,15 +61,14 @@ import {
   islandBlocksSegment,
   paintSegmentCoverage,
   pruneWake,
-  puffRadius,
-  segCircleHit,
+  type CloudView,
   type HullId,
   type Island,
-  type SmokeView,
   type Vec2,
   type WakeRibbon,
 } from '@salvo/shared';
 import { FASTEST_BOOSTED_HULL_SPEED } from '../config.js';
+import { cloudBaseFor } from './cloudBases.js';
 import { CONTACT_STALE_MS } from './contacts.js';
 import { buildWakeStamp, type CellStamp, type WakeSegmentCover } from './radarField.js';
 import type { ReturnModelOpts } from './radarHeatmap.js';
@@ -439,7 +439,7 @@ export const WAKE_STAMP_MIN_MS = (CONFIG.vision.radarCellU / FASTEST_AFLOAT_SPEE
  * a second. So it rebuilds on the things that can actually change it:
  *
  *  • THE SIGHT RADIUS (`sightU`) — the complement's own boundary. It is a STEP
- *    function of discrete inputs (`fogHoleRadiusU({ sightRange, radarRange }, dazzled, inSmoke)`),
+ *    function of discrete inputs (`fogHoleRadiusU({ sightRange, radarRange }, dazzled)`),
  *    so a dazzle onset/end moves it by a large
  *    fraction all at once and nothing else in this list notices. It was
  *    missing from the key (cycle-69 review gate, P6), which left a stationary
@@ -453,12 +453,12 @@ export const WAKE_STAMP_MIN_MS = (CONFIG.vision.radarCellU / FASTEST_AFLOAT_SPEE
  *  • THE GLINT SEED (`seedT`, the sweep revolution index) — a new revolution
  *    re-scintillates every flank, exactly as `buildShipStamp`'s does.
  *  • The bucket clock (`WAKE_STAMP_REBUILD_MS`).
- *  • THE SMOKE STATE (Story 8.18) — the live puff set, its growth bucket and
- *    whether the observer stands in smoke (`smokeSetKey`). Like the sight
- *    radius it is checked AHEAD of the rate floor: a puff laid on the line, a
- *    puff leaving, or an in-smoke flip changes what may be revealed at once,
- *    and a stamp held across it for one floor interval shows water the server
- *    is hiding (or hides water it now shows).
+ *  • THE CLOUD STATE (Story 9.3) — the live countermeasure cloud set and its
+ *    age bucket (`cloudSetKey`). Like the sight radius it is checked AHEAD of
+ *    the rate floor: a cloud laid on the line, a cloud leaving, or its pixels
+ *    spreading and dying changes what may be revealed, and a stamp held across
+ *    it for one floor interval shows water the server is hiding (or hides
+ *    water it now shows).
  *
  * A cached stamp is never MUTATED, only replaced, so a slice that froze samples
  * out of it keeps exactly what it froze (amendment 83).
@@ -471,7 +471,7 @@ export class WakeStampCache {
   private sight = NaN;
   private seed = NaN;
   private builtMs = -Infinity;
-  private smokeKey = '';
+  private cloudKey = '';
 
   /** Live cell count of the cached stamp — the measurement seam. */
   get size(): number {
@@ -487,32 +487,31 @@ export class WakeStampCache {
     model: ReturnModelOpts,
     islands: readonly Island[] = [],
     seedT = 0,
-    smoke: readonly SmokeView[] = [],
-    inSmoke = false,
+    clouds: readonly CloudView[] = [],
   ): CellStamp {
-    const smokeKey = smokeSetKey(smoke, nowMs, inSmoke);
-    if (!this.stale(sources.version, own, sightU, nowMs, seedT, smokeKey)) return this.stamp;
+    const cloudKey = cloudSetKey(clouds, nowMs);
+    if (!this.stale(sources.version, own, sightU, nowMs, seedT, cloudKey)) return this.stamp;
     this.key = sources.version;
-    this.smokeKey = smokeKey;
+    this.cloudKey = cloudKey;
     this.ox = own.x;
     this.oy = own.y;
     this.sight = sightU;
     this.seed = seedT;
     this.builtMs = nowMs;
-    this.stamp = buildTruesightWakeStamp(sources, own, sightU, nowMs, cellU, model, islands, seedT, smoke, inSmoke);
+    this.stamp = buildTruesightWakeStamp(sources, own, sightU, nowMs, cellU, model, islands, seedT, clouds);
     return this.stamp;
   }
 
-  private stale(version: number, own: Vec2, sightU: number, nowMs: number, seedT: number, smokeKey: string): boolean {
+  private stale(version: number, own: Vec2, sightU: number, nowMs: number, seedT: number, cloudKey: string): boolean {
     // AHEAD OF THE FLOOR, and only these two (see the class doc): the sight
-    // radius is a step function of dazzle, smoke and boons, so it cannot churn —
+    // radius is a step function of dazzle and boons, so it cannot churn —
     // but when it does move it moves far, and holding a stamp built against the
     // old radius for even one floor interval is the double-paint P6 found. The
-    // smoke key (Story 8.18) is the same kind of input: a puff laid or gone, an
-    // in-smoke flip, or a growth bucket ticking over (at most every
-    // SMOKE_GROWTH_BUCKET_MS, and only while a puff is live) — never per frame.
+    // cloud key (Story 9.3) is the same kind of input: a cloud laid or gone, or
+    // an age bucket ticking over (at most every CLOUD_AGE_BUCKET_MS, and only
+    // while a cloud is live) — never per frame.
     if (!(sightU === this.sight)) return true;
-    if (smokeKey !== this.smokeKey) return true;
+    if (cloudKey !== this.cloudKey) return true;
     const age = nowMs - this.builtMs;
     // THE FLOOR WINS OVER EVERY OTHER REASON TO REBUILD (see WAKE_STAMP_MIN_MS):
     // under it, no input can have moved by more than the lattice can express.
@@ -548,10 +547,9 @@ function innerBoundU(src: WakeSource, sightU: number): number {
  * May this segment be REVEALED to the local scope — the binary-LOS half of the
  * P5 gate.
  *
- * `smoke` is the puff list the SMOKE term tests against — the caller passes an
- * EMPTY list for an in-smoke observer (amendment 149: inside its shrunken
- * bubble it sees INTO other smoke), and the shrunken bubble itself is the
- * `sightU` the caller already bounded the segment by.
+ * `clouds` is the countermeasure cloud list the CLOUD term tests against —
+ * every live cloud, the observer's own included (sight is blocked for
+ * everyone, epic-9 amendment 40).
  *
  * The whole reason the server refuses to disclose water inside these radii is
  * that its height-aware shadow accumulator must never reveal water that BINARY
@@ -565,7 +563,7 @@ function segmentRevealable(
   mx: number,
   my: number,
   islands: readonly Island[],
-  smoke: readonly SmokeView[],
+  clouds: readonly CloudView[],
   nowMs: number,
 ): boolean {
   LOS_SCRATCH.x = mx;
@@ -573,66 +571,66 @@ function segmentRevealable(
   for (const isle of islands) {
     if (islandBlocksSegment(own, LOS_SCRATCH, isle)) return false;
   }
-  return !smokeCrossed(own, LOS_SCRATCH, smoke, nowMs);
+  return !cloudCrossed(own, LOS_SCRATCH, clouds, nowMs);
 }
 
 /**
- * THE SMOKE HALF of the binary-LOS gate (Story 8.18, Eric ruling 143 — torpedo
- * water inside the sight bubble is hidden by smoke). The server's sight
- * predicate (`sightClear`) is island LOS AND no live puff crossed, and the
- * synthesis stands in for that disclosure, so it owes the same term: the
- * observer→segment line may cross no puff at the shared `puffRadius` (never a
- * client re-derivation). Ownership plays no part — the observer's own trail
- * occludes like anyone's.
+ * THE CLOUD HALF of the binary-LOS gate (Story 9.3, Eric rulings 2026-10-11,
+ * epic-9 amendments 40–41). The server's sight predicate is island LOS AND no
+ * living countermeasure pixel crossed, and the synthesis stands in for that
+ * disclosure, so it owes the same term: the observer→segment line may cross no
+ * living pixel's footprint — the SHARED `cloudBlocks` over the SHARED pixel
+ * function (never a client re-derivation), on the one memoized base per cloud
+ * the renderer also draws from (render/cloudBases.ts). Ownership plays no part:
+ * the owner is blind by eye inside their own cloud like anyone else.
  *
- * AN IN-SMOKE OBSERVER NEVER REACHES THIS TEST (Eric ruling 2026-09-29,
- * amendment 149, final): `buildTruesightWakeStamp` hands it no puffs, because
- * the server's `sightClear` drops the puff term for an observer whose centre is
- * in smoke and bounds it by the 1/8-intel `effectiveSight` instead — which is
- * the `sightU` the stamp is already clamped to.
+ * Sight half only: the radar half of the wake has no cloud term on the client,
+ * because the server never delivers what radar hides.
  */
-function smokeCrossed(own: Vec2, at: Vec2, smoke: readonly SmokeView[], nowMs: number): boolean {
-  for (const p of smoke) {
-    if (segCircleHit(own, at, p, puffRadius(p.t0, nowMs)) !== null) return true;
+function cloudCrossed(own: Vec2, at: Vec2, clouds: readonly CloudView[], nowMs: number): boolean {
+  for (const c of clouds) {
+    CLOUD_PLACE.x = c.x;
+    CLOUD_PLACE.y = c.y;
+    CLOUD_PLACE.bornAt = c.t0;
+    if (cloudBlocks(own, at, CLOUD_PLACE, cloudBaseFor(c.id), nowMs)) return true;
   }
   return false;
 }
 
-/**
- * ms — the growth bucket the smoke key carries while any puff is live. A puff
- * grows (r1 − r0) / expandMs = 82.5 u / 30 s = 2.75 u/s (the 2026-09-30 radii,
- * 82.5 → 165 u), so a stamp held for one bucket judges the line against a
- * radius at most 1.375 u stale — still well under one 9 u radar cell — while
- * rebuilding twice a second at most on growth alone.
- */
-export const SMOKE_GROWTH_BUCKET_MS = 500;
+/** Reused `CloudPlace` for `cloudCrossed` (filled and consumed synchronously). */
+const CLOUD_PLACE = { x: 0, y: 0, bornAt: 0 };
 
 /**
- * The stamp cache's smoke key (Story 8.18, cycle-153 review gate). It changes
- * when, and only when, what the smoke term may answer can change:
+ * ms — the age bucket the cloud key carries while any cloud is live. A cloud's
+ * living set changes continuously (pixels spread outward and die one by one),
+ * so the key ticks every bucket: a stamp is at most this stale against the
+ * pixels, and rebuilds four times a second at most on age alone.
+ */
+export const CLOUD_AGE_BUCKET_MS = 250;
+
+/**
+ * The stamp cache's cloud key (Story 9.3). It changes when, and only when,
+ * what the cloud term may answer can change:
  *   • ANY membership change — every id is folded into an FNV-1a hash, so a
  *     mid-list swap with the same count and the same first/last id still moves
- *     it (the old `count:first:last` key missed that);
- *   • GROWTH — `SMOKE_GROWTH_BUCKET_MS` buckets of the frame clock, and only
- *     while the set is non-empty (an empty sky never ticks the key);
- *   • AN IN-SMOKE FLIP — an in-smoke observer applies no puff term at all, so
- *     its key is a constant that neither the set nor its growth moves.
+ *     it;
+ *   • AGE — `CLOUD_AGE_BUCKET_MS` buckets of the frame clock, and only while the
+ *     set is non-empty (an empty sky never ticks the key).
  */
-export function smokeSetKey(smoke: readonly SmokeView[], nowMs: number, inSmoke = false): string {
-  if (inSmoke) return 'in';
-  const n = smoke.length;
+export function cloudSetKey(clouds: readonly CloudView[], nowMs: number): string {
+  const n = clouds.length;
   if (n === 0) return '';
-  return `${n}:${idHash(smoke)}:${Math.floor(nowMs / SMOKE_GROWTH_BUCKET_MS)}`;
+  return `${n}:${idHash(clouds)}:${Math.floor(nowMs / CLOUD_AGE_BUCKET_MS)}`;
 }
 
-/** The 32-bit FNV prime (decimal — hex literals read as colours to the token scan). */
+/** The 32-bit FNV prime (decimal — hex literals read as colors to the token scan). */
 const FNV_PRIME = 16777619;
 
-/** FNV-1a (32-bit) over every puff id, with a separator between ids. */
-function idHash(smoke: readonly SmokeView[]): number {
+/** FNV-1a (32-bit) over every cloud id, with a separator between ids. */
+function idHash(clouds: readonly CloudView[]): number {
   let h = 2166136261; // FNV offset basis
-  for (const p of smoke) {
-    for (let i = 0; i < p.id.length; i++) h = Math.imul(h ^ p.id.charCodeAt(i), FNV_PRIME);
+  for (const c of clouds) {
+    for (let i = 0; i < c.id.length; i++) h = Math.imul(h ^ c.id.charCodeAt(i), FNV_PRIME);
     h = Math.imul(h ^ 44, FNV_PRIME); // ',' — "ab","c" ≠ "a","bc"
   }
   return h >>> 0;
@@ -641,9 +639,6 @@ function idHash(smoke: readonly SmokeView[]): number {
 /** Reused endpoint for `segmentRevealable` (the SEG_SCRATCH pattern): filled
  *  and consumed synchronously, so the per-frame scan allocates nothing. */
 const LOS_SCRATCH: Vec2 = { x: 0, y: 0 };
-
-/** The puff list an in-smoke observer tests against: none. */
-const NO_PUFFS: readonly SmokeView[] = [];
 
 /**
  * THE ONE-PER-REBUILD ISLAND SHORTLIST — the broadphase that keeps the P5 LOS
@@ -719,13 +714,9 @@ export function buildTruesightWakeStamp(
   model: ReturnModelOpts,
   islands: readonly Island[] = [],
   seedT = 0,
-  smoke: readonly SmokeView[] = [],
-  inSmoke = false,
+  clouds: readonly CloudView[] = [],
 ): CellStamp {
   const segs: WakeSegmentCover[] = [];
-  // IN SMOKE (amendment 149): no puff term at all — `sightU` (the 1/8-intel
-  // `effectiveSight` the caller resolved) is the whole of the clamp.
-  const puffs = inSmoke ? NO_PUFFS : smoke;
   // ONE island cull for the whole rebuild (see nearIslands): a per-segment walk
   // over every island on the map was measured at 5× the sharp path's cost.
   const near = nearIslands(own, sightU, islands);
@@ -737,7 +728,7 @@ export function buildTruesightWakeStamp(
       const dx = s.mx - own.x;
       const dy = s.my - own.y;
       if (dx * dx + dy * dy > reach) return;
-      if (!segmentRevealable(own, s.mx, s.my, near, puffs, nowMs)) return;
+      if (!segmentRevealable(own, s.mx, s.my, near, clouds, nowMs)) return;
       segs.push({
         cov: paintSegmentCoverage(s.ax, s.ay, s.bx, s.by, src.ribbon.widthU, cellU, seedT),
         a: s.bucket,

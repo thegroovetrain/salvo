@@ -40,6 +40,11 @@
 // A line with NO glyph draws NOTHING and throws nothing — today that is only
 // the stub DEPTH CHARGE, which has no mechanism to draw.
 //
+// STORY 9.3 (2026-10-11) DREW ONE, ERIC'S PICK from three rendered candidates
+// (epic-9 amendment 47): MULTI-SPECTRAL COUNTERMEASURE (eleven small circles
+// scattered in a disc — a cloud of pixels). It replaces the Story 8.18 SMOKE
+// SCREEN draft, deleted with its line.
+//
 // STORY 8.17 DREW TWO (amendment 135(j), same DRAFT status): PHOSPHOR SHELLS
 // (flame tongues on a waterline) and FLASH SHELLS (a struck-through eye).
 //
@@ -354,19 +359,23 @@ const dazzleShells: GlyphPaths = [
 ];
 
 /**
- * Smoke screen (Story 8.18 DRAFT for Eric's eye, the amendment 124(f)
- * precedent): THREE OVERLAPPING PUFFS over a short waterline, growing as they
- * trail away to the left — the newest, smallest puff low at the stern end, the
- * oldest and biggest highest and furthest back, which is how a laid puff
- * behaves (it grows r123.75 → r247.5 over its life since cycle 162, and never
- * drifts). Every circle's
- * whole extent sits inside the ±1 box.
+ * Multi-spectral countermeasure (Story 9.3 — Eric's pick 2026-10-11, candidate
+ * A of three rendered for him, epic-9 amendment 47): ELEVEN SMALL CIRCLES
+ * scattered in a disc, smallest toward the rim — the cloud of pixels the
+ * consumable lays. Every circle's whole extent sits inside the ±1 box.
  */
-const smokeScreen: GlyphPaths = [
-  circle(0.55, 0.28, 0.26),
-  circle(0.02, 0.0, 0.38),
-  circle(-0.46, -0.36, 0.48),
-  path([-0.3, 0.78], [0.95, 0.78]),
+const countermeasure: GlyphPaths = [
+  circle(0, 0, 0.12),
+  circle(0.45, -0.1, 0.1),
+  circle(-0.42, 0.18, 0.11),
+  circle(0.1, 0.5, 0.1),
+  circle(-0.15, -0.48, 0.09),
+  circle(0.62, 0.42, 0.08),
+  circle(-0.66, -0.3, 0.08),
+  circle(0.3, -0.6, 0.07),
+  circle(-0.55, 0.58, 0.07),
+  circle(0.72, -0.5, 0.06),
+  circle(-0.1, 0.85, 0.06),
 ];
 
 /** The serpent's sinuous body up the staff: three half-waves, so it crosses
@@ -407,7 +416,7 @@ const CONSUMABLE_GLYPHS: Partial<Record<string, GlyphPaths>> = {
   shieldBlock,
   decoyBuoy,
   dazzleShells, // FLASH SHELLS — Story 8.17 DRAFT (above)
-  smokeScreen, // Story 8.18 DRAFT (above)
+  countermeasure, // Story 9.3 — Eric's pick 2026-10-11 (above)
 };
 
 /** Armor (cycle 162 DRAFT): three stacked hull plates, each offset from the
