@@ -36,6 +36,10 @@ describe('Radar.beamWindow', () => {
     expect(w.cur).toBeCloseTo(sweepRotation(0.3, 0, 150, PERIOD), 12);
     expect([w.x, w.y]).toEqual([OWN.x, OWN.y]);
     expect(w.lifeMs).toBe(blipLifeMs(PERIOD));
+    expect(w.rangeU, 'the range the beam reaches is the radar range').toBe(CONFIG.vision.radar);
+    radar.setRanges(CONFIG.vision.sight, 1234, PERIOD);
+    radar.render(OWN, 200, null, null);
+    expect(radar.beamWindow()!.rangeU).toBe(1234);
   });
 
   it('is null on a frame with no observer (start line, spectating) and on the first frame after it', () => {

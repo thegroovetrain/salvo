@@ -1,22 +1,29 @@
 // MULTI-SPECTRAL COUNTERMEASURE clouds on the client (Story 9.3; "smoke is
 // paint", Eric 2026-10-12): the server hides nothing behind a cloud, and the
-// client paints each held cloud as a spraypaint bitmap — render/cloudPaint.ts
-// (the pure field) under render/countermeasure.ts (one Sprite per cloud on the
-// `cloud` chart layer). Contracts only: no literal alpha, no pixel pins.
+// client paints each held cloud as a smoke-brush bitmap — render/cloudPaint.ts
+// (the pure field: soft overlapping puffs of many sizes and greys) under
+// render/countermeasure.ts (one Sprite per cloud on the `cloud` chart layer,
+// plus a phosphor copy the radar beam paints PER CELL, by the radar's rules).
+// Contracts only: no literal alpha, no pixel pins.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Container } from 'pixi.js';
-import { CONFIG, cloudOutlineRadius, mulberry32, type CloudView } from '@salvo/shared';
+import { CONFIG, cloudOutlineRadius, mulberry32, wrapPositive, type CloudView } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { Countermeasure } from '../render/countermeasure.js';
+import { Countermeasure, beamCrosses } from '../render/countermeasure.js';
 import {
   CLOUD_CELLS,
   FADED_ALPHA,
+  RNG_PER_PUFF,
+  advanceField,
   cellOffsetU,
   decayField,
+  fieldToRgba,
   makeField,
+  samplePuff,
+  stampPuff,
   stepField,
   type CloudField,
 } from '../render/cloudPaint.js';
@@ -24,9 +31,10 @@ import { CHART_LAYER_ORDER } from '../render/stage.js';
 
 const LIFE = CONFIG.countermeasure.lifeMs;
 const K = CLIENT_CONFIG.countermeasure;
+const MAX = Math.fround(K.maxAlpha); // float32 storage
 const cloud = (id: string, t0 = 0, x = 0, y = 0): CloudView => ({ id, x, y, t0 });
 
-/** A seeded RNG so a test's spray is reproducible. */
+/** A seeded RNG so a test's brush is reproducible. */
 const seeded = (seed = 1): (() => number) => mulberry32(seed).next;
 
 const total = (f: CloudField): number => f.alpha.reduce((s, v) => s + v, 0);
@@ -38,8 +46,23 @@ function play(cm: Countermeasure, from: number, ms: number, frameMs = 16): numbe
   return t;
 }
 
+/** Mean alpha of the cells whose centre lies in the annulus [r0, r1) u. */
+function annulusMean(f: CloudField, r0: number, r1: number): number {
+  let sum = 0;
+  let n = 0;
+  for (let j = 0; j < CLOUD_CELLS; j++) {
+    for (let i = 0; i < CLOUD_CELLS; i++) {
+      const d = Math.hypot(cellOffsetU(i), cellOffsetU(j));
+      if (d < r0 || d >= r1) continue;
+      sum += f.alpha[j * CLOUD_CELLS + i];
+      n++;
+    }
+  }
+  return sum / n;
+}
+
 describe('one bitmap per held cloud, on the `cloud` layer', () => {
-  it('a held cloud gets one Sprite with a square CLOUD_CELLS texture, one texel per cellU, at the cloud centre', () => {
+  it('a held cloud gets one LINEAR-scaled Sprite with a square CLOUD_CELLS texture, one texel per cellU, at the cloud centre', () => {
     const layer = new Container();
     const cm = new Countermeasure(layer, new Container(), seeded());
     cm.sync([cloud('c1', 0, 300, -120)]);
@@ -47,8 +70,10 @@ describe('one bitmap per held cloud, on the `cloud` layer', () => {
     expect(layer.children).toEqual([s]);
     expect(s.texture.source.width).toBe(CLOUD_CELLS);
     expect(s.texture.source.height).toBe(CLOUD_CELLS);
-    expect(CLOUD_CELLS * K.cellU).toBeGreaterThanOrEqual(2 * CONFIG.countermeasure.r1);
+    expect(s.texture.source.scaleMode).toBe('linear');
+    expect(CLOUD_CELLS * K.cellU).toBeGreaterThanOrEqual(2 * (CONFIG.countermeasure.r1 + K.puffMaxU));
     expect(s.scale.x).toBe(K.cellU);
+    expect(s.tint).toBe(CLIENT_CONFIG.colors.countermeasureSmoke);
     expect([s.x, s.y]).toEqual([300, -120]);
     expect(cm.fieldOf('c1')!.alpha).toHaveLength(CLOUD_CELLS * CLOUD_CELLS);
   });
@@ -71,33 +96,93 @@ describe('one bitmap per held cloud, on the `cloud` layer', () => {
   });
 });
 
-describe('the spray and the fade', () => {
-  it('spraying raises the field; with no spray it decays monotonically toward 0', () => {
+describe('the smoke brush: one soft puff', () => {
+  // A puff centred on a cell centre (cell IC, IC), radius 6.5 cells.
+  const IC = 64;
+  const R = 6.5 * K.cellU;
+  const S = (K.puffMinAlpha + K.puffMaxAlpha) / 2;
+  const puffed = (): CloudField => {
     const f = makeField();
-    const rng = seeded(7);
-    stepField(f, 0, rng);
-    expect(total(f)).toBe(0);
-    for (let t = 0; t < 1000; t += 16) stepField(f, 16, rng);
-    const sprayed = total(f);
-    expect(sprayed).toBeGreaterThan(0);
-    let prev = sprayed;
-    for (let i = 0; i < 20; i++) {
-      decayField(f, K.fadeMs / 20);
-      const now = total(f);
-      expect(now).toBeLessThanOrEqual(prev);
-      prev = now;
-    }
-    expect(prev).toBe(0); // a full fadeMs of decay takes any cell to 0
+    stampPuff(f, cellOffsetU(IC), cellOffsetU(IC), R, S, K.shadeMin);
+    return f;
+  };
+  const along = (f: CloudField, k: number): number => f.alpha[IC * CLOUD_CELLS + IC + k];
+
+  it('falls off smoothly: centre > mid > edge > 0 inside R, and 0 at R and beyond', () => {
+    const f = puffed();
+    expect(along(f, 0)).toBeGreaterThan(along(f, 3));
+    expect(along(f, 3)).toBeGreaterThan(along(f, 6));
+    expect(along(f, 6)).toBeGreaterThan(0);
+    expect(along(f, 7)).toBe(0);
+    expect(along(f, -7)).toBe(0);
   });
 
-  it('paints land only inside the current disc (plus one dot radius)', () => {
+  it('has no hard step: the profile only decreases outward and its outermost lit cell is a faint fraction of the centre', () => {
+    const f = puffed();
+    for (let k = 1; k <= 7; k++) expect(along(f, k)).toBeLessThanOrEqual(along(f, k - 1));
+    expect(along(f, 6)).toBeLessThan(0.1 * along(f, 0));
+  });
+
+  it('composites "over": repeated puffs raise a cell by ever smaller steps, saturating toward maxAlpha and never past it', () => {
+    const f = makeField();
+    let prev = 0;
+    let prevStep = Infinity;
+    for (let n = 0; n < 200; n++) {
+      stampPuff(f, cellOffsetU(IC), cellOffsetU(IC), R, K.puffMaxAlpha, K.shadeMax);
+      const a = along(f, 0);
+      expect(a).toBeLessThanOrEqual(MAX);
+      const step = a - prev;
+      expect(step).toBeGreaterThanOrEqual(0);
+      expect(step).toBeLessThanOrEqual(prevStep + 1e-7);
+      prev = a;
+      prevStep = step;
+    }
+    expect(prev).toBeCloseTo(MAX, 5);
+  });
+
+  it('a puff samples a landing point inside the given disc, a size, a strength and a grey inside their knobs', () => {
+    const rng = seeded(21);
+    for (let n = 0; n < 500; n++) {
+      const p = samplePuff(300, rng);
+      expect(Math.hypot(p.x, p.y)).toBeLessThanOrEqual(300);
+      expect(p.r).toBeGreaterThanOrEqual(K.puffMinU);
+      expect(p.r).toBeLessThanOrEqual(K.puffMaxU);
+      expect(p.s).toBeGreaterThanOrEqual(K.puffMinAlpha);
+      expect(p.s).toBeLessThanOrEqual(K.puffMaxAlpha);
+      expect(p.shade).toBeGreaterThanOrEqual(K.shadeMin);
+      expect(p.shade).toBeLessThanOrEqual(K.shadeMax);
+    }
+  });
+});
+
+describe('the brush over a cloud life, and the fade', () => {
+  it('every painted cell carries a grey within [shadeMin, shadeMax], and fieldToRgba writes it as rgb with the alpha in a', () => {
+    const f = makeField();
+    const rng = seeded(13);
+    for (let t = 0; t < 4000; t += 16) stepField(f, 16, rng);
+    const rgba = new Uint8Array(f.alpha.length * 4);
+    fieldToRgba(f, rgba);
+    let painted = 0;
+    for (let k = 0; k < f.alpha.length; k++) {
+      if (f.alpha[k] === 0) continue;
+      painted++;
+      expect(f.shade[k]).toBeGreaterThanOrEqual(Math.fround(K.shadeMin) - 1e-6);
+      expect(f.shade[k]).toBeLessThanOrEqual(Math.fround(K.shadeMax) + 1e-6);
+      expect(rgba[k * 4]).toBe(Math.round(f.shade[k] * 255));
+      expect(rgba[k * 4 + 1]).toBe(rgba[k * 4]);
+      expect(rgba[k * 4 + 3]).toBe(Math.round(f.alpha[k] * 255));
+    }
+    expect(painted).toBeGreaterThan(0);
+  });
+
+  it('puffs land only inside the current outline (plus one largest puff)', () => {
     const rng = seeded(3);
     for (const age of [500, 5000, LIFE]) {
       const f = makeField();
-      const startAge = Math.max(0, age - 200);
+      const startAge = Math.max(0, age - 400);
       f.age = startAge;
       for (let t = startAge; t < age; t += 20) stepField(f, 20, rng);
-      const reach = cloudOutlineRadius(age) + K.dotCells * K.cellU;
+      const reach = cloudOutlineRadius(age) + K.puffMaxU;
       let painted = 0;
       for (let j = 0; j < CLOUD_CELLS; j++) {
         for (let i = 0; i < CLOUD_CELLS; i++) {
@@ -113,29 +198,48 @@ describe('the spray and the fade', () => {
   it('no cell ever exceeds maxAlpha', () => {
     const f = makeField();
     const rng = seeded(11);
-    for (let t = 0; t < 4000; t += 16) stepField(f, 16, rng);
+    for (let t = 0; t < 6000; t += 16) stepField(f, 16, rng);
     expect(f.peak).toBeLessThanOrEqual(K.maxAlpha);
-    expect(Math.max(...f.alpha)).toBeLessThanOrEqual(Math.fround(K.maxAlpha)); // float32 storage
+    expect(Math.max(...f.alpha)).toBeLessThanOrEqual(MAX);
   });
 
-  it('the same spray lands at a low frame rate as at a high one (the fractional carry)', () => {
+  it('decay is LINEAR: every cell drops by maxAlpha·dt/fadeMs (floored at 0) and a full fadeMs takes any cell to 0', () => {
+    const f = makeField();
+    const rng = seeded(7);
+    for (let t = 0; t < 2000; t += 16) stepField(f, 16, rng);
+    const before = Float32Array.from(f.alpha);
+    decayField(f, K.fadeMs / 4);
+    const drop = K.maxAlpha / 4;
+    for (let k = 0; k < before.length; k++) expect(f.alpha[k]).toBeCloseTo(Math.max(0, before[k] - drop), 5);
+    decayField(f, (3 * K.fadeMs) / 4);
+    expect(total(f)).toBe(0);
+  });
+
+  it('the same number of puffs lands at a low frame rate as at a high one (the fractional carry)', () => {
     const count = (frameMs: number): number => {
       const f = makeField();
-      let paints = 0;
+      let draws = 0;
       const rng = (): number => {
-        paints++;
-        return 0.5; // the disc centre: every rejection sample accepts first try
+        draws++;
+        return 0.5;
       };
       for (let t = 0; t < 1000; t += frameMs) stepField(f, frameMs, rng);
-      return paints / 2;
+      return draws / RNG_PER_PUFF;
     };
     expect(count(7)).toBe(count(50));
-    expect(Math.abs(count(50) - K.paintsPerSec)).toBeLessThanOrEqual(1);
+    expect(Math.abs(count(50) - K.puffsPerSec)).toBeLessThanOrEqual(1);
+  });
+
+  it('a pre-rolled mid-life cloud has a dense body and a wispy rim (centre thicker than 0.9 R)', () => {
+    const f = makeField();
+    advanceField(f, 9000, seeded(5));
+    const R = cloudOutlineRadius(9000);
+    expect(annulusMean(f, 0, 0.2 * R)).toBeGreaterThan(annulusMean(f, 0.85 * R, 0.95 * R));
   });
 });
 
 describe('a cloud leaves only after its spray is over AND its paint has faded', () => {
-  it('survives past lifeMs while paint remains, then despawns and frees its sprite', () => {
+  it('survives past lifeMs while paint remains, then despawns and frees both sprites', () => {
     const layer = new Container();
     const scope = new Container();
     const cm = new Countermeasure(layer, scope, seeded());
@@ -178,7 +282,7 @@ describe('pre-roll: a cloud first seen mid-life looks mid-life', () => {
         if (f.alpha[j * CLOUD_CELLS + i] > 0) farthest = Math.max(farthest, Math.hypot(cellOffsetU(i), cellOffsetU(j)));
       }
     }
-    expect(farthest).toBeGreaterThan(CONFIG.countermeasure.r0 + K.dotCells * K.cellU);
+    expect(farthest).toBeGreaterThan(CONFIG.countermeasure.r0 + K.puffMaxU);
   });
 
   it('a cloud first seen long after its paint would have faded despawns on its first render', () => {
@@ -208,73 +312,147 @@ describe('the declared seat (Eric 2026-10-12: above everything except radar pain
   });
 });
 
-describe('the phosphor copy: the cloud paints radar returns (Eric 2026-10-12)', () => {
+describe('the phosphor copy: the beam paints the cells it sweeps and those cells only (Eric 2026-10-12)', () => {
   const LIFE_MS = 12000;
   const CX = 1000;
+  const T = 3000; // the cloud's age when the beam arrives — a built body
   /** A beam window swept from (x, y) — the cloud sits on bearing 0 from the origin. */
-  const beam = (prev: number, cur: number, x = 0, y = 0) => ({ prev, cur, x, y, lifeMs: LIFE_MS });
+  const beam = (prev: number, cur: number, rangeU = 5000, x = 0, y = 0) => ({ prev, cur, x, y, lifeMs: LIFE_MS, rangeU });
   const held = () => {
     const chart = new Container();
     const scope = new Container();
     const cm = new Countermeasure(chart, scope, seeded());
     cm.sync([cloud('c', 0, CX, 0)]);
+    cm.render(T - 16); // build the haze, no beam
     return { cm, chart, scope };
   };
+  /** Every cell of the cloud: index, its bearing and distance from the origin. */
+  const cells = (): { k: number; bearing: number; dist: number }[] => {
+    const out = [];
+    for (let j = 0; j < CLOUD_CELLS; j++) {
+      for (let i = 0; i < CLOUD_CELLS; i++) {
+        const x = CX + cellOffsetU(i);
+        const y = cellOffsetU(j);
+        out.push({ k: j * CLOUD_CELLS + i, bearing: wrapPositive(Math.atan2(y, x)), dist: Math.hypot(x, y) });
+      }
+    }
+    return out;
+  };
+  const inArc = (b: number, prev: number, cur: number): boolean => wrapPositive(b - prev) < wrapPositive(cur - prev);
 
-  it('every held cloud has a second Sprite on the SAME texture source, in the radar paint container', () => {
+  it('the copy is a second Sprite on its OWN texture source, in the radar paint container, tinted phosphor', () => {
     const { cm, chart, scope } = held();
     const grey = cm.spriteOf('c')!;
     const copy = cm.radarSpriteOf('c')!;
     expect(copy).not.toBe(grey);
-    expect(copy.texture.source).toBe(grey.texture.source);
+    expect(copy.texture.source).not.toBe(grey.texture.source);
+    expect(copy.texture.source.scaleMode).toBe('linear');
     expect(copy.parent).toBe(scope);
     expect(grey.parent).toBe(chart);
     expect(copy.tint).toBe(CLIENT_CONFIG.colors.phosphor);
     expect([copy.x, copy.y]).toEqual([grey.x, grey.y]);
   });
 
-  it('is dark before any beam crossing, and a window that misses the span leaves it dark', () => {
+  it('a window over bearings [0, 0.3) paints exactly the hazy, in-range cells in that wedge; every other cell stays dark', () => {
     const { cm } = held();
-    cm.render(1000);
-    expect(cm.radarSpriteOf('c')!.alpha).toBe(0);
-    cm.render(1016, beam(Math.PI / 2, Math.PI / 2 + 0.1));
-    expect(cm.radarSpriteOf('c')!.alpha).toBe(0);
-  });
-
-  it('lights to radarAlpha on a crossing of its bearing span, then decays monotonically to 0 over the life', () => {
-    const { cm } = held();
-    cm.render(1000, beam(-0.05, 0.05));
-    const copy = cm.radarSpriteOf('c')!;
-    expect(copy.alpha).toBeCloseTo(K.radarAlpha, 9);
-    let prev = copy.alpha;
-    for (let t = 1500; t <= 1000 + LIFE_MS; t += 500) {
-      cm.render(t);
-      expect(copy.alpha).toBeLessThan(prev);
-      prev = copy.alpha;
+    cm.render(T, beam(0, 0.3));
+    const haze = cm.fieldOf('c')!.alpha;
+    const at = cm.radarAtOf('c')!;
+    const rgba = cm.radarRgbaOf('c')!;
+    let lit = 0;
+    let dark = 0;
+    for (const c of cells()) {
+      const paints = haze[c.k] >= K.radarPaintMin && inArc(c.bearing, 0, 0.3);
+      if (paints) {
+        lit++;
+        expect(at[c.k]).toBe(T);
+        expect(rgba[c.k * 4 + 3]).toBeGreaterThan(0);
+      } else {
+        if (haze[c.k] > 0) dark++;
+        expect(at[c.k]).toBe(-Infinity);
+        expect(rgba[c.k * 4 + 3]).toBe(0);
+      }
     }
-    expect(prev).toBe(0);
+    expect(lit).toBeGreaterThan(0);
+    expect(dark, 'hazy cells outside the wedge exist and stay dark').toBeGreaterThan(0);
   });
 
-  it('the span is centre ± asin(r/d): a window inside the edge lights it, one past the edge does not', () => {
-    const half = Math.asin(cloudOutlineRadius(1000) / CX);
-    const a = held();
-    a.cm.render(1000, beam(half * 0.9, half * 0.95));
-    expect(a.cm.radarSpriteOf('c')!.alpha).toBeGreaterThan(0);
-    const b = held();
-    b.cm.render(1000, beam(half * 1.1, half * 1.2));
-    expect(b.cm.radarSpriteOf('c')!.alpha).toBe(0);
-  });
-
-  it('a window wrapping through bearing 0 crosses a cloud on bearing 0', () => {
+  it('a later window elsewhere leaves the painted cells decaying monotonically and lights the new wedge', () => {
     const { cm } = held();
-    cm.render(1000, beam(2 * Math.PI - 0.05, 0.02));
-    expect(cm.radarSpriteOf('c')!.alpha).toBeCloseTo(K.radarAlpha, 9);
+    cm.render(T, beam(0, 0.3));
+    const rgba = cm.radarRgbaOf('c')!;
+    const first = Uint8Array.from(rgba);
+    const firstAt = Float64Array.from(cm.radarAtOf('c')!);
+    let prev = first;
+    for (let t = T + 500; t <= T + 3000; t += 500) {
+      cm.render(t, beam(5.5, 5.8)); // the far side of the scope: misses the cloud
+      for (let k = 0; k < firstAt.length; k++) if (firstAt[k] === T) expect(rgba[k * 4 + 3]).toBeLessThanOrEqual(prev[k * 4 + 3]);
+      prev = Uint8Array.from(rgba);
+    }
+    const NOW = T + 3016;
+    cm.render(NOW, beam(-0.3 + 2 * Math.PI, 0)); // the wedge just below bearing 0
+    const at = cm.radarAtOf('c')!;
+    const haze = cm.fieldOf('c')!.alpha;
+    let relit = 0;
+    for (const c of cells()) {
+      if (haze[c.k] >= K.radarPaintMin && inArc(c.bearing, 2 * Math.PI - 0.3, 0)) {
+        relit++;
+        expect(at[c.k]).toBe(NOW);
+      } else {
+        expect(at[c.k]).toBe(firstAt[c.k]);
+      }
+    }
+    expect(relit).toBeGreaterThan(0);
   });
 
-  it('lights on ANY window when the viewer is inside the disc', () => {
+  it('a cell beyond radar range never paints, however the beam sweeps it', () => {
     const { cm } = held();
-    cm.render(1000, beam(Math.PI, Math.PI + 0.001, CX + 5, 3));
-    expect(cm.radarSpriteOf('c')!.alpha).toBeCloseTo(K.radarAlpha, 9);
+    const range = CX; // the cloud's centre sits exactly at the range edge
+    cm.render(T, beam(2 * Math.PI - 0.5, 0.5, range));
+    const at = cm.radarAtOf('c')!;
+    const haze = cm.fieldOf('c')!.alpha;
+    let near = 0;
+    for (const c of cells()) {
+      if (c.dist > range) expect(at[c.k]).toBe(-Infinity);
+      else if (haze[c.k] >= K.radarPaintMin && inArc(c.bearing, 2 * Math.PI - 0.5, 0.5)) near++;
+    }
+    expect(near, 'the near half does paint').toBeGreaterThan(0);
+  });
+
+  it('with no beam window (spectator, no pose) nothing paints', () => {
+    const { cm } = held();
+    for (let t = T; t < T + 2000; t += 100) cm.render(t, null);
+    expect(cm.radarAtOf('c')!.every((v) => v === -Infinity)).toBe(true);
+    const rgba = cm.radarRgbaOf('c')!;
+    for (let k = 3; k < rgba.length; k += 4) expect(rgba[k]).toBe(0);
+  });
+
+  it('a painted cell decays to dark on the radar life', () => {
+    const { cm } = held();
+    cm.render(T, beam(0, 0.3));
+    cm.render(T + LIFE_MS, null);
+    const rgba = cm.radarRgbaOf('c')!;
+    for (let k = 3; k < rgba.length; k += 4) expect(rgba[k]).toBe(0);
+  });
+
+  it('the copy is never brighter than radarAlpha × the haze under it', () => {
+    const { cm } = held();
+    let rot = 0;
+    let lit = 0;
+    let over = 0;
+    for (let t = T; t < T + 6000; t += 100) {
+      const next = rot + 0.5;
+      cm.render(t, beam(wrapPositive(rot), wrapPositive(next)));
+      rot = next;
+      const haze = cm.fieldOf('c')!.alpha;
+      const rgba = cm.radarRgbaOf('c')!;
+      for (let k = 0; k < haze.length; k++) {
+        if (rgba[k * 4 + 3] > 0) lit++;
+        if (rgba[k * 4 + 3] > Math.round(K.radarAlpha * haze[k] * 255) + 1) over++;
+      }
+    }
+    expect(lit).toBeGreaterThan(0);
+    expect(over).toBe(0);
   });
 
   it('clear() empties the radar container too', () => {
@@ -284,14 +462,31 @@ describe('the phosphor copy: the cloud paints radar returns (Eric 2026-10-12)', 
   });
 });
 
-describe('coverAt: the cloud paint under a world point', () => {
+describe('beamCrosses: the whole-cloud pre-test (never the paint)', () => {
+  const CX = 1000;
+  const beam = (prev: number, cur: number, x = 0, y = 0) => ({ prev, cur, x, y, lifeMs: 1, rangeU: 5000 });
+  const R = 400;
+  const half = Math.asin(R / CX);
+
+  it('the span is centre ± asin(r/d): a window inside the edge touches, one past the edge does not', () => {
+    expect(beamCrosses(beam(half * 0.9, half * 0.95), CX, 0, R)).toBe(true);
+    expect(beamCrosses(beam(half * 1.1, half * 1.2), CX, 0, R)).toBe(false);
+  });
+
+  it('a window wrapping through bearing 0 touches a disc on bearing 0; any window touches a disc around the viewer', () => {
+    expect(beamCrosses(beam(2 * Math.PI - 0.05, 0.02), CX, 0, R)).toBe(true);
+    expect(beamCrosses(beam(Math.PI, Math.PI + 0.001, CX + 5, 3), CX, 0, R)).toBe(true);
+  });
+});
+
+describe('coverAt: the cloud haze under a world point', () => {
   it('is 0 with no clouds, > 0 at the centre of a sprayed cloud, 0 well outside its grid', () => {
     const cm = new Countermeasure(new Container(), new Container(), seeded(9));
     expect(cm.coverAt(0, 0)).toBe(0);
     cm.sync([cloud('c', 0, 500, 500)]);
     cm.render(3000);
     expect(cm.coverAt(500, 500)).toBeGreaterThan(0);
-    expect(cm.coverAt(500, 500)).toBeLessThanOrEqual(Math.fround(K.maxAlpha));
+    expect(cm.coverAt(500, 500)).toBeLessThanOrEqual(MAX);
     const far = CLOUD_CELLS * K.cellU;
     expect(cm.coverAt(500 + far, 500)).toBe(0);
     expect(cm.coverAt(500, 500 - far)).toBe(0);

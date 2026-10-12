@@ -186,3 +186,13 @@ Status: done — PR #266 open to `development` (never merged by the agent; Eric 
 
 **Recorded, not ruled (Eric's staging eye):** a modified client could strip the overlay (the cycle-153/174 server-side occlusion closed that; Eric: *"Server can block if you think it'll be an issue"* — not done, because server-side hiding would decide by centre or outline and pop, against the partials rule); radar paints now draw above visible contact hulls everywhere (the 2026-08-13 hull-above-blips rule holds for the own hull only); the own callsign stays on the screen-space `plate` layer under the haze; wounded smoke and fire keep their seat under hulls.
 
+## Session 3 — smoke brush (2026-10-12; cycle 176, 0.18.41, PV 77 unchanged; epic-9 amendments 55–56)
+
+**Trigger:** Eric on 0.18.40 on staging: *"It looks like you have sprayed the spray tool itself. It looks like crap … showing up green at ALL times (it's not following radar paint rules)"*; *"I said PIXELS, not blobs"* with a reference image (soft overlapping puffs of many sizes and greys, dense body, wispy edges); *"RADAR HAS RULES … IF THE BEAM PASSES, IT PAINTS THOSE PIXELS AND THOSE PIXELS ONLY."*
+
+**Built (client only):** `cloudPaint.ts` — a smoke BRUSH: soft puffs of random radius 25–70 u with a bell falloff `(1 − (d/R)²)²`, strength 0.04–0.12 and random grey, landing centre-biased inside the spray disc at 400/s (the agent's density table: 60/s built no body), "over" compositing to 0.92, linear 8 s decay, a per-cell shade channel, a 128-cell grid, LINEAR filtering; the haze tint is the new light warm grey `colors.countermeasureSmoke` (the wounded-plume grey read murky). `countermeasure.ts` — the phosphor copy has its own buffer and per-cell "last swept" stamps: each frame only the hazy cells whose bearing lies in the beam's swept arc and within radar range (`BeamWindow.rangeU`) are stamped, haze frozen at the sweep; alpha = `radarAlpha × frozen haze × blipAlpha(age, blip life)`; nothing else lights; a null beam paints nothing. Rendered off the real field at 1/3/6/10/15/19/23 s beside the reference and shown to Eric before the PR — *"that looks about right."*
+
+**Verification:** `npm test -w client` 3923 (125 files), lint 0 errors, tsc clean; full `npm run check` green (shared 1028, server 2469 unchanged).
+
+**Recorded, not ruled:** the radar copy carries no terrain shadow and no colorblind-assist floor (one-liners if wanted); the pre-roll of a cloud first seen mid-life costs ~15–20 ms once.
+

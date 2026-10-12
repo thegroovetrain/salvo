@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.18.41] - 2026-10-12
+
+### Changed
+- **The countermeasure haze is smoke now, not sprayed dots** (Story 9.3, session 3 — Eric on 0.18.40: *"It looks like you have sprayed the spray tool itself … I said PIXELS, not blobs"*, with a reference image). The cloud is painted with a smoke brush: soft puffs of many sizes and greys land 400 times a second inside the growing disc and pile into a dense light-grey body with wispy edges, each puff fading over 8 s. Rendered off the real field code and shown to Eric before this PR (*"that looks about right"*).
+- **The radar copy follows radar rules** (Eric: *"IF THE BEAM PASSES, IT PAINTS THOSE PIXELS AND THOSE PIXELS ONLY"*). Only the hazy cells the beam wedge sweeps, within radar range, light on the scope; they fade on the phosphor life like any return; nothing lights otherwise. The 0.18.40 behavior that lit the whole cloud whenever the beam touched it is gone.
+
+### Internal
+- `client/src/render/cloudPaint.ts`: brush stamps (bell falloff, "over" compositing, per-cell shade channel), centre-biased landing, 128-cell grid, linear filtering; `countermeasure.ts`: the phosphor copy gets its own buffer with per-cell "last swept" stamps painted from the radar's beam window (`rangeU` added to `BeamWindow`), haze frozen at the sweep. New color token `colors.countermeasureSmoke` (light warm grey). `CLIENT_CONFIG.countermeasure` knobs: `puffsPerSec 400, puffMinU 25, puffMaxU 70, puffMinAlpha 0.04, puffMaxAlpha 0.12, maxAlpha 0.92, shadeMin 0.55, shadeMax 1.0, radarAlpha 0.9, radarPaintMin 0.05, plateHideAlpha 0.35, fadeMs 8000, cellU 9` (`paintsPerSec`, `dotCells` deleted).
+- Client only; the server and shared are untouched; PROTOCOL_VERSION unchanged (77). Tests: client 3923 (125 files), shared 1028, server 2469; lint 0 errors.
+- Epic-9 amendments 55-56. Cycle 176.
+
 ## [0.18.40] - 2026-10-12
 
 ### Changed

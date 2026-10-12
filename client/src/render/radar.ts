@@ -283,8 +283,10 @@ export interface ViewRect {
  * THE BEAM'S LAST FRAME (Story 9.3, "the countermeasure also paints radar") —
  * the arc the beam swept between the previous rendered frame and this one,
  * `prev → cur` increasing (mod 2π, `sweepRotation`'s own angles), the observer
- * it was swept from, and the phosphor life the radar paints use. One object
- * per Radar, rewritten in place every frame: read it, never hold it.
+ * it was swept from, the phosphor life the radar paints use, and the radar
+ * range the beam reaches (`rangeU`, the same number `marchSlice` clips its
+ * rays to). One object per Radar, rewritten in place every frame: read it,
+ * never hold it.
  */
 export interface BeamWindow {
   prev: number;
@@ -292,6 +294,7 @@ export interface BeamWindow {
   x: number;
   y: number;
   lifeMs: number;
+  rangeU: number;
 }
 
 export class Radar {
@@ -357,7 +360,7 @@ export class Radar {
    */
   readonly cloudPaintLayer = new Container();
   /** The beam window handed out by `beamWindow` — rewritten in place. */
-  private readonly beam: BeamWindow = { prev: 0, cur: 0, x: 0, y: 0, lifeMs: 0 };
+  private readonly beam: BeamWindow = { prev: 0, cur: 0, x: 0, y: 0, lifeMs: 0, rangeU: 0 };
   /** Did the last `render` sweep an arc (both ends known, own pose known)? */
   private beamLive = false;
   /** Latest authoritative sweep sample (angle at server time t). */
@@ -956,6 +959,7 @@ export class Radar {
     this.beam.x = own.x;
     this.beam.y = own.y;
     this.beam.lifeMs = blipLifeMs(this.sweepPeriodMs);
+    this.beam.rangeU = this.radarRange;
   }
 
   /** The whole frame: resolve parked echoes, march the swept arc, drop

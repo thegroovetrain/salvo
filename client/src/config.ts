@@ -115,6 +115,8 @@ const COLORS = {
   torpedo: 0xcfe8dd, // torpedo on-water render
   hitBloom: 0xff9d3d,
   woundedSmoke: 0x7a7168,
+  // The MULTI-SPECTRAL COUNTERMEASURE haze (Story 9.3 session 3, Eric 2026-10-12 reference: light grey smoke with real contrast on the dark water) — NOT the wounded plume grey.
+  countermeasureSmoke: 0xc4c0b8,
   // drones (PvE — always greyscale)
   droneOutline: 0x9aa3b2,
   droneFill: 0x454950,
@@ -2365,19 +2367,37 @@ export const CLIENT_CONFIG = {
     /** ms — a cell painted to `maxAlpha` fades LINEARLY to 0 over this long
      *  (the phosphor shape; Eric: each paint fades over about 6–10 s). */
     fadeMs: 8000,
-    /** Paints sprayed per second of cloud life (the fractional remainder
-     *  carries, so a low frame rate sprays the same amount). */
-    paintsPerSec: 240,
-    /** cells — one paint's soft round dot radius (falloff 1 − d²/R²). */
-    dotCells: 2.5,
-    /** A cell's alpha saturates here (one paint's centre adds this much). */
-    maxAlpha: 0.85,
+    /** THE SMOKE BRUSH (Eric 2026-10-12: "a smoke brush, soft overlapping
+     *  puffs of many sizes and greys, not dots" — "I said PIXELS, not blobs").
+     *  Puffs stamped per second of cloud life (the fractional remainder
+     *  carries, so a low frame rate stamps the same amount). */
+    puffsPerSec: 400,
+    /** u — one puff's radius is drawn uniformly from [puffMinU, puffMaxU];
+     *  its falloff is the smooth bell (1 − (d/R)²)², never a hard edge. */
+    puffMinU: 25,
+    puffMaxU: 70,
+    /** One puff's centre strength is drawn uniformly from this range; it
+     *  composites "over" the cell (a ← a + s·(1 − a)), saturating softly. */
+    puffMinAlpha: 0.04,
+    puffMaxAlpha: 0.12,
+    /** A cell's alpha never exceeds this. */
+    maxAlpha: 0.92,
+    /** One puff's grey, as a multiplier of `colors.woundedSmoke`, drawn
+     *  uniformly from [shadeMin, shadeMax] and blended into the cell with the
+     *  puff's own over-weight — the tone the reference smoke has. */
+    shadeMin: 0.55,
+    shadeMax: 1.0,
     /** Peak alpha of the cloud's PHOSPHOR copy on the radar paint layer (Eric
      *  2026-10-12 — the cloud is a countermeasure, it paints on radar like
-     *  clutter: "THIS SMOKE ALSO PAINTS RADAR RETURNS"). Painted by the sweep
-     *  when the beam crosses the cloud's bearing span, then decays on the
-     *  same phosphor life the radar paints use (`blipLifeMs`). */
+     *  clutter: "THIS SMOKE ALSO PAINTS RADAR RETURNS"). PER CELL, by the
+     *  radar's own rule ("IF THE BEAM PASSES, IT PAINTS THOSE PIXELS AND
+     *  THOSE PIXELS ONLY"): a cell the beam's last-frame arc sweeps, inside
+     *  radar range, is painted at that instant at radarAlpha × its haze, then
+     *  decays on the radar paints' phosphor life (`blipLifeMs`). */
     radarAlpha: 0.9,
+    /** A cell whose haze alpha is under this never paints on radar (thin
+     *  wisps return nothing). */
+    radarPaintMin: 0.05,
     /** A contact's NAMEPLATE is hidden outright when the cloud paint under its
      *  hull is at least this thick (Eric 2026-10-12: "I don't want someone's
      *  nameplate sticking out from behind the smoke"). Plates only — a hull is
