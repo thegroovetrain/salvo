@@ -1576,7 +1576,7 @@ describe('a stocked BELT square', () => {
         for (const [x, y] of part.pts) expect(Math.max(Math.abs(x), Math.abs(y))).toBeLessThanOrEqual(1);
       }
     }
-    for (const other of ['shieldBlock', 'decoyBuoy', 'dazzleShells', 'navalMines', 'starShells']) {
+    for (const other of ['shieldBlock', 'decoyBuoy', 'foulingShell', 'navalMines', 'starShells']) {
       expect(parts, other).not.toEqual(glyphPaths(other));
     }
     expect(equipmentGlyphSvg('countermeasure', 24)?.tagName.toLowerCase()).toBe('svg');

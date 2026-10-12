@@ -57,6 +57,7 @@ import { bearingTo, bandGain, type Foghorn } from '../render/foghorn.js';
 import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
 import type { BurnZones } from '../render/burnZones.js';
+import type { FoulZones } from '../render/foulZones.js';
 import type { Decoys } from '../render/decoys.js';
 import type { Countermeasure } from '../render/countermeasure.js';
 import type { ShakeDriver } from '../render/shake.js';
@@ -123,6 +124,9 @@ export interface RoomBindingDeps {
   /** PHOSPHOR SHELLS burning zones (render/burnZones.ts, Story 8.17) — synced
    *  contact-like from FrameMsg.burnZones every tick, exactly like litZones. */
   burnZones: BurnZones;
+  /** FOULING SHELL foul zones (render/foulZones.ts, Story 9.4) — synced
+   *  contact-like from FrameMsg.foulZones every tick, exactly like burnZones. */
+  foulZones: FoulZones;
   /** DECOY BUOY markers (render/decoys.ts, Story 8.16) — synced contact-like
    *  from FrameMsg.decoys every tick, exactly like mines/litZones. */
   decoys: Decoys;
@@ -367,8 +371,6 @@ interface BindState {
    *  status change into a machine-gun. The falling edge is silent — the line
    *  simply disappears, which is the whole visual twin doing its job. */
   slowed: boolean;
-  /** ...and the same for the DAZZLE window. */
-  dazzled: boolean;
   /**
    * Server time (ms) of the last frame on which the own hull stood inside SOME
    * enemy incendiary zone — the burn classifier's memory (see readsAsBurn).
@@ -577,7 +579,6 @@ function freshBindState(): BindState {
   return {
     pendingSnap: false,
     slowed: false,
-    dazzled: false,
     burningAt: -Infinity,
     impacts: new ImpactDedup(),
     hitCallTone: hitCallToneFloor(),
@@ -780,6 +781,9 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   // PHOSPHOR burning zones (Story 8.17), same reconcile, same omitted-key rule.
   const burnZones = f.burnZones ?? [];
   deps.burnZones.sync(burnZones, deps.ordnanceHue);
+  // FOULING SHELL foul zones (Story 9.4), same reconcile, same omitted-key rule.
+  const foulZones = f.foulZones ?? [];
+  deps.foulZones.sync(foulZones, deps.ordnanceHue);
   // Decoy buoys (Story 8.16), same reconcile. Frames OMIT the key when the
   // observer sees no decoys, so treat a missing key as an empty list.
   const decoys = f.decoys ?? [];
@@ -800,6 +804,7 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   // (projectiles) and clear the own fog over them (fog).
   net.litZones = litZones;
   net.burnZones = burnZones; // the burn classifier's zone list (trackBurning)
+  net.foulZones = foulZones;
   net.clouds = clouds; // the HELD list (the match-start edge clears it)
 }
 
@@ -834,7 +839,7 @@ function trackBurning(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
 }
 
 /**
- * Pure: is a victim window (`slowedUntil` / `dazzledUntil`) running at server
+ * Pure: is a victim window (`slowedUntil` / `fouledUntil`) running at server
  * time `t`? An absent field is a window that never started. Measured against
  * the FRAME's own `t` — exact server time, not the local clock estimate — so
  * the edge cannot chatter on clock jitter around the expiry instant.
@@ -844,22 +849,22 @@ export function windowRunning(until: number | undefined, t: number): boolean {
 }
 
 /**
- * The victim tells (Story 2.9): SLOWED and DAZZLED each fire their cue on the
- * RISING edge of their window and nothing on the falling one. The visual twin
- * is the HUD status line the same fields drive (render/hud.ts drawTells) —
- * plus, for dazzle, the sight hole already shrinking (render/fog.ts) — so the
- * information is on screen whether or not the sound is.
+ * The victim tell (Story 2.9): SLOWED fires its cue on the RISING edge of the
+ * slow window and nothing on the falling one. The visual twin is the HUD status
+ * line the same fields drive (render/hud.ts drawTells), so the information is
+ * on screen whether or not the sound is.
  *
- * Both fields are victim-private on `you`: nobody else's affliction ever
- * reaches this client, and a spectator frame (no `you`) simply clears both.
+ * Since Story 9.4 the window is the LATER of the two slow sources — the
+ * fouling mine's `slowedUntil` and the FOULING SHELL zone's `fouledUntil`
+ * (the SLOWED tell covers both; no new copy) — so a captain moving from one
+ * source into the other hears one cue, not two. Both fields are victim-private
+ * on `you`: nobody else's affliction ever reaches this client, and a spectator
+ * frame (no `you`) simply clears it.
  */
 function routeVictimTells(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
-  const slowed = windowRunning(f.you?.slowedUntil, f.t);
-  const dazzled = windowRunning(f.you?.dazzledUntil, f.t);
+  const slowed = windowRunning(f.you?.slowedUntil, f.t) || windowRunning(f.you?.fouledUntil, f.t);
   if (slowed && !s.slowed) deps.audio.play('slowed');
-  if (dazzled && !s.dazzled) deps.audio.play('dazzled');
   s.slowed = slowed;
-  s.dazzled = dazzled;
 }
 
 /** Self-private denied presses (Story 1.10): frames OMIT the key when none,
@@ -1514,14 +1519,14 @@ function shellClaim(e: BallisticEvent, deps: RoomBindingDeps): OwnFire {
 
 /** The click-latched weapons whose round rides the `shell` wire kind: the gun,
  *  the broadside, the flak gun, the star shell, and (Story 8.17) PHOSPHOR
- *  SHELLS and the FLASH SHELLS consumable. */
+ *  SHELLS and (Story 9.4) the FOULING SHELL consumable. */
 const SHELL_CLAIMS: ReadonlySet<OwnFire> = new Set<OwnFire>([
   'gun',
   'broadside',
   'starShells',
   'flak',
   'phosphorShells',
-  'dazzleShells',
+  'foulingShell',
 ]);
 
 /**
@@ -1548,12 +1553,12 @@ function ownShellWeapon(e: BallisticEvent, claim: OwnFire): OwnFire {
 
 /** Pure: the own-fire cue a claimed shell weapon reports with. The star shell
  *  earns its own launch report (Story 2.9: every fitted line is felt), and
- *  PHOSPHOR / FLASH SHELLS (Story 8.17) report through the same launch cue
- *  (audio/tones FIRE_TONE); anything the claim could not name falls to the gun
- *  crack. */
-function shellFireId(own: OwnFire): 'gun' | 'broadside' | 'starShells' | 'phosphorShells' | 'dazzleShells' {
+ *  PHOSPHOR SHELLS (Story 8.17) and the FOULING SHELL (Story 9.4) report through
+ *  the same launch cue (audio/tones FIRE_TONE); anything the claim could not
+ *  name falls to the gun crack. */
+function shellFireId(own: OwnFire): 'gun' | 'broadside' | 'starShells' | 'phosphorShells' | 'foulingShell' {
   if (own === 'broadside' || own === 'starShells') return own;
-  if (own === 'phosphorShells' || own === 'dazzleShells') return own;
+  if (own === 'phosphorShells' || own === 'foulingShell') return own;
   return 'gun';
 }
 

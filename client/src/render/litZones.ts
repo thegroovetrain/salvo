@@ -19,7 +19,8 @@
 // `phos`/`daz` wire flags this module used to paint as an ember disc and a
 // glare — are DELETED: PHOSPHOR SHELLS burns through its own channel
 // (FrameMsg.burnZones, drawn by render/burnZones.ts with the ember treatment
-// that moved there from here) and FLASH SHELLS leaves nothing on the water. The
+// that moved there from here); the FOULING SHELL (Story 9.4) slows through its
+// own channel too (FrameMsg.foulZones, render/foulZones.ts). The
 // firer's personal hue still owns the ring and fill (a zone always says whose
 // it is).
 

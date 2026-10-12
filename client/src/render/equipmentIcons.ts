@@ -40,13 +40,19 @@
 // A line with NO glyph draws NOTHING and throws nothing — today that is only
 // the stub DEPTH CHARGE, which has no mechanism to draw.
 //
+// STORY 9.4 (2026-10-12) DREW ONE, ERIC'S PICK from three rendered candidates
+// (epic-9 amendment 69): FOULING SHELL (a FOULED PROP — a three-bladed screw
+// with a snare line drawn across it). It replaces Story 8.17's FLASH SHELLS
+// struck-through eye, deleted with that line.
+//
 // STORY 9.3 (2026-10-11) DREW ONE, ERIC'S PICK from three rendered candidates
 // (epic-9 amendment 47): MULTI-SPECTRAL COUNTERMEASURE (eleven small circles
 // scattered in a disc — a cloud of pixels). It replaces the Story 8.18 SMOKE
 // SCREEN draft, deleted with its line.
 //
 // STORY 8.17 DREW TWO (amendment 135(j), same DRAFT status): PHOSPHOR SHELLS
-// (flame tongues on a waterline) and FLASH SHELLS (a struck-through eye).
+// (flame tongues on a waterline) and FLASH SHELLS (a struck-through eye —
+// deleted with its line in Story 9.4).
 //
 // STORY 8.16 DREW THREE MORE, for the belt (amendment 124(f), same DRAFT
 // status): SHIELD BLOCK (a heater-shield outline), CHAFF (retired with its line
@@ -347,15 +353,18 @@ const decoyBuoy: GlyphPaths = [
 ];
 
 /**
- * Flash shells (`dazzleShells`, Story 8.17 DRAFT, epic-8 amendment 135(j)): a
- * BLINDED EYE — a lens-shaped eye outline with its pupil, struck through by one
- * diagonal. It says what the shell does to the hull it catches (sight cut to an
- * eighth), and shares no shape with the star shell's rayed burst.
+ * Fouling shell (Story 9.4 — Eric's pick 2026-10-12, candidate A "fouled prop"
+ * of three rendered for him, epic-9 amendment 69): a FOULED PROP — a hub and
+ * three screw blades, with a snare line drawn across them. It says what the
+ * zone does to every hull that runs through it (the prop fouls), and it
+ * replaces FLASH SHELLS' struck-through eye. Every primitive sits inside ±1.
  */
-const dazzleShells: GlyphPaths = [
-  path([-0.95, 0], [-0.5, -0.42], [0, -0.55], [0.5, -0.42], [0.95, 0], [0.5, 0.42], [0, 0.55], [-0.5, 0.42], [-0.95, 0]),
-  circle(0, 0, 0.2),
-  path([-0.8, 0.8], [0.8, -0.8]),
+const foulingShell: GlyphPaths = [
+  circle(0, 0, 0.18),
+  path([0, -0.18], [-0.28, -0.62], [0, -0.95], [0.28, -0.62], [0, -0.18]), // top blade
+  path([-0.16, 0.09], [-0.68, 0.2], [-0.82, 0.62], [-0.4, 0.55], [-0.16, 0.09]), // lower-left blade
+  path([0.16, 0.09], [0.68, 0.2], [0.82, 0.62], [0.4, 0.55], [0.16, 0.09]), // lower-right blade
+  path([-0.95, -0.3], [-0.6, -0.05], [-0.2, -0.35], [0.2, 0.05], [0.6, -0.25], [0.95, 0.1]), // the snare line
 ];
 
 /**
@@ -415,7 +424,7 @@ const CONSUMABLE_GLYPHS: Partial<Record<string, GlyphPaths>> = {
   // Eric's eye on staging (amendment 124(f), the amendment 110 precedent).
   shieldBlock,
   decoyBuoy,
-  dazzleShells, // FLASH SHELLS — Story 8.17 DRAFT (above)
+  foulingShell, // FOULING SHELL — Story 9.4, Eric's pick 2026-10-12 (above)
   countermeasure, // Story 9.3 — Eric's pick 2026-10-11 (above)
 };
 

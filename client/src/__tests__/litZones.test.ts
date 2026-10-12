@@ -150,7 +150,7 @@ describe('insideAnyZone — point-in-zone-circle test', () => {
 // `phos`/`daz` wire flags this renderer painted as an ember disc and a glare
 // (the Story 2.9 / 7-5 per-verb pins that lived here). The burning treatment
 // MOVED to render/burnZones.ts (its pins are in burnZones.test.ts); the glare
-// went with the verb, since FLASH SHELLS leaves nothing on the water. What
+// went with the verb. What
 // remains is the plain flare, drawn exactly as before: one fill and one ring.
 
 describe('LitZones.sync — a lit zone is only ever the plain flare', () => {

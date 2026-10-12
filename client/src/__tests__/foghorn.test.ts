@@ -774,6 +774,7 @@ function setupHonk(over: Record<string, unknown> = {}) {
     mines: { sync: vi.fn() },
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
+    foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
     radar: { onSweepSample: vi.fn() },

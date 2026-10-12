@@ -36,8 +36,11 @@ const inCatalog = (e: HowToEntry): boolean => (LINE_IDS as readonly string[]).in
 /** Lines that went live while the How-to-Play copy is frozen (amendment 36,
  *  until Story 9.11) and so have no entry yet: the MULTI-SPECTRAL
  *  COUNTERMEASURE (Story 9.3) replaced SMOKE SCREEN, whose stale entry stays on
- *  the page beside CHAFF's. 9.11 writes the copy and empties this set. */
-const AWAITING_COPY: ReadonlySet<string> = new Set(['countermeasure']);
+ *  the page beside CHAFF's; the FOULING SHELL (Story 9.4) replaced FLASH
+ *  SHELLS, whose stale entry stays too (its `dazzleShells` line left the
+ *  catalog, so `inCatalog` tolerates it). 9.11 writes the copy and empties
+ *  this set. */
+const AWAITING_COPY: ReadonlySet<string> = new Set(['countermeasure', 'foulingShell']);
 const allProse = (): string =>
   HOWTO_SECTIONS.flatMap((s) => [...(s.paragraphs ?? []), ...(s.tail ?? [])]).join(' ');
 

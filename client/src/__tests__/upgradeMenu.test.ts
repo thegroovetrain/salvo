@@ -446,7 +446,7 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   // AMENDMENT 181 (Eric 2026-09-30): the kind is what the card does for the
   // player — a function of the line AND the copies held.
   it('carries the KIND word and its tone, unconditional, on every card', () => {
-    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGun', 'captiveMines', 'dazzleShells'] }), false, false, false);
+    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGun', 'captiveMines', 'foulingShell'] }), false, false, false);
     expect(view?.options.map((o) => o.kind)).toEqual(['SHIP UPGRADE', 'WEAPON UPGRADE', 'WEAPON', 'CONSUMABLE']);
     expect(view?.options.map((o) => o.kindTone)).toEqual(['shipUpgrade', 'weaponUpgrade', 'weapon', 'consumable']);
     // Copy 2 of an equipment line is a WEAPON UPGRADE.
@@ -467,7 +467,7 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   });
 
   it('draws NO ladder for a consumable or an add-on — they have no rungs', () => {
-    const view = offerView(ownShip({ offer: ['hullRepair', 'dazzleShells', 'radarSweep'] }), false, false, false);
+    const view = offerView(ownShip({ offer: ['hullRepair', 'foulingShell', 'radarSweep'] }), false, false, false);
     expect(view?.options[0].tier).toBeNull();
     expect(view?.options[0].tierStep).toBeNull();
     expect(view?.options[1].tier).toBeNull();
@@ -680,7 +680,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
       options: [
         { ...cardsOf(['radarSweep'])[0], stack: 2, tier: 'II → III', tierStep: { cur: 2, next: 3 } },
         { ...cardsOf(['hullRepair'])[0] },   // consumable: no ladder at all
-        { ...cardsOf(['dazzleShells'])[0] }, // FLASH SHELLS (a consumable since 8.17): likewise
+        { ...cardsOf(['foulingShell'])[0] }, // FOULING SHELL (a consumable, Story 9.4): likewise
       ],
     }));
     const [stacked, consumable, addon] = cards();

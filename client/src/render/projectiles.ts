@@ -21,13 +21,12 @@
 //       point — or, for a fish, from dead-reckoning on past the range the server
 //       stopped correcting it. The SIGHT ring applies to an unclaimed shell and
 //       to our own ordnance alike — a shell outrunning the bubble (gun range 480
-//       > sight 220) fades into fog, which is thematic. THE ENEMY rings are
-//       DAZZLE-SCALED, because the server's own reveal ring for them is
-//       `sightOf(me, now)` and a dazzled client that kept the full ring would
-//       dead-reckon exactly what the server abandoned; a track the client
-//       believes is OURS is not, because the server's ballistic rows
-//       short-circuit on ownership BEFORE any range or dazzle term is consulted
-//       (see `trackCullRadiusSq`).
+//       > sight 220) fades into fog, which is thematic. THE ENEMY rings go
+//       through the shared `effectiveSight`, because the server's own reveal
+//       ring for them is `sightOf(me, now)`; a track the client believes is
+//       OURS reads the plain sight range, because the server's ballistic rows
+//       short-circuit on ownership BEFORE any range term is consulted (see
+//       `trackCullRadiusSq`).
 // Each shell draws as a bright dot with an additive glow, pooled.
 
 import { Graphics } from 'pixi.js';
@@ -164,12 +163,12 @@ export type OwnFire =
   | 'gun'
   | 'broadside'
   | 'starShells'
-  // STORY 8.17: PHOSPHOR SHELLS (a tiered 360° equipment line) and FLASH
-  // SHELLS (internal id `dazzleShells`, a click-fired belt consumable) both
-  // fire one gun-pattern shell on the `shell` wire kind, so both are claimable
-  // and both keep the generic shell look, like the star shell.
+  // STORY 8.17: PHOSPHOR SHELLS (a tiered 360° equipment line) and — since
+  // Story 9.4 — the FOULING SHELL (a click-fired consumable; FLASH SHELLS'
+  // successor) both fire one gun-pattern shell on the `shell` wire kind, so
+  // both are claimable and both keep the generic shell look, like the star shell.
   | 'phosphorShells'
-  | 'dazzleShells'
+  | 'foulingShell'
   // THE THREE FISH (Story 8.13): two torpedo LINES and the belt's SUPERCAV
   // TORPEDO, a click-aimed consumable (epic-8 amendment 74). All three ride the
   // one `torp` wire kind, so all three are claimable by the own-fire latch.
@@ -248,10 +247,9 @@ const SIGHT_CULL_MARGIN = 40; // u
 /**
  * Pure: the SQUARED dead-reckoning cull radius for one ordnance kind, given the
  * sight range the ring is measured against — always boon-widened
- * (`stats.sightRange`, plumbed in by main.applyOwnStats → `setSightRange`), and
- * dazzle-scaled ONLY on the enemy path (the flag main.updateDazzle fans out →
- * `setDazzled`, applied through the shared `effectiveSight` in
- * `trackCullRadiusSq`). `trackCullRadiusSq` is the
+ * (`stats.sightRange`, plumbed in by main.applyOwnStats → `setSightRange`),
+ * resolved through the shared `effectiveSight` ONLY on the enemy path
+ * (`trackCullRadiusSq`). `trackCullRadiusSq` is the
  * one caller that decides which of the two a given track gets; this function
  * takes the number already resolved.
  *
@@ -276,37 +274,30 @@ export function cullRadiusSq(sightRange: number, kind: Kind): number {
 
 /**
  * Pure: THE cull radius (squared) for one live track — the single place the
- * three inputs (ownership, kind, dazzle) turn into a ring.
+ * inputs (ownership, kind, observer ranges) turn into a ring.
  *
- * A TRACK THE CLIENT BELIEVES IS ITS OWN RIDES THE UN-DAZZLED, SIGHT-DERIVED
- * RING — exactly its pre-Story-4.9 behavior. The server's ballistic rows
- * short-circuit on `shell.ownerId === me.id` BEFORE any range test at all
- * (signals.ts `ballisticSignal` and `torpedoUpdateSignal`), so the server never
- * stops revealing or correcting an OWNER's own shell or fish — dazzled or not.
- * Both narrowings therefore have no server basis on this path: the detect ring's
- * rationale ("the server stopped correcting it") is false for an owner, and so
- * is the dazzle scaling — a dazzled captain's own tracer would otherwise vanish
- * at 205u instead of 370u at base stats, for no stated reason.
+ * A TRACK THE CLIENT BELIEVES IS ITS OWN RIDES THE SIGHT-DERIVED RING — exactly
+ * its pre-Story-4.9 behavior. The server's ballistic rows short-circuit on
+ * `shell.ownerId === me.id` BEFORE any range test at all (signals.ts
+ * `ballisticSignal` and `torpedoUpdateSignal`), so the server never stops
+ * revealing or correcting an OWNER's own shell or fish. The detect ring's
+ * rationale ("the server stopped correcting it") is therefore false for an
+ * owner, and it never applies on this path.
  *
- * EVERYTHING ELSE rides the DAZZLE-SCALED ring (the server gates it on
- * `sightOf(me, now)`, which IS dazzle-scaled), detect-derived for a torpedo.
- * The dazzle scaling is the SHARED `effectiveSight` (shared/src/sim/sight.ts —
- * radarRange/8 while flashed, Story 8.17, amendment 132): the server's
- * `sightOf`, the fog hole and the radar source seam call the same function, so
- * there is exactly one derivation of a dazzled observer's sight in the game.
+ * EVERYTHING ELSE rides the effective-truesight ring (the server gates it on
+ * `sightOf(me, now)`), detect-derived for a torpedo. Effective truesight is
+ * the SHARED `effectiveSight` (shared/src/sim/sight.ts — a boon-widened
+ * constant per build since Story 9.4 retired the FLASH SHELLS dazzle): the
+ * server's `sightOf`, the fog hole and the radar source seam call the same
+ * function, so there is exactly one derivation of an observer's sight.
  *
  * KNOWN AND ACCEPTED: ownership is a soft click-time latch, so a MISSED latch
  * degrades an own track to the enemy ring. That one-sided error is deliberate —
  * inverting it would hand every enemy fish a long ghost.
  */
-export function trackCullRadiusSq(
-  ranges: VisionRanges,
-  dazzled: boolean,
-  kind: Kind,
-  own: OwnFire,
-): number {
-  if (own !== null) return cullRadiusSq(ranges.sightRange, 'shell'); // believed-own: un-dazzled truesight
-  return cullRadiusSq(effectiveSight(ranges, dazzled), kind);
+export function trackCullRadiusSq(ranges: VisionRanges, kind: Kind, own: OwnFire): number {
+  if (own !== null) return cullRadiusSq(ranges.sightRange, 'shell'); // believed-own: the plain sight ring
+  return cullRadiusSq(effectiveSight(ranges), kind);
 }
 
 /** Pure: dead-reckoned shell position at server time `now` (ms). */
@@ -402,13 +393,10 @@ export class Projectiles {
    *  Bounded, and consumed by the burst/boom that ends the track. */
   private readonly claims = new Map<string, OwnFire>();
 
-  /** The plumbed BOON-widened sight + radar ranges (u) and the DAZZLE flag — the two
-   *  observer inputs every cull ring is resolved from, per track and per frame
-   *  (`trackCullRadiusSq`). Kept as state so either can change alone without the
-   *  other being silently reset (a boon landing mid-dazzle must not un-dazzle
-   *  the enemy rings, and vice versa). */
+  /** The plumbed BOON-widened sight + radar ranges (u) — the observer input
+   *  every cull ring is resolved from, per track and per frame
+   *  (`trackCullRadiusSq`). */
   private ranges: VisionRanges = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
-  private dazzled = false;
 
   constructor(
     private readonly mapRadius: number,
@@ -465,34 +453,10 @@ export class Projectiles {
 
   /** Track the own ship's boon-widened sight range so reveals don't pop early.
    *  ONE plumbed value, THREE rings — the enemy-torpedo ring is `detectFactor`
-   *  of it and the enemy rings are dazzle-scaled (see `trackCullRadiusSq`),
+   *  of it and the enemy rings go through `effectiveSight` (see `trackCullRadiusSq`),
    *  never a second plumbing path. */
   setSightRange(sightRange: number, radarRange: number): void {
     this.ranges = { sightRange, radarRange };
-  }
-
-  /**
-   * Adopt the DAZZLE state (Story 2.8) — the projectile half of the plumbing
-   * `Fog` and `Radar` have always had, and the reason it is not optional: the
-   * SERVER reveals and corrects an ENEMY's ballistics inside `sightOf(me, now)`,
-   * which IS dazzle-scaled, so a client holding the full ring would go on
-   * dead-reckoning a track the server had already stopped correcting — the
-   * amendment-81 bug class (a shrunken fog hole beside an unshrunken companion
-   * circle), one layer down. It reaches the ENEMY rings only: the server's owner
-   * path never consults a range at all (`trackCullRadiusSq`). Returns TRUE when
-   * the state actually flipped, mirroring `Fog.setDazzled`'s changed-flag
-   * contract so one call site drives all three; there is nothing to rebake here,
-   * so the caller may ignore the result.
-   */
-  setDazzled(dazzled: boolean): boolean {
-    if (dazzled === this.dazzled) return false;
-    this.dazzled = dazzled;
-    return true;
-  }
-
-  /** Is the dazzle currently held? Test/observation seam (mirrors `Fog`). */
-  get isDazzled(): boolean {
-    return this.dazzled;
   }
 
   /** Set the own loadout's doctrine modes (main.applyOwnStats). Affects only
@@ -783,9 +747,9 @@ export class Projectiles {
   /**
    * Advance all live projectiles to `serverNow` (ms). Retire any past their
    * per-kind max lifetime, or (when `ownPos` is known) once their dead-reckoned
-   * position leaves the ring the server reveals them within — the UN-dazzled
-   * sight bubble for anything the client believes is OURS, the dazzle-scaled
-   * sight bubble for an enemy shell, the shorter DETECT ring for an ENEMY
+   * position leaves the ring the server reveals them within — the plain
+   * sight bubble for anything the client believes is OURS, the effective-truesight
+   * bubble for an enemy shell, the shorter DETECT ring for an ENEMY
    * torpedo (Story 4.9; see `cullRadiusSq` and `trackCullRadiusSq`) — invisible
    * under fog there anyway, UNLESS it lies inside
    * an own active lit zone (`keepZones`, Story 1.7: truesight parity keeps
@@ -804,7 +768,7 @@ export class Projectiles {
         continue;
       }
       const p = shellPosition({ x: s.x0, y: s.y0 }, s, s.t0, serverNow);
-      const cull2 = trackCullRadiusSq(this.ranges, this.dazzled, s.kind, s.own);
+      const cull2 = trackCullRadiusSq(this.ranges, s.kind, s.own);
       if (ownPos && shellCulledBeyondSight(p, ownPos, cull2, keepZones)) {
         this.remove(id);
         continue;

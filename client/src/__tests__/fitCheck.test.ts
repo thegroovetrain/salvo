@@ -41,7 +41,7 @@ import { cardEquipmentIds, slotForCard } from '../render/equipmentInfo.js';
 import { lookForReveal } from '../render/projectiles.js';
 import { BurnZones } from '../render/burnZones.js';
 import { glyphPaths } from '../render/equipmentIcons.js';
-import { tellLine } from '../render/hud.js';
+import { FoulZones } from '../render/foulZones.js';
 
 const LINES: readonly CatalogLine[] = Object.values(CATALOG);
 const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
@@ -360,8 +360,9 @@ describe('fit-check — DOCTRINE IDENTITY (every doctrine line registers an on-w
 // They are no longer verbs, so they left DOCTRINE_IDENTITY — but the rule that
 // table enforced ("no fitted card is presentation-silent") still holds for the
 // lines they became. PHOSPHOR SHELLS is a weapon: its slot draws a glyph and
-// its burst leaves a BURNING zone whose ember breathes. FLASH SHELLS is a belt
-// consumable: its square draws a glyph and its victim wears the DAZZLED tell.
+// its burst leaves a BURNING zone whose ember breathes. FLASH SHELLS was a belt
+// consumable; its Story 9.4 successor, the FOULING SHELL, draws a glyph and its
+// burst leaves a FOUL zone on the water (the victim's tell is the shared SLOWED).
 describe('fit-check — the former add-ons are not presentation-silent (Story 8.17)', () => {
   it('PHOSPHOR SHELLS: a slot glyph and a breathing burning zone', () => {
     expect(glyphPaths('phosphorShells')).not.toBeNull();
@@ -370,8 +371,10 @@ describe('fit-check — the former add-ons are not presentation-silent (Story 8.
     expect(zones.emberAlphaOf('z-burn')).toBeGreaterThan(0);
   });
 
-  it('FLASH SHELLS: a belt glyph and the victim\'s DAZZLED tell', () => {
-    expect(glyphPaths('dazzleShells')).not.toBeNull();
-    expect(tellLine('DAZZLED', 2000)).toBe('DAZZLED 2s');
+  it('FOULING SHELL: a glyph and a foul zone on the water (Story 9.4)', () => {
+    expect(glyphPaths('foulingShell')).not.toBeNull();
+    const zones = new FoulZones(new Container());
+    zones.sync([{ id: 'z-foul', x: 0, y: 0, r: 150, until: 10_000, by: 'firer' }], () => null);
+    expect(zones.size).toBe(1);
   });
 });

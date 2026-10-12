@@ -68,6 +68,7 @@ function setup(onOwnStats: () => void): {
     ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
+    foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
     effects: { spawnEffect: vi.fn() },

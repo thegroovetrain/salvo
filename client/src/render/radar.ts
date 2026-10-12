@@ -64,9 +64,9 @@
 // fought. The floor now holds out to `sightHoleU` and full strength begins at the
 // first rung outside it, so the scope is quiet everywhere the eye is the primary
 // sensor and at full strength everywhere radar is the only one. Because
-// `sightHoleU` is the dazzle-scaled, boon-widened bubble rather than a constant,
-// the mask is RE-BAKED whenever that radius moves (`syncDimMask`) — the fog
-// hole's own cadence, at most twice per dazzle event plus stat changes.
+// `sightHoleU` is the boon-widened bubble rather than a base constant, the mask
+// is RE-BAKED whenever that radius moves (`syncDimMask`) — the fog hole's own
+// cadence: a stat change. (Until Story 9.4 a FLASH SHELLS dazzle moved it too.)
 // render/radarDim.ts owns the curve; render/textures.ts draws it.
 //
 // TWO SOURCES OF HULL RETURNS, COMPLEMENTARY BY RANGE (amendment 89, unchanged;
@@ -81,13 +81,13 @@
 // beam has already gated it and waiting for the local beam to come round would
 // paint the hull a whole revolution stale. One list, one model, two arrival
 // paths; and no hull can be in both, because the two ranges are exact complements
-// about one dazzle-scaled radius.
+// about one effective-truesight radius.
 //
-// WHICH IS WHY `sightHoleU` AND `setDazzled` SURVIVE, WITH THE JOB THEY HAVE HELD
-// SINCE CYCLE 56. The radius is not a suppression boundary; it is the SOURCE
-// SELECTOR that keeps the two from overlapping. It stays `fogHoleRadiusU()` — the
-// very function that bakes the visible fog hole, and by construction the same
-// dazzle-scaled number the server's own `sightOf` uses — because if the client's
+// WHICH IS WHY `sightHoleU` SURVIVES, WITH THE JOB IT HAS HELD SINCE CYCLE 56.
+// The radius is not a suppression boundary; it is the SOURCE SELECTOR that keeps
+// the two from overlapping. It stays `fogHoleRadiusU()` — the very function that
+// bakes the visible fog hole, and by construction the same effective truesight
+// (a boon-widened constant per build) the server's own `sightOf` uses — because if the client's
 // idea of truesight ever drifted from the server's, a hull at the seam would be
 // painted twice or not at all.
 //
@@ -340,8 +340,8 @@ export class Radar {
   /** The effective truesight radius (u) the current `dim` texture was baked at.
    *  `syncDimMask` compares against `sightHoleU` and re-bakes on a real change —
    *  never per frame (a 1024² canvas draw), and never missed either, because the
-   *  compare sits on the per-frame placement path rather than on the stat and
-   *  dazzle setters, which are two ways in for one number. */
+   *  compare sits on the per-frame placement path rather than on the stat
+   *  setter (any future way in for the same number is covered too). */
   private dimBakedAtU: number;
   /** Latest authoritative sweep sample (angle at server time t). */
   private lastSweep: { angle: number; t: number } | null = null;
@@ -360,14 +360,6 @@ export class Radar {
   private sightRange: number = CONFIG.vision.sight;
   private radarRange: number = CONFIG.vision.radar;
   private sweepPeriodMs: number = 60000 / CONFIG.vision.sweepRpm;
-  /** Is the own ship dazzled by an enemy FLASH SHELLS burst right now (Story
-   *  2.8; the flash since 8.17 — sight → radarRange/8, shared `effectiveSight`)? The
-   *  SAME flag `Fog` carries, plumbed from the same place in main.ts — the
-   *  source seam and the drawn fog hole are one number (amendment 89), so they
-   *  cannot be allowed to disagree about dazzle. It is read at paint creation
-   *  only, so a dazzle changes which source paints the NEXT sweep and never
-   *  retroactively edits a paint already on the scope (amendment 83). */
-  private dazzled = false;
   /**
    * THE IN-BOUND WAKE SOURCE (Story 4.12) — the client's own ribbons, for the
    * half of the scope's wake the server deliberately does not disclose.
@@ -462,31 +454,6 @@ export class Radar {
   }
 
   /**
-   * Adopt the DAZZLE state (Story 2.8) — the radar half of the plumbing `Fog`
-   * has always had. Returns TRUE when the state actually flipped, mirroring
-   * `Fog.setDazzled`'s changed-flag contract so one call site can drive both;
-   * unlike the fog there is nothing to rebake, so this radar's caller is free to
-   * ignore the result.
-   *
-   * A DAZZLE MOVES THE SOURCE SEAM, NOT THE SCOPE (amendments 88-89). While it
-   * holds, the SERVER's truesight shrinks and it starts sending wire blips for
-   * the annulus the eye just lost; this flag is what makes the client stop
-   * synthesizing contact echoes there on the same beat. Nothing is suppressed
-   * either way — a hull in that annulus paints throughout; only which source
-   * paints it changes. Paints already on the scope are never re-judged.
-   */
-  setDazzled(dazzled: boolean): boolean {
-    if (dazzled === this.dazzled) return false;
-    this.dazzled = dazzled;
-    return true;
-  }
-
-  /** Is the dazzle currently held? Test/observation seam (mirrors `Fog`). */
-  get isDazzled(): boolean {
-    return this.dazzled;
-  }
-
-  /**
    * THE SOURCE SEAM (u): the effective truesight radius, inside which a ship
    * echo is SYNTHESIZED from its `Contact` and outside which it arrives as a
    * wire blip (amendment 89). Nothing is suppressed on either side of it — the
@@ -494,13 +461,13 @@ export class Radar {
    *
    * It is `fogHoleRadiusU` — the very function that bakes the visible fog hole,
    * called rather than re-derived — because that is also, by construction, the
-   * dazzle-scaled number the server's own `sightOf` uses to decide the same
+   * effective-truesight number the server's own `sightOf` uses to decide the same
    * question from the other side. If the two ever disagreed, a hull at the seam
    * would be painted twice or dropped entirely. Exposed for tests and for
    * exactly that equality assertion.
    */
   get sightHoleU(): number {
-    return fogHoleRadiusU({ sightRange: this.sightRange, radarRange: this.radarRange }, this.dazzled);
+    return fogHoleRadiusU({ sightRange: this.sightRange, radarRange: this.radarRange });
   }
 
   private applyRanges(): void {
@@ -1035,18 +1002,17 @@ export class Radar {
   /**
    * Re-bake the ramp if the observer's bubble has moved (this cycle).
    *
-   * THE RAMP IS ANCHORED TO TRUESIGHT, AND TRUESIGHT IS NOT A CONSTANT: a dazzle
-   * burst cuts it by the ratified factor at read time (no boon widens radar
-   * range any more), so a mask baked once at the base radius would quiet the wrong water for the
-   * rest of the match. It reads `sightHoleU` — `fogHoleRadiusU`, i.e. the exact
+   * THE RAMP IS ANCHORED TO TRUESIGHT, AND TRUESIGHT IS NOT THE BASE CONSTANT: it
+   * is a boon-widened constant per build, so a mask baked once at the base radius
+   * would quiet the wrong water for the rest of the match. It reads `sightHoleU` — `fogHoleRadiusU`, i.e. the exact
    * number the fog hole is baked at and the server's `sightOf` gates contacts
    * with — so the quiet region, the visible bubble and the server's idea of
    * truesight are one radius by construction.
    *
    * THE COMPARE LIVES ON THE PER-FRAME PATH, NOT ON THE SETTERS, deliberately.
-   * Two independent inputs move this number (`setRanges` for a boon, `setDazzled`
-   * for a flare) and a third could be added; hanging the rebake off the value
-   * itself means no caller can forget. A no-change frame costs one float compare,
+   * One input moves this number today (`setRanges` for a boon; until Story 9.4 a
+   * FLASH SHELLS dazzle was a second) and another could be added; hanging the
+   * rebake off the value itself means no caller can forget. A no-change frame costs one float compare,
    * and a real change costs the same 1024² canvas draw the fog already pays on
    * exactly the same events.
    *
@@ -1066,7 +1032,7 @@ export class Radar {
    * Handing the live texture back to the bake redraws that one canvas in place and
    * re-uploads it, so the binding is never invalidated. Steady-state memory is
    * UNCHANGED — the old code destroyed as it minted, so it also held one surface at
-   * a time; what goes away is the per-dazzle allocation churn. The old
+   * a time; what goes away is the per-change allocation churn. The old
    * `Texture.EMPTY` guard went with the destroy: a headless caller holding EMPTY
    * simply gets a fresh mint from the bake.
    */
@@ -1114,7 +1080,7 @@ export class Radar {
    * so the beam paints them exactly as it paints terrain (amendment 141).
    *
    * The range term is the EXACT COMPLEMENT of the server's: `dist <= sightU` here,
-   * `dist > sightU` in `blipGate`, off one dazzle-scaled radius both sides already
+   * `dist > sightU` in `blipGate`, off one effective-truesight radius both sides already
    * agree on (`fogHoleRadiusU` ≡ the server's `sightOf`). That one line is what
    * keeps the two sources from double-stamping a hull or dropping one between
    * them; nothing here SUPPRESSES anything, since the scope paints everything in

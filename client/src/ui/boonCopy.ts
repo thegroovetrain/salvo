@@ -144,10 +144,10 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   // (amendments 80/81): homing became a tier stat on the torpedo lines and
   // fouling became its own equipment line, so neither card exists to name.
   // HEAT SEEKING was CUT with the missile in Story 8.15 (amendment 89e).
-  // STORY 8.17 (Eric ruling 2026-09-29, amendments 131/132): DAZZLE SHELLS is
-  // the belt consumable FLASH SHELLS — the display name changed, the internal
-  // id `dazzleShells` did not — and PHOSPHOR SHELLS is its own equipment line.
-  dazzleShells: 'FLASH SHELLS',
+  // STORY 9.4 (Eric ruling 2026-10-12, epic-9 amendment 66): the FOULING
+  // SHELL (id `foulingShell`) replaces Story 8.17's FLASH SHELLS on key 4.
+  // PHOSPHOR SHELLS (Story 8.17, amendment 131) is its own equipment line.
+  foulingShell: 'FOULING SHELL',
   phosphorShells: 'PHOSPHOR SHELLS',
 };
 
@@ -901,7 +901,7 @@ function triggerFollows(field: string, fields: readonly string[]): boolean {
  *
  * HULL REPAIR was the first live consumable (amendment 41 flipped its stub in
  * Story 8.8); the SUPERCAV TORPEDO (8.13), SHIELD BLOCK and DECOY BUOY (8.16;
- * CHAFF retired in 9.2), FLASH SHELLS (8.17) and the MULTI-SPECTRAL COUNTERMEASURE (9.3) follow
+ * CHAFF retired in 9.2), the MULTI-SPECTRAL COUNTERMEASURE (9.3) and the FOULING SHELL (9.4) follow
  * below. The one remaining stub is never dealt and gets no rows.
  */
 function hullRepairRows(): CardStatRow[] {
@@ -960,18 +960,19 @@ function decoyBuoyRows(): CardStatRow[] {
 }
 
 /**
- * FLASH SHELLS' ROWS (internal id `dazzleShells` — Story 8.17, Eric ruling
- * 2026-09-29, amendment 135(j)): `RADIUS 150 U` / `BLINDS 10 S` / `SIGHT 1/8
- * INTEL`, each number off `CONFIG.flashShells` (the eighth is
- * `1 / sightFraction`), in the 8.16 belt register's uppercase units
- * (`ABSORBS 100 HP`, `LASTS 10 S`).
+ * THE FOULING SHELL'S ROWS (Story 9.4, Eric ruling 2026-10-12, epic-9
+ * amendment 66): `RADIUS 150 U` / `LASTS 15 S` / `SPEED ×0.75`, each number
+ * off `CONFIG.foulingShell`, in the 8.16 belt register's uppercase units. The
+ * speed row is a MULTIPLIER (`×`), deliberately not the fouling mine card's
+ * `75%` grammar (Eric: the mine's `SLOW 75%` reads ambiguously).
  */
-function flashShellRows(): CardStatRow[] {
-  const f = CONFIG.flashShells;
+function foulingShellRows(): CardStatRow[] {
+  const f = CONFIG.foulingShell;
   return [
     { label: 'RADIUS', cur: null, next: `${num(f.radius)} U` },
-    { label: 'BLINDS', cur: null, next: `${num(f.durationMs / 1000)} S` },
-    { label: 'SIGHT', cur: null, next: `1/${num(1 / f.sightFraction)} INTEL` },
+    { label: 'LASTS', cur: null, next: `${num(f.durationMs / 1000)} S` },
+    // two decimals: `num` rounds to one, which would print 0.75 as `×0.8`
+    { label: 'SPEED', cur: null, next: `×${Math.round(f.slowFactor * 100) / 100}` },
   ];
 }
 
@@ -997,7 +998,7 @@ const CONSUMABLE_ROWS: Readonly<Partial<Record<LineId, () => CardStatRow[]>>> = 
   supercavTorpedo: supercavTorpedoRows,
   shieldBlock: shieldBlockRows,
   decoyBuoy: decoyBuoyRows,
-  dazzleShells: flashShellRows, // FLASH SHELLS (Story 8.17)
+  foulingShell: foulingShellRows, // Story 9.4
   countermeasure: countermeasureRows, // Story 9.3
 };
 

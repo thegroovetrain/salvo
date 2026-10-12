@@ -800,6 +800,122 @@ describe('Predictor prop-fouling slow (Story 2.8)', () => {
   });
 });
 
+// --- Story 9.4: the FOULING SHELL zone slow -----------------------------------
+//
+// The victim-private you.fouledUntil (the zone's linger stamp, re-stamped by the
+// server every tick the hull's outline is inside a foul zone) folds through the
+// SAME shared slowedKinematics a second time, at the CONFIG constant
+// CONFIG.foulingShell.slowFactor, in the PINNED five-stage composition:
+//   boosted → slowed (mine) → slowed (shell) → drafted → hooks.
+// Two sources multiply; the shell has one stamp, so it never stacks with itself.
+
+describe('Predictor FOULING SHELL zone slow (Story 9.4)', () => {
+  const T0 = 600_000;
+  const tickT = (seq: number): number => T0 + seq * CONFIG.tick.simDtMs;
+  const SHELL = CONFIG.foulingShell.slowFactor;
+  const MINE = CONFIG.foulingMines.slowFactor;
+
+  interface Fold {
+    boostUntil?: number;
+    slowedUntil?: number;
+    slowFactor?: number;
+    fouledUntil?: number;
+    draft?: number;
+  }
+
+  /** world.stepShips' exact five-stage composition. */
+  function foldKin(t: number, f: Fold): ShipConfig {
+    const boosted = boostedKinematics(TB.kinematics, CONFIG.boost.factor, t < (f.boostUntil ?? 0));
+    const mine = slowedKinematics(boosted, f.slowFactor ?? MINE, t < (f.slowedUntil ?? 0));
+    const shell = slowedKinematics(mine, SHELL, t < (f.fouledUntil ?? 0));
+    const draft = f.draft ?? 0;
+    return hookKinematics(draftedKinematics(shell, draft, draft > 0), [], HOOK_REGISTRY);
+  }
+
+  function serverFoldStep(s: ShipState, inp: InputMsg, t: number, f: Fold): void {
+    const prev: Pose = { x: s.x, y: s.y, heading: s.heading };
+    stepShip(s, inp, foldKin(t, f), DT);
+    applyGroundingDamp(s, resolveShipPose(prev, s, [], MAP_R, TB_POLY), TB.kinematics.maxSpeed);
+  }
+
+  /** Run `ticks` full-throttle ticks under one frame's folds, lagged acks every
+   *  5 ticks; return the server reference the predictor was held to. */
+  function run(p: Predictor, spawn: ShipState, f: Fold, ticks: number): ShipState {
+    const server: ShipState = { ...spawn };
+    const history: ShipState[] = [{ ...spawn }];
+    for (let seq = 1; seq <= ticks; seq++) {
+      const inp = input(seq, 1, seq % 16 < 8 ? 0.2 : -0.2);
+      p.localTick(inp, tickT(seq));
+      serverFoldStep(server, inp, tickT(seq), f);
+      history[seq] = { ...server };
+      if (seq % 5 === 0) p.onServerState({ ...kin(history[seq - 3]), ...f }, seq - 3);
+    }
+    return server;
+  }
+
+  const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
+
+  it('a frame with fouledUntil in the future caps both speeds at ×0.75', () => {
+    expect(SHELL).toBe(0.75);
+    const f: Fold = { fouledUntil: T0 + 1e6 };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), ...f }, 0);
+    const server = run(p, spawn, f, 160);
+    expect(server.speed).toBeCloseTo(TB.kinematics.maxSpeed * SHELL, 6);
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+  });
+
+  it('a mine window and a shell window MULTIPLY (0.55 × 0.75) — two sources, two folds', () => {
+    const f: Fold = { slowedUntil: T0 + 1e6, slowFactor: 0.55, fouledUntil: T0 + 1e6 };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), ...f }, 0);
+    const server = run(p, spawn, f, 160);
+    expect(server.speed).toBeCloseTo(TB.kinematics.maxSpeed * 0.55 * SHELL, 6);
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+  });
+
+  it('the shell window expires on its own clock, mid-run, under lagged acks', () => {
+    const f: Fold = { fouledUntil: tickT(60) + 1 };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), ...f }, 0);
+    const server = run(p, spawn, f, 200);
+    expect(server.speed).toBeCloseTo(TB.kinematics.maxSpeed, 6); // recovered after expiry
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+  });
+
+  it('an omitted fouledUntil is not fouled, and a hard re-init drops the window', () => {
+    const fast: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(fast), fouledUntil: T0 + 10_000 }, 0);
+    p.forceSnap(); // respawn / reconnect / class swap
+    p.onServerState(kin(fast), 0); // next frame carries NO fouledUntil
+    const server = run(p, fast, {}, 20);
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+    expect(p.predicted.speed).toBeCloseTo(TB.kinematics.maxSpeed, 6); // never capped
+  });
+
+  it('follows the pinned five-stage order — boost, mine, shell, draft — to the bit', () => {
+    const f: Fold = {
+      boostUntil: T0 + 1e6,
+      slowedUntil: T0 + 1e6,
+      slowFactor: 0.55,
+      fouledUntil: T0 + 1e6,
+      draft: CONFIG.wake.draft.lift,
+    };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), ...f }, 0);
+    const server = run(p, spawn, f, 160);
+    expect(p.predicted.x).toBe(server.x);
+    expect(p.predicted.speed).toBe(server.speed);
+    const k = foldKin(T0, f);
+    const boosted = boostedKinematics(TB.kinematics, CONFIG.boost.factor, true).maxSpeed;
+    expect(k.maxSpeed).toBeCloseTo(boosted * 0.55 * SHELL * (1 + CONFIG.wake.draft.lift), 9);
+  });
+});
+
 // --- Story 8.19: THE WAKE DRAFT -------------------------------------------------
 //
 // A hull riding another hull's wake gets a small lift on its FORWARD cap. The

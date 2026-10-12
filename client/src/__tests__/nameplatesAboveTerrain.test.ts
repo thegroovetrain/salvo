@@ -48,7 +48,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, effectiveSight, type OwnShip } from '@salvo/shared';
+import { CONFIG, type OwnShip } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import type { Camera } from '../render/camera.js';
 import { hullSightSoftness } from '../render/fog.js';
@@ -68,8 +68,9 @@ import {
 import { FOG_FILL_ALPHA, HOLE_FEATHER_START } from '../render/textures.js';
 
 const SIGHT = CONFIG.vision.sight;
-// A FLASHED observer's bubble — the shared effectiveSight, 1/8 of radar (Story 8.17).
-const DAZZLED = effectiveSight({ sightRange: SIGHT, radarRange: CONFIG.vision.radar }, true);
+// A SYNTHETIC narrower observer bubble — the feather takes any radius (nothing
+// shrinks sight at runtime since Story 9.4 retired the FLASH SHELLS dazzle).
+const NARROW = SIGHT * 0.375;
 
 // jsdom has no canvas text metrics, so Pixi's Text cannot rasterize here (every
 // other client render test constructs only Graphics). Partial-mock pixi.js the
@@ -391,12 +392,12 @@ describe('the plate feather (what the fog composite used to do for a plate)', ()
     }
   });
 
-  it('SCALES WITH THE OBSERVER: a dazzled bubble feathers a plate earlier', () => {
-    const dazzled = DAZZLED;
-    expect(hullSightSoftness(dazzled, dazzled)).toBeCloseTo(1 - FOG_FILL_ALPHA, 12);
+  it('SCALES WITH THE OBSERVER: a narrower bubble feathers a plate earlier', () => {
+    const narrow = NARROW;
+    expect(hullSightSoftness(narrow, narrow)).toBeCloseTo(1 - FOG_FILL_ALPHA, 12);
     const d = SIGHT * 0.6;
     expect(hullSightSoftness(d, SIGHT), 'untouched for a base observer').toBe(1);
-    expect(hullSightSoftness(d, dazzled), '...deep in the feather for a dazzled one')
+    expect(hullSightSoftness(d, narrow), '...deep in the feather for a narrower one')
       .toBeLessThan(1);
   });
 

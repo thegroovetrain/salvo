@@ -49,7 +49,6 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   hitCall:
     'the Hit Call bloom at the impact point, drawn above the fog so a connection you cannot see still shows (render/effects)',
   slowed: 'the SLOWED tell + its countdown above the HUD bar (render/hud)',
-  dazzled: 'the DAZZLED tell + its countdown above the HUD bar, plus the shrunken sight hole (render/hud, fog)',
   sink: 'the sinking-hull effect + the elimination modal (render/effects, ui/results)',
   // --- THE BOUNTY (Story 4.6, Eric rulings 2026-08-10) ------------------------
   // The cue fires only when the throne lands on YOU, and its twin has to carry

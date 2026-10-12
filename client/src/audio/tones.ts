@@ -35,7 +35,6 @@ export type ToneId =
   | 'burn'
   | 'hitCall'
   | 'slowed'
-  | 'dazzled'
   | 'sink'
   | 'bounty'
   | 'aggroLock'
@@ -159,11 +158,6 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // Fouled (PROP-FOULING): a sagging low sine — the engine losing revs. Falls
   // like the denied blat but soft and round, never that curt square refusal.
   slowed: { freqStart: 300, freqMid: 190, freqEnd: 130, duration: 0.14, volume: 0.34, type: 'sine' },
-  // Dazzled (DAZZLE BURST): a bright glassy sting that washes UP and thins out —
-  // the optical opposite of the fouled sag, and audibly nothing like the star
-  // shell's own launch whistle (that one is the firer's, this one is the
-  // victim's: shorter, higher, no body).
-  dazzled: { freqStart: 900, freqMid: 1400, freqEnd: 1250, duration: 0.12, volume: 0.34, type: 'sine' },
   // Own sink: the one long tone — alarm warble sliding down into a low boom.
   sink: { freqStart: 320, freqMid: 180, freqEnd: 60, duration: 0.4, volume: 0.55, type: 'sawtooth' },
   // --- THE BOUNTY (Story 4.6, Eric ruling 2026-08-10) -------------------------
@@ -179,7 +173,7 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // tick (700 flat) and both telegraph detents (1200/800 flat) are the
   // register's other squares and none of them moves in pitch. Everything else
   // near this pitch glides one way and stops: kill rises 500→1200, point
-  // 700→1500, dazzled washes up and thins. Draft spec (the standing draft-copy
+  // 700→1500. Draft spec (the standing draft-copy
   // rule); the visual twin is the toast + the bar's own BOUNTY register.
   bounty: { freqStart: 990, freqMid: 660, freqEnd: 990, duration: 0.15, volume: 0.46, type: 'square' },
   // --- THE AGGRO STINGS (Story 5.6, epic-5 amendment 40) ----------------------
@@ -193,7 +187,7 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // THE LOCK is a hard ASCENDING triangle sting — a mid-register snap UP that
   // stops dead. It is not the klaxon (that square shape is the bounty's alone
   // and fires on a status change about YOU, not about a threat), it is well
-  // below `dazzled`'s glassy wash and well above `hitCall`'s 130Hz thud, and it
+  // above `hitCall`'s 130Hz thud, and it
   // rises where `slowed` sags. Deliberately SHORTER and quieter than `damage`:
   // being aimed at is not being hit, and the catalog must not let the two
   // trade places in a fight.
@@ -338,8 +332,8 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // monotonically, while these WHOOP — up to a peak at the 40% mark, then down
   // THROUGH their own start to a floor beneath it. That
   // inverted-V-through-the-start shape is unclaimed in the catalog: matchStart
-  // (400→900→650) and dazzled (900→1400→1250) are the only other rise-then-fall
-  // cues and both settle ABOVE where they began.
+  // (400→900→650) is the only other rise-then-fall cue and it settles ABOVE
+  // where it began.
   //
   // WHY THEY CANNOT BE MISTAKEN FOR THE TWO CUES THEY FIRE ALONGSIDE:
   //   • `damage` (220→160→110, the triangle thud) is the hit that pushed you over
@@ -388,10 +382,11 @@ type FiringEquipmentId = Extract<
   | 'gun'
   | 'broadside'
   | 'starShells'
-  // STORY 8.17: PHOSPHOR SHELLS (equipment) and FLASH SHELLS (`dazzleShells`,
+  // STORY 8.17: PHOSPHOR SHELLS (equipment) and — since Story 9.4 — the
+  // FOULING SHELL (`foulingShell`, FLASH SHELLS' successor,
   // a click-fired consumable) — both launch one shell like the star shell.
   | 'phosphorShells'
-  | 'dazzleShells'
+  | 'foulingShell'
   // THE TORPEDO FAMILY (Story 8.13): two LINES plus the belt's SUPERCAV
   // TORPEDO, a click-aimed CONSUMABLE (epic-8 amendment 74) — which is why the
   // Extract widened from `EquipmentId` to `SlotItemId`.
@@ -427,10 +422,10 @@ const FIRE_TONE: Record<FiringEquipmentId, ToneId> = {
   foulingMines: 'fireMine',
   broadside: 'fireBroadside',
   starShells: 'fireStarShells',
-  // NO NEW ASSET (Story 8.17): a phosphor or flash shell leaves the deck
+  // NO NEW ASSET (Story 8.17): a phosphor or fouling shell leaves the deck
   // exactly as a flare does, so it reuses the star-shell launch cue.
   phosphorShells: 'fireStarShells',
-  dazzleShells: 'fireStarShells',
+  foulingShell: 'fireStarShells',
 };
 
 /** Pure: which tone a weapon's own-fire cue plays. */
