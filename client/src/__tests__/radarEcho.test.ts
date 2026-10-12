@@ -864,7 +864,8 @@ describe('the source seam is `fogHoleRadiusU`, so client and server agree', () =
     + 'arrives as an ordinary blip at bubble range, and nothing culls it', () => {
     // Un-dazzled: the seam is the full 330 u, and MID sits well inside it —
     // territory that before 8.18 only ever held synthesized echoes. The server
-    // blips a hull a countermeasure cloud hides from sight there (Story 9.3); the adapter has no range
+    // blipped a hull a countermeasure cloud hid from sight there (Story 9.3, until
+    // 2026-10-12 — the adapter contract stands either way); the adapter has no range
     // gate on the wire path, so it paints (under the in-bubble dim mask, which
     // is a display ramp on the layer, not a suppression).
     const { radar } = makeRadar();

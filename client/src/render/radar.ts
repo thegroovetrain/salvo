@@ -144,7 +144,6 @@ import {
   type BlipEvent,
   type HeightRaster,
   type HullCoverage,
-  type CloudView,
   type Island,
   type WakeBlipEvent,
   WAKE_AGE_BUCKETS,
@@ -186,10 +185,6 @@ import { echoArc, marchSlice, mergeSlices, planMarch, type MarchSlice } from './
 import { wakeLitFloor } from './radarSources.js';
 import { WakeStampCache, type WakeSources } from './wake.js';
 import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
-
-/** The empty cloud list — the wake synthesis's default when no countermeasure
- *  cloud source is wired (headless tests). */
-const NO_CLOUDS = (): readonly CloudView[] => [];
 
 /**
  * Hard cap on the pending echo/wake parks. Radar paints arrive from network
@@ -397,10 +392,6 @@ export class Radar {
    *  stamp's binary-LOS clause. Empty for a caller that has none — in which
    *  case nothing blocks, which is the pre-P5 behaviour. */
   private wakeIslands: readonly Island[] = [];
-  /** The live COUNTERMEASURE cloud list (Story 9.3) — a thunk over
-   *  `state.net.clouds`, read at each stamp build, so the synthesis hides water
-   *  behind a cloud's pixels exactly as the server's sight predicate does. */
-  private wakeClouds: () => readonly CloudView[] = NO_CLOUDS;
   private readonly wakeCache = new WakeStampCache();
 
   constructor(blipLayer: Container, sweepLayer: Container) {
@@ -1129,18 +1120,14 @@ export class Radar {
    * `islands` is the binary-LOS geometry the synthesis owes (P5); omitted, the
    * stamp blocks on nothing, which is the correct degradation for a caller that
    * genuinely has no map (headless tests) and never a silent loosening in play,
-   * because main.ts always passes the set. `clouds` (Story 9.3) is the same
-   * owed test's CLOUD half — a thunk over the live `state.net.clouds`, read at
-   * each stamp build; omitted, nothing is clouded, on the same headless terms.
+   * because main.ts always passes the set.
    */
   setWakeSources(
     sources: WakeSources | null,
     islands: readonly Island[] = [],
-    clouds: () => readonly CloudView[] = NO_CLOUDS,
   ): void {
     this.wakeSources = sources;
     this.wakeIslands = islands;
-    this.wakeClouds = clouds;
   }
 
   /**
@@ -1189,7 +1176,6 @@ export class Radar {
       cfg.model,
       this.wakeIslands,
       Math.floor(at / this.sweepPeriodMs),
-      this.wakeClouds(),
     );
   }
 

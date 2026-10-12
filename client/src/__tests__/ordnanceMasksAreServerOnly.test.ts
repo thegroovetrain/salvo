@@ -74,7 +74,7 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
   // that is what the three scans above assert, and they are the substance of
   // this file. This line only witnesses that a bump, when it happens, happens
   // deliberately.
-  it('PROTOCOL_VERSION is 76 — bumped by the countermeasure cloud (75 by the fixed consumable keys; 74 by the 4/8 mine and torpedo detect rung (73 by the session 2 ocean and storm ramp; 72 by the big ocean; 71 by the private-lobby contract; 70 by cycle 166 the deck-gun catalog retune; 69 by cycle 163 the drone-drop `dp` event; 68 by cycle 162: MineView.c for every observer, OwnShip.chaffGhosts, chaff/smoke radii ×1.5), not by masks', () => {
+  it('PROTOCOL_VERSION is 77 — bumped by smoke-is-paint, CONFIG.countermeasure shrinking to lifeMs/r0/r1 (76 by the countermeasure cloud; 75 by the fixed consumable keys; 74 by the 4/8 mine and torpedo detect rung (73 by the session 2 ocean and storm ramp; 72 by the big ocean; 71 by the private-lobby contract; 70 by cycle 166 the deck-gun catalog retune; 69 by cycle 163 the drone-drop `dp` event; 68 by cycle 162: MineView.c for every observer, OwnShip.chaffGhosts, chaff/smoke radii ×1.5), not by masks', () => {
     // 55 until Story 8.13, whose ONE bump covered the catalog content, the id
     // moves and `MineView`'s own-only kind field (epic-8 amendment 76); 56
     // until Story 8.14, whose ONE bump covers the seat's `gun` join option,
@@ -125,7 +125,9 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // `OwnShip.chaff`/`chaffGhosts` and the CHAFF line leaving — no mask moved.
     // 75 -> 76 (Story 9.3) is `FrameMsg.clouds` (`CloudView`) replacing the
     // smoke puffs, `OwnShip.inSmoke` deleted and `CONFIG.countermeasure` with
-    // its catalog line — a cloud carries no mask.
-    expect(PROTOCOL_VERSION).toBe(76);
+    // its catalog line — a cloud carries no mask. 76 -> 77 (session 2, smoke is
+    // paint): CONFIG.countermeasure shrinks to lifeMs/r0/r1, which the client
+    // reads — still no mask.
+    expect(PROTOCOL_VERSION).toBe(77);
   });
 });

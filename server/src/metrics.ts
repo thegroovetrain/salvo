@@ -66,9 +66,9 @@ export interface MetricsPayload {
    * CONFIG and has to be measured. COUNT ONLY — no owner, no position, nothing
    * an ops endpoint could turn into a wallhack. `cloudLivePeak` (Story 8.18 /
    * 9.3 — 8.18's `smokeLivePeak`) is its twin for live MULTI-SPECTRAL
-   * COUNTERMEASURE clouds — every cloud is a pixel scan inside every sight
-   * predicate for every observer, so the peak is the number that says what
-   * the perception pass actually paid for.
+   * COUNTERMEASURE clouds — every cloud is one delivery-gate check per
+   * observer per tick (Story 9.3 session 2: it occludes nothing), so the peak
+   * still says what the perception pass paid for.
    */
   world: { minesLivePeak: number; cloudLivePeak: number };
 }

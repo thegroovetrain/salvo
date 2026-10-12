@@ -273,9 +273,9 @@ interface Game {
    *  same fog-immune `smoke` layer so the puffs draw over them. */
   fire: Fire;
   /** MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts, Story
-   *  9.3) — synced from FrameMsg.clouds into the same fog-immune `smoke` layer
-   *  as the wounded plumes; every living pixel of the shared function redrawn
-   *  per render frame. */
+   *  9.3) — synced from the HELD FrameMsg.clouds set onto the `cloud` chart
+   *  layer (above contact hulls, below radar paints and the own hull — Eric
+   *  2026-10-12); one spraypaint bitmap per cloud, advanced per render frame. */
   countermeasure: Countermeasure;
   /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
    *  visual twin, screen-space and above every HUD readout. */
@@ -2330,7 +2330,7 @@ function setupViewport(
   // syncs (Story 1.12 — see updateOwnColor).
   const ownView = new ShipView(FALLBACK_STYLE, cls);
   ownView.gfx.visible = false;
-  stage.layers.ship.addChild(ownView.gfx);
+  stage.layers.ownShip.addChild(ownView.gfx); // own hull above cloud + paints (Eric 2026-10-12)
 
   // Effects is built before Projectiles so the torpedo-wake trail can feed the
   // shared effects pool via a closure.
@@ -2889,7 +2889,7 @@ function buildGame(
     // `projectiles.torpWakeHulls()` and laid by `effects.update()` on the same
     // model, cadence and life the scope draws.
     projectiles: new Projectiles(map.radius, stage.layers.projectile),
-    firing: new FiringUX(stage.layers.ship, stage.layers.aim),
+    firing: new FiringUX(stage.layers.ownShip, stage.layers.aim),
     // Same fog-immune chart layer as the reticle: a burst point can sit far
     // beyond the sight bubble, and the preview must not be eaten by fog.
     aimPreview: new AimPreview(stage.layers.aim),
@@ -2902,7 +2902,7 @@ function buildGame(
     burnZones: new BurnZones(stage.layers.litZone),
     smoke: new Smoke(stage.layers.smoke),
     fire: new Fire(stage.layers.smoke), // pins itself to the layer's bottom: under every puff
-    countermeasure: new Countermeasure(stage.layers.smoke),
+    countermeasure: new Countermeasure(stage.layers.cloud),
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
     nextHonkAt: 0,
     fog: new Fog(stage.fogSprite),
@@ -2966,11 +2966,10 @@ function buildGame(
   // a STAND-IN for a disclosure the server withholds on BINARY-LOS grounds, so
   // it owes the same binary test the server would have applied. They are the
   // deterministic set rebuilt from the map seed — the same array the predictor
-  // and the fog already collide against, never a second geometry. The
-  // COUNTERMEASURE clouds ride along for the same reason (Story 9.3): a thunk
-  // over the live `state.net.clouds` — the HELD set (amendment 51), which
-  // grows per frame and shrinks only as clouds die or at the match-start edge.
-  g.radar.setWakeSources(g.effects.wakeSources, g.islands, () => g.state.net.clouds);
+  // and the fog already collide against, never a second geometry.
+  // (Countermeasure clouds rode along here until 2026-10-12; the server hides
+  // nothing behind smoke now, so the client mirrors nothing.)
+  g.radar.setWakeSources(g.effects.wakeSources, g.islands);
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
   // THE ROOM'S OWN BINDINGS ARE A DISPOSER (Story 6.3 review gate). Story 6.3's
@@ -4033,8 +4032,8 @@ function dazzleActive(g: Game, now: number): boolean {
  * changed-flag is deliberately unused here.
  *
  * (Story 9.3 deleted the in-smoke sight shrink that used to ride this path —
- * epic-9 amendment 40; a countermeasure cloud blocks sight by its pixels, not
- * by shrinking the bubble.)
+ * epic-9 amendment 40; since 2026-10-12 a countermeasure cloud blocks nothing —
+ * it is paint over the chart.)
  */
 function updateDazzle(g: Game, now: number): void {
   const dazzled = dazzleActive(g, now);
@@ -4360,7 +4359,7 @@ function renderAlive(
   // (Story 2.9's treatment, moved to render/burnZones.ts in Story 8.17).
   g.litZones.render(now);
   g.burnZones.render(now, now / 1000);
-  g.countermeasure.render(now); // countermeasure cloud pixels at their server-clock age
+  g.countermeasure.render(now); // spray + fade each countermeasure cloud to its server-clock age
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);

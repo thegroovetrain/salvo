@@ -36,9 +36,9 @@ export interface NetState {
    *  its life ends on the frame's server time — a cloud once seen is held
    *  until it dies, because delivery is per-sweep (Eric 2026-10-12: "If it's
    *  detected by my radar, I want my radar to paint it"); nothing new is
-   *  disclosed by holding what was already sent. [] when none. Read by the wake mirror
-   *  (render/wake.ts) so in-bubble water behind a cloud's pixels stays hidden,
-   *  as the server hides it. */
+   *  disclosed by holding what was already sent. [] when none. Fed to the renderer
+   *  (render/countermeasure.ts); since 2026-10-12 the server hides nothing
+   *  behind smoke, so no client mirror reads it. */
   clouds: CloudView[];
   /** The HELD cloud set behind `clouds`, by id — net/roomBindings.ts merges
    *  every frame's clouds into it and expires them on the FRAME's server time;

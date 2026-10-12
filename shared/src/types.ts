@@ -1413,31 +1413,31 @@ export interface DecoyView {
 }
 
 /**
- * A MULTI-SPECTRAL COUNTERMEASURE cloud visible to this viewer (Story 9.3,
- * Eric rulings 2026-10-11, epic-9 amendments 40–47; replaces 8.18's
- * SmokeView), synced as CONTACT-LIKE state (not an event): FrameMsg.clouds is
- * recomputed per observer every tick. Delivered to the owner always, to
- * spectators, and to any other observer whose SENSORS reach a living pixel
- * (epic-9 amendment 51, Eric 2026-10-12: "If I can see smoke particles in my
- * sight range, I want them composited … If it's detected by my radar, I want
- * my radar to paint it") — a pixel inside sight with island line of sight, or
- * a pixel inside radar range that this tick's beam crossed and the shadow
- * march sees. Radar delivery is therefore per-sweep, and the client HOLDS a
+ * A MULTI-SPECTRAL COUNTERMEASURE cloud visible to this viewer (Story 9.3;
+ * replaces 8.18's SmokeView), synced as CONTACT-LIKE state (not an event):
+ * FrameMsg.clouds is recomputed per observer every tick. A CLIENT VISUAL
+ * OVERLAY (Story 9.3 session 2, Eric 2026-10-12): the server hides nothing
+ * behind or inside a cloud; the client paints it as smoke over the ships.
+ * Delivered to the owner always, to spectators, and to any other observer
+ * whose SENSORS reach its spray disc (radius `cloudOutlineRadius(age)`):
+ * SIGHTED — the disc's nearest point within sight with island line of sight
+ * to it — or RADAR-DETECTED — the nearest point within radar range, this
+ * tick's beam crossing the disc's bearing span, and the shadow march seeing
+ * its centre. Radar delivery is therefore per-sweep, and the client HOLDS a
  * cloud it has received until that cloud's life ends.
  *
- * NO OWNER, NO RADIUS, NO PIXEL COUNT, NO EXPIRY on the wire: `t0` is the
- * server time the cloud was made, and the client derives every pixel from
- * the shared pure function (sim/cloud.ts `cloudBase(id)` +
- * `forEachLivingPixel(..., now − t0, ...)`) — the same pixels the server's
- * predicates run. A cloud dropping out of the list means expired OR out of
- * view — the client cannot tell (the mines precedent). NOT the wounded-smoke
- * `SmokeEvent` (`sm`). KEY ORDER (msgpack): id,x,y,t0.
+ * NO OWNER, NO RADIUS, NO EXPIRY on the wire: `t0` is the server time the
+ * cloud was made; the client derives the disc from the shared
+ * `cloudOutlineRadius(now − t0)` and `CONFIG.countermeasure.lifeMs`. A cloud
+ * dropping out of the list means expired OR out of view — the client cannot
+ * tell (the mines precedent). NOT the wounded-smoke `SmokeEvent` (`sm`). KEY
+ * ORDER (msgpack): id,x,y,t0.
  */
 export interface CloudView {
-  id: string; // the cloud's own id (seeds its pixels)
+  id: string; // the cloud's own id
   x: number; // u — cloud centre (stationary)
   y: number; // u
-  t0: number; // ms — server time the cloud was made (drives the pixel age)
+  t0: number; // ms — server time the cloud was made (drives the disc's age)
 }
 
 /**

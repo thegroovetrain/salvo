@@ -1,154 +1,132 @@
 // MULTI-SPECTRAL COUNTERMEASURE cloud rendering from FrameMsg.clouds (Story
-// 9.3, Eric rulings 2026-10-11, epic-9 amendments 40–47). Contact-like
-// per-observer state, not events, drawn in the fog-immune `smoke` chart
-// layer, which sits BELOW `blip` so a radar return is never beneath the cloud
-// (amendment 224(b)).
+// 9.3). SMOKE IS PAINT (Eric 2026-10-12): "rather than fucking with whether I
+// can see something, just draw it on top of ships" — the server hides nothing
+// behind a cloud any more; the cloud is purely a visual overlay painted from
+// the wire's {id,x,y,t0}.
 //
-// HELD, NOT RECONCILED (epic-9 amendment 51): a cloud once seen is held until
-// it dies — delivery is per-sweep (Eric 2026-10-12: "If it's detected by my
-// radar, I want my radar to paint it"); nothing new is disclosed by holding
-// what was already sent. `sync` only ADDS (a frame without a held id never
-// removes it); a cloud is removed by `render` once its server-clock age
-// reaches `CONFIG.countermeasure.lifeMs`, or by `clear`, and the shared base
-// memo is pruned at that removal, never per frame.
+// THE LAYER: chartRoot's `cloud` layer, above enemy hulls and nameplates and
+// below radar paints and the own hull (Eric: "If I'm the user, I should be on
+// top so I can see where I am. If I am not the user then it should render
+// above everything except radar paints." — render/stage.ts).
 //
-// THE PIXELS ARE THE SHARED FUNCTION. The wire carries only {id,x,y,t0}; every
-// pixel's position and death age come from shared sim/cloud.ts
-// (`forEachLivingPixel` over the memoized `cloudBase(id)`, render/cloudBases.ts)
-// — the very function the server's sight and radar predicates evaluate. Each
-// living pixel is drawn as a filled square of side
-// `CLIENT_CONFIG.countermeasure.drawSizeU`, centered on the exact point the
-// server's footprint test uses. The square is drawn LARGER than the blocking
-// footprint (`CONFIG.countermeasure.footprintU`, untouched) so the cloud reads
-// dense on screen (Eric 2026-10-11). No disc, no rim, no outline.
+// THE LOOK: one spraypaint bitmap per cloud (render/cloudPaint.ts holds the
+// pure field) uploaded the way the radar heat raster is — a Uint8Array rgba
+// buffer in a BufferImageSource, NEAREST-scaled, on one Sprite whose texel is
+// one `CLIENT_CONFIG.countermeasure.cellU` cell, centred on the cloud, color
+// `colors.woundedSmoke` with the alpha channel carrying the field.
 //
-// NOT WOUNDED SMOKE (render/smoke.ts, CLIENT_CONFIG.smoke, the `sm` event).
-// The two share `colors.woundedSmoke` and are told apart by SHAPE: a cloud is a
-// field of hard-edged squares; a wounded plume is small soft blobs trailing a
-// hull.
+// HELD, NOT RECONCILED (epic-9 amendment 51): a cloud once seen is held — the
+// caller passes the held list (net/roomBindings.ts holdClouds), `sync` only
+// ADDS, and a cloud leaves only when `render` finds its spray over (age ≥
+// lifeMs) AND its field faded out, or at `clear` (the match-start edge).
 //
 // MOTION-BLIND: a cloud's presence and extent are information — the motion
-// setting never hides or shrinks one. Only each pixel's own end-of-life fade
-// (timestamp math off the wire `t0`; the client keeps no timers) moves alpha.
+// setting never hides or shrinks one.
 
-import { Graphics } from 'pixi.js';
+import { BufferImageSource, Sprite, Texture } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import { CONFIG, forEachLivingPixel, type CloudBase, type CloudView } from '@salvo/shared';
+import type { CloudView } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { clamp01 } from '../util/math.js';
-import { cloudBaseFor, retainCloudBases } from './cloudBases.js';
+import {
+  CLOUD_CELLS,
+  advanceField,
+  fieldSpent,
+  fieldToRgba,
+  makeField,
+  type CloudField,
+} from './cloudPaint.js';
 
-const K = CLIENT_CONFIG.countermeasure;
 const COLOR = CLIENT_CONFIG.colors.woundedSmoke;
-/** u — a pixel square's drawn side (a feel knob, larger than the footprint). */
-const SIDE = K.drawSizeU;
-const HALF = SIDE / 2;
-
-/**
- * Pure: the alpha multiplier of a pixel that dies at age `dieAtMs`, at age
- * `ageMs` — 1 until its own last `fadeMs`, then linear to 0 at its death.
- */
-export function pixelFade(dieAtMs: number, ageMs: number): number {
-  return clamp01((dieAtMs - ageMs) / K.fadeMs);
-}
 
 interface CloudSprite {
-  g: Graphics; // positioned at the cloud center; squares drawn center-relative
-  base: CloudBase; // the shared memo's entry for this id
-  t0: number; // server-clock birth stamp — drives the pixel age
-  drawn: number; // squares drawn on the last render (test seam)
+  sprite: Sprite;
+  source: BufferImageSource;
+  rgba: Uint8Array;
+  field: CloudField;
+  t0: number; // server-clock birth stamp — drives the field's age
 }
 
 export class Countermeasure {
-  private readonly sprites = new Map<string, CloudSprite>();
-  // The draw callback's per-cloud inputs, set before each `forEachLivingPixel`
-  // pass so the callback is ONE bound function, never a per-frame closure.
-  private cur: CloudSprite | null = null;
-  private curAge = 0;
-  private readonly drawPixel = (x: number, y: number, i: number): void => {
-    const s = this.cur!;
-    const alpha = K.fillAlpha * pixelFade(s.base.dieAt[i], this.curAge);
-    s.g.rect(x - HALF, y - HALF, SIDE, SIDE).fill({ color: COLOR, alpha });
-    s.drawn++;
-  };
+  private readonly clouds = new Map<string, CloudSprite>();
 
-  /** `layer` = chartRoot's `smoke` layer (fog-immune, beneath `blip`). */
-  constructor(private readonly layer: Container) {}
+  /** `layer` = chartRoot's `cloud` layer. `rng` = the one spray RNG (purely
+   *  visual, never shared with the server; a test passes a seeded one). */
+  constructor(
+    private readonly layer: Container,
+    private readonly rng: () => number = Math.random,
+  ) {}
 
-  /**
-   * ADD every cloud on the list not already held (the caller passes the held
-   * list — net/roomBindings.ts holdClouds). Clouds never move, so a held id is
-   * left alone, and an id ABSENT from the list is NOT removed: the channel is
-   * per-sweep, and a cloud once seen is held until it dies (render / clear).
-   */
+  /** ADD every cloud on the held list not already held; an id ABSENT from
+   *  the list is never removed here (render / clear do that). */
   sync(clouds: readonly CloudView[]): void {
-    for (const c of clouds) if (!this.sprites.has(c.id)) this.spawn(c);
+    for (const c of clouds) if (!this.clouds.has(c.id)) this.spawn(c);
   }
 
-  /** Per render frame: redraw every living pixel of every cloud at its age,
-   *  and REMOVE every cloud whose age has reached its life (then prune the
-   *  shared base memo to the clouds still held). `serverNow` is the
-   *  server-clock estimate (ms). */
+  /** Per render frame: advance every field to its server-clock age (a first
+   *  render of a mid-life cloud pre-rolls it), upload it, and drop every cloud
+   *  whose spray is over and whose paint has faded. `serverNow` in ms. */
   render(serverNow: number): void {
-    let expired = false;
-    for (const [id, s] of this.sprites) {
-      const age = Math.max(0, serverNow - s.t0);
-      if (age >= CONFIG.countermeasure.lifeMs) {
+    for (const [id, s] of this.clouds) {
+      advanceField(s.field, Math.max(0, serverNow - s.t0), this.rng);
+      if (fieldSpent(s.field)) {
         this.despawn(id);
-        expired = true;
         continue;
       }
-      s.g.clear();
-      s.drawn = 0;
-      this.cur = s;
-      this.curAge = age;
-      forEachLivingPixel(s.base, 0, 0, age, this.drawPixel);
+      fieldToRgba(s.field, s.rgba);
+      s.source.update();
     }
-    this.cur = null;
-    if (expired) this.pruneBases();
   }
 
-  /** Drop every held cloud and its memoized base (a match-boundary reset). */
+  /** Drop every held cloud (the match-boundary reset). */
   clear(): void {
-    for (const id of [...this.sprites.keys()]) this.despawn(id);
-    this.pruneBases();
+    for (const id of [...this.clouds.keys()]) this.despawn(id);
   }
 
-  /** The memoized pixel constants of a held cloud (test seam). */
-  baseOf(id: string): CloudBase | null {
-    return this.sprites.get(id)?.base ?? null;
+  /** The alpha field of a held cloud (test seam). */
+  fieldOf(id: string): CloudField | null {
+    return this.clouds.get(id)?.field ?? null;
   }
 
-  /** Squares drawn for a held cloud on the last render (test seam). */
-  squaresOf(id: string): number | null {
-    return this.sprites.get(id)?.drawn ?? null;
-  }
-
-  /** The Graphics of a held cloud (test seam). */
-  graphicsOf(id: string): Graphics | null {
-    return this.sprites.get(id)?.g ?? null;
+  /** The Sprite of a held cloud (test seam). */
+  spriteOf(id: string): Sprite | null {
+    return this.clouds.get(id)?.sprite ?? null;
   }
 
   /** How many clouds are held (test seam). */
   get size(): number {
-    return this.sprites.size;
+    return this.clouds.size;
   }
 
   private spawn(c: CloudView): void {
-    const g = new Graphics();
-    g.position.set(c.x, c.y);
-    this.layer.addChild(g);
-    this.sprites.set(c.id, { g, base: cloudBaseFor(c.id), t0: c.t0, drawn: 0 });
-  }
-
-  private pruneBases(): void {
-    retainCloudBases(new Set(this.sprites.keys()));
+    const rgba = new Uint8Array(CLOUD_CELLS * CLOUD_CELLS * 4);
+    const r = (COLOR >> 16) & 255;
+    const g = (COLOR >> 8) & 255;
+    const b = COLOR & 255;
+    for (let k = 0; k < rgba.length; k += 4) {
+      rgba[k] = r;
+      rgba[k + 1] = g;
+      rgba[k + 2] = b;
+    }
+    // NEAREST, like the radar grid: a cell is a cell, no invented blends.
+    const source = new BufferImageSource({
+      resource: rgba,
+      width: CLOUD_CELLS,
+      height: CLOUD_CELLS,
+      scaleMode: 'nearest',
+      alphaMode: 'premultiply-alpha-on-upload',
+    });
+    const sprite = new Sprite(new Texture({ source }));
+    sprite.anchor.set(0.5);
+    sprite.scale.set(CLIENT_CONFIG.countermeasure.cellU); // one texel = one cell
+    sprite.position.set(c.x, c.y);
+    this.layer.addChild(sprite);
+    this.clouds.set(c.id, { sprite, source, rgba, field: makeField(), t0: c.t0 });
   }
 
   private despawn(id: string): void {
-    const s = this.sprites.get(id);
+    const s = this.clouds.get(id);
     if (!s) return;
-    s.g.destroy();
-    this.sprites.delete(id);
+    s.sprite.destroy({ texture: true, textureSource: true });
+    this.clouds.delete(id);
   }
 }

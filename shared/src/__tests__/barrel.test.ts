@@ -86,16 +86,8 @@ import {
   type FrameMsg,
   type CloudRecord,
   type CloudView,
-  type CloudBase,
-  cloudSeed,
-  cloudBase,
   cloudScale,
   cloudOutlineRadius,
-  pixelAlive,
-  livingPixelCount,
-  forEachLivingPixel,
-  pointInCloud,
-  cloudBlocks,
   type OwnShip,
   type ReturnBlipEvent,
   type GhostPaint,
@@ -429,7 +421,10 @@ describe('shared barrel', () => {
     // (catalog content + CONFIG.countermeasure), OwnShip.inSmoke deleted,
     // FrameMsg.smoke -> clouds (CloudView {id,x,y,t0}). The exception count
     // stays SIX.
-    expect(PROTOCOL_VERSION).toBe(76);
+    // 76 -> 77 (Story 9.3 session 2, Eric 2026-10-12): smoke is a client
+    // overlay; CONFIG.countermeasure shrinks to lifeMs/r0/r1. The exception
+    // count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(77);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -948,10 +943,10 @@ describe('shared barrel', () => {
     expect(shield.hp).toBe(CONFIG.shieldBlock.hp);
   });
 
-  it('re-exports the 9.3 COUNTERMEASURE shapes: the cloud.ts pixel function, CloudRecord (server store), CloudView + FrameMsg.clouds (wire)', () => {
+  it('re-exports the 9.3 COUNTERMEASURE shapes: the cloud.ts disc functions, CloudRecord (server store), CloudView + FrameMsg.clouds (wire)', () => {
     // TYPE-LEVEL PINS as much as runtime ones: the wire view is exactly
     // id,x,y,t0 — a radius, owner, count or expiry would be an excess property.
-    for (const fn of [cloudSeed, cloudBase, cloudScale, cloudOutlineRadius, pixelAlive, livingPixelCount, forEachLivingPixel, pointInCloud, cloudBlocks]) {
+    for (const fn of [cloudScale, cloudOutlineRadius]) {
       expect(typeof fn).toBe('function');
     }
     const rec: CloudRecord = { id: 'cl1', ownerId: 'ship1', x: 1, y: 2, bornAt: 1000, until: 16000 };
@@ -959,11 +954,10 @@ describe('shared barrel', () => {
     expect(Object.keys(view)).toEqual(['id', 'x', 'y', 't0']);
     const frame: Pick<FrameMsg, 'clouds'> = { clouds: [view] };
     expect(frame.clouds).toHaveLength(1);
-    const base: CloudBase = cloudBase(view.id);
-    expect(livingPixelCount(base, 0)).toBe(CONFIG.countermeasure.pixels);
     expect(cloudOutlineRadius(0)).toBe(CONFIG.countermeasure.r0);
-    // The retired 8.18 smoke symbols are gone from the barrel.
-    for (const gone of ['puffRadius']) {
+    // The retired 8.18 smoke symbols and cycle 174's pixel machinery are gone
+    // from the barrel (Story 9.3 session 2: the cloud is a client overlay).
+    for (const gone of ['puffRadius', 'cloudBase', 'cloudBlocks', 'forEachLivingPixel']) {
       expect((shared as Record<string, unknown>)[gone], gone).toBeUndefined();
     }
   });

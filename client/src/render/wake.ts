@@ -53,7 +53,6 @@ import {
   CONFIG,
   WAKE_AGE_BUCKETS,
   appendWakeSample,
-  cloudBlocks,
   createShipWake,
   createTorpWake,
   eachWakeSegment,
@@ -61,14 +60,12 @@ import {
   islandBlocksSegment,
   paintSegmentCoverage,
   pruneWake,
-  type CloudView,
   type HullId,
   type Island,
   type Vec2,
   type WakeRibbon,
 } from '@salvo/shared';
 import { FASTEST_BOOSTED_HULL_SPEED } from '../config.js';
-import { cloudBaseFor } from './cloudBases.js';
 import { CONTACT_STALE_MS } from './contacts.js';
 import { buildWakeStamp, type CellStamp, type WakeSegmentCover } from './radarField.js';
 import type { ReturnModelOpts } from './radarHeatmap.js';
@@ -453,12 +450,9 @@ export const WAKE_STAMP_MIN_MS = (CONFIG.vision.radarCellU / FASTEST_AFLOAT_SPEE
  *  • THE GLINT SEED (`seedT`, the sweep revolution index) — a new revolution
  *    re-scintillates every flank, exactly as `buildShipStamp`'s does.
  *  • The bucket clock (`WAKE_STAMP_REBUILD_MS`).
- *  • THE CLOUD STATE (Story 9.3) — the live countermeasure cloud set and its
- *    age bucket (`cloudSetKey`). Like the sight radius it is checked AHEAD of
- *    the rate floor: a cloud laid on the line, a cloud leaving, or its pixels
- *    spreading and dying changes what may be revealed, and a stamp held across
- *    it for one floor interval shows water the server is hiding (or hides
- *    water it now shows).
+ *
+ * (A countermeasure-cloud key rode here from Story 9.3 until 2026-10-12, when
+ * the server stopped hiding anything behind smoke — the client mirrors nothing.)
  *
  * A cached stamp is never MUTATED, only replaced, so a slice that froze samples
  * out of it keeps exactly what it froze (amendment 83).
@@ -471,7 +465,6 @@ export class WakeStampCache {
   private sight = NaN;
   private seed = NaN;
   private builtMs = -Infinity;
-  private cloudKey = '';
 
   /** Live cell count of the cached stamp — the measurement seam. */
   get size(): number {
@@ -487,31 +480,24 @@ export class WakeStampCache {
     model: ReturnModelOpts,
     islands: readonly Island[] = [],
     seedT = 0,
-    clouds: readonly CloudView[] = [],
   ): CellStamp {
-    const cloudKey = cloudSetKey(clouds, nowMs);
-    if (!this.stale(sources.version, own, sightU, nowMs, seedT, cloudKey)) return this.stamp;
+    if (!this.stale(sources.version, own, sightU, nowMs, seedT)) return this.stamp;
     this.key = sources.version;
-    this.cloudKey = cloudKey;
     this.ox = own.x;
     this.oy = own.y;
     this.sight = sightU;
     this.seed = seedT;
     this.builtMs = nowMs;
-    this.stamp = buildTruesightWakeStamp(sources, own, sightU, nowMs, cellU, model, islands, seedT, clouds);
+    this.stamp = buildTruesightWakeStamp(sources, own, sightU, nowMs, cellU, model, islands, seedT);
     return this.stamp;
   }
 
-  private stale(version: number, own: Vec2, sightU: number, nowMs: number, seedT: number, cloudKey: string): boolean {
-    // AHEAD OF THE FLOOR, and only these two (see the class doc): the sight
-    // radius is a step function of dazzle and boons, so it cannot churn —
-    // but when it does move it moves far, and holding a stamp built against the
-    // old radius for even one floor interval is the double-paint P6 found. The
-    // cloud key (Story 9.3) is the same kind of input: a cloud laid or gone, or
-    // an age bucket ticking over (at most every CLOUD_AGE_BUCKET_MS, and only
-    // while a cloud is live) — never per frame.
+  private stale(version: number, own: Vec2, sightU: number, nowMs: number, seedT: number): boolean {
+    // AHEAD OF THE FLOOR (see the class doc): the sight radius is a step
+    // function of dazzle and boons, so it cannot churn — but when it does move
+    // it moves far, and holding a stamp built against the old radius for even
+    // one floor interval is the double-paint P6 found.
     if (!(sightU === this.sight)) return true;
-    if (cloudKey !== this.cloudKey) return true;
     const age = nowMs - this.builtMs;
     // THE FLOOR WINS OVER EVERY OTHER REASON TO REBUILD (see WAKE_STAMP_MIN_MS):
     // under it, no input can have moved by more than the lattice can express.
@@ -545,11 +531,8 @@ function innerBoundU(src: WakeSource, sightU: number): number {
 
 /**
  * May this segment be REVEALED to the local scope — the binary-LOS half of the
- * P5 gate.
- *
- * `clouds` is the countermeasure cloud list the CLOUD term tests against —
- * every live cloud, the observer's own included (sight is blocked for
- * everyone, epic-9 amendment 40).
+ * P5 gate. (A countermeasure-cloud term rode here from Story 9.3 until
+ * 2026-10-12, when the server stopped hiding anything behind smoke.)
  *
  * The whole reason the server refuses to disclose water inside these radii is
  * that its height-aware shadow accumulator must never reveal water that BINARY
@@ -563,77 +546,13 @@ function segmentRevealable(
   mx: number,
   my: number,
   islands: readonly Island[],
-  clouds: readonly CloudView[],
-  nowMs: number,
 ): boolean {
   LOS_SCRATCH.x = mx;
   LOS_SCRATCH.y = my;
   for (const isle of islands) {
     if (islandBlocksSegment(own, LOS_SCRATCH, isle)) return false;
   }
-  return !cloudCrossed(own, LOS_SCRATCH, clouds, nowMs);
-}
-
-/**
- * THE CLOUD HALF of the binary-LOS gate (Story 9.3, Eric rulings 2026-10-11,
- * epic-9 amendments 40–41). The server's sight predicate is island LOS AND no
- * living countermeasure pixel crossed, and the synthesis stands in for that
- * disclosure, so it owes the same term: the observer→segment line may cross no
- * living pixel's footprint — the SHARED `cloudBlocks` over the SHARED pixel
- * function (never a client re-derivation), on the one memoized base per cloud
- * the renderer also draws from (render/cloudBases.ts). Ownership plays no part:
- * the owner is blind by eye inside their own cloud like anyone else.
- *
- * Sight half only: the radar half of the wake has no cloud term on the client,
- * because the server never delivers what radar hides.
- */
-function cloudCrossed(own: Vec2, at: Vec2, clouds: readonly CloudView[], nowMs: number): boolean {
-  for (const c of clouds) {
-    CLOUD_PLACE.x = c.x;
-    CLOUD_PLACE.y = c.y;
-    CLOUD_PLACE.bornAt = c.t0;
-    if (cloudBlocks(own, at, CLOUD_PLACE, cloudBaseFor(c.id), nowMs)) return true;
-  }
-  return false;
-}
-
-/** Reused `CloudPlace` for `cloudCrossed` (filled and consumed synchronously). */
-const CLOUD_PLACE = { x: 0, y: 0, bornAt: 0 };
-
-/**
- * ms — the age bucket the cloud key carries while any cloud is live. A cloud's
- * living set changes continuously (pixels spread outward and die one by one),
- * so the key ticks every bucket: a stamp is at most this stale against the
- * pixels, and rebuilds four times a second at most on age alone.
- */
-export const CLOUD_AGE_BUCKET_MS = 250;
-
-/**
- * The stamp cache's cloud key (Story 9.3). It changes when, and only when,
- * what the cloud term may answer can change:
- *   • ANY membership change — every id is folded into an FNV-1a hash, so a
- *     mid-list swap with the same count and the same first/last id still moves
- *     it;
- *   • AGE — `CLOUD_AGE_BUCKET_MS` buckets of the frame clock, and only while the
- *     set is non-empty (an empty sky never ticks the key).
- */
-export function cloudSetKey(clouds: readonly CloudView[], nowMs: number): string {
-  const n = clouds.length;
-  if (n === 0) return '';
-  return `${n}:${idHash(clouds)}:${Math.floor(nowMs / CLOUD_AGE_BUCKET_MS)}`;
-}
-
-/** The 32-bit FNV prime (decimal — hex literals read as colors to the token scan). */
-const FNV_PRIME = 16777619;
-
-/** FNV-1a (32-bit) over every cloud id, with a separator between ids. */
-function idHash(clouds: readonly CloudView[]): number {
-  let h = 2166136261; // FNV offset basis
-  for (const c of clouds) {
-    for (let i = 0; i < c.id.length; i++) h = Math.imul(h ^ c.id.charCodeAt(i), FNV_PRIME);
-    h = Math.imul(h ^ 44, FNV_PRIME); // ',' — "ab","c" ≠ "a","bc"
-  }
-  return h >>> 0;
+  return true;
 }
 
 /** Reused endpoint for `segmentRevealable` (the SEG_SCRATCH pattern): filled
@@ -714,7 +633,6 @@ export function buildTruesightWakeStamp(
   model: ReturnModelOpts,
   islands: readonly Island[] = [],
   seedT = 0,
-  clouds: readonly CloudView[] = [],
 ): CellStamp {
   const segs: WakeSegmentCover[] = [];
   // ONE island cull for the whole rebuild (see nearIslands): a per-segment walk
@@ -728,7 +646,7 @@ export function buildTruesightWakeStamp(
       const dx = s.mx - own.x;
       const dy = s.my - own.y;
       if (dx * dx + dy * dy > reach) return;
-      if (!segmentRevealable(own, s.mx, s.my, near, clouds, nowMs)) return;
+      if (!segmentRevealable(own, s.mx, s.my, near)) return;
       segs.push({
         cov: paintSegmentCoverage(s.ax, s.ay, s.bx, s.by, src.ribbon.widthU, cellU, seedT),
         a: s.bucket,

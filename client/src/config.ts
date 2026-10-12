@@ -2347,27 +2347,31 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts, Story 9.3)
-   * — FEEL ONLY, and Eric may veto any knob on staging. Every pixel's
-   * position, life and footprint are gameplay (the server's predicates read
-   * them) and live in shared `CONFIG.countermeasure` + shared sim/cloud.ts;
-   * nothing here may change who sees what. Each living pixel is drawn as a
-   * square centered on the very point the server's footprint test uses.
-   * NOT `smoke` below (WOUNDED smoke): the two share `colors.woundedSmoke` and
-   * differ by SHAPE — hard-edged squares vs small trailing soft blobs.
+   * MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts +
+   * render/cloudPaint.ts, Story 9.3) — FEEL ONLY: knobs Eric may re-tune on
+   * staging; the server reads none of them. Since 2026-10-12 ("smoke is
+   * paint") a cloud hides nothing on the server — it is purely a visual
+   * overlay the client paints from the wire's {id,x,y,t0}. Eric: "imagine if
+   * someone was using the spraypaint tool on a bitmap … the radius of that
+   * tool gets slightly bigger over time … each 'paint' itself fades to 0
+   * alpha (similarly to the phosphor decay). It's smoke." The spray runs the
+   * whole shared `CONFIG.countermeasure.lifeMs`, inside the shared
+   * `cloudOutlineRadius(age)` disc (r0 → r1); everything below is look.
+   * NOT `smoke` below (WOUNDED smoke): the two share `colors.woundedSmoke`.
    */
   countermeasure: {
-    /** Pixel square fill alpha at full strength (before its own fade). */
-    fillAlpha: 0.55,
-    /** The last this-many ms of EACH pixel's own life ease its alpha linearly
-     *  to 0, so the cloud thins out pixel by pixel instead of popping. */
-    fadeMs: 2000,
-    /** u — the drawn square's SIDE. Deliberately LARGER than the blocking
-     *  footprint it stands for (shared `CONFIG.countermeasure.footprintU`, a
-     *  radius, untouched — the server and the wake mirror test that) so the
-     *  cloud reads dense on screen (Eric 2026-10-11); he may re-tune it on
-     *  staging. */
-    drawSizeU: 20,
+    /** u — one bitmap cell, the radar raster's 9 u cell (Eric 2026-10-12). */
+    cellU: 9,
+    /** ms — a cell painted to `maxAlpha` fades LINEARLY to 0 over this long
+     *  (the phosphor shape; Eric: each paint fades over about 6–10 s). */
+    fadeMs: 8000,
+    /** Paints sprayed per second of cloud life (the fractional remainder
+     *  carries, so a low frame rate sprays the same amount). */
+    paintsPerSec: 240,
+    /** cells — one paint's soft round dot radius (falloff 1 − d²/R²). */
+    dotCells: 2.5,
+    /** A cell's alpha saturates here (one paint's centre adds this much). */
+    maxAlpha: 0.85,
   },
 
   /**

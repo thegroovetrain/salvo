@@ -304,8 +304,8 @@ describe('world.minesLivePeak gauge', () => {
 });
 
 // Story 8.18 / 9.3 — the live COUNTERMEASURE cloud high-water mark, the mine
-// peak's twin: every live cloud is one pixel scan inside every sight predicate
-// for every observer, so the peak is what the perception pass paid for. A
+// peak's twin: every live cloud is one delivery-gate check per observer per
+// tick, so the peak is what the perception pass paid for. A
 // COUNT AND NOTHING ELSE — no owner, no position.
 describe('world.cloudLivePeak gauge (Story 8.18 / 9.3)', () => {
   it('keeps the MAX ever recorded, never falls, and rides the payload beside minesLivePeak', () => {

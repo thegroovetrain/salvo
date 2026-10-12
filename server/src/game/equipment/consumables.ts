@@ -16,7 +16,7 @@
 // epic-9 amendment 31), since Story 8.17 FLASH SHELLS (id `dazzleShells`,
 // amendment 132 — the second click-aimed line), and since Story 9.3 the
 // MULTI-SPECTRAL COUNTERMEASURE (epic-9 amendments 40–47 — key-fired, one
-// pixel cloud per press at the hull's centre; it took SMOKE SCREEN's 8.18 seat).
+// cloud per press at the hull's centre; it took SMOKE SCREEN's 8.18 seat).
 // The DEPTH CHARGE stub (amendment 83) is the ONE line still `stub` in the
 // catalog, so no copy of it can be dealt, picked or stocked — and because the
 // registry is PARTIAL, even a forged belt press naming it finds no row and

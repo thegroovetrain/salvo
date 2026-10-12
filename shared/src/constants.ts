@@ -1826,21 +1826,22 @@ export const CONFIG = {
 
   /**
    * MULTI-SPECTRAL COUNTERMEASURE (Story 9.3, Eric rulings 2026-10-11, epic-9
-   * amendments 40–47) — a key-fired consumable that replaces SMOKE SCREEN
-   * (and absorbs CHAFF's role). In plain words:
+   * amendments 40–47; re-cut by Story 9.3 session 2, Eric 2026-10-12) — a
+   * key-fired consumable that replaces SMOKE SCREEN (and absorbs CHAFF's
+   * role). In plain words:
    * - ONE press makes ONE stationary cloud centered on the hull; every press
    *   makes a new cloud (nothing restarts, nothing refuses while one lives).
-   * - The cloud is `pixels` pixels, a pure seeded function of the cloud id and
-   *   its age (sim/cloud.ts — both sides run it; only {id,x,y,t0} rides the
-   *   wire). Each pixel is born inside `r0` and dies at its own time, uniform
-   *   in [`dieMinMs`, `dieMaxMs`) — the thinning IS the fade.
-   * - Pixels scale OUTWARD keeping their bearing: the outline grows from `r0`
-   *   at birth to `r1` at `lifeMs`.
-   * - A living pixel (radius `footprintU`) blocks SIGHT for everyone,
-   *   the owner included — the old in-smoke 1/8 sight rule is gone.
-   * - It blocks an ENEMY's RADAR only on a target standing INSIDE the
-   *   outline (no shadow beyond the cloud); the owner's radar ignores pixels.
-   * - The cloud is delivered to whoever's radar range reaches its centre.
+   * - The cloud lives `lifeMs`. Its spray disc grows from `r0` at birth to
+   *   `r1` at the end of its life (sim/cloud.ts `cloudOutlineRadius`).
+   * - It is a picture, not a wall (Eric 2026-10-12: "rather than fucking with
+   *   whether I can see something, just draw it on top of ships"): the
+   *   server hides NOTHING behind or inside it — no sight, no radar. Each
+   *   client paints it as spray-painted smoke on top of the ships (your own
+   *   ship stays on top of it; radar paints stay above it). The spray look
+   *   and how fast each paint fades are client feel knobs (CLIENT_CONFIG),
+   *   not gameplay.
+   * - A client is sent the cloud if it is the owner, or its sight or its
+   *   radar reaches the disc; it keeps a cloud it was sent until it dies.
    * Every number here is a dial. No `EffectiveStats` row: a consumable's
    * numbers are read straight from CONFIG (the consumable law).
    *
@@ -1848,13 +1849,9 @@ export const CONFIG = {
    * plume, 250 ms emission cadence, no occlusion) — never conflate the two.
    */
   countermeasure: {
-    lifeMs: 15000, // ms a cloud lives on the water
-    pixels: 300, // pixels per cloud
-    r0: 200, // u — every pixel is born within this radius of the centre
-    r1: 500, // u — the outline radius at the end of life
-    dieMinMs: 6000, // ms — earliest age a pixel dies
-    dieMaxMs: 15000, // ms — latest age a pixel dies (exclusive)
-    footprintU: 6, // u — radius of the disc a living pixel blocks
+    lifeMs: 15000, // ms a cloud lives on the water (the spray runs its whole life)
+    r0: 200, // u — the spray disc's radius at birth
+    r1: 500, // u — the spray disc's radius at the end of life
   },
 
   /**

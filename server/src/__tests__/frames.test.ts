@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, SLOT_COUNT, cloudBase } from '@salvo/shared';
+import { isAfloat, CONFIG, SLOT_COUNT } from '@salvo/shared';
 
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -241,13 +241,12 @@ describe('buildFrame — the `clouds` channel (Story 9.3)', () => {
     // A cloud made by `b` (a raw store write — the injectMine posture) 56.6 u
     // off `a` — well inside `a`'s radar range, no island (delivered; this
     // test pins the wire shape, not the gate).
-    w.clouds.set('cl1', { id: 'cl1', ownerId: 'b', x: 40, y: 40, bornAt: w.now, until: w.now + CONFIG.countermeasure.lifeMs, base: cloudBase('cl1') });
+    w.clouds.set('cl1', { id: 'cl1', ownerId: 'b', x: 40, y: 40, bornAt: w.now, until: w.now + CONFIG.countermeasure.lifeMs });
     const f = buildFrame(w, 'a');
     expect(f.clouds).toEqual([{ id: 'cl1', x: 40, y: 40, t0: w.now }]);
     expect(Object.keys(f.clouds![0])).toEqual(['id', 'x', 'y', 't0']); // key order is the wire order
     expect(JSON.stringify(f)).not.toContain('ownerId');
     expect(JSON.stringify(f)).not.toContain('until'); // no zone in this frame, so the store's `until` may appear nowhere
-    expect(JSON.stringify(f)).not.toContain('base'); // the cached pixel base never rides
     // The spectator path carries the same optional channel on the same rule.
     const spec = buildFrame(w, 'a', 'finished');
     expect(spec.spec).toBe(true);

@@ -107,9 +107,7 @@ import {
   type Rng,
   type ShellOutcome,
   type ShellState,
-  type CloudBase,
   type CloudRecord,
-  cloudBase,
   type ShipClassId,
   type ShipLifecycle,
   type ShipState,
@@ -275,17 +273,13 @@ function fittedEquipment(loadout: LoadoutSlot[], slotIndex: number): SlotItemId 
 
 /**
  * A MULTI-SPECTRAL COUNTERMEASURE cloud as the World STORES it (Story 9.3):
- * the shared `CloudRecord` (id, owner, centre, bornAt, until) plus the
- * CACHED pixel base — `cloudBase(id)`, the shared pure function of the id,
- * memoized ONCE at the press so every per-tick predicate (sightClear /
- * cloudCrossed / radarClear, through SignalContextBase.clouds) reads the
- * offsets and death ages without re-rolling them. SERVER-PRIVATE as a whole:
- * the `cloud` registry row materializes a fresh `{id,x,y,t0}` and nothing
- * here (owner, until, base) ever rides the wire.
+ * exactly the shared `CloudRecord` (id, owner, centre, bornAt, until) — the
+ * pixel base the cycle-174 store cached is gone with the pixels (Story 9.3
+ * session 2: the cloud is a client overlay). SERVER-PRIVATE as a whole: the
+ * `cloud` registry row materializes a fresh `{id,x,y,t0}` and nothing here
+ * (owner, until) ever rides the wire.
  */
-export interface StoredCloud extends CloudRecord {
-  readonly base: CloudBase;
-}
+export type StoredCloud = CloudRecord;
 
 /**
  * A live star-shell lit zone (Story 1.7): a static circle spawned where a star
@@ -1160,17 +1154,14 @@ export class World {
   /**
    * THE MULTI-SPECTRAL COUNTERMEASURE clouds (Story 9.3; Eric rulings
    * 2026-10-11, epic-9 amendments 40–47 — 8.18's smoke store's seat), keyed
-   * by id (`cl${n}`), in PRESS order. Each is a stationary pixel cloud made
-   * at its owner's centre by `setCountermeasure` (ONE per press — amendment
-   * 46: five copies can stack five clouds; nothing restarts or refuses while
-   * one lives), born at `bornAt`, deleted by stepClouds once `now >= until`
-   * (bornAt + lifeMs). The record carries its CACHED pixel base
-   * (`cloudBase(id)` — a pure function of the id, memoized once per cloud so
-   * every per-tick predicate pays one scale multiply per pixel, never a
-   * re-roll). THE OCCLUDER: signals.ts's `sightClear` tests every sight-tier
-   * segment against every living pixel (ownership-blind), `radarClear` drops
-   * a non-owner's radar return on a point inside the outline, and the `cloud`
-   * registry row ships each cloud a client may see as `{id,x,y,t0}`. WORLD-
+   * by id (`cl${n}`), in PRESS order. Each is a stationary cloud made at its
+   * owner's centre by `setCountermeasure` (ONE per press — amendment 46: five
+   * copies can stack five clouds; nothing restarts or refuses while one
+   * lives), born at `bornAt`, deleted by stepClouds once `now >= until`
+   * (bornAt + lifeMs). A CLIENT VISUAL OVERLAY (Story 9.3 session 2, Eric
+   * 2026-10-12): it occludes NO sensor on the server; the `cloud` registry
+   * row ships each cloud a client may sense as `{id,x,y,t0}` and the client
+   * paints it. WORLD-
    * OWNED, not on the hull: a cloud runs its full life through its owner's
    * sink, redeploy, respawn or leave (amendment 127 — everything on the water
    * outlives its owner); only resetForMatchStart clears the map (the mines /
@@ -3554,13 +3545,11 @@ export class World {
   }
 
   /**
-   * Every live COUNTERMEASURE cloud, with its cached pixel base, as a
-   * read-only array (Story 9.3) — the shape `sightClear` / `cloudCrossed` /
-   * `radarClear` iterate. THE two readers: perception (once per observer
-   * context — `SignalContextBase.clouds`) and the PvE fleet AI's `shipSees`
-   * callers (drones.ts). A fresh snapshot per call, so a caller can never
-   * mutate the store through it; a handful of clouds × ~20 observers a tick
-   * is far below the cost of one pixel scan each.
+   * Every live COUNTERMEASURE cloud as a read-only array (Story 9.3). THE
+   * reader: perception (once per observer context — `SignalContextBase.clouds`,
+   * the `cloud` channel's subjects; a cloud occludes nothing since Story 9.3
+   * session 2). A fresh snapshot per call, so a caller can never mutate the
+   * store through it.
    */
   get cloudRecords(): readonly StoredCloud[] {
     return [...this.clouds.values()];
@@ -6118,14 +6107,12 @@ export class World {
    * 2026-10-11, epic-9 amendments 43–46) — `ActivationContext.setCountermeasure`'s
    * body, the ONE writer of World.clouds. Every press makes a NEW cloud at
    * the activating hull's CENTRE (`state` this tick), `bornAt = now`,
-   * `until = now + lifeMs`, with its pixel base cached beside it
-   * (`cloudBase(id)` — the shared pure function of the id, run ONCE per cloud
-   * here and once per cloud on the client). No lay window, no restart, no
+   * `until = now + lifeMs`. No lay window, no restart, no
    * refuse-while-live: five copies stack five clouds (amendment 46). A NON-
    * FINITE position (a NaN/Infinity pose — unreachable through inputs.ts's
    * finite-checked intent, guarded anyway) makes NOTHING: a NaN cloud would
-   * ride segCircleHit's NaN path and occlude or expose every observer for
-   * 15 s (the 8.18 review-gate guard, kept). The hull's own `cloudUntil`
+   * poison the `cloud` delivery gate and every client's overlay for 15 s
+   * (the 8.18 review-gate guard, kept). The hull's own `cloudUntil`
    * stamp (the bot's self-read) advances to this cloud's expiry.
    */
   private makeCloud(ship: ShipRecord): void {
@@ -6134,7 +6121,7 @@ export class World {
     this.cloudSeq += 1;
     const id = `cl${this.cloudSeq}`;
     const until = this.now + CONFIG.countermeasure.lifeMs;
-    this.clouds.set(id, { id, ownerId: ship.id, x, y, bornAt: this.now, until, base: cloudBase(id) });
+    this.clouds.set(id, { id, ownerId: ship.id, x, y, bornAt: this.now, until });
     ship.cloudUntil = until;
   }
 

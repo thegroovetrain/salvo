@@ -61,9 +61,8 @@ export interface PerceptionView {
   decoys: DecoyView[];
   /** Per-observer MULTI-SPECTRAL COUNTERMEASURE cloud visibility (Story 9.3
    *  — contact-like, recomputed every tick through the `cloud` row, in press
-   *  order). The cloud's seed alone rides here (`{id,x,y,t0}`); its pixels'
-   *  OCCLUSION of everything else flows through `sightClear` / `radarClear`
-   *  inside every sight-tier and radar-tier row. */
+   *  order). The cloud's seed alone rides here (`{id,x,y,t0}`); it occludes
+   *  nothing (Story 9.3 session 2 — a client overlay). */
   clouds: CloudView[];
 }
 
@@ -85,9 +84,8 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     // Story 8.16: the live decoys — the decoy channel's subjects and the
     // decoy-paint blip sources.
     decoys: world.decoys,
-    // Story 9.3: every live COUNTERMEASURE cloud with its cached pixel base —
-    // the ONE occluder input of every sight-tier predicate (sightClear) and
-    // of the radar rule (radarClear), and the cloud channel's subjects.
+    // Story 9.3: every live COUNTERMEASURE cloud — the cloud channel's
+    // subjects and nothing else (a cloud occludes no sensor).
     clouds: world.cloudRecords,
     // Story 4.12: the wake scan's subject list (every live ribbon — active,
     // torpedo, and detached water), riding the context like the raster does.
@@ -117,9 +115,7 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     // Story 8.16: the decoy channel's subjects (spectators see every decoy);
     // the decoy-paint blip source is inert on this path (no blips).
     decoys: world.decoys,
-    // Story 9.3: the cloud channel's subjects (spectators see every cloud);
-    // the occlusion terms are inert here (no spectator row reads sightClear
-    // or radarClear).
+    // Story 9.3: the cloud channel's subjects (spectators see every cloud).
     clouds: world.cloudRecords,
     // Inert on this path too (spectators have no radar, so no wake events) —
     // rides uniformly so the context stays one shape.
@@ -298,9 +294,8 @@ function decoyScan(world: World, ctx: SignalContext): DecoyView[] {
 
 /** Per-observer COUNTERMEASURE cloud visibility (Story 9.3) — contact-like
  *  state exactly like decoys, recomputed every tick through the cloud row, in
- *  Map-insertion (press) order. ONLY the seed rides here; a cloud's occlusion
- *  of hulls, ordnance, marks, water and radar returns is `sightClear` /
- *  `radarClear`'s job inside the rows. */
+ *  Map-insertion (press) order. ONLY the seed rides here; a cloud occludes
+ *  nothing (Story 9.3 session 2 — the client paints it as an overlay). */
 function cloudScan(world: World, ctx: SignalContext): CloudView[] {
   const out: CloudView[] = [];
   const row = SIGNAL_REGISTRY.cloud;

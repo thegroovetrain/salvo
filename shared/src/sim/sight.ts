@@ -15,9 +15,9 @@
 // amendments). One pure function both sides call is the only way they stay
 // equal; nothing re-derives it per side.
 //
-// SMOKE (Story 8.18's in-smoke 1/8 rule) is DELETED (Story 9.3, Eric
-// 2026-10-11, epic-9 amendment 40): a countermeasure cloud's pixels block
-// sight lines (sim/cloud.ts `cloudBlocks`), they never shrink the bubble.
+// SMOKE (Story 8.18's in-smoke 1/8 rule) is DELETED (Story 9.3): a
+// countermeasure cloud never touches sight — since Story 9.3 session 2 (Eric
+// 2026-10-12) it is a client overlay that hides nothing.
 //
 // Radar range itself is NEVER touched: dazzle blinds, it does not deafen.
 //

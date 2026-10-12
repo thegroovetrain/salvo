@@ -145,7 +145,7 @@ export interface ActivationContext {
    * MULTI-SPECTRAL COUNTERMEASURE's whole body (Story 9.3; Eric rulings
    * 2026-10-11, epic-9 amendments 40–47): make ONE new cloud at the
    * ACTIVATING ship's centre — `bornAt = now`, `until = now +
-   * CONFIG.countermeasure.lifeMs`, pixel base cached — EVERY call (amendment
+   * CONFIG.countermeasure.lifeMs` — EVERY call (amendment
    * 46: no lay window, no restart, no refuse-while-live; five copies stack
    * five clouds). A non-finite hull position makes nothing. Clouds are
    * WORLD-owned (World.clouds) and outlive the hull.
