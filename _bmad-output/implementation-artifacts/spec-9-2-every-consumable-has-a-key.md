@@ -116,6 +116,20 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-10-11 — Review pass (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol cross-check)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3: (high 0, medium 0, low 3)
+- defer: 2: (high 0, medium 0, low 2)
+- reject: 5: (high 0, medium 0, low 5)
+- addressed_findings:
+  - `[low]` `[patch]` Edge Case Hunter: a consumable fit / `dp` drop flashed the rank-wide frame, never the kind's own square (`slotForCard` read `ownSlots` before the replay) — `latchFitFlash` now resolves a consumable through `consumableSlotFor` (main.ts).
+  - `[low]` `[patch]` Edge Case Hunter: `zeroStockModel` dropped the ACTIVATED pop on the last copy (precedence denied > activated > zeroStock not honored) — fixed in hotbar.ts; regression test added and shown to fail without the fix.
+  - `[low]` `[patch]` Blind Hunter: DESIGN.md `hp-globe` / `helm-globe` / `hotbar-slot` / `ammo-badge` rows still read 104 / 54 / 16 — dated re-cut stamps added (amendments 22, 33, 38a/b).
+- deferred (ledger): `pickRefusal` and `stockSlotFor` agree by argument not construction (latent, unreachable); an un-stubbed unkeyed consumable would be dealt forever (note for Story 9.7).
+- rejected: How-to-Play / Settings belt wording (Eric's ruling, amendment 36); the 3 px weapon-badge → strip-chip overlap (recorded, amendment 38c, Eric's eye on staging); zero-stock key chip at full alpha (the mock draws the chip outside the dimmed square — mock literal); Codex: no findings; Blind Hunter's "trackers missing" scope note (they were committed after the diff was cut).
+- agreement picture: both Fable hunters and Codex returned BUILD-ON-IT with no confirmed defect; the three patches were single-model findings each verified against the code before fixing.
+
 ## Design Notes
 
 - **Why fixed slots and not a per-kind count on the wire:** slot indices are the currency of `InputMsg`, `OwnShip.ammo`, denials, the keyboard FIFO and every per-slot client array; binding each kind to one slot keeps all of that and deletes the packing rule (`rebuildBelt` no longer shifts anything). `cards` stays the single truth.

@@ -2880,3 +2880,13 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   status: open — note only, Eric's dial
   summary: THE STORM'S SHARE OF BOT DEATHS ON THE BIG BOARD is 7 % under the 1-2-3-4-5 ramp (15–17 % under the flat 4 hp/s), concentrated in the one to two minutes after each close and falling mostly on the DREADNOUGHT. Not a problem by Eric's reading ("nobody fails to outrun it unless bad"); recorded so the next ladder or ramp change has a baseline.
   evidence: ledger §7 (death timelines), §9.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-2-every-consumable-has-a-key.md`
+  status: open — latent, unreachable in production (2026-10-11, Story 9.2 review, Blind Hunter)
+  summary: `pickRefusal` AND `stockSlotFor`/`applyStock` NOW AGREE BY ARGUMENT, NOT BY CONSTRUCTION: for a consumable the predicate checks only key-existence and cap, while the fold also no-ops when the kind's fixed slot holds a foreign id or the slot array is short — so a malformed array could pass the predicate and land a copy in `cards` with no slot (the 8.7 P4 class the old `beltFull` refusal closed). Every production caller passes an 11-long loadout and nothing but `stock` writes slots 5–10, so it cannot happen today; a one-line fail-closed check in the predicate (foreign id or short array → refuse) would restore agreement by construction.
+  evidence: `shared/src/sim/boons.ts` `pickRefusal` vs `stockSlotFor`/`applyStock`; the weapon-row half still fails closed.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-2-every-consumable-has-a-key.md`
+  status: open — note for Story 9.7 (2026-10-11, Story 9.2 review, Blind Hunter)
+  summary: AN UN-STUBBED CONSUMABLE WITH NO KEY WOULD BE DEALT EVERY OFFER AND ALWAYS GREYED: `draw.ts` treats every non-stub consumable as eligible and `pickRefusal` refuses an unkeyed one as `'stub'`, so whoever builds DEPTH CHARGE must add it to `CONSUMABLE_KEY_ORDER` (key `7`, `SLOT_COUNT` 12, PV bump) in the same change that clears its `stub` flag, or the card is permanent dead weight in the draw.
+  evidence: `shared/src/sim/draw.ts` consumable eligibility; `shared/src/sim/boons.ts` `pickRefusal` unkeyed guard (amendment 38i); epics.md Story 9.7 AC ("it takes key `7`").

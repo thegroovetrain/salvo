@@ -23,6 +23,7 @@ import {
   effectiveStats,
   equipmentReloadMs,
   hullSilhouette,
+  consumableSlotFor,
   isConsumableId,
   isOutside,
   isWeaponItem,
@@ -2776,7 +2777,9 @@ function onOwnDecoy(audio: Audio): void {
  * presentation-silent (FR22).
  */
 function latchFitFlash(g: Game, cardId: string): void {
-  const slot = slotForCard(g.ownSlots, cardId);
+  // A consumable's square is FIXED (Story 9.2): flash the kind's own square even
+  // when the stack was at zero a frame ago (`ownSlots` has not replayed yet).
+  const slot = isConsumableId(cardId) ? consumableSlotFor(cardId) : slotForCard(g.ownSlots, cardId);
   if (slot === null) g.fitFramePress = true;
   else g.fitPress[slot] = true;
 }

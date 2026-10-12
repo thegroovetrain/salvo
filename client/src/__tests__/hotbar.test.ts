@@ -264,6 +264,17 @@ describe('slot order — Gun (keyless) / Shift / Q / E / R / 1-6', () => {
     }
   });
 
+  it('ZERO STOCK yields to the ACTIVATED pop and to DENIED (precedence denied > activated > zeroStock)', () => {
+    // The last copy was just pressed: the stack cleared this frame, the latch is still up.
+    const slot = CONSUMABLE_SLOTS[0];
+    const activated = nine(false); activated[slot] = true;
+    const popped = slotViewModels(viewFor('torpedoBoat', { activated }));
+    expect(popped[slot].state).toBe('activated');
+    const denied = nine(false); denied[slot] = true;
+    const refused = slotViewModels(viewFor('torpedoBoat', { activated, denied }));
+    expect(refused[slot].state).toBe('denied');
+  });
+
   it('the six consumable squares at ZERO STOCK read zeroStock with their OWN kind (amendment 22)', () => {
     const rows = slotViewModels(viewFor('torpedoBoat'));
     CONSUMABLE_SLOTS.forEach((slot, i) => {

@@ -427,9 +427,11 @@ export function slotDegraded(view: HotbarView, slot: number, denied: boolean): b
  * as it does on a stocked square — the square flashes red.
  */
 function zeroStockModel(view: HotbarView, slot: number, kind: SlotItemId, keyGlyph: string): SlotViewModel {
-  const denied = slotFlags(view, slot).denied;
+  const { denied, activated } = slotFlags(view, slot);
+  // Precedence denied > activated > zeroStock: the last copy's ACTIVATED pop
+  // still shows for its full window after the stack clears.
   return {
-    slot, id: kind, state: denied ? 'denied' : 'zeroStock', selected: false, keyGlyph, badge: null,
+    slot, id: kind, state: denied ? 'denied' : activated ? 'activated' : 'zeroStock', selected: false, keyGlyph, badge: null,
     coolFrac: 0, reloadMsLeft: 0, activeMsLeft: 0, tier: 0, fitFlash: false,
     degraded: slotDegraded(view, slot, denied),
   };
