@@ -2,7 +2,8 @@
 title: 'Story 9.2: Every Consumable Has a Key'
 type: 'feature'
 created: '2026-10-11'
-status: 'in-review'
+status: 'done'
+final_revision: 'PR #264 open (2026-10-11); code head e4b724ca'
 baseline_revision: 'e56ca391'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -100,7 +101,7 @@ warnings: [oversized]
 
 **Execution (wave 3 — record):**
 - [x] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `DESIGN.md`, `epics.md`, both trackers, `deferred-work.md` (review defers only) -- 0.18.37 / cycle 172 / PV 75 / amendments 31–37 (+ implementer readings as amendment 38)
-- [ ] `npm run check` green; results recorded under Verification
+- [x] `npm run check` green; results recorded under Verification
 
 **Acceptance Criteria:**
 - Given a captain with no consumables, when they stock any of the six kinds, then it appears in that kind's own square with its fixed key, and stocking a second kind never moves the first.
@@ -143,8 +144,24 @@ warnings: [oversized]
 - `npm run build -w shared` -- expected: clean (run before server/client tests)
 - `npm test -w shared && npm test -w server && npm test -w client` -- expected: all green, no skipped chaff suites left behind
 - `npm run lint` -- expected: zero errors (complexity ≤ 10)
-- `npm run check` -- expected: green; counts recorded in CHANGELOG
+- `npm run check` -- expected: green; counts recorded in CHANGELOG -- RESULT 2026-10-11: green, shared 41 / 1036, server 89 / 2487, client 124 / 3911, hooks 266 (two full runs, before and after the review patches)
 - `grep -rn "chaff\|beltFull\|fakes\." shared/src server/src client/src --include=*.ts | grep -v __tests__` -- expected: no hits outside the How-to-Play copy Eric froze (amendment 36) and dated doc comments
 
 **Manual checks:**
 - Eric judges the live bar on the development deploy after the PR (amendment 37).
+
+## Auto Run Result
+
+Status: done — PR #264 open to `development` (not merged; Eric's call after he judges the bar on staging, amendment 37).
+
+**Implemented:** the belt is retired for one fixed slot per consumable kind on keys `1`–`6` (`SLOT_COUNT` 11, `CONSUMABLE_KEY_ORDER`, `consumableSlotFor` / `consumableKindAt`; cap 5 the only refusal); CHAFF retired now with its fakes, ghosts, ring, bot rows and the perception carve-out (six exceptions untouched, invariant stricter); HUD bar re-laid to mock option D′ with the ZERO-STOCK state and the 9 px floor; capped consumable greyed with no caption; LOADOUT twin; drone drops over every keyed kind under cap; `PROTOCOL_VERSION` 75; version 0.18.37 (cycle 172).
+
+**Files:** shared `loadout.ts` / `boons.ts` / `effects.ts` / `catalog.ts` / `constants.ts` / `types.ts` / `index.ts` (model, chaff out, PV); server `world.ts` / `signals.ts` / `perception.ts` / `frames.ts` / `equipment/*` / `ai/*` (fakes out, fixed slots, drops, bots) with `fakes.ts`, `consumables/chaff.ts`, `chaff.test.ts` deleted; client `keyboard.ts` / `equipmentInfo.ts` / `config.ts` / `hudBar.ts` / `hotbar.ts` / `upgradeMenu.ts` / `loadoutBlock.ts` / `main.ts` / `roomBindings.ts` / `stage.ts` / `equipmentIcons.ts` / `boonCopy.ts` with `chaffRing.ts`, `chaffGhosts.ts` and their tests deleted; tests re-based in all three workspaces; `goldenFrames` re-recorded knowingly; record files (CHANGELOG, VERSION, package.json + lock, both trackers, epics.md, DESIGN.md, EXPERIENCE.md, amendments 31–38, deferred-work.md).
+
+**Review:** Blind Hunter + Edge Case Hunter (Fable) and Codex gpt-5.6-sol, all build-on-it, no confirmed defect. Patches applied 3 (low): consumable fit/drop flashes its own square; ACTIVATED outranks zeroStock on the last copy (regression test proven failing without the fix); DESIGN.md globe/slot/badge rows stamped. Deferred 2 (ledger). Rejected 5 (ruled copy freeze, recorded overlap, mock-literal chip alpha, Codex none, a scope note).
+
+**Follow-up review recommended:** false — three localized low-consequence patches.
+
+**Verification:** `npm run check` green twice (before and after the review patches): shared 1036, server 2487, client 3911, hooks 266; lint 0 errors (2 pre-existing max-lines warnings). No dev server booted; no smokes run (none in scope). Branch pushed; PR #264.
+
+**Residual risks / for Eric:** (1) the bar's feel is unjudged until staging — amendment 38's readings (HULL 21 px, helm insides unscaled, 3 px badge/chip overlap) are his veto items; (2) How-to-Play and Settings still describe four belt slots and list CHAFF until 9.11 (his ruling); (3) one intermediate commit on the branch (ef0aba36) does not type-check for server because the server agent's staged deletions rode in the client commit — the branch head and every later commit are green.
