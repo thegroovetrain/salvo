@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.18.37] - 2026-10-11
+
+### Changed
+- **Every consumable has its own key, always** (Story 9.2). The four-slot belt is gone: a captain holds every kind, each on a fixed number key — `1` HULL REPAIR · `2` SHIELD BLOCK · `3` SMOKE SCREEN · `4` FLASH SHELLS · `5` DECOY BUOY · `6` SUPERCAVITATING TORPEDO (Digit and Numpad rows). The only limit is the cap of 5 copies per kind; a pick is never lost to a full belt and a key never changes meaning when a stack runs out. Eric 2026-10-11: *"All captains can carry all consumables. Each is tied to a specific number key by default."*
+- **CHAFF is retired** (Eric's pick so the row is six keys — epic-9 amendment 31). Its fake radar returns and the owner's ghosts are gone; Story 9.3 brings the MULTI-SPECTRAL COUNTERMEASURE onto key `3` and Story 9.4 the FOULING SHELL onto key `4`.
+- **The HUD bar is re-laid** to mock option D′: globes 124 px, weapon squares 46 px with 24 px icons, and an unframed strip of six 34 px consumable squares above them with their key chips; the stack is exactly as tall as a globe, so the globes' edges are the panel's edges and nothing is drawn behind. A kind you hold none of keeps its square and key, drawn dashed with a faint icon (ZERO STOCK); pressing it flashes the square red. Key chips and stock digits never render under 9 px (the 2026-09-17 rule wins over the mock's 8 px).
+- **A consumable at its cap is dealt and greyed with no caption** (Eric: *"There's no need for 'cap copy,' if it is simply known that items have a cap of 5."*); `SLOTS FULL` now appears only on an equipment card when Q/E/R are all taken.
+- **The results LOADOUT row** shows the same six squares as the live bar at 72 %, zero-stock squares included.
+- **Drone drops** can stock any kind under its cap (there is no full belt to narrow them).
+
+### Internal
+- PROTOCOL_VERSION 74 -> 75 (loadout slot shape: `SLOT_COUNT` 9 -> 11, `OwnShip.ammo` length 11 with a `null` in slots 5–10 meaning zero stock; `OwnShip.chaff` / `chaffGhosts` fields gone; catalog content).
+- `shared/src/sim/loadout.ts`: `CONSUMABLE_KEY_ORDER`, `consumableSlotFor`, `consumableKindAt`; `CONSUMABLE_SLOTS` [5..10] and `SLOT_ROLES` derived from the key order. `boons.ts`: `stockSlotFor` is the fixed slot; `canStock` / `'beltFull'` deleted (`PickRefusal` = stub | atCap | noWeaponSlot; an unkeyed consumable is refused as a stub); `slotsWithCards` never packs.
+- Deleted: `server/src/game/fakes.ts`, `equipment/consumables/chaff.ts`, `client/src/render/chaffRing.ts`, `chaffGhosts.ts`, `CONFIG.chaff` and the chaff client knobs; the perception suite loses its chaff-fakes carve-out oracle, so the master invariant is strictly tighter (the SIX exceptions untouched). `rebuildBelt` -> `rebuildConsumableSlots` (replay only). Bots: `carries()` reads the kind's fixed slot; the chaff tactic/profile rows are gone; no CONFIG number moved.
+- Client: `BELT_KEY_CODES` -> `CONSUMABLE_KEY_CODES` (1–6 both rows); `hudBarLayout` two-row stack (bar 538 × 156, stack 124; the refit band rides 20 px higher); `hotbar.ts` `'zeroStock'` state; `upgradeMenu.ts` `cardFoot()`; `loadoutBlock.ts` D′ twin; How-to-Play icons follow `hudBar.icon` (24 px).
+- Tests: shared 41 files / 1036, server 89 / 2487, client 124 / 3910, hook suite 266 — `npm run check` green. `goldenFrames` snapshot re-recorded knowingly: `ammo` 9 -> 11 entries on every row and ONE row's `offer` `chaff` -> `decoyBuoy` (chaff left the draw pool); no contact, event, blip, mine, zone, position or hp value moved.
+- Epic-9 amendments 31–37; DESIGN.md `hud-bar` / `belt-slot` (retired) / new `consumable-strip` / `loadout-block` rows and EXPERIENCE.md's Zero Stock slot state, dated; How-to-Play and Settings belt wording left for Story 9.11 (amendment 36); the live bar is judged on staging (amendment 37).
+
 ## [0.18.36] - 2026-10-08
 
 ### Changed

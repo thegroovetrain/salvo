@@ -2,7 +2,7 @@
 title: 'Story 9.2: Every Consumable Has a Key'
 type: 'feature'
 created: '2026-10-11'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'e56ca391'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -71,15 +71,15 @@ warnings: [oversized]
 - `shared/src/sim/boons.ts:257-470` -- `stockSlotFor` → the fixed slot; `applyStock` opens/increments at it; `canStock` / `beltRefusal` / `'beltFull'` DELETED (`PickRefusal` = `'stub' | 'atCap' | 'noWeaponSlot'`); `slotsWithCards` places stacks at fixed slots.
 - `shared/src/sim/catalog.ts:382` region -- the CHAFF line removed; `shared/src/constants.ts:1816-1850` -- `CONFIG.chaff` removed (doc blocks that cite it updated); `droneDrops` comment (`:2075`).
 - `shared/src/types.ts:426,484,615-640` -- `OwnShip.chaffGhosts` + `GhostPaint` chaff usage removed; comments on `ammo` length and `cards` replay; `shared/src/index.ts:812` -- PV 75 + barrel exports (new helpers; chaff symbols gone).
-- `server/src/game/equipment/consumables/chaff.ts` -- DELETE; `equipment/consumables.ts`, `equipment/index.ts` -- registry rows; `server/src/game/fakes.ts` -- DELETE; `signals.ts`, `perception.ts`, `frames.ts` -- every fake-source / chaff path removed; `world.ts` -- chaff state, `rebuildBelt` (:5780) keeps replay semantics (no packing), `pickDrop` (:2509) eligibility comment, `spendCard` `SLOTS FULL` comment (:3217).
+- `server/src/game/equipment/consumables/chaff.ts` -- DELETE; `equipment/consumables.ts`, `equipment/index.ts` -- registry rows; `server/src/game/fakes.ts` -- DELETE; `signals.ts`, `perception.ts`, `frames.ts` -- every fake-source / chaff path removed; `world.ts` -- chaff state, `rebuildBelt` → `rebuildConsumableSlots` (:5780) keeps replay semantics (no packing), `pickDrop` (:2509) eligibility comment, `spendCard` `SLOTS FULL` comment (:3217).
 - `server/src/game/inputs.ts:65-115` -- `isSlotIndex` follows `SLOT_COUNT` (verify, no literal 9).
 - `server/src/game/ai/consumables.ts:199-218`, `types.ts`, `profiles.ts`, `plot.ts`, `utility.ts`, `botDriver.ts`, `equipment.ts` -- chaff tactic/plot/profile rows removed; `spending.ts:211` `carries` re-expressed on the fixed slot; the free-belt-slot factor of `consumableScore` becomes constant (belt never scarce) — every other term untouched.
 - `server/scripts/batchsim/spendPolicy.ts:42` -- `EMPTY_SLOTS` follows `SLOT_COUNT`.
-- `client/src/input/keyboard.ts:163-196,810-830` -- `BELT_KEY_CODES` Digit/Numpad 1–6 → slots 5–10; `REFIT_DIGIT_CODES` unchanged (4 cards); `DENIABLE_SLOTS` covers the six; FIFO cap follows `SLOT_COUNT`.
+- `client/src/input/keyboard.ts:163-196,810-830` -- `BELT_KEY_CODES` → `CONSUMABLE_KEY_CODES`, Digit/Numpad 1–6 → slots 5–10; `REFIT_DIGIT_CODES` unchanged (4 cards); `DENIABLE_SLOTS` covers the six; FIFO cap follows `SLOT_COUNT`.
 - `client/src/render/equipmentInfo.ts:54` -- `SLOT_KEY_GLYPHS` `['', 'Shift','Q','E','R','1','2','3','4','5','6']`.
 - `client/src/config.ts:1776-1850` -- `hudBar` re-cut: globe 124, globeGap 14, slot 46, icon 24, slotGap 8, strip square 34, stripIcon 16, stripGap 4, stripChipGap 3, stackGap 4, chip 16/9 px, strip badge 14 box / 9 px / overhang 6; belt frame keys (`beltSlot`, `beltGap`, `beltPad`, `beltIcon`, `beltBadgeOverhang`) DELETED; chaff client config removed.
 - `client/src/render/hudBar.ts:111-320` -- `hudBarLayout` lays the stack (strip row + chips, 4 px gap, weapon row + chips) centered between the globes, stack height 124 = globe diameter, no panel; two dim groups (strip, weapon row); XP strip beneath at full bar width.
-- `client/src/render/hotbar.ts:108-1300` -- `isBeltSlot` → `isConsumableSlot`; NEW `SlotState` `'zeroStock'` (dashed silver .45 edge, glyph of `consumableKindAt(slot)` at alpha .45, no badge, deniable); `beltAwareId` reads the fixed kind for glyph purposes; icon size per row; tooltip for a zero-stock square = the stocked square's content with stock 0 (no new strings — orchestrator reading, veto item).
+- `client/src/render/hotbar.ts:108-1300` -- `isBeltSlot` → `isConsumableSlot`, `beltAwareId` → `heldId`, `beltBadgeText` → `stockBadgeText`; NEW `SlotState` `'zeroStock'` (dashed silver .45 edge, glyph of `consumableKindAt(slot)` at alpha .45, no badge, deniable); `beltAwareId` reads the fixed kind for glyph purposes; icon size per row; tooltip for a zero-stock square = the stocked square's content with stock 0 (no new strings — orchestrator reading, veto item).
 - `client/src/render/chaffGhosts.ts`, `chaffRing.ts` -- DELETE; `stage.ts`, `main.ts`, `net/roomBindings.ts`, `render/equipmentIcons.ts`, `ui/boonCopy.ts` -- chaff branches removed.
 - `client/src/ui/upgradeMenu.ts:443-587,1401` -- `footEl` prints `SLOTS_FULL` only when `pickRefusal` is `'noWeaponSlot'`; a capped consumable is greyed with an empty foot; `refitCardFit.ts:268,394` keep the foot box height so the face does not jump.
 - `client/src/ui/loadoutBlock.ts:151-315` -- six fixed squares at .72 incl. zero-stock, chips `1`–`6`, 9 px floor.
@@ -99,7 +99,7 @@ warnings: [oversized]
 - [x] `client/src/__tests__/*` -- `hudBarLayout` pinned against the mock's D′ numbers (124 / 46 / 34 / 4 / stack = globe / two dim groups / no panel), `'zeroStock'` state, key map 1–6 both rows, grace unchanged, greyed consumable foot empty, LOADOUT six squares; `npm test -w client` green
 
 **Execution (wave 3 — record):**
-- [ ] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `DESIGN.md`, `epics.md`, both trackers, `deferred-work.md` (review defers only) -- 0.18.37 / cycle 172 / PV 75 / amendments 31–37 (+ any implementer readings appended as 38+)
+- [x] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `DESIGN.md`, `epics.md`, both trackers, `deferred-work.md` (review defers only) -- 0.18.37 / cycle 172 / PV 75 / amendments 31–37 (+ implementer readings as amendment 38)
 - [ ] `npm run check` green; results recorded under Verification
 
 **Acceptance Criteria:**
