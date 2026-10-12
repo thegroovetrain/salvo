@@ -329,8 +329,10 @@ function maskGrey(a: number): number {
  * OFF render/hazeHalo.ts `haloAlphaAt`, so the drawn edge and the stated rule
  * cannot drift. Opaque greyscale for the same Pixi sprite-mask (red channel)
  * reason `drawDimMask` documents, with the same reset-the-reused-context opening.
+ * With `rays`, the gradient fills the island line-of-sight fan instead of the
+ * whole disc (`traceLosFan`).
  */
-function drawHaloMask(ctx: BakeCtx, haloU: number): void {
+function drawHaloMask(ctx: BakeCtx, haloU: number, rays: Float32Array | null): void {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
@@ -347,8 +349,27 @@ function drawHaloMask(ctx: BakeCtx, haloU: number): void {
   grad.addColorStop(1, cssRgba(maskGrey(haloAlphaAt(outerU, haloU)), 1));
   ctx.fillStyle = grad;
   ctx.beginPath();
-  ctx.arc(c, c, r1, 0, Math.PI * 2);
+  if (rays === null || rays.length < 3) ctx.arc(c, c, r1, 0, Math.PI * 2);
+  else traceLosFan(ctx, c, px, rays);
   ctx.fill();
+}
+
+/**
+ * THE ISLAND LINE-OF-SIGHT FAN (Story 9.3 session 6, Eric 2026-10-12: "if I
+ * can't see it because of an island or any other sight block, don't render
+ * it"): ONE closed path through the hit point on every bearing (ray k at
+ * k·2π/N, render/hazeLos.ts — the hit distance, or halo + feather where
+ * nothing blocks). The halo gradient fills it, so the 5/8 edge and feather are
+ * untouched and every island cuts a hard shadow from its near edge outward.
+ */
+function traceLosFan(ctx: BakeCtx, c: number, px: number, rays: Float32Array): void {
+  const step = (Math.PI * 2) / rays.length;
+  ctx.moveTo(c + rays[0] * px, c);
+  for (let k = 1; k < rays.length; k++) {
+    const r = rays[k] * px;
+    ctx.lineTo(c + Math.cos(k * step) * r, c + Math.sin(k * step) * r);
+  }
+  ctx.closePath();
 }
 
 /**
@@ -356,19 +377,24 @@ function drawHaloMask(ctx: BakeCtx, haloU: number): void {
  * `bakeDimMaskTexture` contract exactly, for exactly its reason: this texture
  * hangs on a Sprite serving as the `cloud` layer's mask, so its source must
  * never be destroyed (the frozen-client crash). Hand the live texture back as
- * `into`; only a bare call mints.
+ * `into`; only a bare call mints. `rays` (one hit distance in world u per
+ * bearing, render/hazeLos.ts) cuts the island shadows; null = the plain disc.
  */
-export function bakeHaloMaskTexture(haloU: number, into?: Texture | null): Texture {
+export function bakeHaloMaskTexture(
+  haloU: number,
+  into?: Texture | null,
+  rays: Float32Array | null = null,
+): Texture {
   if (into != null) {
     const reuseCtx = redrawableCtx(into, HALO_MASK_TEXTURE_SIZE);
     if (reuseCtx !== null) {
-      drawHaloMask(reuseCtx, haloU);
+      drawHaloMask(reuseCtx, haloU, rays);
       into.source.update();
       return into;
     }
   }
   const { canvas, ctx } = makeCanvas(HALO_MASK_TEXTURE_SIZE, HALO_MASK_TEXTURE_SIZE);
-  drawHaloMask(ctx, haloU);
+  drawHaloMask(ctx, haloU, rays);
   return Texture.from(canvas, true); // skipCache — see bakeDimMaskTexture
 }
 
