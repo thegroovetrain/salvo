@@ -545,24 +545,6 @@ export interface OwnShip {
    */
   dazzledUntil?: number;
   /**
-   * PRESENT (`true`) IFF this hull's centre is inside ANY live SMOKE SCREEN
-   * puff this tick (Story 8.18, Eric ruling 2026-09-29, epic-8 amendment 149,
-   * revised — "whoever laid it"); OMITTED entirely otherwise, never `false`
-   * (the msgpack rule; the `dazzledUntil` precedent beside it). While present
-   * the server's perception shrinks this ship's effective sight to
-   * `radarRange × CONFIG.smokeScreen.inSmokeSightFraction` (1/8 of intel
-   * range; sim/sight.ts `effectiveSight`'s third argument — dazzle wins when
-   * both hold), lets it see INTO other smoke inside that bubble and shows it
-   * nothing optical beyond (Eric: "occlude everything outside of that range,
-   * no matter what. Radar still works."), and the client shrinks its own fog
-   * hole honestly from THIS field through the same function. The stamp is the server's per-tick
-   * `stepSmoke` read of the store, so the client never re-derives it from the
-   * `smoke` channel. SELF-PRIVATE exactly like `dazzledUntil`: rides `you` and
-   * NOTHING else — no contact, blip or spectator payload — so the perception
-   * exception count stays SIX.
-   */
-  inSmoke?: true;
-  /**
    * ms — server-clock time this SINKING hull founders (Story 5.2, amendments
    * 13/16): `sinceMs + CONFIG.ship.sinkingWindowMs`, stamped at sink-entry via
    * sim/sinking.ts founderDeadline(). Present IFF the hull is in the sinking
@@ -1414,7 +1396,7 @@ export interface BurnZoneView {
  * receives `by`, and a sighted observer already sees the hue.
  *
  * `hp` is PRESENT ONLY WHEN `own` (SELF-PRIVATE, the `OwnShip` `shield` /
- * `inSmoke` privacy idiom): the owner's readout of the decoy's
+ * `dazzledUntil` privacy idiom): the owner's readout of the decoy's
  * remaining hull; the key is ABSENT for every other observer, never an
  * `undefined` value. Own-only field on an own-only object — it opens no new
  * disclosure and the perception exception count stays at SIX. A decoy
@@ -1431,31 +1413,31 @@ export interface DecoyView {
 }
 
 /**
- * A SMOKE SCREEN puff visible to this viewer (Story 8.18, catalog-v3 R38,
- * epic-8 amendments 138–145), synced as CONTACT-LIKE state (not an event):
- * FrameMsg.smoke is recomputed per observer every tick. Delivered to the
- * OWNER always, to spectators, and to any other observer whose sight reaches
- * the puff's edge (centre within sight + current radius) with an island-clear
- * line to the point of the disc NEAREST the observer (Eric ruling 2026-09-29,
- * epic-8 amendment 148: a puff is delivered if any part of it is island-
- * visible — its water-side rim shows past an island that hides its centre; an
- * observer inside the disc is trivially clear) — smoke never blocks the view
- * OF smoke.
+ * A MULTI-SPECTRAL COUNTERMEASURE cloud visible to this viewer (Story 9.3,
+ * Eric rulings 2026-10-11, epic-9 amendments 40–47; replaces 8.18's
+ * SmokeView), synced as CONTACT-LIKE state (not an event): FrameMsg.clouds is
+ * recomputed per observer every tick. Delivered to the owner always, to
+ * spectators, and to any other observer whose SENSORS reach a living pixel
+ * (epic-9 amendment 51, Eric 2026-10-12: "If I can see smoke particles in my
+ * sight range, I want them composited … If it's detected by my radar, I want
+ * my radar to paint it") — a pixel inside sight with island line of sight, or
+ * a pixel inside radar range that this tick's beam crossed and the shadow
+ * march sees. Radar delivery is therefore per-sweep, and the client HOLDS a
+ * cloud it has received until that cloud's life ends.
  *
- * NO RADIUS, NO OWNER, NO EXPIRY on the wire (amendment 149: not even an
- * own-flag — ownership plays no part in smoke; whether the client's own hull
- * stands in smoke arrives as the self-private `OwnShip.inSmoke`): `t0` is the server time the puff
- * was laid, and the client derives the radius with the shared `puffRadius(t0,
- * serverNow)` (sim/smoke.ts) — the same curve the server's sight predicate
- * runs. A puff dropping out of the list means expired OR out of view — the
- * client cannot tell (the mines precedent). NOT the wounded-smoke `SmokeEvent`
- * (`sm`), which is a different thing. KEY ORDER (msgpack): id,x,y,t0.
+ * NO OWNER, NO RADIUS, NO PIXEL COUNT, NO EXPIRY on the wire: `t0` is the
+ * server time the cloud was made, and the client derives every pixel from
+ * the shared pure function (sim/cloud.ts `cloudBase(id)` +
+ * `forEachLivingPixel(..., now − t0, ...)`) — the same pixels the server's
+ * predicates run. A cloud dropping out of the list means expired OR out of
+ * view — the client cannot tell (the mines precedent). NOT the wounded-smoke
+ * `SmokeEvent` (`sm`). KEY ORDER (msgpack): id,x,y,t0.
  */
-export interface SmokeView {
-  id: string; // the puff's own id
-  x: number; // u — puff centre (stationary)
+export interface CloudView {
+  id: string; // the cloud's own id (seeds its pixels)
+  x: number; // u — cloud centre (stationary)
   y: number; // u
-  t0: number; // ms — server time the puff was laid (drives puffRadius)
+  t0: number; // ms — server time the cloud was made (drives the pixel age)
 }
 
 /**
@@ -1529,9 +1511,9 @@ export interface FrameMsg {
   // gate, contact-like; omitted when none, the litZones rule)
   burnZones?: BurnZoneView[];
   decoys?: DecoyView[]; // per-observer decoy-buoy visibility (contact-like; omitted when none)
-  // per-observer SMOKE SCREEN puff visibility (Story 8.18 — contact-like;
+  // per-observer COUNTERMEASURE cloud visibility (Story 9.3 — contact-like;
   // omitted when none, the litZones rule). NOT the wounded `sm` SmokeEvent.
-  smoke?: SmokeView[];
+  clouds?: CloudView[];
   /** This tick's denied presses — SELF-PRIVATE (rides like `you`, only ever
    *  the receiving client's own denials; omitted when none, never on
    *  spectator frames — a dead ship cannot press). See DeniedView. */

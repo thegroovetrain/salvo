@@ -321,7 +321,7 @@ export class BotController {
     // live bot per tick, EVERY tick (the exactly-once-and-always pin).
     mind.view = e.observe();
     mind.viewAt = this.port.now;
-    mind.smokeUntil = e.smokeUntil; // the bot's OWN lay window (Story 8.18)
+    mind.cloudUntil = e.cloudUntil; // the bot's OWN most recent cloud's expiry (Story 9.3)
     this.observesLastTickCount += 1;
     // Deliberation (target reselection, posture, spends) runs on this bot's
     // own stagger slot; steering and firing are emitted every tick.

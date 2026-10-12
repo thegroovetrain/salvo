@@ -42,7 +42,7 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type DecoyView, type GameEvent, type LitZoneView, type MineView, type ShellState, type SmokeView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
+import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type DecoyView, type GameEvent, type LitZoneView, type MineView, type ShellState, type CloudView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 import { SIGNAL_REGISTRY, ballisticGateOpen, decoyRadarBlips, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
 
@@ -59,11 +59,12 @@ export interface PerceptionView {
   /** Per-observer decoy-buoy visibility (Story 8.16 — contact-like,
    *  recomputed every tick through the `decoy` row, in drop order). */
   decoys: DecoyView[];
-  /** Per-observer SMOKE SCREEN puff visibility (Story 8.18 — contact-like,
-   *  recomputed every tick through the `smoke` row, in lay order). The disc
-   *  alone rides here (`{id,x,y,t0}`); the puff's OCCLUSION of everything
-   *  else flows through `sightClear` inside every sight-tier row. */
-  smoke: SmokeView[];
+  /** Per-observer MULTI-SPECTRAL COUNTERMEASURE cloud visibility (Story 9.3
+   *  — contact-like, recomputed every tick through the `cloud` row, in press
+   *  order). The cloud's seed alone rides here (`{id,x,y,t0}`); its pixels'
+   *  OCCLUSION of everything else flows through `sightClear` / `radarClear`
+   *  inside every sight-tier and radar-tier row. */
+  clouds: CloudView[];
 }
 
 /** The narrow row context for the FOGGED path (observe() fail-closes before
@@ -84,9 +85,10 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     // Story 8.16: the live decoys — the decoy channel's subjects and the
     // decoy-paint blip sources.
     decoys: world.decoys,
-    // Story 8.18: every live SMOKE SCREEN puff — the ONE occluder input of
-    // every sight-tier predicate (sightClear) and the smoke channel's subjects.
-    smoke: world.smokePuffs,
+    // Story 9.3: every live COUNTERMEASURE cloud with its cached pixel base —
+    // the ONE occluder input of every sight-tier predicate (sightClear) and
+    // of the radar rule (radarClear), and the cloud channel's subjects.
+    clouds: world.cloudRecords,
     // Story 4.12: the wake scan's subject list (every live ribbon — active,
     // torpedo, and detached water), riding the context like the raster does.
     wakes: world.wakeRibbons,
@@ -115,9 +117,10 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     // Story 8.16: the decoy channel's subjects (spectators see every decoy);
     // the decoy-paint blip source is inert on this path (no blips).
     decoys: world.decoys,
-    // Story 8.18: the smoke channel's subjects (spectators see every puff);
-    // the occlusion term is inert here (no spectator row reads sightClear).
-    smoke: world.smokePuffs,
+    // Story 9.3: the cloud channel's subjects (spectators see every cloud);
+    // the occlusion terms are inert here (no spectator row reads sightClear
+    // or radarClear).
+    clouds: world.cloudRecords,
     // Inert on this path too (spectators have no radar, so no wake events) —
     // rides uniformly so the context stays one shape.
     wakes: world.wakeRibbons,
@@ -293,15 +296,16 @@ function decoyScan(world: World, ctx: SignalContext): DecoyView[] {
   return out;
 }
 
-/** Per-observer SMOKE SCREEN puff visibility (Story 8.18) — contact-like
- *  state exactly like decoys, recomputed every tick through the smoke row, in
- *  Map-insertion (lay) order. ONLY the disc rides here; a puff's occlusion of
- *  hulls, ordnance, marks and water is `sightClear`'s job inside the rows. */
-function smokeScan(world: World, ctx: SignalContext): SmokeView[] {
-  const out: SmokeView[] = [];
-  const row = SIGNAL_REGISTRY.smoke;
-  for (const puff of world.smoke.values()) {
-    if (row.visible(ctx, puff)) out.push(row.materialize(ctx, puff));
+/** Per-observer COUNTERMEASURE cloud visibility (Story 9.3) — contact-like
+ *  state exactly like decoys, recomputed every tick through the cloud row, in
+ *  Map-insertion (press) order. ONLY the seed rides here; a cloud's occlusion
+ *  of hulls, ordnance, marks, water and radar returns is `sightClear` /
+ *  `radarClear`'s job inside the rows. */
+function cloudScan(world: World, ctx: SignalContext): CloudView[] {
+  const out: CloudView[] = [];
+  const row = SIGNAL_REGISTRY.cloud;
+  for (const cloud of world.clouds.values()) {
+    if (row.visible(ctx, cloud)) out.push(row.materialize(ctx, cloud));
   }
   return out;
 }
@@ -447,7 +451,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
     litZones: litZoneScan(world, ctx),
     burnZones: burnZoneScan(world, ctx),
     decoys: decoyScan(world, ctx),
-    smoke: smokeScan(world, ctx),
+    clouds: cloudScan(world, ctx),
   };
 }
 
@@ -460,7 +464,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
  */
 export function observe(world: World, observerId: string): PerceptionView {
   const me = world.ships.get(observerId);
-  if (!me) return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], decoys: [], smoke: [] };
+  if (!me) return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], decoys: [], clouds: [] };
   return view(world, foggedContext(world, me));
 }
 

@@ -2347,24 +2347,27 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * SMOKE SCREEN puffs (render/smokeScreen.ts, Story 8.18) — FEEL ONLY. The
-   * puff's presence, position, life and radius are gameplay (the server's sight
-   * predicate reads them) and live in shared `CONFIG.smokeScreen` + the shared
-   * `puffRadius`; nothing here may change who sees what. NOT `smoke` below
-   * (WOUNDED smoke): the two share `colors.woundedSmoke` and differ by SHAPE —
-   * a large stationary disc with a crisp rim vs small trailing soft blobs.
+   * MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts, Story 9.3)
+   * — FEEL ONLY, and Eric may veto any knob on staging. Every pixel's
+   * position, life and footprint are gameplay (the server's predicates read
+   * them) and live in shared `CONFIG.countermeasure` + shared sim/cloud.ts;
+   * nothing here may change who sees what. Each living pixel is drawn as a
+   * square centered on the very point the server's footprint test uses.
+   * NOT `smoke` below (WOUNDED smoke): the two share `colors.woundedSmoke` and
+   * differ by SHAPE — hard-edged squares vs small trailing soft blobs.
    */
-  smokeScreen: {
-    /** The last this-many ms of a puff's life ease its FILL alpha linearly to
-     *  0 so a puff thins out rather than popping off at its server `until`.
-     *  The rim never fades — it is the occlusion edge, and the puff occludes at
-     *  full strength until removal (cycle-153 review gate). */
-    fadeMs: 5000,
-    /** Disc fill alpha at full strength (before the end-of-life fade). */
-    fillAlpha: 0.35,
-    /** 1 u rim alpha — a hair stronger than the fill, so the EDGE (the
-     *  occlusion boundary) reads crisply. */
-    rimAlpha: 0.6,
+  countermeasure: {
+    /** Pixel square fill alpha at full strength (before its own fade). */
+    fillAlpha: 0.55,
+    /** The last this-many ms of EACH pixel's own life ease its alpha linearly
+     *  to 0, so the cloud thins out pixel by pixel instead of popping. */
+    fadeMs: 2000,
+    /** u — the drawn square's SIDE. Deliberately LARGER than the blocking
+     *  footprint it stands for (shared `CONFIG.countermeasure.footprintU`, a
+     *  radius, untouched — the server and the wake mirror test that) so the
+     *  cloud reads dense on screen (Eric 2026-10-11); he may re-tune it on
+     *  staging. */
+    drawSizeU: 20,
   },
 
   /**

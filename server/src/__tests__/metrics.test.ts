@@ -38,7 +38,7 @@ import {
   metricsPayload,
   metricsEndpoint,
   recordMinesLive,
-  recordSmokeLive,
+  recordCloudsLive,
   nearestRank,
   computeTickPercentiles,
   round2,
@@ -266,7 +266,7 @@ describe('metricsPayload counts', () => {
       players: 0,
       tick: { p50: 0, p95: 0, max: 0, samples: 0 },
       messages: { ratePerSec: 0, total: 0 },
-      world: { minesLivePeak: 0, smokeLivePeak: 0 },
+      world: { minesLivePeak: 0, cloudLivePeak: 0 },
     });
   });
 });
@@ -303,27 +303,27 @@ describe('world.minesLivePeak gauge', () => {
   });
 });
 
-// Story 8.18 — the live SMOKE SCREEN puff high-water mark, the mine peak's
-// twin: every live puff is one segment–circle test inside every sight
-// predicate for every observer, so the peak is what the perception pass paid
-// for. A COUNT AND NOTHING ELSE — no owner, no position.
-describe('world.smokeLivePeak gauge (Story 8.18)', () => {
+// Story 8.18 / 9.3 — the live COUNTERMEASURE cloud high-water mark, the mine
+// peak's twin: every live cloud is one pixel scan inside every sight predicate
+// for every observer, so the peak is what the perception pass paid for. A
+// COUNT AND NOTHING ELSE — no owner, no position.
+describe('world.cloudLivePeak gauge (Story 8.18 / 9.3)', () => {
   it('keeps the MAX ever recorded, never falls, and rides the payload beside minesLivePeak', () => {
-    expect(metricsPayload().world.smokeLivePeak).toBe(0);
-    recordSmokeLive(4);
-    expect(metricsPayload().world.smokeLivePeak).toBe(4);
-    recordSmokeLive(160); // sixteen full trails on the water
-    expect(metricsPayload().world.smokeLivePeak).toBe(160);
-    recordSmokeLive(0); // every trail expired — the PEAK does not fall
-    expect(metricsPayload().world.smokeLivePeak).toBe(160);
-    expect(metricsPayload().world).toEqual({ minesLivePeak: 0, smokeLivePeak: 160 }); // independent of the mine peak
+    expect(metricsPayload().world.cloudLivePeak).toBe(0);
+    recordCloudsLive(4);
+    expect(metricsPayload().world.cloudLivePeak).toBe(4);
+    recordCloudsLive(40); // many stacked clouds on the water
+    expect(metricsPayload().world.cloudLivePeak).toBe(40);
+    recordCloudsLive(0); // every cloud expired — the PEAK does not fall
+    expect(metricsPayload().world.cloudLivePeak).toBe(40);
+    expect(metricsPayload().world).toEqual({ minesLivePeak: 0, cloudLivePeak: 40 }); // independent of the mine peak
   });
 
   it('resetMetrics() zeroes it', () => {
-    recordSmokeLive(9);
-    expect(metricsPayload().world.smokeLivePeak).toBe(9);
+    recordCloudsLive(9);
+    expect(metricsPayload().world.cloudLivePeak).toBe(9);
     resetMetrics();
-    expect(metricsPayload().world.smokeLivePeak).toBe(0);
+    expect(metricsPayload().world.cloudLivePeak).toBe(0);
   });
 });
 

@@ -2890,3 +2890,15 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   status: open — note for Story 9.7 (2026-10-11, Story 9.2 review, Blind Hunter)
   summary: AN UN-STUBBED CONSUMABLE WITH NO KEY WOULD BE DEALT EVERY OFFER AND ALWAYS GREYED: `draw.ts` treats every non-stub consumable as eligible and `pickRefusal` refuses an unkeyed one as `'stub'`, so whoever builds DEPTH CHARGE must add it to `CONSUMABLE_KEY_ORDER` (key `7`, `SLOT_COUNT` 12, PV bump) in the same change that clears its `stub` flag, or the card is permanent dead weight in the draw.
   evidence: `shared/src/sim/draw.ts` consumable eligibility; `shared/src/sim/boons.ts` `pickRefusal` unkeyed guard (amendment 38i); epics.md Story 9.7 AC ("it takes key `7`").
+
+## 2026-10-12 — Story 9.3 (cycle 174; Multi-Spectral Countermeasure) review defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-3-multi-spectral-countermeasure.md`
+  summary: THE CLOUD RENDERER REBUILDS ONE PIXI GRAPHICS PER CLOUD PER FRAME — `client/src/render/countermeasure.ts` clears and re-fills up to 300 squares per cloud every render (five stacked clouds ≈ 1,500 fill instructions per frame); pixels move ≤ 0.02 u/ms and the wake mirror already accepts a 250 ms age bucket, so a bucketed redraw or one fill for the non-fading pixels would cut it ~15×. Unmeasured (a dev build is never a perf verdict) — a staging watch item for Eric's play.
+  evidence: Blind Hunter (Fable) PLAUSIBLE at the 2026-10-12 review gate; `Countermeasure.render` in `client/src/render/countermeasure.ts`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-3-multi-spectral-countermeasure.md`
+  summary: THE CLOUD PERF PIN MEASURES STATIC HULLS ONLY — `server/src/__tests__/cloudPerf.test.ts` (20 observers × 20 hulls × 5 clouds, 1.5–2.0 ms; 4.8–5.0 ms with every observer dazzled so the radar march runs) seats no wake ribbons, shells, mines or decoys, and the new per-pixel term also runs per wake segment in the (detect, sight] band and per shell per observer; the broadphases make a blow-up unlikely but the figure is not a tick figure.
+  evidence: Blind Hunter (Fable) PLAUSIBLE at the 2026-10-12 review gate; amendment 50(h).
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-3-multi-spectral-countermeasure.md`
+  summary: PUBLIC SEQUENTIAL IDS DISCLOSE A RUNNING COUNT — cloud ids `cl${n}` (`cloudSeq`, never reset, not even at match reset) ride the wire unchanged, so a client that sees `cl12` then `cl16` learns three clouds were made outside its view and roughly when; the same holds for every store id in the game (mines, decoys, the retired puffs `sk${n}`) — a project-wide convention, not this story's, and the client already derives every pixel from the id so no cheat gains capability. Opaque or per-observer ids would close it everywhere at once.
+  evidence: Codex gpt-5.6-sol CONFIRMED and Blind Hunter (low) at the 2026-10-12 review gate; `server/src/game/world.ts` `makeCloud`.

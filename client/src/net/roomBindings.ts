@@ -19,6 +19,7 @@ import {
   type BoonFitEvent,
   type BurnZoneView,
   type BurstEvent,
+  type CloudView,
   type DeniedView,
   type DropEvent,
   type FoghornEvent,
@@ -57,7 +58,7 @@ import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
 import type { BurnZones } from '../render/burnZones.js';
 import type { Decoys } from '../render/decoys.js';
-import type { SmokeScreen } from '../render/smokeScreen.js';
+import type { Countermeasure } from '../render/countermeasure.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { bountyKillLine } from '../ui/bounty.js';
 import { fleetSizeName, killLine, pinDroneColor, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
@@ -125,10 +126,10 @@ export interface RoomBindingDeps {
   /** DECOY BUOY markers (render/decoys.ts, Story 8.16) — synced contact-like
    *  from FrameMsg.decoys every tick, exactly like mines/litZones. */
   decoys: Decoys;
-  /** SMOKE SCREEN puffs (render/smokeScreen.ts, Story 8.18) — synced
-   *  contact-like from FrameMsg.smoke every tick, exactly like burnZones. NOT
-   *  `smoke` above (that is WOUNDED smoke, an event-built plume). */
-  smokeScreen: SmokeScreen;
+  /** MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts, Story
+   *  9.3) — synced contact-like from FrameMsg.clouds every tick, exactly like
+   *  burnZones. NOT `smoke` above (that is WOUNDED smoke, an event-built plume). */
+  countermeasure: Countermeasure;
   /** Screen-shake driver (render/shake.ts) — triggered on own-ship damage. */
   shake: ShakeDriver;
   /** Tone player (audio/context.ts) — a minimal play-only surface here. The
@@ -783,15 +784,34 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   // observer sees no decoys, so treat a missing key as an empty list.
   const decoys = f.decoys ?? [];
   deps.decoys.sync(decoys, deps.ordnanceHue);
-  // SMOKE SCREEN puffs (Story 8.18), same reconcile, same omitted-key rule.
-  const smoke = f.smoke ?? [];
-  deps.smokeScreen.sync(smoke);
+  // COUNTERMEASURE clouds (Story 9.3): NOT the same reconcile — the frame's
+  // clouds MERGE into the held set (amendment 51: a cloud once seen is held
+  // until it dies — delivery is per-sweep, Eric 2026-10-12: "If it's detected
+  // by my radar, I want my radar to paint it"; nothing new is disclosed by
+  // holding what was already sent, a cloud being stationary and fully derived
+  // from {id,x,y,t0}), and the held, unexpired list is what the renderer and
+  // the wake mirror see. The held set lives on `net` (state.ts) so the
+  // match-start edge in main.ts can clear it with the renderer.
+  const clouds = holdClouds(f, (net.heldClouds ??= new Map()));
+  deps.countermeasure.sync(clouds);
   // Mirror the raw list into state (net → state → render): the render loop
   // derives the own ACTIVE zones from it to keep beyond-sight shells alive
   // (projectiles) and clear the own fog over them (fog).
   net.litZones = litZones;
   net.burnZones = burnZones; // the burn classifier's zone list (trackBurning)
-  net.smoke = smoke; // the wake mirror's occluder list (render/wake.ts)
+  net.clouds = clouds; // the HELD list — the wake mirror's occluder list (render/wake.ts)
+}
+
+/**
+ * Merge this frame's clouds into the held set and drop every held cloud whose
+ * life has ended on the FRAME's server time (never a local clock reading).
+ * A cloud is stationary, so a re-delivery only refreshes the same record.
+ * Returns the held, unexpired list (Map-insertion order = first-seen order).
+ */
+function holdClouds(f: FrameMsg, held: Map<string, CloudView>): CloudView[] {
+  for (const c of f.clouds ?? []) held.set(c.id, c);
+  for (const [id, c] of held) if (f.t - c.t0 >= CONFIG.countermeasure.lifeMs) held.delete(id);
+  return [...held.values()];
 }
 
 /**

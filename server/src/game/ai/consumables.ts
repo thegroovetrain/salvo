@@ -87,7 +87,7 @@ const supercavTorpedoTactic: ConsumableTactic = {
 };
 
 // ---------------------------------------------------------------------------
-// SHIELD BLOCK, SMOKE SCREEN, DECOY BUOY — each rule reuses a cue
+// SHIELD BLOCK, MULTI-SPECTRAL COUNTERMEASURE, DECOY BUOY — each rule reuses a cue
 // another row already acts on.
 // ---------------------------------------------------------------------------
 
@@ -99,17 +99,16 @@ function shieldUp(self: BotSelf, now: number): boolean {
 }
 
 /**
- * Could one of this bot's OWN smoke puffs still be alive? A press stamps
- * `smokeUntil = now + layMs` (the world keeps that stamp after the window
- * lapses and zeroes it only at a life boundary); the last puff drops no later
- * than the lay window's end and lives `lifeMs`, so every own puff is gone once
- * `now >= smokeUntil + lifeMs`. An undefined or 0 stamp means nothing is
- * running. (`smokeUntil` arrives on the mind, copied by the driver.)
+ * Could one of this bot's OWN countermeasure clouds still be alive? A press
+ * stamps `cloudUntil = now + lifeMs` (the world keeps the stamp after the
+ * cloud expires and zeroes it only at a life boundary), so every own cloud
+ * is gone once `now >= cloudUntil`. An undefined or 0 stamp means nothing is
+ * running. (`cloudUntil` arrives on the mind, copied by the driver.)
  */
-function ownSmokeRunning(mind: BotMind, now: number): boolean {
-  const until = mind.smokeUntil;
+function ownCloudRunning(mind: BotMind, now: number): boolean {
+  const until = mind.cloudUntil;
   if (until === undefined || until === 0) return false;
-  return now < until + CONFIG.smokeScreen.lifeMs;
+  return now < until;
 }
 
 /** SHIELD BLOCK — pressed on the DAMAGE CUT cues, never over a shield already
@@ -123,21 +122,22 @@ const shieldBlockTactic: ConsumableTactic = {
 };
 
 /**
- * SMOKE SCREEN — laid on the way OUT (the disengage posture), NEVER while one
- * of the bot's own smokes is still running (Eric ruling R12, 2026-09-30:
- * "never while one of your own is running — bad play"; supersedes R8's
- * once-per-retreat bookkeeping). No posture-edge state: a retreat that
- * outlives its smoke may press again once the last puff is gone, and a posture
- * flicker (storm-edge dodge, heal pop-up) cannot re-arm it early.
+ * MULTI-SPECTRAL COUNTERMEASURE (Story 9.3 — SMOKE SCREEN's seat) — pressed on
+ * the way OUT (the disengage posture), NEVER while one of the bot's own
+ * clouds is still up (Eric ruling R12, 2026-09-30: "never while one of your
+ * own is running — bad play"; supersedes R8's once-per-retreat bookkeeping).
+ * No posture-edge state: a retreat that outlives its cloud may press again
+ * once it has expired, and a posture flicker (storm-edge dodge, heal pop-up)
+ * cannot re-arm it early.
  */
-const smokeScreenTactic: ConsumableTactic = {
-  id: 'smokeScreen',
+const countermeasureTactic: ConsumableTactic = {
+  id: 'countermeasure',
   kind: 'ability',
   reachU: () => 0,
   want: (ctx: TacticContext) =>
     isAfloat(ctx.self.lifecycle) &&
     ctx.posture === 'disengage' &&
-    !ownSmokeRunning(ctx.mind, ctx.sit.now),
+    !ownCloudRunning(ctx.mind, ctx.sit.now),
   solve: () => null,
 };
 
@@ -186,7 +186,7 @@ export const CONSUMABLE_TACTICS: Readonly<Record<ConsumableId, ConsumableTactic>
   hullRepair: hullRepairTactic,
   supercavTorpedo: supercavTorpedoTactic,
   shieldBlock: shieldBlockTactic,
-  smokeScreen: smokeScreenTactic,
+  countermeasure: countermeasureTactic,
   decoyBuoy: decoyBuoyTactic,
   dazzleShells: dazzleShellsTactic,
   depthCharge: depthChargeTactic,
@@ -203,7 +203,7 @@ export const CONSUMABLE_TACTICS: Readonly<Record<ConsumableId, ConsumableTactic>
 const CONSUMABLE_APPETITE: Readonly<Record<ConsumableId, number>> = Object.freeze({
   hullRepair: APPETITE_NEUTRAL,
   shieldBlock: APPETITE_NEUTRAL,
-  smokeScreen: APPETITE_NEUTRAL,
+  countermeasure: APPETITE_NEUTRAL,
   decoyBuoy: APPETITE_NEUTRAL,
   depthCharge: APPETITE_NEUTRAL,
   supercavTorpedo: APPETITE_NEUTRAL,

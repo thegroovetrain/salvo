@@ -42,13 +42,11 @@ export type VisionRanges = Pick<EffectiveStats, 'sightRange' | 'radarRange'>;
  * which is the whole point: an un-shrunk hole would draw clear water where the
  * server reveals nothing, i.e. the fog circle would LIE.
  *
- * `inSmoke` (Story 8.18, amendment 149) is the self-private `OwnShip.inSmoke`
- * mirror: a hull whose centre stands in any live puff sees at the same shared
- * function's smoke tier (1/8 of intel range). Dazzle wins when both hold —
- * `effectiveSight` decides that, never this file.
+ * (Story 9.3, epic-9 amendment 40, deleted the in-smoke third argument: a
+ * countermeasure cloud blocks sight by its pixels, never by shrinking the hole.)
  */
-export function fogHoleRadiusU(ranges: VisionRanges, dazzled: boolean, inSmoke = false): number {
-  return effectiveSight(ranges, dazzled, inSmoke);
+export function fogHoleRadiusU(ranges: VisionRanges, dazzled: boolean): number {
+  return effectiveSight(ranges, dazzled);
 }
 
 /**
@@ -118,10 +116,6 @@ export class Fog {
    *  this ship that way: an un-shrunk hole would draw clear water where the
    *  server reveals nothing, i.e. the fog circle would lie. */
   private dazzled = false;
-  /** Does the own hull's centre stand inside a live SMOKE SCREEN puff (the
-   *  self-private you.inSmoke, Story 8.18)? Same contract as `dazzled`: the
-   *  server already perceives this ship at the shrunken smoke sight. */
-  private inSmoke = false;
 
   constructor(layer: Container) {
     this.sprite = new Sprite(Texture.EMPTY);
@@ -151,25 +145,9 @@ export class Fog {
     return true;
   }
 
-  /**
-   * Adopt the IN-SMOKE state (Story 8.18) — `setDazzled`'s twin, with the same
-   * changed-flag contract: TRUE only on the frame the state flips, so the
-   * caller rebakes exactly then. Un-animated for the same reason.
-   */
-  setInSmoke(inSmoke: boolean): boolean {
-    if (inSmoke === this.inSmoke) return false;
-    this.inSmoke = inSmoke;
-    return true;
-  }
-
-  /** Is the own hull in smoke right now? Test/observation seam. */
-  get isInSmoke(): boolean {
-    return this.inSmoke;
-  }
-
   /** The radius (u) this instance's hole is baked at (the pure rule above). */
   private holeRadiusU(): number {
-    return fogHoleRadiusU(this.ranges, this.dazzled, this.inSmoke);
+    return fogHoleRadiusU(this.ranges, this.dazzled);
   }
 
   /** Is the dazzle currently held? Test/observation seam. */

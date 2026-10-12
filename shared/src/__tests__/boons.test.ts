@@ -790,7 +790,7 @@ describe('the consumable slots — stockSlotFor / the stock fold (Story 8.7, fix
   });
 
   it('the replay agrees with the INCREMENTAL path over a mixed hand, in either fit order', () => {
-    const cards: ConsumableId[] = ['decoyBuoy', 'hullRepair', 'decoyBuoy', 'smokeScreen', 'hullRepair', 'decoyBuoy'];
+    const cards: ConsumableId[] = ['decoyBuoy', 'hullRepair', 'decoyBuoy', 'countermeasure', 'hullRepair', 'decoyBuoy'];
     for (const hand of [cards, [...cards].reverse()]) {
       const replayed = slotsWithCards(stats, hand);
       const incremental = loadoutFor(stats);
@@ -803,13 +803,13 @@ describe('the consumable slots — stockSlotFor / the stock fold (Story 8.7, fix
   it('using the LAST copy nulls ONLY that kind’s slot — every other stack stays put', () => {
     // A spent copy leaves `cards` server-side, so the next replay is the
     // clear-at-zero state: the kind's own slot reads null, nothing shifts.
-    const before: ConsumableId[] = ['hullRepair', 'smokeScreen', 'decoyBuoy', 'decoyBuoy'];
-    const after = before.filter((id) => id !== 'smokeScreen');
+    const before: ConsumableId[] = ['hullRepair', 'countermeasure', 'decoyBuoy', 'decoyBuoy'];
+    const after = before.filter((id) => id !== 'countermeasure');
     const a = slotsWithCards(stats, before);
     const b = slotsWithCards(stats, after);
-    expect(b[slotOf('smokeScreen')]).toEqual({ equipmentId: null, state: null });
+    expect(b[slotOf('countermeasure')]).toEqual({ equipmentId: null, state: null });
     a.forEach((slot, i) => {
-      if (i !== slotOf('smokeScreen')) expect(b[i], `slot ${i}`).toEqual(slot);
+      if (i !== slotOf('countermeasure')) expect(b[i], `slot ${i}`).toEqual(slot);
     });
   });
 });

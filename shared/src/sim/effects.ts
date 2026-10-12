@@ -56,11 +56,14 @@ export type BoonId = string;
  *
  * STORY 9.2 RETIRED ONE (Eric 2026-10-11, epic-9 amendment 31): CHAFF left the
  * pool so the key row is six keys; its role passes to 9.3's countermeasure.
+ *
+ * STORY 9.3 (Eric 2026-10-11): `smokeScreen` is REPLACED by `countermeasure`
+ * (MULTI-SPECTRAL COUNTERMEASURE) in the same place; still seven.
  */
 export const CONSUMABLE_IDS = [
   'hullRepair',
   'shieldBlock',
-  'smokeScreen',
+  'countermeasure',
   'decoyBuoy',
   'depthCharge',
   'supercavTorpedo',

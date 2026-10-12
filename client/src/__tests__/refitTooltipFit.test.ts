@@ -623,7 +623,7 @@ describe('the hover panel\'s consumable shape line', () => {
 
   it('fits inside the panel, at its shipped width (amendment 42)', () => {
     expect(REFIT_TIP.width).toBe(300);
-    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'decoyBuoy']) {
+    for (const id of ['hullRepair', 'shieldBlock', 'countermeasure', 'decoyBuoy']) {
       const model = refitTooltipModel({ id, kind: 'consumable' }, boonName(id), consumableStatRows(id), 4);
       expect(refitTooltipWidestToken(model), id).toBeLessThanOrEqual(refitTooltipInnerWidth());
       // VERTICALLY the panel is measured against the placement it would take.

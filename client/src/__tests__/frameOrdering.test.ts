@@ -69,7 +69,7 @@ function setup(onOwnStats: () => void): {
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
-    smokeScreen: { sync: vi.fn() },
+    countermeasure: { sync: vi.fn() },
     effects: { spawnEffect: vi.fn() },
     audio: { play: vi.fn() },
     names: (id: string) => id,

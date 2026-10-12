@@ -89,7 +89,7 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   starShells: { cap: 5, kind: 'equipment', stub: false },
   hullRepair: { cap: 5, kind: 'consumable', stub: false }, // LIVE since Story 8.8 (R13)
   shieldBlock: { cap: 5, kind: 'consumable', stub: false }, // LIVE since 8.16 (R37)
-  smokeScreen: { cap: 5, kind: 'consumable', stub: false }, // LIVE since 8.18 (R38)
+  countermeasure: { cap: 5, kind: 'consumable', stub: false }, // LIVE since 9.3 (replaced SMOKE SCREEN, live since 8.18)
   decoyBuoy: { cap: 5, kind: 'consumable', stub: false }, // LIVE since 8.16 (R36)
   depthCharge: { cap: 5, kind: 'consumable', stub: true }, // NEW in 8.13 (amendment 83)
   // AN EQUIPMENT LINE since 8.13 (amendment 81) — it keeps its LINE_IDS slot.

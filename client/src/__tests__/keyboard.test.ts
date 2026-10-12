@@ -250,7 +250,7 @@ describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
   // exactly as the mine does on the weapon row.
   it('answers over CONSUMABLE ids too: an instant stack ACTIVATES, the decoy shape PRIMES', () => {
     expect(slotHoldsAbility(withBelt('hullRepair'), BELT_1)).toBe(true);
-    expect(slotHoldsAbility(withBelt('smokeScreen'), BELT_1)).toBe(true);
+    expect(slotHoldsAbility(withBelt('countermeasure'), BELT_1)).toBe(true);
     expect(slotHoldsAbility(withBelt('shieldBlock'), BELT_1)).toBe(true);
     expect(slotHoldsAbility(withBelt('decoyBuoy'), BELT_1)).toBe(false); // aimed → primes
     expect(slotHoldsAbility(withBelt(null, 'hullRepair'), BELT_2)).toBe(true);

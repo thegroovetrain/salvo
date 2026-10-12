@@ -164,7 +164,7 @@ export type SlotItemId = EquipmentId | ConsumableId;
 export const CONSUMABLE_IS_WEAPON: Readonly<Record<ConsumableId, boolean>> = {
   hullRepair: false,
   shieldBlock: false,
-  smokeScreen: false,
+  countermeasure: false, // an instant key activation (Story 9.3)
   decoyBuoy: true,
   // DEPTH CHARGE (amendment 83) — STUB: Eric's line, mechanism a later story.
   // Declared NON-aimed until he rules; a stub is never dealt, so nothing can
@@ -289,13 +289,13 @@ export interface LoadoutSlot {
  * the key order and the kind → slot map; both sides derive from it.
  *
  * `depthCharge` is absent on purpose: a STUB line (never dealt) has no slot and
- * no key. `smokeScreen` holds `3` until 9.3's countermeasure and
+ * no key. `countermeasure` holds `3` (Story 9.3, Eric 2026-10-11) and
  * `dazzleShells` (FLASH SHELLS) holds `4` until 9.4's fouling shell.
  */
 export const CONSUMABLE_KEY_ORDER: readonly ConsumableId[] = Object.freeze([
   'hullRepair',
   'shieldBlock',
-  'smokeScreen',
+  'countermeasure',
   'dazzleShells',
   'decoyBuoy',
   'supercavTorpedo',

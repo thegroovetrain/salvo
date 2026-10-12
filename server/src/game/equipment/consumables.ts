@@ -14,8 +14,9 @@
 // since Story 8.16 SHIELD BLOCK and the click-placed DECOY BUOY
 // (amendments 116–124; CHAFF, added there too, was retired in Story 9.2 —
 // epic-9 amendment 31), since Story 8.17 FLASH SHELLS (id `dazzleShells`,
-// amendment 132 — the second click-aimed line), and since Story 8.18 SMOKE
-// SCREEN (amendments 138–145 — key-fired, lays 5 s of puffs at the hull's center, amendment 190).
+// amendment 132 — the second click-aimed line), and since Story 9.3 the
+// MULTI-SPECTRAL COUNTERMEASURE (epic-9 amendments 40–47 — key-fired, one
+// pixel cloud per press at the hull's centre; it took SMOKE SCREEN's 8.18 seat).
 // The DEPTH CHARGE stub (amendment 83) is the ONE line still `stub` in the
 // catalog, so no copy of it can be dealt, picked or stocked — and because the
 // registry is PARTIAL, even a forged belt press naming it finds no row and
@@ -31,7 +32,7 @@ import { supercavTorpedoRow } from './consumables/supercavTorpedo.js';
 import { shieldBlockRow } from './consumables/shieldBlock.js';
 import { decoyBuoyRow } from './consumables/decoyBuoy.js';
 import { dazzleShellsRow } from './consumables/dazzleShells.js';
-import { smokeScreenRow } from './consumables/smokeScreen.js';
+import { countermeasureRow } from './consumables/countermeasure.js';
 import { buildConsumableRegistry, type ConsumableRegistry } from './consumables/row.js';
 
 export {
@@ -52,5 +53,5 @@ export const CONSUMABLES: ConsumableRegistry = buildConsumableRegistry([
   shieldBlockRow,
   decoyBuoyRow,
   dazzleShellsRow,
-  smokeScreenRow,
+  countermeasureRow,
 ]);

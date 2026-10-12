@@ -3,6 +3,11 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  76 — Story 9.3 (Eric 2026-10-11, epic-9 amendments 40–47): smokeScreen →
+ *  countermeasure (pixel cloud; catalog content, CONFIG.countermeasure
+ *  replaces CONFIG.smokeScreen), OwnShip.inSmoke deleted, FrameMsg.smoke →
+ *  clouds (CloudView {id,x,y,t0}; pixels from shared sim/cloud.ts).
+ *  Perception exception count stays SIX.
  *  75 — cycle 172 (Story 9.2, Eric 2026-10-11, epic-9 amendments 21/31):
  *  every consumable has a fixed key — SLOT_COUNT 9 → 11 (`InputMsg.slot` /
  *  `actSlot` 0..10, `OwnShip.ammo` length 11), each consumable kind bound to
@@ -815,7 +820,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 75;
+export const PROTOCOL_VERSION = 76;
 
 // Tunables
 export * from './constants.js';
@@ -860,5 +865,5 @@ export * from './sim/seedText.js';
 export * from './sim/heightField.js';
 export * from './sim/radarShadow.js';
 export * from './sim/wake.js';
-export * from './sim/smoke.js';
+export * from './sim/cloud.js';
 export * from './sim/zone.js';

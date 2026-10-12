@@ -184,7 +184,10 @@ export interface StageLayers {
    *  invisible in exactly the 330-412.5u annulus where the whole signal lives.
    *  Placed directly above `litZone` and BENEATH the tactical marks for
    *  litZone's own stated reason — blips, mines and the reticle must stay
-   *  readable on top of it, and a plume is soft ambient texture, not a mark. */
+   *  readable on top of it, and a plume is soft ambient texture, not a mark.
+   *  MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts, Story 9.3)
+   *  draw here too — below `blip`, so a radar return is never beneath a cloud
+   *  (amendment 224(b)). */
   smoke: Container;
   /** Own mines (render/mines.ts) — fog-immune so your field is always readable. */
   mineChart: Container;

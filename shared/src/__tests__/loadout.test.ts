@@ -351,7 +351,7 @@ describe('CONSUMABLE_IS_WEAPON / isWeaponItem — the split both activation chan
     expect(CONSUMABLE_IS_WEAPON).toEqual({
       hullRepair: false,
       shieldBlock: false,
-      smokeScreen: false,
+      countermeasure: false,
       decoyBuoy: true, // click-placed in the mine's rear sector (catalog-v3 R1/R36, Story 8.16)
       depthCharge: false, // STUB, non-aimed until Eric rules (amendment 83)
       supercavTorpedo: true, // KEY PRIMES, CLICK FIRES — bow +/-15 deg (amendment 74)

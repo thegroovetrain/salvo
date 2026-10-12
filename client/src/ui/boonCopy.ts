@@ -120,7 +120,13 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   // --- the six consumables (+ the depth-charge stub) ------------------------------------------------
   hullRepair: 'HULL REPAIR',
   shieldBlock: 'SHIELD BLOCK',
-  smokeScreen: 'SMOKE SCREEN',
+  // `MULTI-SPECTRAL CM`, NOT `MULTI-SPECTRAL COUNTERMEASURE` (Eric ruling
+  // 2026-10-11, epic-9 amendment 48 — the SUPERCAV precedent below): the full
+  // name measured 330 px against the refit card's 296 px name box and the
+  // one-line tooltip heading, even at the long type step, and Eric shortened
+  // the NAME rather than add an exemption or a type step. The full name is
+  // How-to-Play's (Story 9.11) and the record's.
+  countermeasure: 'MULTI-SPECTRAL CM',
   decoyBuoy: 'DECOY BUOY',
   // `SUPERCAV TORPEDO`, NOT `SUPERCAVITATING TORPEDO` (Eric ruling 2026-09-19,
   // epic-8 amendment 75). The sheet's full word never fitted the refit card's
@@ -895,7 +901,7 @@ function triggerFollows(field: string, fields: readonly string[]): boolean {
  *
  * HULL REPAIR was the first live consumable (amendment 41 flipped its stub in
  * Story 8.8); the SUPERCAV TORPEDO (8.13), SHIELD BLOCK and DECOY BUOY (8.16;
- * CHAFF retired in 9.2), FLASH SHELLS (8.17) and SMOKE SCREEN (8.18) follow
+ * CHAFF retired in 9.2), FLASH SHELLS (8.17) and the MULTI-SPECTRAL COUNTERMEASURE (9.3) follow
  * below. The one remaining stub is never dealt and gets no rows.
  */
 function hullRepairRows(): CardStatRow[] {
@@ -970,17 +976,16 @@ function flashShellRows(): CardStatRow[] {
 }
 
 /**
- * SMOKE SCREEN'S ROWS (Story 8.18, catalog-v3 R38 — DRAFT labels for Eric's
- * eye): how long the trail is laid, how long each puff lives, and how it grows
- * — `TRAIL 5 S` / `PUFF 30 S` / `RADIUS 82.5 → 165 U`, every number off
- * `CONFIG.smokeScreen`, in the 8.16 belt register's uppercase units.
+ * MULTI-SPECTRAL COUNTERMEASURE'S ROWS (Story 9.3, Eric ruling 2026-10-11,
+ * epic-9 amendment 45): how long the cloud lives and how it spreads —
+ * `LASTS 15 S` / `CLOUD 200 → 500 U`, every number off
+ * `CONFIG.countermeasure`, in the 8.16 belt register's uppercase units.
  */
-function smokeScreenRows(): CardStatRow[] {
-  const k = CONFIG.smokeScreen;
+function countermeasureRows(): CardStatRow[] {
+  const k = CONFIG.countermeasure;
   return [
-    { label: 'TRAIL', cur: null, next: `${num(k.layMs / 1000)} S` },
-    { label: 'PUFF', cur: null, next: `${num(k.lifeMs / 1000)} S` },
-    { label: 'RADIUS', cur: null, next: `${num(k.r0)} → ${num(k.r1)} U` },
+    { label: 'LASTS', cur: null, next: `${num(k.lifeMs / 1000)} S` },
+    { label: 'CLOUD', cur: null, next: `${num(k.r0)} → ${num(k.r1)} U` },
   ];
 }
 
@@ -993,7 +998,7 @@ const CONSUMABLE_ROWS: Readonly<Partial<Record<LineId, () => CardStatRow[]>>> = 
   shieldBlock: shieldBlockRows,
   decoyBuoy: decoyBuoyRows,
   dazzleShells: flashShellRows, // FLASH SHELLS (Story 8.17)
-  smokeScreen: smokeScreenRows, // Story 8.18
+  countermeasure: countermeasureRows, // Story 9.3
 };
 
 /**

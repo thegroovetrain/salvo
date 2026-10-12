@@ -81,7 +81,7 @@ describe('beltPressDenied — an unresolvable hull never claims FULL', () => {
 
   it('never denies a square that does not hold HULL REPAIR', () => {
     const maxHp = effectiveStats(CONFIG.shipClasses['torpedoBoat'], []).maxHp;
-    expect(beltPressDenied('smokeScreen', maxHp, maxHp, true)).toBe(false);
+    expect(beltPressDenied('countermeasure', maxHp, maxHp, true)).toBe(false);
     expect(beltPressDenied(null, maxHp, maxHp, true)).toBe(false);
   });
 

@@ -281,7 +281,7 @@ describe('eligibleLines — the whole eligibility law', () => {
         ...new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair'),
         ...new Array<LineId>(CATALOG.supercavTorpedo.cap).fill('supercavTorpedo'),
         ...new Array<LineId>(CATALOG.shieldBlock.cap).fill('shieldBlock'),
-        ...new Array<LineId>(CATALOG.smokeScreen.cap).fill('smokeScreen'),
+        ...new Array<LineId>(CATALOG.countermeasure.cap).fill('countermeasure'),
         ...new Array<LineId>(CATALOG.decoyBuoy.cap).fill('decoyBuoy'),
         ...new Array<LineId>(CATALOG.dazzleShells.cap).fill('dazzleShells'),
       ],
@@ -458,7 +458,7 @@ describe('drawOffer — the shape of an offer', () => {
     const TWO_LIVE: Catalog = {
       ...CATALOG,
       shieldBlock: { ...CATALOG.shieldBlock, stub: true },
-      smokeScreen: { ...CATALOG.smokeScreen, stub: true },
+      countermeasure: { ...CATALOG.countermeasure, stub: true },
       decoyBuoy: { ...CATALOG.decoyBuoy, stub: true },
       dazzleShells: { ...CATALOG.dazzleShells, stub: true },
     };
@@ -479,12 +479,12 @@ describe('drawOffer — the shape of an offer', () => {
   it('a fully capped captain sees a FULL offer of consumables in production (Story 8.16 closes amendment 94\'s two-card offer)', () => {
     const held: LineId[] = [...everyUpgradeCapped()];
     // FLASH SHELLS (`dazzleShells`) joined the live consumables in Story 8.17,
-    // SMOKE SCREEN in Story 8.18.
-    for (const id of ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'smokeScreen', 'decoyBuoy', 'dazzleShells'] as const) {
+    // SMOKE SCREEN in Story 8.18 (its slot is COUNTERMEASURE since Story 9.3).
+    for (const id of ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'countermeasure', 'decoyBuoy', 'dazzleShells'] as const) {
       held.push(...new Array<LineId>(CATALOG[id].cap).fill(id));
     }
     const ship: DrawShip = { held, slotIds: ROW_FULL, mountedGun: 'gun' };
-    const live = ['dazzleShells', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'smokeScreen', 'supercavTorpedo'];
+    const live = ['countermeasure', 'dazzleShells', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
     expect(eligibleLines(ship).map((e) => e.id).sort()).toEqual(live);
     for (let seed = 0; seed < 200; seed += 1) {
       const offer = drawOffer(ship, NO_WEIGHTS, mulberry32(seed));

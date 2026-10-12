@@ -79,6 +79,9 @@ const TUNE_FAMILIES = [
   // step per tier, blast, damage, slow.
   'captiveMines.',
   'foulingMines.',
+  // MULTI-SPECTRAL COUNTERMEASURE (Story 9.3, Eric 2026-10-11): the cloud's
+  // life, pixel count, radii, death window and footprint are harness dials.
+  'countermeasure.',
   'starShells.',
   'boost.',
   'shipClasses.',
@@ -317,9 +320,17 @@ export function validateTuneKey(key: string): void {
  *      server/src/game/world.ts:4075 divides by it (`ship.hp /
  *      ship.stats.maxHp`) with no guard, so a 0-hp class NaNs the damage-band
  *      read and smokes every tick on top of being one-shot by anything.
+ *    r0 / lifeMs / pixels (countermeasure — Story 9.3 review gate) —
+ *      shared/src/sim/cloud.ts `cloudScale` divides by both r0 (`r1 / r0`)
+ *      and lifeMs (`ageMs / lifeMs`): r0 = 0 makes the scale Infinity/NaN so
+ *      every pixel sits at a non-finite point and a cloud blocks the whole
+ *      board while the report reads normal; lifeMs = 0 NaNs the scale at age
+ *      0 (inert, the cloud expires at birth, but an arm that measures
+ *      nothing); pixels = 0 is an empty cloud that still reaches its owner
+ *      and occludes nothing — an arm with no countermeasure in it.
  *  Deliberately an EXPLICIT named set rather than a pattern: a floor is a
  *  refusal to run an arm, so each one is justified by a real call site. */
-const TUNE_MIN_ONE_LEAVES = new Set(['steerageSpeed', 'turnRate', 'shellSpeed', 'speed', 'hp']);
+const TUNE_MIN_ONE_LEAVES = new Set(['steerageSpeed', 'turnRate', 'shellSpeed', 'speed', 'hp', 'r0', 'lifeMs', 'pixels']);
 
 /** The per-key --tune floor. Reload/cooldown leaves are matched by
  *  CASE-INSENSITIVE SUFFIX, not by exact leaf name: a prefixed reload leaf

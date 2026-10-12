@@ -33,6 +33,11 @@ const allEntries = (): HowToEntry[] => HOWTO_SECTIONS.flatMap((s) => [...(s.entr
  *  no derived table ("a kind that leaves the catalog leaves any table built
  *  from it") until 9.11 carries the copy. */
 const inCatalog = (e: HowToEntry): boolean => (LINE_IDS as readonly string[]).includes(e.lineId);
+/** Lines that went live while the How-to-Play copy is frozen (amendment 36,
+ *  until Story 9.11) and so have no entry yet: the MULTI-SPECTRAL
+ *  COUNTERMEASURE (Story 9.3) replaced SMOKE SCREEN, whose stale entry stays on
+ *  the page beside CHAFF's. 9.11 writes the copy and empties this set. */
+const AWAITING_COPY: ReadonlySet<string> = new Set(['countermeasure']);
 const allProse = (): string =>
   HOWTO_SECTIONS.flatMap((s) => [...(s.paragraphs ?? []), ...(s.tail ?? [])]).join(' ');
 
@@ -87,7 +92,7 @@ describe('how-to-play copy', () => {
   it('every non-stub catalog line is an entry, derived from LINE_IDS', () => {
     const names = allEntries().map((e) => e.name);
     for (const id of LINE_IDS) {
-      if (isStubLine(id)) continue;
+      if (isStubLine(id) || AWAITING_COPY.has(id)) continue;
       expect(names, id).toContain(boonName(id, 0));
     }
   });

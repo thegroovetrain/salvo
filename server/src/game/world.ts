@@ -107,8 +107,9 @@ import {
   type Rng,
   type ShellOutcome,
   type ShellState,
-  type SmokePuff,
-  puffRadius,
+  type CloudBase,
+  type CloudRecord,
+  cloudBase,
   type ShipClassId,
   type ShipLifecycle,
   type ShipState,
@@ -270,6 +271,20 @@ export interface WorldOptions {
 function fittedEquipment(loadout: LoadoutSlot[], slotIndex: number): SlotItemId | null {
   const slot = loadout[slotIndex];
   return slot ? slot.equipmentId : null;
+}
+
+/**
+ * A MULTI-SPECTRAL COUNTERMEASURE cloud as the World STORES it (Story 9.3):
+ * the shared `CloudRecord` (id, owner, centre, bornAt, until) plus the
+ * CACHED pixel base — `cloudBase(id)`, the shared pure function of the id,
+ * memoized ONCE at the press so every per-tick predicate (sightClear /
+ * cloudCrossed / radarClear, through SignalContextBase.clouds) reads the
+ * offsets and death ages without re-rolling them. SERVER-PRIVATE as a whole:
+ * the `cloud` registry row materializes a fresh `{id,x,y,t0}` and nothing
+ * here (owner, until, base) ever rides the wire.
+ */
+export interface StoredCloud extends CloudRecord {
+  readonly base: CloudBase;
 }
 
 /**
@@ -817,26 +832,6 @@ export interface ShipRecord {
    */
   dazzledUntil: number;
   /**
-   * True iff this hull's CENTRE is inside ANY live SMOKE SCREEN puff — whoever
-   * laid it, its own trail included (Story 8.18, Eric ruling 2026-09-29, epic-8
-   * amendment 149, final: "if I'm in smoke, I should be able to see at 1/8
-   * intel range, including into other smoke. If I'm not in smoke, I can't see
-   * into it. If I'm in it, go ahead and occlude everything outside of that
-   * range, no matter what. Radar still works."). STAMPED every tick by
-   * stepSmoke AFTER the expiry sweep (so a puff that died this tick never
-   * counts), against the post-move pose, for every afloat hull; false for a
-   * sinking/sunk hull. Read by signals.ts: sightOf() through the shared
-   * `effectiveSight` (sight collapses to radarRange ×
-   * CONFIG.smokeScreen.inSmokeSightFraction — 82.5 u at base; dazzle wins when
-   * both), sightClear() (island LOS ∧ that clamp, no puff term — it sees INTO
-   * other smoke) and ownZoneCovers() (its own flare reveals nothing to it).
-   * Mirrored onto OwnShip.inSmoke (SELF-PRIVATE, frames.toOwnShip only,
-   * present only when true) so the client's fog hole shrinks honestly. Reset
-   * false at addShip / sinkShip / founderSinking / respawn / redeploy with the
-   * lay window (clearSmokeScreen).
-   */
-  inSmoke: boolean;
-  /**
    * The WAKE-DRAFT lift folded into this hull's forward cap on the CURRENT
    * tick (Story 8.19, Eric rulings 2026-09-30, epic-8 amendments 151–155): the
    * shared `draftLift` over every OTHER hull's ribbon as it stood after last
@@ -876,28 +871,18 @@ export interface ShipRecord {
    */
   nextSmokeAt: number;
   /**
-   * ms — server time this hull's SMOKE SCREEN lay window closes (Story 8.18,
-   * catalog-v3 R38; amendments 138–145); 0 = not laying. Set ONLY by
-   * `ActivationContext.setSmokeScreen` (`now + CONFIG.smokeScreen.layMs`; a
-   * re-press RESTARTS it — ruling 140). While `smokeUntil > now` and the hull
-   * is AFLOAT, stepSmoke drops a puff at the hull's CENTER every
-   * `puffIntervalMs` (Eric 2026-09-30, amendment 190 — was the stern).
-   * RESET to 0 at addShip / sinkShip / founderSinking / respawn / redeploy
-   * (ruling 144: laying stops at sink entry — the puffs already on the water
-   * live out their own `until`). SERVER-PRIVATE, never on the wire; mirrored
-   * to the bot's own BotTickEntry.smokeUntil (a self-read) and nothing else.
-   * Not the wounded-smoke timer above (`nextSmokeAt` — CONFIG.smoke).
+   * ms — server time this hull's MOST RECENT own MULTI-SPECTRAL COUNTERMEASURE
+   * cloud expires (Story 9.3): stamped `now + CONFIG.countermeasure.lifeMs`
+   * by `ActivationContext.setCountermeasure` at every press; 0 = none this
+   * life. SERVER-PRIVATE, never on the wire; mirrored to the bot's own
+   * BotTickEntry.cloudUntil (a self-read — the bot's "one of mine is still
+   * up" test) and nothing else. Reset to 0 at addShip / sinkShip /
+   * founderSinking / respawn / redeploy (a fresh life inherits no stale
+   * stamp — the 8.18 lay-window posture); the clouds themselves are WORLD-
+   * owned and live out their 15 s regardless (amendment 127). Not the
+   * wounded-smoke timer above (`nextSmokeAt` — CONFIG.smoke).
    */
-  smokeUntil: number;
-  /**
-   * ms — server time the NEXT SMOKE SCREEN puff is owed (Story 8.18); only
-   * read while `smokeUntil > now`. `setSmokeScreen` stamps it `now`, so the
-   * first puff drops on the very next tick's stepSmoke (≤ 50 ms after the
-   * press — activationControl runs after the smoke row), and stepSmoke
-   * advances it by `puffIntervalMs` per puff (a `while`, so a skipped tick
-   * still lays every owed puff). Reset with smokeUntil.
-   */
-  nextPuffAt: number;
+  cloudUntil: number;
   sweepAngle: number; // rad — current (post-advance) radar sweep angle
   prevSweepAngle: number; // rad — sweep angle before this tick's advance (paint window start)
   /**
@@ -1173,21 +1158,26 @@ export class World {
    */
   readonly decoys = new Map<string, DecoyState>();
   /**
-   * THE SMOKE SCREEN puffs (Story 8.18, catalog-v3 R38, amendments 138–145),
-   * keyed by id (`sk${n}`), in LAY order. Each is a stationary disc laid at
-   * its owner's CENTER (amendment 190) by stepSmoke, born at `bornAt` with radius r0 and
-   * growing to r1 over `expandMs` (the SHARED `puffRadius` curve — both sides
-   * run it), deleted by stepSmoke once `now >= until` (bornAt + lifeMs). THE
-   * OCCLUDER: signals.ts's `sightClear` tests every sight-tier segment against
-   * every live puff (an island for every sensor but radar), and the `smoke`
-   * registry row ships each disc a client may see as `{id,x,y,t0}`. WORLD-
-   * OWNED, not on the hull: a puff runs its full life through its owner's
+   * THE MULTI-SPECTRAL COUNTERMEASURE clouds (Story 9.3; Eric rulings
+   * 2026-10-11, epic-9 amendments 40–47 — 8.18's smoke store's seat), keyed
+   * by id (`cl${n}`), in PRESS order. Each is a stationary pixel cloud made
+   * at its owner's centre by `setCountermeasure` (ONE per press — amendment
+   * 46: five copies can stack five clouds; nothing restarts or refuses while
+   * one lives), born at `bornAt`, deleted by stepClouds once `now >= until`
+   * (bornAt + lifeMs). The record carries its CACHED pixel base
+   * (`cloudBase(id)` — a pure function of the id, memoized once per cloud so
+   * every per-tick predicate pays one scale multiply per pixel, never a
+   * re-roll). THE OCCLUDER: signals.ts's `sightClear` tests every sight-tier
+   * segment against every living pixel (ownership-blind), `radarClear` drops
+   * a non-owner's radar return on a point inside the outline, and the `cloud`
+   * registry row ships each cloud a client may see as `{id,x,y,t0}`. WORLD-
+   * OWNED, not on the hull: a cloud runs its full life through its owner's
    * sink, redeploy, respawn or leave (amendment 127 — everything on the water
    * outlives its owner); only resetForMatchStart clears the map (the mines /
-   * decoys precedent). Exposed read-only to perception and the fleet
-   * AI through `smokePuffs`; the count alone feeds `/metrics` (smokeCount).
+   * decoys precedent). Exposed read-only to perception and the fleet AI
+   * through `cloudRecords`; the count alone feeds `/metrics` (cloudCount).
    */
-  readonly smoke = new Map<string, SmokePuff>();
+  readonly clouds = new Map<string, StoredCloud>();
   /** All live star-shell lit zones (static circles), in burst order (Story 1.7). */
   readonly litZones = new Map<string, LitZone>();
   /** All live PHOSPHOR SHELLS burning zones (static circles), in burst order
@@ -1379,7 +1369,7 @@ export class World {
   private litZoneSeq = 0;
   private burnZoneSeq = 0;
   private decoySeq = 0;
-  private smokeSeq = 0;
+  private cloudSeq = 0;
   /**
    * THE PSEUDONYM MAP (R3, radar realism cycle): ship id → stable per-match
    * track id, rolled on the SERVER-PRIVATE pseudonym stream (pseudonymRng —
@@ -1844,7 +1834,7 @@ export class World {
       lastFireT: 0,
       respawnAt: 0,
       nextSmokeAt: 0,
-      smokeUntil: 0, nextPuffAt: 0, inSmoke: false, // Story 8.18: a fresh hull lays no smoke and stands in none (stamped next tick)
+      cloudUntil: 0, // Story 9.3: a fresh hull has no cloud of its own up
       draft: 0, // Story 8.19: a fresh hull rides no wake until stepShips stamps it
       seenBallistics: new Set(),
       torpDirs: new Map(),
@@ -1965,8 +1955,8 @@ export class World {
         id: ship.id,
         afloat: isAfloat(ship.lifecycle),
         self: ship,
-        // The bot's OWN lay window (Story 8.18 — a self-read).
-        smokeUntil: ship.smokeUntil,
+        // The bot's OWN most recent cloud's expiry (Story 9.3 — a self-read).
+        cloudUntil: ship.cloudUntil,
         observe: () => observe(this, ship.id),
       });
     }
@@ -2064,7 +2054,7 @@ export class World {
     this.decoys.clear(); // practice-field decoys never float into the real match (mines precedent)
     this.litZones.clear(); // practice-field zones never light the real match (mines precedent)
     this.burnZones.clear(); // ...nor burn into it (Story 8.17, the same precedent)
-    this.smoke.clear(); // ...nor a practice-field smoke trail (Story 8.18, the same precedent)
+    this.clouds.clear(); // ...nor a practice-field countermeasure cloud (Story 8.18 / 9.3, the same precedent)
     this.dotBuckets.clear(); // an open burn window must not flush a phantom dmg against a redeployed hull
     // The pending queue is dropped at the boundary as it always was. The
     // COUNTDOWN's own `pt` (the level-zero grant, Story 8.10) is never in it
@@ -2168,11 +2158,10 @@ export class World {
     ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
     ship.dazzledUntil = 0;
     // A fresh match never inherits a stale smoke timer (Story 4.4) — nor a
-    // stale foghorn cooldown (Story 4.5) — nor an open SMOKE SCREEN lay
-    // window (Story 8.18; the puffs themselves left with smoke.clear()).
+    // stale foghorn cooldown (Story 4.5) — nor a stale own-cloud stamp
+    // (Story 9.3; the clouds themselves left with clouds.clear()).
     ship.nextSmokeAt = 0;
-    World.clearSmokeScreen(ship);
-    ship.inSmoke = false; // amendment 149: a redeployed hull stands in no smoke until stepSmoke says so
+    ship.cloudUntil = 0;
     ship.draft = 0; // Story 8.19: a redeployed hull rides no wake until stepShips stamps it
     ship.nextHonkAt = 0;
     // lastFireSeq / lastActSeq / lastHornSeq are deliberately NOT reset — a
@@ -2325,12 +2314,12 @@ export class World {
     // ...and so does the SHIELD BLOCK, on the same rule (Story 8.4 review, P5):
     // an absorbing pool is economy, and a sinking captain loses their economy.
     ship.shield = null;
-    // ...and LAYING STOPS AT SINK ENTRY (Story 8.18, Eric ruling 144): the lay
-    // window closes here, so stepSmoke — which runs AFTER founderSinking and
-    // reads this field — drops no further puff for a hull that went under.
-    // The puffs already laid stay in World.smoke to their own `until`
-    // (amendment 127: everything on the water outlives its owner).
-    World.clearSmokeScreen(ship);
+    // ...and the own-cloud stamp dies with the life (Story 9.3): a sinking
+    // press is refused by the row anyway, and the bot's self-read must not
+    // hold its next life. The clouds already made stay in World.clouds to
+    // their own `until` (amendment 127: everything on the water outlives its
+    // owner).
+    ship.cloudUntil = 0;
     ship.deaths += 1;
     ship.respawnAt = this.respawnEnabled ? this.now + CONFIG.ship.respawnDelay : 0;
     this.creditKill(ship, by, victimHeldBounty);
@@ -2377,21 +2366,9 @@ export class World {
       ship.slowedUntil = 0;
       ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
       ship.dazzledUntil = 0;
-      World.clearSmokeScreen(ship); // already closed at sinkShip (ruling 144); symmetric for directed callers
-      ship.inSmoke = false; // a FOUNDERED hull is sunk: stands in no smoke
+      ship.cloudUntil = 0; // already cleared at sinkShip; symmetric for directed callers (Story 9.3)
       ship.draft = 0; // ...and rides no wake (Story 8.19): never a stale lift on the wire
     }
-  }
-
-  /** Close a hull's SMOKE SCREEN lay window (Story 8.18): no further puff is
-   *  owed. THE one reset, called at every life boundary (sinkShip — ruling
-   *  144's "laying stops at sink entry" — founderSinking, respawn,
-   *  redeployShip). Never touches World.smoke: the puffs on the water are not
-   *  the hull's. Does NOT touch `inSmoke`: a sinking hull keeps being stamped
-   *  each tick; the non-sinking boundaries reset it at their own call. */
-  private static clearSmokeScreen(ship: ShipRecord): void {
-    ship.smokeUntil = 0;
-    ship.nextPuffAt = 0;
   }
 
   /**
@@ -3285,23 +3262,15 @@ export class World {
     // "silenced" and "foundered" are the same tick), and for processRespawns
     // (a standalone-World respawn owes no extra tick past the deadline).
     { name: 'founderSinking', run: (w) => w.founderSinking() },
-    // SMOKE SCREEN laying (Story 8.18, Eric ruling 2026-09-29, amendment 144)
-    // — DELIBERATE step-order position, chosen not inherited. AFTER
-    // founderSinking: the founder tick is the last tick a hull could have
-    // laid anything, and placing the row after the edge makes "a hull that
-    // founders this tick lays no puff" true WITHOUT a second liveness read —
-    // the row's own `isAfloat` gate sees the post-edge lifecycle (and
-    // sinkShip has already closed the lay window at sink ENTRY, so a
-    // sinking hull lays nothing either). AFTER the motion block for the same
-    // reason wake sampling is: a puff is laid at the RESOLVED position (water
-    // where the hull actually is this tick), never a rolled-back candidate.
-    // BEFORE applyStorm and everything after it: the puffs this row lays are
-    // live for every later consumer this tick — the AI rows next tick read
-    // them through observe(), and frames.ts's buildFrame (outside STEP_ORDER,
-    // after the step) ships them the same tick they are laid. A puff never
-    // moves and has no tick of its own beyond expiry, which this row also
-    // sweeps, so nothing else in the table depends on it.
-    { name: 'stepSmoke', run: (w) => w.stepSmoke() },
+    // COUNTERMEASURE cloud expiry (Story 9.3 — 8.18's `stepSmoke` seat,
+    // kept DELIBERATELY: after founderSinking, after the motion block, BEFORE
+    // applyStorm and everything after it). The row is an expiry sweep only —
+    // a cloud is MADE at the press (setCountermeasure, in activationControl)
+    // and never moves — so the seat matters for one thing: a cloud whose
+    // `until` arrives this tick is gone before any later consumer this tick
+    // (the AI rows next tick read the store through observe(); frames.ts's
+    // buildFrame, outside STEP_ORDER, ships the survivors the same tick).
+    { name: 'stepClouds', run: (w) => w.stepClouds() },
     // Storm: post-move positions decide who is outside the (damage-only) zone.
     // The physical map boundary stays at mapRadius — ships freely sail into the
     // storm; the zone only bites HP.
@@ -3577,23 +3546,24 @@ export class World {
     return this.mines.size;
   }
 
-  /** How many SMOKE SCREEN puffs are live right now — the `/metrics`
-   *  `world.smokeLivePeak` feed (Story 8.18). Count only: no owner, no
+  /** How many COUNTERMEASURE clouds are live right now — the `/metrics`
+   *  `world.cloudLivePeak` feed (Story 8.18 / 9.3). Count only: no owner, no
    *  position, nothing that could become an ops-side wallhack. */
-  get smokeCount(): number {
-    return this.smoke.size;
+  get cloudCount(): number {
+    return this.clouds.size;
   }
 
   /**
-   * Every live SMOKE SCREEN puff as a read-only array (Story 8.18) — the
-   * shape `sightClear` / `puffCrossed` iterate. THE two readers: perception
-   * (once per observer context — `SignalContextBase.smoke`) and the PvE fleet
-   * AI's `shipSees` callers (drones.ts). A fresh snapshot per call, so a
-   * caller can never mutate the store through it; ~200 puffs × ~20 observers
-   * a tick is far below the cost of one segment test each.
+   * Every live COUNTERMEASURE cloud, with its cached pixel base, as a
+   * read-only array (Story 9.3) — the shape `sightClear` / `cloudCrossed` /
+   * `radarClear` iterate. THE two readers: perception (once per observer
+   * context — `SignalContextBase.clouds`) and the PvE fleet AI's `shipSees`
+   * callers (drones.ts). A fresh snapshot per call, so a caller can never
+   * mutate the store through it; a handful of clouds × ~20 observers a tick
+   * is far below the cost of one pixel scan each.
    */
-  get smokePuffs(): readonly SmokePuff[] {
-    return [...this.smoke.values()];
+  get cloudRecords(): readonly StoredCloud[] {
+    return [...this.clouds.values()];
   }
 
   /**
@@ -5788,17 +5758,10 @@ export class World {
       setShield: (shield) => {
         ship.shield = { hpLeft: shield.hpLeft, until: shield.until };
       },
-      // Story 8.18 — SMOKE SCREEN's lay window (its ONE writer), keyed on the
-      // ACTIVATING ship. A re-press RESTARTS the 5 s clock (ruling 140). The
-      // cadence grid is re-anchored ONLY from idle (first puff on the next
-      // tick); a re-press mid-lay keeps the running 500 ms grid, so two
-      // presses never drop two puffs 50 ms apart at the same spot — the
-      // window simply extends and the trail stays evenly spaced (orchestrator
-      // ruling at the 8.18 build, recorded in the spec's review log).
-      setSmokeScreen: () => {
-        if (ship.smokeUntil <= this.now) ship.nextPuffAt = this.now;
-        ship.smokeUntil = this.now + CONFIG.smokeScreen.layMs;
-      },
+      // Story 9.3 — MULTI-SPECTRAL COUNTERMEASURE's whole body (its ONE
+      // writer), keyed on the ACTIVATING ship: one new cloud at the hull's
+      // centre, every press (amendment 46).
+      setCountermeasure: () => this.makeCloud(ship),
     };
   }
 
@@ -6151,76 +6114,43 @@ export class World {
   }
 
   /**
-   * SMOKE SCREEN laying and expiry (Story 8.18, catalog-v3 R38; Eric rulings
-   * 2026-09-29, amendments 138–145) — the `stepSmoke` STEP_ORDER row (placed
-   * after founderSinking, before applyStorm; see the table). NOT the wounded-
-   * smoke emitter below (tickSmoke — CONFIG.smoke, the `sm` event): this lays
-   * WORLD-owned occluder discs (World.smoke) and emits no event at all.
-   *
-   * For every AFLOAT hull whose lay window is open (`smokeUntil > now`): while
-   * a puff is owed (`now >= nextPuffAt` — a `while`, so a skipped tick still
-   * lays every owed puff), drop one at the hull's CENTER — `pos` this tick
-   * (Eric 2026-09-30, amendment 190; it was the stern) — with `bornAt = now`, `until =
-   * now + lifeMs`, and advance `nextPuffAt` by `puffIntervalMs`. Ten puffs per
-   * copy at the shipped 5000 / 500 (ruling 138); the cadence grid
-   * is re-anchored only from idle (setSmokeScreen); a mid-lay re-press keeps
-   * the running grid and only extends `smokeUntil`. A sinking or sunk hull lays nothing (ruling 144 — the window is
-   * also closed at sink entry). A NON-FINITE position (a NaN/Infinity pose —
-   * unreachable through inputs.ts's finite-checked intent, guarded anyway)
-   * lays NOTHING and advances nothing: a NaN puff would fail every distance
-   * test and ride segCircleHit's NaN path, occluding or exposing every
-   * observer for 30 s (review gate, Edge Case Hunter). Then every puff whose
-   * `until` has arrived is deleted — one sweep for the whole store, so an
-   * owner's death, redeploy or leave never shortens a puff's life (amendment
-   * 127). LAST, after the sweep, every hull's `inSmoke` stamp (amendment 149):
-   * true iff its centre is inside any live puff, whoever laid it.
+   * MAKE ONE MULTI-SPECTRAL COUNTERMEASURE cloud (Story 9.3; Eric rulings
+   * 2026-10-11, epic-9 amendments 43–46) — `ActivationContext.setCountermeasure`'s
+   * body, the ONE writer of World.clouds. Every press makes a NEW cloud at
+   * the activating hull's CENTRE (`state` this tick), `bornAt = now`,
+   * `until = now + lifeMs`, with its pixel base cached beside it
+   * (`cloudBase(id)` — the shared pure function of the id, run ONCE per cloud
+   * here and once per cloud on the client). No lay window, no restart, no
+   * refuse-while-live: five copies stack five clouds (amendment 46). A NON-
+   * FINITE position (a NaN/Infinity pose — unreachable through inputs.ts's
+   * finite-checked intent, guarded anyway) makes NOTHING: a NaN cloud would
+   * ride segCircleHit's NaN path and occlude or expose every observer for
+   * 15 s (the 8.18 review-gate guard, kept). The hull's own `cloudUntil`
+   * stamp (the bot's self-read) advances to this cloud's expiry.
    */
-  private stepSmoke(): void {
-    const sc = CONFIG.smokeScreen;
-    for (const ship of this.ships.values()) {
-      if (ship.smokeUntil <= this.now || !isAfloat(ship.lifecycle)) continue;
-      const { x, y } = ship.state; // the hull's CENTER (amendment 190)
-      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
-      while (this.now >= ship.nextPuffAt) {
-        this.smokeSeq += 1;
-        const id = `sk${this.smokeSeq}`;
-        this.smoke.set(id, { id, ownerId: ship.id, x, y, bornAt: this.now, until: this.now + sc.lifeMs });
-        ship.nextPuffAt += sc.puffIntervalMs;
-      }
-    }
-    for (const [id, puff] of this.smoke) {
-      if (this.now >= puff.until) this.smoke.delete(id);
-    }
-    this.stampInSmoke();
+  private makeCloud(ship: ShipRecord): void {
+    const { x, y } = ship.state;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    this.cloudSeq += 1;
+    const id = `cl${this.cloudSeq}`;
+    const until = this.now + CONFIG.countermeasure.lifeMs;
+    this.clouds.set(id, { id, ownerId: ship.id, x, y, bornAt: this.now, until, base: cloudBase(id) });
+    ship.cloudUntil = until;
   }
 
   /**
-   * The per-tick `ShipRecord.inSmoke` stamp (Story 8.18, amendment 149): for
-   * every hull, true iff it is afloat or sinking (never sunk — a sinking captain in a
-   * puff has the 1/8 sight like an afloat one, ruling 149 has no carve-out)
-   * and its centre lies within some live
-   * puff's current radius (the shared `puffRadius` at this tick's `now` —
-   * the same curve signals.sightClear reads, so "I stand in it" and "smoke
-   * does not blind me" agree). Ownership is not read.
-   * Runs after the expiry sweep so a puff deleted this tick never counts, and
-   * after the motion block (stepSmoke's slot) so the stamp is against the
-   * pose frames.ts ships this tick.
+   * COUNTERMEASURE cloud expiry (Story 9.3) — the `stepClouds` STEP_ORDER row
+   * (8.18's stepSmoke seat; see the table). An expiry sweep and NOTHING
+   * else: every cloud whose `until` has arrived is deleted, base and all —
+   * one sweep for the whole store, so an owner's death, redeploy or leave
+   * never shortens a cloud's life (amendment 127). No lay, no stamp (the
+   * 8.18 in-smoke stamp is gone with amendment 40). NOT the wounded-smoke
+   * emitter below (tickSmoke — CONFIG.smoke, the `sm` event).
    */
-  private stampInSmoke(): void {
-    const puffs = [...this.smoke.values()];
-    const radii = puffs.map((p) => puffRadius(p.bornAt, this.now));
-    for (const ship of this.ships.values()) {
-      ship.inSmoke = (isAfloat(ship.lifecycle) || isSinking(ship.lifecycle)) && World.standsInPuff(ship.state, puffs, radii);
+  private stepClouds(): void {
+    for (const [id, cloud] of this.clouds) {
+      if (this.now >= cloud.until) this.clouds.delete(id);
     }
-  }
-
-  private static standsInPuff(pos: { x: number; y: number }, puffs: readonly SmokePuff[], radii: readonly number[]): boolean {
-    for (let i = 0; i < puffs.length; i += 1) {
-      const dx = pos.x - puffs[i].x;
-      const dy = pos.y - puffs[i].y;
-      if (dx * dx + dy * dy <= radii[i] * radii[i]) return true;
-    }
-    return false;
   }
 
   /**
@@ -6315,10 +6245,9 @@ export class World {
     // ...nor a stale grounding read (the redeployShip rule): the respawn
     // placement is island-clear, so the hull is not aground.
     ship.landContact = false;
-    // ...nor a SMOKE SCREEN lay window (Story 8.18; sinkShip already closed
-    // it — ruling 144 — kept symmetric here for directed callers).
-    World.clearSmokeScreen(ship);
-    ship.inSmoke = false; // a respawned hull stands in no smoke until stepSmoke says so
+    // ...nor an own-cloud stamp (Story 9.3; sinkShip already cleared it —
+    // kept symmetric here for directed callers).
+    ship.cloudUntil = 0;
     ship.draft = 0; // Story 8.19: a respawned hull rides no wake until stepShips stamps it
     // A fresh life never inherits a stale smoke timer (Story 4.4): without
     // this, a hull that puffed just before sinking would owe the remainder of

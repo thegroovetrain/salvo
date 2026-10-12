@@ -255,7 +255,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
     expect(cardHoverRows(CATALOG.machineGun, 0, TB)).toEqual(equipmentStatRows('machineGun', mg));
     expect(text(cardHoverRows(CATALOG.machineGun, 0, TB))).toContain('RATE 0.25 s');
     // A consumable: its CONFIG rows; a stub: none.
-    expect(cardHoverRows(CATALOG.smokeScreen, 0, TB)).toEqual(consumableStatRows('smokeScreen'));
+    expect(cardHoverRows(CATALOG.countermeasure, 0, TB)).toEqual(consumableStatRows('countermeasure'));
     expect(cardHoverRows(CATALOG.depthCharge, 0, TB)).toEqual([]);
   });
 });
@@ -288,7 +288,7 @@ describe('cardKind — what the card does for the player', () => {
   });
 
   it('a consumable is a CONSUMABLE, an add-on an ADD-ON, and the words map one to one', () => {
-    for (const id of ['hullRepair', 'smokeScreen', 'supercavTorpedo', 'dazzleShells']) {
+    for (const id of ['hullRepair', 'countermeasure', 'supercavTorpedo', 'dazzleShells']) {
       expect(cardKind(CATALOG[id], 0), id).toBe('consumable');
     }
     expect(cardKind({ ...CATALOG.armor, kind: 'addon' } as CatalogLine, 0)).toBe('addon');

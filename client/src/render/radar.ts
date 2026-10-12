@@ -144,8 +144,8 @@ import {
   type BlipEvent,
   type HeightRaster,
   type HullCoverage,
+  type CloudView,
   type Island,
-  type SmokeView,
   type WakeBlipEvent,
   WAKE_AGE_BUCKETS,
 } from '@salvo/shared';
@@ -187,9 +187,9 @@ import { wakeLitFloor } from './radarSources.js';
 import { WakeStampCache, type WakeSources } from './wake.js';
 import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
 
-/** The empty puff list — the wake synthesis's default when no smoke source is
- *  wired (headless tests). */
-const NO_SMOKE = (): readonly SmokeView[] => [];
+/** The empty cloud list — the wake synthesis's default when no countermeasure
+ *  cloud source is wired (headless tests). */
+const NO_CLOUDS = (): readonly CloudView[] => [];
 
 /**
  * Hard cap on the pending echo/wake parks. Radar paints arrive from network
@@ -367,13 +367,6 @@ export class Radar {
    *  only, so a dazzle changes which source paints the NEXT sweep and never
    *  retroactively edits a paint already on the scope (amendment 83). */
   private dazzled = false;
-  /** Does the own hull stand inside a live SMOKE SCREEN puff (Story 8.18, the
-   *  self-private you.inSmoke)? The SAME flag `Fog` carries, from the same
-   *  call site — it moves the source seam (1/8 intel range) exactly as a dazzle
-   *  does, and it drops the puff term from the in-bubble wake synthesis (an
-   *  in-smoke observer sees INTO smoke inside its shrunken bubble, amendment
-   *  149). Read at paint creation / stamp build only. */
-  private inSmoke = false;
   /**
    * THE IN-BOUND WAKE SOURCE (Story 4.12) — the client's own ribbons, for the
    * half of the scope's wake the server deliberately does not disclose.
@@ -404,10 +397,10 @@ export class Radar {
    *  stamp's binary-LOS clause. Empty for a caller that has none — in which
    *  case nothing blocks, which is the pre-P5 behaviour. */
   private wakeIslands: readonly Island[] = [];
-  /** The live SMOKE SCREEN puff list (Story 8.18) — a thunk over
-   *  `state.net.smoke`, read at each stamp build, so the synthesis hides water
-   *  behind a puff exactly as the server's sight predicate does. */
-  private wakeSmoke: () => readonly SmokeView[] = NO_SMOKE;
+  /** The live COUNTERMEASURE cloud list (Story 9.3) — a thunk over
+   *  `state.net.clouds`, read at each stamp build, so the synthesis hides water
+   *  behind a cloud's pixels exactly as the server's sight predicate does. */
+  private wakeClouds: () => readonly CloudView[] = NO_CLOUDS;
   private readonly wakeCache = new WakeStampCache();
 
   constructor(blipLayer: Container, sweepLayer: Container) {
@@ -485,22 +478,6 @@ export class Radar {
   }
 
   /**
-   * Adopt the IN-SMOKE state (Story 8.18) — `setDazzled`'s twin, same
-   * changed-flag contract (nothing to rebake here; the dim mask re-syncs off
-   * `sightHoleU` on its own).
-   */
-  setInSmoke(inSmoke: boolean): boolean {
-    if (inSmoke === this.inSmoke) return false;
-    this.inSmoke = inSmoke;
-    return true;
-  }
-
-  /** Is the own hull in smoke? Test/observation seam (mirrors `Fog`). */
-  get isInSmoke(): boolean {
-    return this.inSmoke;
-  }
-
-  /**
    * THE SOURCE SEAM (u): the effective truesight radius, inside which a ship
    * echo is SYNTHESIZED from its `Contact` and outside which it arrives as a
    * wire blip (amendment 89). Nothing is suppressed on either side of it — the
@@ -514,7 +491,7 @@ export class Radar {
    * exactly that equality assertion.
    */
   get sightHoleU(): number {
-    return fogHoleRadiusU({ sightRange: this.sightRange, radarRange: this.radarRange }, this.dazzled, this.inSmoke);
+    return fogHoleRadiusU({ sightRange: this.sightRange, radarRange: this.radarRange }, this.dazzled);
   }
 
   private applyRanges(): void {
@@ -1152,18 +1129,18 @@ export class Radar {
    * `islands` is the binary-LOS geometry the synthesis owes (P5); omitted, the
    * stamp blocks on nothing, which is the correct degradation for a caller that
    * genuinely has no map (headless tests) and never a silent loosening in play,
-   * because main.ts always passes the set. `smoke` (Story 8.18) is the same
-   * owed test's SMOKE half — a thunk over the live `state.net.smoke`, read at
-   * each stamp build; omitted, nothing is smoked, on the same headless terms.
+   * because main.ts always passes the set. `clouds` (Story 9.3) is the same
+   * owed test's CLOUD half — a thunk over the live `state.net.clouds`, read at
+   * each stamp build; omitted, nothing is clouded, on the same headless terms.
    */
   setWakeSources(
     sources: WakeSources | null,
     islands: readonly Island[] = [],
-    smoke: () => readonly SmokeView[] = NO_SMOKE,
+    clouds: () => readonly CloudView[] = NO_CLOUDS,
   ): void {
     this.wakeSources = sources;
     this.wakeIslands = islands;
-    this.wakeSmoke = smoke;
+    this.wakeClouds = clouds;
   }
 
   /**
@@ -1212,8 +1189,7 @@ export class Radar {
       cfg.model,
       this.wakeIslands,
       Math.floor(at / this.sweepPeriodMs),
-      this.wakeSmoke(),
-      this.inSmoke,
+      this.wakeClouds(),
     );
   }
 

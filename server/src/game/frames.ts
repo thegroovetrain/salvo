@@ -142,17 +142,6 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // the master perception invariant keeps its SIX declared exceptions.
     ...(ship.slowedUntil > now && ship.slowFactor !== 1 ? { slowFactor: ship.slowFactor } : {}),
     ...(ship.dazzledUntil > now ? { dazzledUntil: ship.dazzledUntil } : {}),
-    // Standing in smoke (Story 8.18, amendment 149): PRESENT (`true`) IFF the
-    // server's per-tick stepSmoke stamp says this hull's centre is inside a
-    // live SMOKE SCREEN puff — whoever laid it — OMITTED otherwise, never
-    // `false` (the dazzledUntil precedent beside it; msgpack carries no dead
-    // keys). The client feeds it to the SAME shared effectiveSight the
-    // server's sightOf runs, so its fog hole shrinks to 1/8 of intel range
-    // exactly when the server's does. SELF-PRIVATE BY CONSTRUCTION on the
-    // boostUntil terms: it rides `you` and NOTHING else — never a Contact, a
-    // blip, an event or a spectator payload — so the perception exception
-    // count stays at SIX.
-    ...(ship.inSmoke ? { inSmoke: true as const } : {}),
     // The WAKE-DRAFT lift (Story 8.19, amendments 151–155): the exact double
     // stepShips folded into this hull's forward cap THIS tick — PRESENT IFF
     // positive, OMITTED at 0, never `undefined` (the slowFactor precedent).
@@ -234,18 +223,19 @@ function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
 /**
  * The four OPTIONAL contact-like channels, on one rule for both frame paths:
  * each is OMITTED (not an empty array) when this observer sees none, so
- * zone-free / decoy-free / smoke-free frames stay byte-identical to pre-1.7
+ * zone-free / decoy-free / cloud-free frames stay byte-identical to pre-1.7
  * frames. WIRE ORDER (key insertion, load-bearing for msgpack): `litZones`
  * (Story 1.7), `burnZones` (Story 8.17 — the PHOSPHOR burning zone on the lit
- * zone's gate), `decoys` (Story 8.16), then `smoke` (Story 8.18 — the SMOKE
- * SCREEN puffs, `{id,x,y,t0}` each).
+ * zone's gate), `decoys` (Story 8.16), then `clouds` (Story 9.3 — the
+ * MULTI-SPECTRAL COUNTERMEASURE clouds, `{id,x,y,t0}` each; 8.18's `smoke`
+ * seat).
  */
-function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'decoys' | 'smoke'> {
+function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'decoys' | 'clouds'> {
   return {
     ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
     ...(view.burnZones.length > 0 ? { burnZones: view.burnZones } : {}),
     ...(view.decoys.length > 0 ? { decoys: view.decoys } : {}),
-    ...(view.smoke.length > 0 ? { smoke: view.smoke } : {}),
+    ...(view.clouds.length > 0 ? { clouds: view.clouds } : {}),
   };
 }
 
