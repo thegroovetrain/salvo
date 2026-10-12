@@ -14,7 +14,8 @@
 // since Story 8.16 SHIELD BLOCK and the click-placed DECOY BUOY
 // (amendments 116–124; CHAFF, added there too, was retired in Story 9.2 —
 // epic-9 amendment 31), since Story 8.17 FLASH SHELLS (id `dazzleShells`,
-// amendment 132 — the second click-aimed line), and since Story 9.3 the
+// amendment 132 — the second click-aimed line; replaced on key `4` by the
+// FOULING SHELL in Story 9.4, epic-9 amendments 61–68), and since Story 9.3 the
 // MULTI-SPECTRAL COUNTERMEASURE (epic-9 amendments 40–47 — key-fired, one
 // cloud per press at the hull's centre; it took SMOKE SCREEN's 8.18 seat).
 // The DEPTH CHARGE stub (amendment 83) is the ONE line still `stub` in the
@@ -31,7 +32,7 @@ import { hullRepairRow } from './consumables/hullRepair.js';
 import { supercavTorpedoRow } from './consumables/supercavTorpedo.js';
 import { shieldBlockRow } from './consumables/shieldBlock.js';
 import { decoyBuoyRow } from './consumables/decoyBuoy.js';
-import { dazzleShellsRow } from './consumables/dazzleShells.js';
+import { foulingShellRow } from './consumables/foulingShell.js';
 import { countermeasureRow } from './consumables/countermeasure.js';
 import { buildConsumableRegistry, type ConsumableRegistry } from './consumables/row.js';
 
@@ -52,6 +53,6 @@ export const CONSUMABLES: ConsumableRegistry = buildConsumableRegistry([
   supercavTorpedoRow,
   shieldBlockRow,
   decoyBuoyRow,
-  dazzleShellsRow,
+  foulingShellRow,
   countermeasureRow,
 ]);

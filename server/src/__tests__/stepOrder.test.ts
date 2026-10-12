@@ -8,8 +8,8 @@
 // construction, with no explicit tie-break code." Move it earlier and regen
 // can un-sink a hull at 0 hp. Others: sampleWakes after resolveCollisions (a
 // wake records the RESOLVED pose, never a rolled-back candidate inside land);
-// applyZoneEffects before the expiry sweep (a zone
-// burns/dazzles through its final tick); processRespawns before tickXp (a
+// applyZoneEffects / applyFoulZones before their expiry sweeps (a zone
+// burns / fouls through its final tick); processRespawns before tickXp (a
 // hull revived this tick accrues this tick); and founderSinking (Story 5.2)
 // after the motion block but before the damage rows and the activation gates
 // (the window's last tick still moves and lays wake as `sinking`, while the
@@ -47,10 +47,15 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       // (Story 7-5 wave 2's `tickBuoys` row was REMOVED with the radar buoy
       // in Story 8.16: the DECOY BUOY has no tick — amendment 124(e).)
       'applyZoneEffects',
+      // Story 9.4's FOUL ZONE stamp — immediately after the burn DoT: against
+      // post-move hull OUTLINES (the tick's hull snapshot), before its own
+      // expiry sweep below. See the row comment in world.ts.
+      'applyFoulZones',
       'tickRepairs',
       'tickSmoke',
       'expireLitZones',
       'expireBurnZones', // Story 8.17: the PHOSPHOR burning zone's expiry sweep, beside the lit zones'
+      'expireFoulZones', // Story 9.4: the FOULING SHELL foul zone's expiry sweep, beside the burn zones'
       'fireControl',
       // Story 8.15's held-fire stream — the machine gun's LEVEL channel,
       // a deliberate insertion right after the click channel (the reloads

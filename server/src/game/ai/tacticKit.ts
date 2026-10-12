@@ -14,8 +14,8 @@
 // aiming (lead solve + scatter + the coastline check), the torpedo shot solve
 // (shared by both torpedo lines and the SUPERCAV belt fish), the sector
 // placement (mines and the DECOY BUOY), the live-contact burst (PHOSPHOR
-// SHELLS and FLASH SHELLS), the DAMAGE CUT cues (the Shift and SHIELD BLOCK)
-// and the registry freezer.
+// SHELLS and the FOULING SHELL) with its astern-filtered pick, the DAMAGE CUT
+// cues (the Shift and SHIELD BLOCK) and the registry freezer.
 //
 // No rng is drawn anywhere in a want() — the mind's stream feeds aim scatter
 // and nothing else (the determinism pin).
@@ -311,12 +311,14 @@ export function sectorPlacement(
 }
 
 /** The nearest LIVE, actionable track inside our own truesight bubble — the
- *  target both the PHOSPHOR SHELLS row and the FLASH SHELLS belt row burst on. */
-export function nearestLiveInSight(ctx: TacticContext): BotTrack | null {
+ *  target the PHOSPHOR SHELLS row and the engaging FOULING SHELL row burst
+ *  on. `keep` narrows the candidates (the astern pick below); the default
+ *  keeps every track. */
+export function nearestLiveInSight(ctx: TacticContext, keep: (t: BotTrack) => boolean = () => true): BotTrack | null {
   let best: BotTrack | null = null;
   let bestD = Infinity;
   for (const t of tracksOf(ctx.mind)) {
-    if (!t.live || !isActionable(t, ctx.sit.now)) continue;
+    if (!t.live || !isActionable(t, ctx.sit.now) || !keep(t)) continue;
     const d = distTo(ctx.sit, t);
     if (d > ctx.sit.stats.sightRange) continue;
     if (d < bestD) {
@@ -327,10 +329,26 @@ export function nearestLiveInSight(ctx: TacticContext): BotTrack | null {
   return best;
 }
 
-/** A burst placed ON a live contact (no lead — the zone / flash is an area),
- *  clamped to `rangeU`, coastline-gated on the shot. */
-export function burstOnLiveContact(ctx: TacticContext, rangeU: number): Shot | null {
-  const t = nearestLiveInSight(ctx);
+/** The nearest LIVE, actionable track inside sight that lies ASTERN of the
+ *  bot (Story 9.4, amendment 65 — the disengaging FOULING SHELL's pick):
+ *  "astern" = the contact's bearing from the bot is more than 90° off the
+ *  bot's heading (behind the beam), read at the plot's predicted point like
+ *  every other range check. */
+export function nearestLiveAstern(ctx: TacticContext): BotTrack | null {
+  return nearestLiveInSight(ctx, (t) => isAstern(ctx, t));
+}
+
+/** Is this track behind the bot's beam? |wrap(bearing − heading)| > 90°. */
+function isAstern(ctx: TacticContext, t: BotTrack): boolean {
+  const off = wrapAngle(bearing(ctx.self.state, plotAt(ctx.sit, t)) - ctx.self.state.heading);
+  return Math.abs(off) > Math.PI / 2;
+}
+
+/** A burst placed ON a live contact (no lead — the zone is an area), clamped
+ *  to `rangeU`, coastline-gated on the shot. The target defaults to the
+ *  nearest live contact in sight; a row with its own pick passes it. */
+export function burstOnLiveContact(ctx: TacticContext, rangeU: number, target: BotTrack | null = nearestLiveInSight(ctx)): Shot | null {
+  const t = target;
   if (t === null) return null;
   const d = distTo(ctx.sit, t);
   if (d > rangeU) return null;

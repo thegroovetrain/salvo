@@ -3,7 +3,7 @@
 // life-boundary resets (EMISSION tests, the smoke.test.ts pattern), plus the
 // `fh` registry row's per-observer delivery: the honker's self copy, the
 // EIGHT volume bands resolved as eighths of the LISTENER'S own INTEL range
-// (stats.radarRange — the one ruler, never dazzle-scaled), the one-step
+// (stats.radarRange — the one ruler, never sight-scaled), the one-step
 // island muffle (max(5, band + 2)), and the spectator position payload. The
 // perception invariant suite re-verifies delivery with its own independently
 // reimplemented oracle (the header rule).
@@ -72,11 +72,11 @@ const radarCtx = (w: World) => ({
 
 /** A fogged SignalContext for `me` (the signals.test.ts helper, verbatim). */
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
-  return { mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships, litZones: w.litZones, burnZones: w.burnZones, me, ...radarCtx(w) };
+  return { mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships, litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, me, ...radarCtx(w) };
 }
 
 function spectatorCtx(w: World, observerId: string): SpectatorSignalContext {
-  return { mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships, litZones: w.litZones, burnZones: w.burnZones, me: w.ships.get(observerId), ...radarCtx(w) };
+  return { mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships, litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, me: w.ships.get(observerId), ...radarCtx(w) };
 }
 
 const row = signalFor('fh')!;
@@ -319,10 +319,10 @@ describe('SIGNAL_REGISTRY — fh row: the eight volume bands (eighths of the LIS
     expect((row.materialize(ctx, subject(0, -400, 'h4')) as FoghornEvent).b).toBe((3 * Math.PI) / 2); // wrapped, never negative
   });
 
-  it('DAZZLE CANNOT DEAFEN — BY CONSTRUCTION: a dazzled listener\'s band is identical to an undazzled one at every distance (amendment 122 retires amendment 53\'s clamps)', () => {
+  it('A SIGHT REDUCTION CANNOT DEAFEN — BY CONSTRUCTION: a listener whose sight is an eighth of its intel range bands identically to one at full sight, at every distance (amendment 122 retires amendment 53\'s clamps)', () => {
     const w = bareWorld();
     const l = place(w, 'l', 0, 0);
-    // One probe per band region plus the outer silence — resolved UNDAZZLED.
+    // One probe per band region plus the outer silence — resolved at FULL sight.
     // The first four sit on the wire's plateau floor of 4 (review fix): they
     // are the same 100% gain, so the property under test is untouched.
     const probes: Array<[number, number | null]> = [
@@ -333,10 +333,13 @@ describe('SIGNAL_REGISTRY — fh row: the eight volume bands (eighths of the LIS
       const unBand = un ? (row.materialize(foggedCtx(w, l), subject(d, 0, `u${d}`)) as FoghornEvent).v : null;
       expect(unBand ?? null).toBe(want);
     }
-    // ...then DAZZLED: bands ride intel range, which dazzle never touches, so
-    // every answer must be byte-identical — including the fully-lit band 1
-    // (under the old tier model a dazzled listener at 200u dropped to 75%).
-    l.dazzledUntil = w.now + 10_000;
+    // ...then with SIGHT SHRUNK to an eighth of intel range (the FLASH SHELLS
+    // dazzle's old collapse, written straight onto the record's stats since
+    // Story 9.4 retired the mark — the contract outlives its last cause):
+    // bands ride intel range, which no sight reduction touches, so every
+    // answer must be byte-identical — including the fully-lit band 1 (under
+    // the old tier model a dazzled listener at 200u dropped to 75%).
+    l.stats = { ...l.stats, sightRange: l.stats.radarRange / 8 };
     for (const [d, want] of probes) {
       const ctx = foggedCtx(w, l);
       const e = subject(d, 0, `d${d}`);
@@ -414,10 +417,10 @@ describe('SIGNAL_REGISTRY — fh row: the wire carries no band resolution an hon
     }
   });
 
-  it('a DAZZLED listener cannot resolve a plateau honker any finer either — the surplus is gone for every observer', () => {
+  it('a listener with SHRUNKEN sight cannot resolve a plateau honker any finer either — the surplus is gone for every observer', () => {
     const w = bareWorld();
     const l = place(w, 'l', 100, 0); // raw band 2 by distance
-    l.dazzledUntil = w.now + 10_000;
+    l.stats = { ...l.stats, sightRange: l.stats.radarRange / 8 };
     expect((row.materialize(foggedCtx(w, l), e) as FoghornEvent).v).toBe(4);
   });
 
@@ -583,7 +586,7 @@ describe('SIGNAL_REGISTRY — fh row: spectators', () => {
   it('a record-less spectator (me undefined) receives {k,h,x,y} — the short-circuit before any me math', () => {
     const w = bareWorld();
     const e = subject(9_000, 9_000, 'honker'); // absurdly far from everything
-    const ctx: SpectatorSignalContext = { mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships, litZones: w.litZones, burnZones: w.burnZones, me: undefined, ...radarCtx(w) };
+    const ctx: SpectatorSignalContext = { mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships, litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, me: undefined, ...radarCtx(w) };
     expect(row.visible(ctx, e)).toBe(true);
     const wire = row.materialize(ctx, e) as FoghornEvent;
     expect(wire).not.toBe(e);

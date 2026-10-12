@@ -82,6 +82,10 @@ const TUNE_FAMILIES = [
   // MULTI-SPECTRAL COUNTERMEASURE (Story 9.3, Eric 2026-10-11; session 2,
   // 2026-10-12): the cloud's life and its spray-disc radii are harness dials.
   'countermeasure.',
+  // FOULING SHELL (Story 9.4, Eric 2026-10-12, amendment 61): radius, life,
+  // slow factor and linger are all harness dials; no floor leaf (a radius of
+  // 0 is a zone that touches nothing).
+  'foulingShell.',
   'starShells.',
   'boost.',
   'shipClasses.',

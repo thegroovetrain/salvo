@@ -13,7 +13,7 @@
 // independently-reimplemented oracle in that suite.
 //
 // THE RULES LIVE IN THE SIGNAL REGISTRY (signals.ts): every signal channel —
-// the 19 GameEvent kinds plus the contact/mine/litzone/burnzone/decoy/smoke
+// the 19 GameEvent kinds plus the contact/mine/litzone/burnzone/foulzone/decoy/smoke
 // frame channels —
 // is one declarative SignalSpec row (visible + materialize),
 // and observe()/observeSpectator() below are the ONLY callers of row logic.
@@ -42,7 +42,7 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type DecoyView, type GameEvent, type LitZoneView, type MineView, type ShellState, type CloudView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
+import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type DecoyView, type FoulZoneView, type GameEvent, type LitZoneView, type MineView, type ShellState, type CloudView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 import { SIGNAL_REGISTRY, ballisticGateOpen, decoyRadarBlips, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
 
@@ -56,6 +56,11 @@ export interface PerceptionView {
    *  recomputed every tick through the `burnzone` row on the lit zone's gate,
    *  in burst order). A circle only; it reveals nothing. */
   burnZones: BurnZoneView[];
+  /** Per-observer FOULING SHELL foul-zone visibility (Story 9.4 — contact-
+   *  like, recomputed every tick through the `foulzone` row on the burn
+   *  zone's gate, in burst order). A circle only; it reveals nothing and
+   *  carries nothing about the slow. */
+  foulZones: FoulZoneView[];
   /** Per-observer decoy-buoy visibility (Story 8.16 — contact-like,
    *  recomputed every tick through the `decoy` row, in drop order). */
   decoys: DecoyView[];
@@ -81,6 +86,7 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     ships: world.ships,
     litZones: world.litZones,
     burnZones: world.burnZones, // Story 8.17: the burnzone channel's subjects (a circle, never a reveal source)
+    foulZones: world.foulZones, // Story 9.4: the foulzone channel's subjects (a circle, never a reveal source)
     // Story 8.16: the live decoys — the decoy channel's subjects and the
     // decoy-paint blip sources.
     decoys: world.decoys,
@@ -112,6 +118,7 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     ships: world.ships,
     litZones: world.litZones,
     burnZones: world.burnZones, // Story 8.17: spectators see every burning zone
+    foulZones: world.foulZones, // Story 9.4: spectators see every foul zone
     // Story 8.16: the decoy channel's subjects (spectators see every decoy);
     // the decoy-paint blip source is inert on this path (no blips).
     decoys: world.decoys,
@@ -280,6 +287,20 @@ function burnZoneScan(world: World, ctx: SignalContext): BurnZoneView[] {
   return out;
 }
 
+/** Per-observer FOUL-ZONE visibility (Story 9.4) — contact-like state
+ *  exactly like burn zones, recomputed every tick through the foulzone row
+ *  (the burn zone's gate), in Map-insertion (burst) order. ONLY the circle
+ *  rides here; nothing inside a foul zone is revealed by it — no reveal
+ *  source reads `world.foulZones` (amendment 63). */
+function foulZoneScan(world: World, ctx: SignalContext): FoulZoneView[] {
+  const out: FoulZoneView[] = [];
+  const row = SIGNAL_REGISTRY.foulzone;
+  for (const zone of world.foulZones.values()) {
+    if (row.visible(ctx, zone)) out.push(row.materialize(ctx, zone));
+  }
+  return out;
+}
+
 /** Per-observer decoy visibility (Story 8.16) — contact-like state exactly
  *  like mines, recomputed every tick through the decoy row, in Map-insertion
  *  (drop) order. */
@@ -329,7 +350,7 @@ function wakeScan(ctx: SignalContext): WakeBlipEvent[] {
   if (ctx.mode !== 'fogged') return out;
   const row = SIGNAL_REGISTRY.wk;
   for (const ribbon of ctx.wakes) {
-    if (!sweepMayCrossWake(ctx.me, ribbon, ctx.now)) continue;
+    if (!sweepMayCrossWake(ctx.me, ribbon)) continue;
     eachWakeSegment(ribbon, ctx.now, (seg) => {
       const s = WAKE_SUBJECT;
       s.x = seg.mx;
@@ -445,6 +466,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
     mines: mineScan(world, ctx),
     litZones: litZoneScan(world, ctx),
     burnZones: burnZoneScan(world, ctx),
+    foulZones: foulZoneScan(world, ctx),
     decoys: decoyScan(world, ctx),
     clouds: cloudScan(world, ctx),
   };
@@ -459,7 +481,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
  */
 export function observe(world: World, observerId: string): PerceptionView {
   const me = world.ships.get(observerId);
-  if (!me) return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], decoys: [], clouds: [] };
+  if (!me) return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [] };
   return view(world, foggedContext(world, me));
 }
 

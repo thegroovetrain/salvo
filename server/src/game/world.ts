@@ -25,6 +25,7 @@ import {
   boostedKinematics,
   boonStackCount,
   pickRefusal,
+  polyInBlast,
   CONSUMABLE_SLOTS,
   burstVictims,
   drawOffer,
@@ -197,9 +198,10 @@ const NO_BEHAVIORS: readonly BoonBehaviorEffect[] = Object.freeze([]);
 const EMPTY_FIT: readonly string[] = Object.freeze([]);
 
 // (`DAZZLE_GRACE_MS` — the per-tick refresh grace of the old star-shell DAZZLE
-// zone — is DELETED with the verb, Story 8.17 / epic-8 amendment 134: a FLASH
-// SHELLS burst sets `dazzledUntil` ONCE, to `now + CONFIG.flashShells.
-// durationMs`, and nothing refreshes it — see applyFlash.)
+// zone — was DELETED with the verb, Story 8.17 / epic-8 amendment 134, and the
+// one-time FLASH SHELLS mark that replaced it (`dazzledUntil` / applyFlash)
+// left with the FOULING SHELL, Story 9.4. The foul zone's per-tick stamp is a
+// plain `now + CONFIG.foulingShell.lingerMs` — see applyFoulZones.)
 
 /** ms — the incendiary DoT's `dmg` EVENT window (Story 2.8 review, P4). The
  *  burn applies hp every tick (20/s); the victim-private event that reports it
@@ -292,8 +294,9 @@ export type StoredCloud = CloudRecord;
  * A LIT ZONE ONLY EVER LIGHTS (Story 8.17, epic-8 amendment 134): the
  * star-shell PHOSPHOR / DAZZLE doctrine verbs and the `phosphor` / `dazzle`
  * fields that stamped them here are DELETED. Burning is a BurnZone
- * (PHOSPHOR SHELLS, its own store below); blinding is a one-time FLASH
- * SHELLS burst that sets the victim's `dazzledUntil` mark (applyFlash).
+ * (PHOSPHOR SHELLS, its own store below); the FLASH SHELLS blinding that
+ * followed is itself gone — Story 9.4 replaced it with the FOULING SHELL,
+ * whose FoulZone (its own store below) slows props and never touches sight.
  */
 export interface LitZone {
   id: string;
@@ -329,6 +332,40 @@ export interface BurnZone {
   r: number; // u — burning radius
   until: number; // ms — server time the zone expires
   dps: number; // hp/s — the burn, integrated per tick through the 'burn' seat
+}
+
+/**
+ * A live FOULING SHELL FOUL ZONE (Story 9.4, Eric ruling 2026-10-11, epic-9
+ * amendments 61–68): a stationary slow patch spawned where a fouling shell
+ * STOPPED (its burst point, or an interception's stop point — the lit / burn
+ * precedent), `r` and `until` STAMPED from the shell's `foul` tag. Every
+ * AFLOAT hull whose OUTLINE touches the circle — the owner included (Eric:
+ * *"Yes it does slow you"*; a slow is not damage, so there is no friendly-fire
+ * exemption), PvE drones included, sinking hulls excluded — is stamped
+ * `fouledUntil = now + CONFIG.foulingShell.lingerMs` every tick it is inside
+ * (applyFoulZones, the outline test of amendment 62), and runs at
+ * `CONFIG.foulingShell.slowFactor` × both caps while that stamp is in the
+ * future (tickKinematics' second slowedKinematics fold).
+ *
+ * A HAZARD ONLY, and ITS OWN STORE BY CONSTRUCTION — the BurnZone argument
+ * verbatim: `ownZoneCovers` and the star-shell reach iterate `litZones` alone
+ * and the burn DoT iterates `burnZones` alone, so no reveal, burn or light
+ * reader can ever find a foul zone; there is no flag for a reader to forget.
+ * No damage, no reveal, no radar return (amendment 63). Server-owned, NO
+ * per-zone-per-hull state — one stamp per hull per tick is what makes "the
+ * same source never stacks" (amendment 64) true by construction. It survives
+ * its owner's death and dies only by natural expiry (expireFoulZones). The
+ * wire shape is FoulZoneView ({id,x,y,r,until,by}) — the burn zone's shape
+ * byte-for-byte — materialized per observer by the `foulzone` signal row on
+ * the burn zone's visibility gate.
+ */
+export interface FoulZone {
+  id: string;
+  ownerId: string; // the firer — slowed by its own zone like anyone else; rides the wire as `by`
+  x: number; // u — zone center (the burst / stop point)
+  y: number; // u
+  r: number; // u — foul radius
+  until: number; // ms — server time the zone expires
 }
 
 /**
@@ -766,8 +803,8 @@ export interface ShipRecord {
    * is FOULING MINES since epic-8 amendment 81 — a NAVAL mine no longer fouls
    * anything); 0 = not slowed. Written by a fouling mine's blast (REFRESH,
    * never stack: plain assignment of now + CONFIG.foulingMines.slowDurationMs);
-   * read by stepShips through the shared slowedKinematics fold (pinned
-   * composition boosted → slowed → hooks) and mirrored onto
+   * read by stepShips through the FIRST shared slowedKinematics fold (the
+   * five-stage composition pinned in sim/slow.ts) and mirrored onto
    * OwnShip.slowedUntil (VICTIM-PRIVATE — frames.toOwnShip only, the
    * boostUntil precedent). Reset on sink/respawn/redeploy like boostUntil.
    */
@@ -814,17 +851,22 @@ export interface ShipRecord {
    */
   shield: { hpLeft: number; until: number } | null;
   /**
-   * ms — server time the DAZZLE truesight reduction on this ship ends; 0 =
-   * not dazzled. Set ONCE by a FLASH SHELLS burst whose radius covers this
-   * ship's centre (Story 8.17, amendment 132 — applyFlash: `max(current, now +
-   * CONFIG.flashShells.durationMs)`, so a second flash sets the later expiry
-   * and never stacks or shortens); nothing refreshes it. Read by signals.ts
-   * sightOf() through the shared `effectiveSight` — the DAZZLED OBSERVER'S own
-   * sight collapses to radarRange × sightFraction — and mirrored onto
-   * OwnShip.dazzledUntil (VICTIM-PRIVATE, frames.toOwnShip only) so the
-   * client's fog hole shrinks honestly. Reset on sink/respawn/redeploy.
+   * ms — server time the FOULING SHELL zone's slow on this ship ends (Story
+   * 9.4, epic-9 amendments 61–68; it took FLASH SHELLS' `dazzledUntil` seat);
+   * 0 = not fouled by a zone. THE ZONE'S LINGER STAMP: applyFoulZones writes
+   * `now + CONFIG.foulingShell.lingerMs` every tick this hull's OUTLINE
+   * touches any live foul zone (plain assignment — one stamp per hull per
+   * tick, however many zones cover it, so the same source never stacks and a
+   * second zone only extends the clock), and the slow therefore lingers
+   * `lingerMs` after the hull leaves. Read by tickKinematics through the
+   * SECOND shared slowedKinematics fold at `CONFIG.foulingShell.slowFactor`
+   * (the mine's fold is the first — different sources multiply) and mirrored
+   * onto OwnShip.fouledUntil (VICTIM-PRIVATE, frames.toOwnShip only, omitted
+   * when not in the future). Reset wherever `slowedUntil` resets: addShip,
+   * founder, respawn, redeploy, match start (sink-entry keeps both — a hull
+   * that sinks fouled sinks fouled).
    */
-  dazzledUntil: number;
+  fouledUntil: number;
   /**
    * The WAKE-DRAFT lift folded into this hull's forward cap on the CURRENT
    * tick (Story 8.19, Eric rulings 2026-09-30, epic-8 amendments 151–155): the
@@ -1011,6 +1053,12 @@ export type HitTargets = (mask: readonly TargetKind[]) => readonly Target[];
  */
 const MINE_BLAST_HITS: readonly TargetKind[] = ['hull', 'decoy'];
 
+/** The FOUL ZONE stamp's subjects (Story 9.4): afloat hull OUTLINES only —
+ *  the same per-tick snapshot the ballistic and mine rows test against, read
+ *  through the collector so the memo is shared. A foul zone slows ships;
+ *  decoys, mines and ordnance have no prop to foul. */
+const FOUL_ZONE_HITS: readonly TargetKind[] = ['hull'];
+
 /**
  * WHICH CONFIG ROW EACH MINE KIND TRIPS THROUGH (cycle-148 review gate, P4).
  *
@@ -1175,6 +1223,11 @@ export class World {
    *  (Story 8.17). A SEPARATE store from `litZones` by design — see BurnZone:
    *  nothing that reveals or extends reach ever iterates it. */
   readonly burnZones = new Map<string, BurnZone>();
+  /** All live FOULING SHELL foul zones (static circles), in burst order
+   *  (Story 9.4). A SEPARATE store from both zone stores above by design —
+   *  see FoulZone: nothing that reveals, burns or extends reach iterates it,
+   *  and nothing here iterates them. */
+  readonly foulZones = new Map<string, FoulZone>();
   /**
    * LIVE TORPEDO wake ribbons, keyed by shell id (Story 4.12, amendment 196):
    * a running torpedo (`ShellState.kind === 'torp'`) lays a one-cell-wide
@@ -1359,6 +1412,7 @@ export class World {
   private mineSeq = 0;
   private litZoneSeq = 0;
   private burnZoneSeq = 0;
+  private foulZoneSeq = 0;
   private decoySeq = 0;
   private cloudSeq = 0;
   /**
@@ -1811,12 +1865,13 @@ export class World {
       // Foghorn (Story 4.5): fresh counter + cooldown, join-time variant.
       lastHornSeq: 0, nextHonkAt: 0, horn,
       // A fresh hull carries no open windows — boost, HULL REPAIR pool
-      // (2026-08-04), prop-fouling slow, dazzle — the same four zeroed together
-      // at every other life boundary (sinkShip / respawn / redeployShip).
+      // (2026-08-04), the mine's prop-fouling slow, the foul zone's slow
+      // (Story 9.4) — the same four zeroed together at every other life
+      // boundary (founderSinking / respawn / redeployShip / match start).
       // ...and it waits the full out-of-combat window before it regens
       // (amendment 47): `lastDamagedAt` is `now`, never 0 — the hull is full
       // here anyway, so the wait costs nothing.
-      boostUntil: 0, repairHp: 0, lastDamagedAt: this.now, slowedUntil: 0, slowFactor: 1, dazzledUntil: 0, shield: null,
+      boostUntil: 0, repairHp: 0, lastDamagedAt: this.now, slowedUntil: 0, slowFactor: 1, fouledUntil: 0, shield: null,
       // Story 8.15: no DAMAGE CUT window, and the machine gun's stream clock
       // at the epoch (fire on the first held tick), no stream live.
       damageCutUntil: 0, streamNextAt: 0, streamLive: false,
@@ -2045,6 +2100,7 @@ export class World {
     this.decoys.clear(); // practice-field decoys never float into the real match (mines precedent)
     this.litZones.clear(); // practice-field zones never light the real match (mines precedent)
     this.burnZones.clear(); // ...nor burn into it (Story 8.17, the same precedent)
+    this.foulZones.clear(); // ...nor foul it (Story 9.4, the same precedent)
     this.clouds.clear(); // ...nor a practice-field countermeasure cloud (Story 8.18 / 9.3, the same precedent)
     this.dotBuckets.clear(); // an open burn window must not flush a phantom dmg against a redeployed hull
     // The pending queue is dropped at the boundary as it always was. The
@@ -2132,7 +2188,7 @@ export class World {
     // construction, and a carried-over `true` would arm an un-beach reverse on
     // a hull sitting in open water at the start line.
     ship.landContact = false;
-    // A fresh life never inherits an open boost window — nor a slow or dazzle.
+    // A fresh life never inherits an open boost window — nor either slow.
     ship.boostUntil = 0;
     World.clearShiftClocks(ship); // ...nor a DAMAGE CUT window or a stream clock (Story 8.15)
     // ...nor a HULL REPAIR pool: hp is already full here, so a surviving
@@ -2147,7 +2203,7 @@ export class World {
     ship.shield = null;
     ship.slowedUntil = 0;
     ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
-    ship.dazzledUntil = 0;
+    ship.fouledUntil = 0; // ...nor a practice-water foul-zone stamp (Story 9.4; the zones left with foulZones.clear())
     // A fresh match never inherits a stale smoke timer (Story 4.4) — nor a
     // stale foghorn cooldown (Story 4.5) — nor a stale own-cloud stamp
     // (Story 9.3; the clouds themselves left with clouds.clear()).
@@ -2290,12 +2346,11 @@ export class World {
     //     live surge the ruling explicitly allows. The old "no active-boost
     //     HUD chrome on a dead ship" rationale no longer applies at entry:
     //     the owner's frame still carries `you` and the hotbar stays live.
-    //   - slowedUntil / dazzledUntil — a hull that sinks fouled sinks fouled:
-    //     the motion seam re-opens with the hull's REAL state (the slow keeps
-    //     lowering the cap the decel scales; the dazzle keeps shrinking the
-    //     dying captain's own fog hole). Neither can be REFRESHED while
-    //     sinking (mine blasts and zone effects gate on isAfloat), so both
-    //     expire naturally within the window.
+    //   - slowedUntil / fouledUntil — a hull that sinks fouled sinks fouled:
+    //     the motion seam re-opens with the hull's REAL state (both slows
+    //     keep lowering the cap the decel scales). Neither can be REFRESHED
+    //     while sinking (mine blasts and the foul-zone stamp gate on
+    //     isAfloat), so both expire naturally within the window.
     // The HULL REPAIR pool DOES die at entry (2026-08-04 rule, unchanged):
     // the economy is what a sinking captain loses (amendment 10 — "once
     // sinking, you're done"), tickRepairs would never tick it anyway (afloat
@@ -2342,7 +2397,7 @@ export class World {
    * on this tick — the assignment makes the wreck's parked state explicit
    * rather than an artifact of the ramp), any still-open boost window (the
    * original "no active-boost chrome on a dead ship" rule now applies — the
-   * next frame is a spectator frame with no `you`), and the slow/dazzle marks
+   * next frame is a spectator frame with no `you`), and both slow marks
    * (nothing carries through the death gap; respawn re-zeroes them for
    * symmetry exactly as before).
    */
@@ -2356,7 +2411,7 @@ export class World {
       World.clearShiftClocks(ship); // the DAMAGE CUT window dies with the life (Story 8.15)
       ship.slowedUntil = 0;
       ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
-      ship.dazzledUntil = 0;
+      ship.fouledUntil = 0; // the foul zone's stamp dies with the life too (Story 9.4)
       ship.cloudUntil = 0; // already cleared at sinkShip; symmetric for directed callers (Story 9.3)
       ship.draft = 0; // ...and rides no wake (Story 8.19): never a stale lift on the wire
     }
@@ -3276,9 +3331,18 @@ export class World {
     // lifetime, no sweep, no gun, no wake. Amendment 124(e).)
     // PHOSPHOR burning-zone DoT (Story 2.8's seat, Story 8.17's source):
     // against post-move centers, BEFORE the expiry sweep so a zone burns
-    // through its final tick. (The dazzle mark left this row with the verb —
-    // a FLASH burst sets it inside stepShells, amendment 132.)
+    // through its final tick. (The dazzle mark left this row with the verb in
+    // Story 8.17; its FLASH SHELLS successor left with Story 9.4.)
     { name: 'applyZoneEffects', run: (w, ctx) => w.applyZoneEffects(ctx.dt) },
+    // FOUL ZONE stamp (Story 9.4) — DELIBERATE seat, immediately after the
+    // burn DoT: against POST-MOVE hull OUTLINES (the tick's hull snapshot,
+    // already built for stepShells and reused here through the hitTargets
+    // memo), so the stamp reads where the hull actually is this tick, and
+    // BEFORE its expiry sweep (expireFoulZones below) so a zone fouls through
+    // its final tick. The stamp's reader is next tick's stepShips — nothing
+    // downstream in this tick reads `fouledUntil` except frames, which ship
+    // the fresh stamp to the victim the same tick.
+    { name: 'applyFoulZones', run: (w) => w.applyFoulZones() },
     // DAMAGE CONTROL regen (Eric rulings 2026-08-04) — DELIBERATE step-order
     // position: dead LAST among the hp movers, after EVERY damage source this
     // tick (storm, ballistics, mine blasts, the incendiary DoT) has already
@@ -3309,6 +3373,9 @@ export class World {
     // lit zones'. Spawned inside stepShells (resolveBurst / resolveInterception
     // on a phosphor shell), they too survive their owner's death.
     { name: 'expireBurnZones', run: (w) => w.expireBurnZones() },
+    // Foul zones (Story 9.4): the same natural-expiry sweep, beside the burn
+    // zones' and AFTER applyFoulZones (the stamp lands through the final tick).
+    { name: 'expireFoulZones', run: (w) => w.expireFoulZones() },
     { name: 'fireControl', run: (w, ctx) => w.fireControl(ctx.dtMs) },
     // THE HELD-FIRE STREAM (Story 8.15): the machine gun's level channel,
     // resolved right after the click channel — the reloads have ticked (a
@@ -3676,12 +3743,19 @@ export class World {
    * tick is byte-identical to the pre-8.19 composition.
    *
    * PINNED COMPOSITION ORDER (server AND predictor, byte-identical — sim/
-   * boost.ts, sim/slow.ts, sim/draft.ts, sim/hooks.ts headers):
-   *   boostedKinematics → slowedKinematics → draftedKinematics → hookKinematics
-   * The prop-fouling slow (Story 2.8) folds after the bespoke boost, the wake
-   * draft (Story 8.19) after the slow, the boon hook chain (Story 2.5) last;
-   * the client's Predictor.tickKin mirrors this exact order from
-   * you.boostUntil / you.slowedUntil / you.draft.
+   * boost.ts, sim/slow.ts, sim/draft.ts, sim/hooks.ts headers) — five stages:
+   *   boostedKinematics
+   *   → slowedKinematics (mine:  ship.slowFactor,                now < slowedUntil)
+   *   → slowedKinematics (shell: CONFIG.foulingShell.slowFactor, now < fouledUntil)
+   *   → draftedKinematics
+   *   → hookKinematics
+   * The mine's prop-fouling slow (Story 2.8) folds after the bespoke boost,
+   * the FOULING SHELL zone's slow (Story 9.4, amendment 64) right after it —
+   * two calls of the ONE shared fold, one per SOURCE, so different sources
+   * multiply and the same source (one stamp per hull) never stacks with
+   * itself — the wake draft (Story 8.19) after both slows, the boon hook
+   * chain (Story 2.5) last; the client's Predictor.tickKin mirrors this exact
+   * order from you.boostUntil / you.slowedUntil / you.fouledUntil / you.draft.
    */
   private tickKinematics(ship: ShipRecord, ribbons: readonly WakeRibbon[]): ShipConfig {
     ship.draft = draftLift(
@@ -3694,7 +3768,8 @@ export class World {
       this.now < ship.boostUntil,
     );
     const slowed = slowedKinematics(boosted, ship.slowFactor, this.now < ship.slowedUntil);
-    const drafted = draftedKinematics(slowed, ship.draft, ship.draft > 0);
+    const fouled = slowedKinematics(slowed, CONFIG.foulingShell.slowFactor, this.now < ship.fouledUntil);
+    const drafted = draftedKinematics(fouled, ship.draft, ship.draft > 0);
     return hookKinematics(drafted, ship.cardBehaviors, this.hookRegistry);
   }
 
@@ -4960,12 +5035,12 @@ export class World {
     const burst: BurstSubject = { k: 'burst', id: shell.id, x: at.x, y: at.y, own: shell.ownerId };
     this.pending.push(burst);
     // A star shell's burst also lights its zone (Story 1.7), a PHOSPHOR
-    // shell's spawns its burning zone and a FLASH shell's sets the dazzle
-    // mark (Story 8.17): the three server-internal tags ride only their own
-    // rows, so every other burster is untouched. The burst-flash wire event
-    // above is the SAME 'burst' row for all of them — no new GameEvent kind;
-    // the zones themselves sync contact-like as litZones / burnZones, and the
-    // flash leaves nothing on the water at all (amendment 132).
+    // shell's spawns its burning zone (Story 8.17) and a FOULING shell's
+    // spawns its foul zone (Story 9.4): the three server-internal tags ride
+    // only their own rows, so every other burster is untouched. The
+    // burst-flash wire event above is the SAME 'burst' row for all of them —
+    // no new GameEvent kind; the zones themselves sync contact-like as
+    // litZones / burnZones / foulZones.
     this.applyStopTags(shell, at);
     // A zero-damage burst (the FLASH shell) resolves no victims at all — no
     // 0-hp dmg-event noise, structurally — and so emits `sp` (135(d)).
@@ -5176,13 +5251,13 @@ export class World {
   /** WHAT A SHELL LEAVES WHERE IT STOPS, whichever way it stopped (its burst
    *  point, or an interception's stop point — the ONE shared list, so the two
    *  resolution paths can never disagree about a tag): a `lit` flare lights a
-   *  zone (Story 1.7), a `burn` phosphor shell spawns a burning zone and a
-   *  `flash` shell dazzles every hull inside it (Story 8.17). Plain shells
-   *  carry no tag and leave nothing. */
+   *  zone (Story 1.7), a `burn` phosphor shell spawns a burning zone (Story
+   *  8.17) and a `foul` fouling shell spawns a foul zone (Story 9.4). Plain
+   *  shells carry no tag and leave nothing. */
   private applyStopTags(shell: ShellState, at: Vec2): void {
     if (shell.lit) this.spawnLitZone(shell, at);
     if (shell.burn) this.spawnBurnZone(shell, at);
-    if (shell.flash) this.applyFlash(at, shell.ownerId, shell.flash.radius, shell.flash.durationMs);
+    if (shell.foul) this.spawnFoulZone(shell, at);
   }
 
   /** Spawn a lit zone where a star shell stopped (burst point, or the
@@ -5221,32 +5296,67 @@ export class World {
     });
   }
 
+  /** Spawn a FOUL ZONE where a fouling shell stopped (burst point, or the
+   *  interception stop point — Story 9.4, the lit / burn precedent). Radius
+   *  and lifetime are STAMPED from the shell's `foul` tag (a consumable has
+   *  no tiers, so they are CONFIG's numbers at launch); the zone is spawned
+   *  whatever `damageEnabled` says — it draws in the pre-start phases, it
+   *  just stamps nobody there (applyFoulZones). */
+  private spawnFoulZone(shell: ShellState, at: Vec2): void {
+    const id = this.nextFoulZoneId();
+    const foul = shell.foul!;
+    this.foulZones.set(id, {
+      id,
+      ownerId: shell.ownerId,
+      x: at.x,
+      y: at.y,
+      r: foul.radius,
+      until: this.now + foul.durationMs,
+    });
+  }
+
   /**
-   * A FLASH SHELLS burst (Story 8.17, Eric ruling 2026-09-29, amendment 132):
-   * every AFLOAT non-owner ship whose CENTRE is within `radius` of `at` —
-   * captains AND fleet drones alike (a drone is a ship; a spectator or a
-   * wreck has no eyes to dazzle) — is marked `dazzledUntil = max(current,
-   * now + durationMs)`: a hull already dazzled keeps whichever expiry is
-   * LATER, so a second flash never stacks and never shortens. One-time: no
-   * zone, no light, no reveal, no damage, nothing refreshes the mark.
-   * Perception (signals.sightOf → the shared `effectiveSight`) collapses the
-   * DAZZLED observer's own sight; frames mirror the mark to the victim alone.
+   * THE FOUL ZONE STAMP (Story 9.4, Eric ruling 2026-10-11, epic-9
+   * amendments 61–68), once per tick over post-move hull OUTLINES: every
+   * AFLOAT hull — captains, bots, PvE drones and the zone's OWNER alike (Eric:
+   * *"Yes it does slow you"*) — whose silhouette polygon touches ANY live foul
+   * zone (the shared `polyInBlast`, point-to-polygon distance ≤ r: the gun
+   * burst / mine blast rule, amendment 62 — a long hull is caught a
+   * half-length earlier and held a half-length longer than a centre test
+   * would) is stamped `fouledUntil = now + CONFIG.foulingShell.lingerMs`.
+   * Plain assignment, ONE stamp per hull per tick however many zones cover
+   * it: that is what makes "the same source never stacks" (amendment 64)
+   * true by construction — a second zone or a later shell can only hold the
+   * clock at one linger, never deepen the factor, which is the CONFIG
+   * constant folded once in tickKinematics. Sinking hulls are excluded (the
+   * mine blast's rule: a slow is refreshed on afloat hulls only).
    *
-   * GATED ON damageEnabled exactly as the old dazzle zone was (Story 2.8
-   * review, P9): a flash is a HOSTILE effect, so a ready-room burst blinds
-   * nobody — the shell still flies and bursts, and nothing else happens.
+   * The polygons are the SAME world-space outlines `hitTargets(['hull'])`
+   * builds for ballistics and mines this tick (afloat hulls only, post-move,
+   * memoized per tick) — never hand-rolled geometry.
+   *
+   * GATED ON damageEnabled exactly as the FOULING MINE's slow is: nobody is
+   * slowed in the pre-start phases or a dev sandbox room where damage is off
+   * (amendment 67 — the implementer reading, not a ruling); the shell still
+   * flies, the circle still draws, and nothing else happens.
    */
-  private applyFlash(at: Vec2, ownerId: string, radius: number, durationMs: number): void {
-    if (!this.damageEnabled) return; // ready-room flashes blind nobody
-    const r2 = radius * radius;
-    const until = this.now + durationMs;
-    for (const ship of this.ships.values()) {
-      if (ship.id === ownerId || !isAfloat(ship.lifecycle)) continue;
-      const dx = ship.state.x - at.x;
-      const dy = ship.state.y - at.y;
-      if (dx * dx + dy * dy > r2) continue;
-      ship.dazzledUntil = Math.max(ship.dazzledUntil, until);
+  private applyFoulZones(): void {
+    if (!this.damageEnabled) return; // damage off ⇒ the slow is off too (the fouling mine's gate)
+    if (this.foulZones.size === 0) return;
+    const until = this.now + CONFIG.foulingShell.lingerMs;
+    for (const hull of this.hitTargets(FOUL_ZONE_HITS)) {
+      if (!this.outlineInAnyFoulZone(hull.poly)) continue;
+      this.ships.get(hull.id)!.fouledUntil = until;
     }
+  }
+
+  /** Does this outline touch ANY live foul zone? (`polyInBlast` — the one
+   *  blast-membership predicate, shared with the gun burst and the mine.) */
+  private outlineInAnyFoulZone(poly: readonly Vec2[]): boolean {
+    for (const zone of this.foulZones.values()) {
+      if (polyInBlast(zone, zone.r, poly)) return true;
+    }
+    return false;
   }
 
   /**
@@ -5324,7 +5434,9 @@ export class World {
    *  non-owned burning zone, each with the strongest `dps` among that owner's
    *  covering zones (deduped — at most one burn per owner per tick, whatever
    *  the overlap). Only `burnZones` is read: a lit zone burns nobody
-   *  (amendment 134), and the dazzle branch left with the verb. */
+   *  (amendment 134), a foul zone only slows (Story 9.4, its own store and
+   *  its own row — applyFoulZones), and the dazzle branch left with the
+   *  verb. */
   private markZoneEffects(ship: ShipRecord): Map<string, number> {
     const burnedBy = new Map<string, number>();
     for (const zone of this.burnZones.values()) {
@@ -5350,6 +5462,15 @@ export class World {
   private expireBurnZones(): void {
     for (const [id, zone] of this.burnZones) {
       if (this.now >= zone.until) this.burnZones.delete(id);
+    }
+  }
+
+  /** Drop every foul zone whose lifetime has elapsed (Story 9.4 — the burn
+   *  zone's exact rule: natural expiry only, owner death never clears it; a
+   *  hull's lingering `fouledUntil` stamp outlives the zone by design). */
+  private expireFoulZones(): void {
+    for (const [id, zone] of this.foulZones) {
+      if (this.now >= zone.until) this.foulZones.delete(id);
     }
   }
 
@@ -6037,6 +6158,11 @@ export class World {
     return `bz${this.burnZoneSeq}`;
   }
 
+  private nextFoulZoneId(): string {
+    this.foulZoneSeq += 1;
+    return `fz${this.foulZoneSeq}`;
+  }
+
   /**
    * One-time ballistic params the client dead-reckons from. NO range-derivable
    * field (no ttl/distLeft) — see BallisticEvent's anti-cheat note. Perception
@@ -6211,8 +6337,8 @@ export class World {
     // floor and reclaim or newly claim the throne. Ready-room only exposure —
     // in the active match phase the dead spectate instead of respawning.
     this.recomputeBounty();
-    // A fresh life never inherits an open boost window — nor a slow, a dazzle,
-    // or a HULL REPAIR pool (sinkShip already zeroed them; kept symmetric
+    // A fresh life never inherits an open boost window — nor either slow or
+    // a HULL REPAIR pool (founderSinking already zeroed them; kept symmetric
     // for directed callers).
     ship.boostUntil = 0;
     World.clearShiftClocks(ship); // ...nor a DAMAGE CUT window or a stream clock (Story 8.15)
@@ -6225,7 +6351,7 @@ export class World {
     ship.shield = null;
     ship.slowedUntil = 0;
     ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
-    ship.dazzledUntil = 0;
+    ship.fouledUntil = 0; // the foul zone's stamp (Story 9.4)
     // ...nor a previous life's contributors: creditKill already cleared the
     // ledger at the sink, kept symmetric here for directed callers.
     ship.damageFrom.clear();

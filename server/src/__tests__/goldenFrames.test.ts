@@ -76,7 +76,6 @@ const EXPECTED_CHANNELS = [
 // fails the sub-case coverage assertion — the "found-style boolean per mandatory
 // sub-case" the straddle-boom check pioneered, generalized across the additions.
 const EXPECTED_SUBCASES = [
-  'dazzled-victim-private',
   'denied-blocked-mine-click',
   'denied-cooling-weapon',
   'denied-noammo-ability',
@@ -748,12 +747,12 @@ function scnHoming(g: Golden): void {
 
 /**
  * Debuff privacy (Story 2.8): a FOULING blast stamps the victim's slowedUntil
- * and a FLASH SHELLS burst stamps dazzledUntil (Story 8.17 — the one-time
- * mark that replaced the star-shell DAZZLE zone; written here as the raw
- * record write applyFlash makes, the scnTorpReReveal precedent, so the
- * scenario's frames stay byte-stable) — each rides `you` on the victim's own
- * frame ONLY (the boostUntil precedent); a sighted watcher's contact for the
- * victim carries neither key. Since Story 8.13 the fouling mine is its own
+ * (and its depth, slowFactor) — each rides `you` on the victim's own frame
+ * ONLY (the boostUntil precedent); a sighted watcher's contact for the victim
+ * carries neither key. (The FLASH SHELLS `dazzledUntil` arm this scenario
+ * carried from Story 8.17 left with the mark in Story 9.4; the FOULING
+ * SHELL's `fouledUntil` is pinned victim-private in foulingShell.test.ts and
+ * by the perception fuzz, not here.) Since Story 8.13 the fouling mine is its own
  * LINE (`foulingMines`, equipment) and the laid mine carries `kind: 'fouling'`
  * — the readers key off the mine's kind, and the owner's fitted row supplies
  * the blast's numbers.
@@ -765,8 +764,7 @@ function scnDebuffs(g: Golden): void {
   const b = place(w, 'b', 0, 10); // trips the fouling mine below on the first step
   place(w, 'watcher', 100, 60); // sees b as a contact
   injectMine(w, 'fm', 'o', 0, 0, 'fouling');
-  b.dazzledUntil = w.now + DT + CONFIG.flashShells.durationMs; // the flash mark, as applyFlash stamps it on the coming tick
-  w.step(); // the blast lands on b; the dazzle mark is live
+  w.step(); // the blast lands on b
   const fb = cap(g, w, 'b');
   const fw = cap(g, w, 'watcher');
   const contact = fw.contacts.find((ct) => ct.id === 'b');
@@ -785,12 +783,6 @@ function scnDebuffs(g: Golden): void {
     'slow-factor-victim-private',
     fb.you!.slowFactor === b.slowFactor && b.slowFactor < 1 &&
       contact !== undefined && !('slowFactor' in contact) && !('slowFactor' in fw.you!),
-  );
-  prove(
-    g,
-    'dazzled-victim-private',
-    fb.you!.dazzledUntil === b.dazzledUntil && b.dazzledUntil > 0 &&
-      contact !== undefined && !('dazzledUntil' in contact),
   );
 }
 
@@ -997,11 +989,13 @@ function scnWake(g: Golden): void {
 /**
  * The straight-runner re-reveal (Story 8.13, epic-8 amendment 78): observer
  * `b` is revealed a fish at the detect ring, the gate then SHRINKS under it
- * (a star-shell dazzle halves b's sight for one tick — the fish, still live,
- * is outside the dazzled 3/8 rung), and when the dazzle lifts the fish is
- * revealed AGAIN with current pos/velocity and `t` = the re-reveal time, in
- * the unchanged {k,id,x,y,vx,vy,t} shape. Nothing is emitted while outside.
- * Frames captured every tick, so the snapshot pins the silent tick too.
+ * for one tick (b's sight written to an eighth of its intel range — the
+ * FLASH SHELLS dazzle's old collapse, as a plain stats write since Story 9.4
+ * retired the mark; the fish, still live, is outside the shrunken rung), and
+ * when sight returns the fish is revealed AGAIN with current pos/velocity and
+ * `t` = the re-reveal time, in the unchanged {k,id,x,y,vx,vy,t} shape.
+ * Nothing is emitted while outside. Frames captured every tick, so the
+ * snapshot pins the silent tick too.
  */
 function scnTorpReReveal(g: Golden): void {
   const w = bareWorld(1021);
@@ -1011,12 +1005,14 @@ function scnTorpReReveal(g: Golden): void {
   w.step();
   const first = cap(g, w, 'b'); // crosses the ring: revealed (≈228u out)
   const one = first.events.find((e) => e.k === 'torp') as BallisticEvent | undefined;
-  b.dazzledUntil = w.now + DT + 1; // dazzled for exactly the next frame: detect collapses to 123.75
+  const fullSight = b.stats;
+  b.stats = { ...b.stats, sightRange: b.stats.radarRange / 8 }; // shrunk for exactly the next frame: detect collapses to 82.5
   w.step();
-  const dazzled = cap(g, w, 'b'); // ≈203u out: OUTSIDE the dazzled rung — silent, mark cleared
-  prove(g, 'torp-re-reveal-silent-outside', !!one && !dazzled.events.some(isBallistic) && !b.seenBallistics.has('tp'));
+  const shrunk = cap(g, w, 'b'); // ≈203u out: OUTSIDE the shrunken rung — silent, mark cleared
+  prove(g, 'torp-re-reveal-silent-outside', !!one && !shrunk.events.some(isBallistic) && !b.seenBallistics.has('tp'));
+  b.stats = fullSight; // sight back
   w.step();
-  const again = cap(g, w, 'b'); // dazzle lifted, ≈178u out: INSIDE again — revealed again
+  const again = cap(g, w, 'b'); // ≈178u out: INSIDE again — revealed again
   const two = again.events.find((e) => e.k === 'torp') as BallisticEvent | undefined;
   const live = w.shells.get('tp')!;
   prove(
@@ -1134,6 +1130,18 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // 'decoyBuoy' where it dealt 'chaff'. No golden frame ever carried
   // `you.chaff` / `you.chaffGhosts`; no contact, event, blip, mine, zone,
   // position or hp byte moved.
+  // REGENERATED KNOWINGLY IN STORY 9.4 (PV 78). Exactly THREE rows moved,
+  // each read: (1) row 8's `you.offer` hand deals 'foulingShell' in the slot
+  // that dealt 'dazzleShells' — the catalog id rename, same seeded draw;
+  // (2) scnDebuffs' victim frame: `you.dazzledUntil` is GONE with the FLASH
+  // SHELLS mark, and the victim's own contact list now carries the watcher
+  // at 117 u — its sight is no longer collapsed to 82.5 u (the
+  // `dazzled-victim-private` sub-case left with the field; the watcher's own
+  // frame is byte-identical); (3) scnTorpReReveal's tick-2 frame: the same
+  // `you.dazzledUntil` key gone — the gate shrink is a stats write now, which
+  // never rides the wire, so the silent tick and the re-reveal are
+  // byte-identical. No other contact, event, blip, mine, zone, position or hp
+  // byte moved (verified by diffing the rows field by field).
   it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
     expect(runBattery()).toMatchSnapshot();
   });

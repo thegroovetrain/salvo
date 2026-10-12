@@ -87,10 +87,10 @@ export interface BallisticParams {
    *  stop — also spawns a BURNING ZONE (see ShellState.burn). Only
    *  firePhosphorShell sets it; never on the wire. */
   burn?: { radius: number; durationMs: number; dps: number };
-  /** Server-internal FLASH tag (Story 8.17): a burst — or an interception
-   *  stop — dazzles every non-owner hull inside (see ShellState.flash). Only
-   *  the FLASH SHELLS belt row sets it; never on the wire. */
-  flash?: { radius: number; durationMs: number };
+  /** Server-internal FOUL tag (Story 9.4 — the FLASH SHELLS `flash` tag's
+   *  seat): a burst — or an interception stop — spawns a FOUL ZONE there (see
+   *  ShellState.foul). Only the FOULING SHELL row sets it; never on the wire. */
+  foul?: { radius: number; durationMs: number };
   /** ACOUSTIC HOMING doctrine (Story 2.8): the per-tick steering params
    *  (ShellState.homing — turn rate + acquire range). Never on the wire. */
   homing?: { turnRate: number; acquireRange: number };
@@ -135,7 +135,7 @@ export function makeBallistic(
   // an explicit `undefined` key — the shape stays clean for plain projectiles).
   if (p.lit) shell.lit = p.lit;
   if (p.burn) shell.burn = p.burn;
-  if (p.flash) shell.flash = p.flash;
+  if (p.foul) shell.foul = p.foul;
   if (p.homing) shell.homing = p.homing;
   return shell;
 }

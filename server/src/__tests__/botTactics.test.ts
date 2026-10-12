@@ -171,6 +171,7 @@ function viewWithOwnMines(mind: BotMind, n: number): void {
     })),
     litZones: [],
     burnZones: [],
+    foulZones: [],
     decoys: [],
     clouds: [],
   };
@@ -604,11 +605,11 @@ describe('steering — the priority order is the policy', () => {
     // Ring centre dead ahead so the posture bearing contributes nothing.
     port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
     const ahead = { id: 'm1', x: 60, y: 20, by: 'enemy' };
-    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: false }], litZones: [], burnZones: [], decoys: [], clouds: [] };
+    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: false }], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [] };
     mind.viewAt = -1; // not fresh: nothing is folded, only the mine probe reads it
     const dodged = COMBAT_BRAIN.decide(rec, mind, port);
     expect(dodged.rudder).toBeLessThan(0); // mine to port -> steer starboard
-    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: true }], litZones: [], burnZones: [], decoys: [], clouds: [] };
+    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: true }], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [] };
     const own = COMBAT_BRAIN.decide(rec, mind, port);
     expect(own.rudder).toBe(0); // an owner never trips its own rack
   });
@@ -1515,29 +1516,70 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(COMBAT_BRAIN.decide(both, bothMind, port).fireSlot).toBe(slotOf(both, 'starShells'));
   });
 
-  it('FLASH SHELLS (8.17): the belt row PRIMES and FIRES at the nearest live contact in sight while ENGAGED; held otherwise', () => {
-    const w = openWorld(408);
+  /** A torpedo boat at the origin, bow EAST, holding ONE FOULING SHELL copy
+   *  and nothing else that fires (the boost and the weapon row cleared). */
+  function foulingShellBoat(seed: number): { w: World; port: FakePort; rec: ShipRecord; slot: number } {
+    const w = openWorld(seed);
     const port = fakePort(w);
     const rec = mkBot(w, 'torpedoBoat', 0, 0, 0);
     for (const i of [SLOT_BOOST, 2, 3, 4]) rec.loadout[i] = { equipmentId: null, state: null };
-    w.applyCard(rec, 'dazzleShells');
-    const belt = slotOf(rec, 'dazzleShells');
-    expect(belt).toBeGreaterThanOrEqual(5);
-    expect(CONSUMABLE_TACTICS.dazzleShells.kind).toBe('shot');
+    w.applyCard(rec, 'foulingShell');
+    const slot = slotOf(rec, 'foulingShell');
+    expect(slot).toBeGreaterThanOrEqual(5);
+    return { w, port, rec, slot };
+  }
+
+  it('FOULING SHELL (9.4, amendment 65) — ENGAGING: the row PRIMES and FIRES at the nearest live contact in sight; held with no live contact', () => {
+    const { w, port, rec, slot } = foulingShellBoat(408);
+    expect(CONSUMABLE_TACTICS.foulingShell.kind).toBe('shot');
+    expect(CONSUMABLE_TACTICS.foulingShell.reachU(rec.stats)).toBe(rec.stats.radarRange);
     const band = engagementBand(profileOf('duelist'), rec.stats);
+    const mid = Math.min((band.min + band.max) / 2, 250);
     const engaged = mkMind('duelist');
-    plot(engaged, track(port.now, { x: Math.min((band.min + band.max) / 2, 250), y: 0, live: true, speed: 0 }));
+    plot(engaged, track(port.now, { x: mid, y: 0, live: true, speed: 0 }));
     const d = COMBAT_BRAIN.decide(rec, engaged, port);
     expect(engaged.posture).toBe('engage');
-    expect(d.fireSlot).toBe(belt);
-    expect(d.aimDist).toBeCloseTo(Math.min((band.min + band.max) / 2, 250), 6); // burst ON the contact
-    // No target: nothing to flash — held (the gun does not fire either).
+    expect(d.fireSlot).toBe(slot);
+    expect(d.aimDist).toBeCloseTo(mid, 6); // burst ON the contact
+    // No target: nothing to foul — held (the gun does not fire either).
     const idle = mkMind('duelist');
     expect(COMBAT_BRAIN.decide(rec, idle, port).fireSlot).toBeNull();
-    // A NON-live plot (a blip) inside the band engages but never draws a flash.
+    // A NON-live plot (a blip) inside the band engages but never draws the shell.
     const blip = mkMind('duelist');
-    plot(blip, track(port.now, { x: Math.min((band.min + band.max) / 2, 250), y: 0, live: false, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(rec, blip, port).fireSlot).not.toBe(belt);
+    plot(blip, track(port.now, { x: mid, y: 0, live: false, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec, blip, port).fireSlot).not.toBe(slot);
+    void w;
+  });
+
+  it('FOULING SHELL (9.4, amendment 65) — DISENGAGING: fires ONLY at a live contact ASTERN (behind the beam); a chaser dead ahead draws nothing, and of two the astern one is picked even when it is farther', () => {
+    const { port, rec, slot } = foulingShellBoat(409);
+    rec.hp = rec.stats.maxHp * 0.1; // under the duelist's disengage fraction
+    // A live contact 150 u dead ASTERN (bearing π off a bow at 0): pin the chaser.
+    const chased = mkMind('duelist');
+    plot(chased, track(port.now, { x: -150, y: 0, live: true, speed: 20 }));
+    const d = COMBAT_BRAIN.decide(rec, chased, port);
+    expect(chased.posture).toBe('disengage');
+    expect(d.fireSlot).toBe(slot);
+    expect(d.aimDist).toBeCloseTo(150, 6);
+    // The same contact dead AHEAD (nothing astern): no press of the shell.
+    const ahead = mkMind('duelist');
+    plot(ahead, track(port.now, { x: 150, y: 0, live: true, speed: 20 }));
+    const d2 = COMBAT_BRAIN.decide(rec, ahead, port);
+    expect(ahead.posture).toBe('disengage');
+    expect(d2.fireSlot).not.toBe(slot);
+    // A contact exactly ABEAM (90° off the bow) is not astern either.
+    const abeam = mkMind('duelist');
+    plot(abeam, track(port.now, { x: 0, y: 150, live: true, speed: 20 }));
+    expect(COMBAT_BRAIN.decide(rec, abeam, port).fireSlot).not.toBe(slot);
+    // Two live contacts: the nearer one ahead at 100 u, a farther one astern
+    // at 200 u — the ASTERN one is the shot (the engage rule would have
+    // picked the nearer).
+    const both = mkMind('duelist');
+    plot(both, track(port.now, { id: 'front', x: 100, y: 0, live: true, speed: 20 }));
+    plot(both, track(port.now, { id: 'back', x: -200, y: 0, live: true, speed: 20 }));
+    const d3 = COMBAT_BRAIN.decide(rec, both, port);
+    expect(d3.fireSlot).toBe(slot);
+    expect(d3.aimDist).toBeCloseTo(200, 6);
   });
 
   it('CAPTIVE MINES keeps the base mine UNCONDITIONAL withdrawal lay', () => {
@@ -2043,7 +2085,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
 
   /** Hand the mind a fresh (this-tick) view carrying only `events`. */
   function viewOf(mind: BotMind, now: number, events: GameEvent[]): void {
-    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], decoys: [], clouds: [] };
+    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [] };
     mind.viewAt = now;
   }
 
@@ -2335,7 +2377,7 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
 
   /** Hand the mind a fresh (this-tick) view carrying only `events`. */
   function viewOf(mind: BotMind, now: number, events: GameEvent[]): void {
-    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], decoys: [], clouds: [] };
+    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [] };
     mind.viewAt = now;
   }
 

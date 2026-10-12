@@ -381,13 +381,13 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
   // nothing else is drawable or stockable in play, and the PARTIAL registry is
   // what makes even a forged press fail closed.
   it('the PRODUCTION consumable registry holds the SIX built lines, and every stub line is absent', () => {
-    const BUILT = ['countermeasure', 'dazzleShells', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
+    const BUILT = ['countermeasure', 'decoyBuoy', 'foulingShell', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
     expect(Object.keys(CONSUMABLES).sort()).toEqual(BUILT);
     expect(Object.isFrozen(CONSUMABLES)).toBe(true);
     for (const id of BUILT) expect(Object.isFrozen(CONSUMABLES[id as keyof typeof CONSUMABLES]), id).toBe(true);
     expect(CONSUMABLES.supercavTorpedo!.isWeapon).toBe(true); // aimed
     expect(CONSUMABLES.decoyBuoy!.isWeapon).toBe(true); // click-placed (Story 8.16)
-    expect(CONSUMABLES.dazzleShells!.isWeapon).toBe(true); // FLASH SHELLS: prime-and-click (Story 8.17)
+    expect(CONSUMABLES.foulingShell!.isWeapon).toBe(true); // FOULING SHELL: prime-and-click (Story 9.4 — FLASH SHELLS' seat)
     expect(CONSUMABLES.hullRepair!.isWeapon).toBe(false);
     expect(CONSUMABLES.shieldBlock!.isWeapon).toBe(false); // key-fired (Story 8.16)
     expect(CONSUMABLES.countermeasure!.isWeapon).toBe(false); // key-fired (Story 9.3 — SMOKE SCREEN's 8.18 seat)

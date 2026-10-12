@@ -182,22 +182,22 @@ describe('motion seam — the hull keeps its way and decays to a stop', () => {
     expect(a.state.speed).toBeGreaterThan(ratedCap);
   });
 
-  it('an open boost window SURVIVES sink-entry; founder zeroes it with the slow/dazzle marks', () => {
+  it('an open boost window SURVIVES sink-entry; founder zeroes it with both slow marks (the mine\'s and the foul zone\'s — Story 9.4)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     a.boostUntil = w.now + 60_000;
     a.slowedUntil = w.now + 60_000;
-    a.dazzledUntil = w.now + 60_000;
+    a.fouledUntil = w.now + 60_000;
     w.respawnEnabled = false;
     w.sinkShip('a');
     expect(a.boostUntil).toBeGreaterThan(0); // amendment 10: the surge lives
     expect(a.slowedUntil).toBeGreaterThan(0); // a hull that sinks fouled sinks fouled
-    expect(a.dazzledUntil).toBeGreaterThan(0);
+    expect(a.fouledUntil).toBeGreaterThan(0); // ...and a hull that sinks in a foul zone sinks fouled
     expect(a.repairHp).toBe(0); // the economy DOES die at entry
     w.step(WINDOW);
     expect(a.boostUntil).toBe(0); // founder: nothing carries through the death gap
     expect(a.slowedUntil).toBe(0);
-    expect(a.dazzledUntil).toBe(0);
+    expect(a.fouledUntil).toBe(0);
   });
 
   it('still resolves against the map boundary and still lays wake while sinking', () => {
