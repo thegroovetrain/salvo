@@ -2,7 +2,8 @@
 title: 'Story 9.3: Multi-Spectral Countermeasure'
 type: 'feature'
 created: '2026-10-11'
-status: 'in-review'
+status: 'done'
+final_revision: 'PR #266 open (2026-10-12); code head 9d6dfbbc'
 baseline_revision: 'e0cd6f6e'
 review_loop_iteration: 0
 followup_review_recommended: true
@@ -157,7 +158,7 @@ warnings: [oversized]
 
 ## Auto Run Result
 
-Status: done — PR pending to `development` (opened at the end of this run; never merged by the agent).
+Status: done — PR #266 open to `development` (never merged by the agent; Eric judges the cloud on staging).
 
 **Implemented:** SMOKE SCREEN replaced by the MULTI-SPECTRAL COUNTERMEASURE on key `3` (cap 5): one press = one stationary cloud of 300 seeded pixels (`shared/src/sim/cloud.ts`, rejection-sampled disc from `mulberry32`, no transcendentals, bit-identical on both sides from the wire `{id,x,y,t0}`), outline 200 → 500 u over 15 s with per-pixel deaths at 6–15 s and a 6 u blocking footprint. Pixels block SIGHT for every observer including the owner (the in-smoke 1/8 rule, `inSmoke`, the lay window and the disc renderer are gone); enemy RADAR loses only targets inside the cloud's outline with a pixel on the beam's path, no shadow beyond, the owner's radar ignoring pixels (`radarClear`, the blip gate's fourth term, shared by ship blips, decoy paints and the wake's radar half); the cloud is DELIVERED when any living pixel is sighted or radar-detected (Eric's re-ruling at the review gate, amendment 51), and the client holds a received cloud until it dies, clearing at the match-start edge. Client draws 20 u wounded-smoke-grey squares that fade as each pixel dies (glyph A, card name MULTI-SPECTRAL CM). Bots press once per disengage. `PROTOCOL_VERSION` 76; version 0.18.39 (cycle 174); epic-9 amendments 40–51.
 
