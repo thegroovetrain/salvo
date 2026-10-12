@@ -186,7 +186,7 @@ Status: done — PR #266 open to `development` (never merged by the agent; Eric 
 
 **Recorded, not ruled (Eric's staging eye):** a modified client could strip the overlay (the cycle-153/174 server-side occlusion closed that; Eric: *"Server can block if you think it'll be an issue"* — not done, because server-side hiding would decide by centre or outline and pop, against the partials rule); radar paints now draw above visible contact hulls everywhere (the 2026-08-13 hull-above-blips rule holds for the own hull only); the own callsign stays on the screen-space `plate` layer under the haze; wounded smoke and fire keep their seat under hulls.
 
-## Session 3 — smoke brush (2026-10-12; cycle 176, 0.18.41, PV 77 unchanged; epic-9 amendments 55–56)
+## Session 3 — smoke brush (2026-10-12; cycle 176, 0.18.41, PV 77 unchanged; epic-9 amendments 55–56; PR #268 open to `development`, never merged by the agent)
 
 **Trigger:** Eric on 0.18.40 on staging: *"It looks like you have sprayed the spray tool itself. It looks like crap … showing up green at ALL times (it's not following radar paint rules)"*; *"I said PIXELS, not blobs"* with a reference image (soft overlapping puffs of many sizes and greys, dense body, wispy edges); *"RADAR HAS RULES … IF THE BEAM PASSES, IT PAINTS THOSE PIXELS AND THOSE PIXELS ONLY."*
 
