@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CanvasSource, Container, Texture, TextureSource } from 'pixi.js';
-import { CONFIG, cloudOutlineRadius, mulberry32, wrapPositive, type CloudView } from '@salvo/shared';
+import { CONFIG, cloudOutlineRadius, mulberry32, wrapPositive, type CloudView, type Island } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { Countermeasure } from '../render/countermeasure.js';
 import {
@@ -36,14 +36,19 @@ import { HALO_MASK_TEXTURE_SIZE } from '../render/textures.js';
 // stub the dim bake — MIRRORING the real reuse contract (a live texture is
 // redrawn in place and handed back; only a bare call mints) and recording each
 // call. The last suite drops the stub and pins the real draw.
-const haloBakes = vi.hoisted(() => ({ calls: [] as Array<{ haloU: number; into: unknown }> }));
+const haloBakes = vi.hoisted(() => ({
+  calls: [] as Array<{ haloU: number; into: unknown }>,
+  /** The island-shadow rays each bake drew (null = the plain disc), copied. */
+  rays: [] as Array<number[] | null>,
+}));
 
 vi.mock('../render/textures.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../render/textures.js')>();
   return {
     ...actual,
-    bakeHaloMaskTexture: (haloU: number, into?: Texture | null): Texture => {
+    bakeHaloMaskTexture: (haloU: number, into?: Texture | null, rays?: Float32Array | null): Texture => {
       haloBakes.calls.push({ haloU, into });
+      haloBakes.rays.push(rays ? [...rays] : null);
       return into ?? new Texture({ source: new TextureSource({ width: 8, height: 8 }) });
     },
   };
@@ -117,6 +122,8 @@ describe('one bitmap per held cloud, on the `cloud` layer', () => {
     expect(main, 'the halo follows the live intel range, beside radar.setRanges')
       .toContain('g.countermeasure.setHaloU(hazeHaloU(stats.radarRange))');
     expect(main, 'the alive path centres the halo on the own pose').toContain('g.countermeasure.render(now, pose)');
+    expect(main, 'the halo sees past no island: the map\'s islands, beside the radar\'s wake sources')
+      .toContain('g.countermeasure.setIslands(g.islands)');
   });
 });
 
@@ -124,6 +131,7 @@ describe('the haze is seen by eye only inside the 5/8 halo (Eric 2026-10-12)', (
   const OWN = { x: 120, y: -340 };
   const fresh = (): { cm: Countermeasure; layer: Container } => {
     haloBakes.calls.length = 0;
+    haloBakes.rays.length = 0;
     const layer = new Container();
     return { cm: new Countermeasure(layer, seeded()), layer };
   };
@@ -193,6 +201,86 @@ describe('the haze is seen by eye only inside the 5/8 halo (Eric 2026-10-12)', (
     expect(d).toBeGreaterThan(BASE_HAZE_HALO_U + K.haloFeatherU);
     expect(haloAlphaAt(d, BASE_HAZE_HALO_U), 'hidden at the base range').toBe(0);
     expect(haloAlphaAt(d, cm.haloU), 'seen after the rise').toBe(1);
+  });
+
+  describe('the halo sees past no island (session 6, Eric 2026-10-12)', () => {
+    // A box island due east of OWN, its near edge 200 u away.
+    const EAST: Island = {
+      x: OWN.x + 220, y: OWN.y, r: Math.hypot(20, 20), pole: { x: OWN.x + 220, y: OWN.y }, core: 1, contours: [],
+      poly: [
+        { x: OWN.x + 200, y: OWN.y - 20 }, { x: OWN.x + 240, y: OWN.y - 20 },
+        { x: OWN.x + 240, y: OWN.y + 20 }, { x: OWN.x + 200, y: OWN.y + 20 },
+      ],
+    };
+    const reach = (cm: Countermeasure): number => Math.fround(cm.haloU + K.haloFeatherU);
+
+    it('with islands set, a posed render re-bakes the mask IN PLACE through the cast rays, cut at the island', () => {
+      const { cm } = fresh();
+      const tex = cm.haloMask.texture;
+      cm.sync([cloud('c1')]);
+      cm.setIslands([EAST]);
+      cm.render(0, OWN);
+      const rays = haloBakes.rays.at(-1)!;
+      expect(rays).toHaveLength(K.losRays);
+      expect(rays[0], 'bearing 0 stops at the near edge').toBeCloseTo(200, 3);
+      expect(rays[K.losRays / 2], 'the far side runs the full reach').toBe(reach(cm));
+      expect(haloBakes.calls.at(-1)).toEqual({ haloU: cm.haloU, into: tex });
+      expect(cm.haloMask.texture).toBe(tex);
+    });
+
+    it('re-casts only after a move of losRecastMoveU, or a halo change', () => {
+      const { cm } = fresh();
+      cm.sync([cloud('c1')]);
+      cm.setIslands([EAST]);
+      cm.render(0, OWN);
+      const n = haloBakes.calls.length;
+      cm.render(16, { x: OWN.x + K.losRecastMoveU * 0.9, y: OWN.y });
+      expect(haloBakes.calls, 'a small move costs nothing').toHaveLength(n);
+      cm.render(32, { x: OWN.x + K.losRecastMoveU, y: OWN.y });
+      expect(haloBakes.calls).toHaveLength(n + 1);
+      cm.setHaloU(hazeHaloU(CONFIG.vision.radar * 1.2));
+      cm.render(48, { x: OWN.x + K.losRecastMoveU, y: OWN.y });
+      expect(haloBakes.rays.at(-1)![K.losRays / 2], 'the new reach').toBe(reach(cm));
+    });
+
+    it('no held cloud → no cast on a posed render, even after moving', () => {
+      const { cm } = fresh();
+      cm.setIslands([EAST]);
+      const n = haloBakes.calls.length;
+      cm.render(0, OWN);
+      cm.render(16, { x: OWN.x + 50, y: OWN.y + 50 });
+      expect(haloBakes.calls, 'the mask masks nothing, so no work').toHaveLength(n);
+    });
+
+    it('the first cloud held forces a cast that frame, whatever the move threshold', () => {
+      const { cm } = fresh();
+      cm.sync([cloud('c1')]);
+      cm.setIslands([EAST]);
+      cm.render(0, OWN); // cast from OWN
+      cm.clear();
+      cm.render(16, OWN); // no cloud: nothing
+      const n = haloBakes.calls.length;
+      cm.sync([cloud('c2', 16)]);
+      cm.render(32, OWN); // same spot — under the threshold, yet a cloud just appeared
+      expect(haloBakes.calls).toHaveLength(n + 1);
+      expect(haloBakes.rays.at(-1)![0]).toBeCloseTo(200, 3);
+    });
+
+    it('no pose casts nothing; setIslands([]) restores the plain disc', () => {
+      const { cm, layer } = fresh();
+      cm.sync([cloud('c1')]);
+      cm.setIslands([EAST]);
+      cm.render(0, null);
+      expect(layer.mask, "no pose, no mask").toBeFalsy();
+      expect(haloBakes.rays.every((r) => r === null), 'no pose, no cast').toBe(true);
+      cm.render(16, OWN);
+      expect(haloBakes.rays.at(-1)).not.toBeNull();
+      cm.setIslands([]);
+      expect(haloBakes.rays.at(-1), 'the plain disc, at once').toBeNull();
+      const n = haloBakes.calls.length;
+      cm.render(32, { x: OWN.x + 50, y: OWN.y });
+      expect(haloBakes.calls, 'no islands, no casting').toHaveLength(n);
+    });
   });
 
   it('clear() leaves the mask on the layer', () => {

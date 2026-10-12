@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.18.44] - 2026-10-12
+
+### Changed
+- **Islands hide the countermeasure haze** (Story 9.3, session 6 — Eric: *"if I can't see it because of an island or any other sight block, don't render it"*). The haze now shows only where a clear line of sight from your hull reaches it: islands cut hard shadows into the 5/8 intel disc, the same way a wounded ship's smoke is only shown with island line of sight. The 5/8 edge and its soft feather are unchanged.
+
+### Internal
+- `client/src/render/hazeLos.ts` (`HazeLosCaster`: 360 rays from the own hull out to halo + feather through the shared `islandSegHit`, islands prefiltered by bounding circle and tested only on the rays their cone covers, nearest-first, each ray cut to its current hit; a grounded hull fails open), `textures.ts` `bakeHaloMaskTexture(haloU, into, rays)` fills the same radial feather through one fan path of the hit points, `countermeasure.ts` `setIslands` / `refreshLos` (re-cast only after 2 u of own movement, a halo change or an island change, and only while a cloud is held; the first cloud held forces a cast), `main.ts` wires `setIslands(g.islands)` beside `setWakeSources`. Knobs `losRays 360`, `losRecastMoveU 2`.
+- Measured in node on real map seeds: mean 1.6 ms per cast, p99 5.9 ms, worst 10 ms inside large concave island clusters — ledgered as a staging perf watch (a dev build is never a perf verdict); the cheap version is a shared visibility-polygon primitive, an architecture call.
+- Client only; PROTOCOL_VERSION unchanged (77). Tests: client 3946 (126 files; property test: every ray matches a brute-force minimum over all islands), shared 1028, server 2469.
+- Epic-9 amendment 60. Cycle 179.
+
 ## [0.18.43] - 2026-10-12
 
 ### Changed

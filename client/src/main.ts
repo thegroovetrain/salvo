@@ -2979,6 +2979,9 @@ function buildGame(
   // (Countermeasure clouds rode along here until 2026-10-12; the server hides
   // nothing behind smoke now, so the client mirrors nothing.)
   g.radar.setWakeSources(g.effects.wakeSources, g.islands);
+  // ...and the haze halo sees past no island (Story 9.3 session 6, Eric
+  // 2026-10-12: "if I can't see it because of an island … don't render it").
+  g.countermeasure.setIslands(g.islands);
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
   // THE ROOM'S OWN BINDINGS ARE A DISPOSER (Story 6.3 review gate). Story 6.3's

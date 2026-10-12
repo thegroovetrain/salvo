@@ -53,10 +53,21 @@
 // radar's in-bubble dim mask pattern exactly. No own pose (a spectator) → no
 // mask: a spectator sees everything. `coverAt` and the radar returns read the
 // FIELD, never the mask, so neither changes.
+//
+// THE HALO SEES PAST NO ISLAND (session 6, Eric 2026-10-12: "Yes, if I can't
+// see it because of an island or any other sight block, don't render it."):
+// wounded smoke reaches a client only with island LOS clear, so the haze obeys
+// it too. The halo mask is a LINE-OF-SIGHT mask: render/hazeLos.ts casts
+// `losRays` bearings from the own hull to halo + feather against the match's
+// islands (`setIslands`, once per map — the `setWakeSources` precedent), and
+// the bake fills the same halo gradient through the fan of hit points, so each
+// island cuts a hard shadow from its near edge outward. Re-cast only on a move
+// of `losRecastMoveU` or a halo / island change (cost — config.ts). No
+// islands → the plain disc. A grounded hull fails open (no shadows).
 
 import { BufferImageSource, Sprite, Texture } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import type { CloudView } from '@salvo/shared';
+import type { CloudView, Island } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import {
   CLOUD_CELLS,
@@ -67,6 +78,7 @@ import {
   type CloudField,
 } from './cloudPaint.js';
 import { BASE_HAZE_HALO_U, haloSpanU } from './hazeHalo.js';
+import { HazeLosCaster } from './hazeLos.js';
 import { HALO_MASK_TEXTURE_SIZE, bakeHaloMaskTexture } from './textures.js';
 
 /** Scene-graph label of the haze halo mask (test seam). */
@@ -94,6 +106,15 @@ export class Countermeasure {
   private readonly halo: Sprite;
   /** The halo radius (u) the current mask texture was baked at. */
   private haloBakedAtU = BASE_HAZE_HALO_U;
+  /** The match's islands (fixed per map) — the halo's sight blockers. */
+  private islands: readonly Island[] = [];
+  private readonly los = new HazeLosCaster(K.losRays);
+  /** Where the shadows were last cast from; NaN = re-cast on the next pose
+   *  (halo or island change). */
+  private castX = Number.NaN;
+  private castY = Number.NaN;
+  /** Does the mask currently carry island shadows (vs the plain disc)? */
+  private shadowed = false;
 
   /** `layer` = chartRoot's `cloud` layer. `rng` = the one brush RNG (purely
    *  visual, never shared with the server; a test passes a seeded one). */
@@ -125,6 +146,42 @@ export class Countermeasure {
     this.haloBakedAtU = haloU;
     this.scaleHalo();
     this.halo.texture = bakeHaloMaskTexture(haloU, this.halo.texture);
+    this.shadowed = false;
+    this.castX = Number.NaN; // the reach moved: re-cast on the next pose
+  }
+
+  /** The match's islands — the halo's sight blockers (main.ts, once per map,
+   *  beside `radar.setWakeSources`). An empty set restores the plain disc at
+   *  once; otherwise the shadows are cast on the next pose. */
+  setIslands(islands: readonly Island[]): void {
+    this.islands = islands;
+    this.castX = Number.NaN;
+    if (islands.length === 0 && this.shadowed) this.bakeHalo(null);
+  }
+
+  /** Re-cast the island shadows from `own` when it has moved `losRecastMoveU`
+   *  since the last cast, or the halo / island set changed, or the first cloud
+   *  was just held — and never while no cloud is held. */
+  private refreshLos(own: { x: number; y: number }): void {
+    if (this.islands.length === 0) return;
+    // NO HAZE, NO WORK: with no cloud held the mask masks nothing, so skip the
+    // cast — and forget the last one, so the first cloud held forces a fresh
+    // cast that frame whatever the move threshold says.
+    if (this.clouds.size === 0) {
+      this.castX = Number.NaN;
+      return;
+    }
+    if (Math.hypot(own.x - this.castX, own.y - this.castY) < K.losRecastMoveU) return;
+    this.castX = own.x;
+    this.castY = own.y;
+    this.los.cast(own.x, own.y, this.haloBakedAtU + K.haloFeatherU, this.islands);
+    this.bakeHalo(this.los.rays);
+  }
+
+  /** Redraw the mask in place: the fan through `rays`, or the plain disc. */
+  private bakeHalo(rays: Float32Array | null): void {
+    this.halo.texture = bakeHaloMaskTexture(this.haloBakedAtU, this.halo.texture, rays);
+    this.shadowed = rays !== null;
   }
 
   /** The halo radius (u) the mask is baked at (test seam). */
@@ -149,6 +206,7 @@ export class Countermeasure {
       this.layer.mask = null;
       return;
     }
+    this.refreshLos(own);
     this.halo.position.set(own.x, own.y);
     if (this.layer.mask !== this.halo) this.layer.mask = this.halo;
   }

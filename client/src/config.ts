@@ -2420,6 +2420,18 @@ export const CLIENT_CONFIG = {
      *  reach — NOT a knob, render/hazeHalo.ts); it fades linearly to nothing
      *  over this many units past that rung. Feel only. */
     haloFeatherU: 40,
+    /** THE HALO'S ISLAND LINE OF SIGHT (Story 9.3 session 6, Eric 2026-10-12:
+     *  "if I can't see it because of an island or any other sight block, don't
+     *  render it"). Bearings cast from the own hull to cut island shadows into
+     *  the halo mask (render/hazeLos.ts) — 360 = one per degree, ~7 u between
+     *  rays at the 5/8 rung. */
+    losRays: 360,
+    /** u — the shadows are re-cast only when the own hull has moved at least
+     *  this far since the last cast (or the halo / island set changed): a cast
+     *  measured ~1.2 ms median, ~6 ms worst among islands (node, 2026-10-12),
+     *  too dear for every frame; clouds are stationary and a shadow edge is
+     *  off by at most this much. */
+    losRecastMoveU: 2,
   },
 
   /**
