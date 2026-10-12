@@ -326,6 +326,10 @@ export function pickRefusal(
 ): PickRefusal | null {
   const line = Object.hasOwn(catalog, lineId) ? catalog[lineId] : undefined;
   if (line === undefined || line.stub === true) return 'stub';
+  // A consumable with no key has no slot to stock into (Story 9.2): it is
+  // refused like a stub, so an un-stubbed but unkeyed line can never enter
+  // `cards` without a home. Production has no such line; this guards the gap.
+  if (line.kind === 'consumable' && consumableSlotFor(lineId as ConsumableId) === null) return 'stub';
   const copies = boonStackCount(held, lineId);
   if (copies >= line.cap) return 'atCap';
   if (line.kind === 'equipment' && copies === 0) return weaponRowRefusal(slotIds);

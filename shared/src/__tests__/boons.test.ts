@@ -839,6 +839,16 @@ describe('pickRefusal — every branch', () => {
     (id, i) => CONSUMABLE_KEY_ORDER.find((k) => consumableSlotFor(k) === i) ?? id,
   );
 
+  it("'stub' — a consumable with no key has no slot, so it is refused even when the catalog un-stubs it", () => {
+    // Story 9.2: the slot IS the key; a keyless line must never enter `cards`.
+    const { stub: _dropped, ...liveDepthCharge } = CATALOG.depthCharge;
+    const unstubbed: Catalog = { ...CATALOG, depthCharge: liveDepthCharge };
+    expect(consumableSlotFor('depthCharge')).toBeNull();
+    expect(pickRefusal([], OPEN_SLOTS, 'depthCharge', unstubbed)).toBe('stub');
+    // and the keyed kinds in the same catalog are untouched by the guard
+    for (const k of CONSUMABLE_KEY_ORDER) expect(pickRefusal([], OPEN_SLOTS, k, unstubbed)).toBeNull();
+  });
+
   it('null — the ordinary legal pick, every kind', () => {
     expect(pickRefusal([], OPEN_SLOTS, 'lightTorpedo')).toBeNull(); // copy 1, row open
     expect(pickRefusal(['lightTorpedo'], ROW_FULL, 'lightTorpedo')).toBeNull(); // a TIER card
