@@ -26,7 +26,7 @@
 // their notes survive below where the suites used to sit.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, transitionLifecycle, CATALOG, CONFIG, CONSUMABLE_SLOTS, effectiveStats, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, captiveTriggerRadius, type GameEvent, type InputMsg, type MineKind, type ShipClassId } from '@salvo/shared';
+import { isAfloat, transitionLifecycle, CATALOG, CONFIG, consumableSlotFor, effectiveStats, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, captiveTriggerRadius, type GameEvent, type InputMsg, type MineKind, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -1247,7 +1247,7 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
 });
 
 describe('FLASH SHELLS (`dazzleShells`) — a belt consumable whose one-time burst dazzles every hull inside r150 for 10 s (amendment 132)', () => {
-  const BELT = CONSUMABLE_SLOTS[0];
+  const BELT = consumableSlotFor('dazzleShells')!;
 
   /** A Battleship at the origin holding ONE FLASH SHELLS copy, clicking
    *  (400, 0): `A` 100 u from the burst point (inside r150), `B` 160 u from

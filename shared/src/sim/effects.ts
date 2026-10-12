@@ -28,13 +28,14 @@ import type { HookParams } from './hooks.js';
 export type BoonId = string;
 
 /**
- * The EIGHT launch CONSUMABLES (catalog-v3 §4, as amended). They are NOT slot
- * EQUIPMENT — they fire off the `1`–`4` rail as stacks of copies, with no
- * module, no stats row and no reload — so they keep their OWN id space and
+ * The SEVEN CONSUMABLES (catalog-v3 §4, as amended). They are NOT slot
+ * EQUIPMENT — they fire off their fixed number keys as stacks of copies, with
+ * no module, no stats row and no reload — so they keep their OWN id space and
  * never appear in `EquipmentId`.
  *
- * Since Story 8.7 a copy does hold a SLOT: one of the four BELT slots
- * (`CONSUMABLE_SLOTS`, sim/loadout.ts), which is why a slot's content is typed
+ * Since Story 8.7 a copy does hold a SLOT — since Story 9.2 its kind's OWN
+ * fixed slot (`CONSUMABLE_SLOTS` / `consumableSlotFor`, sim/loadout.ts; the
+ * DEPTH CHARGE stub has none), which is why a slot's content is typed
  * `SlotItemId = EquipmentId | ConsumableId`. That union is the ONLY place the
  * two spaces meet: no EquipmentId-keyed record ever gains a consumable key, and
  * every read of one narrows through `isConsumableId` first.
@@ -52,19 +53,21 @@ export type BoonId = string;
  * `dazzleShells` MOVED here out of the add-on space — FLASH SHELLS (its display
  * name) is a prime-and-click belt shell with no reload and no tiers. It keeps
  * its locked `LINE_IDS` id and slot.
+ *
+ * STORY 9.2 RETIRED ONE (Eric 2026-10-11, epic-9 amendment 31): CHAFF left the
+ * pool so the key row is six keys; its role passes to 9.3's countermeasure.
  */
 export const CONSUMABLE_IDS = [
   'hullRepair',
   'shieldBlock',
   'smokeScreen',
-  'chaff',
   'decoyBuoy',
   'depthCharge',
   'supercavTorpedo',
   'dazzleShells',
 ] as const;
 
-/** One of the eight consumables. */
+/** One of the seven consumables. */
 export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
 
 /**

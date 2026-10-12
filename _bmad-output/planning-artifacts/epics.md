@@ -2205,6 +2205,8 @@ So that a fight lasts long enough to be a fight and breaking off is a real optio
 
 ### Story 9.2: Every Consumable Has a Key *(inserted 2026-10-11 — `sprint-change-proposal-2026-10-11.md` §4.1)*
 
+*(BUILT 2026-10-11 — cycle 172, 0.18.37, PV 74 → 75; spec-9-2-every-consumable-has-a-key.md; epic-9 amendments 31–37: six keys with CHAFF retired now (3 = SMOKE SCREEN, 4 = FLASH SHELLS until 9.3/9.4), no cap copy, the 9 px floor wins on the strip, LOADOUT shows the full strip, a zero-stock press flashes red, How-to-Play/Settings wording left for 9.11, the live bar judged on staging rather than before commit.)*
+
 As a captain,
 I want every consumable kind on its own fixed key, always,
 So that I never lose a pick to a full belt and my hands learn one layout.

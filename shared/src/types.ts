@@ -378,7 +378,7 @@ export interface PongMsg {
  * (out-of-range, every OTHER negative, non-integers) is malformed and rejected
  * with the level intact. In particular -1 stays malformed: the reserved -1
  * DAMAGE CONTROL spend left the wire in PV 53 (epic-8 amendment 46 — healing
- * is the HULL REPAIR card, fired from a belt slot, not a level spend) and -2
+ * is the HULL REPAIR card, fired from its consumable slot, not a level spend) and -2
  * re-opens the negative channel for exactly one value, not for -1.
  * Deliberately a DISCRETE reliable message, NOT a field on the per-tick
  * InputMsg: the latest-input-wins coalescing there would silently drop
@@ -406,11 +406,13 @@ export interface WeaponAmmo {
  * Your own ship as seen in a frame — full, unfogged. `sweep` is the current
  * radar angle (rad), used to draw the sweep wedge client-side.
  *
- * `ammo` is SLOT-ALIGNED: length SLOT_COUNT — NINE since Story 8.5 (see
- * sim/loadout.ts), one entry per loadout slot — null iff that slot is empty
- * (mirrors the loadout invariant: an empty slot carries no state). A Torpedo
- * Boat holding its spawn seed reads
- * [gun, boost, heavyTorpedo, null, null, null, null, null, null].
+ * `ammo` is SLOT-ALIGNED: length SLOT_COUNT — ELEVEN since Story 9.2 (nine
+ * from Story 8.5; see sim/loadout.ts), one entry per loadout slot — null iff
+ * that slot is empty (mirrors the loadout invariant: an empty slot carries no
+ * state). Slots 5–10 are the six consumable kinds in key order, each bound to
+ * its kind for the whole match (`consumableKindAt`), so a `null` there is that
+ * kind at ZERO STOCK. A Torpedo Boat holding one heavy torpedo reads
+ * [gun, boost, heavyTorpedo, null, null, null, null, null, null, null, null].
  * maxAmmo / reloadMs are NOT on the wire — the client reads them from CONFIG
  * (and, after upgrades, from its own effective-stats computation) and derives
  * reload fractions from reloadMsLeft.
@@ -605,40 +607,6 @@ export interface OwnShip {
    */
   shield?: { hp: number; until: number };
   /**
-   * THE CHAFF OWNER'S CLOUD (Eric 2026-09-30, epic-8 amendment 191): the
-   * burst point (`x`, `y`, u) of THIS hull's live CHAFF and the server-clock
-   * time it expires (`until`) — what the client's dim dashed ring of
-   * `CONFIG.chaff.radius` is drawn around. Present IFF the owner's chaff
-   * source is live (`now < until`); OMITTED otherwise, never an `undefined`
-   * value; a re-fire replaces the source, so the key follows it. The owner's
-   * FAKES never ride `events` (amendment 127); the owner receives them only
-   * as `chaffGhosts` below (Eric 2026-10-01). SELF-PRIVATE BY
-   * CONSTRUCTION (the `shield` / `inSmoke` precedent): rides `you` and
-   * NOTHING else — never on any other observer's frame — so the perception
-   * exception count stays at SIX.
-   */
-  chaff?: { x: number; y: number; until: number };
-  /**
-   * THE CHAFF OWNER'S OWN GHOSTS (Eric 2026-10-01, cycle 162; PROTOCOL_VERSION
-   * 68 — supersedes amendment 191's "never the fakes"): the coverage rects of
-   * THIS hull's OWN chaff fakes that THIS hull's beam painted this tick, in
-   * EXACTLY the blip's payload shape minus `k` and `t` (`GhostPaint`, which
-   * `ReturnBlipEvent` extends, so the two can never drift). Gated by the
-   * owner's beam crossing and the height-raster shadow but NOT by the sight
-   * annulus (the cloud bursts at the owner's position, inside their own
-   * bubble — orchestrator ruling). The client renders them greyscale at half
-   * the scope's alpha (Eric 2026-10-01), on a separate grid from the scope.
-   * OMITTED when no fake was painted this tick, never an empty array or an
-   * `undefined` value.
-   *
-   * SELF-PRIVATE BY CONSTRUCTION (rides `you`, like `chaff` / `shield` /
-   * `inSmoke`): never on any other observer's frame and never an `events`
-   * blip, so the wire `BlipEvent` stays seven keys and fake-vs-real stays
-   * indistinguishable for every other observer; the perception exception
-   * count stays at SIX.
-   */
-  chaffGhosts?: GhostPaint[];
-  /**
    * The WAKE-DRAFT lift (Story 8.19, Eric rulings 2026-09-30, epic-8
    * amendments 151–155) the server folded into this hull's forward speed cap
    * THIS tick (`draftLift` → `draftedKinematics`), in (0,
@@ -731,8 +699,8 @@ export interface Contact {
  * range-derivable quantity. It is observer-INDEPENDENT: every observer
  * painting this hull this tick receives the identical mask. (The radar buoy's
  * frozen-pose paint went with the buoy in Story 8.16; a DECOY BUOY paints as
- * an anonymous `CONFIG.decoyBuoy.sizeU` square, and a CHAFF fake is shaped
- * exactly like a real hull's footprint.)
+ * an anonymous `CONFIG.decoyBuoy.sizeU` square. The CHAFF fakes, shaped like
+ * a real hull's footprint, were retired with CHAFF in Story 9.2.)
  *
  * WIRE LAYOUT: `gx`/`gy` are ABSOLUTE world cell indices of the rect's min
  * corner (`floor(worldU / radarCellU)`), `w`/`h` the rect in cells, `bits`
@@ -753,9 +721,9 @@ export interface ReturnBlipEvent extends GhostPaint {
 
 /**
  * The blip's COVERAGE RECT — `ReturnBlipEvent`'s payload minus `k` and `t`
- * (cycle 162). `ReturnBlipEvent` extends it, so `OwnShip.chaffGhosts` (the
- * chaff owner's self-private ghost paints) can never drift from the blip
- * rect. Same semantics as the blip's: absolute world cell indices of the min
+ * (cycle 162). `ReturnBlipEvent` extends it. (Its first other user, the chaff
+ * owner's self-private `OwnShip.chaffGhosts`, was retired with CHAFF in Story
+ * 9.2; the rect shape stays the blip's own.) Same semantics as the blip's: absolute world cell indices of the min
  * corner, rect in cells, packed row-major mask of signed int32 words.
  */
 export interface GhostPaint {
@@ -1294,10 +1262,10 @@ export interface BoonFitEvent {
 
 /**
  * A consumable copy STOCKED by a drone kill (Eric ruling 2026-10-01): the
- * killer of a PvE drone rolled a drop and the copy landed in its belt.
+ * killer of a PvE drone rolled a drop and the copy landed in its kind's slot.
  * SELF-PRIVATE: `id` is the killer's id and perception forwards the event ONLY
  * to that observer — the same gate as `pt`/`bn`/`heal`, never a fog exception.
- * Purely UX (the STOCKED toast + tone + belt flash), and unlike `bn` it does
+ * Purely UX (the STOCKED toast + tone + slot flash), and unlike `bn` it does
  * NOT ack a spend (nothing was spent): the authoritative card list self-syncs
  * every frame via OwnShip.cards.
  */
@@ -1446,7 +1414,7 @@ export interface BurnZoneView {
  * receives `by`, and a sighted observer already sees the hue.
  *
  * `hp` is PRESENT ONLY WHEN `own` (SELF-PRIVATE, the `OwnShip` `shield` /
- * `chaff` / `inSmoke` privacy idiom): the owner's readout of the decoy's
+ * `inSmoke` privacy idiom): the owner's readout of the decoy's
  * remaining hull; the key is ABSENT for every other observer, never an
  * `undefined` value. Own-only field on an own-only object — it opens no new
  * disclosure and the perception exception count stays at SIX. A decoy
@@ -1459,7 +1427,7 @@ export interface DecoyView {
   y: number; // u
   own: boolean; // true iff the receiving observer OWNS this decoy (per-observer, the mines precedent)
   by: string; // the owner's ship id (personal-hue + roster attribution) — every observer
-  hp?: number; // hp left — PRESENT ONLY when `own` (self-private, the OwnShip shield/chaff idiom)
+  hp?: number; // hp left — PRESENT ONLY when `own` (self-private, the OwnShip shield idiom)
 }
 
 /**

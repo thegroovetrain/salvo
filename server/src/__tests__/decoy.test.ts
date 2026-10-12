@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  CONSUMABLE_SLOTS,
+  consumableSlotFor,
   paintSegmentCoverage,
   type BlipEvent,
   type GameEvent,
@@ -25,7 +25,7 @@ import { addDecoy } from '../game/decoys.js';
 import { circleIsland, flatRaster } from './islandFixture.js';
 
 const TAU = Math.PI * 2;
-const BELT = CONSUMABLE_SLOTS[0];
+const BELT = consumableSlotFor('decoyBuoy')!;
 
 function bareWorld(seed = 816): World {
   const w = new World(seed);

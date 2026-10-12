@@ -26,6 +26,13 @@ import { boonName } from '../ui/boonCopy.js';
 const page = (): HTMLElement => document.getElementById('how-to-play-page') as HTMLElement;
 
 const allEntries = (): HowToEntry[] => HOWTO_SECTIONS.flatMap((s) => [...(s.entries ?? [])]);
+
+/** Is this entry's line still in the catalog? CHAFF left the catalog in Story
+ *  9.2 (epic-9 amendment 31), but Eric froze the How-to-Play copy until Story
+ *  9.11 (amendment 36), so its entry stays on the page — named by the copy, with
+ *  no derived table ("a kind that leaves the catalog leaves any table built
+ *  from it") until 9.11 carries the copy. */
+const inCatalog = (e: HowToEntry): boolean => (LINE_IDS as readonly string[]).includes(e.lineId);
 const allProse = (): string =>
   HOWTO_SECTIONS.flatMap((s) => [...(s.paragraphs ?? []), ...(s.tail ?? [])]).join(' ');
 
@@ -85,8 +92,8 @@ describe('how-to-play copy', () => {
     }
   });
 
-  it('every entry names a real catalog line, under its card name', () => {
-    for (const e of allEntries()) {
+  it('every entry names a real catalog line, under its card name (copy frozen by amendment 36 aside)', () => {
+    for (const e of allEntries().filter(inCatalog)) {
       expect(LINE_IDS as readonly string[], e.lineId).toContain(e.lineId);
       expect(e.name, e.lineId).toBe(boonName(e.lineId, 0));
     }
@@ -163,7 +170,7 @@ describe('how-to-play page mount', () => {
   it('renders one stat table per entry, plus the controls table', () => {
     const tables = page().querySelectorAll('table');
     const keyTables = HOWTO_SECTIONS.filter((s) => s.keys !== undefined).length;
-    expect(tables).toHaveLength(allEntries().length + keyTables);
+    expect(tables).toHaveLength(allEntries().filter(inCatalog).length + keyTables);
   });
 
   // Eric 2026-10-01: each entry shows its icon as the card / hotbar draws it.

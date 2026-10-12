@@ -1408,14 +1408,14 @@ describe('bindRoom drone-drop receipt (`dp`)', () => {
   it('one toast line per drop (three drops in one frame = three lines)', () => {
     document.body.replaceChildren();
     const { sink } = setupToasts();
-    const frame = rewardFrame(null, { alive: true, cards: ['chaff', 'chaff', 'decoyBuoy'] }) as { events: unknown[] };
+    const frame = rewardFrame(null, { alive: true, cards: ['smokeScreen', 'smokeScreen', 'decoyBuoy'] }) as { events: unknown[] };
     frame.events = [
-      { k: 'dp', id: 'me', boon: 'chaff' },
-      { k: 'dp', id: 'me', boon: 'chaff' },
+      { k: 'dp', id: 'me', boon: 'smokeScreen' },
+      { k: 'dp', id: 'me', boon: 'smokeScreen' },
       { k: 'dp', id: 'me', boon: 'decoyBuoy' },
     ];
     sink.handler(frame);
-    expect([...toastLines()].sort()).toEqual(['◆ CHAFF STOCKED', '◆ CHAFF STOCKED', '◆ DECOY BUOY STOCKED']);
+    expect([...toastLines()].sort()).toEqual(['◆ DECOY BUOY STOCKED', '◆ SMOKE SCREEN STOCKED', '◆ SMOKE SCREEN STOCKED']);
   });
 
   it('a captain sunk LATER IN THE SAME TICK still gets the receipt (the copy is stocked; the frame reads dead)', () => {
@@ -1424,17 +1424,17 @@ describe('bindRoom drone-drop receipt (`dp`)', () => {
     // the end-of-tick frame carries `alive: false` AND a legitimate `dp`.
     document.body.replaceChildren();
     const { sink, play, onBoonFitted, onSpendAck } = setupToasts();
-    sink.handler(rewardFrame({ k: 'dp', id: 'me', boon: 'chaff' }, { alive: false, cards: ['chaff'] }));
-    expect(toastLines()).toEqual(['◆ CHAFF STOCKED']);
+    sink.handler(rewardFrame({ k: 'dp', id: 'me', boon: 'smokeScreen' }, { alive: false, cards: ['smokeScreen'] }));
+    expect(toastLines()).toEqual(['◆ SMOKE SCREEN STOCKED']);
     expect(play).toHaveBeenCalledWith(fitTone('consumable'), { detune: fitDetune('consumable') });
-    expect(onBoonFitted).toHaveBeenCalledWith('chaff');
+    expect(onBoonFitted).toHaveBeenCalledWith('smokeScreen');
     expect(onSpendAck).not.toHaveBeenCalled();
   });
 
   it('a SPECTATING frame (no `you`) gets nothing — no toast, no tone, no flash', () => {
     document.body.replaceChildren();
     const { sink, play, onBoonFitted, onSpendAck } = setupToasts(true);
-    sink.handler(rewardFrame({ k: 'dp', id: 'me', boon: 'chaff' }, null));
+    sink.handler(rewardFrame({ k: 'dp', id: 'me', boon: 'smokeScreen' }, null));
     expect(toastLines()).toEqual([]);
     expect(play).not.toHaveBeenCalled();
     expect(onBoonFitted).not.toHaveBeenCalled();
@@ -1444,7 +1444,7 @@ describe('bindRoom drone-drop receipt (`dp`)', () => {
   it("another player's `dp` is ignored", () => {
     document.body.replaceChildren();
     const { sink, play, onBoonFitted, onSpendAck } = setupToasts();
-    sink.handler(rewardFrame({ k: 'dp', id: 'someone-else', boon: 'chaff' }, { alive: true, cards: [] }));
+    sink.handler(rewardFrame({ k: 'dp', id: 'someone-else', boon: 'smokeScreen' }, { alive: true, cards: [] }));
     expect(toastLines()).toEqual([]);
     expect(play).not.toHaveBeenCalled();
     expect(onBoonFitted).not.toHaveBeenCalled();
@@ -1525,8 +1525,6 @@ function setupWater(
     burnZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     smokeScreen: { sync: vi.fn() },
-    // Cycle 162: the chaff owner's grey ghosts (render/chaffGhosts.ts).
-    chaffGhosts: { onGhosts: vi.fn() },
     projectiles: {
       onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn(),
       ownFireOf: () => null, isKnown: (id: string) => knownIds.has(id),
@@ -2161,29 +2159,6 @@ describe('the in-smoke own-ship read (Story 8.18)', () => {
     sink.handler(victimFrame([], {})); // stepped out: the key is absent, not false
     expect(you()?.inSmoke).toBeUndefined();
     expect(play).not.toHaveBeenCalled(); // no sound, no DAZZLED-style tell
-  });
-});
-
-// CYCLE 162 (Eric 2026-10-01): the chaff owner's OWN fakes ride the
-// self-private `you.chaffGhosts` and go to their own grey renderer at the
-// frame's server time — NEVER to the scope, whose blips stay identity-free.
-describe('the chaff owner\'s ghosts (cycle 162)', () => {
-  const rect = { gx: 3, gy: -4, w: 2, h: 2, bits: [15] };
-
-  it('routes you.chaffGhosts to the ghost renderer at the FRAME\'s time, and never to the scope', () => {
-    const { sink, deps } = setupWater();
-    sink.handler(victimFrame([], { chaffGhosts: [rect] }));
-    const onGhosts = (deps.chaffGhosts as unknown as { onGhosts: ReturnType<typeof vi.fn> }).onGhosts;
-    expect(onGhosts).toHaveBeenCalledTimes(1);
-    expect(onGhosts).toHaveBeenCalledWith([rect], 1000);
-    expect((deps.radar as unknown as { onBlip: ReturnType<typeof vi.fn> }).onBlip).not.toHaveBeenCalled();
-  });
-
-  it('an omitted key (nothing painted this tick) routes nothing', () => {
-    const { sink, deps } = setupWater();
-    sink.handler(victimFrame([], {}));
-    sink.handler(victimFrame([], null)); // a spectator frame carries no `you` at all
-    expect((deps.chaffGhosts as unknown as { onGhosts: ReturnType<typeof vi.fn> }).onGhosts).not.toHaveBeenCalled();
   });
 });
 

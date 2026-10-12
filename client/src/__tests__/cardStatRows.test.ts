@@ -533,7 +533,7 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
 
   it('gives a STILL-STUB CONSUMABLE no rows (DEPTH CHARGE)', () => {
     // TWO since Story 8.16 flipped SHIELD BLOCK, CHAFF and DECOY BUOY; ONE since
-    // Story 8.18 flipped SMOKE SCREEN.
+    // Story 8.18 flipped SMOKE SCREEN (CHAFF left the catalog in Story 9.2).
     expect(cardStatRows(CATALOG.depthCharge, 0, TB)).toEqual([]);
   });
 
@@ -553,20 +553,12 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
     expect(k.r1).toBe(247.5);
   });
 
-  // THE THREE 8.16 CONSUMABLES (catalog-v3 R36/R37/R39): absolute rows in the
+  // THE 8.16 CONSUMABLES (catalog-v3 R36/R37; CHAFF retired in 9.2): absolute rows in the
   // hullRepair shape, every number read off CONFIG — never a literal.
   it('gives SHIELD BLOCK what it absorbs and how long it lasts, off CONFIG', () => {
     expect(cardStatRows(CATALOG.shieldBlock, 0, TB)).toEqual([
       { label: 'ABSORBS', cur: null, next: `${CONFIG.shieldBlock.hp} HP` },
       { label: 'LASTS', cur: null, next: `${CONFIG.shieldBlock.durationMs / 1000} S` },
-    ]);
-  });
-
-  it('gives CHAFF its fake count, scatter radius and duration, off CONFIG', () => {
-    expect(cardStatRows(CATALOG.chaff, 0, TB)).toEqual([
-      { label: 'FAKES', cur: null, next: String(CONFIG.chaff.count) },
-      { label: 'RADIUS', cur: null, next: `${CONFIG.chaff.radius} U` },
-      { label: 'LASTS', cur: null, next: `${CONFIG.chaff.durationMs / 1000} S` },
     ]);
   });
 
@@ -577,8 +569,8 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
     ]);
   });
 
-  it('the three 8.16 rows are the same on every hull and at every copy count', () => {
-    for (const id of ['shieldBlock', 'chaff', 'decoyBuoy'] as const) {
+  it('the 8.16 rows are the same on every hull and at every copy count', () => {
+    for (const id of ['shieldBlock', 'decoyBuoy'] as const) {
       const base = cardStatRows(CATALOG[id], 0, TB);
       expect(base.length, id).toBeGreaterThan(0);
       expect(cardStatRows(CATALOG[id], 3, { cls: 'battleship', cards: ['armor'] }), id).toEqual(base);

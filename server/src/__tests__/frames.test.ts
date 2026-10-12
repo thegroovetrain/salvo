@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG } from '@salvo/shared';
+import { isAfloat, CONFIG, SLOT_COUNT } from '@salvo/shared';
 
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -61,20 +61,15 @@ describe('buildFrame — shape and clock', () => {
       speed: ship.state.speed,
       hp: CONFIG.shipClasses.torpedoBoat.hp,
       alive: true,
-      // Slot-aligned ammo: length SLOT_COUNT — NINE since Story 8.5, null for
-      // every empty slot. Gun in 0, the universal boost in 1, and SEVEN
-      // empties since Story 8.10 deleted the spawn seed: a fresh hull's
-      // weapon row is bare until its first card.
+      // Slot-aligned ammo: length SLOT_COUNT (eleven since Story 9.2), null
+      // for every empty slot. Gun in 0, the universal boost in 1, and every
+      // other slot empty since Story 8.10 deleted the spawn seed: a fresh
+      // hull's weapon row is bare until its first card, and every consumable
+      // kind's fixed slot is empty until it is stocked.
       ammo: [
         { n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 },
         { n: CONFIG.boost.maxAmmo, reloadMsLeft: 0 },
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
+        ...Array.from({ length: SLOT_COUNT - 2 }, () => null),
       ],
       sweep: ship.sweepAngle,
       cls: 'torpedoBoat',
@@ -274,60 +269,5 @@ describe('buildFrame — the self-private wake-draft lift (Story 8.19)', () => {
     expect(other.contacts.some((c) => c.id === 'a')).toBe(true);
     expect(JSON.stringify({ ...other, you: undefined })).not.toContain('"draft"');
     expect('draft' in other.you!).toBe(false);
-  });
-});
-
-describe('buildFrame — the self-private chaff cloud (amendment 191)', () => {
-  it('carries `you.chaff` {x, y, until} while the owner\'s source is live, omits it after expiry, and never on another hull\'s frame', () => {
-    const w = makeWorld();
-    const a = w.ships.get('a')!;
-    expect('chaff' in buildFrame(w, 'a').you!).toBe(false); // no source: absent, never undefined
-    const until = w.now + CONFIG.chaff.durationMs;
-    w.chaffSources.set('a', {
-      ownerId: 'a', x: 30, y: -12, radius: CONFIG.chaff.radius, count: CONFIG.chaff.count,
-      until, seed: 7, at: w.now, sweepPeriodMs: a.stats.sweepPeriodMs,
-    });
-    expect(buildFrame(w, 'a').you!.chaff).toEqual({ x: 30, y: -12, until });
-    const other = buildFrame(w, 'b');
-    expect('chaff' in other.you!).toBe(false);
-    expect(JSON.stringify({ ...other, you: undefined })).not.toContain('chaff');
-    // Expired (the source may still sit in the map): the key is gone.
-    w.chaffSources.get('a')!.until = w.now;
-    expect('chaff' in buildFrame(w, 'a').you!).toBe(false);
-  });
-
-  it('carries `you.chaffGhosts` (cycle 162) ONLY in the owner\'s `you` — present iff the owner\'s beam painted a fake, never in `events`, never anywhere in another hull\'s frame', () => {
-    const w = makeWorld();
-    const a = w.ships.get('a')!;
-    expect('chaffGhosts' in buildFrame(w, 'a').you!).toBe(false); // no source: absent, never undefined or []
-    const until = w.now + CONFIG.chaff.durationMs;
-    w.chaffSources.set('a', {
-      ownerId: 'a', x: 0, y: 0, radius: CONFIG.chaff.radius, count: CONFIG.chaff.count,
-      until, seed: 7, at: w.now, sweepPeriodMs: a.stats.sweepPeriodMs,
-    });
-    // Beam closed: the cloud is live (`chaff` rides) but nothing was painted.
-    a.prevSweepAngle = 0;
-    a.sweepAngle = 0;
-    const dark = buildFrame(w, 'a');
-    expect('chaff' in dark.you!).toBe(true);
-    expect('chaffGhosts' in dark.you!).toBe(false);
-    // Beam wide open over the cloud at a's own position: the ghosts ride `you`.
-    a.prevSweepAngle = 0;
-    a.sweepAngle = Math.PI * 2 - 1e-9;
-    const lit = buildFrame(w, 'a');
-    const ghosts = lit.you!.chaffGhosts!;
-    expect(ghosts.length).toBeGreaterThan(0);
-    for (const g of ghosts) expect(Object.keys(g)).toEqual(['gx', 'gy', 'w', 'h', 'bits']); // the blip rect, no `k`, no `t`
-    expect(lit.events.filter((e) => e.k === 'blip')).toEqual([]); // the owner's fakes never ride `events`
-    expect(JSON.stringify({ ...lit, you: undefined })).not.toContain('chaffGhosts');
-    // The other hull: no ghost list anywhere in its frame.
-    const other = buildFrame(w, 'b');
-    expect('chaffGhosts' in other.you!).toBe(false);
-    expect(JSON.stringify(other)).not.toContain('chaffGhosts');
-    // Expired: both keys gone together.
-    w.chaffSources.get('a')!.until = w.now;
-    const gone = buildFrame(w, 'a');
-    expect('chaff' in gone.you!).toBe(false);
-    expect('chaffGhosts' in gone.you!).toBe(false);
   });
 });

@@ -112,8 +112,9 @@ function rowText(model: RefitTooltipModel): string[] {
 describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => {
   it('covers every catalog line × class × copies held — every built line opens a panel', () => {
     // 24 lines since DECK GUN TURRET and DECK GUN BARREL folded into the
-    // CANNON ladder (2026-09-30, amendment 197); 26 before.
-    expect(LINES).toHaveLength(24);
+    // CANNON ladder (2026-09-30, amendment 197); 26 before; 23 since CHAFF left
+    // the catalog in Story 9.2 (epic-9 amendment 31).
+    expect(LINES).toHaveLength(23);
     const lines = new Set(PANELS.map((p) => p.label.split('@')[0]));
     // Only the never-dealt stub opens no panel.
     expect(LINES.filter((d) => !lines.has(d.id)).map((d) => d.id)).toEqual(['depthCharge']);
@@ -129,20 +130,21 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     const band = refitBandLayout(1366, 768).band;
     const down = PANELS.filter(({ model }) => !refitTooltipPlacement(model, band).above).map((p) => p.label);
     expect(down).toEqual([]);
-    expect(refitTooltipMaxPanelH(band.y)).toBe(340);
+    expect(refitTooltipMaxPanelH(band.y)).toBe(320); // 340 until the D-prime bar grew 20px (Story 9.2)
   });
 
   // CYCLE 158: a stat table is much shorter than the prose it replaced (the
-  // tallest is a seven-row weapon table, 170px), so at the floor EVERY panel
-  // opens above the band. The flip rule still stands (the DOM pins below
-  // exercise it on a shorter viewport); the split is still the water line.
-  it('opens every panel ABOVE even at the 1280x614 floor — the split is the water line', () => {
-    expect(CONTAINER_H).toBe(186);
-    const down = PANELS.filter(({ model }) => !refitTooltipPlacement(model, FLOOR_BAND.band).above);
-    expect(down.map((p) => p.label)).toEqual([]);
+  // tallest is a seven-row weapon table, 170px). STORY 9.2's D-prime bar is
+  // 20px taller (globes 104 -> 124), which lifts the band 20px and leaves 166px
+  // above it at the 1280x614 floor — so the tallest tables FLIP down over the
+  // card row there (amendment 37: flip rather than clip; the clip pin below
+  // proves none is cut). The split is still the water line.
+  it('splits the panels at the 1280x614 floor by the water line — above if it fits, else down', () => {
+    expect(CONTAINER_H).toBe(166);
     for (const { label, model } of PANELS) {
       const p = refitTooltipPlacement(model, FLOOR_BAND.band);
       expect(p.above, label).toBe(p.height <= CONTAINER_H);
+      if (!p.above) continue;
       expect(p.maxH, label).toBe(CONTAINER_H);
       expect(p.offset, label).toBe(0);
     }
@@ -178,10 +180,11 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     expect(clipped).toEqual([]);
   });
 
-  it('leaves real headroom at the floor — the pin is not on the boundary', () => {
-    const worst = Math.max(...PANELS.map(({ model }) => refitTooltipMetrics(model, CONTAINER_H).height));
+  it('leaves real headroom above the band at 1366x768 — the pin is not on the boundary', () => {
+    const room = refitTooltipMaxPanelH(refitBandLayout(1366, 768).band.y);
+    const worst = Math.max(...PANELS.map(({ model }) => refitTooltipMetrics(model, room).height));
     expect(worst).toBe(170);
-    expect(CONTAINER_H - worst).toBeGreaterThanOrEqual(2);
+    expect(room - worst).toBeGreaterThanOrEqual(2);
   });
 
   it('models each stat row as ONE line box, one rowGap before the block', () => {
@@ -620,7 +623,7 @@ describe('the hover panel\'s consumable shape line', () => {
 
   it('fits inside the panel, at its shipped width (amendment 42)', () => {
     expect(REFIT_TIP.width).toBe(300);
-    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy']) {
+    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'decoyBuoy']) {
       const model = refitTooltipModel({ id, kind: 'consumable' }, boonName(id), consumableStatRows(id), 4);
       expect(refitTooltipWidestToken(model), id).toBeLessThanOrEqual(refitTooltipInnerWidth());
       // VERTICALLY the panel is measured against the placement it would take.

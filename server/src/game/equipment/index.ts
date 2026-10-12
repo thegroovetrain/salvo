@@ -29,7 +29,6 @@ import {
   type WeaponAmmo,
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
-import type { FakeSource } from '../fakes.js';
 import { CONSUMABLES, type ConsumableRegistry } from './consumables.js';
 import { gunEquipment } from './guns.js';
 import { lightTorpedoEquipment, torpedoEquipment } from './torpedoes.js';
@@ -143,21 +142,13 @@ export interface ActivationContext {
    */
   setShield: (shield: { hpLeft: number; until: number }) => void;
   /**
-   * CHAFF's whole body (Story 8.16, amendment 124(b)(c)): put a false-return
-   * source on the water for the ACTIVATING ship. The World mints the server-
-   * private `seed` (the row never sees an RNG), stamps the owner's id and
-   * captures its sweep period, and files it in `World.chaffSources` under the
-   * owner (amendment 127); a second call REPLACES the owner's source.
-   */
-  setChaff: (source: Omit<FakeSource, 'seed' | 'ownerId' | 'sweepPeriodMs'>) => void;
-  /**
    * SMOKE SCREEN's whole body (Story 8.18, catalog-v3 R38, amendments
    * 138–145): open the ACTIVATING ship's lay window — `smokeUntil = now +
    * CONFIG.smokeScreen.layMs`, `nextPuffAt = now` — so World.stepSmoke drops a
    * puff at the hull's center (amendment 190) on the very next tick and every `puffIntervalMs` after,
    * until the window closes (10 puffs per copy). A second call while laying
    * RESTARTS the clock (fresh 5 s from the re-press — ruling 140; the copy is
-   * spent, the shield/chaff "replaces" posture). Puffs are WORLD-owned
+   * spent, the shield "replaces" posture). Puffs are WORLD-owned
    * (World.smoke) and outlive the hull.
    */
   setSmokeScreen: () => void;
@@ -271,12 +262,12 @@ export const EQUIPMENT: Readonly<Partial<Record<EquipmentId, Equipment>>> = deep
 });
 
 /**
- * SLOT-ALIGNED ammo for OwnShip.ammo: length SLOT_COUNT (NINE since Story
- * 8.5), one entry per loadout slot in slot order — null iff that slot is empty
+ * SLOT-ALIGNED ammo for OwnShip.ammo: length SLOT_COUNT (ELEVEN since Story
+ * 9.2 — nine from Story 8.5), one entry per loadout slot in slot order — null iff that slot is empty
  * (mirrors the LoadoutSlot invariant: state is null iff equipmentId is null),
  * else a FRESH {n, reloadMsLeft} copy of the slot's live pool. It maps over
- * the loadout, so the widening from four slots to nine cost it no edit; the
- * empty weapon and consumable slots simply ride as `null`. maxAmmo/reloadMs
+ * the loadout, so the widenings from four slots to nine to eleven cost it no
+ * edit; the empty weapon and consumable slots simply ride as `null`. maxAmmo/reloadMs
  * are NOT on the wire — the client derives them from its own effective-stats
  * computation, and the equipment id per slot by replaying `OwnShip.cards`.
  */

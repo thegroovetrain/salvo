@@ -14,7 +14,7 @@ describe('one glyph per card line (cycle 162)', () => {
   it('every line but the stub depthCharge answers a glyph', () => {
     for (const id of GLYPHED) expect(glyphPaths(id), id).not.toBeNull();
     expect(glyphPaths('depthCharge')).toBeNull();
-    expect(GLYPHED).toHaveLength(23);
+    expect(GLYPHED).toHaveLength(22); // 23 until CHAFF left the catalog (Story 9.2)
   });
 
   it('no two lines draw the same glyph', () => {

@@ -1,6 +1,8 @@
-// THE BELT AXIS (epic-8 amendment 49) — one bot tactic row per consumable line.
+// THE CONSUMABLE AXIS (epic-8 amendment 49, "the belt" until Story 9.2) — one
+// bot tactic row per consumable line.
 //
-// A stocked belt slot (5-8) is a fitted slot like any other: tactics.ts ranks
+// A stocked consumable slot (5-10, one fixed slot per kind since Story 9.2) is
+// a fitted slot like any other: tactics.ts ranks
 // it by `slotAppetite` and resolves it through `tacticFor`. `CONSUMABLE_TACTICS`
 // is TOTAL over ConsumableId — a new line cannot land without a bot row (the
 // compiler refuses the record) — and deep-frozen. Every row is the rule a bot
@@ -85,7 +87,7 @@ const supercavTorpedoTactic: ConsumableTactic = {
 };
 
 // ---------------------------------------------------------------------------
-// SHIELD BLOCK, CHAFF, SMOKE SCREEN, DECOY BUOY — each rule reuses a cue
+// SHIELD BLOCK, SMOKE SCREEN, DECOY BUOY — each rule reuses a cue
 // another row already acts on.
 // ---------------------------------------------------------------------------
 
@@ -94,12 +96,6 @@ const supercavTorpedoTactic: ConsumableTactic = {
 function shieldUp(self: BotSelf, now: number): boolean {
   const s = self.shield;
   return s !== undefined && s !== null && s.hpLeft > 0 && now < s.until;
-}
-
-/** Is this bot's own CHAFF cloud still painting? (The cloud is world-owned —
- *  amendment 127 — so its `until` arrives on the mind, not the record.) */
-function chaffLive(mind: BotMind, now: number): boolean {
-  return mind.chaffUntil !== undefined && now < mind.chaffUntil;
 }
 
 /**
@@ -123,16 +119,6 @@ const shieldBlockTactic: ConsumableTactic = {
   kind: 'ability',
   reachU: () => 0,
   want: (ctx) => isAfloat(ctx.self.lifecycle) && !shieldUp(ctx.self, ctx.sit.now) && damageCutCues(ctx),
-  solve: () => null,
-};
-
-/** CHAFF — thrown on the way OUT (the disengage posture), never over a cloud
- *  still painting. */
-const chaffTactic: ConsumableTactic = {
-  id: 'chaff',
-  kind: 'ability',
-  reachU: () => 0,
-  want: (ctx) => isAfloat(ctx.self.lifecycle) && ctx.posture === 'disengage' && !chaffLive(ctx.mind, ctx.sit.now),
   solve: () => null,
 };
 
@@ -195,12 +181,11 @@ const depthChargeTactic: ConsumableTactic = {
 // THE TABLES
 // ---------------------------------------------------------------------------
 
-/** The belt half of the tactic registry — TOTAL over ConsumableId. */
+/** The consumable half of the tactic registry — TOTAL over ConsumableId. */
 export const CONSUMABLE_TACTICS: Readonly<Record<ConsumableId, ConsumableTactic>> = deepFreezeRows({
   hullRepair: hullRepairTactic,
   supercavTorpedo: supercavTorpedoTactic,
   shieldBlock: shieldBlockTactic,
-  chaff: chaffTactic,
   smokeScreen: smokeScreenTactic,
   decoyBuoy: decoyBuoyTactic,
   dazzleShells: dazzleShellsTactic,
@@ -211,15 +196,14 @@ export const CONSUMABLE_TACTICS: Readonly<Record<ConsumableId, ConsumableTactic>
  * HOW EAGER A BOT IS ABOUT ONE BELT LINE. A profile says nothing about
  * consumables at fire time, so the table is TOTAL over ConsumableId at the SAME
  * neutral base an unlisted equipment sits at — which keeps the ranking stable
- * and the tie-break on slot index (the belt is always to the right of the
- * weapons, so a consumable never displaces a weapon the bot already reached
+ * and the tie-break on slot index (the consumable slots are always to the
+ * right of the weapons, so a consumable never displaces a weapon the bot already reached
  * for).
  */
 const CONSUMABLE_APPETITE: Readonly<Record<ConsumableId, number>> = Object.freeze({
   hullRepair: APPETITE_NEUTRAL,
   shieldBlock: APPETITE_NEUTRAL,
   smokeScreen: APPETITE_NEUTRAL,
-  chaff: APPETITE_NEUTRAL,
   decoyBuoy: APPETITE_NEUTRAL,
   depthCharge: APPETITE_NEUTRAL,
   supercavTorpedo: APPETITE_NEUTRAL,

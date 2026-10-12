@@ -531,8 +531,9 @@ export function isActionable(t: BotTrack, now: number): boolean {
 }
 
 /**
- * TRACK PERSISTENCE — the structural counter to an enemy CHAFF cloud (the
- * deleted jamming buoy's successor, Story 8.16): chaff scatters 10 fakes per the
+ * TRACK PERSISTENCE — built as the structural counter to an enemy CHAFF cloud
+ * (Story 8.16; CHAFF was retired in Story 9.2, epic-9 amendment 31, and the
+ * gate kept unchanged): chaff scattered 10 fakes per the
  * owner's sweep period, wire-indistinguishable from
  * real blips and folded into this store as ordinary tracks; but fakes
  * RE-SCATTER WHOLESALE each revolution, so no fake survives association as

@@ -290,9 +290,9 @@ const broadsideTactic: EquipmentTactic = {
   id: 'broadside',
   kind: 'shot',
   reachU: (stats) => stats.equipment.broadside.rangeU,
-  // A 30s reload is never committed to a plot without PERSISTENCE — the
-  // structural counter to chaff's fakes, which re-scatter wholesale
-  // each revolution and so can never persist as one coherent track.
+  // A 30s reload is never committed to a plot without PERSISTENCE (utility.ts
+  // hasPersistence — built as the counter to CHAFF's fakes, kept after CHAFF's
+  // retirement in Story 9.2).
   want: (ctx) => ctx.target !== null && hasPersistence(ctx.target, ctx.sit.now),
   solve: broadsideSolve,
 };

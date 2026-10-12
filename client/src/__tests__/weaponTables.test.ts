@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { consumableTable, shipUpgradeTable, tierTable, TABLE_HULLS, type StatTable } from '../how-to-play/weaponTables.js';
 import { HOWTO_SECTIONS } from '../how-to-play/copy.js';
+import { LINE_IDS } from '@salvo/shared';
 
 const TIERED = [
   'deckGun', 'machineGun', 'flak', 'heavyTorpedo', 'lightTorpedo', 'broadside',
@@ -70,7 +71,10 @@ describe('ship upgrade tables', () => {
 
 describe('consumable tables', () => {
   it('every consumable entry on the page has a derived table', () => {
-    const entries = HOWTO_SECTIONS.flatMap((s) => s.entries ?? []).filter((e) => e.table === 'consumable');
+    // A line that has LEFT the catalog (CHAFF, Story 9.2) keeps its frozen copy
+    // entry until 9.11 (epic-9 amendment 36) but derives no table.
+    const entries = HOWTO_SECTIONS.flatMap((s) => s.entries ?? [])
+      .filter((e) => e.table === 'consumable' && (LINE_IDS as readonly string[]).includes(e.lineId));
     expect(entries.length).toBeGreaterThan(0);
     for (const e of entries) expect(consumableTable(e.lineId), e.lineId).not.toBeNull();
   });

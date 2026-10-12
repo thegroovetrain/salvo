@@ -47,12 +47,12 @@ const LINES: readonly CatalogLine[] = Object.values(CATALOG);
 const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
 
 describe('fit-check — catalog sanity (the walk covers something real)', () => {
-  it('the catalog has every id keyed to itself and exactly the ratified 24 lines', () => {
+  it('the catalog has every id keyed to itself and exactly the ratified 23 lines', () => {
     expect(LINES).toHaveLength(LINE_IDS.length);
     // 29 until Story 8.15 CUT missile, monitor and heat seeking (amendment 89e);
     // 26 until DECK GUN TURRET and DECK GUN BARREL folded into the CANNON
-    // ladder (amendment 197).
-    expect(LINE_IDS).toHaveLength(24);
+    // ladder (amendment 197); 24 until CHAFF left in Story 9.2 (amendment 31).
+    expect(LINE_IDS).toHaveLength(23);
     for (const [key, line] of Object.entries(CATALOG)) expect(line.id).toBe(key);
   });
 });

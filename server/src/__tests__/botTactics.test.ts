@@ -173,7 +173,6 @@ function viewWithOwnMines(mind: BotMind, n: number): void {
     burnZones: [],
     decoys: [],
     smoke: [],
-    chaffGhosts: [],
   };
 }
 
@@ -605,11 +604,11 @@ describe('steering — the priority order is the policy', () => {
     // Ring centre dead ahead so the posture bearing contributes nothing.
     port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
     const ahead = { id: 'm1', x: 60, y: 20, by: 'enemy' };
-    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: false }], litZones: [], burnZones: [], decoys: [], smoke: [], chaffGhosts: [] };
+    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: false }], litZones: [], burnZones: [], decoys: [], smoke: [] };
     mind.viewAt = -1; // not fresh: nothing is folded, only the mine probe reads it
     const dodged = COMBAT_BRAIN.decide(rec, mind, port);
     expect(dodged.rudder).toBeLessThan(0); // mine to port -> steer starboard
-    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: true }], litZones: [], burnZones: [], decoys: [], smoke: [], chaffGhosts: [] };
+    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: true }], litZones: [], burnZones: [], decoys: [], smoke: [] };
     const own = COMBAT_BRAIN.decide(rec, mind, port);
     expect(own.rudder).toBe(0); // an owner never trips its own rack
   });
@@ -2044,7 +2043,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
 
   /** Hand the mind a fresh (this-tick) view carrying only `events`. */
   function viewOf(mind: BotMind, now: number, events: GameEvent[]): void {
-    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], decoys: [], smoke: [], chaffGhosts: [] };
+    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], decoys: [], smoke: [] };
     mind.viewAt = now;
   }
 
@@ -2309,7 +2308,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
 });
 
 // ---------------------------------------------------------------------------
-// STORY 8.16 — SHIELD BLOCK, CHAFF, DECOY BUOY: the belt rows (epic-8
+// STORY 8.16 — SHIELD BLOCK, DECOY BUOY (CHAFF retired in 9.2): the belt rows (epic-8
 // amendment 124(g)); SMOKE SCREEN never while its own is running (Eric ruling R12).
 // ---------------------------------------------------------------------------
 
@@ -2317,7 +2316,7 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
   /** A TORPEDO BOAT with its boost AND its tube stripped, so the stocked belt
    *  line is the only ability/placement the brain can choose (the tests are
    *  about the belt row, not about ranking). */
-  function beltOnly(seed: number, line: 'shieldBlock' | 'chaff' | 'decoyBuoy' | 'smokeScreen'): {
+  function beltOnly(seed: number, line: 'shieldBlock' | 'decoyBuoy' | 'smokeScreen'): {
     w: World;
     port: FakePort;
     rec: ShipRecord;
@@ -2335,7 +2334,7 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
 
   /** Hand the mind a fresh (this-tick) view carrying only `events`. */
   function viewOf(mind: BotMind, now: number, events: GameEvent[]): void {
-    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], decoys: [], smoke: [], chaffGhosts: [] };
+    mind.view = { contacts: [], events, mines: [], litZones: [], burnZones: [], decoys: [], smoke: [] };
     mind.viewAt = now;
   }
 
@@ -2346,7 +2345,6 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
 
   it('the belt rows carry their kinds', () => {
     expect(CONSUMABLE_TACTICS.shieldBlock.kind).toBe('ability');
-    expect(CONSUMABLE_TACTICS.chaff.kind).toBe('ability');
     expect(CONSUMABLE_TACTICS.decoyBuoy.kind).toBe('placement');
     expect(CONSUMABLE_TACTICS.smokeScreen.kind).toBe('ability');
   });
@@ -2567,29 +2565,6 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
     rec.shield = { hpLeft: 60, until: port.now - 1 };
     const lapsed = mkMind('duelist');
     viewOf(lapsed, port.now, [inbound(port.now)]);
-    expect(COMBAT_BRAIN.decide(rec, lapsed, port).actSlot).toBe(belt);
-  });
-
-  it('CHAFF: thrown on the DISENGAGE posture — never over a cloud still painting', () => {
-    const { port, rec, belt } = beltOnly(81602, 'chaff');
-    const healthy = mkMind('duelist');
-    plot(healthy, track(port.now, { x: 200, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(rec, healthy, port).actSlot).toBeNull(); // not disengaging
-    rec.hp = rec.stats.maxHp * 0.1; // under every profile's break-off
-    const away = mkMind('duelist');
-    plot(away, track(port.now, { x: 200, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(rec, away, port).actSlot).toBe(belt);
-    expect(away.posture).toBe('disengage');
-    // The bot's own cloud still painting (world-owned since amendment 127, so
-    // its `until` rides the mind, handed in by the driver each tick).
-    const live = mkMind('duelist');
-    live.chaffUntil = port.now + 5000;
-    plot(live, track(port.now, { x: 200, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(rec, live, port).actSlot).toBeNull();
-    // A lapsed cloud no longer holds the throw back.
-    const lapsed = mkMind('duelist');
-    lapsed.chaffUntil = port.now;
-    plot(lapsed, track(port.now, { x: 200, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(rec, lapsed, port).actSlot).toBe(belt);
   });
 

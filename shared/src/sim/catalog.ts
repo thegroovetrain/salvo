@@ -1,11 +1,15 @@
 // THE CATALOG (Story 8.1) — catalog v3, Eric's authored sheet
 // (`_bmad-output/planning-artifacts/gdds/.../catalog-v3.md`) expressed as data,
 // as amended by Eric's rulings (epic-8 amendments).
-// 24 card LINES / 114 physical cards: 8 equipment lines (40), 5 universal
+// 23 card LINES / 109 physical cards: 8 equipment lines (40), 5 universal
 // ladders (22), the gun ladders (12 — CANNON, MACHINE GUN and FLAK, 4 each),
-// 0 add-ons, 8 consumables (40).
+// 0 add-ons, 7 consumables (35).
 // ONE stub line remains since Story 8.18 (DEPTH CHARGE — SMOKE SCREEN went
-// live); every other line is live, so 7 of the 8 consumables are live.
+// live); every other line is live, so 6 of the 7 consumables are live.
+//
+// THE COUNT MOVED 24/114 -> 23/109 IN STORY 9.2 (Eric 2026-10-11, epic-9
+// amendment 31): CHAFF is RETIRED so the key row is six keys. Every surviving
+// line keeps its relative order.
 //
 // THE COUNT MOVED 26/117 -> 24/114 ON 2026-09-30 (Eric: "there are NO MORE
 // one-off upgrades; EVERY upgrade is tiered"): DECK GUN TURRET and DECK GUN
@@ -93,10 +97,13 @@ import {
 } from './effects.js';
 
 /**
- * THE 24 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
+ * THE 23 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
  * amended by amendments 80/83 on 2026-09-19 and 89e on 2026-09-21). This order
  * IS the fold order, so it is part of the determinism contract — never
  * re-sort it.
+ *
+ * STORY 9.2 DELETED ONE ID AND MOVED NOTHING (24 -> 23): `chaff` is retired
+ * (Eric 2026-10-11, epic-9 amendment 31).
  *
  * 2026-09-30 DELETED TWO IDS AND MOVED NOTHING (26 -> 24): `deckGunTurret`
  * and `deckGunBarrel` folded into the CANNON ladder's rungs (Eric). Every
@@ -147,7 +154,6 @@ export const LINE_IDS = [
   'hullRepair',
   'shieldBlock',
   'smokeScreen',
-  'chaff',
   'decoyBuoy',
   // DEPTH CHARGE takes ACOUSTIC HOMING's place in the 29 (Eric ruling
   // 2026-09-19, epic-8 amendments 80/83): a new STUB consumable, and the Mine
@@ -162,7 +168,7 @@ export const LINE_IDS = [
   'phosphorShells', // an EQUIPMENT line since 8.17
 ] as const;
 
-/** One of the 24 authored card lines. */
+/** One of the 23 authored card lines. */
 export type LineId = (typeof LINE_IDS)[number];
 
 /**
@@ -371,7 +377,7 @@ function phosphorTier(damageStep: number, dpsStep: number, durationStepMs: numbe
 }
 
 /** A cap-5 consumable: every copy stocks one use. `stub` marks a consumable
- *  whose EFFECT does not exist yet — the belt itself is built (Story 8.7) and
+ *  whose EFFECT does not exist yet — the slots are built (Story 8.7) and
  *  HULL REPAIR's effect landed with Story 8.8, so the flag is passed
  *  line-by-line. (The `weapon()` and `addon()` helpers that took the same
  *  flag were deleted in Story 8.17 with their last users.) */
@@ -553,18 +559,19 @@ export const CATALOG: Catalog = deepFreezeRows({
     starShellTier(3),
   ]),
   // --- the consumables (R13, R36–R39, + amendments 74/83) -------------------
-  // The belt and the `1`–`4` keys are built (Story 8.7). HULL REPAIR (R13) was
+  // The consumable slots are built (Story 8.7). HULL REPAIR (R13) was
   // the first LIVE line — its effect is Story 8.8's — and SUPERCAV TORPEDO
-  // (above) is the second. Story 8.16 flipped SHIELD BLOCK, CHAFF and DECOY
-  // BUOY live (catalog-v3 R37/R39/R36, epic-8 amendments 116–124), and Story
-  // 8.18 flipped SMOKE SCREEN (R38, amendments 138–145), leaving ONE stub —
-  // DEPTH CHARGE — until its effect lands (7 live consumables). FLASH
-  // SHELLS (Story 8.17) is a live consumable that sits at the foot of the
-  // list with the former add-ons.
+  // (above) is the second. Story 8.16 flipped SHIELD BLOCK and DECOY BUOY
+  // live (catalog-v3 R37/R36, epic-8 amendments 116–124), and Story 8.18
+  // flipped SMOKE SCREEN (R38, amendments 138–145), leaving ONE stub — DEPTH
+  // CHARGE — until its effect lands (6 live consumables). FLASH SHELLS (Story
+  // 8.17) is a live consumable that sits at the foot of the list with the
+  // former add-ons. CHAFF (R39) is RETIRED since Story 9.2 (epic-9 amendment
+  // 31). Since 9.2 every live consumable owns a fixed key (sim/loadout.ts
+  // CONSUMABLE_KEY_ORDER) — the belt and its `1`–`4` keys are gone.
   hullRepair: consumable('hullRepair'), // R13 — 50 instant + 50 pooled (CONFIG.hullRepair)
   shieldBlock: consumable('shieldBlock'), // R37 — absorbs 100 hp for 10 s (CONFIG.shieldBlock)
   smokeScreen: consumable('smokeScreen'), // R38 — a 5 s trail of r82.5→165 puffs (1/8 → 2/8 intel range, Eric 2026-09-30), 30 s life (CONFIG.smokeScreen)
-  chaff: consumable('chaff'), // R39 — 10 fakes in 120 u for 15 s (CONFIG.chaff)
   decoyBuoy: consumable('decoyBuoy'), // R36 — a 50 hp rear-dropped decoy (CONFIG.decoyBuoy)
   // DEPTH CHARGE (amendment 83): Eric's line, mechanism a later story — a STUB
   // in full shape so the id is final, and the Mine Layer's 40th default card.
@@ -582,7 +589,7 @@ export const CATALOG: Catalog = deepFreezeRows({
   ]),
   // HEAT SEEKING (R32) is CUT with the missile (Story 8.15, amendment 89e).
   // FLASH SHELLS (internal id `dazzleShells`; R33 as ruled by Eric 2026-09-29,
-  // amendment 132): a belt CONSUMABLE, no longer a star-shell add-on — one
+  // amendment 132): a CONSUMABLE, no longer a star-shell add-on — one
   // 360° shell whose r150 burst dazzles every non-friendly hull inside for
   // 10 s (sight → 1/8 of intel range). CONFIG.flashShells.
   dazzleShells: consumable('dazzleShells'),
@@ -905,7 +912,7 @@ export function validateCatalog(catalog: Catalog = CATALOG): string[] {
   return errs;
 }
 
-/** Total physical cards in a catalog (Σ cap) — 114 since 2026-09-30. */
+/** Total physical cards in a catalog (Σ cap) — 109 since Story 9.2. */
 export function catalogCardCount(catalog: Catalog = CATALOG): number {
   let n = 0;
   for (const key of Object.keys(catalog)) n += catalog[key]?.cap ?? 0;

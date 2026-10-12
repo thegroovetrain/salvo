@@ -222,7 +222,7 @@ describe('clickInArc — the click-aimed consumables are GATED by their arcs', (
   });
 
   it('is FALSE for a KEY-FIRES consumable — a click on an ability fires nothing', () => {
-    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as const) {
+    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen'] as const) {
       expect(clickInArc(0, 0, 10, id), id).toBe(false);
     }
   });

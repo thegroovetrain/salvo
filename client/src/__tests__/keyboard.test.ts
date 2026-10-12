@@ -24,9 +24,10 @@
 // and their coverage is not deleted — each becomes the TWO-MEANING pin:
 //   • `1`-`4` mean a refit PICK while the window is open and a BELT slot
 //     (CONSUMABLE_SLOTS) while it is closed, decided at the keydown itself;
-//   • `5` is UNBOUND since Story 8.8 deleted the DAMAGE CONTROL rail it used
-//     to spend a level on — it picks nothing, reaches no belt square (the belt
-//     has four, not five), and is not even preventDefault-ed;
+//   • STORY 9.2 (epic-9 amendments 21/31) retired the belt: `1`-`6` are the
+//     six consumable kinds' FIXED keys (slots 5-10 in CONSUMABLE_KEY_ORDER)
+//     with the window closed; with it open `1`-`4` pick and `5`/`6` are
+//     bound-inert; a kind at zero stock is an empty slot, so its key DENIES;
 //   • a digit inside the CLOSE GRACE is inert (still prevented): the player who
 //     spent their last level on `1` is still holding the key when the window
 //     goes away, and that key must not fire the belt;
@@ -40,9 +41,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  CONSUMABLE_KEY_ORDER,
   CONSUMABLE_SLOTS,
   SLOT_BOOST,
+  SLOT_COUNT,
   SLOT_GUN,
+  consumableKindAt,
   WEAPON_SLOTS,
   type OwnShip,
   type SlotItemId,
@@ -55,7 +59,7 @@ import {
   refitGraceActive,
   slotHoldsAbility,
   textEntryFocused,
-  BELT_KEY_CODES,
+  CONSUMABLE_KEY_CODES,
   BOOST_KEY_CODES,
   SLOT_KEY_CODES,
   REFIT_DIGIT_CODES,
@@ -71,8 +75,8 @@ const [Q_SLOT, E_SLOT, R_SLOT] = WEAPON_SLOTS;
 const TORP = Q_SLOT;
 /** The boost's slot — slot 1 on every captain hull (amendment 23). */
 const BOOST = SLOT_BOOST;
-/** The four BELT slots, in digit order: `1` addresses the first, `4` the last. */
-const [BELT_1, BELT_2, , BELT_4] = CONSUMABLE_SLOTS;
+/** The six consumable slots, in key order: `1` addresses the first, `6` the last. */
+const [BELT_1, BELT_2, , BELT_4, BELT_5, BELT_6] = CONSUMABLE_SLOTS;
 
 /** A fully-fitted loadout: the boost plus all three weapon slots. The fitted
  *  hook FAILS CLOSED, so every suite that exercises priming/activation must wire
@@ -134,35 +138,36 @@ describe('the ratified binding tables', () => {
     expect(REFIT_DIGIT_CODES.Numpad4).toBe(3);
   });
 
-  // THE SECOND MEANING (Story 8.7, ruling 7): the same four keys, read against
-  // a CLOSED window, address the four BELT slots — in the shared tuple's order,
-  // never re-typed as literals, so a re-cut of the slot grammar moves the keys
-  // with it (the SLOT_KEY_CODES rule, verbatim).
-  it('digits 1–4 ALSO map to the four BELT slots (the shared CONSUMABLE_SLOTS order)', () => {
-    expect(BELT_KEY_CODES.Digit1).toBe(CONSUMABLE_SLOTS[0]);
-    expect(BELT_KEY_CODES.Digit2).toBe(CONSUMABLE_SLOTS[1]);
-    expect(BELT_KEY_CODES.Digit3).toBe(CONSUMABLE_SLOTS[2]);
-    expect(BELT_KEY_CODES.Digit4).toBe(CONSUMABLE_SLOTS[3]);
-    expect(BELT_KEY_CODES.Numpad1).toBe(CONSUMABLE_SLOTS[0]);
-    expect(BELT_KEY_CODES.Numpad4).toBe(CONSUMABLE_SLOTS[3]);
+  // THE SECOND MEANING (Story 9.2, epic-9 amendments 21/31): read against a
+  // CLOSED window, digits 1–6 (top row AND numpad) are the six consumable
+  // kinds' FIXED keys — slots 5–10 in the shared key order, never re-typed as
+  // literals, so a re-cut of the key row moves the keys with it.
+  it('digits 1–6 (top row + numpad) map to slots 5–10 in CONSUMABLE_KEY_ORDER', () => {
+    expect([...CONSUMABLE_SLOTS]).toEqual([5, 6, 7, 8, 9, 10]);
+    for (let n = 1; n <= 6; n++) {
+      const slot = CONSUMABLE_SLOTS[n - 1];
+      expect(CONSUMABLE_KEY_CODES[`Digit${n}`], `Digit${n}`).toBe(slot);
+      expect(CONSUMABLE_KEY_CODES[`Numpad${n}`], `Numpad${n}`).toBe(slot);
+      expect(consumableKindAt(slot), `key ${n}`).toBe(CONSUMABLE_KEY_ORDER[n - 1]);
+    }
+    expect(Object.keys(CONSUMABLE_KEY_CODES)).toHaveLength(12);
   });
 
-  it('digit 5 has NO belt meaning — the belt is four squares, not five', () => {
-    expect(BELT_KEY_CODES.Digit5).toBeUndefined();
-    expect(BELT_KEY_CODES.Numpad5).toBeUndefined();
-    // …and every belt code is a bound refit code too: the two tables address the
+  it('digit 7 has NO meaning — six kinds, six keys', () => {
+    expect(CONSUMABLE_KEY_CODES.Digit7).toBeUndefined();
+    expect(CONSUMABLE_KEY_CODES.Numpad7).toBeUndefined();
+    // …and every REFIT code is a consumable code too: the two tables address the
     // SAME physical keys, which is the whole point of the grace between them.
-    for (const code of Object.keys(BELT_KEY_CODES)) {
-      expect(REFIT_DIGIT_CODES[code], code).toBeGreaterThanOrEqual(0);
+    for (const code of Object.keys(REFIT_DIGIT_CODES)) {
+      expect(CONSUMABLE_KEY_CODES[code], code).toBeGreaterThanOrEqual(0);
     }
   });
 
-  // STORY 8.8 UNBOUND DIGIT 5 ENTIRELY. Cycle 46 gave it the DAMAGE CONTROL
-  // rail through a reserved NEGATIVE wire sentinel (HEAL_CHOICE, -1); the rail
-  // and the sentinel are both deleted — healing is a card you stock and fire
-  // from the belt — so `5` is in NEITHER table, is not preventDefault-ed, and
-  // EVERY choice on the wire is a non-negative offer index.
-  it('digit 5 is UNBOUND — it is in no digit table, and no choice is negative', () => {
+  // STORY 8.8 deleted the DAMAGE CONTROL rail and its reserved NEGATIVE wire
+  // sentinel (HEAL_CHOICE, -1), so EVERY choice on the wire is a non-negative
+  // offer index, and `5`/`6` carry no choice at all (Story 9.2 gave them their
+  // closed-window consumable meaning only).
+  it('digits 5 and 6 carry NO refit choice, and no choice is negative', () => {
     expect(REFIT_DIGIT_CODES.Digit5).toBeUndefined();
     expect(REFIT_DIGIT_CODES.Numpad5).toBeUndefined();
     for (const [code, choice] of Object.entries(REFIT_DIGIT_CODES)) {
@@ -190,13 +195,13 @@ describe('nextPrimedSlot — switch-to / same-key revert', () => {
 });
 
 describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
-  /** A nine-slot array: gun, boost, three weapon slots, the four-slot belt. */
+  /** An eleven-slot array: gun, boost, three weapon slots, six consumables. */
   const nine = (...weapons: (string | null)[]): readonly (SlotItemId | null)[] =>
-    ['gun', 'boost', ...weapons, null, null, null, null, null].slice(0, 9) as (SlotItemId | null)[];
-  /** The same spine with the BELT stocked: slot content is a `SlotItemId`, so a
-   *  belt square holds a CONSUMABLE id and the split must still answer. */
+    ['gun', 'boost', ...weapons, ...Array<null>(SLOT_COUNT)].slice(0, SLOT_COUNT) as (SlotItemId | null)[];
+  /** The same spine with consumables stocked: slot content is a `SlotItemId`,
+   *  so a consumable square holds a CONSUMABLE id and the split must answer. */
   const withBelt = (...belt: (SlotItemId | null)[]): readonly (SlotItemId | null)[] =>
-    ['gun', 'boost', null, null, null, ...belt, null, null, null].slice(0, 9) as (SlotItemId | null)[];
+    ['gun', 'boost', null, null, null, ...belt, ...Array<null>(SLOT_COUNT)].slice(0, SLOT_COUNT) as (SlotItemId | null)[];
 
   // Story 8.5: every captain has the SAME shape. What differs is what their
   // seed/cards put in the weapon row — the Torpedo Boat's heavy torpedo, the
@@ -246,7 +251,6 @@ describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
   it('answers over CONSUMABLE ids too: an instant stack ACTIVATES, the decoy shape PRIMES', () => {
     expect(slotHoldsAbility(withBelt('hullRepair'), BELT_1)).toBe(true);
     expect(slotHoldsAbility(withBelt('smokeScreen'), BELT_1)).toBe(true);
-    expect(slotHoldsAbility(withBelt('chaff'), BELT_1)).toBe(true);
     expect(slotHoldsAbility(withBelt('shieldBlock'), BELT_1)).toBe(true);
     expect(slotHoldsAbility(withBelt('decoyBuoy'), BELT_1)).toBe(false); // aimed → primes
     expect(slotHoldsAbility(withBelt(null, 'hullRepair'), BELT_2)).toBe(true);
@@ -560,7 +564,7 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
     // speed boost still activates — on Shift, in the sibling tests above.)
     const presses: number[] = [];
     const weaponRow: readonly (SlotItemId | null)[] =
-      ['gun', 'boost', 'navalMines', 'captiveMines', null, null, null, null, null];
+      ['gun', 'boost', 'navalMines', 'captiveMines', null, null, null, null, null, null, null];
     kb = new KeyboardInput({
       isSlotFitted: (slot) => weaponRow[slot] != null,
       isAbilitySlot: (slot) => slotHoldsAbility(weaponRow, slot),
@@ -613,10 +617,10 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
     expect(kb.actSlot).toBe(BOOST);
   });
 
-  it('the FIFO caps at SLOT_COUNT (9) — the 10th same-window press gets DENIED FEEDBACK', () => {
-    // The cap simply follows the slot count, which Story 8.5 moved 4 → 9. It is
-    // still only reachable by MASHING: nine presses inside ONE 50ms sample
-    // window. Over-cap presses are dropped WITH feedback, never in silence.
+  it('the FIFO caps at SLOT_COUNT (11) — the 12th same-window press gets DENIED FEEDBACK', () => {
+    // The cap simply follows the slot count (Story 8.5 moved it 4 → 9, Story 9.2
+    // 9 → 11). It is still only reachable by MASHING: eleven presses inside ONE
+    // 50ms sample window. Over-cap presses are dropped WITH feedback.
     const presses: number[] = [];
     const capped: number[] = [];
     kb = new KeyboardInput({
@@ -626,9 +630,10 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
       onAbilityCapped: (slot) => capped.push(slot),
     });
     kb.attach();
-    for (let i = 0; i < 12; i++) press('ShiftLeft'); // 12 presses in one window
-    expect(kb.pendingActivationCount).toBe(9); // capped
-    expect(presses).toHaveLength(9); // over-cap presses never reach onAbility
+    expect(SLOT_COUNT).toBe(11);
+    for (let i = 0; i < SLOT_COUNT + 3; i++) press('ShiftLeft'); // 14 presses in one window
+    expect(kb.pendingActivationCount).toBe(SLOT_COUNT); // capped
+    expect(presses).toHaveLength(SLOT_COUNT); // over-cap presses never reach onAbility
     expect(capped).toEqual([BOOST, BOOST, BOOST]); // …but EACH fires the denied hook
   });
 
@@ -650,7 +655,7 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
 
   it('on an all-weapon row the weapon keys PRIME and actSeq stays 0', () => {
     const weaponRow: readonly (SlotItemId | null)[] =
-      ['gun', 'boost', 'broadside', 'starShells', null, null, null, null, null];
+      ['gun', 'boost', 'broadside', 'starShells', null, null, null, null, null, null, null];
     kb = new KeyboardInput({
       isSlotFitted: (slot) => weaponRow[slot] != null,
       isAbilitySlot: (slot) => slotHoldsAbility(weaponRow, slot),
@@ -754,29 +759,36 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
     press('Digit1');
     press('Digit3');
     press('Numpad4');
-    expect(picks).toEqual([0, 2, 3]); // open → picks…
-    expect(fired).toEqual([]); // …and the belt is NEVER reached while it is open
+    press('Digit5');
+    press('Numpad6');
+    expect(picks).toEqual([0, 2, 3]); // open → picks (5/6 pick nothing)…
+    expect(fired).toEqual([]); // …and no consumable is EVER reached while it is open
     open = false;
     press('Digit1');
     press('Numpad4');
-    expect(fired).toEqual([BELT_1, BELT_4]); // closed → the belt squares, in key order
+    press('Digit5');
+    press('Numpad6');
+    expect(fired).toEqual([BELT_1, BELT_4, BELT_5, BELT_6]); // closed → the fixed squares, in key order
     expect(picks).toEqual([0, 2, 3]); // …and nothing new was picked
   });
 
-  it('digit 5 is INERT and NOT EVEN BOUND, either side of the modal (Story 8.8)', () => {
+  it('digits 5 and 6 are BOUND but INERT while the window is open (four cards)', () => {
     const picks: number[] = [];
-    let open = false;
-    kb = new KeyboardInput({ isModalOpen: () => open, onRefitPick: (c) => picks.push(c) });
+    const fired: number[] = [];
+    kb = new KeyboardInput({
+      isModalOpen: () => true,
+      onRefitPick: (c) => picks.push(c),
+      isSlotFitted: () => true,
+      isAbilitySlot: () => true,
+      onAbility: (slot) => fired.push(slot),
+    });
     kb.attach();
-    // Not prevented any more: the chokepoint has no handler for it at all, so
-    // the browser keeps the key — there is nothing left for `5` to escape into.
-    expect(press('Digit5')).toBe(false);
-    expect(press('Numpad5')).toBe(false);
+    for (const code of ['Digit5', 'Numpad5', 'Digit6', 'Numpad6']) {
+      expect(press(code), code).toBe(true); // prevented — focus can never escape
+    }
     expect(picks).toEqual([]);
-    open = true;
-    expect(press('Digit5')).toBe(false);
-    expect(press('Numpad5')).toBe(false);
-    expect(picks).toEqual([]);
+    expect(fired).toEqual([]);
+    expect(kb.pendingActivationCount).toBe(0);
   });
 
   it('slot keys (Q/E/R AND Shift) are SUSPENDED while the modal is open', () => {
@@ -1060,7 +1072,7 @@ describe('KeyboardInput — the BELT row (digits 1-4 with the window closed)', (
     expect(fired).toEqual([BELT_1]);
   });
 
-  it('digit 5 stays INERT with the window closed (the belt has no fifth square)', () => {
+  it('digit 7 stays UNBOUND with the window closed (six kinds, six keys)', () => {
     const denied: number[] = [];
     const picks: number[] = [];
     kb = new KeyboardInput({
@@ -1070,12 +1082,33 @@ describe('KeyboardInput — the BELT row (digits 1-4 with the window closed)', (
       onEmptySlotDenied: (slot) => denied.push(slot),
     });
     kb.attach();
-    expect(press('Digit5')).toBe(false); // unbound since Story 8.8…
-    expect(press('Numpad5')).toBe(false);
+    expect(press('Digit7')).toBe(false); // no handler at all…
+    expect(press('Numpad7')).toBe(false);
     expect(picks).toEqual([]); // …and inert: no pick…
     expect(denied).toEqual([]); // …no denial…
-    expect(kb.pendingActivationCount).toBe(0); // …and no belt press
+    expect(kb.pendingActivationCount).toBe(0); // …and no consumable press
     expect(kb.primedSlot).toBe(SLOT_GUN);
+  });
+
+  it('a key whose kind is at ZERO STOCK DENIES on the client and sends nothing (amendment 35)', () => {
+    // The fixed kind's slot is null at zero copies, so the press is exactly the
+    // empty-slot denial: the square flashes red, the tone plays, and NOTHING
+    // queues for the wire.
+    const denied: number[] = [];
+    const fired: number[] = [];
+    kb = new KeyboardInput({
+      isSlotFitted: (slot) => slot !== BELT_6, // every kind stocked but key 6's
+      isAbilitySlot: () => true,
+      onAbility: (slot) => fired.push(slot),
+      onEmptySlotDenied: (slot) => denied.push(slot),
+    });
+    kb.attach();
+    expect(press('Digit6')).toBe(true);
+    press('Numpad6');
+    expect(denied).toEqual([BELT_6, BELT_6]);
+    expect(fired).toEqual([]);
+    expect(kb.pendingActivationCount).toBe(0);
+    expect(kb.actSeq).toBe(0);
   });
 
   it('a hotbar CLICK on a belt square is the SAME press as its digit', () => {
@@ -1152,26 +1185,29 @@ describe('the refit CLOSE GRACE (ruling 8) — the digits\' dead zone', () => {
     });
     kb.attach();
     press('Digit1');
-    press('Digit5'); // unbound: it can neither pick nor be swallowed
+    press('Digit5'); // open: bound-inert — it carries no card choice
     expect(picks).toEqual([0]);
   });
 
-  it('leaves digit 5 inert either side of it', () => {
-    const picks: number[] = [];
+  it('covers EVERY digit, 5 and 6 included, and they act once it lapses', () => {
+    const fired: number[] = [];
     const denied: number[] = [];
-    for (const grace of [true, false]) {
-      kb?.detach();
-      kb = new KeyboardInput({
-        isRefitGrace: () => grace,
-        isSlotFitted: () => true,
-        onRefitPick: (c) => picks.push(c),
-        onEmptySlotDenied: (s) => denied.push(s),
-      });
-      kb.attach();
-      expect(press('Digit5')).toBe(false);
-    }
-    expect(picks).toEqual([]);
+    let grace = true;
+    kb = new KeyboardInput({
+      isRefitGrace: () => grace,
+      isSlotFitted: () => true,
+      isAbilitySlot: () => true,
+      onAbility: (slot) => fired.push(slot),
+      onEmptySlotDenied: (s) => denied.push(s),
+    });
+    kb.attach();
+    for (const code of ['Digit5', 'Numpad5', 'Digit6', 'Numpad6']) expect(press(code), code).toBe(true);
+    expect(fired).toEqual([]);
     expect(denied).toEqual([]);
+    grace = false;
+    press('Digit5');
+    press('Numpad6');
+    expect(fired).toEqual([BELT_5, BELT_6]);
   });
 
   it('FAILS OPEN with no hook wired — a construction gap must not kill the belt', () => {
@@ -1496,7 +1532,7 @@ describe('KeyboardInput — chokepoint hygiene', () => {
       'Tab', 'Escape', 'Enter', 'NumpadEnter', 'KeyZ', 'KeyX', 'KeyM', 'KeyP',
       // Story 8.7: every BELT code is a bound key in BOTH of its meanings, so
       // the hygiene sweep covers the whole table rather than a sample of it.
-      ...Object.keys(BELT_KEY_CODES), ...Object.keys(REFIT_DIGIT_CODES),
+      ...Object.keys(CONSUMABLE_KEY_CODES), ...Object.keys(REFIT_DIGIT_CODES),
     ]) {
       expect(press(code), code).toBe(true);
     }
@@ -1513,7 +1549,7 @@ describe('KeyboardInput — chokepoint hygiene', () => {
       kb?.detach();
       kb = new KeyboardInput(hooks);
       kb.attach();
-      for (const code of Object.keys(BELT_KEY_CODES)) expect(press(code), code).toBe(true);
+      for (const code of Object.keys(CONSUMABLE_KEY_CODES)) expect(press(code), code).toBe(true);
     }
   });
 
@@ -1766,8 +1802,8 @@ describe('KeyboardInput.slotAction — hotbar clicks reuse the EXACT key semanti
       isAbilitySlot: boostAbilitySlot,
       onAbilityCapped: (slot) => capped.push(slot),
     });
-    for (let i = 0; i < 10; i++) kb.slotAction(BOOST); // SLOT_COUNT (9) fit, the 10th is capped
-    expect(kb.pendingActivationCount).toBe(9);
+    for (let i = 0; i <= SLOT_COUNT; i++) kb.slotAction(BOOST); // SLOT_COUNT (11) fit, the 12th is capped
+    expect(kb.pendingActivationCount).toBe(SLOT_COUNT);
     expect(capped).toEqual([BOOST]);
   });
 

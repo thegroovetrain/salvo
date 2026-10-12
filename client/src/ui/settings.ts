@@ -96,7 +96,7 @@ export interface BindingRow {
  * STORY 8.8 (epic-8 amendment 50) re-cut the digit row for the second time. The
  * `5` key is GONE — the DAMAGE CONTROL rail it spent a level on was deleted
  * when healing became a card — and `1`-`4` carry the TWO MEANINGS Story 8.7
- * gave them (`REFIT_DIGIT_CODES` with the window open, `BELT_KEY_CODES` with it
+ * gave them (`REFIT_DIGIT_CODES` with the window open, `CONSUMABLE_KEY_CODES` with it
  * closed), which is what the row now states. The numpad aliasing is unchanged.
  *
  * STORY 8.22 (2026-10-01) re-cut the slot rows: they became false when Story

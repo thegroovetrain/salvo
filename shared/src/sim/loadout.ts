@@ -1,8 +1,10 @@
 // Slot-based equipment loadout — the shared spine every fitted system builds
 // on (Story 1.2, re-cut in Story 8.5). A ship's loadout IS its equipment
-// runtime: NINE FIXED-ROLE SLOTS, identical for every captain hull —
-// [gun, boost, weapon, weapon, weapon, consumable ×4] — each either empty or
-// holding one equipment id + its state.
+// runtime: ELEVEN FIXED-ROLE SLOTS, identical for every captain hull —
+// [gun, boost, weapon, weapon, weapon, consumable ×6] — each either empty or
+// holding one equipment id + its state. Since Story 9.2 (epic-9 amendments 21
+// and 31) the six consumable slots are not a packed belt: EACH KIND OWNS ONE
+// FIXED SLOT and one fixed key (`CONSUMABLE_KEY_ORDER`).
 //
 // THE PER-HULL FIT IS GONE (Story 8.5, epic-8 amendments 21–24). There is no
 // `specialsFor` and no `SLOT_EXTRA`: every captain sails with the SAME shape,
@@ -139,7 +141,7 @@ export const DEFAULT_SHIFT: ShiftId = 'boost';
 
 /**
  * WHAT A SLOT MAY HOLD (Story 8.7): a piece of EQUIPMENT (slots 0–4) or a
- * CONSUMABLE line (the four belt slots). The two id spaces stay DISJOINT —
+ * CONSUMABLE line (the six fixed consumable slots since Story 9.2). The two id spaces stay DISJOINT —
  * `EquipmentId` is never widened — because five records are keyed by
  * EquipmentId (`EquipmentRows`, `EQUIPMENT_STAT_FIELDS`, `EQUIPMENT_IS_WEAPON`,
  * the server's equipment registry, the client's glyph table) and every
@@ -153,8 +155,8 @@ export type SlotItemId = EquipmentId | ConsumableId;
 /**
  * The consumable half of the weapon/ability split (D21) — the same law
  * `EQUIPMENT_IS_WEAPON` states for equipment: true iff the consumable is AIMED
- * and fired at a clicked point, false iff it is an instant activation off the
- * `1`–`4` rail. THREE are click-aimed: the DECOY BUOY (catalog-v3 R1, the
+ * and fired at a clicked point, false iff it is an instant activation off its
+ * fixed number key. THREE are click-aimed: the DECOY BUOY (catalog-v3 R1, the
  * buoy it replaces was too), the SUPERCAV TORPEDO (epic-8 amendment 74) and
  * FLASH SHELLS (Story 8.17, amendment 132). Compile-forced to cover every
  * ConsumableId.
@@ -163,7 +165,6 @@ export const CONSUMABLE_IS_WEAPON: Readonly<Record<ConsumableId, boolean>> = {
   hullRepair: false,
   shieldBlock: false,
   smokeScreen: false,
-  chaff: false,
   decoyBuoy: true,
   // DEPTH CHARGE (amendment 83) — STUB: Eric's line, mechanism a later story.
   // Declared NON-aimed until he rules; a stub is never dealt, so nothing can
@@ -256,7 +257,8 @@ export const MOUNTED_GUN: Readonly<Record<GunId, EquipmentId>> = Object.freeze({
  * A CONSUMABLE STACK (Story 8.7) uses the same shape with `n` = COPIES HELD and
  * `reloadMsLeft` 0 FOREVER: a stack never reloads (catalog-v3 R40 — every copy
  * of the line is one use, and the only way to get another is another card), so
- * the server's reload tick and the client's cooldown wipe both skip the belt.
+ * the server's reload tick and the client's cooldown wipe both skip the
+ * consumable slots.
  */
 export interface EquipmentState {
   n: number; // charges/rounds ready (0 = empty)
@@ -268,7 +270,8 @@ export interface EquipmentState {
  * empty slot carries no state to dereference; a fitted slot always has state.
  *
  * `equipmentId` holds a `SlotItemId`: an EquipmentId in the gun, boost and
- * weapon slots (0–4), and a CONSUMABLE line id in a BELT slot (5–8, Story 8.7).
+ * weapon slots (0–4), and a CONSUMABLE line id in that kind's OWN fixed slot
+ * (5–10, Story 9.2; a packed belt 5–8 from Story 8.7 until then).
  * The FIELD NAME is unchanged — it rides every mirror, view model and test on
  * both sides — but a reader that indexes an EquipmentId-keyed record with it
  * must narrow through `isConsumableId` first (never a cast).
@@ -278,8 +281,32 @@ export interface LoadoutSlot {
   state: EquipmentState | null;
 }
 
-/** Total slots in a loadout: gun, boost, three weapons, four consumables. */
-export const SLOT_COUNT = 9;
+/**
+ * THE KEY ROW (Story 9.2, Eric 2026-10-11, epic-9 amendments 21 and 31): every
+ * consumable kind that can be held owns ONE FIXED SLOT and ONE FIXED KEY, in
+ * this order — key `1` is index 0. The belt is retired: nothing ever packs or
+ * shifts, so "key N" means the same kind for the whole match. THE ONE HOME of
+ * the key order and the kind → slot map; both sides derive from it.
+ *
+ * `depthCharge` is absent on purpose: a STUB line (never dealt) has no slot and
+ * no key. `smokeScreen` holds `3` until 9.3's countermeasure and
+ * `dazzleShells` (FLASH SHELLS) holds `4` until 9.4's fouling shell.
+ */
+export const CONSUMABLE_KEY_ORDER: readonly ConsumableId[] = Object.freeze([
+  'hullRepair',
+  'shieldBlock',
+  'smokeScreen',
+  'dazzleShells',
+  'decoyBuoy',
+  'supercavTorpedo',
+] as const);
+
+/** Slot index of the first consumable slot (key `1`). */
+const FIRST_CONSUMABLE_SLOT = 5;
+
+/** Total slots in a loadout: gun, boost, three weapons, one per keyed
+ *  consumable kind (six since Story 9.2). */
+export const SLOT_COUNT = FIRST_CONSUMABLE_SLOT + CONSUMABLE_KEY_ORDER.length;
 
 /** Slot index of the gun — the permanently-selected default weapon. */
 export const SLOT_GUN = 0;
@@ -292,18 +319,41 @@ export const SLOT_BOOST = 1;
  *  first of these that is still empty (sim/boons.ts applySlotEffect). */
 export const WEAPON_SLOTS = [2, 3, 4] as const;
 
-/** The four CONSUMABLE slots (the `1`–`4` belt). Empty all of Story 8.5 —
- *  Story 8.7 builds the rack that stocks them. */
-export const CONSUMABLE_SLOTS = [5, 6, 7, 8] as const;
+/** The six CONSUMABLE slots, in key order: slot `5 + i` is permanently bound
+ *  to `CONSUMABLE_KEY_ORDER[i]` (Story 9.2). Derived, never a second list. */
+export const CONSUMABLE_SLOTS: readonly number[] = Object.freeze(
+  CONSUMABLE_KEY_ORDER.map((_, i) => FIRST_CONSUMABLE_SLOT + i),
+);
+
+/** THE fixed slot of a consumable kind, or `null` for a kind with no key (the
+ *  DEPTH CHARGE stub). */
+export function consumableSlotFor(id: ConsumableId): number | null {
+  const i = CONSUMABLE_KEY_ORDER.indexOf(id);
+  return i < 0 ? null : FIRST_CONSUMABLE_SLOT + i;
+}
+
+/** THE kind a consumable slot is bound to, or `null` for any slot that is not
+ *  a consumable slot (gun, Shift, weapon row, out of range, non-integer). The
+ *  client reads a zero-stock slot's kind through this — a `null` slot content
+ *  still belongs to its kind. */
+export function consumableKindAt(slot: number): ConsumableId | null {
+  return CONSUMABLE_KEY_ORDER[slot - FIRST_CONSUMABLE_SLOT] ?? null;
+}
 
 /** The role a slot plays in the grammar. */
 export type SlotRole = 'gun' | 'boost' | 'weapon' | 'consumable';
 
-/** Slot-role grammar, in slot order (index = slot index). Fixed for every
- *  hull: the roles are the grammar, the contents are the build. */
-export const SLOT_ROLES: readonly [
-  SlotRole, SlotRole, SlotRole, SlotRole, SlotRole, SlotRole, SlotRole, SlotRole, SlotRole,
-] = ['gun', 'boost', 'weapon', 'weapon', 'weapon', 'consumable', 'consumable', 'consumable', 'consumable'];
+/** Slot-role grammar, in slot order (index = slot index), length SLOT_COUNT.
+ *  Fixed for every hull: the roles are the grammar, the contents are the
+ *  build. */
+export const SLOT_ROLES: readonly SlotRole[] = Object.freeze([
+  'gun',
+  'boost',
+  'weapon',
+  'weapon',
+  'weapon',
+  ...CONSUMABLE_KEY_ORDER.map((): SlotRole => 'consumable'),
+]);
 
 /** The effective pool size for a piece of equipment — a record lookup since
  *  Story 8.1 made `EffectiveStats.equipment` TOTAL over EquipmentId. A SLOT's
@@ -320,14 +370,14 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
 }
 
 /**
- * The loadout a ship spawns with — THE SAME NINE-SLOT SHAPE FOR EVERY CAPTAIN
- * HULL (Story 8.5). A captain fits the gun in slot 0 and its Shift in slot 1,
+ * The loadout a ship spawns with — THE SAME SLOT SHAPE FOR EVERY CAPTAIN HULL
+ * (Story 8.5; eleven slots since Story 9.2). A captain fits the gun in slot 0 and its Shift in slot 1,
  * both with a full pool and an idle reload timer (exactly the server's
- * `freshAmmo(equipmentMaxAmmo(stats, id))` semantics); slots 2–8 start empty
+ * `freshAmmo(equipmentMaxAmmo(stats, id))` semantics); slots 2–10 start empty
  * and are filled by CARDS — the level-zero offer at the start line first
  * (Story 8.10), then every offer after it.
  *
- * `fleet === true` is the PvE drone fit: the gun in slot 0 and eight empties,
+ * `fleet === true` is the PvE drone fit: the gun in slot 0 and empties,
  * nothing else (epic-5 amendment 34, epic-8 amendment 24) — a drone has no
  * seat, so it always mounts the default gun.
  *

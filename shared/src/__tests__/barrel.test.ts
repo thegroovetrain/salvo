@@ -12,6 +12,9 @@ import {
   SLOT_BOOST,
   WEAPON_SLOTS,
   CONSUMABLE_SLOTS,
+  CONSUMABLE_KEY_ORDER,
+  consumableKindAt,
+  consumableSlotFor,
   MULLIGAN_CHOICE,
   effectiveStats,
   equipmentMaxAmmo,
@@ -38,7 +41,6 @@ import {
   slowedKinematics,
   CONSUMABLE_IDS,
   CONSUMABLE_IS_WEAPON,
-  canStock,
   isConsumableId,
   isWeaponItem,
   slotMaxAmmo,
@@ -410,7 +412,11 @@ describe('shared barrel', () => {
     // 70 -> 71 (cycle 167): private lobbies — CONFIG.lobby read by the client,
     // arena mode 'private', lobby-room channels lr/ls/lb/lg. The exception
     // count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(74);
+    // 74 -> 75 (cycle 172, Story 9.2): every consumable has a fixed key —
+    // SLOT_COUNT 9 -> 11, one slot per keyed kind, no packing; CHAFF retired
+    // (catalog content, OwnShip.chaff / chaffGhosts gone). The exception count
+    // stays SIX.
+    expect(PROTOCOL_VERSION).toBe(75);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -430,7 +436,7 @@ describe('shared barrel', () => {
   it('re-exports config, wire tags, and functions', () => {
     expect(CONFIG.tick.simDtMs).toBe(50);
     expect(MSG.input).toBe('i');
-    expect(SLOT_COUNT).toBe(9); // Story 8.5: was 4 (gun, two specials, one extra)
+    expect(SLOT_COUNT).toBe(2 + WEAPON_SLOTS.length + CONSUMABLE_SLOTS.length); // gun, Shift, Q/E/R, one per keyed consumable
     expect(typeof mapRadius).toBe('function');
     expect(typeof stepShip).toBe('function');
     expect(typeof generateMap).toBe('function');
@@ -563,10 +569,12 @@ describe('shared barrel', () => {
     expect(hullIsFull(349.5, 350)).toBe(true);
   });
 
-  it('re-exports the NINE-SLOT grammar — and the interim spawn seed is GONE (Story 8.10)', () => {
+  it('re-exports the slot grammar — and the interim spawn seed is GONE (Story 8.10)', () => {
     expect(SLOT_BOOST).toBe(1);
     expect(WEAPON_SLOTS).toEqual([2, 3, 4]);
-    expect(CONSUMABLE_SLOTS).toEqual([5, 6, 7, 8]);
+    // One fixed slot per keyed consumable kind, in key order (Story 9.2).
+    expect(CONSUMABLE_SLOTS).toEqual(CONSUMABLE_KEY_ORDER.map((id) => consumableSlotFor(id)));
+    expect(typeof consumableKindAt).toBe('function');
     // The per-hull fit died with the extra slot (Story 8.5)...
     const ns = shared as Record<string, unknown>;
     for (const gone of ['SLOT_EXTRA', 'specialsFor']) expect(ns[gone], gone).toBeUndefined();
@@ -613,13 +621,12 @@ describe('shared barrel', () => {
     expect('radarBuoy' in EQUIPMENT_IS_WEAPON).toBe(false);
   });
 
-  it('the BELT surface (Story 8.7): the rack predicate, the slot-item guard and the two split tables', () => {
+  it('the CONSUMABLE-SLOT surface (Story 8.7, fixed slots since 9.2): the stock slot, the slot-item guard and the two split tables', () => {
     // Story 8.7 adds the consumable half of the slot vocabulary. It is a
     // WIRE-NEUTRAL addition — PROTOCOL_VERSION stayed 52 at 8.7 (no new field,
     // no catalog content change; every consumable line was still a stub then,
     // epic-8 amendment 41; Story 8.8 flipped hullRepair live and took the
     // bump) — but both sides import these names, so the barrel pins them here.
-    expect(typeof canStock).toBe('function');
     expect(typeof stockSlotFor).toBe('function');
     expect(typeof isConsumableId).toBe('function');
     expect(typeof isWeaponItem).toBe('function');
@@ -631,10 +638,12 @@ describe('shared barrel', () => {
     // through the guard.
     for (const id of CONSUMABLE_IDS) expect((EQUIPMENT_IDS as readonly string[]).includes(id), id).toBe(false);
     for (const id of EQUIPMENT_IDS) expect(isConsumableId(id), id).toBe(false);
-    // The belt predicate reads the four consumable slots and nothing else.
-    const empty: (SlotItemId | null)[] = ['gun', 'boost', null, null, null, null, null, null, null];
-    expect(canStock(empty, 'hullRepair')).toBe(true);
-    expect(stockSlotFor(empty, 'hullRepair')).toBe(CONSUMABLE_SLOTS[0]);
+    // A kind stocks at its OWN fixed slot (Story 9.2) and nowhere else.
+    const empty: (SlotItemId | null)[] = Array.from({ length: SLOT_COUNT }, () => null);
+    expect(stockSlotFor(empty, 'hullRepair')).toBe(consumableSlotFor('hullRepair'));
+    // `canStock` and the `beltFull` refusal are DELETED with the belt.
+    const ns = shared as Record<string, unknown>;
+    expect(ns.canStock).toBeUndefined();
   });
 
   it('CONFIG.broadside carries the barrage block; its range stays DERIVED at the 5/8 rung', () => {
@@ -683,11 +692,12 @@ describe('shared barrel', () => {
     expect(CONFIG.broadside.turretMountSpreadDeg).toHaveLength(CONFIG.broadside.traverseDeg.length);
   });
 
-  it('CONFIG carries the three 8.16 consumable blocks verbatim; the radar buoy is GONE', () => {
+  it('CONFIG carries the surviving 8.16 consumable blocks verbatim; the radar buoy and chaff are GONE', () => {
     // catalog-v3 R37 / R39 / R36 (Eric 2026-09-09), epic-8 amendments 116-124.
     // Consumables carry NO stat row (the consumable law) — these ARE the numbers.
     expect(CONFIG.shieldBlock).toEqual({ hp: 100, durationMs: 10000 });
-    expect(CONFIG.chaff).toEqual({ radius: 180, count: 10, durationMs: 15000 }); // radius ×1.5 (Eric 2026-10-01)
+    // CHAFF is RETIRED (Story 9.2, epic-9 amendment 31): its block is gone.
+    expect((CONFIG as Record<string, unknown>).chaff).toBeUndefined();
     expect(CONFIG.decoyBuoy).toEqual({ hp: 50, sizeU: 12 });
     // THE RADAR BUOY IS DELETED END TO END (Story 8.16): its CONFIG block (the
     // sensor, the gun buoy, the jamming fakes) went with it.
@@ -896,24 +906,17 @@ describe('shared barrel', () => {
     expect(Object.keys(seen)).toEqual(['id', 'x', 'y', 'own', 'by', 'c']);
   });
 
-  it('re-exports GhostPaint + the self-private OwnShip.chaffGhosts (cycle 162): the blip rect minus k and t', () => {
-    // TYPE-LEVEL PINS: a ghost is exactly the blip payload's rect, and a
+  it('re-exports GhostPaint (cycle 162): the blip rect minus k and t', () => {
+    // TYPE-LEVEL PINS: a ghost rect is exactly the blip payload's rect, and a
     // blip is assignable to it (ReturnBlipEvent extends GhostPaint), so the
-    // two shapes cannot drift. The blip itself keeps its seven keys.
+    // two shapes cannot drift. The blip itself keeps its seven keys. (The
+    // chaff owner's OwnShip.chaffGhosts that first used it is retired with
+    // CHAFF in Story 9.2.)
     const blip: ReturnBlipEvent = { k: 'blip', t: 1000, gx: 3, gy: -4, w: 2, h: 1, bits: [3] };
     expect(Object.keys(blip)).toEqual(['k', 't', 'gx', 'gy', 'w', 'h', 'bits']);
     const { k: _k, t: _t, ...rect } = blip;
     const ghost: GhostPaint = rect;
     expect(Object.keys(ghost)).toEqual(['gx', 'gy', 'w', 'h', 'bits']);
-    const ghosts: NonNullable<OwnShip['chaffGhosts']> = [ghost, blip];
-    const you: Pick<OwnShip, 'chaff' | 'chaffGhosts'> = {
-      chaff: { x: 100, y: 200, until: 16000 },
-      chaffGhosts: ghosts,
-    };
-    // Round-trips through JSON (the wire's plain-object contract) unchanged.
-    const back = JSON.parse(JSON.stringify(you)) as typeof you;
-    expect(back.chaffGhosts?.[0]).toEqual({ gx: 3, gy: -4, w: 2, h: 1, bits: [3] });
-    expect(back).toEqual(you);
   });
 
   it('re-exports the 8.16 WIRE shapes: DecoyView (by for all, hp own-only), FrameMsg.decoys, OwnShip.shield', () => {
@@ -980,10 +983,11 @@ describe('shared barrel', () => {
     // ladders. 109 -> 117 in Story 8.17 (amendments 131/132): the last two
     // 1-card add-ons became a 5-card equipment line and a 5-card consumable.
     // 26/117 -> 24/114 on 2026-09-30 (Eric): DECK GUN TURRET and DECK GUN
-    // BARREL deleted, folded into the CANNON ladder's rungs.
-    expect(LINE_IDS).toHaveLength(24);
-    expect(Object.keys(CATALOG)).toHaveLength(24);
-    expect(catalogCardCount()).toBe(114);
+    // BARREL deleted, folded into the CANNON ladder's rungs. 24/114 -> 23/109
+    // in Story 9.2 (Eric 2026-10-11, epic-9 amendment 31): CHAFF retired.
+    expect(LINE_IDS).toHaveLength(23);
+    expect(Object.keys(CATALOG)).toHaveLength(23);
+    expect(catalogCardCount()).toBe(109);
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0); // still EMPTY (amendment 30 satisfied data-side)
     expect(Object.isFrozen(CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);

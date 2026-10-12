@@ -44,8 +44,8 @@
 // (flame tongues on a waterline) and FLASH SHELLS (a struck-through eye).
 //
 // STORY 8.16 DREW THREE MORE, for the belt (amendment 124(f), same DRAFT
-// status): SHIELD BLOCK (a heater-shield outline), CHAFF (a scatter of short
-// strokes) and DECOY BUOY (the on-water spar-buoy marker the deleted radar
+// status): SHIELD BLOCK (a heater-shield outline), CHAFF (retired with its line
+// in Story 9.2, epic-9 amendment 31) and DECOY BUOY (the on-water spar-buoy marker the deleted radar
 // buoy's glyph already drew).
 //
 // STORY 8.15 DREW FOUR (epic-8 amendment 110 — IMPLEMENTER DRAFTS, ledgered for
@@ -328,23 +328,6 @@ const shieldBlock: GlyphPaths = [
 ];
 
 /**
- * Chaff (Story 8.16 DRAFT, epic-8 amendment 124(f)): a SCATTER of short strokes
- * at mixed angles — the foil cloud the fakes are made of. No circle and no
- * centre mark: the whole point is that nothing in it is the real thing.
- */
-const chaff: GlyphPaths = [
-  path([-0.85, -0.55], [-0.55, -0.75]),
-  path([-0.2, -0.9], [0.1, -0.62]),
-  path([0.45, -0.7], [0.85, -0.6]),
-  path([-0.6, -0.05], [-0.25, 0.1]),
-  path([0.15, -0.2], [0.3, 0.15]),
-  path([0.6, 0.05], [0.9, 0.35]),
-  path([-0.9, 0.55], [-0.6, 0.8]),
-  path([-0.15, 0.55], [0.2, 0.45]),
-  path([0.5, 0.65], [0.65, 0.95]),
-];
-
-/**
  * Decoy buoy (Story 8.16 DRAFT, epic-8 amendment 124(f)): the on-water SPAR
  * BUOY marker (render/decoys.ts `BUOY_MARKER`) — waterline, mast, and a DIAMOND
  * radar-reflector daymark at the masthead — so the belt square and the float on
@@ -422,7 +405,6 @@ const CONSUMABLE_GLYPHS: Partial<Record<string, GlyphPaths>> = {
   // Story 8.16 — the three lines that went live, each an IMPLEMENTER DRAFT for
   // Eric's eye on staging (amendment 124(f), the amendment 110 precedent).
   shieldBlock,
-  chaff,
   decoyBuoy,
   dazzleShells, // FLASH SHELLS — Story 8.17 DRAFT (above)
   smokeScreen, // Story 8.18 DRAFT (above)

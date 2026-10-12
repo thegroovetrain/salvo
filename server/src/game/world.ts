@@ -141,7 +141,6 @@ import {
 import type { BurstSubject } from './signals.js';
 import type { HandRecord } from './matchRecord.js';
 import { addDecoy, decoyTarget, type DecoyState } from './decoys.js';
-import type { FakeSource } from './fakes.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
 import { FleetController, fleetSizeOf } from './drones.js';
 import { BotController } from './ai/botDriver.js';
@@ -938,9 +937,9 @@ export interface ShipRecord {
    */
   torpDirs: Map<string, number>;
   /**
-   * The ship's equipment loadout — NINE FIXED-ROLE SLOTS (Story 8.5,
-   * shared/src/sim/loadout.ts): `[gun, boost, weapon, weapon, weapon,
-   * consumable ×4]`, the SAME shape for every captain hull, each slot either
+   * The ship's equipment loadout — ELEVEN FIXED-ROLE SLOTS (Story 8.5's nine,
+   * widened in Story 9.2; shared/src/sim/loadout.ts): `[gun, boost, weapon,
+   * weapon, weapon, consumable ×6]`, the SAME shape for every captain hull, each slot either
    * empty or holding one equipment id + its runtime state (pool + reload
    * timer, equipment/ammo.ts).
    *
@@ -949,7 +948,8 @@ export interface ShipRecord {
    * CARDS, first-empty-first (sim/boons.ts applySlotEffect), and they start
    * EMPTY — Story 8.10 deleted the interim spawn seed (amendment 62), so the
    * first weapon aboard is the one the captain takes from the level-zero
-   * offer. The four CONSUMABLE slots fill from the belt (Story 8.7). A FLEET
+   * offer. The six CONSUMABLE slots are each bound to ONE kind
+   * (`consumableSlotFor`, Story 9.2 — epic-9 amendment 21). A FLEET
    * hull fits the gun and nothing else (amendment 24).
    *
    * THE one equipment structure (replaces the old WeaponAmmo[] — no parallel
@@ -1173,20 +1173,6 @@ export class World {
    */
   readonly decoys = new Map<string, DecoyState>();
   /**
-   * THE CHAFF clouds (Story 8.16, catalog-v3 R39, amendments 124(b)(c)/127),
-   * keyed by OWNER id — one per owner; a second press REPLACES the entry
-   * (fresh seed, fresh 15 s) through `ActivationContext.setChaff`. Fixed at
-   * the owner's position at activation; signals.ts `chaffFakeBlips` paints
-   * each cloud's water-filtered fakes on every OTHER observer's radar while
-   * `now < until` and skips it after (lazy expiry — a lapsed entry is inert).
-   * WORLD-OWNED, not on the hull: a cloud runs its full window through its
-   * owner's sink, redeploy, respawn or leave (amendment 127 — everything
-   * placed on the water outlives its owner), and only resetForMatchStart
-   * clears the map (the mines/decoys precedent). SERVER-PRIVATE: nothing
-   * about it rides any frame.
-   */
-  readonly chaffSources = new Map<string, FakeSource>();
-  /**
    * THE SMOKE SCREEN puffs (Story 8.18, catalog-v3 R38, amendments 138–145),
    * keyed by id (`sk${n}`), in LAY order. Each is a stationary disc laid at
    * its owner's CENTER (amendment 190) by stepSmoke, born at `bornAt` with radius r0 and
@@ -1198,7 +1184,7 @@ export class World {
    * OWNED, not on the hull: a puff runs its full life through its owner's
    * sink, redeploy, respawn or leave (amendment 127 — everything on the water
    * outlives its owner); only resetForMatchStart clears the map (the mines /
-   * decoys / chaff precedent). Exposed read-only to perception and the fleet
+   * decoys precedent). Exposed read-only to perception and the fleet
    * AI through `smokePuffs`; the count alone feeds `/metrics` (smokeCount).
    */
   readonly smoke = new Map<string, SmokePuff>();
@@ -1415,18 +1401,6 @@ export class World {
   /** The private pseudonym stream (see trackIds / WorldOptions.pseudonymSeed). */
   private readonly pseudonymRng: Rng;
   /**
-   * THE FAKE STREAM (Story 7-5 wave 2's jam stream, renamed in Story 8.16):
-   * mints each CHAFF source's server-private scatter seed, from which its
-   * per-epoch fake set derives (game/fakes.ts scatterFakes). Seeded off the
-   * SAME private material as the pseudonym stream (opts.pseudonymSeed in
-   * production — never the client-known map seed alone), decorrelated by its
-   * own constant (0x94d049bb is unused by any other stream here; see the
-   * spawnPhase doc for the roster). NEVER Math.random(): fakes must be
-   * deterministic per (source, epoch) so tests can reproduce them, while a
-   * client — which never learns the seed — cannot predict them.
-   */
-  private readonly fakeRng: Rng;
-  /**
    * THE DROP STREAM (Eric ruling 2026-10-01): the coin and the pick behind a
    * drone kill's consumable drops (rollDroneDrops). Its OWN decorrelated
    * stream (0x6c078965 is unused by any other stream here; see the spawnPhase
@@ -1537,8 +1511,8 @@ export class World {
    * shared spawn stream would reorder every later fleet-anchor sample), and one
    * value read once wants a stream it cannot desynchronize from. 0xb5297a4d is
    * unused by any other stream here (spawn 0x9e3779b9, pseudonym 0x1b873593,
-   * fleet 0x85ebca6b, draw 0x165667b1, bots 0xc2b2ae35, chaff 0x94d049bb,
-   * drone drops 0x6c078965).
+   * fleet 0x85ebca6b, draw 0x165667b1, bots 0xc2b2ae35, drone drops
+   * 0x6c078965; 0x94d049bb was the retired CHAFF fake stream's).
    *
    * DISCLOSURE NOTE, so nobody reads this as a new leak: the phase derives from
    * the client-known map seed — but so does `this.rng` itself, so spawn
@@ -1571,9 +1545,6 @@ export class World {
     // Pseudonym stream: caller-supplied private material, or the TEST-ONLY
     // map-seed fallback (0x1b873593 is unused by any other stream).
     this.pseudonymRng = mulberry32((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) >>> 0);
-    // Fake-seed stream (chaff) — same private material, own decorrelation
-    // constant, so drawing chaff seeds never perturbs the pseudonym sequence.
-    this.fakeRng = mulberry32((((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) ^ 0x94d049bb) >>> 0));
     // Fleet steering stream, decorrelated again from mapgen + spawn.
     this.drones = new FleetController(this, (seed ^ 0x85ebca6b) >>> 0);
     // Bot decision stream (Story 6.4), decorrelated from every other stream
@@ -1994,9 +1965,7 @@ export class World {
         id: ship.id,
         afloat: isAfloat(ship.lifecycle),
         self: ship,
-        // The bot's OWN chaff cloud only (amendment 127 — world-owned).
-        chaffUntil: this.chaffSources.get(ship.id)?.until ?? 0,
-        // The bot's OWN lay window (Story 8.18 — a self-read, like chaffUntil).
+        // The bot's OWN lay window (Story 8.18 — a self-read).
         smokeUntil: ship.smokeUntil,
         observe: () => observe(this, ship.id),
       });
@@ -2042,8 +2011,9 @@ export class World {
    * `applyCard` IS THE WHOLE FILTER (Story 8.14, tightened by the review's F2).
    * There is no deck left to pay a copy out of, so every drop is `refusesCard`'s
    * — an id the catalog does not know, a STUB line (amendment 11: authored but
-   * unbuilt is never fittable), a line already held at its `cap`, a consumable
-   * with no belt room, and copy 1 of an equipment line once Q/E/R are full. That
+   * unbuilt is never fittable), a line already held at its `cap`, and copy 1
+   * of an equipment line once Q/E/R are full (a consumable always has its own
+   * fixed slot since Story 9.2 — epic-9 amendment 21). That
    * last one is what stops a four-line `fitOverride` putting a fourth bare
    * weapon in `cards` with no slot to live in (and recording a take for it);
    * the cap one is what stops a dev fit stacking a build no pick, draw or offer
@@ -2092,7 +2062,6 @@ export class World {
     this.shells.clear();
     this.mines.clear();
     this.decoys.clear(); // practice-field decoys never float into the real match (mines precedent)
-    this.chaffSources.clear(); // ...nor a practice-field chaff cloud (amendment 127)
     this.litZones.clear(); // practice-field zones never light the real match (mines precedent)
     this.burnZones.clear(); // ...nor burn into it (Story 8.17, the same precedent)
     this.smoke.clear(); // ...nor a practice-field smoke trail (Story 8.18, the same precedent)
@@ -2194,8 +2163,6 @@ export class World {
     // cannot start regenerating on the start line.
     ship.lastDamagedAt = this.now;
     // ...nor a SHIELD BLOCK (Story 8.4 review, P5 — the clearRepair rule).
-    // (A CHAFF cloud is on the water, not on the hull — amendment 127: only
-    // resetForMatchStart's chaffSources.clear() ends one early.)
     ship.shield = null;
     ship.slowedUntil = 0;
     ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
@@ -2357,15 +2324,12 @@ export class World {
     World.clearRepair(ship);
     // ...and so does the SHIELD BLOCK, on the same rule (Story 8.4 review, P5):
     // an absorbing pool is economy, and a sinking captain loses their economy.
-    // A CHAFF cloud does NOT go with it (amendment 127): it is on the water in
-    // World.chaffSources and runs its full window, like a mine or a decoy.
     ship.shield = null;
     // ...and LAYING STOPS AT SINK ENTRY (Story 8.18, Eric ruling 144): the lay
     // window closes here, so stepSmoke — which runs AFTER founderSinking and
     // reads this field — drops no further puff for a hull that went under.
     // The puffs already laid stay in World.smoke to their own `until`
-    // (amendment 127, the chaff rule: everything on the water outlives its
-    // owner).
+    // (amendment 127: everything on the water outlives its owner).
     World.clearSmokeScreen(ship);
     ship.deaths += 1;
     ship.respawnAt = this.respawnEnabled ? this.now + CONFIG.ship.respawnDelay : 0;
@@ -2507,11 +2471,13 @@ export class World {
   /**
    * One passing drop roll: a uniform pick over the consumable lines this ship
    * could legally take RIGHT NOW by the refit card's own predicate
-   * (`refusesCard` → `pickRefusal`: a stub or a line at its cap is skipped, and
-   * a full belt limits the pick to the lines already held), recomputed per
-   * roll because a first drop can fill the belt. An empty set wastes the roll
-   * without drawing. The copy lands through applyCard (cards + belt fold stay
-   * the single truth); the event is queued only if the stock actually landed.
+   * (`refusesCard` → `pickRefusal`: a stub or a line at its cap is skipped) —
+   * since Story 9.2 (epic-9 amendment 21, amendment 226 without its belt
+   * branch) that is every keyed kind under its cap, each in its own fixed
+   * slot — recomputed per roll because a first drop can bring a line to its
+   * cap. An empty set wastes the roll without drawing. The copy lands through
+   * applyCard (cards + slot fold stay the single truth); the event is queued
+   * only if the stock actually landed.
    */
   private pickDrop(ship: ShipRecord): void {
     const eligible = Object.keys(this.catalog).filter(
@@ -2790,8 +2756,8 @@ export class World {
    * policy cannot return a negative, pinned — and a fleet hull has no offer
    * anyway), it is NOT SINKING, this ship has not already redrawn, and it
    * HOLDS a hand. Anything else returns false BEFORE any mutation, so the
-   * next frame's offer is the same array, byte for byte (the 8.7 full-belt
-   * refusal pattern).
+   * next frame's offer is the same array, byte for byte (the pick-refusal
+   * pattern).
    *
    * THE SINKING GUARD LIVES HERE, NOT ONLY AT THE WIRE (the 8.10 review, P6).
    * `spendPoint` already refuses a sinking hull, so the wire path was covered
@@ -2874,8 +2840,8 @@ export class World {
    *     `LineId` union does not), and the callee is fail-closed on an id its
    *     catalog does not know — so the narrow rides the callee's contract, not
    *     this assertion.
-   *   - `slotIds`: the nine slot contents, the same array `canStock` and
-   *     `pickRefusal` take. `sim/draw.ts` derives "is ANY of Q/E/R still empty"
+   *   - `slotIds`: the eleven slot contents, the same array `pickRefusal`
+   *     takes. `sim/draw.ts` derives "is ANY of Q/E/R still empty"
    *     from it — what makes copy 1 of a weapon eligible at all (a bare weapon
    *     needs somewhere to go) and what closes the weapon kind once the row is
    *     full — and the level-zero guarantee runs the full `pickRefusal` over it
@@ -2994,8 +2960,8 @@ export class World {
     // `this.catalog['constructor']` with Object.prototype.constructor —
     // not undefined, and with no `tiers` to iterate.
     const line = Object.hasOwn(this.catalog, lineId) ? this.catalog[lineId] : undefined;
-    // THE PRE-PUSH REFUSALS — a stub, a line at its cap, a consumable the belt
-    // has no room for, a bare weapon with no slot. See `refusesCard`.
+    // THE PRE-PUSH REFUSALS — a stub, a line at its cap, a bare weapon with
+    // no slot. See `refusesCard`.
     if (this.refusesCard(ship, lineId)) return;
     const copiesBefore = boonStackCount(ship.cards, lineId);
     ship.cards.push(lineId);
@@ -3024,7 +2990,7 @@ export class World {
    * ONE SHARED PREDICATE (`sim/boons.pickRefusal`, Story 8.14 review F1/F2) —
    * the same function the client greys the refit card with, the same one
    * `spendCard` runs one step earlier (it must refuse before the offer moves),
-   * and the same one the bot scorer skips on. Its four refusals:
+   * and the same one the bot scorer skips on. Its three refusals:
    *
    *   • A STUB LINE (or an id this world's catalog does not own): its mechanism
    *     does not exist, so fitting it buys nothing — and the id would then ride
@@ -3033,12 +2999,11 @@ export class World {
    *   • A LINE ALREADY AT ITS `cap`. The draw never offers a capped equipment,
    *     ladder or add-on — but it DOES offer a capped consumable on purpose
    *     (amendment 94), so without this a ship holding five HULL REPAIR could
-   *     spend a level on a sixth copy that no belt slot shows: the stack stays
-   *     at five and silently refills itself after the first use.
-   *   • A CONSUMABLE WITH NOWHERE TO GO (Story 8.7 review patch P4): the belt
-   *     is full of four other lines. `applySlotEffect`'s full-belt branch is a
-   *     SILENT no-op, so without this a directed grant (a dev spawn fit, the
-   *     bot port, a test) would leave a copy in `cards` that no slot holds.
+   *     spend a level on a sixth copy that no slot shows: the stack stays
+   *     at five and silently refills itself after the first use. (Story 8.7's
+   *     full-belt refusal is GONE since Story 9.2: every consumable kind owns
+   *     its own fixed slot — epic-9 amendment 21 — so a consumable always has
+   *     somewhere to go.)
    *   • COPY 1 OF AN EQUIPMENT LINE WITH THE WEAPON ROW FULL. The draw closes
    *     the `weapon` kind once Q/E/R are taken, but a dev `fitOverride` naming
    *     four equipment lines, and the level-zero guarantee firing after one,
@@ -3211,20 +3176,19 @@ export class World {
     const front = ship.offer;
     if (front === null || choice < 0 || choice >= front.length) return false;
     // THE PICK REFUSAL (Story 8.7 ruling 3, widened by the 8.14 review F1),
-    // BEFORE anything is consumed: a copy with nowhere to go — a full belt, a
-    // line already at its cap, a bare weapon with no weapon slot — is refused
-    // outright rather than fitted into nothing. `pickRefusal` is the SAME
-    // shared predicate the client greys the card with (`SLOTS FULL`), over the
+    // BEFORE anything is consumed: a line already at its cap or a bare weapon
+    // with no weapon slot is refused outright rather than fitted into
+    // nothing. `pickRefusal` is the SAME shared predicate the client greys the
+    // card with, over the
     // same replayed slot ids and the same held cards, so the two can never
     // disagree about whether a pick is legal — and because this returns here,
     // the level stays banked, nothing is fitted, no `bn` is queued and the next
     // frame's offer is the SAME array, byte for byte.
     //
-    // THE CAP HALF IS WHY THIS IS NOT JUST `canStock` any more: amendment 94
-    // has the draw deal a consumable AT its cap on purpose, and a line that
-    // already owns a belt slot always passes `canStock` — so a sixth HULL
-    // REPAIR used to cost a level, never reach the belt, and refill the stack
-    // from `cards` on the next use.
+    // THE CAP HALF matters because amendment 94 has the draw deal a
+    // consumable AT its cap on purpose — without it a sixth HULL REPAIR would
+    // cost a level, never reach its slot, and refill the stack from `cards`
+    // on the next use.
     const lineId = front[choice];
     if (pickRefusal(ship.cards, ship.loadout.map((s) => s.equipmentId), lineId, this.catalog) !== null) return false;
     ship.offer = null;
@@ -4030,7 +3994,7 @@ export class World {
    * REPAIR's "full hull" refusal would be unreachable after any regen and the
    * globe would read 349.9 forever. It snaps on the SHARED `hullIsFull`
    * (epic-8 amendment 53) — the same predicate the HULL REPAIR row refuses on
-   * and the client's belt pre-denial mirrors, so "full" has exactly one
+   * and the client's consumable-key pre-denial mirrors, so "full" has exactly one
    * definition and this snap can never drift away from that refusal.
    */
   private static tickRegen(ship: ShipRecord, dtMs: number): void {
@@ -5604,7 +5568,7 @@ export class World {
     // the mirror of fireControl's weapon-only wall.
     const id = fittedEquipment(ship.loadout, input.actSlot);
     // The mirror of consumeClick's wall, over the same shared predicate: a
-    // KEY-FIRES consumable in a belt slot (5–8) rides this channel exactly as
+    // KEY-FIRES consumable in a consumable slot (5–10) rides this channel exactly as
     // the boost does, and an `isWeapon` one is inert here.
     if (id === null || isWeaponItem(id)) return;
     const result = this.withInput(ship, input, () => this.sinkingActivationGate(ship, input.actSlot));
@@ -5754,30 +5718,31 @@ export class World {
     const at = ship.cards.lastIndexOf(lineId);
     if (at >= 0) ship.cards.splice(at, 1);
     this.refoldCards(ship);
-    this.rebuildBelt(ship);
+    this.rebuildConsumableSlots(ship);
   }
 
   /**
-   * THE BELT IS ALWAYS THE REPLAY (Story 8.7 review patch P1) — slots 5–8 are
-   * re-derived from `slotsWithCards(stats, cards)` after every spend, and the
-   * weapon row (0–4) is not touched.
+   * THE CONSUMABLE SLOTS ARE ALWAYS THE REPLAY (Story 8.7 review patch P1) —
+   * slots 5–10 are re-derived from `slotsWithCards(stats, cards)` after every
+   * spend, and the weapon row (0–4) is not touched.
    *
-   * WHY IT CANNOT BE AN IN-PLACE CLEAR: the client never sees `loadout`. It
-   * replays `OwnShip.cards` through the same shared fold, which packs the belt
-   * LEFT TO RIGHT in fit order. Emptying a spent stack where it sits leaves the
-   * server on `[null, B, C, D]` while the client re-packs to `[B, C, D, null]`
-   * — and from that tick on, key 2 names a different line on each side. Taking
-   * the whole belt from the replay makes the two agree by construction rather
-   * than by argument, for the clear AND for every stack count.
+   * WHY THE REPLAY AND NOT AN IN-PLACE CLEAR: the client never sees
+   * `loadout`; it replays `OwnShip.cards` through the same shared fold. Since
+   * Story 9.2 (epic-9 amendment 21) that fold binds each kind to its own FIXED
+   * slot (`consumableSlotFor`) and NEVER packs: a used-out stack leaves
+   * `equipmentId: null` in its own slot and every other stack stays where it
+   * is, so key N names the same kind on both sides all match long. Taking the
+   * slots from the replay keeps the two agreeing by construction rather than
+   * by argument, for the clear AND for every stack count.
    *
-   * LOSSLESS: a belt slot carries copies held and a `reloadMsLeft` that is 0
+   * LOSSLESS: a consumable slot carries copies held and a `reloadMsLeft` that is 0
    * for its whole life (a stack never reloads), and both are a pure function of
    * `cards` — there is no live state here to lose. A WEAPON slot's timers and
    * pool are NOT, which is exactly why slots 0–4 are left alone. Slots are
    * mutated in place rather than replaced so a caller still holding the
    * LoadoutSlot it activated sees the truth.
    */
-  private rebuildBelt(ship: ShipRecord): void {
+  private rebuildConsumableSlots(ship: ShipRecord): void {
     const replay = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship), ship.gun, World.shiftOf(ship));
     for (const i of CONSUMABLE_SLOTS) {
       const live = ship.loadout[i];
@@ -5819,17 +5784,9 @@ export class World {
         ship.damageCutUntil = until;
       },
       // Story 8.16 — SHIELD BLOCK's seat (its ONE writer; a second copy
-      // REPLACES) and CHAFF's source, the seed minted here off the server-
-      // private fake stream so no row ever sees an RNG. Both keyed on the
-      // ACTIVATING ship.
+      // REPLACES), keyed on the ACTIVATING ship.
       setShield: (shield) => {
         ship.shield = { hpLeft: shield.hpLeft, until: shield.until };
-      },
-      setChaff: (source) => {
-        // Amendment 127: a WORLD-owned cloud keyed by owner (a re-fire
-        // replaces — 124(c)), the owner's sweep period captured for the epoch.
-        const seed = this.fakeRng.int(0, 0xffffffff);
-        this.chaffSources.set(ship.id, { ...source, ownerId: ship.id, sweepPeriodMs: ship.stats.sweepPeriodMs, seed });
       },
       // Story 8.18 — SMOKE SCREEN's lay window (its ONE writer), keyed on the
       // ACTIVATING ship. A re-press RESTARTS the 5 s clock (ruling 140). The
@@ -5857,7 +5814,7 @@ export class World {
    * out a second free round on the next tick). The MACHINE GUN is the one
    * exception by construction: its running timer is a MAGAZINE SWAP, and a
    * swap completing means a full magazine (amendment 103), so it fills. A
-   * weapon that is not reloading is untouched; the belt (5–8) and the Shift
+   * weapon that is not reloading is untouched; the consumable slots (5–10) and the Shift
    * slot (1) are never visited.
    */
   private static finishReloads(ship: ShipRecord): void {
@@ -5865,7 +5822,7 @@ export class World {
       const slot = ship.loadout[i];
       const id = slot?.equipmentId;
       if (id === null || id === undefined || slot.state === null || slot.state.reloadMsLeft <= 0) continue;
-      if (isConsumableId(id)) continue; // never a belt line, whatever slot it sits in
+      if (isConsumableId(id)) continue; // never a consumable line, whatever slot it sits in
       const maxAmmo = equipmentMaxAmmo(ship.stats, id);
       slot.state.n = id === 'machineGun' ? maxAmmo : Math.min(slot.state.n + 1, maxAmmo);
       slot.state.reloadMsLeft = slot.state.n < maxAmmo ? equipmentReloadMs(ship.stats, id) : 0;
@@ -5902,7 +5859,7 @@ export class World {
    *
    * `instantHp` lands now, clamped to maxHp; `regenHp` REPLACES the pool.
    * A RE-PRESS REPLACES, IT NEVER STACKS (Eric ruling 2026-09-29, epic-8
-   * amendment 141 — the shield / chaff / smoke "replaces" posture applied to
+   * amendment 141 — the shield / smoke "replaces" posture applied to
    * the heal): whatever was still owed from an earlier copy is DISCARDED, and
    * a fresh 50 hp pays out over a fresh 5 s at the unchanged 0.01 hp/ms
    * (tickRepairs' fixed regenHp/regenMs rate — there is still no rate field to
@@ -6347,8 +6304,7 @@ export class World {
     // out-of-combat window before it regens (amendment 47).
     ship.lastDamagedAt = this.now;
     // ...nor a SHIELD BLOCK (Story 8.4 review, P5; sinkShip already nulled it,
-    // kept symmetric here for directed callers). A live CHAFF cloud stays on
-    // the water (amendment 127).
+    // kept symmetric here for directed callers).
     ship.shield = null;
     ship.slowedUntil = 0;
     ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)

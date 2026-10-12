@@ -7,6 +7,8 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  consumableSlotFor,
+  SLOT_COUNT,
   isAfloat,
   CONFIG,
   effectiveStats,
@@ -609,8 +611,8 @@ describe('ammo wire array is SLOT-ALIGNED (WeaponAmmo | null)[]', () => {
       { n: 1, reloadMsLeft: 1200 },
       { n: 0, reloadMsLeft: 6000 },
       { n: 0, reloadMsLeft: 8000 },
-      // The six empty slots ride the wire as null (slot alignment, length 9).
-      null, null, null, null, null, null,
+      // Every empty slot rides the wire as null (slot alignment, length SLOT_COUNT).
+      ...new Array<null>(SLOT_COUNT - 3).fill(null),
     ]);
     // A copy, not the live pool objects (mutating the wire must not affect state).
     expect(wire[0]).not.toBe(ship.loadout[0].state);
@@ -684,7 +686,8 @@ function carrier(w: World, id: string, line: string, n: number, aim: number, slo
 }
 
 const SLOT_WEAPON_1 = 2;
-const SLOT_BELT_1 = 5;
+/** SUPERCAV TORPEDO's own fixed slot (Story 9.2) — the subject below. */
+const SLOT_BELT_1 = consumableSlotFor('supercavTorpedo')!;
 
 describe('LIGHT TORPEDO — the twin beam sectors (catalog-v3 R18, Story 8.13)', () => {
   // THE ARC IS THE WHOLE POINT OF THIS LINE. The heavy fires into a ±30° bow
