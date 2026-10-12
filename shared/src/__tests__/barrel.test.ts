@@ -84,9 +84,18 @@ import {
   type SlotItemId,
   type DecoyView,
   type FrameMsg,
-  type SmokePuff,
-  type SmokeView,
-  puffRadius,
+  type CloudRecord,
+  type CloudView,
+  type CloudBase,
+  cloudSeed,
+  cloudBase,
+  cloudScale,
+  cloudOutlineRadius,
+  pixelAlive,
+  livingPixelCount,
+  forEachLivingPixel,
+  pointInCloud,
+  cloudBlocks,
   type OwnShip,
   type ReturnBlipEvent,
   type GhostPaint,
@@ -416,7 +425,11 @@ describe('shared barrel', () => {
     // SLOT_COUNT 9 -> 11, one slot per keyed kind, no packing; CHAFF retired
     // (catalog content, OwnShip.chaff / chaffGhosts gone). The exception count
     // stays SIX.
-    expect(PROTOCOL_VERSION).toBe(75);
+    // 75 -> 76 (Story 9.3, Eric 2026-10-11): smokeScreen -> countermeasure
+    // (catalog content + CONFIG.countermeasure), OwnShip.inSmoke deleted,
+    // FrameMsg.smoke -> clouds (CloudView {id,x,y,t0}). The exception count
+    // stays SIX.
+    expect(PROTOCOL_VERSION).toBe(76);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -935,16 +948,24 @@ describe('shared barrel', () => {
     expect(shield.hp).toBe(CONFIG.shieldBlock.hp);
   });
 
-  it('re-exports the 8.18 SMOKE SCREEN shapes: puffRadius, SmokePuff (server store), SmokeView + FrameMsg.smoke (wire)', () => {
+  it('re-exports the 9.3 COUNTERMEASURE shapes: the cloud.ts pixel function, CloudRecord (server store), CloudView + FrameMsg.clouds (wire)', () => {
     // TYPE-LEVEL PINS as much as runtime ones: the wire view is exactly
-    // id,x,y,t0 — a radius, owner or expiry would be an excess property.
-    expect(typeof puffRadius).toBe('function');
-    const puff: SmokePuff = { id: 'sk1', ownerId: 'ship1', x: 1, y: 2, bornAt: 1000, until: 31000 };
-    const view: SmokeView = { id: puff.id, x: puff.x, y: puff.y, t0: puff.bornAt };
+    // id,x,y,t0 — a radius, owner, count or expiry would be an excess property.
+    for (const fn of [cloudSeed, cloudBase, cloudScale, cloudOutlineRadius, pixelAlive, livingPixelCount, forEachLivingPixel, pointInCloud, cloudBlocks]) {
+      expect(typeof fn).toBe('function');
+    }
+    const rec: CloudRecord = { id: 'cl1', ownerId: 'ship1', x: 1, y: 2, bornAt: 1000, until: 16000 };
+    const view: CloudView = { id: rec.id, x: rec.x, y: rec.y, t0: rec.bornAt };
     expect(Object.keys(view)).toEqual(['id', 'x', 'y', 't0']);
-    const frame: Pick<FrameMsg, 'smoke'> = { smoke: [view] };
-    expect(frame.smoke).toHaveLength(1);
-    expect(puffRadius(view.t0, view.t0)).toBe(CONFIG.smokeScreen.r0);
+    const frame: Pick<FrameMsg, 'clouds'> = { clouds: [view] };
+    expect(frame.clouds).toHaveLength(1);
+    const base: CloudBase = cloudBase(view.id);
+    expect(livingPixelCount(base, 0)).toBe(CONFIG.countermeasure.pixels);
+    expect(cloudOutlineRadius(0)).toBe(CONFIG.countermeasure.r0);
+    // The retired 8.18 smoke symbols are gone from the barrel.
+    for (const gone of ['puffRadius']) {
+      expect((shared as Record<string, unknown>)[gone], gone).toBeUndefined();
+    }
   });
 
   it('the radar buoy wire is GONE (Story 8.16): no BuoyView export, no FrameMsg.buoys, no blip `src`', () => {

@@ -6,6 +6,8 @@
 // 0 add-ons, 7 consumables (35).
 // ONE stub line remains since Story 8.18 (DEPTH CHARGE — SMOKE SCREEN went
 // live); every other line is live, so 6 of the 7 consumables are live.
+// Story 9.3 (Eric 2026-10-11): SMOKE SCREEN's slot is now `countermeasure`
+// (MULTI-SPECTRAL COUNTERMEASURE, one pixel cloud per press); counts unchanged.
 //
 // THE COUNT MOVED 24/114 -> 23/109 IN STORY 9.2 (Eric 2026-10-11, epic-9
 // amendment 31): CHAFF is RETIRED so the key row is six keys. Every surviving
@@ -153,7 +155,7 @@ export const LINE_IDS = [
   // kind changed — see the note on the eleven-equipment block.)
   'hullRepair',
   'shieldBlock',
-  'smokeScreen',
+  'countermeasure', // Story 9.3 (Eric 2026-10-11): replaces smokeScreen in its slot
   'decoyBuoy',
   // DEPTH CHARGE takes ACOUSTIC HOMING's place in the 29 (Eric ruling
   // 2026-09-19, epic-8 amendments 80/83): a new STUB consumable, and the Mine
@@ -564,14 +566,15 @@ export const CATALOG: Catalog = deepFreezeRows({
   // (above) is the second. Story 8.16 flipped SHIELD BLOCK and DECOY BUOY
   // live (catalog-v3 R37/R36, epic-8 amendments 116–124), and Story 8.18
   // flipped SMOKE SCREEN (R38, amendments 138–145), leaving ONE stub — DEPTH
-  // CHARGE — until its effect lands (6 live consumables). FLASH SHELLS (Story
+  // CHARGE — until its effect lands (6 live consumables). Story 9.3 (Eric
+  // 2026-10-11) replaced SMOKE SCREEN with the COUNTERMEASURE line. FLASH SHELLS (Story
   // 8.17) is a live consumable that sits at the foot of the list with the
   // former add-ons. CHAFF (R39) is RETIRED since Story 9.2 (epic-9 amendment
   // 31). Since 9.2 every live consumable owns a fixed key (sim/loadout.ts
   // CONSUMABLE_KEY_ORDER) — the belt and its `1`–`4` keys are gone.
   hullRepair: consumable('hullRepair'), // R13 — 50 instant + 50 pooled (CONFIG.hullRepair)
   shieldBlock: consumable('shieldBlock'), // R37 — absorbs 100 hp for 10 s (CONFIG.shieldBlock)
-  smokeScreen: consumable('smokeScreen'), // R38 — a 5 s trail of r82.5→165 puffs (1/8 → 2/8 intel range, Eric 2026-09-30), 30 s life (CONFIG.smokeScreen)
+  countermeasure: consumable('countermeasure'), // Story 9.3 (Eric 2026-10-11) — one pixel cloud per press, 15 s life (CONFIG.countermeasure)
   decoyBuoy: consumable('decoyBuoy'), // R36 — a 50 hp rear-dropped decoy (CONFIG.decoyBuoy)
   // DEPTH CHARGE (amendment 83): Eric's line, mechanism a later story — a STUB
   // in full shape so the id is final, and the Mine Layer's 40th default card.

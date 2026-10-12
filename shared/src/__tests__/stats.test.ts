@@ -1057,7 +1057,7 @@ describe('effectiveStats — every NON-STUB line folds (no dead cards)', () => {
     // row: five copies of it move nothing at all.
     // FLASH SHELLS (`dazzleShells`) joined in Story 8.17 (amendment 132): it
     // moved from the add-on space and, like supercav, carries no stat row.
-    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'decoyBuoy',
+    for (const id of ['hullRepair', 'shieldBlock', 'countermeasure', 'decoyBuoy',
       'depthCharge', 'supercavTorpedo', 'dazzleShells'] as const) {
       expect(effectiveStats(BASE, stack(id, 5)), id).toEqual(effectiveStats(BASE));
     }

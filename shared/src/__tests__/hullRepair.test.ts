@@ -97,16 +97,17 @@ describe('CONFIG.regen — the out-of-combat regen (Eric ruling 2026-09-17, amen
 });
 
 describe('HULL REPAIR is a LIVE consumable; one of the seven is still a stub', () => {
-  it('hullRepair is dealt, and so are the SUPERCAV TORPEDO, SHIELD BLOCK, SMOKE SCREEN, DECOY BUOY and FLASH SHELLS — DEPTH CHARGE is not', () => {
+  it('hullRepair is dealt, and so are the SUPERCAV TORPEDO, SHIELD BLOCK, COUNTERMEASURE, DECOY BUOY and FLASH SHELLS — DEPTH CHARGE is not', () => {
     // Story 8.13 made SUPERCAV TORPEDO the second live consumable line (Eric
     // ruling 2026-09-19, epic-8 amendment 74) and added one more stub,
     // DEPTH CHARGE (amendment 83). Story 8.16 flipped SHIELD BLOCK and DECOY
     // BUOY live (amendments 116–124); Story 8.17 moved FLASH SHELLS
     // (`dazzleShells`) in from the add-on space, live (amendment 132); Story
     // 8.18 flipped SMOKE SCREEN live (amendments 138-145). DEPTH CHARGE stays.
-    // CHAFF retired in Story 9.2 (epic-9 amendment 31).
+    // CHAFF retired in Story 9.2 (epic-9 amendment 31); SMOKE SCREEN became
+    // the COUNTERMEASURE line in Story 9.3.
     const LIVE: readonly string[] = [
-      'hullRepair', 'supercavTorpedo', 'shieldBlock', 'smokeScreen', 'decoyBuoy', 'dazzleShells',
+      'hullRepair', 'supercavTorpedo', 'shieldBlock', 'countermeasure', 'decoyBuoy', 'dazzleShells',
     ];
     for (const id of CONSUMABLE_IDS) {
       expect(isStubLine(id), id).toBe(!LIVE.includes(id));

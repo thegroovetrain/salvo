@@ -1825,50 +1825,36 @@ export const CONFIG = {
   },
 
   /**
-   * SMOKE SCREEN (catalog-v3 R38; Story 8.18, Eric rulings 2026-09-29, epic-8
-   * amendments 138–145) — a key-fired consumable. Firing one copy opens a
-   * `layMs` lay window: every `puffIntervalMs` the hull drops a stationary
-   * puff at its CENTER (its own position, amendment 190), so one copy lays 10 puffs. A re-press while laying
-   * RESTARTS the lay clock (a fresh `layMs` from the press; the copy is spent —
-   * the shield's "replaces" posture). Each puff lives `lifeMs` and grows
-   * linearly from `r0` to `r1` over `expandMs` (the whole life) — the one pure
-   * curve is `puffRadius` in sim/smoke.ts, run by both sides, so no radius
-   * rides the wire. A puff blocks every SIGHT-tier sensor like an island
-   * (flare zone included) and never radar — for an observer NOT standing in
-   * smoke. STANDING IN SMOKE (Eric ruling 2026-09-29, epic-8 amendment 149,
-   * final — verbatim: "if I'm in smoke, I should be able to see at 1/8 intel
-   * range, including into other smoke. If I'm not in smoke, I can't see into
-   * it. If I'm in it, go ahead and occlude everything outside of that range,
-   * no matter what. Radar still works."): while a hull's centre is inside ANY
-   * live puff, whoever laid it, its effective sight is `radarRange ×
-   * inSmokeSightFraction` (sim/sight.ts `effectiveSight`; 82.5 u at the base
-   * 660 u radar), smoke no longer occludes it inside that bubble (islands
-   * still do), nothing optical — its own flare included — reaches it from
-   * beyond, and its radar is untouched. Ownership plays no part in smoke.
-   * Radar also paints a hull inside a clear observer's sight bubble that
-   * smoke alone hides (amendment 147). No `EffectiveStats` row: a
-   * consumable's numbers are read straight from CONFIG (the consumable law).
+   * MULTI-SPECTRAL COUNTERMEASURE (Story 9.3, Eric rulings 2026-10-11, epic-9
+   * amendments 40–47) — a key-fired consumable that replaces SMOKE SCREEN
+   * (and absorbs CHAFF's role). In plain words:
+   * - ONE press makes ONE stationary cloud centered on the hull; every press
+   *   makes a new cloud (nothing restarts, nothing refuses while one lives).
+   * - The cloud is `pixels` pixels, a pure seeded function of the cloud id and
+   *   its age (sim/cloud.ts — both sides run it; only {id,x,y,t0} rides the
+   *   wire). Each pixel is born inside `r0` and dies at its own time, uniform
+   *   in [`dieMinMs`, `dieMaxMs`) — the thinning IS the fade.
+   * - Pixels scale OUTWARD keeping their bearing: the outline grows from `r0`
+   *   at birth to `r1` at `lifeMs`.
+   * - A living pixel (radius `footprintU`) blocks SIGHT for everyone,
+   *   the owner included — the old in-smoke 1/8 sight rule is gone.
+   * - It blocks an ENEMY's RADAR only on a target standing INSIDE the
+   *   outline (no shadow beyond the cloud); the owner's radar ignores pixels.
+   * - The cloud is delivered to whoever's radar range reaches its centre.
+   * Every number here is a dial. No `EffectiveStats` row: a consumable's
+   * numbers are read straight from CONFIG (the consumable law).
    *
    * NOT `CONFIG.smoke` above: that block is WOUNDED smoke (the damage-band
-   * plume, 250 ms emission cadence, no occlusion) — a different thing, and
-   * untouched by this one. Never conflate the two.
+   * plume, 250 ms emission cadence, no occlusion) — never conflate the two.
    */
-  smokeScreen: {
-    // Eric 2026-10-01: ×1.5 ("to 150 %") — a puff starts at 1.5/8 of intel
-    // range and grows to 3/8 (supersedes amendment 174's 1/8 → 2/8, which had
-    // superseded R38's r40 → r60, amendment 139). Intel range is vision.radar
-    // (SIGHT × 2 = 660 u, a global constant no card raises), so these are
-    // authored as fractions of that same constant. The old coincidence that
-    // r0 equalled the in-smoke sight (radar × 1/8) ENDS here — the two were
-    // always separate dials, and `inSmokeSightFraction` is untouched. The
-    // radius rides no wire: both sides derive it from sim/smoke.ts puffRadius.
-    r0: SIGHT * 2 * (1.5 / 8), // u — puff radius at the instant it is laid (123.75)
-    r1: SIGHT * 2 * (3 / 8), // u — puff radius at full growth (247.5)
-    lifeMs: 30000, // ms a puff lives on the water (R38)
-    layMs: 5000, // ms of laying per copy fired; a re-press restarts it (R38; amendment 140)
-    puffIntervalMs: 500, // ms between puffs while laying — 10 per lay (amendment 138)
-    expandMs: 30000, // ms for a puff to grow r0 → r1 — the whole life (amendment 139)
-    inSmokeSightFraction: 0.125, // × radarRange — effective sight while the hull's centre is inside ANY live puff, whoever laid it (Eric: "see at 1/8 intel range" — a harness dial, separate from flashShells.sightFraction by ruling; amendment 149)
+  countermeasure: {
+    lifeMs: 15000, // ms a cloud lives on the water
+    pixels: 300, // pixels per cloud
+    r0: 200, // u — every pixel is born within this radius of the centre
+    r1: 500, // u — the outline radius at the end of life
+    dieMinMs: 6000, // ms — earliest age a pixel dies
+    dieMaxMs: 15000, // ms — latest age a pixel dies (exclusive)
+    footprintU: 6, // u — radius of the disc a living pixel blocks
   },
 
   /**
