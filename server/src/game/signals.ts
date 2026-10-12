@@ -108,6 +108,7 @@ import {
   paintSegmentCoverage,
   cloudBlocks,
   cloudOutlineRadius,
+  forEachLivingPixel,
   pointInCloud,
   type CloudView,
   type WakeBlipEvent,
@@ -858,18 +859,31 @@ const decoySignal: SignalSpec<DecoyState, DecoyView> = {
  * `cloud` — the MULTI-SPECTRAL COUNTERMEASURE cloud (Story 9.3; Eric rulings
  * 2026-10-11, epic-9 amendments 40–47 — 8.18's `smoke` seat): contact-like
  * state (NOT events), recomputed every tick like decoys, in Map-insertion
- * (press) order. THE DELIVERY GATE (amendment 42 — the burning-zone rule
- * with an island term): SPECTATORS always; the OWNER always (own field
- * awareness — you made it); otherwise iff the cloud's CENTRE is within the
- * observer's `stats.radarRange` (dist² ≤ radar², inclusive) AND the segment
- * observer → NEAREST POINT OF THE OUTLINE is ISLAND-clear (the 8.18
- * amendment-148 rim rule kept: the point `centre − r · unit(centre − me)` at
- * the outline radius `cloudOutlineRadius(now − bornAt)`; an observer INSIDE
- * the outline has the nearest point at its own position, trivially clear).
- * `losClear` — deliberately NOT `sightClear` and NOT the pixels: a cloud
- * never hides another cloud, and a hull IN a cloud must be shown the cloud it
- * stands in. NO lit-zone term (a flare lights hulls, not weather); radar
- * RANGE is the reach but no sweep term (the cloud is where it is, every tick).
+ * (press) order. THE DELIVERY GATE IS SENSOR-BASED, PER PIXEL (Eric rulings
+ * 2026-10-12, epic-9 amendment 51 — "If I can see smoke particles in my
+ * sight range, I want them composited. It doesn't matter where the centre of
+ * the ring or the edge is." and "If it's detected by my radar, I want my
+ * radar to paint it. It's pretty simple."; the 2026-10-11 centre-in-radar-
+ * range + nearest-rim rule of amendment 42 is RETIRED): SPECTATORS always;
+ * the OWNER always (own field awareness — you made it); otherwise iff SOME
+ * LIVING PIXEL of the shared pixel function is
+ *   (a) SIGHTED — within the observer's effective sight (`sightOf`, dist² ≤
+ *       sight², inclusive) on an ISLAND-clear segment (`losClear`), or
+ *   (b) RADAR-DETECTED — the blip gate's own three terms applied to the pixel
+ *       as a tiny object: within `stats.radarRange` (inclusive — the
+ *       withinRadarRange read), swept this tick (`sweptThisTick` on its
+ *       bearing), and shadow-visible (`visibilityTo` over the height raster
+ *       > 0), evaluated in that order so the march runs only on swept,
+ *       in-range pixels.
+ * Island-only / march-only — deliberately NOT `sightClear`, NOT `radarClear`
+ * and never the pixels as occluders: a cloud never hides another cloud, and
+ * a hull IN a cloud must be shown the cloud it stands in. A bounding
+ * pre-test (`d − outline > max(sight, radar)` → no pixel can be sensed)
+ * keeps the scans off every far cloud. NO lit-zone term (a flare lights
+ * hulls, not weather). Radar delivery is per-sweep, so the channel is
+ * intermittent by design — the client HOLDS a cloud once received until its
+ * life ends (a cloud is stationary and fully derived from {id,x,y,t0}, so
+ * holding discloses nothing new).
  *
  * THIS IS A CHANNEL WITH ITS OWN ORACLE, NOT A SEVENTH PERCEPTION EXCEPTION
  * (the litzone / burnzone / decoy / smoke precedent): its gate is a per-row
@@ -881,27 +895,82 @@ const decoySignal: SignalSpec<DecoyState, DecoyView> = {
  * who made it — the mz/sm anonymity posture; the owner's radar privilege is
  * a server-side predicate, never a wire flag), no `until`.
  */
-/** The point of a disc (centre `c`, radius `r`) nearest the observer `o`,
- *  given `d = |c − o|`: `c − r · unit(c − o)`. When the observer is INSIDE
- *  the disc (d ≤ r) the nearest point is the observer itself — a zero-length
- *  segment, trivially island-clear (amendment 148's carve-in). */
-function nearestRimPoint(o: Vec2, c: Vec2, r: number, d: number): Vec2 {
-  if (d <= r) return o;
-  const k = r / d;
-  return { x: c.x - (c.x - o.x) * k, y: c.y - (c.y - o.y) * k };
+
+/** Module scratch for the two pixel scans — `forEachLivingPixel` takes a
+ *  callback, so the scans run through hoisted callbacks over this state:
+ *  zero allocation per cloud, per pixel or per observer. */
+const pixelScan = {
+  me: null as unknown as ShipRecord,
+  islands: [] as readonly Island[],
+  raster: null as unknown as HeightRaster,
+  range2: 0,
+  found: false,
+  pt: { x: 0, y: 0 },
+};
+
+function pixelInRange(px: number, py: number): boolean {
+  const dx = px - pixelScan.me.state.x;
+  const dy = py - pixelScan.me.state.y;
+  return dx * dx + dy * dy <= pixelScan.range2;
+}
+
+function sightPixelVisit(px: number, py: number): void {
+  if (pixelScan.found || !pixelInRange(px, py)) return;
+  pixelScan.pt.x = px;
+  pixelScan.pt.y = py;
+  if (losClear(pixelScan.me.state, pixelScan.pt, pixelScan.islands)) pixelScan.found = true;
+}
+
+function radarPixelVisit(px: number, py: number): void {
+  if (pixelScan.found || !pixelInRange(px, py)) return;
+  const me = pixelScan.me;
+  pixelScan.pt.x = px;
+  pixelScan.pt.y = py;
+  if (!sweptThisTick(me, bearing(me.state, pixelScan.pt))) return;
+  if (visibilityTo(pixelScan.raster, me.state.x, me.state.y, px, py) > 0) pixelScan.found = true;
+}
+
+/** Clause (a): some living pixel within `me`'s effective sight on an
+ *  island-clear segment. */
+function anyPixelSighted(me: ShipRecord, cloud: StoredCloud, age: number, islands: readonly Island[], sight: number): boolean {
+  pixelScan.me = me;
+  pixelScan.islands = islands;
+  pixelScan.range2 = sight * sight;
+  pixelScan.found = false;
+  forEachLivingPixel(cloud.base, cloud.x, cloud.y, age, sightPixelVisit);
+  return pixelScan.found;
+}
+
+/** Clause (b): some living pixel within radar range, swept this tick and
+ *  shadow-visible (the blip gate's three terms, in that order). */
+function anyPixelRadarDetected(me: ShipRecord, cloud: StoredCloud, age: number, raster: HeightRaster): boolean {
+  pixelScan.me = me;
+  pixelScan.raster = raster;
+  pixelScan.range2 = me.stats.radarRange * me.stats.radarRange;
+  pixelScan.found = false;
+  forEachLivingPixel(cloud.base, cloud.x, cloud.y, age, radarPixelVisit);
+  return pixelScan.found;
+}
+
+/** The fogged half of the cloud gate: the bounding pre-test, then the two
+ *  sensor clauses. */
+function cloudSensed(ctx: FoggedSignalContext, cloud: StoredCloud): boolean {
+  const me = ctx.me;
+  const age = ctx.now - cloud.bornAt;
+  const sight = sightOf(me, ctx.now);
+  const dx = cloud.x - me.state.x;
+  const dy = cloud.y - me.state.y;
+  const reach = Math.max(sight, me.stats.radarRange) + cloudOutlineRadius(age);
+  if (dx * dx + dy * dy > reach * reach) return false;
+  return anyPixelSighted(me, cloud, age, ctx.islands, sight) || anyPixelRadarDetected(me, cloud, age, ctx.heightRaster);
 }
 
 const cloudSignal: SignalSpec<StoredCloud, CloudView> = {
   eventType: 'cloud',
   visible(ctx, cloud) {
     if (ctx.mode === 'spectator') return true;
-    const me = ctx.me;
-    if (cloud.ownerId === me.id) return true;
-    if (!withinRadarRange(me, cloud)) return false;
-    const dx = cloud.x - me.state.x;
-    const dy = cloud.y - me.state.y;
-    const r = cloudOutlineRadius(ctx.now - cloud.bornAt);
-    return losClear(me.state, nearestRimPoint(me.state, cloud, r, Math.sqrt(dx * dx + dy * dy)), ctx.islands);
+    if (cloud.ownerId === ctx.me.id) return true;
+    return cloudSensed(ctx, cloud);
   },
   materialize(_ctx, cloud) {
     // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,t0 — the shared CloudView
@@ -2165,8 +2234,8 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   // a row: it merges into the `blip` subsequence via decoyRadarBlips above.
   decoy: decoySignal,
   // Story 9.3 (8.18's `smoke` seat): the MULTI-SPECTRAL COUNTERMEASURE
-  // cloud's contact-like frame channel (owner always / spectators / centre
-  // within radar range with island-only LOS to the nearest rim point). A
+  // cloud's contact-like frame channel (owner always / spectators / some
+  // living pixel SIGHTED or RADAR-DETECTED — amendment 51, 2026-10-12). A
   // cloud's pixels are an OCCLUDER for every other sight-tier row through
   // sightClear and for a non-owner's radar through radarClear; this row is
   // only how the cloud itself ({id,x,y,t0}) reaches the client.

@@ -1,9 +1,16 @@
 // MULTI-SPECTRAL COUNTERMEASURE cloud rendering from FrameMsg.clouds (Story
 // 9.3, Eric rulings 2026-10-11, epic-9 amendments 40–47). Contact-like
-// per-observer state, not events — reconciled per frame by id exactly like the
-// burning zones (render/burnZones.ts), and drawn in the fog-immune `smoke`
-// chart layer, which sits BELOW `blip` so a radar return is never beneath the
-// cloud (amendment 224(b)).
+// per-observer state, not events, drawn in the fog-immune `smoke` chart
+// layer, which sits BELOW `blip` so a radar return is never beneath the cloud
+// (amendment 224(b)).
+//
+// HELD, NOT RECONCILED (epic-9 amendment 51): a cloud once seen is held until
+// it dies — delivery is per-sweep (Eric 2026-10-12: "If it's detected by my
+// radar, I want my radar to paint it"); nothing new is disclosed by holding
+// what was already sent. `sync` only ADDS (a frame without a held id never
+// removes it); a cloud is removed by `render` once its server-clock age
+// reaches `CONFIG.countermeasure.lifeMs`, or by `clear`, and the shared base
+// memo is pruned at that removal, never per frame.
 //
 // THE PIXELS ARE THE SHARED FUNCTION. The wire carries only {id,x,y,t0}; every
 // pixel's position and death age come from shared sim/cloud.ts
@@ -69,34 +76,42 @@ export class Countermeasure {
   constructor(private readonly layer: Container) {}
 
   /**
-   * Reconcile clouds against this observer's list for the tick. The caller
-   * passes `f.clouds ?? []` (frames omit the key when the observer sees none).
-   * Clouds never move, so a held id is left alone; a gone id is destroyed and
-   * its memoized base dropped.
+   * ADD every cloud on the list not already held (the caller passes the held
+   * list — net/roomBindings.ts holdClouds). Clouds never move, so a held id is
+   * left alone, and an id ABSENT from the list is NOT removed: the channel is
+   * per-sweep, and a cloud once seen is held until it dies (render / clear).
    */
   sync(clouds: readonly CloudView[]): void {
-    const live = new Set<string>();
-    for (const c of clouds) {
-      live.add(c.id);
-      if (!this.sprites.has(c.id)) this.spawn(c);
-    }
-    for (const id of [...this.sprites.keys()]) if (!live.has(id)) this.despawn(id);
-    retainCloudBases(live);
+    for (const c of clouds) if (!this.sprites.has(c.id)) this.spawn(c);
   }
 
-  /** Per render frame: redraw every living pixel of every cloud at its age.
-   *  `serverNow` is the server-clock estimate (ms). */
+  /** Per render frame: redraw every living pixel of every cloud at its age,
+   *  and REMOVE every cloud whose age has reached its life (then prune the
+   *  shared base memo to the clouds still held). `serverNow` is the
+   *  server-clock estimate (ms). */
   render(serverNow: number): void {
-    for (const s of this.sprites.values()) {
+    let expired = false;
+    for (const [id, s] of this.sprites) {
+      const age = Math.max(0, serverNow - s.t0);
+      if (age >= CONFIG.countermeasure.lifeMs) {
+        this.despawn(id);
+        expired = true;
+        continue;
+      }
       s.g.clear();
       s.drawn = 0;
-      const age = Math.max(0, serverNow - s.t0);
-      if (age >= CONFIG.countermeasure.lifeMs) continue;
       this.cur = s;
       this.curAge = age;
       forEachLivingPixel(s.base, 0, 0, age, this.drawPixel);
     }
     this.cur = null;
+    if (expired) this.pruneBases();
+  }
+
+  /** Drop every held cloud and its memoized base (a match-boundary reset). */
+  clear(): void {
+    for (const id of [...this.sprites.keys()]) this.despawn(id);
+    this.pruneBases();
   }
 
   /** The memoized pixel constants of a held cloud (test seam). */
@@ -124,6 +139,10 @@ export class Countermeasure {
     g.position.set(c.x, c.y);
     this.layer.addChild(g);
     this.sprites.set(c.id, { g, base: cloudBaseFor(c.id), t0: c.t0, drawn: 0 });
+  }
+
+  private pruneBases(): void {
+    retainCloudBases(new Set(this.sprites.keys()));
   }
 
   private despawn(id: string): void {

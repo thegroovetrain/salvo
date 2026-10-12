@@ -51,8 +51,8 @@ function squares(g: Graphics): { rect: number[]; alpha: number }[] {
   return out;
 }
 
-describe('Countermeasure.sync — the id-keyed cloud reconcile', () => {
-  it('adds one Graphics per cloud, keeps held ids, destroys ids that left, and drops their memoized base', () => {
+describe('Countermeasure.sync — HELD until it dies (amendment 51: delivery is per-sweep)', () => {
+  it('adds one Graphics per cloud and keeps held ids; a cloud ABSENT from the next list is still held and still drawn', () => {
     const layer = new Container();
     const cm = new Countermeasure(layer);
     cm.sync([cloud('cl1'), cloud('cl2', 0, 100, 0)]);
@@ -65,15 +65,40 @@ describe('Countermeasure.sync — the id-keyed cloud reconcile', () => {
     expect(cm.size).toBe(3);
     expect(layer.children[0]).toBe(first); // a held cloud is never respawned
     expect(cm.baseOf('cl1')).toBe(base1); // ...nor its base recomputed
-    cm.sync([cloud('cl3', 500, 200, 0)]);
+    cm.sync([]); // frame N+1 carries none of them (the beam moved on)
+    expect(cm.size).toBe(3);
+    expect(first.destroyed).toBe(false);
+    cm.render(1000);
+    expect(cm.squaresOf('cl1')).toBe(K.pixels); // still drawn
+    expect(hasCloudBase('cl1')).toBe(true);
+  });
+
+  it('a held cloud is removed — Graphics destroyed, base memo dropped — once its age reaches lifeMs, and not before', () => {
+    const layer = new Container();
+    const cm = new Countermeasure(layer);
+    cm.sync([cloud('old', 0), cloud('young', 5000)]);
+    const g = cm.graphicsOf('old')!;
+    cm.render(K.lifeMs - 1);
+    expect(cm.size).toBe(2);
+    expect(hasCloudBase('old')).toBe(true);
+    cm.render(K.lifeMs);
     expect(cm.size).toBe(1);
-    expect(first.destroyed).toBe(true);
-    expect(hasCloudBase('cl1')).toBe(false);
-    expect(hasCloudBase('cl2')).toBe(false);
-    cm.sync([]); // the frame omitted the key
+    expect(cm.graphicsOf('old')).toBeNull();
+    expect(g.destroyed).toBe(true);
+    expect(hasCloudBase('old')).toBe(false);
+    expect(hasCloudBase('young')).toBe(true); // the survivor keeps its memo
+    expect(layer.children).toHaveLength(1);
+  });
+
+  it('clear() drops every held cloud and its base (the match-boundary reset)', () => {
+    const layer = new Container();
+    const cm = new Countermeasure(layer);
+    cm.sync([cloud('c1'), cloud('c2')]);
+    cm.clear();
     expect(cm.size).toBe(0);
     expect(layer.children).toHaveLength(0);
-    expect(hasCloudBase('cl3')).toBe(false);
+    expect(hasCloudBase('c1')).toBe(false);
+    expect(hasCloudBase('c2')).toBe(false);
   });
 
   it('memoizes the shared cloudBase(id) — the very constants the server derives', () => {
@@ -87,7 +112,7 @@ describe('Countermeasure.sync — the id-keyed cloud reconcile', () => {
 });
 
 describe('Countermeasure.render — one square per living pixel of the shared function', () => {
-  it('draws exactly livingPixelCount squares at age 0 and none at or past lifeMs', () => {
+  it('draws exactly livingPixelCount squares at age 0, and the cloud is gone at lifeMs', () => {
     const cm = new Countermeasure(new Container());
     cm.sync([cloud('cl1', 1000)]);
     const base = cm.baseOf('cl1')!;
@@ -96,8 +121,8 @@ describe('Countermeasure.render — one square per living pixel of the shared fu
     expect(cm.squaresOf('cl1')).toBe(K.pixels);
     expect(squares(cm.graphicsOf('cl1')!)).toHaveLength(K.pixels);
     cm.render(1000 + K.lifeMs);
-    expect(cm.squaresOf('cl1')).toBe(0);
-    expect(squares(cm.graphicsOf('cl1')!)).toHaveLength(0);
+    expect(cm.squaresOf('cl1')).toBeNull();
+    expect(cm.size).toBe(0);
   });
 
   it('a clock estimate before t0 renders the newborn cloud (age clamps to 0)', () => {

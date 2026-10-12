@@ -1417,8 +1417,13 @@ export interface DecoyView {
  * Eric rulings 2026-10-11, epic-9 amendments 40–47; replaces 8.18's
  * SmokeView), synced as CONTACT-LIKE state (not an event): FrameMsg.clouds is
  * recomputed per observer every tick. Delivered to the owner always, to
- * spectators, and to any other observer whose radar range reaches the cloud's
- * centre (with an island-clear line to the outline's nearest rim point).
+ * spectators, and to any other observer whose SENSORS reach a living pixel
+ * (epic-9 amendment 51, Eric 2026-10-12: "If I can see smoke particles in my
+ * sight range, I want them composited … If it's detected by my radar, I want
+ * my radar to paint it") — a pixel inside sight with island line of sight, or
+ * a pixel inside radar range that this tick's beam crossed and the shadow
+ * march sees. Radar delivery is therefore per-sweep, and the client HOLDS a
+ * cloud it has received until that cloud's life ends.
  *
  * NO OWNER, NO RADIUS, NO PIXEL COUNT, NO EXPIRY on the wire: `t0` is the
  * server time the cloud was made, and the client derives every pixel from

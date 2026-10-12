@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG } from '@salvo/shared';
-import { applyOverrides, validateTuneValue, TunableError } from '../overrides.js';
+import { applyOverrides, validateTuneKey, validateTuneValue, TunableError } from '../overrides.js';
 
 const TURN = 'shipClasses.battleship.kinematics.turnRate';
 
@@ -51,6 +51,16 @@ describe('--tune floors — turnRate', () => {
     // future `cooldownMs` both inherit the floor.
     expect(() => validateTuneValue('machineGun.swapReloadMs', 0.5)).toThrow(TunableError);
     expect(() => validateTuneValue('boost.cooldownMs', 0.5)).toThrow(TunableError);
+  });
+
+  it('floors the COUNTERMEASURE divisors at 1 (Story 9.3 review gate): r0 = 0 makes cloudScale non-finite, lifeMs = 0 and pixels = 0 measure no cloud', () => {
+    for (const leaf of ['r0', 'lifeMs', 'pixels']) {
+      const key = `countermeasure.${leaf}`;
+      expect(() => validateTuneKey(key)).not.toThrow(); // a real --tune key
+      expect(() => validateTuneValue(key, 0)).toThrow(TunableError);
+      expect(() => validateTuneValue(key, 0.5)).toThrow(TunableError);
+      expect(() => validateTuneValue(key, 1)).not.toThrow();
+    }
   });
 
   it('still lets a genuinely zero-able dial be zero', () => {

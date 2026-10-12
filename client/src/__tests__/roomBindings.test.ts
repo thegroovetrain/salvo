@@ -214,10 +214,12 @@ describe('bindRoom decoy channel (Story 8.16)', () => {
 });
 
 describe('bindRoom COUNTERMEASURE cloud channel (Story 9.3)', () => {
-  // FrameMsg.clouds (CloudView {id,x,y,t0}) is contact-like state, reconciled
-  // every frame like burnZones/decoys, and mirrored into state.net.clouds for
-  // the wake mirror (render/wake.ts). No hue: a cloud says nothing about whose
-  // it is.
+  // FrameMsg.clouds (CloudView {id,x,y,t0}) is contact-like state, but NOT
+  // reconciled by absence (epic-9 amendment 51): delivery is per-sweep, so a
+  // cloud once seen is HELD until it dies (frame time − t0 ≥ lifeMs), and the
+  // held list is what the renderer and state.net.clouds (the wake mirror's
+  // occluder list, render/wake.ts) see. No hue: a cloud says nothing about
+  // whose it is.
   it('hands a present cloud list to the renderer and mirrors it into state', () => {
     const cloudSync = vi.fn();
     const { sink, deps } = setupChannels({ countermeasure: { sync: cloudSync } as never });
@@ -233,6 +235,32 @@ describe('bindRoom COUNTERMEASURE cloud channel (Story 9.3)', () => {
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
     expect(cloudSync).toHaveBeenCalledWith([]);
     expect(deps.state.net.clouds).toEqual([]);
+  });
+
+  it('HOLDS a cloud present in frame N and absent in frame N+1 — the renderer and the wake mirror still see it — until its life ends', () => {
+    const cloudSync = vi.fn();
+    const { sink, deps } = setupChannels({ countermeasure: { sync: cloudSync } as never });
+    const c = { id: 'cl1', x: 10, y: 20, t0: 90 };
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [c] });
+    sink.handler({ t: 150, tick: 2, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
+    expect(cloudSync).toHaveBeenLastCalledWith([c]);
+    expect(deps.state.net.clouds).toEqual([c]); // the wake mirror reads the held cloud
+    const LIFE = CONFIG.countermeasure.lifeMs;
+    sink.handler({ t: 90 + LIFE - 1, tick: 3, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
+    expect(deps.state.net.clouds).toEqual([c]);
+    sink.handler({ t: 90 + LIFE, tick: 4, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
+    expect(cloudSync).toHaveBeenLastCalledWith([]);
+    expect(deps.state.net.clouds).toEqual([]);
+  });
+
+  it('a re-delivered held cloud is held once, and a second cloud joins it in first-seen order', () => {
+    const cloudSync = vi.fn();
+    const { sink, deps } = setupChannels({ countermeasure: { sync: cloudSync } as never });
+    const a = { id: 'a', x: 0, y: 0, t0: 90 };
+    const b = { id: 'b', x: 5, y: 5, t0: 120 };
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [a] });
+    sink.handler({ t: 150, tick: 2, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [b, a] });
+    expect(deps.state.net.clouds).toEqual([a, b]);
   });
 });
 
@@ -1507,7 +1535,7 @@ function setupWater(
   const knownIds = new Set<string>();
   const deps = {
     state: {
-      net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0, litZones: [], burnZones: [] },
+      net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0, litZones: [], burnZones: [], clouds: [], heldClouds: new Map() },
       spectating: false, phase: '', respawnEta: null, mode: 'interp',
     },
     clock: { addSample: vi.fn() },

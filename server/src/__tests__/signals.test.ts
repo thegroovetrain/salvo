@@ -104,7 +104,7 @@ const REGISTRY_KEYS = [
   'litzone',
   'burnzone', // Story 8.17: the PHOSPHOR burning zone's contact-like channel, on the lit zone's gate (amendment 135(f))
   'decoy', // Story 8.16: the DECOY BUOY's contact-like frame channel (the deleted radar buoy's `buoy` seat)
-  'cloud', // Story 9.3: the MULTI-SPECTRAL COUNTERMEASURE cloud's contact-like frame channel (owner / spectator / centre within radar range with island-only LOS to the rim) — 8.18's `smoke` seat
+  'cloud', // Story 9.3: the MULTI-SPECTRAL COUNTERMEASURE cloud's contact-like frame channel (owner / spectator / some living pixel sighted or radar-detected — amendment 51) — 8.18's `smoke` seat
   'blip',
   'shell',
   'torp',

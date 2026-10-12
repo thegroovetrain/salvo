@@ -2,10 +2,10 @@
 title: 'Story 9.3: Multi-Spectral Countermeasure'
 type: 'feature'
 created: '2026-10-11'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'e0cd6f6e'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-9-context.md'
@@ -121,6 +121,21 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-10-12 — Review pass (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol cross-check on the same diff e0cd6f6e..3ba8c277)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 1, medium 1, low 2)
+- defer: 3: (high 0, medium 0, low 3)
+- reject: 7: (high 0, medium 0, low 7)
+- addressed_findings:
+  - `[high]` `[patch]` Codex + Edge Case Hunter (both CONFIRMED, same geometry): a mature cloud (outline up to 500 u) centred 660–830 u away pushed pixels inside the observer's 330 u sight bubble but was never delivered under ruling 42 ("radar range reaches the centre"), so the player was blinded with nothing drawn and the client wake mirror disagreed with the server → taken to Eric (a gap in his ruling, never deferred); Eric 2026-10-12: *"If I can see smoke particles in my sight range, I want them composited. It doesn't matter where the 'center of the ring' or the 'edge' is."* and *"If its detected by my radar, I want my radar to paint it."* → amendment 51: delivery is per pixel by the two sensors (sighted pixel with island LOS, or radar-detected pixel: range ∧ swept this tick ∧ shadow march), centre/rim clause deleted; the client HOLDS every received cloud until its life ends (radar delivery is per-sweep); oracle mirrors both clauses, two new ledgers (delivered by sight pixel alone 320, by radar pixel alone 140), directed channel cases rewritten; perf with the march in play 4.8–5.0 ms worst case (dazzled observers, flat and ridge rasters) against the 50 ms tick.
+  - `[medium]` `[patch]` Edge Case Hunter (CONFIRMED): `--tune countermeasure.r0=0` passed the harness floor and made `cloudScale` NaN/Infinity so every cloud blocked the whole board while the report looked normal → `r0`, `lifeMs`, `pixels` join the floor-1 leaves; test refuses 0 / 0.5, accepts 1.
+  - `[low]` `[patch]` Orchestrator, on the retention the amendment-51 patch introduced: a cloud held from the practice phase could ghost up to 15 s into the match after the server's `resetForMatchStart` cleared its store → the held set moved to `state.net.heldClouds` and the match-start edge in `main.ts` clears it with the renderer (`Countermeasure.clear()`).
+  - `[low]` `[patch]` Patch agent + orchestrator: three comments that now lied (the `CloudView` wire doc's centre/rim gate, the client memo header's per-frame pruning, the wake-sources note) re-cut; the name pins in `roomBindings.test` re-based to `MULTI-SPECTRAL CM` (amendment 48).
+- deferred (ledger, pre-existing or watch items): the client renderer rebuilds one Graphics per cloud per frame (≤ 300 fills × 5 clouds; Blind Hunter PLAUSIBLE, unmeasured — a dev build is never a perf verdict; staging watch); the perf pin measures static hulls only, no wake ribbons / shells / mines in the (detect, sight] band (Blind Hunter PLAUSIBLE); sequential public ids (`cl${n}`, never reset) disclose the match's running press count — the mines / puffs precedent, project-wide (Codex CONFIRMED, Blind Hunter low).
+- rejected: the stale SMOKE SCREEN / CHAFF How-to-Play rows (Codex CONFIRMED — Eric's freeze, amendments 36 and 49); "blind by eye inside the cloud" has no HUD tell (Blind Hunter — the no-unasked-copy rule; Eric's ruling 40 read literally); any enemy cloud is a free radar hide for third parties and the owner's radar alone sees intruders (Blind Hunter CONFIRMED — ruling 41 by construction, reported to Eric); a respawned same-session owner keeps the owner carve-out on a previous life's cloud for ≤ 15 s (Edge Case Hunter PLAUSIBLE — recorded as reading 50(k)); an observer standing within 6 u of a living pixel is blocked in every direction (Edge Case Hunter — ruling 40 read literally); the oracle reads production's `forEachLivingPixel` for pixel positions (Blind Hunter — the shared generator is the agreed oracle input; only the gate is re-derived); `World.cloudRecords` allocating per call (nit).
+- agreement picture: Codex and the Edge Case Hunter independently found the delivery gap (CONFIRMED both, fixed by Eric's re-ruling); the Edge Case Hunter alone found the harness floor (confirmed by the orchestrator against `cloudScale`, fixed); the Blind Hunter returned BUILD-ON-IT with no code defect and three ruling consequences for Eric's eye; Codex's other two findings were a project-wide id convention and Eric's own copy freeze.
+
 ## Design Notes
 
 - **Why pixels are a memo, not state:** `cloudBase(id)` is a pure function of the id; both sides cache it per cloud (server store record, client renderer map) so the per-tick cost is one scale multiply per pixel, never a re-roll. Nothing but `{id,x,y,t0}` crosses the wire, so the chokepoint is unchanged.
@@ -134,8 +149,25 @@ warnings: [oversized]
 - `npm run build -w shared` -- expected: clean (before server/client tests)
 - `npm test -w shared && npm test -w server && npm test -w client` -- expected: all green
 - `npm run lint` -- expected: zero errors (complexity ≤ 10)
-- `npm run check` -- expected: green; counts recorded in CHANGELOG -- RESULT 2026-10-11: green — shared 41 files / 1040 tests, server 89 / 2474, client 124 files green, lint 0 errors (2 pre-existing max-lines warnings), hook test green
+- `npm run check` -- expected: green; counts recorded in CHANGELOG -- RESULT 2026-10-11: green — shared 41 files / 1040 tests, server 89 / 2478 (after the review-gate patches; 2474 before), client 124 files green, lint 0 errors (2 pre-existing max-lines warnings), hook test green
 - `grep -rn "smokeScreen\|inSmoke\|SmokePuff\|SmokeView\|puffRadius\|puffCrossed\|smokeUntil\|nextPuffAt" shared/src server/src client/src --include=*.ts | grep -v __tests__` -- expected: no hits outside `how-to-play/copy.ts` (Eric's freeze, amendment 36) and dated doc comments
 
 **Manual checks:**
 - Eric picks the glyph and judges the time-lapse on the artifact before the client wave commits; the live cloud is judged on staging after the PR.
+
+## Auto Run Result
+
+Status: done — PR pending to `development` (opened at the end of this run; never merged by the agent).
+
+**Implemented:** SMOKE SCREEN replaced by the MULTI-SPECTRAL COUNTERMEASURE on key `3` (cap 5): one press = one stationary cloud of 300 seeded pixels (`shared/src/sim/cloud.ts`, rejection-sampled disc from `mulberry32`, no transcendentals, bit-identical on both sides from the wire `{id,x,y,t0}`), outline 200 → 500 u over 15 s with per-pixel deaths at 6–15 s and a 6 u blocking footprint. Pixels block SIGHT for every observer including the owner (the in-smoke 1/8 rule, `inSmoke`, the lay window and the disc renderer are gone); enemy RADAR loses only targets inside the cloud's outline with a pixel on the beam's path, no shadow beyond, the owner's radar ignoring pixels (`radarClear`, the blip gate's fourth term, shared by ship blips, decoy paints and the wake's radar half); the cloud is DELIVERED when any living pixel is sighted or radar-detected (Eric's re-ruling at the review gate, amendment 51), and the client holds a received cloud until it dies, clearing at the match-start edge. Client draws 20 u wounded-smoke-grey squares that fade as each pixel dies (glyph A, card name MULTI-SPECTRAL CM). Bots press once per disengage. `PROTOCOL_VERSION` 76; version 0.18.39 (cycle 174); epic-9 amendments 40–51.
+
+**Files:** shared `sim/cloud.ts` (new), `constants.ts`, `sight.ts`, `catalog.ts`, `effects.ts`, `loadout.ts`, `types.ts`, `index.ts` (+ `sim/smoke.ts` deleted); server `game/{signals,perception,frames,world,drones}.ts`, `equipment/{index,consumables}.ts` + `consumables/countermeasure.ts` (smokeScreen.ts deleted), `ai/{consumables,types,botDriver,profiles,tactics}.ts`, `metrics.ts`, `rooms/ArenaRoom.ts`, `scripts/batchsim/overrides.ts`; client `render/{countermeasure,cloudBases}.ts` (new; `render/smokeScreen.ts` deleted), `render/{radar,projectiles,fog,wake,equipmentIcons,stage,fire}.ts`, `net/roomBindings.ts`, `state.ts`, `main.ts`, `config.ts`, `ui/boonCopy.ts`; tests re-based in all three workspaces with new `cloud.test.ts`, `countermeasure.test.ts` (server and client), `cloudPerf.test.ts`; records (`VERSION`, `package.json` + lock, `CHANGELOG.md`, both trackers, `epics.md`, `DESIGN.md`, amendments 40–51 in both homes, `deferred-work.md`).
+
+**Review:** Blind Hunter (Fable) build-on-it, no code defect; Edge Case Hunter (Fable) build-on-it with two items; Codex gpt-5.6-sol fix-first. Patches 4 (the delivery gap → Eric's re-ruling, amendment 51; the harness floor; the practice → match ghost; stale comments + name pins); deferred 3 (renderer per-frame rebuild, perf-pin scope, sequential public ids — all ledgered); rejected 7 (Eric's copy freeze, ruling consequences reported to him, readings recorded as 50(k)).
+
+**Follow-up review recommended:** true — the amendment-51 patch re-cut the delivery gate (a perception row) and introduced client-side retention of a channel; both are anti-cheat/parity surfaces that a fresh pass should read.
+
+**Verification:** `npm run check` green three times across the run (final: shared 1040, server 2478, client 124 files / 3900 tests, lint 0 errors with 2 pre-existing max-lines warnings, hook test green). Perf pin 1.5–2.0 ms (4.8–5.0 ms with the radar march forced) against the 50 ms tick. goldenFrames unchanged. No dev server booted; no smokes run (none in scope).
+
+**Residual risks / for Eric:** (1) the on-water look (20 u squares, fade 2 s, alpha .55) and the held-until-death chart behavior are judged on staging; (2) any enemy cloud is a free radar hide for third parties and only the owner's radar sees intruders (ruling 41 by construction); (3) a press is disclosed to anyone whose radar beam crosses a pixel within 660 u, with the hull's exact position as the cloud centre (ruling 51 by construction); (4) nothing on the HUD says why sight is blank inside a cloud (the no-unasked-copy rule); (5) How-to-Play still describes SMOKE SCREEN and CHAFF until 9.11.
+

@@ -6,10 +6,13 @@
 // sight mirror (render/wake.ts `cloudCrossed`). One memo, never two, so the
 // pixels the player sees are, by construction, the pixels the mirror tests.
 //
-// Lifetime: the renderer's `sync` is the only pruner — it calls
-// `retainCloudBases` with the frame's live id set, and `state.net.clouds` is
-// mirrored from the very same list in the same binding pass, so every id the
-// wake can ask about is one the renderer holds. A miss computes and memoizes.
+// Lifetime: the renderer is the only pruner — it calls `retainCloudBases`
+// with the ids it still holds when a cloud dies (render) or at the
+// match-start reset (clear), never per frame (amendment 51: a cloud once seen
+// is held until it dies). `state.net.clouds` is the same held set, so every id
+// the wake can ask about is one the renderer holds, give or take the one
+// frame between the frame clock and the render clock; a miss computes and
+// memoizes.
 
 import { cloudBase, type CloudBase } from '@salvo/shared';
 

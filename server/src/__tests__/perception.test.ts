@@ -50,8 +50,9 @@
 // pixels entirely; the amendment-147 in-bubble paint stays (the hull a cloud
 // alone hides paints for whoever's radar is allowed through). The cloud
 // itself reaches a client through the `clouds` channel on its own gate
-// (amendment 42: owner / spectator / centre within the observer's RADAR range
-// with ISLAND-only LOS to the outline's nearest rim) — see verifyClouds —
+// (amendment 51, 2026-10-12: owner / spectator / some living pixel SIGHTED
+// with ISLAND-only LOS or RADAR-DETECTED by range, sweep and shadow march)
+// — see verifyClouds —
 // carrying `{id,x,y,t0}` and no owner, pixels, radius or `until`. The pixel
 // GENERATOR is the shared `cloudBase` / `forEachLivingPixel` (the one
 // function both sides run — there is no second source of truth for where a
@@ -293,6 +294,11 @@ const CLOUD_SIGHT_OCCLUDED = { n: 0 };
 const CLOUD_RADAR_OCCLUDED = { n: 0 };
 const OWNER_RADAR_THROUGH = { n: 0 };
 const CLOUD_FADE_PASS = { n: 0 };
+/** Amendment 51 (2026-10-12): clouds delivered to a non-owner explained by
+ *  ONE sensor alone — a sighted pixel with no pixel radar-detected, and a
+ *  radar-detected pixel with no pixel sighted (verifyClouds). */
+const CLOUD_DELIVERED_BY_SIGHT_PIXEL = { n: 0 };
+const CLOUD_DELIVERED_BY_RADAR_PIXEL = { n: 0 };
 /** ...and the amendment-147 sibling: how many in-bubble cloud-hidden points
  *  the fuzz saw PAINTED as blips (the oracle's in-bubble blip arm was
  *  exercised — the owner's radar-only view of its own cloud, or a non-owner's
@@ -2774,15 +2780,19 @@ function verifyDecoy(w: World, me: ShipRecord, d: DecoyView): void {
   if (!own) expect(sighted(w, me, decoy) || zoneCovers(w, me, decoy)).toBe(true);
 }
 
-/** A COUNTERMEASURE cloud (Story 9.3, amendment 42) may reach a fogged frame
- *  only if the viewer OWNS it (own field awareness) or its CENTRE is within
- *  the viewer's RADAR range (the burning-zone reach — effRadar, inclusive)
- *  with ISLAND-only LOS to the point of the OUTLINE nearest the viewer (the
- *  8.18 amendment-148 rim rule on the literal 200 → 500 u curve; written out
- *  here as `centre − r · (centre − me) / |centre − me|`, the viewer itself
- *  when it stands inside the outline; `clearLos`, never the pixel term: a
- *  cloud never hides a cloud, so an observer standing in one still sees the
- *  next). Never a lit-zone path, never a sweep term. Wire shape is exactly
+/** A COUNTERMEASURE cloud (Story 9.3, amendment 51 — Eric 2026-10-12: "If I
+ *  can see smoke particles in my sight range, I want them composited" and
+ *  "If it's detected by my radar, I want my radar to paint it") may reach a
+ *  fogged frame only if the viewer OWNS it (own field awareness) or SOME
+ *  LIVING PIXEL (the shared generator) is SENSED: SIGHTED — within effSight
+ *  (inclusive) with ISLAND-only LOS (`clearLos`, never the pixel term: a
+ *  cloud never hides a cloud) — or RADAR-DETECTED — within effRadar
+ *  (inclusive), inside this tick's paint window (inPaintWindow) and
+ *  shadow-visible (the test-local shadowVisible march). The centre and rim
+ *  play no part. Never a lit-zone path. The two non-vacuity ledgers count
+ *  deliveries that ONLY one sensor explains (CLOUD_DELIVERED_BY_SIGHT_PIXEL:
+ *  no pixel radar-detected; CLOUD_DELIVERED_BY_RADAR_PIXEL: no pixel
+ *  sighted). Wire shape is exactly
  *  {id,x,y,t0} in that key order — no owner, no own-flag, no pixel count,
  *  no radius — `t0` the store's birth stamp; the cloud must be live. */
 function verifyClouds(w: World, me: ShipRecord, v: { id: string; x: number; y: number; t0: number }): void {
@@ -2792,11 +2802,18 @@ function verifyClouds(w: World, me: ShipRecord, v: { id: string; x: number; y: n
   expect(Object.keys(v)).toEqual(['id', 'x', 'y', 't0']);
   expect(v).toEqual({ id: cloud.id, x: cloud.x, y: cloud.y, t0: cloud.bornAt });
   if (cloud.ownerId === me.id) return;
-  const d = dist(me.state, cloud);
-  expect(d).toBeLessThanOrEqual(effRadar());
-  const r = cloudOutlineOracle(cloud.bornAt, w.now);
-  const rim = d <= r ? me.state : { x: cloud.x - ((cloud.x - me.state.x) * r) / d, y: cloud.y - ((cloud.y - me.state.y) * r) / d };
-  expect(clearLos(me.state, rim, w.map.islands)).toBe(true);
+  const sight = effSight(w, me);
+  let sightedPx = false;
+  let radarPx = false;
+  forEachLivingPixel(baseOf(cloud.id), cloud.x, cloud.y, w.now - cloud.bornAt, (px, py) => {
+    const p = { x: px, y: py };
+    const d = dist(me.state, p);
+    if (!sightedPx && d <= sight && clearLos(me.state, p, w.map.islands)) sightedPx = true;
+    if (!radarPx && d <= effRadar() && inPaintWindow(me, bearing(me.state, p)) && shadowVisible(w, me, p)) radarPx = true;
+  });
+  expect(sightedPx || radarPx, `cloud ${cloud.id} delivered to ${me.id} with no pixel sighted or radar-detected`).toBe(true);
+  if (!radarPx) CLOUD_DELIVERED_BY_SIGHT_PIXEL.n += 1;
+  if (!sightedPx) CLOUD_DELIVERED_BY_RADAR_PIXEL.n += 1;
 }
 
 /** A lit-zone circle may reach a frame only if the viewer OWNS the zone or the
@@ -3889,6 +3906,8 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     CLOUD_RADAR_OCCLUDED.n = 0;
     OWNER_RADAR_THROUGH.n = 0;
     CLOUD_FADE_PASS.n = 0;
+    CLOUD_DELIVERED_BY_SIGHT_PIXEL.n = 0;
+    CLOUD_DELIVERED_BY_RADAR_PIXEL.n = 0;
     SMOKED_BLIP.n = 0;
     DRAFT_SEEN.n = 0;
     let wkSeen = 0; // Story 4.12: proves the wake oracle ran non-vacuously
@@ -4109,6 +4128,20 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const bornAt = w.now - (sp === 0 ? rng.float(13_000, 14_500) : rng.float(0, 14_900));
         injectCloud(w, `cloud${world}_${sp}`, ids[rng.int(0, ids.length - 1)], px, py, bornAt);
       }
+      // THE RADAR-DETECTED CLOUD (amendment 51, 2026-10-12): one young cloud
+      // per world seated BEYOND ids[0]'s sight but inside its radar range,
+      // centred just ahead of its beam so the sweep crosses its pixels over
+      // the run — the radar-only delivery arm (CLOUD_DELIVERED_BY_RADAR_PIXEL)
+      // is exercised, not vacuous. Drawn from its OWN stream so the main
+      // `rng` sequence (and every ledger tuned on it) is untouched.
+      {
+        const crng = mulberry32(0xc10d_0000 + world);
+        const obs = w.ships.get(ids[0])!;
+        const brg = obs.sweepAngle + crng.float(1, 3) * SWEEP_DELTA;
+        const d = crng.float(560, 620);
+        const owner = ids[1 + crng.int(0, ids.length - 2)];
+        injectCloud(w, `radarCloud${world}`, owner, obs.state.x + Math.cos(brg) * d, obs.state.y + Math.sin(brg) * d, w.now - crng.float(0, 1_500));
+      }
       // SHIELD BLOCK (Story 8.16): ~a third of the hulls carry a shield seat —
       // some up, some lapsed — so the self-private `shield` pin is exercised
       // on real frames in both directions.
@@ -4226,6 +4259,9 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     expect(CLOUD_RADAR_OCCLUDED.n).toBeGreaterThan(0);
     expect(OWNER_RADAR_THROUGH.n).toBeGreaterThan(0);
     expect(CLOUD_FADE_PASS.n).toBeGreaterThan(0);
+    // ...and the cloud CHANNEL (amendment 51) delivered by each sensor alone.
+    expect(CLOUD_DELIVERED_BY_SIGHT_PIXEL.n).toBeGreaterThan(0);
+    expect(CLOUD_DELIVERED_BY_RADAR_PIXEL.n).toBeGreaterThan(0);
     expect(SMOKED_BLIP.n).toBeGreaterThan(0);
     // ...and the wake-draft clause saw a POSITIVE `you.draft` at least once
     // (Story 8.19 — the value is PLANTED on ids[0] on odd ticks, above), so
@@ -4247,7 +4283,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     if (process.env.HC_PERF_LOG) {
       console.log(
         `perception fuzz ledgers: CLOUD_SIGHT_OCCLUDED ${CLOUD_SIGHT_OCCLUDED.n} | CLOUD_RADAR_OCCLUDED ${CLOUD_RADAR_OCCLUDED.n} | ` +
-          `OWNER_RADAR_THROUGH ${OWNER_RADAR_THROUGH.n} | CLOUD_FADE_PASS ${CLOUD_FADE_PASS.n} | SMOKED_BLIP ${SMOKED_BLIP.n} | ` +
+          `OWNER_RADAR_THROUGH ${OWNER_RADAR_THROUGH.n} | CLOUD_FADE_PASS ${CLOUD_FADE_PASS.n} | CLOUD_DELIVERED_BY_SIGHT_PIXEL ${CLOUD_DELIVERED_BY_SIGHT_PIXEL.n} | CLOUD_DELIVERED_BY_RADAR_PIXEL ${CLOUD_DELIVERED_BY_RADAR_PIXEL.n} | SMOKED_BLIP ${SMOKED_BLIP.n} | ` +
           `DECOY_PAINT_EXPECTED ${DECOY_PAINT_EXPECTED.n} | ` +
           `DRAFT_SEEN ${DRAFT_SEEN.n} | wk ${wkSeen} | reReveals ${reReveals}`,
       );

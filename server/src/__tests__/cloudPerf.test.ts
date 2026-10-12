@@ -88,7 +88,7 @@ describe('the five-live-cloud perception pin (Story 9.3)', () => {
         for (const id of ids) contactsClear += observe(w, id).contacts.length;
       }
     }
-    expect(cloudsSeen).toBe(OBSERVERS * CLOUDS); // every cloud's centre is within every hull's radar range
+    expect(cloudsSeen).toBe(OBSERVERS * CLOUDS); // every cloud has a living pixel inside every hull's sight (amendment 51's sighted-pixel clause)
     expect(contactsClouded).toBeLessThan(contactsClear);
     expect(contactsClouded).toBeGreaterThan(0); // the clouds sit in the middle: neighbours along the ring stay visible
     if (process.env.HC_PERF_LOG) {

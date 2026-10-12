@@ -31,11 +31,23 @@ export interface NetState {
    *  [] when none — Story 8.17). Read by the burn classifier only: a burning
    *  zone reveals nothing, so it never feeds the fog or the projectile cull. */
   burnZones: BurnZoneView[];
-  /** Latest per-observer MULTI-SPECTRAL COUNTERMEASURE cloud list (mirrors
-   *  FrameMsg.clouds; [] when none — Story 9.3). Read by the wake mirror
+  /** The HELD MULTI-SPECTRAL COUNTERMEASURE cloud list (Story 9.3, epic-9
+   *  amendment 51): every cloud any FrameMsg.clouds has delivered, held until
+   *  its life ends on the frame's server time — a cloud once seen is held
+   *  until it dies, because delivery is per-sweep (Eric 2026-10-12: "If it's
+   *  detected by my radar, I want my radar to paint it"); nothing new is
+   *  disclosed by holding what was already sent. [] when none. Read by the wake mirror
    *  (render/wake.ts) so in-bubble water behind a cloud's pixels stays hidden,
    *  as the server hides it. */
   clouds: CloudView[];
+  /** The HELD cloud set behind `clouds`, by id — net/roomBindings.ts merges
+   *  every frame's clouds into it and expires them on the FRAME's server time;
+   *  `clouds` is its unexpired list. Lives here (not in the binding) so the
+   *  match-start edge in main.ts can clear it with the renderer: the server
+   *  clears its store at the practice → match boundary (world.ts
+   *  resetForMatchStart) and a held practice cloud must not ghost into the
+   *  match. */
+  heldClouds: Map<string, CloudView>;
 }
 
 export interface GameState {
@@ -57,7 +69,7 @@ export function createGameState(sessionId: string): GameState {
   return {
     phase: 'connecting',
     mode: 'predict',
-    net: { sessionId, tick: 0, ackSeq: 0, you: null, litZones: [], burnZones: [], clouds: [] },
+    net: { sessionId, tick: 0, ackSeq: 0, you: null, litZones: [], burnZones: [], clouds: [], heldClouds: new Map() },
     respawnEta: null,
     spectating: false,
     killerId: null,

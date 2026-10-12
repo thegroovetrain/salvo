@@ -19,9 +19,11 @@
 //     cloud and keeps water beyond it; MINE and DECOY at the detect rung
 //     hidden, and the non-owner's radar does not paint the decoy inside;
 //     `mz`/`sm` suppressed and `fh` muffled one step behind a pixel;
-//   • the `clouds` CHANNEL's own gate (42): centre within RADAR range with
-//     island-only LOS to the outline's nearest rim, owner always, spectator
-//     always; the wire shape `{id,x,y,t0}` and nothing else;
+//   • the `clouds` CHANNEL's own gate (amendment 51, 2026-10-12, retiring
+//     42's centre/rim rule): some living pixel SIGHTED (in sight, island
+//     LOS) or RADAR-DETECTED (in radar range, swept this tick, shadow march
+//     clear), owner always, spectator always; the wire shape `{id,x,y,t0}`
+//     and nothing else;
 //   • the bot presses once on the way out and not again until its cloud
 //     expires; resetForMatchStart clears the water.
 //
@@ -40,6 +42,7 @@ import {
   consumableSlotFor,
   forEachLivingPixel,
   isAfloat,
+  islandBlocksSegment,
   isSinking,
   wrapPositive,
   type FrameMsg,
@@ -50,7 +53,7 @@ import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { sightOf } from '../game/signals.js';
 import { addDecoy } from '../game/decoys.js';
-import { circleIsland, flatRaster } from './islandFixture.js';
+import { circleIsland, flatRaster, rasterFrom, ridgeField } from './islandFixture.js';
 
 const CM = CONFIG.countermeasure;
 const DT = CONFIG.tick.simDtMs;
@@ -498,27 +501,91 @@ describe('COUNTERMEASURE — sight occlusion (ruling 40: ownership-blind, no sig
 // The `clouds` channel — its own gate, its own wire shape
 // ---------------------------------------------------------------------------
 
-describe('COUNTERMEASURE — the `clouds` channel (ruling 42: radar range to the centre, island-only LOS to the rim, owner / spectator always)', () => {
-  it('a cloud whose centre is at 650 u rides; one at 670 u does not; behind an island (rim and centre) it does not', () => {
+describe('COUNTERMEASURE — the `clouds` channel (amendment 51: some living pixel SIGHTED or RADAR-DETECTED; owner / spectator always)', () => {
+  /** Every living pixel of cloud `id` centred at `c`, aged `ageMs`. */
+  function pixelsOf(id: string, c: P, ageMs: number): P[] {
+    const out: P[] = [];
+    forEachLivingPixel(cloudBase(id), c.x, c.y, ageMs, (x, y) => out.push({ x, y }));
+    return out;
+  }
+  const within = (p: P, r: number): boolean => Math.hypot(p.x, p.y) <= r;
+  const SIGHT = CONFIG.vision.sight;
+  const RADAR = CONFIG.vision.radar;
+
+  it('SIGHTED PIXEL: a cloud centred 700 u away (beyond radar range) at 14 s with a living pixel inside sight rides; the same cloud fresh (no pixel in sight) does not', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0);
+    const a = place(w, 'a', 0, 0); // a zero-width beam window: no radar term
     place(w, 'b', 900, 900);
-    injectCloud(w, 'near', 'b', 650, 0); // ≤ 660
-    injectCloud(w, 'far', 'b', 0, 670); // > 660
-    expect(cloudIds(buildFrame(w, 'a'))).toEqual(['near']);
-    w.map.islands.push(circleIsland(300, 0, 50)); // land between a and `near`'s rim (450, 0)
+    const C: P = { x: 700, y: 0 };
+    const AGE = 14_000;
+    const id = findCloudId('sp', (k) => pixelsOf(k, C, AGE).some((p) => within(p, SIGHT)));
+    expect(sightOf(a, w.now)).toBe(SIGHT);
+    expect(Math.hypot(C.x, C.y)).toBeGreaterThan(a.stats.radarRange); // the centre is out of radar range
+    injectCloud(w, id, 'b', C.x, C.y, w.now - AGE);
+    expect(cloudIds(buildFrame(w, 'a'))).toEqual([id]);
+    w.clouds.clear();
+    expect(pixelsOf(id, C, 0).some((p) => within(p, SIGHT))).toBe(false); // premise: fresh, nothing in sight
+    injectCloud(w, id, 'b', C.x, C.y, w.now);
     expect(cloudIds(buildFrame(w, 'a'))).toEqual([]);
   });
 
-  it('NEAREST-RIM delivery: an island over the cloud\'s centre leaves its water-side rim visible — the cloud rides', () => {
+  it('a SIGHTED pixel needs island LOS: land between the observer and EVERY in-sight pixel keeps the cloud off the wire', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
     place(w, 'b', 900, 900);
-    injectCloud(w, 'c1', 'b', 400, 0); // fresh: rim toward a at (200, 0)
-    w.map.islands.push(circleIsland(400, 60, 50)); // hides the centre (400, 0) from a, not the rim (200, 0)
-    expect(cloudIds(buildFrame(w, 'a'))).toEqual(['c1']);
+    const C: P = { x: 700, y: 0 };
+    const AGE = 14_000;
+    const id = findCloudId('sp', (k) => pixelsOf(k, C, AGE).some((p) => within(p, SIGHT)));
+    const isle = circleIsland(150, 0, 100);
+    w.map.islands.push(isle);
+    const inSight = pixelsOf(id, C, AGE).filter((p) => within(p, SIGHT));
+    expect(inSight.length).toBeGreaterThan(0);
+    for (const p of inSight) expect(islandBlocksSegment(O, p, isle)).toBe(true); // premise: every in-sight pixel is behind land
+    injectCloud(w, id, 'b', C.x, C.y, w.now - AGE);
+    expect(cloudIds(buildFrame(w, 'a'))).toEqual([]);
     w.map.islands.length = 0;
-    w.map.islands.push(circleIsland(100, 0, 20)); // on the a→rim segment
+    expect(cloudIds(buildFrame(w, 'a'))).toEqual([id]);
+  });
+
+  it('RADAR-DETECTED PIXEL: a fresh cloud beyond sight, inside radar range, rides with the beam parked on a pixel\'s bearing; with the beam parked elsewhere it does not', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    place(w, 'b', 900, 900);
+    const C: P = { x: 560, y: 0 };
+    const id = findCloudId('rp', (k) => pixelsOf(k, C, 0).some((p) => within(p, RADAR - 20)));
+    const px = pixelsOf(id, C, 0);
+    expect(px.some((p) => within(p, SIGHT))).toBe(false); // premise: no pixel in sight
+    const target = px.find((p) => within(p, RADAR - 20))!;
+    injectCloud(w, id, 'b', C.x, C.y, w.now);
+    windowAround(a, Math.atan2(target.y, target.x));
+    expect(cloudIds(buildFrame(w, 'a'))).toEqual([id]);
+    expect(px.some((p) => Math.abs(Math.atan2(p.y, p.x)) > Math.PI / 2)).toBe(false); // premise: nothing behind the observer
+    windowAround(a, Math.PI);
+    expect(cloudIds(buildFrame(w, 'a'))).toEqual([]);
+  });
+
+  it('a RADAR-DETECTED pixel needs the shadow march: hard cover between the observer and the swept pixel keeps the cloud off the wire', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    place(w, 'b', 900, 900);
+    const C: P = { x: 560, y: 0 };
+    const id = findCloudId('rp', (k) => pixelsOf(k, C, 0).some((p) => within(p, RADAR - 20)));
+    const target = pixelsOf(id, C, 0).find((p) => within(p, RADAR - 20))!;
+    injectCloud(w, id, 'b', C.x, C.y, w.now);
+    windowAround(a, Math.atan2(target.y, target.x), 0.0005);
+    expect(cloudIds(buildFrame(w, 'a'))).toEqual([id]);
+    w.map.heightRaster = rasterFrom(700, ridgeField(150, 0, 20, 400)); // a tall wall across every bearing toward the cloud
+    expect(cloudIds(buildFrame(w, 'a'))).toEqual([]);
+  });
+
+  it('a cloud ENTIRELY beyond radar range never rides, whatever the beam', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    place(w, 'b', 900, 900);
+    const C: P = { x: 1000, y: 0 };
+    expect(pixelsOf('far1', C, 0).every((p) => !within(p, RADAR))).toBe(true); // premise
+    injectCloud(w, 'far1', 'b', C.x, C.y, w.now);
+    windowAround(a, 0, 0.5);
     expect(cloudIds(buildFrame(w, 'a'))).toEqual([]);
   });
 
@@ -557,8 +624,17 @@ describe('COUNTERMEASURE — the `clouds` channel (ruling 42: radar range to the
   it('a cloud leaves the channel the step it expires — never a stale cloud on the wire', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    injectCloud(w, 'old', 'z', 50, 0, w.now - CM.lifeMs + DT); // one tick of life left
-    expect(cloudIds(buildFrame(w, 'a'))).toEqual(['old']);
+    const AGE = CM.lifeMs - DT; // one tick of life left
+    // premise: a pixel still alive and in sight, so the cloud rides until it expires
+    const id = findCloudId('old', (k) => {
+      let seen = false;
+      forEachLivingPixel(cloudBase(k), 50, 0, AGE, (x, y) => {
+        if (Math.hypot(x, y) <= CONFIG.vision.sight) seen = true;
+      });
+      return seen;
+    });
+    injectCloud(w, id, 'z', 50, 0, w.now - AGE);
+    expect(cloudIds(buildFrame(w, 'a'))).toEqual([id]);
     steps(w, 1);
     expect(w.clouds.size).toBe(0);
     expect(buildFrame(w, 'a').clouds).toBeUndefined();

@@ -1599,6 +1599,14 @@ function updateMatchAudioCues(g: Game, now: number): void {
   if (result.matchStart) {
     g.audio.play('matchStart');
     g.portal.matchStart(); // same once-per-match live edge as the audio cue
+    // The server clears its cloud store at the practice → match boundary
+    // (world.ts resetForMatchStart); the client HOLDS every cloud it has seen
+    // until it dies (Story 9.3, epic-9 amendment 51), so the held set and the
+    // renderer are cleared on the same edge — a practice cloud never ghosts
+    // into the match.
+    g.state.net.heldClouds.clear();
+    g.state.net.clouds = [];
+    g.countermeasure.clear();
   }
 }
 
@@ -2960,7 +2968,8 @@ function buildGame(
   // deterministic set rebuilt from the map seed — the same array the predictor
   // and the fog already collide against, never a second geometry. The
   // COUNTERMEASURE clouds ride along for the same reason (Story 9.3): a thunk
-  // over the live `state.net.clouds`, since clouds come and go per frame.
+  // over the live `state.net.clouds` — the HELD set (amendment 51), which
+  // grows per frame and shrinks only as clouds die or at the match-start edge.
   g.radar.setWakeSources(g.effects.wakeSources, g.islands, () => g.state.net.clouds);
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
