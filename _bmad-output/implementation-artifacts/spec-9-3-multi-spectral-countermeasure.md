@@ -196,7 +196,7 @@ Status: done — PR #266 open to `development` (never merged by the agent; Eric 
 
 **Recorded, not ruled:** the radar copy carries no terrain shadow and no colorblind-assist floor (one-liners if wanted); the pre-roll of a cloud first seen mid-life costs ~15–20 ms once.
 
-## Session 4 — the cloud gives radar returns (2026-10-12; cycle 177, 0.18.42, PV 77 unchanged; epic-9 amendments 57–58)
+## Session 4 — the cloud gives radar returns (2026-10-12; cycle 177, 0.18.42, PV 77 unchanged; epic-9 amendments 57–58; PR #269 open to `development`, never merged by the agent)
 
 **Trigger:** Eric on 0.18.41 on staging: *"Visually, that is perfect. It's not being read by radar. Don't forget to composite it onto the radar layer so it can be painted. It should give returns in strength based on how thick the smoke is."* and *"while visually great, it's not thick enough. I can still kinda see ships under it a lot of the time."*
 
