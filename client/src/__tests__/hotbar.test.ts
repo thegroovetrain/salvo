@@ -66,7 +66,7 @@ import {
   type SlotItemId,
   type WeaponAmmo,
 } from '@salvo/shared';
-import { Container, Graphics, Text } from 'pixi.js';
+import { BlurFilter, Container, Graphics, Text } from 'pixi.js';
 import {
   ACTIVE_PULSE_AMP,
   ACTIVE_PULSE_HZ,
@@ -1163,6 +1163,7 @@ interface PaintOp {
   color: number;
   alpha: number;
   rects: number[][];
+  holes: number[][];
   polys: number[][];
 }
 
@@ -1172,15 +1173,19 @@ function opsOf(g: Graphics): PaintOp[] {
     data: {
       style?: { color?: number; alpha?: number };
       path?: { instructions: { action: string; data: unknown[] }[] };
+      /** A `cut()` hole lands on the preceding fill as its own path. */
+      hole?: { instructions: { action: string; data: unknown[] }[] };
     };
   }[];
   return raw.map((ins) => {
     const path = ins.data.path?.instructions ?? [];
+    const hole = ins.data.hole?.instructions ?? [];
     return {
       action: ins.action,
       color: ins.data.style?.color ?? -1,
       alpha: ins.data.style?.alpha ?? -1,
       rects: path.filter((q) => q.action === 'rect').map((q) => (q.data as number[]).slice(0, 4)),
+      holes: hole.filter((q) => q.action === 'rect').map((q) => (q.data as number[]).slice(0, 4)),
       polys: path.filter((q) => q.action === 'poly').map((q) => (q.data as number[][])[0]),
     };
   });
@@ -1193,9 +1198,12 @@ function paint(view: HotbarView, uiScale = 1) {
   const layout = hudBarLayout(1366, 768);
   row.update(view, layout, null, 0, uiScale);
   const root = layer.children[0] as Container;
-  const ops = opsOf(root.children[0] as Graphics);
+  // Child 0 is the blurred GLOW layer (amendment 39), child 1 the squares.
+  const glowGfx = root.children[0] as Graphics;
+  const ops = opsOf(root.children[1] as Graphics);
+  const glowOps = opsOf(glowGfx);
   const texts = root.children.filter((c): c is Text => c instanceof Text);
-  return { row, layout, ops, texts, words: texts.filter((t) => t.visible).map((t) => t.text) };
+  return { row, layout, ops, glowOps, glowGfx, texts, words: texts.filter((t) => t.visible).map((t) => t.text) };
 }
 
 const sameRect = (r: number[], box: { x: number; y: number; w: number; h: number }): boolean =>
@@ -1324,8 +1332,11 @@ describe('the cooldown WIPE on the square (ruling 3 / amendment 34)', () => {
     expect(words).toContain('I'); // the tier numeral
     const numeral = texts.find((t) => t.visible && t.text === '1.2');
     const root = numeral?.parent;
-    const gfxIndex = root === null || root === undefined ? -1 : root.children.findIndex((c) => c instanceof Graphics);
-    expect(gfxIndex).toBe(0); // every Text sits above the one Graphics
+    const kids = root === null || root === undefined ? [] : root.children;
+    const lastGfx = kids.map((c) => c instanceof Graphics).lastIndexOf(true);
+    const firstText = kids.findIndex((c) => c instanceof Text);
+    expect(lastGfx).toBe(1); // the glow layer, then the squares…
+    expect(firstText).toBeGreaterThan(lastGfx); // …and every Text sits above both
   });
 
   it('shows the seconds as the centred numeral, at the wipe\'s own size', () => {
@@ -1677,5 +1688,33 @@ describe("slot 0 is the SEAT'S gun, replayed as main.ts derives it", () => {
     // The helper above is a copy; this is the pin that keeps the copy honest.
     const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../main.ts'), 'utf8');
     expect(src).toMatch(/slotsWithCards\(stats, cards, CATALOG, false, gun, classShift\(cls\)\)/);
+  });
+});
+
+describe('the GLOW is a real bloom, not stacked rings (Eric 2026-10-11, epic-9 amendment 39)', () => {
+  it('draws every lit square\'s halo as ONE filled ring on the blurred glow layer, in the skin\'s color at its glowAlpha', () => {
+    const { glowOps, glowGfx, ops, layout } = paint(viewFor('torpedoBoat'));
+    expect(glowGfx.filters).toHaveLength(1);
+    expect(glowGfx.filters?.[0]).toBeInstanceOf(BlurFilter);
+    const skin = slotSkin('readyWeapon');
+    const q = layout.squares[Q];
+    const pad = skin.glowPx / 2;
+    const inflated = { x: q.x - pad, y: q.y - pad, w: q.w + pad * 2, h: q.h + pad * 2 };
+    const halo = glowOps.find((o) => o.action === 'fill' && o.color === skin.border && o.alpha === skin.glowAlpha
+      && o.rects.some((r) => sameRect(r, inflated)));
+    expect(halo).toBeDefined(); // the inflated box, filled once…
+    expect(halo?.holes.some((r) => sameRect(r, q))).toBe(true); // …with the square cut out as a hole
+    // and NO outline rings around the square on the square layer any more
+    const rings = ops.filter((o) => o.action === 'stroke' && o.polys.some((poly) => poly.length === 8 && poly[0] < q.x && poly[1] < q.y && poly[2] > q.x + q.w));
+    expect(rings).toHaveLength(0);
+  });
+
+  it('a ZERO-STOCK square and an EMPTY square get no halo at all', () => {
+    const { glowOps, layout } = paint(viewFor('torpedoBoat'));
+    for (const slot of [...CONSUMABLE_SLOTS, R]) {
+      const sq = layout.squares[slot];
+      const touching = glowOps.filter((o) => o.rects.some((r) => r[0] <= sq.x && r[1] <= sq.y && r[0] + r[2] >= sq.x + sq.w && r[1] + r[3] >= sq.y + sq.h));
+      expect(touching, String(slot)).toHaveLength(0);
+    }
   });
 });
