@@ -205,23 +205,45 @@ const DRAFT_SEEN = { n: 0 };
 // Per-observer EFFECTIVE ranges, recomputed here from the raw fitted-boon id
 // list (deliberately NOT via me.stats / effectiveStats — the reimplementation
 // rule). No card writes radar range any more (the INTEL RANGE line was deleted
-// 2026-08-20), so intel range is the flat constant and truesight is half of it;
-// a FLASH dazzle (Story 8.17, amendment 132) collapses the OBSERVER's own
-// sight to ONE EIGHTH of intel range while its dazzledUntil mark is live —
-// mirrored independently from signals.sightOf / the shared effectiveSight.
+// 2026-08-20), so intel range is the flat constant and truesight is half of it.
 // (`stacksOf`, the raw-card counter the radar buoy's jamming oracle read, went
 // with the buoy in Story 8.16.)
+
+// THE SIGHT-SHRINK SEAM (Story 9.4). The FLASH SHELLS dazzle (Story 8.17,
+// amendment 132) collapsed an observer's sight to ONE EIGHTH of intel range
+// and was the fuzz's one GAMEPLAY exit for the per-visit reveal ledger; Story
+// 9.4 replaced that consumable with the FOULING SHELL, which never touches
+// sight. The ledger's contract (a projectile that leaves the gate and
+// re-enters is revealed again) outlives its last cause, so the fuzz keeps
+// shrinking sight on a SYNTHETIC input: this test-local map says whose sight
+// is shrunk until when, `applySightShrink` writes the matching `sightRange`
+// onto the record's stats before every frame build, and the oracle reads
+// THIS map — never the stats it wrote — so the re-derivation stays
+// independent of production. Cleared per fuzz world.
+const SIGHT_SHRUNK = new Map<string, number>(); // observer id → server ms the shrink lapses
+
+/** Write each observer's sight onto its record from the shrink map: an
+ *  eighth of intel range while shrunk, half of it otherwise (the derived
+ *  base, `sightRange = radarRange / 2`). A hull whose stats were just
+ *  re-derived (a card pick) is re-shrunk here too, so the map is the truth. */
+function applySightShrink(w: World, ids: readonly string[]): void {
+  for (const id of ids) {
+    const rec = w.ships.get(id)!;
+    const want = w.now < (SIGHT_SHRUNK.get(id) ?? 0) ? rec.stats.radarRange / 8 : rec.stats.radarRange / 2;
+    if (rec.stats.sightRange !== want) rec.stats = { ...rec.stats, sightRange: want };
+  }
+}
 
 // TRUESIGHT IS THE 4/8 RUNG OF ONE NUMBER (Eric rulings 2026-08-16, unchanged
 // by the 2026-08-20 INTEL RANGE deletion). Re-derived here INDEPENDENTLY, as
 // literals, per this file's reimplementation rule: sight is half of intel
-// range, a dazzled hull sees an eighth of it (the 1/8 rung, written as the
-// literal `/ 8` — never CONFIG.flashShells.sightFraction), and dazzle scales
-// sight ONLY — intel range itself is never scaled, which is what keeps the
-// 5/8 muzzle/smoke halo un-dazzled by construction. (Story 9.3: the 8.18
-// in-smoke eighth is GONE — a cloud never touches sight.)
+// range, a shrunk hull (the seam above) sees an eighth of it (the 1/8 rung,
+// written as the literal `/ 8`), and the shrink scales sight ONLY — intel
+// range itself is never scaled, which is what keeps the 5/8 muzzle/smoke halo
+// un-shrunk by construction. (Story 9.3: the 8.18 in-smoke eighth is GONE — a
+// cloud never touches sight.)
 function effSight(w: World, me: ShipRecord): number {
-  if (w.now < me.dazzledUntil) return effRadar() / 8;
+  if (w.now < (SIGHT_SHRUNK.get(me.id) ?? 0)) return effRadar() / 8;
   return effRadar() / 2;
 }
 
@@ -497,6 +519,20 @@ function injectBurnZone(
   dps: number = CONFIG.phosphorShells.dps,
 ): void {
   w.burnZones.set(id, { id, ownerId, x, y, r, until, dps });
+}
+
+/** Drop a FOULING SHELL foul zone directly into world state (Story 9.4) —
+ *  the injectBurnZone sibling over the SEPARATE `foulZones` store. */
+function injectFoulZone(
+  w: World,
+  id: string,
+  ownerId: string,
+  x: number,
+  y: number,
+  r: number = CONFIG.foulingShell.radius,
+  until = 999_999,
+): void {
+  w.foulZones.set(id, { id, ownerId, x, y, r, until });
 }
 
 /** Drop a MULTI-SPECTRAL COUNTERMEASURE cloud directly into world state
@@ -1166,14 +1202,13 @@ describe('perception — mine visibility (owner-always, else DETECT+LOS — Stor
     expect(buildFrame(w, 'a').mines.map((m) => m.id).sort()).toEqual(['m1', 'm2']);
   });
 
-  it('detect is OBSERVER-SCALED (amendment 121): a flash dazzle collapses it to the 1/8 rung; a sightRange boon widens it', () => {
+  it('detect is OBSERVER-SCALED (amendment 121): a sight collapsed to the 1/8 rung collapses it; a sightRange boon widens it', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     injectMine(w, 'm1', 'b', 200, 0); // inside base detect (247.5)
     expect(buildFrame(w, 'a').mines.map((m) => m.id)).toEqual(['m1']);
-    a.dazzledUntil = w.now + 10_000; // flash-dazzled detect = 0.75 × 82.5 = 61.875 (Story 8.17)
+    a.stats = { ...a.stats, sightRange: a.stats.radarRange / 8 }; // sight 82.5 (the FLASH SHELLS dazzle's old collapse, a plain stats write since Story 9.4) ⇒ detect 82.5
     expect(buildFrame(w, 'a').mines).toEqual([]);
-    a.dazzledUntil = 0;
     a.stats = { ...a.stats, sightRange: 600 }; // boon-widened detect = 450
     injectMine(w, 'm2', 'b', 440, 0);
     expect(buildFrame(w, 'a').mines.map((m) => m.id).sort()).toEqual(['m1', 'm2']);
@@ -1374,15 +1409,16 @@ describe('perception — ballistic re-reveal on gate re-entry (Story 8.13, amend
     expect(c.seenBallistics.has('far')).toBe(true); // a spectator's gate is always open — never cleared
   });
 
-  it('the gate SHRINKING under the projectile (dazzle) is an exit too: cleared while dazzled, re-revealed when the dazzle lifts', () => {
+  it('the gate SHRINKING under the projectile is an exit too: cleared while sight is shrunk, re-revealed when it returns', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    injectShell(w, 't1', 'b', 200, 0, Math.PI / 2, 900, false, 'torp'); // inside 247.5, outside a flash-dazzled 61.875
+    injectShell(w, 't1', 'b', 200, 0, Math.PI / 2, 900, false, 'torp'); // inside 247.5, outside a sight shrunk to 82.5
     expect(collect(w, 'a', 'torp', 2).map((e) => e.id)).toEqual(['t1']);
-    a.dazzledUntil = w.now + 10_000;
+    const full = a.stats;
+    a.stats = { ...a.stats, sightRange: a.stats.radarRange / 8 }; // the FLASH SHELLS dazzle's old collapse, a plain stats write since Story 9.4
     expect(collect(w, 'a', 'torp', 2)).toEqual([]);
     expect(a.seenBallistics.has('t1')).toBe(false);
-    a.dazzledUntil = 0;
+    a.stats = full;
     expect(collect(w, 'a', 'torp', 2).map((e) => e.id)).toEqual(['t1']);
   });
 
@@ -1717,6 +1753,75 @@ describe('perception — burnZones channel (Story 8.17: the lit-zone gate, a cir
     for (let i = 0; i < steps; i++) w.step();
     expect(w.burnZones.size).toBe(0);
     expect('burnZones' in buildFrame(w, 'c')).toBe(false);
+  });
+});
+
+// ---------- Story 9.4: the FOULING SHELL foul zone (directed) -----------------
+//
+// Epic-9 amendment 63: the foul zone rides its OWN frame channel (`foulZones`,
+// FoulZoneView {id,x,y,r,until,by}) through the BURN ZONE's visibility gate
+// byte-for-byte — owner always, else the centre within the observer's radar
+// range, no LOS, no sweep, spectators all — and it is a HAZARD ONLY: it
+// reveals nothing, and nothing about who it slows rides it (the slow reaches
+// each victim through its own private `you.fouledUntil`).
+
+describe('perception — foulZones channel (Story 9.4: the burn-zone gate, a circle only, never a reveal)', () => {
+  const R = CONFIG.foulingShell.radius;
+
+  it('the owner always receives its zone; a frame with no visible foul zones omits the key; key order is id,x,y,r,until,by', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    place(w, 'far', 5_000, 0);
+    injectFoulZone(w, 'fz1', 'a', RADAR + 500, 0, R, 42_000);
+    const fa = buildFrame(w, 'a');
+    expect(fa.foulZones).toEqual([{ id: 'fz1', x: RADAR + 500, y: 0, r: R, until: 42_000, by: 'a' }]);
+    expect(Object.keys(fa.foulZones![0])).toEqual(['id', 'x', 'y', 'r', 'until', 'by']);
+    expect(JSON.stringify(fa)).not.toContain('ownerId');
+    expect('foulZones' in buildFrame(w, 'far')).toBe(false); // byte-free beyond radar
+    expect('foulZones' in buildFrame(w, 'a', 'finished')).toBe(true); // spectators see all
+  });
+
+  it('a third party sees the circle at dist == radar (inclusive), loses it just beyond — no LOS, no sweep gate', () => {
+    const w = bareWorld();
+    w.map.islands.push(circleIsland(200, 0, 40)); // blocks sight AND radar paint on the axis
+    const c = place(w, 'c', 0, 0);
+    c.prevSweepAngle = Math.PI; // beam on the far side — never crossed bearing 0
+    c.sweepAngle = Math.PI + 0.001;
+    injectFoulZone(w, 'fz1', 'a', RADAR, 0);
+    expect(buildFrame(w, 'c').foulZones?.map((z) => z.id)).toEqual(['fz1']);
+    w.foulZones.get('fz1')!.x = RADAR + 0.01;
+    expect('foulZones' in buildFrame(w, 'c')).toBe(false);
+  });
+
+  it("a hull inside the FIRER'S OWN foul zone but outside its sight is NOT a contact — a lit zone in the same place WOULD reveal it", () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0); // the firer
+    place(w, 'b', 900, 0, 2.1); // way outside sight (330) AND radar (660)
+    injectFoulZone(w, 'fz1', 'a', 900, 0, R);
+    const f = buildFrame(w, 'a');
+    expect(f.contacts).toEqual([]); // no reveal through a foul zone
+    expect(f.events.filter((e) => e.k === 'blip')).toEqual([]);
+    expect(f.foulZones?.map((z) => z.id)).toEqual(['fz1']); // ...only the circle itself
+    // THE CONTROL: the same circle as a LIT zone reveals b to the firer.
+    w.foulZones.clear();
+    injectZone(w, 'z1', 'a', 900, 0, R);
+    expect(buildFrame(w, 'a').contacts.map((c) => c.id)).toEqual(['b']);
+  });
+
+  it("a dead firer's foul zone persists and dies only by expiry (the burn-zone rule)", () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    place(w, 'c', 100, 0);
+    injectFoulZone(w, 'fz1', 'a', 500, 0, R, w.now + CONFIG.foulingShell.durationMs);
+    w.respawnEnabled = false;
+    w.sinkShip('a', 'c');
+    w.step();
+    expect(w.foulZones.has('fz1')).toBe(true);
+    expect(buildFrame(w, 'c').foulZones?.map((z) => z.id)).toEqual(['fz1']);
+    const steps = Math.ceil(CONFIG.foulingShell.durationMs / DT) + 2;
+    for (let i = 0; i < steps; i++) w.step();
+    expect(w.foulZones.size).toBe(0);
+    expect('foulZones' in buildFrame(w, 'c')).toBe(false);
   });
 });
 
@@ -2464,6 +2569,21 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   for (const z of w.burnZones.values()) {
     if (z.ownerId === me.id && w.now < z.until) expect((f.burnZones ?? []).some((v) => v.id === z.id), `own burn zone ${z.id} delivered`).toBe(true);
   }
+  // THE FOUL ZONE (Story 9.4): every live zone is delivered EXACTLY when its
+  // gate passes (the burn zone's — owner always, else the centre within
+  // radar range), and nothing about who it slows rides the frame outside
+  // `you` (`fouledUntil` is victim-private on the slowedUntil terms).
+  for (const z of f.foulZones ?? []) verifyFoulZone(w, me, z);
+  for (const z of w.foulZones.values()) {
+    if (w.now >= z.until) continue;
+    const delivered = (f.foulZones ?? []).some((v) => v.id === z.id);
+    expect(delivered, `foul zone ${z.id} for ${me.id}`).toBe(foulZoneGateOracle(w, me, z));
+  }
+  expect(JSON.stringify(withoutYou)).not.toContain('fouledUntil');
+  if (f.you !== undefined) {
+    expect('fouledUntil' in f.you).toBe(me.fouledUntil > w.now);
+    if (f.you.fouledUntil !== undefined) expect(f.you.fouledUntil).toBe(me.fouledUntil);
+  }
   for (const d of f.decoys ?? []) verifyDecoy(w, me, d);
   // The OWNER always sees its own decoys (own field awareness, even under fog).
   for (const d of w.decoys.values()) {
@@ -2747,6 +2867,38 @@ function verifyBurnZone(
   expect(Object.keys(z).sort()).toEqual(['by', 'id', 'r', 'until', 'x', 'y']);
   expect(z).toEqual({ id: zone.id, x: zone.x, y: zone.y, r: zone.r, until: zone.until, by: zone.ownerId });
   if (zone.ownerId !== me.id) expect(dist(me.state, zone)).toBeLessThanOrEqual(effRadar());
+}
+
+/** Non-vacuity ledger for the foul zone (the DECOY_PAINT_EXPECTED idiom):
+ *  foul zones delivered to a NON-owner — the radar-range clause ran against a
+ *  real frame, not only the owner clause. */
+const FOUL_ZONE_DELIVERED = { n: 0 };
+
+/** The foul zone's gate (Story 9.4, amendment 63), re-derived INDEPENDENTLY
+ *  and byte-for-byte the burn zone's: the owner always, else the zone CENTER
+ *  within the viewer's radar range; no LOS, no sweep. */
+function foulZoneGateOracle(w: World, me: ShipRecord, zone: { ownerId: string; x: number; y: number }): boolean {
+  return zone.ownerId === me.id || dist(me.state, zone) <= effRadar();
+}
+
+/** The FOULING SHELL foul zone (Story 9.4, amendment 63) — the BURN ZONE's
+ *  gate, re-derived here BYTE-FOR-BYTE and independently (foulZoneGateOracle).
+ *  Wire shape exactly {id,x,y,r,until,by}; the zone must be live in the
+ *  SEPARATE `foulZones` store (never a lit zone, never a burn zone). */
+function verifyFoulZone(
+  w: World,
+  me: ShipRecord,
+  z: { id: string; x: number; y: number; r: number; until: number; by: string },
+): void {
+  const zone = w.foulZones.get(z.id)!;
+  expect(zone).toBeDefined();
+  expect(w.litZones.has(z.id)).toBe(false); // never another store
+  expect(w.burnZones.has(z.id)).toBe(false);
+  expect(w.now).toBeLessThan(zone.until); // expired zones never materialize
+  expect(Object.keys(z)).toEqual(['id', 'x', 'y', 'r', 'until', 'by']);
+  expect(z).toEqual({ id: zone.id, x: zone.x, y: zone.y, r: zone.r, until: zone.until, by: zone.ownerId });
+  expect(foulZoneGateOracle(w, me, zone)).toBe(true);
+  if (zone.ownerId !== me.id) FOUL_ZONE_DELIVERED.n += 1;
 }
 
 // ---------- per-kind event verifiers (the independent oracle) ----------------
@@ -3780,10 +3932,12 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     CLOUD_DELIVERED_BY_SIGHT.n = 0;
     CLOUD_DELIVERED_BY_RADAR.n = 0;
     DRAFT_SEEN.n = 0;
+    FOUL_ZONE_DELIVERED.n = 0;
     let wkSeen = 0; // Story 4.12: proves the wake oracle ran non-vacuously
     let reReveals = 0; // Story 8.13: proves the per-visit ledger saw a re-entry
     for (let world = 0; world < 20; world++) {
       const w = new World(rng.int(0, 2 ** 31 - 1), CONFIG.match.fillTo, CONFIG.zone);
+      SIGHT_SHRUNK.clear(); // the sight-shrink seam is per world
       const ids: string[] = [];
       const shipCount = rng.int(3, 6);
       for (let i = 0; i < shipCount; i++) {
@@ -3928,12 +4082,35 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           rng.float(5, 10),
         );
       }
-      // FLASH-dazzled observers (Story 8.17, amendment 132): ~a quarter of the
-      // hulls start under a live flash mark, so the collapsed 1/8 sight rung
-      // gates real frames from tick 1 (the tick-2 dazzle below then flips two
-      // more, and clears them, for the re-reveal ledger).
+      // SHRUNK-SIGHT observers (the sight-shrink seam — the FLASH SHELLS
+      // dazzle's seeding, Story 8.17, kept on the same rng draws since Story
+      // 9.4 retired the mark): ~a quarter of the hulls start with sight at
+      // the 1/8 rung, so the collapsed gate runs real frames from tick 1 (the
+      // tick-2 shrink below then flips every hull, and clears it, for the
+      // re-reveal ledger). The second draw's upper bound is the old 10 s flash
+      // life, spelled as a literal so the stream is byte-identical.
       for (const id of ids) {
-        if (rng.float(0, 1) < 0.25) w.ships.get(id)!.dazzledUntil = w.now + rng.float(DT, CONFIG.flashShells.durationMs);
+        if (rng.float(0, 1) < 0.25) SIGHT_SHRUNK.set(id, w.now + rng.float(DT, 10_000));
+      }
+      // Random FOULING SHELL foul zones (Story 9.4) — on their OWN stream so
+      // every draw above and below is untouched (the cloud seeding's idiom):
+      // some seated right on a hull, so the radar-gated `foulZones` circle
+      // rides while the no-reveal rule holds (a hull standing in a foul zone
+      // outside sight stays dark — amendment 63).
+      const frng = mulberry32(0xf0a1_0000 + world);
+      for (let z = 0; z < frng.int(0, 3); z++) {
+        const onHull = frng.float(0, 1) < 0.5 ? w.ships.get(ids[frng.int(0, ids.length - 1)])!.state : null;
+        const ang = frng.float(0, TAU);
+        const r = frng.float(0, w.map.radius * 0.9);
+        injectFoulZone(
+          w,
+          `foul${z}`,
+          ids[frng.int(0, ids.length - 1)],
+          onHull ? onHull.x + frng.float(-60, 60) : Math.cos(ang) * r,
+          onHull ? onHull.y + frng.float(-60, 60) : Math.sin(ang) * r,
+          CONFIG.foulingShell.radius * frng.float(0.5, 1.5),
+          w.now + frng.float(DT, 12_000),
+        );
       }
       // RNG-STREAM PRESERVATION (Story 9.2): the retired CHAFF seeding drew
       // from `rng` here (a coin per hull, six draws per seated cloud, one
@@ -4084,7 +4261,9 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         // restamps it from the water, so the sim itself never sees the plant.
         const rider = w.ships.get(ids[0])!;
         if (tick % 2 === 1 && isAfloat(rider.lifecycle)) rider.draft = CONFIG.wake.draft.lift * 0.6180339887;
-        // Build each observer's frame exactly once per tick (wire semantics).
+        // Build each observer's frame exactly once per tick (wire semantics),
+        // with the sight-shrink seam written onto the records first.
+        applySightShrink(w, ids);
         for (const id of ids) {
           const f = buildFrame(w, id);
           wkSeen += f.events.filter((e) => e.k === 'wk').length;
@@ -4092,16 +4271,16 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           ledger.verify(w, id, f);
         }
         // THE PER-VISIT MARK (Story 8.13, amendment 78) must be EXERCISED, not
-        // vacuous: after tick 2's frames, EVERY hull is DAZZLED for ticks 3-4
-        // (their gates halve — projectiles between the dazzled ring and the
-        // full ring LEAVE it) and clear again on tick 5, when whatever is
-        // still live and still inside the full ring RE-ENTERS and must be
-        // revealed again. A real gameplay exit (a star shell's dazzle), not a
-        // teleport, so every other oracle stays on the same footing. (Story
-        // 9.3 widened this from two hulls to all — kept: the whole ring feeds
-        // the ledger.)
+        // vacuous: after tick 2's frames, EVERY hull's sight is SHRUNK for
+        // ticks 3-4 (their gates collapse — projectiles between the shrunken
+        // ring and the full ring LEAVE it) and clear again on tick 5, when
+        // whatever is still live and still inside the full ring RE-ENTERS and
+        // must be revealed again. A gate exit, not a teleport, so every other
+        // oracle stays on the same footing. (Story 9.3 widened this from two
+        // hulls to all; Story 9.4 moved it from the retired dazzle mark onto
+        // the sight-shrink seam — kept: the whole ring feeds the ledger.)
         if (tick === 2) {
-          for (const id of ids) w.ships.get(id)!.dazzledUntil = w.now + 2 * DT + 1;
+          for (const id of ids) SIGHT_SHRUNK.set(id, w.now + 2 * DT + 1);
         }
       }
       reReveals += ledger.reReveals;
@@ -4123,9 +4302,13 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     // with 70% of hulls pre-laid with tracks across 20 worlds × 6 ticks, zero
     // disclosed segments would mean the channel silently died.
     expect(wkSeen).toBeGreaterThan(0);
-    // ...and so must the re-reveal: zero second reveals across 20 dazzled
+    // ...and so must the re-reveal: zero second reveals across 20 shrunk
     // worlds would mean the per-visit mark silently reverted to permanent.
     expect(reReveals).toBeGreaterThan(0);
+    // ...and the FOUL ZONE channel (Story 9.4) must have delivered to a
+    // NON-owner at least once — the radar-range clause ran, not only the
+    // owner clause.
+    expect(FOUL_ZONE_DELIVERED.n).toBeGreaterThan(0);
     // ...and so must the Story 8.16 decoy-paint arm: decoy paints actually
     // reached (and were consumed from) real frames.
     expect(DECOY_PAINT_EXPECTED.n).toBeGreaterThan(0);
@@ -4137,7 +4320,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         `perception fuzz ledgers: CLOUD_SIGHT_THROUGH ${CLOUD_SIGHT_THROUGH.n} | ` +
           `CLOUD_DELIVERED_BY_SIGHT ${CLOUD_DELIVERED_BY_SIGHT.n} | CLOUD_DELIVERED_BY_RADAR ${CLOUD_DELIVERED_BY_RADAR.n} | ` +
           `DECOY_PAINT_EXPECTED ${DECOY_PAINT_EXPECTED.n} | ` +
-          `DRAFT_SEEN ${DRAFT_SEEN.n} | wk ${wkSeen} | reReveals ${reReveals}`,
+          `DRAFT_SEEN ${DRAFT_SEEN.n} | FOUL_ZONE_DELIVERED ${FOUL_ZONE_DELIVERED.n} | wk ${wkSeen} | reReveals ${reReveals}`,
       );
     }
   });
@@ -4264,18 +4447,20 @@ describe('perception — the completeness oracle cannot be satisfied by substitu
 // dev adding a 13th row sees this block fail until they add its verifier.
 
 describe('perception — SIGNAL REGISTRY completeness', () => {
-  // The six contact-like pseudo-rows are verified through the contacts/
-  // mines/litZones/burnZones/decoys/clouds frame channels (verifyFrame/
-  // verifyMine/verifyLitZone/verifyBurnZone/verifyDecoy/cloudGateOracle), not
-  // through EVENT_VERIFIERS.
+  // The seven contact-like pseudo-rows are verified through the contacts/
+  // mines/litZones/burnZones/foulZones/decoys/clouds frame channels
+  // (verifyFrame/verifyMine/verifyLitZone/verifyBurnZone/verifyFoulZone/
+  // verifyDecoy/cloudGateOracle), not through EVENT_VERIFIERS.
   // The RADAR BUOY's `buoy` row is DELETED (Story 8.16) along with its oracle;
   // `decoy` is the DECOY BUOY's channel on the mine row's rules, with its own
   // oracle (verifyDecoy); `burnzone` (Story 8.17) is the PHOSPHOR burning
   // zone's channel on the lit zone's gate, with its own oracle (verifyBurnZone).
   // `cloud` (Story 9.3 — 8.18's `smoke` seat) is the COUNTERMEASURE cloud's
   // channel, with its own oracle (cloudGateOracle / verifyCloudShape); a
-  // cloud occludes nothing (Story 9.3 session 2).
-  const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'burnzone', 'decoy', 'cloud'];
+  // cloud occludes nothing (Story 9.3 session 2). `foulzone` (Story 9.4) is
+  // the FOULING SHELL foul zone's channel on the burn zone's gate, with its
+  // own oracle (verifyFoulZone / foulZoneGateOracle).
+  const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'burnzone', 'foulzone', 'decoy', 'cloud'];
   // The 19 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
   // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private
   // 'bn'; Story 4.3 added the gunnery rows 'sp'/'hc'/'mz'; 2026-08-04's DAMAGE
@@ -4286,9 +4471,9 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'dp', 'sp', 'hc', 'mz', 'heal', 'sm', 'fh', 'wk'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 25 expected channel keys (19 event kinds + contact + mine + litzone + burnzone + decoy + cloud)', () => {
+  it('has exactly the 26 expected channel keys (19 event kinds + contact + mine + litzone + burnzone + foulzone + decoy + cloud)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(25);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(26);
   });
 
   it('every row keys itself: row.eventType === its registry key', () => {
@@ -4297,11 +4482,12 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
     }
   });
 
-  it('the six contact-like pseudo-rows exist (verified via the contacts/mines/litZones/burnZones/decoys/clouds channels)', () => {
+  it('the seven contact-like pseudo-rows exist (verified via the contacts/mines/litZones/burnZones/foulZones/decoys/clouds channels)', () => {
     expect(SIGNAL_REGISTRY.contact).toBeDefined();
     expect(SIGNAL_REGISTRY.mine).toBeDefined();
     expect(SIGNAL_REGISTRY.litzone).toBeDefined();
     expect(SIGNAL_REGISTRY.burnzone).toBeDefined(); // Story 8.17
+    expect(SIGNAL_REGISTRY.foulzone).toBeDefined(); // Story 9.4
     expect(SIGNAL_REGISTRY.decoy).toBeDefined();
     expect(SIGNAL_REGISTRY.cloud).toBeDefined(); // Story 9.3 (8.18's smoke seat)
     expect(Object.hasOwn(SIGNAL_REGISTRY, 'buoy')).toBe(false); // deleted with the radar buoy (Story 8.16)

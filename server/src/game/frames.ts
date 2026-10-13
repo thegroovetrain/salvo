@@ -107,7 +107,7 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // rides `you` and NOTHING else — never a Contact, blip, ballistic event,
     // boom, or spectator payload. An enemy observer can never learn that a hull
     // is repairing; it reads only the hp it can actually see change. REQUIRED
-    // (not optional like slowedUntil/dazzledUntil): the client's strip renders
+    // (not optional like slowedUntil/fouledUntil): the client's strip renders
     // the pool every frame, so a dropped key would read as "pool gone".
     // THE PAID POOL ALONE since Story 8.8 (epic-8 amendment 46): the free
     // per-level channel this used to be summed with is gone, and the
@@ -128,9 +128,9 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // Active debuff windows (Story 2.8), OPTIONAL on the wire — omitted (not
     // 0) when inactive, so debuff-free frames carry no dead keys. VICTIM-
     // PRIVATE like boostUntil: they ride `you` and NOTHING else — an enemy
-    // reads a fouled hull only through its observed kinematics, a dazzled one
-    // not at all. slowedUntil drives the predictor's slowedKinematics fold;
-    // dazzledUntil shrinks the client's own fog hole honestly.
+    // reads a fouled hull only through its observed kinematics. slowedUntil
+    // drives the predictor's FIRST slowedKinematics fold (the mine's slow);
+    // fouledUntil below drives its SECOND (the foul zone's, Story 9.4).
     ...(ship.slowedUntil > now ? { slowedUntil: ship.slowedUntil } : {}),
     // ... and, beside the window, ITS DEPTH (Story 8.13, epic-8 amendment 86):
     // the FOULING MINES line is tiered, so the victim's caps are scaled by the
@@ -141,7 +141,17 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // PRIVATE on exactly the same terms: it rides `you` and NOTHING else, so
     // the master perception invariant keeps its SIX declared exceptions.
     ...(ship.slowedUntil > now && ship.slowFactor !== 1 ? { slowFactor: ship.slowFactor } : {}),
-    ...(ship.dazzledUntil > now ? { dazzledUntil: ship.dazzledUntil } : {}),
+    // THE FOUL ZONE'S LINGER STAMP (Story 9.4, epic-9 amendments 61–68 — the
+    // seat FLASH SHELLS' `dazzledUntil` held): the server time the zone's
+    // slow ends, OMITTED (never 0, never `undefined`) unless it is in the
+    // future — the slowedUntil idiom exactly. VICTIM-PRIVATE on the same
+    // terms: it rides `you` and NOTHING else, so the master perception
+    // invariant keeps its SIX declared exceptions; the zone itself reaches
+    // observers through the separate `foulZones` channel, which says nothing
+    // about who is slowed. The predictor folds CONFIG.foulingShell.slowFactor
+    // while `serverNow < fouledUntil` — no factor rides (a consumable has no
+    // tiers), unlike the mine's `slowFactor` above.
+    ...(ship.fouledUntil > now ? { fouledUntil: ship.fouledUntil } : {}),
     // The WAKE-DRAFT lift (Story 8.19, amendments 151–155): the exact double
     // stepShips folded into this hull's forward cap THIS tick — PRESENT IFF
     // positive, OMITTED at 0, never `undefined` (the slowFactor precedent).
@@ -221,19 +231,21 @@ function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
  * (unit tests, sandbox smokes) — the room always passes its live phase.
  */
 /**
- * The four OPTIONAL contact-like channels, on one rule for both frame paths:
+ * The five OPTIONAL contact-like channels, on one rule for both frame paths:
  * each is OMITTED (not an empty array) when this observer sees none, so
  * zone-free / decoy-free / cloud-free frames stay byte-identical to pre-1.7
  * frames. WIRE ORDER (key insertion, load-bearing for msgpack): `litZones`
  * (Story 1.7), `burnZones` (Story 8.17 — the PHOSPHOR burning zone on the lit
- * zone's gate), `decoys` (Story 8.16), then `clouds` (Story 9.3 — the
- * MULTI-SPECTRAL COUNTERMEASURE clouds, `{id,x,y,t0}` each; 8.18's `smoke`
- * seat).
+ * zone's gate), `foulZones` (Story 9.4 — the FOULING SHELL foul zone on the
+ * burn zone's gate, `{id,x,y,r,until,by}` each), `decoys` (Story 8.16), then
+ * `clouds` (Story 9.3 — the MULTI-SPECTRAL COUNTERMEASURE clouds,
+ * `{id,x,y,t0}` each; 8.18's `smoke` seat).
  */
-function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'decoys' | 'clouds'> {
+function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'foulZones' | 'decoys' | 'clouds'> {
   return {
     ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
     ...(view.burnZones.length > 0 ? { burnZones: view.burnZones } : {}),
+    ...(view.foulZones.length > 0 ? { foulZones: view.foulZones } : {}),
     ...(view.decoys.length > 0 ? { decoys: view.decoys } : {}),
     ...(view.clouds.length > 0 ? { clouds: view.clouds } : {}),
   };
@@ -254,8 +266,8 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
       contacts: view.contacts,
       events: view.events,
       mines: view.mines,
-      // litZones / burnZones / decoys / smoke: OPTIONAL on the wire (see
-      // optionalChannels — the same rule on both paths).
+      // litZones / burnZones / foulZones / decoys / clouds: OPTIONAL on the
+      // wire (see optionalChannels — the same rule on both paths).
       ...optionalChannels(view),
       spec: true,
     };
@@ -273,7 +285,7 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
     contacts: view.contacts,
     events: view.events,
     mines: view.mines,
-    ...optionalChannels(view), // litZones / burnZones / decoys / smoke, omitted when none
+    ...optionalChannels(view), // litZones / burnZones / foulZones / decoys / clouds, omitted when none
     ...(denied !== undefined && denied.length > 0 ? { denied: [...denied] } : {}),
   };
 }

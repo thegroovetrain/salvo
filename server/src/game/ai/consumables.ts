@@ -14,13 +14,14 @@
 
 import { CONFIG, isAfloat, sectorArcFor, type ConsumableId } from '@salvo/shared';
 import type { BotMind, BotSelf } from './types.js';
-import { hasPersistence } from './utility.js';
+import { hasPersistence, type BotTrack } from './utility.js';
 import {
   APPETITE_NEUTRAL,
   TORPEDO_CREDIBLE_U,
   burstOnLiveContact,
   damageCutCues,
   deepFreezeRows,
+  nearestLiveAstern,
   nearestLiveInSight,
   sectorPlacement,
   solveTorpedoShot,
@@ -153,19 +154,36 @@ const decoyBuoyTactic: ConsumableTactic = {
 };
 
 /**
- * FLASH SHELLS (`dazzleShells`) — a 'shot' row that PRIMES and FIRES one copy
- * at the nearest LIVE contact in sight while the bot is in its ENGAGE posture,
- * afloat only. Stock is the slot's own `n` (firePass's readiness gate); reach
- * is the star shell's (the radar rung), which is what the row's clamp uses
- * server-side.
+ * FOULING SHELL (`foulingShell`, Story 9.4 — FLASH SHELLS' seat) — a 'shot'
+ * row that PRIMES and FIRES one copy at a live contact in sight, afloat only,
+ * on BOTH postures (Eric ruling 2026-10-12, epic-9 amendment 65 — one row,
+ * two cues, no own-zone bookkeeping):
+ *   ENGAGING  → the nearest live contact in sight (the flash's old rule:
+ *               stall the target);
+ *   DISENGAGING → the nearest live contact in sight that lies ASTERN of the
+ *               bot — behind the beam, more than 90° off its heading (pin
+ *               the chaser); nothing astern, no press.
+ * The zone slows the bot too if it sails back through it; the row does not
+ * track that (amendment 65). Stock is the slot's own `n` (firePass's
+ * readiness gate); reach is the star shell's (the radar rung), which is what
+ * the row's clamp uses server-side.
  */
-const dazzleShellsTactic: ConsumableTactic = {
-  id: 'dazzleShells',
+const foulingShellTactic: ConsumableTactic = {
+  id: 'foulingShell',
   kind: 'shot',
   reachU: (stats) => stats.radarRange,
-  want: (ctx) => isAfloat(ctx.self.lifecycle) && ctx.posture === 'engage' && nearestLiveInSight(ctx) !== null,
-  solve: (ctx) => burstOnLiveContact(ctx, ctx.sit.stats.radarRange),
+  want: (ctx) => isAfloat(ctx.self.lifecycle) && foulingShellTarget(ctx) !== null,
+  solve: (ctx) => burstOnLiveContact(ctx, ctx.sit.stats.radarRange, foulingShellTarget(ctx)),
 };
+
+/** The FOULING SHELL's target under the bot's posture (amendment 65), or
+ *  null: engage → nearest live in sight; disengage → nearest live in sight
+ *  astern; any other posture → none. */
+function foulingShellTarget(ctx: TacticContext): BotTrack | null {
+  if (ctx.posture === 'engage') return nearestLiveInSight(ctx);
+  if (ctx.posture === 'disengage') return nearestLiveAstern(ctx);
+  return null;
+}
 
 /** DEPTH CHARGE — the line is an undealt stub (its mechanism is unbuilt), so
  *  its row never fires. */
@@ -188,7 +206,7 @@ export const CONSUMABLE_TACTICS: Readonly<Record<ConsumableId, ConsumableTactic>
   shieldBlock: shieldBlockTactic,
   countermeasure: countermeasureTactic,
   decoyBuoy: decoyBuoyTactic,
-  dazzleShells: dazzleShellsTactic,
+  foulingShell: foulingShellTactic,
   depthCharge: depthChargeTactic,
 });
 
@@ -207,7 +225,7 @@ const CONSUMABLE_APPETITE: Readonly<Record<ConsumableId, number>> = Object.freez
   decoyBuoy: APPETITE_NEUTRAL,
   depthCharge: APPETITE_NEUTRAL,
   supercavTorpedo: APPETITE_NEUTRAL,
-  dazzleShells: APPETITE_NEUTRAL,
+  foulingShell: APPETITE_NEUTRAL,
 });
 
 /** How eager any bot is about one belt line. */

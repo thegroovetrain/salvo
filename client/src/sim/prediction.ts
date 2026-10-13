@@ -18,11 +18,18 @@
 // optimistic-press vs authoritative-window regimes.
 //
 // PROP-FOULING SLOW (Story 2.8): the victim-private you.slowedUntil folds in
-// per tick through the shared slowedKinematics, in the PINNED composition
-// order the server's stepShips uses byte-for-byte:
-//   boostedKinematics → slowedKinematics → draftedKinematics → hookKinematics
-// (boost first, slow second, the wake draft third, hooks last — sim/slow.ts
-// and sim/draft.ts headers). The window is
+// per tick through the shared slowedKinematics, in the PINNED five-stage
+// composition order the server's stepShips uses byte-for-byte:
+//   boostedKinematics
+//   → slowedKinematics (mine:  you.slowFactor,                  t < slowedUntil)
+//   → slowedKinematics (shell: CONFIG.foulingShell.slowFactor,  t < fouledUntil)
+//   → draftedKinematics
+//   → hookKinematics
+// (boost first, the two slows second and third, the wake draft fourth, hooks
+// last — sim/slow.ts and sim/draft.ts headers). The FOULING SHELL zone's slow
+// (Story 9.4, epic-9 amendments 61–68) is the SAME fold called a second time
+// off the victim-private you.fouledUntil, so the two sources multiply and the
+// same source never stacks. Each window is
 // purely authoritative: nothing on the client predicts being mined, so unlike
 // boost there is no optimistic regime — a tick is slowed iff its OWN recorded
 // server-time estimate is inside the last frame's window (`t < slowedUntil`),
@@ -31,7 +38,7 @@
 // WAKE DRAFT (Story 8.19, epic-8 amendments 151–156): the self-private
 // you.draft — the exact double the server's draftLift produced and folded on
 // the frame's tick — folds in per tick through the shared draftedKinematics,
-// third in that pinned order. Authoritative-ONLY, like the slow: the predictor
+// fourth in that pinned order. Authoritative-ONLY, like the slow: the predictor
 // never recomputes the lift from any wake it can see (the rendered ribbons are
 // render-only and incomplete); it adopts the server's scalar on every frame,
 // BEFORE the replay, and applies that LATEST scalar to every tick — live and
@@ -139,6 +146,13 @@ export interface ServerKinematics {
    */
   slowFactor?: number;
   /**
+   * ms — server-clock time the FOULING SHELL zone's slow ends
+   * (OwnShip.fouledUntil, Story 9.4); omitted = not fouled. Its factor is the
+   * CONFIG constant `CONFIG.foulingShell.slowFactor` (no tiers), so nothing
+   * else rides with it. Optional for the same reason as the fields above.
+   */
+  fouledUntil?: number;
+  /**
    * ms — server-clock time this SINKING hull founders (OwnShip.sinkingUntil,
    * Story 5.2); ABSENT = not sinking. Optional for the same reason as the two
    * windows above, and absent for all but five seconds of any hull's life.
@@ -213,6 +227,15 @@ export class Predictor {
    * or nothing scaled — reads as the base rather than as a stale depth.
    */
   private authSlowFactor: number = CONFIG.foulingMines.slowFactor;
+  /**
+   * Authoritative FOULING SHELL zone-slow end (you.fouledUntil from the latest
+   * server frame; 0 = not fouled — Story 9.4). Authoritative-ONLY for the
+   * mine's reason: the server runs the outline-in-zone test and stamps the
+   * linger; the client never re-derives it from the zone circle (the channel
+   * is radar-gated, and a predicted pose at the rim could disagree). Its depth
+   * is the CONFIG constant — a consumable has no tiers — so no factor rides.
+   */
+  private authFouledUntil = 0;
   /**
    * Authoritative SINKING-window deadline (you.sinkingUntil from the latest
    * server frame; 0 = not sinking). Authoritative-ONLY, exactly like the slow:
@@ -393,6 +416,7 @@ export class Predictor {
     // redeploy, and the next frame re-seeds it.
     this.authSlowedUntil = 0;
     this.authSlowFactor = CONFIG.foulingMines.slowFactor;
+    this.authFouledUntil = 0; // ...and the shell zone's slow window (Story 9.4)
     // ...and for the sinking window. A hard re-init is a respawn / reconnect /
     // class swap, none of which a sinking hull survives — leaving a stale
     // deadline behind would cap the NEXT life's speed to zero for the rest of
@@ -462,6 +486,9 @@ export class Predictor {
     // a hull that is not slowed (or one nothing scaled), so the base factor is
     // the honest read — never the last fouling's depth held over.
     this.authSlowFactor = you.slowFactor ?? CONFIG.foulingMines.slowFactor;
+    // The shell zone's window, adopted BEFORE the replay for the same reason
+    // (Story 9.4). An omitted key is a hull no zone holds.
+    this.authFouledUntil = you.fouledUntil ?? 0;
     // Adopted BEFORE the replay for the same reason the slow is: the pending
     // ticks about to be replayed will be re-stepped from here on under this
     // window, so they must re-make the same decisions the original local ticks
@@ -566,13 +593,16 @@ export class Predictor {
    *   hookKinematics(
    *     draftedKinematics(
    *       slowedKinematics(
-   *         boostedKinematics(kinematics, factor, t < boostUntil),
-   *         you.slowFactor, t < slowedUntil),
+   *         slowedKinematics(
+   *           boostedKinematics(kinematics, factor, t < boostUntil),
+   *           you.slowFactor, t < slowedUntil),
+   *         CONFIG.foulingShell.slowFactor, t < fouledUntil),
    *       you.draft, you.draft > 0),
    *     behaviors, registry)
    *
-   * boost first, the prop-fouling slow second, the wake draft third, hooks
-   * last.
+   * boost first, the fouling MINE's slow second, the FOULING SHELL zone's slow
+   * third (Story 9.4 — the same shared fold, a second source, so the two
+   * multiply), the wake draft fourth, hooks last.
    *
    * THE SLOW FACTOR IS THE ATTACKER'S, AND THE WIRE NOW CARRIES IT (Story
    * 8.13, epic-8 amendments 81 + 86). FOULING MINES is a tiered LINE: the
@@ -606,7 +636,8 @@ export class Predictor {
   private tickKin(t: number, seq: number): ShipConfig {
     const boosted = boostedKinematics(this.kin, this.boost.factor, this.boostActiveAt(t, seq));
     const slowed = slowedKinematics(boosted, this.authSlowFactor, this.slowActiveAt(t));
-    const drafted = draftedKinematics(slowed, this.authDraft, this.authDraft > 0);
+    const fouled = slowedKinematics(slowed, CONFIG.foulingShell.slowFactor, this.foulActiveAt(t));
+    const drafted = draftedKinematics(fouled, this.authDraft, this.authDraft > 0);
     return hookKinematics(drafted, this.behaviors, this.hookRegistry);
   }
 
@@ -619,6 +650,16 @@ export class Predictor {
    */
   private slowActiveAt(t: number): boolean {
     return t < this.authSlowedUntil;
+  }
+
+  /**
+   * The FOULING SHELL zone-slow gate for one tick (Story 9.4) — `slowActiveAt`'s
+   * twin: the server's own rule at THIS tick's recorded server-time estimate
+   * (`t < you.fouledUntil`). Authoritative-only; a second zone or shell only
+   * moves the end, never deepens it.
+   */
+  private foulActiveAt(t: number): boolean {
+    return t < this.authFouledUntil;
   }
 
   /**

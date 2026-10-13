@@ -52,6 +52,11 @@ const COLORS = {
   denied: 0xff3b3b, // the single denied red (consolidates the legacy DOM red)
   damage: 0x8b0000,
   damageMarker: 0xff6666,
+  /** FOULING SHELL foul-zone MURK (Story 9.4, Eric's pick "MURK AND NET",
+   *  epic-9 amendment 69): a dark oily grey-brown drawn NORMAL-blend so the
+   *  zone DARKENS the water — the one zone treatment that subtracts light
+   *  where lit and burn zones add it. Feel token; Eric may re-tune on staging. */
+  foulMurk: 0x3b3a33,
   // `islandFill` / `islandStroke` (the provisional yellow) are GONE as of cycle
   // 82. DESIGN.md:41 marked them a "provisional carry-over — Open Question";
   // cycle 59 took the in-match chart off them, and the home scene — their last
@@ -2285,11 +2290,12 @@ export const CLIENT_CONFIG = {
     glyphFadeCount: 3,
     glyphFadeSec: 0.6,
     glyphKey: 'hullcracker.helm',
-    /** VICTIM TELLS (Story 2.9): the SLOWED / DAZZLED status lines stacked UNDER
+    /** VICTIM TELLS (Story 2.9): the SLOWED status line (the only tell since
+     *  Story 9.4 retired DAZZLED with FLASH SHELLS) stacked UNDER
      *  IN STORM, sharing its satellite column (epic-8 amendment 38 — the column
      *  hangs off the CHROME BAR now, and the tells grow downward from the storm
      *  line rather than upward toward it). `tellGap` is both the storm-line-to-
-     *  first-tell gap and the gap between the two tells; the retired `tellAbove`
+     *  first-tell gap and the gap between stacked tells; the retired `tellAbove`
      *  measured the old upward stack off the HUD bar's top edge and is gone with
      *  it. `tellSize` is the mono size the fit pin measures. */
     tellGap: 22,
@@ -2329,8 +2335,8 @@ export const CLIENT_CONFIG = {
    * retired star-shell `phos` lit-zone verb (Story 2.9, amendment 50: a zone
    * reads as its hazard for every observer — counterplay over concealment).
    * The firer's personal hue owns the RING (a zone still says WHOSE it is); the
-   * ember layers INSIDE it. The DAZZLE glare knobs (glare/halo fractions) are
-   * DELETED with the verb (amendment 134): FLASH SHELLS leaves no zone.
+   * ember layers INSIDE it. The star-shell DAZZLE glare knobs went with that
+   * verb at Story 8.17 (amendment 134).
    */
   burnZone: {
     /** An ember disc inside the ring, at this fraction of the zone radius,
@@ -2346,6 +2352,31 @@ export const CLIENT_CONFIG = {
      *  fraction of an ordinary hit's so standing in fire nudges instead of
      *  hammering (the tone + the zone under the hull carry the information). */
     burnShakeScale: 0.35,
+  },
+
+  /**
+   * FOULING SHELL FOUL ZONE (Story 9.4, epic-9 amendments 61–69) —
+   * render/foulZones.ts. FEEL ONLY: client knobs Eric may re-tune on staging;
+   * the server reads none of them (the zone's radius rides the wire as `r`).
+   * Ruling 68: the zone reads as its own kind at a glance. It wears the zone
+   * family's firer-hue glow ring (whose it is) and, inside it, Eric's pick
+   * "MURK AND NET" (amendment 69): a NORMAL-blend murk disc in
+   * `colors.foulMurk` that darkens the water, under a diagonal mesh of
+   * straight lines in the firer's hue, clipped to the murk. Nothing animates —
+   * a foul zone is static water; only the lit zone's expiry fade moves it.
+   */
+  foulZone: {
+    /** The murk disc's radius as a fraction of the zone radius. */
+    murkFrac: 0.8,
+    /** The murk disc's alpha (normal blend — it darkens). A soft rim at the full
+     *  zone radius is drawn at half this alpha. */
+    murkAlpha: 0.6,
+    /** u — spacing between the parallel net lines (both diagonals). */
+    netSpacingU: 14,
+    /** px-ish stroke width of a net line. */
+    netWidth: 1,
+    /** Alpha of the net lines (firer's hue, over the murk). */
+    netAlpha: 0.28,
   },
 
   /**
@@ -3155,9 +3186,9 @@ export const CLIENT_CONFIG = {
       dim: {
         /** Flat `minScale` at and inside this multiple of the observer's
          *  EFFECTIVE truesight — 1.0, i.e. the whole sight bubble (the ladder's
-         *  4/8 rung). A MULTIPLE and not a radius, because a dazzle burst shrinks
-         *  the bubble at read time (no boon widens radar range any more, but the
-         *  dazzle path still moves it, so the ramp stays observer-resolved). */
+         *  4/8 rung). A MULTIPLE and not a radius, because the bubble is a
+         *  boon-widened constant per build (no boon widens radar range any more),
+         *  so the ramp stays observer-resolved. */
         innerFactor: 1,
         /** Full painted opacity from this multiple of effective truesight out:
          *  the 5/8 rung expressed against the 4/8 one (= 1.25), so it stays a
@@ -3181,7 +3212,7 @@ export const CLIENT_CONFIG = {
          * ~60 u/s ≈ 720u): ~2047u, comfortably inside 4× base radar (2640u). The
          * span is deliberately NOT observer-scaled with the two factors above:
          * the sprite's world extent is what CLIPS the layer, so scaling it with a
-         * dazzled (shrunken) bubble would hide the far scope outright. Only the
+         * smaller bubble would hide the far scope outright. Only the
          * baked RAMP tracks the observer; the frame stays this fixed reach. It
          * is deliberately NOT sized to the viewport — the camera can show water
          * no paint has ever reached, and hiding a mask-less region that holds

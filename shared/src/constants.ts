@@ -651,18 +651,18 @@ export const CONFIG = {
     // constraint tests and the weapons smoke and by NO production code: at
     // RUNTIME the gate is OBSERVER-SCALED (amendment 121) and multiplies by
     // `detectFactor` below, never by this. The server resolves it as
-    // `sightOf(me, now) * detectFactor`, so a FLASH SHELLS dazzle shrinks it
-    // (sight → radarRange/8, sim/sight.ts — Story 8.17, amendment 132),
-    // with island LOS applied unchanged. Nothing WIDENS it any more: the card
-    // that once did (intelTruesight, merged into intelRange in cycle 92) was
-    // deleted in cycle 119, so the only live scale is dazzle. The resolver
-    // stays observer-scaled rather than flat — see epic-7 amendment 31.
+    // `sightOf(me, now) * detectFactor`, with island LOS applied unchanged.
+    // Nothing WIDENS it any more: the card that once did (intelTruesight,
+    // merged into intelRange in cycle 92) was deleted in cycle 119, and the
+    // FLASH SHELLS dazzle that once shrank it was retired with the FOULING
+    // SHELL (Story 9.4), so today sight is the derived `sightRange` alone. The
+    // resolver stays observer-scaled rather than flat — see epic-7 amendment 31.
     // 3/8 → 4/8 (Story 9.1, Eric ruling 2026-10-08: *"adjust the detection range
     // of all mines and torpedoes to 4/8, regular normal sight range"* — captive
     // mines were firing before they could be seen).
     detect: SIGHT * 1,
     // The runtime scale the detect gate multiplies an observer's own
-    // dazzle-scaled, boon-widened sight by. It is the SAME number as detect's
+    // boon-widened sight by. It is the SAME number as detect's
     // multiple above, by construction: `detect === sight * detectFactor` is
     // pinned in zone.test.ts precisely so the base rung and the runtime factor
     // can never drift apart. Never edit one without the other.
@@ -671,12 +671,12 @@ export const CONFIG = {
     // THE RUNTIME SCALE FOR THE 5/8 RUNG (Eric ruling 2026-08-16: *"It scales.
     // Intel range means your detection range on all levels gets further."*).
     // 0.625 = 5/8, and note it is a factor of `radarRange`, NOT of sight the way
-    // `detectFactor` above is. That difference is deliberate and load-bearing:
-    // `sightOf` is the ONLY place the dazzle factor enters perception, so
-    // anchoring this rung on radar range makes "a flash is a light source —
-    // dazzle does not shrink it" true BY CONSTRUCTION rather than by care. It is
-    // the same argument amendment 122 made when the foghorn moved onto intel
-    // range. Both numbers still describe the same circle, because `sightRange`
+    // `detectFactor` above is. That difference was load-bearing while FLASH
+    // SHELLS existed (Story 8.17 – 9.4): `sightOf` was the ONLY place the dazzle
+    // factor entered perception, so anchoring this rung on radar range made "a
+    // flash is a light source — dazzle does not shrink it" true BY
+    // CONSTRUCTION. It is the same argument amendment 122 made when the foghorn
+    // moved onto intel range. Both numbers still describe the same circle, because `sightRange`
     // is now DERIVED as radarRange/2 (sim/stats.ts).
     muzzleFlashFactor: 0.625,
     // u — 5/8: muzzle-flash carry (Story 4.3, amendment 15; MOVED from 6/8 to
@@ -696,8 +696,7 @@ export const CONFIG = {
     // long-range sensor. The flash still covers the D1 back-dated shell spawn
     // because 412.5 > 330, so amendment 15's masking coupling holds. Island
     // LOS applies (Eric ruling 2026-08-02: islands block EVERY sensor at ALL
-    // ranges); dazzle does NOT (a flash is a light source, not an illuminated
-    // object — signals.ts muzzleFlashSignal).
+    // ranges).
     muzzleFlash: SIGHT * 1.25,
     // u — 7/8: "far radar", where a mid-size hull's return reads BLUE rather
     // than RED. DERIVED: 1.75 × base truesight.
@@ -959,7 +958,7 @@ export const CONFIG = {
    * LISTENER's own intel range (`stats.radarRange`) on the eighths ladder
    * above (Story 4.9, amendment 122 — superseding amendment 53's sightOf /
    * muzzleFlash / radarRange tiers and retiring its max() clamps, since intel
-   * range is a quantity dazzle cannot touch). Never a flat foghorn constant,
+   * range is a quantity no sight reduction can touch). Never a flat foghorn constant,
    * and no CONFIG.vision constant was added for the horn (amendment 42). Horn
    * voices, the band → gain table, mix concurrency cap, chevron geometry and
    * TTL are all CLIENT-ONLY presentation (CLIENT_CONFIG.foghorn +
@@ -1692,7 +1691,8 @@ export const CONFIG = {
    * to EVERY non-owner hull whose centre is inside the WHOLE lit circle
    * (`burstRadius = litRadius`). Its old PHOSPHOR/DAZZLE verbs are DELETED
    * (amendment 134): PHOSPHOR SHELLS is its own weapon (`CONFIG.phosphorShells`)
-   * and DAZZLE is the FLASH SHELLS consumable (`CONFIG.flashShells`).
+   * and DAZZLE became the FLASH SHELLS consumable, itself replaced by the
+   * FOULING SHELL in Story 9.4 (`CONFIG.foulingShell`).
    * The zone CIRCLE itself is visible to any observer whose effective radar
    * range reaches its center (no LOS, no sweep gate — a flare in the sky),
    * tagged with the firer's id. NO range field: range is DERIVED from
@@ -1730,8 +1730,9 @@ export const CONFIG = {
     shellRadius: 2,
     // The INCENDIARY (`incendiaryRadiusFactor`/`incendiaryDps`) and DAZZLE
     // (`dazzleSightFactor`) doctrine fields are DELETED with the star-shell
-    // verbs (Story 8.17, epic-8 amendment 134): their numbers now live on
-    // `CONFIG.phosphorShells` and `CONFIG.flashShells` below.
+    // verbs (Story 8.17, epic-8 amendment 134). The incendiary numbers live
+    // on `CONFIG.phosphorShells` below; the dazzle went to FLASH SHELLS, which
+    // Story 9.4 replaced with `CONFIG.foulingShell`.
   },
 
   /**
@@ -1768,28 +1769,39 @@ export const CONFIG = {
   },
 
   /**
-   * FLASH SHELLS (Story 8.17, Eric ruling 2026-09-29, epic-8 amendments
-   * 131/132) — the DAZZLE SHELLS line re-cut as a CONSUMABLE (display
-   * name FLASH SHELLS; the internal id stays `dazzleShells`). The key primes,
-   * a click fires ONE 360° gun-pattern shell to the radar rung that bursts
-   * ONCE in `radius`: every non-friendly afloat hull whose centre is inside is
-   * dazzled for `durationMs` (a second flash sets the LATER expiry — never
-   * stacks, never shortens). While dazzled a hull's effective sight is
-   * `radarRange × sightFraction` (sim/sight.ts `effectiveSight` — 82.5 u at the
-   * base 660 u radar), replacing the old ×0.5-of-sight factor. NO lingering
-   * zone, no light, no reveal, no damage. No `EffectiveStats` row: a
-   * consumable's numbers are read straight from CONFIG (the consumable law).
+   * FOULING SHELL (Story 9.4, Eric ruling 2026-10-11, epic-9 amendments
+   * 61–68) — the engage/disengage consumable that replaced FLASH SHELLS on
+   * key `4`. It fires exactly as the flash did: the key primes, a click fires
+   * ONE 360° gun-pattern shell to the radar rung that deals zero damage,
+   * bursts once and hits nothing. Where it bursts (or where a hull or decoy
+   * stops it en route) it leaves a stationary FOUL ZONE of `radius` that
+   * lasts `durationMs`. Every afloat hull whose OUTLINE touches the zone —
+   * the owner included (a slow is not damage, so there is no friendly-fire
+   * exemption), PvE drones included — is stamped
+   * `fouledUntil = now + lingerMs` every tick it is inside, and runs at
+   * `slowFactor` × BOTH speed caps while that stamp is in the future, so the
+   * slow lingers `lingerMs` after the hull leaves. The same source never
+   * stacks: a hull holds one stamp, so two overlapping zones slow it once and
+   * a second shell only extends the clock. Different sources multiply: the
+   * fouling mine's slow and this one are two calls of the one
+   * `slowedKinematics` fold (sim/slow.ts). Nobody is stamped while damage is
+   * off (the pre-start phases). The zone is observed like a burn zone (owner
+   * always, spectator always, otherwise iff its centre is within radar
+   * range). No tiers and no `EffectiveStats` row: a consumable reads its
+   * numbers straight from CONFIG (the consumable law). Every number is a
+   * harness dial.
    */
-  flashShells: {
+  foulingShell: {
     arc: 'full', // 360° (sim/arcs.ts consumableArc)
-    // The star shell's mask: interception by a hull or a decoy flashes at the
-    // stop point; a flash never detonates a mine (amendment 135(d)).
+    // The star shell's mask: interception by a hull or a decoy bursts the
+    // shell at the stop point; it never detonates a mine.
     hits: HITS_HULL_DECOY,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
     shellRadius: 2, // u — shell collision radius (star-shell parity)
-    radius: 150, // u — the one-time burst radius
-    durationMs: 10000, // ms — how long a flashed hull stays dazzled
-    sightFraction: 0.125, // × radarRange — a dazzled hull's effective sight (1/8 of intel range)
+    radius: 150, // u — the foul zone's radius
+    durationMs: 15000, // ms — how long the foul zone lasts
+    slowFactor: 0.75, // × both speed caps while a hull's fouledUntil is in the future
+    lingerMs: 5000, // ms — the stamp each tick inside is now + lingerMs
   },
 
   /**

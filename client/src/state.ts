@@ -5,7 +5,7 @@
 // main.ts. Kept a leaf module: it imports only shared types, never render,
 // net, or input code.
 
-import type { BurnZoneView, CloudView, LitZoneView, OwnShip } from '@salvo/shared';
+import type { BurnZoneView, CloudView, FoulZoneView, LitZoneView, OwnShip } from '@salvo/shared';
 
 /** Coarse client phase. Expands (waiting/countdown/spectate) in later steps. */
 export type Phase = 'connecting' | 'active';
@@ -31,6 +31,11 @@ export interface NetState {
    *  [] when none — Story 8.17). Read by the burn classifier only: a burning
    *  zone reveals nothing, so it never feeds the fog or the projectile cull. */
   burnZones: BurnZoneView[];
+  /** Latest per-observer FOULING SHELL foul-zone list (mirrors
+   *  FrameMsg.foulZones; [] when none — Story 9.4). A foul zone reveals
+   *  nothing; its slow reaches this client only as the victim-private
+   *  `you.fouledUntil`, never from this list. */
+  foulZones: FoulZoneView[];
   /** The HELD MULTI-SPECTRAL COUNTERMEASURE cloud list (Story 9.3, epic-9
    *  amendment 51): every cloud any FrameMsg.clouds has delivered, held until
    *  its life ends on the frame's server time — a cloud once seen is held
@@ -69,7 +74,7 @@ export function createGameState(sessionId: string): GameState {
   return {
     phase: 'connecting',
     mode: 'predict',
-    net: { sessionId, tick: 0, ackSeq: 0, you: null, litZones: [], burnZones: [], clouds: [], heldClouds: new Map() },
+    net: { sessionId, tick: 0, ackSeq: 0, you: null, litZones: [], burnZones: [], foulZones: [], clouds: [], heldClouds: new Map() },
     respawnEta: null,
     spectating: false,
     killerId: null,

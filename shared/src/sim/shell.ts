@@ -144,14 +144,15 @@ export interface ShellState {
    */
   burn?: { radius: number; durationMs: number; dps: number };
   /**
-   * SERVER-INTERNAL flash tag (Story 8.17, FLASH SHELLS, epic-8 amendments 132
-   * and 135(d)): when set, a BURST of this shell — at its aim point, or at the
-   * stop point of an interception, exactly as a flare lights there — dazzles
-   * every non-friendly afloat hull whose centre is inside `radius` for
-   * `durationMs`. No zone, no light, no damage. stepShell never reads it;
-   * NEVER on the wire (the `lit` tag's exact posture).
+   * SERVER-INTERNAL foul tag (Story 9.4, FOULING SHELL, epic-9 amendments
+   * 61–68; it replaced Story 8.17's FLASH SHELLS `flash` tag): when set, a
+   * BURST of this shell — at its aim point, or at the stop point of an
+   * interception, exactly as a flare lights there — spawns a stationary FOUL
+   * ZONE of `radius` that lasts `durationMs`. No light, no reveal, no damage.
+   * stepShell never reads it; NEVER on the wire (the `lit` tag's exact
+   * posture).
    */
-  flash?: { radius: number; durationMs: number };
+  foul?: { radius: number; durationMs: number };
   /**
    * SERVER-INTERNAL no-aggro tag (Story 7-5 fix cycle, R2.21a): a hit by this
    * shell must aggro NOBODY at its owner — the GUN BUOY's shells carried it
@@ -352,8 +353,10 @@ function earlier(a: Hit | null, b: Hit | null): Hit | null {
  * THE blast-membership predicate — one rule for both the interception
  * proximity exception and burst victim resolution: is this hull polygon
  * within `radius` of the burst center (point-to-polygon distance, 0 inside)?
+ * Exported because the server's FOULING SHELL foul-zone outline test calls it
+ * (Story 9.4, epic-9 amendment 62).
  */
-function polyInBlast(center: Vec2, radius: number, poly: readonly Vec2[]): boolean {
+export function polyInBlast(center: Vec2, radius: number, poly: readonly Vec2[]): boolean {
   return pointPolygonDistance(center, poly) <= radius;
 }
 

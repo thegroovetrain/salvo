@@ -79,7 +79,7 @@ describe('star shells — shell construction', () => {
     expect(shell.contactDamage).toBe(20);
     expect(shell.hits).toEqual(CONFIG.starShells.hits); // still no mine bit — lighting never clears a minefield
     expect(shell.burn).toBeUndefined(); // a flare never burns (PHOSPHOR SHELLS is its own row)
-    expect(shell.flash).toBeUndefined(); // ...and never flashes (FLASH SHELLS is a belt row)
+    expect(shell.foul).toBeUndefined(); // ...and never fouls (the FOULING SHELL is its own consumable row, Story 9.4)
     expect(shell.burstRadius).toBe(LIT_R); // the burst IS the lit circle
     expect(shell.hitRadius).toBe(CONFIG.starShells.shellRadius); // own field — never the gun's
     expect(shell.kind).toBe('shell'); // rides the existing ballistic wire kind

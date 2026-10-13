@@ -1,6 +1,4 @@
 import { afterEach, describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { Container } from 'pixi.js';
 import { CONFIG, effectiveSight, type BallisticEvent, type TorpedoUpdateEvent } from '@salvo/shared';
 import {
@@ -106,7 +104,7 @@ describe('Projectiles.render — the lit-zone reveal survives the beyond-sight c
 //
 // The server now stops revealing — and stops sending `torpU` corrections for —
 // an ENEMY torpedo at the DETECT rung (3/8 of intel range = `detectFactor` ×
-// the observer's own dazzle-scaled, boon-widened sight), which is SHORTER than
+// the observer's own boon-widened sight), which is SHORTER than
 // the truesight ring shells still ride. Left sharing one cull, the client would
 // go on dead-reckoning an un-corrected fish across the gap the server
 // abandoned: the client inventing information it does not have. Shells DO NOT
@@ -132,11 +130,11 @@ describe('cullRadiusSq — two rings from ONE plumbed sight range', () => {
     expect(cullRadiusSq(SIGHT, 'torp')).toBe((SIGHT * CONFIG.vision.detectFactor + 40) ** 2);
   });
 
-  it('scales BOTH rings with the observer — a dazzle shrinks them together', () => {
-    const dazzled = SIGHT / 2;
-    expect(cullRadiusSq(dazzled, 'shell')).toBe((dazzled + 40) ** 2);
-    expect(cullRadiusSq(dazzled, 'torp')).toBe((dazzled * CONFIG.vision.detectFactor + 40) ** 2);
-    expect(cullRadiusSq(dazzled, 'torp')).toBeLessThan(cullRadiusSq(SIGHT, 'torp'));
+  it('scales BOTH rings with the observer — a smaller bubble shrinks them together', () => {
+    const narrow = SIGHT / 2;
+    expect(cullRadiusSq(narrow, 'shell')).toBe((narrow + 40) ** 2);
+    expect(cullRadiusSq(narrow, 'torp')).toBe((narrow * CONFIG.vision.detectFactor + 40) ** 2);
+    expect(cullRadiusSq(narrow, 'torp')).toBeLessThan(cullRadiusSq(SIGHT, 'torp'));
   });
 });
 
@@ -255,170 +253,24 @@ describe('Projectiles.render — the detect cull applies to ENEMY fish only (rev
   });
 });
 
-// --- REVIEW FIX: DAZZLE is plumbed into the cull rings ------------------------
+// --- the ENEMY rings are the shared effectiveSight ----------------------------
 //
-// The server's reveal ring for ballistics is `sightOf(me, now)`, which IS
-// dazzle-scaled; the client's cull rings were derived from the UN-dazzled
-// `stats.sightRange`, because main.updateDazzle told `radar` and `fog` about
-// the dazzle and never `projectiles`. A dazzled observer therefore kept dead-
-// reckoning a track the server had stopped correcting — the client inventing
-// information it does not have. This is the amendment-81 bug class exactly (a
-// dazzled observer with a shrunken fog hole and an unshrunken companion
-// circle), and it closes on BOTH rings: the pre-existing shell-side gap goes
-// with the new torpedo one.
+// The server's reveal ring for an enemy's ballistics is `sightOf(me, now)`, which
+// is the shared `effectiveSight`. Story 9.4 retired the FLASH SHELLS dazzle (the
+// `setDazzled` plumbing and its review-fix suites went with it); the contract that
+// remains is that the enemy ring is derived through that one function, and an own
+// track keeps the plain sight ring (never the detect ring).
 
-describe('Projectiles.setDazzled — both cull rings shrink with the observer (review fix)', () => {
-  const own = { x: 0, y: 0 };
-  // A FLASHED observer's truesight: the shared effectiveSight — 1/8 of the
-  // intel range, 82.5 u at base (Story 8.17, amendment 132; was sight × 0.5).
-  const DZ_SIGHT = effectiveSight({ sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar }, true);
-  const dazzledSightCull = DZ_SIGHT + 40;
-  const dazzledDetectCull = DZ_SIGHT * CONFIG.vision.detectFactor + 40;
-  const at = (k: 'shell' | 'torp', x: number): BallisticEvent => ({ k, id: 'p1', x, y: 0, vx: 0, vy: 0, t: 0 });
+describe('trackCullRadiusSq — the enemy ring is the shared effectiveSight', () => {
+  const ranges = { sightRange: CONFIG.vision.sight * 1.5, radarRange: CONFIG.vision.radar };
 
-  const live = (ev: BallisticEvent, dazzled: boolean): number => {
-    const p = new Projectiles(900, new Container());
-    p.setSightRange(CONFIG.vision.sight, CONFIG.vision.radar);
-    p.setDazzled(dazzled);
-    p.onShell(ev);
-    p.render(1, own, []);
-    return p.liveCount;
-  };
-
-  it('mirrors the Fog/Radar changed-flag contract', () => {
-    const p = new Projectiles(900, new Container());
-    expect(p.setDazzled(true)).toBe(true); // flipped
-    expect(p.setDazzled(true)).toBe(false); // idempotent
-    expect(p.setDazzled(false)).toBe(true);
-    expect(p.isDazzled).toBe(false);
+  it('an enemy shell culls at effectiveSight, an enemy fish at its detect fraction', () => {
+    expect(trackCullRadiusSq(ranges, 'shell', null)).toBe(cullRadiusSq(effectiveSight(ranges), 'shell'));
+    expect(trackCullRadiusSq(ranges, 'torp', null)).toBe(cullRadiusSq(effectiveSight(ranges), 'torp'));
   });
 
-  it('shrinks the SHELL ring to the dazzled sight (radar/8) — the pre-existing gap, closed', () => {
-    expect(live(at('shell', dazzledSightCull - 1), true)).toBe(1);
-    expect(live(at('shell', dazzledSightCull + 1), true)).toBe(0);
-    // ...and the SAME shell survives undazzled, which is the proof the ring moved.
-    expect(live(at('shell', dazzledSightCull + 1), false)).toBe(1);
-  });
-
-  it('shrinks the TORPEDO ring by the same factor, compounding with detectFactor', () => {
-    expect(live(at('torp', dazzledDetectCull - 1), true)).toBe(1);
-    expect(live(at('torp', dazzledDetectCull + 1), true)).toBe(0);
-    expect(live(at('torp', dazzledDetectCull + 1), false)).toBe(1);
-  });
-
-  it('uses the SHARED effectiveSight, never a local factor — 82.5 u at base', () => {
-    // The same function sightOf() calls server-side. If it is ever retuned,
-    // both sides move together — so this reads it rather than a literal.
-    expect(DZ_SIGHT).toBe(82.5);
-    expect(DZ_SIGHT).toBe(CONFIG.vision.radar * CONFIG.flashShells.sightFraction);
-    expect(cullRadiusSq(DZ_SIGHT, 'shell')).toBe((dazzledSightCull) ** 2);
-  });
-
-  it('restores both rings the moment the dazzle lifts', () => {
-    const p = new Projectiles(900, new Container());
-    p.setSightRange(CONFIG.vision.sight, CONFIG.vision.radar);
-    p.setDazzled(true);
-    p.setDazzled(false);
-    p.onShell(at('shell', CONFIG.vision.sight + 39));
-    p.render(1, own, []);
-    expect(p.liveCount).toBe(1);
-  });
-
-  it('a sight-stat change while dazzled keeps the dazzle applied — the flag is retained state', () => {
-    const p = new Projectiles(900, new Container());
-    p.setDazzled(true);
-    p.setSightRange(CONFIG.vision.sight * 2, CONFIG.vision.radar); // a boon lands mid-dazzle
-    p.onShell(at('shell', DZ_SIGHT + 40 + 1));
-    p.render(1, own, []);
-    expect(p.liveCount).toBe(0); // still dazzled — not silently reset by the boon
-  });
-});
-
-// --- REVIEW FIX: DAZZLE must not shrink the ring for OWNER-fired ordnance -----
-//
-// The server's ballistic rows short-circuit on `shell.ownerId === me.id` BEFORE
-// any range test at all (signals.ts `ballisticSignal` and `torpedoUpdateSignal`),
-// so the server NEVER stops revealing or correcting our OWN shell or fish —
-// dazzled or not. Shrinking the own ring under a dazzle is therefore a cull with
-// no server basis: a dazzled captain's own tracer would vanish at 205u instead
-// of 370u, the same class of error as applying the DETECT ring to an own fish.
-// A track the client believes is its own rides the UN-dazzled, sight-derived
-// ring — exactly its pre-Story-4.9 behavior; everything else rides the
-// dazzle-scaled ring, detect-derived for torpedoes.
-
-describe('Projectiles — an OWN track keeps the un-dazzled ring (review fix)', () => {
-  const origin = { x: 0, y: 0 };
-  const DZ_SIGHT = effectiveSight({ sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar }, true);
-  const OWN_CULL = CONFIG.vision.sight + 40; // 370u — un-dazzled truesight + margin
-  const dazzledSightCull = DZ_SIGHT + 40; // 122.5u at base stats (radar/8 + margin)
-  const at = (k: 'shell' | 'torp', x: number): BallisticEvent => ({ k, id: 'p1', x, y: 0, vx: 0, vy: 0, t: 0 });
-
-  const live = (ev: BallisticEvent, own: 'gun' | 'heavyTorpedo' | null): number => {
-    const p = new Projectiles(900, new Container());
-    p.setSightRange(CONFIG.vision.sight, CONFIG.vision.radar);
-    p.setDazzled(true);
-    p.onShell(ev, own, own);
-    p.render(1, origin, []);
-    return p.liveCount;
-  };
-
-  it('KEEPS a DAZZLED captain\'s OWN shell past the dazzled ring — the server never stopped revealing it', () => {
-    expect(live(at('shell', dazzledSightCull + 1), 'gun')).toBe(1);
-    expect(live(at('shell', OWN_CULL - 1), 'gun')).toBe(1);
-  });
-
-  it('KEEPS a DAZZLED captain\'s OWN fish out to the same truesight ring (never the detect ring either)', () => {
-    expect(live(at('torp', dazzledSightCull + 1), 'heavyTorpedo')).toBe(1);
-    expect(live(at('torp', OWN_CULL - 1), 'heavyTorpedo')).toBe(1);
-  });
-
-  it('...and still culls an own track at ITS ring — un-dazzled truesight, exactly as before this story', () => {
-    expect(live(at('shell', OWN_CULL + 1), 'gun')).toBe(0);
-    expect(live(at('torp', OWN_CULL + 1), 'heavyTorpedo')).toBe(0);
-  });
-
-  it('leaves the ENEMY rings dazzle-scaled — the fork is on OWNERSHIP, not on the dazzle', () => {
-    expect(live(at('shell', dazzledSightCull + 1), null)).toBe(0);
-    expect(live(at('torp', DZ_SIGHT * CONFIG.vision.detectFactor + 40 + 1), null)).toBe(0);
-  });
-});
-
-describe('main.updateDazzle — the dazzle actually reaches the projectile renderer (review fix)', () => {
-  // main.ts boots the whole app at module load and is never imported by a test
-  // (see foghorn.test.ts's note); this is the same SOURCE-SCAN technique. The
-  // bug being pinned is a plumbing omission, not a logic error, so the wiring
-  // itself is what has to be asserted: without this line every Projectiles
-  // instance in the real client stays permanently undazzled and the class-level
-  // tests above pass while the shipped game keeps the bug.
-  const MAIN_TS = readFileSync(join(process.cwd(), 'src', 'main.ts'), 'utf8');
-  const updateDazzle = MAIN_TS.slice(MAIN_TS.indexOf('function updateDazzle('));
-
-  it('fans the dazzle out to projectiles alongside radar and fog', () => {
-    const body = updateDazzle.slice(0, updateDazzle.indexOf('\n}'));
-    expect(body).toContain('g.radar.setDazzled(dazzled)');
-    expect(body).toContain('g.projectiles.setDazzled(dazzled)');
-    expect(body).toContain('g.fog.setDazzled(dazzled)');
-  });
-
-  it('sets it BEFORE the fog\'s changed-flag early-return, exactly as the radar is', () => {
-    const body = updateDazzle.slice(0, updateDazzle.indexOf('\n}'));
-    const fogGate = body.indexOf('g.fog.setDazzled');
-    expect(fogGate).toBeGreaterThan(-1);
-    expect(body.indexOf('g.projectiles.setDazzled')).toBeLessThan(fogGate);
-    expect(fogGate).toBeLessThan(body.indexOf('return;'));
-  });
-
-  it('runs BEFORE the projectile render, so the cull rings never lag the fog by a frame (review fix)', () => {
-    // The alive render path called `g.projectiles.render(...)` first and adopted
-    // the frame's dazzle state only afterwards, so on the frame a dazzle flips
-    // the projectiles culled against the PREVIOUS frame's rings while the fog
-    // and the radar had already moved. Same rule the neighbouring comment block
-    // ratifies for the radar: updateDazzle precedes its consumers.
-    const render = MAIN_TS.indexOf('g.projectiles.render(now, pose ?? undefined, ownZones)');
-    const dazzle = MAIN_TS.indexOf('updateDazzle(g, now);');
-    expect(render).toBeGreaterThan(-1);
-    expect(dazzle).toBeGreaterThan(-1);
-    expect(dazzle).toBeLessThan(render);
+  it('an own track rides the plain sight ring, for a fish too', () => {
+    expect(trackCullRadiusSq(ranges, 'torp', 'heavyTorpedo')).toBe(cullRadiusSq(ranges.sightRange, 'shell'));
   });
 });
 
@@ -610,7 +462,7 @@ describe('a reveal for a KNOWN id re-anchors the track (amendment 78)', () => {
     // Our own fish, genuinely claimed at launch.
     p.onShell(fish(), 'heavyTorpedo', 'heavyTorpedo');
     // It runs out past even the OWN (sight-derived) ring and is culled.
-    const far = Math.sqrt(trackCullRadiusSq({ sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar }, false, 'torp', 'heavyTorpedo')) + 10;
+    const far = Math.sqrt(trackCullRadiusSq({ sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar }, 'torp', 'heavyTorpedo')) + 10;
     p.onShell(fish({ id: 't1', x: far, y: 0, t: 0 })); // re-anchor it out there
     p.render(0, { x: 0, y: 0 }, []);
     expect(p.liveCount).toBe(0);

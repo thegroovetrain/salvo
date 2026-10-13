@@ -288,7 +288,7 @@ describe('cardKind — what the card does for the player', () => {
   });
 
   it('a consumable is a CONSUMABLE, an add-on an ADD-ON, and the words map one to one', () => {
-    for (const id of ['hullRepair', 'countermeasure', 'supercavTorpedo', 'dazzleShells']) {
+    for (const id of ['hullRepair', 'countermeasure', 'supercavTorpedo', 'foulingShell']) {
       expect(cardKind(CATALOG[id], 0), id).toBe('consumable');
     }
     expect(cardKind({ ...CATALOG.armor, kind: 'addon' } as CatalogLine, 0)).toBe('addon');
@@ -349,7 +349,7 @@ describe('cardTierLabel — the step, not the position', () => {
   it('shows NO ladder at all for a consumable or an add-on', () => {
     expect(cardTierLabel(CATALOG.hullRepair, 0)).toBeNull();
     expect(cardTierLabel(CATALOG.decoyBuoy, 0)).toBeNull();
-    expect(cardTierLabel(CATALOG.dazzleShells, 0)).toBeNull();
+    expect(cardTierLabel(CATALOG.foulingShell, 0)).toBeNull();
   });
 
   it('carries the same step as NUMBERS, so the DOM can tint each numeral', () => {
@@ -447,9 +447,8 @@ describe('the fitted toast', () => {
     expect(boonFitToastLine('decoyBuoy', 2, 'consumable')).toBe('◆ DECOY BUOY STOCKED');
     expect(boonFitToastLine('reload', 1, 'ladder')).toBe('◆ RELOAD FITTED');
     expect(boonFitToastLine('heavyTorpedo', 1, 'equipment')).toBe('◆ HEAVY TORPEDO FITTED');
-    // FLASH SHELLS (`dazzleShells`) is a CONSUMABLE since Story 8.17 (amendment
-    // 132) — stocked, and under its new display name.
-    expect(boonFitToastLine('dazzleShells', 1, 'consumable')).toBe('◆ FLASH SHELLS STOCKED');
+    // The FOULING SHELL (Story 9.4) is a CONSUMABLE — stocked, under its name.
+    expect(boonFitToastLine('foulingShell', 1, 'consumable')).toBe('◆ FOULING SHELL STOCKED');
     // An add-on (the kind the catalog keeps, unused) still reads FITTED.
     expect(boonFitToastLine('someFutureAddon', 1, 'addon')).toBe('◆ Some Future Addon FITTED');
   });

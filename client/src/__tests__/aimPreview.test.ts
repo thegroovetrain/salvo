@@ -852,7 +852,7 @@ describe('rim honesty — a shot whose ORIGIN is off the water', () => {
 // STORY 8.17 (amendments 131/132): the two new 360° shells preview on the
 // star-shell pattern — one shell to the click, clamped at the radar rung, with
 // the burst ring at the circle it will act on.
-describe('phosphor + flash shells — the star-shell preview pattern', () => {
+describe('phosphor + fouling shells — the star-shell preview pattern', () => {
   it('PHOSPHOR draws its (tiered) zone at the burst point, at DAMAGE weight', () => {
     const s = stats('phosphorShells', 'phosphorShells');
     const m = computeAimPreview(input({ id: 'phosphorShells', stats: s, aimDist: 300 }));
@@ -871,17 +871,17 @@ describe('phosphor + flash shells — the star-shell preview pattern', () => {
     expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(inp.stats.radarRange, 6);
   });
 
-  it('FLASH SHELLS draws the fixed CONFIG burst in the EFFECT register, to radar reach', () => {
-    const inp = input({ id: 'dazzleShells', aimDist: 99999 });
+  it('the FOULING SHELL draws the fixed CONFIG zone in the EFFECT register, to radar reach (Story 9.4)', () => {
+    const inp = input({ id: 'foulingShell', aimDist: 99999 });
     const m = computeAimPreview(inp);
     expect(m.bursts).toHaveLength(1);
-    expect(m.bursts[0].r).toBe(CONFIG.flashShells.radius);
-    expect(m.bursts[0].effect).toBe(true); // it blinds, it deals no damage
+    expect(m.bursts[0].r).toBe(CONFIG.foulingShell.radius);
+    expect(m.bursts[0].effect).toBe(true); // it slows, it deals no damage
     expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(inp.stats.radarRange, 6);
   });
 
   it('DIMS either circle when a rock stops the shell short', () => {
-    for (const id of ['phosphorShells', 'dazzleShells'] as const) {
+    for (const id of ['phosphorShells', 'foulingShell'] as const) {
       const m = computeAimPreview(
         input({ id, stats: stats('phosphorShells'), aimDist: 400, islands: [squareIsland(150, 0, 30)] }),
       );
@@ -904,10 +904,10 @@ describe('ownBurstRadius — our own blast, never anybody else’s', () => {
     expect(ownBurstRadius(s, 'starShells')).toBeUndefined();
   });
 
-  it('sizes an own PHOSPHOR burst off its zone and a FLASH burst off CONFIG (Story 8.17)', () => {
+  it('sizes an own PHOSPHOR burst off its zone and a FOULING SHELL burst off CONFIG', () => {
     const s = stats('phosphorShells', 'phosphorShells', 'phosphorShells');
     expect(ownBurstRadius(s, 'phosphorShells')).toBe(s.equipment.phosphorShells.zoneRadius);
-    expect(ownBurstRadius(s, 'dazzleShells')).toBe(CONFIG.flashShells.radius);
+    expect(ownBurstRadius(s, 'foulingShell')).toBe(CONFIG.foulingShell.radius);
   });
 
   // RETIRED with COMMAND DETONATION (Story 7-5 wave 1): no torpedo bursts at a

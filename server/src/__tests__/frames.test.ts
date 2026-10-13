@@ -77,7 +77,7 @@ describe('buildFrame — shape and clock', () => {
       // and the deck gun unless the client picked otherwise at the door.
       gun: 'deckGun',
       // (upg died with the legacy upgrade economy — Story 2.8 strip; slowedUntil
-      // / dazzledUntil are OMITTED, not 0, while inactive.)
+      // / fouledUntil are OMITTED, not 0, while inactive.)
       pts: 0, // no points banked
       offer: [], // no offer while pts is 0
       boostUntil: 0, // owner-only speed-boost window end; inactive

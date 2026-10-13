@@ -521,13 +521,15 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
     expect(cardStatRows(addon, 0, TB)).toEqual([]);
   });
 
-  // FLASH SHELLS (Story 8.17, amendment 135(j)): absolute rows, every number off
-  // CONFIG.flashShells, in the 8.16 belt register's uppercase units.
-  it('prints FLASH SHELLS as RADIUS 150 U / BLINDS 10 S / SIGHT 1/8 INTEL', () => {
-    expect(cardStatRows(CATALOG.dazzleShells, 0, TB)).toEqual([
-      { label: 'RADIUS', cur: null, next: `${CONFIG.flashShells.radius} U` },
-      { label: 'BLINDS', cur: null, next: `${CONFIG.flashShells.durationMs / 1000} S` },
-      { label: 'SIGHT', cur: null, next: '1/8 INTEL' },
+  // THE FOULING SHELL (Story 9.4, epic-9 amendment 66): absolute rows whose
+  // numbers are read off CONFIG.foulingShell (the contract: a re-tuned dial
+  // reaches the card), in the 8.16 belt register's uppercase units.
+  it('prints the FOULING SHELL rows from CONFIG.foulingShell (radius, life, speed factor)', () => {
+    const f = CONFIG.foulingShell;
+    expect(cardStatRows(CATALOG.foulingShell, 0, TB)).toEqual([
+      { label: 'RADIUS', cur: null, next: `${f.radius} U` },
+      { label: 'LASTS', cur: null, next: `${f.durationMs / 1000} S` },
+      { label: 'SPEED', cur: null, next: `×${f.slowFactor}` },
     ]);
   });
 

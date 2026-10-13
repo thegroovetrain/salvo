@@ -520,8 +520,8 @@ export interface OwnShip {
   /**
    * ms — server-clock time the PROP-FOULING slow on this ship ends (Story
    * 2.8); absent/0 = not slowed. The victim is slowed while `serverNow <
-   * slowedUntil`, driving the predictor's slowedKinematics fold (sim/slow.ts —
-   * composition pinned boosted → slowed → hooks) and any HUD tell. VICTIM-
+   * slowedUntil`, driving the predictor's first slowedKinematics fold
+   * (sim/slow.ts — the five-stage composition order is pinned there) and any HUD tell. VICTIM-
    * PRIVATE by construction (the boostUntil precedent): rides `you` and
    * NOTHING else — an enemy observer reads a fouled hull only through its
    * observed kinematics.
@@ -535,15 +535,18 @@ export interface OwnShip {
    */
   slowFactor?: number;
   /**
-   * ms — server-clock time the DAZZLE truesight reduction on this ship ends
-   * (Story 2.8; set by a FLASH SHELLS burst since Story 8.17, amendment 132);
-   * absent/0 = not dazzled. While dazzled the server's perception shrinks this
-   * ship's effective sight to 1/8 of its intel range (sim/sight.ts
-   * `effectiveSight`), and the client shrinks its own fog hole honestly from
-   * THIS field through the same function. VICTIM-PRIVATE exactly like
+   * ms — server-clock time the FOULING SHELL zone's slow on this ship ends
+   * (Story 9.4, epic-9 amendments 61–68; it replaced FLASH SHELLS'
+   * `dazzledUntil`). It is the zone's LINGER stamp: the server re-stamps it to
+   * `now + CONFIG.foulingShell.lingerMs` every tick this hull's outline is
+   * inside a foul zone, so it reads "slowed by a foul zone until". While
+   * `serverNow < fouledUntil` the predictor folds
+   * `CONFIG.foulingShell.slowFactor` through the second `slowedKinematics`
+   * call (sim/slow.ts — the five-stage composition). OMITTED when not in the
+   * future (never 0, never undefined). VICTIM-PRIVATE exactly like
    * `slowedUntil`.
    */
-  dazzledUntil?: number;
+  fouledUntil?: number;
   /**
    * ms — server-clock time this SINKING hull founders (Story 5.2, amendments
    * 13/16): `sinceMs + CONFIG.ship.sinkingWindowMs`, stamped at sink-entry via
@@ -932,8 +935,8 @@ export interface HitCallEvent {
  * any observer within the derived CONFIG.vision.muzzleFlash halo (the eighths
  * ladder's 5/8 rung, SIGHT * 1.25 — moved down from 6/8 by Story 4.9,
  * amendment 119) with island LOS clear — a declared, narrowly-scoped fog
- * exception (a flash is a light source: dazzle does not change how far it
- * carries, and no lit zone extends it). The halo still comfortably covers the
+ * exception (a flash is a light source: no lit zone extends how far it
+ * carries). The halo still comfortably covers the
  * back-dated spawn above, because it still exceeds the truesight bubble.
  *
  * ANTI-CHEAT — deliberately omitted: EVERY identity channel. No shooter id
@@ -1017,10 +1020,10 @@ export interface SmokeEvent {
  * range (`me.stats.radarRange`) the honker sits in — band 8 ends at the
  * listener's radar edge, and beyond band 8 NO event is emitted to that observer
  * at all. Anchoring on intel range rather than on
- * sight is what RETIRES amendment 53's max() clamps: dazzle never touches
- * radar range, so *dazzle cannot also DEAFEN* is now true BY CONSTRUCTION
- * rather than by defensive coding, and no arrangement of dazzle and cards can
- * invert the bands. Hearing therefore widens with `intelRadar` rather than
+ * sight is what RETIRED amendment 53's max() clamps: a sight reduction (the
+ * FLASH SHELLS dazzle, retired in Story 9.4) never touched radar range, so it
+ * could not also DEAFEN, by construction, and no arrangement of sight and
+ * cards can invert the bands. Hearing therefore widens with `intelRadar` rather than
  * with `intelTruesight` — a deliberate trade. No vision constant was added for
  * the foghorn (amendment 42's rule, still holding).
  *
@@ -1342,8 +1345,9 @@ export interface MineView {
  *
  * STORY 8.17 DELETED THE `phos`/`daz` FLAGS (Eric ruling 2026-09-29, epic-8
  * amendment 134): the star shell's PHOSPHOR and DAZZLE verbs are gone —
- * PHOSPHOR SHELLS burns through its own `BurnZoneView` channel and FLASH
- * SHELLS leaves no zone at all — so a lit zone only ever LIGHTS. KEY ORDER
+ * PHOSPHOR SHELLS burns through its own `BurnZoneView` channel (and the
+ * FOULING SHELL, FLASH SHELLS' Story 9.4 successor, slows through its own
+ * `FoulZoneView` channel) — so a lit zone only ever LIGHTS. KEY ORDER
  * (msgpack): id,x,y,r,until,by.
  */
 export interface LitZoneView {
@@ -1382,6 +1386,34 @@ export interface BurnZoneView {
 }
 
 /**
+ * A FOULING SHELL FOUL ZONE visible to this viewer (Story 9.4, Eric ruling
+ * 2026-10-11, epic-9 amendments 61–68), synced as CONTACT-LIKE state (not an
+ * event): FrameMsg.foulZones is recomputed per observer every tick. It is the
+ * BURN ZONE's shape byte-for-byte — the same six keys in the same order — and
+ * is gated like a burn zone (amendment 63): the OWNER always sees its own
+ * zones, spectators see all, and any other observer sees a zone iff its
+ * CENTER is within the observer's effective radar range (no island LOS, no
+ * sweep gate). It carries no owner build data beyond `by` (the firer's ship
+ * id, personal hue); `r` rides so the client stays dumb.
+ *
+ * A HAZARD ONLY: every hull whose outline touches it is slowed (the owner's
+ * included) — the server stamps the victim's private `OwnShip.fouledUntil`;
+ * nothing about the slow rides this row. It REVEALS NOTHING and is never a
+ * radar return. `until` is the server-clock expiry (drives the client's
+ * fade); a zone dropping out of the list means expired OR out of radar range
+ * — the client cannot tell (the mines precedent). KEY ORDER (msgpack, load-
+ * bearing): id,x,y,r,until,by.
+ */
+export interface FoulZoneView {
+  id: string;
+  x: number; // u — zone center
+  y: number; // u
+  r: number; // u — foul-zone radius
+  until: number; // ms — server time the zone expires
+  by: string; // the firer's ship id
+}
+
+/**
  * A DECOY BUOY visible to this viewer (Story 8.16, catalog-v3 R36/R41, epic-8
  * amendments 119–124), synced as CONTACT-LIKE state (not an event):
  * FrameMsg.decoys is recomputed per observer every tick, exactly like mines.
@@ -1396,7 +1428,7 @@ export interface BurnZoneView {
  * receives `by`, and a sighted observer already sees the hue.
  *
  * `hp` is PRESENT ONLY WHEN `own` (SELF-PRIVATE, the `OwnShip` `shield` /
- * `dazzledUntil` privacy idiom): the owner's readout of the decoy's
+ * `slowedUntil` privacy idiom): the owner's readout of the decoy's
  * remaining hull; the key is ABSENT for every other observer, never an
  * `undefined` value. Own-only field on an own-only object — it opens no new
  * disclosure and the perception exception count stays at SIX. A decoy
@@ -1510,6 +1542,9 @@ export interface FrameMsg {
   // per-observer PHOSPHOR burning-zone visibility (Story 8.17 — the lit-zone
   // gate, contact-like; omitted when none, the litZones rule)
   burnZones?: BurnZoneView[];
+  // per-observer FOULING SHELL foul-zone visibility (Story 9.4 — the burn-zone
+  // gate, contact-like; omitted when none, the litZones rule)
+  foulZones?: FoulZoneView[];
   decoys?: DecoyView[]; // per-observer decoy-buoy visibility (contact-like; omitted when none)
   // per-observer COUNTERMEASURE cloud visibility (Story 9.3 — contact-like;
   // omitted when none, the litZones rule). NOT the wounded `sm` SmokeEvent.

@@ -177,8 +177,8 @@ export const DIM_MASK_TEXTURE_SIZE = 1024;
  * LINEARLY to full at the 5/8 rung, flat at full everywhere beyond.
  *
  * IT TAKES THE OBSERVER'S EFFECTIVE TRUESIGHT, not a constant, because the ramp
- * is anchored to the sight bubble and the bubble moves (a dazzle burst shrinks
- * it; no boon widens radar range any more). Both stops come from
+ * is anchored to the sight bubble and the bubble is a boon-widened constant
+ * per build (no boon widens radar range any more). Both stops come from
  * render/radarDim.ts — the same pure curve the tests pin — so the drawn ramp and
  * the stated rule cannot drift. Re-baked only when that radius actually changes,
  * exactly as the fog hole is (render/radar.ts `syncDimMask`).
@@ -192,8 +192,8 @@ export const DIM_MASK_TEXTURE_SIZE = 1024;
  *
  * Follows `bakeFogTexture`'s `createRadialGradient` precedent. UNLIKE every other
  * bake here it does NOT happen once: cycle 92 anchored the ramp to the observer's
- * effective truesight, so it re-bakes whenever that radius moves (a boon, a dazzle
- * flip). Pass the live texture back as `into` to redraw it IN PLACE — see
+ * effective truesight, so it re-bakes whenever that radius moves (a sight
+ * boon). Pass the live texture back as `into` to redraw it IN PLACE — see
  * `bakeDimMaskTexture` below for why swapping-and-destroying is forbidden.
  */
 function drawDimMask(ctx: BakeCtx, sightU: number): void {
@@ -202,7 +202,7 @@ function drawDimMask(ctx: BakeCtx, sightU: number): void {
   // Resetting the channels a draw can depend on makes reuse structurally equivalent
   // to a mint: without it, the first future edit that adds a clip, a composite mode
   // or a transform would corrupt only the SECOND bake onward — i.e. only after a
-  // boon or a dazzle, which is exactly the path hardest to reproduce.
+  // sight boon, which is exactly the path hardest to reproduce.
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';

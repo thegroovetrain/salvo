@@ -436,8 +436,8 @@ export const WAKE_STAMP_MIN_MS = (CONFIG.vision.radarCellU / FASTEST_AFLOAT_SPEE
  * a second. So it rebuilds on the things that can actually change it:
  *
  *  • THE SIGHT RADIUS (`sightU`) — the complement's own boundary. It is a STEP
- *    function of discrete inputs (`fogHoleRadiusU({ sightRange, radarRange }, dazzled)`),
- *    so a dazzle onset/end moves it by a large
+ *    function of discrete inputs (`fogHoleRadiusU({ sightRange, radarRange })`),
+ *    so a sight-boon change moves it by a large
  *    fraction all at once and nothing else in this list notices. It was
  *    missing from the key (cycle-69 review gate, P6), which left a stationary
  *    observer double-painting or blanking the sight-delta band for up to a
@@ -494,7 +494,7 @@ export class WakeStampCache {
 
   private stale(version: number, own: Vec2, sightU: number, nowMs: number, seedT: number): boolean {
     // AHEAD OF THE FLOOR (see the class doc): the sight radius is a step
-    // function of dazzle and boons, so it cannot churn — but when it does move
+    // function of boons, so it cannot churn — but when it does move
     // it moves far, and holding a stamp built against the old radius for even
     // one floor interval is the double-paint P6 found.
     if (!(sightU === this.sight)) return true;

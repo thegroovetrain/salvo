@@ -516,7 +516,7 @@ export function stampCoverage(
  * the footprint arrives already rasterized AND fuzzed on the wire. Two
  * sources, one appearance, by construction — the inside/outside split
  * survives but stops being visible. Neither can double-stamp one hull,
- * because the two ranges are exact complements about the same dazzle-scaled
+ * because the two ranges are exact complements about the same effective-truesight
  * radius.
  *
  * `seedT` is the glint seed's time term. The caller passes the CURRENT SWEEP

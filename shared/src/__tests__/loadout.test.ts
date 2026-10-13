@@ -320,10 +320,11 @@ describe('SlotItemId — the disjoint union a slot may hold (Story 8.7)', () => 
     // in from the equipment space and `depthCharge` is new. SEVEN until Story
     // 8.17 (amendment 132): `dazzleShells` (FLASH SHELLS) moved in from the
     // add-on space. SEVEN again since Story 9.2: CHAFF retired (epic-9
-    // amendment 31).
+    // amendment 31). Story 9.4 replaced `dazzleShells` with `foulingShell`.
     expect(CONSUMABLE_IDS).toHaveLength(7);
-    expect(CONSUMABLE_IDS).toContain('dazzleShells');
-    expect((EQUIPMENT_IDS as readonly string[]).includes('dazzleShells')).toBe(false);
+    expect(CONSUMABLE_IDS).toContain('foulingShell');
+    expect((CONSUMABLE_IDS as readonly string[]).includes('dazzleShells')).toBe(false);
+    expect((EQUIPMENT_IDS as readonly string[]).includes('foulingShell')).toBe(false);
   });
 
   it('a LoadoutSlot may hold either kind — a weapon slot an EquipmentId, a consumable slot a ConsumableId', () => {
@@ -347,7 +348,7 @@ describe('SlotItemId — the disjoint union a slot may hold (Story 8.7)', () => 
 });
 
 describe('CONSUMABLE_IS_WEAPON / isWeaponItem — the split both activation channels read', () => {
-  it('is the exact table: the DECOY BUOY, the SUPERCAV TORPEDO and FLASH SHELLS are click-aimed (D21)', () => {
+  it('is the exact table: the DECOY BUOY, the SUPERCAV TORPEDO and the FOULING SHELL are click-aimed (D21)', () => {
     expect(CONSUMABLE_IS_WEAPON).toEqual({
       hullRepair: false,
       shieldBlock: false,
@@ -355,7 +356,7 @@ describe('CONSUMABLE_IS_WEAPON / isWeaponItem — the split both activation chan
       decoyBuoy: true, // click-placed in the mine's rear sector (catalog-v3 R1/R36, Story 8.16)
       depthCharge: false, // STUB, non-aimed until Eric rules (amendment 83)
       supercavTorpedo: true, // KEY PRIMES, CLICK FIRES — bow +/-15 deg (amendment 74)
-      dazzleShells: true, // FLASH SHELLS — KEY PRIMES, CLICK FIRES, 360° (Story 8.17, amendment 132)
+      foulingShell: true, // FOULING SHELL — KEY PRIMES, CLICK FIRES, 360° (Story 9.4; FLASH SHELLS' seat)
     });
     expect(Object.keys(CONSUMABLE_IS_WEAPON)).toEqual([...CONSUMABLE_IDS]);
     for (const value of Object.values(CONSUMABLE_IS_WEAPON)) expect(typeof value).toBe('boolean');
@@ -367,7 +368,7 @@ describe('CONSUMABLE_IS_WEAPON / isWeaponItem — the split both activation chan
 
   it('isWeaponItem agrees with CONSUMABLE_IS_WEAPON over every ConsumableId', () => {
     for (const id of CONSUMABLE_IDS) expect(isWeaponItem(id), id).toBe(CONSUMABLE_IS_WEAPON[id]);
-    expect(CONSUMABLE_IDS.filter((id) => isWeaponItem(id))).toEqual(['decoyBuoy', 'supercavTorpedo', 'dazzleShells']);
+    expect(CONSUMABLE_IDS.filter((id) => isWeaponItem(id))).toEqual(['decoyBuoy', 'supercavTorpedo', 'foulingShell']);
   });
 });
 
@@ -419,6 +420,10 @@ describe('THE KEY ROW — every consumable kind owns one fixed slot (Story 9.2, 
       expect(SLOT_ROLES[slot ?? -1], id).toBe('consumable');
       expect(consumableKindAt(slot ?? -1), id).toBe(id);
     }
+  });
+
+  it('key `4` is the FOULING SHELL — it took FLASH SHELLS\' key (Story 9.4)', () => {
+    expect(CONSUMABLE_KEY_ORDER[3]).toBe('foulingShell');
   });
 
   it('the DEPTH CHARGE stub has no slot and no key', () => {

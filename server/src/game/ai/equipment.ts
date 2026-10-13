@@ -31,8 +31,9 @@
 //   torpedo homingTurnRate — the credible-range gate widens (budget − turn room)
 //   broadside.spreadRung— the wide base fan may be spent on a just-lost plot;
 //                         a tightened fan demands a live track
-// (PHOSPHOR SHELLS is its own weapon row below; FLASH SHELLS (`dazzleShells`)
-// is a belt row in ai/consumables.ts.)
+// (PHOSPHOR SHELLS is its own weapon row below; the FOULING SHELL
+// (`foulingShell`, Story 9.4 — FLASH SHELLS' seat) is a row in
+// ai/consumables.ts.)
 //
 // No rng is drawn anywhere in want() — the mind's stream feeds aim scatter
 // and nothing else (the determinism pin).

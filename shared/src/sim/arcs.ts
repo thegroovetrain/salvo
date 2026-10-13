@@ -82,13 +82,14 @@ export function arcFor(id: SlotItemId): ArcShape {
  * (`CONFIG.supercavTorpedo`, amendment 74); the DECOY BUOY, which is
  * click-placed in the MINE's rear sector (`CONFIG.mine.offset` ±
  * `placeHalfArcDeg`, out to `placeRange` — Story 8.16, catalog-v3 R36); and
- * FLASH SHELLS (`dazzleShells`, Story 8.17, Eric ruling 2026-09-29, epic-8
- * amendment 132), a 360° gun-pattern shell (`CONFIG.flashShells.arc`) whose
- * reach is the star shell's — the post-fold `radarRange`. Every other line off
- * the `1`–`4` rail is an instant activation that aims nothing.
+ * the FOULING SHELL (`foulingShell`, Story 9.4, Eric 2026-10-11, epic-9
+ * amendments 61–68 — FLASH SHELLS' successor), a 360° gun-pattern shell
+ * (`CONFIG.foulingShell.arc`) whose reach is the star shell's — the post-fold
+ * `radarRange`. Every other consumable is an instant key activation that aims
+ * nothing.
  */
 function consumableArc(id: ConsumableId): ArcShape {
-  if (id === 'dazzleShells') return { kind: CONFIG.flashShells.arc };
+  if (id === 'foulingShell') return { kind: CONFIG.foulingShell.arc };
   if (id === 'decoyBuoy') return mineSector();
   if (id !== 'supercavTorpedo') return { kind: 'none' };
   return { kind: 'sector', offset: CONFIG.supercavTorpedo.offset, halfArc: CONFIG.supercavTorpedo.halfArc };

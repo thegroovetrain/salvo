@@ -13,10 +13,25 @@
 // decel, turnRate and steerageSpeed are untouched. Pure, zero I/O, plain
 // objects — never mutates its input.
 //
-// PINNED COMPOSITION ORDER (server AND predictor, byte-identical):
-//   boostedKinematics → slowedKinematics → draftedKinematics → hookKinematics
-// (boost first, slow second, the wake draft third, hooks last — see
-// sim/boost.ts, sim/draft.ts and sim/hooks.ts).
+// The FOULING SHELL's zone slow (Story 9.4, epic-9 amendments 61–68) runs
+// through this SAME function a second time, with
+// CONFIG.foulingShell.slowFactor gated on `now < fouledUntil`.
+//
+// PINNED COMPOSITION ORDER (server AND predictor, byte-identical) — five stages:
+//   boostedKinematics
+//   → slowedKinematics (mine:  ship.slowFactor,                  now < slowedUntil)
+//   → slowedKinematics (shell: CONFIG.foulingShell.slowFactor,   now < fouledUntil)
+//   → draftedKinematics
+//   → hookKinematics
+// (boost first, the two slows second and third, the wake draft fourth, hooks
+// last — see sim/boost.ts, sim/draft.ts and sim/hooks.ts).
+//
+// WHY TWO CALLS OF ONE FOLD: each slow SOURCE gets exactly one call, gated by
+// its own single stamp per hull. Two different sources (a mine and a shell
+// zone) are two calls, so their factors multiply. The same source is one stamp
+// and one call however many mines or zones refreshed it, so it never stacks
+// with itself. "Different sources multiply, the same source never" is true by
+// construction, not by bookkeeping.
 
 import type { ShipConfig } from './ship.js';
 

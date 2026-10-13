@@ -757,55 +757,56 @@ describe('a sighted ship paints from its Contact when the beam crosses it', () =
 
 });
 
-// --- the SOURCE SEAM is the drawn fog hole, dazzle included (amendment 89) ------
+// --- the SOURCE SEAM is the drawn fog hole, wherever it sits (amendment 89) -----
 
 describe('the source seam is `fogHoleRadiusU`, so client and server agree', () => {
   const SIGHT = CONFIG.vision.sight;
   const BASE = { sightRange: SIGHT, radarRange: CONFIG.vision.radar };
-  /** A FLASHED observer's truesight — the shared effectiveSight, 1/8 of the
-   *  intel range (82.5 u at base; Story 8.17, amendment 132). */
-  const DAZZLED = effectiveSight(BASE, true);
-  /** Between the dazzled hole and the un-dazzled one: the annulus a dazzle hands
-   *  from the client's synthesis to the server's blips. */
-  const MID = (SIGHT + DAZZLED) / 2;
+  /** A SYNTHETIC narrower observer truesight (nothing shrinks sight at runtime
+   *  since Story 9.4 retired the FLASH SHELLS dazzle, but the seam must follow
+   *  whatever radius `fogHoleRadiusU` answers). */
+  const NARROW = SIGHT * 0.375;
+  const SWEEP_MS = 60000 / CONFIG.vision.sweepRpm;
+  /** Between the narrow hole and the base one: the annulus a smaller bubble
+   *  hands from the client's synthesis to the server's blips. */
+  const MID = (SIGHT + NARROW) / 2;
+  const narrowed = (radar: ReturnType<typeof makeRadar>['radar']): void =>
+    radar.setRanges(NARROW, CONFIG.vision.radar, SWEEP_MS);
 
-  it('the seam radius IS fogHoleRadiusU, at base stats and dazzled', () => {
+  it('the seam radius IS fogHoleRadiusU, at base stats and narrowed', () => {
     const { radar } = makeRadar();
     // Called, not re-derived: it is also, by construction, the server's own
-    // dazzle-scaled `sightOf`. If either side ever changes, this equality is the
-    // thing that breaks — rather than a hull at the seam painting twice.
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, false));
-    expect(radar.setDazzled(true)).toBe(true); // mirrors Fog's changed-flag
-    expect(radar.isDazzled).toBe(true);
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, true));
-    // And that IS a shrink, to exactly one eighth of the intel range.
-    expect(radar.sightHoleU).toBe(82.5);
-    expect(radar.setDazzled(true)).toBe(false); // no-op flip reports no change
+    // `sightOf`. If either side ever changes, this equality is the thing that
+    // breaks — rather than a hull at the seam painting twice.
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE));
+    narrowed(radar);
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU({ ...BASE, sightRange: NARROW }));
+    expect(radar.sightHoleU).toBe(effectiveSight({ sightRange: NARROW }));
   });
 
-  it('a DAZZLE hands the annulus over: the client stops synthesizing there, '
-    + 'because the server has started blipping it', () => {
-    expect(MID).toBeGreaterThan(DAZZLED);
+  it('a narrower bubble hands the annulus over: the client stops synthesizing '
+    + 'there, because the server blips it', () => {
+    expect(MID).toBeGreaterThan(NARROW);
     expect(MID).toBeLessThan(SIGHT);
     const store = sightedStore(MID);
 
     const { radar } = makeRadar();
     revolution(radar, OWN, store);
-    expect(radar.bandAt(MID, 0), 'un-dazzled: ours to synthesize').toBeGreaterThanOrEqual(0);
+    expect(radar.bandAt(MID, 0), 'base bubble: ours to synthesize').toBeGreaterThanOrEqual(0);
 
-    const dazzled = makeRadar().radar;
-    dazzled.setDazzled(true);
-    revolution(dazzled, OWN, store);
-    expect(dazzled.bandAt(MID, 0), 'dazzled: the wire covers it').toBe(-1);
+    const narrow = makeRadar().radar;
+    narrowed(narrow);
+    revolution(narrow, OWN, store);
+    expect(narrow.bandAt(MID, 0), 'narrow bubble: the wire covers it').toBe(-1);
   });
 
-  it('and a dazzle never reaches back into a paint already on the scope', () => {
+  it('and a seam move never reaches back into a paint already on the scope', () => {
     const store = sightedStore(MID);
     const { radar } = makeRadar();
     revolution(radar, OWN, store);
     const band = radar.bandAt(MID, 0);
     expect(band).toBeGreaterThanOrEqual(0);
-    radar.setDazzled(true);
+    narrowed(radar);
     radar.render(OWN, 4250, store);
     expect(radar.bandAt(MID, 0), 'the existing mark is untouched').toBe(band);
   });
@@ -813,9 +814,9 @@ describe('the source seam is `fogHoleRadiusU`, so client and server agree', () =
   it('TWO SOURCES, ONE APPEARANCE (amendment 154): a wire footprint and a '
     + 'synthesized contact echo of the same pose paint IDENTICAL intensities', () => {
     // Same hull, same pose, same range, same observer — delivered once as a
-    // `Contact` (undazzled: inside the seam, the client rasterizes it) and
-    // once as the server's wire footprint (dazzled: the same annulus is the
-    // wire's). Both run the one shared rasterizer and the one stamp, so the
+    // `Contact` (base bubble: inside the seam, the client rasterizes it) and
+    // once as the server's wire footprint (narrow bubble: the same annulus is
+    // the wire's). Both run the one shared rasterizer and the one stamp, so the
     // buffers must agree cell for cell: the inside/outside split survives but
     // stops being visible.
     const pose = { x: MID, y: 0, heading: 0.7, cls: 'battleship' as const };
@@ -824,7 +825,7 @@ describe('the source seam is `fogHoleRadiusU`, so client and server agree', () =
     store.pushFrame(0, [{ id: 's', x: pose.x, y: pose.y, heading: pose.heading, speed: 0, cls: pose.cls }]);
     revolution(viaContact, OWN, store);
     const viaWire = makeRadar().radar;
-    viaWire.setDazzled(true);
+    narrowed(viaWire);
     viaWire.render(OWN, 900);
     // The wire mask is the fuzzed paint (cycle-63 gate) at the SAME glint seed
     // the contact source used: the adapter seeds a sighted hull's stamp with
@@ -862,7 +863,7 @@ describe('the source seam is `fogHoleRadiusU`, so client and server agree', () =
 
   it('A WIRE BLIP INSIDE THE BUBBLE PAINTS (amendment 147): a cloud-hidden hull '
     + 'arrives as an ordinary blip at bubble range, and nothing culls it', () => {
-    // Un-dazzled: the seam is the full 330 u, and MID sits well inside it —
+    // Base bubble: the seam is the full sight range, and MID sits well inside it —
     // territory that before 8.18 only ever held synthesized echoes. The server
     // blipped a hull a countermeasure cloud hid from sight there (Story 9.3, until
     // 2026-10-12 — the adapter contract stands either way); the adapter has no range

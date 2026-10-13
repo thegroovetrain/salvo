@@ -8,6 +8,8 @@
 // live); every other line is live, so 6 of the 7 consumables are live.
 // Story 9.3 (Eric 2026-10-11): SMOKE SCREEN's slot is now `countermeasure`
 // (MULTI-SPECTRAL COUNTERMEASURE, one cloud per press); counts unchanged.
+// Story 9.4 (Eric 2026-10-11): FLASH SHELLS' slot is now `foulingShell`
+// (FOULING SHELL, a stationary slowing zone); counts unchanged.
 //
 // THE COUNT MOVED 24/114 -> 23/109 IN STORY 9.2 (Eric 2026-10-11, epic-9
 // amendment 31): CHAFF is RETIRED so the key row is six keys. Every surviving
@@ -104,6 +106,11 @@ import {
  * IS the fold order, so it is part of the determinism contract — never
  * re-sort it.
  *
+ * STORY 9.4 CHANGED ONE SLOT'S STRING AND MOVED NOTHING (Eric 2026-10-11,
+ * epic-9 amendments 61–68): the slot `dazzleShells` (FLASH SHELLS) now reads
+ * `foulingShell` (FOULING SHELL) — the 9.3 `smokeScreen` -> `countermeasure`
+ * precedent. Same position, same kind, same cap; the count stays 23.
+ *
  * STORY 9.2 DELETED ONE ID AND MOVED NOTHING (24 -> 23): `chaff` is retired
  * (Eric 2026-10-11, epic-9 amendment 31).
  *
@@ -164,9 +171,10 @@ export const LINE_IDS = [
   // --- the former add-ons (NONE remains since Story 8.17) -------------------
   // Each slot is locked and each KIND changed: `foulingMines` to `equipment`
   // in Story 8.13; `dazzleShells` to `consumable` (FLASH SHELLS) and
-  // `phosphorShells` to `equipment` in Story 8.17 (amendments 131/132).
+  // `phosphorShells` to `equipment` in Story 8.17 (amendments 131/132). Story
+  // 9.4 replaced FLASH SHELLS with the FOULING SHELL in the same slot.
   'foulingMines',
-  'dazzleShells', // a CONSUMABLE since 8.17 — FLASH SHELLS
+  'foulingShell', // Story 9.4 (Eric 2026-10-11): replaces dazzleShells (FLASH SHELLS) in its slot
   'phosphorShells', // an EQUIPMENT line since 8.17
 ] as const;
 
@@ -567,9 +575,9 @@ export const CATALOG: Catalog = deepFreezeRows({
   // live (catalog-v3 R37/R36, epic-8 amendments 116–124), and Story 8.18
   // flipped SMOKE SCREEN (R38, amendments 138–145), leaving ONE stub — DEPTH
   // CHARGE — until its effect lands (6 live consumables). Story 9.3 (Eric
-  // 2026-10-11) replaced SMOKE SCREEN with the COUNTERMEASURE line. FLASH SHELLS (Story
-  // 8.17) is a live consumable that sits at the foot of the list with the
-  // former add-ons. CHAFF (R39) is RETIRED since Story 9.2 (epic-9 amendment
+  // 2026-10-11) replaced SMOKE SCREEN with the COUNTERMEASURE line. The
+  // FOULING SHELL (Story 9.4, replacing Story 8.17's FLASH SHELLS) is a live
+  // consumable that sits at the foot of the list with the former add-ons. CHAFF (R39) is RETIRED since Story 9.2 (epic-9 amendment
   // 31). Since 9.2 every live consumable owns a fixed key (sim/loadout.ts
   // CONSUMABLE_KEY_ORDER) — the belt and its `1`–`4` keys are gone.
   hullRepair: consumable('hullRepair'), // R13 — 50 instant + 50 pooled (CONFIG.hullRepair)
@@ -591,11 +599,11 @@ export const CATALOG: Catalog = deepFreezeRows({
     statEffect('equipment.foulingMines.slowFactor', { add: -0.05 }),
   ]),
   // HEAT SEEKING (R32) is CUT with the missile (Story 8.15, amendment 89e).
-  // FLASH SHELLS (internal id `dazzleShells`; R33 as ruled by Eric 2026-09-29,
-  // amendment 132): a CONSUMABLE, no longer a star-shell add-on — one
-  // 360° shell whose r150 burst dazzles every non-friendly hull inside for
-  // 10 s (sight → 1/8 of intel range). CONFIG.flashShells.
-  dazzleShells: consumable('dazzleShells'),
+  // FOULING SHELL (Story 9.4, Eric 2026-10-11, epic-9 amendments 61–68;
+  // replaces FLASH SHELLS in its slot): a CONSUMABLE — one 360° shell whose
+  // burst leaves a stationary zone that slows every hull whose outline
+  // touches it, the firer's included. CONFIG.foulingShell.
+  foulingShell: consumable('foulingShell'),
   // PHOSPHOR SHELLS (R33/R34 as ruled by Eric 2026-09-29, amendment 131): its
   // OWN tiered 360° weapon, no longer a star-shell add-on. Tiers II–V: damage
   // +2/+3/+2/+3 (20 → 30), burn +1/+1/+1/+2 hp/s (5 → 10), zone radius ×1.1

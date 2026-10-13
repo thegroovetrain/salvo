@@ -42,7 +42,6 @@ const ALL_TONE_IDS: ToneId[] = [
   'burn',
   'hitCall',
   'slowed',
-  'dazzled',
   'sink',
   'bounty',
   // the AGGRO STINGS (Story 5.6, amendment 40) — the matched acquire/release pair
@@ -117,16 +116,16 @@ describe('fireTone — weapon -> own-fire tone mapping', () => {
       'gun', 'broadside', 'starShells',
       'lightTorpedo', 'heavyTorpedo', 'supercavTorpedo',
       'navalMines', 'captiveMines', 'foulingMines',
-      'phosphorShells', 'dazzleShells',
+      'phosphorShells', 'foulingShell',
     ] as const;
     for (const id of ids) expect(TONES[fireTone(id)], id).toBeDefined();
   });
 
-  // STORY 8.17 — two new firing ids, NO new asset: a phosphor or flash shell
-  // leaves the deck exactly as a flare does, so both reuse its launch cue.
-  it('gives PHOSPHOR and FLASH SHELLS the star-shell launch cue', () => {
+  // STORY 8.17 / 9.4 — firing ids with NO new asset: a phosphor or fouling
+  // shell leaves the deck exactly as a flare does, so both reuse its launch cue.
+  it('gives PHOSPHOR SHELLS and the FOULING SHELL the star-shell launch cue', () => {
     expect(fireTone('phosphorShells')).toBe('fireStarShells');
-    expect(fireTone('dazzleShells')).toBe('fireStarShells');
+    expect(fireTone('foulingShell')).toBe('fireStarShells');
   });
 
   // STORY 8.13 — FOUR NEW FIRING IDS, NO NEW TONE (epic-8 amendments 74/76/81).
@@ -271,7 +270,7 @@ describe('bounty tone (Story 4.6) — the two-tone klaxon for taking the throne'
     expect(TONES.bounty.freqMid).toBeLessThan(TONES.bounty.freqStart);
     expect(TONES.bounty.freqEnd).toBeGreaterThan(TONES.bounty.freqMid);
     // Its high-register neighbours all glide ONE way and stop.
-    for (const id of ['kill', 'point', 'dazzled'] as const) {
+    for (const id of ['kill', 'point'] as const) {
       expect(TONES[id].freqMid).toBeGreaterThan(TONES[id].freqStart);
     }
   });
@@ -435,9 +434,9 @@ describe('fitDetune — one fit family, four kind voices', () => {
 
 // --- STORY 2.9: the victim tells + the burn treatment ---------------------------
 
-describe('the victim cues (Story 2.9) — burn / slowed / dazzled', () => {
+describe('the victim cues (Story 2.9) — burn / slowed', () => {
   it('are all inside the short-tone budget', () => {
-    for (const id of ['burn', 'slowed', 'dazzled'] as const) {
+    for (const id of ['burn', 'slowed'] as const) {
       expect(TONES[id].duration).toBeLessThanOrEqual(MAX_TONE_S);
     }
   });
@@ -448,14 +447,12 @@ describe('the victim cues (Story 2.9) — burn / slowed / dazzled', () => {
     expect(TONES.burn.volume).toBeLessThan(TONES.damage.volume); // a DoT tick, not a slam
   });
 
-  it('slowed SAGS and dazzled STINGS — opposite shapes, so the two never blur', () => {
+  it('slowed SAGS — the revs falling', () => {
     expect(TONES.slowed.freqEnd).toBeLessThan(TONES.slowed.freqStart); // revs falling
-    expect(TONES.dazzled.freqMid).toBeGreaterThan(TONES.dazzled.freqStart); // a wash upward
-    expect(TONES.dazzled.freqStart).toBeGreaterThan(TONES.slowed.freqStart * 2);
   });
 
-  it('neither tell can be confused with the denied refusal or a fire cue', () => {
-    for (const id of ['slowed', 'dazzled'] as const) {
+  it('the tell cannot be confused with the denied refusal or a fire cue', () => {
+    for (const id of ['slowed'] as const) {
       expect(TONES[id].type).not.toBe(TONES.denied.type); // never the square blat
       expect(TONES[id].noise).toBeUndefined(); // never a gun-family transient
     }
@@ -617,8 +614,8 @@ describe('the SOUND MAP catalog (Story 4.7) — six cues for the world, not for 
     for (const id of ['stormWarn', 'sink'] as const) {
       expect(TONES[id].freqMid, id).toBeLessThan(TONES[id].freqStart); // siblings fall monotonically
     }
-    // The catalog's only other rise-then-fall cues both settle ABOVE their start.
-    for (const id of ['matchStart', 'dazzled'] as const) {
+    // The catalog's only other rise-then-fall cue settles ABOVE its start.
+    for (const id of ['matchStart'] as const) {
       expect(TONES[id].freqEnd, id).toBeGreaterThan(TONES[id].freqStart);
     }
   });

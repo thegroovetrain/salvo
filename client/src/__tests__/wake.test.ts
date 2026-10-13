@@ -696,12 +696,12 @@ describe('WakeStampCache rebuilds on the three things that can change its answer
     expect(FASTEST_BOOSTED_HULL_SPEED).toBe(boostedOnly + boostedOnly * CONFIG.wake.draft.lift);
   });
 
-  // P6 — THE SIGHT RADIUS IS PART OF THE KEY. A dazzle onset/end moves
+  // P6 — THE SIGHT RADIUS IS PART OF THE KEY. A sight change (a boon) moves
   // `sightHoleU` with nothing else changing:
   // same observer, same segment set, same clock. Without it in the key, a
   // stationary observer double-painted (or blanked) the sight-delta band for up
   // to a full rebuild interval. It is checked AHEAD of the rate floor because a
-  // step function of dazzle cannot churn.
+  // step function of boons cannot churn.
   it('rebuilds the instant the sight radius moves, even inside the rate floor', () => {
     const sources = new WakeSources();
     const h = hull('a', 'battleship', 200, 30);
@@ -710,13 +710,13 @@ describe('WakeStampCache rebuilds on the three things that can change its answer
     sources.observe(h, 50);
     const cache = new WakeStampCache();
     const own = { x: 0, y: 0 };
-    // Dazzled: the segment at ~200u is OUTSIDE a halved bubble, so the wire owns
+    // Narrow: the segment at ~200u is OUTSIDE a halved bubble, so the wire owns
     // it and this stamp is empty.
-    const dazzled = cache.stampFor(sources, own, CONFIG.vision.sight / 2, 50, CELL, MODEL);
-    expect(dazzled.size).toBe(0);
-    // The dazzle ends one frame later — well inside the rate floor.
+    const narrow = cache.stampFor(sources, own, CONFIG.vision.sight / 2, 50, CELL, MODEL);
+    expect(narrow.size).toBe(0);
+    // The bubble widens one frame later — well inside the rate floor.
     const clear = cache.stampFor(sources, own, CONFIG.vision.sight, 60, CELL, MODEL);
-    expect(clear).not.toBe(dazzled);
+    expect(clear).not.toBe(narrow);
     expect(clear.size).toBeGreaterThan(0);
     // ...and back again, so the key is bidirectional rather than a ratchet.
     const again = cache.stampFor(sources, own, CONFIG.vision.sight / 2, 70, CELL, MODEL);

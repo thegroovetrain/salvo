@@ -127,7 +127,9 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // smoke puffs, `OwnShip.inSmoke` deleted and `CONFIG.countermeasure` with
     // its catalog line — a cloud carries no mask. 76 -> 77 (session 2, smoke is
     // paint): CONFIG.countermeasure shrinks to lifeMs/r0/r1, which the client
-    // reads — still no mask.
-    expect(PROTOCOL_VERSION).toBe(77);
+    // reads — still no mask. 77 -> 78 (Story 9.4) is `FrameMsg.foulZones`
+    // (`FoulZoneView`), `OwnShip.fouledUntil` replacing `dazzledUntil` and
+    // `CONFIG.foulingShell` with its catalog line — a foul zone carries no mask.
+    expect(PROTOCOL_VERSION).toBe(78);
   });
 });

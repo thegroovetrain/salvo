@@ -255,15 +255,16 @@ describe('eligibleLines — the whole eligibility law', () => {
     // amendments 131–134: DAZZLE SHELLS became the FLASH SHELLS consumable and
     // PHOSPHOR SHELLS its own weapon), but the `addon` kind and its draw law
     // stay in the engine — so the law is pinned on an INJECTED add-on, shaped
-    // exactly as the deleted DAZZLE SHELLS card was.
+    // exactly as the deleted DAZZLE SHELLS card was (injected over the
+    // `foulingShell` slot, which held DAZZLE SHELLS before Story 9.4).
     const WITH_ADDON: Catalog = {
       ...CATALOG,
-      dazzleShells: {
-        id: 'dazzleShells', kind: 'addon', cap: 1, appliesTo: ['starShells'],
+      foulingShell: {
+        id: 'foulingShell', kind: 'addon', cap: 1, appliesTo: ['starShells'],
         tiers: [[{ kind: 'doctrine', weapon: 'starShells', mode: 'dazzle' }]],
       },
     };
-    const has = (ship: DrawShip): boolean => eligibleLines(ship, WITH_ADDON).some((e) => e.id === 'dazzleShells');
+    const has = (ship: DrawShip): boolean => eligibleLines(ship, WITH_ADDON).some((e) => e.id === 'foulingShell');
     // Row open, no host held: held-ahead is allowed (amendment 89b).
     expect(has(OPEN)).toBe(true);
     // Row full, no host: the card would be dead, so it is not dealt.
@@ -271,7 +272,7 @@ describe('eligibleLines — the whole eligibility law', () => {
     // Row full WITH the host aboard: eligible again.
     expect(has({ ...CLOSED, held: ['starShells'] })).toBe(true);
     // ...and at its cap of 1 it leaves, host or no host.
-    expect(has({ ...CLOSED, held: ['starShells', 'dazzleShells'] })).toBe(false);
+    expect(has({ ...CLOSED, held: ['starShells', 'foulingShell'] })).toBe(false);
   });
 
   it('A CONSUMABLE IS ALWAYS ELIGIBLE — at its cap, always (amendment 94)', () => {
@@ -283,7 +284,7 @@ describe('eligibleLines — the whole eligibility law', () => {
         ...new Array<LineId>(CATALOG.shieldBlock.cap).fill('shieldBlock'),
         ...new Array<LineId>(CATALOG.countermeasure.cap).fill('countermeasure'),
         ...new Array<LineId>(CATALOG.decoyBuoy.cap).fill('decoyBuoy'),
-        ...new Array<LineId>(CATALOG.dazzleShells.cap).fill('dazzleShells'),
+        ...new Array<LineId>(CATALOG.foulingShell.cap).fill('foulingShell'),
       ],
     };
     const eligible = eligibleLines(capped);
@@ -460,7 +461,7 @@ describe('drawOffer — the shape of an offer', () => {
       shieldBlock: { ...CATALOG.shieldBlock, stub: true },
       countermeasure: { ...CATALOG.countermeasure, stub: true },
       decoyBuoy: { ...CATALOG.decoyBuoy, stub: true },
-      dazzleShells: { ...CATALOG.dazzleShells, stub: true },
+      foulingShell: { ...CATALOG.foulingShell, stub: true },
     };
     const held: LineId[] = [
       ...everyUpgradeCapped(),
@@ -478,13 +479,14 @@ describe('drawOffer — the shape of an offer', () => {
 
   it('a fully capped captain sees a FULL offer of consumables in production (Story 8.16 closes amendment 94\'s two-card offer)', () => {
     const held: LineId[] = [...everyUpgradeCapped()];
-    // FLASH SHELLS (`dazzleShells`) joined the live consumables in Story 8.17,
-    // SMOKE SCREEN in Story 8.18 (its slot is COUNTERMEASURE since Story 9.3).
-    for (const id of ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'countermeasure', 'decoyBuoy', 'dazzleShells'] as const) {
+    // FLASH SHELLS joined the live consumables in Story 8.17 (its slot is the
+    // FOULING SHELL since Story 9.4), SMOKE SCREEN in Story 8.18 (its slot is
+    // COUNTERMEASURE since Story 9.3).
+    for (const id of ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'countermeasure', 'decoyBuoy', 'foulingShell'] as const) {
       held.push(...new Array<LineId>(CATALOG[id].cap).fill(id));
     }
     const ship: DrawShip = { held, slotIds: ROW_FULL, mountedGun: 'gun' };
-    const live = ['countermeasure', 'dazzleShells', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
+    const live = ['countermeasure', 'decoyBuoy', 'foulingShell', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
     expect(eligibleLines(ship).map((e) => e.id).sort()).toEqual(live);
     for (let seed = 0; seed < 200; seed += 1) {
       const offer = drawOffer(ship, NO_WEIGHTS, mulberry32(seed));

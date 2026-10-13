@@ -3,6 +3,12 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  78 — Story 9.4 (Eric 2026-10-11, epic-9 amendments 61–68): FLASH SHELLS →
+ *  FOULING SHELL; `OwnShip.dazzledUntil` → `fouledUntil`; new
+ *  `FrameMsg.foulZones` channel (`FoulZoneView` {id,x,y,r,until,by}, the burn
+ *  zone's shape and gate); catalog content (`dazzleShells` → `foulingShell`,
+ *  `CONFIG.flashShells` → `CONFIG.foulingShell`, read by the client).
+ *  Perception exception count stays SIX.
  *  77 — Story 9.3 session 2: smoke is a client overlay; CONFIG.countermeasure
  *  shrinks to lifeMs/r0/r1 (the client reads it); nothing hidden server-side
  *  any more.
@@ -823,7 +829,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 77;
+export const PROTOCOL_VERSION = 78;
 
 // Tunables
 export * from './constants.js';

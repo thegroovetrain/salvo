@@ -103,7 +103,7 @@ function mind(profile: BotProfileId = 'duelist'): BotMind {
 }
 
 function view(over: Partial<PerceptionView> = {}): PerceptionView {
-  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], decoys: [], clouds: [], ...over };
+  return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [], ...over };
 }
 
 function contact(id: string, x: number, y: number, cls: HullId = 'battleship'): Contact {
@@ -194,7 +194,7 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
       duelist: {
         style: 'specialist',
         favoriteUpgrades: ['gun', 'turning', 'reload'],
-        favoriteConsumables: ['shieldBlock', 'dazzleShells'],
+        favoriteConsumables: ['shieldBlock', 'foulingShell'],
         favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
         beltHunger: 'low',
       },
@@ -208,7 +208,7 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
       siege: {
         style: 'specialist',
         favoriteUpgrades: ['weapons', 'radarSweep'],
-        favoriteConsumables: ['dazzleShells', 'supercavTorpedo'],
+        favoriteConsumables: ['foulingShell', 'supercavTorpedo'],
         favoriteWeapons: ['starShells', 'phosphorShells', 'broadside'],
         beltHunger: 'low',
       },
