@@ -90,6 +90,12 @@ const TUNE_FAMILIES = [
   // next tick), and a `slowFactor` above 1 is a speed-up zone (ledgered at
   // the 9.4 review gate with the fouling mine's identical factor gap).
   'foulingShell.',
+  // RAMMING / CONTACT DAMAGE (Story 9.5, Eric 2026-10-12, epic-9 amendment
+  // 73: "every number is a harness dial"): `energyPerHp` (the divisor of the
+  // energy law — floor 1 via TUNE_MIN_ONE_LEAVES, a 0 divides by zero),
+  // `grindPerUnit`, `allowanceU` and `landSoftness` (floor 0: a 0 allowance
+  // prices every touch, a 0 softness makes land free — both real arms).
+  'ram.',
   'starShells.',
   'boost.',
   'shipClasses.',
@@ -336,7 +342,7 @@ export function validateTuneKey(key: string): void {
  *      (the cloud expires at birth — an arm that measures nothing).
  *  Deliberately an EXPLICIT named set rather than a pattern: a floor is a
  *  refusal to run an arm, so each one is justified by a real call site. */
-const TUNE_MIN_ONE_LEAVES = new Set(['steerageSpeed', 'turnRate', 'shellSpeed', 'speed', 'hp', 'r0', 'lifeMs']);
+const TUNE_MIN_ONE_LEAVES = new Set(['steerageSpeed', 'turnRate', 'shellSpeed', 'speed', 'hp', 'r0', 'lifeMs', 'energyPerHp']);
 
 /** The per-key --tune floor. Reload/cooldown leaves are matched by
  *  CASE-INSENSITIVE SUFFIX, not by exact leaf name: a prefixed reload leaf

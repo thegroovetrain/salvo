@@ -325,7 +325,7 @@ export class FleetController {
     const unbeaching = this.updateStuck(ship, mind);
     const brg = this.steerTarget(ship, mind, unbeaching);
     const track = clampUnit(angleDiff(ship.state.heading, brg) * RUDDER_GAIN);
-    const rudder = clampUnit(track + this.avoidIslands(ship) + this.boundaryBias(ship));
+    const rudder = clampUnit(track + this.avoidIslands(ship) + this.avoidHulls(ship) + this.boundaryBias(ship));
     const shot = this.wantsShot(ship, mind);
     mind.seq += 1;
     return {
@@ -463,6 +463,28 @@ export class FleetController {
     return bias;
   }
 
+  /**
+   * HULL AVOIDANCE (Story 9.5, Eric ruling 2026-10-12, epic-9 amendment 78:
+   * "PvE drones get avoidance only — they steer clear of hulls; they never
+   * choose to ram"). The island point kernel summed over every OTHER afloat
+   * hull within `CONFIG.bots.hullLookaheadU` [DRAFT] — a hull ahead is rounded
+   * exactly like a headland. Reads `world.ships` directly: a fleet hull's
+   * steering already reads the whole world (this file is not perception-
+   * gated), and a solid hull is something every drone would feel anyway.
+   * The target it is hunting is NOT excepted — a drone never rams.
+   */
+  private avoidHulls(ship: ShipRecord): number {
+    const { x, y, heading } = ship.state;
+    const fx = Math.cos(heading);
+    const fy = Math.sin(heading);
+    let bias = 0;
+    for (const other of this.world.ships.values()) {
+      if (other === ship || !isAfloat(other.lifecycle)) continue;
+      bias += pointBias(other.state.x, other.state.y, x, y, fx, fy, CONFIG.bots.hullLookaheadU);
+    }
+    return bias;
+  }
+
   /** Near the map edge, steer back toward center. */
   private boundaryBias(ship: ShipRecord): number {
     const pos = ship.state;
@@ -528,13 +550,22 @@ function islandBias(isle: Island, x: number, y: number, fx: number, fy: number):
   if (Math.hypot(cdx, cdy) > ISLAND_LOOKAHEAD + isle.r) return 0; // bounding-circle broadphase
   const coast = nearestCoastPoint({ x, y }, isle);
   if (coast.dist > ISLAND_LOOKAHEAD) return 0;
-  const dx = coast.x - x;
-  const dy = coast.y - y;
-  if (dx * fx + dy * fy <= 0) return 0; // the coast point is astern
-  // cross(heading, toCoast) > 0 => land is to port (left); steer starboard
-  // (negative rudder = clockwise) and vice-versa.
-  const side = fx * dy - fy * dx;
-  return side > 0 ? -AVOID_STRENGTH : AVOID_STRENGTH;
+  return pointBias(coast.x, coast.y, x, y, fx, fy, ISLAND_LOOKAHEAD);
+}
+
+/**
+ * THE AVOIDANCE KERNEL — a rudder bias away from ONE hazard point lying ahead
+ * within `lookahead` (the island coast point, or since Story 9.5 another
+ * hull's centre). A hazard astern contributes nothing: you are already
+ * leaving it. cross(heading, toHazard) > 0 => the hazard is to port (left);
+ * steer starboard (negative rudder = clockwise) and vice-versa.
+ */
+function pointBias(hx: number, hy: number, x: number, y: number, fx: number, fy: number, lookahead: number): number {
+  const dx = hx - x;
+  const dy = hy - y;
+  if (Math.hypot(dx, dy) > lookahead) return 0;
+  if (dx * fx + dy * fy <= 0) return 0; // astern
+  return fx * dy - fy * dx > 0 ? -AVOID_STRENGTH : AVOID_STRENGTH;
 }
 
 /** The CONFIG.drones size key for a fleet hull, defaulting to `small` for a

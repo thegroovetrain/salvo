@@ -282,7 +282,7 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(TunableError);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(/not an equipment dial/);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(
-      /gun\.\*, machineGun\.\*, flak\.\*, instantReload\.\*, damageCut\.\*, broadside\.\*, torpedo\.\*, mine\.\*, captiveMines\.\*, foulingMines\.\*, countermeasure\.\*, foulingShell\.\*, starShells\.\*, boost\.\*, shipClasses\.\*/,
+      /gun\.\*, machineGun\.\*, flak\.\*, instantReload\.\*, damageCut\.\*, broadside\.\*, torpedo\.\*, mine\.\*, captiveMines\.\*, foulingMines\.\*, countermeasure\.\*, foulingShell\.\*, ram\.\*, starShells\.\*, boost\.\*, shipClasses\.\*/,
     );
     expect(() => applyOverrides({}, { 'zone.stormDps': 8 })).toThrow(/not an equipment dial/);
   });
@@ -353,6 +353,22 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(parseArgs(['--tune', 'gun.burstRadius=0']).tune).toEqual({ 'gun.burstRadius': 0 });
     // Apply-time too, for programmatic callers that bypass the CLI.
     expect(() => applyOverrides({}, { 'gun.reloadMs': 0 })).toThrow(TunableError);
+  });
+
+  it('the RAM dials are on the --tune surface (Story 9.5, amendment 73): energyPerHp floors at 1, the other three at 0', () => {
+    // A 0 divisor is 0/0 in the energy law; a 0 allowance prices every touch
+    // and a 0 softness makes land free — both are real arms.
+    expect(() => parseArgs(['--tune', 'ram.energyPerHp=0'])).toThrow(TunableError);
+    expect(() => parseArgs(['--tune', 'ram.energyPerHp=0'])).toThrow(/'ram\.energyPerHp'.*>= 1/);
+    expect(parseArgs(['--tune', 'ram.energyPerHp=1']).tune).toEqual({ 'ram.energyPerHp': 1 });
+    expect(parseArgs(['--tune', 'ram.allowanceU=0']).tune).toEqual({ 'ram.allowanceU': 0 });
+    expect(parseArgs(['--tune', 'ram.landSoftness=0']).tune).toEqual({ 'ram.landSoftness': 0 });
+    expect(() => parseArgs(['--tune', 'ram.grindPerUnit=-1'])).toThrow(/'ram\.grindPerUnit'.*>= 0/);
+    // Apply-time too, and the applied value is the one the sim reads.
+    expect(() => applyOverrides({}, { 'ram.energyPerHp': 0 })).toThrow(TunableError);
+    const restore = applyOverrides({}, { 'ram.allowanceU': 0 });
+    expect(CONFIG.ram.allowanceU).toBe(0);
+    restore();
   });
 
   it('the machine gun\'s reload dial is floored at 1, and the deleted idle clock is no dial at all', () => {
@@ -1236,6 +1252,10 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
   });
 });
 
+/** Story 9.5's contact damage switched off: no strike ever clears the
+ *  allowance and the grind rate is zero (every leaf a `--tune ram.*` dial). */
+const NO_CONTACT_DAMAGE = { 'ram.allowanceU': 1e9, 'ram.grindPerUnit': 0 } as const;
+
 describe('runner — winnerClass (Story 3.4 evidence field)', () => {
   it('a resolved match names the winning hull class; an unresolved one is null', () => {
     const cleared = runBatch({ seed: 3, matches: 1, captains: 1 });
@@ -1245,7 +1265,10 @@ describe('runner — winnerClass (Story 3.4 evidence field)', () => {
     expect(m.winnerClass).not.toBeNull();
     expect(SHIP_CLASS_IDS as readonly string[]).toContain(m.winnerClass);
 
-    const restore = applyOverrides({ 'zone.beatMs': 1000, 'zone.stormDps': 0 });
+    // Story 9.5: hulls are solid and contact costs hp, so two pacifists
+    // pressed together in the collapsed ring would grind each other down —
+    // the arm neutralizes contact damage too (the --tune ram.* dials).
+    const restore = applyOverrides({ 'zone.beatMs': 1000, 'zone.stormDps': 0 }, NO_CONTACT_DAMAGE);
     let unresolved;
     try {
       unresolved = runBatch({ seed: 11, matches: 1, captains: 2, control: CONTROL_REGISTRY.pacifist });
@@ -1304,7 +1327,8 @@ describe('runner — the unresolved outcome (tick budget, Story 3.1)', () => {
     // Two pacifists, harmless storm: nobody can ever win, so the
     // tick budget is the only way out. beatMs 1000 keeps the budget's timeline
     // half tiny (the endgame slack dominates: ~12.3k ticks — bounded, honest).
-    const restore = applyOverrides({ 'zone.beatMs': 1000, 'zone.stormDps': 0 });
+    // Story 9.5: contact damage is neutralized too (see the winnerClass case).
+    const restore = applyOverrides({ 'zone.beatMs': 1000, 'zone.stormDps': 0 }, NO_CONTACT_DAMAGE);
     let result;
     try {
       result = runBatch({ seed: 11, matches: 1, captains: 2, control: CONTROL_REGISTRY.pacifist });

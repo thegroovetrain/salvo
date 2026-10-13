@@ -133,6 +133,15 @@ export interface BotAggregate {
   /** Deaths at the hands of a PvE FLEET hull — armed, and not the brain's
    *  peers, so they are visible rather than folded into the bot-vs-bot column. */
   fleetDeaths: number;
+  /** Story 9.5: deaths whose last blow was hull contact (a ram or a grind,
+   *  with a killer) and groundings (the coast, no killer). */
+  contactDeaths: number;
+  groundingDeaths: number;
+  /** Story 9.5: whole hp the bots took from the coast over the campaign, and
+   *  its mean per bot-match — the cost readout beside the land-contact rate
+   *  (the deferred 7.3 % grounding thread, amendment 14). */
+  landDamage: number;
+  landDamagePerBotMatch: number;
   landContactRate: number;
   /** Longest UNBROKEN land-contact run over the whole campaign, sim-seconds —
    *  the "did a bot beach permanently" reading the rate alone cannot give. */
@@ -313,6 +322,7 @@ export function buildBotAggregate(result: BatchResult, botsPerMatch: number): Bo
     deaths,
     stormDeaths,
     fleetDeaths,
+    ...contactReadouts(rows),
     landContactRate: ratio(
       rows.reduce((a, r) => a + r.landTicks, 0),
       rows.reduce((a, r) => a + r.ticks, 0),
@@ -332,6 +342,17 @@ export function buildBotAggregate(result: BatchResult, botsPerMatch: number): Bo
   };
   agg.bars = buildBars(agg);
   return agg;
+}
+
+/** Story 9.5's four contact readouts (see BotAggregate). */
+function contactReadouts(rows: readonly BotSample[]): Pick<BotAggregate, 'contactDeaths' | 'groundingDeaths' | 'landDamage' | 'landDamagePerBotMatch'> {
+  const landDamage = rows.reduce((a, r) => a + r.landDamageTaken, 0);
+  return {
+    contactDeaths: rows.filter((r) => r.end === 'sunkByContact').length,
+    groundingDeaths: rows.filter((r) => r.end === 'ranAground').length,
+    landDamage,
+    landDamagePerBotMatch: ratio(landDamage, rows.length),
+  };
 }
 
 function tallyEndedBy(matches: readonly MatchSample[]): Record<string, number> {
@@ -398,9 +419,10 @@ export function renderBotReport(label: string, a: BotAggregate): string[] {
     `match length s: ${fmtSummary(a.durationS)}`,
     `endedBy: ${countLine(a.endedBy)}`,
     `bot-vs-bot kills: ${a.participantKills} | PvE fleet kills: ${a.pveKills}`,
-    `deaths: ${a.deaths} = ${a.deaths - a.stormDeaths - a.fleetDeaths} by participant + ${a.fleetDeaths} by PvE fleet + ${a.stormDeaths} by storm`,
+    `deaths: ${a.deaths} = ${a.deaths - a.stormDeaths - a.fleetDeaths - a.contactDeaths - a.groundingDeaths} by participant + ${a.fleetDeaths} by PvE fleet + ${a.contactDeaths} by ramming + ${a.groundingDeaths} aground + ${a.stormDeaths} by storm`,
     `levels earned: ${a.levelsEarned} | still banked at death/finish: ${a.levelsUnspent}`,
     `longest unbroken land-contact run: ${fmt(a.worstLandRunS, 1)}s (CONFIG.bots.stuckMs = ${CONFIG.bots.stuckMs}ms)`,
+    `land-contact damage: ${a.landDamage} hp total, ${fmt(a.landDamagePerBotMatch, 1)} hp mean per bot-match`,
     `per-match max kill share: ${fmtSummary(a.maxKillShare)} | matches breaching 40%: ${pct(a.killShareBreachRate)}`,
     '',
     'QUALITY BAR (spec 6-4 Verification):',

@@ -120,6 +120,8 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     decoysDeployed: 0,
     minesLaid: 0,
     damageDealt: 200,
+    contactDamageTaken: 0,
+    landDamageTaken: 0,
     ticks: 2000,
     landTicks: 0,
     draftTicks: 0,
@@ -219,6 +221,10 @@ describe('botReport — the quality bars', () => {
     expect(agg.byClass.find((g) => g.key === 'torpedoBoat')!.draftRate).toBeCloseTo(0.1, 6);
     expect(agg.byClass.find((g) => g.key === 'battleship')!.draftRate).toBe(0);
     const text = renderBotReport('baseline', agg);
+    // Story 9.5: the deaths line carries the two contact causes, and the
+    // land-contact damage line sits beside the land-contact run.
+    expect(text.some((l) => /by ramming/.test(l) && /aground/.test(l))).toBe(true);
+    expect(text.some((l) => /^land-contact damage:/.test(l))).toBe(true);
     const heads = text.filter((l) => l.includes('land%'));
     expect(heads).toHaveLength(2); // BY PROFILE and BY CLASS
     for (const h of heads) {
@@ -525,5 +531,30 @@ describe('botMetrics/botReport — gun and gun tier (balance campaign)', () => {
     expect(agg.byGun.find((g) => g.key === 'deckGun')!.wins).toBe(0);
     expect(draw.byGunTier[0].wins).toBe(0);
     expect(renderBotReport('x', agg).join('\n')).toContain('flak/T3');
+  });
+});
+
+
+describe('Story 9.5 — contact deaths and land-contact damage in the bot aggregate', () => {
+  it('counts ram kills and groundings off BotEnd, sums the land damage and means it per bot-match', () => {
+    const rows: BotSample[] = [
+      sample({ id: 'r1', end: 'sunkByContact', landDamageTaken: 10 }),
+      sample({ id: 'g1', end: 'ranAground', landDamageTaken: 30 }),
+      sample({ id: 'g2', end: 'ranAground', landDamageTaken: 0 }),
+      sample({ id: 's1', end: 'sunkByStorm' }),
+      sample({ id: 'p1', end: 'sunkByShip' }),
+      sample({ id: 'a1', end: 'alive' }),
+    ];
+    const agg = buildBotAggregate(result([rows]), rows.length);
+    expect(agg.deaths).toBe(5);
+    expect(agg.contactDeaths).toBe(1);
+    expect(agg.groundingDeaths).toBe(2);
+    expect(agg.stormDeaths).toBe(1);
+    expect(agg.landDamage).toBe(40);
+    expect(agg.landDamagePerBotMatch).toBeCloseTo(40 / 6, 9);
+    const text = renderBotReport('x', agg);
+    const deaths = text.find((l) => l.startsWith('deaths:'))!;
+    expect(deaths).toBe('deaths: 5 = 1 by participant + 0 by PvE fleet + 1 by ramming + 2 aground + 1 by storm');
+    expect(text).toContain('land-contact damage: 40 hp total, 6.7 hp mean per bot-match');
   });
 });

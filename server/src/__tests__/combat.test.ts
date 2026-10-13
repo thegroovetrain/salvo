@@ -278,8 +278,11 @@ describe('World combat — burst at the clicked point', () => {
     // 500 u/s for the whole gun family — Eric ruling 2026-07-25).
     const { w, a } = armed(1, 'battleship');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // hull ~10u from the click at (40,0)
-    b.state = { x: 40, y: 14.5, heading: 0, speed: 0 };
+    // Hulls are SOLID since Story 9.5: the enemy cannot sit inside the
+    // battleship's beam any more, so it stands bow-on to the click — its tip
+    // 12 u from (40,0), clear of the battleship's flank there.
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
+    b.state = { x: 40, y: 62, heading: -HALF_PI, speed: 0 };
     w.submitInput('a', gunInput(0, 40)); // 40u off the bow — well inside the muzzle
     const events = stepCollect(w, 5);
     const bursts = burstsOf(events);
@@ -290,17 +293,21 @@ describe('World combat — burst at the clicked point', () => {
   });
 
   it('aimDist 0 bursts at the OWN center: owner immune, an adjacent enemy still takes full damage', () => {
-    const { w, a } = armed(1, 'battleship');
+    // Hulls are SOLID since Story 9.5: nothing can stand inside the gun's
+    // 15 u burst of a battleship's centre without being inside the
+    // battleship, so the shooter is a torpedo boat and the enemy stands
+    // bow-on to its beam, tip 7 u from the burst point.
+    const { w, a } = armed(1, 'torpedoBoat');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // hull ~10u from the origin burst
-    b.state = { x: 0, y: 14.5, heading: 0, speed: 0 };
+    const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
+    b.state = { x: 0, y: 57, heading: -HALF_PI, speed: 0 };
     w.submitInput('a', gunInput(HALF_PI, 0)); // aimDist 0 — target = own center
     const events = stepCollect(w, 5);
     const bursts = burstsOf(events);
     expect(bursts).toHaveLength(1);
     expect(bursts[0].x).toBeCloseTo(0, 3);
     expect(bursts[0].y).toBeCloseTo(0, 3);
-    expect(a.hp).toBe(CONFIG.shipClasses.battleship.hp); // owner immune to its own burst
+    expect(a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp); // owner immune to its own burst
     expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.gun.damage);
   });
 

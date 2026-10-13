@@ -195,10 +195,14 @@ describe('wake drafting — the stepShips stamp and fold (Story 8.19)', () => {
     }
   });
 
-  it('(a) two hulls STACKED at the same point: neither lifts the other', () => {
+  it('(a) two hulls launched ABREAST and touching: neither lifts the other', () => {
+    // Hulls are SOLID since Story 9.5, so "stacked at the same point" cannot
+    // exist any more: these two spawn a beam apart (the contact pass seats
+    // them touching) and run together at the same speed — each inside the
+    // other's lane width, neither ever behind the other's stern.
     const w = bareWorld();
     const A = place(w, 'A', -1000, 0);
-    const B = place(w, 'B', -1000, 0);
+    const B = place(w, 'B', -1000, 9);
     for (let i = 0; i < 400; i++) {
       tick(w, { A: { throttle: 1 }, B: { throttle: 1 } });
       expect(A.draft).toBe(0);
@@ -209,18 +213,23 @@ describe('wake drafting — the stepShips stamp and fold (Story 8.19)', () => {
   it('(b) ONE TICK OLD: on the tick the leader\'s ribbon first makes the rider\'s spot draftable the rider\'s draft is still 0; it first rises on the next tick', () => {
     const w = bareWorld();
     const L = place(w, 'L', 0, 0);
-    const R = place(w, 'R', 2, 4); // on the leader's line, heading the same way, stopped
+    // Hulls are SOLID since Story 9.5: the rider can no longer sit on the
+    // leader's line for the leader to pass under it. It FOLLOWS instead —
+    // a hull length and a half astern on the leader's line, full ahead at the
+    // same speed, so the leader's ribbon reaches the water under it as both
+    // run on.
+    const R = place(w, 'R', -150, 4);
     let n = 0;
     // Until the water under R clears the stern-rule cut, every tick — up to
     // and INCLUDING tick N, whose sampleWakes appended the sample that put R
     // behind the lane head — reads a ribbon with no draftable water at R.
     while (liftNext(w, R, w.wakeRibbons) === 0) {
       expect(n++).toBeLessThan(400);
-      tick(w, { L: { throttle: 1 }, R: { throttle: 0 } });
+      tick(w, { L: { throttle: 1 }, R: { throttle: 1 } });
       expect(R.draft).toBe(0);
     }
     expect(L.wake.count).toBeGreaterThan(2);
-    tick(w, { L: { throttle: 1 }, R: { throttle: 0 } }); // tick N + 1
+    tick(w, { L: { throttle: 1 }, R: { throttle: 1 } }); // tick N + 1
     expect(R.draft).toBeGreaterThan(0);
   });
 

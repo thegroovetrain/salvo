@@ -210,7 +210,7 @@ export interface BotWorldPort {
 /** Posture is the one-word answer to "what am I doing this tick"; wave-3
  *  tactics turns it into throttle, rudder and trigger. Chosen on the DECISION
  *  cadence and cached on the mind between deliberations. */
-export type BotPosture = 'engage' | 'pursue' | 'disengage' | 'reposition' | 'farm' | 'ringRun';
+export type BotPosture = 'engage' | 'pursue' | 'disengage' | 'reposition' | 'farm' | 'ringRun' | 'ram';
 
 /**
  * A remembered contact — the decayed form of a live Contact or a radar blip

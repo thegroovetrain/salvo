@@ -59,6 +59,8 @@
 import {
   CONFIG,
   SHIP_CLASS_IDS,
+  contactHitDamage,
+  hullEnvelope,
   type BlipEvent,
   type Contact,
   type EffectiveStats,
@@ -588,6 +590,20 @@ function damageEstimate(t: BotTrack): number {
   return Math.min(1, t.hits / HITS_FOR_CRIPPLED);
 }
 
+/**
+ * hp — the target's REMAINING hull by the bot's own estimate (Story 9.5, the
+ * ram trigger's yardstick): `(1 − damageEstimate) × the class base hp`. The
+ * estimate is a 0..1 DAMAGE FRACTION built from self-private Hit Calls alone
+ * (three connections read as crippled, i.e. 0 remaining), so this is the
+ * same guess the scorer's "how hurt" term makes, in hp instead of a weight
+ * — never the target's real hp, which a bot cannot know. `baseHp` is
+ * `hullEnvelope(cls).hp` (a captain's class hp or a drone's envelope hp):
+ * the target's upgrades are private, exactly as they are to a human.
+ */
+function estimatedRemainingHp(t: BotTrack, baseHp: number): number {
+  return (1 - damageEstimate(t)) * baseHp;
+}
+
 /** 0..1 isolation: 1 when nothing else is tracked nearby, falling off as
  *  company arrives. */
 function isolation(
@@ -762,7 +778,7 @@ export function choosePosture(
   prev: BotPosture = 'reposition',
 ): BotPosture {
   if (ringEscaping(sit, prev === 'ringRun')) return 'ringRun';
-  if (sit.maxHp > 0 && sit.hp / sit.maxHp < sit.profile.disengageHpFrac) return 'disengage';
+  if (brokenHull(sit)) return wantsRam(sit, target) ? 'ram' : 'disengage';
   if (target === null) return 'reposition';
   const p = plotAt(sit, target);
   if (lineBlocked({ x: sit.x, y: sit.y }, p, sit.islands)) return 'pursue';
@@ -770,4 +786,54 @@ export function choosePosture(
   if (target.fleet && w.fleet >= w.captain) return 'farm';
   const band = engagementBand(sit.profile, sit.stats);
   return Math.hypot(p.x - sit.x, p.y - sit.y) <= band.max ? 'engage' : 'pursue';
+}
+
+/** Below the profile's disengage fraction — the survival clause's own test,
+ *  shared with the ram trigger so the two can never disagree about "broken". */
+function brokenHull(sit: BotSituation): boolean {
+  return sit.maxHp > 0 && sit.hp / sit.maxHp < sit.profile.disengageHpFrac;
+}
+
+/**
+ * THE RAM TRIGGER [DRAFT] (Story 9.5, Eric ruling 2026-10-12, epic-9
+ * amendment 77: "a bot rams only when it is already below its profile's
+ * disengage hp fraction AND the predicted hit at its current closing speed
+ * would sink the target by the bot's own damage estimate of that track").
+ * Evaluated only once `brokenHull` holds — it is the broken hull's LAST
+ * DITCH, never a healthy bot's opener — and it must ALL hold:
+ *   - the target is a LIVE SIGHTED contact with an id and a known class (a
+ *     radar blip has neither, and a lost plot cannot be aimed at);
+ *   - its plot lies within `CONFIG.bots.ramReachU` [DRAFT] — the reach knob;
+ *   - the HIT the shared energy law prices at the bot's current closing speed
+ *     (`contactHitDamage(mA = own effective max hull, mB = the target's
+ *     CLASS BASE hp, vn).b` — the target's share) is above zero (a strike
+ *     under the allowance lands nothing) and at least the target's remaining
+ *     hp by the bot's own estimate (`estimatedRemainingHp`: the Hit-Call
+ *     damage fraction against the same base hp; a thrice-hit target reads as
+ *     crippled, so ANY landing strike is judged to sink it).
+ * `vn` is kept simple: the bot's own |speed| plus whatever closing component
+ * the target's course adds along the bearing (a target running away adds 0;
+ * a target coming on adds its approach speed). The two knobs are `ramReachU`
+ * and the profile's `disengageHpFrac`; every profile carries it, no
+ * per-profile switch (amendment 77).
+ */
+function wantsRam(sit: BotSituation, target: BotTrack | null): boolean {
+  if (target === null || !target.live || target.id === null || target.cls === null) return false;
+  const p = plotAt(sit, target);
+  const dx = p.x - sit.x;
+  const dy = p.y - sit.y;
+  const d = Math.hypot(dx, dy);
+  if (d > CONFIG.bots.ramReachU) return false;
+  const baseHp = hullEnvelope(target.cls).hp;
+  const hit = contactHitDamage(sit.maxHp, baseHp, closingSpeed(sit, target, dx, dy, d), CONFIG.ram).b;
+  return hit > 0 && hit >= estimatedRemainingHp(target, baseHp);
+}
+
+/** u/s — own |speed| plus the target's approach component along the bearing
+ *  from the bot to its plot (0 when the target has no course, or is leaving). */
+function closingSpeed(sit: BotSituation, t: BotTrack, dx: number, dy: number, d: number): number {
+  const own = Math.abs(sit.speed);
+  const v = trackVelocity(t);
+  if (v === null || d === 0) return own;
+  return own + Math.max(0, -(v.vx * dx + v.vy * dy) / d);
 }

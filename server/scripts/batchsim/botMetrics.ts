@@ -61,8 +61,13 @@ const LAND_CONTACT_SLACK = 1;
  * or a captain in a mixed lobby); `sunkByFleet` is a PvE fleet hull — those are
  * gun-armed (drones.ts) and really do sink bots, and folding them into the
  * bot-vs-bot column would overstate how lethal the brain is to its peers.
+ * Story 9.5 splits two more off the victim's own `lastDamageSrc` (the gate's
+ * server-only stamp of what last took hp): `sunkByContact` — a killer AND
+ * the last blow was 'contact' (a ram or a grind, by anyone); `ranAground` —
+ * no killer AND the last blow was 'contact' (the coast). `sunkByStorm` keeps
+ * its meaning: no killer, and the storm was the last thing to bite.
  */
-export type BotEnd = 'alive' | 'sunkByShip' | 'sunkByFleet' | 'sunkByStorm';
+export type BotEnd = 'alive' | 'sunkByShip' | 'sunkByFleet' | 'sunkByContact' | 'ranAground' | 'sunkByStorm';
 
 /** One boon fit, stamped when its `bn` event fired: the card's catalog id and
  *  sim-seconds since activation. Array order IS build order — `bn` events are
@@ -116,6 +121,12 @@ export interface BotSample {
   minesLaid: number;
   /** hp dealt to other hulls (self-hits and storm excluded). */
   damageDealt: number;
+  /** Whole hp this bot TOOK from hull contact (rams and grinds, by any hull)
+   *  and from the coast (land strikes and scrapes) — `ShipRecord.
+   *  contactDamageTaken` / `landDamageTaken`, the gate's own tallies (Story
+   *  9.5), read at the last afloat tick. */
+  contactDamageTaken: number;
+  landDamageTaken: number;
   /**
    * PER-UPGRADE EVIDENCE (balance campaign, 2026-08-24) — the build itself.
    *
@@ -200,6 +211,8 @@ interface BotTrack {
   decoysDeployed: number;
   minesLaid: number;
   damageDealt: number;
+  contactDamageTaken: number;
+  landDamageTaken: number;
   landEpisodes: number;
   maxLandRunTicks: number;
   curLandRun: number;
@@ -230,6 +243,8 @@ function newTrack(): BotTrack {
     decoysDeployed: 0,
     minesLaid: 0,
     damageDealt: 0,
+    contactDamageTaken: 0,
+    landDamageTaken: 0,
     landEpisodes: 0,
     maxLandRunTicks: 0,
     curLandRun: 0,
@@ -381,7 +396,7 @@ export class BotCollector {
   private recordVictim(world: World, id: string, by: string | undefined, tS: number): void {
     const track = this.tracks.get(id);
     if (track === undefined) return;
-    track.end = endCause(world, by);
+    track.end = endCause(world, by, world.ships.get(id));
     track.lifeS = tS;
   }
 
@@ -426,6 +441,8 @@ export class BotCollector {
         decoysDeployed: track.decoysDeployed,
         minesLaid: track.minesLaid,
         damageDealt: track.damageDealt,
+        contactDamageTaken: track.contactDamageTaken,
+        landDamageTaken: track.landDamageTaken,
         ticks: track.ticks,
         landTicks: track.landTicks,
         draftTicks: track.draftTicks,
@@ -476,11 +493,17 @@ export function lifeSamples(rows: readonly BotSample[]): number[] {
   return rows.map((r) => r.lifeS).sort((a, b) => a - b);
 }
 
-/** Classify a sinking by its killer: none = the storm, a fleet hull = PvE,
- *  anything else = a participant. A killer whose record has already gone is
- *  treated as a participant — only fleet hulls are ever removed early. */
-function endCause(world: World, by: string | undefined): BotEnd {
-  if (by === undefined) return 'sunkByStorm';
+/** Classify a sinking by its killer and the victim's last blow (Story 9.5):
+ *  a last blow of 'contact' is a ram/grind kill with a killer and a grounding
+ *  without one; otherwise none = the storm, a fleet hull = PvE, anything else
+ *  = a participant. A killer whose record has already gone is treated as a
+ *  participant — only fleet hulls are ever removed early. The victim's
+ *  record is read at the `sunk` event, where `lastDamageSrc` is the sinking
+ *  blow's (founderSinking does not clear it). */
+function endCause(world: World, by: string | undefined, victim: ShipRecord | undefined): BotEnd {
+  const byContact = victim?.lastDamageSrc === 'contact';
+  if (by === undefined) return byContact ? 'ranAground' : 'sunkByStorm';
+  if (byContact) return 'sunkByContact';
   const killer = world.ships.get(by);
   return killer !== undefined && isFleetHull(killer) ? 'sunkByFleet' : 'sunkByShip';
 }
@@ -492,6 +515,8 @@ function readEconomy(track: BotTrack, ship: ShipRecord): void {
   track.boonsFitted = ship.cards.length;
   track.shots = ship.lastFireSeq;
   track.damageDealt = Math.round(ship.damageDealt * 10) / 10;
+  track.contactDamageTaken = ship.contactDamageTaken;
+  track.landDamageTaken = ship.landDamageTaken;
   track.gunTier = gunTierOf(ship);
   // Copy-on-grow keeps the 20Hz loop allocation-light: boons is append-only
   // within a life and a bot has exactly one, so length IS the change signal.

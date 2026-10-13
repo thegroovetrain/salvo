@@ -229,6 +229,32 @@ describe('fleet hulls — roving', () => {
     }
   });
 
+  it('HULL AVOIDANCE (Story 9.5, amendment 78): a hull ahead within hullLookaheadU biases the rudder away; drones never ram', () => {
+    // The drone sits OUTSIDE the ring pointed straight at its centre, so the
+    // track term is exactly zero and only an avoidance term can move the
+    // rudder — the ring-escape override outranks waypoints and targets.
+    const build = (hullAt: { x: number; y: number } | null): number => {
+      const w = bareWorld(9, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 1 });
+      const d = fleetShip(w, 'f', 'medium', 0, 0);
+      w.startZone();
+      for (let t = 0; t < 10; t++) w.step();
+      const ring = w.zoneLiveRing;
+      d.state.x = ring.cx + w.map.radius * 0.5;
+      d.state.y = ring.cy;
+      d.state.heading = Math.PI; // bow at the ring centre
+      d.state.speed = 0;
+      if (hullAt !== null) captain(w, 'cap', d.state.x + hullAt.x, d.state.y + hullAt.y);
+      w.step();
+      return w.inputs.get('f')!.rudder;
+    };
+    expect(CONFIG.bots.hullLookaheadU).toBeGreaterThan(70);
+    expect(build(null)).toBe(0);
+    expect(build({ x: -60, y: -20 })).toBeLessThan(0); // ahead (−x), to port of a hull heading π -> steer starboard
+    expect(build({ x: -60, y: 20 })).toBeGreaterThan(0); // to starboard -> steer port
+    expect(build({ x: 60, y: -20 })).toBe(0); // astern: nothing
+    expect(build({ x: -(CONFIG.bots.hullLookaheadU + 50), y: -20 })).toBe(0); // beyond the lookahead
+  });
+
   it('heads for the LIVE ring centre when caught outside the safe ring', () => {
     const w = bareWorld(9, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 1 });
     const d = fleetShip(w, 'f', 'medium', 0, 0);

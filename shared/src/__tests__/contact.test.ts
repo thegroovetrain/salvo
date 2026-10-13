@@ -177,6 +177,31 @@ describe('resolveHullContacts — closing and sliding speed', () => {
     expect(c.vn).toBeCloseTo(0, 9);
     expect(c.vt).toBeCloseTo(30, 9);
   });
+
+  it('two real bows meeting tip to tip read the full closing speed on the line of centres, not the sideways escape', () => {
+    // A speedboat (bow at +50) and a dreadnought (bow at +62, turned about)
+    // overlapping 5 u at the tips: the minimal geometric escape is nearly
+    // sideways (pointed bows slide off each other), but the contact speeds
+    // are measured on the line of centres, so the ram reads 45 + 35 = 80.
+    const a = body('a', hullSilhouette('torpedoBoat'), ship(0, 0, 0, 45), 250);
+    const b = body('b', hullSilhouette('battleship'), ship(50 + 62 - 5, 0, Math.PI, 35), 350);
+    const [c] = resolveHullContacts([a, b]);
+    expect(c.nx).toBeCloseTo(-1, 9);
+    expect(c.ny).toBeCloseTo(0, 9);
+    expect(c.vn).toBeCloseTo(80, 9);
+    expect(c.vt).toBeCloseTo(0, 9);
+  });
+
+  it('a deep overlap pushes the small hull AWAY from the big hull\'s centre, never through it', () => {
+    // The small hull's centre sits inside the big hull, past the point where
+    // the geometric escape would carry it out the far side: the push must
+    // still move it down (away from B's centre at y = +3), not up through B.
+    const a = body('a', hullSilhouette('torpedoBoat'), ship(0, 0, 0, 45), 250);
+    const b = body('b', hullSilhouette('battleship'), ship(0, 3, 0, 0), 350);
+    resolveHullContacts([a, b]);
+    expect(a.state.y).toBeLessThan(0);
+    expect(b.state.y).toBeGreaterThan(3);
+  });
 });
 
 describe('contact damage — Eric\'s calibration read from CONFIG.ram', () => {

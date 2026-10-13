@@ -48,6 +48,7 @@ import {
   type Rng,
   type SlotItemId,
   type ZoneRing,
+  contactHitDamage,
 } from '@salvo/shared';
 import { circleIsland } from './islandFixture.js';
 import type { PerceptionView } from '../game/perception.js';
@@ -662,6 +663,77 @@ describe('ai/utility — profile-weighted target selection', () => {
 });
 
 // --- posture ----------------------------------------------------------------
+
+describe('ai/utility — THE RAM TRIGGER [DRAFT] (Story 9.5, amendment 77)', () => {
+  const NOW = 20000;
+  const TB = stats('torpedoBoat');
+  const raider = profileOf('raider');
+  /** hp — just under the profile's disengage fraction: a BROKEN hull. */
+  const broken = TB.maxHp * raider.disengageHpFrac - 1;
+
+  /** A live SIGHTED target of class `cls` at `x`, heading `heading` at
+   *  `speed`, with `hits` Hit Calls already credited to its track. */
+  function sighted(cls: HullId, x: number, hits = 0, speed = 0, heading = Math.PI): BotTrack {
+    const m = mind('raider');
+    foldView(m, view({ contacts: [{ id: 'e1', x, y: 0, heading, speed, cls }] }), 1000);
+    const t = onlyTrack(m);
+    t.hits = hits;
+    t.seenAt = NOW; // seen THIS tick: the plot is its position, no dead-reckoning
+    return t;
+  }
+
+  function sit(over: Partial<BotSituation> = {}): BotSituation {
+    return situation({ now: NOW, profile: raider, stats: TB, hp: broken, maxHp: TB.maxHp, speed: TB.kinematics.maxSpeed, ...over });
+  }
+
+  it('fires in the ruled state: broken hull, sighted target in reach, predicted hit >= the estimated remaining hp', () => {
+    // A thrice-hit target reads as CRIPPLED (0 remaining) to the bot's own
+    // estimate, so any strike above the allowance is judged to sink it.
+    const crippled = sighted('droneMedium', 150, 3);
+    expect(CONFIG.bots.ramReachU).toBeGreaterThan(150);
+    expect(contactHitDamage(TB.maxHp, hullEnvelope('droneMedium').hp, TB.kinematics.maxSpeed, CONFIG.ram).b).toBeGreaterThan(0);
+    expect(choosePosture(sit(), crippled)).toBe('ram');
+    // ...and a FRESH target whose base hp the predicted hit covers outright —
+    // the target's own approach speed adds to the closing speed.
+    const fresh = sighted('droneSmall', 150, 0, 20, Math.PI);
+    const vn = TB.kinematics.maxSpeed + 20;
+    expect(contactHitDamage(TB.maxHp, hullEnvelope('droneSmall').hp, vn, CONFIG.ram).b).toBeGreaterThanOrEqual(hullEnvelope('droneSmall').hp);
+    expect(choosePosture(sit(), fresh)).toBe('ram');
+  });
+
+  it('holds with a healthy target the hit cannot sink: the broken hull disengages instead', () => {
+    const healthy = sighted('battleship', 150, 0);
+    const hit = contactHitDamage(TB.maxHp, hullEnvelope('battleship').hp, TB.kinematics.maxSpeed, CONFIG.ram).b;
+    expect(hit).toBeLessThan(hullEnvelope('battleship').hp);
+    expect(choosePosture(sit(), healthy)).toBe('disengage');
+  });
+
+  it('holds above the disengage fraction — a ram is a broken hull\'s last ditch, never an opener', () => {
+    const crippled = sighted('droneMedium', 150, 3);
+    expect(choosePosture(sit({ hp: TB.maxHp }), crippled)).not.toBe('ram');
+    expect(choosePosture(sit({ hp: TB.maxHp }), crippled)).not.toBe('disengage');
+  });
+
+  it('holds beyond ramReachU, for an unsighted plot, and for a plot with no class', () => {
+    expect(choosePosture(sit(), sighted('droneMedium', CONFIG.bots.ramReachU + 50, 3))).toBe('disengage');
+    const lost = sighted('droneMedium', 150, 3);
+    lost.live = false;
+    expect(choosePosture(sit(), lost)).toBe('disengage');
+    const anon = sighted('droneMedium', 150, 3);
+    anon.cls = null;
+    expect(choosePosture(sit(), anon)).toBe('disengage');
+  });
+
+  it('a strike under the allowance never triggers it, whatever the estimate says', () => {
+    const crippled = sighted('droneMedium', 150, 3);
+    expect(choosePosture(sit({ speed: CONFIG.ram.allowanceU }), crippled)).toBe('disengage');
+  });
+
+  it('the storm still outranks it', () => {
+    const crippled = sighted('droneMedium', 150, 3);
+    expect(choosePosture(sit({ ring: { cx: 5000, cy: 0, r: 100 } }), crippled)).toBe('ringRun');
+  });
+});
 
 describe('ai/utility — posture, and the dominance of ring escape', () => {
   const NOW = 20000;

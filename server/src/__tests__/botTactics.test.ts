@@ -597,6 +597,49 @@ describe('steering — the priority order is the policy', () => {
     expect(approachPoint(profileOf('raider'), peer)).toEqual({ x: peer.x, y: peer.y });
   });
 
+  it('HULL AVOIDANCE (Story 9.5, amendment 26): a live contact ahead biases the rudder away by the island sign law; a lost plot does not', () => {
+    const w = openWorld(106);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0); // bow due east
+    const mind = mkMind('raider');
+    // Ring centre dead ahead so the posture bearing contributes nothing;
+    // deliberate=false so the cached (no-target) posture stands.
+    port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
+    expect(CONFIG.bots.hullLookaheadU).toBeGreaterThan(70);
+    const ahead = track(port.now, { id: 'h1', x: 60, y: 20, live: true }); // ahead, to port
+    plot(mind, ahead);
+    expect(COMBAT_BRAIN.decide(rec, mind, port, false).rudder).toBeLessThan(0); // hull to port -> steer starboard
+    const starboard = track(port.now, { id: 'h1', x: 60, y: -20, live: true });
+    plot(mind, starboard);
+    expect(COMBAT_BRAIN.decide(rec, mind, port, false).rudder).toBeGreaterThan(0);
+    // A plot the bot cannot see right now is not a solid thing to steer around.
+    plot(mind, track(port.now, { id: 'h1', x: 60, y: 20, live: false }));
+    expect(COMBAT_BRAIN.decide(rec, mind, port, false).rudder).toBe(0);
+    // Astern or beyond the lookahead: nothing.
+    plot(mind, track(port.now, { id: 'h1', x: -60, y: 20, live: true }));
+    expect(COMBAT_BRAIN.decide(rec, mind, port, false).rudder).toBe(0);
+    plot(mind, track(port.now, { id: 'h1', x: CONFIG.bots.hullLookaheadU + 50, y: 20, live: true }));
+    expect(COMBAT_BRAIN.decide(rec, mind, port, false).rudder).toBe(0);
+  });
+
+  it('under RAM the target is the one hull not steered around: full ahead on its lead intercept', () => {
+    const w = openWorld(107);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0);
+    const mind = mkMind('raider');
+    port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
+    const target = track(port.now, { id: 't1', x: 60, y: 20, live: true, cls: 'droneMedium' as HullId });
+    plot(mind, target);
+    mind.targetKey = 't1';
+    mind.posture = 'ram';
+    const d = COMBAT_BRAIN.decide(rec, mind, port, false);
+    expect(d.throttle).toBe(1);
+    expect(d.rudder).toBeGreaterThan(0); // TOWARD the target to port, not away from it
+    // A second live hull ahead to starboard is still avoided while ramming.
+    plot(mind, track(port.now, { id: 'h2', x: 60, y: -20, live: true }));
+    expect(COMBAT_BRAIN.decide(rec, mind, port, false).rudder).toBeGreaterThan(d.rudder);
+  });
+
   it('a visible ENEMY mine ahead biases the rudder; the bot\'s own never does', () => {
     const w = openWorld(105);
     const port = fakePort(w);

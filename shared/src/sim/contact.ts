@@ -147,18 +147,32 @@ function resolvePair(p: ContactSolid, q: ContactSolid, out: HullContact[]): bool
   const a = swap ? q : p;
   const b = swap ? p : q;
   if (!polygonOverlapsSolid(a.poly, 0, 0, b)) return false;
+  // THE CONTACT NORMAL IS THE LINE OF CENTRES (B's centre toward A's), and
+  // the closing / sliding speeds are measured on it — NOT on the geometric
+  // escape direction. Two pointed bows meeting tip to tip have a minimal
+  // escape that is almost sideways (they would slide off each other), which
+  // would read a full-speed head-on ram as a 30 u/s glance; the line of
+  // centres reads it as the closing speed a captain sees (orchestrator
+  // ruling at the 9.5 build, probe on the real silhouettes).
+  const c = centreNormal(a, b, dc);
+  recordContact(a.body, b.body, c.nx, c.ny, out);
   // Translating A by r_A + r_B + dc along ANY direction separates the bounding
   // circles, so the cap never refuses a clearable pair; the exponential
   // bracket inside the core still finds the FIRST clearing (no teleport).
   const esc = solidEscape(a.poly, b, a.r + b.r + dc);
-  const n = esc ?? centreNormal(a, b, dc);
-  recordContact(a.body, b.body, n.nx, n.ny, out);
   if (esc === null) return false;
-  return push(a, b, esc.nx * esc.depth, esc.ny * esc.depth);
+  // The push follows the geometric escape — EXCEPT when that escape would
+  // carry A THROUGH B (its direction opposes the line of centres, which the
+  // core can return at a deep overlap where A's deepest vertex sits past B's
+  // midline): then the push runs along the line of centres instead, by the
+  // same depth, and the pair re-resolves next tick (bounded, never a teleport).
+  const through = esc.nx * c.nx + esc.ny * c.ny < 0;
+  const px = through ? c.nx : esc.nx;
+  const py = through ? c.ny : esc.ny;
+  return push(a, b, px * esc.depth, py * esc.depth);
 }
 
-/** Fallback normal (B's centre toward A's; +x when coincident) for a pair the
- *  core could not clear — the pair still counts as a contact this tick. */
+/** The contact normal: B's centre toward A's (+x when coincident). */
 function centreNormal(a: ContactSolid, b: ContactSolid, dc: number): { nx: number; ny: number } {
   if (dc === 0) return { nx: 1, ny: 0 };
   return { nx: (a.x - b.x) / dc, ny: (a.y - b.y) / dc };

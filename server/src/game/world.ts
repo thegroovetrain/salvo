@@ -23,6 +23,11 @@ import {
   applySlotEffect,
   cardBehaviors,
   boostedKinematics,
+  contactGrindRate,
+  contactHitDamage,
+  landGrindRate,
+  landHitDamage,
+  resolveHullContacts,
   boonStackCount,
   pickRefusal,
   polyInBlast,
@@ -92,7 +97,9 @@ import {
   type EffectiveStats,
   type ShipConfig,
   type ConsumableId,
+  type ContactBody,
   type HookRegistry,
+  type HullContact,
   type GameEvent,
   type GameMap,
   type HornId,
@@ -435,6 +442,61 @@ export interface ShipRecord {
    * not perception of the world. False for any hull not on the water.
    */
   landContact: boolean;
+  /**
+   * HOW SQUARE THIS TICK'S LAND CONTACT WAS — `resolveShipPose().headOn`
+   * stored beside `landContact` (Story 9.5): 0 = grazing along the coast,
+   * 1 = dead-on, 0 whenever `landContact` is false. The land strike reads it
+   * for the closing speed (`preDampSpeed × headOn`) and the land grind for the
+   * sliding speed (`preDampSpeed × √(1 − headOn²)`). Server-only.
+   */
+  landHeadOn: number;
+  /**
+   * `landContact` as it stood LAST tick (Story 9.5) — the land HIT fires on
+   * the false → true edge only (amendment 81: every FRESH strike costs by the
+   * closing speed; a hull that stays pressed pays the grind, never a second
+   * hit). Written by applyContactDamage after it has read the edge. Reset
+   * false at every life boundary (addShip / founderSinking / respawn /
+   * redeployShip). Server-only.
+   */
+  landWasContact: boolean;
+  /**
+   * |speed| as it stood AFTER this tick's kinematics and BEFORE
+   * applyGroundingDamp capped it (Story 9.5) — written by the
+   * resolveHullContacts row, read by applyContactDamage. The land strike is
+   * priced on the speed the hull ARRIVED with, not the quarter-speed cap the
+   * damp leaves it at. Server-only, per-tick scratch.
+   */
+  preDampSpeed: number;
+  /**
+   * THE GRIND POOLS (Story 9.5, amendment 25 / 81): the fractional hp this
+   * hull has accrued from hull-to-hull grinding (`grindPool`) and from
+   * scraping along a coast (`landGrindPool`). The rates are per second and
+   * unfloored (shared `contactGrindRate` / `landGrindRate`); every tick's
+   * share lands here, and whole hp is applied through the damage gate as the
+   * pool crosses each integer, the remainder kept (Eric's integer-damage
+   * rule). Server-only. Reset 0 at every life boundary.
+   */
+  grindPool: number;
+  landGrindPool: number;
+  /**
+   * WHAT LAST TOOK HP OFF THIS HULL (Story 9.5) — stamped by applyDamage when
+   * `dealt > 0`, null until the first blow of a life. The harness reads it off
+   * the victim's record at the `sunk` event to tell a ram kill (`byId`
+   * defined, src 'contact') and a grounding death (no killer, src 'contact')
+   * from the rest; the kill feed keeps today's lines (amendment 76), so this
+   * never rides the wire. Reset null at respawn / redeployShip (NOT at
+   * founderSinking — the sink-time reading is the one the harness takes).
+   */
+  lastDamageSrc: DamageSource | null;
+  /**
+   * Whole hp this hull has TAKEN from 'contact' damage this life, split by
+   * whether another hull dealt it (`contactDamageTaken` — a ram or a grind,
+   * `byId` defined) or the coast did (`landDamageTaken` — `byId` undefined).
+   * Accumulated in applyDamage from `dealt`; harness readouts only (Story
+   * 9.5), never on the wire. Reset 0 at respawn / redeployShip.
+   */
+  contactDamageTaken: number;
+  landDamageTaken: number;
   /**
    * THE WAKE RIBBON this hull is CURRENTLY laying (Story 4.12, amendments
    * 194/200/205): the shared ring buffer of pose samples the per-observer
@@ -1154,8 +1216,12 @@ function sweepMask(hits: readonly TargetKind[]): readonly TargetKind[] {
  * 'storm' emits no `dmg`, skips the assist ledger AND is exempt from the
  * DAMAGE CUT (amendment 101), everything else takes the immediate
  * victim-private `dmg`. 'missile' was declared ahead of the horizontal missile
- * and DELETED with it (Story 8.15, amendment 89e); 'contact' is the
- * decoy-contact seat (Story 8.16).
+ * and DELETED with it (Story 8.15, amendment 89e); 'contact' is ramming /
+ * grinding / land contact (Story 9.5, epic-9 amendments 25, 73–82): a hull
+ * hit or ground by another hull (`byId` = the other hull — damage credit and
+ * the kill like a shell) or by the coast (`byId` undefined — no credit, a
+ * `dmg`, the feed's `LOST WITH ALL HANDS` line). It was declared as the
+ * decoy-contact seat (Story 8.16) and never used until 9.5.
  */
 export type DamageSource =
   | 'shell'
@@ -1313,6 +1379,26 @@ export class World {
   // behaves exactly like the pre-lifecycle simulation; Match imposes phase
   // policy on top (waiting/countdown: no damage; active: no respawn).
 
+  /**
+   * THE HULL-CONTACT SEAM (Story 9.5, amendments 25, 73–82) — the private
+   * per-tick stores the two contact rows share, reused every tick:
+   *   - `contactBodies`: one `ContactBody` per hull, cached by id so the 20 Hz
+   *     loop allocates nothing per tick; `mass` is re-read from
+   *     `ship.stats.maxHp` (effectiveStats — the ONLY mass source) every tick
+   *     and `poly` aliases the record's `hullPoly` scratch.
+   *   - `hullContacts`: this tick's overlapping pairs, written by
+   *     resolveHullContacts and read by applyContactDamage.
+   *   - `contactLatch`: the ONCE-PER-CONTACT latch — the sorted pair key of
+   *     every pair that overlapped last tick. A pair hits on the first tick it
+   *     overlaps (or arms without damage under the allowance) and cannot hit
+   *     again until a tick in which it did not overlap re-arms it.
+   * Nothing here rides the wire.
+   */
+  private readonly contactBodies = new Map<string, ContactBody>();
+  private readonly contactBodyList: ContactBody[] = [];
+  private readonly hullContacts: HullContact[] = [];
+  private readonly contactLatch = new Set<string>();
+  private readonly contactKeysNow = new Set<string>();
   /** False = target practice: shells/mines/storm land but deal no damage. */
   damageEnabled = true;
   /** False = sinkShip schedules NO respawn (active phase: death → spectate). */
@@ -1827,6 +1913,7 @@ export class World {
       cls,
       hullPoly: [],
       prevPose: { x: p.x, y: p.y, heading: 0, speed: 0 }, landContact: false,
+      landHeadOn: 0, landWasContact: false, preDampSpeed: 0, grindPool: 0, landGrindPool: 0, lastDamageSrc: null, contactDamageTaken: 0, landDamageTaken: 0, // Story 9.5 (clearContactState / clearContactTally)
       // THE SWEEP STARTS AT THE HULL'S HEADING (Eric ruling 2026-08-16), at
       // EVERY placement edge — here, redeployShip and respawn — so there is one
       // rule and not three. Constructing every hull at 0 phase-LOCKED the whole
@@ -2069,6 +2156,7 @@ export class World {
       this.orphanWakes.push(ship.wake);
     }
     this.ships.delete(id);
+    this.contactBodies.delete(id); // Story 9.5: the latch re-arms by itself next tick
     this.inputs.remove(id);
     this.drones.remove(id);
     this.bots.remove(id);
@@ -2188,6 +2276,8 @@ export class World {
     // construction, and a carried-over `true` would arm an un-beach reverse on
     // a hull sitting in open water at the start line.
     ship.landContact = false;
+    World.clearContactState(ship); // ...nor a land edge or a grind pool (Story 9.5)
+    World.clearContactTally(ship); // ...and a fresh match's contact tally starts at zero (Story 9.5)
     // A fresh life never inherits an open boost window — nor either slow.
     ship.boostUntil = 0;
     World.clearShiftClocks(ship); // ...nor a DAMAGE CUT window or a stream clock (Story 8.15)
@@ -2414,7 +2504,31 @@ export class World {
       ship.fouledUntil = 0; // the foul zone's stamp dies with the life too (Story 9.4)
       ship.cloudUntil = 0; // already cleared at sinkShip; symmetric for directed callers (Story 9.3)
       ship.draft = 0; // ...and rides no wake (Story 8.19): never a stale lift on the wire
+      // The land edge and the grind pools die with the life (Story 9.5); the
+      // damage-source stamp and the contact tally DO NOT — the harness reads
+      // them off the record, and the wreck sat out the window taking nothing.
+      World.clearContactState(ship);
     }
+  }
+
+  /** Story 9.5: the land edge, the pre-damp speed and both grind pools —
+   *  zeroed at every life boundary (addShip inline, founderSinking, respawn,
+   *  redeployShip). */
+  private static clearContactState(ship: ShipRecord): void {
+    ship.landHeadOn = 0;
+    ship.landWasContact = false;
+    ship.preDampSpeed = 0;
+    ship.grindPool = 0;
+    ship.landGrindPool = 0;
+  }
+
+  /** Story 9.5: the harness readouts — what last took hp and the contact /
+   *  land damage tallies — zeroed at the two FRESH-LIFE boundaries (respawn,
+   *  redeployShip), never at founderSinking. */
+  private static clearContactTally(ship: ShipRecord): void {
+    ship.lastDamageSrc = null;
+    ship.contactDamageTaken = 0;
+    ship.landDamageTaken = 0;
   }
 
   /**
@@ -3287,7 +3401,24 @@ export class World {
     { name: 'botsTick', run: (w) => w.bots.tick(w.botEntries()) },
     { name: 'applyInputs', run: (w) => w.applyInputs() },
     { name: 'stepShips', run: (w, ctx) => w.stepShips(ctx.dt) },
+    // THE HULL PASS (Story 9.5, amendment 25): every afloat-or-sinking hull is
+    // a solid body; overlapping pairs are pushed apart by mass share through
+    // the SHARED resolver the client predictor also runs. DELIBERATELY BEFORE
+    // resolveCollisions: land is the hard constraint (no hull ever ends a tick
+    // inside land — pinned), hull overlap the soft one, so a hull shoved
+    // toward a coast resolves against that coast the same tick. The row also
+    // records the tick's contacts and each hull's pre-damp speed for the
+    // damage row below.
+    { name: 'resolveHullContacts', run: (w) => w.resolveHullContacts() },
     { name: 'resolveCollisions', run: (w) => w.resolveCollisions() },
+    // CONTACT DAMAGE (Story 9.5, amendments 25, 73–82): the hull-pair HIT
+    // (once per contact, over the allowance) and GRIND, and the land strike
+    // and scrape — all through the damage gate as source 'contact'. AFTER
+    // resolveCollisions so the land edge (`landContact`, `landHeadOn`) is this
+    // tick's truth, BEFORE sampleWakes / founderSinking so a hull sunk here
+    // still lays this tick's wake and takes the sink edge in the ordinary
+    // order.
+    { name: 'applyContactDamage', run: (w) => w.applyContactDamage() },
     // Wake sampling (Story 4.12) hangs off the kinematics pass — DELIBERATELY
     // after resolveCollisions, not inside stepShips: resolveShipPose can roll
     // a candidate pose back off an island, and a wake sample must record the
@@ -3808,8 +3939,137 @@ export class World {
         ship.hullPoly,
       );
       ship.landContact = res.contact;
+      ship.landHeadOn = res.headOn; // Story 9.5: the land strike / scrape read it
       applyGroundingDamp(ship.state, res, ship.stats.kinematics.maxSpeed);
     }
+  }
+
+  /**
+   * THE HULL PASS (Story 9.5, amendment 25; see the STEP_ORDER row). Bodies
+   * are every hull on the water — afloat OR SINKING (amendment 82: a wreck is
+   * solid and movable; the damage path is what refuses it) — each at its
+   * post-kinematics pose with its silhouette transformed into `hullPoly`
+   * (per-tick scratch: resolveCollisions re-transforms it right after this
+   * row and collectHulls again later, so the translation the push applies
+   * here is consumed by this tick's resolver and never read stale). `mass` is
+   * `stats.maxHp` from effectiveStats — the one mass source, a drone's
+   * envelope hp included. The pass moves `state.x/y` directly; the land pass
+   * then validates the pushed pose exactly as it validates a kinematics
+   * candidate (rollback to `prevPose` if it cannot be cleared).
+   *
+   * `preDampSpeed` is stamped here, BEFORE applyGroundingDamp can cap it: the
+   * land strike is priced on the speed the hull arrived with.
+   */
+  private resolveHullContacts(): void {
+    const bodies = this.contactBodyList;
+    bodies.length = 0;
+    for (const ship of this.ships.values()) {
+      if (!isAfloat(ship.lifecycle) && !isSinking(ship.lifecycle)) continue;
+      ship.preDampSpeed = Math.abs(ship.state.speed);
+      const st = ship.state;
+      transformPolygon(hullSilhouette(ship.hullId), st.x, st.y, st.heading, ship.hullPoly);
+      bodies.push(this.contactBodyOf(ship));
+    }
+    resolveHullContacts(bodies, this.hullContacts);
+  }
+
+  /** The cached body for a hull, its mass refreshed from effectiveStats. A
+   *  test that swaps a record's `state` object gets a fresh body. */
+  private contactBodyOf(ship: ShipRecord): ContactBody {
+    let body = this.contactBodies.get(ship.id);
+    if (body === undefined || body.state !== ship.state || body.poly !== ship.hullPoly) {
+      body = { id: ship.id, state: ship.state, poly: ship.hullPoly, mass: ship.stats.maxHp, movable: true };
+      this.contactBodies.set(ship.id, body);
+    }
+    body.mass = ship.stats.maxHp;
+    return body;
+  }
+
+  /**
+   * CONTACT DAMAGE (Story 9.5; see the STEP_ORDER row). Two halves:
+   *   (a) HULL PAIRS — for every pair the hull pass reported: the HIT if the
+   *       pair is not latched (`contactHitDamage`, 0 under the allowance —
+   *       the latch arms either way), then the GRIND into each hull's pool.
+   *       Both halves go through hitShip with the OTHER hull as `byId`, so
+   *       damage credit, the kill, the bounty and the drone aggro seam all
+   *       behave as for a shell. A sinking victim is refused inside the gate
+   *       (amendment 82) while the live hull still pays its share — and a
+   *       WRECK IS NEVER THE ATTACKER: a live hull that runs into a sinking
+   *       one pays through applyDamage with no `byId` (no damage credit, no
+   *       assist-ledger seat, no kill for "a sink it did not cause" — the
+   *       spec's wreck row; the feed then reads LOST WITH ALL HANDS).
+   *   (b) LAND — the strike on the `landContact` false → true edge priced on
+   *       `preDampSpeed × headOn`, and the scrape on the sliding component
+   *       while contact holds; both through applyDamage with no `byId`
+   *       (no credit, a `dmg`, no feed cause — amendment 76). A parked hull
+   *       (speed 0) accrues nothing.
+   * Then the latch re-arms: every pair key NOT seen this tick is dropped.
+   */
+  private applyContactDamage(): void {
+    const dt = CONFIG.tick.simDtMs / 1000;
+    const seen = this.contactKeysNow;
+    seen.clear();
+    for (const c of this.hullContacts) {
+      seen.add(`${c.a}|${c.b}`);
+      this.damagePair(c, dt);
+    }
+    for (const key of this.contactLatch) if (!seen.has(key)) this.contactLatch.delete(key);
+    for (const ship of this.ships.values()) {
+      if (isAfloat(ship.lifecycle) || isSinking(ship.lifecycle)) this.damageLand(ship, dt);
+    }
+  }
+
+  /** (a) one overlapping pair: the once-per-contact HIT, then the GRIND. */
+  private damagePair(c: HullContact, dt: number): void {
+    const a = this.ships.get(c.a);
+    const b = this.ships.get(c.b);
+    if (a === undefined || b === undefined) return;
+    const mA = a.stats.maxHp;
+    const mB = b.stats.maxHp;
+    const key = `${c.a}|${c.b}`;
+    const byA = isAfloat(a.lifecycle) ? a.id : undefined; // credited for B's blow — a wreck never is
+    const byB = isAfloat(b.lifecycle) ? b.id : undefined;
+    if (!this.contactLatch.has(key)) {
+      this.contactLatch.add(key);
+      const hit = contactHitDamage(mA, mB, c.vn, CONFIG.ram);
+      if (hit.a > 0) this.dealContact(a, hit.a, byB);
+      if (hit.b > 0) this.dealContact(b, hit.b, byA);
+    }
+    const grind = contactGrindRate(mA, mB, c.vt, CONFIG.ram);
+    a.grindPool = this.drainPool(a, a.grindPool + grind.a * dt, byB);
+    b.grindPool = this.drainPool(b, b.grindPool + grind.b * dt, byA);
+  }
+
+  /** Apply the whole hp of a pool and return the fractional remainder. A hull
+   *  not afloat keeps nothing (the gate would refuse it anyway). */
+  private drainPool(victim: ShipRecord, pool: number, byId: string | undefined): number {
+    if (!isAfloat(victim.lifecycle)) return 0;
+    const whole = Math.floor(pool);
+    if (whole < 1) return pool;
+    this.dealContact(victim, whole, byId);
+    return pool - whole;
+  }
+
+  /** One contact blow: through hitShip (credit + aggro) when a live hull dealt
+   *  it, through the bare gate when the coast or a wreck did. */
+  private dealContact(victim: ShipRecord, amount: number, byId: string | undefined): void {
+    if (byId === undefined) this.applyDamage(victim, amount, 'contact', undefined);
+    else this.hitShip(victim, amount, byId, false, 'contact');
+  }
+
+  /** (b) one hull against the coast: the strike on the edge, the scrape while
+   *  pressed. `landHeadOn` is this tick's resolveCollisions reading. */
+  private damageLand(ship: ShipRecord, dt: number): void {
+    if (ship.landContact) {
+      const headOn = ship.landHeadOn;
+      if (!ship.landWasContact) {
+        const amount = landHitDamage(ship.stats.maxHp, ship.preDampSpeed * headOn, CONFIG.ram);
+        if (amount > 0) this.applyDamage(ship, amount, 'contact', undefined);
+      }
+      const vt = ship.preDampSpeed * Math.sqrt(Math.max(0, 1 - headOn * headOn));
+      ship.landGrindPool = this.drainPool(ship, ship.landGrindPool + landGrindRate(vt, CONFIG.ram) * dt, undefined);
+    }
+    ship.landWasContact = ship.landContact;
   }
 
   /** A hull's TRUE attainable top speed for wake-ring provisioning (Story
@@ -4690,8 +4950,20 @@ export class World {
     // here. A blow fully eaten by a SHIELD BLOCK leaves `dealt` 0 and does NOT
     // count as taking damage; dealing damage never counts at all.
     if (dealt > 0) victim.lastDamagedAt = this.now;
+    World.noteDamageTaken(victim, src, byId, dealt); // (d′) Story 9.5's server-only readouts
     if (src !== 'storm' && byId !== undefined) this.creditDamage(byId, victim.id, net, dealt); // (e)
     this.reportDamage(victim, net, src, byId, cut - net); // (f)+(g)
+  }
+
+  /** (d′) THE HARNESS STAMPS (Story 9.5): what last took hp, and the whole hp
+   *  taken from a hull's contact (`byId` defined) or from the coast (`byId`
+   *  undefined). Read by server/scripts/batchsim only; never on the wire. Not
+   *  a guard and not a branch on hp — the gate's order above is unchanged. */
+  private static noteDamageTaken(victim: ShipRecord, src: DamageSource, byId: string | undefined, dealt: number): void {
+    if (dealt > 0) victim.lastDamageSrc = src;
+    if (src !== 'contact') return;
+    if (byId !== undefined) victim.contactDamageTaken += dealt;
+    else victim.landDamageTaken += dealt;
   }
 
   /**
@@ -6358,6 +6630,8 @@ export class World {
     // ...nor a stale grounding read (the redeployShip rule): the respawn
     // placement is island-clear, so the hull is not aground.
     ship.landContact = false;
+    World.clearContactState(ship); // ...nor a land edge or a grind pool (Story 9.5)
+    World.clearContactTally(ship); // ...nor the dead life's contact tally (Story 9.5)
     // ...nor an own-cloud stamp (Story 9.3; sinkShip already cleared it —
     // kept symmetric here for directed callers).
     ship.cloudUntil = 0;
