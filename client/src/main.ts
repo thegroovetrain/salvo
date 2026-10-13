@@ -4295,7 +4295,7 @@ function renderAlive(
   // (Story 2.9's treatment, moved to render/burnZones.ts in Story 8.17).
   g.litZones.render(now);
   g.burnZones.render(now, now / 1000);
-  g.foulZones.render(now); // foul zones fade only — nothing breathes
+  g.foulZones.render(now, now / 1000); // ...and the weed sways (motion-gated)
   // spray + fade each countermeasure cloud to its server-clock age (the radar
   // marched it above, through setCloudSource, as one more return source) —
   // seen by eye only inside the 5/8 halo centred on the own hull (session 5)
@@ -4553,7 +4553,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   renderFoghorn(g, now, g.camera.screenCenter); // ...and every `fh`, on the omniscient position path
   g.litZones.render(now); // spectators see all zones
   g.burnZones.render(now, now / 1000); // ...and every burning zone
-  g.foulZones.render(now); // ...and every foul zone
+  g.foulZones.render(now, now / 1000); // ...and every foul zone, weed swaying
   g.countermeasure.render(now); // ...and every countermeasure cloud
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);

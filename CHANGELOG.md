@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.18.46] - 2026-10-12
+
+### Changed
+- **The foul zone is weed and net** (Story 9.4, session 2 — Eric on staging: *"The net is visible but the murk is not. I wanted them combined."* then *"There was one instance with little squiggle lines. I liked that, and wanted that combined with the net."*). The dark disc shipped in 0.18.45 could not show because the ocean is drawn black. Now the zone is a faint lighter slick body, the shooter's-hue net over it, and eight light-grey weed squiggles on top that sway gently (still when motion is off). Eric picked the readable strength of the two rendered.
+
+### Internal
+- `client/src/render/foulZones.ts`: layers slick → glow → net → weed; `weedStrokes(id, r)` is a pure, seeded layout (`hashSeedText` → `mulberry32`, identical for every observer); the weed sways on an integrated phase (the ember-breath idiom), motion-gated. `CLIENT_CONFIG.foulZone` = `{ slickFrac 0.8, slickAlpha 0.3, netSpacingU 14, netWidth 1.3, netAlpha 0.55, weedCount 8, weedWidth 1.8, weedAlpha 0.75, weedLenU 40, weedAmpU 6, weedDriftU 4, weedHz 0.25 }`; `colors.foulMurk` → `colors.foulSlick` 0x7a7168; new `colors.foulWeed` 0xc4c0b8. `main.ts` passes the clock to the foul-zone render so the weed sways.
+- Client only; PROTOCOL_VERSION unchanged (78). Tests: client 3960 (127 files), shared 1033, server 2482; lint 0 errors.
+- Epic-9 amendments 71–72 (71: the pre-start phases do not matter for any gameplay gate — Eric). Cycle 181.
+
 ## [0.18.45] - 2026-10-12
 
 ### Changed

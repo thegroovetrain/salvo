@@ -11,21 +11,39 @@
 //
 // THE ZONE READS AS ITS OWN KIND AT A GLANCE (ruling 68). It keeps the zone
 // family's firer-hue identity glow (litZones' `drawZoneGlow` — whose zone it
-// is) and carries Eric's pick of three rendered candidates, "MURK AND NET"
-// (amendment 69): a NORMAL-blend murk disc that DARKENS the water (lit and
-// burn zones only ever add light), under a diagonal mesh of straight lines in
-// the firer's hue, clipped analytically to the murk disc. Nothing animates —
-// fouled water does not breathe; the only motion is the lit zone's expiry fade
-// (`litZoneFade`, timestamp math off `until − serverNow`; no client timers).
+// is) and carries Eric's "WEED AND NET" (round-3 pick "bold", 2026-10-12). His
+// words on staging: "The net is visible but the murk is not. I wanted them
+// combined." then "There was one instance with little squiggle lines. I liked
+// that, and wanted that combined with the net. Also, the net itself (and those
+// squiggles) need to be more visible, because it's not readable right now."
+// The sea is drawn near-black, so the old darkening murk was invisible: the
+// SLICK is now a faint LIGHTER body, and the squiggles and the net carry the
+// read. Layers, bottom → top: slick (normal), glow (the family ring, additive),
+// net (the firer's hue, clipped analytically to the slick), weed (seeded from
+// the zone id so every observer sees the same squiggles).
+//
+// Motion: the weed layer as a whole sways a few units on an INTEGRATED phase
+// (the burnZones ember idiom), motion-gated — at motion=off it holds still, the
+// drawn strokes being the information. The zone root's alpha carries the lit
+// zone's expiry fade whole (`litZoneFade`, timestamp math off
+// `until − serverNow`; no client timers).
 
 import { Container, Graphics } from 'pixi.js';
-import type { FoulZoneView } from '@salvo/shared';
+import { hashSeedText, mulberry32, type FoulZoneView } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import { motionScaled, settings } from '../settings/store.js';
 import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
 import { drawZoneGlow, litZoneFade, reconcileLitZones } from './litZones.js';
 
 const Z = CLIENT_CONFIG.foulZone;
-const MURK_COLOR = CLIENT_CONFIG.colors.foulMurk;
+const SLICK_COLOR = CLIENT_CONFIG.colors.foulSlick;
+const WEED_COLOR = CLIENT_CONFIG.colors.foulWeed;
+const TAU = Math.PI * 2;
+/** Points per weed polyline (8 segments along `weedLenU`). */
+const WEED_POINTS = 9;
+/** Largest frame gap (s) the weed-sway phase integrator advances across (the
+ *  burnZones / hud.ts precedent: a backgrounded tab must not jump the sway). */
+const MAX_WEED_DT = 0.5;
 
 /** One straight net segment in zone-local coordinates. */
 export interface NetSegment {
@@ -33,6 +51,15 @@ export interface NetSegment {
   y1: number;
   x2: number;
   y2: number;
+}
+
+/** One weed squiggle in zone-local coordinates: its midpoint, its heading
+ *  (radians) and the phase (radians) of its sideways wave. */
+export interface WeedStroke {
+  x: number;
+  y: number;
+  heading: number;
+  phase: number;
 }
 
 /**
@@ -59,14 +86,40 @@ export function netSegments(R: number, spacing: number): NetSegment[] {
   return out;
 }
 
-/** Draw the murk: a NORMAL-blend disc at `murkFrac × r` plus a soft rim (an
+/**
+ * Pure: the zone's weed layout, SEEDED from the zone id (mulberry32 over
+ * hashSeedText) so every observer draws the same squiggles. `weedCount`
+ * strokes, each midpoint uniform over the disc of radius
+ * `slickFrac × r − weedLenU / 2` (polar with √u, so a whole stroke stays
+ * inside the slick), a heading and a wave phase each uniform in [0, 2π).
+ */
+export function weedStrokes(id: string, r: number): WeedStroke[] {
+  const rng = mulberry32(hashSeedText(id));
+  const reach = Math.max(0, r * Z.slickFrac - Z.weedLenU / 2);
+  const out: WeedStroke[] = [];
+  for (let i = 0; i < Z.weedCount; i++) {
+    const rad = reach * Math.sqrt(rng.next());
+    const ang = rng.next() * TAU;
+    out.push({ x: rad * Math.cos(ang), y: rad * Math.sin(ang), heading: rng.next() * TAU, phase: rng.next() * TAU });
+  }
+  return out;
+}
+
+/** Pure: advance the weed sway's PHASE (radians) by one frame at `weedHz` —
+ *  INTEGRATED, never derived from absolute time (burnZones' advanceEmberPhase). */
+export function advanceWeedPhase(phase: number, dtSec: number): number {
+  const step = Math.min(MAX_WEED_DT, Math.max(0, dtSec));
+  return (phase + Z.weedHz * step * TAU) % TAU;
+}
+
+/** Draw the slick: a NORMAL-blend disc at `slickFrac × r` plus a soft rim (an
  *  annulus out to `r` at half alpha — one stroke, no overlap, no gradient). */
-function drawMurk(m: Graphics, r: number): void {
-  const inner = r * Z.murkFrac;
-  m.blendMode = 'normal';
-  m.circle(0, 0, inner).fill({ color: MURK_COLOR, alpha: Z.murkAlpha });
+function drawSlick(g: Graphics, r: number): void {
+  const inner = r * Z.slickFrac;
+  g.blendMode = 'normal';
+  g.circle(0, 0, inner).fill({ color: SLICK_COLOR, alpha: Z.slickAlpha });
   const rimW = r - inner;
-  if (rimW > 0) m.circle(0, 0, inner + rimW / 2).stroke({ width: rimW, color: MURK_COLOR, alpha: Z.murkAlpha / 2 });
+  if (rimW > 0) g.circle(0, 0, inner + rimW / 2).stroke({ width: rimW, color: SLICK_COLOR, alpha: Z.slickAlpha / 2 });
 }
 
 /** Draw the net in the firer's hue (clearing prior geometry — the recolor path
@@ -74,10 +127,36 @@ function drawMurk(m: Graphics, r: number): void {
 function drawNet(net: Graphics, r: number, color: number): void {
   net.clear();
   net.blendMode = 'normal';
-  const segs = netSegments(r * Z.murkFrac, Z.netSpacingU);
+  const segs = netSegments(r * Z.slickFrac, Z.netSpacingU);
   if (segs.length === 0) return;
   for (const s of segs) net.moveTo(s.x1, s.y1).lineTo(s.x2, s.y2);
   net.stroke({ width: Z.netWidth, color, alpha: Z.netAlpha });
+}
+
+/** Trace one squiggle: `WEED_POINTS` points along its heading over
+ *  `weedLenU`, offset sideways by `weedAmpU × sin(k·2π + phase)` (k = 0..1 —
+ *  one hump each way, a squiggle). */
+function traceWeed(g: Graphics, w: WeedStroke): void {
+  const dx = Math.cos(w.heading);
+  const dy = Math.sin(w.heading);
+  for (let i = 0; i < WEED_POINTS; i++) {
+    const k = i / (WEED_POINTS - 1);
+    const along = (k - 0.5) * Z.weedLenU;
+    const side = Z.weedAmpU * Math.sin(k * TAU + w.phase);
+    const x = w.x + along * dx - side * dy;
+    const y = w.y + along * dy + side * dx;
+    if (i === 0) g.moveTo(x, y);
+    else g.lineTo(x, y);
+  }
+}
+
+/** Draw the weed layer once at spawn (it never recolors). */
+function drawWeed(g: Graphics, id: string, r: number): void {
+  g.blendMode = 'normal';
+  const strokes = weedStrokes(id, r);
+  if (strokes.length === 0) return;
+  for (const w of strokes) traceWeed(g, w);
+  g.stroke({ width: Z.weedWidth, color: WEED_COLOR, alpha: Z.weedAlpha, cap: 'round', join: 'round' });
 }
 
 interface FoulSprite extends HueState {
@@ -85,12 +164,18 @@ interface FoulSprite extends HueState {
   root: Container;
   glow: Graphics;
   net: Graphics;
+  /** The weed squiggles: drawn once at spawn, swayed by position each frame. */
+  weed: Graphics;
   until: number; // server-clock expiry — drives the render() fade
   r: number; // zone radius (u) — needed to redraw on a firer-hue recolor
 }
 
 export class FoulZones {
   private readonly sprites = new Map<string, FoulSprite>();
+  /** INTEGRATED weed-sway phase + the clock it last advanced at (the burnZones
+   *  ember precedent — accumulated per frame, never derived from absolute time). */
+  private weedPhase = 0;
+  private lastWeedSec: number | null = null;
 
   /** `layer` = chartRoot's litZone layer (fog-immune, above the base map) —
    *  the same layer the lit and burning zones draw in. */
@@ -109,10 +194,29 @@ export class FoulZones {
     for (const s of this.sprites.values()) retryHue(s, hueFor, (color) => this.paintHue(s, color));
   }
 
-  /** Per render frame: fade each zone by its timestamp (until − serverNow).
-   *  Nothing else moves. */
-  render(serverNow: number): void {
-    for (const { root, until } of this.sprites.values()) root.alpha = litZoneFade(until - serverNow);
+  /**
+   * Per render frame: fade each zone by its timestamp (until − serverNow) and
+   * sway the weed on the shared integrated phase. `nowSec` is the server-clock
+   * estimate in SECONDS; omitting it holds the weed at offset 0, which is
+   * exactly what motion=off does.
+   */
+  render(serverNow: number, nowSec?: number): void {
+    const [ox, oy] = this.advanceWeed(nowSec);
+    for (const { root, until, weed } of this.sprites.values()) {
+      root.alpha = litZoneFade(until - serverNow);
+      weed.position.set(ox, oy);
+    }
+  }
+
+  /** Advance the weed phase to `nowSec` and return this frame's sway offset
+   *  (motion-gated amplitude; the strokes themselves are information). */
+  private advanceWeed(nowSec: number | undefined): [number, number] {
+    if (nowSec === undefined) return [0, 0];
+    const dt = this.lastWeedSec === null ? 0 : nowSec - this.lastWeedSec;
+    this.lastWeedSec = nowSec;
+    this.weedPhase = advanceWeedPhase(this.weedPhase, dt);
+    const amp = motionScaled(Z.weedDriftU, settings.current.motion);
+    return [amp * Math.sin(this.weedPhase), amp * Math.cos(this.weedPhase * 0.7)];
   }
 
   /** How many foul zones are held (test seam). */
@@ -129,14 +233,16 @@ export class FoulZones {
     const { color, colored, rev } = resolveHue(z.by, hueFor);
     const root = new Container();
     root.position.set(z.x, z.y);
-    // Murk UNDER the identity glow so the firer-hue ring stays crisp on top of
-    // the darkened water; the net last, over both.
-    const murk = new Graphics();
-    drawMurk(murk, z.r);
+    // Slick UNDER the identity glow so the firer-hue ring stays crisp on top;
+    // the net over both; the weed last, on top of everything.
+    const slick = new Graphics();
+    drawSlick(slick, z.r);
     const glow = new Graphics();
     const net = new Graphics();
-    root.addChild(murk, glow, net);
-    const s: FoulSprite = { root, glow, net, until: z.until, r: z.r, by: z.by, colored, rev };
+    const weed = new Graphics();
+    drawWeed(weed, z.id, z.r);
+    root.addChild(slick, glow, net, weed);
+    const s: FoulSprite = { root, glow, net, weed, until: z.until, r: z.r, by: z.by, colored, rev };
     this.paintHue(s, color);
     this.layer.addChild(root);
     this.sprites.set(z.id, s);
