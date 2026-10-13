@@ -1162,8 +1162,8 @@ export const CONFIG = {
     // What 65 buys today is a FACT, not a requirement — the base fish still
     // outruns every BASE hull and drone (droneSmall at 46 is the fastest afloat
     // un-boosted; the fastest BASE boosted hull is 56.25). A SPEED-capped
-    // Torpedo Boat under the Shift boost runs 68.75 u/s (55 x 1.25,
-    // CONFIG.boost.factor) and OUTRUNS its own fish: allowed, because own
+    // Torpedo Boat under the Shift boost runs 71.875 u/s (57.5 x 1.25,
+    // CONFIG.boost.factor; SPEED cap 5 since Story 9.6) and OUTRUNS its own fish: allowed, because own
     // ordnance never damages the own hull (Story 8.4, no friendly fire), so a
     // firer that re-catches its own torpedo is not a self-damage hazard. Also a
     // deliberate balance change: torps are harder to dodge (owner call,
@@ -1496,8 +1496,9 @@ export const CONFIG = {
    *
    * `factor` is the FRACTION OF THE POST-FOLD forward maxSpeed added while the
    * window is open, so the SPEED ladder is INSIDE the bonus (amendment 55):
-   * a capped Torpedo Boat goes 55 → 68.75, Mine Layer 50 → 62.5, Battleship
-   * 45 → 56.25; at base 45/40/35 → 56.25/50/43.75. FORWARD CAP ONLY —
+   * a SPEED-capped (five cards, Story 9.6) Torpedo Boat goes 57.5 → 71.875,
+   * Mine Layer 52.5 → 65.625, Battleship 47.5 → 59.375; at base 45/40/35 →
+   * 56.25/50/43.75. FORWARD CAP ONLY —
    * `reverseSpeed`, accel, decel, turn rate and steerage are untouched, so the
    * hull accelerates toward the raised cap at class accel and decays back at
    * class decel on expiry. The bonus is layered per tick by the one shared hook

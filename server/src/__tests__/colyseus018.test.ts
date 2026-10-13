@@ -165,8 +165,11 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 78 and admits 79', () => {
-  it('PROTOCOL_VERSION is 79', () => {
+describe('the PV join gate refuses 79 and admits 80', () => {
+  it('PROTOCOL_VERSION is 80', () => {
+    // Story 9.6 bumped 79 -> 80: catalog content (`armor` -> `hullPoints`
+    // +50 x5, SPEED / TURNING cap 5, the new PASSIVE HEALING ladder) and the
+    // client reads CONFIG.regen through EffectiveStats.regen.
     // Story 9.5 bumped 78 -> 79: the client reads CONFIG.ram and runs the
     // shared hull-contact resolver in prediction (no new wire field).
     // Story 9.4 bumped 77 -> 78: FLASH SHELLS became the FOULING SHELL
@@ -220,7 +223,8 @@ describe('the PV join gate refuses 78 and admits 79', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(79);
+    expect(PROTOCOL_VERSION).toBe(80);
+    expect(protocolVersionError(79)).toMatch(/refresh/i);
     expect(protocolVersionError(78)).toMatch(/refresh/i);
   });
 
@@ -264,12 +268,12 @@ describe('the PV join gate refuses 78 and admits 79', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(80)).toMatch(/refresh/i);
+    expect(protocolVersionError(81)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(79)).toBeNull();
+    expect(protocolVersionError(80)).toBeNull();
   });
 });
 

@@ -863,9 +863,10 @@ export interface ShipRecord {
    * both route through the one gate, so "the storm resets the clock" is
    * structural rather than a second rule.
    *
-   * READ BY ONE THING: the out-of-combat regen in tickRepairs
-   * (`now - lastDamagedAt >= CONFIG.regen.outOfCombatMs`). SERVER-PRIVATE —
-   * never on the wire.
+   * READ BY ONE THING: the out-of-combat regen in tickRepairs, against the
+   * hull's OWN wait `stats.regen.outOfCombatMs` (base `CONFIG.regen` 15 s; the
+   * PASSIVE HEALING ladder shortens it — Story 9.6, epic-9 amendments 90–92).
+   * SERVER-PRIVATE — never on the wire.
    *
    * SET TO `now` AT SPAWN, RESPAWN AND REDEPLOY, not to 0: a fresh life waits
    * the full window like everyone else. It costs nothing (the hull is full, so
@@ -4305,11 +4306,14 @@ export class World {
    *
    *   2. THE OUT-OF-COMBAT REGEN (amendment 46) — REPLACES the free per-level
    *      auto-heal that used to be this method's second channel, and it is
-   *      deliberately NOT a pool: `CONFIG.regen.missingPctPerS` of the hull's
-   *      MISSING hp per second, paid straight into `hp`, once
-   *      `CONFIG.regen.outOfCombatMs` have WHOLLY passed since
-   *      `lastDamagedAt` — the tick that merely ENDS on the 15 s mark is still
-   *      a tick of the wait and credits nothing (see `idleSince` below). No
+   *      deliberately NOT a pool: the hull's own `stats.regen.missingPctPerS`
+   *      of its MISSING hp per second, paid straight into `hp`, once its own
+   *      `stats.regen.outOfCombatMs` have WHOLLY passed since `lastDamagedAt`
+   *      (base `CONFIG.regen`: 2 %/s after 15 s; the PASSIVE HEALING ladder
+   *      raises the rate and shortens the wait, folded in effectiveStats() —
+   *      Story 9.6, epic-9 amendments 90–92). The tick that merely ENDS on the
+   *      wait's mark is still a tick of the wait and credits nothing (see
+   *      `regenDue`). No
    *      pool, no rate field, no `heal` cue (a continuous trickle would loop
    *      the tone), no pending band. Healing is paced by DISENGAGING now, not
    *      by the economy.
@@ -4332,18 +4336,27 @@ export class World {
   private tickRepairs(dtMs: number): void {
     const hr = CONFIG.hullRepair;
     const budget = (hr.regenHp / hr.regenMs) * dtMs;
-    // THE WAIT IS EXCLUSIVE OF THE TICK THAT ENDS ON IT. A tick is a SPAN and
-    // `now` is its END, so the tick ending at exactly
-    // `lastDamagedAt + outOfCombatMs` covers (now − dtMs, now] — time still
-    // inside the wait. Crediting it would pay a full tick of regen for waiting.
-    // The WHOLE tick must lie past the window, so the stamp is compared against
-    // the tick's START (`now − dtMs`), not its end.
-    const idleSince = this.now - dtMs - CONFIG.regen.outOfCombatMs;
+    const tickStart = this.now - dtMs;
     for (const ship of this.ships.values()) {
       if (!isAfloat(ship.lifecycle)) continue;
       if (ship.repairHp > 0) World.payRepair(ship, budget);
-      if (!roleIsFleetHull(ship) && ship.lastDamagedAt <= idleSince) World.tickRegen(ship, dtMs);
+      if (World.regenDue(ship, tickStart)) World.tickRegen(ship, dtMs);
     }
+  }
+
+  /** Is this hull's out-of-combat regen due this tick? Never for a PvE fleet
+   *  hull (amendment 48). The wait is PER HULL — its own
+   *  `stats.regen.outOfCombatMs` (Story 9.6).
+   *
+   *  THE WAIT IS EXCLUSIVE OF THE TICK THAT ENDS ON IT. A tick is a SPAN and
+   *  `now` is its END, so the tick ending at exactly
+   *  `lastDamagedAt + outOfCombatMs` covers (now − dtMs, now] — time still
+   *  inside the wait. Crediting it would pay a full tick of regen for waiting.
+   *  The WHOLE tick must lie past the window, so the stamp is compared against
+   *  the tick's START (`now − dtMs`), not its end. */
+  private static regenDue(ship: ShipRecord, tickStart: number): boolean {
+    if (roleIsFleetHull(ship)) return false;
+    return ship.lastDamagedAt <= tickStart - ship.stats.regen.outOfCombatMs;
   }
 
   /** Drain the PAID pool by its wall-clock budget. The pool decrements WHETHER
@@ -4360,7 +4373,10 @@ export class World {
    * eligible (afloat, not a drone, past the window). Split out of tickRepairs
    * for the complexity budget.
    *
-   * THE SNAP TO FULL is not a rounding convenience: 1 % of MISSING is
+   * THE RATE is the hull's own `stats.regen.missingPctPerS` (Story 9.6) —
+   * never `CONFIG.regen` read at tick time.
+   *
+   * THE SNAP TO FULL is not a rounding convenience: a % of MISSING is
    * asymptotic and never reaches zero missing on its own, so without it HULL
    * REPAIR's "full hull" refusal would be unreachable after any regen and the
    * globe would read 349.9 forever. It snaps on the SHARED `hullIsFull`
@@ -4373,7 +4389,7 @@ export class World {
     const missing = maxHp - ship.hp;
     if (missing <= 0) return;
     if (hullIsFull(ship.hp, maxHp)) ship.hp = maxHp;
-    else ship.hp += missing * CONFIG.regen.missingPctPerS * (dtMs / 1000);
+    else ship.hp += missing * ship.stats.regen.missingPctPerS * (dtMs / 1000);
   }
 
   /** Zero the repair pool. ONE helper for the three sites that end a hull's
@@ -5023,9 +5039,11 @@ export class World {
     victim.hp -= dealt; // (d) THE ONE HULL-HP DECREMENT IN THE GAME
     // (d) THE COMBAT CLOCK (amendment 47): every source that actually removed
     // hp — shell, torpedo, mine, burn tick, STORM bite — resets the
-    // out-of-combat regen's 15 s wait, because every one of them passes through
+    // out-of-combat regen's wait (the hull's own `stats.regen.outOfCombatMs`,
+    // Story 9.6), because every one of them passes through
     // here. A blow fully eaten by a SHIELD BLOCK leaves `dealt` 0 and does NOT
-    // count as taking damage; dealing damage never counts at all.
+    // count as taking damage (Eric restated this as THE rule 2026-10-13, epic-9
+    // amendment 92); dealing damage never counts at all.
     if (dealt > 0) victim.lastDamagedAt = this.now;
     World.noteDamageTaken(victim, src, dealt); // (d′) Story 9.5's server-only readouts
     if (src !== 'storm' && byId !== undefined) this.creditDamage(byId, victim.id, net, dealt); // (e)

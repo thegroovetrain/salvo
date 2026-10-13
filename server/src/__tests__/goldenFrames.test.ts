@@ -1142,6 +1142,14 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // never rides the wire, so the silent tick and the re-reveal are
   // byte-identical. No other contact, event, blip, mine, zone, position or hp
   // byte moved (verified by diffing the rows field by field).
+  // REGENERATED KNOWINGLY IN STORY 9.6 (PV 80). Exactly TWO rows moved, and in
+  // each the ONLY difference is `you.offer`'s content: row 8's hand
+  // ['reload','decoyBuoy','foulingShell','radarSweep'] became
+  // ['passiveHealing','decoyBuoy','foulingShell','reload'] (the new PASSIVE
+  // HEALING ladder joined the pool, so the seeded draw deals differently);
+  // row 31 deals 'hullPoints' where it dealt 'armor' (the id rename, same
+  // seat, same draw). No contact, event, blip, mine, zone, position or hp
+  // byte moved (verified by diffing the rows field by field).
   it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
     expect(runBattery()).toMatchSnapshot();
   });

@@ -62,7 +62,7 @@ describe('the take ledger — what goes in, and what never does', () => {
   it('LADDERS, ADD-ONS and CONSUMABLES never record a take', () => {
     const w = bareWorld();
     const a = captain(w, 'a');
-    for (const id of ['armor', 'speed', 'reload', 'deckGun', 'hullRepair'] as LineId[]) w.applyCard(a, id);
+    for (const id of ['hullPoints', 'speed', 'reload', 'deckGun', 'hullRepair'] as LineId[]) w.applyCard(a, id);
     expect(a.cards).toHaveLength(5); // they really were fitted...
     expect(w.takes.size).toBe(0); // ...and not one of them is a take
   });

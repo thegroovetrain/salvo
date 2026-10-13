@@ -111,6 +111,11 @@ warnings: [oversized]
 
 ## Spec Change Log
 
+### 2026-10-13 — two spec corrections surfaced by the client wave (orchestrator rulings, not Eric's; the intent contract is read-only)
+- The matrix row "hullPoints card at 4 copies prints `V`" was wrong: with the ship ladders out of `BASE_TIER_LINES` they read exactly like RADAR SWEEP and RELOAD — 0 copies `I`, 1 copy `I → II`, 4 copies (the fifth card) `IV → V`, bare `V` only at the cap of 5. That IS Eric's "0 → V" flip (amendment 94); the tests pin it.
+- "the refit grid `R.rowCount` 5 → 6" was wrong: the card FACE prints one row per authored effect (never more than five); `SHIP_STAT_LINES` feeds the hover panel, the SHIP tooltip and the How-to-Play table, which grew to six rows and pass their fit tests at the 1280×614 floor. The face is DESIGN.md's ratified five-row 216×226 card and is untouched. To honor "rate row only" the wait effect is on an `UNPRINTED_PATHS` skip list in `ladderRows` (the face would otherwise have printed an `OUT OF COMBAT 15 → 14 s` row).
+- KEEP: the pulse glyph, `LINE_NAMES.hullPoints = 'HULL'`, the frozen How-to-Play text.
+
 ## Review Triage Log
 
 ## Design Notes
