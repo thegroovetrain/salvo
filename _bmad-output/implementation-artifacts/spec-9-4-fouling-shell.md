@@ -2,7 +2,8 @@
 title: 'Story 9.4: Fouling Shell'
 type: 'feature'
 created: '2026-10-12'
-status: 'in-review'
+status: 'done'
+final_revision: 'PR #272 open (2026-10-12); code head 5d07e0b8'
 baseline_revision: 'c09acdc5'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -152,7 +153,7 @@ warnings: [oversized]
 
 ## Auto Run Result
 
-Status: done — PR open to `development` (never merged by the agent; Eric judges the zone on staging).
+Status: done — PR #272 open to `development` (never merged by the agent; Eric judges the zone on staging).
 
 **Implemented:** FLASH SHELLS replaced by the FOULING SHELL on key `4` (cap 5): the same click-aimed, zero-damage, burst-once shell, whose burst leaves a stationary FOUL ZONE (`CONFIG.foulingShell`: r 150 u, 15 s, ×0.75 both caps, 5 s linger — Eric's numbers as accepted, amendment 61). `World.foulZones` + STEP_ORDER rows `applyFoulZones` (after `applyZoneEffects`: every afloat hull whose OUTLINE touches a zone — `polyInBlast` over the post-move `hitTargets(['hull'])` memo, owner and drones included, gated on `damageEnabled` — is stamped `fouledUntil = now + lingerMs`; amendment 62) and `expireFoulZones`; `tickKinematics` folds the slow as the SECOND call of the one shared `slowedKinematics` (boost → mine slow → shell slow → draft → hooks), so shell × mine multiply and two zones never stack (amendment 64); the `foulzone` signal row delivers `{id,x,y,r,until,by}` on the burn zone's gate (owner always, spectator always, otherwise centre within radar range — amendment 63); `OwnShip.fouledUntil` (victim-private) replaces `dazzledUntil`; the client predictor adopts it and folds the identical second slow; the client draws the zone as "murk and net" in the firer's hue inside the family ring (Eric's pick, amendment 69) with the fouled-prop card glyph (candidate A), card FOULING SHELL with rows from CONFIG (amendment 66); bots fire while engaging at the nearest live contact in sight and while disengaging at the nearest astern (amendment 65); the whole dazzle machinery (`CONFIG.flashShells`, `applyFlash`, `dazzledUntil`, the DAZZLED tell and sting, the `setDazzled` chain, `effectiveSight`'s second argument) is deleted; the SLOWED tell covers both slows. `PROTOCOL_VERSION` 78; version 0.18.45 (cycle 180); epic-9 amendments 61–70.
 
