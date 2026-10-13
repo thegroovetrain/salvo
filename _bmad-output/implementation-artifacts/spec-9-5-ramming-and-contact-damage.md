@@ -2,10 +2,11 @@
 title: 'Story 9.5: Ramming and Contact Damage'
 type: 'feature'
 created: '2026-10-12'
-status: 'in-review'
+status: 'done'
+final_revision: 'PR #274 open (2026-10-13); code head 20a77f44'
 baseline_revision: '79a2bfdf'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-9-context.md'
@@ -123,7 +124,7 @@ warnings: [oversized]
 
 **Execution (wave 3 — record, Sonnet):**
 - [x] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `epics.md`, both trackers, amendments 73–84 in BOTH homes (83 = Eric's latch-and-bleed ruling at the review gate, 84 = the implementer readings; the intent contract's "83 (implementer readings)" predates the gate), `deferred-work.md` (review defers only) -- 0.18.47 / cycle 182 / PV 79
-- [ ] `npm run check` green; results recorded under Verification; branch pushed; ONE PR to `development`, never merged
+- [x] `npm run check` green; results recorded under Verification; branch pushed; ONE PR to `development` (#274), never merged
 
 **Acceptance Criteria:**
 - Given two overlapping hull bodies of masses 250 and 350, when `resolveHullContacts` runs, then the pass ends overlap-free, the lighter body moved 350/600 of the separation and the heavier 250/600, an immovable body did not move, and no body moved farther than the overlap depth plus the tick's travel.
@@ -185,3 +186,19 @@ warnings: [oversized]
 
 **Manual checks:**
 - Eric judges the spark, the grind sound and the feel of solid hulls on staging after the PR (amendment 79).
+
+## Auto Run Result
+
+**Status:** done — PR #274 open to `development` (2026-10-13), never merged by the agent; Eric judges on staging.
+
+**Summary:** Hulls are solid and contact hurts. A pure shared resolver (`sim/contact.ts`) pushes overlapping hulls apart by mass share, run on the server before the land pass and in the client predictor against the sighted contacts; contact damage follows the energy law of record — a whole-hp hit once per charged contact, a fractional bleed on sliding + pressing speed delivered like the burn DoT, land as infinite mass × 0.25 — all through the one damage gate; bots and drones avoid hulls, bots gain a `[DRAFT]` ram posture; the harness reports contact and grounding deaths and land damage; the client sparks and grinds. Eric ruled ten questions at the spec step (amendments 73–82) and one at the review gate (83); the implementer readings are 84. Cycle 182, 0.18.47, PV 78 → 79.
+
+**Files changed:** see the Code Map (shared `sim/contact.ts` new, `collision.ts` / `island.ts` core extraction, `constants.ts`, `index.ts`; server `world.ts`, `drones.ts`, `ai/{tactics,utility,types,tacticKit}.ts`, `scripts/batchsim/{botMetrics,botReport,overrides}.ts`; client `sim/{prediction,contactPass,contactBodies,contactBleed}.ts`, `render/contactFx.ts`, `net/{roomBindings,snapshots}.ts`, `audio/{tones,twinMap}.ts`, `state.ts`, `main.ts`, `config.ts`; tests in all three workspaces; records).
+
+**Review findings:** 1 intent gap resolved live by Eric (amendment 83), 12 patches applied (4 high, 5 medium, 3 low) with pinned regressions, 6 deferred to `deferred-work.md` 2026-10-13, 1 rejected. Cross-model picture: the wreck-as-land tally was flagged by all three reviewers; the latch exploit, the cut-zeroed grind and the thud spam by the Blind Hunter alone (all confirmed by probe); the target-repelling avoidance and the drone formation term by the Edge Case Hunter alone (confirmed by probe); the stale attacker id and the raw closing speed by Codex alone (confirmed by trace).
+
+**Follow-up review recommended:** true — the review pass re-cut the latch semantics, moved the bleed onto a new `'grind'` damage source through the DoT window, and re-shaped both avoidance terms; the volume and the damage-gate impact merit an independent look after Eric's staging pass.
+
+**Verification:** `npm run check` green 2026-10-13 — lint 0 errors (2 pre-existing max-lines warnings), tsc ×3 clean, shared 42 files / 1052 tests, server 90 / 2522, client 129 / 3988, hook test 266 passed. Manual: Eric on staging (amendments 79, 83, 84).
+
+**Residual risks:** the six ledgered defers (phantom land strike on a > 11 u shove; land-edge flicker; a push by an unseen hull snaps; a bulldozed hull reads `speed 0`; a hull shoved into a coast pays the coast nothing; the ram posture has no post-strike exit); the `[DRAFT]` bot ram trigger and the bumper distances are playtest numbers; the land press bleeding nothing and the fleet-on-fleet exemption are readings Eric may veto.
