@@ -186,9 +186,9 @@ describe('eligibleLines — the whole eligibility law', () => {
     expect(eligibleLines(OPEN, injected).some((e) => (e.id as string) === 'testGunPool')).toBe(true);
     expect(eligibleLines(otherGun, injected).some((e) => (e.id as string) === 'testGunPool')).toBe(false);
 
-    // ...while the five UNIVERSAL ladders (no `equipment.` stat path, no
+    // ...while the six UNIVERSAL ladders (no `equipment.` stat path, no
     // appliesTo) are gun-blind and stay dealable whatever is mounted.
-    for (const id of ['armor', 'speed', 'turning', 'radarSweep', 'reload']) {
+    for (const id of ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing']) {
       expect(elsewhere, id).toContain(id);
     }
 
@@ -206,7 +206,7 @@ describe('eligibleLines — the whole eligibility law', () => {
     expect(ladderHost(CATALOG.machineGun)).toBe('machineGun');
     expect(ladderHost(CATALOG.flak)).toBe('flak');
     expect(ladderHost(CATALOG.deckGun)).toBe('gun');
-    for (const id of ['armor', 'speed', 'turning', 'radarSweep', 'reload'] as const) {
+    for (const id of ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'] as const) {
       expect(ladderHost(CATALOG[id]), id).toBeUndefined(); // universal
     }
 

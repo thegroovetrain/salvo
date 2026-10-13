@@ -2204,14 +2204,14 @@ export const CONFIG = {
    *
    * SHAPE (amendment 46): once `outOfCombatMs` have passed since the hull last
    * took LANDED damage, every second restores `missingPctPerS` of the hull's
-   * MISSING hp — `hp += (maxHp − hp) × 0.01` per second. Asymptotic on purpose:
+   * MISSING hp — `hp += (maxHp − hp) × rate` per second. Asymptotic on purpose:
    * fast when badly hurt, slow near full, and it needs no repricing when hull
    * HP next moves (a flat amount is worth a different fraction of every hull —
    * the problem that forced the paid heal to double in balance cycle 1). It pays
    * STRAIGHT INTO hp — no pool, no pending band, no `heal` cue (a continuous
    * trickle would loop the tone) — and SNAPS to full once under 1 hp is
-   * missing, because 1 % of missing never reaches zero on its own and HULL
-   * REPAIR's "full hull" refusal must stay reachable.
+   * missing, because a percentage of missing never reaches zero on its own
+   * and HULL REPAIR's "full hull" refusal must stay reachable.
    *
    * THE CLOCK (amendment 47): ANY hull-hp decrement that actually lands
    * (`dealt > 0` — shells, torpedoes, mines, burn ticks, STORM bites) resets it
@@ -2223,9 +2223,17 @@ export const CONFIG = {
    * WHO (amendment 48): captains and combat bots — the participants the level
    * heal reached. A PvE FLEET DRONE NEVER REGENS (it is environment, amendments
    * 12/24), so a disengaged drone keeps the damage it took.
+   *
+   * THE BASE AND THE LADDER (Story 9.6, Eric 2026-10-13, epic-9 amendments
+   * 90–91): base 2 %/s of missing hull after 15 s ("Passive Healing is going
+   * to increase by default to 2% to cut down on time spent sitting and
+   * waiting"; was 1 %/s). The PASSIVE HEALING ladder adds +0.6 %/s and −1 s
+   * of wait per card IN THE CATALOG, folded by effectiveStats into
+   * `stats.regen` — the sim reads that, never this block directly. The keys
+   * stay exactly these two.
    */
   regen: {
-    missingPctPerS: 0.01, // fraction of MISSING hull restored per second out of combat
+    missingPctPerS: 0.02, // fraction of MISSING hull restored per second out of combat
     outOfCombatMs: 15000, // ms since the last landed hull damage before it starts (Eric 2026-09-30: 30 s was "far too long given the current deadliness of the game"; was 30000, amendment 46)
   },
 

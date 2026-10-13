@@ -432,7 +432,11 @@ describe('shared barrel', () => {
     // 78 -> 79 (Story 9.5, Eric 2026-10-12, epic-9 amendments 73-82): the
     // client reads CONFIG.ram and runs the shared hull-contact resolver in
     // prediction. No new wire field or event; the exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(79);
+    // 79 -> 80 (Story 9.6, Eric 2026-10-11/13, epic-9 amendments 27-29, 90-97):
+    // catalog content (armor -> hullPoints, SPEED/TURNING cap 5, new
+    // passiveHealing ladder) and CONFIG.regen read by the client through
+    // effectiveStats().regen. The exception count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(80);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -531,7 +535,9 @@ describe('shared barrel', () => {
     // 2026-09-30: "far too long given the current deadliness of the game"). A fraction of MISSING (not
     // of max, not a flat amount) is the ruled shape and is what makes it need no
     // repricing when hull HP next moves.
-    expect(CONFIG.regen.missingPctPerS).toBe(0.01);
+    // Base rate 1 % -> 2 % in Story 9.6 (Eric 2026-10-13, epic-9 amendment 90:
+    // "to cut down on time spent sitting and waiting").
+    expect(CONFIG.regen.missingPctPerS).toBe(0.02);
     expect(CONFIG.regen.outOfCombatMs).toBe(15000);
     // THE SHAPE PINS. The paid block is now the paid heal and NOTHING else (the
     // free per-level channel's two dials lived inside it and are deleted), and
@@ -1017,9 +1023,11 @@ describe('shared barrel', () => {
     // 26/117 -> 24/114 on 2026-09-30 (Eric): DECK GUN TURRET and DECK GUN
     // BARREL deleted, folded into the CANNON ladder's rungs. 24/114 -> 23/109
     // in Story 9.2 (Eric 2026-10-11, epic-9 amendment 31): CHAFF retired.
-    expect(LINE_IDS).toHaveLength(23);
-    expect(Object.keys(CATALOG)).toHaveLength(23);
-    expect(catalogCardCount()).toBe(109);
+    // 23/109 -> 24/117 in Story 9.6 (epic-9 amendments 90–91): HULL/SPEED/
+    // TURNING cap 5, PASSIVE HEALING added.
+    expect(LINE_IDS).toHaveLength(24);
+    expect(Object.keys(CATALOG)).toHaveLength(24);
+    expect(catalogCardCount()).toBe(117);
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0); // still EMPTY (amendment 30 satisfied data-side)
     expect(Object.isFrozen(CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);

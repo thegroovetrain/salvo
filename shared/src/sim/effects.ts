@@ -191,6 +191,11 @@ export const TOP_LEVEL_STAT_PATHS = [
   'kinematics.decel',
   'kinematics.turnRate',
   'kinematics.steerageSpeed',
+  // OUT-OF-COMBAT REGEN (Story 9.6, Eric 2026-10-13, epic-9 amendments 90–91):
+  // seeded from CONFIG.regen in baseStats; the PASSIVE HEALING ladder adds
+  // +0.006 to the rate and −1000 ms to the wait per copy.
+  'regen.missingPctPerS',
+  'regen.outOfCombatMs',
 ] as const;
 
 /** Every `equipment.<id>.<field>` path the table above generates. */

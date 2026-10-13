@@ -296,6 +296,11 @@ export interface EffectiveStats {
   // (clampStats). Base 1.0 = a true no-op; the RELOAD ladder drives it down
   // additively (−0.05/copy) to exactly 0.75 at the 5-copy cap.
   cooldownScale: number;
+  // OUT-OF-COMBAT REGEN, per hull (Story 9.6, epic-9 amendments 90–91): base
+  // CONFIG.regen; the PASSIVE HEALING ladder raises the rate (+0.006/copy) and
+  // shortens the wait (−1000 ms/copy). Server and client read it here — never
+  // CONFIG.regen at tick time.
+  regen: { missingPctPerS: number; outOfCombatMs: number };
   equipment: EquipmentRows;
 }
 
@@ -608,6 +613,8 @@ function baseStats(cls: ShipClass): EffectiveStats {
     sweepPeriodMs: MS_PER_MINUTE / Math.min(CONFIG.vision.sweepRpm, CONFIG.vision.sweepRpmMax),
     sightRange: CONFIG.vision.sight,
     cooldownScale: 1, // base: the global cooldown scale is a no-op until RELOAD stacks
+    // A COPY of CONFIG.regen (never an alias — the fold mutates this tree).
+    regen: { missingPctPerS: CONFIG.regen.missingPctPerS, outOfCombatMs: CONFIG.regen.outOfCombatMs },
     equipment: baseEquipment(cls),
   };
 }
@@ -696,6 +703,15 @@ function guardRateMs(rateMs: number): number {
   return Number.isFinite(rateMs) && rateMs > 0 ? rateMs : CONFIG.machineGun.rateMs;
 }
 
+/** The regen pair's post-fold clamp (Story 9.6, amendments 90–91): the rate is
+ *  round3'd — the cooldownScale dust rule, so five +0.006 copies land on 0.05
+ *  exactly — and the wait is floored at 0 against malformed data (the cap
+ *  makes 10000 ms the reachable floor). */
+function clampRegen(regen: EffectiveStats['regen']): void {
+  regen.missingPctPerS = round3(regen.missingPctPerS);
+  regen.outOfCombatMs = Math.max(0, regen.outOfCombatMs);
+}
+
 /** The post-fold defensive clamps + derivations (see the header). Mutates in
  *  place. */
 function clampStats(stats: EffectiveStats): void {
@@ -739,6 +755,7 @@ function clampStats(stats: EffectiveStats): void {
   // malformed data, not a reachable configuration.
   const cd = Math.max(0.1, round3(stats.cooldownScale));
   stats.cooldownScale = cd;
+  clampRegen(stats.regen);
   // THE EQUIPMENT RELOAD STEP then the global scale, in that order, for EVERY
   // row — one site, no per-weapon special case (see reloadTierScale).
   for (const id of EQUIPMENT_IDS) {

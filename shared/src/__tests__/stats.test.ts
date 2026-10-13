@@ -78,6 +78,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
       sweepPeriodMs: 60000 / CONFIG.vision.sweepRpm,
       sightRange: CONFIG.vision.sight,
       cooldownScale: 1, // the global cooldown lever is a true no-op at base
+      regen: { ...CONFIG.regen }, // Story 9.6 (amendments 90–91): CONFIG.regen verbatim at zero cards
       equipment: {
         gun: {
           tier: 1, // the deck gun's tier I ships EQUIPPED (catalog-v3 §4)
@@ -279,31 +280,68 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
   });
 });
 
-describe('effectiveStats — the five universal ladders (catalog-v3 §4)', () => {
-  it('ARMOR (R8): +25 max hp per tier, 4 tiers', () => {
-    for (const n of [1, 2, 3, 4]) expect(effectiveStats(BASE, stack('armor', n)).maxHp).toBe(BASE.hp + 25 * n);
-    expect(CATALOG.armor.cap).toBe(4);
-    expect(effectiveStats(BASE, stack('armor', 4)).maxHp).toBe(450); // BS 350 -> 450
+describe('effectiveStats — the six universal ladders (catalog-v3 §4 + Story 9.6)', () => {
+  // Re-based in Story 9.6 (Eric 2026-10-11 / 2026-10-13, epic-9 amendments
+  // 27–29, 90–91): HULL POINTS (was ARMOR, +25 ×4) is +50 ×5.
+  it('HULL POINTS (R8): +50 max hp per tier, 5 tiers', () => {
+    for (const n of [1, 2, 3, 4, 5]) expect(effectiveStats(BASE, stack('hullPoints', n)).maxHp).toBe(BASE.hp + 50 * n);
+    expect(CATALOG.hullPoints.cap).toBe(5);
+    expect(effectiveStats(BASE, stack('hullPoints', 5)).maxHp).toBe(600); // dreadnought 350 -> 600
   });
 
   it('SPEED (R10): +2.5 u/s forward per tier — reverse deliberately untouched', () => {
-    for (const n of [1, 2, 4]) {
+    expect(CATALOG.speed.cap).toBe(5); // 4 -> 5 in Story 9.6 (amendment 91)
+    for (const n of [1, 2, 4, 5]) {
       const s = effectiveStats(BASE, stack('speed', n));
       expect(s.kinematics.maxSpeed).toBeCloseTo(BASE.kinematics.maxSpeed + 2.5 * n, 9);
       expect(s.kinematics.reverseSpeed).toBe(BASE.kinematics.reverseSpeed);
       expect(s.kinematics.accel).toBe(BASE.kinematics.accel);
       expect(s.kinematics.turnRate).toBe(BASE.kinematics.turnRate);
     }
-    expect(effectiveStats(BASE, stack('speed', 4)).kinematics.maxSpeed).toBe(45); // BS 35 -> 45
+    expect(effectiveStats(BASE, stack('speed', 5)).kinematics.maxSpeed).toBe(BASE.kinematics.maxSpeed + 12.5);
   });
 
-  it('TURNING (R6, [DRAFT]): flat +0.05 rad/s per tier — +0.2 at the cap on every hull', () => {
+  it('TURNING (R6): flat +0.05 rad/s per tier — +0.25 at the 5-copy cap on every hull', () => {
+    expect(CATALOG.turning.cap).toBe(5); // 4 -> 5 in Story 9.6 (amendment 91)
     for (const id of SHIP_CLASS_IDS) {
       const cls = CONFIG.shipClasses[id];
-      const s = effectiveStats(cls, stack('turning', 4));
-      expect(s.kinematics.turnRate, id).toBeCloseTo(cls.kinematics.turnRate + 0.2, 9);
+      const s = effectiveStats(cls, stack('turning', 5));
+      expect(s.kinematics.turnRate, id).toBeCloseTo(cls.kinematics.turnRate + 0.25, 9);
     }
-    expect(effectiveStats(BASE, stack('turning', 4)).kinematics.turnRate).toBeCloseTo(0.6, 9); // BS 0.4 -> 0.6
+  });
+
+  // PASSIVE HEALING (Story 9.6, Eric 2026-10-13, epic-9 amendments 90–91): the
+  // regen pair is DERIVED in effectiveStats — zero cards ≙ CONFIG.regen, each
+  // copy +0.006 rate (round3'd, the cooldownScale dust rule) and −1000 ms wait.
+  it('PASSIVE HEALING: regen rate round3(base + 0.006n) EXACTLY and wait base − 1000n, n = 0..5', () => {
+    expect(CATALOG.passiveHealing.cap).toBe(5);
+    const round3 = (v: number): number => Math.round(v * 1000) / 1000;
+    for (let n = 0; n <= CATALOG.passiveHealing.cap; n += 1) {
+      for (const id of SHIP_CLASS_IDS) {
+        const { regen } = effectiveStats(CONFIG.shipClasses[id], stack('passiveHealing', n));
+        expect(regen.missingPctPerS, `${id} ${n}`).toBe(round3(CONFIG.regen.missingPctPerS + 0.006 * n));
+        expect(regen.outOfCombatMs, `${id} ${n}`).toBe(CONFIG.regen.outOfCombatMs - 1000 * n);
+      }
+    }
+    // The ruled ceiling (amendment 90): 5 %/s after 10 s at V.
+    const v = effectiveStats(BASE, stack('passiveHealing', 5)).regen;
+    expect(v).toEqual({ missingPctPerS: 0.05, outOfCombatMs: 10000 });
+  });
+
+  it('PASSIVE HEALING: zero cards is CONFIG.regen as a COPY — a fold never writes through to CONFIG', () => {
+    const s = effectiveStats(BASE);
+    expect(s.regen).toEqual(CONFIG.regen);
+    expect(s.regen).not.toBe(CONFIG.regen);
+    effectiveStats(BASE, stack('passiveHealing', 5));
+    expect(effectiveStats(BASE).regen).toEqual(CONFIG.regen);
+  });
+
+  it('PASSIVE HEALING moves only the regen pair; no other ladder moves it', () => {
+    const base = effectiveStats(BASE);
+    expect({ ...effectiveStats(BASE, stack('passiveHealing', 3)), regen: base.regen }).toEqual(base);
+    for (const id of ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload'] as const) {
+      expect(effectiveStats(BASE, stack(id, CATALOG[id].cap)).regen, id).toEqual(base.regen);
+    }
   });
 
   it('RADAR SWEEP (R11): +3 rpm per tier, 15 -> 30 at the 5-copy cap, and the clamp holds', () => {

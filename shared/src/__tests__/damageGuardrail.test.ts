@@ -462,14 +462,14 @@ describe('torpedo vs hull speeds — CURRENT FACTS, no longer a law (FR7 retired
     expect([base('torpedoBoat'), base('mineLayer'), base('battleship')]).toEqual([56.25, 50, 43.75]);
   });
 
-  it('a SPEED-capped boosted Torpedo Boat (68.75) OUTRUNS the 65 u/s heavy torpedo — ALLOWED', () => {
+  it('a SPEED-capped boosted Torpedo Boat (71.875) OUTRUNS the 65 u/s heavy torpedo — ALLOWED', () => {
     // ALLOWED, and deliberately so: FR7's outrun law is retired (Eric
     // 2026-09-11, AR49; epic-8 amendment 55), and no friendly fire (Story 8.4)
     // is the safety property that makes catching your own fish harmless.
     const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(CATALOG.speed.cap).fill('speed'));
-    expect(s.kinematics.maxSpeed).toBe(55); // 45 + 2.5 x 4 (catalog-v3 R10)
+    expect(s.kinematics.maxSpeed).toBe(57.5); // 45 + 2.5 x 5 (catalog-v3 R10; cap 5 since Story 9.6, amendment 91)
     const maxAchievableHull = boostedKinematics(s.kinematics, CONFIG.boost.factor, true).maxSpeed;
-    expect(maxAchievableHull).toBe(68.75); // 55 x 1.25 — the SPEED ladder is inside the bonus
+    expect(maxAchievableHull).toBe(71.875); // 57.5 x 1.25 — the SPEED ladder is inside the bonus
     expect(s.equipment.heavyTorpedo.speed).toBe(65); // catalog-v3 R17 Tier I
     expect(maxAchievableHull).toBeGreaterThan(s.equipment.heavyTorpedo.speed);
   });
@@ -496,7 +496,7 @@ describe('torpedo vs hull speeds — CURRENT FACTS, no longer a law (FR7 retired
     expect([base.speed, maxed.speed]).toEqual([45, 55]);
     // At tier I it merely MATCHES the fastest base hull (the Torpedo Boat's
     // 45) — so a TB at full ahead is never outrun by it — and a SPEED-capped,
-    // boosted TB (68.75) outruns even the maxed fish.
+    // boosted TB (71.875) outruns even the maxed fish.
     expect(base.speed).toBeLessThanOrEqual(maxHullSpeed);
     const capped = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(CATALOG.speed.cap).fill('speed'));
     expect(boostedKinematics(capped.kinematics, CONFIG.boost.factor, true).maxSpeed)

@@ -3,6 +3,12 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  80 — Story 9.6 (Eric 2026-10-11/13, epic-9 amendments 27–29, 90–97):
+ *  catalog content — `armor` → `hullPoints` (+50 ×5, heals on grant),
+ *  SPEED/TURNING cap 5, new universal ladder `passiveHealing` (+0.6 %/s
+ *  missing hull and −1 s wait per card); `CONFIG.regen.missingPctPerS`
+ *  0.01 → 0.02 read by the client through `effectiveStats().regen`. Nothing
+ *  new on the wire. Perception exception count stays SIX.
  *  79 — Story 9.5 (Eric 2026-10-12, epic-9 amendments 73–82): the client
  *  reads CONFIG.ram and runs the shared hull-contact resolver
  *  (`resolveHullContacts`, sim/contact.ts) in prediction, so same-seed sims
@@ -834,7 +840,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 79;
+export const PROTOCOL_VERSION = 80;
 
 // Tunables
 export * from './constants.js';
