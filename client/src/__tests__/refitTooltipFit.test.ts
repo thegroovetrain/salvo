@@ -114,8 +114,9 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     // 24 lines since DECK GUN TURRET and DECK GUN BARREL folded into the
     // CANNON ladder (2026-09-30, amendment 197); 26 before; 23 since CHAFF left
     // the catalog in Story 9.2 (epic-9 amendment 31); 24 since PASSIVE HEALING
-    // joined in Story 9.6 (epic-9 amendment 95).
-    expect(LINES).toHaveLength(24);
+    // joined in Story 9.6 (epic-9 amendment 95); 25 since ARMOR joined in
+    // Story 9.7 (epic-9 amendments 110–117).
+    expect(LINES).toHaveLength(25);
     const lines = new Set(PANELS.map((p) => p.label.split('@')[0]));
     // Only the never-dealt stub opens no panel.
     expect(LINES.filter((d) => !lines.has(d.id)).map((d) => d.id)).toEqual(['depthCharge']);

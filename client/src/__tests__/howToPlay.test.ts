@@ -40,7 +40,7 @@ const inCatalog = (e: HowToEntry): boolean => (LINE_IDS as readonly string[]).in
  *  SHELLS, whose stale entry stays too (its `dazzleShells` line left the
  *  catalog, so `inCatalog` tolerates it). 9.11 writes the copy and empties
  *  this set. */
-const AWAITING_COPY: ReadonlySet<string> = new Set(['countermeasure', 'foulingShell', 'passiveHealing']);
+const AWAITING_COPY: ReadonlySet<string> = new Set(['countermeasure', 'foulingShell', 'passiveHealing', 'armor']);
 const allProse = (): string =>
   HOWTO_SECTIONS.flatMap((s) => [...(s.paragraphs ?? []), ...(s.tail ?? [])]).join(' ');
 

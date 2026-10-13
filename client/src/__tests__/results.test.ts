@@ -95,7 +95,7 @@ const rep = (id: string, n: number): string[] => Array.from({ length: n }, () =>
  * pick and can no longer sit in E — naval mines II stand in for it (same tier).
  */
 function mockOwn(
-  over: { radarSweep?: number; hullRepair?: number; speed?: number; passiveHealing?: number } = {},
+  over: { radarSweep?: number; hullRepair?: number; speed?: number; passiveHealing?: number; armor?: number } = {},
 ): ResultsOwn {
   const cards = [
     ...rep('deckGun', 3), // gun: 1 + copies = IV
@@ -104,6 +104,7 @@ function mockOwn(
     'heavyTorpedo',
     ...rep('hullRepair', over.hullRepair ?? 1),
     ...rep('hullPoints', 2), // every ship ladder starts from nothing: copies = II
+    ...rep('armor', over.armor ?? 1), // I (Story 9.7)
     ...rep('speed', over.speed ?? 3), // III
     'turning', // I
     ...rep('radarSweep', over.radarSweep ?? 2), // II
@@ -454,25 +455,33 @@ describe('showResults — the elimination modal', () => {
 
     it('the ladder line reads each ship ladder\'s copies as its numeral, on the tier ramp', () => {
       // Story 9.6 (epic-9 amendments 93/94): HULL / SPEED / TURNING count from
-      // nothing like RADAR SWEEP and RELOAD, and PASSIVE HEALING joins last.
+      // nothing like RADAR SWEEP and RELOAD, and PASSIVE HEALING joins last;
+      // ARMOR sits right after HULL (Story 9.7, Eric 2026-10-13).
       open(mockOwn());
-      expect(ladder()).toBe('HULLII·SPEEDIII·TURNINGIRADAR SWEEPII·RELOADIII·PASSIVE HEALING—');
-      // TWO ROWS OF THREE (Eric 2026-10-13, amendment 99): no separator crosses the row break.
+      expect(ladder()).toBe('HULLII·ARMORI·SPEEDIII·TURNINGIRADAR SWEEPII·RELOADIII·PASSIVE HEALING—');
+      // TWO ROWS, FOUR OVER THREE (Eric 2026-10-13, epic-9 amendment 114; two
+      // rows of three since amendment 99): no separator crosses the row break.
       const rows = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div')];
-      expect(rows.map((r) => r.textContent)).toEqual(['HULLII·SPEEDIII·TURNINGI', 'RADAR SWEEPII·RELOADIII·PASSIVE HEALING—']);
+      expect(rows.map((r) => r.textContent)).toEqual([
+        'HULLII·ARMORI·SPEEDIII·TURNINGI',
+        'RADAR SWEEPII·RELOADIII·PASSIVE HEALING—',
+      ]);
       const numerals = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')];
-      expect(numerals.slice(0, 5).map((n) => n.style.color)).toEqual([1, 2, 0, 1, 2].map((i) => LINEAGE_TIERS[i]));
+      expect(numerals.slice(0, 6).map((n) => n.style.color)).toEqual([1, 0, 2, 0, 1, 2].map((i) => LINEAGE_TIERS[i]));
     });
 
-    it('a ladder at zero copies reads `—` in the muted label colour (Eric R2), all six still listed', () => {
+    it('a ladder at zero copies reads `—` in the muted label colour (Eric R2), all seven still listed', () => {
       // The I/O matrix row: 0 × SPEED dashes, 3 × PASSIVE HEALING prints III.
       open(mockOwn({ speed: 0, passiveHealing: 3 }));
-      expect(ladder()).toBe('HULLII·SPEED—·TURNINGIRADAR SWEEPII·RELOADIII·PASSIVE HEALINGIII');
+      expect(ladder()).toBe('HULLII·ARMORI·SPEED—·TURNINGIRADAR SWEEPII·RELOADIII·PASSIVE HEALINGIII');
       const entries = ladderEntries([]);
-      expect(entries.map((e) => e.label)).toEqual(['HULL', 'SPEED', 'TURNING', 'RADAR SWEEP', 'RELOAD', 'PASSIVE HEALING']);
-      // Every ship ladder starts from nothing (amendment 94), so all six dash.
-      expect(entries.map((e) => e.tier)).toEqual([null, null, null, null, null, null]);
-      const dash = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')][1];
+      expect(entries.map((e) => e.label)).toEqual([
+        'HULL', 'ARMOR', 'SPEED', 'TURNING', 'RADAR SWEEP', 'RELOAD', 'PASSIVE HEALING',
+      ]);
+      // Every ship ladder starts from nothing (amendment 94; ARMOR too, Story
+      // 9.7, epic-9 amendments 110–117), so all seven dash.
+      expect(entries.map((e) => e.tier)).toEqual([null, null, null, null, null, null, null]);
+      const dash = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')][2];
       expect(dash.textContent).toBe('—');
       expect(dash.style.color).toBe('var(--hc-text-muted)');
     });

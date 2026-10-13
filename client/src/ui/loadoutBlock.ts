@@ -94,16 +94,25 @@ const TEXT = {
 const P = LOADOUT_PX;
 const MONO = 'var(--hc-font-mono)';
 
-/** The six ship ladders, in the ratified line order (PASSIVE HEALING last,
- *  Story 9.6). */
-const LADDER_LINES: readonly LineId[] = ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'];
+/** The seven ship ladders, in the ratified line order (PASSIVE HEALING last,
+ *  Story 9.6; ARMOR right after HULL, Story 9.7 — Eric 2026-10-13). */
+const LADDER_LINES: readonly LineId[] = [
+  'hullPoints',
+  'armor',
+  'speed',
+  'turning',
+  'radarSweep',
+  'reload',
+  'passiveHealing',
+];
 
 /** Eric R2 (2026-09-30): ladders that start from nothing read `—` at ZERO
  *  copies rather than a numeral. Since Story 9.6 (Eric 2026-10-13, epic-9
  *  amendment 94) that is every ship ladder: HULL / SPEED / TURNING no longer
- *  sail at Tier I, and PASSIVE HEALING is new. */
+ *  sail at Tier I, and PASSIVE HEALING is new; ARMOR (Story 9.7) too. */
 const DASH_AT_ZERO: ReadonlySet<LineId> = new Set<LineId>([
   'hullPoints',
+  'armor',
   'speed',
   'turning',
   'radarSweep',
@@ -367,8 +376,9 @@ function makeLadderEntry(entry: LadderEntry): HTMLSpanElement {
   return el;
 }
 
-/** Ladders per row of the ladder line (Story 9.6, epic-9 amendment 99). */
-const LADDERS_PER_ROW = 3;
+/** Ladders per row of the ladder line (Story 9.6, epic-9 amendment 99; four
+ *  since Story 9.7, Eric 2026-10-13, epic-9 amendment 114 — seven read 4 + 3). */
+const LADDERS_PER_ROW = 4;
 
 /** One row of the ladder line: its entries with a muted `·` between them. */
 function makeLadderRow(entries: readonly LadderEntry[]): HTMLDivElement {
@@ -382,11 +392,12 @@ function makeLadderRow(entries: readonly LadderEntry[]): HTMLDivElement {
 }
 
 /**
- * The six ship ladders as TWO ROWS OF THREE (mock `.lo-lad`, re-cut at Story
- * 9.6 — Eric 2026-10-13, epic-9 amendment 99): with PASSIVE HEALING the one
- * line of six ran past the panel's 530 px content column (the five-entry line
- * fit by a few pixels), so HULL · SPEED · TURNING sit over RADAR SWEEP ·
- * RELOAD · PASSIVE HEALING at the same type, tracking and separators.
+ * The seven ship ladders as TWO ROWS, FOUR OVER THREE (mock `.lo-lad`, re-cut
+ * at Story 9.6 — Eric 2026-10-13, epic-9 amendment 99 — and again at Story 9.7,
+ * amendment 114): with PASSIVE HEALING the one line of six ran past the
+ * panel's 530 px content column, so it split into rows; with ARMOR, HULL ·
+ * ARMOR · SPEED · TURNING sit over RADAR SWEEP · RELOAD · PASSIVE HEALING at
+ * the same type, tracking and separators.
  */
 function makeLadderLine(cards: readonly string[]): HTMLDivElement {
   const line = document.createElement('div');

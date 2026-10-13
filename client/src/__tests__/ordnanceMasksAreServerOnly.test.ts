@@ -134,6 +134,8 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // shared hull-contact resolver in prediction — no wire shape, no mask.
     // 79 -> 80 (Story 9.6) is the catalog re-cut (HULL / PASSIVE HEALING) and
     // the regen fold the client reads through stats — no mask.
-    expect(PROTOCOL_VERSION).toBe(80);
+    // 80 -> 81 (Story 9.7, epic-9 amendments 110–117) is the ARMOR ladder and
+    // the DAMAGE CUT's armorBonus, read through the fold — no mask.
+    expect(PROTOCOL_VERSION).toBe(81);
   });
 });

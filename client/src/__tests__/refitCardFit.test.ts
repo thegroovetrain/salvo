@@ -132,9 +132,10 @@ describe('the ratified face is a FIXED box, and its content is a constant', () =
     // amendment 197) — 24 lines, TWENTY-THREE live against one. CHAFF left the
     // catalog in Story 9.2 (epic-9 amendment 31) — 23 lines, TWENTY-TWO live.
     // PASSIVE HEALING joined in Story 9.6 (epic-9 amendment 95) — 24 lines,
-    // TWENTY-THREE live.
-    expect(LINES).toHaveLength(24);
-    expect(LIVE).toHaveLength(23);
+    // TWENTY-THREE live. ARMOR joined in Story 9.7 (epic-9 amendments
+    // 110–117) — 25 lines, TWENTY-FOUR live.
+    expect(LINES).toHaveLength(25);
+    expect(LIVE).toHaveLength(24);
     expect(LIVE.some((l) => l.id === 'hullRepair')).toBe(true);
     expect(FACES.length).toBe(LIVE.reduce((n, d) => n + d.cap, 0) * CLASSES.length * 2);
   });

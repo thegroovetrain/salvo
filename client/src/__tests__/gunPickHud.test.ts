@@ -105,7 +105,7 @@ describe('the ruled names (amendments 107/108)', () => {
     const lines = (id: 'instantReload' | 'damageCut') =>
       equipmentStatRows(id, stats()).map((r) => `${r.label} ${statValueText(r)}`);
     expect(lines('damageCut')).toEqual([
-      `CUT ${Math.round((1 - CONFIG.damageCut.factor) * 100)}%`,
+      `ARMOR +${CONFIG.damageCut.armorBonus}`, // Story 9.7: the cut adds Armor (epic-9 amendments 110–117)
       `DURATION ${(CONFIG.damageCut.durationMs / 1000).toFixed(1)} s`,
       `RELOAD ${(CONFIG.damageCut.reloadMs / 1000).toFixed(1)} s`,
     ]);
