@@ -70,6 +70,7 @@ import {
   broadsideMountSpread,
   broadsideTraverse,
   clampSpreadRung,
+  damageMultiplierFor,
   deriveMineRings,
   type EffectiveStats,
 } from './stats.js';
@@ -188,6 +189,10 @@ function rePinDerived(stats: EffectiveStats): void {
   // THE EIGHTHS LADDER IS ONE NUMBER (Eric ruling 2026-08-16): truesight is the
   // 4/8 rung of intel range.
   stats.sightRange = stats.radarRange / 2;
+  // ARMOR'S DAMAGE MULTIPLIER (Story 9.7, epic-9 amendments 86–88) rides the
+  // whitelisted `armor` path through the one formula, so a mid-fold Armor
+  // write can never leave it stale (clampStats floors Armor and re-derives).
+  stats.damageMultiplier = damageMultiplierFor(stats.armor);
   // EVERY MINE RING, all three kinds, through the one derivation
   // (sim/stats.ts deriveMineRings). A contact mine's trip ring rides its blast
   // radius; the captive's rides its TIER and its burst is pinned.

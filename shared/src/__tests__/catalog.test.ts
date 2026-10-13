@@ -1,12 +1,16 @@
 // THE CATALOG (Story 8.1) — catalog v3's identity, its authoring validator and
 // THE ORDER-INDEPENDENCE PROPERTY.
 //
-// Pinned here: 24 lines / 117 cards with the exact per-line caps and kinds of
+// Pinned here: 25 lines / 122 cards with the exact per-line caps and kinds of
 // `catalog-v3.md` §1 as amended; `tiers.length === cap` on every line; the
 // 1-line stub set; the validator's rules, including its refusal of a stat
 // path that takes `add` from one line and `mult` from another; and a seeded
 // permutation property — ≥200 shuffles of random legal multisets over all
 // three classes, deep-equal AND JSON-identical.
+//
+// STORY 9.7 (Eric 2026-10-13, epic-9 amendments 86–88 / 110–117): 24/117 ->
+// 25/122 — the new ARMOR ladder (cap 5, +1 Armor per card) directly after
+// HULL POINTS.
 //
 // STORY 9.6 (Eric 2026-10-11 / 2026-10-13, epic-9 amendments 27–29, 90–91):
 // 23/109 -> 24/117 — `armor` renamed `hullPoints` (+50 ×5), SPEED/TURNING
@@ -78,6 +82,7 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   // HULL POINTS / SPEED / TURNING cap 5 and PASSIVE HEALING new (Story 9.6,
   // epic-9 amendments 27–29, 90–91).
   hullPoints: { cap: 5, kind: 'ladder', stub: false },
+  armor: { cap: 5, kind: 'ladder', stub: false }, // NEW in Story 9.7 (epic-9 amendments 86–88)
   speed: { cap: 5, kind: 'ladder', stub: false },
   turning: { cap: 5, kind: 'ladder', stub: false },
   radarSweep: { cap: 5, kind: 'ladder', stub: false },
@@ -122,13 +127,15 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
 const STUB_IDS: readonly LineId[] = ['depthCharge'];
 
 describe('catalog v3 identity', () => {
-  it('ships 24 lines in the ruled order, keyed by id', () => {
-    expect(LINE_IDS.length).toBe(24); // 23 -> 24 in Story 9.6 (amendment 90: PASSIVE HEALING)
+  it('ships 25 lines in the ruled order, keyed by id', () => {
+    // 23 -> 24 in Story 9.6 (amendment 90: PASSIVE HEALING); 24 -> 25 in Story
+    // 9.7 (epic-9 amendments 86–88 / 110–117: ARMOR).
+    expect(LINE_IDS.length).toBe(25);
     expect(Object.keys(CATALOG)).toEqual([...LINE_IDS]);
     for (const id of LINE_IDS) expect(CATALOG[id].id).toBe(id);
   });
 
-  it('matches the sheet line for line (cap, kind, stub) and sums to 117 cards', () => {
+  it('matches the sheet line for line (cap, kind, stub) and sums to 122 cards', () => {
     for (const id of LINE_IDS) {
       const line = CATALOG[id];
       expect({ cap: line.cap, kind: line.kind, stub: line.stub === true }).toEqual(SHEET[id]);
@@ -138,8 +145,13 @@ describe('catalog v3 identity', () => {
     // 2026-09-30: DECK GUN TURRET (1) and DECK GUN BARREL (2) deleted. 114 ->
     // 109 in Story 9.2: CHAFF (5) retired (epic-9 amendment 31). 109 -> 117
     // in Story 9.6 (amendments 90–91): HULL +1, SPEED +1, TURNING +1, PASSIVE
-    // HEALING +5.
-    expect(catalogCardCount()).toBe(117);
+    // HEALING +5. 117 -> 122 in Story 9.7 (epic-9 amendments 86–88 /
+    // 110–117): ARMOR +5.
+    expect(catalogCardCount()).toBe(122);
+    // Seven universal ladders, 35 cards (Story 9.7).
+    const universal = LINE_IDS.filter((id) => CATALOG[id].kind === 'ladder' && tierTargetOf(CATALOG[id]) === undefined);
+    expect(universal).toHaveLength(7);
+    expect(universal.reduce((n, id) => n + CATALOG[id].cap, 0)).toBe(35);
   });
 
   it('resolves NO deleted one-off gun id (Eric 2026-09-30) — a dead id on the wire is dropped', () => {
@@ -419,6 +431,18 @@ describe('catalog v3 identity', () => {
     expect(LINE_IDS.indexOf('hullPoints')).toBe(0); // armor's old seat
   });
 
+  it('seats ARMOR directly after HULL POINTS (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–89 / 110–117)', () => {
+    expect(LINE_IDS.indexOf('armor')).toBe(LINE_IDS.indexOf('hullPoints') + 1);
+  });
+
+  it('authors ARMOR as five identical rungs of +1 Armor — no hull, no heal (Story 9.7, epic-9 amendments 86–88)', () => {
+    const line = CATALOG.armor;
+    expect(tierTargetOf(line)).toBeUndefined();
+    expect(line.healOnGrant).toBeUndefined();
+    expect(line.tiers).toHaveLength(5);
+    for (const tier of line.tiers) expect(tier).toEqual([{ kind: 'stat', path: 'armor', add: 1 }]);
+  });
+
   it('authors PASSIVE HEALING as five identical rungs of +0.006 rate and −1000 ms wait (Story 9.6, amendment 91)', () => {
     const line = CATALOG.passiveHealing;
     expect(tierTargetOf(line)).toBeUndefined();
@@ -431,8 +455,10 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('folds an id outside LINE_IDS as if it were absent (a stale `armor` record fails closed)', () => {
-    for (const stale of ['armor', 'nope'].filter((id) => !(LINE_IDS as readonly string[]).includes(id))) {
+  it('folds an id outside LINE_IDS as if it were absent (an unknown id fails closed)', () => {
+    // (`armor` was the stale id here between Stories 9.6 and 9.7; it is a live
+    // line again since 9.7 — epic-9 amendment 89 — so it left this list.)
+    for (const stale of ['nope', 'constructor', 'hullpoints']) {
       expect(resolveCards([stale])).toEqual([]);
       expect(effectiveStats(CONFIG.shipClasses.battleship, [stale, 'speed'])).toEqual(
         effectiveStats(CONFIG.shipClasses.battleship, ['speed']),

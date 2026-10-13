@@ -3,6 +3,12 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  81 — Story 9.7 ARMOR (Eric 2026-10-13, epic-9 amendments 86–88): catalog
+ *  content (new `armor` ladder, seated right after `hullPoints`),
+ *  `CONFIG.armor` + `CONFIG.damageCut.armorBonus` read by the client through
+ *  the fold (`effectiveStats().armor` / `.damageMultiplier`, the barrel's
+ *  `damageMultiplierFor`); the cut's flat ×0.5 deleted, window 8 s → 10 s;
+ *  nothing new rides the wire. Perception exception count stays SIX.
  *  80 — Story 9.6 (Eric 2026-10-11/13, epic-9 amendments 27–29, 90–97):
  *  catalog content — `armor` → `hullPoints` (+50 ×5, heals on grant),
  *  SPEED/TURNING cap 5, new universal ladder `passiveHealing` (+0.6 %/s
@@ -840,7 +846,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 80;
+export const PROTOCOL_VERSION = 81;
 
 // Tunables
 export * from './constants.js';

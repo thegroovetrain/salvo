@@ -91,10 +91,11 @@ export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
  *     derivation;
  *   - `flak.burstRadius` / `flak.contactDamage`: FIXED by ruling (amendment
  *     105 — the blast never grows; the bodyblock is a CONFIG constant);
- *   - `damageCut.factor`: Eric's fixed number (amendment 99) that no ladder
- *     steps — a CONFIG pass-through, not card-addressable (a harness `--tune`
- *     reaches CONFIG); `machineGun.rateMs` LEFT this list on 2026-09-30 (the
- *     ladder steps it);
+ *   - `damageCut.armorBonus`: Eric's fixed number (the cut's +5 temporary
+ *     Armor, epic-9 amendment 88; the flat ×0.5 `factor` it replaced is
+ *     deleted) that no ladder steps — a CONFIG pass-through, not
+ *     card-addressable (a harness `--tune` reaches CONFIG);
+ *     `machineGun.rateMs` LEFT this list on 2026-09-30 (the ladder steps it);
  *   - `broadside.traverseRad` / `broadside.mountSpreadRad`: derived from the
  *     1-based `spreadRung`, which IS the addressable field;
  *   - every mine's `triggerRadius`: derived post-fold (naval and fouling from
@@ -172,12 +173,16 @@ export const EQUIPMENT_STAT_FIELDS = {
 export const EQUIPMENT_INT_FIELDS: readonly string[] = ['maxAmmo', 'barrels', 'turrets', 'damage', 'contactDamage'];
 
 /**
- * The top-level (non-equipment) stat paths. `sightRange` and `sweepPeriodMs`
- * are DELIBERATELY ABSENT — both are derived post-fold (radarRange/2 and
- * 60000/sweepRpm), pinned absent in barrel.test.ts.
+ * The top-level (non-equipment) stat paths. `sightRange`, `sweepPeriodMs` and
+ * `damageMultiplier` are DELIBERATELY ABSENT — all three are derived post-fold
+ * (radarRange/2, 60000/sweepRpm and K / (K + armor)), pinned absent in
+ * barrel.test.ts.
  */
 export const TOP_LEVEL_STAT_PATHS = [
   'maxHp',
+  // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88): 0 at base,
+  // +1 per ARMOR card; clampStats derives `damageMultiplier` from it.
+  'armor',
   'radarRange',
   'sweepRpm',
   // The ONE global cooldown lever (Eric ruling 2026-08-04, retuned by

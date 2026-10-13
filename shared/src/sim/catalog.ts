@@ -1,9 +1,13 @@
 // THE CATALOG (Story 8.1) — catalog v3, Eric's authored sheet
 // (`_bmad-output/planning-artifacts/gdds/.../catalog-v3.md`) expressed as data,
 // as amended by Eric's rulings (epic-8 amendments).
-// 24 card LINES / 117 physical cards: 8 equipment lines (40), 6 universal
-// ladders (30), the gun ladders (12 — CANNON, MACHINE GUN and FLAK, 4 each),
+// 25 card LINES / 122 physical cards: 8 equipment lines (40), 7 universal
+// ladders (35), the gun ladders (12 — CANNON, MACHINE GUN and FLAK, 4 each),
 // 0 add-ons, 7 consumables (35).
+//
+// THE COUNT MOVED 24/117 -> 25/122 IN STORY 9.7 (Eric 2026-10-13, epic-9
+// amendments 86–89): the new ARMOR ladder (cap 5, +1 Armor per card) joins
+// directly after HULL POINTS. Every other line keeps its relative order.
 // ONE stub line remains since Story 8.18 (DEPTH CHARGE — SMOKE SCREEN went
 // live); every other line is live, so 6 of the 7 consumables are live.
 // Story 9.3 (Eric 2026-10-11): SMOKE SCREEN's slot is now `countermeasure`
@@ -107,10 +111,15 @@ import {
 } from './effects.js';
 
 /**
- * THE 24 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
+ * THE 25 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
  * amended by amendments 80/83 on 2026-09-19 and 89e on 2026-09-21). This order
  * IS the fold order, so it is part of the determinism contract — never
  * re-sort it.
+ *
+ * STORY 9.7 ADDED ONE (24 -> 25; Eric 2026-10-13, epic-9 amendments 86–89):
+ * `armor` — the NEW Armor ladder, not the old +hp line, which 9.6 renamed
+ * `hullPoints` — sits directly after `hullPoints` (seat 1), so every line
+ * below it moves down one place.
  *
  * STORY 9.6 RENAMED ONE SLOT AND ADDED ONE (23 -> 24; Eric 2026-10-13, epic-9
  * amendments 90–93): `armor` reads `hullPoints` in the same seat, and
@@ -150,8 +159,9 @@ import {
  * the kind is in CATALOG.
  */
 export const LINE_IDS = [
-  // --- the six universal ladders (catalog-v3 §4 + Story 9.6) ---------------
+  // --- the seven universal ladders (catalog-v3 §4 + Stories 9.6 / 9.7) ------
   'hullPoints', // was `armor` until Story 9.6 (Eric 2026-10-13, amendment 93) — same seat
+  'armor', // Story 9.7 (Eric 2026-10-13, amendments 86–89): the new Armor ladder, right after HULL
   'speed',
   'turning',
   'radarSweep',
@@ -190,7 +200,7 @@ export const LINE_IDS = [
   'phosphorShells', // an EQUIPMENT line since 8.17
 ] as const;
 
-/** One of the 24 authored card lines. */
+/** One of the 25 authored card lines. */
 export type LineId = (typeof LINE_IDS)[number];
 
 /**
@@ -417,6 +427,8 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  * Every authored number cites its ruling:
  *   HULL POINTS R8 — +50 max hp per tier, 5 tiers, heals on grant (was ARMOR
  *                  +25 ×4; epic-9 amendments 27–29, 90–91).
+ *   ARMOR   — +1 Armor per tier, 5 tiers; damage × K / (K + Armor), K = 5
+ *                  (Eric 2026-10-13, epic-9 amendments 86–88).
  *   SPEED   R10 — +2.5 u/s forward max per tier, 5 tiers, reverse untouched.
  *   TURNING R6  — flat +0.05 rad/s per tier, 5 tiers.
  *   RADAR SWEEP R11 — +3 rpm per tier, 5 tiers (the 30 rpm clamp stays).
@@ -440,12 +452,18 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  *   CAPTIVE MINES R25 · FOULING MINES R28 (as amended) — Story 8.13.
  */
 export const CATALOG: Catalog = deepFreezeRows({
-  // --- the six universal ladders -------------------------------------------
+  // --- the seven universal ladders -----------------------------------------
   // HULL POINTS (R8 as re-cut by Eric 2026-10-11 / 2026-10-13, epic-9
   // amendments 27–29, 90–91): +50 max hp per tier, 5 tiers (dreadnought 350 →
   // 600 at cap); the grant HEALS the granted delta. Was `armor` (+25 ×4) until
   // Story 9.6.
   hullPoints: ladder('hullPoints', 5, [statEffect('maxHp', { add: 50 })], { healOnGrant: true }),
+  // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88): +1 Armor per
+  // tier, 5 tiers (0 → 5); effectiveStats derives damageMultiplier =
+  // K / (K + Armor) from it (×1 → ×0.5). Adds no hull and no ramming mass.
+  // The step is authored literally like every ladder's (CONFIG.armor holds
+  // only Eric's K).
+  armor: ladder('armor', 5, [statEffect('armor', { add: 1 })]),
   // SPEED (R10; cap 5 since Eric 2026-10-11 / 2026-10-13, epic-9 amendments
   // 27–29, 90–91): +2.5 u/s of FORWARD top speed per tier, 5 tiers. Reverse is
   // explicitly untouched — no constant add preserves the reverse:forward ratio
@@ -949,7 +967,7 @@ export function validateCatalog(catalog: Catalog = CATALOG): string[] {
   return errs;
 }
 
-/** Total physical cards in a catalog (Σ cap) — 117 since Story 9.6. */
+/** Total physical cards in a catalog (Σ cap) — 122 since Story 9.7. */
 export function catalogCardCount(catalog: Catalog = CATALOG): number {
   let n = 0;
   for (const key of Object.keys(catalog)) n += catalog[key]?.cap ?? 0;
