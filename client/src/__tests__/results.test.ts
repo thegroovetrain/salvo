@@ -456,20 +456,23 @@ describe('showResults — the elimination modal', () => {
       // Story 9.6 (epic-9 amendments 93/94): HULL / SPEED / TURNING count from
       // nothing like RADAR SWEEP and RELOAD, and PASSIVE HEALING joins last.
       open(mockOwn());
-      expect(ladder()).toBe('HULLII·SPEEDIII·TURNINGI·RADAR SWEEPII·RELOADIII·PASSIVE HEALING—');
-      const numerals = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > span > span')];
+      expect(ladder()).toBe('HULLII·SPEEDIII·TURNINGIRADAR SWEEPII·RELOADIII·PASSIVE HEALING—');
+      // TWO ROWS OF THREE (Eric 2026-10-13, amendment 99): no separator crosses the row break.
+      const rows = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div')];
+      expect(rows.map((r) => r.textContent)).toEqual(['HULLII·SPEEDIII·TURNINGI', 'RADAR SWEEPII·RELOADIII·PASSIVE HEALING—']);
+      const numerals = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')];
       expect(numerals.slice(0, 5).map((n) => n.style.color)).toEqual([1, 2, 0, 1, 2].map((i) => LINEAGE_TIERS[i]));
     });
 
     it('a ladder at zero copies reads `—` in the muted label colour (Eric R2), all six still listed', () => {
       // The I/O matrix row: 0 × SPEED dashes, 3 × PASSIVE HEALING prints III.
       open(mockOwn({ speed: 0, passiveHealing: 3 }));
-      expect(ladder()).toBe('HULLII·SPEED—·TURNINGI·RADAR SWEEPII·RELOADIII·PASSIVE HEALINGIII');
+      expect(ladder()).toBe('HULLII·SPEED—·TURNINGIRADAR SWEEPII·RELOADIII·PASSIVE HEALINGIII');
       const entries = ladderEntries([]);
       expect(entries.map((e) => e.label)).toEqual(['HULL', 'SPEED', 'TURNING', 'RADAR SWEEP', 'RELOAD', 'PASSIVE HEALING']);
       // Every ship ladder starts from nothing (amendment 94), so all six dash.
       expect(entries.map((e) => e.tier)).toEqual([null, null, null, null, null, null]);
-      const dash = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > span > span')][1];
+      const dash = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')][1];
       expect(dash.textContent).toBe('—');
       expect(dash.style.color).toBe('var(--hc-text-muted)');
     });

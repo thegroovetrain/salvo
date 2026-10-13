@@ -367,13 +367,35 @@ function makeLadderEntry(entry: LadderEntry): HTMLSpanElement {
   return el;
 }
 
-/** The line of the six ship ladders (mock `.lo-lad`). */
+/** Ladders per row of the ladder line (Story 9.6, epic-9 amendment 99). */
+const LADDERS_PER_ROW = 3;
+
+/** One row of the ladder line: its entries with a muted `·` between them. */
+function makeLadderRow(entries: readonly LadderEntry[]): HTMLDivElement {
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;justify-content:center';
+  entries.forEach((entry, i) => {
+    if (i > 0) row.appendChild(span(`color:${cssRgba(C.textMuted, 0.5)};margin:0 12px`, '·'));
+    row.appendChild(makeLadderEntry(entry));
+  });
+  return row;
+}
+
+/**
+ * The six ship ladders as TWO ROWS OF THREE (mock `.lo-lad`, re-cut at Story
+ * 9.6 — Eric 2026-10-13, epic-9 amendment 99): with PASSIVE HEALING the one
+ * line of six ran past the panel's 530 px content column (the five-entry line
+ * fit by a few pixels), so HULL · SPEED · TURNING sit over RADAR SWEEP ·
+ * RELOAD · PASSIVE HEALING at the same type, tracking and separators.
+ */
 function makeLadderLine(cards: readonly string[]): HTMLDivElement {
   const line = document.createElement('div');
   line.style.cssText = [
     'margin-top:12px',
     'display:flex',
-    'justify-content:center',
+    'flex-direction:column',
+    'align-items:center',
+    'gap:6px',
     `font:400 10px ${MONO}`,
     'letter-spacing:.16em',
     'text-transform:uppercase',
@@ -381,10 +403,10 @@ function makeLadderLine(cards: readonly string[]): HTMLDivElement {
     'white-space:nowrap',
   ].join(';');
   line.dataset.loadoutLadder = '';
-  ladderEntries(cards).forEach((entry, i) => {
-    if (i > 0) line.appendChild(span(`color:${cssRgba(C.textMuted, 0.5)};margin:0 12px`, '·'));
-    line.appendChild(makeLadderEntry(entry));
-  });
+  const entries = ladderEntries(cards);
+  for (let i = 0; i < entries.length; i += LADDERS_PER_ROW) {
+    line.appendChild(makeLadderRow(entries.slice(i, i + LADDERS_PER_ROW)));
+  }
   return line;
 }
 
