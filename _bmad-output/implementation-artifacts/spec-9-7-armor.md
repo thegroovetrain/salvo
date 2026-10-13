@@ -2,10 +2,11 @@
 title: 'Story 9.7: Armor'
 type: 'feature'
 created: '2026-10-13'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'ff3ca858'
 review_loop_iteration: 0
 followup_review_recommended: false
+final_revision: 'PENDING'
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-9-context.md'
@@ -86,19 +87,20 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution (wave 1 — shared, one agent, Opus):**
-- [ ] `shared/src/constants.ts`, `sim/{catalog,effects,stats,boons}.ts`, `index.ts` -- the ladder, the fold, the helper, the cut row, PV 81 -- the one source both sides run
-- [ ] `shared/src/__tests__/*` -- matrix rows for the fold and helper, counts/order/absent-path re-bases with amendments cited; `npm test -w shared`, `npm run build -w shared`
+- [x] `shared/src/constants.ts`, `sim/{catalog,effects,stats,boons}.ts`, `index.ts` -- the ladder, the fold, the helper, the cut row, PV 81 -- the one source both sides run
+- [x] `shared/src/__tests__/*` -- matrix rows for the fold and helper, counts/order/absent-path re-bases with amendments cited; `npm test -w shared`, `npm run build -w shared`
 
 **Execution (wave 2 — server Opus and client Opus in parallel, shared frozen):**
-- [ ] `server/src/game/world.ts`, `ai/profiles.ts`, `scripts/batchsim/*` -- the generalized gate, favorites, harness; NEW tests per the matrix (tier table on live blows, cut stacking at Tier 0 and V, burn/grind fractions, storm exempt, shield after, tally post-multiply); golden re-record; `npm test -w server`
-- [ ] Glyph gate (orchestrator): render `armor` candidates to an artifact, Eric picks, then the client agent gets the pick
-- [ ] `client/src/ui/{boonCopy,loadoutBlock}.ts`, `render/equipmentIcons.ts`, tests -- names, rows, order, 4 + 3, `ARMOR +5`, glyph, `AWAITING_COPY`; `npm test -w client`
+- [x] `server/src/game/world.ts`, `ai/profiles.ts`, `scripts/batchsim/*` -- the generalized gate, favorites, harness; NEW tests per the matrix (tier table on live blows, cut stacking at Tier 0 and V, burn/grind fractions, storm exempt, shield after, tally post-multiply); golden re-record; `npm test -w server`
+- [x] Glyph gate (orchestrator): render `armor` candidates to an artifact, Eric picks, then the client agent gets the pick
+- [x] `client/src/ui/{boonCopy,loadoutBlock}.ts`, `render/equipmentIcons.ts`, tests -- names, rows, order, 4 + 3, `ARMOR +5`, glyph, `AWAITING_COPY`; `npm test -w client`
 
 **Review gate (orchestrator):** Blind Hunter + Edge Case Hunter on Fable, Codex `gpt-5.6-sol` on the same diff; triage per the orchestrate skill.
 
 **Execution (wave 3 — record, Sonnet):**
-- [ ] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `epics.md` stamp, both trackers, amendments 110–117 in BOTH homes -- 0.18.49 / cycle 184 / PV 81
-- [ ] `npm run check` green; branch pushed; ONE PR to `development`, never merged
+- [x] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `epics.md` stamp, both trackers, amendments 110–117 in BOTH homes -- 0.18.49 / cycle 184 / PV 81
+- [x] `npm run check` green
+- [ ] branch pushed; ONE PR to `development`, never merged
 
 **Acceptance Criteria:**
 - Given a hull with n `armor` cards, when `effectiveStats` runs, then `armor` is n and `damageMultiplier` is `round3(5/(5+n))`; `damageMultiplierFor(10)` is `round3(1/3)`.
@@ -152,3 +154,19 @@ warnings: [oversized]
 
 **Manual checks:**
 - Eric picks the ARMOR glyph on the rendered artifact before the client commit; Eric judges the card, the hover panel and the LOADOUT on staging after the PR.
+
+## Auto Run Result
+
+**Status:** done — PR to `development` pending (2026-10-13), never merged by the agent; Eric judges on staging.
+
+**Summary:** ARMOR is a new universal ship-upgrade ladder, five cards at +1 Armor each, seated right after HULL. Every non-storm hit is multiplied by the exact ratio 5 / (5 + Armor) (five cards halve damage) before the shield absorbs; a whole-hp blow is floored but lands at least 1 hp, burn and grind ticks stay exact. The Dreadnought's DAMAGE CUT is now +5 temporary Armor for 10 s on the same 30 s cooldown (the flat halving is deleted). The card prints `ARMOR 0 → 1` (Tier 0 → V) with the riveted-belt glyph, the SHIP hover panel gains a seventh row, the results LOADOUT shows seven ladders as 4 + 3, the DAMAGE CUT head row reads `ARMOR +5`, and the defensive bots favor ARMOR. How-to-Play stays frozen until 9.12. Eric ruled eight questions at the spec step (amendments 110–118) and one at the review gate (119); 120 records the implementer readings.
+
+**Files changed:** see the Code Map (shared `constants.ts`, `sim/{catalog,effects,stats}.ts`, `index.ts`; server `world.ts`, `ai/profiles.ts`, harness probe and overrides; client `ui/{boonCopy,loadoutBlock}.ts`, `render/equipmentIcons.ts`; tests in all three workspaces; records).
+
+**Review findings:** 4 patches applied (exact ratio instead of a rounded multiplier; minimum 1 hp on a whole blow, Eric's live ruling = amendment 119; stale cut wording; harness armor columns), 0 deferred, 1 rejected, 1 live Eric ruling (119). Cross-model picture: all three reviewers flagged the rounding and the floor-to-zero; Codex alone raised the stale wording; the Edge Case Hunter alone raised the harness column; the Blind Hunter alone raised the dead-field question, rejected.
+
+**Follow-up review recommended:** false — the four patches are small and localized, every one pinned by a failing-then-passing test.
+
+**Verification:** `npm run check` green 2026-10-13 — lint 0 errors (2 pre-existing max-lines warnings), tsc x3 clean, shared 42 files / 1064 tests, server 90 / 2548, client 129 / 3992, hook test 266 passed. Manual: Eric on staging (ARMOR card, SHIP hover panel, LOADOUT 4 + 3, DAMAGE CUT card).
+
+**Residual risks:** How-to-Play shows nothing for ARMOR until 9.12; an armored victim deflates every attacker's tally (ruled, amendment 113); `--tune armor.k` floors at 1; the formula bends at the bottom (a 1 hp shell at Armor 10 lands 1).
