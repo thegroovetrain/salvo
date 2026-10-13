@@ -2,10 +2,11 @@
 title: 'Story 9.6: Five Tiers and Passive Healing'
 type: 'feature'
 created: '2026-10-13'
-status: 'ready-for-dev'
+status: 'done'
 baseline_revision: '02a4aa1b'
 review_loop_iteration: 0
 followup_review_recommended: false
+final_revision: 'PR open to development (2026-10-13); code head HEAD-AT-RECORD'
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-9-context.md'
@@ -86,19 +87,19 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution (wave 1 — shared, one agent, Opus):**
-- [ ] `shared/src/constants.ts`, `sim/{catalog,effects,stats}.ts`, `index.ts` -- the re-cut catalog, the regen stat fold, PV 80 -- the one source both sides run
-- [ ] `shared/src/__tests__/*` -- matrix rows for the fold, counts, pins re-based with amendments cited; `npm test -w shared`, `npm run build -w shared`
+- [x] `shared/src/constants.ts`, `sim/{catalog,effects,stats}.ts`, `index.ts` -- the re-cut catalog, the regen stat fold, PV 80 -- the one source both sides run
+- [x] `shared/src/__tests__/*` -- matrix rows for the fold, counts, pins re-based with amendments cited; `npm test -w shared`, `npm run build -w shared`
 
 **Execution (wave 2 — server Opus and client Opus in parallel, shared frozen):**
-- [ ] `server/src/game/world.ts`, `ai/profiles.ts` -- per-hull regen wait/rate, favorites; NEW tests: per-hull wait, ladder rate, shield-absorbed blow leaves the clock, drone never regens; golden re-record; `npm test -w server`
-- [ ] Glyph gate (orchestrator): render `passiveHealing` candidates to an artifact, Eric picks, then the client agent gets the pick
-- [ ] `client/src/ui/{boonCopy,loadoutBlock,classSelect}.ts`, `how-to-play/copy.ts`, `render/equipmentIcons.ts`, `config.ts`, fit model -- rename, tier flip, HEAL row, six-row grid, glyph; `npm test -w client`
+- [x] `server/src/game/world.ts`, `ai/profiles.ts` -- per-hull regen wait/rate, favorites; NEW tests: per-hull wait, ladder rate, shield-absorbed blow leaves the clock, drone never regens; golden re-record; `npm test -w server`
+- [x] Glyph gate (orchestrator): render `passiveHealing` candidates to an artifact, Eric picks, then the client agent gets the pick
+- [x] `client/src/ui/{boonCopy,loadoutBlock,classSelect}.ts`, `how-to-play/copy.ts`, `render/equipmentIcons.ts`, `config.ts`, fit model -- rename, tier flip, HEAL row, six-row grid, glyph; `npm test -w client`
 
 **Review gate (orchestrator):** Blind Hunter + Edge Case Hunter on Fable, Codex `gpt-5.6-sol` on the same diff; triage per the orchestrate skill.
 
 **Execution (wave 3 — record, Sonnet):**
-- [ ] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `epics.md` stamp, both trackers, amendments 90–99 in BOTH homes -- 0.18.48 / cycle 183 / PV 80
-- [ ] `npm run check` green; branch pushed; ONE PR to `development`, never merged
+- [x] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `epics.md` stamp, both trackers, amendments 90–99 in BOTH homes -- 0.18.48 / cycle 183 / PV 80
+- [x] `npm run check` green; branch pushed; ONE PR to `development`, never merged
 
 **Acceptance Criteria:**
 - Given a dreadnought with five `hullPoints` cards, when `effectiveStats` runs, then `maxHp` is 600; given a speedboat with five `speed` cards, then `kinematics.maxSpeed` is base + 12.5; five `turning` cards give base + 0.25.
@@ -118,6 +119,21 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-10-13 — Review pass (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol on the same diff 02a4aa1b..162e3fd3; Codex and the Edge Case Hunter BUILD-ON-IT, the Blind Hunter FIX-FIRST on one finding)
+- intent_gap: 0 (the one ruling gap — a grant mid-idle — was put to Eric live and ruled, amendment 100; the intent contract stands)
+- bad_spec: 0
+- patch: 3: (high 1, low 2)
+- defer: 2: (low 2)
+- reject: 2
+- addressed_findings:
+  - `[high]` `[patch]` Blind Hunter alone, CONFIRMED by the fit model: the results LOADOUT ladder line with six ladders ran past the panel's 530 px content column (five fit by ~5 px). Rendered as built plus three fits for Eric; he chose TWO ROWS OF THREE (amendment 99). `makeLadderLine` is a column of two `makeLadderRow`s; `results.test` pins the row split and no separator across the break.
+  - `[low]` `[patch]` Edge Case Hunter CONFIRMED by probe, Blind Hunter PLAUSIBLE: `--tune regen.missingPctPerS=0` is "off" only for an un-carded hull (the fold keeps positive results, so a carded bot regens at 0.006 × copies) and a wait tuned under 1000 × copies saturates. The `regen.` family comment in `overrides.ts` now says so; the surface itself is deferred (below).
+  - `[low]` `[patch]` Edge Case Hunter side note: two `shared/src/types.ts` comments still said the regen reads `CONFIG.regen`; reworded to `stats.regen`. The four stale SPEED-cap narrative comments the Blind Hunter listed (client `config.ts`, `render/wake.ts`, shared `sim/boost.ts`, server `ai/tactics.ts`) are patched in the record wave.
+  - Ruled live, not a finding against the diff: Edge Case Hunter CONFIRMED by trace — the wait is read off the hull's current fold, so a hull idle past its NEW shorter wait heals the tick after the grant. Eric: live wait, no fresh clock (amendment 100). Kept as built; the per-hull-wait test already covers it.
+  - Deferred (harness-only, `deferred-work.md` 2026-10-13): the `--tune regen.*` floor interplay above.
+  - Rejected: a ladder rung whose every effect is on `UNPRINTED_PATHS` would print a blank face (unreachable with today's catalog; `movedRowIndex` is unaffected); `cardStatRows` at ≥ cap prints `before == after` (unreachable: `pickRefusal` returns `atCap`).
+  - Cross-model picture: Codex found nothing; the LOADOUT overflow was the Blind Hunter's alone (confirmed by me on the project's own width model and rendered); the tune floor was the Edge Case Hunter's probe with the Blind Hunter agreeing; the mid-idle grant was the Edge Case Hunter's alone and became Eric's ruling.
+
 ## Design Notes
 
 - **Why the ladder adds live in the catalog, not `CONFIG.regen`:** every other ladder authors its per-card number beside its id (SPEED +2.5, RELOAD −0.05); the base belongs to CONFIG and the step to the card. `barrel.test` pins `CONFIG.regen`'s key set as exactly two keys — that pin stays true.
@@ -131,8 +147,24 @@ warnings: [oversized]
 - `npm run build -w shared` -- expected: clean
 - `npm test -w shared && npm test -w server && npm test -w client` -- expected: all green
 - `npm run lint` -- expected: zero errors
-- `npm run check` -- expected: green; counts recorded in CHANGELOG
+- `npm run check` -- expected: green; counts recorded in CHANGELOG. RESULT 2026-10-13: green — lint 0 errors (2 pre-existing max-lines warnings), tsc x3 clean, shared 42 files / 1058 tests, server 90 / 2525, client 129 / 3991, hook test 266 passed
 - `grep -rn "'armor'" shared/src server/src client/src` -- expected: no hits
 
 **Manual checks:**
 - Eric picks the PASSIVE HEALING glyph on the artifact before the client commit; he judges the HULL card, the six-row card and the LOADOUT on staging after the PR.
+
+## Auto Run Result
+
+**Status:** done — PR open to `development` (2026-10-13), never merged by the agent; Eric judges on staging.
+
+**Summary:** The ARMOR card is now HULL (id `hullPoints`): +50 max hull per card, five cards, the gained 50 healed on grant. SPEED and TURNING gain a fifth card. A new universal PASSIVE HEALING ladder folds through `effectiveStats().regen` (2 %/s base, +0.6 %/s per card to 5 %; wait 15 s, -1 s per card to 10 s); the server reads each hull's own wait and rate, drones never regen, and only damage that removes hull hp resets the clock. Ship ladders read Tier 0 to V on the card, the results LOADOUT shows six ladders as two rows of three, the PASSIVE HEALING card shows one HEAL row with a pulse-trace glyph, and How-to-Play stays frozen until 9.11. Eric ruled eight questions at the spec step (amendments 90-98) and two at the review gate (99, 100); 101 records the implementer readings.
+
+**Files changed:** see the Code Map (shared `constants.ts`, `sim/{catalog,effects,stats}.ts`, `index.ts`; server `world.ts`, `ai/profiles.ts`, harness probe list; client `ui/{boonCopy,loadoutBlock,classSelect}.ts`, `how-to-play/copy.ts`, `render/equipmentIcons.ts`, `config.ts`; tests in all three workspaces; records).
+
+**Review findings:** 1 live Eric ruling (amendment 100), 3 patches applied (LOADOUT two rows of three; harness regen-off floor comment; stale comments), 2 deferred to `deferred-work.md` 2026-10-13, 2 rejected. Cross-model picture: Codex found nothing; the LOADOUT overflow was the Blind Hunter's alone; the tune floor was the Edge Case Hunter's probe; the mid-idle grant was the Edge Case Hunter's alone and became amendment 100.
+
+**Follow-up review recommended:** false — three small, localized patches.
+
+**Verification:** `npm run check` green 2026-10-13 — lint 0 errors (2 pre-existing max-lines warnings), tsc x3 clean, shared 42 files / 1058 tests, server 90 / 2525, client 129 / 3991, hook test 266 passed. Manual: Eric on staging (HULL card, six-row card, LOADOUT).
+
+**Residual risks:** the How-to-Play regen sentence understates until 9.11; the harness regen-off floor; HULL REPAIR stays a flat 50 on a 600 hull; mass = max hull means HULL cards add ram mass; the `rounded` bots chasing the new ladder — all recorded in amendment 101(h).

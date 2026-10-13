@@ -372,8 +372,8 @@ export const WAKE_STAMP_REBUILD_MS = CONFIG.vision.wakeLifeMs / WAKE_AGE_BUCKETS
  * `FASTEST_HULL_SPEED` alone is the wrong number for a bound that has to hold
  * at every instant of a match, and it was wrong TWICE over: it is the
  * base-kinematics maximum, so it misses the boost (which since Story 8.9 is
- * +25 % OF THE POST-FOLD CAP, so a SPEED-capped Torpedo Boat runs 55 × 1.25 =
- * 68.75 u/s — epic-8 amendment 55), and since the torpedo became a wake source
+ * +25 % OF THE POST-FOLD CAP, so a SPEED-capped Torpedo Boat runs 57.5 × 1.25 =
+ * 71.875 u/s — epic-8 amendment 55), and since the torpedo became a wake source
  * in its own right it misses the fish entirely (a fixed 65 u/s, catalog-v3
  * R17). Every other derivation in this cycle already uses the true attainable
  * figure (`World.wakeTopSpeed`, `wakeHulls`' own-ship `maxSpeedU`), so this is
@@ -389,7 +389,7 @@ export const WAKE_STAMP_REBUILD_MS = CONFIG.vision.wakeLifeMs / WAKE_AGE_BUCKETS
  * STORY 8.19 RAISED IT ONCE MORE: a hull riding another hull's wake runs up to
  * `CONFIG.wake.draft.lift` (5 %) past its boosted cap, so the constant now folds
  * the full lift through the one shared `draftedKinematics` hook on top of the
- * boost (68.75 → 72.1875 u/s at the shipped numbers) — the same double the
+ * boost (71.875 → 75.46875 u/s at the shipped numbers) — the same double the
  * server's `World.wakeTopSpeed` provisions with.
  */
 export const FASTEST_AFLOAT_SPEED = Math.max(

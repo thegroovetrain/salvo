@@ -8,7 +8,7 @@
 // THE INPUT IS THE POST-FOLD KINEMATICS (`EffectiveStats.kinematics`), so the
 // SPEED ladder is INSIDE the bonus: the boost adds `factor × kin.maxSpeed`,
 // not a flat u/s (Eric ruling 2026-09-18, epic-8 amendment 55 — a SPEED-capped
-// Torpedo Boat boosts to 68.75, not 65). The bonus is layered HERE, per tick,
+// Torpedo Boat boosts to 71.875, not 65). The bonus is layered HERE, per tick,
 // and is NEVER written into `EffectiveStats.kinematics`: the bots' rated-speed
 // deadband reads `kinematics.maxSpeed` as the RATED cap.
 //
