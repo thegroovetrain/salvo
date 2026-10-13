@@ -211,6 +211,12 @@ export class ContactStore {
     return this.aggro.has(id);
   }
 
+  /** Server time (ms) of the last frame that carried this contact; undefined
+   *  once pruned (or never seen). */
+  lastSeenAt(id: string): number | undefined {
+    return this.lastSeen.get(id);
+  }
+
   ids(): IterableIterator<string> {
     return this.buffers.keys();
   }

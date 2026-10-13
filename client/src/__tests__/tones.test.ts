@@ -59,6 +59,8 @@ const ALL_TONE_IDS: ToneId[] = [
   'stormWarn',
   'telegraphUp',
   'telegraphDown',
+  // HULL CONTACT (Story 9.5) — the sliding scrape
+  'grind',
 ];
 
 describe('TONES — spec table completeness', () => {
@@ -97,6 +99,13 @@ describe('TONES — spec table completeness', () => {
     expect(MAX_TONE_S).toBe(0.15);
     expect(Object.keys(TONES)).not.toContain('foghorn');
     expect(Object.keys(TONES).filter((id) => /horn/i.test(id))).toEqual([]);
+  });
+});
+
+describe('grind tone (Story 9.5) — the retriggered sliding scrape', () => {
+  it('peaks at the feel knob and spans its own retrigger, so a slide reads as one rasp', () => {
+    expect(TONES.grind.volume).toBe(CLIENT_CONFIG.contactFx.grindGainMax);
+    expect(TONES.grind.duration * 1000).toBeGreaterThanOrEqual(CLIENT_CONFIG.contactFx.grindRetriggerMs);
   });
 });
 

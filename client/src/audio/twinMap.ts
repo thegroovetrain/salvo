@@ -100,6 +100,12 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   stormWarn: 'the storm vignette closing in + the OUTSIDE tag in the HUD (render/zone, hud)',
   telegraphUp: 'the ordered detent stepping AHEAD on the helm globe\'s tick arc (render/helmGlobe, input/telegraph)',
   telegraphDown: 'the ordered detent stepping ASTERN on the helm globe\'s tick arc (render/helmGlobe, input/telegraph)',
+  // --- HULL CONTACT (Story 9.5, amendment 79) ---------------------------------
+  // The scrape says "you are pressed against something and sliding" — which the
+  // water already shows: the own hull drawn hard against the other hull or the
+  // coast, and the strike sparks where it first touched.
+  grind:
+    'the own hull drawn pressed against the other hull or the coast, plus the strike sparks where it first touched (render/ships, contactFx)',
   // --- THE FOGHORN (Story 4.5, amendment 55) ---------------------------------
   // A honk is BEARING-ONLY information, so its twin has to carry a bearing and
   // nothing more: a marker pinned to the viewport edge pointing down the honk,

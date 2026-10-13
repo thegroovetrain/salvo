@@ -22,6 +22,7 @@ import {
   classShift,
   effectiveStats,
   equipmentReloadMs,
+  hullEnvelope,
   hullSilhouette,
   consumableSlotFor,
   isConsumableId,
@@ -31,6 +32,7 @@ import {
   slotsWithCards,
   SLOT_COUNT,
   type Island,
+  type ContactBody,
   type DeniedView,
   type EffectiveStats,
   type EquipmentId,
@@ -133,6 +135,8 @@ import { ServerClock } from './net/clock.js';
 import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
 import { bindRoom, type RoomUnbind } from './net/roomBindings.js';
 import { Predictor, type RenderPose } from './sim/prediction.js';
+import { ContactBodies } from './sim/contactBodies.js';
+import { ContactFx } from './render/contactFx.js';
 import { InputSampler, type Aiming } from './sim/inputSampler.js';
 import { showBanner, hideBanner } from './util/banner.js';
 import {
@@ -235,6 +239,12 @@ interface Game {
   ownBuffer: SnapshotBuffer;
   contacts: ContactStore;
   predictor: Predictor;
+  /** The predictor's contact bodies (Story 9.5), rebuilt every render frame
+   *  from the poses the contact renderer draws (sim/contactBodies.ts). */
+  contactBodies: ContactBodies;
+  /** HULL CONTACT sparks + the grind scrape (render/contactFx.ts, Story 9.5) —
+   *  render-only, read off the predictor's last live tick. */
+  contactFx: ContactFx;
   camera: Camera;
   keyboard: KeyboardInput;
   mouse: MouseInput;
@@ -2328,7 +2338,9 @@ function setupViewport(
 /** Predictor seeded with the guessed class config (first frame confirms/swaps it). */
 function makePredictor(map: GameMap, cls: ShipClassId): Predictor {
   const spec = CONFIG.shipClasses[cls];
-  return new Predictor({ radius: map.radius, islands: map.islands }, spec.kinematics, hullSilhouette(cls));
+  const p = new Predictor({ radius: map.radius, islands: map.islands }, spec.kinematics, hullSilhouette(cls));
+  p.setOwnMass(spec.hp); // the zero-card fold; applyOwnStats re-sets it from effectiveStats
+  return p;
 }
 
 /**
@@ -2867,6 +2879,8 @@ function buildGame(
     ownBuffer: new SnapshotBuffer(),
     contacts: new ContactStore(),
     predictor: makePredictor(map, cls),
+    contactBodies: new ContactBodies(),
+    contactFx: new ContactFx(stage.layers.burstFx, (gain) => audio.play('grind', { gain })),
     camera,
     keyboard,
     mouse,
@@ -3062,6 +3076,9 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   // Behavior-boon hooks ride it too (Story 2.5): the predictor folds these
   // per tick in the SAME boost-then-hooks order the server steps with.
   g.predictor.setBoons(cardBehaviors(cards));
+  // ...and the hull pass's own MASS (Story 9.5): the effective max hull, the
+  // same number the server's resolver splits the push by.
+  g.predictor.setOwnMass(stats.maxHp);
   // Story 2.9 — the OWN doctrine modes fan out to the on-water renderer, which
   // is how our own ordnance gets its identity from LAUNCH (an enemy's has to
   // earn it from observable behavior). Deliberately ABOVE the vision-change
@@ -4243,6 +4260,7 @@ function renderAlive(
     g.hudBar.hideTransient();
   }
   updateZone(g, zv, inStorm, tier1, now, nowMs);
+  updateContactFx(g, pose, nowMs);
   // Own pose feeds the projectile cull; own active zones keep a shell revealed
   // by our flare from being culled (exactly-once — Story 1.7).
   g.projectiles.render(now, pose ?? undefined, ownZones);
@@ -4746,9 +4764,58 @@ function makeCallbacks(g: Game): LoopCallbacks {
         // line so this callback stays inside its line budget.
         plateFrame, g.hullSoftness,
       );
+      feedContactBodies(g, now);
       applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot, g.stage.layers.plate);
     },
   };
+}
+
+/**
+ * THE PREDICTOR'S CONTACT BODIES (Story 9.5, epic-9 amendment 74), once per
+ * render frame, off the SAME store and sample time the contact renderer just
+ * drew (`serverNow − interpDelayMs`). Only while the own hull is predicted:
+ * spectating or in interp mode the predictor steps nothing, so it holds none
+ * (and a later return to predict starts from a fresh frame's set).
+ */
+function feedContactBodies(g: Game, now: number): void {
+  const p = g.predictor;
+  const ownId = g.state.net.sessionId;
+  p.setOwnId(ownId);
+  if (g.state.spectating || g.state.mode !== 'predict') {
+    p.setContacts(NO_CONTACT_BODIES);
+    return;
+  }
+  p.setContacts(g.contactBodies.build(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, ownId));
+}
+const NO_CONTACT_BODIES: readonly ContactBody[] = [];
+
+/**
+ * HULL CONTACT legibility for this frame (Story 9.5, amendment 79): the
+ * predictor's last live tick → render/contactFx.ts. Render reads sim; nothing
+ * flows back. Without a predicted own pose the layer only lets its sparks die.
+ */
+function updateContactFx(g: Game, pose: RenderPose | null, nowMs: number): void {
+  const p = g.predictor;
+  const live = pose !== null && g.state.mode === 'predict' && p.isInitialized;
+  const env = hullEnvelope(g.ownClass).hull;
+  const own = live
+    ? {
+        id: g.state.net.sessionId,
+        x: pose.x,
+        y: pose.y,
+        heading: pose.heading,
+        color: hullStyle(g.ownHueIndex).stroke,
+        halfBeamU: env.beam / 2,
+        halfLengthU: env.length / 2,
+      }
+    : null;
+  g.contactFx.update(nowMs, own, p.ownContacts, p.lastLand, (id) => contactFxColor(g, id), settings.current.motion !== 'off');
+}
+
+/** The other hull's color for a strike spark — the color its hull is drawn in. */
+function contactFxColor(g: Game, id: string): number {
+  const cls = g.contacts.classOf(id);
+  return cls === undefined ? hullStyle(rosterColor(g, id)).stroke : contactStyle(cls, rosterColor(g, id)).stroke;
 }
 
 /**
