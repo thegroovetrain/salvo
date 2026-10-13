@@ -2,7 +2,9 @@
 // captain sees and hears when the hull hits or scrapes something. RENDER-ONLY:
 // it reads the predictor's last live tick (`ownContacts`, `lastLand`) and
 // drives nothing back — the damage is the server's, carried by `dmg` with the
-// existing shake and `damage` thud (net/roomBindings.ts flushDamage, untouched).
+// existing shake and `damage` thud (net/roomBindings.ts flushDamage — which
+// skips the small windowed bleed `dmg` while `state.contactBleeding` holds,
+// stamped by main.ts off the same sim/contactBleed.ts speed this tone reads).
 // No new wire event: the client already knows when its own hull touches
 // something, because its own resolver reports it (the spec's Design Note).
 //
@@ -14,11 +16,12 @@
 //   LAND    — the own hull's land contact turning on with a strike speed
 //             (|speed| × headOn) over the same allowance: the same burst at
 //             the bow, own color + the shore stroke.
-//   GRIND   — while any contact slides faster than `grindMinVt` (a hull row's
-//             `vt`, or the coast's |speed|·√(1 − headOn²)), the short `grind`
-//             scrape is retriggered every `grindRetriggerMs`, its gain scaled
-//             by the sliding speed; it stops `grindReleaseMs` after the last
-//             sliding frame.
+//   GRIND   — while any contact bleeds faster than `grindMinVt` (a hull row's
+//             `vt + vn` — a scrape OR a sustained press, amendment 83 — or the
+//             coast's |speed|·√(1 − headOn²); sim/contactBleed.ts), the short
+//             `grind` scrape is retriggered every `grindRetriggerMs`, its gain
+//             scaled by the bleed speed; it stops `grindReleaseMs` after the
+//             last bleeding frame.
 //
 // Motion: sparks are motion and are suppressed at motion off (the existing
 // convention); the sound is not motion and keeps playing. Sparks are plain
@@ -32,6 +35,7 @@
 import { Container, Graphics } from 'pixi.js';
 import { CONFIG, type HullContact } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import { bleedSpeed, type BleedLand } from '../sim/contactBleed.js';
 import { Pool } from '../util/pool.js';
 
 const FX = CLIENT_CONFIG.contactFx;
@@ -54,12 +58,7 @@ export interface ContactFxOwn {
 }
 
 /** The own hull's land contact on the last live tick (Predictor.lastLand). */
-export interface ContactFxLand {
-  contact: boolean;
-  headOn: number;
-  /** u/s — |speed| before the grounding damp. */
-  speed: number;
-}
+export type ContactFxLand = BleedLand;
 
 interface Spark {
   x: number;
@@ -78,9 +77,9 @@ export class ContactFx {
   private currPairs = new Set<string>();
   private prevLand = false;
   private bursts = 0;
-  private lastSlideMs = -Infinity;
+  private lastBleedMs = -Infinity;
   private lastScrapeMs = -Infinity;
-  private slideVt = 0;
+  private bleedV = 0;
 
   constructor(
     layer: Container,
@@ -156,17 +155,17 @@ export class ContactFx {
     this.burst(nowMs, bx, by, own.color, SHORE_COLOR);
   }
 
-  /** Retrigger the scrape while anything slides; release after the last slide. */
+  /** Retrigger the scrape while anything bleeds; release after the last bleed. */
   private grind(nowMs: number, contacts: readonly HullContact[], land: ContactFxLand): void {
-    const vt = slidingSpeed(contacts, land);
-    if (vt > FX.grindMinVt) {
-      this.lastSlideMs = nowMs;
-      this.slideVt = vt;
+    const v = bleedSpeed(contacts, land);
+    if (v > FX.grindMinVt) {
+      this.lastBleedMs = nowMs;
+      this.bleedV = v;
     }
-    if (nowMs - this.lastSlideMs > FX.grindReleaseMs) return;
+    if (nowMs - this.lastBleedMs > FX.grindReleaseMs) return;
     if (nowMs - this.lastScrapeMs < FX.grindRetriggerMs) return;
     this.lastScrapeMs = nowMs;
-    this.playGrind(Math.min(1, this.slideVt / FX.grindFullVt));
+    this.playGrind(Math.min(1, this.bleedV / FX.grindFullVt));
   }
 
   /** Throw `sparkCount` sparks from (x, y), alternating the two colors. */
@@ -208,12 +207,4 @@ export class ContactFx {
     }
     this.sparks.length = w;
   }
-}
-
-/** Pure: the fastest sliding speed this frame — any hull row's `vt`, or the
- *  coast's tangential share of the own speed while on land. */
-export function slidingSpeed(contacts: readonly HullContact[], land: ContactFxLand): number {
-  let vt = land.contact ? land.speed * Math.sqrt(Math.max(0, 1 - land.headOn * land.headOn)) : 0;
-  for (const c of contacts) if (c.vt > vt) vt = c.vt;
-  return vt;
 }

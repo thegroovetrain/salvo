@@ -67,6 +67,13 @@ export interface GameState {
   killerId: string | null;
   /** True once the results broadcast arrived (drives auto-return on disconnect). */
   matchOver: boolean;
+  /** True while the own hull BLEEDS against a hull or the coast (Story 9.5,
+   *  amendments 79 + 83): stamped every render frame by main.ts from the
+   *  predictor's last live tick (sim/contactBleed.ts, held
+   *  `CLIENT_CONFIG.contactFx.bleedGraceMs` past the last bleeding frame);
+   *  read by net/roomBindings.ts flushDamage, which drops the small windowed
+   *  bleed `dmg` from the thud and the shake (the grind tone is the cue). */
+  contactBleeding: boolean;
 }
 
 /** Build a fresh client state for a joined session. */
@@ -79,5 +86,6 @@ export function createGameState(sessionId: string): GameState {
     spectating: false,
     killerId: null,
     matchOver: false,
+    contactBleeding: false,
   };
 }

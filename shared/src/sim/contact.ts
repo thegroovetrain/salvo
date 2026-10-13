@@ -12,14 +12,24 @@
 //   - closing speed  vn = max(0, −v·n), sliding speed vt = |v × n|;
 //   - HIT (once per contact, only when vn > allowanceU): E = ½·μ·vn² with
 //     μ = mA·mB/(mA+mB); A takes floor(E · mB/(mA+mB) / energyPerHp), B the
-//     mirror (`contactHitDamage`);
-//   - GRIND (per second while pressed): A accrues grindPerUnit · vt ·
-//     mB/(mA+mB), B the mirror — unfloored, the server pools the fraction
-//     (`contactGrindRate`);
+//     mirror (`contactHitDamage`). THE LATCH ARMS ONLY ON A CHARGED HIT
+//     (Eric 2026-10-13, amendment 83): while a pair is unlatched every tick
+//     measures vn, and the first tick over the allowance is the hit — a hull
+//     that creeps in under the allowance and then shoves at full speed pays
+//     the shove. The latch re-arms only after a tick with no overlap;
+//   - BLEED (per second while pressed, amendment 83): A accrues
+//     grindPerUnit · (vt + vn) · mB/(mA+mB), B the mirror — sliding AND
+//     pressing speed, so holding a push costs both hulls per second
+//     (`contactGrindRate`). Unfloored: the server applies the fraction
+//     per tick as the burn DoT does;
 //   - LAND is the mB → ∞ limit (μ → mA, share → 1) times landSoftness
-//     (`landHitDamage`, `landGrindRate`).
-// The latch (once per contact), the grind pools and every hp write live on the
-// server; this module only measures and moves.
+//     (`landHitDamage`, `landGrindRate`). The land scrape rides the SLIDING
+//     speed only: a hull pinned head-on against a rock at the grounding cap
+//     does not bleed on its press (amendment 81's "a parked hull takes
+//     nothing" is the nearer reading; a hull-on-hull press bleeds because
+//     the other hull is a captain's, land is nobody's).
+// The latch, the bleed window and every hp write live on the server; this
+// module only measures, prices and moves.
 //
 // SOLIDITY. For every overlapping pair, the minimum push that separates them
 // comes from collision.ts's polygon push-out core (`solidEscape` over a
@@ -246,23 +256,38 @@ function translate(s: ContactSolid, dx: number, dy: number): void {
  * energyPerHp). Nothing at or under `allowanceU` of closing speed.
  */
 export function contactHitDamage(mA: number, mB: number, vn: number, cfg: RamConfig): ContactSplit {
-  if (!(vn > cfg.allowanceU)) return { a: 0, b: 0 };
+  if (!(vn > cfg.allowanceU) || !pairIsPriceable(mA, mB)) return NOTHING;
   const total = mA + mB;
   const energy = 0.5 * ((mA * mB) / total) * vn * vn;
-  return {
-    a: Math.floor((energy * (mB / total)) / cfg.energyPerHp),
-    b: Math.floor((energy * (mA / total)) / cfg.energyPerHp),
-  };
+  return finiteSplit(
+    Math.floor((energy * (mB / total)) / cfg.energyPerHp),
+    Math.floor((energy * (mA / total)) / cfg.energyPerHp),
+  );
 }
 
-/** The GRIND rates (hp/s, unfloored — the server pools the fraction):
- *  grindPerUnit · vt × the other hull's mass share, each side. */
-export function contactGrindRate(mA: number, mB: number, vt: number, cfg: RamConfig): ContactSplit {
+/** The BLEED rates (hp/s, unfloored — the server applies the fraction per
+ *  tick): grindPerUnit · (vt + vn) × the other hull's mass share, each side
+ *  (amendment 83: a sustained push bleeds like a scrape). */
+export function contactGrindRate(mA: number, mB: number, vt: number, vn: number, cfg: RamConfig): ContactSplit {
+  if (!pairIsPriceable(mA, mB)) return NOTHING;
   const total = mA + mB;
-  return {
-    a: cfg.grindPerUnit * vt * (mB / total),
-    b: cfg.grindPerUnit * vt * (mA / total),
-  };
+  const rate = cfg.grindPerUnit * (vt + vn);
+  return finiteSplit(rate * (mB / total), rate * (mA / total));
+}
+
+const NOTHING: ContactSplit = Object.freeze({ a: 0, b: 0 });
+
+/** A pair can be priced only with finite masses summing above zero (the
+ *  energy law divides by mA + mB); anything else prices as nothing, so a
+ *  NaN never reaches a hull's hp. */
+function pairIsPriceable(mA: number, mB: number): boolean {
+  return Number.isFinite(mA) && Number.isFinite(mB) && mA + mB > 0;
+}
+
+/** A split whose two sides are finite, else nothing (a non-finite speed or
+ *  dial prices as nothing rather than NaN). */
+function finiteSplit(a: number, b: number): ContactSplit {
+  return Number.isFinite(a) && Number.isFinite(b) ? { a, b } : NOTHING;
 }
 
 /** A LAND strike: the infinite-mass limit (μ → m, share → 1) softened —
@@ -270,10 +295,16 @@ export function contactGrindRate(mA: number, mB: number, vt: number, cfg: RamCon
  *  allowance. */
 export function landHitDamage(m: number, vn: number, cfg: RamConfig): number {
   if (!(vn > cfg.allowanceU)) return 0;
-  return Math.floor(((0.5 * m * vn * vn) / cfg.energyPerHp) * cfg.landSoftness);
+  return finiteOrZero(Math.floor(((0.5 * m * vn * vn) / cfg.energyPerHp) * cfg.landSoftness));
 }
 
-/** The LAND grind rate (hp/s, unfloored): grindPerUnit · vt · landSoftness. */
+/** The LAND scrape rate (hp/s, unfloored): grindPerUnit · vt · landSoftness
+ *  on the SLIDING speed only — a hull pressing head-on into a rock takes
+ *  nothing beyond its strike (amendment 81; see the header). */
 export function landGrindRate(vt: number, cfg: RamConfig): number {
-  return cfg.grindPerUnit * vt * cfg.landSoftness;
+  return finiteOrZero(cfg.grindPerUnit * vt * cfg.landSoftness);
+}
+
+function finiteOrZero(n: number): number {
+  return Number.isFinite(n) ? n : 0;
 }

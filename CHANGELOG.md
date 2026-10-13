@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.18.47] - 2026-10-13
+
+### Changed
+- **Hulls are solid, and contact hurts** (Story 9.5 — Ramming and Contact Damage). Ships no longer pass through each other: overlapping hulls are pushed apart, split by mass, on the server before the land pass and in your own prediction against the contacts you can see. Two fleet-mates push each other but deal nothing.
+- **Damage follows the energy law.** A **hit** lands once per charged contact, from the closing speed over 5 u/s: a full-speed ram costs both hulls, the lighter one more. Sliding and pressing against a hull **bleeds** over time, from the speed you scrape or press at, delivered like the burn DoT. **Land** counts as infinite mass at 0.25 of the energy, and the quarter-speed cap is kept. Mass is the effective max hull, and damage cut and shield both apply.
+- **A wreck is solid and never credited:** it blocks hulls but is never the attacker, and the kill feed is unchanged.
+- **Bots steer around hulls** (a bumper for the target) and gain a **[DRAFT] ram posture**; drones avoid hulls too.
+- **Feel (judged on staging):** a spark in both hulls' colors and a grind tone on contact; the hit thud and shake stay quiet for the small bleed amounts while you scrape or press.
+
+### Internal
+- Shared: `sim/contact.ts` resolver (mass-split push-apart over the extracted island push-out core, closing speed measured on the line of centres, never pushes a hull through another), `CONFIG.ram` at the exact calibration (1265.625, 2/9), bot `hullLookaheadU` / `ramReachU`.
+- Server: STEP_ORDER rows `resolveHullContacts` (before the land pass) and `applyContactDamage` (after it); the hit through the one damage gate as `'contact'`, latched per pair only once charged; the bleed as a fractional per-tick `'grind'` source reported through the 500 ms DoT window (damage cut halves it, a shield absorbs it); the land strike on the landContact edge priced on the pre-damp speed. Harness readouts `sunkByContact` / `ranAground` / land-contact damage and `--tune ram.*`.
+- Client: predictor runs the shared contact pass against sighted contacts, `render/contactFx.ts` + `sim/contactBleed.ts`, `CLIENT_CONFIG.contactFx`.
+- Tests: shared 1052 (42 files), server 2522 (90 files), client 3988 (129 files), hook test green, lint 0 errors (2 pre-existing max-lines warnings).
+- Epic-9 amendments 73–84. Cycle 182. PROTOCOL_VERSION 78 -> 79.
+
 ## [0.18.46] - 2026-10-12
 
 ### Changed

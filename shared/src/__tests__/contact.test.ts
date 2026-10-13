@@ -209,16 +209,25 @@ describe('contact damage — Eric\'s calibration read from CONFIG.ram', () => {
     expect(contactHitDamage(250, 250, 90, RAM)).toEqual({ a: 200, b: 200 });
   });
 
-  it('a speedboat scraping a stopped speedboat at 45 u/s costs each 5 hp/s', () => {
-    const g = contactGrindRate(250, 250, 45, RAM);
+  it('a speedboat scraping a stopped speedboat at 45 u/s costs each 5 hp/s (sliding 45, pressing 0)', () => {
+    const g = contactGrindRate(250, 250, 45, 0, RAM);
     expect(Math.abs(g.a - 5)).toBeLessThan(1e-9);
     expect(Math.abs(g.b - 5)).toBeLessThan(1e-9);
+  });
+
+  it('a sustained PUSH bleeds like a scrape (amendment 83): the rate rides sliding + pressing speed', () => {
+    // Pressing at 45 with no slide costs exactly what sliding at 45 does...
+    expect(contactGrindRate(250, 250, 0, 45, RAM)).toEqual(contactGrindRate(250, 250, 45, 0, RAM));
+    // ...and the two components add.
+    const both = contactGrindRate(250, 250, 30, 15, RAM);
+    expect(Math.abs(both.a - 5)).toBeLessThan(1e-9);
+    expect(contactGrindRate(250, 250, 0, 0, RAM)).toEqual({ a: 0, b: 0 }); // at rest, nothing
   });
 
   it('the lighter hull takes the larger share (the other hull\'s mass fraction)', () => {
     // amendment 73's quoted outcome: speedboat vs dreadnought at 80 closing
     expect(contactHitDamage(250, 350, 80, RAM)).toEqual({ a: 215, b: 153 });
-    const g = contactGrindRate(250, 350, 45, RAM);
+    const g = contactGrindRate(250, 350, 45, 0, RAM);
     expect(g.a / g.b).toBeCloseTo(350 / 250, 12);
   });
 
@@ -232,5 +241,24 @@ describe('contact damage — Eric\'s calibration read from CONFIG.ram', () => {
     expect(contactHitDamage(250, 250, RAM.allowanceU, RAM)).toEqual({ a: 0, b: 0 });
     expect(contactHitDamage(250, 250, 0, RAM)).toEqual({ a: 0, b: 0 });
     expect(landHitDamage(250, RAM.allowanceU, RAM)).toBe(0);
+  });
+
+  it('the land scrape rides the SLIDING speed only: a head-on press against a rock bleeds nothing', () => {
+    expect(landGrindRate(0, RAM)).toBe(0);
+    expect(landGrindRate(45, RAM)).toBeGreaterThan(0);
+  });
+
+  it('a non-finite or empty pair prices as NOTHING, never NaN (the NaN contract)', () => {
+    const NONE = { a: 0, b: 0 };
+    expect(contactHitDamage(NaN, 250, 90, RAM)).toEqual(NONE);
+    expect(contactHitDamage(250, Infinity, 90, RAM)).toEqual(NONE);
+    expect(contactHitDamage(0, 0, 90, RAM)).toEqual(NONE);
+    expect(contactHitDamage(250, 250, NaN, RAM)).toEqual(NONE);
+    expect(contactGrindRate(NaN, 250, 45, 0, RAM)).toEqual(NONE);
+    expect(contactGrindRate(0, 0, 45, 0, RAM)).toEqual(NONE);
+    expect(contactGrindRate(250, 250, NaN, 0, RAM)).toEqual(NONE);
+    expect(contactGrindRate(250, 250, 0, Infinity, RAM)).toEqual(NONE);
+    expect(landHitDamage(NaN, 45, RAM)).toBe(0);
+    expect(landGrindRate(NaN, RAM)).toBe(0);
   });
 });

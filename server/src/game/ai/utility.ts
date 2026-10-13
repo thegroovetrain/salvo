@@ -130,6 +130,11 @@ export interface BotSituation {
    *  `ringDeadband` cannot size a boosted hull's turn radius
    *  without it. See ringDeadband. */
   speed: number;
+  /** rad — the hull's CURRENT heading, straight off its own ShipState (the
+   *  same self-read as `speed`). With `speed` it is the bot's own velocity,
+   *  which the RAM trigger projects on the bearing to its target (Story 9.5
+   *  review gate): sternway closes nothing. */
+  heading: number;
   profile: BotProfile;
   /** The LIVE storm ring — ring escape overrides everything else. */
   ring: ZoneRing;
@@ -227,7 +232,7 @@ type TrackMap = Map<string, RememberedContact>;
 /** The half of a track a refresh CARRIES OVER rather than re-reads. */
 type Carried = Pick<
   BotTrack,
-  'id' | 'cls' | 'fleet' | 'firstSeenAt' | 'hits' | 'vx' | 'vy' | 'vAt' | 'vSrc' | 'paintX' | 'paintY' | 'paintAt'
+  'id' | 'cls' | 'fleet' | 'firstSeenAt' | 'hits' | 'sunk' | 'vx' | 'vy' | 'vAt' | 'vSrc' | 'paintX' | 'paintY' | 'paintAt'
 >;
 
 /** A brand-new track's carried-over half (no history to preserve). */
@@ -238,6 +243,7 @@ function freshBase(now: number): Carried {
     fleet: false,
     firstSeenAt: now,
     hits: 0,
+    sunk: false,
     vx: null,
     vy: null,
     vAt: -1,
@@ -259,11 +265,13 @@ function courseOf(s: Sighting, base: Carried, now: number): Pick<BotTrack, 'vx' 
 }
 
 /** Write (or refresh) one track. Position/pose come from the sighting;
- *  acquisition time, hit history, any previously-disclosed class and the
- *  radar paint baseline survive (only foldPaint writes the baseline). */
-function writeTrack(tracks: TrackMap, key: string, s: Sighting, now: number, live: boolean): BotTrack {
+ *  acquisition time, hit history, the wreck bit, any previously-disclosed
+ *  class and the radar paint baseline survive (only foldPaint writes the
+ *  baseline). A wreck is never live, whatever refreshed it. */
+function writeTrack(tracks: TrackMap, key: string, s: Sighting, now: number, live: boolean, sunk = false): BotTrack {
   const base = tracks.get(key) ?? freshBase(now);
   const cls = s.cls ?? base.cls;
+  const dead = base.sunk || sunk;
   const track: BotTrack = {
     id: s.id ?? base.id,
     x: s.x,
@@ -271,7 +279,8 @@ function writeTrack(tracks: TrackMap, key: string, s: Sighting, now: number, liv
     heading: s.heading,
     speed: s.speed,
     seenAt: now,
-    live,
+    live: live && !dead,
+    sunk: dead,
     cls,
     fleet: cls === null ? base.fleet : isFleetHullId(cls),
     firstSeenAt: base.firstSeenAt,
@@ -390,8 +399,8 @@ function foldHitCall(tracks: TrackMap, x: number, y: number, fx: FoldCtx): void 
 }
 
 /** Fold one live truesight contact at full confidence. */
-function foldContact(tracks: TrackMap, c: Contact, now: number): void {
-  writeTrack(tracks, c.id, { id: c.id, x: c.x, y: c.y, heading: c.heading, speed: c.speed, cls: c.cls }, now, true);
+function foldContact(tracks: TrackMap, c: Contact, now: number, sunkNow: ReadonlySet<string>): void {
+  writeTrack(tracks, c.id, { id: c.id, x: c.x, y: c.y, heading: c.heading, speed: c.speed, cls: c.cls }, now, true, sunkNow.has(c.id));
 }
 
 /** Route one event to its fold. Everything not named here — the `sp` splash
@@ -405,6 +414,9 @@ interface FoldCtx {
   now: number;
   cells: readonly WakeCell[];
   waterR: number;
+  /** Ids a `sunk` event named THIS fold with no track yet to mark — the
+   *  contact fold that follows stamps the wreck dead as it writes it. */
+  sunkNow: Set<string>;
 }
 
 function foldEvent(tracks: TrackMap, e: GameEvent, fx: FoldCtx): void {
@@ -416,7 +428,21 @@ function foldEvent(tracks: TrackMap, e: GameEvent, fx: FoldCtx): void {
     foldHitCall(tracks, e.x, e.y, fx);
     return;
   }
-  if (e.k === 'sunk') tracks.delete(e.id);
+  if (e.k === 'sunk') foldSunk(tracks, e.id, fx);
+}
+
+/** A `sunk` names a WRECK: its track is marked dead (never live, never a
+ *  target) rather than deleted, because the sinking hull keeps riding the
+ *  view's `contacts` for its whole sinking window and a deleted track would
+ *  be re-raised live by the very next contact fold. Memory ages it out. */
+function foldSunk(tracks: TrackMap, id: string, fx: FoldCtx): void {
+  const t = tracks.get(id);
+  if (t === undefined) {
+    fx.sunkNow.add(id);
+    return;
+  }
+  t.sunk = true;
+  t.live = false;
 }
 
 /**
@@ -488,9 +514,9 @@ export function foldView(mind: BotMind, view: PerceptionView, now: number, sweep
   const tracks = mind.contacts;
   dropTruesight(tracks);
   foldWakeCells(mind, view.events, now);
-  const fx: FoldCtx = { now, cells: mind.wakeCells, waterR: sweep?.site.waterR ?? Infinity };
+  const fx: FoldCtx = { now, cells: mind.wakeCells, waterR: sweep?.site.waterR ?? Infinity, sunkNow: new Set() };
   for (const e of view.events) foldEvent(tracks, e, fx);
-  for (const c of view.contacts) foldContact(tracks, c, now);
+  for (const c of view.contacts) foldContact(tracks, c, now, fx.sunkNow);
   if (sweep !== undefined) settleSweptMisses(tracks, sweep.beam, sweep.site, now);
   refitWakeCourses(tracks, mind.wakeCells, now);
   prune(tracks, now);
@@ -631,6 +657,7 @@ function isolation(
  * the way cannot be shot at (see BLOCKED_LINE_SCORE).
  */
 export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly BotTrack[]): number {
+  if (t.sunk) return 0; // a wreck is nobody's target (Story 9.5 review gate)
   const horizon = sit.stats.radarRange * TARGET_HORIZON_FACTOR;
   const p = plotAt(sit, t);
   const d = Math.hypot(p.x - sit.x, p.y - sit.y);
@@ -811,11 +838,13 @@ function brokenHull(sit: BotSituation): boolean {
  *     hp by the bot's own estimate (`estimatedRemainingHp`: the Hit-Call
  *     damage fraction against the same base hp; a thrice-hit target reads as
  *     crippled, so ANY landing strike is judged to sink it).
- * `vn` is kept simple: the bot's own |speed| plus whatever closing component
- * the target's course adds along the bearing (a target running away adds 0;
- * a target coming on adds its approach speed). The two knobs are `ramReachU`
- * and the profile's `disengageHpFrac`; every profile carries it, no
- * per-profile switch (amendment 77).
+ * `vn` is the PROJECTED closing speed on the bearing from the bot to the
+ * plot (review gate, 2026-10-13): the bot's own velocity (`speed` along its
+ * `heading` — a hull making sternway, or pointed away, closes nothing) minus
+ * the target's velocity, both projected on that bearing, floored at 0 (a
+ * target running away faster than the bot closes adds nothing). The two
+ * knobs are `ramReachU` and the profile's `disengageHpFrac`; every profile
+ * carries it, no per-profile switch (amendment 77).
  */
 function wantsRam(sit: BotSituation, target: BotTrack | null): boolean {
   if (target === null || !target.live || target.id === null || target.cls === null) return false;
@@ -829,11 +858,16 @@ function wantsRam(sit: BotSituation, target: BotTrack | null): boolean {
   return hit > 0 && hit >= estimatedRemainingHp(target, baseHp);
 }
 
-/** u/s — own |speed| plus the target's approach component along the bearing
- *  from the bot to its plot (0 when the target has no course, or is leaving). */
-function closingSpeed(sit: BotSituation, t: BotTrack, dx: number, dy: number, d: number): number {
-  const own = Math.abs(sit.speed);
+/** u/s — the closing speed projected on the bearing b from the bot to its
+ *  plot: max(0, (own velocity · b) − (target velocity · b)). Own velocity is
+ *  `speed × (cos heading, sin heading)` (sternway projects negative); a
+ *  course-less target contributes 0. Coincident with the plot: nothing. */
+export function closingSpeed(sit: BotSituation, t: BotTrack, dx: number, dy: number, d: number): number {
+  if (d === 0) return 0;
+  const bx = dx / d;
+  const by = dy / d;
+  const own = sit.speed * (Math.cos(sit.heading) * bx + Math.sin(sit.heading) * by);
   const v = trackVelocity(t);
-  if (v === null || d === 0) return own;
-  return own + Math.max(0, -(v.vx * dx + v.vy * dy) / d);
+  const theirs = v === null ? 0 : v.vx * bx + v.vy * by;
+  return Math.max(0, own - theirs);
 }

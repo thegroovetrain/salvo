@@ -88,6 +88,9 @@ export type BotEngageGate = 'always' | 'endgame';
  */
 export interface BotSelf {
   readonly state: ShipState;
+  /** This hull's class — its own silhouette length sizes the bumper the
+   *  helm keeps from its target (Story 9.5 review gate); a self-read. */
+  readonly hullId: HullId;
   readonly hp: number;
   /**
    * This hull's LIFE STATE. A human client is told the same thing about its
@@ -249,6 +252,16 @@ export interface RememberedContact {
    *  nothing ever cleared, which made a plot last seen seven seconds ago read
    *  as visible to the cannon gate, to `freshness()` and to `flareTarget()`. */
   live: boolean;
+  /**
+   * True once a `sunk` event named this track (Story 9.5 review gate): the
+   * hull is a WRECK. A sinking hull still rides the perception view's
+   * `contacts` for its whole sinking window with no sinking bit of its own,
+   * so without this the fold would re-raise it as a live sighting one tick
+   * after forgetting it — and a broken bot could pick a wreck to ram. A sunk
+   * track is never `live`, scores 0 as a target, and ages out of memory
+   * like any other plot.
+   */
+  sunk: boolean;
   /** Hull class if the source disclosed one, else null (radar blips are
    *  identity-free by ruling). Drives the rear-quarter mine-layer exception
    *  in wave-3 tactics and the participant-vs-fleet split below. */

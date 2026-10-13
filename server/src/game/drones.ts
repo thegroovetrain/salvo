@@ -65,8 +65,10 @@ import {
   bearing,
   dist,
   droneSizeOf,
+  hullBumper,
   isAfloat,
   isOutside,
+  isSinking,
   islandDistance,
   mulberry32,
   nearestCoastPoint,
@@ -325,7 +327,7 @@ export class FleetController {
     const unbeaching = this.updateStuck(ship, mind);
     const brg = this.steerTarget(ship, mind, unbeaching);
     const track = clampUnit(angleDiff(ship.state.heading, brg) * RUDDER_GAIN);
-    const rudder = clampUnit(track + this.avoidIslands(ship) + this.avoidHulls(ship) + this.boundaryBias(ship));
+    const rudder = clampUnit(track + this.avoidIslands(ship) + this.avoidHulls(ship, mind) + this.boundaryBias(ship));
     const shot = this.wantsShot(ship, mind);
     mind.seq += 1;
     return {
@@ -466,21 +468,29 @@ export class FleetController {
   /**
    * HULL AVOIDANCE (Story 9.5, Eric ruling 2026-10-12, epic-9 amendment 78:
    * "PvE drones get avoidance only — they steer clear of hulls; they never
-   * choose to ram"). The island point kernel summed over every OTHER afloat
-   * hull within `CONFIG.bots.hullLookaheadU` [DRAFT] — a hull ahead is rounded
-   * exactly like a headland. Reads `world.ships` directly: a fleet hull's
-   * steering already reads the whole world (this file is not perception-
-   * gated), and a solid hull is something every drone would feel anyway.
-   * The target it is hunting is NOT excepted — a drone never rams.
+   * choose to ram"). The island point kernel summed over every OTHER hull on
+   * the water — afloat or SINKING (a wreck is solid, amendment 82) — a hull
+   * ahead is rounded exactly like a headland. Reads `world.ships` directly:
+   * a fleet hull's steering already reads the whole world (this file is not
+   * perception-gated), and a solid hull is something every drone would feel
+   * anyway. The target it is hunting is NOT excepted — a drone never rams —
+   * but it, like a FLEET-MATE (same `fleetId`: the formation sails a hull
+   * length apart), is avoided only inside the BUMPER (`hullBumper`: the two
+   * half-lengths + `CONFIG.bots.hullBumperU`) rather than the full
+   * `CONFIG.bots.hullLookaheadU` [DRAFT] probe every stranger gets (review
+   * gate, 2026-10-13: the full probe scattered formations and repelled the
+   * hunter from its quarry).
    */
-  private avoidHulls(ship: ShipRecord): number {
+  private avoidHulls(ship: ShipRecord, mind: FleetMind): number {
     const { x, y, heading } = ship.state;
     const fx = Math.cos(heading);
     const fy = Math.sin(heading);
     let bias = 0;
     for (const other of this.world.ships.values()) {
-      if (other === ship || !isAfloat(other.lifecycle)) continue;
-      bias += pointBias(other.state.x, other.state.y, x, y, fx, fy, CONFIG.bots.hullLookaheadU);
+      if (other === ship || (!isAfloat(other.lifecycle) && !isSinking(other.lifecycle))) continue;
+      const close = other.id === mind.targetId || this.minds.get(other.id)?.fleetId === mind.fleetId;
+      const reach = close ? hullBumper(ship.hullId, other.hullId) : CONFIG.bots.hullLookaheadU;
+      bias += pointBias(other.state.x, other.state.y, x, y, fx, fy, reach);
     }
     return bias;
   }

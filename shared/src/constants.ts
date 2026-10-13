@@ -447,6 +447,17 @@ export const CONFIG = {
      */
     hullLookaheadU: 150,
     /**
+     * u — `[DRAFT]` the clearance a bot or PvE drone keeps from the ONE hull
+     * it is closing on (Story 9.5 review gate, 2026-10-13): its target (a
+     * drone's hunted target, and a drone's fleet-mates) is avoided only
+     * inside a BUMPER of own half-length + the other's half-length + this,
+     * never at the full `hullLookaheadU` — a duelist in pursue 120 u from
+     * its mark must not be steered away from it by the probe that rounds
+     * strangers. Every other hull uses `hullLookaheadU`. Under the `ram`
+     * posture the target is not avoided at all. A harness dial.
+     */
+    hullBumperU: 10,
+    /**
      * u — `[DRAFT]` the bot RAM trigger's reach (Story 9.5, Eric 2026-10-12,
      * epic-9 amendment 77): a bot below `disengageHpFrac` considers ramming
      * only a sighted target within this range. A harness dial.
@@ -1826,17 +1837,25 @@ export const CONFIG = {
    * vn along the contact normal, the strike energy is E = ½·μ·vn² with the
    * reduced mass μ = mA·mB/(mA+mB), and it is SPLIT by the other hull's mass
    * share: A takes floor(E · mB/(mA+mB) / energyPerHp), B the mirror. The
-   * HIT fires once per contact, only above `allowanceU` of closing speed.
-   * While two hulls stay pressed together they GRIND: each accrues
-   * `grindPerUnit` × the sliding speed × the other's mass share hp per
-   * second (fractions pool; whole hp applies). LAND is the infinite-mass
-   * limit softened by `landSoftness`: a fresh strike costs
-   * floor(½·m·vn²/energyPerHp · landSoftness), scraping costs
-   * `grindPerUnit` × the sliding speed × `landSoftness` per second, and a
-   * hull parked against land takes nothing (Eric 2026-10-12, amendment 81).
-   * A sinking wreck is solid: the live hull pays its share, the wreck takes
-   * nothing (Eric 2026-10-12, amendment 82). The dials themselves were
-   * accepted by Eric 2026-10-12 (amendment 73).
+   * HIT fires once per contact, only above `allowanceU` of closing speed —
+   * and THE LATCH ARMS ONLY ON A CHARGED HIT (Eric 2026-10-13, amendment
+   * 83): while a pair is unlatched every tick measures the closing speed,
+   * the first tick over the allowance is the hit, and only then is the pair
+   * latched until a tick with no overlap. Creeping in under the allowance
+   * and then shoving at full speed pays the shove. While two hulls stay
+   * pressed together they BLEED (amendment 83): each accrues `grindPerUnit`
+   * × (the sliding speed + the pressing speed) × the other's mass share hp
+   * per second, so holding a push costs both hulls — applied per tick as a
+   * fraction through the damage gate the way the phosphor burn is, reported
+   * in 500 ms windows. LAND is the infinite-mass limit softened by
+   * `landSoftness`: a fresh strike costs floor(½·m·vn²/energyPerHp ·
+   * landSoftness), scraping costs `grindPerUnit` × the SLIDING speed ×
+   * `landSoftness` per second, and a hull parked or pinned head-on against
+   * land takes nothing beyond its strike (Eric 2026-10-12, amendment 81 —
+   * the press bleeds only against another hull). A sinking wreck is solid:
+   * the live hull pays its share, the wreck takes nothing (Eric 2026-10-12,
+   * amendment 82). The dials themselves were accepted by Eric 2026-10-12
+   * (amendment 73).
    *
    * CALIBRATION, from Eric's two sentences. `energyPerHp`: "a speedboat
    * head-on a speedboat at 90 u/s closing costs each 200" — μ = 125,
@@ -2404,6 +2423,20 @@ export interface HullEnvelope {
     turnRate: number; // rad/s
     steerageSpeed: number; // u/s
   };
+}
+
+/**
+ * u — THE BUMPER a bot or PvE drone keeps from the ONE hull it is closing on
+ * (Story 9.5 review gate, 2026-10-13): own half-length + the other's
+ * half-length + `CONFIG.bots.hullBumperU`. A plot with no disclosed class
+ * reads as the bot's own length. Read by server ai/tactics.ts (the bot's
+ * target) and server drones.ts (a drone's hunted target and its fleet-mates);
+ * every other hull is rounded at `CONFIG.bots.hullLookaheadU`.
+ */
+export function hullBumper(own: HullId, other: HullId | null): number {
+  const mine = hullEnvelope(own).hull.length;
+  const theirs = other === null ? mine : hullEnvelope(other).hull.length;
+  return mine / 2 + theirs / 2 + CONFIG.bots.hullBumperU;
 }
 
 /** A ship-class key ('torpedoBoat' | 'battleship' | 'mineLayer'). */

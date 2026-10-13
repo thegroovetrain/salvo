@@ -2185,6 +2185,13 @@ function sunkCue(
  * The zone list is the one the client already holds (net → state, mirrored in
  * handleFrame) — no new wire data, and no way to mistake our OWN flare for a
  * hazard (`by !== self`; you cannot burn yourself).
+ *
+ * STORY 9.5 — CONTACT BLEED (amendments 79 + 83). While the own hull bleeds
+ * against a hull or the coast (`state.contactBleeding`, stamped by main.ts
+ * from the predictor), an own `dmg` under `contactFx.bleedThudMaxHp` is the
+ * server's windowed grind and is SKIPPED: no thud, no shake — the grind tone
+ * is the cue. Only the events that still count are summed; if none count, no
+ * cue. A big `dmg` during a scrape (a ram hit, a shell) still slams.
  */
 function flushDamage(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   const selfId = deps.state.net.sessionId;
@@ -2192,8 +2199,10 @@ function flushDamage(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   let total = 0;
   let hit = false;
   let allBurn = true;
+  const bleeding = deps.state.contactBleeding;
   for (const e of f.events) {
     if (e.k !== 'dmg' || e.id !== selfId) continue;
+    if (bleeding && e.amount < CLIENT_CONFIG.contactFx.bleedThudMaxHp) continue; // the grind is the cue
     hit = true;
     total += e.amount;
     if (!readsAsBurn(e.amount, since)) allBurn = false;

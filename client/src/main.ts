@@ -137,6 +137,7 @@ import { bindRoom, type RoomUnbind } from './net/roomBindings.js';
 import { Predictor, type RenderPose } from './sim/prediction.js';
 import { ContactBodies } from './sim/contactBodies.js';
 import { ContactFx } from './render/contactFx.js';
+import { bleedSpeed } from './sim/contactBleed.js';
 import { InputSampler, type Aiming } from './sim/inputSampler.js';
 import { showBanner, hideBanner } from './util/banner.js';
 import {
@@ -245,6 +246,9 @@ interface Game {
   /** HULL CONTACT sparks + the grind scrape (render/contactFx.ts, Story 9.5) —
    *  render-only, read off the predictor's last live tick. */
   contactFx: ContactFx;
+  /** Render-clock ms of the last frame the own hull bled (sim/contactBleed.ts)
+   *  — holds `state.contactBleeding` for `contactFx.bleedGraceMs` after it. */
+  lastBleedMs: number;
   camera: Camera;
   keyboard: KeyboardInput;
   mouse: MouseInput;
@@ -2881,6 +2885,7 @@ function buildGame(
     predictor: makePredictor(map, cls),
     contactBodies: new ContactBodies(),
     contactFx: new ContactFx(stage.layers.burstFx, (gain) => audio.play('grind', { gain })),
+    lastBleedMs: -Infinity,
     camera,
     keyboard,
     mouse,
@@ -4810,6 +4815,23 @@ function updateContactFx(g: Game, pose: RenderPose | null, nowMs: number): void 
       }
     : null;
   g.contactFx.update(nowMs, own, p.ownContacts, p.lastLand, (id) => contactFxColor(g, id), settings.current.motion !== 'off');
+  stampContactBleeding(g, live, nowMs);
+}
+
+/**
+ * Sim → state: whether the own hull is BLEEDING this frame (a hull row's
+ * `vt + vn` or a coast slide over `grindMinVt`), held `bleedGraceMs` past the
+ * last bleeding frame so the server's trailing 500 ms window flush still reads
+ * as bleed. net/roomBindings.ts flushDamage reads the flag to keep that small
+ * `dmg` off the thud and the shake (amendments 79 + 83). Without a live
+ * predicted pose nothing bleeds.
+ */
+function stampContactBleeding(g: Game, live: boolean, nowMs: number): void {
+  const fx = CLIENT_CONFIG.contactFx;
+  const p = g.predictor;
+  if (!live) g.lastBleedMs = -Infinity;
+  else if (bleedSpeed(p.ownContacts, p.lastLand) > fx.grindMinVt) g.lastBleedMs = nowMs;
+  g.state.contactBleeding = nowMs - g.lastBleedMs <= fx.bleedGraceMs;
 }
 
 /** The other hull's color for a strike spark — the color its hull is drawn in. */

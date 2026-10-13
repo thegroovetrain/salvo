@@ -20,6 +20,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  hullBumper,
   angleDiff,
   hullSilhouette,
   inArc,
@@ -134,6 +135,7 @@ function track(now: number, over: Partial<RememberedContact> = {}): RememberedCo
     speed: 0,
     seenAt: now,
     live: true,
+    sunk: false,
     cls: 'torpedoBoat' as HullId,
     fleet: false,
     firstSeenAt: now - CONFIG.bots.reactionMs * 4,
@@ -638,6 +640,36 @@ describe('steering — the priority order is the policy', () => {
     // A second live hull ahead to starboard is still avoided while ramming.
     plot(mind, track(port.now, { id: 'h2', x: 60, y: -20, live: true }));
     expect(COMBAT_BRAIN.decide(rec, mind, port, false).rudder).toBeGreaterThan(d.rudder);
+  });
+
+  it('THE TARGET IS NOT A STRANGER (review gate): in pursue the bot\'s own target biases the helm only inside the bumper; any other hull keeps the full lookahead; under ram the target never does', () => {
+    const w = openWorld(108);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0); // bow due east
+    const mind = mkMind('raider'); // approachPoint = the plot itself (no rear-quarter offset)
+    port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
+    const bumper = hullBumper('torpedoBoat', 'torpedoBoat'); // two speedboats: 50 + 50 + hullBumperU
+    expect(bumper).toBe(100 + CONFIG.bots.hullBumperU);
+    expect(bumper).toBeLessThan(CONFIG.bots.hullLookaheadU);
+    // The target DEAD AHEAD at 120 u: the pursue bearing is the heading (track
+    // term 0), so only a hull-avoidance term could move the rudder — and a
+    // hull dead ahead is the kernel's +strength case when it is in reach.
+    plot(mind, track(port.now, { id: 't1', x: 120, y: 0, live: true }));
+    mind.targetKey = 't1';
+    mind.posture = 'pursue';
+    expect(COMBAT_BRAIN.decide(rec, mind, port, false).rudder).toBe(0);
+    // At 90 u — inside the 110 u bumper — the target IS steered around.
+    plot(mind, track(port.now, { id: 't1', x: 90, y: 0, live: true }));
+    expect(COMBAT_BRAIN.decide(rec, mind, port, false).rudder).not.toBe(0);
+    // A hull that is NOT the target, 120 u ahead to port: the full probe.
+    plot(mind, track(port.now, { id: 't1', x: 120, y: 0, live: true }));
+    plot(mind, track(port.now, { id: 'h2', x: 120, y: 20, live: true }));
+    expect(COMBAT_BRAIN.decide(rec, mind, port, false).rudder).toBeLessThan(0); // h2 to port -> steer starboard
+    // Under RAM the target never biases, even inside the bumper.
+    mind.contacts.delete('h2');
+    plot(mind, track(port.now, { id: 't1', x: 90, y: 0, live: true }));
+    mind.posture = 'ram';
+    expect(COMBAT_BRAIN.decide(rec, mind, port, false).rudder).toBe(0);
   });
 
   it('a visible ENEMY mine ahead biases the rudder; the bot\'s own never does', () => {

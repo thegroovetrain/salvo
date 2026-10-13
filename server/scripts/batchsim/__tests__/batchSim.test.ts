@@ -26,6 +26,7 @@ import { World } from '../../../src/game/world.js';
 import { UsageError, buildVariants, parseArgs } from '../args.js';
 import { TunableError, applyOverrides, isTunableKey, validateTunableKey } from '../overrides.js';
 import { buildBotAggregate } from '../botReport.js';
+import { endCause } from '../botMetrics.js';
 import { mixSeed, percentile, summarize } from '../stats.js';
 import { CONTROL_REGISTRY } from '../controls.js';
 import { pickSpendChoice } from '../spendPolicy.js';
@@ -1252,8 +1253,31 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
   });
 });
 
+describe('botMetrics — endCause reads the contact kind, not only the killer (Story 9.5 review gate)', () => {
+  it('a death by wreck contact is sunkByContact (hull contact, nobody credited); the coast is ranAground; the bleed is contact too', () => {
+    const w = new World(1, CONFIG.map.playerCap, CONFIG.zone);
+    const v = w.addShip('v', 'V', 'captain', 'torpedoBoat', undefined, undefined);
+    v.lastDamageSrc = 'contact';
+    v.lastContactWasLand = false;
+    expect(endCause(w, undefined, v)).toBe('sunkByContact'); // a sinking wreck: no killer, still a hull
+    expect(endCause(w, 'k', v)).toBe('sunkByContact');
+    v.lastContactWasLand = true;
+    expect(endCause(w, undefined, v)).toBe('ranAground');
+    v.lastDamageSrc = 'grind'; // the bleed classifies exactly as the strike
+    expect(endCause(w, undefined, v)).toBe('ranAground');
+    v.lastContactWasLand = false;
+    expect(endCause(w, undefined, v)).toBe('sunkByContact');
+    expect(endCause(w, 'k', v)).toBe('sunkByContact');
+    v.lastDamageSrc = 'storm';
+    expect(endCause(w, undefined, v)).toBe('sunkByStorm');
+    v.lastDamageSrc = 'shell';
+    expect(endCause(w, 'k', v)).toBe('sunkByShip');
+  });
+});
+
 /** Story 9.5's contact damage switched off: no strike ever clears the
- *  allowance and the grind rate is zero (every leaf a `--tune ram.*` dial). */
+ *  allowance and the grind rate is zero (every leaf a `--tune ram.*` dial —
+ *  the allowance gates only the strike; the bleed rides grindPerUnit). */
 const NO_CONTACT_DAMAGE = { 'ram.allowanceU': 1e9, 'ram.grindPerUnit': 0 } as const;
 
 describe('runner — winnerClass (Story 3.4 evidence field)', () => {

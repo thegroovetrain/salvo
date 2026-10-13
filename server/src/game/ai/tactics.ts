@@ -100,6 +100,7 @@ import {
   CONFIG,
   angleDiff,
   bearing,
+  hullBumper,
   nearestCoastPoint,
   wrapAngle,
   type EffectiveStats,
@@ -193,6 +194,7 @@ export function situationOf(self: BotSelf, mind: BotMind, port: BotWorldPort): B
     maxHp: self.stats.maxHp,
     stats: self.stats,
     speed: self.state.speed,
+    heading: self.state.heading,
     profile: profileRowOf(mind),
     ring: port.zoneLiveRing,
     islands: port.map.islands,
@@ -602,7 +604,7 @@ function postureBearing(
  *  ahead, and a boosted hull closes faster than its rating). The same solve
  *  the guns lead with; a course-less plot is simply its point. */
 function ramPoint(self: BotSelf, sit: BotSituation, target: BotTrack): Vec2 {
-  const speed = Math.max(sit.stats.kinematics.maxSpeed, Math.abs(self.state.speed));
+  const speed = Math.max(sit.stats.kinematics.maxSpeed, Math.max(0, self.state.speed)); // sternway closes nothing
   return leadPoint(sit, target, speed);
 }
 
@@ -796,18 +798,27 @@ function avoidMines(self: BotSelf, mind: BotMind): number {
  * every LIVE remembered contact — a hull the bot can see right now, so its
  * position is this tick's — within `CONFIG.bots.hullLookaheadU` [DRAFT], the
  * island lookahead plus a hull length. Solid hulls cost hp to touch, so a
- * bot rounds a hull ahead exactly as it rounds a headland. `exceptKey` is the
- * ram target's track key under the `ram` posture: the ONE hull a ramming bot
+ * bot rounds a hull ahead exactly as it rounds a headland.
+ *
+ * THE TARGET IS NOT A STRANGER (review gate, 2026-10-13): the bot's own
+ * target (`mind.targetKey`) is avoided only inside the BUMPER — own
+ * half-length + its half-length + `CONFIG.bots.hullBumperU` — because every
+ * knife-range engagement band sits inside the 150 u probe, and a duelist
+ * pursuing its mark 120 u ahead was being steered away from it. Under the
+ * `ram` posture the target is not avoided at all: the ONE hull a ramming bot
  * must not steer around (islands, mines and the boundary stay live even then).
  */
-function avoidHulls(self: BotSelf, mind: BotMind, exceptKey: string | null): number {
+function avoidHulls(self: BotSelf, mind: BotMind, posture: BotPosture): number {
   const { x, y, heading } = self.state;
   const fx = Math.cos(heading);
   const fy = Math.sin(heading);
   let bias = 0;
   for (const [key, t] of mind.contacts) {
-    if (!t.live || key === exceptKey) continue;
-    bias += pointBias(t.x, t.y, x, y, fx, fy, CONFIG.bots.hullLookaheadU);
+    if (!t.live) continue;
+    const isTarget = key === mind.targetKey;
+    if (isTarget && posture === 'ram') continue;
+    const reach = isTarget ? hullBumper(self.hullId, t.cls) : CONFIG.bots.hullLookaheadU;
+    bias += pointBias(t.x, t.y, x, y, fx, fy, reach);
   }
   return bias;
 }
@@ -864,7 +875,7 @@ function helmFor(
   const track = clampUnit(angleDiff(self.state.heading, want) * RUDDER_GAIN);
   const avoid =
     avoidIslands(self, port) + avoidMines(self, mind) + boundaryBias(self, port)
-    + avoidHulls(self, mind, posture === 'ram' ? mind.targetKey : null);
+    + avoidHulls(self, mind, posture);
   const helmLeft = Math.max(0, 1 - Math.abs(avoid));
   return { throttle: throttleFor(posture), rudder: clampUnit(track * helmLeft + avoid) };
 }

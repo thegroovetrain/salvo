@@ -8,7 +8,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { Container } from 'pixi.js';
 import { CONFIG, type HullContact } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { ContactFx, slidingSpeed, type ContactFxLand, type ContactFxOwn } from '../render/contactFx.js';
+import { ContactFx, type ContactFxLand, type ContactFxOwn } from '../render/contactFx.js';
+import { bleedSpeed } from '../sim/contactBleed.js';
 
 const FX = CLIENT_CONFIG.contactFx;
 const ALLOW = CONFIG.ram.allowanceU;
@@ -103,7 +104,7 @@ describe('ContactFx — the grind scrape', () => {
     expect(grind).toHaveBeenCalledTimes(2);
   });
 
-  it('stays silent at or under the sliding threshold', () => {
+  it('stays silent at or under the bleed threshold', () => {
     const { fx: f, grind } = fx();
     f.update(0, OWN, [row('foe', 0, FX.grindMinVt)], NO_LAND, color, true);
     expect(grind).not.toHaveBeenCalled();
@@ -134,7 +135,25 @@ describe('ContactFx — the grind scrape', () => {
 
   it('a hull sliding along a coast grinds by its tangential speed', () => {
     const land: ContactFxLand = { contact: true, headOn: 0.6, speed: 50 };
-    expect(slidingSpeed([], land)).toBeCloseTo(50 * 0.8, 9);
-    expect(slidingSpeed([], { ...land, contact: false })).toBe(0);
+    expect(bleedSpeed([], land)).toBeCloseTo(50 * 0.8, 9);
+    expect(bleedSpeed([], { ...land, contact: false })).toBe(0);
+  });
+
+  // Amendment 83: a sustained push bleeds like a scrape — a hull row grinds
+  // by `vt + vn`, so a head-on press with no slide keeps the tone.
+  it('a head-on PRESS above the threshold keeps the tone; below it, silence', () => {
+    const { fx: f, grind } = fx();
+    const press = [row('foe', FX.grindMinVt + 1, 0)];
+    f.update(0, OWN, press, NO_LAND, color, true);
+    f.update(FX.grindRetriggerMs, OWN, press, NO_LAND, color, true);
+    expect(grind).toHaveBeenCalledTimes(2);
+    const { fx: g, grind: quiet } = fx();
+    g.update(0, OWN, [row('foe', FX.grindMinVt - 1, 0)], NO_LAND, color, true);
+    expect(quiet).not.toHaveBeenCalled();
+  });
+
+  it('a hull row bleeds by vt + vn; the coast stays sliding-only', () => {
+    expect(bleedSpeed([row('foe', 3, 4)], NO_LAND)).toBe(7);
+    expect(bleedSpeed([], { contact: true, headOn: 1, speed: 50 })).toBe(0);
   });
 });

@@ -217,11 +217,23 @@ const EMPTY_FIT: readonly string[] = Object.freeze([]);
  *  lossy: a pair that stops burning — or a victim that dies — flushes at once. */
 const DOT_EVENT_WINDOW_MS = 500;
 
-/** The (zone owner, victim) key of a DoT event bucket. Ids are opaque room
- *  session ids; `|` is not one of their characters. */
+/** The (zone owner, victim) key of a BURN DoT event bucket. Ids are opaque
+ *  room session ids; `|` is not one of their characters. */
 function dotKey(ownerId: string, victimId: string): string {
   return `${ownerId}|${victimId}`;
 }
+
+/** The key of a contact BLEED ('grind') event bucket (Story 9.5 review gate):
+ *  one window per (attacker, victim), where the attacker is the other hull's
+ *  id or the sentinel `land` for the coast. The sentinel lives in this map
+ *  ONLY — the `dmg` event carries no attacker and never will. The `grind:`
+ *  prefix keeps a bleed window apart from the same attacker's burn window
+ *  and lets each flush sweep find only its own buckets. */
+function grindKey(attackerId: string | undefined, victimId: string): string {
+  return `${GRIND_KEY_PREFIX}${attackerId ?? 'land'}|${victimId}`;
+}
+
+const GRIND_KEY_PREFIX = 'grind:';
 
 /**
  * Injectable engine registries (Story 2.5). Production omits both (the empty
@@ -468,32 +480,33 @@ export interface ShipRecord {
    */
   preDampSpeed: number;
   /**
-   * THE GRIND POOLS (Story 9.5, amendment 25 / 81): the fractional hp this
-   * hull has accrued from hull-to-hull grinding (`grindPool`) and from
-   * scraping along a coast (`landGrindPool`). The rates are per second and
-   * unfloored (shared `contactGrindRate` / `landGrindRate`); every tick's
-   * share lands here, and whole hp is applied through the damage gate as the
-   * pool crosses each integer, the remainder kept (Eric's integer-damage
-   * rule). Server-only. Reset 0 at every life boundary.
-   */
-  grindPool: number;
-  landGrindPool: number;
-  /**
    * WHAT LAST TOOK HP OFF THIS HULL (Story 9.5) — stamped by applyDamage when
    * `dealt > 0`, null until the first blow of a life. The harness reads it off
-   * the victim's record at the `sunk` event to tell a ram kill (`byId`
-   * defined, src 'contact') and a grounding death (no killer, src 'contact')
-   * from the rest; the kill feed keeps today's lines (amendment 76), so this
-   * never rides the wire. Reset null at respawn / redeployShip (NOT at
-   * founderSinking — the sink-time reading is the one the harness takes).
+   * the victim's record at the `sunk` event to tell a ram kill ('contact' or
+   * 'grind' with a killer) and a grounding death ('contact' / 'grind', no
+   * killer, `lastContactWasLand`) from the rest; the kill feed keeps today's
+   * lines (amendment 76), so this never rides the wire. Reset null at
+   * respawn / redeployShip (NOT at founderSinking — the sink-time reading is
+   * the one the harness takes).
    */
   lastDamageSrc: DamageSource | null;
   /**
-   * Whole hp this hull has TAKEN from 'contact' damage this life, split by
-   * whether another hull dealt it (`contactDamageTaken` — a ram or a grind,
-   * `byId` defined) or the coast did (`landDamageTaken` — `byId` undefined).
-   * Accumulated in applyDamage from `dealt`; harness readouts only (Story
-   * 9.5), never on the wire. Reset 0 at respawn / redeployShip.
+   * WHETHER THE LAST CONTACT BLOW CAME FROM LAND (Story 9.5 review gate):
+   * stamped by dealContact / bleedContact with the blow's kind BEFORE the
+   * gate runs — true for the coast, false for another hull, a sinking WRECK
+   * INCLUDED (a wreck is hull contact, not land, even though it credits
+   * nobody). The tally split below and the harness's `ranAground` /
+   * `sunkByContact` read it; never on the wire. Reset with the tally.
+   */
+  lastContactWasLand: boolean;
+  /**
+   * hp this hull has TAKEN from contact this life — the 'contact' hits and
+   * the fractional 'grind' bleed — split by `lastContactWasLand` at each
+   * blow: another hull or a wreck (`contactDamageTaken`) or the coast
+   * (`landDamageTaken`). Accumulated in applyDamage from `dealt`; harness
+   * readouts only (Story 9.5), never on the wire. Fractional (the bleed is
+   * applied per tick unfloored, as the burn is). Reset 0 at respawn /
+   * redeployShip.
    */
   contactDamageTaken: number;
   landDamageTaken: number;
@@ -1216,12 +1229,22 @@ function sweepMask(hits: readonly TargetKind[]): readonly TargetKind[] {
  * 'storm' emits no `dmg`, skips the assist ledger AND is exempt from the
  * DAMAGE CUT (amendment 101), everything else takes the immediate
  * victim-private `dmg`. 'missile' was declared ahead of the horizontal missile
- * and DELETED with it (Story 8.15, amendment 89e); 'contact' is ramming /
- * grinding / land contact (Story 9.5, epic-9 amendments 25, 73–82): a hull
- * hit or ground by another hull (`byId` = the other hull — damage credit and
- * the kill like a shell) or by the coast (`byId` undefined — no credit, a
+ * and DELETED with it (Story 8.15, amendment 89e); 'contact' is the whole-hp
+ * ram / land STRIKE (Story 9.5, epic-9 amendments 25, 73–82): a hull hit by
+ * another hull (`byId` = the other hull — damage credit and the kill like a
+ * shell) or by the coast or a sinking wreck (`byId` undefined — no credit, a
  * `dmg`, the feed's `LOST WITH ALL HANDS` line). It was declared as the
- * decoy-contact seat (Story 8.16) and never used until 9.5.
+ * decoy-contact seat (Story 8.16) and never used until 9.5. 'grind' is the
+ * contact BLEED (Story 9.5 review gate, amendment 83): the per-tick
+ * FRACTIONAL hp of two hulls pressed or sliding together, or of a hull
+ * scraping a coast, delivered exactly as 'burn' is — unfloored under the
+ * DAMAGE CUT, absorbed by the shield, reported through a 500 ms window
+ * bucket (grindKey) rather than an immediate `dmg`. AR47's list therefore
+ * grows by one: a whole-hp immediate report cannot carry a fraction (under
+ * the cut every 1-hp pool drain floored to 0, so a cut hull was immune to
+ * all grind and received a `dmg 0` every few ticks; every drain also fired
+ * the client hit cue up to five times a second) — the burn already had the
+ * windowed fractional path, and the bleed takes the same one.
  */
 export type DamageSource =
   | 'shell'
@@ -1230,7 +1253,8 @@ export type DamageSource =
   | 'mine'
   | 'burn'
   | 'storm'
-  | 'contact';
+  | 'contact'
+  | 'grind';
 
 /** One named simulation step in World.STEP_ORDER (Story 5.1, AR8). The name
  *  is the row's identity: the order-identity test (stepOrder.test.ts,
@@ -1389,9 +1413,14 @@ export class World {
    *   - `hullContacts`: this tick's overlapping pairs, written by
    *     resolveHullContacts and read by applyContactDamage.
    *   - `contactLatch`: the ONCE-PER-CONTACT latch — the sorted pair key of
-   *     every pair that overlapped last tick. A pair hits on the first tick it
-   *     overlaps (or arms without damage under the allowance) and cannot hit
-   *     again until a tick in which it did not overlap re-arms it.
+   *     every pair whose hit has been CHARGED and that overlapped last tick.
+   *     THE LATCH ARMS ONLY ON A CHARGED HIT (Eric 2026-10-13, amendment
+   *     83): an unlatched pair is measured every tick it overlaps, the first
+   *     tick over the allowance is the hit and latches it, and only a tick
+   *     with no overlap re-arms it. Under the allowance nothing latches, so
+   *     creeping in and then shoving pays the shove.
+   *   - `grindingNow`: the bleed bucket keys fed this tick; every open bleed
+   *     window NOT in it has stopped and flushes (the burn's own rule).
    * Nothing here rides the wire.
    */
   private readonly contactBodies = new Map<string, ContactBody>();
@@ -1399,6 +1428,7 @@ export class World {
   private readonly hullContacts: HullContact[] = [];
   private readonly contactLatch = new Set<string>();
   private readonly contactKeysNow = new Set<string>();
+  private readonly grindingNow = new Set<string>();
   /** False = target practice: shells/mines/storm land but deal no damage. */
   damageEnabled = true;
   /** False = sinkShip schedules NO respawn (active phase: death → spectate). */
@@ -1487,12 +1517,14 @@ export class World {
    */
   private readonly mzOwnersThisTick = new Set<string>();
   /**
-   * OPEN INCENDIARY DoT EVENT BUCKETS (Story 2.8 review, P4), keyed by
-   * dotKey(zone owner, victim): the applied-but-not-yet-reported DoT for that
-   * pair, the part of it a SHIELD BLOCK ate (`absorbed` — Story 8.16: a window
-   * the shield swallowed whole still reports, as `dmg` amount 0, amendment
-   * 117), and the server time its window opened. hp is ALREADY deducted — this
-   * only defers the victim-private `dmg` event (see applyZoneEffects).
+   * OPEN DoT EVENT BUCKETS (Story 2.8 review, P4), keyed by dotKey(zone
+   * owner, victim) for the burn and grindKey(attacker | `land`, victim) for
+   * the contact bleed (Story 9.5): the applied-but-not-yet-reported DoT for
+   * that pair, the part of it a SHIELD BLOCK ate (`absorbed` — Story 8.16: a
+   * window the shield swallowed whole still reports, as `dmg` amount 0,
+   * amendment 117), and the server time its window opened. hp is ALREADY
+   * deducted — this only defers the victim-private `dmg` event (see
+   * applyZoneEffects and applyContactDamage; each flushes only its own keys).
    */
   private readonly dotBuckets = new Map<string, { victimId: string; amount: number; absorbed: number; since: number }>();
   private mineSeq = 0;
@@ -1913,7 +1945,7 @@ export class World {
       cls,
       hullPoly: [],
       prevPose: { x: p.x, y: p.y, heading: 0, speed: 0 }, landContact: false,
-      landHeadOn: 0, landWasContact: false, preDampSpeed: 0, grindPool: 0, landGrindPool: 0, lastDamageSrc: null, contactDamageTaken: 0, landDamageTaken: 0, // Story 9.5 (clearContactState / clearContactTally)
+      landHeadOn: 0, landWasContact: false, preDampSpeed: 0, lastDamageSrc: null, lastContactWasLand: false, contactDamageTaken: 0, landDamageTaken: 0, // Story 9.5 (clearContactState / clearContactTally)
       // THE SWEEP STARTS AT THE HULL'S HEADING (Eric ruling 2026-08-16), at
       // EVERY placement edge — here, redeployShip and respawn — so there is one
       // rule and not three. Constructing every hull at 0 phase-LOCKED the whole
@@ -2276,7 +2308,7 @@ export class World {
     // construction, and a carried-over `true` would arm an un-beach reverse on
     // a hull sitting in open water at the start line.
     ship.landContact = false;
-    World.clearContactState(ship); // ...nor a land edge or a grind pool (Story 9.5)
+    World.clearContactState(ship); // ...nor a land edge (Story 9.5)
     World.clearContactTally(ship); // ...and a fresh match's contact tally starts at zero (Story 9.5)
     // A fresh life never inherits an open boost window — nor either slow.
     ship.boostUntil = 0;
@@ -2504,29 +2536,28 @@ export class World {
       ship.fouledUntil = 0; // the foul zone's stamp dies with the life too (Story 9.4)
       ship.cloudUntil = 0; // already cleared at sinkShip; symmetric for directed callers (Story 9.3)
       ship.draft = 0; // ...and rides no wake (Story 8.19): never a stale lift on the wire
-      // The land edge and the grind pools die with the life (Story 9.5); the
-      // damage-source stamp and the contact tally DO NOT — the harness reads
+      // The land edge dies with the life (Story 9.5); the damage-source
+      // stamp, the land bit and the contact tally DO NOT — the harness reads
       // them off the record, and the wreck sat out the window taking nothing.
       World.clearContactState(ship);
     }
   }
 
-  /** Story 9.5: the land edge, the pre-damp speed and both grind pools —
-   *  zeroed at every life boundary (addShip inline, founderSinking, respawn,
-   *  redeployShip). */
+  /** Story 9.5: the land edge and the pre-damp speed — zeroed at every life
+   *  boundary (addShip inline, founderSinking, respawn, redeployShip). */
   private static clearContactState(ship: ShipRecord): void {
     ship.landHeadOn = 0;
     ship.landWasContact = false;
     ship.preDampSpeed = 0;
-    ship.grindPool = 0;
-    ship.landGrindPool = 0;
   }
 
-  /** Story 9.5: the harness readouts — what last took hp and the contact /
-   *  land damage tallies — zeroed at the two FRESH-LIFE boundaries (respawn,
-   *  redeployShip), never at founderSinking. */
+  /** Story 9.5: the harness readouts — what last took hp, whether the last
+   *  contact was land, and the contact / land damage tallies — zeroed at the
+   *  two FRESH-LIFE boundaries (respawn, redeployShip), never at
+   *  founderSinking. */
   private static clearContactTally(ship: ShipRecord): void {
     ship.lastDamageSrc = null;
+    ship.lastContactWasLand = false;
     ship.contactDamageTaken = 0;
     ship.landDamageTaken = 0;
   }
@@ -3988,27 +4019,44 @@ export class World {
   /**
    * CONTACT DAMAGE (Story 9.5; see the STEP_ORDER row). Two halves:
    *   (a) HULL PAIRS — for every pair the hull pass reported: the HIT if the
-   *       pair is not latched (`contactHitDamage`, 0 under the allowance —
-   *       the latch arms either way), then the GRIND into each hull's pool.
-   *       Both halves go through hitShip with the OTHER hull as `byId`, so
-   *       damage credit, the kill, the bounty and the drone aggro seam all
-   *       behave as for a shell. A sinking victim is refused inside the gate
-   *       (amendment 82) while the live hull still pays its share — and a
-   *       WRECK IS NEVER THE ATTACKER: a live hull that runs into a sinking
-   *       one pays through applyDamage with no `byId` (no damage credit, no
+   *       pair is not latched and its closing speed is over the allowance
+   *       (`contactHitDamage`) — THE LATCH ARMS ONLY ON A CHARGED HIT
+   *       (Eric 2026-10-13, amendment 83), so an under-allowance touch is
+   *       measured again next tick — then the BLEED (`contactGrindRate` on
+   *       sliding + pressing speed) applied per tick as a FRACTION through
+   *       the gate as 'grind', exactly as the burn is. The hit goes through
+   *       hitShip with the OTHER hull as `byId`, so damage credit, the kill,
+   *       the bounty and the drone aggro seam all behave as for a shell; the
+   *       bleed goes through applyDamage with the same `byId` (credit and
+   *       the kill, no per-tick aggro — the burn's seat). ATTACKER
+   *       ELIGIBILITY IS READ AT EACH BLOW — except that the two halves of
+   *       one hit are one impact and read both ids at that instant (a mutual
+   *       ram credits both, the spec's mutual-kill row): the hit on A can
+   *       sink A, after which every LATER blow — the bleed from this tick on
+   *       — credits nobody. A sinking victim is refused inside
+   *       the gate (amendment 82) while the live hull still pays its share —
+   *       and a WRECK IS NEVER THE ATTACKER: a live hull that runs into a
+   *       sinking one pays with no `byId` (no damage credit, no
    *       assist-ledger seat, no kill for "a sink it did not cause" — the
-   *       spec's wreck row; the feed then reads LOST WITH ALL HANDS).
+   *       spec's wreck row; the feed then reads LOST WITH ALL HANDS) but it
+   *       is still HULL contact, not land (`lastContactWasLand` false). Two
+   *       PvE FLEET hulls are pushed apart but deal each other nothing
+   *       (implementer reading at the review gate: no ruling has the fleet
+   *       grind itself down; Eric may veto).
    *   (b) LAND — the strike on the `landContact` false → true edge priced on
-   *       `preDampSpeed × headOn`, and the scrape on the sliding component
-   *       while contact holds; both through applyDamage with no `byId`
-   *       (no credit, a `dmg`, no feed cause — amendment 76). A parked hull
-   *       (speed 0) accrues nothing.
-   * Then the latch re-arms: every pair key NOT seen this tick is dropped.
+   *       `preDampSpeed × headOn`, and the scrape on the SLIDING component
+   *       only while contact holds (a hull pinned head-on against a rock
+   *       bleeds nothing — amendment 81); both with no `byId` (no credit, a
+   *       `dmg`, no feed cause — amendment 76). A parked hull (speed 0)
+   *       accrues nothing.
+   * Then the latch re-arms (every charged pair key NOT overlapping this tick
+   * is dropped) and every bleed window not fed this tick flushes its `dmg`.
    */
   private applyContactDamage(): void {
     const dt = CONFIG.tick.simDtMs / 1000;
     const seen = this.contactKeysNow;
     seen.clear();
+    this.grindingNow.clear();
     for (const c of this.hullContacts) {
       seen.add(`${c.a}|${c.b}`);
       this.damagePair(c, dt);
@@ -4017,44 +4065,74 @@ export class World {
     for (const ship of this.ships.values()) {
       if (isAfloat(ship.lifecycle) || isSinking(ship.lifecycle)) this.damageLand(ship, dt);
     }
+    for (const key of [...this.dotBuckets.keys()]) {
+      if (key.startsWith(GRIND_KEY_PREFIX) && !this.grindingNow.has(key)) this.flushDot(key);
+    }
   }
 
-  /** (a) one overlapping pair: the once-per-contact HIT, then the GRIND. */
+  /** (a) one overlapping pair: the HIT when unlatched and charged, then the
+   *  BLEED. Nothing between two fleet hulls. */
   private damagePair(c: HullContact, dt: number): void {
     const a = this.ships.get(c.a);
     const b = this.ships.get(c.b);
     if (a === undefined || b === undefined) return;
+    if (roleIsFleetHull(a) && roleIsFleetHull(b)) return;
     const mA = a.stats.maxHp;
     const mB = b.stats.maxHp;
     const key = `${c.a}|${c.b}`;
-    const byA = isAfloat(a.lifecycle) ? a.id : undefined; // credited for B's blow — a wreck never is
-    const byB = isAfloat(b.lifecycle) ? b.id : undefined;
-    if (!this.contactLatch.has(key)) {
+    if (!this.contactLatch.has(key) && c.vn > CONFIG.ram.allowanceU) {
+      // THE CHARGED HIT (amendment 83): over the allowance, priced and
+      // latched — even when the price floors to 0 at a crawl, this IS the
+      // strike of this contact. The two halves are ONE impact: both attacker
+      // ids are read at the instant of impact, so a mutual ram credits both
+      // (the spec's mutual-kill row) although the first half may sink its
+      // victim before the second lands.
       this.contactLatch.add(key);
       const hit = contactHitDamage(mA, mB, c.vn, CONFIG.ram);
-      if (hit.a > 0) this.dealContact(a, hit.a, byB);
-      if (hit.b > 0) this.dealContact(b, hit.b, byA);
+      const byA = World.attackerId(a);
+      const byB = World.attackerId(b);
+      this.dealContact(a, hit.a, byB, 'hull');
+      this.dealContact(b, hit.b, byA, 'hull');
     }
-    const grind = contactGrindRate(mA, mB, c.vt, CONFIG.ram);
-    a.grindPool = this.drainPool(a, a.grindPool + grind.a * dt, byB);
-    b.grindPool = this.drainPool(b, b.grindPool + grind.b * dt, byA);
+    // THE BLEED is a later blow: eligibility is re-read now — a hull the hit
+    // just sank credits nothing from here on.
+    const bleed = contactGrindRate(mA, mB, c.vt, c.vn, CONFIG.ram);
+    this.bleedContact(a, bleed.a * dt, World.attackerId(b), 'hull');
+    this.bleedContact(b, bleed.b * dt, World.attackerId(a), 'hull');
   }
 
-  /** Apply the whole hp of a pool and return the fractional remainder. A hull
-   *  not afloat keeps nothing (the gate would refuse it anyway). */
-  private drainPool(victim: ShipRecord, pool: number, byId: string | undefined): number {
-    if (!isAfloat(victim.lifecycle)) return 0;
-    const whole = Math.floor(pool);
-    if (whole < 1) return pool;
-    this.dealContact(victim, whole, byId);
-    return pool - whole;
+  /** The id a blow is credited to, read AT THE BLOW: the other hull while it
+   *  is afloat, nobody once it is sinking (a wreck is never the attacker). */
+  private static attackerId(other: ShipRecord): string | undefined {
+    return isAfloat(other.lifecycle) ? other.id : undefined;
   }
 
-  /** One contact blow: through hitShip (credit + aggro) when a live hull dealt
-   *  it, through the bare gate when the coast or a wreck did. */
-  private dealContact(victim: ShipRecord, amount: number, byId: string | undefined): void {
+  /** True iff `amount` is a quantity the gate may see: finite and above zero.
+   *  A NaN mass or speed prices as 0 in the shared math; this is the floor
+   *  under that, so applyDamage never sees NaN. */
+  private static isBlow(amount: number): boolean {
+    return Number.isFinite(amount) && amount > 0;
+  }
+
+  /** One whole-hp contact STRIKE: through hitShip (credit + aggro) when a
+   *  live hull dealt it, through the bare gate when the coast or a wreck did.
+   *  `kind` stamps `lastContactWasLand` for the tally and the harness. */
+  private dealContact(victim: ShipRecord, amount: number, byId: string | undefined, kind: 'hull' | 'land'): void {
+    if (!World.isBlow(amount)) return;
+    victim.lastContactWasLand = kind === 'land';
     if (byId === undefined) this.applyDamage(victim, amount, 'contact', undefined);
     else this.hitShip(victim, amount, byId, false, 'contact');
+  }
+
+  /** One tick of contact BLEED: a fractional 'grind' through the gate (the
+   *  burn's seat — cut unfloored, shield, fractional hp write, windowed
+   *  `dmg`), credited to `byId` when a live hull dealt it. Marks the bleed
+   *  window fed this tick so applyContactDamage does not flush it. */
+  private bleedContact(victim: ShipRecord, amount: number, byId: string | undefined, kind: 'hull' | 'land'): void {
+    if (!World.isBlow(amount) || !isAfloat(victim.lifecycle)) return;
+    victim.lastContactWasLand = kind === 'land';
+    this.grindingNow.add(grindKey(byId, victim.id));
+    this.applyDamage(victim, amount, 'grind', byId);
   }
 
   /** (b) one hull against the coast: the strike on the edge, the scrape while
@@ -4063,11 +4141,10 @@ export class World {
     if (ship.landContact) {
       const headOn = ship.landHeadOn;
       if (!ship.landWasContact) {
-        const amount = landHitDamage(ship.stats.maxHp, ship.preDampSpeed * headOn, CONFIG.ram);
-        if (amount > 0) this.applyDamage(ship, amount, 'contact', undefined);
+        this.dealContact(ship, landHitDamage(ship.stats.maxHp, ship.preDampSpeed * headOn, CONFIG.ram), undefined, 'land');
       }
       const vt = ship.preDampSpeed * Math.sqrt(Math.max(0, 1 - headOn * headOn));
-      ship.landGrindPool = this.drainPool(ship, ship.landGrindPool + landGrindRate(vt, CONFIG.ram) * dt, undefined);
+      this.bleedContact(ship, landGrindRate(vt, CONFIG.ram) * dt, undefined, 'land');
     }
     ship.landWasContact = ship.landContact;
   }
@@ -4950,20 +5027,22 @@ export class World {
     // here. A blow fully eaten by a SHIELD BLOCK leaves `dealt` 0 and does NOT
     // count as taking damage; dealing damage never counts at all.
     if (dealt > 0) victim.lastDamagedAt = this.now;
-    World.noteDamageTaken(victim, src, byId, dealt); // (d′) Story 9.5's server-only readouts
+    World.noteDamageTaken(victim, src, dealt); // (d′) Story 9.5's server-only readouts
     if (src !== 'storm' && byId !== undefined) this.creditDamage(byId, victim.id, net, dealt); // (e)
     this.reportDamage(victim, net, src, byId, cut - net); // (f)+(g)
   }
 
-  /** (d′) THE HARNESS STAMPS (Story 9.5): what last took hp, and the whole hp
-   *  taken from a hull's contact (`byId` defined) or from the coast (`byId`
-   *  undefined). Read by server/scripts/batchsim only; never on the wire. Not
-   *  a guard and not a branch on hp — the gate's order above is unchanged. */
-  private static noteDamageTaken(victim: ShipRecord, src: DamageSource, byId: string | undefined, dealt: number): void {
+  /** (d′) THE HARNESS STAMPS (Story 9.5): what last took hp, and the hp taken
+   *  from contact — the strike ('contact') and the bleed ('grind') — split by
+   *  the blow's own kind (`lastContactWasLand`, stamped by dealContact /
+   *  bleedContact): another hull or a wreck, or the coast. Read by
+   *  server/scripts/batchsim only; never on the wire. Not a guard and not a
+   *  branch on hp — the gate's order above is unchanged. */
+  private static noteDamageTaken(victim: ShipRecord, src: DamageSource, dealt: number): void {
     if (dealt > 0) victim.lastDamageSrc = src;
-    if (src !== 'contact') return;
-    if (byId !== undefined) victim.contactDamageTaken += dealt;
-    else victim.landDamageTaken += dealt;
+    if (src !== 'contact' && src !== 'grind') return;
+    if (victim.lastContactWasLand) victim.landDamageTaken += dealt;
+    else victim.contactDamageTaken += dealt;
   }
 
   /**
@@ -4973,16 +5052,17 @@ export class World {
    * effective `damageCut.factor` BEFORE the shield absorbs it (amendment 100:
    * a shield lasts twice as long under a cut). A hit rounds DOWN to a whole
    * number (amendment 102 — 15 → 7, 55 → 27, damage stays whole per amendment
-   * 39); a PHOSPHOR burn tick, fractional by construction, halves exactly. The
-   * STORM is exempt (amendment 101): its bites land in full, so the
-   * sudden-death ceiling and NFR6's arithmetic are untouched. `creditDamage`
-   * and the `dmg` report both read the POST-cut amount: the attacker's tally
-   * is what actually landed.
+   * 39); a PHOSPHOR burn tick and a contact BLEED tick ('grind', Story 9.5),
+   * fractional by construction, halve exactly — never to zero. The STORM is
+   * exempt (amendment 101): its bites land in full, so the sudden-death
+   * ceiling and NFR6's arithmetic are untouched. `creditDamage` and the `dmg`
+   * report both read the POST-cut amount: the attacker's tally is what
+   * actually landed.
    */
   private cutDamage(victim: ShipRecord, amount: number, src: DamageSource): number {
     if (src === 'storm' || this.now >= victim.damageCutUntil) return amount;
     const cut = amount * victim.stats.equipment.damageCut.factor;
-    return src === 'burn' ? cut : Math.floor(cut);
+    return src === 'burn' || src === 'grind' ? cut : Math.floor(cut);
   }
 
   /** (c) THE SHIELD STEP. Expires a lapsed or spent block, absorbs what is
@@ -5006,7 +5086,10 @@ export class World {
    *  writers emitted:
    *    - 'burn' banks into its (owner, victim) DoT window bucket and flushes
    *      before a lethal bite's sink, so the victim's last `dmg` still lands
-   *      ahead of its `sunk` (applyZoneEffects' wire-cadence rule).
+   *      ahead of its `sunk` (applyZoneEffects' wire-cadence rule); 'grind'
+   *      (the contact bleed, Story 9.5) banks the same way into its
+   *      (attacker | land, victim) bucket — the coast's window credits and
+   *      kills with no attacker.
    *    - 'storm' emits NOTHING (a 20Hz drowning event stream is wire noise).
    *    - every other source pushes the immediate victim-private `dmg` FIRST
    *      and then takes the sink edge — the order hitShip has always emitted.
@@ -5016,19 +5099,23 @@ export class World {
    *  reads it (a non-burn blow already emits `dmg` 0 when fully absorbed). */
   private reportDamage(victim: ShipRecord, amount: number, src: DamageSource, byId: string | undefined, absorbed: number): void {
     if (src === 'burn') {
-      this.bankDot(victim, byId!, amount, absorbed);
+      this.bankDot(victim, dotKey(byId!, victim.id), byId, amount, absorbed);
+      return;
+    }
+    if (src === 'grind') {
+      this.bankDot(victim, grindKey(byId, victim.id), byId, amount, absorbed);
       return;
     }
     if (src !== 'storm') this.pending.push({ k: 'dmg', id: victim.id, amount, hp: Math.max(0, victim.hp) });
     if (victim.hp <= 0) this.sinkShip(victim.id, byId);
   }
 
-  /** The DoT half of reportDamage: accumulate this (owner, victim) pair's
-   *  window bucket, flush it ahead of a lethal bite's sink, and otherwise emit
-   *  once the window has run (see applyZoneEffects for why the DoT `dmg` event
-   *  is windowed while its hp application stays per-tick). */
-  private bankDot(victim: ShipRecord, ownerId: string, amount: number, absorbed: number): void {
-    const key = dotKey(ownerId, victim.id);
+  /** The DoT half of reportDamage: accumulate this pair's window bucket
+   *  (`key` — a burn's dotKey or a bleed's grindKey), flush it ahead of a
+   *  lethal bite's sink credited to `killer` (undefined for the coast), and
+   *  otherwise emit once the window has run (see applyZoneEffects for why the
+   *  DoT `dmg` event is windowed while its hp application stays per-tick). */
+  private bankDot(victim: ShipRecord, key: string, killer: string | undefined, amount: number, absorbed: number): void {
     const bucket = this.dotBuckets.get(key);
     if (bucket === undefined) this.dotBuckets.set(key, { victimId: victim.id, amount, absorbed, since: this.now });
     else {
@@ -5037,7 +5124,7 @@ export class World {
     }
     if (victim.hp <= 0) {
       this.flushDot(key);
-      this.sinkShip(victim.id, ownerId);
+      this.sinkShip(victim.id, killer);
       return;
     }
     const open = this.dotBuckets.get(key)!;
@@ -5665,9 +5752,10 @@ export class World {
       }
     }
     // Every pair that did NOT burn this tick has stopped burning: flush its
-    // remainder now so no applied damage is ever left unreported.
+    // remainder now so no applied damage is ever left unreported. The contact
+    // bleed's `grind:` windows are applyContactDamage's to flush, not ours.
     for (const key of [...this.dotBuckets.keys()]) {
-      if (!burning.has(key)) this.flushDot(key);
+      if (!key.startsWith(GRIND_KEY_PREFIX) && !burning.has(key)) this.flushDot(key);
     }
   }
 
@@ -6630,7 +6718,7 @@ export class World {
     // ...nor a stale grounding read (the redeployShip rule): the respawn
     // placement is island-clear, so the hull is not aground.
     ship.landContact = false;
-    World.clearContactState(ship); // ...nor a land edge or a grind pool (Story 9.5)
+    World.clearContactState(ship); // ...nor a land edge (Story 9.5)
     World.clearContactTally(ship); // ...nor the dead life's contact tally (Story 9.5)
     // ...nor an own-cloud stamp (Story 9.3; sinkShip already cleared it —
     // kept symmetric here for directed callers).

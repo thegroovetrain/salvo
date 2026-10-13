@@ -2,7 +2,7 @@
 title: 'Story 9.5: Ramming and Contact Damage'
 type: 'feature'
 created: '2026-10-12'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '79a2bfdf'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -110,19 +110,19 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution (wave 1 — shared, one agent, Opus):**
-- [ ] `shared/src/constants.ts`, `shared/src/sim/{contact,collision}.ts`, `shared/src/index.ts` -- `CONFIG.ram` + bot knobs, the pure resolver and the damage math, the extracted push-out core, barrel + PV 79 -- the one source both sides run
-- [ ] `shared/src/__tests__/contact.test.ts` + existing suites -- resolver contract, calibration sentences from the dials, land softness, allowance; `npm test -w shared`, `npm run build -w shared`
+- [x] `shared/src/constants.ts`, `shared/src/sim/{contact,collision}.ts`, `shared/src/index.ts` -- `CONFIG.ram` + bot knobs, the pure resolver and the damage math, the extracted push-out core, barrel + PV 79 -- the one source both sides run
+- [x] `shared/src/__tests__/contact.test.ts` + existing suites -- resolver contract, calibration sentences from the dials, land softness, allowance; `npm test -w shared`, `npm run build -w shared`
 
 **Execution (wave 2 — server Fable and client Opus in parallel, shared frozen):**
-- [ ] `server/src/game/world.ts`, `drones.ts`, `ai/{tactics,utility,types}.ts`, `scripts/batchsim/{botMetrics,botReport,overrides}.ts` -- the two rows, latch + pools, damage through the gate, credit, record fields, avoidance for bots and drones, the `ram` posture, harness readouts and the `ram.` family
-- [ ] `server/src/__tests__/*` + `scripts/batchsim/__tests__/*` -- every matrix row that is server-side, stepOrder re-pin, bot/drone/harness contracts; `npm test -w server`
-- [ ] `client/src/sim/prediction.ts`, `main.ts`, `render/contactFx.ts`, `audio/tones.ts`, `config.ts` -- contact push in prediction and replay, the spark + grind feel layer
-- [ ] `client/src/__tests__/*` -- predictor contact push and order, contactFx trigger, tone; `npm test -w client`
+- [x] `server/src/game/world.ts`, `drones.ts`, `ai/{tactics,utility,types}.ts`, `scripts/batchsim/{botMetrics,botReport,overrides}.ts` -- the two rows, latch + pools, damage through the gate, credit, record fields, avoidance for bots and drones, the `ram` posture, harness readouts and the `ram.` family
+- [x] `server/src/__tests__/*` + `scripts/batchsim/__tests__/*` -- every matrix row that is server-side, stepOrder re-pin, bot/drone/harness contracts; `npm test -w server`
+- [x] `client/src/sim/prediction.ts`, `main.ts`, `render/contactFx.ts`, `audio/tones.ts`, `config.ts` -- contact push in prediction and replay, the spark + grind feel layer
+- [x] `client/src/__tests__/*` -- predictor contact push and order, contactFx trigger, tone; `npm test -w client`
 
 **Review gate (orchestrator):** Blind Hunter + Edge Case Hunter on Fable, Codex `gpt-5.6-sol` on the same diff; triage per the orchestrate skill; regression tests that fail without each patch.
 
 **Execution (wave 3 — record, Sonnet):**
-- [ ] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `epics.md`, both trackers, amendments 73–83 in BOTH homes, `deferred-work.md` (review defers only) -- 0.18.47 / cycle 182 / PV 79
+- [x] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `epics.md`, both trackers, amendments 73–84 in BOTH homes (83 = Eric's latch-and-bleed ruling at the review gate, 84 = the implementer readings; the intent contract's "83 (implementer readings)" predates the gate), `deferred-work.md` (review defers only) -- 0.18.47 / cycle 182 / PV 79
 - [ ] `npm run check` green; results recorded under Verification; branch pushed; ONE PR to `development`, never merged
 
 **Acceptance Criteria:**
@@ -136,7 +136,35 @@ warnings: [oversized]
 
 ## Spec Change Log
 
+### 2026-10-13 — Eric's ruling at the review gate (epic-9 amendment 83), not a bad_spec loopback
+- Triggering finding: Blind Hunter CONFIRMED by probe — any overlap latched the pair, so a hull creeping in under the allowance could then push another at full speed for free (104 u in 5 s for 0 hit damage; a head-on push has no sliding speed to grind on).
+- Amendment (the intent contract is read-only; amendment 83 supersedes its "Once per contact" and "GRIND" clauses): the latch arms only when a hit is actually charged; the contact bleed runs on `vt + vn` while pressed; land bleeds on the sliding speed only. The intent contract's "83 (implementer readings)" is now 84.
+- Known-bad state avoided: a free bulldoze into the storm or land; the `[DRAFT]` ram trigger being gameable from both sides.
+- KEEP: the resolver, the hull-before-land seat, the id-ordered pairs and the line-of-centres normal (every reviewer probe held on them).
+
 ## Review Triage Log
+
+### 2026-10-13 — Review pass (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol cross-check on the same diff 79a2bfdf..f0b66d82; all three fix-first)
+- intent_gap: 1: (high 1, medium 0, low 0) — the slow-touch bulldoze; resolved LIVE by Eric's ruling (amendment 83) under his standing instruction to ask him interactively this run, not by HALT
+- bad_spec: 0
+- patch: 12: (high 4, medium 5, low 3)
+- defer: 6: (high 0, medium 2, low 4)
+- reject: 1: (low 1)
+- addressed_findings:
+  - `[high]` `[patch]` latch armed on any touch (Blind Hunter CONFIRMED) → arms only on a charged hit; sustained press bleeds on `vt + vn` (amendment 83)
+  - `[high]` `[patch]` DAMAGE CUT floored every 1-hp grind drain to 0 (immune hull, `dmg 0` spam; Blind Hunter CONFIRMED) → grind is a fractional per-tick `'grind'` source through the gate, reported through the 500 ms DoT window
+  - `[high]` `[patch]` every grind drain fired the hit thud and shake up to 5×/s (Blind Hunter CONFIRMED) → windowed delivery + the client silences own `dmg` under 8 hp while bleeding (600 ms grace)
+  - `[high]` `[patch]` hull avoidance repelled a bot from its own target inside its engagement band (Edge Case Hunter CONFIRMED by probe) → target avoided only inside a bumper (half-lengths + 10 u), excluded under `ram`
+  - `[medium]` `[patch]` drones repelled fleet-mates and their hunted target, ignored wrecks (Edge Case Hunter CONFIRMED; Blind Hunter PLAUSIBLE) → bumper for mates and target, wrecks included
+  - `[medium]` `[patch]` wreck contact tallied as land damage and classified `ranAground` (Codex CONFIRMED, both hunters) → explicit hull/land kind on every blow, `sunkByContact`
+  - `[medium]` `[patch]` attacker id snapshotted before the pair's blows (Codex CONFIRMED) → re-resolved per blow; the two halves of one impact stay one impact (mutual kill)
+  - `[medium]` `[patch]` bot ram trigger read raw |speed| as closing speed, sternway included (Codex CONFIRMED; Edge Case Hunter) → projected relative speed on the bearing; a `sunk` track is kept dead so a wreck is never a target
+  - `[medium]` `[patch]` fleet-on-fleet contact bled the formation (Blind Hunter PLAUSIBLE) → both-fleet pairs push, deal nothing
+  - `[low]` `[patch]` grind pools carried fractions across separations and credited them to the next partner (both hunters) → pools deleted by the windowed delivery
+  - `[low]` `[patch]` NaN at zero total mass reached the hp write (Edge Case Hunter PLAUSIBLE) → pricing returns 0 on non-finite or non-positive mass; blows guarded
+  - `[low]` `[patch]` a `--tune ram.allowanceU=1e9` arm still bleeds (Edge Case Hunter PLAUSIBLE) → family comment states contact-off needs `grindPerUnit=0` too
+  - deferred (ledger 2026-10-13): the land pass's full-revert phantom strike; land-edge flicker without hysteresis; a push by an unseen hull snaps on the client; a bulldozed hull reads `speed 0`; a hull shoved into a coast pays the coast nothing (design note for Eric); the ram posture has no post-strike exit
+  - rejected: the contactDamage land-scrape assertion "happens to" measure the scrape at heading 0.08 (true today; a retune would still pass for the right reason)
 
 ## Design Notes
 
@@ -152,7 +180,7 @@ warnings: [oversized]
 - `npm run build -w shared` -- expected: clean (before server/client tests)
 - `npm test -w shared && npm test -w server && npm test -w client` -- expected: all green
 - `npm run lint` -- expected: zero errors (complexity ≤ 10)
-- `npm run check` -- expected: green; counts recorded in CHANGELOG
+- `npm run check` -- expected: green; counts recorded in CHANGELOG -- RESULT 2026-10-13: green — shared 42 files / 1052 tests, server 90 / 2522, client 129 / 3988, lint 0 errors (2 pre-existing max-lines warnings), hook test green
 - `grep -n "'contact'" server/src/game/world.ts` -- expected: the DamageSource doc names ramming / grinding / land, and every contact damage call sits inside `applyContactDamage`
 
 **Manual checks:**

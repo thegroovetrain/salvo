@@ -95,6 +95,10 @@ const TUNE_FAMILIES = [
   // energy law — floor 1 via TUNE_MIN_ONE_LEAVES, a 0 divides by zero),
   // `grindPerUnit`, `allowanceU` and `landSoftness` (floor 0: a 0 allowance
   // prices every touch, a 0 softness makes land free — both real arms).
+  // "CONTACT OFF" for an arm is BOTH `ram.allowanceU=1e9` AND
+  // `ram.grindPerUnit=0`: the allowance gates only the strike, while the
+  // bleed between pressed hulls and the land scrape ride `grindPerUnit`
+  // alone (amendment 83) — one dial leaves the other half of contact live.
   'ram.',
   'starShells.',
   'boost.',
