@@ -2280,6 +2280,7 @@ So that keeping my distance and steering clear of land are real decisions.
 **And** a contact hit is legible on the client (implementer craft shown to Eric); How-to-Play gets a ramming entry at 9.11; `PROTOCOL_VERSION` bumps where the client reads the block; both trackers stamped.
 
 ### Story 9.6: Five Tiers and Passive Healing *(inserted 2026-10-11 — proposal §4.5)*
+*(BUILT 2026-10-13 — cycle 183, 0.18.48, PV 79 → 80, epic-9 amendments 90–101; Eric's spec-step rulings: rate 2 %/s +0.6 per card to 5 %, wait 15 → 10 s, id armor → hullPoints printing HULL, tier labels 0 → V, one HEAL row, How-to-Play frozen, defensive bots favor it, shield-absorbed blows leave the clock; review-gate rulings: LOADOUT two rows of three (99), live wait on a mid-idle grant (100); the glyph is the pulse trace (98); `spec-9-6-five-tiers-and-passive-healing.md`.)*
 
 As a captain building a hull,
 I want every ship upgrade to climb five tiers, hull by fifties, and my passive healing to be a ladder too,

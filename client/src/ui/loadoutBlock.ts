@@ -94,12 +94,22 @@ const TEXT = {
 const P = LOADOUT_PX;
 const MONO = 'var(--hc-font-mono)';
 
-/** The five ship ladders, in the ratified line order. */
-const LADDER_LINES: readonly LineId[] = ['armor', 'speed', 'turning', 'radarSweep', 'reload'];
+/** The six ship ladders, in the ratified line order (PASSIVE HEALING last,
+ *  Story 9.6). */
+const LADDER_LINES: readonly LineId[] = ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'];
 
-/** Eric R2 (2026-09-30): these two start from nothing, so at ZERO copies they
- *  read `—` rather than a numeral. ARMOR / SPEED / TURNING sail at Tier I. */
-const DASH_AT_ZERO: ReadonlySet<LineId> = new Set<LineId>(['radarSweep', 'reload']);
+/** Eric R2 (2026-09-30): ladders that start from nothing read `—` at ZERO
+ *  copies rather than a numeral. Since Story 9.6 (Eric 2026-10-13, epic-9
+ *  amendment 94) that is every ship ladder: HULL / SPEED / TURNING no longer
+ *  sail at Tier I, and PASSIVE HEALING is new. */
+const DASH_AT_ZERO: ReadonlySet<LineId> = new Set<LineId>([
+  'hullPoints',
+  'speed',
+  'turning',
+  'radarSweep',
+  'reload',
+  'passiveHealing',
+]);
 
 /** The chip a keyless gun column carries (mock `.kc.ghost`) — laid out, never seen. */
 const GHOST_CHIP = '·';
@@ -357,13 +367,35 @@ function makeLadderEntry(entry: LadderEntry): HTMLSpanElement {
   return el;
 }
 
-/** The line of the five ship ladders (mock `.lo-lad`). */
+/** Ladders per row of the ladder line (Story 9.6, epic-9 amendment 99). */
+const LADDERS_PER_ROW = 3;
+
+/** One row of the ladder line: its entries with a muted `·` between them. */
+function makeLadderRow(entries: readonly LadderEntry[]): HTMLDivElement {
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;justify-content:center';
+  entries.forEach((entry, i) => {
+    if (i > 0) row.appendChild(span(`color:${cssRgba(C.textMuted, 0.5)};margin:0 12px`, '·'));
+    row.appendChild(makeLadderEntry(entry));
+  });
+  return row;
+}
+
+/**
+ * The six ship ladders as TWO ROWS OF THREE (mock `.lo-lad`, re-cut at Story
+ * 9.6 — Eric 2026-10-13, epic-9 amendment 99): with PASSIVE HEALING the one
+ * line of six ran past the panel's 530 px content column (the five-entry line
+ * fit by a few pixels), so HULL · SPEED · TURNING sit over RADAR SWEEP ·
+ * RELOAD · PASSIVE HEALING at the same type, tracking and separators.
+ */
 function makeLadderLine(cards: readonly string[]): HTMLDivElement {
   const line = document.createElement('div');
   line.style.cssText = [
     'margin-top:12px',
     'display:flex',
-    'justify-content:center',
+    'flex-direction:column',
+    'align-items:center',
+    'gap:6px',
     `font:400 10px ${MONO}`,
     'letter-spacing:.16em',
     'text-transform:uppercase',
@@ -371,10 +403,10 @@ function makeLadderLine(cards: readonly string[]): HTMLDivElement {
     'white-space:nowrap',
   ].join(';');
   line.dataset.loadoutLadder = '';
-  ladderEntries(cards).forEach((entry, i) => {
-    if (i > 0) line.appendChild(span(`color:${cssRgba(C.textMuted, 0.5)};margin:0 12px`, '·'));
-    line.appendChild(makeLadderEntry(entry));
-  });
+  const entries = ladderEntries(cards);
+  for (let i = 0; i < entries.length; i += LADDERS_PER_ROW) {
+    line.appendChild(makeLadderRow(entries.slice(i, i + LADDERS_PER_ROW)));
+  }
   return line;
 }
 

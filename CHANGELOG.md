@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.18.48] - 2026-10-13
+
+### Changed
+- **The ARMOR card is now HULL, and it goes to five** (Story 9.6 — Five Tiers and Passive Healing). Each card adds +50 max hull (was +25) and there are five cards (was four). The 50 you gain is healed the moment you take the card. At five cards the three hulls sit at 500 / 550 / 600. SPEED and TURNING gain a fifth card at today's step. The three deck guns, RADAR SWEEP and RELOAD are untouched.
+- **Passive healing is faster, and it is now a ladder.** Everyone heals 2 % of missing hull per second after 15 seconds out of combat (was 1 %). Each PASSIVE HEALING card adds 0.6 % per second and cuts the wait by 1 second: 5 % per second after 10 seconds at five cards. Only damage that actually removes hull hp resets the wait; a blow your shield eats whole does not. A card taken mid-idle pays off at once, with no fresh wait. Drones never heal.
+- **HULL, SPEED and TURNING cards read Tier I on the first card and V on the fifth** (they used to "sail at Tier I"). The results LOADOUT dashes a ladder at zero copies and shows the six ladders as two rows of three.
+- **The PASSIVE HEALING card shows one HEAL row** (its rate), and its glyph is a pulse trace (Eric's pick).
+- **How-to-Play is frozen until 9.11:** the regen sentence still says 15 seconds and there is no PASSIVE HEALING entry yet.
+
+### Internal
+- Shared: `effectiveStats().regen` (seeded from `CONFIG.regen` 0.02 / 15000, the ladder adds +0.006 / -1000 per card, round3), `TOP_LEVEL_STAT_PATHS` plus the regen paths, catalog 24 lines / 117 cards, id `armor` -> `hullPoints` everywhere.
+- Server: `tickRepairs` reads each hull's own wait via `regenDue` (drones never); defensive bot profile favors hullPoints + passiveHealing; harness probe list; golden snapshot re-recorded (two offer rows).
+- Client: `UNPRINTED_PATHS` skip list on the card face, `BASE_TIER_LINES` = the three guns, LOADOUT two rows of three, pulse-trace glyph.
+- Review gate: Blind Hunter + Edge Case Hunter (Fable) + Codex gpt-5.6-sol; 3 patches, 2 defers, 2 rejects, 1 live Eric ruling (amendment 100).
+- Tests: shared 1058 (42 files), server 2525 (90 files), client 3991 (129 files), hook test green (266 passed), lint 0 errors (2 pre-existing max-lines warnings).
+- Epic-9 amendments 90–101. Cycle 183. PROTOCOL_VERSION 79 -> 80.
+
 ## [0.18.47] - 2026-10-13
 
 ### Changed

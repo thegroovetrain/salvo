@@ -152,8 +152,8 @@ describe('poolReadouts — arithmetic', () => {
         levelsEarned: 10,
         levelsUnspent: 2,
         offerHands: 8,
-        offersSeen: { [HULL_REPAIR_ID]: 4, armor: 3 },
-        picks: [{ id: HULL_REPAIR_ID, s: 10 }, { id: 'armor', s: 20 }, { id: HULL_REPAIR_ID, s: 30 }],
+        offersSeen: { [HULL_REPAIR_ID]: 4, hullPoints: 3 },
+        picks: [{ id: HULL_REPAIR_ID, s: 10 }, { id: 'hullPoints', s: 20 }, { id: HULL_REPAIR_ID, s: 30 }],
       }),
       bot({ id: 'b', levelsEarned: 6, levelsUnspent: 0, offerHands: 5, offersSeen: { [HULL_REPAIR_ID]: 1 } }),
     ];

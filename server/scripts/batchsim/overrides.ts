@@ -122,7 +122,14 @@ const TUNE_FAMILIES = [
   // OUT-OF-COMBAT REGEN (epic-8 amendment 46) rides the same surface for the
   // same reason: it is the other half of how a hull gets hp back, and the
   // fraction-of-MISSING shape means it never needs repricing with hull HP —
-  // but a class read still has to be able to turn it off or up.
+  // but a class read still has to be able to turn it off or up. SINCE STORY
+  // 9.6 the PASSIVE HEALING ladder ADDS to these bases inside the fold
+  // (+0.006 rate, −1000 ms wait per card), and the fold keeps only POSITIVE
+  // results: `regen.missingPctPerS=0` is therefore "off" for an un-carded hull
+  // only (a carded bot still regens at 0.006 × copies), and a wait tuned under
+  // 1000 × copies saturates instead of stepping (2500 → 1500 → 500 → 500).
+  // Read a regen-off arm against bots that cannot draw the ladder, or accept
+  // the floor (Edge Case Hunter, 2026-10-13 gate; ledgered in deferred-work).
   'regen.',
   // THE WEAPON WEIGHTING (Story 8.14, epic-8 amendments 90/91) — `factor` and
   // `floor`, both `[DRAFT]` numbers Eric expects the harness to move. They are

@@ -68,11 +68,11 @@ describe('CONFIG.hullRepair — the paid heal, flat on every hull (Eric rulings 
 });
 
 describe('CONFIG.regen — the out-of-combat regen (Eric ruling 2026-09-17, amendments 46-48)', () => {
-  it('restores 1 % of MISSING hull per second', () => {
+  it('restores 2 % of MISSING hull per second at base (Story 9.6, epic-9 amendment 90; was 1 %)', () => {
     // A fraction of MISSING, never of max and never a flat amount: worth most
     // when nearly dead, asymptotic near full, and it needs NO repricing when
     // hull hp next moves (the repricing the paid heal above had to absorb).
-    expect(CONFIG.regen.missingPctPerS).toBe(0.01);
+    expect(CONFIG.regen.missingPctPerS).toBe(0.02);
   });
 
   it('waits 15 s since the last landed damage (Eric 2026-09-30; was 30 s)', () => {
@@ -144,14 +144,16 @@ describe('NFR6 — the authored heal budget and the collapse ceiling', () => {
   });
 
   it('the collapse ceiling is (max hull + heal bound + shield bound) / the fully-closed storm rung — the storm always wins in the end', () => {
-    // MAX HULL IS DERIVED, never typed: the ARMOR ladder (R8, +25 max hp per
-    // tier) run to its own cap on whichever hull starts highest. That is the
-    // battleship at 350 + 4 × 25 = 450.
-    const armorCards = Array.from({ length: CATALOG.armor.cap }, () => 'armor');
+    // MAX HULL IS DERIVED, never typed: the HULL POINTS ladder (R8 as re-cut
+    // by epic-9 amendment 28 / Story 9.6: +50 max hp per tier, cap 5; was
+    // ARMOR +25 ×4) run to its own cap on whichever hull starts highest — the
+    // dreadnought at 350 + 5 × 50 = 600 today.
+    const hullCards = Array.from({ length: CATALOG.hullPoints.cap }, () => 'hullPoints');
     const maxHull = Math.max(
-      ...SHIP_CLASS_IDS.map((hull) => effectiveStats(CONFIG.shipClasses[hull], armorCards).maxHp),
+      ...SHIP_CLASS_IDS.map((hull) => effectiveStats(CONFIG.shipClasses[hull], hullCards).maxHp),
     );
-    expect(maxHull).toBe(450);
+    const topBase = Math.max(...SHIP_CLASS_IDS.map((hull) => CONFIG.shipClasses[hull].hp));
+    expect(maxHull).toBe(topBase + CATALOG.hullPoints.cap * 50);
 
     const healBound = CATALOG.hullRepair.cap * HEAL_PER_COPY;
     // THE SHIELD BUDGET (epic-8 amendment 125, Eric 2026-09-29): SHIELD BLOCK

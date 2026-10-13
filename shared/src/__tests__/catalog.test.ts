@@ -1,12 +1,17 @@
 // THE CATALOG (Story 8.1) — catalog v3's identity, its authoring validator and
 // THE ORDER-INDEPENDENCE PROPERTY.
 //
-// Pinned here: 23 lines / 109 cards with the exact per-line caps and kinds of
+// Pinned here: 24 lines / 117 cards with the exact per-line caps and kinds of
 // `catalog-v3.md` §1 as amended; `tiers.length === cap` on every line; the
 // 1-line stub set; the validator's rules, including its refusal of a stat
 // path that takes `add` from one line and `mult` from another; and a seeded
 // permutation property — ≥200 shuffles of random legal multisets over all
 // three classes, deep-equal AND JSON-identical.
+//
+// STORY 9.6 (Eric 2026-10-11 / 2026-10-13, epic-9 amendments 27–29, 90–91):
+// 23/109 -> 24/117 — `armor` renamed `hullPoints` (+50 ×5), SPEED/TURNING
+// cap 5, and the new PASSIVE HEALING ladder (cap 5) last among the universal
+// ladders.
 //
 // STORY 9.2 RETIRED CHAFF (Eric 2026-10-11, epic-9 amendment 31): 24/114 ->
 // 23/109, so the consumable key row is six keys.
@@ -70,11 +75,14 @@ import {
 
 /** catalog-v3 §1, transcribed: every line's cap and kind. */
 const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
-  armor: { cap: 4, kind: 'ladder', stub: false },
-  speed: { cap: 4, kind: 'ladder', stub: false },
-  turning: { cap: 4, kind: 'ladder', stub: false },
+  // HULL POINTS / SPEED / TURNING cap 5 and PASSIVE HEALING new (Story 9.6,
+  // epic-9 amendments 27–29, 90–91).
+  hullPoints: { cap: 5, kind: 'ladder', stub: false },
+  speed: { cap: 5, kind: 'ladder', stub: false },
+  turning: { cap: 5, kind: 'ladder', stub: false },
   radarSweep: { cap: 5, kind: 'ladder', stub: false },
   reload: { cap: 5, kind: 'ladder', stub: false },
+  passiveHealing: { cap: 5, kind: 'ladder', stub: false },
   // CANNON — the one deck-gun line since 2026-09-30 (TURRET/BARREL deleted).
   deckGun: { cap: 4, kind: 'ladder', stub: false },
   lightTorpedo: { cap: 5, kind: 'equipment', stub: false }, // LIVE since 8.13 (R18)
@@ -114,13 +122,13 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
 const STUB_IDS: readonly LineId[] = ['depthCharge'];
 
 describe('catalog v3 identity', () => {
-  it('ships 23 lines in the ruled order, keyed by id', () => {
-    expect(LINE_IDS.length).toBe(23);
+  it('ships 24 lines in the ruled order, keyed by id', () => {
+    expect(LINE_IDS.length).toBe(24); // 23 -> 24 in Story 9.6 (amendment 90: PASSIVE HEALING)
     expect(Object.keys(CATALOG)).toEqual([...LINE_IDS]);
     for (const id of LINE_IDS) expect(CATALOG[id].id).toBe(id);
   });
 
-  it('matches the sheet line for line (cap, kind, stub) and sums to 109 cards', () => {
+  it('matches the sheet line for line (cap, kind, stub) and sums to 117 cards', () => {
     for (const id of LINE_IDS) {
       const line = CATALOG[id];
       expect({ cap: line.cap, kind: line.kind, stub: line.stub === true }).toEqual(SHEET[id]);
@@ -128,8 +136,10 @@ describe('catalog v3 identity', () => {
     // 109 -> 117 in Story 8.17 (amendments 131/132): the two 1-card add-ons
     // became a 5-card equipment line and a 5-card consumable. 117 -> 114 on
     // 2026-09-30: DECK GUN TURRET (1) and DECK GUN BARREL (2) deleted. 114 ->
-    // 109 in Story 9.2: CHAFF (5) retired (epic-9 amendment 31).
-    expect(catalogCardCount()).toBe(109);
+    // 109 in Story 9.2: CHAFF (5) retired (epic-9 amendment 31). 109 -> 117
+    // in Story 9.6 (amendments 90–91): HULL +1, SPEED +1, TURNING +1, PASSIVE
+    // HEALING +5.
+    expect(catalogCardCount()).toBe(117);
   });
 
   it('resolves NO deleted one-off gun id (Eric 2026-09-30) — a dead id on the wire is dropped', () => {
@@ -165,7 +175,7 @@ describe('catalog v3 identity', () => {
   it('ladderSteps gives every rung a FRESH array (never the caller\'s, never a sibling\'s); the catalog rungs are deep-frozen', () => {
     const step = [{ kind: 'stat', path: 'maxHp', add: 1 }] as const;
     const steps = [step, step, step];
-    const line = ladderSteps('armor', steps);
+    const line = ladderSteps('hullPoints', steps);
     expect(line.kind).toBe('ladder');
     expect(line.cap).toBe(3);
     expect(line.tiers).toHaveLength(3);
@@ -369,8 +379,8 @@ describe('catalog v3 identity', () => {
     expect(CATALOG.flak.stub).toBeUndefined();
   });
 
-  it('marks ARMOR as the one heal-on-grant line', () => {
-    expect(LINE_IDS.filter((id) => CATALOG[id].healOnGrant === true)).toEqual(['armor']);
+  it('marks HULL POINTS as the one heal-on-grant line', () => {
+    expect(LINE_IDS.filter((id) => CATALOG[id].healOnGrant === true)).toEqual(['hullPoints']);
   });
 
   it('is deep-frozen', () => {
@@ -396,12 +406,38 @@ describe('catalog v3 identity', () => {
   });
 
   it('gives every ladder tier its OWN array, and refuses a mutation of an effect', () => {
-    expect(CATALOG.armor.tiers[0]).not.toBe(CATALOG.armor.tiers[1]);
+    expect(CATALOG.hullPoints.tiers[0]).not.toBe(CATALOG.hullPoints.tiers[1]);
     expect(() => {
-      (CATALOG.armor.tiers[0][0] as unknown as { add: number }).add = 999;
+      (CATALOG.hullPoints.tiers[0][0] as unknown as { add: number }).add = 999;
     }).toThrow();
-    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat, ['armor']).maxHp)
-      .toBe(effectiveStats(CONFIG.shipClasses.torpedoBoat, []).maxHp + 25);
+    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat, ['hullPoints']).maxHp)
+      .toBe(effectiveStats(CONFIG.shipClasses.torpedoBoat, []).maxHp + 50); // +50 since Story 9.6 (amendment 91)
+  });
+
+  it('places PASSIVE HEALING last among the universal ladders, right after RELOAD (Story 9.6, amendment 90)', () => {
+    expect(LINE_IDS.indexOf('passiveHealing')).toBe(LINE_IDS.indexOf('reload') + 1);
+    expect(LINE_IDS.indexOf('hullPoints')).toBe(0); // armor's old seat
+  });
+
+  it('authors PASSIVE HEALING as five identical rungs of +0.006 rate and −1000 ms wait (Story 9.6, amendment 91)', () => {
+    const line = CATALOG.passiveHealing;
+    expect(tierTargetOf(line)).toBeUndefined();
+    expect(line.healOnGrant).toBeUndefined();
+    for (const tier of line.tiers) {
+      expect(tier).toEqual([
+        { kind: 'stat', path: 'regen.missingPctPerS', add: 0.006 },
+        { kind: 'stat', path: 'regen.outOfCombatMs', add: -1000 },
+      ]);
+    }
+  });
+
+  it('folds an id outside LINE_IDS as if it were absent (a stale `armor` record fails closed)', () => {
+    for (const stale of ['armor', 'nope'].filter((id) => !(LINE_IDS as readonly string[]).includes(id))) {
+      expect(resolveCards([stale])).toEqual([]);
+      expect(effectiveStats(CONFIG.shipClasses.battleship, [stale, 'speed'])).toEqual(
+        effectiveStats(CONFIG.shipClasses.battleship, ['speed']),
+      );
+    }
   });
 });
 
@@ -412,18 +448,18 @@ describe('validateCatalog', () => {
   });
 
   it('refuses tiers.length ≠ cap', () => {
-    const line: CatalogLine = { id: 'armor', kind: 'ladder', cap: 3, tiers: [[], []] };
+    const line: CatalogLine = { id: 'hullPoints', kind: 'ladder', cap: 3, tiers: [[], []] };
     expect(validateLine(line).join(' ')).toContain('tiers.length 2 ≠ cap 3');
   });
 
   it('refuses a key that does not match its line id', () => {
-    const bad: Catalog = { speed: CATALOG.armor };
-    expect(validateCatalog(bad).join(' ')).toContain("key 'speed' does not match line id 'armor'");
+    const bad: Catalog = { speed: CATALOG.hullPoints };
+    expect(validateCatalog(bad).join(' ')).toContain("key 'speed' does not match line id 'hullPoints'");
   });
 
   it('refuses off-whitelist stat paths, unknown doctrine verbs and unknown slotFill/stock targets', () => {
     const bad: Catalog = {
-      a: { id: 'armor', kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'sightRange' as never, add: 1 }]] },
+      a: { id: 'hullPoints', kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'sightRange' as never, add: 1 }]] },
       b: { id: 'speed', kind: 'addon', cap: 1, tiers: [[{ kind: 'doctrine', weapon: 'gun', mode: 'homing' }]] },
       c: { id: 'turning', kind: 'equipment', cap: 1, tiers: [[{ kind: 'slotFill', equipmentId: 'nope' as never }]] },
       d: { id: 'reload', kind: 'consumable', cap: 1, tiers: [[{ kind: 'stock', equipmentId: 'nope' as never }]] },
@@ -437,17 +473,17 @@ describe('validateCatalog', () => {
 
   it('REFUSES a stat path that takes add from one line and mult from another', () => {
     const bad: Catalog = {
-      armor: { id: 'armor', kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'maxHp', add: 25 }]] },
+      hullPoints: { id: 'hullPoints', kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'maxHp', add: 25 }]] },
       speed: { id: 'speed', kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'maxHp', mult: 1.1 }]] },
     };
     const errs = validateCatalog(bad).join(' | ');
-    expect(errs).toContain("stat path 'maxHp' takes add (armor) and mult (speed)");
+    expect(errs).toContain("stat path 'maxHp' takes add (hullPoints) and mult (speed)");
   });
 
   it('refuses add and mult on one path even inside ONE line, across tiers', () => {
     const bad: Catalog = {
-      armor: {
-        id: 'armor',
+      hullPoints: {
+        id: 'hullPoints',
         kind: 'ladder',
         cap: 2,
         tiers: [[{ kind: 'stat', path: 'maxHp', add: 25 }], [{ kind: 'stat', path: 'maxHp', mult: 1.1 }]],
@@ -495,7 +531,7 @@ describe('validateCatalog', () => {
 
   it('refuses a healOnGrant line with no positive maxHp add', () => {
     const bad: CatalogLine = {
-      id: 'armor', kind: 'ladder', cap: 1, healOnGrant: true,
+      id: 'hullPoints', kind: 'ladder', cap: 1, healOnGrant: true,
       tiers: [[{ kind: 'stat', path: 'kinematics.maxSpeed', add: 1 }]],
     };
     expect(validateLine(bad).join(' ')).toContain('healOnGrant requires a positive maxHp add effect');
@@ -504,7 +540,7 @@ describe('validateCatalog', () => {
 
 describe('resolveCards', () => {
   it('keeps list order, resolves repeats each time and drops junk fail-closed', () => {
-    expect(resolveCards(['armor', 'nope', 'armor', 'constructor']).map((l) => l.id)).toEqual(['armor', 'armor']);
+    expect(resolveCards(['hullPoints', 'nope', 'hullPoints', 'constructor']).map((l) => l.id)).toEqual(['hullPoints', 'hullPoints']);
     expect(resolveCards([])).toEqual([]);
   });
 });

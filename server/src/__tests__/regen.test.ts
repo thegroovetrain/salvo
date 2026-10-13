@@ -9,6 +9,12 @@
 // every landed blow (storm bites and burn ticks included) resets the clock at
 // the one damage gate.
 //
+// STORY 9.6 (Eric 2026-10-13, epic-9 amendments 90–92): the base rate is 2 %/s
+// and BOTH numbers are now the hull's OWN `stats.regen` — the PASSIVE HEALING
+// ladder raises the rate and shortens the wait, folded in effectiveStats(). An
+// un-carded hull's `stats.regen` equals `CONFIG.regen`, which is why the base
+// cases below may read REGEN directly; the ladder cases read the hull.
+//
 // WHAT THIS FILE PINS, and why each one is load-bearing:
 //   * nothing at all before the window (the whole point — it is not a trickle
 //     you get while fighting);
@@ -25,7 +31,7 @@
 //     alone, and a 20 Hz trickle would loop the tone.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, type GameEvent, type HullId } from '@salvo/shared';
+import { CATALOG, CONFIG, type GameEvent, type HullId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
@@ -63,8 +69,13 @@ function run(w: World, ms: number): void {
  *  scales the MISSING amount by (1 − pct·dt/1000), so missing decays
  *  geometrically. Derived here rather than copied off the implementation, so
  *  the test would catch a rate written per-tick instead of per-second. */
-function missingAfter(missing0: number, ticks: number): number {
-  return missing0 * (1 - REGEN.missingPctPerS * (DT / 1000)) ** ticks;
+function missingAfter(missing0: number, ticks: number, pct: number = REGEN.missingPctPerS): number {
+  return missing0 * (1 - pct * (DT / 1000)) ** ticks;
+}
+
+/** Fit the PASSIVE HEALING ladder to its catalog cap through the real grant. */
+function maxHealing(w: World, rec: ShipRecord): void {
+  for (let i = 0; i < CATALOG.passiveHealing.cap; i += 1) w.applyCard(rec, 'passiveHealing');
 }
 
 describe('the 15 s wait', () => {
@@ -109,7 +120,7 @@ describe('the 15 s wait', () => {
   });
 });
 
-describe('the shape — 1 % of MISSING per second', () => {
+describe('the shape — a fixed % of MISSING per second', () => {
   it('matches the closed form after N ticks past the wait', () => {
     const w = bareWorld();
     const a = place(w, 'a');
@@ -200,6 +211,22 @@ describe('the combat clock (amendment 47)', () => {
     expect(a.hp).toBeGreaterThan(hpBefore); // still regenerating
   });
 
+  it('a blow that BREAKS THROUGH the shield resets it — only the hp that lands counts (amendment 92)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    place(w, 'b');
+    a.hp = a.stats.maxHp * 0.5;
+    run(w, REGEN.outOfCombatMs + 2000);
+    a.shield = { hpLeft: 10, until: w.now + 10_000 };
+    const hpBefore = a.hp;
+    gate(w).applyDamage(a, 30, 'shell', 'b');
+    expect(a.hp).toBe(hpBefore - 20); // the shield ate 10, 20 landed
+    expect(a.lastDamagedAt).toBe(w.now); // ...so the clock restarted
+    const afterHit = a.hp;
+    run(w, DT);
+    expect(a.hp).toBe(afterHit); // and the regen stopped at once
+  });
+
   it('DEALING damage never resets the dealer\'s own clock', () => {
     const w = bareWorld();
     const a = place(w, 'a');
@@ -209,6 +236,43 @@ describe('the combat clock (amendment 47)', () => {
     const stampBefore = a.lastDamagedAt;
     gate(w).applyDamage(b, 30, 'shell', 'a');
     expect(a.lastDamagedAt).toBe(stampBefore);
+  });
+});
+
+describe('the PASSIVE HEALING ladder — the wait and rate are PER HULL (Story 9.6)', () => {
+  it('a laddered hull and an un-carded hull idle the same time: only the laddered one has finished its wait', () => {
+    const w = bareWorld();
+    const plain = place(w, 'a');
+    const healer = place(w, 'b');
+    maxHealing(w, healer);
+    const waitPlain = plain.stats.regen.outOfCombatMs;
+    const waitHealer = healer.stats.regen.outOfCombatMs;
+    expect(waitHealer).toBeLessThan(waitPlain); // the ladder shortens the wait
+    plain.hp = plain.stats.maxHp * 0.5;
+    healer.hp = healer.stats.maxHp * 0.5;
+    const plainBefore = plain.hp;
+    const healerBefore = healer.hp;
+    // Idle to a point past the laddered wait but inside the base one.
+    run(w, Math.round((waitPlain + waitHealer) / 2 / DT) * DT);
+    expect(plain.hp).toBe(plainBefore);
+    expect(healer.hp).toBeGreaterThan(healerBefore);
+  });
+
+  it('a laddered hull heals at ITS OWN rate — missing × stats.regen.missingPctPerS × dt per tick', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    maxHealing(w, a);
+    const pct = a.stats.regen.missingPctPerS;
+    expect(pct).toBeGreaterThan(REGEN.missingPctPerS); // the ladder raises the rate
+    const maxHp = a.stats.maxHp;
+    a.hp = maxHp * 0.5;
+    const missing0 = maxHp - a.hp;
+    run(w, a.stats.regen.outOfCombatMs); // the boundary tick credits nothing
+    expect(a.hp).toBe(maxHp * 0.5);
+    run(w, DT);
+    expect(maxHp - a.hp).toBeCloseTo(missingAfter(missing0, 1, pct), 9);
+    run(w, 5000);
+    expect(maxHp - a.hp).toBeCloseTo(missingAfter(missing0, 1 + 5 * TICKS_PER_S, pct), 6);
   });
 });
 

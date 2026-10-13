@@ -508,7 +508,8 @@ export interface OwnShip {
    * at the fixed regenHp/regenMs rate (pools ADD, the rate never changes). The
    * FREE per-level auto-heal pool that used to be folded in beside it
    * (`ship.levelRepairHp`) IS GONE: epic-8 amendment 46 replaced the per-level
-   * heal with out-of-combat regen (CONFIG.regen), which pays STRAIGHT INTO hp
+   * heal with out-of-combat regen (the hull's own `stats.regen`, seeded from
+   * CONFIG.regen and raised by PASSIVE HEALING since Story 9.6), which pays STRAIGHT INTO hp
    * and never owes this field a thing. The pool resets to 0 wherever boostUntil
    * does (spawn, sink, respawn, match boundary). SELF-PRIVATE BY CONSTRUCTION
    * (the boostUntil precedent): this field rides `you` and NOTHING else — it
@@ -1269,7 +1270,7 @@ export interface DropEvent {
  * + HUD flash): the authoritative numbers self-sync every frame via
  * OwnShip.hp / OwnShip.repairHp. ANTI-CHEAT — deliberately omitted: any hp
  * amount or total, any victim id, anything derivable about another ship. The
- * out-of-combat regen (CONFIG.regen) fires NO event at all — a continuous
+ * out-of-combat regen (`stats.regen`, base CONFIG.regen) fires NO event at all — a continuous
  * trickle would loop the tone.
  */
 export interface HealEvent {

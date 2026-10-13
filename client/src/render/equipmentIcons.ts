@@ -31,7 +31,7 @@
 //
 // THREE TABLES, ONE LOOKUP. `GLYPHS` is keyed by `EquipmentId` (what a weapon
 // slot holds), `CONSUMABLE_GLYPHS` by consumable id (what a belt square holds),
-// and `LINE_GLYPHS` by the CARD LINES that are neither — the five ship ladders
+// and `LINE_GLYPHS` by the CARD LINES that are neither — the six ship ladders
 // and the CANNON ladder (`deckGun`, drawn as the mounted `gun`). `glyphPaths`
 // asks them in that order (consumable → equipment → line), so the hotbar and
 // the results loadout (slot-item ids) and the refit card and How-to-Play (line
@@ -428,9 +428,10 @@ const CONSUMABLE_GLYPHS: Partial<Record<string, GlyphPaths>> = {
   countermeasure, // Story 9.3 — Eric's pick 2026-10-11 (above)
 };
 
-/** Armor (cycle 162 DRAFT): three stacked hull plates, each offset from the
+/** Hull points (cycle 162 DRAFT, drawn for ARMOR; renamed with the line in
+ *  Story 9.6, amendment 93): three stacked hull plates, each offset from the
  *  one above like overlapping plating. */
-const armor: GlyphPaths = [
+const hullPoints: GlyphPaths = [
   [-0.95, -0.8, 0.55, -0.4],
   [-0.75, -0.2, 0.75, 0.2],
   [-0.55, 0.4, 0.95, 0.8],
@@ -479,18 +480,22 @@ const reload: GlyphPaths = [
   path([-0.45, 0.9], [0.45, 0.9], [0, 0], [-0.45, 0.9]),
 ];
 
+/** Passive healing (Story 9.6, Eric's pick 2026-10-13, amendment 98): a flat baseline with one heartbeat spike — a pulse trace. Not HULL REPAIR's staff-and-serpent. */
+const passiveHealing: GlyphPaths = [path([-0.95, 0.2], [-0.5, 0.2], [-0.3, -0.7], [0.0, 0.9], [0.22, 0.2], [0.95, 0.2])];
+
 /**
  * THE LINE half of the table (cycle 162): card lines that are NOT slot items —
- * the five ship ladders, and the CANNON ladder `deckGun`, which draws the
+ * the six ship ladders, and the CANNON ladder `deckGun`, which draws the
  * mounted `gun` it upgrades. Kept apart from `GLYPHS` so that table stays keyed
  * by what a weapon slot can actually hold.
  */
 const LINE_GLYPHS: Partial<Record<LineId, GlyphPaths>> = {
-  armor,
+  hullPoints,
   speed,
   turning,
   radarSweep,
   reload,
+  passiveHealing,
   deckGun: gun,
 };
 

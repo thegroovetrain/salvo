@@ -2935,3 +2935,10 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
 - source_spec: `_bmad-output/implementation-artifacts/spec-9-5-ramming-and-contact-damage.md`
   summary: THE BOT `ram` POSTURE HAS NO POST-STRIKE EXIT — when the ram lands and the target survives (the damage estimate was wrong), the pair stays latched (no second hit until a separated tick) and the bot keeps full-ahead pressing, bleeding itself and the target by amendment 83 instead of disengaging as the broken-hull clause intends; the trigger is `[DRAFT]` by amendment 77 and this is playtest material for it (a `ramFiredAt` on the mind that falls back to `disengage` until the target separates is the obvious shape).
   evidence: Edge Case Hunter (Fable) PLAUSIBLE at the 2026-10-13 review gate.
+
+
+## 2026-10-13 — Story 9.6 Five Tiers and Passive Healing (cycle 183) — review-gate defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-6-five-tiers-and-passive-healing.md`
+  summary: THE HARNESS `--tune regen.*` SURFACE CANNOT TURN REGEN OFF FOR A CARDED HULL — the PASSIVE HEALING ladder ADDS to the tuned base inside the fold and `applyStatEffect` keeps only positive results, so `regen.missingPctPerS=0` leaves a bot holding n cards regenerating at 0.006 × n (the defensive profile now favors the line), and a wait tuned under 1000 × n saturates instead of stepping (2500 → 1500 → 500 → 500 → 500); a regen-off arm must be read against bots that cannot draw the ladder, or the harness needs a "ladder off" switch (`overrides.ts` validate / a catalog mask).
+  evidence: Edge Case Hunter (Fable) CONFIRMED by probe against the built shared dist at the 2026-10-13 review gate (`tune rate=0 … 1 card: 0.006, 5 cards: 0.03`); Blind Hunter PLAUSIBLE; the `regen.` family comment in `server/scripts/batchsim/overrides.ts` now states it.

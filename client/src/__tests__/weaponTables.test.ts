@@ -8,13 +8,13 @@
 import { describe, expect, it } from 'vitest';
 import { consumableTable, shipUpgradeTable, tierTable, TABLE_HULLS, type StatTable } from '../how-to-play/weaponTables.js';
 import { HOWTO_SECTIONS } from '../how-to-play/copy.js';
-import { LINE_IDS } from '@salvo/shared';
+import { CATALOG, CONFIG, LINE_IDS, effectiveStats } from '@salvo/shared';
 
 const TIERED = [
   'deckGun', 'machineGun', 'flak', 'heavyTorpedo', 'lightTorpedo', 'broadside',
   'starShells', 'phosphorShells', 'navalMines', 'captiveMines', 'foulingMines',
 ];
-const SHIP = ['armor', 'speed', 'turning', 'radarSweep', 'reload'];
+const SHIP = ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'];
 
 const row = (t: StatTable, label: string): readonly string[] => {
   const r = t.rows.find((x) => x.label === label);
@@ -64,8 +64,21 @@ describe('ship upgrade tables', () => {
     }
   });
 
-  it('ARMOR tops the DREADNOUGHT out at 450', () => {
-    expect(row(shipUpgradeTable('armor'), 'DREADNOUGHT').at(-1)).toBe('450');
+  it('every ship ladder has BASE then +1 … +5 (Story 9.6, epic-9 amendments 90/91)', () => {
+    for (const id of SHIP) expect(shipUpgradeTable(id).columns, id).toEqual(['BASE', '+1', '+2', '+3', '+4', '+5']);
+  });
+
+  it('HULL tops the DREADNOUGHT out at its base hull + 5 × 50 (Story 9.6, amendment 90; was ARMOR at 450)', () => {
+    const base = effectiveStats(CONFIG.shipClasses.battleship, []).maxHp;
+    const top = effectiveStats(CONFIG.shipClasses.battleship, Array<string>(CATALOG.hullPoints.cap).fill('hullPoints')).maxHp;
+    expect(row(shipUpgradeTable('hullPoints'), 'DREADNOUGHT')[0]).toBe(String(base));
+    expect(row(shipUpgradeTable('hullPoints'), 'DREADNOUGHT').at(-1)).toBe(String(top));
+  });
+
+  it('PASSIVE HEALING derives its table from the HEAL row: 2 %/S at BASE, 5 %/S at +5', () => {
+    const heal = row(shipUpgradeTable('passiveHealing'), 'SPEEDBOAT');
+    expect(heal[0]).toBe('2 %/S');
+    expect(heal.at(-1)).toBe('5 %/S');
   });
 });
 

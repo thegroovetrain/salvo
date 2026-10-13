@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { CATALOG, CONFIG, LINE_IDS, effectiveStats, isStubLine, type CatalogLine } from '@salvo/shared';
-import { CARD_STAT_ROWS, cardStatRows, cardTierLabel } from '../ui/boonCopy.js';
+import { CARD_STAT_ROWS, cardStatRows, cardTierLabel, shipStatRows } from '../ui/boonCopy.js';
 
 /** A torpedo boat with nothing fitted — the hull every value below is read on. */
 const TB = { cls: 'torpedoBoat' as const, cards: [] as string[] };
@@ -26,18 +26,38 @@ function held(id: string, n: number): typeof TB {
 }
 
 describe('cardStatRows — LADDER lines print the one number they move', () => {
-  it('labels ARMOR with the word the rest of the game uses, and prints integers', () => {
-    // The torpedo boat's base hull is 250 and ARMOR adds 25 a rung, so two
-    // copies held puts the card at 300 → 325 — the I/O matrix's own example,
-    // and whole numbers on both sides (amendment 39).
-    expect(cardStatRows(CATALOG.armor, 2, held('armor', 2))).toEqual([
-      { label: 'MAX HULL', cur: '300', next: '325' },
+  it('labels HULL with the word the rest of the game uses, and prints integers', () => {
+    // The torpedo boat's base hull is 250 and HULL adds 50 a rung (Story 9.6,
+    // epic-9 amendments 90/93 — was ARMOR +25), so two copies held puts the
+    // card at 350 → 400, whole numbers on both sides (amendment 39).
+    expect(cardStatRows(CATALOG.hullPoints, 2, held('hullPoints', 2))).toEqual([
+      { label: 'MAX HULL', cur: '350', next: '400' },
     ]);
   });
 
   it('reads the FIRST copy against a bare hull', () => {
-    expect(cardStatRows(CATALOG.armor, 0, TB)).toEqual([
-      { label: 'MAX HULL', cur: '250', next: '275' },
+    expect(cardStatRows(CATALOG.hullPoints, 0, TB)).toEqual([
+      { label: 'MAX HULL', cur: '250', next: '300' },
+    ]);
+  });
+
+  // PASSIVE HEALING (Story 9.6, Eric 2026-10-13, epic-9 amendment 95): ONE row,
+  // the rate as a share of missing hull per second — the wait the card also
+  // shortens is not a row. The values are read through effectiveStats; the
+  // `N %/S` print is the contract.
+  it('prints PASSIVE HEALING as one HEAL row, the folded rate in %/S', () => {
+    const heal = (n: number): string | undefined =>
+      shipStatRows(effectiveStats(CONFIG.shipClasses.torpedoBoat, Array<string>(n).fill('passiveHealing')))
+        .find((r) => r.label === 'HEAL')?.next;
+    // n = 0 and n = 5 cards, folded by effectiveStats (2 %/s base, 5 %/s at V).
+    expect(heal(0)).toBe('2 %/S');
+    expect(heal(5)).toBe('5 %/S');
+    // The card face: one row, `cur → next` off the same printer — one decimal
+    // only when the rate needs it.
+    expect(cardStatRows(CATALOG.passiveHealing, 0, TB)).toEqual([{ label: 'HEAL', cur: heal(0), next: heal(1) }]);
+    expect(heal(1)).toBe('2.6 %/S');
+    expect(cardStatRows(CATALOG.passiveHealing, 4, held('passiveHealing', 4))).toEqual([
+      { label: 'HEAL', cur: heal(4), next: heal(5) },
     ]);
   });
 
@@ -570,7 +590,7 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
     for (const id of ['shieldBlock', 'decoyBuoy'] as const) {
       const base = cardStatRows(CATALOG[id], 0, TB);
       expect(base.length, id).toBeGreaterThan(0);
-      expect(cardStatRows(CATALOG[id], 3, { cls: 'battleship', cards: ['armor'] }), id).toEqual(base);
+      expect(cardStatRows(CATALOG[id], 3, { cls: 'battleship', cards: ['hullPoints'] }), id).toEqual(base);
     }
   });
 
@@ -594,7 +614,7 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
   });
 
   it('fails OPEN on an unresolvable hull rather than throwing from the ticker', () => {
-    const rows = cardStatRows(CATALOG.armor, 0, { cls: 'notAHull' as never, cards: [] });
+    const rows = cardStatRows(CATALOG.hullPoints, 0, { cls: 'notAHull' as never, cards: [] });
     expect(rows).toEqual([]);
   });
 });
@@ -640,16 +660,19 @@ describe('cardStatRows — the laws the five-row grid imposes', () => {
   });
 
   it('reads every value through effectiveStats — a class change moves the numbers', () => {
-    const tb = cardStatRows(CATALOG.armor, 0, { cls: 'torpedoBoat', cards: [] })[0];
-    const bb = cardStatRows(CATALOG.armor, 0, { cls: 'battleship', cards: [] })[0];
+    const tb = cardStatRows(CATALOG.hullPoints, 0, { cls: 'torpedoBoat', cards: [] })[0];
+    const bb = cardStatRows(CATALOG.hullPoints, 0, { cls: 'battleship', cards: [] })[0];
     expect(bb.cur).not.toBe(tb.cur);
     expect(Number(bb.cur)).toBe(effectiveStats(CONFIG.shipClasses.battleship, []).maxHp);
   });
 });
 
 describe('cardTierLabel pairs with the rows — UX-DR51\'s four examples', () => {
-  it('reads armor k=0 as I → II, radarSweep k=0 as I, heavyTorpedo k=1 as I → II', () => {
-    expect(cardTierLabel(CATALOG.armor, 0)).toBe('I → II');
+  it('reads deckGun k=0 as I → II, hullPoints and radarSweep k=0 as I, heavyTorpedo k=1 as I → II', () => {
+    // HULL reads 0 → V since Story 9.6 (epic-9 amendment 94); the base-tier
+    // example is the CANNON's now.
+    expect(cardTierLabel(CATALOG.deckGun, 0)).toBe('I → II');
+    expect(cardTierLabel(CATALOG.hullPoints, 0)).toBe('I');
     expect(cardTierLabel(CATALOG.radarSweep, 0)).toBe('I');
     expect(cardTierLabel(CATALOG.heavyTorpedo, 1)).toBe('I → II');
     expect(cardTierLabel(CATALOG.hullRepair, 0)).toBeNull();

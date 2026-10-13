@@ -74,13 +74,22 @@ export interface BotTargetWeights {
 }
 
 /**
- * A favorite UPGRADE line family (Eric ruling 2026-09-30, R5). The five ship
- * ladders are named by what they raise; `gun` = any gun-ladder line (deckGun —
+ * A favorite UPGRADE line family (Eric ruling 2026-09-30, R5). The six ship
+ * ladders are named by their line id (`hullPoints` was `armor` until Story 9.6;
+ * `passiveHealing` joined in 9.6, epic-9 amendment 97); `gun` = any gun-ladder line (deckGun —
  * CANNON's own ladder, its turret and barrel are rungs of it — machineGun, flak;
  * the draw only ever offers the mounted gun's); `weapons` = a tier copy (2..cap) of an equipment line
  * the bot already holds (the spec's "Scorer definitions").
  */
-export type UpgradeFavorite = 'armor' | 'speed' | 'turning' | 'radarSweep' | 'reload' | 'gun' | 'weapons';
+export type UpgradeFavorite =
+  | 'hullPoints'
+  | 'speed'
+  | 'turning'
+  | 'radarSweep'
+  | 'reload'
+  | 'passiveHealing'
+  | 'gun'
+  | 'weapons';
 
 /**
  * A personality's BUILD TASTE (Story 8.20, Eric ruling 2026-09-30, R5) — read
@@ -219,7 +228,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     spend: 'weighted',
     taste: {
       style: 'rounded',
-      favoriteUpgrades: ['armor'],
+      favoriteUpgrades: ['hullPoints', 'passiveHealing'], // epic-9 amendment 97 (Eric 2026-10-13)
       favoriteConsumables: ['hullRepair', 'shieldBlock'],
       favoriteWeapons: ['broadside', 'starShells'],
       beltHunger: 'high',

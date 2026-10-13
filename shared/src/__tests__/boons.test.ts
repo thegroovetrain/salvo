@@ -109,6 +109,8 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       'maxHp', 'radarRange', 'sweepRpm', 'cooldownScale',
       'kinematics.maxSpeed', 'kinematics.reverseSpeed', 'kinematics.accel',
       'kinematics.decel', 'kinematics.turnRate', 'kinematics.steerageSpeed',
+      // The regen pair (Story 9.6, epic-9 amendments 90–91): PASSIVE HEALING's paths.
+      'regen.missingPctPerS', 'regen.outOfCombatMs',
     ];
     for (const id of EQUIPMENT_IDS) {
       for (const f of EQUIPMENT_STAT_FIELDS[id] as readonly string[]) expected.push(`equipment.${id}.${f}`);
@@ -171,8 +173,10 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
     // The universal ladders + the deck gun (Story 8.1), the five torpedo /
     // mine ladders (Story 8.13), the machine gun / flak ladders (Story 8.15)
     // and the STAR SHELLS / BROADSIDE / PHOSPHOR SHELLS ladders (Story 8.17,
-    // Eric 2026-09-29, amendments 130/131/133).
+    // Eric 2026-09-29, amendments 130/131/133), and PASSIVE HEALING's regen
+    // pair (Story 9.6, epic-9 amendments 90–91).
     expect([...written].sort()).toEqual([
+      'regen.missingPctPerS', 'regen.outOfCombatMs',
       'cooldownScale', 'equipment.gun.barrels', 'equipment.gun.damage', 'equipment.gun.maxAmmo',
       'kinematics.maxSpeed', 'kinematics.turnRate', 'maxHp', 'sweepRpm',
       'equipment.lightTorpedo.damage', 'equipment.lightTorpedo.speed',
@@ -311,15 +315,15 @@ describe('stat effects — home 1 (effectiveStats), fail-closed folds', () => {
 
 describe('cardCounts / boonStackCount — the copy-count spine', () => {
   it('counts occurrences, caps at the line cap, drops junk, and keeps CATALOG order', () => {
-    const counts = cardCounts(['reload', 'armor', 'reload', 'nope', 'constructor', 'armor', 'armor']);
-    expect([...counts]).toEqual([['armor', 3], ['reload', 2]]); // catalog order: armor before reload
+    const counts = cardCounts(['reload', 'hullPoints', 'reload', 'nope', 'constructor', 'hullPoints', 'hullPoints']);
+    expect([...counts]).toEqual([['hullPoints', 3], ['reload', 2]]); // catalog order: hullPoints before reload
     expect(cardCounts(new Array<string>(9).fill('reload')).get('reload')).toBe(5); // capped
     expect([...cardCounts([])]).toEqual([]);
   });
 
   it('boonStackCount counts occurrences of one id', () => {
-    expect(boonStackCount(['armor', 'speed', 'armor'], 'armor')).toBe(2);
-    expect(boonStackCount([], 'armor')).toBe(0);
+    expect(boonStackCount(['hullPoints', 'speed', 'hullPoints'], 'hullPoints')).toBe(2);
+    expect(boonStackCount([], 'hullPoints')).toBe(0);
   });
 
   it('NO_CARDS is the frozen shared zero-card identity', () => {
@@ -485,7 +489,7 @@ describe('two homes — a card may touch stats and slots, NOTHING else, each via
 describe('one derivation, both sides — incremental vs replayed slot-id parity', () => {
   /** The NON-STUB equipment lines plus two ladders (CANNON carries the pool
    *  rung since 2026-09-30), as a grant pool. */
-  const POOL: LineId[] = ['heavyTorpedo', 'navalMines', 'broadside', 'starShells', 'armor', 'deckGun'];
+  const POOL: LineId[] = ['heavyTorpedo', 'navalMines', 'broadside', 'starShells', 'hullPoints', 'deckGun'];
 
   /**
    * The server's incremental path, emulated faithfully: per granted card,
@@ -852,7 +856,7 @@ describe('pickRefusal — every branch', () => {
   it('null — the ordinary legal pick, every kind', () => {
     expect(pickRefusal([], OPEN_SLOTS, 'lightTorpedo')).toBeNull(); // copy 1, row open
     expect(pickRefusal(['lightTorpedo'], ROW_FULL, 'lightTorpedo')).toBeNull(); // a TIER card
-    expect(pickRefusal([], OPEN_SLOTS, 'armor')).toBeNull(); // a ladder
+    expect(pickRefusal([], OPEN_SLOTS, 'hullPoints')).toBeNull(); // a ladder
     expect(pickRefusal([], OPEN_SLOTS, 'foulingShell')).toBeNull(); // FOULING SHELL, a consumable (no add-on is left since 8.17)
     expect(pickRefusal([], OPEN_SLOTS, 'hullRepair')).toBeNull(); // a consumable
   });
@@ -878,7 +882,7 @@ describe('pickRefusal — every branch', () => {
       expect(pickRefusal(capped, OPEN_SLOTS, id), id).toBe('atCap');
       expect(pickRefusal(capped.slice(1), OPEN_SLOTS, id), `${id} below cap`).toBeNull();
     }
-    expect(pickRefusal(new Array<string>(CATALOG.armor.cap).fill('armor'), OPEN_SLOTS, 'armor')).toBe('atCap');
+    expect(pickRefusal(new Array<string>(CATALOG.hullPoints.cap).fill('hullPoints'), OPEN_SLOTS, 'hullPoints')).toBe('atCap');
     const maxTorp = new Array<string>(CATALOG.lightTorpedo.cap).fill('lightTorpedo');
     expect(pickRefusal(maxTorp, ROW_FULL, 'lightTorpedo')).toBe('atCap');
     // The cap is decided BEFORE the row, so a capped line reads
@@ -901,7 +905,7 @@ describe('pickRefusal — every branch', () => {
     expect(pickRefusal(['starShells'], ROW_FULL, 'starShells')).toBeNull(); // tier II lands on the hull
     // Only EQUIPMENT claims the row: a ladder and two consumables (the
     // FOULING SHELL and HULL REPAIR) all pass with the row full.
-    for (const id of ['armor', 'foulingShell', 'hullRepair']) {
+    for (const id of ['hullPoints', 'foulingShell', 'hullRepair']) {
       expect(pickRefusal([], ROW_FULL, id), id).toBeNull();
     }
   });
@@ -914,8 +918,8 @@ describe('pickRefusal — every branch', () => {
   });
 
   it('honours an INJECTED catalog rather than the shipped one', () => {
-    const rows = { ...CATALOG, armor: { ...CATALOG.armor, stub: true as const } };
-    expect(pickRefusal([], OPEN_SLOTS, 'armor', rows)).toBe('stub');
-    expect(pickRefusal([], OPEN_SLOTS, 'armor')).toBeNull();
+    const rows = { ...CATALOG, hullPoints: { ...CATALOG.hullPoints, stub: true as const } };
+    expect(pickRefusal([], OPEN_SLOTS, 'hullPoints', rows)).toBe('stub');
+    expect(pickRefusal([], OPEN_SLOTS, 'hullPoints')).toBeNull();
   });
 });

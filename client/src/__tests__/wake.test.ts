@@ -648,9 +648,10 @@ describe('WakeStampCache rebuilds on the three things that can change its answer
     const cappedDeck = Array.from({ length: CATALOG.speed.cap }, () => 'speed');
     const cappedTb = effectiveStats(CONFIG.shipClasses.torpedoBoat, cappedDeck).kinematics;
     const cappedBoosted = boostedKinematics(cappedTb, CONFIG.boost.factor, true).maxSpeed;
-    expect(cappedBoosted).toBeCloseTo(68.75, 9);
+    // SPEED caps at five cards since Story 9.6 (epic-9 amendment 91): 57.5 × 1.25.
+    expect(cappedBoosted).toBeCloseTo(71.875, 9);
     // STORY 8.19 RAISED IT ONCE MORE: that hull, riding another hull's wake at
-    // the full draft lift, runs 5 % past its boosted cap — 72.1875 u/s. The
+    // the full draft lift, runs 5 % past its boosted cap — 75.46875 u/s. The
     // headroom constant folds the lift through the ONE shared draft hook, on
     // top of the boost, so it is the true ceiling and no longer the boosted cap.
     const cappedDrafted = draftedKinematics(
@@ -658,7 +659,7 @@ describe('WakeStampCache rebuilds on the three things that can change its answer
       CONFIG.wake.draft.lift,
       true,
     ).maxSpeed;
-    expect(cappedDrafted).toBeCloseTo(72.1875, 9);
+    expect(cappedDrafted).toBeCloseTo(75.46875, 9);
     expect(FASTEST_BOOSTED_HULL_SPEED).toBe(cappedDrafted);
     expect(FASTEST_BOOSTED_HULL_SPEED).toBeGreaterThan(cappedBoosted);
     for (const speed of [FASTEST_HULL_SPEED, cappedBoosted, cappedDrafted, CONFIG.torpedo.speed]) {

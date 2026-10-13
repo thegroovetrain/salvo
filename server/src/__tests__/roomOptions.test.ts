@@ -309,7 +309,7 @@ describe('sanitizeGun — the three ids', () => {
 
 describe('the retired deck keys are dropped like any unknown option', () => {
   it('sanitizeRoomOptions ignores them entirely, dev gate open or shut', () => {
-    const opts = { deck: ['armor'], deckId: 'd', deckOverride: ['armor'] } as unknown as RoomOptions;
+    const opts = { deck: ['hullPoints'], deckId: 'd', deckOverride: ['hullPoints'] } as unknown as RoomOptions;
     for (const dev of [false, true]) {
       const { sanitized, rejectedKeys } = sanitizeRoomOptions(opts, dev);
       expect(rejectedKeys, String(dev)).toEqual([]);

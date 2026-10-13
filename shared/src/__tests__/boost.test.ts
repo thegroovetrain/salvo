@@ -102,13 +102,14 @@ describe('the SPEED ladder is INSIDE the bonus (amendment 55)', () => {
     expect(boostedCap('battleship')).toBe(43.75);
   });
 
-  it('SPEED-capped hulls boost to 68.75 / 62.5 / 56.25 — the ladder enlarges the boost', () => {
-    // Four SPEED copies (+2.5 each, catalog-v3 R10) raise 45/40/35 to
-    // 55/50/45; the boost then adds a quarter OF THAT, not a flat +10.
+  it('SPEED-capped hulls boost to 71.875 / 65.625 / 59.375 — the ladder enlarges the boost', () => {
+    // Five SPEED copies (+2.5 each, catalog-v3 R10; cap 4 -> 5 in Story 9.6,
+    // epic-9 amendment 91) raise 45/40/35 to 57.5/52.5/47.5; the boost then
+    // adds a quarter OF THAT, not a flat +12.5.
     const capped = new Array<LineId>(CATALOG.speed.cap).fill('speed');
-    expect(boostedCap('torpedoBoat', capped)).toBe(68.75);
-    expect(boostedCap('mineLayer', capped)).toBe(62.5);
-    expect(boostedCap('battleship', capped)).toBe(56.25);
+    expect(boostedCap('torpedoBoat', capped)).toBe(71.875);
+    expect(boostedCap('mineLayer', capped)).toBe(65.625);
+    expect(boostedCap('battleship', capped)).toBe(59.375);
   });
 
   it('reverseSpeed never sees the boost, ladder or no ladder', () => {

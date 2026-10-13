@@ -144,7 +144,7 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     // including shipHull, which moves maxHp and heals — none of which is hull
     // geometry or pose, so NONE of it may reach the footprint.
     b.hp = b.stats.maxHp * 0.1;
-    w.applyCard(b, 'armor');
+    w.applyCard(b, 'hullPoints');
     w.applyCard(b, 'deckGun');
     w.applyCard(b, 'speed');
     windowAround(a, 0);

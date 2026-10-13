@@ -65,7 +65,7 @@ describe('ownStatsChanged — the recompute gate', () => {
     const next = {
       ...ownShip('torpedoBoat'),
       pts: 2,
-      offer: ['radarSweep', 'armor', 'deckGun', 'navalMines'],
+      offer: ['radarSweep', 'hullPoints', 'deckGun', 'navalMines'],
     };
     expect(ownStatsChanged(next, prev)).toBe(false);
   });
@@ -84,10 +84,10 @@ describe('ownStatsChanged — the recompute gate', () => {
     const prev = ownShip('torpedoBoat', []);
     expect(ownStatsChanged(ownShip('torpedoBoat', ['radarSweep']), prev)).toBe(true);
     const one = ownShip('torpedoBoat', ['radarSweep']);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['radarSweep', 'armor']), one)).toBe(true);
+    expect(ownStatsChanged(ownShip('torpedoBoat', ['radarSweep', 'hullPoints']), one)).toBe(true);
     expect(ownStatsChanged(ownShip('torpedoBoat', []), one)).toBe(true); // redeploy wipe
-    const two = ownShip('torpedoBoat', ['radarSweep', 'armor']);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['armor', 'radarSweep']), two)).toBe(true);
+    const two = ownShip('torpedoBoat', ['radarSweep', 'hullPoints']);
+    expect(ownStatsChanged(ownShip('torpedoBoat', ['hullPoints', 'radarSweep']), two)).toBe(true);
   });
 
   it('fires on a REPEAT of a line already held — a stack is a real stat change', () => {
@@ -104,8 +104,8 @@ describe('ownStatsChanged — the recompute gate', () => {
   });
 
   it('stays quiet on an IDENTICAL cards list in a fresh array (per-frame reallocation must not refire)', () => {
-    const prev = ownShip('torpedoBoat', ['radarSweep', 'armor']);
-    const next = ownShip('torpedoBoat', ['radarSweep', 'armor']);
+    const prev = ownShip('torpedoBoat', ['radarSweep', 'hullPoints']);
+    const next = ownShip('torpedoBoat', ['radarSweep', 'hullPoints']);
     expect(next.cards).not.toBe(prev.cards); // genuinely fresh arrays
     expect(ownStatsChanged(next, prev)).toBe(false);
   });
@@ -178,10 +178,10 @@ describe('HUD denominators react to effective stats', () => {
     });
   });
 
-  it('hp bar: the effective maxHp denominator grows with ARMOR stacks', () => {
-    expect(statsFor('torpedoBoat', { armor: 3 }).maxHp).toBeGreaterThan(TB.hp);
+  it('hp bar: the effective maxHp denominator grows with HULL stacks', () => {
+    expect(statsFor('torpedoBoat', { hullPoints: 3 }).maxHp).toBeGreaterThan(TB.hp);
     // Three copies of one line stack by occurrence — the deck's copy-count law.
-    const one = statsFor('torpedoBoat', { armor: 1 }).maxHp - TB.hp;
-    expect(statsFor('torpedoBoat', { armor: 3 }).maxHp).toBe(TB.hp + 3 * one);
+    const one = statsFor('torpedoBoat', { hullPoints: 1 }).maxHp - TB.hp;
+    expect(statsFor('torpedoBoat', { hullPoints: 3 }).maxHp).toBe(TB.hp + 3 * one);
   });
 });

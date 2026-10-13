@@ -524,8 +524,8 @@ export const FASTEST_HULL_SPEED = HULL_IDS.reduce(
 /**
  * THE FASTEST A HULL CAN EVER TRAVEL (u/s) — the fastest BOOSTED, fully
  * SPEED-laddered hull in the game, RIDING ANOTHER HULL'S WAKE at the full draft
- * lift: 72.1875 at the shipped numbers (a Torpedo Boat at 45 + 4 SPEED copies =
- * 55, × 1.25 = 68.75, + 5 % of that).
+ * lift: 75.46875 at the shipped numbers (a Torpedo Boat at 45 + 5 SPEED copies =
+ * 57.5, × 1.25 = 71.875, + 5 % of that).
  *
  * DERIVED, never written down, and derived THROUGH THE REAL FOLD: a capped
  * SPEED card stack goes through `effectiveStats` (so any clamp applies), the boost
