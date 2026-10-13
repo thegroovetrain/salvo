@@ -203,7 +203,7 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
       },
       bulwark: {
         style: 'rounded',
-        favoriteUpgrades: ['hullPoints', 'passiveHealing'],
+        favoriteUpgrades: ['hullPoints', 'passiveHealing', 'armor'], // + 'armor': epic-9 amendment 115 (Story 9.7)
         favoriteConsumables: ['hullRepair', 'shieldBlock'],
         favoriteWeapons: ['broadside', 'starShells'],
         beltHunger: 'high',

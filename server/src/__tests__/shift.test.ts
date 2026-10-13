@@ -7,7 +7,7 @@
 //     (cannon / torpedo / mines; the MG magazine fills), the belt and the
 //     Shift itself untouched, a 60 s cooldown (Eric 2026-10-02, amendment
 //     232; was 45 s), `cooling` on a second press;
-//   * DAMAGE CUT: an 8 s window on a 30 s cooldown, `damageCutUntil` on the
+//   * DAMAGE CUT: a 10 s window (epic-9 amendment 88; was 8 s) on a 30 s cooldown, `damageCutUntil` on the
 //     own frame only — never a contact or spectator field;
 //   * THE NINE-COMBO PIN: every hull × every gun in a World mounts the gun's
 //     module in slot 0, lands ONE hit for the CONFIG damage (5 direct / 12
@@ -92,7 +92,7 @@ describe('slot 1 is the hull\'s CLASS SHIFT (amendment 89(c))', () => {
     }
     expect(ml.stats.equipment.instantReload.reloadMs).toBe(45000); // 60000 × 0.75
     expect(bs.stats.equipment.damageCut.reloadMs).toBe(22500);
-    expect(bs.stats.equipment.damageCut.durationMs).toBe(8000); // the window is not a reload
+    expect(bs.stats.equipment.damageCut.durationMs).toBe(10000); // the window is not a reload (10 s — epic-9 amendments 86–88 / 110–117, Story 9.7)
   });
 });
 
@@ -187,11 +187,13 @@ describe('INSTANT RELOAD — the Mine Layer\'s Shift (amendments 97–98)', () =
 // ---------- DAMAGE CUT --------------------------------------------------------
 
 describe('DAMAGE CUT — the Battleship\'s Shift (amendments 99–102)', () => {
-  it('opens an 8 s window at server apply time on a 30 s cooldown, and halves the next blow', () => {
+  // Re-based by Story 9.7 (epic-9 amendments 86–88 / 110–117): the window is 10 s and the cut is +5
+  // temporary Armor — at Tier 0 that is Armor 5 → ×0.5, so 15 → 7 still holds.
+  it('opens a 10 s window at server apply time on a 30 s cooldown; at Tier 0 the next blow takes Armor 5 → ×0.5', () => {
     const w = bareWorld();
     const a = place(w, 'a', 'battleship');
     pressShift(w, 'a', 1);
-    expect(a.damageCutUntil).toBe(w.now + 8000);
+    expect(a.damageCutUntil).toBe(w.now + 10000);
     expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: 30000 });
     const gate = w as unknown as { applyDamage(v: ShipRecord, n: number, s: 'shell', by: string): void };
     gate.applyDamage(a, 15, 'shell', 'b');
@@ -199,9 +201,9 @@ describe('DAMAGE CUT — the Battleship\'s Shift (amendments 99–102)', () => {
     // A second press inside the cooldown: no-ammo, the window not extended.
     pressShift(w, 'a', 2);
     expect(w.denialsFor('a')).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2 }]);
-    expect(a.damageCutUntil).toBe(w.now - DT + 8000);
+    expect(a.damageCutUntil).toBe(w.now - DT + 10000);
     // After the window: full damage.
-    for (let i = 0; i < 160; i++) w.step();
+    for (let i = 0; i < 10000 / DT; i++) w.step();
     expect(w.now).toBeGreaterThanOrEqual(a.damageCutUntil);
     gate.applyDamage(a, 15, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 7 - 15);

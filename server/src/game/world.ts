@@ -42,6 +42,7 @@ import {
   WEAPON_SLOTS,
   classShift,
   DEFAULT_HORN_ID,
+  damageMultiplierFor,
   effectiveStats,
   equipmentMaxAmmo,
   equipmentReloadMs,
@@ -814,8 +815,9 @@ export interface ShipRecord {
    * Battleship's Shift, Eric rulings 2026-09-28, epic-8 amendments 99–102);
    * 0 = no cut opened this life. Written ONLY through the `setDamageCut`
    * activation capability (the damageCut row's activate); read by applyDamage
-   * (every weapon blow is multiplied by the row's `factor` while `now <
-   * damageCutUntil`, BEFORE the shield; storm bites are exempt) and mirrored
+   * (while `now < damageCutUntil` the row's `armorBonus` is added to the
+   * hull's Armor inside the gate's multiplier, BEFORE the shield; storm bites
+   * are exempt — epic-9 amendments 86–88) and mirrored
    * onto OwnShip.damageCutUntil (SELF-PRIVATE, omitted while 0) by frames.ts.
    * RESET to 0 wherever `boostUntil` resets (redeploy / founder / respawn).
    */
@@ -5008,9 +5010,12 @@ export class World {
    *       them: a weapons-safe room loses no hp, and a hull inside the sinking
    *       window cannot be finished off (Story 5.2, amendment 12). The storm
    *       keeps its own `zoneStartT` gate at its caller.
+   *   (b′) THE ARMOR MULTIPLY (Story 9.7): every source but the storm is
+   *       scaled by the victim's Armor, plus the DAMAGE CUT's bonus while its
+   *       window is open (armorDamage below).
    *   (c) THE SHIELD absorbs next, from EVERY source — storm bites and burn
-   *       ticks included (AR47, amendment 118) — after the DAMAGE CUT
-   *       (amendment 100). Armed by the SHIELD BLOCK consumable (Story 8.16).
+   *       ticks included (AR47, amendment 118) — after the armor multiply
+   *       (epic-8 amendment 100). Armed by the SHIELD BLOCK consumable (Story 8.16).
    *   (d) The overkill clamp, the ONE hp write, and the COMBAT CLOCK stamp
    *       (amendment 47 — one hook for every damage source, storm included). `dealt` is read BEFORE the
    *       write (Eric 2026-08-22: *"if i do 50 damage to someone with 1 HP
@@ -5033,8 +5038,8 @@ export class World {
     if (byId !== undefined && byId === victim.id) return; // (a) NO FRIENDLY FIRE, every source
     if (!this.damageEnabled) return; // (b) weapons-safe phases
     if (isSinking(victim.lifecycle)) return; // (b) a sinking hull cannot be finished off
-    const cut = this.cutDamage(victim, amount, src); // (b′) DAMAGE CUT, before the shield (Story 8.15)
-    const net = this.absorbShield(victim, cut); // (c)
+    const armored = this.armorDamage(victim, amount, src); // (b′) ARMOR (+ the DAMAGE CUT's bonus), before the shield (Story 9.7)
+    const net = this.absorbShield(victim, armored); // (c)
     const dealt = Math.max(0, Math.min(net, victim.hp)); // (d) overkill clamp, read BEFORE the write
     victim.hp -= dealt; // (d) THE ONE HULL-HP DECREMENT IN THE GAME
     // (d) THE COMBAT CLOCK (amendment 47): every source that actually removed
@@ -5047,7 +5052,7 @@ export class World {
     if (dealt > 0) victim.lastDamagedAt = this.now;
     World.noteDamageTaken(victim, src, dealt); // (d′) Story 9.5's server-only readouts
     if (src !== 'storm' && byId !== undefined) this.creditDamage(byId, victim.id, net, dealt); // (e)
-    this.reportDamage(victim, net, src, byId, cut - net); // (f)+(g)
+    this.reportDamage(victim, net, src, byId, armored - net); // (f)+(g)
   }
 
   /** (d′) THE HARNESS STAMPS (Story 9.5): what last took hp, and the hp taken
@@ -5064,23 +5069,29 @@ export class World {
   }
 
   /**
-   * (b′) THE DAMAGE CUT (Story 8.15, the Battleship's Shift, Eric rulings
-   * 2026-09-28, epic-8 amendments 99–102). While the victim's window is open
-   * (`now < damageCutUntil`) every WEAPON blow is multiplied by the victim's
-   * effective `damageCut.factor` BEFORE the shield absorbs it (amendment 100:
-   * a shield lasts twice as long under a cut). A hit rounds DOWN to a whole
-   * number (amendment 102 — 15 → 7, 55 → 27, damage stays whole per amendment
-   * 39); a PHOSPHOR burn tick and a contact BLEED tick ('grind', Story 9.5),
-   * fractional by construction, halve exactly — never to zero. The STORM is
-   * exempt (amendment 101): its bites land in full, so the sudden-death
-   * ceiling and NFR6's arithmetic are untouched. `creditDamage` and the `dmg`
-   * report both read the POST-cut amount: the attacker's tally is what
-   * actually landed.
+   * (b′) THE ARMOR MULTIPLY (Story 9.7, Eric rulings 2026-10-13, epic-9
+   * amendments 86–88; the DAMAGE CUT's floor / fraction / storm rules carried
+   * over from epic-8 amendments 100–102). EVERY source but the STORM is
+   * multiplied by `damageMultiplierFor(armor)` = K / (K + armor) — the ONE
+   * formula, owned by shared/src/sim/stats.ts — BEFORE the shield absorbs it
+   * (a shield lasts longer on an armored hull). `armor` is the ladder's
+   * `stats.armor`, plus the DAMAGE CUT's `armorBonus` while the victim's
+   * window is open (`now < damageCutUntil`, the Battleship's Shift, Story
+   * 8.15): the cut stacks ADDITIVELY on the Armor value, never as a second
+   * multiply (amendment 88) — so at Tier 0 under the cut, Armor 5 → ×0.5.
+   * A blow rounds DOWN to a whole number (amendment 102 — damage stays whole
+   * per amendment 39); a PHOSPHOR burn tick and a contact BLEED tick
+   * ('grind', Story 9.5), fractional by construction, keep their exact
+   * product — never floored to zero. The STORM is exempt (amendment 101): its
+   * bites land in full, so the sudden-death ceiling and NFR6's arithmetic are
+   * untouched. `creditDamage` and the `dmg` report both read the
+   * POST-multiply amount: the attacker's tally is what actually landed.
    */
-  private cutDamage(victim: ShipRecord, amount: number, src: DamageSource): number {
-    if (src === 'storm' || this.now >= victim.damageCutUntil) return amount;
-    const cut = amount * victim.stats.equipment.damageCut.factor;
-    return src === 'burn' || src === 'grind' ? cut : Math.floor(cut);
+  private armorDamage(victim: ShipRecord, amount: number, src: DamageSource): number {
+    if (src === 'storm') return amount;
+    const bonus = this.now < victim.damageCutUntil ? victim.stats.equipment.damageCut.armorBonus : 0;
+    const scaled = amount * damageMultiplierFor(victim.stats.armor + bonus);
+    return src === 'burn' || src === 'grind' ? scaled : Math.floor(scaled);
   }
 
   /** (c) THE SHIELD STEP. Expires a lapsed or spent block, absorbs what is

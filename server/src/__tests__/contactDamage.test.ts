@@ -24,6 +24,7 @@ import {
   DEFAULT_HORN_ID,
   contactGrindRate,
   contactHitDamage,
+  damageMultiplierFor,
   droneHullOf,
   groundingSpeedFactor,
   isAfloat,
@@ -330,7 +331,9 @@ describe('the BLEED (amendment 83 — sliding + pressing speed, delivered like t
     expect(b.kills).toBe(1);
   });
 
-  it('(c) under DAMAGE CUT the bleed is halved exactly — never zero, and no dmg 0 spam', () => {
+  // Re-based by Story 9.7 (epic-9 amendments 86–88 / 110–117): the cut is +armorBonus temporary
+  // Armor inside K / (K + armor) — at Tier 0, Armor 5 → ×0.5 — and a grind tick keeps its fraction.
+  it('(c) under DAMAGE CUT the bleed takes the Armor multiplier exactly — never zero, and no dmg 0 spam', () => {
     const w = bareWorld();
     const a = place(w, 'a', -49, 0);
     const b = place(w, 'b', 49, 0, Math.PI);
@@ -338,7 +341,7 @@ describe('the BLEED (amendment 83 — sliding + pressing speed, delivered like t
     setInput(b, { throttle: 1 });
     const max = a.stats.kinematics.maxSpeed;
     a.damageCutUntil = Number.MAX_SAFE_INTEGER;
-    const factor = a.stats.equipment.damageCut.factor;
+    const factor = damageMultiplierFor(a.stats.armor + a.stats.equipment.damageCut.armorBonus);
     expect(factor).toBeGreaterThan(0);
     expect(factor).toBeLessThan(1);
     stepPressed(w, a, b, max, 1); // the strike
@@ -527,13 +530,16 @@ describe('WRECKS, FLEET PAIRS, DRONES, the GATE and CREDIT', () => {
   });
 
   it('DAMAGE CUT and SHIELD BLOCK apply to a contact HIT like any damage (amendment 75)', () => {
-    // The cut: the blow is multiplied by the victim's factor and floored.
+    // The cut: the blow takes the victim's Armor + the cut's bonus (Story 9.7, epic-9
+    // amendments 86–88 / 110–117) and is floored.
     const cutW = bareWorld();
     const { a, b, vn } = headOnPair(cutW);
     a.damageCutUntil = Number.MAX_SAFE_INTEGER;
     const nominal = contactHitDamage(a.stats.maxHp, b.stats.maxHp, vn, RAM);
     const { events } = stepUntil(cutW, () => a.stats.maxHp - a.hp >= 1);
-    expect(dmgOf(events, 'a').map((e) => e.amount)).toEqual([Math.floor(nominal.a * a.stats.equipment.damageCut.factor)]);
+    expect(dmgOf(events, 'a').map((e) => e.amount)).toEqual([
+      Math.floor(nominal.a * damageMultiplierFor(a.stats.armor + a.stats.equipment.damageCut.armorBonus)),
+    ]);
     expect(dmgOf(events, 'b').map((e) => e.amount)).toEqual([nominal.b]); // b carries no cut
     // The shield: a block bigger than the blow eats it whole.
     const shW = bareWorld();

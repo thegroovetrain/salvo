@@ -188,7 +188,7 @@ function barrelBlock(): void {
  *  stacked to its copy cap (the ADDITIVE speed/range ladders of Story 7-5). */
 function statsBlock(): void {
   console.log('== MAX-STACK STAT ENVELOPE (universal lines only, each to its copy cap) ==');
-  const universal = ['hullPoints', 'speed', 'turning', 'reload', 'radarSweep', 'passiveHealing'];
+  const universal = ['hullPoints', 'armor', 'speed', 'turning', 'reload', 'radarSweep', 'passiveHealing'];
   const maxCards: string[] = [];
   for (const id of universal) {
     // Fail LOUDLY on an id the catalog no longer holds. This list is hand-kept

@@ -83,6 +83,7 @@ export interface BotTargetWeights {
  */
 export type UpgradeFavorite =
   | 'hullPoints'
+  | 'armor'
   | 'speed'
   | 'turning'
   | 'radarSweep'
@@ -228,7 +229,8 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     spend: 'weighted',
     taste: {
       style: 'rounded',
-      favoriteUpgrades: ['hullPoints', 'passiveHealing'], // epic-9 amendment 97 (Eric 2026-10-13)
+      // epic-9 amendment 97 (Eric 2026-10-13); 'armor' — epic-9 amendment 115 (Eric 2026-10-13)
+      favoriteUpgrades: ['hullPoints', 'passiveHealing', 'armor'],
       favoriteConsumables: ['hullRepair', 'shieldBlock'],
       favoriteWeapons: ['broadside', 'starShells'],
       beltHunger: 'high',
