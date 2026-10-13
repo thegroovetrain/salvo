@@ -31,7 +31,16 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       'botsTick',
       'applyInputs',
       'stepShips',
+      // Story 9.5's HULL PASS — solid hulls pushed apart by mass share,
+      // BEFORE the land pass so land stays the hard constraint (see the row
+      // comment in world.ts).
+      'resolveHullContacts',
       'resolveCollisions',
+      // Story 9.5's CONTACT DAMAGE — the once-per-contact hit, the grind, the
+      // land strike and scrape — AFTER the land pass (this tick's land edge)
+      // and BEFORE sampleWakes / founderSinking (a hull sunk here still lays
+      // its wake and takes the sink edge in the ordinary order).
+      'applyContactDamage',
       'sampleWakes',
       // Story 5.2's founder edge — the one deliberate insertion this pin has
       // absorbed: after motion, before damage/activation (see the row comment

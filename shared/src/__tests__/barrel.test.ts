@@ -429,7 +429,10 @@ describe('shared barrel', () => {
     // CONFIG.flashShells), OwnShip.dazzledUntil -> fouledUntil, new
     // FrameMsg.foulZones (FoulZoneView {id,x,y,r,until,by}). The exception
     // count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(78);
+    // 78 -> 79 (Story 9.5, Eric 2026-10-12, epic-9 amendments 73-82): the
+    // client reads CONFIG.ram and runs the shared hull-contact resolver in
+    // prediction. No new wire field or event; the exception count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(79);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -456,6 +459,14 @@ describe('shared barrel', () => {
     expect(typeof wrapAngle).toBe('function');
     expect(typeof mulberry32).toBe('function');
     expect(typeof segCircleHit).toBe('function');
+    // Story 9.5 — the shared hull-contact resolver and its damage math.
+    expect(typeof shared.resolveHullContacts).toBe('function');
+    expect(typeof shared.contactHitDamage).toBe('function');
+    expect(typeof shared.contactGrindRate).toBe('function');
+    expect(typeof shared.landHitDamage).toBe('function');
+    expect(typeof shared.landGrindRate).toBe('function');
+    expect(typeof shared.solidEscape).toBe('function');
+    expect(typeof shared.polygonOverlapsSolid).toBe('function');
     expect(typeof effectiveStats).toBe('function');
     expect(typeof equipmentMaxAmmo).toBe('function');
     expect(typeof equipmentReloadMs).toBe('function');

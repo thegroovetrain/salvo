@@ -2261,6 +2261,7 @@ So that I can pin a chaser or stall a target — at the cost of fouling myself i
 **And** the region is a signal-registry row observed like a mine ring (painted and sighted, its own glyph on the water and on the card, shown to Eric first); invariants extended; `PROTOCOL_VERSION` bumps; bots fire it by the 8-20 rule; both trackers stamped.
 
 ### Story 9.5: Ramming and Contact Damage *(inserted 2026-10-11 — proposal §4.4)*
+*(BUILT 2026-10-13 — cycle 182, 0.18.47, PV 78 → 79, epic-9 amendments 73–84; Eric's spec-step rulings: dials as accepted, the predictor pushes sighted contacts, damage cut and shield apply, kill feed unchanged, bot ram live [DRAFT], drones avoid only, visual judged on staging, no run, land hit plus grind, wrecks solid; the review-gate ruling (83): a hit latches per charged contact and pressing bleeds; `spec-9-5-ramming-and-contact-damage.md`.)*
 
 As a captain,
 I want hull contact to hurt — a full-speed ram as a last-ditch way to sink, a grind as a slow bleed, a grounding as a mistake that costs,

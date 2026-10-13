@@ -2136,6 +2136,44 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     expect(trigger).toHaveBeenCalledWith(35);
   });
 
+  // Story 9.5 (amendments 79 + 83): while the own hull bleeds against a hull
+  // or the coast, the server's small windowed grind `dmg` is carried by the
+  // grind tone — no thud, no shake. A big `dmg` (a ram hit, a shell) still
+  // slams; with the flag clear a small `dmg` thuds as ever.
+  it('CONTACT BLEED: a small dmg while bleeding plays nothing; a big one still slams', () => {
+    const { sink, play, trigger, deps } = setupWater();
+    deps.state.contactBleeding = true;
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 3 }], {}));
+    expect(play).not.toHaveBeenCalled();
+    expect(trigger).not.toHaveBeenCalled();
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 60 }], {}));
+    expect(play).toHaveBeenCalledWith('damage');
+    expect(trigger).toHaveBeenCalledWith(60);
+  });
+
+  it('CONTACT BLEED: a big dmg beside a bleed sums only the events that count', () => {
+    const { sink, trigger, deps } = setupWater();
+    deps.state.contactBleeding = true;
+    sink.handler(
+      victimFrame(
+        [
+          { k: 'dmg', id: 'me', amount: 3 },
+          { k: 'dmg', id: 'me', amount: 60 },
+        ],
+        {},
+      ),
+    );
+    expect(trigger).toHaveBeenCalledWith(60);
+  });
+
+  it('CONTACT BLEED: with the flag clear a 3-hp dmg thuds as today', () => {
+    const { sink, play, trigger, deps } = setupWater();
+    deps.state.contactBleeding = false;
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 3 }], {}));
+    expect(play).toHaveBeenCalledWith('damage');
+    expect(trigger).toHaveBeenCalledWith(3);
+  });
+
   it('a lone DoT flush still reads as BURN', () => {
     const { sink, play, trigger } = setupWater();
     sink.handler(victimFrame(dmg, {}, { burnZones: burning('foe') }));

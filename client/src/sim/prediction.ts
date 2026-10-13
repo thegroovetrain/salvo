@@ -71,6 +71,18 @@
 // or replaying it across a reconcile yields the same speed; and it is applied
 // AFTER stepShip, so this tick's integrated position is untouched and the cap
 // only shapes the next tick's start speed — exactly as on the server.
+//
+// SOLID HULLS (Story 9.5, epic-9 amendment 74): every tick — live AND replayed
+// — runs the HULL pass (sim/contactPass.ts: the shared `resolveHullContacts`
+// over the own hull + the sighted contacts main.ts hands over each render
+// frame via setContacts) BEFORE the land pass, the server's own order. The
+// own mass is `effectiveStats().maxHp` (setOwnMass); a contact's is its class
+// base hp, because its upgrades are private — the share error is bounded by
+// the overlap depth and the reconcile folds it away. With no contacts held the
+// pass is skipped and every tick is byte-identical to the pre-9.5 one. The
+// live tick's own rows (`ownContacts`) and its land result (`lastLand`) feed
+// the render-only legibility layer (render/contactFx.ts); nothing here drives
+// the server's damage, which rides `dmg` as before.
 
 import {
   angleDiff,
@@ -87,16 +99,20 @@ import {
   CONFIG,
   HOOK_REGISTRY,
   SHIP_CLASS_IDS,
+  type ContactBody,
   type HookRegistry,
+  type HullContact,
   type InputMsg,
   type Island,
   type KinematicsBehavior,
   type Pose,
   type ShipConfig,
+  type ShipPoseResult,
   type ShipState,
   type Vec2,
 } from '@salvo/shared';
 import { lerp, lerpAngle } from '../util/math.js';
+import { HullContactPass } from './contactPass.js';
 
 /** Collision inputs the predictor shares with the server sim (radius + rocks). */
 export interface CollisionMap {
@@ -180,6 +196,17 @@ interface PendingInput {
    *  a replay reproduces exactly the per-tick decisions the original local
    *  ticks made (self-consistent by construction — never one frozen "now"). */
   t: number;
+}
+
+/** The live tick's land contact, for the legibility layer (render/contactFx). */
+export interface LandContact {
+  /** The hull touched land this tick (resolveShipPose's `contact`). */
+  contact: boolean;
+  /** 0 grazing … 1 dead-on (resolveShipPose's `headOn`). */
+  headOn: number;
+  /** u/s — |speed| BEFORE the grounding damp (the strike speed the server
+   *  measures the land hit on, × headOn). */
+  speed: number;
 }
 
 /** What the renderer draws: predicted pose + decaying visual error. */
@@ -279,6 +306,11 @@ export class Predictor {
    */
   private behaviors: readonly KinematicsBehavior[] = [];
 
+  /** The hull pass (Story 9.5) — contacts, their per-pass restore, own mass/id. */
+  private readonly hull = new HullContactPass();
+  private readonly ownRows: HullContact[] = [];
+  private readonly land: LandContact = { contact: false, headOn: 0, speed: 0 };
+
   constructor(
     private readonly map: CollisionMap,
     private kin: ShipConfig = CONFIG.shipClasses.torpedoBoat.kinematics,
@@ -287,7 +319,11 @@ export class Predictor {
     /** Hook registry the kinematics fold runs against — injectable for tests
      *  (parity suites), the empty shared HOOK_REGISTRY in production. */
     private readonly hookRegistry: HookRegistry = HOOK_REGISTRY,
-  ) {}
+  ) {
+    // The seeded class's base hull until applyOwnStats calls setOwnMass with
+    // the effectiveStats fold (the default kinematics are the torpedo boat's).
+    this.hull.ownMass = CONFIG.shipClasses.torpedoBoat.hp;
+  }
 
   /**
    * Swap in a ship class's kinematics + silhouette polygon and re-initialize.
@@ -326,6 +362,37 @@ export class Predictor {
    */
   setBoons(behaviors: readonly KinematicsBehavior[]): void {
     this.behaviors = behaviors;
+  }
+
+  /**
+   * The sighted contacts the hull pass pushes against (Story 9.5) — rebuilt by
+   * main.ts every render frame from the poses the renderer draws. Held by
+   * reference; their poses are snapshotted here and restored before every
+   * pass, so the resolver's push on a contact never accumulates across the
+   * ticks of one reconcile replay. An empty list turns the pass off.
+   */
+  setContacts(bodies: readonly ContactBody[]): void {
+    this.hull.set(bodies);
+  }
+
+  /** The own hull's mass for the hull pass: `effectiveStats().maxHp`. */
+  setOwnMass(maxHp: number): void {
+    this.hull.ownMass = maxHp;
+  }
+
+  /** The own hull's id (the session id) — orients the hull-pass pair rows. */
+  setOwnId(id: string): void {
+    this.hull.ownId = id;
+  }
+
+  /** The hull-pass rows involving the own hull from the LAST live tick. */
+  get ownContacts(): readonly HullContact[] {
+    return this.ownRows;
+  }
+
+  /** The LAST live tick's land contact (render/contactFx reads it). */
+  get lastLand(): Readonly<LandContact> {
+    return this.land;
   }
 
   /**
@@ -422,6 +489,11 @@ export class Predictor {
     // deadline behind would cap the NEXT life's speed to zero for the rest of
     // an already-expired window.
     this.authSinkingUntil = 0;
+    // ...and the legibility layer's last read: the new life touches nothing.
+    this.ownRows.length = 0;
+    this.land.contact = false;
+    this.land.headOn = 0;
+    this.land.speed = 0;
     // ...and for the wake draft: the new life starts on open water as far as
     // the predictor knows, and the very next frame re-seeds the lift (or its
     // absence) before the first replay.
@@ -461,7 +533,12 @@ export class Predictor {
     // sinkingDecel) — the same object stepShip just used, so a live boost
     // raises the ceiling the ritardando scales rather than being refused.
     this.sinkingDecel(this.curr, kin, tickT);
-    this.resolveCollisions(this.curr, this.prev);
+    this.hullPass(this.curr, this.ownRows);
+    const speed = Math.abs(this.curr.speed);
+    const res = this.resolveCollisions(this.curr, this.prev);
+    this.land.contact = res.contact;
+    this.land.headOn = res.headOn;
+    this.land.speed = speed;
   }
 
   /**
@@ -556,6 +633,7 @@ export class Predictor {
       const kin = this.tickKin(p.t, p.seq);
       stepShip(s, { throttle: p.throttle, rudder: p.rudder }, kin, this.dt);
       this.sinkingDecel(s, kin, p.t);
+      this.hullPass(s, null);
       this.resolveCollisions(s, prev);
     }
     return s;
@@ -724,7 +802,7 @@ export class Predictor {
    * ship.stats.kinematics.maxSpeed; deliberately NOT the per-tick
    * boosted/slowed value, so the two sides read the identical number).
    */
-  private resolveCollisions(s: ShipState, prev: Pose): void {
+  private resolveCollisions(s: ShipState, prev: Pose): ShipPoseResult {
     const res = resolveShipPose(
       prev,
       s,
@@ -734,5 +812,22 @@ export class Predictor {
       this.scratch,
     );
     applyGroundingDamp(s, res, this.kin.maxSpeed);
+    return res;
+  }
+
+  /**
+   * The HULL pass for one tick (Story 9.5) — the shared resolver over the own
+   * hull + the held contacts, BEFORE resolveCollisions (the server's order:
+   * hull overlap is the soft constraint, land the hard one, so a hull shoved
+   * toward a coast resolves against that coast the same tick). `ownOut` is the
+   * live tick's row sink; a replayed tick passes null. No contacts → no pass,
+   * and the tick is byte-identical to the pre-9.5 one.
+   */
+  private hullPass(s: ShipState, ownOut: HullContact[] | null): void {
+    if (!this.hull.active) {
+      if (ownOut !== null) ownOut.length = 0;
+      return;
+    }
+    this.hull.run(s, this.localPoly, ownOut);
   }
 }

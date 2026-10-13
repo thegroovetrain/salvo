@@ -55,8 +55,11 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
       'decisionCadenceMs',
       'disengageHpFrac',
       'healHpFrac',
+      'hullBumperU', // Story 9.5 review gate: the target / fleet-mate bumper clearance [DRAFT] (a DELIBERATE edit to this pin)
+      'hullLookaheadU', // Story 9.5: the hull-avoidance lookahead [DRAFT] (a DELIBERATE edit to this pin)
       'preparedMineReserve', // cycle 111: the prepared-lay headroom (a DELIBERATE edit to this pin)
       'profiles',
+      'ramReachU', // Story 9.5: the ram trigger's reach [DRAFT] (a DELIBERATE edit to this pin)
       'reactionMs',
       'stuckMs',
       'unbeachAsternMaxMs',

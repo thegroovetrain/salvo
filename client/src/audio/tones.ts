@@ -50,7 +50,9 @@ export type ToneId =
   | 'matchStart'
   | 'stormWarn'
   | 'telegraphUp'
-  | 'telegraphDown';
+  | 'telegraphDown'
+  // --- HULL CONTACT (Story 9.5, epic-9 amendment 79) --------------------------
+  | 'grind';
 
 export interface ToneSpec {
   freqStart: number; // Hz
@@ -363,6 +365,26 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // scale is audibly distinct without reading as a "real" cue.
   telegraphUp: { freqStart: 1200, freqMid: 1200, freqEnd: 1200, duration: 0.04, volume: 0.28, type: 'square' },
   telegraphDown: { freqStart: 800, freqMid: 800, freqEnd: 800, duration: 0.04, volume: 0.28, type: 'square' },
+  // --- HULL CONTACT (Story 9.5, epic-9 amendment 79) --------------------------
+  // GRIND: the own hull SLIDING against another hull or a coast. The table has
+  // no loops, so render/contactFx.ts retriggers this short scrape every
+  // `CLIENT_CONFIG.contactFx.grindRetriggerMs` while the contact slides, its
+  // gain scaled by the sliding speed — each scrape spans about one retrigger,
+  // so the run reads as one continuous rasp. The catalog's lowest, flattest
+  // voice: a sawtooth sagging barely a fifth under a noise layer, far below
+  // `stormWarn`'s growl (160→70, a long fall) and `impact`'s collapse, and it
+  // never arrives alone — the hulls are visibly pressed together on the water.
+  // Peak level is the feel knob `grindGainMax`. UNRATIFIED DRAFT — Eric judges
+  // it on staging (amendment 79).
+  grind: {
+    freqStart: 78,
+    freqMid: 70,
+    freqEnd: 64,
+    duration: 0.12,
+    volume: CLIENT_CONFIG.contactFx.grindGainMax,
+    type: 'sawtooth',
+    noise: true,
+  },
 };
 
 /** Pure: the telegraph-click tone for a step direction (+1 ahead / -1 astern). */

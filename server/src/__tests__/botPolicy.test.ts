@@ -48,6 +48,7 @@ import {
   type Rng,
   type SlotItemId,
   type ZoneRing,
+  contactHitDamage,
 } from '@salvo/shared';
 import { circleIsland } from './islandFixture.js';
 import type { PerceptionView } from '../game/perception.js';
@@ -64,6 +65,7 @@ import {
 } from '../game/ai/profiles.js';
 import {
   choosePosture,
+  closingSpeed,
   foldView,
   hasPersistence,
   isActionable,
@@ -156,6 +158,7 @@ function situation(over: Partial<BotSituation> = {}): BotSituation {
     // 0 here means every test that does not name a speed reads the rated turn
     // radius — the figure the class table publishes.
     speed: 0,
+    heading: 0, // bow along +x — at every fixture's target
     profile,
     ring: WIDE_RING,
     islands: [],
@@ -425,9 +428,27 @@ describe('ai/utility — the fold works on the identity-free radar wire', () => 
     foldView(m, view(), 1000 + CONFIG.bots.contactMemoryMs + 1);
     expect(tracksOf(m).length).toBe(0);
 
+    // A `sunk` marks the track a WRECK (Story 9.5 review gate): dead, never
+    // live, scoring nothing — and kept, because the sinking hull keeps riding
+    // `contacts` for its whole sinking window and a deleted track would be
+    // re-raised live by the very next fold.
     foldView(m, view({ contacts: [contact('e2', 50, 0)] }), 5000);
-    foldView(m, view({ events: [{ k: 'sunk', id: 'e2' }] }), 5050);
-    expect(tracksOf(m).length).toBe(0);
+    foldView(m, view({ events: [{ k: 'sunk', id: 'e2' }], contacts: [contact('e2', 50, 0)] }), 5050);
+    const wreck = onlyTrack(m);
+    expect(wreck.sunk).toBe(true);
+    expect(wreck.live).toBe(false);
+    foldView(m, view({ contacts: [contact('e2', 52, 0)] }), 5100); // still on the water, still dead
+    expect(onlyTrack(m).live).toBe(false);
+    expect(scoreTrack(onlyTrack(m), situation({ now: 5100 }), [])).toBe(0);
+    foldView(m, view(), 5100 + CONFIG.bots.contactMemoryMs + 1);
+    expect(tracksOf(m).length).toBe(0); // memory ages a wreck out like any plot
+  });
+
+  it('a `sunk` for a hull never tracked before still marks the contact folded in the same view dead', () => {
+    const m = mind();
+    foldView(m, view({ events: [{ k: 'sunk', id: 'e9' }], contacts: [contact('e9', 50, 0)] }), 5000);
+    expect(onlyTrack(m).sunk).toBe(true);
+    expect(onlyTrack(m).live).toBe(false);
   });
 });
 
@@ -499,6 +520,7 @@ describe('ai/utility — LAND IN THE WAY is scored and postured on', () => {
       fleet: false,
       firstSeenAt: 0,
       hits: 0,
+      sunk: false,
       vx: null,
       vy: null,
       vAt: -1,
@@ -662,6 +684,114 @@ describe('ai/utility — profile-weighted target selection', () => {
 });
 
 // --- posture ----------------------------------------------------------------
+
+describe('ai/utility — THE RAM TRIGGER [DRAFT] (Story 9.5, amendment 77)', () => {
+  const NOW = 20000;
+  const TB = stats('torpedoBoat');
+  const raider = profileOf('raider');
+  /** hp — just under the profile's disengage fraction: a BROKEN hull. */
+  const broken = TB.maxHp * raider.disengageHpFrac - 1;
+
+  /** A live SIGHTED target of class `cls` at `x`, heading `heading` at
+   *  `speed`, with `hits` Hit Calls already credited to its track. */
+  function sighted(cls: HullId, x: number, hits = 0, speed = 0, heading = Math.PI): BotTrack {
+    const m = mind('raider');
+    foldView(m, view({ contacts: [{ id: 'e1', x, y: 0, heading, speed, cls }] }), 1000);
+    const t = onlyTrack(m);
+    t.hits = hits;
+    t.seenAt = NOW; // seen THIS tick: the plot is its position, no dead-reckoning
+    return t;
+  }
+
+  function sit(over: Partial<BotSituation> = {}): BotSituation {
+    return situation({ now: NOW, profile: raider, stats: TB, hp: broken, maxHp: TB.maxHp, speed: TB.kinematics.maxSpeed, ...over });
+  }
+
+  it('fires in the ruled state: broken hull, sighted target in reach, predicted hit >= the estimated remaining hp', () => {
+    // A thrice-hit target reads as CRIPPLED (0 remaining) to the bot's own
+    // estimate, so any strike above the allowance is judged to sink it.
+    const crippled = sighted('droneMedium', 150, 3);
+    expect(CONFIG.bots.ramReachU).toBeGreaterThan(150);
+    expect(contactHitDamage(TB.maxHp, hullEnvelope('droneMedium').hp, TB.kinematics.maxSpeed, CONFIG.ram).b).toBeGreaterThan(0);
+    expect(choosePosture(sit(), crippled)).toBe('ram');
+    // ...and a FRESH target whose base hp the predicted hit covers outright —
+    // the target's own approach speed adds to the closing speed.
+    const fresh = sighted('droneSmall', 150, 0, 20, Math.PI);
+    const vn = TB.kinematics.maxSpeed + 20;
+    expect(contactHitDamage(TB.maxHp, hullEnvelope('droneSmall').hp, vn, CONFIG.ram).b).toBeGreaterThanOrEqual(hullEnvelope('droneSmall').hp);
+    expect(choosePosture(sit(), fresh)).toBe('ram');
+  });
+
+  it('holds with a healthy target the hit cannot sink: the broken hull disengages instead', () => {
+    const healthy = sighted('battleship', 150, 0);
+    const hit = contactHitDamage(TB.maxHp, hullEnvelope('battleship').hp, TB.kinematics.maxSpeed, CONFIG.ram).b;
+    expect(hit).toBeLessThan(hullEnvelope('battleship').hp);
+    expect(choosePosture(sit(), healthy)).toBe('disengage');
+  });
+
+  it('holds above the disengage fraction — a ram is a broken hull\'s last ditch, never an opener', () => {
+    const crippled = sighted('droneMedium', 150, 3);
+    expect(choosePosture(sit({ hp: TB.maxHp }), crippled)).not.toBe('ram');
+    expect(choosePosture(sit({ hp: TB.maxHp }), crippled)).not.toBe('disengage');
+  });
+
+  it('holds beyond ramReachU, for an unsighted plot, and for a plot with no class', () => {
+    expect(choosePosture(sit(), sighted('droneMedium', CONFIG.bots.ramReachU + 50, 3))).toBe('disengage');
+    const lost = sighted('droneMedium', 150, 3);
+    lost.live = false;
+    expect(choosePosture(sit(), lost)).toBe('disengage');
+    const anon = sighted('droneMedium', 150, 3);
+    anon.cls = null;
+    expect(choosePosture(sit(), anon)).toBe('disengage');
+  });
+
+  it('a strike under the allowance never triggers it, whatever the estimate says', () => {
+    const crippled = sighted('droneMedium', 150, 3);
+    expect(choosePosture(sit({ speed: CONFIG.ram.allowanceU }), crippled)).toBe('disengage');
+  });
+
+  it('the closing speed is PROJECTED on the bearing to the target (review gate): sternway and a bow pointed away close nothing', () => {
+    const max = TB.kinematics.maxSpeed;
+    const still = sighted('droneMedium', 150, 3);
+    // Bow on the target at full speed: the whole speed closes.
+    expect(closingSpeed(sit(), still, 150, 0, 150)).toBeCloseTo(max, 9);
+    // Pointed away, or abeam: nothing of the bot's own speed closes.
+    expect(closingSpeed(sit({ heading: Math.PI }), still, 150, 0, 150)).toBe(0);
+    expect(closingSpeed(sit({ heading: Math.PI / 2 }), still, 150, 0, 150)).toBeCloseTo(0, 9);
+    // Making sternway toward it: speed < 0 projects negative — nothing.
+    expect(closingSpeed(sit({ speed: -10 }), still, 150, 0, 150)).toBe(0);
+    // A target running away takes its speed off; one coming on adds it.
+    const fleeing = sighted('droneMedium', 150, 3, 20, 0);
+    expect(closingSpeed(sit(), fleeing, 150, 0, 150)).toBeCloseTo(max - 20, 9);
+    const coming = sighted('droneMedium', 150, 3, 20, Math.PI);
+    expect(closingSpeed(sit(), coming, 150, 0, 150)).toBeCloseTo(max + 20, 9);
+    // A target outrunning the bot: floored at 0.
+    const gone = sighted('droneMedium', 150, 3, max + 5, 0);
+    expect(closingSpeed(sit(), gone, 150, 0, 150)).toBe(0);
+    // ...and the trigger follows the projection: a broken hull pointed away
+    // from a crippled target does not ram it, a sternway hull neither.
+    expect(choosePosture(sit({ heading: Math.PI }), still)).toBe('disengage');
+    expect(choosePosture(sit({ speed: -10 }), still)).toBe('disengage');
+  });
+
+  it('a WRECK is never a ram target: a sunk track reads dead to the trigger', () => {
+    const crippled = sighted('droneMedium', 150, 3);
+    expect(choosePosture(sit(), crippled)).toBe('ram');
+    const m = mind('raider');
+    foldView(m, view({ contacts: [{ id: 'e1', x: 150, y: 0, heading: Math.PI, speed: 0, cls: 'droneMedium' }] }), 1000);
+    foldView(m, view({ events: [{ k: 'sunk', id: 'e1' }], contacts: [{ id: 'e1', x: 150, y: 0, heading: Math.PI, speed: 0, cls: 'droneMedium' }] }), 1050);
+    const wreck = onlyTrack(m);
+    wreck.hits = 3;
+    wreck.seenAt = NOW;
+    expect(wreck.sunk).toBe(true);
+    expect(choosePosture(sit(), wreck)).toBe('disengage');
+  });
+
+  it('the storm still outranks it', () => {
+    const crippled = sighted('droneMedium', 150, 3);
+    expect(choosePosture(sit({ ring: { cx: 5000, cy: 0, r: 100 } }), crippled)).toBe('ringRun');
+  });
+});
 
 describe('ai/utility — posture, and the dominance of ring escape', () => {
   const NOW = 20000;
@@ -1261,7 +1391,7 @@ describe('ai/utility — track persistence (built as the chaff counter; the jamm
   function anonAt(now: number, firstSeenAt: number): BotTrack {
     return {
       id: null, x: 400, y: 0, heading: null, speed: null, seenAt: now,
-      live: false, cls: null, fleet: false, firstSeenAt, hits: 0,
+      live: false, sunk: false, cls: null, fleet: false, firstSeenAt, hits: 0,
       vx: null, vy: null, vAt: -1, vSrc: null, paintX: 0, paintY: 0, paintAt: -1, missSweptAt: -1,
     };
   }

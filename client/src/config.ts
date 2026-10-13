@@ -2404,6 +2404,55 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * HULL CONTACT legibility (render/contactFx.ts + the `grind` tone, Story 9.5,
+   * epic-9 amendment 79) — FEEL ONLY: client knobs judged on staging; Eric may
+   * re-tune them. The server reads none of them and the damage never depends
+   * on them (it rides the server's `dmg`, with the existing shake and `damage`
+   * thud). A STRIKE (closing speed over `CONFIG.ram.allowanceU`, on the edge a
+   * pair first touches — or the own hull first touches land) throws a brief
+   * spark burst at the contact point in both hulls' colors (land: own color +
+   * the shore stroke); a BLEEDING contact (a hull scrape or sustained press —
+   * `vt + vn`, amendment 83 — or a coast slide; sim/contactBleed.ts) plays a
+   * short retriggered `grind` scrape, and while it bleeds the small windowed
+   * contact `dmg` plays no thud and no shake (the grind is the cue). Sparks are motion (none at motion off); the sound is not.
+   */
+  contactFx: {
+    /** Particles per strike burst (alternating the two colors). */
+    sparkCount: 10,
+    /** ms — one spark's life (alpha fades linearly to 0). */
+    sparkLifeMs: 450,
+    /** u/s — a spark's mean outward speed. */
+    sparkSpeedU: 60,
+    /** ± fraction of `sparkSpeedU` a spark's speed spreads by. */
+    sparkSpeedSpread: 0.5,
+    /** px-ish — one spark's radius. */
+    sparkSizePx: 2,
+    /** u/s — bleed speed (hull row `vt + vn`, coast slide) above which a
+     *  contact grinds and counts as bleeding. */
+    grindMinVt: 8,
+    /** Peak gain of the grind scrape (the tone's spec volume). */
+    grindGainMax: 0.35,
+    /** u/s — bleed speed at which the grind reaches `grindGainMax` (the
+     *  calibration scrape, a speedboat sliding past at 45). */
+    grindFullVt: 45,
+    /** ms — the scrape is retriggered this often while grinding (the tone
+     *  table has no loops; one scrape spans about one retrigger). */
+    grindRetriggerMs: 120,
+    /** ms — grinding stops this long after the last frame that bled. */
+    grindReleaseMs: 150,
+    /** hp — while the own hull bleeds, an own `dmg` event UNDER this plays no
+     *  thud and no shake: the server's 500 ms windowed contact bleed never
+     *  exceeds ~5 hp, a ram hit is tens. A big `dmg` during a scrape (a ram
+     *  hit, a shell) still thuds and shakes. */
+    bleedThudMaxHp: 8,
+    /** ms — the own hull still counts as bleeding this long after the last
+     *  bleeding frame: the server's window flush for a scrape we just left
+     *  lands up to one 500 ms window (plus latency) later and must not thud.
+     *  Tracks the server's window as net/roomBindings.ts BURN_GRACE_MS does. */
+    bleedGraceMs: 600,
+  },
+
+  /**
    * MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts +
    * render/cloudPaint.ts, Story 9.3) — FEEL ONLY: knobs Eric may re-tune on
    * staging; the server reads none of them. Since 2026-10-12 ("smoke is

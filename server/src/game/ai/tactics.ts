@@ -100,6 +100,7 @@ import {
   CONFIG,
   angleDiff,
   bearing,
+  hullBumper,
   nearestCoastPoint,
   wrapAngle,
   type EffectiveStats,
@@ -112,7 +113,7 @@ import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort } from './ty
 import { engagementBand, profileOf, type BotProfile } from './profiles.js';
 import { chooseSpend, type BotSpendState } from './spending.js';
 import { slotAppetite, tacticFor } from './tacticRegistry.js';
-import type { Shot, TacticContext } from './tacticKit.js';
+import { leadPoint, type Shot, type TacticContext } from './tacticKit.js';
 import { noteTorpedoes } from './torpedoThreat.js';
 import {
   choosePosture,
@@ -193,6 +194,7 @@ export function situationOf(self: BotSelf, mind: BotMind, port: BotWorldPort): B
     maxHp: self.stats.maxHp,
     stats: self.stats,
     speed: self.state.speed,
+    heading: self.state.heading,
     profile: profileRowOf(mind),
     ring: port.zoneLiveRing,
     islands: port.map.islands,
@@ -592,7 +594,18 @@ function postureBearing(
   if (target === null || posture === 'reposition') return patrolBearing(self, sit);
   if (posture === 'disengage') return wrapAngle(bearing(pos, plotAt(sit, target)) + Math.PI);
   if (posture === 'pursue') return bearing(pos, approachPoint(sit.profile, target, sit));
+  if (posture === 'ram') return bearing(pos, ramPoint(self, sit, target));
   return bandBearing(self, sit, target);
+}
+
+/** THE RAM POINT (Story 9.5, amendment 77): the lead intercept of the target's
+ *  plot at the speed the bot will actually close at — the greater of its
+ *  rated max and its live speed (the ringLookaheadU reading: a ram runs full
+ *  ahead, and a boosted hull closes faster than its rating). The same solve
+ *  the guns lead with; a course-less plot is simply its point. */
+function ramPoint(self: BotSelf, sit: BotSituation, target: BotTrack): Vec2 {
+  const speed = Math.max(sit.stats.kinematics.maxSpeed, Math.max(0, self.state.speed)); // sternway closes nothing
+  return leadPoint(sit, target, speed);
 }
 
 /**
@@ -716,7 +729,8 @@ function desiredBearing(
   return ringClamped(pos, sit, postureBearing(self, sit, target, posture));
 }
 
-/** Full ahead everywhere except holding a band (station-keeping). */
+/** Full ahead everywhere except holding a band (station-keeping) — a `ram`
+ *  (Story 9.5) is full ahead by construction. */
 function throttleFor(posture: BotPosture): number {
   return posture === 'engage' || posture === 'farm' ? CRUISE_THROTTLE : 1;
 }
@@ -779,6 +793,36 @@ function avoidMines(self: BotSelf, mind: BotMind): number {
   return bias;
 }
 
+/**
+ * HULL AVOIDANCE (Story 9.5, amendment 26): the island kernel summed over
+ * every LIVE remembered contact — a hull the bot can see right now, so its
+ * position is this tick's — within `CONFIG.bots.hullLookaheadU` [DRAFT], the
+ * island lookahead plus a hull length. Solid hulls cost hp to touch, so a
+ * bot rounds a hull ahead exactly as it rounds a headland.
+ *
+ * THE TARGET IS NOT A STRANGER (review gate, 2026-10-13): the bot's own
+ * target (`mind.targetKey`) is avoided only inside the BUMPER — own
+ * half-length + its half-length + `CONFIG.bots.hullBumperU` — because every
+ * knife-range engagement band sits inside the 150 u probe, and a duelist
+ * pursuing its mark 120 u ahead was being steered away from it. Under the
+ * `ram` posture the target is not avoided at all: the ONE hull a ramming bot
+ * must not steer around (islands, mines and the boundary stay live even then).
+ */
+function avoidHulls(self: BotSelf, mind: BotMind, posture: BotPosture): number {
+  const { x, y, heading } = self.state;
+  const fx = Math.cos(heading);
+  const fy = Math.sin(heading);
+  let bias = 0;
+  for (const [key, t] of mind.contacts) {
+    if (!t.live) continue;
+    const isTarget = key === mind.targetKey;
+    if (isTarget && posture === 'ram') continue;
+    const reach = isTarget ? hullBumper(self.hullId, t.cls) : CONFIG.bots.hullLookaheadU;
+    bias += pointBias(t.x, t.y, x, y, fx, fy, reach);
+  }
+  return bias;
+}
+
 /** Near the map edge, steer back toward the middle. */
 function boundaryBias(self: BotSelf, port: BotWorldPort): number {
   const pos = self.state;
@@ -829,7 +873,9 @@ function helmFor(
   }
   const want = desiredBearing(self, mind, sit, target, posture, stage === 'hold');
   const track = clampUnit(angleDiff(self.state.heading, want) * RUDDER_GAIN);
-  const avoid = avoidIslands(self, port) + avoidMines(self, mind) + boundaryBias(self, port);
+  const avoid =
+    avoidIslands(self, port) + avoidMines(self, mind) + boundaryBias(self, port)
+    + avoidHulls(self, mind, posture);
   const helmLeft = Math.max(0, 1 - Math.abs(avoid));
   return { throttle: throttleFor(posture), rudder: clampUnit(track * helmLeft + avoid) };
 }

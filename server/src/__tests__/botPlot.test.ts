@@ -79,6 +79,7 @@ function anon(over: Partial<RememberedContact> = {}): RememberedContact {
     speed: null,
     seenAt: NOW,
     live: false,
+    sunk: false,
     cls: null,
     fleet: false,
     firstSeenAt: NOW - 10000,

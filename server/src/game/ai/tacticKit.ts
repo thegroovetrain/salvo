@@ -205,7 +205,7 @@ const LEAD_ITERATIONS = 3;
  * so its last-known point IS the aim point. A live sighting was refreshed
  * this tick, so its prediction is its position and the solve is the old one.
  */
-function leadPoint(sit: BotSituation, t: BotTrack, speed: number): Vec2 {
+export function leadPoint(sit: BotSituation, t: BotTrack, speed: number): Vec2 {
   const base = plotAt(sit, t);
   const v = trackVelocity(t);
   if (v === null) return base;

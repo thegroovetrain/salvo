@@ -130,6 +130,8 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // reads — still no mask. 77 -> 78 (Story 9.4) is `FrameMsg.foulZones`
     // (`FoulZoneView`), `OwnShip.fouledUntil` replacing `dazzledUntil` and
     // `CONFIG.foulingShell` with its catalog line — a foul zone carries no mask.
-    expect(PROTOCOL_VERSION).toBe(78);
+    // 78 -> 79 (Story 9.5) is the client reading CONFIG.ram and running the
+    // shared hull-contact resolver in prediction — no wire shape, no mask.
+    expect(PROTOCOL_VERSION).toBe(79);
   });
 });
