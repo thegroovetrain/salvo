@@ -115,7 +115,7 @@ import type { Island } from '../types.js';
 import type { Vec2 } from '../math/vec.js';
 import type { ShipState } from './ship.js';
 import { segCircleHit } from '../math/geom.js';
-import { coastNormal, islandDistance } from './island.js';
+import { coastNormal, islandDistance, type Solid } from './island.js';
 import {
   pointInPolygon,
   polygonFitLimit,
@@ -362,14 +362,15 @@ function pushClear(
 
 /**
  * Exact overlap test between the hull polygon translated by (ox, oy) and one
- * island's coastline: any hull edge crossing or starting inside the polygon
+ * SOLID's boundary (an island's coastline, or another hull's world silhouette
+ * — sim/contact.ts): any hull edge crossing or starting inside the polygon
  * (segPolygonHit at OVERLAP_PAD — its start-inside rule also catches "hull
  * wholly inside island", and each edge is broadphased on the bounding circle
- * first), or the island wholly inside the hull (one island vert,
+ * first), or the solid wholly inside the hull (one solid vert,
  * back-translated). The offset form lets pushOutOf probe candidate
  * translations allocation-free.
  */
-function hullOverlapsIsland(world: readonly Vec2[], ox: number, oy: number, isle: Island): boolean {
+export function polygonOverlapsSolid(world: readonly Vec2[], ox: number, oy: number, isle: Solid): boolean {
   for (let i = 0, j = world.length - 1; i < world.length; j = i++) {
     S0.x = world[j].x + ox;
     S0.y = world[j].y + oy;
@@ -392,7 +393,7 @@ function overlapsAny(
 ): boolean {
   for (const isle of islands) {
     if (Math.hypot(ship.x - isle.x, ship.y - isle.y) > polyMax + isle.r) continue;
-    if (hullOverlapsIsland(world, 0, 0, isle)) return true;
+    if (polygonOverlapsSolid(world, 0, 0, isle)) return true;
   }
   return false;
 }
@@ -472,7 +473,7 @@ function pushLimit(ship: ShipState, localPoly: readonly Vec2[]): number {
  * When no vertex is inside (a coastal spike through a hull side), the vertex
  * NEAREST the coast aims the push — still the feature being touched.
  */
-function escapeAim(world: readonly Vec2[], isle: Island): { nx: number; ny: number } {
+function escapeAim(world: readonly Vec2[], isle: Solid): { nx: number; ny: number } {
   let best = world[0];
   let bestDepth = Infinity;
   for (const p of world) {
@@ -526,13 +527,11 @@ function pushOutOf(
 ): boolean {
   const dc = Math.hypot(ship.x - isle.x, ship.y - isle.y);
   if (dc > polyMax + isle.r) return false; // bounding-circle broadphase
-  if (!hullOverlapsIsland(world, 0, 0, isle)) return false;
+  if (!polygonOverlapsSolid(world, 0, 0, isle)) return false;
 
-  const { nx, ny } = escapeAim(world, isle);
-  const cap = Math.min(isle.r + polyMax - dc, limit);
-  const clearing = escapeDepth(world, isle, nx, ny, cap);
-  if (clearing === null) return true; // wedged / over the tick limit: rollback ladder
-  const depth = clearing + PUSH_EPS;
+  const esc = solidEscape(world, isle, Math.min(isle.r + polyMax - dc, limit));
+  if (esc === null) return true; // wedged / over the tick limit: rollback ladder
+  const { nx, ny, depth } = esc;
   ACC.x += nx * depth;
   ACC.y += ny * depth;
   ship.x += nx * depth;
@@ -542,6 +541,32 @@ function pushOutOf(
     p.y += ny * depth;
   }
   return true;
+}
+
+/** The minimal escape from one solid: unit direction + padded distance. */
+export interface SolidEscape {
+  nx: number;
+  ny: number;
+  /** u — the minimal clearing translation along (nx, ny), plus PUSH_EPS. */
+  depth: number;
+}
+
+/**
+ * THE POLYGON PUSH-OUT CORE, shared by the island ladder (pushOutOf above)
+ * and hull-vs-hull contact (sim/contact.ts — Story 9.5, "never a second
+ * geometry implementation"). For a world polygon KNOWN to overlap `solid`:
+ * the direction is the escape normal at the deepest-penetrating vertex
+ * (escapeAim), the distance the minimal clearing translation along it within
+ * `cap` (escapeDepth) plus PUSH_EPS so the cleared pose reads strictly
+ * non-overlapping. Null when no translation within `cap` clears (the caller
+ * decides what failing to push means: the island ladder rolls back, a hull
+ * pair stays touching for a tick). Pure — moves nothing.
+ */
+export function solidEscape(world: readonly Vec2[], solid: Solid, cap: number): SolidEscape | null {
+  const { nx, ny } = escapeAim(world, solid);
+  const clearing = escapeDepth(world, solid, nx, ny, cap);
+  if (clearing === null) return null;
+  return { nx, ny, depth: clearing + PUSH_EPS };
 }
 
 /** First bracket step of the exponential clearing search (u) — comfortably
@@ -568,24 +593,24 @@ const ESCAPE_STEP = 0.5;
  */
 function escapeDepth(
   world: readonly Vec2[],
-  isle: Island,
+  isle: Solid,
   nx: number,
   ny: number,
   cap: number,
 ): number | null {
   let lo = 0;
   let hi = ESCAPE_STEP;
-  while (hi < cap && hullOverlapsIsland(world, nx * hi, ny * hi, isle)) {
+  while (hi < cap && polygonOverlapsSolid(world, nx * hi, ny * hi, isle)) {
     lo = hi;
     hi *= 2;
   }
   if (hi >= cap) {
-    if (hullOverlapsIsland(world, nx * cap, ny * cap, isle)) return null;
+    if (polygonOverlapsSolid(world, nx * cap, ny * cap, isle)) return null;
     hi = cap;
   }
   while (hi - lo > DEPTH_TOL) {
     const mid = (lo + hi) / 2;
-    if (hullOverlapsIsland(world, nx * mid, ny * mid, isle)) lo = mid;
+    if (polygonOverlapsSolid(world, nx * mid, ny * mid, isle)) lo = mid;
     else hi = mid;
   }
   return hi;

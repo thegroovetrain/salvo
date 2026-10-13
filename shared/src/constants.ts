@@ -439,6 +439,20 @@ export const CONFIG = {
      */
     healHpFrac: 0.5,
     /**
+     * u — `[DRAFT]` hull-avoidance probe length for bots AND PvE drones (Story
+     * 9.5, Eric 2026-10-12, epic-9 amendments 26/78): every live remembered
+     * hull ahead within this reach biases the rudder away, the same kernel
+     * and sign law as the island probe. The island lookahead plus a hull
+     * length. A harness dial.
+     */
+    hullLookaheadU: 150,
+    /**
+     * u — `[DRAFT]` the bot RAM trigger's reach (Story 9.5, Eric 2026-10-12,
+     * epic-9 amendment 77): a bot below `disengageHpFrac` considers ramming
+     * only a sighted target within this range. A harness dial.
+     */
+    ramReachU: 400,
+    /**
      * Own-live-mine count below which a bot may lay a PREPARED mine — seeded
      * with NO target while the posture is safe (Eric ruling 2026-08-20,
      * cycle 111: the ML *"wants certain things… you just have to be lined up
@@ -1802,6 +1816,48 @@ export const CONFIG = {
     durationMs: 15000, // ms — how long the foul zone lasts
     slowFactor: 0.75, // × both speed caps while a hull's fouledUntil is in the future
     lingerMs: 5000, // ms — the stamp each tick inside is now + lingerMs
+  },
+
+  /**
+   * RAMMING AND CONTACT DAMAGE (Story 9.5). Hulls are solid, and touching
+   * costs hull by an ENERGY LAW (Eric ruling 2026-10-11, epic-9 amendment 25):
+   * for two hulls of mass mA and mB — mass is the hull's EFFECTIVE MAX HULL
+   * (`effectiveStats().maxHp`), so upgrades make a hull heavier — closing at
+   * vn along the contact normal, the strike energy is E = ½·μ·vn² with the
+   * reduced mass μ = mA·mB/(mA+mB), and it is SPLIT by the other hull's mass
+   * share: A takes floor(E · mB/(mA+mB) / energyPerHp), B the mirror. The
+   * HIT fires once per contact, only above `allowanceU` of closing speed.
+   * While two hulls stay pressed together they GRIND: each accrues
+   * `grindPerUnit` × the sliding speed × the other's mass share hp per
+   * second (fractions pool; whole hp applies). LAND is the infinite-mass
+   * limit softened by `landSoftness`: a fresh strike costs
+   * floor(½·m·vn²/energyPerHp · landSoftness), scraping costs
+   * `grindPerUnit` × the sliding speed × `landSoftness` per second, and a
+   * hull parked against land takes nothing (Eric 2026-10-12, amendment 81).
+   * A sinking wreck is solid: the live hull pays its share, the wreck takes
+   * nothing (Eric 2026-10-12, amendment 82). The dials themselves were
+   * accepted by Eric 2026-10-12 (amendment 73).
+   *
+   * CALIBRATION, from Eric's two sentences. `energyPerHp`: "a speedboat
+   * head-on a speedboat at 90 u/s closing costs each 200" — μ = 125,
+   * E = ½·125·90² = 506,250, half each = 253,125, / 200 = 1265.625.
+   * `grindPerUnit`: "a speedboat scraping a stopped speedboat at 45 u/s costs
+   * each 5 hp/s" — 5 = g·45·½, so g = 2/9. Eric was shown the ROUNDED prose
+   * values 1266 and 0.222; under the integer floor those read 199 / 49 /
+   * 4.995, so the literals below are the EXACT calibration (implementer
+   * reading 83(a)): the floored outcomes read exactly 200 / 200 (speedboats
+   * head-on at 90), 5 / 5 per second (the 45 u/s scrape), 50 (a speedboat
+   * into land at 45) and 215 / 153 (speedboat vs dreadnought at 80). Eric
+   * may veto on staging. `2 / 9` is written as an expression because it IS
+   * the exact calibration, not a derivation from another dial; otherwise
+   * never derive these in this object. Every number is a harness dial
+   * (`--tune ram.*`).
+   */
+  ram: {
+    energyPerHp: 1265.625, // strike energy (½·μ·vn²) per hp — exact calibration (prose: 1266)
+    grindPerUnit: 2 / 9, // hp/s per u/s of sliding speed, before the mass share — exact (prose: 0.222)
+    allowanceU: 5, // u/s — closing speed at or under which a strike costs nothing
+    landSoftness: 0.25, // × the infinite-mass land hit and grind
   },
 
   /**

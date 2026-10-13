@@ -3,6 +3,11 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  79 — Story 9.5 (Eric 2026-10-12, epic-9 amendments 73–82): the client
+ *  reads CONFIG.ram and runs the shared hull-contact resolver
+ *  (`resolveHullContacts`, sim/contact.ts) in prediction, so same-seed sims
+ *  differ at the hull-contact seam. No new wire field or event; perception
+ *  exception count stays SIX.
  *  78 — Story 9.4 (Eric 2026-10-11, epic-9 amendments 61–68): FLASH SHELLS →
  *  FOULING SHELL; `OwnShip.dazzledUntil` → `fouledUntil`; new
  *  `FrameMsg.foulZones` channel (`FoulZoneView` {id,x,y,r,until,by}, the burn
@@ -829,7 +834,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 78;
+export const PROTOCOL_VERSION = 79;
 
 // Tunables
 export * from './constants.js';
@@ -862,6 +867,7 @@ export * from './sim/sight.js';
 export * from './sim/offers.js';
 export * from './sim/draw.js';
 export * from './sim/collision.js';
+export * from './sim/contact.js';
 export * from './sim/silhouette.js';
 export * from './sim/radarRaster.js';
 export * from './sim/island.js';
