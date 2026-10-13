@@ -2294,8 +2294,9 @@ So that a long match keeps giving me something to buy.
 **Then** HULL POINTS is cap 5 at +50 max hp per rung, healing the gained 50 on grant (as today) — 500 / 550 / 600 at V; SPEED and TURNING are cap 5 at today's step (+12.5 u/s, +0.25 rad/s at V — Eric accepted keep-and-extend); the gun ladders, RADAR SWEEP and RELOAD are untouched
 **And** a new universal ladder PASSIVE HEALING (cap 5) folds through `effectiveStats()` into two derived stats — regen rate `0.01 + 0.002 × tier` of missing hp per second and out-of-combat wait `15 − 1 × tier` seconds — read by `tickRegen` on the server and by every client readout (the hard-coded "15 seconds" in `copy.ts` becomes derived); drones still never regen
 **And** the `shipClasses` max-hp pins and the NFR6 ceiling test are re-based knowingly with the ruling cited; the catalog and offer invariants cover the new line; its glyph is shown to Eric first; How-to-Play tables derive; `PROTOCOL_VERSION` bumps (catalog content); both trackers stamped.
+**And** *(added 2026-10-13, `sprint-change-proposal-2026-10-13.md`)* the catalog **id** `armor` is renamed to `hullPoints` along with the label — Story 9.7 ARMOR claims the `armor` id for the new damage-reduction ladder.
 
-### Story 9.7: Depth Charge *(OPTIONAL — Eric: "Maybe we can add the Depth Charge, idk."; was 9.4 until 2026-10-11)*
+### Story 9.7: Depth Charge *(CANCELLED 2026-10-13 — `sprint-change-proposal-2026-10-13.md`: replaced by ARMOR below. The `depthCharge` stub consumable line stays as epic-8 amendment 83 left it — Eric: "I may bring back the idea of more items later, so we can keep the stub." No key `7` is reserved. Was OPTIONAL — Eric: "Maybe we can add the Depth Charge, idk."; was 9.4 until 2026-10-11.)*
 
 As a captain,
 I want the DEPTH CHARGE to do something,
@@ -2307,6 +2308,27 @@ So that the stub line from amendment 83 becomes a card or is cut on purpose.
 **When** this story is opened
 **Then** the FIRST step is a design sitting with Eric via AskUserQuestion — what it does, how it is aimed, what it hits, and every number; nothing is built before he rules, and if he cuts the story the line stays a stub and the sprint tracker records `cancelled`
 **And** if built: `stub` is cleared, it takes key `7`, it gets a glyph Eric approved on sight, bots fire it by the 8-20 rule, drone drops can roll it, the How-to-Play table derives from the sim, `PROTOCOL_VERSION` bumps, and the no-friendly-fire rule holds (own charges never hurt own hull).
+
+### Story 9.7: Armor *(inserted 2026-10-13 — `sprint-change-proposal-2026-10-13.md` §4.1; lands after 9.6)*
+
+As a captain building a hull,
+I want a passive ARMOR ladder that shrinks every hit I take,
+So that a tanky build is a real choice beside more hull, and the Dreadnought's Shift stacks on top of it.
+
+**Eric (2026-10-13, verbatim):** *"a new passive Armor tiered upgrade that is distinct from Hull Points … Armor will start at 0 at Tier 0/- and build up to 5 at Tier V … The Damage Multiplier formula is K / (K + Armor). So all incoming damage gets multiplied by that damage multiplier. and that becomes the new damage … Setting K to 5, this means every 5 armor provides 100% more effective HP. The Dreadnought 'Damage Cut' will change to providing 5 temporary armor upon activation thus, it stacks."* Ruled the same day: every source but the storm; blows floor after the multiply, burn/grind ticks keep their fraction (the cut's rules, epic-8 amendments 100–102); DAMAGE CUT = +5 Armor for **10 s** on a 30 s cooldown.
+
+**Acceptance Criteria:**
+
+**Given** 9.6 has landed (HULL POINTS owns the old `armor` id's +hp effect under the id `hullPoints`) and the DAMAGE CUT is a flat ×0.5 for 8 s
+**When** the story lands
+**Then** ARMOR is a universal ship-upgrade ladder, cap 5, +1 Armor per rung (Tier 0 = 0 … Tier V = 5), in the common pool like SPEED and TURNING
+**And** `effectiveStats()` derives `armor` and `damageMultiplier = K / (K + armor)` with `K = CONFIG.armor.k = 5` (Armor 5 → ×0.5 = double effective hull); nothing outside it re-derives the multiplier
+**And** the one damage gate multiplies EVERY damage source but the storm — weapon blows, burn ticks, grind and contact — by the victim's multiplier BEFORE the shield absorbs; a whole-hp blow is floored after the multiply, a burn or grind tick keeps its exact fraction; a storm bite lands in full
+**And** DAMAGE CUT grants +5 Armor for 10 s on a 30 s cooldown (RELOAD-scaled): the gate reads `armor + 5` while the window is open, so Tier V under the cut is Armor 10 = ×1/3; the flat factor is deleted, not kept beside it
+**And** mass for ramming is still effective max hull (amendment 73); ARMOR adds no mass
+**And** the catalog and offer invariants cover the line; bots draw it by the 8-20 rule; its glyph is shown to Eric before commit; refit copy and the How-to-Play table derive from the sim; no HUD readout is added
+**And** the cut's gate tests re-base to "Armor 5 → ×0.5" with the ruling cited; `PROTOCOL_VERSION` bumps (catalog content); both trackers stamped
+**And** the no-friendly-fire rule is unaffected (Armor only ever reduces damage to the hull that holds it)
 
 ### Story 9.8: Test Purposefulness Audit *(was 9.5 until 2026-10-11)*
 

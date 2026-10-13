@@ -14,12 +14,12 @@ Make fights last long enough to be fights and make breaking off a real option. E
 - Story 9.4: Fouling Shell
 - Story 9.5: Ramming and Contact Damage
 - Story 9.6: Five Tiers and Passive Healing
-- Story 9.7: Depth Charge (OPTIONAL)
+- Story 9.7: Armor (replaces Depth Charge, 2026-10-13)
 - Story 9.8: Test Purposefulness Audit
 - Story 9.9: Smoke Flakes Fixed
 - Story 9.10: Harness and Ledger Hygiene
 - Story 9.11: How-to-Play and Record
-- Cancelled 2026-10-11 (do not re-propose): the original 9.2 Speed Boost and 9.3 Healing Buoy.
+- Cancelled 2026-10-11 (do not re-propose): the original 9.2 Speed Boost and 9.3 Healing Buoy. Cancelled 2026-10-13: the optional 9.7 Depth Charge (`sprint-change-proposal-2026-10-13.md`); its `depthCharge` stub consumable line stays, no key `7` is reserved.
 
 ## Requirements & Constraints
 
@@ -32,11 +32,12 @@ Make fights last long enough to be fights and make breaking off a real option. E
 
 ## Technical Decisions
 
-- **Loadout (9.2):** the four belt slots leave the loadout. Stock is a per-kind count with cap 5, and the cap (`atCap`) is the only consumable refusal. `beltFull` and the "SLOTS FULL" treatment are deleted. Drone drops can stock any legal kind, and bots read per-kind counts. Fixed default keys on both the Digit and Numpad rows: `1` HULL REPAIR, `2` SHIELD BLOCK, `3` MULTI-SPECTRAL COUNTERMEASURE, `4` FOULING SHELL, `5` DECOY BUOY, `6` SUPERCAVITATING TORPEDO, and `7` DEPTH CHARGE only if 9.7 builds it. Stub lines get no key. Refit digit picks cover `1`–`6`. Rebinding is out of scope.
+- **Loadout (9.2):** the four belt slots leave the loadout. Stock is a per-kind count with cap 5, and the cap (`atCap`) is the only consumable refusal. `beltFull` and the "SLOTS FULL" treatment are deleted. Drone drops can stock any legal kind, and bots read per-kind counts. Fixed default keys on both the Digit and Numpad rows: `1` HULL REPAIR, `2` SHIELD BLOCK, `3` MULTI-SPECTRAL COUNTERMEASURE, `4` FOULING SHELL, `5` DECOY BUOY, `6` SUPERCAVITATING TORPEDO. No key `7` (the Depth Charge was cancelled 2026-10-13). Stub lines get no key. Refit digit picks cover `1`–`6`. Rebinding is out of scope.
 - **Countermeasure (9.3):** SMOKE SCREEN and CHAFF retire, along with `fakes.ts`, the chaff ghosts and the in-smoke one-eighth sight rule. One press makes one cloud centered on the hull. Its pixels are a pure seeded function of `(id, now − t0)` in `shared/src/sim/`, derived from the existing `{id,x,y,t0}` wire shape, so nothing new leaves the server. A living pixel's footprint blocks sight lines for every observer, the owner included. It blocks radar for everyone except the owner. Pixels dying and spreading out is what makes the cloud fade. A bounding-circle check runs before the per-pixel segment test.
 - **Fouling Shell (9.4):** replaces FLASH SHELLS. `CONFIG.flashShells`, `applyFlash` and `dazzledUntil` are deleted on both sides. It fires exactly as FLASH did. Its burst leaves a stationary slow region that is a signal-registry row, observed like a mine ring. Slows from different sources stack multiplicatively through one `slowedKinematics` fold on both sides, and the predictor mirrors the region.
 - **Ramming (9.5):** hulls become solid. A new pure shared resolver separates overlapping hulls. It gets a slot in `STEP_ORDER` and runs the same way in the client predictor. Damage follows an energy law: a one-time hit on the normal component of the impact speed, a per-second grind on the sliding component, and land treated as infinite mass times a softness factor, with the quarter-speed cap kept. The lighter hull takes the larger share. Mass is `effectiveStats().maxHp`. All damage goes through `applyDamage`, floored to integers. The dials live in `CONFIG.ram`. A ram can sink PvE drones, and a ram that sinks credits the rammer. Buoys and mines cannot be rammed.
-- **Tiers (9.6):** ship upgrades run Tier 0 to V. HULL POINTS gives +50 max hp per rung and heals the 50 on grant. SPEED and TURNING gain a fifth rung at today's step. A new PASSIVE HEALING ladder (cap 5) folds through `effectiveStats()` into a regen rate and an out-of-combat wait. `tickRegen` and every client readout read those derived stats, including the copy that today hard-codes 15 seconds. Drones never regen. Max-hp and ceiling test pins are re-based on purpose, citing the ruling.
+- **Tiers (9.6):** ship upgrades run Tier 0 to V. HULL POINTS gives +50 max hp per rung and heals the 50 on grant. SPEED and TURNING gain a fifth rung at today's step. A new PASSIVE HEALING ladder (cap 5) folds through `effectiveStats()` into a regen rate and an out-of-combat wait. `tickRegen` and every client readout read those derived stats, including the copy that today hard-codes 15 seconds. Drones never regen. Max-hp and ceiling test pins are re-based on purpose, citing the ruling. The catalog **id** `armor` is renamed to `hullPoints` with the label, because 9.7 claims `armor`.
+- **Armor (9.7, 2026-10-13):** a universal ship-upgrade ladder, cap 5, +1 Armor per rung (Tier 0 = 0 … V = 5). `effectiveStats()` derives `damageMultiplier = K / (K + armor)`, `K = CONFIG.armor.k = 5` (Armor 5 = half damage = double effective hull). The one damage gate multiplies every source but the storm — blows, burns, grind, contact — before the shield; blows floor after the multiply, ticks keep their fraction (the cut's rules). DAMAGE CUT becomes +5 temporary Armor for 10 s on a 30 s cooldown (the flat ×0.5 is deleted); Tier V under the cut is Armor 10 = ×1/3. Mass for ramming stays effective max hull. No HUD readout. Supersedes the GDD's "Armor IS HP" (2026-09-04); the flat damage model stands.
 - **Invariants:** the perception chokepoint keeps exactly SIX exceptions. Each new event extends the invariant tests (oracle mirror plus non-vacuity counters, covering sight AND radar for the countermeasure) and never adds a seventh exception. `effectiveStats()` stays the only place derived stats come from. Map generation stays free of transcendentals.
 - **Bots:** they use new consumables by the 8-20 rule. All bots and drones gain hull avoidance. A `ram` tactic exists, but its trigger is `[DRAFT]` for playtesting.
 
@@ -47,10 +48,10 @@ Make fights last long enough to be fights and make breaking off a real option. E
 - The countermeasure is drawn as the same pixels the sim uses (no disc), in the fog-immune layer. Radar returns are never drawn beneath the cloud.
 ## Cross-Story Dependencies
 
-- 9.2's key row comes first. 9.3 and 9.4 take keys `3` and `4`, and 9.7 takes `7` only if built.
+- 9.2's key row comes first. 9.3 and 9.4 take keys `3` and `4`. No key `7`.
 - 9.4's stacking slow fold sits beside the fouling mine's slow from E8. 9.5's mass depends on `effectiveStats().maxHp`, which 9.6's HULL POINTS changes.
 - 9.5 puts an hp cost on the existing 7.3 % bot grounding rate. That bot-navigation thread is flagged but not re-scoped.
-- 9.7 opens with a design session with Eric. If he cuts it, it is marked cancelled.
+- 9.7 ARMOR lands after 9.6 and reuses the `armor` catalog id that 9.6 vacates. Its numbers (K = 5, +1 per rung, +5 for 10 s on the cut) are Eric's, offered back for a final nod at its spec step.
 - 9.11 needs 9.1 to 9.10 landed. It writes How-to-Play entries for every new item (plus the owed lobby and drone-drop entries) and drops SMOKE SCREEN, CHAFF and FLASH SHELLS.
 
 ## Ratified Amendments (durable — survives recompiles)
