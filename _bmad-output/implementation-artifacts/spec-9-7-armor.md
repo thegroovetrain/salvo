@@ -6,7 +6,7 @@ status: 'done'
 baseline_revision: 'ff3ca858'
 review_loop_iteration: 0
 followup_review_recommended: false
-final_revision: 'PENDING'
+final_revision: 'PR #278 open to development (2026-10-13); code head 2091d023'
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-9-context.md'
@@ -100,7 +100,7 @@ warnings: [oversized]
 **Execution (wave 3 — record, Sonnet):**
 - [x] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `epics.md` stamp, both trackers, amendments 110–117 in BOTH homes -- 0.18.49 / cycle 184 / PV 81
 - [x] `npm run check` green
-- [ ] branch pushed; ONE PR to `development`, never merged
+- [x] branch pushed; ONE PR to `development`, never merged
 
 **Acceptance Criteria:**
 - Given a hull with n `armor` cards, when `effectiveStats` runs, then `armor` is n and `damageMultiplier` is `round3(5/(5+n))`; `damageMultiplierFor(10)` is `round3(1/3)`.
