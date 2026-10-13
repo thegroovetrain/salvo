@@ -2,7 +2,7 @@
 title: 'Story 9.7: Armor'
 type: 'feature'
 created: '2026-10-13'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'ff3ca858'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -115,7 +115,26 @@ warnings: [oversized]
 
 ## Spec Change Log
 
+### 2026-10-13 — two orchestrator corrections surfaced by the build waves (not Eric's; the intent contract is read-only)
+- The matrix row "Overkill … dealt 1, tally +1" mis-stated the standing rule. `creditDamage` adds the post-multiply, post-shield `net` (BEFORE the overkill clamp) to the attacker's results tally — "OVERKILL NEVER PAYS" is about the XP share, which reads the clamped `dealt` (Eric 2026-08-22). Built and pinned as the standing rule: hp lost 1, assist ledger 1, `damageDealt` the full post-armor blow (25 on a 50 hp blow at Tier V). Eric's "what landed" ruling (amendment 113) is about the armor multiply, not the clamp.
+- `CONFIG.armor` is `{ k: 5 }`, not `{ k: 5, perTier: 1 }`: no catalog step reads CONFIG and the catalog is frozen at load, so a `perTier` tune key would be accepted and do nothing (the wave-1 agent's finding, confirmed). The +1 step is authored literally beside the ladder like every other ladder. Recorded in amendment 110.
+- KEEP: the gate body as built (`armorDamage`), the Eric-picked glyph table with r 0.14 rivets, the 4 + 3 LOADOUT split, `ARMOR +5` read off `armorBonus`.
+
 ## Review Triage Log
+
+### 2026-10-13 — Review pass (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol on the same diff ff3ca858..559cf346; all three FIX-FIRST)
+- intent_gap: 0 (the one ruling gap — what a blow that floors to 0 does — was put to Eric live and ruled, amendment 119; the intent contract stands)
+- bad_spec: 0 (the spec's `round3` clause was the orchestrator's own transcription error, corrected as a patch and logged in the Spec Change Log, not re-derived)
+- patch: 4: (high 2, low 2)
+- defer: 0
+- reject: 1
+- addressed_findings:
+  - `[high]` `[patch]` ALL THREE, CONFIRMED (two against the built dist): `damageMultiplierFor` rounded the ratio to three decimals, and every rounded value sits under the true ratio, so a whole blow whose exact product is whole floored one point low (MG 6 at Armor 1 → 4 not 5; flak 12 → 9 not 10; broadside 15 at Armor 10 → 4 not 5; 33 shipped pairs). Fixed: the exact `K / (K + armor)` in the fold and the gate; pins compare to `5 / (5 + n)`; seven boundary rows in damageGate.test fail without the fix (proved red-then-green). Reading 120(a).
+  - `[high]` `[patch]` ALL THREE, CONFIRMED by trace: a 1 hp blow (the three PvE drone classes' shells, a slow ram bump) floored to 0 at any Armor and still emitted `dmg 0`, played the hit cue and aggroed drones. Eric ruled live: minimum 1 hp on a whole blow (amendment 119). Fixed in `floorBlow`; burn/grind ticks untouched.
+  - `[low]` `[patch]` Codex + Blind Hunter: stale "halved / halving window" wording in `shared/src/types.ts` (`damageCutUntil`), the `setDamageCut` capability docs. Reworded to the +5 Armor rule.
+  - `[low]` `[patch]` Edge Case Hunter: the harness max-stack envelope stacked ARMOR but printed no evidence. `balanceProbe` gains armor and multiplier columns.
+  - Rejected: Blind Hunter's "`damageMultiplier` is a dead field" — it is the firewall's published number (a future hover row reads it) and the gate recomputes only because the cut's bonus changes the input; kept, recorded in 120(e).
+  - Cross-model picture: all three flagged the rounding and the floor-to-zero independently — CONFIRMED-tier, fixed without debate. Codex alone raised the stale doc wording (confirmed by grep, patched). The Edge Case Hunter alone raised the harness column (confirmed, patched). The Blind Hunter alone questioned the dead field (rejected with reasons).
 
 ## Design Notes
 

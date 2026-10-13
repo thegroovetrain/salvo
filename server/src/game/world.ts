@@ -5070,28 +5070,43 @@ export class World {
 
   /**
    * (b′) THE ARMOR MULTIPLY (Story 9.7, Eric rulings 2026-10-13, epic-9
-   * amendments 86–88; the DAMAGE CUT's floor / fraction / storm rules carried
-   * over from epic-8 amendments 100–102). EVERY source but the STORM is
+   * amendments 86–88; the DAMAGE CUT's fraction / storm rules carried over
+   * from epic-8 amendments 100–102). EVERY source but the STORM is
    * multiplied by `damageMultiplierFor(armor)` = K / (K + armor) — the ONE
-   * formula, owned by shared/src/sim/stats.ts — BEFORE the shield absorbs it
-   * (a shield lasts longer on an armored hull). `armor` is the ladder's
-   * `stats.armor`, plus the DAMAGE CUT's `armorBonus` while the victim's
-   * window is open (`now < damageCutUntil`, the Battleship's Shift, Story
-   * 8.15): the cut stacks ADDITIVELY on the Armor value, never as a second
-   * multiply (amendment 88) — so at Tier 0 under the cut, Armor 5 → ×0.5.
-   * A blow rounds DOWN to a whole number (amendment 102 — damage stays whole
-   * per amendment 39); a PHOSPHOR burn tick and a contact BLEED tick
-   * ('grind', Story 9.5), fractional by construction, keep their exact
-   * product — never floored to zero. The STORM is exempt (amendment 101): its
-   * bites land in full, so the sudden-death ceiling and NFR6's arithmetic are
-   * untouched. `creditDamage` and the `dmg` report both read the
-   * POST-multiply amount: the attacker's tally is what actually landed.
+   * formula, owned by shared/src/sim/stats.ts, the EXACT ratio, never a
+   * rounded one (epic-9 amendment 120(a): a rounded 0.833 floored an MG
+   * shell 6 at Armor 1 to 4, not 5) — BEFORE the shield absorbs it (a shield
+   * lasts longer on an armored hull). `armor` is the ladder's `stats.armor`,
+   * plus the DAMAGE CUT's `armorBonus` while the victim's window is open
+   * (`now < damageCutUntil`, the Battleship's Shift, Story 8.15): the cut
+   * stacks ADDITIVELY on the Armor value, never as a second multiply
+   * (amendment 88) — so at Tier 0 under the cut, Armor 5 → ×0.5.
+   * A WHOLE blow rounds DOWN to a whole number (amendment 102 — damage stays
+   * whole per amendment 39) BUT NEVER BELOW 1 (epic-9 amendment 119, Eric
+   * 2026-10-13 at the 9.7 review gate): a blow that was at least 1 hp lands
+   * at least 1. The three PvE drone classes fire 1 hp shells (`CONFIG.fleet*`
+   * gun damage 1) and a slow ram bump is 1–2 hp; at any Armor those floored
+   * to 0 and still played the hit cue — Eric chose the floor-of-one over a
+   * silent zero. A blow already 0 stays 0 (floorBlow's `amount > 0` guard).
+   * A PHOSPHOR burn tick and a contact BLEED tick ('grind', Story 9.5),
+   * fractional by construction, keep their exact product — never floored,
+   * never raised to 1. The STORM is exempt (amendment 101): its bites land in
+   * full, so the sudden-death ceiling and NFR6's arithmetic are untouched.
+   * `creditDamage` and the `dmg` report both read the POST-multiply amount:
+   * the attacker's tally is what actually landed.
    */
   private armorDamage(victim: ShipRecord, amount: number, src: DamageSource): number {
     if (src === 'storm') return amount;
     const bonus = this.now < victim.damageCutUntil ? victim.stats.equipment.damageCut.armorBonus : 0;
     const scaled = amount * damageMultiplierFor(victim.stats.armor + bonus);
-    return src === 'burn' || src === 'grind' ? scaled : Math.floor(scaled);
+    return src === 'burn' || src === 'grind' ? scaled : World.floorBlow(amount, scaled);
+  }
+
+  /** A whole blow after the Armor multiply: floored to a whole number, but a
+   *  blow that was > 0 lands at least 1 (epic-9 amendment 119, Eric
+   *  2026-10-13 at the 9.7 review gate). A 0 blow stays 0. Pure. */
+  private static floorBlow(amount: number, scaled: number): number {
+    return amount > 0 ? Math.max(1, Math.floor(scaled)) : 0;
   }
 
   /** (c) THE SHIELD STEP. Expires a lapsed or spent block, absorbs what is
@@ -6247,7 +6262,8 @@ export class World {
       applyRepair: (instantHp, regenHp) => this.applyRepair(ship, instantHp, regenHp),
       // Story 8.15 — the two new Shifts' bodies, World-owned and keyed on the
       // ACTIVATING ship: INSTANT RELOAD's walk over its own weapon slots, and
-      // DAMAGE CUT's window (the ONLY writer of damageCutUntil).
+      // DAMAGE CUT's window (the ONLY writer of damageCutUntil): inside it the
+      // damage gate adds the row's `armorBonus` to the hull's Armor (Story 9.7).
       finishReloads: () => World.finishReloads(ship),
       setDamageCut: (until) => {
         ship.damageCutUntil = until;

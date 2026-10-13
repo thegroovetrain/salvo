@@ -201,7 +201,7 @@ function statsBlock(): void {
   // detect is SIGHT-scaled (`sightOf(me) * detectFactor`), NOT radar-scaled —
   // the one rung that hangs off sight rather than radar range. Derived here the
   // same way the server does it so the ladder ordering is checkable by eye.
-  console.log('class        |  maxHp |  speed | radar |  sight | detect | 5/8 rung | gun rangeU | broadside rangeU | cooldownScale');
+  console.log('class        |  maxHp |  speed | radar |  sight | detect | 5/8 rung | gun rangeU | broadside rangeU | cooldownScale | armor | damageMultiplier');
   for (const cls of SHIP_CLASS_IDS) {
     for (const [tag, cards] of [['base', [] as string[]] as const, ['MAXED', maxCards] as const]) {
       const st = effectiveStats(hullEnvelope(cls), cards);
@@ -209,7 +209,7 @@ function statsBlock(): void {
       console.log(
         `${(cls + ' ' + tag).padEnd(12)} | ${fmt(st.maxHp).padStart(6)} | ${fmt(st.kinematics.maxSpeed).padStart(6)} | ` +
           `${fmt(st.radarRange).padStart(5)} | ${fmt(st.sightRange).padStart(6)} | ${fmt(st.sightRange * CONFIG.vision.detectFactor).padStart(6)} | ` +
-          `${fmt(rung).padStart(8)} | ${fmt(st.equipment.gun.rangeU).padStart(10)} | ${fmt(st.equipment.broadside.rangeU).padStart(16)} | ${fmt(st.cooldownScale, 3)}`,
+          `${fmt(rung).padStart(8)} | ${fmt(st.equipment.gun.rangeU).padStart(10)} | ${fmt(st.equipment.broadside.rangeU).padStart(16)} | ${fmt(st.cooldownScale, 3).padStart(13)} | ${fmt(st.armor, 0).padStart(5)} | ${fmt(st.damageMultiplier, 3)}`,
       );
     }
   }

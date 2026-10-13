@@ -640,18 +640,23 @@ const round3 = (v: number): number => Math.round(v * 1000) / 1000;
 
 /**
  * THE ARMOR DAMAGE MULTIPLIER (Story 9.7, Eric 2026-10-13, epic-9 amendments
- * 86–88): `K / (K + armor)`, K = CONFIG.armor.k, rounded `round3` — 1 / 0.833 /
- * 0.714 / 0.625 / 0.556 / 0.5 at Tiers 0–V, 0.333 at Armor 10 (Tier V under
- * the DAMAGE CUT). The ONE formula: clampStats derives
- * `stats.damageMultiplier` through it and the server's damage gate calls it
- * for `armor + damageCut.armorBonus` inside the cut's window.
+ * 86–88): `K / (K + armor)`, K = CONFIG.armor.k — the EXACT ratio, never
+ * rounded (review gate 2026-10-13, epic-9 amendment 120(a)): 5/6, 5/7 … 1/2
+ * at Tiers I–V, 1/3 at Armor 10 (Tier V under the DAMAGE CUT). A rounded
+ * multiplier (0.833 for 5/6) floored every blow whose exact product is whole
+ * a point low (an MG shell 6 at Armor 1 dealt 4, not 5); round only where a
+ * number is PRINTED. Both sides compute the identical IEEE double from the
+ * same integers, so the value stays deterministic. The ONE formula:
+ * clampStats derives `stats.damageMultiplier` through it and the server's
+ * damage gate calls it for `armor + damageCut.armorBonus` inside the cut's
+ * window.
  *
  * NON-FINITE OR NEGATIVE ARMOR READS AS 0 (the clampSpreadRung law): a NaN
  * must never poison the gate — it yields ×1, never NaN damage.
  */
 export function damageMultiplierFor(armor: number): number {
   const a = Number.isFinite(armor) ? Math.max(0, armor) : 0;
-  return round3(CONFIG.armor.k / (CONFIG.armor.k + a));
+  return CONFIG.armor.k / (CONFIG.armor.k + a);
 }
 
 /** The ARMOR pair's post-fold clamp: Armor is authored in whole numbers, so it

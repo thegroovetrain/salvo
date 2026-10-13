@@ -426,6 +426,74 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     expect(a.hp).toBe(a.stats.maxHp - 16);
   });
 
+  // THE EXACT RATIO (review gate 2026-10-13, epic-9 amendment 120(a)): a
+  // rounded multiplier (0.833 for 5/6, 0.333 for 1/3) floored every blow whose
+  // exact product is whole a point low. Each row below fails under round3.
+  it('EXACT RATIO: a 6 hp shell at Armor 1 deals 5 (6 × 5/6), not 4', () => {
+    const w = bareWorld();
+    const a = armored(w, place(w, 'a'), 1);
+    place(w, 'b', 400, 0);
+    gate(w).applyDamage(a, 6, 'shell', 'b');
+    expect(a.hp).toBe(a.stats.maxHp - 5);
+    expect(dmgEvents(w).map((e) => e.amount)).toEqual([5]);
+  });
+
+  it('EXACT RATIO: a 15 hp shell on a Battleship at Tier V with the cut open (Armor 10) deals 5 (15 × 1/3), not 4', () => {
+    const w = bareWorld();
+    const a = cutTierV(w);
+    place(w, 'b', 400, 0);
+    expect(a.stats.armor + CONFIG.damageCut.armorBonus).toBe(10);
+    gate(w).applyDamage(a, 15, 'shell', 'b');
+    expect(a.hp).toBe(a.stats.maxHp - 5);
+  });
+
+  it('EXACT RATIO: a 12 hp burst at Armor 1 deals 10 (12 × 5/6), not 9', () => {
+    const w = bareWorld();
+    const a = armored(w, place(w, 'a'), 1);
+    place(w, 'b', 400, 0);
+    gate(w).applyDamage(a, 12, 'burst', 'b');
+    expect(a.hp).toBe(a.stats.maxHp - 10);
+  });
+
+  // THE FLOOR OF ONE (epic-9 amendment 119, Eric 2026-10-13 at the 9.7 review
+  // gate): a whole blow that was at least 1 hp lands at least 1 — the PvE
+  // drones' 1 hp shells and a slow ram bump no longer floor to a silent 0.
+  it('FLOOR OF ONE: a 1 hp shell at Armor 1 deals 1, reports dmg 1 and stamps the combat clock', () => {
+    const w = bareWorld();
+    const a = armored(w, place(w, 'a'), 1);
+    place(w, 'b', 400, 0);
+    a.lastDamagedAt = -1; // addShip seeds it to now; clear it so the stamp is visible
+    gate(w).applyDamage(a, 1, 'shell', 'b');
+    expect(a.hp).toBe(a.stats.maxHp - 1);
+    expect(dmgEvents(w).map((e) => e.amount)).toEqual([1]);
+    expect(a.lastDamagedAt).toBe(w.now);
+  });
+
+  it('FLOOR OF ONE: a 1 hp contact at Tier V with the cut open (Armor 10) deals 1', () => {
+    const w = bareWorld();
+    const a = cutTierV(w);
+    place(w, 'b', 400, 0);
+    gate(w).applyDamage(a, 1, 'contact', 'b');
+    expect(a.hp).toBe(a.stats.maxHp - 1);
+  });
+
+  it('FLOOR OF ONE is for WHOLE blows only: a 0.5 hp burn tick at Armor 1 deals exactly 0.5 × 5/6, never raised to 1', () => {
+    const w = bareWorld();
+    const a = armored(w, place(w, 'a'), 1);
+    place(w, 'b', 400, 0);
+    gate(w).applyDamage(a, 0.5, 'burn', 'b');
+    expect(a.hp).toBeCloseTo(a.stats.maxHp - 0.5 * (5 / 6), 12);
+  });
+
+  it('FLOOR OF ONE is a no-op at ×1: a 1 hp shell at Armor 0 with no cut deals 1', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    place(w, 'b', 400, 0);
+    expect(a.stats.armor).toBe(0);
+    gate(w).applyDamage(a, 1, 'shell', 'b');
+    expect(a.hp).toBe(a.stats.maxHp - 1);
+  });
+
   it('a 0.5 hp BURN tick at Tier V applies 0.25 exactly — never floored', () => {
     const w = bareWorld();
     const a = armored(w, place(w, 'a'), 5);

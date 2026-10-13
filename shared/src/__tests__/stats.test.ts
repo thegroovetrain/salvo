@@ -317,28 +317,32 @@ describe('effectiveStats — the seven universal ladders (catalog-v3 §4 + Stori
 
   // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88 / 110–117):
   // +1 Armor per card, and the multiplier K / (K + Armor) DERIVED in the
-  // firewall through the one exported formula.
-  it('ARMOR: n cards → armor n and damageMultiplier round3(K/(K+n)), n = 0..5, on every hull', () => {
+  // firewall through the one exported formula — the EXACT ratio, never
+  // rounded (review gate 2026-10-13, epic-9 amendment 120(a)).
+  it('ARMOR: n cards → armor n and damageMultiplier exactly K/(K+n), n = 0..5, on every hull', () => {
     expect(CATALOG.armor.cap).toBe(5);
-    const round3 = (v: number): number => Math.round(v * 1000) / 1000;
     const K = CONFIG.armor.k;
     for (let n = 0; n <= 5; n += 1) {
       for (const id of SHIP_CLASS_IDS) {
         const s = effectiveStats(CONFIG.shipClasses[id], stack('armor', n));
         expect(s.armor, `${id} ${n}`).toBe(n);
-        expect(s.damageMultiplier, `${id} ${n}`).toBe(round3(K / (K + n)));
+        expect(s.damageMultiplier, `${id} ${n}`).toBe(K / (K + n));
         expect(s.damageMultiplier, `${id} ${n}`).toBe(damageMultiplierFor(n));
       }
     }
-    // Eric's table (amendment 86): ×1 at Tier 0 → ×0.5 at Tier V.
+    // Eric's table (amendment 86): ×1 at Tier 0 → ×0.5 at Tier V, unrounded
+    // (amendment 120(a): a rounded 0.833 floored a whole blow a point low).
     expect([0, 1, 2, 3, 4, 5].map((n) => effectiveStats(BASE, stack('armor', n)).damageMultiplier))
-      .toEqual([1, 0.833, 0.714, 0.625, 0.556, 0.5]);
+      .toEqual([1, 5 / 6, 5 / 7, 5 / 8, 5 / 9, 5 / 10]);
+    for (let n = 0; n <= 5; n += 1) expect(damageMultiplierFor(n), `Armor ${n}`).toBe(5 / (5 + n));
   });
 
   it('damageMultiplierFor: Armor 10 (Tier V under the DAMAGE CUT) is ×1/3; NaN / ±Infinity / negative read as Armor 0', () => {
-    // Amendment 88: the cut adds its bonus to the Armor INSIDE the formula.
-    expect(damageMultiplierFor(5 + CONFIG.damageCut.armorBonus)).toBe(0.333);
-    expect(damageMultiplierFor(10)).toBe(0.333);
+    // Amendment 88: the cut adds its bonus to the Armor INSIDE the formula;
+    // exact 5/15, never a rounded 0.333 (review gate 2026-10-13, epic-9
+    // amendment 120(a)).
+    expect(damageMultiplierFor(5 + CONFIG.damageCut.armorBonus)).toBe(5 / 15);
+    expect(damageMultiplierFor(10)).toBe(5 / (5 + 10));
     expect(damageMultiplierFor(0 + CONFIG.damageCut.armorBonus)).toBe(0.5); // Tier 0 under the cut: today's ×0.5
     // A malformed Armor never poisons the gate (the clampSpreadRung law).
     for (const bad of [NaN, Infinity, -Infinity, -3]) expect(damageMultiplierFor(bad), String(bad)).toBe(1);
