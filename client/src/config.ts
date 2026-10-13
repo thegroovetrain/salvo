@@ -52,11 +52,16 @@ const COLORS = {
   denied: 0xff3b3b, // the single denied red (consolidates the legacy DOM red)
   damage: 0x8b0000,
   damageMarker: 0xff6666,
-  /** FOULING SHELL foul-zone MURK (Story 9.4, Eric's pick "MURK AND NET",
-   *  epic-9 amendment 69): a dark oily grey-brown drawn NORMAL-blend so the
-   *  zone DARKENS the water — the one zone treatment that subtracts light
-   *  where lit and burn zones add it. Feel token; Eric may re-tune on staging. */
-  foulMurk: 0x3b3a33,
+  /** FOULING SHELL foul-zone SLICK (Story 9.4, Eric's "weed and net", round-3
+   *  pick "bold", 2026-10-12): the wounded-smoke brown, LIGHTER than the sea.
+   *  The ocean is drawn near-black, so a darkening murk was invisible; the
+   *  slick is a faint lighter body under the net and the weed. Feel token;
+   *  Eric may re-tune on staging. */
+  foulSlick: 0x7a7168,
+  /** FOULING SHELL foul-zone WEED squiggles (Story 9.4, "weed and net"): a
+   *  light warm grey from the countermeasure-smoke family, drawn normal-blend
+   *  over the net. Feel token; Eric may re-tune on staging. */
+  foulWeed: 0xc4c0b8,
   // `islandFill` / `islandStroke` (the provisional yellow) are GONE as of cycle
   // 82. DESIGN.md:41 marked them a "provisional carry-over — Open Question";
   // cycle 59 took the in-match chart off them, and the home scene — their last
@@ -2359,24 +2364,43 @@ export const CLIENT_CONFIG = {
    * render/foulZones.ts. FEEL ONLY: client knobs Eric may re-tune on staging;
    * the server reads none of them (the zone's radius rides the wire as `r`).
    * Ruling 68: the zone reads as its own kind at a glance. It wears the zone
-   * family's firer-hue glow ring (whose it is) and, inside it, Eric's pick
-   * "MURK AND NET" (amendment 69): a NORMAL-blend murk disc in
-   * `colors.foulMurk` that darkens the water, under a diagonal mesh of
-   * straight lines in the firer's hue, clipped to the murk. Nothing animates —
-   * a foul zone is static water; only the lit zone's expiry fade moves it.
+   * family's firer-hue glow ring (whose it is) and, inside it, Eric's "weed
+   * and net" (round-3 pick "bold", 2026-10-12): a faint LIGHTER slick disc in
+   * `colors.foulSlick` (the sea is near-black — it cannot be darkened), a
+   * diagonal mesh of straight lines in the firer's hue clipped to the slick,
+   * and short seeded squiggles in `colors.foulWeed` on top. The weed layer
+   * sways gently (motion-gated); the strokes themselves never change.
    */
   foulZone: {
-    /** The murk disc's radius as a fraction of the zone radius. */
-    murkFrac: 0.8,
-    /** The murk disc's alpha (normal blend — it darkens). A soft rim at the full
-     *  zone radius is drawn at half this alpha. */
-    murkAlpha: 0.6,
-    /** u — spacing between the parallel net lines (both diagonals). */
+    /** The slick disc's radius as a fraction of the zone radius (the net and
+     *  the weed live inside it). Feel knob; Eric may re-tune on staging. */
+    slickFrac: 0.8,
+    /** The slick disc's alpha (normal blend, lighter than the sea). A soft rim
+     *  at the full zone radius is drawn at half this alpha. Feel knob. */
+    slickAlpha: 0.3,
+    /** u — spacing between the parallel net lines (both diagonals). Feel knob. */
     netSpacingU: 14,
-    /** px-ish stroke width of a net line. */
-    netWidth: 1,
-    /** Alpha of the net lines (firer's hue, over the murk). */
-    netAlpha: 0.28,
+    /** px-ish stroke width of a net line. Feel knob. */
+    netWidth: 1.3,
+    /** Alpha of the net lines (firer's hue, over the slick). Feel knob. */
+    netAlpha: 0.55,
+    /** How many weed squiggles per zone (seeded from the zone id, so every
+     *  observer sees the same ones). Feel knob. */
+    weedCount: 8,
+    /** px-ish stroke width of a weed squiggle. Feel knob. */
+    weedWidth: 1.8,
+    /** Alpha of the weed squiggles (`colors.foulWeed`). Feel knob. */
+    weedAlpha: 0.75,
+    /** u — length of one squiggle along its heading. Feel knob. */
+    weedLenU: 40,
+    /** u — sideways amplitude of a squiggle's two humps. Feel knob. */
+    weedAmpU: 6,
+    /** u — how far the whole weed layer sways (motion-scaled; 0 at motion
+     *  off). Feel knob. */
+    weedDriftU: 4,
+    /** Hz — the weed sway's rate (integrated phase, well under the
+     *  photosensitivity ceiling). Feel knob. */
+    weedHz: 0.25,
   },
 
   /**
