@@ -321,7 +321,7 @@ development_status:
   8-22-how-to-play-and-copy-re-cut: done  # 2026-10-01 cycle 161 (0.18.26); PV 66->67 (star/phosphor burst swap, flak reload 6->4 s); epic-8 amendments 204-210 (classes named SPEEDBOAT / REPEATER / DREADNOUGHT; every weapon described)
   epic-8-retrospective: done  # 2026-10-06 epic-8-retro-2026-10-06.md (live with Eric; cleanup/tune epic inserted before E9)
 
-  # epic-9: Tune and Clean (GDD E9; INSERTED 2026-10-06 by sprint-change-proposal-2026-10-06.md; RE-CUT 2026-10-11 by sprint-change-proposal-2026-10-11.md to 11 stories in Eric's numbered order — 9-2/9-3 cancelled, five inserted, tail renumbered; every number is Eric's at the spec step)
+  # epic-9: Tune and Clean (GDD E9; INSERTED 2026-10-06 by sprint-change-proposal-2026-10-06.md; RE-CUT 2026-10-11 by sprint-change-proposal-2026-10-11.md to 11 stories in Eric's numbered order — 9-2/9-3 cancelled, five inserted, tail renumbered; every number is Eric's at the spec step; RE-CUT AGAIN 2026-10-13 by sprint-change-proposal-2026-10-13-twelfths-ladder.md to 12 stories — 9-8 The Twelfths Ladder inserted after 9-7, tail 9-9..9-12)
   epic-9: in-progress  # 2026-10-11 9-2 landed (PR #264 merged) + interstitial cycle 173 / 0.18.38 glow blur (amendment 39, PR #265 open); next: 9-3; 9-5 built 2026-10-13 (cycle 182, PR #274 open), next: Eric judges on staging, then 9-6; 9-6 built 2026-10-13 (cycle 183, PR open), next: Eric judges on staging, then 9-7 armor
   9-1-the-tuning-pass: done  # 2026-10-08 closed by Eric ("close out this story") at cycle 171 / 0.18.36 / PV 74 — cycles 169-171 (big ocean, storm ramp, 4/8 detect, mine circle, captive 120), epic-9 amendments 2-20; ledger batch-sim-evidence-2026-10-06.md; open threads to deferred-work.md
   9-2-speed-boost-consumable: cancelled  # 2026-10-11 Eric: "Speed Boost and Healing Buoy will not be being added, after all." (amendment 21)
@@ -333,10 +333,11 @@ development_status:
   9-6-five-tiers-and-passive-healing: review  # 2026-10-13 cycle 183, 0.18.48, PV 79 → 80, epic-9 amendments 90–101 (Eric: rate 2 %/s +0.6/card to 5 %, wait 15 → 10 s, armor → hullPoints prints HULL, tiers 0 → V, one HEAL row, How-to-Play frozen, defensive bots favor it, shield leaves the clock; gate: LOADOUT two rows, live wait); spec-9-6-five-tiers-and-passive-healing.md; PR #276 open to development; next: Eric judges on staging
   9-7-depth-charge: cancelled  # 2026-10-13 Eric: replaced by ARMOR (sprint-change-proposal-2026-10-13.md, amendment 85); the depthCharge stub line stays, no key 7
   9-7-armor: backlog  # 2026-10-13 ARMOR ladder cap 5, +1/rung, damage x K/(K+Armor) with K=5, every source but the storm, blows floor; DAMAGE CUT = +5 Armor for 10 s / 30 s (amendments 85-89); lands after 9-6
-  9-8-test-purposefulness-audit: backlog  # was 9-5; every test names its contract or goes; audit record per workspace
-  9-9-smoke-flakes-fixed: backlog  # was 9-6; matchSmoke / weaponsSmoke independent of bot piloting; three clean first-try runs
-  9-10-harness-and-ledger-hygiene: backlog  # was 9-7; 6-4 bot bars retired; deferred-work triage (+ speed-boost/healing-buoy pointers MOOT); the 12 follow-up-review flags; barrel comment
-  9-11-how-to-play-and-record: backlog  # was 9-8; entries in Eric's copy for the new items, retirements, keys, ramming (+ private lobbies, drone drops owed); GDD/catalog-v3/architecture dated supersessions; trackers
+  9-8-the-twelfths-ladder: backlog  # 2026-10-13 inserted by sprint-change-proposal-2026-10-13-twelfths-ladder.md: radar 1500 = 12/12, sight 500, flash/smoke/haze 750, dropout 1000-1500 (intermittent, not dim), weapon-range dials (today's values until Eric sets them), ring-fit zoom-out / own-ship zoom-in, 12 foghorn bands (amendments 102-109); after 9-7
+  9-9-test-purposefulness-audit: backlog  # was 9-5, 9-8 until 2026-10-13; every test names its contract or goes; audit record per workspace
+  9-10-smoke-flakes-fixed: backlog  # was 9-6, 9-9 until 2026-10-13; matchSmoke / weaponsSmoke independent of bot piloting; three clean first-try runs
+  9-11-harness-and-ledger-hygiene: backlog  # was 9-7, 9-10 until 2026-10-13; 6-4 bot bars retired; deferred-work triage (+ speed-boost/healing-buoy pointers MOOT); the 12 follow-up-review flags; barrel comment
+  9-12-how-to-play-and-record: backlog  # was 9-8, 9-11 until 2026-10-13; entries in Eric's copy for the new items, retirements, keys, ramming (+ private lobbies, drone drops owed); GDD/catalog-v3/architecture dated supersessions; trackers
   epic-9-retrospective: optional
 
   # epic-10: The Account (GDD E10; was epic-9 until 2026-10-06 — sprint-change-proposal-2026-10-06.md; 10 stories in build order, Eric-approved 2026-09-11; 10-5 deleted and 10-4/10-6/10-7/10-11 re-scoped 2026-09-21 by sprint-change-proposal-2026-09-21.md)

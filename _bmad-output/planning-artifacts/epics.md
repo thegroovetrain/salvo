@@ -2177,7 +2177,7 @@ So that the only place a feature is explained is not describing the old one.
 
 ## Epic 9: Tune and Clean *(inserted 2026-10-06 — `sprint-change-proposal-2026-10-06.md`; GDD E9)*
 
-Eric's zero-in epic between The Pool and The Account, in HIS order: the balance and feature stories first, the test audit and the fixes after (*"The tuning pass and new stuff are going to happen before the test audit and other fixes."*). Eight stories *(re-cut 2026-10-11 to eleven by `sprint-change-proposal-2026-10-11.md`: 9.2 Speed Boost and 9.3 Healing Buoy CANCELLED; 9.2 keys, 9.3 countermeasure, 9.4 fouling shell, 9.5 ramming, 9.6 five tiers inserted in Eric's numbered order; the old 9.4–9.8 are 9.7–9.11)*. Standing constraints on every story: **every number is Eric's**, ruled at the story's spec step through AskUserQuestion — the spec author never fills one in and marks any unruled clause as unruled; guns are balanced by Eric's math, never by sim (2026-10-02), and the sim measures attrition and class share only (quick runs ≤ 99 matches, never unprompted); the master perception invariant keeps exactly SIX exceptions and is EXTENDED, never widened, for any new event; no friendly fire, ever; new card glyphs are rendered and shown to Eric before they are committed; new-feature explanations go to How-to-Play only, in Eric's copy; a design gap found at review is an AskUserQuestion before the PR, never a ledger entry. The epic's own rulings live in `epic-9-context-amendments.md`.
+Eric's zero-in epic between The Pool and The Account, in HIS order: the balance and feature stories first, the test audit and the fixes after (*"The tuning pass and new stuff are going to happen before the test audit and other fixes."*). Eight stories *(re-cut 2026-10-11 to eleven by `sprint-change-proposal-2026-10-11.md`: 9.2 Speed Boost and 9.3 Healing Buoy CANCELLED; 9.2 keys, 9.3 countermeasure, 9.4 fouling shell, 9.5 ramming, 9.6 five tiers inserted in Eric's numbered order; the old 9.4–9.8 are 9.7–9.11; re-cut again 2026-10-13 to twelve by `sprint-change-proposal-2026-10-13-twelfths-ladder.md`: 9.8 The Twelfths Ladder inserted after 9.7 Armor, the tail is 9.9–9.12)*. Standing constraints on every story: **every number is Eric's**, ruled at the story's spec step through AskUserQuestion — the spec author never fills one in and marks any unruled clause as unruled; guns are balanced by Eric's math, never by sim (2026-10-02), and the sim measures attrition and class share only (quick runs ≤ 99 matches, never unprompted); the master perception invariant keeps exactly SIX exceptions and is EXTENDED, never widened, for any new event; no friendly fire, ever; new card glyphs are rendered and shown to Eric before they are committed; new-feature explanations go to How-to-Play only, in Eric's copy; a design gap found at review is an AskUserQuestion before the PR, never a ledger entry. The epic's own rulings live in `epic-9-context-amendments.md`.
 
 ### Story 9.1: The Tuning Pass (Eric steers)
 
@@ -2331,7 +2331,29 @@ So that a tanky build is a real choice beside more hull, and the Dreadnought's S
 **And** the cut's gate tests re-base to "Armor 5 → ×0.5" with the ruling cited; `PROTOCOL_VERSION` bumps (catalog content); both trackers stamped
 **And** the no-friendly-fire rule is unaffected (Armor only ever reduces damage to the hull that holds it)
 
-### Story 9.8: Test Purposefulness Audit *(was 9.5 until 2026-10-11)*
+### Story 9.8: The Twelfths Ladder *(inserted 2026-10-13 — `sprint-change-proposal-2026-10-13-twelfths-ladder.md` §4.1; lands after 9.7; forge record `_bmad-output/forge/realistic-vision-range/forged-idea.md`)*
+
+As a captain hunting in the dark,
+I want radar to reach far beyond my eyes and my guns, with far returns that come and go,
+So that an encounter starts with a long approach I can act on instead of a point-blank circle, and I can zoom out to see the whole ring I am fighting in.
+
+**Eric (2026-10-13, verbatim):** *"I really want the feel of hunting around in the dark … I want a lot more radar vision than I do actual vision … I feel like a lot of my battles end up being just within or without vision range, circling each other at what would be very close range in naval terms."* The numbers: *"radar range is now 1500. I can see 500 of it (4/12), and muzzle flash/smoke should go up to 6/12 … lets say its 8/12 - 12/12 for attenuation"*; on the curve: *"The realistic way is the way."*; on guns: *"I don't have an explicit issue with firing at radar ghosts. I think its fun."*; on the camera: *"zoom out to the point that the entire current ring is centered with bit of a margin to any edge of the viewport. And when zoom back in, it zooms back in to my ship."* Ruled the same day (epic-9 amendments 102–109): one story, after Armor; weapon dials default to today's values; twelve foghorn bands; small absolutes stay; innermost zoom = today's close framing.
+
+**Acceptance Criteria:**
+
+**Given** 9.7 has landed and every gun's `rangeU` is still derived from `CONFIG.vision.radar` post-fold (the broadside from `radar × muzzleFlashFactor`)
+**When** the story lands, in this order inside one cycle
+**Then** FIRST every weapon range is its own `CONFIG.<weapon>.rangeU` dial — deck gun, machine gun, flak, star shells, phosphor and the fouling shell at 660, broadside at 412.5, mines at 150, torpedoes unbounded — with `effectiveStats()` still the one fold and NO range read from the vision block; Eric's real numbers are offered at the spec step and written as his ruling (amendment 105)
+**And** THEN the ladder is twelfths of 1,500 u: `SIGHT` 500, `radar = SIGHT × 3`, sight and detection 500 (4/12, `detectFactor` 1), muzzle flash + wounded smoke + haze halo 750 (6/12, `muzzleFlashFactor` 0.5), far-radar fit anchor 1,000 (8/12) `[DRAFT]`; `sightRange = radarRange / 3` in `stats.ts` and `boons.ts`; the shadow law's `K` and `R` re-derive by construction and `radarMastQ` stays 64; no card widens any rung (amendment 103)
+**And** from 8/12 outward a sweep increasingly fails to paint a target — a probability-of-detection curve, flat to ~1,250 then a cliff to 1,500, weaker returns dropping out first through the existing reflectivity — decided inside `perception.observe()` so a missed paint never leaves the server; brightness stays on the 1/d⁴ curve, colour stays intensity with no threshold branch; curve parameters are Eric's dials at spec (amendment 104)
+**And** the camera's zoom-out limit fits the LIVE storm ring to the short axis with a margin (derived like the reveal's `mapFitMargin`, re-fitting as the ring closes), the zoom-in limit is today's close framing, the default framing is a dial at spec, the radar-diameter `baseZoom` anchor is retired, and the reveal, the wheel gating and "paint recorded zoomed-in appears on zoom-out" are unchanged (amendment 106)
+**And** the foghorn discloses twelve 125 u bands with the plateau floor and island step re-read at spec (amendment 107); smoke puff 165, captive ring 120 and mine leash 150 stay absolute, the lit radius keeps `sight / 2` (amendment 108)
+**And** bots engage by their own gun's `rangeU`, not by radar range `[DRAFT]`; the wake, countermeasure and fouling gates that read `radarRange` / `sightRange` follow the new rungs by derivation
+**And** the client radar lattice (9 u cells) at full scope zoom is costed on the reference device against the 2 ms budget and the number is recorded (deferred-work spec-4-10 entry re-opened or closed by that measurement); the stale "farRadar has no caller" comment in `constants.ts` is corrected (it feeds `HEAT_POINT_REF`)
+**And** every ladder, camera and range pin in the tests is re-based citing the amendment, never pinning 1,500 as a literal; the perception invariants keep exactly SIX exceptions; `PROTOCOL_VERSION` bumps (the client reads the vision block); both trackers stamped
+**And** no in-game copy is added; the How-to-Play sensor entry and the GDD / EXPERIENCE.md stamps (eighths → twelfths, "two truesight diameters", "radar = sight × 2", the zoom range) are 9.12's
+
+### Story 9.9: Test Purposefulness Audit *(was 9.5 until 2026-10-11, 9.8 until 2026-10-13)*
 
 As the next developer to change a function,
 I want every test in the suite to guard a contract of the thing it tests,
@@ -2347,7 +2369,7 @@ So that a test fails only when the behavior it names is broken, never because a 
 **And** an audit record (`test-audit-<date>.md` in implementation-artifacts) lists per workspace: tests before, kept, rewritten, deleted, and the reason class for each deletion; the pinned invariants that protect the architecture (perception exceptions, `applyDamage` as the only hp write, bots never importing `world.js`, map determinism, `effectiveStats()` parity) are named as KEPT contracts
 **And** no production code changes in this story (a bug a test exposes is a separate quiet fix or a ledger entry with Eric's call); `npm run check` green; lint complexity unchanged; both trackers stamped.
 
-### Story 9.9: Smoke Flakes Fixed *(was 9.6 until 2026-10-11)*
+### Story 9.10: Smoke Flakes Fixed *(was 9.6 until 2026-10-11, 9.9 until 2026-10-13)*
 
 As the person running the gate,
 I want matchSmoke and weaponsSmoke to pass or fail on what they claim to test,
@@ -2361,7 +2383,7 @@ So that a flake is never "ledgered as awareness" again (the Epic 7 "flake is P1"
 **And** three consecutive clean first-try runs on a quiet box are recorded in the spec; the ledger's flake entries are stamped RESOLVED with the run log
 **And** the smokes stay dev-option-gated (`HC_DEV_OPTIONS=1`), boot their own server where they already do, and kill only their own PID; both trackers stamped.
 
-### Story 9.10: Harness and Ledger Hygiene *(was 9.7 until 2026-10-11)*
+### Story 9.11: Harness and Ledger Hygiene *(was 9.7 until 2026-10-11, 9.10 until 2026-10-13)*
 
 As the next agent to open the harness report or the deferred-work ledger,
 I want both to say only what is still true,
@@ -2376,7 +2398,7 @@ So that I do not re-derive 168 open threads or read a PASS/FAIL bar that measure
 **And** the 12 follow-up-review flags are each either run (a review gate on the story's landed code, findings into the ledger or quiet fixes) or dropped by Eric's ruling, and the spec template loses the flag if he rules it dead
 **And** the `shared/src/index.ts` barrel comment that still names `sim/deck.ts` as the engine is corrected; no gameplay change; both trackers stamped.
 
-### Story 9.11: How-to-Play and Record *(was 9.8 until 2026-10-11)*
+### Story 9.12: How-to-Play and Record *(was 9.8 until 2026-10-11, 9.11 until 2026-10-13)*
 
 As a new captain reading How-to-Play,
 I want every item in the game described there in Eric's words,
@@ -2384,10 +2406,10 @@ So that nothing I can draw is a mystery.
 
 **Acceptance Criteria:**
 
-**Given** Stories 9.1–9.10 landed
+**Given** Stories 9.1–9.11 landed
 **When** the record closes
 **Then** How-to-Play gains an entry for each new item (MULTI-SPECTRAL COUNTERMEASURE, FOULING SHELL, PASSIVE HEALING, ramming and grounding, the fixed key row, DEPTH CHARGE if built) with Eric's copy and a derived stat table, and loses SMOKE SCREEN, CHAFF and FLASH SHELLS; the two entries already owed — private lobbies (amendment 235) and drone drops (226g) — land in the same pass, copy Eric's
-**And** the GDD's Development Epics table and the mechanics sections 9.1–9.6 changed carry dated supersession stamps, never rewrites (the amendment-89(k) pattern); `catalog-v3.md` gains the new lines and the three retirements as a dated addendum; `game-architecture.md` gains a dated notice for the smoke-occluder and chaff-fakes patterns
+**And** the GDD's Development Epics table and the mechanics sections 9.1–9.8 changed carry dated supersession stamps, never rewrites (the amendment-89(k) pattern; incl. the eighths → twelfths ladder, "two truesight diameters", "radar = sight × 2", the 0.5×–1.5× zoom range and EXPERIENCE.md's ladder lines — 2026-10-13, `sprint-change-proposal-2026-10-13-twelfths-ladder.md`); `catalog-v3.md` gains the new lines and the three retirements as a dated addendum; `game-architecture.md` gains a dated notice for the smoke-occluder and chaff-fakes patterns
 **And** `epic-9-context-amendments.md` holds every ruling; the epic-9 retrospective is scheduled; both trackers stamped with one line each; no in-game copy is added unasked.
 
 ## Epic 10: The Account *(GDD E10 — was Epic 9 / E9 until the 2026-10-06 Sprint Change Proposal inserted Epic 9 Tune and Clean; stories 9.N → 10.N, text unchanged; re-cut 2026-09-21 — no decks)*
