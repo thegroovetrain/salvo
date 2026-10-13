@@ -83,8 +83,12 @@ const TUNE_FAMILIES = [
   // 2026-10-12): the cloud's life and its spray-disc radii are harness dials.
   'countermeasure.',
   // FOULING SHELL (Story 9.4, Eric 2026-10-12, amendment 61): radius, life,
-  // slow factor and linger are all harness dials; no floor leaf (a radius of
-  // 0 is a zone that touches nothing).
+  // slow factor and linger are all harness dials; no floor leaf. Read the
+  // arm before trusting it: `radius` 0 still stamps a hull whose outline
+  // COVERS the burst point (`polyInBlast` is a distance test, 0 inside), a
+  // `lingerMs` at or under the 50 ms tick slows nobody (the stamp is read
+  // next tick), and a `slowFactor` above 1 is a speed-up zone (ledgered at
+  // the 9.4 review gate with the fouling mine's identical factor gap).
   'foulingShell.',
   'starShells.',
   'boost.',

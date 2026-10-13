@@ -2,7 +2,7 @@
 title: 'Story 9.4: Fouling Shell'
 type: 'feature'
 created: '2026-10-12'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'c09acdc5'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -91,23 +91,23 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution (wave 1 — shared, one agent, Opus):**
-- [ ] `shared/src/constants.ts`, `sim/{slow,sight,shell,catalog,effects,loadout,arcs}.ts`, `types.ts`, `index.ts` -- CONFIG block, id rename, `polyInBlast` export, one-arg `effectiveSight`, wire shapes, PV 78 -- the one source both sides run
-- [ ] `shared/src/__tests__/*` -- two-fold composition contract, id/key re-bases, dazzle tests deleted; `npm test -w shared`, `npm run build -w shared`
+- [x] `shared/src/constants.ts`, `sim/{slow,sight,shell,catalog,effects,loadout,arcs}.ts`, `types.ts`, `index.ts` -- CONFIG block, id rename, `polyInBlast` export, one-arg `effectiveSight`, wire shapes, PV 78 -- the one source both sides run
+- [x] `shared/src/__tests__/*` -- two-fold composition contract, id/key re-bases, dazzle tests deleted; `npm test -w shared`, `npm run build -w shared`
 
 **Visual gate (orchestrator, after wave 1, before the client wave commits):**
-- [ ] Artifact: three card-glyph candidates + three on-water zone treatments (firer-hue ring, each with a distinct inside look) rendered from the real icon/zone code BESIDE a lit zone and a burn zone so distinctness is judged (ruling 68); Eric's pick via AskUserQuestion (recorded as the glyph/zone ruling)
+- [x] Artifact: three card-glyph candidates + three on-water zone treatments (firer-hue ring, each with a distinct inside look) rendered from the real icon/zone code BESIDE a lit zone and a burn zone so distinctness is judged (ruling 68); Eric's pick via AskUserQuestion (recorded as the glyph/zone ruling)
 
 **Execution (wave 2 — server Fable and client Opus in parallel, shared frozen):**
-- [ ] `server/src/game/{world,signals,perception,frames}.ts`, `equipment/*`, `ai/*`, batchsim family -- zone store + STEP_ORDER rows, outline stamp, two-fold kinematics, `foulzone` row, `fouledUntil` on `you`, flash machinery deleted, bot row -- six exceptions untouched
-- [ ] `server/src/__tests__/*` -- `foulingShell.test.ts` (every matrix row), channel twin suite, oracle arm + ledger, stepOrder re-pin, goldenFrames (re-record ONLY for the retired scenario/field; note the diff here); `npm test -w server`
-- [ ] `client/src/render/foulZones.ts`, `sim/prediction.ts`, `state.ts`, `net/roomBindings.ts`, `main.ts`, `render/{fog,radar,projectiles,textures,radarDim,wake,aimPreview,weaponArc,equipmentIcons}.ts`, `ui/boonCopy.ts`, `audio/{tones,twinMap}.ts`, `config.ts` -- renderer, second fold, tell, dazzle chain deleted, glyph, copy
-- [ ] `client/src/__tests__/*` -- renderer contract, prediction two-fold, tell, bindings, copy rows from CONFIG, dazzle tests deleted; `npm test -w client`
+- [x] `server/src/game/{world,signals,perception,frames}.ts`, `equipment/*`, `ai/*`, batchsim family -- zone store + STEP_ORDER rows, outline stamp, two-fold kinematics, `foulzone` row, `fouledUntil` on `you`, flash machinery deleted, bot row -- six exceptions untouched
+- [x] `server/src/__tests__/*` -- `foulingShell.test.ts` (every matrix row), channel twin suite, oracle arm + ledger, stepOrder re-pin, goldenFrames (re-record ONLY for the retired scenario/field; note the diff here); `npm test -w server`
+- [x] `client/src/render/foulZones.ts`, `sim/prediction.ts`, `state.ts`, `net/roomBindings.ts`, `main.ts`, `render/{fog,radar,projectiles,textures,radarDim,wake,aimPreview,weaponArc,equipmentIcons}.ts`, `ui/boonCopy.ts`, `audio/{tones,twinMap}.ts`, `config.ts` -- renderer, second fold, tell, dazzle chain deleted, glyph, copy
+- [x] `client/src/__tests__/*` -- renderer contract, prediction two-fold, tell, bindings, copy rows from CONFIG, dazzle tests deleted; `npm test -w client`
 
 **Review gate (orchestrator):** Blind Hunter + Edge Case Hunter on Fable, Codex `gpt-5.6-sol` on the same diff; triage per the orchestrate skill; regression tests that fail without each patch.
 
 **Execution (wave 3 — record, Sonnet):**
-- [ ] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `epics.md`, both trackers, amendments 61–68 (+ readings) in BOTH homes, `deferred-work.md` (review defers only), `DESIGN.md` if false -- 0.18.45 / cycle 180 / PV 78
-- [ ] `npm run check` green; results recorded under Verification; branch pushed; ONE PR to `development`, never merged
+- [x] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `epics.md`, both trackers, amendments 61–68 (+ readings) in BOTH homes, `deferred-work.md` (review defers only), `DESIGN.md` if false -- 0.18.45 / cycle 180 / PV 78
+- [x] `npm run check` green; results recorded under Verification; branch pushed; ONE PR to `development`, never merged
 
 **Acceptance Criteria:**
 - Given any seeded world in the perception fuzz, when `observe()` runs for every observer, then every delivered `foulZones` row passes the independent zone-gate oracle, the ledger is positive, no observer beyond radar range of a centre receives it, and the exception count is six.
@@ -118,6 +118,18 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-10-12 — Review pass (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol cross-check on the same diff c09acdc5..387f2bf9)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 1: (high 0, medium 0, low 1)
+- defer: 1: (high 0, medium 0, low 1)
+- reject: 10: (high 0, medium 0, low 10)
+- addressed_findings:
+  - `[low]` `[patch]` Edge Case Hunter (CONFIRMED): the harness family comment and this spec's matrix row claimed a `--tune foulingShell.radius=0` zone "touches nothing"; `polyInBlast` is a distance test that returns 0 when the centre lies INSIDE the hull polygon, so an r-0 zone still stamps a hull whose outline covers the burst point → the `overrides.ts` comment re-cut to say so, plus the sub-tick linger and the >1 factor readings. The matrix row inside the intent contract is read-only and stays as written; THIS entry is the correction of record: "a radius-0 zone stamps only a hull covering the centre point".
+- deferred (ledger): the `--tune foulingShell.*` surface accepts `lingerMs` ≤ the 50 ms tick (an arm that slows nobody while reading normal — the stamp is read next tick) and `slowFactor` > 1 (a speed-up zone) or 0 (a stop zone); `foulingMines.slowFactor` has the identical gap today (Edge Case Hunter CONFIRMED / PLAUSIBLE; pre-existing shape of the floor set).
+- rejected: the root version still reads 0.18.44 and no CHANGELOG / tracker / amendment edits are in the diff (Codex CONFIRMED low; Blind Hunter P4 — the record wave runs after the gate, and amendments 61–69 were already committed in acf003c9); `state.net.foulZones` is written every frame and read by nothing (Blind Hunter P1 — the channel family's mirror shape, left with its "hazard only" comment); the matrix row "zone expires with hull inside → last stamp at t1 − dt" reads loosely — `applyFoulZones` precedes `expireFoulZones`, so the last stamp lands AT the expiry tick, the burn zone's "through its final tick" precedent (Blind Hunter P2 — recorded here, contract unchanged); the uncommitted in-review status line (P3 — committed with this entry); `tickKinematics` reads `CONFIG.foulingShell.slowFactor` directly rather than through `effectiveStats()` (P5 — the consumable law: a consumable has no stats row, the client reads the same constant, PV 78 gates release builds); `want` and `solve` both call `foulingShellTarget` (P6 — deterministic, cost only); a chaser exactly abeam is not astern (P7 — the strict reading of amendment 65's "behind the beam", recorded as reading 70(c)); the zone draws on the fog-immune layer like a burn zone (P8 — ruling 63); `--tune foulingShell.durationMs=0` spawns, stamps and expires in one tick, one linger from a zone no client draws (Edge Case Hunter PLAUSIBLE, harness-only); bot postures other than engage/disengage never fire it (Edge Case Hunter — ruling 65 names exactly two).
+- agreement picture: all three reviewers independently returned BUILD-ON-IT with no production-path defect; the Edge Case Hunter alone found the r-0 claim (confirmed by the orchestrator against `pointPolygonDistance`, fixed as a comment); Codex alone raised the version stamp (the record wave's); the Blind Hunter traced all six seeded suspicions clean (prediction parity, post-move memo, sunk-this-tick invalidation via `targetsGen`, no leak of `fouledUntil` outside `you`, no surviving string-keyed dazzle plumbing, the golden re-record moving exactly the retired field, the id rename and the debuff scenario's un-collapsed sight).
 
 ## Design Notes
 
@@ -132,8 +144,24 @@ warnings: [oversized]
 - `npm run build -w shared` -- expected: clean (before server/client tests)
 - `npm test -w shared && npm test -w server && npm test -w client` -- expected: all green
 - `npm run lint` -- expected: zero errors (complexity ≤ 10)
-- `npm run check` -- expected: green; counts recorded in CHANGELOG
+- `npm run check` -- expected: green; counts recorded in CHANGELOG -- RESULT 2026-10-12: green — shared 41 files / 1033 tests, server 89 / 2482, client 127 / 3955, lint 0 errors (2 pre-existing max-lines warnings), hook test 266 passed
 - `grep -rn "dazzl\|flashShells\|applyFlash\|dazzleShells" shared/src server/src client/src --include=*.ts | grep -v __tests__` -- expected: no hits outside `how-to-play/copy.ts` and dated doc comments
 
 **Manual checks:**
 - Eric picks the card glyph and the on-water treatment on the artifact before the client wave commits; the live zone is judged on staging after the PR.
+
+## Auto Run Result
+
+Status: done — PR open to `development` (never merged by the agent; Eric judges the zone on staging).
+
+**Implemented:** FLASH SHELLS replaced by the FOULING SHELL on key `4` (cap 5): the same click-aimed, zero-damage, burst-once shell, whose burst leaves a stationary FOUL ZONE (`CONFIG.foulingShell`: r 150 u, 15 s, ×0.75 both caps, 5 s linger — Eric's numbers as accepted, amendment 61). `World.foulZones` + STEP_ORDER rows `applyFoulZones` (after `applyZoneEffects`: every afloat hull whose OUTLINE touches a zone — `polyInBlast` over the post-move `hitTargets(['hull'])` memo, owner and drones included, gated on `damageEnabled` — is stamped `fouledUntil = now + lingerMs`; amendment 62) and `expireFoulZones`; `tickKinematics` folds the slow as the SECOND call of the one shared `slowedKinematics` (boost → mine slow → shell slow → draft → hooks), so shell × mine multiply and two zones never stack (amendment 64); the `foulzone` signal row delivers `{id,x,y,r,until,by}` on the burn zone's gate (owner always, spectator always, otherwise centre within radar range — amendment 63); `OwnShip.fouledUntil` (victim-private) replaces `dazzledUntil`; the client predictor adopts it and folds the identical second slow; the client draws the zone as "murk and net" in the firer's hue inside the family ring (Eric's pick, amendment 69) with the fouled-prop card glyph (candidate A), card FOULING SHELL with rows from CONFIG (amendment 66); bots fire while engaging at the nearest live contact in sight and while disengaging at the nearest astern (amendment 65); the whole dazzle machinery (`CONFIG.flashShells`, `applyFlash`, `dazzledUntil`, the DAZZLED tell and sting, the `setDazzled` chain, `effectiveSight`'s second argument) is deleted; the SLOWED tell covers both slows. `PROTOCOL_VERSION` 78; version 0.18.45 (cycle 180); epic-9 amendments 61–70.
+
+**Files:** shared `constants.ts`, `sim/{slow,sight,shell,catalog,effects,loadout,arcs,boost,draft,hooks}.ts`, `types.ts`, `index.ts`; server `game/{world,signals,perception,frames,drones}.ts`, `equipment/{ballistics,consumables,index,starShells}.ts` + `consumables/foulingShell.ts` (dazzleShells.ts deleted), `ai/{consumables,tacticKit,profiles,equipment}.ts`, `scripts/batchsim/overrides.ts`; client `render/foulZones.ts` (new), `render/{fog,radar,projectiles,textures,radarDim,radarField,radarHeatmap,wake,litZones,hud,aimPreview,weaponArc,equipmentIcons}.ts`, `sim/{prediction,ownFire}.ts`, `net/roomBindings.ts`, `state.ts`, `main.ts`, `config.ts`, `ui/boonCopy.ts`, `audio/{tones,twinMap}.ts`; tests re-based in all three workspaces with new `foulingShell.test.ts` (server, 18 cases) and `foulZones.test.ts` (client); records (`VERSION`, `package.json` + lock, `CHANGELOG.md`, both trackers, `epics.md`, `DESIGN.md`, amendments 61–70 in both homes, `deferred-work.md`).
+
+**Review:** Blind Hunter (Fable) BUILD-ON-IT, no confirmed defect, six seeded suspicions traced clean; Edge Case Hunter (Fable) BUILD-ON-IT, two harness-surface items; Codex gpt-5.6-sol BUILD-ON-IT, one record-wave item. Patch 1 (the harness family comment's false "radius 0 touches nothing"), deferred 1 (harness tune floors for sub-tick linger / inverted factor, pre-existing shape), rejected 10 (rulings, record-wave work, cost-only notes — all listed in the triage log).
+
+**Follow-up review recommended:** false — the only review-driven change is a comment.
+
+**Verification:** `npm run check` green (shared 1033, server 2482, client 3955 / 127 files, lint 0 errors with 2 pre-existing max-lines warnings, hook test 266); goldenFrames re-recorded for exactly the retired field, the id rename and the debuff scenario's un-collapsed sight (reading 70(k)). No dev server booted; no smokes run (none in scope).
+
+**Residual risks / for Eric on staging:** (1) the murk-and-net look and its knobs (`CLIENT_CONFIG.foulZone`, `colors.foulMurk`); (2) the slow is off in the pre-start phases where damage is off (reading 67 — his veto); (3) a chaser exactly abeam is not "astern" for the bot rule (reading 70(c)); (4) the zone row is delivered through islands at radar range like a burn zone (ruling 63 by construction); (5) How-to-Play still describes FLASH SHELLS until 9.11.
