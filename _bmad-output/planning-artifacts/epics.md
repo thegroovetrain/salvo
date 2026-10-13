@@ -2243,6 +2243,7 @@ So that the cloud I make is the thing hiding me, not a trick of fake echoes.
 **And** the perception invariants gain the countermeasure's row with an oracle mirror and non-vacuity counters for sight AND radar; bots use it in `disengage` by the 8-20 rule; drone drops can roll it; `PROTOCOL_VERSION` bumps; both trackers stamped.
 
 ### Story 9.4: Fouling Shell *(inserted 2026-10-11 — proposal §4.3)*
+*(BUILT 2026-10-12 — cycle 180, 0.18.45, PV 77 → 78, epic-9 amendments 61–70; Eric's spec-step rulings: numbers as accepted, OUTLINE inside test, visible like a burn zone, same source never stacks, bots fire in both postures, card copy; the zone reads as its own kind — "murk and net" on the chart, the fouled-prop glyph (amendments 68–69); `spec-9-4-fouling-shell.md`.)*
 
 As a captain,
 I want a shell that leaves a patch of water nobody can run through at speed,

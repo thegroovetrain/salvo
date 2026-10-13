@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.18.45] - 2026-10-12
+
+### Changed
+- **FLASH SHELLS are replaced by the FOULING SHELL** (Story 9.4, key `4`). It fires exactly as the flash did: one click-aimed shell out to radar range, no damage, bursts once. Where it bursts it leaves a **foul zone**, a 150 unit circle that lasts 15 seconds.
+- **Any ship whose hull touches the zone runs at 0.75 of its speed, both ways, and the slow lingers 5 seconds after the hull leaves.** That includes the shooter's own ship. Two zones never stack, but a fouling mine's slow and a zone's slow multiply.
+- **You see a zone the way you see a burn zone:** always for its owner, and for anyone whose radar range reaches its center. It is drawn as a dark oily disc under a diagonal mesh in the shooter's color, inside the usual zone ring (Eric's pick, "murk and net"), and the card has a new glyph, a fouled propeller. The card prints FOULING SHELL with rows RADIUS 150 U / LASTS 15 S / SPEED x0.75.
+- **Bots fire it** at the nearest ship in sight while attacking and at a ship astern while escaping. The DAZZLED effect, its HUD tell and its sound are gone; the SLOWED tell now covers both slows. How-to-Play still describes FLASH SHELLS until Story 9.11.
+
+### Internal
+- `CONFIG.foulingShell` replaces `CONFIG.flashShells`; id `foulingShell` replaces `dazzleShells`; `polyInBlast` exported; `effectiveSight(stats)` takes one argument; `OwnShip.fouledUntil` replaces `dazzledUntil`; `FoulZoneView` + `FrameMsg.foulZones`.
+- Server: `World.foulZones`, STEP_ORDER rows `applyFoulZones` (after `applyZoneEffects`) and `expireFoulZones` (after `expireBurnZones`), `tickKinematics` five-stage fold (boost, mine slow, shell slow, draft, hooks), `foulzone` signal row on the burn zone's gate, `applyFlash` deleted. Bots: `foulingShellTactic` + `nearestLiveAstern`; harness family `foulingShell.`.
+- Client: `render/foulZones.ts`, `CLIENT_CONFIG.foulZone`, `colors.foulMurk`, the predictor's second slow fold off `you.fouledUntil`, the dazzle chain deleted.
+- Review gate: Blind Hunter + Edge Case Hunter (Fable) + Codex gpt-5.6-sol, all BUILD-ON-IT; 1 patch (harness family comment), 1 defer (harness tune floors), the rest rejected.
+- Tests: shared 1033, server 2482, client 3955 (127 files), hook test 266, lint 0 errors (2 pre-existing max-lines warnings). New `foulingShell.test.ts` (18), perception `foulZones` channel twin + oracle arm + ledger, goldenFrames re-recorded, new client `foulZones.test.ts`.
+- Epic-9 amendments 61–70. Cycle 180. PROTOCOL_VERSION 77 -> 78.
+
 ## [0.18.44] - 2026-10-12
 
 ### Changed
