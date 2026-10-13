@@ -530,7 +530,7 @@ describe('XpStrip — the freeze on the real instrument', () => {
 // spends five seconds being told to press a TAB that opens nothing (the refit is
 // inert from sink-entry, sim/sinkingWindow.ts).
 describe('xpStripView — the TAB cue is withheld once the hull is sinking', () => {
-  const you = { lvl: 4, xp: 0.5, pts: 1, offer: ['armor'] };
+  const you = { lvl: 4, xp: 0.5, pts: 1, offer: ['hullPoints'] };
 
   it('is refitable while the hull is ALIVE with a front offer banked', () => {
     expect(xpStripView(you, false)).toEqual({ lvl: 4, xp: 0.5, pts: 1, refitable: true });

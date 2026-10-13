@@ -183,15 +183,16 @@ describe('needleAngle — the solid amber pointer on the arc', () => {
 
     // ...and the SPEED LADDER IS INSIDE THE BONUS, because the hook's input is
     // the POST-FOLD kinematics: a SPEED-capped Torpedo Boat's globe runs to
-    // 68.75, not to 55 + a flat add.
+    // 71.875, not to 57.5 + a flat add. (SPEED caps at five cards since Story
+    // 9.6, epic-9 amendment 91 — was four: 55 / 68.75.)
     const cappedDeck = Array.from({ length: CATALOG.speed.cap }, () => 'speed');
     const capped = effectiveStats(CONFIG.shipClasses.torpedoBoat, cappedDeck).kinematics;
     const cappedBoosted = boostedKinematics(capped, FACTOR, true);
-    expect(capped.maxSpeed).toBeCloseTo(55, 9);
-    expect(cappedBoosted.maxSpeed).toBeCloseTo(68.75, 9);
-    // The needle reads off THOSE denominators: full arc at 68.75, short of the
+    expect(capped.maxSpeed).toBeCloseTo(57.5, 9);
+    expect(cappedBoosted.maxSpeed).toBeCloseTo(71.875, 9);
+    // The needle reads off THOSE denominators: full arc at 71.875, short of the
     // end at the base hull's boosted cap.
-    expect(needleAngle(68.75, cappedBoosted)).toBeCloseTo(T.arcDeg, 9);
+    expect(needleAngle(71.875, cappedBoosted)).toBeCloseTo(T.arcDeg, 9);
     expect(needleAngle(BOOSTED_CAP, cappedBoosted)).toBeLessThan(T.arcDeg);
   });
 

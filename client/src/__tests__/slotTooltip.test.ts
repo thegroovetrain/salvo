@@ -8,7 +8,7 @@
 // CYCLE 158 (Eric rulings 2026-09-30, epic-8 amendments 185/186): the panel is
 // the heading over the hovered thing's LIVE stat table, one `LABEL value` per
 // line — no prose, no accrued build list — and the HP globe opens a SHIP panel
-// with the five ship stats.
+// with the ship stats (six since Story 9.6).
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -224,13 +224,14 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
 
 // --- THE SHIP PANEL ON THE HP GLOBE (amendment 186) ------------------------------
 
-describe('the HP globe opens a SHIP panel with the five ship stats (amendment 186)', () => {
-  it('names the hull over SHIP and the five ladders\' live values', () => {
+describe('the HP globe opens a SHIP panel with the six ship stats (amendment 186)', () => {
+  it('names the hull over SHIP and the six ladders\' live values', () => {
     const m = shipTooltipModel('torpedoBoat', STATS)!;
     expect(m.name).toBe('SPEEDBOAT');
     expect(m.interaction).toBe(SHIP_INTERACTION);
     expect(m.interaction).toBe('SHIP');
-    expect(m.stats.map((r) => r.label)).toEqual(['MAX HULL', 'TOP SPEED', 'TURNING', 'RADAR SWEEP', 'ALL COOLDOWNS']);
+    // HEAL joined last in Story 9.6 (epic-9 amendment 95).
+    expect(m.stats.map((r) => r.label)).toEqual(['MAX HULL', 'TOP SPEED', 'TURNING', 'RADAR SWEEP', 'ALL COOLDOWNS', 'HEAL']);
     expect(lines(m.stats)[0]).toBe(`MAX HULL ${STATS.maxHp}`);
     expect(lines(m.stats)[2]).toBe('TURNING 46°/s'); // 0.8 rad/s, whole degrees (P10)
     expect(lines(m.stats)[3]).toBe(`RADAR SWEEP ${STATS.sweepRpm} RPM`);
@@ -239,7 +240,7 @@ describe('the HP globe opens a SHIP panel with the five ship stats (amendment 18
   });
 
   it('moves with the build, and has no panel for a hull it cannot name', () => {
-    const armored = statsFor('torpedoBoat', { armor: 1 });
+    const armored = statsFor('torpedoBoat', { hullPoints: 1 });
     expect(lines(shipTooltipModel('torpedoBoat', armored)!.stats)[0]).toBe(`MAX HULL ${armored.maxHp}`);
     expect(armored.maxHp).toBeGreaterThan(STATS.maxHp);
     expect(shipTooltipModel(undefined, STATS)).toBeNull();
@@ -310,7 +311,7 @@ describe('the model cache is keyed on the TARGET', () => {
     // A different hull is a different panel.
     expect(tipCacheHit(shipEntry, 'ship', null, stats, boons, 0, 'battleship')).toBe(false);
     // New stats (a fold) or a moved stock re-build.
-    expect(tipCacheHit(slotEntry, Q, 'heavyTorpedo', statsFor('torpedoBoat', { armor: 1 }), boons, 1)).toBe(false);
+    expect(tipCacheHit(slotEntry, Q, 'heavyTorpedo', statsFor('torpedoBoat', { hullPoints: 1 }), boons, 1)).toBe(false);
     expect(tipCacheHit(slotEntry, Q, 'heavyTorpedo', stats, boons, 2)).toBe(false);
     expect(tipCacheHit(null, Q, 'heavyTorpedo', stats, boons, 1)).toBe(false);
   });
@@ -398,7 +399,7 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
   });
 
   it('leaves the ABILITY grammar untouched — an ability has no tier to print', () => {
-    expect(interactionLine(1, 'boost', ['armor'])).toBe('');
+    expect(interactionLine(1, 'boost', ['hullPoints'])).toBe('');
   });
 
   it('reaches the tooltip model, not just the helper', () => {

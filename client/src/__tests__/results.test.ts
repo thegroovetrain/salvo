@@ -89,21 +89,26 @@ const rep = (id: string, n: number): string[] => Array.from({ length: n }, () =>
  * THE MOCK'S FIXTURE (countdown-results-1.html frame 2): gun IV, Shift, Q light
  * torpedo III, E II, R heavy torpedo I, belt HULL REPAIR ×1 then three empties,
  * and the ladder line `ARMOR III · SPEED IV · TURNING II · RADAR SWEEP II ·
- * RELOAD III`. The mock's E is a machine gun II, which since Story 8.15 is a gun
+ * RELOAD III` — read since Story 9.6 (epic-9 amendments 93/94) as `HULL II ·
+ * SPEED III · TURNING I · RADAR SWEEP II · RELOAD III · PASSIVE HEALING —`:
+ * every ship ladder counts its own copies from nothing now. The mock's E is a machine gun II, which since Story 8.15 is a gun
  * pick and can no longer sit in E — naval mines II stand in for it (same tier).
  */
-function mockOwn(over: { radarSweep?: number; hullRepair?: number } = {}): ResultsOwn {
+function mockOwn(
+  over: { radarSweep?: number; hullRepair?: number; speed?: number; passiveHealing?: number } = {},
+): ResultsOwn {
   const cards = [
     ...rep('deckGun', 3), // gun: 1 + copies = IV
     ...rep('lightTorpedo', 3),
     ...rep('navalMines', 2),
     'heavyTorpedo',
     ...rep('hullRepair', over.hullRepair ?? 1),
-    ...rep('armor', 2), // base line: 1 + copies = III
-    ...rep('speed', 3), // IV
-    'turning', // II
-    ...rep('radarSweep', over.radarSweep ?? 2), // starts from nothing: copies = II
+    ...rep('hullPoints', 2), // every ship ladder starts from nothing: copies = II
+    ...rep('speed', over.speed ?? 3), // III
+    'turning', // I
+    ...rep('radarSweep', over.radarSweep ?? 2), // II
     ...rep('reload', 3), // III
+    ...rep('passiveHealing', over.passiveHealing ?? 0), // — at zero
   ];
   const repair = over.hullRepair ?? 1;
   const slots: (SlotItemId | null)[] = [
@@ -447,21 +452,24 @@ describe('showResults — the elimination modal', () => {
       for (const name of ['CANNON', 'TORPEDO', 'MINES', 'REPAIR', 'BOOST']) expect(row).not.toContain(name);
     });
 
-    it('the ladder line reads the mock verbatim: ARMOR III · SPEED IV · TURNING II · RADAR SWEEP II · RELOAD III', () => {
+    it('the ladder line reads each ship ladder\'s copies as its numeral, on the tier ramp', () => {
+      // Story 9.6 (epic-9 amendments 93/94): HULL / SPEED / TURNING count from
+      // nothing like RADAR SWEEP and RELOAD, and PASSIVE HEALING joins last.
       open(mockOwn());
-      expect(ladder()).toBe('ARMORIII·SPEEDIV·TURNINGII·RADAR SWEEPII·RELOADIII');
+      expect(ladder()).toBe('HULLII·SPEEDIII·TURNINGI·RADAR SWEEPII·RELOADIII·PASSIVE HEALING—');
       const numerals = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > span > span')];
-      expect(numerals.map((n) => n.style.color)).toEqual([2, 3, 1, 1, 2].map((i) => LINEAGE_TIERS[i]));
+      expect(numerals.slice(0, 5).map((n) => n.style.color)).toEqual([1, 2, 0, 1, 2].map((i) => LINEAGE_TIERS[i]));
     });
 
-    it('an untaken RADAR SWEEP reads `RADAR SWEEP —` in the muted label colour (Eric R2), all five still listed', () => {
-      open(mockOwn({ radarSweep: 0 }));
-      expect(ladder()).toBe('ARMORIII·SPEEDIV·TURNINGII·RADAR SWEEP—·RELOADIII');
+    it('a ladder at zero copies reads `—` in the muted label colour (Eric R2), all six still listed', () => {
+      // The I/O matrix row: 0 × SPEED dashes, 3 × PASSIVE HEALING prints III.
+      open(mockOwn({ speed: 0, passiveHealing: 3 }));
+      expect(ladder()).toBe('HULLII·SPEED—·TURNINGI·RADAR SWEEPII·RELOADIII·PASSIVE HEALINGIII');
       const entries = ladderEntries([]);
-      expect(entries.map((e) => e.label)).toEqual(['ARMOR', 'SPEED', 'TURNING', 'RADAR SWEEP', 'RELOAD']);
-      // Base lines sail at Tier I; the two that start from nothing dash.
-      expect(entries.map((e) => e.tier)).toEqual([1, 1, 1, null, null]);
-      const dash = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > span > span')][3];
+      expect(entries.map((e) => e.label)).toEqual(['HULL', 'SPEED', 'TURNING', 'RADAR SWEEP', 'RELOAD', 'PASSIVE HEALING']);
+      // Every ship ladder starts from nothing (amendment 94), so all six dash.
+      expect(entries.map((e) => e.tier)).toEqual([null, null, null, null, null, null]);
+      const dash = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > span > span')][1];
       expect(dash.textContent).toBe('—');
       expect(dash.style.color).toBe('var(--hc-text-muted)');
     });

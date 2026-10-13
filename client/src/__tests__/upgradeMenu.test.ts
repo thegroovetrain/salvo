@@ -52,7 +52,7 @@ const R = CLIENT_CONFIG.refit;
 
 /** A real four-LINE draw from the shipped Boon Catalog v1 (the deck draws four
  *  different card LINES — categories may repeat; these happen not to). */
-const OFFER = ['radarSweep', 'armor', 'deckGun', 'navalMines'];
+const OFFER = ['radarSweep', 'hullPoints', 'deckGun', 'navalMines'];
 const OFFER_B = ['reload', 'speed', 'radarSweep', 'navalMines'];
 
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {
@@ -488,8 +488,8 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   });
 
   it('resolves the card face against the OWN CLASS too (hull stats differ per class)', () => {
-    const tb = offerView(ownShip({ offer: ['armor'] }), false, false, false);
-    const bb = offerView(ownShip({ cls: 'battleship', offer: ['armor'] }), false, false, false);
+    const tb = offerView(ownShip({ offer: ['hullPoints'] }), false, false, false);
+    const bb = offerView(ownShip({ cls: 'battleship', offer: ['hullPoints'] }), false, false, false);
     expect(bb?.options[0].rows[0].cur).not.toBe(tb?.options[0].rows[0].cur);
   });
 
@@ -1480,7 +1480,7 @@ describe('the greyed card — a refusal stated before the press', () => {
     // ...one short of the cap it is a live card again.
     expect(cardGreyed(CATALOG.hullRepair, ROOM_LEFT, FIVE_REPAIRS.slice(1))).toBe(false);
     // Every kind, not just consumables.
-    expect(cardGreyed(CATALOG.armor, ROOM_LEFT, new Array<string>(CATALOG.armor.cap).fill('armor'))).toBe(true);
+    expect(cardGreyed(CATALOG.hullPoints, ROOM_LEFT, new Array<string>(CATALOG.hullPoints.cap).fill('hullPoints'))).toBe(true);
   });
 
   it('greys copy 1 of a weapon when Q/E/R are full, and never a later copy', () => {
@@ -1492,7 +1492,7 @@ describe('the greyed card — a refusal stated before the press', () => {
   it('prints SLOTS FULL for the weapon-slot refusal ONLY — a capped consumable has NO foot word (amendment 32)', () => {
     expect(cardFoot(CATALOG.broadside, ROW_FULL, [])).toBe(SLOTS_FULL);
     expect(cardFoot(CATALOG.hullRepair, ROOM_LEFT, FIVE_REPAIRS)).toBe('');
-    expect(cardFoot(CATALOG.armor, ROOM_LEFT, new Array<string>(CATALOG.armor.cap).fill('armor'))).toBe('');
+    expect(cardFoot(CATALOG.hullPoints, ROOM_LEFT, new Array<string>(CATALOG.hullPoints.cap).fill('hullPoints'))).toBe('');
     expect(cardFoot(CATALOG.radarSweep, ROW_FULL, [])).toBe(''); // a live card
   });
 

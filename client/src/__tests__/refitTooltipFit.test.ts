@@ -113,8 +113,9 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
   it('covers every catalog line × class × copies held — every built line opens a panel', () => {
     // 24 lines since DECK GUN TURRET and DECK GUN BARREL folded into the
     // CANNON ladder (2026-09-30, amendment 197); 26 before; 23 since CHAFF left
-    // the catalog in Story 9.2 (epic-9 amendment 31).
-    expect(LINES).toHaveLength(23);
+    // the catalog in Story 9.2 (epic-9 amendment 31); 24 since PASSIVE HEALING
+    // joined in Story 9.6 (epic-9 amendment 95).
+    expect(LINES).toHaveLength(24);
     const lines = new Set(PANELS.map((p) => p.label.split('@')[0]));
     // Only the never-dealt stub opens no panel.
     expect(LINES.filter((d) => !lines.has(d.id)).map((d) => d.id)).toEqual(['depthCharge']);
@@ -255,7 +256,7 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
   // (BROADSIDE and HEAVY TORPEDO, 261px) are taller than the floor band itself,
   // so flipped DOWN they are nudged (-17px) rather than seated at the band's
   // top edge — which is not the placement these pins are about.
-  const OFFER = ['phosphorShells', 'radarSweep', 'armor', 'foulingMines'];
+  const OFFER = ['phosphorShells', 'radarSweep', 'hullPoints', 'foulingMines'];
 
   function open(): { menu: UpgradeMenu; cards: HTMLButtonElement[]; view: OfferView } {
     const you = {
@@ -491,7 +492,7 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
   it('paints the KIND word and the resting edge in the kind\'s colour; armed stays amber', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, pts: 1, offer: ['heavyTorpedo', 'deckGun', 'armor', 'hullRepair'],
+      cls: 'torpedoBoat' as const, pts: 1, offer: ['heavyTorpedo', 'deckGun', 'hullPoints', 'hullRepair'],
       boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});

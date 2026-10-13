@@ -132,6 +132,8 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // `CONFIG.foulingShell` with its catalog line — a foul zone carries no mask.
     // 78 -> 79 (Story 9.5) is the client reading CONFIG.ram and running the
     // shared hull-contact resolver in prediction — no wire shape, no mask.
-    expect(PROTOCOL_VERSION).toBe(79);
+    // 79 -> 80 (Story 9.6) is the catalog re-cut (HULL / PASSIVE HEALING) and
+    // the regen fold the client reads through stats — no mask.
+    expect(PROTOCOL_VERSION).toBe(80);
   });
 });

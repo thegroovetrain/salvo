@@ -59,17 +59,18 @@ describe('cardViewModel — pips, keys, loadout', () => {
     expect(cardViewModel('mineLayer').pips.map((p) => p.filled)).toEqual([3, 3, 3]);
   });
 
-  it('labels the three pip rows SPEED / ARMOR / TURNING', () => {
-    // ARMOR since 2026-08-21 (Eric: *"on ship select, change 'toughness' to
+  it('labels the three pip rows SPEED / HULL / TURNING', () => {
+    // HULL since Story 9.6 (Eric 2026-10-13, epic-9 amendment 93 — the hp
+    // ladder's printed name); ARMOR from 2026-08-21 (Eric: *"on ship select, change 'toughness' to
     // 'armor' so the text fits better"*). A COPY ruling only — the anchor key
     // it reads (`CLIENT_CONFIG.home.pip.toughness`), the ladder and the fills
     // are all untouched, and the row still reports hp. Same shape as the KILL
     // LEADER rename, which moved the player-facing words and left every
     // internal identifier alone.
-    expect(cardViewModel('torpedoBoat').pips.map((p) => p.label)).toEqual(['SPEED', 'ARMOR', 'TURNING']);
+    expect(cardViewModel('torpedoBoat').pips.map((p) => p.label)).toEqual(['SPEED', 'HULL', 'TURNING']);
     for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
       expect(cardViewModel(cls).pips.map((p) => p.label), `${cls} agrees`)
-        .toEqual(['SPEED', 'ARMOR', 'TURNING']);
+        .toEqual(['SPEED', 'HULL', 'TURNING']);
     }
   });
 

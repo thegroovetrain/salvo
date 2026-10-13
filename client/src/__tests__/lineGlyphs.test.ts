@@ -14,7 +14,7 @@ describe('one glyph per card line (cycle 162)', () => {
   it('every line but the stub depthCharge answers a glyph', () => {
     for (const id of GLYPHED) expect(glyphPaths(id), id).not.toBeNull();
     expect(glyphPaths('depthCharge')).toBeNull();
-    expect(GLYPHED).toHaveLength(22); // 23 until CHAFF left the catalog (Story 9.2)
+    expect(GLYPHED).toHaveLength(23); // 23 until CHAFF left the catalog (Story 9.2); 22, then 23 with PASSIVE HEALING (Story 9.6)
   });
 
   it('no two lines draw the same glyph', () => {
@@ -38,6 +38,6 @@ describe('one glyph per card line (cycle 162)', () => {
   });
 
   it('a ship ladder reaches the DOM surface as an svg', () => {
-    expect(equipmentGlyphSvg('armor', 24)?.tagName.toLowerCase()).toBe('svg');
+    expect(equipmentGlyphSvg('hullPoints', 24)?.tagName.toLowerCase()).toBe('svg');
   });
 });

@@ -103,14 +103,14 @@ describe('boonCount + personalScore', () => {
   // actually made (OwnShip.boons.length). Repeats are picks too, so occurrences
   // count and the list is NEVER de-duplicated.
   it('counts fitted boons, repeats included, tolerating a missing list', () => {
-    expect(boonCount(['radarSweep', 'radarSweep', 'armor'])).toBe(3);
+    expect(boonCount(['radarSweep', 'radarSweep', 'hullPoints'])).toBe(3);
     expect(boonCount(undefined)).toBe(0);
     expect(boonCount([])).toBe(0);
   });
 
   it('a WINNER gets the winner flag instead of a placement number', () => {
     const s = recordElimination(freshScore(), 2);
-    const won = personalScore(s, ['radarSweep', 'armor'], 4, true, null);
+    const won = personalScore(s, ['radarSweep', 'hullPoints'], 4, true, null);
     expect(won.winner).toBe(true);
     expect(won.placement).toBeNull();
     expect(won.boons).toBe(2);

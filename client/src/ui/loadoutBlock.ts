@@ -94,12 +94,22 @@ const TEXT = {
 const P = LOADOUT_PX;
 const MONO = 'var(--hc-font-mono)';
 
-/** The five ship ladders, in the ratified line order. */
-const LADDER_LINES: readonly LineId[] = ['armor', 'speed', 'turning', 'radarSweep', 'reload'];
+/** The six ship ladders, in the ratified line order (PASSIVE HEALING last,
+ *  Story 9.6). */
+const LADDER_LINES: readonly LineId[] = ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'];
 
-/** Eric R2 (2026-09-30): these two start from nothing, so at ZERO copies they
- *  read `—` rather than a numeral. ARMOR / SPEED / TURNING sail at Tier I. */
-const DASH_AT_ZERO: ReadonlySet<LineId> = new Set<LineId>(['radarSweep', 'reload']);
+/** Eric R2 (2026-09-30): ladders that start from nothing read `—` at ZERO
+ *  copies rather than a numeral. Since Story 9.6 (Eric 2026-10-13, epic-9
+ *  amendment 94) that is every ship ladder: HULL / SPEED / TURNING no longer
+ *  sail at Tier I, and PASSIVE HEALING is new. */
+const DASH_AT_ZERO: ReadonlySet<LineId> = new Set<LineId>([
+  'hullPoints',
+  'speed',
+  'turning',
+  'radarSweep',
+  'reload',
+  'passiveHealing',
+]);
 
 /** The chip a keyless gun column carries (mock `.kc.ghost`) — laid out, never seen. */
 const GHOST_CHIP = '·';
@@ -357,7 +367,7 @@ function makeLadderEntry(entry: LadderEntry): HTMLSpanElement {
   return el;
 }
 
-/** The line of the five ship ladders (mock `.lo-lad`). */
+/** The line of the six ship ladders (mock `.lo-lad`). */
 function makeLadderLine(cards: readonly string[]): HTMLDivElement {
   const line = document.createElement('div');
   line.style.cssText = [

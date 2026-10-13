@@ -148,7 +148,7 @@ describe('applyFrame ordering — a throwing onOwnStats must not latch', () => {
     const onOwnStats = vi.fn();
     const { sink } = setup(onOwnStats);
     sink.handler(frameWith(1, ['radarSweep']));
-    sink.handler(frameWith(2, ['radarSweep', 'armor']));
+    sink.handler(frameWith(2, ['radarSweep', 'hullPoints']));
     expect(onOwnStats).toHaveBeenCalledTimes(2);
   });
 });

@@ -94,12 +94,15 @@ import {
  * the CANNON ladder, so the family is the one line.
  */
 const LINE_NAMES: Readonly<Record<LineId, string>> = {
-  // --- the five universal ladders ------------------------------------------
-  armor: 'ARMOR',
+  // --- the six universal ladders -------------------------------------------
+  // HULL, NOT `HULL POINTS` (Story 9.6, Eric 2026-10-13, epic-9 amendment 93):
+  // the old ARMOR ladder's id is `hullPoints`; ARMOR is Story 9.7's id now.
+  hullPoints: 'HULL',
   speed: 'SPEED',
   turning: 'TURNING',
   radarSweep: 'RADAR SWEEP',
   reload: 'RELOAD',
+  passiveHealing: 'PASSIVE HEALING', // Story 9.6 (amendment 95)
   // --- the deck-gun family --------------------------------------------------
   deckGun: 'CANNON',
   // --- the eleven equipment lines -------------------------------------------
@@ -187,7 +190,7 @@ export function boonKindLabel(kind: string): string {
  * THE REFIT CARD'S KIND (Eric ruling 2026-09-30, epic-8 amendment 188) — what
  * the card does for the player, which is a function of the line AND the copies
  * held: copy 1 of an equipment line FITS a weapon; every later copy, and every
- * gun ladder, upgrades a weapon; the five shipwide ladders upgrade the hull.
+ * gun ladder, upgrades a weapon; the six shipwide ladders upgrade the hull.
  * The refit card colors its KIND word and resting edge by this (dual-coded:
  * the word carries the kind with the color stripped).
  */
@@ -203,7 +206,7 @@ const GUN_LADDER_TARGET: Readonly<Partial<Record<LineId, EquipmentId>>> = {
 };
 
 /** Pure: the card's kind. Any ladder that is not a gun ladder reads as a SHIP
- *  UPGRADE (fail-open: the five shipwide ladders are every such line today). */
+ *  UPGRADE (fail-open: the six shipwide ladders are every such line today). */
 export function cardKind(line: CatalogLine, copiesHeld: number): CardKind {
   if (line.kind === 'equipment') return Number.isFinite(copiesHeld) && copiesHeld >= 1 ? 'weaponUpgrade' : 'weapon';
   if (line.kind === 'ladder') return Object.hasOwn(GUN_LADDER_TARGET, line.id) ? 'weaponUpgrade' : 'shipUpgrade';
@@ -321,7 +324,7 @@ function degPerSec(radPerSec: number): string {
  * `current → next`, and the WHOLE of what a stat card's face says (R2.17).
  *
  * PARTIAL over the catalog: the five consumables are stubs and the five add-ons
- * are verbs, so neither has a number. What speaks is the five universal
+ * are verbs, so neither has a number. What speaks is the six universal
  * ladders, the deck-gun family, and every LIVE equipment line (its own reload,
  * generated above). Each label below is carried over verbatim from the v2 line
  * this one replaces (see the `<-` notes), except TURNING, whose word is the
@@ -329,7 +332,7 @@ function degPerSec(radPerSec: number): string {
  */
 const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
   ...equipmentStatLines(),
-  armor: { label: 'Max hull', path: 'maxHp' }, // <- shipHull
+  hullPoints: { label: 'Max hull', path: 'maxHp' }, // <- shipHull
   speed: { label: 'Top speed', path: 'kinematics.maxSpeed' }, // <- shipSpeed
   // TURNING PRINTS IN DEGREES PER SECOND (Eric 2026-09-30, review gate P10):
   // a whole number with its unit — 0.8 rad/s reads `46°/s` — on the card face,
@@ -342,6 +345,10 @@ const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
   // rather than any single weapon — printed as a percentage of base so
   // 100% → 95% reads downward.
   reload: { label: 'All cooldowns', path: 'cooldownScale', fmt: pct },
+  // PASSIVE HEALING (Story 9.6, Eric 2026-10-13, epic-9 amendment 95): ONE
+  // row, the rate — a share of MISSING hull per second, `2 %/S` at base to
+  // `5 %/S` at V. The out-of-combat wait the ladder also shortens is not a row.
+  passiveHealing: { label: 'Heal', path: 'regen.missingPctPerS', fmt: (v) => `${num(v * 100)} %/S` },
   // The DECK GUN ladder's HEADLINE is damage (its own reload is derived from
   // the tier in clampStats and stays silent): damage is the number the player
   // watches change. Since Eric's 2026-10-02 tables (damage 16/16/18/18/21)
@@ -436,15 +443,20 @@ export function boonEffectLine(id: string, stats: EffectiveStats): string {
 // which is the one thing the rungs cannot say.
 
 /**
- * THE BASE-TIER LINES (UX-DR51). A hull sails with armor, speed, turning and
- * its mounted gun already fitted — the cannon, or since Story 8.15 the machine
- * gun or the flak gun, whose ladders are likewise `1 + copies` — so its FIRST card of one of those ladders is
+ * THE BASE-TIER LINES (UX-DR51). A hull sails with its mounted gun already
+ * fitted — the cannon, or since Story 8.15 the machine gun or the flak gun,
+ * whose ladders are likewise `1 + copies` — so its FIRST card of one of those ladders is
  * the step from what it has to the next rung — `I → II` — rather than the
  * acquisition of a Tier I it already owns. Every other ladder, and every weapon
  * line, starts from nothing: its first copy IS Tier I and reads as the bare
  * numeral, with the `cur → next` step appearing only from the second copy on.
+ *
+ * HULL / SPEED / TURNING LEFT THIS SET (Story 9.6, Eric 2026-10-13, epic-9
+ * amendment 94): those ladders run five cards now, so their numerals read
+ * 0 → V like every other ship ladder — the first card prints `I`, the fifth
+ * `V`. Only the three guns still sail at Tier I.
  */
-const BASE_TIER_LINES: ReadonlySet<string> = new Set(['armor', 'speed', 'turning', 'deckGun', 'machineGun', 'flak']);
+const BASE_TIER_LINES: ReadonlySet<string> = new Set(['deckGun', 'machineGun', 'flak']);
 
 /** The step a card buys, as NUMBERS — so the DOM can tint each numeral on the
  *  absolute ladder ramp without re-parsing "III → IV" back apart. `next` is
@@ -756,12 +768,20 @@ function ladderRows(
   const k = Math.min(Math.max(0, Math.trunc(copiesHeld)), line.tiers.length - 1);
   const rows: CardStatRow[] = [];
   for (const e of line.tiers[k] ?? []) {
-    if (e.kind !== 'stat') continue;
+    if (e.kind !== 'stat' || UNPRINTED_PATHS.has(e.path)) continue;
     const row = dropUnchanged ? stepRow(e.path, before, after) : diffRow(e.path, before, after);
     if (row !== null) rows.push(row);
   }
   return rows;
 }
+
+/**
+ * AUTHORED STEPS THE CARD DOES NOT PRINT (Story 9.6, Eric 2026-10-13, epic-9
+ * amendment 95 — "Rate row only"). A PASSIVE HEALING card authors two steps,
+ * the rate and the out-of-combat wait, and the face prints the rate alone: the
+ * wait is real on the server but is not a row anywhere.
+ */
+const UNPRINTED_PATHS: ReadonlySet<string> = new Set(['regen.outOfCombatMs']);
 
 /** Pure: the row one authored step contributes, or NULL when the two folds
  *  print the same value (see `ladderRows`). The test is on the values BEFORE
@@ -1111,10 +1131,11 @@ export function consumableStatRows(id: string): CardStatRow[] {
   return Object.hasOwn(CONSUMABLE_ROWS, id) ? (CONSUMABLE_ROWS[id as LineId]?.() ?? []) : [];
 }
 
-/** The five shipwide ladders, in the order the SHIP panel prints them. */
-const SHIP_STAT_LINES: readonly LineId[] = ['armor', 'speed', 'turning', 'radarSweep', 'reload'];
+/** The six shipwide ladders, in the order the SHIP panel prints them
+ *  (PASSIVE HEALING joined last in Story 9.6, amendment 95). */
+const SHIP_STAT_LINES: readonly LineId[] = ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'];
 
-/** Pure: the hull's five stats off a LIVE fold (the HP globe's SHIP panel and a
+/** Pure: the hull's six stats off a LIVE fold (the HP globe's SHIP panel and a
  *  ship ladder's hover) — each ladder's own `STAT_LINES` word and printer. */
 export function shipStatRows(stats: EffectiveStats): CardStatRow[] {
   const rows: CardStatRow[] = [];
