@@ -167,7 +167,7 @@ Status: done — PR #272 open to `development` (never merged by the agent; Eric 
 
 **Residual risks / for Eric on staging:** (1) the murk-and-net look and its knobs (`CLIENT_CONFIG.foulZone`, `colors.foulMurk`); (2) the slow is off in the pre-start phases where damage is off (reading 67 — his veto); (3) a chaser exactly abeam is not "astern" for the bot rule (reading 70(c)); (4) the zone row is delivered through islands at radar range like a burn zone (ruling 63 by construction); (5) How-to-Play still describes FLASH SHELLS until 9.11.
 
-## Session 2 — weed and net (2026-10-12; cycle 181, 0.18.46, PV 78 unchanged; epic-9 amendments 71–72; PR open to `development`, never merged by the agent)
+## Session 2 — weed and net (2026-10-12; cycle 181, 0.18.46, PV 78 unchanged; epic-9 amendments 71–72; PR #273 open to `development`, never merged by the agent)
 
 **Trigger:** Eric on 0.18.45 on staging: *"The net is visible but the murk is not. I wanted them combined."* → *"Go back to the previous one. There was one instance with little squiggle lines. I liked that, and wanted that combined with the net. Also, the net itself (and those squiggles) need to be more visible."* Cause: the ocean is the void color (near black); a dark disc cannot darken it. Round 3 (weed + net on the real ocean color, two strengths): Eric picked **bold**, then changed his mind mid-build to **readable** (strength 1).
 
