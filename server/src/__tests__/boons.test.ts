@@ -291,9 +291,10 @@ describe('World.applyCard — two homes, nothing else', () => {
     // Home 1 — stats: exactly the effectiveStats fold (sight boon included).
     expect(a.stats).toEqual(effectiveStats(a.cls, ['omni'], TEST_CATALOG));
     expect(a.stats.radarRange).toBeCloseTo(CONFIG.vision.radar * 1.25, 9);
-    // The whole point of the merge: truesight is the 4/8 rung, so it MOVED with
-    // radar through the one derivation rather than needing its own card.
-    expect(a.stats.sightRange).toBeCloseTo((CONFIG.vision.radar * 1.25) / 2, 9);
+    // The whole point of the merge: truesight is the 4/12 rung (radar / 3 since
+    // Story 9.8, amendment 103), so it MOVED with radar through the one
+    // derivation rather than needing its own card.
+    expect(a.stats.sightRange).toBeCloseTo((CONFIG.vision.radar * 1.25) / 3, 9);
     // Home 2 — slots: BOTH slot effects landed in the one structure, each in
     // its own row (Story 8.7). The `slotFill` took the first WEAPON slot; the
     // `stock` took its kind's fixed slot as a fresh one-copy stack that never

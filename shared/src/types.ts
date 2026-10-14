@@ -785,7 +785,7 @@ export interface WakeBlipEvent {
  *
  * ANTI-CHEAT — no range-derivable field may EVER return to this shape (no
  * `ttl`, no `distLeft`, no launch position, no target point). CONFIG ships
- * gun range (CONFIG.vision.radar-derived) and shellSpeed to every client, so
+ * every gun's range (`CONFIG.<weapon>.rangeU`) and shellSpeed to every client, so
  * any remaining-flight quantity on a fogged reveal lets a modified client
  * solve back to the (hidden) muzzle: traveled = range −
  * ttl·speed, launch = pos − unit(v)·traveled. A constant-free wire shape
@@ -935,9 +935,9 @@ export interface HitCallEvent {
  * muzzle), so a D1 back-dated shell that materializes further along its
  * flight is masked by a flash at the hull it left — never at a reveal point,
  * which is the exact anti-cheat leak the Story 1.5 review closed. Visible to
- * any observer within the derived CONFIG.vision.muzzleFlash halo (the eighths
- * ladder's 5/8 rung, SIGHT * 1.25 — moved down from 6/8 by Story 4.9,
- * amendment 119) with island LOS clear — a declared, narrowly-scoped fog
+ * any observer within the derived CONFIG.vision.muzzleFlash halo (the twelfths
+ * ladder's 6/12 rung, SIGHT * 1.5 since Story 9.8, epic-9 amendment 103 — the
+ * 5/8 rung before) with island LOS clear — a declared, narrowly-scoped fog
  * exception (a flash is a light source: no lit zone extends how far it
  * carries). The halo still comfortably covers the
  * back-dated spawn above, because it still exceeds the truesight bubble.
@@ -963,8 +963,8 @@ export interface MuzzleEvent {
  * hurt — position and severity band, and nothing else. Emitted on the
  * CONFIG.smoke.puffIntervalMs cadence at the hull's TRUE CURRENT POSITION for
  * as long as it stays below a band, and visible to any observer within the
- * derived CONFIG.vision.muzzleFlash halo (the ladder's 5/8 rung, SIGHT * 1.25
- * since Story 4.9) with island LOS clear
+ * derived CONFIG.vision.muzzleFlash halo (the ladder's 6/12 rung, SIGHT * 1.5
+ * since Story 9.8) with island LOS clear
  * — the muzzle flash's reach reused verbatim, never a fourth vision constant
  * (amendment 42), and islands block this sensor exactly as they block every
  * other (amendment 44). A declared, narrowly-scoped fog exception: the FIFTH,
@@ -1090,7 +1090,7 @@ export interface FoghornEvent {
   h: HornId; // which horn sounded — the ONLY identity-adjacent field, deliberate (amendment 52)
   self?: true; // the honker's own copy (always `true` when present, never `false`)
   b?: number; // rad — bearing FROM observer TO honker, wrapPositive [0, 2π). FOGGED LISTENERS ONLY
-  v?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8; // volume BAND: which eighth of the LISTENER's intel range the honker sits in (8 = the radar edge). The SERVER emits 4..8 only — bands 1-4 share one gain and one chevron weight, so the wire is floored at 4 and carries no resolution an honest client cannot consume; the CLIENT's tables stay complete for 1..8 so a lower value still resolves if one ever arrives. Gain is a CLIENT-SIDE lookup and never travels. FOGGED LISTENERS ONLY
+  v?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12; // volume BAND: which TWELFTH of the LISTENER's intel range the honker sits in (12 = the radar edge; Story 9.8, epic-9 amendment 107 / ruling 129 — was eighths). The SERVER emits 4..12 only — bands 1-4 (sight) share one gain and one chevron weight, so the wire is floored at 4 and carries no resolution an honest client cannot consume; the CLIENT's tables stay complete for 1..12 so a lower value still resolves if one ever arrives. Gain is a CLIENT-SIDE lookup and never travels. FOGGED LISTENERS ONLY
   x?: number; // u — SUBJECT-SIDE + SPECTATOR ONLY. Never reaches a fogged listener
   y?: number; // u — SUBJECT-SIDE + SPECTATOR ONLY. Never reaches a fogged listener
   id?: string; // the honker's id — SUBJECT-SIDE ONLY, read by the row to decide `self`. NEVER on the wire, for ANY observer

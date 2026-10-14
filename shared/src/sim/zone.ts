@@ -93,8 +93,8 @@ export interface ZoneTimeline {
    * structurally into [terminal, previous] (and the terminal to [1, map]), so
    * no degenerate ladder can produce a growing, NaN or r=0 geometric ring.
    * When present it REPLACES the geometric formula below; the fixed
-   * sight-derived terminal (660 u) is retired with it (*"The fixed 1320 no
-   * longer makes sense."*).
+   * sight-derived terminal (660 u at the then 330 u sight) is retired with it
+   * (*"The fixed 1320 no longer makes sense."*).
    */
   ringRadii?: readonly number[];
   /**
@@ -239,7 +239,10 @@ export function stormDpsFor(
  *  and fail-closed to the old ×2-sight reading on NaN. On the formula path it
  *  is terminalSightFactor × CONFIG.vision.sight — COMPUTED from the truesight
  *  tunable (Story 3.4's original endgame guarantee), clamped non-negative and
- *  fail-closed to the ratified ×2 on NaN. */
+ *  fail-closed to the ratified ×2 on NaN. The formula path is a DEV-OVERRIDE
+ *  FALLBACK only (smokes, `zoneOverride` literals): since Story 9.8 moved
+ *  sight to 500 u its ×2 reads 1,000 u — by coincidence the shipped terminal —
+ *  and nothing in production reaches it. */
 export function zoneTerminalRadius(cfg: ZoneTimeline = CONFIG.zone): number {
   const ladder = ringRadiiOf(cfg);
   if (ladder !== null) {

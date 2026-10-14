@@ -38,7 +38,7 @@
 // its reader are DELETED — weapon descriptions belong to How-to-Play — and ONE
 // row builder now feeds three surfaces in one vocabulary:
 //
-//   • `cardStatRows` — THE CARD FACE: up to five `current → next` rows.
+//   • `cardStatRows` — THE CARD FACE: up to six `current → next` rows.
 //   • `equipmentStatRows` / `consumableStatRows` / `shipStatRows` — THE SLOT
 //     TOOLTIP (and the HP globe's SHIP panel): the live table, one per line.
 //   • `cardHoverRows` — THE REFIT CARD'S HOVER: the same table valued AFTER the
@@ -355,7 +355,8 @@ const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
   passiveHealing: { label: 'Heal', path: 'regen.missingPctPerS', fmt: (v) => `${num(v * 100)} %/S` },
   // The DECK GUN ladder's HEADLINE is damage (its own reload is derived from
   // the tier in clampStats and stays silent): damage is the number the player
-  // watches change. Since Eric's 2026-10-02 tables (damage 16/16/18/18/21)
+  // watches change. Since Eric's 2026-10-02 tables (damage on the rungs to III
+  // and V only; the values are his dials — 12/12/15/15/18 since 2026-10-13)
   // the rungs to II and IV author a barrel ALONE (no damage step, so their face
   // prints no GUN DAMAGE row), the rung to III damage plus the second turret,
   // the rung to V damage alone. The pool is `equipment.gun.maxAmmo` and the barrels
@@ -380,7 +381,7 @@ const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
  * ladder is NOT here: amendment 71 ruled its face the damage row and no reload
  * row, read since amendment 197 (198(a)) as ONE ROW PER AUTHORED STEP — the
  * rungs to II and IV print `SHELLS PER SHOT` alone (a barrel, no damage step
- * under Eric's 16/16/18/18/21), the rung to III damage plus `ROUNDS` (the
+ * under Eric's tables), the rung to III damage plus `ROUNDS` (the
  * second turret), the rung to V damage alone.
  */
 const GUN_LADDER_RELOAD: ReadonlySet<string> = new Set(['machineGun', 'flak']);
@@ -549,22 +550,24 @@ export function boonFitToastLine(id: string, stack = 1, kind?: string): string {
 /** Every authored line id (test seam — the name/kind pins walk this). */
 export const COPY_LINE_IDS: readonly string[] = LINE_IDS;
 
-// --- THE FIVE STAT ROWS (Story 8.7, ruling 12) ---------------------------------
+// --- THE SIX STAT ROWS (Story 8.7, ruling 12; six since Story 9.8) -------------
 //
-// The ratified card face (mock `.rc .rows`) is a fixed grid of five 17px rows,
+// The ratified card face (mock `.rc .rows`) is a fixed grid of 17px rows — five
+// in the mock, SIX since Eric's 2026-10-13 ruling ("Six-row card grid", Story
+// 9.8: every gun card carries a RANGE row now),
 // each a LABEL and a VALUE. It is the only number on the FACE (the hover
 // panel prints `cardHoverRows`, amendment 187) and the only place a number
 // reaches the card, which is what keeps the card and
 // the firewall in step: every value below comes out of `effectiveStats`.
 //
-// FEWER THAN FIVE IS NORMAL. A ladder moves one number; a weapon's first copy
+// FEWER THAN SIX IS NORMAL. A ladder moves one number; a weapon's first copy
 // prints its whole table; an add-on moves none at all. The DOM renders the
 // remainder BLANK rather than compacting, so the KIND word and the foot sit on
 // one baseline across all four cards in the row.
 
-/** The card's row cap — the mock's five-row grid. A line with more numbers than
- *  that prints its first five, in the table's own order. */
-export const CARD_STAT_ROWS = 5;
+/** The card's row cap — the six-row grid (Story 9.8; the mock drew five). It is
+ *  `CLIENT_CONFIG.refit.rowCount` by value, pinned equal in the fit suite. */
+export const CARD_STAT_ROWS = 6;
 
 /** ONE row of the face: a label, the value the build has NOW (null on an
  *  ABSOLUTE row — a weapon's first copy has no `before` to print), and the value
@@ -625,7 +628,8 @@ const FIELD_WORDS: Readonly<Record<string, string>> = {
   // THE MACHINE GUN'S SHOT DELAY (Eric 2026-09-30, amendment 189): a stat
   // field and a tier step now. `RATE` is the humanizer's own word, spelled out.
   rateMs: 'RATE',
-  // The derived max travel (`rangeU`, re-pinned to the radar range post-fold),
+  // The weapon's max travel (`rangeU` — its own TIERED dial on the twelfths
+  // ruler since Story 9.8, ruling 125, stepped by every card of its line),
   // printed LAST on the stat tables that carry it (amendment 185). The
   // humanizer would say `RANGE U`; the unit rides `FIELD_UNITS`.
   rangeU: 'RANGE',
@@ -658,6 +662,11 @@ const FIELD_FMTS: Readonly<Record<string, (v: number) => string>> = {
   // 0.10 s), which the one-decimal `secs` would flatten — two decimals, the
   // trailing zero kept so the ladder reads in one register.
   rateMs: (v) => `${(v / 1000).toFixed(2)} s`,
+  // RANGE prints ONE DECIMAL ONLY WHEN NEEDED (Story 9.8, Eric 2026-10-13):
+  // whole values print whole (1000, 750, 875), fractional ones to one decimal
+  // (781.3, 812.5, the +31.25 u per-card step as 31.3). The sim keeps the
+  // exact value; this is display only.
+  rangeU: (v) => (v % 1 === 0 ? String(v) : v.toFixed(1)),
 };
 
 /**
@@ -771,12 +780,25 @@ function ladderRows(
 ): CardStatRow[] {
   const k = Math.min(Math.max(0, Math.trunc(copiesHeld)), line.tiers.length - 1);
   const rows: CardStatRow[] = [];
+  const range: CardStatRow[] = [];
   for (const e of line.tiers[k] ?? []) {
     if (e.kind !== 'stat' || UNPRINTED_PATHS.has(e.path)) continue;
     const row = dropUnchanged ? stepRow(e.path, before, after) : diffRow(e.path, before, after);
-    if (row !== null) rows.push(row);
+    if (row !== null) (isRangePath(e.path) ? range : rows).push(row);
   }
-  return rows;
+  return [...rows, ...range];
+}
+
+/**
+ * Pure: is this authored step a weapon's REACH (`equipment.<w>.rangeU`)? Since
+ * Story 9.8 (ruling 125) every gun card steps its line's reach, and the RANGE
+ * row prints LAST on the card exactly as it does on every stat table
+ * (amendment 185) — one grammar, whatever order the catalog authored the step
+ * in. The six-row grid (Eric 2026-10-13) holds the fullest tier face — STAR
+ * SHELLS and PHOSPHOR SHELLS to III and V — whole, RANGE included.
+ */
+function isRangePath(path: string): boolean {
+  return path.endsWith('.rangeU');
 }
 
 /**
@@ -815,8 +837,9 @@ function absoluteRow(target: EquipmentId, field: string, stats: EffectiveStats):
  * THE FIELDS A WEAPON'S FIT CARD PRINTS, where that is NOT simply its whole
  * `EQUIPMENT_STAT_FIELDS` table (Story 8.13).
  *
- * The face is a FIVE-row grid (`CARD_STAT_ROWS` — the mock's `.rc .rows`, and
- * not ours to grow), and `weaponRows` slices to it. FOULING MINES is the first
+ * The face was a FIVE-row grid when these were cut (`CARD_STAT_ROWS` — the
+ * mock's `.rc .rows`; SIX since Story 9.8, and the sixth row is RANGE's), and
+ * `cardStatRows` slices to it. FOULING MINES is the first
  * line whose table plus its derived trip ring comes to SIX, so something had to
  * go, and picking it positionally would have silently dropped the LAST row —
  * which for this line is `SLOW`, the one number that makes it a different
@@ -832,14 +855,25 @@ function absoluteRow(target: EquipmentId, field: string, stats: EffectiveStats):
  * A line absent from this table prints its whole table.
  */
 const FACE_FIELDS: Readonly<Partial<Record<EquipmentId, readonly string[]>>> = {
+  // BROADSIDE (Story 9.8): its table less RANGE is six fields, and the five-row
+  // slice always cut the last, SPREAD (a rung index no fit moves). With RANGE
+  // printed last the cut is now explicit, and the shipped face is kept.
+  broadside: ['reloadMs', 'maxAmmo', 'damage', 'burstRadius', 'turrets'],
   foulingMines: ['maxAmmo', 'damage', 'blastRadius', 'slowFactor'],
   phosphorShells: ['reloadMs', 'damage', 'zoneRadius', 'zoneDurationMs', 'dps'],
 };
 
 /** Pure: the fields the fit card prints for one weapon — its override above, or
- *  its whole stat table. */
+ *  its whole stat table — with `rangeU` moved LAST.
+ *
+ *  `rangeU` joined `EQUIPMENT_STAT_FIELDS` in Story 9.8 (ruling 125 made every
+ *  weapon reach a card-stepped dial), third in table order. The six-row grid
+ *  (Eric 2026-10-13) prints it on every gun's fit face, LAST — the grammar of
+ *  the tier cards (`ladderRows`) and the stat tables (amendment 185). */
 function faceFields(target: EquipmentId): readonly string[] {
-  return FACE_FIELDS[target] ?? (EQUIPMENT_STAT_FIELDS[target] as readonly string[]);
+  const table = EQUIPMENT_STAT_FIELDS[target] as readonly string[];
+  const fields = (FACE_FIELDS[target] ?? table).filter((f) => f !== 'rangeU');
+  return table.includes('rangeU') ? [...fields, 'rangeU'] : fields;
 }
 
 /**
@@ -864,9 +898,9 @@ function faceFields(target: EquipmentId): readonly string[] {
  * sim/stats.ts from the tier rather than authored as an effect, so it has no
  * place in the catalog's own order — and the line's authored `stat` effects
  * follow it in CATALOG ORDER, each through the same live preview diff a ladder
- * uses. The five-row grid slices the result (`cardStatRows`), so the rule when
+ * uses. The six-row grid slices the result (`cardStatRows`), so the rule when
  * a line ever authors more than four steps is: reload, then catalog order, and
- * the FIFTH row is the last that fits.
+ * the SIXTH row is the last that fits.
  *
  * THE DECK GUN IS UNAFFECTED and stays as epic-8 amendment 71 ruled it: it is
  * a LADDER line, so it never reaches this function at all — `ladderRows` prints
@@ -1080,7 +1114,7 @@ function gunLadderOrLadderRows(
 // SHIP panel and the refit card's hover all print these rows — ABSOLUTE rows
 // (`cur` null) in the card face's own vocabulary and formatters, so the face and
 // both hovers can never call one number two things. No row cap: a tooltip is a
-// growing panel, not the face's five-row grid.
+// growing panel, not the face's six-row grid.
 
 /** The Shifts whose table opens with a factor line. */
 const SHIFT_HEADS: Readonly<Partial<Record<EquipmentId, (stats: EffectiveStats) => CardStatRow>>> = {
@@ -1123,6 +1157,9 @@ export function equipmentStatRows(target: EquipmentId, stats: EffectiveStats): C
   const hasTrigger = typeof row.triggerRadius === 'number' && !fields.includes('triggerRadius');
   const rows: CardStatRow[] = [];
   for (const field of fields) {
+    // RANGE is printed ONCE, LAST (below) — since Story 9.8 it is also a table
+    // field (ruling 125), and the loop must not print it a second time mid-table.
+    if (field === 'rangeU') continue;
     rows.push(absoluteRow(target, field, stats));
     if (hasTrigger && triggerFollows(field, fields)) rows.push(absoluteRow(target, 'triggerRadius', stats));
   }

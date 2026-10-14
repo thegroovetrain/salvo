@@ -41,6 +41,12 @@ import {
 
 const BASE = CONFIG.shipClasses.battleship;
 
+/** THE PER-CARD RANGE STEP of a tiered weapon (Story 9.8, Eric 2026-10-13,
+ *  epic-9 ruling 125): Tier I → Tier V split evenly over the four upgrade
+ *  cards, derived from the two CONFIG dials. */
+type RangedWeapon = 'gun' | 'machineGun' | 'flak' | 'broadside' | 'starShells' | 'phosphorShells';
+const rangeStep = (w: RangedWeapon): number => (CONFIG[w].rangeUAtV - CONFIG[w].rangeU) / 4;
+
 /** N copies of a line — the deck's stacking shape, as it rides the wire. */
 const stack = (id: LineId, n: number): LineId[] => new Array<LineId>(n).fill(id);
 
@@ -87,7 +93,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           tier: 1, // the deck gun's tier I ships EQUIPPED (catalog-v3 §4)
           reloadMs: CONFIG.gun.reloadMs,
           maxAmmo: CONFIG.gun.maxAmmo,
-          rangeU: CONFIG.vision.radar, // range = radar range (Eric 2026-07-21)
+          rangeU: CONFIG.gun.rangeU, // its own Tier I dial (Story 9.8, ruling 125)
           damage: CONFIG.gun.damage,
           contactDamage: CONFIG.gun.contactDamage,
           burstRadius: CONFIG.gun.burstRadius,
@@ -162,13 +168,13 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           slowFactor: CONFIG.foulingMines.slowFactor,
         },
         // THE TWO PICKABLE GUNS (Story 8.15, amendments 103/105) — built from
-        // their own CONFIG blocks; range is the radar rung, like the cannon's.
+        // their own CONFIG blocks; range is each gun's own Tier I dial (9.8).
         // `missile` and `monitor` are CUT (amendment 89e) and have no row.
         machineGun: {
           tier: 1,
           reloadMs: 12000, // Eric 2026-10-02, amendment 232
           maxAmmo: 12,
-          rangeU: CONFIG.vision.radar,
+          rangeU: CONFIG.machineGun.rangeU,
           damage: 5,
           rateMs: 300,
         },
@@ -176,8 +182,8 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           tier: 1,
           reloadMs: 3500, // 4 s → 3.5 s (Eric 2026-10-02, amendment 232)
           maxAmmo: 1,
-          rangeU: CONFIG.vision.radar,
-          damage: 12,
+          rangeU: CONFIG.flak.rangeU,
+          damage: 20, // 12 → 20 (Eric 2026-10-13, experiment)
           contactDamage: 4,
           burstRadius: 50,
         },
@@ -185,8 +191,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           tier: 1,
           reloadMs: CONFIG.broadside.reloadMs,
           maxAmmo: CONFIG.broadside.maxAmmo,
-          // THE 5/8 RUNG, not the horizon (Eric: "limited to 5/8"). 412.5u base.
-          rangeU: CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor,
+          rangeU: CONFIG.broadside.rangeU, // its own Tier I dial (Story 9.8, ruling 125)
           damage: CONFIG.broadside.damage,
           burstRadius: CONFIG.broadside.burstRadius,
           turrets: CONFIG.broadside.turrets,
@@ -198,7 +203,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           tier: 1,
           reloadMs: CONFIG.starShells.reloadMs,
           maxAmmo: CONFIG.starShells.maxAmmo,
-          rangeU: CONFIG.vision.radar,
+          rangeU: CONFIG.starShells.rangeU,
           litRadius: CONFIG.starShells.litRadius, // the ratified SIGHT/2 derivation
           litDurationMs: CONFIG.starShells.litDurationMs,
           // Story 8.17 (amendments 130/134): the flare deals tier-I damage 20 (swapped with phosphor, amendment 208);
@@ -210,7 +215,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           tier: 1,
           reloadMs: 20000,
           maxAmmo: 1,
-          rangeU: CONFIG.vision.radar, // the star-shell rung, derived post-fold
+          rangeU: CONFIG.phosphorShells.rangeU, // its own Tier I dial (Story 9.8, ruling 125)
           damage: 10,
           zoneRadius: 100,
           zoneDurationMs: 8000,
@@ -466,13 +471,13 @@ describe('effectiveStats — the seven universal ladders (catalog-v3 §4 + Stori
 });
 
 describe('effectiveStats — the deck-gun family (catalog-v3 §4)', () => {
-  it('DECK GUN (R14, amendment 232): base 16, whole-number steps +2 (to III) and +3 (to V) — 16 -> 16 -> 18 -> 18 -> 21, never a fraction', () => {
+  it('DECK GUN (R14; Eric 2026-10-13, experiment): base 12, whole-number steps +3 (to III) and +3 (to V) — 12 -> 12 -> 15 -> 15 -> 18, never a fraction', () => {
     // Every authored damage step is an integer, so no fold ever passes
     // through a fraction (amendment 39: Eric's integers ARE the scale).
     const steps = CATALOG.deckGun.tiers.flatMap((tier) =>
       tier.filter((e) => e.kind === 'stat' && e.path === 'equipment.gun.damage').map((e) => (e as { add: number }).add));
-    expect(steps).toEqual([2, 3]); // the rungs to II and IV author no damage effect
-    const damage = [16, 16, 18, 18, 21];
+    expect(steps).toEqual([3, 3]); // the rungs to II and IV author no damage effect
+    const damage = [12, 12, 15, 15, 18];
     damage.forEach((d, n) => {
       const got = effectiveStats(BASE, stack('deckGun', n)).equipment.gun.damage;
       expect(got, `${n} copies`).toBe(d);
@@ -485,11 +490,11 @@ describe('effectiveStats — the deck-gun family (catalog-v3 §4)', () => {
     const baseReload = effectiveStats(BASE).equipment.gun.reloadMs;
     const table: [number, number, number, number, number, number][] = [
       // copies, tier, damage, maxAmmo (pool), barrels, reload scale
-      [0, 1, 16, 1, 1, 1],
-      [1, 2, 16, 1, 2, 0.95],
-      [2, 3, 18, 2, 2, 0.9],
-      [3, 4, 18, 2, 3, 0.85],
-      [4, 5, 21, 2, 3, 0.8],
+      [0, 1, 12, 1, 1, 1],
+      [1, 2, 12, 1, 2, 0.95],
+      [2, 3, 15, 2, 2, 0.9],
+      [3, 4, 15, 2, 3, 0.85],
+      [4, 5, 18, 2, 3, 0.8],
     ];
     for (const [copies, tier, damage, maxAmmo, barrels, scale] of table) {
       const gun = effectiveStats(BASE, stack('deckGun', copies)).equipment.gun;
@@ -523,8 +528,8 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
       const mg = effectiveStats(BASE, stack('machineGun', copies)).equipment.machineGun;
       expect([mg.tier, mg.maxAmmo, mg.damage, mg.rateMs, mg.reloadMs], `${copies} copies`)
         .toEqual([tier, maxAmmo, damage, rateMs, reloadMs]);
-      // The range never moves with the ladder; the idle clock is GONE.
-      expect(mg.rangeU, `${copies} copies`).toBe(CONFIG.vision.radar);
+      // The range steps evenly per card (Story 9.8, ruling 125); the idle clock is GONE.
+      expect(mg.rangeU, `${copies} copies`).toBe(CONFIG.machineGun.rangeU + copies * rangeStep('machineGun'));
       expect(Object.keys(mg), `${copies} copies`).not.toContain('idleReloadMs');
     }
     expect(CATALOG.machineGun.cap).toBe(4);
@@ -552,20 +557,20 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
     expect(mg.reloadMs).toBeCloseTo(9600 * 0.75, 6);
   });
 
-  it('FLAK: damage 12/20/28/36/44 (+8 per tier), pool 1/2/2/3/3 (a turret at II and at IV), reload 3.5 s → 2.8 s at V (Eric 2026-10-02, amendment 232); the 50 u blast and the 4 hp bodyblock are FIXED', () => {
+  it('FLAK: damage 20/28/36/44/52 (+8 per tier; base 20 Eric 2026-10-13, experiment), pool 1/2/2/3/3 (a turret at II and at IV), reload 3.5 s → 2.8 s at V (Eric 2026-10-02, amendment 232); the 50 u blast and the 4 hp bodyblock are FIXED', () => {
     const table: [number, number, number, number, number][] = [
       // copies, tier, damage, maxAmmo (pool), reloadMs
-      [0, 1, 12, 1, 3500],
-      [1, 2, 20, 2, 3325],
-      [2, 3, 28, 2, 3150],
-      [3, 4, 36, 3, 2975],
-      [4, 5, 44, 3, 2800],
+      [0, 1, 20, 1, 3500],
+      [1, 2, 28, 2, 3325],
+      [2, 3, 36, 2, 3150],
+      [3, 4, 44, 3, 2975],
+      [4, 5, 52, 3, 2800],
     ];
     for (const [copies, tier, damage, maxAmmo, reloadMs] of table) {
       const flak = effectiveStats(BASE, stack('flak', copies)).equipment.flak;
       expect([flak.tier, flak.damage, flak.maxAmmo, flak.reloadMs], `${copies} copies`).toEqual([tier, damage, maxAmmo, reloadMs]);
       expect([flak.burstRadius, flak.contactDamage, flak.rangeU], `${copies} copies`)
-        .toEqual([50, 4, CONFIG.vision.radar]);
+        .toEqual([50, 4, CONFIG.flak.rangeU + copies * rangeStep('flak')]); // reach steps (Story 9.8, ruling 125)
     }
     expect(CATALOG.flak.cap).toBe(4);
   });
@@ -580,11 +585,10 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
     expect([cannon.machineGun, cannon.flak]).toEqual([base.machineGun, base.flak]);
   });
 
-  it('the two guns\' ranges ARE the radar rung (660 u — Eric: "set the Machine Gun range to 660")', () => {
+  it('the two guns\' ranges are their OWN dials, never the radar rung (Story 9.8, ruling 125)', () => {
     const s = effectiveStats(BASE);
-    expect(s.equipment.machineGun.rangeU).toBe(s.radarRange);
-    expect(s.equipment.flak.rangeU).toBe(s.radarRange);
-    expect(s.radarRange).toBe(660);
+    expect(s.equipment.machineGun.rangeU).toBe(CONFIG.machineGun.rangeU);
+    expect(s.equipment.flak.rangeU).toBe(CONFIG.flak.rangeU);
   });
 });
 
@@ -672,13 +676,16 @@ describe('STORY 8.13 — the torpedo ladders (amendments 80/84f)', () => {
 // ---------------------------------------------------------------------------
 describe('STORY 8.17 — the star shell, broadside and phosphor ladders (amendments 130/131/133)', () => {
   it('STAR SHELLS: reload / lit / radius / flares / damage per rung (amendment 130)', () => {
-    // [reloadMs, litDurationMs, litRadius, flares, damage] per rung 1..5
+    // [reloadMs, litDurationMs, litRadius, flares, damage] per rung 1..5. The
+    // lit radius is the base `sight / 2` (250 u since Story 9.8, epic-9
+    // amendment 108: 250 / 275 / 302.5 / 332.75 / 366.025) × 1.1 per tier.
+    const lit0 = CONFIG.starShells.litRadius;
     const table = [
-      [20000, 10000, 165, 1, 20],
-      [19000, 12500, 181.5, 1, 22],
-      [18000, 15000, 199.65, 2, 25],
-      [17000, 17500, 219.615, 2, 27],
-      [16000, 20000, 241.5765, 3, 30],
+      [20000, 10000, lit0, 1, 20],
+      [19000, 12500, lit0 * 1.1, 1, 22],
+      [18000, 15000, lit0 * 1.1 ** 2, 2, 25],
+      [17000, 17500, lit0 * 1.1 ** 3, 2, 27],
+      [16000, 20000, lit0 * 1.1 ** 4, 3, 30],
     ] as const;
     table.forEach(([reloadMs, lit, radius, flares, damage], i) => {
       const row = effectiveStats(BASE, stack('starShells', i + 1)).equipment.starShells;
@@ -689,17 +696,17 @@ describe('STORY 8.17 — the star shell, broadside and phosphor ladders (amendme
       expect(row.litRadius, `${tag}: radius`).toBeCloseTo(radius, 9);
       expect(row.maxAmmo, `${tag}: flares`).toBe(flares);
       expect(row.damage, `${tag}: damage`).toBe(damage);
-      expect(row.rangeU, `${tag}: range`).toBe(CONFIG.vision.radar);
+      expect(row.rangeU, `${tag}: range`).toBe(CONFIG.starShells.rangeU + i * rangeStep('starShells'));
     });
   });
 
-  it('STAR SHELLS tier III / V: 18 s, 15 s lit, r199.65, 2 flares, 25 dmg / 16 s, 20 s, r241.6, 3 flares, 30 dmg', () => {
+  it('STAR SHELLS tier III / V: 18 s, 15 s lit, base r × 1.21, 2 flares, 25 dmg / 16 s, 20 s, base r × 1.4641, 3 flares, 30 dmg', () => {
     const iii = effectiveStats(BASE, stack('starShells', 3)).equipment.starShells;
     expect([iii.reloadMs, iii.litDurationMs, iii.maxAmmo, iii.damage]).toEqual([18000, 15000, 2, 25]);
-    expect(iii.litRadius).toBeCloseTo(199.65, 9);
+    expect(iii.litRadius).toBeCloseTo(CONFIG.starShells.litRadius * 1.21, 9); // 302.5 u at sight 500
     const v = effectiveStats(BASE, stack('starShells', 5)).equipment.starShells;
     expect([v.reloadMs, v.litDurationMs, v.maxAmmo, v.damage]).toEqual([16000, 20000, 3, 30]);
-    expect(v.litRadius).toBeCloseTo(241.6, 1);
+    expect(v.litRadius).toBeCloseTo(CONFIG.starShells.litRadius * 1.4641, 9); // 366.025 u at sight 500
   });
 
   it('BROADSIDE tier III / V: 16.2 s, rung 3, 5 turrets / 14.4 s, rung 5, 6 turrets — damage 15 throughout', () => {
@@ -722,6 +729,7 @@ describe('STORY 8.17 — the star shell, broadside and phosphor ladders (amendme
       // Both arc ladders ride the folded rung.
       expect(row.traverseRad, `${tag}: traverse`).toBe(broadsideTraverse(rung));
       expect(row.mountSpreadRad, `${tag}: mounts`).toBe(broadsideMountSpread(rung));
+      expect(row.rangeU, `${tag}: range`).toBe(CONFIG.broadside.rangeU + i * rangeStep('broadside'));
     });
     const v = effectiveStats(BASE, stack('broadside', 5)).equipment.broadside;
     // Rung 5: mounts ±6°, traverse ±14° (the shipped ladders' cap).
@@ -751,7 +759,7 @@ describe('STORY 8.17 — the star shell, broadside and phosphor ladders (amendme
       expect(row.zoneRadius, `${tag}: radius`).toBeCloseTo(radius, 9);
       expect(row.zoneDurationMs, `${tag}: duration`).toBe(durMs);
       expect(row.maxAmmo, `${tag}: pool`).toBe(1);
-      expect(row.rangeU, `${tag}: range`).toBe(CONFIG.vision.radar);
+      expect(row.rangeU, `${tag}: range`).toBe(CONFIG.phosphorShells.rangeU + i * rangeStep('phosphorShells'));
     });
   });
 
@@ -759,7 +767,7 @@ describe('STORY 8.17 — the star shell, broadside and phosphor ladders (amendme
     const s = effectiveStats(BASE, [...stack('starShells', 3), ...stack('broadside', 5), 'phosphorShells']);
     const { starShells: star, broadside: bs, phosphorShells: ph } = s.equipment;
     expect([star.reloadMs, star.litDurationMs, star.maxAmmo, star.damage]).toEqual([18000, 15000, 2, 25]);
-    expect(star.litRadius).toBeCloseTo(199.65, 9);
+    expect(star.litRadius).toBeCloseTo(CONFIG.starShells.litRadius * 1.21, 9);
     expect([bs.reloadMs, bs.spreadRung, bs.turrets, bs.damage]).toEqual([14400, 5, 6, 15]);
     expect([ph.reloadMs, ph.damage, ph.zoneRadius, ph.zoneDurationMs, ph.dps]).toEqual([20000, 10, 100, 8000, 5]);
   });
@@ -1041,39 +1049,85 @@ describe('effectiveStats — doctrine verb folds (NO add-on is left since Story 
   });
 });
 
+// ---------------------------------------------------------------------------
+// STORY 9.8 — WEAPON RANGES ARE TIERED DIALS ON THE TWELFTHS RULER (Eric
+// 2026-10-13, epic-9 ruling 125, superseding amendment 105's "defaults =
+// today's values"). Each tiered weapon's reach is `CONFIG.<w>.rangeU` at Tier I
+// plus an EVEN step per upgrade card, landing exactly on `CONFIG.<w>.rangeUAtV`
+// at Tier V. At the shipped ruler (one rung = 125 u) the 0 / 2 / 4-card reach
+// is: cannon 1,000 / 1,125 / 1,250; machine gun 750 / 812.5 / 875; flak and
+// broadside 625 / 687.5 / 750; star shells 1,375 / 1,437.5 / 1,500; phosphor
+// 1,000 / 1,125 / 1,250. Asserted by derivation, never by those literals
+// (epic-9 amendment 8).
+// ---------------------------------------------------------------------------
+describe('STORY 9.8 — every weapon range is its own tiered dial (ruling 125)', () => {
+  // [weapon, line, copies at Tier I]: a LADDER's Tier I is zero copies (the
+  // gun ships equipped); an EQUIPMENT line's Tier I is its first copy.
+  const LINES: readonly [RangedWeapon, LineId, number][] = [
+    ['gun', 'deckGun', 0],
+    ['machineGun', 'machineGun', 0],
+    ['flak', 'flak', 0],
+    ['broadside', 'broadside', 1],
+    ['starShells', 'starShells', 1],
+    ['phosphorShells', 'phosphorShells', 1],
+  ];
+
+  it.each(LINES)('%s: 0 / 2 / 4 upgrade cards reach Tier I + k × step, and four cards land EXACTLY on Tier V', (w, line, tierI) => {
+    for (const k of [0, 1, 2, 3, 4]) {
+      const row = effectiveStats(BASE, stack(line, tierI + k)).equipment[w];
+      expect(row.rangeU, `${w} +${k}`).toBe(CONFIG[w].rangeU + k * rangeStep(w));
+    }
+    expect(effectiveStats(BASE, stack(line, tierI + 4)).equipment[w].rangeU).toBe(CONFIG[w].rangeUAtV);
+    // The step is a positive climb (Tier V outreaches Tier I on every line).
+    expect(rangeStep(w)).toBeGreaterThan(0);
+  });
+
+  it('the Tier I / Tier V dials sit on the twelfths ruler as ruled (cannon 8→10, MG 6→7, flak 5→6, broadside 5→6, star 11→12, phosphor 8→10; fouling fixed 8)', () => {
+    const rung = CONFIG.vision.sight / 4; // a twelfth of radar (radar = sight × 3, amendment 103)
+    const ruled: [RangedWeapon, number, number][] = [
+      ['gun', 8, 10], ['machineGun', 6, 7], ['flak', 5, 6], ['broadside', 5, 6], ['starShells', 11, 12], ['phosphorShells', 8, 10],
+    ];
+    for (const [w, i, v] of ruled) {
+      expect(CONFIG[w].rangeU, w).toBe(rung * i);
+      expect(CONFIG[w].rangeUAtV, w).toBe(rung * v);
+    }
+    expect(CONFIG.foulingShell.rangeU).toBe(rung * 8);
+  });
+
+  it('rangeU is never floored — a fractional reach (a 31.25 u step) survives the fold', () => {
+    const bs = effectiveStats(BASE, stack('broadside', 2)).equipment.broadside;
+    expect(bs.rangeU).toBe(CONFIG.broadside.rangeU + rangeStep('broadside'));
+    expect(Number.isInteger(bs.rangeU)).toBe(false);
+  });
+
+  it('a RADAR fold never moves a weapon range (the post-fold re-pin is deleted)', () => {
+    const rogue: Catalog = {
+      x: { id: 'x', kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'radarRange', mult: 2 }]] },
+    } as unknown as Catalog;
+    const base = effectiveStats(BASE).equipment;
+    const wide = effectiveStats(BASE, ['x' as LineId], rogue).equipment;
+    for (const [w] of LINES) expect(wide[w].rangeU, w).toBe(base[w].rangeU);
+  });
+});
+
 describe('effectiveStats — derived ranges and rings', () => {
-  it('gun/starShells/phosphorShells rangeU IS radarRange; the broadside is the 5/8 rung; nothing writes radarRange', () => {
-    const s = effectiveStats(BASE);
-    expect(s.radarRange).toBe(CONFIG.vision.radar);
-    expect(s.equipment.gun.rangeU).toBe(s.radarRange);
-    expect(s.equipment.starShells.rangeU).toBe(s.radarRange);
-    // Story 8.17 (amendment 131): phosphor fires to the radar rung, 660 u base.
-    expect(s.equipment.phosphorShells.rangeU).toBe(s.radarRange);
-    expect(s.equipment.phosphorShells.rangeU).toBe(660);
-    expect(s.equipment.broadside.rangeU).toBeCloseTo(412.5, 9);
-    expect(s.equipment.broadside.rangeU).toBeLessThan(s.radarRange);
+  it('no card writes radarRange', () => {
     const writers = LINE_IDS.filter((id) =>
       CATALOG[id].tiers.some((t) => t.some((e) => e.kind === 'stat' && e.path === 'radarRange')),
     );
     expect(writers).toEqual([]);
   });
 
-  it('sightRange is DERIVED as radarRange/2, never stat-addressable', () => {
+  it('sightRange is DERIVED as radarRange/3 (the 4/12 rung, epic-9 amendment 103), never stat-addressable', () => {
     const s = effectiveStats(BASE);
-    expect(s.sightRange).toBeCloseTo(s.radarRange / 2, 9);
-    expect(s.sightRange).toBe(CONFIG.vision.sight); // radar IS SIGHT*2
+    expect(s.sightRange).toBeCloseTo(s.radarRange / 3, 9);
+    expect(s.sightRange).toBe(CONFIG.vision.sight); // radar IS SIGHT*3
   });
 
-  it('the eighths ladder ordering holds by ARITHMETIC off the one number', () => {
-    const s = effectiveStats(BASE);
-    const detect = s.sightRange * CONFIG.vision.detectFactor;
-    const muzzle = s.radarRange * CONFIG.vision.muzzleFlashFactor;
-    const farRadar = s.radarRange * 0.875;
-    expect(detect).toBeLessThanOrEqual(s.sightRange); // equal since the 4/8 rung (2026-10-08)
-    expect(s.sightRange).toBeLessThan(muzzle);
-    expect(muzzle).toBeLessThan(farRadar);
-    expect(farRadar).toBeLessThan(s.radarRange);
-  });
+  // The "eighths ladder ordering holds by ARITHMETIC" pin is DELETED (Story
+  // 9.8): it re-derived farRadar from a hard-coded 0.875 and so could never
+  // fail (deferred-work 1552, epic-9 amendment 8). The ladder's rung ratios
+  // are pinned against CONFIG in zone.test.ts.
 
   it('a CONTACT mine trip ring is DERIVED from its blast radius (naval AND fouling)', () => {
     const eq = effectiveStats(BASE).equipment;
@@ -1148,11 +1202,12 @@ describe('effectiveStats — every NON-STUB line folds (no dead cards)', () => {
     // guns' ladders now, and every copy — copy 1 included — is a real step.
     const identity = effectiveStats(BASE);
     expect(changed(identity, effectiveStats(BASE, stack('machineGun', 4)))).toEqual([
-      'equipment.machineGun.damage', 'equipment.machineGun.maxAmmo',
+      'equipment.machineGun.damage', 'equipment.machineGun.maxAmmo', 'equipment.machineGun.rangeU',
       'equipment.machineGun.rateMs', 'equipment.machineGun.reloadMs', 'equipment.machineGun.tier',
     ]);
     expect(changed(identity, effectiveStats(BASE, stack('flak', 4)))).toEqual([
-      'equipment.flak.damage', 'equipment.flak.maxAmmo', 'equipment.flak.reloadMs', 'equipment.flak.tier',
+      'equipment.flak.damage', 'equipment.flak.maxAmmo', 'equipment.flak.rangeU', 'equipment.flak.reloadMs',
+      'equipment.flak.tier',
     ]);
   });
 

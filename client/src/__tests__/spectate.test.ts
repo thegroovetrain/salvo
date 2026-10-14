@@ -7,9 +7,12 @@ import {
   spectatePan,
   wheelZoom,
   shouldEngageFreePan,
+  SPECTATE_ZOOM_MIN,
+  SPECTATE_ZOOM_MAX,
 } from '../render/spectate.js';
 import { KeyboardInput } from '../input/keyboard.js';
-import { Camera, SPECTATE_ZOOM_MIN } from '../render/camera.js';
+import { Camera, SPECTATE_SPAN_NARROW_U, SPECTATE_SPAN_WIDE_U } from '../render/camera.js';
+import { CLIENT_CONFIG } from '../config.js';
 
 describe('spectatePan', () => {
   it('maps W/S to screen-up/down and A/D to left/right', () => {
@@ -28,11 +31,18 @@ describe('spectatePan', () => {
 });
 
 describe('wheelZoom', () => {
-  it('zooms out on scroll down and back in on scroll up, clamped to [0.5, 1]', () => {
-    const out = wheelZoom(1, 250);
-    expect(out).toBeLessThan(1);
-    expect(wheelZoom(out, -1000)).toBe(1); // back in, capped at 1x
-    expect(wheelZoom(0.55, 10000)).toBe(SPECTATE_ZOOM_MIN); // floor at 0.5x
+  it('the spectate clamp is the two ABSOLUTE spans over the default framing (ruling 127)', () => {
+    expect(SPECTATE_ZOOM_MIN).toBeCloseTo(CLIENT_CONFIG.zoom.defaultSpanU / SPECTATE_SPAN_WIDE_U, 12);
+    expect(SPECTATE_ZOOM_MAX).toBeCloseTo(CLIENT_CONFIG.zoom.defaultSpanU / SPECTATE_SPAN_NARROW_U, 12);
+    // Today's 0.5×–1.0× written as spans: the wide span is twice the narrow.
+    expect(SPECTATE_SPAN_WIDE_U / SPECTATE_SPAN_NARROW_U).toBe(2);
+  });
+
+  it('zooms out on scroll down and back in on scroll up, clamped to the spans', () => {
+    const out = wheelZoom(SPECTATE_ZOOM_MAX, 250);
+    expect(out).toBeLessThan(SPECTATE_ZOOM_MAX);
+    expect(wheelZoom(out, -1000)).toBe(SPECTATE_ZOOM_MAX); // back in, capped
+    expect(wheelZoom(SPECTATE_ZOOM_MIN + 0.05, 10000)).toBe(SPECTATE_ZOOM_MIN); // the wide floor
   });
 });
 
@@ -80,27 +90,36 @@ describe('shouldEngageFreePan', () => {
 
 describe('Camera zoom factor + pan (spectators only)', () => {
   function cam(): Camera {
-    const c = new Camera({ radarRange: 650, followRate: 5, leadSeconds: 4, leadMax: 110 });
+    const c = new Camera({
+      defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
+      closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
+      ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
+      followRate: 5,
+      leadSeconds: 4,
+      leadMax: 110,
+    });
     c.setViewport(1600, 900);
     return c;
   }
 
-  it('multiplies the viewport-derived base zoom and clamps to [0.5, 1]', () => {
+  it('multiplies the viewport-derived base zoom and clamps to the spectate spans', () => {
     const c = cam();
     const base = c.zoom;
-    c.setZoomFactor(0.5);
-    expect(c.zoom).toBeCloseTo(base * 0.5, 10);
-    c.setZoomFactor(0.1);
-    expect(c.zoomFactor).toBe(0.5);
+    c.setZoomFactor(SPECTATE_ZOOM_MIN);
+    expect(c.zoom).toBeCloseTo(base * SPECTATE_ZOOM_MIN, 10);
+    expect(900 / c.zoom).toBeCloseTo(SPECTATE_SPAN_WIDE_U, 6);
+    c.setZoomFactor(0.01);
+    expect(c.zoomFactor).toBe(SPECTATE_ZOOM_MIN);
     c.setZoomFactor(7);
-    expect(c.zoomFactor).toBe(1);
+    expect(c.zoomFactor).toBe(SPECTATE_ZOOM_MAX);
+    expect(900 / c.zoom).toBeCloseTo(SPECTATE_SPAN_NARROW_U, 6);
   });
 
   it('resets to 1x and survives viewport changes', () => {
     const c = cam();
     c.setZoomFactor(0.6);
     c.setViewport(800, 1200); // resize re-derives base zoom, keeps the factor
-    expect(c.zoom).toBeCloseTo((800 / (2 * 650)) * 0.6, 10);
+    expect(c.zoom).toBeCloseTo((800 / CLIENT_CONFIG.zoom.defaultSpanU) * 0.6, 10);
     c.resetZoomFactor();
     expect(c.zoomFactor).toBe(1);
   });

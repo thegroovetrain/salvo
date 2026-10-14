@@ -346,7 +346,9 @@ describe('the gun reaches into its own flare — the preview agrees with the gat
   });
 
   it('a lifted reach never leaks into another weapon', () => {
-    const d = RANGE + 200;
+    // Past EVERY reach in play: since Story 9.8 (ruling 125) the star shell's
+    // own dial sits beyond the cannon's, so the click must clear both.
+    const d = Math.max(RANGE, stats().equipment.starShells.rangeU) + 200;
     // Asserted as an IDENTITY rather than as a distance: under the 2026-08-27
     // zero-overlap ladder the base barrage puts nothing on the click, so its
     // bursts sit at per-gun arc limits and no single radius describes them. The
@@ -864,20 +866,20 @@ describe('phosphor + fouling shells — the star-shell preview pattern', () => {
     expect(m.bursts[0].effect).toBe(false); // a damage burst, not an effect radius
   });
 
-  it('PHOSPHOR clamps at its own row range — the radar rung', () => {
+  it('PHOSPHOR clamps at its own row range — its tiered dial, never radar (ruling 125)', () => {
     const inp = input({ id: 'phosphorShells', stats: stats('phosphorShells'), aimDist: 99999 });
     const m = computeAimPreview(inp);
-    expect(inp.stats.equipment.phosphorShells.rangeU).toBe(inp.stats.radarRange);
-    expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(inp.stats.radarRange, 6);
+    expect(inp.stats.equipment.phosphorShells.rangeU).not.toBe(inp.stats.radarRange);
+    expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(inp.stats.equipment.phosphorShells.rangeU, 6);
   });
 
-  it('the FOULING SHELL draws the fixed CONFIG zone in the EFFECT register, to radar reach (Story 9.4)', () => {
+  it('the FOULING SHELL draws the fixed CONFIG zone in the EFFECT register, to its own reach dial (Story 9.4, ruling 125)', () => {
     const inp = input({ id: 'foulingShell', aimDist: 99999 });
     const m = computeAimPreview(inp);
     expect(m.bursts).toHaveLength(1);
     expect(m.bursts[0].r).toBe(CONFIG.foulingShell.radius);
     expect(m.bursts[0].effect).toBe(true); // it slows, it deals no damage
-    expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(inp.stats.radarRange, 6);
+    expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(CONFIG.foulingShell.rangeU, 6);
   });
 
   it('DIMS either circle when a rock stops the shell short', () => {

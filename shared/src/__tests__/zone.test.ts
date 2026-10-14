@@ -53,7 +53,7 @@ describe('zone timeline shape — the ratified design targets', () => {
   });
 
   it('zoneEndgameAtMs is the ENDGAME RING (12:00), separate from full closure once sudden death appends its group', () => {
-    // The Story 3.4 Endgame Guarantee is about the instant the terminal 660u
+    // The Story 3.4 Endgame Guarantee is about the instant the terminal
     // ring goes live, which sudden death did NOT move. Keeping the two apart is
     // what stops the batch-sim past-closure evidence line from scoring a
     // healthy ~13:00 campaign as 0% past closure.
@@ -112,7 +112,9 @@ describe('zone timeline shape — the ratified design targets', () => {
 });
 
 // Endgame Guarantee sensor-vs-ring pins, honestly described: with the
-// committed derivation CONFIG.vision.radar === 2 × CONFIG.vision.sight and
+// committed derivation CONFIG.vision.radar === 3 × CONFIG.vision.sight (Story
+// 9.8, epic-9 amendment 103; it was 2 × when the paragraph below was written,
+// so its "factor <= 2" now reads "factor <= 3") and
 // zoneTerminalRadius(cfg) === terminalSightFactor × sight, BOTH inequalities
 // below reduce algebraically to a pure comparison against terminalSightFactor
 // once `sight` (> 0) cancels: radar >= terminal <=> factor <= 2, and
@@ -124,20 +126,22 @@ describe('zone timeline shape — the ratified design targets', () => {
 // out of (1, 2], or of the radar-from-sight derivation itself, is what must
 // fail loudly here.
 describe('Endgame Guarantee (Story 3.4) — sensor-vs-ring constraints', () => {
-  it('radar is structurally 2 × sight (Eric ruling 2026-08-02, amendment 22 — derivation pin)', () => {
-    expect(CONFIG.vision.radar).toBe(2 * CONFIG.vision.sight);
+  it('radar is structurally 3 × sight — 12/12 over 4/12 (Story 9.8, epic-9 amendment 103; was 2 × on the eighths ruler — derivation pin)', () => {
+    expect(CONFIG.vision.radar).toBe(3 * CONFIG.vision.sight);
   });
 
-  it('muzzleFlash is structurally 1.25 × sight — the ladder 5/8 rung (Story 4.9, amendment 119; was 1.5 / 6/8 — derivation pin)', () => {
-    expect(CONFIG.vision.muzzleFlash).toBe(1.25 * CONFIG.vision.sight);
+  it('muzzleFlash is structurally 1.5 × sight — the ladder 6/12 rung (Story 9.8, epic-9 amendment 103; was 1.25 × / 5/8 — derivation pin)', () => {
+    expect(CONFIG.vision.muzzleFlash).toBe(1.5 * CONFIG.vision.sight);
+    // ...and the runtime factor names the same circle off radar: 6/12 = 0.5.
+    expect(CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor).toBe(CONFIG.vision.muzzleFlash);
   });
 
-  it('detect is structurally 1 × sight — the ladder 4/8 rung, mines + torpedoes (Story 9.1, Eric 2026-10-08; was 3/8 since amendment 119 — derivation pin)', () => {
+  it('detect is structurally 1 × sight — the ladder 4/12 rung, mines + torpedoes (Story 9.1, Eric 2026-10-08; re-read on twelfths by Story 9.8 — derivation pin)', () => {
     expect(CONFIG.vision.detect).toBe(1 * CONFIG.vision.sight);
   });
 
-  it('farRadar is structurally 1.75 × sight — the ladder 7/8 rung (Story 4.9, amendment 118 — derivation pin; deliberately unconsumed, it is 4.10 calibration)', () => {
-    expect(CONFIG.vision.farRadar).toBe(1.75 * CONFIG.vision.sight);
+  it('farRadar is structurally 2 × sight — the ladder 8/12 rung, the red→blue fit anchor (Story 9.8, epic-9 amendment 103 / ruling 121 — derivation pin; never a threshold branch)', () => {
+    expect(CONFIG.vision.farRadar).toBe(2 * CONFIG.vision.sight);
   });
 
   it('the detect RUNG and the runtime detectFactor can never drift: detect === sight × detectFactor (amendment 121 — the gate is observer-scaled, the rung is what it equals at base stats)', () => {
@@ -145,29 +149,32 @@ describe('Endgame Guarantee (Story 3.4) — sensor-vs-ring constraints', () => {
     expect(CONFIG.vision.detect).toBe(CONFIG.vision.sight * CONFIG.vision.detectFactor);
   });
 
-  it('the full eighths ladder is ordered: detect < sight < muzzleFlash < farRadar < radar (amendments 113/119 — one ruler, no rung out of place)', () => {
-    expect(CONFIG.vision.detect).toBeLessThanOrEqual(CONFIG.vision.sight); // equal since 2026-10-08 (4/8 = sight)
+  it('the full twelfths ladder is ordered: detect < sight < muzzleFlash < farRadar < radar (amendments 113/119, epic-9 103 — one ruler, no rung out of place)', () => {
+    expect(CONFIG.vision.detect).toBeLessThanOrEqual(CONFIG.vision.sight); // equal since 2026-10-08 (4/12 = sight)
     expect(CONFIG.vision.sight).toBeLessThan(CONFIG.vision.muzzleFlash);
     expect(CONFIG.vision.muzzleFlash).toBeLessThan(CONFIG.vision.farRadar);
     expect(CONFIG.vision.farRadar).toBeLessThan(CONFIG.vision.radar);
   });
 
-  it('every rung is an EIGHTH of intel range — radar/8 divides each one exactly (the ruler is real, not approximate)', () => {
-    const eighth = CONFIG.vision.radar / 8;
-    expect(CONFIG.vision.detect / eighth).toBe(4);
-    expect(CONFIG.vision.sight / eighth).toBe(4);
-    expect(CONFIG.vision.muzzleFlash / eighth).toBe(5);
-    expect(CONFIG.vision.farRadar / eighth).toBe(7);
-    expect(CONFIG.vision.radar / eighth).toBe(8);
+  // THE TWELFTHS RULER (Story 9.8, Eric 2026-10-13, epic-9 amendment 103):
+  // the denominator moved from eighths of radar to twelfths. Pinned as RATIOS
+  // of `radar / 12`, never as the literal radar range (epic-9 amendment 8).
+  it('every rung is a TWELFTH of intel range — radar/12 divides each one exactly (the ruler is real, not approximate)', () => {
+    const rung = CONFIG.vision.radar / 12;
+    expect(CONFIG.vision.detect / rung).toBe(4);
+    expect(CONFIG.vision.sight / rung).toBe(4);
+    expect(CONFIG.vision.muzzleFlash / rung).toBe(6);
+    expect(CONFIG.vision.farRadar / rung).toBe(8);
+    expect(CONFIG.vision.radar / rung).toBe(12);
   });
 
 });
 
 // Radar-shadow constants (Story 4.11), pinned BUILD-FAILING beside the ladder
-// they hang off. `CONFIG.vision.radar` drives gun.rangeU, cannon.rangeU and
-// starShells.rangeU, so if the shadow model's K were ever un-pinned from
-// radarRange²/4, a shadow-feel retune of R would silently rebalance every gun
-// in the game (amendment 182); and if H ever became a computed quantity — a
+// they hang off. If the shadow model's K were ever un-pinned from
+// radarRange²/4, a shadow-feel retune of R would silently move every radar
+// shadow off the ladder (amendment 182; the guns no longer ride radar since
+// Story 9.8, ruling 125); and if H ever became a computed quantity — a
 // percentile of a map's height distribution, or an absolute elevation
 // converted per map — the shadow character would drift per seed instead of
 // being the ratified q64 decision (amendment 184 struck both out).
@@ -190,8 +197,9 @@ describe('radar shadows (Story 4.11) — the 2RH pin and the fixed mast height',
 // Radar-wake constants (Story 4.12), pinned beside the ladder they sit under.
 // The wake clock is sacred the way land is: a COMPUTED lifetime would drift
 // with tuning elsewhere, and the three clocks (water dissipation 5.5s,
-// phosphor 12s at base rate, material reach ~412u against a 192-247.5u
-// full-ahead track — amendments 205 + 213) would silently desynchronise.
+// phosphor 12s at base rate, material reach — the muzzle-flash rung — against
+// a 192-247.5u full-ahead track; amendments 205 + 213) would silently
+// desynchronise.
 describe('radar wakes (Story 4.12) — the wake clock and cadence pins', () => {
   it('wakeLifeMs is the FIXED literal 5500 — Eric-ruled (amendments 205 + 213), never a computed quantity', () => {
     expect(CONFIG.vision.wakeLifeMs).toBe(5500);

@@ -30,9 +30,9 @@
     "profileStaged": "nfr1",
     "gpuPreference": "browser default",
     "framings": [
-      "alive-zoom-0.5x",
-      "alive-zoom-1.0x",
-      "alive-zoom-1.5x",
+      "alive-close",
+      "alive-default",
+      "alive-ring-fit",
       "omniscient-reveal"
     ],
     "runTag": ""
@@ -49,157 +49,46 @@
   },
   "framings": [
     {
-      "framing": "alive-zoom-0.5x",
-      "image": "nfr1-frame-budget-alive-zoom-0.5x.png",
-      "userZoom": 0.5,
-      "composedZoom": 0.3409,
+      "framing": "alive-close",
+      "image": "nfr1-frame-budget-alive-close.png",
+      "userZoom": 1.5,
+      "userSpanU": 880,
+      "composedZoom": 1.0227,
       "sceneTick": 390,
       "counts": {
-        "hulls": 68,
-        "contacts": 17,
+        "hulls": 64,
+        "contacts": 7,
         "blips": 2,
-        "projectiles": 9,
+        "projectiles": 10,
         "effects": 70,
-        "sprites": 619
+        "sprites": 1266
       },
       "frameCostMs": {
-        "frames": 720,
+        "frames": 704,
         "total": {
-          "p50": 5.2,
-          "p95": 6.6,
-          "max": 10.1
+          "p50": 5.1,
+          "p95": 6.8,
+          "max": 11
         },
         "sim": {
           "p50": 0,
-          "p95": 0.1,
-          "max": 0.2
-        },
-        "render": {
-          "p50": 2.7,
-          "p95": 3.9,
-          "max": 6.2
-        }
-      },
-      "verdict": {
-        "obtained": true,
-        "frameP95Ms": 6.6,
-        "simP95Ms": 0.1,
-        "renderP95Ms": 6.5,
-        "sceneGraphP95Ms": 3.9,
-        "drawP95Ms": 2.8,
-        "headroomMs": 10,
-        "pass": {
-          "sim": true,
-          "render": true,
-          "headroom": true
-        },
-        "cadence": {
-          "obtained": true,
-          "p50IntervalMs": 16.6,
-          "p95IntervalMs": 17.3,
-          "longFrames": 0,
-          "droppedRatio": 0,
-          "sustains60": true
-        },
-        "verdict": "PASS"
-      }
-    },
-    {
-      "framing": "alive-zoom-1.0x",
-      "image": "nfr1-frame-budget-alive-zoom-1.0x.png",
-      "userZoom": 1,
-      "composedZoom": 0.6818,
-      "sceneTick": 672,
-      "counts": {
-        "hulls": 68,
-        "contacts": 17,
-        "blips": 2,
-        "projectiles": 9,
-        "effects": 70,
-        "sprites": 623
-      },
-      "frameCostMs": {
-        "frames": 720,
-        "total": {
-          "p50": 4.4,
-          "p95": 5.7,
-          "max": 7.2
-        },
-        "sim": {
-          "p50": 0,
-          "p95": 0.1,
-          "max": 0.2
+          "p95": 0.2,
+          "max": 0.3
         },
         "render": {
           "p50": 1.8,
-          "p95": 2.9,
-          "max": 4.3
+          "p95": 3.6,
+          "max": 5.8
         }
       },
       "verdict": {
         "obtained": true,
-        "frameP95Ms": 5.7,
-        "simP95Ms": 0.1,
-        "renderP95Ms": 5.7,
-        "sceneGraphP95Ms": 2.9,
-        "drawP95Ms": 3,
-        "headroomMs": 10.9,
-        "pass": {
-          "sim": true,
-          "render": true,
-          "headroom": true
-        },
-        "cadence": {
-          "obtained": true,
-          "p50IntervalMs": 16.6,
-          "p95IntervalMs": 17.4,
-          "longFrames": 0,
-          "droppedRatio": 0,
-          "sustains60": true
-        },
-        "verdict": "PASS"
-      }
-    },
-    {
-      "framing": "alive-zoom-1.5x",
-      "image": "nfr1-frame-budget-alive-zoom-1.5x.png",
-      "userZoom": 1.5,
-      "composedZoom": 1.0227,
-      "sceneTick": 954,
-      "counts": {
-        "hulls": 68,
-        "contacts": 17,
-        "blips": 2,
-        "projectiles": 9,
-        "effects": 60,
-        "sprites": 631
-      },
-      "frameCostMs": {
-        "frames": 720,
-        "total": {
-          "p50": 4.3,
-          "p95": 5.6,
-          "max": 7.1
-        },
-        "sim": {
-          "p50": 0,
-          "p95": 0.1,
-          "max": 0.2
-        },
-        "render": {
-          "p50": 1.7,
-          "p95": 2.9,
-          "max": 4.1
-        }
-      },
-      "verdict": {
-        "obtained": true,
-        "frameP95Ms": 5.6,
-        "simP95Ms": 0.1,
-        "renderP95Ms": 5.6,
-        "sceneGraphP95Ms": 2.9,
-        "drawP95Ms": 3.1,
-        "headroomMs": 11,
+        "frameP95Ms": 6.8,
+        "simP95Ms": 0.2,
+        "renderP95Ms": 6.7,
+        "sceneGraphP95Ms": 3.6,
+        "drawP95Ms": 3.5,
+        "headroomMs": 9.8,
         "pass": {
           "sim": true,
           "render": true,
@@ -208,66 +97,181 @@
         "cadence": {
           "obtained": true,
           "p50IntervalMs": 16.7,
-          "p95IntervalMs": 17.5,
-          "longFrames": 0,
-          "droppedRatio": 0,
-          "sustains60": true
+          "p95IntervalMs": 18.6,
+          "longFrames": 13,
+          "droppedRatio": 0.0185,
+          "sustains60": false
         },
-        "verdict": "PASS"
+        "verdict": "FAIL"
+      }
+    },
+    {
+      "framing": "alive-default",
+      "image": "nfr1-frame-budget-alive-default.png",
+      "userZoom": 1,
+      "userSpanU": 1320,
+      "composedZoom": 0.6818,
+      "sceneTick": 673,
+      "counts": {
+        "hulls": 64,
+        "contacts": 7,
+        "blips": 2,
+        "projectiles": 10,
+        "effects": 67,
+        "sprites": 1279
+      },
+      "frameCostMs": {
+        "frames": 684,
+        "total": {
+          "p50": 5.6,
+          "p95": 7.3,
+          "max": 8.6
+        },
+        "sim": {
+          "p50": 0,
+          "p95": 0.3,
+          "max": 0.4
+        },
+        "render": {
+          "p50": 2.4,
+          "p95": 4,
+          "max": 5.3
+        }
+      },
+      "verdict": {
+        "obtained": true,
+        "frameP95Ms": 7.3,
+        "simP95Ms": 0.3,
+        "renderP95Ms": 7.3,
+        "sceneGraphP95Ms": 4,
+        "drawP95Ms": 3.5,
+        "headroomMs": 9.3,
+        "pass": {
+          "sim": true,
+          "render": true,
+          "headroom": true
+        },
+        "cadence": {
+          "obtained": true,
+          "p50IntervalMs": 16.7,
+          "p95IntervalMs": 31.5,
+          "longFrames": 35,
+          "droppedRatio": 0.0512,
+          "sustains60": false
+        },
+        "verdict": "FAIL"
+      }
+    },
+    {
+      "framing": "alive-ring-fit",
+      "image": "nfr1-frame-budget-alive-ring-fit.png",
+      "userZoom": 0.126,
+      "userSpanU": 10500,
+      "composedZoom": 0.0857,
+      "sceneTick": 958,
+      "counts": {
+        "hulls": 64,
+        "contacts": 7,
+        "blips": 2,
+        "projectiles": 10,
+        "effects": 70,
+        "sprites": 1280
+      },
+      "frameCostMs": {
+        "frames": 437,
+        "total": {
+          "p50": 26.8,
+          "p95": 29,
+          "max": 35.8
+        },
+        "sim": {
+          "p50": 0.1,
+          "p95": 0.2,
+          "max": 1.8
+        },
+        "render": {
+          "p50": 23.5,
+          "p95": 25,
+          "max": 26.5
+        }
+      },
+      "verdict": {
+        "obtained": true,
+        "frameP95Ms": 29,
+        "simP95Ms": 0.2,
+        "renderP95Ms": 28.9,
+        "sceneGraphP95Ms": 25,
+        "drawP95Ms": 4.9,
+        "headroomMs": -12.4,
+        "pass": {
+          "sim": true,
+          "render": false,
+          "headroom": false
+        },
+        "cadence": {
+          "obtained": true,
+          "p50IntervalMs": 32.4,
+          "p95IntervalMs": 34.8,
+          "longFrames": 284,
+          "droppedRatio": 0.6499,
+          "sustains60": false
+        },
+        "verdict": "FAIL"
       }
     },
     {
       "framing": "omniscient-reveal",
       "image": "nfr1-frame-budget-omniscient-reveal.png",
       "userZoom": 1,
-      "composedZoom": 0.1531,
-      "sceneTick": 1238,
+      "userSpanU": 1320,
+      "composedZoom": 0.0857,
+      "sceneTick": 1239,
       "counts": {
-        "hulls": 68,
-        "contacts": 17,
+        "hulls": 64,
+        "contacts": 7,
         "blips": 2,
-        "projectiles": 9,
-        "effects": 73,
-        "sprites": 631
+        "projectiles": 10,
+        "effects": 67,
+        "sprites": 1280
       },
       "frameCostMs": {
-        "frames": 720,
+        "frames": 428,
         "total": {
-          "p50": 10.6,
-          "p95": 11.8,
-          "max": 13.3
+          "p50": 27.4,
+          "p95": 29.1,
+          "max": 31.6
         },
         "sim": {
           "p50": 0,
-          "p95": 0.1,
-          "max": 0.2
+          "p95": 0.3,
+          "max": 1.5
         },
         "render": {
-          "p50": 8,
-          "p95": 9.1,
-          "max": 10.5
+          "p50": 24.1,
+          "p95": 25.5,
+          "max": 26.3
         }
       },
       "verdict": {
         "obtained": true,
-        "frameP95Ms": 11.8,
-        "simP95Ms": 0.1,
-        "renderP95Ms": 11.8,
-        "sceneGraphP95Ms": 9.1,
-        "drawP95Ms": 2.9,
-        "headroomMs": 4.8,
+        "frameP95Ms": 29.1,
+        "simP95Ms": 0.3,
+        "renderP95Ms": 29,
+        "sceneGraphP95Ms": 25.5,
+        "drawP95Ms": 4.4,
+        "headroomMs": -12.5,
         "pass": {
           "sim": true,
           "render": false,
-          "headroom": true
+          "headroom": false
         },
         "cadence": {
           "obtained": true,
-          "p50IntervalMs": 16.7,
-          "p95IntervalMs": 17.6,
-          "longFrames": 0,
-          "droppedRatio": 0,
-          "sustains60": true
+          "p50IntervalMs": 32.9,
+          "p95IntervalMs": 34.9,
+          "longFrames": 292,
+          "droppedRatio": 0.6822,
+          "sustains60": false
         },
         "verdict": "FAIL"
       }

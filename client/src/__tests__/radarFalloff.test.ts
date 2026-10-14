@@ -18,13 +18,13 @@
 //     is the safety net under every behavioural change in this cycle.
 //
 //   • THE CROSSOVER IS FITTED, NEVER BRANCHED (amendment 118 + 132). The
-//     red→blue boundary must EMERGE at 7/8 intel range from the curve's own
+//     red→blue boundary must EMERGE at the far-radar anchor (8/12 since Story 9.8) from the curve's own
 //     shape. `CONFIG.vision.farRadar` is an input to the fit and appears nowhere
 //     on a paint path — `grep -rn farRadar client/src/render/` is empty.
 //
 //   • AND SINCE CYCLE 67 IT IS A PURE STATEMENT ABOUT RANGE (amendments
 //     171-175). A hull's reflectivity is its MATERIAL and nothing else, so
-//     EVERY hull crosses red→blue at 7/8 intel range — every class, every
+//     EVERY hull crosses red→blue at the far-radar anchor — every class, every
 //     aspect. What used to be pinned here as "the mid hull crosses at the rung
 //     and a battleship broadside stays red past the rim" was the fit's old
 //     `ext` term talking, and that term was an aspect DOUBLE-COUNT against the
@@ -65,9 +65,12 @@ const BANDS = CFG.bands;
 const RED = BANDS[2].at;
 const GREEN = BANDS[0].at;
 const BLUE = BANDS[1].at;
-const RIM = CONFIG.vision.radar; // 8/8 — 660u
-const CROSS = CONFIG.vision.farRadar; // 7/8 — 577.5u
-const REACH = CONFIG.vision.muzzleFlash; // 5/8 — 412.5u, the wake's reach
+const RIM = CONFIG.vision.radar; // 12/12 (epic-9 amendment 103)
+const CROSS = CONFIG.vision.farRadar; // 8/12 — the far-radar fit anchor (ruling 121)
+const REACH = CONFIG.vision.muzzleFlash; // 6/12 — the wake's reach
+/** 10/12 — the DROPOUT KNEE (ruling 121): past it a paint is ever rarer
+ *  (p 0.9 → 0.1 at the rim). The blue register is proved out to here. */
+const KNEE = CONFIG.vision.dropout.kneeU;
 
 /**
  * A HULL'S READING at a range — the model's own two seams composed, which is
@@ -160,7 +163,7 @@ describe('the curve is the shipped one, generalized', () => {
 
 // --- 2. THE CALIBRATION (amendment 118) -----------------------------------------
 
-describe('the red→blue crossover EMERGES at 7/8 intel range, for EVERY hull', () => {
+describe('the red→blue crossover EMERGES at the far-radar anchor (8/12), for EVERY hull', () => {
   it('the fit is solved, not typed in — and it moves with `farRadar`', () => {
     expect(MODEL.pointRef).toBeGreaterThan(0);
     expect(MODEL.pointRef).toBeCloseTo(
@@ -204,11 +207,23 @@ describe('the red→blue crossover EMERGES at 7/8 intel range, for EVERY hull', 
     expect(hullPeak(0), 'a hull at zero range saturates the scale').toBe(1);
   });
 
-  it('RULE 3 — and BLUE from there to the 660u rim, never green', () => {
-    for (let d = CROSS + 0.5; d <= RIM; d += 0.5) {
+  it('RULE 3 — and BLUE from there through the dropout knee, never green', () => {
+    // RE-BASED BY STORY 9.8 (epic-9 amendment 103, ruling 121). Under the
+    // eighths ladder the crossover sat at 7/8 and the 1/d⁴ curve held blue the
+    // last eighth to the rim. On the twelfths ladder the anchor is 8/12, a
+    // third of the radar span from the rim, and the same curve cannot hold
+    // blue that far: MEASURED at the shipped fit, the nominal return crosses
+    // into green at ~1,437.5 u (11.5/12). So the blue register is proved
+    // through the dropout KNEE (10/12), where p(paint) is still 0.9, and the
+    // cliff beyond it — where a paint is the exception — may read green.
+    for (let d = CROSS + 0.5; d <= KNEE; d += 0.5) {
       const peak = hullPeak(d);
       expect(peak, `${d}u`).toBeGreaterThanOrEqual(BLUE);
       expect(peak, `${d}u`).toBeLessThan(RED);
+    }
+    // ...and past it, never transparent: `minPeak` still floors the read.
+    for (let d = KNEE; d <= RIM; d += 0.5) {
+      expect(hullPeak(d), `${d}u`).toBeGreaterThanOrEqual(GREEN);
     }
   });
 
@@ -216,8 +231,10 @@ describe('the red→blue crossover EMERGES at 7/8 intel range, for EVERY hull', 
     + 'envelope, so the read never flickers across a band (amendment 135)', () => {
     // The grain is zero at or above `solidAt`, which is pinned to RED itself, so
     // the whole red half is steady by construction. Only the blue half can
-    // wobble, and it must not wobble across either boundary.
-    for (let d = CROSS + 0.5; d <= RIM; d += 0.5) {
+    // wobble, and it must not wobble across either boundary — through the
+    // dropout knee (see RULE 3: MEASURED, the unluckiest draw first dips under
+    // blue at ~1,327 u, 10.6/12, inside the cliff).
+    for (let d = CROSS + 0.5; d <= KNEE; d += 0.5) {
       const peak = hullPeak(d);
       const amp = noiseAmplitude(peak, CFG.noise);
       expect(peak * (1 + amp), `${d}u luckiest draw`).toBeLessThan(RED);

@@ -45,8 +45,8 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const PORT_PROD = 2604;
 const PORT_DEV = 2605;
 
-const CAP = CONFIG.map.playerCap; // 20 hulls in a solo lobby
-const BOTS = CAP - 1; // 19 AI captains — derived exactly as the room derives it
+const CAP = CONFIG.map.playerCap; // the player cap — hulls in a solo lobby (16 since Story 9.8)
+const BOTS = CAP - 1; // cap − 1 AI captains — derived exactly as the room derives it
 
 // A whole battle royale in ~a minute: 4 beats per group, 3 geometric groups
 // plus the sudden-death collapse = 16 beats. At 1s a beat the ocean is fully

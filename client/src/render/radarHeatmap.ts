@@ -115,7 +115,7 @@
 // no ship shadowing — amendment 140 deleted those and Story 4.11 did not bring
 // them back), any contour polygon (amendment 142 — elevation comes from the
 // raster via `sampleHeight`, continuously), and any comparison against a vision
-// range constant (the eighths ladder's 7/8 rung is a curve-FIT input, read once
+// range constant (the far-radar anchor, 8/12 since Story 9.8, is a curve-FIT input, read once
 // where the client tunables are defined and never on a paint path). Occlusion
 // now exists, but it lives ONE LEVEL UP and in shared code: the beam march folds
 // terrain height into the shared shadow accumulator per RAY
@@ -557,7 +557,7 @@ export interface ReturnModelOpts {
   clutterRef: number;
   /** Reference range (u) of the SURFACE curve for DISTURBED WATER (wake + the
    *  chop that hangs off it) — FITTED so the wake's worst draw crosses
-   *  `bands[0].at` at the eighths ladder's 5/8 rung, never typed in. */
+   *  `bands[0].at` at the ladder's flash rung (6/12 since Story 9.8), never typed in. */
   wakeRef: number;
   /** The wake material's own grain scale on the ambient SNR envelope
    *  (amendment 203) — a material property, solved, never a look knob. */
@@ -593,12 +593,12 @@ export interface ReturnModelOpts {
  */
 export interface DimOpts {
   /** Flat `minScale` at and inside this multiple of the observer's EFFECTIVE
-   *  truesight — 1.0, the whole sight bubble (the ladder's 4/8 rung). A
+   *  truesight — 1.0, the whole sight bubble (the ladder's 4/12 rung). A
    *  MULTIPLE, not a radius: the bubble is boon-widened per build, and the
    *  ramp rides it (render/radarDim.ts). */
   innerFactor: number;
   /** Full painted opacity from this multiple of effective truesight out — the
-   *  5/8 rung expressed against the 4/8 one. */
+   *  flash rung (6/12) expressed against the sight rung (4/12). */
   outerFactor: number;
   /** Displayed fraction of the painted opacity inside the bubble. */
   minScale: number;

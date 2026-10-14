@@ -647,7 +647,7 @@ Pick a hull, pick its gun, sail its `Shift`: spawn with the mounted gun and the 
 
 ### Epic 9: Tune and Clean *(inserted 2026-10-06 — Sprint Change Proposal `sprint-change-proposal-2026-10-06.md`; GDD E9)*
 Eric's zero-in epic after The Pool, built in his order — **balance and features FIRST, then the tests**: a steered tuning pass on time-to-kill and escaping combat (hull hp, map size, island proportion, the spawn layout — one outer ring of 12 and one inner ring of 8 instead of one ring of 20 are his named dials), a SPEED BOOST consumable that stacks with the Speedboat's Shift, a neutral HEALING BUOY that heals every hull in its radius, the optional DEPTH CHARGE (its stub line exists since epic-8 amendment 83; mechanism Eric's), then the test-purposefulness audit (every test names the contract it guards or goes), the two smoke flakes fixed, harness and ledger hygiene (the 6-4 bot bars, the deferred-work triage, the 12 dangling follow-up-review flags), and the How-to-Play entries in Eric's copy. Every number is Eric's, ruled at each story's spec step via AskUserQuestion; the spec author never fills one in.
-*(Re-cut 2026-10-11 — `sprint-change-proposal-2026-10-11.md`, epic-9 amendments 21–30: SPEED BOOST and HEALING BUOY are CANCELLED; the middle of the epic is now, in Eric's order, 9.2 every consumable on a fixed key (belt retired, HUD option D′), 9.3 the MULTI-SPECTRAL COUNTERMEASURE replacing SMOKE SCREEN + CHAFF, 9.4 the FOULING SHELL replacing FLASH SHELLS, 9.5 ramming and contact damage, 9.6 five tiers on every ship upgrade with HULL POINTS +50 and a PASSIVE HEALING ladder; DEPTH CHARGE is 9.7 and the four cleanup stories are 9.8–9.11. The paragraph above is left as written.)*
+*(Re-cut 2026-10-11 — `sprint-change-proposal-2026-10-11.md`, epic-9 amendments 21–30: SPEED BOOST and HEALING BUOY are CANCELLED; the middle of the epic is now, in Eric's order, 9.2 every consumable on a fixed key (belt retired, HUD option D′), 9.3 the MULTI-SPECTRAL COUNTERMEASURE replacing SMOKE SCREEN + CHAFF, 9.4 the FOULING SHELL replacing FLASH SHELLS, 9.5 ramming and contact damage, 9.6 five tiers on every ship upgrade with HULL POINTS +50 and a PASSIVE HEALING ladder; DEPTH CHARGE is 9.7 and the four cleanup stories are 9.8–9.11 (re-cut again 2026-10-13: 9.8 The Twelfths Ladder and 9.9 Bot Posture Workover inserted; tail 9.10–9.13). The paragraph above is left as written.)*
 **FRs covered:** none new — tunes FR1–FR12 (hulls), FR24–FR25 (the ring), FR26 (the map), FR41–FR61 (the pool's lines) in place · **Also:** the project-context Testing Rule (retro 2026-10-06), NFR20–NFR23 (the six-exception invariant is EXTENDED for the buoy, never widened)
 **Standing constraints:** guns are balanced by Eric's math, never by sim (2026-10-02); the sim measures attrition and class share only, quick runs ≤ 99 matches and never unprompted; no friendly fire, ever — a neutral buoy heals, it never hurts; new card glyphs are rendered and shown to Eric before commit; a design gap found at review is an AskUserQuestion before the PR, never a ledger entry.
 
@@ -2333,7 +2333,7 @@ So that a tanky build is a real choice beside more hull, and the Dreadnought's S
 
 *(BUILT 2026-10-13 — cycle 184, 0.18.49, PV 80 → 81, epic-9 amendments 110–120; Eric's spec-step rulings: numbers as accepted (K 5, +1 per card, cut +5 for 10 s / 30 s), ARMOR right after HULL, card prints ARMOR 0 → 1, tally reads what landed, seventh SHIP-panel row, LOADOUT 4 + 3, DAMAGE CUT head row ARMOR +5, defensive bots favor it, glyph B the riveted belt; review-gate ruling: a whole blow lands at least 1 hp (119); the multiplier is the exact ratio (120a); `spec-9-7-armor.md`.)*
 
-### Story 9.8: The Twelfths Ladder *(inserted 2026-10-13 — `sprint-change-proposal-2026-10-13-twelfths-ladder.md` §4.1; lands after 9.7; forge record `_bmad-output/forge/realistic-vision-range/forged-idea.md`)*
+### Story 9.8: The Twelfths Ladder *(inserted 2026-10-13 — `sprint-change-proposal-2026-10-13-twelfths-ladder.md` §4.1; lands after 9.7; forge record `_bmad-output/forge/realistic-vision-range/forged-idea.md`; BUILT 2026-10-14 — cycle 185, 0.18.50, PV 82; epic-9 amendments 121–137; spec-9-8-the-twelfths-ladder.md)*
 
 As a captain hunting in the dark,
 I want radar to reach far beyond my eyes and my guns, with far returns that come and go,
@@ -2355,7 +2355,24 @@ So that an encounter starts with a long approach I can act on instead of a point
 **And** every ladder, camera and range pin in the tests is re-based citing the amendment, never pinning 1,500 as a literal; the perception invariants keep exactly SIX exceptions; `PROTOCOL_VERSION` bumps (the client reads the vision block); both trackers stamped
 **And** no in-game copy is added; the How-to-Play sensor entry and the GDD / EXPERIENCE.md stamps (eighths → twelfths, "two truesight diameters", "radar = sight × 2", the zoom range) are 9.12's
 
-### Story 9.9: Test Purposefulness Audit *(was 9.5 until 2026-10-11, 9.8 until 2026-10-13)*
+### Story 9.9: Bot Posture Workover *(inserted 2026-10-13 — epic-9 amendment 126; lands after 9.8; the cleanup tail renumbers 9.10–9.13)*
+
+As a captain hunting bots on the big ocean,
+I want a bot to decide what to do with a contact it can see on radar but cannot yet shoot,
+So that bots close, break off or kite like captains instead of idling at a band that no longer matches their guns.
+
+**Eric (2026-10-13, verbatim):** *"We actually will need bots to get a full workover on their decision making to account for having information outside of their actual ability to engage it and fire. As in, 'do I move in and try to engage?' or 'do i try to get away?' or 'do i try to kite them?' stuff like that."*
+
+**Acceptance Criteria:**
+
+**Given** 9.8 has landed (radar 1,500 u, guns 625–1,250 u by tier, the dropout band 1,000–1,500 u, the stopgap engagement bands as fractions of the mounted gun's `rangeU`, and the miss rule inside the dropout start)
+**When** the story opens
+**Then** it opens with a design sitting: Eric rules the posture model (engage / disengage / kite and whatever else he names) for a contact between gun reach and radar reach, per profile; no posture, trigger or number is invented by the author
+**And** every bot and PvE drone profile is re-cut on that model inside `server/src/game/ai/` (bots never import `world.js`; the whole world is the bound `observe` thunk), the `[DRAFT]` ram trigger of amendment 77 is re-read beside it, and the harness reports what each posture did (engagements opened, broken off, kited) so Eric can read it
+**And** the stopgap bands of 9.8 are retired or re-ruled, the class-share and attrition readouts are taken on the shipped ocean only when Eric asks (never launched unprompted; quick runs ≤ 99 matches), and `npm run check` is green with both trackers stamped
+**And** no in-game copy is added.
+
+### Story 9.10: Test Purposefulness Audit *(was 9.5 until 2026-10-11, 9.8 until 2026-10-13, 9.9 until 2026-10-13 second)*
 
 As the next developer to change a function,
 I want every test in the suite to guard a contract of the thing it tests,
@@ -2371,7 +2388,7 @@ So that a test fails only when the behavior it names is broken, never because a 
 **And** an audit record (`test-audit-<date>.md` in implementation-artifacts) lists per workspace: tests before, kept, rewritten, deleted, and the reason class for each deletion; the pinned invariants that protect the architecture (perception exceptions, `applyDamage` as the only hp write, bots never importing `world.js`, map determinism, `effectiveStats()` parity) are named as KEPT contracts
 **And** no production code changes in this story (a bug a test exposes is a separate quiet fix or a ledger entry with Eric's call); `npm run check` green; lint complexity unchanged; both trackers stamped.
 
-### Story 9.10: Smoke Flakes Fixed *(was 9.6 until 2026-10-11, 9.9 until 2026-10-13)*
+### Story 9.11: Smoke Flakes Fixed *(was 9.6 until 2026-10-11, 9.9 until 2026-10-13, 9.10 until 2026-10-13 second)*
 
 As the person running the gate,
 I want matchSmoke and weaponsSmoke to pass or fail on what they claim to test,
@@ -2385,7 +2402,7 @@ So that a flake is never "ledgered as awareness" again (the Epic 7 "flake is P1"
 **And** three consecutive clean first-try runs on a quiet box are recorded in the spec; the ledger's flake entries are stamped RESOLVED with the run log
 **And** the smokes stay dev-option-gated (`HC_DEV_OPTIONS=1`), boot their own server where they already do, and kill only their own PID; both trackers stamped.
 
-### Story 9.11: Harness and Ledger Hygiene *(was 9.7 until 2026-10-11, 9.10 until 2026-10-13)*
+### Story 9.12: Harness and Ledger Hygiene *(was 9.7 until 2026-10-11, 9.10 until 2026-10-13, 9.11 until 2026-10-13 second)*
 
 As the next agent to open the harness report or the deferred-work ledger,
 I want both to say only what is still true,
@@ -2400,7 +2417,7 @@ So that I do not re-derive 168 open threads or read a PASS/FAIL bar that measure
 **And** the 12 follow-up-review flags are each either run (a review gate on the story's landed code, findings into the ledger or quiet fixes) or dropped by Eric's ruling, and the spec template loses the flag if he rules it dead
 **And** the `shared/src/index.ts` barrel comment that still names `sim/deck.ts` as the engine is corrected; no gameplay change; both trackers stamped.
 
-### Story 9.12: How-to-Play and Record *(was 9.8 until 2026-10-11, 9.11 until 2026-10-13)*
+### Story 9.13: How-to-Play and Record *(was 9.8 until 2026-10-11, 9.11 until 2026-10-13, 9.12 until 2026-10-13 second)*
 
 As a new captain reading How-to-Play,
 I want every item in the game described there in Eric's words,

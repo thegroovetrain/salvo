@@ -12,8 +12,9 @@ import {
 // server and client BOTH have to agree on lives here: the horn id space, its
 // fail-open sanitizer, and the one sim-authoritative cadence.
 //
-// What is deliberately NOT pinned here: the volume-band bounds (eighths of
-// the listener's intel range — Story 4.9, amendment 122) and the island
+// What is deliberately NOT pinned here: the volume-band bounds (twelfths of
+// the listener's intel range since Story 9.8, epic-9 amendment 107 / ruling
+// 129; eighths since Story 4.9, amendment 122) and the island
 // muffle, which are per-observer server logic (signals.ts) verified by their
 // own independently-reimplemented oracle in
 // server/src/__tests__/perception.test.ts; and every presentation knob (band
@@ -109,13 +110,14 @@ describe('FoghornEvent wire shape (amendments 51/52)', () => {
     expect(Object.keys(spec)).not.toContain('id');
   });
 
-  it('the volume band is an EIGHT-value enum (Story 4.9, amendment 122), never a gain fraction', () => {
-    const bands: NonNullable<FoghornEvent['v']>[] = [1, 2, 3, 4, 5, 6, 7, 8];
-    expect(bands).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
-    // Gains (1 / 1 / 1 / 1 / 0.875 / 0.75 / 0.625 / 0.5 for bands 1-8) are
-    // CLIENT-side presentation; putting one on the wire would make hearing a
-    // property of sound rather than of the listener, which is exactly what
-    // amendment 53 rejected — a rule the eighths rebase keeps.
+  it('the volume band is a TWELVE-value enum (Story 9.8, epic-9 amendment 107 / ruling 129; eight since Story 4.9), never a gain fraction', () => {
+    const bands: NonNullable<FoghornEvent['v']>[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    expect(bands).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    // Gains (full through band 4, then 1 − 0.5·(b − 4)/8 down to 0.5 at band
+    // 12, ruling 129) are CLIENT-side presentation; putting one on the wire
+    // would make hearing a property of sound rather than of the listener,
+    // which is exactly what amendment 53 rejected — a rule the twelfths
+    // rebase keeps.
     for (const v of bands) expect(Number.isInteger(v)).toBe(true);
   });
 

@@ -3,9 +3,10 @@
 // `dazzleShells`, Story 8.17) on key `4`: same seat, same fire flow, a
 // different payload. Cap 5, no reload, no tiers, `CONSUMABLE_IS_WEAPON` true —
 // the digit PRIMES the slot and a CLICK fires ONE 360° gun-pattern shell to
-// the click, clamped at the STAR SHELL'S reach (`ship.stats.radarRange`, the
-// radar rung — so no arc denial is ever possible and the only refusal is an
-// empty stack). It deals NO damage and hits nothing: `damage 0` /
+// the click, clamped at its OWN reach dial (`CONFIG.foulingShell.rangeU`,
+// fixed at the 8/12 rung — Story 9.8, ruling 125; it was the star shell's
+// radar-rung reach before) — 360°, so no arc denial is ever possible and the
+// only refusal is an empty stack. It deals NO damage and hits nothing: `damage 0` /
 // `contactDamage 0`, the star shell's `hull | decoy` mask (it never detonates
 // a mine), and the server-internal `foul` tag beside `lit` / `burn`. Where it
 // STOPS — its burst point, or an interception's stop point, exactly as a flare
@@ -33,11 +34,11 @@ import { makeBallistic } from '../ballistics.js';
 import { burstPoint, muzzleOrTarget } from '../guns.js';
 import { consumableRow, type ConsumableRow } from './row.js';
 
-/** Fire ONE fouling shell to the click (clamped at the radar rung). */
+/** Fire ONE fouling shell to the click (clamped at its reach dial). */
 function foulingShellEffect(ctx: ActivationContext, _slot: LoadoutSlot): ActivationResult {
   const ship = ctx.ship;
   const dir = ship.input.aim;
-  const target = burstPoint(ship, ctx.mapRadius, ship.stats.radarRange); // the star shell's reach
+  const target = burstPoint(ship, ctx.mapRadius, CONFIG.foulingShell.rangeU); // its own reach dial (ruling 125)
   const origin = muzzleOrTarget(ship, dir, target, CONFIG.foulingShell.shellRadius);
   const shell = makeBallistic(ctx.mkId(), ship, dir, ctx.fireT, {
     speed: CONFIG.foulingShell.shellSpeed,

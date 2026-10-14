@@ -44,6 +44,9 @@ import {
 
 const TB = { cls: 'torpedoBoat' as const, cards: [] as string[] };
 
+/** RANGE's printer (Eric 2026-10-13): whole values whole, else one decimal. */
+const rangeTxt = (v: number): string => (v % 1 === 0 ? String(v) : v.toFixed(1));
+
 describe('coverage — every catalog line has a name and a kind word', () => {
   it('names every one of the 25 lines (never the humanized fallback)', () => {
     // 29 until Story 8.15 CUT missile, monitor and heat seeking (amendment 89e);
@@ -194,10 +197,23 @@ describe('the stat tables — one builder for the face and both hovers', () => {
   });
 
   it('prints RANGE (the derived rangeU) LAST, in lowercase world units', () => {
-    expect(text(equipmentStatRows('gun', bare)).at(-1)).toBe(`RANGE ${bare.equipment.gun.rangeU} u`);
-    expect(text(equipmentStatRows('flak', bare)).at(-1)).toBe(`RANGE ${bare.equipment.flak.rangeU} u`);
+    expect(text(equipmentStatRows('gun', bare)).at(-1)).toBe(`RANGE ${rangeTxt(bare.equipment.gun.rangeU)} u`);
+    expect(text(equipmentStatRows('flak', bare)).at(-1)).toBe(`RANGE ${rangeTxt(bare.equipment.flak.rangeU)} u`);
     // A torpedo's row carries no rangeU, so it prints none.
     expect(equipmentStatRows('heavyTorpedo', bare).map((r) => r.label)).not.toContain('RANGE');
+    // ...and ONCE: since Story 9.8 `rangeU` is also a stat-table field (ruling
+    // 125), and the table must not print it mid-row as well as last.
+    expect(equipmentStatRows('gun', bare).filter((r) => r.label === 'RANGE')).toHaveLength(1);
+  });
+
+  it('prints RANGE to ONE DECIMAL ONLY WHEN NEEDED — whole values whole, a +31.25 u card step to one decimal (Eric 2026-10-13)', () => {
+    // One flak card: Tier I + one (V − I) / 4 step, a quarter-unit value.
+    const one = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['flak']);
+    expect(Number.isInteger(one.equipment.flak.rangeU), 'the premise: a fractional reach').toBe(false);
+    expect(text(equipmentStatRows('flak', one)).at(-1)).toBe(`RANGE ${one.equipment.flak.rangeU.toFixed(1)} u`);
+    // A whole reach prints whole — no trailing ".0".
+    expect(Number.isInteger(bare.equipment.flak.rangeU), 'the premise: a whole reach').toBe(true);
+    expect(text(equipmentStatRows('flak', bare)).at(-1)).toBe(`RANGE ${bare.equipment.flak.rangeU} u`);
   });
 
   it('the MACHINE GUN: SHELLS, and RATE to two decimals with the trailing zero kept', () => {
@@ -206,7 +222,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
       'SHELLS 12',
       'DAMAGE 5',
       'RATE 0.30 s',
-      `RANGE ${bare.equipment.machineGun.rangeU} u`,
+      `RANGE ${rangeTxt(bare.equipment.machineGun.rangeU)} u`,
     ]);
     const top = effectiveStats(CONFIG.shipClasses.torpedoBoat, Array<string>(4).fill('machineGun'));
     expect(text(equipmentStatRows('machineGun', top))).toContain('RATE 0.10 s');

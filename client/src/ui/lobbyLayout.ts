@@ -15,6 +15,11 @@
 // options 80 (two 36 px rows + 8) · aboard 18 · grid 236 (ten 20 px rows +
 // nine 4 px gaps) · countdown 20 · buttons 40 · reason 18 = 478, + 8 gaps × 10
 // + 2 × 20 = 598 px, which IS the panel height (computed below, not typed).
+// THE PANEL IS RULED, NOT DERIVED FROM THE CAP (epic-8 amendments 235–242:
+// a fixed 600 × 598 that never changes size). The grid REGION is the ruled
+// ten-row box (236 px) whatever the arena cap; the slot rows inside it are
+// `CONFIG.map.playerCap / 2` (eight at the 16-captain cap, Story 9.8, Eric
+// 2026-10-13), top-aligned, the rest of the box empty water.
 // Width: 600 px panel, 28 px side padding → 544 px inner = two 260 px columns
 // + a 24 px gutter. `fixPanel` also lifts the shell's max-width/max-height and
 // overflow-y so the panel can be neither clamped nor scrolled.
@@ -46,7 +51,11 @@ const ROW_H = 20;
 const ROW_GAP = 4;
 const COL_GAP = 24;
 const COL_W = (INNER_W - COL_GAP) / COLS;
-const GRID_H = ROWS * ROW_H + (ROWS - 1) * ROW_GAP;
+/** The ruled grid region: Eric's two columns of ten (2026-10-02), 236 px. */
+const RULED_ROWS = 10;
+const GRID_H = RULED_ROWS * ROW_H + (RULED_ROWS - 1) * ROW_GAP;
+/** The slot rows actually drawn inside it — never more than the ruled box. */
+const SLOT_ROWS_H = ROWS * ROW_H + (ROWS - 1) * ROW_GAP;
 const DOT = 10;
 const DOT_GAP = 10;
 const NAME_W = COL_W - DOT - DOT_GAP;
@@ -89,6 +98,8 @@ export const LAYOUT = {
   lineH: LINE_H,
   optionsH: OPTIONS_H,
   gridH: GRID_H,
+  slotRows: ROWS,
+  slotRowsH: SLOT_ROWS_H,
   buttonH: BUTTON_H,
 } as const;
 
@@ -250,7 +261,8 @@ function makeSlot(i: number): { root: HTMLElement; els: SlotEls } {
   return { root, els: { dot, name } };
 }
 
-/** The 2 × 10 grid with all twenty slots built once, empty. */
+/** The two-column grid with every slot (the arena cap) built once, empty,
+ *  top-aligned inside the ruled 236 px box. */
 export function makeSlotGrid(): { grid: HTMLElement; slots: SlotEls[] } {
   const grid = tag(document.createElement('div'), 'grid');
   size(grid, INNER_W, GRID_H);
@@ -259,6 +271,7 @@ export function makeSlotGrid(): { grid: HTMLElement; slots: SlotEls[] } {
   grid.style.gridTemplateRows = `repeat(${ROWS}, ${ROW_H}px)`;
   grid.style.columnGap = `${COL_GAP}px`;
   grid.style.rowGap = `${ROW_GAP}px`;
+  grid.style.alignContent = 'start';
   const slots: SlotEls[] = [];
   for (let i = 0; i < SLOT_COUNT; i++) {
     const s = makeSlot(i);

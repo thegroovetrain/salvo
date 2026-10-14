@@ -10,10 +10,21 @@ import type { ShiftId } from './sim/loadout.js';
 
 const deg = (d: number): number => (d * Math.PI) / 180;
 
-// u — base true-sight radius (Eric ruling 2026-07-23). Star shells derive
-// their lit-zone radius from this as a structural ratio (SIGHT / 2) so the
-// two retune together; see CONFIG.vision.sight and CONFIG.starShells.litRadius.
-const SIGHT = 330;
+// u — base true-sight radius: the 4/12 rung of the twelfths ladder (Story
+// 9.8, Eric 2026-10-13, epic-9 amendment 103 — *"radar range is now 1500. I
+// can see 500 of it (4/12)"*; was 330, earlier 220). Star shells derive their
+// lit-zone radius from this as a structural ratio (SIGHT / 2, amendment 108)
+// so the two retune together; see CONFIG.vision.sight and
+// CONFIG.starShells.litRadius.
+const SIGHT = 500;
+
+// u — ONE RUNG OF THE TWELFTHS RULER (Story 9.8, epic-9 amendment 103): a
+// twelfth of the radar range, `radar = SIGHT * 3`, so 125 u at SIGHT 500.
+// Every weapon's Tier I and Tier V reach is a whole number of rungs (ruling
+// 125, Eric 2026-10-13), so retuning SIGHT moves every gun with the ladder.
+// Defined off SIGHT, never off `CONFIG.vision.radar` (CONFIG does not exist yet
+// at this point in the module).
+const RUNG = (SIGHT * 3) / 12;
 
 /**
  * THE ORDNANCE TARGET MASKS (Story 8.4, AR44). Every ordnance row declares,
@@ -100,9 +111,15 @@ export const CONFIG = {
     // 5500 → 4000 (Story 9.1 session 2, Eric 2026-10-07 after playing the
     // 11,000 u ocean on staging: *"11000 diameter is too big, and I feel like
     // there are performance hits"*). Diameter 8,000.
-    baseRadius: 4000, // u — map radius (2400 → 2800 amendment 42; 2800 → 5500 → 4000 Story 9.1, 2026-10-07)
-    capRef: 20, // players the base radius is scaled against
-    playerCap: 20, // u — max clients per arena room
+    // 4000 → 5000 (Story 9.8, Eric 2026-10-13, with radar at 1,500 u): *"Lets
+    // say we drop the lobby capacity (and player count) to 16 and evenly space
+    // them around the map … Would 10000 -> 7000 -> 4000 -> 2000 -> 0 fit
+    // everyone without any overlap?"* → *"Yes, lets go with that."* Diameter
+    // 10,000; land stays 10 %. Sixteen evenly spaced spawns on the 0.8 R ring
+    // sit a 2·0.8R·sin(π/16) ≈ 1,561 u chord apart — outside radar reach.
+    baseRadius: 5000, // u — map radius (2400 → 2800 amendment 42; 2800 → 5500 → 4000 Story 9.1; 4000 → 5000 Story 9.8, 2026-10-13)
+    capRef: 16, // players the base radius is scaled against (20 → 16 Story 9.8, Eric 2026-10-13)
+    playerCap: 16, // max clients per arena room (20 → 16 Story 9.8, Eric 2026-10-13)
     spawnFraction: 0.8, // spawn ring radius as a fraction of map radius
   },
 
@@ -319,9 +336,12 @@ export const CONFIG = {
       //
       // The two halves of a fleet are FULLY INDEPENDENT anchors (amendment 24);
       // pickFleetAnchor's max-min score already spreads them. Do not pair them.
-      { atMs: 60000, fleets: 8 }, // 1:00 — 48 hulls (was 4 groups of 9)
-      { atMs: 300000, fleets: 4 }, // 5:00 — 24 hulls
-      { atMs: 540000, fleets: 2 }, // 9:00 — 12 hulls
+      // DOUBLED AGAIN 2026-10-14 (Story 9.8, Eric: *"I feel like that is
+      // actually a bit sparse. Lets double each number of groups spawned. So,
+      // 16 -> 8 -> 4."*) on the 16-captain / 10,000 u ocean (amendment 130).
+      { atMs: 60000, fleets: 16 }, // 1:00 — 96 hulls (was 8 groups / 48 hulls; before that 4 groups of 9)
+      { atMs: 300000, fleets: 8 }, // 5:00 — 48 hulls (was 4 / 24)
+      { atMs: 540000, fleets: 4 }, // 9:00 — 24 hulls (was 2 / 12)
     ],
     /**
      * u — radius the 6 hulls scatter over around their group anchor, and the
@@ -632,38 +652,45 @@ export const CONFIG = {
   },
 
   /**
-   * Vision + radar (fog-of-war ranges) — THE EIGHTHS LADDER.
+   * Vision + radar (fog-of-war ranges) — THE TWELFTHS LADDER.
    *
-   * INTEL RANGE is the one ruler (Eric ruling 2026-08-06, amendments 113/119:
-   * *"lets go ahead and divide our total intel range into 8 concentric
-   * circles... That model is how I want to think about range from now on"*).
-   * Radar range is the ruler's full extent (8/8) and EVERY sensor boundary in
-   * the game is a named eighth of it. Every rung is a `SIGHT` multiple, in the
-   * derivation style `radar = SIGHT * 2` already used here — so retuning base
-   * truesight moves the whole ladder together and no boundary anywhere in the
-   * codebase is an independent literal.
+   * INTEL RANGE is the one ruler (Eric ruling 2026-08-06, epic-4 amendments
+   * 113/119: *"divide our total intel range into ... concentric circles. That
+   * model is how I want to think about range from now on"*). Story 9.8 (Eric
+   * 2026-10-13, epic-9 amendment 103) re-cut the denominator from eighths of
+   * 660 u to TWELFTHS OF 1,500 u: *"First add another 4 to the radar range so
+   * we are at 12/12 in total, keeping 4/12 as the vision point"*. Radar range
+   * is the ruler's full extent (12/12) and every sensor boundary is a named
+   * twelfth of it. Every rung is a `SIGHT` multiple (`radar = SIGHT * 3`), so
+   * retuning base truesight moves the whole ladder together and no boundary
+   * anywhere in the codebase is an independent literal. One rung (`RUNG`, at
+   * the top of this file) is 125 u.
    *
-   *   band   multiple        u        rung           consumer
-   *   ----   -------------   -----    ------------   ---------------------------
-   *   8/8    SIGHT * 2       660      radar          radar sweep; gun and
-   *                                                  star-shell base range;
-   *                                                  foghorn band 8 (50% gain)
-   *   7/8    SIGHT * 1.75    577.5    farRadar       NONE — see the comment on
-   *                                                  the field itself
-   *   5/8    SIGHT * 1.25    412.5    muzzleFlash    muzzle flash + wounded
-   *                                                  smoke (one constant, both);
-   *                                                  BROADSIDE range (7-5 w2)
-   *   4/8    SIGHT           330      sight          true-sight bubble
-   *   3/8    SIGHT * 0.75    247.5    detect         mines + torpedoes
+   *   band    multiple       u       rung / consumer
+   *   -----   ------------   -----   ------------------------------------------
+   *   12/12   SIGHT * 3      1500    radar sweep; foghorn band 12 (50% gain);
+   *                                  star shells Tier V
+   *   11/12                  1375    star shells Tier I
+   *   10/12                  1250    dropout knee; cannon / phosphor Tier V
+   *    8/12   SIGHT * 2      1000    farRadar: the red→blue fit anchor; the
+   *                                  DROPOUT START; cannon / phosphor / fouling
+   *                                  shell Tier I
+   *    7/12                   875    machine gun Tier V
+   *    6/12   SIGHT * 1.5     750    muzzleFlash: muzzle flash + wounded smoke
+   *                                  + the countermeasure haze halo; broadside /
+   *                                  flak Tier V; machine gun Tier I
+   *    5/12                   625    broadside / flak Tier I
+   *    4/12   SIGHT          500    sight = detect (mines + torpedoes)
    *
-   * The unnamed bands (6/8, 2/8, 1/8) are deliberate: a rung earns a constant
-   * only when a sensor actually sits on it. The ordering
-   * `detect < sight < muzzleFlash < farRadar < radar` and every derivation in
-   * the table are pinned by __tests__/zone.test.ts — a one-sided edit to any
+   * The attenuation band 8/12–12/12 is a DROPOUT, not a dimming: see
+   * `vision.dropout` (epic-9 amendment 104, rulings 121–123). The weapon
+   * reaches are their OWN dials on the same ruler (ruling 125) — the table
+   * only shows where they sit. The rung ratios are pinned by
+   * __tests__/zone.test.ts against `radar / 12` — a one-sided edit to any
    * rung fails the build.
    */
   vision: {
-    // u — 3/8: the MINE + TORPEDO detection rung (Story 4.9, Eric ruling
+    // u — 4/12 (= sight): the MINE + TORPEDO detection rung (Story 4.9, Eric ruling
     // 2026-08-06, amendment 119: *"lets split the difference and say its 3/8,
     // and i can tweak from there. Torpedoes and mines especially need buffs"*).
     // A real combat buff to the torpedo and the Mine Layer, taken knowingly.
@@ -684,7 +711,8 @@ export const CONFIG = {
     // resolver stays observer-scaled rather than flat — see epic-7 amendment 31.
     // 3/8 → 4/8 (Story 9.1, Eric ruling 2026-10-08: *"adjust the detection range
     // of all mines and torpedoes to 4/8, regular normal sight range"* — captive
-    // mines were firing before they could be seen).
+    // mines were firing before they could be seen). Re-read as 4/12 on the
+    // twelfths ruler (Story 9.8, epic-9 amendment 103): it rides sight.
     detect: SIGHT * 1,
     // The runtime scale the detect gate multiplies an observer's own
     // boon-widened sight by. It is the SAME number as detect's
@@ -692,62 +720,57 @@ export const CONFIG = {
     // pinned in zone.test.ts precisely so the base rung and the runtime factor
     // can never drift apart. Never edit one without the other.
     detectFactor: 1, // 0.75 → 1 with the rung above (2026-10-08); never edit one without the other
-    sight: SIGHT, // u — 4/8: true-sight bubble (actual ships visible; Eric ruling 2026-07-23, was 220)
-    // THE RUNTIME SCALE FOR THE 5/8 RUNG (Eric ruling 2026-08-16: *"It scales.
+    sight: SIGHT, // u — 4/12: true-sight bubble (actual ships visible; Story 9.8 500, was 330, earlier 220)
+    // THE RUNTIME SCALE FOR THE 6/12 RUNG (Eric ruling 2026-08-16: *"It scales.
     // Intel range means your detection range on all levels gets further."*).
-    // 0.625 = 5/8, and note it is a factor of `radarRange`, NOT of sight the way
-    // `detectFactor` above is. That difference was load-bearing while FLASH
+    // 0.5 = 6/12 (Story 9.8, epic-9 amendment 103: *"muzzle flash/smoke should
+    // go up to 6/12"*; was 0.625 = 5/8), and note it is a factor of
+    // `radarRange`, NOT of sight the way `detectFactor` above is. That difference was load-bearing while FLASH
     // SHELLS existed (Story 8.17 – 9.4): `sightOf` was the ONLY place the dazzle
     // factor entered perception, so anchoring this rung on radar range made "a
     // flash is a light source — dazzle does not shrink it" true BY
     // CONSTRUCTION. It is the same argument amendment 122 made when the foghorn
     // moved onto intel range. Both numbers still describe the same circle, because `sightRange`
-    // is now DERIVED as radarRange/2 (sim/stats.ts).
-    muzzleFlashFactor: 0.625,
-    // u — 5/8: muzzle-flash carry (Story 4.3, amendment 15; MOVED from 6/8 to
-    // 5/8 by Story 4.9, Eric ruling 2026-08-06, amendment 119: *"5/8 for
-    // muzzle/smoke"* — 495u → 412.5u). DERIVED: 1.25 × base truesight, exactly
+    // is DERIVED as radarRange/3 (sim/stats.ts).
+    muzzleFlashFactor: 0.5,
+    // u — 6/12: muzzle-flash carry (Story 4.3, amendment 15; MOVED from 6/8 to
+    // 5/8 by Story 4.9, amendment 119; re-cut to 6/12 = 750 u by Story 9.8,
+    // epic-9 amendment 103). DERIVED: 1.5 × base truesight, exactly
     // as radar below, so retuning SIGHT moves the flash halo with it (never an
     // independent literal; the constraint test in zone.test.ts pins the
     // derivation and the full ladder ordering). THIS ONE NUMBER ALSO CARRIES
     // WOUNDED SMOKE (amendment 42 — never forked into a fourth vision
-    // constant), so Eric's "muzzle/smoke" band moves both signals together;
+    // constant), and the countermeasure haze halo rides it too (epic-9
+    // amendment 59), so Eric's "muzzle/smoke" band moves all three together;
     // that coupling is doing exactly what it was designed to do.
     //
-    // The annulus beyond the base bubble is now a deliberately THIN 82.5u
-    // (330–412.5, halved from 165u — an ACCEPTED consequence of the ladder,
-    // not a defect): a shooter just outside your sight gives themselves away,
-    // but a radar-range duel stays anonymous — radar remains the ONLY
-    // long-range sensor. The flash still covers the D1 back-dated shell spawn
-    // because 412.5 > 330, so amendment 15's masking coupling holds. Island
-    // LOS applies (Eric ruling 2026-08-02: islands block EVERY sensor at ALL
-    // ranges).
-    muzzleFlash: SIGHT * 1.25,
-    // u — 7/8: "far radar", where a mid-size hull's return reads BLUE rather
-    // than RED. DERIVED: 1.75 × base truesight.
+    // The annulus beyond the base bubble is a 250 u band (500–750): a shooter
+    // just outside your sight gives themselves away, but a radar-range duel
+    // stays anonymous — radar remains the ONLY long-range sensor. The flash
+    // still covers the D1 back-dated shell spawn because muzzleFlash > sight,
+    // so amendment 15's masking coupling holds. Island LOS applies (Eric
+    // ruling 2026-08-02: islands block EVERY sensor at ALL ranges).
+    muzzleFlash: SIGHT * 1.5,
+    // u — 8/12: "far radar", the red→blue FIT ANCHOR (epic-9 amendment 103,
+    // confirmed at the 9.8 spec step, ruling 121): where a mid-size hull's
+    // return reads BLUE rather than RED. DERIVED: 2 × base truesight. It is
+    // also where the radar DROPOUT begins (`dropout.startU` below sits on the
+    // same rung by its own derivation).
     //
-    // !!! THIS RUNG SHIPS DELIBERATELY UNCONSUMED, AND THAT IS CORRECT. !!!
-    // It has no caller at all — not production, not tests beyond the ladder
-    // pins. Naming the rung is what makes the ladder complete and checkable
-    // (amendment 123). It is not quite the ONLY consumer-less constant here:
-    // `detect` above has no PRODUCTION consumer either (runtime multiplies by
-    // `detectFactor`), but it IS read — by the ladder pins and the weapons
-    // smoke — whereas this one is read by nothing. It exists as STORY 4.10's
-    // CALIBRATION TARGET: under amendment 106 the radar red→blue crossover
-    // must EMERGE from the 1/d⁴ falloff curve fitted to cross here, never from
-    // a threshold branch. Writing `if (d > farRadar)` — or any other
-    // comparison against this constant — anywhere in a radar paint path
-    // VIOLATES amendment 105 (colour is intensity, never category) and is the
-    // wrong implementation of amendment 118. Fit the curve; do not branch.
-    farRadar: SIGHT * 1.75,
-    radar: SIGHT * 2, // u — 8/8: radar sweep range (paints stale blips) — DERIVED: 2 × base truesight
-    // (Eric ruling 2026-08-02, epic-3 amendment 22; resolves the radar-650-vs-660
-    // marginality: radar from the terminal-ring center exactly covers the 660u
-    // endgame ring). Gun base range and star-shell flare range ride this same
-    // number (Eric ruling 2026-07-21). Note: zoneTerminalRadius (in sim/zone.ts,
-    // terminalSightFactor × sight) is an INDEPENDENT derivation that happens to
-    // share the factor 2 — the constraint test in zone.test.ts is what binds the
-    // two together; don't conflate them as the same derivation.
+    // CONSUMED BY THE CLIENT, NEVER AS A BRANCH: client/src/config.ts
+    // `HEAT_POINT_REF` reads it as the anchor the 1/d⁴ intensity curve is
+    // FITTED to cross (Story 4.10's calibration target, amendment 106). Writing
+    // `if (d > farRadar)` — or any other comparison against this constant —
+    // anywhere in a radar paint path VIOLATES amendment 105 (colour is
+    // intensity, never category) and is the wrong implementation of amendment
+    // 118. Fit the curve; do not branch.
+    farRadar: SIGHT * 2,
+    radar: SIGHT * 3, // u — 12/12: radar sweep range (paints stale blips) — DERIVED: 3 × base truesight
+    // (Story 9.8, epic-9 amendment 103: *"radar range is now 1500"*; was
+    // SIGHT * 2 = 660 u on the eighths ruler, epic-3 amendment 22). Weapon
+    // ranges no longer ride this number (ruling 125: every weapon has its own
+    // `rangeU` dial). Note: zoneTerminalRadius (in sim/zone.ts) is an
+    // INDEPENDENT derivation — don't conflate the two.
     // q — THE RADAR MAST HEIGHT `H` (Story 4.11, Eric ruling 2026-08-08,
     // amendments 177/184), in the height raster's OWN 0-255 quantized units
     // (0 = sea level, 255 = that map's peak). Every antenna — ship, drone and
@@ -767,7 +790,8 @@ export const CONFIG = {
     // NOTHING MAY MAKE IT PURCHASABLE — no stat, boon or card may touch it
     // (amendment 116, "land is sacred": a lever over H would buy its way past
     // terrain). Measured consequence at q64 (amendment 177 — 4 seeds, 22,400
-    // rays; Eric picked it against the tactical framing): ~39% of
+    // rays, MEASURED AT THE OLD 660 u RIM, before Story 9.8 moved radar to
+    // 1,500 u; Eric picked it against the tactical framing): ~39% of
     // land-crossing bearings become absolute cover, median land-crossing
     // reach ~521u, and a coastal graze over fringe heights costs almost
     // nothing — cutting across an island's SPINE is what breaks a radar lock,
@@ -775,6 +799,32 @@ export const CONFIG = {
     // Pinned as a plain literal in zone.test.ts; retuning it is an Eric
     // decision, not a feel tweak.
     radarMastQ: 64,
+    /**
+     * THE RADAR DROPOUT (Story 9.8, Eric 2026-10-13, epic-9 amendment 104 and
+     * rulings 121–123). The attenuation band 8/12–12/12 is DROPOUT, NOT
+     * DIMMING: brightness stays on the 1/d⁴ curve, and beyond `startU` a sweep
+     * increasingly FAILS TO PAINT a return at all. p(paint) is 1 out to
+     * `startU`, `kneeP` at `kneeU`, `rimP` at the radar rim — flat, then a
+     * cliff (ruling 121: *"drops off very little from 1000 to 1250 and then
+     * steeply from 1250 to 1500"*), two polynomial smoothsteps between, no
+     * transcendentals (sim/dropout.ts `dropoutPaintP`).
+     *
+     * Each sweep REVOLUTION is its own roll — a stateless hash of (world seed,
+     * observer, target, revolution), never a consumed stream (sim/dropout.ts
+     * `dropoutRoll`). NO SIZE WEIGHTING (ruling 122: every return sees the
+     * same curve — a radar cross-section is a possible later hidden stat,
+     * not assumed). EVERYTHING RADAR DELIVERS ROLLS (ruling 123): ship blips,
+     * decoy paints, the wake's radar half, the countermeasure cloud's radar
+     * delivery; drawn hazard zones and sighted contacts never roll. The roll is
+     * decided server-side inside `perception.observe()`, so a missed paint
+     * never leaves the server. Harness dials (`--tune vision.dropout.*`).
+     */
+    dropout: {
+      startU: RUNG * 8, // u — 8/12: p = 1 up to here (the far-radar anchor rung)
+      kneeU: RUNG * 10, // u — 10/12: p = kneeP here
+      kneeP: 0.9, // paint probability at the knee
+      rimP: 0.1, // paint probability at the radar rim (12/12)
+    },
     sweepRpm: 15, // rev/min — radar rotation rate (15 rpm = one 4 s revolution); keep ≤ sweepRpmMax — the effectiveStats clamp caps the TOTAL
     // rev/min — THE ratified sweep-rate ceiling (survives the 2.8 legacy-upgrade
     // strip; formerly CONFIG.upgrades.sweepSpeed.maxRpm). Clamped inside the
@@ -850,23 +900,17 @@ export const CONFIG = {
     // your own scope radius and 41% of its full width, drawn behind you at
     // all times.
     //
-    // THE LENGTH IS NOW AN EIGHTHS-LADDER RUNG (amendment 113's one ruler):
-    // the FASTEST hull's full-ahead track is exactly `CONFIG.vision.detect`,
-    // the 3/8 rung — your wake reaches as far behind you as detect reaches
-    // around you. So the clock is `detect / fastest maxSpeed` = 247.5 / 45 =
-    // 5500ms EXACTLY, and full-ahead tracks become torpedo boat 247.5u (2.5
-    // hull lengths), mine layer 220u (2.5), battleship 192u (1.5).
-    //
-    // WRITTEN AS A LITERAL AND PINNED, NOT COMPUTED, and the distinction is
-    // deliberate: deriving it from `maxSpeed` in the object literal would let
-    // a kinematics retune silently move the wake clock, which is a FEEL value
-    // Eric set. The identity is asserted in shared/src/__tests__/zone.test.ts
-    // instead, so a retune fails the build and a human re-decides.
+    // THE CLOCK IS A PINNED LITERAL, 5500 ms (epic-9 amendment 15). It was
+    // first fitted to the eighths ladder (the fastest hull's full-ahead track
+    // = the old 3/8 detect rung, 247.5 u / 45 u/s); that rationale died when
+    // detect moved to sight (2026-10-08) and the ladder became twelfths (Story
+    // 9.8). It is a FEEL value Eric set, never a derived quantity: no ladder
+    // rung, no `maxSpeed` and no detect range moves it. Pinned in
+    // shared/src/__tests__/zone.test.ts as the literal.
     //
     // Eric DECLINED the harder rule that motivated the cut ("you may never be
     // tracked by someone who cannot paint your hull" would have been this
-    // same 3/8 number by a different route, since reach 5/8 + track 3/8 =
-    // 8/8): *"eh, well not *never* never, im sure that situation will happen,
+    // same number by a different route on the old eighths ruler): *"eh, well not *never* never, im sure that situation will happen,
     // but its not like i want to restrict getting wake returns until a hull
     // is seen."* The rung stands on its own; the no-track property is a
     // near-consequence, not a guarantee, and nothing tests for it.
@@ -922,7 +966,7 @@ export const CONFIG = {
     // in the game per second of travel because the fish is the fastest thing
     // afloat. Findable if you happen to be watching that stretch of water,
     // easy to miss — which is the ruled reading. The FISH
-    // itself still never paints and keeps its 3/8 `detect` gate — see the
+    // itself still never paints and keeps its `detect` gate (sight) — see the
     // CONFIG.torpedo header; what paints is the water behind it. Nothing may
     // purchase this either.
     wakeTorpLifeFactor: 0.5,
@@ -953,10 +997,10 @@ export const CONFIG = {
   /**
    * Wounded smoke (Story 4.4) — the SERVER emission cadence, and nothing
    * else. Reach is deliberately NOT here: it is CONFIG.vision.muzzleFlash
-   * (the 5/8 rung, SIGHT * 1.25, 412.5u) reused verbatim, never forked into a
-   * fourth vision constant (amendment 42) — so Story 4.9's move of that band
-   * from 6/8 to 5/8 shortened the plume's reach in the same edit, deliberately
-   * (amendment 119). The tiers are CONFIG.damageBands (amendment 41).
+   * (the 6/12 rung, SIGHT * 1.5, since Story 9.8) reused verbatim, never forked
+   * into a fourth vision constant (amendment 42) — so every move of that band
+   * (Story 4.9's 6/8 → 5/8, amendment 119; Story 9.8's 6/12, epic-9 amendment
+   * 103) moves the plume's reach in the same edit, deliberately. The tiers are CONFIG.damageBands (amendment 41).
    * Puff lifetime, drift, billow and every other presentation knob are
    * CLIENT-ONLY (CLIENT_CONFIG.smoke): the server keeps no plume history at
    * all, exactly as it keeps no radar-blip history — the client synthesizes
@@ -1008,11 +1052,18 @@ export const CONFIG = {
    * early interceptor takes the smaller `contactDamage` and stops the shell
    * (no burst) — unless it is already inside the would-be blast radius around
    * the target point, in which case the shell bursts for full damage anyway
-   * (see sim/shell.ts). Base gun range is DERIVED from CONFIG.vision.radar —
-   * you can shoot anywhere in radar range; no duplicated range constant exists.
+   * (see sim/shell.ts). Range is ITS OWN DIAL since Story 9.8 (epic-9
+   * amendment 105, ruling 125) — no longer the radar rung: `rangeU` is the
+   * Tier I reach and `rangeUAtV` the Tier V reach; the CANNON ladder's four
+   * cards split the difference evenly (sim/catalog.ts).
    */
   gun: {
     arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
+    // u — Tier I reach, ruling 125, the ruler's rung × 8 (8/12).
+    rangeU: RUNG * 8,
+    // u — Tier V reach, ruling 125, the ruler's rung × 10 (10/12); each of the
+    // four CANNON cards adds (rangeUAtV − rangeU) / 4.
+    rangeUAtV: RUNG * 10,
     // AR44: the cannon hits hulls, decoys and — ONLY where its shell LANDS
     // (amendment 200) — any MINE within `mine.hitRadiusU` of the burst point,
     // yours included, for its full damage. A shell in flight never touches a
@@ -1040,12 +1091,17 @@ export const CONFIG = {
     // damage ONLY on the rungs to III (+2) and V (+3) — 16/16/18/18/21 — with
     // 3 barrels at tier V, so the max cannon click is 3 × 21 = 63 (54 at IV);
     // the 45hp small drone one-clicks again, an ACCEPTED consequence
-    // (damageGuardrail.test pins the ceiling).
-    damage: 16,
+    // (damageGuardrail.test pins the ceiling). RETUNED 16 → 12 (Eric
+    // 2026-10-13, experiment, Story 9.8: "Cannon 12 12 15 15 18 … Cannon has a
+    // much longer range so can be fired safer, so it now does a bit lower
+    // damage at each tier to compensate"): the ladder authors +3 on the rungs
+    // to III and V → 12/12/15/15/18, max click 3 × 18 = 54 (45 at IV).
+    damage: 12,
     // hp to an early interceptor outside the blast (bodyblock). RETUNED 10 → 6
     // (Eric ruling 2026-08-04, weapon balance pass) — held at 40% of the then
     // 15 `damage`, the ratio the bodyblock was tuned at. NOT re-derived for the
-    // 2026-10-02 base move (Eric: only the numbers he names change).
+    // 2026-10-02 base move (Eric: only the numbers he names change), nor for
+    // the 2026-10-13 experiment (16 → 12) on the same rule.
     contactDamage: 6,
     burstRadius: 15, // u — blast radius around the clicked point
     shellRadius: 2, // u — shell collision radius (added to hull capsule radius)
@@ -1081,9 +1137,8 @@ export const CONFIG = {
    * `mine.hitRadiusU` of a mine deals its `damage` to the mine's hp (amendment
    * 200 — two tier-I shells pop one since 2026-10-02, amendment 232); a shell in flight never touches a mine
    * (amendment 20), and one spent on a hull on the way never arrives. NO
-   * `burstRadius` and NO range field: range is DERIVED = the radar rung
-   * (660 u, re-pinned in effectiveStats like `gun.rangeU`; Eric: "set the
-   * Machine Gun range to 660"). 360° (amendment 106: "There
+   * `burstRadius`. Range is its own tiered dial since Story 9.8 (ruling 125:
+   * 6/12 → 7/12), no longer the radar rung. 360° (amendment 106: "There
    * is no 'arc.'"). Its ladder (+4 shells and −50 ms of shot delay per tier,
    * +1 damage on the rungs to II and IV only — magazine 12/16/20/24/28,
    * damage 5/6/6/7/7, delay 0.30 → 0.10 s, Eric 2026-10-02, epic-8 amendment
@@ -1093,6 +1148,8 @@ export const CONFIG = {
   machineGun: {
     arc: 'full', // 360° — amendment 106
     hits: HITS_HULL_MINE_DECOY, // direct hit, no burst; a mine it ARRIVES on takes its damage (amendment 200)
+    rangeU: RUNG * 6, // u — Tier I reach, ruling 125, the ruler's rung × 6 (6/12)
+    rangeUAtV: RUNG * 7, // u — Tier V reach, ruling 125, the ruler's rung × 7 (7/12)
     shellSpeed: 500, // u/s — the gun family's muzzle velocity (amendment 103)
     maxAmmo: 12, // shells — the MAGAZINE at tier I (Eric 2026-10-02, amendment 232; was 16)
     rateMs: 300, // ms — one shell per 0.30 s while held at tier I (Eric 2026-10-02, amendment 232; was 350, earlier 500)
@@ -1109,37 +1166,54 @@ export const CONFIG = {
    * burst rule with Eric's numbers ("12 dmg / 50u blast / 660 u range / 6s").
    * A hull crossing the shell's path takes `contactDamage` and stops it (the
    * cannon's bodyblock rule; a fixed 4 hp, set once off the base damage at
-   * Eric's standing 40 % ratio, floored — the ladder never re-derives it). NO
-   * range field: DERIVED = the radar rung (660 u). 360° (amendment 106).
+   * Eric's standing 40 % ratio, floored — the ladder never re-derives it).
+   * Range is its own tiered dial since Story 9.8 (ruling 125: 5/12 → 6/12).
+   * 360° (amendment 106).
    *
    * THE MASK is AR44's `hull | mine | decoy | ordnance` (amendment 96(f): a
    * weapon for killing other players first). The `ordnance` half (enemy fish
    * in flight inside the blast) is a SIDE EFFECT that might go away
    * (amendment 105) — nothing in the design, copy or balance may lean on it.
    * `mine`, as for every deck gun, is by LANDING on it only (amendment 200).
-   * Its ladder (damage +8 per tier → 12/20/28/36/44, Eric 2026-10-02,
-   * epic-8 amendment 232; −5 % reload per tier; blast FIXED) is the `flak`
-   * catalog line.
+   * Its ladder (damage +8 per tier → 20/28/36/44/52 since Eric 2026-10-13,
+   * experiment, Story 9.8 — "Flak is now higher damage per second but
+   * requires you to be closer"; was 12/20/28/36/44, 2026-10-02, epic-8
+   * amendment 232; −5 % reload per tier; blast FIXED) is the `flak` catalog
+   * line.
    * Every number is a harness dial.
    */
   flak: {
     arc: 'full', // 360° — amendment 106
     hits: HITS_HULL_MINE_DECOY_ORDNANCE, // AR44 / amendment 96(f)
+    rangeU: RUNG * 5, // u — Tier I reach, ruling 125, the ruler's rung × 5 (5/12)
+    rangeUAtV: RUNG * 6, // u — Tier V reach, ruling 125, the ruler's rung × 6 (6/12)
     shellSpeed: 500, // u/s (amendment 105)
     maxAmmo: 1, // one shell (amendment 105)
     reloadMs: 3500, // ms (4 s → 3.5 s, Eric 2026-10-02, epic-8 amendment 232; was 6 s → 4 s, amendment 210; amendment 105's 6 s before) — the −5 %/tier step runs it to 2.8 s at V
-    damage: 12, // hp per burst victim (amendment 105)
+    damage: 20, // hp per burst victim (amendment 105; 12 → 20 Eric 2026-10-13, experiment)
     // hp to an early interceptor — a FIXED 4 hp bodyblock, derived ONCE from
-    // the base damage (floor(40 % × 12), like `gun.contactDamage`) and NOT
-    // re-derived per tier: the ladder's damage steps never move it.
+    // the then base damage (floor(40 % × 12), like `gun.contactDamage`) and NOT
+    // re-derived per tier: the ladder's damage steps never move it. Held at 4
+    // through the 2026-10-13 base move 12 → 20 (only the numbers Eric names
+    // change).
     contactDamage: 4,
     burstRadius: 50, // u — FIXED; the ladder never grows it (amendment 105)
+    // THE BURST'S EDGE FALLOFF (Story 9.8, Eric 2026-10-13, verbatim: *"the damage
+    // should scale from D at the very center to D-10 at the very edge. Meaning
+    // even though it has a nice wide burst, it pays to be accurate, because you
+    // take deal damage based on the best result for how close the ship is to
+    // the center of the blast."*). A caught hull takes
+    // `floor(damage − edgeFalloff × nearest / burstRadius)` where `nearest` is
+    // the distance from the burst centre to the NEAREST point of its outline
+    // (0 inside) — a whole number BEFORE the one damage gate. FLAK ONLY; the
+    // harness reaches it as `--tune flak.edgeFalloff` (floor 0).
+    edgeFalloff: 10, // hp — D at the centre, D − 10 at the rim
     shellRadius: 2, // u — shell collision radius (the gun family's)
   },
 
   /**
    * Torpedoes (slot 1): bow tube. The FISH itself is never painted by radar —
-   * no blip, and its 3/8 `detect` gate is untouched — but since Story 4.12
+   * no blip, and its `detect` gate (sight) is untouched — but since Story 4.12
    * (Eric ruling 2026-08-08, amendment 196) its WAKE is: the ribbon of
    * disturbed water behind a running torpedo paints as a weak, one-cell-wide
    * surface return at roughly half a ship's wake life
@@ -1594,17 +1668,16 @@ export const CONFIG = {
    * out-of-arc denial path (FR12 — never silent). Geometry taken VERBATIM from
    * the class-era side arcs (commit 26318d5).
    *
-   * NO range field: broadside range is DERIVED in effectiveStats() as
-   * `radarRange × CONFIG.vision.muzzleFlashFactor` — THE 5/8 RUNG of the
-   * eighths ladder, 412.5u at base. It is the FIRST weapon in the game that
-   * does not reach the full radar horizon (Eric: *"This weapon's range is
-   * limited to 5/8"*), so it rides the ladder rather than a literal — ONE
-   * derivation of the rung, which is what keeps it correct if a card ever
-   * writes `radarRange` again (none does since RANGE I–IV was deleted
-   * 2026-08-20, so 412.5u is the value for every observer). Every number is a
-   * DESIGN TARGET, tunable.
+   * RANGE IS ITS OWN TIERED DIAL since Story 9.8 (epic-9 amendment 105,
+   * ruling 125): `rangeU` is the Tier I reach (5/12) and `rangeUAtV` the
+   * Tier V reach (6/12), the four BROADSIDE upgrade cards splitting the
+   * difference evenly. It no longer derives from `radarRange ×
+   * muzzleFlashFactor` (the old 5/8 rung). Every number is a DESIGN TARGET,
+   * tunable.
    */
   broadside: {
+    rangeU: RUNG * 5, // u — Tier I reach, ruling 125, the ruler's rung × 5 (5/12)
+    rangeUAtV: RUNG * 6, // u — Tier V reach, ruling 125, the ruler's rung × 6 (6/12)
     // deg — bearing of each sector's CENTER off the bow (±): the beams.
     arcOffsetDeg: 90,
     // AR44: hulls and decoys. NEVER a mine (amendment 200, Eric 2026-10-01):
@@ -1739,8 +1812,8 @@ export const CONFIG = {
    * FOULING SHELL in Story 9.4 (`CONFIG.foulingShell`).
    * The zone CIRCLE itself is visible to any observer whose effective radar
    * range reaches its center (no LOS, no sweep gate — a flare in the sky),
-   * tagged with the firer's id. NO range field: range is DERIVED from
-   * CONFIG.vision.radar in effectiveStats() (gun base parity, un-stacked).
+   * tagged with the firer's id. Range is its own tiered dial since Story 9.8
+   * (ruling 125: 11/12 → 12/12, keeping the lit-zone deck-gun lift).
    * Every number is a DESIGN TARGET, tunable.
    */
   starShells: {
@@ -1752,6 +1825,8 @@ export const CONFIG = {
     // burst DID set off the firer's own armed mines, through the owner-only
     // self-detonation path that amendment 16 replaced.)
     hits: HITS_HULL_DECOY,
+    rangeU: RUNG * 11, // u — Tier I reach, ruling 125, the ruler's rung × 11 (11/12)
+    rangeUAtV: RUNG * 12, // u — Tier V reach, ruling 125, the ruler's rung × 12 (12/12)
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     maxAmmo: 1, // single flare — a 1-round pool presented as a pure cooldown
     reloadMs: 20000, // ms — cooldown between flares
@@ -1767,7 +1842,7 @@ export const CONFIG = {
     // independent of any player's sightRange upgrade stacks). Keep this as a
     // literal derivation, never a re-tuned constant, so the ratio holds
     // whenever SIGHT changes.
-    litRadius: SIGHT / 2, // u — 165 at SIGHT=330
+    litRadius: SIGHT / 2, // u — 250 at SIGHT=500 (epic-9 amendment 108)
     litDurationMs: 10000, // ms — lit-zone lifetime (natural expiry only)
     // u — flare collision radius. Own field (cannon plumbing parity) so a gun
     // retune can never silently change flare interception; same value today.
@@ -1782,8 +1857,8 @@ export const CONFIG = {
   /**
    * PHOSPHOR SHELLS (Story 8.17, Eric ruling 2026-09-29, epic-8 amendments
    * 131/132) — its OWN tiered 360° equipment line, no longer a star-shell
-   * add-on. One gun-pattern shell to the click at the radar rung (`rangeU =
-   * radarRange` post-fold, like the star shell). At burst it deals `damage` to
+   * add-on. One gun-pattern shell to the click, its reach its own tiered dial
+   * since Story 9.8 (ruling 125: 8/12 → 10/12). At burst it deals `damage` to
    * every non-owner hull inside the WHOLE zone, then spawns a BURNING ZONE of
    * `zoneRadius` for `zoneDurationMs` that burns `dps` hp/s on every non-owner
    * afloat hull whose centre is inside. A HAZARD ONLY: the zone is drawn for
@@ -1799,6 +1874,8 @@ export const CONFIG = {
     // superseding amendment 135(c)): only a deck gun's shell landing on a mine
     // damages one.
     hits: HITS_HULL_DECOY,
+    rangeU: RUNG * 8, // u — Tier I reach, ruling 125, the ruler's rung × 8 (8/12)
+    rangeUAtV: RUNG * 10, // u — Tier V reach, ruling 125, the ruler's rung × 10 (10/12)
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
     maxAmmo: 1, // one shell in the pool — presented as a pure cooldown
     reloadMs: 20000, // ms — cooldown between shells (−5 %/tier derived)
@@ -1816,7 +1893,8 @@ export const CONFIG = {
    * FOULING SHELL (Story 9.4, Eric ruling 2026-10-11, epic-9 amendments
    * 61–68) — the engage/disengage consumable that replaced FLASH SHELLS on
    * key `4`. It fires exactly as the flash did: the key primes, a click fires
-   * ONE 360° gun-pattern shell to the radar rung that deals zero damage,
+   * ONE 360° gun-pattern shell to `rangeU` (its own fixed dial since Story
+   * 9.8, ruling 125 — no tiers) that deals zero damage,
    * bursts once and hits nothing. Where it bursts (or where a hull or decoy
    * stops it en route) it leaves a stationary FOUL ZONE of `radius` that
    * lasts `durationMs`. Every afloat hull whose OUTLINE touches the zone —
@@ -1840,6 +1918,9 @@ export const CONFIG = {
     // The star shell's mask: interception by a hull or a decoy bursts the
     // shell at the stop point; it never detonates a mine.
     hits: HITS_HULL_DECOY,
+    // u — the burst reach, ruling 125, the ruler's rung × 8 (8/12). FIXED: a
+    // consumable has no tiers, so there is no `rangeUAtV`.
+    rangeU: RUNG * 8,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
     shellRadius: 2, // u — shell collision radius (star-shell parity)
     radius: 150, // u — the foul zone's radius
@@ -2281,13 +2362,18 @@ export const CONFIG = {
      * 5) and the truesight-derived terminal (`terminalSightFactor`, amendment
      * 4 — *"The fixed 1320 no longer makes sense."*); both survive only as the
      * formula fallback for dev `zoneOverride` literals and smokes (sim/zone.ts).
-     * Consequence recorded with the ruling: the 1000 u terminal is wider than
-     * radar reach (660 u), so Story 3.4's "radar reaches the endgame ring"
-     * reading no longer holds; the collapse still ends the match.
+     * Consequence recorded with the ruling: the 1000 u terminal was wider than
+     * the then radar reach (660 u). Since Story 9.8 (radar 1,500 u, epic-9
+     * amendment 108) the terminal ring sits fully inside radar from its
+     * centre again — an accepted consequence; the collapse still ends the
+     * match.
      */
     // Session 2 (Eric, same day, after playing it): *"8000 -> 5000 -> 3000 ->
     // 2000 -> 0"* on the 4,000 u radius — rings 2500 / 1500 / 1000.
-    ringRadii: [2500, 1500, 1000],
+    // Story 9.8 (Eric 2026-10-13, with the 5,000 u radius and 16 captains):
+    // *"10000 -> 7000 -> 4000 -> 2000 -> 0"* (diameters) — rings 3500 / 2000 /
+    // 1000, ring 0 the full 10,000 u ocean.
+    ringRadii: [3500, 2000, 1000],
     offsetCap: 1.0, // ≤ this × (r_cur − r_next) next-ring center offset (structurally clamped 0..1)
     /**
      * SUDDEN DEATH — THE FINAL COLLAPSE (Eric ruling 2026-08-14, authorizing the
@@ -2344,7 +2430,7 @@ export const CONFIG = {
     // at arm time and is never extended by later joins — that is what closes the
     // leave/rejoin hostage-cycling vector the 30 s gathering window carried.
     queueTimerMs: 120000,
-    fillTo: 20, // total ships at start (drones fill the rest) — 3.1 design target (amendment 7)
+    fillTo: 16, // harness-only: the batch-sim lobby size (`--set match.fillTo`); ArenaRoom's fill was deleted at amendment 41 — not the lobby cap. 20 → 16 Story 9.8 (Eric 2026-10-13: player count 16)
     // s — results overlay before the room disposes. 10 -> 45 (Story 5.3, epic-5
     // amendment 27): the old ceiling predates there being anything to READ on
     // that screen. It must now contain the last sinking captain's window closing

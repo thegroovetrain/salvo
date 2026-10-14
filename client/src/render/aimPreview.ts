@@ -444,7 +444,7 @@ function starShellPreview(inp: AimPreviewInput): AimPreviewModel {
 
 /**
  * PHOSPHOR SHELLS (Story 8.17, amendment 131): the star-shell preview pattern —
- * one 360° shell to the click at the radar rung (`rangeU`), island- and
+ * one 360° shell to the click at its own tiered reach (`rangeU`, ruling 125), island- and
  * map-clamped — with the burst ring at the owner's effective `zoneRadius`,
  * which is both the burst's damage circle and the burning zone it leaves. Drawn
  * at DAMAGE weight (not the flare's quieter effect register): a phosphor burst
@@ -465,15 +465,16 @@ function phosphorShellPreview(inp: AimPreviewInput): AimPreviewModel {
 /**
  * THE FOULING SHELL (Story 9.4, epic-9 amendments 61–68 — FLASH SHELLS'
  * successor, fired exactly as the flash was): the star-shell preview pattern
- * for the click-fired consumable — one 360° shell to the click at the star
- * shell's reach (the post-fold `radarRange`), with the foul zone's circle at
+ * for the click-fired consumable — one 360° shell to the click at its OWN
+ * reach dial, `CONFIG.foulingShell.rangeU` (fixed 8/12 of the ruler, Story 9.8
+ * ruling 125 — never `radarRange`), with the foul zone's circle at
  * `CONFIG.foulingShell.radius` (a consumable reads its numbers straight off
- * CONFIG). Drawn in the quieter EFFECT register like the flare: the shell
+ * CONFIG; no card moves either). Drawn in the quieter EFFECT register like the flare: the shell
  * deals no damage.
  */
 function foulingShellPreview(inp: AimPreviewInput): AimPreviewModel {
   return parallelVolley(inp, {
-    rangeU: inp.stats.radarRange,
+    rangeU: CONFIG.foulingShell.rangeU,
     burstRadius: CONFIG.foulingShell.radius,
     shellRadius: CONFIG.foulingShell.shellRadius,
     barrels: 1,

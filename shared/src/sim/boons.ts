@@ -171,24 +171,16 @@ function rePinDerived(stats: EffectiveStats): void {
   const eq = stats.equipment;
   stats.sweepRpm = Math.min(stats.sweepRpm, CONFIG.vision.sweepRpmMax);
   stats.sweepPeriodMs = MS_PER_MINUTE / stats.sweepRpm;
-  // Gun (all three pickable guns) / star-shell range is radarRange, always;
-  // the broadside rides the same number one rung short (the 5/8 muzzle rung). None is stat-addressable, so
-  // a FUTURE fold writing the whitelisted `radarRange` path can never leave
-  // them stale.
-  eq.gun.rangeU = stats.radarRange;
-  eq.machineGun.rangeU = stats.radarRange;
-  eq.flak.rangeU = stats.radarRange;
-  eq.starShells.rangeU = stats.radarRange;
-  eq.phosphorShells.rangeU = stats.radarRange; // Story 8.17 — the star-shell rung
-  eq.broadside.rangeU = stats.radarRange * CONFIG.vision.muzzleFlashFactor;
+  // NO rangeU RE-PIN (Story 9.8, ruling 125): every weapon's reach is a
+  // stat-addressable dial the cards step, so it is folded, never derived.
   // The broadside TRAVERSE and MOUNT SPREAD both read their authored ladders
   // off the folded SPREAD rung — derived for the same reason.
   eq.broadside.spreadRung = clampSpreadRung(eq.broadside.spreadRung);
   eq.broadside.traverseRad = broadsideTraverse(eq.broadside.spreadRung);
   eq.broadside.mountSpreadRad = broadsideMountSpread(eq.broadside.spreadRung);
-  // THE EIGHTHS LADDER IS ONE NUMBER (Eric ruling 2026-08-16): truesight is the
-  // 4/8 rung of intel range.
-  stats.sightRange = stats.radarRange / 2;
+  // THE LADDER IS ONE NUMBER (Eric ruling 2026-08-16): truesight is the 4/12
+  // rung of intel range (Story 9.8, epic-9 amendment 103 — was 4/8, radar / 2).
+  stats.sightRange = stats.radarRange / 3;
   // ARMOR'S DAMAGE MULTIPLIER (Story 9.7, epic-9 amendments 86–88) rides the
   // whitelisted `armor` path through the one formula, so a mid-fold Armor
   // write can never leave it stale (clampStats floors Armor and re-derives).

@@ -84,9 +84,10 @@ export function arcFor(id: SlotItemId): ArcShape {
  * `placeHalfArcDeg`, out to `placeRange` — Story 8.16, catalog-v3 R36); and
  * the FOULING SHELL (`foulingShell`, Story 9.4, Eric 2026-10-11, epic-9
  * amendments 61–68 — FLASH SHELLS' successor), a 360° gun-pattern shell
- * (`CONFIG.foulingShell.arc`) whose reach is the star shell's — the post-fold
- * `radarRange`. Every other consumable is an instant key activation that aims
- * nothing.
+ * (`CONFIG.foulingShell.arc`) whose reach is its own dial,
+ * `CONFIG.foulingShell.rangeU` (Story 9.8, ruling 125: 8/12 of the ruler, fixed —
+ * a consumable has no tiers). Every other consumable is an instant key
+ * activation that aims nothing.
  */
 function consumableArc(id: ConsumableId): ArcShape {
   if (id === 'foulingShell') return { kind: CONFIG.foulingShell.arc };

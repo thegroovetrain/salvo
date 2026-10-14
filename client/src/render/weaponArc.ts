@@ -169,43 +169,40 @@ export function weaponArcHit(heading: number, aim: number, id: SlotItemId | null
 export { twinSectorSide };
 
 /**
- * The effective range (u) at which an AIMED weapon's shot lands / clamps. The
- * gun family reads its OWN stats block — and as of Story 2.8 all of them ride
- * the folded radarRange, so they move together with it (no boon writes
- * `radarRange` today, but the derivation seam is what keeps them one number).
- * The BROADSIDE reads `stats.equipment.broadside.rangeU`,
- * THE 5/8 RUNG (R2.4) — the one weapon that does not reach the radar horizon,
- * so the shared gun-range fallback would over-promise it by 247.5u. The MINE and
- * — since Story 8.16 — the DECOY BUOY read the ratified
- * CONFIG.mine.placeRange: their placement reach is a fixed short leash, NOT radar
- * range, and no boon moves it.
+ * The effective range (u) at which an AIMED weapon's shot lands / clamps. Since
+ * Story 9.8 (ruling 125) EVERY weapon's reach is its own TIERED dial on the
+ * twelfths ruler — `CONFIG.<weapon>.rangeU` is the Tier I value and each of the
+ * line's four cards adds its step through `effectiveStats()` — so each gun row
+ * reads its OWN folded `stats.equipment.<w>.rangeU`, never radar and never the
+ * cannon's by assumption. The FOULING SHELL consumable has no stats row and no
+ * card: it reads its fixed dial `CONFIG.foulingShell.rangeU`. The MINE lines
+ * and — since Story 8.16 — the DECOY BUOY read the ratified
+ * CONFIG.mine.placeRange: their placement reach is a fixed short leash and no
+ * boon moves it.
  *
- * CONTRACT — MEANINGFUL FOR `gunLike` IDS, THE BROADSIDE AND THE PLACED IDS ONLY.
- * For a torpedo / ability / empty slot there is NO range ring, and this returns
- * `stats.equipment.gun.rangeU` purely as a non-crashing fallback — it is NOT that
- * weapon's range (a torpedo runs to the map edge). Do NOT consult this for
- * those ids; gate on the id first, as firing.ts's markers do.
+ * CONTRACT — MEANINGFUL FOR `gunLike` IDS, THE BROADSIDE, THE FOULING SHELL AND
+ * THE PLACED IDS ONLY. For a torpedo / ability / empty slot there is NO range
+ * ring, and this returns `stats.equipment.gun.rangeU` purely as a non-crashing
+ * fallback — it is NOT that weapon's range (a torpedo runs to the map edge). Do
+ * NOT consult this for those ids; gate on the id first, as firing.ts's markers
+ * do.
  */
 export function weaponRangeU(stats: EffectiveStats, id: SlotItemId | null): number {
   if (id === 'broadside') return stats.equipment.broadside.rangeU;
   if (id === 'starShells') return stats.equipment.starShells.rangeU;
-  // STORY 8.17: PHOSPHOR SHELLS reads its own row (re-pinned to the radar rung
-  // post-fold, like the star shell); the FOULING SHELL consumable (Story 9.4,
-  // FLASH SHELLS' successor) has no row and reaches exactly as far as the star
-  // shell — the post-fold radar range.
+  // STORY 8.17: PHOSPHOR SHELLS reads its own row; the FOULING SHELL consumable
+  // (Story 9.4, FLASH SHELLS' successor) has no row — its fixed dial (ruling 125).
   if (id === 'phosphorShells') return stats.equipment.phosphorShells.rangeU;
-  if (id === 'foulingShell') return stats.radarRange;
-  // THE TWO PICKABLE GUNS (Story 8.15) read their OWN row — both re-pinned to
-  // the radar rung today (660 u, amendments 103/105), but a gun's range is its
-  // row's number, never the cannon's by assumption.
+  if (id === 'foulingShell') return CONFIG.foulingShell.rangeU;
+  // THE TWO PICKABLE GUNS (Story 8.15) read their OWN row (ruling 125).
   if (id === 'machineGun') return stats.equipment.machineGun.rangeU;
   if (id === 'flak') return stats.equipment.flak.rangeU;
   // ALL THREE MINE LINES share the ONE leash (Story 8.13) — the naval chassis
   // is shared, not duplicated (`CONFIG.captiveMines`/`CONFIG.foulingMines` restate
   // no placement field), so an id-equality test on `navalMines` would have given
-  // a captive or fouling drop the gun's radar-derived range.
+  // a captive or fouling drop the cannon's range.
   if (isPlacedItem(id)) return CONFIG.mine.placeRange;
-  return stats.equipment.gun.rangeU; // gun (radar-derived) — and the default
+  return stats.equipment.gun.rangeU; // the cannon's own tiered dial — and the default
 }
 
 /**
@@ -249,8 +246,8 @@ const DECK_GUNS: ReadonlySet<SlotItemId> = new Set<SlotItemId>(['gun', 'machineG
  * `burstPointAlong` already made. All that survives on this side is the part
  * that is genuinely the client's:
  *
- *  - THE ID GATE. Deck guns ONLY (`DECK_GUNS`) — never the broadside (its 5/8
- *    rung is a weapon identity, not a horizon), never the star shell itself,
+ *  - THE ID GATE. Deck guns ONLY (`DECK_GUNS`) — never the broadside (its reach
+ *    is a weapon identity, not a horizon), never the star shell itself,
  *    never the torpedo, never the mine. It lives HERE rather than at the call
  *    sites so nothing can forget it and quietly widen another weapon; on the
  *    server the same clause is structural (only the three deck-gun rows call

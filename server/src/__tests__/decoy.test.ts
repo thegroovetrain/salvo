@@ -234,8 +234,8 @@ describe('DECOY BUOY — the views and the radar paint', () => {
   it('it PAINTS on radar as an untagged 12 u square when the observer\'s beam crosses it — and only then', () => {
     const w = bareWorld();
     const obs = place(w, 'obs', 0, 0);
-    addDecoy(w.decoys, 'x', 450, 0, 'd1'); // in obs's annulus (sight < 450 <= radar)
-    const want = paintSegmentCoverage(450, 0, 450, 0, CONFIG.decoyBuoy.sizeU, CONFIG.vision.radarCellU, w.now);
+    addDecoy(w.decoys, 'x', 700, 0, 'd1'); // in obs's annulus, inside the dropout's flat band (Story 9.8)
+    const want = paintSegmentCoverage(700, 0, 700, 0, CONFIG.decoyBuoy.sizeU, CONFIG.vision.radarCellU, w.now);
     obs.prevSweepAngle = TAU - 0.05;
     obs.sweepAngle = 0.05; // the beam crosses bearing 0 this tick
     const painted = blips(observe(w, 'obs').events);
@@ -247,14 +247,14 @@ describe('DECOY BUOY — the views and the radar paint', () => {
     // channel, never a doubled paint.
     obs.prevSweepAngle = TAU - 0.05;
     obs.sweepAngle = 0.05;
-    w.litZones.set('z', { id: 'z', ownerId: 'obs', x: 450, y: 0, r: 100, until: w.now + 5000 } as never);
+    w.litZones.set('z', { id: 'z', ownerId: 'obs', x: 700, y: 0, r: 100, until: w.now + 5000 } as never);
     expect(blips(observe(w, 'obs').events)).toEqual([]);
   });
 
   it('the OWNER\'s radar paints its own decoy through the same gate (no special case)', () => {
     const w = bareWorld();
     const o = place(w, 'o', 0, 0);
-    addDecoy(w.decoys, 'o', 450, 0, 'd1');
+    addDecoy(w.decoys, 'o', 700, 0, 'd1'); // annulus, flat band (Story 9.8)
     o.prevSweepAngle = TAU - 0.05;
     o.sweepAngle = 0.05;
     expect(blips(observe(w, 'o').events)).toHaveLength(1);

@@ -47,7 +47,7 @@
 // 181). Eric: *"I want everything painted at max intensity (0.8 alpha) at all
 // times. I want it DISPLAYED muted based on how close to the ship it is."* A
 // baked radial-gradient sprite masks `blipLayer` — 20% of the painted opacity
-// across the WHOLE SIGHT BUBBLE, ramping to 100% at the 5/8 rung — anchored on
+// across the WHOLE SIGHT BUBBLE, ramping to 100% at the flash rung (6/12) — anchored on
 // own hull in WORLD space and updated every frame. It is a presentation
 // transform over the composited layer: no paint record is read back, recomputed
 // or mutated, which is the distinction amendment 83 actually draws. It masks
@@ -130,7 +130,7 @@
 // (kept subtle). The faint map-centered rings in map.ts remain as the chart
 // grid. Thin Pixi adapter; the math lives in phosphor.ts and radarHeatmap.ts.
 
-import { BufferImageSource, Container, Graphics, Sprite, Texture } from 'pixi.js';
+import { BufferImageSource, Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
 import {
   CONFIG,
   HULL_IDS,
@@ -150,6 +150,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import type { ContactStore } from '../net/snapshots.js';
 import { settings } from '../settings/store.js';
+import type { ScreenWorldRect } from './camera.js';
 import { fogHoleRadiusU } from './fog.js';
 import { blipAlpha, blipLifeMs, sweepRotation } from './phosphor.js';
 import {
@@ -183,6 +184,7 @@ import {
 import { echoArc, marchSlice, mergeSlices, planMarch, type MarchSlice } from './radarMarch.js';
 import { wakeLitFloor } from './radarSources.js';
 import { WakeStampCache, type WakeSources } from './wake.js';
+import { cloudReturns, type CloudReturnGate, type CloudReturnInfo } from './cloudReturnGate.js';
 import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
 
 /**
@@ -287,6 +289,10 @@ export interface ViewRect {
 export interface CloudReturnSource {
   readonly size: number;
   coverAt(x: number, y: number): number;
+  /** The haze of only the clouds `live` admits — the per-revolution delivery
+   *  gate (Story 9.8 review gate F1, render/cloudReturnGate.ts). A source
+   *  without it (a synthetic test field) is read ungated through `coverAt`. */
+  returnHaze?(live: (c: CloudReturnInfo) => boolean): ((x: number, y: number) => number) | undefined;
 }
 
 export class Radar {
@@ -354,6 +360,10 @@ export class Radar {
    *  when the caller has no camera. READ IN EXACTLY ONE PLACE — `paintHeat` —
    *  and never by anything that creates or retires a paint (amendment 97). */
   private view: ViewRect | null = null;
+  /** The world rect on screen this frame (shake included) and the heat
+   *  sprite's `boundsArea` cut from it — see `clipHeat`. */
+  private screen: ScreenWorldRect | null = null;
+  private readonly heatClip = new Rectangle();
   // Effective vision numbers (Stage D upgrades), swapped via setRanges();
   // bases = CONFIG.vision. sweepPeriodMs drives both the wedge rotation rate
   // and the blip phosphor decay, so upgraded paints fade on the upgraded beat.
@@ -368,7 +378,7 @@ export class Radar {
    * gate, P2 — this comment previously said the row simply inherited
    * `blipGate`'s annulus, which is no longer true for the fish). A SHIP's water
    * is withheld inside the sight bubble; a TORPEDO's is withheld only inside the
-   * 3/8 DETECT rung, so torpedo segments in the (detect, sight] band DO come off
+   * DETECT rung (sight × detectFactor), so torpedo segments in the (detect, sight] band DO come off
    * the wire and paint here through the ordinary adapter — `validWake` has no
    * position gate, so nothing had to change to let them through.
    *
@@ -413,7 +423,7 @@ export class Radar {
     this.dim.label = DIM_MASK_LABEL;
     this.dim.anchor.set(0.5);
     // One texel is `2 × spanU / size` world units, so the ramp's two radii sit
-    // exactly where CONFIG's eighths ladder puts them whatever the bake size is.
+    // exactly where CONFIG's ladder puts them whatever the bake size is.
     this.dim.scale.set((2 * CLIENT_CONFIG.blip.heatmap.dim.spanU) / DIM_MASK_TEXTURE_SIZE);
     // NEVER DRAWN, ALWAYS TRANSFORMED. `renderable = false` is exactly what
     // Pixi's own `AlphaMask.init` sets on a sprite mask (alongside
@@ -475,6 +485,34 @@ export class Radar {
     this.rings.circle(0, 0, this.sightRange).stroke({ width: 2, color: RING_SIGHT_COLOR, alpha: 0.12 });
     this.rings.circle(0, 0, this.radarRange).stroke({ width: 2, color: RING_RADAR_COLOR, alpha: 0.07 });
     this.sweep.scale.set(this.radarRange / SWEEP_TEXTURE_RADIUS);
+  }
+
+  /**
+   * CLIP THE MASKED PASS TO THE SCREEN (Story 9.8 perf gate). `blipLayer` is
+   * masked by the dim sprite, so Pixi draws it through a filter pass sized to
+   * the layer's bounds ∩ the dim mask's — and its mask filter does NOT clip to
+   * the viewport. The heat buffer carries whole cells of slack past the view,
+   * which at the close framing made that pass 2063 px tall at DPR 2 (a 4096²
+   * pooled target). The heat sprite's `boundsArea` is therefore its own extent
+   * ∩ the screen's world rect (in its local, one-texel-per-cell units): the
+   * pass never exceeds the screen. Nothing off screen is visible, so no
+   * on-screen pixel changes. No rect (tests, ambient) → measured as before.
+   */
+  private clipHeat(sprite: Sprite, grid: HeatGrid): void {
+    const s = this.screen;
+    if (s === null || !Number.isFinite(s.x + s.y + s.w + s.h)) {
+      sprite.boundsArea = null as unknown as Rectangle; // Pixi tests truthiness
+      return;
+    }
+    const x0 = Math.max(0, (s.x - grid.originX) / grid.cellU);
+    const y0 = Math.max(0, (s.y - grid.originY) / grid.cellU);
+    const x1 = Math.min(grid.cols, (s.x + s.w - grid.originX) / grid.cellU);
+    const y1 = Math.min(grid.rows, (s.y + s.h - grid.originY) / grid.cellU);
+    this.heatClip.x = x0;
+    this.heatClip.y = y0;
+    this.heatClip.width = Math.max(0, x1 - x0);
+    this.heatClip.height = Math.max(0, y1 - y0);
+    sprite.boundsArea = this.heatClip;
   }
 
   /**
@@ -882,9 +920,11 @@ export class Radar {
     serverNow: number,
     contacts: ContactStore | null = null,
     view: ViewRect | null = null,
+    screen: ScreenWorldRect | null = null,
   ): void {
     this.own = own;
     this.view = view;
+    this.screen = screen;
     // EVERY FRAME, INCLUDING THE ONES THAT PAINT NOTHING. `paintHeat` returns
     // early when there are no paints (and before that when there is no window at
     // all), so hanging the mask's placement off that path would leave it parked
@@ -952,7 +992,7 @@ export class Radar {
       raster: this.heightRaster,
       ships: this.shipStamp(own, serverNow, contacts),
       wake: this.wakeStamp(own, serverNow),
-      cloud: this.cloudHaze(),
+      cloud: this.cloudHaze(own, serverNow),
       cellU: cfg.cellU,
       model: cfg.model,
     });
@@ -1121,11 +1161,22 @@ export class Radar {
   }
 
   /** The cloud layer's per-sample haze lookup for this frame's field, or
-   *  undefined when no cloud is held (the field then skips the layer). */
-  private cloudHaze(): ((x: number, y: number) => number) | undefined {
+   *  undefined when no cloud is held or none is admitted (the field then skips
+   *  the layer). A held cloud beyond sight returns only while its radar
+   *  delivery is fresh (Story 9.8 review gate F1, render/cloudReturnGate.ts):
+   *  ruling 123's per-revolution roll reaches the scope. */
+  private cloudHaze(own: OwnPoint, serverNow: number): ((x: number, y: number) => number) | undefined {
     const src = this.cloudSource;
     if (src === null || src.size === 0) return undefined;
-    return (x, y) => src.coverAt(x, y);
+    if (src.returnHaze === undefined) return (x, y) => src.coverAt(x, y);
+    const gate: CloudReturnGate = {
+      own,
+      serverNow,
+      sightU: this.sightHoleU,
+      sweepPeriodMs: this.sweepPeriodMs,
+      holdRevs: CLIENT_CONFIG.countermeasure.returnHoldRevs,
+    };
+    return src.returnHaze((c) => cloudReturns(c, gate));
   }
 
   /**
@@ -1134,7 +1185,7 @@ export class Radar {
    *
    * The range term is the EXACT COMPLEMENT of the server's, per SEGMENT and PER
    * SOURCE: a segment whose midpoint is at or inside its source's inner bound
-   * (`sightHoleU` for a hull, the 3/8 detect rung of it for a fish) is stamped
+   * (`sightHoleU` for a hull, the detect rung — sight × detectFactor — for a fish) is stamped
    * here, one beyond it is the wire's (`wakeInnerBound`), off radii both sides
    * already agree on. A 540u track therefore hands its near end to this stamp
    * and its far end to `marchWake`, with no cell claimed twice and none dropped
@@ -1305,6 +1356,7 @@ export class Radar {
     rasterize(heat.grid, this.paints, ctx);
     quantizeInto(heat.grid, cfg.bands, cfg.bandAlpha, heat.rgba);
     heat.sprite.position.set(heat.grid.originX, heat.grid.originY);
+    this.clipHeat(heat.sprite, heat.grid);
     heat.source.update();
   }
 

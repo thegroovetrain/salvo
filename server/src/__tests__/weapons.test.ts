@@ -636,12 +636,12 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Enemy ship in the annulus (proves the beam window is right).
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
-    b.state = { x: 400, y: 0, heading: 0, speed: 0 };
+    b.state = { x: 700, y: 0, heading: 0, speed: 0 }; // (sight, dropout start] on the twelfths ladder (Story 9.8)
     // A torpedo flying through the same annulus.
     w.shells.set('trp', {
       id: 'trp',
       ownerId: 'b',
-      x: 400,
+      x: 700,
       y: 8,
       vx: 0,
       vy: CONFIG.torpedo.speed,
@@ -660,7 +660,7 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
     windowAround(a, 0); // beam across bearing 0 (toward x+)
     const blips = blipsOf(buildFrame(w, 'a'));
     // The ship, and ONLY the ship: one footprint, and it is b's own raster
-    // (the torpedo entity never paints — its 3/8 detect gate is a different
+    // (the torpedo entity never paints — its detect gate is a different
     // channel entirely).
     expect(blips).toHaveLength(1);
     const ship = w.ships.get('b')!;

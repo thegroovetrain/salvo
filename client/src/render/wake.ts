@@ -13,7 +13,7 @@
 // WHY THE CLIENT KEEPS RIBBONS AT ALL — THE SEAM WAVE 2 LEFT OPEN. The server
 // deliberately does NOT disclose wake inside a SOURCE-DEPENDENT inner bound:
 // the `wk` row's gate takes `blipGate`'s ANNULUS for a SHIP's water
-// (`dist > sightU`) and the 3/8 DETECT radius for a TORPEDO's (cycle-69 review
+// (`dist > sightU`) and the DETECT radius (sight × detectFactor) for a TORPEDO's (cycle-69 review
 // gate P2), because running water inside those radii through the disclosure
 // march would leak a source that BINARY island LOS is hiding. So the inner
 // half of the scope's wake is SYNTHESIZED HERE, from pose the client already
@@ -518,7 +518,7 @@ export class WakeStampCache {
  *
  * A SHIP's water: the sight bubble, because the server's `wk` row inherits
  * `blipGate`'s annulus for it and the client holds full pose inside.
- * A TORPEDO's water: the 3/8 DETECT radius, because the server discloses fish
+ * A TORPEDO's water: the DETECT radius (sight × detectFactor), because the server discloses fish
  * water down to that rung (cycle-69 review gate, P2) and the client only holds
  * a fish's pose inside it (`pointDetected` is where the entity reveals, and
  * `trackCullRadiusSq` culls the local track on the same radius). Synthesizing

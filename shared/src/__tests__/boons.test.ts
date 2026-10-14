@@ -126,7 +126,10 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
 
   // THE DELIBERATE ABSENCES. Each is DERIVED post-fold, so a card addressing it
   // would be a second derivation — the whole reason the whitelist exists.
-  it('pins the derived paths ABSENT: sightRange, sweepPeriodMs, every rangeU, the broadside arcs, every triggerRadius, every tier', () => {
+  // Every weapon `rangeU` LEFT this list with Story 9.8 (Eric 2026-10-13,
+  // epic-9 ruling 125): reach is a per-weapon TIERED dial each upgrade card
+  // steps, so it is addressable — pinned PRESENT in barrel.test.ts.
+  it('pins the derived paths ABSENT: sightRange, sweepPeriodMs, the broadside arcs, every triggerRadius, every tier', () => {
     const absent = [
       'sightRange',
       'sweepPeriodMs',
@@ -134,9 +137,6 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       'damageMultiplier',
       // The cut's Armor bonus is a CONFIG pass-through (amendment 88).
       'equipment.damageCut.armorBonus',
-      'equipment.gun.rangeU',
-      'equipment.starShells.rangeU',
-      'equipment.broadside.rangeU',
       'equipment.broadside.traverseRad',
       'equipment.broadside.mountSpreadRad',
       'equipment.navalMines.triggerRadius',
@@ -202,6 +202,9 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       'equipment.broadside.spreadRung', 'equipment.broadside.turrets',
       'equipment.phosphorShells.damage', 'equipment.phosphorShells.dps',
       'equipment.phosphorShells.zoneRadius', 'equipment.phosphorShells.zoneDurationMs',
+      // Story 9.8 (ruling 125): every tiered weapon's reach steps per card.
+      'equipment.gun.rangeU', 'equipment.machineGun.rangeU', 'equipment.flak.rangeU',
+      'equipment.broadside.rangeU', 'equipment.starShells.rangeU', 'equipment.phosphorShells.rangeU',
     ].sort());
     // Still addressable in principle, still written by nothing: the FOULING
     // mine's damage is fixed at 10 by ruling (amendment 81), the BROADSIDE's
@@ -275,7 +278,7 @@ describe('stat effects — home 1 (effectiveStats), fail-closed folds', () => {
   });
 
   it('an off-whitelist or malformed path is a fail-closed no-op (runtime guard)', () => {
-    for (const path of ['nope.nothere', 'sightRange', 'equipment.gun.rangeU', 'equipment.nope.damage', 'equipment.gun']) {
+    for (const path of ['nope.nothere', 'sightRange', 'equipment.broadside.traverseRad', 'equipment.nope.damage', 'equipment.gun']) {
       const l = line('rogue', { kind: 'stat', path: path as never, mult: 99 });
       expect(foldOne(TB, l), path).toEqual(effectiveStats(TB));
     }

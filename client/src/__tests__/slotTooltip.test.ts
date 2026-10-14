@@ -66,6 +66,9 @@ function lines(rows: readonly { label: string; cur: string | null; next: string 
 
 // --- the hover dwell -----------------------------------------------------------
 
+/** RANGE's printer (Eric 2026-10-13): whole values whole, else one decimal. */
+const rangeTxt = (v: number): string => (v % 1 === 0 ? String(v) : v.toFixed(1));
+
 describe('the hover dwell — keyed on the TARGET (a slot or the HP globe)', () => {
   it('restarts the clock whenever the target changes, and keeps it when it does not', () => {
     const a = nextHover(NO_HOVER, Q, 1000);
@@ -162,7 +165,7 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
       'SHELLS PER SHOT',
       'RANGE',
     ]);
-    expect(lines(m.stats).at(-1)).toBe(`RANGE ${stats.equipment.gun.rangeU} u`);
+    expect(lines(m.stats).at(-1)).toBe(`RANGE ${rangeTxt(stats.equipment.gun.rangeU)} u`);
   });
 
   it('prints the MACHINE GUN\'s magazine as SHELLS and its shot delay as RATE (two decimals)', () => {
@@ -171,7 +174,7 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
       'SHELLS 12',
       'DAMAGE 5',
       'RATE 0.30 s',
-      `RANGE ${STATS.equipment.machineGun.rangeU} u`,
+      `RANGE ${rangeTxt(STATS.equipment.machineGun.rangeU)} u`,
     ]);
   });
 

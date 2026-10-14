@@ -116,13 +116,14 @@ describe('FOULING SHELL — the shell and its zone (amendments 61, 67)', () => {
     expect(a.cards).not.toContain('foulingShell');
   });
 
-  it('the shell is the flash\'s shape: clamped at the radar rung, zero damage both ways, the hull|decoy mask, the `foul` tag from CONFIG', () => {
+  it('the shell is the flash\'s shape: clamped at its own reach dial (Story 9.8, ruling 125), zero damage both ways, the hull|decoy mask, the `foul` tag from CONFIG', () => {
     const w = bareWorld();
     const a = armed(w);
     setInput(a, { aim: Math.PI, aimDist: 5000, slot: SLOT, fireSeq: 1, seq: 2 });
     expect(w.sinkingActivationGate(a, SLOT)).toEqual({ ok: true });
     const shell = [...w.shells.values()][0];
-    expect(shell.targetX).toBeCloseTo(-a.stats.radarRange, 6);
+    expect(shell.targetX).toBeCloseTo(-FS.rangeU, 6); // CONFIG.foulingShell.rangeU, never radarRange
+    expect(FS.rangeU).toBeLessThan(a.stats.radarRange);
     expect(shell.foul).toEqual({ radius: FS.radius, durationMs: FS.durationMs });
     expect(shell.damage).toBe(0);
     expect(shell.contactDamage).toBe(0);

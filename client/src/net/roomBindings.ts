@@ -19,7 +19,6 @@ import {
   type BoonFitEvent,
   type BurnZoneView,
   type BurstEvent,
-  type CloudView,
   type DeniedView,
   type DropEvent,
   type FoghornEvent,
@@ -40,7 +39,7 @@ import {
   type SunkEvent,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import type { GameState } from '../state.js';
+import type { GameState, HeldCloud } from '../state.js';
 import type { Predictor } from '../sim/prediction.js';
 import { conningFlag, isSinkingNow } from '../sim/sinkingWindow.js';
 import type { Connection } from './connection.js';
@@ -811,11 +810,15 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
 /**
  * Merge this frame's clouds into the held set and drop every held cloud whose
  * life has ended on the FRAME's server time (never a local clock reading).
- * A cloud is stationary, so a re-delivery only refreshes the same record.
- * Returns the held, unexpired list (Map-insertion order = first-seen order).
+ * A cloud is stationary, so a re-delivery only refreshes the same record —
+ * and STAMPS it `deliveredAt` = the frame's server time: the radar's return
+ * source paints a held cloud only while that delivery is fresh (Story 9.8
+ * review gate F1, render/cloudReturnGate.ts — ruling 123, the delivery rolls
+ * per revolution). Returns the held, unexpired list (Map-insertion order =
+ * first-seen order).
  */
-function holdClouds(f: FrameMsg, held: Map<string, CloudView>): CloudView[] {
-  for (const c of f.clouds ?? []) held.set(c.id, c);
+function holdClouds(f: FrameMsg, held: Map<string, HeldCloud>): HeldCloud[] {
+  for (const c of f.clouds ?? []) held.set(c.id, { ...c, deliveredAt: f.t });
   for (const [id, c] of held) if (f.t - c.t0 >= CONFIG.countermeasure.lifeMs) held.delete(id);
   return [...held.values()];
 }
@@ -997,8 +1000,9 @@ function handlePulseEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: B
  *     server-known position, so the bearing is derived here from the camera
  *     centre and FIXED AT RECEIPT (see bearingTo): a bearing re-derived per
  *     frame would swing as the spectator panned.
- *   • `b`/`v` — a fogged listener. Bearing and volume BAND (which eighth of our
- *     own intel range the honker sits in, server-resolved — amendment 122), and
+ *   • `b`/`v` — a fogged listener. Bearing and volume BAND (which twelfth of our
+ *     own intel range the honker sits in, server-resolved — amendment 122,
+ *     twelve bands since Story 9.8 ruling 129), and
  *     nothing else on the whole row (no x, no y, no id, no correlation handle
  *     of any kind).
  *
@@ -1178,7 +1182,7 @@ function worldTone(
 function placeCue(pos: { x: number; y: number } | null, deps: RoomBindingDeps, t: number): WorldCue {
   if (!pos) return unplacedCue();
   const ear = listenerPos(deps, t);
-  // CONFIG.vision.radar — the eighths ladder's 8/8 rung (full intel range) — is
+  // CONFIG.vision.radar — the twelfths ladder's 12/12 rung (full intel range) — is
   // the falloff scale for EVERY world cue, read from shared CONFIG rather than
   // mirrored into a client tunable. Per-cue rungs were considered and rejected:
   // they would re-derive the server's own disclosure decision (audio/tones.ts).

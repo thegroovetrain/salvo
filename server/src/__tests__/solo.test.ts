@@ -225,12 +225,16 @@ describe('the solo room — construction', () => {
     for (const b of bots(r)) expect(r.state.players.get(b.id)!.name).toBe(b.name);
   });
 
-  it('deals a BALANCED class spread (6/6/7 across 19), all three hulls present', () => {
+  it('deals a BALANCED class spread (round-robin over cap − 1 bots: 5/5/5 across 15 since Story 9.8), all three hulls present', () => {
     const counts = new Map<string, number>();
     const r = soloRoom();
     for (const b of bots(r)) counts.set(b.hullId, (counts.get(b.hullId) ?? 0) + 1);
     expect([...counts.keys()].sort()).toEqual([...SHIP_CLASS_IDS].sort());
-    expect([...counts.values()].sort()).toEqual([6, 6, 7]);
+    // Derived from the cap (16 captains since Eric 2026-10-13): every class
+    // flies floor(BOTS / 3) or ceil(BOTS / 3) hulls, never a literal split.
+    const n = SHIP_CLASS_IDS.length;
+    const want = SHIP_CLASS_IDS.map((_, i) => Math.floor(BOTS / n) + (i < BOTS % n ? 1 : 0)).sort();
+    expect([...counts.values()].sort()).toEqual(want);
   });
 
   // Story 8.15 (amendment 109): every bot MOUNTS A RANDOM GUN, drawn
@@ -258,17 +262,16 @@ describe('the solo room — construction', () => {
     expect([...seen].sort()).toEqual([...GUN_IDS].sort());
   });
 
-  it('varies WHICH class takes the odd seat across rooms (the order is rolled, not fixed)', () => {
+  it('varies the class DEAL ORDER across rooms (the order is rolled, not fixed)', () => {
     // The shuffle rides the room's seeded stream, which is keyed off the map
-    // seed — so across many rooms the 7-seat class must not be constant.
-    const odd = new Set<string>();
-    for (let i = 0; i < 12 && odd.size < 2; i += 1) {
-      const r = soloRoom();
-      const counts = new Map<string, number>();
-      for (const b of bots(r)) counts.set(b.hullId, (counts.get(b.hullId) ?? 0) + 1);
-      for (const [hull, n] of counts) if (n === 7) odd.add(hull);
-    }
-    expect(odd.size).toBeGreaterThan(1);
+    // seed — so across many rooms the class dealt FIRST (the one that takes
+    // the odd seat whenever cap − 1 is not a multiple of three) must not be
+    // constant. Read off the first-dealt bot rather than the odd seat: at the
+    // 16-captain cap (Story 9.8) the 15 bots split 5/5/5 and there is no odd
+    // seat to observe.
+    const first = new Set<string>();
+    for (let i = 0; i < 12 && first.size < 2; i += 1) first.add(bots(soloRoom())[0].hullId);
+    expect(first.size).toBeGreaterThan(1);
   });
 });
 
@@ -291,7 +294,7 @@ describe('the solo room — the human joins', () => {
     expect(r.match?.phase).toBe('countdown');
   });
 
-  it('reads 20 AFLOAT: a full roster of participants, never 1', () => {
+  it('reads the full cap AFLOAT: a full roster of participants, never 1', () => {
     const r = soloRoom();
     join(r, 'alice');
     r.syncRoster();
@@ -313,24 +316,27 @@ describe('the solo room — the human joins', () => {
     // be recorded sunk, and win.
     expect(r.world.ships.size).toBe(CONFIG.map.playerCap);
     step(r, 20);
-    expect(r.match?.phase).toBe('active'); // still a match, twenty hulls in
+    expect(r.match?.phase).toBe('active'); // still a match, a full lobby in
   });
 
   it('the human KEEPS a preference a bot is already flying — the two SWAP hues', () => {
     const r = soloRoom();
     // Take a hue a bot is DEMONSTRABLY flying (a literal would be the free hue
-    // one room in twenty, and the swap would never be exercised).
+    // one room in several, and the swap would never be exercised).
     const holder = bots(r)[0];
     const pref = r.state.players.get(holder.id)!.color;
     const before = rosterColors(r);
     join(r, 'alice', { colorPref: pref });
     expect(r.state.players.get('alice')!.color).toBe(pref); // the player keeps their choice
     expect(r.state.players.get(holder.id)!.color).not.toBe(pref);
-    // ...and the bot took the hue the human would otherwise have flown: the
-    // wheel is still a bijection over 20 hulls.
+    // ...and the bot took the hue the human would otherwise have flown: every
+    // hull still flies a DISTINCT hue off the wheel, and every hue the fleet
+    // flew before is still flown. (Was a bijection over the 20-hue wheel at the
+    // 20-captain cap; 16 captains since Story 9.8 fly 16 of its 20 hues.)
     const after = rosterColors(r);
     expect(new Set(after).size).toBe(CONFIG.map.playerCap);
-    expect(new Set(after)).toEqual(new Set([...Array(REGATTA_HUES.length).keys()]));
+    for (const h of after) expect(h >= 0 && h < REGATTA_HUES.length).toBe(true);
+    for (const h of before) expect(after).toContain(h);
     expect(before).toHaveLength(BOTS);
   });
 

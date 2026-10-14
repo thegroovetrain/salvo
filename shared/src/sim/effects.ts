@@ -84,11 +84,12 @@ export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
  * whitelist behind — but the DELIBERATE ABSENCES below are load-bearing and
  * are pinned absent by barrel.test.ts:
  *
- *   - every `rangeU` (gun / machineGun / flak / starShells / phosphorShells /
- *     broadside):
- *     DERIVED from post-fold `radarRange` (the broadside one rung short, at
- *     the 5/8 muzzle rung), so a card addressing one would be a SECOND
- *     derivation;
+ *   (every weapon `rangeU` LEFT this list with Story 9.8 — ruling 125, Eric
+ *   2026-10-13: reach is a per-weapon TIERED dial, seeded from
+ *   `CONFIG.<weapon>.rangeU` and stepped by each upgrade card, never the
+ *   post-fold radar rung. The FOULING SHELL's reach stays a CONFIG read: a
+ *   consumable has no stats row.)
+ *
  *   - `flak.burstRadius` / `flak.contactDamage`: FIXED by ruling (amendment
  *     105 — the blast never grows; the bodyblock is a CONFIG constant);
  *   - `damageCut.armorBonus`: Eric's fixed number (the cut's +5 temporary
@@ -112,7 +113,7 @@ export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
  * in principle.
  */
 export const EQUIPMENT_STAT_FIELDS = {
-  gun: ['reloadMs', 'maxAmmo', 'damage', 'contactDamage', 'burstRadius', 'barrels'],
+  gun: ['reloadMs', 'maxAmmo', 'rangeU', 'damage', 'contactDamage', 'burstRadius', 'barrels'],
   boost: ['durationMs', 'maxAmmo', 'reloadMs'],
   // The two torpedo LINES (Story 8.13). `homingTurnRate` is addressable
   // because homing stopped being a card and became a TIER STAT (epic-8
@@ -140,15 +141,15 @@ export const EQUIPMENT_STAT_FIELDS = {
   // gate — the captive's fixed-burst precedent (both still flow CONFIG ->
   // stats row as pass-throughs; a harness `--tune flak.*` reaches CONFIG).
   // The −5 %/tier reload is the tier step in clampStats, never an effect.
-  machineGun: ['reloadMs', 'maxAmmo', 'damage', 'rateMs'],
-  flak: ['reloadMs', 'maxAmmo', 'damage'],
-  broadside: ['reloadMs', 'maxAmmo', 'damage', 'burstRadius', 'turrets', 'spreadRung'],
+  machineGun: ['reloadMs', 'maxAmmo', 'rangeU', 'damage', 'rateMs'],
+  flak: ['reloadMs', 'maxAmmo', 'rangeU', 'damage'],
+  broadside: ['reloadMs', 'maxAmmo', 'rangeU', 'damage', 'burstRadius', 'turrets', 'spreadRung'],
   // STAR SHELLS (Story 8.17, amendment 130): the flare deals burst damage
   // again, so `damage` is addressable (10 → 20 across the ladder).
-  starShells: ['reloadMs', 'maxAmmo', 'litRadius', 'litDurationMs', 'damage'],
+  starShells: ['reloadMs', 'maxAmmo', 'rangeU', 'litRadius', 'litDurationMs', 'damage'],
   // PHOSPHOR SHELLS (Story 8.17, amendment 131) — its own weapon row. Every
-  // number its ladder steps is addressable; `rangeU` is derived (above).
-  phosphorShells: ['reloadMs', 'maxAmmo', 'damage', 'zoneRadius', 'zoneDurationMs', 'dps'],
+  // number its ladder steps is addressable, `rangeU` included (Story 9.8).
+  phosphorShells: ['reloadMs', 'maxAmmo', 'rangeU', 'damage', 'zoneRadius', 'zoneDurationMs', 'dps'],
   // THE TWO NEW CLASS SHIFTS (Story 8.15, amendments 97–102) — boost-shaped
   // rows: no card addresses them today, but `reloadMs` must be a row field so
   // RELOAD's `cooldownScale` reaches it through the one multiply.
@@ -167,15 +168,15 @@ export const EQUIPMENT_STAT_FIELDS = {
  */
 // `damage` and `contactDamage` are integers too (Eric 2026-09-17, epic-8
 // amendment 39): a shell NEVER deals a fractional hit point. The deck-gun
-// ladder now steps whole numbers (base 16; +2 on the rung to III, +3 on the
-// rung to V → 16 / 16 / 18 / 18 / 21, Eric 2026-10-02, amendment 232), so the
+// ladder now steps whole numbers (base 12; +3 on the rungs to III and V →
+// 12 / 12 / 15 / 15 / 18, Eric 2026-10-13, experiment), so the
 // floor is a no-op on it.
 export const EQUIPMENT_INT_FIELDS: readonly string[] = ['maxAmmo', 'barrels', 'turrets', 'damage', 'contactDamage'];
 
 /**
  * The top-level (non-equipment) stat paths. `sightRange`, `sweepPeriodMs` and
  * `damageMultiplier` are DELIBERATELY ABSENT — all three are derived post-fold
- * (radarRange/2, 60000/sweepRpm and K / (K + armor)), pinned absent in
+ * (radarRange/3, 60000/sweepRpm and K / (K + armor)), pinned absent in
  * barrel.test.ts.
  */
 export const TOP_LEVEL_STAT_PATHS = [

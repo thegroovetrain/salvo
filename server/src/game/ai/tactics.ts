@@ -98,6 +98,7 @@
 
 import {
   CONFIG,
+  SLOT_GUN,
   angleDiff,
   bearing,
   hullBumper,
@@ -199,6 +200,7 @@ export function situationOf(self: BotSelf, mind: BotMind, port: BotWorldPort): B
     ring: port.zoneLiveRing,
     islands: port.map.islands,
     waterR: port.map.radius,
+    gunId: self.loadout[SLOT_GUN]?.equipmentId ?? null, // the band's anchor (Story 9.8, ruling 126)
   };
 }
 
@@ -569,7 +571,7 @@ function bandBearing(self: BotSelf, sit: BotSituation, t: BotTrack): number {
   const aim = approachPoint(sit.profile, t, sit);
   const brg = bearing(self.state, aim);
   const d = Math.hypot(aim.x - sit.x, aim.y - sit.y);
-  const band = pullBand(engagementBand(sit.profile, sit.stats), readyShotReaches(self, sit.stats));
+  const band = pullBand(engagementBand(sit.profile, sit.stats, sit.gunId), readyShotReaches(self, sit.stats));
   if (d > band.max) return brg;
   if (d < band.min) return wrapAngle(brg + Math.PI);
   const side = angleDiff(brg, self.state.heading) >= 0 ? 1 : -1;

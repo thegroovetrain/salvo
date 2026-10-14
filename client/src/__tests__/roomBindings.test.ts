@@ -227,8 +227,10 @@ describe('bindRoom COUNTERMEASURE cloud channel (Story 9.3)', () => {
     const { sink, deps } = setupChannels({ countermeasure: { sync: cloudSync } as never });
     const clouds = [{ id: 'cl1', x: 10, y: 20, t0: 90 }];
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds });
-    expect(cloudSync).toHaveBeenCalledWith(clouds);
-    expect(deps.state.net.clouds).toEqual(clouds);
+    // Held with its delivery stamp (the frame's server time — Story 9.8 F1).
+    const held = [{ ...clouds[0], deliveredAt: 100 }];
+    expect(cloudSync).toHaveBeenCalledWith(held);
+    expect(deps.state.net.clouds).toEqual(held);
   });
 
   it('treats an omitted clouds key as an empty list (frames omit it when none)', () => {
@@ -245,11 +247,12 @@ describe('bindRoom COUNTERMEASURE cloud channel (Story 9.3)', () => {
     const c = { id: 'cl1', x: 10, y: 20, t0: 90 };
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [c] });
     sink.handler({ t: 150, tick: 2, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
-    expect(cloudSync).toHaveBeenLastCalledWith([c]);
-    expect(deps.state.net.clouds).toEqual([c]); // the wake mirror reads the held cloud
+    const held = { ...c, deliveredAt: 100 };
+    expect(cloudSync).toHaveBeenLastCalledWith([held]);
+    expect(deps.state.net.clouds).toEqual([held]); // the wake mirror reads the held cloud
     const LIFE = CONFIG.countermeasure.lifeMs;
     sink.handler({ t: 90 + LIFE - 1, tick: 3, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
-    expect(deps.state.net.clouds).toEqual([c]);
+    expect(deps.state.net.clouds).toEqual([held]);
     sink.handler({ t: 90 + LIFE, tick: 4, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
     expect(cloudSync).toHaveBeenLastCalledWith([]);
     expect(deps.state.net.clouds).toEqual([]);
@@ -262,7 +265,24 @@ describe('bindRoom COUNTERMEASURE cloud channel (Story 9.3)', () => {
     const b = { id: 'b', x: 5, y: 5, t0: 120 };
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [a] });
     sink.handler({ t: 150, tick: 2, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [b, a] });
-    expect(deps.state.net.clouds).toEqual([a, b]);
+    expect(deps.state.net.clouds).toEqual([{ ...a, deliveredAt: 150 }, { ...b, deliveredAt: 150 }]);
+  });
+
+  // F1 (Story 9.8 review gate): the radar return gates on WHEN a held cloud's
+  // row last arrived, so every frame carrying the row re-stamps it with the
+  // frame's server time, and a frame without it leaves the stamp alone.
+  it('stamps a held cloud deliveredAt = the frame time of its LAST row; an absent row keeps the old stamp', () => {
+    const cloudSync = vi.fn();
+    const { sink, deps } = setupChannels({ countermeasure: { sync: cloudSync } as never });
+    const c = { id: 'cl1', x: 10, y: 20, t0: 90 };
+    const at = (): number | undefined => deps.state.net.heldClouds.get('cl1')?.deliveredAt;
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [c] });
+    expect(at()).toBe(100);
+    sink.handler({ t: 150, tick: 2, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
+    expect(at()).toBe(100);
+    sink.handler({ t: 4100, tick: 3, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [c] });
+    expect(at()).toBe(4100);
+    expect(cloudSync).toHaveBeenLastCalledWith([{ ...c, deliveredAt: 4100 }]);
   });
 });
 
@@ -1813,7 +1833,7 @@ describe('boom identity — spark on a hit, splash on a miss', () => {
 // --- STORY 4.3: THE GUNNERY CONVERSATION ---------------------------------------
 //
 // Three server rows replace three client-side guesses. `mz` says a gun-family
-// weapon fired HERE (for anyone in the 412.5u halo, and deliberately anonymous),
+// weapon fired HERE (for anyone in the muzzle-flash halo, and deliberately anonymous),
 // `sp` is our own fall of shot through any fog, `hc` is "something you fired
 // connected" with no severity of any kind. The two impact rows CLAIM their
 // point, so a shooter who can see their own impact draws one mark, not two.
@@ -2434,8 +2454,10 @@ describe('the sound map (Story 4.7) — placement, suppression, and the tone flo
 
   it('an ENEMY muzzle flash reports — attenuated, and panned toward the flash', () => {
     const { sink, play } = setupWater();
-    // Own hull at the origin; the flash is well off to starboard.
-    sink.handler(victimFrame([{ k: 'mz', x: 330, y: 0 }], {}));
+    // Own hull at the origin; the flash is well off to starboard, on the 6/12
+    // rung — half the audio reach, which is the full radar range (epic-9
+    // amendment 103).
+    sink.handler(victimFrame([{ k: 'mz', x: (CONFIG.vision.radar * 6) / 12, y: 0 }], {}));
     expect(ids(play)).toEqual(['gunReport']);
     const opts = optsOf(play, 'gunReport');
     expect(opts.pan).toBeCloseTo(0.5 * CLIENT_CONFIG.audio.panMax, 5); // half a reach to starboard
@@ -2445,7 +2467,7 @@ describe('the sound map (Story 4.7) — placement, suppression, and the tone flo
 
   it('...and to PORT the pan flips sign, so the ear is pointed at the mark the eye can find', () => {
     const { sink, play } = setupWater();
-    sink.handler(victimFrame([{ k: 'mz', x: -330, y: 0 }], {}));
+    sink.handler(victimFrame([{ k: 'mz', x: -(CONFIG.vision.radar * 6) / 12, y: 0 }], {}));
     expect(optsOf(play, 'gunReport').pan).toBeLessThan(0);
   });
 

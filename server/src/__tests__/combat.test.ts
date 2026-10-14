@@ -131,12 +131,13 @@ describe('gun shell construction — the burst hit rule rides the projectile', (
   it('gunTarget clamps the click to the effective range, measured from the CENTER', () => {
     const { w, a } = armed();
     a.input = gunInput(0, 5000);
-    // Base effective range IS radar range (single source, no duplicated 660).
-    expect(a.stats.equipment.gun.rangeU).toBe(CONFIG.vision.radar);
-    expect(gunTarget(a, w.map.radius).x).toBeCloseTo(CONFIG.vision.radar, 9);
+    // Base effective range IS the gun's own Tier I dial (Story 9.8, ruling 125
+    // — no longer the radar rung; single source, no duplicated literal).
+    expect(a.stats.equipment.gun.rangeU).toBe(CONFIG.gun.rangeU);
+    expect(gunTarget(a, w.map.radius).x).toBeCloseTo(CONFIG.gun.rangeU, 9);
     w.sinkingActivationGate(a, SLOT_GUN);
     const [shell] = [...w.shells.values()];
-    expect(shell.targetX).toBeCloseTo(CONFIG.vision.radar, 9); // center-measured — the muzzle never extends reach
+    expect(shell.targetX).toBeCloseTo(CONFIG.gun.rangeU, 9); // center-measured — the muzzle never extends reach
     expect(shell.targetY).toBeCloseTo(0, 9);
   });
 
@@ -144,13 +145,13 @@ describe('gun shell construction — the burst hit rule rides the projectile', (
     // The legacy gunRange upgrade died in the 2.8 strip; the clamp still reads
     // the cached effective stats, so a stats-side range change moves it.
     const { w, a } = armed();
-    const widened = CONFIG.vision.radar * 1.3;
+    const widened = CONFIG.gun.rangeU * 1.3;
     a.stats = { ...a.stats, equipment: { ...a.stats.equipment, gun: { ...a.stats.equipment.gun, rangeU: widened } } };
     a.input = gunInput(0, 50000);
     w.sinkingActivationGate(a, SLOT_GUN);
     const [shell] = [...w.shells.values()];
     expect(shell.targetX).toBeCloseTo(widened, 9);
-    expect(widened).toBeGreaterThan(CONFIG.vision.radar);
+    expect(widened).toBeGreaterThan(CONFIG.gun.rangeU);
   });
 });
 
@@ -563,7 +564,9 @@ describe('BARREL fires PARALLEL, and straddles (R2.16)', () => {
 // ---------- R2.15: the STAR-SHELL GUN REACH ----------------------------------
 
 describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun', () => {
-  const REACH = 900; // well past the 660u base gun range
+  // Past every reach in play: the radar rim is the ruler's top rung, and no
+  // gun or star shell reaches beyond it at any tier (Story 9.8, ruling 125).
+  const REACH = CONFIG.vision.radar + 100;
 
   /** A world with one gunner and a live lit zone at (0, REACH) owned by `by`. */
   function litBoard(by: string, seed = 31) {

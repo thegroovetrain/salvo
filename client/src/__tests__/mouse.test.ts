@@ -4,11 +4,19 @@
 // PointerEvent; `bubbles: true` dispatched ON an element gives the window
 // listener a real e.target, exactly like a browser).
 
+import { CLIENT_CONFIG } from '../config.js';
 import { describe, it, expect } from 'vitest';
 import { MouseInput, worldAim, worldAimDist } from '../input/mouse.js';
 import { Camera } from '../render/camera.js';
 
-const opts = { radarRange: 650, followRate: 5, leadSeconds: 4, leadMax: 110 };
+const opts = {
+  defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
+  closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
+  ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
+  followRate: 5,
+  leadSeconds: 4,
+  leadMax: 110,
+};
 
 describe('worldAim', () => {
   it('is the bearing from the own ship to a world point', () => {

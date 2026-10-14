@@ -291,16 +291,38 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     }
   });
 
-  it('bands are ordered fractions of INTEL RANGE, so they move with the ruler rather than a literal', () => {
+  it('bands are ordered fractions of the bot\'s OWN MOUNTED GUN reach, never radar (Story 9.8, epic-9 ruling 126 — the stopgap)', () => {
     for (const p of Object.values(BOT_PROFILES)) {
       expect(p.bandMinFrac).toBeGreaterThan(0);
       expect(p.bandMaxFrac).toBeGreaterThan(p.bandMinFrac);
       expect(p.bandMaxFrac).toBeLessThanOrEqual(1);
     }
     const base = stats('battleship');
-    const wide = { ...base, radarRange: base.radarRange * 2 };
     const siege = profileOf('siege');
-    expect(engagementBand(siege, wide).max).toBeCloseTo(engagementBand(siege, base).max * 2, 6);
+    // The anchor is the gun: a doubled gun reach doubles the band...
+    const longGun = { ...base, equipment: { ...base.equipment, gun: { ...base.equipment.gun, rangeU: base.equipment.gun.rangeU * 2 } } };
+    expect(engagementBand(siege, longGun).max).toBeCloseTo(engagementBand(siege, base).max * 2, 6);
+    // ...while radar range (intel, not reach) moves nothing.
+    const wideRadar = { ...base, radarRange: base.radarRange * 2 };
+    expect(engagementBand(siege, wideRadar)).toEqual(engagementBand(siege, base));
+    // The spec's matrix row: a duelist on the deck gun fights at its
+    // fractions of the cannon's Tier I reach (0.08–0.3 × gun rangeU).
+    const duelist = profileOf('duelist');
+    expect(engagementBand(duelist, base)).toEqual({
+      min: duelist.bandMinFrac * CONFIG.gun.rangeU,
+      max: duelist.bandMaxFrac * CONFIG.gun.rangeU,
+    });
+  });
+
+  it('the band reads the MOUNTED gun: a machine gun or flak in the gun slot anchors on its own reach; empty / unknown reads the deck gun', () => {
+    const base = stats('torpedoBoat');
+    const p = profileOf('raider');
+    for (const gun of ['machineGun', 'flak'] as const) {
+      expect(engagementBand(p, base, gun).max).toBeCloseTo(p.bandMaxFrac * base.equipment[gun].rangeU, 9);
+    }
+    expect(engagementBand(p, base, 'gun')).toEqual(engagementBand(p, base));
+    expect(engagementBand(p, base, null)).toEqual(engagementBand(p, base));
+    expect(engagementBand(p, base).max).toBeCloseTo(p.bandMaxFrac * base.equipment.gun.rangeU, 9);
   });
 
   it('siege stands off, duelist knife-fights, bulwark trades longest', () => {
@@ -313,11 +335,15 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     }
   });
 
-  it('siege\'s band stays inside the broadside rung (ruled: bandMaxFrac <= 0.625)', () => {
-    // `broadside.rangeU` is the 5/8 rung (radarRange x muzzleFlashFactor), so
-    // a band max past 0.625 would stand siege's heavy weapon out of range of
-    // its own preferred water.
-    expect(profileOf('siege').bandMaxFrac).toBeLessThanOrEqual(CONFIG.vision.muzzleFlashFactor);
+  it('siege\'s band stays inside the broadside\'s reach on every mounted gun', () => {
+    // Siege's band max is a fraction of its mounted gun's reach (Story 9.8,
+    // ruling 126) and its heavy weapon is the BROADSIDE, whose Tier I reach is
+    // its own dial (ruling 125): a band max past that reach would stand the
+    // broadside out of range of its own preferred water. Checked on the
+    // LONGEST-reaching mounted gun, so every seat gun holds.
+    const st = stats('battleship');
+    const longest = Math.max(st.equipment.gun.rangeU, st.equipment.machineGun.rangeU, st.equipment.flak.rangeU);
+    expect(profileOf('siege').bandMaxFrac * longest).toBeLessThanOrEqual(st.equipment.broadside.rangeU);
   });
 
   it('THE MINE LAYER HANGS BACK (Eric ruling 2026-08-20, cycle 111): ruled bands and thresholds', () => {
@@ -336,8 +362,9 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     expect(trapper.disengageHpFrac).toBe(0.45);
     expect(trapper.healHpFrac).toBe(0.6);
     // Forager is now the EARLIEST break-off in the game — survival IS its
-    // plan — and its whole band stays inside its own gun reach (rangeU is
-    // radarRange), so hanging back costs no firepower.
+    // plan — and its whole band stays inside its own gun reach (the band is a
+    // fraction of that reach, Story 9.8 ruling 126), so hanging back costs no
+    // firepower.
     for (const id of ['raider', 'duelist', 'bulwark', 'siege', 'trapper'] as const) {
       expect(forager.disengageHpFrac).toBeGreaterThan(profileOf(id).disengageHpFrac);
     }

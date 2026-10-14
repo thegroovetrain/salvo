@@ -14,13 +14,16 @@
 // the eye's limit is applied here, at display time, off the very same
 // derivation. Beyond it the cloud exists only as radar returns.
 //
-// THE RADIUS IS NOT A KNOB: it is the shared 5/8 rung. Only the soft edge is
+// (The 5/8 rung then; the 6/12 rung on the twelfths ladder since Story 9.8,
+// epic-9 amendment 103 — `muzzleFlashFactor` 0.5.)
+//
+// THE RADIUS IS NOT A KNOB: it is the shared flash rung. Only the soft edge is
 // client feel (`CLIENT_CONFIG.countermeasure.haloFeatherU`).
 
 import { CONFIG } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 
-/** The 5/8 rung for a viewer whose live derived intel range is `radarRangeU` —
+/** The flash rung (6/12) for a viewer whose live derived intel range is `radarRangeU` —
  *  the SAME derivation as the server's wounded-smoke reach. */
 export function hazeHaloU(radarRangeU: number): number {
   return radarRangeU * CONFIG.vision.muzzleFlashFactor;

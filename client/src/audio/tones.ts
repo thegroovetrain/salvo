@@ -620,7 +620,7 @@ export interface WorldCue {
  * reach test here would be a SECOND implementation of a perception rule, which
  * is exactly the desync/leak class this project forbids (the `effectiveStats()`
  * argument, applied to sensing rather than to stats). Every world cue therefore
- * passes the SAME reach, `CONFIG.vision.radar` (the eighths ladder's 8/8 rung,
+ * passes the SAME reach, `CONFIG.vision.radar` (the twelfths ladder's 12/12 rung,
  * full intel range). Per-cue rungs (muzzleFlash for `mz`, sight for `boom`) were
  * considered and rejected on that ground: they would have re-derived the
  * server's answer client-side.

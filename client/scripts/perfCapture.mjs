@@ -100,16 +100,19 @@ const RUN_TAG = [
 const RECORD_NAME = RUN_TAG ? `nfr1-frame-budget-${RUN_TAG}` : 'nfr1-frame-budget';
 
 /**
- * The framings measured. The alive band (0.5x-1.5x) is the camera's documented
- * user-zoom range; the reveal is the omniscient whole-disc framing from Story
- * 5.3, which draws every island coastline and contour band on the map at once
- * and has NEVER been cost-measured. Averaging them into one number would hide
+ * The framings measured, as ABSOLUTE spans across the short axis (Story 9.8,
+ * ruling 127 — mirrors CLIENT_CONFIG.zoom; a script cannot import the TS
+ * config, so the two spans are restated here and named for what they are):
+ * the close limit (880 u), the default framing (1,320 u), and the ring fit at
+ * MATCH START — the full map ring, 2 × mapRadius × reveal.mapFitMargin, which
+ * the harness derives from the live map itself. The reveal is the omniscient
+ * whole-disc framing from Story 5.3. Averaging them into one number would hide
  * whichever is worse, so each carries its own verdict.
  */
 const ALL_FRAMINGS = [
-  { name: 'alive-zoom-0.5x', kind: 'zoom', value: 0.5 },
-  { name: 'alive-zoom-1.0x', kind: 'zoom', value: 1.0 },
-  { name: 'alive-zoom-1.5x', kind: 'zoom', value: 1.5 },
+  { name: 'alive-close', kind: 'span', value: 880 },
+  { name: 'alive-default', kind: 'span', value: 1320 },
+  { name: 'alive-ring-fit', kind: 'ring-fit' },
   { name: 'omniscient-reveal', kind: 'reveal' },
 ];
 
@@ -127,13 +130,11 @@ async function applyFraming(page, f) {
     await page.evaluate(() => window.__hcStage.setReveal(true));
     return;
   }
-  await page.evaluate(
-    (z) => {
-      window.__hcStage.setReveal?.(false);
-      window.__hcStage.setZoom(z);
-    },
-    f.value,
-  );
+  if (f.kind === 'ring-fit') {
+    await page.evaluate(() => window.__hcStage.setRingFit());
+    return;
+  }
+  await page.evaluate((spanU) => window.__hcStage.setSpan(spanU), f.value);
 }
 
 /** One framing: apply, settle, reset the window, dwell, read everything back. */
@@ -148,6 +149,7 @@ async function measure(page, f) {
     present: window.__hcStage.presentStats(),
     counts: window.__hcStage.counts(),
     zoom: window.__hcStage.zoom(),
+    spanU: window.__hcStage.span(),
     composedZoom: window.__hcStage.composedZoom(),
     tick: window.__hcStage.tick(),
   }));
@@ -364,6 +366,7 @@ async function main() {
       framing: m.framing,
       image: m.image,
       userZoom: round(m.zoom, 3),
+      userSpanU: round(m.spanU, 1),
       composedZoom: round(m.composedZoom, 4),
       sceneTick: m.tick,
       counts: m.counts,

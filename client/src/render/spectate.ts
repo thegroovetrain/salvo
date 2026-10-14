@@ -1,6 +1,7 @@
 // Spectator camera math — pure helpers (no Pixi), unit-tested. Drives the
 // death → spectate mode: follow-your-killer by default, WASD free pan, and
-// mouse-wheel zoom OUT (spectators only, clamped [0.5x, 1x]).
+// mouse-wheel zoom OUT (spectators only, clamped between the spectate spans —
+// 2,640 u and 1,320 u across the short axis, Story 9.8 ruling 127).
 //
 // THESE TWO ARE THE MANUAL-CONTROL SEAM (Story 5.3, amendment 25). Both feed a
 // Camera mutator — `wheelZoom` → `Camera.setZoomFactor`, `spectatePan` →
@@ -9,13 +10,21 @@
 // below. The release lives on the camera rather than here on purpose: these
 // helpers are pure arithmetic that hold no camera and no mode, and a "did the
 // player touch it" flag threaded through them would be a second place to
-// forget. The resulting 0.275× → 0.5× pop on the first wheel notch is ledgered
+// forget. The resulting whole-map → clamp pop on the first wheel notch is ledgered
 // and accepted (see Camera.setZoomFactor).
 
-import { SPECTATE_ZOOM_MIN, SPECTATE_ZOOM_MAX } from './camera.js';
+import { SPECTATE_SPAN_NARROW_U, SPECTATE_SPAN_WIDE_U, spanFactor } from './camera.js';
+import { CLIENT_CONFIG } from '../config.js';
 import type { Axes } from '../input/keyboard.js';
 
-/** Free-pan speed at zoomFactor 1 (world units per second). */
+/** The spectate clamp as zoom factors over the default framing (ruling 127):
+ *  the absolute spans divided into CLIENT_CONFIG.zoom.defaultSpanU — 0.5 and 1
+ *  at the shipped 2,640 / 1,320 / 1,320 u, the same numbers as ever. The camera
+ *  derives the identical pair from its own options (Camera.spectateZoomLimits). */
+export const SPECTATE_ZOOM_MIN = spanFactor(CLIENT_CONFIG.zoom.defaultSpanU, SPECTATE_SPAN_WIDE_U);
+export const SPECTATE_ZOOM_MAX = spanFactor(CLIENT_CONFIG.zoom.defaultSpanU, SPECTATE_SPAN_NARROW_U);
+
+/** Free-pan speed at zoomFactor 1 — the default framing (world units per second). */
 export const SPECTATE_PAN_SPEED = 600;
 
 /** Wheel-to-zoom sensitivity (zoomFactor per deltaY unit). */
@@ -31,7 +40,8 @@ export function spectatePan(axes: Axes, dt: number, zoomFactor: number): { dx: n
   return { dx: axes.rudder * speed * dt, dy: -axes.throttle * speed * dt };
 }
 
-/** Wheel input → new zoom factor: scroll down zooms out, clamped [0.5, 1]. */
+/** Wheel input → new zoom factor: scroll down zooms out, clamped to the
+ *  spectate spans (SPECTATE_ZOOM_MIN/MAX above). */
 export function wheelZoom(current: number, deltaY: number): number {
   const next = current - deltaY * WHEEL_ZOOM_RATE;
   return Math.min(SPECTATE_ZOOM_MAX, Math.max(SPECTATE_ZOOM_MIN, next));

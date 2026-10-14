@@ -28,6 +28,28 @@ import { consume, tickReload } from './ammo.js';
 import { burstPointAlong, gunReachU, muzzleOrTarget, rawAimPoint } from './guns.js';
 import { makeBallistic } from './ballistics.js';
 
+/** Float dust from the outline geometry (a hull 30 u off measures 30.000000000000007)
+ *  must never cost a whole hit point at the floor: 20 − 6.000…01 is 14, not 13. */
+const FALLOFF_FLOOR_EPS = 1e-9;
+
+/**
+ * THE FLAK BURST FALLOFF (Eric 2026-10-13, Story 9.8 — *"the damage should
+ * scale from D at the very center to D-10 at the very edge. Meaning even
+ * though it has a nice wide burst, it pays to be accurate, because you take
+ * deal damage based on the best result for how close the ship is to the center
+ * of the blast."*). `nearestU` is the distance from the burst centre to the
+ * NEAREST point of the caught outline (`pointPolygonDistance`, 0 when the
+ * centre sits inside it — the "best result" clause); the hit is
+ * `floor(D − edgeFalloff × clamp01(nearestU / burstRadius))`, a whole number
+ * BEFORE the one damage gate (armor multiplies and floors after it), never
+ * below 0 (a tuned falloff past D). `edgeFalloff` is `CONFIG.flak.edgeFalloff`.
+ * FLAK ONLY: world.ts calls this for `family === 'flak'` bursts alone.
+ */
+export function flakBurstDamage(damage: number, nearestU: number, burstRadius: number, edgeFalloff: number): number {
+  const frac = burstRadius > 0 ? Math.min(1, Math.max(0, nearestU / burstRadius)) : 0;
+  return Math.max(0, Math.floor(damage - edgeFalloff * frac + FALLOFF_FLOOR_EPS));
+}
+
 /** Build the one flak shell for this click, born at `now` (the validated
  *  fire time), clamped to `reachU` (the row's `rangeU`, lit-zone lifted).
  *  Pure over the ship's input + pose + stats. */

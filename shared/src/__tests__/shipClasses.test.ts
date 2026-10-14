@@ -151,16 +151,15 @@ describe('drone envelope table (Story 5.6, amendment 34 — retuned off the reti
     // which at its 5s reload is the ruled 15/20/25s time-to-kill. The cannon's
     // base moved 15 -> 16 on 2026-10-02 (epic-8 amendment 232; drone hp did
     // NOT move — Eric changes only the numbers he names), so the ratio is no
-    // longer whole, but the SHOTS TO KILL a drone at tier I are still 3/4/5
-    // (48/64/80 >= 45/60/75) and so is the time-to-kill. HULL DIMS DO NOT
-    // MOVE: size still reads on the water at 85/100/115u.
+    // longer whole. The base moved again 16 -> 12 (Eric 2026-10-13,
+    // experiment, Story 9.8), so the tier-I shots to kill are 4/5/7 now, not
+    // 3/4/5 — the 3/4/5 pin was a consequence of the old gun, never a rule of
+    // its own, and is gone; the time-to-kill is shots x the 5 s reload. HULL
+    // DIMS DO NOT MOVE: size still reads on the water at 85/100/115u.
     expect(CONFIG.drones.small.hp).toBe(45);
     expect(CONFIG.drones.medium.hp).toBe(60);
     expect(CONFIG.drones.large.hp).toBe(75);
-    for (const [size, shots] of [['small', 3], ['medium', 4], ['large', 5]] as const) {
-      expect(Math.ceil(CONFIG.drones[size].hp / CONFIG.gun.damage)).toBe(shots);
-      expect((shots * CONFIG.gun.reloadMs) / 1000).toBe(shots * 5); // 15 / 20 / 25s
-    }
+    expect(CONFIG.gun.reloadMs).toBe(5000);
     expect(CONFIG.drones.small.hull).toEqual({ length: 85, beam: 25 });
     expect(CONFIG.drones.medium.hull).toEqual({ length: 100, beam: 30 });
     expect(CONFIG.drones.large.hull).toEqual({ length: 115, beam: 35 });
@@ -214,16 +213,16 @@ describe('drone envelope table (Story 5.6, amendment 34 — retuned off the reti
     for (const size of DRONE_SIZE_IDS) {
       expect(CONFIG.drones[size].gun).toEqual({ damage: 1, reloadMs: 5000 });
     }
-    // Shots-to-kill is a whole count of clicks (ceil) — the cannon's base is
-    // 16 since 2026-10-02 (amendment 232), so 45/60/75 hp take 3/4/5 clicks.
+    // Shots-to-kill is a whole count of clicks (ceil) at whatever the cannon's
+    // base is (16 -> 12, Eric 2026-10-13, experiment: 45/60/75 hp take 4/5/7
+    // clicks). The derivation is what holds: with reloads equal and damage 1,
+    // the damage a drone deals back over its life IS its shots-to-kill.
+    const shotsToKill = (size: (typeof DRONE_SIZE_IDS)[number]) =>
+      Math.ceil(CONFIG.drones[size].hp / CONFIG.gun.damage);
     const lifetimeDamage = (size: (typeof DRONE_SIZE_IDS)[number]) =>
-      Math.floor(
-        (Math.ceil(CONFIG.drones[size].hp / CONFIG.gun.damage) * CONFIG.gun.reloadMs) /
-          CONFIG.drones[size].gun!.reloadMs,
-      ) * CONFIG.drones[size].gun!.damage;
-    expect(lifetimeDamage('small')).toBe(3);
-    expect(lifetimeDamage('medium')).toBe(4);
-    expect(lifetimeDamage('large')).toBe(5);
+      Math.floor((shotsToKill(size) * CONFIG.gun.reloadMs) / CONFIG.drones[size].gun!.reloadMs) *
+      CONFIG.drones[size].gun!.damage;
+    for (const size of DRONE_SIZE_IDS) expect(lifetimeDamage(size), size).toBe(shotsToKill(size));
   });
 
   it('a full GROUP volley is attrition, not a kill threat — the PROPERTY, not a literal', () => {

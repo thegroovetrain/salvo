@@ -169,10 +169,12 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
       expect(L.cards, name).toHaveLength(4);
       expect(L.row.w, name).toBe(4 * 216 + 3 * 20);
       expect(L.row.w, name).toBe(924);
-      expect(L.row.h, name).toBe(226);
+      // 226 → 243: the six-row grid (Story 9.8, Eric 2026-10-13) — one more
+      // 17px row; the width, the gaps and the one baseline are untouched.
+      expect(L.row.h, name).toBe(243);
       for (const c of L.cards) {
         expect(c.w, name).toBe(216);
-        expect(c.h, name).toBe(226);
+        expect(c.h, name).toBe(243);
         expect(c.y, name).toBe(L.row.y); // still ONE row, one baseline
       }
       for (let i = 1; i < L.cards.length; i += 1) {
@@ -218,11 +220,13 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
     // own bottom IS the anchored edge. The ANCHOR is unchanged (amendment 36):
     // STORY 9.2's D-prime bar is 20px taller (globes 104 -> 124), so the bar's
     // top — and the band hung 8px above it — rises 20px with it (452 -> 432).
+    // STORY 9.8's six-row card is one 17px row taller (244 -> 261), and that
+    // too comes off the TOP: the anchored bottom stays at 432.
     const F = refitBandLayout(1280, 614);
     expect(F.band.h).toBe(R.pipsAbove + R.cardHeight);
-    expect(F.band.h).toBe(244);
-    expect(F.band.y).toBe(188);
-    expect(F.row.y).toBe(206);
+    expect(F.band.h).toBe(261);
+    expect(F.band.y).toBe(171);
+    expect(F.row.y).toBe(189);
     expect(F.row.y + F.row.h).toBe(432);
   });
 
@@ -238,8 +242,10 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
     const live = refitBandLayout(1366, 768);
     const countdown = refitBandLayout(1366, 768, CONFIG.offer.size, REDRAW_FOOTER_PX);
     expect(REDRAW_FOOTER_PX).toBe(44);
-    expect(live.row.y).toBe(360); // 380 until the D-prime bar grew 20px (Story 9.2)
-    expect(countdown.row.y).toBe(316);
+    // 380 until the D-prime bar grew 20px (Story 9.2); 360 until the six-row
+    // card grew 17px (Story 9.8).
+    expect(live.row.y).toBe(343);
+    expect(countdown.row.y).toBe(299);
     expect(live.row.y - countdown.row.y).toBe(REDRAW_FOOTER_PX);
     // The one edge that must NOT move, in either state.
     expect(live.band.y + live.band.h).toBe(586);
@@ -510,7 +516,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
 
   // THE RATIFIED FACE's OfferCard (Story 8.7, ruling 11): the icon box, the
   // name, the cap-rung ladder with its `cur → next` numerals, the KIND word, up
-  // to five live stat rows and the foot. No description, no lineage handrail,
+  // to six live stat rows and the foot. No description, no lineage handrail,
   // no copy count — those went with the interim face.
   const cardsOf = (ids: readonly string[]): OfferCard[] =>
     ids.map((id) => ({
@@ -562,7 +568,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
 
   // THE RATIFIED FACE, TOP-DOWN (Story 8.7, ruling 11 — mock `.rc`): key chip
   // (outside the clipped body, pinned first) · 40px icon box · name · ladder ·
-  // KIND word · five 17px rows · foot. No prose anywhere on it.
+  // KIND word · six 17px rows · foot. No prose anywhere on it.
   it('builds the ratified face in the mock\'s own DOM order', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view());
@@ -575,14 +581,14 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     expect(kids[1].textContent).toBe(boonName(OFFER[0], 0));   // name
     expect(kids[2].style.height).toBe(`${R.ladderH}px`);       // ladder row
     expect(kids[3].textContent).toBe(cardKindLabel(cardKind(CATALOG[OFFER[0]], 0)));
-    expect(kids[4].style.display).toBe('grid');                // the five-row grid
+    expect(kids[4].style.display).toBe('grid');                // the six-row grid
     expect(kids[5].style.height).toBe(`${R.footH}px`);         // foot, blank at rest
     expect(kids[5].textContent).toBe('');
   });
 
-  it('always renders EXACTLY five rows, blank past the end of the card\'s stats', () => {
+  it('always renders EXACTLY six rows, blank past the end of the card\'s stats', () => {
     const menu = new UpgradeMenu(() => {});
-    // radarSweep moves ONE number, so four of its five rows are ruled blanks.
+    // radarSweep moves ONE number, so five of its six rows are ruled blanks.
     menu.toggle(view({ options: cardsOf(['radarSweep']) }));
     const grid = (cards()[0].lastElementChild as HTMLElement).children[4] as HTMLElement;
     expect(grid.children).toHaveLength(R.rowCount);

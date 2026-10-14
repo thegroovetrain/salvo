@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import * as shared from '../index.js';
 import type { EquipmentId } from '../index.js';
+
+// ONE RUNG OF THE TWELFTHS RULER (Story 9.8, epic-9 amendment 103): a twelfth
+// of radar, which is `sight / 4` because radar = sight × 3 — derived, never the
+// literal 125 (epic-9 amendment 8).
+const TWELFTH = CONFIG.vision.sight / 4;
 import {
   damageMultiplierFor,
   PROTOCOL_VERSION,
@@ -441,7 +446,15 @@ describe('shared barrel', () => {
     // 110-117): catalog content (new `armor` ladder after hullPoints) and
     // CONFIG.armor + CONFIG.damageCut.armorBonus read by the client through the
     // fold. Nothing new on the wire; the exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(81);
+    // 81 -> 82 (Story 9.8 THE TWELFTHS LADDER, Eric 2026-10-13, epic-9
+    // amendments 102-109, 121-129): the twelfths sensor ladder, per-weapon
+    // tiered range dials read by the client through the fold, the foghorn
+    // band enum 1..12 and the server-side radar dropout (sim/dropout.ts).
+    // Nothing new on the wire; the exception count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(82);
+    for (const fn of [shared.dropoutPaintP, shared.dropoutRoll, shared.dropoutPaints]) {
+      expect(typeof fn).toBe('function');
+    }
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -681,8 +694,12 @@ describe('shared barrel', () => {
     expect(ns.canStock).toBeUndefined();
   });
 
-  it('CONFIG.broadside carries the barrage block; its range stays DERIVED at the 5/8 rung', () => {
+  it('CONFIG.broadside carries the barrage block; its range is its own TIERED dial (Story 9.8, ruling 125)', () => {
     expect(CONFIG.broadside).toEqual({
+      // Ruling 125 (Eric 2026-10-13): Tier I 5/12 → Tier V 6/12 of the
+      // twelfths ruler (625 → 750 u at the shipped ladder).
+      rangeU: TWELFTH * 5,
+      rangeUAtV: TWELFTH * 6,
       hits: ['hull', 'decoy'], // AR44 — never a mine since amendment 200 (only deck guns, by landing)
       arcOffsetDeg: 90,
       arcHalfArcDeg: 60,
@@ -707,9 +724,9 @@ describe('shared barrel', () => {
       turretMountSpreadDeg: [28, 25, 22.5, 15, 6], // [DRAFT] mount half-spread ladder, index = SPREAD copies
       traverseDeg: [6, 7, 7.5, 9, 14], // [DRAFT] per-turret traverse ladder, index = SPREAD copies
     });
-    // NO range field — it is derived from radarRange × muzzleFlashFactor, and
-    // NO arc field either: the beams are a twin-sector descriptor, not 'full'.
-    expect('rangeU' in CONFIG.broadside).toBe(false);
+    // A range field of its own since Story 9.8 (ruling 125) — and still NO
+    // arc field: the beams are a twin-sector descriptor, not 'full'.
+    expect('rangeU' in CONFIG.broadside).toBe(true);
     expect('arc' in CONFIG.broadside).toBe(false);
     // One entry per reachable SPREAD rung: 0..4 copies of a ×4 card. BOTH
     // ladders, and the SAME length — one rung indexes them together
@@ -748,18 +765,21 @@ describe('shared barrel', () => {
       // AR44 (Story 8.4): NO 'mine' bit — illumination detonates nothing.
       hits: ['hull', 'decoy'],
       arc: 'full',
+      // Ruling 125: Tier I 11/12 → Tier V 12/12 (1,375 → 1,500 u).
+      rangeU: TWELFTH * 11,
+      rangeUAtV: TWELFTH * 12,
       shellSpeed: 500,
       maxAmmo: 1,
       reloadMs: 20000,
       damage: 20,
-      litRadius: 165,
+      litRadius: CONFIG.vision.sight / 2, // 250 u at sight 500 (epic-9 amendment 108)
       litDurationMs: 10000,
       shellRadius: 2,
     });
     for (const gone of ['incendiaryRadiusFactor', 'incendiaryDps', 'dazzleSightFactor']) {
       expect(gone in CONFIG.starShells, gone).toBe(false);
     }
-    expect('rangeU' in CONFIG.starShells).toBe(false);
+    expect('rangeU' in CONFIG.starShells).toBe(true); // its own tiered dial (Story 9.8, ruling 125)
     // The ratified SIGHT/2 structural derivation survives.
     expect(CONFIG.starShells.litRadius).toBe(CONFIG.vision.sight / 2);
   });
@@ -770,6 +790,9 @@ describe('shared barrel', () => {
       // Never a mine (amendment 200, superseding 135(c)): only a deck gun's
       // shell landing on a mine damages one.
       hits: ['hull', 'decoy'],
+      // Ruling 125: Tier I 8/12 → Tier V 10/12 (1,000 → 1,250 u).
+      rangeU: TWELFTH * 8,
+      rangeUAtV: TWELFTH * 10,
       shellSpeed: 500,
       maxAmmo: 1,
       reloadMs: 20000,
@@ -779,7 +802,7 @@ describe('shared barrel', () => {
       dps: 5,
       shellRadius: 2,
     });
-    expect('rangeU' in CONFIG.phosphorShells).toBe(false); // derived = radarRange
+    expect('rangeU' in CONFIG.phosphorShells).toBe(true); // its own tiered dial (Story 9.8, ruling 125)
   });
 
   it('CONFIG.foulingShell: no damage, no tiers, and a slow that leaves the hull moving (Story 9.4, epic-9 amendments 61–68)', () => {
@@ -787,7 +810,10 @@ describe('shared barrel', () => {
     expect('flashShells' in CONFIG).toBe(false);
     const fs = CONFIG.foulingShell;
     expect('damage' in fs).toBe(false); // zero damage — a slow is not damage
-    expect('rangeU' in fs).toBe(false); // reach is derived (the firer's radarRange)
+    // Its reach is its own FIXED dial since Story 9.8 (ruling 125: 8/12, no
+    // tiers — a consumable has no stats row, so no Tier V dial either).
+    expect(fs.rangeU).toBe(TWELFTH * 8);
+    expect('rangeUAtV' in fs).toBe(false);
     expect(fs.hits).toEqual(['hull', 'decoy']); // the star shell's mask — never a mine
     expect(fs.slowFactor).toBeGreaterThan(0); // never a full stop
     expect(fs.slowFactor).toBeLessThan(1); // it does slow
@@ -1051,21 +1077,23 @@ describe('shared barrel', () => {
     expect(Object.keys(EQUIPMENT_STAT_FIELDS).sort()).toEqual([...EQUIPMENT_IDS].sort());
     // The machine gun's shot delay is card-addressable (Eric 2026-09-30: its
     // ladder steps it, and the refit tier card prints a RATE row off it).
-    expect(EQUIPMENT_STAT_FIELDS.machineGun).toEqual(['reloadMs', 'maxAmmo', 'damage', 'rateMs']);
+    // Story 9.8 (ruling 125): its reach is a card-addressable tiered dial too.
+    expect(EQUIPMENT_STAT_FIELDS.machineGun).toEqual(['reloadMs', 'maxAmmo', 'rangeU', 'damage', 'rateMs']);
+    for (const w of ['gun', 'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells'] as const) {
+      expect(BOON_STAT_PATHS, w).toContain(`equipment.${w}.rangeU`);
+    }
     expect(BOON_STAT_PATHS).toContain('equipment.machineGun.rateMs');
     for (const path of [
       'sweepPeriodMs', 'sightRange',
       // Story 9.7 (epic-9 amendments 86–88 / 110–117): the Armor multiplier
       // is DERIVED from `armor` (which IS addressable) — never a card path.
       'damageMultiplier',
-      'equipment.gun.rangeU', 'equipment.starShells.rangeU', 'equipment.broadside.rangeU',
-      // Story 8.17: phosphor's reach is the radar rung too, derived.
-      'equipment.phosphorShells.rangeU', 'equipment.phosphorShells.tier',
-      // Story 8.15: the two pickable guns' ranges are the radar rung, derived;
-      // the cut's Armor bonus is fixed (Story 9.7, epic-9 amendment 88 — it
+      // Every weapon `rangeU` LEFT this list with Story 9.8 (ruling 125 — a
+      // tiered dial the cards step, pinned PRESENT above).
+      'equipment.phosphorShells.tier',
+      // The cut's Armor bonus is fixed (Story 9.7, epic-9 amendment 88 — it
       // replaced the deleted factor). (`machineGun.rateMs` is ADDRESSABLE since
       // 2026-09-30 — its ladder steps it; the idle clock is deleted.)
-      'equipment.machineGun.rangeU', 'equipment.flak.rangeU',
       'equipment.machineGun.idleReloadMs', 'equipment.damageCut.armorBonus',
       'equipment.broadside.traverseRad', 'equipment.broadside.mountSpreadRad',
       'equipment.navalMines.triggerRadius', 'equipment.gun.tier',
@@ -1186,10 +1214,13 @@ describe('shared barrel', () => {
     expect(CONFIG.machineGun).toEqual({
       arc: 'full', hits: ['hull', 'mine', 'decoy'], shellSpeed: 500, maxAmmo: 12, rateMs: 300,
       reloadMs: 12000, damage: 5, shellRadius: 2,
+      rangeU: TWELFTH * 6, rangeUAtV: TWELFTH * 7, // ruling 125: 6/12 → 7/12 (750 → 875 u)
     });
     expect(CONFIG.flak).toEqual({
       arc: 'full', hits: ['hull', 'mine', 'decoy', 'ordnance'], shellSpeed: 500, maxAmmo: 1,
-      reloadMs: 3500, damage: 12, contactDamage: 4, burstRadius: 50, shellRadius: 2, // 4000 → 3500, amendment 232
+      reloadMs: 3500, damage: 20, contactDamage: 4, burstRadius: 50, shellRadius: 2, // 4000 → 3500, amendment 232; damage 12 → 20 Eric 2026-10-13, experiment
+      rangeU: TWELFTH * 5, rangeUAtV: TWELFTH * 6, // ruling 125: 5/12 → 6/12 (625 → 750 u)
+      edgeFalloff: 10, // D at the centre, D − 10 at the rim (Eric 2026-10-13, flak only)
     });
     expect(CONFIG.instantReload).toEqual({ maxAmmo: 1, reloadMs: 60000 }); // 60 s (Eric 2026-10-02, amendment 232; was 45 s)
     // Story 9.7 (epic-9 amendments 86–88 / 110–117): the cut is +5 temporary
@@ -1197,9 +1228,10 @@ describe('shared barrel', () => {
     expect(CONFIG.damageCut).toEqual({ armorBonus: 5, durationMs: 10000, maxAmmo: 1, reloadMs: 30000 });
     expect(CONFIG.armor).toEqual({ k: 5 });
     expect(typeof damageMultiplierFor).toBe('function');
-    // Neither pickable gun carries a range field — it is the radar rung.
-    expect('rangeU' in CONFIG.machineGun).toBe(false);
-    expect('rangeU' in CONFIG.flak).toBe(false);
+    // Both pickable guns carry their own range dials since Story 9.8 (ruling
+    // 125) — no longer the radar rung.
+    expect('rangeU' in CONFIG.machineGun).toBe(true);
+    expect('rangeU' in CONFIG.flak).toBe(true);
     expect('burstRadius' in CONFIG.machineGun).toBe(false); // direct hit, NO burst
   });
 
@@ -1258,9 +1290,9 @@ describe('shared barrel', () => {
     // the field — so level totals are a consequence, never the input. Counts
     // doubled from 4/2/1 when the spawn unit halved to six hulls.
     expect(CONFIG.fleet.waves).toEqual([
-      { atMs: 60000, fleets: 8 },
-      { atMs: 300000, fleets: 4 },
-      { atMs: 540000, fleets: 2 },
+      { atMs: 60000, fleets: 16 }, // doubled 2026-10-14 (Eric, Story 9.8): 16 -> 8 -> 4
+      { atMs: 300000, fleets: 8 },
+      { atMs: 540000, fleets: 4 },
     ]);
   });
 });

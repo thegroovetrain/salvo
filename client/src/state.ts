@@ -44,7 +44,7 @@ export interface NetState {
    *  disclosed by holding what was already sent. [] when none. Fed to the renderer
    *  (render/countermeasure.ts); since 2026-10-12 the server hides nothing
    *  behind smoke, so no client mirror reads it. */
-  clouds: CloudView[];
+  clouds: HeldCloud[];
   /** The HELD cloud set behind `clouds`, by id — net/roomBindings.ts merges
    *  every frame's clouds into it and expires them on the FRAME's server time;
    *  `clouds` is its unexpired list. Lives here (not in the binding) so the
@@ -52,8 +52,15 @@ export interface NetState {
    *  clears its store at the practice → match boundary (world.ts
    *  resetForMatchStart) and a held practice cloud must not ghost into the
    *  match. */
-  heldClouds: Map<string, CloudView>;
+  heldClouds: Map<string, HeldCloud>;
 }
+
+/** A HELD countermeasure cloud (net/roomBindings.ts holdClouds): the wire's
+ *  CloudView plus `deliveredAt`, the server time (ms) of the last frame whose
+ *  `clouds` carried its row. The radar's return source gates on it
+ *  (render/cloudReturnGate.ts, Story 9.8 review gate F1); the haze and the
+ *  wake mirror ignore it. */
+export type HeldCloud = CloudView & { deliveredAt: number };
 
 export interface GameState {
   phase: Phase;

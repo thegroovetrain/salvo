@@ -9,10 +9,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CanvasSource, Container, Texture, TextureSource } from 'pixi.js';
+import { CanvasSource, Container, Texture, TextureSource, updateRenderGroupTransforms } from 'pixi.js';
 import { CONFIG, cloudOutlineRadius, mulberry32, wrapPositive, type CloudView, type Island } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { Countermeasure } from '../render/countermeasure.js';
+import { Camera } from '../render/camera.js';
 import {
   CLOUD_CELLS,
   FADED_ALPHA,
@@ -49,7 +50,10 @@ vi.mock('../render/textures.js', async (importOriginal) => {
     bakeHaloMaskTexture: (haloU: number, into?: Texture | null, rays?: Float32Array | null): Texture => {
       haloBakes.calls.push({ haloU, into });
       haloBakes.rays.push(rays ? [...rays] : null);
-      return into ?? new Texture({ source: new TextureSource({ width: 8, height: 8 }) });
+      // The real bake's SIZE (no pixels): the mask's world bounds are then the
+      // halo's, which the screen-clip test below measures.
+      const size = actual.HALO_MASK_TEXTURE_SIZE;
+      return into ?? new Texture({ source: new TextureSource({ width: size, height: size }) });
     },
   };
 });
@@ -92,7 +96,8 @@ describe('one bitmap per held cloud, on the `cloud` layer', () => {
     const cm = new Countermeasure(layer, seeded());
     cm.sync([cloud('c1', 0, 300, -120)]);
     const s = cm.spriteOf('c1')!;
-    expect(layer.children, 'the halo mask leads, then the cloud').toEqual([cm.haloMask, s]);
+    expect(layer.children, 'the halo mask leads, then the cloud body').toEqual([cm.haloMask, cm.cloudBody]);
+    expect(cm.cloudBody.children).toEqual([s]);
     expect(s.texture.source.width).toBe(CLOUD_CELLS);
     expect(s.texture.source.height).toBe(CLOUD_CELLS);
     expect(s.texture.source.scaleMode).toBe('linear');
@@ -121,7 +126,8 @@ describe('one bitmap per held cloud, on the `cloud` layer', () => {
     expect(main).toContain('stage.layers.ownShip.addChild(ownView.gfx)');
     expect(main, 'the halo follows the live intel range, beside radar.setRanges')
       .toContain('g.countermeasure.setHaloU(hazeHaloU(stats.radarRange))');
-    expect(main, 'the alive path centres the halo on the own pose').toContain('g.countermeasure.render(now, pose)');
+    expect(main, 'the alive path centres the halo on the own pose, clipped to the screen')
+      .toContain('g.countermeasure.render(now, pose, g.camera.screenWorldRect)');
     expect(main, 'the halo sees past no island: the map\'s islands, beside the radar\'s wake sources')
       .toContain('g.countermeasure.setIslands(g.islands)');
   });
@@ -153,6 +159,72 @@ describe('the haze is seen by eye only inside the 5/8 halo (Eric 2026-10-12)', (
     expect(cm.haloMask.renderable, 'a mask, never painted').toBe(false);
     cm.render(116, { x: 5, y: 6 });
     expect([cm.haloMask.x, cm.haloMask.y], 'it follows the hull').toEqual([5, 6]);
+  });
+
+  // THE PERF GATE (Story 9.8): a masked layer is a full filter pass every frame
+  // in Pixi, sized to the HALO (2264 px at DPR 2 on the twelfths ladder) and
+  // not to the screen — so an alive captain with no haze must run none.
+  it('holds NO mask while no cloud is held — 600 alive frames run no mask pass', () => {
+    const { cm, layer } = fresh();
+    for (let f = 0; f < 600; f += 1) {
+      cm.render(f * 16, OWN);
+      expect(layer.mask ?? null, `frame ${f}`).toBeNull();
+    }
+    cm.sync([cloud('c1', 0, 900, 900)]);
+    cm.render(600 * 16, OWN);
+    expect(layer.mask, 'a held cloud is masked at once').toBe(cm.haloMask);
+    cm.clear();
+    cm.render(601 * 16, OWN);
+    expect(layer.mask ?? null, 'the last cloud gone, the pass goes with it').toBeNull();
+  });
+
+  // THE PASS IS CLIPPED TO THE SCREEN (Story 9.8 perf gate). Pixi's mask filter
+  // opts out of viewport clipping, so with a cloud held the masked layer's
+  // pass was (clouds ∩ halo) — up to the 750 u halo's full size at the close
+  // framing. Its bounds must sit inside the screen's world rect at every
+  // framing; the mask (fan + feather) itself is unchanged.
+  it.each([
+    ['close', CLIENT_CONFIG.zoom.closeSpanU],
+    ['default', CLIENT_CONFIG.zoom.defaultSpanU],
+  ])('with a cloud held, the masked pass stays inside the screen at the %s framing', (_name, spanU) => {
+    const root = new Container({ isRenderGroup: true });
+    const { cm, layer } = fresh();
+    root.addChild(layer);
+    // Clouds above, on and below the hull: their union spans the whole halo.
+    const reach = haloSpanU(cm.haloU);
+    cm.sync([cloud('n', 0, OWN.x, OWN.y - reach), cloud('c', 0, OWN.x, OWN.y), cloud('s', 0, OWN.x, OWN.y + reach)]);
+    const cam = new Camera({
+      defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
+      closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
+      ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
+      followRate: 5,
+      leadSeconds: 4,
+      leadMax: 110,
+    });
+    cam.setViewport(1600, 900);
+    cam.setRing(0, 0, 100_000);
+    cam.setUserZoom(CLIENT_CONFIG.zoom.defaultSpanU / spanU);
+    cam.snapTo(OWN);
+    const screen = cam.screenWorldRect;
+    expect(screen.h).toBeCloseTo(spanU, 6);
+    // Unclipped, the pass would be the halo's height — taller than the screen.
+    expect(2 * reach).toBeGreaterThan(screen.h);
+    cm.render(16, OWN, screen);
+    expect(layer.mask).toBe(cm.haloMask);
+    // The renderer refreshes transforms each frame; headless, do it here so the
+    // bounds read the halo where render() just put it.
+    updateRenderGroupTransforms(root.renderGroup!, true);
+    const b = layer.getFastGlobalBounds(true);
+    const eps = 1e-6;
+    expect(b.minX).toBeGreaterThanOrEqual(screen.x - eps);
+    expect(b.minY).toBeGreaterThanOrEqual(screen.y - eps);
+    expect(b.maxX).toBeLessThanOrEqual(screen.x + screen.w + eps);
+    expect(b.maxY).toBeLessThanOrEqual(screen.y + screen.h + eps);
+    expect(b.height, 'it is the screen, not a sliver').toBeCloseTo(screen.h, 6);
+    // ...and the clip comes off with the mask.
+    cm.clear();
+    cm.render(32, OWN, screen);
+    expect(cm.cloudBody.boundsArea ?? null).toBeNull();
   });
 
   it('the mask sprite covers the halo plus its feather, at one texel = 2·span/size world units', () => {
@@ -288,7 +360,8 @@ describe('the haze is seen by eye only inside the 5/8 halo (Eric 2026-10-12)', (
     cm.sync([cloud('c1')]);
     cm.render(100, OWN);
     cm.clear();
-    expect(layer.children).toEqual([cm.haloMask]);
+    expect(layer.children).toEqual([cm.haloMask, cm.cloudBody]);
+    expect(cm.cloudBody.children).toEqual([]);
     expect(cm.haloMask.destroyed).toBe(false);
   });
 });
@@ -554,7 +627,7 @@ describe('a cloud leaves only after its spray is over AND its paint has faded', 
     expect(cm.size).toBe(0);
     expect(cm.spriteOf('old')).toBeNull();
     expect(s.destroyed).toBe(true);
-    expect(layer.children, 'only the halo mask is left').toEqual([cm.haloMask]);
+    expect(cm.cloudBody.children, 'only the halo mask is left').toEqual([]);
   });
 
   it('clear() empties every held cloud (the match-start edge)', () => {
@@ -564,7 +637,7 @@ describe('a cloud leaves only after its spray is over AND its paint has faded', 
     cm.render(1000);
     cm.clear();
     expect(cm.size).toBe(0);
-    expect(layer.children, 'only the halo mask is left').toEqual([cm.haloMask]);
+    expect(cm.cloudBody.children, 'only the halo mask is left').toEqual([]);
   });
 });
 

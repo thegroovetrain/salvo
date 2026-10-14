@@ -38,8 +38,9 @@ const DT = CONFIG.tick.simDtMs;
 const SLOT_BROADSIDE = 2;
 /** The one weapon slot the Battleship's two-line seed leaves empty. */
 const SLOT_EMPTY = 4;
-/** The 5/8 rung — the broadside's base reach (412.5u), derived, never a literal. */
-const RUNG_5_8 = CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor;
+/** The broadside's base (Tier I) reach — its own dial on the twelfths ruler
+ *  since Story 9.8 (ruling 125: 5/12), read from CONFIG, never a literal. */
+const TIER_I_REACH = CONFIG.broadside.rangeU;
 /** A bearing squarely inside the port beam sector (heading 0 + 90°). */
 const ABEAM = Math.PI / 2;
 
@@ -138,10 +139,11 @@ describe('broadside — server loadout + barrage construction', () => {
     expect(bb.loadout[SLOT_BROADSIDE].state).toEqual({ n: 0, reloadMsLeft: CONFIG.broadside.reloadMs });
   });
 
-  it('RANGE IS THE 5/8 RUNG: a click beyond reach clamps to 412.5u, NOT the 660u radar horizon', () => {
+  it('RANGE IS ITS OWN DIAL: a click beyond reach clamps to the Tier I reach, NOT the radar horizon (Story 9.8, ruling 125)', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
-    expect(bb.stats.equipment.broadside.rangeU).toBeCloseTo(RUNG_5_8, 9);
+    expect(bb.stats.equipment.broadside.rangeU).toBeCloseTo(TIER_I_REACH, 9);
+    expect(bb.stats.equipment.broadside.rangeU).toBeLessThan(bb.stats.radarRange);
     expect(bb.stats.equipment.broadside.rangeU).toBeLessThan(bb.stats.equipment.gun.rangeU); // the FIRST short-reach weapon
     // Measured at the ×4 SPREAD cap, where every gun bears and so every shell
     // lands on the clamped CLICK itself. At base (2026-08-27's zero-overlap
@@ -149,19 +151,18 @@ describe('broadside — server loadout + barrage construction', () => {
     // CENTRE is a parallax artefact rather than the weapon's reach — the reach
     // is the click, and this is where the click shows.
     for (let i = 0; i < 4; i += 1) w.applyCard(bb, 'broadsideSpread');
-    setInput(bb, { aim: ABEAM, aimDist: 1200, slot: SLOT_BROADSIDE });
+    setInput(bb, { aim: ABEAM, aimDist: CONFIG.vision.radar + 200, slot: SLOT_BROADSIDE });
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
-    for (const p of polar(w, { x: 0, y: 0 })) expect(p.range).toBeCloseTo(RUNG_5_8, 6);
+    for (const p of polar(w, { x: 0, y: 0 })) expect(p.range).toBeCloseTo(TIER_I_REACH, 6);
   });
 
   // RETIRED 2026-08-20 with the INTEL RANGE card. This test's subject was the
   // STACK, not the rung: it granted `intelRange` and checked the broadside's
   // reach rode the grown radar range. No card writes `stats.radarRange` any
-  // more, so there is nothing to grow. The rung itself — `broadside.rangeU` is
-  // 5/8 of radarRange, 412.5u, strictly inside the gun's reach — is pinned at
-  // BASE by the test directly above AND independently in shared's
-  // stats.test.ts ('broadside rangeU is the 5/8 rung of radarRange'), so no
-  // coverage was lost. Retired rather than adapted, per cycle 93/95 precedent.
+  // more, so there is nothing to grow. The reach itself — `broadside.rangeU`,
+  // its own dial since Story 9.8 (ruling 125), strictly inside the gun's
+  // reach — is pinned at BASE by the test directly above AND independently in
+  // shared's stats.test.ts, so no coverage was lost. Retired rather than adapted, per cycle 93/95 precedent.
 
   it('D1: the validated fire time becomes EVERY shell of the barrage bornAt', () => {
     const w = bareWorld();

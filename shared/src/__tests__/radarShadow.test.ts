@@ -34,13 +34,17 @@ import {
 } from '../index.js';
 
 const CELL = 14; // the production raster cell size
-const N = 201; // covers ±1400u — comfortably past radar range (660u)
+// Covers ±1400u. Since Story 9.8 radar (1,500 u) reaches past the raster's
+// edge from the origin; a ray leaving the grid is transparent beyond it and a
+// shadow folded inside persists (the off-raster suite), so every placement
+// below still reads the law it names.
+const N = 201;
 const MID = (N - 1) / 2; // 100
 const X0 = -MID * CELL; // -1400: sample (MID, MID) sits at (0, 0)
 
-const R = CONFIG.vision.radar; // 660
+const R = CONFIG.vision.radar; // 1500 since Story 9.8 (epic-9 amendment 103)
 const H = CONFIG.vision.radarMastQ; // 64
-const K = radarShadowK(); // 108900
+const K = radarShadowK(); // R²/4 (562,500 at the twelfths ladder)
 
 /** Synthetic raster: `cells` is [i, j, quantizedHeight] triples, rest is sea. */
 function rasterOf(cells: ReadonlyArray<readonly [number, number, number]>): HeightRaster {
@@ -65,8 +69,9 @@ function reachFor(q: number, i: number, ox: number): number {
 
 describe('K — the world constant', () => {
   it('is radarRange²/4 (= 2RH, amendment 114/182), from BASE CONFIG.vision.radar — the module takes no observer stats anywhere in its API, so a boon-widened stats.radarRange structurally cannot reach it (amendment 185)', () => {
+    // By DERIVATION, never the literal (epic-9 amendment 8; Story 9.8 moved
+    // radar 660 → 1,500 u, so K moved 108,900 → 562,500 by construction).
     expect(K).toBe(CONFIG.vision.radar ** 2 / 4);
-    expect(K).toBe(108900); // 660²/4 at the shipped ladder
   });
 });
 
@@ -75,7 +80,7 @@ describe('open water (matrix: no land on the ray)', () => {
 
   it('vis = 1 at every distance, reach is infinite', () => {
     const walk = beginShadowWalk(sea, 0, 0, 1, 0);
-    for (const d of [1, 100, 330, R, 1000]) {
+    for (const d of [1, R * 0.15, R / 2, R, R * 1.5]) {
       walk.advanceTo(d);
       expect(walk.visibilityAt(d)).toBe(1);
     }
@@ -95,7 +100,7 @@ describe('open water (matrix: no land on the ray)', () => {
 describe('sea-level fringe (matrix: land at h ≈ 0, any d₀)', () => {
   it('the lowest representable land (q = 1) costs under 1% of the scope even at its worst placement — a coastal graze costs almost nothing', () => {
     const u = 1 - 1 / H;
-    const worst = R * Math.sqrt(u); // 654.83u of 660
+    const worst = R * Math.sqrt(u); // 99.2 % of R
     // Worst placement: obstacle at exactly half the worst-case reach.
     const boundary = X0 + 150 * CELL - CELL / 2; // 693
     const ox = boundary - worst / 2;
@@ -111,11 +116,16 @@ describe('sea-level fringe (matrix: land at h ≈ 0, any d₀)', () => {
 });
 
 describe('soft cover (matrix: 0 < h < H at d₀)', () => {
-  // q = 32 ⇒ u = 0.5, single cell at column 122 (x = 308), observer at origin:
-  // entry d₀ = 301, reach = d₀ + K·u/d₀ = 301 + 54450/301 ≈ 481.9.
+  // q = 32 ⇒ u = 0.5, a single cell at ~0.455 R (RE-BASED BY STORY 9.8 — the
+  // column was 122, d₀ = 301 u = 0.456 of the old 660 u R). The placement is a
+  // FRACTION OF R because the law's fade is monotone past the obstacle only
+  // while d₀² > u·K (= u·R²/4, i.e. d₀ > 0.354 R at u = 0.5): nearer than that
+  // the shadow line rises again before it falls. At R = 1,500 the column is
+  // 149: entry d₀ = 679, reach = d₀ + K·u/d₀ ≈ 1,093.
   const q = 32;
-  const d0 = entryOf(122); // 301
-  const raster = rasterOf([[122, MID, q]]);
+  const col = Math.round((0.455 * R - X0 + CELL / 2) / CELL);
+  const d0 = entryOf(col);
+  const raster = rasterOf([[col, MID, q]]);
   const reach = d0 + (K * (1 - q / H)) / d0;
 
   it('reach = d₀ + K(1 − h/H)/d₀ — the accumulator root IS the gate reach, one function, one root', () => {
@@ -305,7 +315,7 @@ describe('degenerate inputs fail OPEN (matrix: no terrain data ⇒ no shadow)', 
     const orig = vision.radar;
     try {
       vision.radar = NaN;
-      expect(visibilityTo(wall, 0, 0, 660, 0)).toBe(1);
+      expect(visibilityTo(wall, 0, 0, orig, 0)).toBe(1);
     } finally {
       vision.radar = orig;
     }
@@ -348,8 +358,11 @@ describe('the folding cadence — the parity contract (resumed walk ≡ fresh wa
   });
 
   it('pyramid tile-skips change nothing: the walk agrees with an independent naive per-cell fold on a scattered board at arbitrary angles', () => {
-    // Independent oracle: literals (H = 64, K = 108900), no pyramid, no
-    // production traversal — boundary crossings enumerated directly.
+    // Independent oracle: H = 64 as a literal and K = R²/4 re-derived here off
+    // CONFIG.vision.radar (Story 9.8 — never the literal, epic-9 amendment 8;
+    // it was 108900 at R 660), no pyramid, no production traversal — boundary
+    // crossings enumerated directly.
+    const KO = CONFIG.vision.radar ** 2 / 4;
     const naive = (r: HeightRaster, ox: number, oy: number, dx: number, dy: number, D: number): number => {
       const ts: number[] = [];
       for (let m = -1; m < N; m++) {
@@ -366,11 +379,11 @@ describe('the folding cadence — the parity contract (resumed walk ≡ fresh wa
         if (i < 0 || j < 0 || i >= N || j >= N) continue;
         const q = r.height[j * N + i];
         if (q <= 0) continue;
-        const a = (1 - q / 64) / t + t / 108900;
+        const a = (1 - q / 64) / t + t / KO;
         if (a < aMin) aMin = a;
       }
       if (aMin === Infinity) return 1;
-      return Math.max(0, Math.min(1, D * (aMin - D / 108900)));
+      return Math.max(0, Math.min(1, D * (aMin - D / KO)));
     };
 
     // Deterministic scattered board: ~30 blobs of varied height.
@@ -595,9 +608,20 @@ describe('the shadow character at radarMastQ (amendment 184 guardrail)', () => {
     // spine crossing reliably breaks a lock, and the middle band is wide. The
     // pin is the measured truth, not the prose figure, because a guardrail that
     // pins a number the code does not produce guards nothing.
+    //
+    // RE-MEASURED AND RE-BASED BY STORY 9.8 (radar 660 → 1,500 u, epic-9
+    // amendment 103; `radarMastQ` 64 untouched, amendment 116). A longer ray
+    // samples more of each island's spine, so more land-crossing bearings
+    // reach mast height. Measured by this exact methodology at R = 1,500:
+    // per seed 51.7 / 55.7 / 54.9 / 61.7 / 51.9 %, pooled 55.2 % (n = 12,035
+    // land-crossing bearings of 21,600). The H-table at the new R reads
+    // q32 → 77.7 %, q64 → 55.2 %, q96 → 34.7 %, so the neighbour midpoints are
+    // 66.5 % and 45.0 %. The band keeps its ±8pp width (~10σ at this n) and is
+    // re-centred on the measurement; it still fires before the character has
+    // drifted halfway to a neighbouring mast height.
     const share = hard / land;
-    expect(share).toBeGreaterThan(0.37);
-    expect(share).toBeLessThan(0.53);
+    expect(share).toBeGreaterThan(0.47);
+    expect(share).toBeLessThan(0.63);
 
     // And the feature stays SITUATIONAL by construction (amendment 177: most of
     // the scope is never touched either way). Measured 14.8%; amendment 177
@@ -610,8 +634,15 @@ describe('the shadow character at radarMastQ (amendment 184 guardrail)', () => {
     // the old board; 33.5 % here. The guard keeps its job (a generator that
     // pushed this past HALF the scope would be a different game again) with
     // the floor raised so a silent return to the old open ocean fails too.
-    expect(crossing).toBeGreaterThan(0.2);
-    expect(crossing).toBeLessThan(0.5);
+    //
+    // RE-BASED BY STORY 9.8: the ray is 1,500 u now, so it crosses land far
+    // more often on the same board — measured 55.7 % (12,035 of 21,600
+    // bearings; it was 33.5 % at 660 u). The band keeps its 30pp width
+    // re-centred on the measurement: a generator that pushed past 70 % would
+    // make radar mostly blind, and a silent return to the old open ocean
+    // (or to the old short ray) falls under the 40 % floor.
+    expect(crossing).toBeGreaterThan(0.4);
+    expect(crossing).toBeLessThan(0.7);
   });
 });
 
@@ -729,7 +760,7 @@ describe('terrain paints to the peak, and the shadow lives on the other side (th
 
   it('the far slope past the summit is DARK — every land sample, to the rim', () => {
     expect(far.length).toBeGreaterThan(20);
-    // Every one of them, out to 660u: the shadow really does live on the other
+    // Every one of them, out to the rim: the shadow really does live on the other
     // side, and it is amendment 176's residual reach — never a dark band
     // followed by clear ground.
     for (const s of far) expect(terrainLit(s)).toBe(0);
@@ -848,7 +879,7 @@ describe('the ship instance IS `visibilityAt` (the guarantee that disclosure did
 describe('required height — the grazing ray, and why the UNCLAMPED form is load-bearing', () => {
   it('a clear bearing requires nothing: required height is 0 and every object is fully lit', () => {
     const walk = beginShadowWalk(rasterOf([]), 0, 0, 1, 0);
-    for (const d of [1, 100, 330, R, 5000]) {
+    for (const d of [1, R * 0.15, R / 2, R, R * 3]) {
       walk.advanceTo(d);
       expect(walk.requiredHeightAt(d)).toBe(0);
       expect(illuminatedFraction(1, walk.requiredHeightAt(d))).toBe(1);

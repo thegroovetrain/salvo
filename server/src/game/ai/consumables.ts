@@ -165,15 +165,15 @@ const decoyBuoyTactic: ConsumableTactic = {
  *               the chaser); nothing astern, no press.
  * The zone slows the bot too if it sails back through it; the row does not
  * track that (amendment 65). Stock is the slot's own `n` (firePass's
- * readiness gate); reach is the star shell's (the radar rung), which is what
- * the row's clamp uses server-side.
+ * readiness gate); reach is the shell's own dial (`CONFIG.foulingShell.rangeU`,
+ * Story 9.8 ruling 125), which is what the row's clamp uses server-side.
  */
 const foulingShellTactic: ConsumableTactic = {
   id: 'foulingShell',
   kind: 'shot',
-  reachU: (stats) => stats.radarRange,
+  reachU: () => CONFIG.foulingShell.rangeU,
   want: (ctx) => isAfloat(ctx.self.lifecycle) && foulingShellTarget(ctx) !== null,
-  solve: (ctx) => burstOnLiveContact(ctx, ctx.sit.stats.radarRange, foulingShellTarget(ctx)),
+  solve: (ctx) => burstOnLiveContact(ctx, CONFIG.foulingShell.rangeU, foulingShellTarget(ctx)),
 };
 
 /** The FOULING SHELL's target under the bot's posture (amendment 65), or

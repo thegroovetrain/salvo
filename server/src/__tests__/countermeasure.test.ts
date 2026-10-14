@@ -223,8 +223,8 @@ describe('COUNTERMEASURE — a cloud hides nothing (Story 9.3 session 2: a clien
   it("radar paints a hull standing inside a NON-owner's fresh cloud in the annulus", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    place(w, 'b', 400, 0); // sight 330 < 400 ≤ radar 660
-    injectCloud(w, 'onB', 'b', 400, 0);
+    place(w, 'b', 700, 0); // sight < 700 ≤ dropout start < radar (Story 9.8, amendment 103)
+    injectCloud(w, 'onB', 'b', 700, 0);
     windowAround(a, 0);
     expect(eventsOf(buildFrame(w, 'a'), 'blip')).toHaveLength(1);
   });
@@ -238,15 +238,24 @@ describe('COUNTERMEASURE — the `clouds` channel (the spray disc SIGHTED or RAD
   const SIGHT = CONFIG.vision.sight;
   const RADAR = CONFIG.vision.radar;
   const R0 = cloudOutlineRadius(0);
+  // Placements off the live ladder (Story 9.8, amendment 103): NEAR's nearest
+  // rim point sits 30 u inside sight, FAR's 70 u past it; RADAR_C's whole
+  // disc is beyond sight and its centre inside the dropout's flat band (so
+  // every swept tick delivers — ruling 121); BEYOND's nearest point is past
+  // radar.
+  const NEAR = SIGHT + R0 - 30;
+  const FAR = SIGHT + R0 + 70;
+  const RADAR_C = SIGHT + R0 + 100;
+  const BEYOND = RADAR + R0 + 100;
 
-  it('SIGHTED: a fresh disc whose nearest point is 300 u out rides; one whose nearest point is 400 u out does not (no radar: zero-width beam)', () => {
+  it('SIGHTED: a fresh disc whose nearest point is just inside sight rides; one whose nearest point is just past it does not (no radar: zero-width beam)', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0); // place() parks a zero-width beam window: no radar term
     place(w, 'b', 900, 900);
-    expect(500 - R0).toBeLessThanOrEqual(SIGHT); // premise: 300 u ≤ sight
-    expect(600 - R0).toBeGreaterThan(SIGHT); // premise: 400 u > sight
-    injectCloud(w, 'near', 'b', 500, 0);
-    injectCloud(w, 'far', 'b', -600, 0);
+    expect(NEAR - R0).toBeLessThanOrEqual(SIGHT); // premise: inside sight
+    expect(FAR - R0).toBeGreaterThan(SIGHT); // premise: past sight
+    injectCloud(w, 'near', 'b', NEAR, 0);
+    injectCloud(w, 'far', 'b', -FAR, 0);
     expect(cloudIds(buildFrame(w, 'a'))).toEqual(['near']);
   });
 
@@ -256,8 +265,8 @@ describe('COUNTERMEASURE — the `clouds` channel (the spray disc SIGHTED or RAD
     place(w, 'b', 900, 900);
     const isle = circleIsland(150, 0, 60);
     w.map.islands.push(isle);
-    expect(islandBlocksSegment(O, { x: 500 - R0, y: 0 }, isle)).toBe(true); // premise: the nearest rim point is behind land
-    injectCloud(w, 'c1', 'b', 500, 0);
+    expect(islandBlocksSegment(O, { x: NEAR - R0, y: 0 }, isle)).toBe(true); // premise: the nearest rim point is behind land
+    injectCloud(w, 'c1', 'b', NEAR, 0);
     expect(cloudIds(buildFrame(w, 'a'))).toEqual([]);
     w.map.islands.length = 0;
     expect(cloudIds(buildFrame(w, 'a'))).toEqual(['c1']);
@@ -267,10 +276,12 @@ describe('COUNTERMEASURE — the `clouds` channel (the spray disc SIGHTED or RAD
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 900, 900);
-    expect(700 - R0).toBeGreaterThan(SIGHT); // premise: no point of the disc in sight
-    expect(700 - R0).toBeLessThanOrEqual(RADAR); // premise: its nearest point in radar range
-    injectCloud(w, 'c1', 'b', 700, 0);
-    windowAround(a, 0.2); // inside the span ±asin(200/700) ≈ ±0.29, off the centre's own bearing
+    expect(RADAR_C - R0).toBeGreaterThan(SIGHT); // premise: no point of the disc in sight
+    expect(RADAR_C - R0).toBeLessThanOrEqual(RADAR); // premise: its nearest point in radar range
+    expect(RADAR_C).toBeLessThanOrEqual(CONFIG.vision.dropout.startU); // premise: no dropout at the centre
+    expect(0.2).toBeLessThan(Math.asin(R0 / RADAR_C)); // premise: 0.2 rad is inside the bearing span
+    injectCloud(w, 'c1', 'b', RADAR_C, 0);
+    windowAround(a, 0.2); // inside the span ±asin(R0/RADAR_C), off the centre's own bearing
     expect(cloudIds(buildFrame(w, 'a'))).toEqual(['c1']);
     windowAround(a, Math.PI);
     expect(cloudIds(buildFrame(w, 'a'))).toEqual([]);
@@ -280,10 +291,10 @@ describe('COUNTERMEASURE — the `clouds` channel (the spray disc SIGHTED or RAD
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 900, 900);
-    injectCloud(w, 'c1', 'b', 700, 0);
+    injectCloud(w, 'c1', 'b', RADAR_C, 0);
     windowAround(a, 0);
     expect(cloudIds(buildFrame(w, 'a'))).toEqual(['c1']);
-    w.map.heightRaster = rasterFrom(700, ridgeField(150, 0, 20, 400)); // a tall wall across the bearing to the cloud
+    w.map.heightRaster = rasterFrom(RADAR_C + 100, ridgeField(150, 0, 20, 400)); // a tall wall across the bearing to the cloud
     expect(cloudIds(buildFrame(w, 'a'))).toEqual([]);
   });
 
@@ -291,8 +302,8 @@ describe('COUNTERMEASURE — the `clouds` channel (the spray disc SIGHTED or RAD
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 900, 900);
-    expect(1000 - R0).toBeGreaterThan(RADAR); // premise
-    injectCloud(w, 'far1', 'b', 1000, 0);
+    expect(BEYOND - R0).toBeGreaterThan(RADAR); // premise
+    injectCloud(w, 'far1', 'b', BEYOND, 0);
     windowAround(a, 0, 0.5);
     expect(cloudIds(buildFrame(w, 'a'))).toEqual([]);
   });

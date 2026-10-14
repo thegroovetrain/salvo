@@ -36,9 +36,10 @@
 // produces 5 muzzle flashes and up to 5 Hit Calls, and epic-4 amendment 17's
 // "exactly one `hc` per shell resolution" keeps holding per SHELL.
 //
-// Range is `stats.equipment.broadside.rangeU` — THE 5/8 RUNG, derived post-fold in
-// effectiveStats() (`radarRange × CONFIG.vision.muzzleFlashFactor`) and read
-// here, never re-derived. Pure over a ShipRecord's input + pose + slot pool;
+// Range is `stats.equipment.broadside.rangeU` — its own tiered dial since
+// Story 9.8 (ruling 125: Tier I `CONFIG.broadside.rangeU` at 5/12, + a step
+// per card to 6/12), folded in effectiveStats() and read here, never
+// re-derived. Pure over a ShipRecord's input + pose + slot pool;
 // the World owns shell storage + event emission.
 
 import {

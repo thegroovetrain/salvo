@@ -35,9 +35,10 @@ describe('defaultQueueConfig', () => {
     expect(CFG.minHumans).toBe(CONFIG.match.minHumans);
     expect(CFG.cap).toBe(CONFIG.map.playerCap);
     expect(CFG.queueTimerMs).toBe(CONFIG.match.queueTimerMs);
-    // The ruled shape (Eric 2026-08-14): 2 captains, 2:00 hold, cap 20.
+    // The ruled shape (Eric 2026-08-14): 2 captains, 2:00 hold. The CAP is
+    // not re-pinned here — it is the arena's own number (20 then, 16 since
+    // Story 9.8, Eric 2026-10-13), and the projection above is the contract.
     expect(CFG.minHumans).toBe(2);
-    expect(CFG.cap).toBe(20);
     expect(CFG.queueTimerMs).toBe(120000);
   });
 });

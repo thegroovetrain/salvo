@@ -20,7 +20,7 @@ import {
   type ShipClassId,
 } from '@salvo/shared';
 import type { BotSelf } from './types.js';
-import { engagementBand } from './profiles.js';
+import { engagementBand, mountedGunRangeU } from './profiles.js';
 import {
   APPETITE_NEUTRAL,
   appetiteFor,
@@ -44,7 +44,7 @@ function chargingIn(ctx: TacticContext): boolean {
   if (t === null) return false;
   // R13 (Eric, 2026-09-30): real fights only — `farm` (PvE fleet hunting) never boosts in.
   if (ctx.posture !== 'pursue' && ctx.posture !== 'engage') return false;
-  return distTo(ctx.sit, t) > engagementBand(ctx.sit.profile, ctx.sit.stats).max;
+  return distTo(ctx.sit, t) > engagementBand(ctx.sit.profile, ctx.sit.stats, ctx.self.loadout[SLOT_GUN]?.equipmentId).max;
 }
 
 /** The boost is pressed on the way OUT (the `disengage` posture) and on the
@@ -67,13 +67,11 @@ const boostTactic: EquipmentTactic = {
 // INSTANT RELOAD (the Mine Layer's Shift).
 // ---------------------------------------------------------------------------
 
-/** The mounted gun's reach — "in range" for the INSTANT RELOAD rule. All three
- *  guns sit on the radar rung today; reading the mounted row keeps the rule
- *  honest if a ladder ever moves one. */
+/** The mounted gun's reach — "in range" for the INSTANT RELOAD rule. Each
+ *  gun's reach is its own tiered dial since Story 9.8 (ruling 125), so the
+ *  mounted row is read through the one resolver the engagement band uses. */
 function mountedGunReachU(self: BotSelf, stats: EffectiveStats): number {
-  const id = self.loadout[SLOT_GUN]?.equipmentId;
-  if (id === 'machineGun' || id === 'flak') return stats.equipment[id].rangeU;
-  return stats.equipment.gun.rangeU;
+  return mountedGunRangeU(self.loadout[SLOT_GUN]?.equipmentId, stats);
 }
 
 /** The slots INSTANT RELOAD serves (amendment 98): the mounted gun and the

@@ -165,8 +165,11 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 80 and admits 81', () => {
-  it('PROTOCOL_VERSION is 81', () => {
+describe('the PV join gate refuses 81 and admits 82', () => {
+  it('PROTOCOL_VERSION is 82', () => {
+    // Story 9.8 bumped 81 -> 82: the twelfths ladder (sight 500 / radar 1500),
+    // every weapon reach its own tiered dial (catalog content: a RANGE step
+    // on every gun card), the radar dropout dials, the foghorn's twelve bands.
     // Story 9.7 bumped 80 -> 81: catalog content (the ARMOR ladder after
     // HULL POINTS) and the client reads CONFIG.armor through EffectiveStats
     // (armor, damageMultiplier); DAMAGE CUT's factor became armorBonus.
@@ -226,7 +229,8 @@ describe('the PV join gate refuses 80 and admits 81', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(81);
+    expect(PROTOCOL_VERSION).toBe(82);
+    expect(protocolVersionError(81)).toMatch(/refresh/i);
     expect(protocolVersionError(80)).toMatch(/refresh/i);
     expect(protocolVersionError(79)).toMatch(/refresh/i);
     expect(protocolVersionError(78)).toMatch(/refresh/i);
@@ -272,12 +276,12 @@ describe('the PV join gate refuses 80 and admits 81', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(82)).toMatch(/refresh/i);
+    expect(protocolVersionError(83)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(81)).toBeNull();
+    expect(protocolVersionError(82)).toBeNull();
   });
 });
 

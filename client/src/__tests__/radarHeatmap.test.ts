@@ -83,7 +83,7 @@ const CFG: HeatmapOpts = CLIENT_CONFIG.blip.heatmap;
 const CLEAN: HeatmapOpts = { ...CFG, noise: { amount: 0, solidAt: CFG.noise.solidAt } };
 const BANDS = CFG.bands;
 const MODEL = CFG.model;
-const RADAR = 660; // CONFIG.vision.radar at base stats
+const RADAR = CONFIG.vision.radar; // base stats (epic-9 amendment 103: twelfths of the ruler)
 const LIFE = blipLifeMs(4000); // 15rpm × persistSweeps
 const TAU = Math.PI * 2;
 const RCELL = 14; // the shipped generator's height-field sample spacing
@@ -754,9 +754,14 @@ describe('A WAKE IS A MATERIAL, NEVER A CATEGORY (Story 4.12, amendments 198 + 2
   });
 
   it('and the wake FRAYS OUT past its reach rather than cutting at a line', () => {
-    const near = litFractions({ x: 0, y: 0 }, ribbon(350, 16, BEAM), CFG).wake;
-    const mid = litFractions({ x: 0, y: 0 }, ribbon(500, 16, BEAM), CFG).wake;
-    const far = litFractions({ x: 0, y: 0 }, ribbon(640, 16, BEAM), CFG).wake;
+    // Placed as FRACTIONS of the reach rung (muzzleFlash, 6/12 — epic-9
+    // amendment 103), never as literals: the reach fit makes the curve a
+    // function of d / wakeRef alone, so the fray scales with the rung. These are
+    // the old 350 / 500 / 640 u placements over the old 412.5 u rung.
+    const REACH = CONFIG.vision.muzzleFlash;
+    const near = litFractions({ x: 0, y: 0 }, ribbon(REACH * 0.85, 16, BEAM), CFG).wake;
+    const mid = litFractions({ x: 0, y: 0 }, ribbon(REACH * 1.2, 16, BEAM), CFG).wake;
+    const far = litFractions({ x: 0, y: 0 }, ribbon(REACH * 1.55, 16, BEAM), CFG).wake;
     expect(near).toBeGreaterThan(0.9);
     expect(mid, 'partway out, some cells drop').toBeLessThan(near);
     expect(mid, 'but it is a fade, not a cut').toBeGreaterThan(0.05);
@@ -768,11 +773,14 @@ describe('A WAKE IS A MATERIAL, NEVER A CATEGORY (Story 4.12, amendments 198 + 2
     + 'does — so the visible track shortens as it ages', () => {
     const at = (d: number, a: number): number =>
       litFractions({ x: 0, y: 0 }, ribbon(d, 16, BEAM, a), CFG).wake;
-    // Down the ribbon at one range: the head is solid, the tail breaks up.
-    let prev = at(300, 0);
+    // Down the ribbon at one range: the head is solid, the tail breaks up. The
+    // range is a fraction of the reach rung (the old 300 u over 412.5 u), see
+    // the fray test above.
+    const NEAR = CONFIG.vision.muzzleFlash * 0.73;
+    let prev = at(NEAR, 0);
     expect(prev, 'the freshest water is a solid line').toBeGreaterThan(0.98);
     for (let a = 1; a < WAKE_AGE_BUCKETS; a++) {
-      const f = at(300, a);
+      const f = at(NEAR, a);
       expect(f, `bucket ${a} paints no more than bucket ${a - 1}`).toBeLessThanOrEqual(prev + 1e-9);
       prev = f;
     }

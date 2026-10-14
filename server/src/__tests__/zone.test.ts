@@ -431,13 +431,15 @@ describe('storm damage', () => {
   });
 
   it('deals NO damage to a ship inside the safe radius', () => {
-    const w = new World(4, CONFIG.match.fillTo, instant(4)); // terminal 1320 > test position
+    const w = new World(4, CONFIG.match.fillTo, instant(4)); // terminal 4 × sight > test position
     const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
-    // 1200u — comfortably inside the 1320u terminal ring. An ABSOLUTE radius,
-    // not a fraction of the map: since Story 5.6 grew baseRadius to 2800 the
-    // old `radius * 0.5` (1400) sat OUTSIDE the terminal ring, which the
-    // terminal radius never tracks (it derives from truesight, not from R).
-    placeClear(w, 'a', 1200);
+    // Comfortably inside the terminal ring (4 × sight, concentric — offsetCap
+    // 0). DERIVED from truesight, never from the map: since Story 5.6 grew
+    // baseRadius to 2800 the old `radius * 0.5` sat OUTSIDE the terminal ring,
+    // which the terminal radius never tracks (it derives from truesight, not
+    // from R). Was a literal 1200 u inside 1320 u (sight 330); sight is 500
+    // since Story 9.8 (amendment 103).
+    placeClear(w, 'a', 0.9 * 4 * CONFIG.vision.sight);
     w.startZone();
     for (let i = 0; i < 20; i++) w.step();
     const ring = w.zoneLiveRing;

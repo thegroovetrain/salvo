@@ -17,22 +17,25 @@
 // `heavyTorpedo` and `mine` is `navalMines`; the numbers did not move.
 //
 // Bases: the ship class for hull-ish stats (hp, kinematics); CONFIG.vision for
-// radar/sweep/sight; the per-equipment CONFIG blocks for everything else
-// (gun-family RANGE bases on CONFIG.vision.radar — range = radar range, Eric
-// ruling 2026-07-21). STORY 8.15 EMPTIED THE LAST STUB ROWS: missile and
+// radar/sweep/sight; the per-equipment CONFIG blocks for everything else,
+// including every weapon's RANGE (Story 9.8, epic-9 amendment 105 / ruling
+// 125 — the 2026-07-21 "range = radar range" derivation is superseded). STORY 8.15 EMPTIED THE LAST STUB ROWS: missile and
 // monitor are CUT (amendment 89e), and the MACHINE GUN and FLAK GUN became
 // mountable guns with CONFIG blocks of their own (`CONFIG.machineGun` /
 // `CONFIG.flak`, amendments 103–105), beside the two new class Shifts
 // (`CONFIG.instantReload` / `CONFIG.damageCut`, amendments 97–102). Every row
 // is now built from a real CONFIG block.
 //
-// rangeU fields are DERIVED, not independently stat-addressable (brainstorm
-// 2026-07-30: Radar Range quietly buffs gun/blast-torp reach too — Intel is a
-// stealth offense category). They are re-pinned to the POST-FOLD `radarRange`
-// every time, in both applyCardStats (sim/boons.ts — covers a radarRange fold
-// mid-list) and clampStats below (the firewall's unconditional output pass) —
-// a fold can never leave rangeU stale. THE TWO RE-PIN HOMES ARE FOLD + CLAMP,
-// and there are no others.
+// EVERY WEAPON `rangeU` IS A STAT-ADDRESSABLE DIAL (Story 9.8, Eric
+// 2026-10-13, epic-9 amendment 105 + ruling 125). The row is seeded from
+// `CONFIG.<weapon>.rangeU` — the Tier I reach on the twelfths ruler — and each
+// of the line's four upgrade cards authors `+step` on
+// `equipment.<weapon>.rangeU` (sim/catalog.ts), landing exactly on
+// `CONFIG.<weapon>.rangeUAtV` at Tier V. The old post-fold re-pin to
+// `radarRange` (and the broadside's `× muzzleFlashFactor`) is DELETED from
+// both homes: no gun's reach is the radar rung any more. The remaining
+// re-pins (the broadside spread geometry, sightRange, the mine rings) still
+// live in exactly two homes, FOLD (sim/boons.ts rePinDerived) + CLAMP below.
 //
 // Defensive clamps + derivations (all inside this firewall, nowhere else):
 //   - sweepRpm ≤ CONFIG.vision.sweepRpmMax (the ratified 30-RPM ceiling);
@@ -86,7 +89,7 @@ export interface EquipmentRowCommon {
 
 /** The universal standard gun's effective numbers. */
 export interface EffectiveGun extends EquipmentRowCommon {
-  rangeU: number; // u — max shell travel / aimDist clamp — DERIVED = radarRange post-fold (not stat-addressable)
+  rangeU: number; // u — max shell travel / aimDist clamp — Tier I in CONFIG.gun.rangeU, +step per CANNON card (ruling 125)
   damage: number; // hp per burst victim
   contactDamage: number; // hp to an early interceptor outside the blast
   burstRadius: number; // u — blast radius around the clicked point
@@ -98,9 +101,8 @@ export interface EffectiveGun extends EquipmentRowCommon {
  * a barrage carries `damage` and `burstRadius`; `turrets` is how many fly.
  */
 export interface EffectiveBroadside extends EquipmentRowCommon {
-  // u — max shell travel / aimDist clamp. DERIVED post-fold as
-  // `radarRange × CONFIG.vision.muzzleFlashFactor` — THE 5/8 RUNG, 412.5u base
-  // (Eric: "This weapon's range is limited to 5/8"). Not stat-addressable.
+  // u — max shell travel / aimDist clamp. Tier I in CONFIG.broadside.rangeU,
+  // +step per BROADSIDE upgrade card (Story 9.8, ruling 125: 5/12 → 6/12).
   rangeU: number;
   damage: number; // hp per burst victim, PER SHELL
   burstRadius: number; // u — blast radius around each shell's own point
@@ -175,7 +177,7 @@ export interface EffectiveMine extends EquipmentRowCommon {
  * the `damage`).
  */
 export interface EffectiveMachineGun extends EquipmentRowCommon {
-  rangeU: number; // u — DERIVED = radarRange post-fold (not stat-addressable)
+  rangeU: number; // u — Tier I in CONFIG.machineGun.rangeU, +step per MACHINE GUN card (ruling 125)
   damage: number; // hp per shell that strikes a hull
   rateMs: number; // ms — one shell per rateMs while held
 }
@@ -186,7 +188,7 @@ export interface EffectiveMachineGun extends EquipmentRowCommon {
  * blast, the bodyblock `contactDamage` to an early interceptor.
  */
 export interface EffectiveFlak extends EquipmentRowCommon {
-  rangeU: number; // u — DERIVED = radarRange post-fold (not stat-addressable)
+  rangeU: number; // u — Tier I in CONFIG.flak.rangeU, +step per FLAK card (ruling 125)
   damage: number; // hp per burst victim
   contactDamage: number; // hp to an early interceptor outside the blast
   burstRadius: number; // u — blast radius around the clicked point (FIXED by ruling)
@@ -218,7 +220,7 @@ export interface EffectiveDamageCut extends EquipmentRowCommon {
  * (PHOSPHOR SHELLS is its own row below; DAZZLE is the FLASH SHELLS consumable).
  */
 export interface EffectiveStarShells extends EquipmentRowCommon {
-  rangeU: number; // u — max flare travel — DERIVED = radarRange post-fold
+  rangeU: number; // u — max flare travel — Tier I in CONFIG.starShells.rangeU, +step per upgrade card (ruling 125)
   litRadius: number; // u — lit-zone radius (= the burst radius)
   litDurationMs: number; // ms — lit-zone lifetime
   damage: number; // hp per burst victim inside the whole lit circle (10 → 20)
@@ -232,7 +234,7 @@ export interface EffectiveStarShells extends EquipmentRowCommon {
  * numbers from this row at spawn (amendment 135(e)).
  */
 export interface EffectivePhosphorShells extends EquipmentRowCommon {
-  rangeU: number; // u — max shell travel — DERIVED = radarRange post-fold (not stat-addressable)
+  rangeU: number; // u — max shell travel — Tier I in CONFIG.phosphorShells.rangeU, +step per upgrade card (ruling 125)
   damage: number; // hp per burst victim inside the zone (20 → 30)
   zoneRadius: number; // u — burst AND burning-zone radius (100 → 146.41)
   zoneDurationMs: number; // ms — burning-zone lifetime (8 → 10 s)
@@ -298,7 +300,7 @@ export interface EffectiveStats {
   radarRange: number; // u
   sweepRpm: number; // rev/min — THE tracked radar rotation rate (capped at sweepRpmMax)
   sweepPeriodMs: number; // ms per radar revolution — DERIVED: 60000 / sweepRpm
-  sightRange: number; // u — true-sight bubble — DERIVED: radarRange / 2
+  sightRange: number; // u — true-sight bubble — DERIVED: radarRange / 3 (the 4/12 rung)
   // Global cooldown multiplier applied to EVERY equipment reloadMs post-fold
   // (clampStats). Base 1.0 = a true no-op; the RELOAD ladder drives it down
   // additively (−0.05/copy) to exactly 0.75 at the 5-copy cap.
@@ -449,8 +451,7 @@ function mineRow(src: {
 }
 
 /** The two PICKABLE GUNS' rows at CONFIG base (Story 8.15). `rangeU` is
- *  seeded at the radar rung and re-pinned post-fold in both re-pin homes,
- *  exactly like `gun.rangeU`. */
+ *  each gun's own Tier I dial (Story 9.8, ruling 125), stepped by its ladder. */
 function pickableGunRows(): Pick<EquipmentRows, 'machineGun' | 'flak'> {
   const mg = CONFIG.machineGun;
   const flak = CONFIG.flak;
@@ -459,7 +460,7 @@ function pickableGunRows(): Pick<EquipmentRows, 'machineGun' | 'flak'> {
       tier: 1,
       reloadMs: mg.reloadMs,
       maxAmmo: mg.maxAmmo,
-      rangeU: CONFIG.vision.radar,
+      rangeU: mg.rangeU,
       damage: mg.damage,
       rateMs: mg.rateMs,
     },
@@ -467,7 +468,7 @@ function pickableGunRows(): Pick<EquipmentRows, 'machineGun' | 'flak'> {
       tier: 1,
       reloadMs: flak.reloadMs,
       maxAmmo: flak.maxAmmo,
-      rangeU: CONFIG.vision.radar,
+      rangeU: flak.rangeU,
       damage: flak.damage,
       contactDamage: flak.contactDamage,
       burstRadius: flak.burstRadius,
@@ -514,9 +515,9 @@ function gunRow(cls: ShipClass): EffectiveGun {
     tier: 1, // tier I is EQUIPPED at zero cards — the deck gun is slotless
     reloadMs: cls.gun?.reloadMs ?? CONFIG.gun.reloadMs,
     maxAmmo: CONFIG.gun.maxAmmo,
-    // Gun range IS radar range (Eric ruling 2026-07-21) — derived, never
-    // duplicated; re-pinned post-fold regardless of this seed.
-    rangeU: CONFIG.vision.radar,
+    // Tier I reach — its own dial since Story 9.8 (ruling 125), no longer the
+    // radar rung; the CANNON ladder's cards step it (PvE envelopes share it).
+    rangeU: CONFIG.gun.rangeU,
     damage: cls.gun?.damage ?? CONFIG.gun.damage,
     contactDamage: CONFIG.gun.contactDamage,
     burstRadius: CONFIG.gun.burstRadius,
@@ -535,8 +536,7 @@ function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells' 
       tier: 1,
       reloadMs: CONFIG.broadside.reloadMs,
       maxAmmo: CONFIG.broadside.maxAmmo,
-      // rangeU base — re-derived from radarRange × muzzleFlashFactor post-fold.
-      rangeU: CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor,
+      rangeU: CONFIG.broadside.rangeU, // Tier I reach (ruling 125); the ladder steps it
       damage: CONFIG.broadside.damage,
       burstRadius: CONFIG.broadside.burstRadius,
       turrets: CONFIG.broadside.turrets,
@@ -548,7 +548,7 @@ function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells' 
       tier: 1,
       reloadMs: CONFIG.starShells.reloadMs,
       maxAmmo: CONFIG.starShells.maxAmmo,
-      rangeU: CONFIG.vision.radar, // re-derived post-fold
+      rangeU: CONFIG.starShells.rangeU, // Tier I reach (ruling 125); the ladder steps it
       litRadius: CONFIG.starShells.litRadius,
       litDurationMs: CONFIG.starShells.litDurationMs,
       damage: CONFIG.starShells.damage,
@@ -557,7 +557,7 @@ function shippedSkillshotRows(): Pick<EquipmentRows, 'broadside' | 'starShells' 
       tier: 1,
       reloadMs: CONFIG.phosphorShells.reloadMs,
       maxAmmo: CONFIG.phosphorShells.maxAmmo,
-      rangeU: CONFIG.vision.radar, // re-derived post-fold (the star-shell rung)
+      rangeU: CONFIG.phosphorShells.rangeU, // Tier I reach (ruling 125); the ladder steps it
       damage: CONFIG.phosphorShells.damage,
       zoneRadius: CONFIG.phosphorShells.zoneRadius,
       zoneDurationMs: CONFIG.phosphorShells.zoneDurationMs,
@@ -763,26 +763,18 @@ function clampStats(stats: EffectiveStats): void {
   // contract — clamp unconditionally.
   stats.sweepRpm = Math.min(stats.sweepRpm, CONFIG.vision.sweepRpmMax);
   stats.sweepPeriodMs = MS_PER_MINUTE / stats.sweepRpm;
-  // Gun/star-shell/phosphor range IS radarRange, always — all THREE pickable
-  // guns (Story 8.15: Eric set the machine gun and flak to 660, the radar
-  // rung) and PHOSPHOR SHELLS (Story 8.17, amendment 131); the broadside rides
-  // the same number one rung short (the 5/8 muzzle rung, Eric: "limited to
-  // 5/8").
-  eq.gun.rangeU = stats.radarRange;
-  eq.machineGun.rangeU = stats.radarRange;
-  eq.flak.rangeU = stats.radarRange;
-  eq.starShells.rangeU = stats.radarRange;
-  eq.phosphorShells.rangeU = stats.radarRange;
-  eq.broadside.rangeU = stats.radarRange * CONFIG.vision.muzzleFlashFactor;
+  // NO rangeU RE-PIN (Story 9.8, ruling 125): every weapon's reach is its own
+  // CONFIG dial plus its ladder's folded steps — never the radar rung.
   // The spread ladder is a TABLE, not a step, so the card writes a 1-based RUNG
   // and BOTH halves of the arc geometry are derived from it.
   eq.broadside.spreadRung = clampSpreadRung(eq.broadside.spreadRung);
   eq.broadside.traverseRad = broadsideTraverse(eq.broadside.spreadRung);
   eq.broadside.mountSpreadRad = broadsideMountSpread(eq.broadside.spreadRung);
-  // TRUESIGHT IS THE 4/8 RUNG OF INTEL RANGE (Eric ruling 2026-08-16) — derived,
-  // never stat-addressable. At zero cards it is byte-identical to the old
-  // CONFIG.vision.sight seed, because CONFIG.vision.radar IS SIGHT*2.
-  stats.sightRange = stats.radarRange / 2;
+  // TRUESIGHT IS THE 4/12 RUNG OF INTEL RANGE (Eric ruling 2026-08-16; the
+  // twelfths ruler since Story 9.8, epic-9 amendment 103) — derived, never
+  // stat-addressable. At zero cards it is byte-identical to the
+  // CONFIG.vision.sight seed, because CONFIG.vision.radar IS SIGHT*3.
+  stats.sightRange = stats.radarRange / 3;
   deriveMineRings(eq);
   floorIntegerFields(eq);
   eq.gun.barrels = Math.min(3, Math.max(1, eq.gun.barrels));

@@ -146,6 +146,7 @@ import {
   type MineState,
   type MineTripRules,
 } from './equipment/index.js';
+import { flakBurstDamage } from './equipment/flak.js';
 import type { BurstSubject } from './signals.js';
 import type { HandRecord } from './matchRecord.js';
 import { addDecoy, decoyTarget, type DecoyState } from './decoys.js';
@@ -1000,6 +1001,18 @@ export interface ShipRecord {
   sweepAngle: number; // rad — current (post-advance) radar sweep angle
   prevSweepAngle: number; // rad — sweep angle before this tick's advance (paint window start)
   /**
+   * THE SWEEP REVOLUTION INDEX (Story 9.8, rulings 121–123): a whole-number
+   * count of how many times this hull's beam has WRAPPED past 2π this life —
+   * `advanceSweeps` adds one per wrap, and every placement edge that
+   * re-anchors `sweepAngle` (addShip / redeployShip / respawn) resets it to 0.
+   * It is the `rev` term of the radar DROPOUT roll (`dropoutPaints(d, seed,
+   * observer, target, rev)` in signals.ts): every bearing is swept exactly
+   * once per revolution (the half-open window), so keying the roll on the
+   * revolution makes "this sweep saw it or didn't" ONE decision per pass.
+   * SERVER-PRIVATE, never on the wire.
+   */
+  sweepRev: number;
+  /**
    * Ballistic ids (shells + torpedoes) this observer has already been sent a
    * reveal for ON THIS VISIT. Perception emits each ballistic exactly once per
    * ENTRY into this observer's reveal gate (owner-always / sight-or-detect /
@@ -1273,6 +1286,17 @@ function onMine(mine: Vec2, p: Vec2, r: number): boolean {
   return Math.hypot(mine.x - p.x, mine.y - p.y) <= r;
 }
 
+/** The hp one burst deals to one caught target (hull or decoy — a decoy is
+ *  measured exactly as the hull it imitates). Every burster deals its flat
+ *  `damage`, except FLAK, whose blast falls off from D at the centre to
+ *  D − `CONFIG.flak.edgeFalloff` at the rim by the NEAREST point of the
+ *  caught outline (Eric 2026-10-13, Story 9.8 — equipment/flak.ts
+ *  `flakBurstDamage`). */
+function burstHitAmount(shell: ShellState, t: Target, at: Vec2): number {
+  if (shell.family !== 'flak') return shell.damage;
+  return flakBurstDamage(shell.damage, pointPolygonDistance(at, t.poly), shell.burstRadius, CONFIG.flak.edgeFalloff);
+}
+
 export class World {
   readonly map: GameMap;
   readonly playerCap: number;
@@ -1503,6 +1527,21 @@ export class World {
   /** The map seed — kept so per-ship draw streams (drawRngFor) derive from it. */
   private readonly seed: number;
   /**
+   * THE RADAR DROPOUT SEED (Story 9.8, rulings 121–123): the world term of the
+   * stateless per-revolution dropout roll (signals.ts `radarPaints`), read by
+   * perception's context and the test oracle. SERVER-PRIVATE — derived from
+   * the per-room pseudonym entropy (`WorldOptions.pseudonymSeed`, the
+   * zone-nonce posture), NEVER from the client-known map seed: a client able
+   * to replay the roll could test which known hull an anonymous paint (or a
+   * miss) could have been. Standalone Worlds fall back to a map-seed
+   * derivation, like the pseudonym stream.
+   */
+  readonly dropoutSeed: number;
+  /** The dropout roll's target key per wake ribbon (Story 9.8): the water's
+   *  SOURCE id — the ship id for a hull's ribbon (carried across reprovision
+   *  and detachment), the shell id for a torpedo's. See wakeKeyOf. */
+  private readonly wakeKeys = new WeakMap<WakeRibbon, string>();
+  /**
    * Stable per-ship JOIN ORDINAL counter (Story 2.8): assigned once per
    * addShip, never reused or decremented, so a ship's draw stream is a pure
    * function of (mapSeed, its own ordinal) — join/leave churn elsewhere can
@@ -1659,8 +1698,10 @@ export class World {
    * each drawing its own. That is what delivers the ruled outcome (*"No
    * participants should start so close to each other that they can see each
    * other, let alone radar scan each other"*): a full lobby fills distinct
-   * slots at the lattice's even 700.8u, against 660u of radar. Per-hull phases
-   * measured 352-483u — inside radar on every seed.
+   * slots at the lattice's even pitch, 2·spawnRing·sin(π/playerCap) — ≈1,560.7u
+   * against 1,500u of radar since Story 9.8 (Eric 2026-10-13, 16 captains on a
+   * 10,000 u ocean); 700.8u against 660u at the time of the ruling. Per-hull
+   * phases measured 352-483u then — inside radar on every seed.
    *
    * ITS OWN DECORRELATED STREAM, not a draw off `this.rng`, for two reasons:
    * the phase must not shift with HOW MANY hulls get placed (a draw off the
@@ -1701,6 +1742,9 @@ export class World {
     // Pseudonym stream: caller-supplied private material, or the TEST-ONLY
     // map-seed fallback (0x1b873593 is unused by any other stream).
     this.pseudonymRng = mulberry32((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) >>> 0);
+    // The dropout roll's seed rides the SAME server-private entropy, under its
+    // own constant so it is decorrelated from the pseudonym stream (Story 9.8).
+    this.dropoutSeed = ((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) ^ 0x2545f491) >>> 0;
     // Fleet steering stream, decorrelated again from mapgen + spawn.
     this.drones = new FleetController(this, (seed ^ 0x85ebca6b) >>> 0);
     // Bot decision stream (Story 6.4), decorrelated from every other stream
@@ -1862,6 +1906,14 @@ export class World {
    * out. Read per-observer by perception's SignalContext; fresh array per
    * call (a handful of refs at 20Hz — the aliveHulls() allocation posture).
    */
+  /** The radar dropout roll's TARGET KEY for one wake ribbon (Story 9.8,
+   *  ruling 123): the water's source id (see `wakeKeys`). A ribbon the World
+   *  never registered (a test's hand-built ring) reads '' — deterministic,
+   *  so the roll stays a pure function of its inputs. */
+  wakeKeyOf(r: WakeRibbon): string {
+    return this.wakeKeys.get(r) ?? '';
+  }
+
   get wakeRibbons(): readonly WakeRibbon[] {
     const out: WakeRibbon[] = [];
     for (const ship of this.ships.values()) out.push(ship.wake);
@@ -1961,7 +2013,7 @@ export class World {
       // half-open arc [prev, sweep), so an equal pair is zero-width and paints
       // nothing on the hull's first tick.
       // (Wake ring provisioned from the TRUE attainable top speed — Story 4.12.)
-      wake: createShipWake(hullId, World.wakeTopSpeed(stats)), sweepAngle: wrapPositive(heading), prevSweepAngle: wrapPositive(heading),
+      wake: createShipWake(hullId, World.wakeTopSpeed(stats)), sweepAngle: wrapPositive(heading), prevSweepAngle: wrapPositive(heading), sweepRev: 0,
       // THE SEAT'S GUN and the ship's private DRAW stream (8.14): there is no
       // deck to deal any more — the pool is the catalog and a draw is a pure
       // read of this record's own state (materializeOffer).
@@ -2031,6 +2083,7 @@ export class World {
    *  which only the wave spawner knows. spawnFleet() is the ONE registrar. */
   private enrolShip(rec: ShipRecord, p: Vec2): void {
     this.ships.set(rec.id, rec);
+    this.wakeKeys.set(rec.wake, rec.id); // the dropout roll's target key (Story 9.8)
     // THE DEV SPAWN FIT (Story 8.10, amendment 65), applied over the just-built
     // deck and loadout exactly as a pick would — and a no-op for every hull
     // that was not handed one, which is all of production.
@@ -2295,6 +2348,7 @@ export class World {
       // ruling 2026-08-16) — see addShip for the rule and why prev must equal it.
       ship.sweepAngle = wrapPositive(ship.state.heading);
       ship.prevSweepAngle = ship.sweepAngle;
+      ship.sweepRev = 0; // the dropout roll's revolution index re-anchors with the beam (Story 9.8)
     }
     // THE ECONOMY: PRESERVED on every path (Story 8.10, amendment 63b, made
     // unconditional by the 8.10 review) — see redeployEconomy.
@@ -4207,6 +4261,7 @@ export class World {
       this.orphanWakes.push(ship.wake);
     }
     ship.wake = createShipWake(ship.hullId, World.wakeTopSpeed(ship.stats));
+    this.wakeKeys.set(ship.wake, ship.id); // the detached ribbon keeps its key too (Story 9.8)
   }
 
   /**
@@ -4228,6 +4283,7 @@ export class World {
       appendWakeSample(fresh, old.xs[i], old.ys[i], old.ts[i]);
     }
     ship.wake = fresh;
+    this.wakeKeys.set(fresh, ship.id); // Story 9.8: the replayed ribbon keeps its source key
   }
 
   /** Record a running torpedo's wake sample (Story 4.12, amendment 196) —
@@ -4237,6 +4293,7 @@ export class World {
     let r = this.torpWakes.get(shell.id);
     if (r === undefined) {
       r = createTorpWake();
+      this.wakeKeys.set(r, shell.id); // Story 9.8: fish water rolls under the fish's own id
       this.torpWakes.set(shell.id, r);
     }
     appendWakeSample(r, shell.x, shell.y, this.now);
@@ -4491,20 +4548,24 @@ export class World {
     return pickFleetAnchor({ x: ring.cx, y: ring.cy }, max, this.map.islands, occupied, this.captainDiscs(), this.rng);
   }
 
-  /** Every afloat PARTICIPANT's intel disc, at their EFFECTIVE `stats.radarRange`
-   *  (a stacked intel build denies the area it actually sees). THE one
-   *  derivation of the denied region: the anchor and the per-hull scatter both
-   *  read it, so they can never disagree about where a fleet may appear.
+  /** Every afloat PARTICIPANT's denial disc, of radius
+   *  `CONFIG.vision.dropout.startU` — Eric 2026-10-13 (Story 9.8): deny inside
+   *  the dropout start, not radar; 16 discs of 1,000 u cover ~64 % of the
+   *  5,000 u ocean so the lattice seats waves without the fallback. A fleet
+   *  may appear in the flickering rim band of someone's radar, never where a
+   *  sweep paints reliably. (Before the ruling the disc rode each hull's
+   *  effective `stats.radarRange`.) THE one derivation of the denied region:
+   *  the anchor and the per-hull scatter both read it, so they can never
+   *  disagree about where a fleet may appear.
    *
-   *  KEYED ON THE PARTICIPANT READING (Story 6.3): the rule is "a hull that
-   *  contests the match denies intel around itself" — a fleet may not
-   *  materialize inside anyone's scope. A 6.4 AI captain has a scope and must
-   *  deny like any other combatant; only fleet hulls deny nothing. */
+   *  KEYED ON THE PARTICIPANT READING (Story 6.3): every hull that contests
+   *  the match denies the water around itself — a 6.4 AI captain denies like
+   *  any other combatant; only fleet hulls deny nothing. */
   private captainDiscs(): IntelDisc[] {
     const denied: IntelDisc[] = [];
     for (const s of this.ships.values()) {
       if (!isAfloat(s.lifecycle) || !roleIsParticipant(s)) continue;
-      denied.push({ x: s.state.x, y: s.state.y, r: s.stats.radarRange });
+      denied.push({ x: s.state.x, y: s.state.y, r: CONFIG.vision.dropout.startU });
     }
     return denied;
   }
@@ -5463,7 +5524,7 @@ export class World {
         // (a fish is not a decoy, so it must never reach burstDamage's
         // damageDecoy branch).
         if (t.kind === 'ordnance') continue;
-        resolved += this.burstDamage(shell, t);
+        resolved += this.burstDamage(shell, t, at);
       }
       // AMENDMENT 19 (Eric 2026-09-15, resolving `deferred-work.md:590`): a
       // hull an EARLIER shell of this same click already sank still counts as a
@@ -5560,13 +5621,18 @@ export class World {
    *  per-victim liveness re-check on a hull is defence against a directed
    *  caller — since Story 8.4 the collector's sink invalidation means a wreck
    *  is not in `hulls` at all. */
-  private burstDamage(shell: ShellState, t: Target): number {
-    if (t.kind !== 'hull') return this.damageDecoy(t.id, shell.damage, shell.ownerId) ? 1 : 0;
+  private burstDamage(shell: ShellState, t: Target, at: Vec2): number {
+    const amount = burstHitAmount(shell, t, at);
+    // A 0-hp blow is NO blow (Story 9.8 review): flak's rim falloff floors at
+    // 0 when a harness tunes `flak.edgeFalloff` ≥ D — that must not fire the
+    // aggro seam, credit damage or emit a `dmg`, so nothing below runs.
+    if (amount <= 0) return 0;
+    if (t.kind !== 'hull') return this.damageDecoy(t.id, amount, shell.ownerId) ? 1 : 0;
     const victim = this.ships.get(t.id);
     if (!victim || !isAfloat(victim.lifecycle)) return 0;
     // `noAggro` (the deleted GUN BUOY's tag — nothing sets it since Story
     // 8.16) rides the fromMine seat here exactly as on the contact path above.
-    this.hitShip(victim, shell.damage, shell.ownerId, shell.noAggro === true, 'burst');
+    this.hitShip(victim, amount, shell.ownerId, shell.noAggro === true, 'burst');
     return 1;
   }
 
@@ -6610,8 +6676,14 @@ export class World {
       // Per-ship EFFECTIVE period (sweepSpeed upgrade) — an upgraded sweep
       // completes a revolution (and thus paints everything) proportionally faster.
       const delta = (TAU * dtMs) / ship.stats.sweepPeriodMs;
+      const raw = ship.sweepAngle + delta;
       ship.prevSweepAngle = ship.sweepAngle;
-      ship.sweepAngle = wrapPositive(ship.sweepAngle + delta);
+      ship.sweepAngle = wrapPositive(raw);
+      // Story 9.8: one more revolution per wrap past 2π — the dropout roll's
+      // `rev` (rulings 121–123). `raw` is ≥ 0 (a wrapped angle plus a positive
+      // step), so floor(raw / TAU) is the number of wraps this tick (0 or 1 at
+      // any sane period).
+      ship.sweepRev += Math.floor(raw / TAU);
     }
   }
 
@@ -6724,6 +6796,7 @@ export class World {
     // nothing on the fresh life's first tick.
     ship.sweepAngle = wrapPositive(ship.state.heading);
     ship.prevSweepAngle = ship.sweepAngle;
+    ship.sweepRev = 0; // the dropout roll's revolution index re-anchors with the beam (Story 9.8)
     // Respawn happens only in the waiting phase (active-phase death = spectate),
     // so the build PERSISTS: full EFFECTIVE hp + effective-size ammo pools.
     // XP progress (xpMs/level) and the banked levels + front offer persist with

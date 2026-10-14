@@ -67,6 +67,7 @@ import {
   type GameEvent,
   type HullId,
   type Island,
+  type SlotItemId,
   type Vec2,
   type ZoneRing,
 } from '@salvo/shared';
@@ -147,6 +148,11 @@ export interface BotSituation {
    *  predictions stay on the water (ai/plot.ts predictedPos). Optional so a
    *  hand-built situation can omit it (no clamp). */
   waterR?: number;
+  /** The item in the bot's own GUN slot (a self-read of its loadout — Story
+   *  9.8, ruling 126): the engagement band's anchor is this gun's folded
+   *  reach (profiles.ts engagementBand). Optional so a hand-built situation
+   *  can omit it (the deck gun is assumed). */
+  gunId?: SlotItemId | null;
 }
 
 /** Where this situation reads a plot: its predicted point (ai/plot.ts
@@ -811,7 +817,7 @@ export function choosePosture(
   if (lineBlocked({ x: sit.x, y: sit.y }, p, sit.islands)) return 'pursue';
   const w = sit.profile.targetWeights;
   if (target.fleet && w.fleet >= w.captain) return 'farm';
-  const band = engagementBand(sit.profile, sit.stats);
+  const band = engagementBand(sit.profile, sit.stats, sit.gunId);
   return Math.hypot(p.x - sit.x, p.y - sit.y) <= band.max ? 'engage' : 'pursue';
 }
 

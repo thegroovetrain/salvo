@@ -394,7 +394,7 @@ export function refitTooltipPlacement(model: RefitTooltipModel, band: RefitBox):
 /**
  * One resolved card, as the RATIFIED FACE renders it (Story 8.7, ruling 11 —
  * `hud-composite-3.html` `.rc`): an icon box, the line's name, the cap-rung
- * ladder with its `cur → next` numerals, the KIND word, up to five stat rows
+ * ladder with its `cur → next` numerals, the KIND word, up to six stat rows
  * and a foot. NO description span, NO lineage handrail, NO copy count — those
  * three fields went with the interim face they belonged to.
  */
@@ -414,8 +414,8 @@ export interface OfferCard {
   /** The same step as NUMBERS, so each numeral can be tinted on the absolute
    *  ladder ramp without re-parsing "III → IV" back apart. Null with `tier`. */
   tierStep: CardTierStep | null;
-  /** Up to five live stat rows (ruling 12). Fewer is normal; an add-on has
-   *  none at all and its five rows render blank. */
+  /** Up to six live stat rows (ruling 12). Fewer is normal; an add-on has
+   *  none at all and its six rows render blank. */
   rows: readonly CardStatRow[];
   /** The HOVER-ONLY stat list (R2.17; amendment 187) — the full table of what
    *  the card touches, valued after the card. Never rendered on the face; an
@@ -918,8 +918,8 @@ function paintRedraw(btn: HTMLButtonElement, pip: HTMLElement, spent: boolean, l
 }
 
 /**
- * One card — the mock's `.rc` VERBATIM (epic-8 amendment 31): a fixed 216×226
- * box, square corners, a silver hairline edge over the panel bed, asymmetric
+ * One card — the mock's `.rc` VERBATIM (epic-8 amendment 31): a fixed 216×243
+ * box (the mock's 226 plus the sixth 17px row, Story 9.8), square corners, a silver hairline edge over the panel bed, asymmetric
  * `10px 12px 8px` padding, and a CENTRED column. The card keeps `overflow`
  * visible because the digit key chip deliberately overhangs its top-left
  * corner; the clip lives one level in, on the body (below).
@@ -1193,7 +1193,8 @@ const TIER_LABEL_CSS = [
 /** The arrow between the numerals — mock `.rc .arr { color: var(--t3) }`. */
 const TIER_ARROW_CSS = [`color:${MUTED}`, 'font-weight:400', `margin:0 ${T.arrowMargin - 1}px`].join(';');
 
-/** The five-row grid — mock `.rows { display:grid; grid-template-rows: repeat(5,17px) }`. */
+/** The six-row grid — mock `.rows { display:grid; grid-template-rows: repeat(5,17px) }`
+ *  plus one 17px row (Story 9.8). */
 const ROWS_CSS = [
   'width:100%',
   `margin-top:${T.rowsGap}px`,
@@ -1329,7 +1330,7 @@ function nameEl(name: string): HTMLSpanElement {
  * `.35`. Beside them, the `cur → next` numerals on the same absolute ramp.
  *
  * A line with no ladder (a consumable, an add-on) gets the row and nothing in
- * it — 16px of deliberate emptiness, so the KIND word, the five rows and the
+ * it — 16px of deliberate emptiness, so the KIND word, the six rows and the
  * foot sit on one baseline across all four cards.
  */
 function ladderEl(card: OfferCard): HTMLDivElement {
@@ -1377,7 +1378,7 @@ function numeralEl(tier: number): HTMLSpanElement {
  *  clamp above is belt and braces rather than the rule. */
 const ROMAN_TIERS: readonly string[] = ['I', 'II', 'III', 'IV', 'V'];
 
-/** The five-row grid: one row per stat the card moves, blank rows after. */
+/** The six-row grid: one row per stat the card moves, blank rows after. */
 function rowsEl(rows: readonly CardStatRow[]): HTMLDivElement {
   const grid = document.createElement('div');
   grid.style.cssText = ROWS_CSS;

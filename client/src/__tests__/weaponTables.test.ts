@@ -38,8 +38,12 @@ describe('tier tables', () => {
     }
   });
 
-  it('CANNON damage reads 16 / 16 / 18 / 18 / 21', () => {
-    expect(row(tierTable('deckGun'), 'DAMAGE')).toEqual(['16', '16', '18', '18', '21']);
+  // The values are Eric's dials (a 2026-10-13 experiment moved them), so the
+  // expectation is read off the fold the card reads, tier I..V = 0..4 copies.
+  it('CANNON damage reads the folded gun damage at every tier', () => {
+    const at = (k: number): string =>
+      String(effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<string>(k).fill('deckGun')).equipment.gun.damage);
+    expect(row(tierTable('deckGun'), 'DAMAGE')).toEqual([0, 1, 2, 3, 4].map(at));
   });
 
   it('FLAK reload runs 3.5 s down to 2.8 s (Eric 2026-10-02)', () => {

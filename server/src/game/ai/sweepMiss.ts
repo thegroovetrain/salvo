@@ -18,6 +18,12 @@
 //   * THE WHOLE BAND (E1). The age-grown association radius says how far off
 //     its prediction the hull may be; the beam must have swept past that
 //     whole disc before an empty sweep is evidence of absence.
+//   * THE DROPOUT LIMIT (Story 9.8, epic-9 ruling 124, Eric 2026-10-13: bots
+//     trust a missed sweep only inside `dropout.startU`). Beyond the 8/12
+//     rung a real hull fails to paint on some revolutions (the radar
+//     DROPOUT, rulings 121–123), so an empty sweep there is no evidence of
+//     absence: the miss is IGNORED — the plot is not marked and ages on its
+//     normal clock.
 //
 // The beam window is [lastSweep, sweepAngle): this tick's own angle and the
 // one the bot remembered from its previous fold (BotMind.lastSweep) — what a
@@ -25,6 +31,7 @@
 // rng, no clock read.
 
 import {
+  CONFIG,
   visibilityTo,
   wrapPositive,
   type EffectiveStats,
@@ -92,6 +99,11 @@ function wouldPaint(site: SweepSite, px: number, py: number, d: number): boolean
  * paint folded this tick is the opposite of a miss), its predicted position
  * is inside the bot's radar range where a hull would have answered
  * (wouldPaint), and the bearing to it lies in this tick's paint window.
+ *
+ * ONLY INSIDE THE DROPOUT START (ruling 124): a plot whose association band
+ * (predicted distance + `predictedAssocRadius`) reaches beyond
+ * `CONFIG.vision.dropout.startU` never counts as a miss — the hull may simply
+ * have dropped out of this revolution's paint.
  */
 export function sweptAndMissed(beam: SweepBeam, site: SweepSite, t: RememberedContact, now: number): boolean {
   if (t.live || t.seenAt === now) return false;
@@ -100,6 +112,10 @@ export function sweptAndMissed(beam: SweepBeam, site: SweepSite, t: RememberedCo
   const dy = p.y - site.y;
   const d = Math.hypot(dx, dy);
   if (d > site.stats.radarRange) return false;
+  // ruling 124: a far miss is no evidence — and "far" is the plot's whole
+  // association band, not its centre: the hull may honestly be anywhere in
+  // that disc, and past startU the dropout may have suppressed it (F2).
+  if (d + predictedAssocRadius(t, now) > CONFIG.vision.dropout.startU) return false;
   if (!wouldPaint(site, p.x, p.y, d)) return false;
   return beamCrossed(beam, Math.atan2(dy, dx));
 }

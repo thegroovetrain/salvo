@@ -199,11 +199,12 @@ describe('the machine gun and the flak gun — aim and reach (Story 8.15)', () =
     expect(fireArcKind('flak')).toBe('gunLike');
   });
 
-  it('weaponRangeU reads each gun\'s own row (the radar rung today, 660 u)', () => {
+  it('weaponRangeU reads each gun\'s own row — its own tiered dial (Story 9.8, ruling 125)', () => {
     const s = stats();
     expect(weaponRangeU(s, 'machineGun')).toBe(s.equipment.machineGun.rangeU);
     expect(weaponRangeU(s, 'flak')).toBe(s.equipment.flak.rangeU);
-    expect(weaponRangeU(s, 'machineGun')).toBe(CONFIG.vision.radar);
+    expect(weaponRangeU(s, 'machineGun')).toBe(CONFIG.machineGun.rangeU);
+    expect(weaponRangeU(s, 'flak')).toBe(CONFIG.flak.rangeU);
   });
 
   const base = (id: 'machineGun' | 'flak' | 'gun'): AimPreviewInput => ({
@@ -242,20 +243,21 @@ describe('the machine gun and the flak gun — aim and reach (Story 8.15)', () =
 // flak gun exactly as to the cannon, on both sides. The client resolves the
 // reach ONCE through weaponReachU (the shared gunReachU off each gun's OWN row)
 // and hands it to the range-clamp marker and the preview, so the preview shows
-// the extended reach into the player's own flare — and clamps at 660 u under an
-// enemy's flare or none (ownActiveZones never hands the client an enemy zone).
+// the extended reach into the player's own flare — and clamps at the gun's own
+// reach (its tiered dial, ruling 125) under an enemy's flare or none (ownActiveZones never hands the client an enemy zone).
 describe('the machine gun and the flak gun reach into their own flare (amendment 114)', () => {
   const OWN_ZONE = [{ x: 800, y: 0, r: 120 }];
   const SHIP = { x: 0, y: 0 };
   const MAP_R = 5000;
 
-  it('weaponReachU lifts BOTH guns to an 800 u click inside an own live zone, and clamps to 660 u without one', () => {
+  it('weaponReachU lifts BOTH guns to an 800 u click inside an own live zone, and clamps to the gun\'s own reach without one', () => {
     const s = stats();
     for (const id of ['machineGun', 'flak'] as const) {
-      expect(s.equipment[id].rangeU, id).toBe(660);
+      const reach = s.equipment[id].rangeU;
+      expect(reach, `${id}: the premise — the zone sits past the gun's own reach`).toBeLessThan(800);
       expect(weaponReachU(s, id, SHIP, 0, 800, MAP_R, OWN_ZONE), id).toBe(800);
-      expect(weaponReachU(s, id, SHIP, 0, 800, MAP_R, []), id).toBe(660);
-      expect(weaponReachU(s, id, SHIP, 0, 300, MAP_R, OWN_ZONE), id).toBe(660); // in range: the base
+      expect(weaponReachU(s, id, SHIP, 0, 800, MAP_R, []), id).toBe(reach);
+      expect(weaponReachU(s, id, SHIP, 0, 300, MAP_R, OWN_ZONE), id).toBe(reach); // in range: the base
     }
   });
 

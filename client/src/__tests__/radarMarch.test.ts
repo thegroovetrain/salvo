@@ -109,7 +109,16 @@ const CFG: HeatmapOpts = CLIENT_CONFIG.blip.heatmap;
  *  deterministic answer, and a zero envelope is a documented value of the knob. */
 const CLEAN: HeatmapOpts = { ...CFG, noise: { amount: 0, solidAt: CFG.noise.solidAt } };
 const BANDS = CFG.bands;
-const RADAR = 660; // CONFIG.vision.radar at base stats
+/** The MARCH RANGE most fixtures below are sized against — the eighths-era base
+ *  radar (before epic-9 amendment 103 moved the rim to twelfths of
+ *  CONFIG.vision.radar). A march range is a parameter of `marchSlice`, not a
+ *  CONFIG read, so geometry suites that do not touch the shadow model keep it. */
+const RADAR = 660;
+/** THE SHADOW MODEL IS SCALE-INVARIANT IN R (shared/sim/radarShadow.ts header):
+ *  with K = radar²/4, carrying every distance by s = radar/R leaves `vis` and
+ *  `requiredHeightAt` unchanged. Shadow fixtures sized on the eighths rim are
+ *  carried to the live rim by this factor (epic-9 amendment 103). */
+const SHADOW_SCALE = CONFIG.vision.radar / RADAR;
 const TAU = Math.PI * 2;
 
 // --- fixtures -------------------------------------------------------------------
@@ -397,7 +406,9 @@ describe('terrain casts a height-derived shadow', () => {
     + 'height `h` can leave is `radarRange × √(1 − h/H)`, so the lowest land the '
     + 'generator can build costs a hull nothing at any range that matters', () => {
     // `h = 1` is the floor the closure pass stamps, so this is the faintest land
-    // that exists — 654.7u of a 660u scope survives it. That closed form is
+    // that exists — over 99% of the scope survives it (654.7u of the eighths-era
+    // 660u rim; the same fraction of the twelfths rim, epic-9 amendment 103,
+    // since the closed form is linear in R). That closed form is
     // amendment 114's pin doing its job (only ELEVATION buys cover), and it is
     // re-derived here from literals rather than read out of production: if a
     // mudflat ever starts eating real scope, the pin has been broken.
@@ -408,8 +419,9 @@ describe('terrain casts a height-derived shadow', () => {
     // inside the closed-form reach paints exactly as strongly behind the beach as
     // it does over clear water.
     const obs: Vec2 = { x: 0, y: 0 };
-    const floorReach = RADAR * Math.sqrt(1 - 1 / MAST);
-    expect(floorReach, 'a beach keeps essentially the whole scope').toBeGreaterThan(RADAR - 8);
+    const rim = CONFIG.vision.radar;
+    const floorReach = rim * Math.sqrt(1 - 1 / MAST);
+    expect(floorReach, 'a beach keeps essentially the whole scope').toBeGreaterThan(rim * 0.99);
     const beach = rasterWithPyramid(760, box(0, 200, 400, 7, 1));
     const sea = rasterWithPyramid(760, () => 0);
     const hull = (raster: HeightRaster, y: number): { x: number; y: number; w: number }[] =>
@@ -468,12 +480,17 @@ describe('terrain casts a height-derived shadow', () => {
     // at three ranges behind it. A HULL is the target rather than more terrain
     // because only LAND folds into the accumulator, so the mark cannot shadow
     // its own far cells and every cell of it reads one shadow depth.
+    // Every distance is the eighths-era fixture carried by SHADOW_SCALE to the
+    // live rim (epic-9 amendment 103) — the shadow geometry is then identical,
+    // and the attenuation curves were re-fitted to the same rim.
+    const S = SHADOW_SCALE;
+    const R = CONFIG.vision.radar;
     const obs: Vec2 = { x: 0, y: 0 };
-    const cover = box(0, 200, 400, 7, MAST / 2);
-    const sea = rasterWithPyramid(760, () => 0);
-    const covered = rasterWithPyramid(760, cover);
+    const cover = box(0, 200 * S, 400 * S, 7, MAST / 2);
+    const sea = rasterWithPyramid(760 * S, () => 0);
+    const covered = rasterWithPyramid(760 * S, cover);
     const read = (y: number, raster: HeightRaster): number[] => {
-      const s = marchAll(obs, hullOver(obs, raster, y), CFG);
+      const s = marchAll(obs, hullOver(obs, raster, y), CFG, R);
       // The hull's own cells and nothing else — a radial window would sweep in
       // the obstacle strip itself, which is terrain and reads its own band.
       return cellsOf(s, CFG)
@@ -482,23 +499,26 @@ describe('terrain casts a height-derived shadow', () => {
     };
 
     const bandsOf = (ws: number[]): Set<number> => new Set(ws.map((w) => bandIndex(w, BANDS)));
-    expect(bandsOf(read(250, sea)), 'unshadowed at 250u: RED').toEqual(new Set([2]));
-    expect(bandsOf(read(400, sea)), 'unshadowed at 400u: RED').toEqual(new Set([2]));
+    const NEAR = 250 * S;
+    const MID = 400 * S;
+    const PAST = 520 * S;
+    expect(bandsOf(read(NEAR, sea)), 'unshadowed near: RED').toEqual(new Set([2]));
+    expect(bandsOf(read(MID, sea)), 'unshadowed mid: RED').toEqual(new Set([2]));
 
     // ...and behind the obstacle the SAME hull walks down the scale. Both claims
     // hold at the worst AND the best draw of the shipped envelope, so these are
     // statements about every cell of the mark rather than about a lucky one.
-    const dim250 = read(250, covered);
-    const dim400 = read(400, covered);
-    expect(dim250.length, 'the shadowed hull still paints at 250u').toBeGreaterThan(10);
-    expect(bandsOf(dim250), 'every cell BLUE — never red, never green').toEqual(new Set([1]));
-    expect(dim400.length, 'and it still paints at 400u').toBeGreaterThan(10);
-    expect(bandsOf(dim400), 'every cell GREEN').toEqual(new Set([0]));
+    const dimNear = read(NEAR, covered);
+    const dimMid = read(MID, covered);
+    expect(dimNear.length, 'the shadowed hull still paints near').toBeGreaterThan(10);
+    expect(bandsOf(dimNear), 'every cell BLUE — never red, never green').toEqual(new Set([1]));
+    expect(dimMid.length, 'and it still paints mid').toBeGreaterThan(10);
+    expect(bandsOf(dimMid), 'every cell GREEN').toEqual(new Set([0]));
 
     // Past the reach there is no return at all, and nothing else either: a
     // shadowed cell is simply absent from the record (cycle 69).
-    const s = marchAll(obs, hullOver(obs, covered, 520), CFG);
-    expect(at(s, 0, 520, CFG), 'gone').toBe(0);
+    const s = marchAll(obs, hullOver(obs, covered, PAST), CFG, R);
+    expect(at(s, 0, PAST, CFG), 'gone').toBe(0);
   });
 
 
@@ -647,8 +667,13 @@ describe('terrain is masked by its OWN height, not by the mast', () => {
     // `illuminatedFraction` as a multiplier would render the newly-painted
     // mountainside at under 1% and the whole fix would look like nothing
     // changed. The soft STEP is nearly two orders of magnitude away from it.
+    // RE-BASED at Story 9.8 (epic-9 amendment 103): K = radar²/4 grew with the
+    // twelfths rim, so over this fixed-size cone the grazing ray rises a little
+    // more slowly and the summit stands a little further over it — measured
+    // 0.0240 (it sat under 0.02 at the eighths rim). Still ~nothing, and the
+    // step-vs-fraction claim on the next line is unchanged.
     expect(illuminatedFraction(hq, req), 'the column fraction is ~nothing')
-      .toBeLessThan(0.02);
+      .toBeLessThan(0.03);
     expect(terrainIllumination(hq, req, CFG.terrainSoftQ), 'the step is not')
       .toBeGreaterThan(10 * illuminatedFraction(hq, req));
   });
@@ -709,23 +734,29 @@ describe('terrain is masked by its OWN height, not by the mast', () => {
     // A q70 wall at 100u is hard cover (over the mast), so the ship reach is 0 —
     // no hull paints anywhere behind it. The grazing ray it leaves rises to
     // ~q117 at 300u, so a q200 peak out there clears it and a q100 hill does not.
-    const wall = box(0, 100, 400, 7, 70);
-    const tall = rasterWithPyramid(760, both(wall, box(0, 300, 40, 20, 200)));
-    const low = rasterWithPyramid(760, both(wall, box(0, 300, 40, 20, 100)));
+    // Those are eighths-era distances, carried by SHADOW_SCALE to the live rim
+    // (epic-9 amendment 103): K grew with the rim, and at the unscaled 300u the
+    // ray now stands at only ~q91, under the q100 hill.
+    const S = SHADOW_SCALE;
+    const R = CONFIG.vision.radar;
+    const wall = box(0, 100 * S, 400, 7, 70);
+    const tall = rasterWithPyramid(760, both(wall, box(0, 300 * S, 40, 20, 200)));
+    const low = rasterWithPyramid(760, both(wall, box(0, 300 * S, 40, 20, 100)));
 
     const walk = beginShadowWalk(tall, OBS.x, OBS.y, 0, 1);
-    for (let d = 4; d <= 120; d += 4) walk.advanceTo(walk.cellEntryAt(d));
+    for (let d = 4; d <= 120 * S; d += 4) walk.advanceTo(walk.cellEntryAt(d));
     expect(walk.reach(), 'the ship reach really is spent at the wall').toBe(0);
-    expect(walk.requiredHeightAt(300), 'and the ray at 300u sits between the two')
+    expect(walk.requiredHeightAt(300 * S), 'and the ray at the peaks sits between the two')
       .toBeGreaterThan(100);
-    expect(walk.requiredHeightAt(300)).toBeLessThan(200);
+    expect(walk.requiredHeightAt(300 * S)).toBeLessThan(200);
 
     // Read at the block's NEAR FACE: a flat-topped plateau legitimately shadows
     // its own top surface past the near rim (you are looking up at the rim), so
     // the seaward face is where "does terrain past the reach paint?" is asked.
-    expect(at(marchAll(OBS, terrainField(tall, OBS, CFG), CFG), 0, 285, CFG),
+    const face = 300 * S - 15;
+    expect(at(marchAll(OBS, terrainField(tall, OBS, CFG), CFG, R), 0, face, CFG),
       'the q200 peak paints past the reach').toBeGreaterThan(BANDS[0].at);
-    expect(at(marchAll(OBS, terrainField(low, OBS, CFG), CFG), 0, 285, CFG),
+    expect(at(marchAll(OBS, terrainField(low, OBS, CFG), CFG, R), 0, face, CFG),
       'the q100 hill, under the same ray, does not').toBe(0);
   });
 

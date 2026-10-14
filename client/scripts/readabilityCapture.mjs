@@ -40,7 +40,11 @@ const STAGE_MARKER = 'HC_STAGED_WORSTCASE_4_8';
 const CLIENT_URL = process.env.HC_CLIENT_URL ?? 'http://localhost:5173';
 const SCENE_URL = `${CLIENT_URL}/?stage=worstcase`;
 
-/** The camera's documented alive user-zoom range (render/camera.ts). */
+/** The Story 4.8 capture's two zoom extremes, as user factors over the 1,320 u
+ *  default framing: 0.5x = 2,640 u across the short axis, 1.5x = the 880 u close
+ *  limit (Story 9.8 ruling 127 made the camera's limits absolute spans — the
+ *  wide limit is now the live ring fit — and these factors are kept so the
+ *  ratified capture stays comparable with itself). */
 const ZOOMS = [
   { name: 'zoom-0.5x-wide', value: 0.5 },
   { name: 'zoom-1.5x-close', value: 1.5 },

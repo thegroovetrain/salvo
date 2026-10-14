@@ -173,7 +173,7 @@ export const CHOP_HEAD_MULTIPLE = 1 / KELVIN_SIN;
  * The scale runs LINEARLY from 1 at the freshest bucket to `m.wakeAgeFloor` at
  * the oldest, and the floor is derived so that end-of-life water reads exactly as
  * fresh water does at the material's own reach — age and range spend the same
- * coin, so the visible track walks from the 5/8 rung down to nothing across the
+ * coin, so the visible track walks from the flash rung (6/12) down to nothing across the
  * buckets and SHORTENS as it ages (amendment 203). A single-bucket wire
  * (`WAKE_AGE_BUCKETS = 1`) degrades to "always freshest" rather than dividing by
  * zero, and an out-of-range or non-finite bucket clamps to the oldest — fail

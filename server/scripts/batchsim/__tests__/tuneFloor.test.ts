@@ -63,6 +63,13 @@ describe('--tune floors — turnRate', () => {
     }
   });
 
+  it('reaches the FLAK BURST FALLOFF (Story 9.8, Eric 2026-10-13): `flak.edgeFalloff` is a --tune key, floor 0 (0 = no falloff, the flat blast)', () => {
+    expect(() => validateTuneKey('flak.edgeFalloff')).not.toThrow();
+    expect(() => validateTuneValue('flak.edgeFalloff', 0)).not.toThrow();
+    expect(() => validateTuneValue('flak.edgeFalloff', CONFIG.flak.edgeFalloff)).not.toThrow();
+    expect(() => validateTuneValue('flak.edgeFalloff', -1)).toThrow(TunableError);
+  });
+
   it('still lets a genuinely zero-able dial be zero', () => {
     expect(() => validateTuneValue('gun.burstRadius', 0)).not.toThrow();
     expect(() => validateTuneValue('mine.damage', 0)).not.toThrow();
