@@ -182,17 +182,17 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('authors the CANNON ladder rung by rung: barrels at tiers II and IV, turret at tier III (Eric 2026-10-02, amendment 232)', () => {
+  it('authors the CANNON ladder rung by rung: barrels at tiers II and IV, turret at tier III (Eric 2026-10-02, amendment 232); damage +3 at III and V (Eric 2026-10-13, experiment)', () => {
     const dmg = (add: number) => ({ kind: 'stat', path: 'equipment.gun.damage', add });
     const barrel = { kind: 'stat', path: 'equipment.gun.barrels', add: 1 };
     // Story 9.8 (ruling 125): every rung also carries the even range step.
     const range = rangeStepOf('gun');
     expect(CATALOG.deckGun.appliesTo).toEqual(['gun']);
     expect(CATALOG.deckGun.tiers).toEqual([
-      [barrel, range], // I → II — 16 → 16, no damage effect
-      [dmg(2), { kind: 'stat', path: 'equipment.gun.maxAmmo', add: 1 }, range], // II → III — 16 → 18
-      [barrel, range], // III → IV — 18 → 18, no damage effect
-      [dmg(3), range], // IV → V — 18 → 21
+      [barrel, range], // I → II — 12 → 12, no damage effect
+      [dmg(3), { kind: 'stat', path: 'equipment.gun.maxAmmo', add: 1 }, range], // II → III — 12 → 15
+      [barrel, range], // III → IV — 15 → 15, no damage effect
+      [dmg(3), range], // IV → V — 15 → 18
     ]);
   });
 

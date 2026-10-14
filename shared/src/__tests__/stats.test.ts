@@ -183,7 +183,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           reloadMs: 3500, // 4 s → 3.5 s (Eric 2026-10-02, amendment 232)
           maxAmmo: 1,
           rangeU: CONFIG.flak.rangeU,
-          damage: 12,
+          damage: 20, // 12 → 20 (Eric 2026-10-13, experiment)
           contactDamage: 4,
           burstRadius: 50,
         },
@@ -471,13 +471,13 @@ describe('effectiveStats — the seven universal ladders (catalog-v3 §4 + Stori
 });
 
 describe('effectiveStats — the deck-gun family (catalog-v3 §4)', () => {
-  it('DECK GUN (R14, amendment 232): base 16, whole-number steps +2 (to III) and +3 (to V) — 16 -> 16 -> 18 -> 18 -> 21, never a fraction', () => {
+  it('DECK GUN (R14; Eric 2026-10-13, experiment): base 12, whole-number steps +3 (to III) and +3 (to V) — 12 -> 12 -> 15 -> 15 -> 18, never a fraction', () => {
     // Every authored damage step is an integer, so no fold ever passes
     // through a fraction (amendment 39: Eric's integers ARE the scale).
     const steps = CATALOG.deckGun.tiers.flatMap((tier) =>
       tier.filter((e) => e.kind === 'stat' && e.path === 'equipment.gun.damage').map((e) => (e as { add: number }).add));
-    expect(steps).toEqual([2, 3]); // the rungs to II and IV author no damage effect
-    const damage = [16, 16, 18, 18, 21];
+    expect(steps).toEqual([3, 3]); // the rungs to II and IV author no damage effect
+    const damage = [12, 12, 15, 15, 18];
     damage.forEach((d, n) => {
       const got = effectiveStats(BASE, stack('deckGun', n)).equipment.gun.damage;
       expect(got, `${n} copies`).toBe(d);
@@ -490,11 +490,11 @@ describe('effectiveStats — the deck-gun family (catalog-v3 §4)', () => {
     const baseReload = effectiveStats(BASE).equipment.gun.reloadMs;
     const table: [number, number, number, number, number, number][] = [
       // copies, tier, damage, maxAmmo (pool), barrels, reload scale
-      [0, 1, 16, 1, 1, 1],
-      [1, 2, 16, 1, 2, 0.95],
-      [2, 3, 18, 2, 2, 0.9],
-      [3, 4, 18, 2, 3, 0.85],
-      [4, 5, 21, 2, 3, 0.8],
+      [0, 1, 12, 1, 1, 1],
+      [1, 2, 12, 1, 2, 0.95],
+      [2, 3, 15, 2, 2, 0.9],
+      [3, 4, 15, 2, 3, 0.85],
+      [4, 5, 18, 2, 3, 0.8],
     ];
     for (const [copies, tier, damage, maxAmmo, barrels, scale] of table) {
       const gun = effectiveStats(BASE, stack('deckGun', copies)).equipment.gun;
@@ -557,14 +557,14 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
     expect(mg.reloadMs).toBeCloseTo(9600 * 0.75, 6);
   });
 
-  it('FLAK: damage 12/20/28/36/44 (+8 per tier), pool 1/2/2/3/3 (a turret at II and at IV), reload 3.5 s → 2.8 s at V (Eric 2026-10-02, amendment 232); the 50 u blast and the 4 hp bodyblock are FIXED', () => {
+  it('FLAK: damage 20/28/36/44/52 (+8 per tier; base 20 Eric 2026-10-13, experiment), pool 1/2/2/3/3 (a turret at II and at IV), reload 3.5 s → 2.8 s at V (Eric 2026-10-02, amendment 232); the 50 u blast and the 4 hp bodyblock are FIXED', () => {
     const table: [number, number, number, number, number][] = [
       // copies, tier, damage, maxAmmo (pool), reloadMs
-      [0, 1, 12, 1, 3500],
-      [1, 2, 20, 2, 3325],
-      [2, 3, 28, 2, 3150],
-      [3, 4, 36, 3, 2975],
-      [4, 5, 44, 3, 2800],
+      [0, 1, 20, 1, 3500],
+      [1, 2, 28, 2, 3325],
+      [2, 3, 36, 2, 3150],
+      [3, 4, 44, 3, 2975],
+      [4, 5, 52, 3, 2800],
     ];
     for (const [copies, tier, damage, maxAmmo, reloadMs] of table) {
       const flak = effectiveStats(BASE, stack('flak', copies)).equipment.flak;

@@ -331,7 +331,7 @@ describe('open-ocean pin — pressing the map edge is not grounding', () => {
 // enough way to keep steerage, so helm alone recovers it in bounded time.
 describe('coastal grounding — stopped, never pinned', () => {
   const kin = CONFIG.shipClasses.battleship.kinematics;
-  const map = generateMap(1, 20); // production ocean size (fillTo = 20)
+  const map = generateMap(1, CONFIG.match.fillTo); // production ocean size (cap = fillTo)
   const polyMax = polygonMaxRadius(hullSilhouette('battleship'));
 
   /** A clear start pose on the map-centre side of `isle`, bow at its pole. */
@@ -571,7 +571,7 @@ describe('ram-and-escape — real hook/bay coastlines', () => {
     let ticksDriven = 0;
     const overTravel: number[] = [];
     for (const seed of [1, 7, 33, 90]) {
-      const map = generateMap(seed, 20);
+      const map = generateMap(seed, CONFIG.match.fillTo);
       // The eight deepest pockets on this ocean — the worst concavities the
       // generator actually produced for this seed.
       const cands = map.islands
@@ -794,7 +794,7 @@ describe('no-escape invariant on a REAL generated map', () => {
     const kin = CONFIG.shipClasses.battleship.kinematics;
     const polyMax = polygonMaxRadius(hullSilhouette('battleship'));
     for (const seed of [7, 33, 90]) {
-      const map = generateMap(seed, 20);
+      const map = generateMap(seed, CONFIG.match.fillTo);
       const isle = map.islands.reduce((a, b) => (b.r > a.r ? b : a));
       // Start just off the biggest island's coast, on its map-centre side, bow
       // pointed straight at its pole (guaranteed land).
@@ -934,7 +934,7 @@ describe('push-out teleport — the arm graze (deterministic repro, synthetic co
 // 46u for a mineLayer, both far under the smallest observed teleport (35u).
 describe('sustained parallel coastal grind — every tick is tick-scaled', () => {
   const GRIND_SEED = 7;
-  const map = generateMap(GRIND_SEED, 20);
+  const map = generateMap(GRIND_SEED, CONFIG.match.fillTo);
 
   /** A clear start pose just off coastline vertex `vi`, roughly tangential. */
   function grindStart(isle: Island, vi: number, hullId: HullId): ShipState | null {

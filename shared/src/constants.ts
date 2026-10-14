@@ -111,9 +111,15 @@ export const CONFIG = {
     // 5500 → 4000 (Story 9.1 session 2, Eric 2026-10-07 after playing the
     // 11,000 u ocean on staging: *"11000 diameter is too big, and I feel like
     // there are performance hits"*). Diameter 8,000.
-    baseRadius: 4000, // u — map radius (2400 → 2800 amendment 42; 2800 → 5500 → 4000 Story 9.1, 2026-10-07)
-    capRef: 20, // players the base radius is scaled against
-    playerCap: 20, // u — max clients per arena room
+    // 4000 → 5000 (Story 9.8, Eric 2026-10-13, with radar at 1,500 u): *"Lets
+    // say we drop the lobby capacity (and player count) to 16 and evenly space
+    // them around the map … Would 10000 -> 7000 -> 4000 -> 2000 -> 0 fit
+    // everyone without any overlap?"* → *"Yes, lets go with that."* Diameter
+    // 10,000; land stays 10 %. Sixteen evenly spaced spawns on the 0.8 R ring
+    // sit a 2·0.8R·sin(π/16) ≈ 1,561 u chord apart — outside radar reach.
+    baseRadius: 5000, // u — map radius (2400 → 2800 amendment 42; 2800 → 5500 → 4000 Story 9.1; 4000 → 5000 Story 9.8, 2026-10-13)
+    capRef: 16, // players the base radius is scaled against (20 → 16 Story 9.8, Eric 2026-10-13)
+    playerCap: 16, // max clients per arena room (20 → 16 Story 9.8, Eric 2026-10-13)
     spawnFraction: 0.8, // spawn ring radius as a fraction of map radius
   },
 
@@ -1082,12 +1088,17 @@ export const CONFIG = {
     // damage ONLY on the rungs to III (+2) and V (+3) — 16/16/18/18/21 — with
     // 3 barrels at tier V, so the max cannon click is 3 × 21 = 63 (54 at IV);
     // the 45hp small drone one-clicks again, an ACCEPTED consequence
-    // (damageGuardrail.test pins the ceiling).
-    damage: 16,
+    // (damageGuardrail.test pins the ceiling). RETUNED 16 → 12 (Eric
+    // 2026-10-13, experiment, Story 9.8: "Cannon 12 12 15 15 18 … Cannon has a
+    // much longer range so can be fired safer, so it now does a bit lower
+    // damage at each tier to compensate"): the ladder authors +3 on the rungs
+    // to III and V → 12/12/15/15/18, max click 3 × 18 = 54 (45 at IV).
+    damage: 12,
     // hp to an early interceptor outside the blast (bodyblock). RETUNED 10 → 6
     // (Eric ruling 2026-08-04, weapon balance pass) — held at 40% of the then
     // 15 `damage`, the ratio the bodyblock was tuned at. NOT re-derived for the
-    // 2026-10-02 base move (Eric: only the numbers he names change).
+    // 2026-10-02 base move (Eric: only the numbers he names change), nor for
+    // the 2026-10-13 experiment (16 → 12) on the same rule.
     contactDamage: 6,
     burstRadius: 15, // u — blast radius around the clicked point
     shellRadius: 2, // u — shell collision radius (added to hull capsule radius)
@@ -1161,9 +1172,11 @@ export const CONFIG = {
    * in flight inside the blast) is a SIDE EFFECT that might go away
    * (amendment 105) — nothing in the design, copy or balance may lean on it.
    * `mine`, as for every deck gun, is by LANDING on it only (amendment 200).
-   * Its ladder (damage +8 per tier → 12/20/28/36/44, Eric 2026-10-02,
-   * epic-8 amendment 232; −5 % reload per tier; blast FIXED) is the `flak`
-   * catalog line.
+   * Its ladder (damage +8 per tier → 20/28/36/44/52 since Eric 2026-10-13,
+   * experiment, Story 9.8 — "Flak is now higher damage per second but
+   * requires you to be closer"; was 12/20/28/36/44, 2026-10-02, epic-8
+   * amendment 232; −5 % reload per tier; blast FIXED) is the `flak` catalog
+   * line.
    * Every number is a harness dial.
    */
   flak: {
@@ -1174,10 +1187,12 @@ export const CONFIG = {
     shellSpeed: 500, // u/s (amendment 105)
     maxAmmo: 1, // one shell (amendment 105)
     reloadMs: 3500, // ms (4 s → 3.5 s, Eric 2026-10-02, epic-8 amendment 232; was 6 s → 4 s, amendment 210; amendment 105's 6 s before) — the −5 %/tier step runs it to 2.8 s at V
-    damage: 12, // hp per burst victim (amendment 105)
+    damage: 20, // hp per burst victim (amendment 105; 12 → 20 Eric 2026-10-13, experiment)
     // hp to an early interceptor — a FIXED 4 hp bodyblock, derived ONCE from
-    // the base damage (floor(40 % × 12), like `gun.contactDamage`) and NOT
-    // re-derived per tier: the ladder's damage steps never move it.
+    // the then base damage (floor(40 % × 12), like `gun.contactDamage`) and NOT
+    // re-derived per tier: the ladder's damage steps never move it. Held at 4
+    // through the 2026-10-13 base move 12 → 20 (only the numbers Eric names
+    // change).
     contactDamage: 4,
     burstRadius: 50, // u — FIXED; the ladder never grows it (amendment 105)
     shellRadius: 2, // u — shell collision radius (the gun family's)
@@ -2342,7 +2357,10 @@ export const CONFIG = {
      */
     // Session 2 (Eric, same day, after playing it): *"8000 -> 5000 -> 3000 ->
     // 2000 -> 0"* on the 4,000 u radius — rings 2500 / 1500 / 1000.
-    ringRadii: [2500, 1500, 1000],
+    // Story 9.8 (Eric 2026-10-13, with the 5,000 u radius and 16 captains):
+    // *"10000 -> 7000 -> 4000 -> 2000 -> 0"* (diameters) — rings 3500 / 2000 /
+    // 1000, ring 0 the full 10,000 u ocean.
+    ringRadii: [3500, 2000, 1000],
     offsetCap: 1.0, // ≤ this × (r_cur − r_next) next-ring center offset (structurally clamped 0..1)
     /**
      * SUDDEN DEATH — THE FINAL COLLAPSE (Eric ruling 2026-08-14, authorizing the
@@ -2399,7 +2417,7 @@ export const CONFIG = {
     // at arm time and is never extended by later joins — that is what closes the
     // leave/rejoin hostage-cycling vector the 30 s gathering window carried.
     queueTimerMs: 120000,
-    fillTo: 20, // total ships at start (drones fill the rest) — 3.1 design target (amendment 7)
+    fillTo: 16, // total ships at start (drones fill the rest) — 20 → 16 Story 9.8 (Eric 2026-10-13: lobby capacity and player count 16)
     // s — results overlay before the room disposes. 10 -> 45 (Story 5.3, epic-5
     // amendment 27): the old ceiling predates there being anything to READ on
     // that screen. It must now contain the last sinking captain's window closing

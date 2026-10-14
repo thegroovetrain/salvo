@@ -126,9 +126,9 @@ describe('one-hit-kill guardrail — THE TWO PICKABLE GUNS (Story 8.15, amendmen
     expect(capped.maxAmmo * capped.damage).toBeLessThan(minHullHp);
   });
 
-  it('the FLAK burst and bodyblock stay under the floor at every rung (12 → 44)', () => {
+  it('the FLAK burst and bodyblock stay under the floor at every rung (20 → 52)', () => {
     const capped = stacked('flak').equipment.flak;
-    expect(capped.damage).toBe(44); // Eric 2026-10-02, amendment 232
+    expect(capped.damage).toBe(52); // Eric 2026-10-13, experiment (was 44, amendment 232)
     expect(capped.damage).toBeLessThan(minHullHp);
     expect(capped.contactDamage).toBe(4); // FIXED — the ladder never steps it
     expect(CONFIG.flak.contactDamage).toBeLessThanOrEqual(CONFIG.flak.damage);
@@ -238,9 +238,10 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
   });
 
   it('the drafted ladder endpoints land where the spec ruled them', () => {
-    // THE DECK GUN LADDER (amendment 232, Eric 2026-10-02): 16 -> 21 across
-    // four tiers, and 21 is still comfortably under the 250hp floor.
-    expect(stacked('deckGun').equipment.gun.damage).toBe(21);
+    // THE DECK GUN LADDER (Eric 2026-10-13, experiment; was 16 -> 21,
+    // amendment 232): 12 -> 18 across four tiers, and 18 is still comfortably
+    // under the 250hp floor.
+    expect(stacked('deckGun').equipment.gun.damage).toBe(18);
     expect(stacked('deckGun').equipment.gun.damage).toBeLessThan(minHullHp);
     // Every other damage endpoint IS its base this cycle — pinned so a silent
     // re-add is visible.
@@ -269,7 +270,7 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     // barrels — the top of the 1..3 clamp.
     const barrels = stacked('deckGun').equipment.gun.barrels;
     // The per-shell number under the strongest build catalog v3 can reach: the
-    // DECK GUN ladder at its cap (R14 as retuned by amendment 232), 21 damage.
+    // DECK GUN ladder at its cap (R14 as retuned by Eric 2026-10-13, experiment), 18 damage.
     const perShell = stacked('deckGun').equipment.gun.damage;
     expect(barrels).toBe(3); // CANNON ×4 — barrels at tiers II and IV
     expect(perShell).toBeLessThan(minHullHp); // the law, per SHELL — the thing that holds
@@ -312,10 +313,14 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     // large drone still takes two). This test DOCUMENTS THE CEILING; it
     // is no longer a "below drone hp" guarantee. A future barrel or damage
     // change moves this pin, which keeps that a visible decision.
-    expect(perShell * barrels).toBe(63);
+    //
+    // 2026-10-13 (Eric, experiment, Story 9.8): cannon 12/12/15/15/18, so the
+    // maxed click is 3 × 18 = 54 (45 at tier IV) — still a small-drone
+    // one-click, but the 60hp MEDIUM drone takes two again.
+    expect(perShell * barrels).toBe(54);
     expect(perShell * barrels).toBeGreaterThanOrEqual(minDroneHp); // accepted, amendment 232
-    expect(perShell * barrels).toBeGreaterThanOrEqual(CONFIG.drones.medium.hp); // 63 >= 60 — accepted, amendment 234
-    expect(perShell * barrels).toBeLessThan(CONFIG.drones.large.hp); // 63 < 75 — the large drone takes two
+    expect(perShell * barrels).toBeLessThan(CONFIG.drones.medium.hp); // 54 < 60 — the medium drone takes two since 2026-10-13
+    expect(perShell * barrels).toBeLessThan(CONFIG.drones.large.hp); // 54 < 75 — the large drone takes two
     expect(perShell * barrels).toBeLessThan(minHullHp); // minHullHp === Math.min(...classHps)
   });
 

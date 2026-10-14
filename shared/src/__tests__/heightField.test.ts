@@ -343,12 +343,17 @@ describe('max-height pyramid — the radar-shadow substrate', () => {
   });
 });
 
-describe('production map size (whatever CONFIG.map.baseRadius ships — 2800 → 5500 → 4000 across Story 9.1)', () => {
+describe('production map size (whatever CONFIG.map.baseRadius ships — 2800 → 5500 → 4000 across Story 9.1, 4000 → 5000 Story 9.8)', () => {
   const R_PROD = CONFIG.map.baseRadius;
   const r = rasterFor(2026, R_PROD);
 
-  it('builds the raster the radar-shadow pass marches, sized by the board: n = ceil(2R / cell) + 5 margin cells, one byte per cell, a pyramid down to 1', () => {
-    const n = Math.ceil((2 * R_PROD) / TERRAIN_PARAMS.cell) + 5; // 405 at 2800, 791 at 5500, 577 at 4000
+  it('builds the raster the radar-shadow pass marches, sized by the board: n = 2·ceil((R + 2·cell) / cell) + 1, one byte per cell, a pyramid down to 1', () => {
+    // The field's own grid rule (buildField: the disc plus a two-cell margin
+    // each side, centre sample included). The earlier "ceil(2R / cell) + 5"
+    // (amendment 9e) agreed with it at 2800 / 5500 / 4000 by rounding luck and
+    // drifts by one at 5000 (720 vs the real 721) — derive, never pin.
+    const half = Math.ceil((R_PROD + 2 * TERRAIN_PARAMS.cell) / TERRAIN_PARAMS.cell);
+    const n = half * 2 + 1; // 405 at 2800, 791 at 5500, 577 at 4000, 721 at 5000
     expect(r.n).toBe(n);
     expect(r.height.length).toBe(n * n);
     expect(r.pyramid).toHaveLength(Math.ceil(Math.log2(n)) + 1);

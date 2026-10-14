@@ -293,9 +293,9 @@ function ladder(
  * A ladder whose rungs are NOT UNIFORM (Eric 2026-09-30): the `ladder` twin of
  * `tieredWeaponSteps`. `steps[k]` is the effect list of the rung copy k+1
  * buys, and `cap` is `steps.length`. A rung may carry more than one authored
- * effect — CANNON's tier-III rung is its +2 damage step AND the second turret,
+ * effect — CANNON's tier-III rung is its +3 damage step AND the second turret,
  * its rungs to II and IV are a barrel each with no damage step, and its rung
- * to V is +3 damage alone (16 / 16 / 18 / 18 / 21); the MACHINE GUN takes +1
+ * to V is +3 damage alone (12 / 12 / 15 / 15 / 18, Eric 2026-10-13); the MACHINE GUN takes +1
  * damage only on the rungs to II and IV beside its uniform +4 shells / −50 ms
  * (Eric 2026-10-02, epic-8 amendment 232) — shapes one repeated list cannot say. The `ladder`
  * law holds: a FRESH ARRAY PER RUNG, copied from the caller's lists, so no
@@ -337,12 +337,13 @@ const cannonRange = (): BoonEffect => statEffect('equipment.gun.rangeU', { add: 
 /** One FLAK rung's range step (ruling 125: 5/12 → 6/12 over four cards). */
 const flakRange = (): BoonEffect => statEffect('equipment.flak.rangeU', { add: FLAK_RANGE_STEP });
 
-/** One CANNON rung's whole-number damage step (Eric 2026-10-02, epic-8
- *  amendment 232: base 16; +2 on the rung to III, +3 on the rung to V →
- *  16 / 16 / 18 / 18 / 21; the rungs to II and IV carry no damage effect). */
+/** One CANNON rung's whole-number damage step (Eric 2026-10-13, experiment:
+ *  base 12; +3 on the rung to III, +3 on the rung to V → 12 / 12 / 15 / 15 /
+ *  18; the rungs to II and IV carry no damage effect. Was base 16, +2 / +3 →
+ *  16 / 16 / 18 / 18 / 21, 2026-10-02, epic-8 amendment 232). */
 const cannonDamage = (step: number): BoonEffect => statEffect('equipment.gun.damage', { add: step });
-/** One FLAK rung's damage step (Eric 2026-10-02, epic-8 amendment 232:
- *  +8 → 12 / 20 / 28 / 36 / 44). */
+/** One FLAK rung's damage step (Eric 2026-10-02, epic-8 amendment 232: +8;
+ *  on the base 20 since Eric 2026-10-13, experiment → 20 / 28 / 36 / 44 / 52). */
 const flakDamage = (): BoonEffect => statEffect('equipment.flak.damage', { add: 8 });
 
 /**
@@ -465,7 +466,7 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  *   RELOAD  R12 — −5 % per tier, 5 tiers, cap 25 % (cooldownScale 1.0 → 0.75).
  *   PASSIVE HEALING — +0.6 %/s missing hull and −1 s wait per tier, 5 tiers
  *                  (Eric 2026-10-13, epic-9 amendments 90–91).
- *   DECK GUN R14 — damage 16/16/18/18/21 (base 16; +2 at III, +3 at V) AND −5 % own reload per
+ *   DECK GUN R14 — damage 12/12/15/15/18 (base 12; +3 at III, +3 at V; Eric 2026-10-13, experiment) AND −5 % own reload per
  *                  tier, 4 tiers (Eric 2026-10-02, amendment 232); the
  *                  reload half is DERIVED from the tier in clampStats.
  *                  R15 (turret) / R16 (barrel) folded into the CANNON rungs:
@@ -473,7 +474,7 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  *                  and tier IV (2026-10-02, amendment 232).
  *   MACHINE GUN — +4 shells and −50 ms per tier, +1 damage at tiers II and
  *                  IV only, 4 tiers (Eric 2026-10-02, amendment 232).
- *   FLAK — damage +8 per tier (12 → 44), 4 tiers, blast fixed (Eric
+ *   FLAK — damage +8 per tier (20 → 52 since 2026-10-13, experiment), 4 tiers, blast fixed (Eric
  *                  2026-10-02, amendment 232); +1 pool at tier II and
  *                  tier IV (1/2/2/3/3, same tables; was III and V).
  *   BROADSIDE R35 · STAR SHELLS R31 · PHOSPHOR SHELLS · FLASH SHELLS — as
@@ -521,9 +522,10 @@ export const CATALOG: Catalog = deepFreezeRows({
     statEffect('regen.outOfCombatMs', { add: -1000 }),
   ]),
   // --- the CANNON ladder ----------------------------------------------------
-  // DECK GUN (R14 as retuned by Eric 2026-10-02, epic-8 amendment 232): base
-  // 16, damage steps +2 (to III) and +3 (to V) — whole numbers — so the gun deals
-  // Eric's scale 16 → 16 → 18 → 18 → 21 exactly (amendment 39: his integers
+  // DECK GUN (R14 as retuned by Eric 2026-10-13, experiment; was 2026-10-02,
+  // epic-8 amendment 232): base 12, damage steps +3 (to III) and +3 (to V) —
+  // whole numbers — so the gun deals Eric's scale 12 → 12 → 15 → 15 → 18
+  // exactly (amendment 39: his integers
   // ARE the scale; the fold is still floored once by effects.ts
   // EQUIPMENT_INT_FIELDS, a no-op on integer steps). The OTHER half of
   // the line — −5 % own reload per tier — is NOT an effect: it is derived from
@@ -539,10 +541,10 @@ export const CATALOG: Catalog = deepFreezeRows({
   deckGun: ladderSteps(
     'deckGun',
     [
-      [statEffect('equipment.gun.barrels', { add: 1 }), cannonRange()], // I → II — a second barrel (no damage step: 16 → 16)
-      [cannonDamage(2), statEffect('equipment.gun.maxAmmo', { add: 1 }), cannonRange()], // II → III — 16 → 18 and the second turret
-      [statEffect('equipment.gun.barrels', { add: 1 }), cannonRange()], // III → IV — a third barrel (no damage step: 18 → 18)
-      [cannonDamage(3), cannonRange()], // IV → V — 18 → 21
+      [statEffect('equipment.gun.barrels', { add: 1 }), cannonRange()], // I → II — a second barrel (no damage step: 12 → 12)
+      [cannonDamage(3), statEffect('equipment.gun.maxAmmo', { add: 1 }), cannonRange()], // II → III — 12 → 15 and the second turret
+      [statEffect('equipment.gun.barrels', { add: 1 }), cannonRange()], // III → IV — a third barrel (no damage step: 15 → 15)
+      [cannonDamage(3), cannonRange()], // IV → V — 15 → 18
     ],
     { appliesTo: ['gun'] },
   ),
@@ -608,7 +610,8 @@ export const CATALOG: Catalog = deepFreezeRows({
   ),
   // FLAK (amendment 105; the numbers Eric 2026-10-02, amendment 232): the
   // flak gun's LADDER, offered only while mounted. Tiers II–V step damage
-  // +8 per rung (12 / 20 / 28 / 36 / 44); the blast radius does NOT grow;
+  // +8 per rung (20 / 28 / 36 / 44 / 52 since Eric 2026-10-13, experiment;
+  // was 12 / … / 44); the blast radius does NOT grow;
   // the −5 % reload per tier is the derived tier step (3.5 s -> 2.8 s at V).
   // The rungs reaching tier II and tier IV each add a TURRET (Eric
   // 2026-10-02, amendment 232; was III and V): flak pool by copies 0..4 is
