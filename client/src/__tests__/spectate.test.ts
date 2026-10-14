@@ -49,7 +49,7 @@ describe('wheelZoom', () => {
     }
   });
 
-  it('a wheel spin out reaches the LIVE ring fit through the camera clamp, and back in to the close framing', () => {
+  it('before the map radius (amendment 142 fallback) a wheel spin out reaches the LIVE ring fit, and back in to the close framing', () => {
     const c = new Camera({
       defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
       closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
