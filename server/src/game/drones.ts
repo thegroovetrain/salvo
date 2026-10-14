@@ -80,9 +80,10 @@ import {
   type Rng,
   type Vec2,
 } from '@salvo/shared';
-import { shipSees } from './signals.js';
+import { shipSees, sightOf } from './signals.js';
 import { leadIntercept } from './lead.js';
 import { isFleetHull } from './participants.js';
+import { IslandBuckets } from './islandBuckets.js';
 import type { ShipRecord, World } from './world.js';
 
 const TAU = Math.PI * 2;
@@ -144,6 +145,28 @@ interface FleetMind {
 interface Fleet {
   rng: Rng;
   waypoint: Vec2 | null;
+  /** True iff `waypoint` sits ashore — decided ONCE when it is picked (a
+   *  waypoint never moves and neither do islands, so a per-tick re-test could
+   *  only ever repeat the answer). Only pickWaypoint's ring-centre fallback can
+   *  set it, and it keeps today's behaviour: an ashore waypoint is re-picked
+   *  on the next read. */
+  ashore: boolean;
+  /** The fleet's own member ids, kept beside `minds` (add/remove/tick prune)
+   *  so "has any member reached it" walks six hulls, not every mind. */
+  members: Set<string>;
+}
+
+/**
+ * Diagnostic counters (Eric ruling 2026-10-14: a drone reasons ONLY about what
+ * lies within its own sight). Monotonic, read by tests to prove that a hull
+ * outside sight is never even evaluated and that a waypoint's ashore test runs
+ * once per pick, never per tick.
+ */
+export interface FleetProbeCounts {
+  /** Hull pairs handed to the avoidance kernel (all inside the drone's sight). */
+  hullPairs: number;
+  /** Signed-distance "is this point ashore" scans over the island list. */
+  ashoreTests: number;
 }
 
 /**
@@ -156,6 +179,14 @@ export class FleetController {
   private readonly minds = new Map<string, FleetMind>();
   private readonly fleets = new Map<number, Fleet>();
   private counter = 0;
+  /** Every afloat-or-sinking hull, snapshotted ONCE per tick() (reused array,
+   *  no per-tick allocation) — the avoidance loop's candidate list. */
+  private readonly solids: ShipRecord[] = [];
+  /** Static island grid (islandBuckets.ts) — a drone reads only the islands
+   *  filed in its own cell, never the whole map's list. */
+  private readonly islandGrid = new IslandBuckets(ISLAND_LOOKAHEAD);
+  /** See FleetProbeCounts. */
+  readonly probe: FleetProbeCounts = { hullPairs: 0, ashoreTests: 0 };
 
   constructor(
     private readonly world: World,
@@ -178,8 +209,11 @@ export class FleetController {
       this.fleets.set(fleetId, {
         rng: mulberry32((this.seed + fleetId * 0x85ebca6b) >>> 0),
         waypoint: null,
+        ashore: false,
+        members: new Set(),
       });
     }
+    this.fleets.get(fleetId)?.members.add(id);
     this.minds.set(id, {
       rng,
       seq: 0,
@@ -197,6 +231,13 @@ export class FleetController {
 
   /** Forget a fleet hull (called by World.removeShip). */
   remove(id: string): void {
+    this.forget(id);
+  }
+
+  /** Drop a mind and its fleet membership together (the one removal path). */
+  private forget(id: string): void {
+    const mind = this.minds.get(id);
+    if (mind) this.fleets.get(mind.fleetId)?.members.delete(id);
     this.minds.delete(id);
   }
 
@@ -273,10 +314,12 @@ export class FleetController {
 
   /** Submit one input per live fleet hull. Dead hulls idle (no input). */
   tick(): void {
+    this.snapshotSolids();
+    this.islandGrid.sync(this.world.map.islands, this.world.map.radius);
     for (const [id, mind] of this.minds) {
       const ship = this.world.ships.get(id);
       if (!ship) {
-        this.minds.delete(id);
+        this.forget(id);
         continue;
       }
       if (!isAfloat(ship.lifecycle)) {
@@ -294,6 +337,16 @@ export class FleetController {
       }
       this.refreshTarget(ship, mind);
       this.world.submitInput(id, this.buildInput(ship, mind));
+    }
+  }
+
+  /** Refill `solids` with every afloat-or-sinking hull (a wreck is solid,
+   *  amendment 82). Once per tick: inputs are built before applyInputs, so no
+   *  hull moves or changes lifecycle while the drones read it. */
+  private snapshotSolids(): void {
+    this.solids.length = 0;
+    for (const other of this.world.ships.values()) {
+      if (isAfloat(other.lifecycle) || isSinking(other.lifecycle)) this.solids.push(other);
     }
   }
 
@@ -401,36 +454,42 @@ export class FleetController {
   private fleetWaypoint(mind: FleetMind): Vec2 {
     const fleet = this.fleets.get(mind.fleetId);
     if (!fleet) return ORIGIN;
-    if (this.needsWaypoint(fleet)) fleet.waypoint = this.pickWaypoint(fleet.rng);
+    if (this.needsWaypoint(fleet)) this.pickWaypoint(fleet);
     return fleet.waypoint ?? ORIGIN;
   }
 
-  /** Retarget when there is none, any member reached it, or it fell ashore. */
+  /** Retarget when there is none, it was picked ashore, or any member reached
+   *  it. The ashore answer was decided at pick time (Fleet.ashore). */
   private needsWaypoint(fleet: Fleet): boolean {
     const wp = fleet.waypoint;
-    if (!wp) return true;
-    if (this.insideIsland(wp)) return true;
-    for (const [id, mind] of this.minds) {
-      if (this.fleets.get(mind.fleetId) !== fleet) continue;
+    if (!wp || fleet.ashore) return true;
+    for (const id of fleet.members) {
       const ship = this.world.ships.get(id);
       if (ship && isAfloat(ship.lifecycle) && dist(ship.state, wp) < WAYPOINT_REACH) return true;
     }
     return false;
   }
 
-  /** A random point uniformly inside 0.8x the LIVE ring (offset-center), island-free. */
-  private pickWaypoint(rng: Rng): Vec2 {
+  /** Pick the fleet a random point uniformly inside 0.8x the LIVE ring
+   *  (offset-center), island-free — the ashore test runs here, once. */
+  private pickWaypoint(fleet: Fleet): void {
     const ring = this.world.zoneLiveRing;
     const max = ring.r * WAYPOINT_ZONE_FRACTION;
     for (let i = 0; i < 16; i++) {
-      const a = rng.float(0, TAU);
-      const r = Math.sqrt(rng.next()) * max; // sqrt => uniform over the disc
+      const a = fleet.rng.float(0, TAU);
+      const r = Math.sqrt(fleet.rng.next()) * max; // sqrt => uniform over the disc
       const p = { x: ring.cx + Math.cos(a) * r, y: ring.cy + Math.sin(a) * r };
-      if (!this.insideIsland(p)) return p;
+      if (!this.insideIsland(p)) {
+        fleet.waypoint = p;
+        fleet.ashore = false;
+        return;
+      }
     }
     // The ring center beats the map origin as a fallback: a late offset ring
     // may not even contain the origin. Islands there are survivable (push-out).
-    return { x: ring.cx, y: ring.cy };
+    const centre = { x: ring.cx, y: ring.cy };
+    fleet.waypoint = centre;
+    fleet.ashore = this.insideIsland(centre);
   }
 
   /** Pull a point back inside the live ring so a station offset can never
@@ -450,6 +509,7 @@ export class FleetController {
    *  `islandDistance` is SIGNED (negative ashore) and carries its own
    *  bounding-circle broadphase, so distant islands cost one hypot. */
   private insideIsland(p: Vec2): boolean {
+    this.probe.ashoreTests += 1;
     return this.world.map.islands.some((isle) => islandDistance(p, isle) <= ISLAND_CLEARANCE);
   }
 
@@ -459,7 +519,7 @@ export class FleetController {
     const fx = Math.cos(heading);
     const fy = Math.sin(heading);
     let bias = 0;
-    for (const isle of this.world.map.islands) {
+    for (const isle of this.islandGrid.near(x, y)) {
       bias += islandBias(isle, x, y, fx, fy);
     }
     return bias;
@@ -470,10 +530,12 @@ export class FleetController {
    * "PvE drones get avoidance only — they steer clear of hulls; they never
    * choose to ram"). The island point kernel summed over every OTHER hull on
    * the water — afloat or SINKING (a wreck is solid, amendment 82) — a hull
-   * ahead is rounded exactly like a headland. Reads `world.ships` directly:
-   * a fleet hull's steering already reads the whole world (this file is not
-   * perception-gated), and a solid hull is something every drone would feel
-   * anyway. The target it is hunting is NOT excepted — a drone never rams —
+   * ahead is rounded exactly like a headland. SIGHT SCOPE (Eric 2026-10-14:
+   * *"There's no need to check against anything it can't see"*): only hulls
+   * whose centre lies within the drone's own `sightOf` are evaluated. The cut
+   * is EXACT — the kernel already returns 0 past its reach (the larger of
+   * `hullLookaheadU` 150 u and the widest bumper, 134 u), both inside the
+   * 500 u sight — so it is a pure speed-up. The target it is hunting is NOT excepted — a drone never rams —
    * but it, like a FLEET-MATE (same `fleetId`: the formation sails a hull
    * length apart), is avoided only inside the BUMPER (`hullBumper`: the two
    * half-lengths + `CONFIG.bots.hullBumperU`) rather than the full
@@ -485,9 +547,15 @@ export class FleetController {
     const { x, y, heading } = ship.state;
     const fx = Math.cos(heading);
     const fy = Math.sin(heading);
+    const sight = sightOf(ship);
+    const sight2 = sight * sight;
     let bias = 0;
-    for (const other of this.world.ships.values()) {
-      if (other === ship || (!isAfloat(other.lifecycle) && !isSinking(other.lifecycle))) continue;
+    for (const other of this.solids) {
+      if (other === ship) continue;
+      const dx = other.state.x - x;
+      const dy = other.state.y - y;
+      if (dx * dx + dy * dy > sight2) continue; // SIGHT SCOPE (Eric 2026-10-14)
+      this.probe.hullPairs += 1;
       const close = other.id === mind.targetId || this.minds.get(other.id)?.fleetId === mind.fleetId;
       const reach = close ? hullBumper(ship.hullId, other.hullId) : CONFIG.bots.hullLookaheadU;
       bias += pointBias(other.state.x, other.state.y, x, y, fx, fy, reach);
@@ -554,11 +622,22 @@ export class FleetController {
  * BROADPHASE (mandatory — this runs per hull per island per tick): the
  * bounding circle rejects before any edge is visited. Only on a bounding hit
  * is the exact coast point computed.
+ *
+ * SIGHT SCOPE (Eric 2026-10-14: a drone reasons only about what it can see)
+ * holds here by construction: the broadphase reach is ISLAND_LOOKAHEAD (120 u)
+ * past the island's bounding circle, inside every drone's 500 u sight, so no
+ * coast beyond sight is ever visited — no separate sight cut is needed.
  */
 function islandBias(isle: Island, x: number, y: number, fx: number, fy: number): number {
   const cdx = isle.x - x;
   const cdy = isle.y - y;
-  if (Math.hypot(cdx, cdy) > ISLAND_LOOKAHEAD + isle.r) return 0; // bounding-circle broadphase
+  const reach = ISLAND_LOOKAHEAD + isle.r;
+  if (cdx * cdx + cdy * cdy > reach * reach) return 0; // bounding-circle broadphase
+  // WHOLLY ASTERN: the coast point lies inside the bounding circle, so when the
+  // circle's most-forward point is still behind the beam (with a 1 u margin
+  // against float dust) pointBias's astern clause is certain to return 0 —
+  // skip the coastline walk. Exact.
+  if (cdx * fx + cdy * fy + isle.r + 1 <= 0) return 0;
   const coast = nearestCoastPoint({ x, y }, isle);
   if (coast.dist > ISLAND_LOOKAHEAD) return 0;
   return pointBias(coast.x, coast.y, x, y, fx, fy, ISLAND_LOOKAHEAD);

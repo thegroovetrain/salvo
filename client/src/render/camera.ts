@@ -46,20 +46,6 @@ export interface CameraOptions {
 }
 
 /**
- * Spectator zoom bounds as ABSOLUTE spans (u across the short axis): the MANUAL
- * (wheel) spectate zoom is clamped between them. Story 9.8 (ruling 127) writes
- * the old 0.5×–1.0× over the 1,320 u default framing as the spans they always
- * were — 2,640 u and 1,320 u — so the clamp no longer hangs off radar. Ratified
- * by epic-2 amendment 8 and DELIBERATELY not moved by Story 5.3: epic-5
- * amendment 25 gives the reveal its OWN framing mode that is exempt from this
- * clamp rather than widening it, because a whole-map floor would hand every
- * spectator a permanent whole-map view — a different feature. (Eric: *"Reveal
- * gets its own framing, we might revisit the clamp later."*)
- */
-export const SPECTATE_SPAN_WIDE_U = 2640;
-export const SPECTATE_SPAN_NARROW_U = 1320;
-
-/**
  * How close to the reveal target counts as ARRIVED. An exponential approach
  * never exactly lands, and a factor that keeps twitching in its sixth decimal
  * forever would re-trip every zoom-keyed invalidation downstream (the charted
@@ -235,16 +221,18 @@ export class Camera {
     return this.zoomFactorValue;
   }
 
-  /** The spectate clamp as factors over the default framing: the wide span
-   *  (zoomed out) is `min`, the narrow span `max`. */
+  /** The spectate clamp as factors over the default framing. SINCE ERIC'S
+   *  2026-10-14 RULING ("The full zoom-out needs to apply to spectate mode, as
+   *  well") it IS the alive range — the close framing in, the live ring fit
+   *  out (never tighter than the default framing) — one derivation, so the two
+   *  can never drift. The old fixed 2,640–1,320 u spectate spans are gone. */
   get spectateZoomLimits(): { min: number; max: number } {
-    const d = this.opts.defaultSpanU;
-    return { min: spanFactor(d, SPECTATE_SPAN_WIDE_U), max: spanFactor(d, SPECTATE_SPAN_NARROW_U) };
+    return this.userZoomLimits;
   }
 
   /**
-   * Set the spectator zoom factor, clamped to the spectate spans. Spectators
-   * only. A non-finite input is IGNORED (same NaN hazard as setUserZoom).
+   * Set the spectator zoom factor, clamped to the spectate limits (= the alive
+   * limits, ruling 2026-10-14). Spectators only. A non-finite input is IGNORED (same NaN hazard as setUserZoom).
    *
    * This is the MANUAL (wheel) path, and taking manual control RELEASES the
    * reveal framing — after which the clamp governs again, exactly as it always
@@ -260,6 +248,34 @@ export class Camera {
     this.clearRevealTarget();
     const lim = this.spectateZoomLimits;
     this.zoomFactorValue = clamp(f, lim.min, lim.max);
+  }
+
+  /**
+   * ZOOM AT THE CURSOR (spectators — Eric 2026-10-14: *"the zoom in/out should
+   * be localized around my mouse cursor (since my ship has sunk/is otherwise
+   * nonexistent)"*). Sets the spectator zoom factor exactly as setZoomFactor
+   * does (clamped, reveal released, non-finite ignored), then moves the centre
+   * so the world point that was under screen point (screenX, screenY) is still
+   * under it: `worldToScreen(p)` is unchanged. A non-finite screen point
+   * anchors at the screen centre (a plain zoom about the centre).
+   *
+   * The follow point moves with the centre, exactly as `pan` moves it, so a
+   * spectator FOLLOWING a hull keeps the cursor anchor for this frame and the
+   * eased follow then carries on from the new centre back toward its target.
+   * The alive camera never calls this — its zoom stays own-ship-anchored.
+   */
+  zoomAbout(screenX: number, screenY: number, newZoom: number): void {
+    const sc = this.screenCenter;
+    const s = Number.isFinite(screenX) && Number.isFinite(screenY) ? { x: screenX, y: screenY } : sc;
+    const p = this.screenToWorld(s);
+    this.setZoomFactor(newZoom);
+    const z = this.zoom;
+    const dx = p.x - (s.x - sc.x - this.shake.x) / z - this.center.x;
+    const dy = p.y - (s.y - sc.y - this.shake.y) / z - this.center.y;
+    this.follow.x += dx;
+    this.follow.y += dy;
+    this.center.x += dx;
+    this.center.y += dy;
   }
 
   /** Back to normal zoom (respawn / rejoin) — and out of the reveal framing:
@@ -388,7 +404,8 @@ export class Camera {
   }
 
   /**
-   * Feed the LIVE storm ring (centre + radius), every alive frame (ruling 127):
+   * Feed the LIVE storm ring (centre + radius), every alive AND spectate frame
+   * (ruling 127; spectate since Eric's 2026-10-14 ruling):
    * the zoom-out limit re-fits to it and the centre slide aims at its centre
    * (ruling 128). The current user zoom is re-clamped into the new limits, so a
    * captain sitting at the out limit STAYS fitted as the ring closes (the limit
@@ -404,7 +421,13 @@ export class Camera {
     const before = this.userZoomValue;
     const lim = this.userZoomLimits;
     this.userZoomValue = clamp(before, lim.min, lim.max);
-    return this.userZoomValue !== before;
+    // THE SPECTATE FACTOR RIDES THE SAME FEED (Eric 2026-10-14): a spectator at
+    // the out limit stays fitted as the ring closes. Never while the reveal
+    // framing owns the factor (amendment 25: it is exempt from the clamp), and
+    // a no-op while alive (the factor is 1 there, always inside the limits).
+    const beforeF = this.zoomFactorValue;
+    if (!this.revealing) this.zoomFactorValue = clamp(beforeF, lim.min, lim.max);
+    return this.userZoomValue !== before || this.zoomFactorValue !== beforeF;
   }
 
   /** Screen-space center (px). */

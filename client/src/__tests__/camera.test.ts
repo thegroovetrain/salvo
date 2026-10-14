@@ -173,10 +173,12 @@ describe('Camera alive user-zoom limits (ruling 127)', () => {
     expect(cam.userZoom).toBe(0.8);
   });
 
-  it('is independent of the spectate factor — the spectate clamp is the 2,640–1,320 u spans', () => {
-    const cam = makeCamera();
-    cam.setViewport(1600, 900);
+  // Re-based on Eric's 2026-10-14 ruling ("The full zoom-out needs to apply to
+  // spectate mode, as well"): the spectate clamp IS the alive range now.
+  it('is independent of the spectate factor — whose clamp is the same alive range', () => {
+    const cam = ringed(3000);
     const lim = cam.spectateZoomLimits;
+    expect(lim).toEqual(cam.userZoomLimits);
     cam.setZoomFactor(0.01);
     expect(900 / cam.zoom).toBeCloseTo(Z.defaultSpanU / lim.min, 6);
     cam.setZoomFactor(99);
@@ -186,6 +188,149 @@ describe('Camera alive user-zoom limits (ruling 127)', () => {
     cam.resetUserZoom();
     cam.setZoomFactor(0.6);
     expect(cam.zoom).toBeCloseTo((900 / Z.defaultSpanU) * 0.6, 10);
+    expect(cam.userZoom).toBe(1); // the alive factor never moved
+  });
+});
+
+// Eric 2026-10-14: "The full zoom-out needs to apply to spectate mode, as well.
+// In this case, the zoom in/out should be localized around my mouse cursor
+// (since my ship has sunk/is otherwise nonexistent)."
+describe('SPECTATE zoom = the alive range, anchored at the cursor (Eric 2026-10-14)', () => {
+  it('the spectate limits ARE the alive limits for the same viewport and ring', () => {
+    for (const r of [0, 300, 900, 2400, 5600]) {
+      const cam = ringed(r);
+      expect(cam.spectateZoomLimits).toEqual(cam.userZoomLimits);
+      expect(cam.spectateZoomLimits).toEqual(userZoomLimits(Z.defaultSpanU, Z.closeSpanU, ringFitSpanU(r, MARGIN)));
+      cam.setZoomFactor(99);
+      expect(900 / cam.zoom).toBeCloseTo(Z.closeSpanU, 6); // the in limit is the close framing
+      cam.setZoomFactor(0.0001);
+      expect(900 / cam.zoom).toBeCloseTo(Math.max(Z.defaultSpanU, ringFitSpanU(r, MARGIN)), 6);
+    }
+  });
+
+  it('the ring feed re-fits the spectate out limit as the ring closes — never past the default framing', () => {
+    const cam = ringed(2400);
+    cam.setZoomFactor(0.0001); // parked at the out limit
+    expect(900 / cam.zoom).toBeCloseTo(ringFitSpanU(2400, MARGIN), 6);
+    expect(cam.setRing(0, 0, 1200)).toBe(true);
+    expect(900 / cam.zoom).toBeCloseTo(ringFitSpanU(1200, MARGIN), 6); // carried in, still fitted
+    cam.setRing(0, 0, 100); // fitted span now under the default framing
+    expect(cam.zoomFactor).toBe(1);
+    expect(900 / cam.zoom).toBeCloseTo(Z.defaultSpanU, 6);
+  });
+
+  it('a spectator inside the limits is not moved by the ring', () => {
+    const cam = ringed(2400);
+    cam.setZoomFactor(0.8);
+    expect(cam.setRing(0, 0, 2000)).toBe(false);
+    expect(cam.zoomFactor).toBe(0.8);
+  });
+
+  it('r → 0 and a NaN / negative / infinite ring hold the spectate out limit at the DEFAULT framing', () => {
+    for (const r of [0, NaN, -5, Infinity]) {
+      const cam = ringed(2400);
+      cam.setZoomFactor(0.0001);
+      cam.setRing(0, 0, r);
+      expect(cam.zoomFactor).toBe(1);
+      expect(Number.isFinite(cam.zoom)).toBe(true);
+      cam.setZoomFactor(0.0001);
+      expect(cam.zoomFactor).toBe(1); // the default framing, never the close one
+    }
+  });
+
+  it('the ring feed leaves a live REVEAL framing alone (amendment 25: exempt from the clamp)', () => {
+    const cam = ringed(2400);
+    cam.beginReveal(6000, MARGIN, CLIENT_CONFIG.reveal.zoomRate);
+    cam.tickZoom(0, 0); // motion off: arrive
+    const reveal = cam.zoomFactor;
+    cam.setRing(0, 0, 1000);
+    expect(cam.zoomFactor).toBe(reveal);
+  });
+
+  it('zoomAbout keeps the world point under the cursor fixed — wheel and key steps, several zooms', () => {
+    const cam = ringed(3000, 400, -250);
+    cam.snapTo({ x: 1234, y: -567 });
+    cam.shake.x = 3; // shake is part of the mapping and must not break the anchor
+    cam.shake.y = -2;
+    const cursors = [{ x: 100, y: 80 }, { x: 1500, y: 820 }, { x: 800, y: 450 }, { x: 0, y: 900 }];
+    const steps = [
+      (f: number): number => stepZoom(f, -100 * Z.wheelRate), // one wheel notch out
+      (f: number): number => stepZoom(f, -Z.keyStep), // Z
+      (f: number): number => stepZoom(f, Z.keyStep), // X
+      (f: number): number => stepZoom(f, 400 * Z.wheelRate), // a wheel spin in
+    ];
+    for (const start of [0.3, 0.6, 1, 1.4]) {
+      for (const s of cursors) {
+        for (const step of steps) {
+          cam.setZoomFactor(start);
+          const p = cam.screenToWorld(s);
+          const before = cam.zoomFactor;
+          cam.zoomAbout(s.x, s.y, step(before));
+          expect(cam.zoomFactor).not.toBe(before);
+          const back = cam.worldToScreen(p);
+          expect(back.x).toBeCloseTo(s.x, 6);
+          expect(back.y).toBeCloseTo(s.y, 6);
+        }
+      }
+    }
+  });
+
+  it('zoomAbout at a clamped limit holds the cursor point too (no drift when the zoom cannot move)', () => {
+    const cam = ringed(3000);
+    cam.snapTo({ x: 50, y: 60 });
+    cam.setZoomFactor(99);
+    const s = { x: 1200, y: 200 };
+    const p = cam.screenToWorld(s);
+    cam.zoomAbout(s.x, s.y, 999);
+    expect(cam.center.x).toBeCloseTo(50, 9);
+    expect(cam.center.y).toBeCloseTo(60, 9);
+    expect(cam.worldToScreen(p).x).toBeCloseTo(s.x, 6);
+  });
+
+  it('zoomAbout at the SCREEN CENTRE is a plain zoom about the camera centre; a non-finite cursor anchors there', () => {
+    const cam = ringed(3000);
+    cam.snapTo({ x: 70, y: -30 });
+    const c = cam.screenCenter;
+    cam.zoomAbout(c.x, c.y, 0.5);
+    expect(cam.center.x).toBeCloseTo(70, 9);
+    expect(cam.center.y).toBeCloseTo(-30, 9);
+    cam.zoomAbout(NaN, 10, 0.8);
+    expect(cam.zoomFactor).toBe(0.8);
+    expect(cam.center.x).toBeCloseTo(70, 9);
+    expect(cam.center.y).toBeCloseTo(-30, 9);
+    cam.zoomAbout(10, 10, NaN); // a non-finite zoom is ignored: nothing moves
+    expect(cam.zoomFactor).toBe(0.8);
+    expect(cam.center.x).toBeCloseTo(70, 9);
+  });
+
+  it('zoomAbout releases the reveal framing, like every manual camera action', () => {
+    const cam = ringed(3000);
+    cam.beginReveal(6000, MARGIN, CLIENT_CONFIG.reveal.zoomRate);
+    cam.zoomAbout(100, 100, 0.9);
+    expect(cam.revealing).toBe(false);
+  });
+
+  it('FOLLOW: the anchor holds for the zoom frame, then the eased follow resumes from the new centre', () => {
+    const cam = ringed(3000);
+    const hull = { x: 0, y: 0, heading: 0, speed: 0 };
+    cam.snapTo(hull);
+    cam.zoomAbout(1500, 100, 0.5);
+    const shifted = { ...cam.center };
+    expect(Math.hypot(shifted.x, shifted.y)).toBeGreaterThan(0);
+    cam.update(1 / 60, hull);
+    // One frame of follow eases FROM the shifted centre, never snapping back...
+    expect(Math.hypot(cam.center.x, cam.center.y)).toBeLessThan(Math.hypot(shifted.x, shifted.y));
+    expect(Math.hypot(cam.center.x, cam.center.y)).toBeGreaterThan(0.5 * Math.hypot(shifted.x, shifted.y));
+    // ...and the follow still converges on the hull.
+    for (let i = 0; i < 600; i++) cam.update(1 / 60, hull);
+    expect(cam.center.x).toBeCloseTo(0, 3);
+    expect(cam.center.y).toBeCloseTo(0, 3);
+  });
+
+  it('the alive user zoom is untouched by zoomAbout (the alive camera stays own-ship-anchored)', () => {
+    const cam = ringed(3000);
+    cam.zoomAbout(200, 200, 0.7);
+    expect(cam.userZoom).toBe(1);
   });
 });
 
