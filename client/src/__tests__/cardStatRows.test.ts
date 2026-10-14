@@ -61,6 +61,19 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
     ]);
   });
 
+  // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 110–117): ONE row,
+  // the whole-number Armor read through effectiveStats — no unit, no decimal.
+  it('prints ARMOR as one row, whole numbers off the fold', () => {
+    const armorAt = (n: number): number =>
+      effectiveStats(CONFIG.shipClasses.torpedoBoat, Array<string>(n).fill('armor')).armor;
+    expect(cardStatRows(CATALOG.armor, 0, TB)).toEqual([
+      { label: 'ARMOR', cur: String(armorAt(0)), next: String(armorAt(1)) },
+    ]);
+    expect(cardStatRows(CATALOG.armor, 4, held('armor', 4))).toEqual([
+      { label: 'ARMOR', cur: String(armorAt(4)), next: String(armorAt(5)) },
+    ]);
+  });
+
   it('carries each ladder\'s own label and its own printer', () => {
     const labels = (line: CatalogLine): string[] =>
       cardStatRows(line, 0, TB).map((r) => r.label);

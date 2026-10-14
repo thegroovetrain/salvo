@@ -129,8 +129,10 @@ export interface ActivationContext {
   finishReloads: () => void;
   /**
    * DAMAGE CUT's whole body (Story 8.15, the Battleship's Shift, amendments
-   * 99–102): open the halving window on the ACTIVATING ship until `until`
-   * (server clock). The World's damage gate reads it; the row only computes
+   * 99–102; Story 9.7, epic-9 amendment 88): open the cut's window on the
+   * ACTIVATING ship until `until` (server clock); inside it the World's damage
+   * gate adds the row's `armorBonus` (+5) to the hull's Armor in the one
+   * K / (K + Armor) formula. The World's gate reads it; the row only computes
    * the deadline off its own stats row. Keyed on the activating ship, so a row
    * can never cut anyone else's damage.
    */

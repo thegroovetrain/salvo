@@ -2331,6 +2331,8 @@ So that a tanky build is a real choice beside more hull, and the Dreadnought's S
 **And** the cut's gate tests re-base to "Armor 5 → ×0.5" with the ruling cited; `PROTOCOL_VERSION` bumps (catalog content); both trackers stamped
 **And** the no-friendly-fire rule is unaffected (Armor only ever reduces damage to the hull that holds it)
 
+*(BUILT 2026-10-13 — cycle 184, 0.18.49, PV 80 → 81, epic-9 amendments 110–120; Eric's spec-step rulings: numbers as accepted (K 5, +1 per card, cut +5 for 10 s / 30 s), ARMOR right after HULL, card prints ARMOR 0 → 1, tally reads what landed, seventh SHIP-panel row, LOADOUT 4 + 3, DAMAGE CUT head row ARMOR +5, defensive bots favor it, glyph B the riveted belt; review-gate ruling: a whole blow lands at least 1 hp (119); the multiplier is the exact ratio (120a); `spec-9-7-armor.md`.)*
+
 ### Story 9.8: The Twelfths Ladder *(inserted 2026-10-13 — `sprint-change-proposal-2026-10-13-twelfths-ladder.md` §4.1; lands after 9.7; forge record `_bmad-output/forge/realistic-vision-range/forged-idea.md`)*
 
 As a captain hunting in the dark,

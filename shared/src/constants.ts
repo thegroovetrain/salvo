@@ -1541,20 +1541,38 @@ export const CONFIG = {
   },
 
   /**
+   * ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88) — the second
+   * toughness axis, distinct from HULL POINTS. Every incoming blow but the
+   * storm is multiplied by `K / (K + armor)` before the shield absorbs it
+   * (blows floored, burn/grind ticks exact — amendment 87). Armor is 0 at
+   * base; the ARMOR ladder (sim/catalog.ts, cap 5) adds +1 per card, authored
+   * LITERALLY in the catalog like every ladder step (a catalog step read from
+   * CONFIG at module load could never see a harness `--tune`). Eric: *"Setting
+   * K to 5, this means every 5 armor provides 100% more effective HP"* — ×1 at
+   * Tier 0, ×0.5 at Tier V. `k` is Eric's dial; effectiveStats derives
+   * `damageMultiplier` through sim/stats.ts `damageMultiplierFor`, never here.
+   */
+  armor: {
+    k: 5, // the K in K / (K + armor) (amendment 86)
+  },
+
+  /**
    * DAMAGE CUT — the BATTLESHIP's class Shift (Story 8.15, Eric rulings
-   * 2026-09-28, epic-8 amendments 99–102). An instant activation, aimed at
-   * nothing, that opens a `durationMs` window during which every WEAPON blow
-   * to this hull is multiplied by `factor` BEFORE the shield absorbs it
-   * (amendment 100) — a hit floored to a whole number, a burn tick halved
-   * exactly (amendment 102); storm bites land in full (amendment 101). One
+   * 2026-09-28, epic-8 amendments 99–102; re-cut by Story 9.7, epic-9
+   * amendment 88). An instant activation, aimed at nothing, that opens a
+   * `durationMs` window during which the hull carries `armorBonus` TEMPORARY
+   * ARMOR on top of its ARMOR ladder — it stacks additively inside the one
+   * formula (Tier 0 under the cut is Armor 5 = ×0.5, Tier V is Armor 10 =
+   * ×1/3). The flat ×0.5 `factor` is DELETED (amendment 88 supersedes epic-8
+   * 89(c) and 99's 8 s window). Storm bites land in full (amendment 87). One
    * charge on a 30 s cooldown; `reloadMs` takes `cooldownScale` like every row
    * (22.5 s at a maxed RELOAD ladder).
    */
   damageCut: {
-    factor: 0.5, // × incoming weapon damage while the window is open (amendment 89(c))
-    durationMs: 8000, // ms — the active window (amendment 99)
+    armorBonus: 5, // temporary Armor while the window is open (epic-9 amendment 88)
+    durationMs: 10000, // ms — the active window (epic-9 amendment 88; was 8000, epic-8 amendment 99)
     maxAmmo: 1, // single charge (amendment 99)
-    reloadMs: 30000, // ms — cooldown (amendment 99)
+    reloadMs: 30000, // ms — cooldown (amendment 99, confirmed by epic-9 amendment 88)
   },
 
   /**

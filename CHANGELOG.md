@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.18.49] - 2026-10-13
+
+### Changed
+- **ARMOR is a new ship upgrade** (Story 9.7). Five cards, +1 Armor each. Every hit you take is multiplied by 5 / (5 + Armor), so five Armor halves the damage (the same as doubling your hull). It applies to shells, bursts, torpedoes, mines, burns, ram hits and grinding, but not to the storm. A hit of whole hit points is rounded down but never below 1, so drone shells still scratch an armored hull. The shield absorbs after Armor.
+- **The Dreadnought's DAMAGE CUT is now temporary Armor.** It no longer halves damage flat: it grants +5 Armor for 10 seconds (was 8) on the same 30-second cooldown. At Tier 0 that is still half damage; at Tier V it is one third.
+- **The ARMOR card sits right after HULL** and prints `ARMOR 0 → 1`, Tier 0 → V. Its glyph is a riveted armor belt (Eric's pick). The HP-globe SHIP panel shows a seventh row, ARMOR. The results LOADOUT shows the seven ladders as four over three. The DAMAGE CUT card's head row reads `ARMOR +5`. The defensive bot profile favors ARMOR.
+- **How-to-Play has no ARMOR entry until 9.12** (it is frozen).
+
+### Internal
+- Shared: `CONFIG.armor { k: 5 }`, `CONFIG.damageCut { armorBonus 5, durationMs 10000 }` (factor deleted), `effectiveStats().armor` and `.damageMultiplier` (the exact ratio), `damageMultiplierFor`, catalog 25 lines / 122 cards, `TOP_LEVEL_STAT_PATHS` plus armor.
+- Server: `armorDamage` gate (storm exempt, +armorBonus inside the cut window, burn and grind exact, whole blows floor with a floor of 1); harness `--tune armor.k` (floor 1) and probe columns; golden snapshot re-recorded on two offer rows.
+- Client: ARMOR tables, `LADDERS_PER_ROW` 4, riveted-belt glyph.
+- Review gate: Blind Hunter + Edge Case Hunter (Fable) + Codex gpt-5.6-sol, all three FIX-FIRST; 4 patches (exact ratio, a rounded multiplier under-dealt 1 hp on 33 shipped damage x armor pairs; minimum 1 hp, Eric's live ruling, amendment 119; stale cut wording; harness columns), 0 deferred, 1 rejected.
+- Tests: shared 1058 -> 1064 (42 files), server 2525 -> 2548 (90 files), client 3991 -> 3992 (129 files), hook test green, lint 0 errors.
+- Epic-9 amendments 110–120. Cycle 184. PROTOCOL_VERSION 80 -> 81.
+
 ## [0.18.48] - 2026-10-13
 
 ### Changed

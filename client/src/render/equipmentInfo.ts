@@ -197,9 +197,9 @@ export function lineForEquipment(id: EquipmentId): string | null {
  * LINE ITSELF: its slotFill target, the equipment its stat effects write into
  * (`equipment.<id>.<field>`), and the equipment an add-on bolts its verb onto.
  *
- * An EMPTY list means SHIPWIDE - the six universal ladders (HULL, SPEED,
- * TURNING, RADAR SWEEP, RELOAD, PASSIVE HEALING — Story 9.6) move the whole
- * vessel and belong to no weapon.
+ * An EMPTY list means SHIPWIDE - the seven universal ladders (HULL, ARMOR,
+ * SPEED, TURNING, RADAR SWEEP, RELOAD, PASSIVE HEALING — Stories 9.6/9.7) move
+ * the whole vessel and belong to no weapon.
  * Their fit flash is rank-wide rather than slot-local (amendment 51), and
  * since cycle 158 their numbers read on the HP globe's SHIP tooltip
  * (amendment 186).

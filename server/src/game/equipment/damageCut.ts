@@ -5,9 +5,11 @@
 // activated off the Shift edge (actSeq), aimed at nothing, emitting nothing
 // spatial. One press opens a `durationMs` window (ShipRecord.damageCutUntil,
 // via the World's `setDamageCut` capability — its ONLY writer) during which the
-// damage gate multiplies every WEAPON blow to this hull by `factor` BEFORE the
-// shield absorbs it (a hit floored, a burn tick halved exactly; storm bites
-// land in full — amendments 100–102). The window rides `you` only
+// damage gate adds the row's `armorBonus` to this hull's Armor inside its
+// K / (K + armor) multiplier, BEFORE the shield absorbs (Story 9.7, epic-9
+// amendments 86–88 — no flat factor: at Tier 0 that is Armor 5 → ×0.5; a hit
+// floored, a burn or grind tick exact; storm bites land in full — epic-8
+// amendments 100–102). The window rides `you` only
 // (OwnShip.damageCutUntil, self-private) so the HUD can show the ACTIVE
 // grammar; an enemy reads a cut hull only through its persistence under fire.
 

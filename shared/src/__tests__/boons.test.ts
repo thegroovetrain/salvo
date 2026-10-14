@@ -106,7 +106,8 @@ const diff = (a: EffectiveStats, b: EffectiveStats): string[] => {
 describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)', () => {
   it('is exactly the top-level paths plus every equipment.<id>.<field>', () => {
     const expected: string[] = [
-      'maxHp', 'radarRange', 'sweepRpm', 'cooldownScale',
+      // `armor` sits right after maxHp (Story 9.7, epic-9 amendments 86–88 / 110–117).
+      'maxHp', 'armor', 'radarRange', 'sweepRpm', 'cooldownScale',
       'kinematics.maxSpeed', 'kinematics.reverseSpeed', 'kinematics.accel',
       'kinematics.decel', 'kinematics.turnRate', 'kinematics.steerageSpeed',
       // The regen pair (Story 9.6, epic-9 amendments 90–91): PASSIVE HEALING's paths.
@@ -129,6 +130,10 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
     const absent = [
       'sightRange',
       'sweepPeriodMs',
+      // Story 9.7 (epic-9 amendments 86–88 / 110–117): derived from `armor`.
+      'damageMultiplier',
+      // The cut's Armor bonus is a CONFIG pass-through (amendment 88).
+      'equipment.damageCut.armorBonus',
       'equipment.gun.rangeU',
       'equipment.starShells.rangeU',
       'equipment.broadside.rangeU',
@@ -174,8 +179,10 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
     // mine ladders (Story 8.13), the machine gun / flak ladders (Story 8.15)
     // and the STAR SHELLS / BROADSIDE / PHOSPHOR SHELLS ladders (Story 8.17,
     // Eric 2026-09-29, amendments 130/131/133), and PASSIVE HEALING's regen
-    // pair (Story 9.6, epic-9 amendments 90–91).
+    // pair (Story 9.6, epic-9 amendments 90–91), and ARMOR (Story 9.7, epic-9
+    // amendments 86–88 / 110–117).
     expect([...written].sort()).toEqual([
+      'armor',
       'regen.missingPctPerS', 'regen.outOfCombatMs',
       'cooldownScale', 'equipment.gun.barrels', 'equipment.gun.damage', 'equipment.gun.maxAmmo',
       'kinematics.maxSpeed', 'kinematics.turnRate', 'maxHp', 'sweepRpm',

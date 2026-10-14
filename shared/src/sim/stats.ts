@@ -45,7 +45,12 @@
 //     ONCE here, after a fold that accumulated it as a float — catalog-v3 R17's
 //     standing rule (a +0.5 tube step shows nothing until it completes a whole);
 //   - THE EQUIPMENT RELOAD STEP, catalog-v3 §3/§4: −5 % per tier, additive
-//     five-point steps, composed BEFORE the global Reload ladder.
+//     five-point steps, composed BEFORE the global Reload ladder;
+//   - ARMOR (Story 9.7, epic-9 amendments 86–88): `armor` floored to a whole
+//     number ≥ 0, and `damageMultiplier = K / (K + armor)` (K =
+//     CONFIG.armor.k) derived from it through `damageMultiplierFor` — the ONE
+//     formula, which the server's damage gate also calls for the DAMAGE CUT's
+//     `armor + armorBonus` case. Re-pinned in BOTH re-pin homes.
 //
 // `cooldownScale` (Eric ruling 2026-08-04, retuned by catalog-v3 R12) is the
 // ONE global cooldown lever: a base-1.0 scalar the universal RELOAD ladder
@@ -196,12 +201,14 @@ export type EffectiveInstantReload = EquipmentRowCommon;
 
 /**
  * DAMAGE CUT's effective numbers (Story 8.15, the Battleship's Shift,
- * amendments 99–102): the boost's shape plus the `factor` the World applies to
- * every weapon blow inside the window.
+ * amendments 99–102, re-cut by Story 9.7): the boost's shape plus the
+ * `armorBonus` the World adds to the victim's Armor inside the window (epic-9
+ * amendment 88 — the flat ×0.5 `factor` is deleted). A CONFIG pass-through,
+ * not card-addressable.
  */
 export interface EffectiveDamageCut extends EquipmentRowCommon {
   durationMs: number; // ms — the active window per activation
-  factor: number; // × incoming weapon damage while the window is open
+  armorBonus: number; // temporary Armor added inside the window (stacks with the ARMOR ladder)
 }
 
 /**
@@ -296,6 +303,11 @@ export interface EffectiveStats {
   // (clampStats). Base 1.0 = a true no-op; the RELOAD ladder drives it down
   // additively (−0.05/copy) to exactly 0.75 at the 5-copy cap.
   cooldownScale: number;
+  // ARMOR (Story 9.7, epic-9 amendments 86–88): 0 at base, +1 per ARMOR card,
+  // a whole number. `damageMultiplier` is DERIVED from it in clampStats as
+  // K / (K + armor) (1 at base, 0.5 at Tier V) — never stat-addressable.
+  armor: number;
+  damageMultiplier: number;
   // OUT-OF-COMBAT REGEN, per hull (Story 9.6, epic-9 amendments 90–91): base
   // CONFIG.regen; the PASSIVE HEALING ladder raises the rate (+0.006/copy) and
   // shortens the wait (−1000 ms/copy). Server and client read it here — never
@@ -477,7 +489,7 @@ function shiftRows(): Pick<EquipmentRows, 'instantReload' | 'damageCut'> {
       reloadMs: CONFIG.damageCut.reloadMs,
       maxAmmo: CONFIG.damageCut.maxAmmo,
       durationMs: CONFIG.damageCut.durationMs,
-      factor: CONFIG.damageCut.factor,
+      armorBonus: CONFIG.damageCut.armorBonus,
     },
   };
 }
@@ -613,6 +625,8 @@ function baseStats(cls: ShipClass): EffectiveStats {
     sweepPeriodMs: MS_PER_MINUTE / Math.min(CONFIG.vision.sweepRpm, CONFIG.vision.sweepRpmMax),
     sightRange: CONFIG.vision.sight,
     cooldownScale: 1, // base: the global cooldown scale is a no-op until RELOAD stacks
+    armor: 0, // base: no Armor until the ARMOR ladder stacks (amendment 86)
+    damageMultiplier: 1, // DERIVED — K / (K + 0)
     // A COPY of CONFIG.regen (never an alias — the fold mutates this tree).
     regen: { missingPctPerS: CONFIG.regen.missingPctPerS, outOfCombatMs: CONFIG.regen.outOfCombatMs },
     equipment: baseEquipment(cls),
@@ -623,6 +637,35 @@ function baseStats(cls: ShipClass): EffectiveStats {
  *  the additive float dust a −0.05 ladder accumulates (five steps land on
  *  0.7500000000000001 without it). */
 const round3 = (v: number): number => Math.round(v * 1000) / 1000;
+
+/**
+ * THE ARMOR DAMAGE MULTIPLIER (Story 9.7, Eric 2026-10-13, epic-9 amendments
+ * 86–88): `K / (K + armor)`, K = CONFIG.armor.k — the EXACT ratio, never
+ * rounded (review gate 2026-10-13, epic-9 amendment 120(a)): 5/6, 5/7 … 1/2
+ * at Tiers I–V, 1/3 at Armor 10 (Tier V under the DAMAGE CUT). A rounded
+ * multiplier (0.833 for 5/6) floored every blow whose exact product is whole
+ * a point low (an MG shell 6 at Armor 1 dealt 4, not 5); round only where a
+ * number is PRINTED. Both sides compute the identical IEEE double from the
+ * same integers, so the value stays deterministic. The ONE formula:
+ * clampStats derives `stats.damageMultiplier` through it and the server's
+ * damage gate calls it for `armor + damageCut.armorBonus` inside the cut's
+ * window.
+ *
+ * NON-FINITE OR NEGATIVE ARMOR READS AS 0 (the clampSpreadRung law): a NaN
+ * must never poison the gate — it yields ×1, never NaN damage.
+ */
+export function damageMultiplierFor(armor: number): number {
+  const a = Number.isFinite(armor) ? Math.max(0, armor) : 0;
+  return CONFIG.armor.k / (CONFIG.armor.k + a);
+}
+
+/** The ARMOR pair's post-fold clamp: Armor is authored in whole numbers, so it
+ *  is floored at 0 and to an integer (the EQUIPMENT_INT_FIELDS rule; a
+ *  non-finite value reads 0), then the multiplier is derived from it. */
+function clampArmor(stats: EffectiveStats): void {
+  stats.armor = Number.isFinite(stats.armor) ? Math.max(0, Math.floor(stats.armor)) : 0;
+  stats.damageMultiplier = damageMultiplierFor(stats.armor);
+}
 
 /**
  * THE EQUIPMENT RELOAD STEP (catalog-v3 §3 standing rule, §4 conventions):
@@ -756,6 +799,7 @@ function clampStats(stats: EffectiveStats): void {
   const cd = Math.max(0.1, round3(stats.cooldownScale));
   stats.cooldownScale = cd;
   clampRegen(stats.regen);
+  clampArmor(stats);
   // THE EQUIPMENT RELOAD STEP then the global scale, in that order, for EVERY
   // row — one site, no per-weapon special case (see reloadTierScale).
   for (const id of EQUIPMENT_IDS) {

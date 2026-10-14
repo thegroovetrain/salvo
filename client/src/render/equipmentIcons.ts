@@ -31,7 +31,7 @@
 //
 // THREE TABLES, ONE LOOKUP. `GLYPHS` is keyed by `EquipmentId` (what a weapon
 // slot holds), `CONSUMABLE_GLYPHS` by consumable id (what a belt square holds),
-// and `LINE_GLYPHS` by the CARD LINES that are neither — the six ship ladders
+// and `LINE_GLYPHS` by the CARD LINES that are neither — the seven ship ladders
 // and the CANNON ladder (`deckGun`, drawn as the mounted `gun`). `glyphPaths`
 // asks them in that order (consumable → equipment → line), so the hotbar and
 // the results loadout (slot-item ids) and the refit card and How-to-Play (line
@@ -437,6 +437,18 @@ const hullPoints: GlyphPaths = [
   [-0.55, 0.4, 0.95, 0.8],
 ].map(([x0, y0, x1, y1]) => path([x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]));
 
+/** Armor — Story 9.7 (2026-10-13), Eric's pick from three rendered candidates
+ *  (epic-9 amendment 116): an ANGLED ARMOR BELT — two slanted riveted plate
+ *  bands. The rivets are r 0.14 (grown from the render's 0.1) so they read at
+ *  24 px. Not HULL's three stacked plates. */
+const armor: GlyphPaths = [
+  path([-0.95, -0.45], [0.95, -0.95], [0.95, -0.45], [-0.95, 0.05], [-0.95, -0.45]),
+  path([-0.95, 0.25], [0.95, -0.25], [0.95, 0.25], [-0.95, 0.75], [-0.95, 0.25]),
+  circle(-0.6, -0.29, 0.14),
+  circle(0, -0.45, 0.14),
+  circle(0.6, -0.61, 0.14),
+];
+
 /** Speed (cycle 162 DRAFT): a forward-pointing arrowhead with three motion
  *  lines trailing it — the middle one its shaft. Not BOOST's double chevron. */
 const speed: GlyphPaths = [
@@ -485,12 +497,13 @@ const passiveHealing: GlyphPaths = [path([-0.95, 0.2], [-0.5, 0.2], [-0.3, -0.7]
 
 /**
  * THE LINE half of the table (cycle 162): card lines that are NOT slot items —
- * the six ship ladders, and the CANNON ladder `deckGun`, which draws the
+ * the seven ship ladders, and the CANNON ladder `deckGun`, which draws the
  * mounted `gun` it upgrades. Kept apart from `GLYPHS` so that table stays keyed
  * by what a weapon slot can actually hold.
  */
 const LINE_GLYPHS: Partial<Record<LineId, GlyphPaths>> = {
   hullPoints,
+  armor,
   speed,
   turning,
   radarSweep,

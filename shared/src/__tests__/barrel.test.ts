@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as shared from '../index.js';
 import type { EquipmentId } from '../index.js';
 import {
+  damageMultiplierFor,
   PROTOCOL_VERSION,
   CONFIG,
   DRONE_HULL_IDS,
@@ -436,7 +437,11 @@ describe('shared barrel', () => {
     // catalog content (armor -> hullPoints, SPEED/TURNING cap 5, new
     // passiveHealing ladder) and CONFIG.regen read by the client through
     // effectiveStats().regen. The exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(80);
+    // 80 -> 81 (Story 9.7 ARMOR, Eric 2026-10-13, epic-9 amendments 86-88 /
+    // 110-117): catalog content (new `armor` ladder after hullPoints) and
+    // CONFIG.armor + CONFIG.damageCut.armorBonus read by the client through the
+    // fold. Nothing new on the wire; the exception count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(81);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -1024,10 +1029,11 @@ describe('shared barrel', () => {
     // BARREL deleted, folded into the CANNON ladder's rungs. 24/114 -> 23/109
     // in Story 9.2 (Eric 2026-10-11, epic-9 amendment 31): CHAFF retired.
     // 23/109 -> 24/117 in Story 9.6 (epic-9 amendments 90–91): HULL/SPEED/
-    // TURNING cap 5, PASSIVE HEALING added.
-    expect(LINE_IDS).toHaveLength(24);
-    expect(Object.keys(CATALOG)).toHaveLength(24);
-    expect(catalogCardCount()).toBe(117);
+    // TURNING cap 5, PASSIVE HEALING added. 24/117 -> 25/122 in Story 9.7
+    // (epic-9 amendments 86–88 / 110–117): the new ARMOR ladder (cap 5).
+    expect(LINE_IDS).toHaveLength(25);
+    expect(Object.keys(CATALOG)).toHaveLength(25);
+    expect(catalogCardCount()).toBe(122);
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0); // still EMPTY (amendment 30 satisfied data-side)
     expect(Object.isFrozen(CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);
@@ -1049,14 +1055,18 @@ describe('shared barrel', () => {
     expect(BOON_STAT_PATHS).toContain('equipment.machineGun.rateMs');
     for (const path of [
       'sweepPeriodMs', 'sightRange',
+      // Story 9.7 (epic-9 amendments 86–88 / 110–117): the Armor multiplier
+      // is DERIVED from `armor` (which IS addressable) — never a card path.
+      'damageMultiplier',
       'equipment.gun.rangeU', 'equipment.starShells.rangeU', 'equipment.broadside.rangeU',
       // Story 8.17: phosphor's reach is the radar rung too, derived.
       'equipment.phosphorShells.rangeU', 'equipment.phosphorShells.tier',
       // Story 8.15: the two pickable guns' ranges are the radar rung, derived;
-      // the cut's factor is fixed. (`machineGun.rateMs` is ADDRESSABLE since
+      // the cut's Armor bonus is fixed (Story 9.7, epic-9 amendment 88 — it
+      // replaced the deleted factor). (`machineGun.rateMs` is ADDRESSABLE since
       // 2026-09-30 — its ladder steps it; the idle clock is deleted.)
       'equipment.machineGun.rangeU', 'equipment.flak.rangeU',
-      'equipment.machineGun.idleReloadMs', 'equipment.damageCut.factor',
+      'equipment.machineGun.idleReloadMs', 'equipment.damageCut.armorBonus',
       'equipment.broadside.traverseRad', 'equipment.broadside.mountSpreadRad',
       'equipment.navalMines.triggerRadius', 'equipment.gun.tier',
       // THE CAPTIVE MINE HAS NEITHER RADIUS PATH (epic-8 amendment 84d): its
@@ -1182,7 +1192,11 @@ describe('shared barrel', () => {
       reloadMs: 3500, damage: 12, contactDamage: 4, burstRadius: 50, shellRadius: 2, // 4000 → 3500, amendment 232
     });
     expect(CONFIG.instantReload).toEqual({ maxAmmo: 1, reloadMs: 60000 }); // 60 s (Eric 2026-10-02, amendment 232; was 45 s)
-    expect(CONFIG.damageCut).toEqual({ factor: 0.5, durationMs: 8000, maxAmmo: 1, reloadMs: 30000 });
+    // Story 9.7 (epic-9 amendments 86–88 / 110–117): the cut is +5 temporary
+    // Armor for 10 s; the flat factor is DELETED, not kept beside it.
+    expect(CONFIG.damageCut).toEqual({ armorBonus: 5, durationMs: 10000, maxAmmo: 1, reloadMs: 30000 });
+    expect(CONFIG.armor).toEqual({ k: 5 });
+    expect(typeof damageMultiplierFor).toBe('function');
     // Neither pickable gun carries a range field — it is the radar rung.
     expect('rangeU' in CONFIG.machineGun).toBe(false);
     expect('rangeU' in CONFIG.flak).toBe(false);

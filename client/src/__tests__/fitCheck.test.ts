@@ -47,13 +47,14 @@ const LINES: readonly CatalogLine[] = Object.values(CATALOG);
 const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
 
 describe('fit-check — catalog sanity (the walk covers something real)', () => {
-  it('the catalog has every id keyed to itself and exactly the ratified 24 lines', () => {
+  it('the catalog has every id keyed to itself and exactly the ratified 25 lines', () => {
     expect(LINES).toHaveLength(LINE_IDS.length);
     // 29 until Story 8.15 CUT missile, monitor and heat seeking (amendment 89e);
     // 26 until DECK GUN TURRET and DECK GUN BARREL folded into the CANNON
     // ladder (amendment 197); 24 until CHAFF left in Story 9.2 (amendment 31);
-    // 24 again since PASSIVE HEALING joined in Story 9.6 (epic-9 amendment 95).
-    expect(LINE_IDS).toHaveLength(24);
+    // 24 again since PASSIVE HEALING joined in Story 9.6 (epic-9 amendment 95);
+    // 25 since ARMOR joined in Story 9.7 (epic-9 amendments 110–117).
+    expect(LINE_IDS).toHaveLength(25);
     for (const [key, line] of Object.entries(CATALOG)) expect(line.id).toBe(key);
   });
 });
@@ -248,10 +249,11 @@ describe('fit-check — SLOT ROUTING (every line lands on a slot or is shipwide)
     expect(unrouted).toEqual([]);
   });
 
-  it('the shipwide lines are EXACTLY the six universal ladders — no gap, no orphan', () => {
-    // Story 9.6 (epic-9 amendments 93/95): ARMOR → hullPoints, PASSIVE HEALING joins.
+  it('the shipwide lines are EXACTLY the seven universal ladders — no gap, no orphan', () => {
+    // Story 9.6 (epic-9 amendments 93/95): ARMOR → hullPoints, PASSIVE HEALING joins;
+    // Story 9.7 (epic-9 amendments 110–117): the new ARMOR ladder joins.
     const shipwide = LINES.filter((l) => cardEquipmentIds(l.id).length === 0 && l.kind !== 'consumable').map((l) => l.id);
-    expect(shipwide.sort()).toEqual(['hullPoints', 'passiveHealing', 'radarSweep', 'reload', 'speed', 'turning']);
+    expect(shipwide.sort()).toEqual(['armor', 'hullPoints', 'passiveHealing', 'radarSweep', 'reload', 'speed', 'turning']);
   });
 
   it('a shipwide ladder owns no slot, so its fit falls through to the rank-wide pulse', () => {
