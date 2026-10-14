@@ -3007,3 +3007,12 @@ Closure stamps for three older entries (the originals are left as written), then
   status: OPEN — owed to Story 9.13 (was 9.12)
   summary: RECORDS OWED TO 9.13: How-to-Play's sensor entry and the RANGE / ARMOR / PASSIVE HEALING entries, DESIGN.md's card height (243 px) and zoom range, EXPERIENCE.md's ladder lines, the GDD's "two truesight diameters" / "radar = sight × 2" / E9 row, catalog-v3's weapon ranges and damage rows.
   evidence: epic-9 amendment 137r.
+
+## 2026-10-14 — Story 9.8 staging fix, cycle 186 (spec-9-8-the-twelfths-ladder.md)
+
+- source_spec: `spec-9-8-the-twelfths-ladder.md`
+  summary: BACK POCKET (Eric 2026-10-14): a 1,200 u radar with the same twelfths ratios (sight 400, flash/smoke 600, dropout from 800) on the previous 8,000 u ocean seats 16 captains with no pair inside radar at spawn (chord 1,249 u, margin 49 u) and carries ~87 islands instead of ~118 — the other lever if the 16 / 8 / 4 fleet waves ever push the tick over budget again.
+  evidence: chord = 2 × 3,200 × sin(π/16) = 1,248.6 u on the 0.8 R spawn ring; island counts from the cycle-186 tick-cost probe (seed 0x9876); Eric: "Okay, lets keep that in our back pocket."
+- source_spec: `spec-9-8-the-twelfths-ladder.md`
+  summary: the server has no slow-tick log line; the tick p50/p95/max on `GET /metrics` is the only live signal of a room missing 20 Hz — read it on staging during a 1:00+ bot match after cycle 186 to confirm the collision cut holds on Render's starter instance.
+  evidence: cycle-186 investigation (amendment 138): 30 ms p50 ticks on an M-series Mac with 112 hulls before the fix; `grep overrun|slow tick` over server/src is empty.
