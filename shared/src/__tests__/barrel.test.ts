@@ -1220,6 +1220,7 @@ describe('shared barrel', () => {
       arc: 'full', hits: ['hull', 'mine', 'decoy', 'ordnance'], shellSpeed: 500, maxAmmo: 1,
       reloadMs: 3500, damage: 20, contactDamage: 4, burstRadius: 50, shellRadius: 2, // 4000 → 3500, amendment 232; damage 12 → 20 Eric 2026-10-13, experiment
       rangeU: TWELFTH * 5, rangeUAtV: TWELFTH * 6, // ruling 125: 5/12 → 6/12 (625 → 750 u)
+      edgeFalloff: 10, // D at the centre, D − 10 at the rim (Eric 2026-10-13, flak only)
     });
     expect(CONFIG.instantReload).toEqual({ maxAmmo: 1, reloadMs: 60000 }); // 60 s (Eric 2026-10-02, amendment 232; was 45 s)
     // Story 9.7 (epic-9 amendments 86–88 / 110–117): the cut is +5 temporary

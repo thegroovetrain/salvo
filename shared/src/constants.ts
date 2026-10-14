@@ -1195,6 +1195,16 @@ export const CONFIG = {
     // change).
     contactDamage: 4,
     burstRadius: 50, // u — FIXED; the ladder never grows it (amendment 105)
+    // THE BURST'S EDGE FALLOFF (Story 9.8, Eric 2026-10-13, verbatim: *"the damage
+    // should scale from D at the very center to D-10 at the very edge. Meaning
+    // even though it has a nice wide burst, it pays to be accurate, because you
+    // take deal damage based on the best result for how close the ship is to
+    // the center of the blast."*). A caught hull takes
+    // `floor(damage − edgeFalloff × nearest / burstRadius)` where `nearest` is
+    // the distance from the burst centre to the NEAREST point of its outline
+    // (0 inside) — a whole number BEFORE the one damage gate. FLAK ONLY; the
+    // harness reaches it as `--tune flak.edgeFalloff` (floor 0).
+    edgeFalloff: 10, // hp — D at the centre, D − 10 at the rim
     shellRadius: 2, // u — shell collision radius (the gun family's)
   },
 
