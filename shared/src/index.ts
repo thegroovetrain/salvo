@@ -3,6 +3,12 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  82 — Story 9.8 THE TWELFTHS LADDER (Eric 2026-10-13, epic-9 amendments
+ *  102–109, 121–129): sensor ladder twelfths of 1500 u (sight 500,
+ *  flash/smoke 750, far anchor 1000, radar 1500), weapon ranges per-weapon
+ *  tiered dials on the ruler (the client reads them through the fold),
+ *  server-side radar dropout 1000–1500 (a missed paint never leaves the
+ *  server); nothing new rides the wire. Perception exception count stays SIX.
  *  81 — Story 9.7 ARMOR (Eric 2026-10-13, epic-9 amendments 86–88): catalog
  *  content (new `armor` ladder, seated right after `hullPoints`),
  *  `CONFIG.armor` + `CONFIG.damageCut.armorBonus` read by the client through
@@ -846,7 +852,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 81;
+export const PROTOCOL_VERSION = 82;
 
 // Tunables
 export * from './constants.js';
@@ -891,6 +897,7 @@ export * from './sim/noise.js';
 export * from './sim/seedText.js';
 export * from './sim/heightField.js';
 export * from './sim/radarShadow.js';
+export * from './sim/dropout.js';
 export * from './sim/wake.js';
 export * from './sim/cloud.js';
 export * from './sim/zone.js';

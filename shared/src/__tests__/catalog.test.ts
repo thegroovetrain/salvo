@@ -77,6 +77,16 @@ import {
   type LineKind,
 } from '../index.js';
 
+/** THE PER-CARD RANGE STEP a tiered weapon's upgrade card authors (Story 9.8,
+ *  Eric 2026-10-13, epic-9 ruling 125): an EVEN split of Tier I → Tier V over
+ *  the four cards, derived from the two CONFIG dials (+62.5 u cannon and
+ *  phosphor, +31.25 u the others, at the shipped ruler). */
+const rangeStepOf = (w: 'gun' | 'machineGun' | 'flak' | 'broadside' | 'starShells' | 'phosphorShells') => ({
+  kind: 'stat',
+  path: `equipment.${w}.rangeU`,
+  add: (CONFIG[w].rangeUAtV - CONFIG[w].rangeU) / 4,
+});
+
 /** catalog-v3 §1, transcribed: every line's cap and kind. */
 const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   // HULL POINTS / SPEED / TURNING cap 5 and PASSIVE HEALING new (Story 9.6,
@@ -175,12 +185,14 @@ describe('catalog v3 identity', () => {
   it('authors the CANNON ladder rung by rung: barrels at tiers II and IV, turret at tier III (Eric 2026-10-02, amendment 232)', () => {
     const dmg = (add: number) => ({ kind: 'stat', path: 'equipment.gun.damage', add });
     const barrel = { kind: 'stat', path: 'equipment.gun.barrels', add: 1 };
+    // Story 9.8 (ruling 125): every rung also carries the even range step.
+    const range = rangeStepOf('gun');
     expect(CATALOG.deckGun.appliesTo).toEqual(['gun']);
     expect(CATALOG.deckGun.tiers).toEqual([
-      [barrel], // I → II — 16 → 16, no damage effect
-      [dmg(2), { kind: 'stat', path: 'equipment.gun.maxAmmo', add: 1 }], // II → III — 16 → 18
-      [barrel], // III → IV — 18 → 18, no damage effect
-      [dmg(3)], // IV → V — 18 → 21
+      [barrel, range], // I → II — 16 → 16, no damage effect
+      [dmg(2), { kind: 'stat', path: 'equipment.gun.maxAmmo', add: 1 }, range], // II → III — 16 → 18
+      [barrel, range], // III → IV — 18 → 18, no damage effect
+      [dmg(3), range], // IV → V — 18 → 21
     ]);
   });
 
@@ -246,6 +258,7 @@ describe('catalog v3 identity', () => {
       { kind: 'stat', path: 'equipment.starShells.litRadius', mult: 1.1 },
       { kind: 'stat', path: 'equipment.starShells.maxAmmo', add: 0.5 },
       { kind: 'stat', path: 'equipment.starShells.damage', add: damage },
+      rangeStepOf('starShells'),
     ];
     expect(CATALOG.starShells.tiers.slice(1)).toEqual([stepsOf(2), stepsOf(3), stepsOf(2), stepsOf(3)]);
   });
@@ -255,6 +268,7 @@ describe('catalog v3 identity', () => {
       expect(tier).toEqual([
         { kind: 'stat', path: 'equipment.broadside.spreadRung', add: 1 },
         { kind: 'stat', path: 'equipment.broadside.turrets', add: 0.5 },
+        rangeStepOf('broadside'),
       ]);
     }
   });
@@ -264,6 +278,7 @@ describe('catalog v3 identity', () => {
       { kind: 'stat', path: 'equipment.phosphorShells.damage', add: damage },
       { kind: 'stat', path: 'equipment.phosphorShells.dps', add: dps },
       { kind: 'stat', path: 'equipment.phosphorShells.zoneRadius', mult: 1.1 },
+      rangeStepOf('phosphorShells'),
       ...(durMs === undefined ? [] : [{ kind: 'stat', path: 'equipment.phosphorShells.zoneDurationMs', add: durMs }]),
     ];
     expect(CATALOG.phosphorShells.tiers.slice(1)).toEqual([
@@ -363,11 +378,12 @@ describe('catalog v3 identity', () => {
     const mgAmmo = { kind: 'stat', path: 'equipment.machineGun.maxAmmo', add: 4 };
     const mgDmg = { kind: 'stat', path: 'equipment.machineGun.damage', add: 1 };
     const mgRate = { kind: 'stat', path: 'equipment.machineGun.rateMs', add: -50 };
+    const mgRange = rangeStepOf('machineGun'); // Story 9.8, ruling 125
     expect(CATALOG.machineGun.tiers).toEqual([
-      [mgAmmo, mgDmg, mgRate], // I → II
-      [mgAmmo, mgRate], // II → III
-      [mgAmmo, mgDmg, mgRate], // III → IV
-      [mgAmmo, mgRate], // IV → V
+      [mgAmmo, mgDmg, mgRate, mgRange], // I → II
+      [mgAmmo, mgRate, mgRange], // II → III
+      [mgAmmo, mgDmg, mgRate, mgRange], // III → IV
+      [mgAmmo, mgRate, mgRange], // IV → V
     ]);
     // A fresh array per tier (the `ladder` law): no tier aliases another.
     const mgTiers = CATALOG.machineGun.tiers;
@@ -378,10 +394,11 @@ describe('catalog v3 identity', () => {
     // The blast radius never moves.
     const flakDmg = { kind: 'stat', path: 'equipment.flak.damage', add: 8 };
     const flakPool = { kind: 'stat', path: 'equipment.flak.maxAmmo', add: 1 };
-    expect(CATALOG.flak.tiers[0]).toEqual([flakDmg, flakPool]);
-    expect(CATALOG.flak.tiers[1]).toEqual([flakDmg]);
-    expect(CATALOG.flak.tiers[2]).toEqual([flakDmg, flakPool]);
-    expect(CATALOG.flak.tiers[3]).toEqual([flakDmg]);
+    const flakRange = rangeStepOf('flak'); // Story 9.8, ruling 125
+    expect(CATALOG.flak.tiers[0]).toEqual([flakDmg, flakPool, flakRange]);
+    expect(CATALOG.flak.tiers[1]).toEqual([flakDmg, flakRange]);
+    expect(CATALOG.flak.tiers[2]).toEqual([flakDmg, flakPool, flakRange]);
+    expect(CATALOG.flak.tiers[3]).toEqual([flakDmg, flakRange]);
     // Each ladder advances its OWN gun's tier (the reload step reads it).
     expect(tierTargetOf(CATALOG.machineGun)).toBe('machineGun');
     expect(tierTargetOf(CATALOG.flak)).toBe('flak');

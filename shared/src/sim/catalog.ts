@@ -95,6 +95,7 @@
 // wire and both sides resolve them FAIL-CLOSED (unknown id silently dropped) —
 // the PV join gate is the only desync guard.
 
+import { CONFIG } from '../constants.js';
 import type { EquipmentId } from './loadout.js';
 import { EQUIPMENT_IDS, isConsumableId } from './loadout.js';
 import {
@@ -310,6 +311,32 @@ export function ladderSteps(
   return { id, kind: 'ladder', cap: tiers.length, tiers, ...extra };
 }
 
+/**
+ * THE PER-CARD RANGE STEPS (Story 9.8, Eric 2026-10-13, epic-9 ruling 125):
+ * every tiered weapon's reach climbs from its Tier I dial `CONFIG.<w>.rangeU`
+ * to its Tier V dial `CONFIG.<w>.rangeUAtV` in an EVEN split over the line's
+ * four upgrade cards — cannon and phosphor +62.5 u, machine gun, flak,
+ * broadside and star shells +31.25 u at the shipped ruler (all exact in
+ * binary, so four steps land on Tier V with no dust; `rangeU` is not an
+ * integer field, so nothing floors it).
+ *
+ * COMPUTED ONCE, AT MODULE LOAD, from the two CONFIG numbers — the catalog is
+ * frozen at load (the 9.7 precedent, epic-9 amendment 110), so a harness
+ * `--tune gun.rangeU` moves the Tier I BASE only and the step stays where it
+ * was authored, exactly like every other authored step.
+ */
+const rangeStep = (w: { rangeU: number; rangeUAtV: number }): number => (w.rangeUAtV - w.rangeU) / 4;
+const GUN_RANGE_STEP = rangeStep(CONFIG.gun);
+const MACHINE_GUN_RANGE_STEP = rangeStep(CONFIG.machineGun);
+const FLAK_RANGE_STEP = rangeStep(CONFIG.flak);
+const BROADSIDE_RANGE_STEP = rangeStep(CONFIG.broadside);
+const STAR_SHELLS_RANGE_STEP = rangeStep(CONFIG.starShells);
+const PHOSPHOR_SHELLS_RANGE_STEP = rangeStep(CONFIG.phosphorShells);
+/** One CANNON rung's range step (ruling 125: 8/12 → 10/12 over four cards). */
+const cannonRange = (): BoonEffect => statEffect('equipment.gun.rangeU', { add: GUN_RANGE_STEP });
+/** One FLAK rung's range step (ruling 125: 5/12 → 6/12 over four cards). */
+const flakRange = (): BoonEffect => statEffect('equipment.flak.rangeU', { add: FLAK_RANGE_STEP });
+
 /** One CANNON rung's whole-number damage step (Eric 2026-10-02, epic-8
  *  amendment 232: base 16; +2 on the rung to III, +3 on the rung to V →
  *  16 / 16 / 18 / 18 / 21; the rungs to II and IV carry no damage effect). */
@@ -380,6 +407,7 @@ function machineGunTier(damageUp: boolean): BoonEffect[] {
     statEffect('equipment.machineGun.maxAmmo', { add: 4 }),
     ...(damageUp ? [statEffect('equipment.machineGun.damage', { add: 1 })] : []),
     statEffect('equipment.machineGun.rateMs', { add: -50 }),
+    statEffect('equipment.machineGun.rangeU', { add: MACHINE_GUN_RANGE_STEP }), // ruling 125: 6/12 → 7/12
   ];
 }
 
@@ -392,6 +420,7 @@ function starShellTier(damageStep: number): BoonEffect[] {
     statEffect('equipment.starShells.litRadius', { mult: 1.1 }),
     statEffect('equipment.starShells.maxAmmo', { add: 0.5 }),
     statEffect('equipment.starShells.damage', { add: damageStep }),
+    statEffect('equipment.starShells.rangeU', { add: STAR_SHELLS_RANGE_STEP }), // ruling 125: 11/12 → 12/12
   ];
 }
 
@@ -403,6 +432,7 @@ function phosphorTier(damageStep: number, dpsStep: number, durationStepMs: numbe
     statEffect('equipment.phosphorShells.damage', { add: damageStep }),
     statEffect('equipment.phosphorShells.dps', { add: dpsStep }),
     statEffect('equipment.phosphorShells.zoneRadius', { mult: 1.1 }),
+    statEffect('equipment.phosphorShells.rangeU', { add: PHOSPHOR_SHELLS_RANGE_STEP }), // ruling 125: 8/12 → 10/12
   ];
   if (durationStepMs !== 0) tier.push(statEffect('equipment.phosphorShells.zoneDurationMs', { add: durationStepMs }));
   return tier;
@@ -509,10 +539,10 @@ export const CATALOG: Catalog = deepFreezeRows({
   deckGun: ladderSteps(
     'deckGun',
     [
-      [statEffect('equipment.gun.barrels', { add: 1 })], // I → II — a second barrel (no damage step: 16 → 16)
-      [cannonDamage(2), statEffect('equipment.gun.maxAmmo', { add: 1 })], // II → III — 16 → 18 and the second turret
-      [statEffect('equipment.gun.barrels', { add: 1 })], // III → IV — a third barrel (no damage step: 18 → 18)
-      [cannonDamage(3)], // IV → V — 18 → 21
+      [statEffect('equipment.gun.barrels', { add: 1 }), cannonRange()], // I → II — a second barrel (no damage step: 16 → 16)
+      [cannonDamage(2), statEffect('equipment.gun.maxAmmo', { add: 1 }), cannonRange()], // II → III — 16 → 18 and the second turret
+      [statEffect('equipment.gun.barrels', { add: 1 }), cannonRange()], // III → IV — a third barrel (no damage step: 18 → 18)
+      [cannonDamage(3), cannonRange()], // IV → V — 18 → 21
     ],
     { appliesTo: ['gun'] },
   ),
@@ -586,10 +616,10 @@ export const CATALOG: Catalog = deepFreezeRows({
   flak: ladderSteps(
     'flak',
     [
-      [flakDamage(), statEffect('equipment.flak.maxAmmo', { add: 1 })], // I → II — the second turret (Eric 2026-10-02)
-      [flakDamage()], // II → III
-      [flakDamage(), statEffect('equipment.flak.maxAmmo', { add: 1 })], // III → IV — the third turret
-      [flakDamage()], // IV → V
+      [flakDamage(), statEffect('equipment.flak.maxAmmo', { add: 1 }), flakRange()], // I → II — the second turret (Eric 2026-10-02)
+      [flakDamage(), flakRange()], // II → III
+      [flakDamage(), statEffect('equipment.flak.maxAmmo', { add: 1 }), flakRange()], // III → IV — the third turret
+      [flakDamage(), flakRange()], // IV → V
     ],
     { appliesTo: ['flak'] },
   ),
@@ -601,6 +631,7 @@ export const CATALOG: Catalog = deepFreezeRows({
   broadside: tieredWeapon('broadside', 'broadside', [
     statEffect('equipment.broadside.spreadRung', { add: 1 }),
     statEffect('equipment.broadside.turrets', { add: 0.5 }),
+    statEffect('equipment.broadside.rangeU', { add: BROADSIDE_RANGE_STEP }), // ruling 125: 5/12 → 6/12
   ]),
   // STAR SHELLS (R31 as ruled by Eric 2026-09-29, amendment 130): tiers II–V
   // each +2.5 s lit, ×1.1 lit radius, +0.5 flares — 20 s lit, r241.6, 3 flares

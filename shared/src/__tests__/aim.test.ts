@@ -148,7 +148,7 @@ describe('turretAimPoints — per-turret firing arcs (Eric rulings 2026-08-20 / 
   // inner wedges and NO gun bears. Every shell still fires, at its own arc
   // limit; the click is legal and is never denied.
   it('DEAD GAPS EXIST AT RUNG 1: a legal abeam click puts ZERO guns on it, and still fires every shell', () => {
-    for (const r of [150, 300, 412.5]) {
+    for (const r of [150, 300, CONFIG.broadside.rangeU]) {
       const out = aims(r, 0);
       expect(out, `r=${r}`).toHaveLength(TURRETS); // a full barrage, always
       expect(out.filter((t) => t.onClick).length, `r=${r}`).toBe(0);
@@ -185,7 +185,7 @@ describe('turretAimPoints — per-turret firing arcs (Eric rulings 2026-08-20 / 
   // The threshold is where atan(hullOffset/R) ≤ traverse − mountSpread (8°),
   // i.e. ~265u — comfortably inside the ruled "≥ ~300u".
   it('TRUE CONVERGENCE AT THE CAP: every turret is on an abeam click from ~300u out', () => {
-    for (const r of [300, 350, 412.5]) {
+    for (const r of [300, 350, CONFIG.broadside.rangeU]) {
       const out = aims(r, 0, TOP);
       expect(out.filter((t) => t.onClick).length, `r=${r}`).toBe(TURRETS);
       const click = clickAt(r, 0);
@@ -269,7 +269,7 @@ describe('turretAimPoints — per-turret firing arcs (Eric rulings 2026-08-20 / 
     // non-bearing turrets' limit shots would land OUTSIDE the disk.
     const pose = { x: 940, y: 0, heading: Math.PI / 2 };
     const dir = (55 * Math.PI) / 180;
-    const click = burstPointAlong(pose, 5000, R, 412.5, dir);
+    const click = burstPointAlong(pose, 5000, R, CONFIG.broadside.rangeU, dir);
     expect(Math.hypot(click.x, click.y)).toBeLessThanOrEqual(R);
     const { tau, ms } = arc(1);
     const out = turretAimPoints(pose, 'battleship', TURRETS, -1, click, tau, ms, R);
@@ -366,7 +366,7 @@ describe('torpedo geometry', () => {
 // re-grew a private copy.
 
 const MAP_R = 3000;
-const BASE = 660; // the base gun reach (CONFIG.vision.radar)
+const BASE = 660; // a synthetic base gun reach (the pure rule takes it as a parameter)
 
 describe('gunReachU — an OWN live flare extends the gun past its range', () => {
   it('an IN-RANGE click is the base range, untouched, whatever zones exist', () => {

@@ -425,12 +425,13 @@ describe('star-shell tell guardrail', () => {
 
   // WIDE BURST was DELETED (Story 7-5 wave 1); since Story 8.17 the STAR
   // SHELLS line itself grows litRadius ×1.1 per tier (amendment 130), so the
-  // SWEEP re-proves the tell guardrail at the maxed ladder: 241.6 u < 660 u.
+  // SWEEP re-proves the tell guardrail at the maxed ladder: base × 1.1⁴
+  // (366.0 u at sight 500, Story 9.8) stays inside radar.
   it('the STAR SHELLS ladder grows litRadius (amendment 130), and the maxed radius stays inside BASE radar range', () => {
     const maxed = maxStackFor('equipment.starShells.litRadius');
     expect(maxed).toEqual(new Array<LineId>(5).fill('starShells'));
     const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxed);
-    expect(s.equipment.starShells.litRadius).toBeCloseTo(241.5765, 9);
+    expect(s.equipment.starShells.litRadius).toBeCloseTo(CONFIG.starShells.litRadius * 1.1 ** 4, 9);
     expect(s.equipment.starShells.litRadius).toBeLessThan(CONFIG.vision.radar);
   });
 });

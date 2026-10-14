@@ -48,9 +48,9 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
   it('the FOULING SHELL (`foulingShell`) is a 360° CONSUMABLE shell (Story 9.4; FLASH SHELLS before it)', () => {
     expect(isConsumableId('foulingShell')).toBe(true);
     expect(arcFor('foulingShell')).toEqual({ kind: CONFIG.foulingShell.arc });
-    // No range field of its own: its reach is the star shell's — the
-    // post-fold radarRange — read off the firer's stats, never a CONFIG literal.
-    expect('rangeU' in CONFIG.foulingShell).toBe(false);
+    // Its reach is its OWN fixed CONFIG dial since Story 9.8 (ruling 125:
+    // 8/12 of the radar ruler) — never the firer's radarRange.
+    expect('rangeU' in CONFIG.foulingShell).toBe(true);
   });
 
   it('EVERY GUN is 360° — cannon, machine gun, flak (Story 8.15, amendment 106: "There is no \'arc.\'")', () => {

@@ -17,8 +17,9 @@ import type { Vec2 } from '../math/vec.js';
 
 const DT = CONFIG.tick.simDtMs / 1000;
 
-// Base gun range is DERIVED from radar range (Eric ruling 2026-07-21).
-const GUN_RANGE = CONFIG.vision.radar;
+// The cannon's Tier I reach — its own dial since Story 9.8 (epic-9 ruling 125),
+// no longer the radar range.
+const GUN_RANGE = CONFIG.gun.rangeU;
 
 // Large map so existing edge-agnostic cases are never terminated by the edge.
 const BIG_R = 100000;
@@ -368,7 +369,7 @@ describe('stepShell — targeted shell bursts at the clicked point', () => {
   });
 
   it('STOPS at the target — never overflies it despite range left', () => {
-    const s = gunShell(300); // distLeft = GUN_RANGE (660) >> 300
+    const s = gunShell(300); // distLeft = GUN_RANGE >> 300
     let out = stepShell(s, ctx());
     while (out.kind === 'travel') {
       expect(s.x).toBeLessThanOrEqual(300);
