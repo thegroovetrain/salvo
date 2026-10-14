@@ -103,24 +103,53 @@ export function ringFitSpanU(ringRadius: number, margin: number): number {
 /**
  * THE USER-ZOOM LIMITS as factors over the default framing (ruling 127):
  * `max` (zoomed fully IN) = defaultSpanU / closeSpanU; `min` (zoomed fully OUT)
- * = defaultSpanU / ringFitSpan.
+ * = defaultSpanU / outSpanU — the whole-map fit since amendment 142
+ * (`zoomOutSpanU`; it was the live ring fit in Story 9.8).
  *
- * THE RING FIT IS A ZOOM-OUT LIMIT ONLY (Story 9.8 review gate, F3): `min` is
- * never above 1, so the default framing is always reachable. Once the live
- * ring's fitted span drops under the default framing (the final close), the
- * out limit simply stops AT the default framing — it never forces a captain
- * parked there in toward the close framing. A ring of radius 0 is the same
- * case (the out limit equals the default framing, never the close one). An
- * unusable ring (NaN span) falls back to the default framing too.
+ * THE OUT SPAN IS A ZOOM-OUT LIMIT ONLY (Story 9.8 review gate, F3): `min` is
+ * never above 1, so the default framing is always reachable. An out span
+ * under the default framing stops the out limit AT the default framing — it
+ * never forces a captain in toward the close framing. A span of 0 is the same
+ * case, and an unusable one (NaN) falls back to the default framing too.
  */
 export function userZoomLimits(
   defaultSpanU: number,
   closeSpanU: number,
-  ringSpanU: number,
+  outSpanU: number,
 ): { min: number; max: number } {
   const max = spanFactor(defaultSpanU, closeSpanU);
-  const fit = Number.isNaN(ringSpanU) || ringSpanU <= 0 ? 1 : defaultSpanU / ringSpanU;
+  const fit = Number.isNaN(outSpanU) || outSpanU <= 0 ? 1 : defaultSpanU / outSpanU;
   return { min: Math.min(1, max, fit), max };
+}
+
+/** A span (u) that can frame anything: finite and positive. */
+function usableSpan(spanU: number): boolean {
+  return Number.isFinite(spanU) && spanU > 0;
+}
+
+/**
+ * THE ZOOM-OUT SPAN (Eric 2026-10-14, amendment 142: *"Maybe we shouldn't cap
+ * the zoom out to the current ring. Instead lets set the current ring as a sort
+ * of 'waypoint' and from there you could zoom out to the entire map, even the
+ * stormed-out bits."*): the WHOLE MAP fit (2 × mapRadius × margin, the reveal's
+ * own framing), storm and all. Never tighter than the live ring fit (the ring
+ * never outgrows the map, but a junk feed must not put the waypoint past the
+ * limit). Before the map radius is known it falls back to the ring fit; NaN
+ * when neither is usable (`userZoomLimits` then holds the default framing).
+ */
+export function zoomOutSpanU(mapSpanU: number, ringSpanU: number): number {
+  const m = Math.max(usableSpan(mapSpanU) ? mapSpanU : 0, usableSpan(ringSpanU) ? ringSpanU : 0);
+  return m > 0 ? m : NaN;
+}
+
+/**
+ * THE RING WAYPOINT (amendment 142) as a span: the live ring fit, never
+ * tighter than the default framing (so after the final close, or before any
+ * ring, the waypoint IS the default framing). Every zoom step that would cross
+ * it lands exactly on it (`stepZoom`); the next step continues past it.
+ */
+export function detentSpanU(defaultSpanU: number, ringSpanU: number): number {
+  return usableSpan(ringSpanU) ? Math.max(defaultSpanU, ringSpanU) : defaultSpanU;
 }
 
 /**
@@ -150,10 +179,18 @@ export function centreSlideT(spanU: number, defaultSpanU: number, ringSpanU: num
  * today's feel: around the default framing e^±0.1 = ×1.105 / ×0.905 against
  * the old ±0.1, and one 100-unit wheel notch e^−0.08 = ×0.923 against the old
  * −0.08. A non-finite amount returns the factor unchanged.
+ *
+ * `detent` (amendment 142) is the ring waypoint as a factor
+ * (Camera.zoomDetent). A step that would CROSS it from either side lands
+ * exactly on it and the rest of the step is dropped (a wheel event's whole
+ * delta is one step); a step that STARTS on it moves on. Omitted or unusable =
+ * a free step.
  */
-export function stepZoom(factor: number, amount: number): number {
+export function stepZoom(factor: number, amount: number, detent?: number): number {
   if (!Number.isFinite(amount)) return factor;
-  return factor * Math.exp(amount);
+  const next = factor * Math.exp(amount);
+  if (detent === undefined || !usableSpan(detent)) return next;
+  return (factor - detent) * (next - detent) < 0 ? detent : next;
 }
 
 /**
@@ -198,6 +235,9 @@ export class Camera {
    *  default framing and nothing slides. */
   private readonly ring: Point = { x: 0, y: 0 };
   private ringSpanValue = NaN;
+  /** The whole-map fit span (amendment 142), set once per match by
+   *  setMapRadius(). NaN until then: the out limit falls back to the ring. */
+  private mapSpanValue = NaN;
   /** Live reveal framing target (Story 5.3), or null when the mode is off.
    *  While non-null the zoom factor is animated toward it by tickZoom() and is
    *  EXEMPT from the spectate clamp (amendment 25). */
@@ -223,8 +263,8 @@ export class Camera {
 
   /** The spectate clamp as factors over the default framing. SINCE ERIC'S
    *  2026-10-14 RULING ("The full zoom-out needs to apply to spectate mode, as
-   *  well") it IS the alive range — the close framing in, the live ring fit
-   *  out (never tighter than the default framing) — one derivation, so the two
+   *  well") it IS the alive range — the close framing in, the whole-map fit
+   *  out (amendment 142; the ring fit is a waypoint on the way) — one derivation, so the two
    *  can never drift. The old fixed 2,640–1,320 u spectate spans are gone. */
   get spectateZoomLimits(): { min: number; max: number } {
     return this.userZoomLimits;
@@ -361,15 +401,46 @@ export class Camera {
     return this.userZoomValue;
   }
 
-  /** The live alive-zoom limits (ruling 127): the close framing in, the live
-   *  ring fit out (the default framing until a ring has been fed). */
+  /** The live alive-zoom limits (ruling 127, amendment 142): the close framing
+   *  in, the whole-map fit out (the ring fit until the map radius is fed, the
+   *  default framing until either is). */
   get userZoomLimits(): { min: number; max: number } {
-    return userZoomLimits(this.opts.defaultSpanU, this.opts.closeSpanU, this.ringSpanValue);
+    const out = zoomOutSpanU(this.mapSpanValue, this.ringSpanValue);
+    return userZoomLimits(this.opts.defaultSpanU, this.opts.closeSpanU, out);
   }
 
   /** The current ring-fit span (u across the short axis), NaN before a ring. */
   get ringSpanU(): number {
     return this.ringSpanValue;
+  }
+
+  /** The whole-map fit span (u across the short axis), NaN before setMapRadius. */
+  get mapSpanU(): number {
+    return this.mapSpanValue;
+  }
+
+  /** The ring waypoint as a span (amendment 142): see `detentSpanU`. */
+  get detentSpanU(): number {
+    return detentSpanU(this.opts.defaultSpanU, this.ringSpanValue);
+  }
+
+  /** The ring waypoint as a zoom FACTOR — what main.ts hands `stepZoom` for
+   *  the alive user zoom and the spectate factor alike. */
+  get zoomDetent(): number {
+    return spanFactor(this.opts.defaultSpanU, this.detentSpanU);
+  }
+
+  /**
+   * The waypoint a value PARKED on it rides as the ring closes, or NaN when
+   * there is none to ride: only a real ring fit, wider than the default
+   * framing and strictly inside the out limit (at the first ring the fit IS
+   * the map fit, and a captain zoomed fully out must stay on the whole map).
+   */
+  private rideableDetent(): number {
+    const ring = this.ringSpanValue;
+    if (!usableSpan(ring) || ring <= this.opts.defaultSpanU) return NaN;
+    if (ring >= zoomOutSpanU(this.mapSpanValue, ring)) return NaN;
+    return this.zoomDetent;
   }
 
   /** The alive user span (u across the short axis) — defaultSpanU / userZoom. */
@@ -380,6 +451,22 @@ export class Camera {
   /** This instant's centre slide toward the ring centre, 0..1 (ruling 128). */
   get slideT(): number {
     return centreSlideT(this.userSpanU, this.opts.defaultSpanU, this.ringSpanValue);
+  }
+
+  /** The SECOND slide (amendment 142), 0..1: ring centre → map centre (the
+   *  origin) from the waypoint out to the whole-map fit. */
+  get mapSlideT(): number {
+    return centreSlideT(this.userSpanU, this.detentSpanU, this.mapSpanValue);
+  }
+
+  /**
+   * Feed the MAP RADIUS once per match (amendment 142): the zoom-out limit
+   * becomes the whole-map fit, 2 × r × the fit margin (the reveal's framing).
+   * An unusable radius clears it (the out limit falls back to the ring fit).
+   */
+  setMapRadius(r: number): void {
+    this.mapSpanValue = ringFitSpanU(r, this.opts.ringFitMargin);
+    this.reclamp(NaN);
   }
 
   /** Set the alive user-zoom factor (X/Z keys + wheel), clamped to the live
@@ -406,27 +493,38 @@ export class Camera {
   /**
    * Feed the LIVE storm ring (centre + radius), every alive AND spectate frame
    * (ruling 127; spectate since Eric's 2026-10-14 ruling):
-   * the zoom-out limit re-fits to it and the centre slide aims at its centre
-   * (ruling 128). The current user zoom is re-clamped into the new limits, so a
-   * captain sitting at the out limit STAYS fitted as the ring closes (the limit
-   * only ever tightens within a match). Returns whether the user zoom moved, so
-   * the caller can decide on a fog re-bake (with its own hysteresis).
+   * the ring WAYPOINT re-fits to it (amendment 142) and the centre slide aims
+   * at its centre (ruling 128). A zoom parked ON the waypoint rides it as the
+   * ring closes; everything else is only re-clamped. Returns whether either
+   * zoom moved, so the caller can decide on a fog re-bake (with its own
+   * hysteresis).
    */
   setRing(cx: number, cy: number, r: number): boolean {
     if (Number.isFinite(cx) && Number.isFinite(cy)) {
       this.ring.x = cx;
       this.ring.y = cy;
     }
+    const ride = this.rideableDetent();
     this.ringSpanValue = ringFitSpanU(r, this.opts.ringFitMargin);
-    const before = this.userZoomValue;
+    return this.reclamp(ride);
+  }
+
+  /**
+   * Re-clamp both zoom values into the live limits. A value PARKED on the old
+   * waypoint (`ride`; NaN = none) moves to the new one first, so a captain who
+   * stopped at the ring fit stays fitted to the ring as it closes (amendment
+   * 142). THE SPECTATE FACTOR RIDES THE SAME FEED (Eric 2026-10-14), never
+   * while the reveal framing owns it (amendment 25: exempt from the clamp); a
+   * no-op while alive (the factor is 1 there). Returns whether either moved.
+   */
+  private reclamp(ride: number): boolean {
     const lim = this.userZoomLimits;
-    this.userZoomValue = clamp(before, lim.min, lim.max);
-    // THE SPECTATE FACTOR RIDES THE SAME FEED (Eric 2026-10-14): a spectator at
-    // the out limit stays fitted as the ring closes. Never while the reveal
-    // framing owns the factor (amendment 25: it is exempt from the clamp), and
-    // a no-op while alive (the factor is 1 there, always inside the limits).
+    const detent = this.zoomDetent;
+    const settle = (v: number): number => clamp(v === ride ? detent : v, lim.min, lim.max);
+    const before = this.userZoomValue;
     const beforeF = this.zoomFactorValue;
-    if (!this.revealing) this.zoomFactorValue = clamp(beforeF, lim.min, lim.max);
+    this.userZoomValue = settle(before);
+    if (!this.revealing) this.zoomFactorValue = settle(beforeF);
     return this.userZoomValue !== before || this.zoomFactorValue !== beforeF;
   }
 
@@ -541,15 +639,16 @@ export class Camera {
     this.follow.x = expDecay(this.follow.x, ship.x + lead.x, this.opts.followRate, dt);
     this.follow.y = expDecay(this.follow.y, ship.y + lead.y, this.opts.followRate, dt);
     const t = this.slideT;
-    this.center.x = lerp(this.follow.x, this.ring.x, t);
-    this.center.y = lerp(this.follow.y, this.ring.y, t);
-    if (t > 0) this.keepShipInView(ship);
+    const m = this.mapSlideT; // the map centre is the origin (amendment 142)
+    this.center.x = lerp(lerp(this.follow.x, this.ring.x, t), 0, m);
+    this.center.y = lerp(lerp(this.follow.y, this.ring.y, t), 0, m);
+    if (t > 0 || m > 0) this.keepShipInView(ship);
   }
 
   /**
-   * THE OWN HULL STAYS ON SCREEN (Story 9.8 review gate, F2). At the zoom-out
-   * limit the centre is the ring centre (ruling 128), so a captain outside the
-   * ring in the storm — farther from the ring centre than the view's half
+   * THE OWN HULL STAYS ON SCREEN (Story 9.8 review gate, F2). At the waypoint
+   * the centre is the ring centre (ruling 128), at the out limit the map centre
+   * (amendment 142), so a captain in the storm — farther from that centre than the view's half
    * extent — would be off screen with nothing pulling the camera back. Clamp
    * the centre, per axis of the VIEW RECT (not a circle), so the hull point
    * stays `keepInViewPadU` inside every edge. A captain inside the ring never

@@ -66,7 +66,10 @@ describe('Camera base framing — the DEFAULT span fits the short axis (ruling 1
   });
 });
 
-describe('Camera alive user-zoom limits (ruling 127)', () => {
+// Re-based on amendment 142 (Eric 2026-10-14): the out limit is the WHOLE MAP
+// fit once setMapRadius() has run (zoomWaypoint.test.ts). These cameras are
+// never fed a map radius, so they pin the FALLBACK: the live ring fit.
+describe('Camera alive user-zoom limits (ruling 127; ring fallback before the map radius, amendment 142)', () => {
   it('zoom-IN limit = shortAxis / closeSpanU', () => {
     const cam = ringed(4000);
     cam.setUserZoom(99);
@@ -74,7 +77,7 @@ describe('Camera alive user-zoom limits (ruling 127)', () => {
     expect(cam.userSpanU).toBeCloseTo(Z.closeSpanU, 9);
   });
 
-  it('zoom-OUT limit = the live ring fit: shortAxis / (2 × r × margin)', () => {
+  it('zoom-OUT limit before the map radius = the live ring fit: shortAxis / (2 × r × margin)', () => {
     const cam = ringed(4000);
     cam.setUserZoom(0);
     expect(cam.zoom).toBeCloseTo(900 / (2 * 4000 * MARGIN), 10);

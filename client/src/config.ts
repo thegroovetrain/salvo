@@ -1416,10 +1416,13 @@ export const CLIENT_CONFIG = {
    *  Story 9.8, epic-9 ruling 127). Every framing is a world SPAN across the
    *  viewport's SHORT axis — never a factor over radar: today's framings
    *  written as absolute spans. X steps in, Z steps out, the wheel zooms
-   *  smoothly. The zoom-IN limit is `closeSpanU`; the zoom-OUT limit is the LIVE
-   *  storm ring fitted to the short axis with `reveal.mapFitMargin`, re-fitted
-   *  as it closes (render/camera.ts userZoomLimits), and past the default
-   *  framing the centre slides from own ship to the ring centre (ruling 128).
+   *  smoothly. The zoom-IN limit is `closeSpanU`; the zoom-OUT limit is the
+   *  WHOLE MAP fitted to the short axis with `reveal.mapFitMargin` (Eric
+   *  2026-10-14, amendment 142), and the LIVE storm ring fitted the same way is
+   *  a WAYPOINT on the way: a step that would cross it lands on it
+   *  (render/camera.ts stepZoom). Past the default framing the centre slides
+   *  from own ship to the ring centre at the waypoint (ruling 128), then on to
+   *  the map centre at the out limit.
    *  Client-only by design: fog stays server-authoritative, so zoom is never an
    *  information exploit. The spectate zoom (render/spectate.ts) shares this
    *  range and these steps since Eric's 2026-10-14 ruling, anchored at the

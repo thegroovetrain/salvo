@@ -2882,6 +2882,9 @@ function buildGame(
   // so a lagging server never blinks a return it is still delivering.
   const clock = new ServerClock();
   radar.setStaleClock(() => clock.frameNow());
+  // The zoom-out limit is the WHOLE MAP (Eric 2026-10-14, amendment 142) —
+  // the same radius the reveal frames; it never changes within a match.
+  camera.setMapRadius(map.radius);
 
   const g: Game = {
     stage,
@@ -4429,7 +4432,7 @@ function enterSpectateVisuals(g: Game): void {
   // radar range, never a literal, so Story 6.2's roster-dynamic map sizing moves
   // it automatically. It is exempt from the spectate clamp; the first manual
   // wheel or pan releases it back to the clamped path (since Eric's 2026-10-14
-  // ruling the alive range: close framing in, live ring fit out).
+  // ruling the alive range: close framing in, the whole-map fit out, amendment 142).
   g.camera.beginReveal(g.mapRadius, CLIENT_CONFIG.reveal.mapFitMargin, CLIENT_CONFIG.reveal.zoomRate);
   // Drop any WASD held at the moment of death so updateSpectateCamera sees a
   // clean edge — otherwise steering into your own death instantly (and
@@ -4544,7 +4547,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // remembered fraction to null keeps a death from reading as a crossing into
   // critical, and re-arms both stings for the next life for free.
   g.wasHpFrac = null;
-  feedCameraRing(g, zv); // the spectate out limit is the live ring fit (Eric 2026-10-14)
+  feedCameraRing(g, zv); // the spectate waypoint is the live ring fit (amendment 142)
   updateSpectateCamera(g, frameDt, now);
   // THE REVEAL'S PULL-BACK (Story 5.3, amendments 25/26). Driven after the
   // spectate camera so a manual pan in the same frame releases the target
@@ -4963,7 +4966,7 @@ function bindVisibility(game: Game): () => void {
 
 /**
  * Apply an alive user-zoom target (clamped by Camera.setUserZoom between the
- * live ring fit and the close framing, Story 9.8 ruling 127) and schedule the fog re-bake the new zoom
+ * whole-map fit and the close framing, amendment 142; the ring fit is a waypoint) and schedule the fog re-bake the new zoom
  * needs. CONNING-ONLY (canUserZoom): inert while spectating (the spectate wheel
  * path below owns zoom there), while sunk-awaiting-respawn, AND before the
  * first frame ever lands (no `you` yet = not conning). Client-render-only — fog
@@ -4989,10 +4992,10 @@ function applyUserZoom(g: Game, next: number): void {
 function handleZoomStep(g: Game, dir: 1 | -1): void {
   if (g.state.spectating) {
     const at = g.mouse.hasPosition ? g.mouse.screenPos : g.camera.screenCenter;
-    spectateZoomAt(g, at.x, at.y, stepZoom(g.camera.zoomFactor, dir * CLIENT_CONFIG.zoom.keyStep));
+    spectateZoomAt(g, at.x, at.y, stepZoom(g.camera.zoomFactor, dir * CLIENT_CONFIG.zoom.keyStep, g.camera.zoomDetent));
     return;
   }
-  applyUserZoom(g, stepZoom(g.camera.userZoom, dir * CLIENT_CONFIG.zoom.keyStep));
+  applyUserZoom(g, stepZoom(g.camera.userZoom, dir * CLIENT_CONFIG.zoom.keyStep, g.camera.zoomDetent));
 }
 
 /**
@@ -5000,7 +5003,7 @@ function handleZoomStep(g: Game, dir: 1 | -1): void {
  * spectate mode, as well. In this case, the zoom in/out should be localized
  * around my mouse cursor (since my ship has sunk/is otherwise nonexistent)."*).
  * The range is the alive range (Camera.spectateZoomLimits — close framing in,
- * live ring fit out) and the world point under (sx, sy) stays put
+ * the whole-map fit out, the ring fit a waypoint — amendment 142) and the world point under (sx, sy) stays put
  * (Camera.zoomAbout). No fog re-bake: the fog is off for the whole spectate.
  */
 function spectateZoomAt(g: Game, sx: number, sy: number, next: number): void {
@@ -5044,8 +5047,8 @@ function cancelZoomFogRebake(g: Game): void {
  */
 function feedCameraRing(g: Game, zv: ZoneView): void {
   g.camera.setRing(zv.cur.cx, zv.cur.cy, zv.cur.r);
-  // SPECTATE RIDES THE SAME FEED (Eric 2026-10-14): the spectate out limit is
-  // the live ring fit too. The fog is hidden for the whole spectate, so there
+  // SPECTATE RIDES THE SAME FEED (Eric 2026-10-14): the spectate ring waypoint is
+  // the live ring fit too (the out limit is the map, amendment 142). The fog is hidden for the whole spectate, so there
   // is nothing to re-bake.
   if (g.state.spectating) return;
   if (g.fogZoomTimer !== null) return;
@@ -5057,7 +5060,7 @@ function feedCameraRing(g: Game, zv: ZoneView): void {
  * The one wheel listener: while SPECTATING it zooms at the cursor across the
  * alive range (Eric 2026-10-14 — render/spectate.ts wheelZoom into
  * Camera.zoomAbout); while ALIVE it drives the smooth user zoom
- * (Story 2.1; since Story 9.8 a log step between the live ring fit and the
+ * (Story 2.1; since Story 9.8 a log step between the whole-map fit (ring waypoint on the way) and the
  * close framing).
  *
  * Returns a disposer for the same reason bindVisibility does: it holds a camera
@@ -5080,10 +5083,11 @@ function bindWheelZoom(game: Game): () => void {
     // scrolling the menu — the pure `wheelScrollsSurface` names both surfaces.
     if (wheelScrollsSurface(openSurfaces(game))) return;
     if (game.state.spectating) {
-      spectateZoomAt(game, e.clientX, e.clientY, wheelZoom(game.camera.zoomFactor, e.deltaY));
+      spectateZoomAt(game, e.clientX, e.clientY, wheelZoom(game.camera.zoomFactor, e.deltaY, game.camera.zoomDetent));
       return;
     }
-    applyUserZoom(game, stepZoom(game.camera.userZoom, -e.deltaY * CLIENT_CONFIG.zoom.wheelRate));
+    const amount = -e.deltaY * CLIENT_CONFIG.zoom.wheelRate;
+    applyUserZoom(game, stepZoom(game.camera.userZoom, amount, game.camera.zoomDetent));
   };
   window.addEventListener('wheel', onWheel, { passive: true });
   return () => window.removeEventListener('wheel', onWheel);

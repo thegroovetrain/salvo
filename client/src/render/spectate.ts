@@ -39,9 +39,11 @@ export function spectatePan(axes: Axes, dt: number, zoomFactor: number): { dx: n
 /** Wheel input → new (UNCLAMPED) zoom factor: scroll down zooms out. The same
  *  log step the alive wheel uses (stepZoom × CLIENT_CONFIG.zoom.wheelRate) —
  *  the spectate range is the alive range now, so it gets the alive step; the
- *  camera's setZoomFactor / zoomAbout applies the clamp. */
-export function wheelZoom(current: number, deltaY: number): number {
-  return stepZoom(current, -deltaY * CLIENT_CONFIG.zoom.wheelRate);
+ *  camera's setZoomFactor / zoomAbout applies the clamp. `detent` is the ring
+ *  waypoint (Camera.zoomDetent, amendment 142): one wheel event is one step,
+ *  so a notch that would cross it lands on it. */
+export function wheelZoom(current: number, deltaY: number, detent?: number): number {
+  return stepZoom(current, -deltaY * CLIENT_CONFIG.zoom.wheelRate, detent);
 }
 
 /**

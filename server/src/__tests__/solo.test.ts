@@ -306,6 +306,24 @@ describe('the solo room — the human joins', () => {
     expect(afloat).toBe(CONFIG.map.playerCap);
   });
 
+  it('a roster row whose ship record is GONE reads dead, never its stale alive (cycle 189 hardening)', () => {
+    // No production path leaves such a row today; the contract is that a ghost
+    // row can never hold the AFLOAT count one too high for the rest of a match.
+    const r = soloRoom();
+    join(r, 'alice');
+    r.syncRoster();
+    const victim = [...r.state.players.keys()].find((id) => id !== 'alice')!;
+    expect(r.state.players.get(victim)!.alive).toBe(true);
+    r.world.ships.delete(victim);
+    r.syncRoster();
+    expect(r.state.players.get(victim)!.alive).toBe(false);
+    let afloat = 0;
+    r.state.players.forEach((meta: PlayerMeta) => {
+      if (meta.alive) afloat += 1;
+    });
+    expect(afloat).toBe(CONFIG.map.playerCap - 1);
+  });
+
   it('runs a real match rather than latching an instant human victory', () => {
     const r = soloRoom({ matchOverride: { countdownMs: 100 } });
     join(r, 'alice');
