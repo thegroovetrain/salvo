@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.18.53] - 2026-10-14
+
+### Changed
+- **The MULTI-SPECTRAL CM cloud is smaller:** born at 150 u and growing to 300 u over its 15 s (was 200 → 500, which at full size covered your whole sight bubble). Eric's pick on staging.
+
+### Internal
+- Shared: `CONFIG.countermeasure.r0/r1` 150 / 300; `PROTOCOL_VERSION` 82 → 83 (the client derives the cloud from these dials). Records: epic-9 amendment 141.
+- Tests: PV pins re-based; counts unchanged.
+
 ## [0.18.52] - 2026-10-14
 
 ### Changed

@@ -3,6 +3,11 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  83 — Story 9.8 staging (Eric 2026-10-14, epic-9 amendment 141): the
+ *  MULTI-SPECTRAL CM cloud is 150 → 300 u (was 200 → 500) — `CONFIG.countermeasure`
+ *  is read by the client to derive the cloud from the wire {id,x,y,t0}, so a
+ *  mixed pair would draw different clouds. Nothing new rides the wire.
+ *  Perception exception count stays SIX.
  *  82 — Story 9.8 THE TWELFTHS LADDER (Eric 2026-10-13/14, epic-9 amendments
  *  102–109, 121–137): sensor ladder twelfths of 1500 u (sight 500,
  *  flash/smoke 750, far anchor 1000, radar 1500), weapon ranges per-weapon
@@ -856,7 +861,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 82;
+export const PROTOCOL_VERSION = 83;
 
 // Tunables
 export * from './constants.js';

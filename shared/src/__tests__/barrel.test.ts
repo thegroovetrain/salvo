@@ -451,7 +451,7 @@ describe('shared barrel', () => {
     // tiered range dials read by the client through the fold, the foghorn
     // band enum 1..12 and the server-side radar dropout (sim/dropout.ts).
     // Nothing new on the wire; the exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(82);
+    expect(PROTOCOL_VERSION).toBe(83);
     for (const fn of [shared.dropoutPaintP, shared.dropoutRoll, shared.dropoutPaints]) {
       expect(typeof fn).toBe('function');
     }
