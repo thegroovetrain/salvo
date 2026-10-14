@@ -1507,7 +1507,16 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     const revealDamage = !this.match || this.match.phase === 'finished';
     this.state.players.forEach((meta: PlayerMeta, id: string) => {
       const ship = this.world.ships.get(id);
-      if (!ship) return;
+      // A ROW WHOSE RECORD IS GONE READS DEAD, never its last value (the schema
+      // default is `true`). No reachable path leaves such a row today (bots are
+      // never removed; a departed human's row is deleted with the record), but
+      // a ghost row would otherwise hold "N AFLOAT" one too high for the rest
+      // of the match — cycle 189 hardening after the 2026-10-14 "2 afloat"
+      // investigation (epic-9 amendment 142 era).
+      if (!ship) {
+        if (meta.alive) meta.alive = false;
+        return;
+      }
       // THE WIRE DOES NOT MOVE (Story 5.1, amendment 7): PlayerMeta.alive stays
       // a schema boolean, PROJECTED from the lifecycle here.
       const afloat = isAfloat(ship.lifecycle);
