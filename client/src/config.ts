@@ -1421,8 +1421,9 @@ export const CLIENT_CONFIG = {
    *  as it closes (render/camera.ts userZoomLimits), and past the default
    *  framing the centre slides from own ship to the ring centre (ruling 128).
    *  Client-only by design: fog stays server-authoritative, so zoom is never an
-   *  information exploit. The spectate zoom (render/spectate.ts, wheel-only,
-   *  2,640–1,320 u) is separate. */
+   *  information exploit. The spectate zoom (render/spectate.ts) shares this
+   *  range and these steps since Eric's 2026-10-14 ruling, anchored at the
+   *  cursor instead of the own ship (Camera.zoomAbout). */
   zoom: {
     /** Zoom-IN limit (u across the short axis): ruling 127, today's 1.5× close
      *  view written as an absolute span (1,320 / 1.5) — never a factor over

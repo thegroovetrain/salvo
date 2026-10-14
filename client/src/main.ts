@@ -4428,7 +4428,8 @@ function enterSpectateVisuals(g: Game): void {
   // reveal target set here. The framing is derived from the live map radius and
   // radar range, never a literal, so Story 6.2's roster-dynamic map sizing moves
   // it automatically. It is exempt from the spectate clamp; the first manual
-  // wheel or pan releases it back to the clamped [0.5, 1] path.
+  // wheel or pan releases it back to the clamped path (since Eric's 2026-10-14
+  // ruling the alive range: close framing in, live ring fit out).
   g.camera.beginReveal(g.mapRadius, CLIENT_CONFIG.reveal.mapFitMargin, CLIENT_CONFIG.reveal.zoomRate);
   // Drop any WASD held at the moment of death so updateSpectateCamera sees a
   // clean edge — otherwise steering into your own death instantly (and
@@ -4543,6 +4544,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // remembered fraction to null keeps a death from reading as a crossing into
   // critical, and re-arms both stings for the next life for free.
   g.wasHpFrac = null;
+  feedCameraRing(g, zv); // the spectate out limit is the live ring fit (Eric 2026-10-14)
   updateSpectateCamera(g, frameDt, now);
   // THE REVEAL'S PULL-BACK (Story 5.3, amendments 25/26). Driven after the
   // spectate camera so a manual pan in the same frame releases the target
@@ -4981,9 +4983,28 @@ function applyUserZoom(g: Game, next: number): void {
   scheduleZoomFogRebake(g);
 }
 
-/** X (+1, in) / Z (-1, out) keyboard zoom step (chokepoint onZoom hook). */
+/** X (+1, in) / Z (-1, out) keyboard zoom step (chokepoint onZoom hook). While
+ *  SPECTATING it zooms at the LAST KNOWN cursor (Eric 2026-10-14), or at the
+ *  screen centre before any pointermove has reported one. */
 function handleZoomStep(g: Game, dir: 1 | -1): void {
+  if (g.state.spectating) {
+    const at = g.mouse.hasPosition ? g.mouse.screenPos : g.camera.screenCenter;
+    spectateZoomAt(g, at.x, at.y, stepZoom(g.camera.zoomFactor, dir * CLIENT_CONFIG.zoom.keyStep));
+    return;
+  }
   applyUserZoom(g, stepZoom(g.camera.userZoom, dir * CLIENT_CONFIG.zoom.keyStep));
+}
+
+/**
+ * THE SPECTATE ZOOM (Eric 2026-10-14: *"The full zoom-out needs to apply to
+ * spectate mode, as well. In this case, the zoom in/out should be localized
+ * around my mouse cursor (since my ship has sunk/is otherwise nonexistent)."*).
+ * The range is the alive range (Camera.spectateZoomLimits — close framing in,
+ * live ring fit out) and the world point under (sx, sy) stays put
+ * (Camera.zoomAbout). No fog re-bake: the fog is off for the whole spectate.
+ */
+function spectateZoomAt(g: Game, sx: number, sy: number, next: number): void {
+  g.camera.zoomAbout(sx, sy, next);
 }
 
 /**
@@ -5023,15 +5044,19 @@ function cancelZoomFogRebake(g: Game): void {
  */
 function feedCameraRing(g: Game, zv: ZoneView): void {
   g.camera.setRing(zv.cur.cx, zv.cur.cy, zv.cur.r);
+  // SPECTATE RIDES THE SAME FEED (Eric 2026-10-14): the spectate out limit is
+  // the live ring fit too. The fog is hidden for the whole spectate, so there
+  // is nothing to re-bake.
+  if (g.state.spectating) return;
   if (g.fogZoomTimer !== null) return;
   if (!fogZoomStale(g.fog.bakedZoom, g.camera.zoom, CLIENT_CONFIG.terrain.redrawZoomFrac)) return;
   scheduleZoomFogRebake(g);
 }
 
 /**
- * The one wheel listener: while SPECTATING it is the untouched spectator
- * zoom-out (wheel-only, clamped to the 2,640–1,320 u spectate spans —
- * render/spectate.ts wheelZoom); while ALIVE it drives the smooth user zoom
+ * The one wheel listener: while SPECTATING it zooms at the cursor across the
+ * alive range (Eric 2026-10-14 — render/spectate.ts wheelZoom into
+ * Camera.zoomAbout); while ALIVE it drives the smooth user zoom
  * (Story 2.1; since Story 9.8 a log step between the live ring fit and the
  * close framing).
  *
@@ -5055,7 +5080,7 @@ function bindWheelZoom(game: Game): () => void {
     // scrolling the menu — the pure `wheelScrollsSurface` names both surfaces.
     if (wheelScrollsSurface(openSurfaces(game))) return;
     if (game.state.spectating) {
-      game.camera.setZoomFactor(wheelZoom(game.camera.zoomFactor, e.deltaY));
+      spectateZoomAt(game, e.clientX, e.clientY, wheelZoom(game.camera.zoomFactor, e.deltaY));
       return;
     }
     applyUserZoom(game, stepZoom(game.camera.userZoom, -e.deltaY * CLIENT_CONFIG.zoom.wheelRate));

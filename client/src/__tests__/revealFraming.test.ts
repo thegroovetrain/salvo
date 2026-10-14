@@ -1,12 +1,12 @@
 // The REVEAL framing mode + the game's first animated zoom (Story 5.3,
 // epic-5 amendments 25/26). The spectate clamp's own tests live in
-// spectate.test.ts and camera.test.ts and are deliberately untouched — this
-// file only covers the mode that is EXEMPT from that clamp, and proves the
+// spectate.test.ts and camera.test.ts (the alive range since Eric's 2026-10-14
+// ruling) — this file only covers the mode that is EXEMPT from that clamp, and proves the
 // clamp still governs the moment the mode is released.
 
 import { describe, it, expect } from 'vitest';
 import { Camera, revealZoomFactor } from '../render/camera.js';
-import { wheelZoom, spectatePan, SPECTATE_ZOOM_MIN } from '../render/spectate.js';
+import { wheelZoom, spectatePan } from '../render/spectate.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity } from '../settings/store.js';
 
@@ -18,6 +18,8 @@ const DEFAULT_SPAN = CLIENT_CONFIG.zoom.defaultSpanU;
 const MAP_RADIUS = 2400;
 /** The reveal factor at margin 1 — the map diameter fitted to the short axis. */
 const FIT = DEFAULT_SPAN / (2 * MAP_RADIUS);
+/** The live storm ring radius fed to every test camera. */
+const RING_R = 2000;
 
 function makeCamera(): Camera {
   const c = new Camera({
@@ -29,6 +31,9 @@ function makeCamera(): Camera {
     leadMax: 110,
   });
   c.setViewport(1600, 900); // short axis 900
+  // The live ring the spectate clamp fits (Eric 2026-10-14: the spectate range
+  // IS the alive range), a little inside the map as after the first close.
+  c.setRing(0, 0, RING_R);
   return c;
 }
 
@@ -87,7 +92,7 @@ describe('Camera reveal framing — the whole ocean in frame', () => {
     const cam = makeCamera();
     cam.beginReveal(MAP_RADIUS, CLIENT_CONFIG.reveal.mapFitMargin, CLIENT_CONFIG.reveal.zoomRate);
     settle(cam, 1);
-    expect(cam.zoomFactor).toBeLessThan(SPECTATE_ZOOM_MIN);
+    expect(cam.zoomFactor).toBeLessThan(cam.spectateZoomLimits.min);
     expect(cam.zoomFactor).toBeCloseTo(DEFAULT_SPAN / (2 * MAP_RADIUS * CLIENT_CONFIG.reveal.mapFitMargin), 10);
   });
 
@@ -191,26 +196,27 @@ describe('The animated zoom + the motion setting (amendment 26 — NOT exempt)',
 });
 
 describe('Manual input releases the reveal — then the clamp governs again', () => {
-  it('a wheel notch releases the mode and the spectate-span clamp takes over', () => {
+  it('a wheel notch releases the mode and the spectate clamp (the alive range) takes over', () => {
     const cam = makeCamera();
     cam.beginReveal(MAP_RADIUS, 1, CLIENT_CONFIG.reveal.zoomRate);
     settle(cam, 1);
     expect(cam.revealing).toBe(true);
+    const lim = cam.spectateZoomLimits;
 
-    // The real wheel path: wheelZoom() off the live factor, into setZoomFactor.
-    cam.setZoomFactor(wheelZoom(cam.zoomFactor, 250));
+    // The real wheel path: wheelZoom() off the live factor, into zoomAbout at a cursor.
+    cam.zoomAbout(300, 200, wheelZoom(cam.zoomFactor, 250));
     expect(cam.revealing).toBe(false);
-    // LEDGERED POP (amendment 25): FIT -> the clamp floor, accepted.
-    expect(cam.zoomFactor).toBe(SPECTATE_ZOOM_MIN);
+    // LEDGERED POP (amendment 25): FIT -> the clamp floor (the live ring fit), accepted.
+    expect(cam.zoomFactor).toBe(lim.min);
 
     // Ticking after release must not drag the camera back out.
     settle(cam, 1);
-    expect(cam.zoomFactor).toBe(SPECTATE_ZOOM_MIN);
-    // ...and the untouched clamp still governs both ends.
+    expect(cam.zoomFactor).toBe(lim.min);
+    // ...and the clamp still governs both ends.
     cam.setZoomFactor(0.1);
-    expect(cam.zoomFactor).toBe(SPECTATE_ZOOM_MIN);
+    expect(cam.zoomFactor).toBe(lim.min);
     cam.setZoomFactor(7);
-    expect(cam.zoomFactor).toBe(1);
+    expect(cam.zoomFactor).toBe(lim.max);
   });
 
   it('a free-pan releases the mode but does NOT move the zoom', () => {
