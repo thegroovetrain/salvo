@@ -65,8 +65,7 @@
 // of `losRecastMoveU` or a halo / island change (cost — config.ts). No
 // islands → the plain disc. A grounded hull fails open (no shadows).
 
-import { BufferImageSource, Sprite, Texture } from 'pixi.js';
-import type { Container } from 'pixi.js';
+import { BufferImageSource, Container, Rectangle, Sprite, Texture } from 'pixi.js';
 import type { CloudView, Island } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import {
@@ -77,12 +76,15 @@ import {
   makeField,
   type CloudField,
 } from './cloudPaint.js';
+import type { ScreenWorldRect } from './camera.js';
 import { BASE_HAZE_HALO_U, haloSpanU } from './hazeHalo.js';
 import { HazeLosCaster } from './hazeLos.js';
 import { HALO_MASK_TEXTURE_SIZE, bakeHaloMaskTexture } from './textures.js';
 
 /** Scene-graph label of the haze halo mask (test seam). */
 export const HALO_MASK_LABEL = 'hazeHaloMask';
+
+
 
 const K = CLIENT_CONFIG.countermeasure;
 const COLOR = CLIENT_CONFIG.colors.countermeasureSmoke;
@@ -115,6 +117,11 @@ export class Countermeasure {
   private castY = Number.NaN;
   /** Does the mask currently carry island shadows (vs the plain disc)? */
   private shadowed = false;
+  /** The cloud sprites' own container — the layer's second child, after the
+   *  halo. Its `boundsArea` is the screen's world rect while masked (see
+   *  `clipToScreen`); `clip` is that one rectangle, re-filled per frame. */
+  private readonly body = new Container();
+  private readonly clip = new Rectangle();
 
   /** `layer` = chartRoot's `cloud` layer. `rng` = the one brush RNG (purely
    *  visual, never shared with the server; a test passes a seeded one). */
@@ -131,6 +138,7 @@ export class Countermeasure {
     // never depend on where it lands.
     this.halo.renderable = false;
     layer.addChildAt(this.halo, 0);
+    layer.addChild(this.body);
   }
 
   /**
@@ -189,6 +197,11 @@ export class Countermeasure {
     return this.haloBakedAtU;
   }
 
+  /** The cloud sprites' container (test seam). */
+  get cloudBody(): Container {
+    return this.body;
+  }
+
   /** The halo mask sprite (test seam). */
   get haloMask(): Sprite {
     return this.halo;
@@ -200,15 +213,60 @@ export class Countermeasure {
   }
 
   /** Centre the halo on own hull, or take it off (spectator / non-finite pose —
-   *  the radar dim's rule: a sprite mask at NaN would clip the whole layer). */
+   *  the radar dim's rule: a sprite mask at NaN would clip the whole layer).
+   *
+   *  NO CLOUD HELD, NO MASK (Story 9.8 perf gate). A mask is not free while
+   *  the layer is empty: Pixi runs the masked layer as a FILTER PASS every
+   *  frame, into a pooled render target the size of the halo sprite's bounds —
+   *  never clipped to the screen, rounded up to a power of two and resolved —
+   *  whether or not there is any haze to mask. At the twelfths ladder's 750 u
+   *  halo that is a 2264 px pass in a 4096² target at DPR 2, every alive frame,
+   *  and it was the default-framing cadence regression. With no cloud held the
+   *  layer draws nothing, so masking it changes no pixel. */
   private placeHalo(own: { x: number; y: number } | null): void {
     if (own === null || !Number.isFinite(own.x + own.y)) {
       this.layer.mask = null;
       return;
     }
-    this.refreshLos(own);
+    this.refreshLos(own); // forgets the last cast while no cloud is held
+    if (this.clouds.size === 0) {
+      this.layer.mask = null;
+      return;
+    }
     this.halo.position.set(own.x, own.y);
     if (this.layer.mask !== this.halo) this.layer.mask = this.halo;
+  }
+
+  /**
+   * CLIP THE MASK PASS TO THE SCREEN (Story 9.8 perf gate). Pixi draws a masked
+   * layer through a filter pass whose target is the layer's bounds ∩ the mask
+   * sprite's bounds, and its mask filter opts OUT of viewport clipping — so a
+   * held cloud under the 750 u halo rendered into a target up to the halo's
+   * full size (3396² px at DPR 2 at the close framing, a 4096² pooled target),
+   * most of it off screen. Pinning the CLOUD BODY's `boundsArea` to the
+   * screen's world rect makes the pass (screen ∩ halo): never larger than the
+   * screen at any halo radius or zoom. (On the body, not the masked layer:
+   * Pixi 8 adds a masked container's own `boundsArea` OUTSIDE the mask
+   * intersection, so there it would union with the halo instead of clipping.)
+   * Nothing outside the screen is visible, so no on-screen pixel changes; the
+   * line-of-sight fan and the feather live in the mask texture, untouched.
+   * Unmasked (no cloud / no pose) or no rect given → the layer measures its
+   * children as before.
+   */
+  private clipToScreen(screen: ScreenWorldRect | null): void {
+    const ok = this.layer.mask === this.halo && screen !== null
+      && Number.isFinite(screen.x + screen.y + screen.w + screen.h) && screen.w > 0 && screen.h > 0;
+    if (!ok) {
+      // Pixi tests `if (this.boundsArea)`; its d.ts types the field as a
+      // required Rectangle under exactOptionalPropertyTypes, hence the cast.
+      this.body.boundsArea = null as unknown as Rectangle;
+      return;
+    }
+    this.clip.x = screen.x;
+    this.clip.y = screen.y;
+    this.clip.width = screen.w;
+    this.clip.height = screen.h;
+    this.body.boundsArea = this.clip;
   }
 
   /** ADD every cloud on the held list not already held; an id ABSENT from
@@ -220,9 +278,15 @@ export class Countermeasure {
   /** Per render frame: advance every field to its server-clock age (a first
    *  render of a mid-life cloud pre-rolls it), upload it, and drop every cloud
    *  whose spray is over and whose paint has faded. `serverNow` in ms. `own` =
-   *  the own hull's pose (the halo's centre); null for a spectator (no halo). */
-  render(serverNow: number, own: { x: number; y: number } | null = null): void {
+   *  the own hull's pose (the halo's centre); null for a spectator (no halo).
+   *  `screen` = the world rect on screen this frame (see `clipToScreen`). */
+  render(
+    serverNow: number,
+    own: { x: number; y: number } | null = null,
+    screen: ScreenWorldRect | null = null,
+  ): void {
     this.placeHalo(own);
+    this.clipToScreen(screen);
     for (const [id, s] of this.clouds) {
       const age = Math.max(0, serverNow - s.t0);
       advanceField(s.field, age, this.rng);
@@ -276,7 +340,7 @@ export class Countermeasure {
     sprite.scale.set(K.cellU); // one texel = one cell
     sprite.position.set(c.x, c.y);
     sprite.tint = COLOR;
-    this.layer.addChild(sprite);
+    this.body.addChild(sprite);
     this.clouds.set(c.id, {
       sprite,
       source: sprite.texture.source as BufferImageSource,

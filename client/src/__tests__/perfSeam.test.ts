@@ -90,22 +90,26 @@ describe('the READABILITY profile is FROZEN (Story 4.8s ratified subject)', () =
   });
 
   it('stages the arena cap worth of hulls and paints every far hull every tick', () => {
-    expect(READABILITY_PROFILE.contacts).toBe(CONFIG.map.playerCap - 1);
-    expect(READABILITY_PROFILE.contacts).toBe(SCENE.nearContacts + SCENE.farContacts);
+    // The arena cap bounds the population (16 since Story 9.8, Eric
+    // 2026-10-13): 12 near + 7 far was the 20-captain arena's full roster; at
+    // 16 the far band keeps what the cap leaves after the 12 near.
+    expect(READABILITY_PROFILE.contacts).toBe(Math.min(CONFIG.map.playerCap - 1, SCENE.nearContacts + SCENE.farContacts));
+    const far = READABILITY_PROFILE.contacts - SCENE.nearContacts;
+    expect(far).toBeGreaterThan(0);
     // stride 1 = the pre-7.1 behaviour, byte for byte.
     expect(READABILITY_PROFILE.blipStrideTicks).toBe(1);
     const world = buildSceneWorld(MAP_RADIUS);
     expect(world.profile).toBe(READABILITY_PROFILE);
     expect(sceneContacts(world, 0)).toHaveLength(SCENE.nearContacts);
-    expect(sceneEvents(world, 0, 0).filter((e) => e.k === 'blip')).toHaveLength(SCENE.farContacts);
+    expect(sceneEvents(world, 0, 0).filter((e) => e.k === 'blip')).toHaveLength(far);
   });
 });
 
 describe('the NFR1 profile — the reference scenario the frame budget is judged against', () => {
   const world = buildSceneWorld(MAP_RADIUS, undefined, NFR1_PROFILE);
 
-  it('stages 20 CONTESTANTS plus the PEAK concurrent PvE fleet', () => {
-    // 20 contestants = the arena cap. The peak fleet is the LARGEST SINGLE WAVE
+  it('stages the arena cap of CONTESTANTS plus the PEAK concurrent PvE fleet', () => {
+    // The contestants = the arena cap (16 since Story 9.8; 20 before). The peak fleet is the LARGEST SINGLE WAVE
     // (8 groups x 6 hulls = 48 at T+1:00), not the sum of the schedule: the
     // waves are minutes apart precisely so the field is thinned between them.
     const perGroup =
@@ -113,7 +117,7 @@ describe('the NFR1 profile — the reference scenario the frame budget is judged
     const peakFleet = perGroup * Math.max(...CONFIG.fleet.waves.map((w) => w.fleets));
     expect(peakFleet).toBe(48);
     expect(world.hulls).toHaveLength(CONFIG.map.playerCap - 1 + peakFleet);
-    expect(world.hulls.length + 1).toBe(68);
+    expect(world.hulls.length + 1).toBe(CONFIG.map.playerCap + 48);
     // Captains hold roster rows; fleet hulls hold none (amendment 39), so the
     // roster IS the contestant count.
     expect(world.roster).toHaveLength(CONFIG.map.playerCap);

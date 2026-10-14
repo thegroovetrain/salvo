@@ -65,7 +65,7 @@ export function codeLine(code: string): string {
   return `CODE ${code}`;
 }
 
-/** `N/20 ABOARD` — the cap is `CONFIG.map.playerCap` (ruling 4: fixed 20). */
+/** `N/16 ABOARD` — the cap is `CONFIG.map.playerCap` (ruling 4: fixed; 16 since Story 9.8). */
 export function aboardLine(n: number, cap: number = CONFIG.map.playerCap): string {
   return `${n}/${cap} ABOARD`;
 }

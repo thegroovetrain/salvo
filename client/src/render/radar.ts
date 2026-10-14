@@ -130,7 +130,7 @@
 // (kept subtle). The faint map-centered rings in map.ts remain as the chart
 // grid. Thin Pixi adapter; the math lives in phosphor.ts and radarHeatmap.ts.
 
-import { BufferImageSource, Container, Graphics, Sprite, Texture } from 'pixi.js';
+import { BufferImageSource, Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
 import {
   CONFIG,
   HULL_IDS,
@@ -150,6 +150,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import type { ContactStore } from '../net/snapshots.js';
 import { settings } from '../settings/store.js';
+import type { ScreenWorldRect } from './camera.js';
 import { fogHoleRadiusU } from './fog.js';
 import { blipAlpha, blipLifeMs, sweepRotation } from './phosphor.js';
 import {
@@ -354,6 +355,10 @@ export class Radar {
    *  when the caller has no camera. READ IN EXACTLY ONE PLACE — `paintHeat` —
    *  and never by anything that creates or retires a paint (amendment 97). */
   private view: ViewRect | null = null;
+  /** The world rect on screen this frame (shake included) and the heat
+   *  sprite's `boundsArea` cut from it — see `clipHeat`. */
+  private screen: ScreenWorldRect | null = null;
+  private readonly heatClip = new Rectangle();
   // Effective vision numbers (Stage D upgrades), swapped via setRanges();
   // bases = CONFIG.vision. sweepPeriodMs drives both the wedge rotation rate
   // and the blip phosphor decay, so upgraded paints fade on the upgraded beat.
@@ -475,6 +480,34 @@ export class Radar {
     this.rings.circle(0, 0, this.sightRange).stroke({ width: 2, color: RING_SIGHT_COLOR, alpha: 0.12 });
     this.rings.circle(0, 0, this.radarRange).stroke({ width: 2, color: RING_RADAR_COLOR, alpha: 0.07 });
     this.sweep.scale.set(this.radarRange / SWEEP_TEXTURE_RADIUS);
+  }
+
+  /**
+   * CLIP THE MASKED PASS TO THE SCREEN (Story 9.8 perf gate). `blipLayer` is
+   * masked by the dim sprite, so Pixi draws it through a filter pass sized to
+   * the layer's bounds ∩ the dim mask's — and its mask filter does NOT clip to
+   * the viewport. The heat buffer carries whole cells of slack past the view,
+   * which at the close framing made that pass 2063 px tall at DPR 2 (a 4096²
+   * pooled target). The heat sprite's `boundsArea` is therefore its own extent
+   * ∩ the screen's world rect (in its local, one-texel-per-cell units): the
+   * pass never exceeds the screen. Nothing off screen is visible, so no
+   * on-screen pixel changes. No rect (tests, ambient) → measured as before.
+   */
+  private clipHeat(sprite: Sprite, grid: HeatGrid): void {
+    const s = this.screen;
+    if (s === null || !Number.isFinite(s.x + s.y + s.w + s.h)) {
+      sprite.boundsArea = null as unknown as Rectangle; // Pixi tests truthiness
+      return;
+    }
+    const x0 = Math.max(0, (s.x - grid.originX) / grid.cellU);
+    const y0 = Math.max(0, (s.y - grid.originY) / grid.cellU);
+    const x1 = Math.min(grid.cols, (s.x + s.w - grid.originX) / grid.cellU);
+    const y1 = Math.min(grid.rows, (s.y + s.h - grid.originY) / grid.cellU);
+    this.heatClip.x = x0;
+    this.heatClip.y = y0;
+    this.heatClip.width = Math.max(0, x1 - x0);
+    this.heatClip.height = Math.max(0, y1 - y0);
+    sprite.boundsArea = this.heatClip;
   }
 
   /**
@@ -882,9 +915,11 @@ export class Radar {
     serverNow: number,
     contacts: ContactStore | null = null,
     view: ViewRect | null = null,
+    screen: ScreenWorldRect | null = null,
   ): void {
     this.own = own;
     this.view = view;
+    this.screen = screen;
     // EVERY FRAME, INCLUDING THE ONES THAT PAINT NOTHING. `paintHeat` returns
     // early when there are no paints (and before that when there is no window at
     // all), so hanging the mask's placement off that path would leave it parked
@@ -1305,6 +1340,7 @@ export class Radar {
     rasterize(heat.grid, this.paints, ctx);
     quantizeInto(heat.grid, cfg.bands, cfg.bandAlpha, heat.rgba);
     heat.sprite.position.set(heat.grid.originX, heat.grid.originY);
+    this.clipHeat(heat.sprite, heat.grid);
     heat.source.update();
   }
 

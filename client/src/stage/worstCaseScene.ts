@@ -273,9 +273,9 @@ export const READABILITY_PROFILE: SceneProfile = {
  * NFR1's REFERENCE SCENARIO, derived from CONFIG rather than written down: a
  * FULL arena of contestants plus the PEAK concurrent PvE fleet.
  *
- * `playerCap` is 20, so 19 rival captains ride slots 1..19 and the local captain
- * is slot 0 — twenty contestants, the number NFR1 names. Fleet hulls follow on
- * slots 20+.
+ * `playerCap` rival captains less one ride slots 1..cap−1 and the local captain
+ * is slot 0 — a full arena (20 when NFR1 was written; 16 since Story 9.8, Eric
+ * 2026-10-13). Fleet hulls follow on slots cap+.
  */
 const NFR1_CAPTAIN_SLOTS = CONFIG.map.playerCap;
 
@@ -318,8 +318,9 @@ const NFR1_NEAR_STRIDE = Math.round((CONFIG.vision.radar / CONFIG.vision.sight) 
 const SWEEP_REVOLUTION_TICKS = Math.round(60_000 / CONFIG.vision.sweepRpm / SCENE_TICK_MS);
 
 /**
- * THE NFR1 POPULATION PROFILE (Story 7.1) — 20 contestants + the 48-hull peak
- * PvE fleet = 68 hulls, sharing SCENE's flash stack and torpedo salvo.
+ * THE NFR1 POPULATION PROFILE (Story 7.1) — the arena cap of contestants + the
+ * 48-hull peak PvE fleet (68 hulls at the 20 cap; 64 at 16 since Story 9.8),
+ * sharing SCENE's flash stack and torpedo salvo.
  *
  * Reached at `/?stage=worstcase&profile=nfr1`; the readability gate's own URL
  * (no `profile`) is untouched.

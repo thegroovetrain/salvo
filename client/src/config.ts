@@ -2041,8 +2041,14 @@ export const CLIENT_CONFIG = {
      * LOWEST edge `barGap` above the HUD bar's top, so a shorter card simply
      * leaves more clear water above the band — which is what `refitTooltip`'s
      * amendment-37 above/below decision spends.
+     *
+     * 226 → 243, THE SIX-ROW GRID (Story 9.8, Eric 2026-10-13: "Six-row card
+     * grid"). Every gun card now carries a RANGE row, and STAR SHELLS /
+     * PHOSPHOR SHELLS to III and V print six. DESIGN.md sizes the box "to the
+     * catalog's largest card" and pins the row at 17px, so the row pitch is
+     * kept and the card grows by exactly one row (+17).
      */
-    cardHeight: 226,
+    cardHeight: 243,
     /** Gap (px) between cards. Four 216s + three 20s = a 924px row that never
      *  wraps at the 1366×768 floor or the 1280×614 logical floor (125% tier). */
     gap: 20,
@@ -2116,7 +2122,7 @@ export const CLIENT_CONFIG = {
     kindSize: 10,
     /** The LADDER row: its fixed height, the gap between rungs and one rung's
      *  box (mock `.ladder` / `.ladder i`). The row is rendered EMPTY (but still
-     *  16px tall) for a consumable or an add-on, so the five rows below it sit
+     *  16px tall) for a consumable or an add-on, so the six rows below it sit
      *  at the same baseline on every card in the row. */
     ladderH: 16,
     ladderGap: 3,
@@ -2124,12 +2130,13 @@ export const CLIENT_CONFIG = {
     rungH: 7,
     /** The `cur → next` tier numerals beside the ladder — mock `.tl`. */
     tierSize: 12,
-    /** The five stat rows — mock `.rows { grid-template-rows: repeat(5,17px) }`
-     *  with a `.rw` label/value pair per row. FIVE ALWAYS: a line with fewer
-     *  rows renders the remainder blank, which is what keeps the foot on one
-     *  baseline across the row. */
+    /** The stat rows — mock `.rows { grid-template-rows: repeat(5,17px) }`,
+     *  grown to SIX by Eric's 2026-10-13 ruling (Story 9.8) at the same 17px
+     *  pitch, with a `.rw` label/value pair per row. SIX ALWAYS: a line with
+     *  fewer rows keeps them top-aligned and renders the remainder blank, which
+     *  is what keeps the foot on one baseline across the row. */
     rowH: 17,
-    rowCount: 5,
+    rowCount: 6,
     labelSize: 9,
     valueSize: 11,
     /** The FOOT — mock `.foot`, 14px tall, blank unless the card is greyed

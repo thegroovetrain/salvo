@@ -172,6 +172,16 @@ export function canUserZoom(spectating: boolean, alive: boolean | undefined): bo
   return !spectating && alive === true;
 }
 
+/** The world rectangle the screen shows this frame, shake included (see
+ *  `Camera.screenWorldRect`) — what a masked layer's filter pass is clipped to
+ *  (Story 9.8 perf gate: Pixi's mask filter does not clip to the viewport). */
+export interface ScreenWorldRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export class Camera {
   /** World-space point the camera is centered on. */
   readonly center: Point = { x: 0, y: 0 };
@@ -454,6 +464,15 @@ export class Camera {
       x: (p.x - this.center.x) * this.zoom + c.x + this.shake.x,
       y: (p.y - this.center.y) * this.zoom + c.y + this.shake.y,
     };
+  }
+
+  /** The world rectangle the screen shows this frame, SHAKE INCLUDED — the
+   *  exact inverse image of the viewport (unlike `worldView`, which omits
+   *  shake). The countermeasure clips its mask pass to it (Story 9.8). */
+  get screenWorldRect(): ScreenWorldRect {
+    const tl = this.screenToWorld({ x: 0, y: 0 });
+    const br = this.screenToWorld({ x: this.viewW, y: this.viewH });
+    return { x: tl.x, y: tl.y, w: br.x - tl.x, h: br.y - tl.y };
   }
 
   /** Screen point (px) -> world point (inverse of worldToScreen). */

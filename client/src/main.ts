@@ -4302,7 +4302,7 @@ function renderAlive(
   // sweep is hidden, so the first live frame marches from the current bearing
   // instead of replaying a whole revolution of crossings at once.
   if (atStartLine(g)) g.radar.render(null, now, null, null);
-  else g.radar.render(pose, now, g.contacts, g.camera.worldView);
+  else g.radar.render(pose, now, g.contacts, g.camera.worldView, g.camera.screenWorldRect);
   // Wounded smoke ages on the SERVER clock, so it is driven here rather than
   // inside renderOwn: a forceSnap gap (respawn / P-toggle) leaves us with no
   // own pose for a frame, and a plume that stopped drifting whenever our own
@@ -4325,7 +4325,7 @@ function renderAlive(
   // spray + fade each countermeasure cloud to its server-clock age (the radar
   // marched it above, through setCloudSource, as one more return source) —
   // seen by eye only inside the flash-rung halo centred on the own hull (session 5)
-  g.countermeasure.render(now, pose);
+  g.countermeasure.render(now, pose, g.camera.screenWorldRect); // mask pass clipped to the screen
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
