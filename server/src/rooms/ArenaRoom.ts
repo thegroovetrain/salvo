@@ -778,12 +778,12 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
 
   /**
    * The class-dealing order for a bot fleet: the three hulls, shuffled ONCE per
-   * room off the room's seeded stream. Dealt round-robin (6/6/7 across 19) this
+   * room off the room's seeded stream. Dealt round-robin (5/5/5 across 15 at the 16-captain cap since Story 9.8; 6/6/7 across 19 before) this
    * fields all three silhouettes in every solo match — which matters because
-   * this mode is most players' first match, and nineteen independent uniform
+   * this mode is most players' first match, and cap − 1 independent uniform
    * draws land lopsided often enough that a field of nine battleships is an
    * ordinary result. The shuffle is what keeps the same class from always
-   * taking the odd seat, and it is seeded (never Math.random) like every other
+   * taking the odd seat (whenever cap − 1 is not a multiple of three), and it is seeded (never Math.random) like every other
    * roll the room makes.
    */
   private shuffledClasses(): ShipClassId[] {

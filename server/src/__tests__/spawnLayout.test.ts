@@ -40,7 +40,7 @@ describe('spawn layout — harness two-ring lattice', () => {
         if (radii.some((ring) => Math.abs(r - ring) < 1e-6)) onLattice += 1;
         placed.push(p);
       }
-      // The coarse lattice has exactly 20 slots; a few may be island-blocked on
+      // The coarse lattice has exactly `fillTo` slots; a few may be island-blocked on
       // the inner ring (no keep-clear band there), so the bound is "most",
       // and the harness reports the exact miss count per arm.
       expect(onLattice).toBeGreaterThanOrEqual(CONFIG.match.fillTo - 4);

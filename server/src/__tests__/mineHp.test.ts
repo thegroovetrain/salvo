@@ -111,11 +111,12 @@ describe('CONFIG — the two numbers (amendments 200/201)', () => {
   });
 });
 
-describe('the CANNON — one click on the mine pops it (16 >= 10)', () => {
+describe('the CANNON — one click on the mine pops it (base damage >= mine hp)', () => {
   it('cannon click on an armed naval mine: boom, blast, and the shooter gets `sp` (no hull victim)', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0);
-    expect(a.stats.equipment.gun.damage).toBe(16);
+    expect(a.stats.equipment.gun.damage).toBe(CONFIG.gun.damage); // 12 since Eric 2026-10-13 (experiment)
+    expect(CONFIG.gun.damage).toBeGreaterThanOrEqual(CONFIG.mine.hp); // the one-click premise
     lay(w, 'm1', 'x', 300, 0);
     const log = click(w, 'a', 300);
     expect(w.mines.has('m1')).toBe(false);
@@ -265,11 +266,12 @@ describe('the CANNON — one click on the mine pops it (16 >= 10)', () => {
   });
 });
 
-describe('the FLAK GUN — 12 >= 10, but only ON the mine', () => {
+describe('the FLAK GUN — base damage >= mine hp, but only ON the mine', () => {
   it('a flak click on a mine pops it in one', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0, { gun: 'flak' });
-    expect(a.stats.equipment.flak.damage).toBe(12);
+    expect(a.stats.equipment.flak.damage).toBe(CONFIG.flak.damage); // 20 since Eric 2026-10-13 (experiment)
+    expect(CONFIG.flak.damage).toBeGreaterThanOrEqual(CONFIG.mine.hp); // the one-click premise
     lay(w, 'm1', 'x', 300, 0);
     const log = click(w, 'a', 300);
     expect(w.mines.has('m1')).toBe(false);

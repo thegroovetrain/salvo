@@ -146,6 +146,7 @@ import {
   type MineState,
   type MineTripRules,
 } from './equipment/index.js';
+import { flakBurstDamage } from './equipment/flak.js';
 import type { BurstSubject } from './signals.js';
 import type { HandRecord } from './matchRecord.js';
 import { addDecoy, decoyTarget, type DecoyState } from './decoys.js';
@@ -1285,6 +1286,17 @@ function onMine(mine: Vec2, p: Vec2, r: number): boolean {
   return Math.hypot(mine.x - p.x, mine.y - p.y) <= r;
 }
 
+/** The hp one burst deals to one caught target (hull or decoy — a decoy is
+ *  measured exactly as the hull it imitates). Every burster deals its flat
+ *  `damage`, except FLAK, whose blast falls off from D at the centre to
+ *  D − `CONFIG.flak.edgeFalloff` at the rim by the NEAREST point of the
+ *  caught outline (Eric 2026-10-13, Story 9.8 — equipment/flak.ts
+ *  `flakBurstDamage`). */
+function burstHitAmount(shell: ShellState, t: Target, at: Vec2): number {
+  if (shell.family !== 'flak') return shell.damage;
+  return flakBurstDamage(shell.damage, pointPolygonDistance(at, t.poly), shell.burstRadius, CONFIG.flak.edgeFalloff);
+}
+
 export class World {
   readonly map: GameMap;
   readonly playerCap: number;
@@ -1686,8 +1698,10 @@ export class World {
    * each drawing its own. That is what delivers the ruled outcome (*"No
    * participants should start so close to each other that they can see each
    * other, let alone radar scan each other"*): a full lobby fills distinct
-   * slots at the lattice's even 700.8u, against 660u of radar. Per-hull phases
-   * measured 352-483u — inside radar on every seed.
+   * slots at the lattice's even pitch, 2·spawnRing·sin(π/playerCap) — ≈1,560.7u
+   * against 1,500u of radar since Story 9.8 (Eric 2026-10-13, 16 captains on a
+   * 10,000 u ocean); 700.8u against 660u at the time of the ruling. Per-hull
+   * phases measured 352-483u then — inside radar on every seed.
    *
    * ITS OWN DECORRELATED STREAM, not a draw off `this.rng`, for two reasons:
    * the phase must not shift with HOW MANY hulls get placed (a draw off the
@@ -5515,7 +5529,7 @@ export class World {
         // (a fish is not a decoy, so it must never reach burstDamage's
         // damageDecoy branch).
         if (t.kind === 'ordnance') continue;
-        resolved += this.burstDamage(shell, t);
+        resolved += this.burstDamage(shell, t, at);
       }
       // AMENDMENT 19 (Eric 2026-09-15, resolving `deferred-work.md:590`): a
       // hull an EARLIER shell of this same click already sank still counts as a
@@ -5612,13 +5626,14 @@ export class World {
    *  per-victim liveness re-check on a hull is defence against a directed
    *  caller — since Story 8.4 the collector's sink invalidation means a wreck
    *  is not in `hulls` at all. */
-  private burstDamage(shell: ShellState, t: Target): number {
-    if (t.kind !== 'hull') return this.damageDecoy(t.id, shell.damage, shell.ownerId) ? 1 : 0;
+  private burstDamage(shell: ShellState, t: Target, at: Vec2): number {
+    const amount = burstHitAmount(shell, t, at);
+    if (t.kind !== 'hull') return this.damageDecoy(t.id, amount, shell.ownerId) ? 1 : 0;
     const victim = this.ships.get(t.id);
     if (!victim || !isAfloat(victim.lifecycle)) return 0;
     // `noAggro` (the deleted GUN BUOY's tag — nothing sets it since Story
     // 8.16) rides the fromMine seat here exactly as on the contact path above.
-    this.hitShip(victim, shell.damage, shell.ownerId, shell.noAggro === true, 'burst');
+    this.hitShip(victim, amount, shell.ownerId, shell.noAggro === true, 'burst');
     return 1;
   }
 

@@ -87,8 +87,9 @@ describe('pickSpawn — placement constraints across seeds', () => {
 // halves of the mechanism, and either alone is worthless:
 //
 //   THE COUNT — SPAWN_CANDIDATES is CONFIG.map.playerCap, not the retired
-//   literal 32. That sets the lattice pitch: 700.8u between adjacent slots at
-//   cap 20, against 439u at 32 — the latter INSIDE the 660u radar range.
+//   literal 32. That sets the lattice pitch: 2·spawnRing·sin(π/cap) between
+//   adjacent slots (at the time of the ruling 700.8u at cap 20, against 439u
+//   at 32 — the latter INSIDE the then 660u radar range).
 //
 //   THE PHASE — World draws ONE lattice rotation per match and passes it at all
 //   three placement edges. Without it pickSpawn re-rolled its offset on every
@@ -97,8 +98,8 @@ describe('pickSpawn — placement constraints across seeds', () => {
 //   359-475u at 32 — inside radar on EVERY seed either way, i.e. the count on
 //   its own moved essentially nothing.
 //
-// With both, the same 60-seed measurement lands on exactly 700.8u every time,
-// 0/60 seeds with any pair inside radar. The empirical test below is that
+// With both, the same 60-seed measurement landed on exactly the lattice pitch
+// every time, 0/60 seeds with any pair inside radar. The empirical test below is that
 // measurement; the constraint pin guards the geometry it rests on.
 
 /** The even spacing a FULL lobby gets: the chord between adjacent slots of the
@@ -115,12 +116,13 @@ describe('spawn ring candidate count — derived from the player cap', () => {
   it('CONSTRAINT: the candidate lattice out-spaces radar range at a full lobby', () => {
     // THE PIN. Every term is live CONFIG, so retuning the player cap, the map
     // radius, the spawn fraction OR radar range fails the build here rather
-    // than silently shrinking the lattice back under radar. On the 2800 u
-    // ocean the margin was ~6 % (700.8 u against 660 u of radar); the 5500 u
-    // ocean (Story 9.1, 2026-10-07) widens it to 1,376 u, so the retired
-    // 32-slot counter-example (439 u then, 861 u now) no longer sits inside
-    // radar and is not pinned — the contract is the inequality, not the
-    // history.
+    // than silently shrinking the lattice back under radar. Eric's ruling
+    // (2026-10-13, Story 9.8): *"16 captains on a 10,000 u ocean, rings 10000 →
+    // 7000 → 4000 → 2000 → 0"* — one evenly spaced spawn ring at the spawn
+    // fraction of R, whose neighbor chord now clears the twelfths-ladder radar
+    // (amendment 103). It was red between wave 1 (radar 1500) and that ruling
+    // (cap 20 on the 5500 u ocean). The contract is the inequality, never the
+    // numbers.
     const spawnRing = CONFIG.map.baseRadius * CONFIG.map.spawnFraction;
     expect(evenSpacing(spawnRing, CONFIG.map.playerCap)).toBeGreaterThan(CONFIG.vision.radar);
   });
@@ -167,8 +169,9 @@ describe('spawn ring candidate count — derived from the player cap', () => {
 describe('the shared spawn lattice — the phase is per-MATCH, not per-hull', () => {
   it('a full lobby leaves no pair inside radar range of each other', () => {
     // THE OUTCOME TEST, through the real World.addShip path (island clearance
-    // and the fallback ladder included). Measured across 60 seeds this lands on
-    // exactly the lattice pitch, 700.8u, on every one of them.
+    // and the fallback ladder included). The minimum pair lands on exactly the
+    // lattice pitch, which the constraint above holds clear of radar (Eric
+    // 2026-10-13, Story 9.8: 16 captains on a 10,000 u ocean).
     for (const seed of SEEDS.slice(0, 8)) {
       const w = new World(seed);
       const placed: Array<{ x: number; y: number }> = [];

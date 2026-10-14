@@ -31,11 +31,14 @@ const TAU = Math.PI * 2;
  * `CONFIG.map.playerCap`, so the lattice a full lobby is drawn from has exactly
  * as many slots as there are captains to fill it.
  *
- * The lattice's even spacing is 2·spawnRing·sin(π/playerCap) = 700.8u, clear of
- * the 660u radar range, where the retired literal 32 gave 439u — INSIDE radar,
- * so two captains could start the match already painting each other. That
- * inequality is pinned as a constraint test in spawn.test.ts so retuning the
- * cap, the map radius, the spawn fraction or radar range fails the build.
+ * The lattice's even spacing is 2·spawnRing·sin(π/playerCap). Since Story 9.8
+ * (Eric 2026-10-13: *"16 captains on a 10,000 u ocean"* — R 5000, cap 16) that
+ * is ≈1,560.7u against 1,500u of radar, so NO pair starts inside radar; it was
+ * 700.8u against 660u at cap 20 on the 2800u ocean, where the retired literal
+ * 32 gave 439u — INSIDE radar, so two captains could start the match already
+ * painting each other. That inequality is pinned as a constraint test in
+ * spawn.test.ts (every term live CONFIG) so retuning the cap, the map radius,
+ * the spawn fraction or radar range fails the build.
  *
  * THE COUNT IS ONLY HALF OF IT — the phase is the other half, and both are
  * required. `pickSpawn` used to re-roll its `offset` on EVERY call, so each

@@ -978,7 +978,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
     const b = place(w, 'b', ANNULUS_D, 0);
-    b.hp = 15; // next hit sinks
+    b.hp = CONFIG.gun.damage; // next hit sinks (derived — the cannon moved 16 → 12, Story 9.8)
     // a's shell, one tick from striking b — b is far outside a's sight.
     injectShell(w, 's1', 'a', ANNULUS_D - 20, 0, 0, 100);
     w.step();
@@ -1004,7 +1004,7 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
     const b = place(w, 'b', 150, 0);
-    b.hp = 15;
+    b.hp = CONFIG.gun.damage; // the next hit sinks it
     place(w, 'c', 0, 800); // far-away third party
     injectShell(w, 's1', 'a', 130, 0, 0, 100); // a's shell, point-blank on b
     w.step();
@@ -1580,7 +1580,7 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
     const w = bareWorld();
     place(w, 'a', 0, 0);
     const b = place(w, 'b', 900, 0); // far outside a's sight — pre-1.7 the owner got NO boom here
-    b.hp = 15; // the next hit sinks it
+    b.hp = CONFIG.gun.damage; // the next hit sinks it (derived — the cannon moved 16 → 12, Story 9.8)
     injectZone(w, 'z1', 'a', 900, 0);
     injectShell(w, 's1', 'a', 880, 0, 0, 100); // a's shell, point-blank on b
     w.step();
@@ -1601,7 +1601,7 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
     const w = bareWorld();
     place(w, 'c', 0, 0); // non-owner observer
     const b = place(w, 'b', 900, 0);
-    b.hp = 15;
+    b.hp = CONFIG.gun.damage; // the next hit sinks it
     injectZone(w, 'z1', 'a', 900, 0); // a's zone — c gains nothing from it
     injectShell(w, 's1', 'a', 880, 0, 0, 100);
     w.step();

@@ -229,7 +229,14 @@ describe('DAMAGE CUT — the Battleship\'s Shift (amendments 99–102)', () => {
 // ---------- THE NINE-COMBO PIN ------------------------------------------------
 
 describe('every hull × every gun (the nine-combo pin)', () => {
-  const EXPECTED_DAMAGE: Record<GunId, number> = { deckGun: 16, machineGun: 5, flak: 12 };
+  // Each gun's BASE damage, read off CONFIG (cannon 12 / flak 20 since Eric's
+  // 2026-10-13 experiment, Story 9.8). The click lands on the target's centre,
+  // so the flak burst's falloff (D at the centre) takes nothing off.
+  const EXPECTED_DAMAGE: Record<GunId, number> = {
+    deckGun: CONFIG.gun.damage,
+    machineGun: CONFIG.machineGun.damage,
+    flak: CONFIG.flak.damage,
+  };
   const EXPECTED_FAMILY: Record<GunId, string> = { deckGun: 'cannon', machineGun: 'mg', flak: 'flak' };
 
   for (const hull of SHIP_CLASS_IDS) {

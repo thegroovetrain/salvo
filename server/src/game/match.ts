@@ -913,7 +913,7 @@ export class Match {
    * one (amendment 4).
    *
    * THE MATCH IS HELD OPEN FOR SINKING CAPTAINS (Eric veto 2026-08-12,
-   * REVERSING amendment 17). That amendment reasoned from a 20-player lobby
+   * REVERSING amendment 17). That amendment reasoned from a 20-player lobby (the cap then)
    * — "the last kill is one death out of nineteen", the omniscient reveal a
    * better payoff than a truncated window — and missed that in a 1v1 EVERY
    * death is the match-ending death, so the entire Story 5.2 window was

@@ -82,7 +82,8 @@ for (let m = 0; m < MATCHES; m++) {
   // `--roster even`, so an over-represented class cannot skew the reading.
   // ...and every bot draws from the COMMON POOL on the default gun, exactly
   // as a production bot does (Story 8.14).
-  for (let i = 0; i < 20; i++) world.addBot(SHIP_CLASS_IDS[(i + m) % SHIP_CLASS_IDS.length], undefined);
+  // A FULL lobby: the player cap (16 since Story 9.8, Eric 2026-10-13), never a literal.
+  for (let i = 0; i < CONFIG.map.playerCap; i++) world.addBot(SHIP_CLASS_IDS[(i + m) % SHIP_CLASS_IDS.length], undefined);
   match.notifyRosterChanged();
 
   let prev = new Map<string, Per[]>();

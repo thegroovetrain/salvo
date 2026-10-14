@@ -40,8 +40,10 @@
 //    made `broadside.damage` exactly equal `gun.damage` (both 15), so a first-
 //    match lookup would have filed every broadside burst under 'gun'. Eric's
 //    2026-10-02 cannon table (16/16/18/18/21, amendment 232) moved the bare
-//    cannon to 16 while the broadside stays 15, so today the two print under
-//    their OWN labels — the correct outcome, not a regression. Sources
+//    cannon to 16 while the broadside stays 15, and the 2026-10-13 experiment
+//    (12/12/15/15/18, Story 9.8) keeps the bare cannon (12) off the broadside,
+//    so today the two print under their OWN labels — the correct outcome, not
+//    a regression (a laddered tier-III/IV shell, 15, now merges with it). Sources
 //    that collide on an amount are reported under ONE merged label
 //    ('gun/broadside') — an honest ambiguity beats a confident wrong answer. Any
 //    amount that matches nothing is bucketed by its own value under
@@ -78,7 +80,11 @@ function rawSources(): { label: string; amount: number }[] {
     // KNOWN BLIND SPOT (2026-10-02 review gate): only BASE amounts are sources,
     // so a laddered hit is classified by first match on its amount — a tier-II
     // flak burst (20) files under `starShells` (20) and a tier-II/III machine
-    // gun shell (6) under `gunBodyblock` (6). Harness attribution only; the
+    // gun shell (6) under `gunBodyblock` (6). Since Story 9.8 (Eric
+    // 2026-10-13) a flak burst also FALLS OFF from D at the centre to
+    // D − `flak.edgeFalloff` at the rim, so only a dead-centre flak hit lands
+    // on this row; an off-centre one files by first match on its amount (e.g.
+    // 12 → `gun`) or under `other:<amount>`. Harness attribution only; the
     // fix (classify by shell family, not amount) is in deferred-work.md.
     { label: 'machineGun', amount: CONFIG.machineGun.damage },
     { label: 'flak', amount: CONFIG.flak.damage },
@@ -106,9 +112,10 @@ let sourcesMemo: { label: string; amount: number }[] | null = null;
  * Balance cycle 1 set `broadside.damage` to exactly `gun.damage` (both 15), and
  * a first-match lookup would have filed every broadside burst under 'gun' in
  * silence. 'gun/broadside' says what the ledger actually knows. Since Eric's
- * 2026-10-02 cannon table the bare cannon is 16 and the broadside 15, so they
- * no longer merge and print as 'gun' and 'broadside' separately (correct). Only
- * the BARE cannon's amount is a source here: a laddered cannon shell (18 / 21)
+ * 2026-10-02 cannon table the bare cannon is off the broadside's 15 (16 then,
+ * 12 since the 2026-10-13 experiment), so they no longer merge and print as
+ * 'gun' and 'broadside' separately (correct). Only the BARE cannon's amount is
+ * a source here: a laddered cannon shell (15 / 18 since 2026-10-13)
  * still files under `other:<amount>`, as every laddered amount always has.
  *
  * BUILT LAZILY, ON FIRST CLASSIFICATION — never at module import. The harness's
@@ -208,12 +215,12 @@ export interface CatalogSample {
    *  burst in the exact same 50ms tick on the exact same hull is possible and
    *  is the known contaminant — reported, not hidden). */
   multiBarrelTicks: Record<string, number>;
-  /** victim hull id -> largest gun-ONLY per-tick total. 63 is the theoretical
-   *  max (3 barrels x 21 at CANNON tier V — Eric 2026-10-02, amendment 232),
-   *  but THIS METRIC CANNOT SEE IT: a hit counts as 'gun' only at the bare
-   *  amount (`CONFIG.gun.damage`, 16), so laddered cannon shells (18 / 21)
-   *  file under `other:<amount>` and the only multi-barrel click it records
-   *  is the tier-II twin (2 x 16 = 32). Attribution by shell family is open
+  /** victim hull id -> largest gun-ONLY per-tick total. 54 is the theoretical
+   *  max (3 barrels x 18 at CANNON tier V — Eric 2026-10-13, experiment; was
+   *  3 x 21 = 63, amendment 232), but THIS METRIC CANNOT SEE IT: a hit counts
+   *  as 'gun' only at the bare amount (`CONFIG.gun.damage`, 12), so laddered
+   *  cannon shells (15 / 18) file under another label or `other:<amount>` and
+   *  the only multi-barrel click it records is the tier-II twin (2 x 12 = 24). Attribution by shell family is open
    *  work (deferred-work.md, 2026-10-02 review gate). */
   maxGunOnlyTick: Record<string, number>;
   /** victim hull id -> kills from FULL hp by a gun-only multi-burst tick. */

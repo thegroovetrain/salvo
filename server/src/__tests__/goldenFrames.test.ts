@@ -288,7 +288,7 @@ function scnCombat(g: Golden): void {
   const w = bareWorld(1002);
   place(w, 'a', 0, 0);
   const b = place(w, 'b', 150, 0);
-  b.hp = 15; // the next hit sinks it
+  b.hp = CONFIG.gun.damage; // the next hit sinks it (derived — the cannon moved 16 → 12, Story 9.8)
   injectShell(w, 'tp', 'a', 0, 300, Math.PI / 2, 400, 'torp'); // owner-visible torp, flies clear
   injectShell(w, 'sg', 'a', 130, 0, 0, 100, 'shell'); // point-blank on b
   cap(g, w, 'a'); // shell + torp reveals (owner always), contact b
@@ -581,7 +581,7 @@ function scnZoneKill(g: Golden): void {
   const w = bareWorld(1012);
   place(w, 'a', 0, 0);
   const b = place(w, 'b', ANNULUS, 0);
-  b.hp = 15; // the next hit sinks it
+  b.hp = CONFIG.gun.damage; // the next hit sinks it (derived — the cannon moved 16 → 12, Story 9.8)
   w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: ANNULUS, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
   injectShell(w, 'ks', 'a', ANNULUS - 20, 0, 0, 100); // a's shell, point-blank on b, outside a's sight
   w.step(); // strikes b -> boom + dmg (victim-private) + sunk + pt
@@ -633,8 +633,8 @@ function scnMineBlast(g: Golden): void {
 
 /**
  * Owner gun mine detonation (Story 1.8) — ML `a` clicks its own ARMED mine
- * (injected, mines precedent): the cannon shell LANDS on it (16 dmg >= the
- * mine's 10 hp, amendment 200 — the snapshot did not move with that ruling)
+ * (injected, mines precedent): the cannon shell LANDS on it (its damage >= the
+ * mine's 10 hp — 12 since Story 9.8; amendment 200 — the snapshot did not move with that ruling)
  * and it pops as a plain blast at the MINE's position whose boom carries NO
  * victim id (no tripping ship).
  */
