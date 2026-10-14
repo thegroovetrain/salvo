@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.18.52] - 2026-10-14
+
+### Changed
+- **PvE drones only react to what they can see.** A drone has no radar, so its steering, target search and shot test now consider only hulls and islands inside its 500 u sight; being shot from farther away still turns it toward the shooter as before. Behaviour inside sight is byte-identical; the server tick with a full ocean drops again (drone AI 4.0 → 0.65 ms, post-wave tick 13 → 9.7 ms p50 on the probe).
+- **Spectators get the full zoom-out too, anchored on the mouse.** While spectating, the zoom range is the living captain's (close framing out to the whole live storm ring), and wheel and X/Z keys zoom about the cursor since there is no own hull to centre on.
+
+### Internal
+- Server: `drones.ts` hull avoidance pre-filtered at sight (exact: the steering bias is 0 past 150 u anyway), island avoidance through a static 500 u island bucket grid (`islandBuckets.ts`, exact), the waypoint land test at pick time and per-fleet member sets; `droneSightScope.test` (6 tests incl. the 1,500 u shot-from chase pinned tick-for-tick against the base). Golden snapshot unchanged; the 112-hull run hashes identically.
+- Client: `Camera.zoomAbout`, spectate limits = alive limits with the ring feed while spectating, the spectate span clamp retired, spectate wheel on the log step, X/Z live while spectating; tests re-based citing amendment 140.
+- Records: epic-9 amendments 139–140.
+- Tests: shared 1093 (44 files), server 2578 -> 2584 (93 files), client 4043 -> 4055 (131 files), hook test green, lint 0 errors.
+
 ## [0.18.51] - 2026-10-14
 
 ### Changed
