@@ -80,6 +80,7 @@ describe('dropoutPaintP — the curve (matrix rows)', () => {
       { ...D, kneeU: D.startU - 1 }, // reversed band
       { ...D, kneeU: NaN },
       { ...D, kneeU: RADAR }, // radar ≤ knee
+      { ...D, kneeP: 0.5, rimP: 0.9 }, // rim more reliable than the knee: not monotone
     ];
     for (const cfg of bad) {
       expect(dropoutPaintP(D.startU, cfg), JSON.stringify(cfg)).toBe(1);

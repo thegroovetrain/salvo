@@ -55,7 +55,9 @@ function smoothstep(x: number): number {
 /** A usable curve has a strictly increasing start < knee < rim. Anything else
  *  (a reversed or collapsed band, a NaN dial) is DEGENERATE. */
 function isDegenerate(cfg: DropoutCurve, radarU: number): boolean {
-  return !(cfg.kneeU > cfg.startU) || !(radarU > cfg.kneeU);
+  // A rim more reliable than the knee (rimP > kneeP) is not a curve either —
+  // the Edge Case Hunter's harness arm (2026-10-13); it collapses to the step.
+  return !(cfg.kneeU > cfg.startU) || !(radarU > cfg.kneeU) || !(cfg.kneeP >= cfg.rimP);
 }
 
 /**
