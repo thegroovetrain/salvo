@@ -101,6 +101,9 @@ const TUNE_FAMILIES = [
   // alone (amendment 83) — one dial leaves the other half of contact live.
   'ram.',
   'starShells.',
+  // PHOSPHOR SHELLS (Story 8.17) — reachable since Story 9.8, when its reach
+  // became its own tiered dial on the twelfths ruler (ruling 125).
+  'phosphorShells.',
   'boost.',
   'shipClasses.',
   // PvE FLEET ENVELOPES. `drones.<size>.hp` is the dial behind the question
@@ -144,6 +147,13 @@ const TUNE_FAMILIES = [
   // `offer.weighting.` rather than `offer.` so `offer.size` keeps its --set
   // home and its floor of 1.
   'offer.weighting.',
+  // THE RADAR DROPOUT (Story 9.8, epic-9 amendment 104, rulings 121–123):
+  // `startU` / `kneeU` (floor 1 — TUNE_MIN_ONE_KEYS) and the two paint
+  // probabilities `kneeP` / `rimP` (clamped to [0, 1] — PROBABILITY_KEYS).
+  // ONLY the dropout sub-block: the rest of `vision.*` is the sensor ladder
+  // itself, which the shared fold and the client both derive from, so it is
+  // not a harness dial.
+  'vision.dropout.',
 ];
 
 /** True for an EQUIPMENT dial family (--tune only, never --set/--sweep). */
@@ -158,33 +168,31 @@ export function isTuneKey(key: string): boolean {
 // all claim the sim moved. False evidence is the ONE failure a balance harness
 // may not have (the same argument the prototype-walk refusal above is written
 // on), so these are refused up front with the real dial named instead.
-// `mine.triggerRadius` exists in CONFIG and would be silently ignored; the
-// rangeU paths are not CONFIG entries at all and would otherwise fail
-// with the generic not-a-numeric-entry message, which tells the reader nothing
-// about WHY the range they are trying to move is unreachable.
+// `mine.triggerRadius` exists in CONFIG and would be silently ignored.
+//
+// THE WEAPON REACHES ARE DIALS SINCE STORY 9.8 (ruling 125): every
+// `<weapon>.rangeU` is the Tier I reach, read live by the fold, so it LEFT
+// this map and is tunable (floor 1 — TUNE_MIN_ONE_LEAVES). Its sibling
+// `<weapon>.rangeUAtV` is REFUSED (RANGE_AT_V below, the amendment-110
+// pattern): the Tier V reach authors the per-card step ONCE, at module load
+// (sim/catalog.ts rangeStep), so a --tune of it would change nothing.
 const DERIVED_TUNE_KEYS = new Map<string, string>([
   [
     'mine.triggerRadius',
     'the trip ring is DERIVED as mine.blastRadius x CONFIG.mine.triggerFactor (Eric ruling 2026-08-16) — tune mine.blastRadius instead',
   ],
-  ['gun.rangeU', 'gun range is DERIVED from radar range (Eric ruling 2026-07-21) and is not independently tunable'],
-  [
-    'machineGun.rangeU',
-    'machine-gun range is DERIVED from radar range like gun.rangeU (Story 8.15, amendment 103) and is not independently tunable',
-  ],
-  [
-    'flak.rangeU',
-    'flak range is DERIVED from radar range like gun.rangeU (Story 8.15, amendment 105) and is not independently tunable',
-  ],
-  ['starShells.rangeU', 'star-shell range is DERIVED from radar range and is not independently tunable'],
-  [
-    'broadside.rangeU',
-    'broadside range is DERIVED from radar range at the 5/8 rung (Story 7-5 wave 2) and is not independently tunable',
-  ],
 ]);
+
+/** `<weapon>.rangeUAtV` — read once at module load (see DERIVED_TUNE_KEYS). */
+const RANGE_AT_V = /\.rangeUAtV$/;
 
 /** Refuse a path the firewall re-derives post-fold (see DERIVED_TUNE_KEYS). */
 function assertNotDerived(key: string): void {
+  if (RANGE_AT_V.test(key)) {
+    throw new TunableError(
+      `'${key}' is REFUSED: the Tier V reach authors the per-card step at module load; tune rangeU for the base`,
+    );
+  }
   const advice = DERIVED_TUNE_KEYS.get(key);
   if (advice !== undefined) {
     throw new TunableError(`'${key}' is a DERIVED stat — tuning it has no effect on the sim: ${advice}`);
@@ -362,6 +370,11 @@ export function validateTuneKey(key: string): void {
  *  Deliberately an EXPLICIT named set rather than a pattern: a floor is a
  *  refusal to run an arm, so each one is justified by a real call site. */
 const TUNE_MIN_ONE_LEAVES = new Set([
+  // rangeU (Story 9.8, ruling 125 — every weapon's reach is a dial): it is the
+  // aimDist / burst clamp every gun fires to, and the bots' engagement band
+  // multiplies it (ai/profiles.ts engagementBand) — a 0 reach is a weapon
+  // that fires into its own muzzle and a bot band collapsed to a point.
+  'rangeU',
   'steerageSpeed',
   'turnRate',
   'shellSpeed',
@@ -398,7 +411,15 @@ const TUNE_MIN_ONE_LEAVES = new Set([
  */
 const TUNE_SUB_ONE_FLOORS = new Map<string, number>([['turnRate', 0.05]]);
 
+/** Exact --tune keys floored at 1 (Story 9.8): the dropout curve's two
+ *  distances. Not leaf names — `startU` / `kneeU` are generic words, and the
+ *  hazard is specific to this block (a 0 start makes every return a coin
+ *  flip from the hull outward). The shared curve already fails closed on a
+ *  degenerate start ≥ knee (a STEP at startU), so only the floor lives here. */
+const TUNE_MIN_ONE_KEYS = new Set(['vision.dropout.startU', 'vision.dropout.kneeU']);
+
 function tuneFloor(key: string): number {
+  if (TUNE_MIN_ONE_KEYS.has(key)) return 1;
   const leaf = key.slice(key.lastIndexOf('.') + 1);
   const lower = leaf.toLowerCase();
   if (lower.endsWith('reloadms') || lower.endsWith('cooldownms')) return 1;
@@ -417,6 +438,7 @@ function tuneFloor(key: string): number {
  *  0-damage arm is a real control. */
 export function validateTuneValue(key: string, value: number): void {
   if (UNIT_INTERVAL_KEYS.has(key)) return validateUnitInterval(key, value);
+  if (PROBABILITY_KEYS.has(key)) return validateProbability(key, value);
   const floor = tuneFloor(key);
   if (!Number.isFinite(value) || value < floor) {
     throw new TunableError(`'${key}': expected a finite value >= ${floor}, got '${value}'`);
@@ -442,6 +464,17 @@ export function validateTuneValue(key: string, value: number): void {
  * checked on the finished CONFIG in validateCrossKeyInvariants.
  */
 const UNIT_INTERVAL_KEYS = new Set(['offer.weighting.factor', 'offer.weighting.floor']);
+
+/** The dropout curve's paint probabilities (Story 9.8, ruling 121): CLOSED
+ *  [0, 1] — 0 (never paints at that rung) and 1 (always paints) are both real
+ *  arms; outside it is not a probability. */
+const PROBABILITY_KEYS = new Set(['vision.dropout.kneeP', 'vision.dropout.rimP']);
+
+function validateProbability(key: string, value: number): void {
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new TunableError(`'${key}': expected a finite probability in [0, 1], got '${value}'`);
+  }
+}
 
 function validateUnitInterval(key: string, value: number): void {
   if (!Number.isFinite(value) || value <= 0 || value > 1) {

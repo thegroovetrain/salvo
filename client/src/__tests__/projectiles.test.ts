@@ -76,13 +76,16 @@ describe('shellCulledBeyondSight — beyond-sight cull with the lit-zone excepti
 
 describe('Projectiles.render — the lit-zone reveal survives the beyond-sight cull', () => {
   const own = { x: 0, y: 0 };
-  /** A shell already sitting 400u out (beyond sight), still-forming its position. */
-  const farShell: BallisticEvent = { k: 'shell', id: 's1', x: 400, y: 0, vx: 0, vy: 0, t: 0 };
+  /** A shell already sitting on the 6/12 rung (radar × 6/12 — the flash rung,
+   *  beyond sight's 4/12 + the cull margin; epic-9 amendment 103), still-forming
+   *  its position. */
+  const FAR_X = (CONFIG.vision.radar * 6) / 12;
+  const farShell: BallisticEvent = { k: 'shell', id: 's1', x: FAR_X, y: 0, vx: 0, vy: 0, t: 0 };
 
   it('culls a beyond-sight shell with no zone, but keeps it inside an own zone', () => {
     const withZone = new Projectiles(900, new Container());
     withZone.onShell(farShell);
-    const zone: OwnZone = { x: 400, y: 0, r: 110, until: 10_000 };
+    const zone: OwnZone = { x: FAR_X, y: 0, r: 110, until: 10_000 };
     withZone.render(1, own, [zone]);
     expect(withZone.liveCount).toBe(1); // revealed by our flare — survives
 

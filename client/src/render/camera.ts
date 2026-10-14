@@ -1,9 +1,11 @@
-// Pure-math camera. Owns the world<->screen mapping, a fixed zoom derived from
-// the radar range, a follow-with-lead target smoother, and a shake offset hook.
+// Pure-math camera. Owns the world<->screen mapping, a zoom expressed as
+// ABSOLUTE world spans across the viewport's short axis (Story 9.8, epic-9
+// amendments 127/128 — never a factor over radar), a follow-with-lead target
+// smoother, the centre slide toward the storm ring, and a shake offset hook.
 // No Pixi import: render code reads `zoom`, `center`, `shake`, `screenCenter`
 // and applies the transform to the world/chart containers. Fully unit-testable.
 
-import { expDecay } from '../util/math.js';
+import { expDecay, clamp, clamp01, lerp } from '../util/math.js';
 
 /** Anything with a position + kinematics the camera can follow. */
 export interface Followable {
@@ -19,10 +21,17 @@ export interface Point {
 }
 
 export interface CameraOptions {
-  /** Radar range (u) that must fit the screen's short axis at this zoom.
-   *  Re-settable at runtime via setRadarRange(): no card writes `radarRange`
-   *  today, but the camera reads the folded stat rather than a literal. */
-  radarRange: number;
+  /** World units across the screen's SHORT axis at the DEFAULT framing
+   *  (CLIENT_CONFIG.zoom.defaultSpanU, ruling 127). `baseZoom` = shortAxis /
+   *  this, and every zoom factor below is relative to it. */
+  defaultSpanU: number;
+  /** World units across the short axis at the zoom-IN limit
+   *  (CLIENT_CONFIG.zoom.closeSpanU, ruling 127). */
+  closeSpanU: number;
+  /** Fit margin (> 1) of the ring-fit zoom-OUT limit: the live ring's diameter
+   *  × this spans the short axis (CLIENT_CONFIG.reveal.mapFitMargin — the
+   *  reveal's own border, so both whole-disc framings read alike). */
+  ringFitMargin: number;
   /** Exponential follow rate (1/s). */
   followRate: number;
   /** Look-ahead time (s): lead distance = |speed| * leadSeconds, capped. */
@@ -31,14 +40,19 @@ export interface CameraOptions {
   leadMax: number;
 }
 
-/** Spectator zoom-out bounds: the MANUAL (wheel) zoomFactor is clamped to
- *  [MIN, MAX]. Ratified by epic-2 amendment 8 and DELIBERATELY not moved by
- *  Story 5.3: epic-5 amendment 25 gives the reveal its OWN framing mode that is
- *  exempt from this clamp rather than lowering the floor, because a ~0.27 floor
- *  would hand every spectator a permanent whole-map view — a different feature.
- *  (Eric: *"Reveal gets its own framing, we might revisit the clamp later."*) */
-export const SPECTATE_ZOOM_MIN = 0.5;
-export const SPECTATE_ZOOM_MAX = 1;
+/**
+ * Spectator zoom bounds as ABSOLUTE spans (u across the short axis): the MANUAL
+ * (wheel) spectate zoom is clamped between them. Story 9.8 (ruling 127) writes
+ * the old 0.5×–1.0× over the 1,320 u default framing as the spans they always
+ * were — 2,640 u and 1,320 u — so the clamp no longer hangs off radar. Ratified
+ * by epic-2 amendment 8 and DELIBERATELY not moved by Story 5.3: epic-5
+ * amendment 25 gives the reveal its OWN framing mode that is exempt from this
+ * clamp rather than widening it, because a whole-map floor would hand every
+ * spectator a permanent whole-map view — a different feature. (Eric: *"Reveal
+ * gets its own framing, we might revisit the clamp later."*)
+ */
+export const SPECTATE_SPAN_WIDE_U = 2640;
+export const SPECTATE_SPAN_NARROW_U = 1320;
 
 /**
  * How close to the reveal target counts as ARRIVED. An exponential approach
@@ -50,41 +64,101 @@ export const SPECTATE_ZOOM_MAX = 1;
 const REVEAL_SETTLE_EPS = 1e-4;
 
 /**
+ * The zoom FACTOR (over the default framing) that shows `spanU` world units
+ * across the short axis: defaultSpanU / spanU. The one conversion every
+ * absolute framing in this module goes through. A degenerate input returns 1
+ * (the plain default framing) rather than a NaN/Infinity factor, which would
+ * permanently poison the composed zoom.
+ */
+export function spanFactor(defaultSpanU: number, spanU: number): number {
+  if (!Number.isFinite(defaultSpanU) || defaultSpanU <= 0) return 1;
+  if (!Number.isFinite(spanU) || spanU <= 0) return 1;
+  return defaultSpanU / spanU;
+}
+
+/**
  * THE REVEAL FRAMING FACTOR (Story 5.3, epic-5 amendment 25) — the zoomFactor
  * that frames the WHOLE OCEAN, for the omniscient reveal at your own founder.
  *
- * DERIVED, NEVER A LITERAL. `baseZoom` fits the radar DIAMETER (2 × radarRange)
- * to the screen's short axis; the map is 2 × mapRadius across. So the factor
- * that swaps one fit for the other is (2 × radarRange) / (2 × mapRadius ×
- * margin) — the twos cancel. At the shipped radar 660u and map radius 2400u
- * that is ~0.275 at margin 1, well under SPECTATE_ZOOM_MIN, which is exactly
- * why amendment 25 exempts this mode from that clamp.
- *
- * Both inputs are already derived quantities (the camera's live radarRange,
- * which follows the folded stat; and the Game's mapRadius, itself derived
- * from shared CONFIG.map), so a map-size or sensor retune moves the reveal with
- * it. Story 6.2 makes map sizing roster-dynamic — this must not need touching
- * then.
+ * ABSOLUTE SINCE STORY 9.8 (ruling 127): the reveal shows 2 × mapRadius ×
+ * margin world units across the short axis — shortAxis / (2 × mapRadius ×
+ * margin) px per u — written directly. As a factor over the default framing
+ * that is defaultSpanU / (2 × mapRadius × margin), the same number the old
+ * radar-diameter derivation gave while the default framing was 2 × 660 u.
  *
  * `margin` (> 1) is breathing room: it fits a slightly LARGER disc than the map
- * so the ocean's edge is not flush with the short axis.
- *
- * A degenerate input returns 1 (the plain base framing) rather than a
- * NaN/Infinity factor, which would permanently poison the composed zoom.
+ * so the ocean's edge is not flush with the short axis. The map radius is the
+ * Game's live, roster-dynamic one (Story 6.2), so no literal lives here. A
+ * degenerate input returns 1 (the default framing), never NaN.
  */
-export function revealZoomFactor(radarRange: number, mapRadius: number, margin: number): number {
-  const fit = mapRadius * margin;
-  if (!Number.isFinite(radarRange) || radarRange <= 0) return 1;
-  if (!Number.isFinite(fit) || fit <= 0) return 1;
-  return radarRange / fit;
+export function revealZoomFactor(defaultSpanU: number, mapRadius: number, margin: number): number {
+  return spanFactor(defaultSpanU, 2 * mapRadius * margin);
 }
 
-/** Alive user-zoom bounds (Story 2.1, Eric ruling 2026-07-24): the userZoom
- *  factor over the base radar-fit framing is clamped to [MIN, MAX]. Values
- *  mirror CLIENT_CONFIG.zoom.min/max (authored there; pinned here so this
- *  module stays pure math with zero imports beyond util/math). */
-export const USER_ZOOM_MIN = 0.5;
-export const USER_ZOOM_MAX = 1.5;
+/**
+ * THE RING-FIT SPAN (ruling 127): the live ring's diameter × the fit margin, in
+ * world units across the short axis. NaN when the ring is unusable (non-finite
+ * or negative radius, or a degenerate margin) — the caller then falls back to
+ * the default framing. A radius of exactly 0 (the final ring closed onto its
+ * point) is a legitimate span of 0: the limit sits on the close framing,
+ * continuous with the r → 0 approach rather than popping back out.
+ */
+export function ringFitSpanU(ringRadius: number, margin: number): number {
+  if (!Number.isFinite(ringRadius) || ringRadius < 0) return NaN;
+  if (!Number.isFinite(margin) || margin <= 0) return NaN;
+  return 2 * ringRadius * margin;
+}
+
+/**
+ * THE USER-ZOOM LIMITS as factors over the default framing (ruling 127):
+ * `max` (zoomed fully IN) = defaultSpanU / closeSpanU; `min` (zoomed fully OUT)
+ * = defaultSpanU / ringFitSpan, never above `max` (a ring smaller than the
+ * close framing pins both limits to it). An unusable ring (NaN span) falls back
+ * to the default framing (factor 1, itself held under `max`).
+ */
+export function userZoomLimits(
+  defaultSpanU: number,
+  closeSpanU: number,
+  ringSpanU: number,
+): { min: number; max: number } {
+  const max = spanFactor(defaultSpanU, closeSpanU);
+  if (Number.isNaN(ringSpanU)) return { min: Math.min(1, max), max };
+  const min = ringSpanU <= 0 ? max : Math.min(max, defaultSpanU / ringSpanU);
+  return { min, max };
+}
+
+/**
+ * THE CENTRE SLIDE (ruling 128): how far the camera centre has travelled from
+ * the own ship toward the ring centre, 0..1. `spanU` is the CURRENT user span
+ * across the short axis; at and inside the default framing t = 0 (the ship is
+ * centred), at the ring-fit span t = 1 (the ring centre is). Linear in span
+ * between them. A ring no wider than the default framing, or an unusable one,
+ * never slides.
+ */
+export function centreSlideT(spanU: number, defaultSpanU: number, ringSpanU: number): number {
+  const room = ringSpanU - defaultSpanU;
+  if (!Number.isFinite(room) || room <= 0) return 0;
+  if (!Number.isFinite(spanU)) return 0;
+  return clamp01((spanU - defaultSpanU) / room);
+}
+
+/**
+ * THE KEY / WHEEL ZOOM STEP (Story 9.8, ruling 127). MULTIPLICATIVE in the
+ * factor: `amount` is the logarithmic step, so next = f × e^amount. The X/Z
+ * keys pass ±keyStep (0.1), the wheel −deltaY × wheelRate (0.0008/unit).
+ *
+ * Why not today's additive step: the range now runs from the close framing
+ * (1.5×) down to a ring fit near 0.2× on a big ocean, and a fixed +0.1 is a
+ * ~10 % step at the default framing but a ~50 % jolt at the ring fit. A log
+ * step is the same PERCEIVED step everywhere, and at today's framings it is
+ * today's feel: around the default framing e^±0.1 = ×1.105 / ×0.905 against
+ * the old ±0.1, and one 100-unit wheel notch e^−0.08 = ×0.923 against the old
+ * −0.08. A non-finite amount returns the factor unchanged.
+ */
+export function stepZoom(factor: number, amount: number): number {
+  if (!Number.isFinite(amount)) return factor;
+  return factor * Math.exp(amount);
+}
 
 /**
  * THE alive-only gate for user zoom (X/Z + wheel), pure so it is testable apart
@@ -104,18 +178,26 @@ export class Camera {
   /** Screen-space shake offset (px), added on top of the transform. */
   readonly shake: Point = { x: 0, y: 0 };
 
+  /** The smoothed ship-follow point (ship + lead, eased at followRate). The
+   *  centre is this point slid toward the ring centre (ruling 128); follow and
+   *  lead apply to this term ONLY. */
+  private readonly follow: Point = { x: 0, y: 0 };
   private baseZoom = 1;
   private zoomFactorValue = 1;
   private userZoomValue = 1;
   private viewW = 1;
   private viewH = 1;
+  /** The live storm ring (ruling 127/128), fed every alive frame by setRing().
+   *  NaN span until the first feed = no ring known: the zoom-out limit is the
+   *  default framing and nothing slides. */
+  private readonly ring: Point = { x: 0, y: 0 };
+  private ringSpanValue = NaN;
   /** Live reveal framing target (Story 5.3), or null when the mode is off.
    *  While non-null the zoom factor is animated toward it by tickZoom() and is
    *  EXEMPT from the spectate clamp (amendment 25). */
   private revealTargetValue: number | null = null;
   /** Exponential approach rate (1/s) for the reveal, handed in at kickoff so
-   *  this module keeps its zero-config-imports purity (same reason
-   *  USER_ZOOM_MIN/MAX are mirrored here rather than imported). */
+   *  this module keeps its zero-config-imports purity. */
   private revealRateValue = 0;
 
   constructor(private readonly opts: CameraOptions) {}
@@ -127,27 +209,37 @@ export class Camera {
     return this.baseZoom * this.zoomFactorValue * this.userZoomValue;
   }
 
-  /** Spectator zoom-out multiplier, 1 (normal) down to SPECTATE_ZOOM_MIN —
-   *  or BELOW it while the reveal framing owns the camera (amendment 25). */
+  /** Spectator zoom multiplier over the default framing — or BELOW its clamp
+   *  while the reveal framing owns the camera (amendment 25). */
   get zoomFactor(): number {
     return this.zoomFactorValue;
   }
 
+  /** The spectate clamp as factors over the default framing: the wide span
+   *  (zoomed out) is `min`, the narrow span `max`. */
+  get spectateZoomLimits(): { min: number; max: number } {
+    const d = this.opts.defaultSpanU;
+    return { min: spanFactor(d, SPECTATE_SPAN_WIDE_U), max: spanFactor(d, SPECTATE_SPAN_NARROW_U) };
+  }
+
   /**
-   * Set the spectator zoom factor, clamped to [0.5, 1]. Spectators only.
+   * Set the spectator zoom factor, clamped to the spectate spans. Spectators
+   * only. A non-finite input is IGNORED (same NaN hazard as setUserZoom).
    *
    * This is the MANUAL (wheel) path, and taking manual control RELEASES the
    * reveal framing — after which the clamp governs again, exactly as it always
    * has. THE RESULTING POP IS LEDGERED AND ACCEPTED (amendment 25): the reveal
-   * is the ENTRY state at ~0.275×, so the first wheel notch jumps into
-   * [0.5, 1.0] and the view roughly doubles in scale. Eric anticipated it in
+   * is the ENTRY state at the whole-map framing, so the first wheel notch jumps
+   * into the clamp and the view roughly doubles in scale. Eric anticipated it in
    * the same breath he ruled the mode in (*"we might revisit the clamp
    * later"*), so it is recorded rather than engineered around — do not add an
    * easing bridge here without a ruling.
    */
   setZoomFactor(f: number): void {
+    if (!Number.isFinite(f)) return;
     this.clearRevealTarget();
-    this.zoomFactorValue = Math.min(SPECTATE_ZOOM_MAX, Math.max(SPECTATE_ZOOM_MIN, f));
+    const lim = this.spectateZoomLimits;
+    this.zoomFactorValue = clamp(f, lim.min, lim.max);
   }
 
   /** Back to normal zoom (respawn / rejoin) — and out of the reveal framing:
@@ -164,13 +256,12 @@ export class Camera {
 
   /**
    * Enter the REVEAL framing (Story 5.3): pull back until the whole ocean is in
-   * frame. The factor is computed from the camera's OWN live radarRange, so a
-   * sensor or map-size retune moves the framing with it and no
-   * caller has to re-derive anything. Feed `margin` and `rate` from
-   * CLIENT_CONFIG.reveal (this module imports no config by design).
+   * frame — 2 × mapRadius × margin across the short axis (ruling 127, absolute).
+   * Feed `margin` and `rate` from CLIENT_CONFIG.reveal (this module imports no
+   * config by design).
    */
   beginReveal(mapRadius: number, margin: number, rate: number): void {
-    this.setRevealTarget(revealZoomFactor(this.opts.radarRange, mapRadius, margin), rate);
+    this.setRevealTarget(revealZoomFactor(this.opts.defaultSpanU, mapRadius, margin), rate);
   }
 
   /**
@@ -229,25 +320,71 @@ export class Camera {
     this.zoomFactorValue = Math.abs(next - target) < REVEAL_SETTLE_EPS ? target : next;
   }
 
-  /** Alive user-zoom factor over the base framing, clamped [0.5, 1.5]. */
+  /** Alive user-zoom factor over the default framing, within userZoomLimits. */
   get userZoom(): number {
     return this.userZoomValue;
   }
 
-  /** Set the alive user-zoom factor (X/Z keys + wheel), clamped [0.5, 1.5].
-   *  Callers that change the zoom must re-bake the fog (main.ts debounces).
-   *  A non-finite input is IGNORED: Math.min/max pass NaN straight through, and
-   *  a NaN factor would permanently poison the composed zoom (every later
-   *  clamp of NaN is NaN) — a rogue wheel deltaY must not brick the camera. */
-  setUserZoom(f: number): void {
-    if (!Number.isFinite(f)) return;
-    this.userZoomValue = Math.min(USER_ZOOM_MAX, Math.max(USER_ZOOM_MIN, f));
+  /** The live alive-zoom limits (ruling 127): the close framing in, the live
+   *  ring fit out (the default framing until a ring has been fed). */
+  get userZoomLimits(): { min: number; max: number } {
+    return userZoomLimits(this.opts.defaultSpanU, this.opts.closeSpanU, this.ringSpanValue);
   }
 
-  /** Back to the base framing (spectate entry — the spectate factor owns the
-   *  zoom there; the spectate code path itself is untouched by user zoom). */
+  /** The current ring-fit span (u across the short axis), NaN before a ring. */
+  get ringSpanU(): number {
+    return this.ringSpanValue;
+  }
+
+  /** The alive user span (u across the short axis) — defaultSpanU / userZoom. */
+  get userSpanU(): number {
+    return this.opts.defaultSpanU / this.userZoomValue;
+  }
+
+  /** This instant's centre slide toward the ring centre, 0..1 (ruling 128). */
+  get slideT(): number {
+    return centreSlideT(this.userSpanU, this.opts.defaultSpanU, this.ringSpanValue);
+  }
+
+  /** Set the alive user-zoom factor (X/Z keys + wheel), clamped to the live
+   *  limits. Callers that change the zoom must re-bake the fog (main.ts
+   *  debounces). A non-finite input is IGNORED: Math.min/max pass NaN straight
+   *  through, and a NaN factor would permanently poison the composed zoom (every
+   *  later clamp of NaN is NaN) — a rogue wheel deltaY must not brick the
+   *  camera. */
+  setUserZoom(f: number): void {
+    if (!Number.isFinite(f)) return;
+    const lim = this.userZoomLimits;
+    this.userZoomValue = clamp(f, lim.min, lim.max);
+  }
+
+  /** Back to the default framing (spectate entry — the spectate factor owns the
+   *  zoom there; the spectate code path itself is untouched by user zoom). Set
+   *  RAW to 1: the alive limits re-clamp it on the next setRing() after a
+   *  respawn, while spectate needs the composed zoom to be the pure spectate
+   *  product. */
   resetUserZoom(): void {
     this.userZoomValue = 1;
+  }
+
+  /**
+   * Feed the LIVE storm ring (centre + radius), every alive frame (ruling 127):
+   * the zoom-out limit re-fits to it and the centre slide aims at its centre
+   * (ruling 128). The current user zoom is re-clamped into the new limits, so a
+   * captain sitting at the out limit STAYS fitted as the ring closes (the limit
+   * only ever tightens within a match). Returns whether the user zoom moved, so
+   * the caller can decide on a fog re-bake (with its own hysteresis).
+   */
+  setRing(cx: number, cy: number, r: number): boolean {
+    if (Number.isFinite(cx) && Number.isFinite(cy)) {
+      this.ring.x = cx;
+      this.ring.y = cy;
+    }
+    this.ringSpanValue = ringFitSpanU(r, this.opts.ringFitMargin);
+    const before = this.userZoomValue;
+    const lim = this.userZoomLimits;
+    this.userZoomValue = clamp(before, lim.min, lim.max);
+    return this.userZoomValue !== before;
   }
 
   /** Screen-space center (px). */
@@ -258,7 +395,7 @@ export class Camera {
   /**
    * THE WORLD RECTANGLE CURRENTLY ON SCREEN: the camera centre plus half-extents
    * in world units (screen px ÷ 2 ÷ zoom). Composed from the live `zoom`, so it
-   * answers correctly under the base radar fit, a spectator zoom-out and an
+   * answers correctly under the default framing, a spectator zoom-out and an
    * alive user zoom alike.
    *
    * Its consumer is the radar heatmap buffer (render/radar.ts, amendment 96),
@@ -279,34 +416,20 @@ export class Camera {
   }
 
   /**
-   * Set the viewport size (px) and recompute the base zoom so the full radar
-   * diameter (2 * radarRange) fits the screen's short axis. Call on init and
+   * Set the viewport size (px) and recompute the base zoom so the default span
+   * (CameraOptions.defaultSpanU) fits the screen's short axis. Call on init and
    * resize.
    */
   setViewport(width: number, height: number): void {
     this.viewW = width;
     this.viewH = height;
-    this.recomputeBaseZoom();
-  }
-
-  /**
-   * Adopt a new (effective) radar range and recompute the base zoom against the
-   * current viewport, so the full radar diameter keeps fitting the short axis.
-   * No card moves `radarRange` today; this stays the seam that would carry one. Callers
-   * must re-bake the fog (fog.rebake) after this, same as the resize path.
-   */
-  setRadarRange(radarRange: number): void {
-    this.opts.radarRange = radarRange;
-    this.recomputeBaseZoom();
-  }
-
-  private recomputeBaseZoom(): void {
-    const shortAxis = Math.min(this.viewW, this.viewH);
-    this.baseZoom = shortAxis / (2 * this.opts.radarRange);
+    this.baseZoom = Math.min(width, height) / this.opts.defaultSpanU;
   }
 
   /** Jump the camera center directly to a point (no smoothing). */
   snapTo(p: Point): void {
+    this.follow.x = p.x;
+    this.follow.y = p.y;
     this.center.x = p.x;
     this.center.y = p.y;
   }
@@ -318,6 +441,8 @@ export class Camera {
    *  reached — a pan is not a zoom, so nothing jumps until the wheel is used. */
   pan(dx: number, dy: number): void {
     this.clearRevealTarget();
+    this.follow.x += dx;
+    this.follow.y += dy;
     this.center.x += dx;
     this.center.y += dy;
   }
@@ -351,13 +476,19 @@ export class Camera {
 
   /**
    * Advance the follow smoother by `dt` seconds toward the ship + its lead
-   * offset. Deterministic given (dt, ship): exponential approach at followRate.
+   * offset (exponential approach at followRate, deterministic given dt and
+   * ship), then place the centre on the slide (ruling 128): lerp(follow point,
+   * ring centre, slideT). At and inside the default framing slideT is 0 and the
+   * centre IS the follow point, exactly as before Story 9.8. The slide itself
+   * is not smoothed: it is a pure function of the zoom, which the player moves
+   * directly.
    */
   update(dt: number, ship: Followable): void {
     const lead = this.leadOffset(ship);
-    const targetX = ship.x + lead.x;
-    const targetY = ship.y + lead.y;
-    this.center.x = expDecay(this.center.x, targetX, this.opts.followRate, dt);
-    this.center.y = expDecay(this.center.y, targetY, this.opts.followRate, dt);
+    this.follow.x = expDecay(this.follow.x, ship.x + lead.x, this.opts.followRate, dt);
+    this.follow.y = expDecay(this.follow.y, ship.y + lead.y, this.opts.followRate, dt);
+    const t = this.slideT;
+    this.center.x = lerp(this.follow.x, this.ring.x, t);
+    this.center.y = lerp(this.follow.y, this.ring.y, t);
   }
 }

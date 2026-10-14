@@ -201,7 +201,7 @@ function statsBlock(): void {
   // detect is SIGHT-scaled (`sightOf(me) * detectFactor`), NOT radar-scaled —
   // the one rung that hangs off sight rather than radar range. Derived here the
   // same way the server does it so the ladder ordering is checkable by eye.
-  console.log('class        |  maxHp |  speed | radar |  sight | detect | 5/8 rung | gun rangeU | broadside rangeU | cooldownScale | armor | damageMultiplier');
+  console.log('class        |  maxHp |  speed | radar |  sight | detect | 6/12 rung | gun rangeU | broadside rangeU | cooldownScale | armor | damageMultiplier');
   for (const cls of SHIP_CLASS_IDS) {
     for (const [tag, cards] of [['base', [] as string[]] as const, ['MAXED', maxCards] as const]) {
       const st = effectiveStats(hullEnvelope(cls), cards);
@@ -209,10 +209,43 @@ function statsBlock(): void {
       console.log(
         `${(cls + ' ' + tag).padEnd(12)} | ${fmt(st.maxHp).padStart(6)} | ${fmt(st.kinematics.maxSpeed).padStart(6)} | ` +
           `${fmt(st.radarRange).padStart(5)} | ${fmt(st.sightRange).padStart(6)} | ${fmt(st.sightRange * CONFIG.vision.detectFactor).padStart(6)} | ` +
-          `${fmt(rung).padStart(8)} | ${fmt(st.equipment.gun.rangeU).padStart(10)} | ${fmt(st.equipment.broadside.rangeU).padStart(16)} | ${fmt(st.cooldownScale, 3).padStart(13)} | ${fmt(st.armor, 0).padStart(5)} | ${fmt(st.damageMultiplier, 3)}`,
+          `${fmt(rung).padStart(9)} | ${fmt(st.equipment.gun.rangeU).padStart(10)} | ${fmt(st.equipment.broadside.rangeU).padStart(16)} | ${fmt(st.cooldownScale, 3).padStart(13)} | ${fmt(st.armor, 0).padStart(5)} | ${fmt(st.damageMultiplier, 3)}`,
       );
     }
   }
+  console.log('');
+}
+
+/** Every gun line's catalog id and the folded equipment row its reach lives
+ *  on (Story 9.8, ruling 125: each reach is its own tiered dial). */
+const REACH_LINES = [
+  ['deckGun', 'gun'],
+  ['machineGun', 'machineGun'],
+  ['flak', 'flak'],
+  ['broadside', 'broadside'],
+  ['starShells', 'starShells'],
+  ['phosphorShells', 'phosphorShells'],
+] as const;
+
+/** Each gun's Tier I and Tier V reach, through the real fold (Story 9.8,
+ *  ruling 125): Tier I is the bare row (`CONFIG.<w>.rangeU`), Tier V the line
+ *  stacked to its copy cap — the four upgrade cards (for an equipment line,
+ *  copy 1 is the fit itself). Then the radar dropout's flat band and knee
+ *  (rulings 121–123), the dials `--tune vision.dropout.*` moves. */
+function reachBlock(): void {
+  console.log('== WEAPON REACH (Tier I -> Tier V, u) + RADAR DROPOUT ==');
+  const cls = hullEnvelope(SHIP_CLASS_IDS[0]);
+  for (const [line, row] of REACH_LINES) {
+    if (!Object.hasOwn(CATALOG, line)) throw new Error(`balanceProbe: '${line}' is not in CATALOG (deleted line?)`);
+    const tierI = effectiveStats(cls, []).equipment[row].rangeU;
+    const tierV = effectiveStats(cls, new Array<string>(CATALOG[line].cap).fill(line)).equipment[row].rangeU;
+    console.log(`  ${line.padEnd(15)} Tier I ${fmt(tierI).padStart(7)}  Tier V ${fmt(tierV).padStart(7)}`);
+  }
+  console.log(`  fouling shell   fixed  ${fmt(CONFIG.foulingShell.rangeU).padStart(7)}`);
+  const dr = CONFIG.vision.dropout;
+  console.log(
+    `  dropout: p=1 to ${fmt(dr.startU)}u, knee ${fmt(dr.kneeU)}u (p=${fmt(dr.kneeP, 2)}), rim ${fmt(CONFIG.vision.radar)}u (p=${fmt(dr.rimP, 2)})`,
+  );
   console.log('');
 }
 
@@ -226,5 +259,6 @@ for (const hullId of HULL_IDS) {
 }
 console.log('HULLS PROBED: ' + HULL_IDS.join(' ') + ` (classes: ${SHIP_CLASS_IDS.join(' ')}; fleet: ${DRONE_HULL_IDS.join(' ')})`);
 statsBlock();
+reachBlock();
 broadsideBlock();
 barrelBlock();

@@ -29,6 +29,8 @@ import { CONFIG, PROTOCOL_VERSION, generateMap, bearing, angleDiff, islandBlocks
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
 const SIGHT = CONFIG.vision.sight;
 const RADAR = CONFIG.vision.radar;
+// The radar-band standoff: annulus, and inside the dropout's flat band.
+const BAND_STANDOFF = Math.min(SIGHT + 200, CONFIG.vision.dropout.startU - 50);
 const PERIOD = 60000 / CONFIG.vision.sweepRpm; // ms per base radar revolution
 // THE parking tolerance: the one threshold `settle()` and `parkAcross()` accept
 // as "arrived", and therefore the per-hull error budget every geometric
@@ -297,7 +299,10 @@ function standoffPoint(a, b, islands, standoff) {
 }
 
 async function phaseRadarBand(a, b, map, log) {
-  const target = standoffPoint(a, b, map.islands, 420);
+  // SIGHT + 200 — in the annulus and INSIDE the radar dropout's flat band
+  // (`vision.dropout.startU`), so every sweep paints (Story 9.8: was a 420u
+  // literal, which the twelfths ladder put inside sight).
+  const target = standoffPoint(a, b, map.islands, BAND_STANDOFF);
   a.goal = { mode: 'park', target };
   b.goal = { mode: 'idle' };
   await settle(a, b, 120000, 'park in radar band');
@@ -323,7 +328,7 @@ async function phaseRadarBand(a, b, map, log) {
     // also be within ATTRIBUTE_U — i.e. NO RETURN NEAR THE SUBJECT IS OFF
     // TARGET, so a mis-rasterized (or drifted, or wrong-hull-pose) return in
     // the 60-120u shell is a FAILURE instead of an exclusion.
-    // The subject is the only captain in that shell (they parked ~420u apart),
+    // The subject is the only captain in that shell (they parked BAND_STANDOFF apart),
     // and fleet hulls cannot be attributed directly — their positions are not
     // available to this smoke at all beyond truesight, which is exactly the
     // range this phase lives at — so the annulus is the available oracle.
@@ -340,7 +345,7 @@ async function phaseRadarBand(a, b, map, log) {
     }
   }
   const gaps = ba.slice(1).map((e, i) => (e.t - ba[i].t).toFixed(0)).join(',');
-  log.push(`band: dist~420u — 0 contacts; blips A=${ba.length} B=${bb.length}, gapsA=[${gaps}]ms (fresh joins had ${nBlipsA})`);
+  log.push(`band: dist~${BAND_STANDOFF}u — 0 contacts; blips A=${ba.length} B=${bb.length}, gapsA=[${gaps}]ms (fresh joins had ${nBlipsA})`);
 }
 
 async function phaseShellReveal(a, b, log) {
@@ -362,8 +367,8 @@ async function phaseShellReveal(a, b, log) {
     const sa = aShells.find((e) => e.id === sb.id);
     assert(sa, `shell: B saw ${sb.id} that A (owner) never did`);
     // Reveal must be LATER than launch — never on the launch tick. The exact
-    // delay is geometry ((standoff - sight)/shellSpeed ~ 180ms at 420u standoff,
-    // sight 330, shell 500u/s — the old 1000ms literal predates both retunes);
+    // delay is geometry ((standoff - sight)/shellSpeed — ~400ms at the band
+    // standoff on the twelfths ladder; the old 1000ms literal predates it);
     // the load-bearing anti-cheat check is the reveal POSITION below (the shell
     // materializes at B's sight boundary, not at A's muzzle).
     assert(sb.t - sa.t >= CONFIG.tick.simDtMs, `shell: ${sb.id} revealed to B on its launch tick (+${(sb.t - sa.t).toFixed(0)}ms)`);
@@ -449,8 +454,9 @@ function islandSetup(map, near, gapA, gapB) {
       // SIGHT 330 on a minimum-radius island, i.e. 6u of headroom against ~10u
       // of parking slop: whether the phase could pass at all depended on which
       // island happened to be nearest B's (randomly placed) spawn. Derive the
-      // offset from the island instead, aiming ~SIGHT+120 (450u — comfortably
-      // clear of both band edges at RADAR 660).
+      // offset from the island instead, aiming ~SIGHT+120 (620u on the twelfths
+      // ladder — clear of both band edges, and INSIDE the radar dropout's flat
+      // band `vision.dropout.startU`, so every sweep paints: Story 9.8).
       const farGap = Math.max(240, SIGHT + 120 - 2 * isle.r - gapB);
       const paFar = { x: isle.x + u.x * (isle.r + farGap), y: isle.y + u.y * (isle.r + farGap) };
       if (ok(pa) && ok(pb) && ok(paFar) && hardCover(map, paFar, pb)) out.push({ isle, pa, pb, paFar, farGap, ok });

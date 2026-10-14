@@ -745,7 +745,12 @@ describe('fleet waves — the anchor rule (amendment 37)', () => {
       beatMs: 60000,
       ringSteps: [1 / 3, 2 / 3],
       offsetCap: 1.0,
-      terminalSightFactor: 2, // terminal ring = 2 × sight = 660u
+      // The terminal ring sits at 90 % of the floor-governs bound below (the
+      // guard's own expression), DERIVED rather than a sight multiple: the
+      // twelfths ladder (Story 9.8, amendment 103) moved 2 × sight from 660 u
+      // to 1000 u, past the bound, which stopped this test exercising the
+      // floor at all.
+      terminalSightFactor: (0.9 * CONFIG.fleet.spreadU) / 0.65 / CONFIG.vision.sight,
     };
     const w = bareWorld(41, smallRing);
     // Full closure for a three-group timeline: every wave beat has passed, so

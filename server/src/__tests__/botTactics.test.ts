@@ -262,6 +262,11 @@ function openWorld(seed: number, cap = 8): World {
  * are the right tool for arcs, pools, ranges and abilities — and these run
  * alongside them.
  */
+/** u — a lost plot past the bot's own truesight and inside flare reach:
+ *  one sight plus 200 u (the flare never lights a plot inside sight — the
+ *  twelfths ladder moved sight to the old 500 u placement, Story 9.8). */
+const LOST_X = CONFIG.vision.sight + 200;
+
 function islandWorld(seed: number, isle: Island): World {
   const w = openWorld(seed);
   w.map.islands.push(isle);
@@ -277,7 +282,9 @@ describe('steering — the priority order is the policy', () => {
     const port = fakePort(w, { cx: -600, cy: 0, r: 200 });
     const rec = mkBot(w, 'battleship', 0, 0, Math.PI / 2); // bow due north
     const mind = mkMind('bulwark');
-    plot(mind, track(port.now, { x: 400, y: 0 }));
+    // Beyond bulwark's band (a fraction of its gun reach since Story 9.8,
+    // ruling 126), so the target alone would PURSUE east.
+    plot(mind, track(port.now, { x: engagementBand(profileOf('bulwark'), rec.stats).max + 200, y: 0 }));
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.throttle).toBe(1); // full ahead: the storm does not miss
     // Port rudder (positive = counter-clockwise) swings a north-facing bow to
@@ -902,7 +909,7 @@ describe('the storm ring is a CONSTRAINT, not only an override', () => {
     const p1 = fakePort(blocked);
     const rec = mkBot(blocked, 'battleship', 0, 0, 0);
     const m1 = mkMind('siege');
-    plot(m1, track(p1.now, { x: 500, y: 0, live: false, seenAt: p1.now - 3000 }));
+    plot(m1, track(p1.now, { x: LOST_X, y: 0, live: false, seenAt: p1.now - 3000 }));
     expect(COMBAT_BRAIN.decide(rec, m1, p1).fireSlot).not.toBe(slotOf(rec, 'starShells'));
 
     // THE C2 BEHAVIOUR ITSELF IS UNCHANGED — the same plot, the same profile,
@@ -913,7 +920,7 @@ describe('the storm ring is a CONSTRAINT, not only an override', () => {
     const p2 = fakePort(clear);
     const rec2 = mkBot(clear, 'battleship', 0, 0, 0);
     const m2 = mkMind('siege');
-    plot(m2, track(p2.now, { x: 500, y: 0, live: false, seenAt: p2.now - 3000 }));
+    plot(m2, track(p2.now, { x: LOST_X, y: 0, live: false, seenAt: p2.now - 3000 }));
     expect(COMBAT_BRAIN.decide(rec2, m2, p2).fireSlot).toBe(slotOf(rec2, 'starShells'));
   });
 });
@@ -977,13 +984,13 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const flares = slotOf(rec, 'starShells');
     const mind = mkMind('siege');
     // Lost 3s ago, out past our own truesight bubble, inside flare reach.
-    plot(mind, track(port.now, { x: 500, y: 0, live: false, seenAt: port.now - 3000 }));
+    plot(mind, track(port.now, { x: LOST_X, y: 0, live: false, seenAt: port.now - 3000 }));
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.fireSlot).toBe(flares);
-    expect(d.aimDist).toBeCloseTo(500, 0); // aimed at the LAST KNOWN position
+    expect(d.aimDist).toBeCloseTo(LOST_X, 0); // aimed at the LAST KNOWN position
     // A LIVE contact needs no flare — that one gets shot at instead.
     const live = mkMind('siege');
-    plot(live, track(port.now, { x: 500, y: 0, live: true }));
+    plot(live, track(port.now, { x: LOST_X, y: 0, live: true }));
     expect(COMBAT_BRAIN.decide(rec, live, port).fireSlot).not.toBe(flares);
   });
 
@@ -999,20 +1006,20 @@ describe('weapons — every shot is a LEGAL shot', () => {
 
     // Stale 2s: past siege's eager 1.5s floor, short of bulwark's 3s one.
     const siege2s = mkMind('siege');
-    plot(siege2s, track(port.now, { x: 500, y: 0, live: false, seenAt: port.now - 2000 }));
+    plot(siege2s, track(port.now, { x: LOST_X, y: 0, live: false, seenAt: port.now - 2000 }));
     expect(COMBAT_BRAIN.decide(rec, siege2s, port).fireSlot).toBe(flares);
     const bulwark2s = mkMind('bulwark');
-    plot(bulwark2s, track(port.now, { x: 500, y: 0, live: false, seenAt: port.now - 2000 }));
+    plot(bulwark2s, track(port.now, { x: LOST_X, y: 0, live: false, seenAt: port.now - 2000 }));
     expect(COMBAT_BRAIN.decide(rec, bulwark2s, port).fireSlot).not.toBe(flares);
 
     // Stale 3.5s: BOTH fire, and they fire at the IDENTICAL point — two
     // profiles holding the same equipment place it identically; only their
     // eagerness differs (the ruled two-axis split).
     const siegeLate = mkMind('siege');
-    plot(siegeLate, track(port.now, { x: 500, y: 0, live: false, seenAt: port.now - 3500 }));
+    plot(siegeLate, track(port.now, { x: LOST_X, y: 0, live: false, seenAt: port.now - 3500 }));
     const a = COMBAT_BRAIN.decide(rec, siegeLate, port);
     const bulwarkLate = mkMind('bulwark');
-    plot(bulwarkLate, track(port.now, { x: 500, y: 0, live: false, seenAt: port.now - 3500 }));
+    plot(bulwarkLate, track(port.now, { x: LOST_X, y: 0, live: false, seenAt: port.now - 3500 }));
     const b = COMBAT_BRAIN.decide(rec, bulwarkLate, port);
     expect(a.fireSlot).toBe(flares);
     expect(b.fireSlot).toBe(flares);
@@ -1386,7 +1393,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const rec = mkBot(w, 'torpedoBoat', 0, 0, 0);
     const flares = fitExtra(rec, 'starShells');
     const mind = mkMind('raider'); // neutral flare appetite: 2x staleness floor
-    plot(mind, track(port.now, { x: 500, y: 0, live: false, seenAt: port.now - 3500 }));
+    plot(mind, track(port.now, { x: LOST_X, y: 0, live: false, seenAt: port.now - 3500 }));
     expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBe(flares);
   });
 
@@ -1562,7 +1569,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const blind = mkBot(w, 'battleship', 0, 0, 0);
     w.applyCard(blind, 'phosphorShells');
     const blindMind = mkMind('siege');
-    plot(blindMind, track(port.now, { x: 400, y: 0, live: true, speed: 10 }));
+    plot(blindMind, track(port.now, { x: LOST_X, y: 0, live: true, speed: 10 })); // beyond sight (Story 9.8)
     expect(COMBAT_BRAIN.decide(blind, blindMind, port).fireSlot).not.toBe(slotOf(blind, 'phosphorShells'));
     // Without the row, a live contact never draws a FLARE (it gets shot at).
     const base = mkBot(w, 'battleship', 0, 0, 0);
@@ -1577,17 +1584,17 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     // bulwark (appetite 1.2 — reluctant) waits 2× FLARE_STALE_MS = 3000 ms.
     const fresh = mkBot(w, 'battleship', 0, 0, 0);
     const freshMind = mkMind('bulwark');
-    plot(freshMind, track(port.now, { x: 500, y: 0, live: false, seenAt: port.now - 2000 }));
+    plot(freshMind, track(port.now, { x: LOST_X, y: 0, live: false, seenAt: port.now - 2000 }));
     expect(COMBAT_BRAIN.decide(fresh, freshMind, port).fireSlot).not.toBe(slotOf(fresh, 'starShells'));
     const stale = mkBot(w, 'battleship', 0, 0, 0);
     const staleMind = mkMind('bulwark');
-    plot(staleMind, track(port.now, { x: 500, y: 0, live: false, seenAt: port.now - 3400 }));
+    plot(staleMind, track(port.now, { x: LOST_X, y: 0, live: false, seenAt: port.now - 3400 }));
     expect(COMBAT_BRAIN.decide(stale, staleMind, port).fireSlot).toBe(slotOf(stale, 'starShells'));
     // ...and a holder with PHOSPHOR fitted lights the same stale plot (the cap is gone).
     const both = mkBot(w, 'battleship', 0, 0, 0);
     w.applyCard(both, 'phosphorShells');
     const bothMind = mkMind('bulwark');
-    plot(bothMind, track(port.now, { x: 500, y: 0, live: false, seenAt: port.now - 3400 }));
+    plot(bothMind, track(port.now, { x: LOST_X, y: 0, live: false, seenAt: port.now - 3400 }));
     expect(COMBAT_BRAIN.decide(both, bothMind, port).fireSlot).toBe(slotOf(both, 'starShells'));
   });
 
@@ -1607,7 +1614,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
   it('FOULING SHELL (9.4, amendment 65) — ENGAGING: the row PRIMES and FIRES at the nearest live contact in sight; held with no live contact', () => {
     const { w, port, rec, slot } = foulingShellBoat(408);
     expect(CONSUMABLE_TACTICS.foulingShell.kind).toBe('shot');
-    expect(CONSUMABLE_TACTICS.foulingShell.reachU(rec.stats)).toBe(rec.stats.radarRange);
+    expect(CONSUMABLE_TACTICS.foulingShell.reachU(rec.stats)).toBe(CONFIG.foulingShell.rangeU); // its own fixed dial (Story 9.8, ruling 125)
     const band = engagementBand(profileOf('duelist'), rec.stats);
     const mid = Math.min((band.min + band.max) / 2, 250);
     const engaged = mkMind('duelist');

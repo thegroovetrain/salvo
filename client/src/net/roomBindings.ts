@@ -997,8 +997,9 @@ function handlePulseEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: B
  *     server-known position, so the bearing is derived here from the camera
  *     centre and FIXED AT RECEIPT (see bearingTo): a bearing re-derived per
  *     frame would swing as the spectator panned.
- *   • `b`/`v` — a fogged listener. Bearing and volume BAND (which eighth of our
- *     own intel range the honker sits in, server-resolved — amendment 122), and
+ *   • `b`/`v` — a fogged listener. Bearing and volume BAND (which twelfth of our
+ *     own intel range the honker sits in, server-resolved — amendment 122,
+ *     twelve bands since Story 9.8 ruling 129), and
  *     nothing else on the whole row (no x, no y, no id, no correlation handle
  *     of any kind).
  *
@@ -1178,7 +1179,7 @@ function worldTone(
 function placeCue(pos: { x: number; y: number } | null, deps: RoomBindingDeps, t: number): WorldCue {
   if (!pos) return unplacedCue();
   const ear = listenerPos(deps, t);
-  // CONFIG.vision.radar — the eighths ladder's 8/8 rung (full intel range) — is
+  // CONFIG.vision.radar — the twelfths ladder's 12/12 rung (full intel range) — is
   // the falloff scale for EVERY world cue, read from shared CONFIG rather than
   // mirrored into a client tunable. Per-cue rungs were considered and rejected:
   // they would re-derive the server's own disclosure decision (audio/tones.ts).

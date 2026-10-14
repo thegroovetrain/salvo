@@ -66,13 +66,13 @@ function fish(w: World, id: string, ownerId: string, x: number, y: number): Shel
 const count = (log: readonly GameEvent[], k: string): number => log.filter((e) => e.k === k).length;
 
 describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amendment 105)', () => {
-  it('mounts the flak module in slot 0: one round, 3.5 s reload (Eric 2026-10-02, amendment 232; was 4 s, amendment 210), 660 u range, the AR44 mask', () => {
+  it('mounts the flak module in slot 0: one round, 3.5 s reload (Eric 2026-10-02, amendment 232; was 4 s, amendment 210), its own Tier I range dial, the AR44 mask', () => {
     const w = bareWorld();
     const a = flakker(w, 'a');
     expect(a.loadout[SLOT_GUN].equipmentId).toBe('flak');
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: 1, reloadMsLeft: 0 });
     expect(a.stats.equipment.flak).toMatchObject({ maxAmmo: 1, reloadMs: 3500, damage: 12, burstRadius: 50, contactDamage: 4 });
-    expect(a.stats.equipment.flak.rangeU).toBe(a.stats.radarRange);
+    expect(a.stats.equipment.flak.rangeU).toBe(CONFIG.flak.rangeU); // its own dial, 5/12 (Story 9.8, ruling 125)
     expect(FLAK.hits).toEqual(['hull', 'mine', 'decoy', 'ordnance']);
   });
 
@@ -129,35 +129,39 @@ describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amen
 // EVERY DECK GUN FIRES INTO ITS OWN LIT-UP AREA (Eric ruling 2026-09-29,
 // amendment 114): R2.15's reach extension applies to the flak gun exactly as
 // to the cannon — own live zone over the far point = the clicked distance; an
-// ENEMY's flare, or none, clamps to the 660 u rung.
+// ENEMY's flare, or none, clamps to the gun's own reach (its Tier I dial since
+// Story 9.8, ruling 125).
 describe('the lit-zone reach — the flak gun fires into its own flare (amendment 114)', () => {
+  /** u — a click past the gun's Tier I reach (Story 9.8: derived, never a literal). */
+  const FAR = CONFIG.flak.rangeU + 140;
   function litClick(owner: string | null): { w: World; a: ShipRecord } {
     const w = bareWorld();
     const a = flakker(w, 'a');
     if (owner !== null) {
       w.litZones.set('z1', {
-        id: 'z1', ownerId: owner, x: 800, y: 0, r: 120, until: 10 * 60 * 1000,
+        id: 'z1', ownerId: owner, x: FAR, y: 0, r: 120, until: 10 * 60 * 1000,
       });
     }
-    w.submitInput('a', makeInput({ seq: 1, fireSeq: 1, aimDist: 800 }));
+    w.submitInput('a', makeInput({ seq: 1, fireSeq: 1, aimDist: FAR }));
     w.step();
     return { w, a };
   }
 
-  it('a click at 800 u into an OWN live lit zone lands the shell at 800 u', () => {
+  it('a click past reach into an OWN live lit zone lands the shell at the click', () => {
     const { w, a } = litClick('a');
-    expect(a.stats.equipment.flak.rangeU).toBe(660);
+    expect(a.stats.equipment.flak.rangeU).toBe(CONFIG.flak.rangeU);
+    expect(FAR).toBeGreaterThan(CONFIG.flak.rangeU);
     const shells = [...w.shells.values()];
     expect(shells).toHaveLength(1);
-    expect(shells[0].targetX).toBeCloseTo(800, 6);
+    expect(shells[0].targetX).toBeCloseTo(FAR, 6);
   });
 
-  it('the same click into an ENEMY zone, or with no zone, clamps to 660 u', () => {
+  it('the same click into an ENEMY zone, or with no zone, clamps to the gun reach', () => {
     for (const owner of ['b', null]) {
       const { w } = litClick(owner);
       const shells = [...w.shells.values()];
       expect(shells, `owner=${owner}`).toHaveLength(1);
-      expect(shells[0].targetX, `owner=${owner}`).toBeCloseTo(660, 6);
+      expect(shells[0].targetX, `owner=${owner}`).toBeCloseTo(CONFIG.flak.rangeU, 6);
     }
   });
 });

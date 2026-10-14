@@ -427,7 +427,7 @@ describe('perceivability (amendments 15/16) — still a contact, still a blip, n
   it('a sinking hull in the radar annulus still paints a blip when the beam crosses it', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 400, 0); // sight < 400 ≤ radar
+    const b = place(w, 'b', 700, 0); // sight < 700 ≤ dropout start < radar (Story 9.8: was 400, now inside sight)
     w.respawnEnabled = false;
     w.sinkShip('b', 'a');
     windowAround(a, 0); // beam over b's bearing this tick

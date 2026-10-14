@@ -18,7 +18,7 @@
 //      CLICK-FIRED into the rear placement arc, not an ability — holds station clicking
 //      drops astern while A loiters within detect range but outside trigger
 //      range. Asserts A never sees an enemy mine beyond DETECT range (Story
-//      4.9: the 3/8 rung, 0.75 × sight — the truesight bar is retired; no
+//      4.9: the detect rung — 4/12 = sight since Story 9.8 (detectFactor 1); no
 //      radar/fog leak), and that SIX laid mines are SIX LIVE mines at one
 //      moment — counted on A's OWN board, which a captain always sees in full
 //      at any range, so the no-eviction pin carries no geometry. Story 8.4
@@ -81,7 +81,7 @@ const NO_EVICTION_MINES = 6;
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
 const SIGHT = CONFIG.vision.sight;
-const DETECT = CONFIG.vision.detect; // Story 4.9: the mine/torpedo 3/8 detect rung (247.5u)
+const DETECT = CONFIG.vision.detect; // Story 4.9: the mine/torpedo detect rung (4/12 = sight since Story 9.8)
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -423,7 +423,7 @@ async function minePhase(a, b, log) {
   a.maxConcurrentOwn = 0;
   a.distinctOwn.clear();
   // A holds station dropping mines; B loiters within detect range (Story 4.9:
-  // the 120u trail sits well inside the 247.5u rung), outside trigger.
+  // the 120u trail sits well inside the detect rung), outside trigger.
   // B's loiter point TRAILS A (recomputed every tick): even at minimum
   // steerageway A drifts ~4.6 u/s, so a fixed point drops out of detect range
   // of the later drops and the concurrent count never reaches six.
@@ -473,8 +473,8 @@ async function ambushPhase(a, b, log) {
   log.push(`ambush: B.hp ${hp0}->${b.you?.hp} boom=${boomed}`);
   assert(boomed, 'no boom on mine detonation');
   // Every enemy mine B ever saw was first seen from within DETECT range
-  // (Story 4.9: the 3/8 rung — a first sighting in the 247.5–330u band would
-  // mean the old truesight gate leaked back in).
+  // (Story 4.9: the detect rung — 4/12 = sight since Story 9.8, so a first
+  // sighting beyond it would mean a radar/fog leak).
   for (const [id, d] of b.firstSeenDist) assert(d <= DETECT + 1, `mine ${id} first seen at ${d.toFixed(0)}u (> detect)`);
   log.push('ambush: all enemy mines first seen within detect range');
 }

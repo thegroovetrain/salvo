@@ -310,20 +310,25 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
   }
 
   const flat = (frames: GameEvent[][]): GameEvent[] => frames.flat();
+  /** u — a mine beyond sight on the shot line, and the click past it. */
+  const FAR_MINE = CONFIG.vision.sight + 100;
+  const FAR_AIM = CONFIG.vision.sight + 300;
 
   // -------------------------------------------------------------------------
   // AMENDMENT 20 — a shell in flight never touches a mine (Eric 2026-09-16)
   // -------------------------------------------------------------------------
 
   it('(a) an armed ENEMY mine squarely on the path, OUTSIDE sight: the shell flies on and bursts at the clicked point', () => {
-    // 400u is past both the 3/8 detect rung and the true-sight bubble, so the
-    // shooter has no sanctioned knowledge of this mine at all.
-    expect(CONFIG.vision.detect).toBeLessThan(400);
-    expect(CONFIG.vision.sight).toBeLessThan(400);
-    const shot = fireAndRecord(600, [['m1', 'x', 400, 0]]);
+    // FAR_MINE is past both the detect rung and the true-sight bubble, so the
+    // shooter has no sanctioned knowledge of this mine at all (placements off
+    // the live ladder since Story 9.8, amendment 103).
+    expect(CONFIG.vision.detect).toBeLessThan(FAR_MINE);
+    expect(CONFIG.vision.sight).toBeLessThan(FAR_MINE);
+    expect(FAR_AIM).toBeLessThanOrEqual(CONFIG.gun.rangeU); // an in-reach click
+    const shot = fireAndRecord(FAR_AIM, [['m1', 'x', FAR_MINE, 0]]);
     expect(shot.w.mines.has('m1')).toBe(true); // never detonated
     const burst = flat(shot.frames).find((e) => e.k === 'burst');
-    expect(burst).toMatchObject({ k: 'burst', x: 600, y: 0 }); // reached the aim point
+    expect(burst).toMatchObject({ k: 'burst', x: FAR_AIM, y: 0 }); // reached the aim point
   });
 
   it('(a) and the shooter\'s event stream is BYTE-IDENTICAL to the same shot over empty water', () => {
@@ -332,8 +337,8 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
     // to the shooter that anything might be there." Anything the mine changed
     // — an earlier boom, a missing burst, an `hc`, a moved `sp` — shows up
     // here as a diff.
-    const withMine = fireAndRecord(600, [['m1', 'x', 400, 0]]);
-    const cleanWater = fireAndRecord(600, []);
+    const withMine = fireAndRecord(FAR_AIM, [['m1', 'x', FAR_MINE, 0]]);
+    const cleanWater = fireAndRecord(FAR_AIM, []);
     expect(withMine.frames).toEqual(cleanWater.frames);
   });
 

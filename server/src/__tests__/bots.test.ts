@@ -248,7 +248,8 @@ describe('perception — exactly once per live bot, EVERY tick (the FIX-1 pin)',
 
   // THE RESONANCE REGRESSION (review-gate FIX 1) — fails on the wave-1
   // observe cadence, passes on per-tick perception. A stationary hull sits in
-  // the bot's radar annulus (500u: past truesight 330, inside radar 660) on
+  // the bot's radar annulus (sight + 200: past truesight, inside the radar
+  // dropout's flat band so every sweep paints — Story 9.8, amendment 103) on
   // open water; at the base 15 rpm the sweep paints its bearing once per 80
   // ticks, always on the same tick-phase (80 ≡ 0 mod 5). bot-1's hashed slot
   // is 2 and — measured before the fix — NO bearing's paint phase lands on
@@ -262,7 +263,7 @@ describe('perception — exactly once per live bot, EVERY tick (the FIX-1 pin)',
     w.map.islands.length = 0; // open water: LOS/shadow can never gate the paint
     const bot = w.addBot(undefined, undefined);
     expect(bot.id).toBe('bot-1');
-    const tx = 500;
+    const tx = CONFIG.vision.sight + 200;
     const ty = 0;
     const tgt = w.addShip('victim', 'TARGET', 'captain', 'battleship', undefined, { x: tx, y: ty });
     let measured = 0;

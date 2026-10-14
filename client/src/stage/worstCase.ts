@@ -255,9 +255,22 @@ export interface StageHarness {
   warmedUp(): boolean;
   /** Scene ticks pumped so far. */
   tick(): number;
-  /** Set the alive user-zoom factor (clamped [0.5, 1.5] by the camera) and
-   *  re-bake the fog for it, exactly as the live zoom path does. */
+  /** Set the alive user-zoom factor over the default framing (clamped by the
+   *  camera between the live ring fit and the close framing) and re-bake the
+   *  fog for it, exactly as the live zoom path does. Kept for the ratified
+   *  Story 4.8 readability capture, which drives factors. */
   setZoom(z: number): void;
+  /** Set the alive framing as an ABSOLUTE span — world units across the short
+   *  axis (Story 9.8 ruling 127) — over the staged live ring. */
+  setSpan(spanU: number): void;
+  /** The RING-FIT framing at MATCH START (Story 9.8 ruling 127): the staged
+   *  live ring is swapped for the full map disc (the ring every match opens
+   *  on) and the camera is zoomed fully out onto it — 2 × mapRadius × margin
+   *  across the short axis, centred by the slide on the map centre. Any other
+   *  framing call restores the staged ring. */
+  setRingFit(): void;
+  /** The alive user span (u across the short axis) — defaultSpanU / userZoom. */
+  span(): number;
   /** The alive USER zoom factor. Unchanged for Story 4.8's readability gate,
    *  which records it beside its requested value. */
   zoom(): number;
@@ -319,12 +332,17 @@ export interface StagedGameHandle {
   camera: {
     setUserZoom(f: number): void;
     readonly userZoom: number;
+    readonly userSpanU: number;
+    /** Feed the live ring (the per-frame path does this from the zone view;
+     *  the ring-fit framing does it once up front so the limit is open before
+     *  the first clamp). */
+    setRing(cx: number, cy: number, r: number): boolean;
     readonly zoom: number;
     snapTo(p: { x: number; y: number }): void;
     worldToScreen(p: { x: number; y: number }): { x: number; y: number };
     /** Story 5.3's reveal framing, driven here by `setReveal()`. The camera
-     *  computes the factor from its OWN live radarRange, so this shell never
-     *  re-derives a framing number. */
+     *  computes the absolute whole-map span itself (ruling 127), so this shell
+     *  never re-derives a framing number. */
     beginReveal(mapRadius: number, margin: number, rate: number): void;
     /** Advances the reveal easing; a motionScale of 0 ARRIVES on the spot,
      *  which is the only cadence a measurement window can use. */
@@ -730,13 +748,13 @@ function stageConnection(
 
 /**
  * Enter or leave the OMNISCIENT REVEAL framing (Story 5.3) — the whole-ocean
- * pull-back, and the frame budget's known-worst never-measured case: at ~0.275x
- * every island coastline and every contour band on the disc is on screen at once.
+ * pull-back, and the frame budget's known-worst never-measured case: the whole
+ * disc is on screen, so every island coastline and contour band is at once.
  *
  * Driven through the camera's OWN reveal path rather than a second zoom rule
- * invented here. `beginReveal` derives the factor from the camera's live
- * radarRange and the map radius (epic-5 amendment 25 exempts the mode from the
- * 0.5x spectate clamp, which is what lets it reach that framing at all), and
+ * invented here. `beginReveal` frames 2 × mapRadius × margin across the short
+ * axis (ruling 127; epic-5 amendment 25 exempts the mode from the spectate
+ * clamp, which is what lets it reach that framing at all), and
  * `tickZoom` at motion scale 0 is the shipped `motion: off` branch — so the
  * framing ARRIVES on this call. That is deliberate for measurement: a window
  * opened while the zoom was still travelling would average frames drawn at
@@ -805,6 +823,47 @@ function bracketTicker(stage: Stage, game: StagedGameHandle, pump: ScenePump, st
 }
 
 /**
+ * THE ALIVE FRAMINGS the capture drives (Story 9.8, ruling 127). The camera's
+ * zoom-out limit is the LIVE ring, which the staged scene publishes every tick
+ * from `world.ring.cur`, so the ring-fit framing swaps that ring for the full
+ * map disc (the ring every match opens on) and every other framing restores the
+ * staged one. The ring is fed to the camera immediately as well, so the limit is
+ * open before the user zoom is clamped against it.
+ */
+function framingControls(
+  game: StagedGameHandle,
+  world: SceneWorld,
+  state: Record<string, unknown>,
+  rebakeFog: () => void,
+): { setFactor: (z: number) => void; setRingFit: () => void; restoreRing: () => void } {
+  const stagedRing = world.ring.cur;
+  const publishRing = (ring: typeof stagedRing): void => {
+    world.ring.cur = ring;
+    Object.assign(state, { zoneCurCx: ring.cx, zoneCurCy: ring.cy, zoneCurR: ring.r });
+    game.camera.setRing(ring.cx, ring.cy, ring.r);
+  };
+  return {
+    setFactor: (z) => {
+      // Leave the reveal framing first. The two zooms COMPOSE
+      // (`baseZoom x zoomFactor x userZoom`), so setting a user zoom while the
+      // reveal owns the factor silently measures a third framing that is
+      // neither — and `zoom()` would report only the user half of it.
+      applyReveal(game, world, false);
+      publishRing(stagedRing);
+      game.camera.setUserZoom(z);
+      rebakeFog();
+    },
+    setRingFit: () => {
+      applyReveal(game, world, false);
+      publishRing({ cx: 0, cy: 0, r: world.mapRadius });
+      game.camera.setUserZoom(0); // any factor under the limit lands ON the limit
+      rebakeFog();
+    },
+    restoreRing: () => publishRing(stagedRing),
+  };
+}
+
+/**
  * Build and start the staged worst-case scene. Returns the harness the headless
  * capture script drives; it is also published on `window.__hcStage`.
  */
@@ -831,6 +890,8 @@ export function runWorstCaseScene(deps: StageDeps): StageHarness {
   const rebakeFog = (): void =>
     game.fog.rebake(deps.stage.app.screen.width, deps.stage.app.screen.height, game.camera.zoom);
 
+  const { setFactor, setRingFit, restoreRing } = framingControls(game, world, state, rebakeFog);
+
   const harness: StageHarness = {
     marker: STAGE_MARKER,
     seed: STAGE_SEED,
@@ -839,15 +900,10 @@ export function runWorstCaseScene(deps: StageDeps): StageHarness {
     ready: whenSettled(() => pump.tick >= WARMUP_TICKS),
     warmedUp: () => pump.tick >= WARMUP_TICKS,
     tick: () => pump.tick,
-    setZoom: (z) => {
-      // Leave the reveal framing first. The two zooms COMPOSE
-      // (`baseZoom x zoomFactor x userZoom`), so setting a user zoom while the
-      // reveal owns the factor silently measures a third framing that is
-      // neither — and `zoom()` would report only the user half of it.
-      applyReveal(game, world, false);
-      game.camera.setUserZoom(z);
-      rebakeFog();
-    },
+    setZoom: setFactor,
+    setSpan: (spanU) => setFactor(CLIENT_CONFIG.zoom.defaultSpanU / spanU),
+    setRingFit,
+    span: () => game.camera.userSpanU,
     zoom: () => game.camera.userZoom,
     composedZoom: () => game.camera.zoom,
     clusterScreen: () => game.camera.worldToScreen(clusterCentre(world, pump.tick)),
@@ -863,6 +919,7 @@ export function runWorstCaseScene(deps: StageDeps): StageHarness {
     // The fog's baked sight hole is sized in SCREEN pixels, so it re-bakes on a
     // reveal exactly as it does on a wheel zoom.
     setReveal: (on) => {
+      restoreRing();
       applyReveal(game, world, on);
       rebakeFog();
     },

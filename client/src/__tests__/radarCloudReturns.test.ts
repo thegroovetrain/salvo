@@ -171,7 +171,11 @@ describe('the radar rules apply to the cloud as to every return', () => {
     const cloud = sector(0.9, 150, 300, 0, 2 * Math.PI);
     const { radar } = radarWith(source(cloud));
     play(radar, T0, T0 + PERIOD, null);
-    for (const c of cellCentres()) expect(radar.intensityAt(c.x, c.y)).toBe(0);
+    // One assertion over the whole window rather than one per cell: the twelfths
+    // rim (epic-9 amendment 103) made the window ~5x the cells, and 115k
+    // per-cell `expect` calls alone outran the 5 s test timeout.
+    const stamped = cellCentres().filter((c) => radar.intensityAt(c.x, c.y) !== 0);
+    expect(stamped).toEqual([]);
   });
 
   it('after the beam passes, the stamped heat decays on the grid\'s own phosphor rule (monotone, never re-lit until the next sweep)', () => {

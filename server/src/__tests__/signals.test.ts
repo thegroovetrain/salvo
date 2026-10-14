@@ -53,6 +53,8 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
     litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, decoys: w.decoys, clouds: w.cloudRecords, me, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
+    dropoutSeed: w.dropoutSeed, // Story 9.8 (rulings 121–123): the radar dropout roll's seed
+    wakeKeyOf: (r) => w.wakeKeyOf(r),
   };
 }
 
@@ -63,6 +65,8 @@ function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
     litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, decoys: w.decoys, clouds: w.cloudRecords, me: undefined, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
+    dropoutSeed: w.dropoutSeed, // Story 9.8 (rulings 121–123): the radar dropout roll's seed
+    wakeKeyOf: (r) => w.wakeKeyOf(r),
   };
 }
 
@@ -180,7 +184,11 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
   it('blip row: [k,t,gx,gy,w,h,bits] — the identity-free coverage footprint (cycle 63)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', RADAR, 0, 1.2); // beyond sight, at the radar boundary, bearing 0
+    // Beyond sight, at the far edge of the radar DROPOUT's flat band (Story 9.8,
+    // ruling 121: p(paint) = 1 out to `dropout.startU`, inclusive), bearing 0 —
+    // a paint this test can rely on; the rim itself now paints only sometimes.
+    const B_X = CONFIG.vision.dropout.startU;
+    const b = place(w, 'b', B_X, 0, 1.2);
     b.state.speed = -4; // speed never rides the wire — the mask is pose geometry only
     a.prevSweepAngle = wrapPositive(-0.02);
     a.sweepAngle = wrapPositive(0.02); // beam just crossed bearing 0 this tick
@@ -189,7 +197,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(row.visible(ctx, b)).toBe(true);
     const wire = row.materialize(ctx, b);
     expect(Object.keys(wire as object)).toEqual(['k', 't', 'gx', 'gy', 'w', 'h', 'bits']);
-    const c = paintCoverage('torpedoBoat', RADAR, 0, 1.2, CONFIG.vision.radarCellU, w.now);
+    const c = paintCoverage('torpedoBoat', B_X, 0, 1.2, CONFIG.vision.radarCellU, w.now);
     expect(wire).toEqual({ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
   });
 
@@ -251,9 +259,10 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const me = place(w, 'a', 0, 0);
     me.prevSweepAngle = wrapPositive(-0.02);
     me.sweepAngle = wrapPositive(0.02); // beam just crossed bearing 0 this tick
-    // A 12u segment at 500u dead ahead — inside the annulus, on the swept
-    // bearing, open flat water (bareWorld flattens the raster).
-    const seg = { x: 500, y: 0, ax: 494, ay: 0, bx: 506, by: 0, bucket: 2, widthU: 9, torp: false };
+    // A 12u segment at 700u dead ahead — inside the annulus (sight 500 on the
+    // twelfths ladder, amendment 103) and inside the dropout's flat band, on
+    // the swept bearing, open flat water (bareWorld flattens the raster).
+    const seg = { x: 700, y: 0, ax: 694, ay: 0, bx: 706, by: 0, bucket: 2, widthU: 9, torp: false, key: 'src' };
     const row = signalFor('wk')!;
     const ctx = foggedCtx(w, me);
     expect(row.visible(ctx, seg)).toBe(true);
@@ -477,7 +486,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const b = place(w, 'b', 850, 50); // sits right next to the splash — still never told
-    const e: SplashEvent = { k: 'sp', id: 'a', x: 900, y: 0 }; // far beyond a's 330u sight
+    const e: SplashEvent = { k: 'sp', id: 'a', x: 900, y: 0 }; // far beyond a's sight (4/12 — amendment 103)
     const row = signalFor('sp')!;
     expect(row.visible(foggedCtx(w, a), e)).toBe(true); // the shooter, through any fog
     expect(row.visible(foggedCtx(w, b), e)).toBe(false); // self-private — proximity is irrelevant
@@ -534,7 +543,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
 
   it('mz row (Story 4.3): [k,x,y] with NO id for ANY observer — fogged, shooter, and spectator alike', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 300); // 300u from the flash — unambiguously inside the 412.5u halo (Story 4.9: a 400u placement would sit 12.5u under it)
+    const a = place(w, 'a', 0, 300); // 300u from the flash — unambiguously inside the muzzle-flash halo (the 6/12 rung since Story 9.8, amendment 103)
     const e: MuzzleEvent = { k: 'mz', x: 0, y: 0 };
     const row = signalFor('mz')!;
     const ctx = foggedCtx(w, a);
@@ -547,7 +556,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(Object.keys(row.materialize(spec, e) as object)).toEqual(['k', 'x', 'y']);
   });
 
-  it('mz row visibility: the CONSTANT SIGHT*1.25 halo (Story 4.9 — boundary inclusive), island LOS applies, a shrunken sight does NOT shrink it', () => {
+  it('mz row visibility: the CONSTANT muzzle-flash halo (the 6/12 rung, Story 9.8 — boundary inclusive), island LOS applies, a shrunken sight does NOT shrink it', () => {
     const w = bareWorld();
     const at = place(w, 'at', CONFIG.vision.muzzleFlash, 0); // exactly at the halo — inclusive
     const past = place(w, 'past', CONFIG.vision.muzzleFlash + 0.01, 0); // a hair beyond
@@ -559,7 +568,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     // flash is a light source, not an illuminated object (deliberate sightOf
     // bypass). Written onto the record's stats — the FLASH SHELLS dazzle that
     // once did this left in Story 9.4; the bypass is the contract.
-    at.stats = { ...at.stats, sightRange: at.stats.radarRange / 8 };
+    at.stats = { ...at.stats, sightRange: at.stats.radarRange / 12 };
     expect(row.visible(foggedCtx(w, at), e)).toBe(true);
     // Island LOS blocks the flash exactly like every other sensor
     // (Eric ruling 2026-08-02).
@@ -613,11 +622,11 @@ describe('SIGNAL_REGISTRY — sm row (Story 4.4: wounded smoke, the fifth declar
 
   it('island LOS blocks the plume exactly like every other sensor; a shrunken sight does NOT shrink the halo', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 300, 0); // unambiguously inside the 412.5u halo (Story 4.9)
+    const a = place(w, 'a', 300, 0); // unambiguously inside the muzzle-flash halo (the 6/12 rung)
     const e: SmokeEvent = { k: 'sm', x: 0, y: 0, tier: 1 };
     // A sight reduction shrinks the observer's SIGHT, never the smoke halo
     // (the mz rule: the halo is the raw constant, deliberately not sightOf).
-    a.stats = { ...a.stats, sightRange: a.stats.radarRange / 8 };
+    a.stats = { ...a.stats, sightRange: a.stats.radarRange / 12 };
     expect(row.visible(foggedCtx(w, a), e)).toBe(true);
     w.map.islands.push(circleIsland(200, 0, 40)); // on the segment
     expect(row.visible(foggedCtx(w, a), e)).toBe(false);
@@ -626,7 +635,7 @@ describe('SIGNAL_REGISTRY — sm row (Story 4.4: wounded smoke, the fifth declar
   it('an OWNED lit zone over the puff does NOT extend the halo (no ownZoneCovers term, the mz rule)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    injectZone(w, 'z1', 'a', 900, 0); // a's own zone, far beyond the 412.5u halo
+    injectZone(w, 'z1', 'a', 900, 0); // a's own zone, far beyond the muzzle-flash halo (6/12)
     const e: SmokeEvent = { k: 'sm', x: 900, y: 0, tier: 2 }; // puff dead-center in a's zone
     expect(row.visible(foggedCtx(w, a), e)).toBe(false);
   });
@@ -708,7 +717,7 @@ describe('SIGNAL_REGISTRY — litzone row visibility (owner always, else radar-g
 // ---------- owned-zone parity on the point-gated event rows (Story 1.7) ------
 
 describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into an OWNED zone', () => {
-  /** Observer `a` owning a zone at (900,0) — far beyond its 220u sight. */
+  /** Observer `a` owning a zone at (900,0) — far beyond its sight. */
   function zoneWorld(): { w: World; a: ShipRecord } {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
@@ -784,7 +793,7 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
   });
 
   it('mz: an OWNED zone over the flash point does NOT extend the halo (Story 4.3 — deliberate absence: a flare does not help you see a distant flash)', () => {
-    const { w, a } = zoneWorld(); // a owns a zone at (900,0), far beyond the 412.5u halo
+    const { w, a } = zoneWorld(); // a owns a zone at (900,0), far beyond the muzzle-flash halo (6/12)
     const e: MuzzleEvent = { k: 'mz', x: 900, y: 0 }; // flash dead-center in a's own zone
     expect(signalFor('mz')!.visible(foggedCtx(w, a), e)).toBe(false); // no ownZoneCovers term, by ruling
   });
@@ -792,12 +801,12 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
   it('blip: a zone-covered annulus ship fails the blip row even when swept (already a full contact)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 400, 0); // radar annulus, bearing 0
+    const b = place(w, 'b', 700, 0); // radar annulus (amendment 103: sight 500), inside the dropout's flat band, bearing 0
     a.prevSweepAngle = wrapPositive(-0.02);
     a.sweepAngle = wrapPositive(0.02); // beam crossing bearing 0 this tick
     const row = signalFor('blip')!;
     expect(row.visible(foggedCtx(w, a), b)).toBe(true); // sanity: paints without a zone
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 700, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
     expect(row.visible(foggedCtx(w, a), b)).toBe(false); // contact tier now — never a blip
   });
 });
@@ -1050,12 +1059,15 @@ describe('SIGNAL_REGISTRY — ballisticGateOpen is THE reveal gate (Story 8.13, 
       ['z', 600, 0], ['z', 610, 0], ['z', 200, 0], ['z', 200, 40], ['z', -200, 0], ['z', 0, 0],
     ];
     let checked = 0;
-    for (const [ownerId, x, y] of probes) {
+    for (const [i, [ownerId, x, y]] of probes.entries()) {
       for (const kind of ['shell', 'torp'] as const) {
-        const id = `${kind}-${x}-${y}-${ownerId}`;
+        // The probe INDEX keys the id: DETECT and SIGHT are one rung since Story
+        // 9.1, so two probes may share a position, and a shared id would carry
+        // the first probe's mark into the second (the row reads it, the gate not).
+        const id = `${kind}-${i}-${x}-${y}-${ownerId}`;
         const shell = makeShell({ id, ownerId, kind, x, y });
         const gate = ballisticGateOpen(ctx, shell);
-        expect(signalFor(kind)!.visible(ctx, shell)).toBe(gate); // unmarked: the row IS the gate
+        expect(signalFor(kind)!.visible(ctx, shell), id).toBe(gate); // unmarked: the row IS the gate
         a.seenBallistics.add(id);
         expect(signalFor(kind)!.visible(ctx, shell)).toBe(false); // marked: silent whatever the gate says
         if (kind === 'torp') {
@@ -1080,7 +1092,7 @@ describe('SIGNAL_REGISTRY — ballisticGateOpen is THE reveal gate (Story 8.13, 
     expect(a.torpDirs.has('t1')).toBe(true);
     expect(torps()).toEqual([]); // inside, marked: silent, mark kept
     expect(a.seenBallistics.has('t1')).toBe(true);
-    torp.x = 340; // past sight (= detect since 2026-10-08): outside the torp gate
+    torp.x = SIGHT + 40; // past sight (= detect since 2026-10-08): outside the torp gate
     expect(torps()).toEqual([]);
     expect(a.seenBallistics.has('t1')).toBe(false); // the clear step ran
     expect(a.torpDirs.has('t1')).toBe(false); // ...and took the homing baseline with it
@@ -1140,17 +1152,19 @@ describe('SIGNAL_REGISTRY — the DETECT gate (Story 4.9, amendments 119/121): m
     }
   });
 
-  it('detect is the OBSERVER\'S OWN scaled sight (amendment 121): a sight collapsed to radarRange / 8 collapses it on all three rows', () => {
+  it('detect is the OBSERVER\'S OWN scaled sight (amendment 121): a sight collapsed to one rung (radarRange / 12) collapses it on all three rows', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    // Sight written to radarRange / 8 = 82.5 (the FLASH SHELLS dazzle's old
-    // collapse, now a plain stats write — Story 9.4 retired the mark), and
-    // detect is 1 × that since the 4/8 rung (2026-10-08; it was 0.75 × 82.5).
-    a.stats = { ...a.stats, sightRange: a.stats.radarRange / 8 };
-    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 120, y: 0 }))).toBe(false);
-    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 82.5, y: 0 }))).toBe(true);
-    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 82.6, y: 0 }))).toBe(false);
-    expect(signalFor('torp')!.visible(foggedCtx(w, a), makeShell({ id: 'tz', ownerId: 'z', kind: 'torp', x: 120, y: 0 }))).toBe(false);
+    // Sight written to ONE RUNG of the twelfths ruler, radarRange / 12 (Story
+    // 9.8, amendment 103 — the FLASH SHELLS dazzle's old collapse, now a plain
+    // stats write; Story 9.4 retired the mark), and detect is 1 × that since
+    // the 4/8 rung (2026-10-08) — 4/12 on the twelfths.
+    const rung = a.stats.radarRange / 12;
+    a.stats = { ...a.stats, sightRange: rung };
+    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 2 * rung, y: 0 }))).toBe(false);
+    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: rung, y: 0 }))).toBe(true);
+    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: rung + 0.1, y: 0 }))).toBe(false);
+    expect(signalFor('torp')!.visible(foggedCtx(w, a), makeShell({ id: 'tz', ownerId: 'z', kind: 'torp', x: 2 * rung, y: 0 }))).toBe(false);
   });
 
   // RETIRED (Story 7-5 wave 2): "the decoy row does NOT ride detect". The row

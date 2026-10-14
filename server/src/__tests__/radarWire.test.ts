@@ -60,13 +60,17 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
   const CELL = CONFIG.vision.radarCellU;
   const RETURN_KEYS = ['k', 't', 'gx', 'gy', 'w', 'h', 'bits'] as const satisfies readonly (keyof BlipEvent)[];
   const FORBIDDEN = ['id', 'x', 'y', 'ext', 'cls', 'heading', 'speed'];
+  // Annulus placements sit 700-750 u out: past sight and inside the radar
+  // dropout's flat band, so every swept paint lands (Story 9.8, amendment
+  // 103 and ruling 121 — they were 400-450 u, which the twelfths ladder put
+  // inside sight).
 
   it('a frame carries EXACTLY {k,t,gx,gy,w,h,bits} on every blip — no id, no position, no ext, no pose (amendment 152)', () => {
     const w = bareWorld(52);
     const a = place(w, 'a', 0, 0);
-    place(w, 'bb', 400, 0, 0.9, 'battleship');
-    place(w, 'tb', 0, 420, 2.1, 'torpedoBoat');
-    place(w, 'ml', -450, 0, -0.4, 'mineLayer');
+    place(w, 'bb', 700, 0, 0.9, 'battleship');
+    place(w, 'tb', 0, 720, 2.1, 'torpedoBoat');
+    place(w, 'ml', -750, 0, -0.4, 'mineLayer');
     a.prevSweepAngle = 0; // one window sweeping the full circle minus ε
     a.sweepAngle = wrapPositive(-1e-9);
     const blips = blipsOf(buildFrame(w, 'a'));
@@ -76,9 +80,9 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     // is `paintCoverage`, never the sharp rasterization) — matched exactly
     // once each, since the wire does not say which is which.
     const expected = [
-      paintCoverage('battleship', 400, 0, 0.9, CELL, w.now),
-      paintCoverage('torpedoBoat', 0, 420, 2.1, CELL, w.now),
-      paintCoverage('mineLayer', -450, 0, -0.4, CELL, w.now),
+      paintCoverage('battleship', 700, 0, 0.9, CELL, w.now),
+      paintCoverage('torpedoBoat', 0, 720, 2.1, CELL, w.now),
+      paintCoverage('mineLayer', -750, 0, -0.4, CELL, w.now),
     ];
     for (const ev of blips) {
       // Assert on the object's KEYS, order included (msgpack wire shape) — and
@@ -98,14 +102,14 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     const w = bareWorld(53);
     const a1 = place(w, 'a1', 0, 0);
     const a2 = place(w, 'a2', 120, -260);
-    const b = place(w, 'b', 400, 0, 1.1, 'battleship');
+    const b = place(w, 'b', 700, 0, 1.1, 'battleship');
     windowAround(a1, Math.atan2(b.state.y - a1.state.y, b.state.x - a1.state.x));
     windowAround(a2, Math.atan2(b.state.y - a2.state.y, b.state.x - a2.state.x));
     const seen1 = blipsOf(buildFrame(w, 'a1'));
     const seen2 = blipsOf(buildFrame(w, 'a2'));
     // Compare the footprint that matches b's true raster, which must appear
     // for BOTH observers, byte-identical — moving the observer moves nothing.
-    const truth = JSON.stringify(paintCoverage('battleship', 400, 0, 1.1, CELL, w.now));
+    const truth = JSON.stringify(paintCoverage('battleship', 700, 0, 1.1, CELL, w.now));
     const of1 = seen1.filter((e) => JSON.stringify(maskOf(e)) === truth);
     const of2 = seen2.filter((e) => JSON.stringify(maskOf(e)) === truth);
     expect(of1).toHaveLength(1);
@@ -115,7 +119,7 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
   it('a bow-on hull and a broadside hull of the same class produce DIFFERENT rects — the footprint points the way the hull does', () => {
     const w = bareWorld(54);
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 400, 0, 0, 'battleship'); // heading +x: long axis in x
+    const b = place(w, 'b', 700, 0, 0, 'battleship'); // heading +x: long axis in x
     windowAround(a, 0);
     const bowOn = blipsOf(buildFrame(w, 'a'))[0];
     b.state.heading = Math.PI / 2; // long axis in y
@@ -137,7 +141,7 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
   it('ANTI-CHEAT (fail-proven): the footprint is UNCHANGED by granting boons or changing hp/damage state', () => {
     const w = bareWorld(55);
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 400, 0, 0.9, 'battleship');
+    const b = place(w, 'b', 700, 0, 0.9, 'battleship');
     windowAround(a, 0);
     const before = blipsOf(buildFrame(w, 'a'))[0];
     // Wound the target deep into the tier-2 smoke band AND grant it boons —
@@ -160,8 +164,8 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
   it('the gate: an annulus ship paints only when swept, a sighted ship is a contact and never a blip', () => {
     const w = bareWorld(56);
     const a = place(w, 'a', 0, 0);
-    place(w, 'in', 400, 0, 0.3); // annulus, swept — paints
-    place(w, 'out', 0, -400, 0.3); // annulus, unswept — silent
+    place(w, 'in', 700, 0, 0.3); // annulus, swept — paints
+    place(w, 'out', 0, -700, 0.3); // annulus, unswept — silent
     place(w, 'near', 100, 0, 0.3); // inside sight — contact, never a blip
     windowAround(a, 0);
     const f = buildFrame(w, 'a');
@@ -169,10 +173,10 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     expect(blips).toHaveLength(1);
     expect(f.contacts.map((c) => c.id)).toEqual(['near']);
     // The one footprint is the swept ship's, and neither hidden ship leaks:
-    // the mask lights the cell containing (400, 0) and equals that hull's raster.
+    // the mask lights the cell containing (700, 0) and equals that hull's raster.
     const cellOfU = (v: number): number => Math.floor(v / CELL);
-    expect(coverageHas(maskOf(blips[0]), cellOfU(400) - blips[0].gx, cellOfU(0) - blips[0].gy)).toBe(true);
-    expect(maskOf(blips[0])).toEqual(paintCoverage('torpedoBoat', 400, 0, 0.3, CELL, blips[0].t));
+    expect(coverageHas(maskOf(blips[0]), cellOfU(700) - blips[0].gx, cellOfU(0) - blips[0].gy)).toBe(true);
+    expect(maskOf(blips[0])).toEqual(paintCoverage('torpedoBoat', 700, 0, 0.3, CELL, blips[0].t));
   });
 });
 
@@ -182,7 +186,7 @@ describe('pseudonym track ids — the server-private per-match stream survives t
   it('a track id is never a roster id, is stable for the match, and never rides any wire (the blip carries no id at all)', () => {
     const w = bareWorld(57);
     const a = place(w, 'a', 0, 0);
-    place(w, 'b', 400, 0, 0.7);
+    place(w, 'b', 700, 0, 0.7);
     const track = w.pseudonymFor('b');
     expect(w.ships.has(track)).toBe(false); // never a roster id
     expect(track).toMatch(/^trk-/);

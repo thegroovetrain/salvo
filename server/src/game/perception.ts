@@ -100,6 +100,11 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     pseudonymOf: (id: string) => world.pseudonymFor(id),
     // Story 5.6 (amendment 40): the self-private aggro mark's ONE input.
     aggroAt: (fleetShipId: string, observerId: string) => world.drones.isTargeting(fleetShipId, observerId),
+    // Story 9.8 (rulings 121–123): the radar dropout roll's server-private
+    // seed and the wake ribbons' source keys. The observer key is `me.id`
+    // and the revolution is `me.sweepRev` — both already on the record.
+    dropoutSeed: world.dropoutSeed,
+    wakeKeyOf: (r) => world.wakeKeyOf(r),
   };
 }
 
@@ -134,6 +139,10 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     // the aggro mark for `mode: 'spectator'` before it ever asks. It rides
     // uniformly so the context stays one shape (the narrow-context posture).
     aggroAt: (fleetShipId: string, observerId: string) => world.drones.isTargeting(fleetShipId, observerId),
+    // Story 9.8: INERT on this path (spectators have no radar, so nothing
+    // rolls) — rides uniformly so the context stays one shape.
+    dropoutSeed: world.dropoutSeed,
+    wakeKeyOf: (r) => world.wakeKeyOf(r),
   };
 }
 
@@ -230,7 +239,7 @@ function forgetIfExited(ctx: SignalContext, shell: ShellState): void {
 
 /** Per-observer HOMING-track updates (Story 2.8): every live steering torpedo
  *  is offered to the torpU row (already-revealed + currently-DETECTED — the
- *  3/8 rung since Story 4.9, not the truesight bubble — + direction drift ≥
+ *  detect rung since Story 4.9 — 4/12 = sight since Story 9.8 — + direction drift ≥
  *  threshold; the row owns the rules); an emission advances
  *  this observer's direction baseline HERE (the seenBallistics mark precedent
  *  — materialize stays a pure wire-shaper). The 'exactly-once' ballistic
@@ -329,7 +338,7 @@ function cloudScan(world: World, ctx: SignalContext): CloudView[] {
 /** Reused wake-subject scratch for the wake scan (the SEG_SCRATCH pattern):
  *  filled per segment, consumed synchronously by the row's visible()/
  *  materialize() — the materialized wire object is always fresh. */
-const WAKE_SUBJECT: WakeSubject = { x: 0, y: 0, ax: 0, ay: 0, bx: 0, by: 0, bucket: 0, widthU: 0, torp: false };
+const WAKE_SUBJECT: WakeSubject = { x: 0, y: 0, ax: 0, ay: 0, bx: 0, by: 0, bucket: 0, widthU: 0, torp: false, key: '' };
 
 /**
  * Per-observer wake disclosure (Story 4.12): every live ribbon — a ship's
@@ -351,6 +360,7 @@ function wakeScan(ctx: SignalContext): WakeBlipEvent[] {
   const row = SIGNAL_REGISTRY.wk;
   for (const ribbon of ctx.wakes) {
     if (!sweepMayCrossWake(ctx.me, ribbon)) continue;
+    const key = ctx.wakeKeyOf(ribbon); // the dropout roll's target key (Story 9.8)
     eachWakeSegment(ribbon, ctx.now, (seg) => {
       const s = WAKE_SUBJECT;
       s.x = seg.mx;
@@ -362,6 +372,7 @@ function wakeScan(ctx: SignalContext): WakeBlipEvent[] {
       s.bucket = seg.bucket;
       s.widthU = ribbon.widthU;
       s.torp = ribbon.torp; // the per-source inner bound (review-gate P2)
+      s.key = key;
       if (row.visible(ctx, s)) out.push(row.materialize(ctx, s));
     });
   }

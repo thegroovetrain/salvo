@@ -66,11 +66,13 @@ const RADAR = CONFIG.vision.radar;
 const NARROW = SIGHT * 0.375;
 const FLOOR = CLIENT_CONFIG.blip.heatmap.dim.minScale;
 
-describe('the dim ramp is anchored to TRUESIGHT, on the eighths ladder', () => {
-  it('puts the two radii on the 4/8 and 5/8 rungs for a base hull', () => {
-    expect(BASE_DIM_RADII.innerU, 'inner = the sight bubble (4/8)').toBeCloseTo(SIGHT, 12);
-    expect(BASE_DIM_RADII.innerU, '...which is 4/8 of intel range').toBeCloseTo(RADAR / 2, 12);
-    expect(BASE_DIM_RADII.outerU, 'outer = the next rung out (5/8)').toBeCloseTo((RADAR * 5) / 8, 12);
+describe('the dim ramp is anchored to TRUESIGHT, on the twelfths ladder', () => {
+  // Epic-9 amendment 103: the sensor ladder is TWELFTHS of intel range now
+  // (sight = 4/12, flash = 6/12). The ramp still runs sight bubble -> flash halo.
+  it('puts the two radii on the 4/12 and 6/12 rungs for a base hull', () => {
+    expect(BASE_DIM_RADII.innerU, 'inner = the sight bubble (4/12)').toBeCloseTo(SIGHT, 12);
+    expect(BASE_DIM_RADII.innerU, '...which is 4/12 of intel range').toBeCloseTo((RADAR * 4) / 12, 12);
+    expect(BASE_DIM_RADII.outerU, 'outer = the flash rung (6/12)').toBeCloseTo((RADAR * 6) / 12, 12);
     expect(BASE_DIM_RADII.outerU, '...which is the muzzle-flash halo')
       .toBeCloseTo(CONFIG.vision.muzzleFlash, 12);
   });
@@ -80,17 +82,20 @@ describe('the dim ramp is anchored to TRUESIGHT, on the eighths ladder', () => {
     for (const d of [0, 1, SIGHT / 8, SIGHT / 2, SIGHT * 0.9, SIGHT]) {
       expect(dimScaleAt(d, SIGHT), `at ${d}u`).toBeCloseTo(FLOOR, 12);
     }
-    // The shipped ramp reached full at 5/8 of INTEL range from 1/8 of it, so at
-    // the bubble's edge it stood (330 − 82.5) / (412.5 − 82.5) = three quarters
-    // of the way up: 80% opacity at the very edge of the water the player aims
-    // at by eye, and 40% halfway out.
+    // The shipped ramp (amendment 181, on the old EIGHTHS ladder where intel
+    // range was 2x sight) reached full at 5/8 of intel range from 1/8 of it —
+    // i.e. sight/4 -> sight*5/4 — so at the bubble's edge it stood three
+    // quarters of the way up: 80% opacity at the very edge of the water the
+    // player aims at by eye, and 40% halfway out. Expressed in sight units so
+    // the historical defect stays reproducible after amendment 103.
+    const oldIntel = SIGHT * 2;
     const shipped = (d: number): number =>
-      FLOOR + (1 - FLOOR) * ((d - RADAR / 8) / ((RADAR * 5) / 8 - RADAR / 8));
+      FLOOR + (1 - FLOOR) * ((d - oldIntel / 8) / ((oldIntel * 5) / 8 - oldIntel / 8));
     expect(shipped(SIGHT), 'the behaviour this cycle removes').toBeCloseTo(0.8, 12);
     expect(shipped(SIGHT / 2), '...halfway out, too').toBeCloseTo(0.4, 12);
   });
 
-  it('reaches FULL painted opacity at the 5/8 rung and stays there — radar is '
+  it('reaches FULL painted opacity at the 6/12 rung and stays there — radar is '
     + 'never muted where it is the only sensor', () => {
     expect(dimScaleAt(BASE_DIM_RADII.outerU, SIGHT)).toBeCloseTo(1, 12);
     for (const d of [CONFIG.vision.farRadar, RADAR, RADAR * 4, 1e9]) {

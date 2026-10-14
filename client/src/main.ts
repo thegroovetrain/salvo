@@ -49,7 +49,7 @@ import { CLIENT_CONFIG } from './config.js';
 import { createGameState, type GameState } from './state.js';
 import { applyCamera, createStage, type Stage } from './render/stage.js';
 import { buildMap, type MapChart } from './render/map.js';
-import { Camera, canUserZoom, type Point } from './render/camera.js';
+import { Camera, canUserZoom, stepZoom, type Point } from './render/camera.js';
 import { ShipView, FALLBACK_STYLE, PLAYER_HUES, contactStyle, hullStyle, hueRevision, isDroneHull, setColorblindAssist, setHullFlashGate } from './render/ships.js';
 import { ContactViews, NO_SOFTENING, type HullSoftness, type PlateFrame } from './render/contacts.js';
 import { setAggroFlashGate } from './render/aggro.js';
@@ -71,7 +71,7 @@ import { Countermeasure } from './render/countermeasure.js';
 import { hazeHaloU } from './render/hazeHalo.js';
 import { Fire } from './render/fire.js';
 import { Foghorn } from './render/foghorn.js';
-import { Fog, hullSightSoftness, type FogHole } from './render/fog.js';
+import { Fog, fogZoomStale, hullSightSoftness, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone } from './render/zone.js';
 import { freezeAtDimKeyframe, tier1Active, tier2Active } from './render/attention.js';
@@ -2301,7 +2301,9 @@ function setupViewport(
   effects: Effects;
 } {
   const camera = new Camera({
-    radarRange: CONFIG.vision.radar,
+    defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
+    closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
+    ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
     followRate: CLIENT_CONFIG.camera.followRate,
     leadSeconds: CLIENT_CONFIG.camera.leadSeconds,
     leadMax: CLIENT_CONFIG.camera.leadMax,
@@ -2973,7 +2975,7 @@ function buildGame(
   // THE IN-TRUESIGHT WAKE SEAM (Story 4.12). One tracker, two renderings: the
   // emitter owns the ribbons and draws the water, the scope stamps the SAME
   // segments onto the radar lattice for the inner half the server does not
-  // disclose (per source: `blipGate`'s annulus for a hull, the 3/8 detect rung
+  // disclose (per source: `blipGate`'s annulus for a hull, the detect rung
   // for a fish). Read-only here — the radar samples ribbons and never appends.
   //
   // THE ISLANDS RIDE ALONG (cycle-69 review gate, P5) because the synthesis is
@@ -3109,9 +3111,8 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   }
   if (!classChanged && !visionChanged(prev, stats)) return;
   g.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
-  // the haze halo is the wounded-smoke 5/8 rung off the same live intel range
+  // the haze halo is the wounded-smoke flash rung (6/12) off the same live intel range
   g.countermeasure.setHaloU(hazeHaloU(stats.radarRange));
-  g.camera.setRadarRange(stats.radarRange);
   g.fog.setSightRange(stats.sightRange, stats.radarRange);
   // ONE plumbed value, TWO dead-reckoning cull rings: shells and our OWN fish
   // cull at truesight, an ENEMY torpedo at the shorter DETECT ring the server
@@ -3119,8 +3120,9 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   // from this same number — adding a `setDetectRange` here would be a second
   // source of truth.
   g.projectiles.setSightRange(stats.sightRange, stats.radarRange);
-  // Zoom and/or hole radius may have moved: rebake the fog against the current
-  // viewport at the new zoom (exactly what the resize handler does).
+  // The hole radius may have moved: rebake the fog against the current viewport
+  // at the current zoom (exactly what the resize handler does). The camera no
+  // longer follows radar (Story 9.8 ruling 127: framings are absolute spans).
   g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
 }
 
@@ -4219,6 +4221,7 @@ function renderAlive(
   zv: ZoneView,
   mu: MatchUx,
 ): void {
+  feedCameraRing(g, zv); // before renderOwn's camera.update: the slide aims at this ring
   const pose = ownPose(g, alpha, frameDt);
   const status = ownStatus(g);
   // Own ACTIVE star-shell zones (net → state → render): keep beyond-sight shells
@@ -4321,7 +4324,7 @@ function renderAlive(
   g.foulZones.render(now, now / 1000); // ...and the weed sways (motion-gated)
   // spray + fade each countermeasure cloud to its server-clock age (the radar
   // marched it above, through setCloudSource, as one more return source) —
-  // seen by eye only inside the 5/8 halo centred on the own hull (session 5)
+  // seen by eye only inside the flash-rung halo centred on the own hull (session 5)
   g.countermeasure.render(now, pose);
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
@@ -4952,8 +4955,8 @@ function bindVisibility(game: Game): () => void {
 // --- camera zoom (Story 2.1, Eric ruling 2026-07-24) --------------------------
 
 /**
- * Apply an alive user-zoom target (clamped [0.5, 1.5] over the base radar-fit
- * framing by Camera.setUserZoom) and schedule the fog re-bake the new zoom
+ * Apply an alive user-zoom target (clamped by Camera.setUserZoom between the
+ * live ring fit and the close framing, Story 9.8 ruling 127) and schedule the fog re-bake the new zoom
  * needs. CONNING-ONLY (canUserZoom): inert while spectating (the spectate wheel
  * path below owns zoom there), while sunk-awaiting-respawn, AND before the
  * first frame ever lands (no `you` yet = not conning). Client-render-only — fog
@@ -4975,7 +4978,7 @@ function applyUserZoom(g: Game, next: number): void {
 
 /** X (+1, in) / Z (-1, out) keyboard zoom step (chokepoint onZoom hook). */
 function handleZoomStep(g: Game, dir: 1 | -1): void {
-  applyUserZoom(g, g.camera.userZoom + dir * CLIENT_CONFIG.zoom.keyStep);
+  applyUserZoom(g, stepZoom(g.camera.userZoom, dir * CLIENT_CONFIG.zoom.keyStep));
 }
 
 /**
@@ -5004,10 +5007,28 @@ function cancelZoomFogRebake(g: Game): void {
 }
 
 /**
+ * THE LIVE RING FEEDS THE CAMERA, every alive frame (Story 9.8, rulings
+ * 127/128): the zoom-out limit re-fits to the ring and the centre slide aims at
+ * its centre. A captain sitting at the out limit is carried in as the ring
+ * closes — which moves the zoom EVERY tick, so the fog re-bake runs on
+ * HYSTERESIS: only once the zoom has drifted more than `redrawZoomFrac` (the
+ * same 2 % sub-pixel precedent the terrain and storm layers redraw on) from
+ * the zoom the fog was last baked at, and never re-arming a bake already
+ * pending (re-arming every frame would starve the trailing-edge debounce).
+ */
+function feedCameraRing(g: Game, zv: ZoneView): void {
+  g.camera.setRing(zv.cur.cx, zv.cur.cy, zv.cur.r);
+  if (g.fogZoomTimer !== null) return;
+  if (!fogZoomStale(g.fog.bakedZoom, g.camera.zoom, CLIENT_CONFIG.terrain.redrawZoomFrac)) return;
+  scheduleZoomFogRebake(g);
+}
+
+/**
  * The one wheel listener: while SPECTATING it is the untouched spectator
- * zoom-out (wheel-only, clamped [0.5x, 1x] — render/spectate.ts wheelZoom,
- * byte-identical behavior); while ALIVE it drives the smooth user zoom
- * (clamped [0.5x, 1.5x] — Story 2.1).
+ * zoom-out (wheel-only, clamped to the 2,640–1,320 u spectate spans —
+ * render/spectate.ts wheelZoom); while ALIVE it drives the smooth user zoom
+ * (Story 2.1; since Story 9.8 a log step between the live ring fit and the
+ * close framing).
  *
  * Returns a disposer for the same reason bindVisibility does: it holds a camera
  * that an in-place teardown destroys under it.
@@ -5032,7 +5053,7 @@ function bindWheelZoom(game: Game): () => void {
       game.camera.setZoomFactor(wheelZoom(game.camera.zoomFactor, e.deltaY));
       return;
     }
-    applyUserZoom(game, game.camera.userZoom - e.deltaY * CLIENT_CONFIG.zoom.wheelRate);
+    applyUserZoom(game, stepZoom(game.camera.userZoom, -e.deltaY * CLIENT_CONFIG.zoom.wheelRate));
   };
   window.addEventListener('wheel', onWheel, { passive: true });
   return () => window.removeEventListener('wheel', onWheel);

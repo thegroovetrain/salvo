@@ -644,7 +644,7 @@ describe('a disclosed wake segment ATTENUATES in shadow and is never deleted '
 // --- THE SCOPE PAINTS EVERYTHING IN RANGE, through the adapter (cycle 56) -------
 
 describe('the scope paints INSIDE truesight (amendment 88)', () => {
-  /** A coastline 300u off, all of it under the 330u bubble. Under cycles 54-55
+  /** A coastline 300u off, all of it under the sight bubble. Under cycles 54-55
    *  this island painted NOTHING; it is the fixture the reversal is measured on. */
   const CLOSE = rasterFrom(600, ridge(300, 0, 120, 90));
   const PROBE = { x: 220, y: 0 };
@@ -735,10 +735,13 @@ describe('a sighted ship paints from its Contact when the beam crosses it', () =
 
   it('a contact BEYOND truesight is left to the wire — the client never '
     + 'synthesizes in the annulus the server blips', () => {
-    const store = sightedStore(500); // > 330u: the server's territory
+    // The 6/12 rung (radar × 6/12, epic-9 amendment 103): past the 4/12 sight
+    // bubble, inside the annulus — the server's territory.
+    const BEYOND = (CONFIG.vision.radar * 6) / 12;
+    const store = sightedStore(BEYOND);
     const { radar } = makeRadar();
     revolution(radar, OWN, store);
-    expect(radar.bandAt(500, 0)).toBe(-1);
+    expect(radar.bandAt(BEYOND, 0)).toBe(-1);
   });
 
   it('A HULL BEHIND A HEADLAND STILL PAINTS — the accepted, temporary cost of '

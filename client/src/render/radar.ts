@@ -47,7 +47,7 @@
 // 181). Eric: *"I want everything painted at max intensity (0.8 alpha) at all
 // times. I want it DISPLAYED muted based on how close to the ship it is."* A
 // baked radial-gradient sprite masks `blipLayer` — 20% of the painted opacity
-// across the WHOLE SIGHT BUBBLE, ramping to 100% at the 5/8 rung — anchored on
+// across the WHOLE SIGHT BUBBLE, ramping to 100% at the flash rung (6/12) — anchored on
 // own hull in WORLD space and updated every frame. It is a presentation
 // transform over the composited layer: no paint record is read back, recomputed
 // or mutated, which is the distinction amendment 83 actually draws. It masks
@@ -368,7 +368,7 @@ export class Radar {
    * gate, P2 — this comment previously said the row simply inherited
    * `blipGate`'s annulus, which is no longer true for the fish). A SHIP's water
    * is withheld inside the sight bubble; a TORPEDO's is withheld only inside the
-   * 3/8 DETECT rung, so torpedo segments in the (detect, sight] band DO come off
+   * DETECT rung (sight × detectFactor), so torpedo segments in the (detect, sight] band DO come off
    * the wire and paint here through the ordinary adapter — `validWake` has no
    * position gate, so nothing had to change to let them through.
    *
@@ -413,7 +413,7 @@ export class Radar {
     this.dim.label = DIM_MASK_LABEL;
     this.dim.anchor.set(0.5);
     // One texel is `2 × spanU / size` world units, so the ramp's two radii sit
-    // exactly where CONFIG's eighths ladder puts them whatever the bake size is.
+    // exactly where CONFIG's ladder puts them whatever the bake size is.
     this.dim.scale.set((2 * CLIENT_CONFIG.blip.heatmap.dim.spanU) / DIM_MASK_TEXTURE_SIZE);
     // NEVER DRAWN, ALWAYS TRANSFORMED. `renderable = false` is exactly what
     // Pixi's own `AlphaMask.init` sets on a sprite mask (alongside
@@ -1134,7 +1134,7 @@ export class Radar {
    *
    * The range term is the EXACT COMPLEMENT of the server's, per SEGMENT and PER
    * SOURCE: a segment whose midpoint is at or inside its source's inner bound
-   * (`sightHoleU` for a hull, the 3/8 detect rung of it for a fish) is stamped
+   * (`sightHoleU` for a hull, the detect rung — sight × detectFactor — for a fish) is stamped
    * here, one beyond it is the wire's (`wakeInnerBound`), off radii both sides
    * already agree on. A 540u track therefore hands its near end to this stamp
    * and its far end to `marchWake`, with no cell claimed twice and none dropped

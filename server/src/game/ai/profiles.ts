@@ -36,15 +36,19 @@
 // verbatim) — the only thing the card scorer in ai/spending.ts reads from a
 // profile, scored against CONFIG.bots.cardPoints (R3).
 //
-// RANGES ARE FRACTIONS OF INTEL RANGE, NEVER LITERALS. `bandMinFrac`/
-// `bandMaxFrac` multiply the bot's OWN `stats.radarRange`, so a profile's
-// engagement band moves with its INTEL RANGE cards exactly as the eighths
-// ladder does (detect 0.375R, sight 0.5R, muzzle/smoke 0.625R, farRadar
-// 0.875R, radar R) — and gun/cannon/star-shell `rangeU` all ARE radarRange,
-// so a band fraction is simultaneously a fraction of weapon reach. No card
-// writes `stats.radarRange` today (the INTEL RANGE line was deleted
-// 2026-08-20), but a literal here would silently stop tracking the ruler if
-// one ever lands again.
+// RANGES ARE FRACTIONS OF THE BOT'S OWN MOUNTED GUN REACH, NEVER LITERALS
+// (Story 9.8, epic-9 ruling 126 — a STOPGAP until Story 9.9's Bot Posture
+// Workover). `bandMinFrac`/`bandMaxFrac` multiply the folded `rangeU` of the
+// gun the hull has fitted in its gun slot (deck gun, machine gun or flak —
+// `mountedGunRangeU`), so a band is a fraction of the reach the bot can
+// actually shoot at, and it moves with every RANGE card the gun line takes.
+// Until Story 9.8 the anchor was `stats.radarRange`, because every gun's
+// reach WAS the radar rung; on the twelfths ruler radar (12/12) runs far past
+// every gun (5/12–10/12, ruling 125), so a radar-fraction band would park
+// most bots where they cannot fire. The fractions are KEPT as they were, so
+// today's absolute distances hold at a ~660 u reach and widen with a longer
+// gun (the cannon's 8/12), which is the intent. The plot horizon
+// (utility.ts TARGET_HORIZON_FACTOR) stays on radar: it is intel, not reach.
 //
 // THE HUMAN GETS NO SPECIAL WEIGHT (Eric ruling B3). `targetWeights.captain`
 // covers human captains and other bots IDENTICALLY — a bot cannot even tell
@@ -52,7 +56,7 @@
 // class. The only kind distinction any profile draws is participant-vs-PvE
 // fleet hull, which is a real difference in what the target is worth.
 
-import { CONFIG, type ConsumableId, type EffectiveStats, type EquipmentId, type ShipClassId } from '@salvo/shared';
+import { CONFIG, type ConsumableId, type EffectiveStats, type EquipmentId, type ShipClassId, type SlotItemId } from '@salvo/shared';
 import type { AnyProfileId, BotProfileId, TestProfileId } from './types.js';
 
 /** How much a profile wants one KIND of target, relative to the others.
@@ -131,8 +135,9 @@ export interface BotProfile {
   spend: 'weighted' | 'random' | 'gunFirst';
   /** The build taste the 'weighted' scorer reads (see BotTaste). */
   taste: BotTaste;
-  /** Preferred engagement band, as fractions of the bot's own intel range —
-   *  resolve with engagementBand(), never read raw. */
+  /** Preferred engagement band, as fractions of the bot's own MOUNTED GUN
+   *  reach (Story 9.8, ruling 126) — resolve with engagementBand(), never
+   *  read raw. */
   bandMinFrac: number;
   bandMaxFrac: number;
   targetWeights: BotTargetWeights;
@@ -189,7 +194,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
       favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
       beltHunger: 'medium',
     },
-    // Strikes from around the truesight boundary (0.5R) and does not loiter
+    // Strikes from around half its gun's reach and does not loiter
     // inside knife range — the torpedo opener needs run-out room, and a TB
     // that stays close is in the fight it is trying to avoid.
     bandMinFrac: 0.3,
@@ -212,7 +217,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
       favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
       beltHunger: 'low',
     },
-    // Knife range: inside 0.3R the rear-quarter turn-fight is decided by
+    // Knife range: inside 0.3 of gun reach the rear-quarter turn-fight is decided by
     // rudder and gun cooldown, which is exactly where this profile wins.
     bandMinFrac: 0.08,
     bandMaxFrac: 0.3,
@@ -258,13 +263,12 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
       beltHunger: 'low',
     },
     // Standoff — RE-BANDED IN STORY 7-5 WAVE 2, forced by the weapon swap
-    // rather than chosen: the cannon reached the full radar horizon, so this
-    // profile stood out past the muzzle/smoke rung (0.625R) where the reply
-    // mostly did not. The BROADSIDE BARRAGE that replaced it is capped AT that
-    // rung (`broadside.rangeU` = 0.625R), so the old 0.55–0.95 band put its
-    // heavy weapon out of range for most of its own preferred water. The band
-    // now sits just INSIDE the rung — still the longest standoff of any
-    // profile, still star-shell-led — and is a TUNING TARGET, not a ruling.
+    // rather than chosen: the old 0.55–0.95 band put the BROADSIDE BARRAGE
+    // (then capped at the muzzle/smoke rung, 0.625 of the old radar) out of
+    // range for most of its own preferred water. The band sits well inside
+    // the mounted gun's reach (fractions of gun `rangeU` since Story 9.8,
+    // ruling 126) — still the longest standoff of any profile, still
+    // star-shell-led — and is a TUNING TARGET, not a ruling.
     bandMinFrac: 0.4,
     bandMaxFrac: 0.6,
     targetWeights: { captain: 1.2, fleet: 0.8, damaged: 1.1, isolated: 0.6 },
@@ -291,9 +295,9 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // powerhouse, it just needs to survive until then"* — and cycle 110's A/B
     // measured the old 0.20–0.45 band dying for it (181.1s afloat vs the
     // random control's 264.0s, 1.97 boons vs 2.96). The band now sits from
-    // just under truesight out to the 0.80R standoff: the whole of it is
-    // inside the ML's own gun reach (gun rangeU IS radarRange), so hanging
-    // back costs no firepower, only exposure.
+    // just under truesight out to a 0.80 standoff: as a fraction of the
+    // mounted gun's own reach (Story 9.8, ruling 126) the whole of it is
+    // inside that reach, so hanging back costs no firepower, only exposure.
     bandMinFrac: 0.45,
     bandMaxFrac: 0.8,
     // THE ONLY profile that would rather shoot world content than a captain
@@ -439,9 +443,27 @@ export function profileOf(id: AnyProfileId): BotProfile {
     : TEST_PROFILES[id as TestProfileId];
 }
 
+/** u — the folded reach of the hull's MOUNTED gun (the gun slot's row): the
+ *  machine gun or flak row when one is fitted, otherwise the deck gun
+ *  (`gun`) — the seat's default, and what an empty or unknown slot reads.
+ *  Each gun's reach is its own tiered dial on the twelfths ruler since Story
+ *  9.8 (ruling 125), so it is read off the folded stats, never a literal. */
+export function mountedGunRangeU(gunId: SlotItemId | null | undefined, stats: EffectiveStats): number {
+  if (gunId === 'machineGun' || gunId === 'flak') return stats.equipment[gunId].rangeU;
+  return stats.equipment.gun.rangeU;
+}
+
 /** The engagement band in WORLD UNITS for a profile at these stats — the one
- *  place the fractions are resolved. Anchored on `radarRange` (intel range,
- *  the one ruler), so any future widening of it moves the band for free. */
-export function engagementBand(profile: BotProfile, stats: EffectiveStats): { min: number; max: number } {
-  return { min: profile.bandMinFrac * stats.radarRange, max: profile.bandMaxFrac * stats.radarRange };
+ *  place the fractions are resolved. Anchored on the bot's OWN MOUNTED GUN
+ *  reach (`mountedGunRangeU`; Story 9.8, epic-9 ruling 126 — the stopgap
+ *  before Story 9.9's posture workover), so a RANGE card on the gun line
+ *  moves the band for free. `gunId` is the gun slot's item; omitted, the
+ *  deck gun is assumed. */
+export function engagementBand(
+  profile: BotProfile,
+  stats: EffectiveStats,
+  gunId?: SlotItemId | null,
+): { min: number; max: number } {
+  const reach = mountedGunRangeU(gunId, stats);
+  return { min: profile.bandMinFrac * reach, max: profile.bandMaxFrac * reach };
 }

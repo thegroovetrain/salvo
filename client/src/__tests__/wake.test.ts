@@ -705,14 +705,16 @@ describe('WakeStampCache rebuilds on the three things that can change its answer
   // step function of boons cannot churn.
   it('rebuilds the instant the sight radius moves, even inside the rate floor', () => {
     const sources = new WakeSources();
-    const h = hull('a', 'battleship', 200, 30);
+    // On the 3/12 rung (radar × 3/12, epic-9 amendment 103): inside the 4/12
+    // sight bubble, outside a halved one (2/12).
+    const h = hull('a', 'battleship', (CONFIG.vision.radar * 3) / 12, 30);
     sources.observe(h, 0);
     h.x += STEP_U + 1;
     sources.observe(h, 50);
     const cache = new WakeStampCache();
     const own = { x: 0, y: 0 };
-    // Narrow: the segment at ~200u is OUTSIDE a halved bubble, so the wire owns
-    // it and this stamp is empty.
+    // Narrow: the segment on the 3/12 rung is OUTSIDE a halved bubble, so the
+    // wire owns it and this stamp is empty.
     const narrow = cache.stampFor(sources, own, CONFIG.vision.sight / 2, 50, CELL, MODEL);
     expect(narrow.size).toBe(0);
     // The bubble widens one frame later — well inside the rate floor.

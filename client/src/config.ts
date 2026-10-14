@@ -3,7 +3,7 @@
 // single source of truth for anything gameplay-authoritative). If a value here
 // starts to feel gameplay-load-bearing, promote it to shared CONFIG instead.
 
-import { CATALOG, CONFIG, HULL_IDS, SHIP_CLASS_IDS, boostedKinematics, draftedKinematics, effectiveStats, hullEnvelope } from '@salvo/shared';
+import { CATALOG, CONFIG, HULL_IDS, SHIP_CLASS_IDS, boostedKinematics, draftedKinematics, effectiveStats, hullEnvelope, type FoghornEvent } from '@salvo/shared';
 import {
   SURFACE,
   fitGrainScale,
@@ -294,7 +294,8 @@ const TYPE = {
 // so scaling colour by extent as well was the same physics counted twice.
 
 /** The RED->BLUE boundary: `bands[2].at`, the intensity a hull must land on
- *  exactly at 7/8 intel range. Stated once, used twice. */
+ *  exactly at the far-radar anchor (`CONFIG.vision.farRadar`, 8/12 of intel
+ *  range since Story 9.8). Stated once, used twice. */
 const HEAT_RED_AT = 0.7;
 
 /** The GREEN->BLUE boundary: `bands[1].at`. */
@@ -352,10 +353,11 @@ const HEAT_SHIP_ATTEN_FLOOR = 0.02;
 
 /**
  * THE FITTED POINT REFERENCE (u) — amendment 118's calibration, SOLVED, not
- * typed in. ~709u at the shipped ladder (was ~558u under the retired
- * extent-scaled fit).
+ * typed in (it scales linearly with the anchor: ~709 u when the anchor sat at
+ * 577.5 u on the eighths ladder; ~1,228 u at the twelfths anchor).
  *
- * `CONFIG.vision.farRadar` (7/8 intel range = 577.5u) is read HERE AND NOWHERE
+ * `CONFIG.vision.farRadar` (8/12 of intel range since Story 9.8 — epic-9
+ * amendment 103, the anchor confirmed by ruling 121) is read HERE AND NOWHERE
  * ELSE IN THE CLIENT. Story 4.9 shipped that rung deliberately unconsumed and
  * named this line as its only legitimate consumer: it is an input to FITTING a
  * coefficient, evaluated once at module load, so the red->blue crossover EMERGES
@@ -368,13 +370,13 @@ const HEAT_SHIP_ATTEN_FLOOR = 0.02;
  * THERE IS NO CALIBRATION HULL ANY MORE, AND THAT IS AMENDMENT 118 GETTING
  * CLEANER (cycle 67, amendments 171-175). The fit used to nominate the Mine
  * Layer at broadside and solve `A = bands[2].at * strongExtent / ext`, so the
- * ratified "a mid-size hull crosses red->blue at 7/8" was a statement about ONE
+ * ratified "a mid-size hull crosses red->blue at the rung" was a statement about ONE
  * hull at ONE aspect and every other hull crossed somewhere else — a battleship
  * broadside never crossed at all, staying red past the rim. Now a hull's
  * reflectivity is its MATERIAL and nothing else, so the solve is just
- * `ship * atten(577.5) = bands[2].at` and the crossover is a PURE STATEMENT
- * ABOUT RANGE: every hull, every class, every aspect, crosses red->blue at 7/8
- * intel range. Class and aspect still read — off the SIZE of the mark, which is
+ * `ship * atten(farRadar) = bands[2].at` and the crossover is a PURE STATEMENT
+ * ABOUT RANGE: every hull, every class, every aspect, crosses red->blue at the
+ * anchor. Class and aspect still read — off the SIZE of the mark, which is
  * what the coverage mask has carried since cycle 63.
  *
  * IT ALSO RETIRES THE CYCLE-63 CROSSOVER BAND (amendment 158). When the fit's
@@ -385,9 +387,13 @@ const HEAT_SHIP_ATTEN_FLOOR = 0.02;
  * `HEAT_RED_AT` and the SNR envelope's amplitude is zero there.
  *
  * The readings this fit is judged on (pinned in __tests__/radarFalloff.test.ts,
- * not re-derived here): red from the hull out to 577.5u, blue from there to the
- * 660u rim, identical for all three classes at both aspects, and `minPeak`
- * still floors the return past the scope.
+ * not re-derived here): red from the hull out to the anchor (8/12), blue from
+ * there through the dropout knee (10/12), identical for all three classes at
+ * both aspects, and `minPeak` still floors the return out to the rim. THE
+ * TWELFTHS LADDER MOVED ONE READING (Story 9.8, measured): with the anchor a
+ * third of the span from the rim, the 1/d⁴ curve no longer holds blue to the
+ * rim — the unluckiest draw dips into green from ~1,327 u and every draw from
+ * ~1,437.5 u, inside the dropout cliff where p(paint) runs 0.9 → 0.1.
  */
 const HEAT_POINT_REF = fitPointRef({
   crossover: CONFIG.vision.farRadar,
@@ -469,7 +475,7 @@ const HEAT_WAKE_GRAIN = fitGrainScale({
  *
  * The end of the ladder is DERIVED, not chosen: water at the end of its life
  * reads exactly as fresh water does at the material's own reach, so age and
- * range spend the SAME coin and the visible reach walks from the 5/8 rung down
+ * range spend the SAME coin and the visible reach walks from the 6/12 rung down
  * to nothing across `WAKE_AGE_BUCKETS`. `worstDrawIntensity` is the intensity
  * whose unluckiest draw lands on the threshold — the same quantity the reach fit
  * inverts — so the two derivations cannot drift.
@@ -479,16 +485,19 @@ const HEAT_WAKE_AGE_FLOOR =
 
 /**
  * THE WAKE'S REFERENCE RANGE (u) — SOLVED so its worst draw crosses
- * `bands[0].at` EXACTLY at `CONFIG.vision.muzzleFlash`, the eighths ladder's 5/8
- * rung (412.5u). A wake READS inside that and FRAYS OUT beyond it, which is both
- * a weak-surface-return result and a "get close to read tracks" dynamic, and it
- * lands on amendment 113's ladder rather than on a new literal.
+ * `bands[0].at` EXACTLY at `CONFIG.vision.muzzleFlash`, the twelfths ladder's
+ * 6/12 rung (Story 9.8, epic-9 amendment 103; the eighths ladder's 5/8 before).
+ * A wake READS inside that and FRAYS OUT beyond it, which is both a
+ * weak-surface-return result and a "get close to read tracks" dynamic, and it
+ * lands on the ladder rather than on a new literal.
  *
- * This is the SECOND (and last) place in the client that reads a ladder rung,
- * and it reads it for the same reason `HEAT_POINT_REF` reads `farRadar`: to FIT
- * a curve, once, at module load. `grep -rn muzzleFlash client/src/render/` must
- * stay empty — a comparison against the rung on a paint path violates amendment
- * 105 exactly as it would for the crossover.
+ * This is the SECOND (and last) place in the client that reads that rung to
+ * shape INTENSITY, and it reads it for the same reason `HEAT_POINT_REF` reads
+ * `farRadar`: to FIT a curve, once, at module load. No radar PAINT path may
+ * compare against the rung — that violates amendment 105 exactly as it would
+ * for the crossover. (render/hazeHalo.ts legitimately reads
+ * `muzzleFlashFactor`: it sizes the countermeasure's eye-visibility halo to the
+ * server's own `sm` gate, a geometry the server decides, not an intensity.)
  *
  * WATER IS A SURFACE (amendment 106's table): 1/d³, the same geometry as
  * coastline, surf and sea clutter. The reference comes out LONGER than the
@@ -571,6 +580,37 @@ const REVEAL_ZOOM_MS = 1600;
  */
 const REVEAL_ZOOM_TAUS = 3;
 
+/** The foghorn's wire band, 1..12 (FoghornEvent.v — Story 9.8, ruling 129). */
+type HornWireBand = NonNullable<FoghornEvent['v']>;
+
+/** Twelve bands on the wire (twelfths of the listener's intel range); band 4 is
+ *  truesight, band 12 the radar edge (epic-9 amendment 103 / ruling 129). */
+const HORN_BANDS = 12;
+const HORN_SIGHT_BAND = 4;
+
+/**
+ * THE FOGHORN CURVE's position for a band (ruling 129, "proportional
+ * re-read"): 0 at and inside truesight (band 4), 1 at the radar edge (band
+ * 12), even steps between — k = (band − 4) / 8. Both the audio gain and the
+ * chevron weight are this one curve, so the honk's loudness and its mark step
+ * together.
+ */
+function hornCurveK(band: number): number {
+  return Math.max(0, (band - HORN_SIGHT_BAND) / (HORN_BANDS - HORN_SIGHT_BAND));
+}
+
+/** A complete band → value table over 1..12, generated from the curve. */
+function hornTable<T>(at: (k: number) => T): Readonly<Record<HornWireBand, T>> {
+  const out: Partial<Record<HornWireBand, T>> = {};
+  for (let b = 1; b <= HORN_BANDS; b++) out[b as HornWireBand] = at(hornCurveK(b));
+  return out as Readonly<Record<HornWireBand, T>>;
+}
+
+/** The chevron's two shipped anchors (Story 4.9): full weight through
+ *  truesight, the old tier-3 weight at the radar edge. */
+const CHEVRON_NEAR = { size: 22, thickness: 3, alpha: 0.95 } as const;
+const CHEVRON_EDGE = { size: 13, thickness: 1.8, alpha: 0.5 } as const;
+
 export const CLIENT_CONFIG = {
   /** Design tokens (Story 1.11) — the single styling source (see above). */
   colors: COLORS,
@@ -608,12 +648,15 @@ export const CLIENT_CONFIG = {
     followRate: 5,
     /**
      * Look-ahead time (s). Lead distance = |speed| * leadSeconds, capped at
-     * leadMax. At maxSpeed 25 u/s this reaches ~112.5u, past the leadMax cap
-     * (110u @ sight 220) — the cap engages near top speed (step 11 feel-pass
-     * tuning, up from 4s; flagged for playtest).
+     * leadMax. At maxSpeed 25 u/s this reaches ~112.5u (step 11 feel-pass
+     * tuning, up from 4s; flagged for playtest). The cap was set when sight
+     * was 220 u and engaged near top speed; at the twelfths ladder's 500 u
+     * sight (Story 9.8) it sits at 250 u, so only a boosted/drafted hull ever
+     * reaches it.
      */
     leadSeconds: 4.5,
-    /** Lead distance cap (u) = 0.5 * sight range, per the plan. */
+    /** Lead distance cap (u) = 0.5 * sight range, per the plan (250 u at the
+     *  twelfths ladder's base sight). */
     leadMax: CONFIG.vision.sight * 0.5,
   },
 
@@ -767,8 +810,8 @@ export const CLIENT_CONFIG = {
    * purpose:
    *
    *   • THE REACH is not here. Every world cue is attenuated over the SAME
-   *     distance — `CONFIG.vision.radar`, the eighths ladder's 8/8 rung (full
-   *     intel range) — read straight from shared CONFIG at the call site, never
+   *     distance — `CONFIG.vision.radar`, the twelfths ladder's 12/12 rung
+   *     (full intel range, epic-9 amendment 103) — read straight from shared CONFIG at the call site, never
    *     mirrored or re-typed into this block. It is a FALLOFF SCALE, not a gate:
    *     the server has already decided which events reach this client, and a
    *     per-cue reach here (muzzleFlash for `mz`, sight for `boom`) would be a
@@ -919,7 +962,8 @@ export const CLIENT_CONFIG = {
    */
   broadsideArcs: {
     /** u — the per-turret wedge's radius. INDICATIVE, like the torpedo's ARC_R:
-     *  the real reach is 412.5u and a filled wedge that long would bury the
+     *  the real reach is the broadside's own tiered dial (625–750 u, Story 9.8
+     *  ruling 125) and a filled wedge that long would bury the
      *  chart. Short of the 72u sector radius so the wedges read as a battery
      *  INSIDE the legal sector, and comfortably shorter than the 124u
      *  battleship hull they sprout from. */
@@ -1306,6 +1350,17 @@ export const CLIENT_CONFIG = {
        *  should drift, not track. */
       followRate: 1.2,
       /**
+       * The scene's framing: world units across the viewport's SHORT axis.
+       * Every placement in this block is a multiple of base truesight, and the
+       * picture was composed at a 1,320 u span over a 330 u bubble — four
+       * truesights across. Story 9.8 retired the camera's radar-diameter fit
+       * (ruling 127) and grew truesight to 500 u, so the span is written in the
+       * same unit as the rest of the composition (4 × sight) and the picture —
+       * hull out on the right flank, bubble and rivals clear of the home column
+       * — holds exactly as composed rather than shrinking behind the DOM.
+       */
+      spanU: CONFIG.vision.sight * 4,
+      /**
        * Camera-centre offset from the observer (u), in multiples of base
        * truesight. NEGATIVE x pushes the camera left of the hull, which seats
        * the hull — and the one genuinely BRIGHT region of the picture, its
@@ -1348,19 +1403,33 @@ export const CLIENT_CONFIG = {
     },
   },
 
-  /** Alive camera user-zoom (Story 2.1, Eric ruling 2026-07-24): a render-only
-   *  multiplier over the base radar-fit framing — X steps in, Z steps out, the
-   *  wheel zooms smoothly. Client-only by design: fog stays server-
-   *  authoritative, so zoom is never an information exploit. The spectate zoom
-   *  path (render/spectate.ts, 0.5–1.0 wheel-only) is separate and unchanged. */
+  /** Alive camera framing (Story 2.1, Eric ruling 2026-07-24; ABSOLUTE since
+   *  Story 9.8, epic-9 ruling 127). Every framing is a world SPAN across the
+   *  viewport's SHORT axis — never a factor over radar: today's framings
+   *  written as absolute spans. X steps in, Z steps out, the wheel zooms
+   *  smoothly. The zoom-IN limit is `closeSpanU`; the zoom-OUT limit is the LIVE
+   *  storm ring fitted to the short axis with `reveal.mapFitMargin`, re-fitted
+   *  as it closes (render/camera.ts userZoomLimits), and past the default
+   *  framing the centre slides from own ship to the ring centre (ruling 128).
+   *  Client-only by design: fog stays server-authoritative, so zoom is never an
+   *  information exploit. The spectate zoom (render/spectate.ts, wheel-only,
+   *  2,640–1,320 u) is separate. */
   zoom: {
-    /** Minimum user factor (zoomed fully OUT — 0.5× the base framing). */
-    min: 0.5,
-    /** Maximum user factor (zoomed fully IN — 1.5× the base framing). */
-    max: 1.5,
-    /** Factor step per X/Z keydown (auto-repeat allowed — hold to zoom). */
+    /** Zoom-IN limit (u across the short axis): ruling 127, today's 1.5× close
+     *  view written as an absolute span (1,320 / 1.5) — never a factor over
+     *  radar. */
+    closeSpanU: 880,
+    /** DEFAULT framing (u across the short axis): ruling 127, today's 1.0×
+     *  scale (the old 2 × 660 u radar fit) written as an absolute span — never
+     *  a factor over radar. `baseZoom` = shortAxis / this. */
+    defaultSpanU: 1320,
+    /** LOG step per X/Z keydown (auto-repeat allowed — hold to zoom): next =
+     *  factor × e^±keyStep (render/camera.ts stepZoom) — ×1.105 / ×0.905 per
+     *  press, today's ±0.1 feel at the default framing, the same perceived step
+     *  out at the ring fit. */
     keyStep: 0.1,
-    /** Factor per wheel deltaY unit (matches spectate's 0.0008 feel). */
+    /** LOG step per wheel deltaY unit (next = factor × e^(−deltaY × this)):
+     *  one 100-unit notch is ×0.923, today's −0.08 at the default framing. */
     wheelRate: 0.0008,
   },
 
@@ -1374,9 +1443,11 @@ export const CLIENT_CONFIG = {
    * shared CONFIG.
    *
    * There is no `zoomFactor` knob: the framing is DERIVED at kickoff by
-   * render/camera.ts's `revealZoomFactor()` from the camera's live radarRange
-   * and the Game's mapRadius, so a sensor or map-size retune moves it with them
-   * (amendment 25; Story 6.2 makes map sizing roster-dynamic).
+   * render/camera.ts's `revealZoomFactor()` as an ABSOLUTE span — the Game's
+   * live mapRadius × 2 × `mapFitMargin` across the short axis (amendment 25;
+   * Story 9.8 ruling 127 retired the radar term; Story 6.2 makes map sizing
+   * roster-dynamic). The same margin fits the alive zoom-out limit to the live
+   * ring (`zoom` above).
    */
   reveal: {
     /** Nominal travel time (ms) of the pull-back, before the motion setting
@@ -1409,8 +1480,8 @@ export const CLIENT_CONFIG = {
     /**
      * SCREEN-LOCKED stroke widths (px), divided by the camera zoom at draw time
      * exactly like the storm plane's edges (the same `strokeWorldWidth`). A
-     * fixed world width would thin the coastline to 0.7px at the 0.5× end of
-     * the shipped user-zoom range — a hairline at precisely the moment the
+     * fixed world width would thin the coastline to a hairline at the wide end
+     * of the user-zoom range (the live ring fit since Story 9.8) — a hairline at precisely the moment the
      * player has asked to see more terrain at once.
      *
      * The contour line is SUBORDINATE to the coastline: the coast is the one
@@ -1462,8 +1533,9 @@ export const CLIENT_CONFIG = {
      *
      *   needed = dist(camera center → ring center) + half the visible diagonal
      *
-     * No CONSTANT factor can bound that: the camera fits 2 × radar range on the
-     * SHORT axis, so a short-wide viewport at the widest user zoom already sees
+     * No CONSTANT factor can bound that: the camera frames an absolute span on
+     * the SHORT axis (out to the live ring fit, Story 9.8), so a short-wide
+     * viewport at the widest user zoom already sees
      * a very wide slice of ocean on a 3440×720 screen, and spectate free-pan is
      * UNCLAMPED — the camera can travel arbitrarily far from any ring, so no
      * fixed multiple of the map radius is provably enough. So the renderer computes
@@ -1488,8 +1560,8 @@ export const CLIENT_CONFIG = {
     /**
      * SCREEN-LOCKED stroke widths (px, amendment 14 + the zoom-invariance
      * clause). The renderer divides these by the camera zoom at draw time, so
-     * the on-screen width is constant across the shipped 0.5×–1.5× user-zoom
-     * range instead of thinning to a hairline when you zoom out.
+     * the on-screen width is constant across the whole user-zoom range (close
+     * framing to ring fit) instead of thinning to a hairline when you zoom out.
      */
     edgePx: 2,
     telegraphPx: 2,
@@ -1503,8 +1575,9 @@ export const CLIENT_CONFIG = {
      *
      * The stroke matches `telegraphPx` because the mark IS the telegraph for a
      * ring with no radius; the arm is sized to read as a deliberate mark at a
-     * glance without competing with a contact marker (the fog hole is 330u
-     * across at zoom 1, so a 24px X is a small, unmistakable cross on the water).
+     * glance without competing with a contact marker (the fog hole is a
+     * truesight radius — hundreds of px at the default framing — so a 24px X
+     * is a small, unmistakable cross on the water).
      */
     markPx: 2,
     markArmPx: 12,
@@ -2519,8 +2592,9 @@ export const CLIENT_CONFIG = {
     /** u — THE HAZE HALO'S SOFT EDGE (Story 9.3 session 5, Eric 2026-10-12:
      *  "The smoke is visible outside of 5/8 intel range. Why? … I cannot see
      *  the smoke outside of that range, I can only infer it from radar
-     *  returns."). The grey haze is drawn by eye only within the viewer's 5/8
-     *  rung (`radarRange × CONFIG.vision.muzzleFlashFactor`, the wounded-smoke
+     *  returns." — the 5/8 rung then; 6/12 on the twelfths ladder, Story 9.8).
+     *  The grey haze is drawn by eye only within the viewer's flash rung
+     *  (`radarRange × CONFIG.vision.muzzleFlashFactor`, the wounded-smoke
      *  reach — NOT a knob, render/hazeHalo.ts); it fades linearly to nothing
      *  over this many units past that rung. Feel only. */
     haloFeatherU: 40,
@@ -2528,7 +2602,7 @@ export const CLIENT_CONFIG = {
      *  "if I can't see it because of an island or any other sight block, don't
      *  render it"). Bearings cast from the own hull to cut island shadows into
      *  the halo mask (render/hazeLos.ts) — 360 = one per degree, ~7 u between
-     *  rays at the 5/8 rung. */
+     *  rays at the 6/12 rung (750 u × 2π / 360 ≈ 13 u at base). */
     losRays: 360,
     /** u — the shadows are re-cast only when the own hull has moved at least
      *  this far since the last cast (or the halo / island set changed): a cast
@@ -2588,17 +2662,22 @@ export const CLIENT_CONFIG = {
        * misaligned. (An earlier version of this comment opened by calling it
        * "the ONE knob that trades look against cost" — a loaded gun the
        * cycle-63 review gate removed: it invited a silent wire break with no
-       * PV bump.) At the base camera framing one cell is ~7.5 screen px,
+       * PV bump.) At the default camera framing one cell is ~7.5 screen px
+       * (1080 px over 1,320 u),
        * deliberately chunky: a quantized bitmap should read as a bitmap, and
        * since the cycle-63 gate the chunk IS the sensor's resolution loss
        * (amendments 156-157).
        *
        * COST SCALES WITH VISIBLE AREA (cycle 58, amendment 99): the buffer
-       * covers the VIEWPORT, not the radar ring, so zooming out costs more. The
-       * cell counts below are for a 16:9 screen at the shared 9u lattice — the
-       * world extent depends only on aspect ratio and zoom, not on pixel
-       * resolution, because the base zoom fits 2 × radar range to the short
-       * axis:
+       * covers the VIEWPORT, not the radar ring, so zooming out costs more.
+       * THE TABLES BELOW WERE MEASURED AT RADAR 660 u, 9 u CELLS, with the
+       * camera's base zoom fitting 2 × radar range to the short axis — the
+       * 1.0× row is today's 1,320 u default framing, the 1.5× row today's
+       * 880 u close limit. Story 9.8 replaced the 0.5× floor with the live
+       * ring fit (ruling 127), a much wider view; the 9.8 measurement at the
+       * close / default / ring-fit framings is recorded in the spec, not here.
+       * The cell counts are for a 16:9 screen — the world extent depends only
+       * on aspect ratio and zoom, not on pixel resolution:
        *   1.5× (zoomed in)  176 × 112 = 20k cells,  77KB
        *   1.0× (base)       272 × 160 = 44k cells, 170KB
        *   0.5× (zoomed out) 528 × 304 = 160k cells, 630KB
@@ -2737,7 +2816,8 @@ export const CLIENT_CONFIG = {
          *  `rayStep`), so a boon-scaled scope reaching ~2.01× base range simply
          *  fires more rays rather than painting stripes at its rim — a fixed angle
          *  would have to be tuned for the widest scope and then waste rays on
-         *  every other one. At base range (660u) this works out at ~0.52°. */
+         *  every other one. At base range (1,500 u since Story 9.8) this works
+         *  out at ~0.23° (it was ~0.52° at 660 u — 2.27× the rays per sweep). */
         raySpacingU: 6,
         /** Bounds on that derived angle (rad). The floor (~0.17°) caps the ray
          *  count on an absurdly long scope; the ceiling (~1.15°) stops a
@@ -2876,7 +2956,8 @@ export const CLIENT_CONFIG = {
          *    everywhere (it peaks at exactly 1 at zero range), so the bare
          *    coefficient IS the worst-case pre-grain intensity at every range.
          * 2. IT STILL OUTRANKS SEA STATE EVERYWHERE — the weakest land cell in the
-         *    game (the waterline, at the 660u rim) is 0.2781 × 0.7315 = 0.2034
+         *    game (the waterline, at the radar rim — `surfaceRef` is re-fitted to
+         *    the rim, so the rim attenuation holds) is 0.2781 × 0.7315 = 0.2034
          *    pre-grain and draws worst at 0.2034 × 0.6808 = 0.1385, above the
          *    luckiest clutter cell's 0.1319. Land is never mistakable for water.
          *    This is the bound that stops the coefficient going lower; between
@@ -3029,16 +3110,24 @@ export const CLIENT_CONFIG = {
          *
          * RAISED 700 → 900 by cycle 62, and it is the same tuning target as
          * before rather than a new one: the retired island `gain` (1.4×) was what
-         * kept a solid interior RED out to the 660u rim, and the gain went with
+         * kept a solid interior RED out to the radar rim, and the gain went with
          * the bake that applied it. Putting the reference where the curve ALONE
-         * clears `bands[2].at` at the rim (0.05 + 0.95/(1 + (660/900)³) = 0.73)
-         * restores amendment 78's regression pin — a big tall island is a big red
-         * mass, not one that is only red when you are on top of it — without a
-         * second multiplier nobody could reason about. A FLAT island at the same
-         * range lands at 0.45 × 0.73 = 0.33, i.e. green: the height channel is
-         * still the thing that separates them.
+         * clears `bands[2].at` at the rim (0.05 + 0.95/(1 + (rim/surfaceRef)³)
+         * = 0.73, solved at the then-rim of 660 u as 900) restores amendment
+         * 78's regression pin — a big tall island is a big red mass, not one
+         * that is only red when you are on top of it — without a second
+         * multiplier nobody could reason about. A FLAT island at the same range
+         * lands at 0.45 × 0.73 = 0.33, i.e. green: the height channel is still
+         * the thing that separates them.
+         *
+         * RE-FITTED TO THE TWELFTHS RIM BY STORY 9.8 (epic-9 amendment 103): the
+         * 0.73 target is a statement about the RIM, and the attenuation is a
+         * function of rim/surfaceRef alone, so holding that ratio holds today's
+         * red share at the new rim exactly. Written as a derivation from the
+         * radar rung — 900 scaled by the rim's growth from 660 u — never as the
+         * literal it evaluates to.
          */
-        surfaceRef: 900,
+        surfaceRef: 900 * (CONFIG.vision.radar / 660),
         /**
          * Reference range (u) of the SURFACE curve FOR SEA CLUTTER ONLY — and it
          * exists because amendment 130 requires the haze's concentration to fall
@@ -3056,7 +3145,8 @@ export const CLIENT_CONFIG = {
         /**
          * Reference range (u) of the SURFACE curve FOR DISTURBED WATER — wake
          * and the chop that hangs off it. SOLVED so the wake's unluckiest draw
-         * crosses `bands[0].at` exactly at the eighths ladder's 5/8 rung; see
+         * crosses `bands[0].at` exactly at the twelfths ladder's 6/12 rung
+         * (`CONFIG.vision.muzzleFlash`, epic-9 amendment 103); see
          * `HEAT_WAKE_REF` above the object for why it comes out longer than the
          * coastline's, and for the discipline that keeps the rung out of every
          * paint path.
@@ -3116,7 +3206,9 @@ export const CLIENT_CONFIG = {
          *
          * Buckets land at 1.00 / 0.78 / 0.57 / 0.35 — at the shipped 5.5s clock
          * each bucket is 1.375s, so a torpedo boat at full ahead dissolves over
-         * the last ~124u of a 247.5u track.
+         * the last ~124u of a ~248u track (and a ~248u track is short of the
+         * 750u reach rung, so at range it is the AGE, not the range, that
+         * shortens it).
          */
         wakeTailKeep: 0.35,
         /** Asymptotic floor shared by the SURFACE and VOLUME curves. Small for
@@ -3243,12 +3335,14 @@ export const CLIENT_CONFIG = {
        * sprite on `blipLayer`, never as a per-cell recompute inside
        * `quantizeInto`.
        *
-       * BOTH RADII LAND ON THE EIGHTHS LADDER (amendment 113), never on literals
+       * BOTH RADII LAND ON THE LADDER (amendment 113; twelfths since Story 9.8,
+       * epic-9 amendment 103), never on literals
        * — and since this cycle they are ANCHORED TO TRUESIGHT AND OBSERVER-
        * SCALED, so what lives here is the RATIO to the observer's effective sight
        * rather than a fixed radius. The floor holds across the whole sight bubble
-       * (4/8) and reaches full at the first rung outside it (5/8), which is the
-       * first radius where radar is the only sensor; render/radarDim.ts carries
+       * (4/12) and reaches full at the flash rung (6/12 — the 5/8 rung on the
+       * eighths ladder, the first rung outside the bubble then), where radar
+       * and the flash are the only sensors; render/radarDim.ts carries
        * the derivation and the reasoning, and is the one place the curve exists.
        * Eric's own statement of the rule is a statement about the BUBBLE (*"less
        * prominent in the near sight range where i am going to aim based on LOS
@@ -3259,13 +3353,14 @@ export const CLIENT_CONFIG = {
       dim: {
         /** Flat `minScale` at and inside this multiple of the observer's
          *  EFFECTIVE truesight — 1.0, i.e. the whole sight bubble (the ladder's
-         *  4/8 rung). A MULTIPLE and not a radius, because the bubble is a
+         *  4/12 rung). A MULTIPLE and not a radius, because the bubble is a
          *  boon-widened constant per build (no boon widens radar range any more),
          *  so the ramp stays observer-resolved. */
         innerFactor: 1,
         /** Full painted opacity from this multiple of effective truesight out:
-         *  the 5/8 rung expressed against the 4/8 one (= 1.25), so it stays a
-         *  LADDER derivation and never a literal. */
+         *  the flash rung expressed against the sight rung (6/12 over 4/12 =
+         *  1.5 on the twelfths ladder; 5/8 over 4/8 = 1.25 before Story 9.8),
+         *  so it stays a LADDER derivation and never a literal. */
         outerFactor: CONFIG.vision.muzzleFlash / CONFIG.vision.sight,
         /** Displayed fraction of the painted opacity inside the bubble. Eric's
          *  ratified number (*"painted at 20% its usual opacity"*), UNCHANGED by
@@ -3280,9 +3375,10 @@ export const CLIENT_CONFIG = {
          * opacity everywhere past `outerU`, but a Pixi sprite mask CLIPS to its
          * own frame — anything outside it is hidden outright — so the sprite has
          * to reach past the furthest cell the radar layer can draw. That bound is
-         * a boon-widened scope (~2.01× base = ~1327u) plus the distance own hull
-         * can travel during a paint's ~12s phosphor life (a boon-scaled hull at
-         * ~60 u/s ≈ 720u): ~2047u, comfortably inside 4× base radar (2640u). The
+         * the scope (base radar range — the ladder is frozen at base, no card
+         * widens it) plus the distance own hull can travel during a paint's
+         * ~12s phosphor life (a boon-scaled hull at ~60 u/s ≈ 720u): ~1.5×
+         * base radar, comfortably inside 4× base radar. The
          * span is deliberately NOT observer-scaled with the two factors above:
          * the sprite's world extent is what CLIPS the layer, so scaling it with a
          * smaller bubble would hide the far scope outright. Only the
@@ -3434,7 +3530,8 @@ export const CLIENT_CONFIG = {
 
   /**
    * THE FOGHORN's presentation (Story 4.5, amendments 51-58; rebased onto the
-   * EIGHTHS LADDER by Story 4.9, amendment 122). Every knob here is
+   * EIGHTHS LADDER by Story 4.9, amendment 122; onto TWELVE bands by Story 9.8,
+   * epic-9 ruling 129). Every knob here is
    * CLIENT-ONLY. The one gameplay-authoritative foghorn number —
    * `CONFIG.foghorn.cooldownMs` — is DELIBERATELY ABSENT: the press gate in
    * main.ts reads it straight off shared CONFIG, because a second copy of a
@@ -3445,21 +3542,22 @@ export const CLIENT_CONFIG = {
    */
   foghorn: {
     /**
-     * WIRE BAND → AUDIO GAIN. Which eighth of the LISTENER's own intel range
-     * the honker sits in (1 = innermost, 8 = the radar edge), resolved by the
+     * WIRE BAND → AUDIO GAIN. Which TWELFTH of the LISTENER's own intel range
+     * the honker sits in (1 = innermost, 12 = the radar edge), resolved by the
      * server; this table only says how loud each band plays.
      *
-     * THE CURVE IS FLAT AT FULL VOLUME THROUGH TRUESIGHT (band 4 = 330u at
-     * base stats) and then steps down 12.5 percentage points per band — one
-     * eighth of FULL SCALE, i.e. one quarter of the 100→50% span, in four steps
-     * — to the radar edge (band 8 = 660u at base). BOTH ANCHORS ARE ERIC'S
-     * ORIGINAL FOGHORN RULING — *"within truesight range at full volume"* and
-     * 50% at the radar edge — and must survive any retune of the middle.
+     * GENERATED FROM RULING 129 (Story 9.8, "proportional re-read"): FLAT AT
+     * FULL VOLUME THROUGH TRUESIGHT (bands 1–4; band 4 = sight = radar/3 at
+     * base stats), then gain = 1 − 0.5 × (b − 4) / 8 — even steps of 6.25
+     * points — to 50 % at the radar edge (band 12): 0.9375 / 0.875 / … / 0.5.
+     * BOTH ANCHORS ARE ERIC'S ORIGINAL FOGHORN RULING — *"within truesight
+     * range at full volume"* and 50% at the radar edge — and must survive any
+     * retune of the middle.
      *
      * An unknown/absent band is the caller's problem (roomBindings falls back
      * to full gain for the self and spectator shapes, which carry no band).
      */
-    bandGain: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 0.875, 6: 0.75, 7: 0.625, 8: 0.5 },
+    bandGain: hornTable((k) => 1 - 0.5 * k),
     /**
      * THE SCREEN-EDGE CHEVRON (amendment 55) — the honk's visual twin and the
      * bearing surface amendment 4 said this story had to grow. Rejected
@@ -3503,24 +3601,20 @@ export const CLIENT_CONFIG = {
        *
        * THE TWO ANCHORS ARE TODAY'S SHIPPED LOOK, UNCHANGED. Bands 1-4 carry
        * the old tier-1 weight EXACTLY (22 / 3 / 0.95) — flat through truesight,
-       * exactly as the gain is — and band 8 carries the old tier-3 weight
-       * EXACTLY (13 / 1.8 / 0.5) at the radar edge. Bands 5-7 are the linear
-       * interpolation between them at the gain curve's own fractions
-       * (k = (band - 4) / 4), so the mark's weight and the honk's loudness
-       * step together. Only the MIDDLE gained resolution; nothing about the
-       * shipped grammar moved. `__tests__/foghorn.test.ts` pins both anchors
-       * and the interpolation, so a retune cannot drift one without the other.
+       * exactly as the gain is — and band 12 (the radar edge, ruling 129)
+       * carries the old tier-3 weight EXACTLY (13 / 1.8 / 0.5). Bands 5-11 are
+       * the linear interpolation between them at the gain curve's own
+       * fractions (k = (band − 4) / 8), so the mark's weight and the honk's
+       * loudness step together. Only the MIDDLE gained resolution; nothing
+       * about the shipped grammar moved. `__tests__/foghorn.test.ts` pins both
+       * anchors and the interpolation, so a retune cannot drift one without
+       * the other.
        */
-      bands: {
-        1: { size: 22, thickness: 3, alpha: 0.95 },
-        2: { size: 22, thickness: 3, alpha: 0.95 },
-        3: { size: 22, thickness: 3, alpha: 0.95 },
-        4: { size: 22, thickness: 3, alpha: 0.95 },
-        5: { size: 19.75, thickness: 2.7, alpha: 0.8375 },
-        6: { size: 17.5, thickness: 2.4, alpha: 0.725 },
-        7: { size: 15.25, thickness: 2.1, alpha: 0.6125 },
-        8: { size: 13, thickness: 1.8, alpha: 0.5 },
-      },
+      bands: hornTable((k) => ({
+        size: CHEVRON_NEAR.size + (CHEVRON_EDGE.size - CHEVRON_NEAR.size) * k,
+        thickness: CHEVRON_NEAR.thickness + (CHEVRON_EDGE.thickness - CHEVRON_NEAR.thickness) * k,
+        alpha: CHEVRON_NEAR.alpha + (CHEVRON_EDGE.alpha - CHEVRON_NEAR.alpha) * k,
+      })),
     },
   },
 

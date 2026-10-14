@@ -1813,7 +1813,7 @@ describe('boom identity — spark on a hit, splash on a miss', () => {
 // --- STORY 4.3: THE GUNNERY CONVERSATION ---------------------------------------
 //
 // Three server rows replace three client-side guesses. `mz` says a gun-family
-// weapon fired HERE (for anyone in the 412.5u halo, and deliberately anonymous),
+// weapon fired HERE (for anyone in the muzzle-flash halo, and deliberately anonymous),
 // `sp` is our own fall of shot through any fog, `hc` is "something you fired
 // connected" with no severity of any kind. The two impact rows CLAIM their
 // point, so a shooter who can see their own impact draws one mark, not two.
@@ -2434,8 +2434,10 @@ describe('the sound map (Story 4.7) — placement, suppression, and the tone flo
 
   it('an ENEMY muzzle flash reports — attenuated, and panned toward the flash', () => {
     const { sink, play } = setupWater();
-    // Own hull at the origin; the flash is well off to starboard.
-    sink.handler(victimFrame([{ k: 'mz', x: 330, y: 0 }], {}));
+    // Own hull at the origin; the flash is well off to starboard, on the 6/12
+    // rung — half the audio reach, which is the full radar range (epic-9
+    // amendment 103).
+    sink.handler(victimFrame([{ k: 'mz', x: (CONFIG.vision.radar * 6) / 12, y: 0 }], {}));
     expect(ids(play)).toEqual(['gunReport']);
     const opts = optsOf(play, 'gunReport');
     expect(opts.pan).toBeCloseTo(0.5 * CLIENT_CONFIG.audio.panMax, 5); // half a reach to starboard
@@ -2445,7 +2447,7 @@ describe('the sound map (Story 4.7) — placement, suppression, and the tone flo
 
   it('...and to PORT the pan flips sign, so the ear is pointed at the mark the eye can find', () => {
     const { sink, play } = setupWater();
-    sink.handler(victimFrame([{ k: 'mz', x: -330, y: 0 }], {}));
+    sink.handler(victimFrame([{ k: 'mz', x: -(CONFIG.vision.radar * 6) / 12, y: 0 }], {}));
     expect(optsOf(play, 'gunReport').pan).toBeLessThan(0);
   });
 

@@ -32,11 +32,11 @@
 // than a clamp — so two different ranges still never attenuate identically,
 // which is amendment 64's one-quantity-per-channel rule.
 //
-// NOTHING HERE READS A RANGE CONSTANT AT ALL — not the eighths ladder's 7/8
-// rung, not any other. The red->blue crossover is fitted (`fitPointRef`) where
+// NOTHING HERE READS A RANGE CONSTANT AT ALL — not the far-radar anchor
+// (`farRadar`, 8/12 of the twelfths ladder since Story 9.8), not any other. The red->blue crossover is fitted (`fitPointRef`) where
 // the client tunables are defined, and it enters the paint path only as a
-// reference RANGE inside the curve. A comparison against a rung — `if (d > the
-// 7/8 constant)` — anywhere on a paint path violates amendments 105/118 and is
+// reference RANGE inside the curve. A comparison against a rung — `if (d >
+// farRadar)` — anywhere on a paint path violates amendments 105/118 and is
 // the wrong implementation of the ladder; Story 4.9's own source comment on that
 // constant (shared/src/constants.ts, `vision`) says so in as many words, and the
 // grep that proves it holds is run over this whole directory. Fit the curve; do
@@ -167,7 +167,7 @@ export interface PointFit {
  * mark), so scaling reflectivity by extent as well was counting the same physics
  * twice. Eric's ruling is that colour is MATERIAL and RANGE only. What survives
  * here is therefore a PURE STATEMENT ABOUT RANGE: **every hull crosses red->blue
- * at 7/8 intel range, whatever its class and whatever its aspect** — which is
+ * at the far-radar anchor, whatever its class and whatever its aspect** — which is
  * what amendment 118 actually asks for, and which no longer needs a nominated
  * "mid-size hull broadside" to be meaningful.
  *
@@ -337,7 +337,7 @@ export function fitGrainScale(o: GrainFit): number {
 /** Everything `fitMaterialRef` needs to solve for a material's reference range. */
 export interface MaterialFit {
   /** Range (u) at which the material's UNLUCKIEST draw must land exactly on
-   *  `band` — its REACH. The caller passes a rung of the eighths ladder, and
+   *  `band` — its REACH. The caller passes a rung of the ladder (twelfths since Story 9.8), and
    *  client/src/config.ts is the only place that constant may be read. */
   reach: number;
   /** The intensity the worst draw must land on there — `bands[0].at`, the
@@ -358,7 +358,7 @@ export interface MaterialFit {
 /**
  * THE REACH CALIBRATION (Story 4.12, amendment 203) — solve for the reference
  * range that puts a material's WORST DRAW exactly on the transparency threshold
- * at `reach`, so its extent lands on the eighths ladder instead of on a literal.
+ * at `reach`, so its extent lands on the ladder instead of on a literal.
  *
  * It is `fitPointRef`'s sibling and follows the same discipline: the answer is
  * an input to the CURVE, never a range anything compares against. Writing
@@ -367,7 +367,7 @@ export interface MaterialFit {
  *
  * IT FITS THE WORST DRAW, NOT THE NOMINAL, and that is the whole point of
  * bothering (amendment 135: a bound proved at nominal is not proved). "The wake
- * reads out to 5/8 intel range" means EVERY cell of it lights out to there, so
+ * reads out to the flash rung" (6/12 of intel range) means EVERY cell of it lights out to there, so
  * the quantity that must land on the threshold is the unluckiest draw
  * (`worstDrawIntensity`), not the average one. Inside the reach every draw
  * clears the threshold and the material lights all of its cells; past it the lit

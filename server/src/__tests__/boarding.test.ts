@@ -26,6 +26,13 @@ const DT = CONFIG.tick.simDtMs;
 /** Fast lifecycle timings; joinWindowMs 0 = the legacy waiting -> countdown
  *  path, so a satisfied boarding gate arms visibly on the very next call. */
 const BASE: MatchTimings = { countdownMs: 100, resultsMs: 200, joinWindowMs: 0 };
+/** u — squarely in the radar annulus: one rung (radar / 12) past truesight,
+ *  inside the dropout's flat band so every sweep paints, and clear of world
+ *  1's island shadow. The old annulus midpoint ((sight + radar) / 2) lands at
+ *  the dropout start on the twelfths ladder, inside that shadow (Story 9.8,
+ *  amendment 103). */
+const BAND_D = CONFIG.vision.sight + CONFIG.vision.radar / 12;
+
 /** A short grace so the backstop cases don't step 400 ticks. */
 const GRACE_MS = 1000;
 
@@ -315,7 +322,7 @@ describe('boarding freeze — radar off, truesight ON', () => {
     a.state.x = 0;
     a.state.y = 0;
     // Squarely in the radar annulus: outside truesight, inside radar range.
-    b.state.x = (CONFIG.vision.sight + CONFIG.vision.radar) / 2;
+    b.state.x = BAND_D;
     b.state.y = 0;
     for (let i = 0; i < 100; i++) {
       step(ctx);
@@ -334,14 +341,14 @@ describe('boarding freeze — radar off, truesight ON', () => {
     expect(ctx.m.phase).toBe('active');
     a.state.x = 0;
     a.state.y = 0;
-    b.state.x = (CONFIG.vision.sight + CONFIG.vision.radar) / 2;
+    b.state.x = BAND_D;
     b.state.y = 0;
     let painted = 0;
     for (let i = 0; i < 100; i++) {
       step(ctx);
       a.state.x = 0;
       a.state.y = 0;
-      b.state.x = (CONFIG.vision.sight + CONFIG.vision.radar) / 2;
+      b.state.x = BAND_D;
       b.state.y = 0;
       painted += buildFrame(ctx.w, 'a', 'active').events.filter((e) => e.k === 'blip').length;
     }

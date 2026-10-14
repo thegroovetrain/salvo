@@ -128,8 +128,11 @@ describe('the NFR1 profile — the reference scenario the frame budget is judged
     const near = world.hulls.filter((h) => !h.far);
     expect(near.some((h) => isDroneHull(h.cls))).toBe(true);
     expect(near.some((h) => !isDroneHull(h.cls))).toBe(true);
-    // One quarter near: the bubble is (sight/radar)^2 = 1/4 of the scope's disc.
-    expect(near.length / world.hulls.length).toBeCloseTo(0.25, 1);
+    // The near share is the bubble's share of the scope's disc, (sight/radar)^2
+    // — one ninth on the twelfths ladder (sight = radar 4/12, epic-9 amendment
+    // 103; it was one quarter on the eighths ladder).
+    const bubbleShare = (CONFIG.vision.sight / CONFIG.vision.radar) ** 2;
+    expect(near.length / world.hulls.length).toBeCloseTo(bubbleShare, 1);
   });
 
   it('paints the far band on a REAL sweep cadence, not once per hull per tick', () => {

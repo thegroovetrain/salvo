@@ -303,13 +303,15 @@ const NFR1_FLEET_HULLS =
  * NEAR/FAR INTERLEAVE for the NFR1 profile: every 4th slot sits inside the
  * truesight bubble.
  *
- * FOUR IS THE AREA RATIO, not a feel number. The bubble is `sight` (330u) and
- * the scope reaches `radar` (660u), so the bubble is (330/660)² = one QUARTER
- * of the disc a uniformly-spread population occupies — a quarter near, three
- * quarters in the annulus. Taking every 4th slot also mixes captains and fleet
- * hulls into both bands, which is the point of using a stride at all.
+ * THE STRIDE IS THE AREA RATIO, not a feel number. The bubble is `sight` and
+ * the scope reaches `radar`, so the bubble is (sight/radar)² of the disc a
+ * uniformly-spread population occupies. It was FOUR on the eighths ladder
+ * (330/660); the twelfths ladder (Story 9.8, epic-9 amendment 103 — radar =
+ * 3 × sight) makes it NINE, one near and eight in the annulus. Taking every
+ * Nth slot also mixes captains and fleet hulls into both bands, which is the
+ * point of using a stride at all.
  */
-const NFR1_NEAR_STRIDE = 4;
+const NFR1_NEAR_STRIDE = Math.round((CONFIG.vision.radar / CONFIG.vision.sight) ** 2);
 
 /** Ticks per radar revolution at the shipped sweep rate — how often ONE far
  *  hull legitimately paints. 15 rpm ⇒ 4 s ⇒ 80 ticks at the 20 Hz sim rate. */

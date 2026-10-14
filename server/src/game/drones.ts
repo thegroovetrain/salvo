@@ -525,8 +525,9 @@ export class FleetController {
    * point (3 passes is far past convergence at these speeds); the scatter is a
    * uniform disc of `CONFIG.fleet.aimScatterU[size]` around it.
    *
-   * Lead is not optional flavour: over ≤330u a 500 u/s shell flies ~0.66 s, in
-   * which a 45 u/s Torpedo Boat moves 30u against a 15u burst radius — so an
+   * Lead is not optional flavour: over a few hundred units a 500 u/s shell
+   * flies well over half a second (~0.66 s at 330u), in which a 45 u/s
+   * Torpedo Boat moves ~30u against a 15u burst radius — so an
    * unled shot misses nearly every moving hull and a perfectly led one nearly
    * never misses. The scatter is the whole difficulty channel between sizes.
    */

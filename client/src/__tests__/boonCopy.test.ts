@@ -194,10 +194,20 @@ describe('the stat tables — one builder for the face and both hovers', () => {
   });
 
   it('prints RANGE (the derived rangeU) LAST, in lowercase world units', () => {
-    expect(text(equipmentStatRows('gun', bare)).at(-1)).toBe(`RANGE ${bare.equipment.gun.rangeU} u`);
-    expect(text(equipmentStatRows('flak', bare)).at(-1)).toBe(`RANGE ${bare.equipment.flak.rangeU} u`);
+    expect(text(equipmentStatRows('gun', bare)).at(-1)).toBe(`RANGE ${Math.round(bare.equipment.gun.rangeU)} u`);
+    expect(text(equipmentStatRows('flak', bare)).at(-1)).toBe(`RANGE ${Math.round(bare.equipment.flak.rangeU)} u`);
     // A torpedo's row carries no rangeU, so it prints none.
     expect(equipmentStatRows('heavyTorpedo', bare).map((r) => r.label)).not.toContain('RANGE');
+    // ...and ONCE: since Story 9.8 `rangeU` is also a stat-table field (ruling
+    // 125), and the table must not print it mid-row as well as last.
+    expect(equipmentStatRows('gun', bare).filter((r) => r.label === 'RANGE')).toHaveLength(1);
+  });
+
+  it('prints RANGE to the WHOLE unit — a +31.25 u card step never shows a decimal (Story 9.8 display ruling)', () => {
+    // One flak card: Tier I + one (V − I) / 4 step, a quarter-unit value.
+    const one = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['flak']);
+    expect(Number.isInteger(one.equipment.flak.rangeU), 'the premise: a fractional reach').toBe(false);
+    expect(text(equipmentStatRows('flak', one)).at(-1)).toBe(`RANGE ${Math.round(one.equipment.flak.rangeU)} u`);
   });
 
   it('the MACHINE GUN: SHELLS, and RATE to two decimals with the trailing zero kept', () => {
@@ -206,7 +216,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
       'SHELLS 12',
       'DAMAGE 5',
       'RATE 0.30 s',
-      `RANGE ${bare.equipment.machineGun.rangeU} u`,
+      `RANGE ${Math.round(bare.equipment.machineGun.rangeU)} u`,
     ]);
     const top = effectiveStats(CONFIG.shipClasses.torpedoBoat, Array<string>(4).fill('machineGun'));
     expect(text(equipmentStatRows('machineGun', top))).toContain('RATE 0.10 s');

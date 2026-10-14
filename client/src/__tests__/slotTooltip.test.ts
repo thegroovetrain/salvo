@@ -162,7 +162,7 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
       'SHELLS PER SHOT',
       'RANGE',
     ]);
-    expect(lines(m.stats).at(-1)).toBe(`RANGE ${stats.equipment.gun.rangeU} u`);
+    expect(lines(m.stats).at(-1)).toBe(`RANGE ${Math.round(stats.equipment.gun.rangeU)} u`);
   });
 
   it('prints the MACHINE GUN\'s magazine as SHELLS and its shot delay as RATE (two decimals)', () => {
@@ -171,7 +171,7 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
       'SHELLS 12',
       'DAMAGE 5',
       'RATE 0.30 s',
-      `RANGE ${STATS.equipment.machineGun.rangeU} u`,
+      `RANGE ${Math.round(STATS.equipment.machineGun.rangeU)} u`,
     ]);
   });
 

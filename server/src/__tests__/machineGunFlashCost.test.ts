@@ -43,7 +43,7 @@ import { SHIP_CLASS_IDS, wrapAngle } from '@salvo/shared';
 import { World } from '../game/world.js';
 
 const BOTS = 20;
-const RING_U = 220; // every bot within 440 u of every other — inside the 660 u reach
+const RING_U = 220; // every bot within 440 u of every other — inside every mounted gun's Tier I reach (Story 9.8)
 const WARMUP_TICKS = 60; // 3 s: acquire (reaction gate) and open the streams
 const WINDOW_TICKS = 200; // 10 s: a full 12-shell magazine (3.3 s at 300 ms) and most of the 12 s swap after it
 

@@ -625,7 +625,8 @@ const FIELD_WORDS: Readonly<Record<string, string>> = {
   // THE MACHINE GUN'S SHOT DELAY (Eric 2026-09-30, amendment 189): a stat
   // field and a tier step now. `RATE` is the humanizer's own word, spelled out.
   rateMs: 'RATE',
-  // The derived max travel (`rangeU`, re-pinned to the radar range post-fold),
+  // The weapon's max travel (`rangeU` — its own TIERED dial on the twelfths
+  // ruler since Story 9.8, ruling 125, stepped by every card of its line),
   // printed LAST on the stat tables that carry it (amendment 185). The
   // humanizer would say `RANGE U`; the unit rides `FIELD_UNITS`.
   rangeU: 'RANGE',
@@ -658,6 +659,12 @@ const FIELD_FMTS: Readonly<Record<string, (v: number) => string>> = {
   // 0.10 s), which the one-decimal `secs` would flatten — two decimals, the
   // trailing zero kept so the ladder reads in one register.
   rateMs: (v) => `${(v / 1000).toFixed(2)} s`,
+  // RANGE prints to the WHOLE unit on the card face, the hover and the tooltip
+  // (Story 9.8, orchestrator display ruling — Eric may veto on staging): the
+  // +31.25 u per-card step of ruling 125 would otherwise print `656.3`, and
+  // the decimal carries no information a captain can use. The sim keeps the
+  // exact value; this is display only.
+  rangeU: (v) => String(Math.round(v)),
 };
 
 /**
@@ -771,12 +778,25 @@ function ladderRows(
 ): CardStatRow[] {
   const k = Math.min(Math.max(0, Math.trunc(copiesHeld)), line.tiers.length - 1);
   const rows: CardStatRow[] = [];
+  const range: CardStatRow[] = [];
   for (const e of line.tiers[k] ?? []) {
     if (e.kind !== 'stat' || UNPRINTED_PATHS.has(e.path)) continue;
     const row = dropUnchanged ? stepRow(e.path, before, after) : diffRow(e.path, before, after);
-    if (row !== null) rows.push(row);
+    if (row !== null) (isRangePath(e.path) ? range : rows).push(row);
   }
-  return rows;
+  return [...rows, ...range];
+}
+
+/**
+ * Pure: is this authored step a weapon's REACH (`equipment.<w>.rangeU`)? Since
+ * Story 9.8 (ruling 125) every gun card steps its line's reach, and the RANGE
+ * row prints LAST on the card exactly as it does on every stat table
+ * (amendment 185) — one grammar, whatever order the catalog authored the step
+ * in. On a face that would run past the five-row grid it is therefore the
+ * RANGE row, the newest one, that `CARD_STAT_ROWS` cuts, never a shipped row.
+ */
+function isRangePath(path: string): boolean {
+  return path.endsWith('.rangeU');
 }
 
 /**
@@ -837,9 +857,18 @@ const FACE_FIELDS: Readonly<Partial<Record<EquipmentId, readonly string[]>>> = {
 };
 
 /** Pure: the fields the fit card prints for one weapon — its override above, or
- *  its whole stat table. */
+ *  its whole stat table LESS `rangeU`.
+ *
+ *  `rangeU` joined `EQUIPMENT_STAT_FIELDS` in Story 9.8 (ruling 125 made every
+ *  weapon reach a card-stepped dial), third in table order. Printed there on
+ *  the fit face it would push the table's last shipped row — STAR SHELLS'
+ *  DAMAGE, BROADSIDE's TURRETS — off the five-row grid (`CARD_STAT_ROWS`, not
+ *  ours to grow). So the fit face stays exactly as shipped; the RANGE row rides
+ *  every TIER card of the line (`ladderRows`) and the stat tables (RANGE LAST,
+ *  amendment 185). */
 function faceFields(target: EquipmentId): readonly string[] {
-  return FACE_FIELDS[target] ?? (EQUIPMENT_STAT_FIELDS[target] as readonly string[]);
+  const fields = FACE_FIELDS[target] ?? (EQUIPMENT_STAT_FIELDS[target] as readonly string[]);
+  return fields.filter((f) => f !== 'rangeU');
 }
 
 /**
@@ -1123,6 +1152,9 @@ export function equipmentStatRows(target: EquipmentId, stats: EffectiveStats): C
   const hasTrigger = typeof row.triggerRadius === 'number' && !fields.includes('triggerRadius');
   const rows: CardStatRow[] = [];
   for (const field of fields) {
+    // RANGE is printed ONCE, LAST (below) — since Story 9.8 it is also a table
+    // field (ruling 125), and the loop must not print it a second time mid-table.
+    if (field === 'rangeU') continue;
     rows.push(absoluteRow(target, field, stats));
     if (hasTrigger && triggerFollows(field, fields)) rows.push(absoluteRow(target, 'triggerRadius', stats));
   }

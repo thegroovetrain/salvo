@@ -5,16 +5,29 @@
 // clamp still governs the moment the mode is released.
 
 import { describe, it, expect } from 'vitest';
-import { Camera, revealZoomFactor, SPECTATE_ZOOM_MIN } from '../render/camera.js';
-import { wheelZoom, spectatePan } from '../render/spectate.js';
+import { Camera, revealZoomFactor } from '../render/camera.js';
+import { wheelZoom, spectatePan, SPECTATE_ZOOM_MIN } from '../render/spectate.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity } from '../settings/store.js';
 
-const RADAR = 660;
+// Story 9.8 (epic-9 ruling 127): the reveal is an ABSOLUTE span — 2 × mapRadius
+// × margin across the short axis — and as a factor over the default framing it
+// is defaultSpanU / (2 × mapRadius × margin). Every number below derives from
+// CLIENT_CONFIG.zoom.defaultSpanU, never a radar term.
+const DEFAULT_SPAN = CLIENT_CONFIG.zoom.defaultSpanU;
 const MAP_RADIUS = 2400;
+/** The reveal factor at margin 1 — the map diameter fitted to the short axis. */
+const FIT = DEFAULT_SPAN / (2 * MAP_RADIUS);
 
-function makeCamera(radarRange = RADAR): Camera {
-  const c = new Camera({ radarRange, followRate: 5, leadSeconds: 4, leadMax: 110 });
+function makeCamera(): Camera {
+  const c = new Camera({
+    defaultSpanU: DEFAULT_SPAN,
+    closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
+    ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
+    followRate: 5,
+    leadSeconds: 4,
+    leadMax: 110,
+  });
   c.setViewport(1600, 900); // short axis 900
   return c;
 }
@@ -24,46 +37,42 @@ function settle(cam: Camera, motionScale: number): void {
   for (let i = 0; i < 300; i++) cam.tickZoom(1000 / 60, motionScale);
 }
 
-describe('revealZoomFactor — derived from the radar fit, never a literal', () => {
-  it('swaps the radar-diameter fit for the map-diameter fit', () => {
-    // baseZoom fits 2*radarRange; the map is 2*mapRadius across, so the factor
-    // is radarRange / (mapRadius * margin) — ~0.275 at the shipped numbers.
-    expect(revealZoomFactor(RADAR, MAP_RADIUS, 1)).toBeCloseTo(1320 / 4800, 12);
-    expect(revealZoomFactor(RADAR, MAP_RADIUS, 1)).toBeCloseTo(0.275, 12);
+describe('revealZoomFactor — an absolute span, never a factor over radar (ruling 127)', () => {
+  it('fits the map diameter to the short axis: defaultSpanU / (2 × mapRadius × margin)', () => {
+    expect(revealZoomFactor(DEFAULT_SPAN, MAP_RADIUS, 1)).toBeCloseTo(FIT, 12);
+    const cam = makeCamera();
+    cam.beginReveal(MAP_RADIUS, CLIENT_CONFIG.reveal.mapFitMargin, CLIENT_CONFIG.reveal.zoomRate);
+    cam.tickZoom(0, 0);
+    // shortAxis / (2 × mapRadius × margin) px per u — written directly.
+    expect(cam.zoom).toBeCloseTo(900 / (2 * MAP_RADIUS * CLIENT_CONFIG.reveal.mapFitMargin), 10);
   });
 
   it('tracks a CHANGED map radius (Story 6.2 makes map sizing roster-dynamic)', () => {
-    const small = revealZoomFactor(RADAR, 1200, 1);
-    const big = revealZoomFactor(RADAR, 4800, 1);
-    expect(small).toBeCloseTo(0.55, 12); // half the map => twice the factor
-    expect(big).toBeCloseTo(0.1375, 12);
+    const small = revealZoomFactor(DEFAULT_SPAN, MAP_RADIUS / 2, 1);
+    const big = revealZoomFactor(DEFAULT_SPAN, MAP_RADIUS * 2, 1);
+    expect(small).toBeCloseTo(FIT * 2, 12); // half the map => twice the factor
+    expect(big).toBeCloseTo(FIT / 2, 12);
     expect(big).toBeLessThan(small);
   });
 
-  it('tracks a CHANGED radar range (a radarRange upgrade moves the base fit)', () => {
-    // A wider radar means baseZoom is already further out, so LESS extra
-    // pull-back is needed to reach the same world framing.
-    expect(revealZoomFactor(RADAR * 1.15, MAP_RADIUS, 1)).toBeCloseTo((0.275 * 1.15), 12);
-  });
-
   it('leaves a border for the margin, and is monotonic in it', () => {
-    const flush = revealZoomFactor(RADAR, MAP_RADIUS, 1);
-    const bordered = revealZoomFactor(RADAR, MAP_RADIUS, CLIENT_CONFIG.reveal.mapFitMargin);
+    const flush = revealZoomFactor(DEFAULT_SPAN, MAP_RADIUS, 1);
+    const bordered = revealZoomFactor(DEFAULT_SPAN, MAP_RADIUS, CLIENT_CONFIG.reveal.mapFitMargin);
     expect(CLIENT_CONFIG.reveal.mapFitMargin).toBeGreaterThan(1);
     expect(bordered).toBeLessThan(flush); // further out => the disc has room
   });
 
   it('returns the plain base framing (1) for degenerate inputs — never NaN', () => {
     expect(revealZoomFactor(NaN, MAP_RADIUS, 1)).toBe(1);
-    expect(revealZoomFactor(RADAR, 0, 1)).toBe(1);
-    expect(revealZoomFactor(RADAR, MAP_RADIUS, 0)).toBe(1);
-    expect(revealZoomFactor(RADAR, Infinity, 1)).toBe(1);
+    expect(revealZoomFactor(DEFAULT_SPAN, 0, 1)).toBe(1);
+    expect(revealZoomFactor(DEFAULT_SPAN, MAP_RADIUS, 0)).toBe(1);
+    expect(revealZoomFactor(DEFAULT_SPAN, Infinity, 1)).toBe(1);
     expect(revealZoomFactor(-1, MAP_RADIUS, 1)).toBe(1);
   });
 });
 
 describe('Camera reveal framing — the whole ocean in frame', () => {
-  it('beginReveal uses the camera OWN radarRange, and the settled view fits the map', () => {
+  it('beginReveal uses the camera OWN default span, and the settled view fits the map', () => {
     const cam = makeCamera();
     cam.beginReveal(MAP_RADIUS, 1, CLIENT_CONFIG.reveal.zoomRate);
     settle(cam, 1);
@@ -74,23 +83,12 @@ describe('Camera reveal framing — the whole ocean in frame', () => {
     expect(cam.worldView.halfH).toBeCloseTo(MAP_RADIUS, 6);
   });
 
-  it('follows a radarRange upgrade taken BEFORE the reveal', () => {
-    const cam = makeCamera();
-    cam.setRadarRange(RADAR * 1.15);
-    cam.beginReveal(MAP_RADIUS, 1, CLIENT_CONFIG.reveal.zoomRate);
-    settle(cam, 1);
-    expect(cam.zoomFactor).toBeCloseTo(0.275 * 1.15, 10);
-    // The COMPOSED zoom is the same world framing either way — the base fit and
-    // the factor move in opposite directions by construction.
-    expect(900 / cam.zoom).toBeCloseTo(2 * MAP_RADIUS, 6);
-  });
-
-  it('is EXEMPT from the spectate clamp (amendment 25) — it settles below 0.5x', () => {
+  it('is EXEMPT from the spectate clamp (amendment 25) — it settles below its floor', () => {
     const cam = makeCamera();
     cam.beginReveal(MAP_RADIUS, CLIENT_CONFIG.reveal.mapFitMargin, CLIENT_CONFIG.reveal.zoomRate);
     settle(cam, 1);
     expect(cam.zoomFactor).toBeLessThan(SPECTATE_ZOOM_MIN);
-    expect(cam.zoomFactor).toBeCloseTo(RADAR / (MAP_RADIUS * CLIENT_CONFIG.reveal.mapFitMargin), 10);
+    expect(cam.zoomFactor).toBeCloseTo(DEFAULT_SPAN / (2 * MAP_RADIUS * CLIENT_CONFIG.reveal.mapFitMargin), 10);
   });
 
   it('survives a resize: the factor is viewport-independent, the framing is not', () => {
@@ -123,9 +121,9 @@ describe('The animated zoom + the motion setting (amendment 26 — NOT exempt)',
     cam.tickZoom(1000 / 60, motionIntensity('full'));
     const after1 = cam.zoomFactor;
     expect(after1).toBeLessThan(start); // moving out
-    expect(after1).toBeGreaterThan(0.275); // but nowhere near arrived
+    expect(after1).toBeGreaterThan(FIT); // but nowhere near arrived
     settle(cam, motionIntensity('full'));
-    expect(cam.zoomFactor).toBeCloseTo(0.275, 6);
+    expect(cam.zoomFactor).toBeCloseTo(FIT, 6);
   });
 
   it('reduced scales the DURATION, never the destination (half the time)', () => {
@@ -157,7 +155,7 @@ describe('The animated zoom + the motion setting (amendment 26 — NOT exempt)',
     snapped.beginReveal(MAP_RADIUS, 1, CLIENT_CONFIG.reveal.zoomRate);
     // One frame at `off` is the whole animation.
     snapped.tickZoom(1000 / 60, motionIntensity('off'));
-    expect(snapped.zoomFactor).toBeCloseTo(0.275, 12);
+    expect(snapped.zoomFactor).toBeCloseTo(FIT, 12);
     // "off removes motion, never information": same destination as `full`.
     settle(animated, motionIntensity('full'));
     expect(snapped.zoomFactor).toBeCloseTo(animated.zoomFactor, 6);
@@ -168,7 +166,7 @@ describe('The animated zoom + the motion setting (amendment 26 — NOT exempt)',
     const cam = makeCamera();
     cam.beginReveal(MAP_RADIUS, 1, CLIENT_CONFIG.reveal.zoomRate);
     cam.tickZoom(0, motionIntensity('off'));
-    expect(cam.zoomFactor).toBeCloseTo(0.275, 12);
+    expect(cam.zoomFactor).toBeCloseTo(FIT, 12);
   });
 
   it('is a no-op when the reveal mode is off, and tolerates a junk dt', () => {
@@ -193,7 +191,7 @@ describe('The animated zoom + the motion setting (amendment 26 — NOT exempt)',
 });
 
 describe('Manual input releases the reveal — then the clamp governs again', () => {
-  it('a wheel notch releases the mode and the [0.5, 1] clamp takes over', () => {
+  it('a wheel notch releases the mode and the spectate-span clamp takes over', () => {
     const cam = makeCamera();
     cam.beginReveal(MAP_RADIUS, 1, CLIENT_CONFIG.reveal.zoomRate);
     settle(cam, 1);
@@ -202,7 +200,7 @@ describe('Manual input releases the reveal — then the clamp governs again', ()
     // The real wheel path: wheelZoom() off the live factor, into setZoomFactor.
     cam.setZoomFactor(wheelZoom(cam.zoomFactor, 250));
     expect(cam.revealing).toBe(false);
-    // LEDGERED POP (amendment 25): 0.275 -> the clamp floor, accepted.
+    // LEDGERED POP (amendment 25): FIT -> the clamp floor, accepted.
     expect(cam.zoomFactor).toBe(SPECTATE_ZOOM_MIN);
 
     // Ticking after release must not drag the camera back out.
@@ -240,14 +238,17 @@ describe('Manual input releases the reveal — then the clamp governs again', ()
     expect(cam.zoomFactor).toBe(1);
   });
 
-  it('the reveal never touches the alive user-zoom clamp', () => {
+  it('the reveal never touches the alive user-zoom limits', () => {
     const cam = makeCamera();
+    cam.setRing(0, 0, MAP_RADIUS);
+    const lim = cam.userZoomLimits;
     cam.beginReveal(MAP_RADIUS, 1, CLIENT_CONFIG.reveal.zoomRate);
     settle(cam, 1);
-    cam.setUserZoom(0.1);
-    expect(cam.userZoom).toBe(0.5); // USER_ZOOM_MIN, unmoved
+    expect(cam.userZoomLimits).toEqual(lim);
+    cam.setUserZoom(0.01);
+    expect(cam.userZoom).toBe(lim.min); // the ring fit, unmoved
     cam.setUserZoom(99);
-    expect(cam.userZoom).toBe(1.5); // USER_ZOOM_MAX, unmoved
+    expect(cam.userZoom).toBe(lim.max); // the close framing, unmoved
   });
 });
 
@@ -262,8 +263,8 @@ describe('CLIENT_CONFIG.reveal', () => {
     cam.beginReveal(MAP_RADIUS, 1, CLIENT_CONFIG.reveal.zoomRate);
     const frames = Math.round(CLIENT_CONFIG.reveal.zoomMs / (1000 / 60));
     for (let i = 0; i < frames; i++) cam.tickZoom(1000 / 60, motionIntensity('full'));
-    // 3 time constants in: ~95% of the travel from 1 to 0.275 is done.
-    const done = (1 - cam.zoomFactor) / (1 - 0.275);
+    // 3 time constants in: ~95% of the travel from 1 to FIT is done.
+    const done = (1 - cam.zoomFactor) / (1 - FIT);
     expect(done).toBeGreaterThan(0.94);
     expect(done).toBeLessThan(0.97);
   });

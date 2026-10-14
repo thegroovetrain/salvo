@@ -1030,7 +1030,7 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
   it('tier I: A and B take 10, C nothing, `hc`, and a r100 / 8 s / 5 hp/s zone spawns at the burst point (no lit zone)', () => {
     const { w, a, slot, A, B, C } = board();
     const row = a.stats.equipment.phosphorShells;
-    expect([row.damage, row.zoneRadius, row.zoneDurationMs, row.dps, row.rangeU]).toEqual([10, 100, 8000, 5, CONFIG.vision.radar]);
+    expect([row.damage, row.zoneRadius, row.zoneDurationMs, row.dps, row.rangeU]).toEqual([10, 100, 8000, 5, CONFIG.phosphorShells.rangeU]); // reach: its own Tier I dial (Story 9.8, ruling 125)
     const hp = { A: A.hp, B: B.hp, C: C.hp };
     const { seen, at } = fireUntilStop(w, a, slot, 0, 400);
     expect(kinds(seen)).toContain('burst');
@@ -1219,7 +1219,7 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
     a.prevSweepAngle = Math.PI; // park the firer's own radar beam away from the target bearing
     a.sweepAngle = Math.PI + 0.0001;
     fitTier(w, a, 'phosphorShells', 1);
-    const hidden = place(w, 'hidden', 520, 40, Math.PI / 2); // inside the zone, 520 u from the firer (sight 330)
+    const hidden = place(w, 'hidden', 520, 40, Math.PI / 2); // inside the zone, ~522 u from the firer — just past its sight bubble
     fireUntilStop(w, a, slotOf(a, 'phosphorShells'), 0, 500);
     expect(w.burnZones.size).toBe(1);
     expect(hidden.hp).toBeLessThan(hidden.stats.maxHp); // it WAS hit — the zone covers it

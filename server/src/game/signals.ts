@@ -98,6 +98,7 @@ import {
   type Vec2,
   paintSegmentCoverage,
   cloudOutlineRadius,
+  dropoutPaints,
   type CloudView,
   type WakeBlipEvent,
   type WakeRibbon,
@@ -167,6 +168,24 @@ interface SignalContextBase {
    *  wake scan's subject list, riding the context the way the height raster
    *  does. Inert on the spectator path (spectators get no radar). */
   readonly wakes: readonly WakeRibbon[];
+  /**
+   * THE RADAR DROPOUT ROLL'S SEED (Story 9.8, rulings 121–123 —
+   * `World.dropoutSeed`): the world-level term of the stateless per-
+   * revolution hash `dropoutPaints(d, seed, observer, target, rev)`.
+   * SERVER-PRIVATE — derived from the per-room pseudonym entropy, never the
+   * client-known map seed: a client that could replay the roll could test
+   * which known hull a missed or delivered anonymous paint could have been.
+   * Read by the four radar gates (blipGate — ship blips and decoy paints —
+   * wakeGate's radar half and the cloud's radar clause) and nothing else.
+   */
+  readonly dropoutSeed: number;
+  /**
+   * The dropout roll's TARGET KEY for a wake ribbon (Story 9.8 —
+   * `World.wakeKeyOf`): the id of the water's SOURCE (the ship's id for a
+   * hull's ribbon, active or detached; the torpedo's shell id for fish
+   * water). Server-private; never on the wire.
+   */
+  wakeKeyOf(r: WakeRibbon): string;
 }
 
 /** The fogged observe() path: rows apply full fog-of-war. observe() fail-closes
@@ -305,7 +324,8 @@ function pointSighted(me: ShipRecord, p: Vec2, islands: readonly Island[]): bool
 }
 
 /**
- * DETECT-tier test for a point (Story 4.9, amendments 119/121): the 3/8 rung —
+ * DETECT-tier test for a point (Story 4.9, amendments 119/121): the 4/12 rung
+ * since Story 9.8 (`detectFactor` 1, so detect = sight on the twelfths ruler) —
  * within `sightOf(me) * CONFIG.vision.detectFactor` (inclusive) +
  * LOS-clear. pointSighted's SIBLING, never a narrowing of it: exactly THREE
  * rows ride this gate — mines (mineSignal), torpedoes (ballisticSignal's
@@ -318,7 +338,7 @@ function pointSighted(me: ShipRecord, p: Vec2, islands: readonly Island[]): bool
  * sight) and island LOS applies unchanged. The rung is
  * resolved through `sightOf`, never a literal, so it keeps ONE derivation
  * path: no card writes `stats.radarRange` today (the INTEL RANGE line was
- * deleted 2026-08-20), so every observer resolves the same 247.5u — but a
+ * deleted 2026-08-20), so every observer resolves the same base sight rung — but a
  * future radar card would move this rung for free.
  */
 function pointDetected(me: ShipRecord, p: Vec2, islands: readonly Island[]): boolean {
@@ -329,14 +349,14 @@ function pointDetected(me: ShipRecord, p: Vec2, islands: readonly Island[]): boo
 }
 
 /**
- * THE 5/8 RUNG, OBSERVER-SCALED (Eric ruling 2026-08-16: *"It scales. Intel
+ * THE 6/12 RUNG (the 5/8 rung before Story 9.8), OBSERVER-SCALED (Eric ruling 2026-08-16: *"It scales. Intel
  * range means your detection range on all levels gets further."*). THE one
  * resolver — both the `mz` and `sm` rows call it, because a second hand-rolled
  * copy of a sight tier is exactly the desync class this file exists to prevent.
  *
  * Anchored on `me.stats.radarRange`, NEVER on `sightOf`. No card writes that
  * field today — the INTEL RANGE line was deleted 2026-08-20, so the rung
- * resolves to the same 412.5u for every observer — but the anchor STAYS,
+ * resolves to the same 6/12 rung for every observer — but the anchor STAYS,
  * because it keeps ONE derivation path and a future radar card would scale
  * the rung with no change here. That is also what kept the
  * ratified reading — *a flash is a light source, not an illuminated object, so
@@ -476,12 +496,36 @@ function withinRadarRange(me: ShipRecord, p: Vec2): boolean {
  * height: observer and target are both at mast height (amendment 101), which
  * is what makes the model symmetric.
  */
-function blipGate(me: ShipRecord, p: Vec2, raster: HeightRaster): boolean {
+function blipGate(ctx: FoggedSignalContext, p: Vec2, targetKey: string): boolean {
+  const me = ctx.me;
   return (
     inRadarAnnulus(me, p) &&
     sweptThisTick(me, bearing(me.state, p)) &&
-    visibilityTo(raster, me.state.x, me.state.y, p.x, p.y) > 0
+    visibilityTo(ctx.heightRaster, me.state.x, me.state.y, p.x, p.y) > 0 &&
+    radarPaints(ctx, Math.hypot(p.x - me.state.x, p.y - me.state.y), targetKey)
   );
+}
+
+/**
+ * THE RADAR DROPOUT TERM (Story 9.8, epic-9 amendment 104, rulings 121–123):
+ * does THIS sweep revolution paint a return at centre distance `d`? The
+ * shared pure `dropoutPaints` over (the server-private `ctx.dropoutSeed`, the
+ * OBSERVER's ship id, the TARGET's key, the observer's `sweepRev`) — a
+ * STATELESS hash, never a consumed stream, so every `observe()` caller (each
+ * client's frame, each bot thunk) and the test oracle get the identical
+ * answer. p(paint) is 1 to `CONFIG.vision.dropout.startU` (the 8/12 rung), so
+ * nothing inside it ever misses; beyond it the far returns come and go.
+ *
+ * EVERYTHING RADAR DELIVERS ROLLS (ruling 123): ship blips and decoy paints
+ * (via blipGate), the wake's radar half (wakeGate) and the countermeasure
+ * cloud's radar clause (discRadarDetected). No size weighting (ruling 122):
+ * one curve for every return. Never consulted inside sight (the roll lives in
+ * the RADAR gate only), and never by the lit / burn / foul zone circles —
+ * those are drawn hazards, not returns (`zoneCircleVisible`). A miss is the
+ * gate answering false: nothing about the target is emitted.
+ */
+function radarPaints(ctx: FoggedSignalContext, d: number, targetKey: string): boolean {
+  return dropoutPaints(d, ctx.dropoutSeed, ctx.me.id, targetKey, ctx.me.sweepRev);
 }
 
 /** THE blip wire shaper (one function, two callers — FR10's wire
@@ -610,8 +654,8 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
  * `mine` — contact-like state (NOT events), recomputed every tick exactly like
  * contacts. The owner sees ALL its own mines always (own field awareness, even
  * under fog); everyone else sees a mine only when it is within DETECT range
- * (Story 4.9: the 3/8 rung, pointDetected — a mine sits low in the water, so
- * it reveals closer than a hull does) + island-LOS — OR inside a lit zone the
+ * (Story 4.9; the 4/12 rung = sight since Story 9.8, pointDetected — a mine
+ * sits low in the water, its own rung, today coincident with sight) + island-LOS — OR inside a lit zone the
  * observer OWNS (Story 1.7 truesight parity, no LOS on the zone path). Mines
  * NEVER radar-paint, and arm state makes no difference to visibility. A
  * static persistent entity synced this way cannot suffer event-lifecycle
@@ -854,7 +898,10 @@ function discRadarDetected(ctx: FoggedSignalContext, cloud: StoredCloud, d: numb
   const me = ctx.me;
   if (d - r > me.stats.radarRange) return false;
   if (!sweptDiscThisTick(me, cloud, r)) return false;
-  return visibilityTo(ctx.heightRaster, me.state.x, me.state.y, cloud.x, cloud.y) > 0;
+  if (visibilityTo(ctx.heightRaster, me.state.x, me.state.y, cloud.x, cloud.y) <= 0) return false;
+  // Story 9.8 (ruling 123): the radar delivery rolls the dropout at the
+  // CENTRE distance, like every other return.
+  return radarPaints(ctx, d, cloud.id);
 }
 
 /** The fogged half of the cloud gate: the disc sighted or radar-detected. */
@@ -921,7 +968,7 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
     if (ownZoneCovers(ctx, target.state)) return false; // already a full contact — never doubled as a blip
     // The observer's OWN radar, and nothing else (the radar buoy's relay and
     // its own-scope `src` tag were deleted with the buoy in Story 8.16).
-    return blipGate(me, target.state, ctx.heightRaster);
+    return blipGate(ctx, target.state, target.id);
   },
   materialize(ctx, target) {
     // Live pose (Story 4.2, FR14): hull id, heading, and the raw signed speed
@@ -968,7 +1015,7 @@ export function decoyRadarBlips(ctx: FoggedSignalContext): BlipEvent[] {
   const out: BlipEvent[] = [];
   for (const decoy of ctx.decoys.values()) {
     if (ownZoneCovers(ctx, decoy)) continue;
-    if (blipGate(ctx.me, decoy, ctx.heightRaster)) out.push(decoyPaintBlip(ctx, decoy));
+    if (blipGate(ctx, decoy, decoy.id)) out.push(decoyPaintBlip(ctx, decoy));
   }
   return out;
 }
@@ -1008,6 +1055,9 @@ export interface WakeSubject {
    *  per-source inner disclosure bound — detect for a torpedo, sight for a
    *  ship (review-gate P2; see the row doc). NEVER on the wire. */
   torp: boolean;
+  /** The dropout roll's TARGET KEY — the water's source id
+   *  (`World.wakeKeyOf`, copied by the scan; Story 9.8). NEVER on the wire. */
+  key: string;
 }
 
 /** Cached per-ribbon bounding circle (see wakeBounds): the bound depends only
@@ -1174,7 +1224,7 @@ function mayBeSwept(me: ShipRecord, dx: number, dy: number): boolean {
  * bubble (blipGate's annulus verbatim — the client synthesizes in-bubble hull
  * wake from the full pose it holds). A TORPEDO's wake stands in for the
  * fish's own DETECT tier: the fish reveals at `sightOf × detectFactor` (the
- * 3/8 rung, pointDetected), so its water must disclose down to THAT radius —
+ * detect rung, pointDetected — 4/12 = sight since Story 9.8), so its water must disclose down to THAT radius —
  * with the ship bound, the (detect, sight] band was a dead band with no
  * entity, no disclosed wake, and no synthesized wake, killing amendment 196's
  * tell exactly in the terminal approach. Observer-scaled exactly as the tier
@@ -1210,7 +1260,11 @@ function wakeGate(ctx: FoggedSignalContext, seg: WakeSubject): boolean {
   if (!sweptThisTick(me, bearing(me.state, seg))) return false;
   const sight = sightOf(me);
   if (d2 <= sight * sight) return sightClear(me, seg, ctx.islands);
-  return visibilityTo(ctx.heightRaster, me.state.x, me.state.y, seg.x, seg.y) > 0;
+  // Beyond sight the water is a RADAR return: the shadow march, then the
+  // dropout roll keyed on the water's source (Story 9.8, ruling 123). The
+  // in-bubble half above (torpedo water inside sight) never rolls.
+  if (visibilityTo(ctx.heightRaster, me.state.x, me.state.y, seg.x, seg.y) <= 0) return false;
+  return radarPaints(ctx, Math.sqrt(d2), seg.key);
 }
 
 /**
@@ -1377,7 +1431,7 @@ const wakeSignal: SignalSpec<WakeSubject, WakeBlipEvent> = {
  *     and, since the gate never closes on them, never cleared, never re-sent;
  *   - everyone else: first-sight (`shell` — SHELLS DO NOT MOVE: a shell is in
  *     the air, truesight) / first-detect (`torp` — a wake just under the
- *     surface, the 3/8 rung; Story 4.9, amendments 119/121) OR inside a lit
+ *     surface, the detect rung; Story 4.9, amendments 119/121; 4/12 since 9.8) OR inside a lit
  *     zone the observer OWNS (Story 1.7 truesight parity).
  *
  * Callers guard the subject shape (`'ownerId' in shell`) before asking; the
@@ -1419,7 +1473,7 @@ export function ballisticGateOpen(ctx: SignalContext, shell: ShellState): boolea
  * deliberate fork (Story 4.9, amendments 119/121): the GATE branches on kind.
  * A shell first reveals at the truesight boundary (pointSighted — SHELLS DO
  * NOT MOVE: a shell is in the air); a torpedo first reveals at the DETECT
- * boundary (pointDetected, the 3/8 rung — a wake just under the surface).
+ * boundary (pointDetected, the detect rung — a wake just under the surface).
  * Everything else — the owner-always path, the owned-zone OR, the
  * exactly-once seenBallistics memory, the wire shape — is identical for both.
  */
@@ -1695,8 +1749,9 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
  * get when I get them... if a Small Drone is killed by my mine."*
  *
  * WHY IT MUST BE ON THE WIRE. You can sink a fleet ship you never saw — a
- * mine it sailed over, or a shell at 500u, since the gun reaches 660u while
- * truesight is 330u. With fleet hulls off the roster (amendment 39) the
+ * mine it sailed over, or a shell fired from beyond sight, since every gun's
+ * reach is its own dial on the twelfths ruler (Story 9.8, ruling 125) and the
+ * deck gun's reaches past truesight. With fleet hulls off the roster (amendment 39) the
  * client then holds no name, no hull and no row for that id at all, so the
  * feed could only read `UNKNOWN VESSEL`. The server knows; nobody else can.
  *
@@ -1887,8 +1942,8 @@ const hitCallSignal = shooterPrivateSignal<HitCallEvent>('hc');
  * `mz` — MUZZLE FLASH (Story 4.3, amendments 15/19/20): a gun-family weapon
  * fired at this point. A DECLARED exception to the master perception
  * invariant with its own NEW spatial rule: visible iff
- * dist(observer, flash) ≤ CONFIG.vision.muzzleFlash (the DERIVED SIGHT * 1.25
- * halo — 412.5u, the ladder's 5/8 rung since Story 4.9, amendment 119; the
+ * dist(observer, flash) ≤ the muzzle-flash halo (`muzzleFlashReach` — the
+ * ladder's 6/12 rung since Story 9.8, radarRange × muzzleFlashFactor; the
  * CONSTANT, deliberately NOT the observer's own sightOf: a flash is a light
  * source, not an illuminated object, so no sight reduction — the FLASH SHELLS
  * dazzle, while it existed (Story 8.17 – 9.4) — changes how far it carries,
@@ -1908,7 +1963,7 @@ const muzzleFlashSignal: SignalSpec<MuzzleEvent, MuzzleEvent> = {
     const me = ctx.me;
     const dx = e.x - me.state.x;
     const dy = e.y - me.state.y;
-    const halo = muzzleFlashReach(me); // observer-scaled 5/8 rung (Eric ruling 2026-08-16)
+    const halo = muzzleFlashReach(me); // observer-scaled 6/12 rung (Eric ruling 2026-08-16; Story 9.8)
     return dx * dx + dy * dy <= halo * halo && sightClear(me, e, ctx.islands);
   },
   materialize(_ctx, e) {
@@ -1945,7 +2000,7 @@ const woundedSmokeSignal: SignalSpec<SmokeEvent, SmokeEvent> = {
     const me = ctx.me;
     const dx = e.x - me.state.x;
     const dy = e.y - me.state.y;
-    const halo = muzzleFlashReach(me); // observer-scaled 5/8 rung (Eric ruling 2026-08-16)
+    const halo = muzzleFlashReach(me); // observer-scaled 6/12 rung (Eric ruling 2026-08-16; Story 9.8)
     return dx * dx + dy * dy <= halo * halo && sightClear(me, e, ctx.islands);
   },
   materialize(_ctx, e) {
@@ -1961,93 +2016,77 @@ const woundedSmokeSignal: SignalSpec<SmokeEvent, SmokeEvent> = {
  *  server-private inputs the row consumes and NEVER forwards (see the row). */
 type FoghornSubject = FoghornEvent & { x: number; y: number; id: string };
 
-/** The eight-band wire domain (Story 4.9 — FoghornEvent.v). */
-type FoghornBand = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+/** The twelve-band wire domain (Story 9.8, ruling 129 — FoghornEvent.v;
+ *  eight bands since Story 4.9 before it). */
+type FoghornBand = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+
+/** The band count — one band per rung of the twelfths ruler (amendment 103). */
+const HORN_BANDS = 12;
+/** The plateau floor: the sight rung (4/12) — bands 1..4 share one gain. */
+const HORN_PLATEAU = 4;
+/** The island muffle's demotion, in bands (ruling 129: +3 — the eighths'
+ *  +2 re-read proportionally onto the twelfths). */
+const HORN_MUFFLE = 3;
 
 /**
  * The fogged listener's VOLUME BAND for a honk, or null = inaudible (Story
- * 4.9, amendment 122 — supersedes amendment 53's three tiers) — THE one band
- * resolver: visible() and materialize() both call this, so the gate and the
- * wire can never drift. The band is which EIGHTH of the LISTENER'S own INTEL
- * RANGE (`stats.radarRange` — the one ruler, never sight-scaled) the honker
- * sits in: `band = ceil(8 × d / intel range)`, d == 0 resolving to band 1,
- * boundaries inclusive (at base stats band 4 ends exactly at truesight 330u —
- * full volume — and band 8 at the 660u radar edge, 50%; gain is a CLIENT-side
- * lookup, never on the wire). Beyond band 8: inaudible, no event at all.
+ * 9.8, ruling 129 — twelve bands, the proportional re-read of Story 4.9's
+ * eight / amendment 122) — THE one band resolver: visible() and materialize()
+ * both call this, so the gate and the wire can never drift. The band is which
+ * TWELFTH of the LISTENER'S own INTEL RANGE (`stats.radarRange` — the one
+ * ruler, never sight-scaled) the honker sits in: `band = ceil(12 × d / intel
+ * range)`, d == 0 resolving to band 1, boundaries inclusive (at base stats
+ * band 4 ends exactly at truesight — full volume — and band 12 at the radar
+ * rim, 50%; gain is a CLIENT-side lookup, never on the wire). Beyond band 12:
+ * inaudible, no event at all.
  *
- * Amendment 53's max() clamps are RETIRED, their purpose satisfied
- * STRUCTURALLY: they existed because muzzleFlash was flat while sightOf was
- * dazzle-scaled (the FLASH SHELLS dazzle, Story 8.17 – 9.4), so the old tier
- * bounds were not monotone by construction. Anchoring every band on intel
- * range — which no sight reduction touches — made "dazzle cannot deafen" true
- * BY CONSTRUCTION, and the anchor outlives the dazzle; there is nothing left
- * to clamp. Amendment 122's "knowing trade" — hearing widening with `intelRadar`
- * rather than `intelTruesight` — is RETIRED as of the Intel Range merge (Eric
- * rulings 2026-08-16): there is only ONE intel line now, so there is no longer
- * a choice between buying reach and buying hearing. The band anchor is
- * unchanged; what disappeared is the fork it used to cost you.
+ * Every band is anchored on intel range, which no sight reduction touches, so
+ * "a dazzle cannot deafen" holds BY CONSTRUCTION (amendment 53's clamps are
+ * retired, their purpose satisfied structurally).
  *
  * THE PLATEAU FLOOR — `Math.max(band, 4)` ON THE RAW BAND, BEFORE THE MUFFLE
  * (review fix, anti-cheat). Bands 1-4 are INDISTINGUISHABLE in every honest
- * surface: gain is 1.0 for all four (CLIENT_CONFIG.foghorn.bandGain) and the
- * chevron weight is the identical {22, 3, 0.95} for all four (…chevron.bands).
- * Sending WHICH of bands 1-4 a honker sits in would hand a MODIFIED client two
- * extra bits of range resolution — an 82.5u annulus rather than the 330u
- * plateau, and worst for a DAZZLED listener (or any listener whose intel
- * range a future card widens) who can receive a low band for a hull they
- * cannot see — with NO honest consumer at
- * all. That is precisely the disclosure amendment 51 bounds (BEARING AND VOLUME
- * TIER ONLY, no position, no correlation handle). So the wire carries the band
- * floor-clamped to the COARSEST value that reproduces the ratified gain curve
- * EXACTLY: honest client output is byte-identical (same gain, same chevron
- * weight) and only the cheat-readable surplus is gone.
+ * surface (the same client gain and the same chevron weight), so sending
+ * WHICH of them a honker sits in would hand a MODIFIED client extra range
+ * resolution inside the sight plateau with NO honest consumer — precisely the
+ * disclosure amendment 51 bounds (BEARING AND VOLUME TIER ONLY). The wire
+ * carries the band floor-clamped to the COARSEST value that reproduces the
+ * ratified gain curve exactly.
  *
- * ISLANDS MUFFLE, NEVER BLOCK (amendment 54, preserved in meaning — still
- * the one partial carve-out of the 2026-08-02 "islands block every sensor"
- * law; the test is the sightClear predicate, so the horn is neither more nor
- * less blind than every other optical sensor): after the FLOORED band
- * resolves, a failed sightClear() demotes ONCE to
- * `max(5, floored + 2)` — two bands is the width of one old tier, so the
- * boundaries reproduce the old behavior (a honk at the truesight edge blocked
- * by rock lands at band 6 = 75%; bands 7-8 lose the honk entirely). Exactly ONE
- * losClear call and ONE set of bounds; the demotion is applied once,
- * post-resolution, never via a second threshold set. `max(5, …)` is what keeps
- * "a rock ALWAYS costs the honker reach" true at the floor itself, and it is
- * retained because a future retune of the floor must not silently make a
- * blocked honk free.
+ * ISLANDS MUFFLE, NEVER BLOCK (amendment 54, preserved in meaning; the test
+ * is the sightClear predicate, so the horn is neither more nor less blind than
+ * every other optical sensor): after the FLOORED band resolves, a failed
+ * sightClear() demotes ONCE to `max(5, floored + 3)` (ruling 129 — the old +2
+ * of eight bands re-read onto twelve), so a blocked honk at the sight edge
+ * lands at band 7 and bands 10-12 lose the honk entirely. Exactly ONE losClear
+ * call and ONE set of bounds. `max(5, …)` keeps "a rock ALWAYS costs the
+ * honker reach" true at the floor itself.
  *
  * THE FLOOR RUNS FIRST *BECAUSE* THE MUFFLE WOULD OTHERWISE LEAK IT (review
- * fix). Flooring the EMITTED value instead resolved a blocked raw band 1-3 to 5
- * but a blocked raw band 4 to 6 — so an observer who knows an island intervenes
- * recovered exactly the plateau bit the floor exists to suppress, and a blocked
- * point-blank honk landed at 87.5% while amendment 54 ratifies 75% at the
- * truesight edge (the muffle was WEAKER inside truesight than before this
- * story). Flooring first collapses the whole plateau to one blocked answer — 6,
- * i.e. 0.75 — which restores amendment 54 exactly and leaves the blocked path
- * carrying no more resolution than the clear one.
+ * fix): flooring the EMITTED value instead would resolve a blocked raw band
+ * 1-3 differently from a blocked raw band 4, so an observer who knows an
+ * island intervenes would recover exactly the plateau bit the floor exists to
+ * suppress. Flooring first collapses the whole plateau to one blocked answer.
  *
  * FAIL CLOSED ON A DEGENERATE INTEL RANGE (review fix). A band exists only for
- * a POSITIVE FINITE radarRange and a finite d. `radarRange` is therefore
- * checked FIRST, before the `d === 0` short-circuit — that branch takes band 1
- * without ever reading the range, so a co-located honker plus a
- * zero/negative/NaN/Infinite listener range would otherwise be laundered
- * straight into a legal 4. The band's own domain test then runs on the RAW
- * band, before the floor, and `NaN > 8` being FALSE is why it is an explicit
- * `Number.isInteger` + bounds test rather than a lone upper bound. Unreachable
- * from an honest server today; that is exactly why it must return null rather
- * than throw.
+ * a POSITIVE FINITE radarRange and a finite d. `radarRange` is checked FIRST,
+ * before the `d === 0` short-circuit (which takes band 1 without reading the
+ * range); the band's own domain test then runs on the RAW band, before the
+ * floor, as an explicit `Number.isInteger` + bounds test (`NaN > 12` is FALSE).
+ * Unreachable from an honest server today; that is why it returns null rather
+ * than throwing.
  */
 function hornBandFor(me: ShipRecord, subject: FoghornSubject, islands: readonly Island[]): FoghornBand | null {
   const intel = me.stats.radarRange;
   if (!Number.isFinite(intel) || intel <= 0) return null; // before the d === 0 branch, which never reads it
   const d = Math.hypot(subject.x - me.state.x, subject.y - me.state.y);
-  const band = d === 0 ? 1 : Math.ceil((8 * d) / intel);
-  if (!Number.isInteger(band) || band < 1 || band > 8) return null;
-  const floored = Math.max(band, 4); // the plateau floor, on the RAW band
+  const band = d === 0 ? 1 : Math.ceil((HORN_BANDS * d) / intel);
+  if (!Number.isInteger(band) || band < 1 || band > HORN_BANDS) return null;
+  const floored = Math.max(band, HORN_PLATEAU); // the plateau floor, on the RAW band
   const emitted = sightClear(me, subject, islands)
     ? floored
-    : Math.max(5, floored + 2); // one step, applied once (amendment 54)
-  return emitted > 8 ? null : (emitted as FoghornBand);
+    : Math.max(HORN_PLATEAU + 1, floored + HORN_MUFFLE); // one step, applied once (amendment 54, ruling 129)
+  return emitted > HORN_BANDS ? null : (emitted as FoghornBand);
 }
 
 /**
@@ -2064,13 +2103,13 @@ function hornBandFor(me: ShipRecord, subject: FoghornSubject, islands: readonly 
  *               from its own camera); short-circuits BEFORE any ctx.me read,
  *               since a record-less spectator has me === undefined;
  *   fogged    → {k,h,b,v} — bearing (wrapPositive [0, 2π)) + volume BAND
- *               (1..8, Story 4.9) from hornBandFor above. NO x, NO y, NO ship
+ *               (1..12, Story 9.8 ruling 129) from hornBandFor above. NO x, NO y, NO ship
  *               id, and no correlation handle of any kind (amendment 45's
  *               rule verbatim): a honk is a bearing the honker chose to give
  *               away, and nothing more.
  * `h` is the horn variant — the row's ONLY identity-adjacent field, a knowing
  * narrow break with mz/sm's neutral-signal rule (amendment 52: a distinctive
- * purchased horn being recognizable at 660u is the point of buying one).
+ * purchased horn being recognizable at the radar rim is the point of buying one).
  */
 const foghornSignal: SignalSpec<FoghornSubject, FoghornEvent> = {
   eventType: 'fh',

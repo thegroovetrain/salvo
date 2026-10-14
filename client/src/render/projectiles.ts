@@ -14,8 +14,8 @@
 //       detonates unseen);
 //   (c) reveal-ring cull: its dead-reckoned position leaves the ring the server
 //       reveals it within (+ margin) — the SIGHT bubble for a shell, the shorter
-//       DETECT ring (3/8 of intel range) for an ENEMY TORPEDO, since Story 4.9's
-//       eighths ladder stopped both the reveal and the `torpU` corrections at
+//       DETECT ring (sight × detectFactor) for an ENEMY TORPEDO, since Story 4.9's
+//       ladder stopped both the reveal and the `torpU` corrections at
 //       detect for a fish that is not ours. It is invisible under fog out there
 //       anyway, and culling stops a ghost from rendering past its true splash
 //       point — or, for a fish, from dead-reckoning on past the range the server
@@ -256,10 +256,12 @@ const SIGHT_CULL_MARGIN = 40; // u
  * THE TWO KINDS NO LONGER SHARE A RING (Story 4.9, the eighths ladder). A shell
  * is still first revealed at the TRUESIGHT boundary, so it still culls there.
  * An ENEMY torpedo is now revealed — and, crucially, CORRECTED (`torpU`) — only
- * out to the DETECT rung, 3/8 of intel range, which the server resolves as
+ * out to the DETECT rung (3/8 of intel range then; sight × detectFactor, the
+ * sight rung itself while the factor is 1, since epic-9), which the server resolves as
  * `sightOf(me, now) * CONFIG.vision.detectFactor` (amendments 119/121). Culling
  * a fish at the old truesight ring would leave the client dead-reckoning an
- * un-corrected ghost across the 82.5u (at base stats) the server has already
+ * un-corrected ghost across the sight − detect band (82.5u at the old base
+ * stats; zero while detectFactor is 1) the server has already
  * stopped updating — the client inventing information it does not have.
  *
  * `detectFactor` is applied to the SAME plumbed `sightRange`, never to a second
@@ -557,7 +559,7 @@ export class Projectiles {
     // from this path too. A re-revealed own fish is nowhere near our hull any
     // more, so roomBindings' near-own heuristic cannot claim it a second time
     // and hands us `null`; left at null our own resurrected fish would take the
-    // ENEMY cull ring and be dropped 82.5 u early, inside water the server is
+    // ENEMY cull ring and be dropped early (by sight − detect), inside water the server is
     // still correcting. An id we never claimed still resolves to null, so no
     // fish is ever fabricated as ours.
     const attributed = own ?? this.claims.get(ev.id) ?? null;

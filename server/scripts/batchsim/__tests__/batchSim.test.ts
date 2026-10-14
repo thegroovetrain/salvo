@@ -16,6 +16,8 @@ import {
   LIFECYCLE_ALIVE,
   SHIP_CLASS_IDS,
   angleDiff,
+  effectiveStats,
+  hullEnvelope,
   mulberry32,
   isStubLine,
   sunkAt,
@@ -283,7 +285,7 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(TunableError);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(/not an equipment dial/);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(
-      /gun\.\*, machineGun\.\*, flak\.\*, instantReload\.\*, damageCut\.\*, broadside\.\*, torpedo\.\*, mine\.\*, captiveMines\.\*, foulingMines\.\*, countermeasure\.\*, foulingShell\.\*, ram\.\*, starShells\.\*, boost\.\*, shipClasses\.\*/,
+      /gun\.\*, machineGun\.\*, flak\.\*, instantReload\.\*, damageCut\.\*, broadside\.\*, torpedo\.\*, mine\.\*, captiveMines\.\*, foulingMines\.\*, countermeasure\.\*, foulingShell\.\*, ram\.\*, starShells\.\*, phosphorShells\.\*, boost\.\*, shipClasses\.\*, drones\.\*, hullRepair\.\*, regen\.\*, armor\.\*, offer\.weighting\.\*, vision\.dropout\.\*/,
     );
     expect(() => applyOverrides({}, { 'zone.stormDps': 8 })).toThrow(/not an equipment dial/);
   });
@@ -414,10 +416,6 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     // failure this harness exists to prevent.
     expect(() => parseArgs(['--tune', 'mine.triggerRadius=40'])).toThrow(TunableError);
     expect(() => parseArgs(['--tune', 'mine.triggerRadius=40'])).toThrow(/tune mine\.blastRadius instead/);
-    for (const key of ['gun.rangeU', 'starShells.rangeU', 'broadside.rangeU']) {
-      expect(() => parseArgs(['--tune', `${key}=100`])).toThrow(/DERIVED/);
-      expect(() => parseArgs(['--tune', `${key}=100`])).toThrow(/derived from radar range/i);
-    }
     // Apply-time too, and CONFIG is left exactly as it was found.
     const before = CONFIG.mine.triggerRadius;
     expect(() => applyOverrides({}, { 'mine.triggerRadius': 40 })).toThrow(/DERIVED/);
@@ -1534,11 +1532,55 @@ describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
     }
   });
 
-  it('--tune machineGun.rangeU / flak.rangeU are refused as DERIVED, like gun.rangeU', () => {
-    for (const key of ['machineGun.rangeU', 'flak.rangeU']) {
-      expect(() => parseArgs(['--tune', `${key}=100`])).toThrow(TunableError);
-      expect(() => parseArgs(['--tune', `${key}=100`])).toThrow(/DERIVED/);
-      expect(() => parseArgs(['--tune', `${key}=100`])).toThrow(/derived from radar range/i);
+  // STORY 9.8 (epic-9 ruling 125): every weapon's reach is its OWN tiered
+  // dial, read live by the fold — so `<w>.rangeU` LEFT the derived-refusal
+  // map and is a real --tune dial (floor 1), while `<w>.rangeUAtV`, which
+  // authors the per-card step once at module load, is REFUSED (the
+  // amendment-110 pattern: tuning it would change nothing).
+  const REACH_ROWS = ['gun', 'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells'] as const;
+
+  it('--tune <weapon>.rangeU is a real dial: accepted, floored at 1, and it moves the fold\'s Tier I base', () => {
+    for (const row of [...REACH_ROWS, 'foulingShell'] as const) {
+      expect(() => parseArgs(['--tune', `${row}.rangeU=900`]), row).not.toThrow();
+      expect(() => parseArgs(['--tune', `${row}.rangeU=0`]), row).toThrow(/>= 1/);
     }
+    const before = CONFIG.gun.rangeU;
+    const restore = applyOverrides({}, { 'gun.rangeU': before - 100 });
+    try {
+      expect(effectiveStats(hullEnvelope('battleship')).equipment.gun.rangeU).toBe(before - 100);
+    } finally {
+      restore();
+    }
+    expect(CONFIG.gun.rangeU).toBe(before);
+  });
+
+  it('--tune <weapon>.rangeUAtV is REFUSED: the Tier V reach authors the per-card step at module load', () => {
+    for (const row of REACH_ROWS) {
+      expect(() => parseArgs(['--tune', `${row}.rangeUAtV=1400`]), row).toThrow(TunableError);
+      expect(() => parseArgs(['--tune', `${row}.rangeUAtV=1400`]), row).toThrow(/tune rangeU for the base/);
+    }
+  });
+
+  it('--tune vision.dropout.* is reachable (distances floored at 1, probabilities in [0, 1]); the rest of vision.* is not', () => {
+    for (const key of ['vision.dropout.startU=900', 'vision.dropout.kneeU=1200', 'vision.dropout.kneeP=0', 'vision.dropout.rimP=1']) {
+      expect(() => parseArgs(['--tune', key]), key).not.toThrow();
+    }
+    for (const key of ['vision.dropout.startU=0', 'vision.dropout.kneeU=0.5']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 1/);
+    }
+    for (const key of ['vision.dropout.kneeP=1.1', 'vision.dropout.rimP=-0.1']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/probability in \[0, 1\]/);
+    }
+    for (const key of ['vision.radar=2000', 'vision.sight=600']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/not an equipment dial/);
+    }
+    const before = CONFIG.vision.dropout.rimP;
+    const restore = applyOverrides({}, { 'vision.dropout.rimP': 0.5 });
+    try {
+      expect(CONFIG.vision.dropout.rimP).toBe(0.5);
+    } finally {
+      restore();
+    }
+    expect(CONFIG.vision.dropout.rimP).toBe(before);
   });
 });

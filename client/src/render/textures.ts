@@ -174,7 +174,7 @@ export const DIM_MASK_TEXTURE_SIZE = 1024;
 /**
  * Bake the near-range dim mask (Story 4.11, amendment 181): a radial ramp from
  * `minScale` at the centre out to the observer's effective sight radius, rising
- * LINEARLY to full at the 5/8 rung, flat at full everywhere beyond.
+ * LINEARLY to full at the flash rung (6/12), flat at full everywhere beyond.
  *
  * IT TAKES THE OBSERVER'S EFFECTIVE TRUESIGHT, not a constant, because the ramp
  * is anchored to the sight bubble and the bubble is a boon-widened constant
@@ -324,7 +324,7 @@ function maskGrey(a: number): number {
 
 /**
  * Draw the haze halo (Story 9.3 session 5, Eric 2026-10-12: smoke is seen by
- * eye only within the 5/8 rung): opaque white out to `haloU`, LINEAR to opaque
+ * eye only within the flash rung, 6/12): opaque white out to `haloU`, LINEAR to opaque
  * black across the feather, black to the corners. Both gradient stops are READ
  * OFF render/hazeHalo.ts `haloAlphaAt`, so the drawn edge and the stated rule
  * cannot drift. Opaque greyscale for the same Pixi sprite-mask (red channel)
@@ -359,7 +359,7 @@ function drawHaloMask(ctx: BakeCtx, haloU: number, rays: Float32Array | null): v
  * can't see it because of an island or any other sight block, don't render
  * it"): ONE closed path through the hit point on every bearing (ray k at
  * k·2π/N, render/hazeLos.ts — the hit distance, or halo + feather where
- * nothing blocks). The halo gradient fills it, so the 5/8 edge and feather are
+ * nothing blocks). The halo gradient fills it, so the flash-rung edge and feather are
  * untouched and every island cuts a hard shadow from its near edge outward.
  */
 function traceLosFan(ctx: BakeCtx, c: number, px: number, rays: Float32Array): void {

@@ -5,7 +5,7 @@
 //
 // WHY (Eric 2026-10-12, on 0.18.43): *"Yes, if I can't see it because of an
 // island or any other sight block, don't render it."* The countermeasure's
-// grey haze is a SMOKE EFFECT, seen by eye only inside the 5/8 halo
+// grey haze is a SMOKE EFFECT, seen by eye only inside the flash-rung halo
 // (render/hazeHalo.ts) AND only where the viewer has island line of sight —
 // wounded smoke's own rule (the server sends a plume only with island LOS
 // clear). Islands are the only sight blockers in the game today.

@@ -42,10 +42,10 @@
 // MOTION-BLIND: a cloud's presence and extent are information — the motion
 // setting never hides or shrinks one.
 //
-// THE HALO (session 5, Eric 2026-10-12: "The smoke is visible outside of 5/8
+// THE HALO (session 5, Eric 2026-10-12, then on the eighths ladder: "The smoke is visible outside of 5/8
 // intel range. Why? … I cannot see the smoke outside of that range, I can only
 // infer it from radar returns."): the haze is a smoke effect, seen by eye only
-// within the viewer's 5/8 rung — the wounded-smoke reach. A cloud is still
+// within the viewer's flash rung (6/12 since Story 9.8) — the wounded-smoke reach. A cloud is still
 // DELIVERED to anyone whose radar sweeps it (the radar paints it), so the eye's
 // limit is a display-time mask on the `cloud` layer: one Sprite baked by
 // textures.ts `bakeHaloMaskTexture` (opaque inside the halo, feathered to 0

@@ -10,11 +10,12 @@
 // gets an own-hull bloom instead (render/effects.ts `horn`) — a bearing to
 // yourself is meaningless.
 //
-// THE BAND IS AN EIGHTH OF THE LISTENER'S INTEL RANGE (Story 4.9, amendment
-// 122), resolved SERVER-side and already muffled for islands. Nothing in this
-// module recomputes a band, a distance or a range — it looks the band up in a
-// table and draws. That was true of the old three-value tier and it stays true
-// of the eight-value band; only the resolution changed.
+// THE BAND IS A TWELFTH OF THE LISTENER'S INTEL RANGE (Story 9.8, epic-9
+// ruling 129; an eighth since Story 4.9, amendment 122), resolved SERVER-side
+// and already muffled for islands. Nothing in this module recomputes a band, a
+// distance or a range — it looks the band up in a table and draws. That was true
+// of the old three-value tier and of the eight-value band, and it stays true of
+// the twelve-value band; only the resolution changed.
 //
 // It follows render/smoke.ts's split, and for the same reasons:
 //   • a PURE core (no Pixi import, unit-tested in __tests__/foghorn.test.ts) —
@@ -60,7 +61,7 @@
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import { wrapPositive } from '@salvo/shared';
+import { wrapPositive, type FoghornEvent } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import { Pool, capOldest } from '../util/pool.js';
@@ -71,18 +72,24 @@ const F = CLIENT_CONFIG.foghorn;
 const CH = F.chevron;
 
 /**
- * The eight volume BANDS as they arrive on the wire (`FoghornEvent.v`) — which
- * eighth of the LISTENER's own intel range the honker sits in, 1 = innermost,
- * 8 = the radar edge (Story 4.9, amendment 122). The client looks it up and
- * never re-derives a distance from it.
+ * The twelve volume BANDS as they arrive on the wire (`FoghornEvent.v`) — which
+ * twelfth of the LISTENER's own intel range the honker sits in, 1 = innermost,
+ * 12 = the radar edge (Story 9.8, epic-9 ruling 129; eighths before). The
+ * client looks it up and never re-derives a distance from it. Taken from the
+ * shared wire type, so the two cannot drift.
  *
- * THE SERVER EMITS 4..8 ONLY (review fix — see FoghornEvent.v): bands 1-4 share
- * one gain and one chevron weight, so a finer value would be range resolution
- * with no honest consumer. The tables here stay COMPLETE for 1..8 all the same
- * — the floor is a bound on the sender, not a narrowing of the vocabulary, and
- * a band-1..3 value must still resolve correctly if one ever arrives.
+ * THE SERVER EMITS 4..12 ONLY (review fix — see FoghornEvent.v): bands 1-4
+ * share one gain and one chevron weight, so a finer value would be range
+ * resolution with no honest consumer. The tables here stay COMPLETE for 1..12
+ * all the same — the floor is a bound on the sender, not a narrowing of the
+ * vocabulary, and a band-1..3 value must still resolve correctly if one ever
+ * arrives.
  */
-export type HornBand = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export type HornBand = NonNullable<FoghornEvent['v']>;
+
+/** The quietest, faintest band — the radar edge — and the out-of-domain
+ *  fallback for both lookups below. */
+const EDGE_BAND: HornBand = 12;
 
 /** One band's chevron presentation — see `CLIENT_CONFIG.foghorn.chevron.bands`. */
 export interface ChevronWeight {
@@ -101,8 +108,8 @@ export interface ScreenPoint {
 
 /**
  * Pure: the AUDIO gain for a wire BAND — flat at 100% through band 4 (truesight
- * at base stats), then one step down per band to 50% at band 8 (the radar
- * edge): 1 / 1 / 1 / 1 / 0.875 / 0.75 / 0.625 / 0.5 (amendment 122). The band
+ * at base stats), then even steps down to 50% at band 12 (the radar edge):
+ * 1 − 0.5 × (b − 4) / 8 (ruling 129). The band
  * itself is resolved SERVER-side against the listener's own intel range; this
  * only says how loud each band plays.
  *
@@ -110,8 +117,8 @@ export interface ScreenPoint {
  * two are different facts and get different answers (review fix). `undefined` is
  * the honest `self` and spectator shape — neither carries a `v` because neither
  * observer is IN a band, and silence would be the one wrong answer there. A
- * NUMBER outside 1..8 is instead the least trustworthy input this row can carry,
- * so it degrades to band 8's gain: still audible (a honk that arrived is a fact
+ * NUMBER outside 1..12 is instead the least trustworthy input this row can carry,
+ * so it degrades to band 12's gain: still audible (a honk that arrived is a fact
  * worth playing) but never the loudest answer for the worst-known input. The
  * server fails closed on its own side too (`hornBandFor` emits nothing unless
  * the band is a finite integer in range), so this is unreachable from an honest
@@ -120,20 +127,20 @@ export interface ScreenPoint {
 export function bandGain(v: HornBand | undefined): number {
   if (v === undefined) return 1;
   const gains: Record<number, number | undefined> = F.bandGain;
-  return gains[v] ?? F.bandGain[8];
+  return gains[v] ?? F.bandGain[EDGE_BAND];
 }
 
 /**
  * Pure: a band's chevron weight. The bands differ in SIZE, STROKE and ALPHA at
  * once so the volume reads at a glance and survives a colorblind read — hue is
- * identical across all eight (the wounded-smoke tier rule). An absent band (the
+ * identical across all twelve (the wounded-smoke tier rule). An absent band (the
  * spectator shape, which carries a position instead) draws at full weight: a
  * spectator is omniscient, so there is no band to under-draw.
  *
  * FAILS CLOSED ON AN OUT-OF-DOMAIN VALUE — TO THE FAINTEST BAND (review fix,
- * the same split `bandGain` makes). Any `v` outside 1..8 — a NaN, a 0, a 9 —
+ * the same split `bandGain` makes). Any `v` outside 1..12 — a NaN, a 0, a 13 —
  * used to return `undefined` here, and `drawChevron` then threw on `w.size`: one
- * malformed field taking down the render loop. It now degrades to band 8's
+ * malformed field taking down the render loop. It now degrades to band 12's
  * weight rather than throwing, because a honk that arrived is a fact worth
  * drawing — but never at band 1's maximum salience, which is the loudest mark on
  * screen answering the least trustworthy input the row can carry. The server
@@ -141,7 +148,7 @@ export function bandGain(v: HornBand | undefined): number {
  * is a finite integer in range), so this is unreachable from an honest server;
  * the two guards are deliberately INDEPENDENT.
  *
- * The table stays complete for 1..8 even though the server now floors the wire
+ * The table stays complete for 1..12 even though the server now floors the wire
  * at 4 (see FoghornEvent.v): a lower band must still resolve correctly if one
  * ever legitimately arrives — the floor is a disclosure bound on the sender,
  * not a narrowing of the vocabulary.
@@ -149,7 +156,7 @@ export function bandGain(v: HornBand | undefined): number {
 export function chevronWeight(v: HornBand | undefined): ChevronWeight {
   if (v === undefined) return CH.bands[1]; // the spectator/self shape: full weight
   const bands: Record<number, ChevronWeight | undefined> = CH.bands;
-  return bands[v] ?? CH.bands[8];
+  return bands[v] ?? CH.bands[EDGE_BAND];
 }
 
 /**

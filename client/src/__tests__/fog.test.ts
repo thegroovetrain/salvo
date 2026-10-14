@@ -11,7 +11,8 @@
 import { describe, it, expect } from 'vitest';
 import { Container } from 'pixi.js';
 import { CONFIG, effectiveSight } from '@salvo/shared';
-import { Fog, fogHoleRadiusU } from '../render/fog.js';
+import { Fog, fogFrameRects, fogHoleRadiusU, fogZoomStale } from '../render/fog.js';
+import { CLIENT_CONFIG } from '../config.js';
 
 const BASE = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
 
@@ -60,8 +61,9 @@ describe('Fog.setVisible — the reveal is a HIDE, never a fade', () => {
   it('setVisible(false) hides the fog sprite outright; setVisible(true) restores it', () => {
     const layer = new Container();
     const fog = new Fog(layer);
-    // The Fog constructor adds its sprite before its hole mask (Graphics), so
-    // the sprite is always the layer's first child — no private-field reach-in.
+    // The Fog constructor adds its overlay group (the baked sprite plus the
+    // Story 9.8 slide strips) before its hole mask (Graphics), so the group is
+    // always the layer's first child — no private-field reach-in.
     const sprite = layer.children[0];
     expect(sprite.visible).toBe(true); // boots visible, same as every other Pixi node
 
@@ -71,5 +73,65 @@ describe('Fog.setVisible — the reveal is a HIDE, never a fade', () => {
 
     fog.setVisible(true);
     expect(sprite.visible).toBe(true); // restored, same object — no rebake needed
+  });
+});
+
+// THE RING-FIT ZOOM LIMIT MOVES EVERY TICK while the storm closes (Story 9.8,
+// ruling 127), so the full-canvas fog bake runs on HYSTERESIS: only past
+// `redrawZoomFrac` of the zoom it was last baked at — the terrain and storm
+// layers' 2 % sub-pixel precedent.
+describe('fogZoomStale — the rebake hysteresis (Story 9.8)', () => {
+  const FRAC = CLIENT_CONFIG.terrain.redrawZoomFrac;
+
+  it('holds inside the band and trips past it, in both directions', () => {
+    expect(fogZoomStale(0.5, 0.5 * (1 + FRAC / 2), FRAC)).toBe(false);
+    expect(fogZoomStale(0.5, 0.5 * (1 - FRAC / 2), FRAC)).toBe(false);
+    expect(fogZoomStale(0.5, 0.5 * (1 + FRAC * 2), FRAC)).toBe(true);
+    expect(fogZoomStale(0.5, 0.5 * (1 - FRAC * 2), FRAC)).toBe(true);
+  });
+
+  it('a ring closing by a hair per tick never rebakes until the drift adds up', () => {
+    let baked = 0.1;
+    let bakes = 0;
+    for (let z = 0.1; z < 0.2; z *= 1.001) {
+      if (fogZoomStale(baked, z, FRAC)) {
+        baked = z;
+        bakes++;
+      }
+    }
+    // ~693 ticks of 0.1 % each: a bake per ~2 %, never one per tick.
+    expect(bakes).toBeGreaterThan(20);
+    expect(bakes).toBeLessThan(40);
+  });
+
+  it('is always stale before the first bake, and never on a junk zoom', () => {
+    expect(fogZoomStale(NaN, 0.5, FRAC)).toBe(true);
+    expect(fogZoomStale(0, 0.5, FRAC)).toBe(true);
+    expect(fogZoomStale(0.5, NaN, FRAC)).toBe(false);
+  });
+});
+
+// THE CENTRE SLIDE (ruling 128) can carry the own hull — and the fog sprite
+// baked around it — far off screen centre, past any affordable bake margin.
+describe('fogFrameRects — the strips that keep the fog over the whole screen (Story 9.8)', () => {
+  const area = (rs: { w: number; h: number }[]): number => rs.reduce((a, r) => a + r.w * r.h, 0);
+
+  it('is EMPTY when the sprite covers the screen (every frame at the default framing)', () => {
+    expect(fogFrameRects(-100, -80, 1800, 1060, 1600, 900)).toEqual([]);
+  });
+
+  it('covers exactly the uncovered remainder when the sprite slides off a corner', () => {
+    // Sprite 1000×600 at (900, 500) on a 1600×900 screen: covers [900,1600]×[500,900].
+    const rs = fogFrameRects(900, 500, 1000, 600, 1600, 900);
+    expect(area(rs)).toBe(1600 * 900 - 700 * 400);
+    for (const r of rs) {
+      expect(r.w).toBeGreaterThan(0);
+      expect(r.h).toBeGreaterThan(0);
+    }
+  });
+
+  it('covers the whole screen when the sprite is entirely off it', () => {
+    expect(area(fogFrameRects(5000, 5000, 100, 100, 1600, 900))).toBe(1600 * 900);
+    expect(area(fogFrameRects(-5000, -5000, 100, 100, 1600, 900))).toBe(1600 * 900);
   });
 });

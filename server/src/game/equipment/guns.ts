@@ -86,7 +86,8 @@ export function rawAimPoint(ship: ShipRecord, dir: number): Vec2 {
 
 /**
  * The gun's clicked burst point: burstPoint at the ship's EFFECTIVE max gun
- * range (stats.equipment.gun.rangeU — the gunRange upgrade; base = CONFIG.vision.radar).
+ * range (stats.equipment.gun.rangeU — its own tiered dial since Story 9.8,
+ * ruling 125: Tier I `CONFIG.gun.rangeU`, + a step per CANNON card).
  * Exported for tests.
  */
 export function gunTarget(ship: ShipRecord, mapRadius: number): Vec2 {

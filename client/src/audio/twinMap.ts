@@ -78,7 +78,7 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   // muted player is in exactly the position every player was in before this
   // story landed, which is the strongest form of the twin law this table has.
   gunReport:
-    'the muzzle flash at the shooter\'s position, drawn above the fog inside the 5/8 halo (render/effects `muzzle`)',
+    'the muzzle flash at the shooter\'s position, drawn above the fog inside the flash-rung halo (render/effects `muzzle`)',
   impact:
     'the spark hit bloom at the connection, the contracting pierce ring on a punch-through, and the amber burst ring at a gun shell\'s blast point (render/effects)',
   splash: 'the expanding splash ring at the fall of shot, drawn above the fog (render/effects `splash`)',
@@ -109,7 +109,7 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   // --- THE FOGHORN (Story 4.5, amendment 55) ---------------------------------
   // A honk is BEARING-ONLY information, so its twin has to carry a bearing and
   // nothing more: a marker pinned to the viewport edge pointing down the honk,
-  // its weight set by the volume BAND the listener earned (which eighth of their
+  // its weight set by the volume BAND the listener earned (which twelfth of their
   // own intel range the honker sits in — Story 4.9). Presence, direction and
   // band weight are INFORMATION and survive `motion: 'off'` intact (UX-DR36);
   // only the fade is a flourish. Your OWN honk gets the hull bloom instead — a
