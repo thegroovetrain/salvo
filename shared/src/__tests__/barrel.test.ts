@@ -1290,9 +1290,9 @@ describe('shared barrel', () => {
     // the field — so level totals are a consequence, never the input. Counts
     // doubled from 4/2/1 when the spawn unit halved to six hulls.
     expect(CONFIG.fleet.waves).toEqual([
-      { atMs: 60000, fleets: 8 },
-      { atMs: 300000, fleets: 4 },
-      { atMs: 540000, fleets: 2 },
+      { atMs: 60000, fleets: 16 }, // doubled 2026-10-14 (Eric, Story 9.8): 16 -> 8 -> 4
+      { atMs: 300000, fleets: 8 },
+      { atMs: 540000, fleets: 4 },
     ]);
   });
 });

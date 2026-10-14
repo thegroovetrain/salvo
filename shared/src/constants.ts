@@ -336,9 +336,12 @@ export const CONFIG = {
       //
       // The two halves of a fleet are FULLY INDEPENDENT anchors (amendment 24);
       // pickFleetAnchor's max-min score already spreads them. Do not pair them.
-      { atMs: 60000, fleets: 8 }, // 1:00 — 48 hulls (was 4 groups of 9)
-      { atMs: 300000, fleets: 4 }, // 5:00 — 24 hulls
-      { atMs: 540000, fleets: 2 }, // 9:00 — 12 hulls
+      // DOUBLED AGAIN 2026-10-14 (Story 9.8, Eric: *"I feel like that is
+      // actually a bit sparse. Lets double each number of groups spawned. So,
+      // 16 -> 8 -> 4."*) on the 16-captain / 10,000 u ocean (amendment 130).
+      { atMs: 60000, fleets: 16 }, // 1:00 — 96 hulls (was 8 groups / 48 hulls; before that 4 groups of 9)
+      { atMs: 300000, fleets: 8 }, // 5:00 — 48 hulls (was 4 / 24)
+      { atMs: 540000, fleets: 4 }, // 9:00 — 24 hulls (was 2 / 12)
     ],
     /**
      * u — radius the 6 hulls scatter over around their group anchor, and the
