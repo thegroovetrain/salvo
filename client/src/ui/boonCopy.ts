@@ -1037,7 +1037,7 @@ function foulingShellRows(): CardStatRow[] {
 /**
  * MULTI-SPECTRAL COUNTERMEASURE'S ROWS (Story 9.3, Eric ruling 2026-10-11,
  * epic-9 amendment 45): how long the cloud lives and how it spreads —
- * `LASTS 15 S` / `CLOUD 200 → 500 U`, every number off
+ * `LASTS 15 S` / `CLOUD 150 → 300 U`, every number off
  * `CONFIG.countermeasure`, in the 8.16 belt register's uppercase units.
  */
 function countermeasureRows(): CardStatRow[] {

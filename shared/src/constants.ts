@@ -2037,8 +2037,12 @@ export const CONFIG = {
    */
   countermeasure: {
     lifeMs: 15000, // ms a cloud lives on the water (the spray runs its whole life)
-    r0: 200, // u — the spray disc's radius at birth
-    r1: 500, // u — the spray disc's radius at the end of life
+    // 200 → 150 and 500 → 300 (Story 9.8 staging, Eric 2026-10-14: *"Lets tone
+    // down the multispectral a bit, it grows into a HUGE area and I think that
+    // is too big."* — picked 150 → 300 against 200 → 350 and 200 → 400;
+    // amendment 141). At 500 the full-grown cloud equalled the whole sight bubble.
+    r0: 150, // u — the spray disc's radius at birth
+    r1: 300, // u — the spray disc's radius at the end of life
   },
 
   /**

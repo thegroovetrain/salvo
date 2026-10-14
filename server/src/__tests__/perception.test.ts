@@ -190,7 +190,9 @@ const CLOUD_LIFE_MS = 15_000;
 
 function cloudOutlineOracle(bornAt: number, now: number): number {
   const age = Math.max(0, now - bornAt);
-  return 200 * (1 + 1.5 * Math.min(1, age / CLOUD_LIFE_MS));
+  // 150 → 300 u over the life (Story 9.8 staging, Eric 2026-10-14, amendment 141;
+  // was 200 → 500). The oracle keeps the ruled literals, never CONFIG.
+  return 150 * (1 + 1.0 * Math.min(1, age / CLOUD_LIFE_MS));
 }
 
 function segPointDistOracle(a: { x: number; y: number }, b: { x: number; y: number }, p: { x: number; y: number }): number {
