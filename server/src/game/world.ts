@@ -1272,6 +1272,20 @@ export type DamageSource =
   | 'contact'
   | 'grind';
 
+/** A hull's cached settled pose (World.settledPoses) and every key the
+ *  resolver's answer for it depends on. */
+interface SettledPose {
+  x: number;
+  y: number;
+  heading: number;
+  hullId: ShipRecord['hullId'];
+  islands: World['map']['islands'];
+  /** Islands never change in a match; the count also catches a test fixture
+   *  that pushes or clears islands in place. */
+  islandCount: number;
+  radius: number;
+}
+
 /** One named simulation step in World.STEP_ORDER (Story 5.1, AR8). The name
  *  is the row's identity: the order-identity test (stepOrder.test.ts,
  *  amendment 6) pins the exact name sequence, so it must stay stable. */
@@ -1451,6 +1465,25 @@ export class World {
    * Nothing here rides the wire.
    */
   private readonly contactBodies = new Map<string, ContactBody>();
+  /**
+   * THE SETTLED-POSE CACHE (fix 2026-10-14, the post-fleet-wave tick cost).
+   * Per hull, the last pose the island resolver was handed AND returned
+   * untouched with no land contact — a pose that overlaps no island and needs
+   * no map-edge clamp. Resolving such a pose is a pure function of the pose,
+   * the silhouette, the islands and the map radius (the previous pose and the
+   * speed only matter once a push or a rollback happens, and none does), so a
+   * hull whose candidate this tick is EXACTLY that pose — it sat still, and no
+   * hull push moved it — skips the resolver with the identical answer
+   * ({contact: false, headOn: 0}, pose unchanged, damp a no-op). Keyed by
+   * record so a fresh record never inherits one; every key it depends on is
+   * stored and re-checked. Server-only, never on the wire. The client
+   * predictor keeps calling the resolver — it resolves one hull, and its
+   * answer is the same by construction.
+   */
+  private readonly settledPoses = new WeakMap<ShipRecord, SettledPose>();
+  /** Test seam: false runs every hull through the resolver every tick (the
+   *  pose-identity pin compares the two). */
+  settledPoseSkip = true;
   private readonly contactBodyList: ContactBody[] = [];
   private readonly hullContacts: HullContact[] = [];
   private readonly contactLatch = new Set<string>();
@@ -4018,9 +4051,19 @@ export class World {
         ship.landContact = false; // off the water: never aground
         continue;
       }
+      if (this.isSettled(ship)) {
+        // The resolver's own answer for a settled pose (settledPoses above).
+        ship.landContact = false;
+        ship.landHeadOn = 0;
+        continue;
+      }
+      const st = ship.state;
+      const cx = st.x;
+      const cy = st.y;
+      const ch = st.heading;
       const res = resolveShipPose(
         ship.prevPose,
-        ship.state,
+        st,
         this.map.islands,
         this.map.radius,
         hullSilhouette(ship.hullId),
@@ -4028,8 +4071,37 @@ export class World {
       );
       ship.landContact = res.contact;
       ship.landHeadOn = res.headOn; // Story 9.5: the land strike / scrape read it
-      applyGroundingDamp(ship.state, res, ship.stats.kinematics.maxSpeed);
+      applyGroundingDamp(st, res, ship.stats.kinematics.maxSpeed);
+      if (!res.contact && st.x === cx && st.y === cy && st.heading === ch) this.noteSettled(ship);
     }
+  }
+
+  /** True iff this hull's candidate pose is its cached settled pose under
+   *  the same silhouette, islands and map radius. */
+  private isSettled(ship: ShipRecord): boolean {
+    if (!this.settledPoseSkip) return false;
+    const s = this.settledPoses.get(ship);
+    if (s === undefined) return false;
+    const st = ship.state;
+    return st.x === s.x && st.y === s.y && st.heading === s.heading && ship.hullId === s.hullId
+      && this.map.islands === s.islands && this.map.islands.length === s.islandCount
+      && this.map.radius === s.radius;
+  }
+
+  /** Cache the hull's current (just-resolved, untouched, contact-free) pose. */
+  private noteSettled(ship: ShipRecord): void {
+    let s = this.settledPoses.get(ship);
+    if (s === undefined) {
+      s = { x: 0, y: 0, heading: 0, hullId: ship.hullId, islands: this.map.islands, islandCount: 0, radius: 0 };
+      this.settledPoses.set(ship, s);
+    }
+    s.x = ship.state.x;
+    s.y = ship.state.y;
+    s.heading = ship.state.heading;
+    s.hullId = ship.hullId;
+    s.islands = this.map.islands;
+    s.islandCount = this.map.islands.length;
+    s.radius = this.map.radius;
   }
 
   /**
