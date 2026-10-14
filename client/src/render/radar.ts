@@ -413,6 +413,8 @@ export class Radar {
    * no cloud held) leaves the field exactly as it was.
    */
   private cloudSource: CloudReturnSource | null = null;
+  /** See `setStaleClock`. */
+  private staleClock: (() => number) | null = null;
 
   constructor(blipLayer: Container, sweepLayer: Container) {
     this.blipLayer = blipLayer;
@@ -1160,6 +1162,13 @@ export class Radar {
     this.cloudSource = source;
   }
 
+  /** Hand the scope the STALENESS clock (`ServerClock.frameNow`) the cloud
+   *  return hold ages by. Null (the default, and every test) ages it by the
+   *  frame's `serverNow`, which is the same thing on an on-time server. */
+  setStaleClock(fn: (() => number) | null): void {
+    this.staleClock = fn;
+  }
+
   /** The cloud layer's per-sample haze lookup for this frame's field, or
    *  undefined when no cloud is held or none is admitted (the field then skips
    *  the layer). A held cloud beyond sight returns only while its radar
@@ -1172,6 +1181,7 @@ export class Radar {
     const gate: CloudReturnGate = {
       own,
       serverNow,
+      staleNow: this.staleClock?.() ?? serverNow,
       sightU: this.sightHoleU,
       sweepPeriodMs: this.sweepPeriodMs,
       holdRevs: CLIENT_CONFIG.countermeasure.returnHoldRevs,
