@@ -28,7 +28,7 @@ import {
   type WelcomeMsg,
 } from '@salvo/shared';
 import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
-import { World } from '../game/world.js';
+import { World, type ShipRecord } from '../game/world.js';
 import { assignHue } from '../game/regatta.js';
 import { buildFrame } from '../game/frames.js';
 import {
@@ -163,6 +163,18 @@ interface PingState {
 // state/metadata/client types — @colyseus/core 0.18.13 Room.d.ts:49 declares
 // `RoomOptions`, :128 declares `Room<T extends RoomOptions = RoomOptions>`),
 // so `this.state` types as ArenaState again.
+/**
+ * A roster row's `alive` projection. A row whose ship record is GONE reads
+ * dead, never the schema default `true`: no reachable path leaves such a row
+ * today (bots are never removed; a departed human's row is deleted with the
+ * record), but a ghost row would otherwise hold "N AFLOAT" one too high for
+ * the rest of the match — cycle 189 hardening after the 2026-10-14 "2 afloat"
+ * investigation (epic-9 amendment 142 era).
+ */
+function rowAfloat(ship: ShipRecord | undefined): boolean {
+  return ship !== undefined && isAfloat(ship.lifecycle);
+}
+
 export class ArenaRoom extends Room<{ state: ArenaState }> {
   maxClients = CONFIG.map.playerCap;
   autoDispose = true;
@@ -1507,20 +1519,12 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     const revealDamage = !this.match || this.match.phase === 'finished';
     this.state.players.forEach((meta: PlayerMeta, id: string) => {
       const ship = this.world.ships.get(id);
-      // A ROW WHOSE RECORD IS GONE READS DEAD, never its last value (the schema
-      // default is `true`). No reachable path leaves such a row today (bots are
-      // never removed; a departed human's row is deleted with the record), but
-      // a ghost row would otherwise hold "N AFLOAT" one too high for the rest
-      // of the match — cycle 189 hardening after the 2026-10-14 "2 afloat"
-      // investigation (epic-9 amendment 142 era).
-      if (!ship) {
-        if (meta.alive) meta.alive = false;
-        return;
-      }
       // THE WIRE DOES NOT MOVE (Story 5.1, amendment 7): PlayerMeta.alive stays
-      // a schema boolean, PROJECTED from the lifecycle here.
-      const afloat = isAfloat(ship.lifecycle);
+      // a schema boolean, PROJECTED from the lifecycle here — and a row whose
+      // record is GONE reads dead, never its stale value (`rowAfloat`).
+      const afloat = rowAfloat(ship);
       if (meta.alive !== afloat) meta.alive = afloat;
+      if (!ship) return;
       if (meta.kills !== ship.kills) meta.kills = ship.kills;
       if (meta.deaths !== ship.deaths) meta.deaths = ship.deaths;
       if (revealDamage && meta.damageDealt !== ship.damageDealt) meta.damageDealt = ship.damageDealt;

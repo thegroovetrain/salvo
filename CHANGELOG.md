@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.18.54] - 2026-10-14
+
+### Changed
+- **Zoom out to the whole map; the storm ring is a waypoint on the way.** Zooming out no longer stops at the live ring: a key press or wheel notch that would cross the ring fit lands exactly on it, and the next one continues out to the entire map, storm and all. The view centre slides from your ship to the ring centre and then to the map centre, with your hull always kept on screen; spectators get the same range, zooming about the cursor. (Eric, after a bot wedged outside the ring was invisible at the old limit.)
+
+### Internal
+- Client: `stepZoom(factor, amount, detent)` shared by keys, wheel and the spectate wheel; `Camera.zoomDetent` (the ring fit, never tighter than the default, riding in as the ring closes), `setMapRadius`, a second slide ring centre → origin; fog strips and the storm fill verified at the map fit; `zoomWaypoint.test` (21 tests). Records: epic-9 amendment 142.
+- Server: `syncRoster` projects `alive = false` for a roster row whose ship record is gone (a latent ghost-row hazard found by the "2 afloat" investigation; no reachable path today; pinned by a solo-room test). The investigation itself found no liveness bug across three full headless matches; the likely cause was a second bot afloat in the storm outside the ring-capped view.
+- Tests: shared 1093 (44 files), server 2584 -> 2585 (93 files), client 4055 -> 4076 (132 files), hook test green, lint 0 errors.
+
 ## [0.18.53] - 2026-10-14
 
 ### Changed

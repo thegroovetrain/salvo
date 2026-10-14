@@ -3016,3 +3016,12 @@ Closure stamps for three older entries (the originals are left as written), then
 - source_spec: `spec-9-8-the-twelfths-ladder.md`
   summary: the server has no slow-tick log line; the tick p50/p95/max on `GET /metrics` is the only live signal of a room missing 20 Hz — read it on staging during a 1:00+ bot match after cycle 186 to confirm the collision cut holds on Render's starter instance.
   evidence: cycle-186 investigation (amendment 138): 30 ms p50 ticks on an M-series Mac with 112 hulls before the fix; `grep overrun|slow tick` over server/src is empty.
+
+## 2026-10-14 — Story 9.8 staging fix 4, cycle 189 (spec-9-8-the-twelfths-ladder.md)
+
+- source_spec: `spec-9-8-the-twelfths-ladder.md`
+  summary: `world.ships` keeps every wreck for the whole match (184 records at 10:00 with 16 captains + 96/48/24 drones) and most per-tick loops iterate all of them — a late-match tick-cost source the "2 afloat" investigation measured but did not cut.
+  evidence: cycle-189 investigation probe (ArenaRoom solo harness, seeds 1/2/3); amendment 138's tick table was taken at 2:00 with 112 live records.
+- source_spec: `spec-9-8-the-twelfths-ladder.md`
+  summary: the results screen cannot be dismissed to read the kill feed / message log after a match ends, so a spectator cannot check how the last hull sank (Eric 2026-10-14: "since I can't close the end game dialog and read the message log, I can't tell if anyone sunk"); a results-screen behaviour change is Eric's to rule, never invented.
+  evidence: Eric's report while spectating on 0.18.53 staging.
