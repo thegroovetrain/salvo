@@ -2878,11 +2878,15 @@ function buildGame(
   const radar = new Radar(stage.layers.blip, stage.layers.sweep);
   const countermeasure = new Countermeasure(stage.layers.cloud);
   radar.setCloudSource(countermeasure);
+  // A far cloud's radar-delivery hold ages by FRAME time (net/clock.ts frameNow),
+  // so a lagging server never blinks a return it is still delivering.
+  const clock = new ServerClock();
+  radar.setStaleClock(() => clock.frameNow());
 
   const g: Game = {
     stage,
     state: createGameState(welcome.sessionId),
-    clock: new ServerClock(),
+    clock,
     ownBuffer: new SnapshotBuffer(),
     contacts: new ContactStore(),
     predictor: makePredictor(map, cls),
@@ -4763,7 +4767,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       g.contactViews.render(
         g.contacts,
         now - CLIENT_CONFIG.net.interpDelayMs,
-        now,
+        g.clock.frameNow(), // staleness by FRAME time — a lagging server never drops a delivered hull
         frameDt * 1000,
         (id) => rosterColor(g, id), // Story 1.12: per-contact personal hue
         // `plateFrame` — Story 1.13: per-contact truesight nameplate (hoisted,

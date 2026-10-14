@@ -36,6 +36,10 @@ export interface CloudReturnInfo {
 export interface CloudReturnGate {
   own: { x: number; y: number };
   serverNow: number;
+  /** The STALENESS clock the delivery hold ages by (net/clock.ts `frameNow`):
+   *  server time as the frames say it is, which a lagging server cannot run
+   *  ahead of. Omitted, the hold reads `serverNow` (identical when on time). */
+  staleNow?: number;
   /** The own effective sight range (u) — the radar's `sightHoleU`. */
   sightU: number;
   /** One sweep revolution (ms). */
@@ -54,5 +58,5 @@ export function cloudSighted(c: CloudReturnInfo, g: CloudReturnGate): boolean {
 export function cloudReturns(c: CloudReturnInfo, g: CloudReturnGate): boolean {
   if (c.deliveredAt === undefined) return true;
   if (cloudSighted(c, g)) return true;
-  return g.serverNow - c.deliveredAt < g.sweepPeriodMs * g.holdRevs;
+  return (g.staleNow ?? g.serverNow) - c.deliveredAt < g.sweepPeriodMs * g.holdRevs;
 }

@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.51] - 2026-10-14
+
+### Changed
+- **Enemy hulls no longer vanish when the server lags.** A hull the server is still sending every tick could fade off your screen (and lose its ramming body on your side) because the client aged contacts against its own wall clock while the server's frame times fell behind. Contacts now age against the newest frame received, so a slow server can never drop a hull it still delivers; a hull that leaves your sight still fades as before.
+- **The server tick is far cheaper with a full ocean.** With 16 captains and the 96-hull fleet wave on the 10,000 u map, the hull-versus-coastline check was the bulk of the tick. Each island now carries a coastline edge grid, so the check is exact and about 15× cheaper; every hull pose is byte-identical to before.
+
+### Internal
+- Shared: `sim/coastIndex.ts` (per-island 16 u edge grid, built once per polygon array; inside / segment-near / nearest-distance answers identical to the brute-force code, pinned by identity tests on three maps); `collision.ts` reads the index for island tests and the signed island distance; hull-vs-hull escape untouched.
+- Server: `resolveCollisions` skips a hull whose pose the resolver already returned untouched with no land contact (a pushed hull is always resolved); probe with 112 hulls: resolveCollisions 14.1 → 0.9 ms, post-wave tick 26.2 → 13.4 ms p50 on a loaded M-series Mac; remaining cost is drone AI (~4 ms, pairwise avoidance), bot AI (~2.4), stepShips (~2.2). `GET /metrics` already reports tick p50/p95/max.
+- Client: `ServerClock.frameNow()` = min(serverNow, newest frame time + wall time since it arrived); `ContactViews.render` prunes against it; the far-cloud radar hold uses the same clock; `contactStaleness.test` reproduces the dilation (963 prunes in 60 s at 83 % server speed before the fix, 0 after).
+- Root cause record: epic-9 amendment 138 (not perception, not the renderer: a sighted hull was a contact on every probe tick). Back pocket (Eric): a 1,200 u radar on the 8,000 u ocean also seats 16 (chord 1,249 u).
+- Tests: shared 1090 -> 1093 (44 files), server 2575 -> 2578 (92 files), client 4030 -> 4043 (131 files), hook test green, lint 0 errors.
+
 ## [0.18.50] - 2026-10-14
 
 ### Changed
