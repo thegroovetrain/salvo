@@ -2,10 +2,11 @@
 title: 'Story 9.8: The Twelfths Ladder'
 type: 'feature'
 created: '2026-10-13'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'cc1e998d'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
+final_revision: 'PR #279 open to development (2026-10-14); code head 977f017c plus the PR-stamp commit'
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-9-context.md'
@@ -164,3 +165,19 @@ warnings: [oversized]
 
 **Manual checks:**
 - Eric judges on staging: the approach phase, rim flicker, gun RANGE rows and reach rings, the ring-fit zoom and the slide, the foghorn.
+
+**Results (2026-10-14):** `npm run check` green — lint 0 errors (2 pre-existing max-lines warnings), tsc ×3 clean, shared 43 files / 1090 tests (was 1064), server 91 / 2575 (was 2548), client 130 / 4030 (was 3992), hook test 266. Perf of record (ratified headful capture, MacBookPro16,1, DPR 2, 1600×900, `perf-gate/nfr1-frame-budget.json`): close 6.8 ms (13 long frames / 12 s), default 7.3 ms (35 long; baseline 0 at the same framing; 124 before the halo-mask fix; load average 6–19 throughout), ring-fit 29.0 ms and omniscient reveal 29.1 ms (the reveal's own far-zoom cost; 20.9 ms at baseline on the 4,000 u ocean). Golden frames re-recorded twice: wave 2 (29 rows: placements moved to the new rungs, a torp reveal at detect 500, star-shell timing at lit 250, two spectator positions at 2 × sight, wake masks) and wave 2b (74 spawn x/y on the 4,000 u ring, cannon dmg 16 → 12 on 4 + 5 values).
+
+## Auto Run Result
+
+**Status:** done — PR #279 open to `development` (2026-10-14), never merged by the agent; Eric judges on staging.
+
+**Summary:** The sensor ladder is twelfths of 1,500 u (sight 500, flash / smoke / haze 750, far anchor 1,000, radar 1,500) and frozen at base. Beyond 1,000 u a sweep increasingly fails to paint (flat then cliff: 0.9 at 1,250 u, 0.1 at the rim), each revolution its own stateless roll on a server-private seed, applied to every radar delivery (blips, decoys, wakes, the cloud) inside `observe()`; a missed paint emits nothing and the six perception exceptions stand. Every gun's reach is its own tiered dial on the ruler with a RANGE row on the card (cannon 1,000 → 1,250, MG 750 → 875, flak and broadside 625 → 750, star 1,375 → 1,500, phosphor 1,000 → 1,250, fouling 1,000). The camera zooms out to the whole live ring and back to the ship with a sliding centre; the foghorn has twelve bands; bots trust a miss only inside 1,000 u and anchor bands on their own gun. At the build gate Eric also set 16 captains on a 10,000 u ocean (rings 10000 → 7000 → 4000 → 2000 → 0), the cannon 12/12/15/15/18 and flak 20/28/36/44/52 experiment with the flak rim falloff, six-row cards, fleet waves 16 / 8 / 4, fleet denial inside the dropout start and RANGE decimals. Eric ruled 17 questions (amendments 121–136); 137 records the implementer readings; Story 9.9 Bot Posture Workover is inserted and the tail renumbered 9.10–9.13.
+
+**Files changed:** 170+ across all three workspaces — see the Code Map and the branch history from cc1e998d (shared: constants, sim/{dropout,stats,boons,effects,catalog,arcs}, index; server: signals, perception, world, equipment/{flak,consumables/foulingShell}, ai/{profiles,utility,tactics,shift,sweepMiss,consumables}, batchsim/{overrides,balanceProbe,catalogMetrics,encounterSpan}, smokes; client: render/{camera,radar,countermeasure,cloudReturnGate,fog,foghorn,weaponArc,aimPreview,firing,spectate,ambient}, main, config, state, net/roomBindings, ui/{boonCopy,refitCardFit,upgradeMenu,lobbyLayout,lobbyModal}, stage/worstCase*, scripts/perfCapture; tests in all three; records).
+
+**Review findings:** 8 patches applied (cloud one roll per pass — all three reviewers; held-cloud radar paint follows delivery — Codex; miss rule reads the whole band — Codex; own hull on screen at the out limit; ring fit never tighter than default; harness non-curve guards; 0-hp blow is no blow; fillTo comment), 0 deferred, 0 rejected, 2 live Eric rulings (134–135). Cross-model picture: the wrap roll was unanimous; Codex alone found the two confirmed dropout-semantics defects; the Edge Case Hunter alone found the harness guards and the camera behaviours; the Blind Hunter alone found the two design gaps Eric ruled and the two low patches.
+
+**Follow-up review recommended:** true — the gate changed dropout semantics in two places (the disc's revolution key and the client's cloud return gate) and two camera behaviours, and the cycle also carries three build-gate gameplay rulings (ocean / cap, damage, falloff) built after the first full review pass; an independent pass on `cloudReturnGate`, `discRollRev`, `burstHitAmount` and the camera clamps would be well spent.
+
+**Residual risks:** the default-framing cadence residual (35 long frames / 12 s under load vs baseline 0 — Eric judges on staging); the far-zoom draw at 29 ms (ruled: ship and measure; a cheaper far draw is a follow-up); the pickable-gun engagement bands are short under the stopgap (Story 9.9); the drone shot counts rose to 4 / 5 / 7 at cannon 12 and the max cannon click is 54 (shown to Eric); the K = radar² / 4 shadow law grew 5.2× with the scope; records owed to 9.13 (How-to-Play sensor / RANGE entries, DESIGN.md card height and zoom range, EXPERIENCE.md and GDD ladder lines, catalog-v3 ranges and damage).
