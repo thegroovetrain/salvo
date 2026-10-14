@@ -359,6 +359,24 @@ describe('the flak burst falls off from D at the centre to D − edgeFalloff at 
     }
   });
 
+  it('a 0-hp blow is NO blow (Story 9.8 review): edgeFalloff tuned to D + 1 — a rim hull takes nothing, fires no aggro seam, emits no `dmg`', () => {
+    const saved = CONFIG.flak.edgeFalloff;
+    (CONFIG.flak as { edgeFalloff: number }).edgeFalloff = D + 1;
+    try {
+      const w = bareWorld();
+      flakker(w, 'a');
+      const b = hull(w, 'b', 300, TIP_U + R - 0.01); // nearest point at the rim: floor(D − (D + 1)) → 0
+      const aggro = vi.spyOn(w.drones, 'onDamaged');
+      const log = click(w, 'a', 300);
+      expect(count(log, 'burst')).toBe(1);
+      expect(b.hp).toBe(b.stats.maxHp);
+      expect(aggro).not.toHaveBeenCalled();
+      expect(count(log, 'dmg')).toBe(0);
+    } finally {
+      (CONFIG.flak as { edgeFalloff: number }).edgeFalloff = saved;
+    }
+  });
+
   it('FLAK ONLY: a cannon burst catching a hull at its rim still deals its flat damage', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined); // the default gun: the cannon

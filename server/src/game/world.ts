@@ -4548,29 +4548,24 @@ export class World {
     return pickFleetAnchor({ x: ring.cx, y: ring.cy }, max, this.map.islands, occupied, this.captainDiscs(), this.rng);
   }
 
-  /** Every afloat PARTICIPANT's intel disc, at their EFFECTIVE `stats.radarRange`
-   *  (a stacked intel build denies the area it actually sees). THE one
-   *  derivation of the denied region: the anchor and the per-hull scatter both
-   *  read it, so they can never disagree about where a fleet may appear.
+  /** Every afloat PARTICIPANT's denial disc, of radius
+   *  `CONFIG.vision.dropout.startU` — Eric 2026-10-13 (Story 9.8): deny inside
+   *  the dropout start, not radar; 16 discs of 1,000 u cover ~64 % of the
+   *  5,000 u ocean so the lattice seats waves without the fallback. A fleet
+   *  may appear in the flickering rim band of someone's radar, never where a
+   *  sweep paints reliably. (Before the ruling the disc rode each hull's
+   *  effective `stats.radarRange`.) THE one derivation of the denied region:
+   *  the anchor and the per-hull scatter both read it, so they can never
+   *  disagree about where a fleet may appear.
    *
-   *  KEYED ON THE PARTICIPANT READING (Story 6.3): the rule is "a hull that
-   *  contests the match denies intel around itself" — a fleet may not
-   *  materialize inside anyone's scope. A 6.4 AI captain has a scope and must
-   *  deny like any other combatant; only fleet hulls deny nothing.
-   *
-   *  THE TWELFTHS LADDER CONSEQUENCE (Story 9.8, amendment 103): the disc
-   *  still rides `radarRange`, which is now 1/1 of the twelfths ruler — 3×
-   *  sight, far wider than the old 660 u. The derivation is KEPT ("a fleet
-   *  may not materialize inside anyone's scope" is the rule), so each
-   *  participant now denies a much larger area: on a crowded or late ring the
-   *  anchor search more often finds no clear water and falls back to the
-   *  max-min point after `CONFIG.fleet.spawnRetryTicks` (logged as
-   *  `fleet.spawnFallback`). */
+   *  KEYED ON THE PARTICIPANT READING (Story 6.3): every hull that contests
+   *  the match denies the water around itself — a 6.4 AI captain denies like
+   *  any other combatant; only fleet hulls deny nothing. */
   private captainDiscs(): IntelDisc[] {
     const denied: IntelDisc[] = [];
     for (const s of this.ships.values()) {
       if (!isAfloat(s.lifecycle) || !roleIsParticipant(s)) continue;
-      denied.push({ x: s.state.x, y: s.state.y, r: s.stats.radarRange });
+      denied.push({ x: s.state.x, y: s.state.y, r: CONFIG.vision.dropout.startU });
     }
     return denied;
   }
@@ -5628,6 +5623,10 @@ export class World {
    *  is not in `hulls` at all. */
   private burstDamage(shell: ShellState, t: Target, at: Vec2): number {
     const amount = burstHitAmount(shell, t, at);
+    // A 0-hp blow is NO blow (Story 9.8 review): flak's rim falloff floors at
+    // 0 when a harness tunes `flak.edgeFalloff` ≥ D — that must not fire the
+    // aggro seam, credit damage or emit a `dmg`, so nothing below runs.
+    if (amount <= 0) return 0;
     if (t.kind !== 'hull') return this.damageDecoy(t.id, amount, shell.ownerId) ? 1 : 0;
     const victim = this.ships.get(t.id);
     if (!victim || !isAfloat(victim.lifecycle)) return 0;

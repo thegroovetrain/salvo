@@ -1583,4 +1583,39 @@ describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
     }
     expect(CONFIG.vision.dropout.rimP).toBe(before);
   });
+
+  it('--tune vision.dropout.* must leave a CURVE (Story 9.8 review, F3): start < knee < radar and rim <= knee, judged on the final resolved values', () => {
+    const START = CONFIG.vision.dropout.startU;
+    const KNEE = CONFIG.vision.dropout.kneeU;
+    const RADAR = CONFIG.vision.radar;
+    const snapshot = JSON.stringify(CONFIG.vision.dropout);
+    const refused: Array<[Record<string, number>, RegExp]> = [
+      [{ 'vision.dropout.kneeU': RADAR }, /kneeU.*must stay < 'vision\.radar'/],
+      [{ 'vision.dropout.kneeU': RADAR + 500 }, /kneeU.*must stay < 'vision\.radar'/],
+      [{ 'vision.dropout.startU': KNEE }, /startU.*must stay < 'vision\.dropout\.kneeU'/],
+      [{ 'vision.dropout.startU': 1200, 'vision.dropout.kneeU': 1100 }, /startU.*must stay </],
+      [{ 'vision.dropout.rimP': 0.95 }, /rimP.*must stay <= 'vision\.dropout\.kneeP'/],
+      [{ 'vision.dropout.kneeP': 0.05, 'vision.dropout.rimP': 0.1 }, /rimP.*must stay <=/],
+    ];
+    for (const [tune, re] of refused) {
+      expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(TunableError);
+      expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(re);
+      expect(JSON.stringify(CONFIG.vision.dropout)).toBe(snapshot); // rolled back
+    }
+    const accepted: Record<string, number>[] = [
+      {},
+      { 'vision.dropout.startU': START - 100 },
+      { 'vision.dropout.kneeU': RADAR - 1 },
+      // Several leaves at once: each would be refused against the shipped
+      // others, but the FINAL curve is legal.
+      { 'vision.dropout.startU': KNEE + 50, 'vision.dropout.kneeU': KNEE + 100 },
+      { 'vision.dropout.kneeP': 0.3, 'vision.dropout.rimP': 0.3 },
+      { 'vision.dropout.kneeP': 1, 'vision.dropout.rimP': 0.95 },
+    ];
+    for (const tune of accepted) {
+      const restore = applyOverrides({}, tune);
+      restore();
+    }
+    expect(JSON.stringify(CONFIG.vision.dropout)).toBe(snapshot);
+  });
 });

@@ -35,6 +35,7 @@ import {
   fitWakeVelocity,
   foldWakeCells,
   paintVelocity,
+  predictedAssocRadius,
   predictedPos,
   trackVelocity,
 } from '../game/ai/plot.js';
@@ -541,6 +542,28 @@ describe('ai/plot — the sweep-miss drop (Eric ruling 2026-10-02)', () => {
     expect(painted.contacts.get('c')!.paintX).toBe(cellCentre(300, 80).x);
     const empty = run(false);
     expect(empty.contacts.size).toBe(0);
+  });
+
+  it('THE DROPOUT LIMIT reads the WHOLE BAND (Story 9.8 review, F2): a miss is evidence only when the plot\'s association disc lies inside dropout.startU', () => {
+    const START = CONFIG.vision.dropout.startU;
+    const site: SweepSite = {
+      x: 0,
+      y: 0,
+      stats: { radarRange: CONFIG.vision.radar, sightRange: CONFIG.vision.sight, sweepPeriodMs: 4000 },
+      islands: [],
+    };
+    // A stationary course (vx = vy = 0) whose last paint is aged so the
+    // association radius is exactly 100 u — the prediction stays put.
+    const R = 100;
+    const ageMs = ((R - ANON_ASSOC_U) / (FASTEST_HULL_SPEED / 3)) * 1000;
+    const plotAt = (x: number): RememberedContact =>
+      anon({ x, y: 0, seenAt: NOW - 1000, vx: 0, vy: 0, vAt: NOW - ageMs, paintAt: NOW - ageMs });
+    const straddling = plotAt(START - 10); // centre inside startU, band reaching 90 u past it
+    const inside = plotAt(START - 200); // whole band inside startU
+    expect(predictedAssocRadius(straddling, NOW)).toBeCloseTo(R, 6);
+    expect(predictedAssocRadius(inside, NOW)).toBeCloseTo(R, 6);
+    expect(sweptAndMissed(ACROSS, site, straddling, NOW)).toBe(false);
+    expect(sweptAndMissed(ACROSS, site, inside, NOW)).toBe(true);
   });
 
   it('THE DROPOUT LIMIT (Story 9.8, epic-9 ruling 124): an empty sweep is evidence only inside dropout.startU — a far plot is not marked gone and ages on its clock', () => {

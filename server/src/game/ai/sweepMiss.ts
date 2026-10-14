@@ -100,7 +100,8 @@ function wouldPaint(site: SweepSite, px: number, py: number, d: number): boolean
  * is inside the bot's radar range where a hull would have answered
  * (wouldPaint), and the bearing to it lies in this tick's paint window.
  *
- * ONLY INSIDE THE DROPOUT START (ruling 124): a predicted position beyond
+ * ONLY INSIDE THE DROPOUT START (ruling 124): a plot whose association band
+ * (predicted distance + `predictedAssocRadius`) reaches beyond
  * `CONFIG.vision.dropout.startU` never counts as a miss — the hull may simply
  * have dropped out of this revolution's paint.
  */
@@ -111,7 +112,10 @@ export function sweptAndMissed(beam: SweepBeam, site: SweepSite, t: RememberedCo
   const dy = p.y - site.y;
   const d = Math.hypot(dx, dy);
   if (d > site.stats.radarRange) return false;
-  if (d > CONFIG.vision.dropout.startU) return false; // ruling 124: a far miss is no evidence
+  // ruling 124: a far miss is no evidence — and "far" is the plot's whole
+  // association band, not its centre: the hull may honestly be anywhere in
+  // that disc, and past startU the dropout may have suppressed it (F2).
+  if (d + predictedAssocRadius(t, now) > CONFIG.vision.dropout.startU) return false;
   if (!wouldPaint(site, p.x, p.y, d)) return false;
   return beamCrossed(beam, Math.atan2(dy, dx));
 }

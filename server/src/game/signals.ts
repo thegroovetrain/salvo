@@ -442,6 +442,34 @@ function sweptDiscThisTick(me: ShipRecord, c: Vec2, r: number): boolean {
   return wrapPositive(spanStart - me.prevSweepAngle) < window || wrapPositive(me.prevSweepAngle - spanStart) <= 2 * half;
 }
 
+/** The bearing (wrapped to [0, 2π)) at which the beam ENTERS the disc (centre
+ *  `c`, radius `r`): bearing(observer, c) − asin(min(1, r/d)); null when the
+ *  observer stands inside the disc (no span — it surrounds them). */
+function discSpanStart(me: ShipRecord, c: Vec2, r: number): number | null {
+  const d = Math.hypot(c.x - me.state.x, c.y - me.state.y);
+  if (d <= r) return null;
+  return wrapPositive(bearing(me.state, c) - Math.asin(Math.min(1, r / d)));
+}
+
+/**
+ * THE REVOLUTION A DISC'S PASS BELONGS TO (Story 9.8 review, F1). A point
+ * target is swept on exactly one tick, so `sweepRev` names its pass. A DISC
+ * spans an arc the beam can take several ticks to cross — and when that arc
+ * straddles bearing 0, `advanceSweeps` bumps `sweepRev` mid-pass, so rolling
+ * on the live `sweepRev` would split one physical pass into two draws (paint
+ * on the pre-wrap tick, miss on the post-wrap one, or the reverse). So a disc
+ * rolls on the revolution of its span START: the beam (now at `sweepAngle`)
+ * reached `spanStart` in this revolution iff spanStart ≤ sweepAngle; a span
+ * start AHEAD of the beam was crossed before the last wrap — `sweepRev − 1`.
+ * (Sound because a swept span is < π wide, so its start was crossed less
+ * than one revolution ago.) An observer inside the disc (null start) rolls
+ * on `sweepRev` — inside `startU`, where p(paint) is 1 anyway.
+ */
+function discRollRev(me: ShipRecord, spanStart: number | null): number {
+  if (spanStart === null || spanStart <= me.sweepAngle) return me.sweepRev;
+  return me.sweepRev - 1;
+}
+
 /** Radar-annulus test for a POINT: beyond sight (exclusive), within radar
  *  (inclusive) — both the OBSERVER'S effective ranges (the sight boundary is
  *  the SAME sightOf every sight predicate uses, so "sight wins inside its
@@ -900,8 +928,10 @@ function discRadarDetected(ctx: FoggedSignalContext, cloud: StoredCloud, d: numb
   if (!sweptDiscThisTick(me, cloud, r)) return false;
   if (visibilityTo(ctx.heightRaster, me.state.x, me.state.y, cloud.x, cloud.y) <= 0) return false;
   // Story 9.8 (ruling 123): the radar delivery rolls the dropout at the
-  // CENTRE distance, like every other return.
-  return radarPaints(ctx, d, cloud.id);
+  // CENTRE distance, like every other return — on the revolution of the
+  // disc's span start, so one pass straddling bearing 0 is ONE draw (F1).
+  const rev = discRollRev(me, discSpanStart(me, cloud, r));
+  return dropoutPaints(d, ctx.dropoutSeed, me.id, cloud.id, rev);
 }
 
 /** The fogged half of the cloud gate: the disc sighted or radar-detected. */

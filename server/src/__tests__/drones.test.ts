@@ -45,6 +45,7 @@ import { World, type ShipRecord } from '../game/world.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import { isFleetHull } from '../game/participants.js';
 import { circleIsland } from './islandFixture.js';
+import { insideIntelDisc } from '../game/spawn.js';
 
 const DT = CONFIG.tick.simDtMs;
 // One sinking window in ticks: since the amendment-17 REVERSAL (Eric veto
@@ -699,7 +700,53 @@ describe('fleet waves — timing and exact composition (amendment 33)', () => {
   });
 });
 
+/** THE DENIAL DISC's radius is `CONFIG.vision.dropout.startU` (Eric
+ *  2026-10-13, Story 9.8: deny inside the dropout start, not radar). The
+ *  tests below that need a disc swallowing the ocean (or 90 % of the anchor
+ *  sampling radius) used to lever one captain's `stats.radarRange`; they now
+ *  lever the dial itself, restored in `finally`. */
+function withDenialRadius<T>(r: number, fn: () => T): T {
+  const dropout = CONFIG.vision.dropout as { startU: number };
+  const saved = dropout.startU;
+  dropout.startU = r;
+  try {
+    return fn();
+  } finally {
+    dropout.startU = saved;
+  }
+}
+
+/** The private derivation and the private anchor pick, reached for the
+ *  directed denial pins (the wave scheduler hides the anchor). */
+type AnchorSeams = {
+  captainDiscs(): { x: number; y: number; r: number }[];
+  fleetAnchor(): { x: number; y: number; fallback: boolean };
+};
+
 describe('fleet waves — the anchor rule (amendment 37)', () => {
+  it('DENY INSIDE THE DROPOUT START, NOT RADAR (Eric 2026-10-13, Story 9.8): each captain denies exactly startU — startU + 1 u is legal water', () => {
+    const w = bareWorld(29);
+    const START = CONFIG.vision.dropout.startU;
+    const cap = captain(w, 'cap', 0, 0);
+    expect(cap.stats.radarRange).toBeGreaterThan(START + 1); // premise: the old radar disc would deny startU + 1
+    const discs = (w as unknown as AnchorSeams).captainDiscs();
+    expect(discs).toEqual([{ x: cap.state.x, y: cap.state.y, r: START }]);
+    expect(insideIntelDisc({ x: cap.state.x + START, y: cap.state.y }, discs)).toBe(true);
+    expect(insideIntelDisc({ x: cap.state.x + START + 1, y: cap.state.y }, discs)).toBe(false);
+    // Through the real anchor pick: never within startU of any captain, and
+    // never the fallback on an ocean with room.
+    for (let i = 0; i < 6; i++) {
+      const a = (i * Math.PI * 2) / 6;
+      captain(w, `c${i}`, Math.cos(a) * 1_800, Math.sin(a) * 1_800);
+    }
+    const caps = [...w.ships.values()];
+    for (let k = 0; k < 200; k++) {
+      const anchor = (w as unknown as AnchorSeams).fleetAnchor();
+      expect(anchor.fallback).toBe(false);
+      for (const c of caps) expect(dist(anchor, c.state)).toBeGreaterThan(START);
+    }
+  });
+
   it('the anchor lands OUTSIDE every captain intel disc, and inside the live ring', () => {
     const w = bareWorld(31);
     // A ring of captains, none of whom may see the arrival.
@@ -715,11 +762,12 @@ describe('fleet waves — the anchor rule (amendment 37)', () => {
     // The ANCHOR is what the rule constrains, and it is not stored — but every
     // hull sits within spreadU of it, so a hull deep inside a captain's disc
     // would have to have come from an anchor inside it too. Assert the strong,
-    // checkable consequence: no hull within (radar - spread) of a captain.
+    // checkable consequence: no hull within (denial − spread) of a captain —
+    // the denial disc is startU (Eric 2026-10-13, Story 9.8), not radar.
     const slack = CONFIG.fleet.spreadU;
     for (const s of hulls) {
       for (const c of caps) {
-        expect(dist(s.state, c.state)).toBeGreaterThan(c.stats.radarRange - slack);
+        expect(dist(s.state, c.state)).toBeGreaterThan(CONFIG.vision.dropout.startU - slack);
       }
     }
     const ring = w.zoneLiveRing;
@@ -774,11 +822,14 @@ describe('fleet waves — the anchor rule (amendment 37)', () => {
 
   it('no feasible anchor: the wave RETRIES, then arrives anyway at the max-min point AND LOGS', () => {
     const w = bareWorld(37);
-    const cap = captain(w, 'cap', 0, 0);
-    // One captain whose intel disc swallows the entire ocean: every sampled
-    // anchor is denied, forever. The wave must still arrive.
-    cap.stats = { ...cap.stats, radarRange: w.map.radius * 10 };
+    captain(w, 'cap', 0, 0);
+    // One captain whose denial disc swallows the entire ocean: every sampled
+    // anchor is denied, forever. The wave must still arrive. (The disc is
+    // startU since Eric 2026-10-13, so the dial is levered, not radarRange.)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const dropout = CONFIG.vision.dropout as { startU: number };
+    const savedStart = dropout.startU;
+    dropout.startU = w.map.radius * 10;
     try {
       armWaveClock(w, CONFIG.fleet.waves[0].atMs);
       w.step();
@@ -790,6 +841,7 @@ describe('fleet waves — the anchor rule (amendment 37)', () => {
       const lines = log.mock.calls.map((c) => String(c[0]));
       expect(lines.filter((l) => l.includes('fleet.spawnFallback'))).toHaveLength(CONFIG.fleet.waves[0].fleets);
     } finally {
+      dropout.startU = savedStart;
       log.mockRestore();
     }
   });
@@ -809,35 +861,38 @@ describe('fleet waves — the anchor rule (amendment 37)', () => {
       const ring = w.zoneLiveRing;
       const cap = captain(w, 'cap', ring.cx, ring.cy);
       const sampleMax = ring.r - CONFIG.fleet.spreadU;
-      cap.stats = { ...cap.stats, radarRange: sampleMax * 0.9 };
-      armWaveClock(w, CONFIG.fleet.waves[0].atMs);
-      w.step();
-      const hulls = fleetHulls(w);
+      const DENY = sampleMax * 0.9; // the denial disc (startU since Eric 2026-10-13), levered
+      const hulls = withDenialRadius(DENY, () => {
+        armWaveClock(w, CONFIG.fleet.waves[0].atMs);
+        w.step();
+        return fleetHulls(w);
+      });
       expect(hulls.length).toBe(CONFIG.fleet.waves[0].fleets * fleetHullIds().length);
       let nearest = Infinity;
       for (const s of hulls) {
         const d = dist(s.state, cap.state);
-        expect(d).toBeGreaterThan(cap.stats.radarRange); // the whole point
+        expect(d).toBeGreaterThan(DENY); // the whole point
         nearest = Math.min(nearest, d);
       }
-      // NON-VACUITY: the spread disc really does reach into the intel disc —
+      // NON-VACUITY: the spread disc really does reach into the denial disc —
       // some hull ends up hard against its edge, which is exactly where the
       // pre-fix scatter would have crossed it.
-      expect(nearest).toBeLessThan(cap.stats.radarRange + CONFIG.fleet.spreadU);
+      expect(nearest).toBeLessThan(DENY + CONFIG.fleet.spreadU);
     }
   });
 
   it('a wave whose anchor frees up mid-retry spawns WITHOUT the fallback log', () => {
     const w = bareWorld(41);
-    const cap = captain(w, 'cap', 0, 0);
-    cap.stats = { ...cap.stats, radarRange: w.map.radius * 10 };
+    captain(w, 'cap', 0, 0);
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
-      armWaveClock(w, CONFIG.fleet.waves[0].atMs);
-      w.step();
+      withDenialRadius(w.map.radius * 10, () => {
+        armWaveClock(w, CONFIG.fleet.waves[0].atMs);
+        w.step();
+      });
       expect(fleetHulls(w)).toHaveLength(0);
-      cap.stats = { ...cap.stats, radarRange: CONFIG.vision.radar }; // the sky clears
-      w.step();
+      w.step(); // the sky clears: the shipped startU disc
+
       expect(fleetHulls(w)).toHaveLength(CONFIG.fleet.waves[0].fleets * fleetHullIds().length);
       expect(log.mock.calls.map((c) => String(c[0])).some((l) => l.includes('fleet.spawnFallback'))).toBe(false);
     } finally {

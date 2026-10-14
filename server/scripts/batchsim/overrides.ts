@@ -414,8 +414,8 @@ const TUNE_SUB_ONE_FLOORS = new Map<string, number>([['turnRate', 0.05]]);
 /** Exact --tune keys floored at 1 (Story 9.8): the dropout curve's two
  *  distances. Not leaf names — `startU` / `kneeU` are generic words, and the
  *  hazard is specific to this block (a 0 start makes every return a coin
- *  flip from the hull outward). The shared curve already fails closed on a
- *  degenerate start ≥ knee (a STEP at startU), so only the floor lives here. */
+ *  flip from the hull outward). The pair relations (start < knee < radar, rim ≤ knee
+ *  probability) are refused on the finished CONFIG in validateDropoutCurve. */
 const TUNE_MIN_ONE_KEYS = new Set(['vision.dropout.startU', 'vision.dropout.kneeU']);
 
 function tuneFloor(key: string): number {
@@ -532,6 +532,7 @@ function validateUnitInterval(key: string, value: number): void {
 function validateCrossKeyInvariants(): void {
   validateWeightingPair();
   validateCoverBand();
+  validateDropoutCurve();
   const { durationMs, maxAmmo } = CONFIG.boost;
   if (maxAmmo !== 1) {
     throw new TunableError(
@@ -566,6 +567,34 @@ function validateCoverBand(): void {
   if (!(coverMin <= coverTarget && coverTarget <= coverMax)) {
     throw new TunableError(
       `terrain cover band must satisfy coverMin <= coverTarget <= coverMax (got ${coverMin} <= ${coverTarget} <= ${coverMax})`,
+    );
+  }
+}
+
+/**
+ * THE DROPOUT CURVE MUST BE A CURVE (Story 9.8 review, F3): `startU < kneeU <
+ * vision.radar` and `rimP <= kneeP`, on the FINAL resolved values (an arm may
+ * set several leaves at once). Anything else is what shared `dropoutPaintP`
+ * calls DEGENERATE and fails closed on — a STEP at startU (full paint inside,
+ * none beyond) — so a sim would silently read a mis-set dial as "the dropout
+ * got harsher". A harness may not produce false evidence; refused up front.
+ */
+function validateDropoutCurve(): void {
+  const { startU, kneeU, kneeP, rimP } = CONFIG.vision.dropout;
+  const radar = CONFIG.vision.radar;
+  if (!(startU < kneeU)) {
+    throw new TunableError(
+      `'vision.dropout.startU' (${startU}) must stay < 'vision.dropout.kneeU' (${kneeU}): otherwise the curve collapses to a step at startU`,
+    );
+  }
+  if (!(kneeU < radar)) {
+    throw new TunableError(
+      `'vision.dropout.kneeU' (${kneeU}) must stay < 'vision.radar' (${radar}): otherwise the curve collapses to a step at startU`,
+    );
+  }
+  if (!(rimP <= kneeP)) {
+    throw new TunableError(
+      `'vision.dropout.rimP' (${rimP}) must stay <= 'vision.dropout.kneeP' (${kneeP}): a rim more reliable than the knee collapses the curve to a step at startU`,
     );
   }
 }

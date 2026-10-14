@@ -325,8 +325,8 @@ function inPaintWindow(me: { sweepAngle: number; prevSweepAngle: number }, brg: 
 // WITH WHICH KEYS. Never inside sight, never on the zone circles.
 const DROPOUT_LEDGER = { painted: 0, missed: 0 };
 
-function dropoutOracle(w: World, me: ShipRecord, d: number, targetKey: string): boolean {
-  const ok = dropoutPaints(d, w.dropoutSeed, me.id, targetKey, me.sweepRev);
+function dropoutOracle(w: World, me: ShipRecord, d: number, targetKey: string, rev = me.sweepRev): boolean {
+  const ok = dropoutPaints(d, w.dropoutSeed, me.id, targetKey, rev);
   if (d > CONFIG.vision.dropout.startU) {
     if (ok) DROPOUT_LEDGER.painted += 1;
     else DROPOUT_LEDGER.missed += 1;
@@ -2876,6 +2876,19 @@ function beamCrossesDiscOracle(me: ShipRecord, c: { x: number; y: number }, r: n
   return delta <= win / 2 + half;
 }
 
+/** The revolution a disc's PASS belongs to (Story 9.8 review, F1): the one in
+ *  which the beam crossed the span's ENTRY bearing. Re-derived as ANGLE
+ *  TRAVELLED: the beam has turned wrapPositive(sweepAngle − entry) since it
+ *  crossed the entry; if that exceeds sweepAngle itself, it passed bearing 0
+ *  on the way — the previous revolution. An observer inside the disc: the
+ *  live revolution. */
+function discPassRevOracle(me: ShipRecord, c: { x: number; y: number }, r: number): number {
+  const d = dist(me.state, c);
+  if (d <= r) return me.sweepRev;
+  const entry = bearing(me.state, c) - Math.asin(Math.min(1, r / d));
+  return wrapPositive(me.sweepAngle - entry) > me.sweepAngle ? me.sweepRev - 1 : me.sweepRev;
+}
+
 /** THE CLOUD DELIVERY GATE (Story 9.3; amendment 51 — Eric 2026-10-12: "If I
  *  can see smoke particles in my sight range, I want them composited" and
  *  "If it's detected by my radar, I want my radar to paint it" — re-cut for
@@ -2894,7 +2907,7 @@ function cloudGateOracle(w: World, me: ShipRecord, cloud: { id: string; ownerId:
     near <= effRadar() &&
     beamCrossesDiscOracle(me, cloud, r) &&
     shadowVisible(w, me, cloud) &&
-    dropoutOracle(w, me, dist(me.state, cloud), cloud.id); // the roll at the CENTRE distance (ruling 123)
+    dropoutOracle(w, me, dist(me.state, cloud), cloud.id, discPassRevOracle(me, cloud, r)); // the roll at the CENTRE distance (ruling 123)
   if (bySight && !byRadar) CLOUD_DELIVERED_BY_SIGHT.n += 1;
   if (byRadar && !bySight) CLOUD_DELIVERED_BY_RADAR.n += 1;
   return bySight || byRadar;
@@ -4531,6 +4544,54 @@ describe('perception — the radar dropout, end to end (Story 9.8, rulings 121�
     expect(res.cloud.missed).toBeGreaterThan(0);
     // (v) the foul zone is a drawn hazard, never a return: delivered EVERY tick.
     expect(foulTicks).toBe(ticks);
+  });
+});
+
+// ---------- a cloud pass straddling bearing 0 is ONE roll (Story 9.8 review, F1)
+//
+// A DISC spans an arc the beam takes several ticks to cross. When that arc
+// straddles bearing 0, `advanceSweeps` bumps `sweepRev` mid-pass — a roll on
+// the live revolution would split one physical pass into paint-then-miss (or
+// miss-then-paint). The pass must be ONE decision: every tick of it delivers
+// the cloud, or none does.
+
+describe('perception — a cloud pass across the sweep wrap is one dropout decision (Story 9.8 review, F1)', () => {
+  it('a cloud at 1,400 u on bearing 0: every pass across the wrap is all-paint or all-miss, over 50+ revolutions', () => {
+    const w = bareWorld();
+    w.map.heightRaster = flatRaster(RADAR + 200);
+    w.damageEnabled = false;
+    const a = place(w, 'a', 0, 0);
+    const D = 1_400;
+    expect(D).toBeGreaterThan(CONFIG.vision.dropout.startU);
+    expect(D - cloudOutlineOracle(0, CLOUD_LIFE_MS)).toBeGreaterThan(SIGHT); // radar-only: never sighted
+    injectCloud(w, 'ck', 'z', D, 0);
+    w.clouds.set('ck', { ...w.clouds.get('ck')!, until: 1e12 });
+    const passes: boolean[][] = [];
+    let wrapPasses = 0;
+    let cur: boolean[] | null = null;
+    let curWrapped = false;
+    for (let t = 0; t < 52 * TICKS_PER_REV; t++) {
+      w.step();
+      const f = buildFrame(w, 'a');
+      verifyFrame(w, 'a', f);
+      const r = cloudOutlineOracle(w.clouds.get('ck')!.bornAt, w.now);
+      if (beamCrossesDiscOracle(a, w.clouds.get('ck')!, r)) {
+        cur ??= [];
+        cur.push((f.clouds ?? []).some((c) => c.id === 'ck'));
+        if (a.sweepAngle < a.prevSweepAngle) curWrapped = true;
+      } else if (cur !== null) {
+        passes.push(cur);
+        if (curWrapped) wrapPasses++;
+        cur = null;
+        curWrapped = false;
+      }
+    }
+    expect(wrapPasses).toBeGreaterThanOrEqual(50); // the passes really cross the wrap
+    expect(passes.every((p) => p.length >= 2)).toBe(true); // multi-tick passes: a split was possible
+    for (const [i, p] of passes.entries()) expect(new Set(p).size, `pass ${i}: ${p.join(',')}`).toBe(1);
+    // Non-vacuous: the dropout really bites at this range (some passes paint, some miss).
+    expect(passes.some((p) => p[0])).toBe(true);
+    expect(passes.some((p) => !p[0])).toBe(true);
   });
 });
 

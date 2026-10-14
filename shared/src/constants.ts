@@ -2430,7 +2430,7 @@ export const CONFIG = {
     // at arm time and is never extended by later joins — that is what closes the
     // leave/rejoin hostage-cycling vector the 30 s gathering window carried.
     queueTimerMs: 120000,
-    fillTo: 16, // total ships at start (drones fill the rest) — 20 → 16 Story 9.8 (Eric 2026-10-13: lobby capacity and player count 16)
+    fillTo: 16, // harness-only: the batch-sim lobby size (`--set match.fillTo`); ArenaRoom's fill was deleted at amendment 41 — not the lobby cap. 20 → 16 Story 9.8 (Eric 2026-10-13: player count 16)
     // s — results overlay before the room disposes. 10 -> 45 (Story 5.3, epic-5
     // amendment 27): the old ceiling predates there being anything to READ on
     // that screen. It must now contain the last sinking captain's window closing
