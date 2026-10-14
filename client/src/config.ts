@@ -658,6 +658,15 @@ export const CLIENT_CONFIG = {
     /** Lead distance cap (u) = 0.5 * sight range, per the plan (250 u at the
      *  twelfths ladder's base sight). */
     leadMax: CONFIG.vision.sight * 0.5,
+    /**
+     * KEEP THE OWN HULL ON SCREEN past the default framing (Story 9.8 review
+     * gate, F2): the centre slide (ruling 128) aims at the ring centre, so a
+     * captain out in the storm beyond the fitted ring would otherwise slide off
+     * the view at the zoom-out limit. The centre is clamped so the hull point
+     * stays at least this far (u) inside every view edge: the LONGEST hull's
+     * half-length plus a small margin (20 u), so the whole silhouette shows.
+     */
+    keepInViewPadU: Math.max(...SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].hull.length)) / 2 + 20,
   },
 
   /**
@@ -2591,6 +2600,14 @@ export const CLIENT_CONFIG = {
     /** A cell whose haze alpha is under this returns nothing on radar (thin
      *  wisps return nothing). */
     radarPaintMin: 0.05,
+    /** THE RADAR RETURN'S FRESHNESS WINDOW, in sweep revolutions (Story 9.8
+     *  review gate, F1 — render/cloudReturnGate.ts). A held cloud beyond sight
+     *  returns on the scope only while its last radar delivery is younger than
+     *  this many revolutions: over 1, so the previous revolution's row (which
+     *  lands a beat after the client's own beam crosses) admits this pass;
+     *  under 2, so a server MISS darkens the cloud exactly one revolution late.
+     *  The half revolution of slack absorbs frame latency and clock jitter. */
+    returnHoldRevs: 1.5,
     /** A contact's NAMEPLATE is hidden outright when the cloud paint under its
      *  hull is at least this thick (Eric 2026-10-12: "I don't want someone's
      *  nameplate sticking out from behind the smoke"). Plates only — a hull is

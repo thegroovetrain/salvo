@@ -2307,6 +2307,7 @@ function setupViewport(
     followRate: CLIENT_CONFIG.camera.followRate,
     leadSeconds: CLIENT_CONFIG.camera.leadSeconds,
     leadMax: CLIENT_CONFIG.camera.leadMax,
+    keepInViewPadU: CLIENT_CONFIG.camera.keepInViewPadU,
   });
   camera.setViewport(stage.app.screen.width, stage.app.screen.height);
 

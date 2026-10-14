@@ -184,6 +184,7 @@ import {
 import { echoArc, marchSlice, mergeSlices, planMarch, type MarchSlice } from './radarMarch.js';
 import { wakeLitFloor } from './radarSources.js';
 import { WakeStampCache, type WakeSources } from './wake.js';
+import { cloudReturns, type CloudReturnGate, type CloudReturnInfo } from './cloudReturnGate.js';
 import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
 
 /**
@@ -288,6 +289,10 @@ export interface ViewRect {
 export interface CloudReturnSource {
   readonly size: number;
   coverAt(x: number, y: number): number;
+  /** The haze of only the clouds `live` admits — the per-revolution delivery
+   *  gate (Story 9.8 review gate F1, render/cloudReturnGate.ts). A source
+   *  without it (a synthetic test field) is read ungated through `coverAt`. */
+  returnHaze?(live: (c: CloudReturnInfo) => boolean): ((x: number, y: number) => number) | undefined;
 }
 
 export class Radar {
@@ -987,7 +992,7 @@ export class Radar {
       raster: this.heightRaster,
       ships: this.shipStamp(own, serverNow, contacts),
       wake: this.wakeStamp(own, serverNow),
-      cloud: this.cloudHaze(),
+      cloud: this.cloudHaze(own, serverNow),
       cellU: cfg.cellU,
       model: cfg.model,
     });
@@ -1156,11 +1161,22 @@ export class Radar {
   }
 
   /** The cloud layer's per-sample haze lookup for this frame's field, or
-   *  undefined when no cloud is held (the field then skips the layer). */
-  private cloudHaze(): ((x: number, y: number) => number) | undefined {
+   *  undefined when no cloud is held or none is admitted (the field then skips
+   *  the layer). A held cloud beyond sight returns only while its radar
+   *  delivery is fresh (Story 9.8 review gate F1, render/cloudReturnGate.ts):
+   *  ruling 123's per-revolution roll reaches the scope. */
+  private cloudHaze(own: OwnPoint, serverNow: number): ((x: number, y: number) => number) | undefined {
     const src = this.cloudSource;
     if (src === null || src.size === 0) return undefined;
-    return (x, y) => src.coverAt(x, y);
+    if (src.returnHaze === undefined) return (x, y) => src.coverAt(x, y);
+    const gate: CloudReturnGate = {
+      own,
+      serverNow,
+      sightU: this.sightHoleU,
+      sweepPeriodMs: this.sweepPeriodMs,
+      holdRevs: CLIENT_CONFIG.countermeasure.returnHoldRevs,
+    };
+    return src.returnHaze((c) => cloudReturns(c, gate));
   }
 
   /**

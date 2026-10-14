@@ -19,7 +19,6 @@ import {
   type BoonFitEvent,
   type BurnZoneView,
   type BurstEvent,
-  type CloudView,
   type DeniedView,
   type DropEvent,
   type FoghornEvent,
@@ -40,7 +39,7 @@ import {
   type SunkEvent,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import type { GameState } from '../state.js';
+import type { GameState, HeldCloud } from '../state.js';
 import type { Predictor } from '../sim/prediction.js';
 import { conningFlag, isSinkingNow } from '../sim/sinkingWindow.js';
 import type { Connection } from './connection.js';
@@ -811,11 +810,15 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
 /**
  * Merge this frame's clouds into the held set and drop every held cloud whose
  * life has ended on the FRAME's server time (never a local clock reading).
- * A cloud is stationary, so a re-delivery only refreshes the same record.
- * Returns the held, unexpired list (Map-insertion order = first-seen order).
+ * A cloud is stationary, so a re-delivery only refreshes the same record —
+ * and STAMPS it `deliveredAt` = the frame's server time: the radar's return
+ * source paints a held cloud only while that delivery is fresh (Story 9.8
+ * review gate F1, render/cloudReturnGate.ts — ruling 123, the delivery rolls
+ * per revolution). Returns the held, unexpired list (Map-insertion order =
+ * first-seen order).
  */
-function holdClouds(f: FrameMsg, held: Map<string, CloudView>): CloudView[] {
-  for (const c of f.clouds ?? []) held.set(c.id, c);
+function holdClouds(f: FrameMsg, held: Map<string, HeldCloud>): HeldCloud[] {
+  for (const c of f.clouds ?? []) held.set(c.id, { ...c, deliveredAt: f.t });
   for (const [id, c] of held) if (f.t - c.t0 >= CONFIG.countermeasure.lifeMs) held.delete(id);
   return [...held.values()];
 }

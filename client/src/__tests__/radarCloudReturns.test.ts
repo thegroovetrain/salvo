@@ -9,7 +9,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { Container, Texture, TextureSource } from 'pixi.js';
-import { CONFIG, buildHeightRaster, mulberry32, wrapPositive, type HeightField, type HeightRaster } from '@salvo/shared';
+import { CONFIG, buildHeightRaster, cloudOutlineRadius, mulberry32, wrapPositive, type HeightField, type HeightRaster } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { Countermeasure } from '../render/countermeasure.js';
 import { Radar, type CloudReturnSource } from '../render/radar.js';
@@ -227,5 +227,84 @@ describe('the radar rules apply to the cloud as to every return', () => {
     expect(behind.length).toBeGreaterThan(0);
     expect(mean(behind.map((c) => open.radar.intensityAt(c.x, c.y)))).toBeGreaterThan(0);
     for (const c of behind) expect(shadowed.radar.intensityAt(c.x, c.y)).toBe(0);
+  });
+});
+
+// F1 (Story 9.8 review gate; Eric's ruling 123: "everything radar delivers
+// rolls"). The server rolls a cloud's RADAR delivery once per revolution, but
+// the client holds every cloud it was sent until it dies. The held copy must
+// not keep painting the scope every sweep: a held cloud beyond sight returns
+// only while its last delivery is fresh (this or the previous revolution); one
+// whose rows stop goes dark one revolution later and comes back when a row
+// lands. A cloud inside sight (no roll) never stops.
+describe('the held cloud\'s radar return rolls per revolution (F1)', () => {
+  const B = 0.3; // the cloud's bearing from OWN (rad)
+  /** When the beam (bearing 0 at T0) reaches bearing B on revolution k. */
+  const crossing = (k: number): number => T0 + k * PERIOD + (B / (2 * Math.PI)) * PERIOD;
+  const HALF_WIN = PERIOD / 8; // well clear of the cloud's bearing span either side
+
+  function setup(dist: number): { cm: Countermeasure; radar: Radar; cells: { x: number; y: number }[]; cloud: { id: string; x: number; y: number; t0: number } } {
+    const cloud = { id: 'c', x: dist * Math.cos(B), y: dist * Math.sin(B), t0: T0 - 1000 };
+    const cm = new Countermeasure(new Container(), mulberry32(5).next);
+    cm.sync([{ ...cloud, deliveredAt: T0 }]); // first delivery: paints at once
+    cm.render(T0); // a built body, frozen for the test
+    const { radar } = radarWith(cm);
+    radar.setRanges(CONFIG.vision.sight, CONFIG.vision.radar, PERIOD);
+    const cells = cellCentres().filter((c) => cm.coverAt(c.x, c.y) >= MIN && Math.hypot(c.x, c.y) <= RANGE - CELL);
+    return { cm, radar, cells, cloud };
+  }
+
+  /** The phosphor alpha summed over the cloud's cells (decays between sweeps). */
+  const heat = (radar: Radar, cells: { x: number; y: number }[]): number => {
+    const g = gridOf(radar);
+    return g === null ? 0 : cells.reduce((s, c) => s + sampleGrid(g, c.x, c.y).a, 0);
+  };
+
+  /** Play across revolution k's crossing; did the beam (re)paint the cloud? */
+  function repainted(radar: Radar, cells: { x: number; y: number }[], k: number, from: number): { painted: boolean; to: number } {
+    const before = crossing(k) - HALF_WIN;
+    const after = crossing(k) + HALF_WIN;
+    // Off the cloud's bearings, coarse frames (cost only: nothing to paint
+    // there); across the crossing, 16 ms frames.
+    for (let t = from; t < before; t += 80) radar.render(OWN, t, null, null);
+    radar.render(OWN, before, null, null);
+    const a = heat(radar, cells);
+    play(radar, before + 16, after);
+    const b = heat(radar, cells);
+    return { painted: b > a * 1.05 + 1e-6, to: after + 16 };
+  }
+
+  it('a FAR held cloud whose rows stop goes dark one revolution later, and returns when a row lands', () => {
+    const { cm, radar, cells, cloud } = setup(1300);
+    expect(cells.length, 'the premise: hazy cells in radar range').toBeGreaterThan(0);
+    expect(
+      Math.hypot(cloud.x, cloud.y) - cloudOutlineRadius(crossing(4) - cloud.t0),
+      'the premise: the cloud\'s nearest rim stays beyond sight all test long',
+    ).toBeGreaterThan(radar.sightHoleU);
+    let t = T0;
+    let r = repainted(radar, cells, 0, t); // delivered this revolution
+    expect(r.painted, 'rev 0: a newly held cloud paints at once').toBe(true);
+    r = repainted(radar, cells, 1, r.to); // the previous revolution's row admits it
+    expect(r.painted, 'rev 1: the previous revolution\'s delivery still admits it').toBe(true);
+    r = repainted(radar, cells, 2, r.to); // no row for two revolutions
+    expect(r.painted, 'rev 2: no row since rev 0 — dark on the scope').toBe(false);
+    t = r.to;
+    cm.sync([{ ...cloud, deliveredAt: crossing(2) + HALF_WIN }]); // a row lands again
+    r = repainted(radar, cells, 3, t);
+    expect(r.painted, 'rev 3: delivered again — back on the scope').toBe(true);
+    // The held set (the haze, the wake mirror) never lost it.
+    expect(cm.size).toBe(1);
+  });
+
+  it('a cloud INSIDE sight (delivered by eye, no roll) never stops returning', () => {
+    const { radar, cells, cloud } = setup(300);
+    expect(cells.length).toBeGreaterThan(0);
+    expect(Math.hypot(cloud.x, cloud.y) - cloudOutlineRadius(0), 'the premise: inside sight').toBeLessThanOrEqual(radar.sightHoleU);
+    let to = T0;
+    for (let k = 0; k < 4; k++) {
+      const r = repainted(radar, cells, k, to);
+      expect(r.painted, `rev ${k}`).toBe(true);
+      to = r.to;
+    }
   });
 });

@@ -27,6 +27,7 @@ const OPTS: CameraOptions = {
   followRate: 5,
   leadSeconds: 4,
   leadMax: 110,
+  keepInViewPadU: CLIENT_CONFIG.camera.keepInViewPadU,
 };
 
 function makeCamera(): Camera {
@@ -108,18 +109,36 @@ describe('Camera alive user-zoom limits (ruling 127)', () => {
     expect(cam.userZoom).toBe(1);
   });
 
-  it('a ring narrower than the close framing pins BOTH limits to the close framing', () => {
-    const lim = userZoomLimits(Z.defaultSpanU, Z.closeSpanU, ringFitSpanU(100, MARGIN));
-    expect(lim.min).toBeCloseTo(lim.max, 12);
+  // The ring fit is a zoom-OUT limit ONLY (Story 9.8 review gate, F3): once
+  // the live ring's fitted span drops under the default framing (the final
+  // close), the out limit stops AT the default framing — it never forces a
+  // captain in toward the close framing.
+  it('a ring narrower than the default framing holds the out limit AT the default framing', () => {
+    const r = (Z.closeSpanU / (2 * MARGIN)) * 0.5; // fits well inside the close framing
+    const lim = userZoomLimits(Z.defaultSpanU, Z.closeSpanU, ringFitSpanU(r, MARGIN));
+    expect(lim.min).toBe(1);
     expect(lim.max).toBeCloseTo(spanFactor(Z.defaultSpanU, Z.closeSpanU), 12);
   });
 
-  it('r → 0 clamps to the close limit (continuous with the final ring closing)', () => {
+  it('ring r = 300 u: the out limit is the default framing, and a captain at zoom 1 stays at 1', () => {
+    expect(ringFitSpanU(300, MARGIN), 'the premise: the fit is under the default span').toBeLessThan(Z.defaultSpanU);
+    const cam = ringed(4000);
+    cam.setUserZoom(1);
+    expect(cam.setRing(0, 0, 300), 'the ring did not force the zoom').toBe(false);
+    expect(cam.userZoom).toBe(1);
+    cam.setUserZoom(0);
+    expect(cam.userZoom).toBe(1);
+    expect(cam.userZoomLimits.min).toBe(1);
+  });
+
+  it('r → 0 holds the out limit at the DEFAULT framing (never the close one)', () => {
     const cam = ringed(4000);
     cam.setUserZoom(0);
     cam.setRing(0, 0, 0);
-    expect(cam.userSpanU).toBeCloseTo(Z.closeSpanU, 9);
+    expect(cam.userSpanU).toBeCloseTo(Z.defaultSpanU, 9);
     cam.setUserZoom(0);
+    expect(cam.userSpanU).toBeCloseTo(Z.defaultSpanU, 9);
+    cam.setUserZoom(99);
     expect(cam.userSpanU).toBeCloseTo(Z.closeSpanU, 9);
   });
 
@@ -237,6 +256,43 @@ describe('THE CENTRE SLIDE (ruling 128)', () => {
     cam.update(0.05, SHIP);
     expect(cam.center.x).toBeCloseTo(RING.x, 9);
     expect(cam.center.y).toBeCloseTo(RING.y, 9);
+  });
+
+  // F2 (Story 9.8 review gate): at the out limit the centre is the ring
+  // centre, so a captain OUTSIDE the ring in the storm would slide off screen.
+  // The centre is clamped so the hull point stays keepInViewPadU inside every
+  // edge of the view RECT; a captain inside the ring is never touched.
+  it('a captain in the storm at 1.3 × r from the ring centre stays inside the view rect at the out limit', () => {
+    const pad = CLIENT_CONFIG.camera.keepInViewPadU;
+    expect(pad, 'the premise: a real pad').toBeGreaterThan(0);
+    for (const dir of [{ x: 0, y: 1 }, { x: 1, y: 0 }, { x: -Math.SQRT1_2, y: -Math.SQRT1_2 }]) {
+      const ship = { x: RING.x + dir.x * 1.3 * RING.r, y: RING.y + dir.y * 1.3 * RING.r, heading: 0, speed: 0 };
+      const cam = ringed(RING.r, RING.x, RING.y);
+      cam.setUserZoom(0);
+      cam.snapTo(ship);
+      cam.update(0.05, ship);
+      const v = cam.worldView;
+      const tag = `dir (${dir.x.toFixed(2)}, ${dir.y.toFixed(2)})`;
+      expect(Math.abs(ship.x - v.x), tag).toBeLessThanOrEqual(v.halfW - pad + 1e-6);
+      expect(Math.abs(ship.y - v.y), tag).toBeLessThanOrEqual(v.halfH - pad + 1e-6);
+      const s = cam.worldToScreen(ship);
+      expect(s.x, tag).toBeGreaterThan(0);
+      expect(s.x, tag).toBeLessThan(1600);
+      expect(s.y, tag).toBeGreaterThan(0);
+      expect(s.y, tag).toBeLessThan(900);
+    }
+  });
+
+  it('a captain INSIDE the ring at the out limit is unaffected: the centre is exactly the ring centre', () => {
+    for (const k of [0, 0.5, 0.95]) {
+      const ship = { x: RING.x, y: RING.y + k * RING.r, heading: 0, speed: 0 };
+      const cam = ringed(RING.r, RING.x, RING.y);
+      cam.setUserZoom(0);
+      cam.snapTo(ship);
+      cam.update(0.05, ship);
+      expect(cam.center.x, `k ${k}`).toBe(RING.x);
+      expect(cam.center.y, `k ${k}`).toBe(RING.y);
+    }
   });
 
   it('lead + follow smoothing apply to the SHIP term only', () => {

@@ -110,14 +110,15 @@ describe('the NFR1 profile — the reference scenario the frame budget is judged
 
   it('stages the arena cap of CONTESTANTS plus the PEAK concurrent PvE fleet', () => {
     // The contestants = the arena cap (16 since Story 9.8; 20 before). The peak fleet is the LARGEST SINGLE WAVE
-    // (8 groups x 6 hulls = 48 at T+1:00), not the sum of the schedule: the
-    // waves are minutes apart precisely so the field is thinned between them.
+    // (groups x hulls per group, derived from CONFIG.fleet — never a literal),
+    // not the sum of the schedule: the waves are minutes apart precisely so
+    // the field is thinned between them.
     const perGroup =
       CONFIG.fleet.composition.large + CONFIG.fleet.composition.medium + CONFIG.fleet.composition.small;
     const peakFleet = perGroup * Math.max(...CONFIG.fleet.waves.map((w) => w.fleets));
-    expect(peakFleet).toBe(48);
+    const sumFleet = perGroup * CONFIG.fleet.waves.reduce((n, w) => n + w.fleets, 0);
+    expect(peakFleet, 'the premise: the peak wave is not the schedule sum').toBeLessThan(sumFleet);
     expect(world.hulls).toHaveLength(CONFIG.map.playerCap - 1 + peakFleet);
-    expect(world.hulls.length + 1).toBe(CONFIG.map.playerCap + 48);
     // Captains hold roster rows; fleet hulls hold none (amendment 39), so the
     // roster IS the contestant count.
     expect(world.roster).toHaveLength(CONFIG.map.playerCap);

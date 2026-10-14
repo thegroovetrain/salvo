@@ -662,12 +662,11 @@ const FIELD_FMTS: Readonly<Record<string, (v: number) => string>> = {
   // 0.10 s), which the one-decimal `secs` would flatten — two decimals, the
   // trailing zero kept so the ladder reads in one register.
   rateMs: (v) => `${(v / 1000).toFixed(2)} s`,
-  // RANGE prints to the WHOLE unit on the card face, the hover and the tooltip
-  // (Story 9.8, orchestrator display ruling — Eric may veto on staging): the
-  // +31.25 u per-card step of ruling 125 would otherwise print `656.3`, and
-  // the decimal carries no information a captain can use. The sim keeps the
+  // RANGE prints ONE DECIMAL ONLY WHEN NEEDED (Story 9.8, Eric 2026-10-13):
+  // whole values print whole (1000, 750, 875), fractional ones to one decimal
+  // (781.3, 812.5, the +31.25 u per-card step as 31.3). The sim keeps the
   // exact value; this is display only.
-  rangeU: (v) => String(Math.round(v)),
+  rangeU: (v) => (v % 1 === 0 ? String(v) : v.toFixed(1)),
 };
 
 /**

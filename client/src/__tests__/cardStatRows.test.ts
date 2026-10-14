@@ -21,11 +21,14 @@ import { CARD_STAT_ROWS, cardStatRows, cardTierLabel, shipStatRows } from '../ui
 const TB = { cls: 'torpedoBoat' as const, cards: [] as string[] };
 
 /** The same hull with `n` copies of one line already aboard. */
+/** RANGE's printer (Eric 2026-10-13): whole values whole, else one decimal. */
+const rangeTxt = (v: number): string => (v % 1 === 0 ? String(v) : v.toFixed(1));
+
 /**
  * THE RANGE ROW a gun card prints (Story 9.8, ruling 125: every card of a gun
  * line steps its reach by (V − I) / 4), read off the SAME fold the card reads —
- * never a literal. Whole units on the face (the orchestrator's display ruling;
- * the sim keeps the exact value), the unit on `next` alone (FIELD_UNITS).
+ * never a literal. One decimal only when needed (Eric 2026-10-13; the sim
+ * keeps the exact value), the unit on `next` alone (FIELD_UNITS).
  */
 function rangeRow(
   line: string,
@@ -34,7 +37,7 @@ function rangeRow(
 ): { label: string; cur: string; next: string } {
   const at = (n: number): number =>
     effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<string>(n).fill(line)).equipment[w].rangeU;
-  return { label: 'RANGE', cur: String(Math.round(at(k))), next: `${Math.round(at(k + 1))} u` };
+  return { label: 'RANGE', cur: rangeTxt(at(k)), next: `${rangeTxt(at(k + 1))} u` };
 }
 /**
  * A gun's DAMAGE before and after the card at `k` copies held, read off the
@@ -314,7 +317,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
   // RANGE row is absolute (no `before` on a first copy), LAST, whole units.
   it('prints RANGE last, absolute, on every gun fit face', () => {
     const fit = (w: 'broadside' | 'starShells' | 'phosphorShells'): string =>
-      `${Math.round(effectiveStats(CONFIG.shipClasses.torpedoBoat, [w]).equipment[w].rangeU)} u`;
+      `${rangeTxt(effectiveStats(CONFIG.shipClasses.torpedoBoat, [w]).equipment[w].rangeU)} u`;
     for (const id of ['broadside', 'starShells', 'phosphorShells'] as const) {
       const rows = cardStatRows(CATALOG[id], 0, TB);
       expect(rows.at(-1), id).toEqual({ label: 'RANGE', cur: null, next: fit(id) });

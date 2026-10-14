@@ -38,6 +38,11 @@ export interface CameraOptions {
   leadSeconds: number;
   /** Maximum lead distance (u). */
   leadMax: number;
+  /** How far (u) inside every view edge the own hull point is held while the
+   *  centre slides toward the ring (Story 9.8 review gate, F2 —
+   *  CLIENT_CONFIG.camera.keepInViewPadU). Omitted = 0 (the hull point itself
+   *  stays on screen). */
+  keepInViewPadU?: number;
 }
 
 /**
@@ -100,8 +105,8 @@ export function revealZoomFactor(defaultSpanU: number, mapRadius: number, margin
  * world units across the short axis. NaN when the ring is unusable (non-finite
  * or negative radius, or a degenerate margin) — the caller then falls back to
  * the default framing. A radius of exactly 0 (the final ring closed onto its
- * point) is a legitimate span of 0: the limit sits on the close framing,
- * continuous with the r → 0 approach rather than popping back out.
+ * point) is a legitimate span of 0; `userZoomLimits` holds the out limit at
+ * the default framing for any fit under it, so r → 0 is continuous.
  */
 export function ringFitSpanU(ringRadius: number, margin: number): number {
   if (!Number.isFinite(ringRadius) || ringRadius < 0) return NaN;
@@ -112,9 +117,15 @@ export function ringFitSpanU(ringRadius: number, margin: number): number {
 /**
  * THE USER-ZOOM LIMITS as factors over the default framing (ruling 127):
  * `max` (zoomed fully IN) = defaultSpanU / closeSpanU; `min` (zoomed fully OUT)
- * = defaultSpanU / ringFitSpan, never above `max` (a ring smaller than the
- * close framing pins both limits to it). An unusable ring (NaN span) falls back
- * to the default framing (factor 1, itself held under `max`).
+ * = defaultSpanU / ringFitSpan.
+ *
+ * THE RING FIT IS A ZOOM-OUT LIMIT ONLY (Story 9.8 review gate, F3): `min` is
+ * never above 1, so the default framing is always reachable. Once the live
+ * ring's fitted span drops under the default framing (the final close), the
+ * out limit simply stops AT the default framing — it never forces a captain
+ * parked there in toward the close framing. A ring of radius 0 is the same
+ * case (the out limit equals the default framing, never the close one). An
+ * unusable ring (NaN span) falls back to the default framing too.
  */
 export function userZoomLimits(
   defaultSpanU: number,
@@ -122,9 +133,8 @@ export function userZoomLimits(
   ringSpanU: number,
 ): { min: number; max: number } {
   const max = spanFactor(defaultSpanU, closeSpanU);
-  if (Number.isNaN(ringSpanU)) return { min: Math.min(1, max), max };
-  const min = ringSpanU <= 0 ? max : Math.min(max, defaultSpanU / ringSpanU);
-  return { min, max };
+  const fit = Number.isNaN(ringSpanU) || ringSpanU <= 0 ? 1 : defaultSpanU / ringSpanU;
+  return { min: Math.min(1, max, fit), max };
 }
 
 /**
@@ -500,7 +510,8 @@ export class Camera {
    * ring centre, slideT). At and inside the default framing slideT is 0 and the
    * centre IS the follow point, exactly as before Story 9.8. The slide itself
    * is not smoothed: it is a pure function of the zoom, which the player moves
-   * directly.
+   * directly. While the slide is engaged the own hull is then kept on screen
+   * (`keepShipInView`).
    */
   update(dt: number, ship: Followable): void {
     const lead = this.leadOffset(ship);
@@ -509,5 +520,26 @@ export class Camera {
     const t = this.slideT;
     this.center.x = lerp(this.follow.x, this.ring.x, t);
     this.center.y = lerp(this.follow.y, this.ring.y, t);
+    if (t > 0) this.keepShipInView(ship);
+  }
+
+  /**
+   * THE OWN HULL STAYS ON SCREEN (Story 9.8 review gate, F2). At the zoom-out
+   * limit the centre is the ring centre (ruling 128), so a captain outside the
+   * ring in the storm — farther from the ring centre than the view's half
+   * extent — would be off screen with nothing pulling the camera back. Clamp
+   * the centre, per axis of the VIEW RECT (not a circle), so the hull point
+   * stays `keepInViewPadU` inside every edge. A captain inside the ring never
+   * reaches the clamp, so their centre is exactly the slide's. Only while the
+   * slide is engaged: at and inside the default framing the centre is the
+   * follow point, untouched.
+   */
+  private keepShipInView(ship: Point): void {
+    const v = this.worldView;
+    const pad = this.opts.keepInViewPadU ?? 0;
+    const hw = Math.max(0, v.halfW - pad);
+    const hh = Math.max(0, v.halfH - pad);
+    this.center.x = clamp(this.center.x, ship.x - hw, ship.x + hw);
+    this.center.y = clamp(this.center.y, ship.y - hh, ship.y + hh);
   }
 }

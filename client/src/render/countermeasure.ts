@@ -77,6 +77,7 @@ import {
   type CloudField,
 } from './cloudPaint.js';
 import type { ScreenWorldRect } from './camera.js';
+import type { CloudReturnInfo } from './cloudReturnGate.js';
 import { BASE_HAZE_HALO_U, haloSpanU } from './hazeHalo.js';
 import { HazeLosCaster } from './hazeLos.js';
 import { HALO_MASK_TEXTURE_SIZE, bakeHaloMaskTexture } from './textures.js';
@@ -100,7 +101,14 @@ interface CloudSprite {
   x: number;
   y: number;
   t0: number; // server-clock birth stamp — drives the field's age
+  /** Server time of the last frame that delivered this cloud's row; absent =
+   *  never gated (render/cloudReturnGate.ts). */
+  deliveredAt?: number;
 }
+
+/** A cloud as `sync` takes it: the wire's view, plus the held set's delivery
+ *  stamp when the caller has one (net/roomBindings.ts holdClouds). */
+export type SyncCloud = CloudView & { deliveredAt?: number };
 
 export class Countermeasure {
   private readonly clouds = new Map<string, CloudSprite>();
@@ -269,10 +277,15 @@ export class Countermeasure {
     this.body.boundsArea = this.clip;
   }
 
-  /** ADD every cloud on the held list not already held; an id ABSENT from
-   *  the list is never removed here (render / clear do that). */
-  sync(clouds: readonly CloudView[]): void {
-    for (const c of clouds) if (!this.clouds.has(c.id)) this.spawn(c);
+  /** ADD every cloud on the held list not already held, and carry each one's
+   *  delivery stamp (the radar return's gate); an id ABSENT from the list is
+   *  never removed here (render / clear do that). */
+  sync(clouds: readonly SyncCloud[]): void {
+    for (const c of clouds) {
+      const s = this.clouds.get(c.id);
+      if (s === undefined) this.spawn(c);
+      else if (c.deliveredAt !== undefined) s.deliveredAt = c.deliveredAt;
+    }
   }
 
   /** Per render frame: advance every field to its server-clock age (a first
@@ -302,15 +315,21 @@ export class Countermeasure {
   /** The thickest cloud haze (field alpha, 0..maxAlpha) under world (x, y)
    *  across every held cloud; 0 outside every cloud's grid. */
   coverAt(x: number, y: number): number {
-    let best = 0;
-    for (const s of this.clouds.values()) {
-      const i = Math.round((x - s.x) / K.cellU + MID);
-      const j = Math.round((y - s.y) / K.cellU + MID);
-      if (i < 0 || j < 0 || i >= CLOUD_CELLS || j >= CLOUD_CELLS) continue;
-      const a = s.field.alpha[j * CLOUD_CELLS + i];
-      if (a > best) best = a;
-    }
-    return best;
+    return maxCover(this.clouds.values(), x, y);
+  }
+
+  /**
+   * THE RADAR'S GATED HAZE (Story 9.8 review gate, F1): `coverAt` over only
+   * the held clouds `live` admits — the radar passes its per-revolution
+   * delivery gate (render/cloudReturnGate.ts). Undefined when none is admitted
+   * (the field then skips the cloud layer). The grey haze and `coverAt` itself
+   * are untouched.
+   */
+  returnHaze(live: (c: CloudReturnInfo) => boolean): ((x: number, y: number) => number) | undefined {
+    const admitted: CloudSprite[] = [];
+    for (const s of this.clouds.values()) if (live(s)) admitted.push(s);
+    if (admitted.length === 0) return undefined;
+    return (x, y) => maxCover(admitted, x, y);
   }
 
   /** Drop every held cloud (the match-boundary reset). */
@@ -333,7 +352,7 @@ export class Countermeasure {
     return this.clouds.size;
   }
 
-  private spawn(c: CloudView): void {
+  private spawn(c: SyncCloud): void {
     const rgba = new Uint8Array(CELLS * 4);
     const sprite = new Sprite(new Texture({ source: bufferSource(rgba) }));
     sprite.anchor.set(0.5);
@@ -349,6 +368,7 @@ export class Countermeasure {
       x: c.x,
       y: c.y,
       t0: c.t0,
+      ...(c.deliveredAt === undefined ? {} : { deliveredAt: c.deliveredAt }),
     });
   }
 
@@ -358,6 +378,20 @@ export class Countermeasure {
     s.sprite.destroy({ texture: true, textureSource: true });
     this.clouds.delete(id);
   }
+}
+
+/** The thickest haze (field alpha) under world (x, y) across `clouds`; 0
+ *  outside every cloud's grid. */
+function maxCover(clouds: Iterable<CloudSprite>, x: number, y: number): number {
+  let best = 0;
+  for (const s of clouds) {
+    const i = Math.round((x - s.x) / K.cellU + MID);
+    const j = Math.round((y - s.y) / K.cellU + MID);
+    if (i < 0 || j < 0 || i >= CLOUD_CELLS || j >= CLOUD_CELLS) continue;
+    const a = s.field.alpha[j * CLOUD_CELLS + i];
+    if (a > best) best = a;
+  }
+  return best;
 }
 
 /** One cloud bitmap: CLOUD_CELLS² rgba, LINEAR-scaled (soft puffs read soft). */
