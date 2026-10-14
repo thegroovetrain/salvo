@@ -2942,3 +2942,68 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
 - source_spec: `_bmad-output/implementation-artifacts/spec-9-6-five-tiers-and-passive-healing.md`
   summary: THE HARNESS `--tune regen.*` SURFACE CANNOT TURN REGEN OFF FOR A CARDED HULL — the PASSIVE HEALING ladder ADDS to the tuned base inside the fold and `applyStatEffect` keeps only positive results, so `regen.missingPctPerS=0` leaves a bot holding n cards regenerating at 0.006 × n (the defensive profile now favors the line), and a wait tuned under 1000 × n saturates instead of stepping (2500 → 1500 → 500 → 500 → 500); a regen-off arm must be read against bots that cannot draw the ladder, or the harness needs a "ladder off" switch (`overrides.ts` validate / a catalog mask).
   evidence: Edge Case Hunter (Fable) CONFIRMED by probe against the built shared dist at the 2026-10-13 review gate (`tune rate=0 … 1 card: 0.006, 5 cards: 0.03`); Blind Hunter PLAUSIBLE; the `regen.` family comment in `server/scripts/batchsim/overrides.ts` now states it.
+
+
+## 2026-10-14 — Story 9.8 The Twelfths Ladder (spec-9-8-the-twelfths-ladder.md)
+
+Closure stamps for three older entries (the originals are left as written), then the open threads this cycle leaves.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: CLOSED 2026-10-14 (cycle 185) — stamps the cycle-61 spec-4-10 entry "THE PER-FRAME COST GATE HAS NEVER BEEN TAKEN ON THE REFERENCE DEVICE"
+  summary: THE REFERENCE-DEVICE CAPTURE EXISTS NOW. The ratified headful capture on the MacBookPro16,1 (DPR 2, 1600×900) is recorded in the spec and in `perf-gate/`: close 6.8 / default 7.3 / ring-fit 29.0 / omniscient reveal 29.1 ms. The far-zoom cost is the reveal's, pre-existing and shipped on Eric's ruling (epic-9 amendment 133c).
+  evidence: `_bmad-output/implementation-artifacts/perf-gate/nfr1-frame-budget.json` and the four screenshots beside it; spec-9-8 perf section.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: CLOSED 2026-10-14 (cycle 185) — stamps the cycle-119 spec-remove-intel-range-card entry "THE EIGHTHS LADDER ORDERING HOLDS BY ARITHMETIC AT EVERY STACK LEVEL IS NOW VACUOUS"
+  summary: THE VACUOUS ORDERING PIN WAS DELETED THIS CYCLE. The twelfths ladder derives every rung from one number and the pin could no longer fail, so it was removed rather than kept as false coverage.
+  evidence: `shared/src/__tests__/stats.test.ts` (ladder ordering test removed); epic-9 amendments 102–109.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: RULED 2026-10-14 (cycle 185) — stamps the spec-7-6 entry "THE BATTLESHIP'S POWER FANTASY ... THE SHORTEST-RANGED [WEAPON] IN THE GAME"
+  summary: THE BROADSIDE IS NO LONGER A LONE SHORT RANGE. Epic-9 amendment 125 sets broadside and flak to share 625 → 750 u (Eric's tiered ruler); the cannon is 1,000 → 1,250 u. The GDD class-fantasy wording is still 9.13's stamp.
+  evidence: epic-9 amendment 125; `CONFIG.broadside.rangeU` / `rangeUAtV`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — Eric judges on staging
+  summary: THE DEFAULT-FRAMING CADENCE HAS A RESIDUAL. After the halo-mask fix, 35 long frames per 12 s at the default framing under a load average of 6–19 (other sessions' jobs), against a baseline of 0; the fix took it down from 124. Unresolved versus load.
+  evidence: epic-9 amendment 137h; spec-9-8 perf section; `perf-gate/nfr1-frame-budget.json`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — Eric's call on staging
+  summary: THE HULL'S WAKE RIBBON SHARES THE HULL'S ROLL KEY, so hull and wake flicker as one unit; a per-ribbon key would decorrelate them.
+  evidence: epic-9 amendment 137d.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — ruling 129 as written; no client table can soften it
+  summary: THE FOGHORN HAS AN ISLAND CLIFF AT BAND 10. An island step from band 10 reaches 13 and goes silent while band 9 reaches 12 and sounds.
+  evidence: epic-9 amendment 137n; `FoghornEvent.v` 1..12.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — Story 9.9's material
+  summary: THE PICKABLE-GUN BANDS ARE SHORT UNDER THE STOPGAP. Anchoring the engagement band on the mounted gun makes a Tier I flak duelist fight at 50–187 u.
+  evidence: epic-9 amendments 126 and 137o; `engagementBand` / `mountedGunRangeU` in `server/src/game/ai/`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — Eric's map-look question
+  summary: THE LAGOON PIN COUNTS SEALED POCKETS ONLY, AND BIG ISLANDS AT 5,000 u HIT THE 92-VERTEX CAP. A seed-30 inlet open to the sea read as a lagoon through the outline cap (amendment 9c's simplification fuzz); a finer vertex cap for very large islands is not decided.
+  evidence: epic-9 amendment 137p; `map.test` lagoon pin.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — follow-up if Eric wants 60 FPS at the far zoom
+  summary: THE FAR-ZOOM DRAW COSTS 29 ms on the 10,000 u ocean (22 ms on 4,000 u), the omniscient reveal's cost at the same zoom. A cheaper far-zoom draw is a follow-up story; it was rejected for this one.
+  evidence: epic-9 amendment 133c; perf capture of record.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — re-check when waves run
+  summary: THE 1,000 u FLEET DENIAL DISCS ON A 16-CAPTAIN OCEAN COVER ABOUT 64 % of the 5,000 u map. Seating measured fine at 200 picks; re-check under 16 groups per wave (96 hulls) so the retry never falls to the max-min fallback.
+  evidence: epic-9 amendments 134 and 136; Blind Hunter trace at the 9.8 review gate.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — harness-only, low
+  summary: THE BATCH-SIM DAMAGE ATTRIBUTION CLASSIFIES BY AMOUNT, so rim flak bursts (D − 10 .. D) file under other amounts. Codex noted it at the 9.8 gate.
+  evidence: `server/scripts/batchsim/catalogMetrics.ts` amount-bucket classifier; epic-9 amendment 132.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — owed to Story 9.13 (was 9.12)
+  summary: RECORDS OWED TO 9.13: How-to-Play's sensor entry and the RANGE / ARMOR / PASSIVE HEALING entries, DESIGN.md's card height (243 px) and zoom range, EXPERIENCE.md's ladder lines, the GDD's "two truesight diameters" / "radar = sight × 2" / E9 row, catalog-v3's weapon ranges and damage rows.
+  evidence: epic-9 amendment 137r.

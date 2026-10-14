@@ -3,12 +3,16 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
- *  82 — Story 9.8 THE TWELFTHS LADDER (Eric 2026-10-13, epic-9 amendments
- *  102–109, 121–129): sensor ladder twelfths of 1500 u (sight 500,
+ *  82 — Story 9.8 THE TWELFTHS LADDER (Eric 2026-10-13/14, epic-9 amendments
+ *  102–109, 121–137): sensor ladder twelfths of 1500 u (sight 500,
  *  flash/smoke 750, far anchor 1000, radar 1500), weapon ranges per-weapon
  *  tiered dials on the ruler (the client reads them through the fold),
  *  server-side radar dropout 1000–1500 (a missed paint never leaves the
- *  server); nothing new rides the wire. Perception exception count stays SIX.
+ *  server); the same bump covers the 16-captain / 10,000 u ocean (map 5000,
+ *  rings 10000 → 7000 → 4000 → 2000 → 0 — a same-seed ocean differs again),
+ *  cannon 12/12/15/15/18 and flak 20/28/36/44/52 with the flak rim falloff,
+ *  fleet waves 16/8/4 and `FoghornEvent.v` widened to 1..12. Nothing new
+ *  rides the wire. Perception exception count stays SIX.
  *  81 — Story 9.7 ARMOR (Eric 2026-10-13, epic-9 amendments 86–88): catalog
  *  content (new `armor` ladder, seated right after `hullPoints`),
  *  `CONFIG.armor` + `CONFIG.damageCut.armorBonus` read by the client through

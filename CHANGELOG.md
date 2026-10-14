@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.18.50] - 2026-10-14
+
+### Changed
+- **The twelfths ladder** (Story 9.8). Every sensor is now a share of the 1,500 u radar: radar reaches 1,500 u, you see 500 u around your ship, and muzzle flash and wounded smoke show out to 750 u.
+- **Far radar returns come and go.** Out to 1,000 u a sweep always paints a contact; beyond that it paints less and less often (about nine times in ten at 1,250 u, about one in ten at the 1,500 u rim). Each sweep revolution is its own roll. Ships, decoys, wakes and the countermeasure cloud all flicker alike. Zone circles are drawn hazards and never flicker.
+- **Every gun's reach is its own tiered number.** Cannon 1,000 to 1,250 u, machine gun 750 to 875, flak and broadside 625 to 750, star shells 1,375 to 1,500, phosphor shells 1,000 to 1,250, fouling shell 1,000. Every gun card prints a RANGE row, one decimal only when needed.
+- **Deck-gun damage experiment.** Cannon 12 / 12 / 15 / 15 / 18, flak 20 / 28 / 36 / 44 / 52, machine gun unchanged. Flak damage fades from the centre of its burst (full damage) to the rim (10 less), by the nearest point of the hull.
+- **The camera zooms out to the whole storm ring and back in to your ship.** The default framing is today's scale; the ring fit is a zoom-out limit only, and the view centre slides toward the ring as you zoom out.
+- **The foghorn has twelve bands** (full volume through band 4, fading to half at band 12, an island adds three bands of muffle).
+- **16 captains on a 10,000 u ocean.** The storm rings are 10000 to 7000 to 4000 to 2000 to 0, and no pair of captains starts inside radar of each other.
+- **PvE fleet waves are twice as big:** 16, then 8, then 4 groups (96 / 48 / 24 hulls). A fleet never appears inside 1,000 u of a captain.
+- **Upgrade cards have six rows** (243 px tall) so RANGE fits on every gun card.
+- **How-to-Play is frozen until 9.13:** it still describes the old sensor ranges.
+
+### Internal
+- Shared: `CONFIG.vision.dropout { startU, kneeU, kneeP, rimP }` and the pure `sim/dropout.ts` curve and stateless roll (server-private seed, observer, target, per-revolution `sweepRev`); `rangeU` per weapon as a stat path with a per-card step (the post-fold re-pins to radar range deleted); damage rows, flak `edgeFalloff` 10; map radius 5,000, cap 16, rings [3500, 2000, 1000]; foghorn `v` 1..12; PROTOCOL_VERSION 81 -> 82.
+- Server: every radar-delivered return rolls (blip, decoy, wake radar half, cloud delivery; one roll per cloud pass across the sweep wrap); bots trust a miss only inside the dropout start (whole uncertainty band); engagement bands scale by the mounted gun's range; fleet denial discs ride the dropout start; harness `--tune vision.dropout.*` refuses a non-curve; flak falloff in the damage gate.
+- Client: absolute-span zoom (close 880 u, default 1320 u, ring-fit limit), log-scale wheel and keys, camera-centre slide with fog strips, own hull clamped on screen at the limit; six-row card grid; far-cloud radar return follows the server's per-revolution delivery; halo-mask pass attached only while a cloud is held and both masked layers clipped to the screen.
+- Review gate: Blind Hunter + Edge Case Hunter (Fable) + Codex gpt-5.6-sol; 8 patches, every CONFIRMED finding fixed red-then-green; 2 Eric rulings at the gate (amendments 134, 135). Perf capture of record on MacBookPro16,1: close 6.8 / default 7.3 / ring-fit 29.0 / reveal 29.1 ms.
+- Tests: shared 1064 -> 1090 (43 files), server 2548 -> 2575 (91 files), client 3992 -> 4030 (130 files).
+- Epic-9 amendments 121–137. Cycle 185. PROTOCOL_VERSION 81 -> 82.
+
 ## [0.18.49] - 2026-10-13
 
 ### Changed

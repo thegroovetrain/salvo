@@ -2,7 +2,7 @@
 title: 'Story 9.8: The Twelfths Ladder'
 type: 'feature'
 created: '2026-10-13'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'cc1e998d'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -98,18 +98,18 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution (wave 1 — shared, one agent, Opus):**
-- [ ] `shared/src/constants.ts`, `sim/{dropout,stats,boons,effects,catalog}.ts`, `index.ts` -- dials FIRST (commit), then the ladder (commit), then dropout + PV 82 -- the one source both sides run
-- [ ] `shared/src/__tests__/*` -- matrix rows (fold, curve, roll determinism/independence), ratio pins citing 103/121/125; `npm test -w shared`, `npm run build -w shared`
+- [x] `shared/src/constants.ts`, `sim/{dropout,stats,boons,effects,catalog}.ts`, `index.ts` -- dials FIRST (commit), then the ladder (commit), then dropout + PV 82 -- the one source both sides run
+- [x] `shared/src/__tests__/*` -- matrix rows (fold, curve, roll determinism/independence), ratio pins citing 103/121/125; `npm test -w shared`, `npm run build -w shared`
 
 **Execution (wave 2 — server Opus and client Opus in parallel, shared frozen):**
-- [ ] server: `signals.ts`, `perception.ts`, `world.ts` (sweepRev), fouling, bots, harness; perception oracle + ledgers, foghorn 12, placements, golden once; `npm test -w server`
-- [ ] client: camera limits + slide + ring feed, config derivations + `surfaceRef`, foghorn tables, fouling via dial, perfCapture framings; tests; `npm test -w client`; then the orchestrator runs `npm run build:perf -w client && node client/scripts/perfCapture.mjs` on this machine and records the numbers
+- [x] server: `signals.ts`, `perception.ts`, `world.ts` (sweepRev), fouling, bots, harness; perception oracle + ledgers, foghorn 12, placements, golden once; `npm test -w server`
+- [x] client: camera limits + slide + ring feed, config derivations + `surfaceRef`, foghorn tables, fouling via dial, perfCapture framings; tests; `npm test -w client`; then the orchestrator runs `npm run build:perf -w client && node client/scripts/perfCapture.mjs` on this machine and records the numbers
 
 **Review gate (orchestrator):** Blind Hunter + Edge Case Hunter on Fable, Codex `gpt-5.6-sol` on the same diff; seed: the roll's determinism across `observe()` callers and the oracle; the fog-rebake churn at the ring limit; a gun card's RANGE step vs the aim clamp mid-flight.
 
 **Execution (wave 3 — record, Sonnet):**
-- [ ] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `epics.md` (stamp + 9.9 + renumber), both trackers, amendments 121–130 in BOTH homes, `deferred-work.md` (cycle-61 cost entry, 1552/1557/1692 stamps, new 9.8 entries) -- 0.18.50 / cycle 185 / PV 82
-- [ ] `npm run check` green; branch pushed; ONE PR to `development`, never merged
+- [x] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `epics.md` (stamp + 9.9 + renumber), both trackers, amendments 121–137 in BOTH homes, `deferred-work.md` (cycle-61 cost entry, 1552/1557/1692 stamps, new 9.8 entries) -- 0.18.50 / cycle 185 / PV 82
+- [x] `npm run check` green; branch pushed; ONE PR to `development`, never merged
 
 **Acceptance Criteria:**
 - Given base stats, when `effectiveStats` runs, then `radarRange / sightRange = 3`, the flash reach is `radarRange × 0.5`, `litRadius = sightRange / 2`, and no `rangeU` equals `radarRange` by derivation (each is its CONFIG dial plus its card steps).
@@ -122,8 +122,30 @@ warnings: [oversized]
 
 ## Spec Change Log
 
+### 2026-10-13/14 — build-gate rulings folded in (Eric's, not the author's; the intent contract is read-only)
+- Eric ruled seven things at the build gate that the spec step had not reached: 16 captains on a 10,000 u ocean with rings 10000 → 7000 → 4000 → 2000 → 0 (amendment 130); cannon 12/12/15/15/18 and flak 20/28/36/44/52 as an experiment (131); flak burst damage D → D − 10 at the rim by the hull's nearest outline point (132); a six-row card grid, faint green inside the dropout cliff, and the whole-ring zoom shipped at the reveal's cost (133); fleet denial inside the dropout start (134); RANGE one decimal when needed (135); fleet waves 16 → 8 → 4 (136). The Code Map's "amendments 121–130" is now 121–137.
+- The matrix row "Camera out limit … r 0 clamps to the close limit" was the author's reading and is superseded by the review gate: the ring fit is a zoom-OUT limit only and never pulls tighter than the default framing (137g).
+- KEEP: the per-revolution stateless roll keyed on a server-private seed; the fold with `rangeU` as an addressable path and the steps authored in the catalog; the absolute camera spans; the oracle mirroring the roll through the exported function.
+
 ## Review Triage Log
 
+### 2026-10-14 — Review pass (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol on the same diff cc1e998d..06af75f2; Codex FIX-FIRST, both hunters BUILD-ON-IT)
+- intent_gap: 0 (the two ruling gaps — the fleet denial disc at 1,500 u × 16 on the 5,000 u ocean, and the quarter-rung RANGE copy — were put to Eric live and ruled, amendments 134–135)
+- bad_spec: 0
+- patch: 8: (high 2, medium 3, low 3)
+- defer: 0
+- reject: 0
+- addressed_findings:
+  - `[high]` `[patch]` ALL THREE, CONFIRMED: a countermeasure cloud whose bearing span straddles the sweep wrap was rolled under two revolution indices in one beam pass (paint then miss). Fixed: a disc rolls on the revolution in which the beam ENTERED it (`discRollRev`); the oracle mirrors it independently; 50+ wrap passes all-paint or all-miss, red-then-green.
+  - `[high]` `[patch]` Codex, CONFIRMED: a far cloud, once delivered, kept painting the client's radar from its held copy on every later sweep, so only its first disclosure flickered (ruling 123 says everything radar delivers rolls). Fixed: the radar return source reads a held cloud only while a row arrived within the last 1.5 revolutions (`cloudReturnGate`); sight-range clouds always return; haze, held set and wake mirror untouched; red-then-green.
+  - `[medium]` `[patch]` Codex, CONFIRMED: the bot miss rule tested the plot's predicted centre, not its uncertainty band. Fixed: `d + predictedAssocRadius ≤ startU`; red-then-green.
+  - `[medium]` `[patch]` Edge Case Hunter, PLAUSIBLE (orchestrator ruling): at the out limit a captain outside the ring could leave the screen. Fixed: the own hull is clamped 82 u inside every edge while the slide is engaged; red-then-green.
+  - `[medium]` `[patch]` Edge Case Hunter + Blind Hunter, PLAUSIBLE (orchestrator ruling): once the ring's fitted span fell below the default framing the "zoom-out limit" force-zoomed a captain IN during the last close. Fixed: the ring fit never pulls tighter than the default framing; red-then-green.
+  - `[low]` `[patch]` Edge Case Hunter, CONFIRMED (harness only): `rimP > kneeP` made a non-monotone curve; `kneeU ≥ radar` silently collapsed the band. Fixed: the pure function collapses a non-curve to the documented step and the harness refuses the dial set on the FINAL values; red-then-green.
+  - `[low]` `[patch]` Blind Hunter, PLAUSIBLE (harness only): a 0-hp flak blow (edgeFalloff ≥ D) still ran the damage gate, aggroed drones and emitted `dmg 0`. Fixed: a 0-hp blow is no blow; red-then-green.
+  - `[low]` `[patch]` Blind Hunter: `CONFIG.match.fillTo`'s comment claimed to be the lobby fill; it is harness-only (amendment 41 deleted the room's fill). Reworded.
+  - Live Eric rulings at the gate: fleet waves denied inside the dropout start, not radar (134, Blind Hunter's gap); RANGE prints one decimal only when needed (135, Blind Hunter's gap).
+  - Cross-model picture: all three flagged the cloud-at-the-wrap roll independently (CONFIRMED-tier, fixed without debate). Codex alone raised the held-cloud radar paint and the miss-rule radius (both confirmed by trace against ruling 123/124, fixed). The Edge Case Hunter alone raised the harness non-curve guards and the two camera behaviours (confirmed, fixed as orchestrator rulings Eric may veto on staging). The Blind Hunter alone raised the fleet discs and the RANGE copy (Eric ruled live) and the 0-hp blow and fillTo (fixed). Nothing rejected.
 ## Design Notes
 
 - **Why the roll is per revolution, not per tick:** a target is swept over one or two ticks (half-open beam window); rolling per tick would paint on one tick and miss the next within the same pass. One roll per (observer, target, revolution) reads as "this sweep saw it or didn't".
