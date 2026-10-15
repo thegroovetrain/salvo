@@ -2049,6 +2049,47 @@ export const CONFIG = {
   },
 
   /**
+   * FOG BANKS (Story 9.10; Eric 2026-10-14, epic-9 amendments 149–150, and
+   * 2026-10-15, amendments 162–168). Rolling banks of haze on the water that
+   * eat EYESIGHT only. In plain words:
+   * - A ray from an observer to a point pays `sightCostPerU × density` extra
+   *   units of distance for every unit of its length inside a bank
+   *   (sim/fog.ts `fogCostAlong`); the sight test compares `d + cost` against
+   *   its range. Fog never widens anything.
+   * - NO RADAR TERM, EVER (149, 163). Radar still paints only beyond the
+   *   GEOMETRIC sight radius, so a hull inside that radius that fog hides
+   *   from the eye is dark to BOTH sensors.
+   * - The muzzle flash and wounded smoke (the 750 u halo) pay the same cost
+   *   (167); zone circles, the foghorn and the storm never do (149, 167).
+   * - PvE drones are fogged by the same rule (168).
+   * - A bank is delivered to a client inside its 750 u flash/smoke halo with
+   *   island line of sight — the SEVENTH declared perception exception (162).
+   * - Each bank's radius AND density ramp 0 → 1 over `growMs` from birth,
+   *   hold, then ramp 1 → 0 over the last `fadeMs` before it dies (165).
+   * - A coverage controller keeps the banks' full-size area inside the live
+   *   ring between `coverageMin` and `coverageMax` of its water; banks spawn
+   *   on water only and ignore hulls (165–166).
+   * Every number here is a harness dial. Nothing here is read by the
+   * client's prediction (fog never touches movement), and the client reads
+   * no fog dial at all: each wire row carries the bank's CURRENT radius and
+   * density (FogBankView), so this block is server-only gameplay.
+   */
+  fog: {
+    sightCostPerU: 2, // extra sight units a ray pays per unit of fog crossed (× bank density) — fog water counts triple (amendment 164)
+    radiusMinU: 150, // u — a bank's full radius is drawn uniformly in [min, max]
+    radiusMaxU: 400, // u
+    lifeMs: 120000, // ms — a bank's natural life, birth to gone
+    growMs: 30000, // ms — radius AND density ramp 0 → 1 linearly from birth
+    fadeMs: 30000, // ms — radius AND density ramp 1 → 0 linearly before `until`
+    coverageMin: 0.02, // share of the live ring's water the banks aim to cover (target redrawn in [min, max])
+    coverageMax: 0.08,
+    targetPeriodMs: 120000, // ms between coverage-target redraws
+    maxBanks: 12, // live banks at most
+    spawnCheckMs: 1000, // ms between controller checks
+    spawnTries: 16, // rejection samples per spawn attempt (centre on water, inside the live ring)
+  },
+
+  /**
    * WAKE DRAFTING (Story 8.19, FR50 / D23; Eric rulings 2026-09-30, epic-8
    * amendments 151–152). A hull sailing in another source's wake ribbon is
    * lifted: its FORWARD speed cap rises by `lift × ageFactor × headFactor` of

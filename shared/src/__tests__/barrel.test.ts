@@ -455,7 +455,14 @@ describe('shared barrel', () => {
     // amendments 144-147): K 100, ARMOR +20/card, HUNKER +100 (catalog content
     // + CONFIG read by the client through the fold), the new armorPiercing
     // ladder, and the OwnShip.hunkerUntil rename. The exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(84);
+    // 84 -> 85 (Story 9.10 FOG BANKS, Eric 2026-10-15, epic-9 amendments
+    // 162-168): FrameMsg gains the optional `fog` channel (FogBankView
+    // {id,x,y,r,d}) delivered inside the 750 u halo — the SEVENTH declared
+    // exception (amendment 162).
+    expect(PROTOCOL_VERSION).toBe(85);
+    for (const fn of [shared.fogScale, shared.fogRadius, shared.fogDensity, shared.segDiscChord, shared.fogCostAlong]) {
+      expect(typeof fn).toBe('function');
+    }
     for (const fn of [shared.dropoutPaintP, shared.dropoutRoll, shared.dropoutPaints]) {
       expect(typeof fn).toBe('function');
     }
