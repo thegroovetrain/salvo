@@ -13,7 +13,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { CONFIG, CONSUMABLE_SLOTS, effectiveStats, type ResultsMsg, type ResultsRow, type SlotItemId, type WeaponAmmo } from '@salvo/shared';
-import { LOADOUT_PX, LOADOUT_TEXT_FLOOR_PX, ladderEntries } from '../ui/loadoutBlock.js';
+import { LADDER_LINE_PX, LOADOUT_PX, LOADOUT_TEXT_FLOOR_PX, ladderEntries } from '../ui/loadoutBlock.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
 import { LINEAGE_TIERS } from '../ui/tierRamp.js';
 import {
@@ -484,9 +484,10 @@ describe('showResults — the elimination modal', () => {
     // `·` separator at the label type with 12 px margins either side.
     it('each row of the 4 + 4 ladder line fits the 530 px column at its widest numerals', () => {
       const COLUMN = 530;
-      const label = (t: string): number => monoTextWidth(t, 10, 1.6);
-      const numeral = 6 + monoTextWidth('III', 11, 1.1);
-      const sep = label('·') + 24;
+      const L = LADDER_LINE_PX;
+      const label = (t: string): number => monoTextWidth(t, L.labelPx, L.labelPx * L.labelTrackingEm);
+      const numeral = L.numeralGapPx + monoTextWidth('III', L.numeralPx, L.numeralPx * L.numeralTrackingEm);
+      const sep = label('·') + 2 * L.separatorMarginPx;
       const rowW = (labels: readonly string[]): number =>
         labels.reduce((w, l) => w + label(l) + numeral, 0) + sep * (labels.length - 1);
       const labels = ladderEntries([]).map((e) => e.label);

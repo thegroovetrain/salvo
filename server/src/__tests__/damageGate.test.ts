@@ -399,7 +399,6 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     place(w, 'b', 400, 0);
     gate(w).applyDamage(a, 15, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - expected);
-    expect(a.hp).toBe(a.stats.maxHp - Math.floor(15 * (CONFIG.armor.k / (CONFIG.armor.k + a.stats.armor)))); // by derivation from K
     expect(dmgEvents(w).map((e) => e.amount)).toEqual([expected]);
   });
 

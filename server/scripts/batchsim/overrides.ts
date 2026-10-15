@@ -138,8 +138,10 @@ const TUNE_FAMILIES = [
   // the K in the curve (K / (K + E) for E ≥ 0, (K − 2E) / (K − E) below zero
   // since Story 9.9, amendment 146; 100 by amendment 144), is the dial — floor
   // 1 via TUNE_MIN_ONE_LEAVES (a 0 makes every armored multiplier 0 and E = 0
-  // 0/0 = NaN). The HUNKER (was DAMAGE CUT until Story 9.9)'s `armorBonus`
-  // rides the `hunker.` family above. The ARMOR / ARMOR PIERCING +20 steps
+  // 0/0 = NaN). The HUNKER's (was DAMAGE CUT until Story 9.9) `armorBonus`
+  // rides the `hunker.` family above (floor 0, like `grindPerUnit` — the
+  // default for a leaf in no floor set: a negative bonus would make HUNKER
+  // amplify damage on its own user). The ARMOR / ARMOR PIERCING +20 steps
   // are catalog-authored (amendment 110's pattern), so 9.9 adds no family.
   'armor.',
   // THE WEAPON WEIGHTING (Story 8.14, epic-8 amendments 90/91) — `factor` and
@@ -371,8 +373,10 @@ export function validateTuneKey(key: string): void {
  *      divides by `k + E` (E ≥ 0): k = 0 is 0/0 = NaN at E = 0 (every
  *      un-armored, un-pierced blow), which NaNs the damage gate's hp write.
  *      The negative branch (Story 9.9, amendment 146) divides by `k − E`,
- *      which is > k for E < 0, so it is finite for every k ≥ 1 — the floor
- *      of 1 still stands for the E = 0 case.
+ *      which is > k for E < 0, so it is bounded strictly under ×2 for every E
+ *      the fold can produce (|E| ≤ a few hundred; the numerator overflows only
+ *      near ±1e308, unreachable by any card or --tune) — the floor of 1 still
+ *      stands for the E = 0 case.
  *  Deliberately an EXPLICIT named set rather than a pattern: a floor is a
  *  refusal to run an arm, so each one is justified by a real call site. */
 const TUNE_MIN_ONE_LEAVES = new Set([

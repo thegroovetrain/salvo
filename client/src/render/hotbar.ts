@@ -281,7 +281,7 @@ export interface HotbarView {
    *  amendment 186). Absent = no SHIP panel. */
   cls?: ShipClassId;
   /** Per-slot REMAINING ability-window ms (0 = no window running) — the ACTIVE
-   *  state's whole input (amendment 48: boost's `boostUntil`, HUNKER (was DAMAGE CUT until Story 9.9)'s
+   *  state's whole input (amendment 48: boost's `boostUntil`, HUNKER's (was DAMAGE CUT until Story 9.9)
    *  `hunkerUntil`), resolved against the server clock by the caller. */
   activeMsLeft?: readonly number[];
   /** Per-slot fit pulse this frame: a boon landed on THIS slot's family. */

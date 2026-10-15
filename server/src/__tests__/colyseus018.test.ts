@@ -176,7 +176,7 @@ describe('the PV join gate refuses 83 and admits 84', () => {
     // on every gun card), the radar dropout dials, the foghorn's twelve bands.
     // Story 9.7 bumped 80 -> 81: catalog content (the ARMOR ladder after
     // HULL POINTS) and the client reads CONFIG.armor through EffectiveStats
-    // (armor, damageMultiplier); HUNKER (was DAMAGE CUT until Story 9.9)'s factor became armorBonus.
+    // (armor, damageMultiplier); HUNKER's (was DAMAGE CUT until Story 9.9) factor became armorBonus.
     // Story 9.6 bumped 79 -> 80: catalog content (`armor` -> `hullPoints`
     // +50 x5, SPEED / TURNING cap 5, the new PASSIVE HEALING ladder) and the
     // client reads CONFIG.regen through EffectiveStats.regen.

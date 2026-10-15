@@ -154,9 +154,9 @@ const instantReload: GlyphPaths = (() => {
 })();
 
 /**
- * Damage cut (Story 8.15 DRAFT, amendment 110): a HALVED HEXAGON — an armour
- * plate outline split down the middle, one half hatched: incoming hunker
- * in two.
+ * Hunker (was DAMAGE CUT until Story 9.9; Story 8.15 DRAFT, amendment 110): a
+ * HALVED HEXAGON — an armour plate outline split down the middle, one half
+ * hatched: incoming damage cut in two.
  */
 const HEX = arcPts(0.9, -Math.PI / 2, (3 * Math.PI) / 2, 6);
 const hunker: GlyphPaths = [

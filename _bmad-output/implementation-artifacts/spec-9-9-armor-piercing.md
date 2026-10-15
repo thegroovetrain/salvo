@@ -2,7 +2,7 @@
 title: 'Story 9.9: Armor Piercing'
 type: 'feature'
 created: '2026-10-15'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '8abf59ee'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -98,24 +98,24 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution (wave 0 — the rename, one agent, Sonnet; commit alone):**
-- [ ] every workspace -- `damageCut` → `hunker` (ids, types, file, wire field, CONFIG block, labels `HUNKER` / `Hunker`, tune family, tests; history prose keeps "was DAMAGE CUT") -- a pure mechanical commit the reviewers can diff apart from the feature; `npm run check` green with NO behavior change (PV untouched in this wave)
+- [x] every workspace -- `damageCut` → `hunker` (ids, types, file, wire field, CONFIG block, labels `HUNKER` / `Hunker`, tune family, tests; history prose keeps "was DAMAGE CUT") -- a pure mechanical commit the reviewers can diff apart from the feature; `npm run check` green with NO behavior change (PV untouched in this wave)
 
 **Execution (wave 1 — shared, one agent, Opus):**
-- [ ] `shared/src/constants.ts`, `sim/{catalog,effects,stats,boons}.ts`, `index.ts` -- K 100, +20 steps, `armorBonus` 100, the `armorPiercing` ladder and stat, the two-branch curve, PV 84 -- the one source both sides run
-- [ ] `shared/src/__tests__/*` -- matrix rows for the fold and the curve, count/order/path re-bases citing 144–146; `npm test -w shared`, `npm run build -w shared`
+- [x] `shared/src/constants.ts`, `sim/{catalog,effects,stats,boons}.ts`, `index.ts` -- K 100, +20 steps, `armorBonus` 100, the `armorPiercing` ladder and stat, the two-branch curve, PV 84 -- the one source both sides run
+- [x] `shared/src/__tests__/*` -- matrix rows for the fold and the curve, count/order/path re-bases citing 144–146; `npm test -w shared`, `npm run build -w shared`
 
 **Rendered-page gate (orchestrator, in parallel with waves 0–1):**
-- [ ] glyph candidates + LOADOUT 4 + 4 vs 5 + 3 on one artifact; Eric picks (AskUserQuestion) → amendment 160
+- [x] glyph candidates + LOADOUT 4 + 4 vs 5 + 3 on one artifact; Eric picks (AskUserQuestion) → amendment 160
 
 **Execution (wave 2 — server Opus and client Opus in parallel, shared frozen):**
-- [ ] `server/src/game/world.ts`, `ai/profiles.ts`, `scripts/batchsim/*` -- the gate reads the attacker live, favorites, probe column; NEW tests per the matrix; golden re-record only if offer rows shift; `npm test -w server`
-- [ ] `client/src/ui/{boonCopy,loadoutBlock}.ts`, `render/equipmentIcons.ts`, tests -- names, rows, order, split, glyph, `ARMOR +100`, `AWAITING_COPY`, eight-row fit; `npm test -w client`
+- [x] `server/src/game/world.ts`, `ai/profiles.ts`, `scripts/batchsim/*` -- the gate reads the attacker live, favorites, probe column; NEW tests per the matrix; golden re-record only if offer rows shift; `npm test -w server`
+- [x] `client/src/ui/{boonCopy,loadoutBlock}.ts`, `render/equipmentIcons.ts`, tests -- names, rows, order, split, glyph, `ARMOR +100`, `AWAITING_COPY`, eight-row fit; `npm test -w client`
 
 **Review gate (orchestrator):** Blind Hunter + Edge Case Hunter on Fable, Codex `gpt-5.6-sol` on the same diff; seed: the live attacker read when `byId` names a departed or sunk ship, the E < 0 branch under `floorBlow` and the shield, the rename's reach onto the wire and the smokes.
 
 **Execution (wave 3 — record, Sonnet):**
-- [ ] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `epics.md` stamp, both trackers, amendments 156–161 in BOTH homes -- 0.18.55 / cycle 190 / PV 84
-- [ ] `npm run check` green; branch pushed; ONE PR to `development`, never merged
+- [x] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `epics.md` stamp, both trackers, amendments 156–161 in BOTH homes -- 0.18.55 / cycle 190 / PV 84
+- [x] `npm run check` green; branch pushed; ONE PR to `development`, never merged
 
 **Acceptance Criteria:**
 - Given n ARMOR and m ARMOR PIERCING cards, when `effectiveStats` runs, then `armor = 20n`, `armorPiercing = 20m`, `damageMultiplier = K/(K+20n)` exactly with K read from `CONFIG.armor.k`.
@@ -132,7 +132,34 @@ warnings: [oversized]
 
 ## Spec Change Log
 
+### 2026-10-15 — two orchestrator corrections surfaced by the build and review (not Eric's; the intent contract is read-only)
+- The negative branch is built as the single fraction `(K − 2E) / (K − E)`, algebraically identical to the ruled `2 − K / (K − E)` but correctly rounded: the subtraction form gives `12 × (2 − 100/120) = 13.999999999999998`, which `floorBlow` lands as 13 where the matrix says 14 (the amendment-120(a) lesson). The wave-1 agent's finding, confirmed by measurement (0 whole-product misses vs 572 for the subtraction form; the alternative `1 + (−E)/(K − E)` misses 1,818). Recorded in amendment 161(a).
+- The Boundaries bullet's "`LASTS 10 S` / `COOLDOWN 30 S` as today" was the orchestrator's transcription of amendment 118's labels; the tooltip's duration and cooldown rows print today's words and are unchanged — Eric's ruling (amendment 158) is "name swap only". No code change; the Blind Hunter's finding closes as a spec wording error, recorded in 161(f).
+- KEEP: the wave structure (a behavior-free rename commit, then shared, then server ∥ client); `piercingOf(byId)` as the one live read; `stats.damageMultiplier` victim-only; the catalog-authored +20 steps; Eric's glyph C and 4 + 4; the matrix numbers.
+
 ## Review Triage Log
+
+### 2026-10-15 — Review pass (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol on the same diff 8abf59ee..92eea0cc; all three BUILD-ON-IT, no logic defect)
+- intent_gap: 0
+- bad_spec: 0 (the one spec/code disagreement — the HUNKER tooltip row words — was the orchestrator's transcription error, logged above; the ruling and the code agree)
+- patch: 11: (high 0, medium 3, low 8)
+- defer: 0
+- reject: 1
+- addressed_findings:
+  - `[medium]` `[patch]` Blind Hunter, CONFIRMED: the rename's sed left nonsense prose — the hunker glyph docstring read "incoming hunker in two", and "HUNKER (was DAMAGE CUT until Story 9.9)'s" appeared in ~20 files. Hand-edited; one history note per file.
+  - `[medium]` `[patch]` Blind Hunter, CONFIRMED: stale doc contracts (`OwnShip.hunkerUntil` in types.ts, `equipment/hunker.ts`, profiles.ts "six ship ladders") still described `K / (K + Armor)` with no piercing term. Reworded to the E rule.
+  - `[medium]` `[patch]` Blind Hunter, CONFIRMED: the records (amendments 156–161, 0.18.55, trackers, CHANGELOG, epics stamp) were not yet written at review time; origin re-fetched (no competing cycle), written in wave 3.
+  - `[low]` `[patch]` Blind Hunter, CONFIRMED (arithmetic): the curve doc claimed "finite for every finite E" — `(K − 2E)/(K − E)` overflows to Infinity near E = −1e308 (unreachable by any card or dial). Doc qualified; the formula stays (the proposed `1 + (−E)/(K − E)` misses 1,818 whole products).
+  - `[low]` `[patch]` Blind Hunter, PLAUSIBLE → confirmed by reading: `--tune hunker.armorBonus` looked unfloored (a negative bonus would make HUNKER amplify damage on its own user); `tuneFloor()` already returns 0 for every leaf outside the floor-1 set, so it floors at 0 today — documented beside the HUNKER tune note.
+  - `[low]` `[patch]` Blind Hunter: the (b′) doc omitted the sinking asymmetry (a sinking hull's ram reads 0 while its fish still pierce — both per the rulings). One sentence added so the next reader does not "fix" one side.
+  - `[low]` `[patch]` Blind Hunter: the 4 + 4 fit test hand-mirrored the ladder line's CSS metrics; exported as one frozen const read by both the styles and the test.
+  - `[low]` `[patch]` Blind Hunter: the ram test's helper returned 1 for a 0 nominal where the gate deals nothing; the test now asserts the nominal is positive.
+  - `[low]` `[patch]` Blind Hunter: three tautological pins (a derivation restated beside its literal) dropped; the literals stay (Eric's numbers are the spec).
+  - `[low]` `[patch]` Blind Hunter: the harness probe could not see the attacker side of the curve; a `pierceMult` column added for Eric's 9.12 session.
+  - `[low]` `[patch]` Blind Hunter: `docs/codebase-map.md` listed `equipment/damageCut.ts`; line updated.
+  - Rejected: Edge Case Hunter (low confidence) — `rePinDerived` calls the curve on un-floored, possibly negative mid-fold Armor. Unreachable: every step adds +20, the fold's positive-result guard drops a non-positive result, `clampStats` re-derives before any reader. Recorded in 161(h).
+  - Noted, not patched: wave 0's commit message says "PV untouched" while it renamed the self-private wire field ahead of the PV bump in the same PR (no live risk at HEAD); recorded in 161(d) and the CHANGELOG.
+  - Cross-model picture: Codex traced every damage origin and found no actionable defect; the Blind Hunter alone raised every patched finding (records, prose, docs, test hygiene, the harness); the Edge Case Hunter alone raised the mid-fold re-pin (rejected with reasons). No finding was flagged by two reviewers — consistent with a change whose logic all three cleared.
 
 ## Design Notes
 
@@ -151,3 +178,21 @@ warnings: [oversized]
 
 **Manual checks:**
 - Eric picks the ARMOR PIERCING glyph and the LOADOUT split on the rendered artifact before the client commit; Eric judges the cards, the HUNKER chip and tooltip, the SHIP panel and the LOADOUT on staging after the PR.
+
+**Results (2026-10-15):** `npm run check` green — lint 0 errors (2 pre-existing max-lines warnings), tsc ×3 clean, shared 44 files / 1104 tests (was 1093), server 93 / 2602 (was 2585), client 132 / 4081 (was 4076), hook test 266. Golden frames unchanged.
+
+## Auto Run Result
+
+**Status:** done — PR to `development` open (2026-10-15), never merged by the agent; Eric judges on staging.
+
+**Summary:** Armor has an answer. K is 100, every ARMOR card is +20 (five cards still halve damage), and the Dreadnought's Shift is HUNKER: +100 temporary Armor for 10 s on the same 30 s cooldown (a name swap, nothing else). A new universal ship ladder ARMOR PIERCING (five cards, +20 each) sits right after ARMOR. The one curve now takes effective armor E = victim Armor (+ HUNKER while open) − attacker piercing: at or above zero `K / (K + E)`, below zero `2 − K / (K − E)` built as the exact fraction `(K − 2E) / (K − E)` — smooth through zero, never ×2 (−20 → ×7⁄6, −100 → ×1.5). The server gate reads the attacker's piercing live when the blow lands, for every source but the storm; whole blows still floor with a minimum of 1, burn and grind ticks stay exact. Raider and duelist bots favor the ladder. The card, the SHIP hover panel and the How-to-Play table mirror ARMOR's surfaces, the LOADOUT line reads 4 + 4, the glyph is Eric's pick (a shell splitting a plate), the HUNKER head row reads `ARMOR +100`. Eric ruled four questions at the spec step (amendments 156–159) and two picks on the rendered page (160); 161 records the implementer readings.
+
+**Files changed:** see the Code Map — shared `constants.ts`, `sim/{catalog,effects,stats,boons,loadout,arcs}.ts`, `types.ts`, `index.ts`; server `game/world.ts`, `game/frames.ts`, `game/equipment/{hunker,index}.ts` (renamed from `damageCut.ts`), `game/ai/{profiles,shift,tactics,tacticKit,torpedoThreat,consumables,types}.ts`, `scripts/batchsim/{args,overrides,balanceProbe}.ts`; client `ui/{boonCopy,loadoutBlock,classSelect}.ts`, `render/{equipmentIcons,equipmentInfo,hotbar,slotTooltip}.ts`, `main.ts`; tests in all three workspaces; records (`VERSION`, `package.json`, lockfile, `CHANGELOG.md`, `epics.md` stamp, both trackers, amendments 156–161 in both homes, `docs/codebase-map.md`).
+
+**Review findings:** 11 patches applied (all records, prose, doc-contract and test-hygiene; no logic defect), 0 deferred, 1 rejected (the mid-fold re-pin, unreachable). Cross-model picture: Codex traced every damage origin and found no actionable defect; the Blind Hunter alone raised every patched finding; the Edge Case Hunter alone raised the rejected one. All three verdicts BUILD-ON-IT.
+
+**Follow-up review recommended:** false — the patches are documentation, prose and test hygiene; the one code-shape change (exported LOADOUT metrics) is read by its own test.
+
+**Verification:** `npm run check` green 2026-10-15 (above); glyph and row split picked by Eric on the rendered page before the client commit. Manual: Eric on staging (ARMOR PIERCING card, ARMOR `0 → 20`, SHIP hover eight rows, LOADOUT 4 + 4, HUNKER chip and tooltip, pierced hits landing heavier).
+
+**Residual risks:** How-to-Play shows nothing for ARMOR PIERCING or HUNKER until 9.17 (Eric's copy); a maxed piercer deals ×1.5 to every PvE drone (ruled: apply to all damage); the wave-0 rename commit renamed the self-private wire field ahead of the PV bump inside this PR (no live risk at HEAD); the LOADOUT second row sits about 20 px inside the 530 px column at its widest numerals.

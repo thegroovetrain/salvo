@@ -2355,7 +2355,7 @@ So that an encounter starts with a long approach I can act on instead of a point
 **And** every ladder, camera and range pin in the tests is re-based citing the amendment, never pinning 1,500 as a literal; the perception invariants keep exactly SIX exceptions; `PROTOCOL_VERSION` bumps (the client reads the vision block); both trackers stamped
 **And** no in-game copy is added; the How-to-Play sensor entry and the GDD / EXPERIENCE.md stamps (eighths → twelfths, "two truesight diameters", "radar = sight × 2", the zoom range) are 9.12's
 
-### Story 9.9: Armor Piercing *(inserted 2026-10-14 — `sprint-change-proposal-2026-10-14.md` §4.1; lands after 9.7 Armor and 9.8 have merged)*
+### Story 9.9: Armor Piercing *(inserted 2026-10-14 — `sprint-change-proposal-2026-10-14.md` §4.1; lands after 9.7 Armor and 9.8 have merged; BUILT 2026-10-15 — cycle 190, 0.18.55, PV 84; epic-9 amendments 156–161; spec-9-9-armor-piercing.md)*
 
 As a captain who buys guns,
 I want a ladder that gets through an armored hull,

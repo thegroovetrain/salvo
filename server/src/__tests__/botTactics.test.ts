@@ -1196,7 +1196,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const w = openWorld(213);
     const port = fakePort(w);
     // A TORPEDO BOAT, since Story 8.15: the boost is the Torpedo Boat's Shift
-    // alone (a Battleship's slot 1 is HUNKER (was DAMAGE CUT until Story 9.9)).
+    // alone (a Battleship's slot 1 is HUNKER; was DAMAGE CUT until Story 9.9).
     const bare = mkBot(w, 'torpedoBoat', 0, 0, 0);
     bare.hp = bare.stats.maxHp * 0.1; // hurt enough to want a heal it does not hold
     expect(slotOf(bare, 'hullRepair')).toBe(-1);

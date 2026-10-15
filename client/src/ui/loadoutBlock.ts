@@ -371,12 +371,23 @@ function makeRow(own: ResultsOwn): HTMLDivElement {
   return row;
 }
 
+/** The ladder line's CSS metrics, single-sourced so the 4 + 4 fit test reads
+ *  the very numbers the inline styles use (Story 9.9, epic-9 amendment 160). */
+export const LADDER_LINE_PX = Object.freeze({
+  labelPx: 10,
+  labelTrackingEm: 0.16,
+  numeralPx: 11,
+  numeralTrackingEm: 0.1,
+  numeralGapPx: 6,
+  separatorMarginPx: 12,
+});
+
 /** One ladder entry: the muted label, then its ramp numeral or R2's muted dash. */
 function makeLadderEntry(entry: LadderEntry): HTMLSpanElement {
   const el = span('', entry.label);
   const mark = entry.tier === null ? '—' : romanTier(entry.tier);
   const tint = entry.tier === null ? 'var(--hc-text-muted)' : tierTint(entry.tier);
-  el.appendChild(span(`font-weight:600;font-size:11px;margin-left:6px;letter-spacing:.1em;color:${tint}`, mark));
+  el.appendChild(span(`font-weight:600;font-size:${LADDER_LINE_PX.numeralPx}px;margin-left:${LADDER_LINE_PX.numeralGapPx}px;letter-spacing:${LADDER_LINE_PX.numeralTrackingEm}em;color:${tint}`, mark));
   return el;
 }
 
@@ -391,7 +402,7 @@ function makeLadderRow(entries: readonly LadderEntry[]): HTMLDivElement {
   const row = document.createElement('div');
   row.style.cssText = 'display:flex;justify-content:center';
   entries.forEach((entry, i) => {
-    if (i > 0) row.appendChild(span(`color:${cssRgba(C.textMuted, 0.5)};margin:0 12px`, '·'));
+    if (i > 0) row.appendChild(span(`color:${cssRgba(C.textMuted, 0.5)};margin:0 ${LADDER_LINE_PX.separatorMarginPx}px`, '·'));
     row.appendChild(makeLadderEntry(entry));
   });
   return row;
@@ -414,8 +425,8 @@ function makeLadderLine(cards: readonly string[]): HTMLDivElement {
     'flex-direction:column',
     'align-items:center',
     'gap:6px',
-    `font:400 10px ${MONO}`,
-    'letter-spacing:.16em',
+    `font:400 ${LADDER_LINE_PX.labelPx}px ${MONO}`,
+    `letter-spacing:${LADDER_LINE_PX.labelTrackingEm}em`,
     'text-transform:uppercase',
     'color:var(--hc-text-muted)',
     'white-space:nowrap',

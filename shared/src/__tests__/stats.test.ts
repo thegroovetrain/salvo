@@ -366,7 +366,6 @@ describe('effectiveStats — the eight universal ladders (catalog-v3 §4 + Stori
     });
 
     it('E < 0 is 2 − K/(K−E): ×7/6 one card under, ×1.5 at −K (where raw K/(K+E) would divide by zero)', () => {
-      expect(damageMultiplierFor(-STEP)).toBeCloseTo(2 - K / (K + STEP), 12);
       expect(damageMultiplierFor(-STEP)).toBe(7 / 6); // exact at K 100 / step 20
       expect(damageMultiplierFor(-K)).toBe(1.5);
       for (const e of [-1, -7, -20, -60, -100, -333, -1000]) {

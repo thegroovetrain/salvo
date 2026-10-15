@@ -78,8 +78,9 @@ export interface BotTargetWeights {
 }
 
 /**
- * A favorite UPGRADE line family (Eric ruling 2026-09-30, R5). The six ship
- * ladders are named by their line id (`hullPoints` was `armor` until Story 9.6;
+ * A favorite UPGRADE line family (Eric ruling 2026-09-30, R5). The eight ship
+ * ladders (HULL, ARMOR, ARMOR PIERCING, SPEED, TURNING, RADAR SWEEP, RELOAD, PASSIVE HEALING)
+ * are named by their line id (`hullPoints` was `armor` until Story 9.6;
  * `passiveHealing` joined in 9.6, epic-9 amendment 97; `armorPiercing` joined in
  * 9.9, epic-9 amendment 157); `gun` = any gun-ladder line (deckGun —
  * CANNON's own ladder, its turret and barrel are rungs of it — machineGun, flak;

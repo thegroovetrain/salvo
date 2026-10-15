@@ -5233,7 +5233,10 @@ export class World {
    * storm carries it (amendment 147): shells, bursts, torpedoes, mines, the
    * ram 'contact' strike, its 'grind' bleed and the 'burn' tick. PvE drones
    * hold no cards — AP 0 as attackers, Armor 0 as victims, so a pierced drone
-   * takes up to ×1.5 (Eric: "apply it to all damage").
+   * takes up to ×1.5 (Eric: "apply it to all damage"). A SINKING hull's ram and
+   * grind read piercing 0 (its `attackerId` is undefined per amendment 82) while
+   * its torpedo, mine and burn still carry its full piercing (its record
+   * persists) — both follow the rulings; do not 'fix' one side.
    *
    * A WHOLE blow rounds DOWN to a whole number (amendment 102 — damage stays
    * whole per amendment 39) BUT NEVER BELOW 1 (epic-9 amendment 119, Eric

@@ -236,13 +236,10 @@ describe('the stat tables — one builder for the face and both hovers', () => {
       `RELOAD ${(CONFIG.instantReload.reloadMs / 1000).toFixed(1)} s`,
     ]);
     expect(text(equipmentStatRows('hunker', bare))).toEqual([
-      `ARMOR +${CONFIG.hunker.armorBonus}`, // Story 9.7: the cut adds Armor (epic-9 amendments 110–117)
+      'ARMOR +100', // Story 9.7: the cut adds Armor (epic-9 amendments 110–117); Eric's ruled +100 since Story 9.9 (amendments 144, 158)
       `DURATION ${(CONFIG.hunker.durationMs / 1000).toFixed(1)} s`,
       `RELOAD ${(CONFIG.hunker.reloadMs / 1000).toFixed(1)} s`,
     ]);
-    // HUNKER's head row reads Eric's ruled +100 (Story 9.9, epic-9 amendments
-    // 144, 158 — was +5 as DAMAGE CUT in Story 9.7).
-    expect(text(equipmentStatRows('hunker', bare))[0]).toBe('ARMOR +100');
   });
 
   it('consumableStatRows is the face\'s CONSUMABLE_ROWS, and none for a stub or a junk id', () => {

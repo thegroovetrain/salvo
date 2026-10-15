@@ -659,7 +659,8 @@ const round3 = (v: number): number => Math.round(v * 1000) / 1000;
  * equation ... Its just the opposite curve"* — the negative branch mirrors
  * the positive one through ×1, so the curve is smooth through 0 (both
  * branches are 1 there with slope −1/K) and bounded strictly under ×2 for
- * every finite E. There is NO floor at E = 0 and raw K / (K + E) is never
+ * every E the fold can produce (|E| ≤ a few hundred; the numerator overflows
+ * only near ±1e308, unreachable by any card or --tune). There is NO floor at E = 0 and raw K / (K + E) is never
  * used below zero (it would blow up at E = −K) — both rejected, amendment 146.
  *
  * The EXACT fractions, never rounded (review gate 2026-10-13, epic-9

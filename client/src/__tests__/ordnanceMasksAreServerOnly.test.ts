@@ -135,7 +135,7 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // 79 -> 80 (Story 9.6) is the catalog re-cut (HULL / PASSIVE HEALING) and
     // the regen fold the client reads through stats — no mask.
     // 80 -> 81 (Story 9.7, epic-9 amendments 110–117) is the ARMOR ladder and
-    // the HUNKER (was DAMAGE CUT until Story 9.9)'s armorBonus, read through the fold — no mask.
+    // the HUNKER's (was DAMAGE CUT until Story 9.9) armorBonus, read through the fold — no mask.
     // 81 -> 82 (Story 9.8, epic-9 amendments 102–109, 121–129) is the twelfths
     // sensor ladder, the per-weapon tiered range dials read through the fold
     // and the server-side radar dropout — nothing new on the wire, no mask.

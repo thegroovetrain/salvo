@@ -128,7 +128,7 @@ export interface ActivationContext {
    */
   finishReloads: () => void;
   /**
-   * HUNKER (was DAMAGE CUT until Story 9.9)'s whole body (Story 8.15, the Battleship's Shift, amendments
+   * HUNKER's (was DAMAGE CUT until Story 9.9) whole body (Story 8.15, the Battleship's Shift, amendments
    * 99–102; Story 9.7, epic-9 amendment 88): open the cut's window on the
    * ACTIVATING ship until `until` (server clock); inside it the World's damage
    * gate adds the row's `armorBonus` (+5; → +100 by epic-9 amendment 144) to

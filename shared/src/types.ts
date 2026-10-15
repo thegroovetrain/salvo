@@ -571,8 +571,8 @@ export interface OwnShip {
    * `battleship` Shift, Eric rulings 2026-09-28, epic-8 amendments 99–102);
    * absent = no cut running. While `serverNow < hunkerUntil` the cut adds
    * `armorBonus` TEMPORARY Armor to this hull inside the one damage gate's
-   * K / (K + Armor) formula (Story 9.7, epic-9 amendment 88 — Tier 0 → ×0.5,
-   * Tier V → ×1/3), on every source but the storm (whose bites land in full),
+   * curve on effective armor E = victim Armor (+ HUNKER's armorBonus while open)
+   * − attacker Armor Piercing (Story 9.9, epic-9 amendments 144, 146), on every source but the storm (whose bites land in full),
    * which drives the HUD's ACTIVE grammar on the
    * Shift square. Present IFF a cut has been opened this life; OMITTED
    * otherwise, never an `undefined` value (the `slowedUntil` conditional-spread

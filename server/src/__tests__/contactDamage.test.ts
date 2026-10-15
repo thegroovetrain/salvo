@@ -565,7 +565,10 @@ describe('WRECKS, FLEET PAIRS, DRONES, the GATE and CREDIT', () => {
     expect([a.stats.armor, a.stats.armorPiercing, b.stats.armor, b.stats.armorPiercing]).toEqual([20, 40, 20, 0]);
     const nominal = contactHitDamage(a.stats.maxHp, b.stats.maxHp, vn, RAM);
     const { events } = stepUntil(w, () => a.stats.maxHp - a.hp >= 1);
-    const blow = (n: number, e: number): number => Math.max(1, Math.floor(n * damageMultiplierFor(e)));
+    const blow = (n: number, e: number): number => {
+      expect(n).toBeGreaterThan(0); // a 0 nominal must never silently pass as 1
+      return Math.max(1, Math.floor(n * damageMultiplierFor(e)));
+    };
     expect(dmgOf(events, 'b').map((e) => e.amount)).toEqual([blow(nominal.b, b.stats.armor - a.stats.armorPiercing)]);
     expect(dmgOf(events, 'a').map((e) => e.amount)).toEqual([blow(nominal.a, a.stats.armor - b.stats.armorPiercing)]);
     expect(blow(nominal.b, -20)).toBeGreaterThan(blow(nominal.b, 20)); // the pierced side really is amplified
