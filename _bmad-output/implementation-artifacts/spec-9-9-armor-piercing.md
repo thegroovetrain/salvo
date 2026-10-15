@@ -5,6 +5,7 @@ created: '2026-10-15'
 status: 'done'
 baseline_revision: '8abf59ee'
 review_loop_iteration: 0
+final_revision: 'PR open to development (2026-10-15); code head b9174918 plus the final_revision stamp commit'
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/project-context.md'
