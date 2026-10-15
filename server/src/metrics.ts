@@ -68,9 +68,12 @@ export interface MetricsPayload {
    * 9.3 — 8.18's `smokeLivePeak`) is its twin for live MULTI-SPECTRAL
    * COUNTERMEASURE clouds — every cloud is one delivery-gate check per
    * observer per tick (Story 9.3 session 2: it occludes nothing), so the peak
-   * still says what the perception pass paid for.
+   * still says what the perception pass paid for. `fogLivePeak` (Story
+   * 9.10) is the same twin for live FOG BANKS — each bank is a sight-cost
+   * term on every sight test and one delivery-gate check per observer per
+   * tick. COUNT ONLY, like the others.
    */
-  world: { minesLivePeak: number; cloudLivePeak: number };
+  world: { minesLivePeak: number; cloudLivePeak: number; fogLivePeak: number };
 }
 
 interface MessageBucket {
@@ -132,6 +135,8 @@ let minesLivePeak = 0;
 /** Process-wide high-water mark of live COUNTERMEASURE clouds (Story 8.18 /
  *  9.3) — the minesLivePeak twin, same survival rule. */
 let cloudLivePeak = 0;
+/** Process-wide high-water mark of live FOG BANKS (Story 9.10) — the same twin. */
+let fogLivePeak = 0;
 /** Monotonic second the module first recorded anything; null until first record. */
 let firstRecordSec: number | null = null;
 
@@ -222,12 +227,22 @@ export function recordCloudsLive(count: number): void {
   if (count > cloudLivePeak) cloudLivePeak = count;
 }
 
+/**
+ * Record one room's live FOG BANK count for this sim step (Story 9.10) —
+ * recordCloudsLive's twin: MAX only, a count and never a position. Called by
+ * the arena adapter after each `world.step()`.
+ */
+export function recordFogLive(count: number): void {
+  if (count > fogLivePeak) fogLivePeak = count;
+}
+
 /** Test-only: clear all registered rooms, retired totals, and first-record mark. */
 export function resetMetrics(): void {
   registry.clear();
   retiredMessageTotal = 0;
   minesLivePeak = 0;
   cloudLivePeak = 0;
+  fogLivePeak = 0;
   firstRecordSec = null;
 }
 
@@ -299,7 +314,7 @@ export function metricsPayload(): MetricsPayload {
       ratePerSec: ratePerSec(nowSeconds()),
       total: totalMessages(),
     },
-    world: { minesLivePeak, cloudLivePeak },
+    world: { minesLivePeak, cloudLivePeak, fogLivePeak },
   };
 }
 

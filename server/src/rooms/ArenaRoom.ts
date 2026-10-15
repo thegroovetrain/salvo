@@ -46,6 +46,7 @@ import { getAccountWriter, getGameVersion } from '../game/accountWriter.js';
 import {
   recordMinesLive,
   recordCloudsLive,
+  recordFogLive,
   registerRoom,
   type RoomMetricsHandle,
 } from '../metrics.js';
@@ -1273,6 +1274,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       recordMinesLive(this.world.mineCount);
       // ...and the live COUNTERMEASURE cloud count (Story 8.18 / 9.3), on the same terms.
       recordCloudsLive(this.world.cloudCount);
+      // ...and the live FOG BANK count (Story 9.10), on the same terms.
+      recordFogLive(this.world.fogBankCount);
       this.match?.update();
       this.observeMatchActivation();
       this.afterStep();

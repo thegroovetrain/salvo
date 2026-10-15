@@ -165,8 +165,11 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 83 and admits 84', () => {
-  it('PROTOCOL_VERSION is 84', () => {
+describe('the PV join gate refuses 84 and admits 85', () => {
+  it('PROTOCOL_VERSION is 85', () => {
+    // Story 9.10 bumped 84 -> 85: FrameMsg gains the optional `fog` channel
+    // (FogBankView {id,x,y,r,d}), the seventh declared perception exception
+    // (epic-9 amendments 162–168).
     // Story 9.9 bumped 83 -> 84: catalog content (the ARMOR PIERCING ladder,
     // ARMOR +20 per card), CONFIG.armor.k 100 / CONFIG.hunker read by the
     // client, OwnShip.damageCutUntil -> hunkerUntil (epic-9 amendments 144–147).
@@ -233,7 +236,8 @@ describe('the PV join gate refuses 83 and admits 84', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(84);
+    expect(PROTOCOL_VERSION).toBe(85);
+    expect(protocolVersionError(84)).toMatch(/refresh/i);
     expect(protocolVersionError(83)).toMatch(/refresh/i);
     expect(protocolVersionError(82)).toMatch(/refresh/i);
     expect(protocolVersionError(80)).toMatch(/refresh/i);
@@ -281,12 +285,12 @@ describe('the PV join gate refuses 83 and admits 84', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(85)).toMatch(/refresh/i);
+    expect(protocolVersionError(86)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(84)).toBeNull();
+    expect(protocolVersionError(85)).toBeNull();
   });
 });
 

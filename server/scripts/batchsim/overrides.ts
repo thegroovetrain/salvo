@@ -159,6 +159,15 @@ const TUNE_FAMILIES = [
   // itself, which the shared fold and the client both derive from, so it is
   // not a harness dial.
   'vision.dropout.',
+  // FOG BANKS (Story 9.10, Eric 2026-10-15, epic-9 amendments 164–166: every
+  // fog number is a harness dial). Floors: `sightCostPerU` 0 (a real arm —
+  // fog costs nothing, the banks are a visual only); the radii, ramps, the
+  // controller clocks and the two counts at 1 (TUNE_MIN_ONE_KEYS — a 0 radius
+  // is a bank that is nowhere, a 0 check period spins the controller every
+  // tick); `lifeMs` rides the existing min-one leaf; the coverage band is a
+  // closed share of water [0, 1] (FOG_SHARE_KEYS — `coverageMax=0` is "fog
+  // off"). The pair relations are refused in validateFogDials.
+  'fog.',
 ];
 
 /** True for an EQUIPMENT dial family (--tune only, never --set/--sweep). */
@@ -426,7 +435,19 @@ const TUNE_SUB_ONE_FLOORS = new Map<string, number>([['turnRate', 0.05]]);
  *  hazard is specific to this block (a 0 start makes every return a coin
  *  flip from the hull outward). The pair relations (start < knee < radar, rim ≤ knee
  *  probability) are refused on the finished CONFIG in validateDropoutCurve. */
-const TUNE_MIN_ONE_KEYS = new Set(['vision.dropout.startU', 'vision.dropout.kneeU']);
+const TUNE_MIN_ONE_KEYS = new Set([
+  'vision.dropout.startU',
+  'vision.dropout.kneeU',
+  // FOG BANKS (Story 9.10) — see the `fog.` family note in TUNE_FAMILIES.
+  'fog.radiusMinU',
+  'fog.radiusMaxU',
+  'fog.growMs',
+  'fog.fadeMs',
+  'fog.targetPeriodMs',
+  'fog.spawnCheckMs',
+  'fog.maxBanks',
+  'fog.spawnTries',
+]);
 
 function tuneFloor(key: string): number {
   if (TUNE_MIN_ONE_KEYS.has(key)) return 1;
@@ -449,6 +470,7 @@ function tuneFloor(key: string): number {
 export function validateTuneValue(key: string, value: number): void {
   if (UNIT_INTERVAL_KEYS.has(key)) return validateUnitInterval(key, value);
   if (PROBABILITY_KEYS.has(key)) return validateProbability(key, value);
+  if (FOG_SHARE_KEYS.has(key)) return validateShare(key, value);
   const floor = tuneFloor(key);
   if (!Number.isFinite(value) || value < floor) {
     throw new TunableError(`'${key}': expected a finite value >= ${floor}, got '${value}'`);
@@ -479,6 +501,17 @@ const UNIT_INTERVAL_KEYS = new Set(['offer.weighting.factor', 'offer.weighting.f
  *  [0, 1] — 0 (never paints at that rung) and 1 (always paints) are both real
  *  arms; outside it is not a probability. */
 const PROBABILITY_KEYS = new Set(['vision.dropout.kneeP', 'vision.dropout.rimP']);
+
+/** The fog controller's coverage band (Story 9.10): a CLOSED share of the
+ *  live ring's water, [0, 1] — 0 is "no fog" and a real arm; above 1 the
+ *  controller would chase a coverage the water cannot hold. */
+const FOG_SHARE_KEYS = new Set(['fog.coverageMin', 'fog.coverageMax']);
+
+function validateShare(key: string, value: number): void {
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new TunableError(`'${key}': expected a finite share of water in [0, 1], got '${value}'`);
+  }
+}
 
 function validateProbability(key: string, value: number): void {
   if (!Number.isFinite(value) || value < 0 || value > 1) {
@@ -543,6 +576,7 @@ function validateCrossKeyInvariants(): void {
   validateWeightingPair();
   validateCoverBand();
   validateDropoutCurve();
+  validateFogDials();
   const { durationMs, maxAmmo } = CONFIG.boost;
   if (maxAmmo !== 1) {
     throw new TunableError(
@@ -605,6 +639,31 @@ function validateDropoutCurve(): void {
   if (!(rimP <= kneeP)) {
     throw new TunableError(
       `'vision.dropout.rimP' (${rimP}) must stay <= 'vision.dropout.kneeP' (${kneeP}): a rim more reliable than the knee collapses the curve to a step at startU`,
+    );
+  }
+}
+
+/**
+ * THE FOG DIALS MUST DESCRIBE A BANK (Story 9.10, spec Degenerate dials):
+ * `radiusMinU <= radiusMaxU` (the full radius is drawn in [min, max]),
+ * `coverageMin <= coverageMax` (the target is drawn in [min, max]) and
+ * `growMs + fadeMs <= lifeMs` (a bank that starts fading before it finishes
+ * growing never reaches full size, so the report would read a different
+ * bank than the dials name). Judged on the FINISHED CONFIG — an arm may set
+ * several leaves at once.
+ */
+function validateFogDials(): void {
+  const { radiusMinU, radiusMaxU, coverageMin, coverageMax, growMs, fadeMs, lifeMs } = CONFIG.fog;
+  if (!(radiusMinU <= radiusMaxU)) {
+    throw new TunableError(`'fog.radiusMinU' (${radiusMinU}) must stay <= 'fog.radiusMaxU' (${radiusMaxU})`);
+  }
+  if (!(coverageMin <= coverageMax)) {
+    throw new TunableError(`'fog.coverageMin' (${coverageMin}) must stay <= 'fog.coverageMax' (${coverageMax})`);
+  }
+  if (!(growMs + fadeMs <= lifeMs)) {
+    throw new TunableError(
+      `'fog.growMs' + 'fog.fadeMs' (${growMs} + ${fadeMs}) must stay <= 'fog.lifeMs' (${lifeMs}): ` +
+        'otherwise a bank starts fading before it is fully grown',
     );
   }
 }

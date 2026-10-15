@@ -83,6 +83,9 @@ import {
   stormDpsFor,
   zoneStateAt,
   isOutside,
+  fogScale,
+  landCoverage,
+  pointInIsland,
   type BallisticEvent,
   type BoonBehaviorEffect,
   type Catalog,
@@ -117,6 +120,7 @@ import {
   type ShellOutcome,
   type ShellState,
   type CloudRecord,
+  type FogBankRecord,
   type ShipClassId,
   type ShipLifecycle,
   type ShipState,
@@ -1348,6 +1352,25 @@ export class World {
    * through `cloudRecords`; the count alone feeds `/metrics` (cloudCount).
    */
   readonly clouds = new Map<string, StoredCloud>();
+  /**
+   * THE FOG BANKS (Story 9.10; Eric rulings 2026-10-14/15, epic-9 amendments
+   * 149–150 and 162–168), keyed by id (`fg${n}`), in BIRTH order. Each is a
+   * stationary disc of haze centred on WATER inside the live ring, born by the
+   * coverage controller (stepFog → spawnFogBank, the ONE production writer) at
+   * `bornAt` with full radius `R`, deleted by stepFog once `now >= until`
+   * (bornAt + lifeMs, or sooner when the storm takes its centre — the "storm
+   * kill without a jump" shortens `until`, never extends it). Radius AND
+   * density ramp with `fogScale` (shared sim/fog.ts — the one derivation).
+   * SERVER-ONLY: never on the Colyseus schema. Perception reads the store
+   * through `fogBankRecords` (the eye's sight cost, sight only — no radar term,
+   * amendment 163) and ships each bank inside a client's 750 u flash/smoke halo
+   * as the `fog` channel's current-radius/density row — the SEVENTH declared
+   * perception exception (amendment 162). WORLD-OWNED weather: no owner; only
+   * resetForMatchStart clears the map (the clouds precedent). The count alone
+   * feeds `/metrics` (fogBankCount). `seedFogBank` / `clearFogBanks` are
+   * TEST-ONLY seams.
+   */
+  readonly fogBanks = new Map<string, FogBankRecord>();
   /** All live star-shell lit zones (static circles), in burst order (Story 1.7). */
   readonly litZones = new Map<string, LitZone>();
   /** All live PHOSPHOR SHELLS burning zones (static circles), in burst order
@@ -1608,6 +1631,15 @@ export class World {
   private foulZoneSeq = 0;
   private decoySeq = 0;
   private cloudSeq = 0;
+  /** Fog-bank id counter (`fg${n}`) — never reset, so ids stay unique per World. */
+  private fogSeq = 0;
+  /** The fog controller's current coverage target (share of the live ring's
+   *  water), redrawn every `CONFIG.fog.targetPeriodMs`; 0 until the first live check. */
+  private fogTarget = 0;
+  /** Server ms the coverage target is next redrawn (0 = on the first live check). */
+  private fogNextTargetAt = 0;
+  /** Server ms of the next controller check (0 = on the first live check). */
+  private fogNextCheckAt = 0;
   /**
    * THE PSEUDONYM MAP (R3, radar realism cycle): ship id → stable per-match
    * track id, rolled on the SERVER-PRIVATE pseudonym stream (pseudonymRng —
@@ -1636,6 +1668,23 @@ export class World {
    * private draw stream (its offers) or any other sequence. NEVER Math.random().
    */
   private readonly dropRng: Rng;
+  /**
+   * THE FOG STREAM (Story 9.10): every fog-bank draw — the coverage target,
+   * the spawn samples, the full radius. ROOM-PRIVATE entropy like the dropout
+   * seed: it rides `opts.pseudonymSeed` (the TEST-ONLY map-seed fallback
+   * otherwise) under its own constant 0x3c6ef372 (unused by any other stream
+   * mint in the codebase — 0x7f4a7c15 is the bot SPEND_STREAM_K), so a client
+   * holding the wire map seed cannot predict banks beyond its halo. NEVER
+   * Math.random().
+   */
+  private readonly fogRng: Rng;
+  /**
+   * The map's WATER share, `max(0.05, 1 − landCoverage(map))`, computed once
+   * in the constructor. The controller's coverage denominator is the live
+   * ring's area × this (an approximation: the ring's own land share is taken
+   * to be the map's).
+   */
+  private readonly waterShare: number;
   /** Zone timeline (default CONFIG.zone; overridable for smokes/tests only). */
   private readonly zoneCfg: ZoneTimeline;
   /** Server ms the storm timeline was anchored at; null = idle (not started). */
@@ -1787,6 +1836,9 @@ export class World {
     // Drone-drop stream (Eric ruling 2026-10-01), decorrelated from every
     // stream above (0x6c078965 is unused by any of them).
     this.dropRng = mulberry32((seed ^ 0x6c078965) >>> 0);
+    // Fog stream (Story 9.10): room-private entropy, its own constant — see the field.
+    this.fogRng = mulberry32(((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) ^ 0x3c6ef372) >>> 0);
+    this.waterShare = Math.max(0.05, 1 - landCoverage(this.map));
   }
 
   /** The pseudonym map, read-only — for perception context threading and
@@ -2311,6 +2363,10 @@ export class World {
     this.burnZones.clear(); // ...nor burn into it (Story 8.17, the same precedent)
     this.foulZones.clear(); // ...nor foul it (Story 9.4, the same precedent)
     this.clouds.clear(); // ...nor a practice-field countermeasure cloud (Story 8.18 / 9.3, the same precedent)
+    this.fogBanks.clear(); // ...nor a fog bank (Story 9.10 — inert pre-start; the store is cleared anyway)
+    this.fogTarget = 0;
+    this.fogNextTargetAt = 0;
+    this.fogNextCheckAt = 0;
     this.dotBuckets.clear(); // an open burn window must not flush a phantom dmg against a redeployed hull
     // The pending queue is dropped at the boundary as it always was. The
     // COUNTDOWN's own `pt` (the level-zero grant, Story 8.10) is never in it
@@ -3569,6 +3625,13 @@ export class World {
     // (the AI rows next tick read the store through observe(); frames.ts's
     // buildFrame, outside STEP_ORDER, ships the survivors the same tick).
     { name: 'stepClouds', run: (w) => w.stepClouds() },
+    // FOG BANKS (Story 9.10) — weather beside weather, DIRECTLY after
+    // stepClouds: storm kill (shorten `until` of any bank whose centre left
+    // the live ring), expiry, then the coverage controller (live match only).
+    // Before applyStorm and every later row; perception reads the store next
+    // tick through observe(), and frames.ts's buildFrame (outside STEP_ORDER)
+    // ships the survivors' `fog` rows the same tick.
+    { name: 'stepFog', run: (w) => w.stepFog() },
     // Storm: post-move positions decide who is outside the (damage-only) zone.
     // The physical map boundary stays at mapRadius — ships freely sail into the
     // storm; the zone only bites HP.
@@ -3872,6 +3935,38 @@ export class World {
    */
   get cloudRecords(): readonly StoredCloud[] {
     return [...this.clouds.values()];
+  }
+
+  /** How many FOG BANKS are live right now — the `/metrics`
+   *  `world.fogLivePeak` feed (Story 9.10). Count only: no position, nothing
+   *  that could become an ops-side wallhack. */
+  get fogBankCount(): number {
+    return this.fogBanks.size;
+  }
+
+  /**
+   * Every live FOG BANK as a read-only array (Story 9.10). THE reader:
+   * perception (the sight cost via shared `fogCostAlong`, and the `fog`
+   * channel's subjects). A fresh snapshot per call, so a caller can never
+   * mutate the store through it.
+   */
+  get fogBankRecords(): readonly FogBankRecord[] {
+    return [...this.fogBanks.values()];
+  }
+
+  /**
+   * TEST-ONLY seam (Story 9.10): put one bank record straight into the store
+   * (a copy — the caller's object is never aliased). The perception fuzz and
+   * the perf test use it; production NEVER calls it — the controller
+   * (spawnFogBank) is the only production writer.
+   */
+  seedFogBank(record: FogBankRecord): void {
+    this.fogBanks.set(record.id, { ...record });
+  }
+
+  /** TEST-ONLY seam (Story 9.10): empty the fog store. Production never calls it. */
+  clearFogBanks(): void {
+    this.fogBanks.clear();
   }
 
   /**
@@ -6850,6 +6945,104 @@ export class World {
     for (const [id, cloud] of this.clouds) {
       if (this.now >= cloud.until) this.clouds.delete(id);
     }
+  }
+
+  /**
+   * FOG BANKS (Story 9.10) — the `stepFog` STEP_ORDER row (directly after
+   * stepClouds). In order: (1) STORM KILL — a bank whose centre is outside
+   * the live ring starts fading from its current scale, (2) EXPIRY — every
+   * bank with `now >= until` is deleted, (3) the COVERAGE CONTROLLER, only
+   * while the match's zone timeline runs (`zoneStartT !== null`): the pre-start
+   * world never grows fog.
+   */
+  private stepFog(): void {
+    const ring = this.zoneLiveRing;
+    this.stormKillFog(ring);
+    for (const [id, bank] of this.fogBanks) {
+      if (this.now >= bank.until) this.fogBanks.delete(id);
+    }
+    if (this.zoneStartT !== null) this.runFogController(ring);
+  }
+
+  /**
+   * STORM KILL WITHOUT A JUMP (spec Design Note): a bank whose centre is
+   * outside the live ring and is not already fading (`until − now > fadeMs`)
+   * gets `until = min(until, now + fadeMs × s)`, s its current scale — the
+   * fade ramp `(until − now) / fadeMs` then reads exactly `s` this instant and
+   * falls linearly to 0. A bank already fading keeps its `until` (never
+   * extended); `min` guards the grow-phase case the same way.
+   */
+  private stormKillFog(ring: ZoneRing): void {
+    const { fadeMs } = CONFIG.fog;
+    for (const bank of this.fogBanks.values()) {
+      if (!isOutside(bank, ring.cx, ring.cy, ring.r)) continue;
+      if (bank.until - this.now <= fadeMs) continue;
+      const s = fogScale(bank, this.now, CONFIG.fog);
+      bank.until = Math.min(bank.until, this.now + fadeMs * s);
+    }
+  }
+
+  /**
+   * THE COVERAGE CONTROLLER (amendments 165–166). Redraws the target in
+   * [coverageMin, coverageMax) every targetPeriodMs (the first draw on the
+   * first live check); every spawnCheckMs, if the banks' FULL-SIZE area
+   * inside the live ring is below the target share of the ring's water and
+   * fewer than maxBanks live, spawns ONE bank. A bank is never deleted to
+   * meet the band.
+   */
+  private runFogController(ring: ZoneRing): void {
+    const cfg = CONFIG.fog;
+    if (this.now >= this.fogNextTargetAt) {
+      this.fogTarget = this.fogRng.float(cfg.coverageMin, cfg.coverageMax);
+      this.fogNextTargetAt = this.now + cfg.targetPeriodMs;
+    }
+    if (this.now < this.fogNextCheckAt) return;
+    this.fogNextCheckAt = this.now + cfg.spawnCheckMs;
+    if (this.fogBanks.size >= cfg.maxBanks) return;
+    if (this.fogCoverage(ring) < this.fogTarget) this.spawnFogBank(ring);
+  }
+
+  /** Σ π R² of banks whose centre is inside `ring`, over π r² × waterShare.
+   *  A degenerate ring (r ≤ 0) reads full coverage, so nothing spawns. */
+  private fogCoverage(ring: ZoneRing): number {
+    if (!(ring.r > 0)) return Infinity;
+    let area = 0;
+    for (const bank of this.fogBanks.values()) {
+      if (!isOutside(bank, ring.cx, ring.cy, ring.r)) area += bank.R * bank.R;
+    }
+    return area / (ring.r * ring.r * this.waterShare); // the π cancels
+  }
+
+  /**
+   * SPAWN ONE FOG BANK (the only production writer of World.fogBanks).
+   * FIXED DRAW ORDER on fogRng, so the sequence is reproducible: up to
+   * `spawnTries` sample PAIRS (u then v; x = cx + (2u − 1) r, y = cy + (2v − 1) r
+   * — the ring's bounding square, no trig), accepting the first inside the
+   * disc and on water (outside every island); THEN one draw for R in
+   * [radiusMinU, radiusMaxU). No accepted sample → nothing spawns and R is
+   * not drawn (the next check tries again). Banks ignore hulls (amendment 166).
+   */
+  private spawnFogBank(ring: ZoneRing): void {
+    const cfg = CONFIG.fog;
+    const p = this.sampleFogCentre(ring, cfg.spawnTries);
+    if (p === null) return;
+    const R = this.fogRng.float(cfg.radiusMinU, cfg.radiusMaxU);
+    this.fogSeq += 1;
+    const id = `fg${this.fogSeq}`;
+    this.fogBanks.set(id, { id, x: p.x, y: p.y, R, bornAt: this.now, until: this.now + cfg.lifeMs });
+  }
+
+  /** Rejection-sample a water point inside `ring` (see spawnFogBank for the draw order). */
+  private sampleFogCentre(ring: ZoneRing, tries: number): Vec2 | null {
+    for (let i = 0; i < tries; i += 1) {
+      const p = {
+        x: ring.cx + (2 * this.fogRng.next() - 1) * ring.r,
+        y: ring.cy + (2 * this.fogRng.next() - 1) * ring.r,
+      };
+      if (isOutside(p, ring.cx, ring.cy, ring.r)) continue;
+      if (!this.map.islands.some((isle) => pointInIsland(p, isle))) return p;
+    }
+    return null;
   }
 
   /**

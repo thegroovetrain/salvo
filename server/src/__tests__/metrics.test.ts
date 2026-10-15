@@ -39,6 +39,7 @@ import {
   metricsEndpoint,
   recordMinesLive,
   recordCloudsLive,
+  recordFogLive,
   nearestRank,
   computeTickPercentiles,
   round2,
@@ -266,7 +267,7 @@ describe('metricsPayload counts', () => {
       players: 0,
       tick: { p50: 0, p95: 0, max: 0, samples: 0 },
       messages: { ratePerSec: 0, total: 0 },
-      world: { minesLivePeak: 0, cloudLivePeak: 0 },
+      world: { minesLivePeak: 0, cloudLivePeak: 0, fogLivePeak: 0 },
     });
   });
 });
@@ -316,7 +317,7 @@ describe('world.cloudLivePeak gauge (Story 8.18 / 9.3)', () => {
     expect(metricsPayload().world.cloudLivePeak).toBe(40);
     recordCloudsLive(0); // every cloud expired — the PEAK does not fall
     expect(metricsPayload().world.cloudLivePeak).toBe(40);
-    expect(metricsPayload().world).toEqual({ minesLivePeak: 0, cloudLivePeak: 40 }); // independent of the mine peak
+    expect(metricsPayload().world).toEqual({ minesLivePeak: 0, cloudLivePeak: 40, fogLivePeak: 0 }); // independent of the mine peak
   });
 
   it('resetMetrics() zeroes it', () => {
@@ -324,6 +325,24 @@ describe('world.cloudLivePeak gauge (Story 8.18 / 9.3)', () => {
     expect(metricsPayload().world.cloudLivePeak).toBe(9);
     resetMetrics();
     expect(metricsPayload().world.cloudLivePeak).toBe(0);
+  });
+});
+
+// Story 9.10 — the live FOG BANK high-water mark, the same twin. A COUNT AND
+// NOTHING ELSE — never a position.
+describe('world.fogLivePeak gauge (Story 9.10)', () => {
+  it('keeps the MAX ever recorded, never falls, and is independent of the other peaks', () => {
+    expect(metricsPayload().world.fogLivePeak).toBe(0);
+    recordFogLive(3);
+    recordFogLive(11);
+    recordFogLive(0); // every bank gone — the PEAK does not fall
+    expect(metricsPayload().world).toEqual({ minesLivePeak: 0, cloudLivePeak: 0, fogLivePeak: 11 });
+  });
+
+  it('resetMetrics() zeroes it', () => {
+    recordFogLive(6);
+    resetMetrics();
+    expect(metricsPayload().world.fogLivePeak).toBe(0);
   });
 });
 

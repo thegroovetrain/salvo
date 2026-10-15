@@ -285,7 +285,7 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(TunableError);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(/not an equipment dial/);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(
-      /gun\.\*, machineGun\.\*, flak\.\*, instantReload\.\*, hunker\.\*, broadside\.\*, torpedo\.\*, mine\.\*, captiveMines\.\*, foulingMines\.\*, countermeasure\.\*, foulingShell\.\*, ram\.\*, starShells\.\*, phosphorShells\.\*, boost\.\*, shipClasses\.\*, drones\.\*, hullRepair\.\*, regen\.\*, armor\.\*, offer\.weighting\.\*, vision\.dropout\.\*/,
+      /gun\.\*, machineGun\.\*, flak\.\*, instantReload\.\*, hunker\.\*, broadside\.\*, torpedo\.\*, mine\.\*, captiveMines\.\*, foulingMines\.\*, countermeasure\.\*, foulingShell\.\*, ram\.\*, starShells\.\*, phosphorShells\.\*, boost\.\*, shipClasses\.\*, drones\.\*, hullRepair\.\*, regen\.\*, armor\.\*, offer\.weighting\.\*, vision\.dropout\.\*, fog\.\*/,
     );
     expect(() => applyOverrides({}, { 'zone.stormDps': 8 })).toThrow(/not an equipment dial/);
   });
@@ -1617,5 +1617,44 @@ describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
       restore();
     }
     expect(JSON.stringify(CONFIG.vision.dropout)).toBe(snapshot);
+  });
+
+  it('--tune fog.* is reachable (Story 9.10, amendments 164–166): every dial, with floors on the radii/clocks/counts and the coverage band a share in [0, 1]', () => {
+    for (const key of ['fog.sightCostPerU=0', 'fog.sightCostPerU=3', 'fog.coverageMin=0', 'fog.coverageMax=1', 'fog.maxBanks=4', 'fog.spawnTries=1']) {
+      expect(() => parseArgs(['--tune', key]), key).not.toThrow();
+    }
+    for (const key of ['fog.radiusMinU=0', 'fog.radiusMaxU=0.5', 'fog.growMs=0', 'fog.fadeMs=0', 'fog.targetPeriodMs=0', 'fog.spawnCheckMs=0', 'fog.maxBanks=0', 'fog.spawnTries=0', 'fog.lifeMs=0']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 1/);
+    }
+    expect(() => parseArgs(['--tune', 'fog.sightCostPerU=-1'])).toThrow(/>= 0/);
+    for (const key of ['fog.coverageMin=-0.1', 'fog.coverageMax=1.5']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/share of water in \[0, 1\]/);
+    }
+  });
+
+  it('--tune fog.* must describe a bank: radiusMin <= radiusMax, coverageMin <= coverageMax, growMs + fadeMs <= lifeMs (judged on the final values, rolled back)', () => {
+    const snapshot = JSON.stringify(CONFIG.fog);
+    const { lifeMs, radiusMaxU, coverageMax } = CONFIG.fog;
+    const refused: Array<[Record<string, number>, RegExp]> = [
+      [{ 'fog.growMs': lifeMs, 'fog.fadeMs': 1 }, /'fog\.growMs' \+ 'fog\.fadeMs'.*'fog\.lifeMs'/],
+      [{ 'fog.growMs': 100000, 'fog.fadeMs': 30000, 'fog.lifeMs': 120000 }, /'fog\.growMs' \+ 'fog\.fadeMs'/],
+      [{ 'fog.coverageMin': 0.1, 'fog.coverageMax': 0.05 }, /'fog\.coverageMin'.*must stay <= 'fog\.coverageMax'/],
+      [{ 'fog.coverageMin': coverageMax + 0.01 }, /'fog\.coverageMin'.*must stay <=/],
+      [{ 'fog.radiusMinU': radiusMaxU + 1 }, /'fog\.radiusMinU'.*must stay <= 'fog\.radiusMaxU'/],
+      [{ 'fog.radiusMinU': 0 }, />= 1/],
+    ];
+    for (const [tune, re] of refused) {
+      expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(TunableError);
+      expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(re);
+      expect(JSON.stringify(CONFIG.fog)).toBe(snapshot); // rolled back
+    }
+    // Several leaves at once: each alone would break a pair, the final set is legal.
+    const restore = applyOverrides({}, { 'fog.radiusMinU': radiusMaxU + 50, 'fog.radiusMaxU': radiusMaxU + 100 });
+    try {
+      expect(CONFIG.fog.radiusMinU).toBe(radiusMaxU + 50);
+    } finally {
+      restore();
+    }
+    expect(JSON.stringify(CONFIG.fog)).toBe(snapshot);
   });
 });

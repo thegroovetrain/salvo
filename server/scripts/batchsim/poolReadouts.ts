@@ -49,6 +49,9 @@ export interface PoolBotSample {
 export interface PoolMatchSample {
   /** Peak of `world.mineCount` over the active phase, sampled every tick. */
   peakMines: number;
+  /** Peak of `world.fogBankCount` over the active phase, sampled every tick
+   *  (Story 9.10 — the `/metrics` fogLivePeak twin; a count, never a position). */
+  peakFogBanks: number;
   /** Weapon line id -> BOTS that took copy 1 of it this match (off
    *  `world.takes`, the weighting's own ledger), sorted by line id. */
   takes: Record<string, number>;
@@ -90,6 +93,7 @@ function notePoolTrack(track: PoolTrack, ship: Pick<ShipRecord, 'loadout' | 'lev
 export class PoolCollector {
   private readonly tracks = new Map<string, PoolTrack>();
   private peakMines = 0;
+  private peakFogBanks = 0;
 
   constructor(botIds: readonly string[]) {
     for (const id of botIds) this.tracks.set(id, { levelEmpty: [], finalEmpty: null, lastLevel: 0 });
@@ -98,6 +102,7 @@ export class PoolCollector {
   observe(world: World, activatedAt: number): void {
     if (activatedAt === 0) return;
     this.peakMines = Math.max(this.peakMines, world.mineCount);
+    this.peakFogBanks = Math.max(this.peakFogBanks, world.fogBankCount);
     // EVERY lifecycle, not just afloat: the harness observes after the whole
     // tick, so a weapon fitted or a level reached on the tick a bot SINKS is
     // only visible on the sinking hull. Its build is frozen from then on, so
@@ -119,7 +124,7 @@ export class PoolCollector {
       if (ship === undefined || track.finalEmpty === null) continue;
       bots.push({ id, gun: ship.gun, levelEmpty: track.levelEmpty.slice(), finalEmpty: track.finalEmpty });
     }
-    return { peakMines: this.peakMines, takes: this.botTakes(world), bots };
+    return { peakMines: this.peakMines, peakFogBanks: this.peakFogBanks, takes: this.botTakes(world), bots };
   }
 
   /** `world.takes` restricted to this lobby's bots (a captain in a mixed lobby
@@ -171,6 +176,8 @@ export interface PoolReadouts {
   levelsWasted: { earned: number; wasted: number; share: number | null };
   weaponSpread: { matches: number; meanDistinctLines: number | null; meanTopLineShare: number | null };
   peakMines: { matches: number; mean: number | null; max: number | null };
+  /** Peak live FOG BANKS per match (Story 9.10) — peakMines' shape. */
+  fogBanksLivePeak: { matches: number; mean: number | null; max: number | null };
 }
 
 /** A ratio that is honestly UNDEFINED on an empty denominator (never NaN). */
@@ -267,8 +274,7 @@ export function weaponSpread(pools: readonly PoolMatchSample[]): PoolReadouts['w
   return { matches: pools.length, meanDistinctLines: mean(distinct), meanTopLineShare: mean(topShares) };
 }
 
-function peakMines(pools: readonly PoolMatchSample[]): PoolReadouts['peakMines'] {
-  const peaks = pools.map((p) => p.peakMines);
+function peakOf(peaks: readonly number[]): PoolReadouts['peakMines'] {
   return { matches: peaks.length, mean: mean(peaks), max: peaks.length === 0 ? null : Math.max(...peaks) };
 }
 
@@ -285,7 +291,8 @@ export function buildPoolReadouts(matches: readonly MatchSample[]): PoolReadouts
     heal: healTake(rows),
     levelsWasted: levelsWasted(rows),
     weaponSpread: weaponSpread(pools),
-    peakMines: peakMines(pools),
+    peakMines: peakOf(pools.map((p) => p.peakMines)),
+    fogBanksLivePeak: peakOf(pools.map((p) => p.peakFogBanks)),
   };
 }
 
@@ -317,6 +324,7 @@ export function renderPoolReadouts(p: PoolReadouts): string[] {
     `  levels wasted (banked, never spent): ${p.levelsWasted.wasted} of ${p.levelsWasted.earned} earned (${pct(p.levelsWasted.share)})`,
     `  weapon-line spread per lobby: mean distinct lines taken ${num(p.weaponSpread.meanDistinctLines, 2)} | mean top-line share of first-copy takes ${pct(p.weaponSpread.meanTopLineShare)}`,
     `  peak live mines per match: mean ${num(p.peakMines.mean, 2)} | max ${num(p.peakMines.max, 0)}`,
+    `  peak live fog banks per match: mean ${num(p.fogBanksLivePeak.mean, 2)} | max ${num(p.fogBanksLivePeak.max, 0)}`,
   );
   return lines;
 }
