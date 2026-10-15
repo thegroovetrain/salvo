@@ -1,6 +1,6 @@
 // THE CLASS SHIFTS — the three hull specials, each FIXED on slot 1 by its hull
 // (`CONFIG.shipClasses.<id>.shift`, Story 8.15, amendment 89(c)): SPEED BOOST
-// on the Torpedo Boat, INSTANT RELOAD on the Mine Layer, DAMAGE CUT on the
+// on the Torpedo Boat, INSTANT RELOAD on the Mine Layer, HUNKER (was DAMAGE CUT until Story 9.9) on the
 // Battleship. All three are abilities on the actSeq channel (chooseAct).
 //
 // `SHIFT_TACTICS` is TOTAL over ShipClassId — a new hull cannot land without a
@@ -24,7 +24,7 @@ import { engagementBand, mountedGunRangeU } from './profiles.js';
 import {
   APPETITE_NEUTRAL,
   appetiteFor,
-  damageCutCues,
+  hunkerCues,
   deepFreezeRows,
   distTo,
   type EquipmentTactic,
@@ -103,19 +103,19 @@ const instantReloadTactic: EquipmentTactic = {
 };
 
 // ---------------------------------------------------------------------------
-// DAMAGE CUT (the Battleship's Shift).
+// HUNKER (the Battleship's Shift).
 // ---------------------------------------------------------------------------
 
 /**
- * PROACTIVE — Eric, 2026-09-29, amendment 115: pressed on the DAMAGE CUT cues
+ * PROACTIVE — Eric, 2026-09-29, amendment 115: pressed on the HUNKER cues
  * (engaged with a target, or a seen fish inbound within 150 u; tacticKit.ts
- * damageCutCues). NEVER as a reaction to damage already taken.
+ * hunkerCues). NEVER as a reaction to damage already taken.
  */
-const damageCutTactic: EquipmentTactic = {
-  id: 'damageCut',
+const hunkerTactic: EquipmentTactic = {
+  id: 'hunker',
   kind: 'ability',
   reachU: () => 0,
-  want: (ctx) => appetiteFor(ctx.sit.profile, 'damageCut') >= APPETITE_NEUTRAL && damageCutCues(ctx),
+  want: (ctx) => appetiteFor(ctx.sit.profile, 'hunker') >= APPETITE_NEUTRAL && hunkerCues(ctx),
   solve: () => null,
 };
 
@@ -128,7 +128,7 @@ const damageCutTactic: EquipmentTactic = {
 export const SHIFT_ROWS: Readonly<Record<ShiftId, EquipmentTactic>> = deepFreezeRows({
   boost: boostTactic,
   instantReload: instantReloadTactic,
-  damageCut: damageCutTactic,
+  hunker: hunkerTactic,
 });
 
 /** A hull's Shift row, read through the shared hull->Shift source of truth

@@ -92,8 +92,8 @@ export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
  *
  *   - `flak.burstRadius` / `flak.contactDamage`: FIXED by ruling (amendment
  *     105 — the blast never grows; the bodyblock is a CONFIG constant);
- *   - `damageCut.armorBonus`: Eric's fixed number (the cut's +5 temporary
- *     Armor, epic-9 amendment 88; the flat ×0.5 `factor` it replaced is
+ *   - `hunker.armorBonus`: Eric's fixed number (the HUNKER's +100 temporary
+ *     Armor, epic-9 amendments 88 / 144; the flat ×0.5 `factor` it replaced is
  *     deleted) that no ladder steps — a CONFIG pass-through, not
  *     card-addressable (a harness `--tune` reaches CONFIG);
  *     `machineGun.rateMs` LEFT this list on 2026-09-30 (the ladder steps it);
@@ -154,7 +154,7 @@ export const EQUIPMENT_STAT_FIELDS = {
   // rows: no card addresses them today, but `reloadMs` must be a row field so
   // RELOAD's `cooldownScale` reaches it through the one multiply.
   instantReload: ['reloadMs', 'maxAmmo'],
-  damageCut: ['reloadMs', 'maxAmmo', 'durationMs'],
+  hunker: ['reloadMs', 'maxAmmo', 'durationMs'],
 } as const satisfies Record<EquipmentId, readonly string[]>;
 
 /**
@@ -176,14 +176,19 @@ export const EQUIPMENT_INT_FIELDS: readonly string[] = ['maxAmmo', 'barrels', 't
 /**
  * The top-level (non-equipment) stat paths. `sightRange`, `sweepPeriodMs` and
  * `damageMultiplier` are DELIBERATELY ABSENT — all three are derived post-fold
- * (radarRange/3, 60000/sweepRpm and K / (K + armor)), pinned absent in
+ * (radarRange/3, 60000/sweepRpm and damageMultiplierFor(armor)), pinned absent in
  * barrel.test.ts.
  */
 export const TOP_LEVEL_STAT_PATHS = [
   'maxHp',
   // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88): 0 at base,
-  // +1 per ARMOR card; clampStats derives `damageMultiplier` from it.
+  // +20 per ARMOR card since Story 9.9 (amendment 144); clampStats derives
+  // `damageMultiplier` from it.
   'armor',
+  // ARMOR PIERCING (Story 9.9, Eric 2026-10-14/15, epic-9 amendments
+  // 144–146): 0 at base, +20 per card. The ATTACKER's stat — the server's
+  // damage gate subtracts it from the victim's Armor; it derives nothing here.
+  'armorPiercing',
   'radarRange',
   'sweepRpm',
   // The ONE global cooldown lever (Eric ruling 2026-08-04, retuned by

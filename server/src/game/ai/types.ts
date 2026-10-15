@@ -411,7 +411,7 @@ export interface BotMind {
   /** THE SEEN-TORPEDO TABLE (Story 8.15, amendment 115): every torpedo this
    *  hull's fogged view has revealed, keyed by projectile id, dead-reckoned
    *  from its last `torp`/`torpU` and dropped on its `boom` or when its course
-   *  must be run (ai/torpedoThreat.ts is the only writer). The DAMAGE CUT
+   *  must be run (ai/torpedoThreat.ts is the only writer). The HUNKER (was DAMAGE CUT until Story 9.9)
    *  tactic's inbound-fish trigger reads it. OPTIONAL, created lazily;
    *  released with the life (BotController.releasePerLifeState). */
   torps?: Map<string, SeenTorpedo> | null;

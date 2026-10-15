@@ -69,7 +69,7 @@ const TUNE_FAMILIES = [
   'machineGun.',
   'flak.',
   'instantReload.',
-  'damageCut.',
+  'hunker.',
   'broadside.',
   'torpedo.',
   'mine.',
@@ -135,9 +135,14 @@ const TUNE_FAMILIES = [
   // the floor (Edge Case Hunter, 2026-10-13 gate; ledgered in deferred-work).
   'regen.',
   // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88): `armor.k`,
-  // the K in K / (K + armor), is the dial — floor 1 via TUNE_MIN_ONE_LEAVES
-  // (a 0 makes every armored multiplier 0 and an un-armored one 0/0 = NaN).
-  // The DAMAGE CUT's `armorBonus` rides the `damageCut.` family above.
+  // the K in the curve (K / (K + E) for E ≥ 0, (K − 2E) / (K − E) below zero
+  // since Story 9.9, amendment 146; 100 by amendment 144), is the dial — floor
+  // 1 via TUNE_MIN_ONE_LEAVES (a 0 makes every armored multiplier 0 and E = 0
+  // 0/0 = NaN). The HUNKER's (was DAMAGE CUT until Story 9.9) `armorBonus`
+  // rides the `hunker.` family above (floor 0, like `grindPerUnit` — the
+  // default for a leaf in no floor set: a negative bonus would make HUNKER
+  // amplify damage on its own user). The ARMOR / ARMOR PIERCING +20 steps
+  // are catalog-authored (amendment 110's pattern), so 9.9 adds no family.
   'armor.',
   // THE WEAPON WEIGHTING (Story 8.14, epic-8 amendments 90/91) — `factor` and
   // `floor`, both `[DRAFT]` numbers Eric expects the harness to move. They are
@@ -365,8 +370,13 @@ export function validateTuneKey(key: string): void {
  *      while the report reads normal; lifeMs = 0 NaNs the scale at age 0
  *      (the cloud expires at birth — an arm that measures nothing).
  *    k (armor — Story 9.7) — shared/src/sim/stats.ts `damageMultiplierFor`
- *      divides by `k + armor`: k = 0 is 0/0 = NaN on every un-armored hull,
- *      which NaNs the damage gate's hp write.
+ *      divides by `k + E` (E ≥ 0): k = 0 is 0/0 = NaN at E = 0 (every
+ *      un-armored, un-pierced blow), which NaNs the damage gate's hp write.
+ *      The negative branch (Story 9.9, amendment 146) divides by `k − E`,
+ *      which is > k for E < 0, so it is bounded strictly under ×2 for every E
+ *      the fold can produce (|E| ≤ a few hundred; the numerator overflows only
+ *      near ±1e308, unreachable by any card or --tune) — the floor of 1 still
+ *      stands for the E = 0 case.
  *  Deliberately an EXPLICIT named set rather than a pattern: a floor is a
  *  refusal to run an arm, so each one is justified by a real call site. */
 const TUNE_MIN_ONE_LEAVES = new Set([

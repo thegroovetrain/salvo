@@ -67,7 +67,7 @@ interface LoadoutRow {
 export const SPECIAL_NAMES: Readonly<Record<ShiftId, string>> = {
   boost: 'SPEED BOOST',
   instantReload: 'INSTANT RELOAD',
-  damageCut: 'DAMAGE CUT',
+  hunker: 'HUNKER',
 };
 
 /**

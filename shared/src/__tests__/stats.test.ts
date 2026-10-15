@@ -87,6 +87,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
       cooldownScale: 1, // the global cooldown lever is a true no-op at base
       armor: 0, // Story 9.7 (epic-9 amendment 86): no Armor until the ladder stacks
       damageMultiplier: 1, // DERIVED — K / (K + 0)
+      armorPiercing: 0, // Story 9.9 (epic-9 amendment 145): no Piercing until the ladder stacks
       regen: { ...CONFIG.regen }, // Story 9.6 (amendments 90–91): CONFIG.regen verbatim at zero cards
       equipment: {
         gun: {
@@ -225,9 +226,10 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
         // consumable that replaces it carries NO row — the consumable law.)
         // THE TWO NEW CLASS SHIFTS (Story 8.15, amendments 97/99).
         instantReload: { tier: 1, reloadMs: 60000, maxAmmo: 1 }, // 60 s (Eric 2026-10-02, amendment 232; was 45 s)
-        // Story 9.7 (epic-9 amendments 86–88 / 110–117): +5 temporary Armor for
-        // 10 s replaces the flat ×0.5 factor and the 8 s window.
-        damageCut: { tier: 1, reloadMs: 30000, maxAmmo: 1, durationMs: 10000, armorBonus: 5 },
+        // Story 9.7 (epic-9 amendments 86–88 / 110–117): temporary Armor for
+        // 10 s replaces the flat ×0.5 factor and the 8 s window; the bonus is
+        // CONFIG's pass-through (5 -> 100 by amendment 144, ×0.5 kept).
+        hunker: { tier: 1, reloadMs: 30000, maxAmmo: 1, durationMs: 10000, armorBonus: CONFIG.hunker.armorBonus },
       },
     });
   });
@@ -290,7 +292,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
   });
 });
 
-describe('effectiveStats — the seven universal ladders (catalog-v3 §4 + Stories 9.6 / 9.7)', () => {
+describe('effectiveStats — the eight universal ladders (catalog-v3 §4 + Stories 9.6 / 9.7 / 9.9)', () => {
   // Re-based in Story 9.6 (Eric 2026-10-11 / 2026-10-13, epic-9 amendments
   // 27–29, 90–91): HULL POINTS (was ARMOR, +25 ×4) is +50 ×5.
   it('HULL POINTS (R8): +50 max hp per tier, 5 tiers', () => {
@@ -320,37 +322,89 @@ describe('effectiveStats — the seven universal ladders (catalog-v3 §4 + Stori
     }
   });
 
-  // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88 / 110–117):
-  // +1 Armor per card, and the multiplier K / (K + Armor) DERIVED in the
-  // firewall through the one exported formula — the EXACT ratio, never
-  // rounded (review gate 2026-10-13, epic-9 amendment 120(a)).
-  it('ARMOR: n cards → armor n and damageMultiplier exactly K/(K+n), n = 0..5, on every hull', () => {
+  // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88 / 110–117;
+  // rescaled by Story 9.9, amendment 144: +20 Armor per card, K 5 -> 100):
+  // the multiplier K / (K + Armor) DERIVED in the firewall through the one
+  // exported curve — the EXACT ratio, never rounded (review gate 2026-10-13,
+  // epic-9 amendment 120(a)). K is READ from CONFIG, never restated.
+  const STEP = 20; // the ARMOR / ARMOR PIERCING card step (amendment 144)
+  it('ARMOR: n cards → armor 20n and damageMultiplier exactly K/(K+20n), n = 0..5, on every hull', () => {
     expect(CATALOG.armor.cap).toBe(5);
     const K = CONFIG.armor.k;
     for (let n = 0; n <= 5; n += 1) {
       for (const id of SHIP_CLASS_IDS) {
         const s = effectiveStats(CONFIG.shipClasses[id], stack('armor', n));
-        expect(s.armor, `${id} ${n}`).toBe(n);
-        expect(s.damageMultiplier, `${id} ${n}`).toBe(K / (K + n));
-        expect(s.damageMultiplier, `${id} ${n}`).toBe(damageMultiplierFor(n));
+        expect(s.armor, `${id} ${n}`).toBe(STEP * n);
+        expect(s.damageMultiplier, `${id} ${n}`).toBe(K / (K + STEP * n));
+        expect(s.damageMultiplier, `${id} ${n}`).toBe(damageMultiplierFor(STEP * n));
       }
     }
-    // Eric's table (amendment 86): ×1 at Tier 0 → ×0.5 at Tier V, unrounded
-    // (amendment 120(a): a rounded 0.833 floored a whole blow a point low).
+    // Amendment 144: the rescale preserves EVERY 9.7 ratio — ×1 at Tier 0 →
+    // ×0.5 at Tier V, the same doubles 9.7's K 5 / +1 produced, unrounded.
     expect([0, 1, 2, 3, 4, 5].map((n) => effectiveStats(BASE, stack('armor', n)).damageMultiplier))
       .toEqual([1, 5 / 6, 5 / 7, 5 / 8, 5 / 9, 5 / 10]);
-    for (let n = 0; n <= 5; n += 1) expect(damageMultiplierFor(n), `Armor ${n}`).toBe(5 / (5 + n));
   });
 
-  it('damageMultiplierFor: Armor 10 (Tier V under the DAMAGE CUT) is ×1/3; NaN / ±Infinity / negative read as Armor 0', () => {
-    // Amendment 88: the cut adds its bonus to the Armor INSIDE the formula;
-    // exact 5/15, never a rounded 0.333 (review gate 2026-10-13, epic-9
-    // amendment 120(a)).
-    expect(damageMultiplierFor(5 + CONFIG.damageCut.armorBonus)).toBe(5 / 15);
-    expect(damageMultiplierFor(10)).toBe(5 / (5 + 10));
-    expect(damageMultiplierFor(0 + CONFIG.damageCut.armorBonus)).toBe(0.5); // Tier 0 under the cut: today's ×0.5
-    // A malformed Armor never poisons the gate (the clampSpreadRung law).
-    for (const bad of [NaN, Infinity, -Infinity, -3]) expect(damageMultiplierFor(bad), String(bad)).toBe(1);
+  it('ARMOR keeps a whole product whole: the exact ratio never floors a whole blow a point low (amendment 120(a))', () => {
+    // An MG shell 6 at Tier I is 5 exactly; a 15 hp shell at Tier V is 7.5.
+    expect(6 * effectiveStats(BASE, stack('armor', 1)).damageMultiplier).toBe(5);
+    expect(15 * effectiveStats(BASE, stack('armor', 5)).damageMultiplier).toBe(7.5);
+  });
+
+  // THE TWO-BRANCH CURVE (Story 9.9, Eric 2026-10-14/15, epic-9 amendment
+  // 146): E ≥ 0 → K/(K+E); E < 0 → 2 − K/(K−E). Synthetic E, K from CONFIG.
+  describe('damageMultiplierFor — the one curve on effective armor E (amendment 146)', () => {
+    const K = CONFIG.armor.k;
+    it('E ≥ 0 is K/(K+E): ×1 at 0, ×0.5 at K, ×1/3 at 2K', () => {
+      expect(damageMultiplierFor(0)).toBe(1);
+      expect(damageMultiplierFor(STEP)).toBe(K / (K + STEP));
+      expect(damageMultiplierFor(K)).toBe(0.5);
+      expect(damageMultiplierFor(2 * K)).toBe(1 / 3);
+      // The HUNKER's bonus enters the curve as Armor (amendments 88 / 144).
+      expect(damageMultiplierFor(STEP * 5 + CONFIG.hunker.armorBonus)).toBe(K / (K + STEP * 5 + CONFIG.hunker.armorBonus));
+      expect(damageMultiplierFor(0 + CONFIG.hunker.armorBonus)).toBe(K / (K + CONFIG.hunker.armorBonus));
+    });
+
+    it('E < 0 is 2 − K/(K−E): ×7/6 one card under, ×1.5 at −K (where raw K/(K+E) would divide by zero)', () => {
+      expect(damageMultiplierFor(-STEP)).toBe(7 / 6); // exact at K 100 / step 20
+      expect(damageMultiplierFor(-K)).toBe(1.5);
+      for (const e of [-1, -7, -20, -60, -100, -333, -1000]) {
+        expect(damageMultiplierFor(e), String(e)).toBeCloseTo(2 - K / (K - e), 12);
+      }
+    });
+
+    it('stays EXACT below zero: a whole product is whole (12 hp at E −20 is 14, a 0.5 burn tick at −K is 0.75)', () => {
+      expect(12 * damageMultiplierFor(-STEP)).toBe(14);
+      expect(12 * damageMultiplierFor(-K)).toBe(18);
+      expect(0.5 * damageMultiplierFor(-K)).toBe(0.75);
+    });
+
+    it('is bounded strictly between ×1 and ×2 for every finite negative E', () => {
+      for (const e of [-1e-6, -1, -K, -10 * K, -1e6, -1e12]) {
+        const m = damageMultiplierFor(e);
+        expect(m, String(e)).toBeGreaterThan(1);
+        expect(m, String(e)).toBeLessThan(2);
+      }
+    });
+
+    it('is continuous through 0 from both sides', () => {
+      expect(Math.abs(damageMultiplierFor(1e-9) - 1)).toBeLessThan(1e-8);
+      expect(Math.abs(damageMultiplierFor(-1e-9) - 1)).toBeLessThan(1e-8);
+      expect(damageMultiplierFor(-0)).toBe(1);
+    });
+
+    it('is strictly decreasing over E −300 → 300', () => {
+      let prev = Infinity;
+      for (let e = -300; e <= 300; e += 10) {
+        const m = damageMultiplierFor(e);
+        expect(m, String(e)).toBeLessThan(prev);
+        prev = m;
+      }
+    });
+
+    it('reads a non-finite E as ×1 — a NaN never poisons the gate', () => {
+      for (const bad of [NaN, Infinity, -Infinity]) expect(damageMultiplierFor(bad), String(bad)).toBe(1);
+    });
   });
 
   it('ARMOR adds no hull (no maxHp, so no ramming mass) and moves only the Armor pair', () => {
@@ -359,23 +413,51 @@ describe('effectiveStats — the seven universal ladders (catalog-v3 §4 + Stori
     expect(v.maxHp).toBe(base.maxHp);
     expect({ ...v, armor: base.armor, damageMultiplier: base.damageMultiplier }).toEqual(base);
     // ...and no other ladder moves it.
-    for (const id of ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'] as const) {
+    for (const id of ['hullPoints', 'armorPiercing', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'] as const) {
       const s = effectiveStats(BASE, stack(id, CATALOG[id].cap));
       expect([s.armor, s.damageMultiplier], id).toEqual([0, 1]);
     }
     // A Tier-V HULL POINTS + Tier-V ARMOR hull carries both, independently.
     const both = effectiveStats(BASE, [...stack('hullPoints', 5), ...stack('armor', 5)]);
-    expect([both.maxHp, both.armor, both.damageMultiplier]).toEqual([effectiveStats(BASE, stack('hullPoints', 5)).maxHp, 5, 0.5]);
+    expect([both.maxHp, both.armor, both.damageMultiplier]).toEqual([effectiveStats(BASE, stack('hullPoints', 5)).maxHp, STEP * 5, 0.5]);
   });
 
-  it('ARMOR is floored to a whole number before the multiplier derives (injected fractional step)', () => {
+  // ARMOR PIERCING (Story 9.9, Eric 2026-10-14/15, epic-9 amendments 144–146):
+  // the ATTACKER's stat — folded, floored, and never in the holder's own
+  // damageMultiplier (which stays victim-only, amendment 120(e)).
+  it('ARMOR PIERCING: n ARMOR + m PIERCING cards → armor 20n, armorPiercing 20m, damageMultiplier from armor alone', () => {
+    expect(CATALOG.armorPiercing.cap).toBe(5);
+    for (let n = 0; n <= 5; n += 1) {
+      for (let m = 0; m <= 5; m += 1) {
+        const s = effectiveStats(BASE, [...stack('armor', n), ...stack('armorPiercing', m)]);
+        expect([s.armor, s.armorPiercing], `${n}/${m}`).toEqual([STEP * n, STEP * m]);
+        expect(s.damageMultiplier, `${n}/${m}`).toBe(damageMultiplierFor(STEP * n));
+      }
+    }
+  });
+
+  it('ARMOR PIERCING is 0 on every hull at base and under every other ladder, and moves nothing else', () => {
+    for (const id of SHIP_CLASS_IDS) expect(effectiveStats(CONFIG.shipClasses[id]).armorPiercing, id).toBe(0);
+    for (const id of ['hullPoints', 'armor', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'] as const) {
+      expect(effectiveStats(BASE, stack(id, CATALOG[id].cap)).armorPiercing, id).toBe(0);
+    }
+    const base = effectiveStats(BASE);
+    const v = effectiveStats(BASE, stack('armorPiercing', 5));
+    expect({ ...v, armorPiercing: base.armorPiercing }).toEqual(base);
+  });
+
+  it('ARMOR and ARMOR PIERCING are floored to whole numbers before anything derives (injected fractional step)', () => {
     const half: Catalog = {
       armor: { id: 'armor', kind: 'ladder', cap: 2, tiers: [[{ kind: 'stat', path: 'armor', add: 1.5 }], [{ kind: 'stat', path: 'armor', add: 1.5 }]] },
+      armorPiercing: {
+        id: 'armorPiercing', kind: 'ladder', cap: 2,
+        tiers: [[{ kind: 'stat', path: 'armorPiercing', add: 2.5 }], [{ kind: 'stat', path: 'armorPiercing', add: 2.5 }]],
+      },
     };
-    const one = effectiveStats(BASE, ['armor'], half);
-    expect([one.armor, one.damageMultiplier]).toEqual([1, damageMultiplierFor(1)]);
-    const two = effectiveStats(BASE, ['armor', 'armor'], half);
-    expect([two.armor, two.damageMultiplier]).toEqual([3, damageMultiplierFor(3)]);
+    const one = effectiveStats(BASE, ['armor', 'armorPiercing'], half);
+    expect([one.armor, one.armorPiercing, one.damageMultiplier]).toEqual([1, 2, damageMultiplierFor(1)]);
+    const two = effectiveStats(BASE, ['armor', 'armor', 'armorPiercing', 'armorPiercing'], half);
+    expect([two.armor, two.armorPiercing, two.damageMultiplier]).toEqual([3, 5, damageMultiplierFor(3)]);
   });
 
   // PASSIVE HEALING (Story 9.6, Eric 2026-10-13, epic-9 amendments 90–91): the
@@ -593,23 +675,23 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
 });
 
 describe('STORY 8.15 — the class Shift rows take RELOAD like every row (amendments 97/99)', () => {
-  it('INSTANT RELOAD 60 s → 45 s (Eric 2026-10-02, amendment 232; was 45 s → 33.75 s) and DAMAGE CUT 30 s → 22.5 s under a maxed RELOAD ladder', () => {
+  it('INSTANT RELOAD 60 s → 45 s (Eric 2026-10-02, amendment 232; was 45 s → 33.75 s) and HUNKER 30 s → 22.5 s under a maxed RELOAD ladder', () => {
     const base = effectiveStats(BASE).equipment;
-    expect([base.instantReload.reloadMs, base.damageCut.reloadMs, base.boost.reloadMs]).toEqual([60000, 30000, 25000]);
+    expect([base.instantReload.reloadMs, base.hunker.reloadMs, base.boost.reloadMs]).toEqual([60000, 30000, 25000]);
     const maxed = effectiveStats(BASE, stack('reload', 5)).equipment;
     expect(maxed.instantReload.reloadMs).toBe(45000);
-    expect(maxed.damageCut.reloadMs).toBe(22500);
+    expect(maxed.hunker.reloadMs).toBe(22500);
     expect(maxed.boost.reloadMs).toBe(18750); // the Story 8.9 pin, beside them
     // The window and the Armor bonus are Eric's fixed numbers — RELOAD never
     // moves them (Story 9.7, epic-9 amendments 86–88 / 110–117: 10 s, +5 Armor).
-    expect([maxed.damageCut.durationMs, maxed.damageCut.armorBonus])
-      .toEqual([CONFIG.damageCut.durationMs, CONFIG.damageCut.armorBonus]);
-    expect([maxed.instantReload.maxAmmo, maxed.damageCut.maxAmmo]).toEqual([1, 1]);
+    expect([maxed.hunker.durationMs, maxed.hunker.armorBonus])
+      .toEqual([CONFIG.hunker.durationMs, CONFIG.hunker.armorBonus]);
+    expect([maxed.instantReload.maxAmmo, maxed.hunker.maxAmmo]).toEqual([1, 1]);
   });
 
   it('no catalog line steps a Shift row\'s tier (no card can address a Shift)', () => {
     for (const id of LINE_IDS) {
-      for (const shift of ['boost', 'instantReload', 'damageCut'] as const) {
+      for (const shift of ['boost', 'instantReload', 'hunker'] as const) {
         const s = effectiveStats(BASE, stack(id, CATALOG[id].cap)).equipment[shift];
         expect(s.tier, `${id} → ${shift}`).toBe(1);
       }

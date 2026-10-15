@@ -24,7 +24,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CONFIG, damageMultiplierFor, type DamageEvent, type GameEvent } from '@salvo/shared';
+import { CONFIG, DEFAULT_HORN_ID, damageMultiplierFor, droneHullOf, type DamageEvent, type GameEvent } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 
@@ -226,23 +226,24 @@ describe('applyDamage — (c) the shield (Story 8.16 arms it; the gate READS it)
 });
 
 // ---------------------------------------------------------------------------
-// (b′) THE DAMAGE CUT — Story 8.15, the Battleship's Shift (amendments 99–102).
+// (b′) THE HUNKER (was DAMAGE CUT until Story 9.9) — Story 8.15, the Battleship's Shift (amendments 99–102).
 // Re-based by Story 9.7 (epic-9 amendments 86–88 / 110–117): the cut is no
 // longer a flat factor but +armorBonus temporary Armor inside K / (K + armor);
 // every hull here is at Tier 0, so the cut reads Armor 5 → ×0.5 and today's
-// numbers hold.
+// numbers hold. Rescaled by Story 9.9 (epic-9 amendment 144): K 100, HUNKER
+// +100 — E 100 → still ×0.5, every number below unchanged.
 // ---------------------------------------------------------------------------
 
-describe('applyDamage — (b′) the DAMAGE CUT, before the shield (Story 8.15)', () => {
+describe('applyDamage — (b′) the HUNKER, before the shield (Story 8.15)', () => {
   /** A Battleship with its cut open for the full window. */
   function cutShip(w: World, id = 'a'): ShipRecord {
     const rec = w.addShip(id, id.toUpperCase(), 'captain', 'battleship', undefined, undefined);
     rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    rec.damageCutUntil = w.now + CONFIG.damageCut.durationMs;
+    rec.hunkerUntil = w.now + CONFIG.hunker.durationMs;
     return rec;
   }
 
-  it('a 15 hp shell deals 7, a 55 hp mine 27 (Tier 0 under the cut: Armor 5 → ×0.5, ROUNDED DOWN — amendment 102), and the tally reads the post-cut amount', () => {
+  it('a 15 hp shell deals 7, a 55 hp mine 27 (Tier 0 under the cut: E 100 → ×0.5, ROUNDED DOWN — amendments 102 / 144), and the tally reads the post-cut amount', () => {
     const w = bareWorld();
     const a = cutShip(w);
     const b = place(w, 'b', 400, 0);
@@ -255,7 +256,7 @@ describe('applyDamage — (b′) the DAMAGE CUT, before the shield (Story 8.15)'
     expect(a.lastDamagedAt).toBe(w.now); // the combat clock still stamps
   });
 
-  it('a PHOSPHOR burn tick takes Armor 5 → ×0.5 EXACTLY (0.25 -> 0.125), never floored to nothing', () => {
+  it('a PHOSPHOR burn tick takes E 100 → ×0.5 EXACTLY (0.25 -> 0.125), never floored to nothing', () => {
     const w = bareWorld();
     const a = cutShip(w);
     place(w, 'b', 400, 0);
@@ -270,7 +271,7 @@ describe('applyDamage — (b′) the DAMAGE CUT, before the shield (Story 8.15)'
     expect(a.hp).toBe(a.stats.maxHp - 10);
   });
 
-  it('every WEAPON source is cut (Armor 5 → ×0.5): shell, burst, torpedo, mine, contact floor; burn exact', () => {
+  it('every WEAPON source is cut (E 100 → ×0.5, amendment 144): shell, burst, torpedo, mine, contact floor; burn exact', () => {
     for (const src of SOURCES) {
       if (src === 'storm' || src === 'burn') continue;
       const w = bareWorld();
@@ -297,20 +298,20 @@ describe('applyDamage — (b′) the DAMAGE CUT, before the shield (Story 8.15)'
     expect(dmgEvents(w).map((e) => e.amount)).toEqual([0]);
   });
 
-  it('after the window closes the blow lands in full again — the boundary is `now < damageCutUntil`', () => {
+  it('after the window closes the blow lands in full again — the boundary is `now < hunkerUntil`', () => {
     const w = bareWorld();
     const a = cutShip(w);
     place(w, 'b', 400, 0);
-    a.damageCutUntil = w.now; // exactly at the deadline: closed
+    a.hunkerUntil = w.now; // exactly at the deadline: closed
     gate(w).applyDamage(a, 15, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 15);
   });
 
-  it('a hull with no cut opened (damageCutUntil 0) takes full damage', () => {
+  it('a hull with no cut opened (hunkerUntil 0) takes full damage', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     place(w, 'b', 400, 0);
-    expect(a.damageCutUntil).toBe(0);
+    expect(a.hunkerUntil).toBe(0);
     gate(w).applyDamage(a, 15, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 15);
   });
@@ -327,19 +328,19 @@ describe('applyDamage — (b′) the DAMAGE CUT, before the shield (Story 8.15)'
     sunk.sinkShip('a', 'b');
     sunk.step(CONFIG.ship.sinkingWindowMs); // the founder edge
     expect(s.lifecycle.kind).toBe('sunk');
-    expect(s.damageCutUntil).toBe(0);
+    expect(s.hunkerUntil).toBe(0);
 
     const red = bareWorld();
     const r = cutShip(red);
     inner(red).redeployShip(r, [{ x: 0, y: 0 }]);
-    expect(r.damageCutUntil).toBe(0);
+    expect(r.hunkerUntil).toBe(0);
 
     const res = bareWorld();
     const p = cutShip(res);
     res.sinkShip('a', 'b');
-    p.damageCutUntil = res.now + 8000; // opened mid-death window
+    p.hunkerUntil = res.now + 8000; // opened mid-death window
     inner(res).respawn(p);
-    expect(p.damageCutUntil).toBe(0);
+    expect(p.hunkerUntil).toBe(0);
   });
 });
 
@@ -348,6 +349,9 @@ describe('applyDamage — (b′) the DAMAGE CUT, before the shield (Story 8.15)'
 // 86–88 / 110–117; the floor / fraction / storm rules from epic-8 amendments
 // 100–102). Every source but the storm × damageMultiplierFor(armor + the
 // cut's bonus while open), before the shield; blows floor, burn/grind exact.
+// Rescaled by Story 9.9 (epic-9 amendment 144): K 100, +20 per ARMOR card,
+// HUNKER +100 — 100/(100+20n) = 5/(5+n), so every 9.7 number below is
+// reproduced exactly; only the Armor VALUES the rows name moved (×20).
 // ---------------------------------------------------------------------------
 
 describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
@@ -368,7 +372,7 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     const rec = w.addShip('a', 'A', 'captain', 'battleship', undefined, undefined);
     rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
     armored(w, rec, 5);
-    rec.damageCutUntil = w.now + CONFIG.damageCut.durationMs;
+    rec.hunkerUntil = w.now + CONFIG.hunker.durationMs;
     return rec;
   }
 
@@ -376,7 +380,7 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     for (let n = 0; n <= 5; n++) {
-      expect(a.stats.armor, `tier ${n}`).toBe(n);
+      expect(a.stats.armor, `tier ${n}`).toBe(20 * n); // +20 per card (amendment 144)
       expect(damageMultiplierFor(a.stats.armor), `tier ${n}`).toBe(a.stats.damageMultiplier);
       if (n < 5) w.applyCard(a, 'armor');
     }
@@ -389,7 +393,7 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     [3, 9],
     [4, 8],
     [5, 7],
-  ])('ARMOR %i: a 15 hp shell deals floor(15 × 5/(5+n)) = %i, and the dmg report matches', (n, expected) => {
+  ])('ARMOR Tier %i: a 15 hp shell deals floor(15 × K/(K+20n)) = %i — 9.7\'s number reproduced (amendment 144) — and the dmg report matches', (n, expected) => {
     const w = bareWorld();
     const a = armored(w, place(w, 'a'), n);
     place(w, 'b', 400, 0);
@@ -407,18 +411,18 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     expect(b.damageDealt).toBe(7);
   });
 
-  it('the cut at Tier 0 is Armor 5 → ×0.5: a 15 hp shell deals 7', () => {
+  it('the cut at Tier 0 is E 100 → ×0.5: a 15 hp shell deals 7 (amendment 144)', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A', 'captain', 'battleship', undefined, undefined);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    a.damageCutUntil = w.now + CONFIG.damageCut.durationMs;
+    a.hunkerUntil = w.now + CONFIG.hunker.durationMs;
     place(w, 'b', 400, 0);
     expect(a.stats.armor).toBe(0);
     gate(w).applyDamage(a, 15, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 7);
   });
 
-  it('the cut STACKS on the ladder additively: Tier V + cut is Armor 10 → a 50 hp torpedo deals 16', () => {
+  it('the cut STACKS on the ladder additively: Tier V + cut is E 200 → a 50 hp torpedo deals 16 (amendment 144)', () => {
     const w = bareWorld();
     const a = cutTierV(w);
     place(w, 'b', 400, 0);
@@ -429,7 +433,7 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
   // THE EXACT RATIO (review gate 2026-10-13, epic-9 amendment 120(a)): a
   // rounded multiplier (0.833 for 5/6, 0.333 for 1/3) floored every blow whose
   // exact product is whole a point low. Each row below fails under round3.
-  it('EXACT RATIO: a 6 hp shell at Armor 1 deals 5 (6 × 5/6), not 4', () => {
+  it('EXACT RATIO: a 6 hp shell at ARMOR Tier I (Armor 20) deals 5 (6 × 5/6), not 4', () => {
     const w = bareWorld();
     const a = armored(w, place(w, 'a'), 1);
     place(w, 'b', 400, 0);
@@ -438,16 +442,16 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     expect(dmgEvents(w).map((e) => e.amount)).toEqual([5]);
   });
 
-  it('EXACT RATIO: a 15 hp shell on a Battleship at Tier V with the cut open (Armor 10) deals 5 (15 × 1/3), not 4', () => {
+  it('EXACT RATIO: a 15 hp shell on a Battleship at Tier V with the cut open (E 200) deals 5 (15 × 1/3), not 4', () => {
     const w = bareWorld();
     const a = cutTierV(w);
     place(w, 'b', 400, 0);
-    expect(a.stats.armor + CONFIG.damageCut.armorBonus).toBe(10);
+    expect(a.stats.armor + CONFIG.hunker.armorBonus).toBe(200); // Tier V 100 + HUNKER 100 (amendment 144)
     gate(w).applyDamage(a, 15, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 5);
   });
 
-  it('EXACT RATIO: a 12 hp burst at Armor 1 deals 10 (12 × 5/6), not 9', () => {
+  it('EXACT RATIO: a 12 hp burst at ARMOR Tier I (Armor 20) deals 10 (12 × 5/6), not 9', () => {
     const w = bareWorld();
     const a = armored(w, place(w, 'a'), 1);
     place(w, 'b', 400, 0);
@@ -458,7 +462,7 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
   // THE FLOOR OF ONE (epic-9 amendment 119, Eric 2026-10-13 at the 9.7 review
   // gate): a whole blow that was at least 1 hp lands at least 1 — the PvE
   // drones' 1 hp shells and a slow ram bump no longer floor to a silent 0.
-  it('FLOOR OF ONE: a 1 hp shell at Armor 1 deals 1, reports dmg 1 and stamps the combat clock', () => {
+  it('FLOOR OF ONE: a 1 hp shell at ARMOR Tier I deals 1, reports dmg 1 and stamps the combat clock', () => {
     const w = bareWorld();
     const a = armored(w, place(w, 'a'), 1);
     place(w, 'b', 400, 0);
@@ -469,7 +473,7 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     expect(a.lastDamagedAt).toBe(w.now);
   });
 
-  it('FLOOR OF ONE: a 1 hp contact at Tier V with the cut open (Armor 10) deals 1', () => {
+  it('FLOOR OF ONE: a 1 hp contact at Tier V with the cut open (E 200) deals 1', () => {
     const w = bareWorld();
     const a = cutTierV(w);
     place(w, 'b', 400, 0);
@@ -477,7 +481,7 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     expect(a.hp).toBe(a.stats.maxHp - 1);
   });
 
-  it('FLOOR OF ONE is for WHOLE blows only: a 0.5 hp burn tick at Armor 1 deals exactly 0.5 × 5/6, never raised to 1', () => {
+  it('FLOOR OF ONE is for WHOLE blows only: a 0.5 hp burn tick at ARMOR Tier I deals exactly 0.5 × 5/6, never raised to 1', () => {
     const w = bareWorld();
     const a = armored(w, place(w, 'a'), 1);
     place(w, 'b', 400, 0);
@@ -502,12 +506,12 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     expect(a.hp).toBeCloseTo(a.stats.maxHp - 0.25, 12);
   });
 
-  it('a 0.2 hp GRIND tick at Armor 2 applies the exact product — never floored', () => {
+  it('a 0.2 hp GRIND tick at ARMOR Tier II applies the exact product — never floored', () => {
     const w = bareWorld();
     const a = armored(w, place(w, 'a'), 2);
     place(w, 'b', 400, 0);
     fullGate(w).applyDamage(a, 0.2, 'grind', 'b');
-    expect(a.hp).toBeCloseTo(a.stats.maxHp - 0.2 * damageMultiplierFor(2), 12);
+    expect(a.hp).toBeCloseTo(a.stats.maxHp - 0.2 * damageMultiplierFor(a.stats.armor), 12);
     expect(a.stats.maxHp - a.hp).toBeGreaterThan(0);
   });
 
@@ -550,6 +554,185 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     gate(w).applyDamage(a, 30, 'shell', 'a');
     expect(a.hp).toBe(a.stats.maxHp);
     expect(a.shield).toEqual({ hpLeft: 20, until: w.now + 5000 });
+    expect(combatEvents(w)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (b′) ARMOR PIERCING — Story 9.9 (Eric 2026-10-14/15, epic-9 amendments
+// 144–147 / 156). E = victim Armor + HUNKER bonus − the ATTACKER's
+// armorPiercing, read LIVE at impact from the `byId` record; the curve's
+// negative branch (K − 2E)/(K − E) amplifies, bounded under ×2. Every source
+// but the storm; the coast, a wreck and a departed owner read AP 0.
+// ---------------------------------------------------------------------------
+
+describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9.9)', () => {
+  interface FullGate {
+    applyDamage(victim: ShipRecord, amount: number, src: Src | 'grind', byId: string | undefined): void;
+  }
+  const fullGate = (w: World): FullGate => w as unknown as FullGate;
+
+  /** Fit `n` cards of `line` through the real pick path. */
+  function carded(w: World, rec: ShipRecord, line: 'armor' | 'armorPiercing', n: number): ShipRecord {
+    for (let i = 0; i < n; i++) w.applyCard(rec, line);
+    return rec;
+  }
+
+  it('a pierced BARE hull: AP 100 vs Armor 0, a 12 hp shell lands 18 (E −100 → ×1.5); the dmg report and the attacker tally read 18 (amendments 113 / 146)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    const b = carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+    expect(b.stats.armorPiercing).toBe(100);
+    expect(a.stats.armor).toBe(0);
+    gate(w).applyDamage(a, 12, 'shell', 'b');
+    expect(a.hp).toBe(a.stats.maxHp - 18);
+    expect(dmgEvents(w).map((e) => e.amount)).toEqual([18]);
+    expect(b.damageDealt).toBe(18);
+  });
+
+  it('ONE card of piercing on a bare hull: a 12 hp shell lands exactly 14 (12 × 7/6 — the whole product, amendment 120(a))', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    carded(w, place(w, 'b', 400, 0), 'armorPiercing', 1);
+    gate(w).applyDamage(a, 12, 'shell', 'b');
+    expect(a.hp).toBe(a.stats.maxHp - 14);
+  });
+
+  it('CANCELLED OUT: Armor 60 vs AP 60 is E 0 — a 12 hp shell lands 12', () => {
+    const w = bareWorld();
+    const a = carded(w, place(w, 'a'), 'armor', 3);
+    carded(w, place(w, 'b', 400, 0), 'armorPiercing', 3);
+    expect(a.stats.armor).toBe(60);
+    gate(w).applyDamage(a, 12, 'shell', 'b');
+    expect(a.hp).toBe(a.stats.maxHp - 12);
+  });
+
+  it('a pierced HUNKER: Tier V + HUNKER (200) vs AP 100 is E 100 — a 12 hp shell lands 6', () => {
+    const w = bareWorld();
+    const a = w.addShip('a', 'A', 'captain', 'battleship', undefined, undefined);
+    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    carded(w, a, 'armor', 5);
+    a.hunkerUntil = w.now + CONFIG.hunker.durationMs;
+    carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+    gate(w).applyDamage(a, 12, 'shell', 'b');
+    expect(a.hp).toBe(a.stats.maxHp - 6);
+  });
+
+  it('every WEAPON source carries the piercing (amendment 147): shell, burst, torpedo, mine, contact at E −100 → 12 × 1.5', () => {
+    for (const src of SOURCES) {
+      if (src === 'storm' || src === 'burn') continue;
+      const w = bareWorld();
+      const a = place(w, 'a');
+      carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+      gate(w).applyDamage(a, 12, src, 'b');
+      expect(a.stats.maxHp - a.hp, src).toBe(18);
+    }
+  });
+
+  it('a 0.5 hp BURN tick at E −100 lands 0.75 EXACTLY and banks into the DoT window (no immediate dmg)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+    gate(w).applyDamage(a, 0.5, 'burn', 'b');
+    expect(a.stats.maxHp - a.hp).toBe(0.75);
+    expect(dmgEvents(w)).toEqual([]); // banked, not emitted per tick
+    const buckets = (w as unknown as { dotBuckets: Map<string, { amount: number }> }).dotBuckets;
+    expect([...buckets.values()].map((bk) => bk.amount)).toEqual([0.75]);
+  });
+
+  it('a 0.2 hp GRIND tick at E −20 applies the exact 7/6 product — never floored, never raised to 1', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    carded(w, place(w, 'b', 400, 0), 'armorPiercing', 1);
+    fullGate(w).applyDamage(a, 0.2, 'grind', 'b');
+    expect(a.stats.maxHp - a.hp).toBeCloseTo(0.2 * (7 / 6), 12);
+    expect(a.stats.maxHp - a.hp).toBeCloseTo(0.2 * damageMultiplierFor(-20), 12);
+  });
+
+  it('the STORM is exempt at any armor and piercing (amendment 101): a 3 hp bite lands 3, even named against a piercer', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+    gate(w).applyDamage(a, 3, 'storm', undefined);
+    gate(w).applyDamage(a, 3, 'storm', 'b'); // the early return precedes the attacker read
+    expect(a.stats.maxHp - a.hp).toBe(6);
+    const v = carded(w, place(w, 'v', 0, 400), 'armor', 5);
+    gate(w).applyDamage(v, 3, 'storm', undefined);
+    expect(v.stats.maxHp - v.hp).toBe(3);
+  });
+
+  it('DRONES hold no cards (amendment 147): a 1 hp drone shell on Armor 100 still lands 1 (floor of one, amendment 119); a pierced drone takes ×1.5', () => {
+    const w = bareWorld();
+    const d = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 800 });
+    expect(d.stats.armorPiercing).toBe(0);
+    expect(d.stats.armor).toBe(0);
+    const a = carded(w, place(w, 'a'), 'armor', 5);
+    gate(w).applyDamage(a, 1, 'shell', 'd');
+    expect(a.stats.maxHp - a.hp).toBe(1);
+    carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+    gate(w).applyDamage(d, 12, 'shell', 'b');
+    expect(d.stats.maxHp - d.hp).toBe(18);
+  });
+
+  it('LIVE at impact (amendment 156): a card bought between two blows from the same attacker changes the second', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    const b = place(w, 'b', 400, 0);
+    gate(w).applyDamage(a, 12, 'torpedo', 'b');
+    expect(a.stats.maxHp - a.hp).toBe(12);
+    w.applyCard(b, 'armorPiercing'); // bought while the next one swims
+    gate(w).applyDamage(a, 12, 'torpedo', 'b');
+    expect(a.stats.maxHp - a.hp).toBe(12 + 14);
+  });
+
+  it('an owner who LEFT the room (removeShip) reads AP 0 — no throw, the blow lands unpierced', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+    w.removeShip('b');
+    expect(() => gate(w).applyDamage(a, 12, 'mine', 'b')).not.toThrow();
+    expect(a.stats.maxHp - a.hp).toBe(12);
+  });
+
+  it('a SUNK owner keeps its record until it leaves, so its ordnance still carries its piercing (amendment 156)', () => {
+    const w = bareWorld();
+    w.respawnEnabled = false;
+    const a = place(w, 'a');
+    const b = carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+    w.sinkShip('b', 'a');
+    w.step(CONFIG.ship.sinkingWindowMs); // past the founder edge
+    expect(b.lifecycle.kind).toBe('sunk');
+    const before = a.hp;
+    gate(w).applyDamage(a, 12, 'torpedo', 'b');
+    expect(before - a.hp).toBe(18);
+  });
+
+  it('the COAST and a WRECK (byId undefined) read AP 0: a 12 hp contact on Armor 20 lands 10 (E 20)', () => {
+    const w = bareWorld();
+    const a = carded(w, place(w, 'a'), 'armor', 1);
+    gate(w).applyDamage(a, 12, 'contact', undefined);
+    expect(a.stats.maxHp - a.hp).toBe(10);
+  });
+
+  it('the SHIELD comes after the multiply: shield 20, a 12 hp shell at E −100 → 18 eaten, hp and combat clock untouched, dealt 0', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    const b = carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+    a.shield = { hpLeft: 20, until: w.now + 5000 };
+    a.lastDamagedAt = -1;
+    gate(w).applyDamage(a, 12, 'shell', 'b');
+    expect(a.shield).toEqual({ hpLeft: 2, until: w.now + 5000 });
+    expect(a.hp).toBe(a.stats.maxHp);
+    expect(a.lastDamagedAt).toBe(-1);
+    expect(dmgEvents(w).map((e) => e.amount)).toEqual([0]);
+    expect(b.damageDealt).toBe(0); // the tally reads the post-shield net (amendment 113)
+  });
+
+  it('a SELF-HIT is refused before the attacker read, piercing or not', () => {
+    const w = bareWorld();
+    const a = carded(w, place(w, 'a'), 'armorPiercing', 5);
+    gate(w).applyDamage(a, 12, 'shell', 'a');
+    expect(a.hp).toBe(a.stats.maxHp);
     expect(combatEvents(w)).toHaveLength(0);
   });
 });

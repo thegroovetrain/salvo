@@ -173,11 +173,11 @@ describe('EQUIPMENT registry — interface conformance', () => {
       'boost',
       'broadside',
       'captiveMines', // Story 8.13
-      'damageCut', // Story 8.15 — the Battleship's Shift (amendments 99–102)
       'flak', // Story 8.15 — the flak gun (amendment 105)
       'foulingMines', // Story 8.13 (amendment 81)
       'gun',
       'heavyTorpedo',
+      'hunker', // Story 8.15 — the Battleship's Shift (amendments 99–102; was DAMAGE CUT until Story 9.9)
       'instantReload', // Story 8.15 — the Mine Layer's Shift (amendments 97–98)
       'lightTorpedo', // Story 8.13
       'machineGun', // Story 8.15 — the held-fire magazine stream (amendments 103–104)
@@ -901,7 +901,7 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
       expect(ship.loadout).toHaveLength(SLOT_COUNT);
       expect(ship.loadout[SLOT_GUN].equipmentId).toBe('gun');
       // Story 8.15 (amendment 89(c)): slot 1 is the hull's FIXED Shift —
-      // boost / damageCut / instantReload — resolved from the class id.
+      // boost / hunker / instantReload — resolved from the class id.
       expect(ship.loadout[SLOT_BOOST].equipmentId).toBe(classShift(hull));
       expect(ship.loadout[SLOT_BOOST].state).toEqual({ n: 1, reloadMsLeft: 0 });
       expect(WEAPON_SLOTS.map((i) => ship.loadout[i].equipmentId)).toEqual(

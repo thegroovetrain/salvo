@@ -189,14 +189,14 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     expect(tastes).toEqual({
       raider: {
         style: 'specialist',
-        favoriteUpgrades: ['speed', 'weapons'],
+        favoriteUpgrades: ['speed', 'weapons', 'armorPiercing'], // + 'armorPiercing': epic-9 amendment 157 (Story 9.9)
         favoriteConsumables: ['countermeasure'],
         favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
         beltHunger: 'medium',
       },
       duelist: {
         style: 'specialist',
-        favoriteUpgrades: ['gun', 'turning', 'reload'],
+        favoriteUpgrades: ['gun', 'turning', 'reload', 'armorPiercing'], // + 'armorPiercing': epic-9 amendment 157 (Story 9.9)
         favoriteConsumables: ['shieldBlock', 'foulingShell'],
         favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
         beltHunger: 'low',
@@ -249,7 +249,7 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
       machineGun: 'gun',
       flak: 'gun',
       instantReload: 'boost',
-      damageCut: 'boost',
+      hunker: 'boost',
       phosphorShells: 'starShells',
     };
     // The pre-8.20 appetite tables, verbatim (the oracle's input).
@@ -266,7 +266,7 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     };
     const ALL_EQUIPMENT: EquipmentId[] = [
       'gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'foulingMines',
-      'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells', 'instantReload', 'damageCut',
+      'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells', 'instantReload', 'hunker',
     ];
     const rows: AnyProfileId[] = [...CONFIG.bots.profiles, ...TEST_PROFILE_IDS];
     for (const id of rows) {
@@ -1002,7 +1002,7 @@ function countingRng(seed: number): { rng: Rng; calls: () => number } {
 }
 
 const P = CONFIG.bots.cardPoints;
-const SHIP_LADDERS = ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'] as const;
+const SHIP_LADDERS = ['hullPoints', 'armor', 'armorPiercing', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'] as const;
 /** Every equipment line (copy 1 = a new weapon), read off the catalog. */
 const EQUIPMENT_LINES = Object.keys(CATALOG).filter((k) => CATALOG[k].kind === 'equipment' && CATALOG[k].stub !== true);
 
@@ -1265,6 +1265,16 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
         expect(cardScore(row, spendState(), l), `${id} ${l}`).toBe(P.base + (favUps.includes(l) ? P.favorite : 0));
       }
     }
+  });
+
+  it('ARMOR PIERCING is a favorite of the raider and the duelist, never the bulwark (epic-9 amendment 157)', () => {
+    // Same empty build, same style status for every ship ladder: the ONLY
+    // difference between armorPiercing and a non-favorite ladder is the
+    // favorite bonus — matched by isFavoriteUpgrade on the line's own id.
+    const s = spendState();
+    expect(cardScore(profileOf('raider'), s, 'armorPiercing')).toBe(cardScore(profileOf('raider'), s, 'turning')! + P.favorite);
+    expect(cardScore(profileOf('duelist'), s, 'armorPiercing')).toBe(cardScore(profileOf('duelist'), s, 'speed')! + P.favorite);
+    expect(cardScore(profileOf('bulwark'), s, 'armorPiercing')).toBe(cardScore(profileOf('bulwark'), s, 'speed'));
   });
 
   it('Flat build (R11): bulwark at level 0 → hullPoints 2+1 = 3 (no style bonus), a non-favorite weapon 3.5 wins', () => {
@@ -1572,13 +1582,13 @@ describe('ai/spending — random mode (wave 4)', () => {
 describe('Story 8.15 — the new ids read their family\'s appetite', () => {
   const ALL_ROWS: AnyProfileId[] = [...(Object.keys(BOT_PROFILES) as BotProfileId[]), ...TEST_PROFILE_IDS];
 
-  it('MG/flak read the CANNON appetite; INSTANT RELOAD / DAMAGE CUT read the BOOST appetite', () => {
+  it('MG/flak read the CANNON appetite; INSTANT RELOAD / HUNKER read the BOOST appetite', () => {
     for (const id of ALL_ROWS) {
       const row = profileOf(id);
       expect(appetiteFor(row, 'machineGun'), id).toBe(appetiteFor(row, 'gun'));
       expect(appetiteFor(row, 'flak'), id).toBe(appetiteFor(row, 'gun'));
       expect(appetiteFor(row, 'instantReload'), id).toBe(appetiteFor(row, 'boost'));
-      expect(appetiteFor(row, 'damageCut'), id).toBe(appetiteFor(row, 'boost'));
+      expect(appetiteFor(row, 'hunker'), id).toBe(appetiteFor(row, 'boost'));
     }
   });
 });

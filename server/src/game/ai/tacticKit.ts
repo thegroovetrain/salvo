@@ -14,7 +14,7 @@
 // aiming (lead solve + scatter + the coastline check), the torpedo shot solve
 // (shared by both torpedo lines and the SUPERCAV belt fish), the sector
 // placement (mines and the DECOY BUOY), the live-contact burst (PHOSPHOR
-// SHELLS and the FOULING SHELL) with its astern-filtered pick, the DAMAGE CUT
+// SHELLS and the FOULING SHELL) with its astern-filtered pick, the HUNKER (was DAMAGE CUT until Story 9.9)
 // cues (the Shift and SHIELD BLOCK) and the registry freezer.
 //
 // No rng is drawn anywhere in a want() — the mind's stream feeds aim scatter
@@ -92,7 +92,7 @@ const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
   flak: 0.5,
   boost: APPETITE_NEUTRAL,
   instantReload: APPETITE_NEUTRAL,
-  damageCut: APPETITE_NEUTRAL,
+  hunker: APPETITE_NEUTRAL,
   lightTorpedo: APPETITE_NEUTRAL,
   heavyTorpedo: APPETITE_NEUTRAL,
   navalMines: APPETITE_NEUTRAL,
@@ -357,11 +357,11 @@ export function burstOnLiveContact(ctx: TacticContext, rangeU: number, target: B
 }
 
 /**
- * THE DAMAGE CUT CUES (amendment 115) — (a) ENGAGED IN COMBAT: the bot's own
+ * THE HUNKER CUES (amendment 115) — (a) ENGAGED IN COMBAT: the bot's own
  * `engage` posture, with a target; or (b) a seen enemy torpedo inbound on a
- * collision line within 150 u (ai/torpedoThreat.ts). Shared by the DAMAGE CUT
+ * collision line within 150 u (ai/torpedoThreat.ts). Shared by the HUNKER
  * Shift and the SHIELD BLOCK belt row (amendment 124(g)).
  */
-export function damageCutCues(ctx: TacticContext): boolean {
+export function hunkerCues(ctx: TacticContext): boolean {
   return (ctx.posture === 'engage' && ctx.target !== null) || torpedoInbound(ctx.self, ctx.mind, ctx.sit.now);
 }

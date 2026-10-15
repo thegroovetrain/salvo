@@ -78,9 +78,11 @@ export interface BotTargetWeights {
 }
 
 /**
- * A favorite UPGRADE line family (Eric ruling 2026-09-30, R5). The six ship
- * ladders are named by their line id (`hullPoints` was `armor` until Story 9.6;
- * `passiveHealing` joined in 9.6, epic-9 amendment 97); `gun` = any gun-ladder line (deckGun —
+ * A favorite UPGRADE line family (Eric ruling 2026-09-30, R5). The eight ship
+ * ladders (HULL, ARMOR, ARMOR PIERCING, SPEED, TURNING, RADAR SWEEP, RELOAD, PASSIVE HEALING)
+ * are named by their line id (`hullPoints` was `armor` until Story 9.6;
+ * `passiveHealing` joined in 9.6, epic-9 amendment 97; `armorPiercing` joined in
+ * 9.9, epic-9 amendment 157); `gun` = any gun-ladder line (deckGun —
  * CANNON's own ladder, its turret and barrel are rungs of it — machineGun, flak;
  * the draw only ever offers the mounted gun's); `weapons` = a tier copy (2..cap) of an equipment line
  * the bot already holds (the spec's "Scorer definitions").
@@ -88,6 +90,7 @@ export interface BotTargetWeights {
 export type UpgradeFavorite =
   | 'hullPoints'
   | 'armor'
+  | 'armorPiercing'
   | 'speed'
   | 'turning'
   | 'radarSweep'
@@ -189,7 +192,8 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     spend: 'weighted',
     taste: {
       style: 'specialist',
-      favoriteUpgrades: ['speed', 'weapons'],
+      // 'armorPiercing' — epic-9 amendment 157 (Eric 2026-10-15)
+      favoriteUpgrades: ['speed', 'weapons', 'armorPiercing'],
       favoriteConsumables: ['countermeasure'],
       favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
       beltHunger: 'medium',
@@ -205,14 +209,15 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     healHpFrac: DEFAULT_HEAL,
     // The opener weapon leads every tick; boost is spent eagerly on the way
     // out (the old usesBoost: true, now a number the ordering also reads).
-    appetite: { heavyTorpedo: 2.5, lightTorpedo: 2.5, boost: 2.0, instantReload: 2.0, damageCut: 2.0 },
+    appetite: { heavyTorpedo: 2.5, lightTorpedo: 2.5, boost: 2.0, instantReload: 2.0, hunker: 2.0 },
   },
   duelist: {
     id: 'duelist',
     spend: 'weighted',
     taste: {
       style: 'specialist',
-      favoriteUpgrades: ['gun', 'turning', 'reload'],
+      // 'armorPiercing' — epic-9 amendment 157 (Eric 2026-10-15)
+      favoriteUpgrades: ['gun', 'turning', 'reload', 'armorPiercing'],
       favoriteConsumables: ['shieldBlock', 'foulingShell'],
       favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
       beltHunger: 'low',
@@ -227,7 +232,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     healHpFrac: DEFAULT_HEAL,
     // Gun-led by BAND, not by ordering: the tube is still tried first when a
     // credible opening exists (mid appetite), and the boost breaks a bad fight.
-    appetite: { heavyTorpedo: 1.5, lightTorpedo: 1.5, boost: 1.5, instantReload: 1.5, damageCut: 1.5 },
+    appetite: { heavyTorpedo: 1.5, lightTorpedo: 1.5, boost: 1.5, instantReload: 1.5, hunker: 1.5 },
   },
   bulwark: {
     id: 'bulwark',
@@ -369,7 +374,7 @@ const TEST_APPETITE: Readonly<Partial<Record<EquipmentId, number>>> = Object.fre
   foulingMines: 2.2,
   boost: 2.2,
   instantReload: 2.2,
-  damageCut: 2.2,
+  hunker: 2.2,
   broadside: 2.2,
   starShells: 2.2,
   phosphorShells: 2.2,

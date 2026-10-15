@@ -15,8 +15,9 @@ describe('one glyph per card line (cycle 162)', () => {
     for (const id of GLYPHED) expect(glyphPaths(id), id).not.toBeNull();
     expect(glyphPaths('depthCharge')).toBeNull();
     // 23 until CHAFF left the catalog (Story 9.2); 22, then 23 with PASSIVE
-    // HEALING (Story 9.6); 24 with ARMOR (Story 9.7, epic-9 amendments 110–117).
-    expect(GLYPHED).toHaveLength(24);
+    // HEALING (Story 9.6); 24 with ARMOR (Story 9.7, epic-9 amendments 110–117);
+    // 25 with ARMOR PIERCING (Story 9.9, epic-9 amendment 160).
+    expect(GLYPHED).toHaveLength(25);
   });
 
   it('no two lines draw the same glyph', () => {
@@ -41,5 +42,14 @@ describe('one glyph per card line (cycle 162)', () => {
 
   it('a ship ladder reaches the DOM surface as an svg', () => {
     expect(equipmentGlyphSvg('hullPoints', 24)?.tagName.toLowerCase()).toBe('svg');
+  });
+
+  it('ARMOR PIERCING draws its own glyph, distinct from ARMOR and the torpedo (Story 9.9, epic-9 amendment 160)', () => {
+    const ap = glyphPaths('armorPiercing');
+    expect(ap).not.toBeNull();
+    expect(ap!.length).toBeGreaterThan(0);
+    expect(JSON.stringify(ap)).not.toBe(JSON.stringify(glyphPaths('armor')));
+    expect(JSON.stringify(ap)).not.toBe(JSON.stringify(glyphPaths('lightTorpedo')));
+    expect(equipmentGlyphSvg('armorPiercing', 24)?.tagName.toLowerCase()).toBe('svg');
   });
 });

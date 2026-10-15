@@ -7,7 +7,7 @@
 // HIT (amendment 83); a per-second BLEED ('grind') on sliding + pressing speed
 // applied per tick as a fraction and reported in 500 ms windows, exactly as
 // the phosphor burn; the land strike on the `landContact` edge and the land
-// scrape on the sliding speed only. DAMAGE CUT and SHIELD BLOCK apply like any
+// scrape on the sliding speed only. HUNKER (was DAMAGE CUT until Story 9.9) and SHIELD BLOCK apply like any
 // damage (amendment 75); a wreck is solid and unharmed while the live hull
 // pays — as HULL contact, never land (amendment 82); two fleet hulls push but
 // do not hurt each other; a mutual ram credits both; the weapons-safe gate
@@ -332,16 +332,17 @@ describe('the BLEED (amendment 83 — sliding + pressing speed, delivered like t
   });
 
   // Re-based by Story 9.7 (epic-9 amendments 86–88 / 110–117): the cut is +armorBonus temporary
-  // Armor inside K / (K + armor) — at Tier 0, Armor 5 → ×0.5 — and a grind tick keeps its fraction.
-  it('(c) under DAMAGE CUT the bleed takes the Armor multiplier exactly — never zero, and no dmg 0 spam', () => {
+  // Armor inside K / (K + armor) — at Tier 0, Armor 5 → ×0.5 (Story 9.9: E 100 at K 100, still
+  // ×0.5, amendment 144) — and a grind tick keeps its fraction.
+  it('(c) under HUNKER the bleed takes the Armor multiplier exactly — never zero, and no dmg 0 spam', () => {
     const w = bareWorld();
     const a = place(w, 'a', -49, 0);
     const b = place(w, 'b', 49, 0, Math.PI);
     setInput(a, { throttle: 1 });
     setInput(b, { throttle: 1 });
     const max = a.stats.kinematics.maxSpeed;
-    a.damageCutUntil = Number.MAX_SAFE_INTEGER;
-    const factor = damageMultiplierFor(a.stats.armor + a.stats.equipment.damageCut.armorBonus);
+    a.hunkerUntil = Number.MAX_SAFE_INTEGER;
+    const factor = damageMultiplierFor(a.stats.armor + a.stats.equipment.hunker.armorBonus);
     expect(factor).toBeGreaterThan(0);
     expect(factor).toBeLessThan(1);
     stepPressed(w, a, b, max, 1); // the strike
@@ -529,16 +530,16 @@ describe('WRECKS, FLEET PAIRS, DRONES, the GATE and CREDIT', () => {
     expect(w.drones.targetOf('d1')).toBe('a');
   });
 
-  it('DAMAGE CUT and SHIELD BLOCK apply to a contact HIT like any damage (amendment 75)', () => {
+  it('HUNKER and SHIELD BLOCK apply to a contact HIT like any damage (amendment 75)', () => {
     // The cut: the blow takes the victim's Armor + the cut's bonus (Story 9.7, epic-9
     // amendments 86–88 / 110–117) and is floored.
     const cutW = bareWorld();
     const { a, b, vn } = headOnPair(cutW);
-    a.damageCutUntil = Number.MAX_SAFE_INTEGER;
+    a.hunkerUntil = Number.MAX_SAFE_INTEGER;
     const nominal = contactHitDamage(a.stats.maxHp, b.stats.maxHp, vn, RAM);
     const { events } = stepUntil(cutW, () => a.stats.maxHp - a.hp >= 1);
     expect(dmgOf(events, 'a').map((e) => e.amount)).toEqual([
-      Math.floor(nominal.a * damageMultiplierFor(a.stats.armor + a.stats.equipment.damageCut.armorBonus)),
+      Math.floor(nominal.a * damageMultiplierFor(a.stats.armor + a.stats.equipment.hunker.armorBonus)),
     ]);
     expect(dmgOf(events, 'b').map((e) => e.amount)).toEqual([nominal.b]); // b carries no cut
     // The shield: a block bigger than the blow eats it whole.
@@ -550,6 +551,27 @@ describe('WRECKS, FLEET PAIRS, DRONES, the GATE and CREDIT', () => {
     expect(pair.a.shield!.hpLeft).toBeLessThanOrEqual(100); // the strike, then this tick's bleed
     expect(pair.a.shield!.hpLeft).toBeGreaterThan(99);
     expect(dmgOf(shielded.events, 'a').map((e) => e.amount)).toEqual([0]); // the absorbed blow still reports
+  });
+
+  it('a RAM between two hulls: each blow carries the OTHER hull\'s ARMOR PIERCING, read live (Story 9.9, epic-9 amendments 146–147 / 156)', () => {
+    // A: Armor 20, AP 40. B: Armor 20, AP 0. A's blow on B is E 20 − 40 = −20
+    // (amplified); B's blow on A is E 20 − 0 = 20 (reduced). Both floored.
+    const w = bareWorld();
+    const { a, b, vn } = headOnPair(w);
+    w.applyCard(a, 'armor');
+    w.applyCard(a, 'armorPiercing');
+    w.applyCard(a, 'armorPiercing');
+    w.applyCard(b, 'armor');
+    expect([a.stats.armor, a.stats.armorPiercing, b.stats.armor, b.stats.armorPiercing]).toEqual([20, 40, 20, 0]);
+    const nominal = contactHitDamage(a.stats.maxHp, b.stats.maxHp, vn, RAM);
+    const { events } = stepUntil(w, () => a.stats.maxHp - a.hp >= 1);
+    const blow = (n: number, e: number): number => {
+      expect(n).toBeGreaterThan(0); // a 0 nominal must never silently pass as 1
+      return Math.max(1, Math.floor(n * damageMultiplierFor(e)));
+    };
+    expect(dmgOf(events, 'b').map((e) => e.amount)).toEqual([blow(nominal.b, b.stats.armor - a.stats.armorPiercing)]);
+    expect(dmgOf(events, 'a').map((e) => e.amount)).toEqual([blow(nominal.a, a.stats.armor - b.stats.armorPiercing)]);
+    expect(blow(nominal.b, -20)).toBeGreaterThan(blow(nominal.b, 20)); // the pierced side really is amplified
   });
 
   it('damageEnabled false: the push still happens, no hp moves, nothing is reported', () => {

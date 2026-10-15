@@ -1,9 +1,15 @@
 // THE CATALOG (Story 8.1) — catalog v3, Eric's authored sheet
 // (`_bmad-output/planning-artifacts/gdds/.../catalog-v3.md`) expressed as data,
 // as amended by Eric's rulings (epic-8 amendments).
-// 25 card LINES / 122 physical cards: 8 equipment lines (40), 7 universal
-// ladders (35), the gun ladders (12 — CANNON, MACHINE GUN and FLAK, 4 each),
+// 26 card LINES / 127 physical cards: 8 equipment lines (40), 8 universal
+// ladders (40), the gun ladders (12 — CANNON, MACHINE GUN and FLAK, 4 each),
 // 0 add-ons, 7 consumables (35).
+//
+// THE COUNT MOVED 25/122 -> 26/127 IN STORY 9.9 (Eric 2026-10-14/15, epic-9
+// amendments 144–145): the new ARMOR PIERCING ladder (cap 5, +20 Armor
+// Piercing per card) joins directly after ARMOR, whose step rose +1 -> +20
+// with K 5 -> 100 (every 9.7 ratio preserved). Every other line keeps its
+// relative order.
 //
 // THE COUNT MOVED 24/117 -> 25/122 IN STORY 9.7 (Eric 2026-10-13, epic-9
 // amendments 86–89): the new ARMOR ladder (cap 5, +1 Armor per card) joins
@@ -112,10 +118,14 @@ import {
 } from './effects.js';
 
 /**
- * THE 25 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
+ * THE 26 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
  * amended by amendments 80/83 on 2026-09-19 and 89e on 2026-09-21). This order
  * IS the fold order, so it is part of the determinism contract — never
  * re-sort it.
+ *
+ * STORY 9.9 ADDED ONE (25 -> 26; Eric 2026-10-14/15, epic-9 amendments
+ * 144–145): `armorPiercing` — the attacker's half of the Armor curve — sits
+ * directly after `armor` (seat 2), so every line below it moves down one place.
  *
  * STORY 9.7 ADDED ONE (24 -> 25; Eric 2026-10-13, epic-9 amendments 86–89):
  * `armor` — the NEW Armor ladder, not the old +hp line, which 9.6 renamed
@@ -160,9 +170,10 @@ import {
  * the kind is in CATALOG.
  */
 export const LINE_IDS = [
-  // --- the seven universal ladders (catalog-v3 §4 + Stories 9.6 / 9.7) ------
+  // --- the eight universal ladders (catalog-v3 §4 + Stories 9.6 / 9.7 / 9.9)
   'hullPoints', // was `armor` until Story 9.6 (Eric 2026-10-13, amendment 93) — same seat
   'armor', // Story 9.7 (Eric 2026-10-13, amendments 86–89): the new Armor ladder, right after HULL
+  'armorPiercing', // Story 9.9 (Eric 2026-10-14/15, amendments 144–145): right after ARMOR
   'speed',
   'turning',
   'radarSweep',
@@ -201,7 +212,7 @@ export const LINE_IDS = [
   'phosphorShells', // an EQUIPMENT line since 8.17
 ] as const;
 
-/** One of the 25 authored card lines. */
+/** One of the 26 authored card lines. */
 export type LineId = (typeof LINE_IDS)[number];
 
 /**
@@ -458,8 +469,13 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  * Every authored number cites its ruling:
  *   HULL POINTS R8 — +50 max hp per tier, 5 tiers, heals on grant (was ARMOR
  *                  +25 ×4; epic-9 amendments 27–29, 90–91).
- *   ARMOR   — +1 Armor per tier, 5 tiers; damage × K / (K + Armor), K = 5
- *                  (Eric 2026-10-13, epic-9 amendments 86–88).
+ *   ARMOR   — +20 Armor per tier, 5 tiers; damage × K / (K + Armor), K = 100
+ *                  (Eric 2026-10-13, epic-9 amendments 86–88; rescaled
+ *                  +1/K 5 -> +20/K 100 by amendment 144).
+ *   ARMOR PIERCING — +20 Armor Piercing per tier, 5 tiers; subtracted from
+ *                  the victim's Armor at the damage gate, the curve going
+ *                  2 − K / (K − E) below zero (Eric 2026-10-14/15, epic-9
+ *                  amendments 144–146).
  *   SPEED   R10 — +2.5 u/s forward max per tier, 5 tiers, reverse untouched.
  *   TURNING R6  — flat +0.05 rad/s per tier, 5 tiers.
  *   RADAR SWEEP R11 — +3 rpm per tier, 5 tiers (the 30 rpm clamp stays).
@@ -483,18 +499,24 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  *   CAPTIVE MINES R25 · FOULING MINES R28 (as amended) — Story 8.13.
  */
 export const CATALOG: Catalog = deepFreezeRows({
-  // --- the seven universal ladders -----------------------------------------
+  // --- the eight universal ladders -----------------------------------------
   // HULL POINTS (R8 as re-cut by Eric 2026-10-11 / 2026-10-13, epic-9
   // amendments 27–29, 90–91): +50 max hp per tier, 5 tiers (dreadnought 350 →
   // 600 at cap); the grant HEALS the granted delta. Was `armor` (+25 ×4) until
   // Story 9.6.
   hullPoints: ladder('hullPoints', 5, [statEffect('maxHp', { add: 50 })], { healOnGrant: true }),
-  // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88): +1 Armor per
-  // tier, 5 tiers (0 → 5); effectiveStats derives damageMultiplier =
-  // K / (K + Armor) from it (×1 → ×0.5). Adds no hull and no ramming mass.
-  // The step is authored literally like every ladder's (CONFIG.armor holds
-  // only Eric's K).
-  armor: ladder('armor', 5, [statEffect('armor', { add: 1 })]),
+  // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88; rescaled by
+  // Story 9.9, amendment 144): +20 Armor per tier, 5 tiers (0 → 100);
+  // effectiveStats derives damageMultiplier = K / (K + Armor) from it
+  // (×1 → ×0.5 at K 100). Adds no hull and no ramming mass. The step is
+  // authored literally like every ladder's (CONFIG.armor holds only Eric's K;
+  // amendment 110's reason — the catalog is frozen at module load).
+  armor: ladder('armor', 5, [statEffect('armor', { add: 20 })]),
+  // ARMOR PIERCING (Story 9.9, Eric 2026-10-14/15, epic-9 amendments 144–146):
+  // +20 Armor Piercing per tier, 5 tiers (0 → 100). The ATTACKER's stat: the
+  // server's damage gate subtracts it from the victim's Armor (+ HUNKER), so
+  // it never moves the holder's own damageMultiplier. Authored literally.
+  armorPiercing: ladder('armorPiercing', 5, [statEffect('armorPiercing', { add: 20 })]),
   // SPEED (R10; cap 5 since Eric 2026-10-11 / 2026-10-13, epic-9 amendments
   // 27–29, 90–91): +2.5 u/s of FORWARD top speed per tier, 5 tiers. Reverse is
   // explicitly untouched — no constant add preserves the reverse:forward ratio

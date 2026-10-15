@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.18.55] - 2026-10-15
+
+### Changed
+- **ARMOR is rescaled, DAMAGE CUT is now HUNKER.** The armor curve's constant is 100 and each ARMOR card is worth +20, so every damage multiplier a hull saw before is reproduced exactly. The Battleship's Shift, formerly DAMAGE CUT, is renamed HUNKER: +100 temporary Armor for 10 s.
+- **New ship upgrade: ARMOR PIERCING** (five cards, +20 each), seated right after ARMOR. The attacker's piercing is subtracted from the victim's Armor on the same curve, and going below zero amplifies the blow, bounded under x2 (-20 reads x7/6, -100 reads x1.5). It applies to every damage source the attacker owns and is read live at the moment the blow lands. Raider and duelist bots favor it. It has a card, hover and How-to-Play table rows, the LOADOUT ladder line is now 4 + 4, and its glyph is the shell-splitting-a-plate (Eric's pick).
+
+### Internal
+- `PROTOCOL_VERSION` 83 -> 84. The wave-0 rename commit (aba14fe8) renamed the OwnShip wire field `damageCutUntil` -> `hunkerUntil` ahead of the PV bump in the same PR (a bisect landing there has mismatched field names at PV 83; noted, no live risk).
+- Shared: the negative branch of `damageMultiplierFor` is computed as (K-2E)/(K-E) for whole-product exactness.
+- Tests: shared 1093 -> 1104, server 2585 -> 2602, client 4076 -> 4081, hook 266. Records: epic-9 amendments 156-161.
+
 ## [0.18.54] - 2026-10-14
 
 ### Changed

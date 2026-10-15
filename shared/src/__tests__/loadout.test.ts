@@ -129,7 +129,7 @@ describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
       // (radarBuoy DELETED in Story 8.16 — the DECOY BUOY consumable replaces it)
       // Story 8.15: the two NEW class Shifts — instant activations like boost.
       instantReload: false,
-      damageCut: false,
+      hunker: false,
     });
     expect(Object.keys(EQUIPMENT_IS_WEAPON)).toEqual([...EQUIPMENT_IDS]);
   });
@@ -173,8 +173,8 @@ describe('loadoutFor — THE UNIVERSAL SLOT FIT (Story 8.5)', () => {
     }
   });
 
-  it('SLOT 1 IS THE HULL\'S CLASS SHIFT (Story 8.15, amendment 89c): TB boost · ML instant reload · BS damage cut', () => {
-    const want = { torpedoBoat: 'boost', mineLayer: 'instantReload', battleship: 'damageCut' } as const;
+  it('SLOT 1 IS THE HULL\'S CLASS SHIFT (Story 8.15, amendment 89c): TB boost · ML instant reload · BS hunker', () => {
+    const want = { torpedoBoat: 'boost', mineLayer: 'instantReload', battleship: 'hunker' } as const;
     for (const id of SHIP_CLASS_IDS) {
       expect(CONFIG.shipClasses[id].shift, id).toBe(want[id]);
       expect(classShift(id), id).toBe(want[id]);

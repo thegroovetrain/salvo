@@ -803,20 +803,20 @@ describe('the EIGHTH state: ACTIVE while an ability window runs (amendment 48)',
     }
   });
 
-  it('outranks COOLING — a DAMAGE CUT window runs while its reload does — but not denied/activated', () => {
+  it('outranks COOLING — a HUNKER window runs while its reload does — but not denied/activated', () => {
     // RETARGETED in Story 8.16: this pin was written against the radar buoy
-    // (deleted). DAMAGE CUT (the Battleship's Shift, 8.15) is the live id with a
+    // (deleted). HUNKER (was DAMAGE CUT until Story 9.9; the Battleship's Shift, 8.15) is the live id with a
     // window that coexists with its reload; the coexistence is a property of
     // the STATE machine, so the row is built by hand.
-    expect(slotState('damageCut', NONE, true, false, false, true)).toBe('active');
-    expect(slotState('damageCut', NONE, true, true, false, true)).toBe('active');
-    expect(slotState('damageCut', { ...NONE, denied: true }, true, false, false, true)).toBe('denied');
-    expect(slotState('damageCut', { ...NONE, activated: true }, true, false, false, true)).toBe('activated');
+    expect(slotState('hunker', NONE, true, false, false, true)).toBe('active');
+    expect(slotState('hunker', NONE, true, true, false, true)).toBe('active');
+    expect(slotState('hunker', { ...NONE, denied: true }, true, false, false, true)).toBe('denied');
+    expect(slotState('hunker', { ...NONE, activated: true }, true, false, false, true)).toBe('activated');
     // ...and the WIPE's fraction is still computed, so nothing is lost.
     const base = viewFor('battleship');
     const view: HotbarView = {
       ...base,
-      loadout: base.loadout.map((id, i) => (i === SLOT_BOOST ? 'damageCut' : id)),
+      loadout: base.loadout.map((id, i) => (i === SLOT_BOOST ? 'hunker' : id)),
       ammo: at(null, { [SLOT_BOOST]: { n: 0, reloadMsLeft: 5000 } }),
       activeMsLeft: at(0, { [SLOT_BOOST]: 8_000 }),
     };
@@ -1556,7 +1556,7 @@ describe('a stocked BELT square', () => {
       expect(equipmentGlyphSvg(id, 24)?.tagName.toLowerCase(), id).toBe('svg');
     }
     expect(glyphPaths('shieldBlock')).not.toEqual(glyphPaths('decoyBuoy'));
-    expect(glyphPaths('shieldBlock')).not.toEqual(glyphPaths('damageCut')); // absorb ≠ reduce
+    expect(glyphPaths('shieldBlock')).not.toEqual(glyphPaths('hunker')); // absorb ≠ reduce
     expect(glyphPaths('chaff')).toBeNull(); // CHAFF left the catalog in Story 9.2 (amendment 31)
     // The decoy shares NO round part with the mine (Eric: tell them apart).
     expect(glyphPaths('decoyBuoy')!.some((p) => p.kind === 'circle')).toBe(false);
@@ -1672,7 +1672,7 @@ describe("slot 0 is the SEAT'S gun, replayed as main.ts derives it", () => {
     const want: Record<ShipClassId, EquipmentId> = {
       torpedoBoat: 'boost',
       mineLayer: 'instantReload',
-      battleship: 'damageCut',
+      battleship: 'hunker',
     };
     for (const cls of ['torpedoBoat', 'mineLayer', 'battleship'] as const) {
       for (const gun of GUN_IDS) {

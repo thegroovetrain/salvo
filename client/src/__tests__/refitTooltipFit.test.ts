@@ -115,8 +115,9 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     // CANNON ladder (2026-09-30, amendment 197); 26 before; 23 since CHAFF left
     // the catalog in Story 9.2 (epic-9 amendment 31); 24 since PASSIVE HEALING
     // joined in Story 9.6 (epic-9 amendment 95); 25 since ARMOR joined in
-    // Story 9.7 (epic-9 amendments 110–117).
-    expect(LINES).toHaveLength(25);
+    // Story 9.7 (epic-9 amendments 110–117); 26 since ARMOR PIERCING joined in
+    // Story 9.9 (epic-9 amendments 145, 159).
+    expect(LINES).toHaveLength(26);
     const lines = new Set(PANELS.map((p) => p.label.split('@')[0]));
     // Only the never-dealt stub opens no panel.
     expect(LINES.filter((d) => !lines.has(d.id)).map((d) => d.id)).toEqual(['depthCharge']);
@@ -188,7 +189,9 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
   it('leaves real headroom above the band at 1366x768 — the pin is not on the boundary', () => {
     const room = refitTooltipMaxPanelH(refitBandLayout(1366, 768).band.y);
     const worst = Math.max(...PANELS.map(({ model }) => refitTooltipMetrics(model, room).height));
-    expect(worst).toBe(170);
+    // 187 since Story 9.9 (epic-9 amendment 159): a ship ladder's hover gained
+    // its eighth row, ARMOR PIERCING — one row box (17 px) over the 170 before.
+    expect(worst).toBe(187);
     expect(room - worst).toBeGreaterThanOrEqual(2);
   });
 

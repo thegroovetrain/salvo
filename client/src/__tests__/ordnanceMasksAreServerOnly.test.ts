@@ -74,14 +74,14 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
   // that is what the three scans above assert, and they are the substance of
   // this file. This line only witnesses that a bump, when it happens, happens
   // deliberately.
-  it('PROTOCOL_VERSION is 83 — bumped by the twelfths ladder (81 by ARMOR; 80 by the HULL / PASSIVE HEALING re-cut; 79 by ramming; 78 by the fouling shell; 77 by smoke-is-paint, CONFIG.countermeasure shrinking to lifeMs/r0/r1; 76 by the countermeasure cloud; 75 by the fixed consumable keys; 74 by the 4/8 mine and torpedo detect rung (73 by the session 2 ocean and storm ramp; 72 by the big ocean; 71 by the private-lobby contract; 70 by cycle 166 the deck-gun catalog retune; 69 by cycle 163 the drone-drop `dp` event; 68 by cycle 162: MineView.c for every observer, OwnShip.chaffGhosts, chaff/smoke radii ×1.5), not by masks', () => {
+  it('PROTOCOL_VERSION is 84 — bumped by ARMOR PIERCING (83 by the countermeasure cloud dial; 82 by the twelfths ladder; 81 by ARMOR; 80 by the HULL / PASSIVE HEALING re-cut; 79 by ramming; 78 by the fouling shell; 77 by smoke-is-paint, CONFIG.countermeasure shrinking to lifeMs/r0/r1; 76 by the countermeasure cloud; 75 by the fixed consumable keys; 74 by the 4/8 mine and torpedo detect rung (73 by the session 2 ocean and storm ramp; 72 by the big ocean; 71 by the private-lobby contract; 70 by cycle 166 the deck-gun catalog retune; 69 by cycle 163 the drone-drop `dp` event; 68 by cycle 162: MineView.c for every observer, OwnShip.chaffGhosts, chaff/smoke radii ×1.5), not by masks', () => {
     // 55 until Story 8.13, whose ONE bump covered the catalog content, the id
     // moves and `MineView`'s own-only kind field (epic-8 amendment 76); 56
     // until Story 8.14, whose ONE bump covers the seat's `gun` join option,
     // `OwnShip.gun` and the retired deck door (epic-8 amendments 89d/95). The
     // `hits` masks still never reach the client — that is the claim this file
     // makes, and no bump has ever been theirs. 57 until Story 8.15, whose ONE
-    // bump covers `InputMsg.held`, the reveal's `w`, `OwnShip.damageCutUntil`,
+    // bump covers `InputMsg.held`, the reveal's `w`, `OwnShip.hunkerUntil`,
     // the Shift ids and the catalog cuts (epic-8 amendments 97-110) — the
     // flak row's new `ordnance` bit in its mask is server-only like every mask.
     // 58 until Story 8.16, whose ONE bump covers `OwnShip.shield`,
@@ -135,10 +135,15 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // 79 -> 80 (Story 9.6) is the catalog re-cut (HULL / PASSIVE HEALING) and
     // the regen fold the client reads through stats — no mask.
     // 80 -> 81 (Story 9.7, epic-9 amendments 110–117) is the ARMOR ladder and
-    // the DAMAGE CUT's armorBonus, read through the fold — no mask.
+    // the HUNKER's (was DAMAGE CUT until Story 9.9) armorBonus, read through the fold — no mask.
     // 81 -> 82 (Story 9.8, epic-9 amendments 102–109, 121–129) is the twelfths
     // sensor ladder, the per-weapon tiered range dials read through the fold
     // and the server-side radar dropout — nothing new on the wire, no mask.
-    expect(PROTOCOL_VERSION).toBe(83);
+    // 82 -> 83 (amendment 141) is the MULTI-SPECTRAL CM cloud dial the client
+    // derives — no mask. 83 -> 84 (Story 9.9, epic-9 amendments 144–147) is the
+    // ARMOR PIERCING ladder (catalog content), CONFIG.armor K 100 and HUNKER's
+    // armorBonus read through the fold, and the `hunkerUntil` wire-field rename
+    // — no mask.
+    expect(PROTOCOL_VERSION).toBe(84);
   });
 });

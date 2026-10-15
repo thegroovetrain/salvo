@@ -18,7 +18,7 @@
 // Slot 1 holds the hull's CLASS SHIFT — a FIXED ability no card can address,
 // chosen by `CONFIG.shipClasses.<id>.shift` (Story 8.15, Eric rulings
 // 2026-09-21/28, epic-8 amendments 89(c) and 97–102): SPEED BOOST on the
-// Torpedo Boat, INSTANT RELOAD on the Mine Layer, DAMAGE CUT on the Battleship.
+// Torpedo Boat, INSTANT RELOAD on the Mine Layer, HUNKER (was DAMAGE CUT until Story 9.9) on the Battleship.
 // The boost was UNIVERSAL from Story 8.5 (amendment 23) to 8.9's module; 8.15
 // landed the split, so hull identity is now envelope + Shift.
 //
@@ -38,7 +38,7 @@ import type { EffectiveStats } from './stats.js';
  *
  * STORY 8.15 RE-CUT IT (Eric rulings 2026-09-21/28, epic-8 amendments 89 and
  * 97–106): `missile` and `monitor` are CUT for good (amendment 89(e)); the
- * two new SHIFT ids `instantReload` and `damageCut` join `boost` as the three
+ * two new SHIFT ids `instantReload` and `hunker` join `boost` as the three
  * non-weapon class abilities slot 1 may hold; `machineGun` and `flak` stop
  * being stubs and become the two MOUNTABLE GUNS slot 0 may hold beside `gun`
  * (the cannon).
@@ -76,7 +76,7 @@ export type EquipmentId =
   | 'starShells'
   | 'phosphorShells'
   | 'instantReload'
-  | 'damageCut';
+  | 'hunker';
 
 /**
  * THE single source of the weapon/ability split: true iff a piece of equipment
@@ -116,11 +116,11 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   // shell that bursts into a burning zone.
   phosphorShells: true,
   // THE TWO NEW CLASS SHIFTS (Story 8.15): INSTANT RELOAD (the Mine Layer's,
-  // amendments 97–98) and DAMAGE CUT (the Battleship's, amendments 99–102).
+  // amendments 97–98) and HUNKER (the Battleship's, amendments 99–102).
   // Both are instant activations off the Shift edge, aimed at nothing — the
   // boost's grammar exactly.
   instantReload: false,
-  damageCut: false,
+  hunker: false,
 };
 
 /**
@@ -131,10 +131,10 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
  * (and with it RELOAD's `cooldownScale`), the server registry, the bot tactic
  * rows and the HUD glyph table all key on the id with no hull special case.
  */
-export type ShiftId = 'boost' | 'instantReload' | 'damageCut';
+export type ShiftId = 'boost' | 'instantReload' | 'hunker';
 
 /** Every ShiftId, in class order (TB · ML · BS). */
-export const SHIFT_IDS: readonly ShiftId[] = Object.freeze(['boost', 'instantReload', 'damageCut'] as const);
+export const SHIFT_IDS: readonly ShiftId[] = Object.freeze(['boost', 'instantReload', 'hunker'] as const);
 
 /** The Shift a loadout fits when none is named — the Torpedo Boat's. */
 export const DEFAULT_SHIFT: ShiftId = 'boost';
@@ -311,7 +311,7 @@ export const SLOT_COUNT = FIRST_CONSUMABLE_SLOT + CONSUMABLE_KEY_ORDER.length;
 /** Slot index of the gun — the permanently-selected default weapon. */
 export const SLOT_GUN = 0;
 
-/** Slot index of the class Shift (the boost, instant reload or damage cut —
+/** Slot index of the class Shift (the boost, instant reload or hunker —
  *  Story 8.15). The name predates the split and is kept. */
 export const SLOT_BOOST = 1;
 

@@ -19,7 +19,7 @@ import {
   APPETITE_NEUTRAL,
   TORPEDO_CREDIBLE_U,
   burstOnLiveContact,
-  damageCutCues,
+  hunkerCues,
   deepFreezeRows,
   nearestLiveAstern,
   nearestLiveInSight,
@@ -112,13 +112,13 @@ function ownCloudRunning(mind: BotMind, now: number): boolean {
   return now < until;
 }
 
-/** SHIELD BLOCK — pressed on the DAMAGE CUT cues, never over a shield already
+/** SHIELD BLOCK — pressed on the HUNKER (was DAMAGE CUT until Story 9.9) cues, never over a shield already
  *  up (a second copy would REPLACE it, wasting the first's remainder). */
 const shieldBlockTactic: ConsumableTactic = {
   id: 'shieldBlock',
   kind: 'ability',
   reachU: () => 0,
-  want: (ctx) => isAfloat(ctx.self.lifecycle) && !shieldUp(ctx.self, ctx.sit.now) && damageCutCues(ctx),
+  want: (ctx) => isAfloat(ctx.self.lifecycle) && !shieldUp(ctx.self, ctx.sit.now) && hunkerCues(ctx),
   solve: () => null,
 };
 

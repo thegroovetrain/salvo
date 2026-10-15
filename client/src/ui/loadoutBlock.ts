@@ -94,11 +94,13 @@ const TEXT = {
 const P = LOADOUT_PX;
 const MONO = 'var(--hc-font-mono)';
 
-/** The seven ship ladders, in the ratified line order (PASSIVE HEALING last,
- *  Story 9.6; ARMOR right after HULL, Story 9.7 — Eric 2026-10-13). */
+/** The eight ship ladders, in the ratified line order (PASSIVE HEALING last,
+ *  Story 9.6; ARMOR right after HULL, Story 9.7 — Eric 2026-10-13; ARMOR
+ *  PIERCING right after ARMOR, Story 9.9 — epic-9 amendment 159). */
 const LADDER_LINES: readonly LineId[] = [
   'hullPoints',
   'armor',
+  'armorPiercing',
   'speed',
   'turning',
   'radarSweep',
@@ -109,10 +111,12 @@ const LADDER_LINES: readonly LineId[] = [
 /** Eric R2 (2026-09-30): ladders that start from nothing read `—` at ZERO
  *  copies rather than a numeral. Since Story 9.6 (Eric 2026-10-13, epic-9
  *  amendment 94) that is every ship ladder: HULL / SPEED / TURNING no longer
- *  sail at Tier I, and PASSIVE HEALING is new; ARMOR (Story 9.7) too. */
+ *  sail at Tier I, and PASSIVE HEALING is new; ARMOR (Story 9.7) and ARMOR
+ *  PIERCING (Story 9.9, amendment 159) too. */
 const DASH_AT_ZERO: ReadonlySet<LineId> = new Set<LineId>([
   'hullPoints',
   'armor',
+  'armorPiercing',
   'speed',
   'turning',
   'radarSweep',
@@ -367,17 +371,30 @@ function makeRow(own: ResultsOwn): HTMLDivElement {
   return row;
 }
 
+/** The ladder line's CSS metrics, single-sourced so the 4 + 4 fit test reads
+ *  the very numbers the inline styles use (Story 9.9, epic-9 amendment 160). */
+export const LADDER_LINE_PX = Object.freeze({
+  labelPx: 10,
+  labelTrackingEm: 0.16,
+  numeralPx: 11,
+  numeralTrackingEm: 0.1,
+  numeralGapPx: 6,
+  separatorMarginPx: 12,
+});
+
 /** One ladder entry: the muted label, then its ramp numeral or R2's muted dash. */
 function makeLadderEntry(entry: LadderEntry): HTMLSpanElement {
   const el = span('', entry.label);
   const mark = entry.tier === null ? '—' : romanTier(entry.tier);
   const tint = entry.tier === null ? 'var(--hc-text-muted)' : tierTint(entry.tier);
-  el.appendChild(span(`font-weight:600;font-size:11px;margin-left:6px;letter-spacing:.1em;color:${tint}`, mark));
+  el.appendChild(span(`font-weight:600;font-size:${LADDER_LINE_PX.numeralPx}px;margin-left:${LADDER_LINE_PX.numeralGapPx}px;letter-spacing:${LADDER_LINE_PX.numeralTrackingEm}em;color:${tint}`, mark));
   return el;
 }
 
 /** Ladders per row of the ladder line (Story 9.6, epic-9 amendment 99; four
- *  since Story 9.7, Eric 2026-10-13, epic-9 amendment 114 — seven read 4 + 3). */
+ *  since Story 9.7, Eric 2026-10-13, epic-9 amendment 114 — seven read 4 + 3;
+ *  kept at four in Story 9.9, Eric's pick on the rendered page, epic-9
+ *  amendment 160 — eight read 4 + 4). */
 const LADDERS_PER_ROW = 4;
 
 /** One row of the ladder line: its entries with a muted `·` between them. */
@@ -385,19 +402,20 @@ function makeLadderRow(entries: readonly LadderEntry[]): HTMLDivElement {
   const row = document.createElement('div');
   row.style.cssText = 'display:flex;justify-content:center';
   entries.forEach((entry, i) => {
-    if (i > 0) row.appendChild(span(`color:${cssRgba(C.textMuted, 0.5)};margin:0 12px`, '·'));
+    if (i > 0) row.appendChild(span(`color:${cssRgba(C.textMuted, 0.5)};margin:0 ${LADDER_LINE_PX.separatorMarginPx}px`, '·'));
     row.appendChild(makeLadderEntry(entry));
   });
   return row;
 }
 
 /**
- * The seven ship ladders as TWO ROWS, FOUR OVER THREE (mock `.lo-lad`, re-cut
- * at Story 9.6 — Eric 2026-10-13, epic-9 amendment 99 — and again at Story 9.7,
- * amendment 114): with PASSIVE HEALING the one line of six ran past the
- * panel's 530 px content column, so it split into rows; with ARMOR, HULL ·
- * ARMOR · SPEED · TURNING sit over RADAR SWEEP · RELOAD · PASSIVE HEALING at
- * the same type, tracking and separators.
+ * The eight ship ladders as TWO ROWS, FOUR OVER FOUR (mock `.lo-lad`, re-cut
+ * at Story 9.6 — Eric 2026-10-13, epic-9 amendment 99 — again at Story 9.7,
+ * amendment 114, and at Story 9.9, amendment 160): with PASSIVE HEALING the
+ * one line of six ran past the panel's 530 px content column, so it split into
+ * rows; with ARMOR PIERCING, HULL · ARMOR · ARMOR PIERCING · SPEED sit over
+ * TURNING · RADAR SWEEP · RELOAD · PASSIVE HEALING at the same type, tracking
+ * and separators.
  */
 function makeLadderLine(cards: readonly string[]): HTMLDivElement {
   const line = document.createElement('div');
@@ -407,8 +425,8 @@ function makeLadderLine(cards: readonly string[]): HTMLDivElement {
     'flex-direction:column',
     'align-items:center',
     'gap:6px',
-    `font:400 10px ${MONO}`,
-    'letter-spacing:.16em',
+    `font:400 ${LADDER_LINE_PX.labelPx}px ${MONO}`,
+    `letter-spacing:${LADDER_LINE_PX.labelTrackingEm}em`,
     'text-transform:uppercase',
     'color:var(--hc-text-muted)',
     'white-space:nowrap',

@@ -29,7 +29,7 @@
 // THE `shift` KEY IS A DELIBERATE ADDITION (Story 8.15, Eric rulings
 // 2026-09-21/28, epic-8 amendments 89(c) and 97–99): hull identity is
 // envelope + a FIXED class Shift — TB `boost`, ML `instantReload`, BS
-// `damageCut`. Every envelope number is untouched; the identity table gains
+// `hunker`. Every envelope number is untouched; the identity table gains
 // exactly one key per class, knowingly.
 
 import { describe, it, expect } from 'vitest';
@@ -64,7 +64,7 @@ describe('ratified class table (exact Eric-approved values)', () => {
     expect(CONFIG.shipClasses.battleship).toEqual({
       hull: { length: 124, beam: 32 },
       hp: 350,
-      shift: 'damageCut', // Story 8.15, amendments 89(c)/99
+      shift: 'hunker', // Story 8.15, amendments 89(c)/99
       kinematics: {
         maxSpeed: 35,
         reverseSpeed: 9,

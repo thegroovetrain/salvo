@@ -281,7 +281,7 @@ describe('the boost is the Torpedo Boat\'s Shift again (Story 8.15, amendment 89
   // Story 8.5 (amendment 23) made the boost UNIVERSAL — slot 1 on every
   // captain. Story 8.15 REVERSED that: hull identity is envelope + a FIXED
   // class Shift, so the Torpedo Boat keeps SPEED BOOST while the Battleship
-  // fits DAMAGE CUT and the Mine Layer INSTANT RELOAD (both pinned in
+  // fits HUNKER (was DAMAGE CUT until Story 9.9) and the Mine Layer INSTANT RELOAD (both pinned in
   // shift.test.ts). The boost's own numbers are untouched — a 10 s window on
   // a 25 s reload (amendment 54).
   it('a torpedoBoat fits boost in slot 1 and boosts with the shipped numbers', () => {
@@ -297,7 +297,7 @@ describe('the boost is the Torpedo Boat\'s Shift again (Story 8.15, amendment 89
     expect(BOOST.reloadMs).toBe(25000); // the amendment-54 25 s reload
   });
 
-  it.each([['battleship', 'damageCut'], ['mineLayer', 'instantReload']] as const)(
+  it.each([['battleship', 'hunker'], ['mineLayer', 'instantReload']] as const)(
     'a %s no longer carries the boost: slot 1 holds %s, and a Shift press there opens NO boost window',
     (hull, shift) => {
       const w = bareWorld();

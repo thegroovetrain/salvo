@@ -742,7 +742,7 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
  *
  * SLOT 1 IS REPLAYED FROM THE HULL'S SHIFT (Story 8.15, amendment 89(c)):
  * `classShift(cls)` — the same read the server fits slot 1 from — so the Mine
- * Layer's square holds INSTANT RELOAD and the Battleship's DAMAGE CUT.
+ * Layer's square holds INSTANT RELOAD and the Battleship's HUNKER (was DAMAGE CUT until Story 9.9).
  *
  * NO HULL ID. Story 8.5 deleted the per-hull fit: what a captain carries is a
  * fact about their PICKS, never about their hardware, so the replay is the only
@@ -2650,8 +2650,8 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   // window keys its clear-on-ack on exactly that counter, not the live count.
   if (id === 'boost') g.predictor.predictBoostActivation(g.clock.serverNow(), actSeq);
   // The other two class Shifts (Story 8.15) predict NOTHING beyond the generic
-  // ACTIVATED pop above: INSTANT RELOAD's refilled pools and DAMAGE CUT's
-  // `damageCutUntil` window both arrive with the server's frame — neither moves
+  // ACTIVATED pop above: INSTANT RELOAD's refilled pools and HUNKER's
+  // `hunkerUntil` window both arrive with the server's frame — neither moves
   // the hull, so there is no motion to hide a round trip behind.
   // A click-placed decoy has no press-time cue: its placement tone rides the
   // decoy reconcile's own-spawn hook (the mine precedent), so it fires on the
@@ -2801,8 +2801,8 @@ function latchFitFlash(g: Game, cardId: string): void {
 /**
  * ms — the REMAINING ability window per loadout slot (0 = none running), the
  * ACTIVE state's only input (amendment 48). The boost reads the same
- * (prediction-aware) `boostUntil` estimate the HUD's boost tag does; DAMAGE CUT (Story 8.15, the Battleship's
- * Shift) reads the server's self-private `you.damageCutUntil` — no prediction,
+ * (prediction-aware) `boostUntil` estimate the HUD's boost tag does; HUNKER (Story 8.15, the Battleship's
+ * Shift) reads the server's self-private `you.hunkerUntil` — no prediction,
  * the window arrives with the frame — so the Shift square takes the boost's
  * ACTIVE grammar for its 8 s (amendment 34). INSTANT RELOAD has no window: it
  * goes straight to the cooldown wipe. Everything else has no window.
@@ -2811,7 +2811,7 @@ function activeWindows(g: Game, status: OwnStatus): number[] {
   const now = g.clock.serverNow();
   const until: Partial<Record<string, number>> = {
     boost: boostUntilNow(g),
-    damageCut: g.state.net.you?.damageCutUntil ?? 0,
+    hunker: g.state.net.you?.hunkerUntil ?? 0,
   };
   return status.loadout.map((id) => Math.max(0, (id === null ? 0 : until[id] ?? 0) - now));
 }

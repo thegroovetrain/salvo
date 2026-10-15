@@ -3,6 +3,9 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  84 — Story 9.9 Armor Piercing: K 100, ARMOR +20/card, HUNKER +100 (was
+ *  DAMAGE CUT, id renamed), new ARMOR PIERCING ladder (catalog content),
+ *  OwnShip.hunkerUntil wire field renamed (epic-9 amendments 144–147).
  *  83 — Story 9.8 staging (Eric 2026-10-14, epic-9 amendment 141): the
  *  MULTI-SPECTRAL CM cloud is 150 → 300 u (was 200 → 500) — `CONFIG.countermeasure`
  *  is read by the client to derive the cloud from the wire {id,x,y,t0}, so a
@@ -20,7 +23,7 @@
  *  rides the wire. Perception exception count stays SIX.
  *  81 — Story 9.7 ARMOR (Eric 2026-10-13, epic-9 amendments 86–88): catalog
  *  content (new `armor` ladder, seated right after `hullPoints`),
- *  `CONFIG.armor` + `CONFIG.damageCut.armorBonus` read by the client through
+ *  `CONFIG.armor` + `CONFIG.hunker.armorBonus` read by the client through
  *  the fold (`effectiveStats().armor` / `.damageMultiplier`, the barrel's
  *  `damageMultiplierFor`); the cut's flat ×0.5 deleted, window 8 s → 10 s;
  *  nothing new rides the wire. Perception exception count stays SIX.
@@ -147,7 +150,7 @@
  *  `InputMsg.held` (required boolean, malformed drops the message), the shell
  *  reveal's optional `w` family field ('cannon'|'mg'|'flak' — the ONE declared
  *  disclosure widening, amendment 89(i); torpedo reveals unchanged),
- *  `OwnShip.damageCutUntil?` (self-private), catalog content
+ *  `OwnShip.hunkerUntil?` (self-private), catalog content
  *  (missile/monitor/heatSeeking deleted; machineGun/flak become the mountable
  *  guns' ladders; LINE_IDS 29 → 26), the Shift ids. Perception exception
  *  count stays SIX; the reveal shape gains exactly one optional key.
@@ -861,7 +864,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 83;
+export const PROTOCOL_VERSION = 84;
 
 // Tunables
 export * from './constants.js';

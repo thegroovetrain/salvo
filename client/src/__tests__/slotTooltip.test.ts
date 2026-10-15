@@ -123,7 +123,7 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
       flak: 'FLAK',
       boost: 'SPEED BOOST',
       instantReload: 'INSTANT RELOAD',
-      damageCut: 'DAMAGE CUT',
+      hunker: 'HUNKER',
     };
     for (const [id, name] of Object.entries(expected)) {
       expect(tooltipModel(Q, id as never, STATS)!.name, id).toBe(name);
@@ -191,12 +191,12 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
       `RELOAD ${(CONFIG.instantReload.reloadMs / 1000).toFixed(1)} s`,
     ]);
     const bb = statsFor('battleship');
-    expect(lines(tooltipModel(SLOT_BOOST, 'damageCut', bb)!.stats)).toEqual([
-      `ARMOR +${CONFIG.damageCut.armorBonus}`, // Story 9.7: the cut adds Armor (epic-9 amendments 110–117)
-      `DURATION ${(CONFIG.damageCut.durationMs / 1000).toFixed(1)} s`,
-      `RELOAD ${(CONFIG.damageCut.reloadMs / 1000).toFixed(1)} s`,
+    expect(lines(tooltipModel(SLOT_BOOST, 'hunker', bb)!.stats)).toEqual([
+      `ARMOR +${CONFIG.hunker.armorBonus}`, // Story 9.7: the cut adds Armor (epic-9 amendments 110–117)
+      `DURATION ${(CONFIG.hunker.durationMs / 1000).toFixed(1)} s`,
+      `RELOAD ${(CONFIG.hunker.reloadMs / 1000).toFixed(1)} s`,
     ]);
-    for (const id of ['boost', 'instantReload', 'damageCut'] as const) {
+    for (const id of ['boost', 'instantReload', 'hunker'] as const) {
       expect(equipmentStatRows(id, STATS).map((r) => r.label), id).not.toContain('ROUNDS');
     }
   });
@@ -227,22 +227,24 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
 
 // --- THE SHIP PANEL ON THE HP GLOBE (amendment 186) ------------------------------
 
-describe('the HP globe opens a SHIP panel with the seven ship stats (amendment 186)', () => {
-  it('names the hull over SHIP and the seven ladders\' live values', () => {
+describe('the HP globe opens a SHIP panel with the eight ship stats (amendment 186)', () => {
+  it('names the hull over SHIP and the eight ladders\' live values', () => {
     const m = shipTooltipModel('torpedoBoat', STATS)!;
     expect(m.name).toBe('SPEEDBOAT');
     expect(m.interaction).toBe(SHIP_INTERACTION);
     expect(m.interaction).toBe('SHIP');
     // HEAL joined last in Story 9.6 (epic-9 amendment 95); ARMOR right after
-    // MAX HULL in Story 9.7 (Eric 2026-10-13, epic-9 amendments 110–117).
+    // MAX HULL in Story 9.7 (Eric 2026-10-13, epic-9 amendments 110–117);
+    // ARMOR PIERCING right after ARMOR in Story 9.9 (epic-9 amendment 159).
     expect(m.stats.map((r) => r.label)).toEqual([
-      'MAX HULL', 'ARMOR', 'TOP SPEED', 'TURNING', 'RADAR SWEEP', 'ALL COOLDOWNS', 'HEAL',
+      'MAX HULL', 'ARMOR', 'ARMOR PIERCING', 'TOP SPEED', 'TURNING', 'RADAR SWEEP', 'ALL COOLDOWNS', 'HEAL',
     ]);
     expect(lines(m.stats)[0]).toBe(`MAX HULL ${STATS.maxHp}`);
     expect(lines(m.stats)[1]).toBe(`ARMOR ${STATS.armor}`);
-    expect(lines(m.stats)[3]).toBe('TURNING 46°/s'); // 0.8 rad/s, whole degrees (P10)
-    expect(lines(m.stats)[4]).toBe(`RADAR SWEEP ${STATS.sweepRpm} RPM`);
-    expect(lines(m.stats)[5]).toBe('ALL COOLDOWNS 100%');
+    expect(lines(m.stats)[2]).toBe(`ARMOR PIERCING ${STATS.armorPiercing}`);
+    expect(lines(m.stats)[4]).toBe('TURNING 46°/s'); // 0.8 rad/s, whole degrees (P10)
+    expect(lines(m.stats)[5]).toBe(`RADAR SWEEP ${STATS.sweepRpm} RPM`);
+    expect(lines(m.stats)[6]).toBe('ALL COOLDOWNS 100%');
     expect(m.stats).toEqual(shipStatRows(STATS));
   });
 
