@@ -108,6 +108,24 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
     expect(cardStatRows(CATALOG.armor, 4, held('armor', 4))).toEqual([
       { label: 'ARMOR', cur: String(armorAt(4)), next: String(armorAt(5)) },
     ]);
+    // +20 a card since Story 9.9 (epic-9 amendment 145): the face reads `ARMOR 0 → 20`.
+    expect(cardStatRows(CATALOG.armor, 0, TB)).toEqual([{ label: 'ARMOR', cur: '0', next: '20' }]);
+  });
+
+  // ARMOR PIERCING (Story 9.9, epic-9 amendments 145, 159 — mirrors ARMOR): ONE
+  // row, the whole-number piercing off the fold; `ARMOR PIERCING 0 → 20` at zero
+  // copies, `40 → 60` at two.
+  it('prints ARMOR PIERCING as one row, whole numbers off the fold', () => {
+    const apAt = (n: number): number =>
+      effectiveStats(CONFIG.shipClasses.torpedoBoat, Array<string>(n).fill('armorPiercing')).armorPiercing;
+    expect(cardStatRows(CATALOG.armorPiercing, 0, TB)).toEqual([
+      { label: 'ARMOR PIERCING', cur: String(apAt(0)), next: String(apAt(1)) },
+    ]);
+    expect(cardStatRows(CATALOG.armorPiercing, 0, TB)).toEqual([{ label: 'ARMOR PIERCING', cur: '0', next: '20' }]);
+    expect(cardStatRows(CATALOG.armorPiercing, 2, held('armorPiercing', 2))).toEqual([
+      { label: 'ARMOR PIERCING', cur: '40', next: '60' },
+    ]);
+    expect(cardTierLabel(CATALOG.armorPiercing, 2)).toBe('II → III');
   });
 
   it('carries each ladder\'s own label and its own printer', () => {

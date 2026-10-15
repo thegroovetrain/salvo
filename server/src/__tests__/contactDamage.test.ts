@@ -332,7 +332,8 @@ describe('the BLEED (amendment 83 — sliding + pressing speed, delivered like t
   });
 
   // Re-based by Story 9.7 (epic-9 amendments 86–88 / 110–117): the cut is +armorBonus temporary
-  // Armor inside K / (K + armor) — at Tier 0, Armor 5 → ×0.5 — and a grind tick keeps its fraction.
+  // Armor inside K / (K + armor) — at Tier 0, Armor 5 → ×0.5 (Story 9.9: E 100 at K 100, still
+  // ×0.5, amendment 144) — and a grind tick keeps its fraction.
   it('(c) under HUNKER the bleed takes the Armor multiplier exactly — never zero, and no dmg 0 spam', () => {
     const w = bareWorld();
     const a = place(w, 'a', -49, 0);
@@ -550,6 +551,24 @@ describe('WRECKS, FLEET PAIRS, DRONES, the GATE and CREDIT', () => {
     expect(pair.a.shield!.hpLeft).toBeLessThanOrEqual(100); // the strike, then this tick's bleed
     expect(pair.a.shield!.hpLeft).toBeGreaterThan(99);
     expect(dmgOf(shielded.events, 'a').map((e) => e.amount)).toEqual([0]); // the absorbed blow still reports
+  });
+
+  it('a RAM between two hulls: each blow carries the OTHER hull\'s ARMOR PIERCING, read live (Story 9.9, epic-9 amendments 146–147 / 156)', () => {
+    // A: Armor 20, AP 40. B: Armor 20, AP 0. A's blow on B is E 20 − 40 = −20
+    // (amplified); B's blow on A is E 20 − 0 = 20 (reduced). Both floored.
+    const w = bareWorld();
+    const { a, b, vn } = headOnPair(w);
+    w.applyCard(a, 'armor');
+    w.applyCard(a, 'armorPiercing');
+    w.applyCard(a, 'armorPiercing');
+    w.applyCard(b, 'armor');
+    expect([a.stats.armor, a.stats.armorPiercing, b.stats.armor, b.stats.armorPiercing]).toEqual([20, 40, 20, 0]);
+    const nominal = contactHitDamage(a.stats.maxHp, b.stats.maxHp, vn, RAM);
+    const { events } = stepUntil(w, () => a.stats.maxHp - a.hp >= 1);
+    const blow = (n: number, e: number): number => Math.max(1, Math.floor(n * damageMultiplierFor(e)));
+    expect(dmgOf(events, 'b').map((e) => e.amount)).toEqual([blow(nominal.b, b.stats.armor - a.stats.armorPiercing)]);
+    expect(dmgOf(events, 'a').map((e) => e.amount)).toEqual([blow(nominal.a, a.stats.armor - b.stats.armorPiercing)]);
+    expect(blow(nominal.b, -20)).toBeGreaterThan(blow(nominal.b, 20)); // the pierced side really is amplified
   });
 
   it('damageEnabled false: the push still happens, no hp moves, nothing is reported', () => {

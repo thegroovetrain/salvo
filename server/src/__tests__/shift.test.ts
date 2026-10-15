@@ -188,8 +188,9 @@ describe('INSTANT RELOAD — the Mine Layer\'s Shift (amendments 97–98)', () =
 
 describe('HUNKER — the Battleship\'s Shift (amendments 99–102)', () => {
   // Re-based by Story 9.7 (epic-9 amendments 86–88 / 110–117): the window is 10 s and the cut is +5
-  // temporary Armor — at Tier 0 that is Armor 5 → ×0.5, so 15 → 7 still holds.
-  it('opens a 10 s window at server apply time on a 30 s cooldown; at Tier 0 the next blow takes Armor 5 → ×0.5', () => {
+  // temporary Armor — at Tier 0 that is Armor 5 → ×0.5 (Story 9.9: +100 at K 100 → E 100,
+  // still ×0.5, epic-9 amendment 144), so 15 → 7 still holds.
+  it('opens a 10 s window at server apply time on a 30 s cooldown; at Tier 0 the next blow takes E 100 → ×0.5 (amendment 144)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 'battleship');
     pressShift(w, 'a', 1);

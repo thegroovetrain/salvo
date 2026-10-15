@@ -165,8 +165,11 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 82 and admits 83', () => {
-  it('PROTOCOL_VERSION is 83', () => {
+describe('the PV join gate refuses 83 and admits 84', () => {
+  it('PROTOCOL_VERSION is 84', () => {
+    // Story 9.9 bumped 83 -> 84: catalog content (the ARMOR PIERCING ladder,
+    // ARMOR +20 per card), CONFIG.armor.k 100 / CONFIG.hunker read by the
+    // client, OwnShip.damageCutUntil -> hunkerUntil (epic-9 amendments 144–147).
     // Story 9.8 staging bumped 82 -> 83: the CM cloud 150 -> 300 u (amendment 141).
     // Story 9.8 bumped 81 -> 82: the twelfths ladder (sight 500 / radar 1500),
     // every weapon reach its own tiered dial (catalog content: a RANGE step
@@ -230,7 +233,8 @@ describe('the PV join gate refuses 82 and admits 83', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(83);
+    expect(PROTOCOL_VERSION).toBe(84);
+    expect(protocolVersionError(83)).toMatch(/refresh/i);
     expect(protocolVersionError(82)).toMatch(/refresh/i);
     expect(protocolVersionError(80)).toMatch(/refresh/i);
     expect(protocolVersionError(79)).toMatch(/refresh/i);
@@ -277,12 +281,12 @@ describe('the PV join gate refuses 82 and admits 83', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(84)).toMatch(/refresh/i);
+    expect(protocolVersionError(85)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(83)).toBeNull();
+    expect(protocolVersionError(84)).toBeNull();
   });
 });
 

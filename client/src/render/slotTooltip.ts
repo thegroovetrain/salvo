@@ -14,7 +14,7 @@
 // line — over the hovered thing's LIVE stat table, one `LABEL value` per line,
 // in the refit card's own row vocabulary (ui/boonCopy.ts is the one builder).
 // Hovering the HP GLOBE opens the same panel for the hull itself: the class
-// name over `SHIP` and the seven ship stats (amendment 186). The helm globe
+// name over `SHIP` and the eight ship stats (amendment 186). The helm globe
 // stays silent.
 //
 // The Pixi shell that paints this model still lives in `hotbar.ts`: it draws
@@ -136,7 +136,7 @@ export const SHIP_INTERACTION = 'SHIP';
 
 /**
  * Pure: the HP globe's SHIP panel (amendment 186) — the class display name over
- * `SHIP` and the seven ship stats at live values. Null for a hull this build
+ * `SHIP` and the eight ship stats at live values. Null for a hull this build
  * cannot name (fail-closed: no panel rather than a nameless one).
  */
 export function shipTooltipModel(cls: ShipClassId | undefined, stats: EffectiveStats): TooltipModel | null {

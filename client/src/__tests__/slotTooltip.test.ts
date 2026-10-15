@@ -227,22 +227,24 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
 
 // --- THE SHIP PANEL ON THE HP GLOBE (amendment 186) ------------------------------
 
-describe('the HP globe opens a SHIP panel with the seven ship stats (amendment 186)', () => {
-  it('names the hull over SHIP and the seven ladders\' live values', () => {
+describe('the HP globe opens a SHIP panel with the eight ship stats (amendment 186)', () => {
+  it('names the hull over SHIP and the eight ladders\' live values', () => {
     const m = shipTooltipModel('torpedoBoat', STATS)!;
     expect(m.name).toBe('SPEEDBOAT');
     expect(m.interaction).toBe(SHIP_INTERACTION);
     expect(m.interaction).toBe('SHIP');
     // HEAL joined last in Story 9.6 (epic-9 amendment 95); ARMOR right after
-    // MAX HULL in Story 9.7 (Eric 2026-10-13, epic-9 amendments 110–117).
+    // MAX HULL in Story 9.7 (Eric 2026-10-13, epic-9 amendments 110–117);
+    // ARMOR PIERCING right after ARMOR in Story 9.9 (epic-9 amendment 159).
     expect(m.stats.map((r) => r.label)).toEqual([
-      'MAX HULL', 'ARMOR', 'TOP SPEED', 'TURNING', 'RADAR SWEEP', 'ALL COOLDOWNS', 'HEAL',
+      'MAX HULL', 'ARMOR', 'ARMOR PIERCING', 'TOP SPEED', 'TURNING', 'RADAR SWEEP', 'ALL COOLDOWNS', 'HEAL',
     ]);
     expect(lines(m.stats)[0]).toBe(`MAX HULL ${STATS.maxHp}`);
     expect(lines(m.stats)[1]).toBe(`ARMOR ${STATS.armor}`);
-    expect(lines(m.stats)[3]).toBe('TURNING 46°/s'); // 0.8 rad/s, whole degrees (P10)
-    expect(lines(m.stats)[4]).toBe(`RADAR SWEEP ${STATS.sweepRpm} RPM`);
-    expect(lines(m.stats)[5]).toBe('ALL COOLDOWNS 100%');
+    expect(lines(m.stats)[2]).toBe(`ARMOR PIERCING ${STATS.armorPiercing}`);
+    expect(lines(m.stats)[4]).toBe('TURNING 46°/s'); // 0.8 rad/s, whole degrees (P10)
+    expect(lines(m.stats)[5]).toBe(`RADAR SWEEP ${STATS.sweepRpm} RPM`);
+    expect(lines(m.stats)[6]).toBe('ALL COOLDOWNS 100%');
     expect(m.stats).toEqual(shipStatRows(STATS));
   });
 

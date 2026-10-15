@@ -7,7 +7,9 @@
 // via the World's `setHunker` capability — its ONLY writer) during which the
 // damage gate adds the row's `armorBonus` to this hull's Armor inside its
 // K / (K + armor) multiplier, BEFORE the shield absorbs (Story 9.7, epic-9
-// amendments 86–88 — no flat factor: at Tier 0 that is Armor 5 → ×0.5; a hit
+// amendments 86–88 — no flat factor: at Tier 0 that is Armor 5 → ×0.5, which
+// Story 9.9 rescaled to bonus +100 at K 100 → still ×0.5 (amendment 144), less
+// the attacker's ARMOR PIERCING (amendment 146); a hit
 // floored, a burn or grind tick exact; storm bites land in full — epic-8
 // amendments 100–102). The window rides `you` only
 // (OwnShip.hunkerUntil, self-private) so the HUD can show the ACTIVE

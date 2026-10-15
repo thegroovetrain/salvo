@@ -14,6 +14,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { CONFIG, CONSUMABLE_SLOTS, effectiveStats, type ResultsMsg, type ResultsRow, type SlotItemId, type WeaponAmmo } from '@salvo/shared';
 import { LOADOUT_PX, LOADOUT_TEXT_FLOOR_PX, ladderEntries } from '../ui/loadoutBlock.js';
+import { monoTextWidth } from '../ui/refitCardFit.js';
 import { LINEAGE_TIERS } from '../ui/tierRamp.js';
 import {
   BANNER_HUES,
@@ -456,34 +457,62 @@ describe('showResults — the elimination modal', () => {
     it('the ladder line reads each ship ladder\'s copies as its numeral, on the tier ramp', () => {
       // Story 9.6 (epic-9 amendments 93/94): HULL / SPEED / TURNING count from
       // nothing like RADAR SWEEP and RELOAD, and PASSIVE HEALING joins last;
-      // ARMOR sits right after HULL (Story 9.7, Eric 2026-10-13).
+      // ARMOR sits right after HULL (Story 9.7, Eric 2026-10-13); ARMOR
+      // PIERCING right after ARMOR (Story 9.9, epic-9 amendment 159).
       open(mockOwn());
-      expect(ladder()).toBe('HULLII·ARMORI·SPEEDIII·TURNINGIRADAR SWEEPII·RELOADIII·PASSIVE HEALING—');
-      // TWO ROWS, FOUR OVER THREE (Eric 2026-10-13, epic-9 amendment 114; two
-      // rows of three since amendment 99): no separator crosses the row break.
+      expect(ladder()).toBe('HULLII·ARMORI·ARMOR PIERCING—·SPEEDIIITURNINGI·RADAR SWEEPII·RELOADIII·PASSIVE HEALING—');
+      // TWO ROWS, FOUR OVER FOUR (Eric's pick, Story 9.9, epic-9 amendment 160;
+      // four over three since amendment 114, two rows of three since amendment
+      // 99): no separator crosses the row break.
       const rows = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div')];
       expect(rows.map((r) => r.textContent)).toEqual([
-        'HULLII·ARMORI·SPEEDIII·TURNINGI',
-        'RADAR SWEEPII·RELOADIII·PASSIVE HEALING—',
+        'HULLII·ARMORI·ARMOR PIERCING—·SPEEDIII',
+        'TURNINGI·RADAR SWEEPII·RELOADIII·PASSIVE HEALING—',
       ]);
       const numerals = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')];
-      expect(numerals.slice(0, 6).map((n) => n.style.color)).toEqual([1, 0, 2, 0, 1, 2].map((i) => LINEAGE_TIERS[i]));
+      // HULL, ARMOR, (ARMOR PIERCING dashes), SPEED, TURNING, RADAR SWEEP, RELOAD.
+      expect([0, 1, 3, 4, 5, 6].map((k) => numerals[k].style.color)).toEqual(
+        [1, 0, 2, 0, 1, 2].map((i) => LINEAGE_TIERS[i]),
+      );
     });
 
-    it('a ladder at zero copies reads `—` in the muted label colour (Eric R2), all seven still listed', () => {
+    // THE 4 + 4 SPLIT FITS (Story 9.9, epic-9 amendment 160): each row of the
+    // ladder line, at its WIDEST numerals (III on every entry — the longest
+    // roman up to the cap of V), stays inside the panel's 530 px content
+    // column. The mono model mirrors makeLadderLine/makeLadderEntry's CSS:
+    // labels 10 px at .16em, numerals 11 px at .1em after a 6 px margin, and a
+    // `·` separator at the label type with 12 px margins either side.
+    it('each row of the 4 + 4 ladder line fits the 530 px column at its widest numerals', () => {
+      const COLUMN = 530;
+      const label = (t: string): number => monoTextWidth(t, 10, 1.6);
+      const numeral = 6 + monoTextWidth('III', 11, 1.1);
+      const sep = label('·') + 24;
+      const rowW = (labels: readonly string[]): number =>
+        labels.reduce((w, l) => w + label(l) + numeral, 0) + sep * (labels.length - 1);
+      const labels = ladderEntries([]).map((e) => e.label);
+      expect(labels).toHaveLength(8);
+      const rows = [labels.slice(0, 4), labels.slice(4)];
+      expect(rows[0]).toEqual(['HULL', 'ARMOR', 'ARMOR PIERCING', 'SPEED']);
+      for (const r of rows) expect(rowW(r), r.join(' · ')).toBeLessThanOrEqual(COLUMN);
+    });
+
+    it('a ladder at zero copies reads `—` in the muted label colour (Eric R2), all eight still listed', () => {
       // The I/O matrix row: 0 × SPEED dashes, 3 × PASSIVE HEALING prints III.
       open(mockOwn({ speed: 0, passiveHealing: 3 }));
-      expect(ladder()).toBe('HULLII·ARMORI·SPEED—·TURNINGIRADAR SWEEPII·RELOADIII·PASSIVE HEALINGIII');
+      expect(ladder()).toBe('HULLII·ARMORI·ARMOR PIERCING—·SPEED—TURNINGI·RADAR SWEEPII·RELOADIII·PASSIVE HEALINGIII');
       const entries = ladderEntries([]);
       expect(entries.map((e) => e.label)).toEqual([
-        'HULL', 'ARMOR', 'SPEED', 'TURNING', 'RADAR SWEEP', 'RELOAD', 'PASSIVE HEALING',
+        'HULL', 'ARMOR', 'ARMOR PIERCING', 'SPEED', 'TURNING', 'RADAR SWEEP', 'RELOAD', 'PASSIVE HEALING',
       ]);
       // Every ship ladder starts from nothing (amendment 94; ARMOR too, Story
-      // 9.7, epic-9 amendments 110–117), so all seven dash.
-      expect(entries.map((e) => e.tier)).toEqual([null, null, null, null, null, null, null]);
-      const dash = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')][2];
-      expect(dash.textContent).toBe('—');
-      expect(dash.style.color).toBe('var(--hc-text-muted)');
+      // 9.7, epic-9 amendments 110–117; ARMOR PIERCING too, Story 9.9, epic-9
+      // amendment 159), so all eight dash.
+      expect(entries.map((e) => e.tier)).toEqual([null, null, null, null, null, null, null, null]);
+      const marks = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')];
+      for (const dash of [marks[2], marks[3]]) { // ARMOR PIERCING (no copies) and SPEED (0)
+        expect(dash.textContent).toBe('—');
+        expect(dash.style.color).toBe('var(--hc-text-muted)');
+      }
     });
 
     // THE 9 PX FLOOR (amendment 43): the squares scale, the text does not. Every

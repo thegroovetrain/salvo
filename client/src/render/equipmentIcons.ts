@@ -31,7 +31,7 @@
 //
 // THREE TABLES, ONE LOOKUP. `GLYPHS` is keyed by `EquipmentId` (what a weapon
 // slot holds), `CONSUMABLE_GLYPHS` by consumable id (what a belt square holds),
-// and `LINE_GLYPHS` by the CARD LINES that are neither — the seven ship ladders
+// and `LINE_GLYPHS` by the CARD LINES that are neither — the eight ship ladders
 // and the CANNON ladder (`deckGun`, drawn as the mounted `gun`). `glyphPaths`
 // asks them in that order (consumable → equipment → line), so the hotbar and
 // the results loadout (slot-item ids) and the refit card and How-to-Play (line
@@ -449,6 +449,17 @@ const armor: GlyphPaths = [
   circle(0.6, -0.61, 0.14),
 ];
 
+/** Armor piercing — Story 9.9 (2026-10-15), Eric's pick from three rendered
+ *  candidates (epic-9 amendment 160): a SHELL SPLITTING A PLATE — a short
+ *  pointed shell nose entering a vertical plate that splits into a V at the
+ *  point. Not the torpedo (no tail fins, no wake ticks), not ARMOR's belt. */
+const armorPiercing: GlyphPaths = [
+  path([-0.95, -0.32], [-0.1, -0.32], [0.55, 0], [-0.1, 0.32], [-0.95, 0.32], [-0.95, -0.32]),
+  path([-0.55, -0.32], [-0.55, 0.32]),
+  path([0.45, -0.95], [0.45, -0.3], [0.9, -0.55]),
+  path([0.45, 0.95], [0.45, 0.3], [0.9, 0.55]),
+];
+
 /** Speed (cycle 162 DRAFT): a forward-pointing arrowhead with three motion
  *  lines trailing it — the middle one its shaft. Not BOOST's double chevron. */
 const speed: GlyphPaths = [
@@ -497,13 +508,14 @@ const passiveHealing: GlyphPaths = [path([-0.95, 0.2], [-0.5, 0.2], [-0.3, -0.7]
 
 /**
  * THE LINE half of the table (cycle 162): card lines that are NOT slot items —
- * the seven ship ladders, and the CANNON ladder `deckGun`, which draws the
+ * the eight ship ladders, and the CANNON ladder `deckGun`, which draws the
  * mounted `gun` it upgrades. Kept apart from `GLYPHS` so that table stays keyed
  * by what a weapon slot can actually hold.
  */
 const LINE_GLYPHS: Partial<Record<LineId, GlyphPaths>> = {
   hullPoints,
   armor,
+  armorPiercing,
   speed,
   turning,
   radarSweep,

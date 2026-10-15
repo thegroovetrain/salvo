@@ -94,11 +94,12 @@ import {
  * the CANNON ladder, so the family is the one line.
  */
 const LINE_NAMES: Readonly<Record<LineId, string>> = {
-  // --- the seven universal ladders -----------------------------------------
+  // --- the eight universal ladders -----------------------------------------
   // HULL, NOT `HULL POINTS` (Story 9.6, Eric 2026-10-13, epic-9 amendment 93):
   // the old ARMOR ladder's id is `hullPoints`; ARMOR is Story 9.7's id now.
   hullPoints: 'HULL',
   armor: 'ARMOR', // Story 9.7 (epic-9 amendments 110–117)
+  armorPiercing: 'ARMOR PIERCING', // Story 9.9 (epic-9 amendments 145, 159)
   speed: 'SPEED',
   turning: 'TURNING',
   radarSweep: 'RADAR SWEEP',
@@ -191,7 +192,7 @@ export function boonKindLabel(kind: string): string {
  * THE REFIT CARD'S KIND (Eric ruling 2026-09-30, epic-8 amendment 188) — what
  * the card does for the player, which is a function of the line AND the copies
  * held: copy 1 of an equipment line FITS a weapon; every later copy, and every
- * gun ladder, upgrades a weapon; the seven shipwide ladders upgrade the hull.
+ * gun ladder, upgrades a weapon; the eight shipwide ladders upgrade the hull.
  * The refit card colors its KIND word and resting edge by this (dual-coded:
  * the word carries the kind with the color stripped).
  */
@@ -207,7 +208,7 @@ const GUN_LADDER_TARGET: Readonly<Partial<Record<LineId, EquipmentId>>> = {
 };
 
 /** Pure: the card's kind. Any ladder that is not a gun ladder reads as a SHIP
- *  UPGRADE (fail-open: the seven shipwide ladders are every such line today). */
+ *  UPGRADE (fail-open: the eight shipwide ladders are every such line today). */
 export function cardKind(line: CatalogLine, copiesHeld: number): CardKind {
   if (line.kind === 'equipment') return Number.isFinite(copiesHeld) && copiesHeld >= 1 ? 'weaponUpgrade' : 'weapon';
   if (line.kind === 'ladder') return Object.hasOwn(GUN_LADDER_TARGET, line.id) ? 'weaponUpgrade' : 'shipUpgrade';
@@ -325,7 +326,7 @@ function degPerSec(radPerSec: number): string {
  * `current → next`, and the WHOLE of what a stat card's face says (R2.17).
  *
  * PARTIAL over the catalog: the five consumables are stubs and the five add-ons
- * are verbs, so neither has a number. What speaks is the seven universal
+ * are verbs, so neither has a number. What speaks is the eight universal
  * ladders, the deck-gun family, and every LIVE equipment line (its own reload,
  * generated above). Each label below is carried over verbatim from the v2 line
  * this one replaces (see the `<-` notes), except TURNING, whose word is the
@@ -335,8 +336,12 @@ const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
   ...equipmentStatLines(),
   hullPoints: { label: 'Max hull', path: 'maxHp' }, // <- shipHull
   // ARMOR (Story 9.7, Eric 2026-10-13): ONE row, the whole-number Armor —
-  // `ARMOR 0 → 1`; `num` prints an integer bare, no unit.
+  // `ARMOR 0 → 20` since Story 9.9 (+20 a card, epic-9 amendment 145); `num`
+  // prints an integer bare, no unit.
   armor: { label: 'Armor', path: 'armor' },
+  // ARMOR PIERCING (Story 9.9, epic-9 amendment 159 — mirrors ARMOR): ONE row,
+  // the whole-number piercing — `ARMOR PIERCING 0 → 20`.
+  armorPiercing: { label: 'Armor Piercing', path: 'armorPiercing' },
   speed: { label: 'Top speed', path: 'kinematics.maxSpeed' }, // <- shipSpeed
   // TURNING PRINTS IN DEGREES PER SECOND (Eric 2026-09-30, review gate P10):
   // a whole number with its unit — 0.8 rad/s reads `46°/s` — on the card face,
@@ -1123,7 +1128,8 @@ const SHIFT_HEADS: Readonly<Partial<Record<EquipmentId, (stats: EffectiveStats) 
   boost: () => ({ label: 'BOOST', cur: null, next: `+${pct(CONFIG.boost.factor)}` }),
   // HUNKER (was DAMAGE CUT until Story 9.9) adds temporary Armor (Story 9.7, epic-9 amendment 88 — the flat
   // ×0.5 factor is gone): its `armorBonus` IS on its stats row (the fold's
-  // pass-through of `CONFIG.hunker.armorBonus`), printed as `ARMOR +5`.
+  // pass-through of `CONFIG.hunker.armorBonus`), printed as `ARMOR +100`
+  // since Story 9.9 (epic-9 amendments 144, 158).
   hunker: (stats) => ({ label: 'ARMOR', cur: null, next: `+${num(stats.equipment.hunker.armorBonus)}` }),
 };
 
@@ -1173,12 +1179,14 @@ export function consumableStatRows(id: string): CardStatRow[] {
   return Object.hasOwn(CONSUMABLE_ROWS, id) ? (CONSUMABLE_ROWS[id as LineId]?.() ?? []) : [];
 }
 
-/** The seven shipwide ladders, in the order the SHIP panel prints them
+/** The eight shipwide ladders, in the order the SHIP panel prints them
  *  (PASSIVE HEALING joined last in Story 9.6, amendment 95; ARMOR right after
- *  HULL in Story 9.7, Eric 2026-10-13). */
+ *  HULL in Story 9.7, Eric 2026-10-13; ARMOR PIERCING right after ARMOR in
+ *  Story 9.9, epic-9 amendment 159). */
 const SHIP_STAT_LINES: readonly LineId[] = [
   'hullPoints',
   'armor',
+  'armorPiercing',
   'speed',
   'turning',
   'radarSweep',
@@ -1186,7 +1194,7 @@ const SHIP_STAT_LINES: readonly LineId[] = [
   'passiveHealing',
 ];
 
-/** Pure: the hull's seven stats off a LIVE fold (the HP globe's SHIP panel and a
+/** Pure: the hull's eight stats off a LIVE fold (the HP globe's SHIP panel and a
  *  ship ladder's hover) — each ladder's own `STAT_LINES` word and printer. */
 export function shipStatRows(stats: EffectiveStats): CardStatRow[] {
   const rows: CardStatRow[] = [];
@@ -1201,7 +1209,7 @@ export function shipStatRows(stats: EffectiveStats): CardStatRow[] {
 /**
  * Pure: the refit card's HOVER rows (amendment 187) — the full table of what
  * the card touches, valued on the AFTER fold (the face's tense): a weapon line
- * its weapon's table, a gun ladder its gun's, a ship ladder the seven ship
+ * its weapon's table, a gun ladder its gun's, a ship ladder the eight ship
  * stats, a consumable its `CONSUMABLE_ROWS`; a stub or an add-on none (no
  * panel). Fail-open on the class table, exactly as `cardStatRows`.
  */

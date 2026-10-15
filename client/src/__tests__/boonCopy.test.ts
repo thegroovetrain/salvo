@@ -48,14 +48,15 @@ const TB = { cls: 'torpedoBoat' as const, cards: [] as string[] };
 const rangeTxt = (v: number): string => (v % 1 === 0 ? String(v) : v.toFixed(1));
 
 describe('coverage — every catalog line has a name and a kind word', () => {
-  it('names every one of the 25 lines (never the humanized fallback)', () => {
+  it('names every one of the 26 lines (never the humanized fallback)', () => {
     // 29 until Story 8.15 CUT missile, monitor and heat seeking (amendment 89e);
     // 26 until DECK GUN TURRET and DECK GUN BARREL folded into the CANNON
     // ladder (2026-09-30, amendment 197); 24 until CHAFF left the catalog in
     // Story 9.2 (epic-9 amendment 31); 24 again since PASSIVE HEALING joined in
     // Story 9.6 (epic-9 amendment 95); 25 since ARMOR joined in Story 9.7
-    // (epic-9 amendments 110–117).
-    expect(LINE_IDS).toHaveLength(25);
+    // (epic-9 amendments 110–117); 26 since ARMOR PIERCING joined in Story 9.9
+    // (epic-9 amendments 145, 159).
+    expect(LINE_IDS).toHaveLength(26);
     for (const id of LINE_IDS) {
       const name = boonName(id);
       expect(name.length, id).toBeGreaterThan(0);
@@ -239,6 +240,9 @@ describe('the stat tables — one builder for the face and both hovers', () => {
       `DURATION ${(CONFIG.hunker.durationMs / 1000).toFixed(1)} s`,
       `RELOAD ${(CONFIG.hunker.reloadMs / 1000).toFixed(1)} s`,
     ]);
+    // HUNKER's head row reads Eric's ruled +100 (Story 9.9, epic-9 amendments
+    // 144, 158 — was +5 as DAMAGE CUT in Story 9.7).
+    expect(text(equipmentStatRows('hunker', bare))[0]).toBe('ARMOR +100');
   });
 
   it('consumableStatRows is the face\'s CONSUMABLE_ROWS, and none for a stub or a junk id', () => {
@@ -248,10 +252,11 @@ describe('the stat tables — one builder for the face and both hovers', () => {
     expect(consumableStatRows('constructor')).toEqual([]);
   });
 
-  it('shipStatRows: the seven ladders in order, uppercased words, each line\'s own printer', () => {
+  it('shipStatRows: the eight ladders in order, uppercased words, each line\'s own printer', () => {
     expect(text(shipStatRows(bare))).toEqual([
       `MAX HULL ${bare.maxHp}`,
       `ARMOR ${bare.armor}`, // Story 9.7: right after HULL (epic-9 amendments 110–117)
+      `ARMOR PIERCING ${bare.armorPiercing}`, // Story 9.9: right after ARMOR (epic-9 amendment 159)
       `TOP SPEED ${bare.kinematics.maxSpeed}`,
       `TURNING ${Math.round((bare.kinematics.turnRate * 180) / Math.PI)}°/s`, // 0.8 rad/s → 46°/s (P10)
       `RADAR SWEEP ${bare.sweepRpm} RPM`,
@@ -264,7 +269,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
     // A weapon line: its weapon's table on the after fold.
     const after = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['lightTorpedo']);
     expect(cardHoverRows(CATALOG.lightTorpedo, 0, TB)).toEqual(equipmentStatRows('lightTorpedo', after));
-    // A ship ladder: the seven ship stats after the card (MAX HULL moved).
+    // A ship ladder: the eight ship stats after the card (MAX HULL moved).
     const hulled = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['hullPoints']);
     expect(cardHoverRows(CATALOG.hullPoints, 0, TB)).toEqual(shipStatRows(hulled));
     expect(text(cardHoverRows(CATALOG.hullPoints, 0, TB))[0]).toBe(`MAX HULL ${hulled.maxHp}`);
@@ -303,7 +308,8 @@ describe('cardKind — what the card does for the player', () => {
       for (const id of ['deckGun', 'machineGun', 'flak']) {
         expect(cardKind(CATALOG[id], n), id).toBe('weaponUpgrade');
       }
-      for (const id of ['hullPoints', 'armor', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing']) {
+      // ARMOR PIERCING joined in Story 9.9 (epic-9 amendment 159).
+      for (const id of ['hullPoints', 'armor', 'armorPiercing', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing']) {
         expect(cardKind(CATALOG[id], n), id).toBe('shipUpgrade');
       }
     }
@@ -345,8 +351,9 @@ describe('cardTierLabel — the step, not the position', () => {
   it('reads every OTHER ladder and every weapon as a bare I on its first copy', () => {
     // HULL / SPEED / TURNING left the base-tier set in Story 9.6 (epic-9
     // amendment 94): five cards each, 0 → V, like PASSIVE HEALING — and ARMOR
-    // (Story 9.7, epic-9 amendments 110–117).
-    for (const id of ['hullPoints', 'armor', 'speed', 'turning', 'passiveHealing']) {
+    // (Story 9.7, epic-9 amendments 110–117) and ARMOR PIERCING (Story 9.9,
+    // epic-9 amendment 159: out of the base-tier set, Tier 0 → V like ARMOR).
+    for (const id of ['hullPoints', 'armor', 'armorPiercing', 'speed', 'turning', 'passiveHealing']) {
       expect(cardTierLabel(CATALOG[id], 0), id).toBe('I');
       expect(cardTierLabel(CATALOG[id], 1), id).toBe('I → II');
       expect(cardTierLabel(CATALOG[id], 4), id).toBe('IV → V'); // the fifth card

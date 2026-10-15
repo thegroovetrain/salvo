@@ -84,6 +84,20 @@ describe('ship upgrade tables', () => {
     expect(heal[0]).toBe('2 %/S');
     expect(heal.at(-1)).toBe('5 %/S');
   });
+
+  // ARMOR PIERCING (Story 9.9, epic-9 amendment 159): its table derives from the
+  // eighth SHIP-panel row by construction, ready for the entry Story 9.17's copy
+  // adds — base 0, then the fold's value per card, on every hull.
+  it('ARMOR PIERCING derives its table from the ARMOR PIERCING row', () => {
+    const t = shipUpgradeTable('armorPiercing');
+    expect(t.columns).toEqual(['BASE', '+1', '+2', '+3', '+4', '+5']);
+    TABLE_HULLS.forEach((cls, i) => {
+      const at = (k: number): string =>
+        String(effectiveStats(CONFIG.shipClasses[cls], Array<string>(k).fill('armorPiercing')).armorPiercing);
+      expect(t.rows[i]!.values, cls).toEqual([0, 1, 2, 3, 4, 5].map(at));
+    });
+    expect(row(t, 'SPEEDBOAT')[0]).toBe('0');
+  });
 });
 
 describe('consumable tables', () => {
