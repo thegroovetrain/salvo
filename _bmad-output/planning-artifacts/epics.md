@@ -2355,7 +2355,80 @@ So that an encounter starts with a long approach I can act on instead of a point
 **And** every ladder, camera and range pin in the tests is re-based citing the amendment, never pinning 1,500 as a literal; the perception invariants keep exactly SIX exceptions; `PROTOCOL_VERSION` bumps (the client reads the vision block); both trackers stamped
 **And** no in-game copy is added; the How-to-Play sensor entry and the GDD / EXPERIENCE.md stamps (eighths → twelfths, "two truesight diameters", "radar = sight × 2", the zoom range) are 9.12's
 
-### Story 9.9: Bot Posture Workover *(inserted 2026-10-13 — epic-9 amendment 126; lands after 9.8; the cleanup tail renumbers 9.10–9.13)*
+### Story 9.9: Armor Piercing *(inserted 2026-10-14 — `sprint-change-proposal-2026-10-14.md` §4.1; lands after 9.7 Armor and 9.8 have merged)*
+
+As a captain who buys guns,
+I want a ladder that gets through an armored hull,
+So that Armor is a choice with an answer, and the two ladders meet on one curve a player can reason about.
+
+**Eric (2026-10-14, verbatim):** *"Armor works fine as is. I want to set K to 100. I want each tiered upgrade to provide +20, and I want Damage Cut (we will rename this to Hunker) to provide +100 temporary armor. This will allow for more granularity with respect to balancing. | The Armor Penetration should work like 'Lethality' in League… the target's effective armor is calculated first (Armor − Penetration) and then the damage is multiplied by K / K+E. Armor Penetration starts at 0 and the accompanying Tiered Upgrade provides +20 each. A negative effective armor would, of course, increase the damage taken."* and, on the curve below zero: *"Lets go with the League style equation just like you shared. Its just the opposite curve."* and, on scope: *"Make it simple, apply it to all damage."*
+
+**Acceptance Criteria:**
+
+**Given** 9.7's ARMOR ladder (K = 5, +1 per card, DAMAGE CUT +5 for 10 s) has merged
+**When** the story lands
+**Then** `CONFIG.armor.k` is 100, the ARMOR ladder is +20 per card (cap 5, Tier V = 100), and DAMAGE CUT is renamed HUNKER (id, card, Shift chip, HUD, How-to-Play pointer; copy Eric's) granting +100 temporary Armor for its unchanged window — every multiplier a hull sees today is reproduced exactly (×0.5 at Tier V; ×0.5 at Tier 0 under Hunker; ×1/3 at Tier V under Hunker)
+**And** a new ship ladder ARMOR PIERCING sits right after ARMOR (seat order HULL · ARMOR · ARMOR PIERCING · SPEED · TURNING · RADAR SWEEP · RELOAD · PASSIVE HEALING), cap 5, +20 per card, Tier 0 = 0; its glyph is shown to Eric on a rendered page beside the ARMOR belt before commit; the LOADOUT ladder line's row split is his pick on the same page
+**And** the one formula in `sim/stats.ts` takes EFFECTIVE armor `E = victim Armor (ladder + Hunker while open) − attacker Armor Piercing`: `E ≥ 0 → K / (K + E)`, `E < 0 → 2 − K / (K − E)` — exact fractions, smooth through 0, bounded under ×2 (E = −100 → ×1.5); both sides call it, nothing re-derives it
+**And** every damage source the attacker owns carries their Armor Piercing — deck guns, broadside, torpedoes, mines, ram and grind, phosphor burn — through the existing server chokepoint (`armorDamage`), which now reads the attacker's stats; the storm stays exempt; PvE drones hold no cards (AP 0); amendment 119's floor-of-one and the exact burn / grind ticks are unchanged
+**And** offensive-posture bots favor ARMOR PIERCING the way defensive ones favor ARMOR (amendment 117's rule, mirrored)
+**And** the exact-ratio pins (amendment 120(a)) are re-based to K 100 by derivation, a curve test covers synthetic (armor, piercing) pairs including E = −K, the perception invariants keep SIX exceptions, `PROTOCOL_VERSION` bumps (catalog content + `CONFIG.armor` read by the client), `npm run check` is green, both trackers stamped
+**And** no in-game copy is added unasked; the HUNKER and ARMOR PIERCING How-to-Play entries are 9.17's, copy Eric's.
+
+### Story 9.10: Fog Banks *(inserted 2026-10-14 — `sprint-change-proposal-2026-10-14.md` §4.2; lands after 9.9; supersedes deferred Story 5.4 and the re-derivation epic-5 amendment 47 owed)*
+
+As a captain on a big, dark ocean,
+I want rolling banks of fog that my eyes cannot see through,
+So that I can break contact or lie in wait, and sailing into one costs me my watch for mines and torpedoes.
+
+**Eric (2026-10-14, verbatim):** *"With fog, I'm basically thinking it is sort of a haze that obscures vision (but not radar), its main function being a sort of light hide/engage/disengage but also to obscure mines to some degree. Sailing into fog would suck for mine and torpedo detection. My guess is that they would be sort of rolling fog banks that shrink and grow throughout the course of the match. It'd range somewhere between 2-8% of the map being fogged up."* · *"Visually it is similar to smoke, but it should still be distinct. Lighter greys maybe."* · *"The fog does not affect radar at all, so nothing is added to or removed from whatever the radar return would be if the fog wasn't there."*
+
+**Acceptance Criteria:**
+
+**Given** sight is a 500 u bubble (4/12) and radar a 1,500 u scope with the 9.8 dropout
+**When** the story lands
+**Then** fog banks exist as server world state (centre, radius, life), stepped in their own `STEP_ORDER` slot, deterministic from the room seed and the match clock; a bank SPAWNS, GROWS, FADES and a new one forms elsewhere, and the banks inside the live ring cover between 2 % and 8 % of the ring's water at any time (banks outside the ring die); count, size range, lifetime, growth shape and spawn-over-island / spawn-over-hull are Eric's dials at spec
+**And** fog is a SIGHT-ONLY haze for every observer, the sailor inside it included: a sight ray pays extra range for every unit of fog it crosses (one dial: sight units lost per unit of fog), so a thin edge shows a little and a deep bank shows nothing; the test is inside `perception.observe()` and so every sight-delivered thing follows by construction — hulls, mines, torpedoes, the countermeasure's sight half, and the VISIBILITY of burn / foul / lit zones (never their effects)
+**And** radar is untouched in every path: a hull inside a bank paints exactly as on open water, a bank adds no return and shadows nothing (`dropout`, `radarShadow`, `signals` unchanged); the foghorn and the storm ignore fog; bots are fogged through the same bound `observe` thunk and gain no special knowledge
+**And** a bank is seen with the eye only: the client receives the banks that overlap its sight bubble, at the distance it would see smoke or fire, and draws them as a haze distinct from the countermeasure cloud (lighter greys; Eric judges a rendered page before commit); nothing about a bank beyond sight leaves the server; the invariant tests gain a fog case and keep SIX exceptions
+**And** the ray march is pure, transcendental-free and bounded by bank count, costed at spec against the tick budget on the 16-captain ocean; `PROTOCOL_VERSION` bumps; `npm run check` green; both trackers stamped; the deferred-work 5.4 pointers and epic-5 amendment 47's owed re-derivation are stamped RESOLVED by this story
+**And** no in-game copy is added; the How-to-Play FOG entry is 9.17's, copy Eric's.
+
+### Story 9.11: Alerts on the Water and One Row *(inserted 2026-10-14 — `sprint-change-proposal-2026-10-14.md` §4.3; lands after 9.10)*
+
+As a captain reading the water,
+I want mines and hazard zones to shout WARNING instead of whispering whose they are, fire to look like fire, and the HUD bar back on one row,
+So that a threat is read in the time it takes to glance at it and the bar stops eating the bottom of the screen.
+
+**Eric (2026-10-14, verbatim):** *"We need to move back to a single row of icons, this just takes up too much vertical space. So revert back to the previous sizing and such. Just make sure there are 6 item slots instead of 4."* · *"Showing mines and hazardous zones in the player's color isn't very helpful. Firstly I want to make all mines placed about 10% larger than they are at present (just the graphic icon marking where they are). I would like mines to show up bright and noticeable. My mines that I have placed should be tinted White. Enemy mines that I have spotted should be tinted Yellow and flash Orange. These should read like alerts. Like, WARNING, MINE!"* · *"Same logic with hazardous zones. Mine should be tinted white, and others should be tinted with a sort of flashing warning orange/yellow."* · *"On the topic of phosphor burn zones, specifically, I'd like to give them a white flame effect on the water, similarly to how the ship on fire effect looks. This instead of the red circle that currently exists."*
+
+**Acceptance Criteria:**
+
+**Given** the 9.2 two-row HUD stack (globes 124), mines and zones in the owner's personal hue, and the burn zone's crimson ember disc
+**When** the story lands, every change judged by Eric on a rendered page or staging before commit
+**Then** the HUD bar is the 8.6 ONE-ROW geometry (globes 104, the weapon squares and the consumable squares on one line at the 8.6 sizes) with SIX consumable squares where the belt had four; `hudBarLayout` stays pure and is re-pinned; the results LOADOUT twin follows; option D′ (amendment 22) is superseded and DESIGN.md gains a dated stamp
+**And** every mine marker's glyph box is 10 % larger; OWN mines are tinted white; ENEMY mines sighted are tinted yellow and flash orange on an integrated, motion-gated phase under the photosensitivity ceiling (presence, position and kind are information and never gated); the dropper's-hue rule (Story 1.12) and the own-dim / enemy-bright split are retired for mines
+**And** burn, foul AND lit zones share one ring rule — own ring white, any other's ring flashing warning orange and yellow (same cadence rule as the mines); the firer's identity hue leaves the zone family; the foul zone's weed and net are unchanged
+**And** the burn zone's body is WHITE FIRE ON THE WATER built from the hull-on-fire effect's pure core (tongues seeded from the zone id so every observer sees the same fire; extent is information, flicker is motion), white for everyone — ownership reads on the ring alone; the crimson ember disc and its config are deleted
+**And** no wire change unless a frame field moves (then `PROTOCOL_VERSION` bumps); `npm run check` green; both trackers stamped; no in-game copy added.
+
+### Story 9.12: The Second Tuning Pass (Eric steers) *(inserted 2026-10-14 — `sprint-change-proposal-2026-10-14.md` §4.4; lands after 9.11)*
+
+As the designer,
+I want a second pass on the dials with Armor, Armor Piercing, fog and the twelfths ladder all in,
+So that about half the field is gone each ring cycle instead of the fights ending before they start.
+
+**Eric (2026-10-14, verbatim):** *"The game is too killy. In particular, before i tweaked the deck gun range/damage profiles, they scaled from 3 DPS at Tier I to 18ish DPS at Tier V, which is quite honestly absurd! So the balance goals are going to be to make the game a bit less killy, so that we can hit my target numbers of ~50% gone during each ring cycle a bit better."* · *"At story. I'm going to make a whole thing of it."*
+
+**Acceptance Criteria:**
+
+**Given** 9.9–9.11 landed and the 9.8 deck-gun experiment (cannon 12–18, flak 20–52 with rim falloff, MG unchanged) on staging
+**When** the story opens
+**Then** it opens with Eric's harness session (the 9.1 pattern): he sets every dial — deck-gun damage and reload ladders by HIS math, and whatever else he names — and no gun number is proposed from bot-sim evidence; the sim is used only to measure attrition per ring cycle against the ~50 % target and class share, in quick runs of ≤ 99 matches, never launched unprompted
+**And** dev-story then builds exactly his numbers (integers where he gives integers), with the evidence ledger for the cycle beside the earlier `batch-sim-evidence-*.md` files; `PROTOCOL_VERSION` bumps where the client reads a changed block; `npm run check` green; both trackers stamped
+**And** no in-game copy is added; stat tables on cards and in How-to-Play are derived and follow.
+
+### Story 9.13: Bot Posture Workover *(inserted 2026-10-13 — epic-9 amendment 126; was 9.9 until 2026-10-14 — `sprint-change-proposal-2026-10-14.md` inserted 9.9–9.12 ahead of it; lands after 9.12 unless Eric swaps the two; the cleanup tail is 9.14–9.17)*
 
 As a captain hunting bots on the big ocean,
 I want a bot to decide what to do with a contact it can see on radar but cannot yet shoot,
@@ -2368,11 +2441,11 @@ So that bots close, break off or kite like captains instead of idling at a band 
 **Given** 9.8 has landed (radar 1,500 u, guns 625–1,250 u by tier, the dropout band 1,000–1,500 u, the stopgap engagement bands as fractions of the mounted gun's `rangeU`, and the miss rule inside the dropout start)
 **When** the story opens
 **Then** it opens with a design sitting: Eric rules the posture model (engage / disengage / kite and whatever else he names) for a contact between gun reach and radar reach, per profile; no posture, trigger or number is invented by the author
-**And** every bot and PvE drone profile is re-cut on that model inside `server/src/game/ai/` (bots never import `world.js`; the whole world is the bound `observe` thunk), the `[DRAFT]` ram trigger of amendment 77 is re-read beside it, and the harness reports what each posture did (engagements opened, broken off, kited) so Eric can read it
+**And** every bot and PvE drone profile is re-cut on that model inside `server/src/game/ai/` (bots never import `world.js`; the whole world is the bound `observe` thunk), the `[DRAFT]` ram trigger of amendment 77 is re-read beside it, and the harness reports what each posture did (engagements opened, broken off, kited) so Eric can read it; the model reads ARMOR PIERCING (9.9) in the offensive favoring and a fog bank (9.10) as a place to break contact or lie in wait (2026-10-14, `sprint-change-proposal-2026-10-14.md` §4.5)
 **And** the stopgap bands of 9.8 are retired or re-ruled, the class-share and attrition readouts are taken on the shipped ocean only when Eric asks (never launched unprompted; quick runs ≤ 99 matches), and `npm run check` is green with both trackers stamped
 **And** no in-game copy is added.
 
-### Story 9.10: Test Purposefulness Audit *(was 9.5 until 2026-10-11, 9.8 until 2026-10-13, 9.9 until 2026-10-13 second)*
+### Story 9.14: Test Purposefulness Audit *(was 9.5 until 2026-10-11, 9.8 until 2026-10-13, 9.9 until 2026-10-13 second, 9.10 until 2026-10-14)*
 
 As the next developer to change a function,
 I want every test in the suite to guard a contract of the thing it tests,
@@ -2388,7 +2461,7 @@ So that a test fails only when the behavior it names is broken, never because a 
 **And** an audit record (`test-audit-<date>.md` in implementation-artifacts) lists per workspace: tests before, kept, rewritten, deleted, and the reason class for each deletion; the pinned invariants that protect the architecture (perception exceptions, `applyDamage` as the only hp write, bots never importing `world.js`, map determinism, `effectiveStats()` parity) are named as KEPT contracts
 **And** no production code changes in this story (a bug a test exposes is a separate quiet fix or a ledger entry with Eric's call); `npm run check` green; lint complexity unchanged; both trackers stamped.
 
-### Story 9.11: Smoke Flakes Fixed *(was 9.6 until 2026-10-11, 9.9 until 2026-10-13, 9.10 until 2026-10-13 second)*
+### Story 9.15: Smoke Flakes Fixed *(was 9.6 until 2026-10-11, 9.9 until 2026-10-13, 9.10 until 2026-10-13 second, 9.11 until 2026-10-14)*
 
 As the person running the gate,
 I want matchSmoke and weaponsSmoke to pass or fail on what they claim to test,
@@ -2402,7 +2475,7 @@ So that a flake is never "ledgered as awareness" again (the Epic 7 "flake is P1"
 **And** three consecutive clean first-try runs on a quiet box are recorded in the spec; the ledger's flake entries are stamped RESOLVED with the run log
 **And** the smokes stay dev-option-gated (`HC_DEV_OPTIONS=1`), boot their own server where they already do, and kill only their own PID; both trackers stamped.
 
-### Story 9.12: Harness and Ledger Hygiene *(was 9.7 until 2026-10-11, 9.10 until 2026-10-13, 9.11 until 2026-10-13 second)*
+### Story 9.16: Harness and Ledger Hygiene *(was 9.7 until 2026-10-11, 9.10 until 2026-10-13, 9.11 until 2026-10-13 second, 9.12 until 2026-10-14)*
 
 As the next agent to open the harness report or the deferred-work ledger,
 I want both to say only what is still true,
@@ -2417,7 +2490,7 @@ So that I do not re-derive 168 open threads or read a PASS/FAIL bar that measure
 **And** the 12 follow-up-review flags are each either run (a review gate on the story's landed code, findings into the ledger or quiet fixes) or dropped by Eric's ruling, and the spec template loses the flag if he rules it dead
 **And** the `shared/src/index.ts` barrel comment that still names `sim/deck.ts` as the engine is corrected; no gameplay change; both trackers stamped.
 
-### Story 9.13: How-to-Play and Record *(was 9.8 until 2026-10-11, 9.11 until 2026-10-13, 9.12 until 2026-10-13 second)*
+### Story 9.17: How-to-Play and Record *(was 9.8 until 2026-10-11, 9.11 until 2026-10-13, 9.12 until 2026-10-13 second, 9.13 until 2026-10-14)*
 
 As a new captain reading How-to-Play,
 I want every item in the game described there in Eric's words,
@@ -2425,10 +2498,10 @@ So that nothing I can draw is a mystery.
 
 **Acceptance Criteria:**
 
-**Given** Stories 9.1–9.11 landed
+**Given** Stories 9.1–9.15 landed
 **When** the record closes
-**Then** How-to-Play gains an entry for each new item (MULTI-SPECTRAL COUNTERMEASURE, FOULING SHELL, PASSIVE HEALING, ramming and grounding, the fixed key row, DEPTH CHARGE if built) with Eric's copy and a derived stat table, and loses SMOKE SCREEN, CHAFF and FLASH SHELLS; the two entries already owed — private lobbies (amendment 235) and drone drops (226g) — land in the same pass, copy Eric's
-**And** the GDD's Development Epics table and the mechanics sections 9.1–9.8 changed carry dated supersession stamps, never rewrites (the amendment-89(k) pattern; incl. the eighths → twelfths ladder, "two truesight diameters", "radar = sight × 2", the 0.5×–1.5× zoom range and EXPERIENCE.md's ladder lines — 2026-10-13, `sprint-change-proposal-2026-10-13-twelfths-ladder.md`); `catalog-v3.md` gains the new lines and the three retirements as a dated addendum; `game-architecture.md` gains a dated notice for the smoke-occluder and chaff-fakes patterns
+**Then** How-to-Play gains an entry for each new item (MULTI-SPECTRAL COUNTERMEASURE, FOULING SHELL, PASSIVE HEALING, ARMOR, ARMOR PIERCING, FOG BANKS, ramming and grounding, the fixed key row; HUNKER replaces DAMAGE CUT in the Battleship entry; a note that mines and zones read white for yours and warning orange-yellow for theirs — 2026-10-14, `sprint-change-proposal-2026-10-14.md` §4.5) with Eric's copy and a derived stat table, and loses SMOKE SCREEN, CHAFF and FLASH SHELLS; the two entries already owed — private lobbies (amendment 235) and drone drops (226g) — land in the same pass, copy Eric's
+**And** the GDD's Development Epics table and the mechanics sections 9.1–9.12 changed carry dated supersession stamps, never rewrites (the amendment-89(k) pattern; incl. the fog-bank sentences in the GDD Arena section, FR28 and EXPERIENCE.md's fog reads, K = 5 / +1 / +5 → K = 100 / +20 / +100, DESIGN.md's D′ bar — 2026-10-14; incl. the eighths → twelfths ladder, "two truesight diameters", "radar = sight × 2", the 0.5×–1.5× zoom range and EXPERIENCE.md's ladder lines — 2026-10-13, `sprint-change-proposal-2026-10-13-twelfths-ladder.md`); `catalog-v3.md` gains the new lines and the three retirements as a dated addendum; `game-architecture.md` gains a dated notice for the smoke-occluder and chaff-fakes patterns
 **And** `epic-9-context-amendments.md` holds every ruling; the epic-9 retrospective is scheduled; both trackers stamped with one line each; no in-game copy is added unasked.
 
 ## Epic 10: The Account *(GDD E10 — was Epic 9 / E9 until the 2026-10-06 Sprint Change Proposal inserted Epic 9 Tune and Clean; stories 9.N → 10.N, text unchanged; re-cut 2026-09-21 — no decks)*
