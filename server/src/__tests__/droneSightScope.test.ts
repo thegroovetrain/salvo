@@ -149,3 +149,85 @@ describe('drone sight scope — being shot is not a sight scan', () => {
     expect(w.drones.probe.hullPairs).toBe(0);
   });
 });
+
+// ---------- Story 9.10: PvE drones are FOGGED by the same rule (amendment 168) ----
+//
+// `shipSees` — the drones' one eye (target refresh, the witness rule, the
+// shot test) — now pays the fog toll through the same `withinSight` a
+// captain's contact row uses, so a drone loses what fog hides. Being SHOT is
+// still not sight (amendment 139): the shot-from chase acquires and turns
+// the drone with the bank in place; it simply cannot refresh or fire on a
+// target it cannot see, and forgets it once `memoryMs` runs out.
+
+/** A mature bank (scale 1, its whole hold ahead) through the test seam. */
+function matureBank(w: World, id: string, x: number, y: number, R: number): void {
+  const bornAt = w.now - CONFIG.fog.growMs - 1000;
+  w.seedFogBank({ id, x, y, R, bornAt, until: bornAt + CONFIG.fog.lifeMs });
+}
+
+describe('drone sight scope — fog banks blind a drone exactly as they blind a captain (Story 9.10, amendment 168)', () => {
+  const MEMORY_TICKS = Math.ceil(CONFIG.fleet.memoryMs / CONFIG.tick.simDtMs) + 2;
+  // The captain sits at 450 u (inside the 500 u sight) in the CENTRE of a
+  // mature R 400 bank: the drone's ray pays 2 × its length inside the disc,
+  // so the target stays hidden until the drone is within ~200 u — farther
+  // than 40 u/s carries it inside the 3 s memory window.
+  const CAP_X = 450;
+
+  function arena(seed: number, fogged: boolean): { w: World; d: ShipRecord; g: ShipRecord } {
+    const w = bareWorld(seed);
+    const d = fleetShip(w, 'f', 'medium', 0, 0);
+    d.state.heading = Math.PI / 2; // broadside-on to the shooter
+    // A would-be witness in the same fleet, 200 u astern — outside the bank
+    // (its ray to f never enters the disc), its ray to the captain ~492 u
+    // long with ~400 u of it inside the bank, and far enough off f that hull
+    // avoidance does not lean on f's turn.
+    const g = fleetShip(w, 'g', 'medium', 0, -200);
+    captain(w, 'cap', CAP_X, 0);
+    if (fogged) matureBank(w, 'bank', CAP_X, 0, 400);
+    return { w, d, g };
+  }
+
+  it('shot from inside a bank: the drone acquires the shooter and turns onto its bearing (shot-from aggro is untouched)...', () => {
+    const { w, d } = arena(21, true);
+    shellHit(w, d, 'cap');
+    expect(w.drones.targetOf('f')).toBe('cap');
+    const err0 = Math.abs(angleDiff(d.state.heading, bearing(d.state, { x: CAP_X, y: 0 })));
+    for (let t = 0; t < 55; t++) w.step(); // 2.75 s, inside the 3 s memory (the 1,500 u case's window)
+    const err1 = Math.abs(angleDiff(d.state.heading, bearing(d.state, { x: CAP_X, y: 0 })));
+    expect(err0).toBeGreaterThan(1.5);
+    expect(err1).toBeLessThan(0.25);
+  });
+
+  it('...but never FIRES at it and FORGETS it once memory runs out — while the same drone with the bank gone fires and keeps the target', () => {
+    const shotsBy = (w: World, id: string): number => [...w.shells.values()].filter((s) => s.ownerId === id).length;
+    const fogged = arena(23, true);
+    shellHit(fogged.w, fogged.d, 'cap');
+    let fired = 0;
+    for (let t = 0; t < MEMORY_TICKS; t++) {
+      fogged.w.step();
+      fired += shotsBy(fogged.w, 'f');
+    }
+    expect(fired).toBe(0);
+    expect(fogged.w.drones.targetOf('f')).toBeNull(); // forgotten: no refresh through the fog
+
+    const clear = arena(23, false);
+    shellHit(clear.w, clear.d, 'cap');
+    let firedClear = 0;
+    for (let t = 0; t < MEMORY_TICKS; t++) {
+      clear.w.step();
+      firedClear += shotsBy(clear.w, 'f');
+    }
+    expect(firedClear).toBeGreaterThan(0);
+    expect(clear.w.drones.targetOf('f')).toBe('cap'); // refreshed every tick it was seen
+  });
+
+  it('the witness rule is fogged too: a fleet-mate that cannot see the shooter through the bank does not join; with the bank gone it does', () => {
+    const fogged = arena(25, true);
+    shellHit(fogged.w, fogged.d, 'cap');
+    expect(fogged.w.drones.targetOf('g')).toBeNull();
+
+    const clear = arena(25, false);
+    shellHit(clear.w, clear.d, 'cap');
+    expect(clear.w.drones.targetOf('g')).toBe('cap');
+  });
+});

@@ -231,23 +231,26 @@ function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
  * (unit tests, sandbox smokes) — the room always passes its live phase.
  */
 /**
- * The five OPTIONAL contact-like channels, on one rule for both frame paths:
+ * The six OPTIONAL contact-like channels, on one rule for both frame paths:
  * each is OMITTED (not an empty array) when this observer sees none, so
- * zone-free / decoy-free / cloud-free frames stay byte-identical to pre-1.7
- * frames. WIRE ORDER (key insertion, load-bearing for msgpack): `litZones`
- * (Story 1.7), `burnZones` (Story 8.17 — the PHOSPHOR burning zone on the lit
- * zone's gate), `foulZones` (Story 9.4 — the FOULING SHELL foul zone on the
- * burn zone's gate, `{id,x,y,r,until,by}` each), `decoys` (Story 8.16), then
- * `clouds` (Story 9.3 — the MULTI-SPECTRAL COUNTERMEASURE clouds,
- * `{id,x,y,t0}` each; 8.18's `smoke` seat).
+ * zone-free / decoy-free / cloud-free / fog-free frames stay byte-identical
+ * to pre-1.7 frames. WIRE ORDER (key insertion, load-bearing for msgpack):
+ * `litZones` (Story 1.7), `burnZones` (Story 8.17 — the PHOSPHOR burning
+ * zone on the lit zone's gate), `foulZones` (Story 9.4 — the FOULING SHELL
+ * foul zone on the burn zone's gate, `{id,x,y,r,until,by}` each), `decoys`
+ * (Story 8.16), `clouds` (Story 9.3 — the MULTI-SPECTRAL COUNTERMEASURE
+ * clouds, `{id,x,y,t0}` each; 8.18's `smoke` seat), then `fog` (Story 9.10
+ * — the FOG BANKS inside the 750 u halo, `{id,x,y,r,d}` each; the seventh
+ * declared exception, amendment 162).
  */
-function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'foulZones' | 'decoys' | 'clouds'> {
+function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'foulZones' | 'decoys' | 'clouds' | 'fog'> {
   return {
     ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
     ...(view.burnZones.length > 0 ? { burnZones: view.burnZones } : {}),
     ...(view.foulZones.length > 0 ? { foulZones: view.foulZones } : {}),
     ...(view.decoys.length > 0 ? { decoys: view.decoys } : {}),
     ...(view.clouds.length > 0 ? { clouds: view.clouds } : {}),
+    ...(view.fog.length > 0 ? { fog: view.fog } : {}),
   };
 }
 
