@@ -50,10 +50,12 @@
 //   - THE EQUIPMENT RELOAD STEP, catalog-v3 §3/§4: −5 % per tier, additive
 //     five-point steps, composed BEFORE the global Reload ladder;
 //   - ARMOR (Story 9.7, epic-9 amendments 86–88): `armor` floored to a whole
-//     number ≥ 0, and `damageMultiplier = K / (K + armor)` (K =
-//     CONFIG.armor.k) derived from it through `damageMultiplierFor` — the ONE
-//     formula, which the server's damage gate also calls for the HUNKER's (was DAMAGE CUT until Story 9.9)
-//     `armor + armorBonus` case. Re-pinned in BOTH re-pin homes.
+//     number ≥ 0, and `damageMultiplier = damageMultiplierFor(armor)` (K =
+//     CONFIG.armor.k) derived from it — the ONE curve, which the server's
+//     damage gate also calls with the full effective armor
+//     `armor + HUNKER bonus − attacker armorPiercing` (Story 9.9, epic-9
+//     amendments 144–146). Re-pinned in BOTH re-pin homes. `armorPiercing`
+//     (Story 9.9) is floored the same way and derives nothing.
 //
 // `cooldownScale` (Eric ruling 2026-08-04, retuned by catalog-v3 R12) is the
 // ONE global cooldown lever: a base-1.0 scalar the universal RELOAD ladder
@@ -305,11 +307,17 @@ export interface EffectiveStats {
   // (clampStats). Base 1.0 = a true no-op; the RELOAD ladder drives it down
   // additively (−0.05/copy) to exactly 0.75 at the 5-copy cap.
   cooldownScale: number;
-  // ARMOR (Story 9.7, epic-9 amendments 86–88): 0 at base, +1 per ARMOR card,
-  // a whole number. `damageMultiplier` is DERIVED from it in clampStats as
-  // K / (K + armor) (1 at base, 0.5 at Tier V) — never stat-addressable.
+  // ARMOR (Story 9.7, epic-9 amendments 86–88): 0 at base, +20 per ARMOR card
+  // since Story 9.9 (amendment 144), a whole number. `damageMultiplier` is
+  // DERIVED from it in clampStats as damageMultiplierFor(armor) (1 at base,
+  // 0.5 at Tier V) — never stat-addressable, and VICTIM-ONLY (amendment
+  // 120(e)): the attacker's piercing enters only at the server's gate.
   armor: number;
   damageMultiplier: number;
+  // ARMOR PIERCING (Story 9.9, Eric 2026-10-14/15, epic-9 amendments
+  // 144–146): 0 at base, +20 per card, a whole number. The ATTACKER's stat:
+  // the gate subtracts it from the victim's effective Armor.
+  armorPiercing: number;
   // OUT-OF-COMBAT REGEN, per hull (Story 9.6, epic-9 amendments 90–91): base
   // CONFIG.regen; the PASSIVE HEALING ladder raises the rate (+0.006/copy) and
   // shortens the wait (−1000 ms/copy). Server and client read it here — never
@@ -627,6 +635,7 @@ function baseStats(cls: ShipClass): EffectiveStats {
     cooldownScale: 1, // base: the global cooldown scale is a no-op until RELOAD stacks
     armor: 0, // base: no Armor until the ARMOR ladder stacks (amendment 86)
     damageMultiplier: 1, // DERIVED — K / (K + 0)
+    armorPiercing: 0, // base: no Armor Piercing until the ladder stacks (amendment 145)
     // A COPY of CONFIG.regen (never an alias — the fold mutates this tree).
     regen: { missingPctPerS: CONFIG.regen.missingPctPerS, outOfCombatMs: CONFIG.regen.outOfCombatMs },
     equipment: baseEquipment(cls),
@@ -640,30 +649,54 @@ const round3 = (v: number): number => Math.round(v * 1000) / 1000;
 
 /**
  * THE ARMOR DAMAGE MULTIPLIER (Story 9.7, Eric 2026-10-13, epic-9 amendments
- * 86–88): `K / (K + armor)`, K = CONFIG.armor.k — the EXACT ratio, never
- * rounded (review gate 2026-10-13, epic-9 amendment 120(a)): 5/6, 5/7 … 1/2
- * at Tiers I–V, 1/3 at Armor 10 (Tier V under the HUNKER). A rounded
- * multiplier (0.833 for 5/6) floored every blow whose exact product is whole
- * a point low (an MG shell 6 at Armor 1 dealt 4, not 5); round only where a
- * number is PRINTED. Both sides compute the identical IEEE double from the
- * same integers, so the value stays deterministic. The ONE formula:
- * clampStats derives `stats.damageMultiplier` through it and the server's
- * damage gate calls it for `armor + hunker.armorBonus` inside the cut's
- * window.
+ * 86–88; two branches since Story 9.9, Eric 2026-10-14/15, amendments
+ * 144–146) — THE ONE CURVE, on EFFECTIVE armor E, which MAY BE NEGATIVE:
  *
- * NON-FINITE OR NEGATIVE ARMOR READS AS 0 (the clampSpreadRung law): a NaN
- * must never poison the gate — it yields ×1, never NaN damage.
+ *   E ≥ 0  →  K / (K + E)          (×1 at 0, ×0.5 at 100, ×1/3 at 200)
+ *   E < 0  →  2 − K / (K − E)      (×7/6 at −20, ×1.5 at −100, → 2 never reached)
+ *
+ * K = CONFIG.armor.k (100). Eric (amendment 146): *"the League style
+ * equation ... Its just the opposite curve"* — the negative branch mirrors
+ * the positive one through ×1, so the curve is smooth through 0 (both
+ * branches are 1 there with slope −1/K) and bounded strictly under ×2 for
+ * every finite E. There is NO floor at E = 0 and raw K / (K + E) is never
+ * used below zero (it would blow up at E = −K) — both rejected, amendment 146.
+ *
+ * The EXACT fractions, never rounded (review gate 2026-10-13, epic-9
+ * amendment 120(a)): a rounded multiplier floored every blow whose exact
+ * product is whole a point low; round only where a number is PRINTED. For
+ * the same reason the negative branch is COMPUTED as the one fraction
+ * `(K − 2E) / (K − E)` — algebraically identical to `2 − K / (K − E)`, but a
+ * single correctly-rounded division: the subtraction form lands 7/6 a hair
+ * low (12 × it = 13.999…, floored to 13, not Eric's 14). Both sides compute
+ * the identical IEEE double from the same integers, so the value stays
+ * deterministic.
+ *
+ * TWO CALLERS, one curve: clampStats derives `stats.damageMultiplier =
+ * damageMultiplierFor(stats.armor)` — the VICTIM-ONLY published number
+ * (amendment 120(e)), never E — and the server's damage gate calls it with
+ * `victim.armor + hunkerBonus − attacker.armorPiercing` (the attacker read
+ * live at impact, amendment 156).
+ *
+ * NON-FINITE E READS AS ×1 (the clampSpreadRung law): a NaN must never poison
+ * the gate — it yields ×1, never NaN damage.
  */
-export function damageMultiplierFor(armor: number): number {
-  const a = Number.isFinite(armor) ? Math.max(0, armor) : 0;
-  return CONFIG.armor.k / (CONFIG.armor.k + a);
+export function damageMultiplierFor(effectiveArmor: number): number {
+  if (!Number.isFinite(effectiveArmor)) return 1;
+  const k = CONFIG.armor.k;
+  // E < 0: 2 − K/(K − E), written as the one fraction (K − 2E)/(K − E).
+  return effectiveArmor >= 0 ? k / (k + effectiveArmor) : (k - 2 * effectiveArmor) / (k - effectiveArmor);
 }
 
-/** The ARMOR pair's post-fold clamp: Armor is authored in whole numbers, so it
- *  is floored at 0 and to an integer (the EQUIPMENT_INT_FIELDS rule; a
- *  non-finite value reads 0), then the multiplier is derived from it. */
+/** A whole number ≥ 0 (non-finite → 0): the EQUIPMENT_INT_FIELDS rule. */
+const wholeNonNegative = (v: number): number => (Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0);
+
+/** The ARMOR trio's post-fold clamp: Armor and Armor Piercing are authored in
+ *  whole numbers, so each is floored at 0 and to an integer, then the
+ *  victim-only multiplier is derived from Armor alone (amendment 120(e)). */
 function clampArmor(stats: EffectiveStats): void {
-  stats.armor = Number.isFinite(stats.armor) ? Math.max(0, Math.floor(stats.armor)) : 0;
+  stats.armor = wholeNonNegative(stats.armor);
+  stats.armorPiercing = wholeNonNegative(stats.armorPiercing);
   stats.damageMultiplier = damageMultiplierFor(stats.armor);
 }
 

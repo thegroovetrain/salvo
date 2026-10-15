@@ -93,6 +93,7 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   // epic-9 amendments 27–29, 90–91).
   hullPoints: { cap: 5, kind: 'ladder', stub: false },
   armor: { cap: 5, kind: 'ladder', stub: false }, // NEW in Story 9.7 (epic-9 amendments 86–88)
+  armorPiercing: { cap: 5, kind: 'ladder', stub: false }, // NEW in Story 9.9 (epic-9 amendments 144–145)
   speed: { cap: 5, kind: 'ladder', stub: false },
   turning: { cap: 5, kind: 'ladder', stub: false },
   radarSweep: { cap: 5, kind: 'ladder', stub: false },
@@ -137,15 +138,16 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
 const STUB_IDS: readonly LineId[] = ['depthCharge'];
 
 describe('catalog v3 identity', () => {
-  it('ships 25 lines in the ruled order, keyed by id', () => {
+  it('ships 26 lines in the ruled order, keyed by id', () => {
     // 23 -> 24 in Story 9.6 (amendment 90: PASSIVE HEALING); 24 -> 25 in Story
-    // 9.7 (epic-9 amendments 86–88 / 110–117: ARMOR).
-    expect(LINE_IDS.length).toBe(25);
+    // 9.7 (epic-9 amendments 86–88 / 110–117: ARMOR); 25 -> 26 in Story 9.9
+    // (epic-9 amendments 144–145: ARMOR PIERCING).
+    expect(LINE_IDS.length).toBe(26);
     expect(Object.keys(CATALOG)).toEqual([...LINE_IDS]);
     for (const id of LINE_IDS) expect(CATALOG[id].id).toBe(id);
   });
 
-  it('matches the sheet line for line (cap, kind, stub) and sums to 122 cards', () => {
+  it('matches the sheet line for line (cap, kind, stub) and sums to 127 cards', () => {
     for (const id of LINE_IDS) {
       const line = CATALOG[id];
       expect({ cap: line.cap, kind: line.kind, stub: line.stub === true }).toEqual(SHEET[id]);
@@ -156,12 +158,13 @@ describe('catalog v3 identity', () => {
     // 109 in Story 9.2: CHAFF (5) retired (epic-9 amendment 31). 109 -> 117
     // in Story 9.6 (amendments 90–91): HULL +1, SPEED +1, TURNING +1, PASSIVE
     // HEALING +5. 117 -> 122 in Story 9.7 (epic-9 amendments 86–88 /
-    // 110–117): ARMOR +5.
-    expect(catalogCardCount()).toBe(122);
-    // Seven universal ladders, 35 cards (Story 9.7).
+    // 110–117): ARMOR +5. 122 -> 127 in Story 9.9 (epic-9 amendments
+    // 144–145): ARMOR PIERCING +5.
+    expect(catalogCardCount()).toBe(127);
+    // Eight universal ladders, 40 cards (Story 9.9).
     const universal = LINE_IDS.filter((id) => CATALOG[id].kind === 'ladder' && tierTargetOf(CATALOG[id]) === undefined);
-    expect(universal).toHaveLength(7);
-    expect(universal.reduce((n, id) => n + CATALOG[id].cap, 0)).toBe(35);
+    expect(universal).toHaveLength(8);
+    expect(universal.reduce((n, id) => n + CATALOG[id].cap, 0)).toBe(40);
   });
 
   it('resolves NO deleted one-off gun id (Eric 2026-09-30) — a dead id on the wire is dropped', () => {
@@ -452,12 +455,24 @@ describe('catalog v3 identity', () => {
     expect(LINE_IDS.indexOf('armor')).toBe(LINE_IDS.indexOf('hullPoints') + 1);
   });
 
-  it('authors ARMOR as five identical rungs of +1 Armor — no hull, no heal (Story 9.7, epic-9 amendments 86–88)', () => {
+  it('authors ARMOR as five identical rungs of +20 Armor — no hull, no heal (Story 9.7, rescaled by epic-9 amendment 144)', () => {
     const line = CATALOG.armor;
     expect(tierTargetOf(line)).toBeUndefined();
     expect(line.healOnGrant).toBeUndefined();
     expect(line.tiers).toHaveLength(5);
-    for (const tier of line.tiers) expect(tier).toEqual([{ kind: 'stat', path: 'armor', add: 1 }]);
+    for (const tier of line.tiers) expect(tier).toEqual([{ kind: 'stat', path: 'armor', add: 20 }]);
+  });
+
+  it('seats ARMOR PIERCING directly after ARMOR (Story 9.9, epic-9 amendment 145)', () => {
+    expect(LINE_IDS.indexOf('armorPiercing')).toBe(LINE_IDS.indexOf('armor') + 1);
+  });
+
+  it('authors ARMOR PIERCING as five identical rungs of +20 Armor Piercing — universal, no heal (Story 9.9, epic-9 amendments 144–145)', () => {
+    const line = CATALOG.armorPiercing;
+    expect(tierTargetOf(line)).toBeUndefined();
+    expect(line.healOnGrant).toBeUndefined();
+    expect(line.tiers).toHaveLength(5);
+    for (const tier of line.tiers) expect(tier).toEqual([{ kind: 'stat', path: 'armorPiercing', add: 20 }]);
   });
 
   it('authors PASSIVE HEALING as five identical rungs of +0.006 rate and −1000 ms wait (Story 9.6, amendment 91)', () => {

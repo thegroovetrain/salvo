@@ -1615,19 +1615,22 @@ export const CONFIG = {
   },
 
   /**
-   * ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88) — the second
-   * toughness axis, distinct from HULL POINTS. Every incoming blow but the
-   * storm is multiplied by `K / (K + armor)` before the shield absorbs it
+   * ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88; rescaled by
+   * Story 9.9, epic-9 amendment 144) — the second toughness axis, distinct
+   * from HULL POINTS. Every incoming blow but the storm is multiplied by the
+   * ONE curve on EFFECTIVE armor E = victim Armor (+ the HUNKER's bonus while
+   * open) − the attacker's ARMOR PIERCING: `K / (K + E)` for E ≥ 0,
+   * `2 − K / (K − E)` for E < 0 (amendment 146), before the shield absorbs it
    * (blows floored, burn/grind ticks exact — amendment 87). Armor is 0 at
-   * base; the ARMOR ladder (sim/catalog.ts, cap 5) adds +1 per card, authored
+   * base; the ARMOR ladder (sim/catalog.ts, cap 5) adds +20 per card, authored
    * LITERALLY in the catalog like every ladder step (a catalog step read from
-   * CONFIG at module load could never see a harness `--tune`). Eric: *"Setting
-   * K to 5, this means every 5 armor provides 100% more effective HP"* — ×1 at
-   * Tier 0, ×0.5 at Tier V. `k` is Eric's dial; effectiveStats derives
+   * CONFIG at module load could never see a harness `--tune`). K 5 → 100 with
+   * the step +1 → +20 preserves every 9.7 ratio (amendment 144): Armor 100 =
+   * ×0.5 at Tier V, ×1 at Tier 0. `k` is Eric's dial; effectiveStats derives
    * `damageMultiplier` through sim/stats.ts `damageMultiplierFor`, never here.
    */
   armor: {
-    k: 5, // the K in K / (K + armor) (amendment 86)
+    k: 100, // the K in K / (K + E) (amendment 86; 5 → 100 by amendment 144 — every 9.7 ratio preserved: Armor 100 = ×0.5)
   },
 
   /**
@@ -1636,14 +1639,14 @@ export const CONFIG = {
    * amendment 88). An instant activation, aimed at nothing, that opens a
    * `durationMs` window during which the hull carries `armorBonus` TEMPORARY
    * ARMOR on top of its ARMOR ladder — it stacks additively inside the one
-   * formula (Tier 0 under the cut is Armor 5 = ×0.5, Tier V is Armor 10 =
-   * ×1/3). The flat ×0.5 `factor` is DELETED (amendment 88 supersedes epic-8
+   * formula (Tier 0 under the HUNKER is Armor 100 = ×0.5, Tier V is Armor 200
+   * = ×1/3 — amendment 144's rescale of 9.7's 5 / 10). The flat ×0.5 `factor` is DELETED (amendment 88 supersedes epic-8
    * 89(c) and 99's 8 s window). Storm bites land in full (amendment 87). One
    * charge on a 30 s cooldown; `reloadMs` takes `cooldownScale` like every row
    * (22.5 s at a maxed RELOAD ladder).
    */
   hunker: {
-    armorBonus: 5, // temporary Armor while the window is open (epic-9 amendment 88)
+    armorBonus: 100, // temporary Armor while the window is open (epic-9 amendment 88; 5 → 100 by amendment 144)
     durationMs: 10000, // ms — the active window (epic-9 amendment 88; was 8000, epic-8 amendment 99)
     maxAmmo: 1, // single charge (amendment 99)
     reloadMs: 30000, // ms — cooldown (amendment 99, confirmed by epic-9 amendment 88)

@@ -451,7 +451,11 @@ describe('shared barrel', () => {
     // tiered range dials read by the client through the fold, the foghorn
     // band enum 1..12 and the server-side radar dropout (sim/dropout.ts).
     // Nothing new on the wire; the exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(83);
+    // 83 -> 84 (Story 9.9 ARMOR PIERCING, Eric 2026-10-14/15, epic-9
+    // amendments 144-147): K 100, ARMOR +20/card, HUNKER +100 (catalog content
+    // + CONFIG read by the client through the fold), the new armorPiercing
+    // ladder, and the OwnShip.hunkerUntil rename. The exception count stays SIX.
+    expect(PROTOCOL_VERSION).toBe(84);
     for (const fn of [shared.dropoutPaintP, shared.dropoutRoll, shared.dropoutPaints]) {
       expect(typeof fn).toBe('function');
     }
@@ -1057,9 +1061,11 @@ describe('shared barrel', () => {
     // 23/109 -> 24/117 in Story 9.6 (epic-9 amendments 90–91): HULL/SPEED/
     // TURNING cap 5, PASSIVE HEALING added. 24/117 -> 25/122 in Story 9.7
     // (epic-9 amendments 86–88 / 110–117): the new ARMOR ladder (cap 5).
-    expect(LINE_IDS).toHaveLength(25);
-    expect(Object.keys(CATALOG)).toHaveLength(25);
-    expect(catalogCardCount()).toBe(122);
+    // 25/122 -> 26/127 in Story 9.9 (epic-9 amendments 144–145): the new
+    // ARMOR PIERCING ladder (cap 5).
+    expect(LINE_IDS).toHaveLength(26);
+    expect(Object.keys(CATALOG)).toHaveLength(26);
+    expect(catalogCardCount()).toBe(127);
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0); // still EMPTY (amendment 30 satisfied data-side)
     expect(Object.isFrozen(CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);
@@ -1223,10 +1229,11 @@ describe('shared barrel', () => {
       edgeFalloff: 10, // D at the centre, D − 10 at the rim (Eric 2026-10-13, flak only)
     });
     expect(CONFIG.instantReload).toEqual({ maxAmmo: 1, reloadMs: 60000 }); // 60 s (Eric 2026-10-02, amendment 232; was 45 s)
-    // Story 9.7 (epic-9 amendments 86–88 / 110–117): the cut is +5 temporary
-    // Armor for 10 s; the flat factor is DELETED, not kept beside it.
-    expect(CONFIG.hunker).toEqual({ armorBonus: 5, durationMs: 10000, maxAmmo: 1, reloadMs: 30000 });
-    expect(CONFIG.armor).toEqual({ k: 5 });
+    // Story 9.7 (epic-9 amendments 86–88 / 110–117): the HUNKER is temporary
+    // Armor for 10 s; the flat factor is DELETED, not kept beside it. Story 9.9
+    // (epic-9 amendment 144): K 5 -> 100 and the bonus 5 -> 100 (×0.5 kept).
+    expect(CONFIG.hunker).toEqual({ armorBonus: 100, durationMs: 10000, maxAmmo: 1, reloadMs: 30000 });
+    expect(CONFIG.armor).toEqual({ k: 100 });
     expect(typeof damageMultiplierFor).toBe('function');
     // Both pickable guns carry their own range dials since Story 9.8 (ruling
     // 125) — no longer the radar rung.

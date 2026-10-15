@@ -3,6 +3,9 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  84 — Story 9.9 Armor Piercing: K 100, ARMOR +20/card, HUNKER +100 (was
+ *  DAMAGE CUT, id renamed), new ARMOR PIERCING ladder (catalog content),
+ *  OwnShip.hunkerUntil wire field renamed (epic-9 amendments 144–147).
  *  83 — Story 9.8 staging (Eric 2026-10-14, epic-9 amendment 141): the
  *  MULTI-SPECTRAL CM cloud is 150 → 300 u (was 200 → 500) — `CONFIG.countermeasure`
  *  is read by the client to derive the cloud from the wire {id,x,y,t0}, so a
@@ -861,7 +864,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 83;
+export const PROTOCOL_VERSION = 84;
 
 // Tunables
 export * from './constants.js';

@@ -206,8 +206,14 @@ describe('eligibleLines — the whole eligibility law', () => {
     expect(ladderHost(CATALOG.machineGun)).toBe('machineGun');
     expect(ladderHost(CATALOG.flak)).toBe('flak');
     expect(ladderHost(CATALOG.deckGun)).toBe('gun');
-    for (const id of ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'] as const) {
+    for (const id of ['hullPoints', 'armor', 'armorPiercing', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'] as const) {
       expect(ladderHost(CATALOG[id]), id).toBeUndefined(); // universal
+      // ...and so eligible on every seat, whatever gun it mounts (Story 9.9,
+      // epic-9 amendment 145: the draw covers ARMOR PIERCING like ARMOR).
+      for (const gun of GUN_IDS) {
+        const ship: DrawShip = { ...OPEN, mountedGun: MOUNTED_GUN[gun] };
+        expect(eligibleLines(ship).some((e) => e.id === id), `${id} on ${gun}`).toBe(true);
+      }
     }
 
     // Which gun ladders a seat can be dealt, per mounted gun — the WHOLE set,

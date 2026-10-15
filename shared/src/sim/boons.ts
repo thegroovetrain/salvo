@@ -184,6 +184,7 @@ function rePinDerived(stats: EffectiveStats): void {
   // ARMOR'S DAMAGE MULTIPLIER (Story 9.7, epic-9 amendments 86–88) rides the
   // whitelisted `armor` path through the one formula, so a mid-fold Armor
   // write can never leave it stale (clampStats floors Armor and re-derives).
+  // Victim-only (amendment 120(e)): `armorPiercing` never enters it here.
   stats.damageMultiplier = damageMultiplierFor(stats.armor);
   // EVERY MINE RING, all three kinds, through the one derivation
   // (sim/stats.ts deriveMineRings). A contact mine's trip ring rides its blast
