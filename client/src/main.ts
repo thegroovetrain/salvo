@@ -68,6 +68,7 @@ import { BurnZones } from './render/burnZones.js';
 import { FoulZones } from './render/foulZones.js';
 import { Smoke } from './render/smoke.js';
 import { Countermeasure } from './render/countermeasure.js';
+import { FogBanks } from './render/fogBanks.js';
 import { hazeHaloU } from './render/hazeHalo.js';
 import { Fire } from './render/fire.js';
 import { Foghorn } from './render/foghorn.js';
@@ -297,6 +298,10 @@ interface Game {
    *  layer (above contact hulls, below radar paints and the own hull — Eric
    *  2026-10-12); one spraypaint bitmap per cloud, advanced per render frame. */
   countermeasure: Countermeasure;
+  /** FOG BANKS (render/fogBanks.ts, Story 9.10) — synced from FrameMsg.fog
+   *  onto the `fog` chart layer (under every hull); drifted and faded per
+   *  render frame, masked by the flash-rung halo + island line of sight. */
+  fogBanks: FogBanks;
   /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
    *  visual twin, screen-space and above every HUD readout. */
   foghorn: Foghorn;
@@ -1607,6 +1612,7 @@ function updateMatchAudioCues(g: Game, now: number): void {
     g.state.net.heldClouds.clear();
     g.state.net.clouds = [];
     g.countermeasure.clear();
+    g.fogBanks.clear(); // the server's resetForMatchStart clears its banks too
   }
 }
 
@@ -2927,6 +2933,7 @@ function buildGame(
     smoke: new Smoke(stage.layers.smoke),
     fire: new Fire(stage.layers.smoke), // pins itself to the layer's bottom: under every puff
     countermeasure,
+    fogBanks: new FogBanks(stage.layers.fog),
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
     nextHonkAt: 0,
     fog: new Fog(stage.fogSprite),
@@ -2997,6 +3004,7 @@ function buildGame(
   // ...and the haze halo sees past no island (Story 9.3 session 6, Eric
   // 2026-10-12: "if I can't see it because of an island … don't render it").
   g.countermeasure.setIslands(g.islands);
+  g.fogBanks.setIslands(g.islands); // ...and so does the fog-bank haze (Story 9.10)
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
   // THE ROOM'S OWN BINDINGS ARE A DISPOSER (Story 6.3 review gate). Story 6.3's
@@ -3121,6 +3129,7 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   g.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
   // the haze halo is the wounded-smoke flash rung (6/12) off the same live intel range
   g.countermeasure.setHaloU(hazeHaloU(stats.radarRange));
+  g.fogBanks.setHaloU(hazeHaloU(stats.radarRange)); // the fog-bank haze ends at the same rung
   g.fog.setSightRange(stats.sightRange, stats.radarRange);
   // ONE plumbed value, TWO dead-reckoning cull rings: shells and our OWN fish
   // cull at truesight, an ENEMY torpedo at the shorter DETECT ring the server
@@ -4334,6 +4343,8 @@ function renderAlive(
   // marched it above, through setCloudSource, as one more return source) —
   // seen by eye only inside the flash-rung halo centred on the own hull (session 5)
   g.countermeasure.render(now, pose, g.camera.screenWorldRect); // mask pass clipped to the screen
+  // drift (motion-gated) + fade each fog bank; seen by eye only inside the same halo
+  g.fogBanks.update(frameDt * 1000, motionIntensity(settings.current.motion) > 0, pose, g.camera.screenWorldRect);
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
@@ -4591,6 +4602,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   g.burnZones.render(now, now / 1000); // ...and every burning zone
   g.foulZones.render(now, now / 1000); // ...and every foul zone, weed swaying
   g.countermeasure.render(now); // ...and every countermeasure cloud
+  g.fogBanks.update(frameDt * 1000, motionIntensity(settings.current.motion) > 0); // ...and every fog bank, unmasked
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
   // A spectator owns no Tier-1 channel (no hull, no fire control), so the bar's

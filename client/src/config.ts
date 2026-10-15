@@ -127,6 +127,8 @@ const COLORS = {
   woundedSmoke: 0x7a7168,
   // The MULTI-SPECTRAL COUNTERMEASURE haze (Story 9.3 session 3, Eric 2026-10-12 reference: light grey smoke with real contrast on the dark water) — NOT the wounded plume grey.
   countermeasureSmoke: 0xc4c0b8,
+  // FOG BANKS (Story 9.10, Eric's pick B "Wisps", 2026-10-15): a pale warm grey, LIGHTER than the countermeasure haze so weather never reads as a deployed smoke screen; per-puff shades multiply it (CLIENT_CONFIG.fogBank shadeMin/shadeMax).
+  fogBank: 0xdcdad4,
   // drones (PvE — always greyscale)
   droneOutline: 0x9aa3b2,
   droneFill: 0x454950,
@@ -2638,6 +2640,51 @@ export const CLIENT_CONFIG = {
      *  too dear for every frame; clouds are stationary and a shadow edge is
      *  off by at most this much. */
     losRecastMoveU: 2,
+  },
+
+  /**
+   * FOG BANKS (render/fogBanks.ts, Story 9.10). Eric's pick B, "Wisps"
+   * (2026-10-15, on the rendered candidates page): soft overlapping puffs of
+   * several pale greys, centre-biased so the body is dense and the rim ragged,
+   * drifting very slowly; a young bank (small r, low d) is sparse and thin.
+   * Every value here is a FEEL knob (Eric may re-tune on staging) — the bank's
+   * radius `r` and density `d` come off the wire each tick; the client reads
+   * no fog dial from CONFIG and decides no visibility.
+   */
+  fogBank: {
+    /** The bank's group alpha at full density: the drawn bank's alpha is
+     *  `d × maxAlpha` (× the fade-out), so it never exceeds this. */
+    maxAlpha: 0.6,
+    /** Puffs in a 250 u bank; the count scales with area, `puffsPer250 ×
+     *  (r / 250)²`, clamped to [puffMinCount, puffMaxCount]. */
+    puffsPer250: 70,
+    puffMinCount: 8,
+    puffMaxCount: 120,
+    /** One puff's radius, as a fraction of the bank radius, drawn uniformly
+     *  from [puffMinFracR, puffMaxFracR]. */
+    puffMinFracR: 0.18,
+    puffMaxFracR: 0.48,
+    /** One puff's centre strength, drawn uniformly from this range (falling
+     *  to 0 at its rim); the bank's density multiplies it via the group alpha. */
+    puffMinAlpha: 0.08,
+    puffMaxAlpha: 0.22,
+    /** One puff's grey, a multiplier of `colors.fogBank`, drawn uniformly
+     *  from [shadeMin, shadeMax] (channels clamp at 255). */
+    shadeMin: 0.95,
+    shadeMax: 1.06,
+    /** The puffs are re-stamped only when the bank's radius has moved more
+     *  than this fraction of it since the last stamp; between stamps the
+     *  stamped puffs are SCALED to the live radius (no per-frame redraw). */
+    restampFracR: 0.08,
+    /** u — the whole bank's slow drift: an offset of this amplitude on an
+     *  integrated phase at `driftHz` (the foul-zone weed idiom). Held still
+     *  when motion is off — the bank's extent is information. */
+    driftU: 6,
+    driftHz: 0.05,
+    /** ms — a bank whose row stops arriving (left the halo, died, hidden by
+     *  an island) fades to nothing over this long, then is dropped; a row
+     *  that returns before the fade ends snaps straight back. */
+    fadeOutMs: 800,
   },
 
   /**

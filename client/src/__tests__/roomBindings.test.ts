@@ -93,6 +93,7 @@ function setup() {
     foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
+    fogBanks: { sync: vi.fn() },
     onOwnStats: vi.fn(),
     onOwnSpawn,
     onDrop,
@@ -180,6 +181,7 @@ function setupChannels(over: Partial<RoomBindingDeps> = {}) {
     foulZones: { sync: vi.fn() },
     decoys: { sync: decoysSync },
     countermeasure: { sync: vi.fn() },
+    fogBanks: { sync: vi.fn() },
     colors: vi.fn(() => null),
     ordnanceHue: vi.fn(() => 0),
     ...over,
@@ -212,6 +214,21 @@ describe('bindRoom decoy channel (Story 8.16)', () => {
     const buoys = [{ id: 'b1', x: 0, y: 0, until: 5000, own: true, by: 'p1', sweep: 0 }];
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], buoys });
     expect(decoysSync).toHaveBeenCalledWith([], expect.any(Function));
+  });
+});
+
+describe('bindRoom FOG BANK channel (Story 9.10)', () => {
+  // FrameMsg.fog (FogBankView {id,x,y,r,d}) is plain contact-like state: the
+  // rows go to the renderer with the frame's server time, an omitted key is
+  // an empty list, and `net` holds nothing (the renderer fades absences).
+  it('hands the rows and the frame time to the renderer; an omitted key is an empty list', () => {
+    const fogSync = vi.fn();
+    const { sink } = setupChannels({ fogBanks: { sync: fogSync } as never });
+    const fog = [{ id: 'f1', x: 10, y: 20, r: 120, d: 0.5 }];
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], fog });
+    expect(fogSync).toHaveBeenLastCalledWith(fog, 100);
+    sink.handler({ t: 150, tick: 2, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
+    expect(fogSync).toHaveBeenLastCalledWith([], 150);
   });
 });
 
@@ -317,6 +334,7 @@ function setupEvents(over: Record<string, unknown> = {}) {
     foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
+    fogBanks: { sync: vi.fn() },
     projectiles: {
       onBurst: over.onBurst ?? onBurst,
       onBoom,
@@ -420,6 +438,7 @@ describe('bindRoom own sunk', () => {
     foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
+    fogBanks: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
       audio: { play: vi.fn() },
       names: (id: string) => id,
@@ -471,6 +490,7 @@ describe('bindRoom own sunk', () => {
       foulZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
       countermeasure: { sync: vi.fn() },
+      fogBanks: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
       audio: { play: vi.fn() },
       names: (id: string) => id,
@@ -536,6 +556,7 @@ describe('bindRoom own sunk — the respawn ETA', () => {
       foulZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
       countermeasure: { sync: vi.fn() },
+      fogBanks: { sync: vi.fn() },
       effects: { spawnEffect },
       audio: { play: vi.fn() },
       names: (id: string) => id,
@@ -640,6 +661,7 @@ describe('bindRoom own spawn resets the honk cooldown', () => {
       foulZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
       countermeasure: { sync: vi.fn() },
+      fogBanks: { sync: vi.fn() },
       resetThrottle,
       respawnArmed: () => true, // the ready-room shape: the server DID arm a respawn
       resetHonkCooldown,
@@ -737,6 +759,7 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
       foulZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
       countermeasure: { sync: vi.fn() },
+      fogBanks: { sync: vi.fn() },
       effects: { spawnEffect },
       audio: { play },
       // Story 4.7: this harness spectates (`you` is null), so the witnessed
@@ -1213,6 +1236,7 @@ function setupToasts(spectating = false, held = false) {
     foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
+    fogBanks: { sync: vi.fn() },
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
     predictor: { onServerState: vi.fn(), forceSnap: vi.fn() },
     radar: { onSweepSample: vi.fn(), onBlip: vi.fn() },
@@ -1584,6 +1608,7 @@ function setupWater(
     foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
+    fogBanks: { sync: vi.fn() },
     projectiles: {
       onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn(),
       ownFireOf: () => null, isKnown: (id: string) => knownIds.has(id),
@@ -2376,6 +2401,7 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
       foulZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
       countermeasure: { sync: vi.fn() },
+      fogBanks: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
       radar: { onSweepSample: vi.fn(), onBlip },
@@ -2908,6 +2934,7 @@ function setupSignals(early: { results: unknown; bound: boolean } = { results: n
     foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
+    fogBanks: { sync: vi.fn() },
     onOwnStats: vi.fn(),
     onOwnSpawn: vi.fn(),
     audio: { play: vi.fn(), playHorn: vi.fn() },

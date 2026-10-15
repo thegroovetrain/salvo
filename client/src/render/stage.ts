@@ -7,7 +7,7 @@
 //
 //   worldRoot   (camera-transformed): ocean, wake, projectile, mines, decoys
 //   fogSprite   (screen space)        — fog overlay + sight hole (render/fog.ts)
-//   chartRoot   (camera-transformed): map, smoke, SHIP, PLATE, cloud, blip,
+//   chartRoot   (camera-transformed): map, fog (banks), smoke, SHIP, PLATE, cloud, blip,
 //                                     OWNSHIP, aim, burstFx, sweep
 //                                     (fog-immune: above fog)
 //   hudRoot     (screen space)        — telegraph HUD, then foghorn chevrons
@@ -179,6 +179,14 @@ export interface StageLayers {
   /** Star-shell lit zones (render/litZones.ts) — a fog-immune additive glow,
    *  beneath the tactical markers so blips/mines/reticle stay readable on top. */
   litZone: Container;
+  /** FOG BANKS (render/fogBanks.ts, Story 9.10) — the weather's pale haze,
+   *  directly above `litZone` and BELOW `smoke`, every marker, every hull and
+   *  nameplate, the countermeasure `cloud`, the radar paints and the own hull.
+   *  Under the hulls on purpose (epic-9 amendment 169): fog eats EYESIGHT, and
+   *  the server already withheld every contact the eye cannot see through it,
+   *  so a hull that WAS delivered from inside a bank must stay visible above
+   *  the haze — drawing fog over it would hide what the server ruled seen. */
+  fog: Container;
   /** WOUNDED SMOKE plumes (render/smoke.ts) — fog-immune for the same reason
    *  the burst ring and the reticle are: a hurt hull is disclosed out to the
    *  flash rung (6/12), past the sight bubble (4/12), so a plume drawn UNDER
@@ -289,11 +297,15 @@ export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'projectile', 'mineWorld', 'd
  *  So the cloud sits over contact hulls and names, radar paints over the
  *  cloud, and the own hull over both. This reverses the hull lift's `ship`
  *  directly above `blip` for CONTACT hulls (a return now reads over a contact
- *  hull). The wounded-smoke/fire `smoke` layer keeps its old seat. */
+ *  hull). The wounded-smoke/fire `smoke` layer keeps its old seat.
+ *
+ *  `fog` (Story 9.10) sits between `litZone` and `smoke`: weather haze under
+ *  every mark and hull (see its `StageLayers` doc). */
 export const CHART_LAYER_ORDER = [
   'map',
   'zone',
   'litZone',
+  'fog',
   'smoke',
   'mineChart',
   'decoyChart',

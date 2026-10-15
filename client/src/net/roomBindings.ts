@@ -57,6 +57,7 @@ import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
 import type { BurnZones } from '../render/burnZones.js';
 import type { FoulZones } from '../render/foulZones.js';
+import type { FogBanks } from '../render/fogBanks.js';
 import type { Decoys } from '../render/decoys.js';
 import type { Countermeasure } from '../render/countermeasure.js';
 import type { ShakeDriver } from '../render/shake.js';
@@ -133,6 +134,10 @@ export interface RoomBindingDeps {
    *  9.3) — synced contact-like from FrameMsg.clouds every tick, exactly like
    *  burnZones. NOT `smoke` above (that is WOUNDED smoke, an event-built plume). */
   countermeasure: Countermeasure;
+  /** FOG BANKS (render/fogBanks.ts, Story 9.10) — synced contact-like from
+   *  FrameMsg.fog every tick; stateless rows (nothing held on `net`), a row
+   *  that stops arriving fades out in the renderer. */
+  fogBanks: FogBanks;
   /** Screen-shake driver (render/shake.ts) — triggered on own-ship damage. */
   shake: ShakeDriver;
   /** Tone player (audio/context.ts) — a minimal play-only surface here. The
@@ -798,6 +803,11 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   // match-start edge in main.ts can clear it with the renderer.
   const clouds = holdClouds(f, (net.heldClouds ??= new Map()));
   deps.countermeasure.sync(clouds);
+  // FOG BANKS (Story 9.10): the plain contact-like reconcile — the server
+  // recomputes every row per tick (current radius + density), the frame omits
+  // the key when no bank reaches the viewer's halo, and `net` holds nothing
+  // (the renderer fades a row that stops arriving).
+  deps.fogBanks.sync(f.fog ?? [], f.t);
   // Mirror the raw list into state (net → state → render): the render loop
   // derives the own ACTIVE zones from it to keep beyond-sight shells alive
   // (projectiles) and clear the own fog over them (fog).
