@@ -62,7 +62,7 @@ const WHOLE_CATALOG = LINES.flatMap((d) => Array<string>(d.cap).fill(d.id));
 const LADDERS_MAXED = LINES.filter((d) => d.kind === 'ladder').flatMap((d) => Array<string>(d.cap).fill(d.id));
 
 const GUNS: readonly EquipmentId[] = ['gun', 'machineGun', 'flak'];
-const SHIFTS: readonly EquipmentId[] = ['boost', 'instantReload', 'damageCut'];
+const SHIFTS: readonly EquipmentId[] = ['boost', 'instantReload', 'hunker'];
 
 /** The slots a piece of equipment can sit in. */
 function slotsFor(id: EquipmentId): readonly number[] {

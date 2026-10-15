@@ -226,19 +226,19 @@ describe('applyDamage — (c) the shield (Story 8.16 arms it; the gate READS it)
 });
 
 // ---------------------------------------------------------------------------
-// (b′) THE DAMAGE CUT — Story 8.15, the Battleship's Shift (amendments 99–102).
+// (b′) THE HUNKER (was DAMAGE CUT until Story 9.9) — Story 8.15, the Battleship's Shift (amendments 99–102).
 // Re-based by Story 9.7 (epic-9 amendments 86–88 / 110–117): the cut is no
 // longer a flat factor but +armorBonus temporary Armor inside K / (K + armor);
 // every hull here is at Tier 0, so the cut reads Armor 5 → ×0.5 and today's
 // numbers hold.
 // ---------------------------------------------------------------------------
 
-describe('applyDamage — (b′) the DAMAGE CUT, before the shield (Story 8.15)', () => {
+describe('applyDamage — (b′) the HUNKER, before the shield (Story 8.15)', () => {
   /** A Battleship with its cut open for the full window. */
   function cutShip(w: World, id = 'a'): ShipRecord {
     const rec = w.addShip(id, id.toUpperCase(), 'captain', 'battleship', undefined, undefined);
     rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    rec.damageCutUntil = w.now + CONFIG.damageCut.durationMs;
+    rec.hunkerUntil = w.now + CONFIG.hunker.durationMs;
     return rec;
   }
 
@@ -297,20 +297,20 @@ describe('applyDamage — (b′) the DAMAGE CUT, before the shield (Story 8.15)'
     expect(dmgEvents(w).map((e) => e.amount)).toEqual([0]);
   });
 
-  it('after the window closes the blow lands in full again — the boundary is `now < damageCutUntil`', () => {
+  it('after the window closes the blow lands in full again — the boundary is `now < hunkerUntil`', () => {
     const w = bareWorld();
     const a = cutShip(w);
     place(w, 'b', 400, 0);
-    a.damageCutUntil = w.now; // exactly at the deadline: closed
+    a.hunkerUntil = w.now; // exactly at the deadline: closed
     gate(w).applyDamage(a, 15, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 15);
   });
 
-  it('a hull with no cut opened (damageCutUntil 0) takes full damage', () => {
+  it('a hull with no cut opened (hunkerUntil 0) takes full damage', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     place(w, 'b', 400, 0);
-    expect(a.damageCutUntil).toBe(0);
+    expect(a.hunkerUntil).toBe(0);
     gate(w).applyDamage(a, 15, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 15);
   });
@@ -327,19 +327,19 @@ describe('applyDamage — (b′) the DAMAGE CUT, before the shield (Story 8.15)'
     sunk.sinkShip('a', 'b');
     sunk.step(CONFIG.ship.sinkingWindowMs); // the founder edge
     expect(s.lifecycle.kind).toBe('sunk');
-    expect(s.damageCutUntil).toBe(0);
+    expect(s.hunkerUntil).toBe(0);
 
     const red = bareWorld();
     const r = cutShip(red);
     inner(red).redeployShip(r, [{ x: 0, y: 0 }]);
-    expect(r.damageCutUntil).toBe(0);
+    expect(r.hunkerUntil).toBe(0);
 
     const res = bareWorld();
     const p = cutShip(res);
     res.sinkShip('a', 'b');
-    p.damageCutUntil = res.now + 8000; // opened mid-death window
+    p.hunkerUntil = res.now + 8000; // opened mid-death window
     inner(res).respawn(p);
-    expect(p.damageCutUntil).toBe(0);
+    expect(p.hunkerUntil).toBe(0);
   });
 });
 
@@ -368,7 +368,7 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     const rec = w.addShip('a', 'A', 'captain', 'battleship', undefined, undefined);
     rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
     armored(w, rec, 5);
-    rec.damageCutUntil = w.now + CONFIG.damageCut.durationMs;
+    rec.hunkerUntil = w.now + CONFIG.hunker.durationMs;
     return rec;
   }
 
@@ -411,7 +411,7 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A', 'captain', 'battleship', undefined, undefined);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    a.damageCutUntil = w.now + CONFIG.damageCut.durationMs;
+    a.hunkerUntil = w.now + CONFIG.hunker.durationMs;
     place(w, 'b', 400, 0);
     expect(a.stats.armor).toBe(0);
     gate(w).applyDamage(a, 15, 'shell', 'b');
@@ -442,7 +442,7 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     const w = bareWorld();
     const a = cutTierV(w);
     place(w, 'b', 400, 0);
-    expect(a.stats.armor + CONFIG.damageCut.armorBonus).toBe(10);
+    expect(a.stats.armor + CONFIG.hunker.armorBonus).toBe(10);
     gate(w).applyDamage(a, 15, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 5);
   });

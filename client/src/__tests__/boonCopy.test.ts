@@ -234,10 +234,10 @@ describe('the stat tables — one builder for the face and both hovers', () => {
     expect(text(equipmentStatRows('instantReload', bare))).toEqual([
       `RELOAD ${(CONFIG.instantReload.reloadMs / 1000).toFixed(1)} s`,
     ]);
-    expect(text(equipmentStatRows('damageCut', bare))).toEqual([
-      `ARMOR +${CONFIG.damageCut.armorBonus}`, // Story 9.7: the cut adds Armor (epic-9 amendments 110–117)
-      `DURATION ${(CONFIG.damageCut.durationMs / 1000).toFixed(1)} s`,
-      `RELOAD ${(CONFIG.damageCut.reloadMs / 1000).toFixed(1)} s`,
+    expect(text(equipmentStatRows('hunker', bare))).toEqual([
+      `ARMOR +${CONFIG.hunker.armorBonus}`, // Story 9.7: the cut adds Armor (epic-9 amendments 110–117)
+      `DURATION ${(CONFIG.hunker.durationMs / 1000).toFixed(1)} s`,
+      `RELOAD ${(CONFIG.hunker.reloadMs / 1000).toFixed(1)} s`,
     ]);
   });
 

@@ -2,7 +2,7 @@
 //
 // The consumable row arms the ship's shield seat through the World's
 // `setShield` capability; the damage gate's existing `absorbShield` (after the
-// DAMAGE CUT, before the hull decrement) is the whole absorb path. This file
+// HUNKER (was DAMAGE CUT until Story 9.9), before the hull decrement) is the whole absorb path. This file
 // pins the I/O matrix's shield rows end to end through the real belt press and
 // the real gate, and the self-private `OwnShip.shield` wire field.
 
@@ -93,7 +93,7 @@ describe('SHIELD BLOCK — the gate (I/O matrix, amendments 100/118)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 'battleship');
     place(w, 'b', 400, 0);
-    a.damageCutUntil = w.now + CONFIG.damageCut.durationMs;
+    a.hunkerUntil = w.now + CONFIG.hunker.durationMs;
     expect(stockAndFire(w, a)).toEqual({ ok: true });
     a.lastDamagedAt = w.now - 12_345; // a stale combat clock the absorbed hit must NOT refresh
     const clock = a.lastDamagedAt;

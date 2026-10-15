@@ -23,7 +23,7 @@
 // monitor are CUT (amendment 89e), and the MACHINE GUN and FLAK GUN became
 // mountable guns with CONFIG blocks of their own (`CONFIG.machineGun` /
 // `CONFIG.flak`, amendments 103–105), beside the two new class Shifts
-// (`CONFIG.instantReload` / `CONFIG.damageCut`, amendments 97–102). Every row
+// (`CONFIG.instantReload` / `CONFIG.hunker`, amendments 97–102). Every row
 // is now built from a real CONFIG block.
 //
 // EVERY WEAPON `rangeU` IS A STAT-ADDRESSABLE DIAL (Story 9.8, Eric
@@ -52,7 +52,7 @@
 //   - ARMOR (Story 9.7, epic-9 amendments 86–88): `armor` floored to a whole
 //     number ≥ 0, and `damageMultiplier = K / (K + armor)` (K =
 //     CONFIG.armor.k) derived from it through `damageMultiplierFor` — the ONE
-//     formula, which the server's damage gate also calls for the DAMAGE CUT's
+//     formula, which the server's damage gate also calls for the HUNKER's (was DAMAGE CUT until Story 9.9)
 //     `armor + armorBonus` case. Re-pinned in BOTH re-pin homes.
 //
 // `cooldownScale` (Eric ruling 2026-08-04, retuned by catalog-v3 R12) is the
@@ -202,13 +202,13 @@ export interface EffectiveFlak extends EquipmentRowCommon {
 export type EffectiveInstantReload = EquipmentRowCommon;
 
 /**
- * DAMAGE CUT's effective numbers (Story 8.15, the Battleship's Shift,
+ * HUNKER's effective numbers (Story 8.15, the Battleship's Shift,
  * amendments 99–102, re-cut by Story 9.7): the boost's shape plus the
  * `armorBonus` the World adds to the victim's Armor inside the window (epic-9
  * amendment 88 — the flat ×0.5 `factor` is deleted). A CONFIG pass-through,
  * not card-addressable.
  */
-export interface EffectiveDamageCut extends EquipmentRowCommon {
+export interface EffectiveHunker extends EquipmentRowCommon {
   durationMs: number; // ms — the active window per activation
   armorBonus: number; // temporary Armor added inside the window (stacks with the ARMOR ladder)
 }
@@ -267,7 +267,7 @@ export type EquipmentStatRow =
   | EffectiveStarShells
   | EffectivePhosphorShells
   | EffectiveInstantReload
-  | EffectiveDamageCut;
+  | EffectiveHunker;
 
 /**
  * THE TOTAL equipment record (Story 8.1) — one row per `EquipmentId`, present
@@ -290,7 +290,7 @@ export interface EquipmentRows extends Record<EquipmentId, EquipmentStatRow> {
   starShells: EffectiveStarShells;
   phosphorShells: EffectivePhosphorShells;
   instantReload: EffectiveInstantReload;
-  damageCut: EffectiveDamageCut;
+  hunker: EffectiveHunker;
 }
 
 /** Everything (class, cards) resolves to. See effectiveStats(). */
@@ -478,19 +478,19 @@ function pickableGunRows(): Pick<EquipmentRows, 'machineGun' | 'flak'> {
 
 /** The two new CLASS SHIFT rows at CONFIG base (Story 8.15). Their `reloadMs`
  *  takes `cooldownScale` in clampStats like every row (amendments 97/99). */
-function shiftRows(): Pick<EquipmentRows, 'instantReload' | 'damageCut'> {
+function shiftRows(): Pick<EquipmentRows, 'instantReload' | 'hunker'> {
   return {
     instantReload: {
       tier: 1,
       reloadMs: CONFIG.instantReload.reloadMs,
       maxAmmo: CONFIG.instantReload.maxAmmo,
     },
-    damageCut: {
+    hunker: {
       tier: 1,
-      reloadMs: CONFIG.damageCut.reloadMs,
-      maxAmmo: CONFIG.damageCut.maxAmmo,
-      durationMs: CONFIG.damageCut.durationMs,
-      armorBonus: CONFIG.damageCut.armorBonus,
+      reloadMs: CONFIG.hunker.reloadMs,
+      maxAmmo: CONFIG.hunker.maxAmmo,
+      durationMs: CONFIG.hunker.durationMs,
+      armorBonus: CONFIG.hunker.armorBonus,
     },
   };
 }
@@ -642,13 +642,13 @@ const round3 = (v: number): number => Math.round(v * 1000) / 1000;
  * THE ARMOR DAMAGE MULTIPLIER (Story 9.7, Eric 2026-10-13, epic-9 amendments
  * 86–88): `K / (K + armor)`, K = CONFIG.armor.k — the EXACT ratio, never
  * rounded (review gate 2026-10-13, epic-9 amendment 120(a)): 5/6, 5/7 … 1/2
- * at Tiers I–V, 1/3 at Armor 10 (Tier V under the DAMAGE CUT). A rounded
+ * at Tiers I–V, 1/3 at Armor 10 (Tier V under the HUNKER). A rounded
  * multiplier (0.833 for 5/6) floored every blow whose exact product is whole
  * a point low (an MG shell 6 at Armor 1 dealt 4, not 5); round only where a
  * number is PRINTED. Both sides compute the identical IEEE double from the
  * same integers, so the value stays deterministic. The ONE formula:
  * clampStats derives `stats.damageMultiplier` through it and the server's
- * damage gate calls it for `armor + damageCut.armorBonus` inside the cut's
+ * damage gate calls it for `armor + hunker.armorBonus` inside the cut's
  * window.
  *
  * NON-FINITE OR NEGATIVE ARMOR READS AS 0 (the clampSpreadRung law): a NaN

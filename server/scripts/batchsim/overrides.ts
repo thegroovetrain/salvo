@@ -69,7 +69,7 @@ const TUNE_FAMILIES = [
   'machineGun.',
   'flak.',
   'instantReload.',
-  'damageCut.',
+  'hunker.',
   'broadside.',
   'torpedo.',
   'mine.',
@@ -137,7 +137,7 @@ const TUNE_FAMILIES = [
   // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88): `armor.k`,
   // the K in K / (K + armor), is the dial — floor 1 via TUNE_MIN_ONE_LEAVES
   // (a 0 makes every armored multiplier 0 and an un-armored one 0/0 = NaN).
-  // The DAMAGE CUT's `armorBonus` rides the `damageCut.` family above.
+  // The HUNKER (was DAMAGE CUT until Story 9.9)'s `armorBonus` rides the `hunker.` family above.
   'armor.',
   // THE WEAPON WEIGHTING (Story 8.14, epic-8 amendments 90/91) — `factor` and
   // `floor`, both `[DRAFT]` numbers Eric expects the harness to move. They are

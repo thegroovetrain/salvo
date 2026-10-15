@@ -62,7 +62,7 @@
 // STORY 8.15 DREW FOUR (epic-8 amendment 110 — IMPLEMENTER DRAFTS, ledgered for
 // Eric's eye on staging): the MACHINE GUN (a breech firing a stream of short
 // dashes), the FLAK GUN (a jagged starburst), INSTANT RELOAD (a circular arrow)
-// and DAMAGE CUT (a hexagon halved down the middle). The missile and monitor
+// and HUNKER (was DAMAGE CUT until Story 9.9) (a hexagon halved down the middle). The missile and monitor
 // are CUT (amendment 89e) and never had glyphs.
 
 import type { Graphics, StrokeInput } from 'pixi.js';
@@ -155,11 +155,11 @@ const instantReload: GlyphPaths = (() => {
 
 /**
  * Damage cut (Story 8.15 DRAFT, amendment 110): a HALVED HEXAGON — an armour
- * plate outline split down the middle, one half hatched: incoming damage cut
+ * plate outline split down the middle, one half hatched: incoming hunker
  * in two.
  */
 const HEX = arcPts(0.9, -Math.PI / 2, (3 * Math.PI) / 2, 6);
-const damageCut: GlyphPaths = [
+const hunker: GlyphPaths = [
   path(...HEX),
   path([0, -0.9], [0, 0.9]),
   path([0.12, -0.45], [0.55, -0.7]),
@@ -314,7 +314,7 @@ const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
   machineGun,
   flak,
   instantReload,
-  damageCut,
+  hunker,
   // ONE GLYPH PER LINE (cycle 162, the icon pass): the heavy torpedo and the
   // naval mine keep the family drawings they always had; the light torpedo and
   // the captive and fouling mines got their own (above).
@@ -332,7 +332,7 @@ const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
 /**
  * Shield block (Story 8.16 DRAFT, epic-8 amendment 124(f)): a SHIELD OUTLINE —
  * a flat-topped heater shield, closed, with no inner mark. Deliberately not
- * DAMAGE CUT's halved hexagon: one absorbs, the other reduces (amendment 118).
+ * HUNKER's halved hexagon: one absorbs, the other reduces (amendment 118).
  */
 const shieldBlock: GlyphPaths = [
   path([-0.72, -0.82], [0.72, -0.82], [0.72, 0.08], [0, 0.95], [-0.72, 0.08], [-0.72, -0.82]),

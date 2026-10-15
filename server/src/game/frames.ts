@@ -176,14 +176,14 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     ...(ship.lifecycle.kind === 'sinking'
       ? { sinkingUntil: founderDeadline(ship.lifecycle.since) }
       : {}),
-    // ms — the DAMAGE CUT window end (Story 8.15, the Battleship's Shift,
+    // ms — the HUNKER (was DAMAGE CUT until Story 9.9) window end (Story 8.15, the Battleship's Shift,
     // amendments 99–102): present IFF a cut has been opened this life (the
     // record's value is non-zero), OMITTED otherwise — never an `undefined`
     // value (the slowedUntil precedent). SELF-PRIVATE BY CONSTRUCTION on the
     // boostUntil terms: it rides `you` and NOTHING else — never a Contact, a
     // blip, a ballistic event or a spectator payload — so the master
     // perception invariant keeps exactly SIX declared exceptions.
-    ...(ship.damageCutUntil > 0 ? { damageCutUntil: ship.damageCutUntil } : {}),
+    ...(ship.hunkerUntil > 0 ? { hunkerUntil: ship.hunkerUntil } : {}),
     // The SHIELD BLOCK seat (Story 8.16, amendments 100/116–118): present IFF
     // a shield is UP — hp left and not yet expired (the gate nulls a spent or
     // lapsed seat lazily, on the next hit, so the frame re-checks `until`) —

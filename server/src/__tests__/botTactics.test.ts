@@ -1196,7 +1196,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const w = openWorld(213);
     const port = fakePort(w);
     // A TORPEDO BOAT, since Story 8.15: the boost is the Torpedo Boat's Shift
-    // alone (a Battleship's slot 1 is DAMAGE CUT).
+    // alone (a Battleship's slot 1 is HUNKER (was DAMAGE CUT until Story 9.9)).
     const bare = mkBot(w, 'torpedoBoat', 0, 0, 0);
     bare.hp = bare.stats.maxHp * 0.1; // hurt enough to want a heal it does not hold
     expect(slotOf(bare, 'hullRepair')).toBe(-1);
@@ -2154,7 +2154,7 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
 
 // ---------------------------------------------------------------------------
 // STORY 8.15 — the gun pick and the class Shifts: the bot rules (epic-8
-// amendment 109, DAMAGE CUT per amendment 115; boost into fights per R7).
+// amendment 109, HUNKER per amendment 115; boost into fights per R7).
 // ---------------------------------------------------------------------------
 
 describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)', () => {
@@ -2292,12 +2292,12 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
     expect(COMBAT_BRAIN.decide(ml, inReach(), port).actSlot).toBeNull();
   });
 
-  // DAMAGE CUT is PROACTIVE (Eric, 2026-09-29, amendment 115): pressed while
+  // HUNKER is PROACTIVE (Eric, 2026-09-29, amendment 115): pressed while
   // ENGAGED (the bot's own `engage` posture, with a target) or when a SEEN
   // enemy torpedo is inbound on a collision line within 150 u — NEVER as a
   // reaction to damage already taken (the amendment-109 "within one second of
   // taking damage" rule is gone).
-  describe('DAMAGE CUT — proactive: engaged, or a fish inbound within 150 u (amendment 115)', () => {
+  describe('HUNKER — proactive: engaged, or a fish inbound within 150 u (amendment 115)', () => {
     const BS_RADIUS = polygonMaxRadius(hullSilhouette('battleship'));
     const FISH_SPEED = 65;
 
@@ -2308,7 +2308,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
       const port = fakePort(w);
       const bs = mkBot(w, 'battleship', 0, 0, 0);
       if (hurt) bs.hp = bs.stats.maxHp * 0.1;
-      const shift = slotOf(bs, 'damageCut');
+      const shift = slotOf(bs, 'hunker');
       expect(shift).toBe(1);
       return { bs, port, shift };
     }
@@ -2669,7 +2669,7 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
     });
   });
 
-  it('SHIELD BLOCK: pressed on the DAMAGE CUT cues (engaged, or a fish inbound) — never over a shield still up', () => {
+  it('SHIELD BLOCK: pressed on the HUNKER cues (engaged, or a fish inbound) — never over a shield still up', () => {
     const { port, rec, belt } = beltOnly(81601, 'shieldBlock');
     const band = engagementBand(profileOf('duelist'), rec.stats);
     const engaged = mkMind('duelist');

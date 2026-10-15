@@ -1893,7 +1893,7 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
     expect(fresh.cards).toEqual([]);
     expect(fresh.mulliganed).toBe(false);
     expect(fresh.stats).toEqual(effectiveStats(fresh.cls));
-    expect(fresh.loadout).toEqual(loadoutFor(fresh.stats, false, DEFAULT_GUN, 'damageCut')); // the Battleship's Shift
+    expect(fresh.loadout).toEqual(loadoutFor(fresh.stats, false, DEFAULT_GUN, 'hunker')); // the Battleship's Shift
   });
 
   it('DRONES still draw nothing, and hold no cards to speak of either', () => {

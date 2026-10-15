@@ -20,7 +20,7 @@
  *  rides the wire. Perception exception count stays SIX.
  *  81 — Story 9.7 ARMOR (Eric 2026-10-13, epic-9 amendments 86–88): catalog
  *  content (new `armor` ladder, seated right after `hullPoints`),
- *  `CONFIG.armor` + `CONFIG.damageCut.armorBonus` read by the client through
+ *  `CONFIG.armor` + `CONFIG.hunker.armorBonus` read by the client through
  *  the fold (`effectiveStats().armor` / `.damageMultiplier`, the barrel's
  *  `damageMultiplierFor`); the cut's flat ×0.5 deleted, window 8 s → 10 s;
  *  nothing new rides the wire. Perception exception count stays SIX.
@@ -147,7 +147,7 @@
  *  `InputMsg.held` (required boolean, malformed drops the message), the shell
  *  reveal's optional `w` family field ('cannon'|'mg'|'flak' — the ONE declared
  *  disclosure widening, amendment 89(i); torpedo reveals unchanged),
- *  `OwnShip.damageCutUntil?` (self-private), catalog content
+ *  `OwnShip.hunkerUntil?` (self-private), catalog content
  *  (missile/monitor/heatSeeking deleted; machineGun/flak become the mountable
  *  guns' ladders; LINE_IDS 29 → 26), the Shift ids. Perception exception
  *  count stays SIX; the reveal shape gains exactly one optional key.

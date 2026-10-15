@@ -92,7 +92,7 @@ export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
  *
  *   - `flak.burstRadius` / `flak.contactDamage`: FIXED by ruling (amendment
  *     105 — the blast never grows; the bodyblock is a CONFIG constant);
- *   - `damageCut.armorBonus`: Eric's fixed number (the cut's +5 temporary
+ *   - `hunker.armorBonus`: Eric's fixed number (the cut's +5 temporary
  *     Armor, epic-9 amendment 88; the flat ×0.5 `factor` it replaced is
  *     deleted) that no ladder steps — a CONFIG pass-through, not
  *     card-addressable (a harness `--tune` reaches CONFIG);
@@ -154,7 +154,7 @@ export const EQUIPMENT_STAT_FIELDS = {
   // rows: no card addresses them today, but `reloadMs` must be a row field so
   // RELOAD's `cooldownScale` reaches it through the one multiply.
   instantReload: ['reloadMs', 'maxAmmo'],
-  damageCut: ['reloadMs', 'maxAmmo', 'durationMs'],
+  hunker: ['reloadMs', 'maxAmmo', 'durationMs'],
 } as const satisfies Record<EquipmentId, readonly string[]>;
 
 /**

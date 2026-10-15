@@ -156,7 +156,7 @@ export const CONFIG = {
     battleship: {
       hull: { length: 124, beam: 32 }, // u
       hp: 350, // hit points — objective toughness ladder: 1 pip=200hp, +50/pip (balance cycle 1); 4 pips
-      shift: 'damageCut', // DAMAGE CUT (amendments 89(c), 99–102)
+      shift: 'hunker', // HUNKER (was DAMAGE CUT until Story 9.9) (amendments 89(c), 99–102)
       kinematics: {
         maxSpeed: 35, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 9, // u/s — full-astern (magnitude)
@@ -232,7 +232,7 @@ export const CONFIG = {
       // CONFIG.fleet so effectiveStats() can apply it structurally, with no
       // hull-id parameter threaded through the one derivation path.
       //
-      // DAMAGE CUT 6/8/10 → 1/2/3 (Eric ruling 2026-08-14, amendment 45:
+      // HUNKER 6/8/10 → 1/2/3 (Eric ruling 2026-08-14, amendment 45:
       // *"Oops, they are too strong!"*), then FLATTENED TO 1 across all three
       // sizes (cycle 94, epic-6 amendment 24) — see the block docstring for why
       // that still satisfies a per-size damage spec. A full six-hull group
@@ -1631,7 +1631,7 @@ export const CONFIG = {
   },
 
   /**
-   * DAMAGE CUT — the BATTLESHIP's class Shift (Story 8.15, Eric rulings
+   * HUNKER — was DAMAGE CUT (renamed Story 9.9, epic-9 amendment 144) — the BATTLESHIP's class Shift (Story 8.15, Eric rulings
    * 2026-09-28, epic-8 amendments 99–102; re-cut by Story 9.7, epic-9
    * amendment 88). An instant activation, aimed at nothing, that opens a
    * `durationMs` window during which the hull carries `armorBonus` TEMPORARY
@@ -1642,7 +1642,7 @@ export const CONFIG = {
    * charge on a 30 s cooldown; `reloadMs` takes `cooldownScale` like every row
    * (22.5 s at a maxed RELOAD ladder).
    */
-  damageCut: {
+  hunker: {
     armorBonus: 5, // temporary Armor while the window is open (epic-9 amendment 88)
     durationMs: 10000, // ms — the active window (epic-9 amendment 88; was 8000, epic-8 amendment 99)
     maxAmmo: 1, // single charge (amendment 99)
@@ -1984,7 +1984,7 @@ export const CONFIG = {
    * — a key-fired consumable. Firing one copy writes the ship's shield seat
    * `{ hpLeft: hp, until: now + durationMs }`; a second copy REPLACES it (a
    * fresh `hp` for a fresh `durationMs`), never stacks. The damage gate's
-   * `absorbShield` runs AFTER the DAMAGE CUT (amendment 100) on EVERY damage
+   * `absorbShield` runs AFTER the HUNKER (amendment 100) on EVERY damage
    * source — storm bites and phosphor burn included (amendment 118) — so a
    * fully absorbed hit lands `dealt` 0. No `EffectiveStats` row: a
    * consumable's numbers are read straight from CONFIG (the consumable law).

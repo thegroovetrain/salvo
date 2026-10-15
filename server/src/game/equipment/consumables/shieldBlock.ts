@@ -5,7 +5,7 @@
 // 100 hp for a fresh 10 s — never stacked).
 //
 // The absorb path is NOT here: the World's damage gate (`applyDamage`) already
-// runs `absorbShield` after the DAMAGE CUT and before the hull decrement, on
+// runs `absorbShield` after the HUNKER (was DAMAGE CUT until Story 9.9) and before the hull decrement, on
 // EVERY damage source — storm bites and phosphor burn included (amendment 118).
 // This row only arms the seat.
 //

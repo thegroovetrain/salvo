@@ -31,7 +31,7 @@
 // reveal carries `w`, the gun family from the fixed three-word set — nothing
 // range-derivable, no identity, never on a `torp` — see assertBallisticShape
 // and verifyBallistic; and it pins three more SELF-PRIVATE fields on the
-// boostUntil terms: `damageCutUntil` (the Battleship's Shift window), the
+// boostUntil terms: `hunkerUntil` (the Battleship's Shift window), the
 // seat's `gun` and the held-fire level `held` may exist NOWHERE but the
 // observer's own `you` (see verifyFrame). The fuzz seats every ship with a
 // RANDOM gun and drives a random `held` level, so machine-gun streams, flak
@@ -2513,15 +2513,15 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // `slowedUntil`, has been pinned victim-private since Story 2.8 in
   // doctrines.test.ts; this is its depth.)
   expect(JSON.stringify(withoutYou)).not.toContain('slowFactor');
-  // THE DAMAGE CUT WINDOW (Story 8.15, the Battleship's Shift, amendments
+  // THE HUNKER (was DAMAGE CUT until Story 9.9) WINDOW (Story 8.15, the Battleship's Shift, amendments
   // 99–102) is SELF-PRIVATE on the boostUntil terms: an enemy reads a cut hull
   // only through its persistence under fire. It may exist NOWHERE but `you`,
   // the string must be absent from any frame that has no `you`, and on `you`
   // it is present IFF the observer's own record has a cut opened this life.
-  expect(JSON.stringify(withoutYou)).not.toContain('damageCutUntil');
+  expect(JSON.stringify(withoutYou)).not.toContain('hunkerUntil');
   if (f.you !== undefined) {
-    expect('damageCutUntil' in f.you).toBe(me.damageCutUntil > 0);
-    if (me.damageCutUntil > 0) expect(f.you.damageCutUntil).toBe(me.damageCutUntil);
+    expect('hunkerUntil' in f.you).toBe(me.hunkerUntil > 0);
+    if (me.hunkerUntil > 0) expect(f.you.hunkerUntil).toBe(me.hunkerUntil);
   }
   // THE SHIELD BLOCK SEAT (Story 8.16, amendments 116–118) is SELF-PRIVATE on
   // the same terms: it may exist NOWHERE but `you`, and on `you` it is present
@@ -4054,10 +4054,10 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         // one `mz` per stream shell, flak bursts over fish.
         const rec = place(w, id, Math.cos(ang) * r, Math.sin(ang) * r, rng.float(0, TAU), GUN_IDS[rng.int(0, GUN_IDS.length - 1)]);
         rec.sweepAngle = rng.float(0, TAU); // decorrelate paint windows
-        // ...and ~a third open a DAMAGE CUT window (a raw state write, like the
-        // scratches below) so the self-private pin on `damageCutUntil` is
+        // ...and ~a third open a HUNKER window (a raw state write, like the
+        // scratches below) so the self-private pin on `hunkerUntil` is
         // exercised on real frames rather than vacuous.
-        if (rng.float(0, 1) < 0.3) rec.damageCutUntil = w.now + rng.float(500, 8000);
+        if (rng.float(0, 1) < 0.3) rec.hunkerUntil = w.now + rng.float(500, 8000);
         // Random INTEL boons so the invariant is exercised at varied
         // per-observer SWEEP RATES (Story 2.8: the boon economy replaced the
         // legacy counts). Ids are stacked directly and the world-side cache

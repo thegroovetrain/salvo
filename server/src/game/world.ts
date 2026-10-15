@@ -812,17 +812,17 @@ export interface ShipRecord {
    */
   boostUntil: number;
   /**
-   * ms — server-clock time this ship's DAMAGE CUT window ends (Story 8.15, the
+   * ms — server-clock time this ship's HUNKER (was DAMAGE CUT until Story 9.9) window ends (Story 8.15, the
    * Battleship's Shift, Eric rulings 2026-09-28, epic-8 amendments 99–102);
-   * 0 = no cut opened this life. Written ONLY through the `setDamageCut`
-   * activation capability (the damageCut row's activate); read by applyDamage
-   * (while `now < damageCutUntil` the row's `armorBonus` is added to the
+   * 0 = no cut opened this life. Written ONLY through the `setHunker`
+   * activation capability (the hunker row's activate); read by applyDamage
+   * (while `now < hunkerUntil` the row's `armorBonus` is added to the
    * hull's Armor inside the gate's multiplier, BEFORE the shield; storm bites
    * are exempt — epic-9 amendments 86–88) and mirrored
-   * onto OwnShip.damageCutUntil (SELF-PRIVATE, omitted while 0) by frames.ts.
+   * onto OwnShip.hunkerUntil (SELF-PRIVATE, omitted while 0) by frames.ts.
    * RESET to 0 wherever `boostUntil` resets (redeploy / founder / respawn).
    */
-  damageCutUntil: number;
+  hunkerUntil: number;
   /**
    * ms — server-clock time the MACHINE GUN's stream may fire its next shell
    * (Story 8.15, amendment 103). While the stream stays live it CARRIES OVER
@@ -1243,7 +1243,7 @@ function sweepMask(hits: readonly TargetKind[]): readonly TargetKind[] {
  * WHAT DEALT THE DAMAGE (Story 8.4, AR47). The exact list AR47 names, and the
  * ONLY thing `applyDamage` branches on: 'burn' takes the windowed DoT report,
  * 'storm' emits no `dmg`, skips the assist ledger AND is exempt from the
- * DAMAGE CUT (amendment 101), everything else takes the immediate
+ * HUNKER (amendment 101), everything else takes the immediate
  * victim-private `dmg`. 'missile' was declared ahead of the horizontal missile
  * and DELETED with it (Story 8.15, amendment 89e); 'contact' is the whole-hp
  * ram / land STRIKE (Story 9.5, epic-9 amendments 25, 73–82): a hull hit by
@@ -1254,7 +1254,7 @@ function sweepMask(hits: readonly TargetKind[]): readonly TargetKind[] {
  * contact BLEED (Story 9.5 review gate, amendment 83): the per-tick
  * FRACTIONAL hp of two hulls pressed or sliding together, or of a hull
  * scraping a coast, delivered exactly as 'burn' is — unfloored under the
- * DAMAGE CUT, absorbed by the shield, reported through a 500 ms window
+ * HUNKER, absorbed by the shield, reported through a 500 ms window
  * bucket (grindKey) rather than an immediate `dmg`. AR47's list therefore
  * grows by one: a whole-hp immediate report cannot carry a fraction (under
  * the cut every 1-hp pool drain floored to 0, so a cut hull was immune to
@@ -2079,9 +2079,9 @@ export class World {
       // (amendment 47): `lastDamagedAt` is `now`, never 0 — the hull is full
       // here anyway, so the wait costs nothing.
       boostUntil: 0, repairHp: 0, lastDamagedAt: this.now, slowedUntil: 0, slowFactor: 1, fouledUntil: 0, shield: null,
-      // Story 8.15: no DAMAGE CUT window, and the machine gun's stream clock
+      // Story 8.15: no HUNKER window, and the machine gun's stream clock
       // at the epoch (fire on the first held tick), no stream live.
-      damageCutUntil: 0, streamNextAt: 0, streamLive: false,
+      hunkerUntil: 0, streamNextAt: 0, streamLive: false,
 
       rttMs: null,
       lastFireT: 0,
@@ -2402,7 +2402,7 @@ export class World {
     World.clearContactTally(ship); // ...and a fresh match's contact tally starts at zero (Story 9.5)
     // A fresh life never inherits an open boost window — nor either slow.
     ship.boostUntil = 0;
-    World.clearShiftClocks(ship); // ...nor a DAMAGE CUT window or a stream clock (Story 8.15)
+    World.clearShiftClocks(ship); // ...nor a HUNKER window or a stream clock (Story 8.15)
     // ...nor a HULL REPAIR pool: hp is already full here, so a surviving
     // pool would drain entirely into the maxHp clamp — but the wire field would
     // still tick down on a brand-new match's HUD (the boostUntil rule).
@@ -2620,7 +2620,7 @@ export class World {
       ship.lifecycle = transitionLifecycle(lc, 'founder', this.now);
       ship.state.speed = 0;
       ship.boostUntil = 0;
-      World.clearShiftClocks(ship); // the DAMAGE CUT window dies with the life (Story 8.15)
+      World.clearShiftClocks(ship); // the HUNKER window dies with the life (Story 8.15)
       ship.slowedUntil = 0;
       ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
       ship.fouledUntil = 0; // the foul zone's stamp dies with the life too (Story 9.4)
@@ -5144,7 +5144,7 @@ export class World {
    *       window cannot be finished off (Story 5.2, amendment 12). The storm
    *       keeps its own `zoneStartT` gate at its caller.
    *   (b′) THE ARMOR MULTIPLY (Story 9.7): every source but the storm is
-   *       scaled by the victim's Armor, plus the DAMAGE CUT's bonus while its
+   *       scaled by the victim's Armor, plus the HUNKER's bonus while its
    *       window is open (armorDamage below).
    *   (c) THE SHIELD absorbs next, from EVERY source — storm bites and burn
    *       ticks included (AR47, amendment 118) — after the armor multiply
@@ -5171,7 +5171,7 @@ export class World {
     if (byId !== undefined && byId === victim.id) return; // (a) NO FRIENDLY FIRE, every source
     if (!this.damageEnabled) return; // (b) weapons-safe phases
     if (isSinking(victim.lifecycle)) return; // (b) a sinking hull cannot be finished off
-    const armored = this.armorDamage(victim, amount, src); // (b′) ARMOR (+ the DAMAGE CUT's bonus), before the shield (Story 9.7)
+    const armored = this.armorDamage(victim, amount, src); // (b′) ARMOR (+ the HUNKER's bonus), before the shield (Story 9.7)
     const net = this.absorbShield(victim, armored); // (c)
     const dealt = Math.max(0, Math.min(net, victim.hp)); // (d) overkill clamp, read BEFORE the write
     victim.hp -= dealt; // (d) THE ONE HULL-HP DECREMENT IN THE GAME
@@ -5203,15 +5203,15 @@ export class World {
 
   /**
    * (b′) THE ARMOR MULTIPLY (Story 9.7, Eric rulings 2026-10-13, epic-9
-   * amendments 86–88; the DAMAGE CUT's fraction / storm rules carried over
+   * amendments 86–88; the HUNKER's fraction / storm rules carried over
    * from epic-8 amendments 100–102). EVERY source but the STORM is
    * multiplied by `damageMultiplierFor(armor)` = K / (K + armor) — the ONE
    * formula, owned by shared/src/sim/stats.ts, the EXACT ratio, never a
    * rounded one (epic-9 amendment 120(a): a rounded 0.833 floored an MG
    * shell 6 at Armor 1 to 4, not 5) — BEFORE the shield absorbs it (a shield
    * lasts longer on an armored hull). `armor` is the ladder's `stats.armor`,
-   * plus the DAMAGE CUT's `armorBonus` while the victim's window is open
-   * (`now < damageCutUntil`, the Battleship's Shift, Story 8.15): the cut
+   * plus the HUNKER's `armorBonus` while the victim's window is open
+   * (`now < hunkerUntil`, the Battleship's Shift, Story 8.15): the cut
    * stacks ADDITIVELY on the Armor value, never as a second multiply
    * (amendment 88) — so at Tier 0 under the cut, Armor 5 → ×0.5.
    * A WHOLE blow rounds DOWN to a whole number (amendment 102 — damage stays
@@ -5230,7 +5230,7 @@ export class World {
    */
   private armorDamage(victim: ShipRecord, amount: number, src: DamageSource): number {
     if (src === 'storm') return amount;
-    const bonus = this.now < victim.damageCutUntil ? victim.stats.equipment.damageCut.armorBonus : 0;
+    const bonus = this.now < victim.hunkerUntil ? victim.stats.equipment.hunker.armorBonus : 0;
     const scaled = amount * damageMultiplierFor(victim.stats.armor + bonus);
     return src === 'burn' || src === 'grind' ? scaled : World.floorBlow(amount, scaled);
   }
@@ -6400,11 +6400,11 @@ export class World {
       applyRepair: (instantHp, regenHp) => this.applyRepair(ship, instantHp, regenHp),
       // Story 8.15 — the two new Shifts' bodies, World-owned and keyed on the
       // ACTIVATING ship: INSTANT RELOAD's walk over its own weapon slots, and
-      // DAMAGE CUT's window (the ONLY writer of damageCutUntil): inside it the
+      // HUNKER's window (the ONLY writer of hunkerUntil): inside it the
       // damage gate adds the row's `armorBonus` to the hull's Armor (Story 9.7).
       finishReloads: () => World.finishReloads(ship),
-      setDamageCut: (until) => {
-        ship.damageCutUntil = until;
+      setHunker: (until) => {
+        ship.hunkerUntil = until;
       },
       // Story 8.16 — SHIELD BLOCK's seat (its ONE writer; a second copy
       // REPLACES), keyed on the ACTIVATING ship.
@@ -6458,12 +6458,12 @@ export class World {
     return World.shiftFor(ship.role, ship.hullId);
   }
 
-  /** Zero the Story 8.15 per-life clocks — the DAMAGE CUT window and the
+  /** Zero the Story 8.15 per-life clocks — the HUNKER window and the
    *  machine gun's stream clock — at every life boundary where
    *  `boostUntil` resets (redeploy / founder / respawn), so a fresh life
    *  never inherits an open cut or a mid-stream cadence. */
   private static clearShiftClocks(ship: ShipRecord): void {
-    ship.damageCutUntil = 0;
+    ship.hunkerUntil = 0;
     ship.streamNextAt = 0;
     ship.streamLive = false;
   }
@@ -6891,7 +6891,7 @@ export class World {
     // a HULL REPAIR pool (founderSinking already zeroed them; kept symmetric
     // for directed callers).
     ship.boostUntil = 0;
-    World.clearShiftClocks(ship); // ...nor a DAMAGE CUT window or a stream clock (Story 8.15)
+    World.clearShiftClocks(ship); // ...nor a HUNKER window or a stream clock (Story 8.15)
     World.clearRepair(ship);
     // ...nor the dead life's combat clock: the returning hull waits the full
     // out-of-combat window before it regens (amendment 47).

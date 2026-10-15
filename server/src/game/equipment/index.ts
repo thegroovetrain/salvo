@@ -40,7 +40,7 @@ import { phosphorShellsEquipment } from './phosphorShells.js';
 import { machineGunEquipment } from './machineGun.js';
 import { flakEquipment } from './flak.js';
 import { instantReloadEquipment } from './instantReload.js';
-import { damageCutEquipment } from './damageCut.js';
+import { hunkerEquipment } from './hunker.js';
 
 /**
  * The exact capabilities equipment needs from the World to activate — no more
@@ -128,7 +128,7 @@ export interface ActivationContext {
    */
   finishReloads: () => void;
   /**
-   * DAMAGE CUT's whole body (Story 8.15, the Battleship's Shift, amendments
+   * HUNKER (was DAMAGE CUT until Story 9.9)'s whole body (Story 8.15, the Battleship's Shift, amendments
    * 99–102; Story 9.7, epic-9 amendment 88): open the cut's window on the
    * ACTIVATING ship until `until` (server clock); inside it the World's damage
    * gate adds the row's `armorBonus` (+5) to the hull's Armor in the one
@@ -136,7 +136,7 @@ export interface ActivationContext {
    * the deadline off its own stats row. Keyed on the activating ship, so a row
    * can never cut anyone else's damage.
    */
-  setDamageCut: (until: number) => void;
+  setHunker: (until: number) => void;
   /**
    * SHIELD BLOCK's whole body (Story 8.16, amendments 100/116–118): write the
    * ACTIVATING ship's shield seat. A second call REPLACES the seat (fresh hp,
@@ -259,7 +259,7 @@ export const EQUIPMENT: Readonly<Partial<Record<EquipmentId, Equipment>>> = deep
   machineGun: machineGunEquipment, // Story 8.15: the held-fire magazine stream (amendments 103–104)
   flak: flakEquipment, // Story 8.15: the air-bursting pickable gun (amendment 105)
   instantReload: instantReloadEquipment, // Story 8.15: the Mine Layer's Shift (amendments 97–98)
-  damageCut: damageCutEquipment, // Story 8.15: the Battleship's Shift (amendments 99–102)
+  hunker: hunkerEquipment, // Story 8.15: the Battleship's Shift (amendments 99–102)
 });
 
 /**
@@ -318,7 +318,7 @@ export { boostEquipment } from './boost.js';
 export { machineGunEquipment } from './machineGun.js';
 export { flakEquipment } from './flak.js';
 export { instantReloadEquipment } from './instantReload.js';
-export { damageCutEquipment } from './damageCut.js';
+export { hunkerEquipment } from './hunker.js';
 export { broadsideAim, broadsideEquipment } from './broadside.js';
 export { starShellsEquipment } from './starShells.js';
 export { gunEquipment } from './guns.js';

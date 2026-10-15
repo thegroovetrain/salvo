@@ -285,7 +285,7 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(TunableError);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(/not an equipment dial/);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(
-      /gun\.\*, machineGun\.\*, flak\.\*, instantReload\.\*, damageCut\.\*, broadside\.\*, torpedo\.\*, mine\.\*, captiveMines\.\*, foulingMines\.\*, countermeasure\.\*, foulingShell\.\*, ram\.\*, starShells\.\*, phosphorShells\.\*, boost\.\*, shipClasses\.\*, drones\.\*, hullRepair\.\*, regen\.\*, armor\.\*, offer\.weighting\.\*, vision\.dropout\.\*/,
+      /gun\.\*, machineGun\.\*, flak\.\*, instantReload\.\*, hunker\.\*, broadside\.\*, torpedo\.\*, mine\.\*, captiveMines\.\*, foulingMines\.\*, countermeasure\.\*, foulingShell\.\*, ram\.\*, starShells\.\*, phosphorShells\.\*, boost\.\*, shipClasses\.\*, drones\.\*, hullRepair\.\*, regen\.\*, armor\.\*, offer\.weighting\.\*, vision\.dropout\.\*/,
     );
     expect(() => applyOverrides({}, { 'zone.stormDps': 8 })).toThrow(/not an equipment dial/);
   });
@@ -1527,7 +1527,7 @@ describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
     expect(CONFIG.machineGun.damage).toBe(6);
     restore();
     expect(CONFIG.machineGun.damage).toBe(before);
-    for (const key of ['flak.damage=14', 'instantReload.reloadMs=40000', 'damageCut.durationMs=6000']) {
+    for (const key of ['flak.damage=14', 'instantReload.reloadMs=40000', 'hunker.durationMs=6000']) {
       expect(() => parseArgs(['--tune', key])).not.toThrow();
     }
   });

@@ -124,7 +124,7 @@ export function tooltipModel(
  * NAVAL MINES, BROADSIDE GUN, CANNON for the gun's `deckGun` …), so the hover
  * names the weapon exactly as the card that fitted it did; the three Shifts
  * have no line and keep `EQUIPMENT_NAME` (SPEED BOOST / INSTANT RELOAD /
- * DAMAGE CUT). Uppercased for the tooltip register.
+ * HUNKER (was DAMAGE CUT until Story 9.9)). Uppercased for the tooltip register.
  */
 export function slotHeading(id: EquipmentId, stats: EffectiveStats): string {
   const line = lineForEquipment(id);

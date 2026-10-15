@@ -1,6 +1,6 @@
 // ai/torpedoThreat.ts — THE INBOUND-TORPEDO READ (Story 8.15, amendment 115).
 //
-// DAMAGE CUT is PROACTIVE (Eric, 2026-09-29): one of its two triggers is an
+// HUNKER (was DAMAGE CUT until Story 9.9) is PROACTIVE (Eric, 2026-09-29): one of its two triggers is an
 // enemy torpedo the bot can SEE heading at its hull and within 150 u. This
 // module is that read, over the bot's own fogged view and nothing else.
 //
@@ -24,10 +24,10 @@ import { CONFIG, hullSilhouette, polygonMaxRadius, type GameEvent } from '@salvo
 import type { BotMind, BotSelf, SeenTorpedo } from './types.js';
 
 /** u — Eric's number (amendment 115, 2026-09-29): an inbound enemy torpedo
- *  closer than this, on a collision line, is a DAMAGE CUT trigger. */
-export const DAMAGE_CUT_TORPEDO_U = 150;
+ *  closer than this, on a collision line, is a HUNKER trigger. */
+export const HUNKER_TORPEDO_U = 150;
 
-/** u — the hull's bounding-circle radius. DAMAGE CUT is the Battleship's Shift
+/** u — the hull's bounding-circle radius. HUNKER is the Battleship's Shift
  *  alone (class-pinned, amendments 99-102), so the silhouette is that hull's;
  *  the bot's self-read carries no hull id. */
 const BS_HULL_RADIUS_U = polygonMaxRadius(hullSilhouette('battleship'));
@@ -101,7 +101,7 @@ function threatens(self: BotSelf, f: SeenTorpedo, now: number): boolean {
   const p = reckon(f, now);
   const rx = self.state.x - p.x;
   const ry = self.state.y - p.y;
-  if (Math.hypot(rx, ry) > DAMAGE_CUT_TORPEDO_U) return false;
+  if (Math.hypot(rx, ry) > HUNKER_TORPEDO_U) return false;
   if (receding(self, p, f.vx, f.vy)) return false;
   const speed = Math.hypot(f.vx, f.vy);
   return Math.abs(rx * f.vy - ry * f.vx) / speed <= COLLISION_RADIUS_U;

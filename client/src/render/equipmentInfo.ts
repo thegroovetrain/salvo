@@ -66,7 +66,7 @@ export const SLOT_KEY_GLYPHS: readonly string[] = [
  * STORY 8.15 (Eric rulings 2026-09-28): the plain gun reads `Cannon` everywhere
  * in match (amendment 108 — `DECK GUN` survives only as the class-select row's
  * category word); the two pickable guns are `Machine Gun` and `Flak`, and the
- * two new class Shifts `Instant Reload` and `Damage Cut` (amendment 107's
+ * two new class Shifts `Instant Reload` and `Hunker` (amendment 107's
  * names, title-cased like every tooltip name). The missile and the monitor are
  * CUT (amendment 89e).
  */
@@ -74,7 +74,7 @@ export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
   gun: 'Cannon',
   boost: 'Speed Boost',
   instantReload: 'Instant Reload',
-  damageCut: 'Damage Cut',
+  hunker: 'Hunker',
   heavyTorpedo: 'Torpedoes',
   navalMines: 'Mines',
   broadside: 'Broadside Barrage',
@@ -354,7 +354,7 @@ export function equipmentDamage(stats: EffectiveStats, id: EquipmentId): number 
     machineGun: e.machineGun.damage,
     flak: e.flak.damage,
     instantReload: null,
-    damageCut: null,
+    hunker: null,
   };
   return table[id];
 }

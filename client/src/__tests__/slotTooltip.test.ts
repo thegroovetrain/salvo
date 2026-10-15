@@ -123,7 +123,7 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
       flak: 'FLAK',
       boost: 'SPEED BOOST',
       instantReload: 'INSTANT RELOAD',
-      damageCut: 'DAMAGE CUT',
+      hunker: 'HUNKER',
     };
     for (const [id, name] of Object.entries(expected)) {
       expect(tooltipModel(Q, id as never, STATS)!.name, id).toBe(name);
@@ -191,12 +191,12 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
       `RELOAD ${(CONFIG.instantReload.reloadMs / 1000).toFixed(1)} s`,
     ]);
     const bb = statsFor('battleship');
-    expect(lines(tooltipModel(SLOT_BOOST, 'damageCut', bb)!.stats)).toEqual([
-      `ARMOR +${CONFIG.damageCut.armorBonus}`, // Story 9.7: the cut adds Armor (epic-9 amendments 110–117)
-      `DURATION ${(CONFIG.damageCut.durationMs / 1000).toFixed(1)} s`,
-      `RELOAD ${(CONFIG.damageCut.reloadMs / 1000).toFixed(1)} s`,
+    expect(lines(tooltipModel(SLOT_BOOST, 'hunker', bb)!.stats)).toEqual([
+      `ARMOR +${CONFIG.hunker.armorBonus}`, // Story 9.7: the cut adds Armor (epic-9 amendments 110–117)
+      `DURATION ${(CONFIG.hunker.durationMs / 1000).toFixed(1)} s`,
+      `RELOAD ${(CONFIG.hunker.reloadMs / 1000).toFixed(1)} s`,
     ]);
-    for (const id of ['boost', 'instantReload', 'damageCut'] as const) {
+    for (const id of ['boost', 'instantReload', 'hunker'] as const) {
       expect(equipmentStatRows(id, STATS).map((r) => r.label), id).not.toContain('ROUNDS');
     }
   });

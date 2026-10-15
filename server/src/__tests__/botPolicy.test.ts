@@ -249,7 +249,7 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
       machineGun: 'gun',
       flak: 'gun',
       instantReload: 'boost',
-      damageCut: 'boost',
+      hunker: 'boost',
       phosphorShells: 'starShells',
     };
     // The pre-8.20 appetite tables, verbatim (the oracle's input).
@@ -266,7 +266,7 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     };
     const ALL_EQUIPMENT: EquipmentId[] = [
       'gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'foulingMines',
-      'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells', 'instantReload', 'damageCut',
+      'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells', 'instantReload', 'hunker',
     ];
     const rows: AnyProfileId[] = [...CONFIG.bots.profiles, ...TEST_PROFILE_IDS];
     for (const id of rows) {
@@ -1572,13 +1572,13 @@ describe('ai/spending — random mode (wave 4)', () => {
 describe('Story 8.15 — the new ids read their family\'s appetite', () => {
   const ALL_ROWS: AnyProfileId[] = [...(Object.keys(BOT_PROFILES) as BotProfileId[]), ...TEST_PROFILE_IDS];
 
-  it('MG/flak read the CANNON appetite; INSTANT RELOAD / DAMAGE CUT read the BOOST appetite', () => {
+  it('MG/flak read the CANNON appetite; INSTANT RELOAD / HUNKER read the BOOST appetite', () => {
     for (const id of ALL_ROWS) {
       const row = profileOf(id);
       expect(appetiteFor(row, 'machineGun'), id).toBe(appetiteFor(row, 'gun'));
       expect(appetiteFor(row, 'flak'), id).toBe(appetiteFor(row, 'gun'));
       expect(appetiteFor(row, 'instantReload'), id).toBe(appetiteFor(row, 'boost'));
-      expect(appetiteFor(row, 'damageCut'), id).toBe(appetiteFor(row, 'boost'));
+      expect(appetiteFor(row, 'hunker'), id).toBe(appetiteFor(row, 'boost'));
     }
   });
 });

@@ -567,9 +567,9 @@ export interface OwnShip {
    */
   sinkingUntil?: number;
   /**
-   * ms — server-clock time this ship's DAMAGE CUT window ends (Story 8.15, the
+   * ms — server-clock time this ship's HUNKER (was DAMAGE CUT until Story 9.9) window ends (Story 8.15, the
    * `battleship` Shift, Eric rulings 2026-09-28, epic-8 amendments 99–102);
-   * absent = no cut running. While `serverNow < damageCutUntil` the cut adds
+   * absent = no cut running. While `serverNow < hunkerUntil` the cut adds
    * `armorBonus` TEMPORARY Armor to this hull inside the one damage gate's
    * K / (K + Armor) formula (Story 9.7, epic-9 amendment 88 — Tier 0 → ×0.5,
    * Tier V → ×1/3), on every source but the storm (whose bites land in full),
@@ -580,14 +580,14 @@ export interface OwnShip {
    * `you` and NOTHING else — an enemy reads a cut hull only through its
    * persistence under fire, and the perception exception count stays at SIX.
    */
-  damageCutUntil?: number;
+  hunkerUntil?: number;
   /**
    * The SHIELD BLOCK seat (Story 8.16, catalog-v3 R37, epic-8 amendments
    * 100/116–118): `hp` = shield hp left to absorb, ROUNDED UP to a whole
    * number (display only — a live shield never reads 0), `until` = the server-clock
    * time it expires. Present IFF a shield is up (hp left and not yet expired);
    * OMITTED otherwise, never an `undefined` value (the `slowedUntil` /
-   * `damageCutUntil` conditional-spread precedent). The HUD prints hull +
+   * `hunkerUntil` conditional-spread precedent). The HUD prints hull +
    * `hp` in the `info` colour while it is up (amendment 116) — number only.
    * SELF-PRIVATE BY CONSTRUCTION (the boostUntil precedent): rides `you` and
    * NOTHING else — an enemy reads a shielded hull only through its

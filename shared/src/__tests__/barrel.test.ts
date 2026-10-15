@@ -354,7 +354,7 @@ describe('shared barrel', () => {
     // 2026-09-28, epic-8 amendments 97-110). `InputMsg.held` (a REQUIRED
     // boolean level — the machine gun's stream), the shell reveal's optional
     // `w` family field ('cannon'|'mg'|'flak', the ONE declared disclosure
-    // widening, amendment 89(i); never on a torpedo), `OwnShip.damageCutUntil?`
+    // widening, amendment 89(i); never on a torpedo), `OwnShip.hunkerUntil?`
     // (self-private), catalog content (missile/monitor/heatSeeking cut;
     // machineGun/flak become their guns' ladders; 29 -> 26 lines) and the
     // Shift ids. The perception exception count stays SIX.
@@ -444,7 +444,7 @@ describe('shared barrel', () => {
     // effectiveStats().regen. The exception count stays SIX.
     // 80 -> 81 (Story 9.7 ARMOR, Eric 2026-10-13, epic-9 amendments 86-88 /
     // 110-117): catalog content (new `armor` ladder after hullPoints) and
-    // CONFIG.armor + CONFIG.damageCut.armorBonus read by the client through the
+    // CONFIG.armor + CONFIG.hunker.armorBonus read by the client through the
     // fold. Nothing new on the wire; the exception count stays SIX.
     // 81 -> 82 (Story 9.8 THE TWELFTHS LADDER, Eric 2026-10-13, epic-9
     // amendments 102-109, 121-129): the twelfths sensor ladder, per-weapon
@@ -663,7 +663,7 @@ describe('shared barrel', () => {
     // 15 -> 14 (Story 8.9): the legacy flat-bonus boost id is gone and the v3
     // `boost` id IS the Shift boost. STORY 8.15 (amendments 89c/97–102): the
     // non-weapons are the THREE class Shifts, and nothing else.
-    expect(EQUIPMENT_IDS.filter((id) => !EQUIPMENT_IS_WEAPON[id])).toEqual(['boost', 'instantReload', 'damageCut']);
+    expect(EQUIPMENT_IDS.filter((id) => !EQUIPMENT_IS_WEAPON[id])).toEqual(['boost', 'instantReload', 'hunker']);
     expect(EQUIPMENT_IS_WEAPON.navalMines).toBe(true); // aimed rear-arc placement (2.8, a45)
     // The radar buoy is DELETED (Story 8.16) — its click-placed slot is gone.
     expect('radarBuoy' in EQUIPMENT_IS_WEAPON).toBe(false);
@@ -1094,7 +1094,7 @@ describe('shared barrel', () => {
       // The cut's Armor bonus is fixed (Story 9.7, epic-9 amendment 88 — it
       // replaced the deleted factor). (`machineGun.rateMs` is ADDRESSABLE since
       // 2026-09-30 — its ladder steps it; the idle clock is deleted.)
-      'equipment.machineGun.idleReloadMs', 'equipment.damageCut.armorBonus',
+      'equipment.machineGun.idleReloadMs', 'equipment.hunker.armorBonus',
       'equipment.broadside.traverseRad', 'equipment.broadside.mountSpreadRad',
       'equipment.navalMines.triggerRadius', 'equipment.gun.tier',
       // THE CAPTIVE MINE HAS NEITHER RADIUS PATH (epic-8 amendment 84d): its
@@ -1203,12 +1203,12 @@ describe('shared barrel', () => {
   });
 
   it('re-exports THE CLASS SHIFTS and the gun-family wire vocabulary (Story 8.15)', () => {
-    expect(SHIFT_IDS).toEqual(['boost', 'instantReload', 'damageCut']);
+    expect(SHIFT_IDS).toEqual(['boost', 'instantReload', 'hunker']);
     expect(DEFAULT_SHIFT).toBe('boost');
     expect(SHELL_FAMILIES).toEqual(['cannon', 'mg', 'flak']);
     expect(classShift('torpedoBoat')).toBe('boost');
     expect(classShift('mineLayer')).toBe('instantReload');
-    expect(classShift('battleship')).toBe('damageCut');
+    expect(classShift('battleship')).toBe('hunker');
     // Eric's numbers, verbatim (amendments 97, 99, 103, 105; the machine gun
     // and the flak reload as of 2026-10-02, amendment 232).
     expect(CONFIG.machineGun).toEqual({
@@ -1225,7 +1225,7 @@ describe('shared barrel', () => {
     expect(CONFIG.instantReload).toEqual({ maxAmmo: 1, reloadMs: 60000 }); // 60 s (Eric 2026-10-02, amendment 232; was 45 s)
     // Story 9.7 (epic-9 amendments 86–88 / 110–117): the cut is +5 temporary
     // Armor for 10 s; the flat factor is DELETED, not kept beside it.
-    expect(CONFIG.damageCut).toEqual({ armorBonus: 5, durationMs: 10000, maxAmmo: 1, reloadMs: 30000 });
+    expect(CONFIG.hunker).toEqual({ armorBonus: 5, durationMs: 10000, maxAmmo: 1, reloadMs: 30000 });
     expect(CONFIG.armor).toEqual({ k: 5 });
     expect(typeof damageMultiplierFor).toBe('function');
     // Both pickable guns carry their own range dials since Story 9.8 (ruling

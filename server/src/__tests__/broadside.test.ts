@@ -112,11 +112,11 @@ function polar(w: World, from: { x: number; y: number }): { bearing: number; ran
 }
 
 describe('broadside — server loadout + barrage construction', () => {
-  it('a Battleship with both class cards fitted reads [gun, damageCut, broadside, starShells, empty x5], full idle pools', () => {
+  it('a Battleship with both class cards fitted reads [gun, hunker, broadside, starShells, empty x5], full idle pools', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     expect(bb.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'damageCut', 'broadside', 'starShells', ...new Array<null>(SLOT_COUNT - 4).fill(null), // slot 1: the Battleship's Shift (8.15)
+      'gun', 'hunker', 'broadside', 'starShells', ...new Array<null>(SLOT_COUNT - 4).fill(null), // slot 1: the Battleship's Shift (8.15)
     ]);
     expect(bb.loadout[SLOT_BROADSIDE].state).toEqual({ n: CONFIG.broadside.maxAmmo, reloadMsLeft: 0 });
   });

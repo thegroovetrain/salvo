@@ -1121,10 +1121,10 @@ const SHIFT_HEADS: Readonly<Partial<Record<EquipmentId, (stats: EffectiveStats) 
   // The boost's bonus is a PROPORTION of the post-fold cap and lives on no stats
   // row (amendment 55), so it is read straight off CONFIG.
   boost: () => ({ label: 'BOOST', cur: null, next: `+${pct(CONFIG.boost.factor)}` }),
-  // DAMAGE CUT adds temporary Armor (Story 9.7, epic-9 amendment 88 — the flat
+  // HUNKER (was DAMAGE CUT until Story 9.9) adds temporary Armor (Story 9.7, epic-9 amendment 88 — the flat
   // ×0.5 factor is gone): its `armorBonus` IS on its stats row (the fold's
-  // pass-through of `CONFIG.damageCut.armorBonus`), printed as `ARMOR +5`.
-  damageCut: (stats) => ({ label: 'ARMOR', cur: null, next: `+${num(stats.equipment.damageCut.armorBonus)}` }),
+  // pass-through of `CONFIG.hunker.armorBonus`), printed as `ARMOR +5`.
+  hunker: (stats) => ({ label: 'ARMOR', cur: null, next: `+${num(stats.equipment.hunker.armorBonus)}` }),
 };
 
 /** THE SHIFTS' printed fields: a single-charge Shift prints no `ROUNDS 1`, and
@@ -1132,7 +1132,7 @@ const SHIFT_HEADS: Readonly<Partial<Record<EquipmentId, (stats: EffectiveStats) 
 const SHIFT_FIELDS: Readonly<Partial<Record<EquipmentId, readonly string[]>>> = {
   boost: ['durationMs', 'reloadMs'],
   instantReload: ['reloadMs'],
-  damageCut: ['durationMs', 'reloadMs'],
+  hunker: ['durationMs', 'reloadMs'],
 };
 
 /** Pure: a Shift's table — its factor line (where it has one), then its fields. */

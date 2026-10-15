@@ -81,7 +81,7 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // `OwnShip.gun` and the retired deck door (epic-8 amendments 89d/95). The
     // `hits` masks still never reach the client — that is the claim this file
     // makes, and no bump has ever been theirs. 57 until Story 8.15, whose ONE
-    // bump covers `InputMsg.held`, the reveal's `w`, `OwnShip.damageCutUntil`,
+    // bump covers `InputMsg.held`, the reveal's `w`, `OwnShip.hunkerUntil`,
     // the Shift ids and the catalog cuts (epic-8 amendments 97-110) — the
     // flak row's new `ordnance` bit in its mask is server-only like every mask.
     // 58 until Story 8.16, whose ONE bump covers `OwnShip.shield`,
@@ -135,7 +135,7 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // 79 -> 80 (Story 9.6) is the catalog re-cut (HULL / PASSIVE HEALING) and
     // the regen fold the client reads through stats — no mask.
     // 80 -> 81 (Story 9.7, epic-9 amendments 110–117) is the ARMOR ladder and
-    // the DAMAGE CUT's armorBonus, read through the fold — no mask.
+    // the HUNKER (was DAMAGE CUT until Story 9.9)'s armorBonus, read through the fold — no mask.
     // 81 -> 82 (Story 9.8, epic-9 amendments 102–109, 121–129) is the twelfths
     // sensor ladder, the per-weapon tiered range dials read through the fold
     // and the server-side radar dropout — nothing new on the wire, no mask.

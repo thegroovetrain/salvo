@@ -8,7 +8,7 @@
 // click-placed in that SAME rear sector (the radar buoy that used it before is
 // deleted); the BROADSIDE BARRAGE fires into one of two
 // mirrored BEAM sectors (Story 7-5 wave 2, R2.1 — the class-era side arcs
-// restored verbatim); the class Shifts (boost, instant reload, damage cut) aim
+// restored verbatim); the class Shifts (boost, instant reload, hunker) aim
 // nothing.
 //
 // STORY 8.15: NO GUN HAS AN ARC (Eric ruling 2026-09-28, epic-8 amendment 106,
@@ -198,7 +198,7 @@ function equipmentArc(id: EquipmentId): ArcShape {
 
 /**
  * THE THREE CLASS SHIFTS declare NO aimed arc (Story 8.15, amendments 89c and
- * 97–102): SPEED BOOST, INSTANT RELOAD and DAMAGE CUT are instant activations
+ * 97–102): SPEED BOOST, INSTANT RELOAD and HUNKER (was DAMAGE CUT until Story 9.9) are instant activations
  * that aim nothing (the Story 8.9 boost answer, now for all three).
  *
  * THE UNBUILT WEAPONS ARE GONE FROM THIS DEFAULT. It shrank from seven to four
@@ -211,7 +211,7 @@ function equipmentArc(id: EquipmentId): ArcShape {
  * The narrow parameter type is the COMPILE FORCE: a new EquipmentId is not
  * assignable to it, so it cannot reach this default without declaring an arc.
  */
-function unbuiltArc(_id: 'boost' | 'instantReload' | 'damageCut'): ArcShape {
+function unbuiltArc(_id: 'boost' | 'instantReload' | 'hunker'): ArcShape {
   return { kind: 'none' };
 }
 

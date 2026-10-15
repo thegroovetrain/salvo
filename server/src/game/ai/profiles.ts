@@ -205,7 +205,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     healHpFrac: DEFAULT_HEAL,
     // The opener weapon leads every tick; boost is spent eagerly on the way
     // out (the old usesBoost: true, now a number the ordering also reads).
-    appetite: { heavyTorpedo: 2.5, lightTorpedo: 2.5, boost: 2.0, instantReload: 2.0, damageCut: 2.0 },
+    appetite: { heavyTorpedo: 2.5, lightTorpedo: 2.5, boost: 2.0, instantReload: 2.0, hunker: 2.0 },
   },
   duelist: {
     id: 'duelist',
@@ -227,7 +227,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     healHpFrac: DEFAULT_HEAL,
     // Gun-led by BAND, not by ordering: the tube is still tried first when a
     // credible opening exists (mid appetite), and the boost breaks a bad fight.
-    appetite: { heavyTorpedo: 1.5, lightTorpedo: 1.5, boost: 1.5, instantReload: 1.5, damageCut: 1.5 },
+    appetite: { heavyTorpedo: 1.5, lightTorpedo: 1.5, boost: 1.5, instantReload: 1.5, hunker: 1.5 },
   },
   bulwark: {
     id: 'bulwark',
@@ -369,7 +369,7 @@ const TEST_APPETITE: Readonly<Partial<Record<EquipmentId, number>>> = Object.fre
   foulingMines: 2.2,
   boost: 2.2,
   instantReload: 2.2,
-  damageCut: 2.2,
+  hunker: 2.2,
   broadside: 2.2,
   starShells: 2.2,
   phosphorShells: 2.2,

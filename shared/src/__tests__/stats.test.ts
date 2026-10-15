@@ -227,7 +227,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
         instantReload: { tier: 1, reloadMs: 60000, maxAmmo: 1 }, // 60 s (Eric 2026-10-02, amendment 232; was 45 s)
         // Story 9.7 (epic-9 amendments 86–88 / 110–117): +5 temporary Armor for
         // 10 s replaces the flat ×0.5 factor and the 8 s window.
-        damageCut: { tier: 1, reloadMs: 30000, maxAmmo: 1, durationMs: 10000, armorBonus: 5 },
+        hunker: { tier: 1, reloadMs: 30000, maxAmmo: 1, durationMs: 10000, armorBonus: 5 },
       },
     });
   });
@@ -342,13 +342,13 @@ describe('effectiveStats — the seven universal ladders (catalog-v3 §4 + Stori
     for (let n = 0; n <= 5; n += 1) expect(damageMultiplierFor(n), `Armor ${n}`).toBe(5 / (5 + n));
   });
 
-  it('damageMultiplierFor: Armor 10 (Tier V under the DAMAGE CUT) is ×1/3; NaN / ±Infinity / negative read as Armor 0', () => {
+  it('damageMultiplierFor: Armor 10 (Tier V under the HUNKER) is ×1/3; NaN / ±Infinity / negative read as Armor 0', () => {
     // Amendment 88: the cut adds its bonus to the Armor INSIDE the formula;
     // exact 5/15, never a rounded 0.333 (review gate 2026-10-13, epic-9
     // amendment 120(a)).
-    expect(damageMultiplierFor(5 + CONFIG.damageCut.armorBonus)).toBe(5 / 15);
+    expect(damageMultiplierFor(5 + CONFIG.hunker.armorBonus)).toBe(5 / 15);
     expect(damageMultiplierFor(10)).toBe(5 / (5 + 10));
-    expect(damageMultiplierFor(0 + CONFIG.damageCut.armorBonus)).toBe(0.5); // Tier 0 under the cut: today's ×0.5
+    expect(damageMultiplierFor(0 + CONFIG.hunker.armorBonus)).toBe(0.5); // Tier 0 under the cut: today's ×0.5
     // A malformed Armor never poisons the gate (the clampSpreadRung law).
     for (const bad of [NaN, Infinity, -Infinity, -3]) expect(damageMultiplierFor(bad), String(bad)).toBe(1);
   });
@@ -593,23 +593,23 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
 });
 
 describe('STORY 8.15 — the class Shift rows take RELOAD like every row (amendments 97/99)', () => {
-  it('INSTANT RELOAD 60 s → 45 s (Eric 2026-10-02, amendment 232; was 45 s → 33.75 s) and DAMAGE CUT 30 s → 22.5 s under a maxed RELOAD ladder', () => {
+  it('INSTANT RELOAD 60 s → 45 s (Eric 2026-10-02, amendment 232; was 45 s → 33.75 s) and HUNKER 30 s → 22.5 s under a maxed RELOAD ladder', () => {
     const base = effectiveStats(BASE).equipment;
-    expect([base.instantReload.reloadMs, base.damageCut.reloadMs, base.boost.reloadMs]).toEqual([60000, 30000, 25000]);
+    expect([base.instantReload.reloadMs, base.hunker.reloadMs, base.boost.reloadMs]).toEqual([60000, 30000, 25000]);
     const maxed = effectiveStats(BASE, stack('reload', 5)).equipment;
     expect(maxed.instantReload.reloadMs).toBe(45000);
-    expect(maxed.damageCut.reloadMs).toBe(22500);
+    expect(maxed.hunker.reloadMs).toBe(22500);
     expect(maxed.boost.reloadMs).toBe(18750); // the Story 8.9 pin, beside them
     // The window and the Armor bonus are Eric's fixed numbers — RELOAD never
     // moves them (Story 9.7, epic-9 amendments 86–88 / 110–117: 10 s, +5 Armor).
-    expect([maxed.damageCut.durationMs, maxed.damageCut.armorBonus])
-      .toEqual([CONFIG.damageCut.durationMs, CONFIG.damageCut.armorBonus]);
-    expect([maxed.instantReload.maxAmmo, maxed.damageCut.maxAmmo]).toEqual([1, 1]);
+    expect([maxed.hunker.durationMs, maxed.hunker.armorBonus])
+      .toEqual([CONFIG.hunker.durationMs, CONFIG.hunker.armorBonus]);
+    expect([maxed.instantReload.maxAmmo, maxed.hunker.maxAmmo]).toEqual([1, 1]);
   });
 
   it('no catalog line steps a Shift row\'s tier (no card can address a Shift)', () => {
     for (const id of LINE_IDS) {
-      for (const shift of ['boost', 'instantReload', 'damageCut'] as const) {
+      for (const shift of ['boost', 'instantReload', 'hunker'] as const) {
         const s = effectiveStats(BASE, stack(id, CATALOG[id].cap)).equipment[shift];
         expect(s.tier, `${id} → ${shift}`).toBe(1);
       }

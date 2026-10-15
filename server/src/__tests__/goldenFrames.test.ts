@@ -1201,7 +1201,7 @@ function runScenarios(g: Golden): void {
   // Story 8.15 (the snapshot regenerated KNOWINGLY — PV 58): every `shell`
   // reveal row gains the trailing family key `w: 'cannon'` (the ONE declared
   // disclosure widening, amendment 89(i)); torpedo rows, `you` rows (no cut
-  // is ever opened in this battery, so `damageCutUntil` stays omitted) and
+  // is ever opened in this battery, so `hunkerUntil` stays omitted) and
   // every other channel are byte-identical.
   // Story 2.8 additions (appended KNOWINGLY — the snapshot regenerated with
   // the strip + deck economy; every earlier scenario's rows changed shape

@@ -136,7 +136,7 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       // Story 9.7 (epic-9 amendments 86–88 / 110–117): derived from `armor`.
       'damageMultiplier',
       // The cut's Armor bonus is a CONFIG pass-through (amendment 88).
-      'equipment.damageCut.armorBonus',
+      'equipment.hunker.armorBonus',
       'equipment.broadside.traverseRad',
       'equipment.broadside.mountSpreadRad',
       'equipment.navalMines.triggerRadius',
