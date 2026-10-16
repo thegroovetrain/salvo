@@ -1753,9 +1753,13 @@ export class World {
    * Amanatides–Woo DDA visits. A cell's density is MEMOIZED per EPOCH: first
    * touch in the current epoch evaluates the shared `fogDensityAt` at the
    * epoch's clock and cut and stores it; later rays reuse it. There is no
-   * "reject vs march" to disagree — every ray pays the same lattice, and a
+   * "reject vs march" to disagree — every ray reads the same lattice, and a
    * narrow peak between samples cannot hide (every 10 u cell the ray
-   * crosses is read). The EPOCH advances at every fog refresh (`refreshMs`,
+   * crosses is read). THE OWN BANK (amendment 179): the walk is directional
+   * — when the shared density at the observer's exact position is solid,
+   * the observer's own cell and the leading run of solid cells are read but
+   * not charged (`fogPayCell`); the first thinner cell ends the run. The
+   * EPOCH advances at every fog refresh (`refreshMs`,
    * when the cut may slew): `fogEpochT` is that refresh's clock, so the
    * field the server tolls is at most `refreshMs` old. Since the spin
    * (amendments 177–178) the pattern moves `spinRimU` (1 u/s) at the rim
@@ -4156,7 +4160,9 @@ export class World {
    *  at that point, not a memo cell — so the own-bank decision is the same on
    *  the reference march and the invariant oracle)? One-entry memo keyed on
    *  the position and the epoch: observe() asks for every ray of one observer
-   *  in a row, so the second and later rays cost nothing here. */
+   *  in a row, so there the second and later rays cost nothing here; the
+   *  drones' witness pass alternates observers and mostly misses — one
+   *  shared density evaluation (≈ 0.3 µs) per miss, within the perf pin. */
   private fogObserverInSolidFog(x: number, y: number): boolean {
     const o = this.fogObserverMemo;
     if (o.x !== x || o.y !== y || o.epoch !== this.fogEpoch) {
@@ -4240,9 +4246,11 @@ export class World {
    * TEST-ONLY seam (Story 9.10): PIN the cut (stepFog then never moves it —
    * the zone gate, the target and the slew are all skipped until
    * resetForMatchStart; the epoch keeps bumping on its cadence) and start a
-   * fresh epoch at `now`. −2 is density 1 everywhere; `FOG_NO_CUT` is no
-   * fog. Production NEVER calls it — the controller in stepFog is the only
-   * production writer of the cut.
+   * fresh epoch at `now`. −2 is density 1 on the whole ocean (0 past the
+   * rim, amendment 179 — an observer on the ocean then stands in one
+   * ocean-wide bank and pays nothing; one just past the rim pays for the
+   * ocean part of its ray); `FOG_NO_CUT` is no fog. Production NEVER calls
+   * it — the controller in stepFog is the only production writer of the cut.
    */
   setFogCutForTest(cut: number): void {
     this.fogCutPinned = true;

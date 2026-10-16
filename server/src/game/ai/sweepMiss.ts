@@ -32,6 +32,11 @@
 //     dropout case — never marked, it ages out on `contactMemoryMs`. The
 //     density is public weather (the welcome seed + the schema cut), the
 //     same a human client sees; it says where fog is, never what it hides.
+//     Since amendment 179 a bot standing in the SAME bank as the spot would
+//     see it by eye — this rule still reads the spot's density alone, so a
+//     bot keeps such a plot until memory runs out (recorded at the cycle-194
+//     gate; Eric's to re-rule with the rest of bot plot memory, 178).
+
 //
 // The beam window is [lastSweep, sweepAngle): this tick's own angle and the
 // one the bot remembered from its previous fold (BotMind.lastSweep) — what a

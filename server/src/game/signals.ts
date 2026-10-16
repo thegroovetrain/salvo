@@ -989,8 +989,9 @@ function nearestRimPoint(o: Vec2, c: Vec2, r: number): Vec2 {
 /** Clause (a): the disc's nearest point within sight on an island-clear
  *  segment. `d` is the observer→centre distance, `r` the disc radius.
  *  Story 9.10: the segment to the nearest rim point pays the fog toll
- *  (withinSight — its plain test is the old `d − r ≤ sightOf`); an observer
- *  standing inside a bank pays on that segment like on any other. */
+ *  (withinSight — its plain test is the old `d − r ≤ sightOf`), observer
+ *  first like every other ray — so since amendment 179 an observer standing
+ *  in solid fog pays nothing on that segment until it leaves its own bank. */
 function discSighted(ctx: FoggedSignalContext, cloud: StoredCloud, d: number, r: number): boolean {
   const me = ctx.me;
   if (d - r > sightOf(me)) return false;

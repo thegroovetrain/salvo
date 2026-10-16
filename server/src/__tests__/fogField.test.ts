@@ -357,7 +357,7 @@ describe('fog field — the memoized cell walk agrees with the shared midpoint m
     if (process.env.HC_PERF_LOG) console.log(`fog walk vs march: worst |Δ| ${worst.toFixed(3)} u (tolerance ${TOLERANCE}), mean ${(diffs.reduce((a, b) => a + b, 0) / diffs.length).toFixed(3)}, p95 ${diffs[Math.floor(0.95 * diffs.length)].toFixed(3)}, p99 ${diffs[Math.floor(0.99 * diffs.length)].toFixed(3)}, paying rays ${paying} / 2000, own-bank rays ${ownBank}, fragile ${fragile}, cells evaluated ${w.fogCellEvals}`);
     expect(paying).toBeGreaterThan(100); // the comparison is not vacuous
     expect(ownBank).toBeGreaterThan(50); // ...nor is the own-bank rule: observers DO stand in banks here
-    expect(fragile).toBeLessThan(ownBank / 2); // and most own-bank rays are compared exactly
+    expect(fragile).toBeLessThan(ownBank * 0.4); // and most own-bank rays are compared exactly (observed ≈ 30 % flagged at this seed)
   });
 
   it('is deterministic: the same ray twice returns the identical toll and the second call touches no new cell; a new epoch re-evaluates; the own-bank memo follows the epoch', () => {

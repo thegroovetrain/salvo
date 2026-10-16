@@ -30,7 +30,7 @@ vi.mock('../render/textures.js', async (importOriginal) => {
 
 const F = CLIENT_CONFIG.fogField;
 const SEED = 0x1234abcd;
-/** A cut below every noise value: density 1 everywhere. */
+/** A cut below every noise value: density 1 on the whole ocean (0 past the rim, amendment 179). */
 const FULL = -2;
 /** A mid cut: a mix of fogged and clear cells. */
 const MID = 0.1;

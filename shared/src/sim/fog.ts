@@ -70,7 +70,7 @@ export interface FogField {
   readonly spinCx: number; // u — the spin center (the ocean center)
   readonly spinCy: number;
   readonly spinRadiusU: number; // u — the ocean radius: the turn rate is spinRimU / this and shear reads 1 - r / this, 0 at and beyond the rim; 0 = no spin
-  readonly oceanRadiusU: number; // u — fog exists only inside this disc about (spinCx, spinCy): density is 0 beyond it (amendment 179); 0 = unbounded (a hand-built field)
+  readonly oceanRadiusU: number; // u — fog exists only inside this disc about (spinCx, spinCy): density is 0 beyond it (amendment 179); 0 = unbounded (a hand-built field). Always equal to spinRadiusU through makeFogField — two names for two roles (the spin's rim speed reference, the fog's extent), so a reader of either never has to know about the other
   readonly cfg: FogFieldConfig;
 }
 

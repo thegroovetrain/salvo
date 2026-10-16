@@ -22,7 +22,7 @@ const CFG: FogFieldConfig = {
   windU: 12, spinRimU: 30, spinShear: 0.5, morphMs: 90000, edgeBand: 0.12, marchStepU: 10,
 };
 const OCEAN_R = 5000;
-const FULL = -2; // a cut below every noise value: density 1 everywhere
+const FULL = -2; // a cut below every noise value: density 1 on the whole ocean (0 past the rim, amendment 179)
 const field = makeFogField(12345, CFG, OCEAN_R);
 
 /** A deterministic 100-point sweep over a 5,000 u square. */
