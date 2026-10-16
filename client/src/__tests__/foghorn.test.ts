@@ -783,7 +783,6 @@ function setupHonk(over: Record<string, unknown> = {}) {
     foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
-    fogBanks: { sync: vi.fn() },
     radar: { onSweepSample: vi.fn() },
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,

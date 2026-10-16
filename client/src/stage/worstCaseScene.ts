@@ -796,6 +796,7 @@ export function sceneWelcome(mapRadius: number, serverT: number): WelcomeMsg {
   return {
     sessionId: 'hc00',
     mapSeed: STAGE_MAP_SEED,
+    fogSeed: STAGE_MAP_SEED, // any seed: the staged scene starts no zone, so the fog cut stays no-fog and nothing is drawn
     mapRadius,
     playerCap: CONFIG.map.playerCap,
     t: serverT,

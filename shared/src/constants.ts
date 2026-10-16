@@ -2084,11 +2084,11 @@ export const CONFIG = {
     coverageMin: 0.02, // the fogged share of the live ring's area the cut aims at (target redrawn in [min, max])
     coverageMax: 0.08,
     targetPeriodMs: 120000, // ms between coverage-target redraws
-    wavelengthU: 600, // u — base feature size of the noise (banks a few hundred u across)
+    wavelengthU: 900, // u — base feature size of the noise (broad banks; Eric 2026-10-15 on the live field page: "Bigger, slower banks" — was 600)
     octaves: 3, // fbm octaves
     gain: 0.5, // fbm persistence
-    windU: 12, // u/s — the field drifts with a fixed per-match wind (direction from the seed)
-    morphMs: 90000, // ms — the shape turnover: two noise layers cross-fade on a triangle wave of this period
+    windU: 8, // u/s — the field drifts with a fixed per-match wind (direction from the seed; Eric: slower — was 12)
+    morphMs: 150000, // ms — the shape turnover: two noise layers cross-fade on a triangle wave of this period (Eric: slower — was 90000)
     edgeBand: 0.12, // noise units over which density ramps 0 → 1 above the cut (soft edge)
     cutRatePerS: 0.02, // noise units per second the server may slew the cut
     refreshMs: 1000, // ms — server raster + quantile refresh cadence

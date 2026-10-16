@@ -71,7 +71,6 @@ function setup(onOwnStats: () => void): {
     foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
-    fogBanks: { sync: vi.fn() },
     effects: { spawnEffect: vi.fn() },
     audio: { play: vi.fn() },
     names: (id: string) => id,
