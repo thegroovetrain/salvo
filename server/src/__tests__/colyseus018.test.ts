@@ -238,7 +238,7 @@ describe('the PV join gate refuses 84 and admits 85', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(85);
+    expect(PROTOCOL_VERSION).toBe(86); // 85 → 86: the fog spin tune (CONFIG.fog spinPeriodMs/spinShear read by the client; amendment 177)
     expect(protocolVersionError(84)).toMatch(/refresh/i);
     expect(protocolVersionError(83)).toMatch(/refresh/i);
     expect(protocolVersionError(82)).toMatch(/refresh/i);

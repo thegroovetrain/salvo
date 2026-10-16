@@ -1621,7 +1621,7 @@ describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
 
   it('--tune fog.* is reachable (Story 9.10, the field): every dial, with floors on the lengths/clocks/counts, gain on (0, 1] and the coverage band a share in [0, 1]', () => {
     for (const key of [
-      'fog.sightCostPerU=0', 'fog.sightCostPerU=3', 'fog.windU=0', 'fog.edgeBand=0', 'fog.cutRatePerS=0',
+      'fog.sightCostPerU=0', 'fog.sightCostPerU=3', 'fog.windU=0', 'fog.edgeBand=0', 'fog.cutRatePerS=0', 'fog.spinPeriodMs=0', 'fog.spinShear=0',
       'fog.coverageMin=0', 'fog.coverageMax=1', 'fog.gain=1', 'fog.gain=0.3', 'fog.octaves=1', 'fog.quantileLattice=8',
       'fog.wavelengthU=1', 'fog.morphMs=1', 'fog.refreshMs=250', 'fog.marchStepU=5', 'fog.targetPeriodMs=1', 'fog.quantileLattice=256',
     ]) {

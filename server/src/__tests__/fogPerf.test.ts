@@ -31,7 +31,7 @@ const CAPTAINS = 16;
 const DRONES = 96;
 const MINES = 20;
 const HALF_U = 2500; // a 5,000 u square
-const COVERAGE = 0.08;
+const COVERAGE = 0.25; // the top of the band (Eric 2026-10-16: 20–25 %)
 const TICK_BUDGET_MS = 50;
 /** One tick's worth of first-touch memo evaluations after an epoch bump. */
 const FIRST_TOUCH_BUDGET_MS = 10;

@@ -169,6 +169,8 @@ const TUNE_FAMILIES = [
   // the coverage band a closed share of the ring's area [0, 1]
   // (FOG_SHARE_KEYS — `coverageMax=0` is "fog off"). `coverageMin <=
   // coverageMax` is refused on the finished CONFIG in validateFogDials.
+  // `spinPeriodMs` and `spinShear` take the generic floor of 0 on purpose:
+  // 0 is "no spin" / "rigid spin", both real arms (amendment 177).
   'fog.',
 ];
 

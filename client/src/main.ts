@@ -3009,7 +3009,7 @@ function buildGame(
   // 2026-10-12: "if I can't see it because of an island … don't render it").
   g.countermeasure.setIslands(g.islands);
   g.fogField.setIslands(g.islands); // ...and so does the fog haze (Story 9.10)
-  g.fogField.setSeed(welcome.fogSeed); // the shared fog field, derived from the welcome's seed
+  g.fogField.setSeed(welcome.fogSeed, g.mapRadius); // the shared fog field, derived from the welcome's seed, spinning about the ocean center
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
   // THE ROOM'S OWN BINDINGS ARE A DISPOSER (Story 6.3 review gate). Story 6.3's

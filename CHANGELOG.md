@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.57] - 2026-10-16
+
+### Changed
+- **The fog spins.** The whole fog pattern now turns slowly about the ocean center, once every 20 minutes at the edge and half again as fast in the middle, so banks curl and stretch instead of sliding across the map in a straight line. Which way it turns is a coin flip at the start of each match. The drift is still there, slower: 3.5 u/s instead of 8.
+- **More fog.** Between 20 and 25 % of the live ring is fogged at any time (was 2 to 8 %), and it rolls in over about 15 seconds after the match goes live (was about a minute).
+- Protocol version 86 (the client reads the fog dials).
+
 ## [0.18.56] - 2026-10-15
 
 ### Added

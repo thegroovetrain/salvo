@@ -17,32 +17,33 @@ const SRC = readFileSync(fileURLToPath(new URL('../sim/fog.ts', import.meta.url)
 // Synthetic dials — the tests exercise the functions, not CONFIG's values.
 const CFG: FogFieldConfig = {
   sightCostPerU: 2, wavelengthU: 600, octaves: 3, gain: 0.5,
-  windU: 12, morphMs: 90000, edgeBand: 0.12, marchStepU: 10,
+  windU: 12, spinPeriodMs: 600000, spinShear: 0.5, morphMs: 90000, edgeBand: 0.12, marchStepU: 10,
 };
+const OCEAN_R = 5000;
 const FULL = -2; // a cut below every noise value: density 1 everywhere
-const field = makeFogField(12345, CFG);
+const field = makeFogField(12345, CFG, OCEAN_R);
 
 /** A deterministic 100-point sweep over a 5,000 u square. */
 const SWEEP = Array.from({ length: 100 }, (_, i) => ({ x: (i % 10) * 517 - 2500, y: Math.floor(i / 10) * 491 - 2500 }));
 
 describe('makeFogField', () => {
   it('is deterministic: the same seed builds identical layers and wind', () => {
-    const a = makeFogField(777, CFG);
-    const b = makeFogField(777, CFG);
+    const a = makeFogField(777, CFG, OCEAN_R);
+    const b = makeFogField(777, CFG, OCEAN_R);
     expect(Array.from(a.layerA)).toEqual(Array.from(b.layerA));
     expect(Array.from(a.layerB)).toEqual(Array.from(b.layerB));
     expect([a.windX, a.windY]).toEqual([b.windX, b.windY]);
   });
 
   it('a different seed draws a different wind', () => {
-    const a = makeFogField(777, CFG);
-    const b = makeFogField(778, CFG);
+    const a = makeFogField(777, CFG, OCEAN_R);
+    const b = makeFogField(778, CFG, OCEAN_R);
     expect(a.windX === b.windX && a.windY === b.windY).toBe(false);
   });
 
   it('the wind speed is windU per second, in u per ms', () => {
     for (const seed of [1, 2, 3, 99999, 0xffffffff]) {
-      const f = makeFogField(seed, CFG);
+      const f = makeFogField(seed, CFG, OCEAN_R);
       expect(Math.abs(Math.sqrt(f.windX ** 2 + f.windY ** 2) - CFG.windU / 1000)).toBeLessThan(1e-9);
     }
   });
@@ -207,5 +208,62 @@ describe('sim/fog.ts source guard', () => {
     }
     expect(/Date\.now\s*\(/.test(SRC), 'Date.now( is forbidden').toBe(false);
     expect(/\bMath\.PI\b/.test(SRC), 'Math.PI is forbidden').toBe(false);
+  });
+});
+
+describe('the spin (Eric 2026-10-16, amendment 177)', () => {
+  /** Shear and wind off: the pattern is a rigid turn about the ocean center. */
+  const still: FogFieldConfig = { ...CFG, windU: 0, spinShear: 0 };
+
+  it('with shear 0 and no wind the pattern is a rigid rotation about the ocean center: noise at a point turned by the rim angle equals noise at rest (a morph-phase-0 instant)', () => {
+    for (const seed of [11, 12, 13]) {
+      const f = makeFogField(seed, still, OCEAN_R);
+      const t = still.morphMs; // morph weight 0: layer A only
+      const th = f.spinSign * (2 * Math.PI * t) / still.spinPeriodMs;
+      const c = Math.cos(th);
+      const s = Math.sin(th);
+      for (const p of SWEEP) {
+        const rx = p.x * c - p.y * s;
+        const ry = p.x * s + p.y * c;
+        expect(Math.abs(fogNoiseAt(f, rx, ry, t) - fogNoiseAt(f, p.x, p.y, 0))).toBeLessThan(1e-3);
+      }
+    }
+  });
+
+  it('the direction is a per-seed coin flip and both faces come up', () => {
+    const signs = new Set<number>();
+    for (let seed = 1; seed <= 64; seed++) signs.add(makeFogField(seed, CFG, OCEAN_R).spinSign);
+    expect(signs).toEqual(new Set([1, -1]));
+    expect(makeFogField(42, CFG, OCEAN_R).spinSign).toBe(makeFogField(42, CFG, OCEAN_R).spinSign);
+  });
+
+  it('spinPeriodMs 0 is no spin: in the wind frame, two morph-phase-0 instants read the same noise', () => {
+    const f = makeFogField(5, { ...CFG, spinPeriodMs: 0 }, OCEAN_R);
+    const tm = CFG.morphMs * 2;
+    for (const p of SWEEP) {
+      expect(Math.abs(fogNoiseAt(f, p.x + f.windX * tm, p.y + f.windY * tm, tm) - fogNoiseAt(f, p.x, p.y, 0))).toBeLessThan(1e-9);
+    }
+  });
+
+  it('the per-layer shear reset is invisible: no jump in the noise across either reset instant', () => {
+    const f = makeFogField(99, CFG, OCEAN_R);
+    for (const tReset of [CFG.morphMs, CFG.morphMs / 2, 3 * CFG.morphMs]) {
+      for (const p of SWEEP) {
+        const before = fogNoiseAt(f, p.x, p.y, tReset - 1);
+        const after = fogNoiseAt(f, p.x, p.y, tReset + 1);
+        expect(Math.abs(after - before)).toBeLessThan(0.01);
+      }
+    }
+  });
+
+  it('a sheared field stays finite and bounded deep into a match', () => {
+    const f = makeFogField(7, CFG, OCEAN_R);
+    for (const t of [1, 2 * CFG.morphMs + 1, 1800000]) {
+      for (const p of SWEEP) {
+        const n = fogNoiseAt(f, p.x, p.y, t);
+        expect(Number.isFinite(n)).toBe(true);
+        expect(Math.abs(n)).toBeLessThanOrEqual(1.5);
+      }
+    }
   });
 });

@@ -1956,7 +1956,7 @@ export class World {
     // same constant (a different mint — the field is derived on both sides
     // from the welcome's `fogSeed`, so it is not a stream).
     this.fogSeed = (seed ^ 0x3c6ef372) >>> 0;
-    this.fogField = makeFogField(this.fogSeed, CONFIG.fog);
+    this.fogField = makeFogField(this.fogSeed, CONFIG.fog, this.map.radius);
     // The density memo lattice — one allocation for the World's life (see fogMemo).
     const memoCell = CONFIG.fog.marchStepU;
     const memoHalf = this.map.radius + FOG_MEMO_MARGIN_U;

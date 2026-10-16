@@ -142,6 +142,7 @@ function wispsTexture(): Texture {
 export class FogFieldView {
   private field: FogField | null = null;
   private seed: number | null = null;
+  private oceanRadiusU = -1;
   private target = FOG_NO_CUT;
   private eased = FOG_NO_CUT;
   /** The body: the density mask sprite + the wisps tile (the layer's second child, after the halo). */
@@ -198,13 +199,14 @@ export class FogFieldView {
     layer.addChild(this.body);
   }
 
-  /** The welcome's `fogSeed`: (re)build the field only when the seed changes. */
-  setSeed(seed: number): void {
-    if (!Number.isFinite(seed)) return;
+  /** The welcome's `fogSeed` over the match's ocean radius (the spin's center is the ocean center): (re)build the field only when either changes. */
+  setSeed(seed: number, oceanRadiusU: number): void {
+    if (!Number.isFinite(seed) || !Number.isFinite(oceanRadiusU)) return;
     const s = seed >>> 0;
-    if (s === this.seed) return;
+    if (s === this.seed && oceanRadiusU === this.oceanRadiusU) return;
     this.seed = s;
-    this.field = makeFogField(s, CONFIG.fog);
+    this.oceanRadiusU = oceanRadiusU;
+    this.field = makeFogField(s, CONFIG.fog, oceanRadiusU);
     this.sinceRefresh = Number.POSITIVE_INFINITY;
   }
 
