@@ -1738,6 +1738,8 @@ export class World {
   private fogNextRefreshAt = 0;
   /** The quantile lattice (fogLattice's reusable `out` — allocated once, refilled per refresh). */
   private readonly fogLatticePts: { x: number; y: number }[] = [];
+  /** The lattice's points ON THE OCEAN (references into `fogLatticePts`, amendment 179 — see `fogControllerLattice`). */
+  private readonly fogOceanPts: { x: number; y: number }[] = [];
   /** The realized fogged share over the last lattice (points at density ≥ FOG_SOLID_DENSITY / points), for metrics + tests. */
   private fogCoverageShare = 0;
   /**
@@ -7302,13 +7304,39 @@ export class World {
       this.fogNextTargetAt = this.now + cfg.targetPeriodMs;
     }
     if (ring.r < cfg.wavelengthU / 2) return; // the final close: hold the cut
-    const lattice = fogLattice(ring.cx, ring.cy, fogLatticeRadius(ring), cfg.quantileLattice, this.fogLatticePts);
+    const lattice = this.fogControllerLattice(ring);
     const goal = fogCutForTarget(this.fogField, this.now, lattice, this.fogTarget);
     const maxStep = (cfg.cutRatePerS * cfg.refreshMs) / 1000;
     if (goal >= FOG_NO_CUT) this.fogCutValue = FOG_NO_CUT; // fog off: at once
     else if (this.fogCutValue >= FOG_NO_CUT) this.fogCutValue = this.fogOnsetCut(lattice); // the onset: roll in from no fog
     else this.fogCutValue = clampStep(this.fogCutValue, goal, maxStep);
     this.fogCoverageShare = this.fogMeasureCoverage(ring);
+  }
+
+  /**
+   * The coverage controller's lattice for `ring`: `fogLattice` over the ring
+   * (floored at one bank's radius, `fogLatticeRadius`) KEPT TO THE OCEAN —
+   * points past the map radius are dropped in place (amendment 179: the
+   * shared density is 0 there, so a point past the rim would count toward the
+   * quantile's raw noise but never toward the realized solid share; a small
+   * last ring centered near the rim could then under-read its target — the
+   * cycle-194 gate, Codex). Allocation-free after the first call: the kept
+   * points are the SAME objects, referenced from a second reusable array, so
+   * `fogLatticePts` is never truncated and `fogLattice` never re-mints a
+   * dropped point on the next refresh (the Edge Case Hunter's reading).
+   */
+  private fogControllerLattice(ring: ZoneRing): { x: number; y: number }[] {
+    const pts = fogLattice(ring.cx, ring.cy, fogLatticeRadius(ring), CONFIG.fog.quantileLattice, this.fogLatticePts);
+    const kept = this.fogOceanPts;
+    const r2 = this.map.radius * this.map.radius;
+    let k = 0;
+    for (const p of pts) {
+      if (p.x * p.x + p.y * p.y > r2) continue;
+      kept[k] = p;
+      k += 1;
+    }
+    kept.length = k;
+    return kept;
   }
 
   /** The onset cut: the lattice's maximum noise + edgeBand, so density is 0
@@ -7325,7 +7353,7 @@ export class World {
    *  or an empty lattice. */
   private fogMeasureCoverage(ring: ZoneRing): number {
     if (this.fogCutValue >= FOG_NO_CUT) return 0;
-    const lattice = fogLattice(ring.cx, ring.cy, fogLatticeRadius(ring), CONFIG.fog.quantileLattice, this.fogLatticePts);
+    const lattice = this.fogControllerLattice(ring);
     if (lattice.length === 0) return 0;
     let fogged = 0;
     for (const p of lattice) if (fieldDensityAt(this.fogField, p.x, p.y, this.now, this.fogCutValue) >= FOG_SOLID_DENSITY) fogged += 1;

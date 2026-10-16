@@ -67,9 +67,10 @@ function samplePoints(w: World): { x: number; y: number }[] {
   return fogLattice(0, 0, w.map.radius, 12);
 }
 
-/** The controller's own lattice for `ring` (the radius floor of the final close applied). */
+/** The controller's own lattice for `ring` (the radius floor of the final close applied; kept to the ocean, amendment 179). */
 function controllerLattice(w: World, ring: ZoneRing = w.zoneLiveRing): { x: number; y: number }[] {
-  return fogLattice(ring.cx, ring.cy, Math.max(ring.r, CONFIG.fog.wavelengthU), CONFIG.fog.quantileLattice);
+  const R2 = w.map.radius * w.map.radius;
+  return fogLattice(ring.cx, ring.cy, Math.max(ring.r, CONFIG.fog.wavelengthU), CONFIG.fog.quantileLattice).filter((p) => p.x * p.x + p.y * p.y <= R2);
 }
 
 /** Run `fn` with the coverage band pinned to [lo, hi) (restored after). */
@@ -204,6 +205,23 @@ describe('fog field — the live coverage controller (Eric 2026-10-15: roll in o
     expect(w.fogCut).toBe(held);
   });
 
+  it('A SMALL RING AT THE RIM (amendment 179, the cycle-194 gate): with the live ring one bank wide and centered 300 u inside the ocean\'s edge, the lattice overhangs the rim — the controller keeps only ocean points, so the realized solid share still tracks the target', () => {
+    const w = liveWorld(16);
+    const R = w.map.radius;
+    const ring = { cx: R - 300, cy: 0, r: CONFIG.fog.wavelengthU };
+    Object.defineProperty(w, 'zoneLiveRing', { get: () => ring, configurable: true });
+    withBand(0.22, 0.22, () => {
+      for (let i = 0; i < 90 * TICKS_PER_REFRESH; i++) fogTick(w); // 45 s: past the onset slew (≈ 0.04/s over a ≈ 1.2 range)
+    });
+    // every controller point is on the ocean...
+    for (const p of controllerLattice(w, ring)) expect(p.x * p.x + p.y * p.y).toBeLessThanOrEqual(R * R);
+    // ...a good share of the unfiltered disc is NOT (the case is not vacuous)...
+    const whole = fogLattice(ring.cx, ring.cy, ring.r, CONFIG.fog.quantileLattice);
+    expect(controllerLattice(w, ring).length).toBeLessThan(whole.length * 0.9);
+    // ...and the measured solid share is the target (it under-read by the overhang's share before the filter)
+    expect(Math.abs(w.fogCoverageEstimate - 0.22)).toBeLessThanOrEqual(0.015);
+  });
+
   it('the stepFog row is wired into World.step: a live world is cut on its first step', () => {
     const w = liveWorld(13);
     w.step();
@@ -255,9 +273,10 @@ function pinnedWorld(pseudonymSeed: number, share: number): World {
  * the ½ contour comes within a cell of the ray anywhere along the run, or a
  * dip below ½ is thin enough for one sampling to miss, the two legitimately
  * disagree by more than a cell. Classified by a 1 u oracle with a CROSS
- * SECTION at every sample (the ray point and ±8 u perpendicular — a cell
- * centre's reach): a sample is SOLID (all three ≥ ½), CLEAR (all < ½) or
- * MIXED. A run is robust when, from the observer on, it is solid, then
+ * SECTION at every sample (the ray point and every 2 u out to ±8 u
+ * perpendicular — a cell centre's reach): a sample is SOLID (all nine ≥ ½),
+ * CLEAR (all < ½) or MIXED. Sampling, not a proof: the pinned seed is a regression, and the
+ * walk-vs-march agreement it asserts is what the own-bank rule promises. A run is robust when, from the observer on, it is solid, then
  * mixed for at most one cell (the ordinary crossing of a steep edge), then
  * clear for at least five cells (both samplings have surely ended it) or to
  * the end; anything else — a graze, a shallow crossing, a thin dip, an
@@ -280,7 +299,7 @@ function fragileRun(w: World, ax: number, ay: number, bx: number, by: number): b
     const y = ay + (by - ay) * t;
     let lo = Infinity;
     let hi = -Infinity;
-    for (const s of [-8, 0, 8]) {
+    for (const s of [-8, -6, -4, -2, 0, 2, 4, 6, 8]) {
       const d = fogDensityAt(field, x - uy * s, y + ux * s, w.fogEpochT, w.fogCut);
       lo = Math.min(lo, d);
       hi = Math.max(hi, d);

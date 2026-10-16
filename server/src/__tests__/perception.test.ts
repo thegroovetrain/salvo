@@ -268,9 +268,12 @@ function sightClearOracle(w: World, me: ShipRecord, b: { x: number; y: number })
 // oracle therefore returns a BAND: `tollMax` is the plain integral (no run —
 // the most production may charge, since its walk may end the run early on a
 // cell the ray only grazes) and `tollMin` is the integral past a GENEROUS
-// run that frees the observer's own cell and bridges any dip below ½ shorter
-// than five cells (the most production may free: its cell centres can miss a
-// thin dip the 1 u samples catch). 'loose' (what production delivered must satisfy) uses tollMin;
+// run that frees the observer's own cell (its longest reach, a cell
+// diagonal), stays free while any point of the ray's cross section within a
+// cell centre's reach is solid, and bridges any surely-thin dip shorter than
+// five cells (the most production may free: its cell centres can sit off the
+// ray and miss a thin dip the 1 u samples catch). Sampling stands in for a
+// proof here, as the slack does for the midpoint rule. 'loose' (what production delivered must satisfy) uses tollMin;
 // 'strict' (what production must deliver) uses tollMax. With the observer
 // in clear water the band is a point and the fogged oracles are exactly the
 // cycle-191 tests.
@@ -284,24 +287,30 @@ interface FogToll {
 const NO_TOLL: FogToll = { tollMin: 0, tollMax: 0, slack: 0, touched: 0 };
 
 /** The first sample index the generous own-bank run cannot reach: the
- *  observer's own cell (`own` samples) and solid samples are free, a dip
- *  below ½ shorter than `bridge` samples is bridged, a longer dip (or the
- *  end) ends the run. */
-function generousRunEnd(dens: Float64Array, own: number, bridge: number): number {
-  const n = dens.length;
+ *  observer's own cell (`own` samples) and POSSIBLY-solid samples (`solid[i]`
+ *  — some point within a cell centre's reach of the ray is solid, so
+ *  production's walk may still be in its run) are free, a dip of surely-thin
+ *  samples shorter than `bridge` is bridged, a longer dip (or the end) ends
+ *  the run. */
+function generousRunEnd(solid: Uint8Array, own: number, bridge: number): number {
+  const n = solid.length;
   let i = Math.min(own, n);
   while (i < n) {
-    if (dens[i] >= FOG_SOLID_DENSITY) {
+    if (solid[i] === 1) {
       i += 1;
       continue;
     }
     let j = i;
-    while (j < n && j - i < bridge && dens[j] < FOG_SOLID_DENSITY) j += 1;
+    while (j < n && j - i < bridge && solid[j] === 0) j += 1;
     if (j < n && j - i < bridge) i = j; // a short dip: bridged
     else break;
   }
   return i;
 }
+
+/** The cross-section traces (u, perpendicular to the ray) that stand in for every
+ *  cell centre's reach (≤ 7.1 u off the ray) in the oracle's generous run. */
+const CROSS_SECTION_U = [-8, -6, -4, -2, 0, 2, 4, 6, 8];
 
 function fogTollOracle(w: World, a: { x: number; y: number }, b: { x: number; y: number }): FogToll {
   if (w.fogCut >= FOG_NO_CUT) return NO_TOLL;
@@ -329,9 +338,32 @@ function fogTollOracle(w: World, a: { x: number; y: number }, b: { x: number; y:
   const slack = ((CONFIG.fog.marchStepU + step) * tv + 0.5) * cost;
   const tollMax = sum * step * cost;
   if (fogDensityAt(field, a.x, a.y, w.fogEpochT, w.fogCut) < FOG_SOLID_DENSITY) return { tollMin: tollMax, tollMax, slack, touched };
+  // The generous run: a sample is POSSIBLY solid when any point of its cross
+  // section (the ray and every 2 u out to ±8 u, a cell centre's reach) is solid —
+  // production's cell walk may still be free there (the cycle-194 gate,
+  // Codex: on-ray samples alone under-read a run grazing a solid contour).
+  const ux = (b.x - a.x) / len;
+  const uy = (b.y - a.y) / len;
+  const solid = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    if (dens[i] >= FOG_SOLID_DENSITY) {
+      solid[i] = 1;
+      continue;
+    }
+    const t = (i + 0.5) / n;
+    const x = a.x + (b.x - a.x) * t;
+    const y = a.y + (b.y - a.y) * t;
+    for (const s of CROSS_SECTION_U) {
+      if (s !== 0 && fogDensityAt(field, x - uy * s, y + ux * s, w.fogEpochT, w.fogCut) >= FOG_SOLID_DENSITY) {
+        solid[i] = 1;
+        break;
+      }
+    }
+  }
   let paid = 0;
+  const ownSamples = Math.ceil((CONFIG.fog.marchStepU * Math.SQRT2) / step); // the own cell's longest run along the ray
   const cellSamples = Math.ceil(CONFIG.fog.marchStepU / step);
-  for (let i = generousRunEnd(dens, cellSamples, 5 * cellSamples); i < n; i++) paid += dens[i];
+  for (let i = generousRunEnd(solid, ownSamples, 5 * cellSamples); i < n; i++) paid += dens[i];
   return { tollMin: paid * step * cost, tollMax, slack, touched };
 }
 
@@ -4224,9 +4256,19 @@ function verifyEvent(w: World, me: ShipRecord, e: GameEvent): void {
  * the gate (a respawn clears production's marks wholesale, so a seed from
  * "inside" is the only state both sides agree on). Dead projectiles leave the
  * ledger with the world.
+ *
+ * THE DEAD BAND (Story 9.10; wide since amendment 179's own-bank band): a
+ * projectile inside the loose gate but outside the strict one may be open OR
+ * closed in production, so on such a tick with no reveal production may have
+ * CLEARED its mark while this ledger keeps one — the mark becomes UNSURE, and
+ * a later reveal of an unsure mark is a legitimate re-entry, not a double
+ * reveal. A strict-inside tick without a reveal proves production still holds
+ * the mark (an unmarked inside projectile must reveal), which makes it sure
+ * again; a tick outside the loose gate drops it on both sides.
  */
 class VisitLedger {
   private readonly marks = new Map<string, Set<string>>();
+  private readonly unsure = new Map<string, Set<string>>();
   private readonly ever = new Map<string, Set<string>>();
   reReveals = 0;
 
@@ -4234,40 +4276,70 @@ class VisitLedger {
     const me = w.ships.get(viewerId)!;
     if (f.spec === true || !isAfloat(me.lifecycle)) {
       this.marks.delete(viewerId);
+      this.unsure.delete(viewerId);
       return;
     }
     const revealed = new Set(f.events.filter((e): e is BallisticEvent => e.k === 'shell' || e.k === 'torp').map((e) => e.id));
     const seeded = this.marks.get(viewerId);
     const marks = seeded ?? new Set<string>();
+    const unsure = this.unsure.get(viewerId) ?? new Set<string>();
     const ever = this.ever.get(viewerId) ?? new Set<string>();
     for (const sh of w.shells.values()) {
       // Story 9.10: the gate is fog-tolled, so it has a dead band — a reveal
       // must be inside the LOOSE gate; an unmarked projectile MUST reveal
-      // only inside the STRICT one; the band between leaves the mark as is.
+      // only inside the STRICT one; the band between leaves the mark UNSURE
+      // (production may have cleared it — see the class comment).
       const gateAt = (bound: Bound): boolean =>
         sh.ownerId === me.id || (sh.kind === 'torp' ? detected(w, me, sh, bound) : sighted(w, me, sh, bound)) || zoneCovers(w, me, sh);
       const insideLoose = gateAt('loose');
       if (revealed.has(sh.id)) {
         expect(insideLoose).toBe(true); // never a reveal from outside the gate
-        if (seeded !== undefined) expect(marks.has(sh.id)).toBe(false); // never twice per visit
+        if (seeded !== undefined && !unsure.has(sh.id)) expect(marks.has(sh.id)).toBe(false); // never twice per visit
         if (ever.has(sh.id)) this.reReveals += 1;
         marks.add(sh.id);
+        unsure.delete(sh.id);
         ever.add(sh.id);
       } else if (gateAt('strict')) {
         if (seeded !== undefined) expect(marks.has(sh.id)).toBe(true); // inside + unmarked MUST reveal
         marks.add(sh.id); // (re-seed after a gap: production holds the mark)
+        unsure.delete(sh.id); // ...and it proved it holds it
       } else if (!insideLoose) {
         marks.delete(sh.id); // the per-visit clear
+        unsure.delete(sh.id);
+      } else if (marks.has(sh.id)) {
+        unsure.add(sh.id); // the dead band: production may be closed and have cleared
       }
     }
     for (const id of marks) if (!w.shells.has(id)) marks.delete(id);
+    for (const id of unsure) if (!marks.has(id)) unsure.delete(id);
     this.marks.set(viewerId, marks);
+    this.unsure.set(viewerId, unsure);
     this.ever.set(viewerId, ever);
   }
 }
 
 /** 0.85 × 2800 u — the sampling arena the invariant's oracles were tuned on. */
 const INVARIANT_ARENA_U = 2380;
+
+/** Seat an enemy mine 240 u from the first hull standing in CLEAR water, on the
+ *  first of 36 bearings whose point the loose fog oracle hides (island LOS
+ *  clear) — the detect-rung subject amendment 179 still hides. No-op when no
+ *  hull or bearing qualifies in this world (the other dense worlds provide). */
+function seatMineBehindFog(w: World, ids: string[]): void {
+  for (const id of ids) {
+    const obs = w.ships.get(id)!;
+    if (w.fogDensityAt(obs.state.x, obs.state.y) >= FOG_SOLID_DENSITY) continue;
+    for (let k = 0; k < 36; k++) {
+      const brg = (k / 36) * TAU;
+      const q = { x: obs.state.x + Math.cos(brg) * 240, y: obs.state.y + Math.sin(brg) * 240 };
+      const { tollMin, slack } = fogTollOracle(w, obs.state, q);
+      if (240 + tollMin > effSight(w, obs) + slack && clearLos(obs.state, q, w.map.islands)) {
+        injectMine(w, 'fogMineClear', ids.find((o) => o !== id)!, q.x, q.y);
+        return;
+      }
+    }
+  }
+}
 
 describe('perception — THE INVARIANT (random worlds, seeded)', () => {
   it('no frame ever references anything outside sight ∪ this-tick paints', () => {
@@ -4388,7 +4460,12 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
       // rays graze and still see through — FOG_THIN_SEEN) and NONE in worlds
       // ≡ 2 (the exact pre-fog oracles). An enemy mine 0.8 of the way from
       // the anchor to pn rides the dense worlds so the detect rung has a
-      // subject inside geometric detect that the toll can hide.
+      // subject inside geometric detect that the toll can hide — and, since
+      // amendment 179 (an observer in a bank is no longer hidden from a mine
+      // in its OWN bank), a second enemy mine seated BEHIND FOG FROM CLEAR
+      // WATER: the first hull standing in clear water, the first of 36
+      // bearings whose 240 u point the loose oracle hides, so the detect-rung
+      // ledger (FOG_HID_MINE_OR_TORP) keeps a subject the rule still hides.
       {
         const share = [0.3, 0.05, 0][world % 3];
         const lattice = fogLattice(0, 0, INVARIANT_ARENA_U, CONFIG.fog.quantileLattice);
@@ -4397,6 +4474,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           const a = w.ships.get(ids[0])!.state;
           const p = w.ships.get('pn')!.state;
           injectMine(w, 'fogMine', 'pn', a.x + (p.x - a.x) * 0.8, a.y + (p.y - a.y) * 0.8);
+          seatMineBehindFog(w, ids);
         }
       }
       // WOUNDED SMOKE (Story 4.4): guarantee the sm oracle is EXERCISED, not

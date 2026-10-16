@@ -254,7 +254,7 @@ function marchDensity(
   for (let i = 0; i < n; i++) {
     const f = (i + 0.5) / n;
     const d = fogDensityAt(field, ax + dx * f, ay + dy * f, tMs, cut);
-    if (free && (i === 0 || d >= FOG_SOLID_DENSITY)) continue; // the first step is the observer's own ground: free whenever they stand in solid fog
+    if (free && ((i === 0 && n > 1) || d >= FOG_SOLID_DENSITY)) continue; // the first step is the observer's own ground: free whenever they stand in solid fog (a one-step ray — shorter than a step, or a non-positive marchStepU — has no "own" step: it is read)
     free = false;
     sum += d;
   }
