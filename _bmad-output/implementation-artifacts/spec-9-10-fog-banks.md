@@ -2,10 +2,11 @@
 title: 'Story 9.10: Fog Banks'
 type: 'feature'
 created: '2026-10-15'
-status: 'in-progress'
+status: 'done'
 baseline_revision: 'b2df9308'
 review_loop_iteration: 0
-followup_review_recommended: false
+final_revision: 'PR open to development (2026-10-15); code head fbfd2572 plus the final_revision stamp commit'
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-9-context.md'
@@ -110,29 +111,45 @@ warnings: [oversized]
 
 ## Tasks & Acceptance
 
+**Disc-era execution (all four waves built, reviewed BUILD-ON-IT ×3, then SUPERSEDED by Eric's 'no discs' — kept as history, every box ticked):**
+
 **Execution (wave 1 — shared, one agent, Opus):**
-- [ ] `shared/src/constants.ts`, `sim/fog.ts`, `types.ts`, `index.ts` -- `CONFIG.fog`, the pure math, the wire row, PV 85 -- the one derivation both sides and the oracle's counterpart depend on
-- [ ] `shared/src/__tests__/fog.test.ts` + re-bases -- the matrix's geometry rows; `npm test -w shared`, `npm run build -w shared`
+- [x] `shared/src/constants.ts`, `sim/fog.ts`, `types.ts`, `index.ts` -- `CONFIG.fog`, the pure math, the wire row, PV 85 -- the one derivation both sides and the oracle's counterpart depend on
+- [x] `shared/src/__tests__/fog.test.ts` + re-bases -- the matrix's geometry rows; `npm test -w shared`, `npm run build -w shared`
 
 **Execution (wave 2a — server world/drones/harness, one agent, Opus; after wave 1):**
-- [ ] `server/src/game/world.ts`, `metrics.ts`, `rooms/ArenaRoom.ts`, `scripts/batchsim/overrides.ts` (+ report) -- store, `stepFog`, controller, spawn, getters, seam, STEP_ORDER, match-start clear, harness family (drones.ts is wave 2b's: the `shipSees` signature lives in signals.ts)
-- [ ] `server/src/__tests__/{fogBanks,stepOrder}.test.ts` -- controller band, storm kill, spawn-on-water, same seed same banks, pre-start inert
+- [x] `server/src/game/world.ts`, `metrics.ts`, `rooms/ArenaRoom.ts`, `scripts/batchsim/overrides.ts` (+ report) -- store, `stepFog`, controller, spawn, getters, seam, STEP_ORDER, match-start clear, harness family (drones.ts is wave 2b's: the `shipSees` signature lives in signals.ts)
+- [x] `server/src/__tests__/{fogBanks,stepOrder}.test.ts` -- controller band, storm kill, spawn-on-water, same seed same banks, pre-start inert
 
 **Execution (wave 2b — perception chokepoint, one agent, Fable; after 2a, shared frozen):**
-- [ ] `server/src/game/{signals,perception,frames,drones}.ts` -- `fogCostTo`, the seven sight sites, `fogSignal`, registry, contexts, channel, comment blocks (SEVEN exceptions); `shipSees(me, other, islands, fogBanks, now)` and the three drone call sites
-- [ ] `server/src/__tests__/{perception,fogPerf,droneSightScope,radarWire,ordnanceMasksAreServerOnly,colyseus018,denials,goldenFrames}.test.ts` -- oracle, verifiers, fuzz seeding, the matrix's ledgers, perf pin, drone blinded, PV pins
+- [x] `server/src/game/{signals,perception,frames,drones}.ts` -- `fogCostTo`, the seven sight sites, `fogSignal`, registry, contexts, channel, comment blocks (SEVEN exceptions); `shipSees(me, other, islands, fogBanks, now)` and the three drone call sites
+- [x] `server/src/__tests__/{perception,fogPerf,droneSightScope,radarWire,ordnanceMasksAreServerOnly,colyseus018,denials,goldenFrames}.test.ts` -- oracle, verifiers, fuzz seeding, the matrix's ledgers, perf pin, drone blinded, PV pins
 
 **Rendered-page gate (orchestrator, in parallel with waves 1–2):**
-- [ ] three haze candidates beside a countermeasure cloud and wounded smoke on the real ocean color, at a 500 u sight framing; Eric picks (AskUserQuestion) → amendment 169 look clause
+- [x] three haze candidates beside a countermeasure cloud and wounded smoke on the real ocean color, at a 500 u sight framing; Eric picks (AskUserQuestion) → amendment 169 look clause
 
 **Execution (wave 3 — client, one agent, Opus; after wave 1 and the page pick):**
-- [ ] `client/src/render/{stage,fogBanks}.ts`, `net/roomBindings.ts`, `config.ts`, tests -- layer, view, sync, fade-out, LOS mask reuse, knobs, token
+- [x] `client/src/render/{stage,fogBanks}.ts`, `net/roomBindings.ts`, `config.ts`, tests -- layer, view, sync, fade-out, LOS mask reuse, knobs, token
 
 **Review gate (orchestrator):** Blind Hunter + Edge Case Hunter on Fable, Codex `gpt-5.6-sol` on the same diff; seeds: (1) a sight site that still compares the plain distance (grep every `sightOf(` and `muzzleFlashReach(` caller); (2) the oracle's integration vs the closed form disagreeing at a tangent or an endpoint inside the disc; (3) the storm-kill `until` rewrite extending a life; (4) the controller spawning past `maxBanks` or inside land through a stale ring; (5) `fog` rows leaking `R`/`until`; (6) `shipSees` callers that forgot the fog args.
 
 **Execution (wave 4 — record, Sonnet):**
-- [ ] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `docs/codebase-map.md`, `epics.md` stamp, both trackers, amendments 162–169 in BOTH homes, deferred-work 5.4 stamps, epic-5 amendment 47 stamp -- 0.18.56 / cycle 191 / PV 85
-- [ ] `npm run check` green; branch pushed; ONE PR to `development`, never merged
+- [x] `VERSION`, `package.json`, `package-lock.json`, `CHANGELOG.md`, `docs/codebase-map.md`, `epics.md` stamp, both trackers, amendments 162–169 in BOTH homes, deferred-work 5.4 stamps, epic-5 amendment 47 stamp -- 0.18.56 / cycle 191 / PV 85
+- [x] `npm run check` green; branch pushed; ONE PR to `development`, never merged
+
+
+**Field execution (the shipped build — Eric 2026-10-15 "no discs"; orchestrated: shared Opus → server Fable ∥ client Opus → gate (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol) → patches by the same agents → records Sonnet):**
+- [x] `shared/src/sim/fog.ts` rewritten as the field (`makeFogField`, `fogNoiseAt`, `fogDensityAt`, `fogTollAlong`, `fogCutForTarget`, `fogLattice`, `FOG_NO_CUT`), `CONFIG.fog` field dials (Eric's 900 / 8 / 150000), `WelcomeMsg.fogSeed`, `FogBankView` / `FrameMsg.fog` removed, PV 85 history re-worded; 20 contract tests
+- [x] `server/src/game/world.ts` — `fogSeed`, `fogField`, `fogCut` + the quantile coverage controller (target wander, `cutRatePerS` slew, onset roll-in from above the lattice max, endgame hold below `wavelengthU / 2`, snap only to no-fog), the EXACT memoized cell walk (`fogTollAlong` → Liang–Barsky clip → Amanatides–Woo DDA over a 10 u lattice covering the ocean + 750 u, density per cell on first touch per refresh epoch), `fogDensityAt`, `fogCoverageEstimate`, test seams; `stepFog` row kept after `stepClouds`
+- [x] `server/src/game/{signals,perception,frames,drones}.ts` — `SightField { islands, fogToll }`, `withinSight` NaN-safe, the `fog` channel / `fogSignal` / registry key / `verifyFog` REMOVED (SIX exceptions again), both contexts thread the world's toll, drones one field per tick/hit
+- [x] `server/src/game/ai/{sweepMiss,types,botDriver,tactics}.ts` — a plot at fog density ≥ 0.5 is not a sweep miss (amendment 169 on the field), `fogAt` bound through the bot entry
+- [x] `server/src/rooms/{ArenaRoom.ts,schema/ArenaState.ts}`, `server/src/metrics.ts` — welcome `fogSeed`, schema `fogCut` (float32, 9 = no fog), metrics per-scrape max coverage + its cut
+- [x] `server/scripts/batchsim/{overrides,poolReadouts}.ts` — `fog.*` family, floors (`marchStepU` ≥ 5, `refreshMs` ≥ 250, `quantileLattice` 8..256 integer, `octaves` integer, `gain` (0, 1], coverage pair on [0, 1] and ordered), `fogCoverage` readout
+- [x] `server/src/__tests__/{perception,fogField,fogPerf,droneSightScope,signals,stepOrder,metrics,botPlot,colyseus018,denials}.test.ts` + batchsim tests — the oracle integrates the shared density at the epoch clock, ledgers, directed cases at density 1 vs no fog, the walk-vs-march agreement sweep (2,000 rays, worst 9.2 u / tol 40), onset / hold / snap, determinism, perf pins
+- [x] `client/src/render/{fogField,fogPuffTile}.ts`, `stage.ts`, `main.ts`, `net/roomBindings.ts`, `config.ts` — the world-anchored density raster (18 u, 250 ms) as the alpha mask of a wind-scrolled wisps tile (pick B) on the `fog` layer under hulls, the halo + LOS mask reused, eased schema cut, alive/spectate modes, zero steady-state allocation, textures destroyed on reallocation; `CLIENT_CONFIG.fogField`; 17 + 3 tests
+- [x] Rendered-page gates: the look (pick B) and the live field page (Eric: bigger, slower banks)
+- [x] Records: `VERSION` / `package.json` / lock 0.18.56, `CHANGELOG.md`, `epics.md` stamp, both trackers, amendments 162–176 in both homes (162 MOOT, 165–166 / 171 SUPERSEDED), deferred-work 5.4 stamps, epic-5 amendment 47 stamp, `docs/codebase-map.md`
+- [x] `npm run check` green (final run below); branch pushed; ONE PR to `development`, never merged
 
 **Acceptance Criteria:**
 - Given a mature bank between an observer and a hull inside 500 u whose chord × 2 pushes the fogged distance past sight, when the frame is built, then the hull is on no channel of that frame; with the bank removed it is a contact.
@@ -161,6 +178,39 @@ warnings: [oversized]
 - The main checkout carried one dirty, unrelated file (`_bmad-output/party-mode/memories/installed/.memlog.md`, another session's party-mode log); work proceeds in a fresh worktree from `development` and that file never rides along.
 
 ## Review Triage Log
+
+### 2026-10-15 — Review pass 1 (the DISC build; Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol on the same diff; all three BUILD-ON-IT, no leak)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 0, medium 1, low 3)
+- defer: 0
+- reject: 19
+- addressed_findings:
+  - `[medium]` `[patch]` `withinSight` fail-OPEN on a NaN range (Edge Case Hunter) — carried into the field build as the NaN-safe `!(d2 <= range²)` test with a directed case
+  - `[low]` `[patch]` bots forget a hull that sailed into fog (Blind Hunter → Eric: fog is not evidence, amendment 169) — built on the field as the density ≥ 0.5 rule
+  - `[low]` `[patch]` three Eric-level questions raised before the PR (bot memory, drone avoidance, the coverage ceiling) → amendments 169–170 and Eric's "no discs" pivot
+  - the remaining disc-specific patches (ramp degenerate span, client restamp floor, spawnTries test, docs on the row) became MOOT when the disc model was superseded; rejected: unreachable density rounding, NaN rows/dt on the client, coverage counting full R (ruled), controller after match end, per-hit field copy, harness cross-keys that were not defects, Math.sqrt determinism (IEEE-exact)
+
+### 2026-10-15 — Review pass 2 (the FIELD build; the same three reviewers; Codex FIX-FIRST, Blind Hunter FIX-FIRST, Edge Case Hunter 8 findings)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 12: (high 1, medium 4, low 7)
+- defer: 0
+- reject: 11
+- addressed_findings:
+  - `[high]` `[patch]` the quick-reject raster was a heuristic (five samples per 100 u cell) and could skip a real toll at the sight boundary (Codex, CONFIRMED) — replaced by the exact memoized cell walk; agreement sweep + first-touch perf pin added
+  - `[medium]` `[patch]` the coverage controller collapsed at the final close (ring r → 0 fogged half the ocean; Blind Hunter + Edge Case Hunter) — Eric: hold the last cut below half a bank (amendment 174)
+  - `[medium]` `[patch]` the first live refresh snapped the cut (fog popped in; Blind Hunter) — Eric: roll in over ~1 min from above the lattice maximum (amendment 175)
+  - `[medium]` `[patch]` a no-fog goal crawled at 0.02/s for ~7 min while the client snapped (Edge Case Hunter) — snap only toward no-fog
+  - `[medium]` `[patch]` the alive-with-no-pose frames took the spectator path: an unmasked whole-screen fog flash (both hunters) — alive mode hides the fog until a pose exists
+  - `[low]` `[patch]` client per-frame allocations in `centreFor` / `geometryFor` (Codex + Blind Hunter) — reused scratch objects, a 200-frame zero-allocation test
+  - `[low]` `[patch]` old density textures leaked on reallocation (Edge Case Hunter) — destroyed; test
+  - `[low]` `[patch]` `/metrics` fog numbers were last-writer-wins across rooms (both hunters) — per-scrape max coverage + its cut
+  - `[low]` `[patch]` harness floors that could take the server down or mislead (`marchStepU` 1 = 100 M memo cells, `refreshMs` 1, fractional `octaves` / `quantileLattice`, a lattice under 1/target) — floors and integer rules; tests
+  - `[low]` `[patch]` the spec's dials were stale against Eric's live-page pick (600/12/90000 vs 900/8/150000) — spec corrected
+  - `[low]` `[patch]` stale disc-era comments on production rows and a duplicated test header line — removed
+  - `[low]` `[patch]` dead `targets` assignment in a test — const
+  - rejected: the raster's endpoint-outside-square and slack-vs-wind findings (moot with the memo), `wavelengthU` 0 silent no-fog (floored at 1), the oracle's dead band (an accepted midpoint-rule bound; the directed cases pin exact numbers), client/server cosmetic lag (recorded), `fogCutPinned` as a production field (test-only writer, cleared on reset), the `fogRng` pseudonym fallback (ArenaRoom always supplies the seed), the morph/degenerate shared tests (covered by the server's collapsed-ring case), the bot flare pick never flaring a fog-hidden plot (Story 9.13's; recorded in amendment 176(b)), wall-clock perf pins (the house pattern, with 20× headroom)
 
 ## Design Notes
 
@@ -200,3 +250,21 @@ Eric 2026-10-15, after the disc build passed review: *"You know what, no. I don'
 **Tests.** Shared: `fogDensityAt` ∈ [0,1], finite everywhere, identical for identical inputs, 0 for the no-fog cut, 1 at a point far above the cut; `fogTollAlong` ≥ 0, additive over subsegments within one step's tolerance, 0 with the no-fog cut; `fogCutForTarget` (pure: `(field, t, points, target)`) returns a cut whose realized share over the same points is within 1 lattice cell of the target; the FORBIDDEN_MATH guard. Server: the perception fuzz's oracle integrates the SHARED density at 1 u steps using the world's cut (the field is the world, like islands; the oracle never calls `withinSight`/`fogTollAlong`), the quick-reject raster is proved conservative (a seeded sweep: no ray with toll > 0 is ever rejected), the ledgers re-derived on the field (hidden contact, thin edge seen, hidden mine/fish, hidden `sm`, radar through fog; the two fog-row ledgers are gone), the twelve directed cases re-cut on a field fixture (a test seam `world.setFogCutForTest(cut)` pins the cut so the geometry is exact: a very low cut → density 1 everywhere, the no-fog cut → 0), the coverage controller lands within ±1 point of its target after one refresh and never slews faster than `cutRatePerS`, pre-start has no fog, determinism from the seed, drones + bot-memory cases, `fogPerf` at 8 % coverage. Golden frames: unchanged (no scenario starts the zone).
 
 **Records (re-cut).** VERSION / package 0.18.56, PV 85, cycle 191 stand; CHANGELOG re-worded for the field; amendments: 162 stamped MOOT (no per-observer fog row; exceptions SIX), 165–166 SUPERSEDED, 171 rewritten, new 172 (Eric: no discs — a fractal noise field; performant is the agent's), 173 (field readings); `docs/codebase-map.md` rows for `fogField.ts`; trackers one-line.
+
+## Auto Run Result
+
+**Status:** done — PR to `development` open (2026-10-15), never merged by the agent; Eric judges on staging.
+
+**Summary:** Fog banks ship as a rolling FIELD, not discs (Eric's pivot mid-cycle). One seed on the welcome and one coverage number on the room state let both sides derive the same fractal-noise fog, drifting on a per-match wind and slowly changing shape; the server cuts it so 2–8 % of the live ring is fogged (the share wanders), rolls it in over about a minute after the match goes live, and holds it once the ring is smaller than a bank. Fog eats eyesight only: every unit of fog counts triple against the sight ray, so a mature bank hides a hull inside the 500 u bubble from eyes AND radar (radar's inner edge stays the geometric sight radius), mines and torpedoes are spotted late, the 750 u muzzle-flash / wounded-smoke halo pays the same, and zone circles, foghorn and storm ignore it. Bots and PvE drones are fogged by the same shared predicate; a bot does not forget a hull that sailed into fog. On the client the field is a density raster masking Eric's pick B wisps, drawn under the hulls inside the halo + island line-of-sight mask. Nothing per-observer about fog rides a frame; the SIX declared perception exceptions are unchanged.
+
+**Files changed:** see the Code Map and the Field execution list — shared `constants.ts`, `sim/fog.ts`, `types.ts`, `index.ts`; server `game/{world,signals,perception,frames,drones}.ts`, `game/ai/{sweepMiss,types,botDriver,tactics}.ts`, `rooms/{ArenaRoom,schema/ArenaState}.ts`, `metrics.ts`, `scripts/batchsim/{overrides,poolReadouts}.ts`; client `render/{fogField,fogPuffTile,stage}.ts`, `main.ts`, `net/roomBindings.ts`, `config.ts`; tests in all three workspaces; records (`VERSION`, `package.json`, lock, `CHANGELOG.md`, `docs/codebase-map.md`, both trackers, `epics.md`, epic-9 amendments 162–176 in both homes, epic-5 amendment 47 stamp, deferred-work 5.4 stamps).
+
+**Review findings:** two passes. Pass 1 (discs): 4 patches, 19 rejected, all three reviewers BUILD-ON-IT; superseded by Eric's pivot. Pass 2 (field): 12 patches (1 high — the heuristic quick-reject raster, replaced by the exact memoized cell walk; 4 medium — the final-close collapse and the onset snap, both Eric rulings; the no-fog crawl; the alive-no-pose flash), 11 rejected, 0 deferred. Cross-model picture: Codex alone raised the raster hole (CONFIRMED, then independently supported by the Blind Hunter's slack arithmetic); the two Fable hunters independently raised the final-close collapse; the Blind Hunter alone raised the onset snap; the Edge Case Hunter alone raised the metrics flip and the texture leak.
+
+**Follow-up review recommended:** true — the review gate drove a redesign of the toll path at the anti-cheat chokepoint (raster → memoized cell walk) and two controller rulings; the rework is covered by the agreement sweep, the invariant fuzz and the directed cases, but an independent pass on the final code is cheap insurance.
+
+**Verification:** `npm run check` green 2026-10-15 on the clean tree at fbfd2572 (lint, tsc ×3, shared 1124 / server 2633 / client 4101 tests, hook test; exit 0). Perf of record (quiet box, best-of-5): `observe()` × 16 captains among 112 hulls at 8 % coverage 1.35–1.5 ms; first-touch tick after an epoch bump 2.25–2.5 ms over 3,258 memo cells; `shipSees` × 1,536 drone pairs 0.2 ms; client raster refresh 1.9 ms per 250 ms. Walk vs reference march: worst 9.24 u over 2,000 rays (tolerance 40 u). Manual: Eric on staging — banks rolling in over the first minute, the look (pick B at 900 u / 8 u/s / 150 s), a hull vanishing from eye and radar inside a bank, mines spotted late, flash and smoke muffled, zones and foghorn unchanged, the amount holding through the final close.
+
+**Residual risks:** the server tolls a fog snapshot up to one second old (the wind moves 8 u in that second); the client draws an eased cut on an 18 u raster, so a hull right at a bank's edge can read a few units off between what is drawn and what is hidden; a modified client can evaluate the field anywhere (fog placement is weather, never hull information — accepted); the memo costs 10.6 MB per room; `FOG_PLOT_DENSITY` 0.5 is a server constant, not a dial; the How-to-Play FOG entry, the GDD fog lines, DESIGN.md's layer list and EXPERIENCE.md wait for 9.17; `CLAUDE.md`'s "exactly SIX declared exceptions" is TRUE again after the pivot (the disc build had made it stale).
+
+**Code head:** fbfd2572 (plus this spec's final stamp commit).
