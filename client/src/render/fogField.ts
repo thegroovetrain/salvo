@@ -24,7 +24,8 @@
 //   wind and spin terms), so the next refresh carries it.
 // - THE WISPS: a TilingSprite of the pre-baked puff tile (render/fogPuffTile.ts,
 //   2 u per texel), alpha `maxAlpha`, world-anchored through `tilePosition`
-//   and scrolled with the field's wind (u/ms) — motion off → it holds still.
+//   and scrolled with the field's local velocity at the view centre (wind +
+//   the spin's tangential speed there, u/ms) — motion off → it holds still.
 // - The density sprite is the tiling sprite's MASK on the ALPHA channel
 //   (`setMask({ channel: 'alpha' })`), so per screen pixel the drawn alpha is
 //   density(cell, linearly filtered) × puff(uv) × maxAlpha. Chosen because it
@@ -349,7 +350,8 @@ export class FogFieldView {
    * tangential speed there (amendment 177 — the pattern turns about the
    * ocean centre, faster toward the middle by the shear; cycle-192 gate: a
    * wind-only scroll made the wisps swim against their own bank at the rim,
-   * where the spin moves the banks several times faster than the wind).
+   * where the spin then moved the banks several times faster than the wind —
+   * both dials are 1 u/s since cycle 193, the velocity sum still holds).
    * One tile cannot turn with the whole field; following the centre's
    * velocity keeps the wisps riding the banks the viewer is looking at.
    */
@@ -360,12 +362,12 @@ export class FogFieldView {
     const f = this.field;
     let vx = f.windX;
     let vy = f.windY;
-    if (f.cfg.spinPeriodMs > 0) {
+    if (f.cfg.spinRimU > 0 && f.spinRadiusU > 0) {
       const px = centre.x - f.spinCx;
       const py = centre.y - f.spinCy;
       const r = Math.hypot(px, py);
       const shear = r >= f.spinRadiusU ? 0 : f.cfg.spinShear * (1 - r / f.spinRadiusU);
-      const w = (f.spinSign * (2 * Math.PI) * (1 + shear)) / f.cfg.spinPeriodMs; // rad/ms at the centre point
+      const w = (f.spinSign * (f.cfg.spinRimU / 1000) * (1 + shear)) / f.spinRadiusU; // rad/ms at the centre point
       vx += -py * w;
       vy += px * w;
     }

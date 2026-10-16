@@ -85,6 +85,7 @@ import {
   isOutside,
   FOG_NO_CUT,
   makeFogField,
+  FOG_SOLID_DENSITY,
   fogDensityAt as fieldDensityAt,
   fogNoiseAt,
   fogCutForTarget,
@@ -1711,9 +1712,11 @@ export class World {
   /**
    * THE COVERAGE CUT — the noise threshold the live field is cut at:
    * `FOG_NO_CUT` (9, a value no fbm reaches → density 0 everywhere) before
-   * the zone timeline starts, and the (1 − target) quantile of the noise
-   * over a lattice inside the live ring once it runs (so the fogged share
-   * of the ring's area IS the target at every ring size — no bank count),
+   * the zone timeline starts, and the shared `fogCutForTarget` — the
+   * (1 − target) quantile of the noise over a lattice inside the live ring
+   * minus half the edge band, so the SOLID share (density ≥ ½) of the
+   * ring's area IS the target at every ring size (amendment 178; the thin
+   * edge below ½ is extra, about ten points of the ring at a 22 % dial) —
    * slewed at most `cutRatePerS` between refreshes (the FIRST live refresh
    * snaps straight to its goal — a slew-in is a staging call for Eric).
    * Match-wide weather like the zone rings: mirrored onto `ArenaState.fogCut`
@@ -1731,7 +1734,7 @@ export class World {
   private fogNextRefreshAt = 0;
   /** The quantile lattice (fogLattice's reusable `out` — allocated once, refilled per refresh). */
   private readonly fogLatticePts: { x: number; y: number }[] = [];
-  /** The realized fogged share over the last lattice (points with density > 0 / points), for metrics + tests. */
+  /** The realized fogged share over the last lattice (points at density ≥ FOG_SOLID_DENSITY / points), for metrics + tests. */
   private fogCoverageShare = 0;
   /**
    * THE DENSITY MEMO (Eric: "make it performant"; the review gate's EXACT
@@ -1749,12 +1752,10 @@ export class World {
    * crosses is read). The EPOCH advances at every fog refresh (`refreshMs`,
    * when the cut may slew): `fogEpochT` is that refresh's clock, so the
    * field the server tolls is at most `refreshMs` old. Since the spin
-   * (amendment 177) the pattern moves up to 2π·R/spinPeriodMs ≈ 26 u/s at
-   * the rim (16 u/s at half radius, the wind's 3.5 u/s mid-ocean), so
-   * `refreshMs` is 500: the server's field trails the client's by at most
-   * half a second (≈ 13 u at the rim); at a bank's edge the two can
-   * disagree by up to half density for that long (cycle-192 gate reading;
-   * Eric may shorten the epoch further at a linear first-touch cost). The shared midpoint march
+   * (amendments 177–178) the pattern moves `spinRimU` (1 u/s) at the rim
+   * plus the wind (1 u/s), so at `refreshMs` 500 the server's field trails
+   * the client's by at most a unit or so (the cycle-192 sizing was for a
+   * 26 u/s rim; the epoch is kept at 500 ms). The shared midpoint march
    * (`fogTollAlong` in sim/fog.ts) stays the REFERENCE the client and the
    * tests integrate; the server walk agrees with it to one cell's
    * quantization at each end (fogField.test.ts).
@@ -7186,8 +7187,9 @@ export class World {
    * after stepClouds: weather beside weather). (1) No zone timeline yet →
    * no fog (`fogClear`; the practice water never fogs). (2) Otherwise, once
    * per `refreshMs`: redraw the coverage target when its period is up, cut
-   * the field at the (1 − target) quantile over the lattice inside the live
-   * ring (slewed at most `cutRatePerS`; the first live refresh snaps) and
+   * the field at `fogCutForTarget` (the solid-share quantile) over the
+   * lattice inside the live ring (slewed at most `cutRatePerS`; the first
+   * live refresh rolls in from the lattice maximum, amendment 175) and
    * start a new density-memo EPOCH at this clock (see `fogMemo`). Nothing
    * else — the field itself is pure math over the seed and the clock, and
    * the memo fills lazily as rays touch it.
@@ -7220,10 +7222,11 @@ export class World {
    * THE COVERAGE CONTROLLER (amendment 165's band, re-cut on the field):
    * the target wanders in [coverageMin, coverageMax) every targetPeriodMs
    * (the first draw on the first live refresh); the goal cut is the shared
-   * `fogCutForTarget` quantile over the `quantileLattice`² lattice inside
-   * the live ring at THIS instant; the cut steps toward it by at most
-   * `cutRatePerS × refreshMs / 1000`. THE ONSET (Eric 2026-10-15: "roll in
-   * over ~1 min"): the first live refresh sets the cut to the lattice's
+   * `fogCutForTarget` (the solid-share quantile, amendment 178) over the
+   * `quantileLattice`² lattice inside the live ring at THIS instant; the
+   * cut steps toward it by at most `cutRatePerS × refreshMs / 1000`. THE
+   * ONSET (Eric 2026-10-15: "roll in over ~1 min", then 2026-10-16
+   * "faster" — ≈ 15 s since amendment 177): the first live refresh sets the cut to the lattice's
    * MAXIMUM noise + edgeBand — density 0 at every lattice point — and the
    * cut then slews DOWN toward the goal, so banks grow in from their hearts
    * outward (≈ 15 s from a max near 1.0 to a 20–25 % cut at 0.04/s —
@@ -7266,14 +7269,15 @@ export class World {
   }
 
   /** The realized fogged share over the lattice inside `ring` under the live
-   *  cut: points with density > 0 (noise above the cut — what the quantile
-   *  controls) over all points. 0 with no fog or an empty lattice. */
+   *  cut: points at SOLID fog (density ≥ FOG_SOLID_DENSITY — what the
+   *  quantile controls since amendment 178) over all points. 0 with no fog
+   *  or an empty lattice. */
   private fogMeasureCoverage(ring: ZoneRing): number {
     if (this.fogCutValue >= FOG_NO_CUT) return 0;
     const lattice = fogLattice(ring.cx, ring.cy, fogLatticeRadius(ring), CONFIG.fog.quantileLattice, this.fogLatticePts);
     if (lattice.length === 0) return 0;
     let fogged = 0;
-    for (const p of lattice) if (fieldDensityAt(this.fogField, p.x, p.y, this.now, this.fogCutValue) > 0) fogged += 1;
+    for (const p of lattice) if (fieldDensityAt(this.fogField, p.x, p.y, this.now, this.fogCutValue) >= FOG_SOLID_DENSITY) fogged += 1;
     return fogged / lattice.length;
   }
 

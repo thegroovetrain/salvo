@@ -49,9 +49,11 @@ export interface PoolBotSample {
 export interface PoolMatchSample {
   /** Peak of `world.mineCount` over the active phase, sampled every tick. */
   peakMines: number;
-  /** Mean of `world.fogCoverageEstimate` (the realized fogged share of the
-   *  live ring) over the active phase, sampled every tick (Story 9.10 — a
-   *  share, never a position); 0 for a match with no live tick. */
+  /** Mean of `world.fogCoverageEstimate` (the realized SOLID fogged share of
+   *  the live ring — density ≥ ½, amendment 178; the thin edge below that is
+   *  extra, ≈ 10 points at a 22 % dial) over the active phase, sampled every
+   *  tick (Story 9.10 — a share, never a position); 0 for a match with no
+   *  live tick. */
   fogCoverage: number;
   /** Weapon line id -> BOTS that took copy 1 of it this match (off
    *  `world.takes`, the weighting's own ledger), sorted by line id. */
@@ -330,7 +332,7 @@ export function renderPoolReadouts(p: PoolReadouts): string[] {
     `  levels wasted (banked, never spent): ${p.levelsWasted.wasted} of ${p.levelsWasted.earned} earned (${pct(p.levelsWasted.share)})`,
     `  weapon-line spread per lobby: mean distinct lines taken ${num(p.weaponSpread.meanDistinctLines, 2)} | mean top-line share of first-copy takes ${pct(p.weaponSpread.meanTopLineShare)}`,
     `  peak live mines per match: mean ${num(p.peakMines.mean, 2)} | max ${num(p.peakMines.max, 0)}`,
-    `  fog coverage per match (share of the live ring): mean ${pct(p.fogCoverage.mean)} | max ${pct(p.fogCoverage.max)}`,
+    `  fog coverage per match (SOLID share of the live ring, density >= 1/2): mean ${pct(p.fogCoverage.mean)} | max ${pct(p.fogCoverage.max)}`,
   );
   return lines;
 }

@@ -2081,19 +2081,19 @@ export const CONFIG = {
    */
   fog: {
     sightCostPerU: 2, // extra sight units a ray pays per unit of fog crossed, × density (amendment 164) — fog counts triple
-    coverageMin: 0.2, // the fogged share of the live ring's area the cut aims at (target redrawn in [min, max]; Eric 2026-10-16 on staging: "there isn't enough of it" — was 0.02–0.08)
+    coverageMin: 0.2, // the share of the live ring's area at SOLID fog (density ≥ ½) the cut aims at (target redrawn in [min, max]; Eric 2026-10-16 on staging: "there isn't enough of it" — was 0.02–0.08; since amendment 178 the share counts the solid half of the soft edge, not every point above the cut)
     coverageMax: 0.25,
     targetPeriodMs: 120000, // ms between coverage-target redraws
     wavelengthU: 900, // u — base feature size of the noise (broad banks; Eric 2026-10-15 on the live field page: "Bigger, slower banks" — was 600)
     octaves: 3, // fbm octaves
     gain: 0.5, // fbm persistence
-    windU: 3.5, // u/s — the field drifts with a fixed per-match wind (direction from the seed; Eric 2026-10-16 on staging: "it moves too quickly" — was 8, was 12)
-    spinPeriodMs: 1200000, // ms — the pattern turns once about the ocean center per this at the rim; direction is a per-match coin flip (Eric 2026-10-16, amendment 177); 0 = no spin
-    spinShear: 0.5, // the center's extra turn rate as a fraction of the rim's (differential rotation: banks curl and stretch; each noise layer's extra turn is measured from its last invisible morph instant, so it builds to at most spinShear × morphMs / spinPeriodMs of a turn — ≈ 22° — and rebuilds every morphMs); 0 = rigid
+    windU: 1, // u/s — the field drifts with a fixed per-match wind (direction from the seed; Eric 2026-10-16 on staging, second look: "Still too fast. Turn it down to 1 u/s" — was 3.5, 8, 12)
+    spinRimU: 1, // u/s — the spin carries the pattern at this speed at the ocean's rim (slower inward; the turn rate is spinRimU / oceanRadius — one turn in ~8.7 h on a 5,000 u ocean); direction is a per-match coin flip (Eric 2026-10-16, amendments 177–178; was spinPeriodMs 1200000 ≈ 26 u/s at the rim — "still too fast"); 0 = no spin
+    spinShear: 0.5, // the center's extra turn rate as a fraction of the rim's (differential rotation: banks curl and stretch; each noise layer's extra turn is measured from its last invisible morph instant, so it builds to at most spinRimU / oceanRadius × spinShear × morphMs radians and rebuilds every morphMs — at 1 u/s on a 5,000 u ocean that is ≈ 0.9°, so the curl is invisible at Eric's crawl; it was ≈ 22° at the 26 u/s rim of cycle 192); 0 = rigid
     morphMs: 150000, // ms — the shape turnover: two noise layers cross-fade on a triangle wave of this period (Eric: slower — was 90000)
     edgeBand: 0.12, // noise units over which density ramps 0 → 1 above the cut (soft edge)
     cutRatePerS: 0.04, // noise units per second the server may slew the cut (onset ≈ 15 s from clear to a 20–25 % cut; Eric 2026-10-16: "the onset roll-in should be faster" — was 0.02)
-    refreshMs: 500, // ms — server memo-epoch + quantile refresh cadence (was 1000; halved at the cycle-192 gate because the spin moves the rim ≈ 26 u/s — the server's field trails the client's by at most this)
+    refreshMs: 500, // ms — server memo-epoch + quantile refresh cadence (was 1000; halved at the cycle-192 gate when the rim moved ≈ 26 u/s; kept at 500 since the 1 u/s dials of cycle 193 — the server's field trails the client's by at most this)
     marchStepU: 10, // u — the toll's midpoint march step
     quantileLattice: 48, // samples per side of the coverage lattice inside the live ring
   },

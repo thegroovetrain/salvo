@@ -166,8 +166,9 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 85 and admits 86', () => {
-  it('PROTOCOL_VERSION is 86', () => {
+describe('the PV join gate refuses 86 and admits 87', () => {
+  it('PROTOCOL_VERSION is 87', () => {
+    // Fog tune 2 bumped 86 -> 87 (amendment 178): spinPeriodMs -> spinRimU, windU 1, solid-fog coverage.
     // Story 9.10's staging tune bumped 85 -> 86 (Eric 2026-10-16, amendment
     // 177): CONFIG.fog, read by the client, gains spinPeriodMs/spinShear (the
     // field spins about the ocean center with shear, a coin-flip direction);
@@ -242,7 +243,8 @@ describe('the PV join gate refuses 85 and admits 86', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(86); // 85 → 86: the fog spin tune (CONFIG.fog spinPeriodMs/spinShear read by the client; amendment 177)
+    expect(PROTOCOL_VERSION).toBe(87); // 86 → 87: fog tune 2 (spinRimU, solid-fog coverage; amendment 178); 85 → 86: the fog spin tune (CONFIG.fog spinPeriodMs/spinShear read by the client; amendment 177)
+    expect(protocolVersionError(86)).toMatch(/refresh/i);
     expect(protocolVersionError(85)).toMatch(/refresh/i);
     expect(protocolVersionError(84)).toMatch(/refresh/i);
     expect(protocolVersionError(83)).toMatch(/refresh/i);
@@ -292,12 +294,12 @@ describe('the PV join gate refuses 85 and admits 86', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(87)).toMatch(/refresh/i);
+    expect(protocolVersionError(88)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(86)).toBeNull();
+    expect(protocolVersionError(87)).toBeNull();
   });
 });
 

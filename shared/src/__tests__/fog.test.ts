@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  FOG_NO_CUT, fogCutForTarget, fogDensityAt, fogLattice, fogNoiseAt, fogSinCos, fogTollAlong, makeFogField,
+  FOG_NO_CUT, FOG_SOLID_DENSITY, fogCutForTarget, fogDensityAt, fogLattice, fogNoiseAt, fogSinCos, fogTollAlong, makeFogField,
   type FogFieldConfig,
 } from '../sim/fog.js';
 
@@ -17,7 +17,7 @@ const SRC = readFileSync(fileURLToPath(new URL('../sim/fog.ts', import.meta.url)
 // Synthetic dials — the tests exercise the functions, not CONFIG's values.
 const CFG: FogFieldConfig = {
   sightCostPerU: 2, wavelengthU: 600, octaves: 3, gain: 0.5,
-  windU: 12, spinPeriodMs: 600000, spinShear: 0.5, morphMs: 90000, edgeBand: 0.12, marchStepU: 10,
+  windU: 12, spinRimU: 30, spinShear: 0.5, morphMs: 90000, edgeBand: 0.12, marchStepU: 10,
 };
 const OCEAN_R = 5000;
 const FULL = -2; // a cut below every noise value: density 1 everywhere
@@ -158,11 +158,16 @@ describe('fogCutForTarget', () => {
   const side = 48;
   const pts = fogLattice(0, 0, 5000, side);
 
-  it('the realized fogged share over the lattice lands on the target', () => {
+  it('the realized SOLID share (density ≥ ½) over the lattice lands on the target (amendment 178)', () => {
     for (const t of [0, 25000, 90000]) {
-      const cut = fogCutForTarget(field, t, pts, 0.05);
-      const above = pts.filter((p) => fogNoiseAt(field, p.x, p.y, t) > cut).length;
-      expect(Math.abs(above / pts.length - 0.05)).toBeLessThanOrEqual(2 / (side * side));
+      for (const target of [0.05, 0.22]) {
+        const cut = fogCutForTarget(field, t, pts, target);
+        const solid = pts.filter((p) => fogDensityAt(field, p.x, p.y, t, cut) >= FOG_SOLID_DENSITY).length;
+        expect(Math.abs(solid / pts.length - target)).toBeLessThanOrEqual(2 / (side * side));
+        // ...and the cut sits half an edge band under the plain quantile, so every point above the quantile is solid
+        const above = pts.filter((p) => fogNoiseAt(field, p.x, p.y, t) > cut + CFG.edgeBand / 2).length;
+        expect(Math.abs(above / pts.length - target)).toBeLessThanOrEqual(2 / (side * side));
+      }
     }
   });
 
@@ -219,7 +224,7 @@ describe('the spin (Eric 2026-10-16, amendment 177)', () => {
     for (const seed of [11, 12, 13]) {
       const f = makeFogField(seed, still, OCEAN_R);
       const t = still.morphMs; // morph weight 0: layer A only
-      const th = f.spinSign * (2 * Math.PI * t) / still.spinPeriodMs;
+      const th = (f.spinSign * (still.spinRimU / 1000) * t) / OCEAN_R; // rim speed over radius
       const c = Math.cos(th);
       const s = Math.sin(th);
       for (const p of SWEEP) {
@@ -237,8 +242,17 @@ describe('the spin (Eric 2026-10-16, amendment 177)', () => {
     expect(makeFogField(42, CFG, OCEAN_R).spinSign).toBe(makeFogField(42, CFG, OCEAN_R).spinSign);
   });
 
-  it('spinPeriodMs 0 is no spin: in the wind frame, two morph-phase-0 instants read the same noise', () => {
-    const f = makeFogField(5, { ...CFG, spinPeriodMs: 0 }, OCEAN_R);
+  it('a non-positive or NaN ocean radius disables the spin instead of spinning a 1 u disc', () => {
+    for (const bad of [0, -5, NaN]) {
+      const f = makeFogField(5, CFG, bad);
+      expect(f.spinRadiusU).toBe(0);
+      const g = makeFogField(5, { ...CFG, spinRimU: 0 }, OCEAN_R);
+      for (const p of SWEEP) expect(fogNoiseAt(f, p.x, p.y, 777)).toBe(fogNoiseAt(g, p.x, p.y, 777));
+    }
+  });
+
+  it('spinRimU 0 is no spin: in the wind frame, two morph-phase-0 instants read the same noise', () => {
+    const f = makeFogField(5, { ...CFG, spinRimU: 0 }, OCEAN_R);
     const tm = CFG.morphMs * 2;
     for (const p of SWEEP) {
       expect(Math.abs(fogNoiseAt(f, p.x + f.windX * tm, p.y + f.windY * tm, tm) - fogNoiseAt(f, p.x, p.y, 0))).toBeLessThan(1e-9);
@@ -256,7 +270,7 @@ describe('the spin (Eric 2026-10-16, amendment 177)', () => {
     for (const seed of [21, 22]) {
       const f = makeFogField(seed, cfg, OCEAN_R);
       for (const [tLate, tEarly] of [[10 * P + 1, 1], [10 * P + P / 2 + 1, P / 2 + 1]]) {
-        const th = f.spinSign * (2 * Math.PI * (tLate - tEarly)) / cfg.spinPeriodMs; // the rigid turn in between
+        const th = (f.spinSign * (cfg.spinRimU / 1000) * (tLate - tEarly)) / OCEAN_R; // the rigid turn in between
         const c = Math.cos(th);
         const sn = Math.sin(th);
         for (const p of SWEEP) {

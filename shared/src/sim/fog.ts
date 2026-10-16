@@ -9,9 +9,9 @@
 // finer step rather than calling `fogTollAlong`, so the two check each other.
 //
 // The field in plain words: noise `n(x, y, t)` is two fbm layers SPINNING
-// about the ocean center (one turn per `spinPeriodMs` at the rim, faster
-// toward the middle by `spinShear` so banks curl and stretch; the turn's
-// direction is a per-match coin flip — Eric 2026-10-16, amendment 177),
+// about the ocean center (the rim moves `spinRimU` u/s, faster toward the
+// middle by `spinShear` so banks curl and stretch; the turn's direction is a
+// per-match coin flip — Eric 2026-10-16, amendments 177–178),
 // drifting with a fixed per-match wind, and cross-faded by a triangle wave of
 // period `morphMs` (so banks roll AND change shape). Density = clamp01((n − cut) / edgeBand):
 // zero below the cut, a soft edge `edgeBand` wide, solid above. A ray pays
@@ -42,7 +42,7 @@ export interface FogFieldConfig {
   octaves: number;
   gain: number;
   windU: number;
-  spinPeriodMs: number; // ms for one full turn of the pattern at the ocean's rim (0 = no spin)
+  spinRimU: number; // u/s the spin carries the pattern at the ocean's rim (0 = no spin); the turn rate is spinRimU / oceanRadius
   spinShear: number; // extra turn rate at the center as a fraction of the rim's (0 = rigid)
   morphMs: number;
   edgeBand: number;
@@ -58,7 +58,7 @@ export interface FogField {
   readonly spinSign: 1 | -1; // the per-match coin flip: +1 turns one way, -1 the other
   readonly spinCx: number; // u — the spin center (the ocean center)
   readonly spinCy: number;
-  readonly spinRadiusU: number; // u — the ocean radius: shear reads 1 - r / this, 0 at and beyond the rim
+  readonly spinRadiusU: number; // u — the ocean radius: the turn rate is spinRimU / this and shear reads 1 - r / this, 0 at and beyond the rim; 0 = no spin
   readonly cfg: FogFieldConfig;
 }
 
@@ -97,7 +97,7 @@ export function makeFogField(seed: number, cfg: FogFieldConfig, spinRadiusU: num
     spinSign: spinSign(s),
     spinCx,
     spinCy,
-    spinRadiusU: spinRadiusU > 0 ? spinRadiusU : 1,
+    spinRadiusU: spinRadiusU > 0 ? spinRadiusU : 0, // a non-positive or NaN radius disables the spin (never a 1 u radius turning at spinRimU)
     cfg,
   };
 }
@@ -129,7 +129,7 @@ const SC = { s: 0, c: 0 };
 
 /**
  * The sample point for one layer: the pattern spins about the ocean center
- * at `spinPeriodMs` per turn at the rim, faster toward the center by
+ * at `spinRimU` u/s at the rim, faster toward the center by
  * `spinShear` (differential rotation — banks curl and stretch), and drifts
  * on the wind. Spin and drift are isometries and may accumulate all match;
  * the SHEAR is measured from `tResetMs`, the last instant this layer's morph
@@ -145,8 +145,8 @@ function layerSample(field: FogField, x: number, y: number, tMs: number, tResetM
   const py = y - field.spinCy;
   let rx = px;
   let ry = py;
-  if (c.spinPeriodMs > 0) {
-    const w0 = TWO_PI / c.spinPeriodMs; // rad/ms at the rim
+  if (c.spinRimU > 0 && field.spinRadiusU > 0) {
+    const w0 = c.spinRimU / 1000 / field.spinRadiusU; // rad/ms at the rim (rim speed over radius)
     const ang = -field.spinSign * (w0 * tMs + w0 * shearF * (tMs - tResetMs)); // look back in time: the pattern turns forward
     fogSinCos(ang, SC);
     rx = px * SC.c - py * SC.s;
@@ -184,7 +184,7 @@ export function fogNoiseAt(field: FogField, x: number, y: number, tMs: number): 
   const px = x - field.spinCx;
   const py = y - field.spinCy;
   const r = Math.sqrt(px * px + py * py);
-  const shearF = r >= field.spinRadiusU ? 0 : c.spinShear * (1 - r / field.spinRadiusU);
+  const shearF = !(r < field.spinRadiusU) ? 0 : c.spinShear * (1 - r / field.spinRadiusU);
   layerSample(field, x, y, tMs, tA, shearF, PA);
   layerSample(field, x, y, tMs, tB, shearF, PB);
   const a = fbm(PA.x, PA.y, field.layerA, c.octaves, c.gain);
@@ -246,8 +246,12 @@ export function fogTollAlong(
 }
 
 /**
- * The cut whose fogged share over `points` is `target`: the (1 − target)
- * quantile of the noise at those points. target ≤ 0 (or NaN) or no points →
+ * The cut whose fogged share over `points` is `target`, where "fogged" is
+ * density ≥ ½ (the solid half of the soft edge — what a captain calls fog):
+ * the (1 − target) quantile of the noise at those points minus half the
+ * edge band, so the half-density contour encloses the target share
+ * (amendment 178 — the quantile alone put only ~14 % at half density for a
+ * 22 % dial, the rest being thin edge). target ≤ 0 (or NaN) or no points →
  * FOG_NO_CUT; target ≥ 1 → a cut below every noise value (density 1
  * everywhere). Pure — the caller picks the points (the server: a lattice
  * inside the live ring).
@@ -257,13 +261,20 @@ export function fogCutForTarget(
 ): number {
   const n = points.length;
   if (!(target > 0) || n === 0) return FOG_NO_CUT;
-  if (target >= 1) return FOG_FULL_CUT;
+  const band = field.cfg.edgeBand > 0 ? field.cfg.edgeBand : 0;
+  // target ≥ 1: below every value AND its whole soft edge, so density is 1 everywhere whatever the
+  // band (cycle-193 gate: with a huge harness edgeBand the bare −2 sat ABOVE the regular path's cut)
+  if (target >= 1) return FOG_FULL_CUT - band;
   const vals = new Float64Array(n);
   for (let i = 0; i < n; i++) vals[i] = fogNoiseAt(field, points[i].x, points[i].y, tMs);
   vals.sort();
   const idx = Math.floor((1 - target) * n);
-  return vals[idx < 0 ? 0 : idx > n - 1 ? n - 1 : idx];
+  const q = vals[idx < 0 ? 0 : idx > n - 1 ? n - 1 : idx];
+  return q - band / 2;
 }
+
+/** The density level `fogCutForTarget` controls the share of: ≥ this is "fogged". */
+export const FOG_SOLID_DENSITY = 0.5;
 
 /**
  * `side × side` cell centers over the bounding square of the disc (cx, cy, r),
