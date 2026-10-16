@@ -126,3 +126,14 @@ describe('AlertClock — one phase on screen, advanced once per distinct nowSec'
     expect(c.phase).toBe(p);
   });
 });
+
+describe('advanceAlertPhase — a corrupt phase input (Edge Case Hunter, 2026-10-16)', () => {
+  it('a negative or NaN phase still lands in [0, 2π)', () => {
+    const TAU = Math.PI * 2;
+    for (const bad of [-1, -TAU * 3.5, Number.NaN]) {
+      const p = advanceAlertPhase(bad, 0);
+      expect(p).toBeGreaterThanOrEqual(0);
+      expect(p).toBeLessThan(TAU);
+    }
+  });
+});

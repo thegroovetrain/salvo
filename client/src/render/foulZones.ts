@@ -198,8 +198,10 @@ export class FoulZones {
 
   /**
    * Reconcile sprites against this observer's foul-zone list for the tick.
-   * `ownId` = this observer's session id (undefined for a spectator: nobody's
-   * zone is ours). The caller passes `f.foulZones ?? []` (frames omit the key
+   * `ownId` = this observer's session id; a sunk captain keeps it while
+   * spectating, so their own zone stays white (their mines do too, by the
+   * server's `own` flag); only a viewer with NO id (undefined) owns nothing.
+   * The caller passes `f.foulZones ?? []` (frames omit the key
    * when the observer sees none).
    */
   sync(zones: readonly FoulZoneView[], ownId: string | undefined): void {

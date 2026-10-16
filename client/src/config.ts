@@ -1002,7 +1002,7 @@ export const CLIENT_CONFIG = {
 
   /**
    * OWN-MINE RINGS (render/mines.ts) — always-on, owner-private radii drawn in
-   * the dropper's personal hue on the fog-immune chart layer: solid blast +
+   * WHITE (Story 9.11, amendment 152 — the dropper's hue is retired) on the fog-immune chart layer: solid blast +
    * dashed trigger for an ordinary mine, and for a CAPTIVE one (Story 7-5 wave
    * 2, R2.12) a single sparse-DOTTED trip ring — it never detonates on contact,
    * so it draws no blast circle about itself. Enemies see exactly today's
@@ -2452,6 +2452,12 @@ export const CLIENT_CONFIG = {
     /** The tongue's white halo and its hotter white core (additive). */
     flameHaloAlpha: 0.35,
     flameCoreAlpha: 0.9,
+    /** How far ANOTHER captain's flames lean from white toward the alert blend
+     *  (0 = pure white, 1 = the ring's color). Eric 2026-10-16 (epic-9
+     *  amendment 183): "I want the white flames themselves … tinted by the
+     *  flash, too, so it ABSOLUTELY reads as hostile. Ever so slightly." Own
+     *  fire stays white. A feel knob. */
+    flameAlertMix: 0.3,
     /** The flicker: a fast sin wobble on each tongue's alpha and width,
      *  amplitude scaled by motion intensity (exactly still at `off`) — the
      *  render/fire.ts rule: it is a wobble, never an on/off. */

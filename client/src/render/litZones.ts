@@ -27,8 +27,10 @@
 // once in WHITE, and per frame an OWN zone (`by === ownId`) keeps it white
 // while anybody else's is tinted by the shared yellow↔orange alert blend
 // (render/alertBlend.ts — one phase for every warning on screen, steady orange
-// at motion off). A spectator owns nothing (ownId undefined — the
-// `ownActiveZones` precedent), so every zone blends for them.
+// at motion off). A sunk captain keeps their session id while spectating, so
+// their own zones stay white (as their mines do, by the server's `own` flag);
+// only a viewer with NO id (ownId undefined, the `ownActiveZones` precedent)
+// owns nothing, and every zone blends for them (review reading, 2026-10-16).
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
@@ -173,8 +175,8 @@ export class LitZones {
 
   /**
    * Reconcile sprites against this observer's zone list for the tick. `ownId`
-   * is this observer's session id (undefined for a spectator / pre-session —
-   * then nobody's zone is ours). Treats a missing frame key as an empty list —
+   * is this observer's session id (kept while spectating after a sinking; only
+   * undefined for a viewer with no session — then nobody's zone is ours). Treats a missing frame key as an empty list —
    * the caller passes `f.litZones ?? []` (frames omit the key when the observer
    * sees no zones).
    */

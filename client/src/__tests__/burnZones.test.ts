@@ -9,7 +9,7 @@ import { Container, Graphics } from 'pixi.js';
 import type { BurnZoneView } from '@salvo/shared';
 import { BurnZones, burnFlames, burnFlicker, flameCountFor } from '../render/burnZones.js';
 import { LIT_FADE_MS, litZoneFade } from '../render/litZones.js';
-import { alertClock, alertTint } from '../render/alertBlend.js';
+import { alertClock, alertTint, mixColor } from '../render/alertBlend.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { settings } from '../settings/store.js';
 
@@ -77,13 +77,20 @@ describe('the ring carries ownership (amendments 153–154)', () => {
     expect(partsOf(layer).ring.tint).toBe(CLIENT_CONFIG.colors.alertOrange);
   });
 
-  it('the flames are white for everyone — the tint touches the ring only', () => {
+  it('own fire is pure white; another’s fire leans SLIGHTLY toward the ring’s blend (amendment 183)', () => {
     const layer = new Container();
     const zones = new BurnZones(layer);
-    zones.sync([burn('z', 'foe')], 'me');
+    zones.sync([burn('own', 'me'), burn('foe', 'foe')], 'me');
     zones.render(0, 0);
     zones.render(0, 0.4);
-    for (const t of partsOf(layer).fire.children as Graphics[]) expect(t.tint).toBe(0xffffff);
+    const own = partsOf(layer, 0);
+    const foe = partsOf(layer, 1);
+    expect(own.fire.tint).toBe(0xffffff);
+    const ring = foe.ring.tint;
+    expect(foe.fire.tint).toBe(mixColor(0xffffff, ring, CLIENT_CONFIG.burnZone.flameAlertMix));
+    expect(foe.fire.tint).not.toBe(0xffffff); // it does lean
+    expect(foe.fire.tint).not.toBe(ring); // but only part of the way — the flames stay mostly white
+    for (const t of foe.fire.children as Graphics[]) expect(t.tint).toBe(0xffffff); // the lean rides the layer, tongues untouched
   });
 });
 
@@ -172,5 +179,13 @@ describe('the flicker — motion over information that never moves', () => {
     const { root, fire } = partsOf(layer);
     expect(root.alpha).toBeCloseTo(litZoneFade(LIT_FADE_MS / 2), 9);
     for (const t of fire.children) expect(t.alpha).toBeGreaterThan(0.5); // the child's own alpha is untouched
+  });
+});
+
+describe('burnFlames — a degenerate radius (Edge Case Hunter, 2026-10-16)', () => {
+  it('draws NO fire for r ≤ 0 or NaN instead of six tongues stacked on the center', () => {
+    expect(burnFlames('z', 0)).toEqual([]);
+    expect(burnFlames('z', -5)).toEqual([]);
+    expect(burnFlames('z', Number.NaN)).toEqual([]);
   });
 });

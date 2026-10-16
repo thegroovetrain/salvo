@@ -40,6 +40,7 @@ import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import { flameTongue } from './fire.js';
 import { drawZoneGlow, litZoneFade, reconcileLitZones, zoneAlertTint } from './litZones.js';
+import { mixColor } from './alertBlend.js';
 import { OWN_TINT } from './alertBlend.js';
 
 const Z = CLIENT_CONFIG.burnZone;
@@ -73,8 +74,9 @@ export function flameCountFor(r: number): number {
  * [flameScaleMin, flameScaleMax]; flicker phase uniform in [0, 2π).
  */
 export function burnFlames(id: string, r: number): BurnFlame[] {
+  if (!(r > 0)) return []; // a degenerate zone (r ≤ 0 / NaN) draws no fire, never a hot dot of stacked tongues
   const rng = mulberry32(hashSeedText(id));
-  const reach = Number.isFinite(r) && r > 0 ? r : 0;
+  const reach = r;
   const out: BurnFlame[] = [];
   const n = flameCountFor(r);
   for (let i = 0; i < n; i++) {
@@ -124,6 +126,10 @@ interface BurnSprite {
   /** The ownership glow — fill + ring (white geometry; own white / another's
    *  alert tint). */
   glow: Graphics;
+  /** The fire layer: own fire pure white; another's leans `flameAlertMix` of
+   *  the way toward the ring's blend, so the fire itself reads hostile
+   *  (Eric 2026-10-16, amendment 183: "ever so slightly"). */
+  fire: Container;
   tongues: Tongue[];
   until: number; // server-clock expiry — drives the render() fade
   own: boolean;
@@ -138,8 +144,10 @@ export class BurnZones {
 
   /**
    * Reconcile sprites against this observer's burning-zone list for the tick.
-   * `ownId` = this observer's session id (undefined for a spectator: nobody's
-   * zone is ours). The caller passes `f.burnZones ?? []` (frames omit the key
+   * `ownId` = this observer's session id; a sunk captain keeps it while
+   * spectating, so their own still-burning zone stays white (their mines do
+   * too, by the server's `own` flag); only a viewer with NO id (undefined)
+   * owns nothing. The caller passes `f.burnZones ?? []` (frames omit the key
    * when the observer sees none).
    */
   sync(zones: readonly BurnZoneView[], ownId: string | undefined): void {
@@ -160,6 +168,7 @@ export class BurnZones {
     for (const s of this.sprites.values()) {
       s.root.alpha = litZoneFade(s.until - serverNow);
       s.glow.tint = s.own ? OWN_TINT : tint;
+      s.fire.tint = s.own ? OWN_TINT : mixColor(OWN_TINT, tint, Z.flameAlertMix);
       for (const t of s.tongues) {
         const f = burnFlicker(serverNow, intensity, t.phase);
         t.g.alpha = Math.min(1, f);
@@ -198,7 +207,7 @@ export class BurnZones {
     }
     root.addChild(glow, fire);
     this.layer.addChild(root);
-    this.sprites.set(z.id, { root, glow, tongues, until: z.until, own });
+    this.sprites.set(z.id, { root, glow, fire, tongues, until: z.until, own });
   }
 
   private despawn(id: string): void {

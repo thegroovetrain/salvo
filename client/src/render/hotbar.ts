@@ -756,7 +756,7 @@ const MAX_BREATH_DT = 0.5;
 /**
  * Pure: advance the ACTIVE breath's PHASE (radians) by one frame's `dtSec`.
  *
- * INTEGRATED, never derived from absolute time (litZones.advanceEmberPhase and
+ * INTEGRATED, never derived from absolute time (the hpGlobe.ts advancePulsePhase / alertBlend integrator and
  * the hull pulse, verbatim reasoning). The server clock this rides is an
  * ESTIMATE, and it is re-estimated: an absolute `sin(nowSec · ω)` teleports the
  * outline's alpha the instant that estimate moves, which is exactly the sudden
@@ -1137,7 +1137,7 @@ export class Hotbar {
   private hover: HoverState = NO_HOVER;
   private cachedLayout: HudBarLayout | null = null;
   /** INTEGRATED ACTIVE-breath phase + the clock it last advanced at (the
-   *  litZones ember precedent — accumulated per frame, never absolute time). */
+   *  hpGlobe.ts advancePulsePhase / alertBlend integrator precedent — accumulated per frame, never absolute time). */
   private breathPhase = 0;
   private lastBreathSec: number | null = null;
   private tipCache: TooltipCache | null = null;

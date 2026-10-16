@@ -2,7 +2,7 @@
 title: 'Story 9.11: Alerts on the Water and One Row'
 type: 'feature'
 created: '2026-10-16'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '9c32018c'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -39,7 +39,7 @@ warnings: [oversized]
 - Everything added after 35650906 that is not geometry SURVIVES: keys 1–6 and `CONSUMABLE_SLOTS` (9.2), the zero-stock dashed state and greyed capped consumable, ACTIVATED outranks zeroStock, the glow BlurFilter layer (cycle 173, `glowBlurPx`), the fit pulse on that layer, the LOADOUT ladder lines of 9.6–9.9 (ARMOR, ARMOR PIERCING, dashes at zero).
 - The alert blend is ONE pure module, rate `ALERT_HZ = Math.min(1, CLIENT_CONFIG.settings.pulseCapHz)` (the chromeBar 1 Hz precedent), phase INTEGRATED per frame with a 0.5 s dt clamp (the hud.ts / burnZones idiom), swing scaled by `motionIntensity` so off = steady orange, reduced = half swing; it is a breathing channel under `pulseCapHz`, exempt from `flashBudget` by construction (never route it through the budget).
 - Presence, position, kind, extent are information and never motion-gated (epic-4 amendment 49 law); only the color blend, the flame flicker move.
-- Mines keep their layers (own → `mineChart` fog-immune, enemy → `mineWorld`) and `MineView.own` from the server; zones decide own by `z.by === ownId`; a spectator (no own id) owns nothing (the `ownActiveZones` precedent).
+- Mines keep their layers (own → `mineChart` fog-immune, enemy → `mineWorld`) and `MineView.own` from the server; zones decide own by `z.by === ownId`; only a viewer with NO session id owns nothing (the `ownActiveZones` precedent); a sunk captain keeps their id and their own zones stay white (amendment 182).
 - Fire tongues are seeded from the zone id (`mulberry32(hashSeedText(id))`, the `weedStrokes` √u scatter) so every observer sees the same fire; geometry drawn ONCE; per-frame only alpha/scale on `flameFlicker` with a per-tongue phase; the flame uses `colors.white`; density by area with a hard cap.
 - `hueLatch.ts` stays (decoys use it); mines and the three zone modules stop importing it.
 - No `PROTOCOL_VERSION` bump (no frame field moves); `VERSION` 0.18.60, cycle 195; both trackers one-line stamps; `CHANGELOG.md`; `docs/codebase-map.md`; amendments 180–181 in `epic-9-context-amendments.md` AND the `## Ratified Amendments` tail of `epic-9-context.md`; DESIGN.md gains a DATED STAMP only (hud-bar / belt-slot / loadout rows + the component table + the mine/zone color lines), no rewrite.
@@ -59,14 +59,15 @@ warnings: [oversized]
 |---|---|---|---|
 | Bar at the floor | `hudBarLayout(1280, 614)` | `bar` {x 206, y 460, w 868, h 136}; globes r 52; weapon column 75 and belt frame 79 (w 310) centered on the 104 row; `belt.x = bar.x+104+16+302+16` | n/a |
 | Bar at 1366×768 | `hudBarLayout(1366, 768)` | bar.x 249, bar.y 614; refit band 8 px above bar.y | n/a |
-| Own mine | `MineView.own = true` | glyph box 22 u × 1.1 = 24.2 u wide, white, alpha 0.9; rings white at `mineRings` alphas | n/a |
+| Own mine | `MineView.own = true` | glyph box 2 × 11 = 22 u wide (the 20 u hit disc × 1.1), white, alpha 0.9; rings white at `mineRings` alphas | n/a |
 | Enemy mine, motion full | own false, phase φ | tint = mix(yellow, orange, 0.5+0.5·sin φ), 1 Hz | n/a |
 | Enemy mine, motion off | `settings.motion = 'off'` | tint = orange, constant across frames | n/a |
 | Motion reduced | `'reduced'` | swing halved (mix in [0, 0.5] about orange) | n/a |
 | `advanceAlertPhase` | dt 0 / −1 / 60 s | 0 / 0 / 0.5 s worth; wraps below 2π | NaN dt → treated as 0 |
 | Own lit zone | `z.by === ownId` | fill + ring white (additive), no hue probe | n/a |
 | Other's foul zone | `z.by !== ownId` | glow + net blended; slick + weed untouched | n/a |
-| Spectator | ownId undefined | every zone "other" (blend); own mines still `own` from the server | n/a |
+| Viewer with no session id (pre-welcome) | ownId undefined | every zone "other" (blend) | n/a |
+| Sunk captain spectating | ownId = their session id (kept) | their own still-alive zones stay WHITE (Eric 2026-10-16, amendment 182); their mines stay white by the server's `own` flag | n/a |
 | Burn zone body | zone r | N = clamp(round(density·πr²), min, cap) tongues, positions deterministic per id, no ember child | n/a |
 | Burn zone, motion off | `'off'` | tongues still, full extent | n/a |
 | Expiry fade | `until − serverNow < 1500` | root alpha = `litZoneFade`; flicker never fights the fade (child vs parent alpha, the ember precedent) | n/a |
@@ -96,13 +97,13 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution (orchestrated per `/orchestrate`: Opus implements, Sonnet re-pins mechanical tests, Fable + Codex review the gate):**
-- [ ] W1 (Opus) `client/src/config.ts` + `render/hudBar.ts` + `render/hotbar.ts` + `ui/loadoutBlock.ts` -- the one-row revert with six framed squares; keep every post-35650906 behavior -- amendment 151 + ruling (a)
-- [ ] W1 (Sonnet, after) `__tests__/{hudBar,hotbar,hud,upgradeMenu,refitTooltipFit,refitCardFit,tooltipFit,slotTooltip,hpGlobe,helmGlobe,xpStrip,results}.test.ts` -- re-pin to 868/136 and the belt; chip order `['·','Shift','Q','E','R','1'..'6']` in the LOADOUT
-- [ ] W2 (Opus, parallel with W1 — disjoint files) `render/alertBlend.ts` (NEW), `render/mines.ts`, `render/litZones.ts`, `render/burnZones.ts`, `render/foulZones.ts`, `config.ts` (alert/burnZone/colors blocks — coordinate: W1 owns `hudBar` block, W2 owns `burnZone`, `alert`, `colors`), `net/roomBindings.ts`, `main.ts` render hooks -- alerts + white fire -- amendments 152–154 + rulings (b)–(g)
-- [ ] W2 tests `__tests__/{alertBlend (NEW),mines,decoys,litZones,burnZones,foulZones,fitCheck,roomBindings,tokens}.test.ts` -- the matrix rows; `ALERT_HZ ≤ pulseCapHz`; tongue positions identical across two `BurnZones` instances for one id; no ember child
-- [ ] W3 (Fable orchestrator) the LIVE PAGE: esbuild the real modules; sections: bar at 1366×768 with a synthetic view (all six squares stocked, one zero-stock, one capped), mines own/enemy × three kinds, three zones own/other, burn fire with a density slider, color-pair candidates A/B/C beside storm amber + denied red, motion full/reduced/off toggle; publish private artifact; AskUserQuestion for the picks (colors, fire density, any veto) → amendment 181 -- ruling (h)
-- [ ] W4 (Sonnet) apply the picks; records: VERSION/package(-lock).json 0.18.60, CHANGELOG, codebase-map, DESIGN.md stamps, amendments 180–181 (both homes), both trackers
-- [ ] Gate: `npm run check` green; Fable Blind Hunter + Edge Case Hunter and Codex (`-m gpt-5.6-sol`) on the diff; CONFIRMED findings patched; commit, push, ONE PR to `development`
+- [x] W1 (Opus) `client/src/config.ts` + `render/hudBar.ts` + `render/hotbar.ts` + `ui/loadoutBlock.ts` -- the one-row revert with six framed squares; keep every post-35650906 behavior -- amendment 151 + ruling (a)
+- [x] W1 (Sonnet, after) `__tests__/{hudBar,hotbar,hud,upgradeMenu,refitTooltipFit,refitCardFit,tooltipFit,slotTooltip,hpGlobe,helmGlobe,xpStrip,results}.test.ts` -- re-pin to 868/136 and the belt; chip order `['·','Shift','Q','E','R','1'..'6']` in the LOADOUT
+- [x] W2 (Opus, parallel with W1 — disjoint files) `render/alertBlend.ts` (NEW), `render/mines.ts`, `render/litZones.ts`, `render/burnZones.ts`, `render/foulZones.ts`, `config.ts` (alert/burnZone/colors blocks — coordinate: W1 owns `hudBar` block, W2 owns `burnZone`, `alert`, `colors`), `net/roomBindings.ts`, `main.ts` render hooks -- alerts + white fire -- amendments 152–154 + rulings (b)–(g)
+- [x] W2 tests `__tests__/{alertBlend (NEW),mines,decoys,litZones,burnZones,foulZones,fitCheck,roomBindings,tokens}.test.ts` -- the matrix rows; `ALERT_HZ ≤ pulseCapHz`; tongue positions identical across two `BurnZones` instances for one id; no ember child
+- [x] W3 (Fable orchestrator) the LIVE PAGE: esbuild the real modules; sections: bar at 1366×768 with a synthetic view (all six squares stocked, one zero-stock, one capped), mines own/enemy × three kinds, three zones own/other, burn fire with a density slider, color-pair candidates A/B/C beside storm amber + denied red, motion full/reduced/off toggle; publish private artifact; AskUserQuestion for the picks (colors, fire density, any veto) → amendment 181 -- ruling (h)
+- [x] W4 (Sonnet) apply the picks; records: VERSION/package(-lock).json 0.18.60, CHANGELOG, codebase-map, DESIGN.md stamps, amendments 180–181 (both homes), both trackers
+- [x] Gate: `npm run check` green; Fable Blind Hunter + Edge Case Hunter and Codex (`-m gpt-5.6-sol`) on the diff; CONFIRMED findings patched; commit, push, ONE PR to `development`
 
 **Acceptance Criteria:**
 - Given the 9.2 two-row stack, when the story lands, then `hudBarLayout(1366, 768).bar` is {249, 614, 868, 136}, the belt frame holds six squares and the results LOADOUT is one row with the framed belt.
@@ -114,7 +115,13 @@ warnings: [oversized]
 
 ## Spec Change Log
 
+- 2026-10-16 (review gate, iteration 0): three reviewers found the "Spectator → every zone blends" matrix row contradicted the wiring (`sessionId` is never undefined after the welcome). Eric ruled "Mine stays white" (amendment 182): the row is split into "viewer with no session id" and "sunk captain spectating"; the three zone headers were reworded. KEEP: the ownId-undefined branch and its tests (pre-welcome). The "Own mine 24.2 u" row was an arithmetic slip; corrected to 22 u (as built). Boundaries clause "a spectator (no own id) owns nothing" now reads literally: no id.
+
+- 2026-10-16 (after the gate, Eric in chat): another captain's burn-zone flames take a slight share of the alert blend (`burnZone.flameAlertMix` 0.3, a client dial) so the fire itself reads hostile; own fire stays pure white (amendment 183). KEEP: the tongues' own tints stay white — the lean rides the fire container, one assignment per zone per frame.
+
 ## Review Triage Log
+
+- 2026-10-16 pass 1 (Blind Hunter BUILD-ON-IT, Edge Case Hunter BUILD-ON-IT, Codex gpt-5.6-sol FIX-FIRST): intent_gap 1 (medium — the spectating sunk captain; resolved by Eric → amendment 182, docs patched, no code change); bad_spec 1 (low — the 24.2 u slip); patch 2 (low — `burnFlames` empty for r ≤ 0 / NaN; `advanceAlertPhase` wraps a bad phase; both with regression tests); defer 3 (low — `advanceWeedPhase` NaN guard, `heldId` on `{n: 0}`, the global tongue budget as a staging watch; all in deferred-work.md); reject 0. Cleared suspicions: clocks, Pixi shared-context destroy, first-frame tints, floor anchors, badge signatures, zone-id determinism.
 
 ## Design Notes
 
@@ -133,3 +140,8 @@ warnings: [oversized]
 
 **Manual checks:**
 - Eric's picks on the published page (colors, density, any veto) BEFORE the first commit.
+
+## Auto Run Result
+
+Status: done
+Cycle 195, 0.18.60, PV 88 unchanged. Rendered page: https://claude.ai/artifact/Q3eKPBo95t7SWMxqx1wvCw (Eric picked pair B, density 4.0, the burn zone keeps the glow; after the gate: hostile flames lean 0.3 toward the blend). Review gate: Blind Hunter BUILD-ON-IT, Edge Case Hunter BUILD-ON-IT, Codex gpt-5.6-sol FIX-FIRST on the spectating-sunk-captain reading, ruled by Eric (amendment 182). Amendments 180–183. `npm run check` green; client 134 files green after the last change. Branch worktree-alerts-one-row-9-11, PR to development, merged on Eric's order ("merge/ff when done").

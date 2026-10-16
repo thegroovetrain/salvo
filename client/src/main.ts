@@ -316,8 +316,8 @@ interface Game {
   hud: Hud;
   /**
    * THE HUD BAR (render/hudBar.ts, Story 8.6) — the ONE bottom-centre cluster
-   * that replaced the three corners: the HP globe, the eleven-slot stack (the
-   * six-kind consumable strip over the weapon row — the loadout surface, its full state grammar, hover
+   * that replaced the three corners: the HP globe, the eleven-slot row (the
+   * five weapon squares, then the framed belt of six consumables, Story 9.11 — the loadout surface, its full state grammar, hover
    * tooltip and key-equivalent slot clicks), the helm globe and the XP strip
    * with its banked-level chip. Shown only while conning a hull in-match.
    */

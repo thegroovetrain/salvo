@@ -57,7 +57,8 @@ export const OWN_TINT = C.white;
 export function advanceAlertPhase(phase: number, dtSec: number): number {
   const dt = Number.isFinite(dtSec) ? dtSec : 0;
   const step = Math.min(MAX_ALERT_DT, Math.max(0, dt));
-  return (phase + ALERT_HZ * step * TAU) % TAU;
+  const base = Number.isFinite(phase) ? phase : 0;
+  return (((base + ALERT_HZ * step * TAU) % TAU) + TAU) % TAU; // a negative or NaN input still lands in [0, 2π)
 }
 
 /**
@@ -84,6 +85,14 @@ export function alertColor(mix: number): number {
   const o = C.alertOrange;
   const y = C.alertYellow;
   return lerpChannel(o, y, 16, t) | lerpChannel(o, y, 8, t) | lerpChannel(o, y, 0, t);
+}
+
+/** Pure: `a` moved toward `b` by `t` in [0,1], per RGB channel (0xRRGGBB).
+ *  Out-of-range or non-finite `t` is clamped (NaN → `a`). The burn zone's
+ *  flames use it to take a SLIGHT share of the alert color (amendment 183). */
+export function mixColor(a: number, b: number, t: number): number {
+  const k = Number.isFinite(t) ? Math.min(1, Math.max(0, t)) : 0;
+  return lerpChannel(a, b, 16, k) | lerpChannel(a, b, 8, k) | lerpChannel(a, b, 0, k);
 }
 
 /** Pure: the tint for another's mine / zone at a phase and motion level. */

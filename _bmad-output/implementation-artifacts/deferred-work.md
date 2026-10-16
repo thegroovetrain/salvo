@@ -3026,3 +3026,18 @@ Closure stamps for three older entries (the originals are left as written), then
 - source_spec: `spec-9-8-the-twelfths-ladder.md`
   summary: the results screen cannot be dismissed to read the kill feed / message log after a match ends, so a spectator cannot check how the last hull sank (Eric 2026-10-14: "since I can't close the end game dialog and read the message log, I can't tell if anyone sunk"); a results-screen behaviour change is Eric's to rule, never invented.
   evidence: Eric's report while spectating on 0.18.53 staging.
+
+## 2026-10-16 — Story 9.11 review gate, cycle 195 (spec-9-11-alerts-on-the-water-and-one-row.md)
+
+- source_spec: `spec-9-11-alerts-on-the-water-and-one-row.md`
+  status: OPEN — staging watch, perf
+  summary: THE BURN-ZONE TONGUE FIELD HAS NO GLOBAL CEILING. At Eric's density 4.0 a tier-I zone is 126 additive Graphics, a tier-V zone 268 (`flameMax` 300 is per zone); 16 captains × 268 = ~4,300 Graphics / ~140k verts in the worst pile-up, where the hull fire caps at 256 in total. Not a traced failure; if staging shows a frame-time cliff the mitigation is a GLOBAL tongue budget (e.g. 1,024) that scales every zone's count proportionally, keeping Eric's density at normal load. Never a silent per-zone scale-down.
+  evidence: Blind Hunter finding 2 at the 9.11 gate; epic-9 amendment 182; `client/src/render/burnZones.ts` `flameCountFor`.
+- source_spec: `spec-9-11-alerts-on-the-water-and-one-row.md`
+  status: OPEN — pre-existing (Story 9.4), low
+  summary: `foulZones.ts` `advanceWeedPhase` has no finite guard: one NaN `nowSec` makes the integrated weed phase NaN for the rest of the session and parks the weed layer at a NaN position (invisible), while the alert clock in the same frame ignores a NaN reading. Fix: mirror `alertBlend.ts`'s `Number.isFinite` guard.
+  evidence: Edge Case Hunter finding 5 at the 9.11 gate (context lines, not in the diff).
+- source_spec: `spec-9-11-alerts-on-the-water-and-one-row.md`
+  status: OPEN — pre-existing (8.7 / 9.2), low
+  summary: `hotbar.ts` `heldId` treats a consumable with a live ammo entry at `{n: 0}` as held (a solid square, bright glyph, no count, nothing to fire; the LOADOUT twin does the same), unlike `loadout[slot] = null` or `ammo[slot] = null`, which both draw the zero-stock square. Reachable only if the server ever sends an id with n 0 (world.ts clears the slot the same tick). Fix: `(view.ammo[slot]?.n ?? 0) <= 0` in `heldId`.
+  evidence: Edge Case Hunter finding 6 at the 9.11 gate.
