@@ -141,7 +141,7 @@ describe('the decoy silhouette is distinct from a mine marker (Eric, 7-5-decks.m
     const decoyLayer = new Container();
     new Decoys(new Container(), decoyLayer).sync([decoy('b', false)], HUE);
     const mineLayer = new Container();
-    new Mines(new Container(), mineLayer).sync([{ id: 'm', x: 0, y: 0, own: false, by: 'p1' }], HUE);
+    new Mines(new Container(), mineLayer).sync([{ id: 'm', x: 0, y: 0, own: false, by: 'p1' }]);
     return { decoy: pathActions(soleSprite(decoyLayer)), mine: pathActions(soleSprite(mineLayer)) };
   }
 

@@ -204,8 +204,8 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
   // is pinned too, with the actual numbers.
   it('seats the band exactly barGap above the bar at both ratified floors', () => {
     const cases = [
-      { name: '1366x768 @100%', w: 1366, h: 768, barTop: 594, bandBottom: 586 },
-      { name: '1280x614 (125% logical floor)', w: 1280, h: 614, barTop: 440, bandBottom: 432 },
+      { name: '1366x768 @100%', w: 1366, h: 768, barTop: 614, bandBottom: 606 },
+      { name: '1280x614 (125% logical floor)', w: 1280, h: 614, barTop: 460, bandBottom: 452 },
     ];
     for (const { name, w, h, barTop, bandBottom } of cases) {
       const L = refitBandLayout(w, h);
@@ -218,16 +218,17 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
     // The floor case, to the pixel. STORY 8.8 DELETED THE RAIL AND ITS SEAM, so
     // the band is 244px (18 pips + 226 card) rather than 290, and the card row's
     // own bottom IS the anchored edge. The ANCHOR is unchanged (amendment 36):
-    // STORY 9.2's D-prime bar is 20px taller (globes 104 -> 124), so the bar's
-    // top — and the band hung 8px above it — rises 20px with it (452 -> 432).
+    // STORY 9.2's D-prime bar was 20px taller (globes 104 -> 124), which raised
+    // the band 20px (452 -> 432); STORY 9.11 put the bar back on the one 136px
+    // row (epic-9 amendment 151), so the band drops back with it (432 -> 452).
     // STORY 9.8's six-row card is one 17px row taller (244 -> 261), and that
-    // too comes off the TOP: the anchored bottom stays at 432.
+    // comes off the TOP: the anchored bottom stays at 452.
     const F = refitBandLayout(1280, 614);
     expect(F.band.h).toBe(R.pipsAbove + R.cardHeight);
     expect(F.band.h).toBe(261);
-    expect(F.band.y).toBe(171);
-    expect(F.row.y).toBe(189);
-    expect(F.row.y + F.row.h).toBe(432);
+    expect(F.band.y).toBe(191);
+    expect(F.row.y).toBe(209);
+    expect(F.row.y + F.row.h).toBe(452);
   });
 
   // --- THE COUNTDOWN FOOTER (Story 8.10, epic-8 amendments 60 + 63a) ----------
@@ -242,15 +243,16 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
     const live = refitBandLayout(1366, 768);
     const countdown = refitBandLayout(1366, 768, CONFIG.offer.size, REDRAW_FOOTER_PX);
     expect(REDRAW_FOOTER_PX).toBe(44);
-    // 380 until the D-prime bar grew 20px (Story 9.2); 360 until the six-row
-    // card grew 17px (Story 9.8).
-    expect(live.row.y).toBe(343);
-    expect(countdown.row.y).toBe(299);
+    // 380 at Story 8.10; 360 while the D-prime bar stood 20px taller (Story
+    // 9.2); 343 once the six-row card grew 17px (Story 9.8); 363 since the bar
+    // went back to its one 136px row (Story 9.11).
+    expect(live.row.y).toBe(363);
+    expect(countdown.row.y).toBe(319);
     expect(live.row.y - countdown.row.y).toBe(REDRAW_FOOTER_PX);
     // The one edge that must NOT move, in either state.
-    expect(live.band.y + live.band.h).toBe(586);
-    expect(countdown.band.y + countdown.band.h).toBe(586);
-    expect(hudBarLayout(1366, 768).bar.y - R.barGap).toBe(586);
+    expect(live.band.y + live.band.h).toBe(606);
+    expect(countdown.band.y + countdown.band.h).toBe(606);
+    expect(hudBarLayout(1366, 768).bar.y - R.barGap).toBe(606);
     // The row itself is untouchable: same shape, same width, one baseline.
     expect(countdown.row.w).toBe(live.row.w);
     expect(countdown.row.h).toBe(live.row.h);

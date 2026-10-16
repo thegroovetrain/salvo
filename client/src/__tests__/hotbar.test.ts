@@ -588,7 +588,7 @@ describe('the machine gun\'s partial swap shows the ordinary wipe (amendment 112
 describe('the bar\'s rects — what the row draws on, and what it swallows', () => {
   const layout = hudBarLayout(1366, 768);
 
-  it('takes ELEVEN squares from the bar: five weapon squares and the six-kind strip', () => {
+  it('takes ELEVEN squares from the bar: five weapon squares and a framed six-kind belt', () => {
     // The GEOMETRY is hudBarLayout's and is pinned there (hudBar.test.ts); what
     // this file pins is that the row reads the rects it is handed, in slot order.
     expect(layout.squares).toHaveLength(SLOT_COUNT);
@@ -597,7 +597,7 @@ describe('the bar\'s rects — what the row draws on, and what it swallows', () 
       expect(isConsumableSlot(slot), String(slot)).toBe(false);
     }
     for (const slot of CONSUMABLE_SLOTS) {
-      expect(layout.squares[slot].w, String(slot)).toBe(B.stockSlot);
+      expect(layout.squares[slot].w, String(slot)).toBe(B.beltSlot);
       expect(isConsumableSlot(slot), String(slot)).toBe(true);
     }
   });
@@ -615,73 +615,63 @@ describe('the bar\'s rects — what the row draws on, and what it swallows', () 
       const badge = badgeRect(layout, slot);
       expect(badge.y, String(slot)).toBeLessThan(sq.y);
       expect(badge.x + badge.w, String(slot)).toBeGreaterThan(sq.x + sq.w);
-      // A point on the badge's OVERHANG beside the square (not over any other
-      // slot's column — a weapon badge's top reaches the strip's chips, which
-      // the squares-first pass gives back to the strip; pinned below).
+      // A point on the badge's OVERHANG beside the square, over the gap.
       expect(slotAtPoint({ x: sq.x + sq.w + 1, y: sq.y + 1 }, layout), String(slot)).toBe(slot);
+      expect(slotAtPoint({ x: badge.x + badge.w - 1, y: badge.y + 1 }, layout), String(slot)).toBe(slot);
     }
-    // The strip's stock badge is the mock's smaller `.strip .badge`: 14px, -6.
+    // ONE badge box on every square; the belt's rides 1px tighter, exactly as
+    // the mock's `.belt .badge` does.
     const s5 = badgeRect(layout, 5);
-    expect(s5.h).toBe(B.stockBadge);
-    expect(layout.squares[5].x + B.stockSlot - s5.x).toBe(B.stockBadge - B.stockBadgeOverhang);
-    expect(layout.squares[5].y - s5.y).toBe(B.stockBadgeOverhang);
+    expect(s5.h).toBe(B.badge);
+    expect(layout.squares[5].x + B.beltSlot - s5.x).toBe(B.badge - B.beltBadgeOverhang);
+    expect(layout.squares[5].y - s5.y).toBe(B.beltBadgeOverhang);
     expect(layout.squares[0].y - badgeRect(layout, 0).y).toBe(B.badgeOverhang);
   });
 
   // --- REVIEW GATE, CYCLE 141 -------------------------------------------------
 
-  it('is CONTIGUOUS from the square down to the chip — the seam is not water, on BOTH rows', () => {
-    // The square, the chip seam under it and the key chip are ONE control.
+  it('is CONTIGUOUS from the square down to the chip — the 5px seam is not water', () => {
+    // The square, the `chipGap` seam under it and the key chip are ONE control.
     // The seam used to fall through: a click 3px under a square went past the
     // hit-test and FIRED the gun at the water behind the bar, which is the one
     // thing the amendment-11 footprint exists to prevent.
     for (let slot = 0; slot < SLOT_COUNT; slot += 1) {
       const sq = layout.squares[slot];
       const chip = layout.chips[slot];
-      const seam = isConsumableSlot(slot) ? B.stockChipGap : B.chipGap;
-      expect(chip.y - (sq.y + sq.h), String(slot)).toBe(seam); // the seam is real
-      for (let dy = 1; dy <= seam; dy += 1) {
+      expect(chip.y - (sq.y + sq.h), String(slot)).toBe(B.chipGap); // the seam is real
+      for (let dy = 1; dy <= B.chipGap; dy += 1) {
         expect(slotAtPoint({ x: chip.cx, y: sq.y + sq.h + dy }, layout), `${slot} +${dy}`).toBe(slot);
       }
       // ...and the whole column, square top to chip bottom, still answers.
       expect(slotAtPoint({ x: sq.x + 1, y: chip.y + B.chipH - 1 }, layout), String(slot)).toBe(slot);
+      // Below the chip is water again — the XP strip's row routes no clicks.
+      expect(slotAtPoint({ x: chip.cx, y: chip.y + B.chipH + 1 }, layout), String(slot)).toBeNull();
     }
-    // Below a weapon chip is water again — the XP strip's row routes no clicks.
-    const gunChip = layout.chips[SLOT_GUN];
-    expect(slotAtPoint({ x: gunChip.cx, y: gunChip.y + B.chipH + 1 }, layout)).toBeNull();
   });
 
-  it('gives a strip square its OWN left-edge column back from the neighbour\'s badge (squares first)', () => {
-    // The strip badge's 6px overhang is WIDER than the strip's 4px gap, so slot
-    // 5's badge reaches into slot 6's top-left corner. With an inclusive rect
-    // tested before the next square, a press there would route to slot 5 — the
-    // wrong kind, from a pixel that is visibly inside slot 6.
+  it('gives a belt square its OWN left-edge column back from the neighbour\'s badge', () => {
+    // `beltBadgeOverhang` (6) is exactly the belt gap (6), so slot 5's badge ends
+    // ON slot 6's left edge. With an inclusive rect tested before the next
+    // square, a press on that column's top 10px routed to slot 5 — the wrong
+    // kind, from a pixel that is visibly inside slot 6.
     const six = layout.squares[6];
     const five = badgeRect(layout, 5);
-    expect(five.x + five.w).toBeGreaterThan(six.x); // the badge really does overlap
+    expect(five.x + five.w).toBe(six.x); // the edges really do coincide
     expect(slotAtPoint({ x: six.x, y: six.y }, layout)).toBe(6);
-    expect(slotAtPoint({ x: six.x + 1, y: six.y + 1 }, layout)).toBe(6);
+    expect(slotAtPoint({ x: six.x, y: six.y + 1 }, layout)).toBe(6);
     // The badge still owns everything of its own that is not another square.
-    expect(slotAtPoint({ x: five.x + 1, y: five.y + 1 }, layout)).toBe(5);
+    expect(slotAtPoint({ x: five.x + five.w - 1, y: five.y + 1 }, layout)).toBe(5);
   });
 
-  it('gives a strip CHIP its column back from the weapon badge below it (squares first)', () => {
-    // A weapon badge's 7px overhang reaches UP past the 4px stack seam into the
-    // strip's chips. Every strip chip still answers to its own slot.
-    for (const slot of CONSUMABLE_SLOTS) {
-      const chip = chipRect(layout, slot);
-      expect(slotAtPoint({ x: chip.x + 1, y: chip.y + chip.h - 1 }, layout), String(slot)).toBe(slot);
-    }
-  });
-
-  it('leaves the gaps and open water as WATER', () => {
+  it('leaves the gaps, the belt\'s padding and open water as WATER', () => {
     const a = layout.squares[0];
     const b = layout.squares[1];
     expect(slotAtPoint({ x: (a.x + a.w + b.x) / 2, y: a.y + 10 }, layout)).toBeNull(); // the 8px gap
     expect(slotAtPoint({ x: a.x - 2, y: a.y + 10 }, layout)).toBeNull(); // left of the row
+    expect(slotAtPoint({ x: a.x + 10, y: a.y - 2 }, layout)).toBeNull(); // above the row
+    expect(slotAtPoint({ x: layout.belt.x + 2, y: layout.belt.y + 2 }, layout)).toBeNull(); // frame padding
     const s = layout.squares[CONSUMABLE_SLOTS[0]];
-    expect(slotAtPoint({ x: s.x - 2, y: s.y + 10 }, layout)).toBeNull(); // left of the strip
-    expect(slotAtPoint({ x: s.x + 10, y: s.y - 2 }, layout)).toBeNull(); // above the strip
+    expect(slotAtPoint({ x: s.x + 10, y: s.y - 2 }, layout)).toBeNull(); // above a belt square, inside the frame
     expect(slotAtPoint({ x: 900, y: 200 }, layout)).toBeNull(); // open water
   });
 
@@ -1254,10 +1244,35 @@ describe('the tooltip memo keys on the slot\'s own stock (P5)', () => {
   });
 });
 
-describe('NO FRAME and NO PANEL (epic-9 amendment 22 — edges implied)', () => {
-  it('draws no silver frame rect around the strip or the stack', () => {
-    const { ops } = paint(viewFor('torpedoBoat'));
-    expect(ops.some((o) => o.action === 'stroke' && o.color === C.silver && o.alpha === 0.2)).toBe(false);
+describe('the belt FRAME (ruling 5, back in Story 9.11)', () => {
+  it('draws ONE silver .2 hairline at exactly the layout\'s belt rect', () => {
+    const { ops, layout } = paint(viewFor('torpedoBoat'));
+    const frames = ops.filter(
+      (o) => o.action === 'stroke' && o.color === C.silver && o.rects.some((r) => sameRect(r, layout.belt)),
+    );
+    expect(frames).toHaveLength(1);
+    expect(frames[0].alpha).toBeCloseTo(0.2, 9);
+    // The frame ENCLOSES the chips, which is why it is taller than its squares.
+    expect(layout.belt.h).toBeGreaterThan(B.beltSlot + B.chipH);
+  });
+
+  it('encloses all six belt squares and their chips, and no weapon square', () => {
+    const { layout } = paint(viewFor('torpedoBoat'));
+    const f = layout.belt;
+    expect(CONSUMABLE_SLOTS).toHaveLength(6);
+    for (const slot of CONSUMABLE_SLOTS) {
+      const sq = layout.squares[slot];
+      const chip = chipRect(layout, slot);
+      expect(sq.x, String(slot)).toBeGreaterThan(f.x);
+      expect(sq.x + sq.w, String(slot)).toBeLessThan(f.x + f.w);
+      expect(sq.y, String(slot)).toBeGreaterThan(f.y);
+      expect(chip.x, String(slot)).toBeGreaterThan(f.x);
+      expect(chip.x + chip.w, String(slot)).toBeLessThan(f.x + f.w);
+      expect(chip.y + chip.h, String(slot)).toBeLessThan(f.y + f.h);
+    }
+    for (const slot of [0, 1, 2, 3, 4]) {
+      expect(layout.squares[slot].x + layout.squares[slot].w, String(slot)).toBeLessThan(f.x);
+    }
   });
 });
 
@@ -1589,26 +1604,21 @@ describe('the ammo badge WIDENS to its content (mock `.badge`, ledger :2141)', (
     expect(badgeWidth('2')).toBe(CLIENT_CONFIG.hudBar.badge);
   });
 
-  it('grows for the strip\'s two-glyph `×n` stock mark', () => {
-    expect(badgeWidth('×2', true)).toBeGreaterThan(CLIENT_CONFIG.hudBar.stockBadge);
+  it('grows for the belt\'s two-glyph `×n` stock mark', () => {
+    expect(badgeWidth('×2')).toBeGreaterThan(CLIENT_CONFIG.hudBar.badge);
     // ...and the box the drawer paints grows with it, anchored on the square's
     // right edge exactly as the fixed one was.
     const layout = hudBarLayout(1366, 768);
     const wide = badgeRect(layout, 5, '×2');
     const narrow = badgeRect(layout, 5);
-    expect(wide.w).toBe(badgeWidth('×2', true));
+    expect(wide.w).toBe(badgeWidth('×2'));
     expect(wide.x + wide.w).toBe(narrow.x + narrow.w); // same right edge
-  });
-
-  it('widens the strip badge with its 9px digit at the 90% tier (it counter-scales)', () => {
-    expect(badgeWidth('×5', true, microScale(0.9))).toBeGreaterThan(badgeWidth('×5', true, 1));
-    expect(badgeWidth('×5', false, microScale(0.9))).toBe(badgeWidth('×5', false, 1)); // the 10px register does not
   });
 
   it('leaves the HIT-TEST on the layout, not on the count (the click gate is a '
     + 'function of geometry)', () => {
     const layout = hudBarLayout(1366, 768);
-    expect(badgeRect(layout, 5).w).toBe(CLIENT_CONFIG.hudBar.stockBadge);
+    expect(badgeRect(layout, 5).w).toBe(CLIENT_CONFIG.hudBar.badge);
     expect(badgeRect(layout, 2).w).toBe(CLIENT_CONFIG.hudBar.badge);
   });
 });

@@ -3,10 +3,10 @@
 //
 // The design of record is DESIGN.md `{components.loadout-block}` + mockup
 // `countdown-results-1.html` frame 2: a section head `LOADOUT`, then the HUD
-// bar's own slot STACK AS IT ENDED at scale .72, then ONE line of the five ship
-// ladders. Since Story 9.2 (epic-9 amendment 34) the stack is the live bar's
-// D-prime twin: the six consumable squares in key order (1–6, zero-stock
-// included) above the weapon row (gun · Shift · Q E R), each with its chip.
+// bar's own slot row AS IT ENDED at scale .72 (gun · Shift · Q E R · the framed
+// belt 1–6 in key order, zero-stock included, each with its key chip), then the
+// line of the ship ladders. Story 9.11 (epic-9 amendment 151) put the twin back
+// on one row with the live bar; Story 9.2's two-row stack is retired.
 //
 // A DOM TWIN, NOT A SECOND DERIVATION. The modal is DOM chrome, so the boxes are
 // drawn twice — but every fact inside them comes from the bar's own sources:
@@ -59,26 +59,26 @@ function scaled(v: number): number {
 /** THE 9 PX FLOOR (amendment 43) — no text in the block renders under it. */
 export const LOADOUT_TEXT_FLOOR_PX = 9;
 
-/** Every box size of the stack: the bar's (`hudBar`) × LOADOUT_SCALE. The
- *  strip's stock badge box takes the 9 px floor's own height (+ its 1 px
- *  borders) where the scaled box would be shorter than its glyph. */
+/** Every box size of the row: the bar's (`hudBar`) × LOADOUT_SCALE. The group
+ *  gap is the bar's one horizontal gap (mock `.lo-row { gap: 16px }`). */
 export const LOADOUT_PX = {
   slot: scaled(B.slot),
-  stockSlot: scaled(B.stockSlot),
+  beltSlot: scaled(B.beltSlot),
   icon: scaled(B.icon),
-  stockIcon: scaled(B.stockIcon),
+  beltIcon: scaled(B.beltIcon),
   slotGap: scaled(B.slotGap),
-  stockGap: scaled(B.stockGap),
-  stackGap: scaled(B.stackGap),
+  beltGap: scaled(B.beltGap),
+  groupGap: scaled(B.globeGap),
+  beltPadTop: scaled(B.beltPad.top),
+  beltPadSide: scaled(B.beltPad.side),
+  beltPadBottom: scaled(B.beltPad.bottom),
   chipH: scaled(B.chipH),
   chipMinW: scaled(B.chipMinW),
   chipPadX: scaled(B.chipPadX),
   chipGap: scaled(B.chipGap),
-  stockChipGap: scaled(B.stockChipGap),
   badge: scaled(B.badge),
   badgeOverhang: scaled(B.badgeOverhang),
-  stockBadge: Math.max(scaled(B.stockBadge), LOADOUT_TEXT_FLOOR_PX + 2),
-  stockBadgeOverhang: scaled(B.stockBadgeOverhang),
+  beltBadgeOverhang: scaled(B.beltBadgeOverhang),
   tierRight: scaled(B.tierInset.right),
   tierBottom: scaled(B.tierInset.bottom),
 } as const;
@@ -176,7 +176,7 @@ export function loadoutSlotTier(own: ResultsOwn, slot: number): number {
   return slotTier(own.stats, own.cards, id);
 }
 
-function isStock(slot: number): boolean {
+function isBelt(slot: number): boolean {
   return CONSUMABLE_SLOTS.includes(slot);
 }
 
@@ -233,22 +233,21 @@ function makeTier(tier: number): HTMLSpanElement {
   return el;
 }
 
-/** A consumable's `×n` stock badge overhanging the square's top-right (mock
- *  `.strip .badge`). */
+/** The belt's `×n` stock badge overhanging the square's top-right (mock `.belt .badge`). */
 function makeBadge(text: string): HTMLSpanElement {
   const el = span(
     [
       'position:absolute',
-      `top:${-P.stockBadgeOverhang}px`,
-      `right:${-P.stockBadgeOverhang}px`,
+      `top:${-P.beltBadgeOverhang}px`,
+      `right:${-P.beltBadgeOverhang}px`,
       'box-sizing:border-box',
-      `min-width:${P.stockBadge}px`,
-      `height:${P.stockBadge}px`,
+      `min-width:${P.badge}px`,
+      `height:${P.badge}px`,
       `padding:0 ${P.chipPadX}px`,
       `background-color:${cssRgba(C.cardScrim, 0.95)}`,
       `border:1px solid ${cssRgba(C.phosphor, 0.5)}`,
       'color:var(--hc-phosphor)',
-      `font:400 ${TEXT.badge}px/${P.stockBadge - 2}px ${MONO}`,
+      `font:400 ${TEXT.badge}px/${P.badge - 2}px ${MONO}`,
       'text-align:center',
       'letter-spacing:0',
     ].join(';'),
@@ -261,7 +260,7 @@ function makeBadge(text: string): HTMLSpanElement {
 /** The square's box — sharp corners, transparent bed, the bar's skin (dashed
  *  when nothing is held: an empty weapon slot or a zero-stock kind). */
 function squareBox(slot: number, filled: boolean): HTMLDivElement {
-  const size = isStock(slot) ? P.stockSlot : P.slot;
+  const size = isBelt(slot) ? P.beltSlot : P.slot;
   const skin = slot === SLOT_BOOST ? SHIFT_SKIN : WEAPON_SKIN;
   const box = document.createElement('div');
   box.style.cssText = [
@@ -283,7 +282,7 @@ function squareBox(slot: number, filled: boolean): HTMLDivElement {
 
 /** The empty square's centred `—` (UX-DR41): muted, no word beside it. */
 function makeEmptyDash(slot: number): HTMLSpanElement {
-  const size = isStock(slot) ? P.stockIcon : P.icon;
+  const size = isBelt(slot) ? P.beltIcon : P.icon;
   const el = span(`font:400 ${Math.max(LOADOUT_TEXT_FLOOR_PX, size)}px/1 ${MONO};color:${cssRgba(C.textMuted, 0.5)}`, '—');
   el.dataset.loadoutEmpty = '';
   return el;
@@ -291,7 +290,7 @@ function makeEmptyDash(slot: number): HTMLSpanElement {
 
 /** The fitted square's glyph, in phosphor through `currentColor`. */
 function makeGlyph(id: SlotItemId, slot: number): SVGSVGElement | null {
-  const svg = equipmentGlyphSvg(id, isStock(slot) ? P.stockIcon : P.icon);
+  const svg = equipmentGlyphSvg(id, isBelt(slot) ? P.beltIcon : P.icon);
   if (svg === null) return null;
   const skin = slot === SLOT_BOOST ? SHIFT_SKIN : WEAPON_SKIN;
   svg.style.cssText = `display:block;color:var(--hc-phosphor);opacity:${skin.iconAlpha}`;
@@ -300,7 +299,7 @@ function makeGlyph(id: SlotItemId, slot: number): SVGSVGElement | null {
 
 /** A ZERO-STOCK square's glyph: the kind's own, in the muted slate at .45. */
 function makeZeroStockGlyph(kind: SlotItemId): SVGSVGElement | null {
-  const svg = equipmentGlyphSvg(kind, P.stockIcon);
+  const svg = equipmentGlyphSvg(kind, P.beltIcon);
   if (svg === null) return null;
   svg.style.cssText = `display:block;color:var(--hc-text-muted);opacity:${ZERO_STOCK_ICON_ALPHA}`;
   svg.dataset.loadoutZeroStock = '';
@@ -308,15 +307,15 @@ function makeZeroStockGlyph(kind: SlotItemId): SVGSVGElement | null {
 }
 
 /** The mark an UNHELD square shows: a zero-stock kind's faint glyph on the
- *  strip (its kind is fixed by the slot), the empty dash on the weapon row. */
+ *  belt (its kind is fixed by the slot), the empty dash on the main group. */
 function makeUnheldMark(slot: number): Element {
   const kind = consumableKindAt(slot);
   return (kind === null ? null : makeZeroStockGlyph(kind)) ?? makeEmptyDash(slot);
 }
 
-/** The corner mark: a tier numeral on the weapon row, a stock badge on the strip. */
+/** The corner mark: a tier numeral on the main group, a stock badge on the belt. */
 function cornerMark(own: ResultsOwn, slot: number): HTMLSpanElement | null {
-  if (isStock(slot)) {
+  if (isBelt(slot)) {
     const text = stockBadgeText(own.ammo[slot] ?? null);
     return text === null ? null : makeBadge(text);
   }
@@ -339,33 +338,38 @@ function makeSquare(own: ResultsOwn, slot: number): HTMLDivElement {
   return box;
 }
 
-/** One column (mock `.sw`): the square over its key chip (3 px on the strip,
- *  5 px on the weapon row — scaled). */
+/** One column (mock `.sw`): the square over its key chip. */
 function makeColumn(own: ResultsOwn, slot: number): HTMLDivElement {
   const col = document.createElement('div');
-  const gap = isStock(slot) ? P.stockChipGap : P.chipGap;
-  col.style.cssText = `display:flex;flex-direction:column;align-items:center;gap:${gap}px`;
+  col.style.cssText = `display:flex;flex-direction:column;align-items:center;gap:${P.chipGap}px`;
   col.append(makeSquare(own, slot), makeChip(slot));
   return col;
 }
 
-/** The consumable strip (1–6, key order) and the weapon row (gun · Shift ·
- *  Q E R) — unframed, as on the live bar. */
+/** The main group (gun · Shift · Q E R) and the framed belt (1–6, key order). */
 function makeGroups(own: ResultsOwn): [HTMLDivElement, HTMLDivElement] {
-  const strip = document.createElement('div');
-  strip.style.cssText = `display:flex;align-items:flex-start;gap:${P.stockGap}px`;
-  const weapons = document.createElement('div');
-  weapons.style.cssText = `display:flex;align-items:flex-start;gap:${P.slotGap}px`;
+  const main = document.createElement('div');
+  main.style.cssText = `display:flex;align-items:flex-start;gap:${P.slotGap}px`;
+  const belt = document.createElement('div');
+  belt.style.cssText = [
+    'display:flex',
+    'align-items:flex-start',
+    `gap:${P.beltGap}px`,
+    `padding:${P.beltPadTop}px ${P.beltPadSide}px ${P.beltPadBottom}px`,
+    `border:1px solid ${cssRgba(C.silver, 0.2)}`,
+  ].join(';');
+  belt.dataset.loadoutBelt = '';
   for (let slot = 0; slot < SLOT_COUNT; slot += 1) {
-    (isStock(slot) ? strip : weapons).appendChild(makeColumn(own, slot));
+    (isBelt(slot) ? belt : main).appendChild(makeColumn(own, slot));
   }
-  return [strip, weapons];
+  return [main, belt];
 }
 
-/** The stack: the strip above the weapon row, centred, `stackGap` apart. */
+/** The ONE row: the main group then the framed belt, `groupGap` apart (about
+ *  457 px at .72 — inside the results panel's 530 px content column). */
 function makeRow(own: ResultsOwn): HTMLDivElement {
   const row = document.createElement('div');
-  row.style.cssText = `display:flex;flex-direction:column;align-items:center;gap:${P.stackGap}px`;
+  row.style.cssText = `display:flex;justify-content:center;align-items:flex-start;gap:${P.groupGap}px`;
   row.dataset.loadoutRow = '';
   row.append(...makeGroups(own));
   return row;

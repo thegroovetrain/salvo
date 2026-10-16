@@ -4,18 +4,19 @@
 //
 // Direction B "TRISTRAM", ratified by Eric 2026-09-11: ONE bar replaces the
 // three corners (bottom-left hotbar stack, bottom-right vitals cluster,
-// bottom-left XP rail). Since Story 9.2 (option D-prime of
-// `mockups/hud-consumables-1.html`, epic-9 amendment 22) it reads
+// bottom-left XP rail). Left to right it reads
 //
-//              |  1  2  3  4  5  6     |
-//   HP globe   |  Gun Shift  Q  E  R   |   helm globe
+//   HP globe | Gun  Shift  Q  E  R | [ 1 2 3 4 5 6 ] | helm globe
+//                                   ^ the framed consumable belt
 //
-// — a two-row STACK centred between the globes: the six fixed consumable
-// squares (the unframed STRIP) above the five weapon squares, exactly one globe
-// tall, so the globes' tangents are the bar's implied edges and no panel is
-// drawn. The XP strip's row runs beneath the whole thing. Every number comes
-// through `CLIENT_CONFIG.hudBar`, read LITERALLY off the mock (epic-8 amendment
-// 31), with the 9 px floor winning on the strip's chips (epic-9 amendment 33).
+// with the XP strip's row beneath the whole thing. Every number comes from
+// `mockups/hud-composite-3.html` through `CLIENT_CONFIG.hudBar` — the mock is
+// read LITERALLY (epic-8 amendment 31: the July 1.6x micro lift does not apply
+// to the bar's surfaces), with the single ruled change that BOTH globes are 104
+// px (amendment 32; the mock draws the HP globe at 96). Story 9.2's two-row
+// stack is retired: Story 9.11 (Eric 2026-10-14, epic-9 amendment 151) put the
+// bar back on this one row, with the belt frame holding all SIX consumable
+// squares (keys 1–6).
 //
 // LOGICAL UNITS. main.ts divides the real screen by the UI scale before it
 // hands sizes to the HUD, so `hudBarLayout` never sees a scale factor and every
@@ -94,11 +95,11 @@ export interface StripLayout {
 /**
  * The whole bar, laid out. `squares` and `chips` are indexed by LOADOUT SLOT
  * (0 gun, 1 boost, 2-4 Q/E/R, 5-10 the six consumable kinds in key order), so
- * a caller never re-derives the slot order; `dimGroups` is the exactly-two
- * boxes that drop to `dimAlpha` while the refit window is open or the start
- * line is held — the consumable strip and the weapon row, each with its chips —
- * and the globes and the XP strip stay at full. There is NO panel rect: the
- * bar's edges are implied by the globes (epic-9 amendment 22).
+ * a caller never re-derives the slot order; `belt` is the consumable FRAME
+ * (its padding encloses the six belt squares AND their chips); `dimGroups` is
+ * the exactly-two boxes that drop to `dimAlpha` while the refit window is open
+ * or the start line is held (the mock's `.B-slots` and `.belt`) — the globes
+ * and the XP strip stay at full.
  */
 export interface HudBarLayout {
   bar: Rect;
@@ -106,37 +107,34 @@ export interface HudBarLayout {
   helmGlobe: Circle;
   squares: Rect[];
   chips: ChipAnchor[];
+  belt: Rect;
   strip: StripLayout;
   dimGroups: Rect[];
 }
 
-/** How many squares sit on the consumable strip (6) and the weapon row (5). */
-const STRIP_COUNT = CONSUMABLE_SLOTS.length;
-const WEAPON_ROW_COUNT = SLOT_COUNT - STRIP_COUNT;
+/** How many squares sit in the belt frame (6) and ahead of it (5). */
+const BELT_COUNT = CONSUMABLE_SLOTS.length;
+const WEAPON_ROW_COUNT = SLOT_COUNT - BELT_COUNT;
 
-/** The weapon run: 5 x 46 + 4 x 8 = 262. */
+/** The five-square weapon run: 5 x 54 + 4 x 8 = 302. */
 const SLOT_RUN_W = WEAPON_ROW_COUNT * B.slot + (WEAPON_ROW_COUNT - 1) * B.slotGap;
 
-/** The consumable strip's run: 6 x 34 + 5 x 4 = 224. */
-const STRIP_RUN_W = STRIP_COUNT * B.stockSlot + (STRIP_COUNT - 1) * B.stockGap;
+/** The belt FRAME: its padding encloses six 44 px squares AND their chips —
+ *  8 + 6 x 44 + 5 x 6 + 8 = 310. */
+const BELT_W = B.beltPad.side * 2 + BELT_COUNT * B.beltSlot + (BELT_COUNT - 1) * B.beltGap;
 
-/** The stack's width: the wider of its two rows (the weapon row, 262). */
-const STACK_W = Math.max(SLOT_RUN_W, STRIP_RUN_W);
-
-/** Each row's full column: square, its chip seam, key chip (53 and 67). */
-const STRIP_COL_H = B.stockSlot + B.stockChipGap + B.chipH;
+/** A slot's full column (54 + 5 + 16 = 75) and the belt frame's height
+ *  (8 + 44 + 5 + 16 + 6 = 79). Each is centred on the 104 px row. */
 const SLOT_COL_H = B.slot + B.chipGap + B.chipH;
-
-/** The stack's height: strip column, the 4 px seam, weapon column — 124, the
- *  globe's diameter (epic-9 amendments 22/33). */
-export const HUD_STACK_HEIGHT = STRIP_COL_H + B.stackGap + SLOT_COL_H;
+const BELT_COL_H = B.beltPad.top + B.beltSlot + B.chipGap + B.chipH + B.beltPad.bottom;
 
 /**
- * THE BAR'S WIDTH (px) — 538, DERIVED, never a literal:
- *   124 + 14 + max(6 x 34 + 5 x 4, 5 x 46 + 4 x 8) + 14 + 124
- * (the D-prime mock's "~540 px wide").
+ * THE BAR'S WIDTH (px) — 868, DERIVED, never a literal:
+ *   104 + 16 + (5 x 54 + 4 x 8) + 16 + (8 + 6 x 44 + 5 x 6 + 8) + 16 + 104
+ * (Story 8.6's 768 with the belt frame widened from four squares to six).
  */
-export const HUD_BAR_WIDTH = B.globe + B.globeGap + STACK_W + B.globeGap + B.globe;
+export const HUD_BAR_WIDTH =
+  B.globe + B.globeGap + SLOT_RUN_W + B.globeGap + BELT_W + B.globeGap + B.globe;
 
 /** The main row's height (a globe) and the bar's total height. */
 const MAIN_ROW_H = B.globe;
@@ -150,12 +148,12 @@ const HUD_BAR_HEIGHT = MAIN_ROW_H + B.stripGap + B.stripRowH;
  * hairline frame stays a hairline). Vertically it hangs from the FLOOR: the
  * bar's bottom edge sits `hudBar.floor` above the viewport's, which is what
  * keeps the whole cluster on a short viewport — at the 1280x614 floor the main
- * row's top lands at 440 with room to spare under the chrome bar.
+ * row's top lands at 460 with room to spare under the chrome bar.
  *
- * The two-row stack is centred on the main row (at the ruled numbers it is
- * exactly the globe's height, so it spans it), and each row is centred
- * horizontally in the stack — the mock's own flexbox centring, whose
- * half-pixel offsets are deliberately NOT rounded.
+ * The slot column (75 tall) and the belt frame (79 tall) are each centred on
+ * the 104 px main row, so their half-pixel offsets are the mock's own flexbox
+ * centring and are deliberately NOT rounded — rounding them would break the
+ * chips out of a shared baseline.
  */
 export function hudBarLayout(screenW: number, screenH: number): HudBarLayout {
   const w = HUD_BAR_WIDTH;
@@ -168,32 +166,21 @@ export function hudBarLayout(screenW: number, screenH: number): HudBarLayout {
   const hpGlobe: Circle = { cx: x + r, cy: y + r, r };
   const helmGlobe: Circle = { cx: x + w - r, cy: y + r, r };
 
-  const stackX = x + B.globe + B.globeGap;
-  const stripRow: Rect = {
-    x: stackX + (STACK_W - STRIP_RUN_W) / 2,
-    y: y + (MAIN_ROW_H - HUD_STACK_HEIGHT) / 2,
-    w: STRIP_RUN_W,
-    h: STRIP_COL_H,
-  };
-  const weaponRow: Rect = {
-    x: stackX + (STACK_W - SLOT_RUN_W) / 2,
-    y: stripRow.y + STRIP_COL_H + B.stackGap,
-    w: SLOT_RUN_W,
-    h: SLOT_COL_H,
-  };
+  const slotsX = x + B.globe + B.globeGap;
+  const beltX = slotsX + SLOT_RUN_W + B.globeGap;
+  const colTop = y + (MAIN_ROW_H - SLOT_COL_H) / 2;
+  const belt: Rect = { x: beltX, y: y + (MAIN_ROW_H - BELT_COL_H) / 2, w: BELT_W, h: BELT_COL_H };
 
   const squares: Rect[] = [];
-  const chips: ChipAnchor[] = [];
-  const place = (sx: number, sy: number, size: number, chipGap: number): void => {
-    squares.push({ x: sx, y: sy, w: size, h: size });
-    chips.push({ cx: sx + size / 2, y: sy + size + chipGap });
-  };
   for (let i = 0; i < WEAPON_ROW_COUNT; i++) {
-    place(weaponRow.x + i * (B.slot + B.slotGap), weaponRow.y, B.slot, B.chipGap);
+    squares.push({ x: slotsX + i * (B.slot + B.slotGap), y: colTop, w: B.slot, h: B.slot });
   }
-  for (let i = 0; i < STRIP_COUNT; i++) {
-    place(stripRow.x + i * (B.stockSlot + B.stockGap), stripRow.y, B.stockSlot, B.stockChipGap);
+  const beltTop = belt.y + B.beltPad.top;
+  for (let i = 0; i < BELT_COUNT; i++) {
+    const bx = belt.x + B.beltPad.side + i * (B.beltSlot + B.beltGap);
+    squares.push({ x: bx, y: beltTop, w: B.beltSlot, h: B.beltSlot });
   }
+  const chips: ChipAnchor[] = squares.map((s) => ({ cx: s.x + s.w / 2, y: s.y + s.h + B.chipGap }));
 
   return {
     bar,
@@ -201,8 +188,9 @@ export function hudBarLayout(screenW: number, screenH: number): HudBarLayout {
     helmGlobe,
     squares,
     chips,
+    belt,
     strip: stripLayout(bar),
-    dimGroups: [stripRow, weaponRow],
+    dimGroups: [{ x: slotsX, y: colTop, w: SLOT_RUN_W, h: SLOT_COL_H }, belt],
   };
 }
 
@@ -248,14 +236,14 @@ export function microScale(uiScale: number): number {
  * a second place where own-ship state is interpreted.
  *
  * `dim` is the one field the bar itself acts on (ruling 9): while the refit
- * window is open OR the start line is held, the TWO dim groups — the six
- * consumable squares and the five weapon squares, which together are exactly
- * the Hotbar's root — drop to `hudBar.dimAlpha`. The globes and the strip stay at full: a
+ * window is open OR the start line is held, the TWO dim groups — the five
+ * weapon squares and the framed belt, which together are exactly the Hotbar's
+ * root — drop to `hudBar.dimAlpha`. The globes and the strip stay at full: a
  * suspended trigger is not a reason to stop being able to read your hull, your
  * heading or your bank.
  */
 export interface HudBarView {
-  /** The strip + weapon row (render/hotbar.ts). Its own `dim` is overwritten. */
+  /** The slot row + belt (render/hotbar.ts). Its own `dim` is overwritten. */
   slots: HotbarView;
   hp: HpGlobeInput;
   /** The amber corollary's verdict for the HP channel (`hpGlobeHoldsLit`). */
@@ -270,8 +258,8 @@ export interface HudBarView {
 
 /**
  * THE HUD BAR (Story 8.6, ruling 9) — one Container on the HUD layer owning the
- * four surfaces that used to be three corners: the HP globe, the slot stack
- * (consumable strip over the weapon row), the helm globe and the XP strip.
+ * four surfaces that used to be three corners: the HP globe, the slot row (with
+ * its belt frame), the helm globe and the XP strip.
  *
  * It owns exactly three things and delegates everything else:
  *   1. the LAYOUT, recomputed only when the viewport moves (`hudBarLayout` is

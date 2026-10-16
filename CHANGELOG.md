@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.18.60] - 2026-10-16
+
+### Changed
+- **One row again.** The HUD bar is back to a single row (the Epic 8 geometry): health globe, five weapon squares, a framed belt of six consumable squares, helm globe. The results LOADOUT block follows.
+- **Mines are warnings.** Every mine's marker is 10 % larger. Your own mines (and their radius rings) are white; an enemy mine you can see pulses yellow to orange once a second (steady orange with motion off).
+- **Hazard rings say whose, not who.** Lit, fouling and burning zones no longer wear the firer's personal color: yours are white, anyone else's pulse yellow to orange like the mines. The lit zone's fill and the fouling net follow the ring.
+- **Burning water is fire.** The phosphor burn zone's red disc is gone; it is a field of white flames over the whole zone, under the zone glow. Another captain's flames lean slightly toward the warning color so hostile fire reads hostile at a glance; your own fire stays pure white.
+- Protocol version unchanged (88).
+
+### Not changed
+- The 10 u "click on the mine" hit disc, the zones' mechanics (slow, burn, reveal), radar, fog.
+
 ## [0.18.59] - 2026-10-16
 
 ### Changed

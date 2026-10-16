@@ -764,25 +764,28 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
  */
 function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   const net = deps.state.net;
-  // Contact-like reconciles. Story 1.12: the marker tint is the FIRER's personal
-  // hue (MineView/DecoyView/LitZoneView `by` → deps.ordnanceHue), the same hue for
-  // every observer; the own/enemy discriminator (`own`) now only drives the fog
-  // layer + brightness inside each renderer.
+  // Contact-like reconciles. Story 9.11 (epic-9 amendments 152–153): mines and
+  // the three zone kinds are ALERTS — own white, anybody else's the shared
+  // yellow↔orange blend — so they take no hue lookup: a mine's own/enemy is
+  // `MineView.own` from the server, a zone's is `by === sessionId` (undefined
+  // for a spectator → nobody's). Decoys keep the FIRER's personal hue (Story
+  // 1.12, `by` → deps.ordnanceHue).
   // Own mines carry their owner-private radius rings (always-on, our stats,
   // THE FRAME's clock); enemy mines get exactly the marker they always got.
   // f.t — not a local clock reading: the arming dim measures a server-side
   // window, so both ends of it have to come off the server's own timestamps.
-  deps.mines.sync(f.mines, deps.ordnanceHue, deps.ownMineRings(f.t));
+  deps.mines.sync(f.mines, deps.ownMineRings(f.t));
+  const ownId = net.sessionId;
   // Star-shell lit zones, same reconcile. Frames OMIT the key when the observer
   // sees no zones, so treat a missing key as an empty list.
   const litZones = f.litZones ?? [];
-  deps.litZones.sync(litZones, deps.ordnanceHue);
+  deps.litZones.sync(litZones, ownId);
   // PHOSPHOR burning zones (Story 8.17), same reconcile, same omitted-key rule.
   const burnZones = f.burnZones ?? [];
-  deps.burnZones.sync(burnZones, deps.ordnanceHue);
+  deps.burnZones.sync(burnZones, ownId);
   // FOULING SHELL foul zones (Story 9.4), same reconcile, same omitted-key rule.
   const foulZones = f.foulZones ?? [];
-  deps.foulZones.sync(foulZones, deps.ordnanceHue);
+  deps.foulZones.sync(foulZones, ownId);
   // Decoy buoys (Story 8.16), same reconcile. Frames OMIT the key when the
   // observer sees no decoys, so treat a missing key as an empty list.
   const decoys = f.decoys ?? [];

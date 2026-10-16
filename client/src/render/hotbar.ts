@@ -1,13 +1,15 @@
-// THE SLOT ROW (Story 2.2's hotbar, RE-CUT onto the HUD bar in Story 8.6, and
-// into a two-row stack in Story 9.2) — eleven squares drawn in Pixi over the
-// water at the geometry `render/hudBar.ts` hands it:
+// THE SLOT ROW (Story 2.2's hotbar, RE-CUT onto the HUD bar in Story 8.6) —
+// eleven squares and one framed belt, drawn in Pixi over the water at the
+// geometry `render/hudBar.ts` hands it:
 //
-//              |  1  2  3  4  5  6    |   <- the six fixed consumable kinds
-//   HP globe   |  Gun Shift  Q  E  R  |   helm globe
+//   HP globe | Gun  Shift  Q  E  R | [ 1  2  3  4  5  6 ] | helm globe
+//                                    ^ the belt frame this module draws
 //
-// The belt frame is GONE (epic-9 amendments 21/22): every consumable kind owns
-// one fixed square and key, and a kind at zero stock keeps its square in the
-// ZERO-STOCK state (dashed, its own glyph faint, no badge).
+// Since Story 9.2 every consumable kind owns one fixed belt square and key
+// (keys 1–6, epic-9 amendment 21), and a kind at zero stock keeps its square in
+// the ZERO-STOCK state (dashed, its own glyph faint, no badge). Story 9.2's
+// two-row stack is retired: Story 9.11 (epic-9 amendment 151) put the row and
+// its belt frame back, the frame now holding all six squares.
 //
 // WHAT STORY 8.6 DELETED, and why it is deletion rather than a flag:
 //   • `hotbarLayout` / `HotbarLayout` — the bottom-left stack is gone; the bar's
@@ -111,8 +113,9 @@ const B = CLIENT_CONFIG.hudBar;
 const W = B.wipe;
 const MONO = CLIENT_CONFIG.type.mono;
 
-/** Pure: is this slot one of the six fixed CONSUMABLE squares (the strip's
- *  34px squares, no tier numeral)? Membership is shared's, never a local range. */
+/** Pure: is this slot one of the six fixed CONSUMABLE squares (the framed
+ *  belt's 44px squares, no tier numeral)? Membership is shared's, never a local
+ *  range. */
 export function isConsumableSlot(slot: number): boolean {
   return CONSUMABLE_SLOTS.includes(slot);
 }
@@ -541,7 +544,7 @@ function heldId(view: HotbarView, slot: number): SlotItemId | null {
  * and activated one-shots every square has, and the `×n` stock badge.
  *
  * READY-WEAPON, not ready-ability, whichever channel the consumable fires on:
- * the mock draws strip squares as plain `.slot`, never `.slot.ability`, so the
+ * the mock draws belt squares as plain `.slot`, never `.slot.ability`, so the
  * brighter .65 outline and the chamfer belong to the Shift square alone.
  *
  * NO TIER NUMERAL: a consumable is a thing you carry, not a ladder you climb.
@@ -628,8 +631,8 @@ export function chipWidth(glyph: string, micro = 1): number {
 
 /**
  * Pure: a slot's AMMO BADGE box — the 16px square overhanging its top-right
- * corner by 7px on the weapon row; a strip square's stock badge is the mock's
- * smaller `.strip .badge` (14px box, 6px overhang, 9px digit).
+ * corner (`beltBadgeOverhang` is 1px tighter on the belt, as the mock's
+ * `.belt .badge` is).
  *
  * Returned UNCONDITIONALLY, whether or not a badge renders this frame: it is
  * the hit-test's input as well as the drawer's, and the click gate must be a
@@ -638,13 +641,11 @@ export function chipWidth(glyph: string, micro = 1): number {
  * 11) — a press on the ammo count is that slot's press, never a shot at the
  * water behind it.
  */
-export function badgeRect(layout: HudBarLayout, slot: number, text: string | null = null, micro = 1): Rect {
+export function badgeRect(layout: HudBarLayout, slot: number, text: string | null = null): Rect {
   const sq = layout.squares[slot];
-  const strip = isConsumableSlot(slot);
-  const over = strip ? B.stockBadgeOverhang : B.badgeOverhang;
-  const h = strip ? B.stockBadge : B.badge;
-  const w = badgeWidth(text, strip, micro);
-  return { x: sq.x + sq.w - w + over, y: sq.y - over, w, h };
+  const over = isConsumableSlot(slot) ? B.beltBadgeOverhang : B.badgeOverhang;
+  const w = badgeWidth(text);
+  return { x: sq.x + sq.w - w + over, y: sq.y - over, w, h: B.badge };
 }
 
 /**
@@ -661,15 +662,13 @@ export function badgeRect(layout: HudBarLayout, slot: number, text: string | nul
  * marks are one family of widening mono boxes, and a badge-only padding key
  * would be a second number saying the same thing.
  *
- * `strip` picks the strip's stock badge (14px box, the 9px register); its
- * digit counter-scales at the 90% tier like every 9px glyph on the bar, so the
- * box takes `micro` on its text term exactly as `chipWidth` does.
+ * ONE badge box on every square, weapon and belt alike (Story 9.11 retired the
+ * 9.2 strip's 14px box / 9px digit): the 10px register clears the mono floor
+ * unaided, so the box never takes `micro`.
  */
-export function badgeWidth(text: string | null, strip = false, micro = 1): number {
-  const min = strip ? B.stockBadge : B.badge;
-  if (text === null) return min;
-  const size = strip ? B.type.stockBadge : B.type.badge;
-  return Math.max(min, monoTextWidth(text, size) * (strip ? micro : 1) + 2 * B.chipPadX);
+export function badgeWidth(text: string | null): number {
+  if (text === null) return B.badge;
+  return Math.max(B.badge, monoTextWidth(text, B.type.badge) + 2 * B.chipPadX);
 }
 
 /**
@@ -757,7 +756,7 @@ const MAX_BREATH_DT = 0.5;
 /**
  * Pure: advance the ACTIVE breath's PHASE (radians) by one frame's `dtSec`.
  *
- * INTEGRATED, never derived from absolute time (litZones.advanceEmberPhase and
+ * INTEGRATED, never derived from absolute time (the hpGlobe.ts advancePulsePhase / alertBlend integrator and
  * the hull pulse, verbatim reasoning). The server clock this rides is an
  * ESTIMATE, and it is re-estimated: an absolute `sin(nowSec · ω)` teleports the
  * outline's alpha the instant that estimate moves, which is exactly the sudden
@@ -884,7 +883,8 @@ function slotColumn(layout: HudBarLayout, slot: number): Rect {
  * the chip and the badge are part of the control, exactly as the whole ROW was
  * on the old stack — a press on a slot's key glyph or its ammo count is that
  * slot's press, and is swallowed, so it can never fire the gun at the water
- * underneath. The gaps between squares and everything outside stay WATER, so a press there falls through and fires
+ * underneath. The gaps between squares, the belt frame's padding and
+ * everything outside stay WATER, so a press there falls through and fires
  * exactly as before.
  *
  * The chip's hit region is the SQUARE's width rather than the chip's own drawn
@@ -893,12 +893,13 @@ function slotColumn(layout: HudBarLayout, slot: number): Rect {
  * chip is never wider than its square, so this region contains the chip and
  * nothing else.
  *
- * TWO PASSES, SQUARES FIRST (review gate, cycle 141). A strip badge's 6px
- * overhang is wider than the strip's 4px gap, so it reaches into its right
- * neighbour's square, and a weapon badge's 7px overhang reaches up into the
- * strip's chips; rects are inclusive on both edges. A press inside a square
- * (or its chip column) always belongs to that square, on either row, and a
- * badge only ever wins the overhang that hangs over water.
+ * TWO PASSES, SQUARES FIRST (review gate, cycle 141). `beltBadgeOverhang` is
+ * exactly the belt gap, so a belt badge ends ON its right neighbour's left
+ * edge, and rects are inclusive on both edges: a single pass in slot order gave
+ * the previous slot's badge the top 10px of its neighbour's own left-edge
+ * column. A press inside a square now always belongs to that square, and a
+ * badge only ever wins the overhang — which is the part of it that hangs over
+ * water.
  *
  * A null layout (the bar is hidden — death, spectate, the forceSnap pose gap)
  * hits nothing: a hidden bar routes no clicks.
@@ -974,9 +975,6 @@ const TIER_STYLE = { fontFamily: MONO, fontSize: B.type.tier, fontWeight: '600',
  *  clears the mono floor unaided, so it does not counter-scale (`microScale`
  *  covers the 9px registers ONLY — ruling 2). */
 const BADGE_STYLE = { fontFamily: MONO, fontSize: B.type.badge, fill: C.phosphor, letterSpacing: 0 } as const;
-/** The strip's stock-badge digit — mock `.strip .badge { font-size: 9px }`. A
- *  9px register, so it DOES counter-scale at 90% (epic-9 amendment 33). */
-const STRIP_BADGE_STYLE = { ...BADGE_STYLE, fontSize: B.type.stockBadge } as const;
 /** The cooldown/ACTIVE numeral — mock `.cd { font: 600 18px var(--mono) }` with
  *  its `text-shadow: 0 0 6px` black halo, which is what keeps the numeral
  *  legible over BOTH the cleared and the darkened halves of the wipe. The halo
@@ -1043,7 +1041,7 @@ function squarePoints(r: Rect): PolyPoint[] {
 }
 
 /** Pure: the smallest box containing both dim groups — the rank-wide fit
- *  frame's target (the strip plus the weapon row, which is exactly what dims). */
+ *  frame's target (the slot run plus the belt, which is exactly what dims). */
 function groupsBounds(layout: HudBarLayout): Rect {
   const x = Math.min(...layout.dimGroups.map((r) => r.x));
   const y = Math.min(...layout.dimGroups.map((r) => r.y));
@@ -1110,10 +1108,10 @@ function sameBoonList(a: readonly string[], b: readonly string[]): boolean {
 }
 
 /**
- * THE SLOT STACK on the HUD bar (the consumable strip over the weapon row).
+ * THE SLOT ROW + THE BELT FRAME on the HUD bar.
  *
- * DIM: the whole of this object IS the bar's two dim groups (the six
- * consumable squares and the five weapon squares — ruling 9), so the dim is one alpha on this
+ * DIM: the whole of this object IS the bar's two dim groups (the five weapon
+ * squares and the framed belt — ruling 9), so the dim is one alpha on this
  * root, driven by `view.dim` at `CLIENT_CONFIG.hudBar.dimAlpha`. The composing
  * `HudBar` therefore has nothing to do for the dim beyond passing the flag
  * through; the globes and the XP strip, which stay at full, are its own
@@ -1139,7 +1137,7 @@ export class Hotbar {
   private hover: HoverState = NO_HOVER;
   private cachedLayout: HudBarLayout | null = null;
   /** INTEGRATED ACTIVE-breath phase + the clock it last advanced at (the
-   *  litZones ember precedent — accumulated per frame, never absolute time). */
+   *  hpGlobe.ts advancePulsePhase / alertBlend integrator precedent — accumulated per frame, never absolute time). */
   private breathPhase = 0;
   private lastBreathSec: number | null = null;
   private tipCache: TooltipCache | null = null;
@@ -1152,7 +1150,7 @@ export class Hotbar {
     blur.padding = B.glowBlurPx * 2;
     this.glowGfx.filters = [blur];
     this.root.addChild(this.glowGfx, this.gfx);
-    this.slotText = Array.from({ length: SLOT_COUNT }, (_, slot) => this.buildSlotText(slot));
+    this.slotText = Array.from({ length: SLOT_COUNT }, () => this.buildSlotText());
     this.tipName = new Text({ text: '', style: TIP_NAME_STYLE });
     this.tipInteraction = new Text({ text: '', style: TIP_INTERACTION_STYLE });
     this.tipLabels = new Text({ text: '', style: TIP_LABEL_STYLE });
@@ -1162,10 +1160,10 @@ export class Hotbar {
     this.root.addChild(this.tipRoot);
   }
 
-  private buildSlotText(slot: number): SlotText {
+  private buildSlotText(): SlotText {
     const chip = new Text({ text: '', style: CHIP_STYLE });
     chip.anchor.set(0.5);
-    const badge = new Text({ text: '', style: isConsumableSlot(slot) ? STRIP_BADGE_STYLE : BADGE_STYLE });
+    const badge = new Text({ text: '', style: BADGE_STYLE });
     badge.anchor.set(0.5);
     const tier = new Text({ text: '', style: TIER_STYLE });
     tier.anchor.set(1, 1);
@@ -1226,6 +1224,7 @@ export class Hotbar {
     const models = slotViewModels(view);
     this.gfx.clear();
     this.glowGfx.clear();
+    this.drawBeltFrame(layout);
     const breath = activeBreath(this.advanceBreath(view.nowSec), motionScaled(ACTIVE_PULSE_AMP, view.motion ?? 'full'));
     for (const m of models) this.drawSlot(m, layout, breath);
     this.drawFitFrame(view, layout);
@@ -1240,6 +1239,18 @@ export class Hotbar {
     this.lastBreathSec = nowSec;
     this.breathPhase = advanceBreathPhase(this.breathPhase, dt);
     return this.breathPhase;
+  }
+
+  /**
+   * THE BELT FRAME (ruling 5, back in Story 9.11) — one 1px silver .2 rectangle
+   * around the six consumable squares AND their chips (the mock's `.belt`
+   * encloses the whole `.sw` column). It is the only grouping mark on the bar:
+   * the belt is a different KIND of slot (stock you spend, not kit you fire),
+   * and the frame is what says so without a word.
+   */
+  private drawBeltFrame(layout: HudBarLayout): void {
+    const b = layout.belt;
+    this.gfx.rect(b.x, b.y, b.w, b.h).stroke({ width: B.lineW, color: C.silver, alpha: 0.2 });
   }
 
   private drawSlot(m: SlotViewModel, layout: HudBarLayout, breath: number): void {
@@ -1336,13 +1347,13 @@ export class Hotbar {
       .cut();
   }
 
-  /** The equipment glyph — 24px in a weapon square, 16px in a strip one (mock
-   *  `.rev .slots .slot > svg` / `.rev .strip .slot > svg`), dimmed to `wipe.iconAlpha` under a
+  /** The equipment glyph — 28px in a weapon square, 22px in a belt one (mock
+   *  `.slot > svg` / `.belt .slot > svg`), dimmed to `wipe.iconAlpha` under a
    *  running wipe and at FULL alpha while an ability window is ACTIVE. */
   private drawIcon(m: SlotViewModel, square: Rect, skin: SlotSkin): void {
     const cx = square.x + square.w / 2;
     const cy = square.y + square.h / 2;
-    const size = isConsumableSlot(m.slot) ? B.stockIcon : B.icon;
+    const size = isConsumableSlot(m.slot) ? B.beltIcon : B.icon;
     const alpha = wipeShown(m) ? W.iconAlpha : skin.iconAlpha;
     const style = { width: 1.5, color: skin.icon, alpha };
     if (m.id === null) drawDashGlyph(this.gfx, cx, cy, size * 0.5, style);
@@ -1368,19 +1379,17 @@ export class Hotbar {
   }
 
   /** Ammo badge — a 16px scrim square overhanging the square's top-right corner,
-   *  ONLY on pools larger than one round; a strip square's stock badge is the
-   *  14px box with the 9px digit, which counter-scales at 90%. Its box is
-   *  `badgeRect`'s, the same one the hit-test swallows. */
+   *  ONLY on pools larger than one round (a belt square's rides 1px tighter).
+   *  Its box is `badgeRect`'s, the same one the hit-test swallows. */
   private drawBadge(m: SlotViewModel, layout: HudBarLayout): void {
     const t = this.slotText[m.slot].badge;
     t.visible = m.badge !== null;
     if (m.badge === null) return;
-    const strip = isConsumableSlot(m.slot);
-    const b = badgeRect(layout, m.slot, m.badge, this.micro);
+    const b = badgeRect(layout, m.slot, m.badge);
     this.gfx.rect(b.x, b.y, b.w, b.h).fill({ color: C.cardScrim, alpha: 0.95 });
     this.gfx.rect(b.x, b.y, b.w, b.h).stroke({ width: B.lineW, color: C.phosphor, alpha: 0.5 });
     t.alpha = dimAlphaFor(m);
-    t.scale.set(strip ? this.micro : 1); // the weapon row's 10px clears the floor unaided
+    t.scale.set(1); // a 10px register: it clears the mono floor without help
     t.position.set(b.x + b.w / 2, b.y + b.h / 2);
     this.setText(t, m.badge, m.slot * 4 + 1);
   }
