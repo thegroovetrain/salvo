@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  FOG_NO_CUT, fogCutForTarget, fogDensityAt, fogLattice, fogNoiseAt, fogTollAlong, makeFogField,
+  FOG_NO_CUT, fogCutForTarget, fogDensityAt, fogLattice, fogNoiseAt, fogSinCos, fogTollAlong, makeFogField,
   type FogFieldConfig,
 } from '../sim/fog.js';
 
@@ -245,14 +245,53 @@ describe('the spin (Eric 2026-10-16, amendment 177)', () => {
     }
   });
 
-  it('the per-layer shear reset is invisible: no jump in the noise across either reset instant', () => {
+  it('each layer\'s shear is measured from its own last reset, not from t = 0 (the bound that keeps stretch to one morphMs)', () => {
+    // Just after t = 10·P layer B (reset there, invisible at phase 0) weighs ~1e-5: the field is layer A
+    // alone, with P/2 + 1 ms of shear since A's reset at 9.5·P — exactly A's state at t = 1 ms (A's reset at
+    // −P/2) — rotated rigidly by the rim angle for the 10·P in between. Were tA measured from 0, A's shear
+    // angle at the centre would differ by w0·spinShear·10·P ≈ 3.9 rad and the readings would not match.
+    // Symmetric for layer B just after 10.5·P (A invisible; B reset at 10·P) against t = P/2 + 1 ms.
+    const cfg = { ...CFG, windU: 0 };
+    const P = cfg.morphMs;
+    for (const seed of [21, 22]) {
+      const f = makeFogField(seed, cfg, OCEAN_R);
+      for (const [tLate, tEarly] of [[10 * P + 1, 1], [10 * P + P / 2 + 1, P / 2 + 1]]) {
+        const th = f.spinSign * (2 * Math.PI * (tLate - tEarly)) / cfg.spinPeriodMs; // the rigid turn in between
+        const c = Math.cos(th);
+        const sn = Math.sin(th);
+        for (const p of SWEEP) {
+          if (p.x * p.x + p.y * p.y > OCEAN_R * OCEAN_R) continue;
+          const rx = p.x * c - p.y * sn;
+          const ry = p.x * sn + p.y * c;
+          expect(Math.abs(fogNoiseAt(f, rx, ry, tLate) - fogNoiseAt(f, p.x, p.y, tEarly))).toBeLessThan(2e-3);
+        }
+      }
+    }
+  });
+
+  it('the noise is continuous across both reset instants (the resetting layer is invisible there)', () => {
     const f = makeFogField(99, CFG, OCEAN_R);
     for (const tReset of [CFG.morphMs, CFG.morphMs / 2, 3 * CFG.morphMs]) {
       for (const p of SWEEP) {
-        const before = fogNoiseAt(f, p.x, p.y, tReset - 1);
-        const after = fogNoiseAt(f, p.x, p.y, tReset + 1);
-        expect(Math.abs(after - before)).toBeLessThan(0.01);
+        expect(Math.abs(fogNoiseAt(f, p.x, p.y, tReset + 1e-3) - fogNoiseAt(f, p.x, p.y, tReset - 1e-3))).toBeLessThan(1e-4);
       }
+    }
+  });
+
+  it('fogSinCos matches Math.sin / Math.cos within 1e-6 across the folds, at the fold points and at match-scale angles', () => {
+    const out = { s: 0, c: 0 };
+    const angles = [0, -0, 0.3, -0.3, Math.PI / 2, -Math.PI / 2, Math.PI / 2 + 1e-9, Math.PI / 2 - 1e-9, 2, -2, Math.PI, -Math.PI,
+      3 * Math.PI / 2, 5, -5, 2 * Math.PI, 7, 100.5, -100.5, 56.5, 1e4 + 0.1, -1e4 - 0.1];
+    for (const a of angles) {
+      fogSinCos(a, out);
+      expect(Math.abs(out.s - Math.sin(a)), `sin ${a}`).toBeLessThan(1e-6);
+      expect(Math.abs(out.c - Math.cos(a)), `cos ${a}`).toBeLessThan(1e-6);
+    }
+    for (let i = 0; i < 2000; i++) {
+      const a = (i - 1000) * 0.0123457;
+      fogSinCos(a, out);
+      expect(Math.abs(out.s - Math.sin(a))).toBeLessThan(1e-6);
+      expect(Math.abs(out.c - Math.cos(a))).toBeLessThan(1e-6);
     }
   });
 

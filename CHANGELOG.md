@@ -3,7 +3,7 @@
 ## [0.18.57] - 2026-10-16
 
 ### Changed
-- **The fog spins.** The whole fog pattern now turns slowly about the ocean center, once every 20 minutes at the edge and half again as fast in the middle, so banks curl and stretch instead of sliding across the map in a straight line. Which way it turns is a coin flip at the start of each match. The drift is still there, slower: 3.5 u/s instead of 8.
+- **The fog spins.** The whole fog pattern now turns slowly about the ocean center, once every 20 minutes, with the middle running ahead of the edge by up to about a 22° curl that builds and rebuilds every two and a half minutes, so banks curl and stretch instead of sliding across the map in a straight line. At the edge of the ocean the turn carries a bank about 26 u/s; mid-ocean about 16 u/s. Which way it turns is a coin flip at the start of each match. The drift is still there, slower: 3.5 u/s instead of 8. The wisps ride the banks they tint, and the server re-reads the field every half second instead of every second so it keeps up.
 - **More fog.** Between 20 and 25 % of the live ring is fogged at any time (was 2 to 8 %), and it rolls in over about 15 seconds after the match goes live (was about a minute).
 - Protocol version 86 (the client reads the fog dials).
 

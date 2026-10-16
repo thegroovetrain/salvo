@@ -1645,8 +1645,12 @@ describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
     for (const key of ['fog.quantileLattice=0', 'fog.quantileLattice=4', 'fog.quantileLattice=7']) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 8/);
     }
-    for (const key of ['fog.sightCostPerU=-1', 'fog.windU=-1', 'fog.edgeBand=-0.1', 'fog.cutRatePerS=-0.1']) {
+    for (const key of ['fog.sightCostPerU=-1', 'fog.windU=-1', 'fog.edgeBand=-0.1', 'fog.cutRatePerS=-0.1', 'fog.spinShear=-0.1']) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 0/);
+    }
+    // the spin period is 0 (off) or a clock >= 1 ms: a sub-millisecond period overflows TWO_PI / period and the field reads 0 (Codex, cycle-192 gate)
+    for (const key of ['fog.spinPeriodMs=0.5', 'fog.spinPeriodMs=-1', 'fog.spinPeriodMs=1e-300']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/0 \(off\) or a finite clock >= 1 ms/);
     }
     for (const key of ['fog.coverageMin=-0.1', 'fog.coverageMax=1.5']) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/share of water in \[0, 1\]/);

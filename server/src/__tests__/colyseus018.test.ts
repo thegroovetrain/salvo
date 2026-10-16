@@ -166,8 +166,12 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 84 and admits 85', () => {
-  it('PROTOCOL_VERSION is 85', () => {
+describe('the PV join gate refuses 85 and admits 86', () => {
+  it('PROTOCOL_VERSION is 86', () => {
+    // Story 9.10's staging tune bumped 85 -> 86 (Eric 2026-10-16, amendment
+    // 177): CONFIG.fog, read by the client, gains spinPeriodMs/spinShear (the
+    // field spins about the ocean center with shear, a coin-flip direction);
+    // coverage 20–25 %, drift 3.5 u/s, onset ~15 s.
     // Story 9.10 bumped 84 -> 85: the FOG FIELD — WelcomeMsg gains fogSeed,
     // ArenaState gains fogCut and the client reads CONFIG.fog; no per-observer
     // fog channel, the declared exceptions stay at SIX (epic-9 amendments
@@ -239,6 +243,7 @@ describe('the PV join gate refuses 84 and admits 85', () => {
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
     expect(PROTOCOL_VERSION).toBe(86); // 85 → 86: the fog spin tune (CONFIG.fog spinPeriodMs/spinShear read by the client; amendment 177)
+    expect(protocolVersionError(85)).toMatch(/refresh/i);
     expect(protocolVersionError(84)).toMatch(/refresh/i);
     expect(protocolVersionError(83)).toMatch(/refresh/i);
     expect(protocolVersionError(82)).toMatch(/refresh/i);
@@ -287,12 +292,12 @@ describe('the PV join gate refuses 84 and admits 85', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(86)).toMatch(/refresh/i);
+    expect(protocolVersionError(87)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(85)).toBeNull();
+    expect(protocolVersionError(86)).toBeNull();
   });
 });
 

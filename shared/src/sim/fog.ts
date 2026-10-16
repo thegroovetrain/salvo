@@ -111,7 +111,7 @@ const HALF_PI = 1.5707963267948966;
  * [-π/2, π/2] with Math.floor, then an odd degree-11 series: error < 1e-6,
  * which is a sub-unit displacement at the ocean's rim.
  */
-function sinCos(a: number, out: { s: number; c: number }): void {
+export function fogSinCos(a: number, out: { s: number; c: number }): void {
   const q = a / TWO_PI;
   let x = (q - Math.floor(q)) * TWO_PI; // [0, 2π)
   if (x > 3.141592653589793) x -= TWO_PI; // (-π, π]
@@ -134,9 +134,12 @@ const SC = { s: 0, c: 0 };
  * on the wind. Spin and drift are isometries and may accumulate all match;
  * the SHEAR is measured from `tResetMs`, the last instant this layer's morph
  * weight was 0 (invisible), so a layer never carries more than one
- * `morphMs` of stretch. Writes (x, y) in noise-space into `out`.
+ * `morphMs` of stretch (with a non-positive `morphMs` there is no morph and
+ * no reset: the shear then accumulates all match — a hand-built config, the
+ * harness floor is 1 ms); `shearF` is the sample's shear factor (computed once
+ * for both layers). Writes (x, y) in noise-space into `out`.
  */
-function layerSample(field: FogField, x: number, y: number, tMs: number, tResetMs: number, out: { x: number; y: number }): void {
+function layerSample(field: FogField, x: number, y: number, tMs: number, tResetMs: number, shearF: number, out: { x: number; y: number }): void {
   const c = field.cfg;
   const px = x - field.spinCx;
   const py = y - field.spinCy;
@@ -144,10 +147,8 @@ function layerSample(field: FogField, x: number, y: number, tMs: number, tResetM
   let ry = py;
   if (c.spinPeriodMs > 0) {
     const w0 = TWO_PI / c.spinPeriodMs; // rad/ms at the rim
-    const r = Math.sqrt(px * px + py * py);
-    const f = r >= field.spinRadiusU ? 0 : c.spinShear * (1 - r / field.spinRadiusU);
-    const ang = -field.spinSign * (w0 * tMs + w0 * f * (tMs - tResetMs)); // look back in time: the pattern turns forward
-    sinCos(ang, SC);
+    const ang = -field.spinSign * (w0 * tMs + w0 * shearF * (tMs - tResetMs)); // look back in time: the pattern turns forward
+    fogSinCos(ang, SC);
     rx = px * SC.c - py * SC.s;
     ry = px * SC.s + py * SC.c;
   }
@@ -179,8 +180,13 @@ export function fogNoiseAt(field: FogField, x: number, y: number, tMs: number): 
   const period = c.morphMs > 0 ? c.morphMs : 0;
   const tB = period > 0 ? Math.floor(tMs / period) * period : 0;
   const tA = period > 0 ? Math.floor((tMs - period / 2) / period) * period + period / 2 : 0;
-  layerSample(field, x, y, tMs, tA, PA);
-  layerSample(field, x, y, tMs, tB, PB);
+  // the shear factor, once per sample: spinShear × (1 − r / radius), 0 at and beyond the rim (continuous there)
+  const px = x - field.spinCx;
+  const py = y - field.spinCy;
+  const r = Math.sqrt(px * px + py * py);
+  const shearF = r >= field.spinRadiusU ? 0 : c.spinShear * (1 - r / field.spinRadiusU);
+  layerSample(field, x, y, tMs, tA, shearF, PA);
+  layerSample(field, x, y, tMs, tB, shearF, PB);
   const a = fbm(PA.x, PA.y, field.layerA, c.octaves, c.gain);
   const b = fbm(PB.x + off, PB.y + off, field.layerB, c.octaves, c.gain);
   const n = a + (b - a) * morphWeight(tMs, c.morphMs);

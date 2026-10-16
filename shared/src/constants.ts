@@ -2089,11 +2089,11 @@ export const CONFIG = {
     gain: 0.5, // fbm persistence
     windU: 3.5, // u/s — the field drifts with a fixed per-match wind (direction from the seed; Eric 2026-10-16 on staging: "it moves too quickly" — was 8, was 12)
     spinPeriodMs: 1200000, // ms — the pattern turns once about the ocean center per this at the rim; direction is a per-match coin flip (Eric 2026-10-16, amendment 177); 0 = no spin
-    spinShear: 0.5, // the center's extra turn rate as a fraction of the rim's (differential rotation: banks curl and stretch); 0 = rigid
+    spinShear: 0.5, // the center's extra turn rate as a fraction of the rim's (differential rotation: banks curl and stretch; each noise layer's extra turn is measured from its last invisible morph instant, so it builds to at most spinShear × morphMs / spinPeriodMs of a turn — ≈ 22° — and rebuilds every morphMs); 0 = rigid
     morphMs: 150000, // ms — the shape turnover: two noise layers cross-fade on a triangle wave of this period (Eric: slower — was 90000)
     edgeBand: 0.12, // noise units over which density ramps 0 → 1 above the cut (soft edge)
     cutRatePerS: 0.04, // noise units per second the server may slew the cut (onset ≈ 15 s from clear to a 20–25 % cut; Eric 2026-10-16: "the onset roll-in should be faster" — was 0.02)
-    refreshMs: 1000, // ms — server raster + quantile refresh cadence
+    refreshMs: 500, // ms — server memo-epoch + quantile refresh cadence (was 1000; halved at the cycle-192 gate because the spin moves the rim ≈ 26 u/s — the server's field trails the client's by at most this)
     marchStepU: 10, // u — the toll's midpoint march step
     quantileLattice: 48, // samples per side of the coverage lattice inside the live ring
   },

@@ -169,8 +169,9 @@ const TUNE_FAMILIES = [
   // the coverage band a closed share of the ring's area [0, 1]
   // (FOG_SHARE_KEYS — `coverageMax=0` is "fog off"). `coverageMin <=
   // coverageMax` is refused on the finished CONFIG in validateFogDials.
-  // `spinPeriodMs` and `spinShear` take the generic floor of 0 on purpose:
-  // 0 is "no spin" / "rigid spin", both real arms (amendment 177).
+  // `spinPeriodMs` is 0 (no spin) or a clock >= 1 ms (FOG_ZERO_OR_CLOCK_KEY);
+  // `spinShear` takes the generic floor of 0 (rigid spin) — both real arms
+  // (amendment 177).
   'fog.',
 ];
 
@@ -488,7 +489,19 @@ function tuneFloor(key: string): number {
  *  leaves the sim divides by — see tuneFloor. Everything else may legitimately
  *  be 0 — `gun.burstRadius=0` is what ARMOR-PIERCING already does, and a
  *  0-damage arm is a real control. */
+/** The fog spin period (amendment 177; Codex at the cycle-192 gate): exactly 0
+ *  is "no spin", otherwise a clock of at least 1 ms — a sub-millisecond period
+ *  makes `TWO_PI / spinPeriodMs` overflow and the whole field reads 0. */
+const FOG_ZERO_OR_CLOCK_KEY = 'fog.spinPeriodMs';
+
+function validateZeroOrClock(key: string, value: number): void {
+  if (!Number.isFinite(value) || (value !== 0 && value < 1)) {
+    throw new TunableError(`'${key}': expected 0 (off) or a finite clock >= 1 ms, got '${value}'`);
+  }
+}
+
 export function validateTuneValue(key: string, value: number): void {
+  if (key === FOG_ZERO_OR_CLOCK_KEY) return validateZeroOrClock(key, value);
   if (UNIT_INTERVAL_KEYS.has(key)) return validateUnitInterval(key, value);
   if (PROBABILITY_KEYS.has(key)) return validateProbability(key, value);
   if (FOG_SHARE_KEYS.has(key)) return validateShare(key, value);
