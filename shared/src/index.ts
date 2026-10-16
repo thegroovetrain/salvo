@@ -3,9 +3,9 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
- *  85 — Story 9.10 Fog Banks — FrameMsg gains the optional `fog` channel
- *  (FogBankView {id,x,y,r,d}), delivered inside the 750 u halo (the seventh
- *  declared exception, epic-9 amendment 162); nothing else moved.
+ *  85 — Story 9.10 Fog Banks: WelcomeMsg gains fogSeed and the client reads
+ *  CONFIG.fog; the schema gains fogCut (ArenaState); no per-observer fog
+ *  channel (the field is derived on both sides).
  *  84 — Story 9.9 Armor Piercing: K 100, ARMOR +20/card, HUNKER +100 (was
  *  DAMAGE CUT, id renamed), new ARMOR PIERCING ladder (catalog content),
  *  OwnShip.hunkerUntil wire field renamed (epic-9 amendments 144–147).

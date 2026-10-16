@@ -1475,15 +1475,6 @@ export interface CloudView {
   t0: number; // ms — server time the cloud was made (drives the disc's age)
 }
 
-/** One fog bank as a client sees it (Story 9.10 — contact-like, recomputed per tick; the SEVENTH declared exception: delivered inside the observer's 750 u flash/smoke halo with island LOS, epic-9 amendment 162). KEY ORDER (msgpack): id,x,y,r,d. Carries the CURRENT radius and density only — no full radius, no life, no born time. */
-export interface FogBankView {
-  id: string; // the bank's own id
-  x: number; // u — bank centre (stationary)
-  y: number; // u
-  r: number; // u — the bank's CURRENT radius
-  d: number; // its CURRENT density, 0..1
-}
-
 /**
  * Why the server refused a press, on the wire (Story 1.10 — FR12's "denied
  * fire is never silent"). The four wire reasons:
@@ -1561,10 +1552,6 @@ export interface FrameMsg {
   // per-observer COUNTERMEASURE cloud visibility (Story 9.3 — contact-like;
   // omitted when none, the litZones rule). NOT the wounded `sm` SmokeEvent.
   clouds?: CloudView[];
-  // per-observer FOG BANK visibility (Story 9.10 — contact-like; delivered
-  // inside the 750 u flash/smoke halo with island LOS, the seventh declared
-  // exception, epic-9 amendment 162; omitted when none, the litZones rule)
-  fog?: FogBankView[];
   /** This tick's denied presses — SELF-PRIVATE (rides like `you`, only ever
    *  the receiving client's own denials; omitted when none, never on
    *  spectator frames — a dead ship cannot press). See DeniedView. */
@@ -1608,6 +1595,7 @@ export interface WelcomeMsg {
   mapSeed: number;
   mapRadius: number; // u
   playerCap: number; // the cap the server sized the map against (feeds generateMap)
+  fogSeed: number; // uint32 — the fog field's seed (Story 9.10): both sides derive the fog density field from it, the match clock and CONFIG.fog
   t: number; // ms — server time at welcome (seeds the client clock)
   config: GameConfig;
 }

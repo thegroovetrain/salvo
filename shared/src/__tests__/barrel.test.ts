@@ -456,13 +456,14 @@ describe('shared barrel', () => {
     // + CONFIG read by the client through the fold), the new armorPiercing
     // ladder, and the OwnShip.hunkerUntil rename. The exception count stays SIX.
     // 84 -> 85 (Story 9.10 FOG BANKS, Eric 2026-10-15, epic-9 amendments
-    // 162-168): FrameMsg gains the optional `fog` channel (FogBankView
-    // {id,x,y,r,d}) delivered inside the 750 u halo — the SEVENTH declared
-    // exception (amendment 162).
+    // 163-164, 167-170 + the "no discs" field re-plan): WelcomeMsg gains
+    // fogSeed, the client reads CONFIG.fog and the schema gains fogCut. No
+    // per-observer fog channel; the exception count stays SIX.
     expect(PROTOCOL_VERSION).toBe(85);
-    for (const fn of [shared.fogScale, shared.fogRadius, shared.fogDensity, shared.segDiscChord, shared.fogCostAlong]) {
+    for (const fn of [shared.makeFogField, shared.fogNoiseAt, shared.fogDensityAt, shared.fogTollAlong, shared.fogCutForTarget, shared.fogLattice]) {
       expect(typeof fn).toBe('function');
     }
+    expect(shared.FOG_NO_CUT).toBe(9);
     for (const fn of [shared.dropoutPaintP, shared.dropoutRoll, shared.dropoutPaints]) {
       expect(typeof fn).toBe('function');
     }

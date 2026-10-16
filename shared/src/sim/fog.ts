@@ -1,128 +1,214 @@
-// FOG BANKS — the sight cost of haze (Story 9.10; Eric 2026-10-14, epic-9
-// amendments 149–150, and 2026-10-15, amendments 162–168).
+// FOG — the rolling fog density field and its sight toll (Story 9.10; Eric
+// 2026-10-14, epic-9 amendments 149–150, 163–164, 167–170; and 2026-10-15:
+// "no discs — it won't look like realistic rolling fog", "make it performant").
 //
-// This module is the ONE derivation of the fog sight cost. The server's
-// perception (signals.ts sight sites, the 750 u flash/smoke halo, the PvE
-// drones' `shipSees`) reads it; the perception invariant oracle deliberately
-// re-derives it NUMERICALLY (segment sampling) rather than calling this closed
-// form, so the two check each other. No other second derivation may exist.
+// This module is the ONE derivation of the fog field and its toll. Server and
+// client evaluate it identically from `(fogSeed, t, cut, CONFIG.fog)`: the
+// seed rides the welcome, the cut rides the schema, `t` is the match clock.
+// The perception invariant oracle deliberately re-integrates the density at a
+// finer step rather than calling `fogTollAlong`, so the two check each other.
 //
-// The rule in plain words: a ray from an observer to a point pays
-// `sightCostPerU × density` extra units of distance for every unit of its
-// length that lies inside a bank's CURRENT disc. A bank's radius and density
-// both scale by `fogScale` — 0 → 1 over `growMs` from birth, 1 through the
-// hold, 1 → 0 over the last `fadeMs` before `until` (amendment 165). Sight
-// only: radar, zone circles, the foghorn and the storm never read this file.
+// The field in plain words: noise `n(x, y, t)` is two fbm layers drifting with
+// a fixed per-match wind, cross-faded by a triangle wave of period `morphMs`
+// (so banks roll AND change shape). Density = clamp01((n − cut) / edgeBand):
+// zero below the cut, a soft edge `edgeBand` wide, solid above. A ray pays
+// `sightCostPerU × density` extra sight units per unit of its length (a
+// midpoint march). Sight only: radar, zone circles, the foghorn and the storm
+// never read this file.
 //
 // PURE, DETERMINISTIC, ZERO I/O, plain objects. NO TRANSCENDENTALS (the
 // map-gen posture): `Math.sqrt` only — no hypot, trig, pow, exp/log, random,
-// and no clock (time arrives as the `now` argument). A shared test guards the
-// source text.
+// and no clock (time arrives as an argument). A shared test guards the source.
 
-/**
- * One fog bank — the SERVER store record. Stationary for its whole life.
- * `R` is its FULL radius (u); `bornAt` / `until` are server-clock ms. Never
- * sent as-is: the wire shape is `FogBankView` (types.ts), which carries the
- * current radius and density only.
- */
-export interface FogBankRecord {
-  id: string;
-  x: number; // u — bank centre
-  y: number; // u
-  R: number; // u — full radius (reached at the end of the grow ramp)
-  bornAt: number; // ms — server time the bank was born
-  until: number; // ms — server time the bank is gone
-}
+import { fbm, makeLayer, type NoiseLayer } from './noise.js';
+import { mulberry32 } from '../math/rng.js';
 
-/** The slice of `CONFIG.fog` the math reads (CONFIG.fog fits). */
-export interface FogConfig {
+/** A cut no fbm value reaches: density 0 everywhere — the "no fog" state (what the schema carries before the match goes live). */
+export const FOG_NO_CUT = 9;
+
+/** A cut below every fbm value: density 1 everywhere. */
+const FOG_FULL_CUT = -2;
+
+/** Offset (u, both axes) between layer A's and layer B's sample points, so the two layers never line up. */
+const LAYER_B_OFFSET_U = 1000;
+
+/** The slice of `CONFIG.fog` the field math reads (CONFIG.fog fits). */
+export interface FogFieldConfig {
   sightCostPerU: number;
-  growMs: number;
-  fadeMs: number;
+  wavelengthU: number;
+  octaves: number;
+  gain: number;
+  windU: number;
+  morphMs: number;
+  edgeBand: number;
+  marchStepU: number;
 }
 
-/** A linear ramp `elapsed / span`; a non-positive span reads 1 (no division by zero). */
-function ramp(elapsed: number, span: number): number {
-  return span > 0 ? elapsed / span : 1;
+/** A built fog field: two noise layers, the wind (u per ms) and the dials. */
+export interface FogField {
+  readonly layerA: NoiseLayer;
+  readonly layerB: NoiseLayer;
+  readonly windX: number; // u/ms
+  readonly windY: number; // u/ms
+  readonly cfg: FogFieldConfig;
+}
+
+/** A unit vector drawn from `seed` without trig: rejection-sample the unit disc, normalize. */
+function windDirection(seed: number): { x: number; y: number } {
+  const rng = mulberry32((seed ^ 0x85ebca6b) >>> 0);
+  for (;;) {
+    const u = rng.next() * 2 - 1;
+    const v = rng.next() * 2 - 1;
+    const m2 = u * u + v * v;
+    if (m2 > 1e-6 && m2 <= 1) {
+      const m = Math.sqrt(m2);
+      return { x: u / m, y: v / m };
+    }
+  }
+}
+
+/** Build the fog field for `seed`. Deterministic: same seed + cfg → identical field. */
+export function makeFogField(seed: number, cfg: FogFieldConfig): FogField {
+  const s = seed >>> 0;
+  const dir = windDirection(s);
+  const perMs = cfg.windU / 1000;
+  return {
+    layerA: makeLayer(s),
+    layerB: makeLayer((s ^ 0x9e3779b9) >>> 0),
+    windX: dir.x * perMs,
+    windY: dir.y * perMs,
+    cfg,
+  };
+}
+
+/** Triangle wave of `t / period` in [0, 1] (0 at phase 0, 1 at phase ½). A non-positive period reads 0. */
+function morphWeight(tMs: number, period: number): number {
+  if (!(period > 0)) return 0;
+  const q = tMs / period;
+  const phase = q - Math.floor(q);
+  return phase < 0.5 ? 2 * phase : 2 - 2 * phase;
 }
 
 /**
- * The bank's life scale at `now`, in [0, 1]:
- * min(grow ramp (now − bornAt) / growMs, 1, fade ramp (until − now) / fadeMs).
- * Non-finite inputs read 0 (the bank is treated as absent).
+ * The raw fog noise at (x, y) at match time `tMs`, roughly in [-1, 1].
+ * Any non-finite input reads 0 (with a sane cut that is density 0 or an edge
+ * value — never NaN).
  */
-export function fogScale(bank: FogBankRecord, now: number, cfg: FogConfig): number {
-  if (!allFinite([now, bank.bornAt, bank.until])) return 0;
-  const s = Math.min(ramp(now - bank.bornAt, cfg.growMs), 1, ramp(bank.until - now, cfg.fadeMs));
-  if (!Number.isFinite(s)) return 0;
-  return s < 0 ? 0 : s;
+export function fogNoiseAt(field: FogField, x: number, y: number, tMs: number): number {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(tMs)) return 0;
+  const c = field.cfg;
+  const sx = (x - field.windX * tMs) / c.wavelengthU;
+  const sy = (y - field.windY * tMs) / c.wavelengthU;
+  const off = LAYER_B_OFFSET_U / c.wavelengthU;
+  const a = fbm(sx, sy, field.layerA, c.octaves, c.gain);
+  const b = fbm(sx + off, sy + off, field.layerB, c.octaves, c.gain);
+  const n = a + (b - a) * morphWeight(tMs, c.morphMs);
+  return Number.isFinite(n) ? n : 0;
 }
 
-/** The bank's CURRENT radius at `now`: R × fogScale (non-finite R reads 0). */
-export function fogRadius(bank: FogBankRecord, now: number, cfg: FogConfig): number {
-  if (!Number.isFinite(bank.R) || bank.R <= 0) return 0;
-  return bank.R * fogScale(bank, now, cfg);
-}
-
-/** The bank's CURRENT density at `now`, in [0, 1] — equal to its scale (amendment 165). */
-export function fogDensity(bank: FogBankRecord, now: number, cfg: FogConfig): number {
-  return fogScale(bank, now, cfg);
-}
-
-function allFinite(xs: readonly number[]): boolean {
-  for (const x of xs) if (!Number.isFinite(x)) return false;
-  return true;
-}
-
-/** Clamp `v` into [0, hi]. */
-function clamp0(v: number, hi: number): number {
-  return v < 0 ? 0 : v > hi ? hi : v;
+/** Map noise to density with the soft edge: clamp01((n − cut) / edgeBand); edgeBand ≤ 0 → a hard step. */
+function densityOf(n: number, cut: number, edgeBand: number): number {
+  if (!(edgeBand > 0)) return n > cut ? 1 : 0;
+  const d = (n - cut) / edgeBand;
+  return d <= 0 ? 0 : d >= 1 ? 1 : d;
 }
 
 /**
- * Length of segment AB lying inside the disc (C, r). Projects C onto the
- * line, solves the two circle–line crossings, clamps each to the segment
- * (an endpoint inside the disc is handled by the clamp) and returns the gap
- * between them. r ≤ 0 or any non-finite input → 0; a zero-length segment → 0
- * (a point has no length, even inside the disc); a tangent → 0.
+ * Fog density at (x, y) at match time `tMs` under `cut`, in [0, 1].
+ * A non-finite cut or a cut ≥ FOG_NO_CUT reads 0 without evaluating noise.
  */
-export function segDiscChord(
-  ax: number, ay: number, bx: number, by: number,
-  cx: number, cy: number, r: number,
+export function fogDensityAt(field: FogField, x: number, y: number, tMs: number, cut: number): number {
+  if (!Number.isFinite(cut) || cut >= FOG_NO_CUT) return 0;
+  return densityOf(fogNoiseAt(field, x, y, tMs), cut, field.cfg.edgeBand);
+}
+
+function allFinite(a: number, b: number, c: number, d: number): boolean {
+  return Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c) && Number.isFinite(d);
+}
+
+/** Σ density at the midpoints of `n` equal steps along A → B. */
+function marchDensity(
+  field: FogField, ax: number, ay: number, dx: number, dy: number, n: number, tMs: number, cut: number,
 ): number {
-  if (!allFinite([ax, ay, bx, by, cx, cy, r]) || r <= 0) return 0;
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    const f = (i + 0.5) / n;
+    sum += fogDensityAt(field, ax + dx * f, ay + dy * f, tMs, cut);
+  }
+  return sum;
+}
+
+/**
+ * The extra sight distance a ray A → B pays crossing the fog at `tMs` under
+ * `cut`: Σ density(midpoint_i) × step × sightCostPerU over n = ceil(len /
+ * marchStepU) equal steps. Always ≥ 0 and finite; 0 for the no-fog cut, a
+ * zero-length segment or any non-finite input.
+ */
+export function fogTollAlong(
+  field: FogField, ax: number, ay: number, bx: number, by: number, tMs: number, cut: number,
+): number {
+  if (!Number.isFinite(cut) || cut >= FOG_NO_CUT || !allFinite(ax, ay, bx, by)) return 0;
   const dx = bx - ax;
   const dy = by - ay;
-  const len2 = dx * dx + dy * dy;
-  if (len2 <= 0) return 0;
-  const len = Math.sqrt(len2);
-  const ex = cx - ax;
-  const ey = cy - ay;
-  const along = (ex * dx + ey * dy) / len; // u along AB from A to C's foot
-  const perp2 = ex * ex + ey * ey - along * along; // squared distance C → line
-  const half2 = r * r - perp2;
-  if (half2 <= 0) return 0;
-  const half = Math.sqrt(half2);
-  const chord = clamp0(along + half, len) - clamp0(along - half, len);
-  return chord > 0 ? chord : 0;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (!(len > 0) || !Number.isFinite(len)) return 0;
+  const stepU = field.cfg.marchStepU > 0 ? field.cfg.marchStepU : len;
+  const n = Math.max(1, Math.ceil(len / stepU));
+  const toll = marchDensity(field, ax, ay, dx, dy, n, tMs, cut) * (len / n) * field.cfg.sightCostPerU;
+  return Number.isFinite(toll) && toll > 0 ? toll : 0;
 }
 
 /**
- * The extra sight distance a ray A → B pays crossing the banks at `now`:
- * Σ chord(current disc) × density × sightCostPerU. Banks at scale 0 add
- * nothing. Always ≥ 0 and finite (a non-finite term is dropped).
+ * The cut whose fogged share over `points` is `target`: the (1 − target)
+ * quantile of the noise at those points. target ≤ 0 (or NaN) or no points →
+ * FOG_NO_CUT; target ≥ 1 → a cut below every noise value (density 1
+ * everywhere). Pure — the caller picks the points (the server: a lattice
+ * inside the live ring).
  */
-export function fogCostAlong(
-  ax: number, ay: number, bx: number, by: number,
-  banks: readonly FogBankRecord[], now: number, cfg: FogConfig,
+export function fogCutForTarget(
+  field: FogField, tMs: number, points: readonly { x: number; y: number }[], target: number,
 ): number {
-  let cost = 0;
-  for (const bank of banks) {
-    const s = fogScale(bank, now, cfg);
-    if (s <= 0) continue;
-    const chord = segDiscChord(ax, ay, bx, by, bank.x, bank.y, fogRadius(bank, now, cfg));
-    const term = chord * s * cfg.sightCostPerU;
-    if (Number.isFinite(term) && term > 0) cost += term;
+  const n = points.length;
+  if (!(target > 0) || n === 0) return FOG_NO_CUT;
+  if (target >= 1) return FOG_FULL_CUT;
+  const vals = new Float64Array(n);
+  for (let i = 0; i < n; i++) vals[i] = fogNoiseAt(field, points[i].x, points[i].y, tMs);
+  vals.sort();
+  const idx = Math.floor((1 - target) * n);
+  return vals[idx < 0 ? 0 : idx > n - 1 ? n - 1 : idx];
+}
+
+/**
+ * `side × side` cell centers over the bounding square of the disc (cx, cy, r),
+ * keeping only those inside the disc. Reuses `out` (and its point objects)
+ * when given, so a refresh allocates nothing after the first.
+ */
+export function fogLattice(
+  cx: number, cy: number, r: number, side: number, out: { x: number; y: number }[] = [],
+): { x: number; y: number }[] {
+  let k = 0;
+  const cell = (2 * r) / side;
+  const r2 = r * r;
+  for (let j = 0; j < side; j++) {
+    const y = cy - r + (j + 0.5) * cell;
+    for (let i = 0; i < side; i++) {
+      const x = cx - r + (i + 0.5) * cell;
+      if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > r2) continue;
+      k = pushPoint(out, k, x, y);
+    }
   }
-  return cost;
+  out.length = k;
+  return out;
+}
+
+/** Write (x, y) into slot `k` of `out`, reusing an existing point object; returns k + 1. */
+function pushPoint(out: { x: number; y: number }[], k: number, x: number, y: number): number {
+  const p = out[k];
+  if (p) {
+    p.x = x;
+    p.y = y;
+  } else {
+    out.push({ x, y });
+  }
+  return k + 1;
 }
