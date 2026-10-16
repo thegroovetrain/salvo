@@ -7,6 +7,7 @@
 - **Everyone is fogged, the sailor inside included.** Mines and torpedoes are spotted late inside fog, and a muzzle flash or a wounded hull's smoke pays the same cost to be seen.
 - **Radar is untouched.** A hull hidden by fog inside your sight bubble is dark to both of your sensors. Zone circles, the foghorn and the storm ignore fog.
 - **Bots and PvE drones are fogged by the same rule.** A bot does not forget a hull that sailed into fog.
+- Fog rolls in over about a minute after the match goes live and never pops; once the last ring is smaller than a bank the amount of fog holds where it was (the banks keep rolling).
 - **Fog is drawn as pale rolling wisps** under the hulls, visible by eye within the 750 u flash/smoke halo.
 
 ### Changed
@@ -14,7 +15,7 @@
 - The How-to-Play entry for fog waits for Story 9.17.
 
 ### Internal
-- `PROTOCOL_VERSION` 84 -> 85 (welcome `fogSeed`, room `fogCut`, the client reads `CONFIG.fog`). Records: epic-9 amendments 162-173.
+- `PROTOCOL_VERSION` 84 -> 85 (welcome `fogSeed`, room `fogCut`, the client reads `CONFIG.fog`). Records: epic-9 amendments 162–176.
 
 ## [0.18.55] - 2026-10-15
 
