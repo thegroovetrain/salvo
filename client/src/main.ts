@@ -4351,7 +4351,7 @@ function renderAlive(
   // the rolling fog: the schema's cut eased, the density raster refreshed on its
   // cadence, the wisps scrolled (motion-gated); seen by eye only inside the same halo
   g.fogField.setCut(publicState(g).fogCut ?? FOG_NO_CUT);
-  g.fogField.update(frameDt * 1000, now, motionIntensity(settings.current.motion) > 0, pose, g.camera.screenWorldRect);
+  g.fogField.update(frameDt * 1000, now, motionIntensity(settings.current.motion) > 0, pose, g.camera.screenWorldRect, 'alive'); // no pose yet → nothing drawn
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
@@ -4610,7 +4610,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   g.foulZones.render(now, now / 1000); // ...and every foul zone, weed swaying
   g.countermeasure.render(now); // ...and every countermeasure cloud
   g.fogField.setCut(publicState(g).fogCut ?? FOG_NO_CUT);
-  g.fogField.update(frameDt * 1000, now, motionIntensity(settings.current.motion) > 0, null, g.camera.screenWorldRect); // ...and the whole fog field, unmasked
+  g.fogField.update(frameDt * 1000, now, motionIntensity(settings.current.motion) > 0, null, g.camera.screenWorldRect, 'spectate'); // ...and the whole fog field, unmasked
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
   // A spectator owns no Tier-1 channel (no hull, no fire control), so the bar's

@@ -75,6 +75,9 @@ const MAX_SCROLL_DT_MS = 500;
 /** Scene-graph label of the fog layer's halo mask (test seam). */
 export const FOG_HALO_MASK_LABEL = 'fogHaloMask';
 
+/** Who is looking: the own hull (halo-masked, halo-square raster) or a spectator (unmasked, screen raster). */
+export type FogViewMode = 'alive' | 'spectate';
+
 /** The density function the raster samples (sim/fog.ts `fogDensityAt`'s shape; a test may wrap it). */
 export type FogDensityFn = typeof fogDensityAt;
 
@@ -154,10 +157,16 @@ export class FogFieldView {
   private density = new Float32Array(0);
   private rgba = new Uint8Array(0);
   private source: BufferImageSource | null = null;
+  /** The live density texture (null before the first allocation — never Texture.EMPTY, which must not be destroyed). */
+  private densityTex: Texture | null = null;
   /** True while any raster cell is above 0 (the bitmap is "lit"). */
   private lit = false;
   private sinceRefresh = Number.POSITIVE_INFINITY;
   private refreshes = 0;
+  /** Scratch, mutated in place every frame (no per-frame allocation): the
+   *  spectator's raster centre and the wanted raster geometry. */
+  private readonly screenCentre = { x: 0, y: 0 };
+  private readonly geom = { n: 0, cell: F.cellU as number };
   // --- the wisps scroll (u, world) ---
   private scrollX = 0;
   private scrollY = 0;
@@ -227,7 +236,11 @@ export class FogFieldView {
   /**
    * Per render frame. `dtMs` = frame time; `serverNow` = the match clock
    * (ServerClock.serverNow()); `own` = the own hull's pose (the halo's and the
-   * raster's centre), null for a spectator; `screen` = the world rect on screen.
+   * raster's centre); `screen` = the world rect on screen; `mode` = who is
+   * looking. ALIVE with no pose yet (the predictor not seeded on the first
+   * alive frames) draws NOTHING — never the spectator's unmasked whole-screen
+   * raster, which would flash fog the eye cannot see. SPECTATE ignores `own`
+   * and covers the screen unmasked.
    */
   update(
     dtMs: number,
@@ -235,22 +248,30 @@ export class FogFieldView {
     motionOn: boolean,
     own: { x: number; y: number } | null = null,
     screen: ScreenWorldRect | null = null,
+    mode: FogViewMode = 'alive',
   ): void {
     this.eased = easeFogCut(this.eased, this.target, dtMs);
-    const centre = this.centreFor(own, screen);
+    const spectating = mode === 'spectate';
+    const eye = spectating ? null : own;
+    const centre = this.centreFor(eye, spectating ? screen : null);
     if (this.field === null || this.eased >= FOG_NO_CUT || centre === null) {
       this.hide();
       return;
     }
     this.advanceScroll(dtMs, motionOn);
-    this.maybeRefresh(dtMs, serverNow, centre, own === null ? screen : null);
+    this.maybeRefresh(dtMs, serverNow, centre, spectating ? screen : null);
+    this.draw(eye, screen);
+  }
+
+  /** Show the lit raster through the wisps (tile, halo, screen clip), or nothing. */
+  private draw(eye: { x: number; y: number } | null, screen: ScreenWorldRect | null): void {
     this.body.visible = this.lit;
     if (!this.lit) {
       this.layer.mask = null;
       return;
     }
     this.placeTile(screen);
-    this.placeHalo(own);
+    this.placeHalo(eye);
     this.clipToScreen(screen);
   }
 
@@ -310,11 +331,14 @@ export class FogFieldView {
     this.source?.update();
   }
 
-  /** The raster's centre: the own hull, else the screen's centre (spectator), else none. */
+  /** The raster's centre: the own hull, else the screen's centre (spectator,
+   *  written into the reused `screenCentre` scratch), else none. */
   private centreFor(own: { x: number; y: number } | null, screen: ScreenWorldRect | null): { x: number; y: number } | null {
     if (own !== null) return Number.isFinite(own.x + own.y) ? own : null;
     if (!finiteRect(screen)) return null;
-    return { x: screen.x + screen.w / 2, y: screen.y + screen.h / 2 };
+    this.screenCentre.x = screen.x + screen.w / 2;
+    this.screenCentre.y = screen.y + screen.h / 2;
+    return this.screenCentre;
   }
 
   /** Scroll the wisps with the field's wind (motion-gated), wrapped to one tile period. */
@@ -336,16 +360,22 @@ export class FogFieldView {
     this.refresh(serverNow, c, n, cell);
   }
 
-  /** The raster's cell count and cell size: the halo square, or the spectator's screen. */
+  /** The raster's cell count and cell size: the halo square, or the
+   *  spectator's screen — written into the reused `geom` scratch. */
   private geometryFor(spectatorScreen: ScreenWorldRect | null): { n: number; cell: number } {
+    const g = this.geom;
     if (!finiteRect(spectatorScreen)) {
       const side = 2 * (haloSpanU(this.haloU) + F.recenterU);
-      return { n: Math.ceil(side / F.cellU) + 1, cell: F.cellU };
+      g.n = Math.ceil(side / F.cellU) + 1;
+      g.cell = F.cellU;
+      return g;
     }
     const side = Math.max(spectatorScreen.w, spectatorScreen.h) + 2 * F.recenterU;
-    let cell = F.cellU;
+    let cell: number = F.cellU;
     while (cell * SPECTATOR_CELLS < side) cell *= 2;
-    return { n: SPECTATOR_CELLS + 1, cell };
+    g.n = SPECTATOR_CELLS + 1;
+    g.cell = cell;
+    return g;
   }
 
   /** Re-evaluate the raster around `c` and upload it. */
@@ -369,6 +399,7 @@ export class FogFieldView {
     this.density = new Float32Array(n * n);
     this.rgba = new Uint8Array(n * n * 4);
     const old = this.source;
+    const oldTex = this.densityTex;
     this.source = new BufferImageSource({
       resource: this.rgba,
       width: n,
@@ -376,7 +407,9 @@ export class FogFieldView {
       scaleMode: 'linear',
       alphaMode: 'premultiply-alpha-on-upload',
     });
-    this.densitySprite.texture = new Texture({ source: this.source });
+    this.densityTex = new Texture({ source: this.source });
+    this.densitySprite.texture = this.densityTex;
+    oldTex?.destroy(false); // the wrapper; its source goes on the next line
     old?.destroy();
   }
 

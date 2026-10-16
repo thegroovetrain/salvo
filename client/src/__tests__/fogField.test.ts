@@ -133,6 +133,34 @@ describe('the refresh cadence — never per frame', () => {
   });
 });
 
+describe('the steady state allocates nothing', () => {
+  it('200 frames with no refresh due never sample the field and reuse one centre and one geometry object', () => {
+    type Seams = {
+      centreFor: (...a: unknown[]) => unknown;
+      geometryFor: (...a: unknown[]) => unknown;
+    };
+    for (const [pose, mode] of [[own, 'alive'], [null, 'spectate']] as const) {
+      const { view, calls } = makeView();
+      const screen = { x: -300, y: -200, w: 600, h: 400 };
+      view.setCut(FULL);
+      view.update(16, 0, true, pose, screen, mode); // the one refresh
+      const sampled = calls.n;
+      const seams = view as unknown as Seams;
+      const centre = vi.spyOn(seams, 'centreFor');
+      const geometry = vi.spyOn(seams, 'geometryFor');
+      for (let k = 1; k <= 200; k++) view.update(1, k, true, pose, screen, mode); // 200 ms < refreshMs
+      expect(view.refreshCount).toBe(1);
+      expect(calls.n).toBe(sampled);
+      expect(centre).toHaveBeenCalledTimes(200);
+      expect(geometry).toHaveBeenCalledTimes(200);
+      const c0 = centre.mock.results[0].value;
+      const g0 = geometry.mock.results[0].value;
+      expect(centre.mock.results.every((r) => r.value === c0)).toBe(true);
+      expect(geometry.mock.results.every((r) => r.value === g0)).toBe(true);
+    }
+  });
+});
+
 describe('the eased cut', () => {
   it('moves at most cutEasePerS × dt toward the target', () => {
     expect(easeFogCut(0.5, 0, 1000)).toBeCloseTo(0.5 - F.cutEasePerS, 9);
@@ -260,13 +288,56 @@ describe('the halo mask and the spectator', () => {
     expect(layer.mask).toBe(view.haloMask);
     expect([view.haloMask!.position.x, view.haloMask!.position.y]).toEqual([10, 20]);
     const screen = { x: 1000, y: 1000, w: 6000, h: 3000 };
-    view.update(16, 16, false, null, screen);
+    view.update(16, 16, false, null, screen, 'spectate');
     expect(layer.mask ?? null).toBeNull();
     expect(view.drawn).toBe(true);
     const r = view.raster;
     expect(r.n).toBe(SPECTATOR_CELLS + 1);
     expect(r.ox).toBeLessThanOrEqual(screen.x);
     expect(r.ox + (r.n - 1) * r.cellU).toBeGreaterThanOrEqual(screen.x + screen.w);
+  });
+});
+
+describe('edge cases (review gate)', () => {
+  it('alive with no pose yet (predictor not seeded) draws nothing and samples nothing — never the spectator raster', () => {
+    const { view, layer, calls } = makeView();
+    view.setCut(FULL);
+    const screen = { x: -300, y: -200, w: 600, h: 400 };
+    for (let k = 0; k < 10; k++) view.update(300, k * 300, true, null, screen, 'alive');
+    expect(view.drawn).toBe(false);
+    expect(calls.n).toBe(0);
+    expect(view.refreshCount).toBe(0);
+    expect(layer.mask ?? null).toBeNull();
+    view.update(16, 3000, true, own, screen, 'alive'); // the pose arrives: the halo-square raster, masked
+    expect(view.drawn).toBe(true);
+    expect(view.raster.n).not.toBe(SPECTATOR_CELLS + 1);
+    expect(layer.mask).toBe(view.haloMask);
+  });
+
+  it('a raster size change destroys the old density texture: two changes leave exactly one live texture', () => {
+    const { view } = makeView();
+    const screen = { x: -300, y: -200, w: 600, h: 400 };
+    view.setCut(FULL);
+    const minted: Texture[] = [];
+    const destroyed = new Set<Texture>();
+    const grab = (): void => {
+      const t = view.densityMask.texture;
+      if (minted.includes(t)) return;
+      minted.push(t);
+      const orig = t.destroy.bind(t);
+      vi.spyOn(t, 'destroy').mockImplementation((opts?: unknown) => {
+        destroyed.add(t);
+        orig(opts as boolean);
+      });
+    };
+    view.update(16, 0, false, own, screen, 'alive');
+    grab();
+    view.update(16, 16, false, null, screen, 'spectate'); // size change 1
+    grab();
+    view.update(16, 32, false, own, screen, 'alive'); // size change 2
+    grab();
+    expect(minted).toHaveLength(3);
+    expect(minted.filter((t) => !destroyed.has(t))).toEqual([view.densityMask.texture]);
   });
 });
 
