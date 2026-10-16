@@ -463,7 +463,9 @@ describe('shared barrel', () => {
     // amendment 177): CONFIG.fog, which the client reads, gains spinPeriodMs
     // and spinShear (the field spins about the ocean center with shear, a
     // per-match coin flip for the direction); coverage 20-25 %, drift 3.5.
-    expect(PROTOCOL_VERSION).toBe(86);
+    // 86 -> 87 (fog tune 2, amendment 178): spinPeriodMs -> spinRimU, windU 1,
+    // coverage = solid fog (density >= 1/2).
+    expect(PROTOCOL_VERSION).toBe(87);
     for (const fn of [shared.makeFogField, shared.fogNoiseAt, shared.fogDensityAt, shared.fogTollAlong, shared.fogCutForTarget, shared.fogLattice]) {
       expect(typeof fn).toBe('function');
     }

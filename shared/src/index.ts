@@ -3,6 +3,10 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  87 — Story 9.10 fog tune 2 (Eric 2026-10-16 on staging, epic-9 amendment
+ *  178): CONFIG.fog, which the client reads — spinPeriodMs becomes spinRimU
+ *  (a rim speed, 1 u/s), windU 1, and coverage counts solid fog
+ *  (density ≥ ½) so the 20–25 % dial is dense fog.
  *  86 — Story 9.10 fog tune (Eric 2026-10-16 on staging, epic-9 amendment
  *  177): CONFIG.fog, which the client reads, gains spinPeriodMs/spinShear
  *  (the field spins about the ocean center with shear, direction a
@@ -872,7 +876,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 86;
+export const PROTOCOL_VERSION = 87;
 
 // Tunables
 export * from './constants.js';

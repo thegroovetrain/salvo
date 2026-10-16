@@ -146,6 +146,6 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // — no mask.
     // 84 -> 85 (Story 9.10, epic-9 amendments 162–168) is the FOG BANK `fog`
     // row ({id,x,y,r,d}, the seventh declared exception) — no mask.
-    expect(PROTOCOL_VERSION).toBe(86); // 85 → 86: the fog spin tune (CONFIG.fog spinPeriodMs/spinShear read by the client; amendment 177)
+    expect(PROTOCOL_VERSION).toBe(87); // 86 → 87: fog tune 2 (spinRimU, solid-fog coverage; amendment 178); 85 → 86: the fog spin tune (CONFIG.fog spinPeriodMs/spinShear read by the client; amendment 177)
   });
 });

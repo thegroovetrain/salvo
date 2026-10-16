@@ -360,12 +360,12 @@ export class FogFieldView {
     const f = this.field;
     let vx = f.windX;
     let vy = f.windY;
-    if (f.cfg.spinPeriodMs > 0) {
+    if (f.cfg.spinRimU > 0) {
       const px = centre.x - f.spinCx;
       const py = centre.y - f.spinCy;
       const r = Math.hypot(px, py);
       const shear = r >= f.spinRadiusU ? 0 : f.cfg.spinShear * (1 - r / f.spinRadiusU);
-      const w = (f.spinSign * (2 * Math.PI) * (1 + shear)) / f.cfg.spinPeriodMs; // rad/ms at the centre point
+      const w = (f.spinSign * (f.cfg.spinRimU / 1000) * (1 + shear)) / f.spinRadiusU; // rad/ms at the centre point
       vx += -py * w;
       vy += px * w;
     }

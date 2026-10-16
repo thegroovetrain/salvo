@@ -5,7 +5,7 @@ created: '2026-10-15'
 status: 'done'
 baseline_revision: 'b2df9308'
 review_loop_iteration: 0
-final_revision: 'PR #286 merged 2026-10-15; staging tune 2026-10-16 (cycle 192, 0.18.57, PV 86, amendment 177: spin with shear, coin-flip direction, 20–25 %, drift 3.5, onset ~15 s) — PR open to development'
+final_revision: 'PR #286 merged 2026-10-15; PR #287 merged 2026-10-16 (cycle 192, amendment 177); staging tune 2 2026-10-16 (cycle 193, 0.18.58, PV 87, amendment 178: 1 u/s, solid-fog coverage, eye toll verified) — PR open to development'
 followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -162,6 +162,9 @@ warnings: [oversized]
 - Given `npm run check`, then green; the perf pin under 50 ms; PV 85; both trackers stamped.
 
 ## Spec Change Log
+
+### 2026-10-16 — staging tune 2 (cycle 193, 0.18.58, PV 87): 1 u/s, solid-fog coverage, the sight claim reproduced
+- Eric on staging at 0.18.57: "Still too fast. Turn it down to 1 u/s" → `windU` 1 and the spin dial becomes a rim SPEED, `spinRimU` 1 (replaces `spinPeriodMs`; rate = spinRimU / oceanRadius). "It doesn't really seem to be getting in the way of my seeing enemy ships (or them seeing me)" → reproduced on the real `World` + `buildFrame` before answering (a throwaway probe, three seeds, 22 % target, 100–500 u pairs): 19–21 % of in-bubble pairs hidden overall, 60–68 % when the observer stands in fog, eye reach from inside a bank ≈ 170 u — the toll works as ruled. Found and fixed: the quantile dial put 22 % above the cut but only ~14 % at half density (the rest thin edge) → `fogCutForTarget` returns quantile − edgeBand/2 and the readouts count density ≥ ½ (`FOG_SOLID_DENSITY`). Not changed, by Eric's rulings: radar paints through fog at 500–1,500 u (no radar term) and bots keep a plot that entered fog (169). Amendment 178.
 
 ### 2026-10-16 — staging tune (cycle 192, 0.18.57, PV 86): the field spins with shear
 - Eric on staging at 0.18.56: "It looks good. It moves too quickly and there isn't enough of it" → coverage 20–25 % (was 2–8 %), drift 3.5 u/s (was 8), onset faster (`cutRatePerS` 0.04, ≈ 15 s to a 20–25 % cut — Fable's number). He asked how the drift direction was chosen (a fixed random heading per match) and wanted air currents; of rigid spin / spin with shear / orbiting drift / wandering heading (eddies by particle integration advised against) he picked SPIN WITH SHEAR, watched the real candidate function live (artifact `fog-field-2.html`: whole-ocean + game-scale panels, dials), said "Yeah that's solid!" and asked for a per-match coin flip on the turn's direction. Built: `spinPeriodMs` 1200000 / `spinShear` 0.5, the per-layer shear reset at each layer's invisible instant (no layer carries more than one `morphMs` of stretch), sin/cos by a range-reduced series (no transcendentals), `makeFogField(seed, cfg, oceanRadius)`. Amendment 177. Perf: a density sample ≈ 0.28 µs, unchanged in kind; the memoized cell walk is untouched.

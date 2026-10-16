@@ -2081,14 +2081,14 @@ export const CONFIG = {
    */
   fog: {
     sightCostPerU: 2, // extra sight units a ray pays per unit of fog crossed, × density (amendment 164) — fog counts triple
-    coverageMin: 0.2, // the fogged share of the live ring's area the cut aims at (target redrawn in [min, max]; Eric 2026-10-16 on staging: "there isn't enough of it" — was 0.02–0.08)
+    coverageMin: 0.2, // the share of the live ring's area at SOLID fog (density ≥ ½) the cut aims at (target redrawn in [min, max]; Eric 2026-10-16 on staging: "there isn't enough of it" — was 0.02–0.08; since amendment 178 the share counts the solid half of the soft edge, not every point above the cut)
     coverageMax: 0.25,
     targetPeriodMs: 120000, // ms between coverage-target redraws
     wavelengthU: 900, // u — base feature size of the noise (broad banks; Eric 2026-10-15 on the live field page: "Bigger, slower banks" — was 600)
     octaves: 3, // fbm octaves
     gain: 0.5, // fbm persistence
-    windU: 3.5, // u/s — the field drifts with a fixed per-match wind (direction from the seed; Eric 2026-10-16 on staging: "it moves too quickly" — was 8, was 12)
-    spinPeriodMs: 1200000, // ms — the pattern turns once about the ocean center per this at the rim; direction is a per-match coin flip (Eric 2026-10-16, amendment 177); 0 = no spin
+    windU: 1, // u/s — the field drifts with a fixed per-match wind (direction from the seed; Eric 2026-10-16 on staging, second look: "Still too fast. Turn it down to 1 u/s" — was 3.5, 8, 12)
+    spinRimU: 1, // u/s — the spin carries the pattern at this speed at the ocean's rim (slower inward; the turn rate is spinRimU / oceanRadius — one turn in ~8.7 h on a 5,000 u ocean); direction is a per-match coin flip (Eric 2026-10-16, amendments 177–178; was spinPeriodMs 1200000 ≈ 26 u/s at the rim — "still too fast"); 0 = no spin
     spinShear: 0.5, // the center's extra turn rate as a fraction of the rim's (differential rotation: banks curl and stretch; each noise layer's extra turn is measured from its last invisible morph instant, so it builds to at most spinShear × morphMs / spinPeriodMs of a turn — ≈ 22° — and rebuilds every morphMs); 0 = rigid
     morphMs: 150000, // ms — the shape turnover: two noise layers cross-fade on a triangle wave of this period (Eric: slower — was 90000)
     edgeBand: 0.12, // noise units over which density ramps 0 → 1 above the cut (soft edge)

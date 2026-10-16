@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.18.58] - 2026-10-16
+
+### Changed
+- **Fog at a crawl.** Every fog motion is 1 u/s: the drift and the spin at the ocean's edge (the spin dial is now a speed, `spinRimU`, not a period).
+- **The coverage dial means solid fog.** 20 to 25 % of the live ring is now fog thick enough to count (half density or more), not merely "above the cut"; before, only about 14 % of the ring was solid at a 22 % dial and the rest was thin edge.
+- Protocol version 87 (the client reads the fog dials).
+
+### Verified, not changed
+- Fog does block eyesight as ruled: standing in a bank you see about 170 u, and two thirds of hulls inside your bubble are hidden when you stand in fog (measured on the real server code). What fog does not touch is radar from 500 to 1,500 u and a bot's memory of your last radar plot, both by design.
+
 ## [0.18.57] - 2026-10-16
 
 ### Changed
