@@ -3,18 +3,18 @@
 ## [0.18.56] - 2026-10-15
 
 ### Added
-- **FOG BANKS: rolling haze that eats eyesight and nothing else.** A bank is born small, grows, holds and fades over about two minutes. Between 2 and 8 % of the live ring is under fog at any time, banks form on open water, and a bank dies when the storm passes over it. Each unit of fog counts triple against your sight, so inside a mature bank you see about 167 u instead of 500 u.
+- **FOG: rolling banks of haze that eat eyesight and nothing else.** Fog is a fractal-noise field that drifts with a wind and slowly changes shape. Between 2 and 8 % of the live ring is fogged at any time (the band wanders). Every unit of fog counts triple against your sight, so in the heart of a bank you see about 167 u instead of 500 u, and a thin edge costs little. There is no fog before the match goes live.
 - **Everyone is fogged, the sailor inside included.** Mines and torpedoes are spotted late inside fog, and a muzzle flash or a wounded hull's smoke pays the same cost to be seen.
 - **Radar is untouched.** A hull hidden by fog inside your sight bubble is dark to both of your sensors. Zone circles, the foghorn and the storm ignore fog.
-- **Bots and PvE drones are fogged by the same rule.** A bot does not forget a hull that sailed into a bank.
-- **A bank is drawn as pale wisps** under the hulls, visible within the 750 u flash/smoke halo.
+- **Bots and PvE drones are fogged by the same rule.** A bot does not forget a hull that sailed into fog.
+- **Fog is drawn as pale rolling wisps** under the hulls, visible by eye within the 750 u flash/smoke halo.
 
 ### Changed
-- Fog banks are the SEVENTH declared perception exception (fog rows are delivered inside the 750 u halo, a deliberate step outside the sight bubble; the invariant tests re-derive the toll numerically).
-- The How-to-Play entry for fog banks waits for Story 9.17.
+- Fog placement is public weather: one seed on the welcome and one coverage number on the room state. There is no per-observer fog channel, so the six declared perception exceptions are unchanged.
+- The How-to-Play entry for fog waits for Story 9.17.
 
 ### Internal
-- `PROTOCOL_VERSION` 84 -> 85. Records: epic-9 amendments 162-171.
+- `PROTOCOL_VERSION` 84 -> 85 (welcome `fogSeed`, room `fogCut`, the client reads `CONFIG.fog`). Records: epic-9 amendments 162-173.
 
 ## [0.18.55] - 2026-10-15
 
