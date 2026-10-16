@@ -388,26 +388,48 @@ describe('showResults — the elimination modal', () => {
     const ladder = (): string => block().querySelector('[data-loadout-ladder]')?.textContent ?? '';
     const open = (o: ResultsOwn): void => showResults(view({ own: o }), { onSpectate: () => undefined, onReturn: () => undefined });
 
-    it('heads the block LOADOUT and draws eleven squares, the strip (1–6) above the weapon row, each over its key chip', () => {
+    it('heads the block LOADOUT and draws eleven squares on ONE row, weapons then the framed belt (1–6), each over its key chip', () => {
       open(mockOwn());
       expect(block().firstElementChild?.textContent).toBe('LOADOUT');
       expect(block().querySelectorAll('[data-loadout-slot]')).toHaveLength(11);
-      // The D-prime stack (epic-9 amendment 34): the consumable strip in key
-      // order FIRST (it sits above), then the weapon row.
+      // The live bar's one row (Story 9.11, epic-9 amendment 151): the main
+      // group first, then the framed belt in key order.
       const chips = [...block().querySelectorAll('[data-loadout-chip]')].map((c) => c.textContent);
-      expect(chips).toEqual(['1', '2', '3', '4', '5', '6', '·', 'Shift', 'Q', 'E', 'R']);
+      expect(chips).toEqual(['·', 'Shift', 'Q', 'E', 'R', '1', '2', '3', '4', '5', '6']);
       const slots = [...block().querySelectorAll<HTMLElement>('[data-loadout-slot]')].map((e) => Number(e.dataset.loadoutSlot));
-      expect(slots).toEqual([...CONSUMABLE_SLOTS, 0, 1, 2, 3, 4]);
+      expect(slots).toEqual([0, 1, 2, 3, 4, ...CONSUMABLE_SLOTS]);
+      // One row: a horizontal flex, not a column.
+      const row = block().querySelector<HTMLElement>('[data-loadout-row]');
+      expect(row?.style.flexDirection).not.toBe('column');
       // The gun's chip is a GHOST: laid out for the baseline, never seen.
       expect((block().querySelector('[data-loadout-chip="0"]') as HTMLElement).style.color).toBe('transparent');
     });
 
-    it('squares are the bar × .72 (weapons 46→33, strip 34→24) and every fitted square wears its glyph', () => {
+    it('frames the six belt squares (and only them) in the bar\'s 1px silver hairline', () => {
+      open(mockOwn());
+      const belt = block().querySelector<HTMLElement>('[data-loadout-belt]');
+      if (belt === null) throw new Error('no belt frame');
+      expect(belt.style.borderStyle).toBe('solid');
+      expect(belt.style.borderWidth).toBe('1px');
+      const inside = [...belt.querySelectorAll<HTMLElement>('[data-loadout-slot]')].map((e) => Number(e.dataset.loadoutSlot));
+      expect(inside).toEqual([...CONSUMABLE_SLOTS]);
+      const chipsInside = [...belt.querySelectorAll('[data-loadout-chip]')].map((c) => c.textContent);
+      expect(chipsInside).toEqual(['1', '2', '3', '4', '5', '6']);
+    });
+
+    it('the one row (main group, group gap, framed belt) fits the panel\'s 530 px content column', () => {
+      const P = LOADOUT_PX;
+      const main = 5 * P.slot + 4 * P.slotGap;
+      const belt = 2 * P.beltPadSide + CONSUMABLE_SLOTS.length * P.beltSlot + (CONSUMABLE_SLOTS.length - 1) * P.beltGap + 2; // + its 1px borders
+      expect(main + P.groupGap + belt).toBeLessThanOrEqual(530);
+    });
+
+    it('squares are the bar × .72 (weapons 54→39, belt 44→32) and every fitted square wears its glyph', () => {
       open(mockOwn());
       expect(LOADOUT_PX.slot).toBe(Math.round(CLIENT_CONFIG.hudBar.slot * 0.72));
-      expect(LOADOUT_PX.stockSlot).toBe(Math.round(CLIENT_CONFIG.hudBar.stockSlot * 0.72));
+      expect(LOADOUT_PX.beltSlot).toBe(Math.round(CLIENT_CONFIG.hudBar.beltSlot * 0.72));
       expect(square(0).style.width).toBe(`${LOADOUT_PX.slot}px`);
-      expect(square(5).style.width).toBe(`${LOADOUT_PX.stockSlot}px`);
+      expect(square(5).style.width).toBe(`${LOADOUT_PX.beltSlot}px`);
       // Every fitted square — the belt's HULL REPAIR included, which takes its
       // rod of Asclepius (cycle 162) from the ONE glyph source
       // (equipmentIcons.ts), never art drawn by this block.

@@ -277,7 +277,7 @@ interface Game {
    *  FrameMsg.litZones, faded per render frame by serverNow. */
   litZones: LitZones;
   /** PHOSPHOR SHELLS burning zones (render/burnZones.ts, Story 8.17) — synced
-   *  from FrameMsg.burnZones in the lit zones' layer; faded + embers breathed
+   *  from FrameMsg.burnZones in the lit zones' layer; faded + flames flickered
    *  per render frame. A hazard only: never a fog hole, never a cull-keep. */
   burnZones: BurnZones;
   /** FOULING SHELL foul zones (render/foulZones.ts, Story 9.4) — synced from
@@ -4338,10 +4338,13 @@ function renderAlive(
   // lead means screen centre is NOT where the hull sits (review fix).
   const foghornOrigin = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   renderFoghorn(g, now, foghornOrigin);
-  // Fade each lit-zone glow by its timestamp expiry, and the PHOSPHOR burning
-  // zones too, breathing their embers on the shared server-clock seconds
-  // (Story 2.9's treatment, moved to render/burnZones.ts in Story 8.17).
-  g.litZones.render(now);
+  // ALERTS (Story 9.11): the mines advance the ONE shared alert clock first, so
+  // every enemy mine and every other captain's zone below breathes on the same
+  // phase (render/alertBlend.ts). Then fade each lit-zone glow by its
+  // timestamp expiry, the PHOSPHOR burning zones too (white fire, flickering),
+  // each zone tinted own white / another's by that clock.
+  g.mines.render(now / 1000);
+  g.litZones.render(now, now / 1000);
   g.burnZones.render(now, now / 1000);
   g.foulZones.render(now, now / 1000); // ...and the weed sways (motion-gated)
   // spray + fade each countermeasure cloud to its server-clock age (the radar
@@ -4605,7 +4608,8 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // derives the spectator bearing from the camera centre too, so origin and
   // bearing must agree (review fix).
   renderFoghorn(g, now, g.camera.screenCenter); // ...and every `fh`, on the omniscient position path
-  g.litZones.render(now); // spectators see all zones
+  g.mines.render(now / 1000); // the shared alert clock, first (Story 9.11)
+  g.litZones.render(now, now / 1000); // spectators see all zones
   g.burnZones.render(now, now / 1000); // ...and every burning zone
   g.foulZones.render(now, now / 1000); // ...and every foul zone, weed swaying
   g.countermeasure.render(now); // ...and every countermeasure cloud

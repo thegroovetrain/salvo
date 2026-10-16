@@ -1,79 +1,136 @@
 // PHOSPHOR SHELLS burning-zone rendering from FrameMsg.burnZones (Story 8.17,
-// Eric ruling 2026-09-29, epic-8 amendments 131 and 135(f)/(i)). Contact-like
-// per-observer state, not events — recomputed per frame exactly like the lit
-// zones (render/litZones.ts), and drawn in the same fog-immune chartRoot layer.
+// Eric ruling 2026-09-29, epic-8 amendment 131). Contact-like per-observer
+// state, not events — recomputed per frame exactly like the lit zones
+// (render/litZones.ts), and drawn in the same fog-immune chartRoot layer.
 //
 // A HAZARD ONLY. A burning zone reveals nothing, extends no gun's reach and is
 // not a lit zone, so nothing here feeds the fog holes, the projectile
-// cull-keep or the flare reach (those read `litZones` alone). The circle is
+// cull-keep or the flare reach (those read `litZones` alone). The zone is
 // drawn for every observer who can see it so they can steer clear — the
-// counterplay-over-concealment ruling (amendment 50) the old star-shell `phos`
-// verb was drawn under.
+// counterplay-over-concealment ruling (amendment 50).
 //
-// THE TREATMENT MOVED, IT WAS NOT REINVENTED (amendment 135(i)): the firer-hue
-// identity glow (litZones' `drawZoneGlow` — a zone always says whose it is) with
-// a BREATHING EMBER disc inside it in the damage-marker crimson — exactly what
-// render/litZones.ts painted for a `phos` zone until 8.17 deleted the verb. The
-// expiry fade is the lit zone's (`litZoneFade`, timestamp math off
-// `until − serverNow`; the client keeps no timers).
+// STORY 9.11 — WHITE FIRE ON THE WATER (Eric 2026-10-14, epic-9 amendment 154:
+// "I'd like to give them a white flame effect on the water, similarly to how
+// the ship on fire effect looks. This instead of the red circle"). The crimson
+// ember disc of epic-8 amendment 135(i) is DELETED with its config. The body
+// is a field of flame tongues built from render/fire.ts's pure teardrop
+// (`flameTongue`), WHITE for everyone, scattered over the WHOLE disc and
+// denser toward the middle (ruling (e)), SEEDED from the zone id
+// (`mulberry32(hashSeedText(id))`, the foulZones `weedStrokes` precedent) so
+// every observer draws the same fire. OWNERSHIP READS ON THE ZONE GLOW — the
+// family's soft fill + ring (litZones `drawZoneGlow`), white (own) or the shared
+// alert blend (another's, render/alertBlend.ts). As first built the burn zone
+// wore the ring ALONE; Eric on the rendered page (2026-10-16, amendment 181):
+// "I want the inside of the zone to be colored, too, not just the ring. Looks
+// weird compared to the others."
+//
+// INFORMATION, NOT JUICE (epic-4 amendment 49, fire.ts's header): the tongues'
+// presence, positions, count and size are motion-blind; only the flicker (a
+// sin wobble on each tongue's alpha and width — never an on/off) and the
+// ring's color blend move, and at `motion: 'off'` both hold still.
+//
+// Display list per zone: root Container (carries the expiry fade,
+// `litZoneFade`, whole) → [glow Graphics (fill + ring, the tint), fire Container → N tongue
+// Graphics (alpha/scale per frame)]. The flicker rides each CHILD's alpha, the
+// fade the root's, so a dying zone fades out whole and never flares back up.
 
-import { Graphics } from 'pixi.js';
-import type { Container } from 'pixi.js';
-import type { BurnZoneView } from '@salvo/shared';
+import { Container, Graphics, GraphicsContext } from 'pixi.js';
+import { hashSeedText, mulberry32, type BurnZoneView } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { motionScaled, settings } from '../settings/store.js';
-import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
-import { drawZoneGlow, litZoneFade, reconcileLitZones } from './litZones.js';
+import { motionIntensity, settings } from '../settings/store.js';
+import { flameTongue } from './fire.js';
+import { drawZoneGlow, litZoneFade, reconcileLitZones, zoneAlertTint } from './litZones.js';
+import { OWN_TINT } from './alertBlend.js';
 
 const Z = CLIENT_CONFIG.burnZone;
-/** The ember: the existing damage-marker crimson — burn feedback stays in the
- *  damage register (no new reds), and this is literally water on fire. */
-const EMBER_COLOR = CLIENT_CONFIG.colors.damageMarker;
+const TAU = Math.PI * 2;
+const FLAME_COLOR = CLIENT_CONFIG.colors.white;
 
-/** Ember-breath rate (Hz) — well under the shared photosensitivity ceiling,
- *  and nowhere near the ≤3 flashes/s regional cap. */
-export const EMBER_HZ = Z.emberHz;
+/** One tongue of a zone's fire, zone-local: where it stands, its size (a
+ *  multiplier on `flameR`) and its flicker phase (radians). */
+export interface BurnFlame {
+  x: number;
+  y: number;
+  scale: number;
+  phase: number;
+}
 
-/** Largest frame gap (s) the ember phase integrator advances across (the hud.ts
- *  pulse precedent: a backgrounded tab must not jump the wave). */
-const MAX_EMBER_DT = 0.5;
-
-/**
- * Pure: advance the ember breath's PHASE (radians) by one frame. INTEGRATED,
- * never derived from absolute time — the hud.ts advancePulsePhase reasoning
- * verbatim: an integrated phase is continuous through any rate change, so the
- * cap on the rate is also a cap on how fast the alpha can move.
- */
-export function advanceEmberPhase(phase: number, dtSec: number): number {
-  const step = Math.min(MAX_EMBER_DT, Math.max(0, dtSec));
-  return (phase + EMBER_HZ * step * Math.PI * 2) % (Math.PI * 2);
+/** Pure: how many tongues a zone of radius `r` burns with — by AREA,
+ *  `round(density · π r² / 1000)`, clamped to [flameMin, flameMax]. */
+export function flameCountFor(r: number): number {
+  const area = Number.isFinite(r) && r > 0 ? Math.PI * r * r : 0;
+  const n = Math.round((Z.flameDensityPer1000U2 * area) / 1000);
+  return Math.min(Z.flameMax, Math.max(Z.flameMin, n));
 }
 
 /**
- * Pure: the ember layer's alpha at a phase. `amp` is motion-scaled by the caller
- * (halved at `reduced`, 0 at `off`), and the BASE alpha is information: the
- * burning disc — where the fire is and how big it is — renders identically at
- * every motion level, and only the breath stops.
+ * Pure: the zone's fire layout, SEEDED from the zone id so every observer
+ * draws the same tongues at the same places. Each tongue stands at distance
+ * `r · √u` with `u = rng^flameCenterBias` (the weedStrokes √u scatter on a
+ * biased draw): bias 1 would be uniform over the area, the shipped 2 is
+ * `r · rng` — an area density ∝ 1/ρ, visibly thicker toward the middle and
+ * still reaching the ring. Angle uniform; scale uniform in
+ * [flameScaleMin, flameScaleMax]; flicker phase uniform in [0, 2π).
  */
-export function emberAlpha(phase: number, amp: number): number {
-  return Z.emberAlpha + amp * Math.sin(phase);
+export function burnFlames(id: string, r: number): BurnFlame[] {
+  const rng = mulberry32(hashSeedText(id));
+  const reach = Number.isFinite(r) && r > 0 ? r : 0;
+  const out: BurnFlame[] = [];
+  const n = flameCountFor(r);
+  for (let i = 0; i < n; i++) {
+    const rad = reach * Math.sqrt(rng.next() ** Z.flameCenterBias);
+    const ang = rng.next() * TAU;
+    const scale = Z.flameScaleMin + rng.next() * (Z.flameScaleMax - Z.flameScaleMin);
+    out.push({ x: rad * Math.cos(ang), y: rad * Math.sin(ang), scale, phase: rng.next() * TAU });
+  }
+  return out;
 }
 
-interface BurnSprite extends HueState {
+/**
+ * Pure: a tongue's flicker MULTIPLIER on its alpha and width at `ms` — the
+ * render/fire.ts `flameFlicker` shape on this zone's own knobs
+ * (`burnZone.flickerHz` / `flickerAmp`). `intensity` is the motion multiplier
+ * (1 / 0.5 / 0); at 0 this is exactly 1 — a still tongue at full strength.
+ * `ms` is the SERVER clock (`serverNow`): a sine needs no wrap, and every
+ * observer's fire flickers on the same time base.
+ */
+export function burnFlicker(ms: number, intensity: number, phase: number): number {
+  if (!(intensity > 0) || !Number.isFinite(ms)) return 1;
+  return 1 + Z.flickerAmp * intensity * Math.sin(TAU * Z.flickerHz * (ms / 1000) + phase);
+}
+
+/** The one tongue geometry every tongue shares: a white halo teardrop with a
+ *  hotter white core, drawn ONCE (lazily — after Pixi is loaded) and shared
+ *  by every tongue Graphics; it is never owned, so a despawn never frees it. */
+let tongueContext: GraphicsContext | null = null;
+function sharedTongue(): GraphicsContext {
+  tongueContext ??= new GraphicsContext()
+    .poly(flameTongue(Z.flameR), true)
+    .fill({ color: FLAME_COLOR, alpha: Z.flameHaloAlpha })
+    .poly(flameTongue(Z.flameR * 0.55), true)
+    .fill({ color: FLAME_COLOR, alpha: Z.flameCoreAlpha });
+  return tongueContext;
+}
+
+interface Tongue {
   g: Graphics;
+  scale: number;
+  phase: number;
+}
+
+interface BurnSprite {
+  /** The zone root: its alpha carries the expiry fade, whole. */
+  root: Container;
+  /** The ownership glow — fill + ring (white geometry; own white / another's
+   *  alert tint). */
+  glow: Graphics;
+  tongues: Tongue[];
   until: number; // server-clock expiry — drives the render() fade
-  r: number; // zone radius (u) — needed to redraw on a firer-hue recolor
-  /** The breathing ember disc, a CHILD of `g` so its own alpha can pulse
-   *  without disturbing the expiry fade (which rides `g.alpha`). */
-  ember: Graphics;
+  own: boolean;
 }
 
 export class BurnZones {
   private readonly sprites = new Map<string, BurnSprite>();
-  /** INTEGRATED ember-breath phase + the clock it last advanced at (hud.ts's
-   *  pulse precedent — accumulated per frame, never derived from absolute time). */
-  private emberPhase = 0;
-  private lastEmberSec: number | null = null;
 
   /** `layer` = chartRoot's litZone layer (fog-immune, above the base map) —
    *  the same layer the lit zones draw in. */
@@ -81,59 +138,40 @@ export class BurnZones {
 
   /**
    * Reconcile sprites against this observer's burning-zone list for the tick.
-   * `hueFor` resolves each zone's firer id (`by`) to its personal hue — the
-   * litZones precedent. The caller passes `f.burnZones ?? []` (frames omit the
-   * key when the observer sees none).
+   * `ownId` = this observer's session id (undefined for a spectator: nobody's
+   * zone is ours). The caller passes `f.burnZones ?? []` (frames omit the key
+   * when the observer sees none).
    */
-  sync(zones: readonly BurnZoneView[], hueFor: HueFor): void {
+  sync(zones: readonly BurnZoneView[], ownId: string | undefined): void {
     const { add, remove } = reconcileLitZones(new Set(this.sprites.keys()), zones);
     for (const id of remove) this.despawn(id);
-    for (const z of add) this.spawn(z, hueFor);
-    for (const s of this.sprites.values()) retryHue(s, hueFor, (color) => drawZoneGlow(s.g, s.r, color));
+    for (const z of add) this.spawn(z, ownId);
   }
 
   /**
-   * Per render frame: fade each zone by its timestamp (until − serverNow) and
-   * breathe the embers on the shared integrated phase. `nowSec` is the
-   * server-clock estimate in SECONDS; omitting it holds the ember at its base
-   * alpha, which is exactly what motion=off does.
+   * Per render frame: fade each zone by its timestamp (until − serverNow),
+   * tint its glow (own white / another's by the shared alert clock at
+   * `nowSec`, seconds — omitted, the clock holds) and flicker its tongues on
+   * `serverNow` (motion-scaled; still at motion off).
    */
   render(serverNow: number, nowSec?: number): void {
-    const alpha = this.advanceEmber(nowSec);
-    for (const { g, until, ember } of this.sprites.values()) {
-      g.alpha = litZoneFade(until - serverNow);
-      ember.alpha = alpha;
+    const tint = zoneAlertTint(nowSec);
+    const intensity = motionIntensity(settings.current.motion);
+    for (const s of this.sprites.values()) {
+      s.root.alpha = litZoneFade(s.until - serverNow);
+      s.glow.tint = s.own ? OWN_TINT : tint;
+      for (const t of s.tongues) {
+        const f = burnFlicker(serverNow, intensity, t.phase);
+        t.g.alpha = Math.min(1, f);
+        t.g.scale.set(t.scale * f, t.scale);
+      }
     }
   }
 
-  /** Advance the shared ember phase to `nowSec` and return this frame's ember
-   *  alpha (motion-gated amplitude; the base alpha is information). */
-  private advanceEmber(nowSec: number | undefined): number {
-    if (nowSec !== undefined) {
-      const dt = this.lastEmberSec === null ? 0 : nowSec - this.lastEmberSec;
-      this.lastEmberSec = nowSec;
-      this.emberPhase = advanceEmberPhase(this.emberPhase, dt);
-    }
-    return emberAlpha(this.emberPhase, motionScaled(Z.emberAmp, settings.current.motion));
-  }
-
-  private spawn(z: BurnZoneView, hueFor: HueFor): void {
-    const { color, colored, rev } = resolveHue(z.by, hueFor);
-    const g = new Graphics();
-    drawZoneGlow(g, z.r, color);
-    g.position.set(z.x, z.y);
-    const ember = new Graphics();
-    ember.blendMode = 'add';
-    ember.circle(0, 0, z.r * Z.emberFrac).fill({ color: EMBER_COLOR, alpha: 1 });
-    ember.alpha = Z.emberAlpha;
-    g.addChild(ember);
-    this.layer.addChild(g);
-    this.sprites.set(z.id, { g, until: z.until, r: z.r, by: z.by, colored, rev, ember });
-  }
-
-  /** The live ember alpha of a held burning zone (test seam for the breath). */
-  emberAlphaOf(id: string): number | null {
-    return this.sprites.get(id)?.ember.alpha ?? null;
+  /** How many tongues a held burning zone burns with (test seam). Null for
+   *  an id we hold no sprite for. */
+  flameCountOf(id: string): number | null {
+    return this.sprites.get(id)?.tongues.length ?? null;
   }
 
   /** How many burning zones are held (test seam). */
@@ -141,10 +179,32 @@ export class BurnZones {
     return this.sprites.size;
   }
 
+  private spawn(z: BurnZoneView, ownId: string | undefined): void {
+    const root = new Container();
+    root.position.set(z.x, z.y);
+    const glow = new Graphics();
+    drawZoneGlow(glow, z.r);
+    const own = ownId !== undefined && z.by === ownId;
+    glow.tint = own ? OWN_TINT : zoneAlertTint(undefined); // right from the first draw
+    const fire = new Container();
+    const tongues: Tongue[] = [];
+    for (const fl of burnFlames(z.id, z.r)) {
+      const g = new Graphics(sharedTongue());
+      g.blendMode = 'add'; // glows over the water, like the hull fire
+      g.position.set(fl.x, fl.y);
+      g.scale.set(fl.scale);
+      fire.addChild(g);
+      tongues.push({ g, scale: fl.scale, phase: fl.phase });
+    }
+    root.addChild(glow, fire);
+    this.layer.addChild(root);
+    this.sprites.set(z.id, { root, glow, tongues, until: z.until, own });
+  }
+
   private despawn(id: string): void {
     const s = this.sprites.get(id);
     if (!s) return;
-    s.g.destroy({ children: true }); // takes the ember child with it
+    s.root.destroy({ children: true }); // the shared tongue context is not owned — it survives
     this.sprites.delete(id);
   }
 }

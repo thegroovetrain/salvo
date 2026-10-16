@@ -18,24 +18,33 @@
 // amendment 134). The star shell's PHOSPHOR and DAZZLE verbs — and with them the
 // `phos`/`daz` wire flags this module used to paint as an ember disc and a
 // glare — are DELETED: PHOSPHOR SHELLS burns through its own channel
-// (FrameMsg.burnZones, drawn by render/burnZones.ts with the ember treatment
-// that moved there from here); the FOULING SHELL (Story 9.4) slows through its
-// own channel too (FrameMsg.foulZones, render/foulZones.ts). The
-// firer's personal hue still owns the ring and fill (a zone always says whose
-// it is).
+// (FrameMsg.burnZones, drawn by render/burnZones.ts — white fire on the water
+// since Story 9.11); the FOULING SHELL (Story 9.4) slows through its
+// own channel too (FrameMsg.foulZones, render/foulZones.ts).
+//
+// STORY 9.11 — THE ZONE FAMILY IS AN ALERT (Eric 2026-10-14, epic-9 amendment
+// 153). The firer's personal hue has left the ring and fill: the glow is drawn
+// once in WHITE, and per frame an OWN zone (`by === ownId`) keeps it white
+// while anybody else's is tinted by the shared yellow↔orange alert blend
+// (render/alertBlend.ts — one phase for every warning on screen, steady orange
+// at motion off). A spectator owns nothing (ownId undefined — the
+// `ownActiveZones` precedent), so every zone blends for them.
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { LitZoneView } from '@salvo/shared';
-import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
+import { CLIENT_CONFIG } from '../config.js';
+import { settings } from '../settings/store.js';
+import { alertClock, alertTint, OWN_TINT } from './alertBlend.js';
 
 const PEAK_FILL_ALPHA = 0.12; // soft additive fill at full brightness
 const RING_ALPHA = 0.38; // the zone edge, a touch brighter than the fill
 const RING_W = 2; // u — edge stroke width
+/** The glow's geometry color: WHITE, so the per-frame `tint` IS the color
+ *  (own white / another's alert blend) and nothing is ever redrawn to recolor. */
+const GLOW_COLOR = CLIENT_CONFIG.colors.white;
 /** Fade the glow out over the last FADE_MS before expiry (a dying flare). */
 export const LIT_FADE_MS = 1500;
-
-export type { HueFor };
 
 /**
  * Pure: the glow's alpha multiplier in [0,1] at `remainingMs` (= until -
@@ -62,7 +71,7 @@ export interface OwnZone {
 /**
  * Pure: the OWN ship's active lit zones (firer id `by === ownId`, not yet
  * expired vs serverNow). These are the ONLY zones that grant the local player
- * anything beyond the amber marker circle — the server reveals enemy
+ * anything beyond the marker circle — the server reveals enemy
  * ships/mines/ballistics inside them (truesight parity), so the client must (a)
  * NOT cull a beyond-sight projectile that lies inside one (it will never be
  * re-sent — projectiles.ts) and (b) clear its own fog over them (fog.ts).
@@ -105,9 +114,10 @@ export interface LitZoneDiff<Z extends { id: string } = LitZoneView> {
  * Pure: given the ids we currently have sprites for and the new frame's zone
  * list, return which zones to add and which sprite ids to remove. Ids present in
  * both are left untouched (a zone is static — its center/radius/expiry are fixed
- * at spawn, so nothing to update; only the per-frame fade changes, and that is
- * render()'s job). Generic over the zone shape so the burning-zone renderer
- * (render/burnZones.ts, Story 8.17) reuses the one diff.
+ * at spawn, so nothing to update; only the per-frame fade and tint change, and
+ * that is render()'s job). Generic over the zone shape so the burning-zone and
+ * foul-zone renderers (render/burnZones.ts, render/foulZones.ts) reuse the one
+ * diff.
  */
 export function reconcileLitZones<Z extends { id: string } = LitZoneView>(
   current: ReadonlySet<string>,
@@ -125,23 +135,34 @@ export function reconcileLitZones<Z extends { id: string } = LitZoneView>(
 }
 
 /**
- * Draw the firer-hue zone glow onto `g` (clearing prior geometry — the recolor
- * path redraws in place; the per-frame fade lives on `g.alpha`, untouched here):
- * a soft additive fill and a brighter ring at `r`. Exported because the burning
- * zone (render/burnZones.ts) wears the same identity glow under its ember — the
- * treatment the shipped phosphor zone had.
+ * Draw the zone family's glow onto `g` in WHITE (clearing prior geometry; the
+ * per-frame fade lives on `g.alpha` and the ownership color on `g.tint`,
+ * neither touched here): a soft additive fill and a brighter ring at `r`.
+ * Exported because the burning zone (render/burnZones.ts) and the foul zone
+ * (render/foulZones.ts) wear the same glow (Story 9.11, amendments 153 and 181).
  */
-export function drawZoneGlow(g: Graphics, r: number, color: number): void {
+export function drawZoneGlow(g: Graphics, r: number): void {
   g.clear();
   g.blendMode = 'add'; // additive: illuminated water, not an opaque disc
-  g.circle(0, 0, r).fill({ color, alpha: PEAK_FILL_ALPHA });
-  g.circle(0, 0, r).stroke({ width: RING_W, color, alpha: RING_ALPHA });
+  g.circle(0, 0, r).fill({ color: GLOW_COLOR, alpha: PEAK_FILL_ALPHA });
+  g.circle(0, 0, r).stroke({ width: RING_W, color: GLOW_COLOR, alpha: RING_ALPHA });
 }
 
-interface ZoneSprite extends HueState {
+/**
+ * Pure-ish: advance the shared alert clock to `nowSec` (when given) and return
+ * this frame's tint for ANOTHER's zone. The same `nowSec` the mines advanced
+ * the clock with is a no-op, so every warning reads one phase.
+ */
+export function zoneAlertTint(nowSec: number | undefined): number {
+  if (nowSec !== undefined) alertClock.advance(nowSec);
+  return alertTint(alertClock.phase, settings.current.motion);
+}
+
+interface ZoneSprite {
   g: Graphics;
   until: number; // server-clock expiry — drives the render() fade
-  r: number; // zone radius (u) — needed to redraw on a firer-hue recolor
+  /** Is this OUR zone (`by === ownId` at spawn)? Own = white, else the blend. */
+  own: boolean;
 }
 
 export class LitZones {
@@ -151,33 +172,37 @@ export class LitZones {
   constructor(private readonly layer: Container) {}
 
   /**
-   * Reconcile sprites against this observer's zone list for the tick. `hueFor`
-   * resolves each zone's firer id (`by`) to its personal hue (Story 1.12) — the
-   * SAME tint for every observer. Treats a missing frame key as an empty list —
+   * Reconcile sprites against this observer's zone list for the tick. `ownId`
+   * is this observer's session id (undefined for a spectator / pre-session —
+   * then nobody's zone is ours). Treats a missing frame key as an empty list —
    * the caller passes `f.litZones ?? []` (frames omit the key when the observer
    * sees no zones).
    */
-  sync(zones: readonly LitZoneView[], hueFor: HueFor): void {
+  sync(zones: readonly LitZoneView[], ownId: string | undefined): void {
     const { add, remove } = reconcileLitZones(new Set(this.sprites.keys()), zones);
     for (const id of remove) this.despawn(id);
-    for (const z of add) this.spawn(z, hueFor);
-    // Story 1.12: recolor any glow that booted on the amber fallback (firer hue
-    // not yet synced at spawn) once its personal hue lands — the mines precedent.
-    for (const s of this.sprites.values()) retryHue(s, hueFor, (color) => drawZoneGlow(s.g, s.r, color));
+    for (const z of add) this.spawn(z, ownId);
   }
 
-  /** Per render frame: fade each glow by its timestamp (until - serverNow). */
-  render(serverNow: number): void {
-    for (const { g, until } of this.sprites.values()) g.alpha = litZoneFade(until - serverNow);
+  /** Per render frame: fade each glow by its timestamp (until - serverNow) and
+   *  tint it — own white, another's by the shared alert clock at `nowSec`
+   *  (seconds; omitted = the clock is not advanced, the phase holds). */
+  render(serverNow: number, nowSec?: number): void {
+    const tint = zoneAlertTint(nowSec);
+    for (const { g, until, own } of this.sprites.values()) {
+      g.alpha = litZoneFade(until - serverNow);
+      g.tint = own ? OWN_TINT : tint;
+    }
   }
 
-  private spawn(z: LitZoneView, hueFor: HueFor): void {
-    const { color, colored, rev } = resolveHue(z.by, hueFor);
+  private spawn(z: LitZoneView, ownId: string | undefined): void {
     const g = new Graphics();
-    drawZoneGlow(g, z.r, color);
+    drawZoneGlow(g, z.r);
     g.position.set(z.x, z.y);
     this.layer.addChild(g);
-    this.sprites.set(z.id, { g, until: z.until, r: z.r, by: z.by, colored, rev });
+    const own = ownId !== undefined && z.by === ownId;
+    g.tint = own ? OWN_TINT : zoneAlertTint(undefined); // right from the first draw
+    this.sprites.set(z.id, { g, until: z.until, own });
   }
 
   private despawn(id: string): void {

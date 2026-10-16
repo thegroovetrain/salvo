@@ -133,20 +133,21 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     const band = refitBandLayout(1366, 768).band;
     const down = PANELS.filter(({ model }) => !refitTooltipPlacement(model, band).above).map((p) => p.label);
     expect(down).toEqual([]);
-    // 340 until the D-prime bar grew 20px (Story 9.2); 320 until the six-row
-    // card grew 17px (Story 9.8).
-    expect(refitTooltipMaxPanelH(band.y)).toBe(303);
+    // 340 at Story 8.8; 320 while the D-prime bar stood 20px taller (Story
+    // 9.2); 303 once the six-row card grew 17px (Story 9.8); 323 since the bar
+    // went back to its one 136px row (Story 9.11).
+    expect(refitTooltipMaxPanelH(band.y)).toBe(323);
   });
 
   // CYCLE 158: a stat table is much shorter than the prose it replaced (the
-  // tallest is a seven-row weapon table, 170px). STORY 9.2's D-prime bar is
-  // 20px taller (globes 104 -> 124), which lifts the band 20px and leaves 166px
-  // above it at the 1280x614 floor — so the tallest tables FLIP down over the
-  // card row there (amendment 37: flip rather than clip; the clip pin below
-  // proves none is cut). The split is still the water line. STORY 9.8's
-  // six-row card is 17px taller again, leaving 149px.
+  // tallest is a seven-row weapon table, 170px). STORY 9.8's six-row card is
+  // 17px taller, and with the bar back on its one 136px row (Story 9.11, epic-9
+  // amendment 151) that leaves 169px above the band at the 1280x614 floor — so
+  // the tallest tables FLIP down over the card row there (amendment 37: flip
+  // rather than clip; the clip pin below proves none is cut). The split is
+  // still the water line.
   it('splits the panels at the 1280x614 floor by the water line — above if it fits, else down', () => {
-    expect(CONTAINER_H).toBe(149);
+    expect(CONTAINER_H).toBe(169);
     for (const { label, model } of PANELS) {
       const p = refitTooltipPlacement(model, FLOOR_BAND.band);
       expect(p.above, label).toBe(p.height <= CONTAINER_H);

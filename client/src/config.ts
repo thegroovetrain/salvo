@@ -136,6 +136,13 @@ const COLORS = {
   // fog inverse mask). Never a design surface/text color.
   black: 0x000000,
   white: 0xffffff,
+  // ALERTS ON THE WATER (Story 9.11, epic-9 amendments 152–153): an enemy
+  // mine and another captain's zone ring breathe between these two on one
+  // shared 1 Hz phase (render/alertBlend.ts); own = `white`; motion off holds
+  // at `alertOrange`. Eric picked pair B of three on the rendered page (2026-10-16,
+  // epic-9 amendment 181): hot yellow / deep orange.
+  alertYellow: 0xfff04d,
+  alertOrange: 0xff5a00,
   // Regatta Hoist personal combatant colors (20 hues; bright OUTLINE values —
   // the hull stroke, wake, ordnance-marker tint, and kill-feed name source).
   // Key order = the ratified wheel order (shared REGATTA_HUES): index i → this
@@ -1836,28 +1843,25 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * THE HUD BAR (Story 8.6; RE-CUT TO OPTION D-PRIME in Story 9.2) — the ONE
+   * THE HUD BAR (Story 8.6; BACK TO ONE ROW in Story 9.11) — the ONE
    * bottom-centre cluster that replaces the three corners (bottom-left hotbar
    * stack, bottom-right vitals cluster, bottom-left XP rail). Direction B
    * "TRISTRAM", ratified by Eric 2026-09-11.
    *
-   * SOURCE SINCE STORY 9.2: `mockups/hud-consumables-1.html`, frame D-prime
-   * (`.rev`), read literally (epic-9 amendment 22 — "edges implied, no drawn
-   * panel"), with the 9 px floor winning on the strip (amendment 33). Every
-   * number the D-prime frame does not re-cut is still
-   * `mockups/hud-composite-3.html`'s (epic-8 amendment 31: the July 1.6x micro
-   * lift does NOT apply to the bar).
+   * SOURCE: `mockups/hud-composite-3.html`, read literally (epic-8 amendment
+   * 31 — the July 1.6x micro lift does NOT apply to the bar's surfaces, which
+   * is why `slot` is 54 and `type.chip` is 9; amendment 32 lifts the HP globe
+   * from the mock's 96 to the helm globe's 104, so ONE `globe` number serves
+   * both). Story 9.2's two-row D-prime stack (`mockups/hud-consumables-1.html`)
+   * is RETIRED: Eric 2026-10-14 (epic-9 amendment 151) put the bar back on the
+   * literal 8.6 one-row geometry, with the framed belt holding all SIX
+   * consumable squares (keys 1–6).
    *
-   * Anatomy of the 538 px bar, left to right:
-   *   HP globe 124 | 14 | STACK (262 wide) | 14 | helm globe 124
-   * where the STACK, centred between the globes, is two rows:
-   *   the consumable STRIP  six 34 px squares, 4 px gaps, chips 3 px below
-   *   4 px
-   *   the WEAPON row        Gun Shift Q E R, five 46 px squares, 8 px gaps,
-   *                         chips 5 px below
-   * (34 + 3 + 16) + 4 + (46 + 5 + 16) = 124 = the globe, so the globes'
-   * tangents ARE the bar's edges and no panel is drawn. The XP strip's 24 px
-   * row sits 8 px beneath, at the full bar width.
+   * Anatomy of the 868 px bar, left to right:
+   *   HP globe 104 | 16 | Gun Shift Q E R (5 x 54, 8 gaps) | 16 |
+   *   framed belt 1-6 (8 + 6 x 44 + 5 x 6 + 8) | 16 | helm globe 104
+   * with the XP strip's 24 px row 8 px beneath the 104 px main row
+   * (104 + 8 + 24 = 136 tall).
    *
    * LOGICAL UNITS: main.ts already divides the screen by the UI scale, so every
    * number here is pre-scale. The one exception is the 9 px type register,
@@ -1871,45 +1875,40 @@ export const CLIENT_CONFIG = {
     /** Px from the viewport floor to the bar's bottom edge (mock `.B-hud`
      *  `bottom: 18px`). */
     floor: 18,
-    /** Globe diameter (px) — BOTH globes (D-prime `.rev .globe` 124; epic-9
-     *  amendment 22). The strip + weapon stack is exactly this tall. */
-    globe: 124,
-    /** The bar's horizontal gap, globe to stack (`.rev .main { gap: 14px }`). */
-    globeGap: 14,
-    /** Weapon square (px) and the gap between them (`.rev .slots .slot` 46,
-     *  `.slots { gap: 8px }`). */
-    slot: 46,
+    /** Globe diameter (px) — BOTH globes, epic-8 amendment 32. The mock draws
+     *  the HP globe at 96 and the helm at 104; Eric lifted them to one size. */
+    globe: 104,
+    /** The bar's one horizontal gap (mock `.B-main { gap: 16px }`): globe to
+     *  slots, slots to belt, belt to globe. */
+    globeGap: 16,
+    /** Weapon slot square (px) and the gap between them (mock `.slot`,
+     *  `.B-slots { gap: 8px }`). */
+    slot: 54,
     slotGap: 8,
-    /** Consumable STRIP square (px) and its tighter gap (`.rev .strip .slot`
-     *  34, `.strip { gap: 4px }`). Unframed: the belt frame retired in 9.2.
-     *  (`stock*` keys, because `strip*` below already names the XP strip.) */
-    stockSlot: 34,
-    stockGap: 4,
-    /** The seam between the strip's chips and the weapon row's squares — the
-     *  mock's 6 px `.rev .stack` gap, taken to 4 by amendment 33 so the 16 px
-     *  strip chips still close the stack at exactly the globe's 124. */
-    stackGap: 4,
+    /** Consumable belt square (px) and its tighter gap (mock `.belt .slot`,
+     *  `.belt { gap: 6px }`). Six of them since Story 9.11 (keys 1–6). */
+    beltSlot: 44,
+    beltGap: 6,
+    /** Belt frame padding (mock `.belt { padding: 8px 8px 6px }`). The frame
+     *  ENCLOSES the key chips, exactly as the mock's `.belt > .sw` column does,
+     *  so `bottom` is measured under the chip, not under the square. */
+    beltPad: { top: 8, side: 8, bottom: 6 },
     /** Key chip (mock `.kc`): 16 px tall, 16 px minimum width, 3 px of padding
-     *  each side of the glyph — on BOTH rows (amendment 33: the strip's 14 px
-     *  box with an 8 px glyph loses to the 9 px floor). `chipGap` is the weapon
-     *  row's square-to-chip seam (mock `.sw { gap: 5px }`), `stockChipGap` the
-     *  strip's (`.strip .sw { gap: 3px }`). */
+     *  each side of the glyph, and 5 px under its square (mock `.sw { gap: 5px }`)
+     *  — the same seam under every square, weapon and belt alike. */
     chipH: 16,
     chipMinW: 16,
     chipPadX: 3,
     chipGap: 5,
-    stockChipGap: 3,
-    /** Icon linework box (px) in a weapon square / a strip square
-     *  (`.rev .slots .slot > svg` 24, `.rev .strip .slot > svg` 16). */
-    icon: 24,
-    stockIcon: 16,
-    /** Ammo badge box (px) and its top-right overhang on both axes — weapon
-     *  row (mock `.badge` 16 / -7) and strip stock badge (`.strip .badge` 14 /
-     *  -6, its digit at the 9 px register `type.stockBadge`). */
+    /** Icon linework box (px) in a weapon square / a belt square (mock
+     *  `.slot > svg` 28, `.belt .slot > svg` 22). */
+    icon: 28,
+    beltIcon: 22,
+    /** Ammo badge square (px) and its top-right overhang on both axes — the
+     *  belt's badge rides 1 px tighter (mock `.badge`, `.belt .badge`). */
     badge: 16,
     badgeOverhang: 7,
-    stockBadge: 14,
-    stockBadgeOverhang: 6,
+    beltBadgeOverhang: 6,
     /** XP STRIP. `stripGap` is the main row to strip row gap (mock `.B-xp
      *  { margin-top: 8px }`); `strip` the track's own height (mock `.B-xp
      *  .hbar.xp { height: 4px }`); `stripRowH` the row the strip's items are
@@ -1923,7 +1922,7 @@ export const CLIENT_CONFIG = {
     stripItemGap: 10,
     bankChip: 24,
     cueGap: 8,
-    /** Alpha the TWO dim groups (the consumable strip, the weapon row) drop
+    /** Alpha the TWO dim groups (the five weapon slots, the framed belt) drop
      *  to while the refit window is open or the start line is held — mock
      *  `.B-hud.dim .B-slots, .B-hud.dim .belt { opacity: .38 }`. The globes and
      *  the XP strip deliberately stay at 1. */
@@ -1934,8 +1933,8 @@ export const CLIENT_CONFIG = {
      *  A feel knob: bigger = softer, wider halos; the per-state reach and peak
      *  stay the mock's numbers in the skin table. */
     glowBlurPx: 8,
-    /** Hairline width (px) — every 1 px rule on the bar (square edges, rings, chip
-     *  boxes, the strip's border). */
+    /** Hairline width (px) — every 1 px rule on the bar (square edges, the
+     *  belt frame, rings, chip boxes, the strip's border). */
     lineW: 1,
     /** Globe bed alpha over the water — mock `rgba(3,6,5,.7)` on `cardScrim`. */
     globeBedAlpha: 0.7,
@@ -1956,17 +1955,15 @@ export const CLIENT_CONFIG = {
        *  the badge is a COUNT read at a glance against a phosphor border, and
        *  the mock gives it a px more than the key chips. */
       badge: 10,
-      /** The STRIP's stock-badge digit — mock `.strip .badge { font-size: 9px }`,
-       *  a 9 px register, so it counter-scales at 90% (`microScale`). */
-      stockBadge: 9,
       /** `LV n` at the strip's head — mock `.B-xp .lv { font: 600 11px }`. */
       lv: 11,
-      /** The cooldown wipe's centred seconds numeral — D-prime `.rev .slots .cd
-       *  { font-size: 16px }` (the composite mock's 18 sat on 54 px squares). */
-      wipe: 16,
-      /** HP globe readout: `212` value, ` /250` max, `HULL` label (D-prime
-       *  `.rev .globe .gt b` 21 / `.globe .gt em` 10 / `.globe .gt` 9). */
-      hull: 21,
+      /** The cooldown wipe's centred seconds numeral — mock `.cd { font: 600 18px }`
+       *  (back with the 54 px squares in Story 9.11). */
+      wipe: 18,
+      /** HP globe readout: `212` value, ` /250` max, `HULL` label (mock
+       *  `.globe .gt b` 18 / `.globe .gt em` 10 / `.globe .gt` 9) — back with
+       *  the 104 px globes in Story 9.11. */
+      hull: 18,
       hullMax: 10,
       hullLabel: 9,
       /** Helm globe readout: `271°` value over its `HDG` caption. */
@@ -2430,24 +2427,45 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * PHOSPHOR SHELLS BURNING ZONE (Story 8.17, epic-8 amendments 131/135(i)) —
-   * render/burnZones.ts. The ember treatment MOVED here verbatim from the
-   * retired star-shell `phos` lit-zone verb (Story 2.9, amendment 50: a zone
-   * reads as its hazard for every observer — counterplay over concealment).
-   * The firer's personal hue owns the RING (a zone still says WHOSE it is); the
-   * ember layers INSIDE it. The star-shell DAZZLE glare knobs went with that
-   * verb at Story 8.17 (amendment 134).
+   * PHOSPHOR SHELLS BURNING ZONE (Story 8.17, epic-8 amendment 131; body
+   * re-made by Story 9.11, epic-9 amendment 154) — render/burnZones.ts. The
+   * zone is WHITE FIRE ON THE WATER: a field of `render/fire.ts` flame tongues
+   * scattered over the whole disc, denser toward the middle, seeded from the
+   * zone id so every observer sees the same fire. The zone keeps the family glow
+   * (soft fill + ring, Eric on the rendered page 2026-10-16, amendment 181:
+   * "I want the inside of the zone to be colored, too, not just the ring") —
+   * own white, another's the alert blend (amendment 153). The crimson
+   * ember disc of epic-8 amendment 135(i) and its knobs are DELETED.
    */
   burnZone: {
-    /** An ember disc inside the ring, at this fraction of the zone radius,
-     *  breathing between (base ∓ amp) alpha at `emberHz` — well under
-     *  `settings.pulseCapHz` and nowhere near the ≤3 flashes/s ceiling. The
-     *  disc itself (position + extent) is the information and holds at
-     *  motion=off; only the breath is motion. */
-    emberFrac: 0.72,
-    emberAlpha: 0.16,
-    emberAmp: 0.07,
-    emberHz: 0.5,
+    /** Tongues per 1000 u² of zone area: N = clamp(round(density · π r² /
+     *  1000), flameMin, flameMax). Extent is information — never motion-gated.
+     *  4.0 is Eric's pick on the rendered page (2026-10-16, amendment 181):
+     *  126 tongues on a tier-I 100 u zone. */
+    flameDensityPer1000U2: 4.0,
+    flameMin: 6,
+    /** The hard cap on one zone's tongues (a huge zone stays affordable):
+     *  a tier-V zone (100 × 1.1⁴ ≈ 146 u) at 4.0 wants 268. */
+    flameMax: 300,
+    /** u — the radius a tongue's teardrop is DRAWN at (`flameTongue(flameR)`). */
+    flameR: 14,
+    /** The tongue's white halo and its hotter white core (additive). */
+    flameHaloAlpha: 0.35,
+    flameCoreAlpha: 0.9,
+    /** The flicker: a fast sin wobble on each tongue's alpha and width,
+     *  amplitude scaled by motion intensity (exactly still at `off`) — the
+     *  render/fire.ts rule: it is a wobble, never an on/off. */
+    flickerHz: 6,
+    flickerAmp: 0.25,
+    /** Each tongue's seeded size, a uniform draw in [min, max] × `flameR`. */
+    flameScaleMin: 0.7,
+    flameScaleMax: 1.3,
+    /** The exponent on the radial draw: a tongue sits at distance
+     *  `r · √(u)` with `u = rng^bias` (the weedStrokes √u scatter on a biased
+     *  draw). bias 1 = uniform over the area; 2 = `r · rng`, an area density
+     *  ∝ 1/ρ — visibly thicker toward the middle, still reaching the ring.
+     *  See burnFlames(). */
+    flameCenterBias: 2,
     /** A burn tick is a DoT, not a slam: the victim's shake is scaled to this
      *  fraction of an ordinary hit's so standing in fire nudges instead of
      *  hammering (the tone + the zone under the hull carry the information). */

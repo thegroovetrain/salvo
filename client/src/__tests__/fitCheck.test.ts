@@ -366,21 +366,21 @@ describe('fit-check — DOCTRINE IDENTITY (every doctrine line registers an on-w
 // They are no longer verbs, so they left DOCTRINE_IDENTITY — but the rule that
 // table enforced ("no fitted card is presentation-silent") still holds for the
 // lines they became. PHOSPHOR SHELLS is a weapon: its slot draws a glyph and
-// its burst leaves a BURNING zone whose ember breathes. FLASH SHELLS was a belt
+// its burst leaves a BURNING zone of white fire (Story 9.11). FLASH SHELLS was a belt
 // consumable; its Story 9.4 successor, the FOULING SHELL, draws a glyph and its
 // burst leaves a FOUL zone on the water (the victim's tell is the shared SLOWED).
 describe('fit-check — the former add-ons are not presentation-silent (Story 8.17)', () => {
-  it('PHOSPHOR SHELLS: a slot glyph and a breathing burning zone', () => {
+  it('PHOSPHOR SHELLS: a slot glyph and a burning zone of flame tongues', () => {
     expect(glyphPaths('phosphorShells')).not.toBeNull();
     const zones = new BurnZones(new Container());
-    zones.sync([{ id: 'z-burn', x: 0, y: 0, r: 100, until: 10_000, by: 'firer' }], () => null);
-    expect(zones.emberAlphaOf('z-burn')).toBeGreaterThan(0);
+    zones.sync([{ id: 'z-burn', x: 0, y: 0, r: 100, until: 10_000, by: 'firer' }], 'me');
+    expect(zones.flameCountOf('z-burn')).toBeGreaterThan(0);
   });
 
   it('FOULING SHELL: a glyph and a foul zone on the water (Story 9.4)', () => {
     expect(glyphPaths('foulingShell')).not.toBeNull();
     const zones = new FoulZones(new Container());
-    zones.sync([{ id: 'z-foul', x: 0, y: 0, r: 150, until: 10_000, by: 'firer' }], () => null);
+    zones.sync([{ id: 'z-foul', x: 0, y: 0, r: 150, until: 10_000, by: 'firer' }], 'me');
     expect(zones.size).toBe(1);
   });
 });

@@ -2247,7 +2247,7 @@ describe('the FOULING SHELL foul-zone channel (Story 9.4) — the burnZones twin
   it('adopts FrameMsg.foulZones into the renderer and mirrors it on state.net', () => {
     const { sink, deps } = setupWater();
     sink.handler(victimFrame([], {}, { foulZones: [zone] }));
-    expect(deps.foulZones.sync).toHaveBeenLastCalledWith([zone], deps.ordnanceHue);
+    expect(deps.foulZones.sync).toHaveBeenLastCalledWith([zone], 'me'); // own = by === sessionId
     expect(deps.state.net.foulZones).toEqual([zone]);
   });
 
@@ -2255,7 +2255,7 @@ describe('the FOULING SHELL foul-zone channel (Story 9.4) — the burnZones twin
     const { sink, deps } = setupWater();
     sink.handler(victimFrame([], {}, { foulZones: [zone] }));
     sink.handler(victimFrame([], {}));
-    expect(deps.foulZones.sync).toHaveBeenLastCalledWith([], deps.ordnanceHue);
+    expect(deps.foulZones.sync).toHaveBeenLastCalledWith([], 'me');
     expect(deps.state.net.foulZones).toEqual([]);
   });
 });

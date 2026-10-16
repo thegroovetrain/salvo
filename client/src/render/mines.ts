@@ -6,11 +6,15 @@
 // the client cannot tell whether it was triggered or just fell out of sight, and
 // that ambiguity is the design.
 //
-// Story 1.12 (Regatta Hoist): the marker COLOR is the DROPPER's personal hue
-// (MineView.by → hueFor), the SAME hue for every observer — the old own-green /
-// enemy-amber color split is gone (amber survives only as the roster-miss
-// fallback inside hueFor). The own/enemy LAYER + brightness split stays: own
-// mines dim on the fog-immune chart, enemy mines brighter in the fogged world.
+// STORY 9.11 — MINES ARE ALERTS (Eric 2026-10-14, epic-9 amendment 152:
+// "Like, WARNING, MINE!"). Story 1.12's dropper-hue rule (MineView.by → hueFor)
+// and the own-dim / enemy-bright split are RETIRED: every mine is drawn bright
+// (alpha 0.9) in WHITE; an OWN mine stays white (glyph and rings alike — the
+// dashed/dotted styles still tell the rings apart), and an ENEMY mine is tinted
+// per frame by the shared yellow↔orange alert blend (render/alertBlend.ts, one
+// phase for every warning on screen; steady orange at motion off). The own/enemy
+// LAYER split stays: own mines on the fog-immune chart, enemy mines in the
+// fogged world, `MineView.own` from the server deciding which.
 //
 // STORY 7-5 WAVE 2 — MINES DO NOT MOVE, AND CANNOT. Story 2.9 taught this
 // renderer to walk a sprite, because the SELF-PROPELLED doctrine (Story 2.8)
@@ -26,8 +30,9 @@
 // CYCLE 162 — A MINE ON THE WATER DRAWS ITS KIND'S GLYPH (Eric 2026-10-01). The
 // ring-and-dot marker is gone: each sprite strokes the SAME linework its line's
 // hotbar square draws (`drawEquipmentIcon`, render/equipmentIcons.ts) — naval,
-// captive and fouling each their own — in the dropper's hue, in a box the size
-// of the deck guns' "on the mine" disc. The kind rides `MineView.c` for EVERY
+// captive and fouling each their own — in a box 10 % larger than the deck guns'
+// "on the mine" disc (Story 9.11: "about 10 % larger, just the graphic"; the
+// 10 u hit disc itself is untouched). The kind rides `MineView.c` for EVERY
 // observer who can see the mine ("Everyone sees the kind", reversing amendment
 // 76), so an enemy's field reads by kind too.
 
@@ -36,18 +41,26 @@ import type { Container } from 'pixi.js';
 import { CONFIG, type EffectiveMine, type MineKind, type MineView, type SlotItemId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { dashArcs } from '../util/math.js';
+import { settings } from '../settings/store.js';
 import { drawEquipmentIcon } from './equipmentIcons.js';
-import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
-
-export type { HueFor };
+import { alertClock, alertTint, OWN_TINT } from './alertBlend.js';
 
 const R = CLIENT_CONFIG.mineRings;
 const P = CLIENT_CONFIG.aimPreview;
-// u — the marker's glyph box IS the deck guns' "on the mine" disc (amendment
-// 201(a)): one number, `CONFIG.mine.hitRadiusU`, read by the server's landing
-// test and by this drawing (10 u since Eric 2026-07-22: the graphic read a bit
-// small). The glyph is drawn in a box `2 × RING_R` across, centred on the mine.
+// u — the deck guns' "on the mine" HIT disc (amendment 201(a)): one number,
+// `CONFIG.mine.hitRadiusU`, read by the server's landing test. It is no longer
+// the drawing's size: Story 9.11 (amendment 152) grew the GRAPHIC 10 % and
+// left the hit disc alone.
 const RING_R = CONFIG.mine.hitRadiusU;
+/** u — the glyph box's HALF-size: 1.1 × the hit disc (Eric 2026-10-14, "about
+ *  10 % larger … just the graphic icon"). The glyph is drawn in a box
+ *  `2 × GLYPH_R` across, centred on the mine. */
+export const GLYPH_R = RING_R * 1.1;
+/** Every mine marker's alpha — own and enemy alike (the own 0.7 dim is
+ *  retired: every mine is bright, amendment 152). */
+const MARKER_ALPHA = 0.9;
+/** The color every mine is DRAWN in; an enemy's alert color is its tint. */
+const MINE_COLOR = CLIENT_CONFIG.colors.white;
 /** The marker glyph's stroke width (the old marker ring's weight). */
 const MARKER_W = 1.5;
 
@@ -121,7 +134,7 @@ export function mineKindOfView(m: Pick<MineView, 'c'>): MineKind {
 }
 
 /** One own-mine radius ring. STYLE, not hue, is what separates them (all three
- *  render in the dropper's personal color — DESIGN.md dual-coding). */
+ *  render white — DESIGN.md dual-coding). */
 export interface MineRing {
   r: number;
   style: 'solid' | 'dashed' | 'dotted';
@@ -203,11 +216,10 @@ export function reconcileMines(current: ReadonlySet<string>, incoming: readonly 
   return { add, remove };
 }
 
-/** A live mine sprite + its firer-hue latch (retryHue recolors it once the
- *  dropper's roster hue syncs). `own` drives only brightness on redraw. No
- *  position and no course: a mine is moored, so the Graphics is placed once at
- *  spawn and never walked. */
-interface MineSprite extends HueState {
+/** A live mine sprite. `own` picks its layer, its rings and whether it takes
+ *  the alert tint. No position and no course: a mine is moored, so the
+ *  Graphics is placed once at spawn and never walked. */
+interface MineSprite {
   g: Graphics;
   own: boolean;
   /** THE KIND THIS MINE WAS LAID AS (Story 8.13) — read once off the wire view
@@ -215,10 +227,6 @@ interface MineSprite extends HueState {
    *  mine (`MineView.c`, on every row since cycle 162), own or enemy: it picks
    *  the marker glyph for both, and the ring row for our own. */
   kind: MineKind;
-  /** The color the marker is currently painted in (the hue latch's resolved
-   *  hue, or the amber fallback) — a recolor/ring redraw needs it without
-   *  re-probing. */
-  color: number;
   /** Server time (ms) we first saw this mine — the arming-window clock. */
   seenAt: number;
   /** The own-mine radius rings currently painted (empty for an enemy mine),
@@ -246,16 +254,15 @@ export class Mines {
     private readonly onOwnMineSpawn?: (m: MineView) => void,
   ) {}
 
-  /** Reconcile sprites against this observer's mine list for the tick. `hueFor`
-   *  resolves each mine's dropper id (`by`) → its personal hue (Story 1.12), or
-   *  null while the roster hasn't synced — those markers boot on the amber
-   *  fallback and recolor here on a later tick once the hue lands.
+  /** Reconcile sprites against this observer's mine list for the tick. The
+   *  marker color needs no lookup any more (Story 9.11): white, and an enemy's
+   *  alert tint is applied per frame by render().
    *
    *  `own` carries the OWNER's live mine radii + the server clock: OUR mines
    *  draw their blast/trigger(/acquisition) rings always-on from it. Omitted
    *  (tests, and any caller that has no own stats yet) = markers only, exactly
    *  as before. An enemy's mine NEVER draws a ring — their numbers are theirs. */
-  sync(mines: readonly MineView[], hueFor: HueFor, own?: OwnMineRings): void {
+  sync(mines: readonly MineView[], own?: OwnMineRings): void {
     const { add, remove } = reconcileMines(new Set(this.sprites.keys()), mines);
     // THE FIRST SYNCED FRAME is a rejoin, not a drop: every mine already on the
     // water when we arrive has been there for some unknowable time, and most of
@@ -266,14 +273,26 @@ export class Mines {
     const seenAt = this.synced ? (own?.now ?? 0) : -Infinity;
     this.synced = true;
     for (const id of remove) this.despawn(id);
-    for (const m of add) this.spawn(m, hueFor, own, seenAt);
-    for (const s of this.sprites.values()) {
-      retryHue(s, hueFor, (color) => {
-        s.color = color;
-        this.redraw(s);
-      });
-      this.refreshRings(s, own);
-    }
+    for (const m of add) this.spawn(m, own, seenAt);
+    for (const s of this.sprites.values()) this.refreshRings(s, own);
+  }
+
+  /**
+   * Per render frame: advance the shared alert clock to `nowSec` (seconds;
+   * the same clock every zone reads, so call this FIRST in the frame) and tint
+   * every ENEMY mine by it. Own mines keep the identity tint (white).
+   */
+  render(nowSec: number): void {
+    alertClock.advance(nowSec);
+    const tint = alertTint(alertClock.phase, settings.current.motion);
+    for (const s of this.sprites.values()) s.g.tint = s.own ? OWN_TINT : tint;
+  }
+
+  /** The tint a held mine currently wears (test seam). Null for an id we hold
+   *  no sprite for. */
+  tintAt(id: string): number | null {
+    const s = this.sprites.get(id);
+    return s ? s.g.tint : null;
   }
 
   /** Re-evaluate one own sprite's rings against the current owner stats +
@@ -289,10 +308,10 @@ export class Mines {
     this.redraw(s);
   }
 
-  /** The whole sprite: marker + (own) radius rings, in its current hue. */
+  /** The whole sprite: marker + (own) radius rings, all in white. */
   private redraw(s: MineSprite): void {
-    this.drawMarker(s.g, s.kind, s.own, s.color);
-    for (const ring of s.rings) drawRing(s.g, ring, s.color);
+    drawMarker(s.g, s.kind);
+    for (const ring of s.rings) drawRing(s.g, ring);
   }
 
   /** Where a held mine's SPRITE sits — the render-state seam the placement
@@ -317,13 +336,14 @@ export class Mines {
     return this.sprites.get(id)?.kind ?? null;
   }
 
-  private spawn(m: MineView, hueFor: HueFor, own: OwnMineRings | undefined, seenAt: number): void {
+  private spawn(m: MineView, own: OwnMineRings | undefined, seenAt: number): void {
     const g = new Graphics();
-    const { color, colored, rev } = resolveHue(m.by, hueFor);
     g.position.set(m.x, m.y);
     (m.own ? this.ownLayer : this.enemyLayer).addChild(g);
+    // Right from the first draw: own white, an enemy at this frame's alert tint.
+    g.tint = m.own ? OWN_TINT : alertTint(alertClock.phase, settings.current.motion);
     const s: MineSprite = {
-      g, by: m.by, own: m.own, colored, rev, color, kind: mineKindOfView(m),
+      g, own: m.own, kind: mineKindOfView(m),
       // A mine appearing after the first synced frame is one we just dropped
       // (own mines never leave our own frame list), so first-seen IS the drop
       // time — dated by the FRAME's clock, the same one `now` reads.
@@ -331,7 +351,7 @@ export class Mines {
     };
     this.sprites.set(m.id, s);
     this.refreshRings(s, own); // draws the rings; redraw() paints the marker too
-    if (s.rings.length === 0) this.drawMarker(g, s.kind, m.own, color);
+    if (s.rings.length === 0) drawMarker(g, s.kind);
     if (m.own) this.onOwnMineSpawn?.(m);
   }
 
@@ -341,32 +361,30 @@ export class Mines {
     s.g.destroy();
     this.sprites.delete(id);
   }
-
-  /**
-   * Draw the mine marker onto `g` (clearing any prior geometry — the recolor and
-   * ring paths redraw in place). `color` = the dropper's personal hue (same for
-   * all observers); `own` drives only the brightness (dim on your own chart,
-   * brighter as an enemy warning).
-   *
-   * A MARKER IS ITS KIND'S GLYPH (cycle 162): the hotbar linework of the line
-   * that laid it, in a `2 × RING_R` box centred on the mine. (The creep tick
-   * left in Story 7-5 wave 2; the ring and dot left in cycle 162.)
-   */
-  private drawMarker(g: Graphics, kind: MineKind, own: boolean, color: number): void {
-    const alpha = own ? 0.7 : 0.9;
-    g.clear();
-    drawEquipmentIcon(g, MARKER_GLYPH[kind], 0, 0, 2 * RING_R, { width: MARKER_W, color, alpha });
-  }
 }
 
 /**
- * One own-mine radius ring in the dropper's hue, in the sprite's LOCAL frame
+ * Draw the mine marker onto `g` (clearing any prior geometry — the ring path
+ * redraws in place), in WHITE at the one marker alpha for own and enemy alike
+ * (Story 9.11); an enemy's alert color is the sprite's per-frame tint.
+ *
+ * A MARKER IS ITS KIND'S GLYPH (cycle 162): the hotbar linework of the line
+ * that laid it, in a `2 × GLYPH_R` box centred on the mine. (The creep tick
+ * left in Story 7-5 wave 2; the ring and dot left in cycle 162.)
+ */
+function drawMarker(g: Graphics, kind: MineKind): void {
+  g.clear();
+  drawEquipmentIcon(g, MARKER_GLYPH[kind], 0, 0, 2 * GLYPH_R, { width: MARKER_W, color: MINE_COLOR, alpha: MARKER_ALPHA });
+}
+
+/**
+ * One own-mine radius ring in white, in the sprite's LOCAL frame
  * (the graphic is positioned at the mine). Style is the channel that separates
  * the radii — solid blast, dashed trigger, sparse-dotted acquisition — so the
  * set reads without color vision and without motion.
  */
-function drawRing(g: Graphics, ring: MineRing, color: number): void {
-  const stroke = { width: R.width, color, alpha: ring.alpha };
+function drawRing(g: Graphics, ring: MineRing): void {
+  const stroke = { width: R.width, color: MINE_COLOR, alpha: ring.alpha };
   if (ring.style === 'solid') {
     g.circle(0, 0, ring.r).stroke(stroke);
     return;
