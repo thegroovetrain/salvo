@@ -144,6 +144,8 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
     // ARMOR PIERCING ladder (catalog content), CONFIG.armor K 100 and HUNKER's
     // armorBonus read through the fold, and the `hunkerUntil` wire-field rename
     // — no mask.
-    expect(PROTOCOL_VERSION).toBe(84);
+    // 84 -> 85 (Story 9.10, epic-9 amendments 162–168) is the FOG BANK `fog`
+    // row ({id,x,y,r,d}, the seventh declared exception) — no mask.
+    expect(PROTOCOL_VERSION).toBe(85);
   });
 });

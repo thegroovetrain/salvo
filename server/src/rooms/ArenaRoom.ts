@@ -46,6 +46,7 @@ import { getAccountWriter, getGameVersion } from '../game/accountWriter.js';
 import {
   recordMinesLive,
   recordCloudsLive,
+  recordFog,
   registerRoom,
   type RoomMetricsHandle,
 } from '../metrics.js';
@@ -897,6 +898,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       mapSeed: this.state.mapSeed,
       mapRadius: this.world.map.radius,
       playerCap: this.world.playerCap,
+      // Story 9.10: the fog field's seed — public weather; the client builds
+      // the same shared field from it and reads the live cut off the schema.
+      fogSeed: this.world.fogSeed,
       t: this.world.now,
       config: CONFIG,
     };
@@ -1273,6 +1277,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       recordMinesLive(this.world.mineCount);
       // ...and the live COUNTERMEASURE cloud count (Story 8.18 / 9.3), on the same terms.
       recordCloudsLive(this.world.cloudCount);
+      // ...and the fog field's cut + realized coverage (Story 9.10) — numbers only.
+      recordFog(this.world.fogCut, this.world.fogCoverageEstimate);
       this.match?.update();
       this.observeMatchActivation();
       this.afterStep();
@@ -1482,6 +1488,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     if (s.zoneNextCx !== next.cx) s.zoneNextCx = next.cx;
     if (s.zoneNextCy !== next.cy) s.zoneNextCy = next.cy;
     if (s.zoneNextR !== next.r) s.zoneNextR = next.r;
+    // Story 9.10: the fog field's coverage cut — match-wide weather beside
+    // the rings, guarded the same way (a patch only when the cut moves, at
+    // most once per CONFIG.fog.refreshMs).
+    const cut = this.world.fogCut;
+    if (s.fogCut !== cut) s.fogCut = cut;
   }
 
   /** Mirror the match lifecycle onto the public schema. Match.countdownEndT

@@ -3,6 +3,9 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  85 — Story 9.10 Fog Banks: WelcomeMsg gains fogSeed and the client reads
+ *  CONFIG.fog; the schema gains fogCut (ArenaState); no per-observer fog
+ *  channel (the field is derived on both sides).
  *  84 — Story 9.9 Armor Piercing: K 100, ARMOR +20/card, HUNKER +100 (was
  *  DAMAGE CUT, id renamed), new ARMOR PIERCING ladder (catalog content),
  *  OwnShip.hunkerUntil wire field renamed (epic-9 amendments 144–147).
@@ -864,7 +867,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 84;
+export const PROTOCOL_VERSION = 85;
 
 // Tunables
 export * from './constants.js';
@@ -912,4 +915,5 @@ export * from './sim/radarShadow.js';
 export * from './sim/dropout.js';
 export * from './sim/wake.js';
 export * from './sim/cloud.js';
+export * from './sim/fog.js';
 export * from './sim/zone.js';

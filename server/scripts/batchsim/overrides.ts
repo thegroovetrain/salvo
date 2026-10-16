@@ -159,6 +159,17 @@ const TUNE_FAMILIES = [
   // itself, which the shared fold and the client both derive from, so it is
   // not a harness dial.
   'vision.dropout.',
+  // THE FOG FIELD (Story 9.10, Eric 2026-10-15 — "no discs", a rolling
+  // fractal-noise field; every leaf of CONFIG.fog is a harness dial).
+  // Floors: `sightCostPerU`, `windU`, `edgeBand` and `cutRatePerS` at 0 (each
+  // a real arm — fog that costs nothing / a still field / a hard edge / a
+  // frozen cut); every length, clock and count at 1 (TUNE_MIN_ONE_KEYS — a
+  // 0 wavelength or march step divides, a 0 refresh or lattice spins or
+  // samples nothing); `gain` on (0, 1] (FOG_GAIN_KEY — fbm persistence) and
+  // the coverage band a closed share of the ring's area [0, 1]
+  // (FOG_SHARE_KEYS — `coverageMax=0` is "fog off"). `coverageMin <=
+  // coverageMax` is refused on the finished CONFIG in validateFogDials.
+  'fog.',
 ];
 
 /** True for an EQUIPMENT dial family (--tune only, never --set/--sweep). */
@@ -426,9 +437,38 @@ const TUNE_SUB_ONE_FLOORS = new Map<string, number>([['turnRate', 0.05]]);
  *  hazard is specific to this block (a 0 start makes every return a coin
  *  flip from the hull outward). The pair relations (start < knee < radar, rim ≤ knee
  *  probability) are refused on the finished CONFIG in validateDropoutCurve. */
-const TUNE_MIN_ONE_KEYS = new Set(['vision.dropout.startU', 'vision.dropout.kneeU']);
+const TUNE_MIN_ONE_KEYS = new Set([
+  'vision.dropout.startU',
+  'vision.dropout.kneeU',
+  // THE FOG FIELD (Story 9.10) — see the `fog.` family note in TUNE_FAMILIES.
+  'fog.targetPeriodMs',
+  'fog.wavelengthU',
+  'fog.octaves',
+  'fog.morphMs',
+  'fog.refreshMs',
+  'fog.marchStepU',
+  'fog.quantileLattice',
+]);
+
+/** The coverage lattice's floor (Story 9.10 review gate): under ~1/target
+ *  points the (1 − target) quantile lands on the lattice maximum — coverage 0
+ *  while the dial names a share. 8 a side (≈ 50 points inside the disc) is
+ *  the least that still resolves the 2 % floor of the band. */
+const FOG_LATTICE_KEY = 'fog.quantileLattice';
+const FOG_LATTICE_FLOOR = 8;
+/** Fog dials whose floor keeps the SERVER up (Story 9.10 review gate):
+ *  `marchStepU` sizes the density memo (≈ (2 × radius / step)² cells — at
+ *  1 u that is 100 M cells, ~800 MB per room; 5 u is ~4 M, 34 MB) and
+ *  `refreshMs` is the quantile + epoch cadence (every tick at 50 ms). */
+const FOG_SERVER_FLOORS = new Map<string, number>([
+  ['fog.marchStepU', 5],
+  ['fog.refreshMs', 250],
+  [FOG_LATTICE_KEY, FOG_LATTICE_FLOOR],
+]);
 
 function tuneFloor(key: string): number {
+  const serverFloor = FOG_SERVER_FLOORS.get(key);
+  if (serverFloor !== undefined) return serverFloor;
   if (TUNE_MIN_ONE_KEYS.has(key)) return 1;
   const leaf = key.slice(key.lastIndexOf('.') + 1);
   const lower = leaf.toLowerCase();
@@ -449,6 +489,8 @@ function tuneFloor(key: string): number {
 export function validateTuneValue(key: string, value: number): void {
   if (UNIT_INTERVAL_KEYS.has(key)) return validateUnitInterval(key, value);
   if (PROBABILITY_KEYS.has(key)) return validateProbability(key, value);
+  if (FOG_SHARE_KEYS.has(key)) return validateShare(key, value);
+  if (key === FOG_GAIN_KEY) return validateGain(key, value);
   const floor = tuneFloor(key);
   if (!Number.isFinite(value) || value < floor) {
     throw new TunableError(`'${key}': expected a finite value >= ${floor}, got '${value}'`);
@@ -479,6 +521,27 @@ const UNIT_INTERVAL_KEYS = new Set(['offer.weighting.factor', 'offer.weighting.f
  *  [0, 1] — 0 (never paints at that rung) and 1 (always paints) are both real
  *  arms; outside it is not a probability. */
 const PROBABILITY_KEYS = new Set(['vision.dropout.kneeP', 'vision.dropout.rimP']);
+
+/** The fog controller's coverage band (Story 9.10): a CLOSED share of the
+ *  live ring's area, [0, 1] — 0 is "no fog" and a real arm; above 1 the
+ *  quantile would chase a coverage the ring cannot hold. */
+const FOG_SHARE_KEYS = new Set(['fog.coverageMin', 'fog.coverageMax']);
+
+function validateShare(key: string, value: number): void {
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new TunableError(`'${key}': expected a finite share of water in [0, 1], got '${value}'`);
+  }
+}
+
+/** The fog field's fbm persistence (Story 9.10): on (0, 1] — 0 collapses every
+ *  octave past the first, above 1 the fine octaves swamp the base shape. */
+const FOG_GAIN_KEY = 'fog.gain';
+
+function validateGain(key: string, value: number): void {
+  if (!Number.isFinite(value) || !(value > 0) || value > 1) {
+    throw new TunableError(`'${key}': expected a finite fbm gain in (0, 1], got '${value}'`);
+  }
+}
 
 function validateProbability(key: string, value: number): void {
   if (!Number.isFinite(value) || value < 0 || value > 1) {
@@ -543,6 +606,7 @@ function validateCrossKeyInvariants(): void {
   validateWeightingPair();
   validateCoverBand();
   validateDropoutCurve();
+  validateFogDials();
   const { durationMs, maxAmmo } = CONFIG.boost;
   if (maxAmmo !== 1) {
     throw new TunableError(
@@ -608,6 +672,31 @@ function validateDropoutCurve(): void {
     );
   }
 }
+
+/**
+ * THE FOG DIALS MUST DESCRIBE A FIELD (Story 9.10): `coverageMin <=
+ * coverageMax` (the target is drawn in [min, max]); `octaves` and
+ * `quantileLattice` are COUNTS — a fractional octave count is a partial fbm
+ * loop and a fractional lattice side is a lattice that is not square — so
+ * both must be integers (review gate, Codex #3). Judged on the FINISHED
+ * CONFIG — an arm may set several leaves at once.
+ */
+function validateFogDials(): void {
+  const { coverageMin, coverageMax, octaves, quantileLattice } = CONFIG.fog;
+  if (!(coverageMin <= coverageMax)) {
+    throw new TunableError(`'fog.coverageMin' (${coverageMin}) must stay <= 'fog.coverageMax' (${coverageMax})`);
+  }
+  if (!Number.isInteger(octaves)) throw new TunableError(`'fog.octaves' must be an integer count of fbm octaves, got '${octaves}'`);
+  if (!Number.isInteger(quantileLattice)) {
+    throw new TunableError(`'fog.quantileLattice' must be an integer lattice side, got '${quantileLattice}'`);
+  }
+  if (quantileLattice > FOG_LATTICE_CEILING) {
+    throw new TunableError(`'fog.quantileLattice' (${quantileLattice}) must stay <= ${FOG_LATTICE_CEILING}: the quantile sorts side² noise samples every refresh`);
+  }
+}
+
+/** The lattice's ceiling: 256² = 65k noise samples sorted per refresh is the most a tick can carry. */
+const FOG_LATTICE_CEILING = 256;
 
 /**
  * `offer.weighting.floor <= offer.weighting.factor` (Story 8.14 review, F5).

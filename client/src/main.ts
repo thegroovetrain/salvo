@@ -31,6 +31,7 @@ import {
   slotMaxAmmo,
   slotsWithCards,
   SLOT_COUNT,
+  FOG_NO_CUT,
   type Island,
   type ContactBody,
   type DeniedView,
@@ -68,6 +69,7 @@ import { BurnZones } from './render/burnZones.js';
 import { FoulZones } from './render/foulZones.js';
 import { Smoke } from './render/smoke.js';
 import { Countermeasure } from './render/countermeasure.js';
+import { FogFieldView } from './render/fogField.js';
 import { hazeHaloU } from './render/hazeHalo.js';
 import { Fire } from './render/fire.js';
 import { Foghorn } from './render/foghorn.js';
@@ -297,6 +299,10 @@ interface Game {
    *  layer (above contact hulls, below radar paints and the own hull — Eric
    *  2026-10-12); one spraypaint bitmap per cloud, advanced per render frame. */
   countermeasure: Countermeasure;
+  /** THE FOG FIELD (render/fogField.ts, Story 9.10) — the rolling fog drawn
+   *  on the `fog` chart layer (under every hull) from the welcome's `fogSeed`
+   *  and the schema's `fogCut`; masked by the flash-rung halo + island LOS. */
+  fogField: FogFieldView;
   /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
    *  visual twin, screen-space and above every HUD readout. */
   foghorn: Foghorn;
@@ -1210,6 +1216,9 @@ interface PublicState {
   zoneNextCx?: number;
   zoneNextCy?: number;
   zoneNextR?: number;
+  /** THE FOG CUT (Story 9.10) — match-wide weather: the noise threshold the
+   *  fog field is drawn at; FOG_NO_CUT (9) = no fog. Never spatial. */
+  fogCut?: number;
   matchPhase?: string;
   countdownEndT?: number;
   winnerId?: string;
@@ -1607,6 +1616,7 @@ function updateMatchAudioCues(g: Game, now: number): void {
     g.state.net.heldClouds.clear();
     g.state.net.clouds = [];
     g.countermeasure.clear();
+    g.fogField.clear(); // the server's resetForMatchStart resets its cut to no fog too
   }
 }
 
@@ -2927,6 +2937,7 @@ function buildGame(
     smoke: new Smoke(stage.layers.smoke),
     fire: new Fire(stage.layers.smoke), // pins itself to the layer's bottom: under every puff
     countermeasure,
+    fogField: new FogFieldView(stage.layers.fog),
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
     nextHonkAt: 0,
     fog: new Fog(stage.fogSprite),
@@ -2997,6 +3008,8 @@ function buildGame(
   // ...and the haze halo sees past no island (Story 9.3 session 6, Eric
   // 2026-10-12: "if I can't see it because of an island … don't render it").
   g.countermeasure.setIslands(g.islands);
+  g.fogField.setIslands(g.islands); // ...and so does the fog haze (Story 9.10)
+  g.fogField.setSeed(welcome.fogSeed); // the shared fog field, derived from the welcome's seed
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
   // THE ROOM'S OWN BINDINGS ARE A DISPOSER (Story 6.3 review gate). Story 6.3's
@@ -3121,6 +3134,7 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   g.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
   // the haze halo is the wounded-smoke flash rung (6/12) off the same live intel range
   g.countermeasure.setHaloU(hazeHaloU(stats.radarRange));
+  g.fogField.setHaloU(hazeHaloU(stats.radarRange)); // the fog haze ends at the same rung
   g.fog.setSightRange(stats.sightRange, stats.radarRange);
   // ONE plumbed value, TWO dead-reckoning cull rings: shells and our OWN fish
   // cull at truesight, an ENEMY torpedo at the shorter DETECT ring the server
@@ -4334,6 +4348,10 @@ function renderAlive(
   // marched it above, through setCloudSource, as one more return source) —
   // seen by eye only inside the flash-rung halo centred on the own hull (session 5)
   g.countermeasure.render(now, pose, g.camera.screenWorldRect); // mask pass clipped to the screen
+  // the rolling fog: the schema's cut eased, the density raster refreshed on its
+  // cadence, the wisps scrolled (motion-gated); seen by eye only inside the same halo
+  g.fogField.setCut(publicState(g).fogCut ?? FOG_NO_CUT);
+  g.fogField.update(frameDt * 1000, now, motionIntensity(settings.current.motion) > 0, pose, g.camera.screenWorldRect, 'alive'); // no pose yet → nothing drawn
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
@@ -4591,6 +4609,8 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   g.burnZones.render(now, now / 1000); // ...and every burning zone
   g.foulZones.render(now, now / 1000); // ...and every foul zone, weed swaying
   g.countermeasure.render(now); // ...and every countermeasure cloud
+  g.fogField.setCut(publicState(g).fogCut ?? FOG_NO_CUT);
+  g.fogField.update(frameDt * 1000, now, motionIntensity(settings.current.motion) > 0, null, g.camera.screenWorldRect, 'spectate'); // ...and the whole fog field, unmasked
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
   // A spectator owns no Tier-1 channel (no hull, no fire control), so the bar's

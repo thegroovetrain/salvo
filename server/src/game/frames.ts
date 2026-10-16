@@ -239,7 +239,9 @@ function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
  * zone's gate), `foulZones` (Story 9.4 — the FOULING SHELL foul zone on the
  * burn zone's gate, `{id,x,y,r,until,by}` each), `decoys` (Story 8.16), then
  * `clouds` (Story 9.3 — the MULTI-SPECTRAL COUNTERMEASURE clouds,
- * `{id,x,y,t0}` each; 8.18's `smoke` seat).
+ * `{id,x,y,t0}` each; 8.18's `smoke` seat). FOG HAS NO CHANNEL (Story 9.10):
+ * the field is public weather off the welcome seed and the schema cut; its
+ * hiding is the toll inside every sight site, never a frame key.
  */
 function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'foulZones' | 'decoys' | 'clouds'> {
   return {

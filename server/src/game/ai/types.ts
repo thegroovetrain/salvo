@@ -170,6 +170,14 @@ export interface BotTickEntry {
    *  tick by the driver (observe() mutates per-observer reveal memory, so the
    *  call count is a pinned invariant, not a nicety). */
   observe(): PerceptionView;
+  /**
+   * The FOG density at a point right now, in [0, 1] (Story 9.10, amendment
+   * 169 — `World.fogDensityAt`, bound by world.ts). PUBLIC WEATHER a human
+   * client evaluates from the welcome seed and the schema cut too — where
+   * fog is, never what it hides. Read by the sweep-miss rule alone: a plot
+   * whose predicted spot sits in fog is not a miss.
+   */
+  fogAt(x: number, y: number): number;
 }
 
 /**
@@ -421,6 +429,11 @@ export interface BotMind {
    *  of its own clouds is up (`now < cloudUntil`, Eric ruling R12).
    *  OPTIONAL: absent (or 0) reads as "nothing running". */
   cloudUntil?: number;
+  /** The fog density thunk of this tick's entry (Story 9.10, amendment 169 —
+   *  `BotTickEntry.fogAt`, copied by the driver before every decide) so the
+   *  fold's sweep-miss rule can ask whether a plot's predicted spot sits in
+   *  fog. OPTIONAL: absent reads as "no fog anywhere". */
+  fogAt?: (x: number, y: number) => number;
 }
 
 /** One remembered torpedo (ai/torpedoThreat.ts): its last revealed kinematics

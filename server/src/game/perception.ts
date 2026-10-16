@@ -7,13 +7,20 @@
 // is unit-tested property-style
 // in __tests__/perception.test.ts: no contact or event in any frame may
 // reference anything outside sight ∪ (this-tick radar paints) — beyond the
-// DECLARED per-row exceptions (self-directed events, owner-authored points,
-// Story 4.3's sp/hc/mz gunnery rows, Story 4.4's anonymous `sm` wounded
-// smoke, and Story 4.5's bearing-only `fh` foghorn), each codified by its own
-// independently-reimplemented oracle in that suite.
+// SIX DECLARED per-row exceptions (self-directed events, owner-authored
+// points, Story 4.3's sp/hc/mz gunnery rows, Story 4.4's anonymous `sm`
+// wounded smoke, and Story 4.5's bearing-only `fh` foghorn), each codified
+// by its own independently-reimplemented oracle in that suite. "Sight"
+// itself is FOG-TOLLED since Story 9.10 (epic-9 amendments 149–150,
+// 163–170): a ray pays the world's `fogTollAlong` (the shared fog field's
+// density, marched) on top of its length, so a hull inside the bubble that
+// fog hides is on NO channel — radar's inner edge stays the geometric sight
+// radius (dark to both sensors, amendment 163). FOG IS A TOLL, NEVER A
+// CHANNEL: the field is public weather both sides derive from the welcome
+// seed and the schema cut, so nothing per-observer about fog rides a frame.
 //
 // THE RULES LIVE IN THE SIGNAL REGISTRY (signals.ts): every signal channel —
-// the 19 GameEvent kinds plus the contact/mine/litzone/burnzone/foulzone/decoy/smoke
+// the 19 GameEvent kinds plus the contact/mine/litzone/burnzone/foulzone/decoy/cloud
 // frame channels —
 // is one declarative SignalSpec row (visible + materialize),
 // and observe()/observeSpectator() below are the ONLY callers of row logic.
@@ -93,6 +100,10 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     // Story 9.3: every live COUNTERMEASURE cloud — the cloud channel's
     // subjects and nothing else (a cloud occludes no sensor).
     clouds: world.cloudRecords,
+    // Story 9.10: THE FOG TOLL — the World's `fogTollAlong` (the shared
+    // field under the live cut), read by every withinSight site. A thunk,
+    // so the field itself never rides the context.
+    fogToll: (ax, ay, bx, by) => world.fogTollAlong(ax, ay, bx, by),
     // Story 4.12: the wake scan's subject list (every live ribbon — active,
     // torpedo, and detached water), riding the context like the raster does.
     wakes: world.wakeRibbons,
@@ -129,6 +140,10 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     decoys: world.decoys,
     // Story 9.3: the cloud channel's subjects (spectators see every cloud).
     clouds: world.cloudRecords,
+    // Story 9.10: the fog toll thunk — INERT on this path (the spectator
+    // rows never call a sight site); rides uniformly so the context stays
+    // one shape.
+    fogToll: (ax, ay, bx, by) => world.fogTollAlong(ax, ay, bx, by),
     // Inert on this path too (spectators have no radar, so no wake events) —
     // rides uniformly so the context stays one shape.
     wakes: world.wakeRibbons,

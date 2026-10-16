@@ -80,7 +80,7 @@ import {
   type Rng,
   type Vec2,
 } from '@salvo/shared';
-import { shipSees, sightOf } from './signals.js';
+import { shipSees, sightOf, type SightField } from './signals.js';
 import { leadIntercept } from './lead.js';
 import { isFleetHull } from './participants.js';
 import { IslandBuckets } from './islandBuckets.js';
@@ -301,20 +301,41 @@ export class FleetController {
    * has no target of its own, joins the fight.
    */
   private propagateWitnesses(victim: ShipRecord, attacker: ShipRecord): void {
-    const islands = this.world.map.islands;
+    // ONE sight field per hit (Story 9.10): built once here, never inside the
+    // per-witness loop.
+    const field = this.sightField();
     for (const [id, mind] of this.minds) {
       if (id === victim.id || mind.targetId !== null) continue;
       const witness = this.world.ships.get(id);
       if (!witness || !isAfloat(witness.lifecycle)) continue;
-      if (!shipSees(witness, attacker, islands)) continue;
-      if (!shipSees(witness, victim, islands)) continue;
+      if (!shipSees(witness, attacker, field)) continue;
+      if (!shipSees(witness, victim, field)) continue;
       this.acquire(id, attacker);
     }
   }
 
+  /**
+   * THE DRONES' SIGHT FIELD (Story 9.10, amendment 168): the islands and the
+   * fog toll thunk (`World.fogTollAlong` — the shared field under the live
+   * cut) that `shipSees` tolls a drone's eye with — the same inputs a
+   * captain's SignalContext carries, so a drone is fogged by the same rule
+   * as a client. Built ONCE per tick (`field`, below) and once per hit
+   * (propagateWitnesses), never inside a per-ship loop. The shot-from chase
+   * (amendment 139) reads no field: being shot is not sight. Hull avoidance
+   * is UNFOGGED (amendment 170) — it reads the solids, never this.
+   */
+  private sightField(): SightField {
+    const world = this.world;
+    return { islands: world.map.islands, fogToll: (ax, ay, bx, by) => world.fogTollAlong(ax, ay, bx, by) };
+  }
+
+  /** This tick's sight field (refreshed at the top of `tick`). */
+  private field: SightField = { islands: [], fogToll: () => 0 };
+
   /** Submit one input per live fleet hull. Dead hulls idle (no input). */
   tick(): void {
     this.snapshotSolids();
+    this.field = this.sightField();
     this.islandGrid.sync(this.world.map.islands, this.world.map.radius);
     for (const [id, mind] of this.minds) {
       const ship = this.world.ships.get(id);
@@ -364,7 +385,7 @@ export class FleetController {
       return;
     }
     const now = this.world.now;
-    if (shipSees(ship, target, this.world.map.islands)) {
+    if (shipSees(ship, target, this.field)) {
       mind.lastContactMs = now;
       mind.lastKnown = { x: target.state.x, y: target.state.y };
       return;
@@ -582,7 +603,7 @@ export class FleetController {
     if (!slot.state || slot.state.n <= 0 || slot.state.reloadMsLeft > 0) return null;
     const target = this.world.ships.get(mind.targetId);
     if (!target || !isAfloat(target.lifecycle)) return null;
-    if (!shipSees(ship, target, this.world.map.islands)) return null;
+    if (!shipSees(ship, target, this.field)) return null;
     const point = this.aimPoint(ship, target, mind);
     mind.fireSeq += 1;
     return { aim: bearing(ship.state, point), aimDist: dist(ship.state, point) };

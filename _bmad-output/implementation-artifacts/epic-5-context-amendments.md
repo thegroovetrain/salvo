@@ -1563,3 +1563,5 @@ satisfied**, and 6.2 must not be read as having discharged it.
 
 **Epic 5 is marked `done` on this ruling** — four landed stories plus two owner-deferred ones, which
 is the same shape epic 4 closed in (11 landed, 4-1 deferred).
+
+**Stamp 2026-10-15 — 5.4's owed re-derivation is RESOLVED by Story 9.10 (epic-9 amendments 149–150, 162–171; cycle 191, 0.18.56, PV 85):** fog banks ship as a SIGHT-ONLY haze with NO radar term, ever (Eric 2026-10-14/15) — the area-material concern is moot because fog has no return; the fog row is delivered inside the 750 u flash/smoke halo as the seventh declared perception exception. Story 5.5 (whirlpools) stays deferred.

@@ -2049,6 +2049,54 @@ export const CONFIG = {
   },
 
   /**
+   * FOG BANKS (Story 9.10; Eric 2026-10-14, epic-9 amendments 149–150 and
+   * 163–164, 167–170; and 2026-10-15: "no discs — it won't look like realistic
+   * rolling fog" + "make it performant"). Fog is a continuous DENSITY FIELD
+   * over the whole ocean that eats EYESIGHT only. In plain words:
+   * - Density in [0, 1] comes from the island generator's transcendental-free
+   *   noise (sim/fog.ts): two fbm layers drifting with a fixed per-match wind
+   *   and cross-fading on a triangle wave (`morphMs`), so banks roll AND change
+   *   shape. A soft step `(noise − cut) / edgeBand` makes thin edges thin and
+   *   bank hearts solid.
+   * - `cut` is the COVERAGE threshold: the server re-estimates it every
+   *   `refreshMs` as the (1 − target) quantile of the noise over a
+   *   `quantileLattice`² lattice inside the live ring (so the fogged share of
+   *   the ring IS the target), slews it at most `cutRatePerS`, and redraws the
+   *   target in [coverageMin, coverageMax] every `targetPeriodMs` (150).
+   * - A ray from an observer to a point pays `sightCostPerU × density` extra
+   *   units of distance per unit of its length (sim/fog.ts `fogTollAlong`, a
+   *   `marchStepU` midpoint march); the sight test compares `d + toll` against
+   *   its range (164). Fog never widens anything.
+   * - NO RADAR TERM, EVER (149, 163): a hull inside the geometric sight radius
+   *   that fog hides is dark to BOTH sensors. The muzzle flash and wounded
+   *   smoke halo pay the toll; zone circles, the foghorn and the storm never
+   *   do (167). PvE drones are fogged by the same rule (168); a fogged plot
+   *   is not a miss (169); drone avoidance is unfogged (170).
+   * - `rasterCellU` sizes the server's coarse quick-reject raster (rays whose
+   *   cells all read 0 skip the march).
+   * The CLIENT READS THIS BLOCK: the field is derived on BOTH sides from
+   * `fogSeed` (rides the welcome), the match clock and these dials, and the
+   * live `fogCut` rides the Colyseus schema. Nothing here touches movement or
+   * prediction. Every leaf is a `--tune fog.*` harness dial.
+   */
+  fog: {
+    sightCostPerU: 2, // extra sight units a ray pays per unit of fog crossed, × density (amendment 164) — fog counts triple
+    coverageMin: 0.02, // the fogged share of the live ring's area the cut aims at (target redrawn in [min, max])
+    coverageMax: 0.08,
+    targetPeriodMs: 120000, // ms between coverage-target redraws
+    wavelengthU: 900, // u — base feature size of the noise (broad banks; Eric 2026-10-15 on the live field page: "Bigger, slower banks" — was 600)
+    octaves: 3, // fbm octaves
+    gain: 0.5, // fbm persistence
+    windU: 8, // u/s — the field drifts with a fixed per-match wind (direction from the seed; Eric: slower — was 12)
+    morphMs: 150000, // ms — the shape turnover: two noise layers cross-fade on a triangle wave of this period (Eric: slower — was 90000)
+    edgeBand: 0.12, // noise units over which density ramps 0 → 1 above the cut (soft edge)
+    cutRatePerS: 0.02, // noise units per second the server may slew the cut
+    refreshMs: 1000, // ms — server raster + quantile refresh cadence
+    marchStepU: 10, // u — the toll's midpoint march step
+    quantileLattice: 48, // samples per side of the coverage lattice inside the live ring
+  },
+
+  /**
    * WAKE DRAFTING (Story 8.19, FR50 / D23; Eric rulings 2026-09-30, epic-8
    * amendments 151–152). A hull sailing in another source's wake ribbon is
    * lifted: its FORWARD speed cap rises by `lift × ageFactor × headFactor` of

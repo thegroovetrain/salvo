@@ -2375,7 +2375,7 @@ So that Armor is a choice with an answer, and the two ladders meet on one curve 
 **And** the exact-ratio pins (amendment 120(a)) are re-based to K 100 by derivation, a curve test covers synthetic (armor, piercing) pairs including E = −K, the perception invariants keep SIX exceptions, `PROTOCOL_VERSION` bumps (catalog content + `CONFIG.armor` read by the client), `npm run check` is green, both trackers stamped
 **And** no in-game copy is added unasked; the HUNKER and ARMOR PIERCING How-to-Play entries are 9.17's, copy Eric's.
 
-### Story 9.10: Fog Banks *(inserted 2026-10-14 — `sprint-change-proposal-2026-10-14.md` §4.2; lands after 9.9; supersedes deferred Story 5.4 and the re-derivation epic-5 amendment 47 owed)*
+### Story 9.10: Fog Banks *(inserted 2026-10-14 — `sprint-change-proposal-2026-10-14.md` §4.2; lands after 9.9; supersedes deferred Story 5.4 and the re-derivation epic-5 amendment 47 owed; BUILT 2026-10-15 — cycle 191, 0.18.56, PV 85; epic-9 amendments 162–171; spec-9-10-fog-banks.md)*
 
 As a captain on a big, dark ocean,
 I want rolling banks of fog that my eyes cannot see through,

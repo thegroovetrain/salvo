@@ -68,9 +68,18 @@ export interface MetricsPayload {
    * 9.3 — 8.18's `smokeLivePeak`) is its twin for live MULTI-SPECTRAL
    * COUNTERMEASURE clouds — every cloud is one delivery-gate check per
    * observer per tick (Story 9.3 session 2: it occludes nothing), so the peak
-   * still says what the perception pass paid for.
+   * still says what the perception pass paid for. `fogCoverage` and
+   * `fogCut` (Story 9.10) are the fog FIELD's readings PER SCRAPE across
+   * every room: the MAX realized fogged share of a live ring recorded since
+   * the last payload was built, and the coverage cut that produced it
+   * (`FOG_NO_CUT` = 9 means no fog) — a max, not the last value, so a
+   * practice room stepping after a live one cannot overwrite the live
+   * reading with 9 / 0; reset when the payload is read (the window idiom).
+   * NUMBERS ONLY, never a position: the field is public weather anyway (the
+   * welcome seed + the schema cut), so these disclose nothing a client
+   * cannot compute.
    */
-  world: { minesLivePeak: number; cloudLivePeak: number };
+  world: { minesLivePeak: number; cloudLivePeak: number; fogCut: number; fogCoverage: number };
 }
 
 interface MessageBucket {
@@ -132,6 +141,10 @@ let minesLivePeak = 0;
 /** Process-wide high-water mark of live COUNTERMEASURE clouds (Story 8.18 /
  *  9.3) — the minesLivePeak twin, same survival rule. */
 let cloudLivePeak = 0;
+/** The cut behind the max coverage recorded since the last payload (Story 9.10) — `FOG_NO_CUT` (9) = no fog. */
+let fogCut = 9;
+/** The MAX realized coverage share recorded since the last payload (Story 9.10). */
+let fogCoverage = 0;
 /** Monotonic second the module first recorded anything; null until first record. */
 let firstRecordSec: number | null = null;
 
@@ -222,12 +235,39 @@ export function recordCloudsLive(count: number): void {
   if (count > cloudLivePeak) cloudLivePeak = count;
 }
 
+/**
+ * Record one room's fog FIELD readings for this sim step (Story 9.10): the
+ * realized coverage share and the cut that produced it. The payload keeps
+ * the MAX coverage since its last read (and that reading's cut), so several
+ * rooms stepping in turn cannot flip the gauge to whichever stepped last.
+ * A strictly higher share replaces; the first record after a read always
+ * lands (so a window of all-zero rooms still reads a real cut). Numbers,
+ * never a position. Called by the arena adapter after each `world.step()`.
+ */
+export function recordFog(cut: number, coverage: number): void {
+  if (fogRecorded && coverage <= fogCoverage) return;
+  fogRecorded = true;
+  fogCut = cut;
+  fogCoverage = coverage;
+}
+
+/** Has any fog reading landed since the last payload read? */
+let fogRecorded = false;
+
+/** Clear the fog window after a payload read (the next record lands unconditionally). */
+function resetFogWindow(): void {
+  fogRecorded = false;
+  fogCut = 9;
+  fogCoverage = 0;
+}
+
 /** Test-only: clear all registered rooms, retired totals, and first-record mark. */
 export function resetMetrics(): void {
   registry.clear();
   retiredMessageTotal = 0;
   minesLivePeak = 0;
   cloudLivePeak = 0;
+  resetFogWindow();
   firstRecordSec = null;
 }
 
@@ -291,7 +331,7 @@ function localCounts(): { rooms: number; players: number } {
 /** Assemble the `/metrics` JSON payload from process-local state. */
 export function metricsPayload(): MetricsPayload {
   const { rooms, players } = localCounts();
-  return {
+  const payload: MetricsPayload = {
     rooms,
     players,
     tick: computeTickPercentiles(allTickSamples()),
@@ -299,8 +339,10 @@ export function metricsPayload(): MetricsPayload {
       ratePerSec: ratePerSec(nowSeconds()),
       total: totalMessages(),
     },
-    world: { minesLivePeak, cloudLivePeak },
+    world: { minesLivePeak, cloudLivePeak, fogCut, fogCoverage },
   };
+  resetFogWindow(); // the fog gauge is per scrape (see MetricsPayload.world)
+  return payload;
 }
 
 // --- HTTP endpoint (Colyseus 0.18 typed route) -------------------------------

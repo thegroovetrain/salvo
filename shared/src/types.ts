@@ -1595,6 +1595,7 @@ export interface WelcomeMsg {
   mapSeed: number;
   mapRadius: number; // u
   playerCap: number; // the cap the server sized the map against (feeds generateMap)
+  fogSeed: number; // uint32 — the fog field's seed (Story 9.10): both sides derive the fog density field from it, the match clock and CONFIG.fog
   t: number; // ms — server time at welcome (seeds the client clock)
   config: GameConfig;
 }

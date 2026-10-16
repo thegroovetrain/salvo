@@ -66,7 +66,38 @@
 // server-generated fakes, their carve-out arm in verifyBlip and the owner's
 // `you.chaff` / `you.chaffGhosts` are gone, so every blip must now trace to a
 // genuine ship paint or a decoy paint — the invariant is STRICTER, and the
-// six exceptions are unchanged. The checks below
+// six exceptions are unchanged. Story 9.10 (THE FOG FIELD — Eric 2026-10-14/15,
+// "no discs, it won't look like realistic rolling fog"; epic-9 amendments
+// 149–150, 163–164, 167–170, 172–173) keeps the count at SIX: fog is a TOLL
+// on the sight predicates, never a channel — the field is public weather
+// both sides derive from the welcome seed and the schema cut, so nothing
+// per-observer about fog rides a frame (the `fog` key exists on no frame;
+// amendment 162's seventh exception is MOOT). SIGHT ITSELF IS FOG-TOLLED:
+// every sight-tier oracle here (`sighted`, `detected`, the mz/sm halo
+// verifiers, the cloud gate's sight arm to the nearest disc point, the wake
+// oracle's in-bubble torpedo-water clause) compares `dist + toll ≤ range`,
+// where the toll is `fogTollOracle` — a NUMERIC INTEGRATION of the segment
+// (≤ 1 u midpoint samples of the SHARED `fogDensityAt` over the world's own
+// field, EPOCH clock (`fogEpochT` — the last refresh's `now`, the view the
+// server's memo walks) and cut — the field is the world, like the islands — times
+// sightCostPerU), never `withinSight` or `world.fogTollAlong` (production's
+// 10 u march + quick-reject raster), so the two derivations check each
+// other. The midpoint rule's error is bounded by the step times the total
+// variation of the density along the ray, so every fogged oracle carries a
+// dead band of `sightCostPerU × ((marchStepU + 1) × TV + 0.5)` — zero on a
+// ray that touches no fog: a delivered subject must be inside the LOOSE
+// bound, a subject the oracle demands PRESENT must be inside the STRICT one
+// (see `Bound`), and with no fog on the ray both collapse to the exact
+// pre-fog test. THE RADAR ORACLES ARE FOG-BLIND BY RULING (amendment 163,
+// "dark to both": radar's inner edge stays the GEOMETRIC sight radius, so a
+// hull fog hides inside the bubble is on NO channel) — `blipPredicate`, the
+// decoy paint, the wake oracle's radar half, the cloud gate's radar arm, the
+// zone circles and the foghorn never read the field, and the fuzz asserts
+// (RADAR_THROUGH_FOG) that returns whose ray crosses fog paint exactly as the
+// fog-blind oracle says. The fuzz PINS the cut per world through the World's
+// test seam (worlds ≡ 0 mod 3 at ~30 % coverage, ≡ 1 at ~5 %, ≡ 2 with no
+// fog) so the toll arms are non-vacuous, and the five FOG_* /
+// RADAR_THROUGH_FOG ledgers prove each arm ran. The checks below
 // are a deliberate test-local reimplementation of the
 // visibility predicates so a refactor of perception.ts cannot silently agree
 // with its own bug.
@@ -89,6 +120,10 @@ import {
   effectiveStats,
   hullSilhouette,
   mulberry32,
+  FOG_NO_CUT,
+  fogCutForTarget,
+  fogDensityAt,
+  fogLattice,
   paintSeed,
   segPolygonHit,
   segmentPaintSeed,
@@ -210,6 +245,81 @@ function sightClearOracle(w: World, me: ShipRecord, b: { x: number; y: number })
   return clearLos(me.state, b, w.map.islands);
 }
 
+// ---------- Story 9.10: the FOG FIELD oracle (independently re-derived) ---
+//
+// THE TOLL, BY NUMERIC INTEGRATION (never production's march): walk the
+// segment a → b in n = ceil(len) equal steps (≤ 1 u each) and sum the SHARED
+// `fogDensityAt` (the one derivation both sides run — the field is the
+// world, like its islands; the oracle reads it through `fogFieldForTest`
+// with the world's clock and cut) at every midpoint, times the step, times
+// sightCostPerU. Production marches the same integrand at `marchStepU`
+// behind a quick-reject raster; the two agree to within the midpoint rule's
+// error, which is bounded by (production step + oracle step) × the total
+// variation TV of the density along the ray — `slack` is that bound (plus
+// half a unit for the oracle's own sampling of TV) times the cost. With no
+// fog on the ray (every sample 0) `touched` is 0, slack is 0 and the fogged
+// oracles are the exact pre-fog tests.
+interface FogToll {
+  toll: number;
+  slack: number;
+  touched: number;
+}
+
+const NO_TOLL: FogToll = { toll: 0, slack: 0, touched: 0 };
+
+function fogTollOracle(w: World, a: { x: number; y: number }, b: { x: number; y: number }): FogToll {
+  if (w.fogCut >= FOG_NO_CUT) return NO_TOLL;
+  const field = w.fogFieldForTest();
+  const len = dist(a, b);
+  const n = Math.ceil(len);
+  if (n === 0) return NO_TOLL;
+  const step = len / n;
+  let sum = 0;
+  let tv = 0;
+  let prev = 0;
+  let touched = 0;
+  for (let i = 0; i < n; i++) {
+    const t = (i + 0.5) / n;
+    const d = fogDensityAt(field, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, w.fogEpochT, w.fogCut);
+    if (d > 0) touched = 1;
+    sum += d;
+    tv += Math.abs(d - prev);
+    prev = d;
+  }
+  if (touched === 0) return NO_TOLL;
+  const cost = CONFIG.fog.sightCostPerU;
+  return { toll: sum * step * cost, slack: ((CONFIG.fog.marchStepU + step) * tv + 0.5) * cost, touched };
+}
+
+/** Which side of the dead band a fogged range test sits on: 'loose' (the
+ *  default — what production DELIVERED must satisfy) grants the slack;
+ *  'strict' (what production MUST deliver) demands it. */
+type Bound = 'loose' | 'strict';
+
+/** THE fogged range comparison every sight-tier oracle composes:
+ *  `dist + toll ≤ range ± slack` and island LOS. */
+function sightedWithin(w: World, me: ShipRecord, p: { x: number; y: number }, range: number, bound: Bound): boolean {
+  const { toll, slack } = fogTollOracle(w, me.state, p);
+  const margin = bound === 'loose' ? slack : -slack;
+  return dist(me.state, p) + toll <= range + margin && sightClearOracle(w, me, p);
+}
+
+/** Non-vacuity ledgers for the fog (the CLOUD_SIGHT_THROUGH idiom).
+ *  FOG_HID_CONTACT: (observer, hull) pairs inside GEOMETRIC sight with island
+ *  LOS clear and no owned zone, whose toll pushed them out — verified ABSENT.
+ *  FOG_THIN_SEEN: pairs whose ray touches fog yet stay inside the tolled
+ *  range — verified PRESENT. FOG_HID_MINE_OR_TORP: detect-rung subjects
+ *  (enemy mines, enemy fish) hidden by the toll — verified absent.
+ *  FOG_HID_SM: an `sm` (or `mz`) inside the geometric halo with LOS, hidden
+ *  by the toll — verified absent. RADAR_THROUGH_FOG: ship or decoy paints
+ *  whose ray touches fog — painted exactly as the fog-blind oracle says
+ *  (verifyBlipCompleteness). */
+const FOG_HID_CONTACT = { n: 0 };
+const FOG_THIN_SEEN = { n: 0 };
+const FOG_HID_MINE_OR_TORP = { n: 0 };
+const FOG_HID_SM = { n: 0 };
+const RADAR_THROUGH_FOG = { n: 0 };
+
 /** Non-vacuity ledgers for the cloud (the DECOY_PAINT_EXPECTED idiom).
  *  CLOUD_SIGHT_THROUGH: (observer, hull) pairs inside sight with island LOS
  *  clear whose line runs through a live cloud's disc — verified PRESENT as a
@@ -280,8 +390,9 @@ function effRadar(): number {
   return RADAR;
 }
 
-function sighted(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
-  return dist(me.state, p) <= effSight(w, me) && sightClearOracle(w, me, p);
+function sighted(w: World, me: ShipRecord, p: { x: number; y: number }, bound: Bound = 'loose'): boolean {
+  // Story 9.10: fog-tolled (`dist + toll ≤ sight`, the integration oracle).
+  return sightedWithin(w, me, p, effSight(w, me), bound);
 }
 
 // The Story 4.9 DETECT oracle (amendments 119/121), INDEPENDENTLY RE-DERIVED:
@@ -291,8 +402,10 @@ function sighted(w: World, me: ShipRecord, p: { x: number; y: number }): boolean
 // ruling scales it, island LOS applied unchanged. Binds mines,
 // torpedoes, and torpU updates; NON-VACUOUS by the directed cases below (a
 // mine/torpedo at 300u — inside sight, outside detect — must be excluded).
-function detected(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
-  return dist(me.state, p) <= 1 * effSight(w, me) && sightClearOracle(w, me, p);
+function detected(w: World, me: ShipRecord, p: { x: number; y: number }, bound: Bound = 'loose'): boolean {
+  // Story 9.10: fog-tolled exactly as sight is (a mine or a fish in a bank is
+  // spotted late by the same ray cost).
+  return sightedWithin(w, me, p, 1 * effSight(w, me), bound);
 }
 
 // The Story 1.7 owned-zone reveal source, reimplemented test-locally (NEVER
@@ -2578,7 +2691,9 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // alike (CLOUD_SIGHT_THROUGH counts the pairs so the arm is exercised).
   for (const other of w.ships.values()) {
     if (!isAfloat(me.lifecycle) || other.id === me.id || !isAfloat(other.lifecycle)) continue;
-    const inSight = dist(me.state, other.state) <= effSight(w, me) && clearLos(me.state, other.state, w.map.islands);
+    // Story 9.10: "in sight" is the FOG-TOLLED sight (strict — the pair must
+    // be inside the dead band's inner edge to be demanded present).
+    const inSight = sighted(w, me, other.state, 'strict');
     if (!inSight) continue;
     const throughCloud = [...w.clouds.values()].some(
       (c) => w.now < c.until && segPointDistOracle(me.state, other.state, c) <= cloudOutlineOracle(c.bornAt, w.now),
@@ -2586,6 +2701,59 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     if (!throughCloud) continue;
     CLOUD_SIGHT_THROUGH.n += 1;
     expect(f.contacts.some((c) => c.id === other.id), `cloud hid ${other.id} from ${me.id}`).toBe(true);
+  }
+  // FOG BANKS HIDE BY TOLL (Story 9.10, amendments 164–165): every other
+  // afloat hull inside this observer's GEOMETRIC sight with island LOS clear
+  // and no owned zone, whose ray crosses a live bank, is a contact IFF the
+  // tolled distance stays inside sight — PRESENT when strictly inside
+  // (FOG_THIN_SEEN), ABSENT when the toll pushed it past the loose bound
+  // (FOG_HID_CONTACT); the dead band between is production's call.
+  for (const other of w.ships.values()) {
+    if (!isAfloat(me.lifecycle) || other.id === me.id || !isAfloat(other.lifecycle)) continue;
+    if (zoneCovers(w, me, other.state)) continue;
+    if (dist(me.state, other.state) > effSight(w, me) || !clearLos(me.state, other.state, w.map.islands)) continue;
+    if (fogTollOracle(w, me.state, other.state).touched === 0) continue;
+    const present = f.contacts.some((c) => c.id === other.id);
+    if (sighted(w, me, other.state, 'strict')) {
+      FOG_THIN_SEEN.n += 1;
+      expect(present, `thin fog hid ${other.id} from ${me.id}`).toBe(true);
+    } else if (!sighted(w, me, other.state)) {
+      FOG_HID_CONTACT.n += 1;
+      expect(present, `fog should hide ${other.id} from ${me.id}`).toBe(false);
+    }
+  }
+  // ...and the DETECT rung pays the same toll: an enemy mine or fish inside
+  // geometric detect with LOS, no owned zone, that the toll pushed out is on
+  // no channel (FOG_HID_MINE_OR_TORP).
+  if (isAfloat(me.lifecycle)) {
+    for (const mine of w.mines.values()) {
+      if (mine.ownerId === me.id || zoneCovers(w, me, mine)) continue;
+      if (dist(me.state, mine) > 1 * effSight(w, me) || !clearLos(me.state, mine, w.map.islands)) continue;
+      if (detected(w, me, mine)) continue;
+      FOG_HID_MINE_OR_TORP.n += 1;
+      expect(f.mines.some((m) => m.id === mine.id), `fog should hide mine ${mine.id} from ${me.id}`).toBe(false);
+    }
+    for (const sh of w.shells.values()) {
+      if (sh.kind !== 'torp' || sh.ownerId === me.id || zoneCovers(w, me, sh)) continue;
+      if (dist(me.state, sh) > 1 * effSight(w, me) || !clearLos(me.state, sh, w.map.islands)) continue;
+      if (detected(w, me, sh)) continue;
+      FOG_HID_MINE_OR_TORP.n += 1;
+      expect(f.events.some((e) => (e.k === 'torp' || e.k === 'torpU') && e.id === sh.id), `fog should hide fish ${sh.id} from ${me.id}`).toBe(false);
+    }
+    // ...and the 750 u halo pays it too (amendment 167): a flash or a puff
+    // inside the GEOMETRIC halo with LOS that the toll pushed out is withheld
+    // (FOG_HID_SM counts the puffs; both kinds are asserted).
+    const halo = me.stats.radarRange * CONFIG.vision.muzzleFlashFactor;
+    for (const ev of w.tickEvents) {
+      if (ev.k !== 'sm' && ev.k !== 'mz') continue;
+      const p = ev as { k: 'sm' | 'mz'; x: number; y: number };
+      const d = dist(me.state, p);
+      if (d > halo || !clearLos(me.state, p, w.map.islands)) continue;
+      const { toll, slack } = fogTollOracle(w, me.state, p);
+      if (d + toll <= halo + slack) continue;
+      if (p.k === 'sm') FOG_HID_SM.n += 1;
+      expect(f.events.some((e) => e.k === p.k && (e as { x: number; y: number }).x === p.x && (e as { x: number; y: number }).y === p.y), `fog should hide ${p.k} at (${p.x},${p.y}) from ${me.id}`).toBe(false);
+    }
   }
   // THE WAKE-DRAFT LIFT IS SELF-PRIVATE (Story 8.19): `draft` may exist
   // NOWHERE but `you` — never on a contact, never in a frame without `you` —
@@ -2665,8 +2833,16 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   for (const cloud of w.clouds.values()) {
     if (w.now >= cloud.until) continue;
     const delivered = (f.clouds ?? []).some((v) => v.id === cloud.id);
-    expect(delivered, `cloud ${cloud.id} delivered to ${me.id} iff its gate passes`).toBe(cloudGateOracle(w, me, cloud));
+    // Story 9.10: the sight arm is fog-tolled, so the gate has a dead band —
+    // a delivered cloud must pass the LOOSE gate, a withheld one must fail
+    // the STRICT one (the same band every tolled oracle grants).
+    if (delivered) expect(cloudGateOracle(w, me, cloud, 'loose'), `cloud ${cloud.id} delivered to ${me.id} only if its gate passes`).toBe(true);
+    else expect(cloudGateOracle(w, me, cloud, 'strict'), `cloud ${cloud.id} withheld from ${me.id} only if its gate fails`).toBe(false);
   }
+  // FOG IS NOT A CHANNEL (Story 9.10): no frame — fogged or spectator — ever
+  // carries a `fog` key; the field is public weather (welcome seed + schema
+  // cut) and its hiding is the toll inside the sight oracles above.
+  expect('fog' in f).toBe(false);
   expect(JSON.stringify(f)).not.toContain('ownerId');
   expect(JSON.stringify(f)).not.toContain('bornAt');
   for (const d of f.denied ?? []) verifyDenied(me, d);
@@ -2714,6 +2890,7 @@ function expectedShipBlips(w: World, me: ShipRecord): ExpectedBlip[] {
   for (const target of w.ships.values()) {
     if (!isAfloat(target.lifecycle) || target.id === me.id) continue;
     if (!blipPredicate(w, me, target.state, target.id)) continue;
+    if (fogTollOracle(w, me.state, target.state).touched > 0) RADAR_THROUGH_FOG.n += 1; // Story 9.10: painted through fog
     const s = target.state;
     out.push({ mask: maskOracle(target.hullId, s.x, s.y, s.heading, w.now), label: `gated ship ${target.id}` });
   }
@@ -2728,6 +2905,7 @@ function expectedDecoyBlips(w: World, me: ShipRecord): ExpectedBlip[] {
   const out: ExpectedBlip[] = [];
   for (const d of w.decoys.values()) {
     if (!blipPredicate(w, me, d, d.id)) continue;
+    if (fogTollOracle(w, me.state, d).touched > 0) RADAR_THROUGH_FOG.n += 1; // Story 9.10: a decoy paint is fog-blind too
     out.push({ mask: decoyMaskOracle(d, w.now), label: `gated decoy ${d.id} paint` });
   }
   return out;
@@ -2899,19 +3077,28 @@ function discPassRevOracle(me: ShipRecord, c: { x: number; y: number }, r: numbe
  *  LOS to that point (`clearLos`) — or RADAR-DETECTED — its nearest point
  *  within effRadar (inclusive), the beam crossing its bearing span this tick,
  *  and the centre shadow-visible (the test-local march). Never a lit-zone
- *  path. The two ledgers count deliveries ONE sensor alone explains. */
-function cloudGateOracle(w: World, me: ShipRecord, cloud: { id: string; ownerId: string; x: number; y: number; bornAt: number }): boolean {
+ *  path. The two ledgers count deliveries ONE sensor alone explains. Since
+ *  Story 9.10 the sight arm is fog-tolled (`bound` picks the dead band's
+ *  side); the radar arm is fog-blind. */
+function cloudGateOracle(w: World, me: ShipRecord, cloud: { id: string; ownerId: string; x: number; y: number; bornAt: number }, bound: Bound = 'strict'): boolean {
   if (cloud.ownerId === me.id) return true;
   const r = cloudOutlineOracle(cloud.bornAt, w.now);
   const near = dist(me.state, cloud) - r;
-  const bySight = near <= effSight(w, me) && clearLos(me.state, nearestDiscPointOracle(me.state, cloud, r), w.map.islands);
+  // Story 9.10: the sight arm pays the fog toll on the segment to the nearest
+  // disc point, at the caller's side of the dead band (verifyFrame asks
+  // 'loose' for a delivered cloud and 'strict' for a withheld one; the
+  // ledgers count on the loose pass). The radar arm below is FOG-BLIND by
+  // ruling (amendment 163).
+  const bySight = near <= effSight(w, me) && sightedWithin(w, me, nearestDiscPointOracle(me.state, cloud, r), effSight(w, me), bound);
   const byRadar =
     near <= effRadar() &&
     beamCrossesDiscOracle(me, cloud, r) &&
     shadowVisible(w, me, cloud) &&
     dropoutOracle(w, me, dist(me.state, cloud), cloud.id, discPassRevOracle(me, cloud, r)); // the roll at the CENTRE distance (ruling 123)
-  if (bySight && !byRadar) CLOUD_DELIVERED_BY_SIGHT.n += 1;
-  if (byRadar && !bySight) CLOUD_DELIVERED_BY_RADAR.n += 1;
+  if (bound === 'loose') { // the delivered-cloud pass (verifyFrame) — count what reached a frame
+    if (bySight && !byRadar) CLOUD_DELIVERED_BY_SIGHT.n += 1;
+    if (byRadar && !bySight) CLOUD_DELIVERED_BY_RADAR.n += 1;
+  }
   return bySight || byRadar;
 }
 
@@ -3010,6 +3197,10 @@ type EventVerifier = (w: World, me: ShipRecord, e: GameEvent) => void;
  *  the point. No cloud term (Story 9.3 session 2: a cloud hides nothing —
  *  8.18's in-bubble smoke paint and cycle 174's radar rule are retired). */
 function blipPredicate(w: World, me: ShipRecord, p: { x: number; y: number }, key: string): boolean {
+  // FOG-BLIND BY RULING (Story 9.10, amendment 163): the annulus opens at the
+  // GEOMETRIC sight radius and no bank term exists on this gate — a hull fog
+  // hides inside the bubble paints nowhere, a hull beyond it paints through
+  // any bank. The fuzz's RADAR_THROUGH_FOG ledger proves the arm ran.
   const d = dist(me.state, p);
   const reach = d > effSight(w, me) && d <= effRadar();
   return (
@@ -3602,11 +3793,15 @@ function wakeDisclosed(w: World, me: ShipRecord, seg: WakeSegOracle, torp: boole
   const inner = torp ? 1 * sight : sight; // the `detected` oracle's 4/8 literal (2026-10-08)
   if (d <= inner || d > effRadar()) return false;
   if (!inPaintWindow(me, bearing(me.state, mid))) return false;
-  // In-bubble (torpedo) water: BINARY island LOS; beyond sight: the radar
-  // shadow march. No cloud term on either half (Story 9.3 session 2).
-  // Story 9.8 (ruling 123): the radar half rolls the dropout, keyed on the
-  // water's SOURCE (`w.wakeKeyOf` — the ship id, or the fish's shell id).
-  if (d <= sight) return sightClearOracle(w, me, mid);
+  // In-bubble (torpedo) water: BINARY island LOS AND the fog toll (Story
+  // 9.10 — sight-delivered water pays like the fish it stands in for; today
+  // the torpedo bound equals sight, so this clause is unreachable until the
+  // detect rung moves); beyond sight: the radar shadow march — FOG-BLIND by
+  // ruling (amendment 163). No cloud term on either half (Story 9.3
+  // session 2). Story 9.8 (ruling 123): the radar half rolls the dropout,
+  // keyed on the water's SOURCE (`w.wakeKeyOf` — the ship id, or the fish's
+  // shell id).
+  if (d <= sight) return sightedWithin(w, me, mid, sight, 'loose');
   return shadowVisible(w, me, mid) && dropoutOracle(w, me, d, key);
 }
 
@@ -3853,7 +4048,10 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
     // weapon, or heading for ANY observer.
     const ev = e as { k: 'mz'; x: number; y: number };
     expect(Object.keys(ev).sort()).toEqual(['k', 'x', 'y']);
-    expect(dist(me.state, ev)).toBeLessThanOrEqual(me.stats.radarRange * CONFIG.vision.muzzleFlashFactor);
+    // Story 9.10 (amendment 167): the flash PAYS the fog toll — dist + toll
+    // against the halo (the integration oracle, loose bound).
+    const mzToll = fogTollOracle(w, me.state, ev);
+    expect(dist(me.state, ev) + mzToll.toll).toBeLessThanOrEqual(me.stats.radarRange * CONFIG.vision.muzzleFlashFactor + mzToll.slack);
     expect(sightClearOracle(w, me, ev)).toBe(true); // island LOS
   },
   sm: (w, me, e) => {
@@ -3875,7 +4073,10 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
     const ev = e as { k: 'sm'; x: number; y: number; tier: number };
     expect(Object.keys(ev).sort()).toEqual(['k', 'tier', 'x', 'y']);
     expect([1, 2]).toContain(ev.tier);
-    expect(dist(me.state, ev)).toBeLessThanOrEqual(me.stats.radarRange * CONFIG.vision.muzzleFlashFactor);
+    // Story 9.10 (amendment 167): smoke PAYS the fog toll like the flash —
+    // dist + toll against the halo (the integration oracle, loose bound).
+    const smToll = fogTollOracle(w, me.state, ev);
+    expect(dist(me.state, ev) + smToll.toll).toBeLessThanOrEqual(me.stats.radarRange * CONFIG.vision.muzzleFlashFactor + smToll.slack);
     expect(sightClearOracle(w, me, ev)).toBe(true); // island LOS
   },
   fh: (w, me, e) => {
@@ -3995,17 +4196,22 @@ class VisitLedger {
     const marks = seeded ?? new Set<string>();
     const ever = this.ever.get(viewerId) ?? new Set<string>();
     for (const sh of w.shells.values()) {
-      const inside = sh.ownerId === me.id || (sh.kind === 'torp' ? detected(w, me, sh) : sighted(w, me, sh)) || zoneCovers(w, me, sh);
+      // Story 9.10: the gate is fog-tolled, so it has a dead band — a reveal
+      // must be inside the LOOSE gate; an unmarked projectile MUST reveal
+      // only inside the STRICT one; the band between leaves the mark as is.
+      const gateAt = (bound: Bound): boolean =>
+        sh.ownerId === me.id || (sh.kind === 'torp' ? detected(w, me, sh, bound) : sighted(w, me, sh, bound)) || zoneCovers(w, me, sh);
+      const insideLoose = gateAt('loose');
       if (revealed.has(sh.id)) {
-        expect(inside).toBe(true); // never a reveal from outside the gate
+        expect(insideLoose).toBe(true); // never a reveal from outside the gate
         if (seeded !== undefined) expect(marks.has(sh.id)).toBe(false); // never twice per visit
         if (ever.has(sh.id)) this.reReveals += 1;
         marks.add(sh.id);
         ever.add(sh.id);
-      } else if (inside) {
+      } else if (gateAt('strict')) {
         if (seeded !== undefined) expect(marks.has(sh.id)).toBe(true); // inside + unmarked MUST reveal
         marks.add(sh.id); // (re-seed after a gap: production holds the mark)
-      } else {
+      } else if (!insideLoose) {
         marks.delete(sh.id); // the per-visit clear
       }
     }
@@ -4027,6 +4233,11 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     CLOUD_DELIVERED_BY_RADAR.n = 0;
     DRAFT_SEEN.n = 0;
     FOUL_ZONE_DELIVERED.n = 0;
+    FOG_HID_CONTACT.n = 0;
+    FOG_THIN_SEEN.n = 0;
+    FOG_HID_MINE_OR_TORP.n = 0;
+    FOG_HID_SM.n = 0;
+    RADAR_THROUGH_FOG.n = 0;
     DROPOUT_LEDGER.painted = 0;
     DROPOUT_LEDGER.missed = 0;
     let wkSeen = 0; // Story 4.12: proves the wake oracle ran non-vacuously
@@ -4121,6 +4332,26 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           injectCloud(w, 'onAnchor', owner, anchor.x, anchor.y, w.now - rng.float(0, 12_000));
           anchorRec.sweepAngle = wrapPositive(bearing(anchor, pq.state) - 0.01);
           anchorRec.prevSweepAngle = anchorRec.sweepAngle;
+        }
+      }
+      // THE FOG FIELD (Story 9.10) — PINNED per world through the World's
+      // test-only seam (production's one writer is the controller, which
+      // needs a live zone): the cut is the shared quantile over a lattice of
+      // the arena for a coverage of ~30 % in worlds ≡ 0 mod 3 (dense enough
+      // that rays inside sight routinely pay their way out — FOG_HID_CONTACT,
+      // FOG_HID_SM, FOG_HID_MINE_OR_TORP), ~5 % in worlds ≡ 1 (thin fog most
+      // rays graze and still see through — FOG_THIN_SEEN) and NONE in worlds
+      // ≡ 2 (the exact pre-fog oracles). An enemy mine 0.8 of the way from
+      // the anchor to pn rides the dense worlds so the detect rung has a
+      // subject inside geometric detect that the toll can hide.
+      {
+        const share = [0.3, 0.05, 0][world % 3];
+        const lattice = fogLattice(0, 0, INVARIANT_ARENA_U, CONFIG.fog.quantileLattice);
+        w.setFogCutForTest(fogCutForTarget(w.fogFieldForTest(), w.now, lattice, share));
+        if (world % 3 === 0) {
+          const a = w.ships.get(ids[0])!.state;
+          const p = w.ships.get('pn')!.state;
+          injectMine(w, 'fogMine', 'pn', a.x + (p.x - a.x) * 0.8, a.y + (p.y - a.y) * 0.8);
         }
       }
       // WOUNDED SMOKE (Story 4.4): guarantee the sm oracle is EXERCISED, not
@@ -4411,6 +4642,16 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     // ...and so must the Story 8.16 decoy-paint arm: decoy paints actually
     // reached (and were consumed from) real frames.
     expect(DECOY_PAINT_EXPECTED.n).toBeGreaterThan(0);
+    // THE FOG ARMS (Story 9.10) must each have been EXERCISED: a hull inside
+    // geometric sight hidden by toll (verified absent), a hull seen through
+    // thin fog, a detect-rung subject hidden, an `sm` hidden inside the halo,
+    // and a radar return painted through fog exactly as the fog-blind oracle
+    // says.
+    expect(FOG_HID_CONTACT.n).toBeGreaterThan(0);
+    expect(FOG_THIN_SEEN.n).toBeGreaterThan(0);
+    expect(FOG_HID_MINE_OR_TORP.n).toBeGreaterThan(0);
+    expect(FOG_HID_SM.n).toBeGreaterThan(0);
+    expect(RADAR_THROUGH_FOG.n).toBeGreaterThan(0);
     // The ledger values, under the perf pins' opt-in flag (the HC_PERF_LOG
     // idiom) — so a re-lay of the fuzz geometry can be checked for how far
     // above zero each arm actually sits, not only that it cleared the bar.
@@ -4420,7 +4661,9 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           `CLOUD_DELIVERED_BY_SIGHT ${CLOUD_DELIVERED_BY_SIGHT.n} | CLOUD_DELIVERED_BY_RADAR ${CLOUD_DELIVERED_BY_RADAR.n} | ` +
           `DECOY_PAINT_EXPECTED ${DECOY_PAINT_EXPECTED.n} | ` +
           `DRAFT_SEEN ${DRAFT_SEEN.n} | FOUL_ZONE_DELIVERED ${FOUL_ZONE_DELIVERED.n} | wk ${wkSeen} | reReveals ${reReveals} | ` +
-          `dropout painted ${DROPOUT_LEDGER.painted} missed ${DROPOUT_LEDGER.missed}`,
+          `dropout painted ${DROPOUT_LEDGER.painted} missed ${DROPOUT_LEDGER.missed} | ` +
+          `FOG_HID_CONTACT ${FOG_HID_CONTACT.n} | FOG_THIN_SEEN ${FOG_THIN_SEEN.n} | FOG_HID_MINE_OR_TORP ${FOG_HID_MINE_OR_TORP.n} | ` +
+          `FOG_HID_SM ${FOG_HID_SM.n} | RADAR_THROUGH_FOG ${RADAR_THROUGH_FOG.n}`,
       );
     }
   });
@@ -4709,6 +4952,137 @@ describe('perception — the completeness oracle cannot be satisfied by substitu
   });
 });
 
+// ---------- directed cases: THE FOG FIELD (Story 9.10) -------------------------
+//
+// The spec's I/O matrix, row by row, against real frames (every fogged frame
+// also passes verifyFrame, so the integration oracle agrees with production
+// on each). The field is PINNED through the World's test seam so the
+// geometry is exact: a cut of −2 is density 1 everywhere (every ray pays
+// sightCostPerU × its length), FOG_NO_CUT is no fog. The distances below are
+// derived from CONFIG.fog.sightCostPerU, the 500 u sight and the 750 u halo:
+// with cost 2, a subject at d is seen iff 3 × d ≤ range.
+
+/** Density 1 everywhere. */
+const FULL_FOG_CUT = -2;
+const COST = CONFIG.fog.sightCostPerU;
+
+describe('perception — THE FOG FIELD: sight pays the toll (Story 9.10, amendments 149–150 / 163–170)', () => {
+  it('under density 1 a hull at 200 u is hidden from EVERY channel (200 × 3 > 500) and one at 150 u is seen (150 × 3 ≤ 500); with no fog the 200 u hull is a plain contact (dark to both, 163)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    place(w, 'b', 200, 0);
+    place(w, 'c', 0, 150);
+    expect(200 * (1 + COST)).toBeGreaterThan(SIGHT); // premise
+    expect(150 * (1 + COST)).toBeLessThanOrEqual(SIGHT); // premise
+    w.setFogCutForTest(FULL_FOG_CUT);
+    windowAround(a, 0); // the beam ON b's bearing — still nothing: b is inside the geometric bubble
+    const f = buildFrame(w, 'a');
+    verifyFrame(w, 'a', f);
+    expect(f.contacts.map((c) => c.id)).toEqual(['c']);
+    expect(blipsOf(f)).toEqual([]);
+    expect(f.events.filter((e) => e.k === 'wk')).toEqual([]);
+    expect(JSON.stringify(f.contacts) + JSON.stringify(f.events)).not.toContain('"b"');
+    // ...and with no fog, the same hull is a plain contact.
+    w.setFogCutForTest(FOG_NO_CUT);
+    const clear = buildFrame(w, 'a');
+    verifyFrame(w, 'a', clear);
+    expect(clear.contacts.map((c) => c.id).sort()).toEqual(['b', 'c']);
+  });
+
+  it('an enemy mine at 200 u under density 1 is NOT a mine row (the detect rung pays the same toll) — and it is still armed in the store; with no fog it is', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    place(w, 'b', 2000, 0);
+    injectMine(w, 'm', 'b', 200, 0);
+    w.setFogCutForTest(FULL_FOG_CUT);
+    const f = buildFrame(w, 'a');
+    verifyFrame(w, 'a', f);
+    expect(f.mines).toEqual([]);
+    expect(w.mines.has('m')).toBe(true);
+    w.setFogCutForTest(FOG_NO_CUT);
+    expect(buildFrame(w, 'a').mines.map((m) => m.id)).toEqual(['m']);
+  });
+
+  it('a wounded-smoke puff (and a flash) at 300 u under density 1 is withheld (300 × 3 > 750) and delivered with no fog (167)', () => {
+    const run = (cut: number): string[] => {
+      const w = bareWorld();
+      place(w, 'a', 0, 0);
+      w.setFogCutForTest(cut);
+      emitWorldEvent(w, { k: 'sm', x: 300, y: 0, tier: 1 });
+      emitWorldEvent(w, { k: 'mz', x: 300, y: 0 });
+      const f = buildFrame(w, 'a');
+      verifyFrame(w, 'a', f);
+      return f.events.filter((e) => e.k === 'sm' || e.k === 'mz').map((e) => e.k).sort();
+    };
+    expect(300 * (1 + COST)).toBeGreaterThan(RADAR * CONFIG.vision.muzzleFlashFactor); // premise
+    expect(run(FULL_FOG_CUT)).toEqual([]);
+    expect(run(FOG_NO_CUT)).toEqual(['mz', 'sm']);
+  });
+
+  it('RADAR IS FOG-BLIND (163): a hull at 700 u paints the byte-identical blip under density 1 and with no fog', () => {
+    const paint = (cut: number): BlipEvent[] => {
+      const w = bareWorld(7);
+      const a = place(w, 'a', 0, 0);
+      place(w, 'b', ANNULUS_D, 0);
+      w.setFogCutForTest(cut);
+      windowAround(a, 0);
+      const f = buildFrame(w, 'a');
+      verifyFrame(w, 'a', f);
+      return blipsOf(f);
+    };
+    const clear = paint(FOG_NO_CUT);
+    const fogged = paint(FULL_FOG_CUT);
+    expect(clear).toHaveLength(1);
+    expect(fogged).toEqual(clear);
+  });
+
+  it('ZONE CIRCLES DO NOT PAY (167): a burn zone centred 900 u away is delivered on radar range under density 1', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    place(w, 'b', 2000, 0);
+    injectBurnZone(w, 'bz', 'b', 900, 0);
+    w.setFogCutForTest(FULL_FOG_CUT);
+    const f = buildFrame(w, 'a');
+    verifyFrame(w, 'a', f);
+    expect((f.burnZones ?? []).map((z) => z.id)).toEqual(['bz']);
+  });
+
+  it('FOG IS NOT A CHANNEL: no frame carries a `fog` key — fogged or spectator, under density 1 or none', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    place(w, 'b', 200, 0);
+    for (const cut of [FOG_NO_CUT, FULL_FOG_CUT]) {
+      w.setFogCutForTest(cut);
+      expect('fog' in buildFrame(w, 'a')).toBe(false);
+      expect('fog' in buildFrame(w, 'a', 'finished')).toBe(false);
+    }
+  });
+
+  it('SPECTATORS ARE UNFOGGED: a finished-phase frame under density 1 still lists the 200 u hull', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    place(w, 'b', 200, 0);
+    w.setFogCutForTest(FULL_FOG_CUT);
+    expect(buildFrame(w, 'a').contacts).toEqual([]);
+    const spec = buildFrame(w, 'a', 'finished');
+    expect(spec.spec).toBe(true);
+    expect(spec.contacts.map((c) => c.id)).toContain('b'); // every afloat hull, the spectator's own included
+  });
+
+  it('FAIL-CLOSED RANGE (the NaN-safe withinSight): an observer whose sightRange is NaN sees NOTHING at 10 u — no contact, no blip, no detect-rung row', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    place(w, 'b', 10, 0);
+    injectMine(w, 'm', 'b', 0, 10);
+    (a as { stats: { sightRange: number } }).stats = { ...a.stats, sightRange: NaN };
+    windowAround(a, 0);
+    const f = buildFrame(w, 'a');
+    expect(f.contacts).toEqual([]);
+    expect(blipsOf(f)).toEqual([]);
+    expect(f.mines).toEqual([]);
+  });
+});
+
 // ---------- SIGNAL REGISTRY completeness (CI-by-construction) -----------------
 //
 // These assertions make "a signal without a passing invariant case fails CI by
@@ -4730,7 +5104,9 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   // channel, with its own oracle (cloudGateOracle / verifyCloudShape); a
   // cloud occludes nothing (Story 9.3 session 2). `foulzone` (Story 9.4) is
   // the FOULING SHELL foul zone's channel on the burn zone's gate, with its
-  // own oracle (verifyFoulZone / foulZoneGateOracle).
+  // own oracle (verifyFoulZone / foulZoneGateOracle). FOG (Story 9.10) HAS
+  // NO ROW: the field is public weather and its hiding is the toll inside
+  // the sight oracles (fogTollOracle) — the declared exceptions stay at SIX.
   const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'burnzone', 'foulzone', 'decoy', 'cloud'];
   // The 19 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
   // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private
@@ -4753,7 +5129,7 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
     }
   });
 
-  it('the seven contact-like pseudo-rows exist (verified via the contacts/mines/litZones/burnZones/foulZones/decoys/clouds channels)', () => {
+  it('the seven contact-like pseudo-rows exist (verified via the contacts/mines/litZones/burnZones/foulZones/decoys/clouds channels); fog has no row', () => {
     expect(SIGNAL_REGISTRY.contact).toBeDefined();
     expect(SIGNAL_REGISTRY.mine).toBeDefined();
     expect(SIGNAL_REGISTRY.litzone).toBeDefined();
@@ -4761,6 +5137,7 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
     expect(SIGNAL_REGISTRY.foulzone).toBeDefined(); // Story 9.4
     expect(SIGNAL_REGISTRY.decoy).toBeDefined();
     expect(SIGNAL_REGISTRY.cloud).toBeDefined(); // Story 9.3 (8.18's smoke seat)
+    expect(Object.hasOwn(SIGNAL_REGISTRY, 'fog')).toBe(false); // Story 9.10 — fog is a toll, never a channel
     expect(Object.hasOwn(SIGNAL_REGISTRY, 'buoy')).toBe(false); // deleted with the radar buoy (Story 8.16)
   });
 

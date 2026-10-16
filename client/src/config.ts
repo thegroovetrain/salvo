@@ -127,6 +127,8 @@ const COLORS = {
   woundedSmoke: 0x7a7168,
   // The MULTI-SPECTRAL COUNTERMEASURE haze (Story 9.3 session 3, Eric 2026-10-12 reference: light grey smoke with real contrast on the dark water) — NOT the wounded plume grey.
   countermeasureSmoke: 0xc4c0b8,
+  // FOG BANKS (Story 9.10, Eric's pick B "Wisps", 2026-10-15): a pale warm grey, LIGHTER than the countermeasure haze so weather never reads as a deployed smoke screen; the wisps' per-puff shades multiply it (CLIENT_CONFIG.fogField shadeMin/shadeMax).
+  fogBank: 0xdcdad4,
   // drones (PvE — always greyscale)
   droneOutline: 0x9aa3b2,
   droneFill: 0x454950,
@@ -2638,6 +2640,52 @@ export const CLIENT_CONFIG = {
      *  too dear for every frame; clouds are stationary and a shadow edge is
      *  off by at most this much. */
     losRecastMoveU: 2,
+  },
+
+  /**
+   * THE FOG FIELD (render/fogField.ts, Story 9.10 re-plan "THE FIELD", Eric
+   * 2026-10-15: "no discs — realistic rolling fog", "make it performant").
+   * Eric's pick B "Wisps" applied to the shared density field: a world-anchored
+   * density raster (sim/fog.ts `fogDensityAt`, refreshed on a cadence) masks a
+   * pre-baked tiling texture of soft overlapping pale-grey puffs that rolls
+   * with the field's wind. Every value here is a FEEL knob — Eric may re-tune
+   * on staging; the field itself (where fog is) comes from `CONFIG.fog`, the
+   * welcome's `fogSeed` and the schema's `fogCut`, never from here.
+   * The halo + island line-of-sight mask deliberately reads
+   * `countermeasure.{haloFeatherU, losRays, losRecastMoveU}` (not a copy) so
+   * the fog and the countermeasure haze end at the same edge.
+   */
+  fogField: {
+    /** u — one density-raster cell (≈ 100² cells over the 750 u halo square). */
+    cellU: 18,
+    /** ms — the density raster is re-evaluated this often (frame time), never per frame. */
+    refreshMs: 250,
+    /** u — the raster re-centres on the own hull (and refreshes at once) when
+     *  the hull is this far from the raster's centre; also the margin the
+     *  raster carries past the halo so it never runs out between re-centres. */
+    recenterU: 100,
+    /** Alpha at full density over a fully opaque puff texel: final alpha =
+     *  density × puff × maxAlpha. */
+    maxAlpha: 0.6,
+    /** Noise units per second the drawn cut eases toward the schema's
+     *  `fogCut` (faster than the server's own `cutRatePerS`, so it follows). */
+    cutEasePerS: 0.05,
+    /** px — the square puff tile's side (it tiles seamlessly). */
+    puffTilePx: 512,
+    /** px per u — the tile's scale on the water (0.5 → 2 u per texel; a 512 px tile spans 1,024 u). */
+    puffPxPerU: 0.5,
+    /** Puffs stamped into one tile (uniform landing, wrapping at the edges). */
+    puffsPerTile: 400,
+    /** u — one puff's radius, drawn uniformly from [puffMinU, puffMaxU]. */
+    puffMinU: 25,
+    puffMaxU: 70,
+    /** One puff's centre opacity, drawn uniformly from this range (soft falloff to 0 at its rim). */
+    puffMinAlpha: 0.25,
+    puffMaxAlpha: 0.6,
+    /** One puff's grey, a multiplier of `colors.fogBank`, drawn uniformly
+     *  from [shadeMin, shadeMax] (channels clamp at 255). */
+    shadeMin: 0.95,
+    shadeMax: 1.06,
   },
 
   /**

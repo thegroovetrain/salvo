@@ -285,7 +285,7 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(TunableError);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(/not an equipment dial/);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(
-      /gun\.\*, machineGun\.\*, flak\.\*, instantReload\.\*, hunker\.\*, broadside\.\*, torpedo\.\*, mine\.\*, captiveMines\.\*, foulingMines\.\*, countermeasure\.\*, foulingShell\.\*, ram\.\*, starShells\.\*, phosphorShells\.\*, boost\.\*, shipClasses\.\*, drones\.\*, hullRepair\.\*, regen\.\*, armor\.\*, offer\.weighting\.\*, vision\.dropout\.\*/,
+      /gun\.\*, machineGun\.\*, flak\.\*, instantReload\.\*, hunker\.\*, broadside\.\*, torpedo\.\*, mine\.\*, captiveMines\.\*, foulingMines\.\*, countermeasure\.\*, foulingShell\.\*, ram\.\*, starShells\.\*, phosphorShells\.\*, boost\.\*, shipClasses\.\*, drones\.\*, hullRepair\.\*, regen\.\*, armor\.\*, offer\.weighting\.\*, vision\.dropout\.\*, fog\.\*/,
     );
     expect(() => applyOverrides({}, { 'zone.stormDps': 8 })).toThrow(/not an equipment dial/);
   });
@@ -1617,5 +1617,69 @@ describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
       restore();
     }
     expect(JSON.stringify(CONFIG.vision.dropout)).toBe(snapshot);
+  });
+
+  it('--tune fog.* is reachable (Story 9.10, the field): every dial, with floors on the lengths/clocks/counts, gain on (0, 1] and the coverage band a share in [0, 1]', () => {
+    for (const key of [
+      'fog.sightCostPerU=0', 'fog.sightCostPerU=3', 'fog.windU=0', 'fog.edgeBand=0', 'fog.cutRatePerS=0',
+      'fog.coverageMin=0', 'fog.coverageMax=1', 'fog.gain=1', 'fog.gain=0.3', 'fog.octaves=1', 'fog.quantileLattice=8',
+      'fog.wavelengthU=1', 'fog.morphMs=1', 'fog.refreshMs=250', 'fog.marchStepU=5', 'fog.targetPeriodMs=1', 'fog.quantileLattice=256',
+    ]) {
+      expect(() => parseArgs(['--tune', key]), key).not.toThrow();
+    }
+    for (const key of [
+      'fog.wavelengthU=0', 'fog.octaves=0.5', 'fog.morphMs=0', 'fog.targetPeriodMs=0',
+    ]) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 1/);
+    }
+    // Floors that keep the SERVER up (review gate): the memo lattice is sized
+    // from marchStepU (1 u = 100 M cells) and refreshMs is the quantile cadence.
+    for (const key of ['fog.marchStepU=0', 'fog.marchStepU=1', 'fog.marchStepU=4.9']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 5/);
+    }
+    for (const key of ['fog.refreshMs=0', 'fog.refreshMs=50', 'fog.refreshMs=249']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 250/);
+    }
+    // The coverage lattice's floor is 8 a side (review gate): under ~1/target
+    // points the quantile lands on the lattice maximum and the share reads 0.
+    for (const key of ['fog.quantileLattice=0', 'fog.quantileLattice=4', 'fog.quantileLattice=7']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 8/);
+    }
+    for (const key of ['fog.sightCostPerU=-1', 'fog.windU=-1', 'fog.edgeBand=-0.1', 'fog.cutRatePerS=-0.1']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 0/);
+    }
+    for (const key of ['fog.coverageMin=-0.1', 'fog.coverageMax=1.5']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/share of water in \[0, 1\]/);
+    }
+    for (const key of ['fog.gain=0', 'fog.gain=1.5', 'fog.gain=-0.5']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/gain in \(0, 1\]/);
+    }
+  });
+
+  it('--tune fog.* must describe a field: coverageMin <= coverageMax, integer octaves and lattice side (judged on the final values, rolled back)', () => {
+    const snapshot = JSON.stringify(CONFIG.fog);
+    const { coverageMax } = CONFIG.fog;
+    const refused: Array<[Record<string, number>, RegExp]> = [
+      [{ 'fog.coverageMin': 0.1, 'fog.coverageMax': 0.05 }, /'fog\.coverageMin'.*must stay <= 'fog\.coverageMax'/],
+      [{ 'fog.coverageMin': coverageMax + 0.01 }, /'fog\.coverageMin'.*must stay <=/],
+      [{ 'fog.wavelengthU': 0 }, />= 1/],
+      [{ 'fog.octaves': 2.5 }, /'fog\.octaves' must be an integer/],
+      [{ 'fog.quantileLattice': 12.5 }, /'fog\.quantileLattice' must be an integer/],
+      [{ 'fog.quantileLattice': 4 }, />= 8/],
+      [{ 'fog.quantileLattice': 257 }, /'fog\.quantileLattice'.*must stay <= 256/],
+    ];
+    for (const [tune, re] of refused) {
+      expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(TunableError);
+      expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(re);
+      expect(JSON.stringify(CONFIG.fog)).toBe(snapshot); // rolled back
+    }
+    // Both leaves at once: each alone would break the pair, the final set is legal.
+    const restore = applyOverrides({}, { 'fog.coverageMin': coverageMax + 0.05, 'fog.coverageMax': coverageMax + 0.1 });
+    try {
+      expect(CONFIG.fog.coverageMin).toBeCloseTo(coverageMax + 0.05, 12);
+    } finally {
+      restore();
+    }
+    expect(JSON.stringify(CONFIG.fog)).toBe(snapshot);
   });
 });
