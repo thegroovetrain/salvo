@@ -5,7 +5,7 @@ created: '2026-10-15'
 status: 'done'
 baseline_revision: 'b2df9308'
 review_loop_iteration: 0
-final_revision: 'PR #286 merged 2026-10-15; PR #287 merged 2026-10-16 (cycle 192, amendment 177); staging tune 2 2026-10-16 (cycle 193, 0.18.58, PV 87, amendment 178: 1 u/s, solid-fog coverage, eye toll verified) — PR open to development'
+final_revision: 'PR #286 merged 2026-10-15; PR #287 merged 2026-10-16 (cycle 192, amendment 177); PR #288 merged 2026-10-16 (cycle 193, amendment 178); staging tune 3 2026-10-16 (cycle 194, 0.18.59, PV 88, amendment 179: the own bank is free, no fog past the rim) — PR open to development'
 followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -162,6 +162,9 @@ warnings: [oversized]
 - Given `npm run check`, then green; the perf pin under 50 ms; PV 85; both trackers stamped.
 
 ## Spec Change Log
+
+### 2026-10-16 — staging tune 3 (cycle 194, 0.18.59, PV 88): the own bank is free (League bush), no fog past the rim
+- Eric on staging at 0.18.58: "it should only block vision if you aren't in it. If you are in it, you should be able to see out of it normally … like grass patches in league" → three rulings (same bank visible, a bank between two clear-water ships still hides, "in it" = density ≥ ½). The toll is now directional: when the shared density at the observer's exact position is solid, the observer's own cell and the leading run of solid cells are free; the first thinner cell ends the run for good; everything after pays as before (`World.fogTollAlong` / `fogPayCell`, the shared `fogTollAlong` reference, the perception oracle's band). "Unnecessary for these fog bands to be generated outside of the actual ring. Only the same area Islands would be in" → `fogDensityAt` is 0 beyond the ocean radius (`FogField.oceanRadiusU`). PV 87 → 88. The directed perception cases now put the looking-in observer just past the rim (the one exact clear/solid edge); the walk-vs-march comparison skips rays a cross-section classifier marks fragile (the ½ line within a cell of the ray) and asserts they are a minority. Amendment 179.
 
 ### 2026-10-16 — staging tune 2 (cycle 193, 0.18.58, PV 87): 1 u/s, solid-fog coverage, the sight claim reproduced
 - Eric on staging at 0.18.57: "Still too fast. Turn it down to 1 u/s" → `windU` 1 and the spin dial becomes a rim SPEED, `spinRimU` 1 (replaces `spinPeriodMs`; rate = spinRimU / oceanRadius). "It doesn't really seem to be getting in the way of my seeing enemy ships (or them seeing me)" → reproduced on the real `World` + `buildFrame` before answering (a throwaway probe, three seeds, 22 % target, 100–500 u pairs): 19–21 % of in-bubble pairs hidden overall, 60–68 % when the observer stands in fog, eye reach from inside a bank ≈ 170 u — the toll works as ruled. Found and fixed: the quantile dial put 22 % above the cut but only ~14 % at half density (the rest thin edge) → `fogCutForTarget` returns quantile − edgeBand/2 and the readouts count density ≥ ½ (`FOG_SOLID_DENSITY`). Not changed, by Eric's rulings: radar paints through fog at 500–1,500 u (no radar term) and bots keep a plot that entered fog (169). Amendment 178.

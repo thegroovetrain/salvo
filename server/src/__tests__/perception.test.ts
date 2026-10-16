@@ -121,6 +121,7 @@ import {
   hullSilhouette,
   mulberry32,
   FOG_NO_CUT,
+  FOG_SOLID_DENSITY,
   fogCutForTarget,
   fogDensityAt,
   fogLattice,
@@ -259,13 +260,48 @@ function sightClearOracle(w: World, me: ShipRecord, b: { x: number; y: number })
 // half a unit for the oracle's own sampling of TV) times the cost. With no
 // fog on the ray (every sample 0) `touched` is 0, slack is 0 and the fogged
 // oracles are the exact pre-fog tests.
+//
+// THE OWN BANK (amendment 179, Eric 2026-10-16 "like grass patches in
+// League"): when the observer stands in SOLID fog (shared density ≥ ½ at its
+// exact position — production evaluates that same point), the leading solid
+// run of the ray is free and the first thinner sample ends it for good. The
+// oracle therefore returns a BAND: `tollMax` is the plain integral (no run —
+// the most production may charge, since its walk may end the run early on a
+// cell the ray only grazes) and `tollMin` is the integral past a GENEROUS
+// run that frees the observer's own cell and bridges any dip below ½ shorter
+// than five cells (the most production may free: its cell centres can miss a
+// thin dip the 1 u samples catch). 'loose' (what production delivered must satisfy) uses tollMin;
+// 'strict' (what production must deliver) uses tollMax. With the observer
+// in clear water the band is a point and the fogged oracles are exactly the
+// cycle-191 tests.
 interface FogToll {
-  toll: number;
+  tollMin: number;
+  tollMax: number;
   slack: number;
   touched: number;
 }
 
-const NO_TOLL: FogToll = { toll: 0, slack: 0, touched: 0 };
+const NO_TOLL: FogToll = { tollMin: 0, tollMax: 0, slack: 0, touched: 0 };
+
+/** The first sample index the generous own-bank run cannot reach: the
+ *  observer's own cell (`own` samples) and solid samples are free, a dip
+ *  below ½ shorter than `bridge` samples is bridged, a longer dip (or the
+ *  end) ends the run. */
+function generousRunEnd(dens: Float64Array, own: number, bridge: number): number {
+  const n = dens.length;
+  let i = Math.min(own, n);
+  while (i < n) {
+    if (dens[i] >= FOG_SOLID_DENSITY) {
+      i += 1;
+      continue;
+    }
+    let j = i;
+    while (j < n && j - i < bridge && dens[j] < FOG_SOLID_DENSITY) j += 1;
+    if (j < n && j - i < bridge) i = j; // a short dip: bridged
+    else break;
+  }
+  return i;
+}
 
 function fogTollOracle(w: World, a: { x: number; y: number }, b: { x: number; y: number }): FogToll {
   if (w.fogCut >= FOG_NO_CUT) return NO_TOLL;
@@ -274,6 +310,7 @@ function fogTollOracle(w: World, a: { x: number; y: number }, b: { x: number; y:
   const n = Math.ceil(len);
   if (n === 0) return NO_TOLL;
   const step = len / n;
+  const dens = new Float64Array(n);
   let sum = 0;
   let tv = 0;
   let prev = 0;
@@ -281,6 +318,7 @@ function fogTollOracle(w: World, a: { x: number; y: number }, b: { x: number; y:
   for (let i = 0; i < n; i++) {
     const t = (i + 0.5) / n;
     const d = fogDensityAt(field, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, w.fogEpochT, w.fogCut);
+    dens[i] = d;
     if (d > 0) touched = 1;
     sum += d;
     tv += Math.abs(d - prev);
@@ -288,7 +326,13 @@ function fogTollOracle(w: World, a: { x: number; y: number }, b: { x: number; y:
   }
   if (touched === 0) return NO_TOLL;
   const cost = CONFIG.fog.sightCostPerU;
-  return { toll: sum * step * cost, slack: ((CONFIG.fog.marchStepU + step) * tv + 0.5) * cost, touched };
+  const slack = ((CONFIG.fog.marchStepU + step) * tv + 0.5) * cost;
+  const tollMax = sum * step * cost;
+  if (fogDensityAt(field, a.x, a.y, w.fogEpochT, w.fogCut) < FOG_SOLID_DENSITY) return { tollMin: tollMax, tollMax, slack, touched };
+  let paid = 0;
+  const cellSamples = Math.ceil(CONFIG.fog.marchStepU / step);
+  for (let i = generousRunEnd(dens, cellSamples, 5 * cellSamples); i < n; i++) paid += dens[i];
+  return { tollMin: paid * step * cost, tollMax, slack, touched };
 }
 
 /** Which side of the dead band a fogged range test sits on: 'loose' (the
@@ -299,8 +343,9 @@ type Bound = 'loose' | 'strict';
 /** THE fogged range comparison every sight-tier oracle composes:
  *  `dist + toll ≤ range ± slack` and island LOS. */
 function sightedWithin(w: World, me: ShipRecord, p: { x: number; y: number }, range: number, bound: Bound): boolean {
-  const { toll, slack } = fogTollOracle(w, me.state, p);
+  const { tollMin, tollMax, slack } = fogTollOracle(w, me.state, p);
   const margin = bound === 'loose' ? slack : -slack;
+  const toll = bound === 'loose' ? tollMin : tollMax; // amendment 179: the own-bank band (see fogTollOracle)
   return dist(me.state, p) + toll <= range + margin && sightClearOracle(w, me, p);
 }
 
@@ -2749,8 +2794,8 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
       const p = ev as { k: 'sm' | 'mz'; x: number; y: number };
       const d = dist(me.state, p);
       if (d > halo || !clearLos(me.state, p, w.map.islands)) continue;
-      const { toll, slack } = fogTollOracle(w, me.state, p);
-      if (d + toll <= halo + slack) continue;
+      const { tollMin, slack } = fogTollOracle(w, me.state, p);
+      if (d + tollMin <= halo + slack) continue; // the loose side: the least production may have charged
       if (p.k === 'sm') FOG_HID_SM.n += 1;
       expect(f.events.some((e) => e.k === p.k && (e as { x: number; y: number }).x === p.x && (e as { x: number; y: number }).y === p.y), `fog should hide ${p.k} at (${p.x},${p.y}) from ${me.id}`).toBe(false);
     }
@@ -4051,7 +4096,7 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
     // Story 9.10 (amendment 167): the flash PAYS the fog toll — dist + toll
     // against the halo (the integration oracle, loose bound).
     const mzToll = fogTollOracle(w, me.state, ev);
-    expect(dist(me.state, ev) + mzToll.toll).toBeLessThanOrEqual(me.stats.radarRange * CONFIG.vision.muzzleFlashFactor + mzToll.slack);
+    expect(dist(me.state, ev) + mzToll.tollMin).toBeLessThanOrEqual(me.stats.radarRange * CONFIG.vision.muzzleFlashFactor + mzToll.slack);
     expect(sightClearOracle(w, me, ev)).toBe(true); // island LOS
   },
   sm: (w, me, e) => {
@@ -4076,7 +4121,7 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
     // Story 9.10 (amendment 167): smoke PAYS the fog toll like the flash —
     // dist + toll against the halo (the integration oracle, loose bound).
     const smToll = fogTollOracle(w, me.state, ev);
-    expect(dist(me.state, ev) + smToll.toll).toBeLessThanOrEqual(me.stats.radarRange * CONFIG.vision.muzzleFlashFactor + smToll.slack);
+    expect(dist(me.state, ev) + smToll.tollMin).toBeLessThanOrEqual(me.stats.radarRange * CONFIG.vision.muzzleFlashFactor + smToll.slack);
     expect(sightClearOracle(w, me, ev)).toBe(true); // island LOS
   },
   fh: (w, me, e) => {
@@ -4957,25 +5002,31 @@ describe('perception — the completeness oracle cannot be satisfied by substitu
 // The spec's I/O matrix, row by row, against real frames (every fogged frame
 // also passes verifyFrame, so the integration oracle agrees with production
 // on each). The field is PINNED through the World's test seam so the
-// geometry is exact: a cut of −2 is density 1 everywhere (every ray pays
-// sightCostPerU × its length), FOG_NO_CUT is no fog. The distances below are
-// derived from CONFIG.fog.sightCostPerU, the 500 u sight and the 750 u halo:
-// with cost 2, a subject at d is seen iff 3 × d ≤ range.
+// geometry is exact: a cut of −2 is density 1 on the whole ocean and 0 past
+// its rim (amendment 179), FOG_NO_CUT is no fog. Since amendment 179 an
+// observer standing in solid fog pays nothing inside its own bank, so the
+// LOOKING-IN cases put the observer just past the rim (clear water, the one
+// exact clear/solid edge) and the subject on the ocean: a ray of d with k u
+// on the ocean costs d + COST × k. The distances below are derived from
+// CONFIG.fog.sightCostPerU, the 500 u sight and the 750 u halo.
 
-/** Density 1 everywhere. */
+/** Density 1 on the whole ocean (0 past the rim). */
 const FULL_FOG_CUT = -2;
 const COST = CONFIG.fog.sightCostPerU;
+/** How far past the ocean's rim the looking-in observer stands (clear water by the clip). */
+const OFF_RIM_U = 10;
 
-describe('perception — THE FOG FIELD: sight pays the toll (Story 9.10, amendments 149–150 / 163–170)', () => {
-  it('under density 1 a hull at 200 u is hidden from EVERY channel (200 × 3 > 500) and one at 150 u is seen (150 × 3 ≤ 500); with no fog the 200 u hull is a plain contact (dark to both, 163)', () => {
+describe('perception — THE FOG FIELD: sight pays the toll (Story 9.10, amendments 149–150 / 163–170; 179: the own bank is free)', () => {
+  it('LOOKING IN from clear water: a hull 200 u away with 190 u of density 1 between is hidden from EVERY channel (200 + 2 × 190 > 500) and one 150 u away with 140 u of fog is seen (150 + 280 ≤ 500); with no fog both are plain contacts (dark to both, 163)', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    place(w, 'b', 200, 0);
-    place(w, 'c', 0, 150);
-    expect(200 * (1 + COST)).toBeGreaterThan(SIGHT); // premise
-    expect(150 * (1 + COST)).toBeLessThanOrEqual(SIGHT); // premise
+    const R = w.map.radius;
+    const a = place(w, 'a', R + OFF_RIM_U, 0);
+    place(w, 'b', R + OFF_RIM_U - 200, 0);
+    place(w, 'c', R + OFF_RIM_U - 150, 0);
+    expect(200 + COST * (200 - OFF_RIM_U)).toBeGreaterThan(SIGHT + 2 * COST * CONFIG.fog.marchStepU); // premise, a cell of slack either way
+    expect(150 + COST * (150 - OFF_RIM_U)).toBeLessThanOrEqual(SIGHT - 2 * COST * CONFIG.fog.marchStepU); // premise
     w.setFogCutForTest(FULL_FOG_CUT);
-    windowAround(a, 0); // the beam ON b's bearing — still nothing: b is inside the geometric bubble
+    windowAround(a, Math.PI); // the beam ON b's bearing — still nothing: b is inside the geometric bubble
     const f = buildFrame(w, 'a');
     verifyFrame(w, 'a', f);
     expect(f.contacts.map((c) => c.id)).toEqual(['c']);
@@ -4989,11 +5040,43 @@ describe('perception — THE FOG FIELD: sight pays the toll (Story 9.10, amendme
     expect(clear.contacts.map((c) => c.id).sort()).toEqual(['b', 'c']);
   });
 
-  it('an enemy mine at 200 u under density 1 is NOT a mine row (the detect rung pays the same toll) — and it is still armed in the store; with no fog it is', () => {
+  it('STANDING IN THE BANK (amendment 179, "like grass patches in League"): under density 1 — one ocean-wide bank — the observer at the center sees the 200 u hull, the enemy mine at 200 u, the puff and the flash at 300 u, all of which clear water would have hidden at that toll; and looking OUT, a hull 400 u away past the rim through 100 u of solid fog is a contact (the own bank costs nothing)', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0);
+    const R = w.map.radius;
+    const a = place(w, 'a', 0, 0);
+    place(w, 'b', 200, 0);
+    place(w, 'c', 2000, 0);
+    injectMine(w, 'm', 'c', 0, 200);
+    w.setFogCutForTest(FULL_FOG_CUT);
+    emitWorldEvent(w, { k: 'sm', x: -300, y: 0, tier: 1 });
+    emitWorldEvent(w, { k: 'mz', x: -300, y: 0 });
+    windowAround(a, 0);
+    const f = buildFrame(w, 'a');
+    verifyFrame(w, 'a', f);
+    expect(f.contacts.map((c) => c.id)).toEqual(['b']);
+    expect(f.mines.map((m) => m.id)).toEqual(['m']);
+    expect(f.events.filter((e) => e.k === 'sm' || e.k === 'mz').map((e) => e.k).sort()).toEqual(['mz', 'sm']);
+    // ...and the same observer hidden from a clear-water watcher is the LOOKING IN case above: the rule is not symmetric.
+    const out = bareWorld();
+    place(out, 'a', R - 100, 0);
+    place(out, 'b', R + 300, 0);
+    out.setFogCutForTest(FULL_FOG_CUT);
+    expect(400 + COST * 100).toBeGreaterThan(SIGHT); // premise: the cycle-191 toll would have hidden b
+    const g = buildFrame(out, 'a');
+    verifyFrame(out, 'a', g);
+    expect(g.contacts.map((c) => c.id)).toEqual(['b']);
+    // ...while b, in clear water, does NOT see a 400 u away through those 100 u of fog (400 + 200 > 500)
+    const back = buildFrame(out, 'b');
+    verifyFrame(out, 'b', back);
+    expect(back.contacts).toEqual([]);
+  });
+
+  it('LOOKING IN: an enemy mine 200 u away with 190 u of density 1 between is NOT a mine row (the detect rung pays the same toll) — and it is still armed in the store; with no fog it is', () => {
+    const w = bareWorld();
+    const R = w.map.radius;
+    place(w, 'a', R + OFF_RIM_U, 0);
     place(w, 'b', 2000, 0);
-    injectMine(w, 'm', 'b', 200, 0);
+    injectMine(w, 'm', 'b', R + OFF_RIM_U - 200, 0);
     w.setFogCutForTest(FULL_FOG_CUT);
     const f = buildFrame(w, 'a');
     verifyFrame(w, 'a', f);
@@ -5003,18 +5086,19 @@ describe('perception — THE FOG FIELD: sight pays the toll (Story 9.10, amendme
     expect(buildFrame(w, 'a').mines.map((m) => m.id)).toEqual(['m']);
   });
 
-  it('a wounded-smoke puff (and a flash) at 300 u under density 1 is withheld (300 × 3 > 750) and delivered with no fog (167)', () => {
+  it('LOOKING IN: a wounded-smoke puff (and a flash) 300 u away with 290 u of density 1 between is withheld (300 + 2 × 290 > 750) and delivered with no fog (167)', () => {
     const run = (cut: number): string[] => {
       const w = bareWorld();
-      place(w, 'a', 0, 0);
+      const R = w.map.radius;
+      place(w, 'a', R + OFF_RIM_U, 0);
       w.setFogCutForTest(cut);
-      emitWorldEvent(w, { k: 'sm', x: 300, y: 0, tier: 1 });
-      emitWorldEvent(w, { k: 'mz', x: 300, y: 0 });
+      emitWorldEvent(w, { k: 'sm', x: R + OFF_RIM_U - 300, y: 0, tier: 1 });
+      emitWorldEvent(w, { k: 'mz', x: R + OFF_RIM_U - 300, y: 0 });
       const f = buildFrame(w, 'a');
       verifyFrame(w, 'a', f);
       return f.events.filter((e) => e.k === 'sm' || e.k === 'mz').map((e) => e.k).sort();
     };
-    expect(300 * (1 + COST)).toBeGreaterThan(RADAR * CONFIG.vision.muzzleFlashFactor); // premise
+    expect(300 + COST * (300 - OFF_RIM_U)).toBeGreaterThan(RADAR * CONFIG.vision.muzzleFlashFactor + 2 * COST * CONFIG.fog.marchStepU); // premise
     expect(run(FULL_FOG_CUT)).toEqual([]);
     expect(run(FOG_NO_CUT)).toEqual(['mz', 'sm']);
   });
@@ -5058,10 +5142,11 @@ describe('perception — THE FOG FIELD: sight pays the toll (Story 9.10, amendme
     }
   });
 
-  it('SPECTATORS ARE UNFOGGED: a finished-phase frame under density 1 still lists the 200 u hull', () => {
+  it('SPECTATORS ARE UNFOGGED: a finished-phase frame under density 1 still lists the hull the fogged frame hides', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0);
-    place(w, 'b', 200, 0);
+    const R = w.map.radius;
+    place(w, 'a', R + OFF_RIM_U, 0);
+    place(w, 'b', R + OFF_RIM_U - 200, 0);
     w.setFogCutForTest(FULL_FOG_CUT);
     expect(buildFrame(w, 'a').contacts).toEqual([]);
     const spec = buildFrame(w, 'a', 'finished');

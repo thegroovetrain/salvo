@@ -2066,7 +2066,14 @@ export const CONFIG = {
    * - A ray from an observer to a point pays `sightCostPerU × density` extra
    *   units of distance per unit of its length (sim/fog.ts `fogTollAlong`, a
    *   `marchStepU` midpoint march); the sight test compares `d + toll` against
-   *   its range (164). Fog never widens anything.
+   *   its range (164). Fog never widens anything. THE OWN BANK IS FREE (Eric
+   *   2026-10-16, amendment 179 — "like grass patches in League"): an observer
+   *   standing in solid fog (density ≥ ½) pays nothing until the ray first
+   *   leaves solid fog, full price after — so from inside a bank you see out
+   *   normally and see everyone in your bank, while a second bank across clear
+   *   water still hides. Looking INTO a bank from clear water is unchanged.
+   * - Fog exists only on the ocean (inside the map radius, where islands could
+   *   be — amendment 179): density is 0 in the storm water beyond the rim.
    * - NO RADAR TERM, EVER (149, 163): a hull inside the geometric sight radius
    *   that fog hides is dark to BOTH sensors. The muzzle flash and wounded
    *   smoke halo pay the toll; zone circles, the foghorn and the storm never
@@ -2080,7 +2087,7 @@ export const CONFIG = {
    * prediction. Every leaf is a `--tune fog.*` harness dial.
    */
   fog: {
-    sightCostPerU: 2, // extra sight units a ray pays per unit of fog crossed, × density (amendment 164) — fog counts triple
+    sightCostPerU: 2, // extra sight units a ray pays per unit of fog crossed, × density (amendment 164) — fog counts triple; the observer's own solid bank is exempt (amendment 179)
     coverageMin: 0.2, // the share of the live ring's area at SOLID fog (density ≥ ½) the cut aims at (target redrawn in [min, max]; Eric 2026-10-16 on staging: "there isn't enough of it" — was 0.02–0.08; since amendment 178 the share counts the solid half of the soft edge, not every point above the cut)
     coverageMax: 0.25,
     targetPeriodMs: 120000, // ms between coverage-target redraws

@@ -12,7 +12,7 @@
 // wounded smoke, and Story 4.5's bearing-only `fh` foghorn), each codified
 // by its own independently-reimplemented oracle in that suite. "Sight"
 // itself is FOG-TOLLED since Story 9.10 (epic-9 amendments 149–150,
-// 163–170): a ray pays the world's `fogTollAlong` (the shared fog field's
+// 163–170, 179 — the observer's own bank is free): a ray pays the world's `fogTollAlong` (the shared fog field's
 // density, marched) on top of its length, so a hull inside the bubble that
 // fog hides is on NO channel — radar's inner edge stays the geometric sight
 // radius (dark to both sensors, amendment 163). FOG IS A TOLL, NEVER A

@@ -25,7 +25,8 @@
 // THE FOG TOLL (Story 9.10, epic-9 amendments 149–150 / 163–170): every
 // sight-RANGE comparison on those same sites goes through `withinSight`,
 // which adds the ray's fog toll (`SightField.fogToll` — the World's
-// `fogTollAlong`, the shared field's midpoint march) to its length before
+// `fogTollAlong`, the shared field's midpoint march; observer-first, since
+// amendment 179 the observer's own solid bank is free) to its length before
 // comparing against the range — fog never widens anything, so the plain
 // range test rejects first and the march runs only inside geometric range.
 // Radar, zone circles, the foghorn and the storm never read the field.
@@ -308,7 +309,10 @@ export interface SightField {
 /** The fog toll on the ray me → p (Story 9.10): the field's thunk — the
  *  World's `fogTollAlong` (shared sim/fog.ts owns the math; the invariant
  *  oracle re-integrates the shared density numerically by design). THE one
- *  entry of the fog cost into perception — nothing else derives it. */
+ *  entry of the fog cost into perception — nothing else derives it. The
+ *  observer is ALWAYS the ray's A end: since amendment 179 the toll is
+ *  directional (an observer standing in solid fog pays nothing inside that
+ *  bank — "see out of it normally"), so no caller may swap the ends. */
 function fogCostTo(field: SightField, me: ShipRecord, p: Vec2): number {
   return field.fogToll(me.state.x, me.state.y, p.x, p.y);
 }

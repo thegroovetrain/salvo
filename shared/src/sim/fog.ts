@@ -14,10 +14,16 @@
 // per-match coin flip — Eric 2026-10-16, amendments 177–178),
 // drifting with a fixed per-match wind, and cross-faded by a triangle wave of
 // period `morphMs` (so banks roll AND change shape). Density = clamp01((n − cut) / edgeBand):
-// zero below the cut, a soft edge `edgeBand` wide, solid above. A ray pays
-// `sightCostPerU × density` extra sight units per unit of its length (a
-// midpoint march). Sight only: radar, zone circles, the foghorn and the storm
-// never read this file.
+// zero below the cut, a soft edge `edgeBand` wide, solid above — and ZERO
+// beyond the ocean's rim (Eric 2026-10-16: fog only where islands could be,
+// never out in the storm water; amendment 179). A ray pays `sightCostPerU ×
+// density` extra sight units per unit of its length (a midpoint march) —
+// EXCEPT inside the observer's own bank: a ray that starts in solid fog
+// (density ≥ `FOG_SOLID_DENSITY`) pays nothing until it first leaves solid
+// fog, and full price after that (Eric 2026-10-16: "if you are in it, you
+// should be able to see out of it normally … like grass patches in League";
+// amendment 179 — so the toll is DIRECTIONAL: A is the observer). Sight only:
+// radar, zone circles, the foghorn and the storm never read this file.
 //
 // PURE, DETERMINISTIC, ZERO I/O, plain objects. NO TRANSCENDENTALS (the
 // map-gen posture): `Math.sqrt` only — no hypot, trig, pow, exp/log, random,
@@ -31,6 +37,11 @@ export const FOG_NO_CUT = 9;
 
 /** A cut below every fbm value: density 1 everywhere. */
 const FOG_FULL_CUT = -2;
+
+/** The density level `fogCutForTarget` controls the share of: ≥ this is "fogged" —
+ *  SOLID fog, the fog a captain stands IN (amendments 178–179: the coverage dial
+ *  and the own-bank rule read the same line). */
+export const FOG_SOLID_DENSITY = 0.5;
 
 /** Offset (u, both axes) between layer A's and layer B's sample points, so the two layers never line up. */
 const LAYER_B_OFFSET_U = 1000;
@@ -59,6 +70,7 @@ export interface FogField {
   readonly spinCx: number; // u — the spin center (the ocean center)
   readonly spinCy: number;
   readonly spinRadiusU: number; // u — the ocean radius: the turn rate is spinRimU / this and shear reads 1 - r / this, 0 at and beyond the rim; 0 = no spin
+  readonly oceanRadiusU: number; // u — fog exists only inside this disc about (spinCx, spinCy): density is 0 beyond it (amendment 179); 0 = unbounded (a hand-built field)
   readonly cfg: FogFieldConfig;
 }
 
@@ -83,7 +95,8 @@ function spinSign(seed: number): 1 | -1 {
 
 /**
  * Build the fog field for `seed` over an ocean of radius `spinRadiusU` about
- * (`spinCx`, `spinCy`). Deterministic: same seed + cfg + ocean → identical field.
+ * (`spinCx`, `spinCy`) — the spin's radius AND the fog's extent (density is 0
+ * beyond it). Deterministic: same seed + cfg + ocean → identical field.
  */
 export function makeFogField(seed: number, cfg: FogFieldConfig, spinRadiusU: number, spinCx = 0, spinCy = 0): FogField {
   const s = seed >>> 0;
@@ -98,6 +111,7 @@ export function makeFogField(seed: number, cfg: FogFieldConfig, spinRadiusU: num
     spinCx,
     spinCy,
     spinRadiusU: spinRadiusU > 0 ? spinRadiusU : 0, // a non-positive or NaN radius disables the spin (never a 1 u radius turning at spinRimU)
+    oceanRadiusU: spinRadiusU > 0 ? spinRadiusU : 0, // ...and leaves the fog unbounded
     cfg,
   };
 }
@@ -200,12 +214,23 @@ function densityOf(n: number, cut: number, edgeBand: number): number {
   return d <= 0 ? 0 : d >= 1 ? 1 : d;
 }
 
+/** Is (x, y) on the ocean — inside `oceanRadiusU` of the center (boundary inclusive)? An unbounded field (radius 0) is all ocean. */
+function onOcean(field: FogField, x: number, y: number): boolean {
+  const R = field.oceanRadiusU;
+  if (!(R > 0)) return true;
+  const px = x - field.spinCx;
+  const py = y - field.spinCy;
+  return px * px + py * py <= R * R;
+}
+
 /**
  * Fog density at (x, y) at match time `tMs` under `cut`, in [0, 1].
- * A non-finite cut or a cut ≥ FOG_NO_CUT reads 0 without evaluating noise.
+ * A non-finite cut or a cut ≥ FOG_NO_CUT reads 0 without evaluating noise,
+ * and so does any point beyond the ocean's rim (amendment 179: fog only
+ * where islands could be — the storm water outside the ocean is clear).
  */
 export function fogDensityAt(field: FogField, x: number, y: number, tMs: number, cut: number): number {
-  if (!Number.isFinite(cut) || cut >= FOG_NO_CUT) return 0;
+  if (!Number.isFinite(cut) || cut >= FOG_NO_CUT || !onOcean(field, x, y)) return 0;
   return densityOf(fogNoiseAt(field, x, y, tMs), cut, field.cfg.edgeBand);
 }
 
@@ -213,23 +238,37 @@ function allFinite(a: number, b: number, c: number, d: number): boolean {
   return Number.isFinite(a) && Number.isFinite(b) && Number.isFinite(c) && Number.isFinite(d);
 }
 
-/** Σ density at the midpoints of `n` equal steps along A → B. */
+/**
+ * Σ paying density at the midpoints of `n` equal steps along A → B. With
+ * `ownBank` (A stands in solid fog) the first step and then the leading run
+ * of samples at or above `FOG_SOLID_DENSITY` are the observer's own bank and
+ * pay nothing; the run ends at the first thinner sample and never restarts
+ * (clear water, or even the thin edge, between you and a second bank makes
+ * that bank pay full price — amendment 179, the League-bush rule).
+ */
 function marchDensity(
-  field: FogField, ax: number, ay: number, dx: number, dy: number, n: number, tMs: number, cut: number,
+  field: FogField, ax: number, ay: number, dx: number, dy: number, n: number, tMs: number, cut: number, ownBank: boolean,
 ): number {
   let sum = 0;
+  let free = ownBank;
   for (let i = 0; i < n; i++) {
     const f = (i + 0.5) / n;
-    sum += fogDensityAt(field, ax + dx * f, ay + dy * f, tMs, cut);
+    const d = fogDensityAt(field, ax + dx * f, ay + dy * f, tMs, cut);
+    if (free && (i === 0 || d >= FOG_SOLID_DENSITY)) continue; // the first step is the observer's own ground: free whenever they stand in solid fog
+    free = false;
+    sum += d;
   }
   return sum;
 }
 
 /**
- * The extra sight distance a ray A → B pays crossing the fog at `tMs` under
- * `cut`: Σ density(midpoint_i) × step × sightCostPerU over n = ceil(len /
- * marchStepU) equal steps. Always ≥ 0 and finite; 0 for the no-fog cut, a
- * zero-length segment or any non-finite input.
+ * The extra sight distance the ray A → B pays crossing the fog at `tMs`
+ * under `cut`, A being THE OBSERVER: Σ density(midpoint_i) × step ×
+ * sightCostPerU over n = ceil(len / marchStepU) equal steps — minus the
+ * observer's own bank (see `marchDensity`: when the density AT A is solid,
+ * the leading solid run is free). Directional: swap A and B and the toll may
+ * differ. Always ≥ 0 and finite; 0 for the no-fog cut, a zero-length segment
+ * or any non-finite input.
  */
 export function fogTollAlong(
   field: FogField, ax: number, ay: number, bx: number, by: number, tMs: number, cut: number,
@@ -241,7 +280,8 @@ export function fogTollAlong(
   if (!(len > 0) || !Number.isFinite(len)) return 0;
   const stepU = field.cfg.marchStepU > 0 ? field.cfg.marchStepU : len;
   const n = Math.max(1, Math.ceil(len / stepU));
-  const toll = marchDensity(field, ax, ay, dx, dy, n, tMs, cut) * (len / n) * field.cfg.sightCostPerU;
+  const ownBank = fogDensityAt(field, ax, ay, tMs, cut) >= FOG_SOLID_DENSITY;
+  const toll = marchDensity(field, ax, ay, dx, dy, n, tMs, cut, ownBank) * (len / n) * field.cfg.sightCostPerU;
   return Number.isFinite(toll) && toll > 0 ? toll : 0;
 }
 
@@ -272,9 +312,6 @@ export function fogCutForTarget(
   const q = vals[idx < 0 ? 0 : idx > n - 1 ? n - 1 : idx];
   return q - band / 2;
 }
-
-/** The density level `fogCutForTarget` controls the share of: ≥ this is "fogged". */
-export const FOG_SOLID_DENSITY = 0.5;
 
 /**
  * `side × side` cell centers over the bounding square of the disc (cx, cy, r),
