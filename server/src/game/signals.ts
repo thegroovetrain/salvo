@@ -1,16 +1,18 @@
 // The SIGNAL REGISTRY — one declarative home per spatial signal (Story 1.1).
 // Every channel that can put per-observer spatial knowledge into a frame is a
-// row here: the 19 GameEvent kinds plus the eight contact-like frame channels
-// (`contact`, `mine`, `litzone`, `burnzone`, `foulzone`, `decoy`, `cloud` and
-// `fog` — pseudo event types: not GameEvents, but the invariant suite iterates them
+// row here: the 19 GameEvent kinds plus the seven contact-like frame channels
+// (`contact`, `mine`, `litzone`, `burnzone`, `foulzone`, `decoy` and `cloud`
+// — pseudo event types: not GameEvents, but the invariant suite iterates them
 // like everything else; the RADAR BUOY's `buoy` channel was deleted with the
 // buoy in Story 8.16 and the DECOY BUOY's `decoy` channel took its seat,
 // revealed at sight like a ship; the SMOKE SCREEN's `smoke` channel joined in
 // Story 8.18 and became the MULTI-SPECTRAL COUNTERMEASURE's `cloud` channel
 // in Story 9.3; the FOULING SHELL's `foulzone` channel joined in Story 9.4 on
-// the burn zone's gate; the FOG BANK's `fog` channel joined in Story 9.10 as
-// the SEVENTH declared exception — delivered inside the 750 u halo, beyond
-// the sight bubble).
+// the burn zone's gate). FOG IS NOT A CHANNEL (Story 9.10, Eric 2026-10-15):
+// the fog field is public weather both sides derive from the welcome seed
+// and the schema cut; it reaches perception only as the TOLL inside the
+// sight predicates (`withinSight` below) — nothing per-observer about fog
+// ever rides a frame, and the declared exceptions stay at SIX.
 // perception.ts's observe()/observeSpectator() are the ONLY callers of a row's
 // visible()/materialize(); nothing spatial leaves the server outside a row.
 //
@@ -20,12 +22,13 @@
 // `core` early-out, then the exact polygon test). `sightClear` is the ONE
 // predicate every sight-tier site calls — contacts, shells, booms, spawns,
 // sinks, the mz/sm halos, the foghorn muffle and in-bubble torpedo water.
-// THE FOG TOLL (Story 9.10, epic-9 amendments 149–150 / 162–168): every
+// THE FOG TOLL (Story 9.10, epic-9 amendments 149–150 / 163–170): every
 // sight-RANGE comparison on those same sites goes through `withinSight`,
-// which adds the shared `fogCostAlong` toll of the ray to its length before
+// which adds the ray's fog toll (`SightField.fogToll` — the World's
+// `fogTollAlong`, the shared field's midpoint march) to its length before
 // comparing against the range — fog never widens anything, so the plain
-// range test rejects first and the chord math runs only inside geometric
-// range. Radar, zone circles, the foghorn and the storm never read a bank.
+// range test rejects first and the march runs only inside geometric range.
+// Radar, zone circles, the foghorn and the storm never read the field.
 // ALL island-geometry branching stays inside losClear: no visible()/
 // materialize() row may iterate polygon edges itself, or the rows blow the
 // ESLint complexity ceiling. THE ONE EXCEPTION (Story 4.11, amendment 179):
@@ -92,11 +95,6 @@ import {
   type BurnZoneView,
   type FoulZoneView,
   effectiveSight,
-  fogCostAlong,
-  fogDensity,
-  fogRadius,
-  type FogBankRecord,
-  type FogBankView,
   type MineView,
   type MuzzleEvent,
   type BoonFitEvent,
@@ -161,13 +159,13 @@ interface SignalContextBase {
    *  channel's scan subjects and NOTHING else — a cloud occludes no sensor
    *  (Eric 2026-10-12: it is a client overlay). Rides both paths uniformly. */
   readonly clouds: readonly StoredCloud[];
-  /** Every LIVE FOG BANK this tick (Story 9.10 — World.fogBankRecords, ONE
-   *  snapshot per observer pass): the sight toll's input (`fogCostTo`, read
-   *  by every sight-range comparison through `withinSight`) AND the `fog`
-   *  channel's scan subjects, so the toll and the delivered rows read the
-   *  same banks. Rides both paths uniformly; the spectator path never reads
-   *  it (spectators are unfogged). Never a radar input (amendment 163). */
-  readonly fogBanks: readonly FogBankRecord[];
+  /** THE FOG TOLL on a ray (Story 9.10 — `World.fogTollAlong` bound by
+   *  perception.ts): the extra sight distance a ray A → B pays crossing the
+   *  fog field right now, read by every sight-range comparison through
+   *  `withinSight` (`fogCostTo`). Rides both paths uniformly; the spectator
+   *  path never calls it (spectators are unfogged). Never a radar input
+   *  (amendment 163). */
+  readonly fogToll: (ax: number, ay: number, bx: number, by: number) => number;
   /** Ship id → stable per-match track id (World.pseudonymFor — the server-
    *  private stream; see World.trackIds for the honest correlation bound).
    *  The `return` blip payload carries no id at all (amendment 152), so no
@@ -297,46 +295,48 @@ export function sightClear(me: ShipRecord, b: Vec2, islands: readonly Island[]):
 
 /**
  * THE SIGHT FIELD (Story 9.10): everything a sight-range comparison reads
- * besides the observer — the islands for LOS, the live fog banks and the
- * tick time for the toll. `SignalContextBase` satisfies it structurally, so
- * every row passes its `ctx`; the PvE drones (drones.ts) build one per tick
- * from the World, because they never hold a SignalContext.
+ * besides the observer — the islands for LOS and the fog toll thunk.
+ * `SignalContextBase` satisfies it structurally, so every row passes its
+ * `ctx`; the PvE drones (drones.ts) build one per tick from the World,
+ * because they never hold a SignalContext.
  */
 export interface SightField {
   readonly islands: readonly Island[];
-  readonly fogBanks: readonly FogBankRecord[];
-  readonly now: number;
+  readonly fogToll: (ax: number, ay: number, bx: number, by: number) => number;
 }
 
-/** The fog toll on the ray me → p (Story 9.10): shared fogCostAlong at
- *  field.now over the live banks. 0 with no banks. THE one entry of the fog
- *  cost into perception — nothing else derives it (sim/fog.ts owns the math;
- *  the invariant oracle re-integrates it numerically by design). */
+/** The fog toll on the ray me → p (Story 9.10): the field's thunk — the
+ *  World's `fogTollAlong` (shared sim/fog.ts owns the math; the invariant
+ *  oracle re-integrates the shared density numerically by design). THE one
+ *  entry of the fog cost into perception — nothing else derives it. */
 function fogCostTo(field: SightField, me: ShipRecord, p: Vec2): number {
-  return fogCostAlong(me.state.x, me.state.y, p.x, p.y, field.fogBanks, field.now, CONFIG.fog);
+  return field.fogToll(me.state.x, me.state.y, p.x, p.y);
 }
 
 /**
- * THE one sight-RANGE comparison (Story 9.10, amendments 164–165, 167): is
+ * THE one sight-RANGE comparison (Story 9.10, amendments 164, 167): is
  * point `p` within `range` of the observer once the ray's fog toll is added
  * to its length — `d + fogCostTo ≤ range`, boundary inclusive. The plain
  * squared test runs FIRST and rejects anything beyond geometric range before
- * any chord math (fog never widens sight), and with no live bank the answer
- * is that plain test alone (no sqrt, byte-identical to the pre-fog gates).
- * Every sight-tier range site calls this — the contact row, pointSighted,
- * pointDetected, shipSees, discSighted (to the nearest rim point), the
- * mz/sm halos and wakeGate's in-bubble torpedo-water clause. Radar's
- * annulus boundary (`inRadarAnnulus`, `wakeInnerBound`) stays the plain
- * geometric `sightOf` — a hull fog hides inside the bubble is dark to BOTH
- * sensors (amendment 163).
+ * any march (fog never widens sight) — written `!(d2 <= r²)` so a non-finite
+ * range REJECTS (fail-closed: a NaN range sees nothing, never everything).
+ * With no fog the toll thunk answers 0 without a march (the World's cut
+ * gate), so the pre-fog gates are byte-identical. Every sight-tier range
+ * site calls this — the contact row, pointSighted, pointDetected, shipSees,
+ * discSighted (to the nearest rim point), the mz/sm halos and wakeGate's
+ * in-bubble torpedo-water clause. Radar's annulus boundary
+ * (`inRadarAnnulus`, `wakeInnerBound`) stays the plain geometric `sightOf`
+ * — a hull fog hides inside the bubble is dark to BOTH sensors
+ * (amendment 163).
  */
 function withinSight(field: SightField, me: ShipRecord, p: Vec2, range: number): boolean {
   const dx = p.x - me.state.x;
   const dy = p.y - me.state.y;
   const d2 = dx * dx + dy * dy;
-  if (d2 > range * range) return false;
-  if (field.fogBanks.length === 0) return true;
-  return Math.sqrt(d2) + fogCostTo(field, me, p) <= range;
+  if (!(d2 <= range * range)) return false;
+  const toll = fogCostTo(field, me, p);
+  if (toll <= 0) return true;
+  return Math.sqrt(d2) + toll <= range;
 }
 
 /**
@@ -963,9 +963,10 @@ const decoySignal: SignalSpec<DecoyState, DecoyView> = {
  * (the litzone / burnzone / foulzone / decoy precedent): its gate is a per-row
  * predicate the invariant suite re-derives independently (verifyClouds), and
  * never reaches past the sight bubble or this tick's radar. The declared
- * exceptions are SEVEN — sp, hc, mz, sunk, sm, fh, and since Story 9.10 the
- * `fog` channel (Eric 2026-10-15, epic-9 amendment 162; SIX from Story 4.5
- * to Story 9.9) — rows that reach beyond every gate. materialize() emits
+ * exceptions are exactly SIX — sp, hc, mz, sunk, sm, fh — rows that reach
+ * beyond every gate (Story 9.10's fog is a TOLL on the sight predicates,
+ * never a channel: the field is public weather derived on both sides from
+ * the welcome seed and the schema cut). materialize() emits
  * `{id, x, y, t0}` and NOTHING
  * else: no radius (both sides derive it from `t0`), no owner (a cloud tells
  * you nothing about who made it — the mz/sm anonymity posture), no `until`.
@@ -1027,59 +1028,6 @@ const cloudSignal: SignalSpec<StoredCloud, CloudView> = {
     // live on the store record and may never ride along by accident — and NO
     // own-flag either.
     return { id: cloud.id, x: cloud.x, y: cloud.y, t0: cloud.bornAt };
-  },
-};
-
-/**
- * `fog` — THE FOG BANK (Story 9.10): contact-like state (NOT events),
- * recomputed every tick like clouds, in store (spawn) order. THE SEVENTH
- * DECLARED EXCEPTION to the master perception invariant (Eric 2026-10-15,
- * epic-9 amendment 162): unlike the cloud / zone channels, which never reach
- * past the sight bubble or this tick's radar, a bank is delivered on the
- * `sm` rule — its disc's NEAREST RIM POINT within the observer's
- * `muzzleFlashReach` (radarRange × muzzleFlashFactor, 750 u at base;
- * inclusive, PLAIN distance: the bank's own delivery pays NO fog toll) on
- * an island-clear segment to that rim point (`losClear`; the observer
- * itself when standing inside). SPECTATORS always. A bank at scale 0
- * (radius 0 — the instant of birth or of death) is never delivered to
- * anyone: there is nothing to draw. The declared exceptions are now SEVEN —
- * sp, hc, mz, sunk, sm, fh, fog — each with its own independently
- * reimplemented oracle in perception.test.ts (verifyFog). A client that
- * receives a bank learns weather, not hulls: whatever the fog hides was
- * withheld by the sight sites above (the toll), and nothing on this row
- * says who is inside it.
- *
- * materialize() emits `{id, x, y, r, d}` and NOTHING else — the CURRENT
- * radius and the CURRENT density (0..1, rounded to three decimals): no full
- * `R`, no `until`, no born time, no owner (a bank has none), so a client
- * cannot predict a bank's growth or its death beyond what it is sent each
- * tick (spec Design Notes). KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,r,d
- * — the shared FogBankView declaration order. ALWAYS a fresh bare object.
- */
-const fogSignal: SignalSpec<FogBankRecord, FogBankView> = {
-  eventType: 'fog',
-  visible(ctx, bank) {
-    const r = fogRadius(bank, ctx.now, CONFIG.fog);
-    if (r <= 0) return false; // nothing to draw — nobody, spectators included
-    if (ctx.mode === 'spectator') return true;
-    const me = ctx.me;
-    const rim = nearestRimPoint(me.state, bank, r);
-    const dx = rim.x - me.state.x;
-    const dy = rim.y - me.state.y;
-    const halo = muzzleFlashReach(me); // the sm rule byte-for-byte (amendment 162) — PLAIN distance, no toll
-    return dx * dx + dy * dy <= halo * halo && losClear(me.state, rim, ctx.islands);
-  },
-  materialize(ctx, bank) {
-    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,r,d. ALWAYS a fresh bare
-    // object: `R`, `bornAt` and `until` live on the store record and may
-    // never ride along by accident.
-    return {
-      id: bank.id,
-      x: bank.x,
-      y: bank.y,
-      r: fogRadius(bank, ctx.now, CONFIG.fog),
-      d: Math.round(fogDensity(bank, ctx.now, CONFIG.fog) * 1000) / 1000,
-    };
   },
 };
 
@@ -2304,7 +2252,7 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 
 /**
  * String-keyed registry of every signal channel — the 19 GameEvent kinds plus
- * the `contact`/`mine`/`litzone`/`burnzone`/`foulzone`/`decoy`/`cloud`/`fog`
+ * the `contact`/`mine`/`litzone`/`burnzone`/`foulzone`/`decoy`/`cloud`
  * pseudo-types.
  * perception.ts dispatches world events by `e.k` (an emitted kind with no row
  * is a hard fail-closed drop) and drives the contact/blip/ballistic/mine/
@@ -2335,13 +2283,9 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   // session 2, Eric 2026-10-12 — a client overlay); this row is only how
   // the cloud itself ({id,x,y,t0}) reaches the client.
   cloud: cloudSignal,
-  // Story 9.10: the FOG BANK's contact-like frame channel — THE SEVENTH
-  // DECLARED EXCEPTION (Eric 2026-10-15, epic-9 amendment 162): delivered
-  // inside the observer's 750 u flash/smoke halo with island LOS to the
-  // disc's nearest rim point, beyond the sight bubble; `{id,x,y,r,d}` only.
-  // The fog's HIDING is not here — it is the toll inside every sight site
-  // above (withinSight).
-  fog: fogSignal,
+  // Story 9.10: FOG HAS NO ROW — the field is public weather (welcome seed +
+  // schema cut) and its hiding is the toll inside every sight site above
+  // (withinSight). Nothing per-observer about fog rides a frame.
   blip: blipSignal,
   shell: ballisticSignal('shell'),
   torp: ballisticSignal('torp'),
@@ -2406,15 +2350,15 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
  * the caller drops the event (nothing spatial leaves the server outside a
  * registry row).
  */
-const PSEUDO_ROWS: ReadonlySet<string> = new Set(['contact', 'mine', 'litzone', 'burnzone', 'foulzone', 'decoy', 'cloud', 'fog']);
+const PSEUDO_ROWS: ReadonlySet<string> = new Set(['contact', 'mine', 'litzone', 'burnzone', 'foulzone', 'decoy', 'cloud']);
 
 export function signalFor(kind: string): SignalSpec | undefined {
   // Pseudo-rows never dispatch from world events ('decoy' took the deleted
   // 'buoy' seat in Story 8.16 — a fabricated k:'decoy' world event must never
   // materialize a DecoyView; 'burnzone' joined in Story 8.17, 'smoke' in
   // Story 8.18 and its successor 'cloud' in Story 9.3, and 'foulzone' in
-  // Story 9.4, and 'fog' in Story 9.10, all on the same rule — a fabricated
-  // k:'fog' world event must never materialize a FogBankView).
+  // Story 9.4, all on the same rule — a fabricated k:'foulzone' world event
+  // must never materialize a FoulZoneView).
   if (PSEUDO_ROWS.has(kind)) return undefined;
   if (!Object.hasOwn(SIGNAL_REGISTRY, kind)) return undefined; // own-property only
   return (SIGNAL_REGISTRY as Partial<Record<string, SignalSpec>>)[kind];

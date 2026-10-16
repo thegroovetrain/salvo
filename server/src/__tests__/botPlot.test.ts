@@ -39,7 +39,7 @@ import {
   predictedPos,
   trackVelocity,
 } from '../game/ai/plot.js';
-import { SWEEP_MISS_GRACE_MS, sweptAndMissed, type SweepSite } from '../game/ai/sweepMiss.js';
+import { FOG_PLOT_DENSITY, SWEEP_MISS_GRACE_MS, sweptAndMissed, type SweepSite } from '../game/ai/sweepMiss.js';
 import { foldView } from '../game/ai/utility.js';
 import { aimPoint, solveTorpedoShot, type TacticContext } from '../game/ai/tacticKit.js';
 import { EQUIPMENT_TACTICS } from '../game/ai/tacticRegistry.js';
@@ -98,7 +98,7 @@ function anon(over: Partial<RememberedContact> = {}): RememberedContact {
 }
 
 function view(events: GameEvent[]): PerceptionView {
-  return { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [], fog: [] };
+  return { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [] };
 }
 
 /** The lattice cell centre the fold will derive for a one-cell rect at (x, y). */
@@ -602,6 +602,45 @@ describe('ai/plot — the sweep-miss drop (Eric ruling 2026-10-02)', () => {
     expect(m.contacts.has('far')).toBe(true);
     sweepUntil(CONFIG.bots.contactMemoryMs + 1000);
     expect(m.contacts.has('far')).toBe(false);
+  });
+
+  it('THE FOG LIMIT (Story 9.10, epic-9 amendment 169): a plot whose predicted spot sits in fog is NOT a miss — never marked, it ages out on contactMemoryMs; a plot outside the fog is dropped as before', () => {
+    const inFog = anon({ x: 300, y: 0, seenAt: NOW - 1000 });
+    const thick = { ...SITE, fogAt: () => 1 };
+    const clear = { ...SITE, fogAt: () => 0 };
+    const elsewhere = { ...SITE, fogAt: (x: number) => (x > 600 ? 1 : 0) }; // fog past 600 u, the plot at 300 u is in the open
+    const thin = { ...SITE, fogAt: () => FOG_PLOT_DENSITY - 0.01 }; // the thin edge is not "in fog"
+    expect(sweptAndMissed(ACROSS, thick, inFog, NOW)).toBe(false);
+    expect(sweptAndMissed(ACROSS, { ...SITE, fogAt: () => FOG_PLOT_DENSITY }, inFog, NOW)).toBe(false); // the threshold is inclusive
+    expect(sweptAndMissed(ACROSS, clear, inFog, NOW)).toBe(true);
+    expect(sweptAndMissed(ACROSS, elsewhere, inFog, NOW)).toBe(true);
+    expect(sweptAndMissed(ACROSS, thin, inFog, NOW)).toBe(true);
+    expect(sweptAndMissed(ACROSS, SITE, inFog, NOW)).toBe(true); // no fogAt at all = no fog anywhere (today's behaviour)
+    // Through the real fold: a full revolution of empty sweeps (plus the
+    // grace) keeps the fogged plot and drops the clear one; the fogged plot
+    // then ages out on the normal memory clock like any unpainted plot.
+    const run = (site: SweepSite): { afterSweep: boolean; afterMemory: boolean } => {
+      const m = mkMind();
+      m.contacts.set('p', anon({ x: 300, y: 0, seenAt: NOW - 1000 }));
+      const STEP = (2 * Math.PI * DT) / site.stats.sweepPeriodMs;
+      let last = 2 * Math.PI - 0.05;
+      let k = 0;
+      const sweepUntil = (ms: number): void => {
+        for (; k * DT <= ms; k += 1) {
+          const cur = (last + STEP) % (2 * Math.PI);
+          foldView(m, view([]), NOW + k * DT, { beam: { lastSweep: last, sweepAngle: cur }, site });
+          last = cur;
+        }
+      };
+      sweepUntil(site.stats.sweepPeriodMs + 2 * SWEEP_MISS_GRACE_MS);
+      expect(NOW + k * DT - (NOW - 1000)).toBeLessThan(CONFIG.bots.contactMemoryMs); // premise: still inside memory
+      const afterSweep = m.contacts.has('p');
+      sweepUntil(CONFIG.bots.contactMemoryMs + 1000);
+      return { afterSweep, afterMemory: m.contacts.has('p') };
+    };
+    expect(run(thick)).toEqual({ afterSweep: true, afterMemory: false });
+    expect(run(clear)).toEqual({ afterSweep: false, afterMemory: false });
+    expect(run(elsewhere)).toEqual({ afterSweep: false, afterMemory: false });
   });
 
   it('the window is half-open: start-inclusive, end-exclusive', () => {

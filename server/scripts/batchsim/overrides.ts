@@ -159,14 +159,16 @@ const TUNE_FAMILIES = [
   // itself, which the shared fold and the client both derive from, so it is
   // not a harness dial.
   'vision.dropout.',
-  // FOG BANKS (Story 9.10, Eric 2026-10-15, epic-9 amendments 164–166: every
-  // fog number is a harness dial). Floors: `sightCostPerU` 0 (a real arm —
-  // fog costs nothing, the banks are a visual only); the radii, ramps, the
-  // controller clocks and the two counts at 1 (TUNE_MIN_ONE_KEYS — a 0 radius
-  // is a bank that is nowhere, a 0 check period spins the controller every
-  // tick); `lifeMs` rides the existing min-one leaf; the coverage band is a
-  // closed share of water [0, 1] (FOG_SHARE_KEYS — `coverageMax=0` is "fog
-  // off"). The pair relations are refused in validateFogDials.
+  // THE FOG FIELD (Story 9.10, Eric 2026-10-15 — "no discs", a rolling
+  // fractal-noise field; every leaf of CONFIG.fog is a harness dial).
+  // Floors: `sightCostPerU`, `windU`, `edgeBand` and `cutRatePerS` at 0 (each
+  // a real arm — fog that costs nothing / a still field / a hard edge / a
+  // frozen cut); every length, clock and count at 1 (TUNE_MIN_ONE_KEYS — a
+  // 0 wavelength or march step divides, a 0 refresh or lattice spins or
+  // samples nothing); `gain` on (0, 1] (FOG_GAIN_KEY — fbm persistence) and
+  // the coverage band a closed share of the ring's area [0, 1]
+  // (FOG_SHARE_KEYS — `coverageMax=0` is "fog off"). `coverageMin <=
+  // coverageMax` is refused on the finished CONFIG in validateFogDials.
   'fog.',
 ];
 
@@ -438,15 +440,15 @@ const TUNE_SUB_ONE_FLOORS = new Map<string, number>([['turnRate', 0.05]]);
 const TUNE_MIN_ONE_KEYS = new Set([
   'vision.dropout.startU',
   'vision.dropout.kneeU',
-  // FOG BANKS (Story 9.10) — see the `fog.` family note in TUNE_FAMILIES.
-  'fog.radiusMinU',
-  'fog.radiusMaxU',
-  'fog.growMs',
-  'fog.fadeMs',
+  // THE FOG FIELD (Story 9.10) — see the `fog.` family note in TUNE_FAMILIES.
   'fog.targetPeriodMs',
-  'fog.spawnCheckMs',
-  'fog.maxBanks',
-  'fog.spawnTries',
+  'fog.wavelengthU',
+  'fog.octaves',
+  'fog.morphMs',
+  'fog.refreshMs',
+  'fog.rasterCellU',
+  'fog.marchStepU',
+  'fog.quantileLattice',
 ]);
 
 function tuneFloor(key: string): number {
@@ -471,6 +473,7 @@ export function validateTuneValue(key: string, value: number): void {
   if (UNIT_INTERVAL_KEYS.has(key)) return validateUnitInterval(key, value);
   if (PROBABILITY_KEYS.has(key)) return validateProbability(key, value);
   if (FOG_SHARE_KEYS.has(key)) return validateShare(key, value);
+  if (key === FOG_GAIN_KEY) return validateGain(key, value);
   const floor = tuneFloor(key);
   if (!Number.isFinite(value) || value < floor) {
     throw new TunableError(`'${key}': expected a finite value >= ${floor}, got '${value}'`);
@@ -503,13 +506,23 @@ const UNIT_INTERVAL_KEYS = new Set(['offer.weighting.factor', 'offer.weighting.f
 const PROBABILITY_KEYS = new Set(['vision.dropout.kneeP', 'vision.dropout.rimP']);
 
 /** The fog controller's coverage band (Story 9.10): a CLOSED share of the
- *  live ring's water, [0, 1] — 0 is "no fog" and a real arm; above 1 the
- *  controller would chase a coverage the water cannot hold. */
+ *  live ring's area, [0, 1] — 0 is "no fog" and a real arm; above 1 the
+ *  quantile would chase a coverage the ring cannot hold. */
 const FOG_SHARE_KEYS = new Set(['fog.coverageMin', 'fog.coverageMax']);
 
 function validateShare(key: string, value: number): void {
   if (!Number.isFinite(value) || value < 0 || value > 1) {
     throw new TunableError(`'${key}': expected a finite share of water in [0, 1], got '${value}'`);
+  }
+}
+
+/** The fog field's fbm persistence (Story 9.10): on (0, 1] — 0 collapses every
+ *  octave past the first, above 1 the fine octaves swamp the base shape. */
+const FOG_GAIN_KEY = 'fog.gain';
+
+function validateGain(key: string, value: number): void {
+  if (!Number.isFinite(value) || !(value > 0) || value > 1) {
+    throw new TunableError(`'${key}': expected a finite fbm gain in (0, 1], got '${value}'`);
   }
 }
 
@@ -644,27 +657,14 @@ function validateDropoutCurve(): void {
 }
 
 /**
- * THE FOG DIALS MUST DESCRIBE A BANK (Story 9.10, spec Degenerate dials):
- * `radiusMinU <= radiusMaxU` (the full radius is drawn in [min, max]),
- * `coverageMin <= coverageMax` (the target is drawn in [min, max]) and
- * `growMs + fadeMs <= lifeMs` (a bank that starts fading before it finishes
- * growing never reaches full size, so the report would read a different
- * bank than the dials name). Judged on the FINISHED CONFIG — an arm may set
- * several leaves at once.
+ * THE FOG BAND MUST BE A BAND (Story 9.10): `coverageMin <= coverageMax`
+ * (the target is drawn in [min, max]). Judged on the FINISHED CONFIG — an
+ * arm may set both leaves at once.
  */
 function validateFogDials(): void {
-  const { radiusMinU, radiusMaxU, coverageMin, coverageMax, growMs, fadeMs, lifeMs } = CONFIG.fog;
-  if (!(radiusMinU <= radiusMaxU)) {
-    throw new TunableError(`'fog.radiusMinU' (${radiusMinU}) must stay <= 'fog.radiusMaxU' (${radiusMaxU})`);
-  }
+  const { coverageMin, coverageMax } = CONFIG.fog;
   if (!(coverageMin <= coverageMax)) {
     throw new TunableError(`'fog.coverageMin' (${coverageMin}) must stay <= 'fog.coverageMax' (${coverageMax})`);
-  }
-  if (!(growMs + fadeMs <= lifeMs)) {
-    throw new TunableError(
-      `'fog.growMs' + 'fog.fadeMs' (${growMs} + ${fadeMs}) must stay <= 'fog.lifeMs' (${lifeMs}): ` +
-        'otherwise a bank starts fading before it is fully grown',
-    );
   }
 }
 

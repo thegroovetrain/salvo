@@ -68,12 +68,15 @@ export interface MetricsPayload {
    * 9.3 — 8.18's `smokeLivePeak`) is its twin for live MULTI-SPECTRAL
    * COUNTERMEASURE clouds — every cloud is one delivery-gate check per
    * observer per tick (Story 9.3 session 2: it occludes nothing), so the peak
-   * still says what the perception pass paid for. `fogLivePeak` (Story
-   * 9.10) is the same twin for live FOG BANKS — each bank is a sight-cost
-   * term on every sight test and one delivery-gate check per observer per
-   * tick. COUNT ONLY, like the others.
+   * still says what the perception pass paid for. `fogCut` and
+   * `fogCoverage` (Story 9.10) are the fog FIELD's last readings across
+   * every room — the coverage cut the field is sliced at (`FOG_NO_CUT` = 9
+   * means no fog) and the realized fogged share of the live ring over the
+   * controller's lattice. NUMBERS ONLY, never a position: the field is
+   * public weather anyway (the welcome seed + the schema cut), so these
+   * disclose nothing a client cannot compute.
    */
-  world: { minesLivePeak: number; cloudLivePeak: number; fogLivePeak: number };
+  world: { minesLivePeak: number; cloudLivePeak: number; fogCut: number; fogCoverage: number };
 }
 
 interface MessageBucket {
@@ -135,8 +138,10 @@ let minesLivePeak = 0;
 /** Process-wide high-water mark of live COUNTERMEASURE clouds (Story 8.18 /
  *  9.3) — the minesLivePeak twin, same survival rule. */
 let cloudLivePeak = 0;
-/** Process-wide high-water mark of live FOG BANKS (Story 9.10) — the same twin. */
-let fogLivePeak = 0;
+/** The fog field's last recorded coverage cut (Story 9.10) — `FOG_NO_CUT` (9) = no fog. */
+let fogCut = 9;
+/** The fog field's last recorded realized coverage share (Story 9.10). */
+let fogCoverage = 0;
 /** Monotonic second the module first recorded anything; null until first record. */
 let firstRecordSec: number | null = null;
 
@@ -228,12 +233,15 @@ export function recordCloudsLive(count: number): void {
 }
 
 /**
- * Record one room's live FOG BANK count for this sim step (Story 9.10) —
- * recordCloudsLive's twin: MAX only, a count and never a position. Called by
- * the arena adapter after each `world.step()`.
+ * Record one room's fog FIELD readings for this sim step (Story 9.10): the
+ * live coverage cut and the realized coverage share — LAST value wins (a
+ * reading, not a peak: the cut slews and the share tracks a wandering
+ * target, so a high-water mark would say nothing). Numbers, never a
+ * position. Called by the arena adapter after each `world.step()`.
  */
-export function recordFogLive(count: number): void {
-  if (count > fogLivePeak) fogLivePeak = count;
+export function recordFog(cut: number, coverage: number): void {
+  fogCut = cut;
+  fogCoverage = coverage;
 }
 
 /** Test-only: clear all registered rooms, retired totals, and first-record mark. */
@@ -242,7 +250,8 @@ export function resetMetrics(): void {
   retiredMessageTotal = 0;
   minesLivePeak = 0;
   cloudLivePeak = 0;
-  fogLivePeak = 0;
+  fogCut = 9;
+  fogCoverage = 0;
   firstRecordSec = null;
 }
 
@@ -314,7 +323,7 @@ export function metricsPayload(): MetricsPayload {
       ratePerSec: ratePerSec(nowSeconds()),
       total: totalMessages(),
     },
-    world: { minesLivePeak, cloudLivePeak, fogLivePeak },
+    world: { minesLivePeak, cloudLivePeak, fogCut, fogCoverage },
   };
 }
 

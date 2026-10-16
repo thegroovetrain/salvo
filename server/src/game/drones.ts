@@ -301,8 +301,8 @@ export class FleetController {
    * has no target of its own, joins the fight.
    */
   private propagateWitnesses(victim: ShipRecord, attacker: ShipRecord): void {
-    // ONE sight field per hit (Story 9.10): `fogBankRecords` snapshots the
-    // store, so it is read once here, never inside the per-witness loop.
+    // ONE sight field per hit (Story 9.10): built once here, never inside the
+    // per-witness loop.
     const field = this.sightField();
     for (const [id, mind] of this.minds) {
       if (id === victim.id || mind.targetId !== null) continue;
@@ -315,20 +315,22 @@ export class FleetController {
   }
 
   /**
-   * THE DRONES' SIGHT FIELD (Story 9.10, amendment 168): the islands, the
-   * live fog banks and the clock that `shipSees` tolls a drone's eye with —
-   * the same inputs a captain's SignalContext carries, so a drone is fogged
-   * by the same rule as a client. Built ONCE per tick (`field`, below) and
-   * once per hit (propagateWitnesses): `World.fogBankRecords` allocates a
-   * fresh snapshot, so it is never read inside a per-ship loop. The shot-
-   * from chase (amendment 139) reads no field: being shot is not sight.
+   * THE DRONES' SIGHT FIELD (Story 9.10, amendment 168): the islands and the
+   * fog toll thunk (`World.fogTollAlong` — the shared field under the live
+   * cut) that `shipSees` tolls a drone's eye with — the same inputs a
+   * captain's SignalContext carries, so a drone is fogged by the same rule
+   * as a client. Built ONCE per tick (`field`, below) and once per hit
+   * (propagateWitnesses), never inside a per-ship loop. The shot-from chase
+   * (amendment 139) reads no field: being shot is not sight. Hull avoidance
+   * is UNFOGGED (amendment 170) — it reads the solids, never this.
    */
   private sightField(): SightField {
-    return { islands: this.world.map.islands, fogBanks: this.world.fogBankRecords, now: this.world.now };
+    const world = this.world;
+    return { islands: world.map.islands, fogToll: (ax, ay, bx, by) => world.fogTollAlong(ax, ay, bx, by) };
   }
 
   /** This tick's sight field (refreshed at the top of `tick`). */
-  private field: SightField = { islands: [], fogBanks: [], now: 0 };
+  private field: SightField = { islands: [], fogToll: () => 0 };
 
   /** Submit one input per live fleet hull. Dead hulls idle (no input). */
   tick(): void {

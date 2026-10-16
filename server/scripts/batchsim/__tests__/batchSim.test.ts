@@ -1619,39 +1619,48 @@ describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
     expect(JSON.stringify(CONFIG.vision.dropout)).toBe(snapshot);
   });
 
-  it('--tune fog.* is reachable (Story 9.10, amendments 164–166): every dial, with floors on the radii/clocks/counts and the coverage band a share in [0, 1]', () => {
-    for (const key of ['fog.sightCostPerU=0', 'fog.sightCostPerU=3', 'fog.coverageMin=0', 'fog.coverageMax=1', 'fog.maxBanks=4', 'fog.spawnTries=1']) {
+  it('--tune fog.* is reachable (Story 9.10, the field): every dial, with floors on the lengths/clocks/counts, gain on (0, 1] and the coverage band a share in [0, 1]', () => {
+    for (const key of [
+      'fog.sightCostPerU=0', 'fog.sightCostPerU=3', 'fog.windU=0', 'fog.edgeBand=0', 'fog.cutRatePerS=0',
+      'fog.coverageMin=0', 'fog.coverageMax=1', 'fog.gain=1', 'fog.gain=0.3', 'fog.octaves=1', 'fog.quantileLattice=1',
+      'fog.wavelengthU=1', 'fog.morphMs=1', 'fog.refreshMs=1', 'fog.rasterCellU=1', 'fog.marchStepU=1', 'fog.targetPeriodMs=1',
+    ]) {
       expect(() => parseArgs(['--tune', key]), key).not.toThrow();
     }
-    for (const key of ['fog.radiusMinU=0', 'fog.radiusMaxU=0.5', 'fog.growMs=0', 'fog.fadeMs=0', 'fog.targetPeriodMs=0', 'fog.spawnCheckMs=0', 'fog.maxBanks=0', 'fog.spawnTries=0', 'fog.lifeMs=0']) {
+    for (const key of [
+      'fog.wavelengthU=0', 'fog.octaves=0.5', 'fog.morphMs=0', 'fog.refreshMs=0', 'fog.rasterCellU=0', 'fog.marchStepU=0',
+      'fog.quantileLattice=0', 'fog.targetPeriodMs=0',
+    ]) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 1/);
     }
-    expect(() => parseArgs(['--tune', 'fog.sightCostPerU=-1'])).toThrow(/>= 0/);
+    for (const key of ['fog.sightCostPerU=-1', 'fog.windU=-1', 'fog.edgeBand=-0.1', 'fog.cutRatePerS=-0.1']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 0/);
+    }
     for (const key of ['fog.coverageMin=-0.1', 'fog.coverageMax=1.5']) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/share of water in \[0, 1\]/);
     }
+    for (const key of ['fog.gain=0', 'fog.gain=1.5', 'fog.gain=-0.5']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/gain in \(0, 1\]/);
+    }
   });
 
-  it('--tune fog.* must describe a bank: radiusMin <= radiusMax, coverageMin <= coverageMax, growMs + fadeMs <= lifeMs (judged on the final values, rolled back)', () => {
+  it('--tune fog.* must keep the coverage band a band: coverageMin <= coverageMax (judged on the final values, rolled back)', () => {
     const snapshot = JSON.stringify(CONFIG.fog);
-    const { lifeMs, radiusMaxU, coverageMax } = CONFIG.fog;
+    const { coverageMax } = CONFIG.fog;
     const refused: Array<[Record<string, number>, RegExp]> = [
-      [{ 'fog.growMs': lifeMs, 'fog.fadeMs': 1 }, /'fog\.growMs' \+ 'fog\.fadeMs'.*'fog\.lifeMs'/],
-      [{ 'fog.growMs': 100000, 'fog.fadeMs': 30000, 'fog.lifeMs': 120000 }, /'fog\.growMs' \+ 'fog\.fadeMs'/],
       [{ 'fog.coverageMin': 0.1, 'fog.coverageMax': 0.05 }, /'fog\.coverageMin'.*must stay <= 'fog\.coverageMax'/],
       [{ 'fog.coverageMin': coverageMax + 0.01 }, /'fog\.coverageMin'.*must stay <=/],
-      [{ 'fog.radiusMinU': radiusMaxU + 1 }, /'fog\.radiusMinU'.*must stay <= 'fog\.radiusMaxU'/],
-      [{ 'fog.radiusMinU': 0 }, />= 1/],
+      [{ 'fog.wavelengthU': 0 }, />= 1/],
     ];
     for (const [tune, re] of refused) {
       expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(TunableError);
       expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(re);
       expect(JSON.stringify(CONFIG.fog)).toBe(snapshot); // rolled back
     }
-    // Several leaves at once: each alone would break a pair, the final set is legal.
-    const restore = applyOverrides({}, { 'fog.radiusMinU': radiusMaxU + 50, 'fog.radiusMaxU': radiusMaxU + 100 });
+    // Both leaves at once: each alone would break the pair, the final set is legal.
+    const restore = applyOverrides({}, { 'fog.coverageMin': coverageMax + 0.05, 'fog.coverageMax': coverageMax + 0.1 });
     try {
-      expect(CONFIG.fog.radiusMinU).toBe(radiusMaxU + 50);
+      expect(CONFIG.fog.coverageMin).toBeCloseTo(coverageMax + 0.05, 12);
     } finally {
       restore();
     }

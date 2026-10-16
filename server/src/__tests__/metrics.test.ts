@@ -39,7 +39,7 @@ import {
   metricsEndpoint,
   recordMinesLive,
   recordCloudsLive,
-  recordFogLive,
+  recordFog,
   nearestRank,
   computeTickPercentiles,
   round2,
@@ -267,7 +267,7 @@ describe('metricsPayload counts', () => {
       players: 0,
       tick: { p50: 0, p95: 0, max: 0, samples: 0 },
       messages: { ratePerSec: 0, total: 0 },
-      world: { minesLivePeak: 0, cloudLivePeak: 0, fogLivePeak: 0 },
+      world: { minesLivePeak: 0, cloudLivePeak: 0, fogCut: 9, fogCoverage: 0 },
     });
   });
 });
@@ -317,7 +317,7 @@ describe('world.cloudLivePeak gauge (Story 8.18 / 9.3)', () => {
     expect(metricsPayload().world.cloudLivePeak).toBe(40);
     recordCloudsLive(0); // every cloud expired — the PEAK does not fall
     expect(metricsPayload().world.cloudLivePeak).toBe(40);
-    expect(metricsPayload().world).toEqual({ minesLivePeak: 0, cloudLivePeak: 40, fogLivePeak: 0 }); // independent of the mine peak
+    expect(metricsPayload().world).toEqual({ minesLivePeak: 0, cloudLivePeak: 40, fogCut: 9, fogCoverage: 0 }); // independent of the mine peak
   });
 
   it('resetMetrics() zeroes it', () => {
@@ -328,21 +328,25 @@ describe('world.cloudLivePeak gauge (Story 8.18 / 9.3)', () => {
   });
 });
 
-// Story 9.10 — the live FOG BANK high-water mark, the same twin. A COUNT AND
-// NOTHING ELSE — never a position.
-describe('world.fogLivePeak gauge (Story 9.10)', () => {
-  it('keeps the MAX ever recorded, never falls, and is independent of the other peaks', () => {
-    expect(metricsPayload().world.fogLivePeak).toBe(0);
-    recordFogLive(3);
-    recordFogLive(11);
-    recordFogLive(0); // every bank gone — the PEAK does not fall
-    expect(metricsPayload().world).toEqual({ minesLivePeak: 0, cloudLivePeak: 0, fogLivePeak: 11 });
+// Story 9.10 — the fog FIELD's readings: the coverage cut (9 = FOG_NO_CUT =
+// no fog) and the realized coverage share. LAST VALUE, not a peak (the cut
+// slews and the share tracks a wandering target), NUMBERS AND NOTHING ELSE —
+// never a position (the field is public weather anyway).
+describe('world.fogCut / world.fogCoverage readings (Story 9.10)', () => {
+  it('reports the LAST recorded cut and share (not a max), independent of the peaks', () => {
+    expect(metricsPayload().world.fogCut).toBe(9);
+    expect(metricsPayload().world.fogCoverage).toBe(0);
+    recordFog(0.31, 0.05);
+    recordFog(0.27, 0.08);
+    recordFog(0.29, 0.06); // the latest reading wins — a lower share does not stick at the peak
+    expect(metricsPayload().world).toEqual({ minesLivePeak: 0, cloudLivePeak: 0, fogCut: 0.29, fogCoverage: 0.06 });
   });
 
-  it('resetMetrics() zeroes it', () => {
-    recordFogLive(6);
+  it('resetMetrics() restores no fog (cut 9, share 0)', () => {
+    recordFog(0.1, 0.07);
     resetMetrics();
-    expect(metricsPayload().world.fogLivePeak).toBe(0);
+    expect(metricsPayload().world.fogCut).toBe(9);
+    expect(metricsPayload().world.fogCoverage).toBe(0);
   });
 });
 

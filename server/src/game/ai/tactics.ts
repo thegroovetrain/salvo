@@ -899,7 +899,9 @@ function ingest(self: BotSelf, mind: BotMind, port: BotWorldPort): void {
   // from its last fold, as a client compares consecutive frames — and its
   // situation feed the sweep-miss drop.
   const beam = { sweepAngle: self.sweepAngle, lastSweep: mind.lastSweep };
-  const site = { ...situationOf(self, mind, port), raster: port.map.heightRaster };
+  // Story 9.10 (amendment 169): the public fog density rides the site so a
+  // plot whose predicted spot sits in fog is never read as a sweep miss.
+  const site = { ...situationOf(self, mind, port), raster: port.map.heightRaster, fogAt: mind.fogAt };
   foldView(mind, mind.view, port.now, { beam, site });
   mind.lastSweep = self.sweepAngle;
   // Story 8.15, amendment 115: the seen-torpedo table (HUNKER's (was DAMAGE CUT until Story 9.9) inbound trigger).

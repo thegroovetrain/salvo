@@ -50,7 +50,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
   return {
     mode: 'fogged', observerId: me.id, now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, decoys: w.decoys, clouds: w.cloudRecords, fogBanks: w.fogBankRecords, me, wakes: w.wakeRibbons,
+    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, decoys: w.decoys, clouds: w.cloudRecords, fogToll: (ax, ay, bx, by) => w.fogTollAlong(ax, ay, bx, by), me, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
     dropoutSeed: w.dropoutSeed, // Story 9.8 (rulings 121–123): the radar dropout roll's seed
@@ -62,7 +62,7 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
 function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
   return {
     mode: 'spectator', observerId, now: w.now, islands: w.map.islands, heightRaster: w.map.heightRaster, ships: w.ships,
-    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, decoys: w.decoys, clouds: w.cloudRecords, fogBanks: w.fogBankRecords, me: undefined, wakes: w.wakeRibbons,
+    litZones: w.litZones, burnZones: w.burnZones, foulZones: w.foulZones, decoys: w.decoys, clouds: w.cloudRecords, fogToll: (ax, ay, bx, by) => w.fogTollAlong(ax, ay, bx, by), me: undefined, wakes: w.wakeRibbons,
     pseudonymOf: (id) => w.pseudonymFor(id),
     aggroAt: (f, o) => w.drones.isTargeting(f, o),
     dropoutSeed: w.dropoutSeed, // Story 9.8 (rulings 121–123): the radar dropout roll's seed
@@ -110,7 +110,7 @@ const REGISTRY_KEYS = [
   'foulzone', // Story 9.4: the FOULING SHELL foul zone's contact-like channel, on the burn zone's gate (epic-9 amendment 63)
   'decoy', // Story 8.16: the DECOY BUOY's contact-like frame channel (the deleted radar buoy's `buoy` seat)
   'cloud', // Story 9.3: the MULTI-SPECTRAL COUNTERMEASURE cloud's contact-like frame channel (owner / spectator / its spray disc sighted or radar-detected — Story 9.3 session 2) — 8.18's `smoke` seat
-  'fog', // Story 9.10: the FOG BANK's contact-like frame channel — the SEVENTH declared exception (Eric 2026-10-15, epic-9 amendment 162): delivered inside the 750 u flash/smoke halo with island LOS to the nearest rim point; {id,x,y,r,d}
+  // Story 9.10: FOG HAS NO ROW — the field is public weather (welcome seed + schema cut); its hiding is the toll inside withinSight. The declared exceptions stay at SIX.
   'blip',
   'shell',
   'torp',
@@ -148,9 +148,9 @@ const REGISTRY_KEYS = [
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 27 known channels (19 event kinds + 8 contact-like; Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added; Story 4.12: `wk` added; Story 8.17: `burnzone` added; Story 8.18: `smoke` added, renamed `cloud` in Story 9.3; 2026-10-01: `dp` added; Story 9.4: `foulzone` added; Story 9.10: `fog` added)', () => {
+  it('has exactly the 26 known channels (19 event kinds + 7 contact-like; Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added; Story 4.12: `wk` added; Story 8.17: `burnzone` added; Story 8.18: `smoke` added, renamed `cloud` in Story 9.3; 2026-10-01: `dp` added; Story 9.4: `foulzone` added; Story 9.10: fog is a toll, never a row)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(27);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(26);
   });
 
   it('every row: eventType matches its registry key, visible/materialize are callable; NO row carries a counterIntel seam any more (Story 7-5 wave 2)', () => {

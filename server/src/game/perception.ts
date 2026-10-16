@@ -7,21 +7,20 @@
 // is unit-tested property-style
 // in __tests__/perception.test.ts: no contact or event in any frame may
 // reference anything outside sight ∪ (this-tick radar paints) — beyond the
-// SEVEN DECLARED per-row exceptions (self-directed events, owner-authored
+// SIX DECLARED per-row exceptions (self-directed events, owner-authored
 // points, Story 4.3's sp/hc/mz gunnery rows, Story 4.4's anonymous `sm`
-// wounded smoke, Story 4.5's bearing-only `fh` foghorn, and Story 9.10's
-// `fog` bank channel — Eric 2026-10-15, epic-9 amendment 162: a bank is
-// delivered inside the observer's 750 u flash/smoke halo with island LOS to
-// its nearest rim point, beyond the sight bubble; the count was SIX from
-// Story 4.5 to Story 9.9), each codified by its own independently-
-// reimplemented oracle in that suite. "Sight" itself is FOG-TOLLED since
-// Story 9.10 (amendments 149–150, 162–168): a ray pays the shared
-// `fogCostAlong` for its length inside a bank, so a hull inside the bubble
-// that fog hides is on NO channel — radar's inner edge stays the geometric
-// sight radius (dark to both sensors, amendment 163).
+// wounded smoke, and Story 4.5's bearing-only `fh` foghorn), each codified
+// by its own independently-reimplemented oracle in that suite. "Sight"
+// itself is FOG-TOLLED since Story 9.10 (epic-9 amendments 149–150,
+// 163–170): a ray pays the world's `fogTollAlong` (the shared fog field's
+// density, marched) on top of its length, so a hull inside the bubble that
+// fog hides is on NO channel — radar's inner edge stays the geometric sight
+// radius (dark to both sensors, amendment 163). FOG IS A TOLL, NEVER A
+// CHANNEL: the field is public weather both sides derive from the welcome
+// seed and the schema cut, so nothing per-observer about fog rides a frame.
 //
 // THE RULES LIVE IN THE SIGNAL REGISTRY (signals.ts): every signal channel —
-// the 19 GameEvent kinds plus the contact/mine/litzone/burnzone/foulzone/decoy/cloud/fog
+// the 19 GameEvent kinds plus the contact/mine/litzone/burnzone/foulzone/decoy/cloud
 // frame channels —
 // is one declarative SignalSpec row (visible + materialize),
 // and observe()/observeSpectator() below are the ONLY callers of row logic.
@@ -50,7 +49,7 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type DecoyView, type FogBankView, type FoulZoneView, type GameEvent, type LitZoneView, type MineView, type ShellState, type CloudView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
+import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type DecoyView, type FoulZoneView, type GameEvent, type LitZoneView, type MineView, type ShellState, type CloudView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 import { SIGNAL_REGISTRY, ballisticGateOpen, decoyRadarBlips, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
 
@@ -77,12 +76,6 @@ export interface PerceptionView {
    *  order). The cloud's seed alone rides here (`{id,x,y,t0}`); it occludes
    *  nothing (Story 9.3 session 2 — a client overlay). */
   clouds: CloudView[];
-  /** Per-observer FOG BANK visibility (Story 9.10 — contact-like, recomputed
-   *  every tick through the `fog` row, in spawn order): THE SEVENTH DECLARED
-   *  EXCEPTION (amendment 162) — delivered inside the 750 u halo with island
-   *  LOS to the nearest rim point, `{id,x,y,r,d}` only. Weather, not hulls:
-   *  what the fog hides was withheld by the tolled sight sites. */
-  fog: FogBankView[];
 }
 
 /** The narrow row context for the FOGGED path (observe() fail-closes before
@@ -107,10 +100,10 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     // Story 9.3: every live COUNTERMEASURE cloud — the cloud channel's
     // subjects and nothing else (a cloud occludes no sensor).
     clouds: world.cloudRecords,
-    // Story 9.10: every live FOG BANK — ONE snapshot per observer pass that
-    // both the sight toll (every withinSight site) and the `fog` channel's
-    // scan read, so what tolls and what is delivered can never disagree.
-    fogBanks: world.fogBankRecords,
+    // Story 9.10: THE FOG TOLL — the World's `fogTollAlong` (the shared
+    // field under the live cut), read by every withinSight site. A thunk,
+    // so the field itself never rides the context.
+    fogToll: (ax, ay, bx, by) => world.fogTollAlong(ax, ay, bx, by),
     // Story 4.12: the wake scan's subject list (every live ribbon — active,
     // torpedo, and detached water), riding the context like the raster does.
     wakes: world.wakeRibbons,
@@ -147,10 +140,10 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     decoys: world.decoys,
     // Story 9.3: the cloud channel's subjects (spectators see every cloud).
     clouds: world.cloudRecords,
-    // Story 9.10: the fog channel's subjects (spectators see every bank);
-    // the toll is INERT on this path (the spectator rows never call a
-    // sight site) — rides uniformly so the context stays one shape.
-    fogBanks: world.fogBankRecords,
+    // Story 9.10: the fog toll thunk — INERT on this path (the spectator
+    // rows never call a sight site); rides uniformly so the context stays
+    // one shape.
+    fogToll: (ax, ay, bx, by) => world.fogTollAlong(ax, ay, bx, by),
     // Inert on this path too (spectators have no radar, so no wake events) —
     // rides uniformly so the context stays one shape.
     wakes: world.wakeRibbons,
@@ -357,20 +350,6 @@ function cloudScan(world: World, ctx: SignalContext): CloudView[] {
   return out;
 }
 
-/** Per-observer FOG BANK delivery (Story 9.10) — contact-like state exactly
- *  like clouds, recomputed every tick through the fog row, in store (spawn)
- *  order. Iterates the CONTEXT's snapshot (`ctx.fogBanks`), the same array
- *  the sight toll read this pass — never a second read of the World, so the
- *  banks that tolled and the banks delivered are one list. */
-function fogScan(ctx: SignalContext): FogBankView[] {
-  const out: FogBankView[] = [];
-  const row = SIGNAL_REGISTRY.fog;
-  for (const bank of ctx.fogBanks) {
-    if (row.visible(ctx, bank)) out.push(row.materialize(ctx, bank));
-  }
-  return out;
-}
-
 /** Reused wake-subject scratch for the wake scan (the SEG_SCRATCH pattern):
  *  filled per segment, consumed synchronously by the row's visible()/
  *  materialize() — the materialized wire object is always fresh. */
@@ -516,7 +495,6 @@ function view(world: World, ctx: SignalContext): PerceptionView {
     foulZones: foulZoneScan(world, ctx),
     decoys: decoyScan(world, ctx),
     clouds: cloudScan(world, ctx),
-    fog: fogScan(ctx),
   };
 }
 
@@ -529,7 +507,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
  */
 export function observe(world: World, observerId: string): PerceptionView {
   const me = world.ships.get(observerId);
-  if (!me) return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [], fog: [] };
+  if (!me) return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [] };
   return view(world, foggedContext(world, me));
 }
 

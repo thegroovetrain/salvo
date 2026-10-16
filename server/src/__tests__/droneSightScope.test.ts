@@ -19,7 +19,7 @@
 //     shooter and turns onto its bearing.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_HORN_ID, angleDiff, bearing, droneHullOf, type DroneSizeId } from '@salvo/shared';
+import { CONFIG, DEFAULT_HORN_ID, FOG_NO_CUT, angleDiff, bearing, droneHullOf, type DroneSizeId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { sightOf } from '../game/signals.js';
 import { circleIsland } from './islandFixture.js';
@@ -156,38 +156,43 @@ describe('drone sight scope — being shot is not a sight scan', () => {
 // shot test) — now pays the fog toll through the same `withinSight` a
 // captain's contact row uses, so a drone loses what fog hides. Being SHOT is
 // still not sight (amendment 139): the shot-from chase acquires and turns
-// the drone with the bank in place; it simply cannot refresh or fire on a
-// target it cannot see, and forgets it once `memoryMs` runs out.
+// the drone with the fog in place; it simply cannot refresh or fire on a
+// target it cannot see, and forgets it once `memoryMs` runs out. The fog is
+// the FIELD pinned through the World's test seam: a cut of −2 is density 1
+// everywhere (every ray pays sightCostPerU × its length), FOG_NO_CUT is no
+// fog — so the geometry is exact and the expectations are derived from
+// CONFIG.fog.sightCostPerU and the drone's sight, never a pinned literal.
 
-/** A mature bank (scale 1, its whole hold ahead) through the test seam. */
-function matureBank(w: World, id: string, x: number, y: number, R: number): void {
-  const bornAt = w.now - CONFIG.fog.growMs - 1000;
-  w.seedFogBank({ id, x, y, R, bornAt, until: bornAt + CONFIG.fog.lifeMs });
-}
+/** Density 1 everywhere — every ray pays the full toll. */
+const FULL_FOG_CUT = -2;
 
-describe('drone sight scope — fog banks blind a drone exactly as they blind a captain (Story 9.10, amendment 168)', () => {
+describe('drone sight scope — the fog field blinds a drone exactly as it blinds a captain (Story 9.10, amendment 168)', () => {
   const MEMORY_TICKS = Math.ceil(CONFIG.fleet.memoryMs / CONFIG.tick.simDtMs) + 2;
-  // The captain sits at 450 u (inside the 500 u sight) in the CENTRE of a
-  // mature R 400 bank: the drone's ray pays 2 × its length inside the disc,
-  // so the target stays hidden until the drone is within ~200 u — farther
-  // than 40 u/s carries it inside the 3 s memory window.
+  // The captain sits at 450 u (inside the 500 u sight) under density 1: the
+  // drone's ray pays sightCostPerU × 450 on top of 450 u, so the target
+  // stays hidden until the drone is within sight / (1 + cost) ≈ 167 u —
+  // farther than 40 u/s carries it inside the 3 s memory window.
   const CAP_X = 450;
 
   function arena(seed: number, fogged: boolean): { w: World; d: ShipRecord; g: ShipRecord } {
     const w = bareWorld(seed);
     const d = fleetShip(w, 'f', 'medium', 0, 0);
     d.state.heading = Math.PI / 2; // broadside-on to the shooter
-    // A would-be witness in the same fleet, 200 u astern — outside the bank
-    // (its ray to f never enters the disc), its ray to the captain ~492 u
-    // long with ~400 u of it inside the bank, and far enough off f that hull
-    // avoidance does not lean on f's turn.
+    // A would-be witness in the same fleet, 200 u astern — its ray to f
+    // (200 u) and to the captain (~492 u) both pay the full toll under
+    // density 1, and far enough off f that hull avoidance does not lean on
+    // f's turn.
     const g = fleetShip(w, 'g', 'medium', 0, -200);
-    captain(w, 'cap', CAP_X, 0);
-    if (fogged) matureBank(w, 'bank', CAP_X, 0, 400);
+    const cap = captain(w, 'cap', CAP_X, 0);
+    const cost = CONFIG.fog.sightCostPerU;
+    expect(CAP_X * (1 + cost)).toBeGreaterThan(sightOf(d)); // premise: hidden under density 1
+    expect(CAP_X).toBeLessThanOrEqual(sightOf(d)); // premise: seen with no fog
+    expect(cap.id).toBe('cap');
+    w.setFogCutForTest(fogged ? FULL_FOG_CUT : FOG_NO_CUT);
     return { w, d, g };
   }
 
-  it('shot from inside a bank: the drone acquires the shooter and turns onto its bearing (shot-from aggro is untouched)...', () => {
+  it('shot from inside the fog: the drone acquires the shooter and turns onto its bearing (shot-from aggro is untouched)...', () => {
     const { w, d } = arena(21, true);
     shellHit(w, d, 'cap');
     expect(w.drones.targetOf('f')).toBe('cap');
@@ -198,7 +203,7 @@ describe('drone sight scope — fog banks blind a drone exactly as they blind a 
     expect(err1).toBeLessThan(0.25);
   });
 
-  it('...but never FIRES at it and FORGETS it once memory runs out — while the same drone with the bank gone fires and keeps the target', () => {
+  it('...but never FIRES at it and FORGETS it once memory runs out — while the same drone with no fog fires and keeps the target', () => {
     const shotsBy = (w: World, id: string): number => [...w.shells.values()].filter((s) => s.ownerId === id).length;
     const fogged = arena(23, true);
     shellHit(fogged.w, fogged.d, 'cap');
@@ -221,7 +226,7 @@ describe('drone sight scope — fog banks blind a drone exactly as they blind a 
     expect(clear.w.drones.targetOf('f')).toBe('cap'); // refreshed every tick it was seen
   });
 
-  it('the witness rule is fogged too: a fleet-mate that cannot see the shooter through the bank does not join; with the bank gone it does', () => {
+  it('the witness rule is fogged too: a fleet-mate that cannot see the shooter through the fog does not join; with no fog it does', () => {
     const fogged = arena(25, true);
     shellHit(fogged.w, fogged.d, 'cap');
     expect(fogged.w.drones.targetOf('g')).toBeNull();

@@ -105,12 +105,13 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
     });
   }
 
-  it('ArenaState 15 / PlayerMeta 8 — the shipped counts, so growth is visible', () => {
+  it('ArenaState 16 / PlayerMeta 8 — the shipped counts, so growth is visible', () => {
     // NOTE for the record: the story text said ArenaState 14. Measured on the
     // shipped class it is 15 (23 `@type` decorators in the file, 8 of them on
     // PlayerMeta) — the story figure was stale, and neither number is close to
     // the cap.
-    expect(fieldCount(ArenaState)).toBe(15);
+    // Story 9.10 added `fogCut` (the fog field's coverage cut): 15 -> 16.
+    expect(fieldCount(ArenaState)).toBe(16);
     expect(fieldCount(PlayerMeta)).toBe(8);
   });
 
@@ -167,9 +168,10 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 
 describe('the PV join gate refuses 84 and admits 85', () => {
   it('PROTOCOL_VERSION is 85', () => {
-    // Story 9.10 bumped 84 -> 85: FrameMsg gains the optional `fog` channel
-    // (FogBankView {id,x,y,r,d}), the seventh declared perception exception
-    // (epic-9 amendments 162–168).
+    // Story 9.10 bumped 84 -> 85: the FOG FIELD — WelcomeMsg gains fogSeed,
+    // ArenaState gains fogCut and the client reads CONFIG.fog; no per-observer
+    // fog channel, the declared exceptions stay at SIX (epic-9 amendments
+    // 163–173).
     // Story 9.9 bumped 83 -> 84: catalog content (the ARMOR PIERCING ladder,
     // ARMOR +20 per card), CONFIG.armor.k 100 / CONFIG.hunker read by the
     // client, OwnShip.damageCutUntil -> hunkerUntil (epic-9 amendments 144–147).
