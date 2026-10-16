@@ -5,7 +5,7 @@ created: '2026-10-15'
 status: 'done'
 baseline_revision: 'b2df9308'
 review_loop_iteration: 0
-final_revision: 'PR open to development (2026-10-15); code head fbfd2572 plus the final_revision stamp commit'
+final_revision: 'PR #286 merged 2026-10-15; staging tune 2026-10-16 (cycle 192, 0.18.57, PV 86, amendment 177: spin with shear, coin-flip direction, 20–25 %, drift 3.5, onset ~15 s) — PR open to development'
 followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
@@ -162,6 +162,10 @@ warnings: [oversized]
 - Given `npm run check`, then green; the perf pin under 50 ms; PV 85; both trackers stamped.
 
 ## Spec Change Log
+
+### 2026-10-16 — staging tune (cycle 192, 0.18.57, PV 86): the field spins with shear
+- Eric on staging at 0.18.56: "It looks good. It moves too quickly and there isn't enough of it" → coverage 20–25 % (was 2–8 %), drift 3.5 u/s (was 8), onset faster (`cutRatePerS` 0.04, ≈ 15 s to a 20–25 % cut — Fable's number). He asked how the drift direction was chosen (a fixed random heading per match) and wanted air currents; of rigid spin / spin with shear / orbiting drift / wandering heading (eddies by particle integration advised against) he picked SPIN WITH SHEAR, watched the real candidate function live (artifact `fog-field-2.html`: whole-ocean + game-scale panels, dials), said "Yeah that's solid!" and asked for a per-match coin flip on the turn's direction. Built: `spinPeriodMs` 1200000 / `spinShear` 0.5, the per-layer shear reset at each layer's invisible instant (no layer carries more than one `morphMs` of stretch), sin/cos by a range-reduced series (no transcendentals), `makeFogField(seed, cfg, oceanRadius)`. Amendment 177. Perf: a density sample ≈ 0.28 µs, unchanged in kind; the memoized cell walk is untouched.
+- Review gate (Blind Hunter + Edge Case Hunter on Fable, Codex gpt-5.6-sol): Codex MED — a sub-millisecond `spinPeriodMs` passed the harness floor and zeroed the field → `0 or ≥ 1 ms`; Codex LOW — the radius computed twice per sample → once. Blind Hunter HIGH — two protocol pins in `colyseus018.test.ts` not moved (the server suite was red) → moved; MED — the reset test was vacuous → replaced by a reset-bound test (a layer just after its partner's reset equals its own state one reset earlier, rigidly rotated) and a continuity test; MED — `sinCos` folds unproven → `fogSinCos` exported and pinned against Math within 1e-6; MED — the wisps tile scrolled with the wind only while the mask spun at up to 26 u/s at the rim → scrolls with the field's local velocity at the view centre; MED — the memo's "at most refreshMs old, under a cell per epoch" bound no longer held at 26 u/s → `refreshMs` 500 and the comment rewritten; LOW — stale "8 %"/"35 s" comments, `g.mapRadius` → `welcome.mapRadius`, the "half again as fast" wording overstated a bounded 22° curl → reworded everywhere. Edge Case Hunter BUILD-ON-IT: the ±π/2 series fold steps 9e-7 (recorded, harmless); swallowed-NaN configs recorded; the 1 s epoch flagged (now 500 ms). Gate readings are amendment 177 (a)–(i).
 
 ### 2026-10-15 (review gate on the field) — rulings and corrections
 - Eric (AskUserQuestion): ENDGAME fog holds the last cut below half a bank's width (rejected: fade out; thicken); ONSET rolls in over ~1 min from above the noise maximum (rejected: pop in as built). Eric on the live field page: bigger, slower banks — `wavelengthU` 900, `windU` 8, `morphMs` 150000 (the spec's earlier triple 600/12/90000 was the proposal; corrected above).

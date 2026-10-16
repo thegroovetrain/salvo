@@ -1,7 +1,7 @@
 // THE FOG TOLL'S PERCEPTION COST (Story 9.10 spec, Performance — Eric: "make
 // it performant"): sixteen captains and ninety-six drones (the 16-captain
 // lobby's full fleet load, Story 9.8's 16/8/4 waves) on a 5,000 u square of
-// open water, twenty armed mines, the zone started and the FIELD cut at ~8 %
+// open water, twenty armed mines, the zone started and the FIELD cut at ~25 %
 // coverage (the top of the band) — and the question is whether `observe()`
 // for all sixteen captains, every sight site now paying the fog toll through
 // the memoized density-lattice walk, fits the 50 ms tick with room to spare.
@@ -15,7 +15,7 @@
 // run built OUTSIDE the clock, `performance.now()` around the work, best-of-
 // 5, the numbers printed under `HC_PERF_LOG=1`, and the ASSERTION is the tick
 // budget. The cut goes in through the World's test-only seam at the quantile
-// for 8 % over the arena lattice (production's one writer is the controller).
+// for 25 % over the arena lattice (production's one writer is the controller).
 //
 // RECORDED 2026-10-15 on the dev machine (Darwin 25.4, Node 22), seed 910,
 // run alone: see the HC_PERF_LOG line — it re-measures on the machine that
@@ -31,7 +31,7 @@ const CAPTAINS = 16;
 const DRONES = 96;
 const MINES = 20;
 const HALF_U = 2500; // a 5,000 u square
-const COVERAGE = 0.08;
+const COVERAGE = 0.25; // the top of the band (Eric 2026-10-16: 20–25 %)
 const TICK_BUDGET_MS = 50;
 /** One tick's worth of first-touch memo evaluations after an epoch bump. */
 const FIRST_TOUCH_BUDGET_MS = 10;
@@ -40,7 +40,7 @@ const SIZES: readonly DroneSizeId[] = ['small', 'medium', 'large'];
 
 /** A deterministic lattice: 112 hulls on a 350 u grid (every hull has
  *  neighbours inside sight and the halo; nobody sees the whole field),
- *  twenty mines on a diagonal, the zone started, the field cut at ~8 %
+ *  twenty mines on a diagonal, the zone started, the field cut at ~25 %
  *  coverage over the arena. Built outside the clock. */
 function field(seed: number): { w: World; captains: ShipRecord[]; drones: ShipRecord[] } {
   const w = new World(seed, CONFIG.map.playerCap, CONFIG.zone);
@@ -115,7 +115,7 @@ function measure(seed: number): Run {
   return { firstTouchMs, firstTouchEvals, observeMs: warm.ms, dronesMs: warm.dronesMs, contacts: warm.contacts, dronePairs: warm.dronePairs };
 }
 
-describe('the fog toll in perception — 16 captains + 96 drones, the field at 8 % coverage, 20 mines (Story 9.10 perf pin)', () => {
+describe('the fog toll in perception — 16 captains + 96 drones, the field at 25 % coverage, 20 mines (Story 9.10 perf pin)', () => {
   it('observe() for all 16 captains (and shipSees for the whole fleet) best-of-5 stays under the 50 ms tick; the first-touch tick after an epoch bump under 10 ms', () => {
     const runs: Run[] = [];
     for (let run = 0; run < 5; run += 1) runs.push(measure(910));

@@ -1748,8 +1748,13 @@ export class World {
    * narrow peak between samples cannot hide (every 10 u cell the ray
    * crosses is read). The EPOCH advances at every fog refresh (`refreshMs`,
    * when the cut may slew): `fogEpochT` is that refresh's clock, so the
-   * field the server tolls is at most `refreshMs` old — with `windU` 8 the
-   * fog moves under a cell per epoch. The shared midpoint march
+   * field the server tolls is at most `refreshMs` old. Since the spin
+   * (amendment 177) the pattern moves up to 2π·R/spinPeriodMs ≈ 26 u/s at
+   * the rim (16 u/s at half radius, the wind's 3.5 u/s mid-ocean), so
+   * `refreshMs` is 500: the server's field trails the client's by at most
+   * half a second (≈ 13 u at the rim); at a bank's edge the two can
+   * disagree by up to half density for that long (cycle-192 gate reading;
+   * Eric may shorten the epoch further at a linear first-touch cost). The shared midpoint march
    * (`fogTollAlong` in sim/fog.ts) stays the REFERENCE the client and the
    * tests integrate; the server walk agrees with it to one cell's
    * quantization at each end (fogField.test.ts).
@@ -1956,7 +1961,7 @@ export class World {
     // same constant (a different mint — the field is derived on both sides
     // from the welcome's `fogSeed`, so it is not a stream).
     this.fogSeed = (seed ^ 0x3c6ef372) >>> 0;
-    this.fogField = makeFogField(this.fogSeed, CONFIG.fog);
+    this.fogField = makeFogField(this.fogSeed, CONFIG.fog, this.map.radius);
     // The density memo lattice — one allocation for the World's life (see fogMemo).
     const memoCell = CONFIG.fog.marchStepU;
     const memoHalf = this.map.radius + FOG_MEMO_MARGIN_U;
@@ -7221,7 +7226,9 @@ export class World {
    * over ~1 min"): the first live refresh sets the cut to the lattice's
    * MAXIMUM noise + edgeBand — density 0 at every lattice point — and the
    * cut then slews DOWN toward the goal, so banks grow in from their hearts
-   * outward (≈ 35 s from a max near 1.0 to a 5 % cut near 0.3 at 0.02/s).
+   * outward (≈ 15 s from a max near 1.0 to a 20–25 % cut at 0.04/s —
+   * Eric 2026-10-16 "the onset roll-in should be faster", amendment 177;
+   * was ≈ 35 s to a 5 % cut at 0.02/s).
    * The ONE snap: a goal of FOG_NO_CUT (target 0 — fog off) clears at once,
    * never a crawl toward 9. Then the realized share is re-measured for the
    * readouts.

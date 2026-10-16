@@ -44,7 +44,7 @@ function makeView(): { view: FogFieldView; layer: Container; calls: { n: number 
   };
   const layer = new Container();
   const view = new FogFieldView(layer, spy);
-  view.setSeed(SEED);
+  view.setSeed(SEED, 5000);
   return { view, layer, calls };
 }
 
@@ -53,8 +53,8 @@ describe('fillFogRaster — the shared field, sampled deterministically', () => 
     const n = 40;
     const a = new Float32Array(n * n);
     const b = new Float32Array(n * n);
-    fillFogRaster(a, makeFogField(SEED, CONFIG.fog), -400, -400, 20, n, 5000, MID);
-    fillFogRaster(b, makeFogField(SEED, CONFIG.fog), -400, -400, 20, n, 5000, MID);
+    fillFogRaster(a, makeFogField(SEED, CONFIG.fog, 5000), -400, -400, 20, n, 5000, MID);
+    fillFogRaster(b, makeFogField(SEED, CONFIG.fog, 5000), -400, -400, 20, n, 5000, MID);
     expect(b).toEqual(a);
     for (const v of a) expect(v >= 0 && v <= 1).toBe(true);
     expect(a.some((v) => v > 0)).toBe(true);
@@ -63,7 +63,7 @@ describe('fillFogRaster — the shared field, sampled deterministically', () => 
 
   it('the no-fog cut fills zeros and reports nothing lit', () => {
     const out = new Float32Array(16).fill(0.5);
-    expect(fillFogRaster(out, makeFogField(SEED, CONFIG.fog), 0, 0, 10, 4, 0, FOG_NO_CUT)).toBe(false);
+    expect(fillFogRaster(out, makeFogField(SEED, CONFIG.fog, 5000), 0, 0, 10, 4, 0, FOG_NO_CUT)).toBe(false);
     expect(out.every((v) => v === 0)).toBe(true);
   });
 
@@ -73,7 +73,7 @@ describe('fillFogRaster — the shared field, sampled deterministically', () => 
     view.update(16, 7000, false, own);
     const r = view.raster;
     const ref = new Float32Array(r.n * r.n);
-    fillFogRaster(ref, makeFogField(SEED, CONFIG.fog), r.ox, r.oy, r.cellU, r.n, 7000, MID);
+    fillFogRaster(ref, makeFogField(SEED, CONFIG.fog, 5000), r.ox, r.oy, r.cellU, r.n, 7000, MID);
     expect(r.density).toEqual(ref);
   });
 });
@@ -115,7 +115,7 @@ describe('the refresh cadence — never per frame', () => {
 
   it('a refresh of the real field over the halo square is cheap (printed under HC_PERF_LOG=1)', () => {
     const view = new FogFieldView(new Container());
-    view.setSeed(SEED);
+    view.setSeed(SEED, 5000);
     view.setCut(MID);
     view.update(16, 0, false, own); // warm-up
     let best = Number.POSITIVE_INFINITY;
@@ -229,7 +229,7 @@ describe('the wisps', () => {
     view.update(100, 0, false, own);
     view.update(100, 100, false, own);
     expect(view.scroll).toEqual({ x: 0, y: 0 });
-    const field = makeFogField(SEED, CONFIG.fog);
+    const field = makeFogField(SEED, CONFIG.fog, 5000);
     view.update(100, 200, true, own);
     expect(view.scroll.x).toBeCloseTo(((field.windX * 100) % 1024 + 1024) % 1024, 6);
     expect(view.scroll.y).toBeCloseTo(((field.windY * 100) % 1024 + 1024) % 1024, 6);

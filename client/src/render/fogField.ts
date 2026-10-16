@@ -20,8 +20,8 @@
 //   re-centre never makes the image swim). It is uploaded into ONE
 //   BufferImageSource (rgb white, alpha = density, LINEAR filtering) on ONE
 //   sprite placed at the raster origin in world units, scale = cellU. Between
-//   refreshes nothing moves: the fog's own drift is inside the field (its
-//   wind term), so the next refresh carries it.
+//   refreshes nothing moves: the fog's own motion is inside the field (its
+//   wind and spin terms), so the next refresh carries it.
 // - THE WISPS: a TilingSprite of the pre-baked puff tile (render/fogPuffTile.ts,
 //   2 u per texel), alpha `maxAlpha`, world-anchored through `tilePosition`
 //   and scrolled with the field's wind (u/ms) — motion off → it holds still.
@@ -142,6 +142,7 @@ function wispsTexture(): Texture {
 export class FogFieldView {
   private field: FogField | null = null;
   private seed: number | null = null;
+  private oceanRadiusU = -1;
   private target = FOG_NO_CUT;
   private eased = FOG_NO_CUT;
   /** The body: the density mask sprite + the wisps tile (the layer's second child, after the halo). */
@@ -198,13 +199,14 @@ export class FogFieldView {
     layer.addChild(this.body);
   }
 
-  /** The welcome's `fogSeed`: (re)build the field only when the seed changes. */
-  setSeed(seed: number): void {
-    if (!Number.isFinite(seed)) return;
+  /** The welcome's `fogSeed` over the match's ocean radius (the spin's center is the ocean center): (re)build the field only when either changes. */
+  setSeed(seed: number, oceanRadiusU: number): void {
+    if (!Number.isFinite(seed) || !Number.isFinite(oceanRadiusU)) return;
     const s = seed >>> 0;
-    if (s === this.seed) return;
+    if (s === this.seed && oceanRadiusU === this.oceanRadiusU) return;
     this.seed = s;
-    this.field = makeFogField(s, CONFIG.fog);
+    this.oceanRadiusU = oceanRadiusU;
+    this.field = makeFogField(s, CONFIG.fog, oceanRadiusU);
     this.sinceRefresh = Number.POSITIVE_INFINITY;
   }
 
@@ -258,7 +260,7 @@ export class FogFieldView {
       this.hide();
       return;
     }
-    this.advanceScroll(dtMs, motionOn);
+    this.advanceScroll(dtMs, motionOn, centre);
     this.maybeRefresh(dtMs, serverNow, centre, spectating ? screen : null);
     this.draw(eye, screen);
   }
@@ -341,13 +343,34 @@ export class FogFieldView {
     return this.screenCentre;
   }
 
-  /** Scroll the wisps with the field's wind (motion-gated), wrapped to one tile period. */
-  private advanceScroll(dtMs: number, motionOn: boolean): void {
+  /**
+   * Scroll the wisps with the field's LOCAL velocity at the view centre
+   * (motion-gated), wrapped to one tile period: the wind plus the spin's
+   * tangential speed there (amendment 177 — the pattern turns about the
+   * ocean centre, faster toward the middle by the shear; cycle-192 gate: a
+   * wind-only scroll made the wisps swim against their own bank at the rim,
+   * where the spin moves the banks several times faster than the wind).
+   * One tile cannot turn with the whole field; following the centre's
+   * velocity keeps the wisps riding the banks the viewer is looking at.
+   */
+  private advanceScroll(dtMs: number, motionOn: boolean, centre: { x: number; y: number }): void {
     if (!motionOn || this.field === null) return;
     const dt = Math.min(MAX_SCROLL_DT_MS, Math.max(0, dtMs));
     const period = F.puffTilePx / F.puffPxPerU;
-    this.scrollX = wrap(this.scrollX + this.field.windX * dt, period);
-    this.scrollY = wrap(this.scrollY + this.field.windY * dt, period);
+    const f = this.field;
+    let vx = f.windX;
+    let vy = f.windY;
+    if (f.cfg.spinPeriodMs > 0) {
+      const px = centre.x - f.spinCx;
+      const py = centre.y - f.spinCy;
+      const r = Math.hypot(px, py);
+      const shear = r >= f.spinRadiusU ? 0 : f.cfg.spinShear * (1 - r / f.spinRadiusU);
+      const w = (f.spinSign * (2 * Math.PI) * (1 + shear)) / f.cfg.spinPeriodMs; // rad/ms at the centre point
+      vx += -py * w;
+      vy += px * w;
+    }
+    this.scrollX = wrap(this.scrollX + vx * dt, period);
+    this.scrollY = wrap(this.scrollY + vy * dt, period);
   }
 
   /** Refresh on the cadence, on a re-centre, or on a raster geometry change. */

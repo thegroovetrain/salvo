@@ -459,7 +459,11 @@ describe('shared barrel', () => {
     // 163-164, 167-170 + the "no discs" field re-plan): WelcomeMsg gains
     // fogSeed, the client reads CONFIG.fog and the schema gains fogCut. No
     // per-observer fog channel; the exception count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(85);
+    // 85 -> 86 (Story 9.10 fog tune, Eric 2026-10-16 on staging, epic-9
+    // amendment 177): CONFIG.fog, which the client reads, gains spinPeriodMs
+    // and spinShear (the field spins about the ocean center with shear, a
+    // per-match coin flip for the direction); coverage 20-25 %, drift 3.5.
+    expect(PROTOCOL_VERSION).toBe(86);
     for (const fn of [shared.makeFogField, shared.fogNoiseAt, shared.fogDensityAt, shared.fogTollAlong, shared.fogCutForTarget, shared.fogLattice]) {
       expect(typeof fn).toBe('function');
     }

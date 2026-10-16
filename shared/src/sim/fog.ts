@@ -8,9 +8,12 @@
 // The perception invariant oracle deliberately re-integrates the density at a
 // finer step rather than calling `fogTollAlong`, so the two check each other.
 //
-// The field in plain words: noise `n(x, y, t)` is two fbm layers drifting with
-// a fixed per-match wind, cross-faded by a triangle wave of period `morphMs`
-// (so banks roll AND change shape). Density = clamp01((n − cut) / edgeBand):
+// The field in plain words: noise `n(x, y, t)` is two fbm layers SPINNING
+// about the ocean center (one turn per `spinPeriodMs` at the rim, faster
+// toward the middle by `spinShear` so banks curl and stretch; the turn's
+// direction is a per-match coin flip — Eric 2026-10-16, amendment 177),
+// drifting with a fixed per-match wind, and cross-faded by a triangle wave of
+// period `morphMs` (so banks roll AND change shape). Density = clamp01((n − cut) / edgeBand):
 // zero below the cut, a soft edge `edgeBand` wide, solid above. A ray pays
 // `sightCostPerU × density` extra sight units per unit of its length (a
 // midpoint march). Sight only: radar, zone circles, the foghorn and the storm
@@ -39,6 +42,8 @@ export interface FogFieldConfig {
   octaves: number;
   gain: number;
   windU: number;
+  spinPeriodMs: number; // ms for one full turn of the pattern at the ocean's rim (0 = no spin)
+  spinShear: number; // extra turn rate at the center as a fraction of the rim's (0 = rigid)
   morphMs: number;
   edgeBand: number;
   marchStepU: number;
@@ -50,6 +55,10 @@ export interface FogField {
   readonly layerB: NoiseLayer;
   readonly windX: number; // u/ms
   readonly windY: number; // u/ms
+  readonly spinSign: 1 | -1; // the per-match coin flip: +1 turns one way, -1 the other
+  readonly spinCx: number; // u — the spin center (the ocean center)
+  readonly spinCy: number;
+  readonly spinRadiusU: number; // u — the ocean radius: shear reads 1 - r / this, 0 at and beyond the rim
   readonly cfg: FogFieldConfig;
 }
 
@@ -67,8 +76,16 @@ function windDirection(seed: number): { x: number; y: number } {
   }
 }
 
-/** Build the fog field for `seed`. Deterministic: same seed + cfg → identical field. */
-export function makeFogField(seed: number, cfg: FogFieldConfig): FogField {
+/** The spin's coin flip, drawn from `seed` (its own stream, so the wind draw is untouched). */
+function spinSign(seed: number): 1 | -1 {
+  return mulberry32((seed ^ 0x27d4eb2f) >>> 0).next() < 0.5 ? 1 : -1;
+}
+
+/**
+ * Build the fog field for `seed` over an ocean of radius `spinRadiusU` about
+ * (`spinCx`, `spinCy`). Deterministic: same seed + cfg + ocean → identical field.
+ */
+export function makeFogField(seed: number, cfg: FogFieldConfig, spinRadiusU: number, spinCx = 0, spinCy = 0): FogField {
   const s = seed >>> 0;
   const dir = windDirection(s);
   const perMs = cfg.windU / 1000;
@@ -77,9 +94,70 @@ export function makeFogField(seed: number, cfg: FogFieldConfig): FogField {
     layerB: makeLayer((s ^ 0x9e3779b9) >>> 0),
     windX: dir.x * perMs,
     windY: dir.y * perMs,
+    spinSign: spinSign(s),
+    spinCx,
+    spinCy,
+    spinRadiusU: spinRadiusU > 0 ? spinRadiusU : 1,
     cfg,
   };
 }
+
+const TWO_PI = 6.283185307179586;
+const HALF_PI = 1.5707963267948966;
+
+/**
+ * sin and cos of `a` radians by plain arithmetic (no Math.sin/cos: the
+ * map-gen posture — byte-identical on every JS engine). Range-reduce to
+ * [-π/2, π/2] with Math.floor, then an odd degree-11 series: error < 1e-6,
+ * which is a sub-unit displacement at the ocean's rim.
+ */
+export function fogSinCos(a: number, out: { s: number; c: number }): void {
+  const q = a / TWO_PI;
+  let x = (q - Math.floor(q)) * TWO_PI; // [0, 2π)
+  if (x > 3.141592653589793) x -= TWO_PI; // (-π, π]
+  const flip = x > HALF_PI ? 1 : x < -HALF_PI ? -1 : 0;
+  if (flip === 1) x = 3.141592653589793 - x;
+  else if (flip === -1) x = -3.141592653589793 - x;
+  const x2 = x * x;
+  const sn = x * (1 - x2 / 6 * (1 - x2 / 20 * (1 - x2 / 42 * (1 - x2 / 72 * (1 - x2 / 110)))));
+  const cs = 1 - x2 / 2 * (1 - x2 / 12 * (1 - x2 / 30 * (1 - x2 / 56 * (1 - x2 / 90))));
+  out.s = sn;
+  out.c = flip === 0 ? cs : -cs;
+}
+
+const SC = { s: 0, c: 0 };
+
+/**
+ * The sample point for one layer: the pattern spins about the ocean center
+ * at `spinPeriodMs` per turn at the rim, faster toward the center by
+ * `spinShear` (differential rotation — banks curl and stretch), and drifts
+ * on the wind. Spin and drift are isometries and may accumulate all match;
+ * the SHEAR is measured from `tResetMs`, the last instant this layer's morph
+ * weight was 0 (invisible), so a layer never carries more than one
+ * `morphMs` of stretch (with a non-positive `morphMs` there is no morph and
+ * no reset: the shear then accumulates all match — a hand-built config, the
+ * harness floor is 1 ms); `shearF` is the sample's shear factor (computed once
+ * for both layers). Writes (x, y) in noise-space into `out`.
+ */
+function layerSample(field: FogField, x: number, y: number, tMs: number, tResetMs: number, shearF: number, out: { x: number; y: number }): void {
+  const c = field.cfg;
+  const px = x - field.spinCx;
+  const py = y - field.spinCy;
+  let rx = px;
+  let ry = py;
+  if (c.spinPeriodMs > 0) {
+    const w0 = TWO_PI / c.spinPeriodMs; // rad/ms at the rim
+    const ang = -field.spinSign * (w0 * tMs + w0 * shearF * (tMs - tResetMs)); // look back in time: the pattern turns forward
+    fogSinCos(ang, SC);
+    rx = px * SC.c - py * SC.s;
+    ry = px * SC.s + py * SC.c;
+  }
+  out.x = (rx + field.spinCx - field.windX * tMs) / c.wavelengthU;
+  out.y = (ry + field.spinCy - field.windY * tMs) / c.wavelengthU;
+}
+
+const PA = { x: 0, y: 0 };
+const PB = { x: 0, y: 0 };
 
 /** Triangle wave of `t / period` in [0, 1] (0 at phase 0, 1 at phase ½). A non-positive period reads 0. */
 function morphWeight(tMs: number, period: number): number {
@@ -97,11 +175,20 @@ function morphWeight(tMs: number, period: number): number {
 export function fogNoiseAt(field: FogField, x: number, y: number, tMs: number): number {
   if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(tMs)) return 0;
   const c = field.cfg;
-  const sx = (x - field.windX * tMs) / c.wavelengthU;
-  const sy = (y - field.windY * tMs) / c.wavelengthU;
   const off = LAYER_B_OFFSET_U / c.wavelengthU;
-  const a = fbm(sx, sy, field.layerA, c.octaves, c.gain);
-  const b = fbm(sx + off, sy + off, field.layerB, c.octaves, c.gain);
+  // n = a + (b - a)·w: layer B is invisible at morph phase 0 (t = k·morphMs), layer A at phase ½
+  const period = c.morphMs > 0 ? c.morphMs : 0;
+  const tB = period > 0 ? Math.floor(tMs / period) * period : 0;
+  const tA = period > 0 ? Math.floor((tMs - period / 2) / period) * period + period / 2 : 0;
+  // the shear factor, once per sample: spinShear × (1 − r / radius), 0 at and beyond the rim (continuous there)
+  const px = x - field.spinCx;
+  const py = y - field.spinCy;
+  const r = Math.sqrt(px * px + py * py);
+  const shearF = r >= field.spinRadiusU ? 0 : c.spinShear * (1 - r / field.spinRadiusU);
+  layerSample(field, x, y, tMs, tA, shearF, PA);
+  layerSample(field, x, y, tMs, tB, shearF, PB);
+  const a = fbm(PA.x, PA.y, field.layerA, c.octaves, c.gain);
+  const b = fbm(PB.x + off, PB.y + off, field.layerB, c.octaves, c.gain);
   const n = a + (b - a) * morphWeight(tMs, c.morphMs);
   return Number.isFinite(n) ? n : 0;
 }
