@@ -86,7 +86,7 @@ import {
   FOG_NO_CUT,
   makeFogField,
   fogDensityAt as fieldDensityAt,
-  fogTollAlong as fieldTollAlong,
+  fogNoiseAt,
   fogCutForTarget,
   fogLattice,
   type FogField,
@@ -1319,32 +1319,26 @@ function burstHitAmount(shell: ShellState, t: Target, at: Vec2): number {
 }
 
 // ---------------------------------------------------------------------------
-// THE FOG QUICK-REJECT RASTER (Story 9.10) — see World.fogRaster.
+// THE FOG DENSITY MEMO (Story 9.10) — see World.fogMemo.
 // ---------------------------------------------------------------------------
 
-/**
- * How far BELOW the live cut the raster samples (noise units): a cell reads
- * "fog near" once noise exceeds `cut − slack` there, so the mask stays
- * conservative while the field drifts, morphs and the cut slews between the
- * instant the raster was built and the instant a ray reads it (a front
- * raster is up to two refresh periods old). Half an edge band: ≈ 3 × the
- * cut's per-refresh slew (0.02) and well past the morph's per-second change.
- * The sweep in fogField.test.ts is the proof; widen here if it ever fails.
- */
-const fogRasterCutSlack = (): number => CONFIG.fog.edgeBand * 0.5; // read at build time, so a --tune of edgeBand follows
+/** Water the memo lattice extends past the ocean's radius on every side (u):
+ *  the LONGEST sight-tier ray (the mz/sm halo, radar × muzzleFlashFactor —
+ *  750 u at base), so a ray from a hull anywhere on the ocean is tolled
+ *  exactly to its end; fog farther out than that is irrelevant (a ray is
+ *  clipped to the lattice, see fogTollAlong). */
+const FOG_MEMO_MARGIN_U = Math.ceil(CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor);
 
-/** One raster: origin (u), cell size (u), grid, the cut + clock it was sampled
- *  at, the max-density cells and the 3 × 3-dilated "fog may be near" mask. */
-interface FogRaster {
+/** The memo lattice: `side × side` cells of `cell` u from (ox, oy); `dens`
+ *  holds a cell's density and `epoch` the fog epoch it was evaluated in
+ *  (0 = never — epochs start at 1). Allocated ONCE per World. */
+interface FogMemo {
   readonly ox: number;
   readonly oy: number;
   readonly cell: number;
-  readonly cols: number;
-  readonly rows: number;
-  readonly cut: number;
-  readonly t: number;
-  readonly density: Float32Array;
-  readonly mask: Uint8Array;
+  readonly side: number;
+  readonly dens: Float32Array;
+  readonly epoch: Uint32Array;
 }
 
 /** Move `from` toward `to` by at most `maxStep` (a non-positive step holds). */
@@ -1354,27 +1348,6 @@ function clampStep(from: number, to: number, maxStep: number): number {
   if (d > maxStep) return from + maxStep;
   if (d < -maxStep) return from - maxStep;
   return to;
-}
-
-/** Does any cell of (i, j)'s 3 × 3 neighbourhood (clipped to the grid) hold density > 0? */
-function fogNearCell(r: FogRaster, i: number, j: number): boolean {
-  const j0 = Math.max(0, j - 1);
-  const j1 = Math.min(r.rows - 1, j + 1);
-  const i0 = Math.max(0, i - 1);
-  const i1 = Math.min(r.cols - 1, i + 1);
-  for (let jj = j0; jj <= j1; jj++) {
-    for (let ii = i0; ii <= i1; ii++) {
-      if (r.density[jj * r.cols + ii] > 0) return true;
-    }
-  }
-  return false;
-}
-
-/** mask[c] = 1 iff any cell of c's 3 × 3 neighbourhood has density > 0. */
-function dilateFogMask(r: FogRaster): void {
-  for (let j = 0; j < r.rows; j++) {
-    for (let i = 0; i < r.cols; i++) r.mask[j * r.cols + i] = fogNearCell(r, i, j) ? 1 : 0;
-  }
 }
 
 /** One axis of the DDA: the cell step (−1 / 0 / +1), the ray parameter per
@@ -1392,31 +1365,26 @@ function ddaAxis(origin: number, cell: number, idx: number, a: number, d: number
   return { step, tDelta: cell / Math.abs(d), tMax: (edge - a) / d };
 }
 
-/**
- * Amanatides–Woo grid traversal of A → B over the raster's mask, from cell
- * (i0, j0) to (i1, j1) (both inside the grid): true iff every visited cell
- * reads 0. A walk that leaves the grid or runs past its step budget without
- * reaching B's cell (a degenerate float case) reads false — the caller then
- * marches.
- */
-function walkFogMask(r: FogRaster, ax: number, ay: number, bx: number, by: number, i0: number, j0: number, i1: number, j1: number): boolean {
-  const X = ddaAxis(r.ox, r.cell, i0, ax, bx - ax);
-  const Y = ddaAxis(r.oy, r.cell, j0, ay, by - ay);
-  let i = i0;
-  let j = j0;
-  for (let n = r.cols + r.rows + 2; n > 0; n--) {
-    if (r.mask[j * r.cols + i] !== 0) return false;
-    if (i === i1 && j === j1) return true;
-    if (X.tMax < Y.tMax) {
-      X.tMax += X.tDelta;
-      i += X.step;
-    } else {
-      Y.tMax += Y.tDelta;
-      j += Y.step;
-    }
-    if (i < 0 || i >= r.cols || j < 0 || j >= r.rows) return false;
-  }
-  return false;
+/** Liang–Barsky on one axis: narrow [t0, t1] to where `a + d·t` lies in [lo, hi]. */
+function clipAxis(a: number, d: number, lo: number, hi: number, t: { t0: number; t1: number }): boolean {
+  if (d === 0) return a >= lo && a <= hi;
+  const tA = (lo - a) / d;
+  const tB = (hi - a) / d;
+  t.t0 = Math.max(t.t0, Math.min(tA, tB));
+  t.t1 = Math.min(t.t1, Math.max(tA, tB));
+  return t.t0 <= t.t1;
+}
+
+/** The coverage lattice's radius for `ring`: never below one bank's size
+ *  (`wavelengthU`), so the final close cannot shrink the quantile to a point. */
+function fogLatticeRadius(ring: ZoneRing): number {
+  return Math.max(ring.r, CONFIG.fog.wavelengthU);
+}
+
+/** The cell index of coordinate `v` on an axis from `origin`, clamped into [0, side). */
+function memoIndex(origin: number, cell: number, side: number, v: number): number {
+  const i = Math.floor((v - origin) / cell);
+  return i < 0 ? 0 : i >= side ? side - 1 : i;
 }
 
 export class World {
@@ -1759,44 +1727,40 @@ export class World {
   private fogTarget = 0;
   /** Server ms the coverage target is next redrawn (0 = on the first live refresh). */
   private fogNextTargetAt = 0;
-  /** Server ms of the next cut + raster refresh (0 = on the first live tick). */
+  /** Server ms of the next cut + epoch refresh (0 = on the first live tick). */
   private fogNextRefreshAt = 0;
   /** The quantile lattice (fogLattice's reusable `out` — allocated once, refilled per refresh). */
   private readonly fogLatticePts: { x: number; y: number }[] = [];
   /** The realized fogged share over the last lattice (points with density > 0 / points), for metrics + tests. */
   private fogCoverageShare = 0;
   /**
-   * THE QUICK-REJECT RASTER (Eric: "make it performant"). `rasterCellU`
-   * cells over the live ring's bounding square; each cell holds the MAX
-   * density over its centre + 4 corners at the refresh instant, evaluated
-   * at a cut LOWERED by `fogRasterCutSlack()` (so the cell reads "fog
-   * near" before the true density rises above 0 — the wind drifts the
-   * field between refreshes, the morph reshapes it, the cut slews once per
-   * refresh and five samples cannot see every blob inside a 100 u cell).
-   * `mask` is that raster DILATED by its 3 × 3 neighbourhood (1 = fog may
-   * be near). `fogTollAlong` walks the cells a ray crosses (a DDA) over the
-   * mask and skips the march only when EVERY crossed cell reads 0 — a
-   * HEURISTIC reject, proved conservative by fogField.test.ts's seeded
-   * sweep (random rays across whole refresh intervals: a rejected ray never
-   * pays more than 0.5 u of true toll). A cell off the raster, or no raster
-   * yet, reads "unknown" = march.
-   *
-   * SLICED: a full square at 10,000 u is 100 × 100 cells × 5 samples
-   * ≈ 10 ms, far too much for one tick, so a refresh BEGINS a build into
-   * the back buffer and every tick fills `fogRasterRowsPerTick` rows
-   * (ceil(rows / ticks per refresh) — ≈ 0.5 ms a tick); the back buffer is
-   * dilated and swapped to the front once complete, the toll reading the
-   * front the whole time. The front is therefore up to ~2 refreshes stale,
-   * which the slack + dilation absorb (the sweep test covers the stale
-   * ticks, not just the refresh instant).
+   * THE DENSITY MEMO (Eric: "make it performant"; the review gate's EXACT
+   * re-cut of the heuristic quick-reject raster). The server's toll IS a
+   * cell walk: a fixed world lattice of `marchStepU` (10 u) cells over the
+   * ocean's bounding square (+ FOG_MEMO_MARGIN_U each side — 1,150² ≈ 1.3 M
+   * cells at a 5,000 u radius, ~10.6 MB of Float32 + Uint32, allocated ONCE
+   * in the constructor), and `fogTollAlong` sums `density(cell centre) × length of
+   * the ray inside the cell × sightCostPerU` over the cells an
+   * Amanatides–Woo DDA visits. A cell's density is MEMOIZED per EPOCH: first
+   * touch in the current epoch evaluates the shared `fogDensityAt` at the
+   * epoch's clock and cut and stores it; later rays reuse it. There is no
+   * "reject vs march" to disagree — every ray pays the same lattice, and a
+   * narrow peak between samples cannot hide (every 10 u cell the ray
+   * crosses is read). The EPOCH advances at every fog refresh (`refreshMs`,
+   * when the cut may slew): `fogEpochT` is that refresh's clock, so the
+   * field the server tolls is at most `refreshMs` old — with `windU` 8 the
+   * fog moves under a cell per epoch. The shared midpoint march
+   * (`fogTollAlong` in sim/fog.ts) stays the REFERENCE the client and the
+   * tests integrate; the server walk agrees with it to one cell's
+   * quantization at each end (fogField.test.ts).
    */
-  private fogRaster: FogRaster | null = null;
-  /** The back buffer under construction (null = none in flight). */
-  private fogRasterBack: FogRaster | null = null;
-  /** Rows of the back buffer built so far. */
-  private fogRasterRowsBuilt = 0;
-  /** Rows filled per tick while a build is in flight. */
-  private fogRasterRowsPerTick = 1;
+  private readonly fogMemo: FogMemo;
+  /** The current fog epoch (starts at 1; `fogMemo.epoch` 0 = never evaluated). */
+  private fogEpoch = 1;
+  /** The clock the current epoch's densities are evaluated at (the last refresh's `now`). */
+  private fogEpochTValue = 0;
+  /** Cells evaluated since construction (perf accounting — the fogPerf pin reads it). */
+  private fogCellEvalCount = 0;
   /**
    * THE PSEUDONYM MAP (R3, radar realism cycle): ship id → stable per-match
    * track id, rolled on the SERVER-PRIVATE pseudonym stream (pseudonymRng —
@@ -1993,6 +1957,18 @@ export class World {
     // from the welcome's `fogSeed`, so it is not a stream).
     this.fogSeed = (seed ^ 0x3c6ef372) >>> 0;
     this.fogField = makeFogField(this.fogSeed, CONFIG.fog);
+    // The density memo lattice — one allocation for the World's life (see fogMemo).
+    const memoCell = CONFIG.fog.marchStepU;
+    const memoHalf = this.map.radius + FOG_MEMO_MARGIN_U;
+    const memoSide = Math.max(1, Math.ceil((2 * memoHalf) / memoCell));
+    this.fogMemo = {
+      ox: -memoHalf,
+      oy: -memoHalf,
+      cell: memoCell,
+      side: memoSide,
+      dens: new Float32Array(memoSide * memoSide),
+      epoch: new Uint32Array(memoSide * memoSide),
+    };
   }
 
   /** The pseudonym map, read-only — for perception context threading and
@@ -2521,7 +2497,7 @@ export class World {
     this.burnZones.clear(); // ...nor burn into it (Story 8.17, the same precedent)
     this.foulZones.clear(); // ...nor foul it (Story 9.4, the same precedent)
     this.clouds.clear(); // ...nor a practice-field countermeasure cloud (Story 8.18 / 9.3, the same precedent)
-    this.fogClear(); // ...nor any fog (Story 9.10 — the practice water has none; the cut, clocks and raster reset)
+    this.fogClear(); // ...nor any fog (Story 9.10 — the practice water has none; the cut, clocks and memo epoch reset)
     this.dotBuckets.clear(); // an open burn window must not flush a phantom dmg against a redeployed hull
     // The pending queue is dropped at the boundary as it always was. The
     // COUNTDOWN's own `pt` (the level-zero grant, Story 8.10) is never in it
@@ -3780,12 +3756,12 @@ export class World {
     // (the AI rows next tick read the store through observe(); frames.ts's
     // buildFrame, outside STEP_ORDER, ships the survivors the same tick).
     { name: 'stepClouds', run: (w) => w.stepClouds() },
-    // FOG BANKS (Story 9.10) — weather beside weather, DIRECTLY after
-    // stepClouds: storm kill (shorten `until` of any bank whose centre left
-    // the live ring), expiry, then the coverage controller (live match only).
-    // Before applyStorm and every later row; perception reads the store next
-    // tick through observe(), and frames.ts's buildFrame (outside STEP_ORDER)
-    // ships the survivors' `fog` rows the same tick.
+    // THE FOG FIELD (Story 9.10) — weather beside weather, DIRECTLY after
+    // stepClouds: once per refreshMs the coverage controller re-cuts the
+    // field (live match only; no fog before the zone starts) and a new
+    // density-memo epoch begins. Before applyStorm and every later row;
+    // perception tolls its sight rays against this tick's cut through
+    // observe() (frames.ts's buildFrame, outside STEP_ORDER, the same tick).
     { name: 'stepFog', run: (w) => w.stepFog() },
     // Storm: post-move positions decide who is outside the (damage-only) zone.
     // The physical map boundary stays at mapRadius — ships freely sail into the
@@ -4105,52 +4081,116 @@ export class World {
     return this.fogCoverageShare;
   }
 
+  /** The clock the server's fog view is evaluated at (Story 9.10): the last
+   *  refresh's `now` — the field the toll reads is at most `refreshMs` old.
+   *  The perception oracle integrates the shared density at this clock. */
+  get fogEpochT(): number {
+    return this.fogEpochTValue;
+  }
+
+  /** Memo cells evaluated since construction (Story 9.10 perf accounting). */
+  get fogCellEvals(): number {
+    return this.fogCellEvalCount;
+  }
+
   /**
-   * Fog density at (x, y) RIGHT NOW under the live cut, in [0, 1] (Story
-   * 9.10): the shared `fogDensityAt` over this world's field, clock and cut.
-   * Public weather — read by the bots' sweep-miss rule (amendment 169),
-   * metrics and tests. 0 everywhere before the zone starts.
+   * Fog density at (x, y) under the live cut at the epoch's clock, in [0, 1]
+   * (Story 9.10): the shared `fogDensityAt` over this world's field — the
+   * same view the toll walks. Public weather — read by the bots' sweep-miss
+   * rule (amendment 169), metrics and tests. 0 everywhere before the zone
+   * starts.
    */
   fogDensityAt(x: number, y: number): number {
-    return fieldDensityAt(this.fogField, x, y, this.now, this.fogCutValue);
+    return fieldDensityAt(this.fogField, x, y, this.fogEpochTValue, this.fogCutValue);
   }
 
   /**
    * THE FOG TOLL on the ray A → B (Story 9.10, amendment 164): the extra
-   * sight distance the ray pays crossing fog right now — the shared
-   * `fogTollAlong` (a midpoint march at `marchStepU`) over this world's
-   * field, clock and cut. THE one entry of the fog cost into perception:
-   * signals.ts `withinSight` adds it to the ray's length through the
-   * `SightField.fogToll` thunk the contexts and the drones bind to this
-   * method. 0 with no fog; 0 without a march when the quick-reject raster
-   * says no fog is near the ray (see `fogRaster`).
+   * sight distance the ray pays crossing fog — Σ over the memo cells the
+   * segment crosses of `density(cell) × length inside the cell`, times
+   * `sightCostPerU` (see `fogMemo`). THE one entry of the fog cost into
+   * perception: signals.ts `withinSight` adds it to the ray's length through
+   * the `SightField.fogToll` thunk the contexts and the drones bind to this
+   * method. 0 with no fog (no walk). The segment is CLIPPED to the lattice
+   * square first (fog beyond the ocean's rim + margin is irrelevant); a ray
+   * wholly outside pays 0.
    */
   fogTollAlong(ax: number, ay: number, bx: number, by: number): number {
     if (this.fogCutValue >= FOG_NO_CUT) return 0;
-    if (this.fogRasterClear(ax, ay, bx, by)) return 0;
-    return fieldTollAlong(this.fogField, ax, ay, bx, by, this.now, this.fogCutValue);
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (!(len > 0) || !Number.isFinite(len) || !Number.isFinite(ax) || !Number.isFinite(ay)) return 0;
+    const m = this.fogMemo;
+    const extent = m.cell * m.side;
+    const t = { t0: 0, t1: 1 };
+    if (!clipAxis(ax, dx, m.ox, m.ox + extent, t) || !clipAxis(ay, dy, m.oy, m.oy + extent, t)) return 0;
+    return this.fogWalk(ax + dx * t.t0, ay + dy * t.t0, dx * (t.t1 - t.t0), dy * (t.t1 - t.t0)) * CONFIG.fog.sightCostPerU;
+  }
+
+  /** The DDA over the memo from (sx, sy) along (dx, dy) (already clipped to
+   *  the lattice): Σ density × length inside each visited cell. */
+  private fogWalk(sx: number, sy: number, dx: number, dy: number): number {
+    const m = this.fogMemo;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    let i = memoIndex(m.ox, m.cell, m.side, sx);
+    let j = memoIndex(m.oy, m.cell, m.side, sy);
+    const X = ddaAxis(m.ox, m.cell, i, sx, dx);
+    const Y = ddaAxis(m.oy, m.cell, j, sy, dy);
+    let sum = 0;
+    let tCur = 0;
+    for (let n = 2 * m.side + 2; n > 0; n--) {
+      const tNext = Math.min(X.tMax, Y.tMax, 1);
+      if (tNext > tCur) sum += this.fogCellDensity(i, j) * (tNext - tCur);
+      if (tNext >= 1) break;
+      tCur = tNext;
+      if (X.tMax < Y.tMax) {
+        X.tMax += X.tDelta;
+        i += X.step;
+      } else {
+        Y.tMax += Y.tDelta;
+        j += Y.step;
+      }
+      if (i < 0 || i >= m.side || j < 0 || j >= m.side) break; // the clip put the end on the rim: done
+    }
+    return sum * len;
+  }
+
+  /** The memoized density of cell (i, j) in the current epoch — evaluated on
+   *  first touch with the shared `fogDensityAt` at the epoch's clock and cut. */
+  private fogCellDensity(i: number, j: number): number {
+    const m = this.fogMemo;
+    const idx = j * m.side + i;
+    if (m.epoch[idx] !== this.fogEpoch) {
+      const cx = m.ox + (i + 0.5) * m.cell;
+      const cy = m.oy + (j + 0.5) * m.cell;
+      m.dens[idx] = fieldDensityAt(this.fogField, cx, cy, this.fogEpochTValue, this.fogCutValue);
+      m.epoch[idx] = this.fogEpoch;
+      this.fogCellEvalCount += 1;
+    }
+    return m.dens[idx];
+  }
+
+  /** Start a new fog epoch at `now`: every memo cell is stale until touched. */
+  private fogBumpEpoch(): void {
+    this.fogEpoch += 1;
+    this.fogEpochTValue = this.now;
   }
 
   /**
    * TEST-ONLY seam (Story 9.10): PIN the cut (stepFog then never moves it —
    * the zone gate, the target and the slew are all skipped until
-   * resetForMatchStart; the raster keeps refreshing on its cadence) and
-   * rebuild the quick-reject raster synchronously, whole, for the live
-   * ring. −2 is density 1 everywhere; `FOG_NO_CUT` is no fog. Production
-   * NEVER calls it — the controller in stepFog is the only production
-   * writer of the cut.
+   * resetForMatchStart; the epoch keeps bumping on its cadence) and start a
+   * fresh epoch at `now`. −2 is density 1 everywhere; `FOG_NO_CUT` is no
+   * fog. Production NEVER calls it — the controller in stepFog is the only
+   * production writer of the cut.
    */
   setFogCutForTest(cut: number): void {
     this.fogCutPinned = true;
     this.fogCutValue = cut;
     this.fogNextRefreshAt = this.now + CONFIG.fog.refreshMs;
+    this.fogBumpEpoch();
     this.fogCoverageShare = this.fogMeasureCoverage(this.zoneLiveRing);
-    this.fogRaster = null;
-    this.fogRasterBack = null;
-    if (cut >= FOG_NO_CUT) return;
-    this.fogBeginRaster(this.zoneLiveRing);
-    this.fogRasterRowsPerTick = this.fogRasterBack!.rows;
-    this.fogBuildSlice();
   }
 
   /** TEST-ONLY seam (Story 9.10): the built field, so an oracle can integrate the shared density itself. */
@@ -7143,27 +7183,24 @@ export class World {
    * per `refreshMs`: redraw the coverage target when its period is up, cut
    * the field at the (1 − target) quantile over the lattice inside the live
    * ring (slewed at most `cutRatePerS`; the first live refresh snaps) and
-   * BEGIN a quick-reject raster build for that cut. (3) Every tick, fill
-   * the next slice of rows of the raster in flight. Nothing else — the
-   * field itself is pure math over the seed and the clock.
+   * start a new density-memo EPOCH at this clock (see `fogMemo`). Nothing
+   * else — the field itself is pure math over the seed and the clock, and
+   * the memo fills lazily as rays touch it.
    */
   private stepFog(): void {
     if (!this.fogCutPinned && this.zoneStartT === null) {
       this.fogClear();
       return;
     }
-    if (this.now >= this.fogNextRefreshAt) {
-      this.fogNextRefreshAt = this.now + CONFIG.fog.refreshMs;
-      const ring = this.zoneLiveRing;
-      if (!this.fogCutPinned) this.fogRefreshCut(ring);
-      if (this.fogCutValue < FOG_NO_CUT) this.fogBeginRaster(ring);
-    }
-    this.fogBuildSlice();
+    if (this.now < this.fogNextRefreshAt) return;
+    this.fogNextRefreshAt = this.now + CONFIG.fog.refreshMs;
+    this.fogBumpEpoch();
+    if (!this.fogCutPinned) this.fogRefreshCut(this.zoneLiveRing);
   }
 
-  /** Back to "no fog": the cut, the pin, the clocks, the share and both
-   *  rasters reset (resetForMatchStart and the pre-start tick). The target
-   *  wander keeps its stream position — it is a stream, not a clock. */
+  /** Back to "no fog": the cut, the pin, the clocks and the share reset and
+   *  a fresh epoch starts (resetForMatchStart and the pre-start tick). The
+   *  target wander keeps its stream position — it is a stream, not a clock. */
   private fogClear(): void {
     this.fogCutValue = FOG_NO_CUT;
     this.fogCutPinned = false;
@@ -7171,9 +7208,7 @@ export class World {
     this.fogNextTargetAt = 0;
     this.fogNextRefreshAt = 0;
     this.fogCoverageShare = 0;
-    this.fogRaster = null;
-    this.fogRasterBack = null;
-    this.fogRasterRowsBuilt = 0;
+    this.fogBumpEpoch();
   }
 
   /**
@@ -7182,9 +7217,22 @@ export class World {
    * (the first draw on the first live refresh); the goal cut is the shared
    * `fogCutForTarget` quantile over the `quantileLattice`² lattice inside
    * the live ring at THIS instant; the cut steps toward it by at most
-   * `cutRatePerS × refreshMs / 1000` — except from FOG_NO_CUT, where it
-   * snaps (the first live refresh; a slew-in from no fog is an Eric call
-   * for staging). Then the realized share is re-measured for the readouts.
+   * `cutRatePerS × refreshMs / 1000`. THE ONSET (Eric 2026-10-15: "roll in
+   * over ~1 min"): the first live refresh sets the cut to the lattice's
+   * MAXIMUM noise + edgeBand — density 0 at every lattice point — and the
+   * cut then slews DOWN toward the goal, so banks grow in from their hearts
+   * outward (≈ 35 s from a max near 1.0 to a 5 % cut near 0.3 at 0.02/s).
+   * The ONE snap: a goal of FOG_NO_CUT (target 0 — fog off) clears at once,
+   * never a crawl toward 9. Then the realized share is re-measured for the
+   * readouts.
+   *
+   * THE FINAL CLOSE (review gate): the live ring's radius falls to 0 at the
+   * last close, where a lattice degenerates to one point and the quantile
+   * to one noise value. The lattice radius is therefore never below
+   * `wavelengthU` (`fogLatticeRadius` — coverage control below one bank's
+   * size is meaningless), and once `ring.r < wavelengthU / 2` the cut is
+   * HELD at its last value: no goal is refreshed (the epoch still bumps in
+   * stepFog, so the field keeps rolling under the held cut).
    */
   private fogRefreshCut(ring: ZoneRing): void {
     const cfg = CONFIG.fog;
@@ -7192,11 +7240,22 @@ export class World {
       this.fogTarget = this.fogRng.float(cfg.coverageMin, cfg.coverageMax);
       this.fogNextTargetAt = this.now + cfg.targetPeriodMs;
     }
-    const lattice = fogLattice(ring.cx, ring.cy, ring.r, cfg.quantileLattice, this.fogLatticePts);
+    if (ring.r < cfg.wavelengthU / 2) return; // the final close: hold the cut
+    const lattice = fogLattice(ring.cx, ring.cy, fogLatticeRadius(ring), cfg.quantileLattice, this.fogLatticePts);
     const goal = fogCutForTarget(this.fogField, this.now, lattice, this.fogTarget);
     const maxStep = (cfg.cutRatePerS * cfg.refreshMs) / 1000;
-    this.fogCutValue = this.fogCutValue >= FOG_NO_CUT ? goal : clampStep(this.fogCutValue, goal, maxStep);
+    if (goal >= FOG_NO_CUT) this.fogCutValue = FOG_NO_CUT; // fog off: at once
+    else if (this.fogCutValue >= FOG_NO_CUT) this.fogCutValue = this.fogOnsetCut(lattice); // the onset: roll in from no fog
+    else this.fogCutValue = clampStep(this.fogCutValue, goal, maxStep);
     this.fogCoverageShare = this.fogMeasureCoverage(ring);
+  }
+
+  /** The onset cut: the lattice's maximum noise + edgeBand, so density is 0
+   *  at every lattice point and the slew down grows the banks in. */
+  private fogOnsetCut(lattice: readonly { x: number; y: number }[]): number {
+    let max = -Infinity;
+    for (const p of lattice) max = Math.max(max, fogNoiseAt(this.fogField, p.x, p.y, this.now));
+    return (Number.isFinite(max) ? max : 0) + CONFIG.fog.edgeBand;
   }
 
   /** The realized fogged share over the lattice inside `ring` under the live
@@ -7204,86 +7263,11 @@ export class World {
    *  controls) over all points. 0 with no fog or an empty lattice. */
   private fogMeasureCoverage(ring: ZoneRing): number {
     if (this.fogCutValue >= FOG_NO_CUT) return 0;
-    const lattice = fogLattice(ring.cx, ring.cy, ring.r, CONFIG.fog.quantileLattice, this.fogLatticePts);
+    const lattice = fogLattice(ring.cx, ring.cy, fogLatticeRadius(ring), CONFIG.fog.quantileLattice, this.fogLatticePts);
     if (lattice.length === 0) return 0;
     let fogged = 0;
     for (const p of lattice) if (fieldDensityAt(this.fogField, p.x, p.y, this.now, this.fogCutValue) > 0) fogged += 1;
     return fogged / lattice.length;
-  }
-
-  /** Start a raster build for the live ring's bounding square (see `fogRaster`):
-   *  allocates the back buffer, sizes the per-tick slice so the build
-   *  completes inside one refresh period, and samples at THIS cut and clock. */
-  private fogBeginRaster(ring: ZoneRing): void {
-    const cell = CONFIG.fog.rasterCellU;
-    const side = Math.max(1, Math.ceil((2 * ring.r) / cell));
-    this.fogRasterBack = {
-      ox: ring.cx - ring.r,
-      oy: ring.cy - ring.r,
-      cell,
-      cols: side,
-      rows: side,
-      cut: this.fogCutValue - fogRasterCutSlack(),
-      t: this.now,
-      density: new Float32Array(side * side),
-      mask: new Uint8Array(side * side),
-    };
-    this.fogRasterRowsBuilt = 0;
-    const ticksPerRefresh = Math.max(1, Math.floor(CONFIG.fog.refreshMs / CONFIG.tick.simDtMs));
-    this.fogRasterRowsPerTick = Math.max(1, Math.ceil(side / ticksPerRefresh));
-  }
-
-  /** Fill the next `fogRasterRowsPerTick` rows of the back buffer; on the
-   *  last row dilate the mask and swap it to the front. No-op with no build
-   *  in flight. */
-  private fogBuildSlice(): void {
-    const r = this.fogRasterBack;
-    if (r === null) return;
-    const end = Math.min(r.rows, this.fogRasterRowsBuilt + this.fogRasterRowsPerTick);
-    for (let j = this.fogRasterRowsBuilt; j < end; j++) this.fogBuildRow(r, j);
-    this.fogRasterRowsBuilt = end;
-    if (end < r.rows) return;
-    dilateFogMask(r);
-    this.fogRaster = r;
-    this.fogRasterBack = null;
-  }
-
-  /** One raster row: each cell's max density over its centre + 4 corners at the buffer's cut and clock. */
-  private fogBuildRow(r: FogRaster, j: number): void {
-    const y0 = r.oy + j * r.cell;
-    const y1 = y0 + r.cell;
-    const ym = y0 + r.cell / 2;
-    for (let i = 0; i < r.cols; i++) {
-      const x0 = r.ox + i * r.cell;
-      const x1 = x0 + r.cell;
-      const xm = x0 + r.cell / 2;
-      const d = Math.max(
-        fieldDensityAt(this.fogField, xm, ym, r.t, r.cut),
-        fieldDensityAt(this.fogField, x0, y0, r.t, r.cut),
-        fieldDensityAt(this.fogField, x1, y0, r.t, r.cut),
-        fieldDensityAt(this.fogField, x0, y1, r.t, r.cut),
-        fieldDensityAt(this.fogField, x1, y1, r.t, r.cut),
-      );
-      r.density[j * r.cols + i] = d;
-    }
-  }
-
-  /**
-   * THE QUICK REJECT: true iff the front raster exists, both endpoints lie
-   * on it, and every cell the segment A → B crosses (an Amanatides–Woo DDA
-   * over the DILATED mask, both endpoint cells inclusive) reads 0 — "no fog
-   * near this ray". Anything uncertain (no raster, a point off the square,
-   * a walk that fails to reach B's cell) reads false → the march runs.
-   */
-  private fogRasterClear(ax: number, ay: number, bx: number, by: number): boolean {
-    const r = this.fogRaster;
-    if (r === null) return false;
-    const i0 = Math.floor((ax - r.ox) / r.cell);
-    const j0 = Math.floor((ay - r.oy) / r.cell);
-    const i1 = Math.floor((bx - r.ox) / r.cell);
-    const j1 = Math.floor((by - r.oy) / r.cell);
-    if (!(i0 >= 0 && i0 < r.cols && j0 >= 0 && j0 < r.rows && i1 >= 0 && i1 < r.cols && j1 >= 0 && j1 < r.rows)) return false;
-    return walkFogMask(r, ax, ay, bx, by, i0, j0, i1, j1);
   }
 
   /**

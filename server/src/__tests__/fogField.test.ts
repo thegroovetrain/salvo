@@ -1,20 +1,22 @@
 // THE FOG FIELD on the server (Story 9.10; Eric 2026-10-14/15 — "no discs",
-// a rolling fractal-noise field, "make it performant"; epic-9 amendments
-// 149–150, 163–164, 167–170, 172–173).
+// a rolling fractal-noise field, "make it performant", "roll in over ~1 min",
+// "hold the last cut"; epic-9 amendments 149–150, 163–164, 167–170, 172–173).
 //
 // Contracts only, on synthetic worlds: the pre-start world has no fog; the
-// live coverage controller cuts the field so the realized fogged share of the
-// live ring tracks its wandering target and never slews the cut faster than
-// `cutRatePerS`; the cut sequence is deterministic per (seed, pseudonymSeed);
-// the QUICK-REJECT RASTER is conservative (a seeded sweep across whole
-// refresh intervals — a rejected ray never pays real toll); the raster build
-// is sliced across ticks inside one refresh and cheap per tick;
-// resetForMatchStart restores no fog. No ring size, cut value or coverage
-// literal is pinned (epic-9 amendment 8) — every expectation is derived from
-// CONFIG.fog, the live ring and the shared field functions.
+// live coverage controller ROLLS the fog in from the lattice maximum (density
+// 0 everywhere on the first refresh, the cut slewing down at `cutRatePerS`),
+// then tracks its wandering target and never slews faster than the rate; a
+// goal of "no fog" snaps; a collapsed ring HOLDS the cut; the cut sequence is
+// deterministic per (seed, pseudonymSeed); the server toll is an EXACT cell
+// walk over the memoized density lattice that agrees with the shared midpoint
+// march (the reference) to one cell's quantization per end and is
+// deterministic (a repeated ray touches no new cell); rays are clipped to the
+// lattice; resetForMatchStart restores no fog. No ring size, cut value or
+// coverage literal is pinned (epic-9 amendment 8) — every expectation is
+// derived from CONFIG.fog, the live ring and the shared field functions.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, FOG_NO_CUT, fogCutForTarget, fogLattice, fogTollAlong, mulberry32 } from '@salvo/shared';
+import { CONFIG, FOG_NO_CUT, fogCutForTarget, fogDensityAt, fogLattice, fogTollAlong, mulberry32, type ZoneRing } from '@salvo/shared';
 import { World } from '../game/world.js';
 
 const DT = CONFIG.tick.simDtMs;
@@ -25,10 +27,7 @@ const TICKS_PER_REFRESH = Math.floor(CONFIG.fog.refreshMs / DT);
 interface FogInternals {
   stepFog(): void;
   fogTarget: number;
-  fogRaster: { rows: number } | null;
-  fogRasterBack: { rows: number } | null;
-  fogRasterRowsBuilt: number;
-  fogRasterRowsPerTick: number;
+  fogEpoch: number;
 }
 
 const internals = (w: World): FogInternals => w as unknown as FogInternals;
@@ -52,13 +51,42 @@ function fogTick(w: World): void {
   internals(w).stepFog();
 }
 
+/** Run fog ticks until the cut moves (one refresh), returning the ticks spent. */
+function untilRefresh(w: World): number {
+  const before = w.fogCut;
+  for (let i = 1; i <= TICKS_PER_REFRESH + 1; i++) {
+    fogTick(w);
+    if (w.fogCut !== before) return i;
+  }
+  return -1;
+}
+
 /** Sample points across the arena (a coarse lattice), for "density everywhere" checks. */
 function samplePoints(w: World): { x: number; y: number }[] {
   return fogLattice(0, 0, w.map.radius, 12);
 }
 
+/** The controller's own lattice for `ring` (the radius floor of the final close applied). */
+function controllerLattice(w: World, ring: ZoneRing = w.zoneLiveRing): { x: number; y: number }[] {
+  return fogLattice(ring.cx, ring.cy, Math.max(ring.r, CONFIG.fog.wavelengthU), CONFIG.fog.quantileLattice);
+}
+
+/** Run `fn` with the coverage band pinned to [lo, hi) (restored after). */
+function withBand<T>(lo: number, hi: number, fn: () => T): T {
+  const cfg = CONFIG.fog as { coverageMin: number; coverageMax: number };
+  const saved = { lo: cfg.coverageMin, hi: cfg.coverageMax };
+  cfg.coverageMin = lo;
+  cfg.coverageMax = hi;
+  try {
+    return fn();
+  } finally {
+    cfg.coverageMin = saved.lo;
+    cfg.coverageMax = saved.hi;
+  }
+}
+
 describe('fog field — the pre-start world has no fog (spec: Pre-start world)', () => {
-  it('a world whose zone never starts runs 300 ticks at FOG_NO_CUT: density 0 everywhere, toll 0 on every ray', () => {
+  it('a world whose zone never starts runs 300 ticks at FOG_NO_CUT: density 0 everywhere, toll 0 on every ray, no memo cell evaluated', () => {
     const w = new World(SEED, CONFIG.map.playerCap, CONFIG.zone, { pseudonymSeed: 7 });
     const pts = samplePoints(w);
     for (let i = 0; i < 300; i++) {
@@ -68,34 +96,50 @@ describe('fog field — the pre-start world has no fog (spec: Pre-start world)',
     }
     for (const p of pts) expect(w.fogDensityAt(p.x, p.y)).toBe(0);
     for (let i = 1; i < pts.length; i++) expect(w.fogTollAlong(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y)).toBe(0);
+    expect(w.fogCellEvals).toBe(0);
   });
 });
 
-describe('fog field — the live coverage controller (spec: the cut + the band)', () => {
-  it('the first live refresh snaps the cut to its goal: the realized coverage is within ±1 point of the target', () => {
+describe('fog field — the live coverage controller (Eric 2026-10-15: roll in over ~1 min, hold the last cut)', () => {
+  it('THE ONSET: the first live refresh cuts at the lattice maximum (density 0 at every lattice point), then the cut strictly DECREASES at most cutRatePerS per refresh until it reaches the goal', () => {
     const w = liveWorld(11);
+    const cfg = CONFIG.fog;
     fogTick(w); // the first live tick refreshes immediately (the clock reads 0)
     expect(w.fogCut).toBeLessThan(FOG_NO_CUT);
+    const field = w.fogFieldForTest();
+    for (const p of controllerLattice(w)) expect(fogDensityAt(field, p.x, p.y, w.fogEpochT, w.fogCut)).toBe(0);
+    expect(w.fogCoverageEstimate).toBe(0);
     const target = internals(w).fogTarget;
-    expect(target).toBeGreaterThanOrEqual(CONFIG.fog.coverageMin);
-    expect(target).toBeLessThan(CONFIG.fog.coverageMax);
-    expect(Math.abs(w.fogCoverageEstimate - target)).toBeLessThanOrEqual(0.01);
-    // ...and the estimate is what the shared quantile promises over the same lattice.
-    const ring = w.zoneLiveRing;
-    const lattice = fogLattice(ring.cx, ring.cy, ring.r, CONFIG.fog.quantileLattice);
-    expect(w.fogCut).toBe(fogCutForTarget(w.fogFieldForTest(), w.now, lattice, target));
+    expect(target).toBeGreaterThanOrEqual(cfg.coverageMin);
+    expect(target).toBeLessThan(cfg.coverageMax);
+    // The roll-in: every refresh steps DOWN by exactly the slew until the goal is reached.
+    const maxStep = (cfg.cutRatePerS * cfg.refreshMs) / 1000;
+    let prev = w.fogCut;
+    let reached = false;
+    for (let refresh = 0; refresh < 120 && !reached; refresh++) {
+      expect(untilRefresh(w)).toBe(TICKS_PER_REFRESH);
+      expect(w.fogCut).toBeLessThan(prev);
+      expect(prev - w.fogCut).toBeLessThanOrEqual(maxStep + 1e-12);
+      const goal = fogCutForTarget(field, w.fogEpochT, controllerLattice(w), internals(w).fogTarget);
+      if (w.fogCut === goal) reached = true;
+      prev = w.fogCut;
+    }
+    expect(reached).toBe(true);
+    expect(Math.abs(w.fogCoverageEstimate - internals(w).fogTarget)).toBeLessThanOrEqual(0.01);
+    // ~35 s from a max near 1.0 to a 5 % cut near 0.3 at 0.02/s — well inside two minutes.
+    expect(w.now).toBeLessThan(2 * 60 * 1000);
   });
 
   it('over ~10 simulated minutes: the cut never moves faster than cutRatePerS between refreshes, and the coverage tracks the target within ±1.5 points whenever the slew was not the limit', () => {
     const w = liveWorld(12);
     const cfg = CONFIG.fog;
     const maxStep = (cfg.cutRatePerS * cfg.refreshMs) / 1000;
-    fogTick(w); // the snap
+    fogTick(w); // the onset
     let prevCut = w.fogCut;
     let prevAt = w.now;
     let refreshes = 0;
     let unclamped = 0;
-    let targets = new Set<number>();
+    const targets = new Set<number>();
     const ticks = (10 * 60 * 1000) / DT;
     for (let i = 0; i < ticks; i++) {
       fogTick(w);
@@ -120,14 +164,49 @@ describe('fog field — the live coverage controller (spec: the cut + the band)'
       expect(t).toBeGreaterThanOrEqual(cfg.coverageMin);
       expect(t).toBeLessThan(cfg.coverageMax);
     }
-    targets = new Set();
+  });
+
+  it('FOG OFF SNAPS: a target of 0 (the band pinned to [0, 0]) puts the cut at FOG_NO_CUT on the next refresh — never a crawl toward 9', () => {
+    withBand(0, 0, () => {
+      const w = liveWorld(14);
+      fogTick(w);
+      expect(internals(w).fogTarget).toBe(0);
+      expect(w.fogCut).toBe(FOG_NO_CUT);
+      expect(w.fogCoverageEstimate).toBe(0);
+    });
+    // ...and from LIVE fog too: pin a cut, lift the pin by hand, drive the band to 0 → one refresh clears.
+    const w = liveWorld(15);
+    for (let i = 0; i < 3 * TICKS_PER_REFRESH; i++) fogTick(w);
+    expect(w.fogCut).toBeLessThan(FOG_NO_CUT);
+    withBand(0, 0, () => {
+      (w as unknown as { fogNextTargetAt: number }).fogNextTargetAt = 0; // redraw the target on the next refresh
+      untilRefresh(w);
+      expect(w.fogCut).toBe(FOG_NO_CUT);
+    });
+  });
+
+  it('THE FINAL CLOSE HOLDS THE CUT: with the live ring collapsed to r 0 the cut keeps its last value across refreshes while the epoch still advances', () => {
+    const w = liveWorld(16);
+    for (let i = 0; i < 5 * TICKS_PER_REFRESH; i++) fogTick(w);
+    const held = w.fogCut;
+    expect(held).toBeLessThan(FOG_NO_CUT);
+    Object.defineProperty(w, 'zoneLiveRing', { get: () => ({ cx: 0, cy: 0, r: 0 }), configurable: true });
+    const epoch0 = internals(w).fogEpoch;
+    for (let i = 0; i < 5 * TICKS_PER_REFRESH; i++) {
+      fogTick(w);
+      expect(w.fogCut).toBe(held);
+    }
+    expect(internals(w).fogEpoch).toBeGreaterThan(epoch0); // the field keeps rolling under the held cut
+    // Just under half a bank's size holds too; at half a bank the controller runs on the floored lattice.
+    Object.defineProperty(w, 'zoneLiveRing', { get: () => ({ cx: 0, cy: 0, r: CONFIG.fog.wavelengthU / 2 - 1 }), configurable: true });
+    untilRefresh(w);
+    expect(w.fogCut).toBe(held);
   });
 
   it('the stepFog row is wired into World.step: a live world is cut on its first step', () => {
     const w = liveWorld(13);
     w.step();
     expect(w.fogCut).toBeLessThan(FOG_NO_CUT);
-    expect(w.fogCoverageEstimate).toBeGreaterThan(0);
   });
 });
 
@@ -157,153 +236,103 @@ describe('fog field — determinism from the seed and the room-private target st
 });
 
 // ---------------------------------------------------------------------------
-// THE QUICK-REJECT RASTER IS CONSERVATIVE (the proof the heuristic rests on).
+// THE MEMOIZED CELL WALK IS THE TOLL (the review gate's exact design).
 // ---------------------------------------------------------------------------
 
-interface Sweep {
-  rays: number;
-  rejected: number;
-  misses: number;
-  worstMiss: number;
+/** A pinned world at ~`share` coverage over the arena lattice. */
+function pinnedWorld(pseudonymSeed: number, share: number): World {
+  const w = liveWorld(pseudonymSeed);
+  w.setFogCutForTest(fogCutForTarget(w.fogFieldForTest(), w.now, controllerLattice(w), share));
+  return w;
 }
 
-/** `rays` random rays ≤ 750 u inside the arena per tick, over `ticks` ticks:
- *  the World's toll (raster-gated) against the shared march at the same clock
- *  and cut. A MISS is a ray the raster rejected (toll 0) whose true toll
- *  exceeds 0.5 u. */
-function sweep(w: World, seed: number, ticks: number, raysPerTick: number): Sweep {
-  const g = mulberry32(seed);
-  const field = w.fogFieldForTest();
-  const R = w.map.radius * 0.95;
-  const out: Sweep = { rays: 0, rejected: 0, misses: 0, worstMiss: 0 };
-  for (let t = 0; t < ticks; t++) {
-    fogTick(w);
-    for (let k = 0; k < raysPerTick; k++) {
+describe('fog field — the memoized cell walk agrees with the shared midpoint march (the reference)', () => {
+  const TOLERANCE = CONFIG.fog.sightCostPerU * 2 * CONFIG.fog.marchStepU; // one cell's quantization at each end
+
+  it('2,000 random rays ≤ 750 u at ~8 % coverage: |walk − march| ≤ sightCostPerU × 2 × marchStepU, and the walk pays wherever the march pays', () => {
+    const w = pinnedWorld(21, 0.08);
+    expect(Math.abs(w.fogCoverageEstimate - 0.08)).toBeLessThanOrEqual(0.01);
+    const field = w.fogFieldForTest();
+    const g = mulberry32(0xf0e);
+    const R = w.map.radius; // a ray starts anywhere on the ocean; its ≤ 750 u stays inside the lattice's margin
+    let worst = 0;
+    let paying = 0;
+    const diffs: number[] = [];
+    for (let k = 0; k < 2000; k++) {
       const ax = g.float(-R, R);
       const ay = g.float(-R, R);
       const ang = g.float(0, 2 * Math.PI);
       const len = g.float(1, 750);
       const bx = ax + Math.cos(ang) * len;
       const by = ay + Math.sin(ang) * len;
-      const got = w.fogTollAlong(ax, ay, bx, by);
-      const truth = fogTollAlong(field, ax, ay, bx, by, w.now, w.fogCut);
-      out.rays += 1;
-      if (got !== 0) {
-        expect(got).toBe(truth); // not rejected: the exact shared march
-        continue;
-      }
-      out.rejected += 1;
-      if (truth > 0.5) {
-        out.misses += 1;
-        out.worstMiss = Math.max(out.worstMiss, truth);
+      const walk = w.fogTollAlong(ax, ay, bx, by);
+      const march = fogTollAlong(field, ax, ay, bx, by, w.fogEpochT, w.fogCut);
+      worst = Math.max(worst, Math.abs(walk - march));
+      diffs.push(Math.abs(walk - march));
+      expect(Math.abs(walk - march), `ray ${k}`).toBeLessThanOrEqual(TOLERANCE);
+      if (march > TOLERANCE) {
+        paying += 1;
+        expect(walk, `ray ${k} pays`).toBeGreaterThan(0); // no "reject" exists: a tolled ray is never read as free
       }
     }
-  }
-  return out;
-}
-
-describe('fog field — the quick-reject raster never rejects a ray that pays (spec: the raster is proved conservative)', () => {
-  it('20,000 random rays at ~8 % coverage across ten refresh intervals (the raster stale between them): zero misses, and most rays are rejected', () => {
-    const w = liveWorld(21);
-    const ring = w.zoneLiveRing;
-    const lattice = fogLattice(ring.cx, ring.cy, ring.r, CONFIG.fog.quantileLattice);
-    w.setFogCutForTest(fogCutForTarget(w.fogFieldForTest(), w.now, lattice, 0.08));
-    expect(Math.abs(w.fogCoverageEstimate - 0.08)).toBeLessThanOrEqual(0.01);
-    const s = sweep(w, 0xf09, 10 * TICKS_PER_REFRESH, Math.ceil(20_000 / (10 * TICKS_PER_REFRESH)));
-    if (process.env.HC_PERF_LOG) console.log(`fog raster sweep (pinned 8 %): ${JSON.stringify(s)}`);
-    expect(s.rays).toBeGreaterThanOrEqual(20_000);
-    expect(s.misses).toBe(0);
-    expect(s.rejected / s.rays).toBeGreaterThan(0.5);
+    diffs.sort((a, b) => a - b);
+    if (process.env.HC_PERF_LOG) console.log(`fog walk vs march: worst |Δ| ${worst.toFixed(3)} u (tolerance ${TOLERANCE}), mean ${(diffs.reduce((a, b) => a + b, 0) / diffs.length).toFixed(3)}, p95 ${diffs[Math.floor(0.95 * diffs.length)].toFixed(3)}, p99 ${diffs[Math.floor(0.99 * diffs.length)].toFixed(3)}, paying rays ${paying} / 2000, cells evaluated ${w.fogCellEvals}`);
+    expect(paying).toBeGreaterThan(100); // the comparison is not vacuous
   });
 
-  it('20,000 random rays on the LIVE controller (the cut slewing, the target wandering): zero misses', () => {
-    const w = liveWorld(22);
-    for (let i = 0; i <= TICKS_PER_REFRESH; i++) fogTick(w); // the snap + the first raster
-    expect(internals(w).fogRaster).not.toBeNull();
-    const s = sweep(w, 0xf0a, 10 * TICKS_PER_REFRESH, Math.ceil(20_000 / (10 * TICKS_PER_REFRESH)));
-    if (process.env.HC_PERF_LOG) console.log(`fog raster sweep (live): ${JSON.stringify(s)}`);
-    expect(s.rays).toBeGreaterThanOrEqual(20_000);
-    expect(s.misses).toBe(0);
-    expect(s.rejected).toBeGreaterThan(0);
+  it('is deterministic: the same ray twice returns the identical toll and the second call touches no new cell; a new epoch re-evaluates', () => {
+    const w = pinnedWorld(22, 0.08);
+    const first = w.fogTollAlong(-300, 120, 400, -200);
+    const evals = w.fogCellEvals;
+    expect(evals).toBeGreaterThan(0);
+    expect(w.fogTollAlong(-300, 120, 400, -200)).toBe(first);
+    expect(w.fogCellEvals).toBe(evals);
+    expect(w.fogTollAlong(400, -200, -300, 120)).toBeCloseTo(first, 6); // the reverse ray sums the same cells (a corner tie may graze one extra, at zero length)
+    w.setFogCutForTest(w.fogCut); // a new epoch at the same cut: the cells are stale and re-evaluated
+    expect(w.fogTollAlong(-300, 120, 400, -200)).toBeCloseTo(first, 6);
+    expect(w.fogCellEvals).toBeGreaterThan(evals);
   });
 
-  it('a ray with an endpoint off the raster, or before the first raster exists, is never rejected — it marches', () => {
+  it('density 1 everywhere (cut −2): the walk is exactly sightCostPerU × length, inside the lattice', () => {
     const w = liveWorld(23);
-    fogTick(w); // the snap: a build is in flight, no front raster yet
-    expect(internals(w).fogRaster).toBeNull();
-    const field = w.fogFieldForTest();
-    const R = w.map.radius;
-    expect(w.fogTollAlong(0, 0, 300, 0)).toBe(fogTollAlong(field, 0, 0, 300, 0, w.now, w.fogCut));
-    for (let i = 0; i < TICKS_PER_REFRESH; i++) fogTick(w);
-    expect(internals(w).fogRaster).not.toBeNull();
-    // Off the square (beyond the ring's bounding box): the exact march, not a reject.
-    expect(w.fogTollAlong(R + 50, 0, R + 400, 0)).toBe(fogTollAlong(field, R + 50, 0, R + 400, 0, w.now, w.fogCut));
-  });
-});
-
-describe('fog field — the sliced raster build (spec: Performance)', () => {
-  it('a refresh begins a build that completes within one refresh period of ticks, the front raster swapping in whole', () => {
-    const w = liveWorld(31);
-    fogTick(w); // the snap — the first build starts this tick
-    const i = internals(w);
-    expect(i.fogRasterBack).not.toBeNull();
-    const rows = i.fogRasterBack!.rows;
-    expect(i.fogRasterRowsPerTick).toBe(Math.ceil(rows / TICKS_PER_REFRESH));
-    expect(i.fogRasterRowsBuilt).toBe(i.fogRasterRowsPerTick);
-    let ticksToSwap = 0;
-    while (i.fogRaster === null) {
-      fogTick(w);
-      ticksToSwap += 1;
-      expect(ticksToSwap).toBeLessThanOrEqual(TICKS_PER_REFRESH);
-    }
-    expect(i.fogRaster!.rows).toBe(rows);
-    expect(ticksToSwap + 1).toBeLessThanOrEqual(TICKS_PER_REFRESH);
+    w.setFogCutForTest(-2);
+    expect(w.fogTollAlong(0, 0, 300, 0)).toBeCloseTo(300 * CONFIG.fog.sightCostPerU, 6);
+    expect(w.fogTollAlong(-123.4, 56.7, 210.9, -333.3)).toBeCloseTo(Math.hypot(334.3, 390) * CONFIG.fog.sightCostPerU, 6);
   });
 
-  it('one sliced tick costs under 2 ms and one whole rebuild fits a tick (best-of-5; ~0.5 ms / ~10 ms on a quiet box, printed under HC_PERF_LOG=1)', () => {
-    const w = liveWorld(32);
-    fogTick(w); // the snap: a build is in flight
-    let bestSlice = Infinity;
-    let bestWhole = Infinity;
-    for (let run = 0; run < 5; run++) {
-      // A slice: each tick after the refresh builds exactly one slice (no quantile, no cut).
-      expect(internals(w).fogRasterBack).not.toBeNull();
-      const t0 = performance.now();
-      fogTick(w);
-      bestSlice = Math.min(bestSlice, performance.now() - t0);
-    }
-    const cut = w.fogCut;
-    for (let run = 0; run < 5; run++) {
-      const t1 = performance.now();
-      w.setFogCutForTest(cut); // a whole synchronous rebuild for the live ring
-      bestWhole = Math.min(bestWhole, performance.now() - t1);
-    }
-    if (process.env.HC_PERF_LOG) console.log(`fog raster: slice best-of-5 ${bestSlice.toFixed(3)} ms | whole rebuild best-of-5 ${bestWhole.toFixed(3)} ms (${internals(w).fogRaster!.rows}² cells)`);
-    expect(bestSlice).toBeLessThan(2);
-    expect(bestWhole).toBeLessThan(CONFIG.tick.simDtMs); // the whole rebuild is a test-seam cost; production slices it
+  it('rays are CLIPPED to the memo lattice (the ocean square + margin): wholly outside pays 0, a ray leaving the square pays only its inside part', () => {
+    const w = liveWorld(24);
+    w.setFogCutForTest(-2);
+    const far = w.map.radius + 2000; // past the lattice's margin (the longest sight ray)
+    expect(w.fogTollAlong(far, 0, far + 500, 0)).toBe(0);
+    const inside = w.fogTollAlong(w.map.radius - 50, 0, far, 0);
+    expect(inside).toBeGreaterThan(0);
+    expect(inside).toBeLessThan(((far - (w.map.radius - 50)) * CONFIG.fog.sightCostPerU) / 2); // most of that ray is off the lattice
+    expect(w.fogTollAlong(NaN, 0, 100, 0)).toBe(0);
+    expect(w.fogTollAlong(0, 0, 0, 0)).toBe(0);
   });
 });
 
 describe('fog field — resetForMatchStart and the test seams', () => {
-  it('resetForMatchStart restores no fog (the cut, the share, the raster) and the pre-start world stays that way', () => {
+  it('resetForMatchStart restores no fog (the cut, the share) and the pre-start world stays that way', () => {
     const w = liveWorld(41);
     for (let i = 0; i < 2 * TICKS_PER_REFRESH; i++) fogTick(w);
     expect(w.fogCut).toBeLessThan(FOG_NO_CUT);
-    expect(internals(w).fogRaster).not.toBeNull();
     w.resetForMatchStart();
     expect(w.fogCut).toBe(FOG_NO_CUT);
     expect(w.fogCoverageEstimate).toBe(0);
-    expect(internals(w).fogRaster).toBeNull();
     expect(w.fogTollAlong(0, 0, 500, 0)).toBe(0);
   });
 
-  it('setFogCutForTest pins the cut through steps (−2 = density 1 everywhere, FOG_NO_CUT = none) and resetForMatchStart lifts the pin', () => {
+  it('setFogCutForTest pins the cut through steps (−2 = density 1 everywhere, FOG_NO_CUT = none), bumps the epoch, and resetForMatchStart lifts the pin', () => {
     const w = new World(SEED, CONFIG.map.playerCap, CONFIG.zone, { pseudonymSeed: 1 });
+    const epoch0 = internals(w).fogEpoch;
     w.setFogCutForTest(-2);
+    expect(internals(w).fogEpoch).toBe(epoch0 + 1);
     for (let i = 0; i < 5; i++) w.step();
     expect(w.fogCut).toBe(-2);
     for (const p of samplePoints(w)) expect(w.fogDensityAt(p.x, p.y)).toBe(1);
-    expect(w.fogTollAlong(0, 0, 300, 0)).toBeCloseTo(300 * CONFIG.fog.sightCostPerU, 9);
+    expect(w.fogTollAlong(0, 0, 300, 0)).toBeCloseTo(300 * CONFIG.fog.sightCostPerU, 6);
     expect(w.fogCoverageEstimate).toBe(1);
     w.setFogCutForTest(FOG_NO_CUT);
     expect(w.fogTollAlong(0, 0, 300, 0)).toBe(0);

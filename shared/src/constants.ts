@@ -2092,7 +2092,6 @@ export const CONFIG = {
     edgeBand: 0.12, // noise units over which density ramps 0 → 1 above the cut (soft edge)
     cutRatePerS: 0.02, // noise units per second the server may slew the cut
     refreshMs: 1000, // ms — server raster + quantile refresh cadence
-    rasterCellU: 100, // u — the server's coarse quick-reject raster cell
     marchStepU: 10, // u — the toll's midpoint march step
     quantileLattice: 48, // samples per side of the coverage lattice inside the live ring
   },

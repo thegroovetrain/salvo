@@ -4,11 +4,12 @@
 // open water, twenty armed mines, the zone started and the FIELD cut at ~8 %
 // coverage (the top of the band) — and the question is whether `observe()`
 // for all sixteen captains, every sight site now paying the fog toll through
-// the quick-reject raster and the shared midpoint march, fits the 50 ms tick
-// with room to spare. The drones' `shipSees` (the same `withinSight`) is
-// timed alongside for the whole fleet against every captain, and the
-// raster's own costs — one WHOLE rebuild and one SLICED tick — are pinned
-// beside it.
+// the memoized density-lattice walk, fits the 50 ms tick with room to spare.
+// The drones' `shipSees` (the same `withinSight`) is timed alongside for the
+// whole fleet against every captain, and the memo's FIRST-TOUCH cost — the
+// tick right after an epoch bump, when every cell a ray crosses is evaluated
+// for the first time — is pinned beside it (with the number of cells it
+// evaluated).
 //
 // THE PATTERN is machineGunFlashCost.test.ts's perf pin: a fresh fixture per
 // run built OUTSIDE the clock, `performance.now()` around the work, best-of-
@@ -32,12 +33,8 @@ const MINES = 20;
 const HALF_U = 2500; // a 5,000 u square
 const COVERAGE = 0.08;
 const TICK_BUDGET_MS = 50;
-/** The WHOLE rebuild is a test-seam cost production never pays (it slices);
- *  it is pinned to the tick so the number that justifies slicing stays
- *  visible — ~10 ms on a quiet dev box, ~25 ms best-of-5 with vitest's
- *  parallel workers saturating the machine. */
-const WHOLE_REBUILD_BUDGET_MS = TICK_BUDGET_MS;
-const SLICE_BUDGET_MS = 2;
+/** One tick's worth of first-touch memo evaluations after an epoch bump. */
+const FIRST_TOUCH_BUDGET_MS = 10;
 
 const SIZES: readonly DroneSizeId[] = ['small', 'medium', 'large'];
 
@@ -77,71 +74,71 @@ function field(seed: number): { w: World; captains: ShipRecord[]; drones: ShipRe
 }
 
 interface Run {
+  firstTouchMs: number;
+  firstTouchEvals: number;
   observeMs: number;
   dronesMs: number;
-  wholeMs: number;
-  sliceMs: number;
   contacts: number;
   dronePairs: number;
 }
 
-interface RasterSeams {
-  stepFog(): void;
-  fogRasterBack: unknown;
-}
-
-function measure(seed: number): Run {
-  const { w, captains, drones } = field(seed);
-  expect(w.mines.size).toBe(MINES);
-  expect(Math.abs(w.fogCoverageEstimate - COVERAGE)).toBeLessThanOrEqual(0.01);
+/** One tick of perception: observe() × 16 then the fleet's shipSees over every (drone, captain) pair. */
+function perceptionTick(w: World, captains: ShipRecord[], drones: ShipRecord[]): { ms: number; dronesMs: number; contacts: number; dronePairs: number } {
   let contacts = 0;
   const t0 = performance.now();
   for (const c of captains) contacts += observe(w, c.id).contacts.length;
-  const observeMs = performance.now() - t0;
+  const ms = performance.now() - t0;
   // The fleet's eye: every drone against every captain through the ONE
   // per-tick field (drones.ts builds it once per tick exactly like this).
   const t1 = performance.now();
   const sight: SightField = { islands: w.map.islands, fogToll: (ax, ay, bx, by) => w.fogTollAlong(ax, ay, bx, by) };
   let dronePairs = 0;
   for (const d of drones) for (const c of captains) if (shipSees(d, c, sight)) dronePairs += 1;
-  const dronesMs = performance.now() - t1;
-  // The raster: one whole rebuild (the test seam) and one sliced production tick.
-  const t2 = performance.now();
-  w.setFogCutForTest(w.fogCut);
-  const wholeMs = performance.now() - t2;
-  const seams = w as unknown as RasterSeams;
-  w.now += CONFIG.fog.refreshMs; // the next stepFog refreshes: a build begins and its first slice runs
-  const t3 = performance.now();
-  seams.stepFog();
-  const sliceMs = performance.now() - t3;
-  expect(seams.fogRasterBack).not.toBeNull(); // the build is in flight — the tick really was a slice
-  return { observeMs, dronesMs, wholeMs, sliceMs, contacts, dronePairs };
+  return { ms, dronesMs: performance.now() - t1, contacts, dronePairs };
+}
+
+function measure(seed: number): Run {
+  const { w, captains, drones } = field(seed);
+  expect(w.mines.size).toBe(MINES);
+  expect(Math.abs(w.fogCoverageEstimate - COVERAGE)).toBeLessThanOrEqual(0.01);
+  // FIRST TOUCH: the pin just started an epoch — every cell this tick's rays
+  // cross is evaluated for the first time (the production cost of the tick
+  // right after a refresh).
+  const evals0 = w.fogCellEvals;
+  const cold = perceptionTick(w, captains, drones);
+  const firstTouchMs = cold.ms + cold.dronesMs;
+  const firstTouchEvals = w.fogCellEvals - evals0;
+  // WARM: the same tick again inside the epoch — every cell memoized.
+  const warm = perceptionTick(w, captains, drones);
+  expect(w.fogCellEvals - evals0).toBe(firstTouchEvals); // the warm tick evaluated nothing new
+  expect(warm.contacts).toBe(cold.contacts);
+  return { firstTouchMs, firstTouchEvals, observeMs: warm.ms, dronesMs: warm.dronesMs, contacts: warm.contacts, dronePairs: warm.dronePairs };
 }
 
 describe('the fog toll in perception — 16 captains + 96 drones, the field at 8 % coverage, 20 mines (Story 9.10 perf pin)', () => {
-  it('observe() for all 16 captains (and shipSees for the whole fleet) best-of-5 stays under the 50 ms tick; a sliced raster tick under 2 ms; a whole rebuild inside a tick', () => {
+  it('observe() for all 16 captains (and shipSees for the whole fleet) best-of-5 stays under the 50 ms tick; the first-touch tick after an epoch bump under 10 ms', () => {
     const runs: Run[] = [];
     for (let run = 0; run < 5; run += 1) runs.push(measure(910));
     const best = runs.reduce((a, b) => (b.observeMs < a.observeMs ? b : a));
     const bestDrones = Math.min(...runs.map((r) => r.dronesMs));
-    const bestWhole = Math.min(...runs.map((r) => r.wholeMs));
-    const bestSlice = Math.min(...runs.map((r) => r.sliceMs));
-    // Same seed, same water: every run saw the identical field.
+    const bestFirstTouch = Math.min(...runs.map((r) => r.firstTouchMs));
+    // Same seed, same water: every run saw the identical field and touched the same cells.
     for (const r of runs) {
       expect(r.contacts).toBe(runs[0].contacts);
       expect(r.dronePairs).toBe(runs[0].dronePairs);
+      expect(r.firstTouchEvals).toBe(runs[0].firstTouchEvals);
     }
-    // The fixture really exercises the toll: the sight sites had neighbours to toll.
+    // The fixture really exercises the toll: the sight sites had neighbours to toll and cells to evaluate.
     expect(best.contacts).toBeGreaterThan(0);
+    expect(best.firstTouchEvals).toBeGreaterThan(0);
     if (process.env.HC_PERF_LOG) {
       console.log(
         `fog perf: observe() × ${CAPTAINS} best-of-5 ${best.observeMs.toFixed(3)} ms (contacts ${best.contacts}) | ` +
           `shipSees × ${DRONES * CAPTAINS} best-of-5 ${bestDrones.toFixed(3)} ms (seen ${best.dronePairs}) | ` +
-          `raster whole ${bestWhole.toFixed(3)} ms, slice ${bestSlice.toFixed(3)} ms | all runs observe: ${runs.map((r) => r.observeMs.toFixed(2)).join(', ')}`,
+          `first-touch tick ${bestFirstTouch.toFixed(3)} ms evaluating ${best.firstTouchEvals} memo cells | all runs observe: ${runs.map((r) => r.observeMs.toFixed(2)).join(', ')}`,
       );
     }
     expect(best.observeMs + bestDrones).toBeLessThan(TICK_BUDGET_MS);
-    expect(bestWhole).toBeLessThan(WHOLE_REBUILD_BUDGET_MS);
-    expect(bestSlice).toBeLessThan(SLICE_BUDGET_MS);
+    expect(bestFirstTouch).toBeLessThan(FIRST_TOUCH_BUDGET_MS);
   });
 });

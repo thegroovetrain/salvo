@@ -328,18 +328,29 @@ describe('world.cloudLivePeak gauge (Story 8.18 / 9.3)', () => {
   });
 });
 
-// Story 9.10 — the fog FIELD's readings: the coverage cut (9 = FOG_NO_CUT =
-// no fog) and the realized coverage share. LAST VALUE, not a peak (the cut
-// slews and the share tracks a wandering target), NUMBERS AND NOTHING ELSE —
-// never a position (the field is public weather anyway).
-describe('world.fogCut / world.fogCoverage readings (Story 9.10)', () => {
-  it('reports the LAST recorded cut and share (not a max), independent of the peaks', () => {
+// Story 9.10 — the fog FIELD's readings PER SCRAPE: the MAX realized coverage
+// share recorded since the last payload and the cut (9 = FOG_NO_CUT = no fog)
+// that produced it. A max over the window, so two rooms stepping in turn (a
+// practice room at 9 / 0 after a live one) cannot flip the gauge to whichever
+// stepped last; NUMBERS AND NOTHING ELSE — never a position (the field is
+// public weather anyway).
+describe('world.fogCut / world.fogCoverage per-scrape readings (Story 9.10)', () => {
+  it('keeps the MAX coverage of the window and the cut behind it; a later lower reading (another room) never overwrites it', () => {
     expect(metricsPayload().world.fogCut).toBe(9);
     expect(metricsPayload().world.fogCoverage).toBe(0);
-    recordFog(0.31, 0.05);
-    recordFog(0.27, 0.08);
-    recordFog(0.29, 0.06); // the latest reading wins — a lower share does not stick at the peak
-    expect(metricsPayload().world).toEqual({ minesLivePeak: 0, cloudLivePeak: 0, fogCut: 0.29, fogCoverage: 0.06 });
+    recordFog(0.31, 0.05); // the live room
+    recordFog(9, 0); // a practice room stepping after it — must not win
+    recordFog(0.27, 0.08); // the live room, a second later
+    recordFog(0.29, 0.06);
+    expect(metricsPayload().world).toEqual({ minesLivePeak: 0, cloudLivePeak: 0, fogCut: 0.27, fogCoverage: 0.08 });
+  });
+
+  it('a payload read resets the window: the next read with no record is 9 / 0, and the first record after a read lands even at 0', () => {
+    recordFog(0.2, 0.04);
+    expect(metricsPayload().world.fogCoverage).toBe(0.04);
+    expect(metricsPayload().world).toEqual({ minesLivePeak: 0, cloudLivePeak: 0, fogCut: 9, fogCoverage: 0 });
+    recordFog(0.5, 0); // a live room at exactly zero realized share still reports its cut
+    expect(metricsPayload().world).toEqual({ minesLivePeak: 0, cloudLivePeak: 0, fogCut: 0.5, fogCoverage: 0 });
   });
 
   it('resetMetrics() restores no fog (cut 9, share 0)', () => {

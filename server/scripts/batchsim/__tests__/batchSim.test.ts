@@ -1622,16 +1622,28 @@ describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
   it('--tune fog.* is reachable (Story 9.10, the field): every dial, with floors on the lengths/clocks/counts, gain on (0, 1] and the coverage band a share in [0, 1]', () => {
     for (const key of [
       'fog.sightCostPerU=0', 'fog.sightCostPerU=3', 'fog.windU=0', 'fog.edgeBand=0', 'fog.cutRatePerS=0',
-      'fog.coverageMin=0', 'fog.coverageMax=1', 'fog.gain=1', 'fog.gain=0.3', 'fog.octaves=1', 'fog.quantileLattice=1',
-      'fog.wavelengthU=1', 'fog.morphMs=1', 'fog.refreshMs=1', 'fog.rasterCellU=1', 'fog.marchStepU=1', 'fog.targetPeriodMs=1',
+      'fog.coverageMin=0', 'fog.coverageMax=1', 'fog.gain=1', 'fog.gain=0.3', 'fog.octaves=1', 'fog.quantileLattice=8',
+      'fog.wavelengthU=1', 'fog.morphMs=1', 'fog.refreshMs=250', 'fog.marchStepU=5', 'fog.targetPeriodMs=1', 'fog.quantileLattice=256',
     ]) {
       expect(() => parseArgs(['--tune', key]), key).not.toThrow();
     }
     for (const key of [
-      'fog.wavelengthU=0', 'fog.octaves=0.5', 'fog.morphMs=0', 'fog.refreshMs=0', 'fog.rasterCellU=0', 'fog.marchStepU=0',
-      'fog.quantileLattice=0', 'fog.targetPeriodMs=0',
+      'fog.wavelengthU=0', 'fog.octaves=0.5', 'fog.morphMs=0', 'fog.targetPeriodMs=0',
     ]) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 1/);
+    }
+    // Floors that keep the SERVER up (review gate): the memo lattice is sized
+    // from marchStepU (1 u = 100 M cells) and refreshMs is the quantile cadence.
+    for (const key of ['fog.marchStepU=0', 'fog.marchStepU=1', 'fog.marchStepU=4.9']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 5/);
+    }
+    for (const key of ['fog.refreshMs=0', 'fog.refreshMs=50', 'fog.refreshMs=249']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 250/);
+    }
+    // The coverage lattice's floor is 8 a side (review gate): under ~1/target
+    // points the quantile lands on the lattice maximum and the share reads 0.
+    for (const key of ['fog.quantileLattice=0', 'fog.quantileLattice=4', 'fog.quantileLattice=7']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 8/);
     }
     for (const key of ['fog.sightCostPerU=-1', 'fog.windU=-1', 'fog.edgeBand=-0.1', 'fog.cutRatePerS=-0.1']) {
       expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 0/);
@@ -1644,13 +1656,17 @@ describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
     }
   });
 
-  it('--tune fog.* must keep the coverage band a band: coverageMin <= coverageMax (judged on the final values, rolled back)', () => {
+  it('--tune fog.* must describe a field: coverageMin <= coverageMax, integer octaves and lattice side (judged on the final values, rolled back)', () => {
     const snapshot = JSON.stringify(CONFIG.fog);
     const { coverageMax } = CONFIG.fog;
     const refused: Array<[Record<string, number>, RegExp]> = [
       [{ 'fog.coverageMin': 0.1, 'fog.coverageMax': 0.05 }, /'fog\.coverageMin'.*must stay <= 'fog\.coverageMax'/],
       [{ 'fog.coverageMin': coverageMax + 0.01 }, /'fog\.coverageMin'.*must stay <=/],
       [{ 'fog.wavelengthU': 0 }, />= 1/],
+      [{ 'fog.octaves': 2.5 }, /'fog\.octaves' must be an integer/],
+      [{ 'fog.quantileLattice': 12.5 }, /'fog\.quantileLattice' must be an integer/],
+      [{ 'fog.quantileLattice': 4 }, />= 8/],
+      [{ 'fog.quantileLattice': 257 }, /'fog\.quantileLattice'.*must stay <= 256/],
     ];
     for (const [tune, re] of refused) {
       expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(TunableError);

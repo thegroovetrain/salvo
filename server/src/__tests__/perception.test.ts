@@ -78,7 +78,8 @@
 // oracle's in-bubble torpedo-water clause) compares `dist + toll ≤ range`,
 // where the toll is `fogTollOracle` — a NUMERIC INTEGRATION of the segment
 // (≤ 1 u midpoint samples of the SHARED `fogDensityAt` over the world's own
-// field, clock and cut — the field is the world, like the islands — times
+// field, EPOCH clock (`fogEpochT` — the last refresh's `now`, the view the
+// server's memo walks) and cut — the field is the world, like the islands — times
 // sightCostPerU), never `withinSight` or `world.fogTollAlong` (production's
 // 10 u march + quick-reject raster), so the two derivations check each
 // other. The midpoint rule's error is bounded by the step times the total
@@ -96,7 +97,6 @@
 // fog-blind oracle says. The fuzz PINS the cut per world through the World's
 // test seam (worlds ≡ 0 mod 3 at ~30 % coverage, ≡ 1 at ~5 %, ≡ 2 with no
 // fog) so the toll arms are non-vacuous, and the five FOG_* /
-// RADAR_THROUGH_FOG ledgers prove each arm ran. The checks below
 // RADAR_THROUGH_FOG ledgers prove each arm ran. The checks below
 // are a deliberate test-local reimplementation of the
 // visibility predicates so a refactor of perception.ts cannot silently agree
@@ -280,7 +280,7 @@ function fogTollOracle(w: World, a: { x: number; y: number }, b: { x: number; y:
   let touched = 0;
   for (let i = 0; i < n; i++) {
     const t = (i + 0.5) / n;
-    const d = fogDensityAt(field, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, w.now, w.fogCut);
+    const d = fogDensityAt(field, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, w.fogEpochT, w.fogCut);
     if (d > 0) touched = 1;
     sum += d;
     tv += Math.abs(d - prev);

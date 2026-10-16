@@ -50,9 +50,9 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       // seat — AFTER the founder edge and BEFORE the storm (see the row
       // comment).
       'stepClouds',
-      // Story 9.10's FOG BANKS — weather beside weather, directly after the
-      // cloud sweep: storm kill, expiry, then the coverage controller (see the
-      // row comment in world.ts).
+      // Story 9.10's FOG FIELD — weather beside weather, directly after the
+      // cloud sweep: the coverage controller's re-cut + a new density-memo
+      // epoch once per refresh (see the row comment in world.ts).
       'stepFog',
       'applyStorm',
       'stepShells',
