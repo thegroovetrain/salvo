@@ -70,7 +70,8 @@ export interface MetricsPayload {
    * observer per tick (Story 9.3 session 2: it occludes nothing), so the peak
    * still says what the perception pass paid for. `fogCoverage` and
    * `fogCut` (Story 9.10) are the fog FIELD's readings PER SCRAPE across
-   * every room: the MAX realized fogged share of a live ring recorded since
+   * every room: the MAX realized SOLID fogged share (density ≥ ½, amendment
+   * 178 — the thin edge is extra) of a live ring recorded since
    * the last payload was built, and the coverage cut that produced it
    * (`FOG_NO_CUT` = 9 means no fog) — a max, not the last value, so a
    * practice room stepping after a live one cannot overwrite the live

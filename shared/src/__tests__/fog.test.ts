@@ -242,6 +242,15 @@ describe('the spin (Eric 2026-10-16, amendment 177)', () => {
     expect(makeFogField(42, CFG, OCEAN_R).spinSign).toBe(makeFogField(42, CFG, OCEAN_R).spinSign);
   });
 
+  it('a non-positive or NaN ocean radius disables the spin instead of spinning a 1 u disc', () => {
+    for (const bad of [0, -5, NaN]) {
+      const f = makeFogField(5, CFG, bad);
+      expect(f.spinRadiusU).toBe(0);
+      const g = makeFogField(5, { ...CFG, spinRimU: 0 }, OCEAN_R);
+      for (const p of SWEEP) expect(fogNoiseAt(f, p.x, p.y, 777)).toBe(fogNoiseAt(g, p.x, p.y, 777));
+    }
+  });
+
   it('spinRimU 0 is no spin: in the wind frame, two morph-phase-0 instants read the same noise', () => {
     const f = makeFogField(5, { ...CFG, spinRimU: 0 }, OCEAN_R);
     const tm = CFG.morphMs * 2;

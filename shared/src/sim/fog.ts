@@ -58,7 +58,7 @@ export interface FogField {
   readonly spinSign: 1 | -1; // the per-match coin flip: +1 turns one way, -1 the other
   readonly spinCx: number; // u — the spin center (the ocean center)
   readonly spinCy: number;
-  readonly spinRadiusU: number; // u — the ocean radius: shear reads 1 - r / this, 0 at and beyond the rim
+  readonly spinRadiusU: number; // u — the ocean radius: the turn rate is spinRimU / this and shear reads 1 - r / this, 0 at and beyond the rim; 0 = no spin
   readonly cfg: FogFieldConfig;
 }
 
@@ -97,7 +97,7 @@ export function makeFogField(seed: number, cfg: FogFieldConfig, spinRadiusU: num
     spinSign: spinSign(s),
     spinCx,
     spinCy,
-    spinRadiusU: spinRadiusU > 0 ? spinRadiusU : 1,
+    spinRadiusU: spinRadiusU > 0 ? spinRadiusU : 0, // a non-positive or NaN radius disables the spin (never a 1 u radius turning at spinRimU)
     cfg,
   };
 }
@@ -145,7 +145,7 @@ function layerSample(field: FogField, x: number, y: number, tMs: number, tResetM
   const py = y - field.spinCy;
   let rx = px;
   let ry = py;
-  if (c.spinRimU > 0) {
+  if (c.spinRimU > 0 && field.spinRadiusU > 0) {
     const w0 = c.spinRimU / 1000 / field.spinRadiusU; // rad/ms at the rim (rim speed over radius)
     const ang = -field.spinSign * (w0 * tMs + w0 * shearF * (tMs - tResetMs)); // look back in time: the pattern turns forward
     fogSinCos(ang, SC);
@@ -184,7 +184,7 @@ export function fogNoiseAt(field: FogField, x: number, y: number, tMs: number): 
   const px = x - field.spinCx;
   const py = y - field.spinCy;
   const r = Math.sqrt(px * px + py * py);
-  const shearF = r >= field.spinRadiusU ? 0 : c.spinShear * (1 - r / field.spinRadiusU);
+  const shearF = !(r < field.spinRadiusU) ? 0 : c.spinShear * (1 - r / field.spinRadiusU);
   layerSample(field, x, y, tMs, tA, shearF, PA);
   layerSample(field, x, y, tMs, tB, shearF, PB);
   const a = fbm(PA.x, PA.y, field.layerA, c.octaves, c.gain);
@@ -261,13 +261,15 @@ export function fogCutForTarget(
 ): number {
   const n = points.length;
   if (!(target > 0) || n === 0) return FOG_NO_CUT;
-  if (target >= 1) return FOG_FULL_CUT;
+  const band = field.cfg.edgeBand > 0 ? field.cfg.edgeBand : 0;
+  // target ≥ 1: below every value AND its whole soft edge, so density is 1 everywhere whatever the
+  // band (cycle-193 gate: with a huge harness edgeBand the bare −2 sat ABOVE the regular path's cut)
+  if (target >= 1) return FOG_FULL_CUT - band;
   const vals = new Float64Array(n);
   for (let i = 0; i < n; i++) vals[i] = fogNoiseAt(field, points[i].x, points[i].y, tMs);
   vals.sort();
   const idx = Math.floor((1 - target) * n);
   const q = vals[idx < 0 ? 0 : idx > n - 1 ? n - 1 : idx];
-  const band = field.cfg.edgeBand > 0 ? field.cfg.edgeBand : 0;
   return q - band / 2;
 }
 

@@ -1712,9 +1712,11 @@ export class World {
   /**
    * THE COVERAGE CUT — the noise threshold the live field is cut at:
    * `FOG_NO_CUT` (9, a value no fbm reaches → density 0 everywhere) before
-   * the zone timeline starts, and the (1 − target) quantile of the noise
-   * over a lattice inside the live ring once it runs (so the fogged share
-   * of the ring's area IS the target at every ring size — no bank count),
+   * the zone timeline starts, and the shared `fogCutForTarget` — the
+   * (1 − target) quantile of the noise over a lattice inside the live ring
+   * minus half the edge band, so the SOLID share (density ≥ ½) of the
+   * ring's area IS the target at every ring size (amendment 178; the thin
+   * edge below ½ is extra, about ten points of the ring at a 22 % dial) —
    * slewed at most `cutRatePerS` between refreshes (the FIRST live refresh
    * snaps straight to its goal — a slew-in is a staging call for Eric).
    * Match-wide weather like the zone rings: mirrored onto `ArenaState.fogCut`
@@ -7185,8 +7187,9 @@ export class World {
    * after stepClouds: weather beside weather). (1) No zone timeline yet →
    * no fog (`fogClear`; the practice water never fogs). (2) Otherwise, once
    * per `refreshMs`: redraw the coverage target when its period is up, cut
-   * the field at the (1 − target) quantile over the lattice inside the live
-   * ring (slewed at most `cutRatePerS`; the first live refresh snaps) and
+   * the field at `fogCutForTarget` (the solid-share quantile) over the
+   * lattice inside the live ring (slewed at most `cutRatePerS`; the first
+   * live refresh rolls in from the lattice maximum, amendment 175) and
    * start a new density-memo EPOCH at this clock (see `fogMemo`). Nothing
    * else — the field itself is pure math over the seed and the clock, and
    * the memo fills lazily as rays touch it.
@@ -7219,10 +7222,11 @@ export class World {
    * THE COVERAGE CONTROLLER (amendment 165's band, re-cut on the field):
    * the target wanders in [coverageMin, coverageMax) every targetPeriodMs
    * (the first draw on the first live refresh); the goal cut is the shared
-   * `fogCutForTarget` quantile over the `quantileLattice`² lattice inside
-   * the live ring at THIS instant; the cut steps toward it by at most
-   * `cutRatePerS × refreshMs / 1000`. THE ONSET (Eric 2026-10-15: "roll in
-   * over ~1 min"): the first live refresh sets the cut to the lattice's
+   * `fogCutForTarget` (the solid-share quantile, amendment 178) over the
+   * `quantileLattice`² lattice inside the live ring at THIS instant; the
+   * cut steps toward it by at most `cutRatePerS × refreshMs / 1000`. THE
+   * ONSET (Eric 2026-10-15: "roll in over ~1 min", then 2026-10-16
+   * "faster" — ≈ 15 s since amendment 177): the first live refresh sets the cut to the lattice's
    * MAXIMUM noise + edgeBand — density 0 at every lattice point — and the
    * cut then slews DOWN toward the goal, so banks grow in from their hearts
    * outward (≈ 15 s from a max near 1.0 to a 20–25 % cut at 0.04/s —

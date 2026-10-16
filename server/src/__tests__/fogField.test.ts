@@ -1,6 +1,7 @@
 // THE FOG FIELD on the server (Story 9.10; Eric 2026-10-14/15 — "no discs",
-// a rolling fractal-noise field, "make it performant", "roll in over ~1 min",
-// "hold the last cut"; epic-9 amendments 149–150, 163–164, 167–170, 172–173).
+// a rolling fractal-noise field, "make it performant", "roll in over ~1 min"
+// (≈ 15 s since amendment 177, 2026-10-16 "faster"), "hold the last cut";
+// epic-9 amendments 149–150, 163–164, 167–170, 172–173, 177–178).
 //
 // Contracts only, on synthetic worlds: the pre-start world has no fog; the
 // live coverage controller ROLLS the fog in from the lattice maximum (density
@@ -126,7 +127,7 @@ describe('fog field — the live coverage controller (Eric 2026-10-15: roll in o
     }
     expect(reached).toBe(true);
     expect(Math.abs(w.fogCoverageEstimate - internals(w).fogTarget)).toBeLessThanOrEqual(0.01);
-    // ~35 s from a max near 1.0 to a 5 % cut near 0.3 at 0.02/s — well inside two minutes.
+    // ≈ 15 s from a max near 1.0 to a 20–25 % solid cut at 0.04/s (was ~35 s to a 5 % cut at 0.02/s) — well inside two minutes.
     expect(w.now).toBeLessThan(2 * 60 * 1000);
   });
 
