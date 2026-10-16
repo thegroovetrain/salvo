@@ -1441,7 +1441,11 @@ export class World {
    * `sightCostPerU × density` extra sight distance per unit crossed, so a
    * hull inside the geometric bubble that fog hides is dark to sight AND to
    * radar (radar's inner edge stays the geometric sight radius, 163). Radar,
-   * zone circles, the foghorn and the storm never read the field.
+   * zone circles, the foghorn and the storm never read the field. THE OWN
+   * BANK IS FREE (Eric 2026-10-16, amendment 179 — "like grass patches in
+   * League"): an observer standing in solid fog pays nothing along the ray
+   * until it first leaves solid fog, full price after; and the field is 0
+   * beyond the ocean's rim (fog only where islands could be).
    *
    * The seed is the map seed under its own constant — the client-known map
    * seed is fine here: the field is weather, not a hull position.
@@ -1734,6 +1738,8 @@ export class World {
   private fogNextRefreshAt = 0;
   /** The quantile lattice (fogLattice's reusable `out` — allocated once, refilled per refresh). */
   private readonly fogLatticePts: { x: number; y: number }[] = [];
+  /** The lattice's points ON THE OCEAN (references into `fogLatticePts`, amendment 179 — see `fogControllerLattice`). */
+  private readonly fogOceanPts: { x: number; y: number }[] = [];
   /** The realized fogged share over the last lattice (points at density ≥ FOG_SOLID_DENSITY / points), for metrics + tests. */
   private fogCoverageShare = 0;
   /**
@@ -1747,9 +1753,13 @@ export class World {
    * Amanatides–Woo DDA visits. A cell's density is MEMOIZED per EPOCH: first
    * touch in the current epoch evaluates the shared `fogDensityAt` at the
    * epoch's clock and cut and stores it; later rays reuse it. There is no
-   * "reject vs march" to disagree — every ray pays the same lattice, and a
+   * "reject vs march" to disagree — every ray reads the same lattice, and a
    * narrow peak between samples cannot hide (every 10 u cell the ray
-   * crosses is read). The EPOCH advances at every fog refresh (`refreshMs`,
+   * crosses is read). THE OWN BANK (amendment 179): the walk is directional
+   * — when the shared density at the observer's exact position is solid,
+   * the observer's own cell and the leading run of solid cells are read but
+   * not charged (`fogPayCell`); the first thinner cell ends the run. The
+   * EPOCH advances at every fog refresh (`refreshMs`,
    * when the cut may slew): `fogEpochT` is that refresh's clock, so the
    * field the server tolls is at most `refreshMs` old. Since the spin
    * (amendments 177–178) the pattern moves `spinRimU` (1 u/s) at the rim
@@ -1763,6 +1773,8 @@ export class World {
   private readonly fogMemo: FogMemo;
   /** The current fog epoch (starts at 1; `fogMemo.epoch` 0 = never evaluated). */
   private fogEpoch = 1;
+  /** The one-entry own-bank memo (see `fogObserverInSolidFog`): the last observer position asked about, in which epoch, and the answer. */
+  private readonly fogObserverMemo = { x: NaN, y: NaN, epoch: 0, solid: false };
   /** The clock the current epoch's densities are evaluated at (the last refresh's `now`). */
   private fogEpochTValue = 0;
   /** Cells evaluated since construction (perf accounting — the fogPerf pin reads it). */
@@ -4103,22 +4115,31 @@ export class World {
    * Fog density at (x, y) under the live cut at the epoch's clock, in [0, 1]
    * (Story 9.10): the shared `fogDensityAt` over this world's field — the
    * same view the toll walks. Public weather — read by the bots' sweep-miss
-   * rule (amendment 169), metrics and tests. 0 everywhere before the zone
-   * starts.
+   * rule (amendment 169), the own-bank decision of the toll (179), metrics
+   * and tests. 0 everywhere before the zone starts and beyond the ocean's rim.
    */
   fogDensityAt(x: number, y: number): number {
     return fieldDensityAt(this.fogField, x, y, this.fogEpochTValue, this.fogCutValue);
   }
 
   /**
-   * THE FOG TOLL on the ray A → B (Story 9.10, amendment 164): the extra
-   * sight distance the ray pays crossing fog — Σ over the memo cells the
-   * segment crosses of `density(cell) × length inside the cell`, times
-   * `sightCostPerU` (see `fogMemo`). THE one entry of the fog cost into
+   * THE FOG TOLL on the ray A → B, A THE OBSERVER (Story 9.10, amendments
+   * 164 and 179): the extra sight distance the ray pays crossing fog — Σ over
+   * the memo cells the segment crosses of `density(cell) × length inside the
+   * cell`, times `sightCostPerU` (see `fogMemo`) — LESS THE OBSERVER'S OWN
+   * BANK: when the shared density at A itself is solid (≥ FOG_SOLID_DENSITY,
+   * one exact evaluation, memoized per observer position and epoch because
+   * observe() tolls every ray of one observer in a row), the leading run of
+   * solid cells pays nothing; the run ends at the first thinner cell and
+   * never restarts (Eric 2026-10-16: "if you are in it, you should be able
+   * to see out of it normally … like grass patches in League" — clear water
+   * between you and a second bank makes that bank pay). Directional: the
+   * reverse ray may cost more or less. THE one entry of the fog cost into
    * perception: signals.ts `withinSight` adds it to the ray's length through
    * the `SightField.fogToll` thunk the contexts and the drones bind to this
    * method. 0 with no fog (no walk). The segment is CLIPPED to the lattice
-   * square first (fog beyond the ocean's rim + margin is irrelevant); a ray
+   * square first (fog beyond the ocean's rim + margin is irrelevant — and
+   * since amendment 179 the shared density is 0 past the rim anyway); a ray
    * wholly outside pays 0.
    */
   fogTollAlong(ax: number, ay: number, bx: number, by: number): number {
@@ -4131,12 +4152,34 @@ export class World {
     const extent = m.cell * m.side;
     const t = { t0: 0, t1: 1 };
     if (!clipAxis(ax, dx, m.ox, m.ox + extent, t) || !clipAxis(ay, dy, m.oy, m.oy + extent, t)) return 0;
-    return this.fogWalk(ax + dx * t.t0, ay + dy * t.t0, dx * (t.t1 - t.t0), dy * (t.t1 - t.t0)) * CONFIG.fog.sightCostPerU;
+    const ownBank = this.fogObserverInSolidFog(ax, ay);
+    return this.fogWalk(ax + dx * t.t0, ay + dy * t.t0, dx * (t.t1 - t.t0), dy * (t.t1 - t.t0), ownBank) * CONFIG.fog.sightCostPerU;
+  }
+
+  /** Does the observer at (x, y) stand in solid fog (the exact shared density
+   *  at that point, not a memo cell — so the own-bank decision is the same on
+   *  the reference march and the invariant oracle)? One-entry memo keyed on
+   *  the position and the epoch: observe() asks for every ray of one observer
+   *  in a row, so there the second and later rays cost nothing here; the
+   *  drones' witness pass alternates observers and mostly misses — one
+   *  shared density evaluation (≈ 0.3 µs) per miss, within the perf pin. */
+  private fogObserverInSolidFog(x: number, y: number): boolean {
+    const o = this.fogObserverMemo;
+    if (o.x !== x || o.y !== y || o.epoch !== this.fogEpoch) {
+      o.x = x;
+      o.y = y;
+      o.epoch = this.fogEpoch;
+      o.solid = this.fogDensityAt(x, y) >= FOG_SOLID_DENSITY;
+    }
+    return o.solid;
   }
 
   /** The DDA over the memo from (sx, sy) along (dx, dy) (already clipped to
-   *  the lattice): Σ density × length inside each visited cell. */
-  private fogWalk(sx: number, sy: number, dx: number, dy: number): number {
+   *  the lattice): Σ density × length inside each visited cell — skipping the
+   *  observer's own bank when `ownBank`: the leading run of solid cells
+   *  (density ≥ FOG_SOLID_DENSITY) is free, and the first thinner cell ends
+   *  the run for good (amendment 179). */
+  private fogWalk(sx: number, sy: number, dx: number, dy: number, ownBank: boolean): number {
     const m = this.fogMemo;
     const len = Math.sqrt(dx * dx + dy * dy);
     let i = memoIndex(m.ox, m.cell, m.side, sx);
@@ -4145,9 +4188,10 @@ export class World {
     const Y = ddaAxis(m.oy, m.cell, j, sy, dy);
     let sum = 0;
     let tCur = 0;
+    const run = { free: ownBank, first: true };
     for (let n = 2 * m.side + 2; n > 0; n--) {
       const tNext = Math.min(X.tMax, Y.tMax, 1);
-      if (tNext > tCur) sum += this.fogCellDensity(i, j) * (tNext - tCur);
+      if (tNext > tCur) sum += this.fogPayCell(i, j, run) * (tNext - tCur);
       if (tNext >= 1) break;
       tCur = tNext;
       if (X.tMax < Y.tMax) {
@@ -4160,6 +4204,21 @@ export class World {
       if (i < 0 || i >= m.side || j < 0 || j >= m.side) break; // the clip put the end on the rim: done
     }
     return sum * len;
+  }
+
+  /** The density cell (i, j) CHARGES the walk: 0 while the observer's own
+   *  bank runs (`run.free` and the cell is solid — or it is the observer's
+   *  OWN cell, `run.first`: they stand in solid fog by the exact evaluation,
+   *  and a cell centre up to 7 u away, possibly behind them, must not end the
+   *  run before it starts); the first thinner cell after that ends the run
+   *  for good and every cell from there pays its density. */
+  private fogPayCell(i: number, j: number, run: { free: boolean; first: boolean }): number {
+    const d = this.fogCellDensity(i, j);
+    const own = run.first;
+    run.first = false;
+    if (run.free && (own || d >= FOG_SOLID_DENSITY)) return 0;
+    run.free = false;
+    return d;
   }
 
   /** The memoized density of cell (i, j) in the current epoch — evaluated on
@@ -4187,9 +4246,11 @@ export class World {
    * TEST-ONLY seam (Story 9.10): PIN the cut (stepFog then never moves it —
    * the zone gate, the target and the slew are all skipped until
    * resetForMatchStart; the epoch keeps bumping on its cadence) and start a
-   * fresh epoch at `now`. −2 is density 1 everywhere; `FOG_NO_CUT` is no
-   * fog. Production NEVER calls it — the controller in stepFog is the only
-   * production writer of the cut.
+   * fresh epoch at `now`. −2 is density 1 on the whole ocean (0 past the
+   * rim, amendment 179 — an observer on the ocean then stands in one
+   * ocean-wide bank and pays nothing; one just past the rim pays for the
+   * ocean part of its ray); `FOG_NO_CUT` is no fog. Production NEVER calls
+   * it — the controller in stepFog is the only production writer of the cut.
    */
   setFogCutForTest(cut: number): void {
     this.fogCutPinned = true;
@@ -7251,13 +7312,39 @@ export class World {
       this.fogNextTargetAt = this.now + cfg.targetPeriodMs;
     }
     if (ring.r < cfg.wavelengthU / 2) return; // the final close: hold the cut
-    const lattice = fogLattice(ring.cx, ring.cy, fogLatticeRadius(ring), cfg.quantileLattice, this.fogLatticePts);
+    const lattice = this.fogControllerLattice(ring);
     const goal = fogCutForTarget(this.fogField, this.now, lattice, this.fogTarget);
     const maxStep = (cfg.cutRatePerS * cfg.refreshMs) / 1000;
     if (goal >= FOG_NO_CUT) this.fogCutValue = FOG_NO_CUT; // fog off: at once
     else if (this.fogCutValue >= FOG_NO_CUT) this.fogCutValue = this.fogOnsetCut(lattice); // the onset: roll in from no fog
     else this.fogCutValue = clampStep(this.fogCutValue, goal, maxStep);
     this.fogCoverageShare = this.fogMeasureCoverage(ring);
+  }
+
+  /**
+   * The coverage controller's lattice for `ring`: `fogLattice` over the ring
+   * (floored at one bank's radius, `fogLatticeRadius`) KEPT TO THE OCEAN —
+   * points past the map radius are dropped in place (amendment 179: the
+   * shared density is 0 there, so a point past the rim would count toward the
+   * quantile's raw noise but never toward the realized solid share; a small
+   * last ring centered near the rim could then under-read its target — the
+   * cycle-194 gate, Codex). Allocation-free after the first call: the kept
+   * points are the SAME objects, referenced from a second reusable array, so
+   * `fogLatticePts` is never truncated and `fogLattice` never re-mints a
+   * dropped point on the next refresh (the Edge Case Hunter's reading).
+   */
+  private fogControllerLattice(ring: ZoneRing): { x: number; y: number }[] {
+    const pts = fogLattice(ring.cx, ring.cy, fogLatticeRadius(ring), CONFIG.fog.quantileLattice, this.fogLatticePts);
+    const kept = this.fogOceanPts;
+    const r2 = this.map.radius * this.map.radius;
+    let k = 0;
+    for (const p of pts) {
+      if (p.x * p.x + p.y * p.y > r2) continue;
+      kept[k] = p;
+      k += 1;
+    }
+    kept.length = k;
+    return kept;
   }
 
   /** The onset cut: the lattice's maximum noise + edgeBand, so density is 0
@@ -7274,7 +7361,7 @@ export class World {
    *  or an empty lattice. */
   private fogMeasureCoverage(ring: ZoneRing): number {
     if (this.fogCutValue >= FOG_NO_CUT) return 0;
-    const lattice = fogLattice(ring.cx, ring.cy, fogLatticeRadius(ring), CONFIG.fog.quantileLattice, this.fogLatticePts);
+    const lattice = this.fogControllerLattice(ring);
     if (lattice.length === 0) return 0;
     let fogged = 0;
     for (const p of lattice) if (fieldDensityAt(this.fogField, p.x, p.y, this.now, this.fogCutValue) >= FOG_SOLID_DENSITY) fogged += 1;

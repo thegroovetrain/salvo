@@ -30,7 +30,7 @@ vi.mock('../render/textures.js', async (importOriginal) => {
 
 const F = CLIENT_CONFIG.fogField;
 const SEED = 0x1234abcd;
-/** A cut below every noise value: density 1 everywhere. */
+/** A cut below every noise value: density 1 on the whole ocean (0 past the rim, amendment 179). */
 const FULL = -2;
 /** A mid cut: a mix of fogged and clear cells. */
 const MID = 0.1;
@@ -65,6 +65,20 @@ describe('fillFogRaster — the shared field, sampled deterministically', () => 
     const out = new Float32Array(16).fill(0.5);
     expect(fillFogRaster(out, makeFogField(SEED, CONFIG.fog, 5000), 0, 0, 10, 4, 0, FOG_NO_CUT)).toBe(false);
     expect(out.every((v) => v === 0)).toBe(true);
+  });
+
+  it('NO FOG PAST THE RIM (amendment 179): under the full cut a raster straddling the ocean radius is 1 inside and 0 outside', () => {
+    const n = 8;
+    const out = new Float32Array(n * n);
+    // cells at x = 4965, 4975, …, 5035 along y = 0 (row 0 is y = -35): the first four columns are on the ocean
+    expect(fillFogRaster(out, makeFogField(SEED, CONFIG.fog, 5000), 4965, -35, 10, n, 5000, FULL)).toBe(true);
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const x = 4965 + i * 10;
+        const y = -35 + j * 10;
+        expect(out[j * n + i], `cell (${x}, ${y})`).toBe(x * x + y * y <= 5000 * 5000 ? 1 : 0);
+      }
+    }
   });
 
   it('the view raster equals the pure fill at the view geometry, time and cut', () => {

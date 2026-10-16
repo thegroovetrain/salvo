@@ -1,8 +1,10 @@
 // Story 9.10 FOG — the rolling fog density field and its sight toll
 // (sim/fog.ts; Eric 2026-10-15 "no discs", epic-9 amendments 163–164,
-// 167–170). Contracts only: determinism, the wind, drift and morph, the
-// density's range and soft edge, the toll's additivity and identities, the
-// coverage quantile, the lattice, and the no-transcendentals source guard.
+// 167–170; 2026-10-16 amendment 179: the own bank is free, no fog past the
+// rim). Contracts only: determinism, the wind, drift and morph, the
+// density's range, soft edge and ocean clip, the toll's identities and the
+// own-bank rule, the coverage quantile, the lattice, and the
+// no-transcendentals source guard.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -20,7 +22,7 @@ const CFG: FogFieldConfig = {
   windU: 12, spinRimU: 30, spinShear: 0.5, morphMs: 90000, edgeBand: 0.12, marchStepU: 10,
 };
 const OCEAN_R = 5000;
-const FULL = -2; // a cut below every noise value: density 1 everywhere
+const FULL = -2; // a cut below every noise value: density 1 on the whole ocean (0 past the rim, amendment 179)
 const field = makeFogField(12345, CFG, OCEAN_R);
 
 /** A deterministic 100-point sweep over a 5,000 u square. */
@@ -109,6 +111,25 @@ describe('fogDensityAt', () => {
   it('a non-finite cut reads 0', () => {
     expect(fogDensityAt(field, 0, 0, 0, NaN)).toBe(0);
   });
+
+  it('NO FOG PAST THE RIM (amendment 179): density is 0 beyond the ocean radius whatever the cut, 1 just inside it under the full cut; a radius-0 field is unbounded', () => {
+    expect(field.oceanRadiusU).toBe(OCEAN_R);
+    const dirs = [[1, 0], [0, 1], [-1, 0], [0, -1], [0.6, 0.8], [-0.6, -0.8]];
+    for (const [ux, uy] of dirs) {
+      expect(fogDensityAt(field, ux * (OCEAN_R + 1), uy * (OCEAN_R + 1), 1000, FULL)).toBe(0);
+      expect(fogDensityAt(field, ux * (OCEAN_R + 1), uy * (OCEAN_R + 1), 1000, -0.5)).toBe(0);
+      expect(fogDensityAt(field, ux * OCEAN_R, uy * OCEAN_R, 1000, FULL)).toBe(1); // the rim itself is ocean
+      expect(fogDensityAt(field, ux * (OCEAN_R - 1), uy * (OCEAN_R - 1), 1000, FULL)).toBe(1);
+    }
+    // a hand-built field with no radius has no rim
+    const open = makeFogField(12345, CFG, 0);
+    expect(open.oceanRadiusU).toBe(0);
+    expect(fogDensityAt(open, 50000, -50000, 1000, FULL)).toBe(1);
+    // the clip is about the spin center
+    const off = makeFogField(12345, CFG, 100, 1000, 1000);
+    expect(fogDensityAt(off, 1000, 1000, 1000, FULL)).toBe(1);
+    expect(fogDensityAt(off, 0, 0, 1000, FULL)).toBe(0);
+  });
 });
 
 describe('fogTollAlong', () => {
@@ -129,28 +150,87 @@ describe('fogTollAlong', () => {
     expect(fogTollAlong(field, NaN, 0, 10, 10, 0, FULL)).toBe(0);
   });
 
-  it('with density 1 everywhere the toll is length × sightCostPerU', () => {
-    const len = Math.sqrt(300 * 300 + 400 * 400);
-    expect(Math.abs(fogTollAlong(field, 0, 0, 300, 400, 0, FULL) - len * cost)).toBeLessThan(1e-9);
-    expect(Math.abs(fogTollAlong(field, 0, 0, 3.5, 0, 0, FULL) - 3.5 * cost)).toBeLessThan(1e-9);
+  it('from CLEAR WATER into density 1 the toll is the fogged length × sightCostPerU: an observer just past the rim looking in (amendment 179 makes the rim the one exact clear/solid edge)', () => {
+    // A at (R + 10, 0) is off the ocean (density 0); the ray runs 310 u inward along the axis; the
+    // midpoint samples at R + 5 (clear) then R − 5, R − 15, … (solid): 30 steps × 10 u pay.
+    expect(Math.abs(fogTollAlong(field, OCEAN_R + 10, 0, OCEAN_R - 300, 0, 0, FULL) - 300 * cost)).toBeLessThan(1e-9);
+    // and a short ray that never reaches the ocean pays nothing
+    expect(fogTollAlong(field, OCEAN_R + 10, 0, OCEAN_R + 3.5, 0, 0, FULL)).toBe(0);
   });
 
-  it('is additive over a split segment within one step of tolerance per piece', () => {
-    for (const p of SWEEP.slice(0, 30)) {
+  it('THE OWN BANK IS FREE (amendment 179, "like grass patches in League"): under density 1 an observer ON the ocean pays nothing to anywhere — the whole ocean is one bank — and sees OUT past the rim for free', () => {
+    const len = Math.sqrt(300 * 300 + 400 * 400);
+    expect(len).toBeGreaterThan(0); // premise: a real ray
+    expect(fogTollAlong(field, 0, 0, 300, 400, 0, FULL)).toBe(0);
+    expect(fogTollAlong(field, 0, 0, 3.5, 0, 0, FULL)).toBe(0);
+    for (const p of SWEEP) expect(fogTollAlong(field, p.x, p.y, p.x + 123, p.y - 321, 5000, FULL)).toBe(0);
+    // out of the bank into clear water: the solid run is free, the clear water costs nothing anyway
+    expect(fogTollAlong(field, OCEAN_R - 100, 0, OCEAN_R + 300, 0, 0, FULL)).toBe(0);
+  });
+
+  it('is DIRECTIONAL (amendment 179): from clear water into the bank pays, from the bank out to the same clear point pays nothing', () => {
+    const inward = fogTollAlong(field, OCEAN_R + 10, 0, OCEAN_R - 300, 0, 0, FULL);
+    const outward = fogTollAlong(field, OCEAN_R - 300, 0, OCEAN_R + 10, 0, 0, FULL);
+    expect(inward).toBeGreaterThan(0);
+    expect(outward).toBe(0);
+  });
+
+  it('the run ends at the first sample thinner than FOG_SOLID_DENSITY and never restarts: a second bank across thin or clear water pays full price (the rule written out against the density samples)', () => {
+    // The reference re-implemented in the open: every midpoint sample along the ray; iff A stands
+    // in solid fog, the first step (the observer's own ground) and then the leading solid run are
+    // free; everything after the run is paid.
+    const spelledOut = (ax: number, ay: number, bx: number, by: number, t: number, cut: number): number => {
+      const n = Math.ceil(Math.hypot(bx - ax, by - ay) / step);
+      let free = fogDensityAt(field, ax, ay, t, cut) >= FOG_SOLID_DENSITY;
+      let sum = 0;
+      for (let i = 0; i < n; i++) {
+        const f = (i + 0.5) / n;
+        const d = fogDensityAt(field, ax + (bx - ax) * f, ay + (by - ay) * f, t, cut);
+        if (free && (i === 0 || d >= FOG_SOLID_DENSITY)) continue;
+        free = false;
+        sum += d;
+      }
+      return (sum * Math.hypot(bx - ax, by - ay)) / n * cost;
+    };
+    let ownBankRays = 0;
+    let secondBankRays = 0;
+    for (const p of SWEEP) {
+      const [ax, ay, bx, by] = [p.x, p.y, p.x + 640, p.y - 270];
+      const got = fogTollAlong(field, ax, ay, bx, by, 4000, 0);
+      expect(Math.abs(got - spelledOut(ax, ay, bx, by, 4000, 0))).toBeLessThan(1e-9);
+      if (fogDensityAt(field, ax, ay, 4000, 0) >= FOG_SOLID_DENSITY) {
+        ownBankRays += 1;
+        if (got > 0) secondBankRays += 1; // the ray left the bank and met more fog: that fog was paid
+      }
+    }
+    expect(ownBankRays).toBeGreaterThan(5); // the sweep is not vacuous: observers inside banks...
+    expect(secondBankRays).toBeGreaterThan(0); // ...and some of their rays reach a second bank
+  });
+
+  it('is additive over a split segment within one step of tolerance per piece when the observer is in clear water (an observer in a bank starts a free run the pieces cannot share)', () => {
+    let checked = 0;
+    for (const p of SWEEP) {
+      if (fogDensityAt(field, p.x, p.y, 0, 0) >= FOG_SOLID_DENSITY) continue;
       const ax = p.x, ay = p.y, bx = p.x + 700, by = p.y + 250;
       const mx = ax + (bx - ax) * 0.37, my = ay + (by - ay) * 0.37;
+      if (fogDensityAt(field, mx, my, 0, 0) >= FOG_SOLID_DENSITY) continue; // the second piece would start its own free run
       const whole = fogTollAlong(field, ax, ay, bx, by, 0, 0);
       const parts = fogTollAlong(field, ax, ay, mx, my, 0, 0) + fogTollAlong(field, mx, my, bx, by, 0, 0);
       expect(Math.abs(whole - parts)).toBeLessThanOrEqual(2 * step * cost);
+      checked += 1;
     }
+    expect(checked).toBeGreaterThan(20);
   });
 
-  it('is symmetric A ↔ B', () => {
-    for (const p of SWEEP.slice(0, 30)) {
-      const ab = fogTollAlong(field, p.x, p.y, p.x - 420, p.y + 610, 3000, 0);
-      const ba = fogTollAlong(field, p.x - 420, p.y + 610, p.x, p.y, 3000, 0);
-      expect(Math.abs(ab - ba)).toBeLessThan(1e-9);
+  it('is symmetric A ↔ B when neither end stands in solid fog (the own-bank rule is the only asymmetry)', () => {
+    let checked = 0;
+    for (const p of SWEEP) {
+      const [ax, ay, bx, by] = [p.x, p.y, p.x - 420, p.y + 610];
+      if (fogDensityAt(field, ax, ay, 3000, 0) >= FOG_SOLID_DENSITY || fogDensityAt(field, bx, by, 3000, 0) >= FOG_SOLID_DENSITY) continue;
+      expect(Math.abs(fogTollAlong(field, ax, ay, bx, by, 3000, 0) - fogTollAlong(field, bx, by, ax, ay, 3000, 0))).toBeLessThan(1e-9);
+      checked += 1;
     }
+    expect(checked).toBeGreaterThan(20);
   });
 });
 

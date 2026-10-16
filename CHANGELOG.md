@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.18.59] - 2026-10-16
+
+### Changed
+- **Fog works like a bush.** Standing in solid fog you now see out of it normally, and you see everyone in the same bank. Fog costs your eyesight only when you look into a bank from outside, or across clear water (or thin haze) into a second bank. A bank between two ships in clear water still hides them from each other. Bots and the PvE fleet see by the same rule. (Eric: "like grass patches in League.")
+- **No fog past the ocean's edge.** Fog exists only where islands can be, inside the map; the storm water beyond the rim is clear. The fog amount is now measured over the ocean part of the live ring only, so a small last ring at the edge of the map gets its full share.
+- Protocol version 88 (an older client would draw fog past the rim where the server has none).
+
+### Not changed
+- Radar at 500 to 1,500 u and a bot's memory of your last radar plot still ignore fog, by the earlier rulings. That memory includes a plot sitting in the bot's own bank, which the bot could now see by eye.
+
 ## [0.18.58] - 2026-10-16
 
 ### Changed

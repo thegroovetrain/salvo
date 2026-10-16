@@ -19,7 +19,7 @@
 //     shooter and turns onto its bearing.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_HORN_ID, FOG_NO_CUT, angleDiff, bearing, droneHullOf, type DroneSizeId } from '@salvo/shared';
+import { CONFIG, DEFAULT_HORN_ID, FOG_NO_CUT, angleDiff, bearing, droneHullOf, fogCutForTarget, fogLattice, type DroneSizeId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { sightOf } from '../game/signals.js';
 import { circleIsland } from './islandFixture.js';
@@ -32,6 +32,8 @@ function bareWorld(seed = 1): World {
 
 function fleetShip(w: World, id: string, size: DroneSizeId, x: number, y: number, fleetId = 1): ShipRecord {
   const rec = w.addShip(id, 'DRONE', 'fleet', droneHullOf(size), DEFAULT_HORN_ID, { x, y });
+  rec.state.x = x; // the exact pose (addShip may nudge a spawn)
+  rec.state.y = y;
   w.drones.add(id, size, fleetId, { x: 0, y: 0 });
   return rec;
 }
@@ -158,47 +160,80 @@ describe('drone sight scope — being shot is not a sight scan', () => {
 // still not sight (amendment 139): the shot-from chase acquires and turns
 // the drone with the fog in place; it simply cannot refresh or fire on a
 // target it cannot see, and forgets it once `memoryMs` runs out. The fog is
-// the FIELD pinned through the World's test seam: a cut of −2 is density 1
-// everywhere (every ray pays sightCostPerU × its length), FOG_NO_CUT is no
-// fog — so the geometry is exact and the expectations are derived from
-// CONFIG.fog.sightCostPerU and the drone's sight, never a pinned literal.
-
-/** Density 1 everywhere — every ray pays the full toll. */
-const FULL_FOG_CUT = -2;
+// the FIELD pinned through the World's test seam. Since amendment 179 an
+// observer standing in solid fog sees its own bank for free (and a hull
+// cannot stand past the rim — the sim keeps it on the water), so "density 1
+// everywhere" no longer hides anything from anyone: the fogged cases cut the
+// real field at the band's top and SEARCH it for a drone spot in CLEAR
+// water looking into a bank (`bushArena`) — the expectations are then read
+// off the World's own toll on the found geometry, never a pinned literal.
 
 describe('drone sight scope — the fog field blinds a drone exactly as it blinds a captain (Story 9.10, amendment 168)', () => {
   const MEMORY_TICKS = Math.ceil(CONFIG.fleet.memoryMs / CONFIG.tick.simDtMs) + 2;
-  // The captain sits at 450 u (inside the 500 u sight) under density 1: the
-  // drone's ray pays sightCostPerU × 450 on top of 450 u, so the target
-  // stays hidden until the drone is within sight / (1 + cost) ≈ 167 u —
-  // farther than 40 u/s carries it inside the 3 s memory window.
-  const CAP_X = 450;
+  const CAP_D = 450; // the captain: inside the 500 u sight
+  const CHASE_U = 150; // more than the 3 s memory window carries a medium drone (≈ 35 u/s)
 
-  function arena(seed: number, fogged: boolean): { w: World; d: ShipRecord; g: ShipRecord } {
+  /** Cut the field at the band's top (25 %) and find: a drone spot whose
+   *  150 u surroundings are clear (its chase stays out of fog), a captain
+   *  450 u away still tolled past sight from the chase's far end, and a
+   *  witness 200 u abeam of the drone, also clear and tolled off the captain
+   *  (492 u away). Deterministic per seed; throws when a field has no such
+   *  spot (the seeds used here all do). */
+  function bushArena(w: World): { drone: { x: number; y: number }; cap: { x: number; y: number }; witness: { x: number; y: number } } {
+    const lattice = fogLattice(0, 0, 3000, CONFIG.fog.quantileLattice);
+    w.setFogCutForTest(fogCutForTarget(w.fogFieldForTest(), w.now, lattice, 0.25));
+    const clear = (x: number, y: number): boolean => w.fogDensityAt(x, y) < 0.1;
+    const clearDisc = (x: number, y: number, r: number): boolean => {
+      if (!clear(x, y)) return false;
+      for (let k = 0; k < 8; k++) if (!clear(x + Math.cos((k / 8) * 2 * Math.PI) * r, y + Math.sin((k / 8) * 2 * Math.PI) * r)) return false;
+      return true;
+    };
+    for (let gy = -3000; gy <= 3000; gy += 100) {
+      for (let gx = -3000; gx <= 3000; gx += 100) {
+        if (!clearDisc(gx, gy, CHASE_U)) continue;
+        for (let b = 0; b < 24; b++) {
+          const ang = (b / 24) * 2 * Math.PI;
+          const ux = Math.cos(ang);
+          const uy = Math.sin(ang);
+          const cap = { x: gx + ux * CAP_D, y: gy + uy * CAP_D };
+          const far = { x: gx + ux * CHASE_U, y: gy + uy * CHASE_U };
+          const witness = { x: gx - uy * 200, y: gy + ux * 200 };
+          if (CAP_D - CHASE_U + w.fogTollAlong(far.x, far.y, cap.x, cap.y) <= sightOf(w.ships.get('f')!) + 60) continue; // hidden from the chase's end, with margin
+          if (!clear(witness.x, witness.y) || w.fogTollAlong(witness.x, witness.y, cap.x, cap.y) < 100) continue;
+          return { drone: { x: gx, y: gy }, cap, witness };
+        }
+      }
+    }
+    throw new Error('no bush arena in this field');
+  }
+
+  function arena(seed: number, fogged: boolean): { w: World; d: ShipRecord; g: ShipRecord; cap: { x: number; y: number } } {
     const w = bareWorld(seed);
     const d = fleetShip(w, 'f', 'medium', 0, 0);
-    d.state.heading = Math.PI / 2; // broadside-on to the shooter
-    // A would-be witness in the same fleet, 200 u astern — its ray to f
-    // (200 u) and to the captain (~492 u) both pay the full toll under
-    // density 1, and far enough off f that hull avoidance does not lean on
-    // f's turn.
-    const g = fleetShip(w, 'g', 'medium', 0, -200);
-    const cap = captain(w, 'cap', CAP_X, 0);
-    const cost = CONFIG.fog.sightCostPerU;
-    expect(CAP_X * (1 + cost)).toBeGreaterThan(sightOf(d)); // premise: hidden under density 1
-    expect(CAP_X).toBeLessThanOrEqual(sightOf(d)); // premise: seen with no fog
+    const spots = bushArena(w);
+    d.state.x = spots.drone.x;
+    d.state.y = spots.drone.y;
+    d.state.heading = bearing(spots.drone, spots.cap) + Math.PI / 2; // broadside-on to the shooter
+    // A would-be witness in the same fleet, 200 u abeam — its ray to the
+    // captain (~492 u) crosses the bank and pays the toll; far enough off f
+    // that hull avoidance does not lean on f's turn.
+    const g = fleetShip(w, 'g', 'medium', spots.witness.x, spots.witness.y);
+    const cap = captain(w, 'cap', spots.cap.x, spots.cap.y);
     expect(cap.id).toBe('cap');
-    w.setFogCutForTest(fogged ? FULL_FOG_CUT : FOG_NO_CUT);
-    return { w, d, g };
+    expect(CAP_D).toBeLessThanOrEqual(sightOf(d)); // premise: seen with no fog
+    expect(CAP_D + w.fogTollAlong(d.state.x, d.state.y, cap.state.x, cap.state.y)).toBeGreaterThan(sightOf(d)); // premise: hidden by the bank
+    expect(w.fogDensityAt(d.state.x, d.state.y)).toBeLessThan(0.5); // premise: the drone is NOT in a bank (its own bank would be free)
+    if (!fogged) w.setFogCutForTest(FOG_NO_CUT);
+    return { w, d, g, cap: spots.cap };
   }
 
   it('shot from inside the fog: the drone acquires the shooter and turns onto its bearing (shot-from aggro is untouched)...', () => {
-    const { w, d } = arena(21, true);
+    const { w, d, cap: capAt } = arena(21, true);
     shellHit(w, d, 'cap');
     expect(w.drones.targetOf('f')).toBe('cap');
-    const err0 = Math.abs(angleDiff(d.state.heading, bearing(d.state, { x: CAP_X, y: 0 })));
+    const err0 = Math.abs(angleDiff(d.state.heading, bearing(d.state, capAt)));
     for (let t = 0; t < 55; t++) w.step(); // 2.75 s, inside the 3 s memory (the 1,500 u case's window)
-    const err1 = Math.abs(angleDiff(d.state.heading, bearing(d.state, { x: CAP_X, y: 0 })));
+    const err1 = Math.abs(angleDiff(d.state.heading, bearing(d.state, capAt)));
     expect(err0).toBeGreaterThan(1.5);
     expect(err1).toBeLessThan(0.25);
   });

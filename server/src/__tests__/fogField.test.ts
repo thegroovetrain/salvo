@@ -17,7 +17,7 @@
 // derived from CONFIG.fog, the live ring and the shared field functions.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, FOG_NO_CUT, fogCutForTarget, fogDensityAt, fogLattice, fogTollAlong, mulberry32, type ZoneRing } from '@salvo/shared';
+import { CONFIG, FOG_NO_CUT, FOG_SOLID_DENSITY, fogCutForTarget, fogDensityAt, fogLattice, fogTollAlong, mulberry32, type ZoneRing } from '@salvo/shared';
 import { World } from '../game/world.js';
 
 const DT = CONFIG.tick.simDtMs;
@@ -67,9 +67,10 @@ function samplePoints(w: World): { x: number; y: number }[] {
   return fogLattice(0, 0, w.map.radius, 12);
 }
 
-/** The controller's own lattice for `ring` (the radius floor of the final close applied). */
+/** The controller's own lattice for `ring` (the radius floor of the final close applied; kept to the ocean, amendment 179). */
 function controllerLattice(w: World, ring: ZoneRing = w.zoneLiveRing): { x: number; y: number }[] {
-  return fogLattice(ring.cx, ring.cy, Math.max(ring.r, CONFIG.fog.wavelengthU), CONFIG.fog.quantileLattice);
+  const R2 = w.map.radius * w.map.radius;
+  return fogLattice(ring.cx, ring.cy, Math.max(ring.r, CONFIG.fog.wavelengthU), CONFIG.fog.quantileLattice).filter((p) => p.x * p.x + p.y * p.y <= R2);
 }
 
 /** Run `fn` with the coverage band pinned to [lo, hi) (restored after). */
@@ -204,6 +205,23 @@ describe('fog field — the live coverage controller (Eric 2026-10-15: roll in o
     expect(w.fogCut).toBe(held);
   });
 
+  it('A SMALL RING AT THE RIM (amendment 179, the cycle-194 gate): with the live ring one bank wide and centered 300 u inside the ocean\'s edge, the lattice overhangs the rim — the controller keeps only ocean points, so the realized solid share still tracks the target', () => {
+    const w = liveWorld(16);
+    const R = w.map.radius;
+    const ring = { cx: R - 300, cy: 0, r: CONFIG.fog.wavelengthU };
+    Object.defineProperty(w, 'zoneLiveRing', { get: () => ring, configurable: true });
+    withBand(0.22, 0.22, () => {
+      for (let i = 0; i < 90 * TICKS_PER_REFRESH; i++) fogTick(w); // 45 s: past the onset slew (≈ 0.04/s over a ≈ 1.2 range)
+    });
+    // every controller point is on the ocean...
+    for (const p of controllerLattice(w, ring)) expect(p.x * p.x + p.y * p.y).toBeLessThanOrEqual(R * R);
+    // ...a good share of the unfiltered disc is NOT (the case is not vacuous)...
+    const whole = fogLattice(ring.cx, ring.cy, ring.r, CONFIG.fog.quantileLattice);
+    expect(controllerLattice(w, ring).length).toBeLessThan(whole.length * 0.9);
+    // ...and the measured solid share is the target (it under-read by the overhang's share before the filter)
+    expect(Math.abs(w.fogCoverageEstimate - 0.22)).toBeLessThanOrEqual(0.015);
+  });
+
   it('the stepFog row is wired into World.step: a live world is cut on its first step', () => {
     const w = liveWorld(13);
     w.step();
@@ -247,10 +265,62 @@ function pinnedWorld(pseudonymSeed: number, share: number): World {
   return w;
 }
 
+/**
+ * The own-bank rule's FRAGILE rays (amendment 179). The walk (cell centres,
+ * up to 7 u off the ray) and the march (on-ray midpoints every 10 u) decide
+ * where the observer's free run ENDS from different samples, and a run that
+ * ends in a different place moves a whole bank's worth of toll — so where
+ * the ½ contour comes within a cell of the ray anywhere along the run, or a
+ * dip below ½ is thin enough for one sampling to miss, the two legitimately
+ * disagree by more than a cell. Classified by a 1 u oracle with a CROSS
+ * SECTION at every sample (the ray point and every 2 u out to ±8 u
+ * perpendicular — a cell centre's reach): a sample is SOLID (all nine ≥ ½),
+ * CLEAR (all < ½) or MIXED. Sampling, not a proof: the pinned seed is a regression, and the
+ * walk-vs-march agreement it asserts is what the own-bank rule promises. A run is robust when, from the observer on, it is solid, then
+ * mixed for at most one cell (the ordinary crossing of a steep edge), then
+ * clear for at least five cells (both samplings have surely ended it) or to
+ * the end; anything else — a graze, a shallow crossing, a thin dip, an
+ * observer standing on the ½ line itself (whose own cell is free but whose
+ * SECOND cell may begin a few units in) — is fragile. Rays whose observer
+ * stands in clear water have no run and are never fragile.
+ */
+function fragileRun(w: World, ax: number, ay: number, bx: number, by: number): boolean {
+  const field = w.fogFieldForTest();
+  if (fogDensityAt(field, ax, ay, w.fogEpochT, w.fogCut) < FOG_SOLID_DENSITY) return false;
+  const len = Math.hypot(bx - ax, by - ay);
+  const n = Math.ceil(len);
+  const step = len / n;
+  const cell = CONFIG.fog.marchStepU;
+  const ux = (bx - ax) / len;
+  const uy = (by - ay) / len;
+  const kind = (i: number): 'solid' | 'clear' | 'mixed' => {
+    const t = (i + 0.5) / n;
+    const x = ax + (bx - ax) * t;
+    const y = ay + (by - ay) * t;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const s of [-8, -6, -4, -2, 0, 2, 4, 6, 8]) {
+      const d = fogDensityAt(field, x - uy * s, y + ux * s, w.fogEpochT, w.fogCut);
+      lo = Math.min(lo, d);
+      hi = Math.max(hi, d);
+    }
+    return lo >= FOG_SOLID_DENSITY ? 'solid' : hi < FOG_SOLID_DENSITY ? 'clear' : 'mixed';
+  };
+  let i = 0;
+  while (i < n && kind(i) === 'solid') i += 1;
+  if (i >= n) return false; // the whole ray is the own bank
+  const mixedStart = i;
+  while (i < n && kind(i) !== 'clear') i += 1;
+  if ((i - mixedStart) * step > cell) return true; // a shallow crossing, a graze or a thin dip
+  const clearStart = i;
+  while (i < n && kind(i) === 'clear') i += 1;
+  return i < n && (i - clearStart) * step < 5 * cell; // clear water too short to end the run for certain
+}
+
 describe('fog field — the memoized cell walk agrees with the shared midpoint march (the reference)', () => {
   const TOLERANCE = CONFIG.fog.sightCostPerU * 2 * CONFIG.fog.marchStepU; // one cell's quantization at each end
 
-  it('2,000 random rays ≤ 750 u at ~8 % coverage: |walk − march| ≤ sightCostPerU × 2 × marchStepU, and the walk pays wherever the march pays', () => {
+  it('2,000 random rays ≤ 750 u at ~8 % coverage: |walk − march| ≤ sightCostPerU × 2 × marchStepU on every non-fragile ray, the walk pays wherever the march pays, and fragile rays (the own-bank run ending from different samples) are few', () => {
     const w = pinnedWorld(21, 0.08);
     expect(Math.abs(w.fogCoverageEstimate - 0.08)).toBeLessThanOrEqual(0.01);
     const field = w.fogFieldForTest();
@@ -258,6 +328,8 @@ describe('fog field — the memoized cell walk agrees with the shared midpoint m
     const R = w.map.radius; // a ray starts anywhere on the ocean; its ≤ 750 u stays inside the lattice's margin
     let worst = 0;
     let paying = 0;
+    let fragile = 0;
+    let ownBank = 0;
     const diffs: number[] = [];
     for (let k = 0; k < 2000; k++) {
       const ax = g.float(-R, R);
@@ -268,6 +340,11 @@ describe('fog field — the memoized cell walk agrees with the shared midpoint m
       const by = ay + Math.sin(ang) * len;
       const walk = w.fogTollAlong(ax, ay, bx, by);
       const march = fogTollAlong(field, ax, ay, bx, by, w.fogEpochT, w.fogCut);
+      if (fogDensityAt(field, ax, ay, w.fogEpochT, w.fogCut) >= FOG_SOLID_DENSITY) ownBank += 1;
+      if (fragileRun(w, ax, ay, bx, by)) {
+        fragile += 1;
+        continue;
+      }
       worst = Math.max(worst, Math.abs(walk - march));
       diffs.push(Math.abs(walk - march));
       expect(Math.abs(walk - march), `ray ${k}`).toBeLessThanOrEqual(TOLERANCE);
@@ -277,38 +354,68 @@ describe('fog field — the memoized cell walk agrees with the shared midpoint m
       }
     }
     diffs.sort((a, b) => a - b);
-    if (process.env.HC_PERF_LOG) console.log(`fog walk vs march: worst |Δ| ${worst.toFixed(3)} u (tolerance ${TOLERANCE}), mean ${(diffs.reduce((a, b) => a + b, 0) / diffs.length).toFixed(3)}, p95 ${diffs[Math.floor(0.95 * diffs.length)].toFixed(3)}, p99 ${diffs[Math.floor(0.99 * diffs.length)].toFixed(3)}, paying rays ${paying} / 2000, cells evaluated ${w.fogCellEvals}`);
+    if (process.env.HC_PERF_LOG) console.log(`fog walk vs march: worst |Δ| ${worst.toFixed(3)} u (tolerance ${TOLERANCE}), mean ${(diffs.reduce((a, b) => a + b, 0) / diffs.length).toFixed(3)}, p95 ${diffs[Math.floor(0.95 * diffs.length)].toFixed(3)}, p99 ${diffs[Math.floor(0.99 * diffs.length)].toFixed(3)}, paying rays ${paying} / 2000, own-bank rays ${ownBank}, fragile ${fragile}, cells evaluated ${w.fogCellEvals}`);
     expect(paying).toBeGreaterThan(100); // the comparison is not vacuous
+    expect(ownBank).toBeGreaterThan(50); // ...nor is the own-bank rule: observers DO stand in banks here
+    expect(fragile).toBeLessThan(ownBank * 0.4); // and most own-bank rays are compared exactly (observed ≈ 30 % flagged at this seed)
   });
 
-  it('is deterministic: the same ray twice returns the identical toll and the second call touches no new cell; a new epoch re-evaluates', () => {
+  it('is deterministic: the same ray twice returns the identical toll and the second call touches no new cell; a new epoch re-evaluates; the own-bank memo follows the epoch', () => {
     const w = pinnedWorld(22, 0.08);
     const first = w.fogTollAlong(-300, 120, 400, -200);
     const evals = w.fogCellEvals;
     expect(evals).toBeGreaterThan(0);
     expect(w.fogTollAlong(-300, 120, 400, -200)).toBe(first);
     expect(w.fogCellEvals).toBe(evals);
-    expect(w.fogTollAlong(400, -200, -300, 120)).toBeCloseTo(first, 6); // the reverse ray sums the same cells (a corner tie may graze one extra, at zero length)
     w.setFogCutForTest(w.fogCut); // a new epoch at the same cut: the cells are stale and re-evaluated
     expect(w.fogTollAlong(-300, 120, 400, -200)).toBeCloseTo(first, 6);
     expect(w.fogCellEvals).toBeGreaterThan(evals);
   });
 
-  it('density 1 everywhere (cut −2): the walk is exactly sightCostPerU × length, inside the lattice', () => {
-    const w = liveWorld(23);
-    w.setFogCutForTest(-2);
-    expect(w.fogTollAlong(0, 0, 300, 0)).toBeCloseTo(300 * CONFIG.fog.sightCostPerU, 6);
-    expect(w.fogTollAlong(-123.4, 56.7, 210.9, -333.3)).toBeCloseTo(Math.hypot(334.3, 390) * CONFIG.fog.sightCostPerU, 6);
+  it('is symmetric A ↔ B when neither end stands in solid fog, and DIRECTIONAL when one does (amendment 179)', () => {
+    const w = pinnedWorld(22, 0.25);
+    const g = mulberry32(0xd1);
+    let symmetric = 0;
+    let directional = 0;
+    for (let k = 0; k < 400 && (symmetric < 20 || directional < 5); k++) {
+      const ax = g.float(-2000, 2000), ay = g.float(-2000, 2000), bx = ax + g.float(-600, 600), by = ay + g.float(-600, 600);
+      const aIn = w.fogDensityAt(ax, ay) >= FOG_SOLID_DENSITY;
+      const bIn = w.fogDensityAt(bx, by) >= FOG_SOLID_DENSITY;
+      const ab = w.fogTollAlong(ax, ay, bx, by);
+      const ba = w.fogTollAlong(bx, by, ax, ay);
+      if (!aIn && !bIn) {
+        expect(ab).toBeCloseTo(ba, 6); // the same cells either way (a corner tie may graze one extra, at zero length)
+        symmetric += 1;
+      } else if (aIn !== bIn && ab !== ba) {
+        // the end that stands in fog is the one that pays less: its own bank is free
+        expect(aIn ? ab : ba).toBeLessThan(aIn ? ba : ab);
+        directional += 1;
+      }
+    }
+    expect(symmetric).toBeGreaterThanOrEqual(20);
+    expect(directional).toBeGreaterThanOrEqual(5);
   });
 
-  it('rays are CLIPPED to the memo lattice (the ocean square + margin): wholly outside pays 0, a ray leaving the square pays only its inside part', () => {
+  it('density 1 everywhere (cut −2): an observer ON the ocean pays nothing anywhere (the whole ocean is one bank, amendment 179); from just past the rim the walk is exactly sightCostPerU × the length inside, to a cell', () => {
+    const w = liveWorld(23);
+    w.setFogCutForTest(-2);
+    expect(w.fogTollAlong(0, 0, 300, 0)).toBe(0);
+    expect(w.fogTollAlong(-123.4, 56.7, 210.9, -333.3)).toBe(0);
+    const R = w.map.radius;
+    const toll = w.fogTollAlong(R + 10, 0, R - 300, 0);
+    expect(toll).toBeGreaterThanOrEqual((300 - CONFIG.fog.marchStepU) * CONFIG.fog.sightCostPerU);
+    expect(toll).toBeLessThanOrEqual((300 + CONFIG.fog.marchStepU) * CONFIG.fog.sightCostPerU);
+    expect(w.fogTollAlong(R - 300, 0, R + 10, 0)).toBe(0); // and out of the bank is free
+  });
+
+  it('rays are CLIPPED to the memo lattice (the ocean square + margin): wholly outside pays 0, a ray entering the square pays only its inside part, and nothing past the rim', () => {
     const w = liveWorld(24);
     w.setFogCutForTest(-2);
     const far = w.map.radius + 2000; // past the lattice's margin (the longest sight ray)
     expect(w.fogTollAlong(far, 0, far + 500, 0)).toBe(0);
-    const inside = w.fogTollAlong(w.map.radius - 50, 0, far, 0);
+    const inside = w.fogTollAlong(far, 0, w.map.radius - 50, 0);
     expect(inside).toBeGreaterThan(0);
-    expect(inside).toBeLessThan(((far - (w.map.radius - 50)) * CONFIG.fog.sightCostPerU) / 2); // most of that ray is off the lattice
+    expect(inside).toBeLessThanOrEqual((50 + CONFIG.fog.marchStepU) * CONFIG.fog.sightCostPerU); // only the 50 u on the ocean pays (amendment 179: no fog past the rim)
     expect(w.fogTollAlong(NaN, 0, 100, 0)).toBe(0);
     expect(w.fogTollAlong(0, 0, 0, 0)).toBe(0);
   });
@@ -333,7 +440,9 @@ describe('fog field — resetForMatchStart and the test seams', () => {
     for (let i = 0; i < 5; i++) w.step();
     expect(w.fogCut).toBe(-2);
     for (const p of samplePoints(w)) expect(w.fogDensityAt(p.x, p.y)).toBe(1);
-    expect(w.fogTollAlong(0, 0, 300, 0)).toBeCloseTo(300 * CONFIG.fog.sightCostPerU, 6);
+    expect(w.fogDensityAt(w.map.radius + 1, 0)).toBe(0); // amendment 179: nothing past the rim
+    expect(w.fogTollAlong(w.map.radius + 10, 0, w.map.radius - 290, 0)).toBeGreaterThan(280 * CONFIG.fog.sightCostPerU);
+    expect(w.fogTollAlong(0, 0, 300, 0)).toBe(0); // the observer's own bank (amendment 179)
     expect(w.fogCoverageEstimate).toBe(1);
     w.setFogCutForTest(FOG_NO_CUT);
     expect(w.fogTollAlong(0, 0, 300, 0)).toBe(0);

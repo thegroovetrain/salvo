@@ -25,7 +25,8 @@
 // THE FOG TOLL (Story 9.10, epic-9 amendments 149–150 / 163–170): every
 // sight-RANGE comparison on those same sites goes through `withinSight`,
 // which adds the ray's fog toll (`SightField.fogToll` — the World's
-// `fogTollAlong`, the shared field's midpoint march) to its length before
+// `fogTollAlong`, the shared field's midpoint march; observer-first, since
+// amendment 179 the observer's own solid bank is free) to its length before
 // comparing against the range — fog never widens anything, so the plain
 // range test rejects first and the march runs only inside geometric range.
 // Radar, zone circles, the foghorn and the storm never read the field.
@@ -308,7 +309,10 @@ export interface SightField {
 /** The fog toll on the ray me → p (Story 9.10): the field's thunk — the
  *  World's `fogTollAlong` (shared sim/fog.ts owns the math; the invariant
  *  oracle re-integrates the shared density numerically by design). THE one
- *  entry of the fog cost into perception — nothing else derives it. */
+ *  entry of the fog cost into perception — nothing else derives it. The
+ *  observer is ALWAYS the ray's A end: since amendment 179 the toll is
+ *  directional (an observer standing in solid fog pays nothing inside that
+ *  bank — "see out of it normally"), so no caller may swap the ends. */
 function fogCostTo(field: SightField, me: ShipRecord, p: Vec2): number {
   return field.fogToll(me.state.x, me.state.y, p.x, p.y);
 }
@@ -985,8 +989,9 @@ function nearestRimPoint(o: Vec2, c: Vec2, r: number): Vec2 {
 /** Clause (a): the disc's nearest point within sight on an island-clear
  *  segment. `d` is the observer→centre distance, `r` the disc radius.
  *  Story 9.10: the segment to the nearest rim point pays the fog toll
- *  (withinSight — its plain test is the old `d − r ≤ sightOf`); an observer
- *  standing inside a bank pays on that segment like on any other. */
+ *  (withinSight — its plain test is the old `d − r ≤ sightOf`), observer
+ *  first like every other ray — so since amendment 179 an observer standing
+ *  in solid fog pays nothing on that segment until it leaves its own bank. */
 function discSighted(ctx: FoggedSignalContext, cloud: StoredCloud, d: number, r: number): boolean {
   const me = ctx.me;
   if (d - r > sightOf(me)) return false;

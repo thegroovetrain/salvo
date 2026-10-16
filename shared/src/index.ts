@@ -3,6 +3,11 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  88 — Story 9.10 fog tune 3 (Eric 2026-10-16 on staging, epic-9 amendment
+ *  179): the shared field the client draws from changes shape — density is
+ *  0 beyond the ocean's rim — so an OLD client would draw fog past the rim
+ *  where the new server has none (nothing new rides the wire; the own-bank
+ *  sight rule is server-side and needs no bump by itself).
  *  87 — Story 9.10 fog tune 2 (Eric 2026-10-16 on staging, epic-9 amendment
  *  178): CONFIG.fog, which the client reads — spinPeriodMs becomes spinRimU
  *  (a rim speed, 1 u/s), windU 1, and coverage counts solid fog
@@ -876,7 +881,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 87;
+export const PROTOCOL_VERSION = 88;
 
 // Tunables
 export * from './constants.js';
