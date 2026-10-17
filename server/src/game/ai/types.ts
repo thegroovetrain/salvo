@@ -376,6 +376,21 @@ export interface RememberedContact {
    * clears the mark.
    */
   missSweptAt: number;
+  /**
+   * THE DECOY CUES (Story 9.13, epic-9 amendment 197) — what a human reads
+   * off the scope to call a radar plot a probable buoy, carried on the plot by
+   * the fold (ai/utility.ts foldPaint / ai/plot.ts). OPTIONAL so hand-built
+   * tracks stay valid; absent reads as "no evidence" (never a decoy).
+   *   - `paintCells`: lit-cell count of the plot's LAST radar paint (a buoy's
+   *     paint square covers a few lattice cells; a hull's silhouette many);
+   *   - `stillSweeps`: consecutive paint-to-paint measurements that read
+   *     STATIONARY (any measured motion resets it to 0);
+   *   - `hasWake`: a wake-ribbon course was EVER fitted to this plot (a buoy
+   *     lays no wake — the amendment-123 precedent).
+   */
+  paintCells?: number;
+  stillSweeps?: number;
+  hasWake?: boolean;
 }
 
 /** One painted WAKE segment remembered for the course fit (ai/plot.ts): the
@@ -519,6 +534,12 @@ export interface BotMind {
    *  scored a Hit Call on it, so one click counts one hit however many
    *  `hc` rows its shells raise. */
   hitClicks?: Map<string, number>;
+  /** The server ms of the last Hit Call CREDITED per track key (amendment
+   *  195, the hitClicks sibling): two `hc` rows of one click that land a tick
+   *  apart (the cannon's two barrels) collapse to one hit; a held machine-gun
+   *  stream (which never advances `fireSeq`) still counts each round, its
+   *  rounds being further apart than the collapse window. */
+  hitClickAt?: Map<string, number>;
   /** The id of the tactic row that fired last (harness readout, Story 9.13;
    *  stamped by the tactics wave); null = none yet. */
   lastTactic?: string | null;

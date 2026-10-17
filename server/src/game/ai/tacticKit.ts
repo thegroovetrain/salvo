@@ -40,7 +40,8 @@ import type { BotMind, BotPosture, BotSelf, BotWorldPort } from './types.js';
 import { isActionable, lineBlocked, plotAt, tracksOf, type BotSituation, type BotTrack } from './utility.js';
 import type { BotProfile } from './profiles.js';
 import { torpedoInbound } from './torpedoThreat.js';
-import { trackVelocity } from './plot.js';
+import { TRACK_PERSIST_MS, trackVelocity } from './plot.js';
+import { mountedReachOf } from './doctrine.js';
 
 const TAU = Math.PI * 2;
 
@@ -356,12 +357,99 @@ export function burstOnLiveContact(ctx: TacticContext, rangeU: number, target: B
   return { aim: bearing(ctx.self.state, plotAt(ctx.sit, t)), aimDist: d, slot: ctx.slot };
 }
 
+// ---------------------------------------------------------------------------
+// HOSTILE READS (Story 9.13, amendment 199) — the trigger extensions' cues.
+// ---------------------------------------------------------------------------
+
+/** Is this track a HOSTILE worth a defensive press: a captain (a sighted PvE
+ *  fleet hull is neutral — the captive-mine precedent; an unclassed paint is
+ *  assumed a captain), not a wreck, past the reaction gate, and LIVE or
+ *  refreshed within one base sweep revolution (a fresh paint)? */
+export function isFreshHostile(t: BotTrack, now: number): boolean {
+  if (t.sunk || t.fleet || !isActionable(t, now)) return false;
+  return t.live || now - t.seenAt <= TRACK_PERSIST_MS;
+}
+
+/** Any fresh hostile track whose predicted plot lies within `reachU`?
+ *  `keep` narrows the candidates (the radar-only chaser read below). */
+export function anyHostileWithin(
+  ctx: TacticContext,
+  reachU: number,
+  keep: (t: BotTrack) => boolean = () => true,
+): boolean {
+  for (const t of tracksOf(ctx.mind)) {
+    if (!isFreshHostile(t, ctx.sit.now) || !keep(t)) continue;
+    if (distTo(ctx.sit, t) <= reachU) return true;
+  }
+  return false;
+}
+
+/** Any fresh hostile inside the MOUNTED gun's reach (amendment 199's "a
+ *  hostile in weapon reach"; `effectiveReach.maxU`). */
+export function anyHostileInReach(ctx: TacticContext, reachU: number = mountedReachOf(ctx).maxU): boolean {
+  return anyHostileWithin(ctx, reachU);
+}
+
+/** A RADAR CHASER (amendment 199): a fresh hostile PLOT — painted, not in
+ *  sight — inside own radar range. */
+export function radarChaser(ctx: TacticContext): boolean {
+  return anyHostileWithin(ctx, ctx.sit.stats.radarRange, (t) => !t.live);
+}
+
 /**
- * THE HUNKER CUES (amendment 115) — (a) ENGAGED IN COMBAT: the bot's own
- * `engage` posture, with a target; or (b) a seen enemy torpedo inbound on a
- * collision line within 150 u (ai/torpedoThreat.ts). Shared by the HUNKER
+ * Is this track MOVING AWAY from the bot (amendment 199 — the pursuing
+ * FOULING SHELL's pick)? Its course (disclosed or estimated) points more than
+ * 90° off the bearing from it to us: v · (self − plot) < 0. A course-less or
+ * stopped track is not fleeing.
+ */
+export function movingAway(sit: BotSituation, t: BotTrack): boolean {
+  const v = trackVelocity(t);
+  if (v === null || (v.vx === 0 && v.vy === 0)) return false;
+  const p = plotAt(sit, t);
+  return v.vx * (sit.x - p.x) + v.vy * (sit.y - p.y) < 0;
+}
+
+/** At or above the profile's break-off line (a HEALTHY bot, amendment 199's
+ *  declined-fight clause). */
+export function healthy(sit: BotSituation): boolean {
+  return sit.maxHp > 0 && sit.hp / sit.maxHp >= sit.profile.disengageHpFrac;
+}
+
+/** Is one of the bot's OWN decoy buoys on the water? The owner is always sent
+ *  its own (`DecoyView.own`, the decoy row's owner-always clause). */
+export function ownDecoyLive(mind: BotMind): boolean {
+  return mind.view?.decoys.some((d) => d.own) ?? false;
+}
+
+/** THE HARNESS STAMP (Story 9.13): record the tactic row that produced a shot
+ *  on the mind's `lastTactic` seat and hand the shot through. A null shot
+ *  stamps nothing. */
+export function stamped(ctx: TacticContext, row: string, shot: Shot | null): Shot | null {
+  if (shot !== null) ctx.mind.lastTactic = row;
+  return shot;
+}
+
+/** Postures in which HUNKER / SHIELD BLOCK also fire with a hostile in weapon
+ *  reach (amendment 199): pursuing, kiting, fleeing, hiding. */
+const REACH_GUARD_POSTURES: readonly BotPosture[] = ['pursue', 'kite', 'disengage', 'hide'];
+
+/** The last seconds before a ram (amendment 199): the ram posture with its
+ *  target inside `CONFIG.bots.ramReachU`. */
+function preRam(ctx: TacticContext): boolean {
+  return ctx.posture === 'ram' && ctx.target !== null && distTo(ctx.sit, ctx.target) <= CONFIG.bots.ramReachU;
+}
+
+/**
+ * THE HUNKER CUES (amendment 115, extended by amendment 199) — (a) ENGAGED IN
+ * COMBAT: the bot's own `engage` posture, with a target; (b) a seen enemy
+ * torpedo inbound on a collision line within 150 u (ai/torpedoThreat.ts);
+ * (c) the last seconds before a ram; (d) pursuing, kiting, fleeing or hiding
+ * with ANY fresh hostile inside the mounted gun's reach. Shared by the HUNKER
  * Shift and the SHIELD BLOCK belt row (amendment 124(g)).
  */
 export function hunkerCues(ctx: TacticContext): boolean {
-  return (ctx.posture === 'engage' && ctx.target !== null) || torpedoInbound(ctx.self, ctx.mind, ctx.sit.now);
+  if (ctx.posture === 'engage' && ctx.target !== null) return true;
+  if (torpedoInbound(ctx.self, ctx.mind, ctx.sit.now)) return true;
+  if (preRam(ctx)) return true;
+  return REACH_GUARD_POSTURES.includes(ctx.posture) && anyHostileInReach(ctx);
 }

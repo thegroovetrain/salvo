@@ -37,6 +37,7 @@ import {
   WAKE_AGE_BUCKETS,
   hullEnvelope,
   islandBlocksSegment,
+  type DecoyView,
   type GameEvent,
   type GhostPaint,
   type Island,
@@ -142,6 +143,62 @@ export function paintCenter(e: GhostPaint): Vec2 | null {
     }
   }
   return n === 0 ? null : { x: sx / n, y: sy / n };
+}
+
+/** How many lattice cells a paint lights — the FOOTPRINT a human reads off
+ *  the scope (Story 9.13, epic-9 amendment 197): a decoy buoy's paint square
+ *  (`CONFIG.decoyBuoy.sizeU`) lights a handful, a hull's silhouette many. */
+export function paintCellCount(e: GhostPaint): number {
+  let n = 0;
+  for (let bit = 0; bit < e.w * e.h; bit += 1) {
+    if (((e.bits[bit >> 5] ?? 0) & (1 << (bit & 31))) !== 0) n += 1;
+  }
+  return n;
+}
+
+// ---------------------------------------------------------------------------
+// DECOY CUES (Story 9.13, epic-9 amendment 197)
+// ---------------------------------------------------------------------------
+
+/** u — how near a plot must sit to a KNOWN decoy (one in `view.decoys`: the
+ *  bot's own, at any range, or an enemy buoy inside its sight / own light) to
+ *  be that buoy's paint: the buoy's paint square plus one lattice cell of
+ *  rasterization slop (amendment 197(a)). */
+export const DECOY_SLOP_U = CONFIG.decoyBuoy.sizeU + CONFIG.vision.radarCellU;
+
+/** Lit cells at or under which a paint is buoy-sized (amendment 197(b), the
+ *  orchestrator's reading: the 12 u buoy square on the 9 u lattice lights at
+ *  most a 2 × 2 block). A footprint, not a distance — no CONFIG dial. */
+export const DECOY_MAX_CELLS = 4;
+
+/** Is the identity-free plot at `p` the paint of a decoy the view names?
+ *  Only an ANONYMOUS plot can be a buoy's paint: a plot carrying an id is a
+ *  hull the bot saw (amendment 197(a)). */
+export function nearKnownDecoy(t: RememberedContact, p: Vec2, decoys: readonly DecoyView[]): boolean {
+  if (t.id !== null) return false;
+  for (const d of decoys) {
+    if (Math.hypot(d.x - p.x, d.y - p.y) <= DECOY_SLOP_U) return true;
+  }
+  return false;
+}
+
+/** A radar-only plot that reads as a PROBABLE BUOY (amendment 197(b)): never
+ *  sighted, buoy-sized paint, no wake ever fitted, and measured stationary for
+ *  CONFIG.bots.decoyStillSweeps consecutive sweeps. A plot with no paint
+ *  evidence (no `paintCells`) is never one. */
+export function probableDecoy(t: RememberedContact): boolean {
+  if (t.live || t.id !== null || t.hasWake === true) return false;
+  if (t.paintCells === undefined || t.paintCells > DECOY_MAX_CELLS) return false;
+  return (t.stillSweeps ?? 0) >= CONFIG.bots.decoyStillSweeps;
+}
+
+/** The stationary-sweep count after a paint whose paint-to-paint velocity is
+ *  `v`: a measured zero course extends the run, measured motion resets it, no
+ *  measurement (a first paint, a sub-second pair) leaves it as it was. */
+export function nextStillSweeps(prev: number | undefined, v: { vx: number; vy: number } | null): number {
+  const n = prev ?? 0;
+  if (v === null) return n;
+  return v.vx === 0 && v.vy === 0 ? n + 1 : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -579,5 +636,6 @@ export function refitWakeCourses(tracks: TrackMap, cells: readonly WakeCell[], n
     t.vy = v.vy;
     t.vAt = now;
     t.vSrc = 'wake';
+    t.hasWake = true; // a buoy lays no wake (amendment 197(b))
   }
 }

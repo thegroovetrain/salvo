@@ -52,6 +52,7 @@ import { EQUIPMENT } from '../game/equipment/index.js';
 import { engagementBand, profileOf } from '../game/ai/profiles.js';
 import { pullBand } from '../game/ai/utility.js';
 import { noteTorpedoes } from '../game/ai/torpedoThreat.js';
+import { gunBand } from '../game/ai/doctrine.js';
 import type {
   BotDecision,
   BotMind,
@@ -854,13 +855,22 @@ describe('the storm ring is a CONSTRAINT, not only an override', () => {
     expect(a.rudder).toBe(b.rudder);
 
     // THE CONTROL IS NOT VACUOUS: slide the same hull out to where the run
-    // does reach the rim and the two helms part company.
+    // does reach the rim and the two helms part company. The seaward target
+    // sits BEYOND own reach (epic-9 amendment 200(2)): outside the tight ring
+    // it is no target at all (never chased past the rim), while in the wide
+    // port the peer passes the odds gate and is pursued. (Inside own reach it
+    // would be engaged from where the bot is in both ports.)
     rec.state.x = 560;
+    const seaward = rec.state.x + rec.stats.equipment.gun.rangeU + 200;
     const m3 = mkMind('duelist');
     const m4 = mkMind('duelist');
-    plot(m3, track(tight.now, { x: 900, y: 0, speed: 0 })); // seaward of the rim
-    plot(m4, track(wide.now, { x: 900, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(rec, m3, tight).rudder).not.toBe(COMBAT_BRAIN.decide(rec, m4, wide).rudder);
+    plot(m3, track(tight.now, { x: seaward, y: 0, speed: 0 }));
+    plot(m4, track(wide.now, { x: seaward, y: 0, speed: 0 }));
+    const c = COMBAT_BRAIN.decide(rec, m3, tight);
+    const d = COMBAT_BRAIN.decide(rec, m4, wide);
+    expect(m3.posture).toBe('reposition');
+    expect(m4.posture).toBe('pursue');
+    expect(c.rudder).not.toBe(d.rudder);
   });
 
   it('THE DEADBAND IS BOOST-AWARE TOO: the safe radius grows with the hull\'s real speed', () => {
@@ -1089,15 +1099,33 @@ describe('weapons — every shot is a LEGAL shot', () => {
     expect(dry.throttle).toBeGreaterThan(0); // it still sails
   });
 
-  it('a target beyond the weapon\'s reach is not shot at', () => {
+  it('a target beyond the weapon\'s reach is not shot at — unless the aim point lies in an OWN live lit zone (amendment 198)', () => {
     const w = openWorld(207);
     const port = fakePort(w);
     const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const far = rec.stats.equipment.gun.rangeU + 100;
+    const litView = (by: string): BotMind['view'] => ({
+      contacts: [], events: [], mines: [], burnZones: [], foulZones: [], decoys: [], clouds: [],
+      litZones: [{ id: 'z', x: far, y: 0, r: CONFIG.starShells.litRadius, until: port.now + 5000, by }],
+    });
     const mind = mkMind('bulwark');
     // Inside the scoring horizon (1.25R) but outside gun range (R) — and the
     // broadside's 5/8 reach is shorter still.
-    plot(mind, track(port.now, { x: rec.stats.equipment.gun.rangeU + 100, y: 0, speed: 0 }));
+    plot(mind, track(port.now, { x: far, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(rec, mind, port).fireSlot).toBeNull();
+    // The bot's OWN live flare over the plot lifts the reach (the server's
+    // gunReachU rule, amendment 187): the cannon fires into the light.
+    const lit = mkMind('bulwark');
+    plot(lit, track(port.now, { x: far, y: 0, speed: 0 }));
+    lit.view = litView(rec.id);
+    const d = COMBAT_BRAIN.decide(rec, lit, port);
+    expect(d.fireSlot).toBe(slotOf(rec, 'gun'));
+    expect(d.aimDist).toBeGreaterThan(rec.stats.equipment.gun.rangeU);
+    // ANOTHER captain's flare over the same plot lifts nothing.
+    const theirs = mkMind('bulwark');
+    plot(theirs, track(port.now, { x: far, y: 0, speed: 0 }));
+    theirs.view = litView('someone-else');
+    expect(COMBAT_BRAIN.decide(rec, theirs, port).fireSlot).toBeNull();
   });
 
   it('abilities ride the act channel: a raider boosts out', () => {
@@ -1883,14 +1911,17 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     w.applyCard(rec, 'supercavTorpedo');
     expect(slotOf(rec, 'supercavTorpedo')).toBeGreaterThanOrEqual(0);
     const reaches = readyShotReaches(rec, rec.stats);
-    // 250 u is the straight-runner's credible reach (ai/equipment's
-    // TORPEDO_CREDIBLE_U — the supercav never homes, so the gate never widens).
-    expect(reaches).toContain(250);
+    // The supercav's OWN credible reach (epic-9 amendment 199: it scales with
+    // the fish's speed — CONFIG.bots.supercavCredibleU; it never homes, so the
+    // gate never widens).
+    const supercavU = CONFIG.bots.supercavCredibleU;
+    expect(reaches).toContain(supercavU);
 
-    // ...and it actually moves the band: a siege battleship holding a knife-
-    // range fish eases its near edge in, exactly as a fitted tube does.
+    // ...and it feeds the band pull exactly as a fitted tube does: a reach
+    // under the near edge eases it halfway in; one at or past it moves nothing.
     const band = engagementBand(profileOf('siege'), rec.stats);
-    expect(pullBand(band, reaches).min).toBeCloseTo((band.min + 250) / 2, 6);
+    const pulled = supercavU < band.min ? (band.min + supercavU) / 2 : band.min;
+    expect(pullBand(band, reaches).min).toBeCloseTo(pulled, 6);
   });
 });
 
@@ -2177,6 +2208,11 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
     mind.viewAt = now;
   }
 
+  /** u — a duelist MG target comfortably inside the doctrine hold line. */
+  function mgInside(rec: ShipRecord): number {
+    return 0.8 * gunBand(profileOf('duelist'), rec.stats, 'machineGun').holdFireAboveU;
+  }
+
   it('an EQUIPMENT_TACTICS row exists for every equipment id the server registry builds', () => {
     for (const id of Object.keys(EQUIPMENT) as (keyof typeof EQUIPMENT)[]) {
       expect(EQUIPMENT_TACTICS[id], `no bot tactic for '${id}'`).toBeDefined();
@@ -2190,7 +2226,9 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
     const rec = mkBot(w, 'torpedoBoat', 0, 0, 0);
     mountGun(rec, 'machineGun');
     const mind = mkMind('duelist');
-    plot(mind, track(port.now, { x: 300, y: 0, speed: 0 }));
+    // Inside the doctrine hold line (amendment 198: the MG streams only inside
+    // its band's far edge, ~0.5 R).
+    plot(mind, track(port.now, { x: mgInside(rec), y: 0, speed: 0 }));
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.held).toBe(true);
     expect(d.fireSlot).toBeNull(); // the driver's fireSeq never moves on a held tick
@@ -2206,9 +2244,14 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
     const far = mkMind('duelist');
     plot(far, track(port.now, { x: rec.stats.equipment.machineGun.rangeU + 100, y: 0, speed: 0 }));
     expect(COMBAT_BRAIN.decide(rec, far, port).held).toBe(false);
+    // Inside reach but past the doctrine hold line: HOLD FIRE and close (amendment 198).
+    const pastHold = mkMind('duelist');
+    const hold = gunBand(profileOf('duelist'), rec.stats, 'machineGun').holdFireAboveU;
+    plot(pastHold, track(port.now, { x: (hold + rec.stats.equipment.machineGun.rangeU) / 2, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec, pastHold, port).held).toBe(false);
     expect(COMBAT_BRAIN.decide(rec, mkMind('duelist'), port).held).toBe(false);
     const near = mkMind('duelist');
-    plot(near, track(port.now, { x: 300, y: 0, speed: 0 }));
+    plot(near, track(port.now, { x: mgInside(rec), y: 0, speed: 0 }));
     rec.loadout[0].state = { n: 0, reloadMsLeft: 15000 };
     const dry = COMBAT_BRAIN.decide(rec, near, port);
     expect(dry.held).toBe(false);
@@ -2219,8 +2262,9 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
     const w = openWorld(8153, 4);
     const a = w.addBot('torpedoBoat', undefined, 'machineGun');
     const b = w.addBot('torpedoBoat', undefined, 'machineGun');
+    // 200 u apart: inside every profile's doctrine hold line (amendment 198).
     [a, b].forEach((rec, i) => {
-      rec.state.x = i === 0 ? -150 : 150;
+      rec.state.x = i === 0 ? -100 : 100;
       rec.state.y = 0;
       rec.state.heading = i === 0 ? 0 : Math.PI;
       rec.prevPose = { ...rec.state };
@@ -2255,12 +2299,20 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
     const rec = mkBot(w, 'battleship', 0, 0, 0);
     mountGun(rec, 'flak');
     const mind = mkMind('bulwark');
-    plot(mind, track(port.now, { x: 300, y: 0, speed: 0, heading: null }));
+    // Inside the doctrine hold line (amendment 198: flak bursts only inside its
+    // band's far edge, ~0.5 R).
+    const hold = gunBand(profileOf('bulwark'), rec.stats, 'flak').holdFireAboveU;
+    const inside = 0.8 * hold;
+    plot(mind, track(port.now, { x: inside, y: 0, speed: 0, heading: null }));
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.fireSlot).toBe(0);
     expect(d.held).toBe(false);
-    expect(d.aimDist).toBeGreaterThan(250);
+    expect(d.aimDist).toBeGreaterThan(inside - CONFIG.bots.aimScatterU * 2);
     expect(d.aimDist).toBeLessThanOrEqual(rec.stats.equipment.flak.rangeU);
+    // Inside reach but past the hold line: hold fire and close.
+    const pastHold = mkMind('bulwark');
+    plot(pastHold, track(port.now, { x: (hold + rec.stats.equipment.flak.rangeU) / 2, y: 0, speed: 0, heading: null }));
+    expect(COMBAT_BRAIN.decide(rec, pastHold, port).fireSlot).toBeNull();
     // Beyond the flak row's reach: no shot.
     const far = mkMind('bulwark');
     plot(far, track(port.now, { x: rec.stats.equipment.flak.rangeU + 100, y: 0, speed: 0, heading: null }));
@@ -2330,20 +2382,31 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
       return (band.min + band.max) / 2;
     }
 
-    it('ENGAGED with a target: pressed; disengaging with no threat: not', () => {
+    it('ENGAGED with a target: pressed; disengaging with the chaser beyond weapon reach and no threat: not', () => {
       const { bs, port, shift } = setup(8156, false);
       const engaged = mkMind('bulwark');
       plot(engaged, track(port.now, { x: inBandX(bs), y: 0, speed: 0 }));
       viewOf(engaged, port.now, []);
       expect(COMBAT_BRAIN.decide(bs, engaged, port).actSlot).toBe(shift);
       expect(engaged.posture).toBe('engage');
-      // The same hull hurt below its break-off: disengaging, nothing inbound.
+      // The same hull hurt below its break-off: disengaging, the chaser past
+      // the gun's reach (amendment 199 presses only with a hostile IN reach),
+      // nothing inbound.
       const hurt = setup(8156, true);
       const away = mkMind('bulwark');
-      plot(away, track(hurt.port.now, { x: inBandX(hurt.bs), y: 0, speed: 0 }));
+      plot(away, track(hurt.port.now, { x: hurt.bs.stats.equipment.gun.rangeU + 100, y: 0, speed: 0 }));
       viewOf(away, hurt.port.now, []);
       expect(COMBAT_BRAIN.decide(hurt.bs, away, hurt.port).actSlot).toBeNull();
       expect(away.posture).toBe('disengage');
+    });
+
+    it('FLEEING with a hostile in weapon reach: pressed (amendment 199)', () => {
+      const { bs, port, shift } = setup(8163, true);
+      const mind = mkMind('bulwark');
+      plot(mind, track(port.now, { x: inBandX(bs), y: 0, speed: 0 }));
+      viewOf(mind, port.now, []);
+      expect(COMBAT_BRAIN.decide(bs, mind, port).actSlot).toBe(shift);
+      expect(mind.posture).toBe('disengage');
     });
 
     it('an enemy fish at 140 u on a collision line: pressed even while disengaging', () => {
@@ -2817,56 +2880,68 @@ describe('Story 8.20 — the total registries (ai/tacticRegistry.ts)', () => {
   });
 });
 
-describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13)', () => {
-  /** A healthy raider Torpedo Boat and its band. */
+describe('Story 8.20 — BOOST INTO FIGHTS (Eric rulings R7, R13; amendment 194)', () => {
+  /** A healthy raider Torpedo Boat and its mounted gun's doctrine band
+   *  (amendment 198 — the band the boost closes to). */
   function setup(seed: number): { port: FakePort; tb: ShipRecord; boost: number; bandMax: number } {
     const w = openWorld(seed);
     const port = fakePort(w);
     const tb = mkBot(w, 'torpedoBoat', 0, 0, 0);
     const boost = slotOf(tb, 'boost');
     expect(boost).toBe(SLOT_BOOST);
-    return { port, tb, boost, bandMax: engagementBand(profileOf('raider'), tb.stats).max };
+    return { port, tb, boost, bandMax: gunBand(profileOf('raider'), tb.stats).max };
+  }
+
+  /** A raider holding `posture` (cached, a non-deliberation tick) on a target at `x`. */
+  function heldOn(port: FakePort, x: number, posture: BotMind['posture']): BotMind {
+    const mind = mkMind('raider');
+    plot(mind, track(port.now, { x, y: 0, speed: 0 }));
+    mind.targetKey = 'tgt';
+    mind.posture = posture;
+    return mind;
   }
 
   it('Boost in: posture pursue, target at band.max + 50 u, boost ready -> pressed', () => {
     const { port, tb, boost, bandMax } = setup(8202);
-    const mind = mkMind('raider');
-    plot(mind, track(port.now, { x: bandMax + 50, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(tb, mind, port).actSlot).toBe(boost);
+    const mind = heldOn(port, bandMax + 50, 'pursue');
+    expect(COMBAT_BRAIN.decide(tb, mind, port, false).actSlot).toBe(boost);
     expect(mind.posture).toBe('pursue');
   });
 
-  it('Boost in, engage branch: a cached engage whose target has drifted past the far edge -> pressed', () => {
-    const { port, tb, boost, bandMax } = setup(8203);
-    const mind = mkMind('raider');
-    plot(mind, track(port.now, { x: bandMax + 50, y: 0, speed: 0 }));
-    mind.targetKey = 'tgt';
-    mind.posture = 'engage';
-    expect(COMBAT_BRAIN.decide(tb, mind, port, false).actSlot).toBe(boost);
-    expect(mind.posture).toBe('engage');
+  it('Boost only when closing is ruled (amendment 194): a cached engage, kite or hold past the far edge -> not pressed', () => {
+    const { port, tb, bandMax } = setup(8203);
+    for (const posture of ['engage', 'kite', 'hold'] as const) {
+      const mind = heldOn(port, bandMax + 50, posture);
+      expect(COMBAT_BRAIN.decide(tb, mind, port, false).actSlot, posture).toBeNull();
+    }
   });
 
-  it('Boost hold: the same bot with its target inside the band, posture engage -> not pressed', () => {
-    const { port, tb, bandMax } = setup(8204);
-    const band = engagementBand(profileOf('raider'), tb.stats);
-    const mind = mkMind('raider');
-    plot(mind, track(port.now, { x: Math.min((band.min + bandMax) / 2, bandMax - 10), y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(tb, mind, port).actSlot).toBeNull();
-    expect(mind.posture).toBe('engage');
+  it('Boost out (amendment 194: always when fleeing): disengage and hide -> pressed', () => {
+    const { port, tb, boost, bandMax } = setup(8207);
+    for (const posture of ['disengage', 'hide'] as const) {
+      const mind = heldOn(port, bandMax + 50, posture);
+      expect(COMBAT_BRAIN.decide(tb, mind, port, false).actSlot, posture).toBe(boost);
+    }
+  });
+
+  it('Boost hold: the same bot pursuing a target inside the band -> not pressed', () => {
+    const { port, tb } = setup(8204);
+    const band = gunBand(profileOf('raider'), tb.stats);
+    const mind = heldOn(port, (band.min + band.max) / 2, 'pursue');
+    expect(COMBAT_BRAIN.decide(tb, mind, port, false).actSlot).toBeNull();
   });
 
   it('no target, or the boost cooling: never pressed on the way in', () => {
     const { port, tb, bandMax } = setup(8205);
     expect(COMBAT_BRAIN.decide(tb, mkMind('raider'), port).actSlot).toBeNull();
     tb.loadout[SLOT_BOOST].state = { n: 0, reloadMsLeft: 20000 };
-    const mind = mkMind('raider');
-    plot(mind, track(port.now, { x: bandMax + 50, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(tb, mind, port).actSlot).toBeNull();
+    const mind = heldOn(port, bandMax + 50, 'pursue');
+    expect(COMBAT_BRAIN.decide(tb, mind, port, false).actSlot).toBeNull();
   });
 
   it('Boost vs fleet (R13): a TB bot in farm posture, fleet group at band.max + 200 u -> not pressed', () => {
     const { port, tb, boost } = setup(8206);
-    const bandMax = engagementBand(profileOf('forager'), tb.stats).max;
+    const bandMax = gunBand(profileOf('forager'), tb.stats).max;
     const fleet = { x: bandMax + 200, y: 0, speed: 0, cls: 'droneSmall' as HullId, fleet: true };
     const mind = mkMind('forager');
     plot(mind, track(port.now, fleet));

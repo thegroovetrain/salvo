@@ -1,5 +1,8 @@
 // COMBAT-BOT UTILITY SCORING (Story 6.4, wave 2) — the world model and the
-// choice of target and posture, over THE PERCEPTION VIEW AND NOTHING ELSE.
+// choice of target, over THE PERCEPTION VIEW AND NOTHING ELSE. (The posture
+// chain moved to ai/posture.ts in Story 9.13 — amendment 193 — and is
+// re-exported from here; decoy exclusion / demotion and hits per click,
+// amendments 195 and 197, live in the fold and the scorer below.)
 //
 // This module never sees a world collection. Its whole input is one
 // `PerceptionView` (the fogged view world.ts hands the driver as a bound
@@ -59,10 +62,9 @@
 import {
   CONFIG,
   SHIP_CLASS_IDS,
-  contactHitDamage,
-  hullEnvelope,
   type BlipEvent,
   type Contact,
+  type DecoyView,
   type EffectiveStats,
   type GameEvent,
   type HullId,
@@ -72,8 +74,8 @@ import {
   type ZoneRing,
 } from '@salvo/shared';
 import type { PerceptionView } from '../perception.js';
-import type { BotMind, BotPosture, RememberedContact } from './types.js';
-import { engagementBand, type BotProfile } from './profiles.js';
+import type { BotMind, RememberedContact } from './types.js';
+import { mountedGunRangeU, type BotProfile } from './profiles.js';
 import {
   ANON_ASSOC_U,
   LONGEST_HULL_U,
@@ -83,11 +85,15 @@ import {
   associatePaint,
   foldWakeCells,
   lineBlocked,
+  nearKnownDecoy,
   nearestPredicted,
+  nextStillSweeps,
+  paintCellCount,
   paintCenter,
   paintVelocity,
   plotPoint,
   predictedPos,
+  probableDecoy,
   refitWakeCourses,
   trackVelocity,
 } from './plot.js';
@@ -103,6 +109,11 @@ export { TRACK_PERSIST_MS, lineBlocked } from './plot.js';
  *  deliberated posture without an import cycle); tactics and tests keep
  *  importing it from here. */
 export type { BotPosture } from './types.js';
+
+/** Moved to ai/posture.ts (Story 9.13, epic-9 amendment 193 — the extended
+ *  chain lives in its own module); re-exported so tactics.ts and the tests
+ *  keep their import path. */
+export { choosePosture, type PostureInputs } from './posture.js';
 
 /**
  * ONE PLOTTED TRACK. An alias of `RememberedContact` since wave 3 promoted
@@ -153,6 +164,29 @@ export interface BotSituation {
    *  reach (profiles.ts engagementBand). Optional so a hand-built situation
    *  can omit it (the deck gun is assumed). */
   gunId?: SlotItemId | null;
+  /** This hull's own class (a self-read, Story 9.13): the ram exit's contact
+   *  distance (`hullBumper`) and the cover arrival tolerance (one own hull
+   *  length) read it. Optional so a hand-built situation can omit it (the
+   *  longest participant hull is assumed). */
+  hullId?: HullId;
+}
+
+/**
+ * u — THE BOT'S OWN WEAPON REACH for the posture chain's "in reach" tests
+ * (Story 9.13, epic-9 amendments 194–195): the folded reach of the MOUNTED
+ * gun (profiles.ts mountedGunRangeU).
+ * TODO wave 2: doctrine.effectiveReach(...).max (the lit-zone lift included).
+ */
+export function ownReachU(sit: Pick<BotSituation, 'stats' | 'gunId'>): number {
+  return mountedGunRangeU(sit.gunId, sit.stats);
+}
+
+/** Is this plot a DECOY BUOY by what the bot can see (Story 9.13, epic-9
+ *  amendment 197)? The paint of a decoy the view names (own at any range, an
+ *  enemy one inside sight / own light), or a radar-only plot whose cues read
+ *  as a probable buoy. Never counted as a hostile in the odds gate. */
+export function isDecoyPlot(t: BotTrack, decoys: readonly DecoyView[]): boolean {
+  return probableDecoy(t) || nearKnownDecoy(t, { x: t.x, y: t.y }, decoys);
 }
 
 /** Where this situation reads a plot: its predicted point (ai/plot.ts
@@ -176,8 +210,19 @@ const HIT_ASSOC_U = Math.max(Math.max(CONFIG.gun.burstRadius, CONFIG.broadside.b
 
 /** Hit Calls that read as "crippled" (the damage term saturates here). A
  *  severity-free count is all the wire gives; three connections is a real
- *  beating for every hull in the game. */
+ *  beating for every hull in the game. COUNTED PER CLICK since Story 9.13
+ *  (epic-9 amendment 195): the two-barrel cannon raises two `hc` rows per
+ *  volley, and counting rows read one volley as two thirds of "crippled" —
+ *  the fold now credits at most one hit per track per click (creditClick /
+ *  SAME_VOLLEY_MS). The number itself is unchanged. */
 const HITS_FOR_CRIPPLED = 3;
+
+/** ms — two Hit Calls on one track from the SAME click (`fireSeq`) this close
+ *  together are one volley (amendment 195): two sim ticks covers two barrels'
+ *  shells landing a tick apart, and stays under the machine gun's per-round
+ *  interval, whose held stream never advances `fireSeq` but still lands one
+ *  hit per round. A same-tick pair always collapses. */
+const SAME_VOLLEY_MS = 2 * CONFIG.tick.simDtMs;
 
 /** Fraction of intel range beyond which a track is not worth scoring at all.
  *  Slightly over 1 so a track that drifted just past radar range is still
@@ -238,8 +283,35 @@ type TrackMap = Map<string, RememberedContact>;
 /** The half of a track a refresh CARRIES OVER rather than re-reads. */
 type Carried = Pick<
   BotTrack,
-  'id' | 'cls' | 'fleet' | 'firstSeenAt' | 'hits' | 'sunk' | 'vx' | 'vy' | 'vAt' | 'vSrc' | 'paintX' | 'paintY' | 'paintAt'
+  | 'id'
+  | 'cls'
+  | 'fleet'
+  | 'firstSeenAt'
+  | 'hits'
+  | 'sunk'
+  | 'vx'
+  | 'vy'
+  | 'vAt'
+  | 'vSrc'
+  | 'paintX'
+  | 'paintY'
+  | 'paintAt'
+  | 'paintCells'
+  | 'stillSweeps'
+  | 'hasWake'
 >;
+
+type Cues = Pick<BotTrack, 'paintCells' | 'stillSweeps' | 'hasWake'>;
+
+/** The decoy cues a refresh carries over (amendment 197) — only the keys the
+ *  plot actually has, so a never-painted track gains no fields. */
+function carriedCues(base: Carried): Cues {
+  const out: Cues = {};
+  if (base.paintCells !== undefined) out.paintCells = base.paintCells;
+  if (base.stillSweeps !== undefined) out.stillSweeps = base.stillSweeps;
+  if (base.hasWake !== undefined) out.hasWake = base.hasWake;
+  return out;
+}
 
 /** A brand-new track's carried-over half (no history to preserve). */
 function freshBase(now: number): Carried {
@@ -296,6 +368,7 @@ function writeTrack(tracks: TrackMap, key: string, s: Sighting, now: number, liv
     paintY: base.paintY,
     paintAt: base.paintAt,
     missSweptAt: -1, // a refresh is the opposite of a miss
+    ...carriedCues(base),
   };
   tracks.set(key, track);
   return track;
@@ -341,7 +414,7 @@ function secondHull(prev: BotTrack | undefined, x: number, y: number, now: numbe
  *  and overrides any wake guess (and stays until the next paint — a wake fit
  *  never replaces it); every paint then becomes the new baseline. A paint
  *  that reads as a second hull (secondHull) opens its own plot. */
-function foldPaint(tracks: TrackMap, x: number, y: number, fx: FoldCtx): void {
+function foldPaint(tracks: TrackMap, x: number, y: number, cells: number, fx: FoldCtx): void {
   const now = fx.now;
   const chosen = associatePaint(tracks, { x, y }, now, fx.cells, fx.waterR) ?? anonKey(x, y);
   const key = secondHull(tracks.get(chosen), x, y, now) ? anonKey(x, y) : chosen;
@@ -357,12 +430,16 @@ function foldPaint(tracks: TrackMap, x: number, y: number, fx: FoldCtx): void {
   t.paintX = x;
   t.paintY = y;
   t.paintAt = now;
+  // THE DECOY CUES (amendment 197(b)): this paint's footprint, and the run of
+  // stationary paint-to-paint measurements.
+  t.paintCells = cells;
+  t.stillSweeps = nextStillSweeps(prev?.stillSweeps, v);
 }
 
 /** Fold one radar paint — an identity-free coverage footprint. */
 function foldBlip(tracks: TrackMap, e: BlipEvent, fx: FoldCtx): void {
   const c = paintCenter(e);
-  if (c !== null) foldPaint(tracks, c.x, c.y, fx);
+  if (c !== null) foldPaint(tracks, c.x, c.y, paintCellCount(e), fx);
 }
 
 /**
@@ -386,6 +463,26 @@ function hitCallPosition(t: BotTrack, x: number, y: number, now: number, waterR:
  *  spot, so that is where its connections land — cycle 165), refreshing it,
  *  or opens one, which is exactly what the shooter is entitled to conclude.
  *  It never touches the paint baseline or the course. */
+/**
+ * HITS PER CLICK (Story 9.13, epic-9 amendment 195): does this Hit Call on
+ * `key` raise the damage estimate? Not when the track was already credited
+ * THIS tick, nor when it was credited for the SAME click (`fireSeq`) within
+ * SAME_VOLLEY_MS — the cannon's second barrel. Stamps the credit when it
+ * counts. A fold without the click ledger counts every row, as before.
+ */
+function creditClick(key: string, fx: FoldCtx): boolean {
+  const ledger = fx.clicks;
+  if (ledger === null) return true;
+  const lastAt = ledger.at.get(key);
+  if (lastAt !== undefined) {
+    if (lastAt === fx.now) return false;
+    if (ledger.seq.get(key) === ledger.fireSeq && fx.now - lastAt < SAME_VOLLEY_MS) return false;
+  }
+  ledger.at.set(key, fx.now);
+  ledger.seq.set(key, ledger.fireSeq);
+  return true;
+}
+
 function foldHitCall(tracks: TrackMap, x: number, y: number, fx: FoldCtx): void {
   const now = fx.now;
   const key =
@@ -395,7 +492,7 @@ function foldHitCall(tracks: TrackMap, x: number, y: number, fx: FoldCtx): void 
   const at = hitCallPosition(t, x, y, now, fx.waterR);
   const hit: BotTrack = {
     ...t,
-    hits: t.hits + 1,
+    hits: t.hits + (creditClick(key, fx) ? 1 : 0),
     seenAt: now,
     x: at.x,
     y: at.y,
@@ -423,6 +520,10 @@ interface FoldCtx {
   /** Ids a `sunk` event named THIS fold with no track yet to mark — the
    *  contact fold that follows stamps the wreck dead as it writes it. */
   sunkNow: Set<string>;
+  /** The hits-per-click ledger (amendment 195): the bot's click counter and
+   *  its per-track last credited click / time (BotMind.hitClicks /
+   *  hitClickAt). Null = no ledger (every row counts). */
+  clicks: { fireSeq: number; seq: Map<string, number>; at: Map<string, number> } | null;
 }
 
 function foldEvent(tracks: TrackMap, e: GameEvent, fx: FoldCtx): void {
@@ -520,12 +621,37 @@ export function foldView(mind: BotMind, view: PerceptionView, now: number, sweep
   const tracks = mind.contacts;
   dropTruesight(tracks);
   foldWakeCells(mind, view.events, now);
-  const fx: FoldCtx = { now, cells: mind.wakeCells, waterR: sweep?.site.waterR ?? Infinity, sunkNow: new Set() };
+  const fx: FoldCtx = {
+    now,
+    cells: mind.wakeCells,
+    waterR: sweep?.site.waterR ?? Infinity,
+    sunkNow: new Set(),
+    clicks: clickLedger(mind),
+  };
   for (const e of view.events) foldEvent(tracks, e, fx);
   for (const c of view.contacts) foldContact(tracks, c, now, fx.sunkNow);
   if (sweep !== undefined) settleSweptMisses(tracks, sweep.beam, sweep.site, now);
   refitWakeCourses(tracks, mind.wakeCells, now);
   prune(tracks, now);
+  pruneLedger(tracks, fx.clicks);
+}
+
+/** The mind's hits-per-click ledger (amendment 195), its two seats created on
+ *  first use (they are optional on BotMind). */
+function clickLedger(mind: BotMind): FoldCtx['clicks'] {
+  mind.hitClicks ??= new Map();
+  mind.hitClickAt ??= new Map();
+  return { fireSeq: mind.fireSeq, seq: mind.hitClicks, at: mind.hitClickAt };
+}
+
+/** Forget the ledger rows of tracks memory has dropped. */
+function pruneLedger(tracks: TrackMap, ledger: FoldCtx['clicks']): void {
+  if (ledger === null) return;
+  for (const key of ledger.at.keys()) {
+    if (tracks.has(key)) continue;
+    ledger.at.delete(key);
+    ledger.seq.delete(key);
+  }
 }
 
 /** Every remembered track. Insertion-ordered (deterministic). */
@@ -617,8 +743,9 @@ function freshness(t: BotTrack, now: number): number {
   return Math.max(STALE_FLOOR, 1 - age);
 }
 
-/** 0..1 estimated damage, from self-private Hit Calls alone. */
-function damageEstimate(t: BotTrack): number {
+/** 0..1 estimated damage, from self-private Hit Calls alone (counted per
+ *  click since Story 9.13 — see HITS_FOR_CRIPPLED). */
+export function damageEstimate(t: BotTrack): number {
   return Math.min(1, t.hits / HITS_FOR_CRIPPLED);
 }
 
@@ -632,7 +759,7 @@ function damageEstimate(t: BotTrack): number {
  * `hullEnvelope(cls).hp` (a captain's class hp or a drone's envelope hp):
  * the target's upgrades are private, exactly as they are to a human.
  */
-function estimatedRemainingHp(t: BotTrack, baseHp: number): number {
+export function estimatedRemainingHp(t: BotTrack, baseHp: number): number {
   return (1 - damageEstimate(t)) * baseHp;
 }
 
@@ -674,7 +801,30 @@ export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly 
   const dmg = 1 + w.damaged * damageEstimate(t);
   const iso = 1 + w.isolated * isolation(t, neighbours, sit);
   const reach = lineBlocked({ x: sit.x, y: sit.y }, p, sit.islands) ? BLOCKED_LINE_SCORE : 1;
-  return kind * prox * freshness(t, sit.now) * dmg * iso * reach;
+  return kind * prox * freshness(t, sit.now) * dmg * iso * reach * decoyFactor(t, sit, neighbours);
+}
+
+/**
+ * THE PROBABLE-BUOY DEMOTION (Story 9.13, epic-9 amendment 197(c)): a
+ * radar-only plot whose cues read as a buoy (ai/plot.ts probableDecoy) scores
+ * x CONFIG.bots.decoyDemote WHILE any live sighted hull sits inside the bot's
+ * own weapon reach — and at full weight when nothing else is around (it may
+ * still be a hull, and it is all there is to shoot).
+ */
+function decoyFactor(t: BotTrack, sit: BotSituation, neighbours: readonly BotTrack[]): number {
+  if (!probableDecoy(t)) return 1;
+  return liveHullInReach(sit, neighbours) ? CONFIG.bots.decoyDemote : 1;
+}
+
+/** Is a live sighted, afloat hull inside the bot's own weapon reach? */
+function liveHullInReach(sit: BotSituation, tracks: readonly BotTrack[]): boolean {
+  const reach = ownReachU(sit);
+  for (const o of tracks) {
+    if (!o.live || o.sunk) continue;
+    const p = plotAt(sit, o);
+    if (Math.hypot(p.x - sit.x, p.y - sit.y) <= reach) return true;
+  }
+  return false;
 }
 
 /**
@@ -686,10 +836,14 @@ export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly 
  */
 export function selectTargetKey(mind: BotMind, sit: BotSituation): string | null {
   const all = tracksOf(mind);
+  const decoys = mind.view?.decoys ?? [];
   let best: string | null = null;
   let bestScore = 0;
   for (const [key, t] of mind.contacts) {
     if (!isActionable(t, sit.now)) continue;
+    // A KNOWN decoy's paint (own at any range, an enemy buoy in sight) is
+    // never a candidate (Story 9.13, epic-9 amendment 197(a)).
+    if (nearKnownDecoy(t, { x: t.x, y: t.y }, decoys)) continue;
     const s = scoreTrack(t, sit, all);
     if (s > bestScore) {
       bestScore = s;
@@ -779,89 +933,6 @@ export function ringEscaping(sit: BotSituation, latched: boolean): boolean {
   if (!(ring.r > 0)) return true;
   const d = Math.hypot(sit.x - ring.cx, sit.y - ring.cy);
   return d > (latched ? ring.r - ringDeadband(sit.stats, sit.speed) : ring.r);
-}
-
-/**
- * What the bot is doing this tick. The order of these clauses IS the policy:
- *
- *   1. RING ESCAPE DOMINATES EVERYTHING. Outside the live storm ring nothing
- *      else is worth deciding — the storm does not miss. It RELEASES a
- *      deadband inside the rim rather than on the boundary (see ringEscaping
- *      / ringDeadband), which is why `prev` is threaded in: the posture the
- *      bot already held is the latch.
- *   2. Then survival: below the profile's disengage fraction, break off.
- *   3. Then, with nothing actionable to chase, reposition (wave-3 tactics
- *      patrols toward the ring centre).
- *   4. NO LINE OF FIRE -> `pursue`, whatever the band geometry says. This is
- *      the posture half of the terrain fix: `engage`/`farm` hold the band and
- *      orbit beam-on at cruise, which against a target behind a headland is
- *      exactly the circling-and-never-shooting Eric watched. `pursue` steers
- *      AT the target at full ahead, and the coastline-avoidance term in
- *      tactics.ts's helm then rounds the obstruction rather than driving into
- *      it — so the bot opens the angle instead of parking on a dead bearing.
- *      No new posture is invented; the existing one is simply the right one.
- *   5. `farm` distinguishes clearing world content from fighting a captain —
- *      it is the posture `forager` lives in, and any profile takes it when
- *      its own weights say a fleet hull is the better prize.
- *   6. Otherwise it is band geometry: inside the band engage, outside pursue.
- */
-export function choosePosture(
-  sit: BotSituation,
-  target: BotTrack | null,
-  prev: BotPosture = 'reposition',
-): BotPosture {
-  if (ringEscaping(sit, prev === 'ringRun')) return 'ringRun';
-  if (brokenHull(sit)) return wantsRam(sit, target) ? 'ram' : 'disengage';
-  if (target === null) return 'reposition';
-  const p = plotAt(sit, target);
-  if (lineBlocked({ x: sit.x, y: sit.y }, p, sit.islands)) return 'pursue';
-  const w = sit.profile.targetWeights;
-  if (target.fleet && w.fleet >= w.captain) return 'farm';
-  const band = engagementBand(sit.profile, sit.stats, sit.gunId);
-  return Math.hypot(p.x - sit.x, p.y - sit.y) <= band.max ? 'engage' : 'pursue';
-}
-
-/** Below the profile's disengage fraction — the survival clause's own test,
- *  shared with the ram trigger so the two can never disagree about "broken". */
-function brokenHull(sit: BotSituation): boolean {
-  return sit.maxHp > 0 && sit.hp / sit.maxHp < sit.profile.disengageHpFrac;
-}
-
-/**
- * THE RAM TRIGGER [DRAFT] (Story 9.5, Eric ruling 2026-10-12, epic-9
- * amendment 77: "a bot rams only when it is already below its profile's
- * disengage hp fraction AND the predicted hit at its current closing speed
- * would sink the target by the bot's own damage estimate of that track").
- * Evaluated only once `brokenHull` holds — it is the broken hull's LAST
- * DITCH, never a healthy bot's opener — and it must ALL hold:
- *   - the target is a LIVE SIGHTED contact with an id and a known class (a
- *     radar blip has neither, and a lost plot cannot be aimed at);
- *   - its plot lies within `CONFIG.bots.ramReachU` [DRAFT] — the reach knob;
- *   - the HIT the shared energy law prices at the bot's current closing speed
- *     (`contactHitDamage(mA = own effective max hull, mB = the target's
- *     CLASS BASE hp, vn).b` — the target's share) is above zero (a strike
- *     under the allowance lands nothing) and at least the target's remaining
- *     hp by the bot's own estimate (`estimatedRemainingHp`: the Hit-Call
- *     damage fraction against the same base hp; a thrice-hit target reads as
- *     crippled, so ANY landing strike is judged to sink it).
- * `vn` is the PROJECTED closing speed on the bearing from the bot to the
- * plot (review gate, 2026-10-13): the bot's own velocity (`speed` along its
- * `heading` — a hull making sternway, or pointed away, closes nothing) minus
- * the target's velocity, both projected on that bearing, floored at 0 (a
- * target running away faster than the bot closes adds nothing). The two
- * knobs are `ramReachU` and the profile's `disengageHpFrac`; every profile
- * carries it, no per-profile switch (amendment 77).
- */
-function wantsRam(sit: BotSituation, target: BotTrack | null): boolean {
-  if (target === null || !target.live || target.id === null || target.cls === null) return false;
-  const p = plotAt(sit, target);
-  const dx = p.x - sit.x;
-  const dy = p.y - sit.y;
-  const d = Math.hypot(dx, dy);
-  if (d > CONFIG.bots.ramReachU) return false;
-  const baseHp = hullEnvelope(target.cls).hp;
-  const hit = contactHitDamage(sit.maxHp, baseHp, closingSpeed(sit, target, dx, dy, d), CONFIG.ram).b;
-  return hit > 0 && hit >= estimatedRemainingHp(target, baseHp);
 }
 
 /** u/s — the closing speed projected on the bearing b from the bot to its
