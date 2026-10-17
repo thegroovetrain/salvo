@@ -59,7 +59,7 @@ function firePhosphorShell(
     targetY: target.y,
     burstRadius: row.zoneRadius, // the burst IS the zone
     contactDamage: row.damage, // an interceptor takes the tier damage (the broadside precedent) — and it still burns there
-    hits: CONFIG.phosphorShells.hits, // AR44 target mask — the gun's, mine bit included (amendment 135(c))
+    hits: CONFIG.phosphorShells.hits, // AR44 target mask — hull | decoy, never a mine (amendment 200, superseding 135(c))
     family: 'cannon', // a gun-pattern shell — `w: 'cannon'`
     burn: { radius: row.zoneRadius, durationMs: row.zoneDurationMs, dps: row.dps }, // stamped at launch (135(e))
   });

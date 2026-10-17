@@ -301,7 +301,7 @@ describe('boarding freeze — weapons locked', () => {
     join(ctx, 'a');
     fire(ctx, 'a', 1);
     step(ctx);
-    expect(ctx.w.shells.size).toBe(1);
+    expect(ctx.w.shells.size).toBe(ctx.w.ships.get('a')!.stats.equipment.gun.barrels); // one click = one volley
   });
 });
 

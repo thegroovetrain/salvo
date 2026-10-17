@@ -68,6 +68,14 @@ const TUNE_FAMILIES = [
   // number Eric ruled for them is a harness dial (amendments 97-105).
   'machineGun.',
   'flak.',
+  // DECK-GUN RANGE ATTENUATION (Story 9.12, Eric 2026-10-16, epic-9
+  // amendments 184–185): the ONE shared block the three deck guns read —
+  // `fullFrac` and `minFactor` on [0, 1] (GUN_FRACTION_KEYS) with
+  // `fullFrac < 1` refused on the finished CONFIG (validateAttenuationDials).
+  // `flak.rimFactor` (the burst's rim falloff) rides the `flak.` family above,
+  // on [0, 1] too; the retired `flak.edgeFalloff` is refused by name.
+  // `gun.barrels` (two at every tier, no rungs) is a dial at floor 1.
+  'gunAttenuation.',
   'instantReload.',
   'hunker.',
   'broadside.',
@@ -226,6 +234,16 @@ const RETIRED_SET_KEYS: readonly (readonly [RegExp, string])[] = [
   [/^zone\.terminalSightFactor$/, "retired 2026-10-07 — the terminal ring is 'zone.ringRadii.<last>' (world units)"],
 ];
 
+/** --tune keys that left the shipped CONFIG (Story 9.12, reading r7 — the
+ *  `zone.ringSteps` precedent): refused with the live dial named, so an old
+ *  arm script fails loudly instead of dying on "not a numeric CONFIG entry". */
+const RETIRED_TUNE_KEYS: readonly (readonly [RegExp, string])[] = [
+  [
+    /^flak\.edgeFalloff$/,
+    "retired 2026-10-16 (Story 9.12) — the flat D − 10 rim is gone: tune 'flak.rimFactor' (fraction of the centre damage lost at the rim, [0, 1])",
+  ],
+];
+
 /** The family gate, split out of resolveLeaf so the --set rejection message
  *  stays byte-identical to the one shipped before --tune existed. */
 function assertKeyAllowed(key: string, allowTune: boolean): void {
@@ -235,6 +253,9 @@ function assertKeyAllowed(key: string, allowTune: boolean): void {
     }
   }
   if (allowTune) {
+    for (const [pattern, advice] of RETIRED_TUNE_KEYS) {
+      if (pattern.test(key)) throw new TunableError(`'${key}' is RETIRED: ${advice}`);
+    }
     assertNotDerived(key);
     if (isTuneKey(key)) return;
     throw new TunableError(
@@ -443,6 +464,10 @@ const TUNE_SUB_ONE_FLOORS = new Map<string, number>([['turnRate', 0.05]]);
 const TUNE_MIN_ONE_KEYS = new Set([
   'vision.dropout.startU',
   'vision.dropout.kneeU',
+  // THE CANNON'S BARRELS (Story 9.12): shells per click — 0 is a gun that
+  // consumes a round and fires nothing (the fold's 1..3 clamp would also
+  // silently lift it back to 1, so the arm would read moved and measure not).
+  'gun.barrels',
   // THE FOG FIELD (Story 9.10) — see the `fog.` family note in TUNE_FAMILIES.
   'fog.targetPeriodMs',
   'fog.wavelengthU',
@@ -493,6 +518,7 @@ export function validateTuneValue(key: string, value: number): void {
   if (UNIT_INTERVAL_KEYS.has(key)) return validateUnitInterval(key, value);
   if (PROBABILITY_KEYS.has(key)) return validateProbability(key, value);
   if (FOG_SHARE_KEYS.has(key)) return validateShare(key, value);
+  if (GUN_FRACTION_KEYS.has(key)) return validateFraction(key, value);
   if (key === FOG_GAIN_KEY) return validateGain(key, value);
   const floor = tuneFloor(key);
   if (!Number.isFinite(value) || value < floor) {
@@ -529,6 +555,19 @@ const PROBABILITY_KEYS = new Set(['vision.dropout.kneeP', 'vision.dropout.rimP']
  *  live ring's area, [0, 1] — 0 is "no fog" and a real arm; above 1 the
  *  quantile would chase a coverage the ring cannot hold. */
 const FOG_SHARE_KEYS = new Set(['fog.coverageMin', 'fog.coverageMax']);
+
+/** The deck-gun blow fractions (Story 9.12): CLOSED [0, 1] — the attenuation
+ *  curve's full-damage share and far factor (`minFactor=1` is "attenuation
+ *  off", a real arm), and flak's rim loss (`rimFactor=0` is the flat blast).
+ *  The shared functions clamp out-of-range dials, so an arm outside [0, 1]
+ *  would read moved while the sim ran the clamp — refused at the leaf. */
+const GUN_FRACTION_KEYS = new Set(['gunAttenuation.fullFrac', 'gunAttenuation.minFactor', 'flak.rimFactor']);
+
+function validateFraction(key: string, value: number): void {
+  if (!Number.isFinite(value) || value < 0 || value > 1) {
+    throw new TunableError(`'${key}': expected a finite fraction in [0, 1], got '${value}'`);
+  }
+}
 
 function validateShare(key: string, value: number): void {
   if (!Number.isFinite(value) || value < 0 || value > 1) {
@@ -610,6 +649,7 @@ function validateCrossKeyInvariants(): void {
   validateCoverBand();
   validateDropoutCurve();
   validateFogDials();
+  validateAttenuationDials();
   const { durationMs, maxAmmo } = CONFIG.boost;
   if (maxAmmo !== 1) {
     throw new TunableError(
@@ -672,6 +712,21 @@ function validateDropoutCurve(): void {
   if (!(rimP <= kneeP)) {
     throw new TunableError(
       `'vision.dropout.rimP' (${rimP}) must stay <= 'vision.dropout.kneeP' (${kneeP}): a rim more reliable than the knee collapses the curve to a step at startU`,
+    );
+  }
+}
+
+/**
+ * THE ATTENUATION CURVE MUST BE A CURVE (Story 9.12): `gunAttenuation.fullFrac
+ * < 1` on the FINAL value. At 1 or more the shared `rangeAttenuation` answers
+ * a STEP — full damage all the way to range, `minFactor` only beyond — so an
+ * arm would read as "attenuation from X %" while the sim ran no falloff.
+ */
+function validateAttenuationDials(): void {
+  const { fullFrac } = CONFIG.gunAttenuation;
+  if (!(fullFrac < 1)) {
+    throw new TunableError(
+      `'gunAttenuation.fullFrac' (${fullFrac}) must stay < 1: otherwise the curve collapses to a step at the gun's range`,
     );
   }
 }

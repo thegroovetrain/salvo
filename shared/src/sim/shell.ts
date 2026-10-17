@@ -116,17 +116,6 @@ export interface ShellState {
    */
   direct?: true;
   /**
-   * THE CURSOR POINT (Eric 2026-10-01, epic-8 amendment 202 — "the cursor
-   * decides"): where the shooter's cursor was when a DECK GUN fired — ship
-   * centre + `aimDist` along the aim bearing, taken BEFORE the reach clamp and
-   * the map clamp (guns.ts `rawAimPoint`). The World's mine landing test reads
-   * it: a mine is hit only if it lies under BOTH this point and the point the
-   * shell actually landed. Set only by the three deck guns; absent on every
-   * other projectile. stepShell never reads it; NEVER on the wire (the `lit`
-   * tag's exact posture — the ballistic reveal is built field by field).
-   */
-  cursor?: Vec2;
-  /**
    * THE LAUNCH POINT (Story 9.12, Eric 2026-10-16, epic-9 amendment 184(b)):
    * where the shell left the muzzle (the hull-clear launch origin). The
    * World's deck-gun blow sites measure the distance FLOWN as

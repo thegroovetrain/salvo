@@ -113,7 +113,8 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
   --sweep key=v1,v2  run the full batch per value and compare side-by-side
                      (repeatable; repeats form a cartesian variant grid)
   --tune key=value   EQUIPMENT CONFIG override, repeatable. Combat dials only:
-                     gun.*, machineGun.*, flak.*, broadside.*, torpedo.*,
+                     gun.*, machineGun.*, flak.*, gunAttenuation.*,
+                     broadside.*, torpedo.*,
                      mine.*, starShells.*, boost.*, instantReload.*,
                      hunker.*, armor.*, shipClasses.*, offer.weighting.*.
                      Requires

@@ -324,15 +324,18 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
   });
 
   it('DRONES are valid blast victims (enemies AND drones — no special-casing)', () => {
-    // A LARGE drone (75hp) survives the 55-damage mine, so this still measures
-    // that the FULL damage lands rather than only that the hull died. The small
-    // hull is one-shot at its new 45hp and is covered by the case below.
+    // The drone must SURVIVE the blast, so this measures that the FULL damage
+    // lands rather than only that the hull died. Since Story 9.12 the base
+    // mine (90) out-hits even the LARGE drone's 75 hp, so the drone's hp is
+    // raised above the mine's damage for the measurement. The small hull's
+    // one-shot is covered by the case below.
     const { w } = minefield();
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // human trips it
     b.state = { x: 0, y: 10, heading: 0, speed: 0 };
     const dr = w.addShip('dr', 'DR', 'fleet', 'droneLarge', undefined, undefined); // drone inside the blast
     dr.state = { x: 0, y: -30, heading: 0, speed: 0 };
-    const hpBefore = dr.stats.maxHp;
+    const hpBefore = CONFIG.mine.damage + 10;
+    dr.hp = hpBefore;
     w.step();
     expect(dr.hp).toBeCloseTo(hpBefore - CONFIG.mine.damage, 5); // full damage (drone may drift a hair pre-blast)
   });

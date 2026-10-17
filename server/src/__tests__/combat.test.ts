@@ -66,6 +66,23 @@ function armed(seed = 5, hullId: HullId = 'torpedoBoat'): { w: World; a: ShipRec
   return { w, a };
 }
 
+/** ONE BARREL — the PvE fleet gun's mount (`cls.gun` keeps one; the player
+ *  cannon fires TWO at every tier since Eric 2026-10-16, Story 9.12). The
+ *  single-shell geometry and hit-rule cases below pin the zero-offset shell
+ *  exactly (on the click, no straddle); the two-shell volley is pinned in the
+ *  multi-barrel and BARREL describes. Same stats-side override the
+ *  effective-range case uses. */
+function oneBarrel(a: ShipRecord): void {
+  a.stats = { ...a.stats, equipment: { ...a.stats.equipment, gun: { ...a.stats.equipment.gun, barrels: 1 } } };
+}
+
+/** `armed` with the single-barrel mount (see `oneBarrel`). */
+function armedOne(seed = 5, hullId: HullId = 'torpedoBoat'): { w: World; a: ShipRecord } {
+  const r = armed(seed, hullId);
+  oneBarrel(r.a);
+  return r;
+}
+
 /** Collect every event across `n` steps. */
 function stepCollect(w: World, n: number): GameEvent[] {
   const out: GameEvent[] = [];
@@ -114,7 +131,7 @@ describe('gun activation — 360°, never out-of-arc', () => {
 
 describe('gun shell construction — the burst hit rule rides the projectile', () => {
   it('carries target point, burstRadius, contactDamage, damage from CONFIG', () => {
-    const { w, a } = armed();
+    const { w, a } = armedOne();
     a.input = gunInput(HALF_PI, 300);
     w.sinkingActivationGate(a, SLOT_GUN);
     const [shell] = [...w.shells.values()];
@@ -129,7 +146,7 @@ describe('gun shell construction — the burst hit rule rides the projectile', (
   });
 
   it('gunTarget clamps the click to the effective range, measured from the CENTER', () => {
-    const { w, a } = armed();
+    const { w, a } = armedOne();
     a.input = gunInput(0, 5000);
     // Base effective range IS the gun's own Tier I dial (Story 9.8, ruling 125
     // — no longer the radar rung; single source, no duplicated literal).
@@ -157,7 +174,7 @@ describe('gun shell construction — the burst hit rule rides the projectile', (
 
 describe('gun shell spawn — hull silhouette edge, NO dead ring', () => {
   function spawnFor(hullId: HullId, aim: number): { shell: { x: number; y: number }; a: ShipRecord } {
-    const { w, a } = armed(5, hullId);
+    const { w, a } = armedOne(5, hullId);
     a.input = gunInput(aim, 400);
     expect(w.sinkingActivationGate(a, SLOT_GUN)).toEqual({ ok: true });
     const [shell] = [...w.shells.values()];
@@ -192,7 +209,7 @@ describe('gun shell spawn — hull silhouette edge, NO dead ring', () => {
 
 describe('World combat — burst at the clicked point', () => {
   it('a click on an enemy bursts at the click point: ONE burst event + a victim-private dmg', () => {
-    const { w, a } = armed(1);
+    const { w, a } = armedOne(1);
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 100, heading: 0, speed: 0 };
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
@@ -209,7 +226,7 @@ describe('World combat — burst at the clicked point', () => {
   });
 
   it('a burst catches SEVERAL: every hull within burstRadius takes full damage, one dmg each', () => {
-    const { w, a } = armed(1);
+    const { w, a } = armedOne(1);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Two enemies flanking the click point, hulls ~7.5u from it (inside the
     // 15u blast) but 7.5u clear of the shell's flight line (no interception).
@@ -228,7 +245,7 @@ describe('World combat — burst at the clicked point', () => {
   });
 
   it('bodyblock FAR from the target: interceptor takes contactDamage, NO burst, shell stops', () => {
-    const { w, a } = armed(1);
+    const { w, a } = armedOne(1);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // crosses the flight line 200u short of the click
     b.state = { x: 0, y: 300, heading: HALF_PI, speed: 0 };
@@ -245,7 +262,7 @@ describe('World combat — burst at the clicked point', () => {
   });
 
   it('bodyblock NEAR the target (proximity exception): full burst at the TARGET, no double-dipping', () => {
-    const { w, a } = armed(1);
+    const { w, a } = armedOne(1);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // hull straddles the click point itself
     b.state = { x: 0, y: 495, heading: HALF_PI, speed: 0 };
@@ -262,7 +279,7 @@ describe('World combat — burst at the clicked point', () => {
   });
 
   it('the OWNER is never damaged by its own burst (click inside/at the own hull)', () => {
-    const { w, a } = armed(1);
+    const { w, a } = armedOne(1);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.submitInput('a', gunInput(HALF_PI, 5)); // click right at the own hull
     const events = stepCollect(w, 10);
@@ -277,7 +294,7 @@ describe('World combat — burst at the clicked point', () => {
     // a ~64u inner dead zone. The shell now spawns AT the click, so the next
     // tick bursts there (independent of muzzle velocity, standardized at
     // 500 u/s for the whole gun family — Eric ruling 2026-07-25).
-    const { w, a } = armed(1, 'battleship');
+    const { w, a } = armedOne(1, 'battleship');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Hulls are SOLID since Story 9.5: the enemy cannot sit inside the
     // battleship's beam any more, so it stands bow-on to the click — its tip
@@ -298,7 +315,7 @@ describe('World combat — burst at the clicked point', () => {
     // 15 u burst of a battleship's centre without being inside the
     // battleship, so the shooter is a torpedo boat and the enemy stands
     // bow-on to its beam, tip 7 u from the burst point.
-    const { w, a } = armed(1, 'torpedoBoat');
+    const { w, a } = armedOne(1, 'torpedoBoat');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 57, heading: -HALF_PI, speed: 0 };
@@ -316,7 +333,7 @@ describe('World combat — burst at the clicked point', () => {
     // REGRESSION (Fix 4): gunTarget now clamps the click inside the water disk,
     // so an in-range shot past the rim bursts just inside the edge instead of
     // the map-edge crossing winning and silently expiring the shell.
-    const { w, a } = armed(1);
+    const { w, a } = armedOne(1);
     const R = w.map.radius;
     a.state = { x: R - 200, y: 0, heading: 0, speed: 0 };
     expect(R - 200 + 300).toBeGreaterThan(R); // the click WOULD land past the rim
@@ -330,7 +347,7 @@ describe('World combat — burst at the clicked point', () => {
   });
 
   it('kill credit flows through the burst path: sunk by the firer, kill + banked point', () => {
-    const { w, a } = armed(1);
+    const { w, a } = armedOne(1);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 100, heading: 0, speed: 0 };
@@ -345,7 +362,7 @@ describe('World combat — burst at the clicked point', () => {
   });
 
   it('an island short of the click point stops the shell dead: boom, no damage, no burst', () => {
-    const { w, a } = armed(2);
+    const { w, a } = armedOne(2);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 300, heading: 0, speed: 0 };
@@ -361,7 +378,7 @@ describe('World combat — burst at the clicked point', () => {
   });
 
   it('an island INSIDE the would-be blast still bursts (proximity exception, plain radius query)', () => {
-    const { w, a } = armed(2);
+    const { w, a } = armedOne(2);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Island surface reaches to within burstRadius of the 500u click point.
     w.map.islands.push(circleIsland(0, 480, 30));
@@ -374,7 +391,7 @@ describe('World combat — burst at the clicked point', () => {
   });
 
   it('a clean click with nothing near the target bursts there (no boom, no dmg)', () => {
-    const { w } = armed(3);
+    const { w } = armedOne(3);
     w.submitInput('a', gunInput(HALF_PI, 200));
     const events = stepCollect(w, 60);
     expect(burstsOf(events)).toEqual([expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) })]);
@@ -392,9 +409,9 @@ describe('World combat — burst at the clicked point', () => {
 // they separate only past ~573u of a 660u base range). Story 2.8's review added
 // a same-click salvo ledger that held one victim to ONE application per click —
 // so two of the three shells did nothing and the two rare MOUNT cards added no
-// single-target damage at all. (Since Eric's 2026-10-02 ladder, epic-8
-// amendment 232, ONE deckGun card is the TWIN and three are the TRIPLE —
-// barrels 1/2/2/3/3; the pins below fire the twin on its ±6 u tracks.)
+// single-target damage at all. (Since Eric 2026-10-16, Story 9.12, the
+// cannon fires TWO barrels at EVERY tier — `CONFIG.gun.barrels`, no barrel
+// rungs; the pins below fire the twin on its ±6 u tracks.)
 //
 // RULING (2026-08-05): "everything that connects should deal damage." The
 // ledger, the tag, and both gates are DELETED. The one-hit-kill law governs a
@@ -402,9 +419,9 @@ describe('World combat — burst at the clicked point', () => {
 // rule: one shell hits one hull at most once (contact XOR burst, never both).
 
 describe('multi-barrel click — every shell that connects deals its own damage', () => {
-  /** A twin-mount gun: the CANNON ladder at tier II (ONE deckGun card — the
-   *  rung to II adds the second barrel, Eric 2026-10-02, amendment 232). The
-   *  geometry below is built on the twin's ±6 u tracks, so it stays two. */
+  /** A twin-mount gun: the CANNON ladder at tier II (ONE deckGun card; two
+   *  barrels at every tier since Story 9.12). The geometry below is built on
+   *  the twin's ±6 u tracks, so it stays two. */
   function twinMount(seed = 11): { w: World; a: ShipRecord } {
     const { w, a } = armed(seed);
     w.applyCard(a, 'deckGun');
@@ -426,7 +443,7 @@ describe('multi-barrel click — every shell that connects deals its own damage'
     expect(dmgs).toHaveLength(2);
     for (const d of dmgs) expect(d.amount).toBe(a.stats.equipment.gun.damage);
     expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - 2 * a.stats.equipment.gun.damage);
-    // A tier-II twin mount is 2 × 16 = 32 into a 125hp hull — a real bite, not a kill.
+    // A tier-II twin mount is 2 × its tier damage into the hull — a real bite, not a kill.
     expect(isAfloat(b.lifecycle)).toBe(true);
   });
 
@@ -487,19 +504,17 @@ describe('multi-barrel click — every shell that connects deals its own damage'
 // commit; these cases are what stops that from happening again.
 
 describe('BARREL fires PARALLEL, and straddles (R2.16)', () => {
-  /** deckGun copies that reach each barrel count on Eric's 2026-10-02 CANNON
-   *  ladder (amendment 232: barrels 1/2/2/3/3 by copies 0..4). Three barrels
-   *  are PRODUCTION now (three cards), so the injected test barrel line the
-   *  three-barrel geometry cases used to ride is gone. */
-  const DECK_GUN_COPIES_FOR_BARRELS: Record<number, number> = { 1: 0, 2: 1, 3: 3 };
-
   /** Fire one gun click of `barrels` shells at range `range` up the +y axis and
    *  return the live shells (fire control runs AFTER stepShells, so a single
-   *  step leaves the whole volley in the water). 2 barrels is the production
-   *  CANNON at tier II (deckGun x1); 3 is tier IV (deckGun x3). */
+   *  step leaves the whole volley in the water). 2 barrels is the PRODUCTION
+   *  cannon at every tier (`CONFIG.gun.barrels`, Eric 2026-10-16, Story 9.12 —
+   *  no barrel rungs); 1 is the PvE fleet gun; 3 is the fold's clamp ceiling,
+   *  set on the stats row so the straddle law's ODD case stays pinned. */
   function volley(range: number, barrels: number, seed: number) {
     const { w, a } = armed(seed);
-    for (let i = 0; i < DECK_GUN_COPIES_FOR_BARRELS[barrels]; i++) w.applyCard(a, 'deckGun');
+    if (barrels !== CONFIG.gun.barrels) {
+      a.stats = { ...a.stats, equipment: { ...a.stats.equipment, gun: { ...a.stats.equipment.gun, barrels } } };
+    }
     expect(a.stats.equipment.gun.barrels).toBe(barrels);
     w.submitInput('a', gunInput(HALF_PI, range));
     w.step();
@@ -552,11 +567,11 @@ describe('BARREL fires PARALLEL, and straddles (R2.16)', () => {
 
   it('SIGNALS DO NOT MOVE: a multi-barrel gun salvo still collapses to ONE mz', () => {
     const { w, a } = armed(26);
-    for (let i = 0; i < 3; i++) w.applyCard(a, 'deckGun'); // tier IV: the triple barrel
-    expect(a.stats.equipment.gun.barrels).toBe(3);
+    expect(a.stats.equipment.gun.barrels).toBe(CONFIG.gun.barrels); // the production twin, Tier I
+    expect(CONFIG.gun.barrels).toBeGreaterThan(1);
     w.submitInput('a', gunInput(HALF_PI, 300));
     w.step();
-    expect(w.shells.size).toBe(3); // three shells...
+    expect(w.shells.size).toBe(CONFIG.gun.barrels); // every barrel's shell...
     expect(w.tickEvents.filter((e) => e.k === 'mz')).toHaveLength(1); // ...one flash
   });
 });
@@ -692,25 +707,25 @@ describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun',
 // ---------- World fire control: one shot per click, single-shot pool -----------
 
 describe('World fire control — one shot per click (fireSeq), single-shot pool', () => {
-  it('REGRESSION: one fireSeq increment fires exactly ONE shell even when the ' +
+  it('REGRESSION: one fireSeq increment fires exactly ONE volley (one shell per barrel) even when the ' +
     'same input re-applies for 20 ticks', () => {
-    const { w } = armed();
+    const { w, a } = armed();
     w.submitInput('a', gunInput(HALF_PI, 300));
     const events = stepCollect(w, 20);
-    expect(shellsOf(events)).toHaveLength(1);
+    expect(shellsOf(events)).toHaveLength(a.stats.equipment.gun.barrels);
   });
 
   it('a click during the reload is consumed, not queued (no deferred shot after reload)', () => {
-    const { w } = armed();
+    const { w, a } = armed();
     w.submitInput('a', gunInput(HALF_PI, 300, 1, 1));
-    stepCollect(w, 1); // shell 1 out — the single-shot pool is empty, reloading (3s)
+    stepCollect(w, 1); // volley 1 out — the single-shot pool is empty, reloading
     w.submitInput('a', gunInput(HALF_PI, 300, 2, 2)); // click mid-reload, empty pool
     // Step well past the reload end: the mid-reload click must NOT fire late.
     const events = stepCollect(w, CONFIG.gun.reloadMs / CONFIG.tick.simDtMs + 20);
     expect(shellsOf(events)).toHaveLength(0);
     // A FRESH click after the reload fires again (the pool refilled).
     w.submitInput('a', gunInput(HALF_PI, 300, 3, 3));
-    expect(shellsOf(stepCollect(w, 2))).toHaveLength(1);
+    expect(shellsOf(stepCollect(w, 2))).toHaveLength(a.stats.equipment.gun.barrels);
   });
 
   it('a click while dead is consumed — no shot on the respawn tick', () => {
@@ -741,7 +756,7 @@ describe('World fire control — one shot per click (fireSeq), single-shot pool'
     w.submitInput('a', gunInput(HALF_PI, 100));
     w.step();
     expect(w.tickEvents.some((e) => e.k === 'shell')).toBe(true);
-    expect(buildFrame(w, 'b').events.filter((e) => e.k === 'shell')).toHaveLength(1);
+    expect(buildFrame(w, 'b').events.filter((e) => e.k === 'shell')).toHaveLength(a.stats.equipment.gun.barrels);
   });
 });
 
@@ -811,7 +826,7 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
   });
 
   it('SPAWN-TICK TERMINAL: a close click within comp·shellSpeed survives the spawn tick at the target point; the burst resolves NEXT tick', () => {
-    const { w, a } = armed(7);
+    const { w, a } = armedOne(7);
     w.setRtt('a', 150); // allowance = min(150+30, 150) = 150 (the ceiling)
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.submitInput('a', { ...slotInput(0, 0, 1), aimDist: 0 }); // no click; just advance time
@@ -845,7 +860,7 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
   });
 
   it('NARROW ESCAPE: the pre-step flies through the CURRENT world — an island now in the way stops the shot NEXT tick (no rewind kill)', () => {
-    const { w, a } = armed(7);
+    const { w, a } = armedOne(7);
     w.setRtt('a', 150);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // the "escaped" victim, now safely behind a rock
@@ -890,10 +905,10 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
     w.submitInput('a', gunInput(HALF_PI, 20, 1, 2, 100));
     w.submitInput('b', gunInput(-HALF_PI, 20, 1, 2, 100));
     w.step();
-    // Spawn tick: BOTH shells alive, no damage — had a's pre-step resolved its
-    // burst inside fireControl, b (iterated later) would already be dead and
-    // never fire.
-    expect(w.shells.size).toBe(2);
+    // Spawn tick: BOTH volleys alive (one shell per barrel each), no damage —
+    // had a's pre-step resolved its burst inside fireControl, b (iterated
+    // later) would already be dead and never fire.
+    expect(w.shells.size).toBe(a.stats.equipment.gun.barrels + b.stats.equipment.gun.barrels);
     expect(isAfloat(a.lifecycle)).toBe(true);
     expect(isAfloat(b.lifecycle)).toBe(true);
     // Next tick: both resolve against the tick-start hull list — mutual kill.

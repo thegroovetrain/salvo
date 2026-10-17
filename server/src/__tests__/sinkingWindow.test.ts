@@ -253,7 +253,7 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
     w.sinkShip('a');
     w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aim: 0, aimDist: 300 }));
     w.step();
-    expect(w.shells.size).toBe(1); // the shot left the tube
+    expect(w.shells.size).toBe(w.ships.get('a')!.stats.equipment.gun.barrels); // the volley left the tubes
   });
 
   it('the horn still sounds while sinking', () => {
@@ -512,7 +512,7 @@ describe('match outcome (amendment 14; amendment 17 REVERSED by Eric veto 2026-0
     // amendment 10 — and the reason the hold exists at all).
     w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aim: 0, aimDist: 300 }));
     stepMatch(w, m);
-    expect(w.shells.size).toBe(1); // the revenge shot left the tube
+    expect(w.shells.size).toBe(w.ships.get('a')!.stats.equipment.gun.barrels); // the revenge volley left the tubes
     stepMatch(w, m, TICKS - 3); // one tick short of the founder deadline
     expect(m.phase).toBe('active');
     expect(isSinking(w.ships.get('a')!.lifecycle)).toBe(true);

@@ -166,8 +166,9 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 87 and admits 88', () => {
-  it('PROTOCOL_VERSION is 88', () => {
+describe('the PV join gate refuses 88 and admits 89', () => {
+  it('PROTOCOL_VERSION is 89', () => {
+    // Story 9.12 bumped 88 -> 89 (amendment 184): the second tuning pass — catalog content and every changed CONFIG block the client reads (gun.barrels, flak.rimFactor, gunAttenuation, the torpedo/mine ladders).
     // Fog tune 3 bumped 87 -> 88 (amendment 179): no fog past the ocean's rim (the client-drawn field changes), the own bank is free.
     // Fog tune 2 bumped 86 -> 87 (amendment 178): spinPeriodMs -> spinRimU, windU 1, solid-fog coverage.
     // Story 9.10's staging tune bumped 85 -> 86 (Eric 2026-10-16, amendment
@@ -244,7 +245,8 @@ describe('the PV join gate refuses 87 and admits 88', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(88); // 87 → 88: fog tune 3 (no fog past the rim, the own bank is free; amendment 179); 86 → 87: fog tune 2 (spinRimU, solid-fog coverage; amendment 178)
+    expect(PROTOCOL_VERSION).toBe(89); // 88 → 89: the second tuning pass (Story 9.12, amendment 184); 87 → 88: fog tune 3 (amendment 179)
+    expect(protocolVersionError(88)).toMatch(/refresh/i);
     expect(protocolVersionError(87)).toMatch(/refresh/i);
     expect(protocolVersionError(86)).toMatch(/refresh/i);
     expect(protocolVersionError(84)).toMatch(/refresh/i);
@@ -295,12 +297,12 @@ describe('the PV join gate refuses 87 and admits 88', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(89)).toMatch(/refresh/i);
+    expect(protocolVersionError(90)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(88)).toBeNull();
+    expect(protocolVersionError(89)).toBeNull();
   });
 });
 

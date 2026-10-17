@@ -2,10 +2,13 @@
 //
 // Every mine carries CONFIG.mine.hp = 10, server-side only. A DECK GUN shell
 // (cannon, flak, machine gun — the three masks carrying `mine`) that LANDS
-// within CONFIG.mine.hitRadiusU of a mine's centre deals its full damage to
-// it; at 0 a naval/fouling mine detonates and a captive is destroyed (a boom,
-// no blast, no fish). A burst merely covering a mine does nothing; broadside
-// and phosphor never touch one; only naval mines chain, both ways.
+// deals its range-attenuated damage to every mine whose 10 u marker its blast
+// touches (centre within burstRadius + CONFIG.mine.hitRadiusU — Eric
+// 2026-10-16, Story 9.12, epic-9 amendment 184(i); the machine gun has no
+// blast, so 10 u of its arrival point); at 0 a naval/fouling mine detonates
+// and a captive is destroyed (a boom, no blast, no fish). Broadside and
+// phosphor never touch one; only naval mines chain, both ways. The blast-reach
+// and attenuation rows are pinned in mineBlastLanding.test.ts.
 //
 // This file drives every row of the cycle-160 spec's I/O matrix through the
 // REAL fire paths: a cannon click through the gun module, a flak click, a
@@ -20,9 +23,11 @@ import {
   type InputMsg,
   type MineKind,
   pointPolygonDistance,
+  rangeAttenuation,
+  settleBlow,
+  type ShellState,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
-import { buildFrame } from '../game/frames.js';
 import { hullFor } from '../game/equipment/index.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { flatRaster } from './islandFixture.js';
@@ -79,15 +84,6 @@ function click(w: World, id: string, dist: number, opts: { aim?: number; slot?: 
   throw new Error('the shot never resolved');
 }
 
-/** The cursor point's every possible spelling (amendment 202): never a KEY in
- *  any frame. A recursive key walk — perception.test's hasForbiddenKey shape. */
-const CURSOR_KEYS = ['cursor', 'cursorX', 'cursorY'] as const;
-function hasKey(value: unknown, keys: readonly string[]): boolean {
-  if (Array.isArray(value)) return value.some((v) => hasKey(v, keys));
-  if (value === null || typeof value !== 'object') return false;
-  return Object.entries(value as Record<string, unknown>).some(([k, v]) => keys.includes(k) || hasKey(v, keys));
-}
-
 const mineBooms = (log: readonly GameEvent[], id: string): BoomEvent[] =>
   log.filter((e): e is BoomEvent => e.k === 'boom' && e.id === id);
 const count = (log: readonly GameEvent[], k: string): number => log.filter((e) => e.k === k).length;
@@ -111,21 +107,22 @@ describe('CONFIG — the two numbers (amendments 200/201)', () => {
   });
 });
 
-describe('the CANNON — one click on the mine pops it (base damage >= mine hp)', () => {
-  it('cannon click on an armed naval mine: boom, blast, and the shooter gets `sp` (no hull victim)', () => {
+describe('the CANNON — one click on the mine pops it (the twin volley sums past mine hp)', () => {
+  it('cannon click on an armed naval mine: boom, blast, and the shooter gets `sp` per shell (no hull victim)', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0);
-    expect(a.stats.equipment.gun.damage).toBe(CONFIG.gun.damage); // 12 since Eric 2026-10-13 (experiment)
-    expect(CONFIG.gun.damage).toBeGreaterThanOrEqual(CONFIG.mine.hp); // the one-click premise
+    expect(a.stats.equipment.gun.damage).toBe(CONFIG.gun.damage);
+    // The one-click premise since Story 9.12: two near shells, both on the mine.
+    expect(a.stats.equipment.gun.barrels * CONFIG.gun.damage).toBeGreaterThanOrEqual(CONFIG.mine.hp);
     lay(w, 'm1', 'x', 300, 0);
     const log = click(w, 'a', 300);
     expect(w.mines.has('m1')).toBe(false);
     expect(mineBooms(log, 'm1')).toEqual([{ k: 'boom', id: 'm1', x: 300, y: 0 }]);
-    expect(count(log, 'sp')).toBe(1);
+    expect(count(log, 'sp')).toBe(a.stats.equipment.gun.barrels);
     expect(count(log, 'hc')).toBe(0);
   });
 
-  it('a click past the gun reach is clamped short: the shell lands 40 u off a mine 40 u past reach, which is untouched', () => {
+  it('a click past the gun reach is clamped short: the shells land 40 u off a mine 40 u past reach (beyond burst + marker), which is untouched', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0);
     expect(a.stats.equipment.gun.rangeU).toBe(G); // its own Tier I dial (Story 9.8, ruling 125)
@@ -137,55 +134,24 @@ describe('the CANNON — one click on the mine pops it (base damage >= mine hp)'
     expect(mineBooms(log, 'm1')).toEqual([]);
   });
 
-  it('THE CURSOR DECIDES (amendment 202): a click 40 u past reach clamps to the reach and lands dead on a mine there — untouched, the cursor was 40 u off', () => {
+  it('NO CURSOR TERM (Story 9.12, epic-9 amendment 184(i)): a click 40 u past reach clamps to the reach and lands on a mine there — it takes the blows', () => {
     const w = bareWorld();
-    captain(w, 'a', 0, 0);
-    lay(w, 'm1', 'x', G, 0);
-    const log = click(w, 'a', G + 40);
-    const burst = log.find((e): e is BurstEvent => e.k === 'burst')!;
-    expect(Math.hypot(burst.x - G, burst.y)).toBeLessThan(1e-6); // landed ON the mine
-    expect(w.mines.get('m1')!.hp).toBe(CONFIG.mine.hp);
-    expect(mineBooms(log, 'm1')).toEqual([]);
-  });
-
-  it('the honest boundary of the two-disc rule: a click just past reach pops a mine that lies under BOTH the cursor and the landing', () => {
-    // Click 6 u past reach; the shell lands at the reach.
-    for (const [mineX, cursorOff, landOff] of [
-      [G - 2, 8, 2], // a mine 2 u INSIDE reach: cursor 8 u off, landing 2 u off
-      [G + 3, 3, 3], // a mine 3 u PAST reach: cursor 3 u off one way, landing 3 u off the other
-    ]) {
-      const w = bareWorld();
-      captain(w, 'a', 0, 0);
-      lay(w, 'm1', 'x', mineX, 0);
-      expect(G + 6 - mineX).toBe(cursorOff);
-      expect(mineX - G).toBe(mineX > G ? landOff : -landOff);
-      expect(Math.max(cursorOff, landOff)).toBeLessThanOrEqual(CONFIG.mine.hitRadiusU);
-      const log = click(w, 'a', G + 6);
-      expect(w.mines.has('m1')).toBe(false);
-      expect(mineBooms(log, 'm1')).toHaveLength(1);
-    }
-  });
-
-  it('the cursor point never rides a frame: live deck-gun shells carry it, no frame (shooter or watcher) does', () => {
-    const w = bareWorld();
-    captain(w, 'a', 0, 0);
-    captain(w, 'b', 400, 60, { hull: 'battleship' }); // a watcher with the shell in sight
-    lay(w, 'm1', 'x', 700, 0);
-    w.submitInput('a', input({ seq: 2, fireSeq: 2, aimDist: 700 }));
-    let carried = 0;
-    let reveals = 0;
+    const a = captain(w, 'a', 0, 0);
+    lay(w, 'm1', 'x', G, 0, 'naval');
+    w.mines.get('m1')!.hp = 100; // tough, so the hp spent can be read
+    const seen: ShellState[] = [];
+    w.submitInput('a', input({ seq: 2, fireSeq: 2, aimDist: G + 40 }));
     for (let i = 0; i < 80; i += 1) {
       w.step();
-      for (const s of w.shells.values()) if (s.kind === 'shell' && s.cursor !== undefined) carried += 1;
-      for (const id of ['a', 'b']) {
-        const f = buildFrame(w, id);
-        expect(hasKey(f, CURSOR_KEYS)).toBe(false);
-        reveals += f.events.filter((e) => e.k === 'shell').length;
-      }
+      for (const sh of w.shells.values()) if (!seen.some((x) => x.id === sh.id)) seen.push({ ...sh });
       if (i > 0 && !gunShellsInFlight(w)) break;
     }
-    expect(carried).toBeGreaterThan(0); // not vacuous: the shell did carry it
-    expect(reveals).toBeGreaterThan(0); // and its reveal did ride a frame
+    expect(seen).toHaveLength(a.stats.equipment.gun.barrels);
+    const s0 = seen[0];
+    const blow = settleBlow(
+      CONFIG.gun.damage * rangeAttenuation(Math.hypot(s0.targetX! - s0.originX!, s0.targetY! - s0.originY!), s0.attenRangeU!, CONFIG.gunAttenuation),
+    );
+    expect(100 - w.mines.get('m1')!.hp).toBe(seen.length * blow);
   });
 
   it("the shooter's OWN mine pops too (the standing friendly-fire exception)", () => {
@@ -244,14 +210,15 @@ describe('the CANNON — one click on the mine pops it (base damage >= mine hp)'
     expect(count(log, 'torp')).toBe(0);
   });
 
-  it('TWIN MOUNT: a centred click lands both shells 6 u off the mine; the first pops it, the second is a no-op', () => {
+  it('TWIN MOUNT at tier II: a centred click lands both shells 6 u off the mine; the first (tier II damage >= 10) pops it, the second is a no-op', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0);
-    // ONE deckGun card is the twin mount since Eric's 2026-10-02 ladder
-    // (barrels 1/2/2/3/3, epic-8 amendment 232) — the ±6 u geometry below
-    // is the two-barrel straddle.
+    // Two barrels at every tier since Story 9.12; ONE deckGun card lifts the
+    // shell to its tier II damage, enough alone — the ±6 u geometry below is
+    // the two-barrel straddle.
     w.applyCard(a, 'deckGun');
     expect(a.stats.equipment.gun.barrels).toBe(2);
+    expect(a.stats.equipment.gun.damage).toBeGreaterThanOrEqual(CONFIG.mine.hp);
     lay(w, 'm1', 'x', 300, 0);
     const log = click(w, 'a', 300);
     const bursts = log.filter((e): e is BurstEvent => e.k === 'burst');
@@ -266,11 +233,11 @@ describe('the CANNON — one click on the mine pops it (base damage >= mine hp)'
   });
 });
 
-describe('the FLAK GUN — base damage >= mine hp, but only ON the mine', () => {
+describe('the FLAK GUN — base damage >= mine hp, and the whole blast reaches mines', () => {
   it('a flak click on a mine pops it in one', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0, { gun: 'flak' });
-    expect(a.stats.equipment.flak.damage).toBe(CONFIG.flak.damage); // 20 since Eric 2026-10-13 (experiment)
+    expect(a.stats.equipment.flak.damage).toBe(CONFIG.flak.damage);
     expect(CONFIG.flak.damage).toBeGreaterThanOrEqual(CONFIG.mine.hp); // the one-click premise
     lay(w, 'm1', 'x', 300, 0);
     const log = click(w, 'a', 300);
@@ -278,18 +245,18 @@ describe('the FLAK GUN — base damage >= mine hp, but only ON the mine', () => 
     expect(mineBooms(log, 'm1')).toHaveLength(1);
   });
 
-  it('a flak burst merely COVERING a mine (30 u off the click, inside the 50 u blast) leaves it at 10 hp', () => {
+  it('a flak burst COVERING a mine (30 u off the click, inside the 50 u blast) pops it (Story 9.12, epic-9 amendment 184(i))', () => {
     const w = bareWorld();
     captain(w, 'a', 0, 0, { gun: 'flak' });
     lay(w, 'm1', 'x', 300, 30);
     const log = click(w, 'a', 300);
     expect(count(log, 'burst')).toBe(1);
-    expect(w.mines.get('m1')!.hp).toBe(CONFIG.mine.hp);
-    expect(mineBooms(log, 'm1')).toEqual([]);
+    expect(w.mines.has('m1')).toBe(false);
+    expect(mineBooms(log, 'm1')).toHaveLength(1);
   });
 });
 
-describe('the MACHINE GUN — 5 a shell, two shells to pop one at tier I', () => {
+describe('the MACHINE GUN — 5 a shell, two near shells to pop one', () => {
   /** Hold the trigger with the aim on (dist, 0) until `shellsResolved` shells
    *  have resolved, recording the mine's hp after every resolving tick. */
   function stream(w: World, id: string, dist: number, mineId: string, shellsResolved: number) {
@@ -334,14 +301,14 @@ describe('the MACHINE GUN — 5 a shell, two shells to pop one at tier I', () =>
     expect(mineBooms(log, 'm1')).toEqual([]);
   });
 
-  it('tier II (6 a shell) pops one in two', () => {
+  it('tier II is still 5 a shell (no damage rungs since Story 9.12) and pops one in two', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0, { gun: 'machineGun' });
     w.applyCard(a, 'machineGun');
-    expect(a.stats.equipment.machineGun.damage).toBe(6);
+    expect(a.stats.equipment.machineGun.damage).toBe(CONFIG.machineGun.damage);
     lay(w, 'm1', 'x', 300, 0);
     const { hpAfter } = stream(w, 'a', 300, 'm1', 2);
-    expect(hpAfter).toEqual([4, null]);
+    expect(hpAfter).toEqual([CONFIG.mine.hp - CONFIG.machineGun.damage, null]);
   });
 
   it('a hull in the stream\'s path takes the hit; the mine behind it is untouched', () => {
@@ -356,17 +323,15 @@ describe('the MACHINE GUN — 5 a shell, two shells to pop one at tier I', () =>
     expect(count(log, 'hc')).toBe(3);
   });
 
-  it('THE CURSOR IS READ PER SHELL (amendment 202): shell 1 on the mine leaves it at 5; shell 2, cursor 40 u past reach, lands at the reach clamp and leaves it at 5; shell 3, cursor back on, pops it', () => {
-    // REDESIGNED (cycle 166): two tier-I shells pop a mine now (5 + 5), so
-    // the off-cursor shell sits BETWEEN two on-cursor ones — the mine must
-    // survive shell 1, shrug off shell 2, and pop only on shell 3.
+  it('NO CURSOR TERM, PER SHELL (Story 9.12): a shell aimed 40 u past reach lands at the reach clamp ON the mine and takes its attenuated blow like the shells aimed on it', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0, { gun: 'machineGun' });
     const M = CONFIG.machineGun.rangeU; // its own Tier I dial (Story 9.8, ruling 125)
     expect(a.stats.equipment.machineGun.rangeU).toBe(M);
     lay(w, 'm1', 'x', M, 0);
-    const fired = new Set<string>();
-    const hpAfter: (number | null)[] = [];
+    w.mines.get('m1')!.hp = 100; // tough, so every blow can be read
+    const fired = new Map<string, ShellState>();
+    const hpAfter: number[] = [];
     let seq = 1;
     for (let i = 0; i < 200 && hpAfter.length < 3; i += 1) {
       seq += 1;
@@ -374,12 +339,16 @@ describe('the MACHINE GUN — 5 a shell, two shells to pop one at tier I', () =>
       w.submitInput('a', input({ seq, held: true, aimDist: fired.size === 1 ? M + 40 : M }));
       const before = new Set([...w.shells.keys()]);
       w.step();
-      for (const [sid, sh] of w.shells) if (sh.family === 'mg' && fired.size < 3) fired.add(sid);
+      for (const [sid, sh] of w.shells) if (sh.family === 'mg' && fired.size < 3 && !fired.has(sid)) fired.set(sid, { ...sh });
       const gone = [...before].filter((sid) => !w.shells.has(sid)).length;
-      for (let k = 0; k < gone; k += 1) hpAfter.push(w.mines.get('m1')?.hp ?? null);
+      for (let k = 0; k < gone; k += 1) hpAfter.push(w.mines.get('m1')!.hp);
     }
-    expect(hpAfter.slice(0, 3)).toEqual([5, 5, null]);
-    expect(w.mines.has('m1')).toBe(false);
+    const s0 = [...fired.values()][0];
+    const blow = settleBlow(
+      CONFIG.machineGun.damage * rangeAttenuation(Math.hypot(s0.targetX! - s0.originX!, s0.targetY! - s0.originY!), s0.attenRangeU!, CONFIG.gunAttenuation),
+    );
+    expect(blow).toBeLessThan(CONFIG.machineGun.damage); // a max-range landing is attenuated
+    expect(hpAfter.slice(0, 3)).toEqual([100 - blow, 100 - 2 * blow, 100 - 3 * blow]);
   });
 
   it('a stream aimed 12 u off the mine never scratches it', () => {

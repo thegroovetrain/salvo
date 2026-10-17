@@ -185,25 +185,26 @@ function countNewMgShells(rig: Rig, seen: Set<string>): number {
 
 function run(start: { x: number; y: number }, sc: Scenario, label: string, decompose = false): Result {
   const rig = buildRig(start);
-  const dmg = rig.bot.stats.equipment.machineGun.damage;
   const seen = new Set<string>();
   const acc: Acc = { targeted: 0, ghost: 0, maxTracks: 0 };
   let shells = 0;
-  let lost = 0;
+  let hits = 0;
   const flying = new Map<string, Flight>();
   const misses: Miss[] = [];
   for (let t = 0; t < TICKS; t += 1) {
     reseat(rig, sc.place(t, rig.tgt));
     pushTargetInput(rig, 1);
     rig.w.step();
-    const tickLoss = rig.tgt.stats.maxHp - rig.tgt.hp;
-    lost += tickLoss;
-    recordMisses(rig, vanishedShells(rig, flying), Math.round(tickLoss / dmg), misses);
+    // HITS ARE COUNTED AS `dmg` EVENTS ON THE TARGET, never as hp / damage:
+    // since Story 9.12 every machine-gun hit is range-attenuated (epic-9
+    // amendment 184), so the hp a hit takes is not the row's damage.
+    const tickHits = rig.w.tickEvents.filter((e) => e.k === 'dmg' && e.id === rig.tgt.id).length;
+    hits += tickHits;
+    recordMisses(rig, vanishedShells(rig, flying), tickHits, misses);
     shells += countNewMgShells(rig, seen);
     observeMind(rig, acc);
   }
   expect(rig.foreign, 'the bot fired something other than machine-gun rounds').toBe(0);
-  const hits = lost / dmg;
   const r: Result = {
     shells, hits, hitRate: shells > 0 ? hits / shells : 0, targeted: acc.targeted,
     ghost: acc.ghost, ghostFrac: acc.targeted > 0 ? acc.ghost / acc.targeted : 0, maxTracks: acc.maxTracks,

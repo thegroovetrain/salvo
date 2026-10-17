@@ -1,8 +1,9 @@
 // THE FLAK GUN (Story 8.15, Eric rulings 2026-09-28, epic-8 amendments 96(f),
 // 105 and 106) — the I/O matrix's flak rows through World.step():
 //   * one shell per click to the clicked point, bursting in a 50 u blast for
-//     D hp at the centre falling off to D − edgeFalloff at the rim (Story 9.8)
-//     per hull inside it (`hc`), reload 3.5 s, one round;
+//     D hp at the centre falling to HALF at the rim (`rimFactor`, Story 9.12;
+//     every blow range-attenuated — rangeAttenuation.test.ts) per hull inside
+//     it (`hc`), reload 3.5 s, one round;
 //   * a hull crossing the path takes the 4 hp bodyblock and stops the shell;
 //   * the ORDNANCE side effect (amendment 105): an ENEMY torpedo inside the
 //     blast is REMOVED — no boom, no damage, no `hc` — and the shooter's OWN
@@ -11,9 +12,8 @@
 //   * the reveal carries `w: 'flak'`; a click while reloading is `cooling`.
 
 import { describe, it, expect, vi } from 'vitest';
-import { CONFIG, type GameEvent, type InputMsg, type ShellState } from '@salvo/shared';
+import { CONFIG, flakRimFactor, settleBlow, type GameEvent, type InputMsg, type ShellState } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
-import { flakBurstDamage } from '../game/equipment/flak.js';
 import { flatRaster } from './islandFixture.js';
 
 const FLAK = CONFIG.flak;
@@ -67,10 +67,15 @@ function fish(w: World, id: string, ownerId: string, x: number, y: number): Shel
 
 const count = (log: readonly GameEvent[], k: string): number => log.filter((e) => e.k === k).length;
 
-/** The falloff hit (Story 9.8) on a hull whose NEAREST outline point is `d` u
- *  off the burst centre — D − edgeFalloff × d / burstRadius, floored. */
+/** The rim hit (Story 9.12) on a hull whose NEAREST outline point is `d` u
+ *  off the burst centre, for a click this file keeps inside half the flak's
+ *  range (attenuation factor 1 — `NEAR_CLICK` below pins that premise):
+ *  settleBlow(D × flakRimFactor(d)). */
 const falloffAt = (d: number): number =>
-  Math.floor(FLAK.damage - (FLAK.edgeFalloff * Math.min(1, d / FLAK.burstRadius)));
+  settleBlow(FLAK.damage * flakRimFactor(d, FLAK.burstRadius, FLAK.rimFactor));
+/** Every click distance this file uses: at most half the flak's Tier I reach,
+ *  so the shell flies less than `fullFrac` of it — no attenuation. */
+const NEAR_CLICK = 300;
 /** The fixture used across this file: a broadside-on battleship at (300, 92), bow tip 30 u off the burst. */
 const AT_30U = falloffAt(30);
 
@@ -266,18 +271,20 @@ describe('the ORDNANCE side effect (amendment 105) — a burst removes ENEMY fis
     expect(w.shells.has('enemy-fish')).toBe(true); // outside the blast when it went off
   });
 
-  it('a burst merely COVERING a mine 30 u off the click leaves it untouched (amendment 200)', () => {
+  it('a burst COVERING a mine 30 u off the click pops it — the whole blast lands on mines (Story 9.12, epic-9 amendment 184(i)); one 61 u off is untouched', () => {
     const w = bareWorld();
     flakker(w, 'a');
+    const reach = FLAK.burstRadius + CONFIG.mine.hitRadiusU;
     w.mines.set('m1', { id: 'm1', ownerId: 'b', x: 300, y: 30, armedAt: 0, kind: 'naval', hp: 10 });
+    w.mines.set('m2', { id: 'm2', ownerId: 'b', x: 300, y: -(reach + 1), armedAt: 0, kind: 'fouling', hp: 10 }); // fouling: no chain from m1's blast
     const log = click(w, 'a', 300);
-    expect(w.mines.has('m1')).toBe(true); // inside the 50 u blast, outside the 10 u landing disc
-    expect(w.mines.get('m1')!.hp).toBe(CONFIG.mine.hp);
+    expect(w.mines.has('m1')).toBe(false); // inside the 50 u blast + the 10 u marker
+    expect(w.mines.get('m2')!.hp).toBe(CONFIG.mine.hp); // past it
     expect(count(log, 'burst')).toBe(1);
-    expect(log.some((e) => e.k === 'boom' && (e as { id: string }).id === 'm1')).toBe(false);
+    expect(log.some((e) => e.k === 'boom' && (e as { id: string }).id === 'm1')).toBe(true);
   });
 
-  it('a flak click ON a mine pops it in one shell (full damage >= 10 hp, amendment 200 — the landing test never falls off)', () => {
+  it('a flak click ON a mine pops it in one shell (the near blow >= 10 hp; mines take no rim term — Story 9.12)', () => {
     const w = bareWorld();
     flakker(w, 'a');
     w.mines.set('m1', { id: 'm1', ownerId: 'b', x: 300, y: 0, armedAt: 0, kind: 'naval', hp: 10 });
@@ -288,92 +295,85 @@ describe('the ORDNANCE side effect (amendment 105) — a burst removes ENEMY fis
   });
 });
 
-// THE FLAK BURST FALLOFF (Eric 2026-10-13, Story 9.8 — *"the damage should
-// scale from D at the very center to D-10 at the very edge … you take deal
-// damage based on the best result for how close the ship is to the center of
-// the blast."*). A caught hull takes floor(D − edgeFalloff × d / burstRadius),
+// THE FLAK BURST RIM (Eric 2026-10-16, Story 9.12, forge weapon-balance-math —
+// "rim = half damage"; replaces the flat D − 10 of Story 9.8). A caught hull
+// takes settleBlow(D × (1 − rimFactor × clamp01(d / burstRadius)) × atten),
 // d = the distance from the burst centre to the NEAREST point of its outline
-// (0 inside). The battleship below lies broadside-on along y (heading π/2), so
-// its stern tip sits TIP_U short of its centre toward the burst at (300, 0).
-describe('the flak burst falls off from D at the centre to D − edgeFalloff at the rim (Story 9.8)', () => {
+// (0 inside). Every click here is `NEAR_CLICK` (attenuation 1). The battleship
+// below lies broadside-on along y (heading π/2), so its stern tip sits TIP_U
+// short of its centre toward the burst at (300, 0).
+describe('the flak burst falls from D at the centre to HALF at the rim (Story 9.12)', () => {
   const D = FLAK.damage;
   const R = FLAK.burstRadius;
-  const EDGE = FLAK.edgeFalloff;
   const TIP_U = 62; // the battleship silhouette's half-length (bow / stern tip, local x ±62)
 
-  it('the pure rule: D at the centre, D − edgeFalloff at the rim, D − edgeFalloff/2 halfway, clamped past the rim, never below 0', () => {
-    expect(flakBurstDamage(D, 0, R, EDGE)).toBe(D);
-    expect(flakBurstDamage(D, R, R, EDGE)).toBe(D - EDGE);
-    expect(flakBurstDamage(D, R / 2, R, EDGE)).toBe(D - EDGE / 2);
-    expect(flakBurstDamage(D, R * 3, R, EDGE)).toBe(D - EDGE); // clamp01
-    expect(flakBurstDamage(5, R, R, EDGE)).toBe(0); // a tuned falloff past D floors at 0
-    expect(flakBurstDamage(D, 0, 0, EDGE)).toBe(D); // a zero-radius blast has no rim
-    expect(flakBurstDamage(D, 30.000000000000007, R, EDGE)).toBe(D - (EDGE * 30) / R); // float dust never costs a point
-    expect(flakBurstDamage(D, 13, R, EDGE)).toBe(Math.floor(D - (EDGE * 13) / R)); // whole number, floored
+  it('the premise: every click in this file flies under fullFrac of the flak reach (no attenuation)', () => {
+    expect(NEAR_CLICK).toBeLessThanOrEqual(CONFIG.gunAttenuation.fullFrac * FLAK.rangeU);
   });
 
   it('a burst CENTRED on a hull deals D', () => {
     const w = bareWorld();
     flakker(w, 'a');
     const b = hull(w, 'b', 300, 0); // the burst point sits inside its outline
-    click(w, 'a', 300);
+    click(w, 'a', NEAR_CLICK);
     expect(b.hp).toBe(b.stats.maxHp - D);
   });
 
-  it('a hull whose outline just reaches the rim takes D − edgeFalloff', () => {
+  it('a hull whose outline just reaches the rim takes D × (1 − rimFactor), settled once', () => {
     const w = bareWorld();
     flakker(w, 'a');
     const b = hull(w, 'b', 300, TIP_U + R - 0.01); // nearest point 49.99 u off — inside the inclusive rim
-    click(w, 'a', 300);
-    expect(b.hp).toBe(b.stats.maxHp - (D - EDGE));
+    click(w, 'a', NEAR_CLICK);
+    expect(b.hp).toBe(b.stats.maxHp - falloffAt(R - 0.01));
+    expect(falloffAt(R - 0.01)).toBe(settleBlow(D * (1 - FLAK.rimFactor * ((R - 0.01) / R))));
   });
 
-  it('a hull whose outline sits halfway out takes D − edgeFalloff/2', () => {
+  it('a hull whose outline sits halfway out takes D × (1 − rimFactor / 2)', () => {
     const w = bareWorld();
     flakker(w, 'a');
     const b = hull(w, 'b', 300, TIP_U + R / 2);
-    click(w, 'a', 300);
-    expect(b.hp).toBe(b.stats.maxHp - (D - EDGE / 2));
+    click(w, 'a', NEAR_CLICK);
+    expect(b.hp).toBe(b.stats.maxHp - settleBlow(D * (1 - FLAK.rimFactor / 2)));
   });
 
   it('BEST RESULT: the NEAREST outline point decides, not the centre (a centre outside the blast still takes the near-tip value)', () => {
     const w = bareWorld();
     flakker(w, 'a');
     const b = hull(w, 'b', 300, TIP_U + 30); // centre 92 u off (past the 50 u rim), tip 30 u off
-    click(w, 'a', 300);
-    expect(b.hp).toBe(b.stats.maxHp - flakBurstDamage(D, 30, R, EDGE));
-    expect(b.stats.maxHp - b.hp).toBeGreaterThan(D - EDGE); // better than the rim value a centre measure would give
+    click(w, 'a', NEAR_CLICK);
+    expect(b.hp).toBe(b.stats.maxHp - falloffAt(30));
+    expect(b.stats.maxHp - b.hp).toBeGreaterThan(falloffAt(R)); // better than the rim value a centre measure would give
   });
 
-  it('the dial is live: edgeFalloff 0 makes the whole blast deal D', () => {
-    const saved = CONFIG.flak.edgeFalloff;
-    (CONFIG.flak as { edgeFalloff: number }).edgeFalloff = 0;
+  it('the dial is live: rimFactor 0 makes the whole blast deal D', () => {
+    const saved = CONFIG.flak.rimFactor;
+    (CONFIG.flak as { rimFactor: number }).rimFactor = 0;
     try {
       const w = bareWorld();
       flakker(w, 'a');
       const b = hull(w, 'b', 300, TIP_U + R - 0.01);
-      click(w, 'a', 300);
+      click(w, 'a', NEAR_CLICK);
       expect(b.hp).toBe(b.stats.maxHp - D);
     } finally {
-      (CONFIG.flak as { edgeFalloff: number }).edgeFalloff = saved;
+      (CONFIG.flak as { rimFactor: number }).rimFactor = saved;
     }
   });
 
-  it('a 0-hp blow is NO blow (Story 9.8 review): edgeFalloff tuned to D + 1 — a rim hull takes nothing, fires no aggro seam, emits no `dmg`', () => {
-    const saved = CONFIG.flak.edgeFalloff;
-    (CONFIG.flak as { edgeFalloff: number }).edgeFalloff = D + 1;
+  it('a 0-hp blow is NO blow (reading r3): a raw blow of 0 (here a 0-damage arm; also rimFactor 1 at the exact rim) takes nothing, fires no aggro seam, emits no `dmg`', () => {
+    const saved = CONFIG.flak.damage;
+    (CONFIG.flak as { damage: number }).damage = 0;
     try {
       const w = bareWorld();
       flakker(w, 'a');
-      const b = hull(w, 'b', 300, TIP_U + R - 0.01); // nearest point at the rim: floor(D − (D + 1)) → 0
+      const b = hull(w, 'b', 300, 0); // centred: only the damage dial makes the raw blow 0
       const aggro = vi.spyOn(w.drones, 'onDamaged');
-      const log = click(w, 'a', 300);
+      const log = click(w, 'a', NEAR_CLICK);
       expect(count(log, 'burst')).toBe(1);
       expect(b.hp).toBe(b.stats.maxHp);
       expect(aggro).not.toHaveBeenCalled();
       expect(count(log, 'dmg')).toBe(0);
     } finally {
-      (CONFIG.flak as { edgeFalloff: number }).edgeFalloff = saved;
+      (CONFIG.flak as { damage: number }).damage = saved;
     }
   });
 

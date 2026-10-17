@@ -2747,10 +2747,12 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   // ride `offer`/`cards` as VALUES and a substring match on the JSON text
   // cannot tell a key from a value.
   expect(hasForbiddenKey(f, DECK_FORBIDDEN_KEYS)).toBe(false);
-  // THE CURSOR POINT (amendment 202): a deck-gun shell's unclamped click rides
-  // `ShellState.cursor` for the mine landing test and NEVER a frame — the
-  // ballistic reveal is built field by field. Every spelling, as a KEY.
-  expect(hasForbiddenKey(f, ['cursor', 'cursorX', 'cursorY'])).toBe(false);
+  // THE LAUNCH POINT AND THE ATTENUATION REFERENCE (Story 9.12, epic-9
+  // amendment 184(b)): a deck-gun shell carries `originX` / `originY` /
+  // `attenRangeU` for the range attenuation and NEVER a frame — the muzzle
+  // would become solvable; the ballistic reveal is built field by field. (The
+  // amendment-202 cursor point these lines used to guard is deleted.)
+  expect(hasForbiddenKey(f, ['originX', 'originY', 'attenRangeU', 'cursor'])).toBe(false);
   // THE SEAT'S GUN IS SELF-PRIVATE (Story 8.14, amendment 95), on exactly the
   // terms `cls` is: it rides `you` and NOTHING else. Which gun an enemy picked
   // is build information, so a whole-frame text scan with `you` spliced out is

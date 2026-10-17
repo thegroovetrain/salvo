@@ -18,6 +18,8 @@ import { CATALOG, CONFIG, LINE_IDS, effectiveStats, isStubLine, type CatalogLine
 import { CARD_STAT_ROWS, cardStatRows, cardTierLabel, shipStatRows } from '../ui/boonCopy.js';
 
 /** A torpedo boat with nothing fitted — the hull every value below is read on. */
+/** The bare hull's fold — the tier-I numbers a first copy prints. */
+const bareFold = effectiveStats(CONFIG.shipClasses.torpedoBoat, []);
 const TB = { cls: 'torpedoBoat' as const, cards: [] as string[] };
 
 /** The same hull with `n` copies of one line already aboard. */
@@ -45,7 +47,7 @@ function rangeRow(
  * damage dials (Eric's 2026-10-13 experiment moved CANNON and FLAK) moves the
  * expectation with it. Integers on the face (amendment 39).
  */
-function dmgPair(line: string, w: 'gun' | 'flak', k: number): [string, string] {
+function dmgPair(line: string, w: 'gun' | 'flak' | 'lightTorpedo' | 'heavyTorpedo' | 'navalMines' | 'captiveMines', k: number): [string, string] {
   const at = (n: number): string =>
     String(effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<string>(n).fill(line)).equipment[w].damage);
   return [at(k), at(k + 1)];
@@ -135,8 +137,9 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
     expect(labels(CATALOG.turning)).toEqual(['TURNING']);
     expect(labels(CATALOG.radarSweep)).toEqual(['RADAR SWEEP']);
     expect(labels(CATALOG.reload)).toEqual(['ALL COOLDOWNS']);
-    // rung to II: a barrel, and (Story 9.8, ruling 125) the reach step, RANGE last
-    expect(labels(CATALOG.deckGun)).toEqual(['SHELLS PER SHOT', 'RANGE']);
+    // rung to II: the damage step (the barrels are FIXED since Story 9.12) and
+    // (Story 9.8, ruling 125) the reach step, RANGE last
+    expect(labels(CATALOG.deckGun)).toEqual(['GUN DAMAGE', 'RANGE']);
   });
 
   it('TURNING prints WHOLE DEGREES PER SECOND with the unit (Eric 2026-09-30): 46°/s → 49°/s on a bare Torpedo Boat', () => {
@@ -157,13 +160,13 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
   });
 
   it('prints the DECK GUN ladder in whole hit points (amendment 39)', () => {
-    // Damage moves only on the rungs to III and V (amendment 232's placement;
-    // the values are Eric's dials, read off the fold), so only those faces
-    // carry a GUN DAMAGE row. Nothing on this row may show a fraction.
+    // Damage moves on EVERY rung since Story 9.12 (8/10/11/12/13; the values
+    // are Eric's dials, read off the fold), so every face carries a GUN DAMAGE
+    // row. Nothing on this row may show a fraction.
     const steps = [0, 1, 2, 3]
       .map((k) => cardStatRows(CATALOG.deckGun, k, held('deckGun', k)).find((r) => r.label === 'GUN DAMAGE'));
     expect(steps.map((r) => (r === undefined ? null : [r.cur, r.next]))).toEqual([
-      null, dmgPair('deckGun', 'gun', 1), null, dmgPair('deckGun', 'gun', 3),
+      dmgPair('deckGun', 'gun', 0), dmgPair('deckGun', 'gun', 1), dmgPair('deckGun', 'gun', 2), dmgPair('deckGun', 'gun', 3),
     ]);
     for (const r of steps) {
       if (r === undefined) continue;
@@ -183,7 +186,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
       { label: 'RELOAD', cur: null, next: '30.0 s' },
       { label: 'ROUNDS', cur: null, next: '1' },
       { label: 'SPEED', cur: null, next: '65' },
-      { label: 'DAMAGE', cur: null, next: '50' },
+      { label: 'DAMAGE', cur: null, next: String(bareFold.equipment.heavyTorpedo.damage) },
       { label: 'HOMING', cur: null, next: '0 rad/s' },
     ]);
   });
@@ -194,7 +197,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
       { label: 'RELOAD', cur: null, next: '25.0 s' },
       { label: 'ROUNDS', cur: null, next: '1' },
       { label: 'SPEED', cur: null, next: '45' },
-      { label: 'DAMAGE', cur: null, next: '40' },
+      { label: 'DAMAGE', cur: null, next: String(bareFold.equipment.lightTorpedo.damage) },
       { label: 'HOMING', cur: null, next: '0 rad/s' },
     ]);
   });
@@ -209,7 +212,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
     expect(rows).toEqual([
       { label: 'RELOAD', cur: null, next: '20.0 s' },
       { label: 'ROUNDS', cur: null, next: '1' },
-      { label: 'DAMAGE', cur: null, next: '55' },
+      { label: 'DAMAGE', cur: null, next: String(bareFold.equipment.captiveMines.damage) },
       { label: 'TRIGGER RADIUS', cur: null, next: String(CONFIG.captiveMines.triggerRadius) },
       { label: 'HOMING', cur: null, next: '0 rad/s' },
     ]);
@@ -240,7 +243,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
     expect(rows).toEqual([
       { label: 'RELOAD', cur: null, next: '15.0 s' },
       { label: 'ROUNDS', cur: null, next: '2' },
-      { label: 'DAMAGE', cur: null, next: '55' },
+      { label: 'DAMAGE', cur: null, next: String(bareFold.equipment.navalMines.damage) },
       { label: 'BLAST RADIUS', cur: null, next: '48' },
       { label: 'TRIGGER RADIUS', cur: null, next: '32' },
     ]);
@@ -382,7 +385,7 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   it('LIGHT TORPEDO II: reload, damage, speed and homing — no ROUNDS 1 → 1', () => {
     expect(cardStatRows(CATALOG.lightTorpedo, 1, held('lightTorpedo', 1))).toEqual([
       { label: 'RELOAD', cur: '25.0 s', next: '23.8 s' },
-      { label: 'DAMAGE', cur: '40', next: '45' },
+      { label: 'DAMAGE', cur: dmgPair('lightTorpedo', 'lightTorpedo', 1)[0], next: dmgPair('lightTorpedo', 'lightTorpedo', 1)[1] },
       { label: 'SPEED', cur: '45', next: '47.5' },
       { label: 'HOMING', cur: '0', next: '0.125 rad/s' },
     ]);
@@ -393,7 +396,7 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   it('LIGHT TORPEDO III prints the ROUNDS step the floored tier II did not buy', () => {
     expect(face('lightTorpedo', 2)).toEqual([
       'RELOAD 23.8 s>22.5 s',
-      'DAMAGE 45>50',
+      `DAMAGE ${dmgPair('lightTorpedo', 'lightTorpedo', 2).join('>')}`,
       'SPEED 47.5>50',
       'ROUNDS 1>2',
       'HOMING 0.125>0.25 rad/s',
@@ -403,9 +406,9 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   it('LIGHT TORPEDO V is the same five rows at the top of the ladder', () => {
     expect(face('lightTorpedo', 4)).toEqual([
       'RELOAD 21.3 s>20.0 s',
-      'DAMAGE 55>60',
+      `DAMAGE ${dmgPair('lightTorpedo', 'lightTorpedo', 4).join('>')}`,
       'SPEED 52.5>55',
-      'ROUNDS 2>3',
+      // no ROUNDS row: the tubes are capped at two (Story 9.12), the rung to V buys none
       'HOMING 0.375>0.5 rad/s',
     ]);
   });
@@ -413,16 +416,16 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   it('HEAVY TORPEDO prints the same five rows off its own block, at II and at V', () => {
     expect(face('heavyTorpedo', 1)).toEqual([
       'RELOAD 30.0 s>28.5 s',
-      'DAMAGE 50>55',
+      `DAMAGE ${dmgPair('heavyTorpedo', 'heavyTorpedo', 1).join('>')}`,
       'SPEED 65>67.5',
       // no ROUNDS row: the tier-II half-tube floors back to one (P5)
       'HOMING 0>0.125 rad/s',
     ]);
     expect(face('heavyTorpedo', 4)).toEqual([
       'RELOAD 25.5 s>24.0 s',
-      'DAMAGE 65>70',
+      `DAMAGE ${dmgPair('heavyTorpedo', 'heavyTorpedo', 4).join('>')}`,
       'SPEED 72.5>75',
-      'ROUNDS 2>3',
+      // no ROUNDS row: the tubes are capped at two (Story 9.12)
       'HOMING 0.375>0.5 rad/s',
     ]);
   });
@@ -430,13 +433,13 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   it('NAVAL MINES prints reload, damage, blast and pool — four rows, no homing', () => {
     expect(face('navalMines', 1)).toEqual([
       'RELOAD 15.0 s>14.3 s',
-      'DAMAGE 55>60',
+      `DAMAGE ${dmgPair('navalMines', 'navalMines', 1).join('>')}`,
       'BLAST RADIUS 48>52.8',
       'ROUNDS 2>3',
     ]);
     expect(face('navalMines', 4)).toEqual([
       'RELOAD 12.8 s>12.0 s',
-      'DAMAGE 70>75',
+      `DAMAGE ${dmgPair('navalMines', 'navalMines', 4).join('>')}`,
       'BLAST RADIUS 63.9>70.3',
       'ROUNDS 5>6',
     ]);
@@ -448,14 +451,14 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   it('CAPTIVE MINES prints reload, damage, held and homing — never its derived trip ring', () => {
     expect(face('captiveMines', 1)).toEqual([
       'RELOAD 20.0 s>19.0 s',
-      'DAMAGE 55>60',
+      `DAMAGE ${dmgPair('captiveMines', 'captiveMines', 1).join('>')}`,
       // no ROUNDS row: the tier-II half-mine floors back to one (P5)
       'HOMING 0>0.075 rad/s',
     ]);
     expect(face('captiveMines', 4)).toEqual([
       'RELOAD 17.0 s>16.0 s',
-      'DAMAGE 70>75',
-      'ROUNDS 2>3',
+      `DAMAGE ${dmgPair('captiveMines', 'captiveMines', 4).join('>')}`,
+      // no ROUNDS row: the held pool is capped at two (Story 9.12)
       'HOMING 0.225>0.3 rad/s',
     ]);
     for (let k = 1; k < CATALOG.captiveMines.cap; k += 1) {
@@ -541,9 +544,10 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
 // on the rungs to III and V. Every authored step prints its own row, with no
 // new words.
 describe('cardStatRows — the CANNON and FLAK rungs that carry a turret or a barrel', () => {
-  it('CANNON rung to II: SHELLS PER SHOT 1 to 2 (the second barrel), alone', () => {
+  it('CANNON rung to II: GUN DAMAGE alone — the two barrels are fixed, no barrel row', () => {
+    const [cur, next] = dmgPair('deckGun', 'gun', 0);
     expect(cardStatRows(CATALOG.deckGun, 0, held('deckGun', 0))).toEqual([
-      { label: 'SHELLS PER SHOT', cur: '1', next: '2' },
+      { label: 'GUN DAMAGE', cur, next },
       rangeRow('deckGun', 'gun', 0),
     ]);
   });
@@ -557,9 +561,10 @@ describe('cardStatRows — the CANNON and FLAK rungs that carry a turret or a ba
     ]);
   });
 
-  it('CANNON rung to IV: SHELLS PER SHOT 2 to 3 (the third barrel), alone', () => {
+  it('CANNON rung to IV: GUN DAMAGE alone — no third barrel', () => {
+    const [cur, next] = dmgPair('deckGun', 'gun', 2);
     expect(cardStatRows(CATALOG.deckGun, 2, held('deckGun', 2))).toEqual([
-      { label: 'SHELLS PER SHOT', cur: '2', next: '3' },
+      { label: 'GUN DAMAGE', cur, next },
       rangeRow('deckGun', 'gun', 2),
     ]);
   });
@@ -582,12 +587,11 @@ describe('cardStatRows — the CANNON and FLAK rungs that carry a turret or a ba
     ]);
   });
 
-  it('FLAK rung to IV: RELOAD, DAMAGE and ROUNDS 2 to 3', () => {
+  it('FLAK rung to IV: RELOAD and DAMAGE — the turret rung is II only since Story 9.12', () => {
     const [cur, next] = dmgPair('flak', 'flak', 2);
     expect(cardStatRows(CATALOG.flak, 2, held('flak', 2))).toEqual([
       { label: 'RELOAD', cur: '3.1 s', next: '3.0 s' },
       { label: 'DAMAGE', cur, next },
-      { label: 'ROUNDS', cur: '2', next: '3' },
       rangeRow('flak', 'flak', 2),
     ]);
   });
@@ -812,32 +816,33 @@ describe('cardStatRows — the machine gun and flak ladders (Story 8.15)', () =>
     return cardStatRows(CATALOG[id], copiesHeld, held(id, copiesHeld)).map((r) => `${r.label} ${r.cur ?? ''}>${r.next}`);
   }
 
-  it('MACHINE GUN tier II: RELOAD 12.0 s to 11.4 s, SHELLS 12 to 16, DAMAGE 5 to 6, RATE 0.30 s to 0.25 s', () => {
-    expect(face('machineGun', 0)).toEqual([
-      'RELOAD 12.0 s>11.4 s', 'SHELLS 12>16', 'DAMAGE 5>6', 'RATE 0.30 s>0.25 s', rangeLine('machineGun', 'machineGun', 0),
-    ]);
+  /** One MG stat before and after the card at `k` copies held, off the fold. */
+  const mgAt = (k: number, f: 'reloadMs' | 'maxAmmo' | 'rateMs'): number =>
+    effectiveStats(CONFIG.shipClasses.torpedoBoat, Array<string>(k).fill('machineGun')).equipment.machineGun[f];
+  const mgFace = (k: number): string[] => [
+    `RELOAD ${(mgAt(k, 'reloadMs') / 1000).toFixed(1)} s>${(mgAt(k + 1, 'reloadMs') / 1000).toFixed(1)} s`,
+    `SHELLS ${mgAt(k, 'maxAmmo')}>${mgAt(k + 1, 'maxAmmo')}`,
+    `RATE ${(mgAt(k, 'rateMs') / 1000).toFixed(2)} s>${(mgAt(k + 1, 'rateMs') / 1000).toFixed(2)} s`,
+    rangeLine('machineGun', 'machineGun', k),
+  ];
+
+  it('MACHINE GUN: every rung prints RELOAD, SHELLS and RATE and NEVER a DAMAGE row (5 flat since Story 9.12)', () => {
+    for (let k = 0; k < CATALOG.machineGun.cap - 1; k += 1) {
+      expect(face('machineGun', k), `rung ${k}`).toEqual(mgFace(k));
+      expect(face('machineGun', k).some((r) => r.startsWith('DAMAGE')), `rung ${k}`).toBe(false);
+      // the magazine grows and the shot delay shrinks on every rung
+      expect(mgAt(k + 1, 'maxAmmo')).toBeGreaterThan(mgAt(k, 'maxAmmo'));
+      expect(mgAt(k + 1, 'rateMs')).toBeLessThan(mgAt(k, 'rateMs'));
+    }
+    // the tier-I reload is the CONFIG dial
+    expect(face('machineGun', 0)[0]).toMatch(new RegExp(`^RELOAD ${(CONFIG.machineGun.reloadMs / 1000).toFixed(1)} s>`));
   });
 
-  it('MACHINE GUN rungs to III and V author no damage: RELOAD, SHELLS and RATE only', () => {
-    expect(face('machineGun', 1)).toEqual([
-      'RELOAD 11.4 s>10.8 s', 'SHELLS 16>20', 'RATE 0.25 s>0.20 s', rangeLine('machineGun', 'machineGun', 1),
-    ]);
-    expect(face('machineGun', 3)).toEqual([
-      'RELOAD 10.2 s>9.6 s', 'SHELLS 24>28', 'RATE 0.15 s>0.10 s', rangeLine('machineGun', 'machineGun', 3),
-    ]);
-  });
-
-  it('MACHINE GUN rung to IV: damage 6 to 7 returns', () => {
-    expect(face('machineGun', 2)).toEqual([
-      'RELOAD 10.8 s>10.2 s', 'SHELLS 20>24', 'DAMAGE 6>7', 'RATE 0.20 s>0.15 s', rangeLine('machineGun', 'machineGun', 2),
-    ]);
-  });
-
-  it('FLAK ladder: DAMAGE climbs every rung and the pool steps sit on the rungs to II and IV — the blast never moves', () => {
+  it('FLAK ladder: DAMAGE climbs every rung and the pool steps sit on the rung to II ONLY — the blast never moves', () => {
     const dmg = (k: number): string => `DAMAGE ${dmgPair('flak', 'flak', k).join('>')}`;
     expect(face('flak', 0)).toEqual(['RELOAD 3.5 s>3.3 s', dmg(0), 'ROUNDS 1>2', rangeLine('flak', 'flak', 0)]);
     expect(face('flak', 1)).toEqual(['RELOAD 3.3 s>3.1 s', dmg(1), rangeLine('flak', 'flak', 1)]);
-    expect(face('flak', 2)).toEqual(['RELOAD 3.1 s>3.0 s', dmg(2), 'ROUNDS 2>3', rangeLine('flak', 'flak', 2)]);
+    expect(face('flak', 2)).toEqual(['RELOAD 3.1 s>3.0 s', dmg(2), rangeLine('flak', 'flak', 2)]);
     expect(face('flak', 3)).toEqual(['RELOAD 3.0 s>2.8 s', dmg(3), rangeLine('flak', 'flak', 3)]);
     // Damage CLIMBS on every rung (whatever Eric's dial values are).
     for (let k = 0; k < 4; k += 1) expect(Number(dmgPair('flak', 'flak', k)[1])).toBeGreaterThan(Number(dmgPair('flak', 'flak', k)[0]));
