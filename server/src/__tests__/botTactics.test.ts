@@ -82,6 +82,12 @@ function fakePort(w: World, ring?: { cx: number; cy: number; r: number }): FakeP
     helmEnabled: true,
     submitInput: () => true,
     spendPoint: () => true,
+    // Story 9.13 (amendment 190): the zone readouts — no timeline in a fake.
+    zoneNextRing: () => null,
+    zonePhase: () => ({ phase: 'idle', closesInMs: null }),
+    zoneSafeDisc() {
+      return this.zoneLiveRing;
+    },
   };
 }
 

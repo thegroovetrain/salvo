@@ -56,8 +56,11 @@
 //      constant formation offset, so the six travel together and hold roughly
 //      the spread they spawned with (which is what keeps the witness rule
 //      meaningful at 9:00 and not only at 1:00).
-// Island avoidance and the map-edge bias are summed onto the rudder on top of
-// all four, exactly as before.
+// Island, hull and map-edge avoidance are summed and composed onto the rudder
+// on top of all four with the bots' `helmLeft` weighting (Story 9.13 —
+// `composeRudder`): avoidance claims the helm in proportion to its pressure.
+// The waypoint is re-picked if without progress for CONFIG.bots.nav.waypointTimeoutMs, and the
+// un-beach trip also arms on the sim's own land contact (Story 9.13).
 
 import {
   CONFIG,
@@ -115,6 +118,14 @@ const STUCK_SPEED = 3;
 const STUCK_TRIP_MS = 1200;
 /** ms the un-beach manoeuvre runs once armed. */
 const UNBEACH_MS = 1500;
+// THE WAYPOINT TIMEOUT is `CONFIG.bots.nav.waypointTimeoutMs`: ms a fleet may
+// go WITHOUT PROGRESS toward its waypoint before the waypoint is re-picked
+// (Story 9.13, epic-9 amendment 192 — a waypoint behind an island must not
+// hold the fleet grinding its coast forever). ORCHESTRATOR READING under
+// amendment 192 (2026-10-17): "not reached" is read as "no progress" — the
+// fleet's closest member gaining WAYPOINT_REACH (120 u) on its best distance
+// so far re-arms the clock — so an honest 4,000 u leg at an 18–24 u/s cruise
+// is never cut short.
 
 function clampUnit(v: number): number {
   if (v < -1) return -1;
@@ -138,6 +149,11 @@ interface FleetMind {
   /** Last position we knew the target to be at (the chase point). */
   lastKnown: Vec2 | null;
   stuckMs: number;
+  /** ms of SUSTAINED sim `landContact` toward the un-beach trip (Story 9.13):
+   *  the grounding damp caps a beached hull at a quarter of its speed
+   *  (7.5–10 u/s), above STUCK_SPEED, so the speed test alone never trips on
+   *  a hull grinding a coast. Reset by any tick out of contact. */
+  landMs: number;
   unbeachUntil: number;
 }
 
@@ -154,6 +170,11 @@ interface Fleet {
   /** The fleet's own member ids, kept beside `minds` (add/remove/tick prune)
    *  so "has any member reached it" walks six hulls, not every mind. */
   members: Set<string>;
+  /** The fleet's best (closest-member) distance to `waypoint` so far, and the
+   *  server ms it last improved by WAYPOINT_REACH — the no-progress re-pick's
+   *  state, reset at every pick. */
+  bestDist: number;
+  progressAt: number;
 }
 
 /**
@@ -211,6 +232,8 @@ export class FleetController {
         waypoint: null,
         ashore: false,
         members: new Set(),
+        bestDist: Infinity,
+        progressAt: 0,
       });
     }
     this.fleets.get(fleetId)?.members.add(id);
@@ -225,6 +248,7 @@ export class FleetController {
       lastContactMs: 0,
       lastKnown: null,
       stuckMs: 0,
+      landMs: 0,
       unbeachUntil: 0,
     });
   }
@@ -401,7 +425,8 @@ export class FleetController {
     const unbeaching = this.updateStuck(ship, mind);
     const brg = this.steerTarget(ship, mind, unbeaching);
     const track = clampUnit(angleDiff(ship.state.heading, brg) * RUDDER_GAIN);
-    const rudder = clampUnit(track + this.avoidIslands(ship) + this.avoidHulls(ship, mind) + this.boundaryBias(ship));
+    const avoid = this.avoidIslands(ship) + this.avoidHulls(ship, mind) + this.boundaryBias(ship);
+    const rudder = composeRudder(track, avoid);
     const shot = this.wantsShot(ship, mind);
     mind.seq += 1;
     return {
@@ -421,24 +446,27 @@ export class FleetController {
   }
 
   /**
-   * Track "commanding ahead but going nowhere" and arm the astern manoeuvre.
-   * Returns true while un-beaching. The grounding damp caps a beached hull
-   * well above zero (cycle 59), so this tests a LOW speed, never a zero one.
+   * Track "going nowhere" and arm the astern manoeuvre. Returns true while
+   * un-beaching. TWO trips, either arms it:
+   *   * SLOW — below STUCK_SPEED for STUCK_TRIP_MS (a hull pinned by another
+   *     hull or a wreck; the grounding damp caps a beached hull well above
+   *     zero — cycle 59 — so this tests a LOW speed, never a zero one);
+   *   * GROUNDED (Story 9.13) — the sim's own `landContact` held for
+   *     `CONFIG.bots.stuckMs`, the bots' un-beach trip. A hull grinding a
+   *     coast at the quarter-speed cap is above STUCK_SPEED and never tripped
+   *     the slow test, so it ground on until the storm took it.
    */
   private updateStuck(ship: ShipRecord, mind: FleetMind): boolean {
     const now = this.world.now;
     if (now < mind.unbeachUntil) return true;
-    if (Math.abs(ship.state.speed) < STUCK_SPEED) {
-      mind.stuckMs += CONFIG.tick.simDtMs;
-      if (mind.stuckMs >= STUCK_TRIP_MS) {
-        mind.stuckMs = 0;
-        mind.unbeachUntil = now + UNBEACH_MS;
-        return true;
-      }
-      return false;
-    }
+    const dt = CONFIG.tick.simDtMs;
+    mind.stuckMs = Math.abs(ship.state.speed) < STUCK_SPEED ? mind.stuckMs + dt : 0;
+    mind.landMs = ship.landContact ? mind.landMs + dt : 0;
+    if (mind.stuckMs < STUCK_TRIP_MS && mind.landMs < CONFIG.bots.stuckMs) return false;
     mind.stuckMs = 0;
-    return false;
+    mind.landMs = 0;
+    mind.unbeachUntil = now + UNBEACH_MS;
+    return true;
   }
 
   private throttleFor(mind: FleetMind, unbeaching: boolean): number {
@@ -479,22 +507,39 @@ export class FleetController {
     return fleet.waypoint ?? ORIGIN;
   }
 
-  /** Retarget when there is none, it was picked ashore, or any member reached
-   *  it. The ashore answer was decided at pick time (Fleet.ashore). */
+  /** Retarget when there is none, it was picked ashore, any member reached
+   *  it, or the fleet has made no progress toward it for CONFIG.bots.nav.waypointTimeoutMs
+   *  (Story 9.13 — a waypoint behind an island). The ashore answer was
+   *  decided at pick time (Fleet.ashore). Advances the progress clock. */
   private needsWaypoint(fleet: Fleet): boolean {
     const wp = fleet.waypoint;
     if (!wp || fleet.ashore) return true;
+    const best = this.closestMember(fleet, wp);
+    if (best < WAYPOINT_REACH) return true;
+    const now = this.world.now;
+    if (best <= fleet.bestDist - WAYPOINT_REACH) {
+      fleet.bestDist = best;
+      fleet.progressAt = now;
+    }
+    return now - fleet.progressAt > CONFIG.bots.nav.waypointTimeoutMs;
+  }
+
+  /** The closest afloat member's distance to `wp` (Infinity = none afloat). */
+  private closestMember(fleet: Fleet, wp: Vec2): number {
+    let best = Infinity;
     for (const id of fleet.members) {
       const ship = this.world.ships.get(id);
-      if (ship && isAfloat(ship.lifecycle) && dist(ship.state, wp) < WAYPOINT_REACH) return true;
+      if (ship && isAfloat(ship.lifecycle)) best = Math.min(best, dist(ship.state, wp));
     }
-    return false;
+    return best;
   }
 
   /** Pick the fleet a random point uniformly inside 0.8x the LIVE ring
    *  (offset-center), island-free — the ashore test runs here, once. */
   private pickWaypoint(fleet: Fleet): void {
     const ring = this.world.zoneLiveRing;
+    fleet.bestDist = Infinity;
+    fleet.progressAt = this.world.now;
     const max = ring.r * WAYPOINT_ZONE_FRACTION;
     for (let i = 0; i < 16; i++) {
       const a = fleet.rng.float(0, TAU);
@@ -631,6 +676,19 @@ export class FleetController {
     const r = Math.sqrt(mind.rng.next()) * scatter;
     return { x: led.x + Math.cos(a) * r, y: led.y + Math.sin(a) * r };
   }
+}
+
+/**
+ * THE HELM COMPOSITION (Story 9.13, epic-9 amendment 192(c)) — the bots'
+ * `helmLeft` idiom (ai/tactics.ts helmFor), copied rather than imported:
+ * avoidance yields the helm in proportion to its own pressure,
+ * `track · max(0, 1 − |avoid|) + avoid`. The plain sum it replaces let a
+ * track term saturated at ±1 out-vote one −0.8 island term and net a turn
+ * TOWARD the land the probe had just found.
+ */
+export function composeRudder(track: number, avoid: number): number {
+  const helmLeft = Math.max(0, 1 - Math.abs(avoid));
+  return clampUnit(track * helmLeft + avoid);
 }
 
 /**

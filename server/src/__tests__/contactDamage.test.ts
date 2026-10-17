@@ -516,6 +516,14 @@ describe('WRECKS, FLEET PAIRS, DRONES, the GATE and CREDIT', () => {
     const d = drone(w, 'd1', 43, 0, Math.PI, 35);
     fullAhead(a, 0);
     expect(w.drones.targetOf('d1')).toBeNull();
+    // drone hull avoidance (amendment 192c) would dodge; the ram is forced so the damage contract is what is tested
+    const droneTick = w.drones.tick.bind(w.drones);
+    let forcedSeq = 1_000_000;
+    w.drones.tick = () => {
+      droneTick();
+      forcedSeq += 1;
+      w.submitInput('d1', { ...d.input, seq: forcedSeq, throttle: 1, rudder: 0 });
+    };
     w.step();
     // The closing speed the resolver measured: both x-velocities after this
     // tick's kinematics (the contact row changes neither).

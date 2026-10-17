@@ -926,6 +926,7 @@ export * from './sim/spread.js';
 export * from './sim/shell.js';
 export * from './sim/attenuation.js';
 export * from './sim/map.js';
+export * from './sim/nav.js';
 export * from './sim/noise.js';
 export * from './sim/seedText.js';
 export * from './sim/heightField.js';

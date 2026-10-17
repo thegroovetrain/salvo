@@ -42,6 +42,7 @@ import {
   type ZoneTimeline,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { composeRudder } from '../game/drones.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import { isFleetHull } from '../game/participants.js';
 import { circleIsland } from './islandFixture.js';
@@ -300,7 +301,10 @@ describe('fleet hulls — roving', () => {
     })).toBeLessThan(0);
   });
 
-  it('heads for the LIVE ring centre when caught outside the safe ring', () => {
+  // RE-STATED (Story 9.13, epic-9 amendment 192): this pinned "beeline for
+  // the live ring centre". The contract is that a drone caught outside the
+  // safe ring makes way back INTO it; the route it takes is the nav layer's.
+  it('makes way back into the LIVE ring when caught outside the safe ring', () => {
     const w = bareWorld(9, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 1 });
     const d = fleetShip(w, 'f', 'medium', 0, 0);
     w.startZone();
@@ -315,6 +319,84 @@ describe('fleet hulls — roving', () => {
     const before = ringDist(d);
     for (let t = 0; t < 300; t++) w.step();
     expect(ringDist(d)).toBeLessThan(before - 100);
+  });
+});
+
+describe('fleet helm — Story 9.13 (epic-9 amendments 191, 192)', () => {
+  it('composeRudder: avoidance claims the helm in proportion to its pressure (the bots\' helmLeft)', () => {
+    // A saturated track against one island term turns AWAY from the island;
+    // the plain sum it replaced (1 + −0.8 = +0.2) turned toward it.
+    expect(composeRudder(1, -0.8)).toBeLessThan(0);
+    expect(composeRudder(-1, 0.8)).toBeGreaterThan(0);
+    // No avoidance: the track term alone. Two terms' worth: avoidance alone.
+    expect(composeRudder(0.4, 0)).toBeCloseTo(0.4);
+    expect(composeRudder(1, -1.6)).toBe(-1);
+  });
+
+  it('a drone whose track is saturated toward an island ahead to port turns AWAY from the land', () => {
+    // Outside the ring, the ring-escape bearing lies 1 rad to port (track
+    // saturated at +1); a small island sits just ahead on the port bow.
+    const w = bareWorld(9, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 1 });
+    const d = fleetShip(w, 'f', 'medium', 0, 0);
+    w.startZone();
+    for (let t = 0; t < 10; t++) w.step();
+    const ring = w.zoneLiveRing;
+    d.state.x = ring.cx + w.map.radius * 0.5;
+    d.state.y = ring.cy;
+    const h = Math.PI - 1;
+    d.state.heading = h;
+    d.state.speed = 0;
+    const fx = Math.cos(h);
+    const fy = Math.sin(h);
+    // port normal = (−fy, fx); the island 70 u ahead and 30 u to port.
+    w.map.islands.push(circleIsland(d.state.x + fx * 70 - fy * 30, d.state.y + fy * 70 + fx * 30, 15));
+    w.step();
+    expect(w.inputs.get('f')!.rudder).toBeLessThan(0); // starboard: away from the port-bow coast
+  });
+
+  it('the un-beach trip arms on the sim\'s own land contact held for CONFIG.bots.stuckMs, even above STUCK_SPEED', () => {
+    const run = (landContact: boolean, ticks: number): number[] => {
+      const w = bareWorld(5);
+      const d = fleetShip(w, 'f', 'medium', 0, 0);
+      const throttles: number[] = [];
+      for (let t = 0; t < ticks; t++) {
+        // Grinding a coast at the grounding cap: 8 u/s, pressed into land.
+        d.state.speed = 8;
+        d.landContact = landContact;
+        w.step();
+        throttles.push(w.inputs.get('f')!.throttle);
+      }
+      return throttles;
+    };
+    const tripTicks = Math.ceil(CONFIG.bots.stuckMs / DT);
+    const grounded = run(true, tripTicks + 2);
+    expect(grounded.slice(0, tripTicks - 1).every((th) => th > 0)).toBe(true); // not before the hold
+    expect(grounded.slice(tripTicks - 1).some((th) => th < 0)).toBe(true); // astern once it is held
+    // The same speed with no land contact never trips.
+    expect(run(false, tripTicks * 3).every((th) => th > 0)).toBe(true);
+  });
+
+  it('a waypoint the fleet makes no progress toward is re-picked after the timeout, not before', () => {
+    const w = bareWorld(11);
+    const d = fleetShip(w, 'f', 'medium', 0, 0);
+    w.step();
+    const wp = w.drones.waypointOf('f')!;
+    expect(dist(d.state, wp)).toBeGreaterThan(200); // a real leg, not an instant reach
+    const ticks = Math.ceil(CONFIG.bots.nav.waypointTimeoutMs / DT);
+    let changedAt = -1;
+    for (let t = 1; t <= ticks + 5 && changedAt < 0; t++) {
+      // Held in place (an island it cannot round): no progress at all. The
+      // reported speed stays above STUCK_SPEED so the slow un-beach trip
+      // (which steers astern and skips the station read) stays out of it.
+      d.state.x = 0;
+      d.state.y = 0;
+      d.state.speed = 5;
+      w.step();
+      const now = w.drones.waypointOf('f')!;
+      if (now.x !== wp.x || now.y !== wp.y) changedAt = t;
+    }
+    expect(changedAt).toBeGreaterThanOrEqual(ticks - 1);
+    expect(changedAt).toBeGreaterThan(0);
   });
 });
 

@@ -163,6 +163,7 @@ import { addDecoy, decoyTarget, type DecoyState } from './decoys.js';
 import { InputStore, clampFireTime, neutralInput } from './inputs.js';
 import { FleetController, fleetSizeOf } from './drones.js';
 import { BotController } from './ai/botDriver.js';
+import { makeBotPort } from './botPort.js';
 import type { AnyProfileId, BotTickEntry } from './ai/types.js';
 import { observe } from './perception.js';
 import {
@@ -1992,7 +1993,10 @@ export class World {
     // Bot decision stream (Story 6.4), decorrelated from every other stream
     // here (0xc2b2ae35 is unused by any of them — see the spawnPhase doc for
     // the roster of constants in use).
-    this.bots = new BotController(this, (seed ^ 0xc2b2ae35) >>> 0);
+    // Story 9.13 (amendment 190): the port is an explicit adapter now —
+    // game/botPort.ts derives the bot's zone readouts from the same public
+    // inputs a client holds (it no longer passes `this`).
+    this.bots = new BotController(makeBotPort(this, this.zoneCfg), (seed ^ 0xc2b2ae35) >>> 0);
     // Drone-drop stream (Eric ruling 2026-10-01), decorrelated from every
     // stream above (0x6c078965 is unused by any of them).
     this.dropRng = mulberry32((seed ^ 0x6c078965) >>> 0);

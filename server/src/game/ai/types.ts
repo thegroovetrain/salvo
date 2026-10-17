@@ -19,11 +19,13 @@
 //    pin test in bots.test.ts (which refuses the very token anywhere in ai/).
 //
 // 2. THE NARROW WORLD PORT (`BotWorldPort` below). The driver's only handle
-//    on the world for clock/map/ring reads and intent writes. World passes
-//    ITSELF — it satisfies the interface structurally — but the driver stores
-//    it AS the port type, and the port deliberately exposes NO ship store of
-//    any kind, so nothing in ai/ can reach world internals without a visible,
-//    reviewable widening of this interface.
+//    on the world for clock/map/ring reads and intent writes. Since Story 9.13
+//    World builds it as an explicit adapter (game/botPort.ts `makeBotPort` —
+//    every field a delegating getter) rather than passing itself, because the
+//    zone readouts the port gained there are derived, not World fields. The
+//    port deliberately exposes NO ship store of any kind, so nothing in ai/
+//    can reach world internals without a visible, reviewable widening of this
+//    interface.
 
 import type {
   GameMap,
@@ -36,6 +38,8 @@ import type {
   LoadoutSlot,
   ShipLifecycle,
   ShipState,
+  Vec2,
+  ZonePhase,
 } from '@salvo/shared';
 import type { PerceptionView } from '../perception.js';
 
@@ -180,11 +184,29 @@ export interface BotTickEntry {
   fogAt(x: number, y: number): number;
 }
 
+/** The zone clock as a bot reads it (Story 9.13, amendment 190): the live
+ *  phase and the ms until the NEXT boundary that matters — the close START
+ *  during clear/supply/reveal, the close END while closing — exactly the
+ *  `closesInMs` a client derives from the shared `zoneLiveState`. Null while
+ *  idle (no timeline yet) and once closed (no close is coming). */
+export interface BotZonePhase {
+  readonly phase: ZonePhase;
+  readonly closesInMs: number | null;
+}
+
 /**
  * THE NARROW WORLD PORT — everything the bot driver needs from World beyond
- * its per-tick entries, and nothing else. World satisfies this structurally
- * and passes itself (world.ts constructs BotController beside
- * FleetController); the driver only ever stores it as this type.
+ * its per-tick entries, and nothing else. World builds it with
+ * game/botPort.ts `makeBotPort` (an object of delegating getters) beside
+ * FleetController; the driver only ever stores it as this type.
+ *
+ * WIDENING RULE. The cycle-110 line "the port may not widen past this one
+ * boolean" (zoneEndgameReached) is SUPERSEDED by epic-9 amendment 190 (Eric
+ * 2026-10-17, human parity) for EXACTLY the three zone readouts below —
+ * `zoneNextRing`, `zonePhase`, `zoneSafeDisc` — each something a human client
+ * is sent or derives from what it is sent (the schema's `zoneNext*`, the
+ * shared zone timeline over `zoneStartT`, and CONFIG.zone's ring ladder).
+ * Every OTHER widening of this interface still needs its own Eric ruling.
  *
  * Deliberately absent: ANY ship store (a bot's own record arrives in its
  * BotTickEntry; everything else reaches it only through the fogged view),
@@ -201,9 +223,23 @@ export interface BotWorldPort {
    *  PARITY, not a widening: the client already receives ring state through
    *  ArenaState every tick, so this boolean discloses nothing a human client
    *  is not sent (epic-6 amendment 32's parity bar; authorized by the
-   *  cycle-110 spec — and the port may not widen past this one boolean).
+   *  cycle-110 spec; its "may not widen past this one boolean" line is
+   *  superseded by amendment 190 for the three zone readouts below only).
    *  Consumed only by the 'endgame' engage gate (BotEngageGate). */
   readonly zoneEndgameReached: boolean;
+  /** The REVEALED next ring (amendment 190) — exactly what the schema's
+   *  `zoneNext*` gives every human: non-null from the live group's reveal
+   *  beat through the end of its close, null otherwise (before the reveal,
+   *  while idle, once closed). Unrevealed geometry never reaches ai/. */
+  zoneNextRing(): ZoneRing | null;
+  /** The zone clock (amendment 190) — see BotZonePhase. */
+  zonePhase(): BotZonePhase;
+  /** THE ALWAYS-SAFE DISC (amendment 200(3)): centred on the LIVE ring with
+   *  r = max(0, 2·r_next − r_live), where r_next is the next rung of the
+   *  public ring LADDER (CONFIG.zone, not the revealed centre). Every next
+   *  ring the timeline can roll contains this disc — pure geometry over
+   *  public numbers. Once closed (no next rung) it is the live ring itself. */
+  zoneSafeDisc(): ZoneRing;
   /** THE BOARDING FREEZE (Story 6.1): false = the helm is dead. The brain
    *  no-ops — no observe, neutral input, fireSeq never advances. */
   readonly helmEnabled: boolean;
@@ -221,7 +257,29 @@ export interface BotWorldPort {
 /** Posture is the one-word answer to "what am I doing this tick"; wave-3
  *  tactics turns it into throttle, rudder and trigger. Chosen on the DECISION
  *  cadence and cached on the mind between deliberations. */
-export type BotPosture = 'engage' | 'pursue' | 'disengage' | 'reposition' | 'farm' | 'ringRun' | 'ram';
+export type BotPosture =
+  | 'engage'
+  | 'pursue'
+  | 'disengage'
+  | 'reposition'
+  | 'farm'
+  | 'ringRun'
+  | 'ram'
+  // Story 9.13 (amendment 193): KITE holds at own reach and opens from a
+  // shorter gun; HIDE breaks off toward cover (fog / island shadow); HOLD
+  // stations in cover at zero throttle waiting for a plot (siege / trapper).
+  | 'kite'
+  | 'hide'
+  | 'hold';
+
+/** A routed path the nav layer built toward `goal` (Story 9.13, amendment
+ *  192(b)): the string-pulled waypoints still ahead and the server ms it was
+ *  built (the re-plan gate reads it). */
+export interface BotRoute {
+  goal: Vec2;
+  waypoints: Vec2[];
+  builtAt: number;
+}
 
 /**
  * A remembered contact — the decayed form of a live Contact or a radar blip
@@ -434,6 +492,36 @@ export interface BotMind {
    *  fold's sweep-miss rule can ask whether a plot's predicted spot sits in
    *  fog. OPTIONAL: absent reads as "no fog anywhere". */
   fogAt?: (x: number, y: number) => number;
+  // -------------------------------------------------------------------------
+  // STORY 9.13 SEATS (amendments 192–202). Created at enroll by botDriver.ts
+  // and released with the life; OPTIONAL so the hand-built test minds that
+  // predate them stay valid — absent reads exactly as the enroll default.
+  // -------------------------------------------------------------------------
+  /** Server ms the current break-off began (the disengage hysteresis,
+   *  amendment 196); null = not disengaged. */
+  disengagedSince?: number | null;
+  /** Server ms the bot last saw or painted any hostile (the broken-contact
+   *  half of amendment 196); -1 = never. */
+  lastContactAt?: number;
+  /** Server ms a ram struck its target (the ram exit, amendment 201); null =
+   *  no strike pending an exit. */
+  ramStruckAt?: number | null;
+  /** The `contacts` key of the last rammed target — never re-armed on it
+   *  until the pair has separated (amendment 201); null = none. */
+  ramTargetKey?: string | null;
+  /** The live routed path (amendment 192(b)); null = steering straight. */
+  route?: BotRoute | null;
+  /** The cover point a HIDE / HOLD posture steers to (amendment 199). */
+  coverPoint?: Vec2 | null;
+  /** The routed idle-patrol waypoint (amendment 202). */
+  patrolWaypoint?: Vec2 | null;
+  /** HITS PER CLICK (amendment 195): track key -> the last `fireSeq` that
+   *  scored a Hit Call on it, so one click counts one hit however many
+   *  `hc` rows its shells raise. */
+  hitClicks?: Map<string, number>;
+  /** The id of the tactic row that fired last (harness readout, Story 9.13;
+   *  stamped by the tactics wave); null = none yet. */
+  lastTactic?: string | null;
 }
 
 /** One remembered torpedo (ai/torpedoThreat.ts): its last revealed kinematics

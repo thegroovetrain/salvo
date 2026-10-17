@@ -51,17 +51,28 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
       'aimScatterU',
       'callsigns',
       'cardPoints', // Story 8.20: the points table replaced `boonWeights` (a DELIBERATE edit to this pin)
+      'contactBrokenMs', // Story 9.13 (epic-9 amendments 192–202): every "9.13" key here is a DELIBERATE edit to this pin
       'contactMemoryMs',
       'decisionCadenceMs',
+      'decoyDemote', // 9.13
+      'decoyStillSweeps', // 9.13
       'disengageHpFrac',
+      'disengageHysteresis', // 9.13
+      'gunBand', // 9.13
       'healHpFrac',
       'hullBumperU', // Story 9.5 review gate: the target / fleet-mate bumper clearance [DRAFT] (a DELIBERATE edit to this pin)
       'hullLookaheadU', // Story 9.5: the hull-avoidance lookahead [DRAFT] (a DELIBERATE edit to this pin)
+      'nav', // 9.13: the navigation block
+      'outnumberedCount', // 9.13
       'preparedMineReserve', // cycle 111: the prepared-lay headroom (a DELIBERATE edit to this pin)
       'profiles',
+      'ramExitMs', // 9.13
       'ramReachU', // Story 9.5: the ram trigger's reach [DRAFT] (a DELIBERATE edit to this pin)
       'reactionMs',
+      'ringLeaveMarginMs', // 9.13
+      'ringOpenMarginMs', // 9.13
       'stuckMs',
+      'supercavCredibleU', // 9.13
       'unbeachAsternMaxMs',
       'unbeachClearU',
       'unbeachHoldMs',
@@ -320,6 +331,41 @@ describe('the ai/ boundary — the removed doors stay removed (review-gate FIX 2
         expect(stmt.startsWith('import type'), `${file} value-imports perception.js: ${stmt}`).toBe(true);
       }
     }
+  });
+});
+
+describe('the narrow world port — its surface is exactly the ruled one', () => {
+  it('World hands the driver a port with exactly these members (amendment 190 widened it by the three zone readouts)', () => {
+    const { w } = botWorld(43, 1);
+    const port = (w.bots as unknown as { port: BotWorldPort }).port;
+    // A member added or dropped is a reviewed edit, not drift. The cycle-110
+    // "one boolean" line (zoneEndgameReached) was superseded by epic-9
+    // amendment 190 (Eric 2026-10-17, human parity) for EXACTLY zoneNextRing,
+    // zonePhase and zoneSafeDisc; anything else still needs a ruling.
+    expect(Object.keys(port).sort()).toEqual([
+      'helmEnabled',
+      'map',
+      'now',
+      'spendPoint',
+      'submitInput',
+      'zoneEndgameReached',
+      'zoneLiveRing',
+      'zoneNextRing', // amendment 190
+      'zonePhase', // amendment 190
+      'zoneSafeDisc', // amendment 200(3), admitted under 190's parity bar
+    ]);
+    // No ship store of any kind rides the port.
+    for (const banned of ['ships', 'shells', 'mines', 'decoys', 'litZones', 'events']) {
+      expect(banned in port, banned).toBe(false);
+    }
+  });
+
+  it('the harness getters read the mind and nothing else (Story 9.13)', () => {
+    const { w, ids } = botWorld(44, 1);
+    expect(w.bots.postureOf(ids[0])).toBe('reposition');
+    expect(w.bots.lastTacticOf(ids[0])).toBeNull();
+    expect(w.bots.postureOf('nobody')).toBeNull();
+    expect(w.bots.lastTacticOf('nobody')).toBeNull();
   });
 });
 
