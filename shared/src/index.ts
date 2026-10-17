@@ -3,6 +3,9 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  89 — Story 9.12: catalog content + CONFIG gun/machineGun/flak/
+ *  gunAttenuation/torpedo/lightTorpedo/supercavTorpedo/mine/captiveMines read
+ *  by the client; nothing new on the wire.
  *  88 — Story 9.10 fog tune 3 (Eric 2026-10-16 on staging, epic-9 amendment
  *  179): the shared field the client draws from changes shape — density is
  *  0 beyond the ocean's rim — so an OLD client would draw fog past the rim
@@ -881,7 +884,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 88;
+export const PROTOCOL_VERSION = 89;
 
 // Tunables
 export * from './constants.js';
@@ -921,6 +924,7 @@ export * from './sim/island.js';
 export * from './sim/aim.js';
 export * from './sim/spread.js';
 export * from './sim/shell.js';
+export * from './sim/attenuation.js';
 export * from './sim/map.js';
 export * from './sim/noise.js';
 export * from './sim/seedText.js';

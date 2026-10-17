@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.61] - 2026-10-16
+
+### Changed
+- **The deck guns, retuned by Eric's math.** Every gun now climbs to twice its Tier I damage output at Tier V, with the faster reload counted inside that. Cannon: shell 8/10/11/12/13, and it fires two barrels at every tier (no barrel upgrades any more); the second turret at III stays. Machine gun: magazine 12/15/18/20/23, a shot every 0.30 down to 0.20 s, damage 5 at every tier, and the full-magazine reload starts at 12.5 s (10.0 s at V). Flak: center damage 16/18/20/22/24, and the third turret is gone (two at most). Sustained damage per second goes cannon 3.2 to 6.5, machine gun 3.73 to 7.88, flak 4.57 to 8.57.
+- **Shots lose a little punch at range.** All three deck guns deal full damage out to half of the gun's range, falling in a straight line to 80 % at max range. It is measured from where the shell left the gun to where it lands, against the gun's range at the moment you fired, so closing or backing off after the shot changes nothing.
+- **Flak's rim is half damage.** The edge of the blast deals half the center's damage (it used to be a flat 10 less).
+- **Pickups hit harder.** Light torpedo 80 to 120, heavy torpedo 90 to 135, naval and captive mines 90 to 135, supercavitating torpedo 150. Torpedo tubes and the captive-mine pool top out at two (the naval-mine pool is unchanged at 2 to 6).
+- **Mines feel the whole blast.** A mine is hurt when its 10 u marker touches a shell's blast, not only when the shell lands on it, and it takes the shell's range-reduced damage. Flak can clear a few mines at once and the cannon's two shells can pop one. The machine gun still has to land within 10 u of the mine.
+- No battle sim was run for this pass. The check is play on staging: about 8 of 16 captains gone per ring.
+- Protocol version 89 (the client reads the new gun, torpedo and mine ladders and the range dial).
+
+### Not changed
+- Broadside, star, phosphor and fouling shells, the 6 / 4 hp bump when a cannon or flak shell strikes a hull directly, every weapon range, hull, armor, heals, the storm and the rings.
+
 ## [0.18.60] - 2026-10-16
 
 ### Changed

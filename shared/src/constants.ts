@@ -227,7 +227,7 @@ export const CONFIG = {
   drones: {
     small: {
       hull: { length: 85, beam: 25 }, // u — legacy 34×10 chevron ×2.5
-      hp: 45, // hit points — 3 captain gun hits (16 dmg since 2026-10-02; was 15) to sink, 15s
+      hp: 45, // hit points — 6 Tier I captain shells (8 dmg, two per click → 3 clicks near; Story 9.12, 2026-10-16) to sink, 15s
       // The self-defence gun. Lives on the ENVELOPE rather than in
       // CONFIG.fleet so effectiveStats() can apply it structurally, with no
       // hull-id parameter threaded through the one derivation path.
@@ -1065,9 +1065,12 @@ export const CONFIG = {
     // four CANNON cards adds (rangeUAtV − rangeU) / 4.
     rangeUAtV: RUNG * 10,
     // AR44: the cannon hits hulls, decoys and — ONLY where its shell LANDS
-    // (amendment 200) — any MINE within `mine.hitRadiusU` of the burst point,
-    // yours included, for its full damage. A shell in flight never touches a
-    // mine, and the burst merely covering one does nothing to it.
+    // (amendment 200) — any MINE whose 10 u marker the blast touches (centre
+    // within `burstRadius + mine.hitRadiusU` of the burst point), yours
+    // included, for the shell's range-attenuated damage (Eric 2026-10-16,
+    // Story 9.12, epic-9 amendment 184(i): the cursor clause and amendment
+    // 200's "a burst that merely covers a mine does nothing" are RETIRED). A
+    // shell in flight never touches a mine.
     hits: HITS_HULL_MINE_DECOY,
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     // BASE pool size. Story 2.8 deliberately RETIRES the single-shot pin: the
@@ -1096,7 +1099,19 @@ export const CONFIG = {
     // much longer range so can be fired safer, so it now does a bit lower
     // damage at each tier to compensate"): the ladder authors +3 on the rungs
     // to III and V → 12/12/15/15/18, max click 3 × 18 = 54 (45 at IV).
-    damage: 12,
+    // RETUNED 12 → 8 (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math;
+    // epic-9 amendments 184–185): every weapon's own ladder reaches ×2 its
+    // Tier I output at Tier V): the ladder authors +2 / +1 / +1 / +1 →
+    // 8/10/11/12/13 on TWO barrels at every tier, so the max click is
+    // 2 × 13 = 26 (damageGuardrail.test reads the ceiling from the fold).
+    // Every blow is range-attenuated (`gunAttenuation` below).
+    damage: 8,
+    // shells per click — TWO BARRELS AT EVERY TIER, FIXED (Eric 2026-10-16,
+    // Story 9.12, forge weapon-balance-math; epic-9 amendments 184–185): no
+    // barrel rungs. Promoted from the literal 1 in sim/stats.ts gunRow (the
+    // CANNON ladder's rungs to II and IV used to add one each → 1,2,2,3,3).
+    // PvE fleet envelopes (`cls.gun` present) keep ONE barrel.
+    barrels: 2,
     // hp to an early interceptor outside the blast (bodyblock). RETUNED 10 → 6
     // (Eric ruling 2026-08-04, weapon balance pass) — held at 40% of the then
     // 15 `damage`, the ratio the bodyblock was tuned at. NOT re-derived for the
@@ -1129,21 +1144,26 @@ export const CONFIG = {
    * cancels it and it restarts from the full time when the stream stops
    * again; an EMPTY magazine's reload cannot be interrupted; a completed
    * reload always FILLS the magazine (amendment 103: every reload takes the
-   * full time — 12 s at tier I since 2026-10-02, amendment 232).
+   * full time — 12.5 s at tier I since Eric 2026-10-16, Story 9.12; 12 s from
+   * 2026-10-02, amendment 232).
    *
    * DIRECT-HIT SHELLS WITH NO BURST: a shell that strikes a hull deals `damage`
    * on contact; a shell reaching its aim point simply EXPIRES (the shooter's
    * `sp` splash, no `burst` event). A shell that arrives within
-   * `mine.hitRadiusU` of a mine deals its `damage` to the mine's hp (amendment
-   * 200 — two tier-I shells pop one since 2026-10-02, amendment 232); a shell in flight never touches a mine
-   * (amendment 20), and one spent on a hull on the way never arrives. NO
-   * `burstRadius`. Range is its own tiered dial since Story 9.8 (ruling 125:
-   * 6/12 → 7/12), no longer the radar rung. 360° (amendment 106: "There
-   * is no 'arc.'"). Its ladder (+4 shells and −50 ms of shot delay per tier,
-   * +1 damage on the rungs to II and IV only — magazine 12/16/20/24/28,
-   * damage 5/6/6/7/7, delay 0.30 → 0.10 s, Eric 2026-10-02, epic-8 amendment
-   * 232 — and −5 % reload from the tier step) is the `machineGun` catalog
-   * line. Every number is a harness dial.
+   * `mine.hitRadiusU` of a mine deals its range-attenuated `damage` to the
+   * mine's hp (amendment 200; no cursor term since Story 9.12, epic-9
+   * amendment 184(i)) — two shells pop one near, three far; a shell in flight
+   * never touches a mine (amendment 20), and one spent on a hull on the way
+   * never arrives. NO `burstRadius`. Every hit is range-attenuated
+   * (`gunAttenuation` below). Range is its own tiered dial since Story 9.8
+   * (ruling 125: 6/12 → 7/12), no longer the radar rung. 360° (amendment
+   * 106: "There is no 'arc.'"). Its ladder (Eric 2026-10-16, Story 9.12
+   * (forge weapon-balance-math; epic-9 amendments 184–185): magazine
+   * +3 / +3 / +2 / +3 → 12/15/18/20/23, shot delay −25 ms per tier → 0.30 /
+   * 0.275 / 0.25 / 0.225 / 0.20 s, damage 5 FLAT — no damage rungs — and −5 %
+   * reload from the tier step, 12.5 → 10.0 s; was magazine 12/16/20/24/28,
+   * damage 5/6/6/7/7, delay 0.30 → 0.10 s, 2026-10-02, epic-8 amendment 232)
+   * is the `machineGun` catalog line. Every number is a harness dial.
    */
   machineGun: {
     arc: 'full', // 360° — amendment 106
@@ -1153,8 +1173,8 @@ export const CONFIG = {
     shellSpeed: 500, // u/s — the gun family's muzzle velocity (amendment 103)
     maxAmmo: 12, // shells — the MAGAZINE at tier I (Eric 2026-10-02, amendment 232; was 16)
     rateMs: 300, // ms — one shell per 0.30 s while held at tier I (Eric 2026-10-02, amendment 232; was 350, earlier 500)
-    reloadMs: 12000, // ms — the full-magazine reload, always the whole 12 s at tier I (Eric 2026-10-02, amendment 232; was 10 s, earlier 15 s)
-    damage: 5, // hp per shell (Eric 2026-10-02, amendment 232; was 4) — two tier-I shells pop a 10 hp mine
+    reloadMs: 12500, // ms — the full-magazine reload, always the whole 12.5 s at tier I → 10.0 s at V (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); was 12 s, 2026-10-02, amendment 232; earlier 10 s, 15 s)
+    damage: 5, // hp per shell at EVERY tier — no damage rungs since Eric 2026-10-16, Story 9.12 (2026-10-02, amendment 232; was 4) — two near shells pop a 10 hp mine, three far (attenuated to 4)
     shellRadius: 2, // u — shell collision radius (the gun family's)
   },
 
@@ -1174,12 +1194,15 @@ export const CONFIG = {
    * weapon for killing other players first). The `ordnance` half (enemy fish
    * in flight inside the blast) is a SIDE EFFECT that might go away
    * (amendment 105) — nothing in the design, copy or balance may lean on it.
-   * `mine`, as for every deck gun, is by LANDING on it only (amendment 200).
-   * Its ladder (damage +8 per tier → 20/28/36/44/52 since Eric 2026-10-13,
-   * experiment, Story 9.8 — "Flak is now higher damage per second but
-   * requires you to be closer"; was 12/20/28/36/44, 2026-10-02, epic-8
-   * amendment 232; −5 % reload per tier; blast FIXED) is the `flak` catalog
-   * line.
+   * `mine`, as for every deck gun, is by LANDING only (amendment 200): since
+   * Story 9.12 every mine whose 10 u marker the 50 u blast touches takes the
+   * attenuated blow (epic-9 amendment 184(i)), so a flak shell clears a few.
+   * Its ladder (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math;
+   * epic-9 amendments 184–185): damage +2 per tier → 16/18/20/22/24, the
+   * second turret on the rung to II ONLY → pool 1,2,2,2,2; −5 % reload per
+   * tier, 3.5 → 2.8 s; blast FIXED; was +8 per tier → 20/28/36/44/52 with
+   * turrets at II and IV, the 2026-10-13 experiment, Story 9.8) is the `flak`
+   * catalog line. Every blow is range-attenuated (`gunAttenuation` below).
    * Every number is a harness dial.
    */
   flak: {
@@ -1190,25 +1213,52 @@ export const CONFIG = {
     shellSpeed: 500, // u/s (amendment 105)
     maxAmmo: 1, // one shell (amendment 105)
     reloadMs: 3500, // ms (4 s → 3.5 s, Eric 2026-10-02, epic-8 amendment 232; was 6 s → 4 s, amendment 210; amendment 105's 6 s before) — the −5 %/tier step runs it to 2.8 s at V
-    damage: 20, // hp per burst victim (amendment 105; 12 → 20 Eric 2026-10-13, experiment)
+    damage: 16, // hp per burst victim at the centre (amendment 105; 12 → 20 Eric 2026-10-13, experiment; 20 → 16 Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185))
     // hp to an early interceptor — a FIXED 4 hp bodyblock, derived ONCE from
     // the then base damage (floor(40 % × 12), like `gun.contactDamage`) and NOT
     // re-derived per tier: the ladder's damage steps never move it. Held at 4
-    // through the 2026-10-13 base move 12 → 20 (only the numbers Eric names
-    // change).
+    // through the 2026-10-13 base move 12 → 20 and the 2026-10-16 move
+    // 20 → 16 (only the numbers Eric names change; ruling 184(c): never
+    // range-attenuated).
     contactDamage: 4,
     burstRadius: 50, // u — FIXED; the ladder never grows it (amendment 105)
-    // THE BURST'S EDGE FALLOFF (Story 9.8, Eric 2026-10-13, verbatim: *"the damage
-    // should scale from D at the very center to D-10 at the very edge. Meaning
-    // even though it has a nice wide burst, it pays to be accurate, because you
-    // take deal damage based on the best result for how close the ship is to
-    // the center of the blast."*). A caught hull takes
-    // `floor(damage − edgeFalloff × nearest / burstRadius)` where `nearest` is
-    // the distance from the burst centre to the NEAREST point of its outline
-    // (0 inside) — a whole number BEFORE the one damage gate. FLAK ONLY; the
-    // harness reaches it as `--tune flak.edgeFalloff` (floor 0).
-    edgeFalloff: 10, // hp — D at the centre, D − 10 at the rim
+    // THE BURST'S RIM FALLOFF (Eric 2026-10-16, Story 9.12 (forge
+    // weapon-balance-math; epic-9 amendments 184–185): "rim = half damage";
+    // replaces the flat D − 10 `edgeFalloff` of 2026-10-13, Story 9.8). The
+    // rim deals HALF the centre damage, proportional by the NEAREST point of
+    // the caught hull's outline (0 inside): the blow is
+    // `damage × (1 − rimFactor × clamp01(nearest / burstRadius))`, times the
+    // range attenuation, floored ONCE to a whole number (floor 1) before the
+    // one damage gate (sim/attenuation.ts `flakRimFactor` / `settleBlow`).
+    // FLAK ONLY; the harness reaches it as `--tune flak.rimFactor` on [0, 1].
+    rimFactor: 0.5, // fraction of the centre damage lost at the very rim
     shellRadius: 2, // u — shell collision radius (the gun family's)
+  },
+
+  /**
+   * DECK-GUN RANGE ATTENUATION (Eric 2026-10-16, Story 9.12 (forge
+   * weapon-balance-math; epic-9 amendments 184–185), forge lock verbatim:
+   * *"RANGE ATTENUATION on every deck gun: full damage out to ~50 % of the
+   * gun's range, then falls gradually to ~80 % at max range (reason: reward
+   * moving in a bit)"*). ONE shared block read identically by the cannon, the
+   * machine gun and the flak gun (ruling 184(f)).
+   *
+   * LINEAR: factor 1 while the shell has flown ≤ `fullFrac` of the reference,
+   * falling linearly to `minFactor` at 100 %, CLAMPED at `minFactor` beyond
+   * (a lit-zone-lifted shot). The distance is the shell's LAUNCH POINT → its
+   * impact point (the distance it actually flew), and the reference is the
+   * firer's effective gun `rangeU` AT FIRE TIME — never the lit-zone-lifted
+   * reach (ruling 184(b)). The whole blow (flak: × the rim falloff) is
+   * multiplied by the factor, floored ONCE to a whole number with a floor of
+   * 1, BEFORE the armor gate (ruling 184(c)); the cannon/flak bodyblock
+   * `contactDamage` is NOT attenuated. Mines a deck-gun shell lands on take
+   * the attenuated blow too (Eric 2026-10-16, ruling 184(i)). The pure curve
+   * is sim/attenuation.ts `rangeAttenuation`; `--tune gunAttenuation.*` on
+   * [0, 1] with `fullFrac < 1`.
+   */
+  gunAttenuation: {
+    fullFrac: 0.5, // fraction of the firer's rangeU flown at full damage
+    minFactor: 0.8, // damage factor at (and beyond) the firer's rangeU
   },
 
   /**
@@ -1258,8 +1308,10 @@ export const CONFIG = {
     // even roster, the torpedo is the dial that trades the Torpedo Boat against
     // the Mine Layer — 50 put TB at 33.3 % and ML at 31.9 %, where 45 overshot
     // (ML 40.0 %) and 60 undershot (TB 46.1 %). It does NOT move the Battleship.
-    damage: 50,
-    maxAmmo: 1, // one fish in the tube pool
+    // RETUNED 50 → 90 (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): pickups are the alpha; the HEAVY TORPEDO line
+    // authors +11 / +11 / +11 / +12 → 90/101/112/123/135 (ruling 184(d)).
+    damage: 90,
+    maxAmmo: 1, // one fish in the tube pool; the line's +0.5 on the rungs to II and III only → tubes 1,1,2,2,2
     // ms — reload between fish (commitment spike). RETUNED 12000 → 30000 (Eric
     // ruling 2026-08-04, weapon balance pass): the heavier warhead buys a much
     // longer commitment cycle. A max shipCooldown build (5 copies,
@@ -1325,8 +1377,8 @@ export const CONFIG = {
     offset: deg(90), // the twin sector's CENTER bearing — ±90° = both beams
     halfArc: deg(45), // ±45° about each beam (90° dead zones fore and aft, R18)
     speed: 45, // u/s — tier I (R18); tiers II–V add +2.5 each → 55 at V
-    damage: 40, // hp per contact hit — tier I (R18); +5/tier → 60 at V
-    maxAmmo: 1, // tubes — tier I (R18); +0.5/tier, FLOORED → 1,1,2,2,3
+    damage: 80, // hp per contact hit — tier I; +10/tier → 120 at V (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); was 40 +5, R18)
+    maxAmmo: 1, // tubes — tier I (R18); +0.5 on the rungs to II and III only, FLOORED → 1,1,2,2,2 (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); was 1,1,2,2,3)
     reloadMs: 25000, // ms — tier I (R18); the −5 %/tier step lands V on 20 s
     // AR44: a torpedo hits hulls and decoys — it runs UNDER a minefield.
     hits: HITS_HULL_DECOY,
@@ -1355,7 +1407,7 @@ export const CONFIG = {
     offset: deg(0), // bow-centered
     halfArc: deg(15), // ±15° bow sector (amendment 74, R19's arc kept)
     speed: 195, // u/s (amendment 74, R19's speed kept)
-    damage: 85, // hp per contact hit — 50 → 85, Eric 2026-10-01 (cycle 162; supersedes amendment 74's "R19's damage kept")
+    damage: 150, // hp per contact hit — 85 → 150, Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); 50 → 85, Eric 2026-10-01 (cycle 162; supersedes amendment 74's "R19's damage kept")
     // AR44: hulls and decoys, never a mine — it runs UNDER a minefield.
     hits: HITS_HULL_DECOY,
   },
@@ -1373,7 +1425,7 @@ export const CONFIG = {
    * every ARMED NAVAL mine, whoever laid it, whose centre lies within its
    * blast radius; fouling and captive mines neither propagate nor receive.
    * Every mine carries `hp` that only a deck gun's shell landing on it takes
-   * (amendment 200). Every number is a DESIGN TARGET, tunable.
+   * (amendment 200; by blast reach, attenuated, since Story 9.12). Every number is a DESIGN TARGET, tunable.
    */
   mine: {
     // astern — RATIFIED class-era stern bearing (Eric 2026-07-23; sim/arcs.ts).
@@ -1415,7 +1467,9 @@ export const CONFIG = {
     // GONE (`mineDamage`, deleted in Story 7-5 wave 1), so 55 is now the mine's
     // damage at every build — and it still clears the 45hp small drone at base,
     // which is the Mine Layer fleet-farming ruling (2026-08-16).
-    damage: 55,
+    // RETUNED 55 → 90 (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): the NAVAL MINES line authors +11 / +11 / +11 /
+    // +12 → 90/101/112/123/135 (ruling 184(d)).
+    damage: 90,
     // stored drops in the ammo pool (one refilled per reload). RETUNED 1 → 2
     // (Eric ruling 2026-08-04, weapon balance pass): a Mine Layer could not lay
     // a FIELD with a one-deep rack. This is a BASE change with no new
@@ -1437,22 +1491,25 @@ export const CONFIG = {
     //
     // AR44: a mine TRIPS on hulls only — a decoy, a buoy or another mine
     // sailing into its ring is not a hull and must not set it off (remote
-    // minefield clearing is a mechanic nobody ruled on; CLICKING ON the mine,
-    // with a deck gun, is the sanctioned way — amendment 200).
+    // minefield clearing is a mechanic nobody ruled on; LANDING a deck-gun
+    // shell on it is the sanctioned way — amendment 200, as widened by 184(i)).
     hits: HITS_HULL,
     // hp — EVERY mine (naval, captive, fouling) carries this many hit points,
     // SERVER-SIDE ONLY, never on the wire (Eric 2026-10-01, amendment 200).
-    // Only a DECK GUN shell (cannon, flak, machine gun) that LANDS on the mine
-    // takes them, for the shell's full damage: cannon and flak pop one in a
-    // single shell, the machine gun needs two at every tier (5..7 hp a shell,
-    // amendment 232). Nothing else ever
-    // damages a mine. At 0 a naval/fouling mine detonates; a captive is
+    // Only a DECK GUN shell (cannon, flak, machine gun) that LANDS takes them
+    // (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185), ruling 184(i)): a shell's whole blast radius + `hitRadiusU`
+    // reaches a mine (the machine gun, with no blast, keeps 10 u), the blow is
+    // attenuated by distance, so a Tier I cannon needs both shells (8 + 8) or
+    // two clicks, flak one, the machine gun two near and three far. Nothing
+    // else ever damages a mine. At 0 a naval/fouling mine detonates; a captive is
     // destroyed (a boom, no blast, no fish).
     hp: 10,
-    // u — "ON the mine" (amendment 201(a)): a shell landing within this
-    // distance of a mine's centre damages it. It IS the marker ring the client
-    // draws (`client/src/render/mines.ts` RING_R reads it) — one number for
-    // the cursor pointing at the mine, read by both sides (PROTOCOL_VERSION 66).
+    // u — the mine's MARKER DISC (amendment 201(a)): a shell whose blast
+    // touches it (centre within `burstRadius + hitRadiusU` of the landing
+    // point — just this for the blastless machine gun) damages it; the cursor
+    // test is retired (Story 9.12, epic-9 amendment 184(i)). It IS the marker
+    // ring the client draws (`client/src/render/mines.ts` RING_R reads it),
+    // read by both sides (PROTOCOL_VERSION 66).
     hitRadiusU: 10,
     // PROP FOULING LEFT THIS BLOCK (Eric ruling 2026-09-19, epic-8 amendment
     // 81): the FOULING MINES add-on is deleted and fouling became its OWN
@@ -1504,12 +1561,13 @@ export const CONFIG = {
    * die-distance, and only once its turn rate is above zero.
    *
    * `[DRAFT]` LIFTED on the pool/reload pair (Eric ruling 2026-09-19,
-   * amendment 77): 1 held and 20 s, NOT the naval numbers — tiers II–V give
-   * +0.5 held (2 at III, 3 at V) and −5 % reload (16 s at V).
+   * amendment 77): 1 held and 20 s, NOT the naval numbers — the rungs to II
+   * and III give +0.5 held (2 at III and after — capped at two, Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); was
+   * 3 at V) and every tier −5 % reload (16 s at V).
    */
   captiveMines: {
     reloadMs: 20000, // ms — tier I (amendment 77); −5 %/tier → 16 s at V
-    maxAmmo: 1, // held mines — tier I (amendment 77); +0.5/tier, FLOORED → 1,1,2,2,3
+    maxAmmo: 1, // held mines — tier I (amendment 77); +0.5 on the rungs to II and III only, FLOORED → 1,1,2,2,2 (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); was 1,1,2,2,3)
     // 144 → 120 (Story 9.1 session 3, Eric 2026-10-08, off the mine experiments:
     // the captive mine "can upgrade to having a range where they will fire before
     // even being seen pretty quickly" — with detect at 330 u and ×1.1/tier the
@@ -1517,7 +1575,7 @@ export const CONFIG = {
     triggerRadius: 120, // u — the TRIP ring at tier I (R25; 144 until 2026-10-08)
     triggerStepPerTier: 1.1, // × per tier on the trip ring (amendment 84d) → 210.8 u at V
     blastRadius: 32, // u — the fish's burst. FIXED: it never steps (amendment 84d)
-    damage: 55, // hp — the fish's warhead at tier I (R25); +5/tier → 75 at V
+    damage: 90, // hp — the fish's warhead at tier I; +11/+11/+11/+12 → 135 at V (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); was 55 +5, R25)
     // The naval chassis is SHARED, not duplicated: the rear placement sector
     // (`CONFIG.mine.offset` / `placeHalfArcDeg`), the 150 u leash
     // (`placeRange`) and the 3 s `armDelay` are read from `CONFIG.mine`.
