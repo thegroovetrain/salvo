@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-10-16'
 status: 'done'
 baseline_revision: '42b5067a'
+final_revision: 'a980405e (PR #291 to development, 2026-10-17)'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
