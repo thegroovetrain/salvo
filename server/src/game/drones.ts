@@ -47,18 +47,25 @@
 //
 // STEERING is dumb on purpose — this is self-defence, not an AI opponent
 // (Epic 6 owns combat bots). Priority order:
-//   1. outside the ring   -> beeline for the LIVE ring centre. Fleet ships are
-//      ruled never to leave the ring, so this outranks even a live target;
+//   1. outside the ring   -> back into it down the ring's FLOW FIELD (Story
+//      9.13, epic-9 amendments 191/192: the map is public, so a fleet plans
+//      its water route over it — game/navCache.ts), around the land rather
+//      than bow-on into it. Fleet ships are ruled never to leave the ring, so
+//      this outranks even a live target;
 //   2. un-beaching        -> if we have been commanding ahead and going
 //      nowhere, back off astern for a moment and turn out;
 //   3. a target           -> steer at its last known position;
 //   4. otherwise          -> the FLEET's shared waypoint plus this hull's own
 //      constant formation offset, so the six travel together and hold roughly
 //      the spread they spawned with (which is what keeps the witness rule
-//      meaningful at 9:00 and not only at 1:00).
-// Island, hull and map-edge avoidance are summed and composed onto the rudder
-// on top of all four with the bots' `helmLeft` weighting (Story 9.13 —
-// `composeRudder`): avoidance claims the helm in proportion to its pressure.
+//      meaningful at 9:00 and not only at 1:00). A waypoint the lead member
+//      cannot see in a straight line on the nav grid gets ONE fleet-level
+//      route at pick time (Story 9.13, amendment 192(b)); a hull whose own
+//      line to its station is blocked steers for the route's next point.
+// Island avoidance is the bots' graded multi-ray fan on the nav grid
+// (ai/navigate.ts rayAvoidance, amendment 192(c)); it, hull and map-edge
+// avoidance are composed onto the rudder with the bots' `helmLeft` weighting
+// (`composeRudder`): avoidance claims the helm in proportion to its pressure.
 // The waypoint is re-picked if without progress for CONFIG.bots.nav.waypointTimeoutMs, and the
 // un-beach trip also arms on the sim's own land contact (Story 9.13).
 
@@ -73,37 +80,42 @@ import {
   isOutside,
   isSinking,
   islandDistance,
+  lineClear,
   mulberry32,
-  nearestCoastPoint,
   SLOT_GUN,
   wrapAngle,
   type DroneSizeId,
   type InputMsg,
-  type Island,
   type Rng,
   type Vec2,
+  type ZoneRing,
 } from '@salvo/shared';
 import { shipSees, sightOf, type SightField } from './signals.js';
 import { leadIntercept } from './lead.js';
 import { isFleetHull } from './participants.js';
-import { IslandBuckets } from './islandBuckets.js';
+import {
+  RUDDER_GAIN,
+  avoidReachU,
+  boundaryBias,
+  clampUnit,
+  composeRudder,
+  pointBias,
+  rayAvoidance,
+  ringRunBearing,
+} from './ai/navigate.js';
+import type { NavCache } from './navCache.js';
 import type { ShipRecord, World } from './world.js';
+
+/** The fleet helm's composition, shared with the bots (ai/navigate.ts). */
+export { composeRudder } from './ai/navigate.js';
 
 const TAU = Math.PI * 2;
 const ORIGIN: Vec2 = { x: 0, y: 0 };
 
 /** Distance (u) at which a fleet considers its shared waypoint reached. */
 const WAYPOINT_REACH = 120;
-/** Lookahead (u) along heading for the island-avoidance probe. */
-const ISLAND_LOOKAHEAD = 120;
 /** Clearance (u) a waypoint must keep from any island (else it is rejected). */
 const ISLAND_CLEARANCE = 30;
-/** Steer back toward center once within this distance (u) of the map boundary. */
-const BOUNDARY_MARGIN = 80;
-/** Proportional gain turning heading error into rudder. */
-const RUDDER_GAIN = 2;
-/** Rudder magnitude an active avoidance override contributes. */
-const AVOID_STRENGTH = 0.8;
 /** Waypoints are picked within this fraction of the current zone radius. */
 const WAYPOINT_ZONE_FRACTION = 0.8;
 /** Cruise throttle while roving (they are not in a hurry). */
@@ -126,12 +138,6 @@ const UNBEACH_MS = 1500;
 // fleet's closest member gaining WAYPOINT_REACH (120 u) on its best distance
 // so far re-arms the clock — so an honest 4,000 u leg at an 18–24 u/s cruise
 // is never cut short.
-
-function clampUnit(v: number): number {
-  if (v < -1) return -1;
-  if (v > 1) return 1;
-  return v;
-}
 
 /** Per-hull memory. `offset` is CONSTANT for the hull's life — it is both the
  *  spawn scatter and the formation station, which is why the fleet keeps its
@@ -175,6 +181,11 @@ interface Fleet {
    *  state, reset at every pick. */
   bestDist: number;
   progressAt: number;
+  /** THE FLEET ROUTE (Story 9.13, amendment 192(b)): the string-pulled water
+   *  path from the lead member to `waypoint`, built ONCE at pick time when the
+   *  straight line is blocked on the nav grid; null = sailing straight. Its
+   *  points are popped as the lead member reaches them. */
+  route: Vec2[] | null;
 }
 
 /**
@@ -203,9 +214,6 @@ export class FleetController {
   /** Every afloat-or-sinking hull, snapshotted ONCE per tick() (reused array,
    *  no per-tick allocation) — the avoidance loop's candidate list. */
   private readonly solids: ShipRecord[] = [];
-  /** Static island grid (islandBuckets.ts) — a drone reads only the islands
-   *  filed in its own cell, never the whole map's list. */
-  private readonly islandGrid = new IslandBuckets(ISLAND_LOOKAHEAD);
   /** See FleetProbeCounts. */
   readonly probe: FleetProbeCounts = { hullPairs: 0, ashoreTests: 0 };
 
@@ -234,6 +242,7 @@ export class FleetController {
         members: new Set(),
         bestDist: Infinity,
         progressAt: 0,
+        route: null,
       });
     }
     this.fleets.get(fleetId)?.members.add(id);
@@ -268,6 +277,13 @@ export class FleetController {
   /** Read a hull's current target (testing/inspection only). */
   targetOf(id: string): string | null {
     return this.minds.get(id)?.targetId ?? null;
+  }
+
+  /** Read a fleet's route (testing/inspection only): the points still ahead,
+   *  or null when the fleet is sailing straight. */
+  routeOf(id: string): readonly Vec2[] | null {
+    const mind = this.minds.get(id);
+    return mind ? (this.fleets.get(mind.fleetId)?.route ?? null) : null;
   }
 
   /** Read a fleet's shared waypoint (testing/inspection only). */
@@ -360,7 +376,7 @@ export class FleetController {
   tick(): void {
     this.snapshotSolids();
     this.field = this.sightField();
-    this.islandGrid.sync(this.world.map.islands, this.world.map.radius);
+    for (const fleet of this.fleets.values()) this.advanceRoute(fleet);
     for (const [id, mind] of this.minds) {
       const ship = this.world.ships.get(id);
       if (!ship) {
@@ -425,7 +441,7 @@ export class FleetController {
     const unbeaching = this.updateStuck(ship, mind);
     const brg = this.steerTarget(ship, mind, unbeaching);
     const track = clampUnit(angleDiff(ship.state.heading, brg) * RUDDER_GAIN);
-    const avoid = this.avoidIslands(ship) + this.avoidHulls(ship, mind) + this.boundaryBias(ship);
+    const avoid = this.avoidIslands(ship, brg) + this.avoidHulls(ship, mind) + boundaryBias(ship.state, this.world.map.radius);
     const rudder = composeRudder(track, avoid);
     const shot = this.wantsShot(ship, mind);
     mind.seq += 1;
@@ -477,19 +493,67 @@ export class FleetController {
   /** The bearing this hull wants to hold, applying the four overrides. */
   private steerTarget(ship: ShipRecord, mind: FleetMind, unbeaching: boolean): number {
     const pos = ship.state;
-    // Override 1: outside the ring -> beeline for the LIVE ring centre. Fleet
-    // ships are ruled never to leave the ring, so this outranks a live target.
+    // Override 1: outside the ring -> back in down the ring's flow field
+    // (Story 9.13). Fleet ships are ruled never to leave the ring, so this
+    // outranks a live target.
     const ring = this.world.zoneLiveRing;
-    if (isOutside(pos, ring.cx, ring.cy, ring.r)) {
-      return bearing(pos, { x: ring.cx, y: ring.cy });
-    }
+    if (isOutside(pos, ring.cx, ring.cy, ring.r)) return ringRunBearing(pos, this.nav, this.ringGoal());
     // Override 2: while backing off an island, aim AWAY from where we were
     // pointed so the reverse actually unwinds the grounding.
     if (unbeaching) return wrapAngle(pos.heading + Math.PI);
     // Override 3: a target -> its last known position.
     if (mind.lastKnown) return bearing(pos, mind.lastKnown);
-    // Override 4: this hull's station on the fleet's shared waypoint.
-    return bearing(pos, this.stationOf(mind));
+    // Override 4: this hull's station on the fleet's shared waypoint — or,
+    // while the fleet is routed and this hull's own line is blocked, the
+    // route's next point (Story 9.13).
+    const station = this.stationOf(mind);
+    const head = this.fleets.get(mind.fleetId)?.route?.[0];
+    if (head !== undefined && !lineClear(this.nav.grid, pos, station)) return bearing(pos, head);
+    return bearing(pos, station);
+  }
+
+  /** The map's nav cache (World.nav — one per map, game/navCache.ts). */
+  private get nav(): NavCache {
+    return this.world.nav;
+  }
+
+  /** The ring a return run is FOR: the revealed next ring while there is one
+   *  (the close converges on it, and its field is static), else the live
+   *  ring — never a per-tick moving ring, so a field is built once per ring. */
+  private ringGoal(): ZoneRing {
+    return this.world.zoneRevealedNextRing ?? this.world.zoneLiveRing;
+  }
+
+  /** The fleet's lead member: its first afloat hull (insertion order). */
+  private leadOf(fleet: Fleet): ShipRecord | null {
+    for (const id of fleet.members) {
+      const ship = this.world.ships.get(id);
+      if (ship && isAfloat(ship.lifecycle)) return ship;
+    }
+    return null;
+  }
+
+  /** Pop the route points the lead member has reached (once per fleet per
+   *  tick), re-arming the progress clock on each pop; an emptied route is
+   *  dropped (the fleet sails straight for the waypoint). */
+  private advanceRoute(fleet: Fleet): void {
+    const route = fleet.route;
+    if (route === null) return;
+    const lead = this.leadOf(fleet);
+    if (lead === null) return;
+    while (route.length > 0 && dist(lead.state, route[0]) < WAYPOINT_REACH) {
+      route.shift();
+      fleet.bestDist = Infinity;
+      fleet.progressAt = this.world.now;
+    }
+    if (route.length === 0) fleet.route = null;
+  }
+
+  /** The fleet-level route to a fresh waypoint: one A* at pick time, only
+   *  when the lead member's straight line is blocked on the grid. */
+  private routeFleet(fleet: Fleet, wp: Vec2): void {
+    const lead = this.leadOf(fleet);
+    fleet.route = lead !== null && !lineClear(this.nav.grid, lead.state, wp) ? this.nav.routeTo(lead.state, wp) : null;
   }
 
   /** This hull's steer-to point: the fleet waypoint plus its constant station
@@ -514,8 +578,10 @@ export class FleetController {
   private needsWaypoint(fleet: Fleet): boolean {
     const wp = fleet.waypoint;
     if (!wp || fleet.ashore) return true;
-    const best = this.closestMember(fleet, wp);
-    if (best < WAYPOINT_REACH) return true;
+    if (this.closestMember(fleet, wp) < WAYPOINT_REACH) return true;
+    // Progress is measured toward the route's next point while routed (a
+    // detour round an island need not close the straight-line gap).
+    const best = this.closestMember(fleet, fleet.route?.[0] ?? wp);
     const now = this.world.now;
     if (best <= fleet.bestDist - WAYPOINT_REACH) {
       fleet.bestDist = best;
@@ -548,6 +614,7 @@ export class FleetController {
       if (!this.insideIsland(p)) {
         fleet.waypoint = p;
         fleet.ashore = false;
+        this.routeFleet(fleet, p);
         return;
       }
     }
@@ -556,6 +623,7 @@ export class FleetController {
     const centre = { x: ring.cx, y: ring.cy };
     fleet.waypoint = centre;
     fleet.ashore = this.insideIsland(centre);
+    fleet.route = null;
   }
 
   /** Pull a point back inside the live ring so a station offset can never
@@ -579,16 +647,13 @@ export class FleetController {
     return this.world.map.islands.some((isle) => islandDistance(p, isle) <= ISLAND_CLEARANCE);
   }
 
-  /** Sum a rudder bias steering away from every coastline ahead. */
-  private avoidIslands(ship: ShipRecord): number {
+  /** The island term: the bots' graded multi-ray fan on the nav grid (Story
+   *  9.13, amendment 192(c)), reach = CONFIG.bots.nav.avoidReachTurnRadii own
+   *  turn radii — at most ~150 u for a drone, inside its 500 u sight, so
+   *  amendment 139's sight scope holds by construction. */
+  private avoidIslands(ship: ShipRecord, want: number): number {
     const { x, y, heading } = ship.state;
-    const fx = Math.cos(heading);
-    const fy = Math.sin(heading);
-    let bias = 0;
-    for (const isle of this.islandGrid.near(x, y)) {
-      bias += islandBias(isle, x, y, fx, fy);
-    }
-    return bias;
+    return rayAvoidance(this.nav.grid, x, y, heading, avoidReachU(ship.stats), want);
   }
 
   /**
@@ -627,13 +692,6 @@ export class FleetController {
       bias += pointBias(other.state.x, other.state.y, x, y, fx, fy, reach);
     }
     return bias;
-  }
-
-  /** Near the map edge, steer back toward center. */
-  private boundaryBias(ship: ShipRecord): number {
-    const pos = ship.state;
-    if (Math.hypot(pos.x, pos.y) < this.world.map.radius - BOUNDARY_MARGIN) return 0;
-    return clampUnit(angleDiff(pos.heading, bearing(pos, ORIGIN))) * AVOID_STRENGTH;
   }
 
   /**
@@ -676,65 +734,6 @@ export class FleetController {
     const r = Math.sqrt(mind.rng.next()) * scatter;
     return { x: led.x + Math.cos(a) * r, y: led.y + Math.sin(a) * r };
   }
-}
-
-/**
- * THE HELM COMPOSITION (Story 9.13, epic-9 amendment 192(c)) — the bots'
- * `helmLeft` idiom (ai/tactics.ts helmFor), copied rather than imported:
- * avoidance yields the helm in proportion to its own pressure,
- * `track · max(0, 1 − |avoid|) + avoid`. The plain sum it replaces let a
- * track term saturated at ±1 out-vote one −0.8 island term and net a turn
- * TOWARD the land the probe had just found.
- */
-export function composeRudder(track: number, avoid: number): number {
-  const helmLeft = Math.max(0, 1 - Math.abs(avoid));
-  return clampUnit(track * helmLeft + avoid);
-}
-
-/**
- * Rudder bias steering away from one island's COASTLINE, or 0 if it is not a
- * threat ahead. Keyed on the nearest point on the real coast rather than the
- * bounding-circle centre, so a hull hugs the shape of a ridge or a cove mouth
- * instead of arcing around a phantom circle (the tip of a long landmass can be
- * dead ahead while its centre is abeam — the centre test missed exactly that).
- *
- * BROADPHASE (mandatory — this runs per hull per island per tick): the
- * bounding circle rejects before any edge is visited. Only on a bounding hit
- * is the exact coast point computed.
- *
- * SIGHT SCOPE (Eric 2026-10-14: a drone reasons only about what it can see)
- * holds here by construction: the broadphase reach is ISLAND_LOOKAHEAD (120 u)
- * past the island's bounding circle, inside every drone's 500 u sight, so no
- * coast beyond sight is ever visited — no separate sight cut is needed.
- */
-function islandBias(isle: Island, x: number, y: number, fx: number, fy: number): number {
-  const cdx = isle.x - x;
-  const cdy = isle.y - y;
-  const reach = ISLAND_LOOKAHEAD + isle.r;
-  if (cdx * cdx + cdy * cdy > reach * reach) return 0; // bounding-circle broadphase
-  // WHOLLY ASTERN: the coast point lies inside the bounding circle, so when the
-  // circle's most-forward point is still behind the beam (with a 1 u margin
-  // against float dust) pointBias's astern clause is certain to return 0 —
-  // skip the coastline walk. Exact.
-  if (cdx * fx + cdy * fy + isle.r + 1 <= 0) return 0;
-  const coast = nearestCoastPoint({ x, y }, isle);
-  if (coast.dist > ISLAND_LOOKAHEAD) return 0;
-  return pointBias(coast.x, coast.y, x, y, fx, fy, ISLAND_LOOKAHEAD);
-}
-
-/**
- * THE AVOIDANCE KERNEL — a rudder bias away from ONE hazard point lying ahead
- * within `lookahead` (the island coast point, or since Story 9.5 another
- * hull's centre). A hazard astern contributes nothing: you are already
- * leaving it. cross(heading, toHazard) > 0 => the hazard is to port (left);
- * steer starboard (negative rudder = clockwise) and vice-versa.
- */
-function pointBias(hx: number, hy: number, x: number, y: number, fx: number, fy: number, lookahead: number): number {
-  const dx = hx - x;
-  const dy = hy - y;
-  if (Math.hypot(dx, dy) > lookahead) return 0;
-  if (dx * fx + dy * fy <= 0) return 0; // astern
-  return fx * dy - fy * dx > 0 ? -AVOID_STRENGTH : AVOID_STRENGTH;
 }
 
 /** The CONFIG.drones size key for a fleet hull, defaulting to `small` for a

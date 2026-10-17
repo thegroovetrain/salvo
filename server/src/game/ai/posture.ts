@@ -23,9 +23,10 @@
 //   7. NO LINE OF FIRE -> pursue (unchanged; wave 2 routes it).
 //   8. A fleet prize the profile values -> farm (unchanged).
 //   9. IN OWN REACH -> engage. BEYOND IT, THE ODDS GATE (amendments 194–195):
-//      pass -> pursue; fail -> kite (own gun longer, target closing), or lean
-//      in (raider / duelist at 0.75 of the bar), or hide (a cover point
-//      exists), or disengage. Outnumbered fails outright.
+//      pass -> pursue; fail -> lean in (raider / duelist at
+//      CONFIG.bots.leanInFactor of the bar), else SHADOW at own reach (`kite`)
+//      unless the contact closes with the longer gun, which is left for cover
+//      (hide) or disengage. Outnumbered fails outright.
 //
 // STATE. The clauses that remember (latch, ram exit, cover, contact clock)
 // read and write the Story 9.13 mind seats, and only when the caller hands
@@ -83,15 +84,6 @@ export interface PostureInputs {
   /** The shared nav grid (cover snaps to water and prices its detour on it). */
   grid?: NavGrid | null;
 }
-
-/** The lean-in nudge (amendment 194): a `leansIn` profile closes on a failed
- *  gate while the odds still reach this fraction of its threshold (the
- *  orchestrator's reading: × 0.75). */
-const LEAN_IN_FRAC = 0.75;
-
-/** Odds lost per tracked hostile beyond the first nearby (amendment 195's
- *  form: − 0.5 × max(0, nearbyHostiles − 1)). */
-const CROWD_PENALTY = 0.5;
 
 /** Postures that are already a break-off: the cover point is kept, not
  *  re-searched, while the bot stays in one of them. */
@@ -166,8 +158,9 @@ function beyondReach(sit: BotSituation, target: BotTrack, p: Vec2, prev: BotPost
   return gateVerdict(sit, target, p, mind) ?? hideOrLeave(sit, mind, p, prev, inp);
 }
 
-/** The gate's closing answers — pursue, kite, or the lean-in pursue — or
- *  null for a declined fight (outnumbered fails outright). */
+/** The gate's answers — pursue, the lean-in pursue, or a SHADOW (`kite`) —
+ *  or null for a declined fight (outnumbered fails outright; a closing
+ *  contact with the longer gun is left for cover). */
 function gateVerdict(sit: BotSituation, target: BotTrack, p: Vec2, mind: BotMind | null): BotPosture | null {
   const tracks = mind === null ? [target] : tracksOf(mind);
   const decoys = mind?.view?.decoys ?? [];
@@ -175,8 +168,8 @@ function gateVerdict(sit: BotSituation, target: BotTrack, p: Vec2, mind: BotMind
   const odds = oddsFor(sit, target, tracks, decoys);
   const bar = sit.profile.oddsThreshold;
   if (odds >= bar) return 'pursue';
-  if (kites(sit, target, p)) return 'kite';
-  return sit.profile.leansIn && odds >= bar * LEAN_IN_FRAC ? 'pursue' : null;
+  if (sit.profile.leansIn && odds >= bar * CONFIG.bots.leanInFactor) return 'pursue';
+  return shadows(sit, target, p) ? 'kite' : null;
 }
 
 /** A declined fight: HIDE when a cover point exists, else disengage. */
@@ -202,7 +195,7 @@ function idle(sit: BotSituation, inp: PostureInputs): BotPosture {
 
 /**
  * THE ODDS of closing on `target` (amendment 195, the orchestrator's form):
- *   ownHpFrac × (1 + damageEstimate) / peerFactor − 0.5 × max(0, nearby − 1)
+ *   ownHpFrac × (1 + damageEstimate) / peerFactor − crowdPenalty × max(0, nearby − 1)
  * `damageEstimate` is the bot's own Hit-Call estimate (counted per click);
  * `peerFactor` the sighted class's BASE hull over the bot's own class base
  * hull (1 for an unclassed plot — a peer); `nearby` the other hostiles
@@ -216,7 +209,7 @@ export function oddsFor(
   decoys: readonly DecoyView[],
 ): number {
   const hpFrac = sit.maxHp > 0 ? sit.hp / sit.maxHp : 0;
-  const crowd = CROWD_PENALTY * Math.max(0, nearbyHostiles(sit, target, tracks, decoys) - 1);
+  const crowd = CONFIG.bots.crowdPenalty * Math.max(0, nearbyHostiles(sit, target, tracks, decoys) - 1);
   return (hpFrac * (1 + damageEstimate(target))) / peerFactor(sit, target) - crowd;
 }
 
@@ -271,10 +264,19 @@ export function targetReachU(sit: BotSituation, target: BotTrack): number {
   return r;
 }
 
-/** KITE (amendment 193/194): own gun out-reaches the target's AND the
- *  target is closing (its course points at the bot). */
-function kites(sit: BotSituation, target: BotTrack, p: Vec2): boolean {
-  if (ownReachU(sit) <= targetReachU(sit, target)) return false;
+/** THE SHADOW (amendment 194, read literally — orchestrator ruling
+ *  2026-10-17): a failed gate that is not outnumbered holds the contact at
+ *  the edge of own reach (`kite`, the band orbit at kiteHoldFrac–1 × reach)
+ *  when it is NOT closing, or when it closes and own reach is at least the
+ *  sighted class's base reach (≥, so a cannon bot shadows a sighted peer);
+ *  a closing contact with the longer gun is left (hide / disengage). */
+function shadows(sit: BotSituation, target: BotTrack, p: Vec2): boolean {
+  if (!isClosing(sit, target, p)) return true;
+  return ownReachU(sit) >= targetReachU(sit, target);
+}
+
+/** Is the plot's course pointed at the bot? A course-less plot is not. */
+function isClosing(sit: BotSituation, target: BotTrack, p: Vec2): boolean {
   const v = trackVelocity(target);
   if (v === null) return false;
   return v.vx * (sit.x - p.x) + v.vy * (sit.y - p.y) > 0;

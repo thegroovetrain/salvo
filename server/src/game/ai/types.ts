@@ -42,6 +42,7 @@ import type {
   ZonePhase,
 } from '@salvo/shared';
 import type { PerceptionView } from '../perception.js';
+import type { NavCache } from '../navCache.js';
 
 /**
  * The six priority profiles (Eric ruling E1, 2026-08-16; unlocked from hulls
@@ -91,6 +92,9 @@ export type BotEngageGate = 'always' | 'endgame';
  * so ai/ needs no world.js import, type or value.
  */
 export interface BotSelf {
+  /** This hull's own id (Story 9.13) — the self-read that tells the bot which
+   *  lit zones in its view are its own (`LitZoneView.by`); ShipRecord has it. */
+  readonly id: string;
   readonly state: ShipState;
   /** This hull's class — its own silhouette length sizes the bumper the
    *  helm keeps from its target (Story 9.5 review gate); a self-read. */
@@ -240,6 +244,11 @@ export interface BotWorldPort {
    *  ring the timeline can roll contains this disc — pure geometry over
    *  public numbers. Once closed (no next rung) it is the live ring itself. */
   zoneSafeDisc(): ZoneRing;
+  /** THE MAP'S NAV CACHE (Story 9.13, amendment 192): the 32 u grid and the
+   *  ring flow fields built from the public map (game/navCache.ts). Optional
+   *  so a hand-built port omits it — the helm then reads `navCacheFor(map)`,
+   *  the same one-per-map cache. */
+  readonly nav?: NavCache | null;
   /** THE BOARDING FREEZE (Story 6.1): false = the helm is dead. The brain
    *  no-ops — no observe, neutral input, fireSeq never advances. */
   readonly helmEnabled: boolean;
@@ -530,6 +539,11 @@ export interface BotMind {
   coverPoint?: Vec2 | null;
   /** The routed idle-patrol waypoint (amendment 202). */
   patrolWaypoint?: Vec2 | null;
+  /** u — the closest the bot has come to `patrolWaypoint`, and the server ms
+   *  it last gained a hull length on it: the no-progress re-pick after
+   *  CONFIG.bots.nav.waypointTimeoutMs (amendment 202). */
+  patrolBestU?: number;
+  patrolProgressAt?: number;
   /** HITS PER CLICK (amendment 195): track key -> the last `fireSeq` that
    *  scored a Hit Call on it, so one click counts one hit however many
    *  `hc` rows its shells raise. */

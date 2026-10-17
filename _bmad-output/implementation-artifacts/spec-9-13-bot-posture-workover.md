@@ -2,7 +2,7 @@
 title: 'Story 9.13: Bot Posture Workover'
 type: 'feature'
 created: '2026-10-17'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'f78405d1'
 review_loop_iteration: 0
 followup_review_recommended: false

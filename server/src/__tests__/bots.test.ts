@@ -53,6 +53,7 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
       'cardPoints', // Story 8.20: the points table replaced `boonWeights` (a DELIBERATE edit to this pin)
       'contactBrokenMs', // Story 9.13 (epic-9 amendments 192–202): every "9.13" key here is a DELIBERATE edit to this pin
       'contactMemoryMs',
+      'crowdPenalty', // 9.13 (amendment 204)
       'decisionCadenceMs',
       'decoyDemote', // 9.13
       'decoyStillSweeps', // 9.13
@@ -62,6 +63,9 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
       'healHpFrac',
       'hullBumperU', // Story 9.5 review gate: the target / fleet-mate bumper clearance [DRAFT] (a DELIBERATE edit to this pin)
       'hullLookaheadU', // Story 9.5: the hull-avoidance lookahead [DRAFT] (a DELIBERATE edit to this pin)
+      'kiteHoldFrac', // 9.13 (amendment 194)
+      'leanInFactor', // 9.13 (amendment 204)
+      'litTargetBonus', // 9.13 (amendment 204)
       'nav', // 9.13: the navigation block
       'outnumberedCount', // 9.13
       'preparedMineReserve', // cycle 111: the prepared-lay headroom (a DELIBERATE edit to this pin)
@@ -345,6 +349,7 @@ describe('the narrow world port — its surface is exactly the ruled one', () =>
     expect(Object.keys(port).sort()).toEqual([
       'helmEnabled',
       'map',
+      'nav', // Story 9.13 (amendments 191/192): the public map's nav cache — derived from `map` alone
       'now',
       'spendPoint',
       'submitInput',

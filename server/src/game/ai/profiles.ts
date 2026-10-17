@@ -60,7 +60,7 @@
 // class. The only kind distinction any profile draws is participant-vs-PvE
 // fleet hull, which is a real difference in what the target is worth.
 
-import { CONFIG, type ConsumableId, type EffectiveStats, type EquipmentId, type ShipClassId, type SlotItemId } from '@salvo/shared';
+import { CONFIG, type ConsumableId, type EquipmentId, type ShipClassId } from '@salvo/shared';
 import type { AnyProfileId, BotProfileId, TestProfileId } from './types.js';
 
 /** How much a profile wants one KIND of target, relative to the others.
@@ -481,37 +481,4 @@ export function profileOf(id: AnyProfileId): BotProfile {
   return Object.hasOwn(BOT_PROFILES, id)
     ? BOT_PROFILES[id as BotProfileId]
     : TEST_PROFILES[id as TestProfileId];
-}
-
-/** u — the folded reach of the hull's MOUNTED gun (the gun slot's row): the
- *  machine gun or flak row when one is fitted, otherwise the deck gun
- *  (`gun`) — the seat's default, and what an empty or unknown slot reads.
- *  Each gun's reach is its own tiered dial on the twelfths ruler since Story
- *  9.8 (ruling 125), so it is read off the folded stats, never a literal. */
-export function mountedGunRangeU(gunId: SlotItemId | null | undefined, stats: EffectiveStats): number {
-  if (gunId === 'machineGun' || gunId === 'flak') return stats.equipment[gunId].rangeU;
-  return stats.equipment.gun.rangeU;
-}
-
-/**
- * THE INTERIM BAND — DEPRECATED (Story 9.13, epic-9 amendment 198).
- * @deprecated wave 2 removes: ai/doctrine.ts owns the per-gun band. Kept only
- * so the tactics / Shift callers still compile between waves. Doctrine-free:
- * the deck gun stands at CONFIG.bots.gunBand.cannon × reach × (1 + the
- * profile's bandNudge); the machine gun and flak close to their own gunBand
- * (un-nudged). `gunId` is the gun slot's item; omitted, the deck gun.
- */
-export function engagementBand(
-  profile: BotProfile,
-  stats: EffectiveStats,
-  gunId?: SlotItemId | null,
-): { min: number; max: number } {
-  const reach = mountedGunRangeU(gunId, stats);
-  if (gunId === 'machineGun' || gunId === 'flak') {
-    const [lo, hi] = CONFIG.bots.gunBand[gunId];
-    return { min: lo * reach, max: hi * reach };
-  }
-  const [lo, hi] = CONFIG.bots.gunBand.cannon;
-  const k = 1 + profile.bandNudge;
-  return { min: lo * reach * k, max: hi * reach * k };
 }

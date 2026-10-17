@@ -62,6 +62,7 @@
 import {
   CONFIG,
   SHIP_CLASS_IDS,
+  pointInLitZone,
   type BlipEvent,
   type Contact,
   type DecoyView,
@@ -69,13 +70,15 @@ import {
   type GameEvent,
   type HullId,
   type Island,
+  type LitZoneView,
   type SlotItemId,
   type Vec2,
   type ZoneRing,
 } from '@salvo/shared';
 import type { PerceptionView } from '../perception.js';
 import type { BotMind, RememberedContact } from './types.js';
-import { mountedGunRangeU, type BotProfile } from './profiles.js';
+import type { BotProfile } from './profiles.js';
+import { effectiveReach, mountedGun } from './doctrine.js';
 import {
   ANON_ASSOC_U,
   LONGEST_HULL_U,
@@ -169,16 +172,32 @@ export interface BotSituation {
    *  length) read it. Optional so a hand-built situation can omit it (the
    *  longest participant hull is assumed). */
   hullId?: HullId;
+  /** The bot's OWN live star-shell lit zones this tick (Story 9.13 — the
+   *  view's `litZones` filtered to `by === self`, doctrine.ts ownLitZones):
+   *  the lit-target bonus (amendment 204) reads it. Optional = none. */
+  ownLitZones?: readonly LitZoneView[];
+  /** THE RING DEPARTURE (Story 9.13, amendment 200(1)): true when the water
+   *  route to the revealed next ring, over own speed, plus
+   *  CONFIG.bots.ringLeaveMarginMs, exceeds the time until the storm reaches
+   *  the bot (ai/navigate.ts departureDue) — ringEscaping arms on it.
+   *  Optional = false. */
+  departing?: boolean;
 }
 
 /**
  * u — THE BOT'S OWN WEAPON REACH for the posture chain's "in reach" tests
- * (Story 9.13, epic-9 amendments 194–195): the folded reach of the MOUNTED
- * gun (profiles.ts mountedGunRangeU).
- * TODO wave 2: doctrine.effectiveReach(...).max (the lit-zone lift included).
+ * (Story 9.13, epic-9 amendments 194–195, 198): the doctrine reach of the
+ * MOUNTED gun (ai/doctrine.ts effectiveReach — the one reach the gun solves
+ * read; its lit-zone lift is a per-point exemption, not a longer radius).
  */
-export function ownReachU(sit: Pick<BotSituation, 'stats' | 'gunId'>): number {
-  return mountedGunRangeU(sit.gunId, sit.stats);
+export function ownReachU(
+  sit: Pick<BotSituation, 'stats' | 'gunId'> & Partial<Pick<BotSituation, 'x' | 'y' | 'waterR' | 'ownLitZones'>>,
+): number {
+  const reach = effectiveReach(
+    { stats: sit.stats, ownLitZones: sit.ownLitZones ?? [], origin: { x: sit.x ?? 0, y: sit.y ?? 0 }, mapRadius: sit.waterR },
+    mountedGun(sit.gunId),
+  );
+  return reach.maxU;
 }
 
 /** Is this plot a DECOY BUOY by what the bot can see (Story 9.13, epic-9
@@ -801,7 +820,14 @@ export function scoreTrack(t: BotTrack, sit: BotSituation, neighbours: readonly 
   const dmg = 1 + w.damaged * damageEstimate(t);
   const iso = 1 + w.isolated * isolation(t, neighbours, sit);
   const reach = lineBlocked({ x: sit.x, y: sit.y }, p, sit.islands) ? BLOCKED_LINE_SCORE : 1;
-  return kind * prox * freshness(t, sit.now) * dmg * iso * reach * decoyFactor(t, sit, neighbours);
+  return kind * prox * freshness(t, sit.now) * dmg * iso * reach * decoyFactor(t, sit, neighbours) * litFactor(p, sit);
+}
+
+/** THE LIT-TARGET BONUS (Story 9.13, epic-9 amendment 204): a plot inside
+ *  one of the bot's OWN live lit zones scores × CONFIG.bots.litTargetBonus. */
+function litFactor(p: Vec2, sit: BotSituation): number {
+  const zones = sit.ownLitZones;
+  return zones !== undefined && zones.length > 0 && pointInLitZone(p, zones) ? CONFIG.bots.litTargetBonus : 1;
 }
 
 /**
@@ -929,6 +955,9 @@ export function ringDeadband(stats: EffectiveStats, speed: number): number {
  * meaning, and the same fail-closed reading `isOutside` takes.
  */
 export function ringEscaping(sit: BotSituation, latched: boolean): boolean {
+  // THE DEPARTURE (Story 9.13, amendment 200(1)) arms escape EARLY: the bot
+  // leaves for the next ring by the water route while it still has time.
+  if (sit.departing === true) return true;
   const ring = sit.ring;
   if (!(ring.r > 0)) return true;
   const d = Math.hypot(sit.x - ring.cx, sit.y - ring.cy);

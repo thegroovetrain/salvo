@@ -58,11 +58,11 @@ import {
   TEST_PROFILES,
   TEST_PROFILE_HULL,
   TEST_PROFILE_IDS,
-  engagementBand,
   isTestProfileId,
   profileOf,
   testProfileHull,
 } from '../game/ai/profiles.js';
+import { gunBand } from '../game/ai/doctrine.js';
 import {
   choosePosture,
   closingSpeed,
@@ -302,20 +302,22 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     }
   });
 
-  it('the interim band (deprecated, doctrine owns it in wave 2) anchors on the MOUNTED gun, reads CONFIG.bots.gunBand, ignores radar', () => {
+  // RE-STATED (Story 9.13 wave 2, epic-9 amendment 198): the deprecated
+  // profiles.ts engagementBand is deleted; the doctrine band (ai/doctrine.ts
+  // gunBand) carries the same contract.
+  it('the doctrine band anchors on the MOUNTED gun, scales with its reach, ignores radar', () => {
     const base = stats('battleship');
     const siege = profileOf('siege');
     const longGun = { ...base, equipment: { ...base.equipment, gun: { ...base.equipment.gun, rangeU: base.equipment.gun.rangeU * 2 } } };
-    expect(engagementBand(siege, longGun).max).toBeCloseTo(engagementBand(siege, base).max * 2, 6);
+    expect(gunBand(siege, longGun).max).toBeCloseTo(gunBand(siege, base).max * 2, 6);
     const wideRadar = { ...base, radarRange: base.radarRange * 2 };
-    expect(engagementBand(siege, wideRadar)).toEqual(engagementBand(siege, base));
+    expect(gunBand(siege, wideRadar)).toEqual(gunBand(siege, base));
     for (const gun of ['machineGun', 'flak'] as const) {
-      const [glo, ghi] = CONFIG.bots.gunBand[gun];
-      expect(engagementBand(siege, base, gun).min).toBeCloseTo(glo * base.equipment[gun].rangeU, 9);
-      expect(engagementBand(siege, base, gun).max).toBeCloseTo(ghi * base.equipment[gun].rangeU, 9);
+      expect(gunBand(siege, base, gun).max).toBeLessThanOrEqual(base.equipment[gun].rangeU);
+      expect(gunBand(siege, base, gun).max).toBeGreaterThan(0);
     }
-    expect(engagementBand(siege, base, 'gun')).toEqual(engagementBand(siege, base));
-    expect(engagementBand(siege, base, null)).toEqual(engagementBand(siege, base));
+    expect(gunBand(siege, base, 'gun')).toEqual(gunBand(siege, base));
+    expect(gunBand(siege, base, null)).toEqual(gunBand(siege, base));
   });
 
   it('siege stands off, duelist knife-fights, bulwark trades longest', () => {

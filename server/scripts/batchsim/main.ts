@@ -247,6 +247,10 @@ function rawRows(result: BatchResult): unknown {
     durationS: m.durationS,
     endedBy: m.endedBy,
     winnerClass: m.winnerClass,
+    lastTwoS: m.lastTwoS,
+    endgameNoContactMaxS: m.endgameNoContactMaxS,
+    droneGroundedTicks: m.droneGroundedTicks,
+    droneStormDeaths: m.droneStormDeaths,
     bots: m.bots ?? [],
   }));
 }

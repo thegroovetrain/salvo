@@ -164,6 +164,7 @@ import { InputStore, clampFireTime, neutralInput } from './inputs.js';
 import { FleetController, fleetSizeOf } from './drones.js';
 import { BotController } from './ai/botDriver.js';
 import { makeBotPort } from './botPort.js';
+import { navCacheFor, type NavCache } from './navCache.js';
 import type { AnyProfileId, BotTickEntry } from './ai/types.js';
 import { observe } from './perception.js';
 import {
@@ -2134,6 +2135,20 @@ export class World {
    */
   get zoneRevealedNextRing(): ZoneRing | null {
     return this.zoneTimelineState()?.next ?? null;
+  }
+
+  /**
+   * THE MAP'S NAV CACHE (Story 9.13, epic-9 amendment 192): the generator's
+   * 32 u navigability grid plus the ring flow fields, one per map
+   * (game/navCache.ts). Built on FIRST USE — the first bot tick or the first
+   * fleet route — rather than in the constructor, so a World that never
+   * sails a bot or a drone pays nothing; the bot port and the fleet
+   * controller read this one instance. Flow fields are built lazily per ring
+   * (the next ring at its reveal, the collapse ring at its close start), never
+   * per tick.
+   */
+  get nav(): NavCache {
+    return navCacheFor(this.map);
   }
 
   /**

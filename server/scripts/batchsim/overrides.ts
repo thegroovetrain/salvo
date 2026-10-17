@@ -182,6 +182,19 @@ const TUNE_FAMILIES = [
   // 0 is "no spin" / "rigid spin", both real arms (amendments 177–178; the
   // rate is a speed over the ocean radius, so no divide-by-period hazard).
   'fog.',
+  // THE BOT BRAIN (Story 9.13 wave 3, spec Harness paragraph): every numeric
+  // leaf of CONFIG.bots is an arm Eric may run against the posture workover's
+  // baseline. Floors: the generic 0, except `disengageHysteresis` /
+  // `decoyDemote` and every `gunBand.<gun>.<0|1>` on CLOSED [0, 1]
+  // (BOT_FRACTION_KEYS / BOT_GUN_BAND), each band's min <= max re-checked on
+  // the finished CONFIG (validateBotDials), every `nav.*` leaf at 1 except
+  // `nav.clearancePenalty` (0 = no shore cost, a real arm), and the
+  // `cardPoints.*` scores, which ship NEGATIVE values (`carried` −1,
+  // `beltHunger.low` −1), take any finite number. `nav.cellU`,
+  // `disengageHpFrac` and `healHpFrac` are REFUSED (DERIVED_TUNE_KEYS): the
+  // first must equal the generator's NAV_CELL and is never read, the other
+  // two are snapshotted into the profile tables at module load.
+  'bots.',
 ];
 
 /** True for an EQUIPMENT dial family (--tune only, never --set/--sweep). */
@@ -208,6 +221,18 @@ const DERIVED_TUNE_KEYS = new Map<string, string>([
   [
     'mine.triggerRadius',
     'the trip ring is DERIVED as mine.blastRadius x CONFIG.mine.triggerFactor (Eric ruling 2026-08-16) — tune mine.blastRadius instead',
+  ],
+  [
+    'bots.nav.cellU',
+    'the nav raster IS the generator\'s NAV_CELL (sim/nav.ts) and this mirror is never read — it cannot be tuned',
+  ],
+  [
+    'bots.disengageHpFrac',
+    'server ai/profiles.ts snapshots it into every profile table at module load, so a --tune never reaches a bot',
+  ],
+  [
+    'bots.healHpFrac',
+    'server ai/profiles.ts snapshots it into every profile table at module load, so a --tune never reaches a bot',
   ],
 ]);
 
@@ -495,6 +520,7 @@ function tuneFloor(key: string): number {
   const serverFloor = FOG_SERVER_FLOORS.get(key);
   if (serverFloor !== undefined) return serverFloor;
   if (TUNE_MIN_ONE_KEYS.has(key)) return 1;
+  if (BOT_NAV.test(key)) return key === BOT_NAV_ZERO_OK ? 0 : 1;
   const leaf = key.slice(key.lastIndexOf('.') + 1);
   const lower = leaf.toLowerCase();
   if (lower.endsWith('reloadms') || lower.endsWith('cooldownms')) return 1;
@@ -512,6 +538,7 @@ function tuneFloor(key: string): number {
  *  be 0 — `gun.burstRadius=0` is what ARMOR-PIERCING already does, and a
  *  0-damage arm is a real control. */
 export function validateTuneValue(key: string, value: number): void {
+  if (validateBotRange(key, value)) return;
   if (UNIT_INTERVAL_KEYS.has(key)) return validateUnitInterval(key, value);
   if (PROBABILITY_KEYS.has(key)) return validateProbability(key, value);
   if (FOG_SHARE_KEYS.has(key)) return validateShare(key, value);
@@ -548,6 +575,39 @@ const UNIT_INTERVAL_KEYS = new Set(['offer.weighting.factor', 'offer.weighting.f
  *  [0, 1] — 0 (never paints at that rung) and 1 (always paints) are both real
  *  arms; outside it is not a probability. */
 const PROBABILITY_KEYS = new Set(['vision.dropout.kneeP', 'vision.dropout.rimP']);
+
+/** The bot dials on CLOSED [0, 1] (Story 9.13 wave 3; see the `bots.` family). */
+const BOT_FRACTION_KEYS = new Set(['bots.disengageHysteresis', 'bots.decoyDemote']);
+/** A per-gun doctrine band end — `bots.gunBand.<gun>.0` (min) / `.1` (max). */
+const BOT_GUN_BAND = /^bots\.gunBand\.[A-Za-z]+\.[01]$/;
+/** The routing dials: counts / lengths / clocks, floored at 1 … */
+const BOT_NAV = /^bots\.nav\./;
+/** … except the shore cost, where 0 is "no penalty" (a real arm). */
+const BOT_NAV_ZERO_OK = 'bots.nav.clearancePenalty';
+/** The card-points scores: any finite number (the table ships −1s). */
+const BOT_CARD_POINTS = /^bots\.cardPoints\./;
+
+/** The bot dials with their OWN range (fractions, the card scores): checked
+ *  here, true when handled; every other `bots.*` leaf takes the floor path. */
+function validateBotRange(key: string, value: number): boolean {
+  if (BOT_FRACTION_KEYS.has(key) || BOT_GUN_BAND.test(key)) {
+    validateFraction(key, value);
+    return true;
+  }
+  if (!BOT_CARD_POINTS.test(key)) return false;
+  if (!Number.isFinite(value)) throw new TunableError(`'${key}': expected a finite value, got '${value}'`);
+  return true;
+}
+
+/** Every gun band must stay min <= max on the finished CONFIG (Story 9.13). */
+function validateBotDials(): void {
+  for (const [gun, band] of Object.entries(CONFIG.bots.gunBand)) {
+    const [lo, hi] = band as readonly number[];
+    if (!(lo <= hi)) {
+      throw new TunableError(`'bots.gunBand.${gun}' must stay min <= max (got [${lo}, ${hi}])`);
+    }
+  }
+}
 
 /** The fog controller's coverage band (Story 9.10): a CLOSED share of the
  *  live ring's area, [0, 1] — 0 is "no fog" and a real arm; above 1 the
@@ -676,6 +736,7 @@ function validateCrossKeyInvariants(): void {
   validateDropoutCurve();
   validateFogDials();
   validateAttenuationDials();
+  validateBotDials();
   const { durationMs, maxAmmo } = CONFIG.boost;
   if (maxAmmo !== 1) {
     throw new TunableError(

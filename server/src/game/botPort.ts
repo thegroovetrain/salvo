@@ -18,6 +18,7 @@
 
 import { zoneLiveState, zoneRingRadii, type ZonePhase, type ZoneRing, type ZoneTimeline, type GameMap } from '@salvo/shared';
 import type { BotWorldPort, BotZonePhase } from './ai/types.js';
+import type { NavCache } from './navCache.js';
 
 /** What the adapter reads off World — every field public on World today. */
 export interface BotPortSource {
@@ -30,6 +31,8 @@ export interface BotPortSource {
   readonly zonePhase: ZonePhase;
   readonly zoneEndgameReached: boolean;
   readonly helmEnabled: boolean;
+  /** The map's nav cache (Story 9.13, amendment 192 — game/navCache.ts). */
+  readonly nav?: NavCache;
   submitInput(id: string, raw: unknown): boolean;
   spendPoint(id: string, rawChoice: unknown): boolean;
 }
@@ -79,6 +82,7 @@ export function makeBotPort(src: BotPortSource, cfg: ZoneTimeline): BotWorldPort
     get zoneLiveRing() { return src.zoneLiveRing; },
     get zoneEndgameReached() { return src.zoneEndgameReached; },
     get helmEnabled() { return src.helmEnabled; },
+    get nav() { return src.nav ?? null; },
     submitInput: (id, raw) => src.submitInput(id, raw),
     spendPoint: (id, rawChoice) => src.spendPoint(id, rawChoice),
     zoneNextRing: () => src.zoneRevealedNextRing,

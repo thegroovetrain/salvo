@@ -634,6 +634,33 @@ export const CONFIG = {
      */
     supercavCredibleU: 800,
     /**
+     * Score multiplier on a target whose plot lies inside one of the bot's
+     * OWN live star-shell lit zones (epic-9 amendment 204, Eric 2026-10-17,
+     * [accepted 2026-10-17]): the lit target wins ties and most close calls.
+     * A harness dial.
+     */
+    litTargetBonus: 1.5,
+    /**
+     * A `leansIn` profile (raider / duelist) still closes on a failed odds
+     * gate while its odds reach this fraction of its threshold (epic-9
+     * amendments 194/204 — orchestrator reading promoted to a dial,
+     * [accepted 2026-10-17]). A harness dial.
+     */
+    leanInFactor: 0.75,
+    /**
+     * Odds lost per tracked hostile beyond the first near the bot (epic-9
+     * amendments 195/204 — orchestrator reading promoted to a dial,
+     * [accepted 2026-10-17]). A harness dial.
+     */
+    crowdPenalty: 0.5,
+    /**
+     * KITE / SHADOW: the fraction of own reach a bot holds a declined contact
+     * at — it opens inside this and closes past own reach (epic-9 amendment
+     * 194 "shadow at the edge of my reach" — orchestrator reading promoted to
+     * a dial, [accepted 2026-10-17]). A harness dial.
+     */
+    kiteHoldFrac: 0.9,
+    /**
      * GUN DOCTRINE BANDS (epic-9 amendment 198, [accepted 2026-10-17]) —
      * [min, max] fractions of each gun's FULL-DAMAGE radius the bot holds
      * the target inside; the profile only nudges the band. machineGun and

@@ -267,6 +267,13 @@ export interface MatchSample {
   /** POOL READOUTS (Story 8.20): gun, level-reach slot state, weapon takes and
    *  the live-mine peak. OPTIONAL for the same reason `bots` is. */
   pool?: PoolMatchSample;
+  /** STORY 9.13 MATCH READOUTS (botReadouts.ts MatchReadouts) — the endgame
+   *  stall and the drone grounding. OPTIONAL for the same reason `bots` is;
+   *  present on every bot-lobby sample. */
+  lastTwoS?: number;
+  endgameNoContactMaxS?: number;
+  droneGroundedTicks?: number;
+  droneStormDeaths?: number;
 }
 
 export interface BatchResult {
@@ -527,13 +534,13 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     catalog.observe(world, match.activatedAt !== 0);
     pool.observe(world, match.activatedAt);
     if (match.phase === 'finished') {
-      return { ...withPool(finishSample(index, matchSeed, world, match, collector, captainIds, bots, catalog), pool, world), ...spawnDiag };
+      return { ...withPool(finishSample(index, matchSeed, world, match, collector, captainIds, bots, catalog), pool, world, bots), ...spawnDiag };
     }
   }
   if (match.activatedAt === 0) {
     throw new Error(`match ${index} (seed ${matchSeed}) never activated within ${tickCap} ticks`);
   }
-  return { ...withPool(capSample(index, matchSeed, world, match, collector, captainIds, bots, catalog), pool, world), ...spawnDiag };
+  return { ...withPool(capSample(index, matchSeed, world, match, collector, captainIds, bots, catalog), pool, world, bots), ...spawnDiag };
 }
 
 type SpawnDiag = Pick<MatchSample, 'spawnHulls' | 'spawnOffLattice'>;
@@ -563,11 +570,12 @@ function spawnDiagOf(world: World): SpawnDiag {
   return { spawnHulls, spawnOffLattice };
 }
 
-/** Attach the pool readings to a finished sample — only when the lobby has
- *  bots, so a captains-only sample keeps its exact pre-8.20 shape. */
-function withPool(sample: MatchSample, pool: PoolCollector, world: World): MatchSample {
+/** Attach the pool readings and the Story 9.13 match readouts to a finished
+ *  sample — only when the lobby has bots, so a captains-only sample keeps its
+ *  exact pre-8.20 shape. */
+function withPool(sample: MatchSample, pool: PoolCollector, world: World, bots: BotCollector): MatchSample {
   if (sample.bots === undefined || sample.bots.length === 0) return sample;
-  return { ...sample, pool: pool.result(world) };
+  return { ...sample, pool: pool.result(world), ...bots.matchReadouts() };
 }
 
 /**

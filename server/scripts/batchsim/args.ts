@@ -116,7 +116,8 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      gun.*, machineGun.*, flak.*, gunAttenuation.*,
                      broadside.*, torpedo.*,
                      mine.*, starShells.*, boost.*, instantReload.*,
-                     hunker.*, armor.*, shipClasses.*, offer.weighting.*.
+                     hunker.*, armor.*, shipClasses.*, offer.weighting.*,
+                     bots.* (the bot brain's dials, Story 9.13).
                      Requires
                      HC_BALANCE=1 as well as HC_DEV_OPTIONS=1 — this edits
                      combat numbers, not harness dials. Not sweepable (one

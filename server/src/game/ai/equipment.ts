@@ -459,7 +459,7 @@ function captiveMineWant(ctx: TacticContext): boolean {
 /** The postures in which a PREPARED lay is allowed: the bot is safe — nothing
  *  is being fought or fled — so a round spent seeding the water costs it no
  *  answer to a live threat. */
-const SAFE_LAY_POSTURES: readonly BotPosture[] = ['reposition', 'farm'];
+const SAFE_LAY_POSTURES: readonly BotPosture[] = ['reposition', 'farm', 'hold']; // `hold` (Story 9.13): a bot lying in wait in cover may seed the water
 
 /**
  * THE PREPARED LAY (Eric ruling 2026-08-20, cycle 111 — chosen INTO scope:

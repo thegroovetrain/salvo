@@ -20,7 +20,7 @@ import type { PerceptionView } from '../game/perception.js';
 import type { BotMind, BotProfileId } from '../game/ai/types.js';
 import { profileOf } from '../game/ai/profiles.js';
 import { probableDecoy } from '../game/ai/plot.js';
-import { noteContact, oddsFor, outnumbered } from '../game/ai/posture.js';
+import { noteContact, oddsFor, outnumbered, targetReachU } from '../game/ai/posture.js';
 import {
   choosePosture,
   damageEstimate,
@@ -142,7 +142,9 @@ describe('ai/posture â€” THE ODDS GATE beyond own reach (epic-9 amendments 194â€
     expect(choosePosture(sit, track({ x: reachOf(sit.stats) - 10, cls: 'battleship' }))).toBe('engage');
   });
 
-  it('FAIL -> KITE when own gun out-reaches the sighted class and it is closing; not when it runs away', () => {
+  // Amendment 194 read literally (orchestrator ruling 2026-10-17): a failed
+  // gate that is not outnumbered SHADOWS the contact at the edge of own reach.
+  it('FAIL -> KITE (shadow) on a contact that is not closing, or that closes against a gun no longer than own', () => {
     const base = stats('torpedoBoat');
     const longer = { ...base, equipment: { ...base.equipment, gun: { ...base.equipment.gun, rangeU: base.equipment.gun.rangeU * 1.3 } } };
     const sit = situation({ stats: longer });
@@ -150,15 +152,21 @@ describe('ai/posture â€” THE ODDS GATE beyond own reach (epic-9 amendments 194â€
     const closing = track({ x: at, cls: 'battleship', heading: Math.PI, speed: 20 });
     expect(oddsFor(sit, closing, [closing], [])).toBeLessThan(profileOf('bulwark').oddsThreshold);
     expect(choosePosture(sit, closing)).toBe('kite');
-    const opening = track({ x: at, cls: 'battleship', heading: 0, speed: 20 });
-    expect(choosePosture(sit, opening)).not.toBe('kite');
-    // Own gun no longer than the class's base reach: no kite either.
-    expect(choosePosture(situation(), track({ x: reachOf(base) + 100, cls: 'battleship', heading: Math.PI, speed: 20 }))).not.toBe('kite');
+    // Running away (not closing): shadowed too.
+    expect(choosePosture(sit, track({ x: at, cls: 'battleship', heading: 0, speed: 20 }))).toBe('kite');
+    // A course-less plot is not closing: shadowed.
+    expect(choosePosture(situation(), track({ x: reachOf(base) + 200, cls: 'battleship' }))).toBe('kite');
+    // A closing sighted peer whose base reach equals own: â‰¥, so shadowed.
+    expect(targetReachU(situation(), track({ cls: 'battleship' }))).toBeLessThanOrEqual(reachOf(base));
+    expect(choosePosture(situation(), track({ x: reachOf(base) + 100, cls: 'battleship', heading: Math.PI, speed: 20 }))).toBe('kite');
   });
 
-  it('FAIL -> HIDE with a cover point (solid fog), DISENGAGE without one', () => {
-    const sit = situation();
-    const t = track({ x: reachOf(sit.stats) + 200, cls: 'battleship' });
+  it('FAIL + closing with the LONGER gun -> HIDE with a cover point (solid fog), DISENGAGE without one', () => {
+    const base = stats('torpedoBoat');
+    const shorter = { ...base, equipment: { ...base.equipment, gun: { ...base.equipment.gun, rangeU: base.equipment.gun.rangeU * 0.7 } } };
+    const sit = situation({ stats: shorter });
+    const t = track({ x: reachOf(shorter) + 200, cls: 'battleship', heading: Math.PI, speed: 20 });
+    expect(targetReachU(sit, t)).toBeGreaterThan(reachOf(shorter));
     const foggy = mind();
     foggy.fogAt = solidFog;
     foggy.contacts.set('e1', t);
@@ -176,7 +184,7 @@ describe('ai/posture â€” THE ODDS GATE beyond own reach (epic-9 amendments 194â€
     const odds = oddsFor(sit, t, [t], []);
     const bar = profileOf('raider').oddsThreshold;
     expect(odds).toBeLessThan(bar);
-    expect(choosePosture(sit, t)).toBe(odds >= bar * 0.75 ? 'pursue' : 'disengage');
+    expect(choosePosture(sit, t)).toBe(odds >= bar * CONFIG.bots.leanInFactor ? 'pursue' : 'kite');
     // The same odds on a non-leaning profile with the same bar never close.
     expect(choosePosture({ ...sit, profile: { ...profileOf('raider'), leansIn: false } }, t)).not.toBe('pursue');
   });

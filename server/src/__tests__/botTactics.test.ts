@@ -22,6 +22,7 @@ import {
   CONFIG,
   hullBumper,
   angleDiff,
+  bearing,
   hullSilhouette,
   inArc,
   isAfloat,
@@ -49,7 +50,7 @@ import { fitClassWeapons } from './classWeapons.js';
 import { COMBAT_BRAIN, approachPoint, readyShotReaches } from '../game/ai/tactics.js';
 import { CONSUMABLE_TACTICS, EQUIPMENT_TACTICS, SHIFT_TACTICS, tacticFor } from '../game/ai/tacticRegistry.js';
 import { EQUIPMENT } from '../game/equipment/index.js';
-import { engagementBand, profileOf } from '../game/ai/profiles.js';
+import { profileOf } from '../game/ai/profiles.js';
 import { pullBand } from '../game/ai/utility.js';
 import { noteTorpedoes } from '../game/ai/torpedoThreat.js';
 import { gunBand } from '../game/ai/doctrine.js';
@@ -291,7 +292,7 @@ describe('steering — the priority order is the policy', () => {
     const mind = mkMind('bulwark');
     // Beyond bulwark's band (a fraction of its gun reach since Story 9.8,
     // ruling 126), so the target alone would PURSUE east.
-    plot(mind, track(port.now, { x: engagementBand(profileOf('bulwark'), rec.stats).max + 200, y: 0 }));
+    plot(mind, track(port.now, { x: gunBand(profileOf('bulwark'), rec.stats).max + 200, y: 0 }));
     const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.throttle).toBe(1); // full ahead: the storm does not miss
     // Port rudder (positive = counter-clockwise) swings a north-facing bow to
@@ -303,13 +304,26 @@ describe('steering — the priority order is the policy', () => {
     expect(d2.rudder).toBeLessThan(0);
   });
 
-  it('with nothing in sight a bot patrols toward the live ring centre', () => {
+  // RE-STATED (Story 9.13, epic-9 amendments 200(3)/202): this pinned "patrols
+  // toward the live ring centre" (a hard-over turn for the centre astern).
+  // The centre patrol is retired: an idle bot picks a routed waypoint on open
+  // water inside its patrol disc (the always-safe disc before the reveal) and
+  // turns for it.
+  it('with nothing in sight a bot steers for a patrol waypoint on water inside its patrol disc', () => {
     const w = openWorld(102);
-    const port = fakePort(w, { cx: 0, cy: -500, r: 4000 }); // centre due south
+    const port = fakePort(w, { cx: 0, cy: -500, r: 4000 });
     const rec = mkBot(w, 'mineLayer', 0, 0, Math.PI / 2); // bow due north
-    const d = COMBAT_BRAIN.decide(rec, mkMind('forager'), port);
+    const mind = mkMind('forager');
+    const d = COMBAT_BRAIN.decide(rec, mind, port);
     expect(d.throttle).toBeGreaterThan(0);
-    expect(Math.abs(d.rudder)).toBe(1); // hard over: 180 degrees to turn
+    const wp = mind.patrolWaypoint;
+    expect(wp).toBeTruthy();
+    const disc = port.zoneSafeDisc();
+    expect(Math.hypot(wp!.x - disc.cx, wp!.y - disc.cy)).toBeLessThanOrEqual(disc.r);
+    expect(Math.hypot(wp!.x, wp!.y)).toBeLessThanOrEqual(w.map.radius);
+    // The rudder turns the bow toward it (the same sign as the heading error).
+    const err = angleDiff(rec.state.heading, bearing(rec.state, wp!));
+    if (Math.abs(err) > 0.05) expect(Math.sign(d.rudder)).toBe(Math.sign(err));
     // No TRACK-targeted shot exists (the target guard holds), and since the
     // radar buoy was deleted (Story 8.16) no recon placement rides the tick.
     expect(d.fireSlot).toBeNull();
@@ -691,17 +705,23 @@ describe('steering — the priority order is the policy', () => {
     const port = fakePort(w);
     const rec = mkBot(w, 'mineLayer', 0, 0, 0); // bow due east
     const mind = mkMind('trapper');
-    // Ring centre dead ahead so the posture bearing contributes nothing.
     port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
-    const ahead = { id: 'm1', x: 60, y: 20, by: 'enemy' };
-    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: false }], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [] };
+    const view = (own: boolean | null): BotMind['view'] => ({
+      contacts: [], events: [], mines: own === null ? [] : [{ id: 'm1', x: 60, y: 20, by: 'enemy', own }],
+      litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [],
+    });
     mind.viewAt = -1; // not fresh: nothing is folded, only the mine probe reads it
-    const dodged = COMBAT_BRAIN.decide(rec, mind, port);
-    expect(dodged.rudder).toBeLessThan(0); // mine to port -> steer starboard
-    mind.view = { contacts: [], events: [], mines: [{ ...ahead, own: true }], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [] };
-    const own = COMBAT_BRAIN.decide(rec, mind, port);
-    expect(own.rudder).toBe(0); // an owner never trips its own rack
+    // RE-STATED (Story 9.13, amendment 202): the idle bearing is a patrol
+    // waypoint now, not a ring centre dead ahead, so the contract is read
+    // against the same tick with no mine at all (the waypoint persists).
+    mind.view = view(null);
+    const baseline = COMBAT_BRAIN.decide(rec, mind, port, false).rudder;
+    mind.view = view(false);
+    expect(COMBAT_BRAIN.decide(rec, mind, port, false).rudder).toBeLessThan(baseline); // mine to port -> steer starboard
+    mind.view = view(true);
+    expect(COMBAT_BRAIN.decide(rec, mind, port, false).rudder).toBe(baseline); // an owner never trips its own rack
   });
+
 });
 
 /**
@@ -1150,9 +1170,13 @@ describe('weapons — every shot is a LEGAL shot', () => {
     plot(trapper, track(port.now, { x: 200, y: 0, speed: 0 }));
     expect(slotOf(ml, 'boost')).toBe(-1);
     expect(COMBAT_BRAIN.decide(ml, trapper, port).actSlot).not.toBe(-1);
-    // Healthy: no ability spent.
+    // Healthy: no ability spent. A FRESH mind — the hurt raider's own mind is
+    // latched in its break-off (Story 9.13, amendment 196: it ends only on
+    // hysteresis AND broken contact, and the target is still in sight).
     const healthy = mkBot(w, 'torpedoBoat', 0, 0, 0);
-    expect(COMBAT_BRAIN.decide(healthy, raider, port).actSlot).toBeNull();
+    const calm = mkMind('raider');
+    plot(calm, track(port.now, { x: 200, y: 0, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(healthy, calm, port).actSlot).toBeNull();
   });
 
   // THE BELT PRESS (Story 8.8, epic-8 amendment 49). `HEAL_CHOICE` left the
@@ -1649,7 +1673,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const { w, port, rec, slot } = foulingShellBoat(408);
     expect(CONSUMABLE_TACTICS.foulingShell.kind).toBe('shot');
     expect(CONSUMABLE_TACTICS.foulingShell.reachU(rec.stats)).toBe(CONFIG.foulingShell.rangeU); // its own fixed dial (Story 9.8, ruling 125)
-    const band = engagementBand(profileOf('duelist'), rec.stats);
+    const band = gunBand(profileOf('duelist'), rec.stats);
     const mid = Math.min((band.min + band.max) / 2, 250);
     const engaged = mkMind('duelist');
     plot(engaged, track(port.now, { x: mid, y: 0, live: true, speed: 0 }));
@@ -1881,7 +1905,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const rec = mkBot(w, 'battleship', 0, 0, 0);
     const tube = fitExtra(rec, 'heavyTorpedo');
     const siege = profileOf('siege');
-    const band = engagementBand(siege, rec.stats);
+    const band = gunBand(siege, rec.stats);
     // Loaded: the torpedo's 250u credible reach sits under siege's near edge,
     // so the pulled edge lands exactly halfway toward it — bounded, so the
     // profile fractions stay the anchor and siege never becomes a duelist.
@@ -1919,7 +1943,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
 
     // ...and it feeds the band pull exactly as a fitted tube does: a reach
     // under the near edge eases it halfway in; one at or past it moves nothing.
-    const band = engagementBand(profileOf('siege'), rec.stats);
+    const band = gunBand(profileOf('siege'), rec.stats);
     const pulled = supercavU < band.min ? (band.min + supercavU) / 2 : band.min;
     expect(pullBand(band, reaches).min).toBeCloseTo(pulled, 6);
   });
@@ -2010,7 +2034,20 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
     // 3104's seaward berth no longer grounds the drill; 3101 grounds on tick 0
     // and keeps 14.8 u/s of way while aground (the making-way clause below).
     const w = new World(3101, 8);
-    const rec = w.ships.get(w.addBot(undefined, undefined).id)!;
+    // RE-STATED (Story 9.13, epic-9 amendment 192): this drove a BOT into the
+    // berth, relying on its patrol bearing running through the island; the
+    // routed patrol and the graded avoidance now steer a bot off that coast,
+    // so the SIGNAL is pinned on a hull held full ahead by plain inputs (the
+    // flag is the resolver's, whoever holds the helm).
+    const rec = w.addShip('drill', 'DRILL', 'captain', 'battleship', undefined, { x: 0, y: 0 });
+    let seq = 0;
+    const ahead = (): void => {
+      seq += 1;
+      w.submitInput('drill', {
+        seq, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0,
+        fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
+      });
+    };
     const berth = seawardBerth(w);
 
     // Open water, well clear of everything: no contact, ever.
@@ -2030,6 +2067,7 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
     let grounded = false;
     let fastestAground = 0;
     for (let t = 0; t < 60; t += 1) {
+      ahead();
       w.step();
       if (!rec.landContact) continue;
       grounded = true;
@@ -2049,6 +2087,7 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
     rec.state.speed = rec.stats.kinematics.maxSpeed;
     rec.prevPose = { ...rec.state };
     for (let t = 0; t < 20; t += 1) {
+      ahead();
       w.step();
       expect(rec.landContact).toBe(false);
     }
@@ -2155,9 +2194,14 @@ describe('END TO END — a real World full of bots, stepped for half a match-min
         contactTicks += d.contactTicks;
         ticks += d.ticks;
       }
-      // ...repeatedly and under its own power on the hardest seed, which is
-      // what separates "it un-beaches" from "it happened to drift clear once".
-      expect(Math.max(...runs.map((d) => d.episodes))).toBeGreaterThan(3);
+      // RE-STATED (Story 9.13, epic-9 amendments 192/202): this also pinned
+      // "more than three episodes on the hardest seed" — evidence of repeated
+      // self-rescue under a patrol bearing that ran THROUGH the island. The
+      // routed patrol and the graded avoidance no longer drive the hull back
+      // into that coast, so fewer episodes is the goal, not a regression; the
+      // contract left is the one above (every episode ends inside the
+      // manoeuvre's budget) and at least one real episode per run.
+      expect(Math.min(...runs.map((d) => d.episodes))).toBeGreaterThanOrEqual(1);
       // AND THE METRONOME IS BROKEN — the assertion the exit-heading hold and
       // the avoidance weighting buy, and the one the previous fix explicitly
       // could not make. Measured per class over these four seeds: torpedo boat
@@ -2378,7 +2422,7 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
 
     /** Midway through the bulwark's band — inside it, so the posture is `engage`. */
     function inBandX(bs: ShipRecord): number {
-      const band = engagementBand(profileOf('bulwark'), bs.stats);
+      const band = gunBand(profileOf('bulwark'), bs.stats);
       return (band.min + band.max) / 2;
     }
 
@@ -2740,7 +2784,7 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
 
   it('SHIELD BLOCK: pressed on the HUNKER cues (engaged, or a fish inbound) — never over a shield still up', () => {
     const { port, rec, belt } = beltOnly(81601, 'shieldBlock');
-    const band = engagementBand(profileOf('duelist'), rec.stats);
+    const band = gunBand(profileOf('duelist'), rec.stats);
     const engaged = mkMind('duelist');
     plot(engaged, track(port.now, { x: (band.min + band.max) / 2, y: 0, speed: 0 }));
     viewOf(engaged, port.now, []);
