@@ -1253,8 +1253,9 @@ describe('shared barrel', () => {
     });
     // The retired flat D − 10 dial never comes back under its old name.
     expect('edgeFalloff' in CONFIG.flak).toBe(false);
-    // ONE attenuation block read by all three deck guns (ruling 184(f)).
-    expect(CONFIG.gunAttenuation).toEqual({ fullFrac: 0.5, minFactor: 0.8 });
+    // ONE attenuation block read by all three deck guns (ruling 184(f));
+    // minFactor 0.8 → 0.5 (Eric 2026-10-17, amendment 187: 50 % at max range).
+    expect(CONFIG.gunAttenuation).toEqual({ fullFrac: 0.5, minFactor: 0.5 });
     expect(CONFIG.instantReload).toEqual({ maxAmmo: 1, reloadMs: 60000 }); // 60 s (Eric 2026-10-02, amendment 232; was 45 s)
     // Story 9.7 (epic-9 amendments 86–88 / 110–117): the HUNKER is temporary
     // Armor for 10 s; the flat factor is DELETED, not kept beside it. Story 9.9

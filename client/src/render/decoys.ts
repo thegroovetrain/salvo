@@ -49,12 +49,17 @@ export type { HueFor };
 
 const R = CLIENT_CONFIG.mineRings; // the shared ordnance-ring stroke weights
 
-/** u — half-width of the waterline tick. */
-const WATERLINE = 7;
-/** u — spar height above the waterline (the masthead sits here). */
-const SPAR = 16;
-/** u — half-diagonal of the diamond radar-reflector topmark. */
-const TOPMARK = 6;
+/** The whole on-water marker drawn 25 % larger than the Story 8.16 silhouette
+ *  (Eric 2026-10-17: "Make the buoy about 25% larger on the water"; epic-9
+ *  amendment 188). Scales the three lengths below together, so the shape — and
+ *  the "distinct from a mine" property — is unchanged. */
+const BUOY_SCALE = 1.25;
+/** u — half-width of the waterline tick (7 × BUOY_SCALE). */
+const WATERLINE = 7 * BUOY_SCALE;
+/** u — spar height above the waterline (the masthead sits here; 16 × BUOY_SCALE). */
+const SPAR = 16 * BUOY_SCALE;
+/** u — half-diagonal of the diamond radar-reflector topmark (6 × BUOY_SCALE). */
+const TOPMARK = 6 * BUOY_SCALE;
 /** u — radius of the owner-only masthead hp arc (clear of the topmark's points). */
 const HP_ARC_R = TOPMARK + 3.5;
 /** Alpha of the owner-only masthead hp arc. */

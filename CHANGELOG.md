@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.18.62] - 2026-10-17
+
+### Changed
+- **Shots drop to half at max range.** The three deck guns now fall from full damage at half the gun's range to 50 % at max range (was 80 %). Eric: "If you want to do more damage, you need to get into range that people can shoot you back."
+- **Star-shell light is always full damage.** A deck-gun shot aimed into your own star-shell lit zone deals full damage wherever it lands, even far past the gun's range (the lit zone already let you shoot that far). Only your own flares count.
+- **The decoy buoy is 25 % bigger on the water.** Same shape (waterline tick, spar, diamond daymark), scaled up so it reads at a glance.
+- Protocol version unchanged (89): the client reads no attenuation number; the buoy is a client drawing.
+
+### Not changed
+- The half-range start of the drop, the flak rim, the mine rules, every weapon range and ladder.
+
 ## [0.18.61] - 2026-10-16
 
 ### Changed

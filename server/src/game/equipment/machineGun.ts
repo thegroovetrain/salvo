@@ -39,7 +39,7 @@
 import { CONFIG, EQUIPMENT_IS_WEAPON, type LoadoutSlot, type WeaponAmmo } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationContext, ActivationResult, Equipment } from './index.js';
-import { burstPointAlong, gunReachU, muzzleOrTarget } from './guns.js';
+import { attenRangeFor, burstPointAlong, gunReachU, muzzleOrTarget } from './guns.js';
 import { makeBallistic } from './ballistics.js';
 
 /** Advance a running magazine swap by `dtMs`; on completion the magazine is
@@ -98,7 +98,7 @@ function fireStreamShell(ctx: ActivationContext): void {
     hits: CONFIG.machineGun.hits, // AR44 target mask (hull | mine | decoy — a mine only where it lands, amendment 200)
     family: 'mg',
     direct: true,
-    attenRangeU: mg.rangeU, // ruling 184(b): the row's reach at fire time, never the lit-zone lift
+    attenRangeU: attenRangeFor(ctx, mg.rangeU, target), // ruling 184(b) + amendment 187: none into own light
   });
   ctx.spawnBallistic(shell, { perShellFlash: true }); // one `mz` per shell (amendment 89(i))
 }

@@ -1240,12 +1240,12 @@ export const CONFIG = {
    * weapon-balance-math; epic-9 amendments 184–185), forge lock verbatim:
    * *"RANGE ATTENUATION on every deck gun: full damage out to ~50 % of the
    * gun's range, then falls gradually to ~80 % at max range (reason: reward
-   * moving in a bit)"*). ONE shared block read identically by the cannon, the
+   * moving in a bit)"*; the 80 % floor since moved to 50 %, see below). ONE shared block read identically by the cannon, the
    * machine gun and the flak gun (ruling 184(f)).
    *
    * LINEAR: factor 1 while the shell has flown ≤ `fullFrac` of the reference,
    * falling linearly to `minFactor` at 100 %, CLAMPED at `minFactor` beyond
-   * (a lit-zone-lifted shot). The distance is the shell's LAUNCH POINT → its
+   * (a lit-zone-lifted shot that is NOT exempt). The distance is the shell's LAUNCH POINT → its
    * impact point (the distance it actually flew), and the reference is the
    * firer's effective gun `rangeU` AT FIRE TIME — never the lit-zone-lifted
    * reach (ruling 184(b)). The whole blow (flak: × the rim falloff) is
@@ -1255,10 +1255,23 @@ export const CONFIG = {
    * the attenuated blow too (Eric 2026-10-16, ruling 184(i)). The pure curve
    * is sim/attenuation.ts `rangeAttenuation`; `--tune gunAttenuation.*` on
    * [0, 1] with `fullFrac < 1`.
+   *
+   * THE FLOOR MOVED (Eric 2026-10-17, epic-9 amendment 187, verbatim: *"the
+   * deck gun bullet drop off, go down to 50% damage at its maximum range. If
+   * you want to do more damage, you need to get into range that people can
+   * shoot you back."*): `minFactor` 0.8 → 0.5; the curve's shape is
+   * unchanged.
+   *
+   * THE LIT EXEMPTION (Eric 2026-10-17, epic-9 amendment 187: *"the lit up
+   * region is counted as within the 100% damage range, even if it otherwise
+   * wouldn't be"*): a deck-gun shot whose clamped aim point lies inside one of
+   * the firer's OWN live lit zones at FIRE TIME carries no attenuation
+   * reference and deals the full blow wherever it lands (server guns.ts
+   * `attenRangeFor`). Own flares only, the reach lift's own keying.
    */
   gunAttenuation: {
     fullFrac: 0.5, // fraction of the firer's rangeU flown at full damage
-    minFactor: 0.8, // damage factor at (and beyond) the firer's rangeU
+    minFactor: 0.5, // damage factor at (and beyond) the firer's rangeU (0.8 → 0.5 Eric 2026-10-17, amendment 187)
   },
 
   /**

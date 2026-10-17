@@ -86,14 +86,15 @@ function rawSources(): { label: string; amount: number }[] {
     // this ledger cannot key on family the way classifyShell's LAUNCH ledger
     // does (that would need a field on the wire event, i.e. server/src). Since
     // Story 9.12 (Eric 2026-10-16, epic-9 amendment 184) EVERY deck-gun blow
-    // is range-attenuated (to 80 % at range) and a flak burst falls to HALF at
-    // the rim (`flak.rimFactor`), so only a near, dead-centre hit lands on its
-    // bare-amount row. Today's collisions: a Tier III flak burst (20) files
-    // under `starShells` (20); a Tier I cannon shell at max range lands exactly
-    // 6 (8 × 0.8) and files under `gunBodyblock`; a far machine-gun shell lands
-    // 4 (5 × 0.8) and files under `flakBodyblock` (the MG itself is a flat 5 at
-    // every tier and never deals 6); anything else files by first match or
-    // under `other:<amount>`. Harness attribution only; the fix (classify by
+    // is range-attenuated (to `gunAttenuation.minFactor` at range — the dial,
+    // not a number here) unless aimed into the firer's own light (amendment
+    // 187), and a flak burst falls to HALF at the rim (`flak.rimFactor`), so
+    // only a near or lit, dead-centre hit lands on its bare-amount row. A Tier
+    // III flak burst (20) files under `starShells` (20); an attenuated cannon
+    // or machine-gun blow (floor(D × factor)) files under whichever base
+    // amount it happens to equal — at the 2026-10-17 dial (0.5) a Tier I
+    // cannon shell at max range lands 4 and files under `flakBodyblock`;
+    // anything else files by first match or under `other:<amount>`. Harness attribution only; the fix (classify by
     // shell family, not amount) is in deferred-work.md.
     { label: 'machineGun', amount: CONFIG.machineGun.damage },
     { label: 'flak', amount: CONFIG.flak.damage },

@@ -21,7 +21,7 @@ describe('rangeAttenuation — full damage to fullFrac of range, linear to minFa
     expect(rangeAttenuation(900, 1000, CFG)).toBeCloseTo(0.84, 12);
   });
 
-  it('is minFactor at the reference and clamped there beyond it (a lit-zone-lifted shot)', () => {
+  it('is minFactor at the reference and clamped there beyond it (a lifted shot NOT exempted by the shooter\'s own light)', () => {
     expect(rangeAttenuation(1000, 1000, CFG)).toBe(0.8);
     expect(rangeAttenuation(1300, 1000, CFG)).toBe(0.8);
   });

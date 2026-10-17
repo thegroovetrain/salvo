@@ -28,18 +28,20 @@ import { CONFIG, EQUIPMENT_IS_WEAPON, type LoadoutSlot, type ShellState } from '
 import type { ShipRecord } from '../world.js';
 import type { ActivationContext, ActivationResult, Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
-import { burstPointAlong, gunReachU, muzzleOrTarget } from './guns.js';
+import { attenRangeFor, burstPointAlong, gunReachU, muzzleOrTarget } from './guns.js';
 import { makeBallistic } from './ballistics.js';
 
-/** Build the one flak shell for this click, born at `now` (the validated
- *  fire time), clamped to `reachU` (the row's `rangeU`, lit-zone lifted).
- *  Pure over the ship's input + pose + stats. */
-function flakShell(ship: ShipRecord, now: number, reachU: number, mapRadius: number, mkId: () => string): ShellState {
+/** Build the one flak shell for this click, born at `ctx.fireT` (the
+ *  validated fire time), clamped to `reachU` (the row's `rangeU`, lit-zone
+ *  lifted); a shot aimed into the shooter's own light carries no attenuation
+ *  reference (amendment 187, guns.ts `attenRangeFor`). */
+function flakShell(ctx: ActivationContext, reachU: number): ShellState {
+  const ship = ctx.ship;
   const flak = ship.stats.equipment.flak;
   const dir = ship.input.aim;
-  const target = burstPointAlong(ship, mapRadius, reachU, dir);
+  const target = burstPointAlong(ship, ctx.mapRadius, reachU, dir);
   const origin = muzzleOrTarget(ship, dir, target, CONFIG.flak.shellRadius);
-  return makeBallistic(mkId(), ship, dir, now, {
+  return makeBallistic(ctx.mkId(), ship, dir, ctx.fireT, {
     speed: CONFIG.flak.shellSpeed,
     range: Math.hypot(target.x - origin.x, target.y - origin.y) + CONFIG.flak.shellRadius,
     damage: flak.damage,
@@ -52,7 +54,7 @@ function flakShell(ship: ShipRecord, now: number, reachU: number, mapRadius: num
     contactDamage: flak.contactDamage,
     hits: CONFIG.flak.hits, // AR44 target mask
     family: 'flak',
-    attenRangeU: flak.rangeU, // ruling 184(b): the row's reach at fire time, never the lit-zone lift
+    attenRangeU: attenRangeFor(ctx, flak.rangeU, target), // ruling 184(b) + amendment 187: none into own light
   });
 }
 
@@ -70,7 +72,7 @@ export const flakEquipment: Equipment = {
     // bornAt = the VALIDATED fire time (D1), the cannon's rule: a back-dated
     // shell is pre-stepped by the World to where it belongs this tick.
     const reachU = gunReachU(ctx, ctx.ship.stats.equipment.flak.rangeU); // R2.15, amendment 114
-    ctx.spawnBallistic(flakShell(ctx.ship, ctx.fireT, reachU, ctx.mapRadius, ctx.mkId));
+    ctx.spawnBallistic(flakShell(ctx, reachU));
     return { ok: true };
   },
 };
