@@ -79,7 +79,9 @@ export interface BallisticParams {
   direct?: true;
   /** THE ATTENUATION REFERENCE (Story 9.12, Eric 2026-10-16, epic-9
    *  amendment 184(b)): the firing row's effective `rangeU` AT FIRE TIME —
-   *  never the lit-zone-lifted reach. Only the three deck guns pass it; when
+   *  never the lit-zone-lifted reach; ABSENT for a deck-gun shot aimed into
+   *  the firer's own live lit zone (amendment 187, the lit exemption — full
+   *  damage; guns.ts `attenRangeFor`). Only the three deck guns pass it; when
    *  given and > 0 the shell also records its launch point (see
    *  ShellState.originX / attenRangeU). Server-private, never on the wire. */
   attenRangeU?: number;
@@ -105,7 +107,9 @@ export interface BallisticParams {
  * call this on the freshly built shell) and the row's range at fire time, so
  * the World can measure the distance FLOWN at impact. Nothing is written for
  * an absent or non-positive reference (every other projectile: no
- * attenuation, and no explicit `undefined` keys on the record).
+ * attenuation, and no explicit `undefined` keys on the record) — including a
+ * deck-gun shot aimed into the firer's own live lit zone (Eric 2026-10-17,
+ * epic-9 amendment 187: the lit region counts as the 100 % damage range).
  */
 function stampAttenuation(shell: ShellState, attenRangeU: number | undefined): void {
   if (attenRangeU === undefined || !(attenRangeU > 0)) return;

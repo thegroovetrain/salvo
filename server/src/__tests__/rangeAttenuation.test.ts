@@ -1,6 +1,7 @@
 // DECK-GUN RANGE ATTENUATION AT THE WORLD'S BLOW SITES (Story 9.12, Eric
-// 2026-10-16, epic-9 amendments 184–185 — forge lock: "full damage out to
-// ~50 % of the gun's range, then falls gradually to ~80 % at max range").
+// 2026-10-16, epic-9 amendments 184–185 — full damage out to ~50 % of the
+// gun's range, then linear to `CONFIG.gunAttenuation.minFactor` at max range;
+// the floor moved 80 % → 50 % on 2026-10-17, amendment 187).
 //
 // The pure curve is pinned in shared attenuation.test.ts; this file guards the
 // SERVER'S use of it through the real fire paths:
@@ -11,6 +12,9 @@
 //   * a positive blow lands at least 1 (the 1 hp drone shell);
 //   * a shell with no reference (an injected shell) is unattenuated;
 //   * a decoy takes exactly what a hull would (reading r6);
+//   * THE LIT EXEMPTION (Eric 2026-10-17, amendment 187): a shot aimed into
+//     the shooter's OWN live lit zone carries no reference and deals the full
+//     blow, even past range; another captain's light exempts nothing;
 //   * the launch point and the reference are SERVER-PRIVATE — no frame row
 //     carries either (the projectile wire row's field pick is unchanged).
 // Every expected number is DERIVED from CONFIG and the shared functions.
@@ -112,7 +116,7 @@ describe('the CANNON — near is full, far is attenuated, beyond range is clampe
     for (const h of hits) expect(h.amount).toBe(CONFIG.gun.damage);
   });
 
-  it('a click at ~90 % of range lands settleBlow(D × the linear factor), strictly below D', () => {
+  it('a click at ~90 % of range lands settleBlow(D × the linear factor), strictly between D × minFactor and D', () => {
     const w = bareWorld();
     const a = ship(w, 'a', 0, 0);
     const R = a.stats.equipment.gun.rangeU;
@@ -126,24 +130,6 @@ describe('the CANNON — near is full, far is attenuated, beyond range is clampe
     const hits = dmgTo(log, 'b');
     expect(hits.length).toBeGreaterThan(0);
     for (const h of hits) expect(h.amount).toBe(expected);
-  });
-
-  it('a click past range into the shooter\'s OWN lit zone flies the whole way and is CLAMPED at minFactor (the reference is rangeU, never the lifted reach)', () => {
-    const w = bareWorld();
-    const a = ship(w, 'a', 0, 0);
-    const R = a.stats.equipment.gun.rangeU;
-    const far = R + 200;
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: far, r: 120, until: 10 * 60 * 1000 });
-    ship(w, 'b', BS_HALF + 10, far, { hull: 'battleship', heading: 0 }); // stern tip 10 u off the click, along +x
-    const { log, shells } = fire(w, 'a', far, HALF_PI);
-    for (const s of shells) {
-      expect(s.targetY).toBeCloseTo(far, 6); // it flew the lifted reach...
-      expect(s.attenRangeU).toBe(R); // ...but the reference stayed the row's range
-      expect(burstAtten(s)).toBe(CONFIG.gunAttenuation.minFactor);
-    }
-    const hits = dmgTo(log, 'b');
-    expect(hits.length).toBeGreaterThan(0);
-    for (const h of hits) expect(h.amount).toBe(settleBlow(CONFIG.gun.damage * CONFIG.gunAttenuation.minFactor));
   });
 
   it('the BODYBLOCK is never attenuated: an interceptor far down range takes exactly contactDamage from each shell', () => {
@@ -381,4 +367,79 @@ describe('a machine-gun blow settled to 0 is NO blow (resolveInterception agrees
       expect(hurt).not.toHaveBeenCalled();
     });
   });
+});
+
+// ---------------------------------------------------------------------------
+// THE LIT EXEMPTION (Eric 2026-10-17, epic-9 amendment 187: "the lit up
+// region is counted as within the 100% damage range, even if it otherwise
+// wouldn't be"). Decided at FIRE TIME on the clamped aim point against the
+// shooter's OWN live lit zones (guns.ts `attenRangeFor`): such a shell
+// carries NO reference and deals the full blow wherever it lands.
+// ---------------------------------------------------------------------------
+
+type DeckGun = undefined | 'machineGun' | 'flak';
+const GUNS: readonly DeckGun[] = [undefined, 'machineGun', 'flak'];
+const gunLabel = (g: DeckGun): string => g ?? 'cannon';
+function rowOf(rec: ShipRecord, g: DeckGun): { rangeU: number; damage: number } {
+  const eq = rec.stats.equipment;
+  return g === 'machineGun' ? eq.machineGun : g === 'flak' ? eq.flak : eq.gun;
+}
+const LIT_UNTIL = 10 * 60 * 1000;
+
+/** A battleship placed so the gun's blow lands on it at an aim point (0, y)
+ *  fired up +y: the cannon / flak burst 10 u off its stern tip (broadside
+ *  along x, the tip at the click), the machine gun's direct shell striking
+ *  its broadside (the hull centred ON the click). Returns the expected FULL blow. */
+function targetAt(w: World, g: DeckGun, y: number, damage: number): number {
+  if (g === 'machineGun') {
+    ship(w, 'b', 0, y, { hull: 'battleship', heading: 0 }); // broadside ACROSS the track, centred on the click
+    return damage;
+  }
+  ship(w, 'b', BS_HALF + 10, y, { hull: 'battleship', heading: 0 }); // stern tip 10 u off the click
+  return g === 'flak' ? settleBlow(damage * flakRimFactor(10, CONFIG.flak.burstRadius, CONFIG.flak.rimFactor)) : damage;
+}
+
+describe('THE LIT EXEMPTION — a shot into the shooter\'s OWN lit zone is full damage (amendment 187)', () => {
+  for (const g of GUNS) {
+    it(`${gunLabel(g)}: aimed past rangeU into an OWN live lit zone, the live shell stamps no attenRangeU and the hull takes the FULL, unattenuated blow`, () => {
+      const w = bareWorld();
+      const a = ship(w, 'a', 0, 0, { gun: g });
+      const { rangeU, damage } = rowOf(a, g);
+      const far = rangeU + 200;
+      w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 0, y: far, r: 120, until: LIT_UNTIL });
+      const full = targetAt(w, g, far, damage);
+      const { log, shells } = fire(w, 'a', far, HALF_PI);
+      expect(shells.length).toBeGreaterThan(0);
+      for (const s of shells) {
+        expect(s.targetY).toBeCloseTo(far, 6); // the reach lift still applies
+        expect('attenRangeU' in s).toBe(false); // no reference on the live shell
+        expect('originX' in s).toBe(false);
+      }
+      // Non-vacuous: without the exemption this blow would be clamped at minFactor.
+      expect(settleBlow(damage * CONFIG.gunAttenuation.minFactor)).toBeLessThan(damage);
+      const hits = dmgTo(log, 'b');
+      expect(hits.length).toBeGreaterThan(0);
+      for (const h of hits) expect(h.amount).toBe(full);
+    });
+
+    it(`${gunLabel(g)}: aimed at ~90 % of range into ANOTHER captain's lit zone, the shot IS attenuated (own flares only)`, () => {
+      const w = bareWorld();
+      const a = ship(w, 'a', 0, 0, { gun: g });
+      ship(w, 'o', -2000, 0); // the flare's owner, far away
+      const { rangeU, damage } = rowOf(a, g);
+      const y = 0.9 * rangeU;
+      w.litZones.set('z1', { id: 'z1', ownerId: 'o', x: 0, y, r: 120, until: LIT_UNTIL });
+      targetAt(w, g, y, damage);
+      const { log, shells } = fire(w, 'a', y, HALF_PI);
+      for (const s of shells) expect(s.attenRangeU).toBe(rangeU); // the reference is stamped
+      const hits = dmgTo(log, 'b');
+      expect(hits.length).toBeGreaterThan(0);
+      const boom = log.find((e): e is BoomEvent => e.k === 'boom' && e.hit === 'b');
+      const at = g === 'machineGun' ? boom! : { x: shells[0].targetX!, y: shells[0].targetY! };
+      const f = attenAt(shells[0], at);
+      expect(f).toBeLessThan(1);
+      const rim = g === 'flak' ? flakRimFactor(10, CONFIG.flak.burstRadius, CONFIG.flak.rimFactor) : 1;
+      for (const h of hits) expect(h.amount).toBe(settleBlow(damage * rim * f));
+    });
+  }
 });

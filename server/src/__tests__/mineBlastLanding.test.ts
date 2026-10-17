@@ -122,13 +122,16 @@ describe('the machine gun — no blast, within 10 u of where it arrived', () => 
     expect(w.mines.get('off')!.hp).toBe(CONFIG.mine.hp);
   });
 
-  it('at max range the mine takes the attenuated blow', () => {
+  it('at max range the mine takes the attenuated blow: settleBlow(D × a factor in [minFactor, 1))', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 'machineGun');
     const R = a.stats.equipment.machineGun.rangeU;
     lay(w, 'm1', R, 0);
     const { shells } = fire(w, 'a', R);
-    const blow = settleBlow(CONFIG.machineGun.damage * landAtten(shells[0]));
+    const f = landAtten(shells[0]);
+    expect(f).toBeLessThan(1);
+    expect(f).toBeGreaterThanOrEqual(CONFIG.gunAttenuation.minFactor); // flown ≤ R (the muzzle sits forward)
+    const blow = settleBlow(CONFIG.machineGun.damage * f);
     expect(blow).toBeLessThan(CONFIG.machineGun.damage);
     expect(w.mines.get('m1')!.hp).toBe(CONFIG.mine.hp - blow);
   });

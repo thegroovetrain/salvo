@@ -19,6 +19,7 @@ import {
   gunReachU as sharedGunReachU,
   muzzleOrTarget as sharedMuzzleOrTarget,
   parallelOffsets,
+  pointInLitZone,
   wrapAngle,
   type EquipmentState,
   type ShellState,
@@ -124,6 +125,26 @@ export function gunReachU(ctx: ActivationContext, rangeU: number): number {
 }
 
 /**
+ * THE LIT EXEMPTION (Eric 2026-10-17, epic-9 amendment 187: "the lit up
+ * region is counted as within the 100% damage range, even if it otherwise
+ * wouldn't be"). The attenuation reference a deck-gun shell is stamped with:
+ * the row's `rangeU` at fire time (ruling 184(b)), or `undefined` — NO
+ * reference, full damage wherever the shell lands — when `target` (the
+ * shot's map-clamped aim / burst point) lies inside one of the firer's OWN
+ * live lit zones (`ctx.ownLitZones()`, the same shared `pointInLitZone` test
+ * `gunReachU` lifts the reach on; an enemy's flare buys nothing).
+ *
+ * Decided ONCE, AT FIRE TIME, never at impact. Two accepted readings follow:
+ * a zone that expires while the shell is in flight does not retroactively
+ * punish a shot fired into light, and a hull intercepting the shell short of
+ * the zone takes the unattenuated blow. DECK GUNS ONLY (cannon, machine gun,
+ * flak).
+ */
+export function attenRangeFor(ctx: ActivationContext, rangeU: number, target: Vec2): number | undefined {
+  return pointInLitZone(target, ctx.ownLitZones()) ? undefined : rangeU;
+}
+
+/**
  * Gun fire control against one slot pool: `stats.equipment.gun.barrels` shells
  * (TWO at every tier since Eric 2026-10-16, Story 9.12 — `CONFIG.gun.barrels`,
  * no barrel rungs; a PvE fleet gun keeps one; the fold's 1..3 clamp still
@@ -175,30 +196,30 @@ export function gunReachU(ctx: ActivationContext, rangeU: number): number {
  * target point + burstRadius + damage/contactDamage (Story 2.8 — stats, never
  * CONFIG, so the HEAVY SHELLS ladder lands) and the row's `rangeU` as its
  * range-attenuation reference (Story 9.12, ruling 184(b) — the row's reach,
- * NEVER the lit-zone-lifted `reachU`). distLeft is the spawn→target
+ * NEVER the lit-zone-lifted `reachU`; none at all for a volley aimed into the
+ * shooter's own light, amendment 187 `attenRangeFor`). distLeft is the spawn→target
  * distance plus a shellRadius of slack — the shell stops AT its target
  * (stepShell), so the slack only guards float drift from ever expiring it a
  * hair short of the burst. It is the SAME length for every shell of the volley,
  * because parallel tracks are equal-length by construction.
  */
 function fireGunShells(
-  ship: ShipRecord,
+  ctx: ActivationContext,
   pool: EquipmentState,
-  now: number,
   reachU: number,
-  mapRadius: number,
-  mkId: () => string,
 ): { shells: ShellState[]; denial: ActivationDenial | null } {
+  const ship = ctx.ship;
   if (!consume(pool, ship.stats.equipment.gun.reloadMs)) return { shells: [], denial: 'no-ammo' }; // pool empty
   const gun = ship.stats.equipment.gun;
   const dir = ship.input.aim;
-  const center = burstPointAlong(ship, mapRadius, reachU, dir);
+  const center = burstPointAlong(ship, ctx.mapRadius, reachU, dir);
   const muzzle = muzzleOrTarget(ship, dir, center, CONFIG.gun.shellRadius);
   const range = Math.hypot(center.x - muzzle.x, center.y - muzzle.y) + CONFIG.gun.shellRadius;
+  const attenRangeU = attenRangeFor(ctx, gun.rangeU, center); // amendment 187: one decision per volley
   const shells: ShellState[] = [];
   for (const off of parallelOffsets(dir, gun.barrels, CONFIG.gun.barrelSpacingU)) {
     shells.push(
-      makeBallistic(mkId(), ship, dir, now, {
+      makeBallistic(ctx.mkId(), ship, dir, ctx.fireT, {
         speed: CONFIG.gun.shellSpeed,
         range,
         damage: gun.damage,
@@ -211,7 +232,7 @@ function fireGunShells(
         contactDamage: gun.contactDamage,
         hits: CONFIG.gun.hits, // AR44 target mask
         family: 'cannon', // Story 8.15: the reveal's `w`
-        attenRangeU: gun.rangeU, // ruling 184(b): the row's reach at fire time, never the lit-zone lift
+        attenRangeU, // ruling 184(b) + amendment 187: the row's reach at fire time, none into own light
       }),
     );
   }
@@ -233,7 +254,7 @@ export const gunEquipment: Equipment = {
     // pre-stepped by the World to where it belongs this tick.
     // R2.15: an own LIVE lit zone over the clicked point extends the reach.
     const reachU = gunReachU(ctx, ctx.ship.stats.equipment.gun.rangeU);
-    const { shells, denial } = fireGunShells(ctx.ship, slot.state!, ctx.fireT, reachU, ctx.mapRadius, ctx.mkId);
+    const { shells, denial } = fireGunShells(ctx, slot.state!, reachU);
     for (const shell of shells) ctx.spawnBallistic(shell);
     return denial === null ? { ok: true } : { ok: false, reason: denial };
   },

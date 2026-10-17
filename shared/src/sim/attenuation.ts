@@ -6,7 +6,9 @@
 //
 // - `rangeAttenuation` — Eric's forge lock: "full damage out to ~50 % of the
 //   gun's range, then falls gradually to ~80 % at max range (reason: reward
-//   moving in a bit)". Linear between the two, clamped beyond range. The
+//   moving in a bit)" — the floor since moved to 50 % (Eric 2026-10-17,
+//   epic-9 amendment 187; the dial is `CONFIG.gunAttenuation.minFactor`).
+//   Linear between the two, clamped beyond range. The
 //   distance is the shell's launch point → impact (ruling 184(b)); the
 //   reference is the firer's `rangeU` at fire time.
 // - `flakRimFactor` — the flak burst's rim deals HALF the centre damage,
