@@ -170,10 +170,10 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
 
   it('prints the MACHINE GUN\'s magazine as SHELLS and its shot delay as RATE (two decimals)', () => {
     expect(lines(tooltipModel(SLOT_GUN, 'machineGun', STATS)!.stats)).toEqual([
-      'RELOAD 12.0 s',
-      'SHELLS 12',
-      'DAMAGE 5',
-      'RATE 0.30 s',
+      `RELOAD ${(CONFIG.machineGun.reloadMs / 1000).toFixed(1)} s`,
+      `SHELLS ${CONFIG.machineGun.maxAmmo}`,
+      `DAMAGE ${CONFIG.machineGun.damage}`,
+      `RATE ${(CONFIG.machineGun.rateMs / 1000).toFixed(2)} s`,
       `RANGE ${rangeTxt(STATS.equipment.machineGun.rangeU)} u`,
     ]);
   });

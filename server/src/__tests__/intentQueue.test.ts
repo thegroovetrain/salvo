@@ -47,6 +47,10 @@ function place(
   return rec;
 }
 
+/** One gun click's volley: one shell per barrel (TWO at every tier since
+ *  Story 9.12 — one click, one volley, whatever the barrel count). */
+const volleyOf = (a: ShipRecord): string[] => Array<string>(a.stats.equipment.gun.barrels).fill('shell');
+
 /** A neutral-driving input with the given press fields. */
 function input(seq: number, extra: Partial<InputMsg> = {}): InputMsg {
   return {
@@ -117,7 +121,7 @@ describe('fireControl — two clicks landing in ONE tick are BOTH evaluated in s
     w.submitInput('a', input(2, { fireSeq: 2, slot: SLOT_WEAPON, aim: 0 }));
     w.step();
     const kinds = [...w.shells.values()].map((s) => s.kind).sort();
-    expect(kinds).toEqual(['shell', 'torp']); // BOTH pressed weapons launched this tick
+    expect(kinds).toEqual([...volleyOf(a), 'torp']); // BOTH pressed weapons launched this tick
     expect(a.lastFireSeq).toBe(2);
     expect('denied' in buildFrame(w, 'a')).toBe(false);
   });
@@ -142,7 +146,7 @@ describe('fireControl — two clicks landing in ONE tick are BOTH evaluated in s
 
   it('an older press that cannot fire gets its OWN wire denial while the newer press fires', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0, 0);
+    const a = place(w, 'a', 0, 0, 0);
     w.step();
     // Click 1: torpedo dead astern (out of the bow arc) → 'out-of-arc' denial.
     // Click 2: gun at a point → fires. Pre-2.1 click 1 vanished silently.
@@ -150,16 +154,16 @@ describe('fireControl — two clicks landing in ONE tick are BOTH evaluated in s
     w.submitInput('a', input(2, { fireSeq: 2, slot: 0, aimDist: 150 }));
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_WEAPON, reason: 'out-of-arc', seq: 1 }]);
-    expect([...w.shells.values()].map((s) => s.kind)).toEqual(['shell']);
+    expect([...w.shells.values()].map((s) => s.kind)).toEqual(volleyOf(a));
   });
 
   it('a spoofed fireSeq jump still fires at most one shot per accepted input', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0, 0);
+    const a = place(w, 'a', 0, 0, 0);
     w.step();
     w.submitInput('a', input(1, { fireSeq: 1000, slot: 0, aimDist: 100 }));
     w.step();
-    expect(w.shells.size).toBe(1); // one gated attempt, not a thousand
+    expect(w.shells.size).toBe(volleyOf(a).length); // one gated attempt (one volley), not a thousand
   });
 
   it('direct ship.input assignment (the directed-test path) still fires via the backstop pass', () => {
@@ -168,7 +172,7 @@ describe('fireControl — two clicks landing in ONE tick are BOTH evaluated in s
     w.step();
     a.input = input(1, { fireSeq: 1, slot: 0, aimDist: 100 }); // no store, no queue
     w.step();
-    expect(w.shells.size).toBe(1);
+    expect(w.shells.size).toBe(volleyOf(a).length);
     expect(a.lastFireSeq).toBe(1);
   });
 });
@@ -220,12 +224,12 @@ describe('intent-queue lifecycle discipline', () => {
     // pin distinguishes "no phantom re-fire" from a legitimate burst removal.
     w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aimDist: 400, actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
     w.step();
-    expect(w.shells.size).toBe(1);
+    expect(w.shells.size).toBe(volleyOf(a).length);
     expect(a.boostUntil).toBeGreaterThan(0);
     const boostEnd = a.boostUntil;
     w.step(); // the same stored input persists — no queue entries, no fresh press
     w.step();
-    expect(w.shells.size).toBe(1); // no phantom re-fire
+    expect(w.shells.size).toBe(volleyOf(a).length); // no phantom re-fire
     expect(a.boostUntil).toBe(boostEnd); // no phantom re-activation
     expect(a.lastFireSeq).toBe(1);
     expect(a.lastActSeq).toBe(1);
@@ -237,7 +241,7 @@ describe('intent-queue lifecycle discipline', () => {
     w.step();
     w.submitInput('a', input(1, { fireSeq: 3, slot: 0, aimDist: 100 }));
     w.step();
-    expect(w.shells.size).toBe(1);
+    expect(w.shells.size).toBe(volleyOf(a).length);
     w.sinkShip('a');
     for (const s of [...w.shells.keys()]) w.shells.delete(s); // clear the board
     // Respawn happens through processRespawns in the waiting phase.

@@ -186,7 +186,7 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
     expect([...written].sort()).toEqual([
       'armor', 'armorPiercing',
       'regen.missingPctPerS', 'regen.outOfCombatMs',
-      'cooldownScale', 'equipment.gun.barrels', 'equipment.gun.damage', 'equipment.gun.maxAmmo',
+      'cooldownScale', 'equipment.gun.damage', 'equipment.gun.maxAmmo',
       'kinematics.maxSpeed', 'kinematics.turnRate', 'maxHp', 'sweepRpm',
       'equipment.lightTorpedo.damage', 'equipment.lightTorpedo.speed',
       'equipment.lightTorpedo.maxAmmo', 'equipment.lightTorpedo.homingTurnRate',
@@ -197,7 +197,7 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       'equipment.captiveMines.homingTurnRate',
       'equipment.foulingMines.blastRadius', 'equipment.foulingMines.maxAmmo',
       'equipment.foulingMines.slowFactor',
-      'equipment.machineGun.maxAmmo', 'equipment.machineGun.damage', 'equipment.machineGun.rateMs',
+      'equipment.machineGun.maxAmmo', 'equipment.machineGun.rateMs',
       'equipment.flak.damage', 'equipment.flak.maxAmmo',
       'equipment.starShells.litDurationMs', 'equipment.starShells.litRadius',
       'equipment.starShells.maxAmmo', 'equipment.starShells.damage',
@@ -210,9 +210,12 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
     ].sort());
     // Still addressable in principle, still written by nothing: the FOULING
     // mine's damage is fixed at 10 by ruling (amendment 81), the BROADSIDE's
-    // at 15 (amendment 133), and radarRange has no card at all.
+    // at 15 (amendment 133), radarRange has no card at all, and since Story
+    // 9.12 (Eric 2026-10-16) the cannon's barrels are a fixed CONFIG.gun.barrels
+    // and the machine gun's damage is 5 flat — no rung authors either.
     for (const path of [
       'radarRange', 'equipment.foulingMines.damage', 'equipment.broadside.damage',
+      'equipment.gun.barrels', 'equipment.machineGun.damage',
     ]) {
       expect(BOON_STAT_PATHS, path).toContain(path);
       expect(written.has(path), path).toBe(false);

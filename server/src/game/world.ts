@@ -62,6 +62,9 @@ import {
   hullEnvelope,
   hullSilhouette,
   pointPolygonDistance,
+  flakRimFactor,
+  rangeAttenuation,
+  settleBlow,
   mulberry32,
   resolveShipPose,
   slowedKinematics,
@@ -154,7 +157,6 @@ import {
   type MineState,
   type MineTripRules,
 } from './equipment/index.js';
-import { flakBurstDamage } from './equipment/flak.js';
 import type { BurstSubject } from './signals.js';
 import type { HandRecord } from './matchRecord.js';
 import { addDecoy, decoyTarget, type DecoyState } from './decoys.js';
@@ -1303,20 +1305,46 @@ export interface StepRow {
 }
 
 /** Is point `p` ON `mine` — within `r` of its centre? (The mine landing
- *  test's one predicate, amendment 202: asked of the cursor and the landing.) */
+ *  test's one predicate: `r` is the shell's blast plus the mine's 10 u marker,
+ *  Story 9.12, epic-9 amendment 184(i).) */
 function onMine(mine: Vec2, p: Vec2, r: number): boolean {
   return Math.hypot(mine.x - p.x, mine.y - p.y) <= r;
 }
 
+/** THE RANGE-ATTENUATION FACTOR of a shell's blow landing at `at` (Story
+ *  9.12, Eric 2026-10-16, epic-9 amendment 184(b)): the distance FLOWN —
+ *  launch point → `at` — against the firer's row `rangeU` at fire time, both
+ *  stamped on the shell by `makeBallistic` for the three deck guns alone. A
+ *  shell with no reference or no launch point (every other projectile, an
+ *  injected test shell) is unattenuated: 1. */
+function shellAttenuation(shell: ShellState, at: Vec2): number {
+  const ref = shell.attenRangeU;
+  if (ref === undefined || !(ref > 0) || shell.originX === undefined || shell.originY === undefined) return 1;
+  return rangeAttenuation(Math.hypot(at.x - shell.originX, at.y - shell.originY), ref, CONFIG.gunAttenuation);
+}
+
 /** The hp one burst deals to one caught target (hull or decoy — a decoy is
- *  measured exactly as the hull it imitates). Every burster deals its flat
- *  `damage`, except FLAK, whose blast falls off from D at the centre to
- *  D − `CONFIG.flak.edgeFalloff` at the rim by the NEAREST point of the
- *  caught outline (Eric 2026-10-13, Story 9.8 — equipment/flak.ts
- *  `flakBurstDamage`). */
+ *  measured exactly as the hull it imitates, reading r6). The ONE settle of a
+ *  deck-gun blow (Story 9.12, ruling 184(c)): `damage` × the FLAK rim falloff
+ *  (half at the rim, by the NEAREST point of the caught outline —
+ *  `CONFIG.flak.rimFactor`; 1 for every other burster) × the range
+ *  attenuation, floored ONCE to a whole number with a floor of one
+ *  (`settleBlow`) before the damage gate. */
 function burstHitAmount(shell: ShellState, t: Target, at: Vec2): number {
-  if (shell.family !== 'flak') return shell.damage;
-  return flakBurstDamage(shell.damage, pointPolygonDistance(at, t.poly), shell.burstRadius, CONFIG.flak.edgeFalloff);
+  const rim =
+    shell.family === 'flak' ? flakRimFactor(pointPolygonDistance(at, t.poly), shell.burstRadius, CONFIG.flak.rimFactor) : 1;
+  return settleBlow(shell.damage * rim * shellAttenuation(shell, at));
+}
+
+/** The hp an EARLY INTERCEPTION deals (Story 9.12, ruling 184(c)): a DIRECT
+ *  shell's contact hit — the machine gun's, whose `contactDamage` IS its
+ *  damage — is range-attenuated by where it struck and settled once; every
+ *  other interception (the cannon / flak 6 / 4 bodyblock, torpedoes, the
+ *  broadside, star / phosphor / fouling shells) deals its `contactDamage`
+ *  untouched. */
+function interceptionAmount(shell: ShellState, stop: Vec2): number {
+  if (shell.direct !== true) return shell.contactDamage;
+  return settleBlow(shell.contactDamage * shellAttenuation(shell, stop));
 }
 
 // ---------------------------------------------------------------------------
@@ -5955,14 +5983,21 @@ export class World {
       return;
     }
     if (shell.contactDamage <= 0) return; // zero-damage interception: boom only
+    const amount = interceptionAmount(shell, outcome);
+    // A SETTLED 0 is NO blow, exactly as at the burst site (burstDamage): a
+    // direct (machine-gun) blow attenuated to nothing — reachable under
+    // `--tune gunAttenuation.minFactor=0` at max range — must not fire the
+    // aggro seam or emit a 0 `dmg` (Story 9.12 review gate).
+    if (amount <= 0) return;
     if (kind === 'decoy') {
       // A DECOY intercepted the shot (Story 8.16): it takes the interceptor's
       // contactDamage exactly as a hull would — an enemy TORPEDO detonating on
       // it deals its full damage (amendment 120: a 50-damage fish kills a fresh
       // one) and the fish is consumed as on a hull. The `hc` above already told
       // the shooter something connected (amendment 121). No XP, no feed line.
-      // Selected by KIND, not by "the ships map had no such id" (P2).
-      this.damageDecoy(outcome.victimId, shell.contactDamage, shell.ownerId);
+      // Selected by KIND, not by "the ships map had no such id" (P2). A
+      // machine-gun hit is attenuated exactly as on the hull it imitates (r6).
+      this.damageDecoy(outcome.victimId, amount, shell.ownerId);
       return;
     }
     const victim = this.ships.get(outcome.victimId);
@@ -5973,7 +6008,7 @@ export class World {
     // not a single click (the same-click salvo ledger is deleted). `noAggro`
     // (the deleted GUN BUOY's R2.21a tag — nothing sets it since Story 8.16)
     // rides the fromMine seat: its rationale is the mine exception's, verbatim.
-    this.hitShip(victim, shell.contactDamage, shell.ownerId, shell.noAggro === true, shell.kind === 'torp' ? 'torpedo' : 'shell');
+    this.hitShip(victim, amount, shell.ownerId, shell.noAggro === true, shell.kind === 'torp' ? 'torpedo' : 'shell');
   }
 
   /**
@@ -6061,10 +6096,9 @@ export class World {
     // 50 u blast already does this), amendment 135(b).
     if (resolved > 0) this.emitHitCall(shell.ownerId, at.x, at.y);
     else this.emitSplash(shell, at.x, at.y);
-    // THE LANDING TEST (amendment 200, Eric 2026-10-01): a deck-gun shell's
-    // burst point IS where it landed, so every mine within
-    // `CONFIG.mine.hitRadiusU` of it takes the shell's full damage — and a
-    // burst that merely COVERS a mine farther off does nothing to it. Run
+    // THE LANDING TEST (amendment 200; Story 9.12, epic-9 amendment 184(i)):
+    // a deck-gun shell's burst point IS where it landed, so every mine whose
+    // 10 u marker the blast touches takes the shell's attenuated damage. Run
     // AFTER the hc/sp decision on purpose: a mine is never counted in
     // `resolved` (the hit call is about the hulls the shell connected with —
     // a pop with no hull victim keeps `sp`), and a sprung trap announces
@@ -6123,9 +6157,13 @@ export class World {
    *  is not in `hulls` at all. */
   private burstDamage(shell: ShellState, t: Target, at: Vec2): number {
     const amount = burstHitAmount(shell, t, at);
-    // A 0-hp blow is NO blow (Story 9.8 review): flak's rim falloff floors at
-    // 0 when a harness tunes `flak.edgeFalloff` ≥ D — that must not fire the
-    // aggro seam, credit damage or emit a `dmg`, so nothing below runs.
+    // A 0-hp blow is NO blow (Story 9.8 review; Story 9.12 reading r3):
+    // `settleBlow` answers 0 only for a non-positive raw blow — reachable
+    // under `--tune flak.rimFactor=1` at the exact rim or `--tune
+    // gunAttenuation.minFactor=0` at max range (resolveInterception holds the
+    // same guard for a direct blow).
+    // That must not fire the aggro seam, credit damage or emit a `dmg`, so
+    // nothing below runs.
     if (amount <= 0) return 0;
     if (t.kind !== 'hull') return this.damageDecoy(t.id, amount, shell.ownerId) ? 1 : 0;
     const victim = this.ships.get(t.id);
@@ -6157,20 +6195,20 @@ export class World {
   }
 
   /**
-   * THE LANDING TEST (Eric 2026-10-01, amendments 200/201; amendment 202, the
-   * cursor decides). *"I HAVE TO CLICK ON THE MINE"*: a shell whose `hits`
-   * mask carries `mine` — exactly the three deck guns — that LANDS at `at`
-   * deals its FULL `damage` (never contactDamage) to EVERY mine whose centre
-   * lies within `CONFIG.mine.hitRadiusU` of BOTH that point AND the shooter's
-   * CURSOR at fire time (`shell.cursor`, the unclamped click): any kind, armed
-   * or arming, any owner (the shooter's own included — the standing
-   * friendly-fire exception). `at` is the burst point for the cannon and flak
-   * and the arrival point for a machine-gun shell; a shell spent on a hull on
-   * the way never calls this. An unclamped click lands at its cursor, so the
-   * two discs coincide; a click past reach is clamped short, so a mine under
-   * the clamped landing point is NOT under the cursor (untouched), and a mine
-   * under the cursor is beyond the landing (untouched — the shell never got
-   * there). A shell with no cursor recorded is no landing at all (fail closed).
+   * THE LANDING TEST (Eric 2026-10-01, amendments 200/201; re-cut by Eric
+   * 2026-10-16, Story 9.12, epic-9 amendment 184(i) — the cursor clause of
+   * amendment 202 and amendment 200's "a burst that merely covers a mine does
+   * nothing" are RETIRED). A shell whose `hits` mask carries `mine` — exactly
+   * the three deck guns — that LANDS at `at` uses its WHOLE BLAST against
+   * mines: EVERY mine whose 10 u marker the blast touches (centre within
+   * `shell.burstRadius + CONFIG.mine.hitRadiusU` of `at`) takes the shell's
+   * range-attenuated `damage` (never contactDamage, and no flak rim term —
+   * a mine is not a burst victim), any kind, armed or arming, any owner (the
+   * shooter's own included — the standing friendly-fire exception). So a flak
+   * burst clears a cluster, and a Tier I cannon click's two shells on one
+   * mine land 8 + 8. `at` is the burst point for the cannon and flak and the
+   * arrival point for a machine-gun shell (no blast — "within 10 u of where
+   * it arrived"); a shell spent on a hull on the way never calls this.
    *
    * `targets` is the shell's own full-mask list (stepShells' `burstSet`), so
    * the collector stays the one place mines are enumerated; the `mines.get`
@@ -6179,15 +6217,15 @@ export class World {
    * no-op. Mine hp never leaves the server.
    */
   private landOnMines(shell: ShellState, at: Vec2, targets: readonly Target[]): void {
-    const cursor = shell.cursor;
-    if (!shell.hits.includes('mine') || cursor === undefined) return;
-    const r = CONFIG.mine.hitRadiusU;
+    if (!shell.hits.includes('mine')) return;
+    const reach = shell.burstRadius + CONFIG.mine.hitRadiusU;
+    const amount = settleBlow(shell.damage * shellAttenuation(shell, at));
     for (const t of targets) {
       if (t.kind !== 'mine') continue;
       const mine = this.mines.get(t.id);
       if (mine === undefined) continue; // consume-first re-check, not a policy
-      if (!onMine(mine, cursor, r) || !onMine(mine, at, r)) continue;
-      if (this.damageMine(mine, shell.damage)) this.popMine(mine);
+      if (!onMine(mine, at, reach)) continue;
+      if (this.damageMine(mine, amount)) this.popMine(mine);
     }
   }
 

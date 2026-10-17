@@ -20,12 +20,15 @@
 // the wire `WeaponAmmo` stays `{n, reloadMsLeft}` and the HUD draws the drain
 // from n / maxAmmo.
 //
-// A DIRECT SHELL HAS NO BURST: a hull it strikes takes the full `damage` on
+// A DIRECT SHELL HAS NO BURST: a hull it strikes takes the `damage` on
 // contact; a shell reaching its aim point simply EXPIRES there (the shooter's
 // self-private `sp` splash, no `burst` event). That arrival point is where it
 // LANDS (amendment 200, Eric 2026-10-01): a mine within `CONFIG.mine.hitRadiusU`
-// of it takes the shell's `damage` off its 10 hp — two tier-I shells (5 + 5)
-// pop one — and a shell in flight never touches a mine (amendment 20). 360°, no arc (amendment 106). Every shell emits its OWN `mz`
+// of it takes the shell's `damage` off its 10 hp — two near shells (5 + 5)
+// pop one, three far — and a shell in flight never touches a mine (amendment
+// 20). Every blow, hull or mine, is RANGE-ATTENUATED by the distance flown
+// against the row's `rangeU` at fire time (Story 9.12, epic-9 amendment 184).
+// 360°, no arc (amendment 106). Every shell emits its OWN `mz`
 // (amendment 89(i): the stream IS the spectacle, like the broadside's barrage).
 //
 // Every number is read off the ship's cached EFFECTIVE stats row
@@ -36,7 +39,7 @@
 import { CONFIG, EQUIPMENT_IS_WEAPON, type LoadoutSlot, type WeaponAmmo } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationContext, ActivationResult, Equipment } from './index.js';
-import { burstPointAlong, gunReachU, muzzleOrTarget, rawAimPoint } from './guns.js';
+import { burstPointAlong, gunReachU, muzzleOrTarget } from './guns.js';
 import { makeBallistic } from './ballistics.js';
 
 /** Advance a running magazine swap by `dtMs`; on completion the magazine is
@@ -95,7 +98,7 @@ function fireStreamShell(ctx: ActivationContext): void {
     hits: CONFIG.machineGun.hits, // AR44 target mask (hull | mine | decoy — a mine only where it lands, amendment 200)
     family: 'mg',
     direct: true,
-    cursor: rawAimPoint(ship, dir), // amendment 202: THIS shell's live cursor
+    attenRangeU: mg.rangeU, // ruling 184(b): the row's reach at fire time, never the lit-zone lift
   });
   ctx.spawnBallistic(shell, { perShellFlash: true }); // one `mz` per shell (amendment 89(i))
 }

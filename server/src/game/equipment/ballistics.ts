@@ -77,9 +77,12 @@ export interface BallisticParams {
    *  at its aim point with a splash instead of bursting, and a hull it strikes
    *  takes a plain contact hit (see ShellState.direct). */
   direct?: true;
-  /** THE CURSOR POINT (amendment 202): the deck guns' raw click, pre-clamp
-   *  (see ShellState.cursor, guns.ts `rawAimPoint`). Never on the wire. */
-  cursor?: Vec2;
+  /** THE ATTENUATION REFERENCE (Story 9.12, Eric 2026-10-16, epic-9
+   *  amendment 184(b)): the firing row's effective `rangeU` AT FIRE TIME —
+   *  never the lit-zone-lifted reach. Only the three deck guns pass it; when
+   *  given and > 0 the shell also records its launch point (see
+   *  ShellState.originX / attenRangeU). Server-private, never on the wire. */
+  attenRangeU?: number;
   /** Server-internal star-shell tag (Story 1.7): a burst also spawns a lit
    *  zone (see ShellState.lit). Only fireStarShell sets it; never on the wire. */
   lit?: { radius: number; durationMs: number };
@@ -94,6 +97,21 @@ export interface BallisticParams {
   /** ACOUSTIC HOMING doctrine (Story 2.8): the per-tick steering params
    *  (ShellState.homing — turn rate + acquire range). Never on the wire. */
   homing?: { turnRate: number; acquireRange: number };
+}
+
+/**
+ * THE LAUNCH POINT + REFERENCE (Story 9.12, ruling 184(b), reading r1): a
+ * deck-gun shell records where it left the muzzle (its resolved spawn point —
+ * call this on the freshly built shell) and the row's range at fire time, so
+ * the World can measure the distance FLOWN at impact. Nothing is written for
+ * an absent or non-positive reference (every other projectile: no
+ * attenuation, and no explicit `undefined` keys on the record).
+ */
+function stampAttenuation(shell: ShellState, attenRangeU: number | undefined): void {
+  if (attenRangeU === undefined || !(attenRangeU > 0)) return;
+  shell.originX = shell.x;
+  shell.originY = shell.y;
+  shell.attenRangeU = attenRangeU;
 }
 
 /**
@@ -130,7 +148,7 @@ export function makeBallistic(
     family: p.family,
   };
   if (p.direct === true) shell.direct = true;
-  if (p.cursor) shell.cursor = { x: p.cursor.x, y: p.cursor.y };
+  stampAttenuation(shell, p.attenRangeU);
   // The optional doctrine tags are set only when the caller carries one (never
   // an explicit `undefined` key — the shape stays clean for plain projectiles).
   if (p.lit) shell.lit = p.lit;

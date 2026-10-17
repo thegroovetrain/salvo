@@ -130,13 +130,13 @@ describe('gunnery — mz emission (gun family only, true muzzle, one per owner p
     expect(Math.hypot(shell.x - mz[0].x, shell.y - mz[0].y)).toBeGreaterThan(50);
   });
 
-  it('a multi-barrel salvo (TRIPLE MOUNT) spawns 3 shells but exactly ONE mz for that ship that tick', () => {
+  it('a multi-barrel salvo (the TWIN mount, every tier) spawns one shell per barrel but exactly ONE mz for that ship that tick', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    for (let i = 0; i < 3; i++) w.applyCard(a, 'deckGun'); // CANNON tier IV: barrels 1 -> 3 (Eric 2026-10-02, amendment 232)
+    expect(a.stats.equipment.gun.barrels).toBeGreaterThan(1); // two barrels at Tier I (Story 9.12)
     fire(w, 'a', 0, 0, 400);
     w.step();
-    expect(w.shells.size).toBe(3); // the salvo really is multi-barrel
+    expect(w.shells.size).toBe(a.stats.equipment.gun.barrels); // the salvo really is multi-barrel
     expect(ofKind(w.tickEvents, 'mz')).toHaveLength(1); // per-tick per-owner dedupe
   });
 
@@ -180,24 +180,29 @@ describe('gunnery — mz emission (gun family only, true muzzle, one per owner p
 describe('gunnery — sp/hc emission (victim resolution; exactly one per shell)', () => {
   it('a gun burst into empty water: one sp at the burst point to the shooter, no hc', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0);
+    const a = place(w, 'a', 0, 0);
     fire(w, 'a', 0, 0, 500); // clicked point 500u out — far beyond sight, empty water
     const acc = stepCollect(w, 40, (evs) => ofKind(evs, 'burst').length > 0);
-    expect(acc.sp).toHaveLength(1);
-    expect(acc.sp[0].id).toBe('a'); // the SHOOTER's id — the self-private gate key
-    expect(acc.sp[0].x).toBeCloseTo(500, 4); // the true burst point
+    // One sp PER SHELL: the twin volley's two shells burst the same tick.
+    expect(acc.sp).toHaveLength(a.stats.equipment.gun.barrels);
+    for (const sp of acc.sp) {
+      expect(sp.id).toBe('a'); // the SHOOTER's id — the self-private gate key
+      expect(sp.x).toBeCloseTo(500, 4); // the true burst point (each track's own)
+    }
     expect(acc.hc).toHaveLength(0);
   });
 
   it('a gun burst that resolves a hull: one hc at the burst point, no sp — and the hc names NO victim', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0);
-    place(w, 'b', 500, 0); // the fogged target under the clicked point
+    const a = place(w, 'a', 0, 0);
+    place(w, 'b', 500, 0); // the fogged target under the clicked point — inside both tracks' bursts
     fire(w, 'a', 0, 0, 500);
     const acc = stepCollect(w, 40, (evs) => ofKind(evs, 'burst').length > 0);
-    expect(acc.hc).toHaveLength(1);
-    expect(acc.hc[0].id).toBe('a'); // the SHOOTER — never the victim
-    expect(Object.keys(acc.hc[0])).toEqual(['k', 'id', 'x', 'y']); // no severity channel exists
+    expect(acc.hc).toHaveLength(a.stats.equipment.gun.barrels); // one per connecting shell
+    for (const hc of acc.hc) {
+      expect(hc.id).toBe('a'); // the SHOOTER — never the victim
+      expect(Object.keys(hc)).toEqual(['k', 'id', 'x', 'y']); // no severity channel exists
+    }
     expect(acc.sp).toHaveLength(0); // exactly one of hc/sp, never both
   });
 
@@ -284,12 +289,12 @@ describe('gunnery — sp/hc emission (victim resolution; exactly one per shell)'
   it('the weapons-safe ready room still calls hits: damage suppressed, hc NOT (victim resolution, never dmg)', () => {
     const w = bareWorld();
     w.damageEnabled = false; // waiting/countdown target practice
-    place(w, 'a', 0, 0);
+    const a = place(w, 'a', 0, 0);
     const b = place(w, 'b', 500, 0);
     const hpBefore = b.hp;
     fire(w, 'a', 0, 0, 500);
     const acc = stepCollect(w, 40, (evs) => ofKind(evs, 'burst').length > 0);
-    expect(acc.hc).toHaveLength(1); // target practice gives feedback
+    expect(acc.hc).toHaveLength(a.stats.equipment.gun.barrels); // target practice gives feedback, one per shell
     expect(b.hp).toBe(hpBefore); // ...but no hp moved
   });
 
@@ -314,12 +319,12 @@ describe('gunnery — sp/hc emission (victim resolution; exactly one per shell)'
 
   it('a VICTIMLESS mine detonation (own gun shell landing on it) sends no hc — while the missing shell still splashes', () => {
     const w = bareWorld();
-    place(w, 'o', 900, 900, 0, 'mineLayer'); // owner, alone on the water
+    const o = place(w, 'o', 900, 900, 0, 'mineLayer'); // owner, alone on the water
     w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 300, y: 900, armedAt: 0, kind: 'naval', hp: 10 }); // own armed mine, 600u up-range
-    fire(w, 'o', 0, Math.PI, 600); // click the mine's position — the shell lands on it (amendment 200)
+    fire(w, 'o', 0, Math.PI, 600); // click the mine's position — the volley lands on it (amendment 200)
     const acc = stepCollect(w, 60, () => w.mines.size === 0);
-    expect(w.mines.size).toBe(0); // the landing shell really popped it
+    expect(w.mines.size).toBe(0); // the landing shells really popped it
     expect(acc.hc).toHaveLength(0); // neither burst nor blast resolved any victim
-    expect(acc.sp).toHaveLength(1); // the SHELL's own miss splashes; the mine adds nothing
+    expect(acc.sp).toHaveLength(o.stats.equipment.gun.barrels); // each SHELL's own miss splashes; the mine adds nothing
   });
 });

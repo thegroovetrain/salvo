@@ -41,9 +41,9 @@
 //   - sweepRpm ≤ CONFIG.vision.sweepRpmMax (the ratified 30-RPM ceiling);
 //   - the mine ring derivations (deriveMineRings): a CONTACT mine's trip ring
 //     from its folded blastRadius, the CAPTIVE's from its TIER;
-//   - gun.barrels clamped to 1..3 integer (3 is reachable — the CANNON
-//     ladder's rungs to tier II and tier IV each add a barrel, Eric
-//     2026-10-02, amendment 232; the clamp stays);
+//   - gun.barrels clamped to 1..3 integer — barrels are a fixed 2 since
+//     Story 9.12 (CONFIG.gun.barrels, Eric 2026-10-16; no barrel rungs, PvE
+//     fleet envelopes keep 1); the clamp guards malformed data;
 //   - EVERY integer equipment field (tubes/turrets/barrels/pools) FLOORED
 //     ONCE here, after a fold that accumulated it as a float — catalog-v3 R17's
 //     standing rule (a +0.5 tube step shows nothing until it completes a whole);
@@ -95,7 +95,7 @@ export interface EffectiveGun extends EquipmentRowCommon {
   damage: number; // hp per burst victim
   contactDamage: number; // hp to an early interceptor outside the blast
   burstRadius: number; // u — blast radius around the clicked point
-  barrels: number; // shells per click (1..3 — each a real shell, own burst point)
+  barrels: number; // shells per click (CONFIG.gun.barrels for a captain, 1 for a PvE envelope; clamped 1..3 — each a real shell, own burst point)
 }
 
 /**
@@ -529,7 +529,11 @@ function gunRow(cls: ShipClass): EffectiveGun {
     damage: cls.gun?.damage ?? CONFIG.gun.damage,
     contactDamage: CONFIG.gun.contactDamage,
     burstRadius: CONFIG.gun.burstRadius,
-    barrels: 1, // base single mount — the CANNON ladder's rungs to II and IV add one each
+    // TWO BARRELS AT EVERY TIER for a captain (CONFIG.gun.barrels, Eric
+    // 2026-10-16, Story 9.12 — no barrel rungs). A PvE fleet envelope
+    // (`cls.gun` present) keeps ONE 1-hp shell per click: its shots-to-kill
+    // rule (epic-7 amendment 24) is untouched.
+    barrels: cls.gun ? 1 : CONFIG.gun.barrels,
   };
 }
 
@@ -811,6 +815,9 @@ function clampStats(stats: EffectiveStats): void {
   stats.sightRange = stats.radarRange / 3;
   deriveMineRings(eq);
   floorIntegerFields(eq);
+  // Barrels are a fixed 2 since Story 9.12 (CONFIG.gun.barrels; no rung
+  // authors them); the clamp guards malformed data (a hostile --tune, a test
+  // catalog).
   eq.gun.barrels = Math.min(3, Math.max(1, eq.gun.barrels));
   eq.machineGun.rateMs = guardRateMs(eq.machineGun.rateMs);
   // THE global cooldown scale, applied ONCE, post-fold, to every equipment.

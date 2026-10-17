@@ -230,9 +230,10 @@ describe('HUNKER — the Battleship\'s Shift (amendments 99–102)', () => {
 // ---------- THE NINE-COMBO PIN ------------------------------------------------
 
 describe('every hull × every gun (the nine-combo pin)', () => {
-  // Each gun's BASE damage, read off CONFIG (cannon 12 / flak 20 since Eric's
-  // 2026-10-13 experiment, Story 9.8). The click lands on the target's centre,
-  // so the flak burst's falloff (D at the centre) takes nothing off.
+  // Each gun's BASE damage per shell, read off CONFIG. The click lands on the
+  // target's centre at 300 u (inside half of every gun's reach — no range
+  // attenuation), so the flak rim (D at the centre) takes nothing off. The
+  // cannon fires its TWO barrels per click (Story 9.12), both on the target.
   const EXPECTED_DAMAGE: Record<GunId, number> = {
     deckGun: CONFIG.gun.damage,
     machineGun: CONFIG.machineGun.damage,
@@ -242,7 +243,7 @@ describe('every hull × every gun (the nine-combo pin)', () => {
 
   for (const hull of SHIP_CLASS_IDS) {
     for (const gun of GUN_IDS) {
-      it(`${hull} × ${gun}: slot 0 mounts ${MOUNTED_GUN[gun]}, one hit lands ${EXPECTED_DAMAGE[gun]}, reveals w:'${EXPECTED_FAMILY[gun]}', slot 1 holds ${classShift(hull)}`, () => {
+      it(`${hull} × ${gun}: slot 0 mounts ${MOUNTED_GUN[gun]}, each shell lands ${EXPECTED_DAMAGE[gun]}, reveals w:'${EXPECTED_FAMILY[gun]}', slot 1 holds ${classShift(hull)}`, () => {
         const w = bareWorld();
         const a = place(w, 'a', hull, gun);
         const target = place(w, 't', 'battleship', 'deckGun', 300, 0, Math.PI / 2); // broadside-on at 300 u
@@ -257,10 +258,11 @@ describe('every hull × every gun (the nine-combo pin)', () => {
           w.step();
           log.push(...w.tickEvents);
         }
-        expect(target.hp).toBe(target.stats.maxHp - EXPECTED_DAMAGE[gun]);
-        expect(log.filter((e) => e.k === 'shell')).toHaveLength(1);
+        const shells = gun === 'deckGun' ? a.stats.equipment.gun.barrels : 1; // one click / one held sample
+        expect(target.hp).toBe(target.stats.maxHp - shells * EXPECTED_DAMAGE[gun]);
+        expect(log.filter((e) => e.k === 'shell')).toHaveLength(shells);
         for (const e of log) if (e.k === 'shell') expect(e.w).toBe(EXPECTED_FAMILY[gun]);
-        expect(log.filter((e) => e.k === 'hc')).toHaveLength(1);
+        expect(log.filter((e) => e.k === 'hc')).toHaveLength(shells);
       });
     }
   }

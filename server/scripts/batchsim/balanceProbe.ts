@@ -155,27 +155,27 @@ function barrelBlock(): void {
   console.log('');
   console.log(`== BARREL PARALLEL TRACKS (DRAFT barrelSpacingU = ${g.barrelSpacingU}u, burstRadius ${g.burstRadius}u) ==`);
   console.log(`spacing ${g.barrelSpacingU}u vs burst DIAMETER ${g.burstRadius * 2}u: adjacent bursts ${g.barrelSpacingU < g.burstRadius * 2 ? 'OVERLAP' : 'are separate'}`);
-  console.log('barrels | damage/click | shells landing on one hull (aim = hull centre, R=300u)');
-  // Each row is priced at the damage of the BUILD named for that barrel
-  // count on Eric's CANNON ladder (amendment 232: barrels 1/2/2/3/3; damage
-  // 12/12/15/15/18 since the 2026-10-13 experiment, Story 9.8): 1 barrel = the
-  // bare cannon (12), 2 barrels = CANNON ×1 (12, tier II), 3 barrels = CANNON
-  // ×4 (18, tier V — the max; tier IV reaches 3 barrels at 15). The damage is
-  // read off the real fold.
-  for (const [barrels, copies] of [[1, 0], [2, 1], [3, 4]] as const) {
-    const dmg = effectiveStats(hullEnvelope(SHIP_CLASS_IDS[0]), Array<LineId>(copies).fill('deckGun')).equipment.gun.damage;
-    const offsets = parallelOffsets(0, barrels, g.barrelSpacingU);
+  console.log('tier | barrels | damage/click | shells landing on one hull (aim = hull centre, R=300u, near — before range attenuation)');
+  // Each row is the CANNON build at that tier, read off the real fold: the
+  // barrels column is the fold's (TWO at every tier since Eric 2026-10-16,
+  // Story 9.12 — `CONFIG.gun.barrels`, no barrel rungs) and the damage is the
+  // ladder's (8/10/11/12/13). Nothing here is typed in.
+  const TIERS = ['I', 'II', 'III', 'IV', 'V'];
+  for (let copies = 0; copies < TIERS.length; copies += 1) {
+    const gun = effectiveStats(hullEnvelope(SHIP_CLASS_IDS[0]), Array<LineId>(copies).fill('deckGun')).equipment.gun;
+    const offsets = parallelOffsets(0, gun.barrels, g.barrelSpacingU);
     const cells: string[] = [];
     for (const hullId of HULL_IDS) {
       const targets = offsets.map((o) => ({ x: 300 + o.x, y: o.y }));
       const hits = shellsOn(targets, g.burstRadius, hullAt(hullId, { x: 300, y: 0 }, 0));
-      cells.push(`${hullId}=${hits}(${hits * dmg}hp)`);
+      cells.push(`${hullId}=${hits}(${hits * gun.damage}hp)`);
     }
-    console.log(`${String(barrels).padStart(7)} | ${String(barrels * dmg).padStart(12)} | ${cells.join(' ')}`);
+    console.log(`${TIERS[copies].padStart(4)} | ${String(gun.barrels).padStart(7)} | ${String(gun.barrels * gun.damage).padStart(12)} | ${cells.join(' ')}`);
   }
+  const barrels = effectiveStats(hullEnvelope(SHIP_CLASS_IDS[0]), []).equipment.gun.barrels;
   console.log('');
-  console.log('OFF-CENTRE CLICK — how far the aim can miss a stationary hull centre and still land N shells (3 barrels — the reachable max, R=300u):');
-  const offsets = parallelOffsets(0, 3, g.barrelSpacingU);
+  console.log(`OFF-CENTRE CLICK — how far the aim can miss a stationary hull centre and still land N shells (${barrels} barrels — the fold's, R=300u):`);
+  const offsets = parallelOffsets(0, barrels, g.barrelSpacingU);
   for (const hullId of [...SHIP_CLASS_IDS, 'droneSmall' as HullId]) {
     const row: string[] = [];
     for (const miss of [0, 10, 20, 30, 40, 60]) {

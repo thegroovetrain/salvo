@@ -98,7 +98,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           damage: CONFIG.gun.damage,
           contactDamage: CONFIG.gun.contactDamage,
           burstRadius: CONFIG.gun.burstRadius,
-          barrels: 1,
+          barrels: CONFIG.gun.barrels, // a captain's fixed two (Story 9.12, Eric 2026-10-16)
         },
         // THE SHIFT BOOST (Story 8.9, epic-8 amendments 54–55): live equipment
         // in slot 1 on every captain hull, `CONFIG.boost` verbatim. NO speed
@@ -173,20 +173,20 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
         // `missile` and `monitor` are CUT (amendment 89e) and have no row.
         machineGun: {
           tier: 1,
-          reloadMs: 12000, // Eric 2026-10-02, amendment 232
-          maxAmmo: 12,
+          reloadMs: CONFIG.machineGun.reloadMs,
+          maxAmmo: CONFIG.machineGun.maxAmmo,
           rangeU: CONFIG.machineGun.rangeU,
-          damage: 5,
-          rateMs: 300,
+          damage: CONFIG.machineGun.damage,
+          rateMs: CONFIG.machineGun.rateMs,
         },
         flak: {
           tier: 1,
-          reloadMs: 3500, // 4 s → 3.5 s (Eric 2026-10-02, amendment 232)
-          maxAmmo: 1,
+          reloadMs: CONFIG.flak.reloadMs,
+          maxAmmo: CONFIG.flak.maxAmmo,
           rangeU: CONFIG.flak.rangeU,
-          damage: 20, // 12 → 20 (Eric 2026-10-13, experiment)
-          contactDamage: 4,
-          burstRadius: 50,
+          damage: CONFIG.flak.damage,
+          contactDamage: CONFIG.flak.contactDamage,
+          burstRadius: CONFIG.flak.burstRadius,
         },
         broadside: {
           tier: 1,
@@ -236,10 +236,12 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
 
   it('the shipped numbers did not move in the rename except speed (catalog-v3 R17, Eric 2026-09-15): torpedo/mine bases', () => {
     const eq = effectiveStats(BASE).equipment;
+    // Damage reads CONFIG: it moved deliberately since (Story 9.12, Eric
+    // 2026-10-16 — 50 → 90 and 55 → 90), not in the rename.
     expect([eq.heavyTorpedo.reloadMs, eq.heavyTorpedo.speed, eq.heavyTorpedo.damage, eq.heavyTorpedo.maxAmmo])
-      .toEqual([30000, 65, 50, 1]);
+      .toEqual([30000, 65, CONFIG.torpedo.damage, 1]);
     expect([eq.navalMines.reloadMs, eq.navalMines.damage, eq.navalMines.blastRadius, eq.navalMines.triggerRadius])
-      .toEqual([15000, 55, 48, 32]);
+      .toEqual([15000, CONFIG.mine.damage, 48, 32]);
     // The captive rings: the CONFIG trip ring (120 u since 2026-10-08; 144 before) /
     // 32u blast at base (catalog-v3 R25) — its OWN CONFIG pair rather than a
     // transform (amendment 84d).
@@ -248,13 +250,15 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
 
   it('the STORY 8.13 tier-I rows come from their own CONFIG blocks (STUB_ROWS is gone since 8.15)', () => {
     const eq = effectiveStats(BASE).equipment;
-    // LIGHT TORPEDO (R18): 45 u/s, 40 dmg, 1 tube, 25 s, straight-running.
+    // LIGHT TORPEDO (R18): 45 u/s, 1 tube, 25 s, straight-running; damage
+    // its CONFIG base (80 since Story 9.12).
     expect([eq.lightTorpedo.speed, eq.lightTorpedo.damage, eq.lightTorpedo.maxAmmo, eq.lightTorpedo.reloadMs])
-      .toEqual([45, 40, 1, 25000]);
+      .toEqual([45, CONFIG.lightTorpedo.damage, 1, 25000]);
     expect(eq.lightTorpedo.homingTurnRate).toBe(0);
     expect(eq.heavyTorpedo.homingTurnRate).toBe(0);
-    // CAPTIVE MINES (R25, amendment 77): 1 held on a 20 s clock, 55 dmg.
-    expect([eq.captiveMines.maxAmmo, eq.captiveMines.reloadMs, eq.captiveMines.damage]).toEqual([1, 20000, 55]);
+    // CAPTIVE MINES (R25, amendment 77): 1 held on a 20 s clock; damage its
+    // CONFIG base (90 since Story 9.12).
+    expect([eq.captiveMines.maxAmmo, eq.captiveMines.reloadMs, eq.captiveMines.damage]).toEqual([1, 20000, CONFIG.captiveMines.damage]);
     expect(eq.captiveMines.homingTurnRate).toBe(0);
     // FOULING MINES (amendment 81): 10 dmg, 72 u blast, 48 u trip, 2 held,
     // 15 s, ×0.75 victim slow.
@@ -553,35 +557,45 @@ describe('effectiveStats — the eight universal ladders (catalog-v3 §4 + Stori
 });
 
 describe('effectiveStats — the deck-gun family (catalog-v3 §4)', () => {
-  it('DECK GUN (R14; Eric 2026-10-13, experiment): base 12, whole-number steps +3 (to III) and +3 (to V) — 12 -> 12 -> 15 -> 15 -> 18, never a fraction', () => {
+  it('DECK GUN (R14; Eric 2026-10-16, Story 9.12): base CONFIG.gun.damage, whole-number steps on every rung (+2, +1, +1, +1 → 8/10/11/12/13), never a fraction', () => {
     // Every authored damage step is an integer, so no fold ever passes
     // through a fraction (amendment 39: Eric's integers ARE the scale).
     const steps = CATALOG.deckGun.tiers.flatMap((tier) =>
       tier.filter((e) => e.kind === 'stat' && e.path === 'equipment.gun.damage').map((e) => (e as { add: number }).add));
-    expect(steps).toEqual([3, 3]); // the rungs to II and IV author no damage effect
-    const damage = [12, 12, 15, 15, 18];
-    damage.forEach((d, n) => {
+    expect(steps).toEqual([2, 1, 1, 1]); // Eric's authored rungs (forge weapon-balance-math)
+    const cumulative = [0, 2, 3, 4, 5];
+    cumulative.forEach((delta, n) => {
       const got = effectiveStats(BASE, stack('deckGun', n)).equipment.gun.damage;
-      expect(got, `${n} copies`).toBe(d);
+      expect(got, `${n} copies`).toBe(CONFIG.gun.damage + delta);
       expect(Number.isInteger(got), `${n} copies is a whole number`).toBe(true);
     });
     expect(CATALOG.deckGun.cap).toBe(4);
   });
 
-  it('CANNON climbs I -> V: a BARREL at tiers II and IV, the second TURRET at tier III (Eric 2026-10-02, amendment 232; R15/R16 folded in)', () => {
+  it('CANNON climbs I -> V on a FIXED two barrels (CONFIG.gun.barrels, no barrel rungs — Story 9.12), the second TURRET at tier III, −5 % reload per tier', () => {
     const baseReload = effectiveStats(BASE).equipment.gun.reloadMs;
-    const table: [number, number, number, number, number, number][] = [
-      // copies, tier, damage, maxAmmo (pool), barrels, reload scale
-      [0, 1, 12, 1, 1, 1],
-      [1, 2, 12, 1, 2, 0.95],
-      [2, 3, 15, 2, 2, 0.9],
-      [3, 4, 15, 2, 3, 0.85],
-      [4, 5, 18, 2, 3, 0.8],
+    const table: [number, number, number, number, number][] = [
+      // copies, tier, damage step over base, pool step over base, reload scale
+      [0, 1, 0, 0, 1],
+      [1, 2, 2, 0, 0.95],
+      [2, 3, 3, 1, 0.9],
+      [3, 4, 4, 1, 0.85],
+      [4, 5, 5, 1, 0.8],
     ];
-    for (const [copies, tier, damage, maxAmmo, barrels, scale] of table) {
+    for (const [copies, tier, dDamage, dPool, scale] of table) {
       const gun = effectiveStats(BASE, stack('deckGun', copies)).equipment.gun;
-      expect([gun.tier, gun.damage, gun.maxAmmo, gun.barrels], `${copies} copies`).toEqual([tier, damage, maxAmmo, barrels]);
+      expect([gun.tier, gun.damage, gun.maxAmmo, gun.barrels], `${copies} copies`)
+        .toEqual([tier, CONFIG.gun.damage + dDamage, CONFIG.gun.maxAmmo + dPool, CONFIG.gun.barrels]);
       expect(gun.reloadMs, `${copies} copies`).toBeCloseTo(baseReload * scale, 9);
+    }
+  });
+
+  it('a PvE fleet envelope (cls.gun present) keeps ONE barrel and its own damage; a captain reads CONFIG.gun.barrels (epic-7 amendment 24 untouched)', () => {
+    const drone = effectiveStats(CONFIG.drones.small).equipment.gun;
+    expect(drone.barrels).toBe(1);
+    expect(drone.damage).toBe(CONFIG.drones.small.gun.damage);
+    for (const id of SHIP_CLASS_IDS) {
+      expect(effectiveStats(CONFIG.shipClasses[id]).equipment.gun.barrels, id).toBe(CONFIG.gun.barrels);
     }
   });
 });
@@ -593,23 +607,24 @@ describe('effectiveStats — the deck-gun family (catalog-v3 §4)', () => {
 // the gun's TIER (1 + copies), and the −5 % reload per tier is DERIVED from
 // that tier in clampStats — additive five-point steps (×1.00 → ×0.80 at V),
 // the one formula every row uses, which is what lands the machine gun on
-// Eric's "12 s at tier I" on 9.6 s at V (2026-10-02, amendment 232; was
-// 10 s → 8 s, earlier 15 s → 12 s).
+// Eric's "12.5 s at tier I" on 10.0 s at V (2026-10-16, Story 9.12; was
+// 12 s → 9.6 s, amendment 232; earlier 10 s → 8 s, 15 s → 12 s).
 // ---------------------------------------------------------------------------
 describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)', () => {
-  it('MACHINE GUN: magazine 12 → 28 (+4), damage 5/6/6/7/7, shot delay 0.30 → 0.10 s, reload 12 s → 9.6 s at V', () => {
-    const table: [number, number, number, number, number, number][] = [
-      // copies, tier, maxAmmo, damage, rateMs, reloadMs (Eric 2026-10-02, amendment 232)
-      [0, 1, 12, 5, 300, 12000],
-      [1, 2, 16, 6, 250, 11400],
-      [2, 3, 20, 6, 200, 10800],
-      [3, 4, 24, 7, 150, 10200],
-      [4, 5, 28, 7, 100, 9600],
+  it('MACHINE GUN (Eric 2026-10-16, Story 9.12): magazine +3/+3/+2/+3, damage FLAT, shot delay −25 ms per tier, reload −5 % per tier (12.5 s → 10.0 s at V)', () => {
+    const table: [number, number, number, number][] = [
+      // copies, tier, magazine step over base, reload scale
+      [0, 1, 0, 1],
+      [1, 2, 3, 0.95],
+      [2, 3, 6, 0.9],
+      [3, 4, 8, 0.85],
+      [4, 5, 11, 0.8],
     ];
-    for (const [copies, tier, maxAmmo, damage, rateMs, reloadMs] of table) {
+    for (const [copies, tier, dAmmo, scale] of table) {
       const mg = effectiveStats(BASE, stack('machineGun', copies)).equipment.machineGun;
-      expect([mg.tier, mg.maxAmmo, mg.damage, mg.rateMs, mg.reloadMs], `${copies} copies`)
-        .toEqual([tier, maxAmmo, damage, rateMs, reloadMs]);
+      expect([mg.tier, mg.maxAmmo, mg.damage, mg.rateMs], `${copies} copies`)
+        .toEqual([tier, CONFIG.machineGun.maxAmmo + dAmmo, CONFIG.machineGun.damage, CONFIG.machineGun.rateMs - 25 * copies]);
+      expect(mg.reloadMs, `${copies} copies`).toBeCloseTo(CONFIG.machineGun.reloadMs * scale, 9);
       // The range steps evenly per card (Story 9.8, ruling 125); the idle clock is GONE.
       expect(mg.rangeU, `${copies} copies`).toBe(CONFIG.machineGun.rangeU + copies * rangeStep('machineGun'));
       expect(Object.keys(mg), `${copies} copies`).not.toContain('idleReloadMs');
@@ -617,7 +632,7 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
     expect(CATALOG.machineGun.cap).toBe(4);
   });
 
-  it('MACHINE GUN: a malformed shot delay (≤ 0 or non-finite) falls back to the CONFIG base; the ladder\'s 100 ms is untouched (plumbing guard)', () => {
+  it('MACHINE GUN: a malformed shot delay (≤ 0 or non-finite) falls back to the CONFIG base; the ladder\'s Tier V delay is untouched (plumbing guard)', () => {
     const bad = (over: { add?: number; mult?: number }): Catalog => ({
       machineGun: {
         id: 'machineGun', kind: 'ladder', cap: 1, appliesTo: ['machineGun'],
@@ -630,29 +645,36 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
       const mg = effectiveStats(BASE, ['machineGun'], bad(over)).equipment.machineGun;
       expect(mg.rateMs, JSON.stringify(over)).toBe(CONFIG.machineGun.rateMs);
     }
-    expect(effectiveStats(BASE, stack('machineGun', 4)).equipment.machineGun.rateMs).toBe(100);
+    const authored = CATALOG.machineGun.tiers
+      .flat()
+      .filter((e) => e.kind === 'stat' && e.path === 'equipment.machineGun.rateMs')
+      .reduce((sum, e) => sum + (e as { add: number }).add, 0);
+    expect(effectiveStats(BASE, stack('machineGun', 4)).equipment.machineGun.rateMs).toBe(CONFIG.machineGun.rateMs + authored);
   });
 
   it('MACHINE GUN: RELOAD scales the reload but never the shot delay (cooldownScale reaches reloadMs only)', () => {
+    const plain = effectiveStats(BASE, stack('machineGun', 4)).equipment.machineGun;
     const mg = effectiveStats(BASE, [...stack('machineGun', 4), ...stack('reload', 5)]).equipment.machineGun;
-    expect(mg.rateMs).toBe(100);
-    expect(mg.reloadMs).toBeCloseTo(9600 * 0.75, 6);
+    expect(mg.rateMs).toBe(plain.rateMs);
+    expect(mg.reloadMs).toBeCloseTo(plain.reloadMs * 0.75, 6);
   });
 
-  it('FLAK: damage 20/28/36/44/52 (+8 per tier; base 20 Eric 2026-10-13, experiment), pool 1/2/2/3/3 (a turret at II and at IV), reload 3.5 s → 2.8 s at V (Eric 2026-10-02, amendment 232); the 50 u blast and the 4 hp bodyblock are FIXED', () => {
+  it('FLAK (Eric 2026-10-16, Story 9.12): damage +2 per tier, the second turret at II ONLY (pool capped at two), reload −5 % per tier (3.5 s → 2.8 s at V); the 50 u blast and the 4 hp bodyblock are FIXED', () => {
     const table: [number, number, number, number, number][] = [
-      // copies, tier, damage, maxAmmo (pool), reloadMs
-      [0, 1, 20, 1, 3500],
-      [1, 2, 28, 2, 3325],
-      [2, 3, 36, 2, 3150],
-      [3, 4, 44, 3, 2975],
-      [4, 5, 52, 3, 2800],
+      // copies, tier, damage step over base, pool step over base, reload scale
+      [0, 1, 0, 0, 1],
+      [1, 2, 2, 1, 0.95],
+      [2, 3, 4, 1, 0.9],
+      [3, 4, 6, 1, 0.85],
+      [4, 5, 8, 1, 0.8],
     ];
-    for (const [copies, tier, damage, maxAmmo, reloadMs] of table) {
+    for (const [copies, tier, dDamage, dPool, scale] of table) {
       const flak = effectiveStats(BASE, stack('flak', copies)).equipment.flak;
-      expect([flak.tier, flak.damage, flak.maxAmmo, flak.reloadMs], `${copies} copies`).toEqual([tier, damage, maxAmmo, reloadMs]);
+      expect([flak.tier, flak.damage, flak.maxAmmo], `${copies} copies`)
+        .toEqual([tier, CONFIG.flak.damage + dDamage, CONFIG.flak.maxAmmo + dPool]);
+      expect(flak.reloadMs, `${copies} copies`).toBeCloseTo(CONFIG.flak.reloadMs * scale, 9);
       expect([flak.burstRadius, flak.contactDamage, flak.rangeU], `${copies} copies`)
-        .toEqual([50, 4, CONFIG.flak.rangeU + copies * rangeStep('flak')]); // reach steps (Story 9.8, ruling 125)
+        .toEqual([CONFIG.flak.burstRadius, CONFIG.flak.contactDamage, CONFIG.flak.rangeU + copies * rangeStep('flak')]); // reach steps (Story 9.8, ruling 125)
     }
     expect(CATALOG.flak.cap).toBe(4);
   });
@@ -714,26 +736,29 @@ describe('STORY 8.15 — the class Shift rows take RELOAD like every row (amendm
 // ---------------------------------------------------------------------------
 describe('STORY 8.13 — the torpedo ladders (amendments 80/84f)', () => {
   it.each([
-    // line, [damage, speed, tubes, reloadMs, homingTurnRate] per rung 1..5
-    ['lightTorpedo', [
-      [40, 45, 1, 25000, 0],
-      [45, 47.5, 1, 23750, 0.125],
-      [50, 50, 2, 22500, 0.25],
-      [55, 52.5, 2, 21250, 0.375],
-      [60, 55, 3, 20000, 0.5],
+    // line, CONFIG base damage, [damage step over base, speed, tubes, reloadMs,
+    // homingTurnRate] per rung 1..5 (Eric 2026-10-16, Story 9.12: light +10
+    // ×4, heavy +11/+11/+11/+12; tubes +0.5 on the rungs to II and III only →
+    // 1,1,2,2,2, capped at two; speed / homing / reload unchanged)
+    ['lightTorpedo', CONFIG.lightTorpedo.damage, [
+      [0, 45, 1, 25000, 0],
+      [10, 47.5, 1, 23750, 0.125],
+      [20, 50, 2, 22500, 0.25],
+      [30, 52.5, 2, 21250, 0.375],
+      [40, 55, 2, 20000, 0.5],
     ]],
-    ['heavyTorpedo', [
-      [50, 65, 1, 30000, 0],
-      [55, 67.5, 1, 28500, 0.125],
-      [60, 70, 2, 27000, 0.25],
-      [65, 72.5, 2, 25500, 0.375],
-      [70, 75, 3, 24000, 0.5],
+    ['heavyTorpedo', CONFIG.torpedo.damage, [
+      [0, 65, 1, 30000, 0],
+      [11, 67.5, 1, 28500, 0.125],
+      [22, 70, 2, 27000, 0.25],
+      [33, 72.5, 2, 25500, 0.375],
+      [45, 75, 2, 24000, 0.5],
     ]],
-  ] as const)('%s: +5 dmg, +2.5 u/s, +0.5 tubes, +0.125 rad/s per tier', (id, table) => {
-    table.forEach(([damage, speed, tubes, reloadMs, turn], i) => {
+  ] as const)('%s: damage steps, +2.5 u/s and +0.125 rad/s per tier, tubes capped at two', (id, base, table) => {
+    table.forEach(([dDamage, speed, tubes, reloadMs, turn], i) => {
       const row = effectiveStats(BASE, stack(id, i + 1)).equipment[id];
       expect(row.tier, `${id} x${i + 1}: tier`).toBe(i + 1);
-      expect(row.damage, `${id} x${i + 1}: damage`).toBe(damage);
+      expect(row.damage, `${id} x${i + 1}: damage`).toBe(base + dDamage);
       expect(row.speed, `${id} x${i + 1}: speed`).toBeCloseTo(speed, 9);
       expect(row.maxAmmo, `${id} x${i + 1}: tubes`).toBe(tubes);
       expect(row.reloadMs, `${id} x${i + 1}: reloadMs`).toBeCloseTo(reloadMs, 6);
@@ -865,18 +890,18 @@ describe('STORY 8.17 — the star shell, broadside and phosphor ladders (amendme
 });
 
 describe('STORY 8.13 — the three mine ladders (amendments 77/81/82/84d)', () => {
-  it('NAVAL MINES: +5 dmg, x1.1 blast (trip ring follows at 2/3), +1 held', () => {
+  it('NAVAL MINES: damage +11/+11/+11/+12 (Eric 2026-10-16, Story 9.12), x1.1 blast (trip ring follows at 2/3), +1 held', () => {
     const table: [number, number, number, number][] = [
-      // damage, blastRadius, held, reloadMs
-      [55, 48, 2, 15000],
-      [60, 52.8, 3, 14250],
-      [65, 58.08, 4, 13500],
-      [70, 63.888, 5, 12750],
-      [75, 70.2768, 6, 12000],
+      // damage step over CONFIG.mine.damage, blastRadius, held, reloadMs
+      [0, 48, 2, 15000],
+      [11, 52.8, 3, 14250],
+      [22, 58.08, 4, 13500],
+      [33, 63.888, 5, 12750],
+      [45, 70.2768, 6, 12000],
     ];
-    table.forEach(([damage, blast, held, reloadMs], i) => {
+    table.forEach(([dDamage, blast, held, reloadMs], i) => {
       const row = effectiveStats(BASE, stack('navalMines', i + 1)).equipment.navalMines;
-      expect(row.damage, `x${i + 1}: damage`).toBe(damage);
+      expect(row.damage, `x${i + 1}: damage`).toBe(CONFIG.mine.damage + dDamage);
       expect(row.blastRadius, `x${i + 1}: blast`).toBeCloseTo(blast, 6);
       expect(row.triggerRadius, `x${i + 1}: trip`).toBeCloseTo(blast * CONFIG.mine.triggerFactor, 6);
       expect(row.maxAmmo, `x${i + 1}: held`).toBe(held);
@@ -886,20 +911,21 @@ describe('STORY 8.13 — the three mine ladders (amendments 77/81/82/84d)', () =
     });
   });
 
-  it('CAPTIVE MINES: +5 fish dmg, +0.5 held, +0.075 rad/s — and a TIER-DRIVEN trip ring on a FIXED 32u burst', () => {
+  it('CAPTIVE MINES: fish damage +11/+11/+11/+12, held capped at two, +0.075 rad/s (Eric 2026-10-16, Story 9.12) — and a TIER-DRIVEN trip ring on a FIXED 32u burst', () => {
     const TRIP = CONFIG.captiveMines.triggerRadius;
     const table: [number, number, number, number, number][] = [
-      // fish damage, held, reloadMs, homingTurnRate, triggerRadius (the
-      // CONFIG ring × 1.1 per tier — 120 u base since 2026-10-08, was 144)
-      [55, 1, 20000, 0, TRIP],
-      [60, 1, 19000, 0.075, TRIP * 1.1],
-      [65, 2, 18000, 0.15, TRIP * 1.1 ** 2],
-      [70, 2, 17000, 0.225, TRIP * 1.1 ** 3],
-      [75, 3, 16000, 0.3, TRIP * 1.1 ** 4],
+      // fish damage step over CONFIG base, held, reloadMs, homingTurnRate,
+      // triggerRadius (the CONFIG ring × 1.1 per tier — 120 u base since
+      // 2026-10-08, was 144)
+      [0, 1, 20000, 0, TRIP],
+      [11, 1, 19000, 0.075, TRIP * 1.1],
+      [22, 2, 18000, 0.15, TRIP * 1.1 ** 2],
+      [33, 2, 17000, 0.225, TRIP * 1.1 ** 3],
+      [45, 2, 16000, 0.3, TRIP * 1.1 ** 4],
     ];
-    table.forEach(([damage, held, reloadMs, turn, trip], i) => {
+    table.forEach(([dDamage, held, reloadMs, turn, trip], i) => {
       const row = effectiveStats(BASE, stack('captiveMines', i + 1)).equipment.captiveMines;
-      expect(row.damage, `x${i + 1}: damage`).toBe(damage);
+      expect(row.damage, `x${i + 1}: damage`).toBe(CONFIG.captiveMines.damage + dDamage);
       expect(row.maxAmmo, `x${i + 1}: held`).toBe(held);
       expect(row.reloadMs, `x${i + 1}: reloadMs`).toBeCloseTo(reloadMs, 6);
       expect(row.homingTurnRate, `x${i + 1}: turnRate`).toBeCloseTo(turn, 9);
@@ -936,10 +962,11 @@ describe('STORY 8.13 — the three mine ladders (amendments 77/81/82/84d)', () =
     expect(CONFIG.foulingMines.slowDurationMs).toBe(5000);
   });
 
-  it('THE POOL FLOOR, on the three +0.5 lines: 1, 1, 2, 2, 3 (catalog-v3 R17)', () => {
+  it('THE POOL FLOOR AND CAP on the three +0.5 lines: the half-step shows nothing alone, and the pool tops out at TWO (catalog-v3 R17; capped by Eric 2026-10-16, Story 9.12)', () => {
     for (const id of ['lightTorpedo', 'heavyTorpedo', 'captiveMines'] as const) {
       const pools = [1, 2, 3, 4, 5].map((n) => effectiveStats(BASE, stack(id, n)).equipment[id].maxAmmo);
-      expect(pools, id).toEqual([1, 1, 2, 2, 3]);
+      expect(pools, id).toEqual([1, 1, 2, 2, 2]);
+      expect(Math.max(...pools), id).toBe(2); // the cap: a three-tube salvo is never reachable
     }
   });
 });
@@ -1031,27 +1058,28 @@ describe('THE EQUIPMENT RELOAD STEP (catalog-v3 §3 standing rule)', () => {
 });
 
 describe('THE FRACTIONAL FLOOR (catalog-v3 R17 standing rule)', () => {
-  it('a +0.5 integer step shows nothing alone and a whole barrel when it completes', () => {
-    // A TEST-ONLY line: no production line steps fractionally yet (8.13–8.16
-    // author the +0.5 tube/turret/flare steps the rule exists for).
+  it('a +0.5 integer step shows nothing alone and a whole barrel when it completes (from the fixed base CONFIG.gun.barrels, Story 9.12)', () => {
+    // A TEST-ONLY line: no production line authors barrels any more (fixed at
+    // CONFIG.gun.barrels since Story 9.12); the +0.5 tube steps are the live
+    // users of the rule. The base must leave room under the 1..3 clamp.
+    const base = CONFIG.gun.barrels;
+    expect(base + 1).toBeLessThanOrEqual(3);
     const half: Catalog = {
       halfBarrel: {
         id: 'halfBarrel' as LineId,
         kind: 'ladder',
-        cap: 4,
-        tiers: new Array(4).fill([{ kind: 'stat', path: 'equipment.gun.barrels', add: 0.5 }]),
+        cap: 2,
+        tiers: new Array(2).fill([{ kind: 'stat', path: 'equipment.gun.barrels', add: 0.5 }]),
       },
     };
     const barrels = (n: number): number =>
       effectiveStats(BASE, new Array<string>(n).fill('halfBarrel'), half).equipment.gun.barrels;
-    expect(barrels(0)).toBe(1);
-    expect(barrels(1)).toBe(1); // 1.5 accumulated, floors to 1 — nothing appears
-    expect(barrels(2)).toBe(2); // the fraction completes a whole
-    expect(barrels(3)).toBe(2);
-    expect(barrels(4)).toBe(3);
+    expect(barrels(0)).toBe(base);
+    expect(barrels(1)).toBe(base); // base + 0.5 accumulated, floors to base — nothing appears
+    expect(barrels(2)).toBe(base + 1); // the fraction completes a whole
   });
 
-  it('gun.barrels is clamped to 1..3 after the floor (untyped over/under-stack data)', () => {
+  it('gun.barrels is clamped to 1..3 after the floor — barrels are a fixed 2 since Story 9.12 and the clamp guards malformed data', () => {
     const rogue = (over: { add?: number; mult?: number }): Catalog => ({
       x: { id: 'x' as unknown as LineId, kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'equipment.gun.barrels', ...over }]] },
     });
@@ -1283,8 +1311,9 @@ describe('effectiveStats — every NON-STUB line folds (no dead cards)', () => {
     // machineGun / flak were STUB equipment lines until 8.15; they are their
     // guns' ladders now, and every copy — copy 1 included — is a real step.
     const identity = effectiveStats(BASE);
+    // No `damage`: the machine gun's 5 is flat since Story 9.12 (Eric 2026-10-16).
     expect(changed(identity, effectiveStats(BASE, stack('machineGun', 4)))).toEqual([
-      'equipment.machineGun.damage', 'equipment.machineGun.maxAmmo', 'equipment.machineGun.rangeU',
+      'equipment.machineGun.maxAmmo', 'equipment.machineGun.rangeU',
       'equipment.machineGun.rateMs', 'equipment.machineGun.reloadMs', 'equipment.machineGun.tier',
     ]);
     expect(changed(identity, effectiveStats(BASE, stack('flak', 4)))).toEqual([

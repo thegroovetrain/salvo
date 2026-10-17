@@ -33,10 +33,11 @@
 //
 // THE COUNT MOVED 26/117 -> 24/114 ON 2026-09-30 (Eric: "there are NO MORE
 // one-off upgrades; EVERY upgrade is tiered"): DECK GUN TURRET and DECK GUN
-// BARREL are DELETED. The second turret and the extra barrels are now rungs of
-// the CANNON ladder (the turret at tier III; a barrel at tier II and tier IV
-// since Eric's 2026-10-02 tables, epic-8 amendment 232), and the FLAK ladder
-// gains a turret at tier II and tier IV (same tables). See `ladderSteps`.
+// BARREL are DELETED. The second turret is now a rung of the CANNON ladder
+// (tier III); the extra barrels were rungs at tier II and IV (Eric's
+// 2026-10-02 tables, epic-8 amendment 232) until the cannon went to a FIXED
+// two barrels with no barrel rungs (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)). The FLAK ladder carries a turret at
+// tier II only since then (was II and IV). See `ladderSteps`.
 //
 // THE COUNT MOVED 109 -> 117 IN STORY 8.17 (Eric 2026-09-29, amendments
 // 130–133), purely by re-cutting KINDS: the last two ADD-ONS are gone —
@@ -304,11 +305,10 @@ function ladder(
  * A ladder whose rungs are NOT UNIFORM (Eric 2026-09-30): the `ladder` twin of
  * `tieredWeaponSteps`. `steps[k]` is the effect list of the rung copy k+1
  * buys, and `cap` is `steps.length`. A rung may carry more than one authored
- * effect — CANNON's tier-III rung is its +3 damage step AND the second turret,
- * its rungs to II and IV are a barrel each with no damage step, and its rung
- * to V is +3 damage alone (12 / 12 / 15 / 15 / 18, Eric 2026-10-13); the MACHINE GUN takes +1
- * damage only on the rungs to II and IV beside its uniform +4 shells / −50 ms
- * (Eric 2026-10-02, epic-8 amendment 232) — shapes one repeated list cannot say. The `ladder`
+ * effect — CANNON's rung to II is +2 damage, its tier-III rung is +1 damage
+ * AND the second turret, its rungs to IV and V are +1 damage each
+ * (8 / 10 / 11 / 12 / 13); the MACHINE GUN's magazine steps +3 / +3 / +2 / +3
+ * beside its uniform −25 ms (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)) — shapes one repeated list cannot say. The `ladder`
  * law holds: a FRESH ARRAY PER RUNG, copied from the caller's lists, so no
  * rung aliases another or the caller's array; the effect objects are
  * deep-frozen with the catalog.
@@ -348,14 +348,15 @@ const cannonRange = (): BoonEffect => statEffect('equipment.gun.rangeU', { add: 
 /** One FLAK rung's range step (ruling 125: 5/12 → 6/12 over four cards). */
 const flakRange = (): BoonEffect => statEffect('equipment.flak.rangeU', { add: FLAK_RANGE_STEP });
 
-/** One CANNON rung's whole-number damage step (Eric 2026-10-13, experiment:
- *  base 12; +3 on the rung to III, +3 on the rung to V → 12 / 12 / 15 / 15 /
- *  18; the rungs to II and IV carry no damage effect. Was base 16, +2 / +3 →
- *  16 / 16 / 18 / 18 / 21, 2026-10-02, epic-8 amendment 232). */
+/** One CANNON rung's whole-number damage step (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185): base 8; +2 on the rung
+ *  to II, +1 on each of the rungs to III, IV and V → 8 / 10 / 11 / 12 / 13.
+ *  Was base 12, +3 at III and V → 12 / 12 / 15 / 15 / 18, the 2026-10-13
+ *  experiment; base 16 → 16 / 16 / 18 / 18 / 21, 2026-10-02, epic-8
+ *  amendment 232). */
 const cannonDamage = (step: number): BoonEffect => statEffect('equipment.gun.damage', { add: step });
-/** One FLAK rung's damage step (Eric 2026-10-02, epic-8 amendment 232: +8;
- *  on the base 20 since Eric 2026-10-13, experiment → 20 / 28 / 36 / 44 / 52). */
-const flakDamage = (): BoonEffect => statEffect('equipment.flak.damage', { add: 8 });
+/** One FLAK rung's damage step (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185): +2 on the base 16 → 16 / 18 / 20 /
+ *  22 / 24; was +8 on base 20 → 20 / … / 52, the 2026-10-13 experiment). */
+const flakDamage = (): BoonEffect => statEffect('equipment.flak.damage', { add: 2 });
 
 /**
  * An equipment line WITH its ladder: copy 1 fits the weapon and tiers II–V
@@ -409,17 +410,51 @@ export function tieredWeaponSteps(
   return { id, kind: 'equipment', cap: 5, tiers };
 }
 
-/** One upgrade tier of the MACHINE GUN ladder (Eric 2026-10-02, epic-8
- *  amendment 232): +4 shells and −50 ms of shot delay on every rung, and +1
- *  damage ONLY when `damageUp` (the rungs to II and IV). The rungs to III and
- *  V author NO damage effect at all — the validator refuses `add: 0`, and a
- *  rung carrying the magazine and delay steps is not empty. */
-function machineGunTier(damageUp: boolean): BoonEffect[] {
+/** One upgrade tier of the MACHINE GUN ladder (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): `magStep` shells to
+ *  the magazine (+3 / +3 / +2 / +3 → 12 / 15 / 18 / 20 / 23) and −25 ms of
+ *  shot delay on every rung (0.30 → 0.20 s). NO damage effect on any rung —
+ *  the damage is 5 flat (was +1 at II and IV, 2026-10-02, epic-8 amendment
+ *  232); the validator refuses `add: 0`, and a rung carrying the magazine and
+ *  delay steps is not empty. */
+function machineGunTier(magStep: number): BoonEffect[] {
   return [
-    statEffect('equipment.machineGun.maxAmmo', { add: 4 }),
-    ...(damageUp ? [statEffect('equipment.machineGun.damage', { add: 1 })] : []),
-    statEffect('equipment.machineGun.rateMs', { add: -50 }),
+    statEffect('equipment.machineGun.maxAmmo', { add: magStep }),
+    statEffect('equipment.machineGun.rateMs', { add: -25 }),
     statEffect('equipment.machineGun.rangeU', { add: MACHINE_GUN_RANGE_STEP }), // ruling 125: 6/12 → 7/12
+  ];
+}
+
+/** One upgrade tier of a TORPEDO line (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): the tier's whole-number damage
+ *  step, +2.5 u/s and +0.125 rad/s of homing on every rung, and +0.5 tubes
+ *  ONLY when `tubeUp` (the rungs to II and III — tubes 1,1,2,2,2, capped at
+ *  two). Light: +10 ×4 (80 → 120); heavy: +11 / +11 / +11 / +12 (90 → 135). */
+function torpedoTier(line: 'lightTorpedo' | 'heavyTorpedo', damageStep: number, tubeUp: boolean): BoonEffect[] {
+  return [
+    statEffect(`equipment.${line}.damage`, { add: damageStep }),
+    statEffect(`equipment.${line}.speed`, { add: 2.5 }),
+    ...(tubeUp ? [statEffect(`equipment.${line}.maxAmmo`, { add: 0.5 })] : []),
+    statEffect(`equipment.${line}.homingTurnRate`, { add: 0.125 }),
+  ];
+}
+
+/** One upgrade tier of NAVAL MINES (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): the tier's damage step
+ *  (+11 / +11 / +11 / +12 → 90 → 135), ×1.1 blast and +1 held every rung. */
+function navalMineTier(damageStep: number): BoonEffect[] {
+  return [
+    statEffect('equipment.navalMines.damage', { add: damageStep }),
+    statEffect('equipment.navalMines.blastRadius', { mult: 1.1 }),
+    statEffect('equipment.navalMines.maxAmmo', { add: 1 }),
+  ];
+}
+
+/** One upgrade tier of CAPTIVE MINES (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): the fish's damage step
+ *  (+11 / +11 / +11 / +12 → 90 → 135), +0.075 rad/s of homing every rung, and
+ *  +0.5 held ONLY when `heldUp` (the rungs to II and III — 1,1,2,2,2). */
+function captiveMineTier(damageStep: number, heldUp: boolean): BoonEffect[] {
+  return [
+    statEffect('equipment.captiveMines.damage', { add: damageStep }),
+    ...(heldUp ? [statEffect('equipment.captiveMines.maxAmmo', { add: 0.5 })] : []),
+    statEffect('equipment.captiveMines.homingTurnRate', { add: 0.075 }),
   ];
 }
 
@@ -482,17 +517,16 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  *   RELOAD  R12 — −5 % per tier, 5 tiers, cap 25 % (cooldownScale 1.0 → 0.75).
  *   PASSIVE HEALING — +0.6 %/s missing hull and −1 s wait per tier, 5 tiers
  *                  (Eric 2026-10-13, epic-9 amendments 90–91).
- *   DECK GUN R14 — damage 12/12/15/15/18 (base 12; +3 at III, +3 at V; Eric 2026-10-13, experiment) AND −5 % own reload per
- *                  tier, 4 tiers (Eric 2026-10-02, amendment 232); the
- *                  reload half is DERIVED from the tier in clampStats.
- *                  R15 (turret) / R16 (barrel) folded into the CANNON rungs:
- *                  +1 pool at tier III (2026-09-30), +1 barrel at tier II
- *                  and tier IV (2026-10-02, amendment 232).
- *   MACHINE GUN — +4 shells and −50 ms per tier, +1 damage at tiers II and
- *                  IV only, 4 tiers (Eric 2026-10-02, amendment 232).
- *   FLAK — damage +8 per tier (20 → 52 since 2026-10-13, experiment), 4 tiers, blast fixed (Eric
- *                  2026-10-02, amendment 232); +1 pool at tier II and
- *                  tier IV (1/2/2/3/3, same tables; was III and V).
+ *   DECK GUN R14 — damage 8/10/11/12/13 (base 8; +2, +1, +1, +1; Eric
+ *                  2026-10-16, Story 9.12) on a FIXED two barrels
+ *                  (CONFIG.gun.barrels, no barrel rungs) AND −5 % own reload
+ *                  per tier, 4 tiers; the reload half is DERIVED from the
+ *                  tier in clampStats. R15 (turret) folded into the CANNON
+ *                  rungs: +1 pool at tier III (2026-09-30).
+ *   MACHINE GUN — magazine +3/+3/+2/+3 and −25 ms per tier, damage 5 flat,
+ *                  4 tiers (Eric 2026-10-16, Story 9.12).
+ *   FLAK — damage +2 per tier (16 → 24), 4 tiers, blast fixed; +1 pool at
+ *                  tier II only (1/2/2/2/2; Eric 2026-10-16, Story 9.12).
  *   BROADSIDE R35 · STAR SHELLS R31 · PHOSPHOR SHELLS · FLASH SHELLS — as
  *                  ruled by Eric 2026-09-29, amendments 130–133 (Story 8.17).
  *   LIGHT TORPEDO R18 · HEAVY TORPEDO R17 · NAVAL MINES R23/R24 ·
@@ -544,10 +578,9 @@ export const CATALOG: Catalog = deepFreezeRows({
     statEffect('regen.outOfCombatMs', { add: -1000 }),
   ]),
   // --- the CANNON ladder ----------------------------------------------------
-  // DECK GUN (R14 as retuned by Eric 2026-10-13, experiment; was 2026-10-02,
-  // epic-8 amendment 232): base 12, damage steps +3 (to III) and +3 (to V) —
-  // whole numbers — so the gun deals Eric's scale 12 → 12 → 15 → 15 → 18
-  // exactly (amendment 39: his integers
+  // DECK GUN (R14 as retuned by Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): base 8, damage steps +2 (to II) and +1
+  // (to III, IV and V) — whole numbers — so the gun deals Eric's scale
+  // 8 → 10 → 11 → 12 → 13 exactly (amendment 39: his integers
   // ARE the scale; the fold is still floored once by effects.ts
   // EQUIPMENT_INT_FIELDS, a no-op on integer steps). The OTHER half of
   // the line — −5 % own reload per tier — is NOT an effect: it is derived from
@@ -556,17 +589,16 @@ export const CATALOG: Catalog = deepFreezeRows({
   // `appliesTo: ['gun']` is how this ladder names the row whose tier it moves.
   // THE ONE-OFF TURRET AND BARREL CARDS ARE RUNGS NOW (Eric 2026-09-30, "EVERY
   // upgrade is tiered"; R15/R16 folded in): the rung that reaches tier III
-  // (copy 2) adds the second turret (gun pool 1 → 2), and the rungs that
-  // reach tier II (copy 1) and tier IV (copy 3) each add a barrel per turret
-  // (parallel shells per click; Eric 2026-10-02, amendment 232). Pool by
-  // copies 0..4: 1,1,2,2,2; barrels: 1,2,2,3,3.
+  // (copy 2) adds the second turret (gun pool 1 → 2). The barrel rungs are
+  // GONE (Story 9.12): two barrels at every tier, `CONFIG.gun.barrels`, read
+  // by sim/stats.ts gunRow. Pool by copies 0..4: 1,1,2,2,2; barrels 2 flat.
   deckGun: ladderSteps(
     'deckGun',
     [
-      [statEffect('equipment.gun.barrels', { add: 1 }), cannonRange()], // I → II — a second barrel (no damage step: 12 → 12)
-      [cannonDamage(3), statEffect('equipment.gun.maxAmmo', { add: 1 }), cannonRange()], // II → III — 12 → 15 and the second turret
-      [statEffect('equipment.gun.barrels', { add: 1 }), cannonRange()], // III → IV — a third barrel (no damage step: 15 → 15)
-      [cannonDamage(3), cannonRange()], // IV → V — 15 → 18
+      [cannonDamage(2), cannonRange()], // I → II — 8 → 10
+      [cannonDamage(1), statEffect('equipment.gun.maxAmmo', { add: 1 }), cannonRange()], // II → III — 10 → 11 and the second turret
+      [cannonDamage(1), cannonRange()], // III → IV — 11 → 12
+      [cannonDamage(1), cannonRange()], // IV → V — 12 → 13
     ],
     { appliesTo: ['gun'] },
   ),
@@ -577,73 +609,78 @@ export const CATALOG: Catalog = deepFreezeRows({
   // 8.17's (Eric 2026-09-29, amendments 130/133). The two GUN LADDERS that sit
   // in this block (machineGun, flak) are Story 8.15's.
   //
-  // LIGHT TORPEDO (R18): tiers II–V each +5 damage, +2.5 u/s, +0.5 tubes and
-  // +0.125 rad/s of homing — 60 dmg / 55 u/s / 3 tubes / 0.5 rad/s at V, on a
-  // 20 s reload. HOMING IS A TIER STAT, NOT A CARD (amendment 80).
-  lightTorpedo: tieredWeapon('lightTorpedo', 'lightTorpedo', [
-    statEffect('equipment.lightTorpedo.damage', { add: 5 }),
-    statEffect('equipment.lightTorpedo.speed', { add: 2.5 }),
-    statEffect('equipment.lightTorpedo.maxAmmo', { add: 0.5 }),
-    statEffect('equipment.lightTorpedo.homingTurnRate', { add: 0.125 }),
+  // LIGHT TORPEDO (R18 as retuned by Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): tiers II–V each +10 damage,
+  // +2.5 u/s and +0.125 rad/s of homing; +0.5 tubes on the rungs to II and III
+  // ONLY (tubes capped at two) — 80 → 120 dmg / 55 u/s / 2 tubes / 0.5 rad/s
+  // at V, on a 20 s reload. HOMING IS A TIER STAT, NOT A CARD (amendment 80).
+  lightTorpedo: tieredWeaponSteps('lightTorpedo', 'lightTorpedo', [
+    torpedoTier('lightTorpedo', 10, true),
+    torpedoTier('lightTorpedo', 10, true),
+    torpedoTier('lightTorpedo', 10, false),
+    torpedoTier('lightTorpedo', 10, false),
   ]),
-  // HEAVY TORPEDO (R17): the shipped torpedo, renamed — the SAME four steps on
-  // its own paths: 70 dmg / 75 u/s / 3 tubes / 0.5 rad/s at V, 24 s reload.
-  heavyTorpedo: tieredWeapon('heavyTorpedo', 'heavyTorpedo', [
-    statEffect('equipment.heavyTorpedo.damage', { add: 5 }),
-    statEffect('equipment.heavyTorpedo.speed', { add: 2.5 }),
-    statEffect('equipment.heavyTorpedo.maxAmmo', { add: 0.5 }),
-    statEffect('equipment.heavyTorpedo.homingTurnRate', { add: 0.125 }),
+  // HEAVY TORPEDO (R17 as retuned by Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): the shipped torpedo, renamed —
+  // damage +11 / +11 / +11 / +12 (90 → 135, ruling 184(d)), +2.5 u/s and
+  // +0.125 rad/s every rung, +0.5 tubes on the rungs to II and III only:
+  // 135 dmg / 75 u/s / 2 tubes / 0.5 rad/s at V, 24 s reload.
+  heavyTorpedo: tieredWeaponSteps('heavyTorpedo', 'heavyTorpedo', [
+    torpedoTier('heavyTorpedo', 11, true),
+    torpedoTier('heavyTorpedo', 11, true),
+    torpedoTier('heavyTorpedo', 11, false),
+    torpedoTier('heavyTorpedo', 12, false),
   ]),
   // SUPERCAV TORPEDO (R19 as superseded by amendment 74): a CONSUMABLE, not an
   // equipment line — a prime-and-click belt fish with no reload and no tiers.
   // It keeps its LINE_IDS slot (see there) and its five copies are five uses.
   supercavTorpedo: consumable('supercavTorpedo'),
-  // NAVAL MINES (R23/R24): the shipped mine, renamed — tiers II–V each +5
-  // damage, ×1.1 blast (the 2/3 trip ring follows it) and +1 held: 75 dmg,
-  // 70.3 u blast / 46.9 u trip, 6 held, 12 s at V. IT NO LONGER FOULS
-  // (amendment 81).
-  navalMines: tieredWeapon('navalMines', 'navalMines', [
-    statEffect('equipment.navalMines.damage', { add: 5 }),
-    statEffect('equipment.navalMines.blastRadius', { mult: 1.1 }),
-    statEffect('equipment.navalMines.maxAmmo', { add: 1 }),
+  // NAVAL MINES (R23/R24 as retuned by Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): the shipped mine, renamed —
+  // damage +11 / +11 / +11 / +12 (90 → 135, ruling 184(d)), and every rung
+  // ×1.1 blast (the 2/3 trip ring follows it) and +1 held: 135 dmg, 70.3 u
+  // blast / 46.9 u trip, 6 held, 12 s at V. IT NO LONGER FOULS (amendment 81).
+  navalMines: tieredWeaponSteps('navalMines', 'navalMines', [
+    navalMineTier(11),
+    navalMineTier(11),
+    navalMineTier(11),
+    navalMineTier(12),
   ]),
-  // CAPTIVE MINES (R25, amendments 77/82/84d): tiers II–V each +5 fish damage,
-  // +0.5 held and +0.075 rad/s of homing — 75 dmg, 3 held, 0.3 rad/s, 16 s at
-  // V. THE TRIP RING'S ×1.1 STEP IS NOT AN EFFECT: it is derived from the
-  // row's tier in sim/stats.ts (120 → 175.7 u since 2026-10-08; 144 → 210.8 before), and the 32 u burst is fixed.
-  captiveMines: tieredWeapon('captiveMines', 'captiveMines', [
-    statEffect('equipment.captiveMines.damage', { add: 5 }),
-    statEffect('equipment.captiveMines.maxAmmo', { add: 0.5 }),
-    statEffect('equipment.captiveMines.homingTurnRate', { add: 0.075 }),
+  // CAPTIVE MINES (R25, amendments 77/82/84d, as retuned by Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): fish
+  // damage +11 / +11 / +11 / +12 (90 → 135), +0.075 rad/s of homing every
+  // rung, +0.5 held on the rungs to II and III only — 135 dmg, 2 held,
+  // 0.3 rad/s, 16 s at V. THE TRIP RING'S ×1.1 STEP IS NOT AN EFFECT: it is
+  // derived from the row's tier in sim/stats.ts (120 → 175.7 u since
+  // 2026-10-08; 144 → 210.8 before), and the 32 u burst is fixed.
+  captiveMines: tieredWeaponSteps('captiveMines', 'captiveMines', [
+    captiveMineTier(11, true),
+    captiveMineTier(11, true),
+    captiveMineTier(11, false),
+    captiveMineTier(12, false),
   ]),
-  // MACHINE GUN (amendment 104; the numbers Eric 2026-10-02, amendment 232):
-  // the machine gun's LADDER — offered only while it is mounted (sim/draw.ts
-  // ladderHost reads `appliesTo`). Tiers II–V each +4 shells to the magazine
-  // (12 / 16 / 20 / 24 / 28) and −50 ms of shot delay (0.30 / 0.25 / 0.20 /
-  // 0.15 / 0.10 s); +1 damage per shell only on the rungs to II and IV
-  // (5 / 6 / 6 / 7 / 7). The −5 % reload per tier (12 s -> 9.6 s at V) is NOT
-  // an effect: it is derived from
+  // MACHINE GUN (amendment 104; the numbers Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): the machine gun's LADDER —
+  // offered only while it is mounted (sim/draw.ts ladderHost reads
+  // `appliesTo`). Tiers II–V step the magazine +3 / +3 / +2 / +3
+  // (12 / 15 / 18 / 20 / 23) and −25 ms of shot delay each (0.30 / 0.275 /
+  // 0.25 / 0.225 / 0.20 s); damage is 5 FLAT, no damage rungs. The −5 % reload
+  // per tier (12.5 s -> 10.0 s at V) is NOT an effect: it is derived from
   // `equipment.machineGun.tier`, which `appliesTo` makes this line advance —
   // the `deckGun` precedent exactly.
   machineGun: ladderSteps(
     'machineGun',
-    [machineGunTier(true), machineGunTier(false), machineGunTier(true), machineGunTier(false)],
+    [machineGunTier(3), machineGunTier(3), machineGunTier(2), machineGunTier(3)],
     { appliesTo: ['machineGun'] },
   ),
-  // FLAK (amendment 105; the numbers Eric 2026-10-02, amendment 232): the
-  // flak gun's LADDER, offered only while mounted. Tiers II–V step damage
-  // +8 per rung (20 / 28 / 36 / 44 / 52 since Eric 2026-10-13, experiment;
-  // was 12 / … / 44); the blast radius does NOT grow;
-  // the −5 % reload per tier is the derived tier step (3.5 s -> 2.8 s at V).
-  // The rungs reaching tier II and tier IV each add a TURRET (Eric
-  // 2026-10-02, amendment 232; was III and V): flak pool by copies 0..4 is
-  // 1,2,2,3,3.
+  // FLAK (amendment 105; the numbers Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): the flak gun's LADDER, offered
+  // only while mounted. Tiers II–V step damage +2 per rung
+  // (16 / 18 / 20 / 22 / 24; was +8 → 20 / … / 52, the 2026-10-13
+  // experiment); the blast radius does NOT grow; the −5 % reload per tier is
+  // the derived tier step (3.5 s -> 2.8 s at V). The rung reaching tier II
+  // adds the second TURRET and turrets are CAPPED AT TWO (the third, at IV,
+  // is cut): flak pool by copies 0..4 is 1,2,2,2,2.
   flak: ladderSteps(
     'flak',
     [
       [flakDamage(), statEffect('equipment.flak.maxAmmo', { add: 1 }), flakRange()], // I → II — the second turret (Eric 2026-10-02)
       [flakDamage(), flakRange()], // II → III
-      [flakDamage(), statEffect('equipment.flak.maxAmmo', { add: 1 }), flakRange()], // III → IV — the third turret
+      [flakDamage(), flakRange()], // III → IV (the third turret cut, Story 9.12)
       [flakDamage(), flakRange()], // IV → V
     ],
     { appliesTo: ['flak'] },

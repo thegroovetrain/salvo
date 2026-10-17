@@ -185,18 +185,29 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('authors the CANNON ladder rung by rung: barrels at tiers II and IV, turret at tier III (Eric 2026-10-02, amendment 232); damage +3 at III and V (Eric 2026-10-13, experiment)', () => {
-    const dmg = (add: number) => ({ kind: 'stat', path: 'equipment.gun.damage', add });
-    const barrel = { kind: 'stat', path: 'equipment.gun.barrels', add: 1 };
+  it('authors the CANNON ladder: a whole-number damage step on EVERY rung, the turret on the rung to III only, NO barrel rung (Eric 2026-10-16, Story 9.12 — barrels are the fixed CONFIG.gun.barrels)', () => {
     // Story 9.8 (ruling 125): every rung also carries the even range step.
     const range = rangeStepOf('gun');
+    const turret = { kind: 'stat', path: 'equipment.gun.maxAmmo', add: 1 };
+    const tiers = CATALOG.deckGun.tiers;
     expect(CATALOG.deckGun.appliesTo).toEqual(['gun']);
-    expect(CATALOG.deckGun.tiers).toEqual([
-      [barrel, range], // I → II — 12 → 12, no damage effect
-      [dmg(3), { kind: 'stat', path: 'equipment.gun.maxAmmo', add: 1 }, range], // II → III — 12 → 15
-      [barrel, range], // III → IV — 15 → 15, no damage effect
-      [dmg(3), range], // IV → V — 15 → 18
-    ]);
+    expect(tiers).toHaveLength(4);
+    let damageSum = 0;
+    tiers.forEach((tier, k) => {
+      const dmg = tier.filter((e) => e.kind === 'stat' && e.path === 'equipment.gun.damage');
+      expect(dmg, `rung ${k + 2}`).toHaveLength(1);
+      const add = (dmg[0] as { add: number }).add;
+      expect(Number.isInteger(add) && add > 0, `rung ${k + 2}`).toBe(true);
+      damageSum += add;
+      expect(tier, `rung ${k + 2}`).toContainEqual(range);
+      // The second turret lives on the rung reaching tier III (copy 2) and nowhere else.
+      expect(tier.some((e) => JSON.stringify(e) === JSON.stringify(turret)), `rung ${k + 2}`).toBe(k === 1);
+      // No rung authors a barrel any more.
+      expect(tier.some((e) => e.kind === 'stat' && e.path === 'equipment.gun.barrels'), `rung ${k + 2}`).toBe(false);
+    });
+    // The authored steps land the fold's Tier V damage exactly (no float, no floor dust).
+    const atV = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['deckGun', 'deckGun', 'deckGun', 'deckGun']);
+    expect(CONFIG.gun.damage + damageSum).toBe(atV.equipment.gun.damage);
   });
 
   it('ladderSteps gives every rung a FRESH array (never the caller\'s, never a sibling\'s); the catalog rungs are deep-frozen', () => {
@@ -232,14 +243,15 @@ describe('catalog v3 identity', () => {
   });
 
   it('gives every equipment line a copy-1 slotFill and FOUR AUTHORED tiers — no empty tier is left (Story 8.17)', () => {
-    // The UNIFORM ladders (`tieredWeapon`): the five Story 8.13 lines and, since
-    // 8.17, BROADSIDE (amendment 133). Their exact steps are pinned in
-    // stats.test.ts, against the numbers, not against the effect shapes.
-    // STAR SHELLS and PHOSPHOR SHELLS are NON-UNIFORM (`tieredWeaponSteps`,
-    // amendments 130/131) — their per-tier shapes are pinned below.
-    const UNIFORM: readonly LineId[] = [
-      'lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'foulingMines', 'broadside',
-    ];
+    // The UNIFORM ladders (`tieredWeapon`): FOULING MINES and, since 8.17,
+    // BROADSIDE (amendment 133). Their exact steps are pinned in stats.test.ts,
+    // against the numbers, not against the effect shapes. STAR SHELLS and
+    // PHOSPHOR SHELLS are NON-UNIFORM (`tieredWeaponSteps`, amendments
+    // 130/131) — their per-tier shapes are pinned below — and since Story 9.12
+    // (Eric 2026-10-16) so are the two torpedo lines and the two damage mines
+    // (odd damage steps, tubes only on the rungs to II and III): see the
+    // next case.
+    const UNIFORM: readonly LineId[] = ['foulingMines', 'broadside'];
     for (const id of LINE_IDS) {
       const line = CATALOG[id];
       if (line.kind !== 'equipment') continue;
@@ -253,6 +265,35 @@ describe('catalog v3 identity', () => {
     }
     // 7 -> 8 in Story 8.17: PHOSPHOR SHELLS joined as equipment (amendment 131).
     expect(LINE_IDS.filter((id) => CATALOG[id].kind === 'equipment')).toHaveLength(8);
+  });
+
+  it('the NON-UNIFORM torpedo and mine ladders (Story 9.12): the authored damage steps sum to the fold\'s Tier V damage, and the +0.5 pool steps sit only on the rungs to II and III where the pool is capped at two', () => {
+    const TB = CONFIG.shipClasses.torpedoBoat;
+    const lines = ['lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines'] as const;
+    for (const id of lines) {
+      const steps = CATALOG[id].tiers.slice(1);
+      const damageSum = steps
+        .flat()
+        .filter((e) => e.kind === 'stat' && e.path === `equipment.${id}.damage`)
+        .reduce((sum, e) => sum + (e as { add: number }).add, 0);
+      const atI = effectiveStats(TB, [id]).equipment[id];
+      const atV = effectiveStats(TB, [id, id, id, id, id]).equipment[id];
+      expect(atI.damage + damageSum, id).toBe(atV.damage);
+      // Every authored damage step is a positive whole number (amendment 39).
+      for (const tier of steps) {
+        const dmg = tier.filter((e) => e.kind === 'stat' && e.path === `equipment.${id}.damage`);
+        expect(dmg, id).toHaveLength(1);
+        expect(Number.isInteger((dmg[0] as { add: number }).add), id).toBe(true);
+      }
+    }
+    // The three +0.5 pool lines: the half-steps sit on the rungs to II and III
+    // only, so the floored pool tops out at two (Eric 2026-10-16, Story 9.12).
+    for (const id of ['lightTorpedo', 'heavyTorpedo', 'captiveMines'] as const) {
+      const pooled = CATALOG[id].tiers
+        .slice(1)
+        .map((tier) => tier.some((e) => e.kind === 'stat' && e.path === `equipment.${id}.maxAmmo`));
+      expect(pooled, id).toEqual([true, true, false, false]);
+    }
   });
 
   it('authors the STAR SHELLS ladder tier by tier (Eric 2026-09-29, amendment 130)', () => {
@@ -371,37 +412,41 @@ describe('catalog v3 identity', () => {
   });
 
   it('the MACHINE GUN and FLAK lines are their guns\' LADDERS, exactly like DECK GUN (amendments 104/105)', () => {
-    // Per tier (Eric 2026-10-02, amendment 232): MACHINE GUN +4 shells and
-    // −50 ms of shot delay, +1 damage ONLY on the rungs to II and IV (the
-    // rungs to III and V author no damage effect); FLAK damage +8 per rung,
-    // +1 pool on the rungs to II and IV (blast fixed).
+    // Per tier (Eric 2026-10-16, Story 9.12): MACHINE GUN a magazine step and
+    // the SAME shot-delay step on every rung, NO damage effect on any rung
+    // (damage 5 flat); FLAK the SAME damage step on every rung, +1 pool on the
+    // rung to II ONLY (turrets capped at two; blast fixed).
     // The −5 % reload is the derived tier step, never an effect.
     expect(CATALOG.machineGun.appliesTo).toEqual(['machineGun']);
     expect(CATALOG.flak.appliesTo).toEqual(['flak']);
-    const mgAmmo = { kind: 'stat', path: 'equipment.machineGun.maxAmmo', add: 4 };
-    const mgDmg = { kind: 'stat', path: 'equipment.machineGun.damage', add: 1 };
-    const mgRate = { kind: 'stat', path: 'equipment.machineGun.rateMs', add: -50 };
     const mgRange = rangeStepOf('machineGun'); // Story 9.8, ruling 125
-    expect(CATALOG.machineGun.tiers).toEqual([
-      [mgAmmo, mgDmg, mgRate, mgRange], // I → II
-      [mgAmmo, mgRate, mgRange], // II → III
-      [mgAmmo, mgDmg, mgRate, mgRange], // III → IV
-      [mgAmmo, mgRate, mgRange], // IV → V
-    ]);
+    const pathsOf = (tier: readonly { kind: string; path?: string }[]) => tier.map((e) => e.path);
+    const addOf = (tier: readonly unknown[], path: string) =>
+      (tier.find((e) => (e as { path?: string }).path === path) as { add: number } | undefined)?.add;
+    for (const tier of CATALOG.machineGun.tiers) {
+      expect(pathsOf(tier)).toEqual(['equipment.machineGun.maxAmmo', 'equipment.machineGun.rateMs', 'equipment.machineGun.rangeU']);
+      expect(tier).toContainEqual(mgRange);
+      expect(Number.isInteger(addOf(tier, 'equipment.machineGun.maxAmmo'))).toBe(true);
+      expect(addOf(tier, 'equipment.machineGun.rateMs')).toBe(addOf(CATALOG.machineGun.tiers[0], 'equipment.machineGun.rateMs'));
+    }
     // A fresh array per tier (the `ladder` law): no tier aliases another.
     const mgTiers = CATALOG.machineGun.tiers;
     expect(new Set(mgTiers).size).toBe(mgTiers.length);
     expect(mgTiers.every((tier) => Object.isFrozen(tier) && tier.every((e) => Object.isFrozen(e)))).toBe(true);
-    // FLAK: damage +8 every rung, and a TURRET (+1 pool) on the rungs reaching
-    // tier II and tier IV (Eric 2026-10-02, amendment 232; was III and V).
-    // The blast radius never moves.
-    const flakDmg = { kind: 'stat', path: 'equipment.flak.damage', add: 8 };
+    // FLAK: the same damage step every rung, and the second TURRET (+1 pool)
+    // on the rung reaching tier II only (Eric 2026-10-16, Story 9.12; the
+    // third turret at IV is cut). The blast radius never moves.
+    const flakStep = addOf(CATALOG.flak.tiers[0], 'equipment.flak.damage');
     const flakPool = { kind: 'stat', path: 'equipment.flak.maxAmmo', add: 1 };
     const flakRange = rangeStepOf('flak'); // Story 9.8, ruling 125
-    expect(CATALOG.flak.tiers[0]).toEqual([flakDmg, flakPool, flakRange]);
-    expect(CATALOG.flak.tiers[1]).toEqual([flakDmg, flakRange]);
-    expect(CATALOG.flak.tiers[2]).toEqual([flakDmg, flakPool, flakRange]);
-    expect(CATALOG.flak.tiers[3]).toEqual([flakDmg, flakRange]);
+    expect(Number.isInteger(flakStep)).toBe(true);
+    CATALOG.flak.tiers.forEach((tier, k) => {
+      expect(addOf(tier, 'equipment.flak.damage'), `rung ${k + 2}`).toBe(flakStep);
+      expect(tier, `rung ${k + 2}`).toContainEqual(flakRange);
+      expect(tier.some((e) => JSON.stringify(e) === JSON.stringify(flakPool)), `rung ${k + 2}`).toBe(k === 0);
+    });
+    // The blast radius never moves: it is not even a stat path (the fold below
+    // reads the CONFIG value at every rung — stats.test.ts FLAK table).
     // Each ladder advances its OWN gun's tier (the reload step reads it).
     expect(tierTargetOf(CATALOG.machineGun)).toBe('machineGun');
     expect(tierTargetOf(CATALOG.flak)).toBe('flak');

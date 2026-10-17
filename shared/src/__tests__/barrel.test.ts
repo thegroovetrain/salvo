@@ -466,7 +466,14 @@ describe('shared barrel', () => {
     // 87 -> 88 (fog tune 3, amendment 179): no fog past the ocean's rim (the shared density the client draws changes), the own bank is free.
     // 86 -> 87 (fog tune 2, amendment 178): spinPeriodMs -> spinRimU, windU 1,
     // coverage = solid fog (density >= 1/2).
-    expect(PROTOCOL_VERSION).toBe(88);
+    // 88 -> 89 (Story 9.12, Eric 2026-10-16, epic-9 amendments 184–185): catalog
+    // content + the gun/machineGun/flak/gunAttenuation/torpedo/lightTorpedo/
+    // supercavTorpedo/mine/captiveMines CONFIG blocks the client reads; the new
+    // attenuation module is exported.
+    expect(PROTOCOL_VERSION).toBe(89);
+    for (const fn of [shared.rangeAttenuation, shared.flakRimFactor, shared.settleBlow]) {
+      expect(typeof fn).toBe('function');
+    }
     for (const fn of [shared.makeFogField, shared.fogNoiseAt, shared.fogDensityAt, shared.fogTollAlong, shared.fogCutForTarget, shared.fogLattice]) {
       expect(typeof fn).toBe('function');
     }
@@ -849,7 +856,7 @@ describe('shared barrel', () => {
     expect('maxLive' in CONFIG.mine).toBe(false);
     expect('globalCap' in CONFIG.mine).toBe(false);
     expect(CONFIG.mine.hits).toEqual(['hull']);
-    expect(CONFIG.mine.damage).toBe(55); // RETUNED 45 -> 55 (Eric ruling 2026-08-04)
+    expect(CONFIG.mine.damage).toBe(90); // RETUNED 45 -> 55 (Eric ruling 2026-08-04); 55 -> 90 (Eric 2026-10-16, Story 9.12)
     // The placement leash (Eric ruling 2026-08-02): 90u put the drop point
     // inside your own wake; 150u lets a Mine Layer actually seed water.
     expect(CONFIG.mine.placeRange).toBe(150);
@@ -903,7 +910,7 @@ describe('shared barrel', () => {
       offset: deg(90), // the twin sector's centre: BOTH beams
       halfArc: deg(45), // 90 deg dead zones fore and aft
       speed: 45,
-      damage: 40,
+      damage: 80, // 40 → 80, Eric 2026-10-16 (Story 9.12, forge)
       maxAmmo: 1,
       reloadMs: 25000,
       hits: ['hull', 'decoy'], // AR44 — it runs UNDER a minefield
@@ -921,7 +928,7 @@ describe('shared barrel', () => {
       offset: deg(0), // bow-centered
       halfArc: deg(15),
       speed: 195,
-      damage: 85, // 50 → 85, Eric 2026-10-01 (cycle 162)
+      damage: 150, // 50 → 85, Eric 2026-10-01 (cycle 162); 85 → 150, Eric 2026-10-16 (Story 9.12)
       hits: ['hull', 'decoy'],
     });
     // THE ABSENCES ARE THE RULING (Eric 2026-09-19): a consumable never
@@ -939,7 +946,7 @@ describe('shared barrel', () => {
       triggerRadius: 120, // the TRIP ring — the BIG one (144 → 120, Story 9.1, Eric 2026-10-08)
       triggerStepPerTier: 1.1, // x1.1 per tier off the ROW'S TIER -> 175.7 u at V
       blastRadius: 32, // the fish's burst — FIXED, it never steps
-      damage: 55,
+      damage: 90, // 55 → 90, Eric 2026-10-16 (Story 9.12, forge)
     });
     // The trip ring is the big one and the burst the small one — the reverse
     // of a contact mine.
@@ -1231,18 +1238,23 @@ describe('shared barrel', () => {
     expect(classShift('mineLayer')).toBe('instantReload');
     expect(classShift('battleship')).toBe('hunker');
     // Eric's numbers, verbatim (amendments 97, 99, 103, 105; the machine gun
-    // and the flak reload as of 2026-10-02, amendment 232).
+    // and the flak reload as of 2026-10-02, amendment 232; the MG reload, the
+    // flak damage and the rim factor as of 2026-10-16, Story 9.12).
     expect(CONFIG.machineGun).toEqual({
       arc: 'full', hits: ['hull', 'mine', 'decoy'], shellSpeed: 500, maxAmmo: 12, rateMs: 300,
-      reloadMs: 12000, damage: 5, shellRadius: 2,
+      reloadMs: 12500, damage: 5, shellRadius: 2,
       rangeU: TWELFTH * 6, rangeUAtV: TWELFTH * 7, // ruling 125: 6/12 → 7/12 (750 → 875 u)
     });
     expect(CONFIG.flak).toEqual({
       arc: 'full', hits: ['hull', 'mine', 'decoy', 'ordnance'], shellSpeed: 500, maxAmmo: 1,
-      reloadMs: 3500, damage: 20, contactDamage: 4, burstRadius: 50, shellRadius: 2, // 4000 → 3500, amendment 232; damage 12 → 20 Eric 2026-10-13, experiment
+      reloadMs: 3500, damage: 16, contactDamage: 4, burstRadius: 50, shellRadius: 2, // 4000 → 3500, amendment 232; damage 12 → 20 (2026-10-13) → 16 (Eric 2026-10-16, Story 9.12)
       rangeU: TWELFTH * 5, rangeUAtV: TWELFTH * 6, // ruling 125: 5/12 → 6/12 (625 → 750 u)
-      edgeFalloff: 10, // D at the centre, D − 10 at the rim (Eric 2026-10-13, flak only)
+      rimFactor: 0.5, // the rim deals HALF the centre (Eric 2026-10-16, Story 9.12; replaces edgeFalloff)
     });
+    // The retired flat D − 10 dial never comes back under its old name.
+    expect('edgeFalloff' in CONFIG.flak).toBe(false);
+    // ONE attenuation block read by all three deck guns (ruling 184(f)).
+    expect(CONFIG.gunAttenuation).toEqual({ fullFrac: 0.5, minFactor: 0.8 });
     expect(CONFIG.instantReload).toEqual({ maxAmmo: 1, reloadMs: 60000 }); // 60 s (Eric 2026-10-02, amendment 232; was 45 s)
     // Story 9.7 (epic-9 amendments 86–88 / 110–117): the HUNKER is temporary
     // Armor for 10 s; the flat factor is DELETED, not kept beside it. Story 9.9

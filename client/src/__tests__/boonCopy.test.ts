@@ -219,14 +219,14 @@ describe('the stat tables — one builder for the face and both hovers', () => {
 
   it('the MACHINE GUN: SHELLS, and RATE to two decimals with the trailing zero kept', () => {
     expect(text(equipmentStatRows('machineGun', bare))).toEqual([
-      'RELOAD 12.0 s',
-      'SHELLS 12',
-      'DAMAGE 5',
-      'RATE 0.30 s',
+      `RELOAD ${(CONFIG.machineGun.reloadMs / 1000).toFixed(1)} s`,
+      `SHELLS ${CONFIG.machineGun.maxAmmo}`,
+      `DAMAGE ${CONFIG.machineGun.damage}`,
+      `RATE ${(CONFIG.machineGun.rateMs / 1000).toFixed(2)} s`,
       `RANGE ${rangeTxt(bare.equipment.machineGun.rangeU)} u`,
     ]);
     const top = effectiveStats(CONFIG.shipClasses.torpedoBoat, Array<string>(4).fill('machineGun'));
-    expect(text(equipmentStatRows('machineGun', top))).toContain('RATE 0.10 s');
+    expect(text(equipmentStatRows('machineGun', top))).toContain(`RATE ${(top.equipment.machineGun.rateMs / 1000).toFixed(2)} s`);
   });
 
   it('a Shift opens with its factor off CONFIG and prints no ROUNDS line', () => {
@@ -277,7 +277,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
     // The two pickable guns' ladders climb their own gun.
     const mg = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['machineGun']);
     expect(cardHoverRows(CATALOG.machineGun, 0, TB)).toEqual(equipmentStatRows('machineGun', mg));
-    expect(text(cardHoverRows(CATALOG.machineGun, 0, TB))).toContain('RATE 0.25 s');
+    expect(text(cardHoverRows(CATALOG.machineGun, 0, TB))).toContain(`RATE ${(mg.equipment.machineGun.rateMs / 1000).toFixed(2)} s`);
     // A consumable: its CONFIG rows; a stub: none.
     expect(cardHoverRows(CATALOG.countermeasure, 0, TB)).toEqual(consumableStatRows('countermeasure'));
     expect(cardHoverRows(CATALOG.depthCharge, 0, TB)).toEqual([]);

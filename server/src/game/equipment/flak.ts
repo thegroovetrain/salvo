@@ -8,13 +8,16 @@
 // ordinary consume/tickReload pool, the normal D1 fire-time back-date, the
 // deduped `mz`, `sp`/`hc` exactly as the cannon's — every rule the cannon has,
 // with Eric's numbers off the ship's EFFECTIVE `flak` row (the ladder moves
-// damage, reload and the turret pool — 1/2/2/3/3 rounds, Eric 2026-10-02,
-// amendment 232; the blast never grows). 360°, no arc (amendment 106).
+// damage, reload and the turret pool — 1/2/2/2/2 rounds, Eric 2026-10-16,
+// Story 9.12; the blast never grows). 360°, no arc (amendment 106). A caught
+// hull takes the centre damage falling to HALF at the rim (`CONFIG.flak.
+// rimFactor`), range-attenuated — the World's `burstHitAmount` composes the
+// shared `flakRimFactor` × `rangeAttenuation` → `settleBlow`.
 //
 // THE MASK is AR44's `hull | mine | decoy | ordnance` (CONFIG.flak.hits): a
-// shell LANDING within `mine.hitRadiusU` of a mine deals its damage to the
-// mine's hp like every deck gun (amendment 200 — a burst merely covering a mine
-// does nothing to it), and a burst covering an ENEMY torpedo in flight removes it — a SIDE EFFECT that
+// shell LANDING deals its range-attenuated damage to every mine whose 10 u
+// marker the blast touches, like every deck gun (Story 9.12, epic-9 amendment
+// 184(i) — so a flak shell clears a few), and a burst covering an ENEMY torpedo in flight removes it — a SIDE EFFECT that
 // might go away (amendment 105); nothing here leans on it, and the World owns
 // the outcome (resolveBurst: no boom, no damage, no `hc`, own fish immune).
 // THE LIT-ZONE REACH (R2.15, amendment 114): like every deck gun, a click past
@@ -25,30 +28,8 @@ import { CONFIG, EQUIPMENT_IS_WEAPON, type LoadoutSlot, type ShellState } from '
 import type { ShipRecord } from '../world.js';
 import type { ActivationContext, ActivationResult, Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
-import { burstPointAlong, gunReachU, muzzleOrTarget, rawAimPoint } from './guns.js';
+import { burstPointAlong, gunReachU, muzzleOrTarget } from './guns.js';
 import { makeBallistic } from './ballistics.js';
-
-/** Float dust from the outline geometry (a hull 30 u off measures 30.000000000000007)
- *  must never cost a whole hit point at the floor: 20 − 6.000…01 is 14, not 13. */
-const FALLOFF_FLOOR_EPS = 1e-9;
-
-/**
- * THE FLAK BURST FALLOFF (Eric 2026-10-13, Story 9.8 — *"the damage should
- * scale from D at the very center to D-10 at the very edge. Meaning even
- * though it has a nice wide burst, it pays to be accurate, because you take
- * deal damage based on the best result for how close the ship is to the center
- * of the blast."*). `nearestU` is the distance from the burst centre to the
- * NEAREST point of the caught outline (`pointPolygonDistance`, 0 when the
- * centre sits inside it — the "best result" clause); the hit is
- * `floor(D − edgeFalloff × clamp01(nearestU / burstRadius))`, a whole number
- * BEFORE the one damage gate (armor multiplies and floors after it), never
- * below 0 (a tuned falloff past D). `edgeFalloff` is `CONFIG.flak.edgeFalloff`.
- * FLAK ONLY: world.ts calls this for `family === 'flak'` bursts alone.
- */
-export function flakBurstDamage(damage: number, nearestU: number, burstRadius: number, edgeFalloff: number): number {
-  const frac = burstRadius > 0 ? Math.min(1, Math.max(0, nearestU / burstRadius)) : 0;
-  return Math.max(0, Math.floor(damage - edgeFalloff * frac + FALLOFF_FLOOR_EPS));
-}
 
 /** Build the one flak shell for this click, born at `now` (the validated
  *  fire time), clamped to `reachU` (the row's `rangeU`, lit-zone lifted).
@@ -71,7 +52,7 @@ function flakShell(ship: ShipRecord, now: number, reachU: number, mapRadius: num
     contactDamage: flak.contactDamage,
     hits: CONFIG.flak.hits, // AR44 target mask
     family: 'flak',
-    cursor: rawAimPoint(ship, dir), // amendment 202: the unclamped click
+    attenRangeU: flak.rangeU, // ruling 184(b): the row's reach at fire time, never the lit-zone lift
   });
 }
 
