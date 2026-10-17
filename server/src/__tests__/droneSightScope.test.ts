@@ -113,17 +113,21 @@ describe('drone sight scope — the fleet waypoint is vetted once, when picked',
     expect(w.drones.probe.ashoreTests).toBe(tests);
   });
 
-  it('a ring-centre fallback that lands ashore is still re-picked on the next read', () => {
+  it('a ring-centre fallback that lands ashore is re-picked on the next DUE read (once per decision cadence — Story 9.13 fix wave P9)', () => {
     const w = bareWorld(13);
     // One island swallowing the whole waypoint disc: all 16 draws fail and the
-    // fallback (the ring centre) sits ashore.
+    // fallback (the ring centre, snapped on the nav grid) finds no water.
     w.map.islands.push(circleIsland(w.zoneLiveRing.cx, w.zoneLiveRing.cy, w.zoneLiveRing.r * 1.2));
     fleetShip(w, 'f', 'medium', w.zoneLiveRing.cx + w.zoneLiveRing.r * 0.5, w.zoneLiveRing.cy);
     w.step();
     const after1 = w.drones.probe.ashoreTests;
+    const cadenceTicks = Math.round(CONFIG.bots.decisionCadenceMs / CONFIG.tick.simDtMs);
+    for (let t = 1; t < cadenceTicks; t += 1) w.step();
+    expect(w.drones.probe.ashoreTests).toBe(after1); // not inside the cadence
     w.step();
-    // 16 rejected draws + the fallback's own test, again, on the next tick.
-    expect(w.drones.probe.ashoreTests - after1).toBe(17);
+    // 16 rejected draws, again, once the cadence has run (the fallback's snap
+    // is a grid read, not an island scan).
+    expect(w.drones.probe.ashoreTests - after1).toBe(16);
   });
 });
 

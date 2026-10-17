@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.63] - 2026-10-17
+
+### Changed
+- **Bots and drones can find their way.** The server now builds a navigation grid from each map. Bots route around islands, run a flow field into the safe ring, steer away from coasts in graded steps, and leave a ring early enough to beat the storm (the departure rule). Idle bots patrol by route, and drones follow routed waypoints and ring returns on the same grid.
+- **Bots decide better.** An odds gate sends a bot into a fight only when it likes the numbers. Otherwise it kites or shadows at gun reach. A bot can hide in fog or behind an island, or hold in cover (siege and trapper builds), and a broken hull breaks off with a latch so it does not flip-flop. After a ram that does not finish the target, the bot backs out. Bots know the next ring and never chase a target past the rim.
+- **Smarter targeting.** Bots never shoot their own decoys or a decoy they have sighted. A probable buoy is demoted as a target. Hits are counted per click, not per shell.
+- **Guns have doctrine.** Each gun has its own range band, measured on the full-damage radius. The machine gun and flak hold fire until the target is close, and the cannon stands off. A bot fires star shells to shoot into its own lit zone at full damage, and lit targets are worth 1.5 times as much.
+- **Specials fire more sensibly.** HUNKER, SHIELD, countermeasure, decoy, fouling shell, supercavitating torpedo and boost have extended triggers that read the new postures.
+- **Harness readouts.** The batch sim reports groundings, stuck episodes, ticks outside the ring, storm deaths while stuck, kills by source, wasted shots, posture ticks and transitions, fog ticks, presses and activations, endgame no-hit gaps and drone groundings. `--tune bots.*` tunes the new dials.
+- Protocol version unchanged (89): nothing new rides the wire.
+
+### Not changed
+- Every weapon, ship, storm, map and fog number; no in-game copy; the SIX perception exceptions.
+
 ## [0.18.62] - 2026-10-17
 
 ### Changed

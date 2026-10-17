@@ -148,6 +148,8 @@ warnings: [oversized, multiple-goals]
 
 ## Spec Change Log
 
+- 2026-10-17 (build): wave readings of record — the waypoint timeout is a no-progress rule (120 u in 20 s); target reach for a sighted class = its base deck-gun reach; a failed odds gate shadows at reach (= kite) and only a closing target with the longer gun sends the bot to cover; hide sits still at its cover point; `hold` may lay mines; nav cache built lazily per map; the next ring's flow field is used during a close; goldenFrames unchanged (no scene steers a bot). KEEP: every new number is a CONFIG.bots dial; posture-keyed rows re-read for kite/hide/hold.
+
 ## Review Triage Log
 
 ## Design Notes

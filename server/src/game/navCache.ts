@@ -23,6 +23,8 @@ import {
   flowField,
   goalCellsInsideDisc,
   hullEnvelope,
+  isWater,
+  pointOf,
   routeTo,
   snapToWater,
   type FlowField,
@@ -49,15 +51,37 @@ function ringKey(ring: ZoneRing, marginU: number): string {
 }
 
 /** The goal set of a ring: its water inside r − margin, else inside r, else
- *  the water cell nearest its centre (a collapse ring) — never empty unless
- *  the map has no water near the centre at all. */
+ *  the water cell nearest its centre (a collapse ring, or a ring centred
+ *  deep inside an island) — empty only on a map with no water at all. */
 function ringGoals(grid: NavGrid, ring: ZoneRing, marginU: number): number[] {
   const shrunk = goalCellsInsideDisc(grid, ring.cx, ring.cy, Math.max(0, ring.r - marginU));
   if (shrunk.length > 0) return shrunk;
   const whole = goalCellsInsideDisc(grid, ring.cx, ring.cy, ring.r);
   if (whole.length > 0) return whole;
   const c = snapToWater(grid, { x: ring.cx, y: ring.cy });
-  return c < 0 ? [] : [c];
+  if (c >= 0) return [c];
+  const far = nearestWaterCell(grid, { x: ring.cx, y: ring.cy });
+  return far < 0 ? [] : [far];
+}
+
+/** The navigable cell whose centre is nearest `p` over the WHOLE grid (ties
+ *  by cell index), or -1 on a waterless grid — snapToWater's reach is three
+ *  cells, so a ring centre deep inside land needs the exhaustive answer
+ *  (Story 9.13 fix wave P4). One scan per ring build (≈ 0.4 M cells on the
+ *  10,000 u ocean), never per tick. */
+export function nearestWaterCell(grid: NavGrid, p: Vec2): number {
+  let best = -1;
+  let bestD = Infinity;
+  for (let i = 0; i < grid.cells.length; i += 1) {
+    if (!isWater(grid, i)) continue;
+    const c = pointOf(grid, i);
+    const d = (c.x - p.x) * (c.x - p.x) + (c.y - p.y) * (c.y - p.y);
+    if (d < bestD) {
+      bestD = d;
+      best = i;
+    }
+  }
+  return best;
 }
 
 export class NavCache {
@@ -91,6 +115,12 @@ export class NavCache {
     }
     this.fields.set(key, field);
     return field;
+  }
+
+  /** Is `ring`'s field already built (inspection: the reveal hook's
+   *  contract, fix wave P8)? */
+  has(ring: ZoneRing, marginU: number = FIELD_MARGIN_U): boolean {
+    return this.fields.has(ringKey(ring, marginU));
   }
 
   /** A string-pulled water route (null = unreachable / over budget). */

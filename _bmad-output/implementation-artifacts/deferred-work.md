@@ -3052,3 +3052,42 @@ Closure stamps for three older entries (the originals are left as written), then
   status: OPEN — pre-existing, harness only, low
   summary: `npx tsc -p server/scripts/batchsim/tsconfig.json` reports one error at `server/scripts/batchsim/main.ts:228` (a `ModeOutput` is not assignable to `void`); the file is untouched by 9.12 and that tsconfig is not part of `npm run check`, so the harness still runs under tsx. Story 9.16 (harness hygiene) should make that tsconfig clean or drop it.
   evidence: wave-2 report at the 9.12 gate, reproduced by the command above on d7eaa125.
+
+## 2026-10-17 — Story 9.13 close-out, cycle 198 (spec-9-13-bot-posture-workover.md)
+
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: RESOLVED 2026-10-17 by epic-9 amendment 201 (ram exit)
+  summary: the 2026-10-13 entry "THE BOT `ram` POSTURE HAS NO POST-STRIKE EXIT" is resolved; the posture chain now has a ram exit when the target survives the strike.
+  evidence: 9.13 wave 1 `ai/posture.ts`; amendment 201.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: RESOLVED 2026-10-17 by epic-9 amendment 195 (hits per click)
+  summary: the 2026-10-16 entry "`HITS_FOR_CRIPPLED` counts `hc` rows" is resolved; bots count hits per click per track from their own `fireSeq`.
+  evidence: 9.13 wave 1; amendment 195.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: re-measured at 9.13 — see `batch-sim-evidence-2026-10-17.md`
+  summary: the 2026-10-08 entry "BOTS GROUND ON 7.3 % OF AFLOAT TICKS ON THE 10 % ARCHIPELAGO" was re-measured after the nav work; numbers live in the evidence file.
+  evidence: `batch-sim-evidence-2026-10-17.md`.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — harness only, low
+  summary: the harness endgame no-hit gap excludes storm damage: the victim's `lastDamageSrc` records the storm but there is no attacker on the `dmg` row, so a storm-only stretch reads as a gap.
+  evidence: 9.13 wave 3 `botReadouts`.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — harness only, low
+  summary: `pressesByItem` cannot attribute a press that spends the last copy of a consumable (the slot reads 'empty' by the time the readout looks).
+  evidence: 9.13 wave 3 `botReadouts`.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — harness only, low
+  summary: `shotsBeyondRange` is a guard that always reads 0, because the gun aim point is clamped to reach before the shot is fired; it cannot catch anything today.
+  evidence: 9.13 wave 3 `botReadouts`.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — harness only, low
+  summary: `--tune` refuses `bots.nav.cellU`, `disengageHpFrac` and `healHpFrac`: the first is never read at runtime and the other two are copied at module load.
+  evidence: 9.13 wave 3 `--tune bots.*` family.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — pre-existing, harness only, low
+  summary: `server/scripts/batchsim/main.ts(228)` TS2322 is still pre-existing (see the 9.12 entry); `encounterSpan.ts:98` no longer errors. Story 9.16 owns the tsconfig.
+  evidence: `npx tsc -p server/scripts/batchsim/tsconfig.json` at 9.13.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — soft cap, low
+  summary: `botMetrics.ts` is 557 lines and `overrides.ts` 920 lines, both over the ~500 soft cap; `equipment.ts` is 696 lines (cohesive, and an import cycle prevents a split).
+  evidence: `wc -l` at 9.13 wave 3.

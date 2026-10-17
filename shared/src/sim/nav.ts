@@ -414,31 +414,62 @@ export function flowField(grid: NavGrid, goalCells: Iterable<number>, opts: Flow
   return { dist: Float32Array.from(w.cost), len: Float32Array.from(w.len), next: w.next };
 }
 
+/** The running answers of one snap: the raw nearest navigable centre and
+ *  the nearest one reachable without crossing a LAND cell. */
+interface SnapPick {
+  best: number;
+  bestD: number;
+  side: number;
+  sideD: number;
+}
+
 /**
  * The navigable cell a world point "stands on" for routing: its own cell when
- * navigable, else the nearest navigable cell centre within SNAP_CELLS (ties by
- * cell index); -1 when none.
+ * navigable, else the nearest navigable cell centre within SNAP_CELLS whose
+ * segment from the point crosses no LAND cell (Story 9.13 fix wave P13: a
+ * hull on the shore band beside a one-cell spit snaps to ITS side, not the
+ * nearer cell over the spit), falling back to the raw nearest; ties by cell
+ * index; -1 when none.
  */
 export function snapToWater(grid: NavGrid, p: Vec2): number {
   const idx = cellOf(grid, p.x, p.y);
   if (isWater(grid, idx)) return idx;
   const cx = Math.floor((p.x + grid.radius) / grid.cellU);
   const cy = Math.floor((p.y + grid.radius) / grid.cellU);
-  let best = -1;
-  let bestD = Infinity;
+  const pick: SnapPick = { best: -1, bestD: Infinity, side: -1, sideD: Infinity };
   for (let y = cy - SNAP_CELLS; y <= cy + SNAP_CELLS; y++) {
     for (let x = cx - SNAP_CELLS; x <= cx + SNAP_CELLS; x++) {
-      if (!waterAt(grid, x, y)) continue;
-      const i = y * grid.n + x;
-      const c = pointOf(grid, i);
-      const d = (c.x - p.x) * (c.x - p.x) + (c.y - p.y) * (c.y - p.y);
-      if (d < bestD) {
-        bestD = d;
-        best = i;
-      }
+      if (waterAt(grid, x, y)) considerSnap(grid, p, y * grid.n + x, pick);
     }
   }
-  return best;
+  return pick.side >= 0 ? pick.side : pick.best;
+}
+
+function considerSnap(grid: NavGrid, p: Vec2, i: number, pick: SnapPick): void {
+  const c = pointOf(grid, i);
+  const d = (c.x - p.x) * (c.x - p.x) + (c.y - p.y) * (c.y - p.y);
+  if (d < pick.bestD) {
+    pick.bestD = d;
+    pick.best = i;
+  }
+  if (d < pick.sideD && !crossesLand(grid, p, c)) {
+    pick.sideD = d;
+    pick.side = i;
+  }
+}
+
+/** Does the segment p→c touch a LAND cell beyond p's own cell (sampled at a
+ *  quarter cell; the shore band and the map's outside do not count)? */
+function crossesLand(grid: NavGrid, p: Vec2, c: Vec2): boolean {
+  const start = cellOf(grid, p.x, p.y);
+  const len = Math.hypot(c.x - p.x, c.y - p.y);
+  const steps = Math.max(1, Math.ceil(len / (grid.cellU / 4)));
+  for (let k = 1; k <= steps; k++) {
+    const t = k / steps;
+    const i = cellOf(grid, p.x + (c.x - p.x) * t, p.y + (c.y - p.y) * t);
+    if (i >= 0 && i !== start && grid.cells[i] === NAV_KIND.LAND) return true;
+  }
+  return false;
 }
 
 /** The cell a field lookup at a world point uses, or -1 (off water / unreachable). */

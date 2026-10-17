@@ -192,13 +192,22 @@ export function probableDecoy(t: RememberedContact): boolean {
   return (t.stillSweeps ?? 0) >= CONFIG.bots.decoyStillSweeps;
 }
 
+/** u/s — a paint-to-paint speed below this reads STILL (fix wave P17, the
+ *  orchestrator's reading under amendment 197(b)): half a radar paint cell
+ *  per sweep revolution, so a moored buoy whose paint centre jitters a cell
+ *  edge between sweeps still counts as stationary, while any hull under way
+ *  (tens of u/s even at a crawl) resets the run. A float equality on the
+ *  measured course was never going to read a real paint as zero. */
+export const STILL_SPEED_U_S = 3;
+
 /** The stationary-sweep count after a paint whose paint-to-paint velocity is
- *  `v`: a measured zero course extends the run, measured motion resets it, no
- *  measurement (a first paint, a sub-second pair) leaves it as it was. */
+ *  `v`: a measured course below STILL_SPEED_U_S extends the run, measured
+ *  motion resets it, no measurement (a first paint, a sub-second pair) leaves
+ *  it as it was. */
 export function nextStillSweeps(prev: number | undefined, v: { vx: number; vy: number } | null): number {
   const n = prev ?? 0;
   if (v === null) return n;
-  return v.vx === 0 && v.vy === 0 ? n + 1 : 0;
+  return Math.hypot(v.vx, v.vy) < STILL_SPEED_U_S ? n + 1 : 0;
 }
 
 // ---------------------------------------------------------------------------

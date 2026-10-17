@@ -2151,6 +2151,31 @@ export class World {
     return navCacheFor(this.map);
   }
 
+  /** The ring the reveal hook last warmed (its key), so the hook is one
+   *  compare per tick once the field exists. */
+  private navWarmKey: string | null = null;
+
+  /**
+   * THE REVEAL HOOK (fix wave P8): build the revealed next ring's flow field
+   * the first tick it exists. The same ring is the close's target through the
+   * whole close, so the close start reads the field already built. Skipped
+   * while no AI hull (bot / fleet) is aboard — a World nobody steers by the
+   * field pays nothing — and retried each tick until one is.
+   */
+  private prewarmZoneNav(): void {
+    const next = this.zoneRevealedNextRing;
+    if (next === null) return;
+    const key = `${next.cx}:${next.cy}:${next.r}`;
+    if (key === this.navWarmKey || !this.hasAiHull()) return;
+    this.navWarmKey = key;
+    this.nav.fieldFor(next);
+  }
+
+  private hasAiHull(): boolean {
+    for (const s of this.ships.values()) if (s.role !== 'captain') return true;
+    return false;
+  }
+
   /**
    * Has the ENDGAME RING been reached — i.e. is the timeline in its last act?
    * True once the timeline is fully closed, and (under sudden death) from the
@@ -3960,6 +3985,13 @@ export class World {
     this.tickTargets.clear();
     this.sunkThisTick = [];
     const ctx = this.stepContext(dtMs);
+    // THE REVEAL HOOK (Story 9.13 fix wave P8): the zone state is a function
+    // of the clock just advanced, so the tick a next ring is revealed is this
+    // one — its flow field is built HERE, before dronesTick / botsTick, not
+    // inside whichever bot's situation asks first. A cache warm-up with no sim
+    // effect (the lazy NavCache.fieldFor path stays the fallback), so it is
+    // not a STEP_ORDER row.
+    this.prewarmZoneNav();
 
     for (const row of World.STEP_ORDER) row.run(this, ctx);
 

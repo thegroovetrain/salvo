@@ -161,6 +161,18 @@ export function rayAvoidance(grid: NavGrid, x: number, y: number, heading: numbe
   return clampUnit(openSide(openPort, openStbd, reach, heading, goal) * danger * RUDDER_GAIN);
 }
 
+/** u — the nearest blocked ray of the avoidance fan within `reach` (`reach`
+ *  when every ray is clear): the entry-damping read (fix wave P20). */
+export function nearestRayHitU(grid: NavGrid, x: number, y: number, heading: number, reach: number): number {
+  const n = Math.max(1, CONFIG.bots.nav.avoidRays);
+  let min = reach;
+  for (let i = 0; i < n; i += 1) {
+    const off = n === 1 ? 0 : -RAY_SPREAD + (2 * RAY_SPREAD * i) / (n - 1);
+    min = Math.min(min, rayHit(grid, x, y, heading + off, reach));
+  }
+  return min;
+}
+
 /** The island term for a bot hull (its own reach, the bearing it wants). */
 export function avoidIslands(self: BotSelf, grid: NavGrid, want: number): number {
   const { x, y, heading } = self.state;
@@ -226,6 +238,9 @@ export function boundaryBias(pos: ShipState, radius: number): number {
 /** What route steering reads about the bot this tick. */
 export interface NavCtx {
   pos: Vec2;
+  /** rad — own heading: what a goal reached at its snapped anchor holds
+   *  (fix wave P14). Omitted = the bearing to the goal is held instead. */
+  heading?: number;
   mind: BotMind;
   nav: NavCache;
   now: number;
@@ -240,11 +255,22 @@ export function hullLengthU(hullId: HullId): number {
   return hullEnvelope(hullId).hull.length;
 }
 
-/** Does the cached route still serve `goal` (it has not moved past the
- *  re-plan distance)? */
-function routeServes(route: BotMind['route'], goal: Vec2): boolean {
+/** Does the cached route still serve `goal` from `ctx.pos` (the goal has not
+ *  moved past the re-plan distance; and, for a FAILED — empty — route, the
+ *  bot has neither moved that far from where it was tried nor waited
+ *  CONFIG.bots.nav.routeRetryMs: fix wave P3, a failure is not forever)? */
+function routeServes(route: BotMind['route'], goal: Vec2, ctx: NavCtx): boolean {
   if (route === null || route === undefined) return false;
-  return Math.hypot(route.goal.x - goal.x, route.goal.y - goal.y) <= CONFIG.bots.nav.routeReplanGoalMoveU;
+  const move = CONFIG.bots.nav.routeReplanGoalMoveU;
+  if (Math.hypot(route.goal.x - goal.x, route.goal.y - goal.y) > move) return false;
+  return route.waypoints.length > 0 || !failedRouteStale(route, ctx, move);
+}
+
+/** A failed route is due a retry: the clock ran out or the bot moved on. */
+function failedRouteStale(route: NonNullable<BotMind['route']>, ctx: NavCtx, move: number): boolean {
+  if (ctx.now - route.builtAt >= CONFIG.bots.nav.routeRetryMs) return true;
+  const from = route.builtFrom;
+  return from !== undefined && Math.hypot(ctx.pos.x - from.x, ctx.pos.y - from.y) > move;
 }
 
 /** Drop reached waypoints (never the last — the goal's own anchor) and, on a
@@ -255,23 +281,41 @@ function advanceRoute(ctx: NavCtx, wps: Vec2[]): void {
 }
 
 /** The live route toward `goal`: kept while it serves the goal, re-built on
- *  a deliberation otherwise. A failed search is cached as an EMPTY route, so
- *  it is not retried until the goal moves. */
+ *  a deliberation otherwise. A failed search is cached as an EMPTY route,
+ *  retried when the goal moves, the bot moves, or routeRetryMs passes. */
 function routeFor(ctx: NavCtx, goal: Vec2): Vec2[] {
   const mind = ctx.mind;
-  if (!routeServes(mind.route, goal)) {
+  if (!routeServes(mind.route, goal, ctx)) {
     if (!ctx.deliberate) return [];
-    mind.route = { goal: { x: goal.x, y: goal.y }, waypoints: ctx.nav.routeTo(ctx.pos, goal) ?? [], builtAt: ctx.now };
+    mind.route = {
+      goal: { x: goal.x, y: goal.y },
+      waypoints: ctx.nav.routeTo(ctx.pos, goal) ?? [],
+      builtAt: ctx.now,
+      builtFrom: { x: ctx.pos.x, y: ctx.pos.y },
+    };
   }
   const wps = mind.route?.waypoints ?? [];
   advanceRoute(ctx, wps);
   return wps;
 }
 
+/** A goal standing on a non-navigable cell is REACHED within one hull
+ *  length of its snapped anchor (fix wave P14): the route ends at the anchor,
+ *  and steering on for a point ashore only circles it. */
+function reachedAshoreGoal(ctx: NavCtx, goal: Vec2): boolean {
+  const grid = ctx.nav.grid;
+  if (isWater(grid, cellOf(grid, goal.x, goal.y))) return false;
+  const idx = snapToWater(grid, goal);
+  if (idx < 0) return false;
+  const a = pointOf(grid, idx);
+  return Math.hypot(a.x - ctx.pos.x, a.y - ctx.pos.y) <= ctx.hullU;
+}
+
 /** The bearing toward `goal`: direct when the grid line is clear (the
  *  route is dropped), else the next routed waypoint; with no route yet (or
  *  none to be had) the direct bearing, avoidance doing the rest. */
 export function steerToward(ctx: NavCtx, goal: Vec2): number {
+  if (reachedAshoreGoal(ctx, goal)) return ctx.heading ?? bearing(ctx.pos, goal);
   if (lineClear(ctx.nav.grid, ctx.pos, goal)) {
     ctx.mind.route = null;
     return bearing(ctx.pos, goal);
@@ -316,17 +360,56 @@ export function ringRunBearing(pos: Vec2, nav: NavCache, ring: ZoneRing): number
   return fieldBearing(nav.fieldFor(ring), nav.grid, pos.x, pos.y) ?? bearing(pos, { x: ring.cx, y: ring.cy });
 }
 
+/**
+ * The first fraction f ∈ [0, 1] of the remaining close at which `pos` lies on
+ * or outside the interpolated ring — centre AND radius linear in f from
+ * `live` to `next`, as shared zone.ts closingState does (the live ring the
+ * port hands over is already that interpolation at "now", so the rest of the
+ * close is the same lerp from it). g(f) = |a − f·b|² − (r0 + f·Δr)² is a
+ * quadratic; the answer is its first non-negative point. Infinity when the
+ * rim never reaches `pos` during this close (inside the next ring).
+ */
+export function rimCrossingFrac(pos: Vec2, live: ZoneRing, next: ZoneRing): number {
+  const ax = pos.x - live.cx;
+  const ay = pos.y - live.cy;
+  const bx = next.cx - live.cx;
+  const by = next.cy - live.cy;
+  const dr = next.r - live.r;
+  const qa = bx * bx + by * by - dr * dr;
+  const qb = -2 * (ax * bx + ay * by + live.r * dr);
+  const qc = ax * ax + ay * ay - live.r * live.r;
+  if (qc >= 0) return 0;
+  return firstRootIn01(qa, qb, qc);
+}
+
+/** The smallest root in [0, 1] of qa·f² + qb·f + qc (qc < 0, so g rises
+ *  through it), else Infinity. */
+function firstRootIn01(qa: number, qb: number, qc: number): number {
+  const roots: number[] = [];
+  if (Math.abs(qa) < 1e-9) {
+    if (qb > 0) roots.push(-qc / qb);
+  } else {
+    const disc = qb * qb - 4 * qa * qc;
+    if (disc >= 0) {
+      const sq = Math.sqrt(disc);
+      roots.push((-qb - sq) / (2 * qa), (-qb + sq) / (2 * qa));
+    }
+  }
+  let best = Infinity;
+  for (const f of roots) if (f >= 0 && f <= 1 && f < best) best = f;
+  return best;
+}
+
 /** ms until the storm rim reaches `pos` (null = no close is coming). Before
  *  the close begins: the time to its start (conservative); while closing:
- *  the live rim's gap to the bot over its closing speed. */
+ *  the first moment the interpolated ring (centre drift included — the far
+ *  rim of an offset close travels up to 2·(R − r)) passes the bot, Infinity
+ *  when it never does this close. */
 export function stormArrivalMs(pos: Vec2, live: ZoneRing, next: ZoneRing, zone: BotZonePhase): number | null {
   const ms = zone.closesInMs;
   if (ms === null) return null;
-  if (zone.phase !== 'closing') return ms;
-  const shrink = live.r - next.r;
-  if (!(shrink > 0) || !(ms > 0)) return ms;
-  const gap = live.r - Math.hypot(pos.x - live.cx, pos.y - live.cy);
-  return Math.max(0, gap) / (shrink / ms);
+  if (zone.phase !== 'closing' || !(ms > 0)) return ms;
+  return rimCrossingFrac(pos, live, next) * ms;
 }
 
 /**
@@ -421,9 +504,17 @@ export function kiteBearing(pos: ShipState, aim: Vec2, reachU: number): number {
 // ---------------------------------------------------------------------------
 
 /** The disc an idle bot patrols: the revealed next ring, else the
- *  always-safe disc — shrunk by own escape deadband and held on the map. */
+ *  always-safe disc — shrunk by own escape deadband and held on the map.
+ *  A disc that shrinks below own turn radius (the always-safe disc is r 0
+ *  before the 2000 to 1000 close on the shipped ladder) is no patrol — a hull
+ *  cannot circle in it — so the LIVE ring (shrunk the same way) is patrolled
+ *  instead (orchestrator reading under amendment 200(3), fix wave P5). */
 export function patrolDisc(port: BotWorldPort, sit: Pick<BotSituation, 'stats' | 'speed'>): ZoneRing {
-  const base = port.zoneNextRing() ?? port.zoneSafeDisc();
+  const disc = shrunkDisc(port.zoneNextRing() ?? port.zoneSafeDisc(), port, sit);
+  return disc.r >= turnRadiusU(sit.stats) ? disc : shrunkDisc(port.zoneLiveRing, port, sit);
+}
+
+function shrunkDisc(base: ZoneRing, port: BotWorldPort, sit: Pick<BotSituation, 'stats' | 'speed'>): ZoneRing {
   const band = ringDeadband(sit.stats, sit.speed);
   const r = Math.min(Math.max(0, base.r - band), Math.max(0, port.map.radius - band));
   return { cx: base.cx, cy: base.cy, r };
@@ -441,8 +532,10 @@ function coverish(p: Vec2, islands: readonly Island[], fogAt: BotMind['fogAt']):
 
 /** A fresh patrol waypoint: up to PATROL_SAMPLES uniform draws off the
  *  mind's seeded rng inside the disc, land cells rejected, the first
- *  cover-ish one taken, else the last water one, else the disc's centre. */
-export function pickPatrolWaypoint(mind: BotMind, grid: NavGrid, disc: ZoneRing, islands: readonly Island[]): Vec2 {
+ *  cover-ish one taken, else the last water one, else the disc's centre
+ *  snapped to water — null when even that is ashore (fix wave P5: never a
+ *  land waypoint; the caller descends the disc's flow field instead). */
+export function pickPatrolWaypoint(mind: BotMind, grid: NavGrid, disc: ZoneRing, islands: readonly Island[]): Vec2 | null {
   let last: Vec2 | null = null;
   for (let i = 0; i < PATROL_SAMPLES; i += 1) {
     const a = mind.rng.float(0, Math.PI * 2);
@@ -452,7 +545,14 @@ export function pickPatrolWaypoint(mind: BotMind, grid: NavGrid, disc: ZoneRing,
     if (coverish(p, islands, mind.fogAt)) return p;
     last = p;
   }
-  return last ?? { x: disc.cx, y: disc.cy };
+  return last ?? snappedCentre(grid, disc);
+}
+
+/** The disc's centre on navigable water (snapped), or null when it is ashore
+ *  beyond the snap reach. */
+function snappedCentre(grid: NavGrid, disc: ZoneRing): Vec2 | null {
+  const idx = snapToWater(grid, { x: disc.cx, y: disc.cy });
+  return idx < 0 ? null : pointOf(grid, idx);
 }
 
 /** Is the waypoint spent: gone, outside the disc, reached, or stalled for
@@ -472,7 +572,8 @@ function patrolSpent(ctx: NavCtx, disc: ZoneRing, reachU: number): boolean {
 }
 
 /** THE ROUTED PATROL: steer (routed) for the current waypoint, re-picking it
- *  on a deliberation once spent. */
+ *  on a deliberation once spent. With no water waypoint to be had (a disc
+ *  wholly ashore) the disc's own flow field leads to its nearest water. */
 export function patrolBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation, reachU: number): number {
   const disc = patrolDisc(port, sit);
   if (ctx.deliberate && patrolSpent(ctx, disc, reachU)) {
@@ -480,5 +581,6 @@ export function patrolBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation
     ctx.mind.patrolBestU = Infinity;
     ctx.mind.patrolProgressAt = ctx.now;
   }
-  return steerToward(ctx, ctx.mind.patrolWaypoint ?? { x: disc.cx, y: disc.cy });
+  const wp = ctx.mind.patrolWaypoint ?? null;
+  return wp !== null ? steerToward(ctx, wp) : ringRunBearing(ctx.pos, ctx.nav, disc);
 }

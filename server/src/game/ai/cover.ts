@@ -66,12 +66,20 @@ export interface CoverSite {
   hullLength?: number;
 }
 
-/** Optional inputs: the nav grid (snap to water, routed detour) and the
- *  detour cap (CONFIG.bots.nav.coverDetourU by default). */
+/** Optional inputs: the nav grid (snap to water, routed detour), the
+ *  detour cap (CONFIG.bots.nav.coverDetourU by default) and a LEGALITY
+ *  filter — a candidate it refuses is never returned (the posture chain hands
+ *  in "inside the live ring and the revealed next ring", Story 9.13 fix wave
+ *  P2, so a cover search never answers with a point the departure rule would
+ *  immediately run the bot back out of). */
 export interface CoverOptions {
   grid?: NavGrid | null;
   detourU?: number;
+  accept?: (p: Vec2) => boolean;
 }
+
+type Accept = (p: Vec2) => boolean;
+const ANY: Accept = () => true;
 
 /**
  * THE COVER POINT for a bot at `site` running from `threat` (null = no
@@ -89,9 +97,19 @@ export function findCover(
   cfg: CoverOptions = {},
 ): Vec2 | null {
   const grid = cfg.grid ?? null;
-  const island = islandCover(site, threat, islands, grid);
-  if (island !== null && island.detour <= (cfg.detourU ?? CONFIG.bots.nav.coverDetourU)) return island.p;
-  return fogOrNull(site, threat, islands, fogAt, grid) ?? island?.p ?? null;
+  const accept = cfg.accept ?? ANY;
+  const island = acceptedIsland(islandCover(site, threat, islands, grid), accept);
+  if (island !== null && island.detour <= detourCapOf(cfg)) return island.p;
+  return fogOrNull(site, threat, islands, fogAt, grid, accept) ?? island?.p ?? null;
+}
+
+function detourCapOf(cfg: CoverOptions): number {
+  return cfg.detourU ?? CONFIG.bots.nav.coverDetourU;
+}
+
+/** The island candidate when the legality filter takes its point. */
+function acceptedIsland(found: { p: Vec2; detour: number } | null, accept: Accept): { p: Vec2; detour: number } | null {
+  return found !== null && accept(found.p) ? found : null;
 }
 
 function fogOrNull(
@@ -100,8 +118,9 @@ function fogOrNull(
   islands: readonly Island[],
   fogAt: ((x: number, y: number) => number) | undefined,
   grid: NavGrid | null,
+  accept: Accept,
 ): Vec2 | null {
-  return fogAt === undefined ? null : fogCover(site, threat, islands, fogAt, grid);
+  return fogAt === undefined ? null : fogCover(site, threat, islands, fogAt, grid, accept);
 }
 
 /** Is the bot AT its cover point — within one own hull length of it? */
@@ -134,6 +153,7 @@ function fogCover(
   islands: readonly Island[],
   fogAt: (x: number, y: number) => number,
   grid: NavGrid | null,
+  accept: Accept,
 ): Vec2 | null {
   const away = awayBearing(site, threat);
   for (const r of FOG_RADII_U) {
@@ -141,7 +161,7 @@ function fogCover(
       if (threat !== null && Math.abs(k) > FACING_HALF) continue;
       const a = away + (k * Math.PI) / 4;
       const p = { x: site.x + Math.cos(a) * r, y: site.y + Math.sin(a) * r };
-      if (onOpenWater(p, site, islands, grid) && fogAt(p.x, p.y) >= FOG_COVER_DENSITY) return p;
+      if (onOpenWater(p, site, islands, grid) && accept(p) && fogAt(p.x, p.y) >= FOG_COVER_DENSITY) return p;
     }
   }
   return null;

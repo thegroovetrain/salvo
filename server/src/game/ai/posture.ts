@@ -50,7 +50,7 @@ import {
   type Vec2,
   type ZoneRing,
 } from '@salvo/shared';
-import type { BotMind, BotPosture, BotZonePhase } from './types.js';
+import type { BotMind, BotPosture, BotZonePhase, GateVerdict } from './types.js';
 import { LONGEST_HULL_U, lineBlocked, trackVelocity } from './plot.js';
 import { atCover, findCover, type CoverSite } from './cover.js';
 import {
@@ -83,6 +83,16 @@ export interface PostureInputs {
   nextRing?: ZoneRing | null;
   /** The shared nav grid (cover snaps to water and prices its detour on it). */
   grid?: NavGrid | null;
+  /** INTERNAL — the gate hold choosePosture took off the mind this
+   *  deliberation (fix wave P11); callers never pass it. */
+  gateHold?: GateHold | null;
+}
+
+/** A held odds-gate verdict (BotMind.gateVerdict / gateKey / gateHeldUntil). */
+interface GateHold {
+  verdict: GateVerdict;
+  key: string | null;
+  until: number;
 }
 
 /** Postures that are already a break-off: the cover point is kept, not
@@ -102,10 +112,24 @@ export function choosePosture(
 ): BotPosture {
   const mind = inp.mind ?? null;
   if (mind !== null) noteContact(mind, sit.now);
+  // The gate hold is TAKEN (read and cleared) up front: only a deliberation
+  // that reaches the gate writes it back, so every other clause breaks it.
+  const held = mind === null ? inp : { ...inp, gateHold: takeGateHold(mind) };
   if (ringEscaping(sit, prev === 'ringRun')) return 'ringRun';
-  const brokenOff = breakOff(sit, target, prev, inp);
+  const brokenOff = breakOff(sit, target, prev, held);
   if (brokenOff !== null) return brokenOff;
-  return engagement(sit, ringTarget(sit, target), prev, inp);
+  return engagement(sit, ringTarget(sit, target), prev, held);
+}
+
+/** Read the mind's gate hold and clear its seats. */
+function takeGateHold(mind: BotMind): GateHold | null {
+  const verdict = mind.gateVerdict ?? null;
+  const until = mind.gateHeldUntil ?? null;
+  const key = mind.gateKey ?? null;
+  mind.gateVerdict = null;
+  mind.gateHeldUntil = null;
+  mind.gateKey = null;
+  return verdict === null || until === null ? null : { verdict, key, until };
 }
 
 /** Clauses 2–4: the break-off, or null when the bot is not breaking off. */
@@ -155,13 +179,35 @@ function engagement(sit: BotSituation, target: BotTrack | null, prev: BotPosture
 function beyondReach(sit: BotSituation, target: BotTrack, p: Vec2, prev: BotPosture, inp: PostureInputs): BotPosture {
   const mind = inp.mind ?? null;
   if (prev === 'hold' && sit.profile.holdsInCover && atCover(coverSite(sit), mind?.coverPoint)) return 'hold';
-  return gateVerdict(sit, target, p, mind) ?? hideOrLeave(sit, mind, p, prev, inp);
+  const verdict = heldGate(sit, inp) ?? freshGate(sit, target, p, mind);
+  if (mind !== null) mind.gateKey = targetKeyOf(inp);
+  return verdict === 'decline' ? hideOrLeave(sit, mind, p, prev, inp) : verdict;
+}
+
+/** The held verdict, re-stored, while it is for this target and in date. */
+function heldGate(sit: BotSituation, inp: PostureInputs): GateVerdict | null {
+  const h = inp.gateHold ?? null;
+  const mind = inp.mind ?? null;
+  if (h === null || mind === null || h.key !== targetKeyOf(inp) || !(sit.now < h.until)) return null;
+  mind.gateVerdict = h.verdict;
+  mind.gateHeldUntil = h.until;
+  return h.verdict;
+}
+
+/** A fresh gate run, held for CONFIG.bots.gateHoldMs from now. */
+function freshGate(sit: BotSituation, target: BotTrack, p: Vec2, mind: BotMind | null): GateVerdict {
+  const verdict = gateVerdict(sit, target, p, mind) ?? 'decline';
+  if (mind !== null) {
+    mind.gateVerdict = verdict;
+    mind.gateHeldUntil = sit.now + CONFIG.bots.gateHoldMs;
+  }
+  return verdict;
 }
 
 /** The gate's answers — pursue, the lean-in pursue, or a SHADOW (`kite`) —
  *  or null for a declined fight (outnumbered fails outright; a closing
  *  contact with the longer gun is left for cover). */
-function gateVerdict(sit: BotSituation, target: BotTrack, p: Vec2, mind: BotMind | null): BotPosture | null {
+function gateVerdict(sit: BotSituation, target: BotTrack, p: Vec2, mind: BotMind | null): Exclude<GateVerdict, 'decline'> | null {
   const tracks = mind === null ? [target] : tracksOf(mind);
   const decoys = mind?.view?.decoys ?? [];
   if (outnumbered(sit, target, tracks, decoys)) return null;
@@ -183,8 +229,8 @@ function hideOrLeave(sit: BotSituation, mind: BotMind | null, threat: Vec2, prev
 function idle(sit: BotSituation, inp: PostureInputs): BotPosture {
   const mind = inp.mind ?? null;
   if (mind === null || !sit.profile.holdsInCover) return 'reposition';
-  if (!coverUsable(sit, mind.coverPoint)) {
-    mind.coverPoint = findCover(mind, coverSite(sit), null, sit.islands, mind.fogAt, { grid: inp.grid });
+  if (!coverUsable(sit, mind.coverPoint, inp.nextRing)) {
+    mind.coverPoint = findCover(mind, coverSite(sit), null, sit.islands, mind.fogAt, coverOptions(sit, inp));
   }
   return atCover(coverSite(sit), mind.coverPoint) ? 'hold' : 'reposition';
 }
@@ -357,9 +403,25 @@ function coverSite(sit: BotSituation): CoverSite {
   };
 }
 
-/** A cover point still worth steering for: set and inside the live ring. */
-function coverUsable(sit: BotSituation, p: Vec2 | null | undefined): p is Vec2 {
-  return p !== null && p !== undefined && !outsideRing(sit.ring, p);
+/** A cover point still worth steering for: set, inside the live ring and —
+ *  once a next ring is revealed — inside it by own escape deadband (the
+ *  close-imminent clause's own test). A point the next ring leaves out is
+ *  stale (Story 9.13 fix wave P2): steering for it would ping-pong against
+ *  the departure rule. Exported for the helm (tactics.ts idle / flee). */
+export function coverUsable(
+  sit: Pick<BotSituation, 'ring' | 'stats' | 'speed'>,
+  p: Vec2 | null | undefined,
+  nextRing: ZoneRing | null | undefined,
+): p is Vec2 {
+  if (p === null || p === undefined || outsideRing(sit.ring, p)) return false;
+  if (nextRing === null || nextRing === undefined) return true;
+  return Math.hypot(p.x - nextRing.cx, p.y - nextRing.cy) <= nextRing.r - ringDeadband(sit.stats, sit.speed);
+}
+
+/** The cover search's options: the grid and the coverUsable filter, so a
+ *  fresh search never answers with a stale point. */
+function coverOptions(sit: BotSituation, inp: PostureInputs): { grid: NavGrid | null | undefined; accept: (p: Vec2) => boolean } {
+  return { grid: inp.grid, accept: (p) => coverUsable(sit, p, inp.nextRing) };
 }
 
 /** Re-search the cover point on a FRESH break-off (the previous posture was
@@ -367,8 +429,8 @@ function coverUsable(sit: BotSituation, p: Vec2 | null | undefined): p is Vec2 {
  *  otherwise keep it, so the search runs on the decision cadence only when
  *  the answer can have changed. */
 function refreshCover(mind: BotMind, sit: BotSituation, threat: Vec2 | null, prev: BotPosture, inp: PostureInputs): void {
-  if (BREAKING_OFF.has(prev) && coverUsable(sit, mind.coverPoint)) return;
-  mind.coverPoint = findCover(mind, coverSite(sit), threat, sit.islands, mind.fogAt, { grid: inp.grid });
+  if (BREAKING_OFF.has(prev) && coverUsable(sit, mind.coverPoint, inp.nextRing)) return;
+  mind.coverPoint = findCover(mind, coverSite(sit), threat, sit.islands, mind.fogAt, coverOptions(sit, inp));
 }
 
 /** What the break-off runs from: the target's plot, else the nearest

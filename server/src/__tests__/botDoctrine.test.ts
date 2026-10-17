@@ -226,6 +226,33 @@ describe('the MG / flak hold and the lit lift (amendments 187, 198)', () => {
     expect(COMBAT_BRAIN.decide(rec, near, port).fireSlot).toBe(0);
   });
 
+  it('KITE LIFTS THE HOLD (Eric 2026-10-17, amendment 205): MG / flak at 0.8 × range hold in engage / pursue and fire while shadowing; the cannon is unchanged', () => {
+    const w = new World(91318, 32);
+    w.map.islands.length = 0;
+    const port = fakePort(w);
+    const solveAt = (hull: ShipClassId, gun: 'gun' | 'machineGun' | 'flak', posture: BotPosture): ReturnType<typeof EQUIPMENT_TACTICS.gun.solve> => {
+      const rec = mkBot(w, hull);
+      mountGun(rec, gun);
+      const mind = mkMind('bulwark');
+      const t = plot(mind, track(port.now, { x: rec.state.x + 0.8 * rec.stats.equipment[gun].rangeU, y: rec.state.y }));
+      return EQUIPMENT_TACTICS[gun].solve(ctxOf(rec, mind, port, posture, t));
+    };
+    for (const [hull, gun] of [['torpedoBoat', 'machineGun'], ['battleship', 'flak']] as const) {
+      expect(gunBand(profileOf('bulwark'), mkBot(w, hull).stats, gun).holdFireAboveU).toBeLessThan(
+        0.8 * mkBot(w, hull).stats.equipment[gun].rangeU,
+      );
+      expect(solveAt(hull, gun, 'engage'), `${gun} engage`).toBeNull();
+      expect(solveAt(hull, gun, 'pursue'), `${gun} pursue`).toBeNull();
+      expect(solveAt(hull, gun, 'kite'), `${gun} kite`).not.toBeNull();
+    }
+    // The cannon never held: it fires at 0.8 × range in every posture.
+    for (const posture of ['engage', 'pursue', 'kite'] as const) expect(solveAt('battleship', 'gun', posture), posture).not.toBeNull();
+    // The band read itself: shadowing lifts the MG / flak line to the full rangeU.
+    const tb = mkBot(w, 'torpedoBoat');
+    expect(gunBand(profileOf('bulwark'), tb.stats, 'machineGun', true).holdFireAboveU).toBe(tb.stats.equipment.machineGun.rangeU);
+    expect(gunBand(profileOf('bulwark'), tb.stats, 'gun', true).holdFireAboveU).toBe(Infinity);
+  });
+
   it('a shot beyond range into an OWN live lit zone is solved; into another\'s, or an expired own one, refused', () => {
     const w = openWorld(9136);
     const port = fakePort(w);

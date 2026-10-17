@@ -25,6 +25,7 @@ import {
   NAV_RULES,
   pointOf,
   routeTo,
+  snapToWater,
   type NavGrid,
 } from '../sim/nav.js';
 
@@ -252,5 +253,35 @@ describe('routeTo', () => {
     routeTo(grid, to, from, { budgetNodes: Infinity });
     expect(routeTo(grid, from, to, { budgetNodes: Infinity })).toEqual(first);
     expect(routeTo(buildNavGrid(maps[3]), from, to, { budgetNodes: Infinity })).toEqual(first);
+  });
+});
+
+describe('snapToWater — never across a spit (Story 9.13 fix wave P13, Edge Case Hunter)', () => {
+  it('a point on the shore band beside a one-cell land spit snaps to water on ITS side, not the nearer cell across the spit', () => {
+    const n = 9;
+    const cellU = 32;
+    const cells = new Uint8Array(n * n).fill(NAV_KIND.WATER);
+    for (let y = 1; y <= 7; y++) cells[y * n + 4] = NAV_KIND.LAND; // the spit, column 4
+    for (const x of [2, 3]) for (const y of [3, 4, 5]) cells[y * n + x] = NAV_KIND.TIGHT; // the shore band west of it
+    const grid: NavGrid = { n, cellU, radius: (n * cellU) / 2, cells };
+    const p = { x: -grid.radius + 3.95 * cellU, y: -grid.radius + 4.5 * cellU };
+    const across = 4 * n + 5; // the nearest water centre, east of the spit
+    const idx = snapToWater(grid, p);
+    expect(isWater(grid, idx)).toBe(true);
+    const c = pointOf(grid, idx);
+    const dAcross = Math.hypot(pointOf(grid, across).x - p.x, pointOf(grid, across).y - p.y);
+    expect(Math.hypot(c.x - p.x, c.y - p.y)).toBeGreaterThan(dAcross); // a farther cell was preferred...
+    expect(idx % n).toBeLessThan(4); // ...on the point's own (west) side
+  });
+
+  it('with no same-side candidate the raw nearest still wins', () => {
+    const n = 9;
+    const cellU = 32;
+    const cells = new Uint8Array(n * n).fill(NAV_KIND.LAND);
+    cells[4 * n + 6] = NAV_KIND.WATER;
+    for (let y = 0; y < n; y++) cells[y * n + 5] = NAV_KIND.LAND;
+    const grid: NavGrid = { n, cellU, radius: (n * cellU) / 2, cells };
+    const p = { x: -grid.radius + 4.5 * cellU, y: -grid.radius + 4.5 * cellU };
+    expect(snapToWater(grid, p)).toBe(4 * n + 6);
   });
 });

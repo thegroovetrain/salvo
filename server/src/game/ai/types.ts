@@ -281,6 +281,10 @@ export type BotPosture =
   | 'hide'
   | 'hold';
 
+/** The odds gate's answer on a contact beyond own reach (ai/posture.ts):
+ *  close (`pursue`), shadow (`kite`) or decline (hide / disengage). */
+export type GateVerdict = 'pursue' | 'kite' | 'decline';
+
 /** A routed path the nav layer built toward `goal` (Story 9.13, amendment
  *  192(b)): the string-pulled waypoints still ahead and the server ms it was
  *  built (the re-plan gate reads it). */
@@ -288,6 +292,10 @@ export interface BotRoute {
   goal: Vec2;
   waypoints: Vec2[];
   builtAt: number;
+  /** Where the bot stood when the route was built: a FAILED (empty) route is
+   *  retried once the bot has moved CONFIG.bots.nav.routeReplanGoalMoveU from
+   *  here (fix wave P3). Absent = retried on the clock alone. */
+  builtFrom?: Vec2;
 }
 
 /**
@@ -544,16 +552,28 @@ export interface BotMind {
    *  CONFIG.bots.nav.waypointTimeoutMs (amendment 202). */
   patrolBestU?: number;
   patrolProgressAt?: number;
-  /** HITS PER CLICK (amendment 195): track key -> the last `fireSeq` that
-   *  scored a Hit Call on it, so one click counts one hit however many
-   *  `hc` rows its shells raise. */
-  hitClicks?: Map<string, number>;
-  /** The server ms of the last Hit Call CREDITED per track key (amendment
-   *  195, the hitClicks sibling): two `hc` rows of one click that land a tick
-   *  apart (the cannon's two barrels) collapse to one hit; a held machine-gun
-   *  stream (which never advances `fireSeq`) still counts each round, its
-   *  rounds being further apart than the collapse window. */
-  hitClickAt?: Map<string, number>;
+  /** HITS PER VOLLEY (amendment 195; fix wave P7): track key -> the server
+   *  ms of the last Hit Call CREDITED on it. Every other `hc` row on that
+   *  track inside the volley window (utility.ts SAME_VOLLEY_MS) is the same
+   *  volley — the cannon's two barrels count once — whatever `fireSeq` reads
+   *  by then; the held machine-gun stream, its rounds further apart than the
+   *  window, still counts each round. Released with the life. */
+  hitVolleyAt?: Map<string, number>;
+  /** THE GATE HOLD (fix wave P11, orchestrator reading under amendment
+   *  194): the odds gate's last verdict on a contact beyond own reach, the
+   *  `contacts` key it was for and the server ms it is held until
+   *  (CONFIG.bots.gateHoldMs). Cleared by every deliberation that does not
+   *  reach the gate (a higher clause, the target in own reach). */
+  gateVerdict?: GateVerdict | null;
+  /** Server ms the entry damping (fix wave P20) holds the helm at cruise
+   *  until — set on a deliberation, 0 = not damped. */
+  entryDampUntil?: number;
+  /** The departure rule's answer and the server ms it was priced at
+   *  (fix wave P16: once per tick, however many situation reads). */
+  departing?: boolean;
+  departingAt?: number;
+  gateKey?: string | null;
+  gateHeldUntil?: number | null;
   /** The id of the tactic row that fired last (harness readout, Story 9.13;
    *  stamped by the tactics wave); null = none yet. */
   lastTactic?: string | null;

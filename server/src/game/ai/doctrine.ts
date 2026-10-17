@@ -71,9 +71,13 @@ export interface GunBand {
  * THE GUN'S BAND (amendment 198): CONFIG.bots.gunBand[<mounted gun>] × rangeU,
  * both edges shifted by `profile.bandNudge × rangeU` and kept on [0, rangeU];
  * for the machine gun and flak the near edge is 0 (they close, never open)
- * and the far edge is also the hold-fire line.
+ * and the far edge is also the hold-fire line — EXCEPT while SHADOWING
+ * (`shadowing`: the `kite` posture, Eric 2026-10-17, epic-9 amendment 205),
+ * when the hold line is lifted to the gun's full `rangeU`: a shadowing bot
+ * does not close, so it may fire attenuated at range. The band edges (where
+ * the helm holds station) do not move.
  */
-export function gunBand(profile: BotProfile, stats: EffectiveStats, gunId?: SlotItemId | null): GunBand {
+export function gunBand(profile: BotProfile, stats: EffectiveStats, gunId?: SlotItemId | null, shadowing = false): GunBand {
   const gun = mountedGun(gunId);
   const rangeU = gunRangeU(stats, gun);
   const [minFrac, maxFrac] = CONFIG.bots.gunBand[bandKey(gun)];
@@ -81,7 +85,7 @@ export function gunBand(profile: BotProfile, stats: EffectiveStats, gunId?: Slot
   const edge = (f: number): number => Math.min(rangeU, Math.max(0, (f + nudge) * rangeU));
   const max = edge(maxFrac);
   if (gun === 'gun') return { min: Math.min(max, edge(minFrac)), max, holdFireAboveU: Infinity };
-  return { min: 0, max, holdFireAboveU: max };
+  return { min: 0, max, holdFireAboveU: shadowing ? rangeU : max };
 }
 
 /** What a deck-gun solve needs to know about reach. */
@@ -164,7 +168,8 @@ export function mountedReachOf(ctx: TacticContext): EffectiveReach {
   return reachOf(ctx, mountedGun(mountedIdOf(ctx)));
 }
 
-/** The MOUNTED gun's doctrine band in a tactic context. */
+/** The MOUNTED gun's doctrine band in a tactic context — the hold line
+ *  lifted while the bot is shadowing (`kite`, amendment 205). */
 export function mountedBandOf(ctx: TacticContext): GunBand {
-  return gunBand(ctx.sit.profile, ctx.sit.stats, mountedIdOf(ctx));
+  return gunBand(ctx.sit.profile, ctx.sit.stats, mountedIdOf(ctx), ctx.posture === 'kite');
 }

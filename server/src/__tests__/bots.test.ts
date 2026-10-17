@@ -59,6 +59,7 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
       'decoyStillSweeps', // 9.13
       'disengageHpFrac',
       'disengageHysteresis', // 9.13
+      'gateHoldMs', // 9.13 fix wave P11 (orchestrator reading under amendment 194)
       'gunBand', // 9.13
       'healHpFrac',
       'hullBumperU', // Story 9.5 review gate: the target / fleet-mate bumper clearance [DRAFT] (a DELIBERATE edit to this pin)
@@ -80,6 +81,18 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
       'unbeachAsternMaxMs',
       'unbeachClearU',
       'unbeachHoldMs',
+    ]);
+    // The navigation block's own keys (Story 9.13; routeRetryMs is fix wave P3).
+    expect(Object.keys(CONFIG.bots.nav).sort()).toEqual([
+      'avoidRays',
+      'avoidReachTurnRadii',
+      'cellU',
+      'clearancePenalty',
+      'coverDetourU',
+      'routeBudgetNodes',
+      'routeReplanGoalMoveU',
+      'routeRetryMs',
+      'waypointTimeoutMs',
     ]);
   });
 

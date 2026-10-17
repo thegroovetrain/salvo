@@ -232,15 +232,15 @@ const HIT_ASSOC_U = Math.max(Math.max(CONFIG.gun.burstRadius, CONFIG.broadside.b
  *  beating for every hull in the game. COUNTED PER CLICK since Story 9.13
  *  (epic-9 amendment 195): the two-barrel cannon raises two `hc` rows per
  *  volley, and counting rows read one volley as two thirds of "crippled" —
- *  the fold now credits at most one hit per track per click (creditClick /
+ *  the fold now credits at most one hit per track per volley (creditVolley /
  *  SAME_VOLLEY_MS). The number itself is unchanged. */
 const HITS_FOR_CRIPPLED = 3;
 
-/** ms — two Hit Calls on one track from the SAME click (`fireSeq`) this close
- *  together are one volley (amendment 195): two sim ticks covers two barrels'
- *  shells landing a tick apart, and stays under the machine gun's per-round
- *  interval, whose held stream never advances `fireSeq` but still lands one
- *  hit per round. A same-tick pair always collapses. */
+/** ms — Hit Calls on one track within this of its last CREDITED one are one
+ *  volley (amendment 195; fix wave P7, no `fireSeq` term): two sim ticks
+ *  covers two barrels' shells landing a tick apart, and stays under the
+ *  machine gun's per-round interval, so the held stream still lands one hit
+ *  per round. A same-tick pair always collapses. */
 const SAME_VOLLEY_MS = 2 * CONFIG.tick.simDtMs;
 
 /** Fraction of intel range beyond which a track is not worth scoring at all.
@@ -483,22 +483,21 @@ function hitCallPosition(t: BotTrack, x: number, y: number, now: number, waterR:
  *  or opens one, which is exactly what the shooter is entitled to conclude.
  *  It never touches the paint baseline or the course. */
 /**
- * HITS PER CLICK (Story 9.13, epic-9 amendment 195): does this Hit Call on
- * `key` raise the damage estimate? Not when the track was already credited
- * THIS tick, nor when it was credited for the SAME click (`fireSeq`) within
- * SAME_VOLLEY_MS — the cannon's second barrel. Stamps the credit when it
- * counts. A fold without the click ledger counts every row, as before.
+ * HITS PER VOLLEY (Story 9.13, epic-9 amendment 195; fix wave P7): does this
+ * Hit Call on `key` raise the damage estimate? Not when the track was last
+ * credited less than SAME_VOLLEY_MS ago — that row is the same volley (the
+ * cannon's second barrel), whatever the bot's `fireSeq` reads now: keying on
+ * the CURRENT click let a fresh click between two barrels' rows split one
+ * volley into two hits. The window is anchored on the credited row, so a
+ * stream does not chain into one endless volley. A fold without the ledger
+ * counts every row, as before.
  */
-function creditClick(key: string, fx: FoldCtx): boolean {
-  const ledger = fx.clicks;
+function creditVolley(key: string, fx: FoldCtx): boolean {
+  const ledger = fx.volleys;
   if (ledger === null) return true;
-  const lastAt = ledger.at.get(key);
-  if (lastAt !== undefined) {
-    if (lastAt === fx.now) return false;
-    if (ledger.seq.get(key) === ledger.fireSeq && fx.now - lastAt < SAME_VOLLEY_MS) return false;
-  }
-  ledger.at.set(key, fx.now);
-  ledger.seq.set(key, ledger.fireSeq);
+  const lastAt = ledger.get(key);
+  if (lastAt !== undefined && fx.now - lastAt < SAME_VOLLEY_MS) return false;
+  ledger.set(key, fx.now);
   return true;
 }
 
@@ -511,7 +510,7 @@ function foldHitCall(tracks: TrackMap, x: number, y: number, fx: FoldCtx): void 
   const at = hitCallPosition(t, x, y, now, fx.waterR);
   const hit: BotTrack = {
     ...t,
-    hits: t.hits + (creditClick(key, fx) ? 1 : 0),
+    hits: t.hits + (creditVolley(key, fx) ? 1 : 0),
     seenAt: now,
     x: at.x,
     y: at.y,
@@ -539,10 +538,10 @@ interface FoldCtx {
   /** Ids a `sunk` event named THIS fold with no track yet to mark — the
    *  contact fold that follows stamps the wreck dead as it writes it. */
   sunkNow: Set<string>;
-  /** The hits-per-click ledger (amendment 195): the bot's click counter and
-   *  its per-track last credited click / time (BotMind.hitClicks /
-   *  hitClickAt). Null = no ledger (every row counts). */
-  clicks: { fireSeq: number; seq: Map<string, number>; at: Map<string, number> } | null;
+  /** The hits-per-volley ledger (amendment 195): per track key, the server
+   *  ms of the last credited Hit Call (BotMind.hitVolleyAt). Null = no ledger
+   *  (every row counts). */
+  volleys: Map<string, number> | null;
 }
 
 function foldEvent(tracks: TrackMap, e: GameEvent, fx: FoldCtx): void {
@@ -645,31 +644,28 @@ export function foldView(mind: BotMind, view: PerceptionView, now: number, sweep
     cells: mind.wakeCells,
     waterR: sweep?.site.waterR ?? Infinity,
     sunkNow: new Set(),
-    clicks: clickLedger(mind),
+    volleys: volleyLedger(mind),
   };
   for (const e of view.events) foldEvent(tracks, e, fx);
   for (const c of view.contacts) foldContact(tracks, c, now, fx.sunkNow);
   if (sweep !== undefined) settleSweptMisses(tracks, sweep.beam, sweep.site, now);
   refitWakeCourses(tracks, mind.wakeCells, now);
   prune(tracks, now);
-  pruneLedger(tracks, fx.clicks);
+  pruneLedger(tracks, fx.volleys);
 }
 
-/** The mind's hits-per-click ledger (amendment 195), its two seats created on
- *  first use (they are optional on BotMind). */
-function clickLedger(mind: BotMind): FoldCtx['clicks'] {
-  mind.hitClicks ??= new Map();
-  mind.hitClickAt ??= new Map();
-  return { fireSeq: mind.fireSeq, seq: mind.hitClicks, at: mind.hitClickAt };
+/** The mind's hits-per-volley ledger (amendment 195), its seat created on
+ *  first use (it is optional on BotMind). */
+function volleyLedger(mind: BotMind): FoldCtx['volleys'] {
+  mind.hitVolleyAt ??= new Map();
+  return mind.hitVolleyAt;
 }
 
 /** Forget the ledger rows of tracks memory has dropped. */
-function pruneLedger(tracks: TrackMap, ledger: FoldCtx['clicks']): void {
+function pruneLedger(tracks: TrackMap, ledger: FoldCtx['volleys']): void {
   if (ledger === null) return;
-  for (const key of ledger.at.keys()) {
-    if (tracks.has(key)) continue;
-    ledger.at.delete(key);
-    ledger.seq.delete(key);
+  for (const key of ledger.keys()) {
+    if (!tracks.has(key)) ledger.delete(key);
   }
 }
 

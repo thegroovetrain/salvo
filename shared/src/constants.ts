@@ -595,6 +595,16 @@ export const CONFIG = {
      */
     outnumberedCount: 2,
     /**
+     * ms — an odds-gate verdict on a contact beyond own reach (pursue /
+     * shadow / decline) is HELD this long unless the target changes, comes
+     * into own reach or a higher clause (ring run, broken hull, ring clauses)
+     * fires, so a plot whose closing sign flickers paint to paint does not
+     * flip the bot between kite and break-off every deliberation
+     * (orchestrator reading under epic-9 amendment 194, Story 9.13 fix wave
+     * P11). 0 = no hold. A harness dial.
+     */
+    gateHoldMs: 1000,
+    /**
      * ms — a bot does not OPEN a fight when it would have to leave for the
      * next ring within this long (epic-9 amendment 200 clause 2,
      * [accepted 2026-10-17]). A harness dial.
@@ -688,6 +698,14 @@ export const CONFIG = {
       cellU: 32,
       /** u — a routed goal is re-planned only once it has moved this far (amendment 192). */
       routeReplanGoalMoveU: 64,
+      /**
+       * ms — a FAILED route (unreachable / over budget, cached empty) is
+       * retried after this long, or sooner once the bot has moved
+       * routeReplanGoalMoveU from where it was tried (orchestrator reading
+       * under amendment 192, Story 9.13 fix wave P3: a failure is a fact
+       * about one start point, not about the goal forever).
+       */
+      routeRetryMs: 2000,
       /** A* expansion budget per route; over it the route gives up (null) (amendment 192). */
       routeBudgetNodes: 20000,
       /**

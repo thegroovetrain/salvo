@@ -196,7 +196,8 @@ const gunTactic: EquipmentTactic = {
  * THE MG / FLAK HOLD (amendment 198): a target whose predicted plot lies past
  * the doctrine band's far edge (`gunBand.holdFireAboveU`, ~0.5 R) is NOT
  * fired at — the bot holds fire and closes — unless that plot lies inside an
- * own live lit zone (the shot there is full damage at any range). Read on the
+ * own live lit zone (the shot there is full damage at any range). While the
+ * bot SHADOWS (`kite`, amendment 205) the line is the gun's full rangeU. Read on the
  * predicted plot (`plotAt`), not the scattered aim, so the line never flickers
  * with the competence scatter.
  */

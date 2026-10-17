@@ -266,7 +266,7 @@ describe('idle — the always-safe disc and the routed, cover-weighted patrol (a
     let inFog = 0;
     const N = 200;
     for (let i = 0; i < N; i += 1) {
-      const p = pickPatrolWaypoint(mind, grid, disc, []);
+      const p = pickPatrolWaypoint(mind, grid, disc, [])!;
       expect(isWater(grid, cellOf(grid, p.x, p.y))).toBe(true);
       if (p.x > 0) inFog += 1;
     }
@@ -275,7 +275,7 @@ describe('idle — the always-safe disc and the routed, cover-weighted patrol (a
     // Without fog the same draw is a plain uniform water pick: about half.
     const plain = mkMind('forager', 99);
     let east = 0;
-    for (let i = 0; i < N; i += 1) if (pickPatrolWaypoint(plain, grid, disc, []).x > 0) east += 1;
+    for (let i = 0; i < N; i += 1) if (pickPatrolWaypoint(plain, grid, disc, [])!.x > 0) east += 1;
     expect(east / N).toBeLessThan(0.8);
   });
 });

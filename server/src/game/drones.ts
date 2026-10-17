@@ -83,6 +83,8 @@ import {
   lineClear,
   mulberry32,
   SLOT_GUN,
+  pointOf,
+  snapToWater,
   wrapAngle,
   type DroneSizeId,
   type InputMsg,
@@ -186,6 +188,14 @@ interface Fleet {
    *  straight line is blocked on the nav grid; null = sailing straight. Its
    *  points are popped as the lead member reaches them. */
   route: Vec2[] | null;
+  /** Server ms of the last pickWaypoint: a fleet re-picks at most once per
+   *  CONFIG.bots.decisionCadenceMs (fix wave P9 — an ashore fallback used to
+   *  re-pick on every hull evaluation, six times a tick). */
+  pickedAt: number;
+  /** The member the route was built FROM (fix wave P12): when the lead
+   *  changes (it sank, it left) the route is re-built from the new lead, so
+   *  a member already past the old first point is not sent back to it. */
+  routeLead: string | null;
 }
 
 /**
@@ -243,6 +253,8 @@ export class FleetController {
         bestDist: Infinity,
         progressAt: 0,
         route: null,
+        pickedAt: -Infinity,
+        routeLead: null,
       });
     }
     this.fleets.get(fleetId)?.members.add(id);
@@ -541,6 +553,10 @@ export class FleetController {
     if (route === null) return;
     const lead = this.leadOf(fleet);
     if (lead === null) return;
+    if (lead.id !== fleet.routeLead && fleet.waypoint !== null) {
+      this.routeFleet(fleet, fleet.waypoint);
+      return;
+    }
     while (route.length > 0 && dist(lead.state, route[0]) < WAYPOINT_REACH) {
       route.shift();
       fleet.bestDist = Infinity;
@@ -553,6 +569,7 @@ export class FleetController {
    *  when the lead member's straight line is blocked on the grid. */
   private routeFleet(fleet: Fleet, wp: Vec2): void {
     const lead = this.leadOf(fleet);
+    fleet.routeLead = lead?.id ?? null;
     fleet.route = lead !== null && !lineClear(this.nav.grid, lead.state, wp) ? this.nav.routeTo(lead.state, wp) : null;
   }
 
@@ -567,8 +584,14 @@ export class FleetController {
   private fleetWaypoint(mind: FleetMind): Vec2 {
     const fleet = this.fleets.get(mind.fleetId);
     if (!fleet) return ORIGIN;
-    if (this.needsWaypoint(fleet)) this.pickWaypoint(fleet);
+    if (this.needsWaypoint(fleet) && this.pickDue(fleet)) this.pickWaypoint(fleet);
     return fleet.waypoint ?? ORIGIN;
+  }
+
+  /** A fleet with no waypoint picks now; otherwise not twice inside one
+   *  decision cadence (fix wave P9). */
+  private pickDue(fleet: Fleet): boolean {
+    return fleet.waypoint === null || this.world.now - fleet.pickedAt >= CONFIG.bots.decisionCadenceMs;
   }
 
   /** Retarget when there is none, it was picked ashore, any member reached
@@ -606,6 +629,7 @@ export class FleetController {
     const ring = this.world.zoneLiveRing;
     fleet.bestDist = Infinity;
     fleet.progressAt = this.world.now;
+    fleet.pickedAt = this.world.now;
     const max = ring.r * WAYPOINT_ZONE_FRACTION;
     for (let i = 0; i < 16; i++) {
       const a = fleet.rng.float(0, TAU);
@@ -618,12 +642,21 @@ export class FleetController {
         return;
       }
     }
-    // The ring center beats the map origin as a fallback: a late offset ring
-    // may not even contain the origin. Islands there are survivable (push-out).
+    this.fallbackWaypoint(fleet, ring);
+  }
+
+  /** The ring centre beats the map origin as a fallback (a late offset ring
+   *  may not even contain the origin) — SNAPPED to navigable water through
+   *  the nav cache (fix wave P9); `ashore` (re-pick on the next due read) only
+   *  when the snap finds no water within its reach. */
+  private fallbackWaypoint(fleet: Fleet, ring: ZoneRing): void {
     const centre = { x: ring.cx, y: ring.cy };
-    fleet.waypoint = centre;
-    fleet.ashore = this.insideIsland(centre);
-    fleet.route = null;
+    const idx = snapToWater(this.nav.grid, centre);
+    const wp = idx < 0 ? centre : pointOf(this.nav.grid, idx);
+    fleet.waypoint = wp;
+    fleet.ashore = idx < 0;
+    if (idx < 0) fleet.route = null;
+    else this.routeFleet(fleet, wp);
   }
 
   /** Pull a point back inside the live ring so a station offset can never

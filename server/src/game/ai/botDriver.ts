@@ -73,7 +73,13 @@ function freshStory913Seats(): Required<
     | 'patrolWaypoint'
     | 'patrolBestU'
     | 'patrolProgressAt'
-    | 'hitClicks'
+    | 'hitVolleyAt'
+    | 'gateVerdict'
+    | 'gateKey'
+    | 'gateHeldUntil'
+    | 'departing'
+    | 'departingAt'
+    | 'entryDampUntil'
     | 'lastTactic'
   >
 > {
@@ -87,7 +93,13 @@ function freshStory913Seats(): Required<
     patrolWaypoint: null,
     patrolBestU: Infinity,
     patrolProgressAt: 0,
-    hitClicks: new Map(),
+    hitVolleyAt: new Map(),
+    gateVerdict: null,
+    gateKey: null,
+    gateHeldUntil: null,
+    departing: false,
+    departingAt: -1,
+    entryDampUntil: 0,
     lastTactic: null,
   };
 }

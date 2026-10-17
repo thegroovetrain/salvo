@@ -188,7 +188,10 @@ const TUNE_FAMILIES = [
   // `decoyDemote` and every `gunBand.<gun>.<0|1>` on CLOSED [0, 1]
   // (BOT_FRACTION_KEYS / BOT_GUN_BAND), each band's min <= max re-checked on
   // the finished CONFIG (validateBotDials), every `nav.*` leaf at 1 except
-  // `nav.clearancePenalty` (0 = no shore cost, a real arm), and the
+  // `nav.clearancePenalty` (0 = no shore cost, a real arm), `aimScatterRefU`
+  // / `contactMemoryMs` / `outnumberedCount` / `decoyStillSweeps` at 1
+  // (BOT_MIN_ONE_KEYS), `kiteHoldFrac` on (0, 1] and a gun band's far edge
+  // above 0 (fix wave P10), and the
   // `cardPoints.*` scores, which ship NEGATIVE values (`carried` −1,
   // `beltHunger.low` −1), take any finite number. `nav.cellU`,
   // `disengageHpFrac` and `healHpFrac` are REFUSED (DERIVED_TUNE_KEYS): the
@@ -519,7 +522,7 @@ const FOG_SERVER_FLOORS = new Map<string, number>([
 function tuneFloor(key: string): number {
   const serverFloor = FOG_SERVER_FLOORS.get(key);
   if (serverFloor !== undefined) return serverFloor;
-  if (TUNE_MIN_ONE_KEYS.has(key)) return 1;
+  if (TUNE_MIN_ONE_KEYS.has(key) || BOT_MIN_ONE_KEYS.has(key)) return 1;
   if (BOT_NAV.test(key)) return key === BOT_NAV_ZERO_OK ? 0 : 1;
   const leaf = key.slice(key.lastIndexOf('.') + 1);
   const lower = leaf.toLowerCase();
@@ -586,17 +589,53 @@ const BOT_NAV = /^bots\.nav\./;
 const BOT_NAV_ZERO_OK = 'bots.nav.clearancePenalty';
 /** The card-points scores: any finite number (the table ships −1s). */
 const BOT_CARD_POINTS = /^bots\.cardPoints\./;
+/** Bot dials floored at 1 (fix wave P10, Edge Case Hunter): the aim-scatter
+ *  reference is a divisor; a 0 contact memory forgets every plot the tick it
+ *  is folded; an outnumbered count of 0 reads every lone hull as a crowd; 0
+ *  still sweeps flags every radar plot a probable decoy. */
+const BOT_MIN_ONE_KEYS = new Set([
+  'bots.aimScatterRefU',
+  'bots.contactMemoryMs',
+  'bots.outnumberedCount',
+  'bots.decoyStillSweeps',
+]);
+/** The kite's hold fraction of own reach: HALF-OPEN (0, 1] — 0 parks the
+ *  kite on top of its target, above 1 the band's floor passes its ceiling. */
+const BOT_KITE_KEY = 'bots.kiteHoldFrac';
+/** A gun band's FAR edge (`.1`): 0 is a band no target is ever inside — that
+ *  gun never fires (the MG / flak hold-fire line) — so it is refused. */
+const BOT_GUN_BAND_FAR = /^bots\.gunBand\.[A-Za-z]+\.1$/;
 
-/** The bot dials with their OWN range (fractions, the card scores): checked
- *  here, true when handled; every other `bots.*` leaf takes the floor path. */
+/** The bot dials with their OWN range (fractions, the card scores, the kite
+ *  hold): checked here, true when handled; every other `bots.*` leaf takes
+ *  the floor path. */
 function validateBotRange(key: string, value: number): boolean {
   if (BOT_FRACTION_KEYS.has(key) || BOT_GUN_BAND.test(key)) {
-    validateFraction(key, value);
+    validateBotFraction(key, value);
+    return true;
+  }
+  if (key === BOT_KITE_KEY) {
+    validateKiteHold(key, value);
     return true;
   }
   if (!BOT_CARD_POINTS.test(key)) return false;
   if (!Number.isFinite(value)) throw new TunableError(`'${key}': expected a finite value, got '${value}'`);
   return true;
+}
+
+/** A bot fraction on [0, 1]; a gun band's far edge also above 0. */
+function validateBotFraction(key: string, value: number): void {
+  validateFraction(key, value);
+  if (BOT_GUN_BAND_FAR.test(key) && value === 0) {
+    throw new TunableError(`'${key}': a gun band's far edge must be > 0 (at 0 that gun never fires), got '${value}'`);
+  }
+}
+
+/** The kite hold on (0, 1]. */
+function validateKiteHold(key: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0 || value > 1) {
+    throw new TunableError(`'${key}': expected a finite fraction in (0, 1], got '${value}'`);
+  }
 }
 
 /** Every gun band must stay min <= max on the finished CONFIG (Story 9.13). */

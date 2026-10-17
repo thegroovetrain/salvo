@@ -120,6 +120,7 @@ import { leadPoint, type Shot, type TacticContext } from './tacticKit.js';
 import { noteTorpedoes } from './torpedoThreat.js';
 import { gunBand, ownLitZones, selfIdOf } from './doctrine.js';
 import { atCover } from './cover.js';
+import { coverUsable } from './posture.js';
 import {
   RUDDER_GAIN,
   avoidHulls,
@@ -134,11 +135,13 @@ import {
   hullLengthU,
   kiteBearing,
   navOf,
+  nearestRayHitU,
   patrolBearing,
   ringClamped,
   ringGoalOf,
   ringRunBearing,
   steerToward,
+  turnRadiusU,
   type NavCtx,
 } from './navigate.js';
 import {
@@ -215,8 +218,19 @@ export function situationOf(self: BotSelf, mind: BotMind, port: BotWorldPort): B
     // lit-target bonus, amendment 204) and the ring departure (200(1)).
     hullId: self.hullId,
     ownLitZones: ownLitZones(mind.view?.litZones, selfIdOf(self), port.now),
-    departing: departureDue({ x: self.state.x, y: self.state.y, stats: self.stats, speed: self.state.speed }, port, navOf(port)),
+    departing: departingNow(self, mind, port),
   };
+}
+
+/** THE DEPARTURE RULE, once per bot per tick (fix wave P16): the fold's
+ *  situation and the decision's both read it, so the answer is memoised on
+ *  the mind by server ms. */
+function departingNow(self: BotSelf, mind: BotMind, port: BotWorldPort): boolean {
+  if (mind.departingAt === port.now) return mind.departing === true;
+  const due = departureDue({ x: self.state.x, y: self.state.y, stats: self.stats, speed: self.state.speed }, port, navOf(port));
+  mind.departingAt = port.now;
+  mind.departing = due;
+  return due;
 }
 
 /** Everything the card-spend policy needs about the bot's own economy. */
@@ -587,7 +601,15 @@ function bandBearing(self: BotSelf, sit: BotSituation, t: BotTrack): number {
 
 /** This tick's nav context (ai/navigate.ts). */
 function navCtxOf(self: BotSelf, mind: BotMind, port: BotWorldPort, deliberate: boolean): NavCtx {
-  return { pos: self.state, mind, nav: navOf(port), now: port.now, hullU: hullLengthU(self.hullId), deliberate };
+  return { pos: self.state, heading: self.state.heading, mind, nav: navOf(port), now: port.now, hullU: hullLengthU(self.hullId), deliberate };
+}
+
+/** The mind's cover point when it is still usable (inside the live ring and
+ *  the revealed next ring — posture.ts coverUsable, fix wave P2), else null:
+ *  between deliberations a stale point is never steered for. */
+function usableCover(mind: BotMind, port: BotWorldPort, sit: BotSituation): Vec2 | null {
+  const p = mind.coverPoint ?? null;
+  return coverUsable(sit, p, port.zoneNextRing()) ? p : null;
 }
 
 /** NO TARGET (amendments 200(3), 202): siege / trapper make for their cover
@@ -595,7 +617,7 @@ function navCtxOf(self: BotSelf, mind: BotMind, port: BotWorldPort, deliberate: 
  *  always-safe disc (pre-reveal) or the revealed next ring. The live-centre
  *  patrol and its orbit are retired. */
 function idleBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation): number {
-  const cover = ctx.mind.coverPoint ?? null;
+  const cover = usableCover(ctx.mind, port, sit);
   if (sit.profile.holdsInCover && cover !== null) return steerToward(ctx, cover);
   return patrolBearing(ctx, port, sit, avoidReachU(sit.stats));
 }
@@ -603,7 +625,7 @@ function idleBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation): number
 /** THE BREAK-OFF (disengage / hide, amendment 199): steer (routed) for the
  *  cover point when there is one, else the reciprocal of the threat. */
 function fleeBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation, target: BotTrack | null): number {
-  const cover = ctx.mind.coverPoint ?? null;
+  const cover = usableCover(ctx.mind, port, sit);
   if (cover !== null) return steerToward(ctx, cover);
   if (target === null) return idleBearing(ctx, port, sit);
   return wrapAngle(bearing(ctx.pos, plotAt(sit, target)) + Math.PI);
@@ -717,7 +739,27 @@ function helmFor(
   const avoid =
     avoidIslands(self, ctx.nav.grid, want) + avoidMines(self, mind) + boundaryBias(self.state, port.map.radius)
     + avoidHulls(self, mind, posture);
-  return { throttle: posture === 'hold' ? 1 : throttleFor(posture), rudder: composeRudder(track, avoid) };
+  const base = posture === 'hold' ? 1 : throttleFor(posture);
+  const damped = entryDamped(self, mind, port, want, deliberate);
+  return { throttle: damped ? Math.min(base, CRUISE_THROTTLE) : base, rudder: composeRudder(track, avoid) };
+}
+
+/**
+ * ENTRY DAMPING (fix wave P20, the grounding investigation; orchestrator
+ * reading under amendment 192): a long hull reversing course or rounding a
+ * route corner at full ahead beside a coast drives into the notch it is
+ * turning past. On a deliberation where the turn left exceeds 90° AND the
+ * avoidance fan has a ray blocked within one own turn radius, the helm runs
+ * at cruise until the next deliberation.
+ */
+function entryDamped(self: BotSelf, mind: BotMind, port: BotWorldPort, want: number, deliberate: boolean): boolean {
+  if (deliberate) {
+    const r = turnRadiusU(self.stats);
+    const turning = Math.abs(angleDiff(self.state.heading, want)) > Math.PI / 2;
+    const tight = turning && nearestRayHitU(navOf(port).grid, self.state.x, self.state.y, self.state.heading, r) < r;
+    mind.entryDampUntil = tight ? port.now + CONFIG.bots.decisionCadenceMs : 0;
+  }
+  return port.now < (mind.entryDampUntil ?? 0);
 }
 
 // ---------------------------------------------------------------------------

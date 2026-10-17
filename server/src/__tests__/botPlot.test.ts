@@ -367,8 +367,8 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
     const m = mkMind();
     m.contacts.set('c', anon({ x: 300, y: 0, seenAt: NOW - 4000, paintX: 300, paintY: 0, paintAt: NOW - 4000, vx: 45, vy: 0, vSrc: 'wake', vAt: NOW - 4000 }));
     for (let i = 11; i >= 1; i -= 1) {
-      const at = NOW - i * 50;
-      m.fireSeq += 1; // eleven CLICKS: hits count per click since Story 9.13 (epic-9 amendment 195)
+      const at = NOW - i * 100; // one volley window apart (fix wave P7: credits are per volley)
+      m.fireSeq += 1; // eleven CLICKS, eleven volleys (epic-9 amendment 195)
       const q = predictedPos(m.contacts.get('c')!, at);
       foldView(m, view([{ k: 'hc', id: 'me', x: q.x, y: q.y }]), at);
     }
