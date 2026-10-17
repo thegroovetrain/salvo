@@ -3041,3 +3041,14 @@ Closure stamps for three older entries (the originals are left as written), then
   status: OPEN — pre-existing (8.7 / 9.2), low
   summary: `hotbar.ts` `heldId` treats a consumable with a live ammo entry at `{n: 0}` as held (a solid square, bright glyph, no count, nothing to fire; the LOADOUT twin does the same), unlike `loadout[slot] = null` or `ammo[slot] = null`, which both draw the zero-stock square. Reachable only if the server ever sends an id with n 0 (world.ts clears the slot the same tick). Fix: `(view.ammo[slot]?.n ?? 0) <= 0` in `heldId`.
   evidence: Edge Case Hunter finding 6 at the 9.11 gate.
+
+## 2026-10-16 — Story 9.12 review gate, cycle 196 (spec-9-12-the-second-tuning-pass.md)
+
+- source_spec: `spec-9-12-the-second-tuning-pass.md`
+  status: OPEN — Story 9.13 (bot posture workover) material
+  summary: with two cannon barrels fixed from Tier I (amendment 185) every click now raises TWO Hit Calls when both shells connect, so a bot's `HITS_FOR_CRIPPLED` counter (`server/src/game/ai/utility.ts` ~:180) reaches its threshold in half the clicks it did at Tier I — the ram trigger and target-selection estimates read "crippled" sooner. Accepted at the 9.12 gate (reading 186(r5)); the posture workover should count clicks or `dmg` events, never raw `hc` rows.
+  evidence: Blind Hunter finding at the 9.12 gate; `combat.test.ts` twin-mount cases show two `hc` per click.
+- source_spec: `spec-9-12-the-second-tuning-pass.md`
+  status: OPEN — pre-existing, harness only, low
+  summary: `npx tsc -p server/scripts/batchsim/tsconfig.json` reports one error at `server/scripts/batchsim/main.ts:228` (a `ModeOutput` is not assignable to `void`); the file is untouched by 9.12 and that tsconfig is not part of `npm run check`, so the harness still runs under tsx. Story 9.16 (harness hygiene) should make that tsconfig clean or drop it.
+  evidence: wave-2 report at the 9.12 gate, reproduced by the command above on d7eaa125.

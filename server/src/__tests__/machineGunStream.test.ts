@@ -356,7 +356,6 @@ describe('the magazine (amendment 103; the swap rule Eric 2026-09-30)', () => {
     hold(w, 'a', true, 1, seq, log);
     expect(mag(a)).toEqual({ n: MG.maxAmmo - 1, reloadMsLeft: 0 });
     expect(kindCount(log, 'shell')).toBe(13);
-    expect(MG.reloadMs).toBe(12500); // Eric 2026-10-16, Story 9.12 (12 s → 12.5 s)
   });
 
   it('an empty magazine\'s swap refills after the whole reloadMs when released, too', () => {

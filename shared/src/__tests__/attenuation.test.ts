@@ -44,6 +44,15 @@ describe('rangeAttenuation — full damage to fullFrac of range, linear to minFa
     }
   });
 
+  it('a non-finite fullFrac FAILS OPEN to 1 — no attenuation at any distance, never "falloff from the muzzle" (Story 9.12 review gate)', () => {
+    for (const fullFrac of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      const cfg = { fullFrac, minFactor: 0.8 };
+      expect(rangeAttenuation(750, 1000, cfg)).toBe(1);
+      expect(rangeAttenuation(100, 1000, cfg)).toBe(1);
+      expect(rangeAttenuation(1500, 1000, cfg)).toBe(1);
+    }
+  });
+
   it('a fullFrac of 1 or more is a STEP: 1 below range, minFactor at and after it', () => {
     for (const fullFrac of [1, 1.2]) {
       const cfg = { fullFrac, minFactor: 0.8 };

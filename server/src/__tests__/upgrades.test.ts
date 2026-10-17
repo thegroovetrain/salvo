@@ -1091,9 +1091,12 @@ describe('grant-time effects — healOnGrant and raised-cap top-ups', () => {
     const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, 'flak');
     a.state.speed = 0;
     expect(a.loadout[SLOT_GUN].equipmentId).toBe('flak');
-    expect(a.stats.equipment.flak.maxAmmo).toBe(1); // tier I: one turret
+    // DERIVED (review gate): tier I is the CONFIG seat; the ONE authored
+    // turret rung (to tier II) adds one; no rung after it adds another.
+    const TURRETS_AT_II = CONFIG.flak.maxAmmo + 1;
+    expect(a.stats.equipment.flak.maxAmmo).toBe(CONFIG.flak.maxAmmo); // tier I: one turret
     w.applyCard(a, 'flak'); // tier II: the second turret
-    expect(a.stats.equipment.flak.maxAmmo).toBe(2);
+    expect(a.stats.equipment.flak.maxAmmo).toBe(TURRETS_AT_II);
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: 2, reloadMsLeft: 0 });
     const reloadMs = a.stats.equipment.flak.reloadMs;
     let flakShells = 0;
@@ -1117,7 +1120,7 @@ describe('grant-time effects — healOnGrant and raised-cap top-ups', () => {
     // Tiers III, IV, V: damage only — the pool stays 2 (no third turret since Story 9.12).
     for (let tier = 3; tier <= 5; tier++) {
       w.applyCard(a, 'flak');
-      expect(a.stats.equipment.flak.maxAmmo).toBe(2);
+      expect(a.stats.equipment.flak.maxAmmo).toBe(TURRETS_AT_II);
     }
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: 2, reloadMsLeft: 0 });
   });

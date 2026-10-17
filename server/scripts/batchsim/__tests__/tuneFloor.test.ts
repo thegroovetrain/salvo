@@ -68,10 +68,13 @@ describe('--tune floors — turnRate', () => {
     expect(() => applyOverrides({}, { 'flak.edgeFalloff': 5 })).toThrow(TunableError);
   });
 
-  it('floors `gun.barrels` at 1 (Story 9.12): a 0-barrel click consumes a round and fires nothing', () => {
+  it('takes `gun.barrels` as an INTEGER in [1, 3] (Story 9.12 review gate): 0 fires nothing, and past clampStats\'s 1..3 clamp or a fraction the arm would print moved while the sim fired the clamp', () => {
     expect(() => validateTuneKey('gun.barrels')).not.toThrow();
     expect(() => validateTuneValue('gun.barrels', CONFIG.gun.barrels)).not.toThrow();
-    expect(() => validateTuneValue('gun.barrels', 0)).toThrow(TunableError);
+    for (const ok of [1, 2, 3]) expect(() => validateTuneValue('gun.barrels', ok)).not.toThrow();
+    for (const bad of [4, 9, 1.5, 0]) {
+      expect(() => validateTuneValue('gun.barrels', bad)).toThrow(/clampStats/);
+    }
   });
 
   it('still lets a genuinely zero-able dial be zero', () => {
@@ -154,12 +157,13 @@ describe('--tune ranges — the weapon weighting', () => {
 describe('--tune ranges — range attenuation and the flak rim', () => {
   const KEYS = ['gunAttenuation.fullFrac', 'gunAttenuation.minFactor', 'flak.rimFactor'];
 
-  it('reaches all three leaves on the closed interval [0, 1], shipped values included', () => {
+  it('reaches all three leaves from 0, `minFactor` and `rimFactor` up to 1 inclusive, shipped values included', () => {
     for (const key of KEYS) {
       expect(() => validateTuneKey(key)).not.toThrow();
       expect(() => validateTuneValue(key, 0)).not.toThrow();
-      expect(() => validateTuneValue(key, 1)).not.toThrow();
     }
+    expect(() => validateTuneValue('gunAttenuation.minFactor', 1)).not.toThrow(); // attenuation off, a real arm
+    expect(() => validateTuneValue('flak.rimFactor', 1)).not.toThrow();
     expect(() => validateTuneValue('gunAttenuation.fullFrac', CONFIG.gunAttenuation.fullFrac)).not.toThrow();
     expect(() => validateTuneValue('gunAttenuation.minFactor', CONFIG.gunAttenuation.minFactor)).not.toThrow();
     expect(() => validateTuneValue('flak.rimFactor', CONFIG.flak.rimFactor)).not.toThrow();
@@ -171,6 +175,12 @@ describe('--tune ranges — range attenuation and the flak rim', () => {
       expect(() => validateTuneValue(key, 1.2)).toThrow(TunableError);
       expect(() => validateTuneValue(key, Number.NaN)).toThrow(TunableError);
     }
+  });
+
+  it('REFUSES `fullFrac` at 1 or more at the PARSE leaf (half-open [0, 1) — the curve would be a step)', () => {
+    expect(() => validateTuneValue('gunAttenuation.fullFrac', 1)).toThrow(/\[0, 1\)/);
+    expect(() => validateTuneValue('gunAttenuation.fullFrac', 1.2)).toThrow(TunableError);
+    expect(() => validateTuneValue('gunAttenuation.fullFrac', 0.999)).not.toThrow();
   });
 
   it('REFUSES `fullFrac = 1` at APPLY time (the curve would be a step) and rolls the apply back', () => {

@@ -5984,6 +5984,11 @@ export class World {
     }
     if (shell.contactDamage <= 0) return; // zero-damage interception: boom only
     const amount = interceptionAmount(shell, outcome);
+    // A SETTLED 0 is NO blow, exactly as at the burst site (burstDamage): a
+    // direct (machine-gun) blow attenuated to nothing — reachable under
+    // `--tune gunAttenuation.minFactor=0` at max range — must not fire the
+    // aggro seam or emit a 0 `dmg` (Story 9.12 review gate).
+    if (amount <= 0) return;
     if (kind === 'decoy') {
       // A DECOY intercepted the shot (Story 8.16): it takes the interceptor's
       // contactDamage exactly as a hull would — an enemy TORPEDO detonating on
@@ -6153,8 +6158,10 @@ export class World {
   private burstDamage(shell: ShellState, t: Target, at: Vec2): number {
     const amount = burstHitAmount(shell, t, at);
     // A 0-hp blow is NO blow (Story 9.8 review; Story 9.12 reading r3):
-    // `settleBlow` answers 0 only for a non-positive raw blow — reachable only
-    // under `--tune flak.rimFactor=1` at the exact rim (or a 0-damage arm).
+    // `settleBlow` answers 0 only for a non-positive raw blow — reachable
+    // under `--tune flak.rimFactor=1` at the exact rim or `--tune
+    // gunAttenuation.minFactor=0` at max range (resolveInterception holds the
+    // same guard for a direct blow).
     // That must not fire the aggro seam, credit damage or emit a `dmg`, so
     // nothing below runs.
     if (amount <= 0) return 0;

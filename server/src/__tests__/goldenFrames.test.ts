@@ -87,6 +87,7 @@ const EXPECTED_SUBCASES = [
   'denied-blocked-mine-click',
   'denied-cooling-weapon',
   'denied-noammo-ability',
+  'denied-gun-shells-terminate',
   'denied-out-of-arc-owner-only',
   'gunnery-hitcall-beyond-sight',
   'gunnery-miss-own-splash',
@@ -711,6 +712,13 @@ function scnDenied(g: Golden): void {
   const fa3 = cap(g, w, 'a');
   prove(g, 'denied-cooling-weapon', (fa3.denied ?? [])[0]?.reason === 'cooling' && (fa3.denied ?? [])[0]?.seq === 3);
   prove(g, 'denied-noammo-ability', (fa3.denied ?? [])[1]?.reason === 'no-ammo' && (fa3.denied ?? [])[1]?.slot === 1);
+  // Tick 4 (Story 9.12 review gate): the tick-2 click is TWO parallel shells
+  // now (CONFIG.gun.barrels), and they terminate here — one tick after the
+  // denial frame — so capture it: the burst + hc terminal frame this
+  // scenario always pinned.
+  w.step();
+  const fa4 = cap(g, w, 'a');
+  prove(g, 'denied-gun-shells-terminate', fa4.events.some((e) => e.k === 'burst') && fa4.events.some((e) => e.k === 'hc'));
 }
 
 /**

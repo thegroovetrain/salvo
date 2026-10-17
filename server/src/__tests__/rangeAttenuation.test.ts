@@ -15,7 +15,7 @@
 //     carries either (the projectile wire row's field pick is unchanged).
 // Every expected number is DERIVED from CONFIG and the shared functions.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   CONFIG,
   flakRimFactor,
@@ -308,5 +308,77 @@ describe('the launch point and the reference never reach a frame', () => {
       expect(carried).toBeGreaterThan(0); // not vacuous: the shells did carry them
       expect(rows).toBeGreaterThan(0); // and their reveals did ride frames
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A SETTLED 0 IS NO BLOW AT THE INTERCEPTION SITE TOO (Story 9.12 review
+// gate): under `--tune gunAttenuation.minFactor=0` a machine-gun hit at max
+// range settles to 0 — it must take nothing, fire no aggro seam and emit no
+// `dmg`, exactly as burstDamage already guards the burst site. The shell is
+// injected with flown == its reference, so the factor is minFactor exactly.
+// ---------------------------------------------------------------------------
+
+describe('a machine-gun blow settled to 0 is NO blow (resolveInterception agrees with burstDamage)', () => {
+  type Inner = {
+    resolveShell(shell: unknown, outcome: unknown, hulls: readonly unknown[]): void;
+    hitTargets(mask: readonly string[]): readonly unknown[];
+  };
+
+  /** A direct machine-gun shell that flew EXACTLY its reference to (x, 0). */
+  function maxRangeMgShell(w: World, x: number): ShellState {
+    const R = CONFIG.machineGun.rangeU;
+    const D = CONFIG.machineGun.damage;
+    return {
+      id: 's1', ownerId: 'o', x, y: 0, vx: 0, vy: 0, distLeft: 0, bornAt: w.now, kind: 'shell', family: 'mg',
+      damage: D, hitRadius: CONFIG.machineGun.shellRadius, targetX: x, targetY: 0, burstRadius: 0,
+      contactDamage: D, hits: CONFIG.machineGun.hits, direct: true, originX: x - R, originY: 0, attenRangeU: R,
+    };
+  }
+
+  function withMinFactorZero(body: () => void): void {
+    const saved = CONFIG.gunAttenuation.minFactor;
+    (CONFIG.gunAttenuation as { minFactor: number }).minFactor = 0;
+    try {
+      body();
+    } finally {
+      (CONFIG.gunAttenuation as { minFactor: number }).minFactor = saved;
+    }
+  }
+
+  it('on a HULL: no hp lost, no drones.onDamaged, no `dmg`', () => {
+    withMinFactorZero(() => {
+      const w = bareWorld();
+      ship(w, 'o', -3000, 0);
+      const b = ship(w, 'b', 0, 0, { hull: 'battleship', heading: HALF_PI });
+      const inner = w as unknown as Inner;
+      const shell = maxRangeMgShell(w, 0);
+      expect(settleBlow(shell.contactDamage * attenAt(shell, { x: 0, y: 0 }))).toBe(0); // the premise
+      const aggro = vi.spyOn(w.drones, 'onDamaged');
+      inner.resolveShell(shell, { kind: 'hitShip', victimId: 'b', x: 0, y: 0 }, inner.hitTargets(CONFIG.machineGun.hits));
+      const log = [...(w as unknown as { pending: GameEvent[] }).pending];
+      expect(b.hp).toBe(b.stats.maxHp);
+      expect(aggro).not.toHaveBeenCalled();
+      expect(dmgTo(log, 'b')).toHaveLength(0);
+      expect(log.some((e) => e.k === 'boom')).toBe(true); // the interception itself still resolved
+    });
+  });
+
+  it('on a DECOY: its hp is untouched and the decoy damage path is never entered', () => {
+    withMinFactorZero(() => {
+      const w = bareWorld();
+      ship(w, 'o', -3000, 0);
+      ship(w, 'a', 0, -3000);
+      const decoy = addDecoy(w.decoys, 'o', 0, 0, 'd1');
+      const before = decoy.hp;
+      const inner = w as unknown as Inner;
+      const shell = { ...maxRangeMgShell(w, 0), ownerId: 'a' };
+      // damageDecoy(…, 0) would be an observational no-op on hp, so the
+      // guard is pinned on the call itself.
+      const hurt = vi.spyOn(w as unknown as { damageDecoy(id: string, n: number, by: string): boolean }, 'damageDecoy');
+      inner.resolveShell(shell, { kind: 'hitShip', victimId: 'd1', x: 0, y: 0 }, inner.hitTargets(CONFIG.machineGun.hits));
+      expect(w.decoys.get('d1')!.hp).toBe(before);
+      expect(hurt).not.toHaveBeenCalled();
+    });
   });
 });

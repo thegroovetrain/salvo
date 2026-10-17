@@ -2,7 +2,7 @@
 title: 'Story 9.12: The Second Tuning Pass'
 type: 'feature'
 created: '2026-10-16'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '42b5067a'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -133,10 +133,10 @@ Paper outcomes (the ledger): cannon DPS 3.2 → 6.5, MG 3.73 → 7.88, flak 4.57
 ## Tasks & Acceptance
 
 **Execution (orchestrated per `/orchestrate`: Opus implements, Sonnet re-pins mechanical tests and records, Fable + Codex review the gate):**
-- [ ] W1 (Opus) `shared/` -- constants, attenuation module, catalog, stats, shell.ts fields, index.ts PV 89 + export; shared tests re-pinned by derivation + NEW `attenuation.test.ts`; `npm test -w shared` green, `npm run build -w shared` -- amendments 184–185
-- [ ] W2 (Opus, after W1) `server/` -- ballistics/guns/mg/flak/world, harness dials; server tests re-pinned, NEW blow + mine-landing tests, golden re-recorded once with the moved channels listed; `npm test -w server` green -- rulings (b) (c) (i)
-- [ ] W3 (Sonnet, after W1, parallel with W2 — disjoint files) `client/` PV pins + card/tooltip/fit re-pins; records: VERSION/package(-lock) 0.18.61, CHANGELOG, codebase-map, amendments 184–186 both homes, both trackers, the paper ledger -- ruling (e)
-- [ ] Gate: `npm run check` green; Fable Blind Hunter + Edge Case Hunter and Codex (`-m gpt-5.6-sol`) on the diff; CONFIRMED findings patched; commit, push, ONE PR to `development`
+- [x] W1 (Opus) `shared/` -- constants, attenuation module, catalog, stats, shell.ts fields, index.ts PV 89 + export; shared tests re-pinned by derivation + NEW `attenuation.test.ts`; `npm test -w shared` green, `npm run build -w shared` -- amendments 184–185
+- [x] W2 (Opus, after W1) `server/` -- ballistics/guns/mg/flak/world, harness dials; server tests re-pinned, NEW blow + mine-landing tests, golden re-recorded once with the moved channels listed; `npm test -w server` green -- rulings (b) (c) (i)
+- [x] W3 (Sonnet, after W1, parallel with W2 — disjoint files) `client/` PV pins + card/tooltip/fit re-pins; records: VERSION/package(-lock) 0.18.61, CHANGELOG, codebase-map, amendments 184–186 both homes, both trackers, the paper ledger -- ruling (e)
+- [x] Gate: `npm run check` green; Fable Blind Hunter + Edge Case Hunter and Codex (`-m gpt-5.6-sol`) on the diff; CONFIRMED findings patched; commit, push, ONE PR to `development`
 
 **Acceptance Criteria:**
 - Given the catalog at Tier I–V, when `effectiveStats()` folds each gun ladder, then cannon damage/barrels/pool read 8/10/11/12/13 · 2 · 1,1,2,2,2; MG magazine/rate/damage read 12/15/18/20/23 · 300…200 · 5 · reload 12.5 → 10.0 s; flak damage/pool read 16…24 · 1,2,2,2,2; light/heavy torpedo and captive tubes read 1,1,2,2,2; torpedo damages 80…120 / 90…135; mines 90…135 with naval held 2…6; supercav 150.
@@ -147,7 +147,31 @@ Paper outcomes (the ledger): cannon DPS 3.2 → 6.5, MG 3.73 → 7.88, flak 4.57
 
 ## Spec Change Log
 
+- 2026-10-16 (build, waves 1–3): golden frames re-recorded ONCE for the waves — injected shells (`injectShell`, `CONFIG.gun.damage`, no `attenRangeU`) 12 → 8 and victim hp 88 → 92 in scnCombat / scnStraddleBoom / scnSpectatorBallistic; real cannon fire is two shells ±6 u in scnBurst (burst one tick later, burst+hc / burst+dmg twice, 8 + 8, hp 84; +2 frames, later indices shift), scnMineBurstDetonation (two reveals, burst/sp twice, then the mine boom), scnDenied (two reveals), scnGunnery (two reveals for shooter and o1, miss frame burst/sp twice, the shot-2 hit frame t8250 → t8300 with burst/hc twice, torp shell ids s2 → s3); scnMineBlast dmg 55 → 90, hp 195 → 160; no projectile row gained a key; six exceptions. KEEP: the `scnDenied` capture must run until both twin shells resolve (see the gate entry).
+- 2026-10-17 (review gate, iteration 0): the "Always" clause inside the contract says attenuation is called from the server's "two blow sites"; the built code has THREE callers — `burstHitAmount`, the `direct` interception blow and `landOnMines` (ruling (i)) — the contract is read-only, so this entry and the codebase map carry the correction. Golden re-recorded a SECOND time at the gate for scnDenied only (+1 frame, the `denied-gun-shells-terminate` subcase) — Codex CONFIRMED the scenario had ended a tick before the twin shells resolved. KEEP: a settled 0 is no blow at BOTH blow sites; `--tune gun.barrels` integer [1, 3]; `fullFrac` refused ≥ 1 at the parse leaf; non-finite `fullFrac` fails open to 1.
+
 ## Review Triage Log
+
+### 2026-10-17 — Review pass (Blind Hunter BUILD-ON-IT, Edge Case Hunter BUILD-ON-IT, Codex gpt-5.6-sol FIX-FIRST)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 11: (high 0, medium 3, low 8)
+- defer: 2: (high 0, medium 0, low 2)
+- reject: 3: (high 0, medium 0, low 3)
+- addressed_findings:
+  - `[medium]` `[patch]` `resolveInterception` checked `contactDamage <= 0` BEFORE attenuation, so a settled-0 direct blow reached `hitShip` (aggro + a 0 `dmg`) under `--tune gunAttenuation.minFactor=0` — guard moved after `settleBlow`, regression tests for hull and decoy (Blind Hunter CONFIRMED)
+  - `[medium]` `[patch]` `--tune gun.barrels` had a floor but no ceiling or integer check while the fold clamps to 3 — refused outside the integers [1, 3] (both hunters CONFIRMED)
+  - `[medium]` `[patch]` golden `scnDenied` ended a tick before the twin shells resolved, losing its burst + hc terminal frame — capture extended one tick, snapshot re-recorded, new subcase (Codex CONFIRMED; W2 had reported the lost frame)
+  - `[low]` `[patch]` non-finite `gunAttenuation.fullFrac` read as 0 and attenuated from the muzzle — fails open to 1 (Edge Case Hunter CONFIRMED)
+  - `[low]` `[patch]` `fullFrac ≥ 1` refused only at apply time — now also at the parse leaf ([0, 1))
+  - `[low]` `[patch]` `flak.test` "0-hp is no blow" moved to a 0-damage arm that never reached the guard — retitled, plus a positive-damage `minFactor 0` case that fails without the guard (Blind Hunter + Codex)
+  - `[low]` `[patch]` amendment 186 promised by both trackers did not exist — written (readings r1–r12) in both homes
+  - `[low]` `[patch]` reading r5 (doubled Hit Calls per click) missing from deferred-work — entered for 9.13; the pre-existing batchsim tsconfig error entered for 9.16
+  - `[low]` `[patch]` stale comments: `boonCopy.ts` barrel-alone paragraph, `catalogMetrics.ts` 20 / 6 / 15–18 numbers and the two new ledger collisions (6 → gunBodyblock, 4 → flakBodyblock) documented
+  - `[low]` `[patch]` literal re-pins: flak tier-IV pool derived as `CONFIG.flak.maxAmmo + 1`; the MG reload line became a tautology and was deleted; `weapons.test` drone measured at a reachable hp (one-shot pinned)
+  - `[low]` `[patch]` codebase map and this log: "two blow sites" → three
+- deferred: the doubled Hit Calls per click for bots (9.13); the pre-existing `server/scripts/batchsim/tsconfig.json` error (9.16)
+- rejected: `combat.test` single-barrel injection for shell-geometry cases (the production twin is pinned in `twinMount`; the geometry pins are about the shell, not the mount); `botGunnery` one-sentence note (applied as P10, otherwise moot after the guard fix); the flak rim-at-exactly-R float note (harness-only, documented in r3)
 
 ## Design Notes
 
@@ -166,3 +190,8 @@ Paper outcomes (the ledger): cannon DPS 3.2 → 6.5, MG 3.73 → 7.88, flak 4.57
 
 **Manual checks:**
 - Eric judges 8-of-16-dead-per-cycle on staging after the PR deploys (ruling (e)).
+
+## Auto Run Result
+
+Status: done
+Cycle 196, 0.18.61, PV 88 → 89. Built: every forge number literally (cannon 8–13 two barrels fixed, MG 12–23 magazine / 0.30–0.20 s / 5 flat / 12.5 s, flak 16–24 half-rim two turrets, torpedoes 80→120 and 90→135, mines 90→135, supercav 150, pools capped at two), the new shared range attenuation (`sim/attenuation.ts`, `CONFIG.gunAttenuation`), the three server blow sites (bursts, the MG direct hit, the blast-radius mine landing with the cursor clause retired), harness dials and refusals, 58 test files re-pinned by derivation, three new test files, golden re-recorded twice. Review gate: Blind Hunter BUILD-ON-IT, Edge Case Hunter BUILD-ON-IT, Codex gpt-5.6-sol FIX-FIRST on one test-contract point; 11 patches applied (3 medium, 8 low), 2 deferred, 3 rejected (triage log above). `npm run check` green: shared 1155 / server 2664 / client 4131 / hooks 266. Records: amendments 184–186 in both homes, both trackers, CHANGELOG 0.18.61, codebase map, deferred-work, the paper ledger `batch-sim-evidence-2026-10-16.md` (no sim run). Residual risks: the game feel of the attenuation band and the two-shell click are Eric's staging judgments; bots see two Hit Calls per click (9.13). Branch worktree-worktree-tuning-pass-9-12; ONE PR to development, not merged.

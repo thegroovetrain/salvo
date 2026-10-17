@@ -81,15 +81,20 @@ function rawSources(): { label: string; amount: number }[] {
     // collide AT TIER I; the merge-by-amount below stays, so any future
     // collision still prints as one merged label rather than a silent mislabel.
     // KNOWN BLIND SPOT (2026-10-02 review gate): only BASE amounts are sources,
-    // so a laddered hit is classified by first match on its amount — a tier-II
-    // flak burst (20) files under `starShells` (20) and a tier-II/III machine
-    // gun shell (6) under `gunBodyblock` (6). Since Story 9.12 (Eric
-    // 2026-10-16, epic-9 amendment 184) EVERY deck-gun blow is also
-    // range-attenuated (to 80 % at range) and a flak burst falls to HALF at
+    // so a laddered or attenuated hit is classified by first match on its
+    // amount — a DamageEvent names neither its weapon nor its shell family, so
+    // this ledger cannot key on family the way classifyShell's LAUNCH ledger
+    // does (that would need a field on the wire event, i.e. server/src). Since
+    // Story 9.12 (Eric 2026-10-16, epic-9 amendment 184) EVERY deck-gun blow
+    // is range-attenuated (to 80 % at range) and a flak burst falls to HALF at
     // the rim (`flak.rimFactor`), so only a near, dead-centre hit lands on its
-    // bare-amount row; any other files by first match on its amount or under
-    // `other:<amount>`. Harness attribution only; the fix (classify by shell
-    // family, not amount) is in deferred-work.md.
+    // bare-amount row. Today's collisions: a Tier III flak burst (20) files
+    // under `starShells` (20); a Tier I cannon shell at max range lands exactly
+    // 6 (8 × 0.8) and files under `gunBodyblock`; a far machine-gun shell lands
+    // 4 (5 × 0.8) and files under `flakBodyblock` (the MG itself is a flat 5 at
+    // every tier and never deals 6); anything else files by first match or
+    // under `other:<amount>`. Harness attribution only; the fix (classify by
+    // shell family, not amount) is in deferred-work.md.
     { label: 'machineGun', amount: CONFIG.machineGun.damage },
     { label: 'flak', amount: CONFIG.flak.damage },
     { label: 'flakBodyblock', amount: CONFIG.flak.contactDamage },
@@ -119,8 +124,9 @@ let sourcesMemo: { label: string; amount: number }[] | null = null;
  * 2026-10-02 cannon table the bare cannon is off the broadside's 15 (16 then,
  * 12 since the 2026-10-13 experiment), so they no longer merge and print as
  * 'gun' and 'broadside' separately (correct). Only the BARE cannon's amount is
- * a source here: a laddered cannon shell (15 / 18 since 2026-10-13)
- * still files under `other:<amount>`, as every laddered amount always has.
+ * a source here: a laddered cannon shell (10–13 since Story 9.12) files by
+ * first match on its amount or under `other:<amount>`, as every laddered
+ * amount always has (see the blind-spot note in rawSources).
  *
  * BUILT LAZILY, ON FIRST CLASSIFICATION — never at module import. The harness's
  * `--tune` / `--set` overrides MUTATE CONFIG after every module is imported, so

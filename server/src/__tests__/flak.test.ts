@@ -359,7 +359,7 @@ describe('the flak burst falls from D at the centre to HALF at the rim (Story 9.
     }
   });
 
-  it('a 0-hp blow is NO blow (reading r3): a raw blow of 0 (here a 0-damage arm; also rimFactor 1 at the exact rim) takes nothing, fires no aggro seam, emits no `dmg`', () => {
+  it('a 0-DAMAGE arm deals nothing: resolveBurst\'s `damage > 0` gate skips the victims entirely — no hp, no aggro seam, no `dmg` (the burst still fires)', () => {
     const saved = CONFIG.flak.damage;
     (CONFIG.flak as { damage: number }).damage = 0;
     try {
@@ -374,6 +374,40 @@ describe('the flak burst falls from D at the centre to HALF at the rim (Story 9.
       expect(count(log, 'dmg')).toBe(0);
     } finally {
       (CONFIG.flak as { damage: number }).damage = saved;
+    }
+  });
+
+  it('a POSITIVE-damage blow SETTLED to 0 is NO blow (reading r3, burstDamage\'s `amount <= 0` guard): minFactor 0 at max range → raw D × 0 → no hp, no aggro seam, no `dmg`', () => {
+    const saved = CONFIG.gunAttenuation.minFactor;
+    (CONFIG.gunAttenuation as { minFactor: number }).minFactor = 0;
+    try {
+      const w = bareWorld();
+      flakker(w, 'a', -3000, 0);
+      const b = hull(w, 'b', 0, 0);
+      const inner = w as unknown as {
+        resolveShell(shell: unknown, outcome: unknown, hulls: readonly unknown[]): void;
+        hitTargets(mask: readonly string[]): readonly unknown[];
+        pending: GameEvent[];
+      };
+      // A flak shell that flew EXACTLY its reference range to a burst centred
+      // on the hull: the attenuation factor is minFactor (0) and the rim term
+      // is 1, so the raw blow is D × 0 — positive damage, settled 0.
+      const REACH = FLAK.rangeU;
+      const shell: ShellState = {
+        id: 's1', ownerId: 'a', x: 0, y: 0, vx: 0, vy: 0, distLeft: 0, bornAt: w.now, kind: 'shell', family: 'flak',
+        damage: D, hitRadius: FLAK.shellRadius, targetX: 0, targetY: 0, burstRadius: R,
+        contactDamage: FLAK.contactDamage, hits: FLAK.hits, originX: -REACH, originY: 0, attenRangeU: REACH,
+      };
+      expect(D).toBeGreaterThan(0); // the premise: the gate in resolveBurst lets this through
+      const aggro = vi.spyOn(w.drones, 'onDamaged');
+      inner.resolveShell(shell, { kind: 'burst', x: 0, y: 0 }, inner.hitTargets(FLAK.hits));
+      const log = [...inner.pending];
+      expect(count(log, 'burst')).toBe(1);
+      expect(b.hp).toBe(b.stats.maxHp);
+      expect(aggro).not.toHaveBeenCalled();
+      expect(count(log, 'dmg')).toBe(0);
+    } finally {
+      (CONFIG.gunAttenuation as { minFactor: number }).minFactor = saved;
     }
   });
 

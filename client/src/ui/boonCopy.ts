@@ -359,14 +359,11 @@ const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
   // `5 %/S` at V. The out-of-combat wait the ladder also shortens is not a row.
   passiveHealing: { label: 'Heal', path: 'regen.missingPctPerS', fmt: (v) => `${num(v * 100)} %/S` },
   // The DECK GUN ladder's HEADLINE is damage (its own reload is derived from
-  // the tier in clampStats and stays silent): damage is the number the player
-  // watches change. Since Eric's 2026-10-02 tables (damage on the rungs to III
-  // and V only; the values are his dials — 12/12/15/15/18 since 2026-10-13)
-  // the rungs to II and IV author a barrel ALONE (no damage step, so their face
-  // prints no GUN DAMAGE row), the rung to III damage plus the second turret,
-  // the rung to V damage alone. The pool is `equipment.gun.maxAmmo` and the barrels
-  // (`equipment.gun.barrels`); those rows print through the FIELD_WORDS
-  // fallback (`ROUNDS`, `SHELLS PER SHOT`) — no entry here, no new words.
+  // the tier in clampStats and stays silent): since Story 9.12 every CANNON
+  // rung authors a damage step (8/10/11/12/13) and none a barrel — the two
+  // barrels are fixed (CONFIG.gun.barrels) — so every face prints a GUN DAMAGE
+  // row. The pool (`equipment.gun.maxAmmo`, the second turret at III) prints
+  // through the FIELD_WORDS fallback (`ROUNDS`) — no entry here, no new words.
   deckGun: { label: 'Gun damage', path: 'equipment.gun.damage' },
   // THE TWO PICKABLE GUNS' LADDERS (Story 8.15). Their headline is their own
   // RELOAD, the equipment lines' grammar: a tier card prints the reload step

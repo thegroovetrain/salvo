@@ -4,6 +4,9 @@
 // damage, per MG shell fired), "ghost-aim" ticks (the bot's chosen track sits
 // far from the target's TRUE position) and the number of distinct tracks held.
 // Deterministic: fixed seed, scripted target, no randomness in the harness.
+// The hit count is the target's `dmg` events, so it relies on the damage gate
+// emitting exactly one `dmg` per settled POSITIVE blow and none for a settled 0
+// (both deck-gun blow sites guard `amount <= 0` — Story 9.12 review gate).
 
 import { describe, it, expect } from 'vitest';
 import { visibilityTo } from '@salvo/shared';

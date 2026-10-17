@@ -70,11 +70,12 @@ const TUNE_FAMILIES = [
   'flak.',
   // DECK-GUN RANGE ATTENUATION (Story 9.12, Eric 2026-10-16, epic-9
   // amendments 184–185): the ONE shared block the three deck guns read —
-  // `fullFrac` and `minFactor` on [0, 1] (GUN_FRACTION_KEYS) with
-  // `fullFrac < 1` refused on the finished CONFIG (validateAttenuationDials).
+  // `fullFrac` on [0, 1) and `minFactor` on [0, 1] (GUN_FRACTION_KEYS), with
+  // `fullFrac < 1` re-checked on the finished CONFIG (validateAttenuationDials).
   // `flak.rimFactor` (the burst's rim falloff) rides the `flak.` family above,
   // on [0, 1] too; the retired `flak.edgeFalloff` is refused by name.
-  // `gun.barrels` (two at every tier, no rungs) is a dial at floor 1.
+  // `gun.barrels` (two at every tier, no rungs) is an integer dial in [1, 3]
+  // (validateBarrels — the ceiling is clampStats's barrel clamp).
   'gunAttenuation.',
   'instantReload.',
   'hunker.',
@@ -464,10 +465,6 @@ const TUNE_SUB_ONE_FLOORS = new Map<string, number>([['turnRate', 0.05]]);
 const TUNE_MIN_ONE_KEYS = new Set([
   'vision.dropout.startU',
   'vision.dropout.kneeU',
-  // THE CANNON'S BARRELS (Story 9.12): shells per click — 0 is a gun that
-  // consumes a round and fires nothing (the fold's 1..3 clamp would also
-  // silently lift it back to 1, so the arm would read moved and measure not).
-  'gun.barrels',
   // THE FOG FIELD (Story 9.10) — see the `fog.` family note in TUNE_FAMILIES.
   'fog.targetPeriodMs',
   'fog.wavelengthU',
@@ -520,6 +517,7 @@ export function validateTuneValue(key: string, value: number): void {
   if (FOG_SHARE_KEYS.has(key)) return validateShare(key, value);
   if (GUN_FRACTION_KEYS.has(key)) return validateFraction(key, value);
   if (key === FOG_GAIN_KEY) return validateGain(key, value);
+  if (key === BARRELS_KEY) return validateBarrels(key, value);
   const floor = tuneFloor(key);
   if (!Number.isFinite(value) || value < floor) {
     throw new TunableError(`'${key}': expected a finite value >= ${floor}, got '${value}'`);
@@ -563,9 +561,37 @@ const FOG_SHARE_KEYS = new Set(['fog.coverageMin', 'fog.coverageMax']);
  *  would read moved while the sim ran the clamp — refused at the leaf. */
 const GUN_FRACTION_KEYS = new Set(['gunAttenuation.fullFrac', 'gunAttenuation.minFactor', 'flak.rimFactor']);
 
+/** `fullFrac` is the one HALF-OPEN fraction, [0, 1) (Story 9.12 review
+ *  gate): at 1 or more `rangeAttenuation` answers a STEP, so the arm is
+ *  refused at the parse leaf; validateAttenuationDials re-checks the
+ *  finished CONFIG as a belt-and-braces guard. */
+const FULL_FRAC_KEY = 'gunAttenuation.fullFrac';
+
 function validateFraction(key: string, value: number): void {
   if (!Number.isFinite(value) || value < 0 || value > 1) {
     throw new TunableError(`'${key}': expected a finite fraction in [0, 1], got '${value}'`);
+  }
+  if (key === FULL_FRAC_KEY && value >= 1) {
+    throw new TunableError(
+      `'${key}': expected a finite fraction in [0, 1), got '${value}' — at 1 the attenuation curve collapses to a step at the gun's range`,
+    );
+  }
+}
+
+/** THE CANNON'S BARRELS (Story 9.12; review gate): shells per click, an
+ *  INTEGER in [1, 3]. 0 is a gun that consumes a round and fires nothing;
+ *  the ceiling is clampStats's barrel clamp (shared/src/sim/stats.ts,
+ *  `Math.min(3, Math.max(1, barrels))`) and the fold floors integer fields,
+ *  so `4` or `1.5` would print as moved while the sim fired 3 or 1 — false
+ *  evidence, refused at the leaf. */
+const BARRELS_KEY = 'gun.barrels';
+const BARRELS_MAX = 3;
+
+function validateBarrels(key: string, value: number): void {
+  if (!Number.isInteger(value) || value < 1 || value > BARRELS_MAX) {
+    throw new TunableError(
+      `'${key}': expected an integer in [1, ${BARRELS_MAX}] (clampStats clamps barrels to 1..${BARRELS_MAX} and floors them), got '${value}'`,
+    );
   }
 }
 

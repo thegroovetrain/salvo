@@ -43,15 +43,16 @@ function positiveFinite(x: number): boolean {
  * `minFactor` at 1, `minFactor` beyond. Returns 1 for a non-finite or
  * non-positive `rangeU` or `flownU` (no reference = no attenuation). The
  * dials are sanitized here: `minFactor` into [0, 1] (non-finite → 1, i.e. no
- * attenuation) and `fullFrac` into [0, 1); a `fullFrac` of 1 or more is a
- * STEP — 1 below range, `minFactor` at and after it.
+ * attenuation) and `fullFrac` into [0, 1) (non-finite → 1, no attenuation
+ * at any distance); a `fullFrac` of 1 or more is a STEP — 1 below range, `minFactor` at and after it.
  */
 export function rangeAttenuation(flownU: number, rangeU: number, cfg: GunAttenuationCfg): number {
   if (!positiveFinite(rangeU) || !positiveFinite(flownU)) return 1;
+  const rawFull = cfg.fullFrac;
+  if (!Number.isFinite(rawFull)) return 1; // a hostile dial fails open: no attenuation
   const minFactor = clamp01(cfg.minFactor, 1);
   const r = flownU / rangeU;
   if (r >= 1) return minFactor;
-  const rawFull = Number.isFinite(cfg.fullFrac) ? cfg.fullFrac : 0;
   if (rawFull >= 1) return 1; // the bad-dial step: full damage all the way to range
   const fullFrac = Math.max(0, rawFull);
   if (r <= fullFrac) return 1;
