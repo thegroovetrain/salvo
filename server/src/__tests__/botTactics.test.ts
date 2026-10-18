@@ -338,7 +338,7 @@ describe('steering — the priority order is the policy', () => {
   // the manoeuvre can ARM, and it did not: the whole un-beach path was
   // unreachable. The setup below therefore drives the record's real
   // `landContact` flag, and the end-to-end block grounds a hull FOR REAL.
-  it('UN-BEACHING: sustained LAND CONTACT arms astern within stuckMs, and lets go once clear', () => {
+  it('UN-BEACHING: sustained LAND CONTACT arms the PROBED burst within stuckMs, holds its order, and lets go once clear (Story 9.13 fix wave P19)', () => {
     const w = openWorld(103);
     const port = fakePort(w);
     const rec = mkBot(w, 'battleship', 0, 0, 0);
@@ -350,31 +350,31 @@ describe('steering — the priority order is the policy', () => {
     expect(rec.state.speed).toBeGreaterThan(3); // the retired STUCK_SPEED trip
     let armedAtMs: number | null = null;
     for (let i = 0; i < 200 && armedAtMs === null; i += 1) {
-      const d = COMBAT_BRAIN.decide(rec, mind, port);
-      if (d.throttle < 0) armedAtMs = i * CONFIG.tick.simDtMs;
+      COMBAT_BRAIN.decide(rec, mind, port);
+      if (mind.unbeachUntil > 0) armedAtMs = i * CONFIG.tick.simDtMs;
       port.now += CONFIG.tick.simDtMs;
     }
     expect(armedAtMs).not.toBeNull();
     expect(armedAtMs!).toBeLessThanOrEqual(CONFIG.bots.stuckMs);
-    // It holds astern for the manoeuvre rather than chattering tick to tick.
-    expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeLessThan(0);
-    // Clear of the rock -> the trip resets and the helm goes ahead again.
+    // It HOLDS the probed order for the burst rather than chattering tick to tick.
+    const order = { throttle: mind.unbeach!.throttle, rudder: mind.unbeach!.rudder };
+    const d = COMBAT_BRAIN.decide(rec, mind, port);
+    expect({ throttle: d.throttle, rudder: d.rudder }).toEqual(order);
+    // Clear of the rock with real ground made -> the burst releases and the trip resets.
     rec.landContact = false;
-    rec.state.x = CONFIG.bots.unbeachClearU * 2; // and it made real sternway
+    rec.state.x = CONFIG.bots.unbeachClearU * 2;
     port.now = mind.unbeachUntil + 1;
-    expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeGreaterThan(0);
+    COMBAT_BRAIN.decide(rec, mind, port);
+    expect(mind.unbeachUntil).toBe(0);
     expect(mind.stuckMs).toBe(0);
   });
 
   // STAGE 2 IS A CONDITION, NOT A TIMER — and the condition is why the first
-  // grounding fix left the Battleship where it found it. `stuckMs` used to be
-  // both the arming dwell AND the burst length: 1500ms of full astern from the
-  // grounding cap is 0.97s of a heavy hull still travelling FORWARD (kill the
-  // way at `decel`) plus 0.53s of building sternway at `accel`, i.e. +3.21u of
-  // measured NET DISPLACEMENT — deeper into the rock than it started. The
-  // burst now ends on "clear of land AND unbeachClearU of ground made", with
-  // the duration as a ceiling, so the hull that needs longer gets longer.
-  it('THE BURST ENDS ON ITS CONDITION: clear water alone does not end it, sternway does', () => {
+  // grounding fix left the Battleship where it found it: the burst ends on
+  // "clear of land AND unbeachClearU of ground made", with the duration as a
+  // ceiling, so the hull that needs longer gets longer. Since fix wave P19 the
+  // burst's order is the PROBED one (ahead or astern), not always astern.
+  it('THE BURST ENDS ON ITS CONDITION: clear water alone does not end it, ground made does', () => {
     const w = openWorld(106);
     const port = fakePort(w);
     const rec = mkBot(w, 'battleship', 0, 0, 0);
@@ -384,44 +384,44 @@ describe('steering — the priority order is the policy', () => {
       COMBAT_BRAIN.decide(rec, mind, port);
       port.now += CONFIG.tick.simDtMs;
     }
-    expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeLessThan(0);
+    COMBAT_BRAIN.decide(rec, mind, port);
+    expect(mind.unbeachUntil).toBeGreaterThan(0); // in the burst
 
-    // The resolver lets go, but the hull has barely moved: STILL BACKING. This
-    // is the exact tick the old fixed-timer form would have handed back to the
-    // helm with the bow still against the coast.
+    // The resolver lets go, but the hull has barely moved: STILL BURSTING.
     rec.landContact = false;
     rec.state.x = CONFIG.bots.unbeachClearU - 1;
     port.now += CONFIG.tick.simDtMs;
-    expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeLessThan(0);
+    COMBAT_BRAIN.decide(rec, mind, port);
+    expect(mind.unbeachUntil).toBeGreaterThan(0);
 
-    // One more unit of sternway clears the condition and the burst releases.
+    // One more unit of ground clears the condition and the burst releases.
     rec.state.x = CONFIG.bots.unbeachClearU + 1;
     port.now += CONFIG.tick.simDtMs;
-    expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeGreaterThan(0);
+    COMBAT_BRAIN.decide(rec, mind, port);
+    expect(mind.unbeachUntil).toBe(0);
 
     // ...and the CEILING is the backstop: a hull the water will not release
-    // stops backing when unbeachAsternMaxMs is up, whatever the condition says.
+    // ends its burst when unbeachAsternMaxMs is up, whatever the condition says.
     const stuck = mkMind('bulwark');
     rec.landContact = true;
     rec.state.x = 0;
-    let asternMs = 0; // the FIRST unbroken burst: a hull this pinned re-arms
+    let burstMs = 0; // the FIRST unbroken burst: a hull this pinned re-arms
     for (let i = 0; i < 400; i += 1) {
-      const backing = COMBAT_BRAIN.decide(rec, stuck, port).throttle < 0;
+      COMBAT_BRAIN.decide(rec, stuck, port);
       port.now += CONFIG.tick.simDtMs;
-      if (backing) asternMs += CONFIG.tick.simDtMs;
-      else if (asternMs > 0) break;
+      if (stuck.unbeachUntil > 0) burstMs += CONFIG.tick.simDtMs;
+      else if (burstMs > 0) break;
     }
-    expect(asternMs).toBeGreaterThan(CONFIG.bots.stuckMs); // longer than the old burst
-    expect(asternMs).toBeLessThanOrEqual(CONFIG.bots.unbeachAsternMaxMs);
+    expect(burstMs).toBeGreaterThan(CONFIG.bots.stuckMs); // longer than the old burst
+    expect(burstMs).toBeLessThanOrEqual(CONFIG.bots.unbeachAsternMaxMs + CONFIG.tick.simDtMs);
   });
 
   // STAGE 3 — THE METRONOME CURE. Without it a bot backs off cleanly, re-seeks
   // a bearing that still runs through the same island and drives straight back
-  // in; land-contact EPISODES per bot-match roughly DOUBLED (~2 -> ~5) when the
-  // arming half was fixed on its own. The hold is the fleet pilot's third
-  // stage, ported: commit to the heading the burst left on, target-seek
-  // suppressed, for CONFIG.bots.unbeachHoldMs.
-  it('THE EXIT-HEADING GRACE HOLD suppresses target-seek, then hands the helm back', () => {
+  // in. Since fix wave P19 (ruled 2026-10-17) the hold after an AHEAD burst
+  // commits to the PROBED order's end heading (never merely the heading the
+  // hull happens to be on); after an ASTERN burst it keeps backing.
+  it('THE EXIT-HEADING GRACE HOLD commits to the probed end heading, suppresses target-seek, then hands the helm back', () => {
     const w = openWorld(107);
     // Ring centre due WEST, so patrol-seek would demand a hard turn the moment
     // the hold lets go — the assertion cannot pass by the bot simply idling.
@@ -433,18 +433,21 @@ describe('steering — the priority order is the policy', () => {
       COMBAT_BRAIN.decide(rec, mind, port);
       port.now += CONFIG.tick.simDtMs;
     }
-    expect(COMBAT_BRAIN.decide(rec, mind, port).throttle).toBeLessThan(0); // backing
+    COMBAT_BRAIN.decide(rec, mind, port);
+    expect(mind.unbeachUntil).toBeGreaterThan(0); // bursting
+    // Open water: the furthest-displacing order is an AHEAD one.
+    expect(mind.unbeach!.throttle).toBeGreaterThan(0);
+    const exitHeading = mind.unbeach!.exitHeading;
 
-    // Off the rock with real sternway: the burst releases into the hold, and
-    // the exit heading is whatever the hull is pointing at right now.
+    // Off the rock with real ground made: the burst releases into the hold on
+    // the probed end heading. The hull is put dead on it -> no rudder.
     rec.landContact = false;
     rec.state.x = CONFIG.bots.unbeachClearU * 2;
-    rec.state.heading = Math.PI / 2; // bow due north
+    rec.state.heading = exitHeading;
     port.now += CONFIG.tick.simDtMs;
     const held = COMBAT_BRAIN.decide(rec, mind, port);
+    expect(mind.unbeach!.holdHeading).toBe(exitHeading);
     expect(held.throttle).toBeGreaterThan(0);
-    // Dead on the committed heading -> no rudder. Patrol-seek would have
-    // demanded hard over for the ring centre astern-to-port.
     expect(Math.abs(held.rudder)).toBeLessThan(0.01);
     const holdUntil = mind.unbeach!.holdUntil;
     expect(holdUntil - port.now).toBeCloseTo(CONFIG.bots.unbeachHoldMs, 0);
@@ -459,71 +462,64 @@ describe('steering — the priority order is the policy', () => {
   });
 
   // THE POCKET. A hull still touching land when its burst ceilings has no exit
-  // heading worth committing to — holding one spends unbeachHoldMs driving
-  // AHEAD into the rock it just failed to leave — and repeating the same exit
-  // direction repeats the same failure. This is the case that survived the
-  // first campaign of this cycle: ONE battleship pinned for 218s, which was
-  // 12% of all land contact measured across 1000 bot-matches. It is also the
-  // fleet pilot's own disclosed KNOWN RESIDUAL ("a second blocker astern can
-  // zero the burst's progress and re-arm with the SAME geometry"), answered
-  // here rather than inherited.
-  it('A BURST THAT ENDS STILL AGROUND skips the hold and swings the other way', () => {
+  // line worth committing to, and repeating the same exit order repeats the
+  // same failure. Since fix wave P19 a retry RE-PROBES without every order that
+  // has already failed on this grounding.
+  it('A BURST THAT ENDS STILL AGROUND skips the hold and re-probes without the orders that failed', () => {
     const w = openWorld(110);
     const port = fakePort(w);
     const rec = mkBot(w, 'battleship', 0, 0, 0);
     const mind = mkMind('bulwark');
     rec.landContact = true; // wedged: nothing the manoeuvre does will clear it
 
-    const rudders: number[] = [];
+    const orders: string[] = [];
     const gaps: number[] = [];
-    let lastAsternAt = 0;
-    let wasAstern = false;
-    for (let i = 0; i < 400; i += 1) {
-      const astern = COMBAT_BRAIN.decide(rec, mind, port).throttle < 0;
-      if (astern && !wasAstern) {
-        rudders.push(mind.unbeach!.rudder);
-        if (lastAsternAt > 0) gaps.push(port.now - lastAsternAt);
+    let lastBurstAt = 0;
+    let wasBursting = false;
+    for (let i = 0; i < 600; i += 1) {
+      COMBAT_BRAIN.decide(rec, mind, port);
+      const bursting = mind.unbeachUntil > 0;
+      if (bursting && !wasBursting) {
+        orders.push(`${mind.unbeach!.throttle},${mind.unbeach!.rudder}`);
+        if (lastBurstAt > 0) gaps.push(port.now - lastBurstAt);
       }
-      if (astern) lastAsternAt = port.now;
-      // NEVER a hold while aground — the hold exists to commit an exit line in
-      // clear water, and there is no clear water here.
+      if (bursting) lastBurstAt = port.now;
+      // NEVER a hold while aground.
       expect(mind.unbeach?.holdUntil ?? 0).toBe(0);
-      wasAstern = astern;
+      wasBursting = bursting;
       port.now += CONFIG.tick.simDtMs;
     }
 
-    expect(rudders.length).toBeGreaterThanOrEqual(3); // it keeps trying
-    for (let i = 1; i < rudders.length; i += 1) expect(rudders[i]).toBe(-rudders[i - 1]);
-    // ...and the gap between attempts is ONE arming dwell, not a dwell plus a
-    // pointless hold: the wedge costs 1.5s of ahead per try, never 4.5s.
+    expect(orders.length).toBeGreaterThanOrEqual(3); // it keeps trying
+    // No order is repeated until every one has been tried.
+    const firstRound = orders.slice(0, Math.min(orders.length, 5));
+    expect(new Set(firstRound).size).toBe(firstRound.length);
+    // ...and the gap between attempts is ONE arming dwell, not a dwell plus a hold.
     for (const gap of gaps) expect(gap).toBeLessThanOrEqual(CONFIG.bots.stuckMs + CONFIG.tick.simDtMs);
   });
 
-  // ...but ONLY a failed exit alternates. A hull that got clear and grounded
-  // again somewhere else deserves a freshly probed coast, not the inverse of a
-  // rudder that WORKED. (Written because the first draft keyed the retry on
-  // "there is previous state" rather than on "the previous burst failed", and
-  // therefore flipped after every success too.)
-  it('a SUCCESSFUL exit does not flip the next attempt', () => {
-    const w = openWorld(111); // no islands: the astern rudder is the fallback
+  // ...but ONLY a failed exit changes the next order. A hull that got clear and
+  // grounded again somewhere else deserves a fresh probe with every order.
+  it('a SUCCESSFUL exit does not change the next attempt', () => {
+    const w = openWorld(111);
     const port = fakePort(w);
     const rec = mkBot(w, 'battleship', 0, 0, 0);
     const mind = mkMind('bulwark');
-    const arm = (): number => {
+    const arm = (): string => {
       rec.landContact = true;
       for (let i = 0; i < 200; i += 1) {
-        const d = COMBAT_BRAIN.decide(rec, mind, port);
+        COMBAT_BRAIN.decide(rec, mind, port);
         port.now += CONFIG.tick.simDtMs;
-        if (d.throttle < 0) return mind.unbeach!.rudder;
+        if (mind.unbeachUntil > 0) return `${mind.unbeach!.throttle},${mind.unbeach!.rudder}`;
       }
       throw new Error('never armed');
     };
     const first = arm();
-    // Clear it properly: off the rock, real sternway -> the burst releases
+    // Clear it properly: off the rock, real ground made -> the burst releases
     // into a hold, which is what marks the attempt as having WORKED.
     rec.landContact = false;
     rec.state.x = CONFIG.bots.unbeachClearU * 2;
-    port.now += CONFIG.tick.simDtMs;
+    port.now = mind.unbeachUntil;
     COMBAT_BRAIN.decide(rec, mind, port);
     expect(mind.unbeach!.holdUntil).toBeGreaterThan(0);
     // Aground again while the hold is still running.
@@ -538,7 +534,7 @@ describe('steering — the priority order is the policy', () => {
     const port = fakePort(w, { cx: -4000, cy: 0, r: 200 }); // far outside it
     const rec = mkBot(w, 'battleship', 0, 0, 0); // bow due east, ring due west
     const mind = mkMind('bulwark');
-    mind.unbeach = { rudder: 1, fromX: 0, fromY: 0, holdUntil: port.now + 10000, holdHeading: 0 };
+    mind.unbeach = { throttle: 1, rudder: 1, exitHeading: 0, fromX: 0, fromY: 0, holdUntil: port.now + 10000, holdHeading: 0 };
     expect(Math.abs(COMBAT_BRAIN.decide(rec, mind, port).rudder)).toBe(1);
   });
 

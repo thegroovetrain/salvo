@@ -599,10 +599,19 @@ export interface SeenTorpedo {
  * captured, plus the whole of stage two, lives here.
  */
 export interface UnbeachState {
-  /** The rudder held for the WHOLE burst, captured ONCE as it arms so the bow
-   *  swings away from the blocking coast instead of flapping tick to tick.
-   *  Already sign-corrected for sternway (see ai/tactics.ts asternRudder). */
+  /** The rudder held for the WHOLE burst, captured ONCE as it arms (the
+   *  PROBED order's, ai/unbeachProbe.ts — fix wave P19) so it cannot flap
+   *  tick to tick. */
   rudder: number;
+  /** The throttle held for the burst — the PROBED order's (fix wave P19:
+   *  ahead or astern, whichever frees the hull). */
+  throttle: number;
+  /** rad — the probed order's end heading: the hold's exit line after a
+   *  successful AHEAD burst (an astern burst's hold keeps backing). */
+  exitHeading: number;
+  /** The orders that already FAILED on this grounding (consecutive failed
+   *  bursts, fix wave P19): the next probe skips them. Absent = none. */
+  failedOrders?: { throttle: number; rudder: number }[];
   /** Where the hull stood when the burst armed — the datum the "has it made
    *  real sternway yet" test measures against (CONFIG.bots.unbeachClearU). */
   fromX: number;

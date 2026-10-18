@@ -106,13 +106,13 @@ import {
   SLOT_GUN,
   angleDiff,
   bearing,
-  nearestCoastPoint,
+  lineClear,
   wrapAngle,
   type EffectiveStats,
   type SlotItemId,
   type Vec2,
 } from '@salvo/shared';
-import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort } from './types.js';
+import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort, UnbeachState } from './types.js';
 import { profileOf, type BotProfile } from './profiles.js';
 import { chooseSpend, type BotSpendState } from './spending.js';
 import { slotAppetite, tacticFor } from './tacticRegistry.js';
@@ -121,6 +121,7 @@ import { noteTorpedoes } from './torpedoThreat.js';
 import { gunBand, ownLitZones, selfIdOf } from './doctrine.js';
 import { atCover } from './cover.js';
 import { coverUsable } from './posture.js';
+import { probeExit } from './unbeachProbe.js';
 import {
   RUDDER_GAIN,
   avoidHulls,
@@ -136,6 +137,7 @@ import {
   kiteBearing,
   navOf,
   nearestRayHitU,
+  sideRayHitU,
   patrolBearing,
   ringClamped,
   ringGoalOf,
@@ -157,16 +159,12 @@ import {
   type BotTrack,
 } from './utility.js';
 
-/** u — how far the un-beach probe looks for the coast to swing away from. */
-const UNBEACH_PROBE_U = 120;
 /** Cruise throttle while holding an engagement band (a bot in its band is
  *  keeping station, not charging). */
 const CRUISE_THROTTLE = 0.6;
-/** Astern throttle while un-beaching. */
+/** Burst throttle when no probed order is on the mind (never in practice:
+ *  beginBurst always stores one). */
 const UNBEACH_THROTTLE = -1;
-/** The astern rudder when no coastline is in reach to turn away from — a FIXED
- *  sign, never an rng pick, so a bow-on beaching still rotates its exit. */
-const UNBEACH_FALLBACK_RUDDER = 1;
 /** u — how far astern of a peer a `duelist` steers for. Just outside the
  *  Torpedo Boat's 56.3u full-ahead turn radius, so the station is reachable by
  *  a turn rather than an endless spiral. */
@@ -396,41 +394,6 @@ export function readyShotReaches(self: BotSelf, stats: EffectiveStats): number[]
 /** Which stage of the un-beach manoeuvre is driving the helm this tick. */
 type Manoeuvre = 'none' | 'astern' | 'hold';
 
-/**
- * The rudder to hold through an astern burst, chosen ONCE as it arms so the
- * BOW swings AWAY from the coast that is blocking it. Nearest coastline wins
- * (first-in-array on ties — deterministic, and rng-free), with the mandatory
- * bounding-circle broadphase before any polygon is visited.
- *
- * It does NOT apply a forward filter (unlike the avoidance fan): a hull
- * that has just been shoved by the resolver can have the rock it is pinned
- * against anywhere around it, and turning away from the nearest land is right
- * in every one of those cases.
- *
- * SIGN NOTE — this is a REVERSE rudder. stepShip scales rudder authority by
- * `speed / steerageSpeed` with a SIGNED speed, so a given rudder yaws the hull
- * the opposite way when making sternway. The forward-sense "turn away" rudder
- * is `cross > 0 ? -1 : +1` (navigate.ts pointBias's idiom); backing, we command its
- * NEGATION to get the same bow swing. `+1` is the fixed fallback when no coast
- * is in reach at all, never a random pick.
- */
-function asternRudder(self: BotSelf, port: BotWorldPort): number {
-  const { x, y, heading } = self.state;
-  const fx = Math.cos(heading);
-  const fy = Math.sin(heading);
-  let cross: number | null = null;
-  let bestD = UNBEACH_PROBE_U;
-  for (const isle of port.map.islands) {
-    if (Math.hypot(isle.x - x, isle.y - y) > UNBEACH_PROBE_U + isle.r) continue;
-    const coast = nearestCoastPoint({ x, y }, isle);
-    if (coast.dist >= bestD) continue;
-    bestD = coast.dist;
-    cross = fx * (coast.y - y) - fy * (coast.x - x);
-  }
-  if (cross === null) return UNBEACH_FALLBACK_RUDDER;
-  return cross > 0 ? 1 : -1;
-}
-
 /** Fold this tick's land contact into the arming dwell, and report whether it
  *  has now tripped. Any tick out of contact resets it, so only water the hull
  *  is genuinely pressing into can arm the manoeuvre. */
@@ -444,27 +407,36 @@ function tripped(self: BotSelf, mind: BotMind): boolean {
 }
 
 /**
- * Stage 1: full astern, under a rudder captured now so it cannot flap.
+ * Stage 1: THE BURST — the PROBED exit order (fix wave P19, ai/unbeachProbe.ts:
+ * every ahead / astern × rudder order rolled forward through the shared
+ * stepShip + resolveShipPose, the one that actually frees the hull taken),
+ * captured now so it cannot flap. It was hard-coded full astern, which is dead
+ * in a notch or a narrowing strait: the stern is against land too.
  *
- * A RETRY SWINGS THE OTHER WAY. `mind.unbeach` surviving with `holdUntil === 0`
- * means the previous burst ended STILL AGROUND (see endBurst), i.e. this hull
- * is in a pocket that one exit direction could not solve — a cove, a concave
- * headland, land astern. Repeating the same rudder there repeats the same
- * failure, so consecutive attempts alternate. It is the harness pilot's
- * disclosed KNOWN RESIDUAL ("a second blocker astern can zero the burst's
- * progress and re-arm with the SAME geometry") answered rather than inherited.
+ * A RETRY RE-PROBES WITHOUT THE ORDER THAT FAILED. `mind.unbeach` surviving
+ * with `holdUntil === 0` means the previous burst FAILED (see endBurst) — the
+ * hull is still aground, or got off without making real ground — so the next
+ * probe skips that order rather than repeating it.
  */
 function beginBurst(self: BotSelf, mind: BotMind, port: BotWorldPort): void {
   const prev = mind.unbeach;
-  // `holdUntil === 0` is precisely "the last burst ended still aground". A
-  // state carrying a real hold came off a SUCCESSFUL burst — a hull that got
-  // clear and then grounded again somewhere else deserves a freshly probed
-  // coast, not the inverse of a rudder that worked.
+  // `holdUntil === 0` is precisely "the last burst failed". A state carrying a
+  // real hold came off a SUCCESSFUL burst — a hull that got clear and then
+  // grounded again somewhere else deserves a fresh probe with every order.
   const failed = prev?.holdUntil === 0 ? prev : null;
+  // Every order that has failed on this grounding (consecutive failed bursts)
+  // is skipped; once all have failed the set starts over.
+  const tried = failed === null ? [] : [...(failed.failedOrders ?? []), { throttle: failed.throttle, rudder: failed.rudder }];
+  const exit = failed === null
+    ? probeExit(self, port, [], CONFIG.bots.unbeachProbeTicks)
+    : probeExit(self, port, tried, CONFIG.bots.unbeachProbeRetryTicks, true);
   mind.stuckMs = 0;
   mind.unbeachUntil = port.now + CONFIG.bots.unbeachAsternMaxMs;
   mind.unbeach = {
-    rudder: failed ? -failed.rudder : asternRudder(self, port),
+    throttle: exit.throttle,
+    rudder: exit.rudder,
+    failedOrders: exit.reset ? [] : tried,
+    exitHeading: exit.exitHeading,
     fromX: self.state.x,
     fromY: self.state.y,
     holdUntil: 0,
@@ -488,21 +460,34 @@ function burstCleared(self: BotSelf, mind: BotMind): boolean {
   return Math.hypot(self.state.x - u.fromX, self.state.y - u.fromY) >= CONFIG.bots.unbeachClearU;
 }
 
+/** u — how far the hull has come from where its burst armed. */
+function burstMovedU(self: BotSelf, u: UnbeachState): number {
+  return Math.hypot(self.state.x - u.fromX, self.state.y - u.fromY);
+}
+
 /**
  * End the burst — into stage 2 if it worked, into a RETRY if it did not.
  *
- * A hull still touching land when its burst ceilings has no exit heading to
- * commit to: holding one would spend `unbeachHoldMs` driving AHEAD into the
- * rock it just failed to leave. So the hold is skipped, the state survives as
- * the "that direction failed" marker beginBurst alternates off, and the dwell
- * re-arms a fresh burst after one `stuckMs`.
+ * A burst FAILED (fix wave P19(b)) when the hull is still touching land OR it
+ * got off having moved less than `unbeachClearU`: either way there is no exit
+ * line worth committing to, so the hold is skipped, the state survives as the
+ * failed-order marker beginBurst re-probes without, and the dwell re-arms a
+ * fresh burst after one `stuckMs` (a burst the probe predicted would move
+ * less than that is still attempted — the best of a bad set — and judged
+ * here). A burst that WORKED opens the hold: after an AHEAD burst it holds
+ * the probed order's end heading; after an ASTERN one it keeps backing
+ * (backingHold) — never an ahead hold on whatever heading it is on (ruled
+ * 2026-10-17).
  */
-function endBurst(self: BotSelf, mind: BotMind, now: number): void {
+function endBurst(self: BotSelf, mind: BotMind, port: BotWorldPort): void {
   mind.unbeachUntil = 0;
-  if (mind.unbeach === undefined || mind.unbeach === null) return;
-  if (self.landContact) return; // wedged: retry, do not hold
-  mind.unbeach.holdUntil = now + CONFIG.bots.unbeachHoldMs;
-  mind.unbeach.holdHeading = self.state.heading;
+  const u = mind.unbeach;
+  if (u === undefined || u === null) return;
+  if (self.landContact || burstMovedU(self, u) < CONFIG.bots.unbeachClearU) return; // failed: retry, do not hold
+  // An ASTERN exit backs out on its own ceiling (backingHold releases it
+  // early); `unbeachHoldMs` governs the ahead hold only.
+  u.holdUntil = port.now + (u.throttle < 0 ? CONFIG.bots.unbeachBackoutMs : CONFIG.bots.unbeachHoldMs);
+  u.holdHeading = u.exitHeading;
 }
 
 /**
@@ -536,6 +521,17 @@ function endBurst(self: BotSelf, mind: BotMind, now: number): void {
  *           single 218s pin on a Battleship, 12% of ALL land contact measured
  *           across 1000 bot-matches, in one hull.
  *
+ * THE PROBED MACHINE (Story 9.13 fix wave P19, orchestrator readings under
+ * amendment 192, 2026-10-17): the burst sends the PROBED order
+ * (ai/unbeachProbe.ts — the first attempt scores displacement over
+ * CONFIG.bots.unbeachProbeTicks, a retry END CLEARANCE first over
+ * unbeachProbeRetryTicks, skipping every order already failed on this
+ * grounding); a burst ending aground or short of unbeachClearU is FAILED; an
+ * AHEAD exit holds the probe's end heading for unbeachHoldMs, an ASTERN exit
+ * keeps backing on its own ceiling, CONFIG.bots.unbeachBackoutMs, released
+ * early once the turn toward the wanted bearing fits or the line to the goal
+ * (route waypoint, else patrol waypoint) is clear on the grid.
+ *
  * The dwell keeps accumulating THROUGH the hold, deliberately: a committed
  * exit heading that happens to run onto another rock must be able to re-arm.
  * It does not accumulate during the burst — that stage already owns the rock.
@@ -552,19 +548,24 @@ function updateManoeuvre(self: BotSelf, mind: BotMind, port: BotWorldPort): Mano
   const now = port.now;
   if (mind.unbeachUntil > 0) {
     if (now < mind.unbeachUntil && !burstCleared(self, mind)) return 'astern';
-    endBurst(self, mind, now);
+    endBurst(self, mind, port);
   }
   if (tripped(self, mind)) {
     beginBurst(self, mind, port);
     return 'astern';
   }
+  return holdStage(self, mind, now);
+}
+
+/** The hold stage, or none — releasing a spent hold or a failed-order marker
+ *  the hull has left behind. A `holdUntil === 0` state is the marker
+ *  beginBurst re-probes without, so it is kept until the hull is off the land
+ *  AND has made real ground from where that burst armed. */
+function holdStage(self: BotSelf, mind: BotMind, now: number): Manoeuvre {
   const u = mind.unbeach;
   if (u === undefined || u === null) return 'none';
   if (now < u.holdUntil) return 'hold';
-  // A finished hold is spent. A `holdUntil === 0` state is the failed-exit
-  // marker beginBurst alternates off, so it is kept exactly as long as the
-  // hull is still touching the thing it failed to leave.
-  if (u.holdUntil > 0 || !self.landContact) mind.unbeach = null;
+  if (u.holdUntil > 0 || (!self.landContact && burstMovedU(self, u) >= CONFIG.bots.unbeachClearU)) mind.unbeach = null;
   return 'none';
 }
 
@@ -727,13 +728,14 @@ function helmFor(
   posture: BotPosture,
   deliberate: boolean,
 ): Helm {
-  const stage = updateManoeuvre(self, mind, port);
-  if (stage === 'astern') {
-    return { throttle: UNBEACH_THROTTLE, rudder: mind.unbeach?.rudder ?? UNBEACH_FALLBACK_RUDDER };
-  }
+  const stage0 = updateManoeuvre(self, mind, port);
+  if (stage0 === 'astern') return burstHelm(mind);
   const escaping = ringEscaping(sit, posture === 'ringRun');
-  if (!escaping && stage === 'none' && sitsStill(self, mind, posture)) return { throttle: throttleFor('hold'), rudder: 0 };
+  if (!escaping && stage0 === 'none' && sitsStill(self, mind, posture)) return { throttle: throttleFor('hold'), rudder: 0 };
   const ctx = navCtxOf(self, mind, port, deliberate);
+  const back = stage0 === 'hold' && !escaping ? backingHold(ctx, self, port, sit, target, posture) : null;
+  if (back !== null) return back;
+  const stage = settledStage(stage0, mind);
   const want = desiredBearing(ctx, self, port, sit, target, posture, stage, escaping);
   const track = clampUnit(angleDiff(self.state.heading, want) * RUDDER_GAIN);
   const avoid =
@@ -742,6 +744,54 @@ function helmFor(
   const base = posture === 'hold' ? 1 : throttleFor(posture);
   const damped = entryDamped(self, mind, port, want, deliberate);
   return { throttle: damped ? Math.min(base, CRUISE_THROTTLE) : base, rudder: composeRudder(track, avoid) };
+}
+
+/** The burst's helm: the PROBED order (fix wave P19); the stage keeps its
+ *  historical name. */
+function burstHelm(mind: BotMind): Helm {
+  return { throttle: mind.unbeach?.throttle ?? UNBEACH_THROTTLE, rudder: mind.unbeach?.rudder ?? 0 };
+}
+
+/** A hold the backing check just released steers as no manoeuvre. */
+function settledStage(stage: Manoeuvre, mind: BotMind): Manoeuvre {
+  return stage === 'hold' && mind.unbeach === null ? 'none' : stage;
+}
+
+/**
+ * THE BACKING HOLD (fix wave P19(b), ruled 2026-10-17): after a successful
+ * ASTERN burst the hold keeps backing on the probed order — a long hull in a
+ * dead-end inlet must back all the way out before it can turn — until the
+ * posture's wanted line is clear on the nav grid for one avoidance reach, or
+ * `unbeachHoldMs` runs out. Null when this is not a backing hold, or when the
+ * line has just cleared (the hold is then released and the helm steers).
+ */
+function backingHold(
+  ctx: NavCtx,
+  self: BotSelf,
+  port: BotWorldPort,
+  sit: BotSituation,
+  target: BotTrack | null,
+  posture: BotPosture,
+): Helm | null {
+  const u = ctx.mind.unbeach;
+  if (u === undefined || u === null || u.throttle >= 0) return null;
+  const want = desiredBearing(ctx, self, port, sit, target, posture, 'none', false);
+  const reach = avoidReachU(self.stats);
+  const goal = ctx.mind.route?.waypoints[0] ?? ctx.mind.patrolWaypoint ?? { x: self.state.x + Math.cos(want) * reach, y: self.state.y + Math.sin(want) * reach };
+  if (turnFits(ctx, self, want) || lineClear(ctx.nav.grid, self.state, goal)) {
+    ctx.mind.unbeach = null;
+    return null;
+  }
+  return { throttle: u.throttle, rudder: u.rudder };
+}
+
+/** Does the turn toward `want` fit — the avoidance fan's rays on that side
+ *  of the bow clear for one own turn radius (the backing hold's early
+ *  release, orchestrator reading under amendment 192)? */
+function turnFits(ctx: NavCtx, self: BotSelf, want: number): boolean {
+  const r = turnRadiusU(self.stats);
+  const side = angleDiff(self.state.heading, want) >= 0 ? 1 : -1;
+  return sideRayHitU(ctx.nav.grid, self.state.x, self.state.y, self.state.heading, r, side) >= r;
 }
 
 /**

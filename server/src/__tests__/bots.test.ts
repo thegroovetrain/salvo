@@ -79,8 +79,11 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
       'stuckMs',
       'supercavCredibleU', // 9.13
       'unbeachAsternMaxMs',
+      'unbeachBackoutMs', // 9.13 fix wave P19 (orchestrator reading under amendment 192)
       'unbeachClearU',
       'unbeachHoldMs',
+      'unbeachProbeRetryTicks', // 9.13 fix wave P19 (ruled 2026-10-17)
+      'unbeachProbeTicks', // 9.13 fix wave P19 (ruled 2026-10-17)
     ]);
     // The navigation block's own keys (Story 9.13; routeRetryMs is fix wave P3).
     expect(Object.keys(CONFIG.bots.nav).sort()).toEqual([

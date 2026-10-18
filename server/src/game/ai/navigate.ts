@@ -173,6 +173,20 @@ export function nearestRayHitU(grid: NavGrid, x: number, y: number, heading: num
   return min;
 }
 
+/** u — the nearest blocked ray on ONE side of the fan (+1 = port, −1 =
+ *  starboard; the dead-ahead ray counts for both) within `reach`: the
+ *  backing hold's turn-fits read (fix wave P19). */
+export function sideRayHitU(grid: NavGrid, x: number, y: number, heading: number, reach: number, side: number): number {
+  const n = Math.max(1, CONFIG.bots.nav.avoidRays);
+  let min = reach;
+  for (let i = 0; i < n; i += 1) {
+    const off = n === 1 ? 0 : -RAY_SPREAD + (2 * RAY_SPREAD * i) / (n - 1);
+    if (off * side < -1e-9) continue;
+    min = Math.min(min, rayHit(grid, x, y, heading + off, reach));
+  }
+  return min;
+}
+
 /** The island term for a bot hull (its own reach, the bearing it wants). */
 export function avoidIslands(self: BotSelf, grid: NavGrid, want: number): number {
   const { x, y, heading } = self.state;

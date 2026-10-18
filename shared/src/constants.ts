@@ -576,6 +576,29 @@ export const CONFIG = {
      */
     unbeachHoldMs: 3000,
     /**
+     * Sim ticks the un-beach PROBE rolls each candidate exit order (ahead /
+     * astern × rudder) through the shared stepShip + resolveShipPose before a
+     * hull's FIRST burst on a grounding, the furthest-displacing order taken —
+     * 60 ticks = 3 s, so a slow exit (MOONRAKER's 7 u in 61 ticks) registers
+     * (Story 9.13 fix wave P19, ruled 2026-10-17 under epic-9 amendment 192:
+     * astern alone is dead in a notch or across a strait). A harness dial.
+     */
+    unbeachProbeTicks: 60,
+    /** Sim ticks a RETRY probe rolls (a burst that failed re-probes the other
+     *  orders over this shorter span; fix wave P19, ruled 2026-10-17). A
+     *  harness dial. */
+    unbeachProbeRetryTicks: 40,
+    /**
+     * ms — the ceiling of the BACKING hold after a successful ASTERN un-beach
+     * burst: a long hull in a dead-end bay backs all the way out (MOONRAKER
+     * needs ~15 s of sternway), released early once the turn toward the
+     * wanted bearing fits (no fan ray on that side hit within one own turn
+     * radius) or the line to the goal is clear on the grid; unbeachHoldMs
+     * governs the AHEAD hold only (orchestrator reading under epic-9
+     * amendment 192, Story 9.13 fix wave P19, 2026-10-17). A harness dial.
+     */
+    unbeachBackoutMs: 15000,
+    /**
      * Fraction of max hp ABOVE the profile's disengage line a fleeing bot must
      * heal to before the break-off may end (Story 9.13, epic-9 amendment 196,
      * [accepted 2026-10-17]): the latch also needs broken contact
