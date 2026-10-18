@@ -58,11 +58,11 @@ import {
   TEST_PROFILES,
   TEST_PROFILE_HULL,
   TEST_PROFILE_IDS,
-  engagementBand,
   isTestProfileId,
   profileOf,
   testProfileHull,
 } from '../game/ai/profiles.js';
+import { gunBand } from '../game/ai/doctrine.js';
 import {
   choosePosture,
   closingSpeed,
@@ -291,42 +291,38 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     }
   });
 
-  it('bands are ordered fractions of the bot\'s OWN MOUNTED GUN reach, never radar (Story 9.8, epic-9 ruling 126 — the stopgap)', () => {
-    for (const p of Object.values(BOT_PROFILES)) {
-      expect(p.bandMinFrac).toBeGreaterThan(0);
-      expect(p.bandMaxFrac).toBeGreaterThan(p.bandMinFrac);
-      expect(p.bandMaxFrac).toBeLessThanOrEqual(1);
+  it('THE GUN OWNS ITS BAND, the profile only nudges it — the 9.8 fractions are retired (epic-9 amendment 198)', () => {
+    const [lo, hi] = CONFIG.bots.gunBand.cannon;
+    for (const p of [...Object.values(BOT_PROFILES), ...Object.values(TEST_PROFILES)]) {
+      expect(Object.hasOwn(p, 'bandMinFrac'), p.id).toBe(false);
+      expect(Object.hasOwn(p, 'bandMaxFrac'), p.id).toBe(false);
+      // A nudge moves the band, never inverts it or carries it past the gun.
+      expect(lo * (1 + p.bandNudge), p.id).toBeGreaterThan(0);
+      expect(hi * (1 + p.bandNudge), p.id).toBeLessThanOrEqual(1);
     }
-    const base = stats('battleship');
-    const siege = profileOf('siege');
-    // The anchor is the gun: a doubled gun reach doubles the band...
-    const longGun = { ...base, equipment: { ...base.equipment, gun: { ...base.equipment.gun, rangeU: base.equipment.gun.rangeU * 2 } } };
-    expect(engagementBand(siege, longGun).max).toBeCloseTo(engagementBand(siege, base).max * 2, 6);
-    // ...while radar range (intel, not reach) moves nothing.
-    const wideRadar = { ...base, radarRange: base.radarRange * 2 };
-    expect(engagementBand(siege, wideRadar)).toEqual(engagementBand(siege, base));
-    // The spec's matrix row: a duelist on the deck gun fights at its
-    // fractions of the cannon's Tier I reach (0.08–0.3 × gun rangeU).
-    const duelist = profileOf('duelist');
-    expect(engagementBand(duelist, base)).toEqual({
-      min: duelist.bandMinFrac * CONFIG.gun.rangeU,
-      max: duelist.bandMaxFrac * CONFIG.gun.rangeU,
-    });
   });
 
-  it('the band reads the MOUNTED gun: a machine gun or flak in the gun slot anchors on its own reach; empty / unknown reads the deck gun', () => {
-    const base = stats('torpedoBoat');
-    const p = profileOf('raider');
+  // RE-STATED (Story 9.13 wave 2, epic-9 amendment 198): the deprecated
+  // profiles.ts engagementBand is deleted; the doctrine band (ai/doctrine.ts
+  // gunBand) carries the same contract.
+  it('the doctrine band anchors on the MOUNTED gun, scales with its reach, ignores radar', () => {
+    const base = stats('battleship');
+    const siege = profileOf('siege');
+    const longGun = { ...base, equipment: { ...base.equipment, gun: { ...base.equipment.gun, rangeU: base.equipment.gun.rangeU * 2 } } };
+    expect(gunBand(siege, longGun).max).toBeCloseTo(gunBand(siege, base).max * 2, 6);
+    const wideRadar = { ...base, radarRange: base.radarRange * 2 };
+    expect(gunBand(siege, wideRadar)).toEqual(gunBand(siege, base));
     for (const gun of ['machineGun', 'flak'] as const) {
-      expect(engagementBand(p, base, gun).max).toBeCloseTo(p.bandMaxFrac * base.equipment[gun].rangeU, 9);
+      expect(gunBand(siege, base, gun).max).toBeLessThanOrEqual(base.equipment[gun].rangeU);
+      expect(gunBand(siege, base, gun).max).toBeGreaterThan(0);
     }
-    expect(engagementBand(p, base, 'gun')).toEqual(engagementBand(p, base));
-    expect(engagementBand(p, base, null)).toEqual(engagementBand(p, base));
-    expect(engagementBand(p, base).max).toBeCloseTo(p.bandMaxFrac * base.equipment.gun.rangeU, 9);
+    expect(gunBand(siege, base, 'gun')).toEqual(gunBand(siege, base));
+    expect(gunBand(siege, base, null)).toEqual(gunBand(siege, base));
   });
 
   it('siege stands off, duelist knife-fights, bulwark trades longest', () => {
-    expect(profileOf('siege').bandMinFrac).toBeGreaterThan(profileOf('duelist').bandMaxFrac);
+    // Amendment 198: the nudge is the profile's whole say in the band.
+    expect(profileOf('siege').bandNudge).toBeGreaterThan(profileOf('duelist').bandNudge);
     // Eric ruling C2, carried by the appetite table since the doctrine pass:
     // siege reaches for flares EAGERLY (the shipped staleness trigger).
     expect(appetiteFor(profileOf('siege'), 'starShells')).toBeGreaterThanOrEqual(APPETITE_EAGER);
@@ -335,30 +331,20 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     }
   });
 
-  it('siege\'s band stays inside the broadside\'s reach on every mounted gun', () => {
-    // Siege's band max is a fraction of its mounted gun's reach (Story 9.8,
-    // ruling 126) and its heavy weapon is the BROADSIDE, whose Tier I reach is
-    // its own dial (ruling 125): a band max past that reach would stand the
-    // broadside out of range of its own preferred water. Checked on the
-    // LONGEST-reaching mounted gun, so every seat gun holds.
-    const st = stats('battleship');
-    const longest = Math.max(st.equipment.gun.rangeU, st.equipment.machineGun.rangeU, st.equipment.flak.rangeU);
-    expect(profileOf('siege').bandMaxFrac * longest).toBeLessThanOrEqual(st.equipment.broadside.rangeU);
-  });
-
   it('THE MINE LAYER HANGS BACK (Eric ruling 2026-08-20, cycle 111): ruled bands and thresholds', () => {
     // Cycle 110's A/B measured the ML dying before its payoff (181.1s afloat
     // vs the random control's 264.0s); Eric ruled these values verbatim —
     // hang back to survive to the payoff. Pinned as literals so a "tuning"
     // drift is a reviewed edit, not an accident.
+    // (The ruled 0.45–0.80 / 0.25–0.50 bands retired with every profile
+    // fraction in Story 9.13, amendment 198: both now nudge the gun's band
+    // OUTWARD — hanging back — and lean away at the odds gate, amendment 194.)
     const forager = profileOf('forager');
-    expect(forager.bandMinFrac).toBe(0.45);
-    expect(forager.bandMaxFrac).toBe(0.8);
+    expect(forager.bandNudge).toBeGreaterThan(0);
     expect(forager.disengageHpFrac).toBe(0.55);
     expect(forager.healHpFrac).toBe(0.6);
     const trapper = profileOf('trapper');
-    expect(trapper.bandMinFrac).toBe(0.25);
-    expect(trapper.bandMaxFrac).toBe(0.5);
+    expect(trapper.bandNudge).toBeGreaterThan(0);
     expect(trapper.disengageHpFrac).toBe(0.45);
     expect(trapper.healHpFrac).toBe(0.6);
     // Forager is now the EARLIEST break-off in the game — survival IS its
@@ -368,7 +354,17 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     for (const id of ['raider', 'duelist', 'bulwark', 'siege', 'trapper'] as const) {
       expect(forager.disengageHpFrac).toBeGreaterThan(profileOf(id).disengageHpFrac);
     }
-    expect(forager.bandMaxFrac).toBeLessThanOrEqual(1);
+    expect(CONFIG.bots.gunBand.cannon[1] * (1 + forager.bandNudge)).toBeLessThanOrEqual(1);
+  });
+
+  it('THE ODDS GATE IS FLAVORED BY PROFILE (epic-9 amendment 194): raider and duelist lean in, bulwark holds, forager and trapper lean away, siege and trapper lie in wait', () => {
+    const bar = (id: BotProfileId) => profileOf(id).oddsThreshold;
+    for (const id of ['raider', 'duelist'] as const) expect(bar(id)).toBeLessThan(bar('bulwark'));
+    for (const id of ['forager', 'trapper'] as const) expect(bar(id)).toBeGreaterThan(bar('bulwark'));
+    const leaners = Object.values(BOT_PROFILES).filter((p) => p.leansIn).map((p) => p.id).sort();
+    expect(leaners).toEqual(['duelist', 'raider']);
+    const holders = Object.values(BOT_PROFILES).filter((p) => p.holdsInCover).map((p) => p.id).sort();
+    expect(holders).toEqual(['siege', 'trapper']);
   });
 
   // REWRITTEN (Story 8.4, FR57/AR48): the old half of this pin —
@@ -583,10 +579,10 @@ describe('ai/utility — LAND IN THE WAY is scored and postured on', () => {
   });
 
   it('forces PURSUE over the band postures, so the bot opens the angle', () => {
-    const band = engagementBand(profileOf('duelist'), stats('torpedoBoat'));
-    const t = plotTrack({ x: Math.min(400, band.max * 0.5), y: 0 });
-    const sit = () => situation({ profile: profileOf('duelist'), stats: stats('torpedoBoat') });
-    expect(choosePosture(sit(), t)).toBe('engage'); // in-band, clear water
+    const st = stats('torpedoBoat');
+    const t = plotTrack({ x: Math.min(400, st.equipment.gun.rangeU * 0.5), y: 0 });
+    const sit = () => situation({ profile: profileOf('duelist'), stats: st });
+    expect(choosePosture(sit(), t)).toBe('engage'); // in own reach, clear water (amendment 194)
     expect(choosePosture({ ...sit(), islands: [circleIsland(t.x * 0.5, 0, 40)] }, t)).toBe('pursue');
   });
 
@@ -848,17 +844,18 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
     expect(choosePosture(situation({ now: NOW, profile: raider, hp: hp * 100 }), t)).toBe('disengage');
   });
 
-  it('no target = reposition; in band = engage; beyond band = pursue', () => {
+  it('no target = reposition; in own reach = engage; beyond it on good odds = pursue (epic-9 amendments 193–195)', () => {
     const duelist = profileOf('duelist');
     const st = stats('torpedoBoat');
-    const band = engagementBand(duelist, st);
-    expect(choosePosture(situation({ now: NOW, profile: duelist, stats: st }), null)).toBe('reposition');
-
-    const near = mind('duelist');
-    expect(choosePosture(situation({ now: NOW, profile: duelist, stats: st }), target(near, band.max - 10))).toBe('engage');
-
+    const reach = st.equipment.gun.rangeU;
+    const sit = situation({ now: NOW, profile: duelist, stats: st, hullId: 'torpedoBoat', maxHp: st.maxHp, hp: st.maxHp });
+    expect(choosePosture(sit, null)).toBe('reposition');
+    expect(choosePosture(sit, target(mind('duelist'), reach - 10))).toBe('engage');
+    // A peer-classed target (its own hull is the duelist's) beyond reach: the
+    // odds read a full hull against a peer — 1.0, past the duelist's bar.
     const far = mind('duelist');
-    expect(choosePosture(situation({ now: NOW, profile: duelist, stats: st }), target(far, band.max + 200))).toBe('pursue');
+    foldView(far, view({ contacts: [{ ...contact('e1', reach + 200, 0, 'torpedoBoat'), speed: 0 }] }), 1000);
+    expect(choosePosture(sit, onlyTrack(far))).toBe('pursue');
   });
 
   /**
@@ -1496,8 +1493,11 @@ describe('ai/profiles — the TEST-ONLY random-spend rows (wave 4)', () => {
       const row = TEST_PROFILES[id];
       expect(row.id).toBe(id);
       expect(row.spend).toBe('random');
-      expect(row.bandMinFrac).toBe(0.15);
-      expect(row.bandMaxFrac).toBe(0.55);
+      // Story 9.13 (amendments 194/198): no nudge, the neutral bar, no lean, no hold.
+      expect(row.bandNudge).toBe(0);
+      expect(row.oddsThreshold).toBe(1);
+      expect(row.leansIn).toBe(false);
+      expect(row.holdsInCover).toBe(false);
       expect(row.targetWeights).toEqual({ captain: 1.0, fleet: 1.0, damaged: 1.0, isolated: 1.0 });
       expect(row.disengageHpFrac).toBe(CONFIG.bots.disengageHpFrac);
       expect(row.healHpFrac).toBe(CONFIG.bots.healHpFrac);

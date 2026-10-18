@@ -13,18 +13,23 @@
 // server would refuse anyway), draws no rng and writes nothing.
 
 import { CONFIG, isAfloat, sectorArcFor, type ConsumableId } from '@salvo/shared';
-import type { BotMind, BotSelf } from './types.js';
+import type { BotMind, BotPosture, BotSelf } from './types.js';
 import { hasPersistence, type BotTrack } from './utility.js';
 import {
   APPETITE_NEUTRAL,
-  TORPEDO_CREDIBLE_U,
+  anyHostileWithin,
   burstOnLiveContact,
+  healthy,
   hunkerCues,
   deepFreezeRows,
+  movingAway,
   nearestLiveAstern,
   nearestLiveInSight,
+  ownDecoyLive,
+  radarChaser,
   sectorPlacement,
   solveTorpedoShot,
+  stamped,
   type ConsumableTactic,
   type TacticContext,
 } from './tacticKit.js';
@@ -73,18 +78,24 @@ const hullRepairTactic: ConsumableTactic = {
 
 /**
  * The torpedo tactic with three substitutions and nothing else (epic-8
- * amendments 74/79): the bow ±15° sector, the 195 u/s lead, and the
- * straight-runner's credible range (it never homes, so the gate never widens).
- * A stack has no stat row, so the speed comes from CONFIG exactly as the
- * server's row reads it.
+ * amendments 74/79): the bow ±15° sector, the 195 u/s lead, and its OWN
+ * credible range — `CONFIG.bots.supercavCredibleU` (epic-9 amendment 199:
+ * the credible range scales with its speed, ~800 u, a dial; the other fish
+ * keep TORPEDO_CREDIBLE_U). It never homes, so the gate never widens. A stack
+ * has no stat row, so the speed comes from CONFIG exactly as the server's
+ * row reads it.
  */
 const supercavTorpedoTactic: ConsumableTactic = {
   id: 'supercavTorpedo',
   kind: 'shot',
-  reachU: () => TORPEDO_CREDIBLE_U,
+  reachU: () => CONFIG.bots.supercavCredibleU,
   want: (ctx) => ctx.target !== null && hasPersistence(ctx.target, ctx.sit.now),
   solve: (ctx) =>
-    solveTorpedoShot(ctx, 'supercavTorpedo', CONFIG.supercavTorpedo.speed, TORPEDO_CREDIBLE_U),
+    stamped(
+      ctx,
+      'supercavTorpedo',
+      solveTorpedoShot(ctx, 'supercavTorpedo', CONFIG.supercavTorpedo.speed, CONFIG.bots.supercavCredibleU),
+    ),
 };
 
 // ---------------------------------------------------------------------------
@@ -122,9 +133,32 @@ const shieldBlockTactic: ConsumableTactic = {
   solve: () => null,
 };
 
+/** The postures that DECLINE a fight (amendment 199): hiding, kiting, or
+ *  repositioning with a hostile plot on the scope. */
+const DECLINE_POSTURES: readonly BotPosture[] = ['hide', 'kite', 'reposition'];
+
+/** The postures that BREAK OFF (amendment 199): fleeing and hiding. */
+const BREAK_OFF_POSTURES: readonly BotPosture[] = ['disengage', 'hide'];
+
+/**
+ * When does the countermeasure's occasion stand (the own-cloud rule aside)?
+ *   (a) on the way OUT — the disengage posture (the shipped rule, unconditional);
+ *   (b) a break-off into HIDE from a radar chaser (a fresh hostile plot, not in
+ *       sight, inside own radar range — amendment 199);
+ *   (c) a DECLINED FIGHT by a HEALTHY bot (at or above its break-off line):
+ *       hide / kite / reposition with any fresh hostile inside own radar range
+ *       (amendment 199).
+ */
+function countermeasureOccasion(ctx: TacticContext): boolean {
+  if (ctx.posture === 'disengage') return true;
+  if (ctx.posture === 'hide' && radarChaser(ctx)) return true;
+  if (!DECLINE_POSTURES.includes(ctx.posture) || !healthy(ctx.sit)) return false;
+  return anyHostileWithin(ctx, ctx.sit.stats.radarRange);
+}
+
 /**
  * MULTI-SPECTRAL COUNTERMEASURE (Story 9.3 — SMOKE SCREEN's seat) — pressed on
- * the way OUT (the disengage posture), NEVER while one of the bot's own
+ * its occasions (countermeasureOccasion), NEVER while one of the bot's own
  * clouds is still up (Eric ruling R12, 2026-09-30: "never while one of your
  * own is running — bad play"; supersedes R8's once-per-retreat bookkeeping).
  * No posture-edge state: a retreat that outlives its cloud may press again
@@ -136,21 +170,29 @@ const countermeasureTactic: ConsumableTactic = {
   kind: 'ability',
   reachU: () => 0,
   want: (ctx: TacticContext) =>
-    isAfloat(ctx.self.lifecycle) &&
-    ctx.posture === 'disengage' &&
-    !ownCloudRunning(ctx.mind, ctx.sit.now),
+    isAfloat(ctx.self.lifecycle) && !ownCloudRunning(ctx.mind, ctx.sit.now) && countermeasureOccasion(ctx),
   solve: () => null,
 };
 
+/** THE RADAR DECOY (amendment 199): breaking off (disengage / hide) from a
+ *  radar chaser, with none of the bot's own buoys already on the water (the
+ *  own-cloud rule's twin — one float at a time, never the whole stack). */
+function radarDecoyWant(ctx: TacticContext): boolean {
+  if (!BREAK_OFF_POSTURES.includes(ctx.posture) || ownDecoyLive(ctx.mind)) return false;
+  return radarChaser(ctx);
+}
+
 /** DECOY BUOY — dropped dead astern at the full placeRange (the mine's rear
  *  sector, the same sector-centre construction) when a seen enemy torpedo is
- *  inbound: a float behind you for the homing fish to find first. */
+ *  inbound (a float behind you for the homing fish to find first), or as a
+ *  radar decoy when breaking off from a radar chaser (radarDecoyWant). */
 const decoyBuoyTactic: ConsumableTactic = {
   id: 'decoyBuoy',
   kind: 'placement',
   reachU: () => CONFIG.mine.placeRange,
-  want: (ctx) => isAfloat(ctx.self.lifecycle) && torpedoInbound(ctx.self, ctx.mind, ctx.sit.now),
-  solve: (ctx) => sectorPlacement(ctx, DECOY_SECTOR, CONFIG.mine.placeRange),
+  want: (ctx) =>
+    isAfloat(ctx.self.lifecycle) && (torpedoInbound(ctx.self, ctx.mind, ctx.sit.now) || radarDecoyWant(ctx)),
+  solve: (ctx) => stamped(ctx, 'decoyBuoy', sectorPlacement(ctx, DECOY_SECTOR, CONFIG.mine.placeRange)),
 };
 
 /**
@@ -173,15 +215,19 @@ const foulingShellTactic: ConsumableTactic = {
   kind: 'shot',
   reachU: () => CONFIG.foulingShell.rangeU,
   want: (ctx) => isAfloat(ctx.self.lifecycle) && foulingShellTarget(ctx) !== null,
-  solve: (ctx) => burstOnLiveContact(ctx, CONFIG.foulingShell.rangeU, foulingShellTarget(ctx)),
+  solve: (ctx) =>
+    stamped(ctx, 'foulingShell', burstOnLiveContact(ctx, CONFIG.foulingShell.rangeU, foulingShellTarget(ctx))),
 };
 
-/** The FOULING SHELL's target under the bot's posture (amendment 65), or
- *  null: engage → nearest live in sight; disengage → nearest live in sight
- *  astern; any other posture → none. */
+/** The FOULING SHELL's target under the bot's posture (amendment 65, extended
+ *  by amendment 199), or null: engage → nearest live in sight; disengage →
+ *  nearest live in sight astern; pursue → nearest live in sight that is
+ *  MOVING AWAY (its course more than 90° off the bearing from it to us — stall
+ *  the runner); any other posture → none. */
 function foulingShellTarget(ctx: TacticContext): BotTrack | null {
   if (ctx.posture === 'engage') return nearestLiveInSight(ctx);
   if (ctx.posture === 'disengage') return nearestLiveAstern(ctx);
+  if (ctx.posture === 'pursue') return nearestLiveInSight(ctx, (t) => movingAway(ctx.sit, t));
   return null;
 }
 

@@ -43,6 +43,8 @@ import { FOG_PLOT_DENSITY, SWEEP_MISS_GRACE_MS, sweptAndMissed, type SweepSite }
 import { foldView } from '../game/ai/utility.js';
 import { aimPoint, solveTorpedoShot, type TacticContext } from '../game/ai/tacticKit.js';
 import { EQUIPMENT_TACTICS } from '../game/ai/tacticRegistry.js';
+import { gunBand } from '../game/ai/doctrine.js';
+import { profileOf } from '../game/ai/profiles.js';
 import { COMBAT_BRAIN, situationOf } from '../game/ai/tactics.js';
 
 const CELL = CONFIG.vision.radarCellU;
@@ -365,7 +367,8 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
     const m = mkMind();
     m.contacts.set('c', anon({ x: 300, y: 0, seenAt: NOW - 4000, paintX: 300, paintY: 0, paintAt: NOW - 4000, vx: 45, vy: 0, vSrc: 'wake', vAt: NOW - 4000 }));
     for (let i = 11; i >= 1; i -= 1) {
-      const at = NOW - i * 50;
+      const at = NOW - i * 100; // one volley window apart (fix wave P7: credits are per volley)
+      m.fireSeq += 1; // eleven CLICKS, eleven volleys (epic-9 amendment 195)
       const q = predictedPos(m.contacts.get('c')!, at);
       foldView(m, view([{ k: 'hc', id: 'me', x: q.x, y: q.y }]), at);
     }
@@ -761,6 +764,12 @@ function fakePort(w: World): BotWorldPort {
     helmEnabled: true,
     submitInput: () => true,
     spendPoint: () => true,
+    // Story 9.13 (amendment 190): the zone readouts — no timeline in a fake.
+    zoneNextRing: () => null,
+    zonePhase: () => ({ phase: 'idle', closesInMs: null }),
+    zoneSafeDisc() {
+      return this.zoneLiveRing;
+    },
   };
 }
 
@@ -779,17 +788,33 @@ function mgCtx(rec: ShipRecord, port: BotWorldPort, mind: BotMind, target: Remem
   return { self: rec, mind, sit: situationOf(rec, mind, port), port, target, posture: 'engage', slot: 0 };
 }
 
+/** u — the duelist's machine-gun HOLD line (amendment 198, ai/doctrine.ts):
+ *  past it the stream holds fire and closes, outside own light. */
+function mgHoldU(rec: ShipRecord): number {
+  return gunBand(profileOf('duelist'), rec.stats, 'machineGun').holdFireAboveU;
+}
+
+/** A mind whose view carries ONE own live lit zone (`by` the shooter, alive
+ *  past now) — small, centred on `at`, so the plot is lit but a point a hull
+ *  beyond it is not (amendments 187/198: the lift and the hold exemption). */
+function litMind(rec: ShipRecord, at: { x: number; y: number }): BotMind {
+  const m = mkMind();
+  m.view = { ...view([]), litZones: [{ id: 'lz', x: at.x, y: at.y, r: 30, until: NOW + 10000, by: rec.id }] };
+  return m;
+}
+
 describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
-  it('HOLDS its magazine on a course-less plot older than one sweep; streams at 3999 ms; streams at 8000 ms with a course', () => {
+  it('HOLDS its magazine on a course-less plot older than one sweep; streams at 3999 ms; streams at 8000 ms with a course (inside the amendment-198 hold line)', () => {
     const { rec, port } = mgShooter();
     const solve = (t: RememberedContact) => EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, mkMind(), t));
-    expect(solve(anon({ x: 300, y: 0, seenAt: NOW - TRACK_PERSIST_MS - 1 }))).toBeNull();
-    expect(solve(anon({ x: 300, y: 0, seenAt: NOW - TRACK_PERSIST_MS + 1 }))?.held).toBe(true);
-    expect(solve(anon({ x: 300, y: 0, seenAt: NOW - 8000, vx: 0, vy: 5, vSrc: 'paint', vAt: NOW - 8000 }))?.held).toBe(true);
+    const x = mgHoldU(rec) - 50; // inside the doctrine hold line, so only the staleness rule decides
+    expect(solve(anon({ x, y: 0, seenAt: NOW - TRACK_PERSIST_MS - 1 }))).toBeNull();
+    expect(solve(anon({ x, y: 0, seenAt: NOW - TRACK_PERSIST_MS + 1 }))?.held).toBe(true);
+    expect(solve(anon({ x, y: 0, seenAt: NOW - 8000, vx: 0, vy: 5, vSrc: 'paint', vAt: NOW - 8000 }))?.held).toBe(true);
     // A plot MEASURED STATIONARY has a course (zero): it streams, however old (F4).
-    expect(solve(anon({ x: 300, y: 0, seenAt: NOW - 6000, vx: 0, vy: 0, vSrc: 'paint', vAt: NOW - 6000 }))?.held).toBe(true);
+    expect(solve(anon({ x, y: 0, seenAt: NOW - 6000, vx: 0, vy: 0, vSrc: 'paint', vAt: NOW - 6000 }))?.held).toBe(true);
     // A live sighting is never held, however the clock reads.
-    expect(solve(anon({ x: 300, y: 0, live: true, seenAt: NOW - 8000 }))?.held).toBe(true);
+    expect(solve(anon({ x, y: 0, live: true, seenAt: NOW - 8000 }))?.held).toBe(true);
   });
 
   it('the cannon keeps NO staleness rule on the same stale course-less plot', () => {
@@ -799,7 +824,7 @@ describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
     expect(shot).not.toBeNull();
   });
 
-  it('AIMS PAST: aimDist = lead-point distance + the target\'s hull length (longest hull when unknown), clamped at reach', () => {
+  it('AIMS PAST: aimDist = lead-point distance + the target\'s hull length (longest hull when unknown), clamped at reach (the edge case in own light, amendment 198)', () => {
     const { rec, port } = mgShooter();
     const rangeU = rec.stats.equipment.machineGun.rangeU;
     const longest = Math.max(...SHIP_CLASS_IDS.map((id) => hullEnvelope(id).hull.length));
@@ -815,7 +840,12 @@ describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
       const p = aimPoint(twin, situationOf(rec, twin, port), t, CONFIG.machineGun.shellSpeed);
       expect(shot.aimDist).toBeCloseTo(Math.min(Math.hypot(p.x, p.y) + over, rangeU), 9);
     }
-    const edge = EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, mkMind(), anon({ x: rangeU - 20, y: 0, seenAt: NOW })))!;
+    // Past the hold line only own light lets the stream fire (amendment 198);
+    // the zone covers the plot but not a hull beyond it, so the overshoot
+    // still clamps at reach.
+    const at = { x: rangeU - 20, y: 0 };
+    expect(at.x).toBeGreaterThan(mgHoldU(rec));
+    const edge = EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, litMind(rec, at), anon({ ...at, seenAt: NOW })))!;
     expect(edge.aimDist).toBe(rangeU);
   });
 
@@ -827,14 +857,17 @@ describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
     expect(EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, mkMind(), leaving))).toBeNull();
   });
 
-  it('HOLDS when the INTERCEPT is beyond reach: outbound 10 u inside reach holds, inbound at the same spot streams', () => {
+  it('HOLDS when the INTERCEPT is beyond reach: outbound 10 u inside reach holds, inbound at the same spot streams (plot in own light past the amendment-198 hold line)', () => {
     const { rec, port } = mgShooter();
     const rangeU = rec.stats.equipment.machineGun.rangeU;
     expect(rangeU).toBe(CONFIG.machineGun.rangeU); // its own Tier I dial (Story 9.8, ruling 125)
-    const out = anon({ x: rangeU - 10, y: 0, seenAt: NOW, vx: 45, vy: 0, vSrc: 'paint', vAt: NOW });
-    expect(EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, mkMind(), out))).toBeNull();
-    const inbound = anon({ x: rangeU - 10, y: 0, seenAt: NOW, vx: -45, vy: 0, vSrc: 'paint', vAt: NOW });
-    const shot = EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, mkMind(), inbound))!;
+    // The plot sits in a small own lit zone, so the doctrine hold is lifted
+    // and the INTERCEPT rule alone decides; the intercept itself is unlit.
+    const at = { x: rangeU - 10, y: 0 };
+    const out = anon({ ...at, seenAt: NOW, vx: 45, vy: 0, vSrc: 'paint', vAt: NOW });
+    expect(EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, litMind(rec, at), out))).toBeNull();
+    const inbound = anon({ ...at, seenAt: NOW, vx: -45, vy: 0, vSrc: 'paint', vAt: NOW });
+    const shot = EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, litMind(rec, at), inbound))!;
     expect(shot.held).toBe(true);
     expect(shot.aimDist).toBe(rangeU); // the overshoot alone clamps at reach
   });

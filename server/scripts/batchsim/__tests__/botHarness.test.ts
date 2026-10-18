@@ -10,7 +10,7 @@
 //
 // NEVER import ../main.ts here — it runs the CLI (process.exit) at import time.
 
-import { describe, it, expect } from 'vitest';
+import { beforeAll, describe, it, expect } from 'vitest';
 import { CONFIG, SHIP_CLASS_IDS, type Island } from '@salvo/shared';
 import { World } from '../../../src/game/world.js';
 import { circleIsland } from '../../../src/__tests__/islandFixture.js';
@@ -21,6 +21,7 @@ import { buildBotAggregate, renderBotReport } from '../botReport.js';
 import type { GameEvent } from '@salvo/shared';
 import { botProfileFor, runMatch, type BatchResult, type MatchSample } from '../runner.js';
 import { TEST_PROFILE_IDS } from '../../../src/game/ai/profiles.js';
+import { emptyBotReadouts, postureEdges } from '../botReadouts.js';
 
 // --- args --------------------------------------------------------------------
 
@@ -135,6 +136,7 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     gun: 'deckGun',
     gunTier: 1,
     killsByTier: [0, 0, 0, 0, 0, 0],
+    ...emptyBotReadouts(),
     ...over,
   };
 }
@@ -556,5 +558,251 @@ describe('Story 9.5 — contact deaths and land-contact damage in the bot aggreg
     const deaths = text.find((l) => l.startsWith('deaths:'))!;
     expect(deaths).toBe('deaths: 5 = 1 by participant + 0 by PvE fleet + 1 by ramming + 2 aground + 1 by storm');
     expect(text).toContain('land-contact damage: 40 hp total, 6.7 hp mean per bot-match');
+  });
+});
+
+// --- Story 9.13 wave 3: the posture-workover readouts --------------------------
+
+/** A shell literal shaped just enough for the readout pass (never stepped). */
+function stagedShell(id: string, ownerId: string, over: Record<string, unknown>): never {
+  return {
+    id,
+    ownerId,
+    x: 0,
+    y: 0,
+    kind: 'shell',
+    family: 'cannon',
+    hits: CONFIG.gun.hits,
+    targetX: 0,
+    targetY: 0,
+    ...over,
+  } as never;
+}
+
+/** Replace this tick's event list (the killsByTier test's seam). */
+function stageEvents(world: World, events: GameEvent[]): void {
+  Object.defineProperty(world, 'tickEvents', { value: events, configurable: true });
+}
+
+const NUMERIC_FIELDS = [
+  'groundedTicks', 'stuckEpisodes', 'outsideRingTicks', 'stormDeathStuck', 'stormDeathAground',
+  'gunShells', 'shotsAtDecoy', 'shotsAtOwnDecoy', 'litShots', 'starShellsFired', 'fogTicks', 'actPresses',
+] as const;
+const RECORD_FIELDS = [
+  'killsBySource', 'shotsBeyondRange', 'postureTicks', 'postureTransitions', 'tacticCounts',
+  'fogTicksByPosture', 'pressesByItem', 'activations',
+] as const;
+const MATCH_FIELDS = ['lastTwoS', 'endgameNoContactMaxS', 'droneGroundedTicks', 'droneStormDeaths'] as const;
+
+const allNumbers = (rec: unknown): boolean =>
+  typeof rec === 'object' && rec !== null && Object.values(rec).every((v) => typeof v === 'number' && Number.isFinite(v));
+
+describe('Story 9.13 — the bot readouts on a real match', () => {
+  const run = (): MatchSample => {
+    const restore = applyOverrides({ 'zone.beatMs': 4000 });
+    try {
+      return runMatch(0, { seed: 913, matches: 1, captains: 0, bots: 4 });
+    } finally {
+      restore();
+    }
+  };
+  let first: MatchSample;
+  beforeAll(() => {
+    first = run();
+  });
+
+  it('every new BotSample / MatchSample field is present and numeric (the JSON shape)', () => {
+    expect(first.bots).toHaveLength(4);
+    for (const b of first.bots!) {
+      for (const f of NUMERIC_FIELDS) expect(typeof b[f], f).toBe('number');
+      for (const f of RECORD_FIELDS) expect(allNumbers(b[f]), f).toBe(true);
+      expect(Object.keys(b.shotsBeyondRange).sort()).toEqual(['cannon', 'flak', 'mg']);
+      expect(Object.keys(b.postureTransitions).sort()).toEqual(['brokenOff', 'held', 'hid', 'kited', 'opened', 'rammed']);
+    }
+    for (const f of MATCH_FIELDS) expect(typeof first[f], f).toBe('number');
+    const agg = buildBotAggregate({ matches: [first], failures: [] }, 4);
+    expect(agg.readouts.ticks).toBe(first.bots!.reduce((a, b) => a + b.ticks, 0));
+    const text = renderBotReport('x', agg);
+    expect(text).toContain('POSTURE (share of afloat bot-ticks, BotController.postureOf each tick):');
+    // Measured, never judged: no PASS/FAIL row is printed for a 9.13 readout.
+    for (const line of text.filter((l) => /^ {2}(PASS|FAIL) /.test(l))) {
+      expect(line).not.toMatch(/posture|grounded|decoy|endgame|fog/i);
+    }
+  });
+
+  it('the posture tally sums to the afloat bot ticks, bot by bot', () => {
+    for (const b of first.bots!) {
+      expect(Object.values(b.postureTicks).reduce((a, n) => a + n, 0)).toBe(b.ticks);
+      expect(b.fogTicks).toBe(Object.values(b.fogTicksByPosture).reduce((a, n) => a + n, 0));
+      expect(b.groundedTicks).toBeLessThanOrEqual(b.ticks);
+    }
+  });
+
+  it('is deterministic: the same seed gives identical readouts', () => {
+    expect(run()).toEqual(first);
+  });
+});
+
+describe('Story 9.13 — the readout counters on a staged world', () => {
+  it('shotsAtOwnDecoy counts a shell aimed at the bot\'s own buoy and not one aimed at a hull', () => {
+    const world = new World(41, 20);
+    const bot = world.addBot(undefined, undefined);
+    const other = world.addBot(undefined, undefined);
+    const col = new BotCollector([bot.id, other.id]);
+    world.decoys.set('d1', { id: 'd1', ownerId: bot.id, x: 900, y: 900, hp: 10, poly: [] } as never);
+    world.decoys.set('d2', { id: 'd2', ownerId: other.id, x: -900, y: -900, hp: 10, poly: [] } as never);
+    world.shells.set('s1', stagedShell('s1', bot.id, { targetX: 903, targetY: 898 }));
+    world.shells.set('s2', stagedShell('s2', bot.id, { targetX: other.state.x, targetY: other.state.y }));
+    col.observe(world, 1);
+    col.observe(world, 1); // a live shell is credited ONCE, on first sighting
+    let row = col.samples(world).find((r) => r.id === bot.id)!;
+    expect(row.shotsAtOwnDecoy).toBe(1);
+    expect(row.shotsAtDecoy).toBe(0);
+    world.shells.set('s3', stagedShell('s3', bot.id, { targetX: -900, targetY: -905 }));
+    col.observe(world, 1);
+    row = col.samples(world).find((r) => r.id === bot.id)!;
+    expect(row.shotsAtDecoy).toBe(1);
+    expect(row.shotsAtOwnDecoy).toBe(1);
+  });
+
+  it('classifies deck-gun shells: own-light (no attenRangeU), beyond range per family, star shells; broadside and tagged shells stay out', () => {
+    // The classifier keys the cannon row on its own `hits` — the broadside's must differ.
+    expect(CONFIG.gun.hits).not.toBe(CONFIG.broadside.hits);
+    const world = new World(42, 20);
+    const bot = world.addBot(undefined, undefined);
+    const col = new BotCollector([bot.id]);
+    const far = { originX: 0, originY: 0, targetX: 400, targetY: 0, attenRangeU: 300 };
+    world.shells.set('a', stagedShell('a', bot.id, {})); // cannon row, no attenRangeU = into own light
+    world.shells.set('b', stagedShell('b', bot.id, { hits: CONFIG.broadside.hits })); // broadside
+    world.shells.set('c', stagedShell('c', bot.id, { lit: { radius: 1, durationMs: 1 } })); // star shell
+    world.shells.set('d', stagedShell('d', bot.id, { burn: { radius: 1, durationMs: 1, dps: 1 } })); // phosphor
+    world.shells.set('e', stagedShell('e', bot.id, { family: 'mg', ...far })); // MG past full range
+    world.shells.set('f', stagedShell('f', bot.id, { family: 'flak', ...far, targetX: 200 })); // flak inside it
+    world.shells.set('g', stagedShell('g', bot.id, { kind: 'torp', family: null, targetX: null, targetY: null }));
+    col.observe(world, 1);
+    const row = col.samples(world)[0];
+    expect(row.gunShells).toBe(3);
+    expect(row.litShots).toBe(1);
+    expect(row.starShellsFired).toBe(1);
+    expect(row.shotsBeyondRange).toEqual({ cannon: 0, mg: 1, flak: 0 });
+  });
+
+  it('stuckEpisodes counts a staged 2 s landContact run once; groundedTicks counts every contact tick', () => {
+    expect(2000).toBeGreaterThanOrEqual(CONFIG.bots.stuckMs); // the staged run really is a stuck one
+    const world = new World(43, 20);
+    const bot = world.addBot(undefined, undefined);
+    const col = new BotCollector([bot.id]);
+    const twoS = 2000 / CONFIG.tick.simDtMs;
+    const brief = Math.floor(CONFIG.bots.stuckMs / CONFIG.tick.simDtMs) - 1;
+    bot.landContact = true;
+    for (let i = 0; i < twoS; i += 1) col.observe(world, 1);
+    bot.landContact = false;
+    col.observe(world, 1);
+    bot.landContact = true;
+    for (let i = 0; i < brief; i += 1) col.observe(world, 1); // a brush shorter than stuckMs
+    const row = col.samples(world)[0];
+    expect(row.stuckEpisodes).toBe(1);
+    expect(row.groundedTicks).toBe(twoS + brief);
+  });
+
+  it('a storm death while aground stamps stormDeathStuck and stormDeathAground', () => {
+    const world = new World(44, 20);
+    const bot = world.addBot(undefined, undefined);
+    const col = new BotCollector([bot.id]);
+    bot.landContact = true;
+    col.observe(world, 1);
+    bot.lastDamageSrc = 'storm';
+    stageEvents(world, [{ k: 'sunk', id: bot.id } as GameEvent]);
+    col.observe(world, 1);
+    const row = col.samples(world)[0];
+    expect(row.end).toBe('sunkByStorm');
+    expect(row.stormDeathStuck).toBe(1);
+    expect(row.stormDeathAground).toBe(1);
+  });
+
+  it('killsBySource buckets a participant kill by the victim\'s last blow', () => {
+    const world = new World(45, 20);
+    const killer = world.addBot(undefined, undefined);
+    const victim = world.addBot(undefined, undefined);
+    const col = new BotCollector([killer.id, victim.id]);
+    victim.lastDamageSrc = 'torpedo';
+    stageEvents(world, [{ k: 'sunk', id: victim.id, by: killer.id } as GameEvent]);
+    col.observe(world, 1);
+    expect(col.samples(world).find((r) => r.id === killer.id)!.killsBySource).toEqual({ torpedo: 1 });
+  });
+
+  it('lastTwoS clocks a 2-bot world; a non-storm hit on a survivor breaks the no-contact run, a storm tick does not', () => {
+    const world = new World(46, 20);
+    const a = world.addBot(undefined, undefined);
+    const b = world.addBot(undefined, undefined);
+    const col = new BotCollector([a.id, b.id]);
+    for (let i = 0; i < 10; i += 1) col.observe(world, 1);
+    a.lastDamageSrc = 'shell';
+    stageEvents(world, [{ k: 'dmg', id: a.id, amount: 1, hp: 99 } as GameEvent]);
+    col.observe(world, 1);
+    b.lastDamageSrc = 'storm';
+    stageEvents(world, [{ k: 'dmg', id: b.id, amount: 1, hp: 99 } as GameEvent]);
+    for (let i = 0; i < 4; i += 1) col.observe(world, 1);
+    const m = col.matchReadouts();
+    const s = (ticks: number): number => Math.round((ticks * CONFIG.tick.simDtMs) / 100) / 10;
+    expect(m.lastTwoS).toBe(s(15));
+    expect(m.endgameNoContactMaxS).toBe(s(10));
+  });
+
+  it('three hulls afloat is not the endgame', () => {
+    const world = new World(47, 20);
+    const ids = [0, 1, 2].map(() => world.addBot(undefined, undefined).id);
+    const col = new BotCollector(ids);
+    for (let i = 0; i < 5; i += 1) col.observe(world, 1);
+    expect(col.matchReadouts().lastTwoS).toBe(0);
+  });
+});
+
+describe('Story 9.13 — postureEdges names the transitions', () => {
+  it('opened / brokenOff / kited / hid / held / rammed', () => {
+    expect(postureEdges('reposition', 'pursue')).toEqual(['opened']);
+    expect(postureEdges('pursue', 'engage')).toEqual([]);
+    expect(postureEdges('engage', 'hide')).toEqual(['brokenOff', 'hid']);
+    expect(postureEdges('disengage', 'hide')).toEqual(['hid']);
+    expect(postureEdges('engage', 'kite')).toEqual(['kited']);
+    expect(postureEdges('farm', 'hold')).toEqual(['held']);
+    expect(postureEdges('disengage', 'ram')).toEqual(['rammed']);
+  });
+});
+
+describe('Story 9.13 — the --tune bots.* family', () => {
+  it('accepts the bot dials, each inside its own range', () => {
+    const opts = parseArgs([
+      '--bots', '4',
+      '--tune', 'bots.stuckMs=1000',
+      '--tune', 'bots.disengageHysteresis=0.2',
+      '--tune', 'bots.gunBand.cannon.0=0.4',
+      '--tune', 'bots.nav.avoidRays=7',
+      '--tune', 'bots.nav.clearancePenalty=0',
+      '--tune', 'bots.cardPoints.carried=-2',
+    ]);
+    expect(opts.tune['bots.gunBand.cannon.0']).toBe(0.4);
+    const before = CONFIG.bots.gunBand.cannon[0];
+    const restore = applyOverrides({}, { 'bots.gunBand.cannon.0': 0.4 });
+    try {
+      expect(CONFIG.bots.gunBand.cannon[0]).toBe(0.4);
+    } finally {
+      restore();
+    }
+    expect(CONFIG.bots.gunBand.cannon[0]).toBe(before);
+  });
+
+  it('refuses unknown keys, out-of-range values, an inverted band and the load-time snapshots', () => {
+    expect(() => parseArgs(['--bots', '4', '--tune', 'bots.nonsense=1'])).toThrow(/does not exist|not a numeric/);
+    expect(() => parseArgs(['--bots', '4', '--tune', 'bots.profiles.0=1'])).toThrow(/not a numeric/);
+    expect(() => parseArgs(['--bots', '4', '--tune', 'bots.decoyDemote=1.5'])).toThrow(/\[0, 1\]/);
+    expect(() => parseArgs(['--bots', '4', '--tune', 'bots.gunBand.flak.1=-0.1'])).toThrow(/\[0, 1\]/);
+    expect(() => parseArgs(['--bots', '4', '--tune', 'bots.nav.avoidRays=0'])).toThrow(/>= 1/);
+    expect(() => parseArgs(['--bots', '4', '--tune', 'bots.stuckMs=-1'])).toThrow(/>= 0/);
+    expect(() => parseArgs(['--bots', '4', '--tune', 'bots.nav.cellU=16'])).toThrow(/NAV_CELL/);
+    expect(() => parseArgs(['--bots', '4', '--tune', 'bots.disengageHpFrac=0.2'])).toThrow(/module load/);
+    const lo = CONFIG.bots.gunBand.cannon[0];
+    expect(() => applyOverrides({}, { 'bots.gunBand.cannon.0': 0.95 })).toThrow(/min <= max/);
+    expect(CONFIG.bots.gunBand.cannon[0]).toBe(lo); // rolled back
   });
 });

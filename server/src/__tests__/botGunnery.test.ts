@@ -7,6 +7,16 @@
 // The hit count is the target's `dmg` events, so it relies on the damage gate
 // emitting exactly one `dmg` per settled POSITIVE blow and none for a settled 0
 // (both deck-gun blow sites guard `amount <= 0` — Story 9.12 review gate).
+//
+// THE DOCTRINE HOLD (Story 9.13, epic-9 amendment 198): a bot machine gun now
+// holds fire past its band's far edge (~0.5 R), which at Tier I sits INSIDE
+// the truesight bubble — so a pinned bot would never stream at a radar-only
+// plot and these pins would measure nothing. They pin the ESTIMATOR and the
+// lead (radar plots, course fits, the sweep miss), not the range doctrine
+// (botDoctrine.test.ts pins that), so the rig widens the bot's MG reach until
+// the doctrine's hold line is the Tier I reach these scenarios were measured
+// at. Aim scatter scales with range, not with rangeU, so the measurement is
+// unchanged.
 
 import { describe, it, expect } from 'vitest';
 import { visibilityTo } from '@salvo/shared';
@@ -14,6 +24,17 @@ import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 import type { BotMind } from '../game/ai/types.js';
 import { predictedPos } from '../game/ai/plot.js';
+import { gunBand } from '../game/ai/doctrine.js';
+import { profileOf } from '../game/ai/profiles.js';
+
+/** Widen the bot's MG reach so the duelist doctrine hold line lands on the
+ *  original Tier I reach (the hold line is linear in rangeU). */
+function widenForDoctrine(bot: ShipRecord): void {
+  const mg = bot.stats.equipment.machineGun;
+  const hold = gunBand(profileOf('duelist'), bot.stats, 'machineGun').holdFireAboveU;
+  const rangeU = mg.rangeU * (mg.rangeU / hold);
+  bot.stats = { ...bot.stats, equipment: { ...bot.stats.equipment, machineGun: { ...mg, rangeU } } };
+}
 
 const TICKS = 1200;
 const DT = 0.05;
@@ -80,6 +101,7 @@ function buildRig(start: { x: number; y: number }): Rig {
   bot.loadout.forEach((_slot, i) => {
     if (i !== 0) bot.loadout[i] = { equipmentId: null, state: null };
   });
+  widenForDoctrine(bot);
   bot.state.x = 0;
   bot.state.y = 0;
   bot.prevPose = { ...bot.state };

@@ -49,7 +49,9 @@ import {
   type EffectiveStats,
   type EquipmentId,
   type ShiftId,
+  type Vec2,
 } from '@salvo/shared';
+import { mountedBandOf, mountedReachOf, reachOf, type EffectiveReach } from './doctrine.js';
 import type { BotPosture, BotSelf } from './types.js';
 import {
   hasPersistence,
@@ -74,6 +76,7 @@ import {
   sectorPlacement,
   shotReaches,
   solveTorpedoShot,
+  stamped,
   type EquipmentTactic,
   type Shot,
   type TacticContext,
@@ -151,15 +154,32 @@ function behindUs(self: BotSelf, sit: BotSituation, t: BotTrack): boolean {
 // ---------------------------------------------------------------------------
 
 /** A gun-family burst (cannon / broadside / flak): aimed to a clicked point at
- *  a clamped range, coastline-gated. */
-function burstSolve(ctx: TacticContext, id: 'gun' | 'broadside' | 'flak', rangeU: number): Shot | null {
+ *  a clamped range, coastline-gated. `litExempt` is the DECK GUNS' lit lift
+ *  (amendments 187/198, ai/doctrine.ts): a led point beyond `rangeU` inside an
+ *  OWN live lit zone is still legal — the server lifts the reach there and
+ *  the shell deals its full blow. The broadside passes none (its reach is its
+ *  own, never lifted). */
+function burstSolve(
+  ctx: TacticContext,
+  id: 'gun' | 'broadside' | 'flak',
+  rangeU: number,
+  litExempt: (p: Vec2) => boolean = () => false,
+): Shot | null {
   const t = ctx.target;
   if (t === null) return null;
   const p = aimPoint(ctx.mind, ctx.sit, t, CONFIG[id].shellSpeed);
   const d = Math.hypot(p.x - ctx.sit.x, p.y - ctx.sit.y);
-  if (d > rangeU) return null;
+  if (d > rangeU && !litExempt(p)) return null;
   if (!shotReaches(ctx.self, ctx.sit, p)) return null;
   return { aim: bearing(ctx.self.state, p), aimDist: d, slot: ctx.slot };
+}
+
+/** THE CANNON: the burst solve on the gun row with the lit lift — otherwise
+ *  unchanged (it fires at any range its row allows, attenuated; the band
+ *  0.5–0.8 R is a STEERING band, amendment 198). */
+function cannonSolve(ctx: TacticContext): Shot | null {
+  const reach = reachOf(ctx, 'gun');
+  return stamped(ctx, 'gun', burstSolve(ctx, 'gun', reach.maxU, reach.litExempt));
 }
 
 const gunTactic: EquipmentTactic = {
@@ -169,22 +189,48 @@ const gunTactic: EquipmentTactic = {
   // Blip shooting is a ruled skill (cycle 99): the gun takes NO persistence
   // gate and no doctrine gate — every legality question lives in solve().
   want: (ctx) => ctx.target !== null,
-  solve: (ctx) => burstSolve(ctx, 'gun', ctx.sit.stats.equipment.gun.rangeU),
+  solve: cannonSolve,
 };
+
+/**
+ * THE MG / FLAK HOLD (amendment 198): a target whose predicted plot lies past
+ * the doctrine band's far edge (`gunBand.holdFireAboveU`, ~0.5 R) is NOT
+ * fired at — the bot holds fire and closes — unless that plot lies inside an
+ * own live lit zone (the shot there is full damage at any range). While the
+ * bot SHADOWS (`kite`, amendment 205) the line is the gun's full rangeU. Read on the
+ * predicted plot (`plotAt`), not the scattered aim, so the line never flickers
+ * with the competence scatter.
+ */
+function holdsFire(ctx: TacticContext, t: BotTrack, litExempt: (p: Vec2) => boolean): boolean {
+  if (distTo(ctx.sit, t) <= mountedBandOf(ctx).holdFireAboveU) return false;
+  return !litExempt(plotAt(ctx.sit, t));
+}
+
+/** FLAK: the burst solve at the LED PREDICTED CENTRE (the 50 u blast forgives
+ *  lead — no aim-past offset; the competence scatter stays), under the hold
+ *  rule and with the lit lift. */
+function flakSolve(ctx: TacticContext): Shot | null {
+  const t = ctx.target;
+  if (t === null) return null;
+  const reach = reachOf(ctx, 'flak');
+  if (holdsFire(ctx, t, reach.litExempt)) return null;
+  return stamped(ctx, 'flak', burstSolve(ctx, 'flak', reach.maxU, reach.litExempt));
+}
 
 // ---------------------------------------------------------------------------
 // THE TWO PICKABLE GUNS (Story 8.15, amendment 109). Both are 360°
 // (amendment 106) and reach the radar rung.
 // ---------------------------------------------------------------------------
 
-/** FLAK: the cannon's burst-solve on the flak row — one shell to the led point,
- *  bursting there. Same no-persistence, no-doctrine want as the cannon. */
+/** FLAK: the cannon's burst-solve on the flak row — one shell to the led
+ *  point, bursting there — under the hold rule (flakSolve). Same
+ *  no-persistence want as the cannon. */
 const flakTactic: EquipmentTactic = {
   id: 'flak',
   kind: 'shot',
   reachU: (stats) => stats.equipment.flak.rangeU,
   want: (ctx) => ctx.target !== null,
-  solve: (ctx) => burstSolve(ctx, 'flak', ctx.sit.stats.equipment.flak.rangeU),
+  solve: flakSolve,
 };
 
 
@@ -226,21 +272,41 @@ function overshootU(t: BotTrack): number {
 function streamSolve(ctx: TacticContext): Shot | null {
   const t = ctx.target;
   const sit = ctx.sit;
-  const rangeU = sit.stats.equipment.machineGun.rangeU;
   if (t === null || streamHolds(t, sit.now)) return null;
-  if (distTo(sit, t) > rangeU) return null;
+  const reach = reachOf(ctx, 'machineGun');
+  // THE HOLD (amendment 198): past the doctrine band's far edge the bot holds
+  // fire and closes — unless the plot sits in its own light.
+  if (holdsFire(ctx, t, reach.litExempt)) return null;
   const p = aimPoint(ctx.mind, sit, t, CONFIG.machineGun.shellSpeed);
   const leadD = Math.hypot(p.x - sit.x, p.y - sit.y);
+  const lit = reach.litExempt(p);
   // An intercept beyond reach holds the stream — the burstSolve rule (cycle
   // 165 review, orchestrator ruling). A shell expires at reach, and a hull
   // whose intercept centre lies past reach has its near edge at or beyond
   // that expiry point, so a stream there only spends the belt (measured on
   // the racetrack probe: strict 79.7 % vs a half-hull margin's 73.4 %). Only
-  // the aim-past overshoot may clamp at reach.
-  if (leadD > rangeU) return null;
+  // the aim-past overshoot may clamp at reach. INSIDE OWN LIGHT the reach is
+  // lifted (amendments 187/198) and the commanded point must stay lit.
+  if (leadD > reach.maxU && !lit) return null;
   if (!shotReaches(ctx.self, sit, p)) return null;
-  const d = Math.min(leadD + overshootU(t), rangeU);
-  return { aim: bearing(ctx.self.state, p), aimDist: d, slot: ctx.slot, held: true };
+  const d = streamDist(ctx.sit, p, leadD + overshootU(t), lit, reach);
+  return stamped(ctx, 'machineGun', { aim: bearing(ctx.self.state, p), aimDist: d, slot: ctx.slot, held: true });
+}
+
+/**
+ * u — the stream's commanded distance: `want` is one hull past the lead point
+ * `p`. Within reach it stands; out of own light it clamps at the gun's reach;
+ * inside own light the server lifts the reach only while the commanded point
+ * is lit, so an overshoot that would leave the zone falls back to the farther
+ * of the reach and the (lit) lead point.
+ */
+function streamDist(sit: BotSituation, p: Vec2, want: number, lit: boolean, reach: EffectiveReach): number {
+  if (want <= reach.maxU) return want;
+  if (!lit) return reach.maxU;
+  const leadD = Math.hypot(p.x - sit.x, p.y - sit.y);
+  const k = leadD > 0 ? want / leadD : 1;
+  const far = { x: sit.x + (p.x - sit.x) * k, y: sit.y + (p.y - sit.y) * k };
+  return reach.litExempt(far) ? want : Math.max(leadD, reach.maxU);
 }
 
 const machineGunTactic: EquipmentTactic = {
@@ -295,7 +361,7 @@ const broadsideTactic: EquipmentTactic = {
   // hasPersistence — built as the counter to CHAFF's fakes, kept after CHAFF's
   // retirement in Story 9.2).
   want: (ctx) => ctx.target !== null && hasPersistence(ctx.target, ctx.sit.now),
-  solve: broadsideSolve,
+  solve: (ctx) => stamped(ctx, 'broadside', broadsideSolve(ctx)),
 };
 
 // ---------------------------------------------------------------------------
@@ -334,7 +400,7 @@ function torpedoTacticFor(id: TorpedoLineId): EquipmentTactic {
     // counts instantly — a fake can never appear inside the bubble).
     want: (ctx) => ctx.target !== null && hasPersistence(ctx.target, ctx.sit.now),
     solve: (ctx) =>
-      solveTorpedoShot(ctx, id, ctx.sit.stats.equipment[id].speed, torpedoReachU(ctx.sit.stats, id)),
+      stamped(ctx, id, solveTorpedoShot(ctx, id, ctx.sit.stats.equipment[id].speed, torpedoReachU(ctx.sit.stats, id))),
   };
 }
 
@@ -394,7 +460,7 @@ function captiveMineWant(ctx: TacticContext): boolean {
 /** The postures in which a PREPARED lay is allowed: the bot is safe — nothing
  *  is being fought or fled — so a round spent seeding the water costs it no
  *  answer to a live threat. */
-const SAFE_LAY_POSTURES: readonly BotPosture[] = ['reposition', 'farm'];
+const SAFE_LAY_POSTURES: readonly BotPosture[] = ['reposition', 'farm', 'hold']; // `hold` (Story 9.13): a bot lying in wait in cover may seed the water
 
 /**
  * THE PREPARED LAY (Eric ruling 2026-08-20, cycle 111 — chosen INTO scope:
@@ -480,7 +546,7 @@ function mineTacticFor(id: MineLineId): EquipmentTactic {
     // the round goes as far out as the rack reaches; a contact or fouling mine
     // stays at half reach, seeding the water the hull just left.
     solve: (ctx) =>
-      sectorPlacement(ctx, REAR_SECTOR, CONFIG.mine.placeRange * (id === 'captiveMines' ? 1 : MINE_DROP_FRAC)),
+      stamped(ctx, id, sectorPlacement(ctx, REAR_SECTOR, CONFIG.mine.placeRange * (id === 'captiveMines' ? 1 : MINE_DROP_FRAC))),
   };
 }
 
@@ -538,6 +604,54 @@ function flareSolve(ctx: TacticContext): Shot | null {
   return { aim: bearing(ctx.self.state, plotAt(ctx.sit, t)), aimDist: d, slot: ctx.slot };
 }
 
+/** Postures in which the flare is NOT spent to shoot (amendment 198: "the bot
+ *  is not breaking off"): fleeing, hiding, running for the ring. */
+const NO_FLARE_TO_SHOOT: readonly BotPosture[] = ['disengage', 'hide', 'ringRun'];
+
+/**
+ * FLARE TO SHOOT (Story 9.13, epic-9 amendment 198) — the CURRENT target is a
+ * radar-only plot beyond the mounted deck gun's reach but inside flare reach,
+ * the bot is not breaking off, and no OWN live lit zone already covers the
+ * plot: light it, so the next ticks' deck-gun shots into the zone are legal
+ * past range at full damage (amendment 187, ai/doctrine.ts). The star-shell
+ * slot's readiness is firePass's gate, as for the sensor flare.
+ */
+function flareToShootWant(ctx: TacticContext): boolean {
+  const t = ctx.target;
+  if (t === null || t.live || t.sunk || NO_FLARE_TO_SHOOT.includes(ctx.posture)) return false;
+  const d = distTo(ctx.sit, t);
+  const reach = mountedReachOf(ctx);
+  if (d <= reach.maxU || d > ctx.sit.stats.equipment.starShells.rangeU) return false;
+  return !reach.litExempt(plotAt(ctx.sit, t));
+}
+
+/** The flare at the plot's PREDICTED point, led at the star shell's own
+ *  speed (the lead solve every round uses), terrain-gated, clamped to reach. */
+function flareToShootSolve(ctx: TacticContext): Shot | null {
+  const t = ctx.target;
+  if (t === null) return null;
+  const p = aimPoint(ctx.mind, ctx.sit, t, CONFIG.starShells.shellSpeed);
+  if (!shotReaches(ctx.self, ctx.sit, p)) return null;
+  const d = Math.min(Math.hypot(p.x - ctx.sit.x, p.y - ctx.sit.y), ctx.sit.stats.equipment.starShells.rangeU);
+  return { aim: bearing(ctx.self.state, p), aimDist: d, slot: ctx.slot };
+}
+
+/**
+ * THE TWO STAR-SHELL ROWS share ONE slot and ONE reload (amendment 198), so
+ * they are evaluated in order on that slot: FLARE TO SHOOT first — the shoot
+ * use wins when both want it — then the stale-plot SENSOR flare.
+ */
+function starShellsSolve(ctx: TacticContext): Shot | null {
+  if (flareToShootWant(ctx)) {
+    const shot = stamped(ctx, 'flareToShoot', flareToShootSolve(ctx));
+    if (shot !== null) return shot;
+  }
+  return stamped(ctx, 'starShells', flareSolve(ctx));
+}
+
+/** The flare-to-shoot row on its own (tests and the harness name it). */
+export const FLARE_TO_SHOOT = Object.freeze({ want: flareToShootWant, solve: flareToShootSolve });
+
 const starShellsTactic: EquipmentTactic = {
   id: 'starShells',
   kind: 'placement',
@@ -546,7 +660,7 @@ const starShellsTactic: EquipmentTactic = {
   // usesStarShells:false flag on bulwark (a hull that CARRIES them natively)
   // is exactly the capability-keyed-by-hull defect this axis retires.
   want: (ctx) => appetiteFor(ctx.sit.profile, 'starShells') >= APPETITE_NEUTRAL,
-  solve: flareSolve,
+  solve: starShellsSolve,
 };
 
 // ---------------------------------------------------------------------------
@@ -560,7 +674,7 @@ const phosphorShellsTactic: EquipmentTactic = {
   kind: 'placement',
   reachU: (stats) => stats.equipment.phosphorShells.rangeU,
   want: (ctx) => appetiteFor(ctx.sit.profile, 'phosphorShells') >= APPETITE_NEUTRAL,
-  solve: (ctx) => burstOnLiveContact(ctx, ctx.sit.stats.equipment.phosphorShells.rangeU),
+  solve: (ctx) => stamped(ctx, 'phosphorShells', burstOnLiveContact(ctx, ctx.sit.stats.equipment.phosphorShells.rangeU)),
 };
 
 // ---------------------------------------------------------------------------

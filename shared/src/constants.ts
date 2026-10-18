@@ -576,6 +576,177 @@ export const CONFIG = {
      */
     unbeachHoldMs: 3000,
     /**
+     * Sim ticks the un-beach PROBE rolls each candidate exit order (ahead /
+     * astern × rudder) through the shared stepShip + resolveShipPose before a
+     * hull's FIRST burst on a grounding, the furthest-displacing order taken —
+     * 60 ticks = 3 s, so a slow exit (MOONRAKER's 7 u in 61 ticks) registers
+     * (Story 9.13 fix wave P19, ruled 2026-10-17 under epic-9 amendment 192:
+     * astern alone is dead in a notch or across a strait). A harness dial.
+     */
+    unbeachProbeTicks: 60,
+    /** Sim ticks a RETRY probe rolls (a burst that failed re-probes the other
+     *  orders over this shorter span; fix wave P19, ruled 2026-10-17). A
+     *  harness dial. */
+    unbeachProbeRetryTicks: 40,
+    /**
+     * ms — the ceiling of the BACKING hold after a successful ASTERN un-beach
+     * burst: a long hull in a dead-end bay backs all the way out (MOONRAKER
+     * needs ~15 s of sternway), released early once the turn toward the
+     * wanted bearing fits (no fan ray on that side hit within one own turn
+     * radius) or the line to the goal is clear on the grid; unbeachHoldMs
+     * governs the AHEAD hold only (orchestrator reading under epic-9
+     * amendment 192, Story 9.13 fix wave P19, 2026-10-17). A harness dial.
+     */
+    unbeachBackoutMs: 15000,
+    /**
+     * Fraction of max hp ABOVE the profile's disengage line a fleeing bot must
+     * heal to before the break-off may end (Story 9.13, epic-9 amendment 196,
+     * [accepted 2026-10-17]): the latch also needs broken contact
+     * (`contactBrokenMs`) or cover reached. A harness dial.
+     */
+    disengageHysteresis: 0.15,
+    /**
+     * ms — how long the chaser must go unseen AND unpainted before a
+     * break-off counts as broken contact (epic-9 amendment 196,
+     * [accepted 2026-10-17]). A harness dial.
+     */
+    contactBrokenMs: 4000,
+    /**
+     * Count of OTHER tracked hostiles within radar range at which a bot is
+     * outnumbered and leaves (epic-9 amendment 195, [accepted 2026-10-17]).
+     * A harness dial.
+     */
+    outnumberedCount: 2,
+    /**
+     * ms — an odds-gate verdict on a contact beyond own reach (pursue /
+     * shadow / decline) is HELD this long unless the target changes, comes
+     * into own reach or a higher clause (ring run, broken hull, ring clauses)
+     * fires, so a plot whose closing sign flickers paint to paint does not
+     * flip the bot between kite and break-off every deliberation
+     * (orchestrator reading under epic-9 amendment 194, Story 9.13 fix wave
+     * P11). 0 = no hold. A harness dial.
+     */
+    gateHoldMs: 1000,
+    /**
+     * ms — a bot does not OPEN a fight when it would have to leave for the
+     * next ring within this long (epic-9 amendment 200 clause 2,
+     * [accepted 2026-10-17]). A harness dial.
+     */
+    ringOpenMarginMs: 30000,
+    /**
+     * ms — the margin in the ring-departure rule: a bot leaves for the next
+     * ring when the water-route time to safety (the flow field's geodesic
+     * distance / own max speed) plus this exceeds the time until the storm
+     * reaches it (epic-9 amendment 200 clause 1, [accepted 2026-10-17]).
+     * A harness dial.
+     */
+    ringLeaveMarginMs: 15000,
+    /**
+     * ms — after a ram lands on a surviving target the bot breaks off into
+     * disengage for at least this long and does not re-ram the pair before
+     * separation (epic-9 amendment 201, [accepted 2026-10-17]). A harness dial.
+     */
+    ramExitMs: 2000,
+    /**
+     * Score multiplier on a radar-only plot that reads as a probable decoy
+     * buoy (tiny paint footprint, no wake, stationary) whenever a live hull
+     * is in weapon reach (epic-9 amendment 197, [accepted 2026-10-17]). A
+     * harness dial.
+     */
+    decoyDemote: 0.1,
+    /**
+     * Consecutive radar sweeps a plot must paint stationary before it counts
+     * as a probable buoy (epic-9 amendment 197, [accepted 2026-10-17]). A
+     * harness dial.
+     */
+    decoyStillSweeps: 2,
+    /**
+     * u — range inside which a supercavitating torpedo is a credible threat
+     * to dodge (epic-9 amendment 199, [accepted 2026-10-17]; replaces the
+     * ai-local TORPEDO_CREDIBLE_U for the supercav). A harness dial.
+     */
+    supercavCredibleU: 800,
+    /**
+     * Score multiplier on a target whose plot lies inside one of the bot's
+     * OWN live star-shell lit zones (epic-9 amendment 204, Eric 2026-10-17,
+     * [accepted 2026-10-17]): the lit target wins ties and most close calls.
+     * A harness dial.
+     */
+    litTargetBonus: 1.5,
+    /**
+     * A `leansIn` profile (raider / duelist) still closes on a failed odds
+     * gate while its odds reach this fraction of its threshold (epic-9
+     * amendments 194/204 — orchestrator reading promoted to a dial,
+     * [accepted 2026-10-17]). A harness dial.
+     */
+    leanInFactor: 0.75,
+    /**
+     * Odds lost per tracked hostile beyond the first near the bot (epic-9
+     * amendments 195/204 — orchestrator reading promoted to a dial,
+     * [accepted 2026-10-17]). A harness dial.
+     */
+    crowdPenalty: 0.5,
+    /**
+     * KITE / SHADOW: the fraction of own reach a bot holds a declined contact
+     * at — it opens inside this and closes past own reach (epic-9 amendment
+     * 194 "shadow at the edge of my reach" — orchestrator reading promoted to
+     * a dial, [accepted 2026-10-17]). A harness dial.
+     */
+    kiteHoldFrac: 0.9,
+    /**
+     * GUN DOCTRINE BANDS (epic-9 amendment 198, [accepted 2026-10-17]) —
+     * [min, max] fractions of each gun's FULL-DAMAGE radius the bot holds
+     * the target inside; the profile only nudges the band. machineGun and
+     * flak HOLD FIRE above the max fraction (close first, then stream /
+     * burst on the predicted centre); the cannon stands off and leads. They
+     * retire the 9.8 stopgap profile fractions. Harness dials.
+     */
+    gunBand: {
+      cannon: [0.5, 0.8],
+      machineGun: [0, 0.5],
+      flak: [0, 0.5],
+    },
+    /**
+     * NAVIGATION (Story 9.13, epic-9 amendments 192/199/202,
+     * [accepted 2026-10-17]) — the dials of shared sim/nav.ts (flow field to
+     * the ring, A* routes when the line is blocked) and the server-side
+     * route following / reactive avoidance built on it. Harness dials.
+     */
+    nav: {
+      /**
+       * u — the navigation raster cell. MUST equal the generator's ratified
+       * NAV_CELL (sim/nav.ts NAV_RULES; asserted in nav.test.ts): bots route
+       * on the very grid every map is validated against (amendment 192).
+       */
+      cellU: 32,
+      /** u — a routed goal is re-planned only once it has moved this far (amendment 192). */
+      routeReplanGoalMoveU: 64,
+      /**
+       * ms — a FAILED route (unreachable / over budget, cached empty) is
+       * retried after this long, or sooner once the bot has moved
+       * routeReplanGoalMoveU from where it was tried (orchestrator reading
+       * under amendment 192, Story 9.13 fix wave P3: a failure is a fact
+       * about one start point, not about the goal forever).
+       */
+      routeRetryMs: 2000,
+      /** A* expansion budget per route; over it the route gives up (null) (amendment 192). */
+      routeBudgetNodes: 20000,
+      /**
+       * Extra cost (cells) for stepping onto navigable water on the shore band
+       * (distanceToLand < 1), scaled by how close it is — keeps routes and the
+       * ring field a cell off the tight-water band (amendment 192).
+       */
+      clearancePenalty: 2,
+      /** Rays in the graded reactive avoidance fan (amendment 192). */
+      avoidRays: 5,
+      /** Avoidance ray reach, in own turn radii (amendment 192). */
+      avoidReachTurnRadii: 3,
+      /** u — island cover wins over fog cover when its detour is within this (amendment 199). */
+      coverDetourU: 600,
+      /** ms — a waypoint (bot patrol / drone fleet) not reached in this long is re-picked (amendment 202). */
+      waypointTimeoutMs: 20000,
+    },
+    /**
      * The six priority profiles (Eric ruling E1: *"Each ship should just get
      * 2-3 different 'priority profiles'"*; unlocked from hulls by Eric ruling
      * 2026-09-30, R6: ANY personality on ANY hull). Enrollment deals one off

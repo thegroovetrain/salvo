@@ -23,22 +23,26 @@
 //
 // THE MATHS ARE PORTED FROM drones.ts, THE MODULE IS NOT (spec: "port the
 // maths, not the module"). The 3-iteration fixed-point lead solve, the
-// nearest-COASTLINE-point island bias behind a mandatory bounding-circle
-// broadphase, the boundary bias and the un-beach trip are all the fleet AI's,
-// re-implemented against the perception view because a fleet hull reads
-// `world.ships` and a bot may not.
+// boundary bias and the un-beach trip are the fleet AI's, re-implemented
+// against the perception view because a fleet hull reads `world.ships` and a
+// bot may not. Since Story 9.13 the STEERING maths live in ai/navigate.ts
+// (graded avoidance on the nav grid, routes, the ring flow field, patrol) and
+// the fleet imports them from there — the one direction the boundary allows.
 //
 // THE RING IS BOTH A FLOOR AND A CEILING. It escapes as a BEARING OVERRIDE
 // when the hull is wet (priority 1 below), and — since the storm-chatter fix —
 // it also CONSTRAINS every bearing the postures choose while the hull is dry
-// (see ringClamped): a heading whose reversal-time run would end outside the
-// ring is rotated to the edge of the legal cone instead. Without that second
+// (see navigate.ts ringClamped): a heading whose reversal-time run would end
+// outside the ring is rotated to the edge of the legal cone instead — or, when
+// that edge runs into land, handed to the ring's flow field (Story 9.13). Without that second
 // half the storm was only ever a post-hoc override, which is why a `disengage`
 // flee — a pure reciprocal of the bearing to the threat, with no ring term at
 // all — sailed straight through the rim and then bounced on it.
 //
 // STEERING PRIORITY — highest first, and the order is the policy:
-//   1. RING ESCAPE. Outside the live ring, steer to its centre at full ahead,
+//   1. RING ESCAPE. Outside the live ring — or DEPARTING for the revealed next
+//      ring in time (Story 9.13, amendment 200(1)) — descend the target
+//      ring's flow field around the land (ai/navigate.ts) at full ahead,
 //      and keep doing so until the hull is a full-ahead turn radius INSIDE the
 //      rim (ringEscaping's deadband — releasing exactly on the boundary is
 //      what produced the ~2.2s in-and-out limit cycle Eric watched).
@@ -68,7 +72,8 @@
 //      can ship (the fleet AI shipped exactly that once), so this outranks
 //      every combat consideration below it.
 //   3. POSTURE. engage / pursue / disengage / farm / reposition, per profile.
-//   4. AVOIDANCE — coastlines, the map edge, and MINES THE BOT CAN SEE (a bot
+//   4. AVOIDANCE — coastlines (since Story 9.13 the graded multi-ray fan on
+//      the nav grid, ai/navigate.ts), the map edge, and MINES THE BOT CAN SEE (a bot
 //      sinking itself on a mine it was looking at reads as broken, so the mine
 //      bias is not optional). It does not replace the posture bearing, but it
 //      does TAKE THE HELM IN PROPORTION TO ITS OWN PRESSURE rather than merely
@@ -101,27 +106,52 @@ import {
   SLOT_GUN,
   angleDiff,
   bearing,
-  hullBumper,
-  nearestCoastPoint,
+  lineClear,
   wrapAngle,
   type EffectiveStats,
-  type Island,
-  type ShipState,
   type SlotItemId,
   type Vec2,
 } from '@salvo/shared';
-import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort } from './types.js';
-import { engagementBand, profileOf, type BotProfile } from './profiles.js';
+import type { BotBrain, BotDecision, BotMind, BotSelf, BotWorldPort, UnbeachState } from './types.js';
+import { profileOf, type BotProfile } from './profiles.js';
 import { chooseSpend, type BotSpendState } from './spending.js';
 import { slotAppetite, tacticFor } from './tacticRegistry.js';
 import { leadPoint, type Shot, type TacticContext } from './tacticKit.js';
 import { noteTorpedoes } from './torpedoThreat.js';
+import { gunBand, ownLitZones, selfIdOf } from './doctrine.js';
+import { atCover } from './cover.js';
+import { coverUsable } from './posture.js';
+import { probeExit } from './unbeachProbe.js';
+import {
+  RUDDER_GAIN,
+  avoidHulls,
+  avoidIslands,
+  avoidMines,
+  avoidReachU,
+  bandOrbit,
+  boundaryBias,
+  clampUnit,
+  composeRudder,
+  departureDue,
+  hullLengthU,
+  kiteBearing,
+  navOf,
+  nearestRayHitU,
+  sideRayHitU,
+  patrolBearing,
+  ringClamped,
+  ringGoalOf,
+  ringRunBearing,
+  steerToward,
+  turnRadiusU,
+  type NavCtx,
+} from './navigate.js';
 import {
   choosePosture,
   foldView,
+  ownReachU,
   plotAt,
   pullBand,
-  ringDeadband,
   ringEscaping,
   selectTargetKey,
   type BotPosture,
@@ -129,25 +159,12 @@ import {
   type BotTrack,
 } from './utility.js';
 
-/** Proportional gain turning heading error into rudder (the fleet AI's). */
-const RUDDER_GAIN = 2;
-/** Rudder magnitude one active avoidance term contributes. */
-const AVOID_STRENGTH = 0.8;
-/** u — lookahead along heading for the coastline-avoidance probe. */
-const ISLAND_LOOKAHEAD = 120;
-/** u — steer back toward centre once within this of the map boundary. */
-const BOUNDARY_MARGIN = 80;
-/** u — lookahead for the visible-mine probe. Three trigger radii: far enough
- *  to turn out of, near enough that a mine abeam is not a phantom threat. */
-const MINE_LOOKAHEAD = CONFIG.mine.triggerRadius * 3;
 /** Cruise throttle while holding an engagement band (a bot in its band is
  *  keeping station, not charging). */
 const CRUISE_THROTTLE = 0.6;
-/** Astern throttle while un-beaching. */
+/** Burst throttle when no probed order is on the mind (never in practice:
+ *  beginBurst always stores one). */
 const UNBEACH_THROTTLE = -1;
-/** The astern rudder when no coastline is in reach to turn away from — a FIXED
- *  sign, never an rng pick, so a bow-on beaching still rotates its exit. */
-const UNBEACH_FALLBACK_RUDDER = 1;
 /** u — how far astern of a peer a `duelist` steers for. Just outside the
  *  Torpedo Boat's 56.3u full-ahead turn radius, so the station is reachable by
  *  a turn rather than an endless spiral. */
@@ -159,12 +176,6 @@ interface Helm {
   rudder: number;
 }
 
-
-function clampUnit(v: number): number {
-  if (v < -1) return -1;
-  if (v > 1) return 1;
-  return v;
-}
 
 // ---------------------------------------------------------------------------
 // THE SELF-READ — the bot's own record (BotSelf, the structural view world.ts
@@ -201,7 +212,23 @@ export function situationOf(self: BotSelf, mind: BotMind, port: BotWorldPort): B
     islands: port.map.islands,
     waterR: port.map.radius,
     gunId: self.loadout[SLOT_GUN]?.equipmentId ?? null, // the band's anchor (Story 9.8, ruling 126)
+    // Story 9.13: own class (ram exit, cover arrival), own lit zones (the
+    // lit-target bonus, amendment 204) and the ring departure (200(1)).
+    hullId: self.hullId,
+    ownLitZones: ownLitZones(mind.view?.litZones, selfIdOf(self), port.now),
+    departing: departingNow(self, mind, port),
   };
+}
+
+/** THE DEPARTURE RULE, once per bot per tick (fix wave P16): the fold's
+ *  situation and the decision's both read it, so the answer is memoised on
+ *  the mind by server ms. */
+function departingNow(self: BotSelf, mind: BotMind, port: BotWorldPort): boolean {
+  if (mind.departingAt === port.now) return mind.departing === true;
+  const due = departureDue({ x: self.state.x, y: self.state.y, stats: self.stats, speed: self.state.speed }, port, navOf(port));
+  mind.departingAt = port.now;
+  mind.departing = due;
+  return due;
 }
 
 /** Everything the card-spend policy needs about the bot's own economy. */
@@ -327,7 +354,9 @@ function chooseAct(
     const tactic = tacticFor(r.id);
     if (tactic === undefined || tactic.kind !== 'ability') continue; // unknown id: fail closed
     if (!slotReady(self, r.slot)) continue;
-    if (tactic.want({ self, mind, sit, port, target, posture, slot: r.slot })) return r.slot;
+    if (!tactic.want({ self, mind, sit, port, target, posture, slot: r.slot })) continue;
+    mind.lastTactic = r.id; // harness readout (Story 9.13)
+    return r.slot;
   }
   return null;
 }
@@ -365,41 +394,6 @@ export function readyShotReaches(self: BotSelf, stats: EffectiveStats): number[]
 /** Which stage of the un-beach manoeuvre is driving the helm this tick. */
 type Manoeuvre = 'none' | 'astern' | 'hold';
 
-/**
- * The rudder to hold through an astern burst, chosen ONCE as it arms so the
- * BOW swings AWAY from the coast that is blocking it. Nearest coastline wins
- * (first-in-array on ties — deterministic, and rng-free), with the mandatory
- * bounding-circle broadphase before any polygon is visited.
- *
- * Unlike `islandBias` this does NOT apply a forward half-disc filter: a hull
- * that has just been shoved by the resolver can have the rock it is pinned
- * against anywhere around it, and turning away from the nearest land is right
- * in every one of those cases.
- *
- * SIGN NOTE — this is a REVERSE rudder. stepShip scales rudder authority by
- * `speed / steerageSpeed` with a SIGNED speed, so a given rudder yaws the hull
- * the opposite way when making sternway. The forward-sense "turn away" rudder
- * is `cross > 0 ? -1 : +1` (islandBias's idiom); backing, we command its
- * NEGATION to get the same bow swing. `+1` is the fixed fallback when no coast
- * is in reach at all, never a random pick.
- */
-function asternRudder(self: BotSelf, port: BotWorldPort): number {
-  const { x, y, heading } = self.state;
-  const fx = Math.cos(heading);
-  const fy = Math.sin(heading);
-  let cross: number | null = null;
-  let bestD = ISLAND_LOOKAHEAD;
-  for (const isle of port.map.islands) {
-    if (Math.hypot(isle.x - x, isle.y - y) > ISLAND_LOOKAHEAD + isle.r) continue;
-    const coast = nearestCoastPoint({ x, y }, isle);
-    if (coast.dist >= bestD) continue;
-    bestD = coast.dist;
-    cross = fx * (coast.y - y) - fy * (coast.x - x);
-  }
-  if (cross === null) return UNBEACH_FALLBACK_RUDDER;
-  return cross > 0 ? 1 : -1;
-}
-
 /** Fold this tick's land contact into the arming dwell, and report whether it
  *  has now tripped. Any tick out of contact resets it, so only water the hull
  *  is genuinely pressing into can arm the manoeuvre. */
@@ -413,27 +407,36 @@ function tripped(self: BotSelf, mind: BotMind): boolean {
 }
 
 /**
- * Stage 1: full astern, under a rudder captured now so it cannot flap.
+ * Stage 1: THE BURST — the PROBED exit order (fix wave P19, ai/unbeachProbe.ts:
+ * every ahead / astern × rudder order rolled forward through the shared
+ * stepShip + resolveShipPose, the one that actually frees the hull taken),
+ * captured now so it cannot flap. It was hard-coded full astern, which is dead
+ * in a notch or a narrowing strait: the stern is against land too.
  *
- * A RETRY SWINGS THE OTHER WAY. `mind.unbeach` surviving with `holdUntil === 0`
- * means the previous burst ended STILL AGROUND (see endBurst), i.e. this hull
- * is in a pocket that one exit direction could not solve — a cove, a concave
- * headland, land astern. Repeating the same rudder there repeats the same
- * failure, so consecutive attempts alternate. It is the harness pilot's
- * disclosed KNOWN RESIDUAL ("a second blocker astern can zero the burst's
- * progress and re-arm with the SAME geometry") answered rather than inherited.
+ * A RETRY RE-PROBES WITHOUT THE ORDER THAT FAILED. `mind.unbeach` surviving
+ * with `holdUntil === 0` means the previous burst FAILED (see endBurst) — the
+ * hull is still aground, or got off without making real ground — so the next
+ * probe skips that order rather than repeating it.
  */
 function beginBurst(self: BotSelf, mind: BotMind, port: BotWorldPort): void {
   const prev = mind.unbeach;
-  // `holdUntil === 0` is precisely "the last burst ended still aground". A
-  // state carrying a real hold came off a SUCCESSFUL burst — a hull that got
-  // clear and then grounded again somewhere else deserves a freshly probed
-  // coast, not the inverse of a rudder that worked.
+  // `holdUntil === 0` is precisely "the last burst failed". A state carrying a
+  // real hold came off a SUCCESSFUL burst — a hull that got clear and then
+  // grounded again somewhere else deserves a fresh probe with every order.
   const failed = prev?.holdUntil === 0 ? prev : null;
+  // Every order that has failed on this grounding (consecutive failed bursts)
+  // is skipped; once all have failed the set starts over.
+  const tried = failed === null ? [] : [...(failed.failedOrders ?? []), { throttle: failed.throttle, rudder: failed.rudder }];
+  const exit = failed === null
+    ? probeExit(self, port, [], CONFIG.bots.unbeachProbeTicks)
+    : probeExit(self, port, tried, CONFIG.bots.unbeachProbeRetryTicks, true);
   mind.stuckMs = 0;
   mind.unbeachUntil = port.now + CONFIG.bots.unbeachAsternMaxMs;
   mind.unbeach = {
-    rudder: failed ? -failed.rudder : asternRudder(self, port),
+    throttle: exit.throttle,
+    rudder: exit.rudder,
+    failedOrders: exit.reset ? [] : tried,
+    exitHeading: exit.exitHeading,
     fromX: self.state.x,
     fromY: self.state.y,
     holdUntil: 0,
@@ -457,21 +460,34 @@ function burstCleared(self: BotSelf, mind: BotMind): boolean {
   return Math.hypot(self.state.x - u.fromX, self.state.y - u.fromY) >= CONFIG.bots.unbeachClearU;
 }
 
+/** u — how far the hull has come from where its burst armed. */
+function burstMovedU(self: BotSelf, u: UnbeachState): number {
+  return Math.hypot(self.state.x - u.fromX, self.state.y - u.fromY);
+}
+
 /**
  * End the burst — into stage 2 if it worked, into a RETRY if it did not.
  *
- * A hull still touching land when its burst ceilings has no exit heading to
- * commit to: holding one would spend `unbeachHoldMs` driving AHEAD into the
- * rock it just failed to leave. So the hold is skipped, the state survives as
- * the "that direction failed" marker beginBurst alternates off, and the dwell
- * re-arms a fresh burst after one `stuckMs`.
+ * A burst FAILED (fix wave P19(b)) when the hull is still touching land OR it
+ * got off having moved less than `unbeachClearU`: either way there is no exit
+ * line worth committing to, so the hold is skipped, the state survives as the
+ * failed-order marker beginBurst re-probes without, and the dwell re-arms a
+ * fresh burst after one `stuckMs` (a burst the probe predicted would move
+ * less than that is still attempted — the best of a bad set — and judged
+ * here). A burst that WORKED opens the hold: after an AHEAD burst it holds
+ * the probed order's end heading; after an ASTERN one it keeps backing
+ * (backingHold) — never an ahead hold on whatever heading it is on (ruled
+ * 2026-10-17).
  */
-function endBurst(self: BotSelf, mind: BotMind, now: number): void {
+function endBurst(self: BotSelf, mind: BotMind, port: BotWorldPort): void {
   mind.unbeachUntil = 0;
-  if (mind.unbeach === undefined || mind.unbeach === null) return;
-  if (self.landContact) return; // wedged: retry, do not hold
-  mind.unbeach.holdUntil = now + CONFIG.bots.unbeachHoldMs;
-  mind.unbeach.holdHeading = self.state.heading;
+  const u = mind.unbeach;
+  if (u === undefined || u === null) return;
+  if (self.landContact || burstMovedU(self, u) < CONFIG.bots.unbeachClearU) return; // failed: retry, do not hold
+  // An ASTERN exit backs out on its own ceiling (backingHold releases it
+  // early); `unbeachHoldMs` governs the ahead hold only.
+  u.holdUntil = port.now + (u.throttle < 0 ? CONFIG.bots.unbeachBackoutMs : CONFIG.bots.unbeachHoldMs);
+  u.holdHeading = u.exitHeading;
 }
 
 /**
@@ -505,6 +521,17 @@ function endBurst(self: BotSelf, mind: BotMind, now: number): void {
  *           single 218s pin on a Battleship, 12% of ALL land contact measured
  *           across 1000 bot-matches, in one hull.
  *
+ * THE PROBED MACHINE (Story 9.13 fix wave P19, orchestrator readings under
+ * amendment 192, 2026-10-17): the burst sends the PROBED order
+ * (ai/unbeachProbe.ts — the first attempt scores displacement over
+ * CONFIG.bots.unbeachProbeTicks, a retry END CLEARANCE first over
+ * unbeachProbeRetryTicks, skipping every order already failed on this
+ * grounding); a burst ending aground or short of unbeachClearU is FAILED; an
+ * AHEAD exit holds the probe's end heading for unbeachHoldMs, an ASTERN exit
+ * keeps backing on its own ceiling, CONFIG.bots.unbeachBackoutMs, released
+ * early once the turn toward the wanted bearing fits or the line to the goal
+ * (route waypoint, else patrol waypoint) is clear on the grid.
+ *
  * The dwell keeps accumulating THROUGH the hold, deliberately: a committed
  * exit heading that happens to run onto another rock must be able to re-arm.
  * It does not accumulate during the burst — that stage already owns the rock.
@@ -521,19 +548,24 @@ function updateManoeuvre(self: BotSelf, mind: BotMind, port: BotWorldPort): Mano
   const now = port.now;
   if (mind.unbeachUntil > 0) {
     if (now < mind.unbeachUntil && !burstCleared(self, mind)) return 'astern';
-    endBurst(self, mind, now);
+    endBurst(self, mind, port);
   }
   if (tripped(self, mind)) {
     beginBurst(self, mind, port);
     return 'astern';
   }
+  return holdStage(self, mind, now);
+}
+
+/** The hold stage, or none — releasing a spent hold or a failed-order marker
+ *  the hull has left behind. A `holdUntil === 0` state is the marker
+ *  beginBurst re-probes without, so it is kept until the hull is off the land
+ *  AND has made real ground from where that burst armed. */
+function holdStage(self: BotSelf, mind: BotMind, now: number): Manoeuvre {
   const u = mind.unbeach;
   if (u === undefined || u === null) return 'none';
   if (now < u.holdUntil) return 'hold';
-  // A finished hold is spent. A `holdUntil === 0` state is the failed-exit
-  // marker beginBurst alternates off, so it is kept exactly as long as the
-  // hull is still touching the thing it failed to leave.
-  if (u.holdUntil > 0 || !self.landContact) mind.unbeach = null;
+  if (u.holdUntil > 0 || (!self.landContact && burstMovedU(self, u) >= CONFIG.bots.unbeachClearU)) mind.unbeach = null;
   return 'none';
 }
 
@@ -558,308 +590,134 @@ export function approachPoint(profile: BotProfile, t: BotTrack, sit?: Pick<BotSi
   return { x: p.x + Math.cos(rear) * REAR_QUARTER_U, y: p.y + Math.sin(rear) * REAR_QUARTER_U };
 }
 
-/** Band-holding geometry: close when outside the band, open when inside its
- *  floor, and hold a beam-on orbit while in it (which is what keeps a bot at
- *  its profile's fighting range instead of ramming through it).
- *
- *  THE BAND PULL (Eric ruling 2026-08-20) is applied HERE, at the helm: a
- *  READY fitted weapon whose reach lies below the profile's near edge tugs
- *  that edge halfway toward its reach (utility.ts pullBand) — so a `siege`
- *  Battleship eases in with a loaded torpedo and drifts back out the moment
- *  the tube empties, while the profile fractions stay the anchor. */
+/** Band holding at the GUN's doctrine band (Story 9.13, amendment 198 —
+ *  ai/doctrine.ts gunBand; the profile only nudges it), with the BAND PULL
+ *  (Eric ruling 2026-08-20) applied here: a READY fitted weapon whose reach
+ *  lies below the band's near edge tugs that edge halfway toward its reach
+ *  (utility.ts pullBand). The beam-on orbit is ai/navigate.ts bandOrbit. */
 function bandBearing(self: BotSelf, sit: BotSituation, t: BotTrack): number {
-  const aim = approachPoint(sit.profile, t, sit);
-  const brg = bearing(self.state, aim);
-  const d = Math.hypot(aim.x - sit.x, aim.y - sit.y);
-  const band = pullBand(engagementBand(sit.profile, sit.stats, sit.gunId), readyShotReaches(self, sit.stats));
-  if (d > band.max) return brg;
-  if (d < band.min) return wrapAngle(brg + Math.PI);
-  const side = angleDiff(brg, self.state.heading) >= 0 ? 1 : -1;
-  return wrapAngle(brg + (Math.PI / 2) * side);
+  const band = pullBand(gunBand(sit.profile, sit.stats, sit.gunId), readyShotReaches(self, sit.stats));
+  return bandOrbit(self.state, approachPoint(sit.profile, t, sit), band);
 }
 
-/** With nothing to chase, make for the live ring centre — the one place on the
- *  water that is always still there in ten minutes. */
-function patrolBearing(self: BotSelf, sit: BotSituation): number {
-  return bearing(self.state, { x: sit.ring.cx, y: sit.ring.cy });
+/** This tick's nav context (ai/navigate.ts). */
+function navCtxOf(self: BotSelf, mind: BotMind, port: BotWorldPort, deliberate: boolean): NavCtx {
+  return { pos: self.state, heading: self.state.heading, mind, nav: navOf(port), now: port.now, hullU: hullLengthU(self.hullId), deliberate };
 }
 
-/** The bearing the POSTURE wants, before the storm gets a say. Every branch
- *  here is a combat decision; none of them knows where the ring is. */
+/** The mind's cover point when it is still usable (inside the live ring and
+ *  the revealed next ring — posture.ts coverUsable, fix wave P2), else null:
+ *  between deliberations a stale point is never steered for. */
+function usableCover(mind: BotMind, port: BotWorldPort, sit: BotSituation): Vec2 | null {
+  const p = mind.coverPoint ?? null;
+  return coverUsable(sit, p, port.zoneNextRing()) ? p : null;
+}
+
+/** NO TARGET (amendments 200(3), 202): siege / trapper make for their cover
+ *  point; everyone else runs the routed, cover-weighted patrol inside the
+ *  always-safe disc (pre-reveal) or the revealed next ring. The live-centre
+ *  patrol and its orbit are retired. */
+function idleBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation): number {
+  const cover = usableCover(ctx.mind, port, sit);
+  if (sit.profile.holdsInCover && cover !== null) return steerToward(ctx, cover);
+  return patrolBearing(ctx, port, sit, avoidReachU(sit.stats));
+}
+
+/** THE BREAK-OFF (disengage / hide, amendment 199): steer (routed) for the
+ *  cover point when there is one, else the reciprocal of the threat. */
+function fleeBearing(ctx: NavCtx, port: BotWorldPort, sit: BotSituation, target: BotTrack | null): number {
+  const cover = usableCover(ctx.mind, port, sit);
+  if (cover !== null) return steerToward(ctx, cover);
+  if (target === null) return idleBearing(ctx, port, sit);
+  return wrapAngle(bearing(ctx.pos, plotAt(sit, target)) + Math.PI);
+}
+
+/** The bearing the POSTURE wants, before the storm gets a say. */
 function postureBearing(
+  ctx: NavCtx,
   self: BotSelf,
+  port: BotWorldPort,
   sit: BotSituation,
   target: BotTrack | null,
   posture: BotPosture,
 ): number {
-  const pos = self.state;
-  if (target === null || posture === 'reposition') return patrolBearing(self, sit);
-  if (posture === 'disengage') return wrapAngle(bearing(pos, plotAt(sit, target)) + Math.PI);
-  if (posture === 'pursue') return bearing(pos, approachPoint(sit.profile, target, sit));
-  if (posture === 'ram') return bearing(pos, ramPoint(self, sit, target));
+  if (posture === 'disengage' || posture === 'hide') return fleeBearing(ctx, port, sit, target);
+  if (target === null || posture === 'reposition' || posture === 'hold') return idleBearing(ctx, port, sit);
+  if (posture === 'pursue') return steerToward(ctx, approachPoint(sit.profile, target, sit));
+  if (posture === 'ram') return bearing(ctx.pos, ramPoint(self, sit, target));
+  if (posture === 'kite') return kiteBearing(self.state, plotAt(sit, target), ownReachU(sit));
   return bandBearing(self, sit, target);
 }
 
 /** THE RAM POINT (Story 9.5, amendment 77): the lead intercept of the target's
  *  plot at the speed the bot will actually close at — the greater of its
- *  rated max and its live speed (the ringLookaheadU reading: a ram runs full
- *  ahead, and a boosted hull closes faster than its rating). The same solve
- *  the guns lead with; a course-less plot is simply its point. */
+ *  rated max and its live speed (a ram runs full ahead, and a boosted hull
+ *  closes faster than its rating). The same solve the guns lead with; a
+ *  course-less plot is simply its point. */
 function ramPoint(self: BotSelf, sit: BotSituation, target: BotTrack): Vec2 {
   const speed = Math.max(sit.stats.kinematics.maxSpeed, Math.max(0, self.state.speed)); // sternway closes nothing
   return leadPoint(sit, target, speed);
 }
 
-/**
- * u — HOW FAR AHEAD A BEARING IS JUDGED AGAINST THE RING.
- *
- * The TIME is the hull's own 180° REVERSAL TIME, `π / turnRate` (Torpedo Boat
- * 3.93s, Mine Layer 5.24s, Battleship 7.85s) — the honest answer to "how long
- * before I could be pointed back inward at all". Anything shorter is a promise
- * the hull cannot keep, and it is exactly why the Battleship read as the
- * offender first: it needs twice the Torpedo Boat's warning and was given the
- * same none. Per-hull and boon-aware for free, because it reads
- * `EffectiveStats.kinematics` rather than a table.
- *
- * THE SPEED IS THE GREATER OF RATED AND ACTUAL, and that is not a hedge — it
- * is the SPEED BOOST. `chooseAct` spends the boost on `disengage`, precisely
- * the posture that runs at the rim, and the ability raises the hull's cap in
- * the WORLD without touching `EffectiveStats.kinematics`; a `raider` therefore
- * makes 56.25 u/s against a rated 45 — Story 8.9 pays +25 % of the
- * ladder-raised cap for 10 s on a 25 s reload, so the gap only WIDENS as SPEED
- * cards land — and covers ~25% more water than a rated lookahead budgets for.
- * Measured (under the pre-8.9 flat +10 u/s boost, when the same gap was 57 vs
- * 45): with the rated figure alone, 15 of 19 residual crossings were boosted
- * raiders. `max()` and not the live speed
- * outright, because a hull loafing at 10 u/s can still accelerate, and
- * shrinking the horizon to match a momentary throttle would hand the storm
- * back the head start this whole constraint exists to deny.
- */
-function ringLookaheadU(stats: EffectiveStats, speed: number): number {
-  const rated = stats.kinematics.maxSpeed;
-  return (Math.max(rated, Math.abs(speed)) * Math.PI) / stats.kinematics.turnRate;
-}
-
-/**
- * THE RING AS A CONSTRAINT ON A CHOSEN HEADING — the whole of this fix.
- *
- * Until now the storm appeared in the bot's steering in exactly one shape: an
- * OVERRIDE, once the hull was already wet. Nothing capped how far a chosen
- * heading could travel, so `disengage`'s pure reciprocal-of-the-bearing flee
- * (`postureBearing`) ran a boosted raider at 55 u/s (the pre-8.9 flat boost;
- * 56.25 and rising with SPEED cards since) in a straight line into
- * the storm whenever the enemy happened to lie inward of it. 8 of the 10
- * measured exits taken while the ring was NOT even closing were `disengage`.
- *
- * THE TEST IS A DISC PROJECTION, one line of algebra. With `u = pos − centre`,
- * `d = |u|`, a run of `L` (see ringLookaheadU) along `dir` and the safe radius
- * `S` below, the run ends at `pos + L·dir`, so it stays inside `S` iff
- *
- *     d² + 2L(u·dir) + L² <= S²    i.e.    u·dir <= (S² − d² − L²) / 2L
- *
- * Dividing by `d` turns that into a bound on the COSINE of the angle off the
- * outward radial, so the violating set is always a cone about "straight out"
- * and the repair is a rotation to its edge on the side the bearing was already
- * on — the smallest correction that satisfies it, never a reversal.
- *
- * THE CONSTRAINT ENGAGES EXACTLY AT `d > S − L` (set the bound to `d` and it
- * factors to `(d + L)² = S²`), so a bot in open water is untouched and a bot
- * near the rim finds its flee bent TANGENTIAL — running along the inside of
- * the ring, which is what a competent human does when cornered. It is a
- * CONSTRAINT and not a behaviour: nothing here chooses a target, a posture, a
- * throttle or a shot, and the deliberately-not-built "priced excursion" (a bot
- * knowingly taking storm damage to break a lethal contact) stays unbuilt.
- *
- * Degenerate cases, both fail-safe: at `d ≈ 0` no heading changes `u·dir` and
- * the bearing stands; when even straight inward cannot make it (`cosMax <= -1`
- * — a collapsing ring smaller than the hull's own reversal run), the least
- * violating heading IS straight inward, which is also what ring escape would
- * command a moment later.
- *
- * MEASURED, 10 matches x 12 bots, seed 7, ~356 bot-minutes: ring crossings 80
- * -> 12, crossings while the ring was NOT closing 69 -> 3, storm damage 492 ->
- * 226 hp, time outside 0.60% -> 0.26%, and the chatter signature itself —
- * median depth reached back inside before the NEXT exit — 0.2u -> 142.9u.
- * Bots fight the same: 10.80 -> 10.90 kills/match and 178.8 -> 177.2 damage
- * per bot-minute, on a mean afloat time that ROSE 2.86 -> 2.97 minutes.
- */
-function ringClamped(pos: ShipState, sit: BotSituation, want: number): number {
-  const ring = sit.ring;
-  const ux = pos.x - ring.cx;
-  const uy = pos.y - ring.cy;
-  const d = Math.hypot(ux, uy);
-  if (!(ring.r > 0) || d < 1e-6) return want;
-  const lookahead = ringLookaheadU(sit.stats, pos.speed);
-  // THE RUN MUST END INSIDE THE DEADBAND, NOT MERELY INSIDE THE RING — the
-  // SAME `ringDeadband` the escape releases at, so "water I may steer into"
-  // and "water I have escaped to" are one boundary rather than two. Measured,
-  // and it is why: clamping against the raw rim puts the constraint's
-  // equilibrium at sqrt(r^2 - L^2), which on a 2223u ring is SEVEN UNITS
-  // inside it — bots ran a perfect tangential orbit and grazed the rim by 1u
-  // anyway, trading Eric's chatter for a wall-hug. Five of seventeen residual
-  // crossings were exactly that, all at 90-110 degrees off the outward radial.
-  const safe = Math.max(0, ring.r - ringDeadband(sit.stats, pos.speed));
-  const cosMax = (safe * safe - d * d - lookahead * lookahead) / (2 * lookahead * d);
-  if (cosMax >= 1) return want; // the whole compass ends inside: no constraint
-  const out = Math.atan2(uy, ux); // the outward radial — the cone's axis
-  if (cosMax <= -1) return wrapAngle(out + Math.PI); // nothing fits: run inward
-  const off = angleDiff(out, want); // signed angle of `want` off the radial
-  const limit = Math.acos(cosMax);
-  if (Math.abs(off) >= limit) return want;
-  return wrapAngle(out + (off >= 0 ? limit : -limit));
-}
-
-/** The bearing the helm wants, applying the priority order in the header. The
+/** The bearing the helm wants, applying the priority order in the header:
+ *  the ring run (the target ring's flow field), the un-beach hold, else the
+ *  posture's bearing under the land-aware ring clamp (ai/navigate.ts). The
  *  astern stage never asks: it steers on its captured rudder (see helmFor).
  *
  *  THE HOLD IS DELIBERATELY NOT CLAMPED. It is the un-beach machine's
  *  committed exit heading, chosen to get a hull OFF a rock, and bending it
- *  toward the ring centre is how a bot re-beaches on the same coast. Ring
- *  escape already outranks it (the clause above), which is the case that
- *  actually matters; the constraint is for headings a bot chose freely. */
+ *  toward the ring is how a bot re-beaches on the same coast. Ring escape
+ *  already outranks it; the constraint is for headings a bot chose freely. */
 function desiredBearing(
+  ctx: NavCtx,
   self: BotSelf,
-  mind: BotMind,
+  port: BotWorldPort,
   sit: BotSituation,
   target: BotTrack | null,
   posture: BotPosture,
-  holding: boolean,
+  stage: Manoeuvre,
+  escaping: boolean,
 ): number {
   const pos = self.state;
-  if (ringEscaping(sit, posture === 'ringRun')) return bearing(pos, { x: sit.ring.cx, y: sit.ring.cy });
-  if (holding) return mind.unbeach?.holdHeading ?? pos.heading;
-  return ringClamped(pos, sit, postureBearing(self, sit, target, posture));
+  if (escaping) return ringRunBearing(pos, ctx.nav, ringGoalOf(port));
+  if (stage === 'hold') return ctx.mind.unbeach?.holdHeading ?? pos.heading;
+  return ringClamped(pos, sit, postureBearing(ctx, self, port, sit, target, posture), ctx.nav, ringGoalOf(port));
 }
 
-/** Full ahead everywhere except holding a band (station-keeping) — a `ram`
- *  (Story 9.5) is full ahead by construction. */
+/** HOLD stations at zero throttle (amendment 199); holding a band
+ *  (engage / farm) cruises; everything else — a `ram` included — is full
+ *  ahead. */
 function throttleFor(posture: BotPosture): number {
+  if (posture === 'hold') return 0;
   return posture === 'engage' || posture === 'farm' ? CRUISE_THROTTLE : 1;
 }
 
-/**
- * The shared avoidance kernel: a rudder bias away from ONE hazard point that
- * lies ahead within `lookahead`. cross(heading, toHazard) > 0 means the hazard
- * is to port, so steer starboard, and vice versa. Hazards astern contribute
- * nothing — you are already leaving.
- */
-function pointBias(hx: number, hy: number, x: number, y: number, fx: number, fy: number, lookahead: number): number {
-  const dx = hx - x;
-  const dy = hy - y;
-  if (Math.hypot(dx, dy) > lookahead) return 0;
-  if (dx * fx + dy * fy <= 0) return 0; // astern
-  return fx * dy - fy * dx > 0 ? -AVOID_STRENGTH : AVOID_STRENGTH;
+/** Dead in the water this tick: HOLD always (amendment 199), and a HIDE that
+ *  has reached its cover point (the orchestrator's reading under 199 — the
+ *  posture stays `hide` and re-evaluates every deliberation). */
+function sitsStill(self: BotSelf, mind: BotMind, posture: BotPosture): boolean {
+  if (posture === 'hold') return true;
+  if (posture !== 'hide') return false;
+  return atCover({ x: self.state.x, y: self.state.y, hullLength: hullLengthU(self.hullId) }, mind.coverPoint);
 }
 
 /**
- * Rudder bias away from one island's COASTLINE. Keyed on the nearest point of
- * the real coast, never the bounding-circle centre — the tip of a long
- * landmass can be dead ahead while its centre is abeam. BROADPHASE IS
- * MANDATORY (this runs per bot per island per tick): the bounding circle
- * rejects before any edge is visited.
- */
-function islandBias(isle: Island, x: number, y: number, fx: number, fy: number): number {
-  if (Math.hypot(isle.x - x, isle.y - y) > ISLAND_LOOKAHEAD + isle.r) return 0;
-  const coast = nearestCoastPoint({ x, y }, isle);
-  if (coast.dist > ISLAND_LOOKAHEAD) return 0;
-  return pointBias(coast.x, coast.y, x, y, fx, fy, ISLAND_LOOKAHEAD);
-}
-
-/** Summed coastline bias over every island. */
-function avoidIslands(self: BotSelf, port: BotWorldPort): number {
-  const { x, y, heading } = self.state;
-  const fx = Math.cos(heading);
-  const fy = Math.sin(heading);
-  let bias = 0;
-  for (const isle of port.map.islands) bias += islandBias(isle, x, y, fx, fy);
-  return bias;
-}
-
-/**
- * Summed bias away from every mine the bot CAN SEE — its own are skipped
- * because an owner never trips its own rack, so a `trapper` is free to sail
- * through its own field. Everything here comes from the perception view's
- * `mines`, which already carries the 3/8 detect gate: a bot avoids exactly the
- * mines a human in its seat would have been shown.
- */
-function avoidMines(self: BotSelf, mind: BotMind): number {
-  if (mind.view === null) return 0;
-  const { x, y, heading } = self.state;
-  const fx = Math.cos(heading);
-  const fy = Math.sin(heading);
-  let bias = 0;
-  for (const m of mind.view.mines) {
-    if (m.own) continue;
-    bias += pointBias(m.x, m.y, x, y, fx, fy, MINE_LOOKAHEAD);
-  }
-  return bias;
-}
-
-/**
- * HULL AVOIDANCE (Story 9.5, amendment 26): the island kernel summed over
- * every LIVE remembered contact — a hull the bot can see right now, so its
- * position is this tick's — within `CONFIG.bots.hullLookaheadU` [DRAFT], the
- * island lookahead plus a hull length. Solid hulls cost hp to touch, so a
- * bot rounds a hull ahead exactly as it rounds a headland.
+ * Throttle + rudder for this tick: the desired bearing, with every avoidance
+ * term composed onto the rudder by the helmLeft rule (ai/navigate.ts
+ * composeRudder: avoidance claims the helm in proportion to its own pressure —
+ * the plain sum it replaced turned a saturated track TOWARD the land the probe
+ * had just found; measured over the 60 s bow-on beaching drill 41.6 % ->
+ * 8.0 % ticks in contact). Islands are the graded multi-ray fan on the nav
+ * grid (Story 9.13, amendment 192(c)); mines, hulls and the map edge keep
+ * their point kernels.
  *
- * THE TARGET IS NOT A STRANGER (review gate, 2026-10-13): the bot's own
- * target (`mind.targetKey`) is avoided only inside the BUMPER — own
- * half-length + its half-length + `CONFIG.bots.hullBumperU` — because every
- * knife-range engagement band sits inside the 150 u probe, and a duelist
- * pursuing its mark 120 u ahead was being steered away from it. Under the
- * `ram` posture the target is not avoided at all: the ONE hull a ramming bot
- * must not steer around (islands, mines and the boundary stay live even then).
- */
-function avoidHulls(self: BotSelf, mind: BotMind, posture: BotPosture): number {
-  const { x, y, heading } = self.state;
-  const fx = Math.cos(heading);
-  const fy = Math.sin(heading);
-  let bias = 0;
-  for (const [key, t] of mind.contacts) {
-    if (!t.live) continue;
-    const isTarget = key === mind.targetKey;
-    if (isTarget && posture === 'ram') continue;
-    const reach = isTarget ? hullBumper(self.hullId, t.cls) : CONFIG.bots.hullLookaheadU;
-    bias += pointBias(t.x, t.y, x, y, fx, fy, reach);
-  }
-  return bias;
-}
-
-/** Near the map edge, steer back toward the middle. */
-function boundaryBias(self: BotSelf, port: BotWorldPort): number {
-  const pos = self.state;
-  if (Math.hypot(pos.x, pos.y) < port.map.radius - BOUNDARY_MARGIN) return 0;
-  return clampUnit(angleDiff(pos.heading, bearing(pos, { x: 0, y: 0 }))) * AVOID_STRENGTH;
-}
-
-/**
- * Throttle + rudder for this tick: the posture bearing, with every avoidance
- * term composed onto the rudder.
- *
- * AVOIDANCE YIELDS THE HELM IN PROPORTION TO ITS OWN PRESSURE, and this is a
- * fix, not a taste. The shipped composition was a plain sum, `track + avoid`,
- * over a track term that SATURATES at ±1: a bearing running straight through a
- * coastline pinned track at +1 against a single island term of −0.8, netting
- * +0.2 — a turn TOWARD the land the probe had just found. Even at equilibrium
- * the sum only bought a 0.4/2 = 22.9° offset from a bearing aimed at rock,
- * which on most approach geometries is not a miss. Weighting the track term by
- * the avoidance headroom (`1 − |avoid|`) makes one active island term claim
- * 80% of the helm and two claim all of it, so the bot rounds the obstacle and
- * resumes its bearing when the coast leaves the probe's forward half-disc,
- * instead of grinding along it. Measured over the 60s bow-on beaching drill
- * (per class × 4 map seeds, mean ticks in land contact): 41.6% before this
- * cycle → 25.4% with the three-stage manoeuvre alone → 8.0% with this. It
- * changes NO target selection, no engagement band and no profile table — the
- * bot still wants exactly what it wanted; it just cannot insist through a
- * headland.
- *
- * THE ASTERN STAGE TAKES NO AVOIDANCE AT ALL, and the reason is the same sign
- * inversion asternRudder documents: every avoidance term here is a FORWARD-
- * sense bias (steer so the bow swings away), but rudder authority is scaled by
- * a SIGNED speed, so while making sternway those terms yaw the hull the wrong
- * way — they would fight the very turn the burst captured its rudder to make.
- * Backing therefore steers on the captured rudder ALONE. The hold is ordinary
- * ahead steering, so avoidance stays live through it exactly as usual.
+ * THE ASTERN STAGE TAKES NO AVOIDANCE AT ALL: every avoidance term is a
+ * FORWARD-sense bias, and rudder authority is scaled by a SIGNED speed, so
+ * while making sternway those terms would fight the very turn the burst
+ * captured its rudder to make. HOLD — and a HIDE at its cover point — (not
+ * escaping, not un-beaching) sits dead in the water: throttle 0, rudder 0, no
+ * wake; a `hold` posture
+ * that is escaping or un-beaching steers like any other at full ahead.
  */
 function helmFor(
   self: BotSelf,
@@ -868,18 +726,90 @@ function helmFor(
   sit: BotSituation,
   target: BotTrack | null,
   posture: BotPosture,
+  deliberate: boolean,
 ): Helm {
-  const stage = updateManoeuvre(self, mind, port);
-  if (stage === 'astern') {
-    return { throttle: UNBEACH_THROTTLE, rudder: mind.unbeach?.rudder ?? UNBEACH_FALLBACK_RUDDER };
-  }
-  const want = desiredBearing(self, mind, sit, target, posture, stage === 'hold');
+  const stage0 = updateManoeuvre(self, mind, port);
+  if (stage0 === 'astern') return burstHelm(mind);
+  const escaping = ringEscaping(sit, posture === 'ringRun');
+  if (!escaping && stage0 === 'none' && sitsStill(self, mind, posture)) return { throttle: throttleFor('hold'), rudder: 0 };
+  const ctx = navCtxOf(self, mind, port, deliberate);
+  const back = stage0 === 'hold' && !escaping ? backingHold(ctx, self, port, sit, target, posture) : null;
+  if (back !== null) return back;
+  const stage = settledStage(stage0, mind);
+  const want = desiredBearing(ctx, self, port, sit, target, posture, stage, escaping);
   const track = clampUnit(angleDiff(self.state.heading, want) * RUDDER_GAIN);
   const avoid =
-    avoidIslands(self, port) + avoidMines(self, mind) + boundaryBias(self, port)
+    avoidIslands(self, ctx.nav.grid, want) + avoidMines(self, mind) + boundaryBias(self.state, port.map.radius)
     + avoidHulls(self, mind, posture);
-  const helmLeft = Math.max(0, 1 - Math.abs(avoid));
-  return { throttle: throttleFor(posture), rudder: clampUnit(track * helmLeft + avoid) };
+  const base = posture === 'hold' ? 1 : throttleFor(posture);
+  const damped = entryDamped(self, mind, port, want, deliberate);
+  return { throttle: damped ? Math.min(base, CRUISE_THROTTLE) : base, rudder: composeRudder(track, avoid) };
+}
+
+/** The burst's helm: the PROBED order (fix wave P19); the stage keeps its
+ *  historical name. */
+function burstHelm(mind: BotMind): Helm {
+  return { throttle: mind.unbeach?.throttle ?? UNBEACH_THROTTLE, rudder: mind.unbeach?.rudder ?? 0 };
+}
+
+/** A hold the backing check just released steers as no manoeuvre. */
+function settledStage(stage: Manoeuvre, mind: BotMind): Manoeuvre {
+  return stage === 'hold' && mind.unbeach === null ? 'none' : stage;
+}
+
+/**
+ * THE BACKING HOLD (fix wave P19(b), ruled 2026-10-17): after a successful
+ * ASTERN burst the hold keeps backing on the probed order — a long hull in a
+ * dead-end inlet must back all the way out before it can turn — until the
+ * posture's wanted line is clear on the nav grid for one avoidance reach, or
+ * `unbeachHoldMs` runs out. Null when this is not a backing hold, or when the
+ * line has just cleared (the hold is then released and the helm steers).
+ */
+function backingHold(
+  ctx: NavCtx,
+  self: BotSelf,
+  port: BotWorldPort,
+  sit: BotSituation,
+  target: BotTrack | null,
+  posture: BotPosture,
+): Helm | null {
+  const u = ctx.mind.unbeach;
+  if (u === undefined || u === null || u.throttle >= 0) return null;
+  const want = desiredBearing(ctx, self, port, sit, target, posture, 'none', false);
+  const reach = avoidReachU(self.stats);
+  const goal = ctx.mind.route?.waypoints[0] ?? ctx.mind.patrolWaypoint ?? { x: self.state.x + Math.cos(want) * reach, y: self.state.y + Math.sin(want) * reach };
+  if (turnFits(ctx, self, want) || lineClear(ctx.nav.grid, self.state, goal)) {
+    ctx.mind.unbeach = null;
+    return null;
+  }
+  return { throttle: u.throttle, rudder: u.rudder };
+}
+
+/** Does the turn toward `want` fit — the avoidance fan's rays on that side
+ *  of the bow clear for one own turn radius (the backing hold's early
+ *  release, orchestrator reading under amendment 192)? */
+function turnFits(ctx: NavCtx, self: BotSelf, want: number): boolean {
+  const r = turnRadiusU(self.stats);
+  const side = angleDiff(self.state.heading, want) >= 0 ? 1 : -1;
+  return sideRayHitU(ctx.nav.grid, self.state.x, self.state.y, self.state.heading, r, side) >= r;
+}
+
+/**
+ * ENTRY DAMPING (fix wave P20, the grounding investigation; orchestrator
+ * reading under amendment 192): a long hull reversing course or rounding a
+ * route corner at full ahead beside a coast drives into the notch it is
+ * turning past. On a deliberation where the turn left exceeds 90° AND the
+ * avoidance fan has a ray blocked within one own turn radius, the helm runs
+ * at cruise until the next deliberation.
+ */
+function entryDamped(self: BotSelf, mind: BotMind, port: BotWorldPort, want: number, deliberate: boolean): boolean {
+  if (deliberate) {
+    const r = turnRadiusU(self.stats);
+    const turning = Math.abs(angleDiff(self.state.heading, want)) > Math.PI / 2;
+    const tight = turning && nearestRayHitU(navOf(port).grid, self.state.x, self.state.y, self.state.heading, r) < r;
+    mind.entryDampUntil = tight ? port.now + CONFIG.bots.decisionCadenceMs : 0;
+  }
+  return port.now < (mind.entryDampUntil ?? 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -931,9 +861,15 @@ function triggerOf(
  * deadband (see utility.ts's ringEscaping), so escape releases one full-ahead
  * turn radius INSIDE the rim rather than exactly on it.
  */
-function deliberateNow(mind: BotMind, sit: BotSituation): void {
+function deliberateNow(mind: BotMind, sit: BotSituation, port: BotWorldPort): void {
   mind.targetKey = selectTargetKey(mind, sit);
-  mind.posture = choosePosture(sit, resolveTarget(mind), mind.posture);
+  mind.posture = choosePosture(sit, resolveTarget(mind), mind.posture, postureInputs(mind, port));
+}
+
+/** The extended chain's inputs (Story 9.13, amendment 193): the mind (latch,
+ *  ram exit, cover), the zone clock and next ring (amendment 190), the grid. */
+function postureInputs(mind: BotMind, port: BotWorldPort): Parameters<typeof choosePosture>[3] {
+  return { mind, targetKey: mind.targetKey, zone: port.zonePhase(), nextRing: port.zoneNextRing(), grid: navOf(port).grid };
 }
 
 /** The cached target key resolved against the LIVE track store — a pruned or
@@ -962,10 +898,10 @@ export const COMBAT_BRAIN: BotBrain = {
   decide(self: BotSelf, mind: BotMind, port: BotWorldPort, deliberate = true): BotDecision {
     ingest(self, mind, port);
     const sit = situationOf(self, mind, port);
-    if (deliberate) deliberateNow(mind, sit);
+    if (deliberate) deliberateNow(mind, sit, port);
     const target = resolveTarget(mind);
     const posture = mind.posture;
-    const helm = helmFor(self, mind, port, sit, target, posture);
+    const helm = helmFor(self, mind, port, sit, target, posture, deliberate);
     const shot = chooseShot(self, mind, port, sit, target, posture);
     return {
       throttle: helm.throttle,
@@ -990,8 +926,8 @@ export const COMBAT_BRAIN: BotBrain = {
     ingest(self, mind, port);
     const sit = situationOf(self, mind, port);
     mind.targetKey = null; // unconditional: a held bot NEVER carries a target
-    if (deliberate) mind.posture = choosePosture(sit, null, mind.posture);
-    const helm = helmFor(self, mind, port, sit, null, mind.posture);
+    if (deliberate) mind.posture = choosePosture(sit, null, mind.posture, postureInputs(mind, port));
+    const helm = helmFor(self, mind, port, sit, null, mind.posture, deliberate);
     return {
       throttle: helm.throttle,
       rudder: helm.rudder,

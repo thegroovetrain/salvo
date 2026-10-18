@@ -3052,3 +3052,49 @@ Closure stamps for three older entries (the originals are left as written), then
   status: OPEN — pre-existing, harness only, low
   summary: `npx tsc -p server/scripts/batchsim/tsconfig.json` reports one error at `server/scripts/batchsim/main.ts:228` (a `ModeOutput` is not assignable to `void`); the file is untouched by 9.12 and that tsconfig is not part of `npm run check`, so the harness still runs under tsx. Story 9.16 (harness hygiene) should make that tsconfig clean or drop it.
   evidence: wave-2 report at the 9.12 gate, reproduced by the command above on d7eaa125.
+
+## 2026-10-17 — Story 9.13 close-out, cycle 198 (spec-9-13-bot-posture-workover.md)
+
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: RESOLVED 2026-10-17 by epic-9 amendment 201 (ram exit)
+  summary: the 2026-10-13 entry "THE BOT `ram` POSTURE HAS NO POST-STRIKE EXIT" is resolved; the posture chain now has a ram exit when the target survives the strike.
+  evidence: 9.13 wave 1 `ai/posture.ts`; amendment 201.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: RESOLVED 2026-10-17 by epic-9 amendment 195 (hits per click)
+  summary: the 2026-10-16 entry "`HITS_FOR_CRIPPLED` counts `hc` rows" is resolved; bots count hits per click per track from their own `fireSeq`.
+  evidence: 9.13 wave 1; amendment 195.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: re-measured at 9.13 — see `batch-sim-evidence-2026-10-17.md`
+  summary: the 2026-10-08 entry "BOTS GROUND ON 7.3 % OF AFLOAT TICKS ON THE 10 % ARCHIPELAGO" was re-measured after the nav work; numbers live in the evidence file.
+  evidence: `batch-sim-evidence-2026-10-17.md`.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — harness only, low
+  summary: the harness endgame no-hit gap excludes storm damage: the victim's `lastDamageSrc` records the storm but there is no attacker on the `dmg` row, so a storm-only stretch reads as a gap.
+  evidence: 9.13 wave 3 `botReadouts`.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — harness only, low
+  summary: `pressesByItem` cannot attribute a press that spends the last copy of a consumable (the slot reads 'empty' by the time the readout looks).
+  evidence: 9.13 wave 3 `botReadouts`.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — harness only, low
+  summary: `shotsBeyondRange` is a guard that always reads 0, because the gun aim point is clamped to reach before the shot is fired; it cannot catch anything today.
+  evidence: 9.13 wave 3 `botReadouts`.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — harness only, low
+  summary: `--tune` refuses `bots.nav.cellU`, `disengageHpFrac` and `healHpFrac`: the first is never read at runtime and the other two are copied at module load.
+  evidence: 9.13 wave 3 `--tune bots.*` family.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — pre-existing, harness only, low
+  summary: `server/scripts/batchsim/main.ts(228)` TS2322 is still pre-existing (see the 9.12 entry); `encounterSpan.ts:98` no longer errors. Story 9.16 owns the tsconfig.
+  evidence: `npx tsc -p server/scripts/batchsim/tsconfig.json` at 9.13.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — soft cap, low
+  summary: `botMetrics.ts` is 557 lines and `overrides.ts` 920 lines, both over the ~500 soft cap; `equipment.ts` is 696 lines (cohesive, and an import cycle prevents a split).
+  evidence: `wc -l` at 9.13 wave 3.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-13-bot-posture-workover.md`
+  summary: TWO REAL WEDGE FIXTURES STILL RE-GROUND AFTER THE PROBED UN-BEACH FREES THEM — MOONRAKER (match seed 1026202030, island #30 notch; 56.9 u at 30 s, peaks past 64 u twice) and CROWSNEST (3676774083, island #50 pocket; 13.2 u, backs out to 65 u): the machine now backs out, then the idle PATROL ROUTE steers the battleship straight back into the same bay. DOLDRUM (1027432045, the #56/#65 strait) is cured (1.3 → 283 u, clear). The fixtures are in `botReviewFixes.test.ts`, skipped with their numbers. Fix shape: a goal choice that does not run back into a dead-end inlet — a per-mind "trap memory" (grounding spot + radius + TTL rejected by the patrol and cover picks) was tried and REVERTED 2026-10-17 because it made both fixtures worse (the hold-heading answer for a goal inside the mark kept the hull pointed into the bay); trace that before retrying.
+  evidence: grounding replay 2026-10-17 (`wedge-fixtures.json`, polygon-only reproduction byte-identical to the full map); fix-wave rounds 1–4; final after-arm `final913` for the campaign-level reading.
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-13-bot-posture-workover.md`
+  summary: RAM DEATHS NEARLY DOUBLED IN THE INTERIM AFTER-ARM (94 → 174 of ~724 bot deaths; ram damage 13.8 → 28.1 hp per bot-match) while run-aground deaths fell 152 → 28 — bots that no longer sit on land spend more time in knife range (`engage` 40 % of ticks) where the `ram` posture (699 transitions) and contact bleed land; the storm's share fell to 1.7 % (bar 5–20 %). Not a defect by any ruling (amendment 77's trigger is `[DRAFT]` for playtest); recorded so Eric reads it on staging beside the final arm's numbers.
+  evidence: `after-interim` readouts 2026-10-17 (killsBySource contact 132 + grind 5 of 644 kills); the ledger `batch-sim-evidence-2026-10-17.md`.

@@ -23,6 +23,12 @@ import { fmt, fmtSummary, summarize, type Summary } from './stats.js';
 import type { BatchResult, MatchSample } from './runner.js';
 import { emptyKillsByTier, lifeSamples, type BotSample } from './botMetrics.js';
 import { buildPoolReadouts, renderPoolReadouts, type PoolReadouts } from './poolReadouts.js';
+import {
+  buildReadoutAggregate,
+  renderPostureBlock,
+  renderReadoutLines,
+  type BotReadoutAggregate,
+} from './botReadoutReport.js';
 
 /** The spec's Verification bars, as data (one place to read them off). */
 const BARS = {
@@ -160,6 +166,9 @@ export interface BotAggregate {
   bars: BotBar[];
   /** POOL READOUTS (Story 8.20, R10): measurements, never judged. */
   pool: PoolReadouts;
+  /** STORY 9.13 READOUTS (botReadoutReport.ts): grounding, ring, shots,
+   *  posture, fog, activations, endgame stall, drones — never judged. */
+  readouts: BotReadoutAggregate;
 }
 
 const ratio = (num: number, den: number): number => (den === 0 ? 0 : num / den);
@@ -339,6 +348,7 @@ export function buildBotAggregate(result: BatchResult, botsPerMatch: number): Bo
     byGunTier: groupGunBy(scoredRows(matches), gunTierKey),
     bars: [],
     pool: buildPoolReadouts(matches),
+    readouts: buildReadoutAggregate(matches),
   };
   agg.bars = buildBars(agg);
   return agg;
@@ -431,6 +441,7 @@ export function renderBotReport(label: string, a: BotAggregate): string[] {
   for (const b of a.bars) {
     lines.push(`  ${b.pass ? 'PASS' : 'FAIL'}  ${b.name.padEnd(nameW)}  measured ${b.measured.padStart(7)}  bar ${b.bar}`);
   }
+  lines.push('', ...renderReadoutLines(a.readouts), '', ...renderPostureBlock(a.readouts));
   lines.push('', 'BY PROFILE (the six priority profiles — the story\'s core design claim):');
   lines.push(...groupTable(a.byProfile));
   lines.push('', 'BY CLASS:');

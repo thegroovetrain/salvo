@@ -30,6 +30,7 @@ import {
 } from '@salvo/shared';
 import type { World, ShipRecord } from '../../src/game/world.js';
 import { isFleetHull } from '../../src/game/participants.js';
+import { BotReadoutCollector, type BotReadouts, type MatchReadouts } from './botReadouts.js';
 
 /**
  * u — clearance below which a hull counts as IN LAND CONTACT.
@@ -80,7 +81,10 @@ export interface BotPick {
   s: number;
 }
 
-export interface BotSample {
+/** One bot in one match. The Story 9.13 readouts (grounding, ring, shots,
+ *  posture, fog, activations — see botReadouts.ts) are spread FLAT into the
+ *  row beside the 6.4 fields, which stay as they were. */
+export interface BotSample extends BotReadouts {
   id: string;
   name: string;
   cls: string;
@@ -323,9 +327,17 @@ export class BotCollector {
    *  notePlacements). Bounded by placements made in ONE match, and one
    *  collector is built per match, so this never grows across a campaign. */
   private readonly seenPlacements = new Set<string>();
+  /** The Story 9.13 readouts (botReadouts.ts) — additive, same read-only posture. */
+  private readonly readouts: BotReadoutCollector;
 
   constructor(botIds: readonly string[]) {
     for (const id of botIds) this.tracks.set(id, newTrack());
+    this.readouts = new BotReadoutCollector(botIds);
+  }
+
+  /** The match-level 9.13 readouts (endgame stall, drone grounding). */
+  matchReadouts(): MatchReadouts {
+    return this.readouts.matchSample();
   }
 
   /** No bots enrolled — the runner skips every bot code path. */
@@ -338,6 +350,9 @@ export class BotCollector {
     const tS = (world.now - activatedAt) / 1000;
     this.consumeEvents(world, tS);
     this.notePlacements(world);
+    // AFTER consumeEvents: a storm victim's aground/outside reading is still
+    // its last afloat tick's when the victim path reads it.
+    this.readouts.observe(world);
     for (const [id, track] of this.tracks) {
       const ship = world.ships.get(id);
       if (ship === undefined || !isAfloat(ship.lifecycle)) continue;
@@ -401,6 +416,7 @@ export class BotCollector {
     if (track === undefined) return;
     track.end = endCause(world, by, world.ships.get(id));
     track.lifeS = tS;
+    if (track.end === 'sunkByStorm') this.readouts.noteStormDeath(id);
   }
 
   private recordKill(world: World, by: string, victimId: string): void {
@@ -412,6 +428,7 @@ export class BotCollector {
       return;
     }
     track.kills += 1;
+    this.readouts.noteKill(by, victim);
     // The killer's CURRENT rung; a killer whose record is gone (never a bot —
     // only fleet hulls are removed early) falls back to the last reading.
     const killer = world.ships.get(by);
@@ -459,6 +476,7 @@ export class BotCollector {
         gun: ship.gun,
         gunTier: track.gunTier,
         killsByTier: track.killsByTier.slice(),
+        ...this.readouts.sample(id),
       });
     }
     return out;

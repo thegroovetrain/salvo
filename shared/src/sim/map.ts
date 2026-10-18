@@ -50,8 +50,8 @@ import {
   traceLoops,
   type ExtractionGrid,
 } from './islandShape.js';
+import { buildNavGrid, floodCells, NAV_RULES, pointOf, type NavGrid } from './nav.js';
 import {
-  closestPointOnPolygon,
   pointInPolygon,
   polygonArea,
   polygonIsSimple,
@@ -67,16 +67,10 @@ const SQRT2 = 1.4142135623730951;
 
 // --- Ratified constants (MAP_RULES) -----------------------------------------
 
-/** Widest hull beam across ship classes AND drones (order-independent max). */
-const WIDEST_BEAM = Math.max(
-  ...Object.values(CONFIG.shipClasses).map((c) => c.hull.beam),
-  ...Object.values(CONFIG.drones).map((d) => d.hull.beam),
-);
-
-const NAV_CELL = 32; // u — ratified navigability raster cell size
-const NAV_MARGIN = 6; // u — hull half-beam slack in the navigability erosion
-/** Erosion radius: a cell is navigable iff its centre clears every polygon by this. */
-const NAV_CLEAR = WIDEST_BEAM / 2 + NAV_MARGIN;
+// The 32u navigability raster and its constants live in sim/nav.ts (Story
+// 9.13, epic-9 amendment 192 — exported so bots route on the very grid the
+// generator validates); this file delegates to it byte for byte.
+const { WIDEST_BEAM, NAV_CELL, NAV_MARGIN, NAV_CLEAR } = NAV_RULES;
 const SPAWN_MARGIN = P.spawnMargin; // u — min coastline clearance from the spawn ring
 
 /**
@@ -271,106 +265,20 @@ function retargetCover(
 
 // --- The RATIFIED navigability check (32u lattice, 4-connected) ---------------
 
-interface NavGrid {
-  n: number; // cells per side
-  cells: Uint8Array; // 0 = outside disc, 1 = land, 2 = tight water, 3 = navigable
-}
-
-/** Downgrade the cells inside one island's grown bounding box. */
-function downgradeCells(grid: NavGrid, isle: Island, radius: number): void {
-  const { n, cells } = grid;
-  const reach = isle.r + NAV_CLEAR;
-  const lo = Math.max(0, Math.floor((isle.x - reach + radius) / NAV_CELL));
-  const hi = Math.min(n - 1, Math.ceil((isle.x + reach + radius) / NAV_CELL));
-  const lo2 = Math.max(0, Math.floor((isle.y - reach + radius) / NAV_CELL));
-  const hi2 = Math.min(n - 1, Math.ceil((isle.y + reach + radius) / NAV_CELL));
-  const reach2 = reach * reach;
-  for (let cy = lo2; cy <= hi2; cy++) {
-    const y = -radius + (cy + 0.5) * NAV_CELL;
-    for (let cx = lo; cx <= hi; cx++) {
-      const idx = cy * n + cx;
-      if (cells[idx] === 0 || cells[idx] === 1) continue;
-      const x = -radius + (cx + 0.5) * NAV_CELL;
-      const dx = x - isle.x;
-      const dy = y - isle.y;
-      if (dx * dx + dy * dy >= reach2) continue;
-      const p = { x, y };
-      if (pointInPolygon(p, isle.poly)) cells[idx] = 1;
-      else if (closestPointOnPolygon(p, isle.poly).dist < NAV_CLEAR) cells[idx] = 2;
-    }
-  }
-}
-
-/**
- * Same classification as the retired generator's `classifyCell`, with the
- * loop INVERTED: start every in-disc cell at 3 (navigable) and let each
- * island downgrade only the cells inside its own bounding box, grown by
- * NAV_CLEAR. Identical output, measured ~7x faster in the prototype — which
- * is what makes running the check INSIDE the generator (and repairing)
- * affordable.
- */
-function buildNavGrid(islands: readonly Island[], radius: number): NavGrid {
-  const n = Math.ceil((radius * 2) / NAV_CELL);
-  const cells = new Uint8Array(n * n);
-  const r2 = radius * radius;
-  for (let cy = 0; cy < n; cy++) {
-    for (let cx = 0; cx < n; cx++) {
-      const x = -radius + (cx + 0.5) * NAV_CELL;
-      const y = -radius + (cy + 0.5) * NAV_CELL;
-      if (x * x + y * y <= r2) cells[cy * n + cx] = 3;
-    }
-  }
-  const grid = { n, cells };
-  for (const isle of islands) downgradeCells(grid, isle, radius);
-  return grid;
-}
-
-/**
- * THE definition of grid adjacency: the four ORTHOGONAL in-bounds neighbours.
- * A hull cannot squeeze through a corner touch, so 4-connectivity is the
- * navigable semantics — BOTH the flood and the shore spread use this one
- * function, so they can never disagree about what "adjacent" means.
- */
-function orthoNeighbors(n: number, idx: number): number[] {
-  const cx = idx % n;
-  const out: number[] = [];
-  if (idx - n >= 0) out.push(idx - n);
-  if (idx + n < n * n) out.push(idx + n);
-  if (cx > 0) out.push(idx - 1);
-  if (cx < n - 1) out.push(idx + 1);
-  return out;
-}
+// The grid build (`buildNavGrid`), its 4-connected adjacency
+// (`orthoNeighbors`) and the flood (`floodCells`) moved to sim/nav.ts
+// verbatim; the check below is unchanged.
 
 /** First navigable cell under the deterministic spawn-ring probes, or -1. */
-function spawnRingSeed(grid: NavGrid, radius: number, spawnRing: number): number {
+function spawnRingSeed(grid: NavGrid, spawnRing: number): number {
   for (const p of ringProbes(spawnRing, 128)) {
-    const cx = Math.floor((p.x + radius) / NAV_CELL);
-    const cy = Math.floor((p.y + radius) / NAV_CELL);
+    const cx = Math.floor((p.x + grid.radius) / NAV_CELL);
+    const cy = Math.floor((p.y + grid.radius) / NAV_CELL);
     if (cx < 0 || cy < 0 || cx >= grid.n || cy >= grid.n) continue;
     const idx = cy * grid.n + cx;
     if (grid.cells[idx] === 3) return idx;
   }
   return -1;
-}
-
-/** Flood-fill cells matching `kind` (4-connected) from the stacked seeds. */
-function floodCells(grid: NavGrid, reached: Uint8Array, stack: number[], kind: number): void {
-  while (stack.length > 0) {
-    const idx = stack.pop() as number;
-    for (const nb of orthoNeighbors(grid.n, idx)) {
-      if (grid.cells[nb] === kind && !reached[nb]) {
-        reached[nb] = 1;
-        stack.push(nb);
-      }
-    }
-  }
-}
-
-/** World centre of a nav cell. */
-function cellCentre(grid: NavGrid, radius: number, idx: number): Vec2 {
-  const cx = idx % grid.n;
-  const cy = (idx - cx) / grid.n;
-  return { x: -radius + (cx + 0.5) * NAV_CELL, y: -radius + (cy + 0.5) * NAV_CELL };
 }
 
 /**
@@ -392,9 +300,9 @@ function navigableCheck(
   radius: number,
   spawnRing: number,
 ): { ok: boolean; offenders: Vec2[] } {
-  const grid = buildNavGrid(islands, radius);
+  const grid = buildNavGrid({ islands, radius });
   const reached = new Uint8Array(grid.n * grid.n);
-  const seed = spawnRingSeed(grid, radius, spawnRing);
+  const seed = spawnRingSeed(grid, spawnRing);
   if (seed >= 0) {
     reached[seed] = 1;
     floodCells(grid, reached, [seed], 3);
@@ -402,7 +310,7 @@ function navigableCheck(
   const offenders: Vec2[] = [];
   for (let idx = 0; idx < grid.cells.length; idx++) {
     if (grid.cells[idx] === 3 && reached[idx] === 0) {
-      offenders.push(cellCentre(grid, radius, idx));
+      offenders.push(pointOf(grid, idx));
     }
   }
   const shore = Uint8Array.from(reached);
@@ -410,7 +318,7 @@ function navigableCheck(
   for (let idx = 0; idx < shore.length; idx++) if (shore[idx] === 1) seeds.push(idx);
   floodCells(grid, shore, seeds, 2);
   for (let idx = 0; idx < grid.cells.length; idx++) {
-    if (grid.cells[idx] === 2 && shore[idx] === 0) offenders.push(cellCentre(grid, radius, idx));
+    if (grid.cells[idx] === 2 && shore[idx] === 0) offenders.push(pointOf(grid, idx));
   }
   return { ok: offenders.length === 0, offenders };
 }
