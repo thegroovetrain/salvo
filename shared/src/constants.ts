@@ -2330,8 +2330,8 @@ export const CONFIG = {
    */
   fog: {
     sightCostPerU: 2, // extra sight units a ray pays per unit of fog crossed, × density (amendment 164) — fog counts triple; the observer's own solid bank is exempt (amendment 179)
-    coverageMin: 0.2, // the share of the live ring's area at SOLID fog (density ≥ ½) the cut aims at (target redrawn in [min, max]; Eric 2026-10-16 on staging: "there isn't enough of it" — was 0.02–0.08; since amendment 178 the share counts the solid half of the soft edge, not every point above the cut)
-    coverageMax: 0.25,
+    coverageMin: 0.1, // the share of the live ring's area at SOLID fog (density ≥ ½) the cut aims at (target redrawn in [min, max]; Eric 2026-10-17 on staging: "20-25% seems too high" — was 0.20–0.25 (amendment 177), before that 0.02–0.08; since amendment 178 the share counts the solid half of the soft edge, not every point above the cut)
+    coverageMax: 0.15,
     targetPeriodMs: 120000, // ms between coverage-target redraws
     wavelengthU: 900, // u — base feature size of the noise (broad banks; Eric 2026-10-15 on the live field page: "Bigger, slower banks" — was 600)
     octaves: 3, // fbm octaves

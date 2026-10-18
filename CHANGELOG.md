@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.18.64] - 2026-10-17
+
+### Changed
+- **Less fog.** The weather fog now covers 10–15 % of the live ring at solid density (was 20–25 %). Eric on staging: "20-25% seems too high." The thin edge still adds a little haze around each bank, so expect about 15–25 % of the ring with some fog in it.
+- Protocol version unchanged (89): the coverage target is a server dial; the fog cut still travels on the schema.
+
+### Not changed
+- Fog speed, spin, wavelength, the eye toll, the League-bush rule; every other number.
+
 ## [0.18.63] - 2026-10-17
 
 ### Changed
