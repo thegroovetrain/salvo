@@ -2,10 +2,11 @@
 title: 'Story 9.13: Bot Posture Workover'
 type: 'feature'
 created: '2026-10-17'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'f78405d1'
+final_revision: 'b32037fd (code HEAD; PR to development, 2026-10-17)'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-9-context-amendments.md'
@@ -152,6 +153,31 @@ warnings: [oversized, multiple-goals]
 
 ## Review Triage Log
 
+### 2026-10-17 — Review pass (Blind Hunter FIX-FIRST, Edge Case Hunter FIX-FIRST, Codex gpt-5.6-sol FIX-FIRST)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 20: (high 5, medium 9, low 6)
+- defer: 4: (medium 2, low 2)
+- reject: 1: (low 1)
+- addressed_findings:
+  - `[high]` `[patch]` storm-arrival clock ignored the moving ring centre (Blind Hunter, probe 2×) — `rimCrossingFrac`, first close fraction at which the rim reaches the hull
+  - `[high]` `[patch]` cover point outside the revealed next ring ping-ponged holders/hiders against the departure rule (Blind Hunter + Edge Case Hunter) — cover usable only inside live ∧ next-shrunk
+  - `[high]` `[patch]` empty routes cached until the goal moved (Codex + Blind Hunter) — retried on own movement or `routeRetryMs`
+  - `[high]` `[patch]` ring goal set empty with the centre > 3 cells inside land (Codex; confirmed for r 0 only) — nearest water cell fallback
+  - `[high]` `[patch]` MG/flak silent in `kite` (Blind Hunter) — Eric: shadowing lifts the hold line (amendment 205)
+  - `[medium]` `[patch]` patrol fallback onto land / the r 0 safe disc (Codex + Edge Case Hunter) — snap to water, live ring under a turn radius
+  - `[medium]` `[patch]` `hitClickAt` not reset per life; hit dedup keyed on the current `fireSeq` (Codex + Blind Hunter) — per-volley ledger, reset per life
+  - `[medium]` `[patch]` flow field built inside a random bot's tick (Codex) — prewarmed in the zone step at the reveal
+  - `[medium]` `[patch]` drone fallback ashore + re-pick every evaluation (Codex) — snapped, once per cadence
+  - `[medium]` `[patch]` `--tune bots.*` floors (Edge Case Hunter) — `aimScatterRefU`/`contactMemoryMs`/`outnumberedCount`/`decoyStillSweeps` ≥ 1, `kiteHoldFrac` (0,1], no zero far edge
+  - `[medium]` `[patch]` odds-gate chatter (Edge Case Hunter, plausible; adopted) — `gateHoldMs` 1 s
+  - `[medium]` `[patch]` fleet route not re-based on a lead change (Edge Case Hunter)
+  - `[medium]` `[patch]` the un-beach machine had no ahead exit (grounding replay) — probed exit, failed-burst rule, backing hold
+  - `[medium]` `[patch]` entry damping on a sharp coast-hugging turn (grounding replay, secondary)
+  - `[low]` `[patch]` `snapToWater` across a spit; goal on land spins at its anchor; stale cover point in `idleBearing`; `departureDue` twice per tick; exact-zero stillness test; dead `islandBuckets.ts`
+  - defer: MOONRAKER / CROWSNEST re-enter the bay after a successful back-out (patrol route); trap memory tried and reverted; the endgame gap excludes storm damage; `pressesByItem` 'empty'
+  - reject: the Edge Case Hunter's "safe disc r = 0 on the shipped ladder before the FIRST close" (its probe used the diameter as the live radius; the disc is 2000 u there and 0 only before the 2000 → 1000 close, which is patched)
+
 ## Design Notes
 
 - **Why the nav grid lives in shared:** the generator already proves every map is connected on the 32 u grid; exporting it means the bots route on the very raster the map is validated against, and both the map tests and the nav tests pin one implementation. The module is pure and transcendental-free so the map determinism scanner stays silent (it only scans map/heightField/noise anyway).
@@ -167,3 +193,17 @@ warnings: [oversized, multiple-goals]
 - `npm run check` -- expected: green (lint complexity ≤ 10, tsc ×3, all tests, hook test)
 - `npx tsc --noEmit -p server/scripts/batchsim/tsconfig.json` -- expected: only the pre-existing `encounterSpan.ts:98` TS2367
 - After-arm: `run_campaign.py --matches 48 --shards 12 --bots 16 --base-seed 20261017 --label after913 … --roster even --raw` then `analyze` both arms -- expected: readouts present; landContactRate and stormDeathStuck lower than baseline; no unresolved matches
+
+## Auto Run Result
+
+Status: done (PR open to development; Eric judges on staging)
+
+**Implemented.** Story 9.13 as the sixteen design-sitting rulings (amendments 189–203) plus the three gate rulings (204 lit bonus ×1.5, 205 shadowing lifts the hold line) and the readings of record (206): a shared pure navigation layer (grid, distance-to-land, flow fields, A*), a per-map nav cache with per-ring fields, a widened bot port (next ring, phase, time to close, safe disc), routed bot and drone helms with graded avoidance and the storm departure rule, the extended posture chain (odds gate, kite/shadow, hide, hold, ring clauses, disengage hysteresis, ram exit, gate hold), decoy-aware targeting and per-volley hits, per-gun doctrine bands with the MG/flak hold line and flare-to-shoot, every special/consumable trigger extension, cover in fog and island shadow, a cover-weighted routed patrol, the probed un-beach exit, the harness readouts and `--tune bots.*`. No weapon, ship, storm, map or fog number changed; no copy; `PROTOCOL_VERSION` 89.
+
+**Files.** New: `shared/src/sim/nav.ts`, `server/src/game/navCache.ts`, `botPort.ts`, `ai/navigate.ts`, `ai/posture.ts`, `ai/doctrine.ts`, `ai/cover.ts`, `ai/unbeachProbe.ts`, `server/scripts/batchsim/botReadouts.ts`, `botReadoutReport.ts`; tests `nav`, `botPort`, `botNavigate`, `botPosture`, `botCover`, `botDoctrine`, `botReviewFixes`, `botTuneFloors`. Changed: `map.ts` (delegation), `constants.ts` (CONFIG.bots dials), `ai/types.ts`, `tactics.ts` (1006 → ~840 lines), `utility.ts`, `plot.ts`, `profiles.ts`, `equipment.ts`, `consumables.ts`, `shift.ts`, `tacticKit.ts`, `botDriver.ts`, `drones.ts`, `world.ts`, batchsim `botMetrics/botReport/runner/main/args/overrides`; deleted `islandBuckets.ts`. Records: VERSION 0.18.63, CHANGELOG, both trackers, amendments 189–206 in both homes, deferred-work, the ledger `batch-sim-evidence-2026-10-17.md`.
+
+**Review.** Blind Hunter + Edge Case Hunter (Fable) + Codex gpt-5.6-sol, all FIX-FIRST: 20 patches applied red-then-green (storm clock on the moving ring, cover inside the next ring, route retry, empty goal set, patrol on water, per-volley hits + per-life reset, field prewarm, drone fallback, tune floors, gate hold, lead-change re-route, snap across a spit, goal on land, double departure, stillness epsilon, dead module, kite hold-line lift, entry damping, probed un-beach exit) + 4 deferred + 1 rejected (a probe that used the diameter as the live radius). A trap-memory patch was tried and reverted.
+
+**Verification.** `npm run check`: lint 0 errors, shared 1169, server 2785 passed + 2 skipped (the two isolated wedge fixtures, numbers in their skip notes), client all files, hook tests 266; the one wall-clock pin (`machineGunFlashCost`) failed only under the concurrent 12-shard sim and passes alone (7.2 s). Sims (amendment 203): `base913` → `final913` on seed 20261017: land contact 5.37 % → 0.82 % (the bar passes for the first time on the 10 % archipelago), run-aground deaths 152 → 13, longest aground run 391 s → 64 s, storm deaths while stuck 11/12 → 6/6 (0 aground), alive 8.4/3.5/0.9 → 10.3/5.6/1.9, every posture exercised (kite 2.1 %, hide 8.4 %, hold 7.7 %), flare-to-shoot 15 % of deck-gun shells; tick p50 +0.3–0.5 ms at 112 hulls.
+
+**Residual risks (Eric's to judge on staging).** The field now sits ~2 hulls above the 8/4 targets and the storm's share of deaths fell to 0.8 % (bots leave in time); ram deaths doubled (94 → 166) as bots spend more time in knife range; ≥ 1-kill at 53 % vs the 60 % bar; drone grounding unchanged by routing; two isolated wedge fixtures still re-enter their bay; the countermeasure's declined-fight press may be generous; the `[DRAFT]` ram trigger unchanged.
