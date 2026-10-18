@@ -1,8 +1,8 @@
 // Firing UX, split across two camera-transformed layers (see render/stage.ts
 // for the full z-order rationale):
-//   - The AIM-GATED sector arcs go in the `ship` layer — which since this cycle
-//     lives in chartRoot, above the fog and above the radar paint, along with
-//     every hull it draws behind (render/stage.ts). Nothing about the arcs
+//   - The AIM-GATED sector arcs go in the `ownShip` layer with the own hull
+//     (2026-10-12; the `ship` layer before) — chartRoot, above the fog, the
+//     countermeasure cloud and the radar paint (render/stage.ts). Nothing about the arcs
 //     changes with the lift: they rotate with the own ship and sit inside the
 //     sight bubble, where the fog was already clear. Three ids draw one: the
 //     torpedo's BOW arc; (Story 2.8, amendment 45) the mine's REAR PLACEMENT
@@ -16,8 +16,9 @@
 //     The remaining instant ability (the boost) never primes and draws no
 //     marker at all.
 //   - The crosshair + bearing line go in the `aim` layer (chartRoot, fog-immune)
-//     because gun range (radar range, 660u) exceeds sight range (330u): aiming
-//     at a radar blip beyond sight must not put the reticle under the fog. Amber
+//     because every gun reaches past sight range (the cannon's Tier I dial is
+//     2× sight, Story 9.8 ruling 125): aiming at a radar blip beyond sight must
+//     not put the reticle under the fog. Amber
 //     when the aim is in the primed weapon's arc AND it is ready, else dim. The
 //     bearing line still originates at the own ship's world position — chartRoot
 //     shares worldRoot's camera transform, so it lines up exactly with the hull.
@@ -192,19 +193,20 @@ export class FiringUX {
   private readonly arcs = new Graphics();
   private readonly reticle = new Graphics();
   /** Effective max range (u) of the primed weapon FOR THIS AIM, fed each frame
-   *  by update(); base = radar range. Drives the gun-family range-clamp burst
+   *  by update(); base = the cannon's Tier I reach (CONFIG.gun.rangeU — every
+   *  weapon range is its own dial since Story 9.8, ruling 125). Drives the gun-family range-clamp burst
    *  marker AND the mine's placement-arc radius. weaponArc.weaponReachU is the
    *  one source, and it is the SAME number the aim preview bursts at — including
    *  the star-shell lift (R2.15, amendment 114), where a deck-gun click inside one of our own live
    *  lit zones raises the reach to the click and the clamp marker correctly
    *  stops drawing. */
-  private rangeU: number = CONFIG.vision.radar;
+  private rangeU: number = CONFIG.gun.rangeU;
 
   /**
-   * `shipLayer` (chartRoot's `ship` — the hull layer) hosts the torpedo/mine
-   * markers; `aimLayer` (chartRoot's `aim`, one layer up) hosts the crosshair +
-   * bearing line. Both are fog-immune; `aim` stays above `ship` so the reticle is
-   * never occluded by a hull.
+   * `shipLayer` (chartRoot's `ownShip` — the own-hull layer since 2026-10-12)
+   * hosts the torpedo/mine markers; `aimLayer` (chartRoot's `aim`, one layer
+   * up) hosts the crosshair + bearing line. Both are fog-immune; `aim` stays
+   * above the hulls so the reticle is never occluded by one.
    */
   constructor(shipLayer: Container, aimLayer: Container) {
     shipLayer.addChild(this.arcs);
@@ -235,7 +237,7 @@ export class FiringUX {
     ammo: FiringAmmo,
     cursor: { x: number; y: number },
     denied = false,
-    rangeU: number = CONFIG.vision.radar,
+    rangeU: number = CONFIG.gun.rangeU,
     broadside: BroadsideArcs | null = null,
   ): void {
     this.rangeU = rangeU;
@@ -311,8 +313,8 @@ export class FiringUX {
    * the aiming information becomes ONE WEDGE PER GUN, drawn from that gun's own
    * muzzle over its own arc. The gaps between the wedges are the design.
    *
-   * Everything stays INDICATIVE at ARC_R / wedgeRadius rather than the true 5/8
-   * reach, exactly as the torpedo's wedge is: a 412.5u wedge on each beam would
+   * Everything stays INDICATIVE at ARC_R / wedgeRadius rather than the true
+   * reach, exactly as the torpedo's wedge is: a 625–750u wedge on each beam would
    * bury the chart, and the reach is already told honestly twice — by the
    * range-clamp marker and by the aim preview's per-shell burst circles.
    */
@@ -491,13 +493,12 @@ export class FiringUX {
     g.moveTo(cursor.x, cursor.y - RETICLE_R - 3).lineTo(cursor.x, cursor.y + RETICLE_R + 3);
     g.stroke({ width: 1, color, alpha: 0.6 });
     // The gun family AND the broadside clamp the aim point to rangeU and fire
-    // anyway, so both owe the player the true burst distance. The broadside is
-    // the one that needs it most: its 5/8 reach is 247.5u shorter than the radar
-    // horizon every other gun-family weapon runs to.
+    // anyway, so both owe the player the true burst distance — every weapon's
+    // reach is its own tiered dial (Story 9.8, ruling 125), none of them radar.
     //
     // NEVER FOR A TORPEDO (Story 8.13). The LIGHT TORPEDO is the second
     // `twin-sector` weapon in the game, and no torpedo line has a max range
-    // (epic-8 amendment 84f): `weaponRangeU` hands it the gun's radar-derived
+    // (epic-8 amendment 84f): `weaponRangeU` hands it the cannon's range as a
     // fallback purely so nothing crashes, and drawing a clamp ring at it would
     // promise the fish stops there.
     if ((kind === 'gunLike' || kind === 'twin') && !isTorpedoItem(id)) {

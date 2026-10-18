@@ -189,7 +189,7 @@ async function connectAndWelcome(
   await vi.waitFor(() => {
     if (!room.has(MSG.welcome)) throw new Error('welcome handler not yet registered');
   });
-  room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, mapRadius: 1, playerCap: 6 });
+  room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, fogSeed: 1, mapRadius: 1, playerCap: 6 });
   return pending;
 }
 
@@ -230,7 +230,7 @@ describe('connect — the two-stage queue → arena join (Story 6.1)', () => {
       if (!room.has(MSG.welcome)) throw new Error('welcome handler not yet registered');
     });
     expect(settled).toBe(false);
-    room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, mapRadius: 1, playerCap: 6 });
+    room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, fogSeed: 1, mapRadius: 1, playerCap: 6 });
     await pending;
     expect(settled).toBe(true);
   });
@@ -250,7 +250,7 @@ describe('connect — the two-stage queue → arena join (Story 6.1)', () => {
       expect(settled).toBe(false);
       queue.fire(MSG.seat, SEAT);
       await vi.advanceTimersByTimeAsync(0);
-      room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, mapRadius: 1, playerCap: 6 });
+      room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, fogSeed: 1, mapRadius: 1, playerCap: 6 });
       await pending;
       expect(settled).toBe(true);
     } finally {
@@ -289,7 +289,7 @@ describe('connect — the two-stage queue → arena join (Story 6.1)', () => {
     await vi.waitFor(() => {
       if (!room.has(MSG.welcome)) throw new Error('welcome handler not yet registered');
     });
-    room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, mapRadius: 1, playerCap: 6 });
+    room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, fogSeed: 1, mapRadius: 1, playerCap: 6 });
     await pending;
   });
 
@@ -366,7 +366,7 @@ describe('connect — the SOLO VS AI door (Story 6.5)', () => {
     await vi.waitFor(() => {
       if (!room.has(MSG.welcome)) throw new Error('welcome handler not yet registered');
     });
-    room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, mapRadius: 1, playerCap: 20 });
+    room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, fogSeed: 1, mapRadius: 1, playerCap: 20 });
     return pending;
   }
 
@@ -797,7 +797,7 @@ describe('resumeConnection — the refresh resume (Story 6.7)', () => {
     await vi.waitFor(() => {
       if (!room.has(MSG.welcome)) throw new Error('welcome handler not yet registered');
     });
-    room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, mapRadius: 1, playerCap: 6 });
+    room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, fogSeed: 1, mapRadius: 1, playerCap: 6 });
     const conn = await pending;
     expect(lastReconnectToken).toBe('arena-1:stored');
     // The welcome is consumed HERE, before any Game exists: `welcome.sessionId`
@@ -843,7 +843,7 @@ describe('resumeConnection — the refresh resume (Story 6.7)', () => {
       if (!room.has(MSG.results)) throw new Error('results handler not yet registered');
     });
     room.fire(MSG.results, { rows: [], winnerId: 'w' });
-    room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, mapRadius: 1, playerCap: 6 });
+    room.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, fogSeed: 1, mapRadius: 1, playerCap: 6 });
     const conn = await pending;
     expect(conn?.early.results).toEqual({ rows: [], winnerId: 'w' });
     expect(conn?.early.bound).toBe(false); // bindRoom has not attached yet

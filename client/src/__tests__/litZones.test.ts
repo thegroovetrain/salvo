@@ -1,8 +1,9 @@
 // Star-shell lit-zone render logic (render/litZones.ts) — the pure reconcile
-// diff (mines precedent), the firer-hue tint (Story 1.12), and the timestamp
-// fade. The Pixi wiring (LitZones class) is a thin adapter around these.
+// diff (mines precedent), the alert tint (Story 9.11: own white, another's the
+// shared yellow↔orange blend), and the timestamp fade. The Pixi wiring
+// (LitZones class) is a thin adapter around these.
 
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect } from 'vitest';
 import { Container, Graphics } from 'pixi.js';
 import type { LitZoneView } from '@salvo/shared';
 import {
@@ -13,6 +14,10 @@ import {
   LitZones,
   LIT_FADE_MS,
 } from '../render/litZones.js';
+import { Mines } from '../render/mines.js';
+import { alertClock, alertTint } from '../render/alertBlend.js';
+import { CLIENT_CONFIG } from '../config.js';
+import { settings } from '../settings/store.js';
 
 const zone = (id: string, by = 'enemy', until = 10_000): LitZoneView => ({
   id,
@@ -51,26 +56,62 @@ describe('reconcileLitZones — zone list → sprite lifecycle diff', () => {
   });
 });
 
-describe('LitZones.sync — firer-hue tint (Story 1.12)', () => {
-  it('resolves each new zone’s tint from its firer id (`by`) via hueFor', () => {
+describe('LitZones — the alert tint (Story 9.11, amendment 153)', () => {
+  beforeEach(() => alertClock.reset());
+  afterEach(() => settings.reset());
+
+  it('draws the glow in WHITE geometry (fill + ring); ownership is the tint', () => {
     const layer = new Container();
-    const litZones = new LitZones(layer);
-    const hueFor = vi.fn((_by: string) => 0x123456 as number | null);
-    litZones.sync([zone('z1', 'alice'), zone('z2', 'bob')], hueFor);
-    expect(hueFor.mock.calls.map((c) => c[0]).sort()).toEqual(['alice', 'bob']);
-    expect(layer.children).toHaveLength(2);
+    new LitZones(layer).sync([zone('z', 'foe')], 'me');
+    const g = layer.children[0] as Graphics;
+    const colors = g.context.instructions.map((i) => (i.data.style as { color: number }).color);
+    expect(colors).toEqual([0xffffff, 0xffffff]);
   });
 
-  it('recolors a glow that booted on the amber fallback once its firer hue later resolves, then latches', () => {
-    const litZones = new LitZones(new Container());
-    const hueFor = vi.fn((_by: string) => null as number | null);
-    litZones.sync([zone('z1', 'late')], hueFor);
-    expect(hueFor).toHaveBeenCalled(); // unresolved at spawn → amber fallback
-    hueFor.mockReturnValue(0x00ff00);
-    litZones.sync([zone('z1', 'late')], hueFor); // retry resolves + redraws
-    const afterResolve = hueFor.mock.calls.length;
-    litZones.sync([zone('z1', 'late')], hueFor); // latched — no more probes
-    expect(hueFor.mock.calls.length).toBe(afterResolve);
+  it('an OWN zone stays white; another’s takes the shared alert tint', () => {
+    const layer = new Container();
+    const litZones = new LitZones(layer);
+    litZones.sync([zone('mine', 'me'), zone('theirs', 'foe')], 'me');
+    litZones.render(0, 2);
+    litZones.render(0, 2.2);
+    const [a, b] = layer.children as Graphics[];
+    expect(a.tint).toBe(0xffffff);
+    expect(b.tint).toBe(alertTint(alertClock.phase, 'full'));
+  });
+
+  it('a spectator (no own id) owns nothing — every zone blends', () => {
+    settings.set({ motion: 'off' });
+    const layer = new Container();
+    const litZones = new LitZones(layer);
+    litZones.sync([zone('z', 'me')], undefined);
+    litZones.render(0, 0);
+    expect((layer.children[0] as Graphics).tint).toBe(CLIENT_CONFIG.colors.alertOrange);
+  });
+
+  it('motion off: another’s zone sits at steady ORANGE, frame after frame', () => {
+    settings.set({ motion: 'off' });
+    const layer = new Container();
+    const litZones = new LitZones(layer);
+    litZones.sync([zone('z', 'foe')], 'me');
+    for (let t = 0; t < 3; t += 0.17) {
+      litZones.render(0, t);
+      expect((layer.children[0] as Graphics).tint).toBe(CLIENT_CONFIG.colors.alertOrange);
+    }
+  });
+
+  it('a mine and a zone in the same frame breathe on ONE phase', () => {
+    const mineLayer = new Container();
+    const mines = new Mines(new Container(), mineLayer);
+    mines.sync([{ id: 'm', x: 0, y: 0, own: false, by: 'foe' }]);
+    const layer = new Container();
+    const litZones = new LitZones(layer);
+    litZones.sync([zone('z', 'foe')], 'me');
+    for (const t of [0, 0.13, 0.4, 0.71]) {
+      mines.render(t); // the frame's FIRST reader advances the clock...
+      litZones.render(0, t); // ...the zone reads the same phase, no second step
+      expect((layer.children[0] as Graphics).tint).toBe(mines.tintAt('m'));
+    }
+    expect(alertClock.phase).toBeGreaterThan(0);
   });
 });
 
@@ -150,14 +191,14 @@ describe('insideAnyZone — point-in-zone-circle test', () => {
 // `phos`/`daz` wire flags this renderer painted as an ember disc and a glare
 // (the Story 2.9 / 7-5 per-verb pins that lived here). The burning treatment
 // MOVED to render/burnZones.ts (its pins are in burnZones.test.ts); the glare
-// went with the verb, since FLASH SHELLS leaves nothing on the water. What
+// went with the verb. What
 // remains is the plain flare, drawn exactly as before: one fill and one ring.
 
 describe('LitZones.sync — a lit zone is only ever the plain flare', () => {
   it('draws the fill + ring and nothing else — no ember child, no glare', () => {
     const layer = new Container();
     const litZones = new LitZones(layer);
-    litZones.sync([zone('z')], () => 0x00ff00);
+    litZones.sync([zone('z')], 'me');
     const g = layer.children[0] as Graphics;
     expect(g.context.instructions).toHaveLength(2); // fill + stroke: the plain flare
     expect(g.children).toHaveLength(0); // no ember layer on a lit zone, ever
@@ -167,7 +208,7 @@ describe('LitZones.sync — a lit zone is only ever the plain flare', () => {
   it('paints an enemy zone the same plain way (a flare says whose, not what)', () => {
     const layer = new Container();
     const litZones = new LitZones(layer);
-    litZones.sync([zone('mine', 'me'), zone('theirs', 'foe')], () => 0x00ff00);
+    litZones.sync([zone('mine', 'me'), zone('theirs', 'foe')], 'me');
     const [a, b] = layer.children as Graphics[];
     expect(a.context.instructions.length).toBe(b.context.instructions.length);
   });
@@ -175,7 +216,7 @@ describe('LitZones.sync — a lit zone is only ever the plain flare', () => {
   it('fades the glow by its timestamp (until - serverNow)', () => {
     const layer = new Container();
     const litZones = new LitZones(layer);
-    litZones.sync([zone('z', 'me', 1000)], () => 0x00ff00);
+    litZones.sync([zone('z', 'me', 1000)], 'me');
     litZones.render(1000 - LIT_FADE_MS / 2);
     expect(layer.children[0].alpha).toBeCloseTo(0.5, 9);
     litZones.render(1000);

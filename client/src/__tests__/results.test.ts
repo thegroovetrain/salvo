@@ -12,8 +12,9 @@
 // no-instant-re-queue guarantee a test rather than a construction.
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { CONFIG, effectiveStats, type ResultsMsg, type ResultsRow, type SlotItemId, type WeaponAmmo } from '@salvo/shared';
-import { LOADOUT_PX, LOADOUT_TEXT_FLOOR_PX, ladderEntries } from '../ui/loadoutBlock.js';
+import { CONFIG, CONSUMABLE_SLOTS, effectiveStats, type ResultsMsg, type ResultsRow, type SlotItemId, type WeaponAmmo } from '@salvo/shared';
+import { LADDER_LINE_PX, LOADOUT_PX, LOADOUT_TEXT_FLOOR_PX, ladderEntries } from '../ui/loadoutBlock.js';
+import { monoTextWidth } from '../ui/refitCardFit.js';
 import { LINEAGE_TIERS } from '../ui/tierRamp.js';
 import {
   BANNER_HUES,
@@ -89,25 +90,31 @@ const rep = (id: string, n: number): string[] => Array.from({ length: n }, () =>
  * THE MOCK'S FIXTURE (countdown-results-1.html frame 2): gun IV, Shift, Q light
  * torpedo III, E II, R heavy torpedo I, belt HULL REPAIR ×1 then three empties,
  * and the ladder line `ARMOR III · SPEED IV · TURNING II · RADAR SWEEP II ·
- * RELOAD III`. The mock's E is a machine gun II, which since Story 8.15 is a gun
+ * RELOAD III` — read since Story 9.6 (epic-9 amendments 93/94) as `HULL II ·
+ * SPEED III · TURNING I · RADAR SWEEP II · RELOAD III · PASSIVE HEALING —`:
+ * every ship ladder counts its own copies from nothing now. The mock's E is a machine gun II, which since Story 8.15 is a gun
  * pick and can no longer sit in E — naval mines II stand in for it (same tier).
  */
-function mockOwn(over: { radarSweep?: number; hullRepair?: number } = {}): ResultsOwn {
+function mockOwn(
+  over: { radarSweep?: number; hullRepair?: number; speed?: number; passiveHealing?: number; armor?: number } = {},
+): ResultsOwn {
   const cards = [
     ...rep('deckGun', 3), // gun: 1 + copies = IV
     ...rep('lightTorpedo', 3),
     ...rep('navalMines', 2),
     'heavyTorpedo',
     ...rep('hullRepair', over.hullRepair ?? 1),
-    ...rep('armor', 2), // base line: 1 + copies = III
-    ...rep('speed', 3), // IV
-    'turning', // II
-    ...rep('radarSweep', over.radarSweep ?? 2), // starts from nothing: copies = II
+    ...rep('hullPoints', 2), // every ship ladder starts from nothing: copies = II
+    ...rep('armor', over.armor ?? 1), // I (Story 9.7)
+    ...rep('speed', over.speed ?? 3), // III
+    'turning', // I
+    ...rep('radarSweep', over.radarSweep ?? 2), // II
     ...rep('reload', 3), // III
+    ...rep('passiveHealing', over.passiveHealing ?? 0), // — at zero
   ];
   const repair = over.hullRepair ?? 1;
   const slots: (SlotItemId | null)[] = [
-    'gun', 'boost', 'lightTorpedo', 'navalMines', 'heavyTorpedo', repair > 0 ? 'hullRepair' : null, null, null, null,
+    'gun', 'boost', 'lightTorpedo', 'navalMines', 'heavyTorpedo', repair > 0 ? 'hullRepair' : null, null, null, null, null, null,
   ];
   const ammo: (WeaponAmmo | null)[] = slots.map((id) => (id === null ? null : { n: 1, reloadMsLeft: 0 }));
   ammo[5] = repair > 0 ? { n: repair, reloadMsLeft: 0 } : null;
@@ -381,17 +388,43 @@ describe('showResults — the elimination modal', () => {
     const ladder = (): string => block().querySelector('[data-loadout-ladder]')?.textContent ?? '';
     const open = (o: ResultsOwn): void => showResults(view({ own: o }), { onSpectate: () => undefined, onReturn: () => undefined });
 
-    it('heads the block LOADOUT and draws nine squares in the bar order, each over its key chip', () => {
+    it('heads the block LOADOUT and draws eleven squares on ONE row, weapons then the framed belt (1–6), each over its key chip', () => {
       open(mockOwn());
       expect(block().firstElementChild?.textContent).toBe('LOADOUT');
-      expect(block().querySelectorAll('[data-loadout-slot]')).toHaveLength(9);
+      expect(block().querySelectorAll('[data-loadout-slot]')).toHaveLength(11);
+      // The live bar's one row (Story 9.11, epic-9 amendment 151): the main
+      // group first, then the framed belt in key order.
       const chips = [...block().querySelectorAll('[data-loadout-chip]')].map((c) => c.textContent);
-      expect(chips).toEqual(['·', 'Shift', 'Q', 'E', 'R', '1', '2', '3', '4']);
+      expect(chips).toEqual(['·', 'Shift', 'Q', 'E', 'R', '1', '2', '3', '4', '5', '6']);
+      const slots = [...block().querySelectorAll<HTMLElement>('[data-loadout-slot]')].map((e) => Number(e.dataset.loadoutSlot));
+      expect(slots).toEqual([0, 1, 2, 3, 4, ...CONSUMABLE_SLOTS]);
+      // One row: a horizontal flex, not a column.
+      const row = block().querySelector<HTMLElement>('[data-loadout-row]');
+      expect(row?.style.flexDirection).not.toBe('column');
       // The gun's chip is a GHOST: laid out for the baseline, never seen.
       expect((block().querySelector('[data-loadout-chip="0"]') as HTMLElement).style.color).toBe('transparent');
     });
 
-    it('squares are the bar × .72 (54→39, belt 44→32) and every fitted square wears its glyph', () => {
+    it('frames the six belt squares (and only them) in the bar\'s 1px silver hairline', () => {
+      open(mockOwn());
+      const belt = block().querySelector<HTMLElement>('[data-loadout-belt]');
+      if (belt === null) throw new Error('no belt frame');
+      expect(belt.style.borderStyle).toBe('solid');
+      expect(belt.style.borderWidth).toBe('1px');
+      const inside = [...belt.querySelectorAll<HTMLElement>('[data-loadout-slot]')].map((e) => Number(e.dataset.loadoutSlot));
+      expect(inside).toEqual([...CONSUMABLE_SLOTS]);
+      const chipsInside = [...belt.querySelectorAll('[data-loadout-chip]')].map((c) => c.textContent);
+      expect(chipsInside).toEqual(['1', '2', '3', '4', '5', '6']);
+    });
+
+    it('the one row (main group, group gap, framed belt) fits the panel\'s 530 px content column', () => {
+      const P = LOADOUT_PX;
+      const main = 5 * P.slot + 4 * P.slotGap;
+      const belt = 2 * P.beltPadSide + CONSUMABLE_SLOTS.length * P.beltSlot + (CONSUMABLE_SLOTS.length - 1) * P.beltGap + 2; // + its 1px borders
+      expect(main + P.groupGap + belt).toBeLessThanOrEqual(530);
+    });
+
+    it('squares are the bar × .72 (weapons 54→39, belt 44→32) and every fitted square wears its glyph', () => {
       open(mockOwn());
       expect(LOADOUT_PX.slot).toBe(Math.round(CLIENT_CONFIG.hudBar.slot * 0.72));
       expect(LOADOUT_PX.beltSlot).toBe(Math.round(CLIENT_CONFIG.hudBar.beltSlot * 0.72));
@@ -412,24 +445,28 @@ describe('showResults — the elimination modal', () => {
         expect(tierOf(slot)?.style.color, `slot ${slot}`).toBe(LINEAGE_TIERS[rung]);
       }
       expect(tierOf(1)).toBeNull(); // Shift carries no rung
-      for (const slot of [5, 6, 7, 8]) expect(tierOf(slot), `belt ${slot}`).toBeNull();
+      for (const slot of CONSUMABLE_SLOTS) expect(tierOf(slot), `consumable ${slot}`).toBeNull();
     });
 
-    it('badges the belt stock `×1` and draws the three empties as the bar\'s dash (no ×0, no word)', () => {
+    it('badges the stock `×1` and draws the five zero-stock kinds DASHED with their own faint glyph (no ×0, no word)', () => {
       open(mockOwn());
       expect(square(5).querySelector('[data-loadout-badge]')?.textContent).toBe('×1');
-      for (const slot of [6, 7, 8]) {
-        expect(square(slot).textContent, `belt ${slot}`).toBe('—');
-        expect(square(slot).querySelector('svg')).toBeNull();
+      for (const slot of CONSUMABLE_SLOTS.slice(1)) {
+        const svg = square(slot).querySelector<SVGElement>('svg');
+        expect(svg, `consumable ${slot}`).not.toBeNull(); // the kind's own glyph…
+        expect(svg?.dataset.loadoutZeroStock, `consumable ${slot}`).toBe('');
+        expect(Number(svg?.style.opacity), `consumable ${slot}`).toBeCloseTo(0.45, 9); // …faint
+        expect(square(slot).querySelector('[data-loadout-badge]')).toBeNull();
         expect(square(slot).style.borderStyle).toBe('dashed');
       }
       expect(block().textContent).not.toContain('×0');
       expect(block().textContent).not.toContain('EMPTY');
     });
 
-    it('a belt stack fired to zero reads as the empty square (Eric R4)', () => {
+    it('a stack fired to zero reads as its ZERO-STOCK square (Eric R4, amendment 34)', () => {
       open(mockOwn({ hullRepair: 0 }));
-      expect(square(5).textContent).toBe('—');
+      expect(square(5).querySelector('svg')?.dataset.loadoutZeroStock).toBe('');
+      expect(square(5).style.borderStyle).toBe('dashed');
       expect(block().querySelectorAll('[data-loadout-badge]')).toHaveLength(0);
     });
 
@@ -439,23 +476,66 @@ describe('showResults — the elimination modal', () => {
       for (const name of ['CANNON', 'TORPEDO', 'MINES', 'REPAIR', 'BOOST']) expect(row).not.toContain(name);
     });
 
-    it('the ladder line reads the mock verbatim: ARMOR III · SPEED IV · TURNING II · RADAR SWEEP II · RELOAD III', () => {
+    it('the ladder line reads each ship ladder\'s copies as its numeral, on the tier ramp', () => {
+      // Story 9.6 (epic-9 amendments 93/94): HULL / SPEED / TURNING count from
+      // nothing like RADAR SWEEP and RELOAD, and PASSIVE HEALING joins last;
+      // ARMOR sits right after HULL (Story 9.7, Eric 2026-10-13); ARMOR
+      // PIERCING right after ARMOR (Story 9.9, epic-9 amendment 159).
       open(mockOwn());
-      expect(ladder()).toBe('ARMORIII·SPEEDIV·TURNINGII·RADAR SWEEPII·RELOADIII');
-      const numerals = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > span > span')];
-      expect(numerals.map((n) => n.style.color)).toEqual([2, 3, 1, 1, 2].map((i) => LINEAGE_TIERS[i]));
+      expect(ladder()).toBe('HULLII·ARMORI·ARMOR PIERCING—·SPEEDIIITURNINGI·RADAR SWEEPII·RELOADIII·PASSIVE HEALING—');
+      // TWO ROWS, FOUR OVER FOUR (Eric's pick, Story 9.9, epic-9 amendment 160;
+      // four over three since amendment 114, two rows of three since amendment
+      // 99): no separator crosses the row break.
+      const rows = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div')];
+      expect(rows.map((r) => r.textContent)).toEqual([
+        'HULLII·ARMORI·ARMOR PIERCING—·SPEEDIII',
+        'TURNINGI·RADAR SWEEPII·RELOADIII·PASSIVE HEALING—',
+      ]);
+      const numerals = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')];
+      // HULL, ARMOR, (ARMOR PIERCING dashes), SPEED, TURNING, RADAR SWEEP, RELOAD.
+      expect([0, 1, 3, 4, 5, 6].map((k) => numerals[k].style.color)).toEqual(
+        [1, 0, 2, 0, 1, 2].map((i) => LINEAGE_TIERS[i]),
+      );
     });
 
-    it('an untaken RADAR SWEEP reads `RADAR SWEEP —` in the muted label colour (Eric R2), all five still listed', () => {
-      open(mockOwn({ radarSweep: 0 }));
-      expect(ladder()).toBe('ARMORIII·SPEEDIV·TURNINGII·RADAR SWEEP—·RELOADIII');
+    // THE 4 + 4 SPLIT FITS (Story 9.9, epic-9 amendment 160): each row of the
+    // ladder line, at its WIDEST numerals (III on every entry — the longest
+    // roman up to the cap of V), stays inside the panel's 530 px content
+    // column. The mono model mirrors makeLadderLine/makeLadderEntry's CSS:
+    // labels 10 px at .16em, numerals 11 px at .1em after a 6 px margin, and a
+    // `·` separator at the label type with 12 px margins either side.
+    it('each row of the 4 + 4 ladder line fits the 530 px column at its widest numerals', () => {
+      const COLUMN = 530;
+      const L = LADDER_LINE_PX;
+      const label = (t: string): number => monoTextWidth(t, L.labelPx, L.labelPx * L.labelTrackingEm);
+      const numeral = L.numeralGapPx + monoTextWidth('III', L.numeralPx, L.numeralPx * L.numeralTrackingEm);
+      const sep = label('·') + 2 * L.separatorMarginPx;
+      const rowW = (labels: readonly string[]): number =>
+        labels.reduce((w, l) => w + label(l) + numeral, 0) + sep * (labels.length - 1);
+      const labels = ladderEntries([]).map((e) => e.label);
+      expect(labels).toHaveLength(8);
+      const rows = [labels.slice(0, 4), labels.slice(4)];
+      expect(rows[0]).toEqual(['HULL', 'ARMOR', 'ARMOR PIERCING', 'SPEED']);
+      for (const r of rows) expect(rowW(r), r.join(' · ')).toBeLessThanOrEqual(COLUMN);
+    });
+
+    it('a ladder at zero copies reads `—` in the muted label colour (Eric R2), all eight still listed', () => {
+      // The I/O matrix row: 0 × SPEED dashes, 3 × PASSIVE HEALING prints III.
+      open(mockOwn({ speed: 0, passiveHealing: 3 }));
+      expect(ladder()).toBe('HULLII·ARMORI·ARMOR PIERCING—·SPEED—TURNINGI·RADAR SWEEPII·RELOADIII·PASSIVE HEALINGIII');
       const entries = ladderEntries([]);
-      expect(entries.map((e) => e.label)).toEqual(['ARMOR', 'SPEED', 'TURNING', 'RADAR SWEEP', 'RELOAD']);
-      // Base lines sail at Tier I; the two that start from nothing dash.
-      expect(entries.map((e) => e.tier)).toEqual([1, 1, 1, null, null]);
-      const dash = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > span > span')][3];
-      expect(dash.textContent).toBe('—');
-      expect(dash.style.color).toBe('var(--hc-text-muted)');
+      expect(entries.map((e) => e.label)).toEqual([
+        'HULL', 'ARMOR', 'ARMOR PIERCING', 'SPEED', 'TURNING', 'RADAR SWEEP', 'RELOAD', 'PASSIVE HEALING',
+      ]);
+      // Every ship ladder starts from nothing (amendment 94; ARMOR too, Story
+      // 9.7, epic-9 amendments 110–117; ARMOR PIERCING too, Story 9.9, epic-9
+      // amendment 159), so all eight dash.
+      expect(entries.map((e) => e.tier)).toEqual([null, null, null, null, null, null, null, null]);
+      const marks = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')];
+      for (const dash of [marks[2], marks[3]]) { // ARMOR PIERCING (no copies) and SPEED (0)
+        expect(dash.textContent).toBe('—');
+        expect(dash.style.color).toBe('var(--hc-text-muted)');
+      }
     });
 
     // THE 9 PX FLOOR (amendment 43): the squares scale, the text does not. Every
@@ -481,7 +561,7 @@ describe('showResults — the elimination modal', () => {
       const texted = [block(), ...block().querySelectorAll<HTMLElement>('*')].filter((el) =>
         [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim() !== ''),
       );
-      expect(texted.length).toBeGreaterThan(20); // head + 9 chips + 4 marks + 1 badge + 3 dashes + ladder
+      expect(texted.length).toBeGreaterThan(20); // head + 11 chips + 4 marks + 1 badge + ladder
       for (const el of texted) {
         const px = sizeOf(el);
         expect(Number.isFinite(px), `"${el.textContent}" has no font size`).toBe(true);

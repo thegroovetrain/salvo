@@ -14,8 +14,9 @@
 //
 // The old PHOSPHOR and DAZZLE doctrine verbs are DELETED (amendment 134): a
 // lit zone only ever LIGHTS. PHOSPHOR SHELLS is its own weapon row
-// (equipment/phosphorShells.ts) and FLASH SHELLS a belt consumable
-// (equipment/consumables/dazzleShells.ts). Same fire flow as the gun (360°,
+// (equipment/phosphorShells.ts); FLASH SHELLS became a consumable and was
+// itself replaced by the FOULING SHELL in Story 9.4
+// (equipment/consumables/foulingShell.ts). Same fire flow as the gun (360°,
 // clamp at the system's effective range, muzzle-or-target spawn,
 // makeBallistic with D1 fireT); range = the gun's BASE range
 // (stats.equipment.starShells.rangeU, radar-derived). Pure over a ShipRecord's

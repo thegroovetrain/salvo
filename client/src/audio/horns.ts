@@ -130,7 +130,7 @@ function clamp01(v: number): number {
 
 /**
  * Pure: a honk's effective peak gain — the voice's own level times the caller's
- * per-observer BAND multiplier (the eighths ladder's 1 … 0.5 curve; see
+ * per-observer BAND multiplier (the twelve-band 1 … 0.5 curve, ruling 129; see
  * `CLIENT_CONFIG.foghorn.bandGain`). Extracted so the ONE piece of arithmetic
  * in the horn path is testable without a WebAudio stack.
  */

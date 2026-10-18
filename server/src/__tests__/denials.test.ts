@@ -11,7 +11,7 @@
 // must be rejected at matchmake time after the 16→17 bump (Story 2.9).
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, CONSUMABLE_SLOTS, PROTOCOL_VERSION, SLOT_BOOST, type InputMsg } from '@salvo/shared';
+import { CONFIG, consumableSlotFor, PROTOCOL_VERSION, SLOT_BOOST, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -122,7 +122,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyCard(a, 'hullRepair');
-    const belt = CONSUMABLE_SLOTS[0];
+    const belt = consumableSlotFor('hullRepair')!;
     expect(a.hp).toBe(a.stats.maxHp);
     w.submitInput('a', input(1, { actSeq: 1, actSlot: belt }));
     w.step();
@@ -148,7 +148,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyCard(a, 'hullRepair');
-    const belt = CONSUMABLE_SLOTS[0];
+    const belt = consumableSlotFor('hullRepair')!;
     a.hp = a.stats.maxHp - 0.4;
     w.submitInput('a', input(1, { actSeq: 1, actSlot: belt }));
     w.step();
@@ -165,7 +165,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyCard(a, 'hullRepair');
-    const belt = CONSUMABLE_SLOTS[0];
+    const belt = consumableSlotFor('hullRepair')!;
     a.hp = a.stats.maxHp - 1;
     w.submitInput('a', input(1, { actSeq: 1, actSlot: belt }));
     w.step();
@@ -270,9 +270,24 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 70→71 bump (PV 71, cycle 167: private lobbies — CONFIG.lobby, arena mode \'private\', lobby channels lr/ls/lb/lg; PV 70, cycle 166: Eric\'s 2026-10-02 deck gun ladders; PV 69, cycle 163: the self-private `dp` event; PV 68, cycle 162: MineView.c for every observer, the self-private OwnShip.chaffGhosts, chaff/smoke radii ×1.5, supercav damage 85; PV 67 was amendment 208: star / phosphor burst bases swapped; PV 66 was amendment 200: the client reads CONFIG.mine.hitRadiusU; PV 65 was amendment 197: DECK GUN TURRET and DECK GUN BARREL left the catalog) is enforced at matchmake', () => {
+describe('pv join gate — the 84→85 bump (PV 85, Story 9.10: WelcomeMsg.fogSeed, ArenaState.fogCut and CONFIG.fog read by the client — the fog field; no per-observer fog channel; PV 84, Story 9.9: the ARMOR PIERCING ladder, K 100 / +20 per card, HUNKER +100, damageCutUntil → hunkerUntil; PV 83, Story 9.8 staging: the CM cloud 300 u; PV 82, Story 9.8: the twelfths ladder, tiered weapon reaches, the radar dropout dials, twelve foghorn bands; PV 81, Story 9.7: the ARMOR ladder, CONFIG.armor read through stats, HUNKER (was DAMAGE CUT until Story 9.9) factor → armorBonus; PV 80, Story 9.6: armor → hullPoints, SPEED/TURNING cap 5, the PASSIVE HEALING ladder, CONFIG.regen read through stats; PV 79, Story 9.5: the client reads CONFIG.ram and runs the shared hull-contact resolver in prediction; PV 78, Story 9.4: FLASH SHELLS → FOULING SHELL, OwnShip.dazzledUntil → fouledUntil, the `foulZones` channel; PV 77, Story 9.3 session 2: the countermeasure cloud becomes a client overlay, CONFIG.countermeasure shrinks to lifeMs/r0/r1; PV 76, cycle 174: Story 9.3 — SMOKE SCREEN → MULTI-SPECTRAL COUNTERMEASURE, the `smoke` channel → `clouds`, OwnShip.inSmoke retired; PV 75, cycle 172: Story 9.2 — eleven fixed slots, CHAFF and OwnShip.chaff / chaffGhosts retired; PV 74, cycle 171: mine/torpedo detect rung 3/8 -> 4/8; PV 73, cycle 170: the 8,000 u ocean + storm damage ramp; PV 72, cycle 169: Story 9.1 big ocean — radius 5500, 10 % land, literal ring ladder; PV 71, cycle 167: private lobbies — CONFIG.lobby, arena mode \'private\', lobby channels lr/ls/lb/lg; PV 70, cycle 166: Eric\'s 2026-10-02 deck gun ladders; PV 69, cycle 163: the self-private `dp` event; PV 68, cycle 162: MineView.c for every observer, the self-private OwnShip.chaffGhosts, chaff/smoke radii ×1.5, supercav damage 85; PV 67 was amendment 208: star / phosphor burst bases swapped; PV 66 was amendment 200: the client reads CONFIG.mine.hitRadiusU; PV 65 was amendment 197: DECK GUN TURRET and DECK GUN BARREL left the catalog) is enforced at matchmake', () => {
   it('rejects pv-67 and older protocols and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(71);
+    expect(PROTOCOL_VERSION).toBe(89); // 88 → 89: the second tuning pass (Story 9.12, epic-9 amendment 184 — catalog + CONFIG the client reads); 87 → 88: fog tune 3 (no fog past the rim, the own bank is free; amendment 179); 86 → 87: fog tune 2 (spinRimU, solid-fog coverage; amendment 178); 85 → 86: the fog spin tune (CONFIG.fog spinPeriodMs/spinShear read by the client; amendment 177)
+    expect(protocolVersionError(88)).toMatch(/refresh/); // PV 89: the second tuning pass (Story 9.12)
+    expect(protocolVersionError(84)).toMatch(/refresh/); // PV 85: the FOG FIELD — WelcomeMsg.fogSeed, ArenaState.fogCut, CONFIG.fog read by the client (Story 9.10, epic-9 amendments 163–173)
+    expect(protocolVersionError(83)).toMatch(/refresh/); // PV 84: ARMOR PIERCING, K 100, HUNKER +100 (Story 9.9, epic-9 amendments 144–147)
+    expect(protocolVersionError(82)).toMatch(/refresh/); // PV 83: the CM cloud 150 -> 300 u (Story 9.8 staging, amendment 141)
+    expect(protocolVersionError(81)).toMatch(/refresh/); // PV 82: the twelfths ladder, tiered weapon reaches, the radar dropout (Story 9.8)
+    expect(protocolVersionError(80)).toMatch(/refresh/); // PV 81: the ARMOR ladder and the HUNKER as temporary Armor (Story 9.7)
+    expect(protocolVersionError(79)).toMatch(/refresh/); // PV 80: the five-tier re-cut and PASSIVE HEALING (Story 9.6)
+    expect(protocolVersionError(78)).toMatch(/refresh/); // PV 79: CONFIG.ram read by the client, the hull-contact resolver in prediction (Story 9.5)
+    expect(protocolVersionError(77)).toMatch(/refresh/); // PV 78: the FOULING SHELL replaces FLASH SHELLS, `fouledUntil` + `foulZones` on the wire (Story 9.4)
+    expect(protocolVersionError(76)).toMatch(/refresh/); // PV 77: the countermeasure cloud is a client overlay (Story 9.3 session 2)
+    expect(protocolVersionError(75)).toMatch(/refresh/); // PV 76: the countermeasure cloud replaces smoke on the catalog and the wire (cycle 174, Story 9.3)
+    expect(protocolVersionError(74)).toMatch(/refresh/); // PV 75: eleven fixed slots, CHAFF retired (cycle 172, Story 9.2)
+    expect(protocolVersionError(73)).toMatch(/refresh/); // PV 74: the 4/8 detect rung (cycle 171)
+    expect(protocolVersionError(72)).toMatch(/refresh/); // PV 73: the 8,000 u ocean + the damage ramp (cycle 170)
+    expect(protocolVersionError(71)).toMatch(/refresh/); // PV 72: the big ocean (cycle 169)
     expect(protocolVersionError(70)).toMatch(/refresh/); // PV 71: private lobbies — CONFIG.lobby and arena mode 'private' (cycle 167)
     expect(protocolVersionError(69)).toMatch(/refresh/); // PV 70: the deck gun ladders and CONFIG.machineGun / flak / instantReload (cycle 166)
     expect(protocolVersionError(68)).toMatch(/refresh/); // PV 69: the self-private `dp` drone-drop event (cycle 163); 68 was mine kind for all, chaff ghosts, radii ×1.5 (cycle 162)

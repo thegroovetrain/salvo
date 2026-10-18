@@ -273,7 +273,9 @@ describe('open-ocean pin — pressing the map edge is not grounding', () => {
 
   /** Drive the repro and return the final state. */
   function pressEdge(ticks: number, rudder: number): ShipState {
-    const s: ShipState = { x: 1200, y: 0, heading: 0, speed: kin.maxSpeed };
+    // Start 780 u inside the edge (what x=1200 was on the old 1980 u cap-10
+    // disc) so 600 ticks at flank reach it on ANY map radius.
+    const s: ShipState = { x: map.radius - 780, y: 0, heading: 0, speed: kin.maxSpeed };
     let prev: Pose = { x: s.x, y: s.y, heading: s.heading };
     for (let t = 0; t < ticks; t++) {
       stepShip(s, { throttle: 1, rudder }, kin, DT);
@@ -329,7 +331,7 @@ describe('open-ocean pin — pressing the map edge is not grounding', () => {
 // enough way to keep steerage, so helm alone recovers it in bounded time.
 describe('coastal grounding — stopped, never pinned', () => {
   const kin = CONFIG.shipClasses.battleship.kinematics;
-  const map = generateMap(1, 20); // production ocean size (fillTo = 20)
+  const map = generateMap(1, CONFIG.match.fillTo); // production ocean size (cap = fillTo)
   const polyMax = polygonMaxRadius(hullSilhouette('battleship'));
 
   /** A clear start pose on the map-centre side of `isle`, bow at its pole. */
@@ -569,7 +571,7 @@ describe('ram-and-escape — real hook/bay coastlines', () => {
     let ticksDriven = 0;
     const overTravel: number[] = [];
     for (const seed of [1, 7, 33, 90]) {
-      const map = generateMap(seed, 20);
+      const map = generateMap(seed, CONFIG.match.fillTo);
       // The eight deepest pockets on this ocean — the worst concavities the
       // generator actually produced for this seed.
       const cands = map.islands
@@ -792,14 +794,16 @@ describe('no-escape invariant on a REAL generated map', () => {
     const kin = CONFIG.shipClasses.battleship.kinematics;
     const polyMax = polygonMaxRadius(hullSilhouette('battleship'));
     for (const seed of [7, 33, 90]) {
-      const map = generateMap(seed, 20);
+      const map = generateMap(seed, CONFIG.match.fillTo);
       const isle = map.islands.reduce((a, b) => (b.r > a.r ? b : a));
       // Start just off the biggest island's coast, on its map-centre side, bow
       // pointed straight at its pole (guaranteed land).
       const d = Math.hypot(isle.x, isle.y);
       const toCentre = { x: -isle.x / d, y: -isle.y / d };
       let s: ShipState | null = null;
-      for (let back = isle.r + polyMax + 20; back < isle.r + polyMax + 400; back += 8) {
+      // Up to 1600 u back: on the 10 % archipelago (Story 9.1) the biggest
+      // landmass often has a neighbour inside the old 400 u search.
+      for (let back = isle.r + polyMax + 20; back < isle.r + polyMax + 1600; back += 8) {
         const cand: ShipState = {
           x: isle.x + toCentre.x * back,
           y: isle.y + toCentre.y * back,
@@ -817,9 +821,15 @@ describe('no-escape invariant on a REAL generated map', () => {
       const rng = mulberry32(seed * 7919);
       let prev: Pose = { x: ship.x, y: ship.y, heading: ship.heading };
       let contacts = 0;
-      for (let t = 0; t < 1200; t++) {
-        const throttle = t < 600 ? 1 : rng.float(-1, 1); // ram first, wander after
-        stepShip(ship, { throttle, rudder: t < 600 ? 0 : rng.float(-1, 1) }, kin, DT);
+      // RAM UNTIL THE COAST IS REACHED, then wander: the start can sit up to
+      // 1,600 u off the coast on the archipelago (Story 9.1), further than a
+      // fixed 30 s ram at flank covers, so the ram phase ends on the first
+      // contact (bounded) rather than on a tick count.
+      let ramming = true;
+      for (let t = 0; t < 2400; t++) {
+        if (ramming && (contacts > 0 || t >= 1800)) ramming = false;
+        const throttle = ramming ? 1 : rng.float(-1, 1); // ram first, wander after
+        stepShip(ship, { throttle, rudder: ramming ? 0 : rng.float(-1, 1) }, kin, DT);
         if (resolve(prev, ship, map.islands, 'battleship', map.radius).contact) contacts++;
         expect(clearOfAll(ship, 'battleship', map.islands)).toBe(true);
         expect(insideMapCircle(ship, 'battleship', map.radius)).toBe(true); // hull-exact edge invariant
@@ -865,16 +875,34 @@ function tickPushLimit(hullId: HullId, spd: number): number {
   return Math.abs(spd) * DT + hullEnvelope(hullId).hull.beam;
 }
 
-describe('push-out teleport — seed 555555 arm graze (deterministic repro)', () => {
+describe('push-out teleport — the arm graze (deterministic repro, synthetic coast)', () => {
   it('resolves the mineLayer bow-in-arm overlap within a tick-scaled bound', () => {
-    const map = generateMap(555555, 20);
+    // Originally a pose on seed 555555's coastline at the 2800 u / 2.5 % ocean;
+    // Story 9.1 (2026-10-07) regenerated every ocean, so the geometry is now
+    // BUILT rather than found: an east-west coastal arm to the NORTH of the
+    // hull and a separate block of land 41 u EAST of the centre, so the
+    // centre's nearest coast (east) does not describe what the bow is in
+    // (the arm). The retired centre aim pointed due WEST, parallel to the arm,
+    // and one 2 u step ahead resolved 209.6 u west in a single tick.
     const kin = CONFIG.shipClasses.mineLayer.kinematics;
-    // Prev pose with the bow a hair inside an east-west coastal arm to the
-    // NORTH while the centre sits on open water 41.2u from its nearest coast
-    // to the EAST — so the retired centre aim pointed due WEST, parallel to
-    // the arm. One 2u step ahead resolved to (-1213.3, -200.4): 209.6u due
-    // west in a single tick.
-    const prev: Pose = { x: -1004.08, y: -202.34, heading: 1.401 };
+    const half = CONFIG.shipClasses.mineLayer.hull.length / 2;
+    const prev: Pose = { x: 0, y: 0, heading: -Math.PI / 2 + 0.17 }; // bow north, a hair east of straight up
+    // The arm's south coast sits 0.5 u ABOVE the bow tip at `prev` (bow a hair
+    // inside), so the 2 u step ahead puts it ~2.5 u in.
+    const bowY = -half * Math.cos(0.17);
+    const arm = islandFromPolygon([
+      { x: -900, y: bowY + 0.5 },
+      { x: 900, y: bowY + 0.5 },
+      { x: 900, y: bowY - 300 },
+      { x: -900, y: bowY - 300 },
+    ]);
+    const block = islandFromPolygon([
+      { x: 41.2 + half, y: -40 },
+      { x: 41.2 + half + 300, y: -40 },
+      { x: 41.2 + half + 300, y: 260 },
+      { x: 41.2 + half, y: 260 },
+    ]);
+    const map = { islands: [arm, block], radius: BIG_MAP };
     const s: ShipState = {
       x: prev.x + Math.cos(prev.heading) * 2,
       y: prev.y + Math.sin(prev.heading) * 2,
@@ -906,7 +934,7 @@ describe('push-out teleport — seed 555555 arm graze (deterministic repro)', ()
 // 46u for a mineLayer, both far under the smallest observed teleport (35u).
 describe('sustained parallel coastal grind — every tick is tick-scaled', () => {
   const GRIND_SEED = 7;
-  const map = generateMap(GRIND_SEED, 20);
+  const map = generateMap(GRIND_SEED, CONFIG.match.fillTo);
 
   /** A clear start pose just off coastline vertex `vi`, roughly tangential. */
   function grindStart(isle: Island, vi: number, hullId: HullId): ShipState | null {

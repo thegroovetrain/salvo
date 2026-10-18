@@ -79,7 +79,7 @@ describe('star shells — shell construction', () => {
     expect(shell.contactDamage).toBe(20);
     expect(shell.hits).toEqual(CONFIG.starShells.hits); // still no mine bit — lighting never clears a minefield
     expect(shell.burn).toBeUndefined(); // a flare never burns (PHOSPHOR SHELLS is its own row)
-    expect(shell.flash).toBeUndefined(); // ...and never flashes (FLASH SHELLS is a belt row)
+    expect(shell.foul).toBeUndefined(); // ...and never fouls (the FOULING SHELL is its own consumable row, Story 9.4)
     expect(shell.burstRadius).toBe(LIT_R); // the burst IS the lit circle
     expect(shell.hitRadius).toBe(CONFIG.starShells.shellRadius); // own field — never the gun's
     expect(shell.kind).toBe('shell'); // rides the existing ballistic wire kind
@@ -88,14 +88,14 @@ describe('star shells — shell construction', () => {
     expect(bb.loadout[SLOT_STAR].state).toEqual({ n: 0, reloadMsLeft: CONFIG.starShells.reloadMs });
   });
 
-  it('a click beyond range clamps the burst point to the radar-derived base range (660u)', () => {
+  it('a click beyond range clamps the burst point to its own Tier I reach (Story 9.8, ruling 125)', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
-    setInput(bb, { aim: 0, aimDist: 1200, slot: SLOT_STAR });
+    setInput(bb, { aim: 0, aimDist: CONFIG.vision.radar + 200, slot: SLOT_STAR });
     expect(w.sinkingActivationGate(bb, SLOT_STAR)).toEqual({ ok: true });
     const shell = [...w.shells.values()][0];
-    expect(bb.stats.equipment.starShells.rangeU).toBe(CONFIG.vision.radar);
-    expect(shell.targetX).toBeCloseTo(CONFIG.vision.radar, 9);
+    expect(bb.stats.equipment.starShells.rangeU).toBe(CONFIG.starShells.rangeU);
+    expect(shell.targetX).toBeCloseTo(CONFIG.starShells.rangeU, 9);
     expect(shell.targetY).toBeCloseTo(0, 9);
   });
 });
@@ -197,31 +197,40 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
 
 describe('star shells — the lit intel, end-to-end through the real weapon', () => {
   it('firer gains a contact inside the zone; a radar-range third party gets ONLY the circle; beyond radar is byte-free', () => {
+    // Geometry off the live ladder (Story 9.8, amendment 103): the zone sits
+    // 200 u past the firer's sight, the hidden hull inside it; the third party
+    // is beyond sight of the hidden hull yet inside radar of the zone; the
+    // fourth sits 200 u past radar of the zone centre.
+    const S = CONFIG.vision.sight;
+    const R = CONFIG.vision.radar;
+    const Z = S + 200;
     const w = bareWorld();
     place(w, 'a', 'battleship', 0, 0); // the firer
-    const hidden = place(w, 'e', 'torpedoBoat', 500, 40, 1.1); // inside the flare circle, outside everyone's sight
-    const c = place(w, 'c', 'mineLayer', 100, -100); // third party: zone center ~412u away — inside radar
-    const d = place(w, 'd', 'mineLayer', -700, 0); // zone center 1200u away — beyond radar
+    const hidden = place(w, 'e', 'torpedoBoat', Z, 40, 1.1); // inside the flare circle, outside everyone's sight
+    const c = place(w, 'c', 'mineLayer', -300, -100); // third party: zone center inside radar, the hidden hull beyond sight
+    const d = place(w, 'd', 'mineLayer', Z - R - 200, 0); // zone center beyond radar
+    expect(Math.hypot(hidden.state.x - c.state.x, hidden.state.y - c.state.y)).toBeGreaterThan(S);
+    expect(Math.hypot(Z - c.state.x, c.state.y)).toBeLessThan(R);
     // Park every sweep away from the relevant bearings so no radar blip muddies the read.
     for (const s of [c, d]) {
       s.prevSweepAngle = Math.PI;
       s.sweepAngle = Math.PI + 0.0001;
     }
-    const { seen, at } = fireAndResolve(w, 'a', { aim: 0, aimDist: 500 });
+    const { seen, at } = fireAndResolve(w, 'a', { aim: 0, aimDist: Z });
     expect(seen).toContain('burst');
-    // FIRER: full contact for the hull inside the zone (far beyond its 330u
-    // sight; c, 141u away, is an ordinary sight contact riding along).
+    // FIRER: full contact for the hull inside the zone (beyond its sight; c,
+    // ~316u away, is an ordinary sight contact riding along).
     const fa = buildFrame(w, 'a');
     expect(fa.contacts.find((x) => x.id === 'e')).toEqual({
       id: 'e', x: hidden.state.x, y: hidden.state.y, heading: hidden.state.heading, speed: 0, cls: 'torpedoBoat',
     });
     expect(fa.litZones).toEqual([
-      { id: 'z1', x: 500, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, by: 'a' },
+      { id: 'z1', x: Z, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, by: 'a' },
     ]);
     // THIRD PARTY in radar range: the tagged circle and NOTHING else from it.
     const fc = buildFrame(w, 'c');
     expect(fc.litZones).toEqual([
-      { id: 'z1', x: 500, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, by: 'a' },
+      { id: 'z1', x: Z, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, by: 'a' },
     ]);
     expect(fc.contacts.map((x) => x.id)).not.toContain('e'); // someone else's zone reveals nothing
     // BEYOND radar: frames byte-free of the zone (key absent, not []).

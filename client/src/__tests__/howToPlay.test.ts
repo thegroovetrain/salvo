@@ -26,6 +26,28 @@ import { boonName } from '../ui/boonCopy.js';
 const page = (): HTMLElement => document.getElementById('how-to-play-page') as HTMLElement;
 
 const allEntries = (): HowToEntry[] => HOWTO_SECTIONS.flatMap((s) => [...(s.entries ?? [])]);
+
+/** Is this entry's line still in the catalog? CHAFF left the catalog in Story
+ *  9.2 (epic-9 amendment 31), but Eric froze the How-to-Play copy until Story
+ *  9.11 (amendment 36), so its entry stays on the page — named by the copy, with
+ *  no derived table ("a kind that leaves the catalog leaves any table built
+ *  from it") until 9.11 carries the copy. */
+const inCatalog = (e: HowToEntry): boolean => (LINE_IDS as readonly string[]).includes(e.lineId);
+/** Lines that went live while the How-to-Play copy is frozen (amendment 36,
+ *  until Story 9.11) and so have no entry yet: the MULTI-SPECTRAL
+ *  COUNTERMEASURE (Story 9.3) replaced SMOKE SCREEN, whose stale entry stays on
+ *  the page beside CHAFF's; the FOULING SHELL (Story 9.4) replaced FLASH
+ *  SHELLS, whose stale entry stays too (its `dazzleShells` line left the
+ *  catalog, so `inCatalog` tolerates it). 9.11 writes the copy and empties
+ *  this set. ARMOR PIERCING (Story 9.9, epic-9 amendment 159) waits on Eric's
+ *  copy too (its entry is Story 9.17's). */
+const AWAITING_COPY: ReadonlySet<string> = new Set([
+  'countermeasure',
+  'foulingShell',
+  'passiveHealing',
+  'armor',
+  'armorPiercing',
+]);
 const allProse = (): string =>
   HOWTO_SECTIONS.flatMap((s) => [...(s.paragraphs ?? []), ...(s.tail ?? [])]).join(' ');
 
@@ -80,13 +102,13 @@ describe('how-to-play copy', () => {
   it('every non-stub catalog line is an entry, derived from LINE_IDS', () => {
     const names = allEntries().map((e) => e.name);
     for (const id of LINE_IDS) {
-      if (isStubLine(id)) continue;
+      if (isStubLine(id) || AWAITING_COPY.has(id)) continue;
       expect(names, id).toContain(boonName(id, 0));
     }
   });
 
-  it('every entry names a real catalog line, under its card name', () => {
-    for (const e of allEntries()) {
+  it('every entry names a real catalog line, under its card name (copy frozen by amendment 36 aside)', () => {
+    for (const e of allEntries().filter(inCatalog)) {
       expect(LINE_IDS as readonly string[], e.lineId).toContain(e.lineId);
       expect(e.name, e.lineId).toBe(boonName(e.lineId, 0));
     }
@@ -163,7 +185,7 @@ describe('how-to-play page mount', () => {
   it('renders one stat table per entry, plus the controls table', () => {
     const tables = page().querySelectorAll('table');
     const keyTables = HOWTO_SECTIONS.filter((s) => s.keys !== undefined).length;
-    expect(tables).toHaveLength(allEntries().length + keyTables);
+    expect(tables).toHaveLength(allEntries().filter(inCatalog).length + keyTables);
   });
 
   // Eric 2026-10-01: each entry shows its icon as the card / hotbar draws it.

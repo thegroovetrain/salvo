@@ -119,10 +119,11 @@ import {
   type Vec2,
 } from '@salvo/shared';
 import { POINT, SURFACE, attenuation, heightReflectivity } from './radarFalloff.js';
-import { cellNoise, cellOf, paintSeed, type ReturnModelOpts } from './radarHeatmap.js';
+import { cellCentre, cellNoise, cellOf, paintSeed, type ReturnModelOpts } from './radarHeatmap.js';
 import {
   CHOP_HEAD_MULTIPLE,
   chopSample,
+  cloudSample,
   clutterSample,
   wakeKeepFraction,
   wakeSample,
@@ -515,7 +516,7 @@ export function stampCoverage(
  * the footprint arrives already rasterized AND fuzzed on the wire. Two
  * sources, one appearance, by construction — the inside/outside split
  * survives but stops being visible. Neither can double-stamp one hull,
- * because the two ranges are exact complements about the same dazzle-scaled
+ * because the two ranges are exact complements about the same effective-truesight
  * radius.
  *
  * `seedT` is the glint seed's time term. The caller passes the CURRENT SWEEP
@@ -709,6 +710,15 @@ export interface FieldSpec {
    * it, and waiting for the local beam would paint it a revolution stale.
    */
   wake?: CellStamp;
+  /**
+   * THE COUNTERMEASURE CLOUD LAYER (Story 9.3 session 4) — the drawn smoke
+   * thickness (0..maxAlpha) under a world point, max across every held cloud
+   * (`Countermeasure.coverAt`, pulled through the Radar's `setCloudSource`
+   * thunk exactly as `wake` is pulled through `setWakeSources`). Optional: a
+   * frame with no cloud held passes nothing and the field answers as before.
+   * The material is `cloudSample` — strength by thickness (Eric 2026-10-12).
+   */
+  cloud?: (x: number, y: number) => number;
   cellU: number;
   model: ReturnModelOpts;
 }
@@ -778,6 +788,12 @@ function solidAt(f: FieldSpec, x: number, y: number, dist: number): FieldSample 
  * wake's core and the chop pushed out around it share a layer because a cell can
  * only be one material, and separating them would buy a second probe on every
  * open-water sample for an answer the stamp already arbitrated.
+ *
+ * A COUNTERMEASURE CLOUD RANKS BELOW THE SOLID LAYERS AND ABOVE EVERYTHING ON THE
+ * WATER (Story 9.3 session 4): it hangs in the air over surf, wake and clutter,
+ * so where its haze is thick enough to return at all it is what the beam reads
+ * there; terrain and steel still answer as themselves inside it (amendment 127's
+ * hull guarantee is not the cloud's to override).
  */
 export function buildField(f: FieldSpec): RadarField {
   const m = f.model;
@@ -789,6 +805,8 @@ export function buildField(f: FieldSpec): RadarField {
     sampleAt(x: number, y: number, dist = 0): FieldSample | null {
       const solid = solidAt(f, x, y, dist);
       if (solid !== null) return solid;
+      const smoke = f.cloud === undefined ? null : cloudSample(cloudHazeAt(f.cloud, x, y, f.cellU), m);
+      if (smoke !== null) return smoke;
       const surf = f.raster === null ? null : surfSample(f.raster, surfLevel, x, y, m);
       if (surf !== null) return surf;
       const water = wake === undefined || wake.size === 0 ? undefined : stampAt(wake, x, y, f.cellU);
@@ -796,6 +814,15 @@ export function buildField(f: FieldSpec): RadarField {
       return clutterSample(f.obs, x, y, m);
     },
   };
+}
+
+/**
+ * The cloud haze for the radar CELL holding (x, y), read at that cell's centre —
+ * so a cloud's return is a property of the cell (like the ship and wake stamps,
+ * which are cell-indexed), and two rays crossing one cell read the same smoke.
+ */
+function cloudHazeAt(haze: (x: number, y: number) => number, x: number, y: number, cellU: number): number {
+  return haze(cellCentre(cellOf(x, cellU), cellU), cellCentre(cellOf(y, cellU), cellU));
 }
 
 /** One cell-indexed layer's answer at a point. */

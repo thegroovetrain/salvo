@@ -18,6 +18,25 @@
 //   * THE WHOLE BAND (E1). The age-grown association radius says how far off
 //     its prediction the hull may be; the beam must have swept past that
 //     whole disc before an empty sweep is evidence of absence.
+//   * THE DROPOUT LIMIT (Story 9.8, epic-9 ruling 124, Eric 2026-10-13: bots
+//     trust a missed sweep only inside `dropout.startU`). Beyond the 8/12
+//     rung a real hull fails to paint on some revolutions (the radar
+//     DROPOUT, rulings 121–123), so an empty sweep there is no evidence of
+//     absence: the miss is IGNORED — the plot is not marked and ages on its
+//     normal clock.
+//   * THE FOG LIMIT (Story 9.10, epic-9 amendment 169, Eric 2026-10-14: a
+//     fogged plot is not a miss). Fog hides a hull from sight AND from radar
+//     inside the sight bubble (amendment 163), so a plot whose predicted
+//     spot sits in fog (`site.fogAt(p) ≥ FOG_PLOT_DENSITY`) would not have
+//     answered the beam either way: the miss is IGNORED exactly like the
+//     dropout case — never marked, it ages out on `contactMemoryMs`. The
+//     density is public weather (the welcome seed + the schema cut), the
+//     same a human client sees; it says where fog is, never what it hides.
+//     Since amendment 179 a bot standing in the SAME bank as the spot would
+//     see it by eye — this rule still reads the spot's density alone, so a
+//     bot keeps such a plot until memory runs out (recorded at the cycle-194
+//     gate; Eric's to re-rule with the rest of bot plot memory, 178).
+
 //
 // The beam window is [lastSweep, sweepAngle): this tick's own angle and the
 // one the bot remembered from its previous fold (BotMind.lastSweep) — what a
@@ -25,6 +44,7 @@
 // rng, no clock read.
 
 import {
+  CONFIG,
   visibilityTo,
   wrapPositive,
   type EffectiveStats,
@@ -54,7 +74,14 @@ export interface SweepSite {
   /** The public map radius about the map centre — predictions stay on the
    *  water (ai/plot.ts predictedPos). Omitted = no clamp. */
   readonly waterR?: number;
+  /** The public fog density at a point, in [0, 1] (Story 9.10 — the bot
+   *  entry's `fogAt`, see the header). Omitted = no fog anywhere. */
+  readonly fogAt?: (x: number, y: number) => number;
 }
+
+/** A predicted spot at or above this density is "in fog" for the sweep-miss
+ *  rule (amendment 169): the heart of a bank, not its thin edge. */
+export const FOG_PLOT_DENSITY = 0.5;
 
 /** The beam: this tick's angle (BotSelf's self-read) and the angle the bot
  *  remembered from its previous fold (`BotMind.lastSweep`, -1 = none). */
@@ -92,6 +119,13 @@ function wouldPaint(site: SweepSite, px: number, py: number, d: number): boolean
  * paint folded this tick is the opposite of a miss), its predicted position
  * is inside the bot's radar range where a hull would have answered
  * (wouldPaint), and the bearing to it lies in this tick's paint window.
+ *
+ * ONLY INSIDE THE DROPOUT START (ruling 124): a plot whose association band
+ * (predicted distance + `predictedAssocRadius`) reaches beyond
+ * `CONFIG.vision.dropout.startU` never counts as a miss — the hull may simply
+ * have dropped out of this revolution's paint. NEVER IN FOG (amendment 169):
+ * a predicted spot at `FOG_PLOT_DENSITY` or denser is no evidence either —
+ * fog hides a hull from both sensors there.
  */
 export function sweptAndMissed(beam: SweepBeam, site: SweepSite, t: RememberedContact, now: number): boolean {
   if (t.live || t.seenAt === now) return false;
@@ -100,6 +134,12 @@ export function sweptAndMissed(beam: SweepBeam, site: SweepSite, t: RememberedCo
   const dy = p.y - site.y;
   const d = Math.hypot(dx, dy);
   if (d > site.stats.radarRange) return false;
+  // ruling 124: a far miss is no evidence — and "far" is the plot's whole
+  // association band, not its centre: the hull may honestly be anywhere in
+  // that disc, and past startU the dropout may have suppressed it (F2).
+  if (d + predictedAssocRadius(t, now) > CONFIG.vision.dropout.startU) return false;
+  // amendment 169: a fogged spot is no evidence — the same silence, not a miss.
+  if (site.fogAt !== undefined && site.fogAt(p.x, p.y) >= FOG_PLOT_DENSITY) return false;
   if (!wouldPaint(site, p.x, p.y, d)) return false;
   return beamCrossed(beam, Math.atan2(dy, dx));
 }

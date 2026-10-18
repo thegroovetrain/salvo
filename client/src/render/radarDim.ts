@@ -14,17 +14,17 @@
 // radar paint were fighting each other. The floor now holds across the WHOLE
 // bubble and climbs only outside it.
 //
-// BOTH RADII STILL COME OFF THE EIGHTHS LADDER (amendment 113), never off
-// literals, and the choice of rungs is forced rather than tuned:
-//   • INNER = 4/8, `CONFIG.vision.sight` — the bubble itself. Anywhere inside it
-//     the eye is the primary sensor and the scope is a second opinion.
-//   • OUTER = 5/8, `CONFIG.vision.muzzleFlash` — the very next rung out, and the
-//     first radius at which radar is the SOLE sensor. Reaching full strength at
-//     the first rung past the bubble is the shortest ramp the ladder can express;
-//     anything further out would mute returns in water where nothing else sees.
-// The ratio between them (1.25) is what this module actually carries, because the
-// mask is OBSERVER-SCALED: sight is not a constant (a dazzle burst shrinks it at
-// read time; no boon widens radar range any more), so the ramp is expressed against the
+// BOTH RADII STILL COME OFF THE LADDER (amendment 113; twelfths of intel range
+// since Story 9.8, epic-9 amendment 103), never off literals:
+//   • INNER = 4/12, `CONFIG.vision.sight` — the bubble itself. Anywhere inside
+//     it the eye is the primary sensor and the scope is a second opinion.
+//   • OUTER = 6/12, `CONFIG.vision.muzzleFlash` — the flash rung. On the eighths
+//     ladder this was 5/8, the very next rung out; the twelfths ladder keeps the
+//     same NAMED rung (the flash/smoke reach), now two twelfths past the bubble,
+//     rather than inventing a 5/12 anchor nobody ruled on.
+// The ratio between them (1.5; 1.25 on the eighths ladder) is what this module actually carries, because the
+// mask is OBSERVER-SCALED: sight is not the base constant (it is a boon-widened
+// constant per build; no boon widens radar range any more), so the ramp is expressed against the
 // observer's EFFECTIVE truesight and rides the bubble the player actually has.
 // Radar.sightHoleU — i.e. `fogHoleRadiusU`, the same number the fog hole is baked
 // at and the same one the server's `sightOf` gates contacts with — is the sole
@@ -38,7 +38,7 @@ import { CONFIG } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 
 /** The ramp's two radii (u) for an observer whose EFFECTIVE truesight is
- *  `sightU` — the dazzle-scaled / boon-widened bubble, never the base constant.
+ *  `sightU` — the boon-widened bubble, never the base constant.
  *  A non-positive or non-finite bubble collapses both to 0, which reads as "no
  *  bubble, no quieting" (see `dimScaleAt`). */
 export function dimRadii(sightU: number): { innerU: number; outerU: number } {
@@ -50,7 +50,7 @@ export function dimRadii(sightU: number): { innerU: number; outerU: number } {
 /**
  * The displayed fraction of a return's painted opacity at `distU` from own hull,
  * for an observer with `sightU` of effective truesight: flat at `minScale`
- * across the whole bubble, linear to 1 at the 5/8 rung, flat at 1 beyond.
+ * across the whole bubble, linear to 1 at the flash rung (6/12), flat at 1 beyond.
  *
  * IT FAILS TOWARD A FULLY VISIBLE SCOPE, and that is this file's inherited rule
  * rather than a new one: `Radar.updateDimMask` already DETACHES the mask on a

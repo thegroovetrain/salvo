@@ -36,15 +36,23 @@
 // verbatim) — the only thing the card scorer in ai/spending.ts reads from a
 // profile, scored against CONFIG.bots.cardPoints (R3).
 //
-// RANGES ARE FRACTIONS OF INTEL RANGE, NEVER LITERALS. `bandMinFrac`/
-// `bandMaxFrac` multiply the bot's OWN `stats.radarRange`, so a profile's
-// engagement band moves with its INTEL RANGE cards exactly as the eighths
-// ladder does (detect 0.375R, sight 0.5R, muzzle/smoke 0.625R, farRadar
-// 0.875R, radar R) — and gun/cannon/star-shell `rangeU` all ARE radarRange,
-// so a band fraction is simultaneously a fraction of weapon reach. No card
-// writes `stats.radarRange` today (the INTEL RANGE line was deleted
-// 2026-08-20), but a literal here would silently stop tracking the ruler if
-// one ever lands again.
+// THE GUN OWNS ITS BAND; THE PROFILE ONLY NUDGES IT (Story 9.13, epic-9
+// amendment 198, Eric 2026-10-17). Each deck gun's doctrine band is a pair of
+// fractions of its own FULL-DAMAGE reach (CONFIG.bots.gunBand — cannon stands
+// off, machine gun and flak close first), resolved by ai/doctrine.ts; a
+// profile carries only `bandNudge`, a signed fraction of that reach moving
+// the band in (−) or out (+). HISTORY: from Story 9.8 (epic-9 ruling 126) to
+// Story 9.13 each profile carried its own `bandMinFrac`/`bandMaxFrac` of the
+// mounted gun's reach — a stopgap so a band never parked a bot past a gun the
+// twelfths ruler had shortened under radar; amendment 198 retired them. The
+// plot horizon (utility.ts TARGET_HORIZON_FACTOR) stays on radar: it is
+// intel, not reach.
+//
+// THE ODDS GATE'S FLAVOR (Story 9.13, epic-9 amendments 194–195): each row
+// also carries the `oddsThreshold` the posture chain (ai/posture.ts oddsFor)
+// must clear before it closes on a contact beyond its reach, `leansIn` (the
+// raider and duelist close on slightly worse odds) and `holdsInCover` (siege
+// and trapper lie in wait in fog or island shadow — amendments 199/202).
 //
 // THE HUMAN GETS NO SPECIAL WEIGHT (Eric ruling B3). `targetWeights.captain`
 // covers human captains and other bots IDENTICALLY — a bot cannot even tell
@@ -52,7 +60,7 @@
 // class. The only kind distinction any profile draws is participant-vs-PvE
 // fleet hull, which is a real difference in what the target is worth.
 
-import { CONFIG, type ConsumableId, type EffectiveStats, type EquipmentId, type ShipClassId } from '@salvo/shared';
+import { CONFIG, type ConsumableId, type EquipmentId, type ShipClassId } from '@salvo/shared';
 import type { AnyProfileId, BotProfileId, TestProfileId } from './types.js';
 
 /** How much a profile wants one KIND of target, relative to the others.
@@ -74,13 +82,26 @@ export interface BotTargetWeights {
 }
 
 /**
- * A favorite UPGRADE line family (Eric ruling 2026-09-30, R5). The five ship
- * ladders are named by what they raise; `gun` = any gun-ladder line (deckGun —
+ * A favorite UPGRADE line family (Eric ruling 2026-09-30, R5). The eight ship
+ * ladders (HULL, ARMOR, ARMOR PIERCING, SPEED, TURNING, RADAR SWEEP, RELOAD, PASSIVE HEALING)
+ * are named by their line id (`hullPoints` was `armor` until Story 9.6;
+ * `passiveHealing` joined in 9.6, epic-9 amendment 97; `armorPiercing` joined in
+ * 9.9, epic-9 amendment 157); `gun` = any gun-ladder line (deckGun —
  * CANNON's own ladder, its turret and barrel are rungs of it — machineGun, flak;
  * the draw only ever offers the mounted gun's); `weapons` = a tier copy (2..cap) of an equipment line
  * the bot already holds (the spec's "Scorer definitions").
  */
-export type UpgradeFavorite = 'armor' | 'speed' | 'turning' | 'radarSweep' | 'reload' | 'gun' | 'weapons';
+export type UpgradeFavorite =
+  | 'hullPoints'
+  | 'armor'
+  | 'armorPiercing'
+  | 'speed'
+  | 'turning'
+  | 'radarSweep'
+  | 'reload'
+  | 'passiveHealing'
+  | 'gun'
+  | 'weapons';
 
 /**
  * A personality's BUILD TASTE (Story 8.20, Eric ruling 2026-09-30, R5) — read
@@ -121,10 +142,21 @@ export interface BotProfile {
   spend: 'weighted' | 'random' | 'gunFirst';
   /** The build taste the 'weighted' scorer reads (see BotTaste). */
   taste: BotTaste;
-  /** Preferred engagement band, as fractions of the bot's own intel range —
-   *  resolve with engagementBand(), never read raw. */
-  bandMinFrac: number;
-  bandMaxFrac: number;
+  /** THE BAND NUDGE (Story 9.13, epic-9 amendment 198): a signed fraction of
+   *  the mounted gun's reach by which this profile moves the gun's own
+   *  doctrine band (CONFIG.bots.gunBand) in (−) or out (+). Read by
+   *  ai/doctrine.ts; replaces the retired bandMinFrac/bandMaxFrac. */
+  bandNudge: number;
+  /** THE ODDS GATE's pass mark (amendment 195): the posture chain closes on a
+   *  contact beyond its own reach only when ai/posture.ts oddsFor() reaches
+   *  this. Higher = more cautious. */
+  oddsThreshold: number;
+  /** Leans in (amendment 194: raider and duelist): a failed gate still closes
+   *  when the odds reach 0.75 of the threshold. */
+  leansIn: boolean;
+  /** Lies in wait (amendments 199/202: siege and trapper): with no target,
+   *  a bot standing at its cover point HOLDS there at zero throttle. */
+  holdsInCover: boolean;
   targetWeights: BotTargetWeights;
   /** hp fraction below which this profile breaks off. Defaults to
    *  CONFIG.bots.disengageHpFrac; overridden where the profile's identity
@@ -174,59 +206,71 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     spend: 'weighted',
     taste: {
       style: 'specialist',
-      favoriteUpgrades: ['speed', 'weapons'],
-      favoriteConsumables: ['smokeScreen', 'chaff'],
+      // 'armorPiercing' — epic-9 amendment 157 (Eric 2026-10-15)
+      favoriteUpgrades: ['speed', 'weapons', 'armorPiercing'],
+      favoriteConsumables: ['countermeasure'],
       favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
       beltHunger: 'medium',
     },
-    // Strikes from around the truesight boundary (0.5R) and does not loiter
+    // Strikes from around half its gun's reach and does not loiter
     // inside knife range — the torpedo opener needs run-out room, and a TB
     // that stays close is in the fight it is trying to avoid.
-    bandMinFrac: 0.3,
-    bandMaxFrac: 0.55,
+    // (9.8 fractions retired by amendment 198: were 0.3–0.55)
+    bandNudge: -0.05,
+    oddsThreshold: 0.8,
+    leansIn: true,
+    holdsInCover: false,
     // Isolation and damage dominate: a raider picks off stragglers.
     targetWeights: { captain: 1.0, fleet: 0.8, damaged: 1.6, isolated: 1.8 },
     disengageHpFrac: 0.5, // leaves EARLY — a hit torpedo boat is a dead one
     healHpFrac: DEFAULT_HEAL,
     // The opener weapon leads every tick; boost is spent eagerly on the way
     // out (the old usesBoost: true, now a number the ordering also reads).
-    appetite: { heavyTorpedo: 2.5, lightTorpedo: 2.5, boost: 2.0, instantReload: 2.0, damageCut: 2.0 },
+    appetite: { heavyTorpedo: 2.5, lightTorpedo: 2.5, boost: 2.0, instantReload: 2.0, hunker: 2.0 },
   },
   duelist: {
     id: 'duelist',
     spend: 'weighted',
     taste: {
       style: 'specialist',
-      favoriteUpgrades: ['gun', 'turning', 'reload'],
-      favoriteConsumables: ['shieldBlock', 'dazzleShells'],
+      // 'armorPiercing' — epic-9 amendment 157 (Eric 2026-10-15)
+      favoriteUpgrades: ['gun', 'turning', 'reload', 'armorPiercing'],
+      favoriteConsumables: ['shieldBlock', 'foulingShell'],
       favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
       beltHunger: 'low',
     },
-    // Knife range: inside 0.3R the rear-quarter turn-fight is decided by
+    // Knife range: inside 0.3 of gun reach the rear-quarter turn-fight is decided by
     // rudder and gun cooldown, which is exactly where this profile wins.
-    bandMinFrac: 0.08,
-    bandMaxFrac: 0.3,
+    // (9.8 fractions retired by amendment 198: were 0.08–0.3)
+    bandNudge: -0.1,
+    oddsThreshold: 0.7,
+    leansIn: true,
+    holdsInCover: false,
     // Wants a PEER, and does not care whether it is hurt or alone.
     targetWeights: { captain: 1.4, fleet: 0.6, damaged: 0.9, isolated: 0.5 },
     disengageHpFrac: 0.3,
     healHpFrac: DEFAULT_HEAL,
     // Gun-led by BAND, not by ordering: the tube is still tried first when a
     // credible opening exists (mid appetite), and the boost breaks a bad fight.
-    appetite: { heavyTorpedo: 1.5, lightTorpedo: 1.5, boost: 1.5, instantReload: 1.5, damageCut: 1.5 },
+    appetite: { heavyTorpedo: 1.5, lightTorpedo: 1.5, boost: 1.5, instantReload: 1.5, hunker: 1.5 },
   },
   bulwark: {
     id: 'bulwark',
     spend: 'weighted',
     taste: {
       style: 'rounded',
-      favoriteUpgrades: ['armor'],
+      // epic-9 amendment 97 (Eric 2026-10-13); 'armor' — epic-9 amendment 115 (Eric 2026-10-13)
+      favoriteUpgrades: ['hullPoints', 'passiveHealing', 'armor'],
       favoriteConsumables: ['hullRepair', 'shieldBlock'],
       favoriteWeapons: ['broadside', 'starShells'],
       beltHunger: 'high',
     },
     // Holds ground at gun-trade range and refuses to be kited out of it.
-    bandMinFrac: 0.15,
-    bandMaxFrac: 0.4,
+    // (9.8 fractions retired by amendment 198: were 0.15–0.4)
+    bandNudge: 0,
+    oddsThreshold: 1.0,
+    leansIn: false,
+    holdsInCover: false,
     targetWeights: { captain: 1.2, fleet: 0.9, damaged: 1.0, isolated: 0.4 },
     disengageHpFrac: 0.22, // trades far longer than any other profile
     healHpFrac: 0.6, // and repairs sooner, because HP IS its plan
@@ -242,20 +286,22 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     taste: {
       style: 'specialist',
       favoriteUpgrades: ['weapons', 'radarSweep'],
-      favoriteConsumables: ['dazzleShells', 'supercavTorpedo'],
+      favoriteConsumables: ['foulingShell', 'supercavTorpedo'],
       favoriteWeapons: ['starShells', 'phosphorShells', 'broadside'],
       beltHunger: 'low',
     },
     // Standoff — RE-BANDED IN STORY 7-5 WAVE 2, forced by the weapon swap
-    // rather than chosen: the cannon reached the full radar horizon, so this
-    // profile stood out past the muzzle/smoke rung (0.625R) where the reply
-    // mostly did not. The BROADSIDE BARRAGE that replaced it is capped AT that
-    // rung (`broadside.rangeU` = 0.625R), so the old 0.55–0.95 band put its
-    // heavy weapon out of range for most of its own preferred water. The band
-    // now sits just INSIDE the rung — still the longest standoff of any
-    // profile, still star-shell-led — and is a TUNING TARGET, not a ruling.
-    bandMinFrac: 0.4,
-    bandMaxFrac: 0.6,
+    // rather than chosen: the old 0.55–0.95 band put the BROADSIDE BARRAGE
+    // (then capped at the muzzle/smoke rung, 0.625 of the old radar) out of
+    // range for most of its own preferred water. The band sits well inside
+    // the mounted gun's reach (fractions of gun `rangeU` since Story 9.8,
+    // ruling 126) — still the longest standoff of any profile, still
+    // star-shell-led — and is a TUNING TARGET, not a ruling.
+    // (9.8 fractions retired by amendment 198: were 0.4–0.6)
+    bandNudge: 0.1,
+    oddsThreshold: 1.0,
+    leansIn: false,
+    holdsInCover: true,
     targetWeights: { captain: 1.2, fleet: 0.8, damaged: 1.1, isolated: 0.6 },
     disengageHpFrac: 0.4,
     healHpFrac: DEFAULT_HEAL,
@@ -280,11 +326,14 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // powerhouse, it just needs to survive until then"* — and cycle 110's A/B
     // measured the old 0.20–0.45 band dying for it (181.1s afloat vs the
     // random control's 264.0s, 1.97 boons vs 2.96). The band now sits from
-    // just under truesight out to the 0.80R standoff: the whole of it is
-    // inside the ML's own gun reach (gun rangeU IS radarRange), so hanging
-    // back costs no firepower, only exposure.
-    bandMinFrac: 0.45,
-    bandMaxFrac: 0.8,
+    // just under truesight out to a 0.80 standoff: as a fraction of the
+    // mounted gun's own reach (Story 9.8, ruling 126) the whole of it is
+    // inside that reach, so hanging back costs no firepower, only exposure.
+    // (9.8 fractions retired by amendment 198: were 0.45–0.8)
+    bandNudge: 0.1,
+    oddsThreshold: 1.2,
+    leansIn: false,
+    holdsInCover: false,
     // THE ONLY profile that would rather shoot world content than a captain
     // (C3: clear fleet groups for the level lead, avoid captains early).
     targetWeights: { captain: 0.5, fleet: 2.0, damaged: 0.8, isolated: 0.6 },
@@ -303,7 +352,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     taste: {
       style: 'rounded',
       favoriteUpgrades: ['weapons', 'speed'],
-      favoriteConsumables: ['smokeScreen', 'decoyBuoy', 'chaff'],
+      favoriteConsumables: ['countermeasure', 'decoyBuoy'],
       favoriteWeapons: ['navalMines', 'captiveMines', 'foulingMines'],
       beltHunger: 'high',
     },
@@ -314,8 +363,11 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     // laid PREPARED from safety (ai/equipment.ts) and a captive mine's 144u
     // trip does its own chasing — so the hull itself stands off at knife-to-
     // truesight range and breaks away sooner.
-    bandMinFrac: 0.25,
-    bandMaxFrac: 0.5,
+    // (9.8 fractions retired by amendment 198: were 0.25–0.5)
+    bandNudge: 0.05,
+    oddsThreshold: 1.1,
+    leansIn: false,
+    holdsInCover: true,
     targetWeights: { captain: 1.0, fleet: 1.0, damaged: 1.0, isolated: 0.8 },
     disengageHpFrac: 0.45, // breaks off early — the trap fights on without it
     healHpFrac: 0.6, // and heals early, for the same survive-to-payoff reason
@@ -329,8 +381,9 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
 /**
  * THE THREE TEST-ONLY ROWS (Story 7-6 wave 4, ruled values) — the blind-vacuum
  * balance instrument, one per hull. Every number here is chosen so the read is
- * NOT shaped by a doctrine preference: band 0.15–0.55 (knife range to just
- * inside the broadside rung) for all three, flat target weights, CONFIG
+ * NOT shaped by a doctrine preference: no band nudge, a neutral odds
+ * threshold (1.0), no lean-in, no hold (Story 9.13 — the band 0.15–0.55 they
+ * carried until amendment 198 retired the fractions), flat target weights, CONFIG
  * default disengage/heal, EVERY appetite entry at or above APPETITE_EAGER (2)
  * so every equipment verb is exercised (the gun sits at exactly 2 — still the
  * lowest entry, preserving the universal fallback ordering without ever
@@ -354,7 +407,7 @@ const TEST_APPETITE: Readonly<Partial<Record<EquipmentId, number>>> = Object.fre
   foulingMines: 2.2,
   boost: 2.2,
   instantReload: 2.2,
-  damageCut: 2.2,
+  hunker: 2.2,
   broadside: 2.2,
   starShells: 2.2,
   phosphorShells: 2.2,
@@ -374,8 +427,10 @@ const testRow = (id: TestProfileId): BotProfile => ({
   id,
   spend: 'random',
   taste: TEST_TASTE,
-  bandMinFrac: 0.15,
-  bandMaxFrac: 0.55,
+  bandNudge: 0,
+  oddsThreshold: 1.0,
+  leansIn: false,
+  holdsInCover: false,
   targetWeights: { captain: 1.0, fleet: 1.0, damaged: 1.0, isolated: 1.0 },
   disengageHpFrac: DEFAULT_DISENGAGE,
   healHpFrac: DEFAULT_HEAL,
@@ -426,11 +481,4 @@ export function profileOf(id: AnyProfileId): BotProfile {
   return Object.hasOwn(BOT_PROFILES, id)
     ? BOT_PROFILES[id as BotProfileId]
     : TEST_PROFILES[id as TestProfileId];
-}
-
-/** The engagement band in WORLD UNITS for a profile at these stats — the one
- *  place the fractions are resolved. Anchored on `radarRange` (intel range,
- *  the one ruler), so any future widening of it moves the band for free. */
-export function engagementBand(profile: BotProfile, stats: EffectiveStats): { min: number; max: number } {
-  return { min: profile.bandMinFrac * stats.radarRange, max: profile.bandMaxFrac * stats.radarRange };
 }

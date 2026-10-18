@@ -23,32 +23,30 @@
 // channel. Thin Pixi adapter (not unit tested); the hole participation + fade
 // math it consumes are the pure functions in render/litZones.ts.
 
-import { Graphics, Sprite, Texture } from 'pixi.js';
-import type { Container } from 'pixi.js';
+import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { CONFIG, effectiveSight, type EffectiveStats } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { FOG_FILL_ALPHA, HOLE_FEATHER_START, bakeFogTexture } from './textures.js';
 
-/** The two observer ranges the dazzle-honest sight derivation reads — the
- *  shape `effectiveSight` (shared/src/sim/sight.ts) takes. */
+/** The observer's two vision ranges, as the stat plumbing carries them; the
+ *  sight derivation (`effectiveSight`, shared/src/sim/sight.ts) reads the
+ *  sight half. */
 export type VisionRanges = Pick<EffectiveStats, 'sightRange' | 'radarRange'>;
 
 /**
  * Pure: the world-space radius (u) the fog's sight hole is baked at — the
- * effective sight range, or ONE EIGHTH OF THE INTEL (radar) RANGE while an
- * enemy FLASH SHELLS burst holds this ship (Story 8.17, epic-8 amendment 132).
- * It is the SHARED `effectiveSight` — the very function the server's
- * perception (`sightOf`) calls for a dazzled observer — never a local factor,
- * which is the whole point: an un-shrunk hole would draw clear water where the
- * server reveals nothing, i.e. the fog circle would LIE.
+ * observer's effective truesight, a boon-widened constant per build. It is the
+ * SHARED `effectiveSight` — the very function the server's perception
+ * (`sightOf`) calls — never a local factor, which is the whole point: a hole
+ * of any other size would draw clear water where the server reveals nothing
+ * (or fog where it reveals everything), i.e. the fog circle would LIE.
  *
- * `inSmoke` (Story 8.18, amendment 149) is the self-private `OwnShip.inSmoke`
- * mirror: a hull whose centre stands in any live puff sees at the same shared
- * function's smoke tier (1/8 of intel range). Dazzle wins when both hold —
- * `effectiveSight` decides that, never this file.
+ * (Story 9.3, epic-9 amendment 40, deleted the in-smoke argument; Story 9.4
+ * deleted the FLASH SHELLS dazzle argument with the consumable — nothing
+ * shrinks sight at runtime any more.)
  */
-export function fogHoleRadiusU(ranges: VisionRanges, dazzled: boolean, inSmoke = false): number {
-  return effectiveSight(ranges, dazzled, inSmoke);
+export function fogHoleRadiusU(ranges: VisionRanges): number {
+  return effectiveSight(ranges);
 }
 
 /**
@@ -100,8 +98,66 @@ export interface FogHole {
  */
 export const EXTRA_MARGIN_PX = 64;
 
+/**
+ * Pure: has the composed zoom drifted far enough from the zoom the fog was last
+ * baked at to need a re-bake (Story 9.8)? True past `frac` of the baked zoom —
+ * the same 2 % sub-pixel precedent the terrain and storm layers redraw on — and
+ * always true before any bake (a non-finite or non-positive baked zoom). This is
+ * the hysteresis that keeps a ring-fit zoom limit, which moves every tick while
+ * the ring closes, from re-baking the full-canvas fog every frame.
+ */
+export function fogZoomStale(bakedZoom: number, zoom: number, frac: number): boolean {
+  if (!Number.isFinite(bakedZoom) || bakedZoom <= 0) return true;
+  if (!Number.isFinite(zoom)) return false;
+  return Math.abs(zoom - bakedZoom) > bakedZoom * frac;
+}
+
+/** A screen-space rectangle (px). */
+export interface FogRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * Pure: the screen strips the baked fog sprite does NOT cover (Story 9.8). The
+ * sprite is the screen plus a lead/shake margin, centred on the own hull; while
+ * the camera centre SLIDES toward the ring centre (ruling 128) the hull can sit
+ * far from screen centre, past any affordable margin, and the far side of the
+ * screen would show unfogged water. These strips (left, right, then top and
+ * bottom between them) are filled flat with the fog's own colour and alpha so
+ * the overlay covers the whole screen at any slide. Empty when the sprite
+ * covers the screen (every frame at and inside the default framing).
+ *
+ * `sx`/`sy` is the sprite's top-left, `sw`/`sh` its size, `vw`/`vh` the screen.
+ */
+export function fogFrameRects(sx: number, sy: number, sw: number, sh: number, vw: number, vh: number): FogRect[] {
+  const l = Math.min(vw, Math.max(0, sx));
+  const r = Math.max(l, Math.min(vw, sx + sw));
+  const t = Math.min(vh, Math.max(0, sy));
+  const b = Math.max(t, Math.min(vh, sy + sh));
+  const out: FogRect[] = [];
+  if (l > 0) out.push({ x: 0, y: 0, w: l, h: vh });
+  if (r < vw) out.push({ x: r, y: 0, w: vw - r, h: vh });
+  if (t > 0 && r > l) out.push({ x: l, y: 0, w: r - l, h: t });
+  if (b < vh && r > l) out.push({ x: l, y: b, w: r - l, h: vh - b });
+  return out;
+}
+
 export class Fog {
+  /** Sprite + frame strips; the lit-zone inverse mask applies to this whole
+   *  group, so a far own flare clears the strips too. */
+  private readonly root = new Container();
   private readonly sprite: Sprite;
+  /** The flat fog strips around the sprite while the camera slides (Story 9.8,
+   *  fogFrameRects). Redrawn only when the strip set changes. */
+  private readonly frame = new Graphics();
+  private frameKey = '';
+  /** The zoom and viewport of the last bake (fogZoomStale, fogFrameRects). */
+  private bakedZoomValue = NaN;
+  private viewW = 0;
+  private viewH = 0;
   /** Inverse mask that punches star-shell lit-zone holes in the fog sprite —
    *  its filled circles become the CLEARED regions (setMask inverse). Empty when
    *  no owned zone is active, in which case the mask is detached so the fog
@@ -109,24 +165,14 @@ export class Fog {
   private readonly holeMask = new Graphics();
   private holesActive = false;
   /** Effective sight AND radar radii (u) the hole is derived from — swapped
-   *  by a boon via setSightRange(); base = CONFIG.vision. The radar half only
-   *  matters while dazzled (a flashed hull sees radarRange/8). */
+   *  by a boon via setSightRange(); base = CONFIG.vision. */
   private ranges: VisionRanges = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
-  /** Is the own ship dazzled by an enemy FLASH SHELLS burst right now (the
-   *  victim-private you.dazzledUntil)? While true the baked hole shrinks to
-   *  `effectiveSight` (radarRange/8), because the SERVER is already perceiving
-   *  this ship that way: an un-shrunk hole would draw clear water where the
-   *  server reveals nothing, i.e. the fog circle would lie. */
-  private dazzled = false;
-  /** Does the own hull's centre stand inside a live SMOKE SCREEN puff (the
-   *  self-private you.inSmoke, Story 8.18)? Same contract as `dazzled`: the
-   *  server already perceives this ship at the shrunken smoke sight. */
-  private inSmoke = false;
 
   constructor(layer: Container) {
     this.sprite = new Sprite(Texture.EMPTY);
     this.sprite.anchor.set(0.5); // hole is baked at the texture center
-    layer.addChild(this.sprite);
+    this.root.addChild(this.frame, this.sprite);
+    layer.addChild(this.root);
     layer.addChild(this.holeMask); // in the scene graph so its transform resolves
   }
 
@@ -137,58 +183,47 @@ export class Fog {
     this.ranges = { sightRange, radarRange };
   }
 
-  /**
-   * Adopt the DAZZLE state (Story 2.8; a FLASH SHELLS burst since 8.17). Returns TRUE when the baked hole went
-   * stale (the state actually flipped) so the caller can rebake on exactly the
-   * two frames per dazzle event that need it — never per frame. Deliberately
-   * un-animated: the hole simply IS smaller while the dazzle holds, with no
-   * flash, throb or transition (motion/accessibility — the information is
-   * carried by the radius, not by movement).
-   */
-  setDazzled(dazzled: boolean): boolean {
-    if (dazzled === this.dazzled) return false;
-    this.dazzled = dazzled;
-    return true;
-  }
-
-  /**
-   * Adopt the IN-SMOKE state (Story 8.18) — `setDazzled`'s twin, with the same
-   * changed-flag contract: TRUE only on the frame the state flips, so the
-   * caller rebakes exactly then. Un-animated for the same reason.
-   */
-  setInSmoke(inSmoke: boolean): boolean {
-    if (inSmoke === this.inSmoke) return false;
-    this.inSmoke = inSmoke;
-    return true;
-  }
-
-  /** Is the own hull in smoke right now? Test/observation seam. */
-  get isInSmoke(): boolean {
-    return this.inSmoke;
-  }
-
   /** The radius (u) this instance's hole is baked at (the pure rule above). */
   private holeRadiusU(): number {
-    return fogHoleRadiusU(this.ranges, this.dazzled, this.inSmoke);
+    return fogHoleRadiusU(this.ranges);
   }
 
-  /** Is the dazzle currently held? Test/observation seam. */
-  get isDazzled(): boolean {
-    return this.dazzled;
+  /** The composed zoom of the last bake (NaN before the first). */
+  get bakedZoom(): number {
+    return this.bakedZoomValue;
   }
 
   /** (Re)bake for a viewport + zoom. Call at boot, on every resize, and after
    *  a sight/radar (zoom) stat change. */
   rebake(viewW: number, viewH: number, zoom: number): void {
+    this.bakedZoomValue = zoom;
+    this.viewW = viewW;
+    this.viewH = viewH;
     const old = this.sprite.texture;
     const margin = CLIENT_CONFIG.camera.leadMax * zoom + EXTRA_MARGIN_PX;
     this.sprite.texture = bakeFogTexture(viewW, viewH, this.holeRadiusU() * zoom, margin);
     if (old !== Texture.EMPTY) old.destroy(true);
   }
 
-  /** Track the own ship: place the baked hole on its screen position. */
+  /** Track the own ship: place the baked hole on its screen position, and
+   *  fill whatever the sprite no longer covers (the centre slide, Story 9.8).
+   *  The sprite's top-left is snapped to whole pixels (the hole moves < 0.5 px)
+   *  so its edges meet the strips without a coverage seam. */
   update(holeScreenX: number, holeScreenY: number): void {
-    this.sprite.position.set(holeScreenX, holeScreenY);
+    const tex = this.sprite.texture;
+    const left = Math.round(holeScreenX - tex.width / 2);
+    const top = Math.round(holeScreenY - tex.height / 2);
+    this.sprite.position.set(left + tex.width / 2, top + tex.height / 2);
+    this.drawFrame(fogFrameRects(left, top, tex.width, tex.height, this.viewW, this.viewH));
+  }
+
+  private drawFrame(rects: readonly FogRect[]): void {
+    const key = rects.map((r) => `${r.x},${r.y},${r.w},${r.h}`).join(';');
+    if (key === this.frameKey) return;
+    this.frameKey = key;
+    const g = this.frame;
+    g.clear();
+    for (const r of rects) g.rect(r.x, r.y, r.w, r.h).fill({ color: CLIENT_CONFIG.colors.fogBase, alpha: FOG_FILL_ALPHA });
   }
 
   /**
@@ -204,13 +239,13 @@ export class Fog {
     for (const h of holes) g.circle(h.sx, h.sy, h.sr).fill({ color: CLIENT_CONFIG.colors.white, alpha: 1 });
     const want = holes.length > 0;
     if (want !== this.holesActive) {
-      this.sprite.setMask(want ? { mask: g, inverse: true } : { mask: null });
+      this.root.setMask(want ? { mask: g, inverse: true } : { mask: null });
       this.holesActive = want;
     }
   }
 
   /** Hide/show the whole overlay (hidden while spectating — spec frames are unfogged). */
   setVisible(visible: boolean): void {
-    this.sprite.visible = visible;
+    this.root.visible = visible;
   }
 }

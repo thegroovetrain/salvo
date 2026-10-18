@@ -15,30 +15,119 @@
 
 import { describe, expect, it } from 'vitest';
 import { CATALOG, CONFIG, LINE_IDS, effectiveStats, isStubLine, type CatalogLine } from '@salvo/shared';
-import { CARD_STAT_ROWS, cardStatRows, cardTierLabel } from '../ui/boonCopy.js';
+import { CARD_STAT_ROWS, cardStatRows, cardTierLabel, shipStatRows } from '../ui/boonCopy.js';
 
 /** A torpedo boat with nothing fitted — the hull every value below is read on. */
+/** The bare hull's fold — the tier-I numbers a first copy prints. */
+const bareFold = effectiveStats(CONFIG.shipClasses.torpedoBoat, []);
 const TB = { cls: 'torpedoBoat' as const, cards: [] as string[] };
 
 /** The same hull with `n` copies of one line already aboard. */
+/** RANGE's printer (Eric 2026-10-13): whole values whole, else one decimal. */
+const rangeTxt = (v: number): string => (v % 1 === 0 ? String(v) : v.toFixed(1));
+
+/**
+ * THE RANGE ROW a gun card prints (Story 9.8, ruling 125: every card of a gun
+ * line steps its reach by (V − I) / 4), read off the SAME fold the card reads —
+ * never a literal. One decimal only when needed (Eric 2026-10-13; the sim
+ * keeps the exact value), the unit on `next` alone (FIELD_UNITS).
+ */
+function rangeRow(
+  line: string,
+  w: 'gun' | 'machineGun' | 'flak' | 'broadside' | 'starShells' | 'phosphorShells',
+  k: number,
+): { label: string; cur: string; next: string } {
+  const at = (n: number): number =>
+    effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<string>(n).fill(line)).equipment[w].rangeU;
+  return { label: 'RANGE', cur: rangeTxt(at(k)), next: `${rangeTxt(at(k + 1))} u` };
+}
+/**
+ * A gun's DAMAGE before and after the card at `k` copies held, read off the
+ * SAME fold the card reads — never a literal, so a retune of the deck-gun
+ * damage dials (Eric's 2026-10-13 experiment moved CANNON and FLAK) moves the
+ * expectation with it. Integers on the face (amendment 39).
+ */
+function dmgPair(line: string, w: 'gun' | 'flak' | 'lightTorpedo' | 'heavyTorpedo' | 'navalMines' | 'captiveMines', k: number): [string, string] {
+  const at = (n: number): string =>
+    String(effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<string>(n).fill(line)).equipment[w].damage);
+  return [at(k), at(k + 1)];
+}
+
+/** The same row as `face()` strings print it. */
+function rangeLine(line: string, w: Parameters<typeof rangeRow>[1], k: number): string {
+  const r = rangeRow(line, w, k);
+  return `${r.label} ${r.cur}>${r.next}`;
+}
+
 function held(id: string, n: number): typeof TB {
   return { cls: 'torpedoBoat', cards: Array<string>(n).fill(id) };
 }
 
 describe('cardStatRows — LADDER lines print the one number they move', () => {
-  it('labels ARMOR with the word the rest of the game uses, and prints integers', () => {
-    // The torpedo boat's base hull is 250 and ARMOR adds 25 a rung, so two
-    // copies held puts the card at 300 → 325 — the I/O matrix's own example,
-    // and whole numbers on both sides (amendment 39).
-    expect(cardStatRows(CATALOG.armor, 2, held('armor', 2))).toEqual([
-      { label: 'MAX HULL', cur: '300', next: '325' },
+  it('labels HULL with the word the rest of the game uses, and prints integers', () => {
+    // The torpedo boat's base hull is 250 and HULL adds 50 a rung (Story 9.6,
+    // epic-9 amendments 90/93 — was ARMOR +25), so two copies held puts the
+    // card at 350 → 400, whole numbers on both sides (amendment 39).
+    expect(cardStatRows(CATALOG.hullPoints, 2, held('hullPoints', 2))).toEqual([
+      { label: 'MAX HULL', cur: '350', next: '400' },
     ]);
   });
 
   it('reads the FIRST copy against a bare hull', () => {
-    expect(cardStatRows(CATALOG.armor, 0, TB)).toEqual([
-      { label: 'MAX HULL', cur: '250', next: '275' },
+    expect(cardStatRows(CATALOG.hullPoints, 0, TB)).toEqual([
+      { label: 'MAX HULL', cur: '250', next: '300' },
     ]);
+  });
+
+  // PASSIVE HEALING (Story 9.6, Eric 2026-10-13, epic-9 amendment 95): ONE row,
+  // the rate as a share of missing hull per second — the wait the card also
+  // shortens is not a row. The values are read through effectiveStats; the
+  // `N %/S` print is the contract.
+  it('prints PASSIVE HEALING as one HEAL row, the folded rate in %/S', () => {
+    const heal = (n: number): string | undefined =>
+      shipStatRows(effectiveStats(CONFIG.shipClasses.torpedoBoat, Array<string>(n).fill('passiveHealing')))
+        .find((r) => r.label === 'HEAL')?.next;
+    // n = 0 and n = 5 cards, folded by effectiveStats (2 %/s base, 5 %/s at V).
+    expect(heal(0)).toBe('2 %/S');
+    expect(heal(5)).toBe('5 %/S');
+    // The card face: one row, `cur → next` off the same printer — one decimal
+    // only when the rate needs it.
+    expect(cardStatRows(CATALOG.passiveHealing, 0, TB)).toEqual([{ label: 'HEAL', cur: heal(0), next: heal(1) }]);
+    expect(heal(1)).toBe('2.6 %/S');
+    expect(cardStatRows(CATALOG.passiveHealing, 4, held('passiveHealing', 4))).toEqual([
+      { label: 'HEAL', cur: heal(4), next: heal(5) },
+    ]);
+  });
+
+  // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 110–117): ONE row,
+  // the whole-number Armor read through effectiveStats — no unit, no decimal.
+  it('prints ARMOR as one row, whole numbers off the fold', () => {
+    const armorAt = (n: number): number =>
+      effectiveStats(CONFIG.shipClasses.torpedoBoat, Array<string>(n).fill('armor')).armor;
+    expect(cardStatRows(CATALOG.armor, 0, TB)).toEqual([
+      { label: 'ARMOR', cur: String(armorAt(0)), next: String(armorAt(1)) },
+    ]);
+    expect(cardStatRows(CATALOG.armor, 4, held('armor', 4))).toEqual([
+      { label: 'ARMOR', cur: String(armorAt(4)), next: String(armorAt(5)) },
+    ]);
+    // +20 a card since Story 9.9 (epic-9 amendment 145): the face reads `ARMOR 0 → 20`.
+    expect(cardStatRows(CATALOG.armor, 0, TB)).toEqual([{ label: 'ARMOR', cur: '0', next: '20' }]);
+  });
+
+  // ARMOR PIERCING (Story 9.9, epic-9 amendments 145, 159 — mirrors ARMOR): ONE
+  // row, the whole-number piercing off the fold; `ARMOR PIERCING 0 → 20` at zero
+  // copies, `40 → 60` at two.
+  it('prints ARMOR PIERCING as one row, whole numbers off the fold', () => {
+    const apAt = (n: number): number =>
+      effectiveStats(CONFIG.shipClasses.torpedoBoat, Array<string>(n).fill('armorPiercing')).armorPiercing;
+    expect(cardStatRows(CATALOG.armorPiercing, 0, TB)).toEqual([
+      { label: 'ARMOR PIERCING', cur: String(apAt(0)), next: String(apAt(1)) },
+    ]);
+    expect(cardStatRows(CATALOG.armorPiercing, 0, TB)).toEqual([{ label: 'ARMOR PIERCING', cur: '0', next: '20' }]);
+    expect(cardStatRows(CATALOG.armorPiercing, 2, held('armorPiercing', 2))).toEqual([
+      { label: 'ARMOR PIERCING', cur: '40', next: '60' },
+    ]);
+    expect(cardTierLabel(CATALOG.armorPiercing, 2)).toBe('II → III');
   });
 
   it('carries each ladder\'s own label and its own printer', () => {
@@ -48,7 +137,9 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
     expect(labels(CATALOG.turning)).toEqual(['TURNING']);
     expect(labels(CATALOG.radarSweep)).toEqual(['RADAR SWEEP']);
     expect(labels(CATALOG.reload)).toEqual(['ALL COOLDOWNS']);
-    expect(labels(CATALOG.deckGun)).toEqual(['SHELLS PER SHOT']); // rung to II: a barrel alone
+    // rung to II: the damage step (the barrels are FIXED since Story 9.12) and
+    // (Story 9.8, ruling 125) the reach step, RANGE last
+    expect(labels(CATALOG.deckGun)).toEqual(['GUN DAMAGE', 'RANGE']);
   });
 
   it('TURNING prints WHOLE DEGREES PER SECOND with the unit (Eric 2026-09-30): 46°/s → 49°/s on a bare Torpedo Boat', () => {
@@ -69,13 +160,13 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
   });
 
   it('prints the DECK GUN ladder in whole hit points (amendment 39)', () => {
-    // Eric's own scale (2026-10-02): 16 / 16 / 18 / 18 / 21 — damage moves only
-    // on the rungs to III and V, so only those faces carry a GUN DAMAGE row.
-    // Nothing on this row may show a fraction.
+    // Damage moves on EVERY rung since Story 9.12 (8/10/11/12/13; the values
+    // are Eric's dials, read off the fold), so every face carries a GUN DAMAGE
+    // row. Nothing on this row may show a fraction.
     const steps = [0, 1, 2, 3]
       .map((k) => cardStatRows(CATALOG.deckGun, k, held('deckGun', k)).find((r) => r.label === 'GUN DAMAGE'));
     expect(steps.map((r) => (r === undefined ? null : [r.cur, r.next]))).toEqual([
-      null, ['16', '18'], null, ['18', '21'],
+      dmgPair('deckGun', 'gun', 0), dmgPair('deckGun', 'gun', 1), dmgPair('deckGun', 'gun', 2), dmgPair('deckGun', 'gun', 3),
     ]);
     for (const r of steps) {
       if (r === undefined) continue;
@@ -95,7 +186,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
       { label: 'RELOAD', cur: null, next: '30.0 s' },
       { label: 'ROUNDS', cur: null, next: '1' },
       { label: 'SPEED', cur: null, next: '65' },
-      { label: 'DAMAGE', cur: null, next: '50' },
+      { label: 'DAMAGE', cur: null, next: String(bareFold.equipment.heavyTorpedo.damage) },
       { label: 'HOMING', cur: null, next: '0 rad/s' },
     ]);
   });
@@ -106,7 +197,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
       { label: 'RELOAD', cur: null, next: '25.0 s' },
       { label: 'ROUNDS', cur: null, next: '1' },
       { label: 'SPEED', cur: null, next: '45' },
-      { label: 'DAMAGE', cur: null, next: '40' },
+      { label: 'DAMAGE', cur: null, next: String(bareFold.equipment.lightTorpedo.damage) },
       { label: 'HOMING', cur: null, next: '0 rad/s' },
     ]);
   });
@@ -121,8 +212,8 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
     expect(rows).toEqual([
       { label: 'RELOAD', cur: null, next: '20.0 s' },
       { label: 'ROUNDS', cur: null, next: '1' },
-      { label: 'DAMAGE', cur: null, next: '55' },
-      { label: 'TRIGGER RADIUS', cur: null, next: '144' },
+      { label: 'DAMAGE', cur: null, next: String(bareFold.equipment.captiveMines.damage) },
+      { label: 'TRIGGER RADIUS', cur: null, next: String(CONFIG.captiveMines.triggerRadius) },
       { label: 'HOMING', cur: null, next: '0 rad/s' },
     ]);
     // No blast circle is printed, because the fish's 32 u burst is not a circle
@@ -130,8 +221,8 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
     expect(rows.map((r) => r.label)).not.toContain('BLAST RADIUS');
   });
 
-  // FOULING MINES — the one line whose table plus its derived ring overflows
-  // the five-row grid, so the face drops RELOAD (every TIER card of the line
+  // FOULING MINES — the line whose table plus its derived ring overflowed the
+  // five-row grid (six since Story 9.8), so the face drops RELOAD (every TIER card of the line
   // prints it as a live diff) and keeps SLOW, which is the whole point of the
   // weapon. The factor prints as a PERCENTAGE OF SPEED, never as a bare 0.75.
   it('gives FOULING MINES the mine rows plus its SLOW, as a percentage', () => {
@@ -143,7 +234,6 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
       { label: 'TRIGGER RADIUS', cur: null, next: '48' },
       { label: 'SLOW', cur: null, next: '75%' },
     ]);
-    expect(rows).toHaveLength(CARD_STAT_ROWS);
   });
 
   it('gives NAVAL MINES its derived TRIGGER RADIUS as its own row, after the blast', () => {
@@ -153,7 +243,7 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
     expect(rows).toEqual([
       { label: 'RELOAD', cur: null, next: '15.0 s' },
       { label: 'ROUNDS', cur: null, next: '2' },
-      { label: 'DAMAGE', cur: null, next: '55' },
+      { label: 'DAMAGE', cur: null, next: String(bareFold.equipment.navalMines.damage) },
       { label: 'BLAST RADIUS', cur: null, next: '48' },
       { label: 'TRIGGER RADIUS', cur: null, next: '32' },
     ]);
@@ -175,52 +265,94 @@ describe('cardStatRows — a WEAPON\'s first copy prints its whole table', () =>
   // reload row until now; they — and the new PHOSPHOR SHELLS line — print the
   // reload step and then every authored step whose DISPLAYED value moves
   // (amendment 87(b): a +0.5 flare / turret that floors back is skipped).
-  it('STAR SHELLS: RELOAD, LIT, RADIUS, (FLARES on the whole step), DAMAGE', () => {
+  // STORY 9.8 (ruling 125): every card of these lines ALSO steps the line's
+  // reach, and the RANGE row prints LAST (amendment 185's grammar, one rule for
+  // card and table alike).
+  it('STAR SHELLS: RELOAD, LIT, RADIUS, (FLARES on the whole step), DAMAGE, RANGE', () => {
     const t2 = cardStatRows(CATALOG.starShells, 1, held('starShells', 1));
-    expect(t2.map((r) => r.label)).toEqual(['RELOAD', 'LIT', 'RADIUS', 'DAMAGE']); // 1.5 flares floors to 1
+    expect(t2.map((r) => r.label)).toEqual(['RELOAD', 'LIT', 'RADIUS', 'DAMAGE', 'RANGE']); // 1.5 flares floors to 1
     expect(t2[1]).toEqual({ label: 'LIT', cur: '10.0 s', next: '12.5 s' });
     expect(t2[3]).toEqual({ label: 'DAMAGE', cur: '20', next: '22' });
+    expect(t2[4]).toEqual(rangeRow('starShells', 'starShells', 1));
     const t3 = cardStatRows(CATALOG.starShells, 2, held('starShells', 2));
-    expect(t3.map((r) => r.label)).toEqual(['RELOAD', 'LIT', 'RADIUS', 'FLARES', 'DAMAGE']);
+    expect(t3.map((r) => r.label)).toEqual(['RELOAD', 'LIT', 'RADIUS', 'FLARES', 'DAMAGE', 'RANGE']);
     expect(t3[3]).toEqual({ label: 'FLARES', cur: '1', next: '2' });
     expect(t3[4]).toEqual({ label: 'DAMAGE', cur: '22', next: '25' });
   });
 
-  it('BROADSIDE: RELOAD, SPREAD, and TURRETS on the whole step', () => {
+  // THE SIX-ROW GRID (Story 9.8, Eric 2026-10-13: "Six-row card grid"). The
+  // STAR SHELLS and PHOSPHOR SHELLS cards to III and to V author SIX printed
+  // steps once the reach step joins them — the fullest faces in the catalog —
+  // and the grid holds every one of them, RANGE last, nothing cut.
+  it('STAR SHELLS and PHOSPHOR SHELLS to III and V print all six rows, RANGE last', () => {
+    for (const [id, w] of [['starShells', 'starShells'], ['phosphorShells', 'phosphorShells']] as const) {
+      for (const k of [2, 4]) {
+        const rows = cardStatRows(CATALOG[id], k, held(id, k));
+        expect(rows, `${id}@${k}`).toHaveLength(6);
+        expect(rows.length, `${id}@${k}`).toBeLessThanOrEqual(CARD_STAT_ROWS);
+        expect(rows[5], `${id}@${k}`).toEqual(rangeRow(id, w, k));
+      }
+    }
+  });
+
+  it('BROADSIDE: RELOAD, SPREAD, TURRETS on the whole step, and RANGE', () => {
     const t2 = cardStatRows(CATALOG.broadside, 1, held('broadside', 1));
-    expect(t2.map((r) => r.label)).toEqual(['RELOAD', 'SPREAD']); // 4.5 turrets floors to 4
+    expect(t2.map((r) => r.label)).toEqual(['RELOAD', 'SPREAD', 'RANGE']); // 4.5 turrets floors to 4
     expect(t2[1]).toEqual({ label: 'SPREAD', cur: '1', next: '2' });
+    expect(t2[2]).toEqual(rangeRow('broadside', 'broadside', 1));
     const t3 = cardStatRows(CATALOG.broadside, 2, held('broadside', 2));
-    expect(t3.map((r) => r.label)).toEqual(['RELOAD', 'SPREAD', 'TURRETS']);
+    expect(t3.map((r) => r.label)).toEqual(['RELOAD', 'SPREAD', 'TURRETS', 'RANGE']);
     expect(t3[2]).toEqual({ label: 'TURRETS', cur: '4', next: '5' });
   });
 
-  it('PHOSPHOR SHELLS: RELOAD, DAMAGE, BURN (hp/s), RADIUS, and LASTS where it moves', () => {
+  it('PHOSPHOR SHELLS: RELOAD, DAMAGE, BURN (hp/s), RADIUS, LASTS where it moves, and RANGE', () => {
     const t2 = cardStatRows(CATALOG.phosphorShells, 1, held('phosphorShells', 1));
-    expect(t2.map((r) => r.label)).toEqual(['RELOAD', 'DAMAGE', 'BURN', 'RADIUS']); // no duration step at II
+    expect(t2.map((r) => r.label)).toEqual(['RELOAD', 'DAMAGE', 'BURN', 'RADIUS', 'RANGE']); // no duration step at II
     expect(t2[2]).toEqual({ label: 'BURN', cur: '5', next: '6 hp/s' });
     expect(t2[3]).toEqual({ label: 'RADIUS', cur: '100', next: '110' });
+    expect(t2[4]).toEqual(rangeRow('phosphorShells', 'phosphorShells', 1));
     const t3 = cardStatRows(CATALOG.phosphorShells, 2, held('phosphorShells', 2));
-    expect(t3.map((r) => r.label)).toEqual(['RELOAD', 'DAMAGE', 'BURN', 'RADIUS', 'LASTS']);
+    expect(t3.map((r) => r.label)).toEqual(['RELOAD', 'DAMAGE', 'BURN', 'RADIUS', 'LASTS', 'RANGE']);
     expect(t3[4]).toEqual({ label: 'LASTS', cur: '8.0 s', next: '9.0 s' });
-    // Tier IV omits LASTS again; tier V is the fullest face and still FITS the
-    // five-row grid exactly (RELOAD + the four authored steps).
+    // Tier IV omits LASTS again; tier V is the fullest face (six rows — the
+    // six-row grid, above).
     const t4 = cardStatRows(CATALOG.phosphorShells, 3, held('phosphorShells', 3));
-    expect(t4.map((r) => r.label)).toEqual(['RELOAD', 'DAMAGE', 'BURN', 'RADIUS']);
+    expect(t4.map((r) => r.label)).toEqual(['RELOAD', 'DAMAGE', 'BURN', 'RADIUS', 'RANGE']);
     const t5 = cardStatRows(CATALOG.phosphorShells, 4, held('phosphorShells', 4));
-    expect(t5.map((r) => r.label)).toEqual(['RELOAD', 'DAMAGE', 'BURN', 'RADIUS', 'LASTS']);
-    expect(t5).toHaveLength(CARD_STAT_ROWS);
+    expect(t5.map((r) => r.label)).toEqual(['RELOAD', 'DAMAGE', 'BURN', 'RADIUS', 'LASTS', 'RANGE']);
     expect(t5[1]).toEqual({ label: 'DAMAGE', cur: '17', next: '20' });
     expect(t5[2]).toEqual({ label: 'BURN', cur: '8', next: '10 hp/s' });
   });
 
-  // PHOSPHOR's FIT card: six stat fields against a five-row grid, so it drops
-  // ROUNDS (a one-shell pool no tier moves) and keeps BURN — the positional
-  // slice would have dropped the one number that makes it a burning weapon.
-  it('PHOSPHOR SHELLS fit card keeps BURN and drops ROUNDS', () => {
+  // PHOSPHOR's FIT card: six stat fields against what was a five-row grid, so
+  // it drops ROUNDS (a one-shell pool no tier moves) and keeps BURN — the
+  // positional slice would have dropped the one number that makes it a burning
+  // weapon. Since Story 9.8 its RANGE prints in the sixth row, LAST.
+  it('PHOSPHOR SHELLS fit card keeps BURN, drops ROUNDS, and prints RANGE last', () => {
     const rows = cardStatRows(CATALOG.phosphorShells, 0, TB);
-    expect(rows.map((r) => r.label)).toEqual(['RELOAD', 'DAMAGE', 'RADIUS', 'LASTS', 'BURN']);
+    expect(rows.map((r) => r.label)).toEqual(['RELOAD', 'DAMAGE', 'RADIUS', 'LASTS', 'BURN', 'RANGE']);
     expect(rows[4]).toEqual({ label: 'BURN', cur: null, next: '5 hp/s' });
+  });
+
+  // EVERY GUN'S FIT FACE PRINTS ITS REACH (Story 9.8, the six-row grid): the
+  // RANGE row is absolute (no `before` on a first copy), LAST, whole units.
+  it('prints RANGE last, absolute, on every gun fit face', () => {
+    const fit = (w: 'broadside' | 'starShells' | 'phosphorShells'): string =>
+      `${rangeTxt(effectiveStats(CONFIG.shipClasses.torpedoBoat, [w]).equipment[w].rangeU)} u`;
+    for (const id of ['broadside', 'starShells', 'phosphorShells'] as const) {
+      const rows = cardStatRows(CATALOG[id], 0, TB);
+      expect(rows.at(-1), id).toEqual({ label: 'RANGE', cur: null, next: fit(id) });
+      expect(rows.filter((r) => r.label === 'RANGE'), id).toHaveLength(1);
+    }
+    // STAR SHELLS keeps its whole shipped table ahead of the reach.
+    expect(cardStatRows(CATALOG.starShells, 0, TB).map((r) => r.label)).toEqual(
+      ['RELOAD', 'FLARES', 'RADIUS', 'LIT', 'DAMAGE', 'RANGE'],
+    );
+    // BROADSIDE keeps exactly the face it shipped (SPREAD was always the row
+    // the slice cut) and adds the reach.
+    expect(cardStatRows(CATALOG.broadside, 0, TB).map((r) => r.label)).toEqual(
+      ['RELOAD', 'ROUNDS', 'DAMAGE', 'BURST RADIUS', 'TURRETS', 'RANGE'],
+    );
   });
 });
 
@@ -253,7 +385,7 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   it('LIGHT TORPEDO II: reload, damage, speed and homing — no ROUNDS 1 → 1', () => {
     expect(cardStatRows(CATALOG.lightTorpedo, 1, held('lightTorpedo', 1))).toEqual([
       { label: 'RELOAD', cur: '25.0 s', next: '23.8 s' },
-      { label: 'DAMAGE', cur: '40', next: '45' },
+      { label: 'DAMAGE', cur: dmgPair('lightTorpedo', 'lightTorpedo', 1)[0], next: dmgPair('lightTorpedo', 'lightTorpedo', 1)[1] },
       { label: 'SPEED', cur: '45', next: '47.5' },
       { label: 'HOMING', cur: '0', next: '0.125 rad/s' },
     ]);
@@ -264,7 +396,7 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   it('LIGHT TORPEDO III prints the ROUNDS step the floored tier II did not buy', () => {
     expect(face('lightTorpedo', 2)).toEqual([
       'RELOAD 23.8 s>22.5 s',
-      'DAMAGE 45>50',
+      `DAMAGE ${dmgPair('lightTorpedo', 'lightTorpedo', 2).join('>')}`,
       'SPEED 47.5>50',
       'ROUNDS 1>2',
       'HOMING 0.125>0.25 rad/s',
@@ -274,9 +406,9 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   it('LIGHT TORPEDO V is the same five rows at the top of the ladder', () => {
     expect(face('lightTorpedo', 4)).toEqual([
       'RELOAD 21.3 s>20.0 s',
-      'DAMAGE 55>60',
+      `DAMAGE ${dmgPair('lightTorpedo', 'lightTorpedo', 4).join('>')}`,
       'SPEED 52.5>55',
-      'ROUNDS 2>3',
+      // no ROUNDS row: the tubes are capped at two (Story 9.12), the rung to V buys none
       'HOMING 0.375>0.5 rad/s',
     ]);
   });
@@ -284,16 +416,16 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   it('HEAVY TORPEDO prints the same five rows off its own block, at II and at V', () => {
     expect(face('heavyTorpedo', 1)).toEqual([
       'RELOAD 30.0 s>28.5 s',
-      'DAMAGE 50>55',
+      `DAMAGE ${dmgPair('heavyTorpedo', 'heavyTorpedo', 1).join('>')}`,
       'SPEED 65>67.5',
       // no ROUNDS row: the tier-II half-tube floors back to one (P5)
       'HOMING 0>0.125 rad/s',
     ]);
     expect(face('heavyTorpedo', 4)).toEqual([
       'RELOAD 25.5 s>24.0 s',
-      'DAMAGE 65>70',
+      `DAMAGE ${dmgPair('heavyTorpedo', 'heavyTorpedo', 4).join('>')}`,
       'SPEED 72.5>75',
-      'ROUNDS 2>3',
+      // no ROUNDS row: the tubes are capped at two (Story 9.12)
       'HOMING 0.375>0.5 rad/s',
     ]);
   });
@@ -301,13 +433,13 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   it('NAVAL MINES prints reload, damage, blast and pool — four rows, no homing', () => {
     expect(face('navalMines', 1)).toEqual([
       'RELOAD 15.0 s>14.3 s',
-      'DAMAGE 55>60',
+      `DAMAGE ${dmgPair('navalMines', 'navalMines', 1).join('>')}`,
       'BLAST RADIUS 48>52.8',
       'ROUNDS 2>3',
     ]);
     expect(face('navalMines', 4)).toEqual([
       'RELOAD 12.8 s>12.0 s',
-      'DAMAGE 70>75',
+      `DAMAGE ${dmgPair('navalMines', 'navalMines', 4).join('>')}`,
       'BLAST RADIUS 63.9>70.3',
       'ROUNDS 5>6',
     ]);
@@ -319,14 +451,14 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   it('CAPTIVE MINES prints reload, damage, held and homing — never its derived trip ring', () => {
     expect(face('captiveMines', 1)).toEqual([
       'RELOAD 20.0 s>19.0 s',
-      'DAMAGE 55>60',
+      `DAMAGE ${dmgPair('captiveMines', 'captiveMines', 1).join('>')}`,
       // no ROUNDS row: the tier-II half-mine floors back to one (P5)
       'HOMING 0>0.075 rad/s',
     ]);
     expect(face('captiveMines', 4)).toEqual([
       'RELOAD 17.0 s>16.0 s',
-      'DAMAGE 70>75',
-      'ROUNDS 2>3',
+      `DAMAGE ${dmgPair('captiveMines', 'captiveMines', 4).join('>')}`,
+      // no ROUNDS row: the held pool is capped at two (Story 9.12)
       'HOMING 0.225>0.3 rad/s',
     ]);
     for (let k = 1; k < CATALOG.captiveMines.cap; k += 1) {
@@ -398,9 +530,10 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
   // barrel alone, the rung to III damage plus a turret, the rung to V damage
   // alone, printed with the copy table's existing words `ROUNDS` and
   // `SHELLS PER SHOT`.
-  it('prints the CANNON face one row per authored step — one at II, two at III, one at IV and V', () => {
+  it('prints the CANNON face one row per authored step — one at II, two at III, one at IV and V, plus RANGE', () => {
+    // Story 9.8 (ruling 125): every rung also steps the cannon's reach.
     const rowsAt = (k: number): number => cardStatRows(CATALOG.deckGun, k, held('deckGun', k)).length;
-    expect([0, 1, 2, 3].map(rowsAt)).toEqual([1, 2, 1, 1]);
+    expect([0, 1, 2, 3].map(rowsAt)).toEqual([2, 3, 2, 2]);
   });
 });
 
@@ -411,44 +544,55 @@ describe('cardStatRows — a TIER card prints its reload step AND every authored
 // on the rungs to III and V. Every authored step prints its own row, with no
 // new words.
 describe('cardStatRows — the CANNON and FLAK rungs that carry a turret or a barrel', () => {
-  it('CANNON rung to II: SHELLS PER SHOT 1 to 2 (the second barrel), alone', () => {
+  it('CANNON rung to II: GUN DAMAGE alone — the two barrels are fixed, no barrel row', () => {
+    const [cur, next] = dmgPair('deckGun', 'gun', 0);
     expect(cardStatRows(CATALOG.deckGun, 0, held('deckGun', 0))).toEqual([
-      { label: 'SHELLS PER SHOT', cur: '1', next: '2' },
+      { label: 'GUN DAMAGE', cur, next },
+      rangeRow('deckGun', 'gun', 0),
     ]);
   });
 
-  it('CANNON rung to III: GUN DAMAGE 16 to 18 and ROUNDS 1 to 2 (the second turret)', () => {
+  it('CANNON rung to III: GUN DAMAGE and ROUNDS 1 to 2 (the second turret)', () => {
+    const [cur, next] = dmgPair('deckGun', 'gun', 1);
     expect(cardStatRows(CATALOG.deckGun, 1, held('deckGun', 1))).toEqual([
-      { label: 'GUN DAMAGE', cur: '16', next: '18' },
+      { label: 'GUN DAMAGE', cur, next },
       { label: 'ROUNDS', cur: '1', next: '2' },
+      rangeRow('deckGun', 'gun', 1),
     ]);
   });
 
-  it('CANNON rung to IV: SHELLS PER SHOT 2 to 3 (the third barrel), alone', () => {
+  it('CANNON rung to IV: GUN DAMAGE alone — no third barrel', () => {
+    const [cur, next] = dmgPair('deckGun', 'gun', 2);
     expect(cardStatRows(CATALOG.deckGun, 2, held('deckGun', 2))).toEqual([
-      { label: 'SHELLS PER SHOT', cur: '2', next: '3' },
+      { label: 'GUN DAMAGE', cur, next },
+      rangeRow('deckGun', 'gun', 2),
     ]);
   });
 
-  it('CANNON rung to V: GUN DAMAGE 18 to 21, alone', () => {
+  it('CANNON rung to V: GUN DAMAGE, alone', () => {
+    const [cur, next] = dmgPair('deckGun', 'gun', 3);
     expect(cardStatRows(CATALOG.deckGun, 3, held('deckGun', 3))).toEqual([
-      { label: 'GUN DAMAGE', cur: '18', next: '21' },
+      { label: 'GUN DAMAGE', cur, next },
+      rangeRow('deckGun', 'gun', 3),
     ]);
   });
 
-  it('FLAK rung to II: RELOAD, DAMAGE 12 to 20 and ROUNDS 1 to 2', () => {
+  it('FLAK rung to II: RELOAD, DAMAGE and ROUNDS 1 to 2', () => {
+    const [cur, next] = dmgPair('flak', 'flak', 0);
     expect(cardStatRows(CATALOG.flak, 0, held('flak', 0))).toEqual([
       { label: 'RELOAD', cur: '3.5 s', next: '3.3 s' },
-      { label: 'DAMAGE', cur: '12', next: '20' },
+      { label: 'DAMAGE', cur, next },
       { label: 'ROUNDS', cur: '1', next: '2' },
+      rangeRow('flak', 'flak', 0),
     ]);
   });
 
-  it('FLAK rung to IV: RELOAD, DAMAGE 28 to 36 and ROUNDS 2 to 3', () => {
+  it('FLAK rung to IV: RELOAD and DAMAGE — the turret rung is II only since Story 9.12', () => {
+    const [cur, next] = dmgPair('flak', 'flak', 2);
     expect(cardStatRows(CATALOG.flak, 2, held('flak', 2))).toEqual([
       { label: 'RELOAD', cur: '3.1 s', next: '3.0 s' },
-      { label: 'DAMAGE', cur: '28', next: '36' },
-      { label: 'ROUNDS', cur: '2', next: '3' },
+      { label: 'DAMAGE', cur, next },
+      rangeRow('flak', 'flak', 2),
     ]);
   });
 
@@ -521,52 +665,41 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
     expect(cardStatRows(addon, 0, TB)).toEqual([]);
   });
 
-  // FLASH SHELLS (Story 8.17, amendment 135(j)): absolute rows, every number off
-  // CONFIG.flashShells, in the 8.16 belt register's uppercase units.
-  it('prints FLASH SHELLS as RADIUS 150 U / BLINDS 10 S / SIGHT 1/8 INTEL', () => {
-    expect(cardStatRows(CATALOG.dazzleShells, 0, TB)).toEqual([
-      { label: 'RADIUS', cur: null, next: `${CONFIG.flashShells.radius} U` },
-      { label: 'BLINDS', cur: null, next: `${CONFIG.flashShells.durationMs / 1000} S` },
-      { label: 'SIGHT', cur: null, next: '1/8 INTEL' },
+  // THE FOULING SHELL (Story 9.4, epic-9 amendment 66): absolute rows whose
+  // numbers are read off CONFIG.foulingShell (the contract: a re-tuned dial
+  // reaches the card), in the 8.16 belt register's uppercase units.
+  it('prints the FOULING SHELL rows from CONFIG.foulingShell (radius, life, speed factor)', () => {
+    const f = CONFIG.foulingShell;
+    expect(cardStatRows(CATALOG.foulingShell, 0, TB)).toEqual([
+      { label: 'RADIUS', cur: null, next: `${f.radius} U` },
+      { label: 'LASTS', cur: null, next: `${f.durationMs / 1000} S` },
+      { label: 'SPEED', cur: null, next: `×${f.slowFactor}` },
     ]);
   });
 
   it('gives a STILL-STUB CONSUMABLE no rows (DEPTH CHARGE)', () => {
     // TWO since Story 8.16 flipped SHIELD BLOCK, CHAFF and DECOY BUOY; ONE since
-    // Story 8.18 flipped SMOKE SCREEN.
+    // Story 8.18 flipped SMOKE SCREEN (CHAFF left the catalog in Story 9.2).
     expect(cardStatRows(CATALOG.depthCharge, 0, TB)).toEqual([]);
   });
 
-  // SMOKE SCREEN (Story 8.18): DRAFT rows, every number off CONFIG.smokeScreen,
-  // in the 8.16 belt register's uppercase units.
-  it('gives SMOKE SCREEN its trail, puff life and growth, off CONFIG', () => {
-    const k = CONFIG.smokeScreen;
-    expect(cardStatRows(CATALOG.smokeScreen, 0, TB)).toEqual([
-      { label: 'TRAIL', cur: null, next: `${k.layMs / 1000} S` },
-      { label: 'PUFF', cur: null, next: `${k.lifeMs / 1000} S` },
-      { label: 'RADIUS', cur: null, next: '123.8 → 247.5 U' },
+  // MULTI-SPECTRAL COUNTERMEASURE (Story 9.3, Eric ruling 2026-10-11, epic-9
+  // amendment 45): LASTS / CLOUD, every number off CONFIG.countermeasure, in the
+  // 8.16 belt register's uppercase units.
+  it('gives the COUNTERMEASURE its life and spread, off CONFIG', () => {
+    const k = CONFIG.countermeasure;
+    expect(cardStatRows(CATALOG.countermeasure, 0, TB)).toEqual([
+      { label: 'LASTS', cur: null, next: `${k.lifeMs / 1000} S` },
+      { label: 'CLOUD', cur: null, next: `${k.r0} → ${k.r1} U` },
     ]);
-    // The cycle-162 radii (1.5/8 → 3/8 of intel range, Eric 2026-10-01 ×1.5)
-    // through the row's one-decimal `num()` formatter, as the card prints them:
-    // 123.75 rounds to 123.8 on the face.
-    expect(k.r0).toBe(123.75);
-    expect(k.r1).toBe(247.5);
   });
 
-  // THE THREE 8.16 CONSUMABLES (catalog-v3 R36/R37/R39): absolute rows in the
+  // THE 8.16 CONSUMABLES (catalog-v3 R36/R37; CHAFF retired in 9.2): absolute rows in the
   // hullRepair shape, every number read off CONFIG — never a literal.
   it('gives SHIELD BLOCK what it absorbs and how long it lasts, off CONFIG', () => {
     expect(cardStatRows(CATALOG.shieldBlock, 0, TB)).toEqual([
       { label: 'ABSORBS', cur: null, next: `${CONFIG.shieldBlock.hp} HP` },
       { label: 'LASTS', cur: null, next: `${CONFIG.shieldBlock.durationMs / 1000} S` },
-    ]);
-  });
-
-  it('gives CHAFF its fake count, scatter radius and duration, off CONFIG', () => {
-    expect(cardStatRows(CATALOG.chaff, 0, TB)).toEqual([
-      { label: 'FAKES', cur: null, next: String(CONFIG.chaff.count) },
-      { label: 'RADIUS', cur: null, next: `${CONFIG.chaff.radius} U` },
-      { label: 'LASTS', cur: null, next: `${CONFIG.chaff.durationMs / 1000} S` },
     ]);
   });
 
@@ -577,11 +710,11 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
     ]);
   });
 
-  it('the three 8.16 rows are the same on every hull and at every copy count', () => {
-    for (const id of ['shieldBlock', 'chaff', 'decoyBuoy'] as const) {
+  it('the 8.16 rows are the same on every hull and at every copy count', () => {
+    for (const id of ['shieldBlock', 'decoyBuoy'] as const) {
       const base = cardStatRows(CATALOG[id], 0, TB);
       expect(base.length, id).toBeGreaterThan(0);
-      expect(cardStatRows(CATALOG[id], 3, { cls: 'battleship', cards: ['armor'] }), id).toEqual(base);
+      expect(cardStatRows(CATALOG[id], 3, { cls: 'battleship', cards: ['hullPoints'] }), id).toEqual(base);
     }
   });
 
@@ -605,7 +738,7 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
   });
 
   it('fails OPEN on an unresolvable hull rather than throwing from the ticker', () => {
-    const rows = cardStatRows(CATALOG.armor, 0, { cls: 'notAHull' as never, cards: [] });
+    const rows = cardStatRows(CATALOG.hullPoints, 0, { cls: 'notAHull' as never, cards: [] });
     expect(rows).toEqual([]);
   });
 });
@@ -651,16 +784,19 @@ describe('cardStatRows — the laws the five-row grid imposes', () => {
   });
 
   it('reads every value through effectiveStats — a class change moves the numbers', () => {
-    const tb = cardStatRows(CATALOG.armor, 0, { cls: 'torpedoBoat', cards: [] })[0];
-    const bb = cardStatRows(CATALOG.armor, 0, { cls: 'battleship', cards: [] })[0];
+    const tb = cardStatRows(CATALOG.hullPoints, 0, { cls: 'torpedoBoat', cards: [] })[0];
+    const bb = cardStatRows(CATALOG.hullPoints, 0, { cls: 'battleship', cards: [] })[0];
     expect(bb.cur).not.toBe(tb.cur);
     expect(Number(bb.cur)).toBe(effectiveStats(CONFIG.shipClasses.battleship, []).maxHp);
   });
 });
 
 describe('cardTierLabel pairs with the rows — UX-DR51\'s four examples', () => {
-  it('reads armor k=0 as I → II, radarSweep k=0 as I, heavyTorpedo k=1 as I → II', () => {
-    expect(cardTierLabel(CATALOG.armor, 0)).toBe('I → II');
+  it('reads deckGun k=0 as I → II, hullPoints and radarSweep k=0 as I, heavyTorpedo k=1 as I → II', () => {
+    // HULL reads 0 → V since Story 9.6 (epic-9 amendment 94); the base-tier
+    // example is the CANNON's now.
+    expect(cardTierLabel(CATALOG.deckGun, 0)).toBe('I → II');
+    expect(cardTierLabel(CATALOG.hullPoints, 0)).toBe('I');
     expect(cardTierLabel(CATALOG.radarSweep, 0)).toBe('I');
     expect(cardTierLabel(CATALOG.heavyTorpedo, 1)).toBe('I → II');
     expect(cardTierLabel(CATALOG.hullRepair, 0)).toBeNull();
@@ -680,28 +816,40 @@ describe('cardStatRows — the machine gun and flak ladders (Story 8.15)', () =>
     return cardStatRows(CATALOG[id], copiesHeld, held(id, copiesHeld)).map((r) => `${r.label} ${r.cur ?? ''}>${r.next}`);
   }
 
-  it('MACHINE GUN tier II: RELOAD 12.0 s to 11.4 s, SHELLS 12 to 16, DAMAGE 5 to 6, RATE 0.30 s to 0.25 s', () => {
-    expect(face('machineGun', 0)).toEqual(['RELOAD 12.0 s>11.4 s', 'SHELLS 12>16', 'DAMAGE 5>6', 'RATE 0.30 s>0.25 s']);
+  /** One MG stat before and after the card at `k` copies held, off the fold. */
+  const mgAt = (k: number, f: 'reloadMs' | 'maxAmmo' | 'rateMs'): number =>
+    effectiveStats(CONFIG.shipClasses.torpedoBoat, Array<string>(k).fill('machineGun')).equipment.machineGun[f];
+  const mgFace = (k: number): string[] => [
+    `RELOAD ${(mgAt(k, 'reloadMs') / 1000).toFixed(1)} s>${(mgAt(k + 1, 'reloadMs') / 1000).toFixed(1)} s`,
+    `SHELLS ${mgAt(k, 'maxAmmo')}>${mgAt(k + 1, 'maxAmmo')}`,
+    `RATE ${(mgAt(k, 'rateMs') / 1000).toFixed(2)} s>${(mgAt(k + 1, 'rateMs') / 1000).toFixed(2)} s`,
+    rangeLine('machineGun', 'machineGun', k),
+  ];
+
+  it('MACHINE GUN: every rung prints RELOAD, SHELLS and RATE and NEVER a DAMAGE row (5 flat since Story 9.12)', () => {
+    for (let k = 0; k < CATALOG.machineGun.cap - 1; k += 1) {
+      expect(face('machineGun', k), `rung ${k}`).toEqual(mgFace(k));
+      expect(face('machineGun', k).some((r) => r.startsWith('DAMAGE')), `rung ${k}`).toBe(false);
+      // the magazine grows and the shot delay shrinks on every rung
+      expect(mgAt(k + 1, 'maxAmmo')).toBeGreaterThan(mgAt(k, 'maxAmmo'));
+      expect(mgAt(k + 1, 'rateMs')).toBeLessThan(mgAt(k, 'rateMs'));
+    }
+    // the tier-I reload is the CONFIG dial
+    expect(face('machineGun', 0)[0]).toMatch(new RegExp(`^RELOAD ${(CONFIG.machineGun.reloadMs / 1000).toFixed(1)} s>`));
   });
 
-  it('MACHINE GUN rungs to III and V author no damage: RELOAD, SHELLS and RATE only', () => {
-    expect(face('machineGun', 1)).toEqual(['RELOAD 11.4 s>10.8 s', 'SHELLS 16>20', 'RATE 0.25 s>0.20 s']);
-    expect(face('machineGun', 3)).toEqual(['RELOAD 10.2 s>9.6 s', 'SHELLS 24>28', 'RATE 0.15 s>0.10 s']);
-  });
-
-  it('MACHINE GUN rung to IV: damage 6 to 7 returns', () => {
-    expect(face('machineGun', 2)).toEqual(['RELOAD 10.8 s>10.2 s', 'SHELLS 20>24', 'DAMAGE 6>7', 'RATE 0.20 s>0.15 s']);
-  });
-
-  it('FLAK ladder: DAMAGE climbs 12 / 20 / 28 / 36 / 44 and the pool steps sit on the rungs to II and IV — the blast never moves', () => {
-    expect(face('flak', 0)).toEqual(['RELOAD 3.5 s>3.3 s', 'DAMAGE 12>20', 'ROUNDS 1>2']);
-    expect(face('flak', 1)).toEqual(['RELOAD 3.3 s>3.1 s', 'DAMAGE 20>28']);
-    expect(face('flak', 2)).toEqual(['RELOAD 3.1 s>3.0 s', 'DAMAGE 28>36', 'ROUNDS 2>3']);
-    expect(face('flak', 3)).toEqual(['RELOAD 3.0 s>2.8 s', 'DAMAGE 36>44']);
+  it('FLAK ladder: DAMAGE climbs every rung and the pool steps sit on the rung to II ONLY — the blast never moves', () => {
+    const dmg = (k: number): string => `DAMAGE ${dmgPair('flak', 'flak', k).join('>')}`;
+    expect(face('flak', 0)).toEqual(['RELOAD 3.5 s>3.3 s', dmg(0), 'ROUNDS 1>2', rangeLine('flak', 'flak', 0)]);
+    expect(face('flak', 1)).toEqual(['RELOAD 3.3 s>3.1 s', dmg(1), rangeLine('flak', 'flak', 1)]);
+    expect(face('flak', 2)).toEqual(['RELOAD 3.1 s>3.0 s', dmg(2), rangeLine('flak', 'flak', 2)]);
+    expect(face('flak', 3)).toEqual(['RELOAD 3.0 s>2.8 s', dmg(3), rangeLine('flak', 'flak', 3)]);
+    // Damage CLIMBS on every rung (whatever Eric's dial values are).
+    for (let k = 0; k < 4; k += 1) expect(Number(dmgPair('flak', 'flak', k)[1])).toBeGreaterThan(Number(dmgPair('flak', 'flak', k)[0]));
     expect(face('flak', 3).some((r) => r.startsWith('BURST'))).toBe(false);
   });
 
-  it('every rung of both ladders fits the five-row grid', () => {
+  it('every rung of both ladders fits the six-row grid', () => {
     for (const id of ['machineGun', 'flak'] as const) {
       for (let k = 0; k < CATALOG[id].cap; k += 1) {
         const rows = cardStatRows(CATALOG[id], k, held(id, k));

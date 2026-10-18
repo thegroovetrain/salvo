@@ -185,11 +185,11 @@ describe('wake length is speed × the SHARED life, per class', () => {
 
   it('runs 247.5u / 220u / 192.5u at full ahead for the three captain classes', () => {
     const at = (cls: HullId): number => hullEnvelope(cls).kinematics.maxSpeed * (LIFE_MS / 1000);
-    // Cut from 540 / 480 / 420 by amendment 213. The torpedo boat's figure is
-    // the ruled one and is EXACTLY the 3/8 detect rung — the other two fall out
-    // of it, since length is `speed x life` and only speed differs.
+    // Cut from 540 / 480 / 420 by amendment 213. The other two fall out of the
+    // torpedo boat's figure, since length is `speed x life` and only speed
+    // differs. (That it once equalled the 3/8 detect rung was a coincidence,
+    // not a rule — Eric 2026-10-08 — and is no longer pinned.)
     expect(at('torpedoBoat')).toBeCloseTo(247.5, 6);
-    expect(at('torpedoBoat')).toBeCloseTo(CONFIG.vision.detect, 6);
     expect(at('mineLayer')).toBeCloseTo(220, 6);
     expect(at('battleship')).toBeCloseTo(192.5, 6);
   });
@@ -648,9 +648,10 @@ describe('WakeStampCache rebuilds on the three things that can change its answer
     const cappedDeck = Array.from({ length: CATALOG.speed.cap }, () => 'speed');
     const cappedTb = effectiveStats(CONFIG.shipClasses.torpedoBoat, cappedDeck).kinematics;
     const cappedBoosted = boostedKinematics(cappedTb, CONFIG.boost.factor, true).maxSpeed;
-    expect(cappedBoosted).toBeCloseTo(68.75, 9);
+    // SPEED caps at five cards since Story 9.6 (epic-9 amendment 91): 57.5 × 1.25.
+    expect(cappedBoosted).toBeCloseTo(71.875, 9);
     // STORY 8.19 RAISED IT ONCE MORE: that hull, riding another hull's wake at
-    // the full draft lift, runs 5 % past its boosted cap — 72.1875 u/s. The
+    // the full draft lift, runs 5 % past its boosted cap — 75.46875 u/s. The
     // headroom constant folds the lift through the ONE shared draft hook, on
     // top of the boost, so it is the true ceiling and no longer the boosted cap.
     const cappedDrafted = draftedKinematics(
@@ -658,7 +659,7 @@ describe('WakeStampCache rebuilds on the three things that can change its answer
       CONFIG.wake.draft.lift,
       true,
     ).maxSpeed;
-    expect(cappedDrafted).toBeCloseTo(72.1875, 9);
+    expect(cappedDrafted).toBeCloseTo(75.46875, 9);
     expect(FASTEST_BOOSTED_HULL_SPEED).toBe(cappedDrafted);
     expect(FASTEST_BOOSTED_HULL_SPEED).toBeGreaterThan(cappedBoosted);
     for (const speed of [FASTEST_HULL_SPEED, cappedBoosted, cappedDrafted, CONFIG.torpedo.speed]) {
@@ -696,27 +697,29 @@ describe('WakeStampCache rebuilds on the three things that can change its answer
     expect(FASTEST_BOOSTED_HULL_SPEED).toBe(boostedOnly + boostedOnly * CONFIG.wake.draft.lift);
   });
 
-  // P6 — THE SIGHT RADIUS IS PART OF THE KEY. A dazzle onset/end moves
+  // P6 — THE SIGHT RADIUS IS PART OF THE KEY. A sight change (a boon) moves
   // `sightHoleU` with nothing else changing:
   // same observer, same segment set, same clock. Without it in the key, a
   // stationary observer double-painted (or blanked) the sight-delta band for up
   // to a full rebuild interval. It is checked AHEAD of the rate floor because a
-  // step function of dazzle cannot churn.
+  // step function of boons cannot churn.
   it('rebuilds the instant the sight radius moves, even inside the rate floor', () => {
     const sources = new WakeSources();
-    const h = hull('a', 'battleship', 200, 30);
+    // On the 3/12 rung (radar × 3/12, epic-9 amendment 103): inside the 4/12
+    // sight bubble, outside a halved one (2/12).
+    const h = hull('a', 'battleship', (CONFIG.vision.radar * 3) / 12, 30);
     sources.observe(h, 0);
     h.x += STEP_U + 1;
     sources.observe(h, 50);
     const cache = new WakeStampCache();
     const own = { x: 0, y: 0 };
-    // Dazzled: the segment at ~200u is OUTSIDE a halved bubble, so the wire owns
-    // it and this stamp is empty.
-    const dazzled = cache.stampFor(sources, own, CONFIG.vision.sight / 2, 50, CELL, MODEL);
-    expect(dazzled.size).toBe(0);
-    // The dazzle ends one frame later — well inside the rate floor.
+    // Narrow: the segment on the 3/12 rung is OUTSIDE a halved bubble, so the
+    // wire owns it and this stamp is empty.
+    const narrow = cache.stampFor(sources, own, CONFIG.vision.sight / 2, 50, CELL, MODEL);
+    expect(narrow.size).toBe(0);
+    // The bubble widens one frame later — well inside the rate floor.
     const clear = cache.stampFor(sources, own, CONFIG.vision.sight, 60, CELL, MODEL);
-    expect(clear).not.toBe(dazzled);
+    expect(clear).not.toBe(narrow);
     expect(clear.size).toBeGreaterThan(0);
     // ...and back again, so the key is bidirectional rather than a ratchet.
     const again = cache.stampFor(sources, own, CONFIG.vision.sight / 2, 70, CELL, MODEL);
@@ -1019,10 +1022,11 @@ describe('a torpedo lays the same one wake the scope paints', () => {
     near.observe(a, 50);
     expect(buildTruesightWakeStamp(near, own, CONFIG.vision.sight, 50, CELL, MODEL).size).toBeGreaterThan(0);
 
-    // Between detect and sight: the SERVER discloses this water, so the client
-    // must not — one cell claimed twice would be a double paint.
+    // Past the rung (detect = sight since 2026-10-08): the SERVER discloses
+    // this water, so the client must not — one cell claimed twice would be a
+    // double paint.
     const mid = new WakeSources();
-    const b = fish('mid', (detect + CONFIG.vision.sight) / 2);
+    const b = fish('mid', CONFIG.vision.sight + STEP_U + 5);
     mid.observe(b, 0);
     b.x += STEP_U + 1;
     mid.observe(b, 50);
@@ -1031,7 +1035,7 @@ describe('a torpedo lays the same one wake the scope paints', () => {
     // ...while a HULL at that same range IS the client's, because its inner
     // bound is the sight bubble. The two bounds are per source, not one radius.
     const hulls = new WakeSources();
-    const c = hull('hull', 'battleship', (detect + CONFIG.vision.sight) / 2, 30);
+    const c = hull('hull', 'battleship', CONFIG.vision.sight * 0.9, 30); // inside the sight bubble (the old mid-band point is AT sight now)
     hulls.observe(c, 0);
     c.x += STEP_U + 1;
     hulls.observe(c, 50);

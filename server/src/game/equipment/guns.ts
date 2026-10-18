@@ -19,6 +19,7 @@ import {
   gunReachU as sharedGunReachU,
   muzzleOrTarget as sharedMuzzleOrTarget,
   parallelOffsets,
+  pointInLitZone,
   wrapAngle,
   type EquipmentState,
   type ShellState,
@@ -70,23 +71,9 @@ export function burstPointAlong(
 }
 
 /**
- * THE CURSOR POINT (Eric 2026-10-01, epic-8 amendment 202 — "the cursor
- * decides"): where the shooter's cursor sat when a deck gun fired — ship
- * CENTRE + `aimDist` along `dir`, with NO reach clamp and NO map clamp. The one
- * helper the cannon, the flak gun and the machine gun all call, so the three
- * cannot disagree about where the click was. The only clamp that applies is
- * the input sanitizer's (inputs.ts `sanitizeAimDist`: finite-checked, then
- * clamped to [0, AIM_DIST_MAX]). Server-internal: it rides `ShellState.cursor`
- * for the mine landing test and never the wire.
- */
-export function rawAimPoint(ship: ShipRecord, dir: number): Vec2 {
-  const d = ship.input.aimDist;
-  return { x: ship.state.x + Math.cos(dir) * d, y: ship.state.y + Math.sin(dir) * d };
-}
-
-/**
  * The gun's clicked burst point: burstPoint at the ship's EFFECTIVE max gun
- * range (stats.equipment.gun.rangeU — the gunRange upgrade; base = CONFIG.vision.radar).
+ * range (stats.equipment.gun.rangeU — its own tiered dial since Story 9.8,
+ * ruling 125: Tier I `CONFIG.gun.rangeU`, + a step per CANNON card).
  * Exported for tests.
  */
 export function gunTarget(ship: ShipRecord, mapRadius: number): Vec2 {
@@ -138,10 +125,30 @@ export function gunReachU(ctx: ActivationContext, rangeU: number): number {
 }
 
 /**
- * Gun fire control against one slot pool: `stats.equipment.gun.barrels` shells (1..3
- * — the CANNON rungs to tiers II and IV each add one, Eric 2026-10-02, epic-8
- * amendment 232; the 1..3 clamp is now reached exactly)
- * for ONE consumed round, each a REAL shell
+ * THE LIT EXEMPTION (Eric 2026-10-17, epic-9 amendment 187: "the lit up
+ * region is counted as within the 100% damage range, even if it otherwise
+ * wouldn't be"). The attenuation reference a deck-gun shell is stamped with:
+ * the row's `rangeU` at fire time (ruling 184(b)), or `undefined` — NO
+ * reference, full damage wherever the shell lands — when `target` (the
+ * shot's map-clamped aim / burst point) lies inside one of the firer's OWN
+ * live lit zones (`ctx.ownLitZones()`, the same shared `pointInLitZone` test
+ * `gunReachU` lifts the reach on; an enemy's flare buys nothing).
+ *
+ * Decided ONCE, AT FIRE TIME, never at impact. Two accepted readings follow:
+ * a zone that expires while the shell is in flight does not retroactively
+ * punish a shot fired into light, and a hull intercepting the shell short of
+ * the zone takes the unattenuated blow. DECK GUNS ONLY (cannon, machine gun,
+ * flak).
+ */
+export function attenRangeFor(ctx: ActivationContext, rangeU: number, target: Vec2): number | undefined {
+  return pointInLitZone(target, ctx.ownLitZones()) ? undefined : rangeU;
+}
+
+/**
+ * Gun fire control against one slot pool: `stats.equipment.gun.barrels` shells
+ * (TWO at every tier since Eric 2026-10-16, Story 9.12 — `CONFIG.gun.barrels`,
+ * no barrel rungs; a PvE fleet gun keeps one; the fold's 1..3 clamp still
+ * guards) for ONE consumed round, each a REAL shell
  * bursting at its OWN point. The ONLY denial is an empty pool ('no-ammo' — the
  * shot cooldown; single-consume, so the denial mapping is unchanged from the
  * single-barrel era); there is no arc.
@@ -181,41 +188,38 @@ export function gunReachU(ctx: ActivationContext, rangeU: number): number {
  * numbers (gun 25, lightest hull 70 — base 3 × 25 = 75 breached the floor with
  * no upgrades at all); the cycle-44 rebalance (gun 15, lightest hull 80) removed
  * that premise. The accepted consequence: every shell of a multi-barrel click
- * lands; the reachable max is the CANNON's tier-V triple mount (3 barrels × 21 =
- * 63; 3 × 18 = 54 at tier IV — Eric 2026-10-02, amendment 232). No PLAYER hull
- * can be one-clicked — the lightest class hull is 250 hp; the 45 hp small and
- * 60 hp medium drone one-clicks at tier V are ACCEPTED consequences (Eric
- * 2026-10-02, amendment 232; the 75 hp large drone still takes two).
+ * lands; the reachable max is the CANNON's tier-V twin mount (2 barrels × 13 =
+ * 26 — Eric 2026-10-16, Story 9.12, before range attenuation). No PLAYER hull
+ * can be one-clicked — the lightest class hull is 250 hp.
  *
  * Every shell carries the gun's hit rule off the OWNER's effective stats:
  * target point + burstRadius + damage/contactDamage (Story 2.8 — stats, never
- * CONFIG, so the HEAVY SHELLS ladder lands). distLeft is the spawn→target
+ * CONFIG, so the HEAVY SHELLS ladder lands) and the row's `rangeU` as its
+ * range-attenuation reference (Story 9.12, ruling 184(b) — the row's reach,
+ * NEVER the lit-zone-lifted `reachU`; none at all for a volley aimed into the
+ * shooter's own light, amendment 187 `attenRangeFor`). distLeft is the spawn→target
  * distance plus a shellRadius of slack — the shell stops AT its target
  * (stepShell), so the slack only guards float drift from ever expiring it a
  * hair short of the burst. It is the SAME length for every shell of the volley,
  * because parallel tracks are equal-length by construction.
  */
 function fireGunShells(
-  ship: ShipRecord,
+  ctx: ActivationContext,
   pool: EquipmentState,
-  now: number,
   reachU: number,
-  mapRadius: number,
-  mkId: () => string,
 ): { shells: ShellState[]; denial: ActivationDenial | null } {
+  const ship = ctx.ship;
   if (!consume(pool, ship.stats.equipment.gun.reloadMs)) return { shells: [], denial: 'no-ammo' }; // pool empty
   const gun = ship.stats.equipment.gun;
   const dir = ship.input.aim;
-  const center = burstPointAlong(ship, mapRadius, reachU, dir);
-  // Every barrel carries the ONE unclamped click centre (amendment 202): the
-  // multi-barrel mount's straddle offsets move where each shell lands, not the cursor.
-  const cursor = rawAimPoint(ship, dir);
+  const center = burstPointAlong(ship, ctx.mapRadius, reachU, dir);
   const muzzle = muzzleOrTarget(ship, dir, center, CONFIG.gun.shellRadius);
   const range = Math.hypot(center.x - muzzle.x, center.y - muzzle.y) + CONFIG.gun.shellRadius;
+  const attenRangeU = attenRangeFor(ctx, gun.rangeU, center); // amendment 187: one decision per volley
   const shells: ShellState[] = [];
   for (const off of parallelOffsets(dir, gun.barrels, CONFIG.gun.barrelSpacingU)) {
     shells.push(
-      makeBallistic(mkId(), ship, dir, now, {
+      makeBallistic(ctx.mkId(), ship, dir, ctx.fireT, {
         speed: CONFIG.gun.shellSpeed,
         range,
         damage: gun.damage,
@@ -228,7 +232,7 @@ function fireGunShells(
         contactDamage: gun.contactDamage,
         hits: CONFIG.gun.hits, // AR44 target mask
         family: 'cannon', // Story 8.15: the reveal's `w`
-        cursor, // amendment 202: the mine landing test's cursor point
+        attenRangeU, // ruling 184(b) + amendment 187: the row's reach at fire time, none into own light
       }),
     );
   }
@@ -250,7 +254,7 @@ export const gunEquipment: Equipment = {
     // pre-stepped by the World to where it belongs this tick.
     // R2.15: an own LIVE lit zone over the clicked point extends the reach.
     const reachU = gunReachU(ctx, ctx.ship.stats.equipment.gun.rangeU);
-    const { shells, denial } = fireGunShells(ctx.ship, slot.state!, ctx.fireT, reachU, ctx.mapRadius, ctx.mkId);
+    const { shells, denial } = fireGunShells(ctx, slot.state!, reachU);
     for (const shell of shells) ctx.spawnBallistic(shell);
     return denial === null ? { ok: true } : { ok: false, reason: denial };
   },

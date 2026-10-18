@@ -40,7 +40,7 @@ describe('the refit card rows — an unresolvable hull renders nothing, never th
       expect(() => cardHoverRows(def, 0, UNKNOWN as never), def.id).not.toThrow();
       if (def.kind !== 'consumable') expect(cardHoverRows(def, 0, UNKNOWN as never), def.id).toEqual([]);
     }
-    expect(cardHoverRows(CATALOG.armor, 0, KNOWN as never).length).toBeGreaterThan(0);
+    expect(cardHoverRows(CATALOG.hullPoints, 0, KNOWN as never).length).toBeGreaterThan(0);
     expect(cardHoverRows(CATALOG.hullRepair, 0, UNKNOWN as never).length).toBeGreaterThan(0);
   });
 });
@@ -81,7 +81,7 @@ describe('beltPressDenied — an unresolvable hull never claims FULL', () => {
 
   it('never denies a square that does not hold HULL REPAIR', () => {
     const maxHp = effectiveStats(CONFIG.shipClasses['torpedoBoat'], []).maxHp;
-    expect(beltPressDenied('smokeScreen', maxHp, maxHp, true)).toBe(false);
+    expect(beltPressDenied('countermeasure', maxHp, maxHp, true)).toBe(false);
     expect(beltPressDenied(null, maxHp, maxHp, true)).toBe(false);
   });
 

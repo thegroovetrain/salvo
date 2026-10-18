@@ -1,95 +1,33 @@
-// THE FOG SIGHT HOLE (render/fog.ts) — the DAZZLE honesty rule (Story 2.8; the
-// mark is set by a FLASH SHELLS burst since Story 8.17, epic-8 amendment 132).
-// While the own hull is dazzled the SERVER has already cut its perceived sight
-// to the SHARED `effectiveSight` — radarRange × CONFIG.flashShells.sightFraction
-// (1/8 of intel range, 82.5 u at base) — so the baked hole must be exactly that
-// number: an un-shrunk hole would draw clear water where the server reveals
-// nothing — the fog circle would LIE.
+// THE FOG SIGHT HOLE (render/fog.ts) — the honesty rule: the baked hole is the
+// SHARED `effectiveSight` — the very function the server's `sightOf` calls —
+// so the fog circle can never draw clear water the server reveals nothing in.
+// Story 9.4 retired the FLASH SHELLS dazzle (and with it the hole's only
+// runtime modifier and the `setDazzled` staleness edge); a sight boon is the
+// one input that moves the radius now.
 //
 // The rebake itself is a Pixi/canvas operation (untestable in jsdom); what is
-// pinned here is the pure radius rule and the staleness edge that decides WHEN
-// a rebake is owed — the two pieces the honesty depends on.
+// pinned here is the pure radius rule the honesty depends on.
 
 import { describe, it, expect } from 'vitest';
 import { Container } from 'pixi.js';
 import { CONFIG, effectiveSight } from '@salvo/shared';
-import { Fog, fogHoleRadiusU } from '../render/fog.js';
+import { Fog, fogFrameRects, fogHoleRadiusU, fogZoomStale } from '../render/fog.js';
+import { CLIENT_CONFIG } from '../config.js';
 
 const BASE = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
 
-describe('fogHoleRadiusU — the dazzle-honest hole radius', () => {
-  it('is the plain effective sight range while NOT dazzled', () => {
-    expect(fogHoleRadiusU(BASE, false)).toBe(CONFIG.vision.sight);
-    expect(fogHoleRadiusU({ sightRange: 400, radarRange: 660 }, false)).toBe(400);
-  });
-
-  it('is ONE EIGHTH OF THE INTEL RANGE while dazzled — 82.5 u at base (was 165)', () => {
-    expect(fogHoleRadiusU(BASE, true)).toBe(82.5);
-    expect(fogHoleRadiusU(BASE, true)).toBe(CONFIG.vision.radar * CONFIG.flashShells.sightFraction);
-    expect(fogHoleRadiusU(BASE, true)).toBeLessThan(CONFIG.vision.sight);
-  });
-
-  it('follows the RADAR range, not the sight range, while dazzled', () => {
-    // A wider bubble buys nothing while flashed; a longer radar does.
-    expect(fogHoleRadiusU({ ...BASE, sightRange: BASE.sightRange * 1.5 }, true)).toBe(82.5);
-    expect(fogHoleRadiusU({ ...BASE, radarRange: 800 }, true)).toBe(100);
+describe('fogHoleRadiusU — the honest hole radius', () => {
+  it('is the effective sight range — base and boon-widened alike', () => {
+    expect(fogHoleRadiusU(BASE)).toBe(CONFIG.vision.sight);
+    expect(fogHoleRadiusU({ sightRange: 400, radarRange: 660 })).toBe(400);
   });
 
   it('IS the shared effectiveSight — the function the server\'s sightOf calls', () => {
-    for (const r of [BASE, { sightRange: 400, radarRange: 800 }]) {
-      for (const d of [false, true]) expect(fogHoleRadiusU(r, d)).toBe(effectiveSight(r, d));
-    }
-  });
-});
-
-describe('Fog.setDazzled — the rebake staleness edge', () => {
-  it('starts un-dazzled and reports a rebake ONLY on a real state flip', () => {
-    const fog = new Fog(new Container());
-    expect(fog.isDazzled).toBe(false);
-    expect(fog.setDazzled(false)).toBe(false); // no change, no rebake owed
-    expect(fog.setDazzled(true)).toBe(true); // entered the dazzle: hole is stale
-    expect(fog.isDazzled).toBe(true);
-    expect(fog.setDazzled(true)).toBe(false); // still dazzled, every later frame
-    expect(fog.setDazzled(false)).toBe(true); // left it: stale again
-    expect(fog.isDazzled).toBe(false);
+    for (const r of [BASE, { sightRange: 400, radarRange: 800 }]) expect(fogHoleRadiusU(r)).toBe(effectiveSight(r));
   });
 
-  it('costs at most two rebakes per dazzle event, however long it lasts', () => {
-    const fog = new Fog(new Container());
-    let rebakes = 0;
-    // 120 frames inside one dazzle window, then 120 outside it.
-    for (let i = 0; i < 120; i += 1) if (fog.setDazzled(true)) rebakes += 1;
-    for (let i = 0; i < 120; i += 1) if (fog.setDazzled(false)) rebakes += 1;
-    expect(rebakes).toBe(2);
-  });
-});
-
-// IN SMOKE (Story 8.18, Eric ruling 2026-09-29, amendment 149): the server
-// stamps the self-private `you.inSmoke` while the own hull's centre is in any
-// live puff and perceives it at the smoke tier of the SAME `effectiveSight` —
-// so the hole takes the same third argument and the same staleness edge.
-describe('IN SMOKE — the hole shrinks through the shared effectiveSight', () => {
-  it('is 1/8 of the intel range in smoke, the plain sight out of it', () => {
-    expect(fogHoleRadiusU(BASE, false, false)).toBe(CONFIG.vision.sight);
-    expect(fogHoleRadiusU(BASE, false, true)).toBe(CONFIG.vision.radar * CONFIG.smokeScreen.inSmokeSightFraction);
-    expect(fogHoleRadiusU({ ...BASE, radarRange: 800 }, false, true)).toBe(800 * CONFIG.smokeScreen.inSmokeSightFraction);
-    for (const d of [false, true]) {
-      for (const m of [false, true]) expect(fogHoleRadiusU(BASE, d, m)).toBe(effectiveSight(BASE, d, m));
-    }
-  });
-
-  it('Fog.setInSmoke reports a rebake only on a real flip, independent of dazzle', () => {
-    const fog = new Fog(new Container());
-    expect(fog.isInSmoke).toBe(false);
-    expect(fog.setInSmoke(false)).toBe(false);
-    expect(fog.setInSmoke(true)).toBe(true);
-    expect(fog.isInSmoke).toBe(true);
-    expect(fog.setInSmoke(true)).toBe(false);
-    // A dazzle flip neither consumes nor resets the smoke state.
-    expect(fog.setDazzled(true)).toBe(true);
-    expect(fog.isInSmoke).toBe(true);
-    expect(fog.setInSmoke(false)).toBe(true);
-    expect(fog.isDazzled).toBe(true);
+  it('does not follow the radar range (sight is a different quantity from intel)', () => {
+    expect(fogHoleRadiusU({ ...BASE, radarRange: 800 })).toBe(CONFIG.vision.sight);
   });
 });
 
@@ -123,8 +61,9 @@ describe('Fog.setVisible — the reveal is a HIDE, never a fade', () => {
   it('setVisible(false) hides the fog sprite outright; setVisible(true) restores it', () => {
     const layer = new Container();
     const fog = new Fog(layer);
-    // The Fog constructor adds its sprite before its hole mask (Graphics), so
-    // the sprite is always the layer's first child — no private-field reach-in.
+    // The Fog constructor adds its overlay group (the baked sprite plus the
+    // Story 9.8 slide strips) before its hole mask (Graphics), so the group is
+    // always the layer's first child — no private-field reach-in.
     const sprite = layer.children[0];
     expect(sprite.visible).toBe(true); // boots visible, same as every other Pixi node
 
@@ -134,5 +73,65 @@ describe('Fog.setVisible — the reveal is a HIDE, never a fade', () => {
 
     fog.setVisible(true);
     expect(sprite.visible).toBe(true); // restored, same object — no rebake needed
+  });
+});
+
+// THE RING-FIT ZOOM LIMIT MOVES EVERY TICK while the storm closes (Story 9.8,
+// ruling 127), so the full-canvas fog bake runs on HYSTERESIS: only past
+// `redrawZoomFrac` of the zoom it was last baked at — the terrain and storm
+// layers' 2 % sub-pixel precedent.
+describe('fogZoomStale — the rebake hysteresis (Story 9.8)', () => {
+  const FRAC = CLIENT_CONFIG.terrain.redrawZoomFrac;
+
+  it('holds inside the band and trips past it, in both directions', () => {
+    expect(fogZoomStale(0.5, 0.5 * (1 + FRAC / 2), FRAC)).toBe(false);
+    expect(fogZoomStale(0.5, 0.5 * (1 - FRAC / 2), FRAC)).toBe(false);
+    expect(fogZoomStale(0.5, 0.5 * (1 + FRAC * 2), FRAC)).toBe(true);
+    expect(fogZoomStale(0.5, 0.5 * (1 - FRAC * 2), FRAC)).toBe(true);
+  });
+
+  it('a ring closing by a hair per tick never rebakes until the drift adds up', () => {
+    let baked = 0.1;
+    let bakes = 0;
+    for (let z = 0.1; z < 0.2; z *= 1.001) {
+      if (fogZoomStale(baked, z, FRAC)) {
+        baked = z;
+        bakes++;
+      }
+    }
+    // ~693 ticks of 0.1 % each: a bake per ~2 %, never one per tick.
+    expect(bakes).toBeGreaterThan(20);
+    expect(bakes).toBeLessThan(40);
+  });
+
+  it('is always stale before the first bake, and never on a junk zoom', () => {
+    expect(fogZoomStale(NaN, 0.5, FRAC)).toBe(true);
+    expect(fogZoomStale(0, 0.5, FRAC)).toBe(true);
+    expect(fogZoomStale(0.5, NaN, FRAC)).toBe(false);
+  });
+});
+
+// THE CENTRE SLIDE (ruling 128) can carry the own hull — and the fog sprite
+// baked around it — far off screen centre, past any affordable bake margin.
+describe('fogFrameRects — the strips that keep the fog over the whole screen (Story 9.8)', () => {
+  const area = (rs: { w: number; h: number }[]): number => rs.reduce((a, r) => a + r.w * r.h, 0);
+
+  it('is EMPTY when the sprite covers the screen (every frame at the default framing)', () => {
+    expect(fogFrameRects(-100, -80, 1800, 1060, 1600, 900)).toEqual([]);
+  });
+
+  it('covers exactly the uncovered remainder when the sprite slides off a corner', () => {
+    // Sprite 1000×600 at (900, 500) on a 1600×900 screen: covers [900,1600]×[500,900].
+    const rs = fogFrameRects(900, 500, 1000, 600, 1600, 900);
+    expect(area(rs)).toBe(1600 * 900 - 700 * 400);
+    for (const r of rs) {
+      expect(r.w).toBeGreaterThan(0);
+      expect(r.h).toBeGreaterThan(0);
+    }
+  });
+
+  it('covers the whole screen when the sprite is entirely off it', () => {
+    expect(area(fogFrameRects(5000, 5000, 100, 100, 1600, 900))).toBe(1600 * 900);
+    expect(area(fogFrameRects(-5000, -5000, 100, 100, 1600, 900))).toBe(1600 * 900);
   });
 });

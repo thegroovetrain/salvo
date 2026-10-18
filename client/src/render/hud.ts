@@ -14,7 +14,7 @@
 //     composed in ui/chromeBar.ts, drawn from BOTH update paths because it is a
 //     member of the ratified reveal-HUD SURVIVOR set;
 //   • the match-phase lines and the big countdown numeral;
-//   • the `IN STORM` warning and the victim tells (SLOWED / DAZZLED), which as
+//   • the `IN STORM` warning and the victim tell (SLOWED), which as
 //     of 8.6 are CENTRED above the bar rather than stacked over a corner;
 //   • the centre-screen SUNK — RESPAWNING overlay and the spectate banner.
 //
@@ -25,7 +25,7 @@
 // `amberPulseWinner`, so the two can never disagree about which amber wins.
 
 import { Container, Text } from 'pixi.js';
-import type { EffectiveStats, ShipClassId, SlotItemId, WeaponAmmo } from '@salvo/shared';
+import type { EffectiveStats, OwnShip, ShipClassId, SlotItemId, WeaponAmmo } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionScaled, settings } from '../settings/store.js';
 // The Tier-1 hold easing is the storm vignette's, imported rather than
@@ -105,11 +105,10 @@ export interface OwnStatus {
   /** The own speed boost is currently active (serverNow < boostUntil estimate):
    *  drives the boosted speed-needle cap on the helm globe's telegraph arc. */
   boostActive: boolean;
-  /** ms remaining on the PROP-FOULING slow window (`you.slowedUntil` vs the
-   *  server clock; 0 = not fouled) — Story 2.9's victim tell. */
+  /** ms remaining on the PROP-FOULING slow window — the LATER of the fouling
+   *  mine's `you.slowedUntil` and the FOULING SHELL zone's `you.fouledUntil`
+   *  (Story 9.4) vs the server clock; 0 = not slowed — Story 2.9's victim tell. */
   slowedMsLeft: number;
-  /** ms remaining on the DAZZLE window (`you.dazzledUntil`; 0 = not dazzled). */
-  dazzledMsLeft: number;
 }
 
 /**
@@ -124,8 +123,30 @@ export function conning(status: Pick<OwnStatus, 'alive' | 'sinking'>): boolean {
   return status.alive || status.sinking;
 }
 
-/** The two victim tells, top-down in the order they stack above the bar. */
-const TELL_LABELS = ['SLOWED', 'DAZZLED'] as const;
+/**
+ * Pure: the victim tells' remaining ms (Story 2.9), read VERBATIM off the
+ * victim-private windows on `you` against the server clock, never predicted:
+ * what an enemy did to us is the server's word, and a mispredicted tell is a
+ * lie about our own hull. (main.ts's ownStatus() spreads it in; it lives here,
+ * beside `OwnStatus`, so it is testable.)
+ *
+ * Since Story 9.4 SLOWED reads the LATER of the two slow windows — the fouling
+ * mine's `slowedUntil` and the FOULING SHELL zone's `fouledUntil` — so the one
+ * existing tell covers both sources (no new copy). The DAZZLED tell is gone
+ * with FLASH SHELLS.
+ */
+export function victimWindows(
+  you: Pick<OwnShip, 'slowedUntil' | 'fouledUntil'> | null | undefined,
+  now: number,
+): Pick<OwnStatus, 'slowedMsLeft'> {
+  const until = Math.max(you?.slowedUntil ?? 0, you?.fouledUntil ?? 0);
+  return { slowedMsLeft: Math.max(0, until - now) };
+}
+
+/** The victim tells, top-down in the order they stack under the storm line.
+ *  One since Story 9.4 deleted DAZZLED with FLASH SHELLS; SLOWED covers both
+ *  slow sources. */
+const TELL_LABELS = ['SLOWED'] as const;
 
 /**
  * Pure: WHOLE remaining seconds of a victim window, floored at 1 so a live
@@ -141,7 +162,7 @@ export function tellSeconds(ms: number): number {
  *
  * DUAL-CODED by construction: the STATE is a word and the SEVERITY is a live
  * countdown, so neither the color nor the mere presence of a mark carries it
- * alone. The tone (audio/tones.ts slowed/dazzled) is the flourish; THIS is the
+ * alone. The tone (audio/tones.ts slowed) is the flourish; THIS is the
  * information, and it renders identically at every motion level.
  */
 export function tellLine(label: string, msLeft: number): string {
@@ -223,7 +244,7 @@ export class Hud {
   private readonly matchTag: Text;
   private readonly countdownBig: Text;
   private readonly spectateBanner: Text;
-  /** The victim tells, index-aligned with TELL_LABELS (SLOWED, DAZZLED). */
+  /** The victim tells, index-aligned with TELL_LABELS (SLOWED). */
   private readonly tells: Text[];
   private readonly lastTells: string[];
   private lastOverlay = '';
@@ -439,12 +460,12 @@ export class Hud {
    * hole. Hidden wholesale on a dead hull — a sunk ship is not fouled.
    *
    * A SINKING hull still shows them (Story 5.2): it is still making way, still
-   * steering and still shooting, so a live foul or dazzle is still shaping what
+   * steering and still shooting, so a live foul is still shaping what
    * the captain can do with their last five seconds.
    */
   private drawTells(status: OwnStatus, screenW: number): void {
     const at = tellAnchor(screenW);
-    const windows = [status.slowedMsLeft, status.dazzledMsLeft];
+    const windows = [status.slowedMsLeft];
     let slot = 0;
     for (let i = 0; i < this.tells.length; i++) {
       const line = conning(status) ? tellLine(TELL_LABELS[i], windows[i]) : '';
@@ -460,7 +481,7 @@ export class Hud {
     }
   }
 
-  /** Drop both tells (spectating / returning to port — no hull to afflict). */
+  /** Drop the tells (spectating / returning to port — no hull to afflict). */
   private hideTells(): void {
     for (const t of this.tells) t.visible = false;
   }

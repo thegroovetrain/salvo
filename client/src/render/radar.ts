@@ -47,7 +47,7 @@
 // 181). Eric: *"I want everything painted at max intensity (0.8 alpha) at all
 // times. I want it DISPLAYED muted based on how close to the ship it is."* A
 // baked radial-gradient sprite masks `blipLayer` — 20% of the painted opacity
-// across the WHOLE SIGHT BUBBLE, ramping to 100% at the 5/8 rung — anchored on
+// across the WHOLE SIGHT BUBBLE, ramping to 100% at the flash rung (6/12) — anchored on
 // own hull in WORLD space and updated every frame. It is a presentation
 // transform over the composited layer: no paint record is read back, recomputed
 // or mutated, which is the distinction amendment 83 actually draws. It masks
@@ -64,9 +64,9 @@
 // fought. The floor now holds out to `sightHoleU` and full strength begins at the
 // first rung outside it, so the scope is quiet everywhere the eye is the primary
 // sensor and at full strength everywhere radar is the only one. Because
-// `sightHoleU` is the dazzle-scaled, boon-widened bubble rather than a constant,
-// the mask is RE-BAKED whenever that radius moves (`syncDimMask`) — the fog
-// hole's own cadence, at most twice per dazzle event plus stat changes.
+// `sightHoleU` is the boon-widened bubble rather than a base constant, the mask
+// is RE-BAKED whenever that radius moves (`syncDimMask`) — the fog hole's own
+// cadence: a stat change. (Until Story 9.4 a FLASH SHELLS dazzle moved it too.)
 // render/radarDim.ts owns the curve; render/textures.ts draws it.
 //
 // TWO SOURCES OF HULL RETURNS, COMPLEMENTARY BY RANGE (amendment 89, unchanged;
@@ -81,13 +81,13 @@
 // beam has already gated it and waiting for the local beam to come round would
 // paint the hull a whole revolution stale. One list, one model, two arrival
 // paths; and no hull can be in both, because the two ranges are exact complements
-// about one dazzle-scaled radius.
+// about one effective-truesight radius.
 //
-// WHICH IS WHY `sightHoleU` AND `setDazzled` SURVIVE, WITH THE JOB THEY HAVE HELD
-// SINCE CYCLE 56. The radius is not a suppression boundary; it is the SOURCE
-// SELECTOR that keeps the two from overlapping. It stays `fogHoleRadiusU()` — the
-// very function that bakes the visible fog hole, and by construction the same
-// dazzle-scaled number the server's own `sightOf` uses — because if the client's
+// WHICH IS WHY `sightHoleU` SURVIVES, WITH THE JOB IT HAS HELD SINCE CYCLE 56.
+// The radius is not a suppression boundary; it is the SOURCE SELECTOR that keeps
+// the two from overlapping. It stays `fogHoleRadiusU()` — the very function that
+// bakes the visible fog hole, and by construction the same effective truesight
+// (a boon-widened constant per build) the server's own `sightOf` uses — because if the client's
 // idea of truesight ever drifted from the server's, a hull at the seam would be
 // painted twice or not at all.
 //
@@ -130,8 +130,7 @@
 // (kept subtle). The faint map-centered rings in map.ts remain as the chart
 // grid. Thin Pixi adapter; the math lives in phosphor.ts and radarHeatmap.ts.
 
-import { BufferImageSource, Graphics, Sprite, Texture } from 'pixi.js';
-import type { Container } from 'pixi.js';
+import { BufferImageSource, Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
 import {
   CONFIG,
   HULL_IDS,
@@ -145,13 +144,13 @@ import {
   type HeightRaster,
   type HullCoverage,
   type Island,
-  type SmokeView,
   type WakeBlipEvent,
   WAKE_AGE_BUCKETS,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import type { ContactStore } from '../net/snapshots.js';
 import { settings } from '../settings/store.js';
+import type { ScreenWorldRect } from './camera.js';
 import { fogHoleRadiusU } from './fog.js';
 import { blipAlpha, blipLifeMs, sweepRotation } from './phosphor.js';
 import {
@@ -185,11 +184,8 @@ import {
 import { echoArc, marchSlice, mergeSlices, planMarch, type MarchSlice } from './radarMarch.js';
 import { wakeLitFloor } from './radarSources.js';
 import { WakeStampCache, type WakeSources } from './wake.js';
+import { cloudReturns, type CloudReturnGate, type CloudReturnInfo } from './cloudReturnGate.js';
 import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
-
-/** The empty puff list — the wake synthesis's default when no smoke source is
- *  wired (headless tests). */
-const NO_SMOKE = (): readonly SmokeView[] => [];
 
 /**
  * Hard cap on the pending echo/wake parks. Radar paints arrive from network
@@ -285,6 +281,20 @@ export interface ViewRect {
 // material that no longer exists. The storm's on-water rendering (render/zone.ts)
 // is untouched and is where the ring is legible.
 
+/**
+ * What the radar reads a countermeasure cloud through (Story 9.3 session 4) —
+ * structurally `Countermeasure`: how many clouds are held, and the drawn haze
+ * (0..maxAlpha, max across clouds) under a world point.
+ */
+export interface CloudReturnSource {
+  readonly size: number;
+  coverAt(x: number, y: number): number;
+  /** The haze of only the clouds `live` admits — the per-revolution delivery
+   *  gate (Story 9.8 review gate F1, render/cloudReturnGate.ts). A source
+   *  without it (a synthetic test field) is read ungated through `coverAt`. */
+  returnHaze?(live: (c: CloudReturnInfo) => boolean): ((x: number, y: number) => number) | undefined;
+}
+
 export class Radar {
   private readonly sweep: Sprite;
   private readonly rings: Graphics;
@@ -336,14 +346,11 @@ export class Radar {
   /** The effective truesight radius (u) the current `dim` texture was baked at.
    *  `syncDimMask` compares against `sightHoleU` and re-bakes on a real change —
    *  never per frame (a 1024² canvas draw), and never missed either, because the
-   *  compare sits on the per-frame placement path rather than on the stat and
-   *  dazzle setters, which are two ways in for one number. */
+   *  compare sits on the per-frame placement path rather than on the stat
+   *  setter (any future way in for the same number is covered too). */
   private dimBakedAtU: number;
   /** Latest authoritative sweep sample (angle at server time t). */
   private lastSweep: { angle: number; t: number } | null = null;
-  /** Beam angle at the PREVIOUS frame — the arc the march walks is measured
-   *  against it. Null whenever the sweep is hidden. */
-  private lastRotation: number | null = null;
   /** Last rendered own position — the observer an echo's bearing and range are
    *  measured from. Null before the first render (and in any later gap where the
    *  own pose is unknown), in which case an echo's geometry is DEFERRED rather
@@ -353,27 +360,16 @@ export class Radar {
    *  when the caller has no camera. READ IN EXACTLY ONE PLACE — `paintHeat` —
    *  and never by anything that creates or retires a paint (amendment 97). */
   private view: ViewRect | null = null;
+  /** The world rect on screen this frame (shake included) and the heat
+   *  sprite's `boundsArea` cut from it — see `clipHeat`. */
+  private screen: ScreenWorldRect | null = null;
+  private readonly heatClip = new Rectangle();
   // Effective vision numbers (Stage D upgrades), swapped via setRanges();
   // bases = CONFIG.vision. sweepPeriodMs drives both the wedge rotation rate
   // and the blip phosphor decay, so upgraded paints fade on the upgraded beat.
   private sightRange: number = CONFIG.vision.sight;
   private radarRange: number = CONFIG.vision.radar;
   private sweepPeriodMs: number = 60000 / CONFIG.vision.sweepRpm;
-  /** Is the own ship dazzled by an enemy FLASH SHELLS burst right now (Story
-   *  2.8; the flash since 8.17 — sight → radarRange/8, shared `effectiveSight`)? The
-   *  SAME flag `Fog` carries, plumbed from the same place in main.ts — the
-   *  source seam and the drawn fog hole are one number (amendment 89), so they
-   *  cannot be allowed to disagree about dazzle. It is read at paint creation
-   *  only, so a dazzle changes which source paints the NEXT sweep and never
-   *  retroactively edits a paint already on the scope (amendment 83). */
-  private dazzled = false;
-  /** Does the own hull stand inside a live SMOKE SCREEN puff (Story 8.18, the
-   *  self-private you.inSmoke)? The SAME flag `Fog` carries, from the same
-   *  call site — it moves the source seam (1/8 intel range) exactly as a dazzle
-   *  does, and it drops the puff term from the in-bubble wake synthesis (an
-   *  in-smoke observer sees INTO smoke inside its shrunken bubble, amendment
-   *  149). Read at paint creation / stamp build only. */
-  private inSmoke = false;
   /**
    * THE IN-BOUND WAKE SOURCE (Story 4.12) — the client's own ribbons, for the
    * half of the scope's wake the server deliberately does not disclose.
@@ -382,7 +378,7 @@ export class Radar {
    * gate, P2 — this comment previously said the row simply inherited
    * `blipGate`'s annulus, which is no longer true for the fish). A SHIP's water
    * is withheld inside the sight bubble; a TORPEDO's is withheld only inside the
-   * 3/8 DETECT rung, so torpedo segments in the (detect, sight] band DO come off
+   * DETECT rung (sight × detectFactor), so torpedo segments in the (detect, sight] band DO come off
    * the wire and paint here through the ordinary adapter — `validWake` has no
    * position gate, so nothing had to change to let them through.
    *
@@ -404,11 +400,21 @@ export class Radar {
    *  stamp's binary-LOS clause. Empty for a caller that has none — in which
    *  case nothing blocks, which is the pre-P5 behaviour. */
   private wakeIslands: readonly Island[] = [];
-  /** The live SMOKE SCREEN puff list (Story 8.18) — a thunk over
-   *  `state.net.smoke`, read at each stamp build, so the synthesis hides water
-   *  behind a puff exactly as the server's sight predicate does. */
-  private wakeSmoke: () => readonly SmokeView[] = NO_SMOKE;
   private readonly wakeCache = new WakeStampCache();
+  /**
+   * THE COUNTERMEASURE CLOUDS AS A RETURN SOURCE (Story 9.3 session 4, Eric
+   * 2026-10-12: "Don't forget to composite it onto the radar layer so it can
+   * be painted. It should give returns in strength based on how thick the
+   * smoke is."). `setWakeSources`' sibling: main.ts hands the Countermeasure
+   * over once, and every march pulls the drawn haze through it per sample
+   * (`FieldSpec.cloud` → `cloudSample`). The cloud is then a field material
+   * like any other — swept, shadowed, grained, frozen, banded, decayed and
+   * dimmed by the heat grid's own rules, with no drawing of its own. Null (or
+   * no cloud held) leaves the field exactly as it was.
+   */
+  private cloudSource: CloudReturnSource | null = null;
+  /** See `setStaleClock`. */
+  private staleClock: (() => number) | null = null;
 
   constructor(blipLayer: Container, sweepLayer: Container) {
     this.blipLayer = blipLayer;
@@ -419,7 +425,7 @@ export class Radar {
     this.dim.label = DIM_MASK_LABEL;
     this.dim.anchor.set(0.5);
     // One texel is `2 × spanU / size` world units, so the ramp's two radii sit
-    // exactly where CONFIG's eighths ladder puts them whatever the bake size is.
+    // exactly where CONFIG's ladder puts them whatever the bake size is.
     this.dim.scale.set((2 * CLIENT_CONFIG.blip.heatmap.dim.spanU) / DIM_MASK_TEXTURE_SIZE);
     // NEVER DRAWN, ALWAYS TRANSFORMED. `renderable = false` is exactly what
     // Pixi's own `AlphaMask.init` sets on a sprite mask (alongside
@@ -460,47 +466,6 @@ export class Radar {
   }
 
   /**
-   * Adopt the DAZZLE state (Story 2.8) — the radar half of the plumbing `Fog`
-   * has always had. Returns TRUE when the state actually flipped, mirroring
-   * `Fog.setDazzled`'s changed-flag contract so one call site can drive both;
-   * unlike the fog there is nothing to rebake, so this radar's caller is free to
-   * ignore the result.
-   *
-   * A DAZZLE MOVES THE SOURCE SEAM, NOT THE SCOPE (amendments 88-89). While it
-   * holds, the SERVER's truesight shrinks and it starts sending wire blips for
-   * the annulus the eye just lost; this flag is what makes the client stop
-   * synthesizing contact echoes there on the same beat. Nothing is suppressed
-   * either way — a hull in that annulus paints throughout; only which source
-   * paints it changes. Paints already on the scope are never re-judged.
-   */
-  setDazzled(dazzled: boolean): boolean {
-    if (dazzled === this.dazzled) return false;
-    this.dazzled = dazzled;
-    return true;
-  }
-
-  /** Is the dazzle currently held? Test/observation seam (mirrors `Fog`). */
-  get isDazzled(): boolean {
-    return this.dazzled;
-  }
-
-  /**
-   * Adopt the IN-SMOKE state (Story 8.18) — `setDazzled`'s twin, same
-   * changed-flag contract (nothing to rebake here; the dim mask re-syncs off
-   * `sightHoleU` on its own).
-   */
-  setInSmoke(inSmoke: boolean): boolean {
-    if (inSmoke === this.inSmoke) return false;
-    this.inSmoke = inSmoke;
-    return true;
-  }
-
-  /** Is the own hull in smoke? Test/observation seam (mirrors `Fog`). */
-  get isInSmoke(): boolean {
-    return this.inSmoke;
-  }
-
-  /**
    * THE SOURCE SEAM (u): the effective truesight radius, inside which a ship
    * echo is SYNTHESIZED from its `Contact` and outside which it arrives as a
    * wire blip (amendment 89). Nothing is suppressed on either side of it — the
@@ -508,13 +473,13 @@ export class Radar {
    *
    * It is `fogHoleRadiusU` — the very function that bakes the visible fog hole,
    * called rather than re-derived — because that is also, by construction, the
-   * dazzle-scaled number the server's own `sightOf` uses to decide the same
+   * effective-truesight number the server's own `sightOf` uses to decide the same
    * question from the other side. If the two ever disagreed, a hull at the seam
    * would be painted twice or dropped entirely. Exposed for tests and for
    * exactly that equality assertion.
    */
   get sightHoleU(): number {
-    return fogHoleRadiusU({ sightRange: this.sightRange, radarRange: this.radarRange }, this.dazzled, this.inSmoke);
+    return fogHoleRadiusU({ sightRange: this.sightRange, radarRange: this.radarRange });
   }
 
   private applyRanges(): void {
@@ -522,6 +487,34 @@ export class Radar {
     this.rings.circle(0, 0, this.sightRange).stroke({ width: 2, color: RING_SIGHT_COLOR, alpha: 0.12 });
     this.rings.circle(0, 0, this.radarRange).stroke({ width: 2, color: RING_RADAR_COLOR, alpha: 0.07 });
     this.sweep.scale.set(this.radarRange / SWEEP_TEXTURE_RADIUS);
+  }
+
+  /**
+   * CLIP THE MASKED PASS TO THE SCREEN (Story 9.8 perf gate). `blipLayer` is
+   * masked by the dim sprite, so Pixi draws it through a filter pass sized to
+   * the layer's bounds ∩ the dim mask's — and its mask filter does NOT clip to
+   * the viewport. The heat buffer carries whole cells of slack past the view,
+   * which at the close framing made that pass 2063 px tall at DPR 2 (a 4096²
+   * pooled target). The heat sprite's `boundsArea` is therefore its own extent
+   * ∩ the screen's world rect (in its local, one-texel-per-cell units): the
+   * pass never exceeds the screen. Nothing off screen is visible, so no
+   * on-screen pixel changes. No rect (tests, ambient) → measured as before.
+   */
+  private clipHeat(sprite: Sprite, grid: HeatGrid): void {
+    const s = this.screen;
+    if (s === null || !Number.isFinite(s.x + s.y + s.w + s.h)) {
+      sprite.boundsArea = null as unknown as Rectangle; // Pixi tests truthiness
+      return;
+    }
+    const x0 = Math.max(0, (s.x - grid.originX) / grid.cellU);
+    const y0 = Math.max(0, (s.y - grid.originY) / grid.cellU);
+    const x1 = Math.min(grid.cols, (s.x + s.w - grid.originX) / grid.cellU);
+    const y1 = Math.min(grid.rows, (s.y + s.h - grid.originY) / grid.cellU);
+    this.heatClip.x = x0;
+    this.heatClip.y = y0;
+    this.heatClip.width = Math.max(0, x1 - x0);
+    this.heatClip.height = Math.max(0, y1 - y0);
+    sprite.boundsArea = this.heatClip;
   }
 
   /**
@@ -929,9 +922,11 @@ export class Radar {
     serverNow: number,
     contacts: ContactStore | null = null,
     view: ViewRect | null = null,
+    screen: ScreenWorldRect | null = null,
   ): void {
     this.own = own;
     this.view = view;
+    this.screen = screen;
     // EVERY FRAME, INCLUDING THE ONES THAT PAINT NOTHING. `paintHeat` returns
     // early when there are no paints (and before that when there is no window at
     // all), so hanging the mask's placement off that path would leave it parked
@@ -940,7 +935,6 @@ export class Radar {
     this.updateDimMask(own);
     const rot = this.updateSweep(own, serverNow);
     this.renderReturn(own, rot, serverNow, contacts);
-    this.lastRotation = rot;
   }
 
   /** The whole frame: resolve parked echoes, march the swept arc, drop
@@ -1000,6 +994,7 @@ export class Radar {
       raster: this.heightRaster,
       ships: this.shipStamp(own, serverNow, contacts),
       wake: this.wakeStamp(own, serverNow),
+      cloud: this.cloudHaze(own, serverNow),
       cellU: cfg.cellU,
       model: cfg.model,
     });
@@ -1049,18 +1044,17 @@ export class Radar {
   /**
    * Re-bake the ramp if the observer's bubble has moved (this cycle).
    *
-   * THE RAMP IS ANCHORED TO TRUESIGHT, AND TRUESIGHT IS NOT A CONSTANT: a dazzle
-   * burst cuts it by the ratified factor at read time (no boon widens radar
-   * range any more), so a mask baked once at the base radius would quiet the wrong water for the
-   * rest of the match. It reads `sightHoleU` — `fogHoleRadiusU`, i.e. the exact
+   * THE RAMP IS ANCHORED TO TRUESIGHT, AND TRUESIGHT IS NOT THE BASE CONSTANT: it
+   * is a boon-widened constant per build, so a mask baked once at the base radius
+   * would quiet the wrong water for the rest of the match. It reads `sightHoleU` — `fogHoleRadiusU`, i.e. the exact
    * number the fog hole is baked at and the server's `sightOf` gates contacts
    * with — so the quiet region, the visible bubble and the server's idea of
    * truesight are one radius by construction.
    *
    * THE COMPARE LIVES ON THE PER-FRAME PATH, NOT ON THE SETTERS, deliberately.
-   * Two independent inputs move this number (`setRanges` for a boon, `setDazzled`
-   * for a flare) and a third could be added; hanging the rebake off the value
-   * itself means no caller can forget. A no-change frame costs one float compare,
+   * One input moves this number today (`setRanges` for a boon; until Story 9.4 a
+   * FLASH SHELLS dazzle was a second) and another could be added; hanging the
+   * rebake off the value itself means no caller can forget. A no-change frame costs one float compare,
    * and a real change costs the same 1024² canvas draw the fog already pays on
    * exactly the same events.
    *
@@ -1080,7 +1074,7 @@ export class Radar {
    * Handing the live texture back to the bake redraws that one canvas in place and
    * re-uploads it, so the binding is never invalidated. Steady-state memory is
    * UNCHANGED — the old code destroyed as it minted, so it also held one surface at
-   * a time; what goes away is the per-dazzle allocation churn. The old
+   * a time; what goes away is the per-change allocation churn. The old
    * `Texture.EMPTY` guard went with the destroy: a headless caller holding EMPTY
    * simply gets a fresh mint from the bake.
    */
@@ -1128,7 +1122,7 @@ export class Radar {
    * so the beam paints them exactly as it paints terrain (amendment 141).
    *
    * The range term is the EXACT COMPLEMENT of the server's: `dist <= sightU` here,
-   * `dist > sightU` in `blipGate`, off one dazzle-scaled radius both sides already
+   * `dist > sightU` in `blipGate`, off one effective-truesight radius both sides already
    * agree on (`fogHoleRadiusU` ≡ the server's `sightOf`). That one line is what
    * keeps the two sources from double-stamping a hull or dropping one between
    * them; nothing here SUPPRESSES anything, since the scope paints everything in
@@ -1152,18 +1146,47 @@ export class Radar {
    * `islands` is the binary-LOS geometry the synthesis owes (P5); omitted, the
    * stamp blocks on nothing, which is the correct degradation for a caller that
    * genuinely has no map (headless tests) and never a silent loosening in play,
-   * because main.ts always passes the set. `smoke` (Story 8.18) is the same
-   * owed test's SMOKE half — a thunk over the live `state.net.smoke`, read at
-   * each stamp build; omitted, nothing is smoked, on the same headless terms.
+   * because main.ts always passes the set.
    */
   setWakeSources(
     sources: WakeSources | null,
     islands: readonly Island[] = [],
-    smoke: () => readonly SmokeView[] = NO_SMOKE,
   ): void {
     this.wakeSources = sources;
     this.wakeIslands = islands;
-    this.wakeSmoke = smoke;
+  }
+
+  /** Hand the scope the countermeasure clouds (main.ts passes the one
+   *  Countermeasure). Null takes the layer off. */
+  setCloudSource(source: CloudReturnSource | null): void {
+    this.cloudSource = source;
+  }
+
+  /** Hand the scope the STALENESS clock (`ServerClock.frameNow`) the cloud
+   *  return hold ages by. Null (the default, and every test) ages it by the
+   *  frame's `serverNow`, which is the same thing on an on-time server. */
+  setStaleClock(fn: (() => number) | null): void {
+    this.staleClock = fn;
+  }
+
+  /** The cloud layer's per-sample haze lookup for this frame's field, or
+   *  undefined when no cloud is held or none is admitted (the field then skips
+   *  the layer). A held cloud beyond sight returns only while its radar
+   *  delivery is fresh (Story 9.8 review gate F1, render/cloudReturnGate.ts):
+   *  ruling 123's per-revolution roll reaches the scope. */
+  private cloudHaze(own: OwnPoint, serverNow: number): ((x: number, y: number) => number) | undefined {
+    const src = this.cloudSource;
+    if (src === null || src.size === 0) return undefined;
+    if (src.returnHaze === undefined) return (x, y) => src.coverAt(x, y);
+    const gate: CloudReturnGate = {
+      own,
+      serverNow,
+      staleNow: this.staleClock?.() ?? serverNow,
+      sightU: this.sightHoleU,
+      sweepPeriodMs: this.sweepPeriodMs,
+      holdRevs: CLIENT_CONFIG.countermeasure.returnHoldRevs,
+    };
+    return src.returnHaze((c) => cloudReturns(c, gate));
   }
 
   /**
@@ -1172,7 +1195,7 @@ export class Radar {
    *
    * The range term is the EXACT COMPLEMENT of the server's, per SEGMENT and PER
    * SOURCE: a segment whose midpoint is at or inside its source's inner bound
-   * (`sightHoleU` for a hull, the 3/8 detect rung of it for a fish) is stamped
+   * (`sightHoleU` for a hull, the detect rung — sight × detectFactor — for a fish) is stamped
    * here, one beyond it is the wire's (`wakeInnerBound`), off radii both sides
    * already agree on. A 540u track therefore hands its near end to this stamp
    * and its far end to `marchWake`, with no cell claimed twice and none dropped
@@ -1212,8 +1235,6 @@ export class Radar {
       cfg.model,
       this.wakeIslands,
       Math.floor(at / this.sweepPeriodMs),
-      this.wakeSmoke(),
-      this.inSmoke,
     );
   }
 
@@ -1345,6 +1366,7 @@ export class Radar {
     rasterize(heat.grid, this.paints, ctx);
     quantizeInto(heat.grid, cfg.bands, cfg.bandAlpha, heat.rgba);
     heat.sprite.position.set(heat.grid.originX, heat.grid.originY);
+    this.clipHeat(heat.sprite, heat.grid);
     heat.source.update();
   }
 

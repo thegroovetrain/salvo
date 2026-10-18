@@ -221,11 +221,10 @@ describe('staged worst-case scene — the BR CHROME BAR is actually on screen', 
 
 describe('staged worst-case scene — the population', () => {
   it('stages the arena cap worth of HULLS, and a roster of CAPTAINS ONLY', () => {
-    // Story 5.6 (amendment 39): the hull population is unchanged — 19 contacts
-    // plus the local captain — but a PvE fleet hull holds no roster row, so the
-    // roster is now strictly SHORTER than the hull count, and the difference is
-    // exactly the drone slots.
-    expect(world.hulls).toHaveLength(SCENE.nearContacts + SCENE.farContacts);
+    // Story 5.6 (amendment 39): the hull population is the arena cap — every
+    // rival plus the local captain (16 since Story 9.8; 20 before) — but a PvE
+    // fleet hull holds no roster row, so the roster is strictly SHORTER than
+    // the hull count, and the difference is exactly the drone slots.
     expect(world.hulls).toHaveLength(CONFIG.map.playerCap - 1);
     const droneSlots = world.hulls.filter((h) => isDroneHull(h.cls)).length;
     expect(droneSlots).toBeGreaterThan(0); // the scene still stages fleet hulls
@@ -247,7 +246,8 @@ describe('staged worst-case scene — the population', () => {
     for (const t of [0, 91, 640, 3011]) {
       const own = ownPoseAt(world, t);
       const blips = sceneEvents(world, t, 0).filter((e) => e.k === 'blip');
-      expect(blips).toHaveLength(SCENE.farContacts);
+      // The far band is what the arena cap leaves after the near contacts.
+      expect(blips).toHaveLength(CONFIG.map.playerCap - 1 - SCENE.nearContacts);
       for (const b of blips) {
         // `BlipEvent` is a TAGLESS union (silhouette | return); the scene speaks
         // A blip is a cell rect — its world

@@ -7,6 +7,8 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  consumableSlotFor,
+  SLOT_COUNT,
   isAfloat,
   CONFIG,
   effectiveStats,
@@ -14,6 +16,7 @@ import {
   paintCoverage,
   transformPolygon,
   type BlipEvent,
+  type DamageEvent,
   type FrameMsg,
   type InputMsg,
   type MineKind,
@@ -322,17 +325,22 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
   });
 
   it('DRONES are valid blast victims (enemies AND drones — no special-casing)', () => {
-    // A LARGE drone (75hp) survives the 55-damage mine, so this still measures
-    // that the FULL damage lands rather than only that the hull died. The small
-    // hull is one-shot at its new 45hp and is covered by the case below.
+    // Since Story 9.12 the base mine (90) out-hits even the LARGE drone's 75
+    // hp, so the drone is ONE-SHOT; the FULL amount is read off its `dmg`
+    // event rather than off an hp raised past the hull's own max (an
+    // unreachable state — review gate).
+    expect(CONFIG.mine.damage).toBeGreaterThanOrEqual(CONFIG.drones.large.hp);
     const { w } = minefield();
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // human trips it
     b.state = { x: 0, y: 10, heading: 0, speed: 0 };
     const dr = w.addShip('dr', 'DR', 'fleet', 'droneLarge', undefined, undefined); // drone inside the blast
     dr.state = { x: 0, y: -30, heading: 0, speed: 0 };
-    const hpBefore = dr.stats.maxHp;
+    expect(dr.hp).toBe(dr.stats.maxHp);
     w.step();
-    expect(dr.hp).toBeCloseTo(hpBefore - CONFIG.mine.damage, 5); // full damage (drone may drift a hair pre-blast)
+    const hits = w.tickEvents.filter((e): e is DamageEvent => e.k === 'dmg' && e.id === 'dr');
+    expect(hits.map((h) => h.amount)).toEqual([CONFIG.mine.damage]); // the full damage, one blow
+    expect(dr.hp).toBeLessThanOrEqual(0);
+    expect(dr.lifecycle.kind).not.toBe('alive'); // one-shot
   });
 
   it('a BASE mine one-shots a small drone — the Mine Layer fleet-farm (Eric ruling 2026-08-16)', () => {
@@ -609,8 +617,8 @@ describe('ammo wire array is SLOT-ALIGNED (WeaponAmmo | null)[]', () => {
       { n: 1, reloadMsLeft: 1200 },
       { n: 0, reloadMsLeft: 6000 },
       { n: 0, reloadMsLeft: 8000 },
-      // The six empty slots ride the wire as null (slot alignment, length 9).
-      null, null, null, null, null, null,
+      // Every empty slot rides the wire as null (slot alignment, length SLOT_COUNT).
+      ...new Array<null>(SLOT_COUNT - 3).fill(null),
     ]);
     // A copy, not the live pool objects (mutating the wire must not affect state).
     expect(wire[0]).not.toBe(ship.loadout[0].state);
@@ -634,12 +642,12 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Enemy ship in the annulus (proves the beam window is right).
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
-    b.state = { x: 400, y: 0, heading: 0, speed: 0 };
+    b.state = { x: 700, y: 0, heading: 0, speed: 0 }; // (sight, dropout start] on the twelfths ladder (Story 9.8)
     // A torpedo flying through the same annulus.
     w.shells.set('trp', {
       id: 'trp',
       ownerId: 'b',
-      x: 400,
+      x: 700,
       y: 8,
       vx: 0,
       vy: CONFIG.torpedo.speed,
@@ -658,7 +666,7 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
     windowAround(a, 0); // beam across bearing 0 (toward x+)
     const blips = blipsOf(buildFrame(w, 'a'));
     // The ship, and ONLY the ship: one footprint, and it is b's own raster
-    // (the torpedo entity never paints — its 3/8 detect gate is a different
+    // (the torpedo entity never paints — its detect gate is a different
     // channel entirely).
     expect(blips).toHaveLength(1);
     const ship = w.ships.get('b')!;
@@ -684,7 +692,8 @@ function carrier(w: World, id: string, line: string, n: number, aim: number, slo
 }
 
 const SLOT_WEAPON_1 = 2;
-const SLOT_BELT_1 = 5;
+/** SUPERCAV TORPEDO's own fixed slot (Story 9.2) — the subject below. */
+const SLOT_BELT_1 = consumableSlotFor('supercavTorpedo')!;
 
 describe('LIGHT TORPEDO — the twin beam sectors (catalog-v3 R18, Story 8.13)', () => {
   // THE ARC IS THE WHOLE POINT OF THIS LINE. The heavy fires into a ±30° bow

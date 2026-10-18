@@ -19,6 +19,7 @@ import {
   effectiveStats,
   hullIsFull,
   isStubLine,
+  stormDpsFor,
 } from '../index.js';
 
 describe('CONFIG.hullRepair — the paid heal, flat on every hull (Eric rulings 2026-08-04)', () => {
@@ -67,11 +68,11 @@ describe('CONFIG.hullRepair — the paid heal, flat on every hull (Eric rulings 
 });
 
 describe('CONFIG.regen — the out-of-combat regen (Eric ruling 2026-09-17, amendments 46-48)', () => {
-  it('restores 1 % of MISSING hull per second', () => {
+  it('restores 2 % of MISSING hull per second at base (Story 9.6, epic-9 amendment 90; was 1 %)', () => {
     // A fraction of MISSING, never of max and never a flat amount: worth most
     // when nearly dead, asymptotic near full, and it needs NO repricing when
     // hull hp next moves (the repricing the paid heal above had to absorb).
-    expect(CONFIG.regen.missingPctPerS).toBe(0.01);
+    expect(CONFIG.regen.missingPctPerS).toBe(0.02);
   });
 
   it('waits 15 s since the last landed damage (Eric 2026-09-30; was 30 s)', () => {
@@ -95,16 +96,19 @@ describe('CONFIG.regen — the out-of-combat regen (Eric ruling 2026-09-17, amen
   });
 });
 
-describe('HULL REPAIR is a LIVE consumable; one of the eight is still a stub', () => {
-  it('hullRepair is dealt, and so are the SUPERCAV TORPEDO, SHIELD BLOCK, SMOKE SCREEN, CHAFF, DECOY BUOY and FLASH SHELLS — DEPTH CHARGE is not', () => {
+describe('HULL REPAIR is a LIVE consumable; one of the seven is still a stub', () => {
+  it('hullRepair is dealt, and so are the SUPERCAV TORPEDO, SHIELD BLOCK, COUNTERMEASURE, DECOY BUOY and FOULING SHELL — DEPTH CHARGE is not', () => {
     // Story 8.13 made SUPERCAV TORPEDO the second live consumable line (Eric
     // ruling 2026-09-19, epic-8 amendment 74) and added one more stub,
-    // DEPTH CHARGE (amendment 83). Story 8.16 flipped SHIELD BLOCK, CHAFF and
-    // DECOY BUOY live (amendments 116–124); Story 8.17 moved FLASH SHELLS
+    // DEPTH CHARGE (amendment 83). Story 8.16 flipped SHIELD BLOCK and DECOY
+    // BUOY live (amendments 116–124); Story 8.17 moved FLASH SHELLS
     // (`dazzleShells`) in from the add-on space, live (amendment 132); Story
     // 8.18 flipped SMOKE SCREEN live (amendments 138-145). DEPTH CHARGE stays.
+    // CHAFF retired in Story 9.2 (epic-9 amendment 31); SMOKE SCREEN became
+    // the COUNTERMEASURE line in Story 9.3, and FLASH SHELLS the FOULING SHELL
+    // in Story 9.4.
     const LIVE: readonly string[] = [
-      'hullRepair', 'supercavTorpedo', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'dazzleShells',
+      'hullRepair', 'supercavTorpedo', 'shieldBlock', 'countermeasure', 'decoyBuoy', 'foulingShell',
     ];
     for (const id of CONSUMABLE_IDS) {
       expect(isStubLine(id), id).toBe(!LIVE.includes(id));
@@ -139,15 +143,17 @@ describe('NFR6 — the authored heal budget and the collapse ceiling', () => {
     expect(CATALOG.hullRepair.cap * HEAL_PER_COPY).toBe(500);
   });
 
-  it('the collapse ceiling is 362.5 s — (max hull 450 + heal bound 500 + shield bound 500) / stormDps', () => {
-    // MAX HULL IS DERIVED, never typed: the ARMOR ladder (R8, +25 max hp per
-    // tier) run to its own cap on whichever hull starts highest. That is the
-    // battleship at 350 + 4 × 25 = 450.
-    const armorCards = Array.from({ length: CATALOG.armor.cap }, () => 'armor');
+  it('the collapse ceiling is (max hull + heal bound + shield bound) / the fully-closed storm rung — the storm always wins in the end', () => {
+    // MAX HULL IS DERIVED, never typed: the HULL POINTS ladder (R8 as re-cut
+    // by epic-9 amendment 28 / Story 9.6: +50 max hp per tier, cap 5; was
+    // ARMOR +25 ×4) run to its own cap on whichever hull starts highest — the
+    // dreadnought at 350 + 5 × 50 = 600 today.
+    const hullCards = Array.from({ length: CATALOG.hullPoints.cap }, () => 'hullPoints');
     const maxHull = Math.max(
-      ...SHIP_CLASS_IDS.map((hull) => effectiveStats(CONFIG.shipClasses[hull], armorCards).maxHp),
+      ...SHIP_CLASS_IDS.map((hull) => effectiveStats(CONFIG.shipClasses[hull], hullCards).maxHp),
     );
-    expect(maxHull).toBe(450);
+    const topBase = Math.max(...SHIP_CLASS_IDS.map((hull) => CONFIG.shipClasses[hull].hp));
+    expect(maxHull).toBe(topBase + CATALOG.hullPoints.cap * 50);
 
     const healBound = CATALOG.hullRepair.cap * HEAL_PER_COPY;
     // THE SHIELD BUDGET (epic-8 amendment 125, Eric 2026-09-29): SHIELD BLOCK
@@ -159,12 +165,16 @@ describe('NFR6 — the authored heal budget and the collapse ceiling', () => {
     // the real ceiling in play is far lower than this pin.
     const shieldBound = CATALOG.shieldBlock.cap * CONFIG.shieldBlock.hp;
     expect(shieldBound).toBe(500);
-    const ceilingS = (maxHull + healBound + shieldBound) / CONFIG.zone.stormDps;
-    // 1450 hp at 4 hp/s = 362.5 s of continuous storm to sink the most healed,
-    // most shielded, most armoured hull in the game: the storm always wins in
-    // the end.
-    expect(ceilingS).toBe(362.5);
-    expect(ceilingS).toBe((maxHull + healBound + shieldBound) / CONFIG.zone.stormDps);
+    // THE RAMP (Story 9.1, 2026-10-07): once the storm has fully closed the
+    // rate is the ladder's LAST rung — the only rate that matters for the
+    // ceiling, since the collapse is where the last hull must drown. The
+    // ceiling's VALUE is Eric's numbers and is not pinned; the contract is
+    // that it is finite and positive, i.e. the storm ends every match.
+    const closedDps = stormDpsFor({ phase: 'closed', groupIndex: 0 }, CONFIG.zone);
+    expect(closedDps).toBeGreaterThan(0);
+    const ceilingS = (maxHull + healBound + shieldBound) / closedDps;
+    expect(Number.isFinite(ceilingS)).toBe(true);
+    expect(ceilingS).toBeGreaterThan(0);
   });
 });
 
@@ -182,7 +192,7 @@ describe('the four-card draw is untouched (regression pin)', () => {
 // geometrically, so a hull sits at 349.x of 350 for minutes. `hp >= maxHp` as
 // the test would spend a whole scarce HULL REPAIR copy for under 1 hp. Under
 // 1 hp missing IS full: the row refuses on it, the regen snaps on it, and the
-// client's belt pre-denial mirrors it — one predicate, three callers.
+// client's slot pre-denial mirrors it — one predicate, three callers.
 // ---------------------------------------------------------------------------
 describe('hullIsFull — under 1 hp missing is FULL (amendment 53)', () => {
   it('349.0 of 350 is NOT full — a whole point of weapon damage is worth a copy', () => {

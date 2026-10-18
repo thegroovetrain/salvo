@@ -105,12 +105,13 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
     });
   }
 
-  it('ArenaState 15 / PlayerMeta 8 — the shipped counts, so growth is visible', () => {
+  it('ArenaState 16 / PlayerMeta 8 — the shipped counts, so growth is visible', () => {
     // NOTE for the record: the story text said ArenaState 14. Measured on the
     // shipped class it is 15 (23 `@type` decorators in the file, 8 of them on
     // PlayerMeta) — the story figure was stale, and neither number is close to
     // the cap.
-    expect(fieldCount(ArenaState)).toBe(15);
+    // Story 9.10 added `fogCut` (the fog field's coverage cut): 15 -> 16.
+    expect(fieldCount(ArenaState)).toBe(16);
     expect(fieldCount(PlayerMeta)).toBe(8);
   });
 
@@ -165,8 +166,51 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 70 and admits 71', () => {
-  it('PROTOCOL_VERSION is 71', () => {
+describe('the PV join gate refuses 88 and admits 89', () => {
+  it('PROTOCOL_VERSION is 89', () => {
+    // Story 9.12 bumped 88 -> 89 (amendment 184): the second tuning pass — catalog content and every changed CONFIG block the client reads (gun.barrels, flak.rimFactor, gunAttenuation, the torpedo/mine ladders).
+    // Fog tune 3 bumped 87 -> 88 (amendment 179): no fog past the ocean's rim (the client-drawn field changes), the own bank is free.
+    // Fog tune 2 bumped 86 -> 87 (amendment 178): spinPeriodMs -> spinRimU, windU 1, solid-fog coverage.
+    // Story 9.10's staging tune bumped 85 -> 86 (Eric 2026-10-16, amendment
+    // 177): CONFIG.fog, read by the client, gains spinPeriodMs/spinShear (the
+    // field spins about the ocean center with shear, a coin-flip direction);
+    // coverage 20–25 %, drift 3.5 u/s, onset ~15 s.
+    // Story 9.10 bumped 84 -> 85: the FOG FIELD — WelcomeMsg gains fogSeed,
+    // ArenaState gains fogCut and the client reads CONFIG.fog; no per-observer
+    // fog channel, the declared exceptions stay at SIX (epic-9 amendments
+    // 163–173).
+    // Story 9.9 bumped 83 -> 84: catalog content (the ARMOR PIERCING ladder,
+    // ARMOR +20 per card), CONFIG.armor.k 100 / CONFIG.hunker read by the
+    // client, OwnShip.damageCutUntil -> hunkerUntil (epic-9 amendments 144–147).
+    // Story 9.8 staging bumped 82 -> 83: the CM cloud 150 -> 300 u (amendment 141).
+    // Story 9.8 bumped 81 -> 82: the twelfths ladder (sight 500 / radar 1500),
+    // every weapon reach its own tiered dial (catalog content: a RANGE step
+    // on every gun card), the radar dropout dials, the foghorn's twelve bands.
+    // Story 9.7 bumped 80 -> 81: catalog content (the ARMOR ladder after
+    // HULL POINTS) and the client reads CONFIG.armor through EffectiveStats
+    // (armor, damageMultiplier); HUNKER's (was DAMAGE CUT until Story 9.9) factor became armorBonus.
+    // Story 9.6 bumped 79 -> 80: catalog content (`armor` -> `hullPoints`
+    // +50 x5, SPEED / TURNING cap 5, the new PASSIVE HEALING ladder) and the
+    // client reads CONFIG.regen through EffectiveStats.regen.
+    // Story 9.5 bumped 78 -> 79: the client reads CONFIG.ram and runs the
+    // shared hull-contact resolver in prediction (no new wire field).
+    // Story 9.4 bumped 77 -> 78: FLASH SHELLS became the FOULING SHELL
+    // (catalog content, id `foulingShell` on key 4), `OwnShip.dazzledUntil`
+    // became `OwnShip.fouledUntil`, and the frame gained the `foulZones`
+    // channel (FoulZoneView {id,x,y,r,until,by}).
+    // Story 9.3 session 2 bumped 76 -> 77: the countermeasure cloud is a
+    // client overlay; CONFIG.countermeasure shrinks to lifeMs/r0/r1.
+    // Cycle 174 bumped 75 -> 76 (Story 9.3): SMOKE SCREEN became the
+    // MULTI-SPECTRAL COUNTERMEASURE (catalog content), the frame's `smoke`
+    // channel became `clouds` (CloudView {id,x,y,t0}, pixels from the shared
+    // cloud function) and `OwnShip.inSmoke` left the wire.
+    // Cycle 172 bumped 74 -> 75 (Story 9.2): the loadout is eleven fixed
+    // slots (one per consumable kind), CHAFF left the catalog and
+    // `OwnShip.chaff` / `OwnShip.chaffGhosts` left the wire.
+    // Cycle 171 bumped 73 -> 74: the mine / torpedo detect rung 3/8 -> 4/8.
+    // Cycle 170 bumped 72 -> 73: the 8,000 u ocean and the storm damage ramp.
+    // Cycle 169 bumped 71 -> 72: Story 9.1's big ocean — map radius 5500,
+    // 10 % land, the literal ring ladder; the client derives all three locally.
     // Cycle 167 bumped 70 -> 71: private lobbies — the client reads
     // CONFIG.lobby, the arena carries a new listing mode 'private', and the
     // lobby room's lr/ls/lb/lg channels join the wire (Eric 2026-10-02).
@@ -201,17 +245,37 @@ describe('the PV join gate refuses 70 and admits 71', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(71);
+    expect(PROTOCOL_VERSION).toBe(89); // 88 → 89: the second tuning pass (Story 9.12, amendment 184); 87 → 88: fog tune 3 (amendment 179)
+    expect(protocolVersionError(88)).toMatch(/refresh/i);
+    expect(protocolVersionError(87)).toMatch(/refresh/i);
+    expect(protocolVersionError(86)).toMatch(/refresh/i);
+    expect(protocolVersionError(84)).toMatch(/refresh/i);
+    expect(protocolVersionError(83)).toMatch(/refresh/i);
+    expect(protocolVersionError(82)).toMatch(/refresh/i);
+    expect(protocolVersionError(80)).toMatch(/refresh/i);
+    expect(protocolVersionError(79)).toMatch(/refresh/i);
+    expect(protocolVersionError(78)).toMatch(/refresh/i);
   });
 
   it('refuses the immediately-previous protocol', () => {
-    // 70 is the one that matters now: a client built one cycle before this
-    // one has no lobby door and does not know CONFIG.lobby; a 69 client
+    // 77 is the one that matters now: a client built one cycle before this
+    // one offers FLASH SHELLS, reads a `dazzledUntil` the server never sends
+    // and never draws a foul zone; a 76 client
+    // reads CONFIG.countermeasure.pixels that no longer exist; a 75
+    // client reads a `smoke` channel that no longer exists and draws smoke discs
+    // where pixel clouds stand; a 74 client replays a nine-slot loadout and
+    // packs its belt; a 70 client has no
+    // lobby door and does not know CONFIG.lobby; a 69 client
     // prints and predicts the old deck gun ladders; a 67 client draws
     // every enemy mine kind-less, never renders the owner's chaff
     // ghosts, and draws the chaff ring and smoke discs at 2/3 of the server's
     // radii; a 65 client draws its mine ring off a literal rather than the
     // shared hit disc; a 64 client still offers the two deleted gun cards.
+    expect(protocolVersionError(77)).toMatch(/refresh/i);
+    expect(protocolVersionError(76)).toMatch(/refresh/i);
+    expect(protocolVersionError(75)).toMatch(/refresh/i);
+    expect(protocolVersionError(74)).toMatch(/refresh/i);
+    expect(protocolVersionError(73)).toMatch(/refresh/i);
     expect(protocolVersionError(70)).toMatch(/refresh/i);
     expect(protocolVersionError(69)).toMatch(/refresh/i);
     expect(protocolVersionError(68)).toMatch(/refresh/i);
@@ -233,12 +297,12 @@ describe('the PV join gate refuses 70 and admits 71', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(72)).toMatch(/refresh/i);
+    expect(protocolVersionError(90)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(71)).toBeNull();
+    expect(protocolVersionError(89)).toBeNull();
   });
 });
 

@@ -27,6 +27,8 @@ export class ServerClock {
   private samples: OffsetSample[] = [];
   private applied: number | null = null; // smoothed offset in active use
   private lastReturned = -Infinity; // monotonic guard on serverNow()
+  private lastFrameT = -Infinity; // ms — newest server timestamp ingested
+  private lastFrameAt = 0; // ms — client time that newest timestamp arrived
 
   constructor(private readonly nowFn: () => number = () => performance.now()) {}
 
@@ -46,6 +48,10 @@ export class ServerClock {
    */
   addSample(serverT: number, clientAt: number = this.nowFn()): void {
     this.samples.push({ at: clientAt, offset: clientAt - serverT });
+    if (serverT >= this.lastFrameT) {
+      this.lastFrameT = serverT;
+      this.lastFrameAt = clientAt;
+    }
     const cutoff = clientAt - WINDOW_MS;
     while (this.samples.length > 1 && this.samples[0].at < cutoff) {
       this.samples.shift();
@@ -70,5 +76,34 @@ export class ServerClock {
     if (t < this.lastReturned) return this.lastReturned;
     this.lastReturned = t;
     return t;
+  }
+
+  /**
+   * THE STALENESS CLOCK (2026-10-14 fix: hulls vanishing mid-firefight while
+   * the server lags). Server time as the FRAMES say it is: the newest `t`
+   * ingested, advanced by the wall time since it arrived, and never past
+   * `serverNow()`.
+   *
+   * WHY NOT `serverNow()`. When the server falls behind 20 Hz its sim time
+   * dilates: frames keep coming but each `t` advances 50 ms per >50 ms of
+   * wall. `serverNow()` rides the rolling-MIN offset (the oldest, fastest
+   * sample in its 5 s window), so it keeps running at WALL rate and drifts
+   * ahead of every frame it is fed — and a "not seen for N ms of serverNow"
+   * prune then drops a contact that is in EVERY frame. Measured here, the age
+   * of a thing delivered in the newest frame is at most the wall gap since
+   * that frame arrived, however slow the server ticks.
+   *
+   * WHAT IT KEEPS. Something that LEAVES the frames ages by frame time, so it
+   * still goes after the same TTL of frames without it; and when frames stop
+   * altogether (dead socket) the wall-time term keeps the clock running, so
+   * everything still ages out exactly as it did on `serverNow()`. On an
+   * on-time server it trails `serverNow()` by at most the newest sample's
+   * transit jitter (the min below is the guard the other way). Use it for
+   * "is this delivered thing stale?" — never for poses, sweeps or ages.
+   */
+  frameNow(clientAt: number = this.nowFn()): number {
+    const now = this.serverNow(clientAt);
+    if (this.applied === null) return now;
+    return Math.min(now, this.lastFrameT + Math.max(0, clientAt - this.lastFrameAt));
   }
 }

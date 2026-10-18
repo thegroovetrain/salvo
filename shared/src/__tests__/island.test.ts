@@ -332,7 +332,7 @@ describe('generator geometry: no crossing may be missed to float dust', () => {
 
 describe('broadphase perf guard', () => {
   it('LOS across a full production map stays within budget', () => {
-    const map = generateMap(42, 20);
+    const map = generateMap(42); // the production cap (CONFIG.map.playerCap default)
     const rng = mulberry32(1234);
     const R = map.radius;
     const t0 = performance.now();

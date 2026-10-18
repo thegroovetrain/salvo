@@ -1,19 +1,23 @@
 // THE BELT'S PRODUCTION REGISTRY (Story 8.7; first row filled in Story 8.8).
 //
-// A CONSUMABLE is not a module: it is a STACK of copies sitting in one of the
-// four belt slots (5–8), each copy one use, with NO reload ever. The mechanics
+// A CONSUMABLE is not a module: it is a STACK of copies sitting in its kind's
+// own FIXED slot (5–10, one per keyed kind since Story 9.2 — epic-9
+// amendments 21/22), each copy one use, with NO reload ever. The mechanics
 // of a row — the no-op tick, the activate-then-spend order and the ONE SPEND
 // LAW — live in `consumables/row.ts`, one level down, so that a row module can
 // import the factory without importing the registry that imports it. Each
 // LINE's own effect lives beside it in `consumables/<lineId>.ts`.
 //
-// THE REGISTRY HOLDS SEVEN ROWS: HULL REPAIR (Story 8.8, epic-8 amendments
+// THE REGISTRY HOLDS SIX ROWS: HULL REPAIR (Story 8.8, epic-8 amendments
 // 46 + 51), since Story 8.13 the SUPERCAV TORPEDO — the belt's first
 // CLICK-AIMED line (amendment 74, `CONSUMABLE_IS_WEAPON.supercavTorpedo`) —
-// since Story 8.16 SHIELD BLOCK, CHAFF and the click-placed DECOY BUOY
-// (amendments 116–124), since Story 8.17 FLASH SHELLS (id `dazzleShells`,
-// amendment 132 — the second click-aimed line), and since Story 8.18 SMOKE
-// SCREEN (amendments 138–145 — key-fired, lays 5 s of puffs at the hull's center, amendment 190).
+// since Story 8.16 SHIELD BLOCK and the click-placed DECOY BUOY
+// (amendments 116–124; CHAFF, added there too, was retired in Story 9.2 —
+// epic-9 amendment 31), since Story 8.17 FLASH SHELLS (id `dazzleShells`,
+// amendment 132 — the second click-aimed line; replaced on key `4` by the
+// FOULING SHELL in Story 9.4, epic-9 amendments 61–68), and since Story 9.3 the
+// MULTI-SPECTRAL COUNTERMEASURE (epic-9 amendments 40–47 — key-fired, one
+// cloud per press at the hull's centre; it took SMOKE SCREEN's 8.18 seat).
 // The DEPTH CHARGE stub (amendment 83) is the ONE line still `stub` in the
 // catalog, so no copy of it can be dealt, picked or stocked — and because the
 // registry is PARTIAL, even a forged belt press naming it finds no row and
@@ -27,10 +31,9 @@
 import { hullRepairRow } from './consumables/hullRepair.js';
 import { supercavTorpedoRow } from './consumables/supercavTorpedo.js';
 import { shieldBlockRow } from './consumables/shieldBlock.js';
-import { chaffRow } from './consumables/chaff.js';
 import { decoyBuoyRow } from './consumables/decoyBuoy.js';
-import { dazzleShellsRow } from './consumables/dazzleShells.js';
-import { smokeScreenRow } from './consumables/smokeScreen.js';
+import { foulingShellRow } from './consumables/foulingShell.js';
+import { countermeasureRow } from './consumables/countermeasure.js';
 import { buildConsumableRegistry, type ConsumableRegistry } from './consumables/row.js';
 
 export {
@@ -42,15 +45,14 @@ export {
 } from './consumables/row.js';
 
 /**
- * THE PRODUCTION REGISTRY — the seven BUILT lines, pinned by equipment.test.ts
+ * THE PRODUCTION REGISTRY — the six BUILT lines, pinned by equipment.test.ts
  * against the catalog's `stub` flags.
  */
 export const CONSUMABLES: ConsumableRegistry = buildConsumableRegistry([
   hullRepairRow,
   supercavTorpedoRow,
   shieldBlockRow,
-  chaffRow,
   decoyBuoyRow,
-  dazzleShellsRow,
-  smokeScreenRow,
+  foulingShellRow,
+  countermeasureRow,
 ]);

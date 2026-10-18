@@ -40,8 +40,12 @@
 //    made `broadside.damage` exactly equal `gun.damage` (both 15), so a first-
 //    match lookup would have filed every broadside burst under 'gun'. Eric's
 //    2026-10-02 cannon table (16/16/18/18/21, amendment 232) moved the bare
-//    cannon to 16 while the broadside stays 15, so today the two print under
-//    their OWN labels — the correct outcome, not a regression. Sources
+//    cannon to 16 while the broadside stays 15, and the 2026-10-13 experiment
+//    (12/12/15/15/18, Story 9.8) kept the bare cannon (12) off the broadside;
+//    Story 9.12's 8/10/11/12/13 (Eric 2026-10-16) keeps it at 8, so today the
+//    two print under their OWN labels — the correct outcome, not a regression.
+//    Since Story 9.12 the heavy torpedo and the naval mine also share 90 and
+//    print as one merged label (launches are split by hit rule, classifyShell). Sources
 //    that collide on an amount are reported under ONE merged label
 //    ('gun/broadside') — an honest ambiguity beats a confident wrong answer. Any
 //    amount that matches nothing is bucketed by its own value under
@@ -55,8 +59,9 @@
 //    max BARREL click one-shot a 45hp small drone" question is a TICK question,
 //    not an event question, and both readings are reported separately.
 
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, type ShellState } from '@salvo/shared';
 import type { World, ShipRecord } from '../../src/game/world.js';
+import { contactBlastRadius } from '../../src/game/equipment/mines.js';
 
 const AMOUNT_EPS = 1e-6;
 
@@ -76,10 +81,21 @@ function rawSources(): { label: string; amount: number }[] {
     // collide AT TIER I; the merge-by-amount below stays, so any future
     // collision still prints as one merged label rather than a silent mislabel.
     // KNOWN BLIND SPOT (2026-10-02 review gate): only BASE amounts are sources,
-    // so a laddered hit is classified by first match on its amount — a tier-II
-    // flak burst (20) files under `starShells` (20) and a tier-II/III machine
-    // gun shell (6) under `gunBodyblock` (6). Harness attribution only; the
-    // fix (classify by shell family, not amount) is in deferred-work.md.
+    // so a laddered or attenuated hit is classified by first match on its
+    // amount — a DamageEvent names neither its weapon nor its shell family, so
+    // this ledger cannot key on family the way classifyShell's LAUNCH ledger
+    // does (that would need a field on the wire event, i.e. server/src). Since
+    // Story 9.12 (Eric 2026-10-16, epic-9 amendment 184) EVERY deck-gun blow
+    // is range-attenuated (to `gunAttenuation.minFactor` at range — the dial,
+    // not a number here) unless aimed into the firer's own light (amendment
+    // 187), and a flak burst falls to HALF at the rim (`flak.rimFactor`), so
+    // only a near or lit, dead-centre hit lands on its bare-amount row. A Tier
+    // III flak burst (20) files under `starShells` (20); an attenuated cannon
+    // or machine-gun blow (floor(D × factor)) files under whichever base
+    // amount it happens to equal — at the 2026-10-17 dial (0.5) a Tier I
+    // cannon shell at max range lands 4 and files under `flakBodyblock`;
+    // anything else files by first match or under `other:<amount>`. Harness attribution only; the fix (classify by
+    // shell family, not amount) is in deferred-work.md.
     { label: 'machineGun', amount: CONFIG.machineGun.damage },
     { label: 'flak', amount: CONFIG.flak.damage },
     { label: 'flakBodyblock', amount: CONFIG.flak.contactDamage },
@@ -87,7 +103,9 @@ function rawSources(): { label: string; amount: number }[] {
     { label: 'torpedo', amount: CONFIG.torpedo.damage },
     { label: 'mine', amount: CONFIG.mine.damage },
     { label: 'fleetGun', amount: CONFIG.drones.small.gun.damage },
-    { label: 'storm', amount: CONFIG.zone.stormDps * tickS },
+    // The storm is a RAMP since 2026-10-07 (Story 9.1): one row per distinct
+    // rung, all labelled `storm`, so a bite at any close classifies as storm.
+    ...[...new Set(CONFIG.zone.stormDps)].map((dps) => ({ label: 'storm', amount: dps * tickS })),
     // Story 8.17: the burn is PHOSPHOR SHELLS' own zone (tier-I dps here; a
     // tiered zone's per-tick bite prints under whichever label it collides
     // with, and the ledger says so) — plus the two new burst amounts.
@@ -104,10 +122,12 @@ let sourcesMemo: { label: string; amount: number }[] | null = null;
  * Balance cycle 1 set `broadside.damage` to exactly `gun.damage` (both 15), and
  * a first-match lookup would have filed every broadside burst under 'gun' in
  * silence. 'gun/broadside' says what the ledger actually knows. Since Eric's
- * 2026-10-02 cannon table the bare cannon is 16 and the broadside 15, so they
- * no longer merge and print as 'gun' and 'broadside' separately (correct). Only
- * the BARE cannon's amount is a source here: a laddered cannon shell (18 / 21)
- * still files under `other:<amount>`, as every laddered amount always has.
+ * 2026-10-02 cannon table the bare cannon is off the broadside's 15 (16 then,
+ * 12 since the 2026-10-13 experiment), so they no longer merge and print as
+ * 'gun' and 'broadside' separately (correct). Only the BARE cannon's amount is
+ * a source here: a laddered cannon shell (10–13 since Story 9.12) files by
+ * first match on its amount or under `other:<amount>`, as every laddered
+ * amount always has (see the blind-spot note in rawSources).
  *
  * BUILT LAZILY, ON FIRST CLASSIFICATION — never at module import. The harness's
  * `--tune` / `--set` overrides MUTATE CONFIG after every module is imported, so
@@ -133,27 +153,35 @@ function classifyDamage(amount: number): string {
   return `other:${amount.toFixed(3)}`;
 }
 
+/** The ShellState fields the launch ledger classifies by. */
+export type ClassifiedShell = Pick<ShellState, 'kind' | 'damage' | 'family' | 'targetX' | 'burstRadius'> & {
+  lit?: unknown;
+};
+
 /** Ordnance classification from the ShellState signature (no weapon id exists
  *  on a shell either — same constraint, same solution). Since Story 8.15 a
  *  shell DOES carry its gun family, so the two new guns are filed by family,
  *  never by amount: a machine-gun shell and a flak shell are unambiguous even
  *  where their damage collides with another source. */
-function classifyShell(kind: string, damage: number, lit: boolean, family: string | null = null): string {
-  if (family === 'mg') return 'machineGun';
-  if (family === 'flak') return 'flak';
-  // A CAPTIVE MINE's torpedo is a `torp` carrying MINE damage (55) rather than
-  // torpedo damage (70) — R2.12. Splitting them here is the only way to see
-  // whether captive mines ever actually fire, since neither the shell nor the
-  // DamageEvent names its weapon.
-  if (kind === 'torp') return damage === CONFIG.mine.damage ? 'captiveTorpedo' : 'torpedo';
-  if (lit) return 'starShell';
+export function classifyShell(shell: ClassifiedShell): string {
+  if (shell.family === 'mg') return 'machineGun';
+  if (shell.family === 'flak') return 'flak';
+  // A CAPTIVE MINE's torpedo is filed by its HIT RULE, never its damage: it
+  // is the game's one CONTACT-BLAST projectile (point-less yet carrying a
+  // blast — mines.ts `contactBlastRadius`). Since Story 9.12 the heavy
+  // torpedo and the captive mine carry the identical 90…135 ladder, so the
+  // old `damage === CONFIG.mine.damage` split filed every heavy fish as
+  // captive. Splitting them is the only way to see whether captive mines ever
+  // fire, since neither the shell nor the DamageEvent names its weapon.
+  if (shell.kind === 'torp') return contactBlastRadius(shell) > 0 ? 'captiveTorpedo' : 'torpedo';
+  if (shell.lit !== undefined) return 'starShell';
   // Everything else goes through the ONE collision-honest table: the (deleted,
   // Story 8.16) buoy gun
   // used to be matched here with an exact `===` AHEAD of the merge, so a tune
   // that put buoy damage on a gun/broadside amount would have filed every such
   // shell under a confident 'buoyGun'. It is a row in that table like any
   // other, so a collision now prints the merged label the ledger can defend.
-  return classifyDamage(damage);
+  return classifyDamage(shell.damage);
 }
 
 /** One match's catalog + ordnance ledger. Every field is a plain tally so the
@@ -206,12 +234,13 @@ export interface CatalogSample {
    *  burst in the exact same 50ms tick on the exact same hull is possible and
    *  is the known contaminant — reported, not hidden). */
   multiBarrelTicks: Record<string, number>;
-  /** victim hull id -> largest gun-ONLY per-tick total. 63 is the theoretical
-   *  max (3 barrels x 21 at CANNON tier V — Eric 2026-10-02, amendment 232),
-   *  but THIS METRIC CANNOT SEE IT: a hit counts as 'gun' only at the bare
-   *  amount (`CONFIG.gun.damage`, 16), so laddered cannon shells (18 / 21)
-   *  file under `other:<amount>` and the only multi-barrel click it records
-   *  is the tier-II twin (2 x 16 = 32). Attribution by shell family is open
+  /** victim hull id -> largest gun-ONLY per-tick total. 26 is the theoretical
+   *  max (2 barrels x 13 at CANNON tier V, near — Eric 2026-10-16, Story
+   *  9.12; two barrels at every tier), but THIS METRIC CANNOT SEE IT: a hit
+   *  counts as 'gun' only at the bare amount (`CONFIG.gun.damage`, 8), so
+   *  laddered (10–13) or range-attenuated cannon shells file under another
+   *  label or `other:<amount>` and the only multi-barrel click it records is
+   *  the near Tier I twin (2 x 8 = 16). Attribution by shell family is open
    *  work (deferred-work.md, 2026-10-02 review gate). */
   maxGunOnlyTick: Record<string, number>;
   /** victim hull id -> kills from FULL hp by a gun-only multi-burst tick. */
@@ -310,7 +339,7 @@ export class CatalogCollector {
     for (const [id, shell] of world.shells) {
       if (this.seenShells.has(id)) continue;
       this.seenShells.add(id);
-      bump(this.sample.launched, classifyShell(shell.kind, shell.damage, shell.lit !== undefined, shell.family));
+      bump(this.sample.launched, classifyShell(shell));
     }
     for (const id of world.mines.keys()) {
       if (this.seenMines.has(id)) continue;

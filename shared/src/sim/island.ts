@@ -32,6 +32,22 @@ import { closestPointOnPolygon, pointInPolygon, segPolygonHit } from './silhouet
 export const ISLAND_DIST_SLACK = 128;
 
 /**
+ * A polygon SOLID — the structural subset of an island the push-out core
+ * needs (Story 9.5): a bounding circle (`x`, `y`, `r`), a closed world-space
+ * boundary (`poly`), and an interior point (`pole`) the degenerate escape
+ * normal aims away from. `Island` satisfies it as-is; a hull in contact
+ * (sim/contact.ts) supplies its centre, its world silhouette, its bounding
+ * radius and its centre again as the pole. One geometry, two kinds of solid.
+ */
+export interface Solid {
+  x: number;
+  y: number;
+  r: number;
+  poly: readonly Vec2[];
+  pole: Vec2;
+}
+
+/**
  * Earliest hit fraction of segment a->b against the island's coastline, or
  * null on a clean miss (0 when `a` starts inside — the segCircleHit rule, so
  * swept collision cannot tunnel out). Bounding-circle broadphase first; exact
@@ -68,7 +84,7 @@ export function pointInIsland(p: Vec2, isle: Island): boolean {
  * the cheap lower bound `dist - r` is returned (always <= the true
  * distance — see ISLAND_DIST_SLACK for why that is decision-equivalent).
  */
-export function islandDistance(p: Vec2, isle: Island): number {
+export function islandDistance(p: Vec2, isle: Solid): number {
   const d = Math.hypot(p.x - isle.x, p.y - isle.y);
   if (d > isle.r + ISLAND_DIST_SLACK) return d - isle.r;
   const boundary = closestPointOnPolygon(p, isle.poly).dist;
@@ -95,7 +111,7 @@ export function nearestCoastPoint(p: Vec2, isle: Island): Vec2 & { dist: number 
  * inaccessibility — the deepest interior point, so "away from it" is the best
  * available outward guess — and +x if `p` sits on the pole itself.
  */
-export function coastNormal(p: Vec2, isle: Island): { nx: number; ny: number; dist: number } {
+export function coastNormal(p: Vec2, isle: Solid): { nx: number; ny: number; dist: number } {
   const q = closestPointOnPolygon(p, isle.poly);
   if (q.dist <= 1e-9) {
     const px = p.x - isle.pole.x;

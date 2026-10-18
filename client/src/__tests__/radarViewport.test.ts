@@ -51,7 +51,7 @@ import { Container, Sprite, Texture } from 'pixi.js';
 import { CONFIG, rasterizeHullCoverage, type HeightRaster, type ReturnBlipEvent } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { ContactStore } from '../net/snapshots.js';
-import { Camera, USER_ZOOM_MAX, USER_ZOOM_MIN } from '../render/camera.js';
+import { Camera, ringFitSpanU, spanFactor } from '../render/camera.js';
 import { DIM_MASK_LABEL, Radar, type ViewRect } from '../render/radar.js';
 import { dimRadii } from '../render/radarDim.js';
 import { GRID_QUANTUM, anchorGrid, gridSpan, makeGrid } from '../render/radarHeatmap.js';
@@ -96,6 +96,16 @@ vi.mock('../render/textures.js', async (importOriginal) => {
 
 const CELL = CLIENT_CONFIG.blip.heatmap.cellU;
 const RADAR = CONFIG.vision.radar;
+/** The live ring the alive camera is fitted to — the full base map, i.e. the
+ *  ring every match opens on (Story 9.8, ruling 127). */
+const RING_R = CONFIG.map.baseRadius;
+/** The alive user-zoom limits as factors over the default framing (ruling 127):
+ *  zoomed fully OUT is the ring fit, zoomed fully IN the close framing. */
+const USER_ZOOM_MIN = spanFactor(
+  CLIENT_CONFIG.zoom.defaultSpanU,
+  ringFitSpanU(RING_R, CLIENT_CONFIG.reveal.mapFitMargin),
+);
+const USER_ZOOM_MAX = spanFactor(CLIENT_CONFIG.zoom.defaultSpanU, CLIENT_CONFIG.zoom.closeSpanU);
 const LIFE = blipLifeMs(60_000 / CONFIG.vision.sweepRpm);
 const VIEW_W = 1280;
 const VIEW_H = 720;
@@ -113,8 +123,16 @@ function harness(): { radar: Radar; layer: Container; chart: Container } {
 }
 
 function camera(userZoom: number): Camera {
-  const c = new Camera({ radarRange: RADAR, followRate: 6, leadSeconds: 0, leadMax: 0 });
+  const c = new Camera({
+    defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
+    closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
+    ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
+    followRate: 6,
+    leadSeconds: 0,
+    leadMax: 0,
+  });
   c.setViewport(VIEW_W, VIEW_H);
+  c.setRing(0, 0, RING_R);
   c.setUserZoom(userZoom);
   return c;
 }
@@ -496,7 +514,10 @@ describe('a paint at the radar rim is not clipped as the observer sails away', (
     expect(radar.bandAt(e.x, e.y), 'on screen at first').toBeGreaterThanOrEqual(0);
 
     const held = radar.livePaints;
-    frame(radar, cam, { x: 0, y: -2000 }, 1050); // scrolled off the top of the screen
+    // Scrolled off the top of the screen: past the visible half-height at this
+    // zoom (derived from the camera — the wide limit is the live ring fit since
+    // Story 9.8, ruling 127, never a fixed 0.5×).
+    frame(radar, cam, { x: 0, y: -(cam.worldView.halfH * 2 + 100) }, 1050);
     expect(radar.bandAt(e.x, e.y), 'off screen: not drawn').toBe(-1);
     expect(radar.livePaints, 'but still RECORDED — never retired by visibility')
       .toBeGreaterThanOrEqual(held);
@@ -774,8 +795,10 @@ describe('the SEA CLUTTER haze sits on the observer it was frozen from', () => {
       const m = measure(layer, chart, cam);
       expect(Math.abs(m.minX - first.minX), `west edge after ${step}u of travel`)
         .toBeLessThan(TOL);
+      // (Float tolerance: at the ring-fit zoom the screen-space measure carries
+      // ~1e-13 of rounding through the chart transform.)
       expect(m.maxX - first.maxX, 'and the new water ahead does paint')
-        .toBeGreaterThanOrEqual(0);
+        .toBeGreaterThanOrEqual(-1e-6);
     }
   });
 });
@@ -1029,13 +1052,14 @@ describe('anything the server blips paints (amendment 127), at any range', () =>
 describe('the near-range dim mask', () => {
   const DIM = CLIENT_CONFIG.blip.heatmap.dim;
 
-  it('BOTH RADII COME OFF THE EIGHTHS LADDER, never off a literal — and they are '
+  it('BOTH RADII COME OFF THE LADDER, never off a literal — and they are '
     + 'ANCHORED TO TRUESIGHT, so they scale with the observer', () => {
     // The factors are multiples of the observer's EFFECTIVE sight, not fixed
-    // radii: at the base hull they land on the 4/8 and 5/8 rungs.
+    // radii: at the base hull they land on the 4/12 (sight) and 6/12 (flash)
+    // rungs of the twelfths ladder (epic-9 amendment 103).
     const base = dimRadii(CONFIG.vision.sight);
-    expect(base.innerU, 'inner = the sight bubble itself (4/8)').toBeCloseTo(RADAR / 2, 12);
-    expect(base.outerU, 'outer = the next rung out (5/8)').toBeCloseTo((RADAR * 5) / 8, 12);
+    expect(base.innerU, 'inner = the sight bubble itself (4/12)').toBeCloseTo((RADAR * 4) / 12, 9);
+    expect(base.outerU, 'outer = the flash rung (6/12)').toBeCloseTo((RADAR * 6) / 12, 9);
     expect(DIM.outerFactor, 'and the ratio is a ladder derivation')
       .toBeCloseTo(CONFIG.vision.muzzleFlash / CONFIG.vision.sight, 12);
     expect(DIM.minScale, "Eric's 20% floor, untouched by the re-anchoring").toBe(0.2);

@@ -93,7 +93,7 @@ describe('the stream — one direct shell per rateMs while held (amendment 103)'
     expect(a.loadout[SLOT_GUN].equipmentId).toBe('machineGun');
     expect(mag(a)).toEqual({ n: MG.maxAmmo, reloadMsLeft: 0 });
     expect(MG.maxAmmo).toBe(12);
-    expect(a.stats.equipment.machineGun.rangeU).toBe(a.stats.radarRange); // 660 u, the radar rung
+    expect(a.stats.equipment.machineGun.rangeU).toBe(CONFIG.machineGun.rangeU); // its own dial, 6/12 (Story 9.8, ruling 125)
   });
 
   it('held for 3 s: 10 shells at t = 0, 0.3, 0.6 … 2.7 each born at `now`, 10 `mz`, NO burst, magazine 12 -> 2', () => {
@@ -123,11 +123,13 @@ describe('the stream — one direct shell per rateMs while held (amendment 103)'
     expect(a.lastFireT).toBe(0); // the stream never touches the click channel's clock
   });
 
-  it('tier II\'s 250 ms (Eric 2026-10-02) holds exactly: 3 s held = 12 shells, every one 250 ms after the last', () => {
+  it('tier II\'s 275 ms (Eric 2026-10-16, Story 9.12) holds on the carry-over: 3 s held = 11 shells, the i-th due at i × 275 ms and fired on the first tick at or after it', () => {
     const w = bareWorld();
     const a = gunner(w, 'a');
     w.applyCard(a, 'machineGun');
-    expect(a.stats.equipment.machineGun.rateMs).toBe(250);
+    const rate = a.stats.equipment.machineGun.rateMs;
+    expect(rate).toBe(MG.rateMs - 25); // the ladder's −25 ms per tier
+    expect(rate % DT).not.toBe(0); // a non-tick delay: the carry-over is what keeps its average
     const log: GameEvent[] = [];
     const births: number[] = [];
     let seq = 0;
@@ -135,10 +137,12 @@ describe('the stream — one direct shell per rateMs while held (amendment 103)'
       seq = hold(w, 'a', true, 1, seq, log);
       for (const s of w.shells.values()) if (!births.includes(s.bornAt)) births.push(s.bornAt);
     }
-    expect(kindCount(log, 'shell')).toBe(12); // t = 0, 0.25 … 2.75 s; 16 - 12 = 4 left
-    expect(mag(a).n).toBe(4);
+    const due = Array.from({ length: Math.floor((60 * DT - 1) / rate) + 1 }, (_, i) => i * rate); // 0, 275 … 2750
+    expect(kindCount(log, 'shell')).toBe(due.length);
+    expect(mag(a).n).toBe(a.stats.equipment.machineGun.maxAmmo - due.length);
     births.sort((p, q) => p - q);
-    for (let i = 1; i < births.length; i++) expect(births[i] - births[i - 1]).toBe(250);
+    const t0 = births[0];
+    expect(births.map((b) => b - t0)).toEqual(due.map((d) => Math.ceil(d / DT) * DT));
   });
 
   it('THE CARRY-OVER: an injected non-tick-aligned 310 ms delay held 3.1 s fires 10 shells (3100 / 310), not the 9 a round-up to 350 ms would', () => {
@@ -285,35 +289,39 @@ describe('the stream — one direct shell per rateMs while held (amendment 103)'
 // amendment 114): R2.15's reach extension — a click past the gun's range whose
 // far point lies inside one of the shooter's OWN live star-shell zones is
 // honoured at the clicked distance — applies to the machine gun exactly as to
-// the cannon. An ENEMY's flare, or none, still clamps to the 660 u rung.
+// the cannon. An ENEMY's flare, or none, still clamps to the gun's own reach (its Tier I
+// dial since Story 9.8, ruling 125).
 describe('the lit-zone reach — the machine gun fires into its own flare (amendment 114)', () => {
+  /** u — a click past the gun's Tier I reach (Story 9.8: derived, never a literal). */
+  const FAR = CONFIG.machineGun.rangeU + 140;
   function litStream(owner: string | null): { w: World; a: ShipRecord } {
     const w = bareWorld();
     const a = gunner(w, 'a');
     if (owner !== null) {
       w.litZones.set('z1', {
-        id: 'z1', ownerId: owner, x: 800, y: 0, r: 120, until: 10 * 60 * 1000,
+        id: 'z1', ownerId: owner, x: FAR, y: 0, r: 120, until: 10 * 60 * 1000,
       });
     }
-    w.submitInput('a', makeInput({ seq: 1, held: true, aimDist: 800 }));
+    w.submitInput('a', makeInput({ seq: 1, held: true, aimDist: FAR }));
     w.step();
     return { w, a };
   }
 
-  it('a click at 800 u into an OWN live lit zone lands the shell at 800 u', () => {
+  it('a click past reach into an OWN live lit zone lands the shell at the click', () => {
     const { w, a } = litStream('a');
-    expect(a.stats.equipment.machineGun.rangeU).toBe(660);
+    expect(a.stats.equipment.machineGun.rangeU).toBe(CONFIG.machineGun.rangeU);
+    expect(FAR).toBeGreaterThan(CONFIG.machineGun.rangeU);
     const shells = [...w.shells.values()];
     expect(shells).toHaveLength(1);
-    expect(shells[0].targetX).toBeCloseTo(800, 6);
+    expect(shells[0].targetX).toBeCloseTo(FAR, 6);
   });
 
-  it('the same click into an ENEMY zone, or with no zone, clamps to 660 u', () => {
+  it('the same click into an ENEMY zone, or with no zone, clamps to the gun reach', () => {
     for (const owner of ['b', null]) {
       const { w } = litStream(owner);
       const shells = [...w.shells.values()];
       expect(shells, `owner=${owner}`).toHaveLength(1);
-      expect(shells[0].targetX, `owner=${owner}`).toBeCloseTo(660, 6);
+      expect(shells[0].targetX, `owner=${owner}`).toBeCloseTo(CONFIG.machineGun.rangeU, 6);
     }
   });
 });
@@ -321,7 +329,7 @@ describe('the lit-zone reach — the machine gun fires into its own flare (amend
 // ---------- the magazine ------------------------------------------------------
 
 describe('the magazine (amendment 103; the swap rule Eric 2026-09-30)', () => {
-  it('empties in 12 shells; the full 12 s swap starts at once, a HOLD cannot interrupt it, and it fills to 12', () => {
+  it('empties in 12 shells; the full 12.5 s swap starts at once, a HOLD cannot interrupt it, and it fills to 12', () => {
     const w = bareWorld();
     const a = gunner(w, 'a');
     const log: GameEvent[] = [];
@@ -348,7 +356,6 @@ describe('the magazine (amendment 103; the swap rule Eric 2026-09-30)', () => {
     hold(w, 'a', true, 1, seq, log);
     expect(mag(a)).toEqual({ n: MG.maxAmmo - 1, reloadMsLeft: 0 });
     expect(kindCount(log, 'shell')).toBe(13);
-    expect(MG.reloadMs).toBe(12000);
   });
 
   it('an empty magazine\'s swap refills after the whole reloadMs when released, too', () => {
@@ -416,28 +423,29 @@ describe('the magazine (amendment 103; the swap rule Eric 2026-09-30)', () => {
     expect(slot.state).toEqual({ n: 5, reloadMsLeft: MG.reloadMs });
   });
 
-  it('the ladder moves the magazine: tier II reads 16 shells / 6 damage / 0.25 s / 11.4 s, and a fresh pool is 16', () => {
+  it('the ladder moves the magazine: tier II reads 15 shells / 5 damage (flat) / 0.275 s / 11.875 s, and a fresh pool is 15', () => {
     const w = bareWorld();
     const a = gunner(w, 'a');
     w.applyCard(a, 'machineGun');
-    expect(a.stats.equipment.machineGun.maxAmmo).toBe(16);
-    expect(a.stats.equipment.machineGun.damage).toBe(6);
-    expect(a.stats.equipment.machineGun.rateMs).toBe(250);
+    expect(a.stats.equipment.machineGun.maxAmmo).toBe(MG.maxAmmo + 3); // Eric 2026-10-16: +3 to II
+    expect(a.stats.equipment.machineGun.damage).toBe(MG.damage); // no damage rungs (Story 9.12)
+    expect(a.stats.equipment.machineGun.rateMs).toBe(MG.rateMs - 25);
     expect(a.stats.equipment.machineGun.reloadMs).toBeCloseTo(MG.reloadMs * 0.95, 6);
-    expect(a.stats.equipment.machineGun.reloadMs).toBeCloseTo(11400, 6);
-    expect(mag(a)).toEqual({ n: 16, reloadMsLeft: 0 });
+    expect(mag(a)).toEqual({ n: a.stats.equipment.machineGun.maxAmmo, reloadMsLeft: 0 });
   });
 
-  it('a tier grant on a FULL, never-fired magazine tops it up to the new cap: n 16, reloadMsLeft 0, and no swap starts', () => {
+  it('a tier grant on a FULL, never-fired magazine tops it up to the new cap, reloadMsLeft 0, and no swap starts', () => {
     const w = bareWorld();
     const a = gunner(w, 'a');
     const log: GameEvent[] = [];
     hold(w, 'a', false, 120, 0, log);
     expect(mag(a)).toEqual({ n: MG.maxAmmo, reloadMsLeft: 0 });
     w.applyCard(a, 'machineGun');
-    expect(mag(a)).toEqual({ n: 16, reloadMsLeft: 0 });
+    const cap = a.stats.equipment.machineGun.maxAmmo;
+    expect(cap).toBeGreaterThan(MG.maxAmmo);
+    expect(mag(a)).toEqual({ n: cap, reloadMsLeft: 0 });
     hold(w, 'a', false, 40, 120, log);
-    expect(mag(a)).toEqual({ n: 16, reloadMsLeft: 0 });
+    expect(mag(a)).toEqual({ n: cap, reloadMsLeft: 0 });
   });
 
   it('a tier grant DURING a running swap fills the magazine and the swap ends: no swap runs on a full magazine', () => {
@@ -449,9 +457,10 @@ describe('the magazine (amendment 103; the swap rule Eric 2026-09-30)', () => {
     expect(mag(a).n).toBe(MG.maxAmmo - 1);
     expect(mag(a).reloadMsLeft).toBeGreaterThan(0);
     w.applyCard(a, 'machineGun');
-    expect(mag(a).n).toBe(16); // everything arrives loaded
+    const cap = a.stats.equipment.machineGun.maxAmmo;
+    expect(mag(a).n).toBe(cap); // everything arrives loaded
     hold(w, 'a', false, 1, seq, log);
-    expect(mag(a)).toEqual({ n: 16, reloadMsLeft: 0 });
+    expect(mag(a)).toEqual({ n: cap, reloadMsLeft: 0 });
   });
 });
 

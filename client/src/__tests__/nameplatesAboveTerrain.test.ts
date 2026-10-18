@@ -48,7 +48,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, effectiveSight, type OwnShip } from '@salvo/shared';
+import { CONFIG, type OwnShip } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import type { Camera } from '../render/camera.js';
 import { hullSightSoftness } from '../render/fog.js';
@@ -68,8 +68,9 @@ import {
 import { FOG_FILL_ALPHA, HOLE_FEATHER_START } from '../render/textures.js';
 
 const SIGHT = CONFIG.vision.sight;
-// A FLASHED observer's bubble — the shared effectiveSight, 1/8 of radar (Story 8.17).
-const DAZZLED = effectiveSight({ sightRange: SIGHT, radarRange: CONFIG.vision.radar }, true);
+// A SYNTHETIC narrower observer bubble — the feather takes any radius (nothing
+// shrinks sight at runtime since Story 9.4 retired the FLASH SHELLS dazzle).
+const NARROW = SIGHT * 0.375;
 
 // jsdom has no canvas text metrics, so Pixi's Text cannot rasterize here (every
 // other client render test constructs only Graphics). Partial-mock pixi.js the
@@ -123,7 +124,7 @@ function refitViewFixture(): OfferView {
   const you: OwnShip = {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
     ammo: [], sweep: 0, cls: 'torpedoBoat', gun: 'deckGun', pts: 1,
-    offer: ['radarSweep', 'armor', 'deckGun', 'navalMines'],
+    offer: ['radarSweep', 'hullPoints', 'deckGun', 'navalMines'],
     boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
   };
   const v = offerView(you, false, false, false);
@@ -150,14 +151,18 @@ describe('the declared CHART order: a name reads over terrain, under the reticle
     expect(at('plate')).toBeLessThan(at('sweep'));
   });
 
-  it('leaves it directly between the two, so nothing slipped in on either side', () => {
+  // RE-BASED 2026-10-12 (Story 9.3, "smoke is paint"): `aim` used to be
+  // `plate + 1`. Eric: the countermeasure cloud renders "above everything
+  // except radar paints", and the own hull is "on top so I can see where I am"
+  // — so `cloud`, `blip` and `ownShip` now sit between the plate and the
+  // reticle. The plate still sits directly above contact hulls.
+  it('leaves it directly above contact hulls, with only cloud, returns and the own hull between it and the reticle', () => {
     expect(at('plate')).toBe(at('ship') + 1);
-    expect(at('aim')).toBe(at('plate') + 1);
+    const between = CHART_LAYER_ORDER.slice(at('plate') + 1, at('aim'));
+    expect([...between].sort()).toEqual(['blip', 'cloud', 'ownShip']);
   });
 
-  it("does NOT disturb the hull lift's own seat: `ship` still sits directly "
-    + 'above `blip`', () => {
-    expect(at('ship')).toBe(at('blip') + 1);
+  it('hulls are still charted, never fogged', () => {
     expect(WORLD_LAYER_ORDER as readonly string[], 'and hulls are still charted')
       .not.toContain('ship');
   });
@@ -387,12 +392,12 @@ describe('the plate feather (what the fog composite used to do for a plate)', ()
     }
   });
 
-  it('SCALES WITH THE OBSERVER: a dazzled bubble feathers a plate earlier', () => {
-    const dazzled = DAZZLED;
-    expect(hullSightSoftness(dazzled, dazzled)).toBeCloseTo(1 - FOG_FILL_ALPHA, 12);
+  it('SCALES WITH THE OBSERVER: a narrower bubble feathers a plate earlier', () => {
+    const narrow = NARROW;
+    expect(hullSightSoftness(narrow, narrow)).toBeCloseTo(1 - FOG_FILL_ALPHA, 12);
     const d = SIGHT * 0.6;
     expect(hullSightSoftness(d, SIGHT), 'untouched for a base observer').toBe(1);
-    expect(hullSightSoftness(d, dazzled), '...deep in the feather for a dazzled one')
+    expect(hullSightSoftness(d, narrow), '...deep in the feather for a narrower one')
       .toBeLessThan(1);
   });
 
@@ -529,5 +534,53 @@ describe('drivePlate samples the feather at the hull pose, and multiplies it in'
     store.pushFrame(0, droneContact());
     views.render(store, 0, 0, 16, rosterIndex, plateFrame); // softness omitted => NO_SOFTENING
     expect(textLog[0].alpha, 'a full feather changes nothing').toBeCloseTo(withFeather, 12);
+  });
+});
+
+// Story 9.3 (Eric 2026-10-12): "I don't want someone's nameplate sticking out
+// from behind the smoke, that gives it away right?" — a plate whose HULL sits
+// under countermeasure paint at least `plateHideAlpha` thick is hidden
+// outright; the hull itself is never hidden by cover (the overlay shows
+// partials: "if the bow is sticking out of the smoke I want to see it").
+describe('a nameplate under thick countermeasure paint is hidden; the hull never is', () => {
+  const WORLD = { x: 40, y: -20 };
+  const camera = { worldToScreen: (p: { x: number; y: number }) => ({ x: p.x, y: p.y }), zoom: 1 };
+  const plateFrame = { nameOf: (): string | null => null, camera, pad: 8 };
+  const HIDE = CLIENT_CONFIG.countermeasure.plateHideAlpha;
+
+  const drive = (cover: number) => {
+    textLog.length = 0;
+    const shipLayer = new Container();
+    const sampled: { x: number; y: number }[] = [];
+    const coverAt = (x: number, y: number): number => {
+      sampled.push({ x, y });
+      return cover;
+    };
+    const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()), () => {}, coverAt);
+    const store = new ContactStore();
+    store.pushFrame(0, [{ id: 'f1', x: WORLD.x, y: WORLD.y, heading: 0, speed: 10, cls: 'droneSmall' }]);
+    views.render(store, 0, 0, 16, () => null, plateFrame);
+    const hull = shipLayer.children[0];
+    return { plate: textLog[0], hull: { alpha: hull.alpha, visible: hull.visible }, sampled };
+  };
+
+  it('thick cover (≥ plateHideAlpha) places the plate at alpha 0, i.e. not visible, sampled at the hull pose', () => {
+    const r = drive(HIDE);
+    expect(r.plate.alpha).toBe(0);
+    expect(r.plate.visible).toBe(false);
+    expect(r.sampled.length).toBeGreaterThan(0);
+    for (const p of r.sampled) expect([p.x, p.y]).toEqual([WORLD.x, WORLD.y]);
+  });
+
+  it('light cover keeps the plate exactly as it is with no cover', () => {
+    const none = drive(0).plate.alpha;
+    const light = drive(HIDE * 0.5).plate;
+    expect(none).toBeGreaterThan(0);
+    expect(light.alpha).toBe(none);
+    expect(light.visible).toBe(true);
+  });
+
+  it('the hull graphic is identical under thick cover and under none', () => {
+    expect(drive(1).hull).toEqual(drive(0).hull);
   });
 });

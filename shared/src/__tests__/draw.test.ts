@@ -39,6 +39,9 @@ import {
   MOUNTED_GUN,
   mulberry32,
   usableLines,
+  pickRefusal,
+  SLOT_COUNT,
+  LINE_IDS,
   type Catalog,
   type CatalogLine,
   type GunId,
@@ -51,14 +54,15 @@ import {
   type Weights,
 } from '../index.js';
 
-/** The nine slot ids of a fresh hull: the gun, the Shift, an EMPTY weapon row
- *  (2/3/4) and an empty belt. The draw reads the row off this array — there is
- *  no separate `weaponSlotOpen` boolean to disagree with it (review F2). */
-const ROW_OPEN: readonly (SlotItemId | null)[] = ['gun', 'boost', null, null, null, null, null, null, null];
+/** The slot ids of a fresh hull: the gun, the Shift, an EMPTY weapon row
+ *  (2/3/4) and empty consumable slots. The draw reads the row off this array —
+ *  there is no separate `weaponSlotOpen` boolean to disagree with it (review
+ *  F2). */
+const ROW_OPEN: readonly (SlotItemId | null)[] = ['gun', 'boost', ...new Array<null>(SLOT_COUNT - 2).fill(null)];
 
 /** The same hull with all three weapon slots occupied. */
 const ROW_FULL: readonly (SlotItemId | null)[] = [
-  'gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null,
+  'gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', ...new Array<null>(SLOT_COUNT - 5).fill(null),
 ];
 
 /** A ship with an open weapon row, holding nothing — the level-zero state. */
@@ -182,9 +186,9 @@ describe('eligibleLines — the whole eligibility law', () => {
     expect(eligibleLines(OPEN, injected).some((e) => (e.id as string) === 'testGunPool')).toBe(true);
     expect(eligibleLines(otherGun, injected).some((e) => (e.id as string) === 'testGunPool')).toBe(false);
 
-    // ...while the five UNIVERSAL ladders (no `equipment.` stat path, no
+    // ...while the six UNIVERSAL ladders (no `equipment.` stat path, no
     // appliesTo) are gun-blind and stay dealable whatever is mounted.
-    for (const id of ['armor', 'speed', 'turning', 'radarSweep', 'reload']) {
+    for (const id of ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing']) {
       expect(elsewhere, id).toContain(id);
     }
 
@@ -202,8 +206,14 @@ describe('eligibleLines — the whole eligibility law', () => {
     expect(ladderHost(CATALOG.machineGun)).toBe('machineGun');
     expect(ladderHost(CATALOG.flak)).toBe('flak');
     expect(ladderHost(CATALOG.deckGun)).toBe('gun');
-    for (const id of ['armor', 'speed', 'turning', 'radarSweep', 'reload'] as const) {
+    for (const id of ['hullPoints', 'armor', 'armorPiercing', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'] as const) {
       expect(ladderHost(CATALOG[id]), id).toBeUndefined(); // universal
+      // ...and so eligible on every seat, whatever gun it mounts (Story 9.9,
+      // epic-9 amendment 145: the draw covers ARMOR PIERCING like ARMOR).
+      for (const gun of GUN_IDS) {
+        const ship: DrawShip = { ...OPEN, mountedGun: MOUNTED_GUN[gun] };
+        expect(eligibleLines(ship).some((e) => e.id === id), `${id} on ${gun}`).toBe(true);
+      }
     }
 
     // Which gun ladders a seat can be dealt, per mounted gun — the WHOLE set,
@@ -251,15 +261,16 @@ describe('eligibleLines — the whole eligibility law', () => {
     // amendments 131–134: DAZZLE SHELLS became the FLASH SHELLS consumable and
     // PHOSPHOR SHELLS its own weapon), but the `addon` kind and its draw law
     // stay in the engine — so the law is pinned on an INJECTED add-on, shaped
-    // exactly as the deleted DAZZLE SHELLS card was.
+    // exactly as the deleted DAZZLE SHELLS card was (injected over the
+    // `foulingShell` slot, which held DAZZLE SHELLS before Story 9.4).
     const WITH_ADDON: Catalog = {
       ...CATALOG,
-      dazzleShells: {
-        id: 'dazzleShells', kind: 'addon', cap: 1, appliesTo: ['starShells'],
+      foulingShell: {
+        id: 'foulingShell', kind: 'addon', cap: 1, appliesTo: ['starShells'],
         tiers: [[{ kind: 'doctrine', weapon: 'starShells', mode: 'dazzle' }]],
       },
     };
-    const has = (ship: DrawShip): boolean => eligibleLines(ship, WITH_ADDON).some((e) => e.id === 'dazzleShells');
+    const has = (ship: DrawShip): boolean => eligibleLines(ship, WITH_ADDON).some((e) => e.id === 'foulingShell');
     // Row open, no host held: held-ahead is allowed (amendment 89b).
     expect(has(OPEN)).toBe(true);
     // Row full, no host: the card would be dead, so it is not dealt.
@@ -267,32 +278,30 @@ describe('eligibleLines — the whole eligibility law', () => {
     // Row full WITH the host aboard: eligible again.
     expect(has({ ...CLOSED, held: ['starShells'] })).toBe(true);
     // ...and at its cap of 1 it leaves, host or no host.
-    expect(has({ ...CLOSED, held: ['starShells', 'dazzleShells'] })).toBe(false);
+    expect(has({ ...CLOSED, held: ['starShells', 'foulingShell'] })).toBe(false);
   });
 
-  it('A CONSUMABLE IS ALWAYS ELIGIBLE — at its cap, with a full belt, always (amendment 94)', () => {
+  it('A CONSUMABLE IS ALWAYS ELIGIBLE — at its cap, always (amendment 94)', () => {
     const capped: DrawShip = {
       ...CLOSED,
       held: [
         ...new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair'),
         ...new Array<LineId>(CATALOG.supercavTorpedo.cap).fill('supercavTorpedo'),
         ...new Array<LineId>(CATALOG.shieldBlock.cap).fill('shieldBlock'),
-        ...new Array<LineId>(CATALOG.smokeScreen.cap).fill('smokeScreen'),
-        ...new Array<LineId>(CATALOG.chaff.cap).fill('chaff'),
+        ...new Array<LineId>(CATALOG.countermeasure.cap).fill('countermeasure'),
         ...new Array<LineId>(CATALOG.decoyBuoy.cap).fill('decoyBuoy'),
-        ...new Array<LineId>(CATALOG.dazzleShells.cap).fill('dazzleShells'),
+        ...new Array<LineId>(CATALOG.foulingShell.cap).fill('foulingShell'),
       ],
     };
     const eligible = eligibleLines(capped);
     const ids = eligible.map((e) => e.id);
     expect(ids).toContain('hullRepair');
     expect(ids).toContain('supercavTorpedo');
-    // All are still tagged `consumable`, and ALL SEVEN live consumable lines
-    // are present (Story 8.16 flipped shield/chaff/decoy; Story 8.17 added
-    // FLASH SHELLS, amendment 132; Story 8.18 flipped SMOKE SCREEN) — the cap
-    // filters equipment, ladders and add-ons, never these. The one stub never is.
+    // All are still tagged `consumable`, and EVERY live consumable line is
+    // present — the cap filters equipment, ladders and add-ons, never these.
+    // The one stub never is. (CHAFF retired in Story 9.2, amendment 31.)
     expect(eligible.filter((e) => e.kind === 'consumable').map((e) => e.id))
-      .toEqual(['supercavTorpedo', 'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'dazzleShells']);
+      .toEqual(LINE_IDS.filter((id) => CATALOG[id].kind === 'consumable' && CATALOG[id].stub !== true));
     expect(kindCounts(eligible).weapon).toBe(0); // the row is full
   });
 });
@@ -451,15 +460,14 @@ describe('drawOffer — the shape of an offer', () => {
     // Since Story 8.16 production has FIVE live consumables (SIX since 8.17's
     // FLASH SHELLS, SEVEN since 8.18's SMOKE SCREEN), always eligible, so it
     // can no longer run short at offer size 4 — the property is pinned on the
-    // pre-8.16 catalog shape (shield/chaff/decoy — and flash and smoke —
-    // stubbed), injected.
+    // pre-8.16 catalog shape (shield/decoy — and flash and smoke — stubbed),
+    // injected.
     const TWO_LIVE: Catalog = {
       ...CATALOG,
       shieldBlock: { ...CATALOG.shieldBlock, stub: true },
-      smokeScreen: { ...CATALOG.smokeScreen, stub: true },
-      chaff: { ...CATALOG.chaff, stub: true },
+      countermeasure: { ...CATALOG.countermeasure, stub: true },
       decoyBuoy: { ...CATALOG.decoyBuoy, stub: true },
-      dazzleShells: { ...CATALOG.dazzleShells, stub: true },
+      foulingShell: { ...CATALOG.foulingShell, stub: true },
     };
     const held: LineId[] = [
       ...everyUpgradeCapped(),
@@ -477,13 +485,14 @@ describe('drawOffer — the shape of an offer', () => {
 
   it('a fully capped captain sees a FULL offer of consumables in production (Story 8.16 closes amendment 94\'s two-card offer)', () => {
     const held: LineId[] = [...everyUpgradeCapped()];
-    // FLASH SHELLS (`dazzleShells`) joined the live consumables in Story 8.17,
-    // SMOKE SCREEN in Story 8.18.
-    for (const id of ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy', 'dazzleShells'] as const) {
+    // FLASH SHELLS joined the live consumables in Story 8.17 (its slot is the
+    // FOULING SHELL since Story 9.4), SMOKE SCREEN in Story 8.18 (its slot is
+    // COUNTERMEASURE since Story 9.3).
+    for (const id of ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'countermeasure', 'decoyBuoy', 'foulingShell'] as const) {
       held.push(...new Array<LineId>(CATALOG[id].cap).fill(id));
     }
     const ship: DrawShip = { held, slotIds: ROW_FULL, mountedGun: 'gun' };
-    const live = ['chaff', 'dazzleShells', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'smokeScreen', 'supercavTorpedo'];
+    const live = ['countermeasure', 'decoyBuoy', 'foulingShell', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
     expect(eligibleLines(ship).map((e) => e.id).sort()).toEqual(live);
     for (let seed = 0; seed < 200; seed += 1) {
       const offer = drawOffer(ship, NO_WEIGHTS, mulberry32(seed));
@@ -544,15 +553,15 @@ describe('the level-zero guarantee — card 0 is a USABLE card, uniformly', () =
     // ...and with the row open every one of them is back.
     expect(usableLines([], ROW_OPEN).some((id) => CATALOG[id].kind === 'equipment')).toBe(true);
 
-    // A consumable with no belt room is out for the same reason.
-    const beltFull: readonly (SlotItemId | null)[] = [
-      'gun', 'boost', null, null, null, 'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff',
-    ];
-    expect(usableLines([], beltFull)).not.toContain('supercavTorpedo');
-    expect(usableLines([], beltFull)).toContain('hullRepair'); // the stack deepens
+    // A consumable is out only at its cap ('atCap') — there is no full belt
+    // since Story 9.2 (epic-9 amendment 21); below cap it is always usable.
+    const capped = new Array<LineId>(CATALOG.hullRepair.cap).fill('hullRepair');
+    expect(pickRefusal(capped, ROW_FULL, 'hullRepair')).toBe('atCap');
+    expect(usableLines(capped, ROW_FULL)).not.toContain('hullRepair');
+    expect(usableLines(capped, ROW_FULL)).toContain('supercavTorpedo');
   });
 
-  it('CARD 0 IS ALWAYS TAKEABLE, whatever the row and the belt look like', () => {
+  it('CARD 0 IS ALWAYS TAKEABLE, whatever the row and the consumable slots look like', () => {
     const ship: DrawShip = { held: [], slotIds: ROW_FULL, mountedGun: 'gun' };
     for (let seed = 0; seed < 200; seed += 1) {
       const offer = drawOffer(ship, LOPSIDED, mulberry32(seed), CATALOG, { guarantee: true });

@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import * as shared from '../index.js';
 import type { EquipmentId } from '../index.js';
+
+// ONE RUNG OF THE TWELFTHS RULER (Story 9.8, epic-9 amendment 103): a twelfth
+// of radar, which is `sight / 4` because radar = sight × 3 — derived, never the
+// literal 125 (epic-9 amendment 8).
+const TWELFTH = CONFIG.vision.sight / 4;
 import {
+  damageMultiplierFor,
   PROTOCOL_VERSION,
   CONFIG,
   DRONE_HULL_IDS,
@@ -12,6 +18,9 @@ import {
   SLOT_BOOST,
   WEAPON_SLOTS,
   CONSUMABLE_SLOTS,
+  CONSUMABLE_KEY_ORDER,
+  consumableKindAt,
+  consumableSlotFor,
   MULLIGAN_CHOICE,
   effectiveStats,
   equipmentMaxAmmo,
@@ -38,7 +47,6 @@ import {
   slowedKinematics,
   CONSUMABLE_IDS,
   CONSUMABLE_IS_WEAPON,
-  canStock,
   isConsumableId,
   isWeaponItem,
   slotMaxAmmo,
@@ -82,9 +90,10 @@ import {
   type SlotItemId,
   type DecoyView,
   type FrameMsg,
-  type SmokePuff,
-  type SmokeView,
-  puffRadius,
+  type CloudRecord,
+  type CloudView,
+  cloudScale,
+  cloudOutlineRadius,
   type OwnShip,
   type ReturnBlipEvent,
   type GhostPaint,
@@ -345,7 +354,7 @@ describe('shared barrel', () => {
     // 2026-09-28, epic-8 amendments 97-110). `InputMsg.held` (a REQUIRED
     // boolean level — the machine gun's stream), the shell reveal's optional
     // `w` family field ('cannon'|'mg'|'flak', the ONE declared disclosure
-    // widening, amendment 89(i); never on a torpedo), `OwnShip.damageCutUntil?`
+    // widening, amendment 89(i); never on a torpedo), `OwnShip.hunkerUntil?`
     // (self-private), catalog content (missile/monitor/heatSeeking cut;
     // machineGun/flak become their guns' ladders; 29 -> 26 lines) and the
     // Shift ids. The perception exception count stays SIX.
@@ -410,7 +419,68 @@ describe('shared barrel', () => {
     // 70 -> 71 (cycle 167): private lobbies — CONFIG.lobby read by the client,
     // arena mode 'private', lobby-room channels lr/ls/lb/lg. The exception
     // count stays SIX.
-    expect(PROTOCOL_VERSION).toBe(71);
+    // 74 -> 75 (cycle 172, Story 9.2): every consumable has a fixed key —
+    // SLOT_COUNT 9 -> 11, one slot per keyed kind, no packing; CHAFF retired
+    // (catalog content, OwnShip.chaff / chaffGhosts gone). The exception count
+    // stays SIX.
+    // 75 -> 76 (Story 9.3, Eric 2026-10-11): smokeScreen -> countermeasure
+    // (catalog content + CONFIG.countermeasure), OwnShip.inSmoke deleted,
+    // FrameMsg.smoke -> clouds (CloudView {id,x,y,t0}). The exception count
+    // stays SIX.
+    // 76 -> 77 (Story 9.3 session 2, Eric 2026-10-12): smoke is a client
+    // overlay; CONFIG.countermeasure shrinks to lifeMs/r0/r1. The exception
+    // count stays SIX.
+    // 77 -> 78 (Story 9.4, Eric 2026-10-11, epic-9 amendments 61-68): FLASH
+    // SHELLS -> FOULING SHELL (catalog content + CONFIG.foulingShell replaces
+    // CONFIG.flashShells), OwnShip.dazzledUntil -> fouledUntil, new
+    // FrameMsg.foulZones (FoulZoneView {id,x,y,r,until,by}). The exception
+    // count stays SIX.
+    // 78 -> 79 (Story 9.5, Eric 2026-10-12, epic-9 amendments 73-82): the
+    // client reads CONFIG.ram and runs the shared hull-contact resolver in
+    // prediction. No new wire field or event; the exception count stays SIX.
+    // 79 -> 80 (Story 9.6, Eric 2026-10-11/13, epic-9 amendments 27-29, 90-97):
+    // catalog content (armor -> hullPoints, SPEED/TURNING cap 5, new
+    // passiveHealing ladder) and CONFIG.regen read by the client through
+    // effectiveStats().regen. The exception count stays SIX.
+    // 80 -> 81 (Story 9.7 ARMOR, Eric 2026-10-13, epic-9 amendments 86-88 /
+    // 110-117): catalog content (new `armor` ladder after hullPoints) and
+    // CONFIG.armor + CONFIG.hunker.armorBonus read by the client through the
+    // fold. Nothing new on the wire; the exception count stays SIX.
+    // 81 -> 82 (Story 9.8 THE TWELFTHS LADDER, Eric 2026-10-13, epic-9
+    // amendments 102-109, 121-129): the twelfths sensor ladder, per-weapon
+    // tiered range dials read by the client through the fold, the foghorn
+    // band enum 1..12 and the server-side radar dropout (sim/dropout.ts).
+    // Nothing new on the wire; the exception count stays SIX.
+    // 83 -> 84 (Story 9.9 ARMOR PIERCING, Eric 2026-10-14/15, epic-9
+    // amendments 144-147): K 100, ARMOR +20/card, HUNKER +100 (catalog content
+    // + CONFIG read by the client through the fold), the new armorPiercing
+    // ladder, and the OwnShip.hunkerUntil rename. The exception count stays SIX.
+    // 84 -> 85 (Story 9.10 FOG BANKS, Eric 2026-10-15, epic-9 amendments
+    // 163-164, 167-170 + the "no discs" field re-plan): WelcomeMsg gains
+    // fogSeed, the client reads CONFIG.fog and the schema gains fogCut. No
+    // per-observer fog channel; the exception count stays SIX.
+    // 85 -> 86 (Story 9.10 fog tune, Eric 2026-10-16 on staging, epic-9
+    // amendment 177): CONFIG.fog, which the client reads, gains spinPeriodMs
+    // and spinShear (the field spins about the ocean center with shear, a
+    // per-match coin flip for the direction); coverage 20-25 %, drift 3.5.
+    // 87 -> 88 (fog tune 3, amendment 179): no fog past the ocean's rim (the shared density the client draws changes), the own bank is free.
+    // 86 -> 87 (fog tune 2, amendment 178): spinPeriodMs -> spinRimU, windU 1,
+    // coverage = solid fog (density >= 1/2).
+    // 88 -> 89 (Story 9.12, Eric 2026-10-16, epic-9 amendments 184–185): catalog
+    // content + the gun/machineGun/flak/gunAttenuation/torpedo/lightTorpedo/
+    // supercavTorpedo/mine/captiveMines CONFIG blocks the client reads; the new
+    // attenuation module is exported.
+    expect(PROTOCOL_VERSION).toBe(89);
+    for (const fn of [shared.rangeAttenuation, shared.flakRimFactor, shared.settleBlow]) {
+      expect(typeof fn).toBe('function');
+    }
+    for (const fn of [shared.makeFogField, shared.fogNoiseAt, shared.fogDensityAt, shared.fogTollAlong, shared.fogCutForTarget, shared.fogLattice]) {
+      expect(typeof fn).toBe('function');
+    }
+    expect(shared.FOG_NO_CUT).toBe(9);
+    for (const fn of [shared.dropoutPaintP, shared.dropoutRoll, shared.dropoutPaints]) {
+      expect(typeof fn).toBe('function');
+    }
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent became a tagless two-member union ({k,id,x,y,t,ext} —
     // ext pure aspect geometry, no range term, amendment 66's anti-cheat
@@ -430,13 +500,21 @@ describe('shared barrel', () => {
   it('re-exports config, wire tags, and functions', () => {
     expect(CONFIG.tick.simDtMs).toBe(50);
     expect(MSG.input).toBe('i');
-    expect(SLOT_COUNT).toBe(9); // Story 8.5: was 4 (gun, two specials, one extra)
+    expect(SLOT_COUNT).toBe(2 + WEAPON_SLOTS.length + CONSUMABLE_SLOTS.length); // gun, Shift, Q/E/R, one per keyed consumable
     expect(typeof mapRadius).toBe('function');
     expect(typeof stepShip).toBe('function');
     expect(typeof generateMap).toBe('function');
     expect(typeof wrapAngle).toBe('function');
     expect(typeof mulberry32).toBe('function');
     expect(typeof segCircleHit).toBe('function');
+    // Story 9.5 — the shared hull-contact resolver and its damage math.
+    expect(typeof shared.resolveHullContacts).toBe('function');
+    expect(typeof shared.contactHitDamage).toBe('function');
+    expect(typeof shared.contactGrindRate).toBe('function');
+    expect(typeof shared.landHitDamage).toBe('function');
+    expect(typeof shared.landGrindRate).toBe('function');
+    expect(typeof shared.solidEscape).toBe('function');
+    expect(typeof shared.polygonOverlapsSolid).toBe('function');
     expect(typeof effectiveStats).toBe('function');
     expect(typeof equipmentMaxAmmo).toBe('function');
     expect(typeof equipmentReloadMs).toBe('function');
@@ -501,7 +579,9 @@ describe('shared barrel', () => {
     // 2026-09-30: "far too long given the current deadliness of the game"). A fraction of MISSING (not
     // of max, not a flat amount) is the ruled shape and is what makes it need no
     // repricing when hull HP next moves.
-    expect(CONFIG.regen.missingPctPerS).toBe(0.01);
+    // Base rate 1 % -> 2 % in Story 9.6 (Eric 2026-10-13, epic-9 amendment 90:
+    // "to cut down on time spent sitting and waiting").
+    expect(CONFIG.regen.missingPctPerS).toBe(0.02);
     expect(CONFIG.regen.outOfCombatMs).toBe(15000);
     // THE SHAPE PINS. The paid block is now the paid heal and NOTHING else (the
     // free per-level channel's two dials lived inside it and are deleted), and
@@ -563,10 +643,12 @@ describe('shared barrel', () => {
     expect(hullIsFull(349.5, 350)).toBe(true);
   });
 
-  it('re-exports the NINE-SLOT grammar — and the interim spawn seed is GONE (Story 8.10)', () => {
+  it('re-exports the slot grammar — and the interim spawn seed is GONE (Story 8.10)', () => {
     expect(SLOT_BOOST).toBe(1);
     expect(WEAPON_SLOTS).toEqual([2, 3, 4]);
-    expect(CONSUMABLE_SLOTS).toEqual([5, 6, 7, 8]);
+    // One fixed slot per keyed consumable kind, in key order (Story 9.2).
+    expect(CONSUMABLE_SLOTS).toEqual(CONSUMABLE_KEY_ORDER.map((id) => consumableSlotFor(id)));
+    expect(typeof consumableKindAt).toBe('function');
     // The per-hull fit died with the extra slot (Story 8.5)...
     const ns = shared as Record<string, unknown>;
     for (const gone of ['SLOT_EXTRA', 'specialsFor']) expect(ns[gone], gone).toBeUndefined();
@@ -607,19 +689,18 @@ describe('shared barrel', () => {
     // 15 -> 14 (Story 8.9): the legacy flat-bonus boost id is gone and the v3
     // `boost` id IS the Shift boost. STORY 8.15 (amendments 89c/97–102): the
     // non-weapons are the THREE class Shifts, and nothing else.
-    expect(EQUIPMENT_IDS.filter((id) => !EQUIPMENT_IS_WEAPON[id])).toEqual(['boost', 'instantReload', 'damageCut']);
+    expect(EQUIPMENT_IDS.filter((id) => !EQUIPMENT_IS_WEAPON[id])).toEqual(['boost', 'instantReload', 'hunker']);
     expect(EQUIPMENT_IS_WEAPON.navalMines).toBe(true); // aimed rear-arc placement (2.8, a45)
     // The radar buoy is DELETED (Story 8.16) — its click-placed slot is gone.
     expect('radarBuoy' in EQUIPMENT_IS_WEAPON).toBe(false);
   });
 
-  it('the BELT surface (Story 8.7): the rack predicate, the slot-item guard and the two split tables', () => {
+  it('the CONSUMABLE-SLOT surface (Story 8.7, fixed slots since 9.2): the stock slot, the slot-item guard and the two split tables', () => {
     // Story 8.7 adds the consumable half of the slot vocabulary. It is a
     // WIRE-NEUTRAL addition — PROTOCOL_VERSION stayed 52 at 8.7 (no new field,
     // no catalog content change; every consumable line was still a stub then,
     // epic-8 amendment 41; Story 8.8 flipped hullRepair live and took the
     // bump) — but both sides import these names, so the barrel pins them here.
-    expect(typeof canStock).toBe('function');
     expect(typeof stockSlotFor).toBe('function');
     expect(typeof isConsumableId).toBe('function');
     expect(typeof isWeaponItem).toBe('function');
@@ -631,14 +712,20 @@ describe('shared barrel', () => {
     // through the guard.
     for (const id of CONSUMABLE_IDS) expect((EQUIPMENT_IDS as readonly string[]).includes(id), id).toBe(false);
     for (const id of EQUIPMENT_IDS) expect(isConsumableId(id), id).toBe(false);
-    // The belt predicate reads the four consumable slots and nothing else.
-    const empty: (SlotItemId | null)[] = ['gun', 'boost', null, null, null, null, null, null, null];
-    expect(canStock(empty, 'hullRepair')).toBe(true);
-    expect(stockSlotFor(empty, 'hullRepair')).toBe(CONSUMABLE_SLOTS[0]);
+    // A kind stocks at its OWN fixed slot (Story 9.2) and nowhere else.
+    const empty: (SlotItemId | null)[] = Array.from({ length: SLOT_COUNT }, () => null);
+    expect(stockSlotFor(empty, 'hullRepair')).toBe(consumableSlotFor('hullRepair'));
+    // `canStock` and the `beltFull` refusal are DELETED with the belt.
+    const ns = shared as Record<string, unknown>;
+    expect(ns.canStock).toBeUndefined();
   });
 
-  it('CONFIG.broadside carries the barrage block; its range stays DERIVED at the 5/8 rung', () => {
+  it('CONFIG.broadside carries the barrage block; its range is its own TIERED dial (Story 9.8, ruling 125)', () => {
     expect(CONFIG.broadside).toEqual({
+      // Ruling 125 (Eric 2026-10-13): Tier I 5/12 → Tier V 6/12 of the
+      // twelfths ruler (625 → 750 u at the shipped ladder).
+      rangeU: TWELFTH * 5,
+      rangeUAtV: TWELFTH * 6,
       hits: ['hull', 'decoy'], // AR44 — never a mine since amendment 200 (only deck guns, by landing)
       arcOffsetDeg: 90,
       arcHalfArcDeg: 60,
@@ -663,9 +750,9 @@ describe('shared barrel', () => {
       turretMountSpreadDeg: [28, 25, 22.5, 15, 6], // [DRAFT] mount half-spread ladder, index = SPREAD copies
       traverseDeg: [6, 7, 7.5, 9, 14], // [DRAFT] per-turret traverse ladder, index = SPREAD copies
     });
-    // NO range field — it is derived from radarRange × muzzleFlashFactor, and
-    // NO arc field either: the beams are a twin-sector descriptor, not 'full'.
-    expect('rangeU' in CONFIG.broadside).toBe(false);
+    // A range field of its own since Story 9.8 (ruling 125) — and still NO
+    // arc field: the beams are a twin-sector descriptor, not 'full'.
+    expect('rangeU' in CONFIG.broadside).toBe(true);
     expect('arc' in CONFIG.broadside).toBe(false);
     // One entry per reachable SPREAD rung: 0..4 copies of a ×4 card. BOTH
     // ladders, and the SAME length — one rung indexes them together
@@ -683,11 +770,12 @@ describe('shared barrel', () => {
     expect(CONFIG.broadside.turretMountSpreadDeg).toHaveLength(CONFIG.broadside.traverseDeg.length);
   });
 
-  it('CONFIG carries the three 8.16 consumable blocks verbatim; the radar buoy is GONE', () => {
+  it('CONFIG carries the surviving 8.16 consumable blocks verbatim; the radar buoy and chaff are GONE', () => {
     // catalog-v3 R37 / R39 / R36 (Eric 2026-09-09), epic-8 amendments 116-124.
     // Consumables carry NO stat row (the consumable law) — these ARE the numbers.
     expect(CONFIG.shieldBlock).toEqual({ hp: 100, durationMs: 10000 });
-    expect(CONFIG.chaff).toEqual({ radius: 180, count: 10, durationMs: 15000 }); // radius ×1.5 (Eric 2026-10-01)
+    // CHAFF is RETIRED (Story 9.2, epic-9 amendment 31): its block is gone.
+    expect((CONFIG as Record<string, unknown>).chaff).toBeUndefined();
     expect(CONFIG.decoyBuoy).toEqual({ hp: 50, sizeU: 12 });
     // THE RADAR BUOY IS DELETED END TO END (Story 8.16): its CONFIG block (the
     // sensor, the gun buoy, the jamming fakes) went with it.
@@ -703,28 +791,34 @@ describe('shared barrel', () => {
       // AR44 (Story 8.4): NO 'mine' bit — illumination detonates nothing.
       hits: ['hull', 'decoy'],
       arc: 'full',
+      // Ruling 125: Tier I 11/12 → Tier V 12/12 (1,375 → 1,500 u).
+      rangeU: TWELFTH * 11,
+      rangeUAtV: TWELFTH * 12,
       shellSpeed: 500,
       maxAmmo: 1,
       reloadMs: 20000,
       damage: 20,
-      litRadius: 165,
+      litRadius: CONFIG.vision.sight / 2, // 250 u at sight 500 (epic-9 amendment 108)
       litDurationMs: 10000,
       shellRadius: 2,
     });
     for (const gone of ['incendiaryRadiusFactor', 'incendiaryDps', 'dazzleSightFactor']) {
       expect(gone in CONFIG.starShells, gone).toBe(false);
     }
-    expect('rangeU' in CONFIG.starShells).toBe(false);
+    expect('rangeU' in CONFIG.starShells).toBe(true); // its own tiered dial (Story 9.8, ruling 125)
     // The ratified SIGHT/2 structural derivation survives.
     expect(CONFIG.starShells.litRadius).toBe(CONFIG.vision.sight / 2);
   });
 
-  it('CONFIG.phosphorShells + CONFIG.flashShells: Eric\'s 2026-09-29 numbers (Story 8.17, amendments 131/132)', () => {
+  it('CONFIG.phosphorShells: Eric\'s 2026-09-29 numbers (Story 8.17, amendment 131)', () => {
     expect(CONFIG.phosphorShells).toEqual({
       arc: 'full',
       // Never a mine (amendment 200, superseding 135(c)): only a deck gun's
       // shell landing on a mine damages one.
       hits: ['hull', 'decoy'],
+      // Ruling 125: Tier I 8/12 → Tier V 10/12 (1,000 → 1,250 u).
+      rangeU: TWELFTH * 8,
+      rangeUAtV: TWELFTH * 10,
       shellSpeed: 500,
       maxAmmo: 1,
       reloadMs: 20000,
@@ -734,18 +828,22 @@ describe('shared barrel', () => {
       dps: 5,
       shellRadius: 2,
     });
-    expect('rangeU' in CONFIG.phosphorShells).toBe(false); // derived = radarRange
-    expect(CONFIG.flashShells).toEqual({
-      arc: 'full',
-      // The star shell's mask — a flash never detonates a mine (amendment 135(d)).
-      hits: ['hull', 'decoy'],
-      shellSpeed: 500,
-      shellRadius: 2,
-      radius: 150,
-      durationMs: 10000,
-      sightFraction: 0.125,
-    });
-    expect('damage' in CONFIG.flashShells).toBe(false); // a flash deals no damage
+    expect('rangeU' in CONFIG.phosphorShells).toBe(true); // its own tiered dial (Story 9.8, ruling 125)
+  });
+
+  it('CONFIG.foulingShell: no damage, no tiers, and a slow that leaves the hull moving (Story 9.4, epic-9 amendments 61–68)', () => {
+    // FLASH SHELLS' block is gone with its dazzle; the FOULING SHELL took its seat.
+    expect('flashShells' in CONFIG).toBe(false);
+    const fs = CONFIG.foulingShell;
+    expect('damage' in fs).toBe(false); // zero damage — a slow is not damage
+    // Its reach is its own FIXED dial since Story 9.8 (ruling 125: 8/12, no
+    // tiers — a consumable has no stats row, so no Tier V dial either).
+    expect(fs.rangeU).toBe(TWELFTH * 8);
+    expect('rangeUAtV' in fs).toBe(false);
+    expect(fs.hits).toEqual(['hull', 'decoy']); // the star shell's mask — never a mine
+    expect(fs.slowFactor).toBeGreaterThan(0); // never a full stop
+    expect(fs.slowFactor).toBeLessThan(1); // it does slow
+    expect(fs.lingerMs).toBeGreaterThan(0);
   });
 
   it('CONFIG.mine: aimed-placement + chain-era fields (Story 2.8) over the 1.8 geometry', () => {
@@ -758,7 +856,7 @@ describe('shared barrel', () => {
     expect('maxLive' in CONFIG.mine).toBe(false);
     expect('globalCap' in CONFIG.mine).toBe(false);
     expect(CONFIG.mine.hits).toEqual(['hull']);
-    expect(CONFIG.mine.damage).toBe(55); // RETUNED 45 -> 55 (Eric ruling 2026-08-04)
+    expect(CONFIG.mine.damage).toBe(90); // RETUNED 45 -> 55 (Eric ruling 2026-08-04); 55 -> 90 (Eric 2026-10-16, Story 9.12)
     // The placement leash (Eric ruling 2026-08-02): 90u put the drop point
     // inside your own wake; 150u lets a Mine Layer actually seed water.
     expect(CONFIG.mine.placeRange).toBe(150);
@@ -812,7 +910,7 @@ describe('shared barrel', () => {
       offset: deg(90), // the twin sector's centre: BOTH beams
       halfArc: deg(45), // 90 deg dead zones fore and aft
       speed: 45,
-      damage: 40,
+      damage: 80, // 40 → 80, Eric 2026-10-16 (Story 9.12, forge)
       maxAmmo: 1,
       reloadMs: 25000,
       hits: ['hull', 'decoy'], // AR44 — it runs UNDER a minefield
@@ -830,7 +928,7 @@ describe('shared barrel', () => {
       offset: deg(0), // bow-centered
       halfArc: deg(15),
       speed: 195,
-      damage: 85, // 50 → 85, Eric 2026-10-01 (cycle 162)
+      damage: 150, // 50 → 85, Eric 2026-10-01 (cycle 162); 85 → 150, Eric 2026-10-16 (Story 9.12)
       hits: ['hull', 'decoy'],
     });
     // THE ABSENCES ARE THE RULING (Eric 2026-09-19): a consumable never
@@ -845,10 +943,10 @@ describe('shared barrel', () => {
     expect(CONFIG.captiveMines).toEqual({
       reloadMs: 20000, // amendment 77 lifted the [DRAFT]: 20 s, NOT the naval 15 s
       maxAmmo: 1, // ...and 1 held, NOT the naval 2
-      triggerRadius: 144, // the TRIP ring — the BIG one
-      triggerStepPerTier: 1.1, // x1.1 per tier off the ROW'S TIER -> 210.8 u at V
+      triggerRadius: 120, // the TRIP ring — the BIG one (144 → 120, Story 9.1, Eric 2026-10-08)
+      triggerStepPerTier: 1.1, // x1.1 per tier off the ROW'S TIER -> 175.7 u at V
       blastRadius: 32, // the fish's burst — FIXED, it never steps
-      damage: 55,
+      damage: 90, // 55 → 90, Eric 2026-10-16 (Story 9.12, forge)
     });
     // The trip ring is the big one and the burst the small one — the reverse
     // of a contact mine.
@@ -896,24 +994,17 @@ describe('shared barrel', () => {
     expect(Object.keys(seen)).toEqual(['id', 'x', 'y', 'own', 'by', 'c']);
   });
 
-  it('re-exports GhostPaint + the self-private OwnShip.chaffGhosts (cycle 162): the blip rect minus k and t', () => {
-    // TYPE-LEVEL PINS: a ghost is exactly the blip payload's rect, and a
+  it('re-exports GhostPaint (cycle 162): the blip rect minus k and t', () => {
+    // TYPE-LEVEL PINS: a ghost rect is exactly the blip payload's rect, and a
     // blip is assignable to it (ReturnBlipEvent extends GhostPaint), so the
-    // two shapes cannot drift. The blip itself keeps its seven keys.
+    // two shapes cannot drift. The blip itself keeps its seven keys. (The
+    // chaff owner's OwnShip.chaffGhosts that first used it is retired with
+    // CHAFF in Story 9.2.)
     const blip: ReturnBlipEvent = { k: 'blip', t: 1000, gx: 3, gy: -4, w: 2, h: 1, bits: [3] };
     expect(Object.keys(blip)).toEqual(['k', 't', 'gx', 'gy', 'w', 'h', 'bits']);
     const { k: _k, t: _t, ...rect } = blip;
     const ghost: GhostPaint = rect;
     expect(Object.keys(ghost)).toEqual(['gx', 'gy', 'w', 'h', 'bits']);
-    const ghosts: NonNullable<OwnShip['chaffGhosts']> = [ghost, blip];
-    const you: Pick<OwnShip, 'chaff' | 'chaffGhosts'> = {
-      chaff: { x: 100, y: 200, until: 16000 },
-      chaffGhosts: ghosts,
-    };
-    // Round-trips through JSON (the wire's plain-object contract) unchanged.
-    const back = JSON.parse(JSON.stringify(you)) as typeof you;
-    expect(back.chaffGhosts?.[0]).toEqual({ gx: 3, gy: -4, w: 2, h: 1, bits: [3] });
-    expect(back).toEqual(you);
   });
 
   it('re-exports the 8.16 WIRE shapes: DecoyView (by for all, hp own-only), FrameMsg.decoys, OwnShip.shield', () => {
@@ -932,16 +1023,23 @@ describe('shared barrel', () => {
     expect(shield.hp).toBe(CONFIG.shieldBlock.hp);
   });
 
-  it('re-exports the 8.18 SMOKE SCREEN shapes: puffRadius, SmokePuff (server store), SmokeView + FrameMsg.smoke (wire)', () => {
+  it('re-exports the 9.3 COUNTERMEASURE shapes: the cloud.ts disc functions, CloudRecord (server store), CloudView + FrameMsg.clouds (wire)', () => {
     // TYPE-LEVEL PINS as much as runtime ones: the wire view is exactly
-    // id,x,y,t0 — a radius, owner or expiry would be an excess property.
-    expect(typeof puffRadius).toBe('function');
-    const puff: SmokePuff = { id: 'sk1', ownerId: 'ship1', x: 1, y: 2, bornAt: 1000, until: 31000 };
-    const view: SmokeView = { id: puff.id, x: puff.x, y: puff.y, t0: puff.bornAt };
+    // id,x,y,t0 — a radius, owner, count or expiry would be an excess property.
+    for (const fn of [cloudScale, cloudOutlineRadius]) {
+      expect(typeof fn).toBe('function');
+    }
+    const rec: CloudRecord = { id: 'cl1', ownerId: 'ship1', x: 1, y: 2, bornAt: 1000, until: 16000 };
+    const view: CloudView = { id: rec.id, x: rec.x, y: rec.y, t0: rec.bornAt };
     expect(Object.keys(view)).toEqual(['id', 'x', 'y', 't0']);
-    const frame: Pick<FrameMsg, 'smoke'> = { smoke: [view] };
-    expect(frame.smoke).toHaveLength(1);
-    expect(puffRadius(view.t0, view.t0)).toBe(CONFIG.smokeScreen.r0);
+    const frame: Pick<FrameMsg, 'clouds'> = { clouds: [view] };
+    expect(frame.clouds).toHaveLength(1);
+    expect(cloudOutlineRadius(0)).toBe(CONFIG.countermeasure.r0);
+    // The retired 8.18 smoke symbols and cycle 174's pixel machinery are gone
+    // from the barrel (Story 9.3 session 2: the cloud is a client overlay).
+    for (const gone of ['puffRadius', 'cloudBase', 'cloudBlocks', 'forEachLivingPixel']) {
+      expect((shared as Record<string, unknown>)[gone], gone).toBeUndefined();
+    }
   });
 
   it('the radar buoy wire is GONE (Story 8.16): no BuoyView export, no FrameMsg.buoys, no blip `src`', () => {
@@ -964,7 +1062,7 @@ describe('shared barrel', () => {
     expect(mineTriggerRadius(72)).toBeCloseTo(48, 9);
     // ...and the CAPTIVE's rides its TIER instead (epic-8 amendment 84d).
     expect(captiveTriggerRadius(1)).toBe(CONFIG.captiveMines.triggerRadius);
-    expect(captiveTriggerRadius(5)).toBeCloseTo(210.8304, 4);
+    expect(captiveTriggerRadius(5)).toBeCloseTo(CONFIG.captiveMines.triggerRadius * CONFIG.captiveMines.triggerStepPerTier ** 4, 6); // 175.692 u at the 2026-10-08 ring
     // Non-finite / sub-1 tiers clamp to the tier-I ring, never NaN.
     for (const bad of [NaN, Infinity, -Infinity, 0, -3]) {
       expect(Number.isFinite(captiveTriggerRadius(bad)), `${bad}`).toBe(true);
@@ -980,10 +1078,16 @@ describe('shared barrel', () => {
     // ladders. 109 -> 117 in Story 8.17 (amendments 131/132): the last two
     // 1-card add-ons became a 5-card equipment line and a 5-card consumable.
     // 26/117 -> 24/114 on 2026-09-30 (Eric): DECK GUN TURRET and DECK GUN
-    // BARREL deleted, folded into the CANNON ladder's rungs.
-    expect(LINE_IDS).toHaveLength(24);
-    expect(Object.keys(CATALOG)).toHaveLength(24);
-    expect(catalogCardCount()).toBe(114);
+    // BARREL deleted, folded into the CANNON ladder's rungs. 24/114 -> 23/109
+    // in Story 9.2 (Eric 2026-10-11, epic-9 amendment 31): CHAFF retired.
+    // 23/109 -> 24/117 in Story 9.6 (epic-9 amendments 90–91): HULL/SPEED/
+    // TURNING cap 5, PASSIVE HEALING added. 24/117 -> 25/122 in Story 9.7
+    // (epic-9 amendments 86–88 / 110–117): the new ARMOR ladder (cap 5).
+    // 25/122 -> 26/127 in Story 9.9 (epic-9 amendments 144–145): the new
+    // ARMOR PIERCING ladder (cap 5).
+    expect(LINE_IDS).toHaveLength(26);
+    expect(Object.keys(CATALOG)).toHaveLength(26);
+    expect(catalogCardCount()).toBe(127);
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0); // still EMPTY (amendment 30 satisfied data-side)
     expect(Object.isFrozen(CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);
@@ -1001,18 +1105,24 @@ describe('shared barrel', () => {
     expect(Object.keys(EQUIPMENT_STAT_FIELDS).sort()).toEqual([...EQUIPMENT_IDS].sort());
     // The machine gun's shot delay is card-addressable (Eric 2026-09-30: its
     // ladder steps it, and the refit tier card prints a RATE row off it).
-    expect(EQUIPMENT_STAT_FIELDS.machineGun).toEqual(['reloadMs', 'maxAmmo', 'damage', 'rateMs']);
+    // Story 9.8 (ruling 125): its reach is a card-addressable tiered dial too.
+    expect(EQUIPMENT_STAT_FIELDS.machineGun).toEqual(['reloadMs', 'maxAmmo', 'rangeU', 'damage', 'rateMs']);
+    for (const w of ['gun', 'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells'] as const) {
+      expect(BOON_STAT_PATHS, w).toContain(`equipment.${w}.rangeU`);
+    }
     expect(BOON_STAT_PATHS).toContain('equipment.machineGun.rateMs');
     for (const path of [
       'sweepPeriodMs', 'sightRange',
-      'equipment.gun.rangeU', 'equipment.starShells.rangeU', 'equipment.broadside.rangeU',
-      // Story 8.17: phosphor's reach is the radar rung too, derived.
-      'equipment.phosphorShells.rangeU', 'equipment.phosphorShells.tier',
-      // Story 8.15: the two pickable guns' ranges are the radar rung, derived;
-      // the cut's factor is fixed. (`machineGun.rateMs` is ADDRESSABLE since
+      // Story 9.7 (epic-9 amendments 86–88 / 110–117): the Armor multiplier
+      // is DERIVED from `armor` (which IS addressable) — never a card path.
+      'damageMultiplier',
+      // Every weapon `rangeU` LEFT this list with Story 9.8 (ruling 125 — a
+      // tiered dial the cards step, pinned PRESENT above).
+      'equipment.phosphorShells.tier',
+      // The cut's Armor bonus is fixed (Story 9.7, epic-9 amendment 88 — it
+      // replaced the deleted factor). (`machineGun.rateMs` is ADDRESSABLE since
       // 2026-09-30 — its ladder steps it; the idle clock is deleted.)
-      'equipment.machineGun.rangeU', 'equipment.flak.rangeU',
-      'equipment.machineGun.idleReloadMs', 'equipment.damageCut.factor',
+      'equipment.machineGun.idleReloadMs', 'equipment.hunker.armorBonus',
       'equipment.broadside.traverseRad', 'equipment.broadside.mountSpreadRad',
       'equipment.navalMines.triggerRadius', 'equipment.gun.tier',
       // THE CAPTIVE MINE HAS NEITHER RADIUS PATH (epic-8 amendment 84d): its
@@ -1030,8 +1140,8 @@ describe('shared barrel', () => {
     // `phosphor`/`dazzle` went with their add-ons. The table itself stays,
     // empty — the machinery is kept for a future add-on.
     expect(Object.keys(DOCTRINE_MODES)).toEqual([]);
-    // ...and `dazzleShells` has no paths — FLASH SHELLS is a CONSUMABLE.
-    for (const path of BOON_STAT_PATHS) expect(path.startsWith('equipment.dazzleShells.')).toBe(false);
+    // ...and `foulingShell` has no paths — the FOULING SHELL is a CONSUMABLE.
+    for (const path of BOON_STAT_PATHS) expect(path.startsWith('equipment.foulingShell.')).toBe(false);
     // DELETED WITH RARITY AND THE SUBDECK WALK (Story 8.1): there is no card
     // scarcity tier, no offer category and no acquisition card left anywhere.
     for (const gone of [
@@ -1121,27 +1231,42 @@ describe('shared barrel', () => {
   });
 
   it('re-exports THE CLASS SHIFTS and the gun-family wire vocabulary (Story 8.15)', () => {
-    expect(SHIFT_IDS).toEqual(['boost', 'instantReload', 'damageCut']);
+    expect(SHIFT_IDS).toEqual(['boost', 'instantReload', 'hunker']);
     expect(DEFAULT_SHIFT).toBe('boost');
     expect(SHELL_FAMILIES).toEqual(['cannon', 'mg', 'flak']);
     expect(classShift('torpedoBoat')).toBe('boost');
     expect(classShift('mineLayer')).toBe('instantReload');
-    expect(classShift('battleship')).toBe('damageCut');
+    expect(classShift('battleship')).toBe('hunker');
     // Eric's numbers, verbatim (amendments 97, 99, 103, 105; the machine gun
-    // and the flak reload as of 2026-10-02, amendment 232).
+    // and the flak reload as of 2026-10-02, amendment 232; the MG reload, the
+    // flak damage and the rim factor as of 2026-10-16, Story 9.12).
     expect(CONFIG.machineGun).toEqual({
       arc: 'full', hits: ['hull', 'mine', 'decoy'], shellSpeed: 500, maxAmmo: 12, rateMs: 300,
-      reloadMs: 12000, damage: 5, shellRadius: 2,
+      reloadMs: 12500, damage: 5, shellRadius: 2,
+      rangeU: TWELFTH * 6, rangeUAtV: TWELFTH * 7, // ruling 125: 6/12 → 7/12 (750 → 875 u)
     });
     expect(CONFIG.flak).toEqual({
       arc: 'full', hits: ['hull', 'mine', 'decoy', 'ordnance'], shellSpeed: 500, maxAmmo: 1,
-      reloadMs: 3500, damage: 12, contactDamage: 4, burstRadius: 50, shellRadius: 2, // 4000 → 3500, amendment 232
+      reloadMs: 3500, damage: 16, contactDamage: 4, burstRadius: 50, shellRadius: 2, // 4000 → 3500, amendment 232; damage 12 → 20 (2026-10-13) → 16 (Eric 2026-10-16, Story 9.12)
+      rangeU: TWELFTH * 5, rangeUAtV: TWELFTH * 6, // ruling 125: 5/12 → 6/12 (625 → 750 u)
+      rimFactor: 0.5, // the rim deals HALF the centre (Eric 2026-10-16, Story 9.12; replaces edgeFalloff)
     });
+    // The retired flat D − 10 dial never comes back under its old name.
+    expect('edgeFalloff' in CONFIG.flak).toBe(false);
+    // ONE attenuation block read by all three deck guns (ruling 184(f));
+    // minFactor 0.8 → 0.5 (Eric 2026-10-17, amendment 187: 50 % at max range).
+    expect(CONFIG.gunAttenuation).toEqual({ fullFrac: 0.5, minFactor: 0.5 });
     expect(CONFIG.instantReload).toEqual({ maxAmmo: 1, reloadMs: 60000 }); // 60 s (Eric 2026-10-02, amendment 232; was 45 s)
-    expect(CONFIG.damageCut).toEqual({ factor: 0.5, durationMs: 8000, maxAmmo: 1, reloadMs: 30000 });
-    // Neither pickable gun carries a range field — it is the radar rung.
-    expect('rangeU' in CONFIG.machineGun).toBe(false);
-    expect('rangeU' in CONFIG.flak).toBe(false);
+    // Story 9.7 (epic-9 amendments 86–88 / 110–117): the HUNKER is temporary
+    // Armor for 10 s; the flat factor is DELETED, not kept beside it. Story 9.9
+    // (epic-9 amendment 144): K 5 -> 100 and the bonus 5 -> 100 (×0.5 kept).
+    expect(CONFIG.hunker).toEqual({ armorBonus: 100, durationMs: 10000, maxAmmo: 1, reloadMs: 30000 });
+    expect(CONFIG.armor).toEqual({ k: 100 });
+    expect(typeof damageMultiplierFor).toBe('function');
+    // Both pickable guns carry their own range dials since Story 9.8 (ruling
+    // 125) — no longer the radar rung.
+    expect('rangeU' in CONFIG.machineGun).toBe(true);
+    expect('rangeU' in CONFIG.flak).toBe(true);
     expect('burstRadius' in CONFIG.machineGun).toBe(false); // direct hit, NO burst
   });
 
@@ -1200,9 +1325,9 @@ describe('shared barrel', () => {
     // the field — so level totals are a consequence, never the input. Counts
     // doubled from 4/2/1 when the spawn unit halved to six hulls.
     expect(CONFIG.fleet.waves).toEqual([
-      { atMs: 60000, fleets: 8 },
-      { atMs: 300000, fleets: 4 },
-      { atMs: 540000, fleets: 2 },
+      { atMs: 60000, fleets: 16 }, // doubled 2026-10-14 (Eric, Story 9.8): 16 -> 8 -> 4
+      { atMs: 300000, fleets: 8 },
+      { atMs: 540000, fleets: 4 },
     ]);
   });
 });

@@ -3,7 +3,7 @@
 // Two playtesters lost their client mid-match: the canvas froze on its last frame
 // while the socket and server sim carried on ("the game is still going, but my UI
 // and cam are fully frozen"). One had just fitted a radar upgrade; the other had
-// no boons at all and was in a star-shell dazzle. Both saw the same throw inside
+// no boons at all and was in a star-shell dazzle (a since-retired sight cut). Both saw the same throw inside
 // `renderer.render()` — `Cannot read properties of null (reading '0')` at Pixi's
 // `BindGroup.getResource`.
 //
@@ -20,12 +20,11 @@
 //
 // `syncDimMask` used to swap in a new texture and destroy the old one, which is
 // precisely that. So the pin is: A REBAKE MUST REDRAW THE LIVE TEXTURE IN PLACE
-// AND NEVER DESTROY IT. Both triggers are covered, because they are independent
-// inputs to the same radius (`fogHoleRadiusU(sightRange, dazzled)`): a radar-range
-// change via `setRanges`, and a dazzle flip via `setDazzled`. Since cycle 119
-// deleted the INTEL RANGE line, DAZZLE is the only trigger left in production —
-// the `setRanges` half is pinned anyway, because that setter is the seam a future
-// radar card would arrive through and the lifetime bug is silent until it fires.
+// AND NEVER DESTROY IT. The trigger is a move of the radius
+// (`fogHoleRadiusU(ranges)`) via `setRanges` — pinned both ways (widening and
+// narrowing back). Story 9.4 deleted the second trigger, the FLASH SHELLS dazzle
+// flip (`setDazzled`); `setRanges` is the seam any future sight modifier arrives
+// through, and the lifetime bug is silent until it fires.
 //
 // The bake is stubbed here for the same reason the other radar suites stub it —
 // jsdom has no 2d canvas — but the stub MIRRORS the real reuse contract (hand a
@@ -82,19 +81,19 @@ describe('a dim-mask rebake never destroys the bound TextureSource', () => {
     destroyed.mockRestore();
   });
 
-  it('keeps ONE texture and source across a dazzle flip, both ways', () => {
+  it('keeps ONE texture and source across a bubble that narrows and widens back', () => {
     const radar = radarFor();
     const first = radar.dimMask.texture;
     const destroyed = vi.spyOn(first, 'destroy');
     radar.render(OWN, 100, null, null);
 
-    radar.setDazzled(true);
+    radar.setRanges(SIGHT * 0.5, RADAR, 6000);
     radar.render(OWN, 200, null, null);
-    expect(bakes.into.at(-1), 'the flare rebake reuses it').toBe(first);
+    expect(bakes.into.at(-1), 'the narrowing rebake reuses it').toBe(first);
 
-    radar.setDazzled(false);
+    radar.setRanges(SIGHT, RADAR, 6000);
     radar.render(OWN, 300, null, null);
-    expect(bakes.into.at(-1), 'and so does burning out').toBe(first);
+    expect(bakes.into.at(-1), 'and so does widening back').toBe(first);
 
     expect(radar.dimMask.texture).toBe(first);
     expect(first.source.destroyed).toBe(false);

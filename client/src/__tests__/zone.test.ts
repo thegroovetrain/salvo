@@ -32,11 +32,19 @@ import {
 import { FLASH_ELEMENTS, createFlashBudget } from '../render/flashBudget.js';
 import { zoneViewFrom, type ZonePlane } from '../sim/zoneView.js';
 import { CLIENT_CONFIG } from '../config.js';
+import { ringFitSpanU, spanFactor } from '../render/camera.js';
 
 const Z = CLIENT_CONFIG.zone;
 const CAP_HZ = CLIENT_CONFIG.settings.pulseCapHz;
-/** The shipped user-zoom range (CLIENT_CONFIG.zoom) — the zoom-lock's contract. */
-const ZOOMS = [CLIENT_CONFIG.zoom.min, 1, CLIENT_CONFIG.zoom.max];
+/** The shipped user-zoom range as px-per-u multipliers over the default
+ *  framing (Story 9.8, ruling 127) — the zoom-lock's contract: the ring fit of
+ *  the full base map (the widest the alive camera goes), the default, and the
+ *  close framing. */
+const ZOOMS = [
+  spanFactor(CLIENT_CONFIG.zoom.defaultSpanU, ringFitSpanU(CONFIG.map.baseRadius, CLIENT_CONFIG.reveal.mapFitMargin)),
+  1,
+  spanFactor(CLIENT_CONFIG.zoom.defaultSpanU, CLIENT_CONFIG.zoom.closeSpanU),
+];
 
 const RING = (r: number, cx = 0, cy = 0): ZoneRing => ({ cx, cy, r });
 
@@ -118,11 +126,13 @@ describe('strokeWorldWidth — the SCREEN-LOCKED stroke (zoom invariance)', () =
 
 describe('fillOuterRadius — the FULL-AREA storm fill (amendment 15)', () => {
   const MAP_R = CONFIG.map.baseRadius;
-  /** The maximum effective radar range. No card writes `radarRange` (the boon
-   *  line that did was deleted in cycle 119), so the ceiling IS the base — and
-   *  the camera fits 2 x radar on the SHORT axis, so this is the widest view a
-   *  player's own sensors ever give the fill to cover. */
-  const MAX_RADAR = CONFIG.vision.radar;
+  /** The camera's three alive framings as ABSOLUTE spans across the SHORT axis
+   *  (Story 9.8, ruling 127): the close limit, the default, and the widest — the
+   *  live ring fitted with the reveal margin, which at match start is the full
+   *  map ring. */
+  const CLOSE = CLIENT_CONFIG.zoom.closeSpanU;
+  const DEFAULT = CLIENT_CONFIG.zoom.defaultSpanU;
+  const WIDEST = ringFitSpanU(MAP_R, CLIENT_CONFIG.reveal.mapFitMargin);
 
   const view = (o: Partial<FillView> = {}): FillView => ({
     cur: { cx: 0, cy: 0 },
@@ -135,9 +145,8 @@ describe('fillOuterRadius — the FULL-AREA storm fill (amendment 15)', () => {
     ...o,
   });
 
-  /** The camera zoom a viewport lands at for a given radar range + user zoom. */
-  const zoomFor = (vw: number, vh: number, radar: number, user: number): number =>
-    (Math.min(vw, vh) / (2 * radar)) * user;
+  /** The camera zoom a viewport lands at for a given span across its short axis. */
+  const zoomFor = (vw: number, vh: number, spanU: number): number => Math.min(vw, vh) / spanU;
 
   /** EXACTLY what the disc must reach: the ring center is its origin, and the
    *  farthest visible point is the opposite screen corner from the camera. */
@@ -146,7 +155,7 @@ describe('fillOuterRadius — the FULL-AREA storm fill (amendment 15)', () => {
     Math.hypot(v.screenW, v.screenH) / 2 / v.zoom;
 
   it('reaches well past the map edge in ordinary play, and stays on its floor', () => {
-    const v = view({ zoom: zoomFor(1920, 1080, CONFIG.vision.radar, 1) });
+    const v = view({ zoom: zoomFor(1920, 1080, DEFAULT) });
     expect(fillOuterRadius(v)).toBeGreaterThan(MAP_R);
     // Ordinary play never leaves the floor's bucket — so the disc is drawn once
     // and never re-tessellated by a camera that is merely following a hull.
@@ -163,25 +172,23 @@ describe('fillOuterRadius — the FULL-AREA storm fill (amendment 15)', () => {
       [720, 3440], // portrait, for symmetry
     ];
     for (const [vw, vh] of viewports) {
-      for (const radar of [CONFIG.vision.radar, MAX_RADAR]) {
-        for (const user of [CLIENT_CONFIG.zoom.min, 1, CLIENT_CONFIG.zoom.max]) {
-          for (const [dx, dy] of [[0, 0], [MAP_R, MAP_R], [-9_000, 4_000]]) {
-            const v = view({
-              zoom: zoomFor(vw, vh, radar, user),
-              screenW: vw,
-              screenH: vh,
-              cur: { cx: 180, cy: -90 },
-              camX: 180 + dx,
-              camY: -90 + dy,
-            });
-            expect(fillOuterRadius(v)).toBeGreaterThan(needed(v));
-          }
+      for (const span of [WIDEST, DEFAULT, CLOSE]) {
+        for (const [dx, dy] of [[0, 0], [MAP_R, MAP_R], [-9_000, 4_000]]) {
+          const v = view({
+            zoom: zoomFor(vw, vh, span),
+            screenW: vw,
+            screenH: vh,
+            cur: { cx: 180, cy: -90 },
+            camX: 180 + dx,
+            camY: -90 + dy,
+          });
+          expect(fillOuterRadius(v)).toBeGreaterThan(needed(v));
         }
       }
     }
   });
 
-  it('FAIL-PROOF: 3440x720 at min zoom with a maxed radar stack', () => {
+  it('FAIL-PROOF: 3440x720 at the widest framing (the full-map ring fit)', () => {
     // THE HISTORICAL DEMONSTRATION IS RETIRED, NOT THE TEST (Story 5.6,
     // amendment 41). At mapRadius 2400 the pre-fix CONSTANT bound
     // (mapRadius x 7 = 16800u) fell ~760u short of this configuration, and this
@@ -197,7 +204,7 @@ describe('fillOuterRadius — the FULL-AREA storm fill (amendment 15)', () => {
     const v = view({
       screenW: 3440,
       screenH: 720,
-      zoom: zoomFor(3440, 720, MAX_RADAR, CLIENT_CONFIG.zoom.min),
+      zoom: zoomFor(3440, 720, WIDEST),
       // A ring hugging one map edge with the camera at the opposite one: the
       // two are 2 x mapRadius apart, which is the honest worst case.
       cur: { cx: -MAP_R, cy: 0 },
@@ -211,22 +218,25 @@ describe('fillOuterRadius — the FULL-AREA storm fill (amendment 15)', () => {
 
   it('covers a far-panned SPECTATOR (free pan is unclamped — no constant covers it)', () => {
     for (const d of [10_000, 250_000, 5_000_000]) {
-      const v = view({ camX: d, camY: -d, zoom: zoomFor(2560, 1080, MAX_RADAR, 1), screenW: 2560, screenH: 1080 });
+      const v = view({ camX: d, camY: -d, zoom: zoomFor(2560, 1080, DEFAULT), screenW: 2560, screenH: 1080 });
       expect(fillOuterRadius(v)).toBeGreaterThan(needed(v));
       expect(Number.isFinite(fillOuterRadius(v))).toBe(true);
     }
   });
 
   it('BUCKETS upward, so a panning camera does not re-tessellate every frame', () => {
-    const base = view({ camX: 29_000, zoom: 0.2 });
+    // A SMALL map here on purpose: the bucketing is the subject, and the
+    // map-radius FLOOR (fillOuterFactor × mapRadius) must not be the term that
+    // wins — on the 5500 u ocean (Story 9.1) it would swallow a 4000 u pan.
+    const base = view({ camX: 29_000, zoom: 0.2, mapRadius: 1000 });
     const r = fillOuterRadius(base);
     expect(r % Z.fillBucketU).toBe(0); // always on a bucket step
     // Creeping the camera a few hundred units cannot move the drawn radius.
     for (const dx of [1, 50, 400]) {
-      expect(fillOuterRadius(view({ camX: 29_000 + dx, zoom: 0.2 }))).toBe(r);
+      expect(fillOuterRadius(view({ camX: 29_000 + dx, zoom: 0.2, mapRadius: 1000 }))).toBe(r);
     }
     // ...but a genuine pan past a step does.
-    expect(fillOuterRadius(view({ camX: 29_000 + Z.fillBucketU * 2, zoom: 0.2 }))).toBeGreaterThan(r);
+    expect(fillOuterRadius(view({ camX: 29_000 + Z.fillBucketU * 2, zoom: 0.2, mapRadius: 1000 }))).toBeGreaterThan(r);
   });
 
   it('stays finite and positive for a degenerate map radius or camera', () => {

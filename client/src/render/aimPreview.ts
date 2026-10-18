@@ -116,7 +116,7 @@ export interface PreviewLine {
  *  `effect` marks a circle drawn in the quieter register because it is LARGE,
  *  not because it is harmless: the star shell's lit radius (which since Story
  *  8.17, amendment 130, is also its damage circle — the tier's damage to every
- *  hull inside it) and the FLASH SHELLS burst (which blinds and deals none). It
+ *  hull inside it) and the FOULING SHELL's zone (which slows and deals none). It
  *  is typically many times a blast circle's size (the flare lights half a
  *  truesight bubble), and at damage-circle weight that much ink would bury the
  *  gun-blast circles the same aim UX draws. */
@@ -201,7 +201,7 @@ interface BurstSpec {
   /** Draw the circle in the quieter EFFECT register — the star shell's lit
    *  zone (a damage circle too since Story 8.17, amendment 130: the flare hits
    *  every hull inside it for the tier's damage, but its size would swamp the
-   *  blast circles at full weight) and the FLASH SHELLS burst. Defaults to
+   *  blast circles at full weight) and the FOULING SHELL's zone. Defaults to
    *  false: every other circle here is drawn at damage weight. */
   effect?: boolean;
 }
@@ -444,7 +444,7 @@ function starShellPreview(inp: AimPreviewInput): AimPreviewModel {
 
 /**
  * PHOSPHOR SHELLS (Story 8.17, amendment 131): the star-shell preview pattern —
- * one 360° shell to the click at the radar rung (`rangeU`), island- and
+ * one 360° shell to the click at its own tiered reach (`rangeU`, ruling 125), island- and
  * map-clamped — with the burst ring at the owner's effective `zoneRadius`,
  * which is both the burst's damage circle and the burning zone it leaves. Drawn
  * at DAMAGE weight (not the flare's quieter effect register): a phosphor burst
@@ -463,18 +463,20 @@ function phosphorShellPreview(inp: AimPreviewInput): AimPreviewModel {
 }
 
 /**
- * FLASH SHELLS (internal id `dazzleShells` — Story 8.17, amendment 132): the
- * star-shell preview pattern for the belt's click-fired flash — one 360° shell
- * to the click at the star shell's reach (the post-fold `radarRange`), with the
- * one-time blinding burst at `CONFIG.flashShells.radius` (a consumable reads
- * its numbers straight off CONFIG). Drawn in the quieter EFFECT register like
- * the flare: the flash deals no damage.
+ * THE FOULING SHELL (Story 9.4, epic-9 amendments 61–68 — FLASH SHELLS'
+ * successor, fired exactly as the flash was): the star-shell preview pattern
+ * for the click-fired consumable — one 360° shell to the click at its OWN
+ * reach dial, `CONFIG.foulingShell.rangeU` (fixed 8/12 of the ruler, Story 9.8
+ * ruling 125 — never `radarRange`), with the foul zone's circle at
+ * `CONFIG.foulingShell.radius` (a consumable reads its numbers straight off
+ * CONFIG; no card moves either). Drawn in the quieter EFFECT register like the flare: the shell
+ * deals no damage.
  */
-function flashShellPreview(inp: AimPreviewInput): AimPreviewModel {
+function foulingShellPreview(inp: AimPreviewInput): AimPreviewModel {
   return parallelVolley(inp, {
-    rangeU: inp.stats.radarRange,
-    burstRadius: CONFIG.flashShells.radius,
-    shellRadius: CONFIG.flashShells.shellRadius,
+    rangeU: CONFIG.foulingShell.rangeU,
+    burstRadius: CONFIG.foulingShell.radius,
+    shellRadius: CONFIG.foulingShell.shellRadius,
     barrels: 1,
     spacingU: 0,
     effect: true,
@@ -602,14 +604,14 @@ export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
 }
 
 /** The ids with a preview of their OWN (not a family's) — a table rather than
- *  an if-chain so each new aimed line (Story 8.17's PHOSPHOR and FLASH SHELLS)
+ *  an if-chain so each new aimed line (Story 8.17's PHOSPHOR SHELLS, Story 9.4's FOULING SHELL)
  *  is one row. Every id absent here falls through to the family checks. */
 const SINGLE_ID_PREVIEWS: Partial<Record<SlotItemId, (inp: AimPreviewInput) => AimPreviewModel>> = {
   gun: cannonPreview,
   broadside: broadsidePreview,
   starShells: starShellPreview,
   phosphorShells: phosphorShellPreview,
-  dazzleShells: flashShellPreview,
+  foulingShell: foulingShellPreview,
   decoyBuoy: decoyPreview,
 };
 
@@ -634,10 +636,11 @@ const OWN_BURST_RADIUS: Partial<Record<NonNullable<OwnFire>, (stats: EffectiveSt
   gun: (s) => s.equipment.gun.burstRadius,
   broadside: (s) => s.equipment.broadside.burstRadius,
   flak: (s) => s.equipment.flak.burstRadius, // Story 8.15 — the fixed 50 u blast
-  // Story 8.17: PHOSPHOR bursts over its whole (tier-grown) zone; FLASH SHELLS
-  // over the fixed CONFIG radius (a consumable reads CONFIG, never a row).
+  // Story 8.17: PHOSPHOR bursts over its whole (tier-grown) zone; the FOULING
+  // SHELL (Story 9.4) over the fixed CONFIG radius (a consumable reads CONFIG,
+  // never a row).
   phosphorShells: (s) => s.equipment.phosphorShells.zoneRadius,
-  dazzleShells: () => CONFIG.flashShells.radius,
+  foulingShell: () => CONFIG.foulingShell.radius,
 };
 
 /** The stroke tint for a weapon's preview: the TORPEDO FAMILY keeps its

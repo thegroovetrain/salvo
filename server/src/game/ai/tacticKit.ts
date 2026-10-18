@@ -14,8 +14,8 @@
 // aiming (lead solve + scatter + the coastline check), the torpedo shot solve
 // (shared by both torpedo lines and the SUPERCAV belt fish), the sector
 // placement (mines and the DECOY BUOY), the live-contact burst (PHOSPHOR
-// SHELLS and FLASH SHELLS), the DAMAGE CUT cues (the Shift and SHIELD BLOCK)
-// and the registry freezer.
+// SHELLS and the FOULING SHELL) with its astern-filtered pick, the HUNKER (was DAMAGE CUT until Story 9.9)
+// cues (the Shift and SHIELD BLOCK) and the registry freezer.
 //
 // No rng is drawn anywhere in a want() — the mind's stream feeds aim scatter
 // and nothing else (the determinism pin).
@@ -40,7 +40,8 @@ import type { BotMind, BotPosture, BotSelf, BotWorldPort } from './types.js';
 import { isActionable, lineBlocked, plotAt, tracksOf, type BotSituation, type BotTrack } from './utility.js';
 import type { BotProfile } from './profiles.js';
 import { torpedoInbound } from './torpedoThreat.js';
-import { trackVelocity } from './plot.js';
+import { TRACK_PERSIST_MS, trackVelocity } from './plot.js';
+import { mountedReachOf } from './doctrine.js';
 
 const TAU = Math.PI * 2;
 
@@ -92,7 +93,7 @@ const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
   flak: 0.5,
   boost: APPETITE_NEUTRAL,
   instantReload: APPETITE_NEUTRAL,
-  damageCut: APPETITE_NEUTRAL,
+  hunker: APPETITE_NEUTRAL,
   lightTorpedo: APPETITE_NEUTRAL,
   heavyTorpedo: APPETITE_NEUTRAL,
   navalMines: APPETITE_NEUTRAL,
@@ -148,7 +149,7 @@ export interface TacticContext {
 
 /**
  * ONE SLOT ITEM'S BOT TACTIC — the shape every row shares. A fitted slot may
- * hold a piece of EQUIPMENT (slots 0-4) or a CONSUMABLE stack (the belt, 5-8),
+ * hold a piece of EQUIPMENT (slots 0-4) or a CONSUMABLE stack (its kind's fixed slot, 5-10),
  * the two id spaces are disjoint, and each has its OWN registry keyed by its
  * OWN id (`EQUIPMENT_TACTICS` / `CONSUMABLE_TACTICS`) so neither record ever
  * grows a fake row. `tacticFor` is the one lookup that spans them, narrowing
@@ -205,7 +206,7 @@ const LEAD_ITERATIONS = 3;
  * so its last-known point IS the aim point. A live sighting was refreshed
  * this tick, so its prediction is its position and the solve is the old one.
  */
-function leadPoint(sit: BotSituation, t: BotTrack, speed: number): Vec2 {
+export function leadPoint(sit: BotSituation, t: BotTrack, speed: number): Vec2 {
   const base = plotAt(sit, t);
   const v = trackVelocity(t);
   if (v === null) return base;
@@ -311,12 +312,14 @@ export function sectorPlacement(
 }
 
 /** The nearest LIVE, actionable track inside our own truesight bubble — the
- *  target both the PHOSPHOR SHELLS row and the FLASH SHELLS belt row burst on. */
-export function nearestLiveInSight(ctx: TacticContext): BotTrack | null {
+ *  target the PHOSPHOR SHELLS row and the engaging FOULING SHELL row burst
+ *  on. `keep` narrows the candidates (the astern pick below); the default
+ *  keeps every track. */
+export function nearestLiveInSight(ctx: TacticContext, keep: (t: BotTrack) => boolean = () => true): BotTrack | null {
   let best: BotTrack | null = null;
   let bestD = Infinity;
   for (const t of tracksOf(ctx.mind)) {
-    if (!t.live || !isActionable(t, ctx.sit.now)) continue;
+    if (!t.live || !isActionable(t, ctx.sit.now) || !keep(t)) continue;
     const d = distTo(ctx.sit, t);
     if (d > ctx.sit.stats.sightRange) continue;
     if (d < bestD) {
@@ -327,10 +330,26 @@ export function nearestLiveInSight(ctx: TacticContext): BotTrack | null {
   return best;
 }
 
-/** A burst placed ON a live contact (no lead — the zone / flash is an area),
- *  clamped to `rangeU`, coastline-gated on the shot. */
-export function burstOnLiveContact(ctx: TacticContext, rangeU: number): Shot | null {
-  const t = nearestLiveInSight(ctx);
+/** The nearest LIVE, actionable track inside sight that lies ASTERN of the
+ *  bot (Story 9.4, amendment 65 — the disengaging FOULING SHELL's pick):
+ *  "astern" = the contact's bearing from the bot is more than 90° off the
+ *  bot's heading (behind the beam), read at the plot's predicted point like
+ *  every other range check. */
+export function nearestLiveAstern(ctx: TacticContext): BotTrack | null {
+  return nearestLiveInSight(ctx, (t) => isAstern(ctx, t));
+}
+
+/** Is this track behind the bot's beam? |wrap(bearing − heading)| > 90°. */
+function isAstern(ctx: TacticContext, t: BotTrack): boolean {
+  const off = wrapAngle(bearing(ctx.self.state, plotAt(ctx.sit, t)) - ctx.self.state.heading);
+  return Math.abs(off) > Math.PI / 2;
+}
+
+/** A burst placed ON a live contact (no lead — the zone is an area), clamped
+ *  to `rangeU`, coastline-gated on the shot. The target defaults to the
+ *  nearest live contact in sight; a row with its own pick passes it. */
+export function burstOnLiveContact(ctx: TacticContext, rangeU: number, target: BotTrack | null = nearestLiveInSight(ctx)): Shot | null {
+  const t = target;
   if (t === null) return null;
   const d = distTo(ctx.sit, t);
   if (d > rangeU) return null;
@@ -338,12 +357,99 @@ export function burstOnLiveContact(ctx: TacticContext, rangeU: number): Shot | n
   return { aim: bearing(ctx.self.state, plotAt(ctx.sit, t)), aimDist: d, slot: ctx.slot };
 }
 
+// ---------------------------------------------------------------------------
+// HOSTILE READS (Story 9.13, amendment 199) — the trigger extensions' cues.
+// ---------------------------------------------------------------------------
+
+/** Is this track a HOSTILE worth a defensive press: a captain (a sighted PvE
+ *  fleet hull is neutral — the captive-mine precedent; an unclassed paint is
+ *  assumed a captain), not a wreck, past the reaction gate, and LIVE or
+ *  refreshed within one base sweep revolution (a fresh paint)? */
+export function isFreshHostile(t: BotTrack, now: number): boolean {
+  if (t.sunk || t.fleet || !isActionable(t, now)) return false;
+  return t.live || now - t.seenAt <= TRACK_PERSIST_MS;
+}
+
+/** Any fresh hostile track whose predicted plot lies within `reachU`?
+ *  `keep` narrows the candidates (the radar-only chaser read below). */
+export function anyHostileWithin(
+  ctx: TacticContext,
+  reachU: number,
+  keep: (t: BotTrack) => boolean = () => true,
+): boolean {
+  for (const t of tracksOf(ctx.mind)) {
+    if (!isFreshHostile(t, ctx.sit.now) || !keep(t)) continue;
+    if (distTo(ctx.sit, t) <= reachU) return true;
+  }
+  return false;
+}
+
+/** Any fresh hostile inside the MOUNTED gun's reach (amendment 199's "a
+ *  hostile in weapon reach"; `effectiveReach.maxU`). */
+export function anyHostileInReach(ctx: TacticContext, reachU: number = mountedReachOf(ctx).maxU): boolean {
+  return anyHostileWithin(ctx, reachU);
+}
+
+/** A RADAR CHASER (amendment 199): a fresh hostile PLOT — painted, not in
+ *  sight — inside own radar range. */
+export function radarChaser(ctx: TacticContext): boolean {
+  return anyHostileWithin(ctx, ctx.sit.stats.radarRange, (t) => !t.live);
+}
+
 /**
- * THE DAMAGE CUT CUES (amendment 115) — (a) ENGAGED IN COMBAT: the bot's own
- * `engage` posture, with a target; or (b) a seen enemy torpedo inbound on a
- * collision line within 150 u (ai/torpedoThreat.ts). Shared by the DAMAGE CUT
+ * Is this track MOVING AWAY from the bot (amendment 199 — the pursuing
+ * FOULING SHELL's pick)? Its course (disclosed or estimated) points more than
+ * 90° off the bearing from it to us: v · (self − plot) < 0. A course-less or
+ * stopped track is not fleeing.
+ */
+export function movingAway(sit: BotSituation, t: BotTrack): boolean {
+  const v = trackVelocity(t);
+  if (v === null || (v.vx === 0 && v.vy === 0)) return false;
+  const p = plotAt(sit, t);
+  return v.vx * (sit.x - p.x) + v.vy * (sit.y - p.y) < 0;
+}
+
+/** At or above the profile's break-off line (a HEALTHY bot, amendment 199's
+ *  declined-fight clause). */
+export function healthy(sit: BotSituation): boolean {
+  return sit.maxHp > 0 && sit.hp / sit.maxHp >= sit.profile.disengageHpFrac;
+}
+
+/** Is one of the bot's OWN decoy buoys on the water? The owner is always sent
+ *  its own (`DecoyView.own`, the decoy row's owner-always clause). */
+export function ownDecoyLive(mind: BotMind): boolean {
+  return mind.view?.decoys.some((d) => d.own) ?? false;
+}
+
+/** THE HARNESS STAMP (Story 9.13): record the tactic row that produced a shot
+ *  on the mind's `lastTactic` seat and hand the shot through. A null shot
+ *  stamps nothing. */
+export function stamped(ctx: TacticContext, row: string, shot: Shot | null): Shot | null {
+  if (shot !== null) ctx.mind.lastTactic = row;
+  return shot;
+}
+
+/** Postures in which HUNKER / SHIELD BLOCK also fire with a hostile in weapon
+ *  reach (amendment 199): pursuing, kiting, fleeing, hiding. */
+const REACH_GUARD_POSTURES: readonly BotPosture[] = ['pursue', 'kite', 'disengage', 'hide'];
+
+/** The last seconds before a ram (amendment 199): the ram posture with its
+ *  target inside `CONFIG.bots.ramReachU`. */
+function preRam(ctx: TacticContext): boolean {
+  return ctx.posture === 'ram' && ctx.target !== null && distTo(ctx.sit, ctx.target) <= CONFIG.bots.ramReachU;
+}
+
+/**
+ * THE HUNKER CUES (amendment 115, extended by amendment 199) — (a) ENGAGED IN
+ * COMBAT: the bot's own `engage` posture, with a target; (b) a seen enemy
+ * torpedo inbound on a collision line within 150 u (ai/torpedoThreat.ts);
+ * (c) the last seconds before a ram; (d) pursuing, kiting, fleeing or hiding
+ * with ANY fresh hostile inside the mounted gun's reach. Shared by the HUNKER
  * Shift and the SHIELD BLOCK belt row (amendment 124(g)).
  */
-export function damageCutCues(ctx: TacticContext): boolean {
-  return (ctx.posture === 'engage' && ctx.target !== null) || torpedoInbound(ctx.self, ctx.mind, ctx.sit.now);
+export function hunkerCues(ctx: TacticContext): boolean {
+  if (ctx.posture === 'engage' && ctx.target !== null) return true;
+  if (torpedoInbound(ctx.self, ctx.mind, ctx.sit.now)) return true;
+  if (preRam(ctx)) return true;
+  return REACH_GUARD_POSTURES.includes(ctx.posture) && anyHostileInReach(ctx);
 }

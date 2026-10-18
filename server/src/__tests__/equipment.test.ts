@@ -27,6 +27,7 @@ import {
   SLOT_COUNT,
   SLOT_GUN,
   WEAPON_SLOTS,
+  consumableSlotFor,
   equipmentMaxAmmo,
   isStubLine,
   tierTargetOf,
@@ -53,18 +54,18 @@ import {
 } from '../game/equipment/index.js';
 
 const DT = CONFIG.tick.simDtMs;
-// THE FIXTURE IS NINE FIXED-ROLE SLOTS (Story 8.5). There is no per-hull fit
+// THE FIXTURE IS SLOT_COUNT FIXED-ROLE SLOTS (Story 8.5's nine, eleven since Story 9.2). There is no per-hull fit
 // left to name: EVERY captain spawns [gun, boost, <seed weapons>, ...] and
-// the rest of the nine are empty. What still differs per hull is the SPAWN
+// the rest are empty. What still differs per hull is the SPAWN
 // SEED (sim/catalog.ts), which lands its weapons in the weapon row (2, 3, 4)
 // first-empty-first:
-//   MINE LAYER   [gun, boost, navalMines,   empty x6]
-//   TORPEDO BOAT [gun, boost, heavyTorpedo, empty x6]
+//   MINE LAYER   [gun, boost, navalMines,   empty ...]
+//   TORPEDO BOAT [gun, boost, heavyTorpedo, empty ...]
 // THE RADAR BUOY IS DELETED (Story 8.16). The cases that hand-fitted it into
 // a free weapon slot to have a SECOND reloading weapon aboard now hand-fit a
 // LIGHT TORPEDO there instead (fitSecond below) — the tick behaviour they pin
 // is about "a fitted slot reloads", not about which weapon it is.
-/** Mine Layer fit, in slot order (the rest of the nine are empty). Slot 1 is
+/** Mine Layer fit, in slot order (the rest are empty). Slot 1 is
  *  the hull's CLASS SHIFT since Story 8.15 (amendment 89(c)): INSTANT RELOAD
  *  on the Mine Layer. */
 const ML_IDS = ['gun', 'instantReload', 'navalMines'] as const;
@@ -78,8 +79,9 @@ const SLOT_TORPEDO = WEAPON_SLOTS[0];
 const SLOT_SECOND = WEAPON_SLOTS[1];
 /** An EMPTY weapon slot on every hull today (R): the empty-slot subject. */
 const SLOT_EMPTY_WEAPON = WEAPON_SLOTS[2];
-/** The first BELT slot - empty all of Story 8.5 (8.7 builds the rack). */
-const SLOT_BELT = CONSUMABLE_SLOTS[0];
+/** HULL REPAIR's FIXED consumable slot (Story 9.2 — every kind owns one; the
+ *  cases below stock HULL REPAIR, so this is where its stack lives). */
+const SLOT_BELT = consumableSlotFor('hullRepair')!;
 
 // ---------- construction helpers ---------------------------------------------
 
@@ -139,11 +141,11 @@ function secondReloadMs(ship: ShipRecord): number {
   return ship.stats.equipment.lightTorpedo.reloadMs;
 }
 
-/** Assert a ship carries its fresh nine-slot fit: the named ids at full pool
+/** Assert a ship carries its fresh SLOT_COUNT-slot fit: the named ids at full pool
  *  and an idle timer, with EVERY remaining slot empty. `ids` is passed rather
  *  than assumed, so a hull's fit is pinned HERE and not inherited. */
 function expectFreshLoadout(ship: ShipRecord, ids: readonly ['gun', ...string[]]): void {
-  expect(ship.loadout).toHaveLength(SLOT_COUNT); // nine since Story 8.5
+  expect(ship.loadout).toHaveLength(SLOT_COUNT);
   for (let i = 0; i < ids.length; i++) {
     expect(ship.loadout[i].equipmentId).toBe(ids[i]);
     const id = ids[i] as Parameters<typeof equipmentMaxAmmo>[1];
@@ -171,11 +173,11 @@ describe('EQUIPMENT registry — interface conformance', () => {
       'boost',
       'broadside',
       'captiveMines', // Story 8.13
-      'damageCut', // Story 8.15 — the Battleship's Shift (amendments 99–102)
       'flak', // Story 8.15 — the flak gun (amendment 105)
       'foulingMines', // Story 8.13 (amendment 81)
       'gun',
       'heavyTorpedo',
+      'hunker', // Story 8.15 — the Battleship's Shift (amendments 99–102; was DAMAGE CUT until Story 9.9)
       'instantReload', // Story 8.15 — the Mine Layer's Shift (amendments 97–98)
       'lightTorpedo', // Story 8.13
       'machineGun', // Story 8.15 — the held-fire magazine stream (amendments 103–104)
@@ -277,7 +279,7 @@ describe('EQUIPMENT registry — interface conformance', () => {
 
 // ---------- 1b. the CONSUMABLE rows + the two-registry lookup (Story 8.7) -----
 
-// A consumable is not a module: it is a STACK of copies in a belt slot (5-8),
+// A consumable is not a module: it is a STACK of copies in its kind's fixed slot (5-10),
 // each copy one use, with NO reload EVER (catalog-v3 R40). The row below is
 // the equipment row with its reload machinery removed, and these pins are what
 // say so — including the PRODUCTION pin that the registry holds exactly the
@@ -363,7 +365,7 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     expect(Object.isFrozen(reg)).toBe(true);
     expect(Object.isFrozen(reg.hullRepair)).toBe(true);
     expect(() => {
-      (reg as unknown as Record<string, unknown>).chaff = row;
+      (reg as unknown as Record<string, unknown>).shieldBlock = row;
     }).toThrow();
     expect(() => {
       (reg.hullRepair as unknown as { isWeapon: boolean }).isWeapon = true;
@@ -373,22 +375,22 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
   // THE PRODUCTION PIN. Story 8.8 flipped `hullRepair` and added its row;
   // Story 8.13 added SUPERCAV TORPEDO, the belt's first CLICK-AIMED line
   // (epic-8 amendment 74); Story 8.16 added SHIELD BLOCK, CHAFF and the
-  // click-placed DECOY BUOY; Story 8.17 FLASH SHELLS; Story 8.18 SMOKE SCREEN.
+  // click-placed DECOY BUOY; Story 8.17 FLASH SHELLS; Story 8.18 SMOKE SCREEN;
+  // Story 9.2 retired CHAFF from the catalog (epic-9 amendment 31).
   // The DEPTH CHARGE stub is the ONE line still `stub` in the catalog, so
   // nothing else is drawable or stockable in play, and the PARTIAL registry is
   // what makes even a forged press fail closed.
-  it('the PRODUCTION consumable registry holds the SEVEN built lines, and every stub line is absent', () => {
-    const BUILT = ['chaff', 'dazzleShells', 'decoyBuoy', 'hullRepair', 'shieldBlock', 'smokeScreen', 'supercavTorpedo'];
+  it('the PRODUCTION consumable registry holds the SIX built lines, and every stub line is absent', () => {
+    const BUILT = ['countermeasure', 'decoyBuoy', 'foulingShell', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
     expect(Object.keys(CONSUMABLES).sort()).toEqual(BUILT);
     expect(Object.isFrozen(CONSUMABLES)).toBe(true);
     for (const id of BUILT) expect(Object.isFrozen(CONSUMABLES[id as keyof typeof CONSUMABLES]), id).toBe(true);
     expect(CONSUMABLES.supercavTorpedo!.isWeapon).toBe(true); // aimed
     expect(CONSUMABLES.decoyBuoy!.isWeapon).toBe(true); // click-placed (Story 8.16)
-    expect(CONSUMABLES.dazzleShells!.isWeapon).toBe(true); // FLASH SHELLS: prime-and-click (Story 8.17)
+    expect(CONSUMABLES.foulingShell!.isWeapon).toBe(true); // FOULING SHELL: prime-and-click (Story 9.4 — FLASH SHELLS' seat)
     expect(CONSUMABLES.hullRepair!.isWeapon).toBe(false);
     expect(CONSUMABLES.shieldBlock!.isWeapon).toBe(false); // key-fired (Story 8.16)
-    expect(CONSUMABLES.chaff!.isWeapon).toBe(false); // key-fired (Story 8.16)
-    expect(CONSUMABLES.smokeScreen!.isWeapon).toBe(false); // key-fired (Story 8.18)
+    expect(CONSUMABLES.countermeasure!.isWeapon).toBe(false); // key-fired (Story 9.3 — SMOKE SCREEN's 8.18 seat)
     for (const id of CONSUMABLE_IDS) {
       if (BUILT.includes(id)) continue;
       expect(isStubLine(id), id).toBe(true); // every absent line is absent BECAUSE it is a stub
@@ -407,7 +409,7 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
       expect(Object.hasOwn(CONSUMABLES, id), id).toBe(!isStubLine(id));
       if (!isStubLine(id)) nonStub += 1;
     }
-    expect(nonStub).toBe(7); // HULL REPAIR (8.8) + SUPERCAV TORPEDO (8.13) + SHIELD/CHAFF/DECOY (8.16) + FLASH SHELLS (8.17) + SMOKE SCREEN (8.18)
+    expect(nonStub).toBe(6); // HULL REPAIR (8.8) + SUPERCAV TORPEDO (8.13) + SHIELD/DECOY (8.16) + FLASH SHELLS (8.17) + SMOKE SCREEN (8.18)
     // ...so exactly ONE stub remains (DEPTH CHARGE — never built, amendment 83).
     expect(CONSUMABLE_IDS.filter((id) => isStubLine(id)).sort()).toEqual(['depthCharge']);
   });
@@ -422,11 +424,11 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     expect(slotRow('machineGun', reg)).toBe(EQUIPMENT.machineGun); // BUILT in Story 8.15
     // consumable ids -> the injected registry, NEVER EQUIPMENT
     expect(slotRow('hullRepair', reg)).toBe(row);
-    expect(slotRow('chaff', reg)).toBeUndefined();
+    expect(slotRow('shieldBlock', reg)).toBeUndefined();
     // ...and production resolves the BUILT belt lines, never a stub one
     expect(slotRow('hullRepair')).toBe(hullRepairRow);
-    expect(slotRow('chaff')).toBe(CONSUMABLES.chaff); // built in Story 8.16
-    expect(slotRow('smokeScreen')).toBe(CONSUMABLES.smokeScreen); // built in Story 8.18
+    expect(slotRow('shieldBlock')).toBe(CONSUMABLES.shieldBlock); // built in Story 8.16
+    expect(slotRow('countermeasure')).toBe(CONSUMABLES.countermeasure); // built in Story 9.3 (8.18's smokeScreen seat)
     expect(slotRow('depthCharge')).toBeUndefined(); // the one stub left
     expect(slotRow(null, reg)).toBeUndefined();
   });
@@ -690,7 +692,7 @@ describe('empty-slot safety — the gate answers before any dereference', () => 
     });
   });
 
-  it('an empty BELT slot (5) denies empty-slot without crashing (the rack is Story 8.7)', () => {
+  it('an empty consumable slot denies empty-slot without crashing (the rack is Story 8.7)', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
     expect(ship.loadout[SLOT_BELT]).toEqual({ equipmentId: null, state: null });
@@ -899,7 +901,7 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
       expect(ship.loadout).toHaveLength(SLOT_COUNT);
       expect(ship.loadout[SLOT_GUN].equipmentId).toBe('gun');
       // Story 8.15 (amendment 89(c)): slot 1 is the hull's FIXED Shift —
-      // boost / damageCut / instantReload — resolved from the class id.
+      // boost / hunker / instantReload — resolved from the class id.
       expect(ship.loadout[SLOT_BOOST].equipmentId).toBe(classShift(hull));
       expect(ship.loadout[SLOT_BOOST].state).toEqual({ n: 1, reloadMsLeft: 0 });
       expect(WEAPON_SLOTS.map((i) => ship.loadout[i].equipmentId)).toEqual(

@@ -7,8 +7,9 @@
 //
 //   worldRoot   (camera-transformed): ocean, wake, projectile, mines, decoys
 //   fogSprite   (screen space)        — fog overlay + sight hole (render/fog.ts)
-//   chartRoot   (camera-transformed): map, smoke, blip, SHIP, PLATE, aim, burstFx,
-//                                     sweep  (fog-immune: above fog)
+//   chartRoot   (camera-transformed): map, fog (the field), smoke, SHIP, PLATE, cloud, blip,
+//                                     OWNSHIP, aim, burstFx, sweep
+//                                     (fog-immune: above fog)
 //   hudRoot     (screen space)        — telegraph HUD, then foghorn chevrons
 //
 // A NAME IS NEVER OBSCURED BY TERRAIN (this cycle, Eric: *"in game, names need to
@@ -178,44 +179,40 @@ export interface StageLayers {
   /** Star-shell lit zones (render/litZones.ts) — a fog-immune additive glow,
    *  beneath the tactical markers so blips/mines/reticle stay readable on top. */
   litZone: Container;
+  /** THE FOG FIELD (render/fogField.ts, Story 9.10) — the weather's pale haze,
+   *  directly above `litZone` and BELOW `smoke`, every marker, every hull and
+   *  nameplate, the countermeasure `cloud`, the radar paints and the own hull.
+   *  Under the hulls on purpose (epic-9 amendment 169): fog eats EYESIGHT, and
+   *  the server already withheld every contact the eye cannot see through it,
+   *  so a hull that WAS delivered from inside fog must stay visible above
+   *  the haze — drawing fog over it would hide what the server ruled seen. */
+  fog: Container;
   /** WOUNDED SMOKE plumes (render/smoke.ts) — fog-immune for the same reason
-   *  the burst ring and the reticle are: a hurt hull is disclosed out to 412.5u,
-   *  past the 330u sight bubble, so a plume drawn UNDER the fog would be
-   *  invisible in exactly the 330-412.5u annulus where the whole signal lives.
+   *  the burst ring and the reticle are: a hurt hull is disclosed out to the
+   *  flash rung (6/12), past the sight bubble (4/12), so a plume drawn UNDER
+   *  the fog would be invisible in exactly the annulus where the whole signal
+   *  lives.
    *  Placed directly above `litZone` and BENEATH the tactical marks for
    *  litZone's own stated reason — blips, mines and the reticle must stay
-   *  readable on top of it, and a plume is soft ambient texture, not a mark. */
+   *  readable on top of it, and a plume is soft ambient texture, not a mark.
+   *  The burn-zone fire (render/fire.ts) shares it. (Countermeasure clouds
+   *  drew here until 2026-10-12; they have their own `cloud` layer now.) */
   smoke: Container;
-  /**
-   * THE CHAFF OWNER'S RADAR PICTURE — the dashed ring (render/chaffRing.ts) and
-   * the grey ghost paints (render/chaffGhosts.ts). Fog-immune, directly ABOVE
-   * `smoke` and below `mineChart`.
-   *
-   * Eric, 2026-10-01: *"Radar returns should never be below the smoke screen."*
-   * Not `litZone` (where both lived until that ruling): `litZone` sits UNDER
-   * `smoke`, so a smoke screen laid over the cloud buried the ghost returns.
-   * Not `blip` either, though the real returns live there: `blip` carries the
-   * radar's near-range DIM MASK (amendment 181 — 20 % across the whole sight
-   * bubble), and the cloud bursts at the owner's own position, always inside
-   * that bubble, so a ghost on `blip` would draw at 20 % of half alpha —
-   * invisible. A layer of its own is the one seat that is both over the smoke
-   * and outside the mask.
-   */
-  chaff: Container;
   /** Own mines (render/mines.ts) — fog-immune so your field is always readable. */
   mineChart: Container;
   /** OWN decoy buoys (render/decoys.ts) — fog-immune chart markers so your own
    *  decoy is always readable; anyone else's goes to decoyWorld. */
   decoyChart: Container;
-  blip: Container;
   /**
-   * HULL SILHOUETTES — own ship (main.ts), every contact (render/contacts.ts)
-   * and the own firing-arc sectors (render/firing.ts).
+   * CONTACT HULL SILHOUETTES — every other hull (render/contacts.ts). The own
+   * hull moved to `ownShip` on 2026-10-12.
    *
-   * CHARTED AND ABOVE `blip` since this cycle, where it was the top of worldRoot
-   * (fogged, and therefore under every return). A hull you can see must read over
-   * the radar echo of itself; the sight-boundary softening the fog used to supply
-   * is applied per hull instead — see this file's header.
+   * Charted (fog-immune) since the hull lift, where it was the top of worldRoot;
+   * the sight-boundary softening the fog used to supply is applied per hull — see
+   * this file's header. It sat directly ABOVE `blip` from the hull lift until
+   * 2026-10-12, when the smoke-is-paint ruling put radar paints above the cloud
+   * and the cloud above contact hulls (see CHART_LAYER_ORDER), so a return now
+   * reads over a contact hull.
    */
   ship: Container;
   /**
@@ -235,6 +232,17 @@ export interface StageLayers {
    * See this file's header for why that beat splitting `chartRoot` in two.
    */
   plate: Container;
+  /** MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts, Story
+   *  9.3, 2026-10-12) — the spraypaint bitmap, above contact hulls and their
+   *  names, below radar paints and the own hull. Eric: "If I am not the user
+   *  then it should render above everything except radar paints." */
+  cloud: Container;
+  /** Radar paints (render/radar.ts) — above the cloud since 2026-10-12. */
+  blip: Container;
+  /** THE OWN HULL (main.ts) and its firing-arc sectors (render/firing.ts) —
+   *  above the cloud and the radar paints (Eric 2026-10-12: "If I'm the user,
+   *  I should be on top so I can see where I am"). */
+  ownShip: Container;
   /** Crosshair + bearing line (render/firing.ts) — fog-immune, above hulls and
    *  above nameplates. */
   aim: Container;
@@ -276,23 +284,36 @@ export type LayerName = keyof StageLayers;
 
 /** worldRoot, bottom → top: everything the fog composite dims. */
 export const WORLD_LAYER_ORDER = ['ocean', 'wake', 'projectile', 'mineWorld', 'decoyWorld'] as const;
-/** chartRoot, bottom → top: everything above the fog. The four rungs in the
- *  middle are the whole legibility contract, read upward: `blip` (radar paint),
- *  `ship` (the hull that outranks its own echo), `plate` (the name that outranks
- *  terrain and hulls), then `aim`/`burstFx`/`sweep` (the marks you aim and read
- *  damage with, which outrank everything below them). */
+/** chartRoot, bottom → top: everything above the fog. The legibility contract,
+ *  read upward: `ship` (contact hulls), `plate` (the name that outranks terrain
+ *  and hulls), `cloud` (countermeasure smoke), `blip` (radar paint), `ownShip`
+ *  (your own hull), then `aim`/`burstFx`/`sweep` (the marks you aim and read
+ *  damage with, which outrank everything below them).
+ *
+ *  RE-CUT 2026-10-12 (Story 9.3, "smoke is paint"). Eric: "You could, rather
+ *  than fucking with whether I can see something, just draw it on top of
+ *  ships. If I'm the user, I should be on top so I can see where I am. If I am
+ *  not the user then it should render above everything except radar paints."
+ *  So the cloud sits over contact hulls and names, radar paints over the
+ *  cloud, and the own hull over both. This reverses the hull lift's `ship`
+ *  directly above `blip` for CONTACT hulls (a return now reads over a contact
+ *  hull). The wounded-smoke/fire `smoke` layer keeps its old seat.
+ *
+ *  `fog` (Story 9.10) sits between `litZone` and `smoke`: weather haze under
+ *  every mark and hull (see its `StageLayers` doc). */
 export const CHART_LAYER_ORDER = [
   'map',
   'zone',
   'litZone',
+  'fog',
   'smoke',
-  // Eric 2026-10-01: "Radar returns should never be below the smoke screen."
-  'chaff',
   'mineChart',
   'decoyChart',
-  'blip',
   'ship',
   'plate',
+  'cloud',
+  'blip',
+  'ownShip',
   'aim',
   'burstFx',
   'sweep',

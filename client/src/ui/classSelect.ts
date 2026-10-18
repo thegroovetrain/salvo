@@ -67,7 +67,7 @@ interface LoadoutRow {
 export const SPECIAL_NAMES: Readonly<Record<ShiftId, string>> = {
   boost: 'SPEED BOOST',
   instantReload: 'INSTANT RELOAD',
-  damageCut: 'DAMAGE CUT',
+  hunker: 'HUNKER',
 };
 
 /**
@@ -157,8 +157,10 @@ export interface CardViewModel {
  * *"on ship select, change 'toughness' to 'armor' so the text fits better."*).
  * The column is fixed, the face is mono, and the label carries a 0.16em track,
  * so `TOUGHNESS` measured 9 x (14 x 0.605 + 2.24) = 96.4px into an 88px cell and
- * overflowed it. `ARMOR` is 53.6px and `TURNING`, now the longest of the three,
- * is 75.0px. The column is deliberately NOT shrunk to match: it was never the
+ * overflowed it. `ARMOR` was 53.6px and `TURNING`, now the longest of the three,
+ * is 75.0px. The row reads `HULL` since Story 9.6 (Eric 2026-10-13, epic-9
+ * amendment 93 — the ladder's printed name), 4 x (14 x 0.605 + 2.24) = 42.8px,
+ * shorter still, so the column ruling holds. The column is deliberately NOT shrunk to match: it was never the
  * thing at fault, and narrowing it would re-open the same trap for the next
  * label somebody adds.
  */
@@ -174,7 +176,7 @@ export function cardViewModel(cls: ShipClassId): CardViewModel {
     key: String(SHIP_CLASS_IDS.indexOf(cls) + 1).padStart(2, '0'),
     pips: [
       { label: 'SPEED', filled: pipFill(spec.kinematics.maxSpeed, anchors.speed) },
-      { label: 'ARMOR', filled: pipFill(spec.hp, anchors.toughness) },
+      { label: 'HULL', filled: pipFill(spec.hp, anchors.toughness) },
       { label: 'TURNING', filled: pipFill(spec.kinematics.turnRate, anchors.turning) },
     ],
     loadout: loadoutRows(cls),
@@ -471,7 +473,7 @@ function pipCell(): HTMLElement {
   return p;
 }
 
-/** A pip-scale grid (SPEED/ARMOR/TURNING × 5 bars); returns the row cells. */
+/** A pip-scale grid (SPEED/HULL/TURNING × 5 bars); returns the row cells. */
 function buildPips(vm: CardViewModel): { el: HTMLElement; rows: HTMLElement[][] } {
   const grid = document.createElement('div');
   grid.style.cssText =

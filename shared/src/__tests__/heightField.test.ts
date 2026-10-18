@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { mulberry32 } from '../math/rng.js';
+import { CONFIG } from '../constants.js';
 import {
   SEA_HEIGHT,
   TERRAIN_PARAMS,
@@ -64,7 +65,6 @@ describe('TERRAIN_PARAMS — the single tuning panel', () => {
     expect(TERRAIN_PARAMS.regionWeight).toBe(0.05);
     expect(TERRAIN_PARAMS.warpAmount).toBe(240);
     expect(TERRAIN_PARAMS.warp2Amount).toBe(140);
-    expect(TERRAIN_PARAMS.coverTarget).toBe(0.025);
     expect(TERRAIN_PARAMS.contourLevels).toBe(3); // 4 bands, the ratified cap
   });
 
@@ -343,17 +343,24 @@ describe('max-height pyramid — the radar-shadow substrate', () => {
   });
 });
 
-describe('production map size (radius 2800 — Story 5.6, amendment 42: was 2400)', () => {
-  const r = rasterFor(2026, 2800);
+describe('production map size (whatever CONFIG.map.baseRadius ships — 2800 → 5500 → 4000 across Story 9.1, 4000 → 5000 Story 9.8)', () => {
+  const R_PROD = CONFIG.map.baseRadius;
+  const r = rasterFor(2026, R_PROD);
 
-  it('builds the ~164KB raster the radar-shadow pass marches', () => {
-    expect(r.n).toBe(405);
-    expect(r.height.length).toBe(405 * 405); // 164,025 bytes at cell 14
-    expect(r.pyramid).toHaveLength(10); // 405 -> 1
+  it('builds the raster the radar-shadow pass marches, sized by the board: n = 2·ceil((R + 2·cell) / cell) + 1, one byte per cell, a pyramid down to 1', () => {
+    // The field's own grid rule (buildField: the disc plus a two-cell margin
+    // each side, centre sample included). The earlier "ceil(2R / cell) + 5"
+    // (amendment 9e) agreed with it at 2800 / 5500 / 4000 by rounding luck and
+    // drifts by one at 5000 (720 vs the real 721) — derive, never pin.
+    const half = Math.ceil((R_PROD + 2 * TERRAIN_PARAMS.cell) / TERRAIN_PARAMS.cell);
+    const n = half * 2 + 1; // 405 at 2800, 791 at 5500, 577 at 4000, 721 at 5000
+    expect(r.n).toBe(n);
+    expect(r.height.length).toBe(n * n);
+    expect(r.pyramid).toHaveLength(Math.ceil(Math.log2(n)) + 1);
   });
 
   it('is deterministic at production size', () => {
-    expect(fingerprint(r.height)).toBe(fingerprint(rasterFor(2026, 2800).height));
+    expect(fingerprint(r.height)).toBe(fingerprint(rasterFor(2026, R_PROD).height));
   });
 });
 

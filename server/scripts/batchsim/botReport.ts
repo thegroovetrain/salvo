@@ -23,6 +23,12 @@ import { fmt, fmtSummary, summarize, type Summary } from './stats.js';
 import type { BatchResult, MatchSample } from './runner.js';
 import { emptyKillsByTier, lifeSamples, type BotSample } from './botMetrics.js';
 import { buildPoolReadouts, renderPoolReadouts, type PoolReadouts } from './poolReadouts.js';
+import {
+  buildReadoutAggregate,
+  renderPostureBlock,
+  renderReadoutLines,
+  type BotReadoutAggregate,
+} from './botReadoutReport.js';
 
 /** The spec's Verification bars, as data (one place to read them off). */
 const BARS = {
@@ -133,6 +139,15 @@ export interface BotAggregate {
   /** Deaths at the hands of a PvE FLEET hull — armed, and not the brain's
    *  peers, so they are visible rather than folded into the bot-vs-bot column. */
   fleetDeaths: number;
+  /** Story 9.5: deaths whose last blow was hull contact (a ram or a grind,
+   *  with a killer) and groundings (the coast, no killer). */
+  contactDeaths: number;
+  groundingDeaths: number;
+  /** Story 9.5: whole hp the bots took from the coast over the campaign, and
+   *  its mean per bot-match — the cost readout beside the land-contact rate
+   *  (the deferred 7.3 % grounding thread, amendment 14). */
+  landDamage: number;
+  landDamagePerBotMatch: number;
   landContactRate: number;
   /** Longest UNBROKEN land-contact run over the whole campaign, sim-seconds —
    *  the "did a bot beach permanently" reading the rate alone cannot give. */
@@ -151,6 +166,9 @@ export interface BotAggregate {
   bars: BotBar[];
   /** POOL READOUTS (Story 8.20, R10): measurements, never judged. */
   pool: PoolReadouts;
+  /** STORY 9.13 READOUTS (botReadoutReport.ts): grounding, ring, shots,
+   *  posture, fog, activations, endgame stall, drones — never judged. */
+  readouts: BotReadoutAggregate;
 }
 
 const ratio = (num: number, den: number): number => (den === 0 ? 0 : num / den);
@@ -313,6 +331,7 @@ export function buildBotAggregate(result: BatchResult, botsPerMatch: number): Bo
     deaths,
     stormDeaths,
     fleetDeaths,
+    ...contactReadouts(rows),
     landContactRate: ratio(
       rows.reduce((a, r) => a + r.landTicks, 0),
       rows.reduce((a, r) => a + r.ticks, 0),
@@ -329,9 +348,21 @@ export function buildBotAggregate(result: BatchResult, botsPerMatch: number): Bo
     byGunTier: groupGunBy(scoredRows(matches), gunTierKey),
     bars: [],
     pool: buildPoolReadouts(matches),
+    readouts: buildReadoutAggregate(matches),
   };
   agg.bars = buildBars(agg);
   return agg;
+}
+
+/** Story 9.5's four contact readouts (see BotAggregate). */
+function contactReadouts(rows: readonly BotSample[]): Pick<BotAggregate, 'contactDeaths' | 'groundingDeaths' | 'landDamage' | 'landDamagePerBotMatch'> {
+  const landDamage = rows.reduce((a, r) => a + r.landDamageTaken, 0);
+  return {
+    contactDeaths: rows.filter((r) => r.end === 'sunkByContact').length,
+    groundingDeaths: rows.filter((r) => r.end === 'ranAground').length,
+    landDamage,
+    landDamagePerBotMatch: ratio(landDamage, rows.length),
+  };
 }
 
 function tallyEndedBy(matches: readonly MatchSample[]): Record<string, number> {
@@ -398,9 +429,10 @@ export function renderBotReport(label: string, a: BotAggregate): string[] {
     `match length s: ${fmtSummary(a.durationS)}`,
     `endedBy: ${countLine(a.endedBy)}`,
     `bot-vs-bot kills: ${a.participantKills} | PvE fleet kills: ${a.pveKills}`,
-    `deaths: ${a.deaths} = ${a.deaths - a.stormDeaths - a.fleetDeaths} by participant + ${a.fleetDeaths} by PvE fleet + ${a.stormDeaths} by storm`,
+    `deaths: ${a.deaths} = ${a.deaths - a.stormDeaths - a.fleetDeaths - a.contactDeaths - a.groundingDeaths} by participant + ${a.fleetDeaths} by PvE fleet + ${a.contactDeaths} by ramming + ${a.groundingDeaths} aground + ${a.stormDeaths} by storm`,
     `levels earned: ${a.levelsEarned} | still banked at death/finish: ${a.levelsUnspent}`,
     `longest unbroken land-contact run: ${fmt(a.worstLandRunS, 1)}s (CONFIG.bots.stuckMs = ${CONFIG.bots.stuckMs}ms)`,
+    `land-contact damage: ${a.landDamage} hp total, ${fmt(a.landDamagePerBotMatch, 1)} hp mean per bot-match`,
     `per-match max kill share: ${fmtSummary(a.maxKillShare)} | matches breaching 40%: ${pct(a.killShareBreachRate)}`,
     '',
     'QUALITY BAR (spec 6-4 Verification):',
@@ -409,6 +441,7 @@ export function renderBotReport(label: string, a: BotAggregate): string[] {
   for (const b of a.bars) {
     lines.push(`  ${b.pass ? 'PASS' : 'FAIL'}  ${b.name.padEnd(nameW)}  measured ${b.measured.padStart(7)}  bar ${b.bar}`);
   }
+  lines.push('', ...renderReadoutLines(a.readouts), '', ...renderPostureBlock(a.readouts));
   lines.push('', 'BY PROFILE (the six priority profiles — the story\'s core design claim):');
   lines.push(...groupTable(a.byProfile));
   lines.push('', 'BY CLASS:');

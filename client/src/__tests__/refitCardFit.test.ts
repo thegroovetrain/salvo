@@ -26,6 +26,7 @@
 import { describe, expect, it } from 'vitest';
 import { CATALOG, CONFIG, LINE_IDS, type CatalogLine, type ShipClassId } from '@salvo/shared';
 import {
+  CARD_STAT_ROWS,
   KIND_WORDS,
   boonName,
   cardHoverRows,
@@ -51,7 +52,8 @@ import {
   statRowWidth,
   type RefitCardCopy,
 } from '../ui/refitCardFit.js';
-import { SLOTS_FULL, UpgradeMenu, offerView } from '../ui/upgradeMenu.js';
+import { REDRAW_FOOTER_PX, SLOTS_FULL, UpgradeMenu, offerView, refitBandLayout } from '../ui/upgradeMenu.js';
+import { hudBarLayout } from '../render/hudBar.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const R = CLIENT_CONFIG.refit;
@@ -129,9 +131,14 @@ describe('the ratified face is a FIXED box, and its content is a constant', () =
     // flipped SHIELD BLOCK, CHAFF and DECOY BUOY — TWENTY-FOUR live against two.
     // Story 8.18 flipped SMOKE SCREEN — TWENTY-FIVE live against one. DECK GUN
     // TURRET and DECK GUN BARREL folded into the CANNON ladder (2026-09-30,
-    // amendment 197) — 24 lines, TWENTY-THREE live against one.
-    expect(LINES).toHaveLength(24);
-    expect(LIVE).toHaveLength(23);
+    // amendment 197) — 24 lines, TWENTY-THREE live against one. CHAFF left the
+    // catalog in Story 9.2 (epic-9 amendment 31) — 23 lines, TWENTY-TWO live.
+    // PASSIVE HEALING joined in Story 9.6 (epic-9 amendment 95) — 24 lines,
+    // TWENTY-THREE live. ARMOR joined in Story 9.7 (epic-9 amendments
+    // 110–117) — 25 lines, TWENTY-FOUR live. ARMOR PIERCING joined in Story
+    // 9.9 (epic-9 amendments 145, 159) — 26 lines, TWENTY-FIVE live.
+    expect(LINES).toHaveLength(26);
+    expect(LIVE).toHaveLength(25);
     expect(LIVE.some((l) => l.id === 'hullRepair')).toBe(true);
     expect(FACES.length).toBe(LIVE.reduce((n, d) => n + d.cap, 0) * CLASSES.length * 2);
   });
@@ -141,9 +148,12 @@ describe('the ratified face is a FIXED box, and its content is a constant', () =
   // body it stretches is 190 — and each stat row spends another `0 1px` of its
   // own, leaving 188 for a label beside its value. Two numbers, both of them
   // real, neither of them 192.
-  it('measures the mock\'s own box: 216 × 226, inner 190 wide, rows 188', () => {
+  // SIX ROWS (Story 9.8, Eric 2026-10-13: "Six-row card grid"): the mock's 226
+  // box grows by exactly one 17px row, so the row pitch and every seam stay
+  // the mock's own numbers.
+  it('measures the box: 216 × 243 (the mock\'s 226 plus one 17px row), inner 190 wide, rows 188', () => {
     expect(R.card).toBe(216);
-    expect(R.cardHeight).toBe(226);
+    expect(R.cardHeight).toBe(226 + R.rowH);
     expect(refitCardInnerBox().w).toBe(R.card - 2 * R.pad.side - 2 * REFIT_TYPE.border);
     expect(refitCardInnerBox().w).toBe(190);
     expect(refitCardRowBox()).toBe(refitCardInnerBox().w - 2 * REFIT_TYPE.rowPadX);
@@ -184,6 +194,34 @@ describe('the ratified face is a FIXED box, and its content is a constant', () =
       .filter((r) => r.m.overflowX > 0)
       .map((r) => `${r.label}: widest mark overruns by ${r.m.overflowX.toFixed(1)}px`);
     expect(over).toEqual([]);
+  });
+});
+
+// THE SIX-ROW GRID AT THE FLOOR (Story 9.8, Eric 2026-10-13: "Six-row card
+// grid"). The copy's row cap and the DOM's grid are ONE number, the fullest face
+// in the catalog fills it, and the grown card still seats inside the refit band
+// at the 1280×614 logical floor — with the countdown footer standing too.
+describe('the six-row grid fits the 1280×614 floor', () => {
+  it('caps the copy at exactly the grid the DOM draws', () => {
+    expect(CARD_STAT_ROWS).toBe(R.rowCount);
+  });
+
+  it('the fullest face fills the grid and still fits its box', () => {
+    const fullest = FACES.reduce((a, b) => (b.face.rows.length > a.face.rows.length ? b : a));
+    expect(fullest.face.rows.length, fullest.label).toBe(R.rowCount);
+    const m = refitCardMetrics(fullest.face);
+    expect(m.overflow, fullest.label).toBeLessThanOrEqual(0);
+    expect(m.overflowX, fullest.label).toBeLessThanOrEqual(0);
+  });
+
+  it('seats the card row between the screen top and the HUD bar at the floor', () => {
+    const barTop = hudBarLayout(1280, 614).bar.y;
+    for (const footer of [0, REDRAW_FOOTER_PX]) {
+      const L = refitBandLayout(1280, 614, 4, footer);
+      expect(L.row.h).toBe(R.cardHeight);
+      expect(L.band.y, `footer ${footer}`).toBeGreaterThanOrEqual(0);
+      expect(L.row.y + L.row.h, `footer ${footer}`).toBeLessThanOrEqual(barTop - R.barGap);
+    }
   });
 });
 
@@ -313,7 +351,7 @@ describe('the TIER faces of the five authored weapon lines fit the shipped grid'
     expect(box - worst.w).toBeGreaterThanOrEqual(2);
   });
 
-  it('never asks the grid for a sixth row, and every tier row is a `cur → next` diff', () => {
+  it('never asks the grid for a seventh row, and every tier row is a `cur → next` diff', () => {
     for (const { label, face } of TIER_FACES) {
       expect(face.rows.length, label).toBeLessThanOrEqual(R.rowCount);
       for (const row of face.rows) expect(row.cur, `${label} ${row.label}`).not.toBeNull();
@@ -322,12 +360,12 @@ describe('the TIER faces of the five authored weapon lines fit the shipped grid'
 
   it('buys the fit with NO type-size step — the 9px label and 11px value register is untouched', () => {
     // Amendment 31 binds the face to the mock's numbers, so "just make it 8px"
-    // is unavailable; this is the pin that says the five-row tier face did not
+    // is unavailable; this is the pin that says the six-row tier face did not
     // reach for it. (The whole register is pinned below; these are the two the
     // rows themselves spend.)
     expect(R.labelSize).toBe(9);
     expect(R.valueSize).toBe(11);
-    expect(R.rowCount).toBe(5);
+    expect(R.rowCount).toBe(6);
   });
 });
 
@@ -394,7 +432,7 @@ describe('the laws that constrain the fix', () => {
     expect(R.rungH).toBe(7);
     expect(R.ladderGap).toBe(3);
     expect(R.rowH).toBe(17);
-    expect(R.rowCount).toBe(5);
+    expect(R.rowCount).toBe(6);
     expect(R.footH).toBe(14);
   });
 

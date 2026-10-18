@@ -16,6 +16,8 @@ import {
   LIFECYCLE_ALIVE,
   SHIP_CLASS_IDS,
   angleDiff,
+  effectiveStats,
+  hullEnvelope,
   mulberry32,
   isStubLine,
   sunkAt,
@@ -26,6 +28,7 @@ import { World } from '../../../src/game/world.js';
 import { UsageError, buildVariants, parseArgs } from '../args.js';
 import { TunableError, applyOverrides, isTunableKey, validateTunableKey } from '../overrides.js';
 import { buildBotAggregate } from '../botReport.js';
+import { endCause } from '../botMetrics.js';
 import { mixSeed, percentile, summarize } from '../stats.js';
 import { CONTROL_REGISTRY } from '../controls.js';
 import { pickSpendChoice } from '../spendPolicy.js';
@@ -185,11 +188,12 @@ describe('overrides — per-key value floors (review gate 2026-07-31)', () => {
 
   it('keeps the legitimate ZERO sweep arms legal (they are real ratification evidence)', () => {
     expect(parseArgs(['--set', 'zone.offsetCap=0']).set).toEqual({ 'zone.offsetCap': 0 });
-    const restore = applyOverrides({ 'zone.offsetCap': 0, 'zone.ringSteps.0': 0 });
+    const ring0 = CONFIG.zone.ringRadii[0];
+    const restore = applyOverrides({ 'zone.offsetCap': 0, 'zone.ringRadii.0': 3000 });
     expect(CONFIG.zone.offsetCap).toBe(0);
-    expect(CONFIG.zone.ringSteps[0]).toBe(0);
+    expect(CONFIG.zone.ringRadii[0]).toBe(3000);
     restore();
-    expect(CONFIG.zone.ringSteps[0]).toBeCloseTo(1 / 3, 12);
+    expect(CONFIG.zone.ringRadii[0]).toBe(ring0); // restored to whatever CONFIG ships (never a number pin)
   });
 });
 
@@ -210,25 +214,34 @@ describe('overrides — tunable CONFIG dials', () => {
     expect(CONFIG.xp.droneTierLevels.droneSmall).toBe(before);
   });
 
-  it('addresses the phased-timeline shape: beatMs, ringSteps by index, offsetCap, map.baseRadius', () => {
+  it('addresses the phased-timeline shape: beatMs, ringRadii by index, offsetCap, map.baseRadius', () => {
+    const baseRadius = CONFIG.map.baseRadius;
+    const ring1 = CONFIG.zone.ringRadii[1];
+    const ring2 = CONFIG.zone.ringRadii[2];
     const restore = applyOverrides({
       'zone.beatMs': 30000,
-      'zone.ringSteps.1': 0.8,
+      'zone.ringRadii.1': 1800,
       'zone.offsetCap': 0.5,
-      'zone.terminalSightFactor': 3,
+      'zone.ringRadii.2': 900,
       'map.baseRadius': 1200,
     });
     expect(CONFIG.zone.beatMs).toBe(30000);
-    expect(CONFIG.zone.ringSteps[1]).toBe(0.8);
+    expect(CONFIG.zone.ringRadii[1]).toBe(1800);
     expect(CONFIG.zone.offsetCap).toBe(0.5);
-    expect(CONFIG.zone.terminalSightFactor).toBe(3);
+    expect(CONFIG.zone.ringRadii[2]).toBe(900);
     expect(CONFIG.map.baseRadius).toBe(1200);
     restore();
     expect(CONFIG.zone.beatMs).toBe(60000);
-    expect(CONFIG.zone.ringSteps[1]).toBeCloseTo(2 / 3, 12);
-    expect(CONFIG.map.baseRadius).toBe(2800); // Story 5.6 amendment 42: the bigger ocean
-    // An out-of-range ringSteps index is a real rejection, not a silent no-op.
-    expect(() => applyOverrides({ 'zone.ringSteps.7': 0.5 })).toThrow(TunableError);
+    expect(CONFIG.zone.ringRadii[1]).toBe(ring1);
+    expect(CONFIG.zone.ringRadii[2]).toBe(ring2);
+    expect(CONFIG.map.baseRadius).toBe(baseRadius); // restored to whatever CONFIG ships (never a number pin)
+    // An out-of-range ringRadii index is a real rejection, not a silent no-op.
+    expect(() => applyOverrides({ 'zone.ringRadii.7': 500 })).toThrow(TunableError);
+    // The retired formula dials are refused WITH the live dial named (Story 9.1).
+    expect(() => applyOverrides({ 'zone.ringSteps.0': 0.5 })).toThrow(/RETIRED.*ringRadii/);
+    expect(() => applyOverrides({ 'zone.terminalSightFactor': 3 })).toThrow(/RETIRED.*ringRadii/);
+    // A ring radius floors at 1 u like the geometric terminal does.
+    expect(() => applyOverrides({ 'zone.ringRadii.2': 0 })).toThrow(/>= 1/);
   });
 
   it('rejects non-tunable keys, unknown paths, and non-numeric leaves', () => {
@@ -272,7 +285,7 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(TunableError);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(/not an equipment dial/);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(
-      /gun\.\*, machineGun\.\*, flak\.\*, instantReload\.\*, damageCut\.\*, broadside\.\*, torpedo\.\*, mine\.\*, starShells\.\*, boost\.\*, shipClasses\.\*/,
+      /gun\.\*, machineGun\.\*, flak\.\*, gunAttenuation\.\*, instantReload\.\*, hunker\.\*, broadside\.\*, torpedo\.\*, mine\.\*, captiveMines\.\*, foulingMines\.\*, countermeasure\.\*, foulingShell\.\*, ram\.\*, starShells\.\*, phosphorShells\.\*, boost\.\*, shipClasses\.\*, drones\.\*, hullRepair\.\*, regen\.\*, armor\.\*, offer\.weighting\.\*, vision\.dropout\.\*, fog\.\*/,
     );
     expect(() => applyOverrides({}, { 'zone.stormDps': 8 })).toThrow(/not an equipment dial/);
   });
@@ -313,8 +326,8 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(CONFIG.broadside.turretMountSpreadDeg.length).toBe(mountLenBefore);
     expect(Array.prototype.length).toBe(0);
     // The legitimate array dial still works — the rule is "index only", not
-    // "no arrays". zone.ringSteps.N is documented and must keep resolving.
-    expect(() => validateTunableKey('zone.ringSteps.0')).not.toThrow();
+    // "no arrays". zone.ringRadii.N is documented and must keep resolving.
+    expect(() => validateTunableKey('zone.ringRadii.0')).not.toThrow();
   });
 
   it('applies ALL-OR-NOTHING: a throw mid-apply leaves CONFIG untouched', () => {
@@ -343,6 +356,22 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(parseArgs(['--tune', 'gun.burstRadius=0']).tune).toEqual({ 'gun.burstRadius': 0 });
     // Apply-time too, for programmatic callers that bypass the CLI.
     expect(() => applyOverrides({}, { 'gun.reloadMs': 0 })).toThrow(TunableError);
+  });
+
+  it('the RAM dials are on the --tune surface (Story 9.5, amendment 73): energyPerHp floors at 1, the other three at 0', () => {
+    // A 0 divisor is 0/0 in the energy law; a 0 allowance prices every touch
+    // and a 0 softness makes land free — both are real arms.
+    expect(() => parseArgs(['--tune', 'ram.energyPerHp=0'])).toThrow(TunableError);
+    expect(() => parseArgs(['--tune', 'ram.energyPerHp=0'])).toThrow(/'ram\.energyPerHp'.*>= 1/);
+    expect(parseArgs(['--tune', 'ram.energyPerHp=1']).tune).toEqual({ 'ram.energyPerHp': 1 });
+    expect(parseArgs(['--tune', 'ram.allowanceU=0']).tune).toEqual({ 'ram.allowanceU': 0 });
+    expect(parseArgs(['--tune', 'ram.landSoftness=0']).tune).toEqual({ 'ram.landSoftness': 0 });
+    expect(() => parseArgs(['--tune', 'ram.grindPerUnit=-1'])).toThrow(/'ram\.grindPerUnit'.*>= 0/);
+    // Apply-time too, and the applied value is the one the sim reads.
+    expect(() => applyOverrides({}, { 'ram.energyPerHp': 0 })).toThrow(TunableError);
+    const restore = applyOverrides({}, { 'ram.allowanceU': 0 });
+    expect(CONFIG.ram.allowanceU).toBe(0);
+    restore();
   });
 
   it('the machine gun\'s reload dial is floored at 1, and the deleted idle clock is no dial at all', () => {
@@ -387,10 +416,6 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     // failure this harness exists to prevent.
     expect(() => parseArgs(['--tune', 'mine.triggerRadius=40'])).toThrow(TunableError);
     expect(() => parseArgs(['--tune', 'mine.triggerRadius=40'])).toThrow(/tune mine\.blastRadius instead/);
-    for (const key of ['gun.rangeU', 'starShells.rangeU', 'broadside.rangeU']) {
-      expect(() => parseArgs(['--tune', `${key}=100`])).toThrow(/DERIVED/);
-      expect(() => parseArgs(['--tune', `${key}=100`])).toThrow(/derived from radar range/i);
-    }
     // Apply-time too, and CONFIG is left exactly as it was found.
     const before = CONFIG.mine.triggerRadius;
     expect(() => applyOverrides({}, { 'mine.triggerRadius': 40 })).toThrow(/DERIVED/);
@@ -572,7 +597,7 @@ describe('roster — even bot hulls (balance-sim harness prep)', () => {
   function campaign(roster: 'even' | 'rolled', matches = 3): Record<string, number>[] {
     const restore = applyOverrides({
       'zone.beatMs': 1,
-      'zone.terminalSightFactor': 0,
+      'zone.ringRadii.0': 1, 'zone.ringRadii.1': 1, 'zone.ringRadii.2': 1,
       'zone.stormDps': 100000,
     });
     try {
@@ -632,7 +657,7 @@ describe('roster — even bot hulls (balance-sim harness prep)', () => {
     // The captain loop used to deal a bare `i % 3` with no match-index offset,
     // so `--captains 2` was short the SAME class in every match — and
     // BatchAggregate.winnerClass pools captains and bots into one tally.
-    const restore = applyOverrides({ 'zone.beatMs': 1, 'zone.terminalSightFactor': 0, 'zone.stormDps': 100000 });
+    const restore = applyOverrides({ 'zone.beatMs': 1, 'zone.ringRadii.0': 1, 'zone.ringRadii.1': 1, 'zone.ringRadii.2': 1, 'zone.stormDps': 100000 });
     try {
       const even = runBatch({ seed: 5, matches: 3, captains: 2, bots: 0, roster: 'even' });
       const cls = even.matches.map((m) => m.captains.map((c) => c.cls));
@@ -663,7 +688,7 @@ describe('--json contract pin (the shape /balance-sim reads)', () => {
   it('pins the frozen keys on aggregate and bots', () => {
     const restore = applyOverrides({
       'zone.beatMs': 1,
-      'zone.terminalSightFactor': 0,
+      'zone.ringRadii.0': 1, 'zone.ringRadii.1': 1, 'zone.ringRadii.2': 1,
       'zone.stormDps': 100000,
     });
     let result;
@@ -783,7 +808,7 @@ describe('controls — determinism', () => {
     // the rest are ladders. The v2 ids this pin used to carry are not in
     // catalog v3 at all, and since the 8.14 review (F4) the policy skips any
     // card `World.spendCard` would refuse — an unknown id among them.
-    const offer = ['speed', 'heavyTorpedo', 'radarSweep', 'armor'];
+    const offer = ['speed', 'heavyTorpedo', 'radarSweep', 'hullPoints'];
     const picks = new Set<number | null>();
     for (let i = 0; i < 50; i += 1) picks.add(pickSpendChoice(offer, mulberry32(i), []));
     expect(picks.has(1)).toBe(true); // the weapon gets picked
@@ -799,11 +824,11 @@ describe('controls — determinism', () => {
     const rowFull = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null] as const;
     // A capped consumable and a bare weapon with no slot are both out; only
     // the ladder is takeable, so every seed names it.
-    const offer = ['hullRepair', 'broadside', 'armor'];
+    const offer = ['hullRepair', 'broadside', 'hullPoints'];
     for (let i = 0; i < 50; i += 1) expect(pickSpendChoice(offer, mulberry32(i), five, rowFull)).toBe(2);
     // ...and with nothing takeable at all the instrument holds the level.
-    const capped = [...five, ...new Array<string>(CATALOG.armor.cap).fill('armor')];
-    expect(pickSpendChoice(['hullRepair', 'armor'], mulberry32(1), capped, rowFull)).toBeNull();
+    const capped = [...five, ...new Array<string>(CATALOG.hullPoints.cap).fill('hullPoints')];
+    expect(pickSpendChoice(['hullRepair', 'hullPoints'], mulberry32(1), capped, rowFull)).toBeNull();
   });
 });
 
@@ -811,7 +836,7 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
   it('same run key => deep-equal batch results; different seed differs', () => {
     const restore = applyOverrides({
       'zone.beatMs': 2000,
-      'zone.terminalSightFactor': 0,
+      'zone.ringRadii.0': 1, 'zone.ringRadii.1': 1, 'zone.ringRadii.2': 1,
       'zone.stormDps': 40,
     });
     try {
@@ -844,7 +869,7 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
   it('endedBy lastHumanSunk: an instant lethal storm sinks the last captains', () => {
     const restore = applyOverrides({
       'zone.beatMs': 1,
-      'zone.terminalSightFactor': 0,
+      'zone.ringRadii.0': 1, 'zone.ringRadii.1': 1, 'zone.ringRadii.2': 1,
       'zone.stormDps': 100000,
     });
     try {
@@ -866,7 +891,7 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
     const cleared = runBatch({ seed: 3, matches: 1, captains: 1 });
     const restore = applyOverrides({
       'zone.beatMs': 1,
-      'zone.terminalSightFactor': 0,
+      'zone.ringRadii.0': 1, 'zone.ringRadii.1': 1, 'zone.ringRadii.2': 1,
       'zone.stormDps': 100000,
     });
     let sunk;
@@ -1226,6 +1251,33 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
   });
 });
 
+describe('botMetrics — endCause reads the contact kind, not only the killer (Story 9.5 review gate)', () => {
+  it('a death by wreck contact is sunkByContact (hull contact, nobody credited); the coast is ranAground; the bleed is contact too', () => {
+    const w = new World(1, CONFIG.map.playerCap, CONFIG.zone);
+    const v = w.addShip('v', 'V', 'captain', 'torpedoBoat', undefined, undefined);
+    v.lastDamageSrc = 'contact';
+    v.lastContactWasLand = false;
+    expect(endCause(w, undefined, v)).toBe('sunkByContact'); // a sinking wreck: no killer, still a hull
+    expect(endCause(w, 'k', v)).toBe('sunkByContact');
+    v.lastContactWasLand = true;
+    expect(endCause(w, undefined, v)).toBe('ranAground');
+    v.lastDamageSrc = 'grind'; // the bleed classifies exactly as the strike
+    expect(endCause(w, undefined, v)).toBe('ranAground');
+    v.lastContactWasLand = false;
+    expect(endCause(w, undefined, v)).toBe('sunkByContact');
+    expect(endCause(w, 'k', v)).toBe('sunkByContact');
+    v.lastDamageSrc = 'storm';
+    expect(endCause(w, undefined, v)).toBe('sunkByStorm');
+    v.lastDamageSrc = 'shell';
+    expect(endCause(w, 'k', v)).toBe('sunkByShip');
+  });
+});
+
+/** Story 9.5's contact damage switched off: no strike ever clears the
+ *  allowance and the grind rate is zero (every leaf a `--tune ram.*` dial —
+ *  the allowance gates only the strike; the bleed rides grindPerUnit). */
+const NO_CONTACT_DAMAGE = { 'ram.allowanceU': 1e9, 'ram.grindPerUnit': 0 } as const;
+
 describe('runner — winnerClass (Story 3.4 evidence field)', () => {
   it('a resolved match names the winning hull class; an unresolved one is null', () => {
     const cleared = runBatch({ seed: 3, matches: 1, captains: 1 });
@@ -1235,7 +1287,10 @@ describe('runner — winnerClass (Story 3.4 evidence field)', () => {
     expect(m.winnerClass).not.toBeNull();
     expect(SHIP_CLASS_IDS as readonly string[]).toContain(m.winnerClass);
 
-    const restore = applyOverrides({ 'zone.beatMs': 1000, 'zone.stormDps': 0 });
+    // Story 9.5: hulls are solid and contact costs hp, so two pacifists
+    // pressed together in the collapsed ring would grind each other down —
+    // the arm neutralizes contact damage too (the --tune ram.* dials).
+    const restore = applyOverrides({ 'zone.beatMs': 1000, 'zone.stormDps': 0 }, NO_CONTACT_DAMAGE);
     let unresolved;
     try {
       unresolved = runBatch({ seed: 11, matches: 1, captains: 2, control: CONTROL_REGISTRY.pacifist });
@@ -1294,7 +1349,8 @@ describe('runner — the unresolved outcome (tick budget, Story 3.1)', () => {
     // Two pacifists, harmless storm: nobody can ever win, so the
     // tick budget is the only way out. beatMs 1000 keeps the budget's timeline
     // half tiny (the endgame slack dominates: ~12.3k ticks — bounded, honest).
-    const restore = applyOverrides({ 'zone.beatMs': 1000, 'zone.stormDps': 0 });
+    // Story 9.5: contact damage is neutralized too (see the winnerClass case).
+    const restore = applyOverrides({ 'zone.beatMs': 1000, 'zone.stormDps': 0 }, NO_CONTACT_DAMAGE);
     let result;
     try {
       result = runBatch({ seed: 11, matches: 1, captains: 2, control: CONTROL_REGISTRY.pacifist });
@@ -1471,16 +1527,162 @@ describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
     expect(CONFIG.machineGun.damage).toBe(6);
     restore();
     expect(CONFIG.machineGun.damage).toBe(before);
-    for (const key of ['flak.damage=14', 'instantReload.reloadMs=40000', 'damageCut.durationMs=6000']) {
+    for (const key of ['flak.damage=14', 'instantReload.reloadMs=40000', 'hunker.durationMs=6000']) {
       expect(() => parseArgs(['--tune', key])).not.toThrow();
     }
   });
 
-  it('--tune machineGun.rangeU / flak.rangeU are refused as DERIVED, like gun.rangeU', () => {
-    for (const key of ['machineGun.rangeU', 'flak.rangeU']) {
-      expect(() => parseArgs(['--tune', `${key}=100`])).toThrow(TunableError);
-      expect(() => parseArgs(['--tune', `${key}=100`])).toThrow(/DERIVED/);
-      expect(() => parseArgs(['--tune', `${key}=100`])).toThrow(/derived from radar range/i);
+  // STORY 9.8 (epic-9 ruling 125): every weapon's reach is its OWN tiered
+  // dial, read live by the fold — so `<w>.rangeU` LEFT the derived-refusal
+  // map and is a real --tune dial (floor 1), while `<w>.rangeUAtV`, which
+  // authors the per-card step once at module load, is REFUSED (the
+  // amendment-110 pattern: tuning it would change nothing).
+  const REACH_ROWS = ['gun', 'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells'] as const;
+
+  it('--tune <weapon>.rangeU is a real dial: accepted, floored at 1, and it moves the fold\'s Tier I base', () => {
+    for (const row of [...REACH_ROWS, 'foulingShell'] as const) {
+      expect(() => parseArgs(['--tune', `${row}.rangeU=900`]), row).not.toThrow();
+      expect(() => parseArgs(['--tune', `${row}.rangeU=0`]), row).toThrow(/>= 1/);
     }
+    const before = CONFIG.gun.rangeU;
+    const restore = applyOverrides({}, { 'gun.rangeU': before - 100 });
+    try {
+      expect(effectiveStats(hullEnvelope('battleship')).equipment.gun.rangeU).toBe(before - 100);
+    } finally {
+      restore();
+    }
+    expect(CONFIG.gun.rangeU).toBe(before);
+  });
+
+  it('--tune <weapon>.rangeUAtV is REFUSED: the Tier V reach authors the per-card step at module load', () => {
+    for (const row of REACH_ROWS) {
+      expect(() => parseArgs(['--tune', `${row}.rangeUAtV=1400`]), row).toThrow(TunableError);
+      expect(() => parseArgs(['--tune', `${row}.rangeUAtV=1400`]), row).toThrow(/tune rangeU for the base/);
+    }
+  });
+
+  it('--tune vision.dropout.* is reachable (distances floored at 1, probabilities in [0, 1]); the rest of vision.* is not', () => {
+    for (const key of ['vision.dropout.startU=900', 'vision.dropout.kneeU=1200', 'vision.dropout.kneeP=0', 'vision.dropout.rimP=1']) {
+      expect(() => parseArgs(['--tune', key]), key).not.toThrow();
+    }
+    for (const key of ['vision.dropout.startU=0', 'vision.dropout.kneeU=0.5']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 1/);
+    }
+    for (const key of ['vision.dropout.kneeP=1.1', 'vision.dropout.rimP=-0.1']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/probability in \[0, 1\]/);
+    }
+    for (const key of ['vision.radar=2000', 'vision.sight=600']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/not an equipment dial/);
+    }
+    const before = CONFIG.vision.dropout.rimP;
+    const restore = applyOverrides({}, { 'vision.dropout.rimP': 0.5 });
+    try {
+      expect(CONFIG.vision.dropout.rimP).toBe(0.5);
+    } finally {
+      restore();
+    }
+    expect(CONFIG.vision.dropout.rimP).toBe(before);
+  });
+
+  it('--tune vision.dropout.* must leave a CURVE (Story 9.8 review, F3): start < knee < radar and rim <= knee, judged on the final resolved values', () => {
+    const START = CONFIG.vision.dropout.startU;
+    const KNEE = CONFIG.vision.dropout.kneeU;
+    const RADAR = CONFIG.vision.radar;
+    const snapshot = JSON.stringify(CONFIG.vision.dropout);
+    const refused: Array<[Record<string, number>, RegExp]> = [
+      [{ 'vision.dropout.kneeU': RADAR }, /kneeU.*must stay < 'vision\.radar'/],
+      [{ 'vision.dropout.kneeU': RADAR + 500 }, /kneeU.*must stay < 'vision\.radar'/],
+      [{ 'vision.dropout.startU': KNEE }, /startU.*must stay < 'vision\.dropout\.kneeU'/],
+      [{ 'vision.dropout.startU': 1200, 'vision.dropout.kneeU': 1100 }, /startU.*must stay </],
+      [{ 'vision.dropout.rimP': 0.95 }, /rimP.*must stay <= 'vision\.dropout\.kneeP'/],
+      [{ 'vision.dropout.kneeP': 0.05, 'vision.dropout.rimP': 0.1 }, /rimP.*must stay <=/],
+    ];
+    for (const [tune, re] of refused) {
+      expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(TunableError);
+      expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(re);
+      expect(JSON.stringify(CONFIG.vision.dropout)).toBe(snapshot); // rolled back
+    }
+    const accepted: Record<string, number>[] = [
+      {},
+      { 'vision.dropout.startU': START - 100 },
+      { 'vision.dropout.kneeU': RADAR - 1 },
+      // Several leaves at once: each would be refused against the shipped
+      // others, but the FINAL curve is legal.
+      { 'vision.dropout.startU': KNEE + 50, 'vision.dropout.kneeU': KNEE + 100 },
+      { 'vision.dropout.kneeP': 0.3, 'vision.dropout.rimP': 0.3 },
+      { 'vision.dropout.kneeP': 1, 'vision.dropout.rimP': 0.95 },
+    ];
+    for (const tune of accepted) {
+      const restore = applyOverrides({}, tune);
+      restore();
+    }
+    expect(JSON.stringify(CONFIG.vision.dropout)).toBe(snapshot);
+  });
+
+  it('--tune fog.* is reachable (Story 9.10, the field): every dial, with floors on the lengths/clocks/counts, gain on (0, 1] and the coverage band a share in [0, 1]', () => {
+    for (const key of [
+      'fog.sightCostPerU=0', 'fog.sightCostPerU=3', 'fog.windU=0', 'fog.edgeBand=0', 'fog.cutRatePerS=0', 'fog.spinRimU=0', 'fog.spinShear=0',
+      'fog.coverageMin=0', 'fog.coverageMax=1', 'fog.gain=1', 'fog.gain=0.3', 'fog.octaves=1', 'fog.quantileLattice=8',
+      'fog.wavelengthU=1', 'fog.morphMs=1', 'fog.refreshMs=250', 'fog.marchStepU=5', 'fog.targetPeriodMs=1', 'fog.quantileLattice=256',
+    ]) {
+      expect(() => parseArgs(['--tune', key]), key).not.toThrow();
+    }
+    for (const key of [
+      'fog.wavelengthU=0', 'fog.octaves=0.5', 'fog.morphMs=0', 'fog.targetPeriodMs=0',
+    ]) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 1/);
+    }
+    // Floors that keep the SERVER up (review gate): the memo lattice is sized
+    // from marchStepU (1 u = 100 M cells) and refreshMs is the quantile cadence.
+    for (const key of ['fog.marchStepU=0', 'fog.marchStepU=1', 'fog.marchStepU=4.9']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 5/);
+    }
+    for (const key of ['fog.refreshMs=0', 'fog.refreshMs=50', 'fog.refreshMs=249']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 250/);
+    }
+    // The coverage lattice's floor is 8 a side (review gate): under ~1/target
+    // points the quantile lands on the lattice maximum and the share reads 0.
+    for (const key of ['fog.quantileLattice=0', 'fog.quantileLattice=4', 'fog.quantileLattice=7']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 8/);
+    }
+    for (const key of ['fog.sightCostPerU=-1', 'fog.windU=-1', 'fog.edgeBand=-0.1', 'fog.cutRatePerS=-0.1', 'fog.spinShear=-0.1']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 0/);
+    }
+    for (const key of ['fog.spinRimU=-1']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/>= 0/);
+    }
+    for (const key of ['fog.coverageMin=-0.1', 'fog.coverageMax=1.5']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/share of water in \[0, 1\]/);
+    }
+    for (const key of ['fog.gain=0', 'fog.gain=1.5', 'fog.gain=-0.5']) {
+      expect(() => parseArgs(['--tune', key]), key).toThrow(/gain in \(0, 1\]/);
+    }
+  });
+
+  it('--tune fog.* must describe a field: coverageMin <= coverageMax, integer octaves and lattice side (judged on the final values, rolled back)', () => {
+    const snapshot = JSON.stringify(CONFIG.fog);
+    const { coverageMax } = CONFIG.fog;
+    const refused: Array<[Record<string, number>, RegExp]> = [
+      [{ 'fog.coverageMin': 0.1, 'fog.coverageMax': 0.05 }, /'fog\.coverageMin'.*must stay <= 'fog\.coverageMax'/],
+      [{ 'fog.coverageMin': coverageMax + 0.01 }, /'fog\.coverageMin'.*must stay <=/],
+      [{ 'fog.wavelengthU': 0 }, />= 1/],
+      [{ 'fog.octaves': 2.5 }, /'fog\.octaves' must be an integer/],
+      [{ 'fog.quantileLattice': 12.5 }, /'fog\.quantileLattice' must be an integer/],
+      [{ 'fog.quantileLattice': 4 }, />= 8/],
+      [{ 'fog.quantileLattice': 257 }, /'fog\.quantileLattice'.*must stay <= 256/],
+    ];
+    for (const [tune, re] of refused) {
+      expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(TunableError);
+      expect(() => applyOverrides({}, tune), JSON.stringify(tune)).toThrow(re);
+      expect(JSON.stringify(CONFIG.fog)).toBe(snapshot); // rolled back
+    }
+    // Both leaves at once: each alone would break the pair, the final set is legal.
+    const restore = applyOverrides({}, { 'fog.coverageMin': coverageMax + 0.05, 'fog.coverageMax': coverageMax + 0.1 });
+    try {
+      expect(CONFIG.fog.coverageMin).toBeCloseTo(coverageMax + 0.05, 12);
+    } finally {
+      restore();
+    }
+    expect(JSON.stringify(CONFIG.fog)).toBe(snapshot);
   });
 });

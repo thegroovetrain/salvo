@@ -278,7 +278,7 @@ describe('CREATE', () => {
     await vi.waitFor(() => expect(arenaRoom.has(MSG.welcome)).toBe(true));
     expect(consumed).toEqual(SEAT);
     expect(arenaRoom.reconnection.enabled).toBe(true); // outfitted like any arena
-    arenaRoom.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, mapRadius: 1, playerCap: 20 });
+    arenaRoom.fire(MSG.welcome, { sessionId: 's', mapSeed: 1, fogSeed: 1, mapRadius: 1, playerCap: 20 });
     const conn = await pending;
     expect(conn?.room).toBe(arenaRoom);
     expect(h.calls).toEqual(['seat']);

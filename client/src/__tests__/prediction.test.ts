@@ -12,8 +12,10 @@ import {
   applyGroundingDamp,
   applySinkingDecel,
   resolveShipPose,
+  resolveHullContacts,
   stepShip,
   transformPolygon,
+  type ContactBody,
   type HookRegistry,
   type InputMsg,
   type Island,
@@ -800,6 +802,122 @@ describe('Predictor prop-fouling slow (Story 2.8)', () => {
   });
 });
 
+// --- Story 9.4: the FOULING SHELL zone slow -----------------------------------
+//
+// The victim-private you.fouledUntil (the zone's linger stamp, re-stamped by the
+// server every tick the hull's outline is inside a foul zone) folds through the
+// SAME shared slowedKinematics a second time, at the CONFIG constant
+// CONFIG.foulingShell.slowFactor, in the PINNED five-stage composition:
+//   boosted → slowed (mine) → slowed (shell) → drafted → hooks.
+// Two sources multiply; the shell has one stamp, so it never stacks with itself.
+
+describe('Predictor FOULING SHELL zone slow (Story 9.4)', () => {
+  const T0 = 600_000;
+  const tickT = (seq: number): number => T0 + seq * CONFIG.tick.simDtMs;
+  const SHELL = CONFIG.foulingShell.slowFactor;
+  const MINE = CONFIG.foulingMines.slowFactor;
+
+  interface Fold {
+    boostUntil?: number;
+    slowedUntil?: number;
+    slowFactor?: number;
+    fouledUntil?: number;
+    draft?: number;
+  }
+
+  /** world.stepShips' exact five-stage composition. */
+  function foldKin(t: number, f: Fold): ShipConfig {
+    const boosted = boostedKinematics(TB.kinematics, CONFIG.boost.factor, t < (f.boostUntil ?? 0));
+    const mine = slowedKinematics(boosted, f.slowFactor ?? MINE, t < (f.slowedUntil ?? 0));
+    const shell = slowedKinematics(mine, SHELL, t < (f.fouledUntil ?? 0));
+    const draft = f.draft ?? 0;
+    return hookKinematics(draftedKinematics(shell, draft, draft > 0), [], HOOK_REGISTRY);
+  }
+
+  function serverFoldStep(s: ShipState, inp: InputMsg, t: number, f: Fold): void {
+    const prev: Pose = { x: s.x, y: s.y, heading: s.heading };
+    stepShip(s, inp, foldKin(t, f), DT);
+    applyGroundingDamp(s, resolveShipPose(prev, s, [], MAP_R, TB_POLY), TB.kinematics.maxSpeed);
+  }
+
+  /** Run `ticks` full-throttle ticks under one frame's folds, lagged acks every
+   *  5 ticks; return the server reference the predictor was held to. */
+  function run(p: Predictor, spawn: ShipState, f: Fold, ticks: number): ShipState {
+    const server: ShipState = { ...spawn };
+    const history: ShipState[] = [{ ...spawn }];
+    for (let seq = 1; seq <= ticks; seq++) {
+      const inp = input(seq, 1, seq % 16 < 8 ? 0.2 : -0.2);
+      p.localTick(inp, tickT(seq));
+      serverFoldStep(server, inp, tickT(seq), f);
+      history[seq] = { ...server };
+      if (seq % 5 === 0) p.onServerState({ ...kin(history[seq - 3]), ...f }, seq - 3);
+    }
+    return server;
+  }
+
+  const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
+
+  it('a frame with fouledUntil in the future caps both speeds at ×0.75', () => {
+    expect(SHELL).toBe(0.75);
+    const f: Fold = { fouledUntil: T0 + 1e6 };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), ...f }, 0);
+    const server = run(p, spawn, f, 160);
+    expect(server.speed).toBeCloseTo(TB.kinematics.maxSpeed * SHELL, 6);
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+  });
+
+  it('a mine window and a shell window MULTIPLY (0.55 × 0.75) — two sources, two folds', () => {
+    const f: Fold = { slowedUntil: T0 + 1e6, slowFactor: 0.55, fouledUntil: T0 + 1e6 };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), ...f }, 0);
+    const server = run(p, spawn, f, 160);
+    expect(server.speed).toBeCloseTo(TB.kinematics.maxSpeed * 0.55 * SHELL, 6);
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+  });
+
+  it('the shell window expires on its own clock, mid-run, under lagged acks', () => {
+    const f: Fold = { fouledUntil: tickT(60) + 1 };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), ...f }, 0);
+    const server = run(p, spawn, f, 200);
+    expect(server.speed).toBeCloseTo(TB.kinematics.maxSpeed, 6); // recovered after expiry
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+  });
+
+  it('an omitted fouledUntil is not fouled, and a hard re-init drops the window', () => {
+    const fast: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(fast), fouledUntil: T0 + 10_000 }, 0);
+    p.forceSnap(); // respawn / reconnect / class swap
+    p.onServerState(kin(fast), 0); // next frame carries NO fouledUntil
+    const server = run(p, fast, {}, 20);
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+    expect(p.predicted.speed).toBeCloseTo(TB.kinematics.maxSpeed, 6); // never capped
+  });
+
+  it('follows the pinned five-stage order — boost, mine, shell, draft — to the bit', () => {
+    const f: Fold = {
+      boostUntil: T0 + 1e6,
+      slowedUntil: T0 + 1e6,
+      slowFactor: 0.55,
+      fouledUntil: T0 + 1e6,
+      draft: CONFIG.wake.draft.lift,
+    };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), ...f }, 0);
+    const server = run(p, spawn, f, 160);
+    expect(p.predicted.x).toBe(server.x);
+    expect(p.predicted.speed).toBe(server.speed);
+    const k = foldKin(T0, f);
+    const boosted = boostedKinematics(TB.kinematics, CONFIG.boost.factor, true).maxSpeed;
+    expect(k.maxSpeed).toBeCloseTo(boosted * 0.55 * SHELL * (1 + CONFIG.wake.draft.lift), 9);
+  });
+});
+
 // --- Story 8.19: THE WAKE DRAFT -------------------------------------------------
 //
 // A hull riding another hull's wake gets a small lift on its FORWARD cap. The
@@ -1449,5 +1567,157 @@ describe('Predictor behavior boons (Story 2.5)', () => {
       control.localTick(inp, tickT(seq));
     }
     expect(p.predicted).toEqual(control.predicted);
+  });
+});
+
+// --- SOLID HULLS (Story 9.5, epic-9 amendment 74) ------------------------------
+// The predictor pushes the own hull apart from the sighted contacts with the ONE
+// shared resolver, BEFORE the land pass, live and replayed. These tests compare
+// against the shared functions called directly — the contract is "the predictor
+// runs the shared resolver in the server's order", not any number of units.
+
+describe('Predictor hull contact pass (Story 9.5)', () => {
+  const OWN = 'own';
+  const BB = CONFIG.shipClasses.battleship;
+  const BB_POLY = hullSilhouette('battleship');
+
+  function body(id: string, x: number, y: number, heading = 0, speed = 0): ContactBody {
+    return {
+      id,
+      state: { x, y, heading, speed },
+      poly: transformPolygon(BB_POLY, x, y, heading),
+      mass: BB.hp,
+      movable: true,
+    };
+  }
+
+  function solidPredictor(islands: Island[], spawn: ShipState, contacts: ContactBody[]): Predictor {
+    const p = new Predictor({ radius: MAP_R, islands });
+    p.setOwnId(OWN);
+    p.setOwnMass(TB.hp);
+    p.onServerState(kin(spawn), 0);
+    p.setContacts(contacts);
+    return p;
+  }
+
+  /** The reference tick: step, the shared hull pass on copies, the land pass. */
+  function referenceTick(own: ShipState, contact: ContactBody, inp: InputMsg, islands: Island[] = []): void {
+    const prev: Pose = { x: own.x, y: own.y, heading: own.heading };
+    stepShip(own, inp, TB.kinematics, DT);
+    const ownBody: ContactBody = {
+      id: OWN,
+      state: own,
+      poly: transformPolygon(TB_POLY, own.x, own.y, own.heading),
+      mass: TB.hp,
+      movable: true,
+    };
+    resolveHullContacts([ownBody, contact]);
+    applyGroundingDamp(own, resolveShipPose(prev, own, islands, MAP_R, TB_POLY), TB.kinematics.maxSpeed);
+  }
+
+  it('pushes the own hull and the contact by their mass shares — the shared resolver, exactly', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
+    const contact = body('foe', 0, 18); // overlapping the own hull's beam
+    const p = solidPredictor([], spawn, [contact]);
+    p.localTick(input(1, 0, 0), 0);
+
+    const refOwn: ShipState = { ...spawn };
+    const refContact = body('foe', 0, 18);
+    referenceTick(refOwn, refContact, input(1, 0, 0));
+
+    expect(p.predicted.x).toBe(refOwn.x);
+    expect(p.predicted.y).toBe(refOwn.y);
+    expect(contact.state.x).toBe(refContact.state.x);
+    expect(contact.state.y).toBe(refContact.state.y);
+    // Non-trivial: both moved, apart, and the lighter own hull moved further.
+    const ownMove = Math.hypot(refOwn.x - spawn.x, refOwn.y - spawn.y);
+    const foeMove = Math.hypot(refContact.state.x, refContact.state.y - 18);
+    expect(ownMove).toBeGreaterThan(0);
+    expect(foeMove).toBeGreaterThan(0);
+    expect(ownMove / foeMove).toBeCloseTo(BB.hp / TB.hp, 6);
+  });
+
+  it('runs the hull pass BEFORE the land pass: a hull shoved into a coast still ends the tick clear of it', () => {
+    // A long flat coast whose shore runs at y = −6, just under the own hull.
+    const island = islandFromPolygon([
+      { x: -150, y: -6 },
+      { x: -150, y: -60 },
+      { x: 150, y: -60 },
+      { x: 150, y: -6 },
+    ]);
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
+    const contact = body('foe', 0, 17); // shoves the own hull toward the island
+    const p = solidPredictor([island], spawn, [contact]);
+    p.localTick(input(1, 0, 0), 0);
+
+    // The hull pass alone would leave the own hull INSIDE the island...
+    const shoved: ShipState = { ...spawn };
+    const ownBody: ContactBody = { id: OWN, state: shoved, poly: transformPolygon(TB_POLY, 0, 0, 0), mass: TB.hp, movable: true };
+    resolveHullContacts([ownBody, body('foe', 0, 17)]);
+    expect(hullClearance(shoved, TB_POLY, island)).toBeLessThan(0);
+    // ...and the land pass that follows it resolves that the same tick.
+    expect(hullClearance(p.predicted, TB_POLY, island)).toBeGreaterThanOrEqual(-1e-6);
+    expect(p.lastLand.contact).toBe(true);
+  });
+
+  it('restores the contacts before every replayed tick — one push from its pose, never N stacked', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
+    const contact = body('foe', 0, 18);
+    const p = solidPredictor([], spawn, [contact]);
+    const N = 3;
+    for (let seq = 1; seq <= N; seq++) p.localTick(input(seq, 0, 0), 0);
+    p.onServerState(kin(spawn), 0); // nothing acked: all N ticks replay against the one set
+
+    // Reference: every tick starts the contact from its handed-over pose.
+    const refOwn: ShipState = { ...spawn };
+    let refContact = body('foe', 0, 18);
+    for (let seq = 1; seq <= N; seq++) {
+      refContact = body('foe', 0, 18);
+      referenceTick(refOwn, refContact, input(seq, 0, 0));
+    }
+    expect(contact.state.x).toBe(refContact.state.x);
+    expect(contact.state.y).toBe(refContact.state.y);
+    expect(p.predicted.y).toBe(refOwn.y);
+
+    // Without the restore the pushes would stack — a different place.
+    const stackedOwn: ShipState = { ...spawn };
+    const stacked = body('foe', 0, 18);
+    for (let seq = 1; seq <= N; seq++) referenceTick(stackedOwn, stacked, input(seq, 0, 0));
+    expect(stacked.state.y).not.toBeCloseTo(refContact.state.y, 6);
+  });
+
+  it('reports the own hull\'s rows from the last live tick — and only the own hull\'s', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
+    const p = solidPredictor([], spawn, [body('foe', 0, 18)]);
+    p.localTick(input(1, 0, 0), 0);
+    expect(p.ownContacts).toHaveLength(1);
+    expect([p.ownContacts[0].a, p.ownContacts[0].b].sort()).toEqual(['foe', OWN].sort());
+
+    // Two contacts grinding each other far away: their row is not ours.
+    p.setContacts([body('x1', 400, 0), body('x2', 400, 10)]);
+    p.localTick(input(2, 0, 0), 0);
+    expect(p.ownContacts).toHaveLength(0);
+  });
+
+  it('with no contact touching, every tick is byte-identical to the pre-9.5 predictor', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0.3, speed: 0 };
+    const control = makeInitialized(spawn);
+    const empty = solidPredictor([], spawn, []);
+    const far = solidPredictor([], spawn, [body('foe', -700, 0)]);
+    for (let seq = 1; seq <= 40; seq++) {
+      const inp = input(seq, 1, seq % 15 < 7 ? 0.6 : -0.4);
+      control.localTick(inp, 0);
+      empty.localTick(inp, 0);
+      far.localTick(inp, 0);
+      if (seq % 4 === 0) {
+        const auth = kin(control.predicted);
+        control.onServerState(auth, seq - 1);
+        empty.onServerState(auth, seq - 1);
+        far.onServerState(auth, seq - 1);
+      }
+    }
+    expect(empty.predicted).toEqual(control.predicted);
+    expect(far.predicted).toEqual(control.predicted);
+    expect(far.ownContacts).toHaveLength(0);
   });
 });

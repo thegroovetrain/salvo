@@ -118,6 +118,10 @@ export class MouseInput {
    * Consumed ONLY by the hotbar's hover; nothing else reads it.
    */
   private inside = false;
+  /** Has any pointermove reported a position yet? `pos` starts at (0, 0), which
+   *  is a real screen corner, so the spectate X/Z zoom anchor (Eric 2026-10-14)
+   *  reads this to fall back to the screen centre until the cursor is known. */
+  private seen = false;
 
   /**
    * @param nowServer Server-clock estimate thunk, injected so this DOM adapter
@@ -146,6 +150,7 @@ export class MouseInput {
     this.pos.x = e.clientX;
     this.pos.y = e.clientY;
     this.inside = true;
+    this.seen = true;
   };
 
   /** The pointer left the WINDOW (a null relatedTarget — leaving for another
@@ -274,6 +279,11 @@ export class MouseInput {
   /** Current cursor screen position (px) — the aim source; NEVER cleared. */
   get screenPos(): ScreenPoint {
     return this.pos;
+  }
+
+  /** Whether `screenPos` is a real cursor position (any pointermove so far). */
+  get hasPosition(): boolean {
+    return this.seen;
   }
 
   /** Is the pointer inside the window? Hover-only UI (the hotbar tooltip) reads

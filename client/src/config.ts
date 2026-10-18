@@ -3,7 +3,7 @@
 // single source of truth for anything gameplay-authoritative). If a value here
 // starts to feel gameplay-load-bearing, promote it to shared CONFIG instead.
 
-import { CATALOG, CONFIG, HULL_IDS, SHIP_CLASS_IDS, boostedKinematics, draftedKinematics, effectiveStats, hullEnvelope } from '@salvo/shared';
+import { CATALOG, CONFIG, HULL_IDS, SHIP_CLASS_IDS, boostedKinematics, draftedKinematics, effectiveStats, hullEnvelope, type FoghornEvent } from '@salvo/shared';
 import {
   SURFACE,
   fitGrainScale,
@@ -52,6 +52,16 @@ const COLORS = {
   denied: 0xff3b3b, // the single denied red (consolidates the legacy DOM red)
   damage: 0x8b0000,
   damageMarker: 0xff6666,
+  /** FOULING SHELL foul-zone SLICK (Story 9.4, Eric's "weed and net", round-3
+   *  pick "bold", 2026-10-12): the wounded-smoke brown, LIGHTER than the sea.
+   *  The ocean is drawn near-black, so a darkening murk was invisible; the
+   *  slick is a faint lighter body under the net and the weed. Feel token;
+   *  Eric may re-tune on staging. */
+  foulSlick: 0x7a7168,
+  /** FOULING SHELL foul-zone WEED squiggles (Story 9.4, "weed and net"): a
+   *  light warm grey from the countermeasure-smoke family, drawn normal-blend
+   *  over the net. Feel token; Eric may re-tune on staging. */
+  foulWeed: 0xc4c0b8,
   // `islandFill` / `islandStroke` (the provisional yellow) are GONE as of cycle
   // 82. DESIGN.md:41 marked them a "provisional carry-over — Open Question";
   // cycle 59 took the in-match chart off them, and the home scene — their last
@@ -100,15 +110,6 @@ const COLORS = {
   echoFaint: 0x00ff00, // "honestly not sure, could be something tiny" — green
   echoFuzzy: 0x0000ff, // "probably a thing, but fuzzy" — blue
   echoSolid: 0xff0000, // "this is definitely a thing" — red
-  // THE CHAFF OWNER'S GHOST GREYS (cycle 162, Eric 2026-10-01: the owner sees
-  // their own fake returns "greyscale rather than green/blue/red", at half the
-  // scope's alpha). NOT scope registers — they paint a SEPARATE sprite
-  // (render/chaffGhosts.ts) and never reach the scope's buffer, which still
-  // has exactly the three colors above. DRAFT values for Eric's eye, ordered
-  // faint → solid at the scope's own band thresholds.
-  ghostFaint: 0x4a4a4a,
-  ghostFuzzy: 0x8c8c8c,
-  ghostSolid: 0xd0d0d0,
   // THERE IS NO FOURTH APPEARANCE ON THE SCOPE (cycle 69). Story 4.11 added an
   // `echoNoData` grey here — a fourth token drawn wherever terrain had shadowed
   // the beam. Eric, on the shipped 0.17.68 build: *"i don't like the grey showing
@@ -124,6 +125,10 @@ const COLORS = {
   torpedo: 0xcfe8dd, // torpedo on-water render
   hitBloom: 0xff9d3d,
   woundedSmoke: 0x7a7168,
+  // The MULTI-SPECTRAL COUNTERMEASURE haze (Story 9.3 session 3, Eric 2026-10-12 reference: light grey smoke with real contrast on the dark water) — NOT the wounded plume grey.
+  countermeasureSmoke: 0xc4c0b8,
+  // FOG BANKS (Story 9.10, Eric's pick B "Wisps", 2026-10-15): a pale warm grey, LIGHTER than the countermeasure haze so weather never reads as a deployed smoke screen; the wisps' per-puff shades multiply it (CLIENT_CONFIG.fogField shadeMin/shadeMax).
+  fogBank: 0xdcdad4,
   // drones (PvE — always greyscale)
   droneOutline: 0x9aa3b2,
   droneFill: 0x454950,
@@ -131,6 +136,13 @@ const COLORS = {
   // fog inverse mask). Never a design surface/text color.
   black: 0x000000,
   white: 0xffffff,
+  // ALERTS ON THE WATER (Story 9.11, epic-9 amendments 152–153): an enemy
+  // mine and another captain's zone ring breathe between these two on one
+  // shared 1 Hz phase (render/alertBlend.ts); own = `white`; motion off holds
+  // at `alertOrange`. Eric picked pair B of three on the rendered page (2026-10-16,
+  // epic-9 amendment 181): hot yellow / deep orange.
+  alertYellow: 0xfff04d,
+  alertOrange: 0xff5a00,
   // Regatta Hoist personal combatant colors (20 hues; bright OUTLINE values —
   // the hull stroke, wake, ordnance-marker tint, and kill-feed name source).
   // Key order = the ratified wheel order (shared REGATTA_HUES): index i → this
@@ -291,12 +303,11 @@ const TYPE = {
 // so scaling colour by extent as well was the same physics counted twice.
 
 /** The RED->BLUE boundary: `bands[2].at`, the intensity a hull must land on
- *  exactly at 7/8 intel range. Stated once, used twice. */
+ *  exactly at the far-radar anchor (`CONFIG.vision.farRadar`, 8/12 of intel
+ *  range since Story 9.8). Stated once, used twice. */
 const HEAT_RED_AT = 0.7;
 
-/** The GREEN->BLUE boundary: `bands[1].at` — hoisted (cycle 162) so the chaff
- *  owner's grey ghost bands (`chaffGhost.bands`) share the scope's thresholds
- *  rather than restating them. */
+/** The GREEN->BLUE boundary: `bands[1].at`. */
 const HEAT_BLUE_AT = 0.36;
 
 /** The TRANSPARENCY threshold: `bands[0].at`. Below it a cell draws nothing at
@@ -351,10 +362,11 @@ const HEAT_SHIP_ATTEN_FLOOR = 0.02;
 
 /**
  * THE FITTED POINT REFERENCE (u) — amendment 118's calibration, SOLVED, not
- * typed in. ~709u at the shipped ladder (was ~558u under the retired
- * extent-scaled fit).
+ * typed in (it scales linearly with the anchor: ~709 u when the anchor sat at
+ * 577.5 u on the eighths ladder; ~1,228 u at the twelfths anchor).
  *
- * `CONFIG.vision.farRadar` (7/8 intel range = 577.5u) is read HERE AND NOWHERE
+ * `CONFIG.vision.farRadar` (8/12 of intel range since Story 9.8 — epic-9
+ * amendment 103, the anchor confirmed by ruling 121) is read HERE AND NOWHERE
  * ELSE IN THE CLIENT. Story 4.9 shipped that rung deliberately unconsumed and
  * named this line as its only legitimate consumer: it is an input to FITTING a
  * coefficient, evaluated once at module load, so the red->blue crossover EMERGES
@@ -367,13 +379,13 @@ const HEAT_SHIP_ATTEN_FLOOR = 0.02;
  * THERE IS NO CALIBRATION HULL ANY MORE, AND THAT IS AMENDMENT 118 GETTING
  * CLEANER (cycle 67, amendments 171-175). The fit used to nominate the Mine
  * Layer at broadside and solve `A = bands[2].at * strongExtent / ext`, so the
- * ratified "a mid-size hull crosses red->blue at 7/8" was a statement about ONE
+ * ratified "a mid-size hull crosses red->blue at the rung" was a statement about ONE
  * hull at ONE aspect and every other hull crossed somewhere else — a battleship
  * broadside never crossed at all, staying red past the rim. Now a hull's
  * reflectivity is its MATERIAL and nothing else, so the solve is just
- * `ship * atten(577.5) = bands[2].at` and the crossover is a PURE STATEMENT
- * ABOUT RANGE: every hull, every class, every aspect, crosses red->blue at 7/8
- * intel range. Class and aspect still read — off the SIZE of the mark, which is
+ * `ship * atten(farRadar) = bands[2].at` and the crossover is a PURE STATEMENT
+ * ABOUT RANGE: every hull, every class, every aspect, crosses red->blue at the
+ * anchor. Class and aspect still read — off the SIZE of the mark, which is
  * what the coverage mask has carried since cycle 63.
  *
  * IT ALSO RETIRES THE CYCLE-63 CROSSOVER BAND (amendment 158). When the fit's
@@ -384,9 +396,13 @@ const HEAT_SHIP_ATTEN_FLOOR = 0.02;
  * `HEAT_RED_AT` and the SNR envelope's amplitude is zero there.
  *
  * The readings this fit is judged on (pinned in __tests__/radarFalloff.test.ts,
- * not re-derived here): red from the hull out to 577.5u, blue from there to the
- * 660u rim, identical for all three classes at both aspects, and `minPeak`
- * still floors the return past the scope.
+ * not re-derived here): red from the hull out to the anchor (8/12), blue from
+ * there through the dropout knee (10/12), identical for all three classes at
+ * both aspects, and `minPeak` still floors the return out to the rim. THE
+ * TWELFTHS LADDER MOVED ONE READING (Story 9.8, measured): with the anchor a
+ * third of the span from the rim, the 1/d⁴ curve no longer holds blue to the
+ * rim — the unluckiest draw dips into green from ~1,327 u and every draw from
+ * ~1,437.5 u, inside the dropout cliff where p(paint) runs 0.9 → 0.1.
  */
 const HEAT_POINT_REF = fitPointRef({
   crossover: CONFIG.vision.farRadar,
@@ -468,7 +484,7 @@ const HEAT_WAKE_GRAIN = fitGrainScale({
  *
  * The end of the ladder is DERIVED, not chosen: water at the end of its life
  * reads exactly as fresh water does at the material's own reach, so age and
- * range spend the SAME coin and the visible reach walks from the 5/8 rung down
+ * range spend the SAME coin and the visible reach walks from the 6/12 rung down
  * to nothing across `WAKE_AGE_BUCKETS`. `worstDrawIntensity` is the intensity
  * whose unluckiest draw lands on the threshold — the same quantity the reach fit
  * inverts — so the two derivations cannot drift.
@@ -478,16 +494,19 @@ const HEAT_WAKE_AGE_FLOOR =
 
 /**
  * THE WAKE'S REFERENCE RANGE (u) — SOLVED so its worst draw crosses
- * `bands[0].at` EXACTLY at `CONFIG.vision.muzzleFlash`, the eighths ladder's 5/8
- * rung (412.5u). A wake READS inside that and FRAYS OUT beyond it, which is both
- * a weak-surface-return result and a "get close to read tracks" dynamic, and it
- * lands on amendment 113's ladder rather than on a new literal.
+ * `bands[0].at` EXACTLY at `CONFIG.vision.muzzleFlash`, the twelfths ladder's
+ * 6/12 rung (Story 9.8, epic-9 amendment 103; the eighths ladder's 5/8 before).
+ * A wake READS inside that and FRAYS OUT beyond it, which is both a
+ * weak-surface-return result and a "get close to read tracks" dynamic, and it
+ * lands on the ladder rather than on a new literal.
  *
- * This is the SECOND (and last) place in the client that reads a ladder rung,
- * and it reads it for the same reason `HEAT_POINT_REF` reads `farRadar`: to FIT
- * a curve, once, at module load. `grep -rn muzzleFlash client/src/render/` must
- * stay empty — a comparison against the rung on a paint path violates amendment
- * 105 exactly as it would for the crossover.
+ * This is the SECOND (and last) place in the client that reads that rung to
+ * shape INTENSITY, and it reads it for the same reason `HEAT_POINT_REF` reads
+ * `farRadar`: to FIT a curve, once, at module load. No radar PAINT path may
+ * compare against the rung — that violates amendment 105 exactly as it would
+ * for the crossover. (render/hazeHalo.ts legitimately reads
+ * `muzzleFlashFactor`: it sizes the countermeasure's eye-visibility halo to the
+ * server's own `sm` gate, a geometry the server decides, not an intensity.)
  *
  * WATER IS A SURFACE (amendment 106's table): 1/d³, the same geometry as
  * coastline, surf and sea clutter. The reference comes out LONGER than the
@@ -523,8 +542,8 @@ export const FASTEST_HULL_SPEED = HULL_IDS.reduce(
 /**
  * THE FASTEST A HULL CAN EVER TRAVEL (u/s) — the fastest BOOSTED, fully
  * SPEED-laddered hull in the game, RIDING ANOTHER HULL'S WAKE at the full draft
- * lift: 72.1875 at the shipped numbers (a Torpedo Boat at 45 + 4 SPEED copies =
- * 55, × 1.25 = 68.75, + 5 % of that).
+ * lift: 75.46875 at the shipped numbers (a Torpedo Boat at 45 + 5 SPEED copies =
+ * 57.5, × 1.25 = 71.875, + 5 % of that).
  *
  * DERIVED, never written down, and derived THROUGH THE REAL FOLD: a capped
  * SPEED card stack goes through `effectiveStats` (so any clamp applies), the boost
@@ -570,6 +589,37 @@ const REVEAL_ZOOM_MS = 1600;
  */
 const REVEAL_ZOOM_TAUS = 3;
 
+/** The foghorn's wire band, 1..12 (FoghornEvent.v — Story 9.8, ruling 129). */
+type HornWireBand = NonNullable<FoghornEvent['v']>;
+
+/** Twelve bands on the wire (twelfths of the listener's intel range); band 4 is
+ *  truesight, band 12 the radar edge (epic-9 amendment 103 / ruling 129). */
+const HORN_BANDS = 12;
+const HORN_SIGHT_BAND = 4;
+
+/**
+ * THE FOGHORN CURVE's position for a band (ruling 129, "proportional
+ * re-read"): 0 at and inside truesight (band 4), 1 at the radar edge (band
+ * 12), even steps between — k = (band − 4) / 8. Both the audio gain and the
+ * chevron weight are this one curve, so the honk's loudness and its mark step
+ * together.
+ */
+function hornCurveK(band: number): number {
+  return Math.max(0, (band - HORN_SIGHT_BAND) / (HORN_BANDS - HORN_SIGHT_BAND));
+}
+
+/** A complete band → value table over 1..12, generated from the curve. */
+function hornTable<T>(at: (k: number) => T): Readonly<Record<HornWireBand, T>> {
+  const out: Partial<Record<HornWireBand, T>> = {};
+  for (let b = 1; b <= HORN_BANDS; b++) out[b as HornWireBand] = at(hornCurveK(b));
+  return out as Readonly<Record<HornWireBand, T>>;
+}
+
+/** The chevron's two shipped anchors (Story 4.9): full weight through
+ *  truesight, the old tier-3 weight at the radar edge. */
+const CHEVRON_NEAR = { size: 22, thickness: 3, alpha: 0.95 } as const;
+const CHEVRON_EDGE = { size: 13, thickness: 1.8, alpha: 0.5 } as const;
+
 export const CLIENT_CONFIG = {
   /** Design tokens (Story 1.11) — the single styling source (see above). */
   colors: COLORS,
@@ -607,13 +657,25 @@ export const CLIENT_CONFIG = {
     followRate: 5,
     /**
      * Look-ahead time (s). Lead distance = |speed| * leadSeconds, capped at
-     * leadMax. At maxSpeed 25 u/s this reaches ~112.5u, past the leadMax cap
-     * (110u @ sight 220) — the cap engages near top speed (step 11 feel-pass
-     * tuning, up from 4s; flagged for playtest).
+     * leadMax. At maxSpeed 25 u/s this reaches ~112.5u (step 11 feel-pass
+     * tuning, up from 4s; flagged for playtest). The cap was set when sight
+     * was 220 u and engaged near top speed; at the twelfths ladder's 500 u
+     * sight (Story 9.8) it sits at 250 u, so only a boosted/drafted hull ever
+     * reaches it.
      */
     leadSeconds: 4.5,
-    /** Lead distance cap (u) = 0.5 * sight range, per the plan. */
+    /** Lead distance cap (u) = 0.5 * sight range, per the plan (250 u at the
+     *  twelfths ladder's base sight). */
     leadMax: CONFIG.vision.sight * 0.5,
+    /**
+     * KEEP THE OWN HULL ON SCREEN past the default framing (Story 9.8 review
+     * gate, F2): the centre slide (ruling 128) aims at the ring centre, so a
+     * captain out in the storm beyond the fitted ring would otherwise slide off
+     * the view at the zoom-out limit. The centre is clamped so the hull point
+     * stays at least this far (u) inside every view edge: the LONGEST hull's
+     * half-length plus a small margin (20 u), so the whole silhouette shows.
+     */
+    keepInViewPadU: Math.max(...SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].hull.length)) / 2 + 20,
   },
 
   /**
@@ -766,8 +828,8 @@ export const CLIENT_CONFIG = {
    * purpose:
    *
    *   • THE REACH is not here. Every world cue is attenuated over the SAME
-   *     distance — `CONFIG.vision.radar`, the eighths ladder's 8/8 rung (full
-   *     intel range) — read straight from shared CONFIG at the call site, never
+   *     distance — `CONFIG.vision.radar`, the twelfths ladder's 12/12 rung
+   *     (full intel range, epic-9 amendment 103) — read straight from shared CONFIG at the call site, never
    *     mirrored or re-typed into this block. It is a FALLOFF SCALE, not a gate:
    *     the server has already decided which events reach this client, and a
    *     per-cue reach here (muzzleFlash for `mz`, sight for `boom`) would be a
@@ -918,7 +980,8 @@ export const CLIENT_CONFIG = {
    */
   broadsideArcs: {
     /** u — the per-turret wedge's radius. INDICATIVE, like the torpedo's ARC_R:
-     *  the real reach is 412.5u and a filled wedge that long would bury the
+     *  the real reach is the broadside's own tiered dial (625–750 u, Story 9.8
+     *  ruling 125) and a filled wedge that long would bury the
      *  chart. Short of the 72u sector radius so the wedges read as a battery
      *  INSIDE the legal sector, and comfortably shorter than the 124u
      *  battleship hull they sprout from. */
@@ -939,7 +1002,7 @@ export const CLIENT_CONFIG = {
 
   /**
    * OWN-MINE RINGS (render/mines.ts) — always-on, owner-private radii drawn in
-   * the dropper's personal hue on the fog-immune chart layer: solid blast +
+   * WHITE (Story 9.11, amendment 152 — the dropper's hue is retired) on the fog-immune chart layer: solid blast +
    * dashed trigger for an ordinary mine, and for a CAPTIVE one (Story 7-5 wave
    * 2, R2.12) a single sparse-DOTTED trip ring — it never detonates on contact,
    * so it draws no blast circle about itself. Enemies see exactly today's
@@ -1305,6 +1368,17 @@ export const CLIENT_CONFIG = {
        *  should drift, not track. */
       followRate: 1.2,
       /**
+       * The scene's framing: world units across the viewport's SHORT axis.
+       * Every placement in this block is a multiple of base truesight, and the
+       * picture was composed at a 1,320 u span over a 330 u bubble — four
+       * truesights across. Story 9.8 retired the camera's radar-diameter fit
+       * (ruling 127) and grew truesight to 500 u, so the span is written in the
+       * same unit as the rest of the composition (4 × sight) and the picture —
+       * hull out on the right flank, bubble and rivals clear of the home column
+       * — holds exactly as composed rather than shrinking behind the DOM.
+       */
+      spanU: CONFIG.vision.sight * 4,
+      /**
        * Camera-centre offset from the observer (u), in multiples of base
        * truesight. NEGATIVE x pushes the camera left of the hull, which seats
        * the hull — and the one genuinely BRIGHT region of the picture, its
@@ -1347,19 +1421,37 @@ export const CLIENT_CONFIG = {
     },
   },
 
-  /** Alive camera user-zoom (Story 2.1, Eric ruling 2026-07-24): a render-only
-   *  multiplier over the base radar-fit framing — X steps in, Z steps out, the
-   *  wheel zooms smoothly. Client-only by design: fog stays server-
-   *  authoritative, so zoom is never an information exploit. The spectate zoom
-   *  path (render/spectate.ts, 0.5–1.0 wheel-only) is separate and unchanged. */
+  /** Alive camera framing (Story 2.1, Eric ruling 2026-07-24; ABSOLUTE since
+   *  Story 9.8, epic-9 ruling 127). Every framing is a world SPAN across the
+   *  viewport's SHORT axis — never a factor over radar: today's framings
+   *  written as absolute spans. X steps in, Z steps out, the wheel zooms
+   *  smoothly. The zoom-IN limit is `closeSpanU`; the zoom-OUT limit is the
+   *  WHOLE MAP fitted to the short axis with `reveal.mapFitMargin` (Eric
+   *  2026-10-14, amendment 142), and the LIVE storm ring fitted the same way is
+   *  a WAYPOINT on the way: a step that would cross it lands on it
+   *  (render/camera.ts stepZoom). Past the default framing the centre slides
+   *  from own ship to the ring centre at the waypoint (ruling 128), then on to
+   *  the map centre at the out limit.
+   *  Client-only by design: fog stays server-authoritative, so zoom is never an
+   *  information exploit. The spectate zoom (render/spectate.ts) shares this
+   *  range and these steps since Eric's 2026-10-14 ruling, anchored at the
+   *  cursor instead of the own ship (Camera.zoomAbout). */
   zoom: {
-    /** Minimum user factor (zoomed fully OUT — 0.5× the base framing). */
-    min: 0.5,
-    /** Maximum user factor (zoomed fully IN — 1.5× the base framing). */
-    max: 1.5,
-    /** Factor step per X/Z keydown (auto-repeat allowed — hold to zoom). */
+    /** Zoom-IN limit (u across the short axis): ruling 127, today's 1.5× close
+     *  view written as an absolute span (1,320 / 1.5) — never a factor over
+     *  radar. */
+    closeSpanU: 880,
+    /** DEFAULT framing (u across the short axis): ruling 127, today's 1.0×
+     *  scale (the old 2 × 660 u radar fit) written as an absolute span — never
+     *  a factor over radar. `baseZoom` = shortAxis / this. */
+    defaultSpanU: 1320,
+    /** LOG step per X/Z keydown (auto-repeat allowed — hold to zoom): next =
+     *  factor × e^±keyStep (render/camera.ts stepZoom) — ×1.105 / ×0.905 per
+     *  press, today's ±0.1 feel at the default framing, the same perceived step
+     *  out at the ring fit. */
     keyStep: 0.1,
-    /** Factor per wheel deltaY unit (matches spectate's 0.0008 feel). */
+    /** LOG step per wheel deltaY unit (next = factor × e^(−deltaY × this)):
+     *  one 100-unit notch is ×0.923, today's −0.08 at the default framing. */
     wheelRate: 0.0008,
   },
 
@@ -1373,9 +1465,11 @@ export const CLIENT_CONFIG = {
    * shared CONFIG.
    *
    * There is no `zoomFactor` knob: the framing is DERIVED at kickoff by
-   * render/camera.ts's `revealZoomFactor()` from the camera's live radarRange
-   * and the Game's mapRadius, so a sensor or map-size retune moves it with them
-   * (amendment 25; Story 6.2 makes map sizing roster-dynamic).
+   * render/camera.ts's `revealZoomFactor()` as an ABSOLUTE span — the Game's
+   * live mapRadius × 2 × `mapFitMargin` across the short axis (amendment 25;
+   * Story 9.8 ruling 127 retired the radar term; Story 6.2 makes map sizing
+   * roster-dynamic). The same margin fits the alive zoom-out limit to the live
+   * ring (`zoom` above).
    */
   reveal: {
     /** Nominal travel time (ms) of the pull-back, before the motion setting
@@ -1408,8 +1502,8 @@ export const CLIENT_CONFIG = {
     /**
      * SCREEN-LOCKED stroke widths (px), divided by the camera zoom at draw time
      * exactly like the storm plane's edges (the same `strokeWorldWidth`). A
-     * fixed world width would thin the coastline to 0.7px at the 0.5× end of
-     * the shipped user-zoom range — a hairline at precisely the moment the
+     * fixed world width would thin the coastline to a hairline at the wide end
+     * of the user-zoom range (the live ring fit since Story 9.8) — a hairline at precisely the moment the
      * player has asked to see more terrain at once.
      *
      * The contour line is SUBORDINATE to the coastline: the coast is the one
@@ -1461,8 +1555,9 @@ export const CLIENT_CONFIG = {
      *
      *   needed = dist(camera center → ring center) + half the visible diagonal
      *
-     * No CONSTANT factor can bound that: the camera fits 2 × radar range on the
-     * SHORT axis, so a short-wide viewport at the widest user zoom already sees
+     * No CONSTANT factor can bound that: the camera frames an absolute span on
+     * the SHORT axis (out to the live ring fit, Story 9.8), so a short-wide
+     * viewport at the widest user zoom already sees
      * a very wide slice of ocean on a 3440×720 screen, and spectate free-pan is
      * UNCLAMPED — the camera can travel arbitrarily far from any ring, so no
      * fixed multiple of the map radius is provably enough. So the renderer computes
@@ -1487,8 +1582,8 @@ export const CLIENT_CONFIG = {
     /**
      * SCREEN-LOCKED stroke widths (px, amendment 14 + the zoom-invariance
      * clause). The renderer divides these by the camera zoom at draw time, so
-     * the on-screen width is constant across the shipped 0.5×–1.5× user-zoom
-     * range instead of thinning to a hairline when you zoom out.
+     * the on-screen width is constant across the whole user-zoom range (close
+     * framing to ring fit) instead of thinning to a hairline when you zoom out.
      */
     edgePx: 2,
     telegraphPx: 2,
@@ -1502,8 +1597,9 @@ export const CLIENT_CONFIG = {
      *
      * The stroke matches `telegraphPx` because the mark IS the telegraph for a
      * ring with no radius; the arm is sized to read as a deliberate mark at a
-     * glance without competing with a contact marker (the fog hole is 330u
-     * across at zoom 1, so a 24px X is a small, unmistakable cross on the water).
+     * glance without competing with a contact marker (the fog hole is a
+     * truesight radius — hundreds of px at the default framing — so a 24px X
+     * is a small, unmistakable cross on the water).
      */
     markPx: 2,
     markArmPx: 12,
@@ -1747,31 +1843,33 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * THE HUD BAR (Story 8.6) — the ONE bottom-centre cluster that replaces the
-   * three corners (bottom-left hotbar stack, bottom-right vitals cluster,
-   * bottom-left XP rail). Direction B "TRISTRAM", ratified by Eric 2026-09-11.
+   * THE HUD BAR (Story 8.6; BACK TO ONE ROW in Story 9.11) — the ONE
+   * bottom-centre cluster that replaces the three corners (bottom-left hotbar
+   * stack, bottom-right vitals cluster, bottom-left XP rail). Direction B
+   * "TRISTRAM", ratified by Eric 2026-09-11.
    *
-   * SOURCE: `mockups/hud-composite-3.html`, read literally. Epic-8 amendment 31
-   * — every size on the bar is THE MOCK'S: the July 1.6x micro lift (epic-2
-   * amendment 15) does NOT apply to the bar's surfaces, which is why `slot` is
-   * 54 here against the retired bottom-left hotbar's lifted 62, and `type.chip`
-   * is 9 against the `type.registers.hudMicro` 14. Epic-8 amendment 32 lifts
-   * the HP globe from
-   * the mock's 96 to the helm globe's 104, so ONE `globe` number serves both.
+   * SOURCE: `mockups/hud-composite-3.html`, read literally (epic-8 amendment
+   * 31 — the July 1.6x micro lift does NOT apply to the bar's surfaces, which
+   * is why `slot` is 54 and `type.chip` is 9; amendment 32 lifts the HP globe
+   * from the mock's 96 to the helm globe's 104, so ONE `globe` number serves
+   * both). Story 9.2's two-row D-prime stack (`mockups/hud-consumables-1.html`)
+   * is RETIRED: Eric 2026-10-14 (epic-9 amendment 151) put the bar back on the
+   * literal 8.6 one-row geometry, with the framed belt holding all SIX
+   * consumable squares (keys 1–6).
    *
-   * Anatomy of the 768 px bar, left to right:
+   * Anatomy of the 868 px bar, left to right:
    *   HP globe 104 | 16 | Gun Shift Q E R (5 x 54, 8 gaps) | 16 |
-   *   framed belt 1-4 (8 + 4 x 44 + 3 x 6 + 8) | 16 | helm globe 104
-   * with the XP strip's 24 px row 8 px beneath the 104 px main row.
+   *   framed belt 1-6 (8 + 6 x 44 + 5 x 6 + 8) | 16 | helm globe 104
+   * with the XP strip's 24 px row 8 px beneath the 104 px main row
+   * (104 + 8 + 24 = 136 tall).
    *
    * LOGICAL UNITS: main.ts already divides the screen by the UI scale, so every
    * number here is pre-scale. The one exception is the 9 px type register,
    * which `render/hudBar.ts`'s `microScale()` counter-scales at 90% so no mono
-   * glyph ever renders under 9 px (DESIGN.md: "the 90% setting scales geometry
-   * and exempts the micro type tier").
+   * glyph ever renders under 9 px (epic-8 amendment 43).
    *
    * Colors are NOT here — every stroke/fill reads a `colors` token at an alpha
-   * (UX-DR76: Story 8.6 mints no new token).
+   * (UX-DR76: no new token).
    */
   hudBar: {
     /** Px from the viewport floor to the bar's bottom edge (mock `.B-hud`
@@ -1788,7 +1886,7 @@ export const CLIENT_CONFIG = {
     slot: 54,
     slotGap: 8,
     /** Consumable belt square (px) and its tighter gap (mock `.belt .slot`,
-     *  `.belt { gap: 6px }`). */
+     *  `.belt { gap: 6px }`). Six of them since Story 9.11 (keys 1–6). */
     beltSlot: 44,
     beltGap: 6,
     /** Belt frame padding (mock `.belt { padding: 8px 8px 6px }`). The frame
@@ -1796,7 +1894,8 @@ export const CLIENT_CONFIG = {
      *  so `bottom` is measured under the chip, not under the square. */
     beltPad: { top: 8, side: 8, bottom: 6 },
     /** Key chip (mock `.kc`): 16 px tall, 16 px minimum width, 3 px of padding
-     *  each side of the glyph, and 5 px under its square (mock `.sw { gap: 5px }`). */
+     *  each side of the glyph, and 5 px under its square (mock `.sw { gap: 5px }`)
+     *  — the same seam under every square, weapon and belt alike. */
     chipH: 16,
     chipMinW: 16,
     chipPadX: 3,
@@ -1828,8 +1927,14 @@ export const CLIENT_CONFIG = {
      *  `.B-hud.dim .B-slots, .B-hud.dim .belt { opacity: .38 }`. The globes and
      *  the XP strip deliberately stay at 1. */
     dimAlpha: 0.38,
-    /** Hairline width (px) — every 1 px rule on the bar (frames, rings, chip
-     *  boxes, the strip's border). */
+    /** Gaussian blur reach (px) of the glow layer under the squares — the ONE
+     *  filter that turns each skin's `glowPx` / `glowAlpha` ring into a soft
+     *  bloom (Eric 2026-10-11, epic-9 amendment 39: no emulated shadow glow).
+     *  A feel knob: bigger = softer, wider halos; the per-state reach and peak
+     *  stay the mock's numbers in the skin table. */
+    glowBlurPx: 8,
+    /** Hairline width (px) — every 1 px rule on the bar (square edges, the
+     *  belt frame, rings, chip boxes, the strip's border). */
     lineW: 1,
     /** Globe bed alpha over the water — mock `rgba(3,6,5,.7)` on `cardScrim`. */
     globeBedAlpha: 0.7,
@@ -1852,10 +1957,12 @@ export const CLIENT_CONFIG = {
       badge: 10,
       /** `LV n` at the strip's head — mock `.B-xp .lv { font: 600 11px }`. */
       lv: 11,
-      /** The cooldown wipe's centred seconds numeral — mock `.cd { font: 600 18px }`. */
+      /** The cooldown wipe's centred seconds numeral — mock `.cd { font: 600 18px }`
+       *  (back with the 54 px squares in Story 9.11). */
       wipe: 18,
       /** HP globe readout: `212` value, ` /250` max, `HULL` label (mock
-       *  `.globe .gt b` 18 / `.globe .gt em` 10 / `.globe .gt` 9). */
+       *  `.globe .gt b` 18 / `.globe .gt em` 10 / `.globe .gt` 9) — back with
+       *  the 104 px globes in Story 9.11. */
       hull: 18,
       hullMax: 10,
       hullLabel: 9,
@@ -1946,8 +2053,14 @@ export const CLIENT_CONFIG = {
      * LOWEST edge `barGap` above the HUD bar's top, so a shorter card simply
      * leaves more clear water above the band — which is what `refitTooltip`'s
      * amendment-37 above/below decision spends.
+     *
+     * 226 → 243, THE SIX-ROW GRID (Story 9.8, Eric 2026-10-13: "Six-row card
+     * grid"). Every gun card now carries a RANGE row, and STAR SHELLS /
+     * PHOSPHOR SHELLS to III and V print six. DESIGN.md sizes the box "to the
+     * catalog's largest card" and pins the row at 17px, so the row pitch is
+     * kept and the card grows by exactly one row (+17).
      */
-    cardHeight: 226,
+    cardHeight: 243,
     /** Gap (px) between cards. Four 216s + three 20s = a 924px row that never
      *  wraps at the 1366×768 floor or the 1280×614 logical floor (125% tier). */
     gap: 20,
@@ -2021,7 +2134,7 @@ export const CLIENT_CONFIG = {
     kindSize: 10,
     /** The LADDER row: its fixed height, the gap between rungs and one rung's
      *  box (mock `.ladder` / `.ladder i`). The row is rendered EMPTY (but still
-     *  16px tall) for a consumable or an add-on, so the five rows below it sit
+     *  16px tall) for a consumable or an add-on, so the six rows below it sit
      *  at the same baseline on every card in the row. */
     ladderH: 16,
     ladderGap: 3,
@@ -2029,12 +2142,13 @@ export const CLIENT_CONFIG = {
     rungH: 7,
     /** The `cur → next` tier numerals beside the ladder — mock `.tl`. */
     tierSize: 12,
-    /** The five stat rows — mock `.rows { grid-template-rows: repeat(5,17px) }`
-     *  with a `.rw` label/value pair per row. FIVE ALWAYS: a line with fewer
-     *  rows renders the remainder blank, which is what keeps the foot on one
-     *  baseline across the row. */
+    /** The stat rows — mock `.rows { grid-template-rows: repeat(5,17px) }`,
+     *  grown to SIX by Eric's 2026-10-13 ruling (Story 9.8) at the same 17px
+     *  pitch, with a `.rw` label/value pair per row. SIX ALWAYS: a line with
+     *  fewer rows keeps them top-aligned and renders the remainder blank, which
+     *  is what keeps the foot on one baseline across the row. */
     rowH: 17,
-    rowCount: 5,
+    rowCount: 6,
     labelSize: 9,
     valueSize: 11,
     /** The FOOT — mock `.foot`, 14px tall, blank unless the card is greyed
@@ -2273,11 +2387,12 @@ export const CLIENT_CONFIG = {
     glyphFadeCount: 3,
     glyphFadeSec: 0.6,
     glyphKey: 'hullcracker.helm',
-    /** VICTIM TELLS (Story 2.9): the SLOWED / DAZZLED status lines stacked UNDER
+    /** VICTIM TELLS (Story 2.9): the SLOWED status line (the only tell since
+     *  Story 9.4 retired DAZZLED with FLASH SHELLS) stacked UNDER
      *  IN STORM, sharing its satellite column (epic-8 amendment 38 — the column
      *  hangs off the CHROME BAR now, and the tells grow downward from the storm
      *  line rather than upward toward it). `tellGap` is both the storm-line-to-
-     *  first-tell gap and the gap between the two tells; the retired `tellAbove`
+     *  first-tell gap and the gap between stacked tells; the retired `tellAbove`
      *  measured the old upward stack off the HUD bar's top edge and is gone with
      *  it. `tellSize` is the mono size the fit pin measures. */
     tellGap: 22,
@@ -2312,24 +2427,51 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * PHOSPHOR SHELLS BURNING ZONE (Story 8.17, epic-8 amendments 131/135(i)) —
-   * render/burnZones.ts. The ember treatment MOVED here verbatim from the
-   * retired star-shell `phos` lit-zone verb (Story 2.9, amendment 50: a zone
-   * reads as its hazard for every observer — counterplay over concealment).
-   * The firer's personal hue owns the RING (a zone still says WHOSE it is); the
-   * ember layers INSIDE it. The DAZZLE glare knobs (glare/halo fractions) are
-   * DELETED with the verb (amendment 134): FLASH SHELLS leaves no zone.
+   * PHOSPHOR SHELLS BURNING ZONE (Story 8.17, epic-8 amendment 131; body
+   * re-made by Story 9.11, epic-9 amendment 154) — render/burnZones.ts. The
+   * zone is WHITE FIRE ON THE WATER: a field of `render/fire.ts` flame tongues
+   * scattered over the whole disc, denser toward the middle, seeded from the
+   * zone id so every observer sees the same fire. The zone keeps the family glow
+   * (soft fill + ring, Eric on the rendered page 2026-10-16, amendment 181:
+   * "I want the inside of the zone to be colored, too, not just the ring") —
+   * own white, another's the alert blend (amendment 153). The crimson
+   * ember disc of epic-8 amendment 135(i) and its knobs are DELETED.
    */
   burnZone: {
-    /** An ember disc inside the ring, at this fraction of the zone radius,
-     *  breathing between (base ∓ amp) alpha at `emberHz` — well under
-     *  `settings.pulseCapHz` and nowhere near the ≤3 flashes/s ceiling. The
-     *  disc itself (position + extent) is the information and holds at
-     *  motion=off; only the breath is motion. */
-    emberFrac: 0.72,
-    emberAlpha: 0.16,
-    emberAmp: 0.07,
-    emberHz: 0.5,
+    /** Tongues per 1000 u² of zone area: N = clamp(round(density · π r² /
+     *  1000), flameMin, flameMax). Extent is information — never motion-gated.
+     *  4.0 is Eric's pick on the rendered page (2026-10-16, amendment 181):
+     *  126 tongues on a tier-I 100 u zone. */
+    flameDensityPer1000U2: 4.0,
+    flameMin: 6,
+    /** The hard cap on one zone's tongues (a huge zone stays affordable):
+     *  a tier-V zone (100 × 1.1⁴ ≈ 146 u) at 4.0 wants 268. */
+    flameMax: 300,
+    /** u — the radius a tongue's teardrop is DRAWN at (`flameTongue(flameR)`). */
+    flameR: 14,
+    /** The tongue's white halo and its hotter white core (additive). */
+    flameHaloAlpha: 0.35,
+    flameCoreAlpha: 0.9,
+    /** How far ANOTHER captain's flames lean from white toward the alert blend
+     *  (0 = pure white, 1 = the ring's color). Eric 2026-10-16 (epic-9
+     *  amendment 183): "I want the white flames themselves … tinted by the
+     *  flash, too, so it ABSOLUTELY reads as hostile. Ever so slightly." Own
+     *  fire stays white. A feel knob. */
+    flameAlertMix: 0.3,
+    /** The flicker: a fast sin wobble on each tongue's alpha and width,
+     *  amplitude scaled by motion intensity (exactly still at `off`) — the
+     *  render/fire.ts rule: it is a wobble, never an on/off. */
+    flickerHz: 6,
+    flickerAmp: 0.25,
+    /** Each tongue's seeded size, a uniform draw in [min, max] × `flameR`. */
+    flameScaleMin: 0.7,
+    flameScaleMax: 1.3,
+    /** The exponent on the radial draw: a tongue sits at distance
+     *  `r · √(u)` with `u = rng^bias` (the weedStrokes √u scatter on a biased
+     *  draw). bias 1 = uniform over the area; 2 = `r · rng`, an area density
+     *  ∝ 1/ρ — visibly thicker toward the middle, still reaching the ring.
+     *  See burnFlames(). */
+    flameCenterBias: 2,
     /** A burn tick is a DoT, not a slam: the victim's shake is scaled to this
      *  fraction of an ordinary hit's so standing in fire nudges instead of
      *  hammering (the tone + the zone under the hull carry the information). */
@@ -2337,69 +2479,237 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * SMOKE SCREEN puffs (render/smokeScreen.ts, Story 8.18) — FEEL ONLY. The
-   * puff's presence, position, life and radius are gameplay (the server's sight
-   * predicate reads them) and live in shared `CONFIG.smokeScreen` + the shared
-   * `puffRadius`; nothing here may change who sees what. NOT `smoke` below
-   * (WOUNDED smoke): the two share `colors.woundedSmoke` and differ by SHAPE —
-   * a large stationary disc with a crisp rim vs small trailing soft blobs.
+   * FOULING SHELL FOUL ZONE (Story 9.4, epic-9 amendments 61–69) —
+   * render/foulZones.ts. FEEL ONLY: client knobs Eric may re-tune on staging;
+   * the server reads none of them (the zone's radius rides the wire as `r`).
+   * Ruling 68: the zone reads as its own kind at a glance. It wears the zone
+   * family's firer-hue glow ring (whose it is) and, inside it, Eric's "weed
+   * and net" (round-3 pick "bold", 2026-10-12): a faint LIGHTER slick disc in
+   * `colors.foulSlick` (the sea is near-black — it cannot be darkened), a
+   * diagonal mesh of straight lines in the firer's hue clipped to the slick,
+   * and short seeded squiggles in `colors.foulWeed` on top. The weed layer
+   * sways gently (motion-gated); the strokes themselves never change.
    */
-  smokeScreen: {
-    /** The last this-many ms of a puff's life ease its FILL alpha linearly to
-     *  0 so a puff thins out rather than popping off at its server `until`.
-     *  The rim never fades — it is the occlusion edge, and the puff occludes at
-     *  full strength until removal (cycle-153 review gate). */
-    fadeMs: 5000,
-    /** Disc fill alpha at full strength (before the end-of-life fade). */
-    fillAlpha: 0.35,
-    /** 1 u rim alpha — a hair stronger than the fill, so the EDGE (the
-     *  occlusion boundary) reads crisply. */
-    rimAlpha: 0.6,
+  foulZone: {
+    /** The slick disc's radius as a fraction of the zone radius (the net and
+     *  the weed live inside it). Feel knob; Eric may re-tune on staging. */
+    slickFrac: 0.8,
+    /** The slick disc's alpha (normal blend, lighter than the sea). A soft rim
+     *  at the full zone radius is drawn at half this alpha. Feel knob. */
+    slickAlpha: 0.3,
+    /** u — spacing between the parallel net lines (both diagonals). Feel knob. */
+    netSpacingU: 14,
+    /** px-ish stroke width of a net line. Feel knob. */
+    netWidth: 1.3,
+    /** Alpha of the net lines (firer's hue, over the slick). Feel knob. */
+    netAlpha: 0.55,
+    /** How many weed squiggles per zone (seeded from the zone id, so every
+     *  observer sees the same ones). Feel knob. */
+    weedCount: 8,
+    /** px-ish stroke width of a weed squiggle. Feel knob. */
+    weedWidth: 1.8,
+    /** Alpha of the weed squiggles (`colors.foulWeed`). Feel knob. */
+    weedAlpha: 0.75,
+    /** u — length of one squiggle along its heading. Feel knob. */
+    weedLenU: 40,
+    /** u — sideways amplitude of a squiggle's two humps. Feel knob. */
+    weedAmpU: 6,
+    /** u — how far the whole weed layer sways (motion-scaled; 0 at motion
+     *  off). Feel knob. */
+    weedDriftU: 4,
+    /** Hz — the weed sway's rate (integrated phase, well under the
+     *  photosensitivity ceiling). Feel knob. */
+    weedHz: 0.25,
   },
 
   /**
-   * THE CHAFF OWNER'S RING (cycle 158, Eric 2026-09-30, epic-8 amendment 191) —
-   * render/chaffRing.ts. A dim phosphor DASHED circle of `CONFIG.chaff.radius`
-   * around the owner's own burst point (self-private `you.chaff`), fading to
-   * nothing at the cloud's expiry. Client-only feel: none of these is gameplay.
-   *
-   * MORE VISIBLE SINCE CYCLE 162 (Eric 2026-10-01: "the chaff ring more
-   * visible"): alpha 0.45 → 0.85, width 1.5 → 2.5 — IMPLEMENTER DRAFTS for his
-   * eye on staging. Dash and gap unchanged.
+   * HULL CONTACT legibility (render/contactFx.ts + the `grind` tone, Story 9.5,
+   * epic-9 amendment 79) — FEEL ONLY: client knobs judged on staging; Eric may
+   * re-tune them. The server reads none of them and the damage never depends
+   * on them (it rides the server's `dmg`, with the existing shake and `damage`
+   * thud). A STRIKE (closing speed over `CONFIG.ram.allowanceU`, on the edge a
+   * pair first touches — or the own hull first touches land) throws a brief
+   * spark burst at the contact point in both hulls' colors (land: own color +
+   * the shore stroke); a BLEEDING contact (a hull scrape or sustained press —
+   * `vt + vn`, amendment 83 — or a coast slide; sim/contactBleed.ts) plays a
+   * short retriggered `grind` scrape, and while it bleeds the small windowed
+   * contact `dmg` plays no thud and no shake (the grind is the cue). Sparks are motion (none at motion off); the sound is not.
    */
-  chaffRing: {
-    /** Stroke alpha of a FRESH cloud; it falls linearly to 0 at `until`. */
-    alpha: 0.85,
-    /** Dash and gap lengths (world u) along the circumference. */
-    dash: 10,
-    gap: 8,
-    /** Stroke width (world u). */
-    width: 2.5,
+  contactFx: {
+    /** Particles per strike burst (alternating the two colors). */
+    sparkCount: 10,
+    /** ms — one spark's life (alpha fades linearly to 0). */
+    sparkLifeMs: 450,
+    /** u/s — a spark's mean outward speed. */
+    sparkSpeedU: 60,
+    /** ± fraction of `sparkSpeedU` a spark's speed spreads by. */
+    sparkSpeedSpread: 0.5,
+    /** px-ish — one spark's radius. */
+    sparkSizePx: 2,
+    /** u/s — bleed speed (hull row `vt + vn`, coast slide) above which a
+     *  contact grinds and counts as bleeding. */
+    grindMinVt: 8,
+    /** Peak gain of the grind scrape (the tone's spec volume). */
+    grindGainMax: 0.35,
+    /** u/s — bleed speed at which the grind reaches `grindGainMax` (the
+     *  calibration scrape, a speedboat sliding past at 45). */
+    grindFullVt: 45,
+    /** ms — the scrape is retriggered this often while grinding (the tone
+     *  table has no loops; one scrape spans about one retrigger). */
+    grindRetriggerMs: 120,
+    /** ms — grinding stops this long after the last frame that bled. */
+    grindReleaseMs: 150,
+    /** hp — while the own hull bleeds, an own `dmg` event UNDER this plays no
+     *  thud and no shake: the server's 500 ms windowed contact bleed never
+     *  exceeds ~5 hp, a ram hit is tens. A big `dmg` during a scrape (a ram
+     *  hit, a shell) still thuds and shakes. */
+    bleedThudMaxHp: 8,
+    /** ms — the own hull still counts as bleeding this long after the last
+     *  bleeding frame: the server's window flush for a scrape we just left
+     *  lands up to one 500 ms window (plus latency) later and must not thud.
+     *  Tracks the server's window as net/roomBindings.ts BURN_GRACE_MS does. */
+    bleedGraceMs: 600,
   },
 
   /**
-   * THE CHAFF OWNER'S GHOSTS (cycle 162, Eric 2026-10-01 — reversing amendment
-   * 191's "never the fakes": the owner now sees their own fake returns "at 50 %
-   * of their normal alpha in greyscale") — render/chaffGhosts.ts. The server
-   * hands the owner the coverage rects of their OWN fakes on the self-private
-   * `you.chaffGhosts`; they are marched and rasterized through the scope's own
-   * pure functions into a SEPARATE grid and sprite, so the scope's three-color
-   * contract is untouched.
-   *
-   * DERIVED FROM `blip.heatmap`, never restated: the band THRESHOLDS are the
-   * scope's own (`HEAT_*_AT`), only the colors swap to the three grey tokens,
-   * and the opacity is the scope's `bandAlpha × alphaScale` ("50 % whatever
-   * alpha it would be otherwise"). Grey VALUES are drafts (see `COLORS.ghost*`).
+   * MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts +
+   * render/cloudPaint.ts, Story 9.3) — FEEL ONLY: knobs Eric may re-tune on
+   * staging; the server reads none of them. Since 2026-10-12 ("smoke is
+   * paint") a cloud hides nothing on the server — it is purely a visual
+   * overlay the client paints from the wire's {id,x,y,t0}. Eric: "imagine if
+   * someone was using the spraypaint tool on a bitmap … the radius of that
+   * tool gets slightly bigger over time … each 'paint' itself fades to 0
+   * alpha (similarly to the phosphor decay). It's smoke." The spray runs the
+   * whole shared `CONFIG.countermeasure.lifeMs`, inside the shared
+   * `cloudOutlineRadius(age)` disc (r0 → r1); everything below is look.
+   * NOT `smoke` below (WOUNDED smoke): the two share `colors.woundedSmoke`.
    */
-  chaffGhost: {
-    /** Multiplier on `blip.heatmap.bandAlpha` (Eric: 50 %). */
-    alphaScale: 0.5,
-    /** The scope's thresholds, grey colors — ascending, exactly three. */
-    bands: [
-      { at: HEAT_GREEN_AT, color: COLORS.ghostFaint },
-      { at: HEAT_BLUE_AT, color: COLORS.ghostFuzzy },
-      { at: HEAT_RED_AT, color: COLORS.ghostSolid },
-    ],
+  countermeasure: {
+    /** u — one bitmap cell, the radar raster's 9 u cell (Eric 2026-10-12). */
+    cellU: 9,
+    /** ms — a cell painted to `maxAlpha` fades LINEARLY to 0 over this long
+     *  (the phosphor shape; Eric: each paint fades over about 6–10 s). */
+    fadeMs: 8000,
+    /** THE SMOKE BRUSH (Eric 2026-10-12: "a smoke brush, soft overlapping
+     *  puffs of many sizes and greys, not dots" — "I said PIXELS, not blobs").
+     *  Puffs stamped per second of cloud life (the fractional remainder
+     *  carries, so a low frame rate stamps the same amount). 400 → 500 on
+     *  Eric's "while visually great, it's not thick enough. I can still kinda
+     *  see ships under it a lot of the time" (2026-10-12). */
+    puffsPerSec: 800,
+    /** u — one puff's radius is drawn uniformly from [puffMinU, puffMaxU];
+     *  its falloff is the smooth bell (1 − (d/R)²)², never a hard edge. */
+    puffMinU: 25,
+    puffMaxU: 70,
+    /** One puff's centre strength is drawn uniformly from this range; it
+     *  composites "over" the cell (a ← a + s·(1 − a)), saturating softly.
+     *  0.04–0.12 → 0.06–0.2 on Eric's "it's not thick enough. I can still
+     *  kinda see ships under it a lot of the time" (2026-10-12): the middle
+     *  saturates sooner, while the rim stays wispy (landing is centre-biased). */
+    puffMinAlpha: 0.1,
+    puffMaxAlpha: 0.3,
+    /** A cell's alpha never exceeds this. 0.92 → 1.0 on the same ruling ("I
+     *  can still kinda see ships under it"): the dense body goes fully opaque,
+     *  so nothing shows through the core. */
+    maxAlpha: 1.0,
+    /** One puff's grey, as a multiplier of `colors.woundedSmoke`, drawn
+     *  uniformly from [shadeMin, shadeMax] and blended into the cell with the
+     *  puff's own over-weight — the tone the reference smoke has. */
+    shadeMin: 0.55,
+    shadeMax: 1.0,
+    /** THE CLOUD IS A RADAR RETURN SOURCE (Eric 2026-10-12: "Don't forget to
+     *  composite it onto the radar layer so it can be painted. It should give
+     *  returns in strength based on how thick the smoke is."). The beam march
+     *  samples the cloud haze as one more field material (render/radarSources.ts
+     *  `cloudSample`): its return coefficient is radarGain × the haze under the
+     *  sample (0..maxAlpha), lit by the same mast instance of the shadow rule a
+     *  hull gets, then grained, frozen into the slice, banded, phosphor-decayed
+     *  and in-bubble dimmed by the heat grid exactly as every other return —
+     *  no cloud-specific drawing. Thicker smoke → stronger band. */
+    radarGain: 1.0,
+    /** A cell whose haze alpha is under this returns nothing on radar (thin
+     *  wisps return nothing). */
+    radarPaintMin: 0.05,
+    /** THE RADAR RETURN'S FRESHNESS WINDOW, in sweep revolutions (Story 9.8
+     *  review gate, F1 — render/cloudReturnGate.ts). A held cloud beyond sight
+     *  returns on the scope only while its last radar delivery is younger than
+     *  this many revolutions: over 1, so the previous revolution's row (which
+     *  lands a beat after the client's own beam crosses) admits this pass;
+     *  under 2, so a server MISS darkens the cloud exactly one revolution late.
+     *  The half revolution of slack absorbs frame latency and clock jitter. */
+    returnHoldRevs: 1.5,
+    /** A contact's NAMEPLATE is hidden outright when the cloud paint under its
+     *  hull is at least this thick (Eric 2026-10-12: "I don't want someone's
+     *  nameplate sticking out from behind the smoke"). Plates only — a hull is
+     *  never hidden by cover (partials show through the overlay). */
+    plateHideAlpha: 0.35,
+    /** u — THE HAZE HALO'S SOFT EDGE (Story 9.3 session 5, Eric 2026-10-12:
+     *  "The smoke is visible outside of 5/8 intel range. Why? … I cannot see
+     *  the smoke outside of that range, I can only infer it from radar
+     *  returns." — the 5/8 rung then; 6/12 on the twelfths ladder, Story 9.8).
+     *  The grey haze is drawn by eye only within the viewer's flash rung
+     *  (`radarRange × CONFIG.vision.muzzleFlashFactor`, the wounded-smoke
+     *  reach — NOT a knob, render/hazeHalo.ts); it fades linearly to nothing
+     *  over this many units past that rung. Feel only. */
+    haloFeatherU: 40,
+    /** THE HALO'S ISLAND LINE OF SIGHT (Story 9.3 session 6, Eric 2026-10-12:
+     *  "if I can't see it because of an island or any other sight block, don't
+     *  render it"). Bearings cast from the own hull to cut island shadows into
+     *  the halo mask (render/hazeLos.ts) — 360 = one per degree, ~7 u between
+     *  rays at the 6/12 rung (750 u × 2π / 360 ≈ 13 u at base). */
+    losRays: 360,
+    /** u — the shadows are re-cast only when the own hull has moved at least
+     *  this far since the last cast (or the halo / island set changed): a cast
+     *  measured ~1.2 ms median, ~6 ms worst among islands (node, 2026-10-12),
+     *  too dear for every frame; clouds are stationary and a shadow edge is
+     *  off by at most this much. */
+    losRecastMoveU: 2,
+  },
+
+  /**
+   * THE FOG FIELD (render/fogField.ts, Story 9.10 re-plan "THE FIELD", Eric
+   * 2026-10-15: "no discs — realistic rolling fog", "make it performant").
+   * Eric's pick B "Wisps" applied to the shared density field: a world-anchored
+   * density raster (sim/fog.ts `fogDensityAt`, refreshed on a cadence) masks a
+   * pre-baked tiling texture of soft overlapping pale-grey puffs that rolls
+   * with the field's wind. Every value here is a FEEL knob — Eric may re-tune
+   * on staging; the field itself (where fog is) comes from `CONFIG.fog`, the
+   * welcome's `fogSeed` and the schema's `fogCut`, never from here.
+   * The halo + island line-of-sight mask deliberately reads
+   * `countermeasure.{haloFeatherU, losRays, losRecastMoveU}` (not a copy) so
+   * the fog and the countermeasure haze end at the same edge.
+   */
+  fogField: {
+    /** u — one density-raster cell (≈ 100² cells over the 750 u halo square). */
+    cellU: 18,
+    /** ms — the density raster is re-evaluated this often (frame time), never per frame. */
+    refreshMs: 250,
+    /** u — the raster re-centres on the own hull (and refreshes at once) when
+     *  the hull is this far from the raster's centre; also the margin the
+     *  raster carries past the halo so it never runs out between re-centres. */
+    recenterU: 100,
+    /** Alpha at full density over a fully opaque puff texel: final alpha =
+     *  density × puff × maxAlpha. */
+    maxAlpha: 0.6,
+    /** Noise units per second the drawn cut eases toward the schema's
+     *  `fogCut` (faster than the server's own `cutRatePerS`, so it follows). */
+    cutEasePerS: 0.05,
+    /** px — the square puff tile's side (it tiles seamlessly). */
+    puffTilePx: 512,
+    /** px per u — the tile's scale on the water (0.5 → 2 u per texel; a 512 px tile spans 1,024 u). */
+    puffPxPerU: 0.5,
+    /** Puffs stamped into one tile (uniform landing, wrapping at the edges). */
+    puffsPerTile: 400,
+    /** u — one puff's radius, drawn uniformly from [puffMinU, puffMaxU]. */
+    puffMinU: 25,
+    puffMaxU: 70,
+    /** One puff's centre opacity, drawn uniformly from this range (soft falloff to 0 at its rim). */
+    puffMinAlpha: 0.25,
+    puffMaxAlpha: 0.6,
+    /** One puff's grey, a multiplier of `colors.fogBank`, drawn uniformly
+     *  from [shadeMin, shadeMax] (channels clamp at 255). */
+    shadeMin: 0.95,
+    shadeMax: 1.06,
   },
 
   /**
@@ -2452,17 +2762,22 @@ export const CLIENT_CONFIG = {
        * misaligned. (An earlier version of this comment opened by calling it
        * "the ONE knob that trades look against cost" — a loaded gun the
        * cycle-63 review gate removed: it invited a silent wire break with no
-       * PV bump.) At the base camera framing one cell is ~7.5 screen px,
+       * PV bump.) At the default camera framing one cell is ~7.5 screen px
+       * (1080 px over 1,320 u),
        * deliberately chunky: a quantized bitmap should read as a bitmap, and
        * since the cycle-63 gate the chunk IS the sensor's resolution loss
        * (amendments 156-157).
        *
        * COST SCALES WITH VISIBLE AREA (cycle 58, amendment 99): the buffer
-       * covers the VIEWPORT, not the radar ring, so zooming out costs more. The
-       * cell counts below are for a 16:9 screen at the shared 9u lattice — the
-       * world extent depends only on aspect ratio and zoom, not on pixel
-       * resolution, because the base zoom fits 2 × radar range to the short
-       * axis:
+       * covers the VIEWPORT, not the radar ring, so zooming out costs more.
+       * THE TABLES BELOW WERE MEASURED AT RADAR 660 u, 9 u CELLS, with the
+       * camera's base zoom fitting 2 × radar range to the short axis — the
+       * 1.0× row is today's 1,320 u default framing, the 1.5× row today's
+       * 880 u close limit. Story 9.8 replaced the 0.5× floor with the live
+       * ring fit (ruling 127), a much wider view; the 9.8 measurement at the
+       * close / default / ring-fit framings is recorded in the spec, not here.
+       * The cell counts are for a 16:9 screen — the world extent depends only
+       * on aspect ratio and zoom, not on pixel resolution:
        *   1.5× (zoomed in)  176 × 112 = 20k cells,  77KB
        *   1.0× (base)       272 × 160 = 44k cells, 170KB
        *   0.5× (zoomed out) 528 × 304 = 160k cells, 630KB
@@ -2601,7 +2916,8 @@ export const CLIENT_CONFIG = {
          *  `rayStep`), so a boon-scaled scope reaching ~2.01× base range simply
          *  fires more rays rather than painting stripes at its rim — a fixed angle
          *  would have to be tuned for the widest scope and then waste rays on
-         *  every other one. At base range (660u) this works out at ~0.52°. */
+         *  every other one. At base range (1,500 u since Story 9.8) this works
+         *  out at ~0.23° (it was ~0.52° at 660 u — 2.27× the rays per sweep). */
         raySpacingU: 6,
         /** Bounds on that derived angle (rad). The floor (~0.17°) caps the ray
          *  count on an absurdly long scope; the ceiling (~1.15°) stops a
@@ -2740,7 +3056,8 @@ export const CLIENT_CONFIG = {
          *    everywhere (it peaks at exactly 1 at zero range), so the bare
          *    coefficient IS the worst-case pre-grain intensity at every range.
          * 2. IT STILL OUTRANKS SEA STATE EVERYWHERE — the weakest land cell in the
-         *    game (the waterline, at the 660u rim) is 0.2781 × 0.7315 = 0.2034
+         *    game (the waterline, at the radar rim — `surfaceRef` is re-fitted to
+         *    the rim, so the rim attenuation holds) is 0.2781 × 0.7315 = 0.2034
          *    pre-grain and draws worst at 0.2034 × 0.6808 = 0.1385, above the
          *    luckiest clutter cell's 0.1319. Land is never mistakable for water.
          *    This is the bound that stops the coefficient going lower; between
@@ -2893,16 +3210,24 @@ export const CLIENT_CONFIG = {
          *
          * RAISED 700 → 900 by cycle 62, and it is the same tuning target as
          * before rather than a new one: the retired island `gain` (1.4×) was what
-         * kept a solid interior RED out to the 660u rim, and the gain went with
+         * kept a solid interior RED out to the radar rim, and the gain went with
          * the bake that applied it. Putting the reference where the curve ALONE
-         * clears `bands[2].at` at the rim (0.05 + 0.95/(1 + (660/900)³) = 0.73)
-         * restores amendment 78's regression pin — a big tall island is a big red
-         * mass, not one that is only red when you are on top of it — without a
-         * second multiplier nobody could reason about. A FLAT island at the same
-         * range lands at 0.45 × 0.73 = 0.33, i.e. green: the height channel is
-         * still the thing that separates them.
+         * clears `bands[2].at` at the rim (0.05 + 0.95/(1 + (rim/surfaceRef)³)
+         * = 0.73, solved at the then-rim of 660 u as 900) restores amendment
+         * 78's regression pin — a big tall island is a big red mass, not one
+         * that is only red when you are on top of it — without a second
+         * multiplier nobody could reason about. A FLAT island at the same range
+         * lands at 0.45 × 0.73 = 0.33, i.e. green: the height channel is still
+         * the thing that separates them.
+         *
+         * RE-FITTED TO THE TWELFTHS RIM BY STORY 9.8 (epic-9 amendment 103): the
+         * 0.73 target is a statement about the RIM, and the attenuation is a
+         * function of rim/surfaceRef alone, so holding that ratio holds today's
+         * red share at the new rim exactly. Written as a derivation from the
+         * radar rung — 900 scaled by the rim's growth from 660 u — never as the
+         * literal it evaluates to.
          */
-        surfaceRef: 900,
+        surfaceRef: 900 * (CONFIG.vision.radar / 660),
         /**
          * Reference range (u) of the SURFACE curve FOR SEA CLUTTER ONLY — and it
          * exists because amendment 130 requires the haze's concentration to fall
@@ -2920,7 +3245,8 @@ export const CLIENT_CONFIG = {
         /**
          * Reference range (u) of the SURFACE curve FOR DISTURBED WATER — wake
          * and the chop that hangs off it. SOLVED so the wake's unluckiest draw
-         * crosses `bands[0].at` exactly at the eighths ladder's 5/8 rung; see
+         * crosses `bands[0].at` exactly at the twelfths ladder's 6/12 rung
+         * (`CONFIG.vision.muzzleFlash`, epic-9 amendment 103); see
          * `HEAT_WAKE_REF` above the object for why it comes out longer than the
          * coastline's, and for the discipline that keeps the rung out of every
          * paint path.
@@ -2980,7 +3306,9 @@ export const CLIENT_CONFIG = {
          *
          * Buckets land at 1.00 / 0.78 / 0.57 / 0.35 — at the shipped 5.5s clock
          * each bucket is 1.375s, so a torpedo boat at full ahead dissolves over
-         * the last ~124u of a 247.5u track.
+         * the last ~124u of a ~248u track (and a ~248u track is short of the
+         * 750u reach rung, so at range it is the AGE, not the range, that
+         * shortens it).
          */
         wakeTailKeep: 0.35,
         /** Asymptotic floor shared by the SURFACE and VOLUME curves. Small for
@@ -3107,12 +3435,14 @@ export const CLIENT_CONFIG = {
        * sprite on `blipLayer`, never as a per-cell recompute inside
        * `quantizeInto`.
        *
-       * BOTH RADII LAND ON THE EIGHTHS LADDER (amendment 113), never on literals
+       * BOTH RADII LAND ON THE LADDER (amendment 113; twelfths since Story 9.8,
+       * epic-9 amendment 103), never on literals
        * — and since this cycle they are ANCHORED TO TRUESIGHT AND OBSERVER-
        * SCALED, so what lives here is the RATIO to the observer's effective sight
        * rather than a fixed radius. The floor holds across the whole sight bubble
-       * (4/8) and reaches full at the first rung outside it (5/8), which is the
-       * first radius where radar is the only sensor; render/radarDim.ts carries
+       * (4/12) and reaches full at the flash rung (6/12 — the 5/8 rung on the
+       * eighths ladder, the first rung outside the bubble then), where radar
+       * and the flash are the only sensors; render/radarDim.ts carries
        * the derivation and the reasoning, and is the one place the curve exists.
        * Eric's own statement of the rule is a statement about the BUBBLE (*"less
        * prominent in the near sight range where i am going to aim based on LOS
@@ -3123,13 +3453,14 @@ export const CLIENT_CONFIG = {
       dim: {
         /** Flat `minScale` at and inside this multiple of the observer's
          *  EFFECTIVE truesight — 1.0, i.e. the whole sight bubble (the ladder's
-         *  4/8 rung). A MULTIPLE and not a radius, because a dazzle burst shrinks
-         *  the bubble at read time (no boon widens radar range any more, but the
-         *  dazzle path still moves it, so the ramp stays observer-resolved). */
+         *  4/12 rung). A MULTIPLE and not a radius, because the bubble is a
+         *  boon-widened constant per build (no boon widens radar range any more),
+         *  so the ramp stays observer-resolved. */
         innerFactor: 1,
         /** Full painted opacity from this multiple of effective truesight out:
-         *  the 5/8 rung expressed against the 4/8 one (= 1.25), so it stays a
-         *  LADDER derivation and never a literal. */
+         *  the flash rung expressed against the sight rung (6/12 over 4/12 =
+         *  1.5 on the twelfths ladder; 5/8 over 4/8 = 1.25 before Story 9.8),
+         *  so it stays a LADDER derivation and never a literal. */
         outerFactor: CONFIG.vision.muzzleFlash / CONFIG.vision.sight,
         /** Displayed fraction of the painted opacity inside the bubble. Eric's
          *  ratified number (*"painted at 20% its usual opacity"*), UNCHANGED by
@@ -3144,12 +3475,13 @@ export const CLIENT_CONFIG = {
          * opacity everywhere past `outerU`, but a Pixi sprite mask CLIPS to its
          * own frame — anything outside it is hidden outright — so the sprite has
          * to reach past the furthest cell the radar layer can draw. That bound is
-         * a boon-widened scope (~2.01× base = ~1327u) plus the distance own hull
-         * can travel during a paint's ~12s phosphor life (a boon-scaled hull at
-         * ~60 u/s ≈ 720u): ~2047u, comfortably inside 4× base radar (2640u). The
+         * the scope (base radar range — the ladder is frozen at base, no card
+         * widens it) plus the distance own hull can travel during a paint's
+         * ~12s phosphor life (a boon-scaled hull at ~60 u/s ≈ 720u): ~1.5×
+         * base radar, comfortably inside 4× base radar. The
          * span is deliberately NOT observer-scaled with the two factors above:
          * the sprite's world extent is what CLIPS the layer, so scaling it with a
-         * dazzled (shrunken) bubble would hide the far scope outright. Only the
+         * smaller bubble would hide the far scope outright. Only the
          * baked RAMP tracks the observer; the frame stays this fixed reach. It
          * is deliberately NOT sized to the viewport — the camera can show water
          * no paint has ever reached, and hiding a mask-less region that holds
@@ -3298,7 +3630,8 @@ export const CLIENT_CONFIG = {
 
   /**
    * THE FOGHORN's presentation (Story 4.5, amendments 51-58; rebased onto the
-   * EIGHTHS LADDER by Story 4.9, amendment 122). Every knob here is
+   * EIGHTHS LADDER by Story 4.9, amendment 122; onto TWELVE bands by Story 9.8,
+   * epic-9 ruling 129). Every knob here is
    * CLIENT-ONLY. The one gameplay-authoritative foghorn number —
    * `CONFIG.foghorn.cooldownMs` — is DELIBERATELY ABSENT: the press gate in
    * main.ts reads it straight off shared CONFIG, because a second copy of a
@@ -3309,21 +3642,22 @@ export const CLIENT_CONFIG = {
    */
   foghorn: {
     /**
-     * WIRE BAND → AUDIO GAIN. Which eighth of the LISTENER's own intel range
-     * the honker sits in (1 = innermost, 8 = the radar edge), resolved by the
+     * WIRE BAND → AUDIO GAIN. Which TWELFTH of the LISTENER's own intel range
+     * the honker sits in (1 = innermost, 12 = the radar edge), resolved by the
      * server; this table only says how loud each band plays.
      *
-     * THE CURVE IS FLAT AT FULL VOLUME THROUGH TRUESIGHT (band 4 = 330u at
-     * base stats) and then steps down 12.5 percentage points per band — one
-     * eighth of FULL SCALE, i.e. one quarter of the 100→50% span, in four steps
-     * — to the radar edge (band 8 = 660u at base). BOTH ANCHORS ARE ERIC'S
-     * ORIGINAL FOGHORN RULING — *"within truesight range at full volume"* and
-     * 50% at the radar edge — and must survive any retune of the middle.
+     * GENERATED FROM RULING 129 (Story 9.8, "proportional re-read"): FLAT AT
+     * FULL VOLUME THROUGH TRUESIGHT (bands 1–4; band 4 = sight = radar/3 at
+     * base stats), then gain = 1 − 0.5 × (b − 4) / 8 — even steps of 6.25
+     * points — to 50 % at the radar edge (band 12): 0.9375 / 0.875 / … / 0.5.
+     * BOTH ANCHORS ARE ERIC'S ORIGINAL FOGHORN RULING — *"within truesight
+     * range at full volume"* and 50% at the radar edge — and must survive any
+     * retune of the middle.
      *
      * An unknown/absent band is the caller's problem (roomBindings falls back
      * to full gain for the self and spectator shapes, which carry no band).
      */
-    bandGain: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 0.875, 6: 0.75, 7: 0.625, 8: 0.5 },
+    bandGain: hornTable((k) => 1 - 0.5 * k),
     /**
      * THE SCREEN-EDGE CHEVRON (amendment 55) — the honk's visual twin and the
      * bearing surface amendment 4 said this story had to grow. Rejected
@@ -3367,24 +3701,20 @@ export const CLIENT_CONFIG = {
        *
        * THE TWO ANCHORS ARE TODAY'S SHIPPED LOOK, UNCHANGED. Bands 1-4 carry
        * the old tier-1 weight EXACTLY (22 / 3 / 0.95) — flat through truesight,
-       * exactly as the gain is — and band 8 carries the old tier-3 weight
-       * EXACTLY (13 / 1.8 / 0.5) at the radar edge. Bands 5-7 are the linear
-       * interpolation between them at the gain curve's own fractions
-       * (k = (band - 4) / 4), so the mark's weight and the honk's loudness
-       * step together. Only the MIDDLE gained resolution; nothing about the
-       * shipped grammar moved. `__tests__/foghorn.test.ts` pins both anchors
-       * and the interpolation, so a retune cannot drift one without the other.
+       * exactly as the gain is — and band 12 (the radar edge, ruling 129)
+       * carries the old tier-3 weight EXACTLY (13 / 1.8 / 0.5). Bands 5-11 are
+       * the linear interpolation between them at the gain curve's own
+       * fractions (k = (band − 4) / 8), so the mark's weight and the honk's
+       * loudness step together. Only the MIDDLE gained resolution; nothing
+       * about the shipped grammar moved. `__tests__/foghorn.test.ts` pins both
+       * anchors and the interpolation, so a retune cannot drift one without
+       * the other.
        */
-      bands: {
-        1: { size: 22, thickness: 3, alpha: 0.95 },
-        2: { size: 22, thickness: 3, alpha: 0.95 },
-        3: { size: 22, thickness: 3, alpha: 0.95 },
-        4: { size: 22, thickness: 3, alpha: 0.95 },
-        5: { size: 19.75, thickness: 2.7, alpha: 0.8375 },
-        6: { size: 17.5, thickness: 2.4, alpha: 0.725 },
-        7: { size: 15.25, thickness: 2.1, alpha: 0.6125 },
-        8: { size: 13, thickness: 1.8, alpha: 0.5 },
-      },
+      bands: hornTable((k) => ({
+        size: CHEVRON_NEAR.size + (CHEVRON_EDGE.size - CHEVRON_NEAR.size) * k,
+        thickness: CHEVRON_NEAR.thickness + (CHEVRON_EDGE.thickness - CHEVRON_NEAR.thickness) * k,
+        alpha: CHEVRON_NEAR.alpha + (CHEVRON_EDGE.alpha - CHEVRON_NEAR.alpha) * k,
+      })),
     },
   },
 

@@ -8,7 +8,7 @@
 // click-placed in that SAME rear sector (the radar buoy that used it before is
 // deleted); the BROADSIDE BARRAGE fires into one of two
 // mirrored BEAM sectors (Story 7-5 wave 2, R2.1 — the class-era side arcs
-// restored verbatim); the class Shifts (boost, instant reload, damage cut) aim
+// restored verbatim); the class Shifts (boost, instant reload, hunker) aim
 // nothing.
 //
 // STORY 8.15: NO GUN HAS AN ARC (Eric ruling 2026-09-28, epic-8 amendment 106,
@@ -82,13 +82,15 @@ export function arcFor(id: SlotItemId): ArcShape {
  * (`CONFIG.supercavTorpedo`, amendment 74); the DECOY BUOY, which is
  * click-placed in the MINE's rear sector (`CONFIG.mine.offset` ±
  * `placeHalfArcDeg`, out to `placeRange` — Story 8.16, catalog-v3 R36); and
- * FLASH SHELLS (`dazzleShells`, Story 8.17, Eric ruling 2026-09-29, epic-8
- * amendment 132), a 360° gun-pattern shell (`CONFIG.flashShells.arc`) whose
- * reach is the star shell's — the post-fold `radarRange`. Every other line off
- * the `1`–`4` rail is an instant activation that aims nothing.
+ * the FOULING SHELL (`foulingShell`, Story 9.4, Eric 2026-10-11, epic-9
+ * amendments 61–68 — FLASH SHELLS' successor), a 360° gun-pattern shell
+ * (`CONFIG.foulingShell.arc`) whose reach is its own dial,
+ * `CONFIG.foulingShell.rangeU` (Story 9.8, ruling 125: 8/12 of the ruler, fixed —
+ * a consumable has no tiers). Every other consumable is an instant key
+ * activation that aims nothing.
  */
 function consumableArc(id: ConsumableId): ArcShape {
-  if (id === 'dazzleShells') return { kind: CONFIG.flashShells.arc };
+  if (id === 'foulingShell') return { kind: CONFIG.foulingShell.arc };
   if (id === 'decoyBuoy') return mineSector();
   if (id !== 'supercavTorpedo') return { kind: 'none' };
   return { kind: 'sector', offset: CONFIG.supercavTorpedo.offset, halfArc: CONFIG.supercavTorpedo.halfArc };
@@ -196,7 +198,7 @@ function equipmentArc(id: EquipmentId): ArcShape {
 
 /**
  * THE THREE CLASS SHIFTS declare NO aimed arc (Story 8.15, amendments 89c and
- * 97–102): SPEED BOOST, INSTANT RELOAD and DAMAGE CUT are instant activations
+ * 97–102): SPEED BOOST, INSTANT RELOAD and HUNKER (was DAMAGE CUT until Story 9.9) are instant activations
  * that aim nothing (the Story 8.9 boost answer, now for all three).
  *
  * THE UNBUILT WEAPONS ARE GONE FROM THIS DEFAULT. It shrank from seven to four
@@ -209,7 +211,7 @@ function equipmentArc(id: EquipmentId): ArcShape {
  * The narrow parameter type is the COMPILE FORCE: a new EquipmentId is not
  * assignable to it, so it cannot reach this default without declaring an arc.
  */
-function unbuiltArc(_id: 'boost' | 'instantReload' | 'damageCut'): ArcShape {
+function unbuiltArc(_id: 'boost' | 'instantReload' | 'hunker'): ArcShape {
   return { kind: 'none' };
 }
 

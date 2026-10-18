@@ -29,7 +29,6 @@ import {
   type WeaponAmmo,
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
-import type { FakeSource } from '../fakes.js';
 import { CONSUMABLES, type ConsumableRegistry } from './consumables.js';
 import { gunEquipment } from './guns.js';
 import { lightTorpedoEquipment, torpedoEquipment } from './torpedoes.js';
@@ -41,7 +40,7 @@ import { phosphorShellsEquipment } from './phosphorShells.js';
 import { machineGunEquipment } from './machineGun.js';
 import { flakEquipment } from './flak.js';
 import { instantReloadEquipment } from './instantReload.js';
-import { damageCutEquipment } from './damageCut.js';
+import { hunkerEquipment } from './hunker.js';
 
 /**
  * The exact capabilities equipment needs from the World to activate — no more
@@ -129,13 +128,15 @@ export interface ActivationContext {
    */
   finishReloads: () => void;
   /**
-   * DAMAGE CUT's whole body (Story 8.15, the Battleship's Shift, amendments
-   * 99–102): open the halving window on the ACTIVATING ship until `until`
-   * (server clock). The World's damage gate reads it; the row only computes
+   * HUNKER's (was DAMAGE CUT until Story 9.9) whole body (Story 8.15, the Battleship's Shift, amendments
+   * 99–102; Story 9.7, epic-9 amendment 88): open the cut's window on the
+   * ACTIVATING ship until `until` (server clock); inside it the World's damage
+   * gate adds the row's `armorBonus` (+5; → +100 by epic-9 amendment 144) to
+   * the hull's Armor in the one damageMultiplierFor curve. The World's gate reads it; the row only computes
    * the deadline off its own stats row. Keyed on the activating ship, so a row
    * can never cut anyone else's damage.
    */
-  setDamageCut: (until: number) => void;
+  setHunker: (until: number) => void;
   /**
    * SHIELD BLOCK's whole body (Story 8.16, amendments 100/116–118): write the
    * ACTIVATING ship's shield seat. A second call REPLACES the seat (fresh hp,
@@ -143,24 +144,15 @@ export interface ActivationContext {
    */
   setShield: (shield: { hpLeft: number; until: number }) => void;
   /**
-   * CHAFF's whole body (Story 8.16, amendment 124(b)(c)): put a false-return
-   * source on the water for the ACTIVATING ship. The World mints the server-
-   * private `seed` (the row never sees an RNG), stamps the owner's id and
-   * captures its sweep period, and files it in `World.chaffSources` under the
-   * owner (amendment 127); a second call REPLACES the owner's source.
+   * MULTI-SPECTRAL COUNTERMEASURE's whole body (Story 9.3; Eric rulings
+   * 2026-10-11, epic-9 amendments 40–47): make ONE new cloud at the
+   * ACTIVATING ship's centre — `bornAt = now`, `until = now +
+   * CONFIG.countermeasure.lifeMs` — EVERY call (amendment
+   * 46: no lay window, no restart, no refuse-while-live; five copies stack
+   * five clouds). A non-finite hull position makes nothing. Clouds are
+   * WORLD-owned (World.clouds) and outlive the hull.
    */
-  setChaff: (source: Omit<FakeSource, 'seed' | 'ownerId' | 'sweepPeriodMs'>) => void;
-  /**
-   * SMOKE SCREEN's whole body (Story 8.18, catalog-v3 R38, amendments
-   * 138–145): open the ACTIVATING ship's lay window — `smokeUntil = now +
-   * CONFIG.smokeScreen.layMs`, `nextPuffAt = now` — so World.stepSmoke drops a
-   * puff at the hull's center (amendment 190) on the very next tick and every `puffIntervalMs` after,
-   * until the window closes (10 puffs per copy). A second call while laying
-   * RESTARTS the clock (fresh 5 s from the re-press — ruling 140; the copy is
-   * spent, the shield/chaff "replaces" posture). Puffs are WORLD-owned
-   * (World.smoke) and outlive the hull.
-   */
-  setSmokeScreen: () => void;
+  setCountermeasure: () => void;
 }
 
 /** Per-spawn options for `ActivationContext.spawnBallistic`. */
@@ -267,16 +259,16 @@ export const EQUIPMENT: Readonly<Partial<Record<EquipmentId, Equipment>>> = deep
   machineGun: machineGunEquipment, // Story 8.15: the held-fire magazine stream (amendments 103–104)
   flak: flakEquipment, // Story 8.15: the air-bursting pickable gun (amendment 105)
   instantReload: instantReloadEquipment, // Story 8.15: the Mine Layer's Shift (amendments 97–98)
-  damageCut: damageCutEquipment, // Story 8.15: the Battleship's Shift (amendments 99–102)
+  hunker: hunkerEquipment, // Story 8.15: the Battleship's Shift (amendments 99–102)
 });
 
 /**
- * SLOT-ALIGNED ammo for OwnShip.ammo: length SLOT_COUNT (NINE since Story
- * 8.5), one entry per loadout slot in slot order — null iff that slot is empty
+ * SLOT-ALIGNED ammo for OwnShip.ammo: length SLOT_COUNT (ELEVEN since Story
+ * 9.2 — nine from Story 8.5), one entry per loadout slot in slot order — null iff that slot is empty
  * (mirrors the LoadoutSlot invariant: state is null iff equipmentId is null),
  * else a FRESH {n, reloadMsLeft} copy of the slot's live pool. It maps over
- * the loadout, so the widening from four slots to nine cost it no edit; the
- * empty weapon and consumable slots simply ride as `null`. maxAmmo/reloadMs
+ * the loadout, so the widenings from four slots to nine to eleven cost it no
+ * edit; the empty weapon and consumable slots simply ride as `null`. maxAmmo/reloadMs
  * are NOT on the wire — the client derives them from its own effective-stats
  * computation, and the equipment id per slot by replaying `OwnShip.cards`.
  */
@@ -326,7 +318,7 @@ export { boostEquipment } from './boost.js';
 export { machineGunEquipment } from './machineGun.js';
 export { flakEquipment } from './flak.js';
 export { instantReloadEquipment } from './instantReload.js';
-export { damageCutEquipment } from './damageCut.js';
+export { hunkerEquipment } from './hunker.js';
 export { broadsideAim, broadsideEquipment } from './broadside.js';
 export { starShellsEquipment } from './starShells.js';
 export { gunEquipment } from './guns.js';

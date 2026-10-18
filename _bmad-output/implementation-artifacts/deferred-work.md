@@ -897,6 +897,7 @@ and the permanently-invisible straight torpedo — remain OPEN.
 ## 2026-08-11 — Epic 4 retrospective (unattended; significant-discovery alert + 3 new standing agreements)
 
 - source_spec: `_bmad-output/implementation-artifacts/epic-4-retro-2026-08-11.md`
+  status: RESOLVED 2026-10-15 by Story 9.10 (cycle 191, 0.18.56, PV 85) — the radar re-derivation: fog banks are a SIGHT-ONLY haze with NO radar term (epic-9 amendments 149, 163), so the return model needs no fog material and cycle 72's area-return precedent is untouched; the "radar may still paint me" clause of 5.4's AC is superseded, not implemented.
   summary: SIGNIFICANT DISCOVERY — STORY 5.4 (FOG BANKS) WAS SPECIFIED AGAINST A RADAR THAT NO LONGER EXISTS, and must be re-derived before it is specified. Its AC reads *"inside one, my truesight radius shrinks and I vanish from others' truesight — while radar may still paint me"*, written when radar was a binary LOS-gated blip. The shipped radar is a physical return model (reflectivity x geometry falloff, height-aware terrain shadows via a shared accumulator, server-rasterized hulls, wakes with their own clutter corridor, a display-time near-range opacity mask). Three unanswered consequences: (1) the return model has NO fog term and amendment 106's coefficient table is an explicit handwave a new material must extend — and amendment 108 already ruled that *"fog and rain are their own epic-scale feature"*, which is a direct warning about this story's size; (2) *"radar may still paint me"* is now a statement about a CURVE, not a boolean — attenuate, leave untouched, or add clutter are three different features with three different anti-cheat surfaces, and the `wk` row (which paints WATER, not hulls) must answer separately; (3) cycle 72 is the governing precedent for AREA returns — a full outside-the-ring storm return was rejected because a 1/d^2 area material *"would own half the scope late-match and bury every contact in it"*, and a fog bank is an area material. Treat 5.4's radar interaction as a design-with-Eric gate at spec time. THIS DOES NOT BLOCK EPIC 5 — 5.1, 5.2, 5.3 and 5.6 are unaffected, so the mitigation is ORDERING, not delay.
   evidence: `epics.md:1043-1056` (5.4 AC); amendments 106, 108, 127-137 (the return model); the cycle-72 spec (area-return rejection); epic-4 retro "Significant Discovery" section.
 
@@ -1083,7 +1084,7 @@ and the permanently-invisible straight torpedo — remain OPEN.
 ## 2026-08-14 — Epic 5 retrospective (unattended; scope ruling + significant-discovery alert + 5 new standing agreements)
 
 - source_spec: `_bmad-output/implementation-artifacts/epic-5-retro-2026-08-14.md`
-  status: STANDING RULING RECORD, NOT WORK — verified 2026-08-18. Stories 5.4/5.5 remain `deferred` in sprint-status with numbers reserved, and the PHASE ruling it records (*"i have enough systems"* — a new mechanic now needs a fresh ruling) held throughout Epic 6: no new mechanic shipped without one. Like the hydrophone entry, this should not be counted as open work — it is the record of why work does not exist.
+  status: RESOLVED (5.4 half) 2026-10-15 by Story 9.10 (cycle 191) — fog banks built, no radar term (epic-9 amendments 162–171); 5.5 stays deferred. Was: STANDING RULING RECORD, NOT WORK — verified 2026-08-18. Stories 5.4/5.5 remain `deferred` in sprint-status with numbers reserved, and the PHASE ruling it records (*"i have enough systems"* — a new mechanic now needs a fresh ruling) held throughout Epic 6: no new mechanic shipped without one. Like the hydrophone entry, this should not be counted as open work — it is the record of why work does not exist.
   summary: STORIES 5.4 (FOG BANKS) AND 5.5 (WHIRLPOOLS) ARE DEFERRED BY ERIC RULING, numbers reserved, not cut — and the same ruling declares the SYSTEMS LAYER COMPLETE (*"i have enough systems"*), which is a PHASE ruling: a new mechanic from here needs a fresh ruling and "it was in the epic plan" is no longer sufficient grounds. What each story carries into any revival: 5.4 still owes the MANDATORY radar re-derivation against the shipped physical return model (no fog term exists in it; epic-4 amendment 108 rules fog/rain an epic-scale feature; cycle 72 is the governing precedent AGAINST area returns, and a fog bank IS an area material), and 5.5 still owes UX open question #23 (the on-water feel treatment, never designed) plus an untested interaction — torpedo wake under a current has never been exercised. Note Story 6.2's AC naming fog banks and whirlpool placements among the things both sides must rebuild deterministically from the seed is now VACUOUS rather than satisfied, and must not be read as discharged.
   evidence: epic-5 amendment 47; the epic-4 retrospective's significant-discovery alert; epic-4 amendment 108; cycle 72's storm-wall removal; `epics.md` Story 6.2 acceptance criteria.
 
@@ -2846,3 +2847,254 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   status: open — note only
   summary: A JOINER RACING A LOBBY THAT JUST HIT 20 CAPTAINS GETS COLYSEUS "IS LOCKED" AND READS `MATCH STARTED` INSTEAD OF `LOBBY FULL`, because Colyseus auto-locks a room at `maxClients` between the resolve answer and `joinById`. The resolve route answers `LOBBY FULL` for the common (non-racing) case. Found by the client patch agent at the cycle-167 review gate.
   evidence: `client/src/net/lobby.ts` join-error mapping (locked -> `MATCH STARTED`, full -> `LOBBY FULL`); `server/src/lobbyResolve.ts`; epic-8 amendment 239(iii).
+
+## 2026-10-06 — correct-course (no cycle) — renumbering note
+
+- source_spec: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-10-06.md`
+  status: open — note only
+  summary: EPIC 9 IS NOW "TUNE AND CLEAN" AND THE ACCOUNT IS EPIC 10. Every entry above that says "Epic 9", "E9", "Story 9.N" or "9-N" meaning The Account now means Epic 10 / Story 10.N / 10-N; the text is left as written (this ledger is append-only). Story 9-7 (Harness and Ledger Hygiene) re-stamps every open entry and may add the renumbered pointer where it helps. Eric's rulings for the new epic: epic-9-context-amendments.md #1.
+  evidence: `_bmad-output/planning-artifacts/epics.md` §Epic 9 / §Epic 10; `sprint-status.yaml` epic-9 / epic-10 blocks; epic-8-retro-2026-10-06.md §6.
+
+## 2026-10-08 — Story 9.1 close-out (cycles 169–171)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-1-the-tuning-pass.md`
+  status: open — Eric: "fixable later"
+  summary: BOTS GROUND ON 7.3 % OF AFLOAT TICKS ON THE 10 % ARCHIPELAGO (bar < 1 %; 0.6 % on the old 2.5 % ocean) — the bot helm cannot thread the narrow channels; Eric watched it in spectate ("exceptionally bad at navigating"). A hull aground is not fighting, so every bot reading on this board is a little depressed. Fix shape: a bot-helm pass (channel-aware coast avoidance), its own story.
+  evidence: ledger `batch-sim-evidence-2026-10-06.md` §9 (land-contact bar), epic-9 amendments 12/14.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-1-the-tuning-pass.md`
+  status: open — map look, Eric's call
+  summary: THE BIGGEST LANDMASSES SIT AT THE 92-VERTEX HARD CAP on the 10 % board (r ≈ 1,000–1,700 u), so their coastlines run up to ~37 u off the raster mask and read coarser than a small island's. A size-scaled vertex cap is the shape if he wants it.
+  evidence: `shared/src/__tests__/map.test.ts` raster ⟷ coastline depth 60 u (amendment 9(c)); seeds 30 and 70 at 5500 u.
+
+- source_spec: `_bmad-output/implementation-artifacts/batch-sim-evidence-2026-10-06.md`
+  status: open — note only
+  summary: THE SPEEDBOAT'S WIN SHARE READ LOW ON TWO 10 % ARMS (18 % and 20 % against a 31–35 % band; −9 to −10 pp vs baseline, CI touching zero at n = 91) and recovered on a third (33 %). Two readings one way is a flag, not a finding; a ±5 pp (360-match) run on the shipped board would settle it.
+  evidence: ledger §6 (h5600 / h6000), §9 (e8000ramp), §10 (mine arms: 20–25 %).
+
+- source_spec: `_bmad-output/implementation-artifacts/batch-sim-evidence-2026-10-06.md`
+  status: open — instrument
+  summary: THE HARNESS'S KILLS-BY-WEAPON LEDGER IS STDOUT-ONLY: the campaign runner keeps the `--json` envelope and discards the text body, so "how many kills were mines / torpedoes / which gun" cannot be read back from a saved campaign (the mine experiments of 2026-10-08 could report attrition and death cause but not mine kills per type). Fix shape: carry the ordnance ledger in the JSON variant.
+  evidence: `server/scripts/batchsim/main.ts` (`JsonVariant`), `catalogReport.ts` `renderOrdnanceLedger`; ledger §10 limit note.
+
+- source_spec: `_bmad-output/implementation-artifacts/batch-sim-evidence-2026-10-06.md`
+  status: open — note only, Eric's dial
+  summary: THE STORM'S SHARE OF BOT DEATHS ON THE BIG BOARD is 7 % under the 1-2-3-4-5 ramp (15–17 % under the flat 4 hp/s), concentrated in the one to two minutes after each close and falling mostly on the DREADNOUGHT. Not a problem by Eric's reading ("nobody fails to outrun it unless bad"); recorded so the next ladder or ramp change has a baseline.
+  evidence: ledger §7 (death timelines), §9.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-2-every-consumable-has-a-key.md`
+  status: open — latent, unreachable in production (2026-10-11, Story 9.2 review, Blind Hunter)
+  summary: `pickRefusal` AND `stockSlotFor`/`applyStock` NOW AGREE BY ARGUMENT, NOT BY CONSTRUCTION: for a consumable the predicate checks only key-existence and cap, while the fold also no-ops when the kind's fixed slot holds a foreign id or the slot array is short — so a malformed array could pass the predicate and land a copy in `cards` with no slot (the 8.7 P4 class the old `beltFull` refusal closed). Every production caller passes an 11-long loadout and nothing but `stock` writes slots 5–10, so it cannot happen today; a one-line fail-closed check in the predicate (foreign id or short array → refuse) would restore agreement by construction.
+  evidence: `shared/src/sim/boons.ts` `pickRefusal` vs `stockSlotFor`/`applyStock`; the weapon-row half still fails closed.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-2-every-consumable-has-a-key.md`
+  status: open — note for Story 9.7 (2026-10-11, Story 9.2 review, Blind Hunter)
+  summary: AN UN-STUBBED CONSUMABLE WITH NO KEY WOULD BE DEALT EVERY OFFER AND ALWAYS GREYED: `draw.ts` treats every non-stub consumable as eligible and `pickRefusal` refuses an unkeyed one as `'stub'`, so whoever builds DEPTH CHARGE must add it to `CONSUMABLE_KEY_ORDER` (key `7`, `SLOT_COUNT` 12, PV bump) in the same change that clears its `stub` flag, or the card is permanent dead weight in the draw.
+  evidence: `shared/src/sim/draw.ts` consumable eligibility; `shared/src/sim/boons.ts` `pickRefusal` unkeyed guard (amendment 38i); epics.md Story 9.7 AC ("it takes key `7`").
+
+## 2026-10-12 — Story 9.3 (cycle 174; Multi-Spectral Countermeasure) review defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-3-multi-spectral-countermeasure.md`
+  summary: THE CLOUD RENDERER REBUILDS ONE PIXI GRAPHICS PER CLOUD PER FRAME — `client/src/render/countermeasure.ts` clears and re-fills up to 300 squares per cloud every render (five stacked clouds ≈ 1,500 fill instructions per frame); pixels move ≤ 0.02 u/ms and the wake mirror already accepts a 250 ms age bucket, so a bucketed redraw or one fill for the non-fading pixels would cut it ~15×. Unmeasured (a dev build is never a perf verdict) — a staging watch item for Eric's play.
+  evidence: Blind Hunter (Fable) PLAUSIBLE at the 2026-10-12 review gate; `Countermeasure.render` in `client/src/render/countermeasure.ts`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-3-multi-spectral-countermeasure.md`
+  summary: THE CLOUD PERF PIN MEASURES STATIC HULLS ONLY — `server/src/__tests__/cloudPerf.test.ts` (20 observers × 20 hulls × 5 clouds, 1.5–2.0 ms; 4.8–5.0 ms with every observer dazzled so the radar march runs) seats no wake ribbons, shells, mines or decoys, and the new per-pixel term also runs per wake segment in the (detect, sight] band and per shell per observer; the broadphases make a blow-up unlikely but the figure is not a tick figure.
+  evidence: Blind Hunter (Fable) PLAUSIBLE at the 2026-10-12 review gate; amendment 50(h).
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-3-multi-spectral-countermeasure.md`
+  summary: PUBLIC SEQUENTIAL IDS DISCLOSE A RUNNING COUNT — cloud ids `cl${n}` (`cloudSeq`, never reset, not even at match reset) ride the wire unchanged, so a client that sees `cl12` then `cl16` learns three clouds were made outside its view and roughly when; the same holds for every store id in the game (mines, decoys, the retired puffs `sk${n}`) — a project-wide convention, not this story's, and the client already derives every pixel from the id so no cheat gains capability. Opaque or per-observer ids would close it everywhere at once.
+  evidence: Codex gpt-5.6-sol CONFIRMED and Blind Hunter (low) at the 2026-10-12 review gate; `server/src/game/world.ts` `makeCloud`.
+
+## 2026-10-12 — Story 9.3 session 6 (cycle 179; the haze hidden by islands) — perf watch
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-3-multi-spectral-countermeasure.md`
+  summary: THE HAZE LINE-OF-SIGHT CAST CAN SPIKE — `client/src/render/hazeLos.ts` casts 360 rays through the shared `islandSegHit` on every 2 u of own movement while a cloud is held (≈22 casts/s at top speed); measured in node on real map seeds: mean 1.6 ms, p99 5.9 ms, worst 10 ms per cast when the hull sits inside the bounding circle of one or two large concave islands (92-vertex coasts), which would drop a frame at 60 fps; the canvas fan fill and the 512² upload are not in that figure. A properly cheap version is a shared "visibility polygon from a point" primitive that sweeps each island's edges once per cast — a `shared/` change and a second edge-iterating consumer beside `island.ts`'s single seam, so an architecture call; interim levers are fewer rays (180), a larger move threshold, or spreading one cast over several frames. A dev/node build is never a perf verdict — a production-build browser capture on staging decides.
+  evidence: the session-6 implementer's measurement (2000 random points, seeds 1/2/3/7/11); `CLIENT_CONFIG.countermeasure.losRays` 360 / `losRecastMoveU` 2.
+
+## 2026-10-12 — Story 9.4 Fouling Shell (cycle 180) — review-gate defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-4-fouling-shell.md`
+  summary: THE HARNESS `--tune` SURFACE HAS NO FLOOR FOR SUB-TICK OR INVERTED SLOW DIALS — `foulingShell.lingerMs` ≤ 50 ms is accepted and slows nobody (the stamp written after `stepShips` is read by next tick's `tickKinematics`, so the fold is live only while `lingerMs` > one tick), and `foulingShell.slowFactor` / `foulingMines.slowFactor` accept values above 1 (a speed-up zone) or 0 (a stop zone) — arms that read normal in the report while measuring something other than a slow; the fouling mine's factor has had the same gap since Story 8.13.
+  evidence: Edge Case Hunter (Fable) at the 2026-10-12 review gate — CONFIRMED for the linger (trace: `world.ts` STEP_ORDER `stepShips` → `applyFoulZones` → next tick `tickKinematics`; `overrides.ts` `tuneFloor` has no `lingerMs` leaf), PLAUSIBLE for the factor (no `(0, 1]` guard on `*.slowFactor` leaves; `UNIT_INTERVAL_KEYS` covers only the offer weighting). The `overrides.ts` family comment now says all three.
+
+## 2026-10-13 — Story 9.5 Ramming and Contact Damage (cycle 182) — review-gate defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-5-ramming-and-contact-damage.md`
+  summary: THE LAND PASS'S FULL-REVERT BRANCH PRICES A PHANTOM DEAD-ON STRIKE — `resolveShipPose` returns `{contact: true, headOn: 1}` on a full revert, so a hull running PARALLEL to a coast that is shoved by another hull farther than `pushLimit` (beam + speed·dt, ≈ 11 u) in one tick reverts and pays `landHitDamage(maxHp, preDampSpeed)` (50 hp for a speedboat at 45 u/s) for land it never drove at; needs an overlap push over ~11 u in a tick (a three-hull squeeze or an overlapping placement), so rare, and the guard is to carry a `reverted` bit on `ShipPoseResult` and skip the strike on it.
+  evidence: Blind Hunter (Fable) PLAUSIBLE at the 2026-10-13 review gate — probe P5 produced 18 + 50 in one tick with a deep-overlap placement; the clean-geometry rerun resolved as a scrape with headOn 0.
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-5-ramming-and-contact-damage.md`
+  summary: THE LAND STRIKE EDGE HAS NO HYSTERESIS — the strike fires on every `landContact` false → true edge and the pass clears a hull by `PUSH_EPS` each tick, so a hull that loses contact for one tick at a rough or concave coast and regains it pays a second strike (3–13 hp per edge at 45 u/s by headOn); a 720-gon straight coast showed exactly one edge per run, so this is a risk only where the escape normal swings tick to tick.
+  evidence: Blind Hunter (Fable) PLAUSIBLE at the 2026-10-13 review gate, unprobed on rough geometry.
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-5-ramming-and-contact-damage.md`
+  summary: A HULL PUSHED BY A HULL IT CANNOT SEE SNAPS — server bodies are every afloat / sinking hull, client bodies are sighted contacts only; two hulls whose polygons overlap around a headland tip with island line of sight blocked between centres are pushed on the server and not on the client, a hard reconcile snap with no contact spark. Legibility only, no wire leak, rare.
+  evidence: Blind Hunter (Fable) PLAUSIBLE at the 2026-10-13 review gate.
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-5-ramming-and-contact-damage.md`
+  summary: A BULLDOZED HULL READS `speed 0` ON THE WIRE WHILE IT IS DISPLACED — the resolver translates `state.x/y` and never touches `state.speed` (the ship model carries speed along the heading only, as the island push-out always has), so the victim's HUD knots, the draft stamp, `sampleWakes` and a bot's `sit.speed` read 0 while the hull visibly moves at up to ~22 u/s under a heavier pusher. The reconcile stays bounded (the client's own pass pushes against the stale contact pose).
+  evidence: Blind Hunter (Fable) CONFIRMED by probe P7 at the 2026-10-13 review gate; a model limit, not a defect of this story.
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-5-ramming-and-contact-damage.md`
+  summary: A HULL SHOVED INTO A COAST BY ANOTHER HULL PAYS THE COAST NOTHING — `headOnness` reads the hull's OWN velocity, so a stopped or parallel-running hull bulldozed into land reads headOn 0 (strike 0, scrape by its own sliding speed only) while the pusher pays only the contact bleed of amendment 83. A design consequence for Eric to read, not a defect: the land cost is priced on what the hull itself drove at.
+  evidence: Blind Hunter (Fable) probe P5b at the 2026-10-13 review gate (a battleship drove a speedboat into the coast; the speedboat took 0 land damage).
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-5-ramming-and-contact-damage.md`
+  summary: THE BOT `ram` POSTURE HAS NO POST-STRIKE EXIT — when the ram lands and the target survives (the damage estimate was wrong), the pair stays latched (no second hit until a separated tick) and the bot keeps full-ahead pressing, bleeding itself and the target by amendment 83 instead of disengaging as the broken-hull clause intends; the trigger is `[DRAFT]` by amendment 77 and this is playtest material for it (a `ramFiredAt` on the mind that falls back to `disengage` until the target separates is the obvious shape).
+  evidence: Edge Case Hunter (Fable) PLAUSIBLE at the 2026-10-13 review gate.
+
+
+## 2026-10-13 — Story 9.6 Five Tiers and Passive Healing (cycle 183) — review-gate defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-6-five-tiers-and-passive-healing.md`
+  summary: THE HARNESS `--tune regen.*` SURFACE CANNOT TURN REGEN OFF FOR A CARDED HULL — the PASSIVE HEALING ladder ADDS to the tuned base inside the fold and `applyStatEffect` keeps only positive results, so `regen.missingPctPerS=0` leaves a bot holding n cards regenerating at 0.006 × n (the defensive profile now favors the line), and a wait tuned under 1000 × n saturates instead of stepping (2500 → 1500 → 500 → 500 → 500); a regen-off arm must be read against bots that cannot draw the ladder, or the harness needs a "ladder off" switch (`overrides.ts` validate / a catalog mask).
+  evidence: Edge Case Hunter (Fable) CONFIRMED by probe against the built shared dist at the 2026-10-13 review gate (`tune rate=0 … 1 card: 0.006, 5 cards: 0.03`); Blind Hunter PLAUSIBLE; the `regen.` family comment in `server/scripts/batchsim/overrides.ts` now states it.
+
+
+## 2026-10-14 — Story 9.8 The Twelfths Ladder (spec-9-8-the-twelfths-ladder.md)
+
+Closure stamps for three older entries (the originals are left as written), then the open threads this cycle leaves.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: CLOSED 2026-10-14 (cycle 185) — stamps the cycle-61 spec-4-10 entry "THE PER-FRAME COST GATE HAS NEVER BEEN TAKEN ON THE REFERENCE DEVICE"
+  summary: THE REFERENCE-DEVICE CAPTURE EXISTS NOW. The ratified headful capture on the MacBookPro16,1 (DPR 2, 1600×900) is recorded in the spec and in `perf-gate/`: close 6.8 / default 7.3 / ring-fit 29.0 / omniscient reveal 29.1 ms. The far-zoom cost is the reveal's, pre-existing and shipped on Eric's ruling (epic-9 amendment 133c).
+  evidence: `_bmad-output/implementation-artifacts/perf-gate/nfr1-frame-budget.json` and the four screenshots beside it; spec-9-8 perf section.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: CLOSED 2026-10-14 (cycle 185) — stamps the cycle-119 spec-remove-intel-range-card entry "THE EIGHTHS LADDER ORDERING HOLDS BY ARITHMETIC AT EVERY STACK LEVEL IS NOW VACUOUS"
+  summary: THE VACUOUS ORDERING PIN WAS DELETED THIS CYCLE. The twelfths ladder derives every rung from one number and the pin could no longer fail, so it was removed rather than kept as false coverage.
+  evidence: `shared/src/__tests__/stats.test.ts` (ladder ordering test removed); epic-9 amendments 102–109.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: RULED 2026-10-14 (cycle 185) — stamps the spec-7-6 entry "THE BATTLESHIP'S POWER FANTASY ... THE SHORTEST-RANGED [WEAPON] IN THE GAME"
+  summary: THE BROADSIDE IS NO LONGER A LONE SHORT RANGE. Epic-9 amendment 125 sets broadside and flak to share 625 → 750 u (Eric's tiered ruler); the cannon is 1,000 → 1,250 u. The GDD class-fantasy wording is still 9.13's stamp.
+  evidence: epic-9 amendment 125; `CONFIG.broadside.rangeU` / `rangeUAtV`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — Eric judges on staging
+  summary: THE DEFAULT-FRAMING CADENCE HAS A RESIDUAL. After the halo-mask fix, 35 long frames per 12 s at the default framing under a load average of 6–19 (other sessions' jobs), against a baseline of 0; the fix took it down from 124. Unresolved versus load.
+  evidence: epic-9 amendment 137h; spec-9-8 perf section; `perf-gate/nfr1-frame-budget.json`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — Eric's call on staging
+  summary: THE HULL'S WAKE RIBBON SHARES THE HULL'S ROLL KEY, so hull and wake flicker as one unit; a per-ribbon key would decorrelate them.
+  evidence: epic-9 amendment 137d.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — ruling 129 as written; no client table can soften it
+  summary: THE FOGHORN HAS AN ISLAND CLIFF AT BAND 10. An island step from band 10 reaches 13 and goes silent while band 9 reaches 12 and sounds.
+  evidence: epic-9 amendment 137n; `FoghornEvent.v` 1..12.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — Story 9.9's material
+  summary: THE PICKABLE-GUN BANDS ARE SHORT UNDER THE STOPGAP. Anchoring the engagement band on the mounted gun makes a Tier I flak duelist fight at 50–187 u.
+  evidence: epic-9 amendments 126 and 137o; `engagementBand` / `mountedGunRangeU` in `server/src/game/ai/`.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — Eric's map-look question
+  summary: THE LAGOON PIN COUNTS SEALED POCKETS ONLY, AND BIG ISLANDS AT 5,000 u HIT THE 92-VERTEX CAP. A seed-30 inlet open to the sea read as a lagoon through the outline cap (amendment 9c's simplification fuzz); a finer vertex cap for very large islands is not decided.
+  evidence: epic-9 amendment 137p; `map.test` lagoon pin.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — follow-up if Eric wants 60 FPS at the far zoom
+  summary: THE FAR-ZOOM DRAW COSTS 29 ms on the 10,000 u ocean (22 ms on 4,000 u), the omniscient reveal's cost at the same zoom. A cheaper far-zoom draw is a follow-up story; it was rejected for this one.
+  evidence: epic-9 amendment 133c; perf capture of record.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — re-check when waves run
+  summary: THE 1,000 u FLEET DENIAL DISCS ON A 16-CAPTAIN OCEAN COVER ABOUT 64 % of the 5,000 u map. Seating measured fine at 200 picks; re-check under 16 groups per wave (96 hulls) so the retry never falls to the max-min fallback.
+  evidence: epic-9 amendments 134 and 136; Blind Hunter trace at the 9.8 review gate.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — harness-only, low
+  summary: THE BATCH-SIM DAMAGE ATTRIBUTION CLASSIFIES BY AMOUNT, so rim flak bursts (D − 10 .. D) file under other amounts. Codex noted it at the 9.8 gate.
+  evidence: `server/scripts/batchsim/catalogMetrics.ts` amount-bucket classifier; epic-9 amendment 132.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-8-the-twelfths-ladder.md`
+  status: OPEN — owed to Story 9.13 (was 9.12)
+  summary: RECORDS OWED TO 9.13: How-to-Play's sensor entry and the RANGE / ARMOR / PASSIVE HEALING entries, DESIGN.md's card height (243 px) and zoom range, EXPERIENCE.md's ladder lines, the GDD's "two truesight diameters" / "radar = sight × 2" / E9 row, catalog-v3's weapon ranges and damage rows.
+  evidence: epic-9 amendment 137r.
+
+## 2026-10-14 — Story 9.8 staging fix, cycle 186 (spec-9-8-the-twelfths-ladder.md)
+
+- source_spec: `spec-9-8-the-twelfths-ladder.md`
+  summary: BACK POCKET (Eric 2026-10-14): a 1,200 u radar with the same twelfths ratios (sight 400, flash/smoke 600, dropout from 800) on the previous 8,000 u ocean seats 16 captains with no pair inside radar at spawn (chord 1,249 u, margin 49 u) and carries ~87 islands instead of ~118 — the other lever if the 16 / 8 / 4 fleet waves ever push the tick over budget again.
+  evidence: chord = 2 × 3,200 × sin(π/16) = 1,248.6 u on the 0.8 R spawn ring; island counts from the cycle-186 tick-cost probe (seed 0x9876); Eric: "Okay, lets keep that in our back pocket."
+- source_spec: `spec-9-8-the-twelfths-ladder.md`
+  summary: the server has no slow-tick log line; the tick p50/p95/max on `GET /metrics` is the only live signal of a room missing 20 Hz — read it on staging during a 1:00+ bot match after cycle 186 to confirm the collision cut holds on Render's starter instance.
+  evidence: cycle-186 investigation (amendment 138): 30 ms p50 ticks on an M-series Mac with 112 hulls before the fix; `grep overrun|slow tick` over server/src is empty.
+
+## 2026-10-14 — Story 9.8 staging fix 4, cycle 189 (spec-9-8-the-twelfths-ladder.md)
+
+- source_spec: `spec-9-8-the-twelfths-ladder.md`
+  summary: `world.ships` keeps every wreck for the whole match (184 records at 10:00 with 16 captains + 96/48/24 drones) and most per-tick loops iterate all of them — a late-match tick-cost source the "2 afloat" investigation measured but did not cut.
+  evidence: cycle-189 investigation probe (ArenaRoom solo harness, seeds 1/2/3); amendment 138's tick table was taken at 2:00 with 112 live records.
+- source_spec: `spec-9-8-the-twelfths-ladder.md`
+  summary: the results screen cannot be dismissed to read the kill feed / message log after a match ends, so a spectator cannot check how the last hull sank (Eric 2026-10-14: "since I can't close the end game dialog and read the message log, I can't tell if anyone sunk"); a results-screen behaviour change is Eric's to rule, never invented.
+  evidence: Eric's report while spectating on 0.18.53 staging.
+
+## 2026-10-16 — Story 9.11 review gate, cycle 195 (spec-9-11-alerts-on-the-water-and-one-row.md)
+
+- source_spec: `spec-9-11-alerts-on-the-water-and-one-row.md`
+  status: OPEN — staging watch, perf
+  summary: THE BURN-ZONE TONGUE FIELD HAS NO GLOBAL CEILING. At Eric's density 4.0 a tier-I zone is 126 additive Graphics, a tier-V zone 268 (`flameMax` 300 is per zone); 16 captains × 268 = ~4,300 Graphics / ~140k verts in the worst pile-up, where the hull fire caps at 256 in total. Not a traced failure; if staging shows a frame-time cliff the mitigation is a GLOBAL tongue budget (e.g. 1,024) that scales every zone's count proportionally, keeping Eric's density at normal load. Never a silent per-zone scale-down.
+  evidence: Blind Hunter finding 2 at the 9.11 gate; epic-9 amendment 182; `client/src/render/burnZones.ts` `flameCountFor`.
+- source_spec: `spec-9-11-alerts-on-the-water-and-one-row.md`
+  status: OPEN — pre-existing (Story 9.4), low
+  summary: `foulZones.ts` `advanceWeedPhase` has no finite guard: one NaN `nowSec` makes the integrated weed phase NaN for the rest of the session and parks the weed layer at a NaN position (invisible), while the alert clock in the same frame ignores a NaN reading. Fix: mirror `alertBlend.ts`'s `Number.isFinite` guard.
+  evidence: Edge Case Hunter finding 5 at the 9.11 gate (context lines, not in the diff).
+- source_spec: `spec-9-11-alerts-on-the-water-and-one-row.md`
+  status: OPEN — pre-existing (8.7 / 9.2), low
+  summary: `hotbar.ts` `heldId` treats a consumable with a live ammo entry at `{n: 0}` as held (a solid square, bright glyph, no count, nothing to fire; the LOADOUT twin does the same), unlike `loadout[slot] = null` or `ammo[slot] = null`, which both draw the zero-stock square. Reachable only if the server ever sends an id with n 0 (world.ts clears the slot the same tick). Fix: `(view.ammo[slot]?.n ?? 0) <= 0` in `heldId`.
+  evidence: Edge Case Hunter finding 6 at the 9.11 gate.
+
+## 2026-10-16 — Story 9.12 review gate, cycle 196 (spec-9-12-the-second-tuning-pass.md)
+
+- source_spec: `spec-9-12-the-second-tuning-pass.md`
+  status: OPEN — Story 9.13 (bot posture workover) material
+  summary: with two cannon barrels fixed from Tier I (amendment 185) every click now raises TWO Hit Calls when both shells connect, so a bot's `HITS_FOR_CRIPPLED` counter (`server/src/game/ai/utility.ts` ~:180) reaches its threshold in half the clicks it did at Tier I — the ram trigger and target-selection estimates read "crippled" sooner. Accepted at the 9.12 gate (reading 186(r5)); the posture workover should count clicks or `dmg` events, never raw `hc` rows.
+  evidence: Blind Hunter finding at the 9.12 gate; `combat.test.ts` twin-mount cases show two `hc` per click.
+- source_spec: `spec-9-12-the-second-tuning-pass.md`
+  status: OPEN — pre-existing, harness only, low
+  summary: `npx tsc -p server/scripts/batchsim/tsconfig.json` reports one error at `server/scripts/batchsim/main.ts:228` (a `ModeOutput` is not assignable to `void`); the file is untouched by 9.12 and that tsconfig is not part of `npm run check`, so the harness still runs under tsx. Story 9.16 (harness hygiene) should make that tsconfig clean or drop it.
+  evidence: wave-2 report at the 9.12 gate, reproduced by the command above on d7eaa125.
+
+## 2026-10-17 — Story 9.13 close-out, cycle 198 (spec-9-13-bot-posture-workover.md)
+
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: RESOLVED 2026-10-17 by epic-9 amendment 201 (ram exit)
+  summary: the 2026-10-13 entry "THE BOT `ram` POSTURE HAS NO POST-STRIKE EXIT" is resolved; the posture chain now has a ram exit when the target survives the strike.
+  evidence: 9.13 wave 1 `ai/posture.ts`; amendment 201.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: RESOLVED 2026-10-17 by epic-9 amendment 195 (hits per click)
+  summary: the 2026-10-16 entry "`HITS_FOR_CRIPPLED` counts `hc` rows" is resolved; bots count hits per click per track from their own `fireSeq`.
+  evidence: 9.13 wave 1; amendment 195.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: re-measured at 9.13 — see `batch-sim-evidence-2026-10-17.md`
+  summary: the 2026-10-08 entry "BOTS GROUND ON 7.3 % OF AFLOAT TICKS ON THE 10 % ARCHIPELAGO" was re-measured after the nav work; numbers live in the evidence file.
+  evidence: `batch-sim-evidence-2026-10-17.md`.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — harness only, low
+  summary: the harness endgame no-hit gap excludes storm damage: the victim's `lastDamageSrc` records the storm but there is no attacker on the `dmg` row, so a storm-only stretch reads as a gap.
+  evidence: 9.13 wave 3 `botReadouts`.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — harness only, low
+  summary: `pressesByItem` cannot attribute a press that spends the last copy of a consumable (the slot reads 'empty' by the time the readout looks).
+  evidence: 9.13 wave 3 `botReadouts`.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — harness only, low
+  summary: `shotsBeyondRange` is a guard that always reads 0, because the gun aim point is clamped to reach before the shot is fired; it cannot catch anything today.
+  evidence: 9.13 wave 3 `botReadouts`.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — harness only, low
+  summary: `--tune` refuses `bots.nav.cellU`, `disengageHpFrac` and `healHpFrac`: the first is never read at runtime and the other two are copied at module load.
+  evidence: 9.13 wave 3 `--tune bots.*` family.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — pre-existing, harness only, low
+  summary: `server/scripts/batchsim/main.ts(228)` TS2322 is still pre-existing (see the 9.12 entry); `encounterSpan.ts:98` no longer errors. Story 9.16 owns the tsconfig.
+  evidence: `npx tsc -p server/scripts/batchsim/tsconfig.json` at 9.13.
+- source_spec: `spec-9-13-bot-posture-workover.md`
+  status: OPEN — soft cap, low
+  summary: `botMetrics.ts` is 557 lines and `overrides.ts` 920 lines, both over the ~500 soft cap; `equipment.ts` is 696 lines (cohesive, and an import cycle prevents a split).
+  evidence: `wc -l` at 9.13 wave 3.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-13-bot-posture-workover.md`
+  summary: TWO REAL WEDGE FIXTURES STILL RE-GROUND AFTER THE PROBED UN-BEACH FREES THEM — MOONRAKER (match seed 1026202030, island #30 notch; 56.9 u at 30 s, peaks past 64 u twice) and CROWSNEST (3676774083, island #50 pocket; 13.2 u, backs out to 65 u): the machine now backs out, then the idle PATROL ROUTE steers the battleship straight back into the same bay. DOLDRUM (1027432045, the #56/#65 strait) is cured (1.3 → 283 u, clear). The fixtures are in `botReviewFixes.test.ts`, skipped with their numbers. Fix shape: a goal choice that does not run back into a dead-end inlet — a per-mind "trap memory" (grounding spot + radius + TTL rejected by the patrol and cover picks) was tried and REVERTED 2026-10-17 because it made both fixtures worse (the hold-heading answer for a goal inside the mark kept the hull pointed into the bay); trace that before retrying.
+  evidence: grounding replay 2026-10-17 (`wedge-fixtures.json`, polygon-only reproduction byte-identical to the full map); fix-wave rounds 1–4; final after-arm `final913` for the campaign-level reading.
+- source_spec: `_bmad-output/implementation-artifacts/spec-9-13-bot-posture-workover.md`
+  summary: RAM DEATHS NEARLY DOUBLED IN THE INTERIM AFTER-ARM (94 → 174 of ~724 bot deaths; ram damage 13.8 → 28.1 hp per bot-match) while run-aground deaths fell 152 → 28 — bots that no longer sit on land spend more time in knife range (`engage` 40 % of ticks) where the `ram` posture (699 transitions) and contact bleed land; the storm's share fell to 1.7 % (bar 5–20 %). Not a defect by any ruling (amendment 77's trigger is `[DRAFT]` for playtest); recorded so Eric reads it on staging beside the final arm's numbers.
+  evidence: `after-interim` readouts 2026-10-17 (killsBySource contact 132 + grind 5 of 644 kills); the ledger `batch-sim-evidence-2026-10-17.md`.

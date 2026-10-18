@@ -115,7 +115,8 @@ import type { Island } from '../types.js';
 import type { Vec2 } from '../math/vec.js';
 import type { ShipState } from './ship.js';
 import { segCircleHit } from '../math/geom.js';
-import { coastNormal, islandDistance } from './island.js';
+import { coastNormal, islandDistance, ISLAND_DIST_SLACK, type Solid } from './island.js';
+import { coastContains, coastDistance, coastSegNear } from './coastIndex.js';
 import {
   pointInPolygon,
   polygonFitLimit,
@@ -139,6 +140,9 @@ const DEPTH_TOL = 1e-3;
  * without ever re-flagging a pose the push just cleared (PUSH_EPS = 1000×).
  */
 const OVERLAP_PAD = 1e-9;
+/** segPolygonHit's own comparison slack (silhouette.ts EPS): its edge clause
+ *  is `dist <= radius + EPS`, so the indexed island test passes the same sum. */
+const SEG_EPS = 1e-9;
 
 /** Scratch Vec2s for the allocation-free translated-overlap test. */
 const S0: Vec2 = { x: 0, y: 0 };
@@ -362,14 +366,15 @@ function pushClear(
 
 /**
  * Exact overlap test between the hull polygon translated by (ox, oy) and one
- * island's coastline: any hull edge crossing or starting inside the polygon
+ * SOLID's boundary (an island's coastline, or another hull's world silhouette
+ * — sim/contact.ts): any hull edge crossing or starting inside the polygon
  * (segPolygonHit at OVERLAP_PAD — its start-inside rule also catches "hull
  * wholly inside island", and each edge is broadphased on the bounding circle
- * first), or the island wholly inside the hull (one island vert,
+ * first), or the solid wholly inside the hull (one solid vert,
  * back-translated). The offset form lets pushOutOf probe candidate
  * translations allocation-free.
  */
-function hullOverlapsIsland(world: readonly Vec2[], ox: number, oy: number, isle: Island): boolean {
+export function polygonOverlapsSolid(world: readonly Vec2[], ox: number, oy: number, isle: Solid): boolean {
   for (let i = 0, j = world.length - 1; i < world.length; j = i++) {
     S0.x = world[j].x + ox;
     S0.y = world[j].y + oy;
@@ -383,6 +388,57 @@ function hullOverlapsIsland(world: readonly Vec2[], ox: number, oy: number, isle
   return pointInPolygon(S0, world);
 }
 
+/**
+ * EXACTLY `polygonOverlapsSolid(world, 0, 0, isle)` for an ISLAND — whose
+ * coastline is static, so the edge clause and the start-inside rule run over
+ * the island's coastline index (sim/coastIndex.ts) instead of every coastline
+ * edge. Same hull-edge order, same broadphase, same thresholds, same final
+ * island-inside-hull test: the boolean is identical (pinned by
+ * collision.test.ts against the brute predicate). NEVER for a hull solid
+ * (sim/contact.ts): a hull's world polygon is per-tick scratch, mutated in
+ * place, and the index caches by polygon identity.
+ */
+export function islandOverlaps(world: readonly Vec2[], ox: number, oy: number, isle: Island): boolean {
+  for (let i = 0, j = world.length - 1; i < world.length; j = i++) {
+    S0.x = world[j].x + ox;
+    S0.y = world[j].y + oy;
+    S1.x = world[i].x + ox;
+    S1.y = world[i].y + oy;
+    if (segCircleHit(S0, S1, isle, isle.r) === null) continue;
+    if (coastContains(S0, isle.poly)) return true;
+    if (coastSegNear(S0, S1, isle.poly, OVERLAP_PAD + SEG_EPS)) return true;
+  }
+  S0.x = isle.poly[0].x - ox;
+  S0.y = isle.poly[0].y - oy;
+  return pointInPolygon(S0, world);
+}
+
+/** EXACTLY `islandDistance(p, isle)` (sim/island.ts) for an ISLAND, its two
+ *  O(coastline) sweeps answered by the coastline index. */
+export function indexedIslandDistance(p: Vec2, isle: Island): number {
+  const d = Math.hypot(p.x - isle.x, p.y - isle.y);
+  if (d > isle.r + ISLAND_DIST_SLACK) return d - isle.r;
+  const boundary = coastDistance(p, isle.poly);
+  return coastContains(p, isle.poly) ? -boundary : boundary;
+}
+
+/** Relative slack on the squared pre-reject — orders of magnitude above the
+ *  few-ulp error of the squares and of Math.hypot. */
+const SQ_SLACK = 1 + 1e-7;
+
+/**
+ * A pre-reject for the bounding-circle broadphase `hypot(dx, dy) > lim`:
+ * true only when the SQUARED distance clears lim² by SQ_SLACK, so whenever it
+ * says "beyond" the hypot test would too — the broadphase decision is
+ * unchanged, it just skips the (slow) Math.hypot for the ~all islands that
+ * are nowhere near the hull.
+ */
+function surelyBeyond(ship: ShipState, isle: Island, lim: number): boolean {
+  const dx = ship.x - isle.x;
+  const dy = ship.y - isle.y;
+  return dx * dx + dy * dy > lim * lim * SQ_SLACK;
+}
+
 /** True iff the world polygon overlaps any island (bounding-circle broadphase first). */
 function overlapsAny(
   ship: ShipState,
@@ -391,8 +447,9 @@ function overlapsAny(
   polyMax: number,
 ): boolean {
   for (const isle of islands) {
+    if (surelyBeyond(ship, isle, polyMax + isle.r)) continue;
     if (Math.hypot(ship.x - isle.x, ship.y - isle.y) > polyMax + isle.r) continue;
-    if (hullOverlapsIsland(world, 0, 0, isle)) return true;
+    if (islandOverlaps(world, 0, 0, isle)) return true;
   }
   return false;
 }
@@ -472,11 +529,11 @@ function pushLimit(ship: ShipState, localPoly: readonly Vec2[]): number {
  * When no vertex is inside (a coastal spike through a hull side), the vertex
  * NEAREST the coast aims the push — still the feature being touched.
  */
-function escapeAim(world: readonly Vec2[], isle: Island): { nx: number; ny: number } {
+function escapeAim<S extends Solid>(world: readonly Vec2[], isle: S, distance: DistanceFn<S>): { nx: number; ny: number } {
   let best = world[0];
   let bestDepth = Infinity;
   for (const p of world) {
-    const d = islandDistance(p, isle); // signed: negative inside the island
+    const d = distance(p, isle); // signed: negative inside the island
     if (d < bestDepth) {
       bestDepth = d;
       best = p;
@@ -524,15 +581,14 @@ function pushOutOf(
   polyMax: number,
   limit: number,
 ): boolean {
+  if (surelyBeyond(ship, isle, polyMax + isle.r)) return false;
   const dc = Math.hypot(ship.x - isle.x, ship.y - isle.y);
   if (dc > polyMax + isle.r) return false; // bounding-circle broadphase
-  if (!hullOverlapsIsland(world, 0, 0, isle)) return false;
+  if (!islandOverlaps(world, 0, 0, isle)) return false;
 
-  const { nx, ny } = escapeAim(world, isle);
-  const cap = Math.min(isle.r + polyMax - dc, limit);
-  const clearing = escapeDepth(world, isle, nx, ny, cap);
-  if (clearing === null) return true; // wedged / over the tick limit: rollback ladder
-  const depth = clearing + PUSH_EPS;
+  const esc = escapeFrom(world, isle, Math.min(isle.r + polyMax - dc, limit), islandOverlaps, indexedIslandDistance);
+  if (esc === null) return true; // wedged / over the tick limit: rollback ladder
+  const { nx, ny, depth } = esc;
   ACC.x += nx * depth;
   ACC.y += ny * depth;
   ship.x += nx * depth;
@@ -542,6 +598,50 @@ function pushOutOf(
     p.y += ny * depth;
   }
   return true;
+}
+
+/** The minimal escape from one solid: unit direction + padded distance. */
+export interface SolidEscape {
+  nx: number;
+  ny: number;
+  /** u — the minimal clearing translation along (nx, ny), plus PUSH_EPS. */
+  depth: number;
+}
+
+/**
+ * THE POLYGON PUSH-OUT CORE, shared by the island ladder (pushOutOf above)
+ * and hull-vs-hull contact (sim/contact.ts — Story 9.5, "never a second
+ * geometry implementation"). For a world polygon KNOWN to overlap `solid`:
+ * the direction is the escape normal at the deepest-penetrating vertex
+ * (escapeAim), the distance the minimal clearing translation along it within
+ * `cap` (escapeDepth) plus PUSH_EPS so the cleared pose reads strictly
+ * non-overlapping. Null when no translation within `cap` clears (the caller
+ * decides what failing to push means: the island ladder rolls back, a hull
+ * pair stays touching for a tick). Pure — moves nothing.
+ */
+export function solidEscape(world: readonly Vec2[], solid: Solid, cap: number): SolidEscape | null {
+  return escapeFrom(world, solid, cap, polygonOverlapsSolid, islandDistance);
+}
+
+/** The exact overlap test at an offset (polygonOverlapsSolid's shape). */
+type OverlapFn<S extends Solid> = (world: readonly Vec2[], ox: number, oy: number, solid: S) => boolean;
+/** The signed point-to-solid distance (islandDistance's shape). */
+type DistanceFn<S extends Solid> = (p: Vec2, solid: S) => number;
+
+/** solidEscape's body over INJECTED predicates: the brute pair for a hull
+ *  solid (whose polygon is per-tick scratch), the coastline-indexed pair for
+ *  an island — the same answers, so the same escape, byte for byte. */
+function escapeFrom<S extends Solid>(
+  world: readonly Vec2[],
+  solid: S,
+  cap: number,
+  overlap: OverlapFn<S>,
+  distance: DistanceFn<S>,
+): SolidEscape | null {
+  const { nx, ny } = escapeAim(world, solid, distance);
+  const clearing = escapeDepth(world, solid, nx, ny, cap, overlap);
+  if (clearing === null) return null;
+  return { nx, ny, depth: clearing + PUSH_EPS };
 }
 
 /** First bracket step of the exponential clearing search (u) — comfortably
@@ -566,26 +666,27 @@ const ESCAPE_STEP = 0.5;
  * result is within 2x of the true penetration; the interior of the final
  * bracket spans [pen, 2·pen] and cannot skip past an arm.
  */
-function escapeDepth(
+function escapeDepth<S extends Solid>(
   world: readonly Vec2[],
-  isle: Island,
+  isle: S,
   nx: number,
   ny: number,
   cap: number,
+  overlap: OverlapFn<S>,
 ): number | null {
   let lo = 0;
   let hi = ESCAPE_STEP;
-  while (hi < cap && hullOverlapsIsland(world, nx * hi, ny * hi, isle)) {
+  while (hi < cap && overlap(world, nx * hi, ny * hi, isle)) {
     lo = hi;
     hi *= 2;
   }
   if (hi >= cap) {
-    if (hullOverlapsIsland(world, nx * cap, ny * cap, isle)) return null;
+    if (overlap(world, nx * cap, ny * cap, isle)) return null;
     hi = cap;
   }
   while (hi - lo > DEPTH_TOL) {
     const mid = (lo + hi) / 2;
-    if (hullOverlapsIsland(world, nx * mid, ny * mid, isle)) lo = mid;
+    if (overlap(world, nx * mid, ny * mid, isle)) lo = mid;
     else hi = mid;
   }
   return hi;

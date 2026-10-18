@@ -1,8 +1,9 @@
 // WEAPON BEHAVIOUR on the water, end-to-end through the REAL fire/step seams
 // against the production catalog: TORPEDO HOMING (incl. the 'torpU' wire
 // rules), CAPTIVE MINES, FOULING MINES (incl. the pinned boost→slow→hooks
-// composition), PHOSPHOR + DAZZLE (star shells, incl. the dazzled observer's
-// shrunken sight) — plus the vacated-owner CONFIG fallback.
+// composition), STAR SHELLS + PHOSPHOR SHELLS (the burning zone) — plus the
+// vacated-owner CONFIG fallback. (The FLASH SHELLS dazzle suite left with the
+// consumable in Story 9.4; see foulingShell.test.ts.)
 //
 // STORY 8.13 TOOK THE LAST OF THE "DOCTRINE" MODEL OUT OF THE MINES AND
 // TORPEDOES, and this file is where that shows most (Eric rulings 2026-09-19,
@@ -26,11 +27,10 @@
 // their notes survive below where the suites used to sit.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, transitionLifecycle, CATALOG, CONFIG, CONSUMABLE_SLOTS, effectiveStats, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, captiveTriggerRadius, type GameEvent, type InputMsg, type MineKind, type ShipClassId } from '@salvo/shared';
+import { isAfloat, transitionLifecycle, CATALOG, CONFIG, consumableSlotFor, effectiveStats, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, captiveTriggerRadius, type GameEvent, type InputMsg, type MineKind, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
-import { sightOf } from '../game/signals.js';
 import { circleIsland } from './islandFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
@@ -447,18 +447,18 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
   // FAIL-FIRST REGRESSION (amendment 84d): the TRIP RING steps ×1.1 per rung
   // and is DERIVED from the tier inside the stat clamp — while the 32u burst
   // is fixed, so the line grows the reach of the trap and never the bang.
-  it('the trip ring at tier V is 210.8u (144 × 1.1⁴) and the burst is still 32u', () => {
+  it('the trip ring at tier V is the CONFIG ring × 1.1⁴ (175.7 u at the 120 u ring, 2026-10-08) and the burst is still 32u', () => {
     const w = bareWorld(46);
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
     fitTier(w, o, 'captiveMines', 5);
     const row = o.stats.equipment.captiveMines;
     expect(row.tier).toBe(5);
-    expect(row.triggerRadius).toBeCloseTo(210.8, 1);
     expect(row.triggerRadius).toBeCloseTo(captiveTriggerRadius(5), 9);
+    expect(row.triggerRadius).toBeCloseTo(CONFIG.captiveMines.triggerRadius * 1.1 ** 4, 6);
     expect(row.blastRadius).toBe(32);
-    // And it TRIPS out there: a hull 200u away is inside the tier-V ring and
-    // was outside the tier-I one (144u).
-    place(w, 'b', 0, 200);
+    // And it TRIPS out there: a hull 160u away is inside the tier-V ring (175.7)
+    // and outside the tier-I one (120).
+    place(w, 'b', 0, 160);
     lay(w, 'm1', 'o', 0, 0, 'captive');
     w.step();
     expect(w.mines.size).toBe(0);
@@ -886,8 +886,9 @@ describe('vacated owner — mines fall back to CONFIG bases (pinned)', () => {
 // ---------------------------------------------------------------------------
 // STORY 8.17 (Eric rulings 2026-09-29, epic-8 amendments 130–135): the
 // STAR SHELL is a tiered DAMAGE weapon, PHOSPHOR SHELLS is its own weapon
-// with a BURNING ZONE, and FLASH SHELLS (`dazzleShells`) is a belt consumable
-// that sets a one-time dazzle mark. The star-shell PHOSPHOR / DAZZLE verbs
+// with a BURNING ZONE, and FLASH SHELLS (`dazzleShells`) was a belt consumable
+// that set a one-time dazzle mark (replaced by the FOULING SHELL in Story
+// 9.4 — foulingShell.test.ts). The star-shell PHOSPHOR / DAZZLE verbs
 // and the lit zone's verb flags are DELETED — the suites that pinned them
 // (INCENDIARY COMPOUND, DAZZLE BURST, "PHOSPHOR + DAZZLE stack") are
 // re-cut below onto the three rows that replaced them.
@@ -1005,7 +1006,7 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
     w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 165, until: 999_999 });
     for (let i = 0; i < 20; i++) w.step();
     expect(b.hp).toBe(b.stats.maxHp);
-    expect(b.dazzledUntil).toBe(0);
+    expect(b.fouledUntil).toBe(0); // ...nor slows (Story 9.4: a lit zone is not a foul zone either)
     expect('phosphor' in w.litZones.get('z1')!).toBe(false);
     expect('dazzle' in w.litZones.get('z1')!).toBe(false);
   });
@@ -1029,7 +1030,7 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
   it('tier I: A and B take 10, C nothing, `hc`, and a r100 / 8 s / 5 hp/s zone spawns at the burst point (no lit zone)', () => {
     const { w, a, slot, A, B, C } = board();
     const row = a.stats.equipment.phosphorShells;
-    expect([row.damage, row.zoneRadius, row.zoneDurationMs, row.dps, row.rangeU]).toEqual([10, 100, 8000, 5, CONFIG.vision.radar]);
+    expect([row.damage, row.zoneRadius, row.zoneDurationMs, row.dps, row.rangeU]).toEqual([10, 100, 8000, 5, CONFIG.phosphorShells.rangeU]); // reach: its own Tier I dial (Story 9.8, ruling 125)
     const hp = { A: A.hp, B: B.hp, C: C.hp };
     const { seen, at } = fireUntilStop(w, a, slot, 0, 400);
     expect(kinds(seen)).toContain('burst');
@@ -1218,7 +1219,7 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
     a.prevSweepAngle = Math.PI; // park the firer's own radar beam away from the target bearing
     a.sweepAngle = Math.PI + 0.0001;
     fitTier(w, a, 'phosphorShells', 1);
-    const hidden = place(w, 'hidden', 520, 40, Math.PI / 2); // inside the zone, 520 u from the firer (sight 330)
+    const hidden = place(w, 'hidden', 520, 40, Math.PI / 2); // inside the zone, ~522 u from the firer — just past its sight bubble
     fireUntilStop(w, a, slotOf(a, 'phosphorShells'), 0, 500);
     expect(w.burnZones.size).toBe(1);
     expect(hidden.hp).toBeLessThan(hidden.stats.maxHp); // it WAS hit — the zone covers it
@@ -1246,126 +1247,9 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
   });
 });
 
-describe('FLASH SHELLS (`dazzleShells`) — a belt consumable whose one-time burst dazzles every hull inside r150 for 10 s (amendment 132)', () => {
-  const BELT = CONSUMABLE_SLOTS[0];
-
-  /** A Battleship at the origin holding ONE FLASH SHELLS copy, clicking
-   *  (400, 0): `A` 100 u from the burst point (inside r150), `B` 160 u from
-   *  it (outside — beam-on, so its silhouette is irrelevant: the flash tests
-   *  CENTRES), a `watcher` who sees A as a contact. */
-  function board(): { w: World; a: ShipRecord; A: ShipRecord; B: ShipRecord; watcher: ShipRecord } {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
-    w.applyCard(a, 'dazzleShells');
-    expect(a.loadout[BELT]).toEqual({ equipmentId: 'dazzleShells', state: { n: 1, reloadMsLeft: 0 } });
-    const A = place(w, 'A', 500, 0, Math.PI / 2);
-    const B = place(w, 'B', 400, 160, 0);
-    const watcher = place(w, 'watcher', 560, 60);
-    return { w, a, A, B, watcher };
-  }
-
-  it('the burst marks A (inside r150) with dazzledUntil = now + 10 s, leaves B and the owner alone, spends the copy, emits `sp`, no damage, no zone', () => {
-    const { w, a, A, B } = board();
-    const { seen, at } = fireUntilStop(w, a, BELT, 0, 400);
-    expect(kinds(seen)).toContain('burst');
-    expect(kinds(seen)).toContain('sp'); // damage 0 resolves no victim (135(d))
-    expect(kinds(seen)).not.toContain('hc');
-    expect(kinds(seen)).not.toContain('dmg');
-    expect(A.dazzledUntil).toBe(at + CONFIG.flashShells.durationMs);
-    expect(B.dazzledUntil).toBe(0);
-    expect(a.dazzledUntil).toBe(0);
-    expect(A.hp).toBe(A.stats.maxHp);
-    expect(w.litZones.size).toBe(0);
-    expect(w.burnZones.size).toBe(0);
-    // ONE SPEND: the copy left the belt and the card left the build.
-    expect(a.loadout[BELT]).toEqual({ equipmentId: null, state: null });
-    expect(a.cards).not.toContain('dazzleShells');
-  });
-
-  it('a click is clamped at the star shell’s reach (radarRange) — never an arc denial', () => {
-    const { w, a } = board();
-    setInput(a, { aim: Math.PI, aimDist: 5000, slot: BELT, fireSeq: 1, seq: 2 });
-    expect(w.sinkingActivationGate(a, BELT)).toEqual({ ok: true });
-    const shell = [...w.shells.values()][0];
-    expect(shell.targetX).toBeCloseTo(-a.stats.radarRange, 6);
-    expect(shell.flash).toEqual({ radius: 150, durationMs: 10_000 });
-    expect(shell.damage).toBe(0);
-    expect(shell.contactDamage).toBe(0);
-    expect(shell.burstRadius).toBe(150);
-    expect(shell.hits).toEqual(CONFIG.flashShells.hits);
-    expect(shell.family).toBe('cannon');
-  });
-
-  it('an empty belt slot refuses the click and spends nothing', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
-    setInput(a, { aim: 0, aimDist: 400, slot: BELT, fireSeq: 1, seq: 2 });
-    expect(w.sinkingActivationGate(a, BELT)).toEqual({ ok: false, reason: 'empty-slot' });
-    expect(w.shells.size).toBe(0);
-  });
-
-  it('a second flash on an already-dazzled hull sets the LATER expiry — never stacks, never shortens', () => {
-    const { w, a, A } = board();
-    A.dazzledUntil = w.now + 4000; // 4 s left
-    const { at } = fireUntilStop(w, a, BELT, 0, 400);
-    expect(A.dazzledUntil).toBe(at + 10_000); // extended to the flash's 10 s
-    // ...and a mark already LONGER than a fresh flash is left alone.
-    const { w: w2, a: a2, A: A2 } = board();
-    const longer = w2.now + 60_000;
-    A2.dazzledUntil = longer;
-    fireUntilStop(w2, a2, BELT, 0, 400);
-    expect(A2.dazzledUntil).toBe(longer); // unchanged — never shortened
-  });
-
-  it('with damage suppressed (the ready room) the shell still flies and bursts but blinds NOBODY — one flag, one policy', () => {
-    const { w, a, A } = board();
-    w.damageEnabled = false;
-    const { seen } = fireUntilStop(w, a, BELT, 0, 400);
-    expect(kinds(seen)).toContain('burst');
-    expect(A.dazzledUntil).toBe(0);
-  });
-
-  it('an interception en route flashes at the STOP POINT, exactly as a flare lights there; the interceptor takes 0', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
-    w.applyCard(a, 'dazzleShells');
-    const mid = place(w, 'mid', 300, 0, 0); // bodyblocks; its centre is within 150 u of the stop point
-    const far = place(w, 'far', 650, 0, Math.PI / 2); // the clicked point — never reached
-    const { seen, at } = fireUntilStop(w, a, BELT, 0, 650);
-    expect(kinds(seen)).toContain('boom');
-    expect(mid.hp).toBe(mid.stats.maxHp);
-    expect(mid.dazzledUntil).toBe(at + 10_000);
-    expect(far.dazzledUntil).toBe(0);
-  });
-
-  it('the dazzled hull’s OWN sight collapses to radarRange / 8 = 82.5 u (sightOf → the shared effectiveSight); radar range is untouched', () => {
-    const { w, a, A } = board();
-    place(w, 't', 500, 200, 0); // 200 u from A: inside base sight (330), outside dazzled sight (82.5)
-    expect(buildFrame(w, 'A').contacts.map((c) => c.id)).toContain('t');
-    fireUntilStop(w, a, BELT, 0, 400);
-    expect(sightOf(A, w.now)).toBeCloseTo(A.stats.radarRange * CONFIG.flashShells.sightFraction, 9);
-    expect(sightOf(A, w.now)).toBeCloseTo(82.5, 9);
-    expect(A.stats.radarRange).toBe(CONFIG.vision.radar);
-    expect(buildFrame(w, 'A').contacts.map((c) => c.id)).not.toContain('t');
-    // Expiry: the mark lapses and full sight returns.
-    for (let i = 0; i < Math.ceil(10_000 / DT) + 2; i++) w.step();
-    expect(w.now).toBeGreaterThan(A.dazzledUntil);
-    expect(sightOf(A, w.now)).toBe(A.stats.sightRange);
-    expect(buildFrame(w, 'A').contacts.map((c) => c.id)).toContain('t');
-  });
-
-  it('dazzledUntil rides ONLY the victim’s own frame (`you`) — a watcher’s contact for the victim never carries it', () => {
-    const { w, a, A, watcher } = board();
-    fireUntilStop(w, a, BELT, 0, 400);
-    w.step();
-    expect(buildFrame(w, 'A').you!.dazzledUntil).toBe(A.dazzledUntil);
-    const contact = buildFrame(w, 'watcher').contacts.find((c) => c.id === 'A')!;
-    expect(contact).toBeDefined();
-    expect('dazzledUntil' in contact).toBe(false);
-    expect('dazzledUntil' in buildFrame(w, 'watcher').you!).toBe(false); // the watcher itself (160+ u away) is not dazzled
-    void watcher;
-  });
-});
+// (The FLASH SHELLS suite that sat here — Story 8.17, amendment 132 — left with
+// the consumable in Story 9.4; its successor, the FOULING SHELL, is pinned
+// end-to-end in foulingShell.test.ts.)
 
 // RETIRED (Story 7-5 wave 2): "PROP-FOULING + SELF-PROPELLED stack on one
 // mine". Both cases assert about the deleted `mineSelfPropelled` verb. The

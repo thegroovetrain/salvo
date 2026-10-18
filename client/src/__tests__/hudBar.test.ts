@@ -1,16 +1,20 @@
-// THE HUD BAR's geometry spine (Story 8.6), pinned against the ratified mock.
+// THE HUD BAR's geometry spine (Story 8.6; back on the one row in Story 9.11),
+// pinned against the ratified mock.
 //
 // `mockups/hud-composite-3.html` is the source of every number here, read
 // literally (epic-8 amendment 31 — the July 1.6x micro lift does NOT apply to
 // the bar's surfaces), with the one ruled change that BOTH globes are 104 px
-// (amendment 32; the mock draws the HP globe at 96 and the helm at 104).
+// (amendment 32; the mock draws the HP globe at 96 and the helm at 104). Story
+// 9.2's two-row stack is retired (Eric 2026-10-14, epic-9 amendment 151): the
+// framed belt is back, holding all SIX consumable squares (keys 1–6).
 //
 // Three kinds of assertion live here and they are deliberately separate:
 //   (a) the CONFIG block IS the mock — one literal per key, so a retune has to
 //       be a decision rather than a drift;
-//   (b) the LAYOUT composes those numbers correctly — the 768 px derivation,
+//   (b) the LAYOUT composes those numbers correctly — the 868 px derivation,
 //       the floor anchor, the centring, the two centred columns, the belt frame
-//       enclosing its chips, and the exactly-two dim groups;
+//       enclosing its six squares and their chips, and the exactly-two dim
+//       groups;
 //   (c) the COMPOSITION — `class HudBar`, which owns the layout cache, the one
 //       dim, visibility as ONE object, and the two forwards main.ts needs.
 //
@@ -20,7 +24,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, SLOT_COUNT, SLOT_GUN, effectiveStats, isConsumableId, slotsWithCards } from '@salvo/shared';
+import { CONFIG, CONSUMABLE_SLOTS, SLOT_COUNT, SLOT_GUN, WEAPON_SLOTS, effectiveStats, isConsumableId, slotsWithCards } from '@salvo/shared';
 import type { EquipmentId, WeaponAmmo } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { HUD_BAR_WIDTH, HudBar, hudBarLayout, microScale, type HudBarView } from '../render/hudBar.js';
@@ -35,6 +39,10 @@ const REF_W = 1366;
 const REF_H = 768;
 const FLOOR_W = 1280;
 const FLOOR_H = 614;
+
+/** The main group's slots (gun, Shift, Q, E, R) and the belt's (1–6). */
+const WEAPON_ROW: readonly number[] = [SLOT_GUN, 1, ...WEAPON_SLOTS];
+const BELT_ROW: readonly number[] = CONSUMABLE_SLOTS;
 
 describe('(a) CLIENT_CONFIG.hudBar IS the mock — every number, one literal each', () => {
   it('pins the frame, the globes and the one horizontal gap', () => {
@@ -85,8 +93,8 @@ describe('(a) CLIENT_CONFIG.hudBar IS the mock — every number, one literal eac
       tier: 9,
       badge: 10, // .badge — a count, a px above the chips (wave 3 close-out)
       lv: 11,
-      wipe: 18,
-      hull: 18,
+      wipe: 18, // .cd
+      hull: 18, // .globe .gt b
       hullMax: 10,
       hullLabel: 9,
       hdg: 15,
@@ -108,7 +116,7 @@ describe('(a) CLIENT_CONFIG.hudBar IS the mock — every number, one literal eac
     expect(B.rudder).toEqual({ track: 48, tickW: 2, tickH: 8 });
   });
 
-  it('pins the tier numeral\u2019s corner inset (.tier { right: 4px; bottom: 2px })', () => {
+  it('pins the tier numeral’s corner inset (.tier { right: 4px; bottom: 2px })', () => {
     expect(B.tierInset).toEqual({ right: 4, bottom: 2 });
   });
 
@@ -122,15 +130,15 @@ describe('(a) CLIENT_CONFIG.hudBar IS the mock — every number, one literal eac
   });
 });
 
-describe('(b) hudBarLayout — the 768px bar, derived and anchored', () => {
-  it('derives 768 from the parts, and never from a literal', () => {
+describe('(b) hudBarLayout — the 868px bar, derived and anchored', () => {
+  it('derives 868 from the parts, and never from a literal', () => {
     const slots = 5 * B.slot + 4 * B.slotGap; // 302
-    const belt = B.beltPad.side * 2 + 4 * B.beltSlot + 3 * B.beltGap; // 210
+    const belt = B.beltPad.side * 2 + BELT_ROW.length * B.beltSlot + (BELT_ROW.length - 1) * B.beltGap; // 310
     expect(slots).toBe(302);
-    expect(belt).toBe(210);
+    expect(belt).toBe(310);
     expect(HUD_BAR_WIDTH).toBe(B.globe + B.globeGap + slots + B.globeGap + belt + B.globeGap + B.globe);
-    expect(HUD_BAR_WIDTH).toBe(768);
-    expect(hudBarLayout(REF_W, REF_H).bar.w).toBe(768);
+    expect(HUD_BAR_WIDTH).toBe(868);
+    expect(hudBarLayout(REF_W, REF_H).bar.w).toBe(868);
   });
 
   it('hangs from the FLOOR: the bar bottom sits 18px above the viewport floor', () => {
@@ -146,22 +154,23 @@ describe('(b) hudBarLayout — the 768px bar, derived and anchored', () => {
   });
 
   it('CENTRES on an integer x at 1366 and at 1280', () => {
-    expect(hudBarLayout(REF_W, REF_H).bar.x).toBe(299);
-    expect(hudBarLayout(FLOOR_W, FLOOR_H).bar.x).toBe(256);
+    expect(hudBarLayout(REF_W, REF_H).bar).toEqual({ x: 249, y: 614, w: 868, h: 136 });
+    expect(hudBarLayout(FLOOR_W, FLOOR_H).bar.x).toBe(206);
     for (const w of [1280, 1366, 1440, 1600, 1920, 1281]) {
       const { bar } = hudBarLayout(w, REF_H);
       expect(Number.isInteger(bar.x), `x at ${w}`).toBe(true);
-      expect(bar.x).toBe(Math.round((w - 768) / 2));
+      expect(bar.x).toBe(Math.round((w - HUD_BAR_WIDTH) / 2));
     }
   });
 
   it('FITS the 1280x614 logical floor — the main row tops out at 460', () => {
     // 614 - 18 (floor) - 136 (bar) = 460, which clears the chrome bar at y 24
-    // with the whole ocean in between. This is the pin behind ruling 1's "the
-    // bar fits the floor viewport": the nine-row stack it replaces could not.
+    // with the whole ocean in between; 868 wide leaves 206 px either side.
     const { bar } = hudBarLayout(FLOOR_W, FLOOR_H);
-    expect(bar.y).toBe(460);
+    expect(bar).toEqual({ x: 206, y: 460, w: 868, h: 136 });
     expect(bar.y).toBeGreaterThan(24);
+    expect(bar.x).toBeGreaterThan(0);
+    expect(bar.x + bar.w).toBeLessThan(FLOOR_W);
   });
 
   it('seats both globes at r 52, flush with the bar ends', () => {
@@ -174,35 +183,47 @@ describe('(b) hudBarLayout — the 768px bar, derived and anchored', () => {
     expect(hpGlobe.cy).toBe(bar.y + B.globe / 2);
     expect(helmGlobe.cy).toBe(hpGlobe.cy);
   });
+
+  it('carries the belt frame as its one grouping rect', () => {
+    const L = hudBarLayout(REF_W, REF_H);
+    expect(Object.keys(L).sort()).toEqual(['bar', 'belt', 'chips', 'dimGroups', 'helmGlobe', 'hpGlobe', 'squares', 'strip']);
+  });
 });
 
-describe('(b) the nine squares — five weapons at 54, four belt at 44', () => {
+describe('(b) the eleven squares — five weapons at 54, six belt at 44', () => {
   const L = hudBarLayout(REF_W, REF_H);
 
-  it('indexes by LOADOUT SLOT and sizes 0-4 at 54, 5-8 at 44', () => {
-    expect(L.squares).toHaveLength(9);
-    for (let i = 0; i <= 4; i++) {
+  it('indexes by LOADOUT SLOT: the main group at 54, the belt (1–6) at 44', () => {
+    expect(L.squares).toHaveLength(SLOT_COUNT);
+    expect(SLOT_COUNT).toBe(11);
+    for (const i of WEAPON_ROW) {
       expect(L.squares[i].w, `slot ${i}`).toBe(54);
       expect(L.squares[i].h, `slot ${i}`).toBe(54);
     }
-    for (let i = 5; i <= 8; i++) {
+    for (const i of BELT_ROW) {
       expect(L.squares[i].w, `slot ${i}`).toBe(44);
       expect(L.squares[i].h, `slot ${i}`).toBe(44);
     }
   });
 
   it('runs the weapons left to right at an 8px gap, starting one gap past the HP globe', () => {
-    expect(L.squares[0].x).toBe(L.bar.x + B.globe + B.globeGap);
-    for (let i = 1; i <= 4; i++) {
-      expect(L.squares[i].x - L.squares[i - 1].x, `gap ${i}`).toBe(B.slot + B.slotGap);
-      expect(L.squares[i].y).toBe(L.squares[0].y);
+    expect(L.squares[WEAPON_ROW[0]].x).toBe(L.bar.x + B.globe + B.globeGap);
+    for (let k = 1; k < WEAPON_ROW.length; k++) {
+      const [a, b] = [L.squares[WEAPON_ROW[k - 1]], L.squares[WEAPON_ROW[k]]];
+      expect(b.x - a.x, `gap ${k}`).toBe(B.slot + B.slotGap);
+      expect(b.y).toBe(a.y);
     }
   });
 
-  it('runs the belt at a 6px gap and leaves one 16px gap before the helm globe', () => {
-    for (let i = 6; i <= 8; i++) {
-      expect(L.squares[i].x - L.squares[i - 1].x, `belt gap ${i}`).toBe(B.beltSlot + B.beltGap);
+  it('runs the belt in key order at a 6px gap, one 16px gap after the weapons and before the helm globe', () => {
+    for (let k = 1; k < BELT_ROW.length; k++) {
+      const [a, b] = [L.squares[BELT_ROW[k - 1]], L.squares[BELT_ROW[k]]];
+      expect(b.x - a.x, `belt gap ${k}`).toBe(B.beltSlot + B.beltGap);
+      expect(b.y).toBe(a.y);
     }
+    const lastWeapon = L.squares[WEAPON_ROW[WEAPON_ROW.length - 1]];
+    expect(L.belt.x).toBe(lastWeapon.x + lastWeapon.w + B.globeGap);
+    expect(L.belt.x).toBe(L.bar.x + 104 + 16 + 302 + 16);
     expect(L.belt.x + L.belt.w + B.globeGap).toBe(L.helmGlobe.cx - L.helmGlobe.r);
   });
 
@@ -212,11 +233,11 @@ describe('(b) the nine squares — five weapons at 54, four belt at 44', () => {
     expect(colH).toBe(75);
     expect(beltH).toBe(79);
     const rowTop = L.bar.y;
-    expect(L.squares[0].y).toBe(rowTop + (B.globe - colH) / 2);
+    expect(L.squares[SLOT_GUN].y).toBe(rowTop + (B.globe - colH) / 2);
     expect(L.belt.y).toBe(rowTop + (B.globe - beltH) / 2);
     expect(L.belt.h).toBe(beltH);
     // Centred means centred: the space above the column equals the space below.
-    expect(L.squares[0].y - rowTop).toBe(rowTop + B.globe - (L.chips[0].y + B.chipH));
+    expect(L.squares[SLOT_GUN].y - rowTop).toBe(rowTop + B.globe - (L.chips[SLOT_GUN].y + B.chipH));
   });
 });
 
@@ -224,8 +245,8 @@ describe('(b) the key chips hang 5px under their square', () => {
   const L = hudBarLayout(REF_W, REF_H);
 
   it('centres every chip on its square and drops it 5px, 16 tall', () => {
-    expect(L.chips).toHaveLength(9);
-    for (let i = 0; i < 9; i++) {
+    expect(L.chips).toHaveLength(SLOT_COUNT);
+    for (let i = 0; i < SLOT_COUNT; i++) {
       const s = L.squares[i];
       expect(L.chips[i].cx, `chip ${i} cx`).toBe(s.x + s.w / 2);
       expect(L.chips[i].y, `chip ${i} y`).toBe(s.y + s.h + B.chipGap);
@@ -235,27 +256,34 @@ describe('(b) the key chips hang 5px under their square', () => {
   });
 });
 
-describe('(b) the belt FRAME encloses its squares AND their chips', () => {
+describe('(b) the belt FRAME encloses its six squares AND their chips', () => {
   const L = hudBarLayout(REF_W, REF_H);
+  const first = BELT_ROW[0];
+  const last = BELT_ROW[BELT_ROW.length - 1];
 
   it('pads 8 side / 8 top / 6 bottom, with the bottom measured under the CHIPS', () => {
     // The mock's `.belt` wraps the whole `.sw` column (square + gap + chip), so
     // the frame's floor is 6px under the key chips and NOT under the squares —
     // a frame drawn round the squares alone would cut the chips in half.
-    expect(L.belt.x).toBe(L.squares[5].x - B.beltPad.side);
-    expect(L.belt.x + L.belt.w).toBe(L.squares[8].x + L.squares[8].w + B.beltPad.side);
-    expect(L.belt.y).toBe(L.squares[5].y - B.beltPad.top);
-    expect(L.belt.y + L.belt.h).toBe(L.chips[5].y + B.chipH + B.beltPad.bottom);
-    expect(L.belt.w).toBe(210);
+    expect(L.belt.x).toBe(L.squares[first].x - B.beltPad.side);
+    expect(L.belt.x + L.belt.w).toBe(L.squares[last].x + L.squares[last].w + B.beltPad.side);
+    expect(L.belt.y).toBe(L.squares[first].y - B.beltPad.top);
+    expect(L.belt.y + L.belt.h).toBe(L.chips[first].y + B.chipH + B.beltPad.bottom);
+    expect(L.belt.w).toBe(310);
+    expect(L.belt.h).toBe(79);
   });
 
-  it('really does contain all four belt squares and all four belt chips', () => {
-    for (let i = 5; i <= 8; i++) {
+  it('really does contain all SIX belt squares and all six belt chips — and nothing else', () => {
+    expect(BELT_ROW).toHaveLength(6);
+    for (const i of BELT_ROW) {
       const s = L.squares[i];
       expect(s.x, `sq ${i} left`).toBeGreaterThanOrEqual(L.belt.x);
       expect(s.x + s.w, `sq ${i} right`).toBeLessThanOrEqual(L.belt.x + L.belt.w);
       expect(s.y, `sq ${i} top`).toBeGreaterThanOrEqual(L.belt.y);
       expect(L.chips[i].y + B.chipH, `chip ${i} foot`).toBeLessThanOrEqual(L.belt.y + L.belt.h);
+    }
+    for (const i of WEAPON_ROW) {
+      expect(L.squares[i].x + L.squares[i].w, `weapon ${i} outside`).toBeLessThan(L.belt.x);
     }
   });
 });
@@ -294,17 +322,17 @@ describe('(b) dimGroups — EXACTLY two, and the globes/strip are in neither', (
     // strip going dim, which is exactly what the ruling forbids.
     expect(L.dimGroups).toHaveLength(2);
     expect(L.dimGroups[0]).toEqual({
-      x: L.squares[0].x,
-      y: L.squares[0].y,
+      x: L.squares[SLOT_GUN].x,
+      y: L.squares[SLOT_GUN].y,
       w: 5 * B.slot + 4 * B.slotGap,
       h: B.slot + B.chipGap + B.chipH,
     });
     expect(L.dimGroups[1]).toEqual(L.belt);
   });
 
-  it('covers slots 0-4 with their chips, and excludes both globes', () => {
-    const g = L.dimGroups[0];
-    for (let i = 0; i <= 4; i++) {
+  it('covers every square with its chip, and excludes both globes and the XP strip', () => {
+    for (let i = 0; i < SLOT_COUNT; i++) {
+      const g = L.dimGroups[BELT_ROW.includes(i) ? 1 : 0];
       expect(L.squares[i].x, `sq ${i}`).toBeGreaterThanOrEqual(g.x);
       expect(L.squares[i].x + L.squares[i].w, `sq ${i}`).toBeLessThanOrEqual(g.x + g.w);
       expect(L.chips[i].y + B.chipH, `chip ${i}`).toBeLessThanOrEqual(g.y + g.h);
@@ -328,6 +356,12 @@ describe('microScale — the 9px floor at 90% UI scale', () => {
     const rendered = B.type.chip * microScale(0.9) * 0.9;
     expect(rendered).toBeCloseTo(B.type.chip, 10);
     expect(rendered).toBeGreaterThanOrEqual(9);
+  });
+
+  it('holds EVERY 9px register on the bar at 9px rendered at 90%', () => {
+    for (const size of [B.type.chip, B.type.tier, B.type.hullLabel, B.type.hdgLabel, B.type.kts, B.type.helmKey, B.type.cue]) {
+      expect(size * microScale(0.9) * 0.9).toBeGreaterThanOrEqual(9 - 1e-9);
+    }
   });
 
   it('keeps the counter-scaled glyph inside its scaled 14.4px chip box', () => {
@@ -477,7 +511,7 @@ describe('(c) HudBar — one container, four members', () => {
     const { bar } = build();
     bar.update(barView(), REF_W, REF_H, null, 10, 10_000, 1);
     const layout = hudBarLayout(REF_W, REF_H);
-    for (const slot of [0, 4, 5, 8]) {
+    for (const slot of [0, 4, 5, 10]) {
       const sq = layout.squares[slot];
       expect(bar.slotAt({ x: sq.x + sq.w / 2, y: sq.y + sq.h / 2 })).toBe(slot);
     }

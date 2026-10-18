@@ -21,7 +21,7 @@
 // bank still reads 1.
 
 import { describe, it, expect, vi } from 'vitest';
-import { CONFIG, CATALOG, MULLIGAN_CHOICE, boonStackCount, isStubLine, type LineId } from '@salvo/shared';
+import { CONFIG, CATALOG, MULLIGAN_CHOICE, SLOT_COUNT, boonStackCount, isStubLine, type LineId } from '@salvo/shared';
 import { DEFAULT_GUN } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
@@ -429,7 +429,7 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
     const w = bareWorld();
     const a = fitted(w, 'a', ['heavyTorpedo']);
     expect(a.cards).toEqual(['heavyTorpedo']);
-    expect(slotIds(a)).toEqual(['gun', 'boost', 'heavyTorpedo', null, null, null, null, null, null]);
+    expect(slotIds(a)).toEqual(['gun', 'boost', 'heavyTorpedo', ...new Array<null>(SLOT_COUNT - 3).fill(null)]);
     // A fit is a real fit: the slot arrives LOADED, like any pick (amendment 41).
     expect(a.loadout[2].state).toEqual({ n: a.stats.equipment.heavyTorpedo.maxAmmo, reloadMsLeft: 0 });
     // ...and it goes through applyCard, so it COUNTS AS A TAKE (Story 8.14):
@@ -445,12 +445,12 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
     const bare = captain(w, 'bare');
     // A weapon and a LADDER: the weapon takes slot 2, the ladder only moves
     // stats — both are ordinary card fits. Only the WEAPON is a take.
-    const a = fitted(w, 'a', ['heavyTorpedo', 'armor']);
-    expect(a.cards).toEqual(['heavyTorpedo', 'armor']);
+    const a = fitted(w, 'a', ['heavyTorpedo', 'hullPoints']);
+    expect(a.cards).toEqual(['heavyTorpedo', 'hullPoints']);
     expect(slotIds(a)[2]).toBe('heavyTorpedo');
     expect(a.stats.maxHp).toBeGreaterThan(bare.stats.maxHp);
     expect(a.hp).toBe(a.stats.maxHp); // ARMOR heals its own maxHp delta (healOnGrant)
-    expect(w.takes.has('armor' as LineId)).toBe(false); // a ladder is never a take
+    expect(w.takes.has('hullPoints' as LineId)).toBe(false); // a ladder is never a take
   });
 
   it('ANY non-stub line is fittable now — the hull no longer bounds it, the CAP does', () => {
@@ -460,9 +460,9 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
     const b = fitted(w, 'b', ['broadside', 'heavyTorpedo', 'starShells'], 'battleship');
     expect(b.cards).toEqual(['broadside', 'heavyTorpedo', 'starShells']);
     // ...but the line's own cap still bounds it, and an unknown/stub id drops.
-    const cap = CATALOG.armor.cap;
-    const c = fitted(w, 'c', [...new Array<string>(cap + 3).fill('armor'), 'nope', 'depthCharge']);
-    expect(boonStackCount(c.cards, 'armor')).toBe(cap);
+    const cap = CATALOG.hullPoints.cap;
+    const c = fitted(w, 'c', [...new Array<string>(cap + 3).fill('hullPoints'), 'nope', 'depthCharge']);
+    expect(boonStackCount(c.cards, 'hullPoints')).toBe(cap);
     expect(c.cards.filter((id) => id === 'nope' || id === 'depthCharge')).toEqual([]);
   });
 
@@ -474,7 +474,7 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
       expect(s.devFit, s.id).toEqual([]);
       expect(s.cards, s.id).toEqual([]);
     }
-    expect(slotIds(ai)).toEqual(['gun', 'boost', null, null, null, null, null, null, null]);
+    expect(slotIds(ai)).toEqual(['gun', 'boost', ...new Array<null>(SLOT_COUNT - 2).fill(null)]);
     expect(slotIds(drone)[1]).toBeNull(); // a drone never even grows a boost
   });
 

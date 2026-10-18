@@ -8,7 +8,7 @@
 // THE INPUT IS THE POST-FOLD KINEMATICS (`EffectiveStats.kinematics`), so the
 // SPEED ladder is INSIDE the bonus: the boost adds `factor × kin.maxSpeed`,
 // not a flat u/s (Eric ruling 2026-09-18, epic-8 amendment 55 — a SPEED-capped
-// Torpedo Boat boosts to 68.75, not 65). The bonus is layered HERE, per tick,
+// Torpedo Boat boosts to 71.875, not 65). The bonus is layered HERE, per tick,
 // and is NEVER written into `EffectiveStats.kinematics`: the bots' rated-speed
 // deadband reads `kinematics.maxSpeed` as the RATED cap.
 //
@@ -19,9 +19,11 @@
 // objects — never mutates its input.
 //
 // PINNED COMPOSITION ORDER (server AND predictor, byte-identical — Story 2.8):
-//   boostedKinematics → slowedKinematics → draftedKinematics → hookKinematics
-// (boost first, the prop-fouling slow second — see sim/slow.ts — the wake
-// draft third — see sim/draft.ts — hooks last).
+//   boostedKinematics → slowedKinematics (mine) → slowedKinematics (shell)
+//     → draftedKinematics → hookKinematics
+// (boost first, the two prop-fouling slows — the mine's, then the fouling
+// shell zone's, one fold called once per source, see sim/slow.ts — the wake
+// draft fourth — see sim/draft.ts — hooks last).
 
 import type { ShipConfig } from './ship.js';
 

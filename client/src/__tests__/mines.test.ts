@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { Container } from 'pixi.js';
+import { afterEach, beforeEach, describe, it, expect } from 'vitest';
+import { Container, type Graphics } from 'pixi.js';
 import {
   CONFIG,
   effectiveStats,
@@ -14,9 +14,12 @@ import {
   ownMineRings,
   ringsKey,
   Mines,
+  GLYPH_R,
   type OwnMineRings,
 } from '../render/mines.js';
+import { alertClock, alertTint } from '../render/alertBlend.js';
 import { CLIENT_CONFIG } from '../config.js';
+import { settings } from '../settings/store.js';
 
 /** A mine view. `c` — the mine's kind, on EVERY row since cycle 162 ("Everyone
  *  sees the kind", Eric 2026-10-01) — is set where a test says it is; a
@@ -97,7 +100,7 @@ describe('reconcileMines — mine list → sprite lifecycle diff', () => {
 describe('Mines.sync — a mine is MOORED (Story 7-5 wave 2)', () => {
   it('places the sprite once at the drop point and never walks it', () => {
     const mines = new Mines(new Container(), new Container());
-    mines.sync([at('m1', 40, -12)], () => 0x00ff00);
+    mines.sync([at('m1', 40, -12)]);
     expect(mines.spriteAt('m1')).toEqual({ x: 40, y: -12 });
     // Even if a frame somehow re-sent it elsewhere, there is no move path at
     // all: the reconcile diff carries add/remove only.
@@ -107,41 +110,73 @@ describe('Mines.sync — a mine is MOORED (Story 7-5 wave 2)', () => {
   });
 });
 
-describe('Mines — firer-hue tint (Story 1.12) + own/enemy layer split', () => {
+describe('Mines — ALERTS (Story 9.11, amendment 152) + the own/enemy layer split', () => {
   function harness() {
     const ownLayer = new Container();
     const enemyLayer = new Container();
     const mines = new Mines(ownLayer, enemyLayer);
     return { ownLayer, enemyLayer, mines };
   }
-
-  it('resolves each new mine’s tint from its dropper id (`by`) via hueFor', () => {
-    const { mines } = harness();
-    const hueFor = vi.fn((_by: string) => 0x123456);
-    mines.sync([mine('m1', true, 'alice'), mine('m2', false, 'bob')], hueFor);
-    expect(hueFor.mock.calls.map((c) => c[0]).sort()).toEqual(['alice', 'bob']);
-  });
+  /** Every stroke color a sprite's Graphics recorded. */
+  function strokeColors(layer: Container): number[] {
+    const g = layer.children[0] as Graphics;
+    return g.context.instructions.map((i) => (i.data.style as { color: number }).color);
+  }
+  beforeEach(() => alertClock.reset());
+  afterEach(() => settings.reset());
 
   it('routes own mines to the chart layer and enemy mines to the world layer', () => {
     const { ownLayer, enemyLayer, mines } = harness();
-    mines.sync([mine('m1', true, 'me'), mine('m2', false, 'foe')], () => 0x00ff00);
+    mines.sync([mine('m1', true, 'me'), mine('m2', false, 'foe')]);
     expect(ownLayer.children).toHaveLength(1);
     expect(enemyLayer.children).toHaveLength(1);
   });
 
-  it('recolors a mine that booted on the amber fallback once its firer hue later resolves, then latches', () => {
+  it('draws every mine in WHITE at one bright alpha — own and enemy alike', () => {
+    const { ownLayer, enemyLayer, mines } = harness();
+    mines.sync([], params());
+    mines.sync([mine('m1', true, 'me'), mine('m2', false, 'foe')], params({}, CONFIG.mine.armDelay));
+    // The own sprite's glyph AND its rings are white.
+    expect(new Set(strokeColors(ownLayer))).toEqual(new Set([0xffffff]));
+    expect(new Set(strokeColors(enemyLayer))).toEqual(new Set([0xffffff]));
+    const glyphAlpha = (layer: Container): number =>
+      ((layer.children[0] as Graphics).context.instructions[0].data.style as { alpha: number }).alpha;
+    expect(glyphAlpha(ownLayer)).toBe(glyphAlpha(enemyLayer)); // the own dim is retired
+  });
+
+  it('own mines keep the white tint; an enemy mine wears the alert blend', () => {
     const { mines } = harness();
-    // hueFor returns null at spawn (roster hue not yet synced) → amber fallback.
-    const hueFor = vi.fn((_by: string) => null as number | null);
-    mines.sync([mine('m1', true, 'late')], hueFor);
-    expect(hueFor).toHaveBeenCalled(); // probed at spawn + retry, still unresolved
-    // The roster hue lands: the next sync's retry resolves + redraws once.
-    hueFor.mockReturnValue(0x00ff00);
-    mines.sync([mine('m1', true, 'late')], hueFor);
-    const afterResolve = hueFor.mock.calls.length;
-    // Latched now — a further sync must NOT probe the resolved marker again.
-    mines.sync([mine('m1', true, 'late')], hueFor);
-    expect(hueFor.mock.calls.length).toBe(afterResolve);
+    mines.sync([mine('m1', true, 'me'), mine('m2', false, 'foe')]);
+    mines.render(1);
+    mines.render(1.2);
+    expect(mines.tintAt('m1')).toBe(0xffffff);
+    expect(mines.tintAt('m2')).toBe(alertTint(alertClock.phase, 'full'));
+    expect(mines.tintAt('nope')).toBeNull();
+  });
+
+  it('motion off: an enemy mine sits at steady ORANGE, frame after frame', () => {
+    settings.set({ motion: 'off' });
+    const { mines } = harness();
+    mines.sync([mine('m2', false, 'foe')]);
+    for (let t = 0; t < 3; t += 0.23) {
+      mines.render(t);
+      expect(mines.tintAt('m2')).toBe(CLIENT_CONFIG.colors.alertOrange);
+    }
+  });
+
+  it('full motion: the enemy tint moves between the two warning colors', () => {
+    const { mines } = harness();
+    mines.sync([mine('m2', false, 'foe')]);
+    const seen = new Set<number>();
+    for (let t = 0; t < 1; t += 0.05) {
+      mines.render(t);
+      seen.add(mines.tintAt('m2') ?? -1);
+    }
+    expect(seen.size).toBeGreaterThan(3);
+  });
+
+  it('the glyph box is 10 % larger than the hit disc; the hit disc is untouched', () => {
+    expect(GLYPH_R).toBeCloseTo(CONFIG.mine.hitRadiusU * 1.1, 12);
   });
 });
 
@@ -203,12 +238,12 @@ describe('ownMineRings — the owner-private radius set', () => {
   // came from through its own wire kind. The trip ring is DERIVED from the
   // line's tier inside the fold (144 u at I, ×1.1 a rung) and its 32 u burst is
   // fixed, so the ring set READS both and re-derives neither.
-  it('CAPTIVE: draws the 144u trip ring alone — no 32u contact-blast ring', () => {
+  it('CAPTIVE: draws the CONFIG trip ring alone (120 u since 2026-10-08) — no 32u contact-blast ring', () => {
     const stats = effectiveStats(CONFIG.shipClasses.mineLayer, []);
-    expect(stats.equipment.captiveMines.triggerRadius).toBeCloseTo(144, 9);
+    expect(stats.equipment.captiveMines.triggerRadius).toBeCloseTo(CONFIG.captiveMines.triggerRadius, 9);
     expect(stats.equipment.captiveMines.blastRadius).toBeCloseTo(32, 9);
     const rings = ownMineRings(liveParams(), 'captive', true);
-    expect(rings.map((r) => [r.r, r.style])).toEqual([[144, 'dotted']]);
+    expect(rings.map((r) => [r.r, r.style])).toEqual([[CONFIG.captiveMines.triggerRadius, 'dotted']]);
     // ...and specifically NOT the blast radius, in any style.
     expect(rings.some((r) => r.r === stats.equipment.captiveMines.blastRadius)).toBe(false);
   });
@@ -219,7 +254,7 @@ describe('ownMineRings — the owner-private radius set', () => {
   it('CAPTIVE: the trip ring follows the fold to tier V without re-deriving it', () => {
     const maxed = Array<string>(5).fill('captiveMines');
     const e = effectiveStats(CONFIG.shipClasses.mineLayer, maxed).equipment.captiveMines;
-    expect(e.triggerRadius).toBeCloseTo(210.8, 1);
+    expect(e.triggerRadius).toBeCloseTo(CONFIG.captiveMines.triggerRadius * CONFIG.captiveMines.triggerStepPerTier ** 4, 6); // 175.7 u at the 120 u ring
     expect(e.blastRadius).toBeCloseTo(32, 9);
     const [ring] = ownMineRings(liveParams(maxed), 'captive', true);
     expect(ring.r).toBe(e.triggerRadius);
@@ -303,13 +338,13 @@ describe("Mines — the marker is the kind's glyph (cycle 162)", () => {
   /** The marker one ENEMY mine of `kind` draws (no owner rings). */
   function marker(c?: MineKind): string[] {
     const layer = new Container();
-    new Mines(new Container(), layer).sync([mine('m', false, 'foe', c)], () => 0x00ff00);
+    new Mines(new Container(), layer).sync([mine('m', false, 'foe', c)]);
     return actions(layer);
   }
 
   it('an enemy mine\'s kind is READ off its wire view; a kind-less (legacy) view falls back to naval', () => {
     const mines = new Mines(new Container(), new Container());
-    mines.sync([mine('c', false, 'foe', 'captive'), mine('x', false, 'foe')], () => 0x00ff00);
+    mines.sync([mine('c', false, 'foe', 'captive'), mine('x', false, 'foe')]);
     expect(mines.kindAt('c')).toBe('captive');
     expect(mines.kindAt('x')).toBe('naval');
     // ...and still no ring for an enemy, whatever its kind.
@@ -341,23 +376,23 @@ describe('Mines — rings are drawn for OWN mines only', () => {
 
   it('draws nothing extra when no owner stats are supplied (the pre-feature path)', () => {
     const mines = new Mines(new Container(), new Container());
-    mines.sync([mine('m1', true, 'me')], () => 0x00ff00);
+    mines.sync([mine('m1', true, 'me')]);
     expect(mines.ringsAt('m1')).toEqual([]);
   });
 
   it('gives an OWN mine its rings and an ENEMY mine none', () => {
     const mines = new Mines(new Container(), new Container());
-    mines.sync([mine('m1', true, 'me'), mine('m2', false, 'foe')], () => 0x00ff00, rings);
+    mines.sync([mine('m1', true, 'me'), mine('m2', false, 'foe')], rings);
     expect(mines.ringsAt('m1')).toHaveLength(2);
     expect(mines.ringsAt('m2')).toEqual([]);
   });
 
   it('snaps an arming mine to full brightness on the tick it goes live', () => {
     const mines = new Mines(new Container(), new Container());
-    mines.sync([], () => 0x00ff00, rings); // the rejoin snapshot (empty water)
-    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, rings); // a REAL drop
+    mines.sync([], rings); // the rejoin snapshot (empty water)
+    mines.sync([mine('m1', true, 'me')], rings); // a REAL drop
     const arming = mines.ringsAt('m1')[0].alpha;
-    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, { ...rings, now: CONFIG.mine.armDelay });
+    mines.sync([mine('m1', true, 'me')], { ...rings, now: CONFIG.mine.armDelay });
     expect(mines.ringsAt('m1')[0].alpha).toBeGreaterThan(arming);
   });
 
@@ -366,17 +401,17 @@ describe('Mines — rings are drawn for OWN mines only', () => {
   // outlives the arming every time by however laggy the connection is.
   it('dates first-seen by the FRAME clock, so the dim lasts exactly armDelay', () => {
     const mines = new Mines(new Container(), new Container());
-    mines.sync([], () => 0x00ff00, { ...rings, now: 5_000 });
-    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, { ...rings, now: 5_000 }); // dropped at t=5000
+    mines.sync([], { ...rings, now: 5_000 });
+    mines.sync([mine('m1', true, 'me')], { ...rings, now: 5_000 }); // dropped at t=5000
     const arming = mines.ringsAt('m1')[0].alpha;
     // One frame short of the window: still arming, to the millisecond.
-    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, {
+    mines.sync([mine('m1', true, 'me')], {
       ...rings,
       now: 5_000 + CONFIG.mine.armDelay - 1,
     });
     expect(mines.ringsAt('m1')[0].alpha).toBe(arming);
     // The frame that crosses it: live.
-    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, {
+    mines.sync([mine('m1', true, 'me')], {
       ...rings,
       now: 5_000 + CONFIG.mine.armDelay,
     });
@@ -388,28 +423,28 @@ describe('Mines — rings are drawn for OWN mines only', () => {
   // for 3s — a lie about which of your own mines can kill right now.
   it('treats the FIRST synced frame as a rejoin: its mines come up ARMED, not arming', () => {
     const mines = new Mines(new Container(), new Container());
-    mines.sync([mine('old', true, 'me')], () => 0x00ff00, { ...rings, now: 900_000 });
+    mines.sync([mine('old', true, 'me')], { ...rings, now: 900_000 });
     const rejoined = mines.ringsAt('old')[0].alpha;
     // Identical to a mine that has sat through its whole arming window.
-    mines.sync([], () => 0x00ff00, rings);
-    mines.sync([mine('fresh', true, 'me')], () => 0x00ff00, { ...rings, now: 0 });
-    mines.sync([mine('fresh', true, 'me')], () => 0x00ff00, { ...rings, now: CONFIG.mine.armDelay });
+    mines.sync([], rings);
+    mines.sync([mine('fresh', true, 'me')], { ...rings, now: 0 });
+    mines.sync([mine('fresh', true, 'me')], { ...rings, now: CONFIG.mine.armDelay });
     expect(mines.ringsAt('fresh')[0].alpha).toBe(rejoined);
     // ...and a drop laid AFTER that first frame still dims honestly.
-    mines.sync([mine('later', true, 'me')], () => 0x00ff00, { ...rings, now: 900_000 });
+    mines.sync([mine('later', true, 'me')], { ...rings, now: 900_000 });
     expect(mines.ringsAt('later')[0].alpha).toBeLessThan(rejoined);
   });
 
   it('follows a mid-life stat change (a card fitted while the field is out)', () => {
     const mines = new Mines(new Container(), new Container());
-    mines.sync([mine('m1', true, 'me', 'naval')], () => 0x00ff00, rings);
-    mines.sync([mine('m1', true, 'me', 'naval')], () => 0x00ff00, params({ naval: row(70, 47) }));
+    mines.sync([mine('m1', true, 'me', 'naval')], rings);
+    mines.sync([mine('m1', true, 'me', 'naval')], params({ naval: row(70, 47) }));
     expect(mines.ringsAt('m1')[0].r).toBe(70);
   });
 
   it('never rings an enemy mine, even on the first (rejoin) frame', () => {
     const mines = new Mines(new Container(), new Container());
-    mines.sync([mine('foe', false, 'them')], () => 0x00ff00, rings);
+    mines.sync([mine('foe', false, 'them')], rings);
     expect(mines.ringsAt('foe')).toEqual([]);
   });
 
@@ -420,14 +455,13 @@ describe('Mines — rings are drawn for OWN mines only', () => {
   // sprite now reads the kind off ITS OWN wire view.
   it('draws each own mine off ITS OWN kind — a captive never reads the naval row', () => {
     const mines = new Mines(new Container(), new Container());
-    mines.sync([], () => 0x00ff00, rings); // rejoin snapshot: empty water
+    mines.sync([], rings); // rejoin snapshot: empty water
     mines.sync(
       [
         mine('n', true, 'me', 'naval'),
         mine('c', true, 'me', 'captive'),
         mine('f', true, 'me', 'fouling'),
       ],
-      () => 0x00ff00,
       params({}, CONFIG.mine.armDelay * 10),
     );
     expect(mines.kindAt('c')).toBe('captive');

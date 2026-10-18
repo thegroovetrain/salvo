@@ -37,6 +37,7 @@ import {
   WAKE_AGE_BUCKETS,
   hullEnvelope,
   islandBlocksSegment,
+  type DecoyView,
   type GameEvent,
   type GhostPaint,
   type Island,
@@ -142,6 +143,71 @@ export function paintCenter(e: GhostPaint): Vec2 | null {
     }
   }
   return n === 0 ? null : { x: sx / n, y: sy / n };
+}
+
+/** How many lattice cells a paint lights — the FOOTPRINT a human reads off
+ *  the scope (Story 9.13, epic-9 amendment 197): a decoy buoy's paint square
+ *  (`CONFIG.decoyBuoy.sizeU`) lights a handful, a hull's silhouette many. */
+export function paintCellCount(e: GhostPaint): number {
+  let n = 0;
+  for (let bit = 0; bit < e.w * e.h; bit += 1) {
+    if (((e.bits[bit >> 5] ?? 0) & (1 << (bit & 31))) !== 0) n += 1;
+  }
+  return n;
+}
+
+// ---------------------------------------------------------------------------
+// DECOY CUES (Story 9.13, epic-9 amendment 197)
+// ---------------------------------------------------------------------------
+
+/** u — how near a plot must sit to a KNOWN decoy (one in `view.decoys`: the
+ *  bot's own, at any range, or an enemy buoy inside its sight / own light) to
+ *  be that buoy's paint: the buoy's paint square plus one lattice cell of
+ *  rasterization slop (amendment 197(a)). */
+export const DECOY_SLOP_U = CONFIG.decoyBuoy.sizeU + CONFIG.vision.radarCellU;
+
+/** Lit cells at or under which a paint is buoy-sized (amendment 197(b), the
+ *  orchestrator's reading: the 12 u buoy square on the 9 u lattice lights at
+ *  most a 2 × 2 block). A footprint, not a distance — no CONFIG dial. */
+export const DECOY_MAX_CELLS = 4;
+
+/** Is the identity-free plot at `p` the paint of a decoy the view names?
+ *  Only an ANONYMOUS plot can be a buoy's paint: a plot carrying an id is a
+ *  hull the bot saw (amendment 197(a)). */
+export function nearKnownDecoy(t: RememberedContact, p: Vec2, decoys: readonly DecoyView[]): boolean {
+  if (t.id !== null) return false;
+  for (const d of decoys) {
+    if (Math.hypot(d.x - p.x, d.y - p.y) <= DECOY_SLOP_U) return true;
+  }
+  return false;
+}
+
+/** A radar-only plot that reads as a PROBABLE BUOY (amendment 197(b)): never
+ *  sighted, buoy-sized paint, no wake ever fitted, and measured stationary for
+ *  CONFIG.bots.decoyStillSweeps consecutive sweeps. A plot with no paint
+ *  evidence (no `paintCells`) is never one. */
+export function probableDecoy(t: RememberedContact): boolean {
+  if (t.live || t.id !== null || t.hasWake === true) return false;
+  if (t.paintCells === undefined || t.paintCells > DECOY_MAX_CELLS) return false;
+  return (t.stillSweeps ?? 0) >= CONFIG.bots.decoyStillSweeps;
+}
+
+/** u/s — a paint-to-paint speed below this reads STILL (fix wave P17, the
+ *  orchestrator's reading under amendment 197(b)): half a radar paint cell
+ *  per sweep revolution, so a moored buoy whose paint centre jitters a cell
+ *  edge between sweeps still counts as stationary, while any hull under way
+ *  (tens of u/s even at a crawl) resets the run. A float equality on the
+ *  measured course was never going to read a real paint as zero. */
+export const STILL_SPEED_U_S = 3;
+
+/** The stationary-sweep count after a paint whose paint-to-paint velocity is
+ *  `v`: a measured course below STILL_SPEED_U_S extends the run, measured
+ *  motion resets it, no measurement (a first paint, a sub-second pair) leaves
+ *  it as it was. */
+export function nextStillSweeps(prev: number | undefined, v: { vx: number; vy: number } | null): number {
+  const n = prev ?? 0;
+  if (v === null) return n;
+  return Math.hypot(v.vx, v.vy) < STILL_SPEED_U_S ? n + 1 : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -489,8 +555,9 @@ function courselessReach(t: RememberedContact, now: number): number {
 /**
  * WAKE EVIDENCE AT A PAINT (cycle 165 review, E4): some wake water painted
  * within the last sweep revolution, within wake reach of `p`. Rule (b) lets a
- * course-less plot take a paint up to ~230 u away, and a CHAFF fake is a paint
- * with nothing behind it — a fake lays no wake (the decoy precedent,
+ * course-less plot take a paint up to ~230 u away, and a paint with nothing
+ * behind it (a CHAFF fake, until CHAFF's retirement in Story 9.2; a decoy's
+ * paint today) lays no wake (the decoy precedent,
  * amendment 123) — so without this a fake could hand a real plot along, or a
  * chain of fakes could survive as ONE coherent plot across sweeps, breaking
  * the premise `hasPersistence` (utility.ts) stands on: no fake survives
@@ -539,7 +606,7 @@ function soleCourselessCandidate(tracks: TrackMap, p: Vec2, now: number, cells: 
  *   (b) else the SOLE identity-free course-less (or wake-guessed) plot that could have sailed there since its
  *       last paint at the fastest hull's speed — the second paint that gives
  *       a plot its first measured course — and only with wake water near the
- *       paint (wakeNear: a chaff fake leaves none);
+ *       paint (wakeNear: a hull-less paint leaves none);
  *   else null (the caller opens a new plot).
  * ONE PAINT PER PLOT PER TICK (cycle 165 review): a plot already refreshed
  * this tick is skipped by both rules, so a second same-tick paint (two hulls
@@ -578,5 +645,6 @@ export function refitWakeCourses(tracks: TrackMap, cells: readonly WakeCell[], n
     t.vy = v.vy;
     t.vAt = now;
     t.vSrc = 'wake';
+    t.hasWake = true; // a buoy lays no wake (amendment 197(b))
   }
 }

@@ -56,7 +56,7 @@ describe('OwnFireLatch — the one-shot claim', () => {
     expect(isBallisticFire('heavyTorpedo')).toBe(true);
     expect(isBallisticFire('starShells')).toBe(true); // rides the `shell` kind
     expect(isBallisticFire('phosphorShells')).toBe(true); // Story 8.17 — one shell per click
-    expect(isBallisticFire('dazzleShells')).toBe(true); // FLASH SHELLS — a belt line that fires a shell
+    expect(isBallisticFire('foulingShell')).toBe(true); // FOULING SHELL — a consumable that fires a shell
     expect(isBallisticFire('boost')).toBe(false);
     expect(isBallisticFire('decoyBuoy')).toBe(false); // placed, never revealed as a track
     expect(isBallisticFire('navalMines')).toBe(false); // placed, never revealed as a track

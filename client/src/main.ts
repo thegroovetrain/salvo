@@ -22,14 +22,18 @@ import {
   classShift,
   effectiveStats,
   equipmentReloadMs,
+  hullEnvelope,
   hullSilhouette,
+  consumableSlotFor,
   isConsumableId,
   isOutside,
   isWeaponItem,
   slotMaxAmmo,
   slotsWithCards,
   SLOT_COUNT,
+  FOG_NO_CUT,
   type Island,
+  type ContactBody,
   type DeniedView,
   type EffectiveStats,
   type EquipmentId,
@@ -46,7 +50,7 @@ import { CLIENT_CONFIG } from './config.js';
 import { createGameState, type GameState } from './state.js';
 import { applyCamera, createStage, type Stage } from './render/stage.js';
 import { buildMap, type MapChart } from './render/map.js';
-import { Camera, canUserZoom, type Point } from './render/camera.js';
+import { Camera, canUserZoom, stepZoom, type Point } from './render/camera.js';
 import { ShipView, FALLBACK_STYLE, PLAYER_HUES, contactStyle, hullStyle, hueRevision, isDroneHull, setColorblindAssist, setHullFlashGate } from './render/ships.js';
 import { ContactViews, NO_SOFTENING, type HullSoftness, type PlateFrame } from './render/contacts.js';
 import { setAggroFlashGate } from './render/aggro.js';
@@ -62,18 +66,19 @@ import { Mines, type OwnMineRings } from './render/mines.js';
 import { Decoys } from './render/decoys.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { BurnZones } from './render/burnZones.js';
+import { FoulZones } from './render/foulZones.js';
 import { Smoke } from './render/smoke.js';
-import { SmokeScreen } from './render/smokeScreen.js';
-import { ChaffRing } from './render/chaffRing.js';
-import { ChaffGhosts } from './render/chaffGhosts.js';
+import { Countermeasure } from './render/countermeasure.js';
+import { FogFieldView } from './render/fogField.js';
+import { hazeHaloU } from './render/hazeHalo.js';
 import { Fire } from './render/fire.js';
 import { Foghorn } from './render/foghorn.js';
-import { Fog, hullSightSoftness, type FogHole } from './render/fog.js';
+import { Fog, fogZoomStale, hullSightSoftness, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone } from './render/zone.js';
 import { freezeAtDimKeyframe, tier1Active, tier2Active } from './render/attention.js';
 import { createFlashBudget, FLASH_ELEMENTS, hotbarSlotKey, type FlashBudget } from './render/flashBudget.js';
-import { Hud, conning, reloadFraction, type OwnStatus } from './render/hud.js';
+import { Hud, conning, reloadFraction, victimWindows, type OwnStatus } from './render/hud.js';
 import { hpGlobeHoldsLit, railFraction } from './render/hpGlobe.js';
 import { detentIndexOf, type HelmGlobeInput } from './render/helmGlobe.js';
 import { HudBar, type HudBarView } from './render/hudBar.js';
@@ -132,6 +137,9 @@ import { ServerClock } from './net/clock.js';
 import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
 import { bindRoom, type RoomUnbind } from './net/roomBindings.js';
 import { Predictor, type RenderPose } from './sim/prediction.js';
+import { ContactBodies } from './sim/contactBodies.js';
+import { ContactFx } from './render/contactFx.js';
+import { bleedSpeed } from './sim/contactBleed.js';
 import { InputSampler, type Aiming } from './sim/inputSampler.js';
 import { showBanner, hideBanner } from './util/banner.js';
 import {
@@ -234,6 +242,15 @@ interface Game {
   ownBuffer: SnapshotBuffer;
   contacts: ContactStore;
   predictor: Predictor;
+  /** The predictor's contact bodies (Story 9.5), rebuilt every render frame
+   *  from the poses the contact renderer draws (sim/contactBodies.ts). */
+  contactBodies: ContactBodies;
+  /** HULL CONTACT sparks + the grind scrape (render/contactFx.ts, Story 9.5) —
+   *  render-only, read off the predictor's last live tick. */
+  contactFx: ContactFx;
+  /** Render-clock ms of the last frame the own hull bled (sim/contactBleed.ts)
+   *  — holds `state.contactBleeding` for `contactFx.bleedGraceMs` after it. */
+  lastBleedMs: number;
   camera: Camera;
   keyboard: KeyboardInput;
   mouse: MouseInput;
@@ -260,9 +277,13 @@ interface Game {
    *  FrameMsg.litZones, faded per render frame by serverNow. */
   litZones: LitZones;
   /** PHOSPHOR SHELLS burning zones (render/burnZones.ts, Story 8.17) — synced
-   *  from FrameMsg.burnZones in the lit zones' layer; faded + embers breathed
+   *  from FrameMsg.burnZones in the lit zones' layer; faded + flames flickered
    *  per render frame. A hazard only: never a fog hole, never a cull-keep. */
   burnZones: BurnZones;
+  /** FOULING SHELL foul zones (render/foulZones.ts, Story 9.4) — synced from
+   *  FrameMsg.foulZones in the lit zones' layer; faded per render frame,
+   *  nothing breathes. A hazard only: never a fog hole, never a cull-keep. */
+  foulZones: FoulZones;
   fog: Fog;
   radar: Radar;
   /** WOUNDED SMOKE plumes (render/smoke.ts, Story 4.4) — accumulated from
@@ -273,18 +294,15 @@ interface Game {
    *  `sm` pulses as `smoke`, tier 2 only (hull under 25 %), at the bottom of the
    *  same fog-immune `smoke` layer so the puffs draw over them. */
   fire: Fire;
-  /** SMOKE SCREEN puffs (render/smokeScreen.ts, Story 8.18) — synced from
-   *  FrameMsg.smoke into the same fog-immune `smoke` layer as the wounded
-   *  plumes; grown along the shared `puffRadius` and faded per render frame. */
-  smokeScreen: SmokeScreen;
-  /** THE CHAFF OWNER'S DASHED RING (render/chaffRing.ts, epic-8 amendment 191)
-   *  — read each frame off the self-private `net.you.chaff`, in the fog-immune
-   *  lit-zone chart layer; never anyone else's cloud, never the fakes. */
-  chaffRing: ChaffRing;
-  /** THE CHAFF OWNER'S GHOSTS (render/chaffGhosts.ts, cycle 162) — the owner's
-   *  OWN fake returns off the self-private `you.chaffGhosts`, grey at half the
-   *  scope's alpha, on their own grid beside the ring (never the scope's). */
-  chaffGhosts: ChaffGhosts;
+  /** MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts, Story
+   *  9.3) — synced from the HELD FrameMsg.clouds set onto the `cloud` chart
+   *  layer (above contact hulls, below radar paints and the own hull — Eric
+   *  2026-10-12); one spraypaint bitmap per cloud, advanced per render frame. */
+  countermeasure: Countermeasure;
+  /** THE FOG FIELD (render/fogField.ts, Story 9.10) — the rolling fog drawn
+   *  on the `fog` chart layer (under every hull) from the welcome's `fogSeed`
+   *  and the schema's `fogCut`; masked by the flash-rung halo + island LOS. */
+  fogField: FogFieldView;
   /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
    *  visual twin, screen-space and above every HUD readout. */
   foghorn: Foghorn;
@@ -298,8 +316,8 @@ interface Game {
   hud: Hud;
   /**
    * THE HUD BAR (render/hudBar.ts, Story 8.6) — the ONE bottom-centre cluster
-   * that replaced the three corners: the HP globe, the nine-slot row with its
-   * framed consumable belt (the loadout surface, its full state grammar, hover
+   * that replaced the three corners: the HP globe, the eleven-slot row (the
+   * five weapon squares, then the framed belt of six consumables, Story 9.11 — the loadout surface, its full state grammar, hover
    * tooltip and key-equivalent slot clicks), the helm globe and the XP strip
    * with its banked-level chip. Shown only while conning a hull in-match.
    */
@@ -730,7 +748,7 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
  *
  * SLOT 1 IS REPLAYED FROM THE HULL'S SHIFT (Story 8.15, amendment 89(c)):
  * `classShift(cls)` — the same read the server fits slot 1 from — so the Mine
- * Layer's square holds INSTANT RELOAD and the Battleship's DAMAGE CUT.
+ * Layer's square holds INSTANT RELOAD and the Battleship's HUNKER (was DAMAGE CUT until Story 9.9).
  *
  * NO HULL ID. Story 8.5 deleted the per-hull fit: what a captain carries is a
  * fact about their PICKS, never about their hardware, so the replay is the only
@@ -830,26 +848,6 @@ function ownStatus(g: Game): OwnStatus {
     boostActive: g.clock.serverNow() < boostUntilNow(g),
     ...victimWindows(you, g.clock.serverNow()),
   };
-}
-
-/**
- * Story 2.9 — the victim tells' remaining ms. Read VERBATIM off the victim-
- * private windows on `you` against the server clock (the dazzle fog-shrink
- * gate's exact source), never predicted: what an enemy doctrine did to us is
- * the server's word, and a mispredicted tell is a lie about our own hull.
- * Lifted out of ownStatus() as its own function so the status builder stays
- * under the complexity ceiling as `you`-derived fields accumulate.
- */
-function victimWindows(you: OwnShip | null | undefined, now: number): Pick<OwnStatus, 'slowedMsLeft' | 'dazzledMsLeft'> {
-  return {
-    slowedMsLeft: windowLeft(you?.slowedUntil, now),
-    dazzledMsLeft: windowLeft(you?.dazzledUntil, now),
-  };
-}
-
-/** ms remaining on a victim window (0 when absent or already expired). */
-function windowLeft(until: number | undefined, now: number): number {
-  return Math.max(0, (until ?? 0) - now);
 }
 
 /**
@@ -1079,10 +1077,10 @@ function baseOfferView(g: Game): OfferView | null {
     g.state.spectating,
     g.spendInFlight !== null,
     isSinkingNow(g.state.net.you, g.clock.serverNow(), g.state.spectating),
-    // The REPLAYED slot ids (Story 8.7, ruling 10): what `canStock` reads to
-    // decide whether an offered consumable can reach the belt at all. The same
-    // shared predicate the server runs in `spendCard`, over ids derived the
-    // same way, so a greyed card and a server refusal cannot disagree.
+    // The REPLAYED slot ids (Story 8.7, ruling 10): what `pickRefusal` reads
+    // to decide whether an offered card can be taken at all. The same shared
+    // predicate the server runs in `spendCard`, over ids derived the same way,
+    // so a greyed card and a server refusal cannot disagree.
     g.ownSlots,
   );
 }
@@ -1127,11 +1125,11 @@ function handleRefitPick(g: Game, choice: number): void {
   // reserved negative sentinel are gone — healing is a card you stock and fire
   // from the belt — so the bound below is the whole of the addressing rule.
   if (choice < 0 || choice >= view.options.length) return;
-  // A GREYED CARD SENDS NOTHING (Story 8.7, ruling 10 / UX-DR52). The belt is
-  // full and this consumable has nowhere to go — the server would refuse it as
-  // a silent no-op — so the client refuses it first, with no MSG.spend, no
+  // A GREYED CARD SENDS NOTHING (Story 8.7, ruling 10 / UX-DR52). The line is
+  // at its cap, or a weapon has no free Q/E/R slot — the server would refuse it
+  // as a silent no-op — so the client refuses it first, with no MSG.spend, no
   // spend latch and NO denied pulse. The refusal is already on screen (the card
-  // is dim, its chip dashed, its foot reads SLOTS FULL); a pulse would be the
+  // is dim, its chip dashed; a weapon's foot reads SLOTS FULL); a pulse would be the
   // game shouting a fact the player is looking at, and a latch would spend 1.5s
   // waiting for a reply that is never coming.
   if (view.options[choice]?.greyed) return;
@@ -1218,6 +1216,9 @@ interface PublicState {
   zoneNextCx?: number;
   zoneNextCy?: number;
   zoneNextR?: number;
+  /** THE FOG CUT (Story 9.10) — match-wide weather: the noise threshold the
+   *  fog field is drawn at; FOG_NO_CUT (9) = no fog. Never spatial. */
+  fogCut?: number;
   matchPhase?: string;
   countdownEndT?: number;
   winnerId?: string;
@@ -1607,6 +1608,15 @@ function updateMatchAudioCues(g: Game, now: number): void {
   if (result.matchStart) {
     g.audio.play('matchStart');
     g.portal.matchStart(); // same once-per-match live edge as the audio cue
+    // The server clears its cloud store at the practice → match boundary
+    // (world.ts resetForMatchStart); the client HOLDS every cloud it has seen
+    // until it dies (Story 9.3, epic-9 amendment 51), so the held set and the
+    // renderer are cleared on the same edge — a practice cloud never ghosts
+    // into the match.
+    g.state.net.heldClouds.clear();
+    g.state.net.clouds = [];
+    g.countermeasure.clear();
+    g.fogField.clear(); // the server's resetForMatchStart resets its cut to no fog too
   }
 }
 
@@ -2166,7 +2176,6 @@ function makeGameReturnToPort(getG: () => Game | null): () => void {
       // coordinates on the next match.
       g.smoke.clear();
       g.fire.clear(); // ...and the flames that ride the same pulses (cycle 162)
-      g.chaffGhosts.clear(); // ...and the owner's ghosts, true world cells too
       // Same defence for the foghorn chevrons (Story 4.5): a bearing is a fact
       // about one moment on one ocean, and it must not survive into the next.
       g.foghorn.clear();
@@ -2302,10 +2311,13 @@ function setupViewport(
   effects: Effects;
 } {
   const camera = new Camera({
-    radarRange: CONFIG.vision.radar,
+    defaultSpanU: CLIENT_CONFIG.zoom.defaultSpanU,
+    closeSpanU: CLIENT_CONFIG.zoom.closeSpanU,
+    ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
     followRate: CLIENT_CONFIG.camera.followRate,
     leadSeconds: CLIENT_CONFIG.camera.leadSeconds,
     leadMax: CLIENT_CONFIG.camera.leadMax,
+    keepInViewPadU: CLIENT_CONFIG.camera.keepInViewPadU,
   });
   camera.setViewport(stage.app.screen.width, stage.app.screen.height);
 
@@ -2331,7 +2343,7 @@ function setupViewport(
   // syncs (Story 1.12 — see updateOwnColor).
   const ownView = new ShipView(FALLBACK_STYLE, cls);
   ownView.gfx.visible = false;
-  stage.layers.ship.addChild(ownView.gfx);
+  stage.layers.ownShip.addChild(ownView.gfx); // own hull above cloud + paints (Eric 2026-10-12)
 
   // Effects is built before Projectiles so the torpedo-wake trail can feed the
   // shared effects pool via a closure.
@@ -2343,7 +2355,9 @@ function setupViewport(
 /** Predictor seeded with the guessed class config (first frame confirms/swaps it). */
 function makePredictor(map: GameMap, cls: ShipClassId): Predictor {
   const spec = CONFIG.shipClasses[cls];
-  return new Predictor({ radius: map.radius, islands: map.islands }, spec.kinematics, hullSilhouette(cls));
+  const p = new Predictor({ radius: map.radius, islands: map.islands }, spec.kinematics, hullSilhouette(cls));
+  p.setOwnMass(spec.hp); // the zero-card fold; applyOwnStats re-sets it from effectiveStats
+  return p;
 }
 
 /**
@@ -2646,8 +2660,8 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   // window keys its clear-on-ack on exactly that counter, not the live count.
   if (id === 'boost') g.predictor.predictBoostActivation(g.clock.serverNow(), actSeq);
   // The other two class Shifts (Story 8.15) predict NOTHING beyond the generic
-  // ACTIVATED pop above: INSTANT RELOAD's refilled pools and DAMAGE CUT's
-  // `damageCutUntil` window both arrive with the server's frame — neither moves
+  // ACTIVATED pop above: INSTANT RELOAD's refilled pools and HUNKER's
+  // `hunkerUntil` window both arrive with the server's frame — neither moves
   // the hull, so there is no motion to hide a round trip behind.
   // A click-placed decoy has no press-time cue: its placement tone rides the
   // decoy reconcile's own-spawn hook (the mine precedent), so it fires on the
@@ -2787,7 +2801,9 @@ function onOwnDecoy(audio: Audio): void {
  * presentation-silent (FR22).
  */
 function latchFitFlash(g: Game, cardId: string): void {
-  const slot = slotForCard(g.ownSlots, cardId);
+  // A consumable's square is FIXED (Story 9.2): flash the kind's own square even
+  // when the stack was at zero a frame ago (`ownSlots` has not replayed yet).
+  const slot = isConsumableId(cardId) ? consumableSlotFor(cardId) : slotForCard(g.ownSlots, cardId);
   if (slot === null) g.fitFramePress = true;
   else g.fitPress[slot] = true;
 }
@@ -2795,8 +2811,8 @@ function latchFitFlash(g: Game, cardId: string): void {
 /**
  * ms — the REMAINING ability window per loadout slot (0 = none running), the
  * ACTIVE state's only input (amendment 48). The boost reads the same
- * (prediction-aware) `boostUntil` estimate the HUD's boost tag does; DAMAGE CUT (Story 8.15, the Battleship's
- * Shift) reads the server's self-private `you.damageCutUntil` — no prediction,
+ * (prediction-aware) `boostUntil` estimate the HUD's boost tag does; HUNKER (Story 8.15, the Battleship's
+ * Shift) reads the server's self-private `you.hunkerUntil` — no prediction,
  * the window arrives with the frame — so the Shift square takes the boost's
  * ACTIVE grammar for its 8 s (amendment 34). INSTANT RELOAD has no window: it
  * goes straight to the cooldown wipe. Everything else has no window.
@@ -2805,7 +2821,7 @@ function activeWindows(g: Game, status: OwnStatus): number[] {
   const now = g.clock.serverNow();
   const until: Partial<Record<string, number>> = {
     boost: boostUntilNow(g),
-    damageCut: g.state.net.you?.damageCutUntil ?? 0,
+    hunker: g.state.net.you?.hunkerUntil ?? 0,
   };
   return status.loadout.map((id) => Math.max(0, (id === null ? 0 : until[id] ?? 0) - now));
 }
@@ -2865,13 +2881,31 @@ function buildGame(
   // per-element/per-region aggregate would silently become six.
   const flashBudget = createFlashBudget();
 
+  // HOISTED (Story 9.3): the contact plates read the countermeasure's cover,
+  // and the radar reads the same cover as a RETURN SOURCE (session 4, Eric
+  // 2026-10-12: "composite it onto the radar layer so it can be painted") —
+  // so both are built, and wired, before the literal.
+  const radar = new Radar(stage.layers.blip, stage.layers.sweep);
+  const countermeasure = new Countermeasure(stage.layers.cloud);
+  radar.setCloudSource(countermeasure);
+  // A far cloud's radar-delivery hold ages by FRAME time (net/clock.ts frameNow),
+  // so a lagging server never blinks a return it is still delivering.
+  const clock = new ServerClock();
+  radar.setStaleClock(() => clock.frameNow());
+  // The zoom-out limit is the WHOLE MAP (Eric 2026-10-14, amendment 142) —
+  // the same radius the reveal frames; it never changes within a match.
+  camera.setMapRadius(map.radius);
+
   const g: Game = {
     stage,
     state: createGameState(welcome.sessionId),
-    clock: new ServerClock(),
+    clock,
     ownBuffer: new SnapshotBuffer(),
     contacts: new ContactStore(),
     predictor: makePredictor(map, cls),
+    contactBodies: new ContactBodies(),
+    contactFx: new ContactFx(stage.layers.burstFx, (gain) => audio.play('grind', { gain })),
+    lastBleedMs: -Infinity,
     camera,
     keyboard,
     mouse,
@@ -2881,14 +2915,14 @@ function buildGame(
     // (it is the only thing holding per-hull lock state) and calls back with the
     // TRANSITION; the sound stays here, on the data flow's audio side, so
     // render/ never reaches into audio/.
-    contactViews: new ContactViews(stage.layers.ship, nameplates, (kind) => audio.play(kind === 'acquired' ? 'aggroLock' : 'aggroRelease')),
+    contactViews: new ContactViews(stage.layers.ship, nameplates, (kind) => audio.play(kind === 'acquired' ? 'aggroLock' : 'aggroRelease'), (x, y) => countermeasure.coverAt(x, y)),
     nameplates,
     // NO TRAIL CALLBACK ANY MORE (cycle-69 review gate, P10): a fish's water is
     // the one shared wake ribbon, pulled by `wakeHulls` from
     // `projectiles.torpWakeHulls()` and laid by `effects.update()` on the same
     // model, cadence and life the scope draws.
     projectiles: new Projectiles(map.radius, stage.layers.projectile),
-    firing: new FiringUX(stage.layers.ship, stage.layers.aim),
+    firing: new FiringUX(stage.layers.ownShip, stage.layers.aim),
     // Same fog-immune chart layer as the reticle: a burst point can sit far
     // beyond the sight bubble, and the preview must not be eaten by fog.
     aimPreview: new AimPreview(stage.layers.aim),
@@ -2899,19 +2933,15 @@ function buildGame(
     decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, () => onOwnDecoy(audio)),
     litZones: new LitZones(stage.layers.litZone),
     burnZones: new BurnZones(stage.layers.litZone),
+    foulZones: new FoulZones(stage.layers.litZone),
     smoke: new Smoke(stage.layers.smoke),
     fire: new Fire(stage.layers.smoke), // pins itself to the layer's bottom: under every puff
-    smokeScreen: new SmokeScreen(stage.layers.smoke),
-    // `chaff`, above `smoke` (Eric 2026-10-01: "Radar returns should never be
-    // below the smoke screen") and not `blip`: the blip layer's near-range dim
-    // mask would cut a ghost (always inside the owner's own bubble) to 20 % —
-    // see stage.ts / chaffGhosts.ts.
-    chaffRing: new ChaffRing(stage.layers.chaff),
-    chaffGhosts: new ChaffGhosts(stage.layers.chaff),
+    countermeasure,
+    fogField: new FogFieldView(stage.layers.fog),
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
     nextHonkAt: 0,
     fog: new Fog(stage.fogSprite),
-    radar: new Radar(stage.layers.blip, stage.layers.sweep),
+    radar,
     zone: new Zone(stage.layers.zone, stage.layers.vignette),
     hud: new Hud(stage.layers.hud),
     hudBar: new HudBar(stage.layers.hud),
@@ -2961,23 +2991,25 @@ function buildGame(
   // shipped coastline's own mask, and its elevation is what makes a steep
   // headland paint red where a low sandy island of the same size paints blue.
   g.radar.setHeightRaster(map.heightRaster);
-  // The owner's chaff ghosts march through the SAME raster object (cycle 162):
-  // one bake, two consumers, so a ghost shadows exactly as the scope would.
-  g.chaffGhosts.setHeightRaster(map.heightRaster);
   // THE IN-TRUESIGHT WAKE SEAM (Story 4.12). One tracker, two renderings: the
   // emitter owns the ribbons and draws the water, the scope stamps the SAME
   // segments onto the radar lattice for the inner half the server does not
-  // disclose (per source: `blipGate`'s annulus for a hull, the 3/8 detect rung
+  // disclose (per source: `blipGate`'s annulus for a hull, the detect rung
   // for a fish). Read-only here — the radar samples ribbons and never appends.
   //
   // THE ISLANDS RIDE ALONG (cycle-69 review gate, P5) because the synthesis is
   // a STAND-IN for a disclosure the server withholds on BINARY-LOS grounds, so
   // it owes the same binary test the server would have applied. They are the
   // deterministic set rebuilt from the map seed — the same array the predictor
-  // and the fog already collide against, never a second geometry. The SMOKE
-  // SCREEN puffs ride along for the same reason (Story 8.18, ruling 143): a
-  // thunk over the live `state.net.smoke`, since puffs come and go per frame.
-  g.radar.setWakeSources(g.effects.wakeSources, g.islands, () => g.state.net.smoke);
+  // and the fog already collide against, never a second geometry.
+  // (Countermeasure clouds rode along here until 2026-10-12; the server hides
+  // nothing behind smoke now, so the client mirrors nothing.)
+  g.radar.setWakeSources(g.effects.wakeSources, g.islands);
+  // ...and the haze halo sees past no island (Story 9.3 session 6, Eric
+  // 2026-10-12: "if I can't see it because of an island … don't render it").
+  g.countermeasure.setIslands(g.islands);
+  g.fogField.setIslands(g.islands); // ...and so does the fog haze (Story 9.10)
+  g.fogField.setSeed(welcome.fogSeed, welcome.mapRadius); // the shared fog field, derived from the welcome's seed, spinning about the ocean center over the SERVER's radius (the wire value, not the regenerated map's — equal by construction, authoritative here)
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
   // THE ROOM'S OWN BINDINGS ARE A DISPOSER (Story 6.3 review gate). Story 6.3's
@@ -3057,9 +3089,9 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   // from here — derived via the SAME shared slot-effect replay the server
   // applies incrementally (slotsWithCards), so slot ids agree by construction.
   g.ownSlots = slotIdsFor(stats, cards, cls, gun);
-  // A PRIME CANNOT OUTLIVE ITS SLOT (review patch P8). The belt empties itself:
-  // the last copy of a stocked line is spent and the square goes back to
-  // dashed. A prime left standing on it would swallow every click that follows
+  // A PRIME CANNOT OUTLIVE ITS SLOT (review patch P8). A consumable square
+  // empties itself: the last copy of a stocked kind is spent and the square
+  // goes to ZERO-STOCK (dashed). A prime left standing on it would swallow every click that follows
   // — the wire carries a slot holding nothing, the server denies it, and the
   // player has no way to see why. The gun is slot 0 and is never null, so this
   // is a no-op for every fit that does not take a primed slot away.
@@ -3072,6 +3104,9 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   // Behavior-boon hooks ride it too (Story 2.5): the predictor folds these
   // per tick in the SAME boost-then-hooks order the server steps with.
   g.predictor.setBoons(cardBehaviors(cards));
+  // ...and the hull pass's own MASS (Story 9.5): the effective max hull, the
+  // same number the server's resolver splits the push by.
+  g.predictor.setOwnMass(stats.maxHp);
   // Story 2.9 — the OWN doctrine modes fan out to the on-water renderer, which
   // is how our own ordnance gets its identity from LAUNCH (an enemy's has to
   // earn it from observable behavior). Deliberately ABOVE the vision-change
@@ -3097,19 +3132,19 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   }
   if (!classChanged && !visionChanged(prev, stats)) return;
   g.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
-  g.chaffGhosts.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
-  g.camera.setRadarRange(stats.radarRange);
+  // the haze halo is the wounded-smoke flash rung (6/12) off the same live intel range
+  g.countermeasure.setHaloU(hazeHaloU(stats.radarRange));
+  g.fogField.setHaloU(hazeHaloU(stats.radarRange)); // the fog haze ends at the same rung
   g.fog.setSightRange(stats.sightRange, stats.radarRange);
   // ONE plumbed value, TWO dead-reckoning cull rings: shells and our OWN fish
   // cull at truesight, an ENEMY torpedo at the shorter DETECT ring the server
   // reveals and corrects it within (Story 4.9). Projectiles derives the second
   // from this same number — adding a `setDetectRange` here would be a second
-  // source of truth. The DAZZLE half rides updateDazzle, like fog and radar;
-  // the radar range rides along because a dazzled hull sees radarRange/8
-  // (shared `effectiveSight`, Story 8.17).
+  // source of truth.
   g.projectiles.setSightRange(stats.sightRange, stats.radarRange);
-  // Zoom and/or hole radius may have moved: rebake the fog against the current
-  // viewport at the new zoom (exactly what the resize handler does).
+  // The hole radius may have moved: rebake the fog against the current viewport
+  // at the current zoom (exactly what the resize handler does). The camera no
+  // longer follows radar (Story 9.8 ruling 127: framings are absolute spans).
   g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
 }
 
@@ -3522,8 +3557,8 @@ function hotbarDeniedDegraded(g: Game, status: OwnStatus): boolean[] {
 }
 
 /**
- * The slot row's half of the bar's frame (the nine squares, the belt frame, the
- * key chips, the wipe and the tooltip). `dim` is set here for shape's sake and
+ * The slot stack's half of the bar's frame (the eleven squares, the key chips,
+ * the wipe and the tooltip). `dim` is set here for shape's sake and
  * OVERWRITTEN by the HudBar from the bar-wide `dim` — one predicate, applied
  * once, to the exactly-two groups that carry it (ruling 9).
  */
@@ -4008,87 +4043,14 @@ function handleServerDenial(g: Game, d: DeniedView): void {
 }
 
 /**
- * Pure-ish: is the own hull dazzled by an enemy FLASH SHELLS burst right now
- * (Story 2.8's mark; set by a one-time flash since Story 8.17, amendment 132)?
- * Read VERBATIM off the victim-private `you.dazzledUntil` against the server-
- * clock estimate — never predicted, never interpolated. No own ship (death /
- * spectate / the pre-first-frame gap) is never dazzled.
- */
-function dazzleActive(g: Game, now: number): boolean {
-  return now < (g.state.net.you?.dazzledUntil ?? 0);
-}
-
-/**
- * Pure-ish: does the own hull's centre stand inside a live SMOKE SCREEN puff
- * right now (Story 8.18, Eric ruling 2026-09-29, amendment 149)? Read VERBATIM
- * off the self-private `you.inSmoke` the server stamps per tick — never
- * re-derived from the puff list, so the fog, radar seam and projectile cull
- * shrink on exactly the ticks the server's `sightOf` does. Spectating reads
- * false: `net.you` is never cleared, so a wreck's last in-smoke frame must not
- * hold a spectator's bubble at 1/8 forever.
- */
-function inSmokeActive(g: Game): boolean {
-  return !g.state.spectating && g.state.net.you?.inSmoke === true;
-}
-
-/**
- * Keep the fog's sight hole HONEST while dazzled: the server has already
- * shrunk this ship's perceived sight to the shared `effectiveSight`
- * (radarRange/8 — shared/src/sim/sight.ts, the function its `sightOf` calls), so
- * the hole must shrink with it — otherwise the fog draws clear water the server
- * reveals nothing in. The rebake only runs on the two frames per dazzle event
- * where the state actually flips (Fog.setDazzled reports staleness), the same
- * path a resize / sight-stat change takes.
- *
- * THE RADAR TAKES THE SAME FLAG, from this one place (amendment 89). It uses
- * `fogHoleRadiusU()` — the identical radius, by the identical function — as the
- * SEAM between its two sources of ship paints: inside it the client synthesizes
- * an echo from the hull's `Contact`, outside it the echo arrives as a wire blip
- * the server sent. That radius is also, by construction, the dazzle-scaled
- * truesight the SERVER decides the same question with, so a dazzle state the
- * radar did not hear about would have the client still synthesizing an annulus
- * the server had already started blipping — one hull, two echoes. It is set
- * UNCONDITIONALLY and before the fog's changed-flag early-return, because that
- * flag guards the expensive rebake and nothing else; the radar re-reads the
- * radius when a paint is created and has nothing to rebake, so its own
- * changed-flag is deliberately unused here.
- *
- * IN SMOKE RIDES THE SAME PATH (Story 8.18, amendment 149): the self-private
- * `you.inSmoke` shrinks the server's `sightOf` through the same shared
- * `effectiveSight`, so all three consumers take it from here beside the dazzle
- * flag, and a flip rebakes the fog on exactly the frames it changes. No HUD
- * tell rides it — the DAZZLED tell keys on `dazzledUntil` alone.
- */
-function updateDazzle(g: Game, now: number): void {
-  const dazzled = dazzleActive(g, now);
-  const inSmoke = inSmokeActive(g);
-  g.radar.setDazzled(dazzled);
-  g.radar.setInSmoke(inSmoke);
-  // THE PROJECTILE CULL RINGS TAKE IT TOO (review fix). The server reveals and
-  // corrects ballistics inside `sightOf(me, now)` — dazzle-scaled — so a client
-  // holding the un-dazzled ring would go on dead-reckoning a shell or an enemy
-  // fish the server had already stopped correcting. Set UNCONDITIONALLY and
-  // before the fog's changed-flag early-return, for the same reason the radar
-  // is: that flag guards the expensive rebake and nothing else.
-  g.projectiles.setDazzled(dazzled);
-  g.projectiles.setInSmoke(inSmoke);
-  // Both fog flags are set BEFORE the one rebake decision, so neither setter is
-  // short-circuited away by the other reporting a flip.
-  const dazzleFlipped = g.fog.setDazzled(dazzled);
-  const smokeFlipped = g.fog.setInSmoke(inSmoke);
-  if (!dazzleFlipped && !smokeFlipped) return;
-  g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
-}
-
-/**
  * THIS FRAME'S HULL FEATHER (this cycle) — the spatial alpha multiplier a
  * contact hull wears, now that hulls render ABOVE the fog composite and no longer
  * inherit its feathered sight hole (render/stage.ts).
  *
  * IT IS THE FOG'S OWN GEOMETRY, READ OFF THE FOG'S OWN NUMBERS. The radius is
  * `radar.sightHoleU` — i.e. `fogHoleRadiusU`, the very radius the hole is baked
- * at and the same one the server's `sightOf` gates contacts with — so a dazzle
- * burst tightens the hull feather on the same frame it tightens the fog. And an
+ * at and the same one the server's `sightOf` gates contacts with — so a sight
+ * change (a boon) moves the hull feather on the same frame it moves the fog. And an
  * owned star-shell zone is EXEMPT for exactly the reason it punches a fog hole
  * (`ownZoneFogHoles`, one line down): the server grants truesight parity inside
  * it, so a hull revealed there is fully seen and must draw fully — feathering it
@@ -4272,17 +4234,6 @@ function frameAttention(g: Game, status: OwnStatus, inStorm: boolean, ringUrgent
   return { tier1, tier2, freeze: freezeAtDimKeyframe(tier1, tier2) };
 }
 
-/**
- * The own chaff cloud's two owner-private renderings, on the server clock: the
- * dashed ring off `you.chaff` (amendment 191) and the grey ghosts of the fakes
- * (cycle 162, fed from `you.chaffGhosts` in roomBindings), marched from the
- * own pose and drawn into the camera's world rect exactly as the scope is.
- */
-function renderOwnChaff(g: Game, pose: RenderPose | null, now: number): void {
-  g.chaffRing.render(g.state.net.you?.chaff, now);
-  g.chaffGhosts.render(pose, now, g.camera.worldView);
-}
-
 function renderAlive(
   g: Game,
   alpha: number,
@@ -4292,6 +4243,7 @@ function renderAlive(
   zv: ZoneView,
   mu: MatchUx,
 ): void {
+  feedCameraRing(g, zv); // before renderOwn's camera.update: the slide aims at this ring
   const pose = ownPose(g, alpha, frameDt);
   const status = ownStatus(g);
   // Own ACTIVE star-shell zones (net → state → render): keep beyond-sight shells
@@ -4338,18 +4290,9 @@ function renderAlive(
     g.hudBar.hideTransient();
   }
   updateZone(g, zv, inStorm, tier1, now, nowMs);
-  // AHEAD OF THE RADAR ON PURPOSE (amendment 89): the seam between the radar's
-  // two ship-paint sources and the fog hole are one radius, and the radar reads
-  // it during render() — so a dazzle flip adopted after this line would leave
-  // the scope one frame behind the fog and the server, which is the
-  // disagreement that radius exists to prevent. Camera zoom (which the fog
-  // rebake reads) was updated in renderOwn.
-  updateDazzle(g, now);
-  // AND AHEAD OF THE PROJECTILES, for the same reason (review fix): their two
-  // ENEMY cull rings are dazzle-scaled, so a render taken before the flip was
-  // adopted would cull against the PREVIOUS frame's rings while the fog and the
-  // radar had already moved. Own pose feeds the cull; own active zones keep a
-  // shell revealed by our flare from being culled (exactly-once — Story 1.7).
+  updateContactFx(g, pose, nowMs);
+  // Own pose feeds the projectile cull; own active zones keep a shell revealed
+  // by our flare from being culled (exactly-once — Story 1.7).
   g.projectiles.render(now, pose ?? undefined, ownZones);
   // The contact store is the radar's SECOND source of ship paints (amendment
   // 89): a hull inside truesight is delivered as a `Contact` and never as a
@@ -4381,7 +4324,7 @@ function renderAlive(
   // sweep is hidden, so the first live frame marches from the current bearing
   // instead of replaying a whole revolution of crossings at once.
   if (atStartLine(g)) g.radar.render(null, now, null, null);
-  else g.radar.render(pose, now, g.contacts, g.camera.worldView);
+  else g.radar.render(pose, now, g.contacts, g.camera.worldView, g.camera.screenWorldRect);
   // Wounded smoke ages on the SERVER clock, so it is driven here rather than
   // inside renderOwn: a forceSnap gap (respawn / P-toggle) leaves us with no
   // own pose for a frame, and a plume that stopped drifting whenever our own
@@ -4395,13 +4338,23 @@ function renderAlive(
   // lead means screen centre is NOT where the hull sits (review fix).
   const foghornOrigin = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   renderFoghorn(g, now, foghornOrigin);
-  // Fade each lit-zone glow by its timestamp expiry, and the PHOSPHOR burning
-  // zones too, breathing their embers on the shared server-clock seconds
-  // (Story 2.9's treatment, moved to render/burnZones.ts in Story 8.17).
-  g.litZones.render(now);
+  // ALERTS (Story 9.11): the mines advance the ONE shared alert clock first, so
+  // every enemy mine and every other captain's zone below breathes on the same
+  // phase (render/alertBlend.ts). Then fade each lit-zone glow by its
+  // timestamp expiry, the PHOSPHOR burning zones too (white fire, flickering),
+  // each zone tinted own white / another's by that clock.
+  g.mines.render(now / 1000);
+  g.litZones.render(now, now / 1000);
   g.burnZones.render(now, now / 1000);
-  g.smokeScreen.render(now); // SMOKE SCREEN puffs grow + fade on the server clock
-  renderOwnChaff(g, pose, now);
+  g.foulZones.render(now, now / 1000); // ...and the weed sways (motion-gated)
+  // spray + fade each countermeasure cloud to its server-clock age (the radar
+  // marched it above, through setCloudSource, as one more return source) —
+  // seen by eye only inside the flash-rung halo centred on the own hull (session 5)
+  g.countermeasure.render(now, pose, g.camera.screenWorldRect); // mask pass clipped to the screen
+  // the rolling fog: the schema's cut eased, the density raster refreshed on its
+  // cadence, the wisps scrolled (motion-gated); seen by eye only inside the same halo
+  g.fogField.setCut(publicState(g).fogCut ?? FOG_NO_CUT);
+  g.fogField.update(frameDt * 1000, now, motionIntensity(settings.current.motion) > 0, pose, g.camera.screenWorldRect, 'alive'); // no pose yet → nothing drawn
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
@@ -4460,7 +4413,6 @@ function enterSpectateVisuals(g: Game): void {
   const wrecked = g.state.net.you?.alive === false;
   g.fog.setVisible(false);
   g.radar.clearBlips();
-  g.chaffGhosts.clear(); // the scope's twin: a spectator owns no chaff ghosts
   if (!wrecked) {
     g.ownView.gfx.visible = false;
     g.nameplates.hide(g.state.net.sessionId);
@@ -4500,7 +4452,8 @@ function enterSpectateVisuals(g: Game): void {
   // reveal target set here. The framing is derived from the live map radius and
   // radar range, never a literal, so Story 6.2's roster-dynamic map sizing moves
   // it automatically. It is exempt from the spectate clamp; the first manual
-  // wheel or pan releases it back to the clamped [0.5, 1] path.
+  // wheel or pan releases it back to the clamped path (since Eric's 2026-10-14
+  // ruling the alive range: close framing in, the whole-map fit out, amendment 142).
   g.camera.beginReveal(g.mapRadius, CLIENT_CONFIG.reveal.mapFitMargin, CLIENT_CONFIG.reveal.zoomRate);
   // Drop any WASD held at the moment of death so updateSpectateCamera sees a
   // clean edge — otherwise steering into your own death instantly (and
@@ -4615,6 +4568,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // remembered fraction to null keeps a death from reading as a crossing into
   // critical, and re-arms both stings for the next life for free.
   g.wasHpFrac = null;
+  feedCameraRing(g, zv); // the spectate waypoint is the live ring fit (amendment 142)
   updateSpectateCamera(g, frameDt, now);
   // THE REVEAL'S PULL-BACK (Story 5.3, amendments 25/26). Driven after the
   // spectate camera so a manual pan in the same frame releases the target
@@ -4654,11 +4608,13 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // derives the spectator bearing from the camera centre too, so origin and
   // bearing must agree (review fix).
   renderFoghorn(g, now, g.camera.screenCenter); // ...and every `fh`, on the omniscient position path
-  g.litZones.render(now); // spectators see all zones
+  g.mines.render(now / 1000); // the shared alert clock, first (Story 9.11)
+  g.litZones.render(now, now / 1000); // spectators see all zones
   g.burnZones.render(now, now / 1000); // ...and every burning zone
-  g.smokeScreen.render(now); // ...and every SMOKE SCREEN puff
-  g.chaffRing.render(null, now); // a spectator owns no chaff cloud
-  g.chaffGhosts.render(null, now); // ...and no ghosts: nothing renders
+  g.foulZones.render(now, now / 1000); // ...and every foul zone, weed swaying
+  g.countermeasure.render(now); // ...and every countermeasure cloud
+  g.fogField.setCut(publicState(g).fogCut ?? FOG_NO_CUT);
+  g.fogField.update(frameDt * 1000, now, motionIntensity(settings.current.motion) > 0, null, g.camera.screenWorldRect, 'spectate'); // ...and the whole fog field, unmasked
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
   // A spectator owns no Tier-1 channel (no hull, no fire control), so the bar's
@@ -4840,7 +4796,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       g.contactViews.render(
         g.contacts,
         now - CLIENT_CONFIG.net.interpDelayMs,
-        now,
+        g.clock.frameNow(), // staleness by FRAME time — a lagging server never drops a delivered hull
         frameDt * 1000,
         (id) => rosterColor(g, id), // Story 1.12: per-contact personal hue
         // `plateFrame` — Story 1.13: per-contact truesight nameplate (hoisted,
@@ -4850,9 +4806,75 @@ function makeCallbacks(g: Game): LoopCallbacks {
         // line so this callback stays inside its line budget.
         plateFrame, g.hullSoftness,
       );
+      feedContactBodies(g, now);
       applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot, g.stage.layers.plate);
     },
   };
+}
+
+/**
+ * THE PREDICTOR'S CONTACT BODIES (Story 9.5, epic-9 amendment 74), once per
+ * render frame, off the SAME store and sample time the contact renderer just
+ * drew (`serverNow − interpDelayMs`). Only while the own hull is predicted:
+ * spectating or in interp mode the predictor steps nothing, so it holds none
+ * (and a later return to predict starts from a fresh frame's set).
+ */
+function feedContactBodies(g: Game, now: number): void {
+  const p = g.predictor;
+  const ownId = g.state.net.sessionId;
+  p.setOwnId(ownId);
+  if (g.state.spectating || g.state.mode !== 'predict') {
+    p.setContacts(NO_CONTACT_BODIES);
+    return;
+  }
+  p.setContacts(g.contactBodies.build(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, ownId));
+}
+const NO_CONTACT_BODIES: readonly ContactBody[] = [];
+
+/**
+ * HULL CONTACT legibility for this frame (Story 9.5, amendment 79): the
+ * predictor's last live tick → render/contactFx.ts. Render reads sim; nothing
+ * flows back. Without a predicted own pose the layer only lets its sparks die.
+ */
+function updateContactFx(g: Game, pose: RenderPose | null, nowMs: number): void {
+  const p = g.predictor;
+  const live = pose !== null && g.state.mode === 'predict' && p.isInitialized;
+  const env = hullEnvelope(g.ownClass).hull;
+  const own = live
+    ? {
+        id: g.state.net.sessionId,
+        x: pose.x,
+        y: pose.y,
+        heading: pose.heading,
+        color: hullStyle(g.ownHueIndex).stroke,
+        halfBeamU: env.beam / 2,
+        halfLengthU: env.length / 2,
+      }
+    : null;
+  g.contactFx.update(nowMs, own, p.ownContacts, p.lastLand, (id) => contactFxColor(g, id), settings.current.motion !== 'off');
+  stampContactBleeding(g, live, nowMs);
+}
+
+/**
+ * Sim → state: whether the own hull is BLEEDING this frame (a hull row's
+ * `vt + vn` or a coast slide over `grindMinVt`), held `bleedGraceMs` past the
+ * last bleeding frame so the server's trailing 500 ms window flush still reads
+ * as bleed. net/roomBindings.ts flushDamage reads the flag to keep that small
+ * `dmg` off the thud and the shake (amendments 79 + 83). Without a live
+ * predicted pose nothing bleeds.
+ */
+function stampContactBleeding(g: Game, live: boolean, nowMs: number): void {
+  const fx = CLIENT_CONFIG.contactFx;
+  const p = g.predictor;
+  if (!live) g.lastBleedMs = -Infinity;
+  else if (bleedSpeed(p.ownContacts, p.lastLand) > fx.grindMinVt) g.lastBleedMs = nowMs;
+  g.state.contactBleeding = nowMs - g.lastBleedMs <= fx.bleedGraceMs;
+}
+
+/** The other hull's color for a strike spark — the color its hull is drawn in. */
+function contactFxColor(g: Game, id: string): number {
+  const cls = g.contacts.classOf(id);
+  return cls === undefined ? hullStyle(rosterColor(g, id)).stroke : contactStyle(cls, rosterColor(g, id)).stroke;
 }
 
 /**
@@ -4967,8 +4989,8 @@ function bindVisibility(game: Game): () => void {
 // --- camera zoom (Story 2.1, Eric ruling 2026-07-24) --------------------------
 
 /**
- * Apply an alive user-zoom target (clamped [0.5, 1.5] over the base radar-fit
- * framing by Camera.setUserZoom) and schedule the fog re-bake the new zoom
+ * Apply an alive user-zoom target (clamped by Camera.setUserZoom between the
+ * whole-map fit and the close framing, amendment 142; the ring fit is a waypoint) and schedule the fog re-bake the new zoom
  * needs. CONNING-ONLY (canUserZoom): inert while spectating (the spectate wheel
  * path below owns zoom there), while sunk-awaiting-respawn, AND before the
  * first frame ever lands (no `you` yet = not conning). Client-render-only — fog
@@ -4988,9 +5010,28 @@ function applyUserZoom(g: Game, next: number): void {
   scheduleZoomFogRebake(g);
 }
 
-/** X (+1, in) / Z (-1, out) keyboard zoom step (chokepoint onZoom hook). */
+/** X (+1, in) / Z (-1, out) keyboard zoom step (chokepoint onZoom hook). While
+ *  SPECTATING it zooms at the LAST KNOWN cursor (Eric 2026-10-14), or at the
+ *  screen centre before any pointermove has reported one. */
 function handleZoomStep(g: Game, dir: 1 | -1): void {
-  applyUserZoom(g, g.camera.userZoom + dir * CLIENT_CONFIG.zoom.keyStep);
+  if (g.state.spectating) {
+    const at = g.mouse.hasPosition ? g.mouse.screenPos : g.camera.screenCenter;
+    spectateZoomAt(g, at.x, at.y, stepZoom(g.camera.zoomFactor, dir * CLIENT_CONFIG.zoom.keyStep, g.camera.zoomDetent));
+    return;
+  }
+  applyUserZoom(g, stepZoom(g.camera.userZoom, dir * CLIENT_CONFIG.zoom.keyStep, g.camera.zoomDetent));
+}
+
+/**
+ * THE SPECTATE ZOOM (Eric 2026-10-14: *"The full zoom-out needs to apply to
+ * spectate mode, as well. In this case, the zoom in/out should be localized
+ * around my mouse cursor (since my ship has sunk/is otherwise nonexistent)."*).
+ * The range is the alive range (Camera.spectateZoomLimits — close framing in,
+ * the whole-map fit out, the ring fit a waypoint — amendment 142) and the world point under (sx, sy) stays put
+ * (Camera.zoomAbout). No fog re-bake: the fog is off for the whole spectate.
+ */
+function spectateZoomAt(g: Game, sx: number, sy: number, next: number): void {
+  g.camera.zoomAbout(sx, sy, next);
 }
 
 /**
@@ -5019,10 +5060,32 @@ function cancelZoomFogRebake(g: Game): void {
 }
 
 /**
- * The one wheel listener: while SPECTATING it is the untouched spectator
- * zoom-out (wheel-only, clamped [0.5x, 1x] — render/spectate.ts wheelZoom,
- * byte-identical behavior); while ALIVE it drives the smooth user zoom
- * (clamped [0.5x, 1.5x] — Story 2.1).
+ * THE LIVE RING FEEDS THE CAMERA, every alive frame (Story 9.8, rulings
+ * 127/128): the zoom-out limit re-fits to the ring and the centre slide aims at
+ * its centre. A captain sitting at the out limit is carried in as the ring
+ * closes — which moves the zoom EVERY tick, so the fog re-bake runs on
+ * HYSTERESIS: only once the zoom has drifted more than `redrawZoomFrac` (the
+ * same 2 % sub-pixel precedent the terrain and storm layers redraw on) from
+ * the zoom the fog was last baked at, and never re-arming a bake already
+ * pending (re-arming every frame would starve the trailing-edge debounce).
+ */
+function feedCameraRing(g: Game, zv: ZoneView): void {
+  g.camera.setRing(zv.cur.cx, zv.cur.cy, zv.cur.r);
+  // SPECTATE RIDES THE SAME FEED (Eric 2026-10-14): the spectate ring waypoint is
+  // the live ring fit too (the out limit is the map, amendment 142). The fog is hidden for the whole spectate, so there
+  // is nothing to re-bake.
+  if (g.state.spectating) return;
+  if (g.fogZoomTimer !== null) return;
+  if (!fogZoomStale(g.fog.bakedZoom, g.camera.zoom, CLIENT_CONFIG.terrain.redrawZoomFrac)) return;
+  scheduleZoomFogRebake(g);
+}
+
+/**
+ * The one wheel listener: while SPECTATING it zooms at the cursor across the
+ * alive range (Eric 2026-10-14 — render/spectate.ts wheelZoom into
+ * Camera.zoomAbout); while ALIVE it drives the smooth user zoom
+ * (Story 2.1; since Story 9.8 a log step between the whole-map fit (ring waypoint on the way) and the
+ * close framing).
  *
  * Returns a disposer for the same reason bindVisibility does: it holds a camera
  * that an in-place teardown destroys under it.
@@ -5044,10 +5107,11 @@ function bindWheelZoom(game: Game): () => void {
     // scrolling the menu — the pure `wheelScrollsSurface` names both surfaces.
     if (wheelScrollsSurface(openSurfaces(game))) return;
     if (game.state.spectating) {
-      game.camera.setZoomFactor(wheelZoom(game.camera.zoomFactor, e.deltaY));
+      spectateZoomAt(game, e.clientX, e.clientY, wheelZoom(game.camera.zoomFactor, e.deltaY, game.camera.zoomDetent));
       return;
     }
-    applyUserZoom(game, game.camera.userZoom - e.deltaY * CLIENT_CONFIG.zoom.wheelRate);
+    const amount = -e.deltaY * CLIENT_CONFIG.zoom.wheelRate;
+    applyUserZoom(game, stepZoom(game.camera.userZoom, amount, game.camera.zoomDetent));
   };
   window.addEventListener('wheel', onWheel, { passive: true });
   return () => window.removeEventListener('wheel', onWheel);

@@ -4,7 +4,7 @@
 // Start Now triggers the countdown"). The copy is ruling 9's plus the option
 // labels / YES / NO / OPTIONAL, so the whole rendered text is pinned for the
 // host's view and for a non-host's — the queueModal.test.ts pattern. Also
-// pinned: ONE fixed geometry in every state, exactly 20 slots filled left to
+// pinned: ONE fixed geometry in every state, exactly CAP slots filled left to
 // right then top to bottom, the ready circle's color, label + control for the
 // host and label + status for everyone else, YES/NO with exactly one lit,
 // START NOW disabled while any countdown runs, YOU ARE HOST on a hand-off
@@ -12,6 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { LobbyCaptain, LobbyView } from '../net/lobby.js';
+import { CONFIG } from '@salvo/shared';
 import { LAYOUT } from '../ui/lobbyLayout.js';
 import { LOBBY_SEED_DEBOUNCE_MS } from '../config.js';
 import {
@@ -28,6 +29,11 @@ import {
 } from '../ui/lobbyModal.js';
 
 const NOW = 1_000_000;
+/** The arena cap — the slot count (ruling 4; 16 since Story 9.8, Eric
+ *  2026-10-13 — was 20). Every count below is read off it, never typed. */
+const CAP = CONFIG.map.playerCap;
+/** Two columns, so the slots fill CAP / 2 rows of 20 px inside the ruled box. */
+const ROWS = Math.ceil(CAP / 2);
 
 function view(over: Partial<LobbyView> = {}): LobbyView {
   return {
@@ -121,10 +127,10 @@ afterEach(() => {
 });
 
 describe('pure copy and rules', () => {
-  it('speaks ruling 9: CODE, N/20 ABOARD, STARTS IN m:ss', () => {
+  it('speaks ruling 9: CODE, N/CAP ABOARD, STARTS IN m:ss', () => {
     expect(codeLine('KXQMAB')).toBe('CODE KXQMAB');
-    expect(aboardLine(1)).toBe('1/20 ABOARD');
-    expect(aboardLine(20)).toBe('20/20 ABOARD');
+    expect(aboardLine(1)).toBe(`1/${CAP} ABOARD`);
+    expect(aboardLine(CAP)).toBe(`${CAP}/${CAP} ABOARD`);
     expect(lobbyCountdownLine(NOW + 9_000, NOW)).toBe('STARTS IN 0:09');
     expect(lobbyCountdownLine(NOW + 10_000, NOW)).toBe('STARTS IN 0:10');
     expect(lobbyCountdownLine(NOW - 50, NOW)).toBe('STARTS IN 0:00');
@@ -150,7 +156,7 @@ describe('the whole rendered text', () => {
       'BOT-FILL',
       'YES',
       'NO',
-      '1/20 ABOARD',
+      `1/${CAP} ABOARD`,
       'NEMO',
       'READY',
       'LEAVE',
@@ -181,7 +187,7 @@ describe('the whole rendered text', () => {
       'bananas',
       'BOT-FILL',
       'NO',
-      '2/20 ABOARD',
+      `2/${CAP} ABOARD`,
       'AHAB',
       'NEMO',
       'STARTS IN 0:09',
@@ -193,7 +199,7 @@ describe('the whole rendered text', () => {
   it("a NON-HOST sees bot-fill's status as YES, and a blank seed as nothing", () => {
     showLobbyModal(actions());
     updateLobbyModal(view({ hostId: 'h', botFill: true, players: [{ id: 'h', name: 'AHAB', ready: false, slot: 0 }, { ...captains(1)[0], slot: 1 }] }));
-    expect(rendered()).toEqual(['LOBBY', 'CODE QWERTY', 'SEED', 'BOT-FILL', 'YES', '2/20 ABOARD', 'AHAB', 'CAPT1', 'UNREADY', 'LEAVE']);
+    expect(rendered()).toEqual(['LOBBY', 'CODE QWERTY', 'SEED', 'BOT-FILL', 'YES', `2/${CAP} ABOARD`, 'AHAB', 'CAPT1', 'UNREADY', 'LEAVE']);
   });
 
   it('no title tooltips or other hidden words ride the modal', () => {
@@ -204,15 +210,21 @@ describe('the whole rendered text', () => {
 });
 
 describe('fixed geometry (Eric: "the modal changes size … poor attention to detail")', () => {
-  it('the panel is 600 × 598 px (Eric R1: fits a 768-tall laptop) and the grid 544 × 236 px', () => {
+  // RULED (Eric R1, amendments 235–242): a fixed 600 × 598 panel and a 544 × 236
+  // grid box, whatever the arena cap — at 16 captains (Story 9.8) the eight
+  // slot rows sit top-aligned inside the box and the panel does not move.
+  it('the panel is 600 × 598 px (Eric R1: fits a 768-tall laptop) and the grid box 544 × 236 px', () => {
     showLobbyModal(actions());
     updateLobbyModal(view());
     const panel = role('panel')[0];
     expect(panel.style.width).toBe('600px');
     expect(parseInt(panel.style.height, 10)).toBeLessThanOrEqual(620);
-    expect(panel.style.height).toBe('598px');
+    expect(LAYOUT.panelH).toBe(598);
+    expect(panel.style.height).toBe(`${LAYOUT.panelH}px`);
     expect(role('grid')[0].style.width).toBe('544px');
     expect(role('grid')[0].style.height).toBe('236px');
+    expect(role('grid')[0].style.alignContent).toBe('start');
+    expect(LAYOUT.slotRowsH, 'the slot rows fit the ruled box').toBeLessThanOrEqual(LAYOUT.gridH);
   });
 
   // R1 + review: the shared shell's max-width/max-height:100% and overflow-y:auto
@@ -256,9 +268,9 @@ describe('fixed geometry (Eric: "the modal changes size … poor attention to de
     const states: LobbyView[] = [
       view(),
       view({ players: captains(2) }),
-      view({ players: captains(20) }),
+      view({ players: captains(CAP) }),
       view({ hostId: 'c1', players: captains(2) }),
-      view({ hostId: 'c1', players: captains(20), botFill: true }),
+      view({ hostId: 'c1', players: captains(CAP), botFill: true }),
       view({ botFill: true }),
       view({ countdownEndT: 5, deadlineAt: NOW + 10_000, forced: true, botFill: true }),
       view({ hostId: 'c1', players: captains(3), countdownEndT: 5, deadlineAt: NOW + 10_000 }),
@@ -267,7 +279,7 @@ describe('fixed geometry (Eric: "the modal changes size … poor attention to de
     ];
     updateLobbyModal(states[0]);
     const first = geometry();
-    expect(first).toContain('panel=600pxx598px');
+    expect(first).toContain(`panel=600pxx${LAYOUT.panelH}px`);
     for (const v of states) {
       updateLobbyModal(v);
       expect(geometry()).toBe(first);
@@ -294,17 +306,17 @@ describe('fixed geometry (Eric: "the modal changes size … poor attention to de
 });
 
 describe('the slot grid', () => {
-  it('always holds exactly 20 slots, two columns of ten', () => {
+  it('always holds exactly CAP slots, in two columns', () => {
     showLobbyModal(actions());
     updateLobbyModal(view());
-    expect(role('slot').length).toBe(20);
-    updateLobbyModal(view({ players: captains(20) }));
-    expect(role('slot').length).toBe(20);
+    expect(role('slot').length).toBe(CAP);
+    updateLobbyModal(view({ players: captains(CAP) }));
+    expect(role('slot').length).toBe(CAP);
     updateLobbyModal(view({ hostId: 'c1', players: captains(2) }));
-    expect(role('slot').length).toBe(20);
+    expect(role('slot').length).toBe(CAP);
     const grid = role('grid')[0];
     expect(grid.style.gridTemplateColumns).toBe('repeat(2, 260px)');
-    expect(grid.style.gridTemplateRows).toBe('repeat(10, 20px)');
+    expect(grid.style.gridTemplateRows).toBe(`repeat(${ROWS}, 20px)`);
     expect(grid.style.rowGap).toBe('4px');
   });
 
@@ -317,12 +329,12 @@ describe('the slot grid', () => {
     expect(at(1)).toBe('1/2:CAPT2');
     expect(at(2)).toBe('2/1:CAPT3');
     expect(at(3)).toBe('2/2:');
-    expect(at(19)).toBe('10/2:');
+    expect(at(CAP - 1)).toBe(`${ROWS}/2:`);
   });
 
   // Eric R2: "Leave the slot empty; next joiner fills the first empty slot —
   // names never move once seated." The slot is the server's, not array order.
-  it("places each captain by the server's slot; the other 17 stay empty", () => {
+  it("places each captain by the server's slot; the others stay empty", () => {
     showLobbyModal(actions());
     updateLobbyModal(
       view({
@@ -340,8 +352,8 @@ describe('the slot grid', () => {
     expect(at(5)).toBe('3/2:ISHMAEL');
     const filled = slots.map((s, i) => (s.textContent === '' ? -1 : i)).filter((i) => i >= 0);
     expect(filled).toEqual([0, 2, 5]);
-    expect(role('dot').filter((d) => d.dataset.state === 'empty').length).toBe(17);
-    expect(rendered()).toContain('3/20 ABOARD');
+    expect(role('dot').filter((d) => d.dataset.state === 'empty').length).toBe(CAP - 3);
+    expect(rendered()).toContain(`3/${CAP} ABOARD`);
   });
 
   it('a vacated slot renders empty — nobody below it moves up', () => {
@@ -366,7 +378,7 @@ describe('the slot grid', () => {
       }),
     );
     const dots = role('dot');
-    expect(dots.length).toBe(20);
+    expect(dots.length).toBe(CAP);
     expect(dots[0].dataset.state).toBe('ready');
     expect(dots[0].style.backgroundColor).toBe('var(--hc-phosphor)');
     expect(dots[1].dataset.state).toBe('unready');
@@ -707,7 +719,7 @@ describe('YOU ARE HOST', () => {
       'BOT-FILL',
       'YES',
       'NO',
-      '1/20 ABOARD',
+      `1/${CAP} ABOARD`,
       'NEMO',
       'READY',
       'LEAVE',

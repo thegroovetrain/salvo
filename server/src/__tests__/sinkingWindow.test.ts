@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  CONSUMABLE_SLOTS,
+  consumableSlotFor,
   SLOT_BOOST,
   founderDeadline,
   isAfloat,
@@ -182,22 +182,22 @@ describe('motion seam — the hull keeps its way and decays to a stop', () => {
     expect(a.state.speed).toBeGreaterThan(ratedCap);
   });
 
-  it('an open boost window SURVIVES sink-entry; founder zeroes it with the slow/dazzle marks', () => {
+  it('an open boost window SURVIVES sink-entry; founder zeroes it with both slow marks (the mine\'s and the foul zone\'s — Story 9.4)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     a.boostUntil = w.now + 60_000;
     a.slowedUntil = w.now + 60_000;
-    a.dazzledUntil = w.now + 60_000;
+    a.fouledUntil = w.now + 60_000;
     w.respawnEnabled = false;
     w.sinkShip('a');
     expect(a.boostUntil).toBeGreaterThan(0); // amendment 10: the surge lives
     expect(a.slowedUntil).toBeGreaterThan(0); // a hull that sinks fouled sinks fouled
-    expect(a.dazzledUntil).toBeGreaterThan(0);
+    expect(a.fouledUntil).toBeGreaterThan(0); // ...and a hull that sinks in a foul zone sinks fouled
     expect(a.repairHp).toBe(0); // the economy DOES die at entry
     w.step(WINDOW);
     expect(a.boostUntil).toBe(0); // founder: nothing carries through the death gap
     expect(a.slowedUntil).toBe(0);
-    expect(a.dazzledUntil).toBe(0);
+    expect(a.fouledUntil).toBe(0);
   });
 
   it('still resolves against the map boundary and still lays wake while sinking', () => {
@@ -225,11 +225,11 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
     // — so this sweep now covers six of the seven rows, and the Battleship's
     // two-line seed covers the fourth slot.
     // Slot 1 is the hull's CLASS SHIFT since Story 8.15 (amendment 89(c)):
-    // boost / damageCut / instantReload — all three ride the sinking window
+    // boost / hunker / instantReload — all three ride the sinking window
     // exactly as the universal boost did (amendment 10).
     const fits: [ShipClassId, string[]][] = [
       ['torpedoBoat', ['gun', 'boost', 'heavyTorpedo']],
-      ['battleship', ['gun', 'damageCut', 'broadside', 'starShells']],
+      ['battleship', ['gun', 'hunker', 'broadside', 'starShells']],
       ['mineLayer', ['gun', 'instantReload', 'navalMines']],
     ];
     for (const [cls, expected] of fits) {
@@ -253,7 +253,7 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
     w.sinkShip('a');
     w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aim: 0, aimDist: 300 }));
     w.step();
-    expect(w.shells.size).toBe(1); // the shot left the tube
+    expect(w.shells.size).toBe(w.ships.get('a')!.stats.equipment.gun.barrels); // the volley left the tubes
   });
 
   it('the horn still sounds while sinking', () => {
@@ -306,7 +306,7 @@ describe('refit closed — "once sinking, you\'re done"', () => {
     // activation gate (amendment 10's fitment rule), and the ROW refuses it
     // — 'blocked', nothing spent (Story 8.8).
     a.hp = a.stats.maxHp - 50; // so "full hull" is not what refuses it
-    expect(w.sinkingActivationGate(a, CONSUMABLE_SLOTS[0])).toEqual({ ok: false, reason: 'blocked' });
+    expect(w.sinkingActivationGate(a, consumableSlotFor('hullRepair')!)).toEqual({ ok: false, reason: 'blocked' });
     expect(a.bankedLevels).toBe(1); // bank and queue untouched
     expect(a.cards).toEqual(['heavyTorpedo', 'hullRepair']); // the seed + the un-spent heal copy
     expect(a.repairHp).toBe(0);
@@ -427,7 +427,7 @@ describe('perceivability (amendments 15/16) — still a contact, still a blip, n
   it('a sinking hull in the radar annulus still paints a blip when the beam crosses it', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 400, 0); // sight < 400 ≤ radar
+    const b = place(w, 'b', 700, 0); // sight < 700 ≤ dropout start < radar (Story 9.8: was 400, now inside sight)
     w.respawnEnabled = false;
     w.sinkShip('b', 'a');
     windowAround(a, 0); // beam over b's bearing this tick
@@ -512,7 +512,7 @@ describe('match outcome (amendment 14; amendment 17 REVERSED by Eric veto 2026-0
     // amendment 10 — and the reason the hold exists at all).
     w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aim: 0, aimDist: 300 }));
     stepMatch(w, m);
-    expect(w.shells.size).toBe(1); // the revenge shot left the tube
+    expect(w.shells.size).toBe(w.ships.get('a')!.stats.equipment.gun.barrels); // the revenge volley left the tubes
     stepMatch(w, m, TICKS - 3); // one tick short of the founder deadline
     expect(m.phase).toBe('active');
     expect(isSinking(w.ships.get('a')!.lifecycle)).toBe(true);

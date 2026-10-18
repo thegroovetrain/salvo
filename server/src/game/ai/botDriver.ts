@@ -44,6 +44,7 @@ import type {
   BotDecision,
   BotEngageGate,
   BotMind,
+  BotPosture,
   BotTickEntry,
   BotWorldPort,
 } from './types.js';
@@ -57,6 +58,51 @@ const MIND_STREAM_K = 0x9e3779b9;
  *  `seed + n·K1` and `seed + m·K2` coincide only where n·K1 ≡ m·K2 (mod 2^32),
  *  unreachable at lobby-sized n, m with these two constants. */
 const SPEND_STREAM_K = 0x7f4a7c15;
+
+/** The Story 9.13 mind seats (amendments 192–202) in their enroll / new-life
+ *  state — one literal so enroll and the per-life release can never drift. */
+function freshStory913Seats(): Required<
+  Pick<
+    BotMind,
+    | 'disengagedSince'
+    | 'lastContactAt'
+    | 'ramStruckAt'
+    | 'ramTargetKey'
+    | 'route'
+    | 'coverPoint'
+    | 'patrolWaypoint'
+    | 'patrolBestU'
+    | 'patrolProgressAt'
+    | 'hitVolleyAt'
+    | 'gateVerdict'
+    | 'gateKey'
+    | 'gateHeldUntil'
+    | 'departing'
+    | 'departingAt'
+    | 'entryDampUntil'
+    | 'lastTactic'
+  >
+> {
+  return {
+    disengagedSince: null,
+    lastContactAt: -1,
+    ramStruckAt: null,
+    ramTargetKey: null,
+    route: null,
+    coverPoint: null,
+    patrolWaypoint: null,
+    patrolBestU: Infinity,
+    patrolProgressAt: 0,
+    hitVolleyAt: new Map(),
+    gateVerdict: null,
+    gateKey: null,
+    gateHeldUntil: null,
+    departing: false,
+    departingAt: -1,
+    entryDampUntil: 0,
+    lastTactic: null,
+  };
+}
 
 /**
  * The deliberation-stagger slot for a bot id: FNV-1a over the id, mod the
@@ -181,6 +227,19 @@ export class BotController {
     return this.minds.get(id)?.profile ?? null;
   }
 
+  /** A bot's cached deliberated posture (harness readout seam, Story 9.13 —
+   *  read-only). null = unknown id. */
+  postureOf(id: string): BotPosture | null {
+    return this.minds.get(id)?.posture ?? null;
+  }
+
+  /** The id of the tactic row a bot fired last (harness readout seam, Story
+   *  9.13 — read-only; the tactics stamp `mind.lastTactic`). null = unknown
+   *  id or nothing fired yet. */
+  lastTacticOf(id: string): string | null {
+    return this.minds.get(id)?.lastTactic ?? null;
+  }
+
   /** Remembered contact-track count for a bot (testing/inspection only —
    *  the perception-regression suite's instrument). -1 = unknown id. */
   trackCountOf(id: string): number {
@@ -242,6 +301,7 @@ export class BotController {
       posture: 'reposition',
       stuckMs: 0,
       unbeachUntil: 0,
+      ...freshStory913Seats(),
     });
     return { name, hullId };
   }
@@ -306,6 +366,7 @@ export class BotController {
     mind.unbeachUntil = 0;
     mind.unbeach = null;
     mind.torps = null;
+    Object.assign(mind, freshStory913Seats());
   }
 
   /** Observe + decide + emit for one live bot. */
@@ -321,8 +382,8 @@ export class BotController {
     // live bot per tick, EVERY tick (the exactly-once-and-always pin).
     mind.view = e.observe();
     mind.viewAt = this.port.now;
-    mind.chaffUntil = e.chaffUntil; // the bot's OWN cloud (amendment 127 — world-owned)
-    mind.smokeUntil = e.smokeUntil; // the bot's OWN lay window (Story 8.18)
+    mind.cloudUntil = e.cloudUntil; // the bot's OWN most recent cloud's expiry (Story 9.3)
+    mind.fogAt = e.fogAt; // the public fog density (Story 9.10, amendment 169 — the sweep-miss rule's one read)
     this.observesLastTickCount += 1;
     // Deliberation (target reselection, posture, spends) runs on this bot's
     // own stagger slot; steering and firing are emitted every tick.

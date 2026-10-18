@@ -1,6 +1,6 @@
 // Cycle 162 — THE ICON PASS (Eric 2026-10-01): every card line has its OWN
 // glyph. The refit card and How-to-Play feed `glyphPaths` a LINE id, so the
-// one lookup must answer every one of the 24 `LINE_IDS` but the stub DEPTH
+// one lookup must answer every one of the 25 `LINE_IDS` but the stub DEPTH
 // CHARGE, with no two lines drawn alike and every point inside the unit box.
 
 import { describe, it, expect } from 'vitest';
@@ -14,7 +14,10 @@ describe('one glyph per card line (cycle 162)', () => {
   it('every line but the stub depthCharge answers a glyph', () => {
     for (const id of GLYPHED) expect(glyphPaths(id), id).not.toBeNull();
     expect(glyphPaths('depthCharge')).toBeNull();
-    expect(GLYPHED).toHaveLength(23);
+    // 23 until CHAFF left the catalog (Story 9.2); 22, then 23 with PASSIVE
+    // HEALING (Story 9.6); 24 with ARMOR (Story 9.7, epic-9 amendments 110–117);
+    // 25 with ARMOR PIERCING (Story 9.9, epic-9 amendment 160).
+    expect(GLYPHED).toHaveLength(25);
   });
 
   it('no two lines draw the same glyph', () => {
@@ -38,6 +41,15 @@ describe('one glyph per card line (cycle 162)', () => {
   });
 
   it('a ship ladder reaches the DOM surface as an svg', () => {
-    expect(equipmentGlyphSvg('armor', 24)?.tagName.toLowerCase()).toBe('svg');
+    expect(equipmentGlyphSvg('hullPoints', 24)?.tagName.toLowerCase()).toBe('svg');
+  });
+
+  it('ARMOR PIERCING draws its own glyph, distinct from ARMOR and the torpedo (Story 9.9, epic-9 amendment 160)', () => {
+    const ap = glyphPaths('armorPiercing');
+    expect(ap).not.toBeNull();
+    expect(ap!.length).toBeGreaterThan(0);
+    expect(JSON.stringify(ap)).not.toBe(JSON.stringify(glyphPaths('armor')));
+    expect(JSON.stringify(ap)).not.toBe(JSON.stringify(glyphPaths('lightTorpedo')));
+    expect(equipmentGlyphSvg('armorPiercing', 24)?.tagName.toLowerCase()).toBe('svg');
   });
 });

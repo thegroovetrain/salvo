@@ -8,13 +8,16 @@
 // ordinary consume/tickReload pool, the normal D1 fire-time back-date, the
 // deduped `mz`, `sp`/`hc` exactly as the cannon's — every rule the cannon has,
 // with Eric's numbers off the ship's EFFECTIVE `flak` row (the ladder moves
-// damage, reload and the turret pool — 1/2/2/3/3 rounds, Eric 2026-10-02,
-// amendment 232; the blast never grows). 360°, no arc (amendment 106).
+// damage, reload and the turret pool — 1/2/2/2/2 rounds, Eric 2026-10-16,
+// Story 9.12; the blast never grows). 360°, no arc (amendment 106). A caught
+// hull takes the centre damage falling to HALF at the rim (`CONFIG.flak.
+// rimFactor`), range-attenuated — the World's `burstHitAmount` composes the
+// shared `flakRimFactor` × `rangeAttenuation` → `settleBlow`.
 //
 // THE MASK is AR44's `hull | mine | decoy | ordnance` (CONFIG.flak.hits): a
-// shell LANDING within `mine.hitRadiusU` of a mine deals its damage to the
-// mine's hp like every deck gun (amendment 200 — a burst merely covering a mine
-// does nothing to it), and a burst covering an ENEMY torpedo in flight removes it — a SIDE EFFECT that
+// shell LANDING deals its range-attenuated damage to every mine whose 10 u
+// marker the blast touches, like every deck gun (Story 9.12, epic-9 amendment
+// 184(i) — so a flak shell clears a few), and a burst covering an ENEMY torpedo in flight removes it — a SIDE EFFECT that
 // might go away (amendment 105); nothing here leans on it, and the World owns
 // the outcome (resolveBurst: no boom, no damage, no `hc`, own fish immune).
 // THE LIT-ZONE REACH (R2.15, amendment 114): like every deck gun, a click past
@@ -25,18 +28,20 @@ import { CONFIG, EQUIPMENT_IS_WEAPON, type LoadoutSlot, type ShellState } from '
 import type { ShipRecord } from '../world.js';
 import type { ActivationContext, ActivationResult, Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
-import { burstPointAlong, gunReachU, muzzleOrTarget, rawAimPoint } from './guns.js';
+import { attenRangeFor, burstPointAlong, gunReachU, muzzleOrTarget } from './guns.js';
 import { makeBallistic } from './ballistics.js';
 
-/** Build the one flak shell for this click, born at `now` (the validated
- *  fire time), clamped to `reachU` (the row's `rangeU`, lit-zone lifted).
- *  Pure over the ship's input + pose + stats. */
-function flakShell(ship: ShipRecord, now: number, reachU: number, mapRadius: number, mkId: () => string): ShellState {
+/** Build the one flak shell for this click, born at `ctx.fireT` (the
+ *  validated fire time), clamped to `reachU` (the row's `rangeU`, lit-zone
+ *  lifted); a shot aimed into the shooter's own light carries no attenuation
+ *  reference (amendment 187, guns.ts `attenRangeFor`). */
+function flakShell(ctx: ActivationContext, reachU: number): ShellState {
+  const ship = ctx.ship;
   const flak = ship.stats.equipment.flak;
   const dir = ship.input.aim;
-  const target = burstPointAlong(ship, mapRadius, reachU, dir);
+  const target = burstPointAlong(ship, ctx.mapRadius, reachU, dir);
   const origin = muzzleOrTarget(ship, dir, target, CONFIG.flak.shellRadius);
-  return makeBallistic(mkId(), ship, dir, now, {
+  return makeBallistic(ctx.mkId(), ship, dir, ctx.fireT, {
     speed: CONFIG.flak.shellSpeed,
     range: Math.hypot(target.x - origin.x, target.y - origin.y) + CONFIG.flak.shellRadius,
     damage: flak.damage,
@@ -49,7 +54,7 @@ function flakShell(ship: ShipRecord, now: number, reachU: number, mapRadius: num
     contactDamage: flak.contactDamage,
     hits: CONFIG.flak.hits, // AR44 target mask
     family: 'flak',
-    cursor: rawAimPoint(ship, dir), // amendment 202: the unclamped click
+    attenRangeU: attenRangeFor(ctx, flak.rangeU, target), // ruling 184(b) + amendment 187: none into own light
   });
 }
 
@@ -67,7 +72,7 @@ export const flakEquipment: Equipment = {
     // bornAt = the VALIDATED fire time (D1), the cannon's rule: a back-dated
     // shell is pre-stepped by the World to where it belongs this tick.
     const reachU = gunReachU(ctx, ctx.ship.stats.equipment.flak.rangeU); // R2.15, amendment 114
-    ctx.spawnBallistic(flakShell(ctx.ship, ctx.fireT, reachU, ctx.mapRadius, ctx.mkId));
+    ctx.spawnBallistic(flakShell(ctx, reachU));
     return { ok: true };
   },
 };

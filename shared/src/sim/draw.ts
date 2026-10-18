@@ -26,10 +26,10 @@
 //   - an `addon` (cap 1, so eligible only unheld) is an `upgrade` iff a host
 //     it names is already held OR a weapon slot is still open — holding an
 //     add-on ahead of its host is allowed while the ship can still fit one;
-//   - a `consumable` is ALWAYS eligible (amendment 94: at its cap, or with a
-//     full belt, it is dealt anyway — the card greys client-side through the
-//     existing SLOTS FULL treatment and the server refuses the pick as a
-//     silent no-op). THAT is what makes "the offer is never empty" structural:
+//   - a `consumable` is ALWAYS eligible (amendment 94: at its cap it is dealt
+//     anyway — the card greys client-side, with no foot word since Story 9.2
+//     (epic-9 amendment 32), and the server refuses the pick as a silent
+//     no-op). THAT is what makes "the offer is never empty" structural:
 //     there is no exhaustion, no latch, no banked-empty branch.
 //
 // THE DRAW IS TWO-STAGE (Eric ruling 2026-09-22, amendment 92). For each card:
@@ -80,7 +80,7 @@ import { pickRefusal } from './boons.js';
  *   - `weapon` — copy 1 of an equipment line, the bare weapon itself;
  *   - `upgrade` — a tier card of a held line, a ladder rung, the mounted gun's
  *     ladder, or an add-on;
- *   - `consumable` — a copy that stocks the belt.
+ *   - `consumable` — a copy that stocks its kind's fixed slot.
  */
 export type DrawKind = 'weapon' | 'upgrade' | 'consumable';
 
@@ -89,15 +89,15 @@ export type DrawKind = 'weapon' | 'upgrade' | 'consumable';
  * ever consulted, which is what keeps this file pure over plain data.
  *
  * `held` is the ship's fitted card ids, ONE ENTRY PER COPY (the shape of
- * `ShipRecord.cards`, passed straight through); `slotIds` is the ship's NINE
- * SLOT CONTENTS (`loadout.map(s => s.equipmentId)` — the same array `canStock`
+ * `ShipRecord.cards`, passed straight through); `slotIds` is the ship's SLOT
+ * CONTENTS (`loadout.map(s => s.equipmentId)` — the same array `stockSlotFor`
  * and `pickRefusal` take); `mountedGun` is the EQUIPMENT row the seat's gun
  * mounts (sim/loadout.ts MOUNTED_GUN), which is what a gun ladder's host is
  * matched against.
  *
  * THE SLOT IDS REPLACED A `weaponSlotOpen` BOOLEAN (Story 8.14 review, F2).
  * The draw needs the weapon row for eligibility and the level-zero guarantee
- * needs the whole nine-slot array for `pickRefusal`; carrying both a derived
+ * needs the whole slot array for `pickRefusal`; carrying both a derived
  * boolean and the array it is derived from let the two disagree, so the array
  * is the only input and `weaponRowOpen` below is the one derivation.
  */
@@ -177,9 +177,9 @@ const EQUIPMENT_STAT_PATH = /^equipment\.([^.]+)\./;
  *      an `equipment.gun.*` path -> `gun`. No production line reaches this
  *      source since the one-off DECK GUN TURRET and DECK GUN BARREL cards were
  *      deleted (Eric 2026-09-30); it stays as the guard for an injected
- *      catalog. The five universal ladders (ARMOR, SPEED, TURNING, RADAR
- *      SWEEP, RELOAD) write `maxHp`, `kinematics.*`, `sweepRpm` and
- *      `cooldownScale`, none of which is an `equipment.` path, so they stay
+ *      catalog. The six universal ladders (HULL POINTS, SPEED, TURNING,
+ *      RADAR SWEEP, RELOAD, PASSIVE HEALING) write `maxHp`, `kinematics.*`,
+ *      `sweepRpm`, `cooldownScale` and `regen.*`, none of which is an `equipment.` path, so they stay
  *      universal.
  *
  * Without this, a seat that mounts the flak gun would be dealt CANNON cards
@@ -242,8 +242,8 @@ export function eligibleLines(ship: DrawShip, catalog: Catalog = CATALOG): Eligi
     const line = catalog[key];
     if (line === undefined) continue;
     const id = key as LineId;
-    // A CONSUMABLE IS ALWAYS ELIGIBLE (amendment 94) — at cap, with a full
-    // belt, whatever the ship holds. That is what makes the offer never empty.
+    // A CONSUMABLE IS ALWAYS ELIGIBLE (amendment 94) — at cap, whatever the
+    // ship holds. That is what makes the offer never empty.
     if (line.kind === 'consumable') {
       out.push({ id, kind: 'consumable' });
       continue;
@@ -285,7 +285,7 @@ export function lineWeight(takesByOthers: number, cfg: WeightingConfig = CONFIG.
  * line held AT CAP is never usable.
  *
  * IT READS THE SLOT IDS (Story 8.14 review, F2). At level zero the whole row is
- * empty and the belt is empty, so this is still byte-identical to the pick 8.10
+ * empty and every consumable slot is empty, so this is still byte-identical to the pick 8.10
  * shipped — but `grantOpening` also fires on a REDRAW after a dev spawn fit has
  * filled the row, and there the guarantee could hand a hull copy 1 of a weapon
  * with nowhere to put it. A line is usable only when `pickRefusal` says the

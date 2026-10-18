@@ -162,7 +162,7 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
   {
     heading: '[ SHIP UPGRADES ]',
     entries: [
-      { name: 'ARMOR', lineId: 'armor', table: 'shipUpgrade', description: 'More max HP, and heals you by the same amount.' },
+      { name: 'HULL', lineId: 'hullPoints', table: 'shipUpgrade', description: 'More max HP, and heals you by the same amount.' },
       { name: 'SPEED', lineId: 'speed', table: 'shipUpgrade', description: 'Higher top speed.' },
       { name: 'TURNING', lineId: 'turning', table: 'shipUpgrade', description: 'Turns faster.' },
       { name: 'RADAR SWEEP', lineId: 'radarSweep', table: 'shipUpgrade', description: 'Radar spins faster.' },

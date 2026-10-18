@@ -11,6 +11,7 @@ import { Texture } from 'pixi.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
 import { dimRadii, dimScaleAt } from './radarDim.js';
+import { haloAlphaAt, haloSpanU } from './hazeHalo.js';
 
 const C = CLIENT_CONFIG.colors;
 
@@ -173,11 +174,11 @@ export const DIM_MASK_TEXTURE_SIZE = 1024;
 /**
  * Bake the near-range dim mask (Story 4.11, amendment 181): a radial ramp from
  * `minScale` at the centre out to the observer's effective sight radius, rising
- * LINEARLY to full at the 5/8 rung, flat at full everywhere beyond.
+ * LINEARLY to full at the flash rung (6/12), flat at full everywhere beyond.
  *
  * IT TAKES THE OBSERVER'S EFFECTIVE TRUESIGHT, not a constant, because the ramp
- * is anchored to the sight bubble and the bubble moves (a dazzle burst shrinks
- * it; no boon widens radar range any more). Both stops come from
+ * is anchored to the sight bubble and the bubble is a boon-widened constant
+ * per build (no boon widens radar range any more). Both stops come from
  * render/radarDim.ts — the same pure curve the tests pin — so the drawn ramp and
  * the stated rule cannot drift. Re-baked only when that radius actually changes,
  * exactly as the fog hole is (render/radar.ts `syncDimMask`).
@@ -191,8 +192,8 @@ export const DIM_MASK_TEXTURE_SIZE = 1024;
  *
  * Follows `bakeFogTexture`'s `createRadialGradient` precedent. UNLIKE every other
  * bake here it does NOT happen once: cycle 92 anchored the ramp to the observer's
- * effective truesight, so it re-bakes whenever that radius moves (a boon, a dazzle
- * flip). Pass the live texture back as `into` to redraw it IN PLACE — see
+ * effective truesight, so it re-bakes whenever that radius moves (a sight
+ * boon). Pass the live texture back as `into` to redraw it IN PLACE — see
  * `bakeDimMaskTexture` below for why swapping-and-destroying is forbidden.
  */
 function drawDimMask(ctx: BakeCtx, sightU: number): void {
@@ -201,7 +202,7 @@ function drawDimMask(ctx: BakeCtx, sightU: number): void {
   // Resetting the channels a draw can depend on makes reuse structurally equivalent
   // to a mint: without it, the first future edit that adds a clip, a composite mode
   // or a transform would corrupt only the SECOND bake onward — i.e. only after a
-  // boon or a dazzle, which is exactly the path hardest to reproduce.
+  // sight boon, which is exactly the path hardest to reproduce.
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
@@ -240,7 +241,7 @@ function isBakeCanvas(v: unknown): v is BakeCanvas {
  * not a canvas at all (`Texture.EMPTY`, which every headless/jsdom caller holds
  * and which must never be drawn into, resized or updated).
  */
-function redrawableCtx(into: Texture): BakeCtx | null {
+function redrawableCtx(into: Texture, size = DIM_MASK_TEXTURE_SIZE): BakeCtx | null {
   if (into === Texture.EMPTY || into.destroyed) return null;
   const source = into.source;
   if (!source || source.destroyed) return null;
@@ -251,7 +252,7 @@ function redrawableCtx(into: Texture): BakeCtx | null {
   // texture that is not ours could be overwritten with 1024-space coordinates. It
   // also PINS the invariant the re-upload depends on — a same-size canvas is what
   // makes `source.update()` emit an update rather than take Pixi's resize path.
-  if (canvas.width !== DIM_MASK_TEXTURE_SIZE || canvas.height !== DIM_MASK_TEXTURE_SIZE) return null;
+  if (canvas.width !== size || canvas.height !== size) return null;
   return canvas.getContext('2d') as BakeCtx | null;
 }
 
@@ -302,6 +303,99 @@ export function bakeDimMaskTexture(sightU: number, into?: Texture | null): Textu
   // plain garbage rather than pinned for the life of the page. Destroying it
   // instead — the obvious-looking alternative — is precisely the crash above.
   return Texture.from(canvas, true);
+}
+
+// --- countermeasure haze halo mask ------------------------------------------
+
+/**
+ * Baked at this square size; the mask sprite is scaled so the texture's
+ * half-width covers `haloSpanU(haloU)` world units (render/hazeHalo.ts). At the
+ * base halo (412.5u + two 40u feathers) one texel is ~1.9u, and the edge is a
+ * linear ramp, which bilinear filtering reproduces exactly — so the bake stays
+ * honest as RADAR SWEEP cards widen the halo.
+ */
+export const HALO_MASK_TEXTURE_SIZE = 512;
+
+/** An opaque grey (0xRRGGBB) at level `a` (0..1) — a mask reads RED. */
+function maskGrey(a: number): number {
+  const v = Math.round(255 * Math.max(0, Math.min(1, a)));
+  return (v << 16) | (v << 8) | v;
+}
+
+/**
+ * Draw the haze halo (Story 9.3 session 5, Eric 2026-10-12: smoke is seen by
+ * eye only within the flash rung, 6/12): opaque white out to `haloU`, LINEAR to opaque
+ * black across the feather, black to the corners. Both gradient stops are READ
+ * OFF render/hazeHalo.ts `haloAlphaAt`, so the drawn edge and the stated rule
+ * cannot drift. Opaque greyscale for the same Pixi sprite-mask (red channel)
+ * reason `drawDimMask` documents, with the same reset-the-reused-context opening.
+ * With `rays`, the gradient fills the island line-of-sight fan instead of the
+ * whole disc (`traceLosFan`).
+ */
+function drawHaloMask(ctx: BakeCtx, haloU: number, rays: Float32Array | null): void {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  const size = HALO_MASK_TEXTURE_SIZE;
+  const c = size / 2;
+  const px = c / haloSpanU(haloU); // world units -> texture px
+  const outerU = haloU + CLIENT_CONFIG.countermeasure.haloFeatherU;
+  ctx.fillStyle = cssRgba(C.black, 1);
+  ctx.fillRect(0, 0, size, size);
+  const r0 = Math.max(0, haloU * px);
+  const r1 = Math.max(r0 + 1, outerU * px);
+  const grad = ctx.createRadialGradient(c, c, r0, c, c, r1);
+  grad.addColorStop(0, cssRgba(maskGrey(haloAlphaAt(haloU, haloU)), 1));
+  grad.addColorStop(1, cssRgba(maskGrey(haloAlphaAt(outerU, haloU)), 1));
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  if (rays === null || rays.length < 3) ctx.arc(c, c, r1, 0, Math.PI * 2);
+  else traceLosFan(ctx, c, px, rays);
+  ctx.fill();
+}
+
+/**
+ * THE ISLAND LINE-OF-SIGHT FAN (Story 9.3 session 6, Eric 2026-10-12: "if I
+ * can't see it because of an island or any other sight block, don't render
+ * it"): ONE closed path through the hit point on every bearing (ray k at
+ * k·2π/N, render/hazeLos.ts — the hit distance, or halo + feather where
+ * nothing blocks). The halo gradient fills it, so the flash-rung edge and feather are
+ * untouched and every island cuts a hard shadow from its near edge outward.
+ */
+function traceLosFan(ctx: BakeCtx, c: number, px: number, rays: Float32Array): void {
+  const step = (Math.PI * 2) / rays.length;
+  ctx.moveTo(c + rays[0] * px, c);
+  for (let k = 1; k < rays.length; k++) {
+    const r = rays[k] * px;
+    ctx.lineTo(c + Math.cos(k * step) * r, c + Math.sin(k * step) * r);
+  }
+  ctx.closePath();
+}
+
+/**
+ * Bake the haze halo mask, or REDRAW an existing one in place — the
+ * `bakeDimMaskTexture` contract exactly, for exactly its reason: this texture
+ * hangs on a Sprite serving as the `cloud` layer's mask, so its source must
+ * never be destroyed (the frozen-client crash). Hand the live texture back as
+ * `into`; only a bare call mints. `rays` (one hit distance in world u per
+ * bearing, render/hazeLos.ts) cuts the island shadows; null = the plain disc.
+ */
+export function bakeHaloMaskTexture(
+  haloU: number,
+  into?: Texture | null,
+  rays: Float32Array | null = null,
+): Texture {
+  if (into != null) {
+    const reuseCtx = redrawableCtx(into, HALO_MASK_TEXTURE_SIZE);
+    if (reuseCtx !== null) {
+      drawHaloMask(reuseCtx, haloU, rays);
+      into.source.update();
+      return into;
+    }
+  }
+  const { canvas, ctx } = makeCanvas(HALO_MASK_TEXTURE_SIZE, HALO_MASK_TEXTURE_SIZE);
+  drawHaloMask(ctx, haloU, rays);
+  return Texture.from(canvas, true); // skipCache — see bakeDimMaskTexture
 }
 
 // --- 3. blip soft-dot --------------------------------------------------------

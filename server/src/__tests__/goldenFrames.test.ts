@@ -22,7 +22,7 @@ import {
   isAfloat,
   transitionLifecycle,
   CONFIG,
-  CONSUMABLE_SLOTS,
+  consumableSlotFor,
   coverageHas,
   wrapPositive,
   type BallisticEvent,
@@ -46,7 +46,15 @@ const DT = CONFIG.tick.simDtMs;
 const SIGHT = CONFIG.vision.sight;
 // Story 4.9: the mine/torpedo detect rung, re-derived as a literal (the
 // perception suite's oracle rule — never CONFIG.vision.detect).
-const DETECT = SIGHT * 0.75;
+const DETECT = SIGHT * 1; // the 4/8 rung (Story 9.1, Eric 2026-10-08; was 3/8) — independently re-derived, never CONFIG.vision.detect
+// THE RE-BASED PLACEMENTS (Story 9.8, epic-9 amendment 103 — the twelfths
+// ladder: sight = radar / 3, and radar's DROPOUT from `dropout.startU`,
+// rulings 121–123). ANNULUS is the one radar-annulus distance every scenario
+// uses: beyond sight and INSIDE the dropout's flat band, so a swept hull there
+// paints on every revolution (the snapshot pins a paint, never a coin flip).
+// BEYOND_RADAR is past the radar rim. Both derived, never a 1500/500 literal.
+const ANNULUS = SIGHT + 200;
+const BEYOND_RADAR = CONFIG.vision.radar + 200;
 // One tick's radar paint window width (rad) — a target at bearing δ/2 is painted
 // by the first post-step window [0, δ).
 const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
@@ -76,10 +84,10 @@ const EXPECTED_CHANNELS = [
 // fails the sub-case coverage assertion — the "found-style boolean per mandatory
 // sub-case" the straddle-boom check pioneered, generalized across the additions.
 const EXPECTED_SUBCASES = [
-  'dazzled-victim-private',
   'denied-blocked-mine-click',
   'denied-cooling-weapon',
   'denied-noammo-ability',
+  'denied-gun-shells-terminate',
   'denied-out-of-arc-owner-only',
   'gunnery-hitcall-beyond-sight',
   'gunnery-miss-own-splash',
@@ -105,7 +113,7 @@ const EXPECTED_SUBCASES = [
   'nonowner-hidden-at-launch',
   'nonowner-reveal-current-params',
   'nonowner-reveal-once',
-  'shell-reveal-beyond-detect',
+  'shell-reveal-at-sight',
   'slow-factor-victim-private',
   'slowed-victim-private',
   'soft-cover-allows-radar-blip',
@@ -270,7 +278,7 @@ function scnSightSpawnBlip(g: Golden): void {
   place(w, 'a', 0, 0);
   place(w, 'b', 100, 0, 1.5); // inside sight -> live contact
   const brg = SWEEP_DELTA / 2; // painted by the first post-step window [0, δ)
-  place(w, 'c', 400 * Math.cos(brg), 400 * Math.sin(brg)); // annulus -> blip only
+  place(w, 'c', ANNULUS * Math.cos(brg), ANNULUS * Math.sin(brg)); // annulus (inside the dropout's flat band) -> blip only
   w.step(); // sweep advances 0 -> δ, publishing the join spawns
   cap(g, w, 'a'); // spawn(a,b) + contact b + blip c (c is never a contact)
   cap(g, w, 'b');
@@ -281,7 +289,7 @@ function scnCombat(g: Golden): void {
   const w = bareWorld(1002);
   place(w, 'a', 0, 0);
   const b = place(w, 'b', 150, 0);
-  b.hp = 15; // the next hit sinks it
+  b.hp = CONFIG.gun.damage; // the next hit sinks it (derived — the cannon moved 16 → 12, Story 9.8)
   injectShell(w, 'tp', 'a', 0, 300, Math.PI / 2, 400, 'torp'); // owner-visible torp, flies clear
   injectShell(w, 'sg', 'a', 130, 0, 0, 100, 'shell'); // point-blank on b
   cap(g, w, 'a'); // shell + torp reveals (owner always), contact b
@@ -299,7 +307,7 @@ function scnCombat(g: Golden): void {
 function scnPtBn(g: Golden): void {
   const w = bareWorld(1003);
   const a = place(w, 'a', 0, 0);
-  place(w, 'b', 400, 0); // far (out of a's sight); sunk to bank a a level
+  place(w, 'b', ANNULUS, 0); // far (out of a's sight); sunk to bank a a level
   w.sinkShip('b', 'a'); // sunk(b) + pt(a) — the sunk now reaches a UNSEEN (PV 23: credited killer)
   a.hp -= 30; // damaged — a non-heal spend may not restore this
   a.offer = ['deckGun', 'reload', 'radarSweep', 'speed']; // fixed non-heal hand
@@ -311,15 +319,16 @@ function scnPtBn(g: Golden): void {
 }
 
 /** mine channel: own mine always, enemy mine at the DETECT boundary (Story
- *  4.9 — mines re-aimed from the truesight gate to the 3/8 rung), enemy mine
- *  inside sight but beyond detect hidden, enemy mine in deep fog hidden. */
+ *  4.9 — mines re-aimed from the truesight gate; detect = sight since the 4/8
+ *  rung, 4/12 on the twelfths), enemy mine just beyond detect hidden, enemy
+ *  mine in deep fog (beyond radar) hidden. */
 function scnMines(g: Golden): void {
   const w = bareWorld(1004);
   place(w, 'a', 0, 0);
-  injectMine(w, 'own', 'a', 900, 900); // owner sees own mines everywhere
+  injectMine(w, 'own', 'a', BEYOND_RADAR, BEYOND_RADAR); // owner sees own mines everywhere
   injectMine(w, 'seen', 'b', DETECT, 0); // enemy mine at the detect boundary (inclusive)
-  injectMine(w, 'nearFog', 'b', 300, 0); // inside sight (330) but beyond detect -> excluded (the 4.9 tightening)
-  injectMine(w, 'fog', 'b', 900, -900); // enemy mine in deep fog -> excluded
+  injectMine(w, 'nearFog', 'b', DETECT + 20, 0); // just beyond detect (= sight since 2026-10-08) -> excluded
+  injectMine(w, 'fog', 'b', BEYOND_RADAR, -BEYOND_RADAR); // enemy mine in deep fog -> excluded
   cap(g, w, 'a');
 }
 
@@ -391,9 +400,9 @@ function scnIslandLos(g: Golden): void {
   place(w, 'a', 0, 0);
   place(w, 'b', 150, 0, 1.5); // inside sight, behind the island -> no contact
   place(w, 'c', 100, 100); // inside sight, LOS-clear -> contact (sight control)
-  place(w, 'r', 400, 0); // radar annulus, behind hard cover -> no blip
-  place(w, 'p', 0, 400); // radar annulus, open water, swept -> blip (clear control)
-  place(w, 's', -400, 0); // radar annulus, behind LOW cover -> blip (the 4.11 disclosure)
+  place(w, 'r', ANNULUS, 0); // radar annulus, behind hard cover -> no blip
+  place(w, 'p', 0, ANNULUS); // radar annulus, open water, swept -> blip (clear control)
+  place(w, 's', -ANNULUS, 0); // radar annulus, behind LOW cover -> blip (the 4.11 disclosure)
   const a = w.ships.get('a')!;
   a.prevSweepAngle = wrapPositive(-0.05); // window spans bearings 0..pi inclusive
   a.sweepAngle = Math.PI + 0.05;
@@ -401,17 +410,17 @@ function scnIslandLos(g: Golden): void {
   const contactIds = f.contacts.map((c) => c.id);
   prove(g, 'island-blocks-sight-contact', !contactIds.includes('b'));
   prove(g, 'island-allows-sight-contact', contactIds.includes('c'));
-  prove(g, 'island-blocks-radar-blip', !blipAt(f, 400, 0));
-  prove(g, 'island-allows-radar-blip', blipAt(f, 0, 400));
-  prove(g, 'soft-cover-allows-radar-blip', blipAt(f, -400, 0));
+  prove(g, 'island-blocks-radar-blip', !blipAt(f, ANNULUS, 0));
+  prove(g, 'island-allows-radar-blip', blipAt(f, 0, ANNULUS));
+  prove(g, 'soft-cover-allows-radar-blip', blipAt(f, -ANNULUS, 0));
 }
 
 /**
  * Non-owner ballistic reveal — a shell AND a torpedo fired by phantom owner
  * `a` OUTSIDE observer `b`'s reveal gate, each closing on b. The gates FORK
- * as of Story 4.9: the shell rides FIRST-SIGHT (just outside 330u — SHELLS DO
- * NOT MOVE) while the torpedo rides FIRST-DETECT (just outside 247.5u, the
- * 3/8 rung). At LAUNCH (pre-step) b's frame carries neither. The next tick
+ * as of Story 4.9: the shell rides FIRST-SIGHT (just outside sight — SHELLS DO
+ * NOT MOVE) while the torpedo rides FIRST-DETECT (just outside the detect
+ * rung — one with sight since 2026-10-08, 4/12 on the twelfths). At LAUNCH (pre-step) b's frame carries neither. The next tick
  * each crosses ITS OWN boundary, and b's frame reveals both with CURRENT
  * pos/velocity and t = reveal tick (ctx.now), not the hidden launch point or
  * bornAt (=0) — the shell revealing BEYOND detect (proving shells were not
@@ -439,7 +448,8 @@ function scnBallisticReveal(g: Golden): void {
   // The Story 4.9 fork, proven on the same frame: the shell's reveal point is
   // BEYOND the detect rung (a detect-gated shell would still be hidden here),
   // the torpedo's is inside it.
-  prove(g, 'shell-reveal-beyond-detect', !!sh && Math.hypot(sh.x, sh.y) > DETECT && Math.hypot(sh.x, sh.y) <= SIGHT);
+  // Since the 4/8 rung (2026-10-08) detect = sight, so "beyond detect yet inside sight" is an empty band: the shell proof is that it reveals at or inside sight.
+  prove(g, 'shell-reveal-at-sight', !!sh && Math.hypot(sh.x, sh.y) <= SIGHT);
   prove(g, 'torp-reveal-inside-detect', !!tp && Math.hypot(tp.x, tp.y) <= DETECT);
   w.step(); // still airborne, but already seen
   const after = cap(g, w, 'b');
@@ -522,7 +532,7 @@ function scnStarShell(g: Golden): void {
   place(w, 'a', 0, 0, 0, 'battleship'); // the firer
   place(w, 'h', flareDist, 40, 1.1); // inside the future zone, beyond a's sight
   place(w, 'c', flareDist, -CONFIG.vision.radar); // dist to zone center = radar exactly — at radar range
-  place(w, 'd', -400, 0); // dist to zone center (flareDist,0) = 810 — beyond radar
+  place(w, 'd', -BEYOND_RADAR, 0); // dist to zone center (flareDist,0) > radar — beyond radar
   // Story 8.5: the Battleship's seed fits `broadside` into weapon slot 2 and
   // `starShells` into 3.
   w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: flareDist, slot: 3, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
@@ -571,10 +581,10 @@ function scnStarShell(g: Golden): void {
 function scnZoneKill(g: Golden): void {
   const w = bareWorld(1012);
   place(w, 'a', 0, 0);
-  const b = place(w, 'b', 500, 0);
-  b.hp = 15; // the next hit sinks it
-  w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 500, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
-  injectShell(w, 'ks', 'a', 480, 0, 0, 100); // a's shell, point-blank on b, far outside a's sight
+  const b = place(w, 'b', ANNULUS, 0);
+  b.hp = CONFIG.gun.damage; // the next hit sinks it (derived — the cannon moved 16 → 12, Story 9.8)
+  w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: ANNULUS, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
+  injectShell(w, 'ks', 'a', ANNULUS - 20, 0, 0, 100); // a's shell, point-blank on b, outside a's sight
   w.step(); // strikes b -> boom + dmg (victim-private) + sunk + pt
   const fa = cap(g, w, 'a');
   prove(g, 'litzone-boom-victim-id', fa.events.some((e) => e.k === 'boom' && e.hit === 'b'));
@@ -624,8 +634,8 @@ function scnMineBlast(g: Golden): void {
 
 /**
  * Owner gun mine detonation (Story 1.8) — ML `a` clicks its own ARMED mine
- * (injected, mines precedent): the cannon shell LANDS on it (16 dmg >= the
- * mine's 10 hp, amendment 200 — the snapshot did not move with that ruling)
+ * (injected, mines precedent): the cannon shell LANDS on it (its damage >= the
+ * mine's 10 hp — 12 since Story 9.8; amendment 200 — the snapshot did not move with that ruling)
  * and it pops as a plain blast at the MINE's position whose boom carries NO
  * victim id (no tripping ship).
  */
@@ -702,6 +712,13 @@ function scnDenied(g: Golden): void {
   const fa3 = cap(g, w, 'a');
   prove(g, 'denied-cooling-weapon', (fa3.denied ?? [])[0]?.reason === 'cooling' && (fa3.denied ?? [])[0]?.seq === 3);
   prove(g, 'denied-noammo-ability', (fa3.denied ?? [])[1]?.reason === 'no-ammo' && (fa3.denied ?? [])[1]?.slot === 1);
+  // Tick 4 (Story 9.12 review gate): the tick-2 click is TWO parallel shells
+  // now (CONFIG.gun.barrels), and they terminate here — one tick after the
+  // denial frame — so capture it: the burst + hc terminal frame this
+  // scenario always pinned.
+  w.step();
+  const fa4 = cap(g, w, 'a');
+  prove(g, 'denied-gun-shells-terminate', fa4.events.some((e) => e.k === 'burst') && fa4.events.some((e) => e.k === 'hc'));
 }
 
 /**
@@ -723,7 +740,7 @@ function scnHoming(g: Golden): void {
   w.applyCard(a, 'heavyTorpedo'); // the second copy: tier II — the fish homes
   place(w, 'b', 200, 60); // the fish acquires and steers toward this hull mid-flight
   const c = place(w, 'c', 250, -60); // detect covers the turning stretch
-  const d = place(w, 'd', -900, 0); // beyond sight of everything
+  const d = place(w, 'd', -BEYOND_RADAR, 0); // beyond sight AND radar of everything (Story 9.8: no dropout roll pinned)
   for (const s of [c, d]) {
     s.prevSweepAngle = Math.PI; // park the beams away from the action
     s.sweepAngle = Math.PI + 1e-4;
@@ -747,12 +764,12 @@ function scnHoming(g: Golden): void {
 
 /**
  * Debuff privacy (Story 2.8): a FOULING blast stamps the victim's slowedUntil
- * and a FLASH SHELLS burst stamps dazzledUntil (Story 8.17 — the one-time
- * mark that replaced the star-shell DAZZLE zone; written here as the raw
- * record write applyFlash makes, the scnTorpReReveal precedent, so the
- * scenario's frames stay byte-stable) — each rides `you` on the victim's own
- * frame ONLY (the boostUntil precedent); a sighted watcher's contact for the
- * victim carries neither key. Since Story 8.13 the fouling mine is its own
+ * (and its depth, slowFactor) — each rides `you` on the victim's own frame
+ * ONLY (the boostUntil precedent); a sighted watcher's contact for the victim
+ * carries neither key. (The FLASH SHELLS `dazzledUntil` arm this scenario
+ * carried from Story 8.17 left with the mark in Story 9.4; the FOULING
+ * SHELL's `fouledUntil` is pinned victim-private in foulingShell.test.ts and
+ * by the perception fuzz, not here.) Since Story 8.13 the fouling mine is its own
  * LINE (`foulingMines`, equipment) and the laid mine carries `kind: 'fouling'`
  * — the readers key off the mine's kind, and the owner's fitted row supplies
  * the blast's numbers.
@@ -764,8 +781,7 @@ function scnDebuffs(g: Golden): void {
   const b = place(w, 'b', 0, 10); // trips the fouling mine below on the first step
   place(w, 'watcher', 100, 60); // sees b as a contact
   injectMine(w, 'fm', 'o', 0, 0, 'fouling');
-  b.dazzledUntil = w.now + DT + CONFIG.flashShells.durationMs; // the flash mark, as applyFlash stamps it on the coming tick
-  w.step(); // the blast lands on b; the dazzle mark is live
+  w.step(); // the blast lands on b
   const fb = cap(g, w, 'b');
   const fw = cap(g, w, 'watcher');
   const contact = fw.contacts.find((ct) => ct.id === 'b');
@@ -785,27 +801,21 @@ function scnDebuffs(g: Golden): void {
     fb.you!.slowFactor === b.slowFactor && b.slowFactor < 1 &&
       contact !== undefined && !('slowFactor' in contact) && !('slowFactor' in fw.you!),
   );
-  prove(
-    g,
-    'dazzled-victim-private',
-    fb.you!.dazzledUntil === b.dazzledUntil && b.dazzledUntil > 0 &&
-      contact !== undefined && !('dazzledUntil' in contact),
-  );
 }
 
 /**
- * The gunnery conversation (Story 4.3; halo re-aimed to SIGHT*1.25 = 412.5u
- * by Story 4.9) — a REAL gun click driving all three new channels through the
- * wire. Shooter `a` fires into empty water 560u out: on the launch tick the
- * muzzle flash `mz` reaches o1 (≈275u from the muzzle — unambiguously inside
- * the 412.5u halo; the shipped 400u placement would have sat 12.5u under it),
- * never o2 (≈630u — beyond the halo) and never o3 (≈275u but island-blocked:
- * islands block every sensor at all ranges); on the burst tick the shooter
- * alone receives the self-private fall-of-shot `sp` at the true burst point
- * (o1, captured the same tick, gets neither sp nor burst — the point is
- * outside its sight). A torpedo launch next proves the quiet weapon: o1's
- * frame carries NO mz (amendment 20). After the gun reload, a second click
- * centered on fogged hull `b` (500u out — beyond sight, no boom rides a
+ * The gunnery conversation (Story 4.3; the halo is the 6/12 rung since Story
+ * 9.8 — radarRange × muzzleFlashFactor, amendment 103) — a REAL gun click
+ * driving all three new channels through the wire. Shooter `a` fires into
+ * empty water SIGHT + 400 out: on the launch tick the muzzle flash `mz`
+ * reaches o1 (≈300u from the muzzle — unambiguously inside the halo), never
+ * o2 (150u past the halo) and never o3 (≈300u but island-blocked: islands
+ * block every sensor at all ranges); on the burst tick the shooter alone
+ * receives the self-private fall-of-shot `sp` at the true burst point (o1,
+ * captured the same tick, gets neither sp nor burst — the point is outside
+ * its sight). A torpedo launch next proves the quiet weapon: o1's frame
+ * carries NO mz (amendment 20). After the gun reload, a second click
+ * centered on fogged hull `b` (ANNULUS out — beyond sight, no boom rides a
  * burst outcome) delivers exactly one Hit Call `hc` carrying only {k,id,x,y}
  * with id = the SHOOTER — no victim id, no severity, and no sp for the same
  * shell.
@@ -814,12 +824,13 @@ function scnGunnery(g: Golden): void {
   const w = bareWorld(1019);
   w.map.islands.push(circleIsland(200, 0, 40)); // the o3 LOS blocker
   place(w, 'a', 0, 0); // the shooter
-  place(w, 'o1', 0, 300); // unambiguously inside the 412.5u muzzle halo
-  place(w, 'o2', 0, -600); // beyond the 412.5u halo
+  place(w, 'o1', 0, 300); // unambiguously inside the muzzle halo (6/12)
+  place(w, 'o2', 0, -(CONFIG.vision.muzzleFlash + 150)); // beyond the halo
   place(w, 'o3', 300, 0); // inside the halo but behind the island
-  place(w, 'b', -500, 0); // the fogged victim of the second shot
-  // Shot 1 — a miss into empty water at bearing pi/4 (clear of the island).
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI / 4, fireSeq: 1, aimDist: 560, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+  place(w, 'b', -ANNULUS, 0); // the fogged victim of the second shot
+  // Shot 1 — a miss into empty water at bearing pi/4 (clear of the island),
+  // bursting outside o1's sight (re-based for the 4/12 sight, Story 9.8).
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI / 4, fireSeq: 1, aimDist: SIGHT + 400, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
   w.step(); // the click fires: mz + shell reveal ride this tick
   cap(g, w, 'a'); // shooter: own mz + own shell reveal
   const fo1 = cap(g, w, 'o1');
@@ -852,7 +863,7 @@ function scnGunnery(g: Golden): void {
   // Ride out the gun reload, then shot 2 — centered on the fogged hull b.
   const reloadTicks = Math.ceil(CONFIG.gun.reloadMs / DT) + 1;
   for (let i = 0; i < reloadTicks; i++) w.step();
-  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 3, aimDist: 500, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 3, aimDist: ANNULUS, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
   let hit = false;
   for (let i = 0; i < 40 && !hit; i++) {
     w.step();
@@ -893,7 +904,7 @@ function scnHeal(g: Golden): void {
   place(w, 'b', 60, 0); // hull-to-hull: fully sighted, and still told nothing
   a.hp -= 60;
   w.applyCard(a, 'hullRepair');
-  expect(w.sinkingActivationGate(a, CONSUMABLE_SLOTS[0])).toEqual({ ok: true });
+  expect(w.sinkingActivationGate(a, consumableSlotFor('hullRepair')!)).toEqual({ ok: true });
   w.step();
   const fa = cap(g, w, 'a');
   const fb = cap(g, w, 'b');
@@ -933,9 +944,10 @@ function scnWake(g: Golden): void {
   const a = place(w, 'a', 0, 0);
   const b = place(w, 'b', 900, 900); // its WATER is under test, not its hull
   // b's laid track along y=0 (raw ring injection — fixed poses, fixed ages):
-  // two in-sight samples (200, 212), then an annulus run 400..448, ages
-  // spread so multiple quarter-life buckets ride the wire.
-  const xs = [200, 212, 400, 412, 424, 436, 448];
+  // two in-sight samples (200, 212), then an annulus run ANNULUS..+48 (Story
+  // 9.8: re-based past the 4/12 sight and inside the dropout's flat band),
+  // ages spread so multiple quarter-life buckets ride the wire.
+  const xs = [200, 212, ANNULUS, ANNULUS + 12, ANNULUS + 24, ANNULUS + 36, ANNULUS + 48];
   const ages = [11_600, 11_300, 11_000, 8_000, 5_000, 2_000, 0];
   for (let i = 0; i < xs.length; i++) {
     b.wake.xs[i] = xs[i];
@@ -947,7 +959,7 @@ function scnWake(g: Golden): void {
   // A torpedo's water: half-life (6000ms), one-cell (9u) ribbon at y=6.
   const torp: WakeRibbon = { xs: new Float64Array(8), ys: new Float64Array(8), ts: new Float64Array(8), cap: 8, head: 0, count: 0, lifeMs: 6_000, widthU: 9, torp: true, hullAheadU: 0 };
   for (let i = 0; i < 5; i++) {
-    torp.xs[i] = 500 + 12 * i;
+    torp.xs[i] = ANNULUS + 100 + 12 * i; // beyond detect, inside the flat band
     torp.ys[i] = 6;
     torp.ts[i] = w.now - (4 - i) * 1_200;
   }
@@ -956,7 +968,7 @@ function scnWake(g: Golden): void {
   w.respawnEnabled = false; // active-phase policy: the dead stay dead
   w.sinkShip('b');
   // Story 5.2: a SINKING b would still lay wake (the motion seam) and chain a
-  // bogus (448,0)→(900,900) segment onto the injected fixture ring — this
+  // bogus (last sample)→(900,900) segment onto the injected fixture ring — this
   // scenario is about a WRECK's water, so founder it before the step.
   w.ships.get('b')!.lifecycle = transitionLifecycle(w.ships.get('b')!.lifecycle, 'founder', w.now);
   w.step();
@@ -977,7 +989,7 @@ function scnWake(g: Golden): void {
   prove(
     g,
     'wake-torpedo-ribbon',
-    wks.some((e) => covers(e, 530, 6)) && !fa.events.some((e) => e.k === 'torp'),
+    wks.some((e) => covers(e, ANNULUS + 130, 6)) && !fa.events.some((e) => e.k === 'torp'),
   );
   // The record leaves the room entirely: the orphaned water still paints.
   w.removeShip('b');
@@ -996,11 +1008,13 @@ function scnWake(g: Golden): void {
 /**
  * The straight-runner re-reveal (Story 8.13, epic-8 amendment 78): observer
  * `b` is revealed a fish at the detect ring, the gate then SHRINKS under it
- * (a star-shell dazzle halves b's sight for one tick — the fish, still live,
- * is outside the dazzled 3/8 rung), and when the dazzle lifts the fish is
- * revealed AGAIN with current pos/velocity and `t` = the re-reveal time, in
- * the unchanged {k,id,x,y,vx,vy,t} shape. Nothing is emitted while outside.
- * Frames captured every tick, so the snapshot pins the silent tick too.
+ * for one tick (b's sight written to ONE RUNG of its intel range, radar / 12 — the
+ * FLASH SHELLS dazzle's old collapse, as a plain stats write since Story 9.4
+ * retired the mark; the fish, still live, is outside the shrunken rung), and
+ * when sight returns the fish is revealed AGAIN with current pos/velocity and
+ * `t` = the re-reveal time, in the unchanged {k,id,x,y,vx,vy,t} shape.
+ * Nothing is emitted while outside. Frames captured every tick, so the
+ * snapshot pins the silent tick too.
  */
 function scnTorpReReveal(g: Golden): void {
   const w = bareWorld(1021);
@@ -1008,14 +1022,16 @@ function scnTorpReReveal(g: Golden): void {
   injectShell(w, 'tp', 'a', DETECT + 6, 0, Math.PI, 5_000, 'torp'); // just outside DETECT, closing -x at 25u/tick
   cap(g, w, 'b'); // launch tick: hidden
   w.step();
-  const first = cap(g, w, 'b'); // crosses the ring: revealed (≈228u out)
+  const first = cap(g, w, 'b'); // crosses the ring: revealed (DETECT − 19u out)
   const one = first.events.find((e) => e.k === 'torp') as BallisticEvent | undefined;
-  b.dazzledUntil = w.now + DT + 1; // dazzled for exactly the next frame: detect collapses to 123.75
+  const fullSight = b.stats;
+  b.stats = { ...b.stats, sightRange: b.stats.radarRange / 12 }; // shrunk for exactly the next frame: detect collapses to one rung
   w.step();
-  const dazzled = cap(g, w, 'b'); // ≈203u out: OUTSIDE the dazzled rung — silent, mark cleared
-  prove(g, 'torp-re-reveal-silent-outside', !!one && !dazzled.events.some(isBallistic) && !b.seenBallistics.has('tp'));
+  const shrunk = cap(g, w, 'b'); // DETECT − 44u out: OUTSIDE the shrunken rung — silent, mark cleared
+  prove(g, 'torp-re-reveal-silent-outside', !!one && !shrunk.events.some(isBallistic) && !b.seenBallistics.has('tp'));
+  b.stats = fullSight; // sight back
   w.step();
-  const again = cap(g, w, 'b'); // dazzle lifted, ≈178u out: INSIDE again — revealed again
+  const again = cap(g, w, 'b'); // DETECT − 69u out: INSIDE again — revealed again
   const two = again.events.find((e) => e.k === 'torp') as BallisticEvent | undefined;
   const live = w.shells.get('tp')!;
   prove(
@@ -1124,6 +1140,48 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // 'chaff','dazzleShells','radarSweep'], row 31 dealt 'armor' where it dealt
   // 'speed'. No contact, event, blip, mine, zone, position or hp byte moved
   // (verified by diffing the rows with `offer` masked out).
+  // REGENERATED KNOWINGLY IN STORY 9.2 (PV 75). 156 of 167 lines moved, read
+  // by diffing old against new: in 155 the ONLY difference is `you.ammo`
+  // growing from nine to eleven entries by two trailing `null`s (SLOT_COUNT
+  // 11 — the two new consumable slots are empty in every golden world); in
+  // the ONE other (row 8) the same two nulls plus `you.offer`'s content —
+  // CHAFF left the catalog (amendment 31), so the seeded draw deals
+  // 'decoyBuoy' where it dealt 'chaff'. No golden frame ever carried
+  // `you.chaff` / `you.chaffGhosts`; no contact, event, blip, mine, zone,
+  // position or hp byte moved.
+  // REGENERATED KNOWINGLY IN STORY 9.4 (PV 78). Exactly THREE rows moved,
+  // each read: (1) row 8's `you.offer` hand deals 'foulingShell' in the slot
+  // that dealt 'dazzleShells' — the catalog id rename, same seeded draw;
+  // (2) scnDebuffs' victim frame: `you.dazzledUntil` is GONE with the FLASH
+  // SHELLS mark, and the victim's own contact list now carries the watcher
+  // at 117 u — its sight is no longer collapsed to 82.5 u (the
+  // `dazzled-victim-private` sub-case left with the field; the watcher's own
+  // frame is byte-identical); (3) scnTorpReReveal's tick-2 frame: the same
+  // `you.dazzledUntil` key gone — the gate shrink is a stats write now, which
+  // never rides the wire, so the silent tick and the re-reveal are
+  // byte-identical. No other contact, event, blip, mine, zone, position or hp
+  // byte moved (verified by diffing the rows field by field).
+  // REGENERATED KNOWINGLY IN STORY 9.6 (PV 80). Exactly TWO rows moved, and in
+  // each the ONLY difference is `you.offer`'s content: row 8's hand
+  // ['reload','decoyBuoy','foulingShell','radarSweep'] became
+  // ['passiveHealing','decoyBuoy','foulingShell','reload'] (the new PASSIVE
+  // HEALING ladder joined the pool, so the seeded draw deals differently);
+  // row 31 deals 'hullPoints' where it dealt 'armor' (the id rename, same
+  // seat, same draw). No contact, event, blip, mine, zone, position or hp
+  // byte moved (verified by diffing the rows field by field).
+  // REGENERATED KNOWINGLY IN STORY 9.8 (PV 82, the twelfths ladder —
+  // amendment 103, rulings 121–129). 29 of 160 rows moved, each read field by
+  // field: (1) placements re-based onto ANNULUS (sight + 200, inside the radar
+  // dropout's flat band) / BEYOND_RADAR — blip masks, contact and event
+  // positions follow; (2) SIGHT-derived positions (spectator b, straddle,
+  // ballistic and torpedo reveals, the flare's burst point and its longer
+  // flight's tick/t/sweep/xp/reload) moved with sight 330 → 500 and
+  // litRadius = SIGHT / 2; (3) the bigger sight bubble adds contacts / reveals
+  // it now honestly covers (b sees a's torp in scnCombat; o1 and o3 see each
+  // other in scnGunnery; scnSightSpawnBlip's c becomes a blip for b instead of
+  // a contact) and drops scnMines' stale `nearFog` row. No dropout roll is
+  // pinned on a paint: every blip/wake the battery records sits inside
+  // `dropout.startU` (scnHoming's far observer moved beyond radar for that).
   it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
     expect(runBattery()).toMatchSnapshot();
   });
@@ -1151,7 +1209,7 @@ function runScenarios(g: Golden): void {
   // Story 8.15 (the snapshot regenerated KNOWINGLY — PV 58): every `shell`
   // reveal row gains the trailing family key `w: 'cannon'` (the ONE declared
   // disclosure widening, amendment 89(i)); torpedo rows, `you` rows (no cut
-  // is ever opened in this battery, so `damageCutUntil` stays omitted) and
+  // is ever opened in this battery, so `hunkerUntil` stays omitted) and
   // every other channel are byte-identical.
   // Story 2.8 additions (appended KNOWINGLY — the snapshot regenerated with
   // the strip + deck economy; every earlier scenario's rows changed shape

@@ -8,12 +8,13 @@
 import { describe, expect, it } from 'vitest';
 import { consumableTable, shipUpgradeTable, tierTable, TABLE_HULLS, type StatTable } from '../how-to-play/weaponTables.js';
 import { HOWTO_SECTIONS } from '../how-to-play/copy.js';
+import { CATALOG, CONFIG, LINE_IDS, effectiveStats } from '@salvo/shared';
 
 const TIERED = [
   'deckGun', 'machineGun', 'flak', 'heavyTorpedo', 'lightTorpedo', 'broadside',
   'starShells', 'phosphorShells', 'navalMines', 'captiveMines', 'foulingMines',
 ];
-const SHIP = ['armor', 'speed', 'turning', 'radarSweep', 'reload'];
+const SHIP = ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'];
 
 const row = (t: StatTable, label: string): readonly string[] => {
   const r = t.rows.find((x) => x.label === label);
@@ -37,8 +38,12 @@ describe('tier tables', () => {
     }
   });
 
-  it('CANNON damage reads 16 / 16 / 18 / 18 / 21', () => {
-    expect(row(tierTable('deckGun'), 'DAMAGE')).toEqual(['16', '16', '18', '18', '21']);
+  // The values are Eric's dials (a 2026-10-13 experiment moved them), so the
+  // expectation is read off the fold the card reads, tier I..V = 0..4 copies.
+  it('CANNON damage reads the folded gun damage at every tier', () => {
+    const at = (k: number): string =>
+      String(effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<string>(k).fill('deckGun')).equipment.gun.damage);
+    expect(row(tierTable('deckGun'), 'DAMAGE')).toEqual([0, 1, 2, 3, 4].map(at));
   });
 
   it('FLAK reload runs 3.5 s down to 2.8 s (Eric 2026-10-02)', () => {
@@ -63,14 +68,44 @@ describe('ship upgrade tables', () => {
     }
   });
 
-  it('ARMOR tops the DREADNOUGHT out at 450', () => {
-    expect(row(shipUpgradeTable('armor'), 'DREADNOUGHT').at(-1)).toBe('450');
+  it('every ship ladder has BASE then +1 … +5 (Story 9.6, epic-9 amendments 90/91)', () => {
+    for (const id of SHIP) expect(shipUpgradeTable(id).columns, id).toEqual(['BASE', '+1', '+2', '+3', '+4', '+5']);
+  });
+
+  it('HULL tops the DREADNOUGHT out at its base hull + 5 × 50 (Story 9.6, amendment 90; was ARMOR at 450)', () => {
+    const base = effectiveStats(CONFIG.shipClasses.battleship, []).maxHp;
+    const top = effectiveStats(CONFIG.shipClasses.battleship, Array<string>(CATALOG.hullPoints.cap).fill('hullPoints')).maxHp;
+    expect(row(shipUpgradeTable('hullPoints'), 'DREADNOUGHT')[0]).toBe(String(base));
+    expect(row(shipUpgradeTable('hullPoints'), 'DREADNOUGHT').at(-1)).toBe(String(top));
+  });
+
+  it('PASSIVE HEALING derives its table from the HEAL row: 2 %/S at BASE, 5 %/S at +5', () => {
+    const heal = row(shipUpgradeTable('passiveHealing'), 'SPEEDBOAT');
+    expect(heal[0]).toBe('2 %/S');
+    expect(heal.at(-1)).toBe('5 %/S');
+  });
+
+  // ARMOR PIERCING (Story 9.9, epic-9 amendment 159): its table derives from the
+  // eighth SHIP-panel row by construction, ready for the entry Story 9.17's copy
+  // adds — base 0, then the fold's value per card, on every hull.
+  it('ARMOR PIERCING derives its table from the ARMOR PIERCING row', () => {
+    const t = shipUpgradeTable('armorPiercing');
+    expect(t.columns).toEqual(['BASE', '+1', '+2', '+3', '+4', '+5']);
+    TABLE_HULLS.forEach((cls, i) => {
+      const at = (k: number): string =>
+        String(effectiveStats(CONFIG.shipClasses[cls], Array<string>(k).fill('armorPiercing')).armorPiercing);
+      expect(t.rows[i]!.values, cls).toEqual([0, 1, 2, 3, 4, 5].map(at));
+    });
+    expect(row(t, 'SPEEDBOAT')[0]).toBe('0');
   });
 });
 
 describe('consumable tables', () => {
   it('every consumable entry on the page has a derived table', () => {
-    const entries = HOWTO_SECTIONS.flatMap((s) => s.entries ?? []).filter((e) => e.table === 'consumable');
+    // A line that has LEFT the catalog (CHAFF, Story 9.2) keeps its frozen copy
+    // entry until 9.11 (epic-9 amendment 36) but derives no table.
+    const entries = HOWTO_SECTIONS.flatMap((s) => s.entries ?? [])
+      .filter((e) => e.table === 'consumable' && (LINE_IDS as readonly string[]).includes(e.lineId));
     expect(entries.length).toBeGreaterThan(0);
     for (const e of entries) expect(consumableTable(e.lineId), e.lineId).not.toBeNull();
   });

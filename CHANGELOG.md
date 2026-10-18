@@ -1,5 +1,405 @@
 # Changelog
 
+## [0.18.64] - 2026-10-17
+
+### Changed
+- **Less fog.** The weather fog now covers 10–15 % of the live ring at solid density (was 20–25 %). Eric on staging: "20-25% seems too high." The thin edge still adds a little haze around each bank, so expect about 15–25 % of the ring with some fog in it.
+- Protocol version unchanged (89): the coverage target is a server dial; the fog cut still travels on the schema.
+
+### Not changed
+- Fog speed, spin, wavelength, the eye toll, the League-bush rule; every other number.
+
+## [0.18.63] - 2026-10-17
+
+### Changed
+- **Bots and drones can find their way.** The server now builds a navigation grid from each map. Bots route around islands, run a flow field into the safe ring, steer away from coasts in graded steps, and leave a ring early enough to beat the storm (the departure rule). Idle bots patrol by route, and drones follow routed waypoints and ring returns on the same grid.
+- **Bots decide better.** An odds gate sends a bot into a fight only when it likes the numbers. Otherwise it kites or shadows at gun reach. A bot can hide in fog or behind an island, or hold in cover (siege and trapper builds), and a broken hull breaks off with a latch so it does not flip-flop. After a ram that does not finish the target, the bot backs out. Bots know the next ring and never chase a target past the rim.
+- **Smarter targeting.** Bots never shoot their own decoys or a decoy they have sighted. A probable buoy is demoted as a target. Hits are counted per click, not per shell.
+- **Guns have doctrine.** Each gun has its own range band, measured on the full-damage radius. The machine gun and flak hold fire until the target is close, and the cannon stands off. A bot fires star shells to shoot into its own lit zone at full damage, and lit targets are worth 1.5 times as much.
+- **Specials fire more sensibly.** HUNKER, SHIELD, countermeasure, decoy, fouling shell, supercavitating torpedo and boost have extended triggers that read the new postures.
+- **Harness readouts.** The batch sim reports groundings, stuck episodes, ticks outside the ring, storm deaths while stuck, kills by source, wasted shots, posture ticks and transitions, fog ticks, presses and activations, endgame no-hit gaps and drone groundings. `--tune bots.*` tunes the new dials.
+- Protocol version unchanged (89): nothing new rides the wire.
+
+### Not changed
+- Every weapon, ship, storm, map and fog number; no in-game copy; the SIX perception exceptions.
+
+## [0.18.62] - 2026-10-17
+
+### Changed
+- **Shots drop to half at max range.** The three deck guns now fall from full damage at half the gun's range to 50 % at max range (was 80 %). Eric: "If you want to do more damage, you need to get into range that people can shoot you back."
+- **Star-shell light is always full damage.** A deck-gun shot aimed into your own star-shell lit zone deals full damage wherever it lands, even far past the gun's range (the lit zone already let you shoot that far). Only your own flares count.
+- **The decoy buoy is 25 % bigger on the water.** Same shape (waterline tick, spar, diamond daymark), scaled up so it reads at a glance.
+- Protocol version unchanged (89): the client reads no attenuation number; the buoy is a client drawing.
+
+### Not changed
+- The half-range start of the drop, the flak rim, the mine rules, every weapon range and ladder.
+
+## [0.18.61] - 2026-10-16
+
+### Changed
+- **The deck guns, retuned by Eric's math.** Every gun now climbs to twice its Tier I damage output at Tier V, with the faster reload counted inside that. Cannon: shell 8/10/11/12/13, and it fires two barrels at every tier (no barrel upgrades any more); the second turret at III stays. Machine gun: magazine 12/15/18/20/23, a shot every 0.30 down to 0.20 s, damage 5 at every tier, and the full-magazine reload starts at 12.5 s (10.0 s at V). Flak: center damage 16/18/20/22/24, and the third turret is gone (two at most). Sustained damage per second goes cannon 3.2 to 6.5, machine gun 3.73 to 7.88, flak 4.57 to 8.57.
+- **Shots lose a little punch at range.** All three deck guns deal full damage out to half of the gun's range, falling in a straight line to 80 % at max range. It is measured from where the shell left the gun to where it lands, against the gun's range at the moment you fired, so closing or backing off after the shot changes nothing.
+- **Flak's rim is half damage.** The edge of the blast deals half the center's damage (it used to be a flat 10 less).
+- **Pickups hit harder.** Light torpedo 80 to 120, heavy torpedo 90 to 135, naval and captive mines 90 to 135, supercavitating torpedo 150. Torpedo tubes and the captive-mine pool top out at two (the naval-mine pool is unchanged at 2 to 6).
+- **Mines feel the whole blast.** A mine is hurt when its 10 u marker touches a shell's blast, not only when the shell lands on it, and it takes the shell's range-reduced damage. Flak can clear a few mines at once and the cannon's two shells can pop one. The machine gun still has to land within 10 u of the mine.
+- No battle sim was run for this pass. The check is play on staging: about 8 of 16 captains gone per ring.
+- Protocol version 89 (the client reads the new gun, torpedo and mine ladders and the range dial).
+
+### Not changed
+- Broadside, star, phosphor and fouling shells, the 6 / 4 hp bump when a cannon or flak shell strikes a hull directly, every weapon range, hull, armor, heals, the storm and the rings.
+
+## [0.18.60] - 2026-10-16
+
+### Changed
+- **One row again.** The HUD bar is back to a single row (the Epic 8 geometry): health globe, five weapon squares, a framed belt of six consumable squares, helm globe. The results LOADOUT block follows.
+- **Mines are warnings.** Every mine's marker is 10 % larger. Your own mines (and their radius rings) are white; an enemy mine you can see pulses yellow to orange once a second (steady orange with motion off).
+- **Hazard rings say whose, not who.** Lit, fouling and burning zones no longer wear the firer's personal color: yours are white, anyone else's pulse yellow to orange like the mines. The lit zone's fill and the fouling net follow the ring.
+- **Burning water is fire.** The phosphor burn zone's red disc is gone; it is a field of white flames over the whole zone, under the zone glow. Another captain's flames lean slightly toward the warning color so hostile fire reads hostile at a glance; your own fire stays pure white.
+- Protocol version unchanged (88).
+
+### Not changed
+- The 10 u "click on the mine" hit disc, the zones' mechanics (slow, burn, reveal), radar, fog.
+
+## [0.18.59] - 2026-10-16
+
+### Changed
+- **Fog works like a bush.** Standing in solid fog you now see out of it normally, and you see everyone in the same bank. Fog costs your eyesight only when you look into a bank from outside, or across clear water (or thin haze) into a second bank. A bank between two ships in clear water still hides them from each other. Bots and the PvE fleet see by the same rule. (Eric: "like grass patches in League.")
+- **No fog past the ocean's edge.** Fog exists only where islands can be, inside the map; the storm water beyond the rim is clear. The fog amount is now measured over the ocean part of the live ring only, so a small last ring at the edge of the map gets its full share.
+- Protocol version 88 (an older client would draw fog past the rim where the server has none).
+
+### Not changed
+- Radar at 500 to 1,500 u and a bot's memory of your last radar plot still ignore fog, by the earlier rulings. That memory includes a plot sitting in the bot's own bank, which the bot could now see by eye.
+
+## [0.18.58] - 2026-10-16
+
+### Changed
+- **Fog at a crawl.** The drift and the spin at the ocean's edge are each 1 u/s (they add where they line up, so a bank at the rim can move up to 2 u/s; the spin dial is now a speed, `spinRimU`, not a period). At this crawl the spin's curl is under a degree, so the fog reads as a slow drift.
+- **The coverage dial means solid fog.** 20 to 25 % of the live ring is now fog thick enough to count (half density or more), not merely "above the cut"; before, only about 14 % of the ring was solid at a 22 % dial and the rest was thin edge. With the thin edge included, about 30 to 35 % of the ring now carries some haze.
+- Protocol version 87 (the client reads the fog dials).
+
+### Verified, not changed
+- Fog does block eyesight as ruled: standing in a bank you see about 170 u, and two thirds of hulls inside your bubble are hidden when you stand in fog (measured on the real server code). What fog does not touch is radar from 500 to 1,500 u and a bot's memory of your last radar plot, both by design.
+
+## [0.18.57] - 2026-10-16
+
+### Changed
+- **The fog spins.** The whole fog pattern now turns slowly about the ocean center, once every 20 minutes, with the middle running ahead of the edge by up to about a 22° curl that builds and rebuilds every two and a half minutes, so banks curl and stretch instead of sliding across the map in a straight line. At the edge of the ocean the turn carries a bank about 26 u/s; mid-ocean about 16 u/s. Which way it turns is a coin flip at the start of each match. The drift is still there, slower: 3.5 u/s instead of 8. The wisps ride the banks they tint, and the server re-reads the field every half second instead of every second so it keeps up.
+- **More fog.** Between 20 and 25 % of the live ring is fogged at any time (was 2 to 8 %), and it rolls in over about 15 seconds after the match goes live (was about a minute).
+- Protocol version 86 (the client reads the fog dials).
+
+## [0.18.56] - 2026-10-15
+
+### Added
+- **FOG: rolling banks of haze that eat eyesight and nothing else.** Fog is a fractal-noise field that drifts with a wind and slowly changes shape. Between 2 and 8 % of the live ring is fogged at any time (the band wanders). Every unit of fog counts triple against your sight, so in the heart of a bank you see about 167 u instead of 500 u, and a thin edge costs little. There is no fog before the match goes live.
+- **Everyone is fogged, the sailor inside included.** Mines and torpedoes are spotted late inside fog, and a muzzle flash or a wounded hull's smoke pays the same cost to be seen.
+- **Radar is untouched.** A hull hidden by fog inside your sight bubble is dark to both of your sensors. Zone circles, the foghorn and the storm ignore fog.
+- **Bots and PvE drones are fogged by the same rule.** A bot does not forget a hull that sailed into fog.
+- Fog rolls in over about a minute after the match goes live and never pops; once the last ring is smaller than a bank the amount of fog holds where it was (the banks keep rolling).
+- **Fog is drawn as pale rolling wisps** under the hulls, visible by eye within the 750 u flash/smoke halo.
+
+### Changed
+- Fog placement is public weather: one seed on the welcome and one coverage number on the room state. There is no per-observer fog channel, so the six declared perception exceptions are unchanged.
+- The How-to-Play entry for fog waits for Story 9.17.
+
+### Internal
+- `PROTOCOL_VERSION` 84 -> 85 (welcome `fogSeed`, room `fogCut`, the client reads `CONFIG.fog`). Records: epic-9 amendments 162–176.
+
+## [0.18.55] - 2026-10-15
+
+### Changed
+- **ARMOR is rescaled, DAMAGE CUT is now HUNKER.** The armor curve's constant is 100 and each ARMOR card is worth +20, so every damage multiplier a hull saw before is reproduced exactly. The Battleship's Shift, formerly DAMAGE CUT, is renamed HUNKER: +100 temporary Armor for 10 s.
+- **New ship upgrade: ARMOR PIERCING** (five cards, +20 each), seated right after ARMOR. The attacker's piercing is subtracted from the victim's Armor on the same curve, and going below zero amplifies the blow, bounded under x2 (-20 reads x7/6, -100 reads x1.5). It applies to every damage source the attacker owns and is read live at the moment the blow lands. Raider and duelist bots favor it. It has a card, hover and How-to-Play table rows, the LOADOUT ladder line is now 4 + 4, and its glyph is the shell-splitting-a-plate (Eric's pick).
+
+### Internal
+- `PROTOCOL_VERSION` 83 -> 84. The wave-0 rename commit (aba14fe8) renamed the OwnShip wire field `damageCutUntil` -> `hunkerUntil` ahead of the PV bump in the same PR (a bisect landing there has mismatched field names at PV 83; noted, no live risk).
+- Shared: the negative branch of `damageMultiplierFor` is computed as (K-2E)/(K-E) for whole-product exactness.
+- Tests: shared 1093 -> 1104, server 2585 -> 2602, client 4076 -> 4081, hook 266. Records: epic-9 amendments 156-161.
+
+## [0.18.54] - 2026-10-14
+
+### Changed
+- **Zoom out to the whole map; the storm ring is a waypoint on the way.** Zooming out no longer stops at the live ring: a key press or wheel notch that would cross the ring fit lands exactly on it, and the next one continues out to the entire map, storm and all. The view centre slides from your ship to the ring centre and then to the map centre, with your hull always kept on screen; spectators get the same range, zooming about the cursor. (Eric, after a bot wedged outside the ring was invisible at the old limit.)
+
+### Internal
+- Client: `stepZoom(factor, amount, detent)` shared by keys, wheel and the spectate wheel; `Camera.zoomDetent` (the ring fit, never tighter than the default, riding in as the ring closes), `setMapRadius`, a second slide ring centre → origin; fog strips and the storm fill verified at the map fit; `zoomWaypoint.test` (21 tests). Records: epic-9 amendment 142.
+- Server: `syncRoster` projects `alive = false` for a roster row whose ship record is gone (a latent ghost-row hazard found by the "2 afloat" investigation; no reachable path today; pinned by a solo-room test). The investigation itself found no liveness bug across three full headless matches; the likely cause was a second bot afloat in the storm outside the ring-capped view.
+- Tests: shared 1093 (44 files), server 2584 -> 2585 (93 files), client 4055 -> 4076 (132 files), hook test green, lint 0 errors.
+
+## [0.18.53] - 2026-10-14
+
+### Changed
+- **The MULTI-SPECTRAL CM cloud is smaller:** born at 150 u and growing to 300 u over its 15 s (was 200 → 500, which at full size covered your whole sight bubble). Eric's pick on staging.
+
+### Internal
+- Shared: `CONFIG.countermeasure.r0/r1` 150 / 300; `PROTOCOL_VERSION` 82 → 83 (the client derives the cloud from these dials). Records: epic-9 amendment 141.
+- Tests: PV pins re-based; counts unchanged.
+
+## [0.18.52] - 2026-10-14
+
+### Changed
+- **PvE drones only react to what they can see.** A drone has no radar, so its steering, target search and shot test now consider only hulls and islands inside its 500 u sight; being shot from farther away still turns it toward the shooter as before. Behaviour inside sight is byte-identical; the server tick with a full ocean drops again (drone AI 4.0 → 0.65 ms, post-wave tick 13 → 9.7 ms p50 on the probe).
+- **Spectators get the full zoom-out too, anchored on the mouse.** While spectating, the zoom range is the living captain's (close framing out to the whole live storm ring), and wheel and X/Z keys zoom about the cursor since there is no own hull to centre on.
+
+### Internal
+- Server: `drones.ts` hull avoidance pre-filtered at sight (exact: the steering bias is 0 past 150 u anyway), island avoidance through a static 500 u island bucket grid (`islandBuckets.ts`, exact), the waypoint land test at pick time and per-fleet member sets; `droneSightScope.test` (6 tests incl. the 1,500 u shot-from chase pinned tick-for-tick against the base). Golden snapshot unchanged; the 112-hull run hashes identically.
+- Client: `Camera.zoomAbout`, spectate limits = alive limits with the ring feed while spectating, the spectate span clamp retired, spectate wheel on the log step, X/Z live while spectating; tests re-based citing amendment 140.
+- Records: epic-9 amendments 139–140.
+- Tests: shared 1093 (44 files), server 2578 -> 2584 (93 files), client 4043 -> 4055 (131 files), hook test green, lint 0 errors.
+
+## [0.18.51] - 2026-10-14
+
+### Changed
+- **Enemy hulls no longer vanish when the server lags.** A hull the server is still sending every tick could fade off your screen (and lose its ramming body on your side) because the client aged contacts against its own wall clock while the server's frame times fell behind. Contacts now age against the newest frame received, so a slow server can never drop a hull it still delivers; a hull that leaves your sight still fades as before.
+- **The server tick is far cheaper with a full ocean.** With 16 captains and the 96-hull fleet wave on the 10,000 u map, the hull-versus-coastline check was the bulk of the tick. Each island now carries a coastline edge grid, so the check is exact and about 15× cheaper; every hull pose is byte-identical to before.
+
+### Internal
+- Shared: `sim/coastIndex.ts` (per-island 16 u edge grid, built once per polygon array; inside / segment-near / nearest-distance answers identical to the brute-force code, pinned by identity tests on three maps); `collision.ts` reads the index for island tests and the signed island distance; hull-vs-hull escape untouched.
+- Server: `resolveCollisions` skips a hull whose pose the resolver already returned untouched with no land contact (a pushed hull is always resolved); probe with 112 hulls: resolveCollisions 14.1 → 0.9 ms, post-wave tick 26.2 → 13.4 ms p50 on a loaded M-series Mac; remaining cost is drone AI (~4 ms, pairwise avoidance), bot AI (~2.4), stepShips (~2.2). `GET /metrics` already reports tick p50/p95/max.
+- Client: `ServerClock.frameNow()` = min(serverNow, newest frame time + wall time since it arrived); `ContactViews.render` prunes against it; the far-cloud radar hold uses the same clock; `contactStaleness.test` reproduces the dilation (963 prunes in 60 s at 83 % server speed before the fix, 0 after).
+- Root cause record: epic-9 amendment 138 (not perception, not the renderer: a sighted hull was a contact on every probe tick). Back pocket (Eric): a 1,200 u radar on the 8,000 u ocean also seats 16 (chord 1,249 u).
+- Tests: shared 1090 -> 1093 (44 files), server 2575 -> 2578 (92 files), client 4030 -> 4043 (131 files), hook test green, lint 0 errors.
+
+## [0.18.50] - 2026-10-14
+
+### Changed
+- **The twelfths ladder** (Story 9.8). Every sensor is now a share of the 1,500 u radar: radar reaches 1,500 u, you see 500 u around your ship, and muzzle flash and wounded smoke show out to 750 u.
+- **Far radar returns come and go.** Out to 1,000 u a sweep always paints a contact; beyond that it paints less and less often (about nine times in ten at 1,250 u, about one in ten at the 1,500 u rim). Each sweep revolution is its own roll. Ships, decoys, wakes and the countermeasure cloud all flicker alike. Zone circles are drawn hazards and never flicker.
+- **Every gun's reach is its own tiered number.** Cannon 1,000 to 1,250 u, machine gun 750 to 875, flak and broadside 625 to 750, star shells 1,375 to 1,500, phosphor shells 1,000 to 1,250, fouling shell 1,000. Every gun card prints a RANGE row, one decimal only when needed.
+- **Deck-gun damage experiment.** Cannon 12 / 12 / 15 / 15 / 18, flak 20 / 28 / 36 / 44 / 52, machine gun unchanged. Flak damage fades from the centre of its burst (full damage) to the rim (10 less), by the nearest point of the hull.
+- **The camera zooms out to the whole storm ring and back in to your ship.** The default framing is today's scale; the ring fit is a zoom-out limit only, and the view centre slides toward the ring as you zoom out.
+- **The foghorn has twelve bands** (full volume through band 4, fading to half at band 12, an island adds three bands of muffle).
+- **16 captains on a 10,000 u ocean.** The storm rings are 10000 to 7000 to 4000 to 2000 to 0, and no pair of captains starts inside radar of each other.
+- **PvE fleet waves are twice as big:** 16, then 8, then 4 groups (96 / 48 / 24 hulls). A fleet never appears inside 1,000 u of a captain.
+- **Upgrade cards have six rows** (243 px tall) so RANGE fits on every gun card.
+- **How-to-Play is frozen until 9.13:** it still describes the old sensor ranges.
+
+### Internal
+- Shared: `CONFIG.vision.dropout { startU, kneeU, kneeP, rimP }` and the pure `sim/dropout.ts` curve and stateless roll (server-private seed, observer, target, per-revolution `sweepRev`); `rangeU` per weapon as a stat path with a per-card step (the post-fold re-pins to radar range deleted); damage rows, flak `edgeFalloff` 10; map radius 5,000, cap 16, rings [3500, 2000, 1000]; foghorn `v` 1..12; PROTOCOL_VERSION 81 -> 82.
+- Server: every radar-delivered return rolls (blip, decoy, wake radar half, cloud delivery; one roll per cloud pass across the sweep wrap); bots trust a miss only inside the dropout start (whole uncertainty band); engagement bands scale by the mounted gun's range; fleet denial discs ride the dropout start; harness `--tune vision.dropout.*` refuses a non-curve; flak falloff in the damage gate.
+- Client: absolute-span zoom (close 880 u, default 1320 u, ring-fit limit), log-scale wheel and keys, camera-centre slide with fog strips, own hull clamped on screen at the limit; six-row card grid; far-cloud radar return follows the server's per-revolution delivery; halo-mask pass attached only while a cloud is held and both masked layers clipped to the screen.
+- Review gate: Blind Hunter + Edge Case Hunter (Fable) + Codex gpt-5.6-sol; 8 patches, every CONFIRMED finding fixed red-then-green; 2 Eric rulings at the gate (amendments 134, 135). Perf capture of record on MacBookPro16,1: close 6.8 / default 7.3 / ring-fit 29.0 / reveal 29.1 ms.
+- Tests: shared 1064 -> 1090 (43 files), server 2548 -> 2575 (91 files), client 3992 -> 4030 (130 files).
+- Epic-9 amendments 121–137. Cycle 185. PROTOCOL_VERSION 81 -> 82.
+
+## [0.18.49] - 2026-10-13
+
+### Changed
+- **ARMOR is a new ship upgrade** (Story 9.7). Five cards, +1 Armor each. Every hit you take is multiplied by 5 / (5 + Armor), so five Armor halves the damage (the same as doubling your hull). It applies to shells, bursts, torpedoes, mines, burns, ram hits and grinding, but not to the storm. A hit of whole hit points is rounded down but never below 1, so drone shells still scratch an armored hull. The shield absorbs after Armor.
+- **The Dreadnought's DAMAGE CUT is now temporary Armor.** It no longer halves damage flat: it grants +5 Armor for 10 seconds (was 8) on the same 30-second cooldown. At Tier 0 that is still half damage; at Tier V it is one third.
+- **The ARMOR card sits right after HULL** and prints `ARMOR 0 → 1`, Tier 0 → V. Its glyph is a riveted armor belt (Eric's pick). The HP-globe SHIP panel shows a seventh row, ARMOR. The results LOADOUT shows the seven ladders as four over three. The DAMAGE CUT card's head row reads `ARMOR +5`. The defensive bot profile favors ARMOR.
+- **How-to-Play has no ARMOR entry until 9.12** (it is frozen).
+
+### Internal
+- Shared: `CONFIG.armor { k: 5 }`, `CONFIG.damageCut { armorBonus 5, durationMs 10000 }` (factor deleted), `effectiveStats().armor` and `.damageMultiplier` (the exact ratio), `damageMultiplierFor`, catalog 25 lines / 122 cards, `TOP_LEVEL_STAT_PATHS` plus armor.
+- Server: `armorDamage` gate (storm exempt, +armorBonus inside the cut window, burn and grind exact, whole blows floor with a floor of 1); harness `--tune armor.k` (floor 1) and probe columns; golden snapshot re-recorded on two offer rows.
+- Client: ARMOR tables, `LADDERS_PER_ROW` 4, riveted-belt glyph.
+- Review gate: Blind Hunter + Edge Case Hunter (Fable) + Codex gpt-5.6-sol, all three FIX-FIRST; 4 patches (exact ratio, a rounded multiplier under-dealt 1 hp on 33 shipped damage x armor pairs; minimum 1 hp, Eric's live ruling, amendment 119; stale cut wording; harness columns), 0 deferred, 1 rejected.
+- Tests: shared 1058 -> 1064 (42 files), server 2525 -> 2548 (90 files), client 3991 -> 3992 (129 files), hook test green, lint 0 errors.
+- Epic-9 amendments 110–120. Cycle 184. PROTOCOL_VERSION 80 -> 81.
+
+## [0.18.48] - 2026-10-13
+
+### Changed
+- **The ARMOR card is now HULL, and it goes to five** (Story 9.6 — Five Tiers and Passive Healing). Each card adds +50 max hull (was +25) and there are five cards (was four). The 50 you gain is healed the moment you take the card. At five cards the three hulls sit at 500 / 550 / 600. SPEED and TURNING gain a fifth card at today's step. The three deck guns, RADAR SWEEP and RELOAD are untouched.
+- **Passive healing is faster, and it is now a ladder.** Everyone heals 2 % of missing hull per second after 15 seconds out of combat (was 1 %). Each PASSIVE HEALING card adds 0.6 % per second and cuts the wait by 1 second: 5 % per second after 10 seconds at five cards. Only damage that actually removes hull hp resets the wait; a blow your shield eats whole does not. A card taken mid-idle pays off at once, with no fresh wait. Drones never heal.
+- **HULL, SPEED and TURNING cards read Tier I on the first card and V on the fifth** (they used to "sail at Tier I"). The results LOADOUT dashes a ladder at zero copies and shows the six ladders as two rows of three.
+- **The PASSIVE HEALING card shows one HEAL row** (its rate), and its glyph is a pulse trace (Eric's pick).
+- **How-to-Play is frozen until 9.11:** the regen sentence still says 15 seconds and there is no PASSIVE HEALING entry yet.
+
+### Internal
+- Shared: `effectiveStats().regen` (seeded from `CONFIG.regen` 0.02 / 15000, the ladder adds +0.006 / -1000 per card, round3), `TOP_LEVEL_STAT_PATHS` plus the regen paths, catalog 24 lines / 117 cards, id `armor` -> `hullPoints` everywhere.
+- Server: `tickRepairs` reads each hull's own wait via `regenDue` (drones never); defensive bot profile favors hullPoints + passiveHealing; harness probe list; golden snapshot re-recorded (two offer rows).
+- Client: `UNPRINTED_PATHS` skip list on the card face, `BASE_TIER_LINES` = the three guns, LOADOUT two rows of three, pulse-trace glyph.
+- Review gate: Blind Hunter + Edge Case Hunter (Fable) + Codex gpt-5.6-sol; 3 patches, 2 defers, 2 rejects, 1 live Eric ruling (amendment 100).
+- Tests: shared 1058 (42 files), server 2525 (90 files), client 3991 (129 files), hook test green (266 passed), lint 0 errors (2 pre-existing max-lines warnings).
+- Epic-9 amendments 90–101. Cycle 183. PROTOCOL_VERSION 79 -> 80.
+
+## [0.18.47] - 2026-10-13
+
+### Changed
+- **Hulls are solid, and contact hurts** (Story 9.5 — Ramming and Contact Damage). Ships no longer pass through each other: overlapping hulls are pushed apart, split by mass, on the server before the land pass and in your own prediction against the contacts you can see. Two fleet-mates push each other but deal nothing.
+- **Damage follows the energy law.** A **hit** lands once per charged contact, from the closing speed over 5 u/s: a full-speed ram costs both hulls, the lighter one more. Sliding and pressing against a hull **bleeds** over time, from the speed you scrape or press at, delivered like the burn DoT. **Land** counts as infinite mass at 0.25 of the energy, and the quarter-speed cap is kept. Mass is the effective max hull, and damage cut and shield both apply.
+- **A wreck is solid and never credited:** it blocks hulls but is never the attacker, and the kill feed is unchanged.
+- **Bots steer around hulls** (a bumper for the target) and gain a **[DRAFT] ram posture**; drones avoid hulls too.
+- **Feel (judged on staging):** a spark in both hulls' colors and a grind tone on contact; the hit thud and shake stay quiet for the small bleed amounts while you scrape or press.
+
+### Internal
+- Shared: `sim/contact.ts` resolver (mass-split push-apart over the extracted island push-out core, closing speed measured on the line of centres, never pushes a hull through another), `CONFIG.ram` at the exact calibration (1265.625, 2/9), bot `hullLookaheadU` / `ramReachU`.
+- Server: STEP_ORDER rows `resolveHullContacts` (before the land pass) and `applyContactDamage` (after it); the hit through the one damage gate as `'contact'`, latched per pair only once charged; the bleed as a fractional per-tick `'grind'` source reported through the 500 ms DoT window (damage cut halves it, a shield absorbs it); the land strike on the landContact edge priced on the pre-damp speed. Harness readouts `sunkByContact` / `ranAground` / land-contact damage and `--tune ram.*`.
+- Client: predictor runs the shared contact pass against sighted contacts, `render/contactFx.ts` + `sim/contactBleed.ts`, `CLIENT_CONFIG.contactFx`.
+- Tests: shared 1052 (42 files), server 2522 (90 files), client 3988 (129 files), hook test green, lint 0 errors (2 pre-existing max-lines warnings).
+- Epic-9 amendments 73–84. Cycle 182. PROTOCOL_VERSION 78 -> 79.
+
+## [0.18.46] - 2026-10-12
+
+### Changed
+- **The foul zone is weed and net** (Story 9.4, session 2 — Eric on staging: *"The net is visible but the murk is not. I wanted them combined."* then *"There was one instance with little squiggle lines. I liked that, and wanted that combined with the net."*). The dark disc shipped in 0.18.45 could not show because the ocean is drawn black. Now the zone is a faint lighter slick body, the shooter's-hue net over it, and eight light-grey weed squiggles on top that sway gently (still when motion is off). Eric picked the readable strength of the two rendered.
+
+### Internal
+- `client/src/render/foulZones.ts`: layers slick → glow → net → weed; `weedStrokes(id, r)` is a pure, seeded layout (`hashSeedText` → `mulberry32`, identical for every observer); the weed sways on an integrated phase (the ember-breath idiom), motion-gated. `CLIENT_CONFIG.foulZone` = `{ slickFrac 0.8, slickAlpha 0.3, netSpacingU 14, netWidth 1.3, netAlpha 0.55, weedCount 8, weedWidth 1.8, weedAlpha 0.75, weedLenU 40, weedAmpU 6, weedDriftU 4, weedHz 0.25 }`; `colors.foulMurk` → `colors.foulSlick` 0x7a7168; new `colors.foulWeed` 0xc4c0b8. `main.ts` passes the clock to the foul-zone render so the weed sways.
+- Client only; PROTOCOL_VERSION unchanged (78). Tests: client 3960 (127 files), shared 1033, server 2482; lint 0 errors.
+- Epic-9 amendments 71–72 (71: the pre-start phases do not matter for any gameplay gate — Eric). Cycle 181.
+
+## [0.18.45] - 2026-10-12
+
+### Changed
+- **FLASH SHELLS are replaced by the FOULING SHELL** (Story 9.4, key `4`). It fires exactly as the flash did: one click-aimed shell out to radar range, no damage, bursts once. Where it bursts it leaves a **foul zone**, a 150 unit circle that lasts 15 seconds.
+- **Any ship whose hull touches the zone runs at 0.75 of its speed, both ways, and the slow lingers 5 seconds after the hull leaves.** That includes the shooter's own ship. Two zones never stack, but a fouling mine's slow and a zone's slow multiply.
+- **You see a zone the way you see a burn zone:** always for its owner, and for anyone whose radar range reaches its center. It is drawn as a dark oily disc under a diagonal mesh in the shooter's color, inside the usual zone ring (Eric's pick, "murk and net"), and the card has a new glyph, a fouled propeller. The card prints FOULING SHELL with rows RADIUS 150 U / LASTS 15 S / SPEED x0.75.
+- **Bots fire it** at the nearest ship in sight while attacking and at a ship astern while escaping. The DAZZLED effect, its HUD tell and its sound are gone; the SLOWED tell now covers both slows. How-to-Play still describes FLASH SHELLS until Story 9.11.
+
+### Internal
+- `CONFIG.foulingShell` replaces `CONFIG.flashShells`; id `foulingShell` replaces `dazzleShells`; `polyInBlast` exported; `effectiveSight(stats)` takes one argument; `OwnShip.fouledUntil` replaces `dazzledUntil`; `FoulZoneView` + `FrameMsg.foulZones`.
+- Server: `World.foulZones`, STEP_ORDER rows `applyFoulZones` (after `applyZoneEffects`) and `expireFoulZones` (after `expireBurnZones`), `tickKinematics` five-stage fold (boost, mine slow, shell slow, draft, hooks), `foulzone` signal row on the burn zone's gate, `applyFlash` deleted. Bots: `foulingShellTactic` + `nearestLiveAstern`; harness family `foulingShell.`.
+- Client: `render/foulZones.ts`, `CLIENT_CONFIG.foulZone`, `colors.foulMurk`, the predictor's second slow fold off `you.fouledUntil`, the dazzle chain deleted.
+- Review gate: Blind Hunter + Edge Case Hunter (Fable) + Codex gpt-5.6-sol, all BUILD-ON-IT; 1 patch (harness family comment), 1 defer (harness tune floors), the rest rejected.
+- Tests: shared 1033, server 2482, client 3955 (127 files), hook test 266, lint 0 errors (2 pre-existing max-lines warnings). New `foulingShell.test.ts` (18), perception `foulZones` channel twin + oracle arm + ledger, goldenFrames re-recorded, new client `foulZones.test.ts`.
+- Epic-9 amendments 61–70. Cycle 180. PROTOCOL_VERSION 77 -> 78.
+
+## [0.18.44] - 2026-10-12
+
+### Changed
+- **Islands hide the countermeasure haze** (Story 9.3, session 6 — Eric: *"if I can't see it because of an island or any other sight block, don't render it"*). The haze now shows only where a clear line of sight from your hull reaches it: islands cut hard shadows into the 5/8 intel disc, the same way a wounded ship's smoke is only shown with island line of sight. The 5/8 edge and its soft feather are unchanged.
+
+### Internal
+- `client/src/render/hazeLos.ts` (`HazeLosCaster`: 360 rays from the own hull out to halo + feather through the shared `islandSegHit`, islands prefiltered by bounding circle and tested only on the rays their cone covers, nearest-first, each ray cut to its current hit; a grounded hull fails open), `textures.ts` `bakeHaloMaskTexture(haloU, into, rays)` fills the same radial feather through one fan path of the hit points, `countermeasure.ts` `setIslands` / `refreshLos` (re-cast only after 2 u of own movement, a halo change or an island change, and only while a cloud is held; the first cloud held forces a cast), `main.ts` wires `setIslands(g.islands)` beside `setWakeSources`. Knobs `losRays 360`, `losRecastMoveU 2`.
+- Measured in node on real map seeds: mean 1.6 ms per cast, p99 5.9 ms, worst 10 ms inside large concave island clusters — ledgered as a staging perf watch (a dev build is never a perf verdict); the cheap version is a shared visibility-polygon primitive, an architecture call.
+- Client only; PROTOCOL_VERSION unchanged (77). Tests: client 3946 (126 files; property test: every ray matches a brute-force minimum over all islands), shared 1028, server 2469.
+- Epic-9 amendment 60. Cycle 179.
+
+## [0.18.43] - 2026-10-12
+
+### Changed
+- **The countermeasure haze is a smoke effect and obeys the smoke rule** (Story 9.3, session 5 — Eric on 0.18.42: *"The smoke is visible outside of 5/8 intel range. Why? … I cannot see the smoke outside of that range, I can only infer it from radar returns."*). By eye you now see a cloud only inside your 5/8 intel halo, the same range a wounded ship's smoke shows at, with a soft edge; past that the only sign of it is its radar returns. The halo grows with RADAR SWEEP upgrades like the rest of the ladder.
+
+### Internal
+- Why it showed before: the server delivers a cloud to anyone whose radar sweeps it (so the radar can paint it) and the client drew the haze on the fog-immune `cloud` chart layer at full strength wherever delivered.
+- `client/src/render/hazeHalo.ts` (pure: `hazeHaloU = radarRange × CONFIG.vision.muzzleFlashFactor`, the `sm` rung; `haloAlphaAt`), `textures.ts` `bakeHaloMaskTexture` (512², redrawn in place like the dim mask), `countermeasure.ts` owns the mask sprite at index 0 of the `cloud` layer and sets `layer.mask` at the own hull each frame (no pose → no mask, the radar dim's rule), `setHaloU` re-bakes only on change; `main.ts` wires `setHaloU(hazeHaloU(stats.radarRange))` beside `radar.setRanges`. `CLIENT_CONFIG.countermeasure.haloFeatherU 40`; the radius is not a knob.
+- Delivery, retention, the radar returns and the nameplate hide are untouched (contacts live inside sight, always inside the halo). Client only; PROTOCOL_VERSION unchanged (77). Tests: client 3930 (125 files), shared 1028, server 2469.
+- Epic-9 amendment 59. Cycle 178.
+
+## [0.18.42] - 2026-10-12
+
+### Changed
+- **The countermeasure cloud gives radar returns by how thick it is** (Story 9.3, session 4 — Eric on 0.18.41: *"Visually, that is perfect. It's not being read by radar. Don't forget to composite it onto the radar layer so it can be painted. It should give returns in strength based on how thick the smoke is."*). The cloud is now a material the radar beam samples like water, hulls and wakes: where the beam sweeps smoke within radar range it paints a return whose strength is the smoke's thickness, banded, dimmed inside your sight bubble, shadowed by islands and fading on the phosphor like every other return. Thick smoke paints bright, thin edges faint, unswept or out-of-range smoke not at all.
+- **The haze is thicker** (Eric: *"I can still kinda see ships under it a lot of the time"*). The dense body is now fully opaque; the rim stays wispy.
+
+### Internal
+- Why the 0.18.41 phosphor copy showed nothing: it painted on the CPU (3,391 cells in a replay of the real chain) but a cloud dropped on your own hull sits inside your sight bubble, where the radar's in-bubble dim shows paint at 20 %, and the copy drew as a flat tint at 0.02–0.17 alpha over grey smoke. Deleted: the copy sprite/buffer, `cloudPaintLayer`, `BeamWindow`/`beamWindow()`, `beamCrosses`.
+- Built: `Radar.setCloudSource(countermeasure)` (the `setWakeSources` sibling); `FieldSpec.cloud` in `radarField.ts`; `cloudSample` in `radarSources.ts` — reflectivity `radarGain × haze` above `radarPaintMin`, VOLUME geometry, no range term, `terrainQ 0` so the mast-height shadow rule applies; ranks below terrain and hulls, above surf, wake and clutter. One `coverAt` per march sample in the swept slices; no cloud cell loop.
+- Knobs: `radarAlpha` → `radarGain 1.0`; `maxAlpha 0.92 → 1.0`, `puffMinAlpha 0.04 → 0.1`, `puffMaxAlpha 0.12 → 0.3`, `puffsPerSec 400 → 800` (re-rendered off the real field before the PR).
+- Client only; PROTOCOL_VERSION unchanged (77). Tests: client 3919 (125 files; nine new `radarCloudReturns` contracts incl. thick > thin, range, shadow, decay), shared 1028, server 2469.
+- Epic-9 amendments 57-58. Cycle 177.
+
+## [0.18.41] - 2026-10-12
+
+### Changed
+- **The countermeasure haze is smoke now, not sprayed dots** (Story 9.3, session 3 — Eric on 0.18.40: *"It looks like you have sprayed the spray tool itself … I said PIXELS, not blobs"*, with a reference image). The cloud is painted with a smoke brush: soft puffs of many sizes and greys land 400 times a second inside the growing disc and pile into a dense light-grey body with wispy edges, each puff fading over 8 s. Rendered off the real field code and shown to Eric before this PR (*"that looks about right"*).
+- **The radar copy follows radar rules** (Eric: *"IF THE BEAM PASSES, IT PAINTS THOSE PIXELS AND THOSE PIXELS ONLY"*). Only the hazy cells the beam wedge sweeps, within radar range, light on the scope; they fade on the phosphor life like any return; nothing lights otherwise. The 0.18.40 behavior that lit the whole cloud whenever the beam touched it is gone.
+
+### Internal
+- `client/src/render/cloudPaint.ts`: brush stamps (bell falloff, "over" compositing, per-cell shade channel), centre-biased landing, 128-cell grid, linear filtering; `countermeasure.ts`: the phosphor copy gets its own buffer with per-cell "last swept" stamps painted from the radar's beam window (`rangeU` added to `BeamWindow`), haze frozen at the sweep. New color token `colors.countermeasureSmoke` (light warm grey). `CLIENT_CONFIG.countermeasure` knobs: `puffsPerSec 400, puffMinU 25, puffMaxU 70, puffMinAlpha 0.04, puffMaxAlpha 0.12, maxAlpha 0.92, shadeMin 0.55, shadeMax 1.0, radarAlpha 0.9, radarPaintMin 0.05, plateHideAlpha 0.35, fadeMs 8000, cellU 9` (`paintsPerSec`, `dotCells` deleted).
+- Client only; the server and shared are untouched; PROTOCOL_VERSION unchanged (77). Tests: client 3923 (125 files), shared 1028, server 2469; lint 0 errors.
+- Epic-9 amendments 55-56. Cycle 176.
+
+## [0.18.40] - 2026-10-12
+
+### Changed
+- **The MULTI-SPECTRAL COUNTERMEASURE is a spray-painted cloud that fools eyes and radar alike** (Story 9.3, session 2 — Eric after his staging look: *"treat it as a 2d bitmap more or less the same way the radar layer is … like the spraypaint tool … each 'paint' itself fades to 0 alpha"*; *"THIS SMOKE ALSO PAINTS RADAR RETURNS. RADAR DOES NOT BEAT IT, IT LETS YOU GET THE FUCK AWAY."*). One press still makes one cloud for 15 s where you stand, but the cloud is now paint landing the whole time inside a disc that grows from 200 to 500 units, each dab fading over about 8 seconds, so the haze thickens, spreads and dies away like smoke.
+- **What it hides.** The haze is drawn over every other ship and its name, and a phosphor copy of the same haze is drawn over the radar paints, lit each time your beam crosses it, so a return inside the cloud is buried in clutter. Your own hull is always drawn on top, so you can see where you are inside anyone's cloud. A ship with its bow sticking out of the haze shows its bow; a name under thick paint is hidden outright so it never gives a ship away.
+- **The server no longer hides anything behind a cloud.** The 0.18.39 rule that pixels blocked sight for everyone and enemy radar inside the cloud is gone; the hiding is done by the drawing (Eric: *"whatever is easier"*).
+
+### Internal
+- `shared/src/sim/cloud.ts` keeps only `cloudScale` / `cloudOutlineRadius` (the spray disc); `CONFIG.countermeasure` = `{ lifeMs, r0, r1 }`; PROTOCOL_VERSION 76 -> 77 (the client reads the shrunken block).
+- `server/src/game/signals.ts`: `sightClear` is island line of sight again; `radarClear`, `smokedInBubble`, `cloudCrossed` and the pixel scans deleted; the blip gate is annulus ∧ swept ∧ shadow march; the `cloud` row is delivered when the spray disc is sensed (rim within sight with island LOS to the nearest rim point, or within radar range with the beam crossing the disc's bearing span and the march reaching the centre). `StoredCloud` is the plain record. Harness `--tune` floors keep `r0` / `lifeMs`.
+- Client: `render/cloudPaint.ts` (pure spray field: 113 × 113 cells of 9 u, linear decay, rejection-sampled dabs, pre-roll in 100 ms steps) + `render/countermeasure.ts` (one `BufferImageSource` per cloud shared by the grey sprite on the new `cloud` chart layer and the phosphor sprite above the radar paints, sweep-lit on the blip phosphor life); `coverAt(x, y)` feeds the contact nameplate hide; the wake's cloud mirror and `cloudBases.ts` deleted; new `ownShip` chart layer for the viewer's own hull and firing arcs. `CLIENT_CONFIG.countermeasure { cellU 9, fadeMs 8000, paintsPerSec 240, dotCells 2.5, maxAlpha 0.85, radarAlpha 0.9, plateHideAlpha 0.35 }` — feel knobs for Eric's staging eye.
+- Chart order: `map, zone, litZone, smoke, mineChart, decoyChart, ship, plate, cloud, blip, ownShip, aim, burstFx, sweep` (contact hulls now sit below the radar paints; the own hull above them).
+- Tests: shared 1028, server 2469, client 3914 (125 files) green; lint 0 errors; goldenFrames unchanged. Perception oracle re-derives the disc delivery gate; ledgers CLOUD_SIGHT_THROUGH / CLOUD_DELIVERED_BY_SIGHT / CLOUD_DELIVERED_BY_RADAR; `cloudPerf.test.ts` deleted (nothing left to pin).
+- Epic-9 amendments 52-54. Cycle 175. PROTOCOL_VERSION 76 -> 77.
+
+## [0.18.39] - 2026-10-11
+
+### Changed
+- **SMOKE SCREEN is now the MULTI-SPECTRAL COUNTERMEASURE** (Story 9.3). One press drops one stationary cloud of 300 scattered pixels where you stand; its radius swells from 200 to 500 units over 15 seconds while individual pixels die off between 6 and 15 seconds, so the cloud thins and fades instead of vanishing at once. Every press makes a new cloud.
+- **The pixels block sight for everyone, you included.** Nobody can see through the cloud by eye, and the owner is blind inside it too. **Enemy radar** is blocked only for targets sitting inside the cloud (no shadow behind it); your own radar sees through it. You see a cloud whenever your eyes or your radar pick up any of its pixels, and once seen it stays on your chart until it dies.
+- It lives on key `3` (cap 5 copies, like every consumable); the card prints MULTI-SPECTRAL CM and has a new glyph. The old rule that a ship inside smoke was seen at 1/8 range, the lay window and the round disc drawing are retired; the cloud is drawn as 20-unit squares in the wounded-smoke grey that fade as each pixel dies.
+
+### Internal
+- `shared/src/sim/cloud.ts`: seeded disc-sampled pixel function (no transcendentals), scale-outward drift, `cloudBlocks`. `CONFIG.countermeasure` replaces `CONFIG.smokeScreen`; `OwnShip.inSmoke` deleted; `FrameMsg.smoke` -> `clouds` (`CloudView`).
+- `server/src/game/signals.ts`: `sightClear` over cloud pixels for everyone, new `radarClear` as the blip gate's fourth term (hides only targets inside the outline), and the `cloud` pseudo-row (the SIX exceptions unchanged). `world.ts`: `StoredCloud` memo + `stepClouds`; bots press once per disengage; harness `--set countermeasure.*`.
+- Client: `render/countermeasure.ts` pixel renderer + `cloudBases.ts` memo, `CLIENT_CONFIG.countermeasure { fillAlpha .55, fadeMs 2000, drawSizeU 20 }`; the `inSmoke` client chain deleted; wake sight mirror.
+- Review gate (Fable hunters + Codex): delivery re-ruled by Eric to per-pixel sensing (amendment 51 supersedes 42 — `cloudSignal` tests sighted or radar-detected pixels, the client holds a received cloud until it dies and clears at the match-start edge); harness `--tune` floor 1 for `countermeasure.r0` / `lifeMs` / `pixels`.
+- Tests: shared 1040, server 2478, client 124 files green (perception oracle cloud arm + four non-vacuity ledgers, `countermeasure.test.ts` 26 directed cases, `cloudPerf.test.ts` 1.1 ms vs the 50 ms budget, goldenFrames unchanged).
+- Epic-9 amendments 40-51. Cycle 174. PROTOCOL_VERSION 75 -> 76.
+
+## [0.18.38] - 2026-10-11
+
+### Changed
+- **The HUD bar's glow is a real glow.** The faint stacked boxes around a ready, selected or just-activated square — three outline rings standing in for the mock's soft shadow — are gone; each halo is now a true blurred bloom in the square's own color, sitting outside the box like a shadow. Eric 2026-10-11: *"I don't want an emulated shadow glow."* The fit pulse (the flash when a card lands on a square) uses the same bloom. Per-state reach and strength are the mock's numbers, unchanged.
+
+### Internal
+- `client/src/render/hotbar.ts`: a `glowGfx` layer under the squares with one `BlurFilter` (`CLIENT_CONFIG.hudBar.glowBlurPx` 8, quality 4); `drawGlow` fills an inflated ring with the square cut out; `drawFitPulse` likewise; `inflate` deleted. Tests: the probe reads the square layer (child 1) and the glow layer (child 0); contract tests for the bloom (one filled ring per lit square at the skin's color/alpha, a cut hole, no outline rings, no halo on zero-stock or empty squares).
+- PROTOCOL_VERSION unchanged (75). Epic-9 amendment 39. Cycle 173.
+
+## [0.18.37] - 2026-10-11
+
+### Changed
+- **Every consumable has its own key, always** (Story 9.2). The four-slot belt is gone: a captain holds every kind, each on a fixed number key — `1` HULL REPAIR · `2` SHIELD BLOCK · `3` SMOKE SCREEN · `4` FLASH SHELLS · `5` DECOY BUOY · `6` SUPERCAVITATING TORPEDO (Digit and Numpad rows). The only limit is the cap of 5 copies per kind; a pick is never lost to a full belt and a key never changes meaning when a stack runs out. Eric 2026-10-11: *"All captains can carry all consumables. Each is tied to a specific number key by default."*
+- **CHAFF is retired** (Eric's pick so the row is six keys — epic-9 amendment 31). Its fake radar returns and the owner's ghosts are gone; Story 9.3 brings the MULTI-SPECTRAL COUNTERMEASURE onto key `3` and Story 9.4 the FOULING SHELL onto key `4`.
+- **The HUD bar is re-laid** to mock option D′: globes 124 px, weapon squares 46 px with 24 px icons, and an unframed strip of six 34 px consumable squares above them with their key chips; the stack is exactly as tall as a globe, so the globes' edges are the panel's edges and nothing is drawn behind. A kind you hold none of keeps its square and key, drawn dashed with a faint icon (ZERO STOCK); pressing it flashes the square red. Key chips and stock digits never render under 9 px (the 2026-09-17 rule wins over the mock's 8 px).
+- **A consumable at its cap is dealt and greyed with no caption** (Eric: *"There's no need for 'cap copy,' if it is simply known that items have a cap of 5."*); `SLOTS FULL` now appears only on an equipment card when Q/E/R are all taken.
+- **The results LOADOUT row** shows the same six squares as the live bar at 72 %, zero-stock squares included.
+- **Drone drops** can stock any kind under its cap (there is no full belt to narrow them).
+
+### Internal
+- PROTOCOL_VERSION 74 -> 75 (loadout slot shape: `SLOT_COUNT` 9 -> 11, `OwnShip.ammo` length 11 with a `null` in slots 5–10 meaning zero stock; `OwnShip.chaff` / `chaffGhosts` fields gone; catalog content).
+- `shared/src/sim/loadout.ts`: `CONSUMABLE_KEY_ORDER`, `consumableSlotFor`, `consumableKindAt`; `CONSUMABLE_SLOTS` [5..10] and `SLOT_ROLES` derived from the key order. `boons.ts`: `stockSlotFor` is the fixed slot; `canStock` / `'beltFull'` deleted (`PickRefusal` = stub | atCap | noWeaponSlot; an unkeyed consumable is refused as a stub); `slotsWithCards` never packs.
+- Deleted: `server/src/game/fakes.ts`, `equipment/consumables/chaff.ts`, `client/src/render/chaffRing.ts`, `chaffGhosts.ts`, `CONFIG.chaff` and the chaff client knobs; the perception suite loses its chaff-fakes carve-out oracle, so the master invariant is strictly tighter (the SIX exceptions untouched). `rebuildBelt` -> `rebuildConsumableSlots` (replay only). Bots: `carries()` reads the kind's fixed slot; the chaff tactic/profile rows are gone; no CONFIG number moved.
+- Client: `BELT_KEY_CODES` -> `CONSUMABLE_KEY_CODES` (1–6 both rows); `hudBarLayout` two-row stack (bar 538 × 156, stack 124; the refit band rides 20 px higher); `hotbar.ts` `'zeroStock'` state; `upgradeMenu.ts` `cardFoot()`; `loadoutBlock.ts` D′ twin; How-to-Play icons follow `hudBar.icon` (24 px).
+- Tests: shared 41 files / 1036, server 89 / 2487, client 124 / 3911, hook suite 266 — `npm run check` green. `goldenFrames` snapshot re-recorded knowingly: `ammo` 9 -> 11 entries on every row and ONE row's `offer` `chaff` -> `decoyBuoy` (chaff left the draw pool); no contact, event, blip, mine, zone, position or hp value moved.
+- Epic-9 amendments 31–37; DESIGN.md `hud-bar` / `belt-slot` (retired) / new `consumable-strip` / `loadout-block` rows and EXPERIENCE.md's Zero Stock slot state, dated; How-to-Play and Settings belt wording left for Story 9.11 (amendment 36); the live bar is judged on staging (amendment 37).
+
+## [0.18.36] - 2026-10-08
+
+### Changed
+- **Mines and torpedoes are seen at sight range** — they appear at the 4/8 rung (330 u, the same distance a ship becomes visible) instead of 3/8 (247.5 u). Eric: captive mines could be upgraded to fire before they were seen. Nothing else moves (the wake clock stays 5.5 s).
+- **Captive mines trip at 120 units instead of 144** (176 at tier V, was 211), so even a fully upgraded captive mine fires from inside the range you can now see it at. Eric's call off the mine experiments (five arms; none of the naval or captive dials moved attrition or class share beyond noise).
+- **Every mine glyph carries the same circle** — the naval mine's sphere, which on the water is the 10-unit ring a deck-gun shell must land inside. The fouling mine loses its tether squiggle and its sphere grows to that size; the captive mine's triangle-and-torpedo icon sits inside that circle. Card and on-water marker alike.
+
+### Internal
+- PROTOCOL_VERSION 73 -> 74 (`CONFIG.vision.detectFactor` is read by the client).
+- `CONFIG.vision.detect` = sight, `detectFactor` 1. Tests: the eighths-ladder pins read the 4/8 rung (detect ≤ sight, detect / eighth = 4); the signals detect gate re-derives 4/8 as a literal; the two pins that tied the wake clock to the detect rung are deleted (a pinned coincidence, not a rule — Eric 2026-10-08); wake capacity / bucket / torpedo half-life pins now read their formulas. Tests: shared 1033 -> 1031 (the two wake-vs-rung coincidence pins deleted), server 2515, client 3929; lint 0 errors; `npm run check` green.
+- `equipmentIcons.ts`: `MINE_R` (one circle), `CAPTIVE_ORIGINAL` kept verbatim and scaled through `intoMineCircle`; fouling re-cut.
+- `CONFIG.captiveMines.triggerRadius` 120; the captive ring tests read the CONFIG ring × 1.1ⁿ (no number pins).
+- Epic-9 amendments 14–19; `batch-sim-evidence-2026-10-06.md` §10 (the mine arms); GDD dated supersessions (eighths ladder, wakes, the captive trigger ring). No How-to-Play or README change.
+
+## [0.18.35] - 2026-10-07
+
+### Changed
+- **The storm ramps instead of biting flat** — outside the live ring you now take 1 hp/s from the first close, 2 from the second, 3 from the third, 4 during the final collapse and 5 once the storm has fully closed in (it was a flat 4 hp/s from the first close). Eric's numbers after playing 0.18.34 on staging.
+- **The ocean is 8,000 wide** — radius 4,000 (was 5,500: *"11000 diameter is too big"*), rings closing 8,000 → 5,000 → 3,000 → 2,000 → 0 in diameter. Land stays 10 %.
+
+### Internal
+- PROTOCOL_VERSION 72 -> 73 (the client derives the map and the storm rhythm locally; a same-seed ocean differs).
+- `CONFIG.zone.stormDps` is a ladder `[1, 2, 3, 4, 5]` read through `stormDpsFor(state)` (`sim/zone.ts`): rung k from the start of close k, last rung once closed, 0 before the first close. `applyStorm` is the only biter. Harness: `--set zone.stormDps=X` flattens every rung (storm-kill / storm-off arms keep working), `zone.stormDps.N` sets one.
+- `CONFIG.map.baseRadius` 4000; `CONFIG.zone.ringRadii` [2500, 1500, 1000]. Height raster 577² (was 791²).
+- Tests: `stormDpsFor` contract tests on a synthetic ladder; the ramp walked through a real one-tick-per-beat timeline in `server/src/__tests__/zone.test.ts`; the NFR6 ceiling and the storm-granularity pins read the fully-closed rung through the function (no number pins). Tests: shared 1030 -> 1033, server 2514 -> 2515, client 3929 (unchanged); lint 0 errors; `npm run check` green.
+- Epic-9 amendments 11–13; `batch-sim-evidence-2026-10-06.md` §9 (the harness run Eric asked for); GDD dated supersessions (storm rate, ocean size). No How-to-Play or README change.
+
+## [0.18.34] - 2026-10-07
+
+### Changed
+- **The ocean is twice as wide and four times as island-y** — the map radius goes 2,800 → 5,500 units and land covers 10 % of the water instead of 2.5 % (about 140 landmasses per match instead of 24). The storm now closes on Eric's own ladder: ocean diameter 11,000 → 7,000 → 4,000 → 2,000 → 0, so the last ring before the collapse is 2,000 wide instead of 1,320. Hull hp, guns, heals and the spawn ring are untouched. This is Story 9.1's first cut, shipped for Eric to play on staging after his own balance-harness session (`batch-sim-evidence-2026-10-06.md`): in the sim this board was the first to leave 10 hulls afloat at 4:00 (7 before) and lifted the 8:00 count from 1.3 to 3.8 against his target of 5.
+
+### Internal
+- PROTOCOL_VERSION 71 -> 72 (same seed, different ocean; the client derives the map and the storm rhythm locally from `CONFIG.map`, `TERRAIN_PARAMS` and `CONFIG.zone`).
+- `CONFIG.zone.ringRadii` [3500, 2000, 1000] is the ring ladder in world units (terminal last); `ringSteps` and `terminalSightFactor` are gone from the shipped config and survive only as the formula fallback in `sim/zone.ts` for dev `zoneOverride` literals, smokes and fixtures. The 1,000 u terminal is wider than radar reach (660 u): Story 3.4's "radar reaches the endgame ring" reading no longer holds; the sudden-death collapse ends the match.
+- **The map generator never gives up** (Eric 2026-10-07: *"Generate maps until you have a valid map"*): a draw that fails an invariant is reseeded deterministically and generation continues, on both sides from the same wire seed. Before this, roughly 1 seed in 30–100 on the new board threw and would have closed the queue for that lobby; the 2026-09-16 "map-gen throw" thread is closed by construction. `MapGenerationError` remains only as a bug guard after 1,000 consecutive invalid draws.
+- Harness: `--set terrain.*` (cover band, `regionWavelength`, which follows a `map.baseRadius` override), `--spawn-rings slots@fraction,...` (harness-only multi-ring lattice with a seated-hull readout), `zone.ringRadii.N`; the retired zone dials are refused with the live one named.
+- `mapIsNavigable(map)` exported from `sim/map.ts` (validateMap's navigability half).
+- Tests: ring sizes are no longer a test subject (Eric 2026-10-07) — the zone suite exercises the ladder functions on synthetic input; the closing-rate band suite, the 2×sight terminal pins and the cover-value pins are deleted. Re-bases with their measurements in epic-9 amendment 9 (radar land-crossing share 14.8 % → 33.5 %; raster-vs-coastline depth 30 → 60 u for 92-vertex landmasses; production raster 405² → 791²; collision fixtures re-seated; golden snapshot re-recorded — only spawn event positions moved). Tests: shared 1034 -> 1030 (number pins deleted, function pins added), server 2504 -> 2514 (+10: spawn layout, terrain dials), client 3929 (unchanged); lint 0 errors; `npm run check` green.
+- Epic-9 amendments 2–9; `spec-9-1-the-tuning-pass.md`; GDD dated supersessions (storm, ocean, generation parameters). No How-to-Play or README change.
+
 ## [0.18.33] - 2026-10-02
 
 ### Changed

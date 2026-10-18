@@ -31,7 +31,7 @@
 //
 // THREE TABLES, ONE LOOKUP. `GLYPHS` is keyed by `EquipmentId` (what a weapon
 // slot holds), `CONSUMABLE_GLYPHS` by consumable id (what a belt square holds),
-// and `LINE_GLYPHS` by the CARD LINES that are neither — the five ship ladders
+// and `LINE_GLYPHS` by the CARD LINES that are neither — the eight ship ladders
 // and the CANNON ladder (`deckGun`, drawn as the mounted `gun`). `glyphPaths`
 // asks them in that order (consumable → equipment → line), so the hotbar and
 // the results loadout (slot-item ids) and the refit card and How-to-Play (line
@@ -40,18 +40,29 @@
 // A line with NO glyph draws NOTHING and throws nothing — today that is only
 // the stub DEPTH CHARGE, which has no mechanism to draw.
 //
+// STORY 9.4 (2026-10-12) DREW ONE, ERIC'S PICK from three rendered candidates
+// (epic-9 amendment 69): FOULING SHELL (a FOULED PROP — a three-bladed screw
+// with a snare line drawn across it). It replaces Story 8.17's FLASH SHELLS
+// struck-through eye, deleted with that line.
+//
+// STORY 9.3 (2026-10-11) DREW ONE, ERIC'S PICK from three rendered candidates
+// (epic-9 amendment 47): MULTI-SPECTRAL COUNTERMEASURE (eleven small circles
+// scattered in a disc — a cloud of pixels). It replaces the Story 8.18 SMOKE
+// SCREEN draft, deleted with its line.
+//
 // STORY 8.17 DREW TWO (amendment 135(j), same DRAFT status): PHOSPHOR SHELLS
-// (flame tongues on a waterline) and FLASH SHELLS (a struck-through eye).
+// (flame tongues on a waterline) and FLASH SHELLS (a struck-through eye —
+// deleted with its line in Story 9.4).
 //
 // STORY 8.16 DREW THREE MORE, for the belt (amendment 124(f), same DRAFT
-// status): SHIELD BLOCK (a heater-shield outline), CHAFF (a scatter of short
-// strokes) and DECOY BUOY (the on-water spar-buoy marker the deleted radar
+// status): SHIELD BLOCK (a heater-shield outline), CHAFF (retired with its line
+// in Story 9.2, epic-9 amendment 31) and DECOY BUOY (the on-water spar-buoy marker the deleted radar
 // buoy's glyph already drew).
 //
 // STORY 8.15 DREW FOUR (epic-8 amendment 110 — IMPLEMENTER DRAFTS, ledgered for
 // Eric's eye on staging): the MACHINE GUN (a breech firing a stream of short
 // dashes), the FLAK GUN (a jagged starburst), INSTANT RELOAD (a circular arrow)
-// and DAMAGE CUT (a hexagon halved down the middle). The missile and monitor
+// and HUNKER (was DAMAGE CUT until Story 9.9) (a hexagon halved down the middle). The missile and monitor
 // are CUT (amendment 89e) and never had glyphs.
 
 import type { Graphics, StrokeInput } from 'pixi.js';
@@ -143,12 +154,12 @@ const instantReload: GlyphPaths = (() => {
 })();
 
 /**
- * Damage cut (Story 8.15 DRAFT, amendment 110): a HALVED HEXAGON — an armour
- * plate outline split down the middle, one half hatched: incoming damage cut
- * in two.
+ * Hunker (was DAMAGE CUT until Story 9.9; Story 8.15 DRAFT, amendment 110): a
+ * HALVED HEXAGON — an armour plate outline split down the middle, one half
+ * hatched: incoming damage cut in two.
  */
 const HEX = arcPts(0.9, -Math.PI / 2, (3 * Math.PI) / 2, 6);
-const damageCut: GlyphPaths = [
+const hunker: GlyphPaths = [
   path(...HEX),
   path([0, -0.9], [0, 0.9]),
   path([0.12, -0.45], [0.55, -0.7]),
@@ -165,7 +176,16 @@ const torpedo: GlyphPaths = [
 ];
 
 /** Mine: spiked sphere. */
-const mine: GlyphPaths = [circle(0, 0, 0.52), ...spokes(8, () => 0.52, () => 0.92)];
+/**
+ * THE ONE MINE CIRCLE (Eric ruling 2026-10-08, Story 9.1): every mine glyph
+ * carries a circle of THIS radius — the naval mine's sphere as shipped, which
+ * in the 20 u on-water marker box is the 10 u click ring a deck-gun shell
+ * must land inside (amendment 200). *"For all mine types, the circle should
+ * be the same size."*
+ */
+const MINE_R = 0.52;
+
+const mine: GlyphPaths = [circle(0, 0, MINE_R), ...spokes(8, () => MINE_R, () => 0.92)];
 
 /**
  * Light torpedo (cycle 162 DRAFT): a SLIMMER, SHORTER fish — about half the
@@ -199,41 +219,60 @@ const supercavTorpedo: GlyphPaths = [
  * of a small torpedo inside it"): an upright triangle outline holding a small
  * horizontal torpedo — the moored casing that launches a fish.
  */
-const captiveMines: GlyphPaths = [
+
+/** The captive mine's ORIGINAL linework (cycle 162): a tall triangle with a
+ *  small torpedo inside it, in its own ±0.95 frame. Kept verbatim; the
+ *  shipped glyph below is this drawing scaled into the common circle. */
+const CAPTIVE_ORIGINAL: GlyphPaths = [
   path([0, -0.95], [0.95, 0.75], [-0.95, 0.75], [0, -0.95]),
   path([-0.4, 0.18], [0.18, 0.18], [0.42, 0.3], [0.18, 0.42], [-0.4, 0.42], [-0.4, 0.18]),
   path([-0.4, 0.18], [-0.52, 0.08]),
   path([-0.4, 0.42], [-0.52, 0.52]),
 ];
+/** The original triangle's circumcircle: centre (0, 0.165), radius 1.115 —
+ *  the circle that passes through all three corners. */
+const CAPTIVE_CIRCUM_CY = 0.165;
+const CAPTIVE_CIRCUM_R = 1.115;
 
-/** Fouling mine's sphere centre, radius and spike reach. */
-const FOUL_CY = -0.2;
-const FOUL_R = 0.34;
-const FOUL_SPIKE = 0.68;
-
-/** One fouling spike at angle `a`: a stalk out of the sphere ending in a barb
- *  that hooks back (rotated 135° off the stalk). */
-function barbedSpike(a: number): GlyphPart {
-  const tip: GlyphPoint = [Math.cos(a) * FOUL_SPIKE, FOUL_CY + Math.sin(a) * FOUL_SPIKE];
-  const b = a + (3 * Math.PI) / 4;
-  return path(
-    [Math.cos(a) * FOUL_R, FOUL_CY + Math.sin(a) * FOUL_R],
-    tip,
-    [tip[0] + Math.cos(b) * 0.2, tip[1] + Math.sin(b) * 0.2],
+/** Uniformly scale a drawing so a circle of `fromR` about (0, fromCy) lands on
+ *  the common mine circle about (0, 0). */
+function intoMineCircle(parts: GlyphPaths, fromCy: number, fromR: number): GlyphPart[] {
+  const s = MINE_R / fromR;
+  const map = ([x, y]: GlyphPoint): GlyphPoint => [x * s, (y - fromCy) * s];
+  return parts.map((part) =>
+    part.kind === 'circle' ? circle(...map(part.c), part.r * s) : path(...part.pts.map(map)),
   );
 }
 
 /**
- * Fouling mines (cycle 162 DRAFT, Eric: "naval-like but clearly distinct"): a
- * SMALLER sphere with FOUR diagonal spikes that end in hooked barbs, and a
- * zigzag tether trailing from its bottom toward the frame edge — the line that
- * fouls a screw.
+ * Captive mines (Eric 2026-10-08: *"take the original icon and put a circle
+ * around it"*): the original triangle-and-torpedo, scaled so its circumcircle
+ * IS the common mine circle, with that circle drawn.
  */
-const foulingMines: GlyphPaths = [
-  circle(0, FOUL_CY, FOUL_R),
-  ...[1, 3, 5, 7].map((k) => barbedSpike((k * Math.PI) / 4)),
-  path([0, FOUL_CY + FOUL_R], [0.13, 0.35], [-0.13, 0.55], [0.13, 0.75], [0, 0.95]),
+const captiveMines: GlyphPaths = [
+  circle(0, 0, MINE_R),
+  ...intoMineCircle(CAPTIVE_ORIGINAL, CAPTIVE_CIRCUM_CY, CAPTIVE_CIRCUM_R),
 ];
+
+/** Fouling spike reach — the naval mine's spoke reach, so the two read as kin. */
+const FOUL_SPIKE = 0.92;
+
+/** One fouling spike at angle `a`: a stalk out of the common circle ending in
+ *  a barb that hooks back (rotated 135° off the stalk). */
+function barbedSpike(a: number): GlyphPart {
+  const tip: GlyphPoint = [Math.cos(a) * FOUL_SPIKE, Math.sin(a) * FOUL_SPIKE];
+  const b = a + (3 * Math.PI) / 4;
+  return path([Math.cos(a) * MINE_R, Math.sin(a) * MINE_R], tip, [tip[0] + Math.cos(b) * 0.2, tip[1] + Math.sin(b) * 0.2]);
+}
+
+/**
+ * Fouling mines (Eric 2026-10-08, Story 9.1 — re-cut from the cycle 162
+ * draft): the COMMON mine circle, centred, with FOUR diagonal spikes that end
+ * in hooked barbs. The zigzag tether that trailed from the sphere is gone
+ * (*"get rid of the little squiggle"*) and the sphere is the naval mine's
+ * size (*"make the circle part the same size as the normal naval mine"*).
+ */
+const foulingMines: GlyphPaths = [circle(0, 0, MINE_R), ...[1, 3, 5, 7].map((k) => barbedSpike((k * Math.PI) / 4))];
 
 /** Speed boost: a double chevron. */
 const boost: GlyphPaths = [-0.5, 0.05].map((dx) => path([dx, -0.7], [dx + 0.55, 0], [dx, 0.7]));
@@ -275,7 +314,7 @@ const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
   machineGun,
   flak,
   instantReload,
-  damageCut,
+  hunker,
   // ONE GLYPH PER LINE (cycle 162, the icon pass): the heavy torpedo and the
   // naval mine keep the family drawings they always had; the light torpedo and
   // the captive and fouling mines got their own (above).
@@ -293,27 +332,10 @@ const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
 /**
  * Shield block (Story 8.16 DRAFT, epic-8 amendment 124(f)): a SHIELD OUTLINE —
  * a flat-topped heater shield, closed, with no inner mark. Deliberately not
- * DAMAGE CUT's halved hexagon: one absorbs, the other reduces (amendment 118).
+ * HUNKER's halved hexagon: one absorbs, the other reduces (amendment 118).
  */
 const shieldBlock: GlyphPaths = [
   path([-0.72, -0.82], [0.72, -0.82], [0.72, 0.08], [0, 0.95], [-0.72, 0.08], [-0.72, -0.82]),
-];
-
-/**
- * Chaff (Story 8.16 DRAFT, epic-8 amendment 124(f)): a SCATTER of short strokes
- * at mixed angles — the foil cloud the fakes are made of. No circle and no
- * centre mark: the whole point is that nothing in it is the real thing.
- */
-const chaff: GlyphPaths = [
-  path([-0.85, -0.55], [-0.55, -0.75]),
-  path([-0.2, -0.9], [0.1, -0.62]),
-  path([0.45, -0.7], [0.85, -0.6]),
-  path([-0.6, -0.05], [-0.25, 0.1]),
-  path([0.15, -0.2], [0.3, 0.15]),
-  path([0.6, 0.05], [0.9, 0.35]),
-  path([-0.9, 0.55], [-0.6, 0.8]),
-  path([-0.15, 0.55], [0.2, 0.45]),
-  path([0.5, 0.65], [0.65, 0.95]),
 ];
 
 /**
@@ -331,31 +353,38 @@ const decoyBuoy: GlyphPaths = [
 ];
 
 /**
- * Flash shells (`dazzleShells`, Story 8.17 DRAFT, epic-8 amendment 135(j)): a
- * BLINDED EYE — a lens-shaped eye outline with its pupil, struck through by one
- * diagonal. It says what the shell does to the hull it catches (sight cut to an
- * eighth), and shares no shape with the star shell's rayed burst.
+ * Fouling shell (Story 9.4 — Eric's pick 2026-10-12, candidate A "fouled prop"
+ * of three rendered for him, epic-9 amendment 69): a FOULED PROP — a hub and
+ * three screw blades, with a snare line drawn across them. It says what the
+ * zone does to every hull that runs through it (the prop fouls), and it
+ * replaces FLASH SHELLS' struck-through eye. Every primitive sits inside ±1.
  */
-const dazzleShells: GlyphPaths = [
-  path([-0.95, 0], [-0.5, -0.42], [0, -0.55], [0.5, -0.42], [0.95, 0], [0.5, 0.42], [0, 0.55], [-0.5, 0.42], [-0.95, 0]),
-  circle(0, 0, 0.2),
-  path([-0.8, 0.8], [0.8, -0.8]),
+const foulingShell: GlyphPaths = [
+  circle(0, 0, 0.18),
+  path([0, -0.18], [-0.28, -0.62], [0, -0.95], [0.28, -0.62], [0, -0.18]), // top blade
+  path([-0.16, 0.09], [-0.68, 0.2], [-0.82, 0.62], [-0.4, 0.55], [-0.16, 0.09]), // lower-left blade
+  path([0.16, 0.09], [0.68, 0.2], [0.82, 0.62], [0.4, 0.55], [0.16, 0.09]), // lower-right blade
+  path([-0.95, -0.3], [-0.6, -0.05], [-0.2, -0.35], [0.2, 0.05], [0.6, -0.25], [0.95, 0.1]), // the snare line
 ];
 
 /**
- * Smoke screen (Story 8.18 DRAFT for Eric's eye, the amendment 124(f)
- * precedent): THREE OVERLAPPING PUFFS over a short waterline, growing as they
- * trail away to the left — the newest, smallest puff low at the stern end, the
- * oldest and biggest highest and furthest back, which is how a laid puff
- * behaves (it grows r123.75 → r247.5 over its life since cycle 162, and never
- * drifts). Every circle's
- * whole extent sits inside the ±1 box.
+ * Multi-spectral countermeasure (Story 9.3 — Eric's pick 2026-10-11, candidate
+ * A of three rendered for him, epic-9 amendment 47): ELEVEN SMALL CIRCLES
+ * scattered in a disc, smallest toward the rim — the cloud of pixels the
+ * consumable lays. Every circle's whole extent sits inside the ±1 box.
  */
-const smokeScreen: GlyphPaths = [
-  circle(0.55, 0.28, 0.26),
-  circle(0.02, 0.0, 0.38),
-  circle(-0.46, -0.36, 0.48),
-  path([-0.3, 0.78], [0.95, 0.78]),
+const countermeasure: GlyphPaths = [
+  circle(0, 0, 0.12),
+  circle(0.45, -0.1, 0.1),
+  circle(-0.42, 0.18, 0.11),
+  circle(0.1, 0.5, 0.1),
+  circle(-0.15, -0.48, 0.09),
+  circle(0.62, 0.42, 0.08),
+  circle(-0.66, -0.3, 0.08),
+  circle(0.3, -0.6, 0.07),
+  circle(-0.55, 0.58, 0.07),
+  circle(0.72, -0.5, 0.06),
+  circle(-0.1, 0.85, 0.06),
 ];
 
 /** The serpent's sinuous body up the staff: three half-waves, so it crosses
@@ -394,19 +423,42 @@ const CONSUMABLE_GLYPHS: Partial<Record<string, GlyphPaths>> = {
   // Story 8.16 — the three lines that went live, each an IMPLEMENTER DRAFT for
   // Eric's eye on staging (amendment 124(f), the amendment 110 precedent).
   shieldBlock,
-  chaff,
   decoyBuoy,
-  dazzleShells, // FLASH SHELLS — Story 8.17 DRAFT (above)
-  smokeScreen, // Story 8.18 DRAFT (above)
+  foulingShell, // FOULING SHELL — Story 9.4, Eric's pick 2026-10-12 (above)
+  countermeasure, // Story 9.3 — Eric's pick 2026-10-11 (above)
 };
 
-/** Armor (cycle 162 DRAFT): three stacked hull plates, each offset from the
+/** Hull points (cycle 162 DRAFT, drawn for ARMOR; renamed with the line in
+ *  Story 9.6, amendment 93): three stacked hull plates, each offset from the
  *  one above like overlapping plating. */
-const armor: GlyphPaths = [
+const hullPoints: GlyphPaths = [
   [-0.95, -0.8, 0.55, -0.4],
   [-0.75, -0.2, 0.75, 0.2],
   [-0.55, 0.4, 0.95, 0.8],
 ].map(([x0, y0, x1, y1]) => path([x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]));
+
+/** Armor — Story 9.7 (2026-10-13), Eric's pick from three rendered candidates
+ *  (epic-9 amendment 116): an ANGLED ARMOR BELT — two slanted riveted plate
+ *  bands. The rivets are r 0.14 (grown from the render's 0.1) so they read at
+ *  24 px. Not HULL's three stacked plates. */
+const armor: GlyphPaths = [
+  path([-0.95, -0.45], [0.95, -0.95], [0.95, -0.45], [-0.95, 0.05], [-0.95, -0.45]),
+  path([-0.95, 0.25], [0.95, -0.25], [0.95, 0.25], [-0.95, 0.75], [-0.95, 0.25]),
+  circle(-0.6, -0.29, 0.14),
+  circle(0, -0.45, 0.14),
+  circle(0.6, -0.61, 0.14),
+];
+
+/** Armor piercing — Story 9.9 (2026-10-15), Eric's pick from three rendered
+ *  candidates (epic-9 amendment 160): a SHELL SPLITTING A PLATE — a short
+ *  pointed shell nose entering a vertical plate that splits into a V at the
+ *  point. Not the torpedo (no tail fins, no wake ticks), not ARMOR's belt. */
+const armorPiercing: GlyphPaths = [
+  path([-0.95, -0.32], [-0.1, -0.32], [0.55, 0], [-0.1, 0.32], [-0.95, 0.32], [-0.95, -0.32]),
+  path([-0.55, -0.32], [-0.55, 0.32]),
+  path([0.45, -0.95], [0.45, -0.3], [0.9, -0.55]),
+  path([0.45, 0.95], [0.45, 0.3], [0.9, 0.55]),
+];
 
 /** Speed (cycle 162 DRAFT): a forward-pointing arrowhead with three motion
  *  lines trailing it — the middle one its shaft. Not BOOST's double chevron. */
@@ -451,18 +503,24 @@ const reload: GlyphPaths = [
   path([-0.45, 0.9], [0.45, 0.9], [0, 0], [-0.45, 0.9]),
 ];
 
+/** Passive healing (Story 9.6, Eric's pick 2026-10-13, amendment 98): a flat baseline with one heartbeat spike — a pulse trace. Not HULL REPAIR's staff-and-serpent. */
+const passiveHealing: GlyphPaths = [path([-0.95, 0.2], [-0.5, 0.2], [-0.3, -0.7], [0.0, 0.9], [0.22, 0.2], [0.95, 0.2])];
+
 /**
  * THE LINE half of the table (cycle 162): card lines that are NOT slot items —
- * the five ship ladders, and the CANNON ladder `deckGun`, which draws the
+ * the eight ship ladders, and the CANNON ladder `deckGun`, which draws the
  * mounted `gun` it upgrades. Kept apart from `GLYPHS` so that table stays keyed
  * by what a weapon slot can actually hold.
  */
 const LINE_GLYPHS: Partial<Record<LineId, GlyphPaths>> = {
+  hullPoints,
   armor,
+  armorPiercing,
   speed,
   turning,
   radarSweep,
   reload,
+  passiveHealing,
   deckGun: gun,
 };
 

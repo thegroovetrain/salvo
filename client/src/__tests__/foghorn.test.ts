@@ -74,31 +74,35 @@ describe('the foghorn cooldown is NOT copied client-side', () => {
   });
 });
 
-// --- band → gain (THE EIGHTHS LADDER, amendment 122) -------------------------
+// --- band → gain (TWELVE BANDS, Story 9.8 ruling 129; eighths since amendment 122)
 //
-// The wire's `v` is which EIGHTH of the LISTENER's own intel range the honker
+// The wire's `v` is which TWELFTH of the LISTENER's own intel range the honker
 // sits in — server-resolved, already muffled for islands. The client looks it
 // up and plays; it never recomputes a band, a distance or a range.
 
-/** Every band, in order — the one place the 1..8 domain is written down. */
-const BANDS = [1, 2, 3, 4, 5, 6, 7, 8] as const satisfies readonly HornBand[];
+/** Every band, in order — the one place the 1..12 domain is written down. */
+const BANDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const satisfies readonly HornBand[];
+/** The radar edge — the quietest, faintest band (ruling 129). */
+const EDGE = 12 as const;
+/** Ruling 129's curve position: 0 through truesight (band 4), 1 at the edge. */
+const curveK = (v: number): number => Math.max(0, (v - 4) / 8);
 
-describe('bandGain — the eighths ladder, both of Eric’s anchors intact', () => {
+describe('bandGain — twelve bands, both of Eric’s anchors intact (ruling 129)', () => {
   it('is FLAT AT FULL VOLUME through band 4 (truesight at base stats)', () => {
     // Eric's original foghorn ruling: *"within truesight range at full
-    // volume"*. Band 4 IS truesight (330u at base), so the whole plateau plays
-    // at 1 — four bands, not one.
+    // volume"*. Band 4 IS truesight (sight = radar / 3 at base, 4/12), so the
+    // whole plateau plays at 1 — four bands, not one.
     for (const v of [1, 2, 3, 4] as const) expect(bandGain(v)).toBe(1);
   });
 
-  it('steps down one eighth of the 100→50% span per band to the radar edge', () => {
-    expect(bandGain(5)).toBe(0.875);
-    expect(bandGain(6)).toBe(0.75);
-    expect(bandGain(7)).toBe(0.625);
-    expect(bandGain(8)).toBe(0.5); // the second anchor: 50% at 660u
+  it('steps 1 − 0.5 × (b − 4) / 8 per band to 50 % at the radar edge (ruling 129)', () => {
+    for (const v of BANDS) expect(bandGain(v), `band ${v}`).toBeCloseTo(1 - 0.5 * curveK(v), 12);
+    expect(bandGain(6)).toBeCloseTo(0.875, 12); // the matrix row: 750 u → band 6
+    expect(bandGain(8)).toBeCloseTo(0.75, 12); // 1,000 u → band 8
+    expect(bandGain(EDGE)).toBe(0.5); // the second anchor: 50% at the radar edge
   });
 
-  it('covers all eight bands with a finite, audible gain', () => {
+  it('covers all twelve bands with a finite, audible gain', () => {
     for (const v of BANDS) {
       expect(Number.isFinite(bandGain(v))).toBe(true);
       expect(bandGain(v)).toBeGreaterThan(0); // an audible band is audible
@@ -113,7 +117,7 @@ describe('bandGain — the eighths ladder, both of Eric’s anchors intact', () 
   });
 
   it('takes even steps across the falloff half — no band is a cliff', () => {
-    const steps = [4, 5, 6, 7].map((b) => bandGain(b as HornBand) - bandGain((b + 1) as HornBand));
+    const steps = [4, 5, 6, 7, 8, 9, 10, 11].map((b) => bandGain(b as HornBand) - bandGain((b + 1) as HornBand));
     for (const s of steps) expect(s).toBeCloseTo(steps[0], 9);
   });
 
@@ -125,17 +129,17 @@ describe('bandGain — the eighths ladder, both of Eric’s anchors intact', () 
 
   it('falls back to the QUIETEST band for an OUT-OF-DOMAIN value, never to full gain (review fix)', () => {
     // `undefined` is the self/spectator path and keeps full gain above. A number
-    // OUTSIDE 1..8 is something else entirely: the least trustworthy input the
+    // OUTSIDE 1..12 is something else entirely: the least trustworthy input the
     // channel can carry, so the fallback must be the least salient answer, not
     // the loudest one. Failing LOUD while the docblock claimed a closed failure
     // is what this pins.
-    for (const bad of [0, 9, -1, 99, 1.5, NaN, Infinity] as unknown as HornBand[]) {
-      expect(bandGain(bad)).toBe(bandGain(8));
+    for (const bad of [0, 13, -1, 99, 1.5, NaN, Infinity] as unknown as HornBand[]) {
+      expect(bandGain(bad)).toBe(bandGain(EDGE));
     }
   });
 
   it('carries no reach knob — who hears what is resolved server-side', () => {
-    // Amendment 122: the band is which eighth of the LISTENER's own intel range
+    // Amendment 122 / ruling 129: the band is which twelfth of the LISTENER's own intel range
     // the honker sits in, resolved server-side and arriving pre-decided as `v`.
     // A distance or radius here would be a second, forkable authority.
     const keys = JSON.stringify(F).toLowerCase();
@@ -148,7 +152,7 @@ describe('bandGain — the eighths ladder, both of Eric’s anchors intact', () 
 
 describe('chevronWeight — the visual twin rides the SAME band curve', () => {
   // TODAY'S SHIPPED LOOK, verbatim. These two literals are the anchors the
-  // eighths rebase had to preserve: the old tier-1 weight and the old tier-3
+  // eighths rebase and the twelve-band rebase (ruling 129) had to preserve: the old tier-1 weight and the old tier-3
   // weight. Written out rather than read from config so a config retune that
   // moved the look would FAIL here instead of quietly agreeing with itself.
   const SHIPPED_LOUD = { size: 22, thickness: 3, alpha: 0.95 };
@@ -158,15 +162,15 @@ describe('chevronWeight — the visual twin rides the SAME band curve', () => {
     for (const v of [1, 2, 3, 4] as const) expect(chevronWeight(v)).toEqual(SHIPPED_LOUD);
   });
 
-  it('keeps band 8 at TODAY’s tier-3 weight, exactly', () => {
-    expect(chevronWeight(8)).toEqual(SHIPPED_FAINT);
+  it('keeps band 12 (the radar edge) at TODAY’s tier-3 weight, exactly', () => {
+    expect(chevronWeight(EDGE)).toEqual(SHIPPED_FAINT);
   });
 
-  it('interpolates 5/6/7 between the anchors on the gain curve’s own fractions', () => {
-    // k = (band - 4) / 4 — the same fractions bandGain steps on, so the mark's
-    // weight and the honk's loudness move together.
-    for (const v of [5, 6, 7] as const) {
-      const k = (v - 4) / 4;
+  it('interpolates 5..11 between the anchors on the gain curve’s own fractions', () => {
+    // k = (band - 4) / 8 — the same fractions bandGain steps on (ruling 129),
+    // so the mark's weight and the honk's loudness move together.
+    for (const v of [5, 6, 7, 8, 9, 10, 11] as const) {
+      const k = curveK(v);
       const w = chevronWeight(v);
       expect(w.size).toBeCloseTo(SHIPPED_LOUD.size + (SHIPPED_FAINT.size - SHIPPED_LOUD.size) * k, 9);
       expect(w.thickness).toBeCloseTo(
@@ -187,7 +191,7 @@ describe('chevronWeight — the visual twin rides the SAME band curve', () => {
     }
     // Past the plateau every one of the three channels genuinely moves, so the
     // volume survives a colorblind read (the wounded-smoke rule).
-    for (const v of [5, 6, 7, 8] as const) {
+    for (const v of [5, 6, 7, 8, 9, 10, 11, 12] as const) {
       expect(chevronWeight(v).size).toBeLessThan(chevronWeight((v - 1) as HornBand).size);
       expect(chevronWeight(v).thickness).toBeLessThan(chevronWeight((v - 1) as HornBand).thickness);
       expect(chevronWeight(v).alpha).toBeLessThan(chevronWeight((v - 1) as HornBand).alpha);
@@ -208,7 +212,7 @@ describe('chevronWeight — the visual twin rides the SAME band curve', () => {
 
   it('carries no identity channel of any kind', () => {
     // Amendment 51: no id, no hue, no class, no correlation handle. The band
-    // table decides WEIGHT and nothing else; hue is one constant for all eight.
+    // table decides WEIGHT and nothing else; hue is one constant for all twelve.
     for (const v of BANDS) {
       expect(Object.keys(chevronWeight(v)).sort()).toEqual(['alpha', 'size', 'thickness']);
     }
@@ -216,21 +220,23 @@ describe('chevronWeight — the visual twin rides the SAME band curve', () => {
 
   it('is a THREE-value read no longer — the tier vocabulary is gone', () => {
     // The regression this pins: a client that still keys a 1|2|3 enum would
-    // resolve bands 4-8 to `undefined` and draw them all at full weight.
-    expect(Object.keys(CH.bands).sort()).toEqual(['1', '2', '3', '4', '5', '6', '7', '8']);
-    expect(Object.keys(F.bandGain).sort()).toEqual(['1', '2', '3', '4', '5', '6', '7', '8']);
+    // resolve bands 4-12 to `undefined` and draw them all at full weight; a
+    // client still on the eighths table would do the same for bands 9-12.
+    const domain = BANDS.map(String).sort();
+    expect(Object.keys(CH.bands).sort()).toEqual(domain);
+    expect(Object.keys(F.bandGain).sort()).toEqual(domain);
     expect(F).not.toHaveProperty('tierGain');
     expect(CH).not.toHaveProperty('tiers');
   });
 
   // REVIEW FIX — FAIL CLOSED, NEVER `undefined`. `bandGain` has always guarded
-  // with `?? 1`; `chevronWeight` did not, so ANY value outside 1..8 came back
+  // with `?? 1`; `chevronWeight` did not, so ANY value outside the domain came back
   // undefined and `drawChevron` then threw on `w.size` — a render-loop crash
   // triggered by one malformed field. No honest current server can send one
   // (hornBandFor now fails closed on its side too), which is exactly why this
   // side must degrade rather than throw: the two guards are independent.
   it('resolves an OUT-OF-DOMAIN band to a valid weight rather than undefined', () => {
-    for (const bad of [0, 9, -1, 99, 1.5, NaN, Infinity] as unknown as HornBand[]) {
+    for (const bad of [0, 13, -1, 99, 1.5, NaN, Infinity] as unknown as HornBand[]) {
       const w = chevronWeight(bad);
       expect(w).toBeDefined();
       expect(Object.keys(w).sort()).toEqual(['alpha', 'size', 'thickness']);
@@ -241,7 +247,7 @@ describe('chevronWeight — the visual twin rides the SAME band curve', () => {
       // out-of-domain value is the least trustworthy input the row carries, so
       // it must not be drawn at maximum salience. `undefined` — the honest
       // self/spectator shape — keeps its full weight, tested above.
-      expect(w).toEqual(chevronWeight(8));
+      expect(w).toEqual(chevronWeight(EDGE));
     }
   });
 
@@ -518,7 +524,7 @@ describe("motion: 'off' removes MOTION, never INFORMATION (UX-DR36, amendment 55
     });
     for (const v of BANDS) expect(still(v).drawn).toBe(chevronWeight(v).size);
     // ...and the falloff half is still ordered at off, band by band.
-    for (const v of [5, 6, 7, 8] as const) {
+    for (const v of [5, 6, 7, 8, 9, 10, 11, 12] as const) {
       expect(still(v).drawn).toBeLessThan(still((v - 1) as HornBand).drawn);
     }
   });
@@ -531,12 +537,12 @@ describe("motion: 'off' removes MOTION, never INFORMATION (UX-DR36, amendment 55
     settings.set({ motion: 'off' });
     try {
       const f = new Foghorn(new Container());
-      f.onHonk(Math.PI, 8, 1000);
+      f.onHonk(Math.PI, EDGE, 1000);
       expect(f.liveMarks).toBe(1); // PRESENCE
       f.render(1000, W / 2, H / 2, W, H);
       expect(f.liveMarks).toBe(1);
       expect(chevronPoint(Math.PI, W / 2, H / 2, W, H).x).toBeCloseTo(CH.insetPx, 6); // DIRECTION: π = LEFT
-      expect(chevronWeight(8)).toEqual({ size: 13, thickness: 1.8, alpha: 0.5 }); // WEIGHT
+      expect(chevronWeight(EDGE)).toEqual({ size: 13, thickness: 1.8, alpha: 0.5 }); // WEIGHT
       expect(chevronPop(0, motionIntensity('off'))).toBe(1); // ...and only the pop is gone
     } finally {
       settings.reset();
@@ -774,8 +780,9 @@ function setupHonk(over: Record<string, unknown> = {}) {
     mines: { sync: vi.fn() },
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
+    foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
-    smokeScreen: { sync: vi.fn() },
+    countermeasure: { sync: vi.fn() },
     radar: { onSweepSample: vi.fn() },
     ownBurstRadius: () => undefined,
     ownMineRings: () => undefined,
@@ -817,7 +824,7 @@ describe("roomBindings case 'fh' — three shapes, three behaviors", () => {
   it('FOGGED: plays at the band gain and draws a chevron at the WIRE bearing', () => {
     const { sink, playHorn, onHonk } = setupHonk();
     sink.handler(honkFrame({ k: 'fh', h: 'standard', b: 2.5, v: 6 }));
-    expect(playHorn).toHaveBeenCalledWith('standard', 0.75);
+    expect(playHorn).toHaveBeenCalledWith('standard', bandGain(6)); // 0.875 (ruling 129)
     expect(onHonk).toHaveBeenCalledWith(2.5, 6, 200); // bearing, band, FRAME time
   });
 
@@ -830,11 +837,11 @@ describe("roomBindings case 'fh' — three shapes, three behaviors", () => {
     expect(onHonk).toHaveBeenCalledWith(1.5, 2, 200);
   });
 
-  it('FOGGED band 8: the quietest band still draws its mark', () => {
+  it('FOGGED band 12: the quietest band still draws its mark', () => {
     const { sink, playHorn, onHonk } = setupHonk();
-    sink.handler(honkFrame({ k: 'fh', h: 'standard', b: 0.25, v: 8 }));
+    sink.handler(honkFrame({ k: 'fh', h: 'standard', b: 0.25, v: EDGE }));
     expect(playHorn).toHaveBeenCalledWith('standard', 0.5);
-    expect(onHonk).toHaveBeenCalledWith(0.25, 8, 200);
+    expect(onHonk).toHaveBeenCalledWith(0.25, EDGE, 200);
   });
 
   it('SPECTATOR: plays at 100% and derives the bearing from the CAMERA centre', () => {

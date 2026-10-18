@@ -404,7 +404,7 @@ export function captiveTorpedo(
  *  rather than dealing plain contact damage (see `captiveTorpedo`, its only
  *  producer). Reading the hit rule off the projectile is what keeps the rule
  *  with the projectile. */
-export function contactBlastRadius(shell: ShellState): number {
+export function contactBlastRadius(shell: Pick<ShellState, 'targetX' | 'burstRadius'>): number {
   return shell.targetX === null && shell.burstRadius > 0 ? shell.burstRadius : 0;
 }
 

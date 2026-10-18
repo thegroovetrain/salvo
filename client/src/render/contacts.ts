@@ -30,6 +30,7 @@
 
 import type { Container } from 'pixi.js';
 import { CONFIG, type HullId } from '@salvo/shared';
+import { CLIENT_CONFIG } from '../config.js';
 import type { ContactStore } from '../net/snapshots.js';
 import type { Point } from './camera.js';
 import { ShipView, contactStyle, hueRevision, isDroneHull } from './ships.js';
@@ -37,7 +38,8 @@ import { NameplateLayer, latchPlate, plateScreenY } from './nameplates.js';
 import { Fader } from './fade.js';
 import { AggroMark, bracketHalfSize } from './aggro.js';
 
-/** Start a contact's fade-out once unseen for this much server time (ms). */
+/** Start a contact's fade-out once unseen for this much FRAME time (ms) — read
+ *  against `ServerClock.frameNow()`, never `serverNow()` (see `render`). */
 export const CONTACT_STALE_MS = CONFIG.tick.interpDelayMs + 300;
 
 /** Roster hue-index resolver: the contact's Regatta wheel index (0..19), or null
@@ -137,6 +139,10 @@ export class ContactViews {
     /** Sounds the aggro lock/release stings. Defaults to a no-op so headless
      *  tests and any caller with no audio behave exactly as before. */
     private readonly aggroCue: AggroCue = () => {},
+    /** The countermeasure cloud paint under a world point (render/
+     *  countermeasure.ts `coverAt`, Story 9.3). A plate under paint at least
+     *  `plateHideAlpha` thick is hidden — never the hull. Defaults to no cover. */
+    private readonly coverAt: (x: number, y: number) => number = () => 0,
   ) {}
 
   /** How many contact views are live, including fading ones (tests/debug). */
@@ -190,11 +196,15 @@ export class ContactViews {
    * `softness` is the frame's sight-boundary feather (see `HullSoftness`);
    * omitted, hulls draw at full strength, which is the pre-lift behaviour and
    * the right degradation for a caller with no observer.
+   * `staleNow` is the STALENESS clock the prune reads — pass
+   * `ServerClock.frameNow()`, NOT `serverNow()`: under a lagging server
+   * `serverNow()` runs ahead of the frames and pruned contacts that were in
+   * every one of them (2026-10-14, see net/clock.ts `frameNow`).
    */
   render(
     store: ContactStore,
     renderTime: number,
-    serverNow: number,
+    staleNow: number,
     dtMs: number,
     rosterIndex: RosterIndex,
     plates: PlateFrame,
@@ -202,7 +212,7 @@ export class ContactViews {
   ): void {
     this.syncHueRevision();
     this.frameNowMs = performance.now();
-    store.prune(serverNow, CONTACT_STALE_MS);
+    store.prune(staleNow, CONTACT_STALE_MS);
     // Only start/keep a view for ids whose buffer can actually produce a pose.
     // A respawn's frame-contacts push can land in the same tick as the spawn
     // event's buffer clear (see net/roomBindings.ts), leaving a briefly empty
@@ -331,7 +341,12 @@ export class ContactViews {
     const gp = fv.view.gfx.position;
     const sc = plates.camera.worldToScreen({ x: gp.x, y: gp.y });
     const y = plateScreenY(sc.y, fv.hull, plates.camera.zoom, plates.pad);
-    this.nameplates.place(id, sc.x, y, fv.fader.alpha * softness(gp.x, gp.y));
+    // UNDER THICK COUNTERMEASURE PAINT THE NAME GOES (Eric 2026-10-12: "I don't
+    // want someone's nameplate sticking out from behind the smoke, that gives it
+    // away"). Sampled at the hull pose like the feather; the hull itself is
+    // never hidden here — the overlay already shows partials.
+    const shown = this.coverAt(gp.x, gp.y) >= CLIENT_CONFIG.countermeasure.plateHideAlpha ? 0 : 1;
+    this.nameplates.place(id, sc.x, y, fv.fader.alpha * softness(gp.x, gp.y) * shown);
   }
 
   /** A contact booted on the amber fallback because its roster hue had not synced

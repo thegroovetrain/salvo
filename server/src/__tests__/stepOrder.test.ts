@@ -8,8 +8,8 @@
 // construction, with no explicit tie-break code." Move it earlier and regen
 // can un-sink a hull at 0 hp. Others: sampleWakes after resolveCollisions (a
 // wake records the RESOLVED pose, never a rolled-back candidate inside land);
-// applyZoneEffects before the expiry sweep (a zone
-// burns/dazzles through its final tick); processRespawns before tickXp (a
+// applyZoneEffects / applyFoulZones before their expiry sweeps (a zone
+// burns / fouls through its final tick); processRespawns before tickXp (a
 // hull revived this tick accrues this tick); and founderSinking (Story 5.2)
 // after the motion block but before the damage rows and the activation gates
 // (the window's last tick still moves and lays wake as `sinking`, while the
@@ -31,26 +31,44 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       'botsTick',
       'applyInputs',
       'stepShips',
+      // Story 9.5's HULL PASS — solid hulls pushed apart by mass share,
+      // BEFORE the land pass so land stays the hard constraint (see the row
+      // comment in world.ts).
+      'resolveHullContacts',
       'resolveCollisions',
+      // Story 9.5's CONTACT DAMAGE — the once-per-contact hit, the grind, the
+      // land strike and scrape — AFTER the land pass (this tick's land edge)
+      // and BEFORE sampleWakes / founderSinking (a hull sunk here still lays
+      // its wake and takes the sink edge in the ordinary order).
+      'applyContactDamage',
       'sampleWakes',
       // Story 5.2's founder edge — the one deliberate insertion this pin has
       // absorbed: after motion, before damage/activation (see the row comment
       // in world.ts for the full placement rationale).
       'founderSinking',
-      // Story 8.18's SMOKE SCREEN laying — AFTER the founder edge (Eric ruling
-      // 144: a hull that founders this tick lays no puff, true without a
-      // second liveness read) and BEFORE the storm (see the row comment).
-      'stepSmoke',
+      // Story 9.3's COUNTERMEASURE cloud expiry sweep, in 8.18's stepSmoke
+      // seat — AFTER the founder edge and BEFORE the storm (see the row
+      // comment).
+      'stepClouds',
+      // Story 9.10's FOG FIELD — weather beside weather, directly after the
+      // cloud sweep: the coverage controller's re-cut + a new density-memo
+      // epoch once per refresh (see the row comment in world.ts).
+      'stepFog',
       'applyStorm',
       'stepShells',
       'stepMines',
       // (Story 7-5 wave 2's `tickBuoys` row was REMOVED with the radar buoy
       // in Story 8.16: the DECOY BUOY has no tick — amendment 124(e).)
       'applyZoneEffects',
+      // Story 9.4's FOUL ZONE stamp — immediately after the burn DoT: against
+      // post-move hull OUTLINES (the tick's hull snapshot), before its own
+      // expiry sweep below. See the row comment in world.ts.
+      'applyFoulZones',
       'tickRepairs',
       'tickSmoke',
       'expireLitZones',
       'expireBurnZones', // Story 8.17: the PHOSPHOR burning zone's expiry sweep, beside the lit zones'
+      'expireFoulZones', // Story 9.4: the FOULING SHELL foul zone's expiry sweep, beside the burn zones'
       'fireControl',
       // Story 8.15's held-fire stream — the machine gun's LEVEL channel,
       // a deliberate insertion right after the click channel (the reloads

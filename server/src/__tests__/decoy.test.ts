@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  CONSUMABLE_SLOTS,
+  consumableSlotFor,
   paintSegmentCoverage,
   type BlipEvent,
   type GameEvent,
@@ -25,7 +25,7 @@ import { addDecoy } from '../game/decoys.js';
 import { circleIsland, flatRaster } from './islandFixture.js';
 
 const TAU = Math.PI * 2;
-const BELT = CONSUMABLE_SLOTS[0];
+const BELT = consumableSlotFor('decoyBuoy')!;
 
 function bareWorld(seed = 816): World {
   const w = new World(seed);
@@ -215,12 +215,11 @@ describe('DECOY BUOY — the views and the radar paint', () => {
     expect('decoys' in buildFrame(w, 'far')).toBe(false); // omitted when none
   });
 
-  it('an enemy INSIDE SIGHT but outside detect gets the view; one just past sight with no paint gets nothing (amendment 126)', () => {
+  it('an enemy INSIDE SIGHT gets the view (it rides sight, not the mine/torpedo detect rung — which equals sight since 2026-10-08); one just past sight with no paint gets nothing (amendment 126)', () => {
     const w = bareWorld();
     place(w, 'o', -2000, 0);
     const probe = place(w, 'probe', 0, 0);
     const sight = probe.stats.sightRange;
-    expect(0.9 * sight).toBeGreaterThan(sight * CONFIG.vision.detectFactor); // the dark band 124(h) left
     probe.state = { x: 0.9 * sight, y: 0, heading: 0, speed: 0 };
     probe.prevSweepAngle = 1;
     probe.sweepAngle = 1.1; // the beam elsewhere: no paint either way
@@ -235,8 +234,8 @@ describe('DECOY BUOY — the views and the radar paint', () => {
   it('it PAINTS on radar as an untagged 12 u square when the observer\'s beam crosses it — and only then', () => {
     const w = bareWorld();
     const obs = place(w, 'obs', 0, 0);
-    addDecoy(w.decoys, 'x', 450, 0, 'd1'); // in obs's annulus (sight < 450 <= radar)
-    const want = paintSegmentCoverage(450, 0, 450, 0, CONFIG.decoyBuoy.sizeU, CONFIG.vision.radarCellU, w.now);
+    addDecoy(w.decoys, 'x', 700, 0, 'd1'); // in obs's annulus, inside the dropout's flat band (Story 9.8)
+    const want = paintSegmentCoverage(700, 0, 700, 0, CONFIG.decoyBuoy.sizeU, CONFIG.vision.radarCellU, w.now);
     obs.prevSweepAngle = TAU - 0.05;
     obs.sweepAngle = 0.05; // the beam crosses bearing 0 this tick
     const painted = blips(observe(w, 'obs').events);
@@ -248,14 +247,14 @@ describe('DECOY BUOY — the views and the radar paint', () => {
     // channel, never a doubled paint.
     obs.prevSweepAngle = TAU - 0.05;
     obs.sweepAngle = 0.05;
-    w.litZones.set('z', { id: 'z', ownerId: 'obs', x: 450, y: 0, r: 100, until: w.now + 5000 } as never);
+    w.litZones.set('z', { id: 'z', ownerId: 'obs', x: 700, y: 0, r: 100, until: w.now + 5000 } as never);
     expect(blips(observe(w, 'obs').events)).toEqual([]);
   });
 
   it('the OWNER\'s radar paints its own decoy through the same gate (no special case)', () => {
     const w = bareWorld();
     const o = place(w, 'o', 0, 0);
-    addDecoy(w.decoys, 'o', 450, 0, 'd1');
+    addDecoy(w.decoys, 'o', 700, 0, 'd1'); // annulus, flat band (Story 9.8)
     o.prevSweepAngle = TAU - 0.05;
     o.sweepAngle = 0.05;
     expect(blips(observe(w, 'o').events)).toHaveLength(1);

@@ -211,8 +211,13 @@ describe('decoy buoy placement — the drop marker, no rings (Story 8.16)', () =
 });
 
 describe('the gun — burst circle at the SERVER-TRUTH burst point', () => {
+  // The single-circle geometry is asserted on ONE barrel (gunBarrelStats(1)):
+  // the cannon fires CONFIG.gun.barrels parallel shells at every tier since
+  // Story 9.12, and a parallel pair has no circle on the click itself.
+  const ONE = gunBarrelStats(1);
+
   it('puts the circle exactly where shared burstPointAlong puts the burst', () => {
-    const inp = input({ aimDist: 300 });
+    const inp = input({ aimDist: 300, stats: ONE });
     const [b] = computeAimPreview(inp).bursts;
     const truth = burstPointAlong(SHIP, 300, MAP_R, inp.stats.equipment.gun.rangeU, 0);
     expect(b.x).toBeCloseTo(truth.x, 9);
@@ -222,13 +227,13 @@ describe('the gun — burst circle at the SERVER-TRUTH burst point', () => {
   });
 
   it('clamps a beyond-range click to the effective range (the shell stops there)', () => {
-    const inp = input({ aimDist: 5000 });
+    const inp = input({ aimDist: 5000, stats: ONE });
     const [b] = computeAimPreview(inp).bursts;
     expect(Math.hypot(b.x, b.y)).toBeCloseTo(inp.stats.equipment.gun.rangeU, 6);
   });
 
   it('starts the travel line at the MUZZLE, not the ship centre', () => {
-    const [l] = computeAimPreview(input()).lines;
+    const [l] = computeAimPreview(input({ stats: ONE })).lines;
     expect(l.x1).toBeCloseTo(hullEnvelope('battleship').hull.length / 2 + CONFIG.gun.shellRadius, 3);
     expect(l.y1).toBeCloseTo(0, 6);
   });
@@ -267,9 +272,9 @@ describe('the gun — burst circle at the SERVER-TRUTH burst point', () => {
   // shell is on the click" are different promises to the player, and only one of
   // them can be true at a time.
   it('EVEN barrel count: the shells STRADDLE the click, none on it', () => {
-    // The real build that reaches two barrels: ONE CANNON card, tier II
-    // (Eric 2026-10-02; four cards now reach THREE barrels).
-    const inp = input({ stats: stats('deckGun') });
+    // The real build: the BARE cannon already fires two barrels (Story 9.12 —
+    // fixed at CONFIG.gun.barrels, no barrel rungs).
+    const inp = input({ stats: stats() });
     expect(inp.stats.equipment.gun.barrels).toBe(2);
     const m = computeAimPreview(inp);
     expect(m.bursts).toHaveLength(2);
@@ -280,14 +285,14 @@ describe('the gun — burst circle at the SERVER-TRUTH burst point', () => {
     expect(Math.abs(m.bursts[1].y - m.bursts[0].y)).toBeCloseTo(CONFIG.gun.barrelSpacingU, 9);
   });
 
-  it('ODD barrel count from a real build: four CANNON cards reach THREE barrels, one on the click', () => {
-    const inp = input({ stats: stats('deckGun', 'deckGun', 'deckGun', 'deckGun') });
-    expect(inp.stats.equipment.gun.barrels).toBe(3);
-    const m = computeAimPreview(inp);
-    expect(m.bursts).toHaveLength(3);
-    const truth = burstPointAlong(SHIP, 300, MAP_R, inp.stats.equipment.gun.rangeU, 0);
-    expect(m.bursts[1].y).toBeCloseTo(truth.y, 9);
-    expect(m.bursts[0].y + m.bursts[2].y).toBeCloseTo(2 * truth.y, 9);
+  it('barrels are FIXED: no CANNON card changes the count — every tier previews CONFIG.gun.barrels circles', () => {
+    for (let n = 0; n <= 4; n += 1) {
+      const inp = input({ stats: stats(...Array<string>(n).fill('deckGun')) });
+      expect(inp.stats.equipment.gun.barrels, `${n} cards`).toBe(CONFIG.gun.barrels);
+      const m = computeAimPreview(inp);
+      expect(m.bursts, `${n} cards`).toHaveLength(CONFIG.gun.barrels);
+      expect(m.lines, `${n} cards`).toHaveLength(CONFIG.gun.barrels);
+    }
   });
 
   // THE PROPERTY THAT DISCRIMINATES PARALLEL FROM FANNED, stated as a
@@ -329,7 +334,7 @@ describe('the gun reaches into its own flare — the preview agrees with the gat
 
   it('bursts AT the click when the reach was lifted, instead of clamping short', () => {
     const d = RANGE + 200;
-    const [b] = computeAimPreview(input({ aimDist: d, gunReachU: d })).bursts;
+    const [b] = computeAimPreview(input({ aimDist: d, gunReachU: d, stats: gunBarrelStats(1) })).bursts;
     expect(Math.hypot(b.x, b.y)).toBeCloseTo(d, 6);
     // ...which is exactly the shared burst point at the lifted reach.
     const truth = burstPointAlong(SHIP, d, MAP_R, d, 0);
@@ -338,15 +343,17 @@ describe('the gun reaches into its own flare — the preview agrees with the gat
 
   it('clamps at the base range when the reach was NOT lifted', () => {
     const d = RANGE + 200;
-    const [b] = computeAimPreview(input({ aimDist: d, gunReachU: RANGE })).bursts;
+    const [b] = computeAimPreview(input({ aimDist: d, gunReachU: RANGE, stats: gunBarrelStats(1) })).bursts;
     expect(Math.hypot(b.x, b.y)).toBeCloseTo(RANGE, 6);
     // Omitting the field is that same clamp — the pre-wave-2 geometry.
-    const [plain] = computeAimPreview(input({ aimDist: d })).bursts;
+    const [plain] = computeAimPreview(input({ aimDist: d, stats: gunBarrelStats(1) })).bursts;
     expect(plain.x).toBeCloseTo(b.x, 9);
   });
 
   it('a lifted reach never leaks into another weapon', () => {
-    const d = RANGE + 200;
+    // Past EVERY reach in play: since Story 9.8 (ruling 125) the star shell's
+    // own dial sits beyond the cannon's, so the click must clear both.
+    const d = Math.max(RANGE, stats().equipment.starShells.rangeU) + 200;
     // Asserted as an IDENTITY rather than as a distance: under the 2026-08-27
     // zero-overlap ladder the base barrage puts nothing on the click, so its
     // bursts sit at per-gun arc limits and no single radius describes them. The
@@ -693,11 +700,11 @@ describe('mine placement — both rings at the drop point', () => {
   // driven by WHICH LINE IS PRIMED and reads that line's own row. The old pin
   // had to smuggle the captive row into the `navalMines` slot because no
   // captive id could ever be primed; now it simply primes `captiveMines`.
-  it('CAPTIVE: previews the 144u trip ring, not the 32u contact-blast ring', () => {
+  it('CAPTIVE: previews the CONFIG trip ring (120 u since 2026-10-08), not the 32u contact-blast ring', () => {
     const s = stats();
     const m = computeAimPreview(input({ id: 'captiveMines', stats: s, aim: 0, aimDist: 60 }));
     expect(m.place!.kind).toBe('captive');
-    expect(m.place!.trigger).toBeCloseTo(144, 9);
+    expect(m.place!.trigger).toBeCloseTo(CONFIG.captiveMines.triggerRadius, 9);
     expect(m.place!.blast).toBeCloseTo(32, 9);
     // The numbers are the firewall's, never re-derived here — and off the
     // CAPTIVE row, which is the whole point.
@@ -852,7 +859,7 @@ describe('rim honesty — a shot whose ORIGIN is off the water', () => {
 // STORY 8.17 (amendments 131/132): the two new 360° shells preview on the
 // star-shell pattern — one shell to the click, clamped at the radar rung, with
 // the burst ring at the circle it will act on.
-describe('phosphor + flash shells — the star-shell preview pattern', () => {
+describe('phosphor + fouling shells — the star-shell preview pattern', () => {
   it('PHOSPHOR draws its (tiered) zone at the burst point, at DAMAGE weight', () => {
     const s = stats('phosphorShells', 'phosphorShells');
     const m = computeAimPreview(input({ id: 'phosphorShells', stats: s, aimDist: 300 }));
@@ -864,24 +871,24 @@ describe('phosphor + flash shells — the star-shell preview pattern', () => {
     expect(m.bursts[0].effect).toBe(false); // a damage burst, not an effect radius
   });
 
-  it('PHOSPHOR clamps at its own row range — the radar rung', () => {
+  it('PHOSPHOR clamps at its own row range — its tiered dial, never radar (ruling 125)', () => {
     const inp = input({ id: 'phosphorShells', stats: stats('phosphorShells'), aimDist: 99999 });
     const m = computeAimPreview(inp);
-    expect(inp.stats.equipment.phosphorShells.rangeU).toBe(inp.stats.radarRange);
-    expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(inp.stats.radarRange, 6);
+    expect(inp.stats.equipment.phosphorShells.rangeU).not.toBe(inp.stats.radarRange);
+    expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(inp.stats.equipment.phosphorShells.rangeU, 6);
   });
 
-  it('FLASH SHELLS draws the fixed CONFIG burst in the EFFECT register, to radar reach', () => {
-    const inp = input({ id: 'dazzleShells', aimDist: 99999 });
+  it('the FOULING SHELL draws the fixed CONFIG zone in the EFFECT register, to its own reach dial (Story 9.4, ruling 125)', () => {
+    const inp = input({ id: 'foulingShell', aimDist: 99999 });
     const m = computeAimPreview(inp);
     expect(m.bursts).toHaveLength(1);
-    expect(m.bursts[0].r).toBe(CONFIG.flashShells.radius);
-    expect(m.bursts[0].effect).toBe(true); // it blinds, it deals no damage
-    expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(inp.stats.radarRange, 6);
+    expect(m.bursts[0].r).toBe(CONFIG.foulingShell.radius);
+    expect(m.bursts[0].effect).toBe(true); // it slows, it deals no damage
+    expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(CONFIG.foulingShell.rangeU, 6);
   });
 
   it('DIMS either circle when a rock stops the shell short', () => {
-    for (const id of ['phosphorShells', 'dazzleShells'] as const) {
+    for (const id of ['phosphorShells', 'foulingShell'] as const) {
       const m = computeAimPreview(
         input({ id, stats: stats('phosphorShells'), aimDist: 400, islands: [squareIsland(150, 0, 30)] }),
       );
@@ -904,10 +911,10 @@ describe('ownBurstRadius — our own blast, never anybody else’s', () => {
     expect(ownBurstRadius(s, 'starShells')).toBeUndefined();
   });
 
-  it('sizes an own PHOSPHOR burst off its zone and a FLASH burst off CONFIG (Story 8.17)', () => {
+  it('sizes an own PHOSPHOR burst off its zone and a FOULING SHELL burst off CONFIG', () => {
     const s = stats('phosphorShells', 'phosphorShells', 'phosphorShells');
     expect(ownBurstRadius(s, 'phosphorShells')).toBe(s.equipment.phosphorShells.zoneRadius);
-    expect(ownBurstRadius(s, 'dazzleShells')).toBe(CONFIG.flashShells.radius);
+    expect(ownBurstRadius(s, 'foulingShell')).toBe(CONFIG.foulingShell.radius);
   });
 
   // RETIRED with COMMAND DETONATION (Story 7-5 wave 1): no torpedo bursts at a

@@ -310,20 +310,31 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
   }
 
   const flat = (frames: GameEvent[][]): GameEvent[] => frames.flat();
+  /** u — a mine beyond sight on the shot line, and the click past it. */
+  const FAR_MINE = CONFIG.vision.sight + 100;
+  const FAR_AIM = CONFIG.vision.sight + 300;
 
   // -------------------------------------------------------------------------
   // AMENDMENT 20 — a shell in flight never touches a mine (Eric 2026-09-16)
   // -------------------------------------------------------------------------
 
   it('(a) an armed ENEMY mine squarely on the path, OUTSIDE sight: the shell flies on and bursts at the clicked point', () => {
-    // 400u is past both the 3/8 detect rung and the true-sight bubble, so the
-    // shooter has no sanctioned knowledge of this mine at all.
-    expect(CONFIG.vision.detect).toBeLessThan(400);
-    expect(CONFIG.vision.sight).toBeLessThan(400);
-    const shot = fireAndRecord(600, [['m1', 'x', 400, 0]]);
+    // FAR_MINE is past both the detect rung and the true-sight bubble, so the
+    // shooter has no sanctioned knowledge of this mine at all (placements off
+    // the live ladder since Story 9.8, amendment 103).
+    expect(CONFIG.vision.detect).toBeLessThan(FAR_MINE);
+    expect(CONFIG.vision.sight).toBeLessThan(FAR_MINE);
+    expect(FAR_AIM).toBeLessThanOrEqual(CONFIG.gun.rangeU); // an in-reach click
+    const shot = fireAndRecord(FAR_AIM, [['m1', 'x', FAR_MINE, 0]]);
     expect(shot.w.mines.has('m1')).toBe(true); // never detonated
-    const burst = flat(shot.frames).find((e) => e.k === 'burst');
-    expect(burst).toMatchObject({ k: 'burst', x: 600, y: 0 }); // reached the aim point
+    // Every shell of the twin volley reached its own aim point, the click's
+    // straddle: x at the click, y half a barrel spacing either side.
+    const bursts = flat(shot.frames).filter((e): e is Extract<GameEvent, { k: 'burst' }> => e.k === 'burst');
+    expect(bursts).toHaveLength(shot.w.ships.get('a')!.stats.equipment.gun.barrels);
+    for (const b of bursts) {
+      expect(b.x).toBeCloseTo(FAR_AIM, 6);
+      expect(Math.abs(b.y)).toBeCloseTo(CONFIG.gun.barrelSpacingU / 2, 6);
+    }
   });
 
   it('(a) and the shooter\'s event stream is BYTE-IDENTICAL to the same shot over empty water', () => {
@@ -332,8 +343,8 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
     // to the shooter that anything might be there." Anything the mine changed
     // — an earlier boom, a missing burst, an `hc`, a moved `sp` — shows up
     // here as a diff.
-    const withMine = fireAndRecord(600, [['m1', 'x', 400, 0]]);
-    const cleanWater = fireAndRecord(600, []);
+    const withMine = fireAndRecord(FAR_AIM, [['m1', 'x', FAR_MINE, 0]]);
+    const cleanWater = fireAndRecord(FAR_AIM, []);
     expect(withMine.frames).toEqual(cleanWater.frames);
   });
 
@@ -352,25 +363,28 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
     expect(withMine.frames).toEqual(cleanWater.frames);
   });
 
-  it('(b) a mine inside the would-be BLAST but short of the aim point never bursts the shell early', () => {
+  it('(b) a mine inside the would-be BLAST but short of the aim point never bursts the shell early — it is hit only by the LANDING', () => {
     // The interception proximity exception (a target inside the would-be blast
-    // bursts the shell for full damage) must have no mine case either.
+    // bursts the shell for full damage) must have no mine case either: the
+    // shells still burst AT their aim points, exactly where they burst over
+    // clean water. Since Story 9.12 (epic-9 amendment 184(i)) the landing
+    // then reaches every mine whose 10 u marker the blast touches, so this
+    // one — inside the blast — takes the blows there, after the shells landed.
     const near = 600 - CONFIG.gun.burstRadius + 1;
-    // ...and since amendment 200 the burst COVERING it does nothing either:
-    // 14u off the landing point is outside the 10u "on the mine" disc.
-    expect(600 - near).toBeGreaterThan(CONFIG.mine.hitRadiusU);
+    expect(600 - near).toBeLessThanOrEqual(CONFIG.gun.burstRadius + CONFIG.mine.hitRadiusU);
     const withMine = fireAndRecord(600, [['m1', 'x', near, 0]]);
     const cleanWater = fireAndRecord(600, []);
-    expect(withMine.w.mines.has('m1')).toBe(true);
-    expect(withMine.w.mines.get('m1')!.hp).toBe(CONFIG.mine.hp); // not even scratched
-    expect(withMine.frames).toEqual(cleanWater.frames);
+    const burstsOf = (frames: GameEvent[][]) => flat(frames).filter((e) => e.k === 'burst');
+    expect(burstsOf(withMine.frames)).toEqual(burstsOf(cleanWater.frames)); // same points, same ticks' order
+    expect(burstsOf(withMine.frames).length).toBeGreaterThan(0);
+    expect(withMine.w.mines.has('m1')).toBe(false); // the landing took it
   });
 
   // -------------------------------------------------------------------------
   // AMENDMENT 200 — the shell LANDING on the mine is the one gunfire path
   // -------------------------------------------------------------------------
 
-  it('(c) a cannon shell LANDING on a mine pops it (16 dmg >= 10 hp) — any owner, the mine\'s own blast at the mine', () => {
+  it('(c) a cannon click LANDING on a mine pops it (the twin volley sums past 10 hp) — any owner, the mine\'s own blast at the mine', () => {
     const w = board(22);
     mine(w, 'm1', 'x', 600, 0); // an ENEMY mine, AT the clicked point
     shootAt(w, 'a', 600);

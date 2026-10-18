@@ -3,6 +3,98 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  89 — Story 9.12: catalog content + CONFIG gun/machineGun/flak/
+ *  gunAttenuation/torpedo/lightTorpedo/supercavTorpedo/mine/captiveMines read
+ *  by the client; nothing new on the wire.
+ *  88 — Story 9.10 fog tune 3 (Eric 2026-10-16 on staging, epic-9 amendment
+ *  179): the shared field the client draws from changes shape — density is
+ *  0 beyond the ocean's rim — so an OLD client would draw fog past the rim
+ *  where the new server has none (nothing new rides the wire; the own-bank
+ *  sight rule is server-side and needs no bump by itself).
+ *  87 — Story 9.10 fog tune 2 (Eric 2026-10-16 on staging, epic-9 amendment
+ *  178): CONFIG.fog, which the client reads — spinPeriodMs becomes spinRimU
+ *  (a rim speed, 1 u/s), windU 1, and coverage counts solid fog
+ *  (density ≥ ½) so the 20–25 % dial is dense fog.
+ *  86 — Story 9.10 fog tune (Eric 2026-10-16 on staging, epic-9 amendment
+ *  177): CONFIG.fog, which the client reads, gains spinPeriodMs/spinShear
+ *  (the field spins about the ocean center with shear, direction a
+ *  per-match coin flip) and changes coverage 20–25 %, drift 3.5 u/s,
+ *  cutRatePerS 0.04; the field builder takes the ocean radius.
+ *  85 — Story 9.10 Fog Banks: WelcomeMsg gains fogSeed and the client reads
+ *  CONFIG.fog; the schema gains fogCut (ArenaState); no per-observer fog
+ *  channel (the field is derived on both sides).
+ *  84 — Story 9.9 Armor Piercing: K 100, ARMOR +20/card, HUNKER +100 (was
+ *  DAMAGE CUT, id renamed), new ARMOR PIERCING ladder (catalog content),
+ *  OwnShip.hunkerUntil wire field renamed (epic-9 amendments 144–147).
+ *  83 — Story 9.8 staging (Eric 2026-10-14, epic-9 amendment 141): the
+ *  MULTI-SPECTRAL CM cloud is 150 → 300 u (was 200 → 500) — `CONFIG.countermeasure`
+ *  is read by the client to derive the cloud from the wire {id,x,y,t0}, so a
+ *  mixed pair would draw different clouds. Nothing new rides the wire.
+ *  Perception exception count stays SIX.
+ *  82 — Story 9.8 THE TWELFTHS LADDER (Eric 2026-10-13/14, epic-9 amendments
+ *  102–109, 121–137): sensor ladder twelfths of 1500 u (sight 500,
+ *  flash/smoke 750, far anchor 1000, radar 1500), weapon ranges per-weapon
+ *  tiered dials on the ruler (the client reads them through the fold),
+ *  server-side radar dropout 1000–1500 (a missed paint never leaves the
+ *  server); the same bump covers the 16-captain / 10,000 u ocean (map 5000,
+ *  rings 10000 → 7000 → 4000 → 2000 → 0 — a same-seed ocean differs again),
+ *  cannon 12/12/15/15/18 and flak 20/28/36/44/52 with the flak rim falloff,
+ *  fleet waves 16/8/4 and `FoghornEvent.v` widened to 1..12. Nothing new
+ *  rides the wire. Perception exception count stays SIX.
+ *  81 — Story 9.7 ARMOR (Eric 2026-10-13, epic-9 amendments 86–88): catalog
+ *  content (new `armor` ladder, seated right after `hullPoints`),
+ *  `CONFIG.armor` + `CONFIG.hunker.armorBonus` read by the client through
+ *  the fold (`effectiveStats().armor` / `.damageMultiplier`, the barrel's
+ *  `damageMultiplierFor`); the cut's flat ×0.5 deleted, window 8 s → 10 s;
+ *  nothing new rides the wire. Perception exception count stays SIX.
+ *  80 — Story 9.6 (Eric 2026-10-11/13, epic-9 amendments 27–29, 90–97):
+ *  catalog content — `armor` → `hullPoints` (+50 ×5, heals on grant),
+ *  SPEED/TURNING cap 5, new universal ladder `passiveHealing` (+0.6 %/s
+ *  missing hull and −1 s wait per card); `CONFIG.regen.missingPctPerS`
+ *  0.01 → 0.02 read by the client through `effectiveStats().regen`. Nothing
+ *  new on the wire. Perception exception count stays SIX.
+ *  79 — Story 9.5 (Eric 2026-10-12, epic-9 amendments 73–82): the client
+ *  reads CONFIG.ram and runs the shared hull-contact resolver
+ *  (`resolveHullContacts`, sim/contact.ts) in prediction, so same-seed sims
+ *  differ at the hull-contact seam. No new wire field or event; perception
+ *  exception count stays SIX.
+ *  78 — Story 9.4 (Eric 2026-10-11, epic-9 amendments 61–68): FLASH SHELLS →
+ *  FOULING SHELL; `OwnShip.dazzledUntil` → `fouledUntil`; new
+ *  `FrameMsg.foulZones` channel (`FoulZoneView` {id,x,y,r,until,by}, the burn
+ *  zone's shape and gate); catalog content (`dazzleShells` → `foulingShell`,
+ *  `CONFIG.flashShells` → `CONFIG.foulingShell`, read by the client).
+ *  Perception exception count stays SIX.
+ *  77 — Story 9.3 session 2: smoke is a client overlay; CONFIG.countermeasure
+ *  shrinks to lifeMs/r0/r1 (the client reads it); nothing hidden server-side
+ *  any more.
+ *  76 — Story 9.3 (Eric 2026-10-11, epic-9 amendments 40–47): smokeScreen →
+ *  countermeasure (cloud; catalog content, CONFIG.countermeasure
+ *  replaces CONFIG.smokeScreen), OwnShip.inSmoke deleted, FrameMsg.smoke →
+ *  clouds (CloudView {id,x,y,t0}; then a seeded pixel cloud — removed at 77).
+ *  Perception exception count stays SIX.
+ *  75 — cycle 172 (Story 9.2, Eric 2026-10-11, epic-9 amendments 21/31):
+ *  every consumable has a fixed key — SLOT_COUNT 9 → 11 (`InputMsg.slot` /
+ *  `actSlot` 0..10, `OwnShip.ammo` length 11), each consumable kind bound to
+ *  one slot (5..10 in CONSUMABLE_KEY_ORDER, no packing; `beltFull` gone);
+ *  CHAFF retired (catalog content, `CONFIG.chaff`, `OwnShip.chaff` and
+ *  `OwnShip.chaffGhosts` gone). Perception exception count stays SIX.
+ *  74 — cycle 171 (Story 9.1, Eric 2026-10-08): the mine / torpedo DETECT
+ *  rung 3/8 → 4/8 (CONFIG.vision.detect = sight, detectFactor 0.75 → 1 —
+ *  read by the client's torpedo cull and wake reach). Mine glyphs re-cut
+ *  (client-only). Perception exception count stays SIX.
+ *  73 — cycle 170 (Story 9.1 session 2, Eric after playing the 11,000 u
+ *  ocean): CONFIG.map.baseRadius 5500 → 4000 (diameter 8,000), the ring
+ *  ladder [2500, 1500, 1000] (8000 → 5000 → 3000 → 2000 → 0) and
+ *  CONFIG.zone.stormDps becomes the damage RAMP [1, 2, 3, 4, 5] by close
+ *  (the client derives the map and the storm locally; a same-seed ocean
+ *  differs again). Perception exception count stays SIX.
+ *  72 — cycle 169 (Story 9.1, the tuning pass): THE OCEAN — CONFIG.map
+ *  .baseRadius 2800 → 5500 (the same seed now builds a different ocean, the
+ *  PV 36 precedent), TERRAIN_PARAMS cover 2.5 % → 10 %, and CONFIG.zone
+ *  carries the ring ladder literally (`ringRadii` [3500, 2000, 1000];
+ *  `ringSteps` / `terminalSightFactor` retired from the shipped config) —
+ *  the client derives the storm rhythm and the map locally from all three.
+ *  Perception exception count stays SIX.
  *  71 — cycle 167: private lobbies: CONFIG.lobby read by the client, arena
  *  mode 'private'; new lobby-room channels lr/ls/lb/lg and shared
  *  sim/seedText.ts (host seed text → uint32). Perception exception count
@@ -78,7 +170,7 @@
  *  `InputMsg.held` (required boolean, malformed drops the message), the shell
  *  reveal's optional `w` family field ('cannon'|'mg'|'flak' — the ONE declared
  *  disclosure widening, amendment 89(i); torpedo reveals unchanged),
- *  `OwnShip.damageCutUntil?` (self-private), catalog content
+ *  `OwnShip.hunkerUntil?` (self-private), catalog content
  *  (missile/monitor/heatSeeking deleted; machineGun/flak become the mountable
  *  guns' ladders; LINE_IDS 29 → 26), the Shift ids. Perception exception
  *  count stays SIX; the reveal shape gains exactly one optional key.
@@ -792,7 +884,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 71;
+export const PROTOCOL_VERSION = 89;
 
 // Tunables
 export * from './constants.js';
@@ -825,17 +917,22 @@ export * from './sim/sight.js';
 export * from './sim/offers.js';
 export * from './sim/draw.js';
 export * from './sim/collision.js';
+export * from './sim/contact.js';
 export * from './sim/silhouette.js';
 export * from './sim/radarRaster.js';
 export * from './sim/island.js';
 export * from './sim/aim.js';
 export * from './sim/spread.js';
 export * from './sim/shell.js';
+export * from './sim/attenuation.js';
 export * from './sim/map.js';
+export * from './sim/nav.js';
 export * from './sim/noise.js';
 export * from './sim/seedText.js';
 export * from './sim/heightField.js';
 export * from './sim/radarShadow.js';
+export * from './sim/dropout.js';
 export * from './sim/wake.js';
-export * from './sim/smoke.js';
+export * from './sim/cloud.js';
+export * from './sim/fog.js';
 export * from './sim/zone.js';

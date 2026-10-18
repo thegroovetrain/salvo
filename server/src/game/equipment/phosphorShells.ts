@@ -1,7 +1,8 @@
 // PHOSPHOR SHELLS fire control — the phosphorShells Equipment row (Story 8.17,
 // Eric ruling 2026-09-29, epic-8 amendment 131). Its OWN tiered 360° weapon
-// line, no longer a verb on the star shell: one shell to the click at the
-// radar rung (`rangeU` = radarRange post-fold, like the flare), 500 u/s, a
+// line, no longer a verb on the star shell: one shell to the click at its
+// own tiered reach (`rangeU` — Tier I `CONFIG.phosphorShells.rangeU`, 8/12,
+// + a step per card to 10/12; Story 9.8, ruling 125), 500 u/s, a
 // 1-round pool presented as a 20 s cooldown (−5 %/tier derived). At burst it
 // deals the row's `damage` (20 / 22 / 25 / 27 / 30) to every non-owner hull
 // inside the WHOLE `zoneRadius`, then the World spawns a BURNING ZONE of that
@@ -58,7 +59,7 @@ function firePhosphorShell(
     targetY: target.y,
     burstRadius: row.zoneRadius, // the burst IS the zone
     contactDamage: row.damage, // an interceptor takes the tier damage (the broadside precedent) — and it still burns there
-    hits: CONFIG.phosphorShells.hits, // AR44 target mask — the gun's, mine bit included (amendment 135(c))
+    hits: CONFIG.phosphorShells.hits, // AR44 target mask — hull | decoy, never a mine (amendment 200, superseding 135(c))
     family: 'cannon', // a gun-pattern shell — `w: 'cannon'`
     burn: { radius: row.zoneRadius, durationMs: row.zoneDurationMs, dps: row.dps }, // stamped at launch (135(e))
   });

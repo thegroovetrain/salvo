@@ -180,6 +180,10 @@ describe('(c) identity pins — the full ratified table, values and counts', () 
     // utility
     expect(C.black).toBe(0x000000);
     expect(C.white).toBe(0xffffff);
+    // alerts on the water (Story 9.11, amendments 152–153) — the two warning
+    // colors another's mine / zone breathes between
+    expect(C.alertYellow).toBe(0xfff04d);
+    expect(C.alertOrange).toBe(0xff5a00);
   });
 
   it('pins the 20-hue Regatta wheel, all values unique', () => {

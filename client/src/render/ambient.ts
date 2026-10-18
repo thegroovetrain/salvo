@@ -230,7 +230,16 @@ export class AmbientScene {
     // Lead is deliberately zero: the in-match camera throws itself ahead of the
     // bow, which is right when you are steering and wrong for a backdrop that
     // must hold a composed picture behind a column of text.
-    this.camera = new Camera({ radarRange: stats.radarRange, followRate: A.followRate, leadSeconds: 0, leadMax: 0 });
+    // The scene frames its own composed span (A.spanU), never radar (Story 9.8):
+    // there is no user zoom and no ring here, so close = default = that span.
+    this.camera = new Camera({
+      defaultSpanU: A.spanU,
+      closeSpanU: A.spanU,
+      ringFitMargin: CLIENT_CONFIG.reveal.mapFitMargin,
+      followRate: A.followRate,
+      leadSeconds: 0,
+      leadMax: 0,
+    });
     this.camera.setViewport(this.viewW, this.viewH);
     this.camera.snapTo(ambientCameraTarget(this.world));
     this.chart = buildMap(this.map, stage.layers, this.camera.zoom);

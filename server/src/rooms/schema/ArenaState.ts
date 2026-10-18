@@ -89,4 +89,18 @@ export class ArenaState extends Schema {
    * (ArenaRoom.syncBounty), which owns the strict-overtake rule.
    */
   @type('string') bountyId = '';
+
+  /**
+   * THE FOG FIELD'S COVERAGE CUT (Story 9.10; Eric 2026-10-15 — "no discs",
+   * a rolling fractal-noise field): the noise threshold the shared field
+   * (sim/fog.ts, built on both sides from the welcome's `fogSeed`) is
+   * sliced at — density 0 below it, a soft edge, 1 well above. MATCH-WIDE
+   * WEATHER like the zone rings: one float for everyone, mirrored from
+   * `World.fogCut` by ArenaRoom.syncZoneGeometry on change only (the server
+   * re-cuts it once per `CONFIG.fog.refreshMs`). `9` = `FOG_NO_CUT` (a value
+   * no fbm reaches) = no fog — the pre-start water and the schema's default;
+   * the server never writes Infinity. NEVER per-ship, NEVER spatial: a
+   * client learns where fog is, never what it hides.
+   */
+  @type('float32') fogCut = 9;
 }

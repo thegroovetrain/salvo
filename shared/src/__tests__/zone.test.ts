@@ -18,6 +18,8 @@ import {
   zoneTerminalRadius,
   type ZoneRing,
   type ZoneTimeline,
+  type ZonePhase,
+  stormDpsFor,
 } from '../index.js';
 
 const MAP_R = mapRadius(CONFIG.match.fillTo); // the production board (2400 at the shipped targets)
@@ -51,7 +53,7 @@ describe('zone timeline shape — the ratified design targets', () => {
   });
 
   it('zoneEndgameAtMs is the ENDGAME RING (12:00), separate from full closure once sudden death appends its group', () => {
-    // The Story 3.4 Endgame Guarantee is about the instant the terminal 660u
+    // The Story 3.4 Endgame Guarantee is about the instant the terminal
     // ring goes live, which sudden death did NOT move. Keeping the two apart is
     // what stops the batch-sim past-closure evidence line from scoring a
     // healthy ~13:00 campaign as 0% past closure.
@@ -66,33 +68,53 @@ describe('zone timeline shape — the ratified design targets', () => {
     expect(zoneEndgameAtMs({ ...CONFIG.zone, beatMs: 0 })).toBe(0);
   });
 
-  it('terminal radius is DERIVED from CONFIG.vision.sight (never a literal) — and sudden death does NOT move it', () => {
-    expect(zoneTerminalRadius(CONFIG.zone)).toBe(CONFIG.zone.terminalSightFactor * CONFIG.vision.sight);
-    expect(zoneTerminalRadius(CONFIG.zone)).toBe(2 * CONFIG.vision.sight);
-    // zoneTerminalRadius means the 660u ENDGAME ring, before and after the
-    // ruling: the collapse ring is appended past the clamp chain, never
-    // produced by it, so Story 3.4's constraint pins below are untouched.
-    expect(zoneTerminalRadius({ ...CONFIG.zone, suddenDeath: false })).toBe(zoneTerminalRadius(CONFIG.zone));
+  // RING SIZES ARE NOT A TEST SUBJECT (Eric 2026-10-07: *"Any tests that test
+  // to make sure the ring is a certain size are fucking useless. I need to know
+  // that the function to generate them works. Its set server-side, its not an
+  // avenue for a client to cheat."*). Everything below exercises the FUNCTION
+  // on a ladder it is handed; nothing pins what CONFIG.zone happens to say.
+  const LADDER: ZoneTimeline = { beatMs: BEAT, ringRadii: [3000, 1500, 700], offsetCap: 1, suddenDeath: true };
+
+  it('a literal ladder is returned verbatim behind ring 0 (the map), then the collapse ring', () => {
+    expect(zoneRingRadii(5000, LADDER)).toEqual([5000, 3000, 1500, 700, 0]);
+    expect(zoneTerminalRadius(LADDER)).toBe(700);
+    expect(zoneGroups(LADDER)).toBe(4);
+    // Flag off: same geometric prefix, no collapse ring, one group fewer.
+    const off = { ...LADDER, suddenDeath: false };
+    expect(zoneRingRadii(5000, off)).toEqual([5000, 3000, 1500, 700]);
+    expect(zoneTerminalRadius(off)).toBe(700);
+    expect(zoneGroups(off)).toBe(3);
   });
 
-  it('intermediate radii step down geometrically (equal ratio steps map → terminal), then collapse to 0', () => {
-    const radii = zoneRingRadii(MAP_R, CONFIG.zone);
-    expect(radii).toHaveLength(5); // ring 0 (full map) .. terminal .. collapse
-    expect(radii[0]).toBe(MAP_R);
-    expect(radii[3]).toBeCloseTo(2 * CONFIG.vision.sight, 9);
-    expect(radii[4]).toBe(0); // the collapse ring — EXACTLY zero, never a float
-    // The equal-ratio pin covers the GEOMETRIC prefix only: the collapse step is
-    // not a geometric shrink, it is the ring closing onto its own center.
+  it('a ladder entry can never grow a ring, drop below the terminal, or NaN — the clamp chain is path-independent', () => {
+    // Out of order: the 4000 is clamped to the previous ring (3000).
+    expect(zoneRingRadii(5000, { ...LADDER, ringRadii: [3000, 4000, 700] })).toEqual([5000, 3000, 3000, 700, 0]);
+    // Below the terminal: clamped up to it.
+    expect(zoneRingRadii(5000, { ...LADDER, ringRadii: [3000, 500, 700] })).toEqual([5000, 3000, 700, 700, 0]);
+    // NaN: falls to the previous ring.
+    expect(zoneRingRadii(5000, { ...LADDER, ringRadii: [3000, NaN, 700] })).toEqual([5000, 3000, 3000, 700, 0]);
+    // A ladder taller than the map is clamped to the map; a 0 terminal floors at 1 u.
+    expect(zoneRingRadii(2000, LADDER)).toEqual([2000, 2000, 1500, 700, 0]);
+    expect(zoneRingRadii(5000, { ...LADDER, ringRadii: [3000, 1500, 0] })[3]).toBe(1);
+    // An EMPTY ladder is no ladder: the formula path takes over.
+    expect(zoneTerminalRadius({ ...LADDER, ringRadii: [], terminalSightFactor: 2 })).toBe(2 * CONFIG.vision.sight);
+  });
+
+  it('the retired formula still drives a timeline that carries no ladder (dev zoneOverride literals, smokes)', () => {
+    const formula: ZoneTimeline = { beatMs: BEAT, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2, suddenDeath: true };
+    const radii = zoneRingRadii(MAP_R, formula);
+    expect(zoneTerminalRadius(formula)).toBe(2 * CONFIG.vision.sight);
     const ratio = radii[1] / radii[0];
     expect(radii[2] / radii[1]).toBeCloseTo(ratio, 9);
     expect(radii[3] / radii[2]).toBeCloseTo(ratio, 9);
-    // ...and that prefix is BYTE-IDENTICAL to the pre-ruling chain.
-    expect(radii.slice(0, 4)).toEqual(zoneRingRadii(MAP_R, { ...CONFIG.zone, suddenDeath: false }));
+    expect(radii[4]).toBe(0);
   });
 });
 
 // Endgame Guarantee sensor-vs-ring pins, honestly described: with the
-// committed derivation CONFIG.vision.radar === 2 × CONFIG.vision.sight and
+// committed derivation CONFIG.vision.radar === 3 × CONFIG.vision.sight (Story
+// 9.8, epic-9 amendment 103; it was 2 × when the paragraph below was written,
+// so its "factor <= 2" now reads "factor <= 3") and
 // zoneTerminalRadius(cfg) === terminalSightFactor × sight, BOTH inequalities
 // below reduce algebraically to a pure comparison against terminalSightFactor
 // once `sight` (> 0) cancels: radar >= terminal <=> factor <= 2, and
@@ -104,61 +126,55 @@ describe('zone timeline shape — the ratified design targets', () => {
 // out of (1, 2], or of the radar-from-sight derivation itself, is what must
 // fail loudly here.
 describe('Endgame Guarantee (Story 3.4) — sensor-vs-ring constraints', () => {
-  it('radar is structurally 2 × sight (Eric ruling 2026-08-02, amendment 22 — derivation pin)', () => {
-    expect(CONFIG.vision.radar).toBe(2 * CONFIG.vision.sight);
+  it('radar is structurally 3 × sight — 12/12 over 4/12 (Story 9.8, epic-9 amendment 103; was 2 × on the eighths ruler — derivation pin)', () => {
+    expect(CONFIG.vision.radar).toBe(3 * CONFIG.vision.sight);
   });
 
-  it('muzzleFlash is structurally 1.25 × sight — the ladder 5/8 rung (Story 4.9, amendment 119; was 1.5 / 6/8 — derivation pin)', () => {
-    expect(CONFIG.vision.muzzleFlash).toBe(1.25 * CONFIG.vision.sight);
+  it('muzzleFlash is structurally 1.5 × sight — the ladder 6/12 rung (Story 9.8, epic-9 amendment 103; was 1.25 × / 5/8 — derivation pin)', () => {
+    expect(CONFIG.vision.muzzleFlash).toBe(1.5 * CONFIG.vision.sight);
+    // ...and the runtime factor names the same circle off radar: 6/12 = 0.5.
+    expect(CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor).toBe(CONFIG.vision.muzzleFlash);
   });
 
-  it('detect is structurally 0.75 × sight — the ladder 3/8 rung, mines + torpedoes (Story 4.9, amendment 119 — derivation pin)', () => {
-    expect(CONFIG.vision.detect).toBe(0.75 * CONFIG.vision.sight);
+  it('detect is structurally 1 × sight — the ladder 4/12 rung, mines + torpedoes (Story 9.1, Eric 2026-10-08; re-read on twelfths by Story 9.8 — derivation pin)', () => {
+    expect(CONFIG.vision.detect).toBe(1 * CONFIG.vision.sight);
   });
 
-  it('farRadar is structurally 1.75 × sight — the ladder 7/8 rung (Story 4.9, amendment 118 — derivation pin; deliberately unconsumed, it is 4.10 calibration)', () => {
-    expect(CONFIG.vision.farRadar).toBe(1.75 * CONFIG.vision.sight);
+  it('farRadar is structurally 2 × sight — the ladder 8/12 rung, the red→blue fit anchor (Story 9.8, epic-9 amendment 103 / ruling 121 — derivation pin; never a threshold branch)', () => {
+    expect(CONFIG.vision.farRadar).toBe(2 * CONFIG.vision.sight);
   });
 
   it('the detect RUNG and the runtime detectFactor can never drift: detect === sight × detectFactor (amendment 121 — the gate is observer-scaled, the rung is what it equals at base stats)', () => {
-    expect(CONFIG.vision.detectFactor).toBe(0.75);
+    expect(CONFIG.vision.detectFactor).toBe(1);
     expect(CONFIG.vision.detect).toBe(CONFIG.vision.sight * CONFIG.vision.detectFactor);
   });
 
-  it('the full eighths ladder is ordered: detect < sight < muzzleFlash < farRadar < radar (amendments 113/119 — one ruler, no rung out of place)', () => {
-    expect(CONFIG.vision.detect).toBeLessThan(CONFIG.vision.sight);
+  it('the full twelfths ladder is ordered: detect < sight < muzzleFlash < farRadar < radar (amendments 113/119, epic-9 103 — one ruler, no rung out of place)', () => {
+    expect(CONFIG.vision.detect).toBeLessThanOrEqual(CONFIG.vision.sight); // equal since 2026-10-08 (4/12 = sight)
     expect(CONFIG.vision.sight).toBeLessThan(CONFIG.vision.muzzleFlash);
     expect(CONFIG.vision.muzzleFlash).toBeLessThan(CONFIG.vision.farRadar);
     expect(CONFIG.vision.farRadar).toBeLessThan(CONFIG.vision.radar);
   });
 
-  it('every rung is an EIGHTH of intel range — radar/8 divides each one exactly (the ruler is real, not approximate)', () => {
-    const eighth = CONFIG.vision.radar / 8;
-    expect(CONFIG.vision.detect / eighth).toBe(3);
-    expect(CONFIG.vision.sight / eighth).toBe(4);
-    expect(CONFIG.vision.muzzleFlash / eighth).toBe(5);
-    expect(CONFIG.vision.farRadar / eighth).toBe(7);
-    expect(CONFIG.vision.radar / eighth).toBe(8);
+  // THE TWELFTHS RULER (Story 9.8, Eric 2026-10-13, epic-9 amendment 103):
+  // the denominator moved from eighths of radar to twelfths. Pinned as RATIOS
+  // of `radar / 12`, never as the literal radar range (epic-9 amendment 8).
+  it('every rung is a TWELFTH of intel range — radar/12 divides each one exactly (the ruler is real, not approximate)', () => {
+    const rung = CONFIG.vision.radar / 12;
+    expect(CONFIG.vision.detect / rung).toBe(4);
+    expect(CONFIG.vision.sight / rung).toBe(4);
+    expect(CONFIG.vision.muzzleFlash / rung).toBe(6);
+    expect(CONFIG.vision.farRadar / rung).toBe(8);
+    expect(CONFIG.vision.radar / rung).toBe(12);
   });
 
-  it('radar reaches the terminal ring radius — reduces to terminalSightFactor <= 2 (sight cancels; a truesight-only retune cannot fail this)', () => {
-    expect(CONFIG.vision.radar).toBeGreaterThanOrEqual(zoneTerminalRadius(CONFIG.zone));
-  });
-
-  it('sight does NOT reach the terminal ring radius — reduces to terminalSightFactor > 1 (sight cancels; a truesight-only retune cannot fail this)', () => {
-    expect(CONFIG.vision.sight).toBeLessThan(zoneTerminalRadius(CONFIG.zone));
-  });
-
-  it('terminalSightFactor is finite (a NaN factor would otherwise silently pass both pins above via the fail-closed ×2 fallback in zoneTerminalRadius)', () => {
-    expect(Number.isFinite(CONFIG.zone.terminalSightFactor)).toBe(true);
-  });
 });
 
 // Radar-shadow constants (Story 4.11), pinned BUILD-FAILING beside the ladder
-// they hang off. `CONFIG.vision.radar` drives gun.rangeU, cannon.rangeU and
-// starShells.rangeU, so if the shadow model's K were ever un-pinned from
-// radarRange²/4, a shadow-feel retune of R would silently rebalance every gun
-// in the game (amendment 182); and if H ever became a computed quantity — a
+// they hang off. If the shadow model's K were ever un-pinned from
+// radarRange²/4, a shadow-feel retune of R would silently move every radar
+// shadow off the ladder (amendment 182; the guns no longer ride radar since
+// Story 9.8, ruling 125); and if H ever became a computed quantity — a
 // percentile of a map's height distribution, or an absolute elevation
 // converted per map — the shadow character would drift per seed instead of
 // being the ratified q64 decision (amendment 184 struck both out).
@@ -181,44 +197,21 @@ describe('radar shadows (Story 4.11) — the 2RH pin and the fixed mast height',
 // Radar-wake constants (Story 4.12), pinned beside the ladder they sit under.
 // The wake clock is sacred the way land is: a COMPUTED lifetime would drift
 // with tuning elsewhere, and the three clocks (water dissipation 5.5s,
-// phosphor 12s at base rate, material reach ~412u against a 192-247.5u
-// full-ahead track — amendments 205 + 213) would silently desynchronise.
+// phosphor 12s at base rate, material reach — the muzzle-flash rung — against
+// a 192-247.5u full-ahead track; amendments 205 + 213) would silently
+// desynchronise.
 describe('radar wakes (Story 4.12) — the wake clock and cadence pins', () => {
   it('wakeLifeMs is the FIXED literal 5500 — Eric-ruled (amendments 205 + 213), never a computed quantity', () => {
     expect(CONFIG.vision.wakeLifeMs).toBe(5500);
     expect(Number.isInteger(CONFIG.vision.wakeLifeMs)).toBe(true);
   });
 
-  // THE RUNG THE CLOCK WAS CUT TO (cycle 71, amendment 213). Eric cut 12s ->
-  // 5.5s on seeing a full-ahead torpedo boat: *"that wake trail is far as
-  // fuck"*. The replacement is not a feel number but an eighths-ladder rung —
-  // the FASTEST hull's full-ahead track is exactly `detect`, so your wake
-  // reaches as far behind you as detect reaches around you.
-  //
-  // ASSERTED, NOT COMPUTED IN constants.ts, and that is the whole point of
-  // this test: deriving the clock from `maxSpeed` in the object literal would
-  // let a kinematics retune silently move a value Eric SET. Here it fails the
-  // build instead, and a human re-decides which of the two should move.
-  it('and it puts the fastest PLAYABLE hull\'s full-ahead track exactly on the 3/8 detect rung (amendment 213)', () => {
-    const fastest = SHIP_CLASS_IDS.reduce((top, id) => Math.max(top, hullEnvelope(id).kinematics.maxSpeed), 0);
-    expect(fastest).toBeGreaterThan(0);
-    expect((CONFIG.vision.wakeLifeMs / 1000) * fastest).toBeCloseTo(CONFIG.vision.detect, 9);
-  });
-
-  // PLAYABLE, not "every hull", and the distinction is Eric's rather than a
-  // convenience: he ruled the cut from the cockpit of a torpedo boat at full
-  // ahead, so the anchor is the fastest thing a CAPTAIN can drive (45 u/s).
-  // One drone envelope runs a single unit hotter — the retired destroyer's 46
-  // u/s, preserved byte-for-byte by the shipClasses identity test — so a drone
-  // lays 253u against the rung's 247.5u. That 2% overshoot is recorded here so
-  // it reads as a known consequence rather than a broken invariant, and it is
-  // bounded above by this assertion.
-  it('and a drone envelope overshoots the rung by no more than a hair (it is 1 u/s faster than any captain)', () => {
-    const fastestAny = HULL_IDS.reduce((top, id) => Math.max(top, hullEnvelope(id).kinematics.maxSpeed), 0);
-    const track = (CONFIG.vision.wakeLifeMs / 1000) * fastestAny;
-    expect(track).toBeGreaterThanOrEqual(CONFIG.vision.detect);
-    expect(track).toBeLessThan(CONFIG.vision.detect * 1.05);
-  });
+  // The wake clock was cut to 5.5 s on 2026-08-?? by eye from a full-ahead
+  // torpedo boat (amendment 213). The cycle that recorded it also pinned the
+  // COINCIDENCE that 45 u/s × 5.5 s landed on the then-3/8 detect rung; when
+  // the rung moved to 4/8 (2026-10-08) Eric ruled there is no such rule —
+  // *"We aren't talking about wake"* — so the two track-vs-rung pins are gone
+  // and the clock stands on its own literal above.
 
   it('wakeSampleU is the FIXED literal 12 — one sample per lattice cell plus margin, never a computed quantity', () => {
     expect(CONFIG.vision.wakeSampleU).toBe(12);
@@ -264,56 +257,6 @@ describe('radar wakes (Story 4.12) — the wake clock and cadence pins', () => {
   });
 });
 
-describe('closing-rate criterion (epic-5 amendment 43, re-ratifying epic-3 amendment 7) — pinned over committed CONFIG', () => {
-  const battleshipMinute =
-    CONFIG.shipClasses.battleship.kinematics.maxSpeed * (CONFIG.zone.beatMs / 1000); // 2100u at the targets
-
-  it('worst-case escape per close = (1 + offsetCap) × max Δr ≈ 1.019 battleship-minutes', () => {
-    // TWO independent changes landed on this criterion on the same day and they
-    // COMPOSE rather than collide, which is worth stating because each looks
-    // like it should have moved the other:
-    //
-    //  * SUDDEN DEATH appended a fourth ring group (the concentric collapse,
-    //    660 → 0). That step is SMALLER than the largest geometric step
-    //    (2800 → 1729.7 = 1070.3), so it does not move maxDelta and the band
-    //    still binds the same close it always did. It also carries no offset
-    //    (it is concentric), so it cannot move the worst case either.
-    //  * THE BIGGER OCEAN grew baseRadius 2400 → 2800, which DID move maxDelta,
-    //    from 839.2 to 1070.3.
-    //
-    // So a battleship caught at the worst possible position can no longer
-    // out-escape a close beat: it must run the ENTIRE beat at flank speed and
-    // still just misses safety, taking a bite of storm rather than dying. That
-    // is the forced-movement outcome Eric asked for ("the map is a little too
-    // small, so each stage doesn't force enough movement"), so the old
-    // `worstEscape <= battleshipMinute` ceiling is DELETED rather than widened —
-    // it is now deliberately, narrowly false. The ratified target band is
-    // ≈1.019, replacing the 0.75-0.85 ("neither dilly nor dally") band that the
-    // radius change blew through.
-    const radii = zoneRingRadii(MAP_R, CONFIG.zone);
-    let maxDelta = 0;
-    for (let g = 1; g < radii.length; g += 1) maxDelta = Math.max(maxDelta, radii[g - 1] - radii[g]);
-    const worstEscape = (1 + CONFIG.zone.offsetCap) * maxDelta;
-    const fraction = worstEscape / battleshipMinute;
-    expect(fraction).toBeGreaterThan(1.0);
-    expect(fraction).toBeLessThan(1.05);
-  });
-
-  it('the COLLAPSE close is the gentlest of them all — it is concentric, so the escape is a bare radius', () => {
-    // A geometric close can move the center too, which is why the criterion
-    // carries the (1 + offsetCap) term. The collapse cannot: it closes onto its
-    // OWN center, so the worst case is a hull on the rim sailing to the middle
-    // — exactly the terminal radius, and nothing more.
-    const worstEscape = zoneTerminalRadius(CONFIG.zone); // 660u, rim → center
-    expect(worstEscape).toBeLessThan(battleshipMinute * 0.35);
-    // And it is genuinely the easiest close in the timeline to survive.
-    const radii = zoneRingRadii(MAP_R, CONFIG.zone);
-    for (let g = 1; g < radii.length - 1; g += 1) {
-      expect(worstEscape).toBeLessThanOrEqual((1 + CONFIG.zone.offsetCap) * (radii[g - 1] - radii[g]));
-    }
-  });
-});
-
 describe('rollZoneRings — containment + determinism (property, ∀ seeds)', () => {
   it('every next ring is fully contained in the current ring, for 200 seeds', () => {
     for (let seed = 1; seed <= 200; seed += 1) {
@@ -327,7 +270,7 @@ describe('rollZoneRings — containment + determinism (property, ∀ seeds)', ()
       // the collapse ring is CONCENTRIC with it at radius exactly 0.
       const endgame = rings[rings.length - 2];
       const collapse = rings[rings.length - 1];
-      expect(endgame.r).toBeCloseTo(2 * CONFIG.vision.sight, 9);
+      expect(endgame.r).toBeCloseTo(zoneTerminalRadius(CONFIG.zone), 9);
       expect(collapse).toEqual({ cx: endgame.cx, cy: endgame.cy, r: 0 });
     }
   });
@@ -514,7 +457,7 @@ describe('degenerate timelines — fail closed, never NaN, never a hang', () => 
     // suddenDeath OFF here on purpose: this pins what `ringSteps` alone decides
     // (the geometric descent), and the appended collapse group is the subject of
     // its own suite. With the flag on the same cfg is a 2-group timeline.
-    const cfg: ZoneTimeline = { ...CONFIG.zone, ringSteps: [], suddenDeath: false };
+    const cfg: ZoneTimeline = { ...CONFIG.zone, ringRadii: undefined, ringSteps: [], terminalSightFactor: 2, suddenDeath: false };
     expect(zoneGroups(cfg)).toBe(1);
     expect(zoneClosedAtMs(cfg)).toBe(ZONE_BEATS_PER_GROUP * BEAT);
     const radii = zoneRingRadii(MAP_R, cfg);
@@ -522,7 +465,7 @@ describe('degenerate timelines — fail closed, never NaN, never a hang', () => 
   });
 
   it('NaN/negative ringSteps and offsetCap never produce NaN or growing rings', () => {
-    const cfg: ZoneTimeline = { ...CONFIG.zone, ringSteps: [NaN, -3], offsetCap: NaN };
+    const cfg: ZoneTimeline = { ...CONFIG.zone, ringRadii: undefined, ringSteps: [NaN, -3], terminalSightFactor: 2, offsetCap: NaN };
     const rings = rollZoneRings(MAP_R, cfg, seedsFor(3, cfg));
     let prev = Infinity;
     for (const r of rings) {
@@ -534,11 +477,13 @@ describe('degenerate timelines — fail closed, never NaN, never a hang', () => 
   });
 
   it('a NaN terminalSightFactor falls back to the ratified ×2', () => {
-    expect(zoneTerminalRadius({ ...CONFIG.zone, terminalSightFactor: NaN })).toBe(2 * CONFIG.vision.sight);
+    expect(zoneTerminalRadius({ ...CONFIG.zone, ringRadii: undefined, terminalSightFactor: NaN })).toBe(2 * CONFIG.vision.sight);
+    // ...and so does a NaN terminal on the literal ladder.
+    expect(zoneTerminalRadius({ ...CONFIG.zone, ringRadii: [3500, 2000, NaN] })).toBe(2 * CONFIG.vision.sight);
   });
 
   it('a map smaller than the terminal radius clamps every ring to the map', () => {
-    const radii = zoneRingRadii(300, CONFIG.zone); // terminal 660 > map 300
+    const radii = zoneRingRadii(300, CONFIG.zone); // any shipped terminal > map 300
     for (const r of radii) expect(r).toBeLessThanOrEqual(300);
     expect(radii[radii.length - 2]).toBe(300); // the GEOMETRIC terminal, clamped to the map
     expect(radii[radii.length - 1]).toBe(0); // ...then the collapse ring
@@ -553,9 +498,11 @@ describe('degenerate timelines — fail closed, never NaN, never a hang', () => 
     // it is NEVER read off the wire: both sides synthesize it (see
     // effectiveNext / the wire-parity suite above), so the sentinel and it can
     // never be confused.
-    const cfg: ZoneTimeline = { ...CONFIG.zone, terminalSightFactor: 0 };
+    const cfg: ZoneTimeline = { ...CONFIG.zone, ringRadii: undefined, ringSteps: [1 / 3, 2 / 3], terminalSightFactor: 0 };
     const radii = zoneRingRadii(MAP_R, cfg);
     expect(radii[radii.length - 2]).toBe(1); // the geometric terminal: floored
+    // The literal ladder floors the same way: a 0 u terminal entry reads as 1 u.
+    expect(zoneRingRadii(MAP_R, { ...CONFIG.zone, ringRadii: [3500, 2000, 0] })[3]).toBe(1);
     expect(radii[radii.length - 1]).toBe(0); // the collapse ring: exactly zero
     const rings = rollZoneRings(MAP_R, cfg, seedsFor(9, cfg));
     for (const ring of rings.slice(0, -1)) expect(ring.r).toBeGreaterThanOrEqual(1);
@@ -576,7 +523,7 @@ describe('degenerate timelines — fail closed, never NaN, never a hang', () => 
 // ---------------------------------------------------------------------------
 describe('sudden death — the collapse group', () => {
   const rings = ringsFor(17);
-  const ENDGAME = rings[rings.length - 2]; // the 660u terminal ring
+  const ENDGAME = rings[rings.length - 2]; // the terminal ring
   const COLLAPSE = rings[rings.length - 1]; // its center, radius 0
   /** The final group's beats on Eric's clock, at the shipped 60s beat. */
   const CLEAR = START + 720_000; // 12:00
@@ -602,7 +549,7 @@ describe('sudden death — the collapse group', () => {
     expect(s.current).toEqual(ENDGAME); // the live ring still HOLDS through the mark
   });
 
-  it('interpolates 660 → 0 with the center held EXACTLY fixed (concentric collapse, no drift)', () => {
+  it('interpolates terminal → 0 with the center held EXACTLY fixed (concentric collapse, no drift)', () => {
     for (const f of [0, 0.25, 0.5, 0.75, 0.999]) {
       const s = zoneStateAt(CLOSE + f * BEAT, START, rings);
       expect(s.phase).toBe('closing');
@@ -610,7 +557,7 @@ describe('sudden death — the collapse group', () => {
       expect(s.current.cy).toBe(ENDGAME.cy);
       expect(s.current.r).toBeCloseTo(ENDGAME.r * (1 - f), 9);
     }
-    expect(zoneStateAt(CLOSE + BEAT / 2, START, rings).current.r).toBeCloseTo(2 * CONFIG.vision.sight / 2, 9);
+    expect(zoneStateAt(CLOSE + BEAT / 2, START, rings).current.r).toBeCloseTo(ENDGAME.r / 2, 9);
   });
 
   it('is CLOSED on a radius-0 ring forever after 16:00', () => {
@@ -683,8 +630,8 @@ describe('sudden death — the collapse group', () => {
       const s = zoneStateAt(START + ms, START, offRings, off);
       if (ms >= 720_000) {
         expect(s.phase).toBe('closed');
-        expect(s.current).toEqual(offRings[offRings.length - 1]); // terminal HELD, r = 660
-        expect(s.current.r).toBeCloseTo(2 * CONFIG.vision.sight, 9);
+        expect(s.current).toEqual(offRings[offRings.length - 1]); // terminal HELD
+        expect(s.current.r).toBeCloseTo(zoneTerminalRadius(off), 9);
       } else {
         // Every pre-closure tick is the same state the collapsing timeline has.
         expect(s).toEqual(zoneStateAt(START + ms, START, rings, CONFIG.zone));
@@ -756,5 +703,36 @@ describe('isOutside — center-aware, boundary INCLUSIVE-SAFE', () => {
     for (const r of [NaN, -1, -Infinity]) {
       expect(isOutside({ x: 0, y: 0 }, 0, 0, r)).toBe(true);
     }
+  });
+});
+
+describe('stormDpsFor — the damage ramp by close (Eric 2026-10-07)', () => {
+  const ladder = { stormDps: [1, 2, 3, 4, 5] };
+  const at = (phase: Exclude<ZonePhase, 'idle'>, groupIndex: number): number => stormDpsFor({ phase, groupIndex }, ladder);
+
+  it('is 0 before the first close, rung k from the start of close k, and the last rung once closed', () => {
+    for (const phase of ['clear', 'supply', 'reveal'] as const) expect(at(phase, 0)).toBe(0);
+    expect(at('closing', 0)).toBe(1); // close 1 starts
+    for (const phase of ['clear', 'supply', 'reveal'] as const) expect(at(phase, 1)).toBe(1);
+    expect(at('closing', 1)).toBe(2);
+    expect(at('closing', 2)).toBe(3);
+    expect(at('closing', 3)).toBe(4); // the collapse close
+    expect(at('closed', 3)).toBe(5);
+    expect(at('closed', 0)).toBe(5); // closed is closed, whatever the index says
+  });
+
+  it('fails closed to 0 — no ladder, an empty ladder, a non-finite rung, a null state', () => {
+    expect(stormDpsFor({ phase: 'closing', groupIndex: 0 }, {})).toBe(0);
+    expect(stormDpsFor({ phase: 'closed', groupIndex: 0 }, { stormDps: [] })).toBe(0);
+    expect(stormDpsFor({ phase: 'closing', groupIndex: 0 }, { stormDps: [NaN, 2] })).toBe(0);
+    expect(stormDpsFor({ phase: 'closing', groupIndex: 0 }, { stormDps: [-3, 2] })).toBe(0);
+    expect(stormDpsFor(null, ladder)).toBe(0);
+  });
+
+  it('a ladder shorter than the close count holds its second-to-last rung for the extra closes', () => {
+    const short = { stormDps: [2, 9] };
+    expect(stormDpsFor({ phase: 'closing', groupIndex: 0 }, short)).toBe(2);
+    expect(stormDpsFor({ phase: 'closing', groupIndex: 5 }, short)).toBe(2);
+    expect(stormDpsFor({ phase: 'closed', groupIndex: 5 }, short)).toBe(9);
   });
 });

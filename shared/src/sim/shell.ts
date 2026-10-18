@@ -116,16 +116,25 @@ export interface ShellState {
    */
   direct?: true;
   /**
-   * THE CURSOR POINT (Eric 2026-10-01, epic-8 amendment 202 — "the cursor
-   * decides"): where the shooter's cursor was when a DECK GUN fired — ship
-   * centre + `aimDist` along the aim bearing, taken BEFORE the reach clamp and
-   * the map clamp (guns.ts `rawAimPoint`). The World's mine landing test reads
-   * it: a mine is hit only if it lies under BOTH this point and the point the
-   * shell actually landed. Set only by the three deck guns; absent on every
-   * other projectile. stepShell never reads it; NEVER on the wire (the `lit`
-   * tag's exact posture — the ballistic reveal is built field by field).
+   * THE LAUNCH POINT (Story 9.12, Eric 2026-10-16, epic-9 amendment 184(b)):
+   * where the shell left the muzzle (the hull-clear launch origin). The
+   * World's deck-gun blow sites measure the distance FLOWN as
+   * `hypot(impact − origin)` for the range attenuation (sim/attenuation.ts).
+   * Set only by the three deck guns; absent → no attenuation.
+   * SERVER-PRIVATE: stepShell never reads it, and the projectile wire row
+   * (server signals.ts ballisticSignal) picks only k,id,x,y,vx,vy,t,w — never
+   * add it to any wire shape (the muzzle becomes solvable).
    */
-  cursor?: Vec2;
+  originX?: number;
+  /** The launch point's y (see `originX`). SERVER-PRIVATE. */
+  originY?: number;
+  /**
+   * THE ATTENUATION REFERENCE (Story 9.12, ruling 184(b)): the firer's
+   * effective gun `rangeU` AT FIRE TIME — never the lit-zone-lifted reach.
+   * Absent or 0 = no range attenuation (injected test shells, broadside,
+   * star/phosphor/fouling shells, torpedoes). SERVER-PRIVATE, like `originX`.
+   */
+  attenRangeU?: number;
   /**
    * SERVER-INTERNAL star-shell tag (Story 1.7): when set, a BURST of this
    * shell also spawns a lit zone of `radius` for `durationMs` (World.
@@ -144,14 +153,15 @@ export interface ShellState {
    */
   burn?: { radius: number; durationMs: number; dps: number };
   /**
-   * SERVER-INTERNAL flash tag (Story 8.17, FLASH SHELLS, epic-8 amendments 132
-   * and 135(d)): when set, a BURST of this shell — at its aim point, or at the
-   * stop point of an interception, exactly as a flare lights there — dazzles
-   * every non-friendly afloat hull whose centre is inside `radius` for
-   * `durationMs`. No zone, no light, no damage. stepShell never reads it;
-   * NEVER on the wire (the `lit` tag's exact posture).
+   * SERVER-INTERNAL foul tag (Story 9.4, FOULING SHELL, epic-9 amendments
+   * 61–68; it replaced Story 8.17's FLASH SHELLS `flash` tag): when set, a
+   * BURST of this shell — at its aim point, or at the stop point of an
+   * interception, exactly as a flare lights there — spawns a stationary FOUL
+   * ZONE of `radius` that lasts `durationMs`. No light, no reveal, no damage.
+   * stepShell never reads it; NEVER on the wire (the `lit` tag's exact
+   * posture).
    */
-  flash?: { radius: number; durationMs: number };
+  foul?: { radius: number; durationMs: number };
   /**
    * SERVER-INTERNAL no-aggro tag (Story 7-5 fix cycle, R2.21a): a hit by this
    * shell must aggro NOBODY at its owner — the GUN BUOY's shells carried it
@@ -352,8 +362,10 @@ function earlier(a: Hit | null, b: Hit | null): Hit | null {
  * THE blast-membership predicate — one rule for both the interception
  * proximity exception and burst victim resolution: is this hull polygon
  * within `radius` of the burst center (point-to-polygon distance, 0 inside)?
+ * Exported because the server's FOULING SHELL foul-zone outline test calls it
+ * (Story 9.4, epic-9 amendment 62).
  */
-function polyInBlast(center: Vec2, radius: number, poly: readonly Vec2[]): boolean {
+export function polyInBlast(center: Vec2, radius: number, poly: readonly Vec2[]): boolean {
   return pointPolygonDistance(center, poly) <= radius;
 }
 

@@ -45,7 +45,7 @@ const endpoint = `ws://localhost:${PORT}`;
 // genuinely OFFSET (the containment + follow-the-center assertions bite) while
 // bounding the first ring's center within ~250u of the origin so B's sail-in
 // from the spawn ring comfortably beats close 1. Terminal stays the production
-// 2 x truesight (660u).
+// 2 x truesight (1000u on the twelfths ladder, Story 9.8).
 //
 // suddenDeath is ON so the smoke covers the SHIPPED shape: a fourth ring group
 // runs 96-128s (reveal at 112s, collapse close 120-128s, full closure at 128s).
@@ -303,7 +303,13 @@ async function main() {
 
     const dps = measuredDps(a.outsideSamples);
     assert(dps !== null, 'A never logged a contiguous outside window');
-    assert(Math.abs(dps - CONFIG.zone.stormDps) < 1.0, `A storm dps ${dps?.toFixed(2)} != ${CONFIG.zone.stormDps}`);
+    // THE RAMP (Story 9.1, 2026-10-07): the bite is 1/2/3/4/5 hp/s by close, so
+    // a window that straddles a close averages between two rungs — accept any
+    // rate inside the ladder's range (the ramp itself is pinned in zone.test).
+    const ladder = CONFIG.zone.stormDps;
+    const lo = Math.min(...ladder);
+    const hi = Math.max(...ladder);
+    assert(dps >= lo - 1.0 && dps <= hi + 1.0, `A storm dps ${dps?.toFixed(2)} outside the ramp [${lo}, ${hi}]`);
     // LIVE-boundary honesty (review FIX 6): A's damage must begin when it
     // crossed the INTERPOLATED ring (mid-close), never before it, and not
     // only after the beat-edge ring promotion. Small slop covers the 20Hz
@@ -339,7 +345,7 @@ async function main() {
     // holding since 11:00 — and it adds no FIELD, which is what "no new schema
     // field" means. The radius is the channel that would have collided with the
     // sentinel, and it is the one asserted here.
-    let terminal = null; // the 660u ring the collapse group opens on
+    let terminal = null; // the terminal ring (terminalSightFactor × sight) the collapse group opens on
     // RAW schema read, deliberately NOT through nextRing(): that decoder maps
     // any r <= 0 to null, so asserting it stayed null would be vacuous for a
     // ring whose radius is 0 by construction — it would test the decoder, not
@@ -349,7 +355,7 @@ async function main() {
     // index derived from the client's clock estimate. Sampling by derived group
     // races the boundary: the client's stamp can cross into the collapse group
     // while the server is still finishing the previous group's closing beat,
-    // where a 660u next ring is legitimately advertised.
+    // where the terminal ring is legitimately advertised as the next ring.
     //
     // A REVEAL BEAT CARRYING A ZEROED NEXT IS THE DISTINGUISHING OBSERVATION.
     // Every ordinary reveal beat advertises a real radius; only the collapse
@@ -379,8 +385,12 @@ async function main() {
       () => closedCurR !== null, 140000, 'the final collapse');
 
     assert(terminal !== null, 'never observed the collapse group opening on the terminal ring');
-    assert(Math.abs(terminal.r - 2 * CONFIG.vision.sight) < 1e-3,
-      `the collapse group opened on r=${terminal.r} (expected the 660u terminal ring)`);
+    // The override's own terminal (terminalSightFactor × sight — the ringSteps
+    // path the dev override still drives), never a literal: it moves with
+    // the twelfths ladder (Story 9.8, amendment 103).
+    const expectedTerminalR = ZONE_OVERRIDE.terminalSightFactor * CONFIG.vision.sight;
+    assert(Math.abs(terminal.r - expectedTerminalR) < 1e-3,
+      `the collapse group opened on r=${terminal.r} (expected the ${expectedTerminalR}u terminal ring)`);
     assert(zeroedReveals > 0,
       'never observed a reveal beat with zoneNextR === 0 — the collapse ring must ride as the ZEROED sentinel');
     assert(maxDrift < 1e-6, `the collapse drifted ${maxDrift.toFixed(3)}u off the terminal center (it must be CONCENTRIC)`);

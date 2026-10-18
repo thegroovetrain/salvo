@@ -7,7 +7,7 @@
 // a fixed seed or scripted input.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, SLOT_BOOST, type InputMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, CATALOG, CONFIG, SLOT_BOOST, effectiveStats, type InputMsg, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -130,7 +130,7 @@ describe('the Shift boost end to end (Story 8.9, amendments 54-55)', () => {
     expect(a.stats.kinematics.maxSpeed).toBe(45);
   });
 
-  it('the boosted forward cap is 56.25 un-carded and 68.75 with four SPEED cards', () => {
+  it('the boosted forward cap is 56.25 un-carded and rated × (1 + factor) with the SPEED line at cap', () => {
     // BASE: 45 + 45 x 0.25.
     const w = bareWorld();
     const a = place(w, 'a');
@@ -141,17 +141,21 @@ describe('the Shift boost end to end (Story 8.9, amendments 54-55)', () => {
     expect(a.stats.kinematics.maxSpeed).toBe(45); // rated, un-carded
     expect(a.state.speed).toBeCloseTo(56.25, 6);
 
-    // LADDER-RAISED: four SPEED copies lift the rated cap to 55, and the
-    // BONUS GROWS WITH IT — 55 + 55 x 0.25 = 68.75, not 55 + a flat 10.
+    // LADDER-RAISED: the SPEED line stacked to its cap lifts the rated cap
+    // above the class base, and the BONUS GROWS WITH IT — rated × (1 + factor),
+    // not rated + a flat amount. The cap is read off the catalog (5 since
+    // Story 9.6), never hard-coded.
     const w2 = bareWorld();
     const b = place(w2, 'b');
-    stack(w2, b, 'speed', 4); // catalog-v3 cap on the SPEED line
-    expect(b.stats.kinematics.maxSpeed).toBe(55); // rated read STILL rated
-    b.state.speed = 55;
+    stack(w2, b, 'speed', CATALOG.speed.cap);
+    const rated = b.stats.kinematics.maxSpeed;
+    expect(rated).toBeGreaterThan(TB_MAX); // the ladder did raise it...
+    expect(rated).toBe(effectiveStats(b.cls, b.cards).kinematics.maxSpeed); // ...and the read STILL rated
+    b.state.speed = rated;
     pressActivate(w2, 'b', 1, 1, SLOT_BOOST, 1);
     run(w2, 100);
     expect(b.boostUntil).toBeGreaterThan(w2.now);
-    expect(b.state.speed).toBeCloseTo(68.75, 6);
+    expect(b.state.speed).toBeCloseTo(rated * (1 + BOOST.factor), 6);
   });
 
   it('a second tap INSIDE the window is no-ammo — the charge is in the 25 s pool', () => {
@@ -277,7 +281,7 @@ describe('the boost is the Torpedo Boat\'s Shift again (Story 8.15, amendment 89
   // Story 8.5 (amendment 23) made the boost UNIVERSAL — slot 1 on every
   // captain. Story 8.15 REVERSED that: hull identity is envelope + a FIXED
   // class Shift, so the Torpedo Boat keeps SPEED BOOST while the Battleship
-  // fits DAMAGE CUT and the Mine Layer INSTANT RELOAD (both pinned in
+  // fits HUNKER (was DAMAGE CUT until Story 9.9) and the Mine Layer INSTANT RELOAD (both pinned in
   // shift.test.ts). The boost's own numbers are untouched — a 10 s window on
   // a 25 s reload (amendment 54).
   it('a torpedoBoat fits boost in slot 1 and boosts with the shipped numbers', () => {
@@ -293,7 +297,7 @@ describe('the boost is the Torpedo Boat\'s Shift again (Story 8.15, amendment 89
     expect(BOOST.reloadMs).toBe(25000); // the amendment-54 25 s reload
   });
 
-  it.each([['battleship', 'damageCut'], ['mineLayer', 'instantReload']] as const)(
+  it.each([['battleship', 'hunker'], ['mineLayer', 'instantReload']] as const)(
     'a %s no longer carries the boost: slot 1 holds %s, and a Shift press there opens NO boost window',
     (hull, shift) => {
       const w = bareWorld();

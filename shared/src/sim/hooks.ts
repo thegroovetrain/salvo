@@ -87,8 +87,10 @@ export const HOOK_REGISTRY: HookRegistry = deepFreezeRows({});
  * hookId (or a non-kinematics hook kind) is a silent no-op (fail-closed).
  * Call sites compose this LAST, after the bespoke folds. PINNED COMPOSITION
  * ORDER (server AND predictor, byte-identical):
- *   boostedKinematics → slowedKinematics → draftedKinematics → hookKinematics
- * (boost, then the prop-fouling slow — sim/slow.ts — then the wake draft —
+ *   boostedKinematics → slowedKinematics (mine) → slowedKinematics (shell)
+ *     → draftedKinematics → hookKinematics
+ * (boost, then the two prop-fouling slows — mine, then the fouling shell
+ * zone, one fold called once per source, sim/slow.ts — then the wake draft —
  * sim/draft.ts — then hooks; pinned by the prediction parity suite so no
  * later story can accidentally flip it).
  */

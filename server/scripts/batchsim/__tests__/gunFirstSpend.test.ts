@@ -53,8 +53,8 @@ describe('chooseSpend — gunFirst', () => {
 
   it('gun ladder card absent -> exactly the weighted profile choice', () => {
     const hands: (readonly string[])[] = [
-      ['armor', 'heavyTorpedo', 'hullRepair'],
-      ['speed', 'reload', 'smokeScreen'],
+      ['hullPoints', 'heavyTorpedo', 'hullRepair'],
+      ['speed', 'reload', 'countermeasure'],
       ['machineGun', 'flak', 'turning'], // other guns' ladders while the cannon is mounted
     ];
     for (const offer of hands) {
@@ -65,7 +65,7 @@ describe('chooseSpend — gunFirst', () => {
 
   it('a capped gun ladder is not spendable -> falls through to the weighted choice', () => {
     const cards = ['deckGun', 'deckGun', 'deckGun', 'deckGun'];
-    const s = state({ offer: ['deckGun', 'armor'], cards, slotIds: slotsOf('gun') });
+    const s = state({ offer: ['deckGun', 'hullPoints'], cards, slotIds: slotsOf('gun') });
     expect(chooseSpend(gunFirst, s, CATALOG)).toBe(chooseSpend(weighted, s, CATALOG));
     expect(chooseSpend(gunFirst, s, CATALOG)).toBe(1);
   });

@@ -3,20 +3,23 @@
 //
 // The design of record is DESIGN.md `{components.loadout-block}` + mockup
 // `countdown-results-1.html` frame 2: a section head `LOADOUT`, then the HUD
-// bar's own slot row AS IT ENDED at scale .72 (gun · Shift · Q E R · belt 1–4,
-// each with its key chip), then ONE line of the five ship ladders.
+// bar's own slot row AS IT ENDED at scale .72 (gun · Shift · Q E R · the framed
+// belt 1–6 in key order, zero-stock included, each with its key chip), then the
+// line of the ship ladders. Story 9.11 (epic-9 amendment 151) put the twin back
+// on one row with the live bar; Story 9.2's two-row stack is retired.
 //
 // A DOM TWIN, NOT A SECOND DERIVATION. The modal is DOM chrome, so the boxes are
 // drawn twice — but every fact inside them comes from the bar's own sources:
 //   • the glyph      `equipmentGlyphSvg` (the refit card's DOM glyph path)
 //   • the tier       `slotTier` (the gun's rung off the fold, amendment 70)
-//   • the stock      `beltBadgeText` (the bar's `×n`; zero/absent ⇒ no badge)
+//   • the stock      `stockBadgeText` (the bar's `×n`; zero/absent ⇒ no badge)
 //   • the ramp       `tierRamp.ts` (the refit card's five tokens)
 //   • the ladders    `cardTierSteps` over `boonStackCount`
 //   • every size     `CLIENT_CONFIG.hudBar` × LOADOUT_SCALE
-// No name renders on the row: the glyph is the name. An empty square (a slot
-// never fitted, or a belt stack fired to zero — it has left `cards`, Eric R4) is
-// the bar's own dashed box and `—`, never `×0` and never a word.
+// No name renders on the row: the glyph is the name. An empty weapon square is
+// the bar's own dashed box and `—`; a consumable kind whose stock ended at zero
+// (it has left `cards`, Eric R4) is the bar's ZERO-STOCK square — dashed, its
+// own glyph faint — never `×0` and never a word.
 //
 // THE 9 PX FLOOR (amendment 43) binds the RENDERED size: the SQUARES scale to
 // .72, the TEXT does not — numerals, badges, chips and ladder labels all render
@@ -29,6 +32,7 @@ import {
   SLOT_BOOST,
   SLOT_COUNT,
   boonStackCount,
+  consumableKindAt,
   isConsumableId,
   type LineId,
   type SlotItemId,
@@ -36,7 +40,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
 import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
-import { SLOT_KEY_GLYPHS, beltBadgeText, slotTier } from '../render/equipmentInfo.js';
+import { SLOT_KEY_GLYPHS, stockBadgeText, slotTier } from '../render/equipmentInfo.js';
 import { boonName, cardTierSteps } from './boonCopy.js';
 import { romanTier, tierTint } from './tierRamp.js';
 import { SECTION_HEAD_CSS, type ResultsOwn } from './results.js';
@@ -90,12 +94,35 @@ const TEXT = {
 const P = LOADOUT_PX;
 const MONO = 'var(--hc-font-mono)';
 
-/** The five ship ladders, in the ratified line order. */
-const LADDER_LINES: readonly LineId[] = ['armor', 'speed', 'turning', 'radarSweep', 'reload'];
+/** The eight ship ladders, in the ratified line order (PASSIVE HEALING last,
+ *  Story 9.6; ARMOR right after HULL, Story 9.7 — Eric 2026-10-13; ARMOR
+ *  PIERCING right after ARMOR, Story 9.9 — epic-9 amendment 159). */
+const LADDER_LINES: readonly LineId[] = [
+  'hullPoints',
+  'armor',
+  'armorPiercing',
+  'speed',
+  'turning',
+  'radarSweep',
+  'reload',
+  'passiveHealing',
+];
 
-/** Eric R2 (2026-09-30): these two start from nothing, so at ZERO copies they
- *  read `—` rather than a numeral. ARMOR / SPEED / TURNING sail at Tier I. */
-const DASH_AT_ZERO: ReadonlySet<LineId> = new Set<LineId>(['radarSweep', 'reload']);
+/** Eric R2 (2026-09-30): ladders that start from nothing read `—` at ZERO
+ *  copies rather than a numeral. Since Story 9.6 (Eric 2026-10-13, epic-9
+ *  amendment 94) that is every ship ladder: HULL / SPEED / TURNING no longer
+ *  sail at Tier I, and PASSIVE HEALING is new; ARMOR (Story 9.7) and ARMOR
+ *  PIERCING (Story 9.9, amendment 159) too. */
+const DASH_AT_ZERO: ReadonlySet<LineId> = new Set<LineId>([
+  'hullPoints',
+  'armor',
+  'armorPiercing',
+  'speed',
+  'turning',
+  'radarSweep',
+  'reload',
+  'passiveHealing',
+]);
 
 /** The chip a keyless gun column carries (mock `.kc.ghost`) — laid out, never seen. */
 const GHOST_CHIP = '·';
@@ -119,6 +146,8 @@ const SHIFT_SKIN: SquareSkin = {
   iconAlpha: 0.85,
 };
 const EMPTY_BORDER = `1px dashed ${cssRgba(C.textMuted, 0.45)}`;
+/** The ZERO-STOCK glyph's alpha (hotbar.ts `SKINS.zeroStock`, mock `.slot.zero`). */
+const ZERO_STOCK_ICON_ALPHA = 0.45;
 
 // --- pure core -------------------------------------------------------------------
 
@@ -140,7 +169,7 @@ export function ladderEntries(cards: readonly string[]): LadderEntry[] {
 }
 
 /** Pure: the tier numeral a square prints — 0 for the Shift slot, an empty
- *  slot and every belt slot (they carry stock, not a rung). */
+ *  slot and every consumable slot (they carry stock, not a rung). */
 export function loadoutSlotTier(own: ResultsOwn, slot: number): number {
   const id = own.slots[slot] ?? null;
   if (slot === SLOT_BOOST || id === null || isConsumableId(id)) return 0;
@@ -148,7 +177,7 @@ export function loadoutSlotTier(own: ResultsOwn, slot: number): number {
 }
 
 function isBelt(slot: number): boolean {
-  return (CONSUMABLE_SLOTS as readonly number[]).includes(slot);
+  return CONSUMABLE_SLOTS.includes(slot);
 }
 
 // --- DOM ---------------------------------------------------------------------------
@@ -228,7 +257,8 @@ function makeBadge(text: string): HTMLSpanElement {
   return el;
 }
 
-/** The square's box — sharp corners, transparent bed, the bar's skin. */
+/** The square's box — sharp corners, transparent bed, the bar's skin (dashed
+ *  when nothing is held: an empty weapon slot or a zero-stock kind). */
 function squareBox(slot: number, filled: boolean): HTMLDivElement {
   const size = isBelt(slot) ? P.beltSlot : P.slot;
   const skin = slot === SLOT_BOOST ? SHIFT_SKIN : WEAPON_SKIN;
@@ -267,22 +297,38 @@ function makeGlyph(id: SlotItemId, slot: number): SVGSVGElement | null {
   return svg;
 }
 
+/** A ZERO-STOCK square's glyph: the kind's own, in the muted slate at .45. */
+function makeZeroStockGlyph(kind: SlotItemId): SVGSVGElement | null {
+  const svg = equipmentGlyphSvg(kind, P.beltIcon);
+  if (svg === null) return null;
+  svg.style.cssText = `display:block;color:var(--hc-text-muted);opacity:${ZERO_STOCK_ICON_ALPHA}`;
+  svg.dataset.loadoutZeroStock = '';
+  return svg;
+}
+
+/** The mark an UNHELD square shows: a zero-stock kind's faint glyph on the
+ *  belt (its kind is fixed by the slot), the empty dash on the main group. */
+function makeUnheldMark(slot: number): Element {
+  const kind = consumableKindAt(slot);
+  return (kind === null ? null : makeZeroStockGlyph(kind)) ?? makeEmptyDash(slot);
+}
+
 /** The corner mark: a tier numeral on the main group, a stock badge on the belt. */
 function cornerMark(own: ResultsOwn, slot: number): HTMLSpanElement | null {
   if (isBelt(slot)) {
-    const text = beltBadgeText(own.ammo[slot] ?? null);
+    const text = stockBadgeText(own.ammo[slot] ?? null);
     return text === null ? null : makeBadge(text);
   }
   const tier = loadoutSlotTier(own, slot);
   return tier > 0 ? makeTier(tier) : null;
 }
 
-/** One square: the glyph + its corner mark, or the empty dash. */
+/** One square: the glyph + its corner mark, or the unheld mark. */
 function makeSquare(own: ResultsOwn, slot: number): HTMLDivElement {
   const id = own.slots[slot] ?? null;
   const box = squareBox(slot, id !== null);
   if (id === null) {
-    box.appendChild(makeEmptyDash(slot));
+    box.appendChild(makeUnheldMark(slot));
     return box;
   }
   const glyph = makeGlyph(id, slot);
@@ -300,7 +346,7 @@ function makeColumn(own: ResultsOwn, slot: number): HTMLDivElement {
   return col;
 }
 
-/** The main group (gun · Shift · Q E R) and the framed belt (1–4). */
+/** The main group (gun · Shift · Q E R) and the framed belt (1–6, key order). */
 function makeGroups(own: ResultsOwn): [HTMLDivElement, HTMLDivElement] {
   const main = document.createElement('div');
   main.style.cssText = `display:flex;align-items:flex-start;gap:${P.slotGap}px`;
@@ -312,12 +358,15 @@ function makeGroups(own: ResultsOwn): [HTMLDivElement, HTMLDivElement] {
     `padding:${P.beltPadTop}px ${P.beltPadSide}px ${P.beltPadBottom}px`,
     `border:1px solid ${cssRgba(C.silver, 0.2)}`,
   ].join(';');
+  belt.dataset.loadoutBelt = '';
   for (let slot = 0; slot < SLOT_COUNT; slot += 1) {
     (isBelt(slot) ? belt : main).appendChild(makeColumn(own, slot));
   }
   return [main, belt];
 }
 
+/** The ONE row: the main group then the framed belt, `groupGap` apart (about
+ *  457 px at .72 — inside the results panel's 530 px content column). */
 function makeRow(own: ResultsOwn): HTMLDivElement {
   const row = document.createElement('div');
   row.style.cssText = `display:flex;justify-content:center;align-items:flex-start;gap:${P.groupGap}px`;
@@ -326,33 +375,71 @@ function makeRow(own: ResultsOwn): HTMLDivElement {
   return row;
 }
 
+/** The ladder line's CSS metrics, single-sourced so the 4 + 4 fit test reads
+ *  the very numbers the inline styles use (Story 9.9, epic-9 amendment 160). */
+export const LADDER_LINE_PX = Object.freeze({
+  labelPx: 10,
+  labelTrackingEm: 0.16,
+  numeralPx: 11,
+  numeralTrackingEm: 0.1,
+  numeralGapPx: 6,
+  separatorMarginPx: 12,
+});
+
 /** One ladder entry: the muted label, then its ramp numeral or R2's muted dash. */
 function makeLadderEntry(entry: LadderEntry): HTMLSpanElement {
   const el = span('', entry.label);
   const mark = entry.tier === null ? '—' : romanTier(entry.tier);
   const tint = entry.tier === null ? 'var(--hc-text-muted)' : tierTint(entry.tier);
-  el.appendChild(span(`font-weight:600;font-size:11px;margin-left:6px;letter-spacing:.1em;color:${tint}`, mark));
+  el.appendChild(span(`font-weight:600;font-size:${LADDER_LINE_PX.numeralPx}px;margin-left:${LADDER_LINE_PX.numeralGapPx}px;letter-spacing:${LADDER_LINE_PX.numeralTrackingEm}em;color:${tint}`, mark));
   return el;
 }
 
-/** The line of the five ship ladders (mock `.lo-lad`). */
+/** Ladders per row of the ladder line (Story 9.6, epic-9 amendment 99; four
+ *  since Story 9.7, Eric 2026-10-13, epic-9 amendment 114 — seven read 4 + 3;
+ *  kept at four in Story 9.9, Eric's pick on the rendered page, epic-9
+ *  amendment 160 — eight read 4 + 4). */
+const LADDERS_PER_ROW = 4;
+
+/** One row of the ladder line: its entries with a muted `·` between them. */
+function makeLadderRow(entries: readonly LadderEntry[]): HTMLDivElement {
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;justify-content:center';
+  entries.forEach((entry, i) => {
+    if (i > 0) row.appendChild(span(`color:${cssRgba(C.textMuted, 0.5)};margin:0 ${LADDER_LINE_PX.separatorMarginPx}px`, '·'));
+    row.appendChild(makeLadderEntry(entry));
+  });
+  return row;
+}
+
+/**
+ * The eight ship ladders as TWO ROWS, FOUR OVER FOUR (mock `.lo-lad`, re-cut
+ * at Story 9.6 — Eric 2026-10-13, epic-9 amendment 99 — again at Story 9.7,
+ * amendment 114, and at Story 9.9, amendment 160): with PASSIVE HEALING the
+ * one line of six ran past the panel's 530 px content column, so it split into
+ * rows; with ARMOR PIERCING, HULL · ARMOR · ARMOR PIERCING · SPEED sit over
+ * TURNING · RADAR SWEEP · RELOAD · PASSIVE HEALING at the same type, tracking
+ * and separators.
+ */
 function makeLadderLine(cards: readonly string[]): HTMLDivElement {
   const line = document.createElement('div');
   line.style.cssText = [
     'margin-top:12px',
     'display:flex',
-    'justify-content:center',
-    `font:400 10px ${MONO}`,
-    'letter-spacing:.16em',
+    'flex-direction:column',
+    'align-items:center',
+    'gap:6px',
+    `font:400 ${LADDER_LINE_PX.labelPx}px ${MONO}`,
+    `letter-spacing:${LADDER_LINE_PX.labelTrackingEm}em`,
     'text-transform:uppercase',
     'color:var(--hc-text-muted)',
     'white-space:nowrap',
   ].join(';');
   line.dataset.loadoutLadder = '';
-  ladderEntries(cards).forEach((entry, i) => {
-    if (i > 0) line.appendChild(span(`color:${cssRgba(C.textMuted, 0.5)};margin:0 12px`, '·'));
-    line.appendChild(makeLadderEntry(entry));
-  });
+  const entries = ladderEntries(cards);
+  for (let i = 0; i < entries.length; i += LADDERS_PER_ROW) {
+    line.appendChild(makeLadderRow(entries.slice(i, i + LADDERS_PER_ROW)));
+  }
   return line;
 }
 

@@ -8,7 +8,7 @@
 // CYCLE 158 (Eric rulings 2026-09-30, epic-8 amendments 185/186): the panel is
 // the heading over the hovered thing's LIVE stat table, one `LABEL value` per
 // line — no prose, no accrued build list — and the HP globe opens a SHIP panel
-// with the five ship stats.
+// with the ship stats (six since Story 9.6).
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -66,6 +66,9 @@ function lines(rows: readonly { label: string; cur: string | null; next: string 
 
 // --- the hover dwell -----------------------------------------------------------
 
+/** RANGE's printer (Eric 2026-10-13): whole values whole, else one decimal. */
+const rangeTxt = (v: number): string => (v % 1 === 0 ? String(v) : v.toFixed(1));
+
 describe('the hover dwell — keyed on the TARGET (a slot or the HP globe)', () => {
   it('restarts the clock whenever the target changes, and keeps it when it does not', () => {
     const a = nextHover(NO_HOVER, Q, 1000);
@@ -120,7 +123,7 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
       flak: 'FLAK',
       boost: 'SPEED BOOST',
       instantReload: 'INSTANT RELOAD',
-      damageCut: 'DAMAGE CUT',
+      hunker: 'HUNKER',
     };
     for (const [id, name] of Object.entries(expected)) {
       expect(tooltipModel(Q, id as never, STATS)!.name, id).toBe(name);
@@ -162,16 +165,16 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
       'SHELLS PER SHOT',
       'RANGE',
     ]);
-    expect(lines(m.stats).at(-1)).toBe(`RANGE ${stats.equipment.gun.rangeU} u`);
+    expect(lines(m.stats).at(-1)).toBe(`RANGE ${rangeTxt(stats.equipment.gun.rangeU)} u`);
   });
 
   it('prints the MACHINE GUN\'s magazine as SHELLS and its shot delay as RATE (two decimals)', () => {
     expect(lines(tooltipModel(SLOT_GUN, 'machineGun', STATS)!.stats)).toEqual([
-      'RELOAD 12.0 s',
-      'SHELLS 12',
-      'DAMAGE 5',
-      'RATE 0.30 s',
-      `RANGE ${STATS.equipment.machineGun.rangeU} u`,
+      `RELOAD ${(CONFIG.machineGun.reloadMs / 1000).toFixed(1)} s`,
+      `SHELLS ${CONFIG.machineGun.maxAmmo}`,
+      `DAMAGE ${CONFIG.machineGun.damage}`,
+      `RATE ${(CONFIG.machineGun.rateMs / 1000).toFixed(2)} s`,
+      `RANGE ${rangeTxt(STATS.equipment.machineGun.rangeU)} u`,
     ]);
   });
 
@@ -188,12 +191,12 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
       `RELOAD ${(CONFIG.instantReload.reloadMs / 1000).toFixed(1)} s`,
     ]);
     const bb = statsFor('battleship');
-    expect(lines(tooltipModel(SLOT_BOOST, 'damageCut', bb)!.stats)).toEqual([
-      `CUT ${Math.round((1 - CONFIG.damageCut.factor) * 100)}%`,
-      `DURATION ${(CONFIG.damageCut.durationMs / 1000).toFixed(1)} s`,
-      `RELOAD ${(CONFIG.damageCut.reloadMs / 1000).toFixed(1)} s`,
+    expect(lines(tooltipModel(SLOT_BOOST, 'hunker', bb)!.stats)).toEqual([
+      `ARMOR +${CONFIG.hunker.armorBonus}`, // Story 9.7: the cut adds Armor (epic-9 amendments 110–117)
+      `DURATION ${(CONFIG.hunker.durationMs / 1000).toFixed(1)} s`,
+      `RELOAD ${(CONFIG.hunker.reloadMs / 1000).toFixed(1)} s`,
     ]);
-    for (const id of ['boost', 'instantReload', 'damageCut'] as const) {
+    for (const id of ['boost', 'instantReload', 'hunker'] as const) {
       expect(equipmentStatRows(id, STATS).map((r) => r.label), id).not.toContain('ROUNDS');
     }
   });
@@ -205,7 +208,7 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
       `INSTANT +${CONFIG.hullRepair.instantHp} HP`,
       `OVER TIME +${CONFIG.hullRepair.regenHp} HP / ${CONFIG.hullRepair.regenMs / 1000} S`,
     ]);
-    expect(tooltipModel(BELT_2, 'smokeScreen', STATS, [], 3)!.stats).toEqual(consumableStatRows('smokeScreen'));
+    expect(tooltipModel(BELT_2, 'countermeasure', STATS, [], 3)!.stats).toEqual(consumableStatRows('countermeasure'));
     // The one stub left (DEPTH CHARGE) has no mechanism, so no rows.
     expect(tooltipModel(BELT_1, 'depthCharge', STATS, [], 1)!.stats).toEqual([]);
   });
@@ -224,22 +227,29 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
 
 // --- THE SHIP PANEL ON THE HP GLOBE (amendment 186) ------------------------------
 
-describe('the HP globe opens a SHIP panel with the five ship stats (amendment 186)', () => {
-  it('names the hull over SHIP and the five ladders\' live values', () => {
+describe('the HP globe opens a SHIP panel with the eight ship stats (amendment 186)', () => {
+  it('names the hull over SHIP and the eight ladders\' live values', () => {
     const m = shipTooltipModel('torpedoBoat', STATS)!;
     expect(m.name).toBe('SPEEDBOAT');
     expect(m.interaction).toBe(SHIP_INTERACTION);
     expect(m.interaction).toBe('SHIP');
-    expect(m.stats.map((r) => r.label)).toEqual(['MAX HULL', 'TOP SPEED', 'TURNING', 'RADAR SWEEP', 'ALL COOLDOWNS']);
+    // HEAL joined last in Story 9.6 (epic-9 amendment 95); ARMOR right after
+    // MAX HULL in Story 9.7 (Eric 2026-10-13, epic-9 amendments 110–117);
+    // ARMOR PIERCING right after ARMOR in Story 9.9 (epic-9 amendment 159).
+    expect(m.stats.map((r) => r.label)).toEqual([
+      'MAX HULL', 'ARMOR', 'ARMOR PIERCING', 'TOP SPEED', 'TURNING', 'RADAR SWEEP', 'ALL COOLDOWNS', 'HEAL',
+    ]);
     expect(lines(m.stats)[0]).toBe(`MAX HULL ${STATS.maxHp}`);
-    expect(lines(m.stats)[2]).toBe('TURNING 46°/s'); // 0.8 rad/s, whole degrees (P10)
-    expect(lines(m.stats)[3]).toBe(`RADAR SWEEP ${STATS.sweepRpm} RPM`);
-    expect(lines(m.stats)[4]).toBe('ALL COOLDOWNS 100%');
+    expect(lines(m.stats)[1]).toBe(`ARMOR ${STATS.armor}`);
+    expect(lines(m.stats)[2]).toBe(`ARMOR PIERCING ${STATS.armorPiercing}`);
+    expect(lines(m.stats)[4]).toBe('TURNING 46°/s'); // 0.8 rad/s, whole degrees (P10)
+    expect(lines(m.stats)[5]).toBe(`RADAR SWEEP ${STATS.sweepRpm} RPM`);
+    expect(lines(m.stats)[6]).toBe('ALL COOLDOWNS 100%');
     expect(m.stats).toEqual(shipStatRows(STATS));
   });
 
   it('moves with the build, and has no panel for a hull it cannot name', () => {
-    const armored = statsFor('torpedoBoat', { armor: 1 });
+    const armored = statsFor('torpedoBoat', { hullPoints: 1 });
     expect(lines(shipTooltipModel('torpedoBoat', armored)!.stats)[0]).toBe(`MAX HULL ${armored.maxHp}`);
     expect(armored.maxHp).toBeGreaterThan(STATS.maxHp);
     expect(shipTooltipModel(undefined, STATS)).toBeNull();
@@ -310,7 +320,7 @@ describe('the model cache is keyed on the TARGET', () => {
     // A different hull is a different panel.
     expect(tipCacheHit(shipEntry, 'ship', null, stats, boons, 0, 'battleship')).toBe(false);
     // New stats (a fold) or a moved stock re-build.
-    expect(tipCacheHit(slotEntry, Q, 'heavyTorpedo', statsFor('torpedoBoat', { armor: 1 }), boons, 1)).toBe(false);
+    expect(tipCacheHit(slotEntry, Q, 'heavyTorpedo', statsFor('torpedoBoat', { hullPoints: 1 }), boons, 1)).toBe(false);
     expect(tipCacheHit(slotEntry, Q, 'heavyTorpedo', stats, boons, 2)).toBe(false);
     expect(tipCacheHit(null, Q, 'heavyTorpedo', stats, boons, 1)).toBe(false);
   });
@@ -398,7 +408,7 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
   });
 
   it('leaves the ABILITY grammar untouched — an ability has no tier to print', () => {
-    expect(interactionLine(1, 'boost', ['armor'])).toBe('');
+    expect(interactionLine(1, 'boost', ['hullPoints'])).toBe('');
   });
 
   it('reaches the tooltip model, not just the helper', () => {
@@ -410,7 +420,7 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
 describe('a BELT slot has NO interaction line (amendment 203)', () => {
   it('prints nothing for any consumable, whatever its shape or stock', () => {
     expect(interactionLine(BELT_1, 'hullRepair', [], 2)).toBe('');
-    expect(interactionLine(BELT_2, 'smokeScreen', [], 1)).toBe('');
+    expect(interactionLine(BELT_2, 'countermeasure', [], 1)).toBe('');
     expect(interactionLine(BELT_1, 'decoyBuoy', [], 3)).toBe('');
     expect(interactionLine(BELT_2, 'supercavTorpedo', [], 2)).toBe('');
   });

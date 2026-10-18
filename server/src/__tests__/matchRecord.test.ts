@@ -279,7 +279,7 @@ describe('buildMatchRecord — the full per-draw history (R1) and who is in it (
     for (let i = 0; i < 100 && m.phase !== 'active'; i++) step({ w, m });
     const bRec = w.ships.get('b')!;
     m.onPlayerLeave('b');
-    bRec.hands[0].taken = 'armor'; // a write to the live record after its snapshot
+    bRec.hands[0].taken = 'hullPoints'; // a write to the live record after its snapshot
     bRec.hands.push({ dealtAtMs: 0, offered: [], taken: null, takenAtMs: null, redrawn: false });
     const snap = m.participantRecords().get('b')!;
     expect(snap.hands).toHaveLength(1);
@@ -304,8 +304,8 @@ describe('the hand log — only an OFFER pick is a hand', () => {
 
   it('the dev spawn fit lands in `cards` but creates NO hand', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, ['armor', 'speed']);
-    expect(a.cards).toEqual(['armor', 'speed']);
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, ['hullPoints', 'speed']);
+    expect(a.cards).toEqual(['hullPoints', 'speed']);
     expect(a.hands).toEqual([]);
   });
 

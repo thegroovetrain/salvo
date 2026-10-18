@@ -30,7 +30,7 @@
 // BREATHING CHANNELS ARE EXEMPT BY CONSTRUCTION — DO NOT "FIX" THIS OMISSION.
 // Every pulsing surface in the game is capped at `settings.pulseCapHz` (1.1 Hz)
 // or below (the HP rail's ramp, the storm vignette, the ring segment, the bank
-// chip, the ember disc), which is well under 3 flashes/s. A breathing channel
+// chip, the alert blend), which is well under 3 flashes/s. A breathing channel
 // cannot bind this budget, so routing one through it would only be counting
 // something that can never exceed the count. THE BUDGET GOVERNS ONE-SHOTS.
 //

@@ -5,8 +5,9 @@
 //
 // STORY 8.7 RE-CUT IT WHOLESALE. The card is no longer a fixed box holding
 // WRAPPING prose: the ratified face (`hud-composite-3.html` `.rc`, epic-8
-// amendment 31) is a 216×226 STAT BLOCK whose every text mark is `nowrap` —
-// an uppercase name, a KIND word, two tier numerals, and five label/value rows.
+// amendment 31) is a 216×243 STAT BLOCK (the mock's 226 plus a sixth 17px
+// row, Story 9.8) whose every text mark is `nowrap` — an uppercase name, a
+// KIND word, two tier numerals, and six label/value rows.
 // That turns the vertical axis into arithmetic a child could do (the rows are a
 // fixed 17px grid) and moves the whole risk onto the HORIZONTAL axis: a mark
 // wider than the 192px inner box would paint out through the card's side.
@@ -17,7 +18,7 @@
 //     here, rendered by ui/upgradeMenu.ts, pinned over every catalog name by
 //     __tests__/refitCardFit.test.ts.
 //   • `refitCardMetrics(card)` — does every row's label + value pair fit one
-//     192px line, and does the whole stack fit the 226px box?
+//     192px line, and does the whole stack fit the 243px box?
 //
 // WHY THE MATH IS EXACT (and not a guess):
 //   • MONO type. Every glyph on the card's mono marks advances by the same
@@ -369,7 +370,7 @@ export function ladderRowWidth(cap: number, tier: string | null): number {
 /**
  * Pure: the ratified face measured against its fixed inner box. Mirrors
  * makeCard()'s DOM exactly, top-down — icon box · name · KIND word · ladder row
- * · the five-row grid · foot — with the mock's own `margin-top` seam between
+ * · the six-row grid · foot — with the mock's own `margin-top` seam between
  * each pair.
  */
 export function refitCardMetrics(card: RefitCardCopy, uiScale = 1): RefitCardMetrics {

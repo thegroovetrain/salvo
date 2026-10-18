@@ -2,7 +2,7 @@
 // 2026-09-28, epic-8 amendments 97–110): the four draft glyphs exist, the
 // tooltip names are the ruled ones (the plain gun is `Cannon`, amendment 108),
 // the gun square's tier reads the MOUNTED gun's own fold, the held-fire drain
-// (UX-DR52) lights only while the machine gun streams, and DAMAGE CUT takes the
+// (UX-DR52) lights only while the machine gun streams, and HUNKER (was DAMAGE CUT until Story 9.9) takes the
 // boost's ACTIVE grammar (amendment 34).
 
 import { describe, it, expect } from 'vitest';
@@ -56,8 +56,8 @@ function view(gun: SlotItemId, shift: SlotItemId, over: Partial<HotbarView> = {}
 }
 
 describe('the four new glyphs (amendment 110 — implementer drafts)', () => {
-  it('machineGun, flak, instantReload and damageCut each draw linework inside the unit frame', () => {
-    for (const id of ['machineGun', 'flak', 'instantReload', 'damageCut']) {
+  it('machineGun, flak, instantReload and hunker each draw linework inside the unit frame', () => {
+    for (const id of ['machineGun', 'flak', 'instantReload', 'hunker']) {
       const parts = glyphPaths(id);
       expect(parts, id).not.toBeNull();
       expect(parts!.length, id).toBeGreaterThan(0);
@@ -77,7 +77,7 @@ describe('the four new glyphs (amendment 110 — implementer drafts)', () => {
   // `depthCharge` has none.
   it('no two of the four share a drawing, and none copies the cannon, the star shell or any line', () => {
     const lines = LINE_IDS.filter((id) => id !== 'deckGun' && id !== 'depthCharge');
-    const ids = [...new Set(['gun', 'starShells', 'boost', 'machineGun', 'flak', 'instantReload', 'damageCut', ...lines])];
+    const ids = [...new Set(['gun', 'starShells', 'boost', 'machineGun', 'flak', 'instantReload', 'hunker', ...lines])];
     const drawn = ids.map((id) => JSON.stringify(glyphPaths(id)));
     expect(new Set(drawn).size).toBe(ids.length);
   });
@@ -94,7 +94,7 @@ describe('the ruled names (amendments 107/108)', () => {
     expect(EQUIPMENT_NAME.machineGun).toBe('Machine Gun');
     expect(EQUIPMENT_NAME.flak).toBe('Flak');
     expect(EQUIPMENT_NAME.instantReload).toBe('Instant Reload');
-    expect(EQUIPMENT_NAME.damageCut).toBe('Damage Cut');
+    expect(EQUIPMENT_NAME.hunker).toBe('Hunker');
     expect(Object.keys(EQUIPMENT_NAME)).not.toContain('missile');
     expect(Object.keys(EQUIPMENT_NAME)).not.toContain('monitor');
   });
@@ -102,12 +102,12 @@ describe('the ruled names (amendments 107/108)', () => {
   // CYCLE 158 (amendment 185): the Shifts' prose descriptions are DELETED; their
   // hover prints stat lines, every number off CONFIG / the fold.
   it('the two Shifts\' stat lines read their numbers off CONFIG, never a literal', () => {
-    const lines = (id: 'instantReload' | 'damageCut') =>
+    const lines = (id: 'instantReload' | 'hunker') =>
       equipmentStatRows(id, stats()).map((r) => `${r.label} ${statValueText(r)}`);
-    expect(lines('damageCut')).toEqual([
-      `CUT ${Math.round((1 - CONFIG.damageCut.factor) * 100)}%`,
-      `DURATION ${(CONFIG.damageCut.durationMs / 1000).toFixed(1)} s`,
-      `RELOAD ${(CONFIG.damageCut.reloadMs / 1000).toFixed(1)} s`,
+    expect(lines('hunker')).toEqual([
+      `ARMOR +${CONFIG.hunker.armorBonus}`, // Story 9.7: the cut adds Armor (epic-9 amendments 110–117)
+      `DURATION ${(CONFIG.hunker.durationMs / 1000).toFixed(1)} s`,
+      `RELOAD ${(CONFIG.hunker.reloadMs / 1000).toFixed(1)} s`,
     ]);
     expect(lines('instantReload')).toEqual([`RELOAD ${(CONFIG.instantReload.reloadMs / 1000).toFixed(1)} s`]);
   });
@@ -115,7 +115,7 @@ describe('the ruled names (amendments 107/108)', () => {
   it('the Shifts deal no damage; the machine gun reports PER SHELL, the flak per burst victim', () => {
     const s = stats();
     expect(equipmentDamage(s, 'instantReload')).toBeNull();
-    expect(equipmentDamage(s, 'damageCut')).toBeNull();
+    expect(equipmentDamage(s, 'hunker')).toBeNull();
     expect(equipmentDamage(s, 'machineGun')).toBe(CONFIG.machineGun.damage);
     expect(equipmentDamage(s, 'flak')).toBe(CONFIG.flak.damage);
   });
@@ -138,7 +138,7 @@ describe('the gun family — the MOUNTED gun\'s tier', () => {
 describe('THE HELD-FIRE DRAIN (UX-DR52)', () => {
   it('lights ONLY on the gun square holding the machine gun, while held, with shells left', () => {
     const max = equipmentMaxAmmo(stats(), 'machineGun');
-    const live = view('machineGun', 'damageCut', { held: true });
+    const live = view('machineGun', 'hunker', { held: true });
     live.ammo = [{ n: 10, reloadMsLeft: 0 }, ...live.ammo.slice(1)];
     expect(heldDrainFrac(live, SLOT_GUN)).toBeCloseTo(10 / max, 9);
     expect(slotViewModels(live)[SLOT_GUN].drain).toBeCloseTo(10 / max, 9);
@@ -148,8 +148,8 @@ describe('THE HELD-FIRE DRAIN (UX-DR52)', () => {
     // ...never on another slot:
     expect(heldDrainFrac(live, SLOT_BOOST)).toBeNull();
     // ...never for the cannon or the flak gun:
-    expect(heldDrainFrac(view('gun', 'damageCut', { held: true }), SLOT_GUN)).toBeNull();
-    expect(heldDrainFrac(view('flak', 'damageCut', { held: true }), SLOT_GUN)).toBeNull();
+    expect(heldDrainFrac(view('gun', 'hunker', { held: true }), SLOT_GUN)).toBeNull();
+    expect(heldDrainFrac(view('flak', 'hunker', { held: true }), SLOT_GUN)).toBeNull();
     // ...never while ANOTHER slot is primed (the stream fires only with the
     // gun selected — Eric 2026-09-29; the held pointer is that slot's hold):
     expect(heldDrainFrac({ ...live, primedSlot: 2 }, SLOT_GUN)).toBeNull();
@@ -174,9 +174,9 @@ describe('THE HELD-FIRE DRAIN (UX-DR52)', () => {
   });
 });
 
-describe('DAMAGE CUT takes the boost\'s ACTIVE grammar (amendment 34)', () => {
+describe('HUNKER takes the boost\'s ACTIVE grammar (amendment 34)', () => {
   it('a running cut window makes the Shift square ACTIVE with its seconds', () => {
-    const v = view('gun', 'damageCut', { activeMsLeft: [0, 6400, 0, 0, 0, 0, 0, 0, 0] });
+    const v = view('gun', 'hunker', { activeMsLeft: [0, 6400, 0, 0, 0, 0, 0, 0, 0] });
     v.ammo = [v.ammo[0], { n: 0, reloadMsLeft: 28000 }, ...v.ammo.slice(2)];
     const m = slotViewModels(v)[SLOT_BOOST];
     expect(m.state).toBe('active'); // ACTIVE outranks the cooldown that started with it
@@ -199,11 +199,12 @@ describe('the machine gun and the flak gun — aim and reach (Story 8.15)', () =
     expect(fireArcKind('flak')).toBe('gunLike');
   });
 
-  it('weaponRangeU reads each gun\'s own row (the radar rung today, 660 u)', () => {
+  it('weaponRangeU reads each gun\'s own row — its own tiered dial (Story 9.8, ruling 125)', () => {
     const s = stats();
     expect(weaponRangeU(s, 'machineGun')).toBe(s.equipment.machineGun.rangeU);
     expect(weaponRangeU(s, 'flak')).toBe(s.equipment.flak.rangeU);
-    expect(weaponRangeU(s, 'machineGun')).toBe(CONFIG.vision.radar);
+    expect(weaponRangeU(s, 'machineGun')).toBe(CONFIG.machineGun.rangeU);
+    expect(weaponRangeU(s, 'flak')).toBe(CONFIG.flak.rangeU);
   });
 
   const base = (id: 'machineGun' | 'flak' | 'gun'): AimPreviewInput => ({
@@ -242,20 +243,21 @@ describe('the machine gun and the flak gun — aim and reach (Story 8.15)', () =
 // flak gun exactly as to the cannon, on both sides. The client resolves the
 // reach ONCE through weaponReachU (the shared gunReachU off each gun's OWN row)
 // and hands it to the range-clamp marker and the preview, so the preview shows
-// the extended reach into the player's own flare — and clamps at 660 u under an
-// enemy's flare or none (ownActiveZones never hands the client an enemy zone).
+// the extended reach into the player's own flare — and clamps at the gun's own
+// reach (its tiered dial, ruling 125) under an enemy's flare or none (ownActiveZones never hands the client an enemy zone).
 describe('the machine gun and the flak gun reach into their own flare (amendment 114)', () => {
   const OWN_ZONE = [{ x: 800, y: 0, r: 120 }];
   const SHIP = { x: 0, y: 0 };
   const MAP_R = 5000;
 
-  it('weaponReachU lifts BOTH guns to an 800 u click inside an own live zone, and clamps to 660 u without one', () => {
+  it('weaponReachU lifts BOTH guns to an 800 u click inside an own live zone, and clamps to the gun\'s own reach without one', () => {
     const s = stats();
     for (const id of ['machineGun', 'flak'] as const) {
-      expect(s.equipment[id].rangeU, id).toBe(660);
+      const reach = s.equipment[id].rangeU;
+      expect(reach, `${id}: the premise — the zone sits past the gun's own reach`).toBeLessThan(800);
       expect(weaponReachU(s, id, SHIP, 0, 800, MAP_R, OWN_ZONE), id).toBe(800);
-      expect(weaponReachU(s, id, SHIP, 0, 800, MAP_R, []), id).toBe(660);
-      expect(weaponReachU(s, id, SHIP, 0, 300, MAP_R, OWN_ZONE), id).toBe(660); // in range: the base
+      expect(weaponReachU(s, id, SHIP, 0, 800, MAP_R, []), id).toBe(reach);
+      expect(weaponReachU(s, id, SHIP, 0, 300, MAP_R, OWN_ZONE), id).toBe(reach); // in range: the base
     }
   });
 

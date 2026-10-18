@@ -89,9 +89,9 @@ describe('fireArcKind — equipment-id → firing-arc class', () => {
   it('classes the gun FAMILY (gun/starShells) as 360° gunLike', () => {
     expect(fireArcKind('gun')).toBe('gunLike');
     expect(fireArcKind('starShells')).toBe('gunLike');
-    // Story 8.17: PHOSPHOR SHELLS and the FLASH SHELLS consumable are 360° too.
+    // Story 8.17: PHOSPHOR SHELLS, and (Story 9.4) the FOULING SHELL consumable, are 360° too.
     expect(fireArcKind('phosphorShells')).toBe('gunLike');
-    expect(fireArcKind('dazzleShells')).toBe('gunLike');
+    expect(fireArcKind('foulingShell')).toBe('gunLike');
   });
 
   it('classes the SECTOR ids — torpedo bow arc, mine + decoy buoy rear arc', () => {
@@ -222,15 +222,15 @@ describe('clickInArc — the click-aimed consumables are GATED by their arcs', (
   });
 
   it('is FALSE for a KEY-FIRES consumable — a click on an ability fires nothing', () => {
-    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as const) {
+    for (const id of ['hullRepair', 'shieldBlock', 'countermeasure'] as const) {
       expect(clickInArc(0, 0, 10, id), id).toBe(false);
     }
   });
 
-  it('FLASH SHELLS is a 360° click — never out of arc, never a placement leash (Story 8.17)', () => {
+  it('the FOULING SHELL is a 360° click — never out of arc, never a placement leash (Story 9.4)', () => {
     for (const aim of [0, Math.PI / 2, Math.PI, -Math.PI / 3]) {
-      expect(clickInArc(0, aim, 10, 'dazzleShells'), `aim ${aim}`).toBe(true);
-      expect(clickInArc(0, aim, 99_999, 'dazzleShells'), `aim ${aim} far`).toBe(true); // range clamps, never denies
+      expect(clickInArc(0, aim, 10, 'foulingShell'), `aim ${aim}`).toBe(true);
+      expect(clickInArc(0, aim, 99_999, 'foulingShell'), `aim ${aim} far`).toBe(true); // range clamps, never denies
     }
   });
 
@@ -414,26 +414,28 @@ describe('weaponArcHit — TB torpedo regression + ML ability fit (Story 1.8)', 
 describe('weaponRangeU — per-weapon burst/clamp range', () => {
   const stats = effectiveStats(CONFIG.shipClasses.battleship);
 
-  it('broadside + star shells read their OWN range block', () => {
+  // STORY 9.8 (epic-9 ruling 125): every weapon reach is its OWN tiered dial on
+  // the twelfths ruler — `CONFIG.<weapon>.rangeU` at Tier I, stepped by the
+  // line's cards through `effectiveStats()` — and none of them is radar.
+  it('broadside + star shells read their OWN range block, seeded from their CONFIG dial', () => {
     expect(weaponRangeU(stats, 'broadside')).toBe(stats.equipment.broadside.rangeU);
+    expect(weaponRangeU(stats, 'broadside')).toBe(CONFIG.broadside.rangeU);
     expect(weaponRangeU(stats, 'starShells')).toBe(stats.equipment.starShells.rangeU);
-    expect(weaponRangeU(stats, 'starShells')).toBe(CONFIG.vision.radar);
+    expect(weaponRangeU(stats, 'starShells')).toBe(CONFIG.starShells.rangeU);
   });
 
-  // STORY 8.17 (amendments 131/132): PHOSPHOR SHELLS reads its own row, and the
-  // FLASH SHELLS consumable (no row) reaches as far as the star shell — the
-  // post-fold radar range.
-  it('phosphor reads its OWN row, flash shells the radar range — both the radar rung', () => {
+  // STORY 8.17 (amendments 131/132): PHOSPHOR SHELLS reads its own row; the
+  // FOULING SHELL consumable (Story 9.4; no row, no card) reads its fixed dial.
+  it('phosphor reads its OWN row, the fouling shell its fixed CONFIG dial — never radar', () => {
     expect(weaponRangeU(stats, 'phosphorShells')).toBe(stats.equipment.phosphorShells.rangeU);
-    expect(weaponRangeU(stats, 'phosphorShells')).toBe(CONFIG.vision.radar);
-    expect(weaponRangeU(stats, 'dazzleShells')).toBe(stats.radarRange);
-    expect(weaponRangeU(stats, 'dazzleShells')).toBe(weaponRangeU(stats, 'starShells'));
+    expect(weaponRangeU(stats, 'phosphorShells')).toBe(CONFIG.phosphorShells.rangeU);
+    expect(weaponRangeU(stats, 'foulingShell')).toBe(CONFIG.foulingShell.rangeU);
+    expect(weaponRangeU(stats, 'foulingShell')).not.toBe(stats.radarRange);
   });
 
-  it('the BROADSIDE stops at the 5/8 RUNG — the one weapon short of radar (R2.4)', () => {
+  it('the BROADSIDE reaches short of the cannon at base (R2.4, ruling 125)', () => {
     // The reason this row cannot fall through to the gun-range default: it would
-    // over-promise the barrage by 247.5u at base.
-    expect(weaponRangeU(stats, 'broadside')).toBe(CONFIG.vision.radar * CONFIG.vision.muzzleFlashFactor);
+    // over-promise the barrage by the gap between the two dials.
     expect(weaponRangeU(stats, 'broadside')).toBeLessThan(weaponRangeU(stats, 'gun'));
   });
 
@@ -451,13 +453,11 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
     expect(weaponRangeU(stats, 'decoyBuoy')).toBe(CONFIG.mine.placeRange);
   });
 
-  // A WIDER `radarRange` grows gun, star shells AND the broadside together.
-  // RETARGETED in cycle 119: this pin was written against a three-card INTEL
-  // RANGE stack, and that line is deleted — no shipped card writes `radarRange`
-  // any more. Its SUBJECT is the derivation, not the card, so it is driven by an
-  // INJECTED def on the still-whitelisted `radarRange` path (the server suite's
-  // `OMNI_BOON` shape). Asserting this against zero boons would compare the
-  // ranges with themselves and prove nothing.
+  // A WIDER `radarRange` moves NO weapon range (Story 9.8, ruling 125): the
+  // re-pins that tied every gun to radar are deleted. Driven by an INJECTED def
+  // on the still-whitelisted `radarRange` path (the server suite's `OMNI_BOON`
+  // shape) — asserting this against zero boons would compare the ranges with
+  // themselves and prove nothing.
   const WIDE_RADAR = {
     id: 'testWideRadar',
     kind: 'ladder',
@@ -469,17 +469,12 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
    *  test seam since Story 8.1 made the fold resolve ids internally. */
   const WIDE_CATALOG: Catalog = { ...CATALOG, testWideRadar: WIDE_RADAR };
 
-  it('a widened radarRange grows gun, star shells AND the broadside together', () => {
-    // Story 2.8 (brainstorm 2026-07-30): the gun-family ranges are DERIVED from
-    // the folded radarRange. Wave 2 puts the broadside on the SAME number at the
-    // 5/8 rung, so it rides the ladder too; the mine's placement reach is
-    // deliberately NOT part of it.
+  it('a widened radarRange moves NO weapon range — each is its own dial (ruling 125)', () => {
     const intel = effectiveStats(CONFIG.shipClasses.battleship, ['testWideRadar'], WIDE_CATALOG);
     expect(intel.radarRange).toBeGreaterThan(stats.radarRange); // the premise
-    expect(weaponRangeU(intel, 'gun')).toBeGreaterThan(CONFIG.vision.radar);
-    expect(weaponRangeU(intel, 'starShells')).toBe(weaponRangeU(intel, 'gun'));
-    expect(weaponRangeU(intel, 'broadside')).toBeGreaterThan(weaponRangeU(stats, 'broadside'));
-    expect(weaponRangeU(intel, 'broadside')).toBe(intel.radarRange * CONFIG.vision.muzzleFlashFactor);
+    for (const id of ['gun', 'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells', 'foulingShell'] as const) {
+      expect(weaponRangeU(intel, id), id).toBe(weaponRangeU(stats, id));
+    }
     expect(weaponRangeU(intel, 'navalMines')).toBe(CONFIG.mine.placeRange); // untouched
   });
 });

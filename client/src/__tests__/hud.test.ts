@@ -28,6 +28,7 @@ import {
   tellAnchor,
   tellLine,
   tellSeconds,
+  victimWindows,
 } from '../render/hud.js';
 import { HUD_BAR_WIDTH, hudBarLayout } from '../render/hudBar.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
@@ -60,7 +61,6 @@ function ownStatus(over: Partial<OwnStatus> = {}): OwnStatus {
     loadout: ['gun', 'heavyTorpedo', null, null],
     boostActive: false,
     slowedMsLeft: 0,
-    dazzledMsLeft: 0,
     ...over,
   };
 }
@@ -167,7 +167,7 @@ describe('the tells fit their box (amendment 47 — the container-fit law)', () 
   // beside the bar — so the pin measures a deliberately absurd window, not just
   // today's few-second one.
   it('every reachable tell line fits the bar`s width', () => {
-    for (const label of ['SLOWED', 'DAZZLED']) {
+    for (const label of ['SLOWED']) {
       for (const ms of [1, 999, 1000, 9000, 60_000, TELL_FIT_MAX_MS]) {
         const line = tellLine(label, ms);
         const w = monoTextWidth(line, TELL_STYLE.fontSize, TELL_STYLE.letterSpacing);
@@ -359,18 +359,33 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
 describe('tellLine / tellSeconds — the dual-coded victim status line', () => {
   it('names the state AND counts it down', () => {
     expect(tellLine('SLOWED', 2400)).toBe('SLOWED 3s');
-    expect(tellLine('DAZZLED', 1000)).toBe('DAZZLED 1s');
+    expect(tellLine('SLOWED', 1000)).toBe('SLOWED 1s');
   });
 
   it('renders NOTHING when the window is not running (no ghost, no placeholder)', () => {
     expect(tellLine('SLOWED', 0)).toBe('');
-    expect(tellLine('DAZZLED', -500)).toBe(''); // already expired
+    expect(tellLine('SLOWED', -500)).toBe(''); // already expired
   });
 
   it('never reads "0s" while the window is still live', () => {
     expect(tellSeconds(1)).toBe(1);
     expect(tellSeconds(999)).toBe(1);
     expect(tellSeconds(1001)).toBe(2);
+  });
+});
+
+describe('victimWindows — SLOWED covers both slow sources (Story 9.4)', () => {
+  it('reads the LATER of the mine window and the shell-zone window', () => {
+    expect(victimWindows({ slowedUntil: 3000, fouledUntil: 5000 }, 1000).slowedMsLeft).toBe(4000);
+    expect(victimWindows({ slowedUntil: 6000, fouledUntil: 2000 }, 1000).slowedMsLeft).toBe(5000);
+  });
+
+  it('either source alone drives it, and an absent / expired window reads 0', () => {
+    expect(victimWindows({ fouledUntil: 2500 }, 1000).slowedMsLeft).toBe(1500);
+    expect(victimWindows({ slowedUntil: 2500 }, 1000).slowedMsLeft).toBe(1500);
+    expect(victimWindows({}, 1000).slowedMsLeft).toBe(0);
+    expect(victimWindows({ slowedUntil: 500, fouledUntil: 900 }, 1000).slowedMsLeft).toBe(0);
+    expect(victimWindows(null, 1000).slowedMsLeft).toBe(0);
   });
 });
 
@@ -381,47 +396,39 @@ describe('Hud — the tells and the storm warning on a live frame', () => {
   it('shows nothing at all while unafflicted', () => {
     const hud = new Hud(new Container());
     draw(hud, ownStatus());
-    expect([hud.tellText(0), hud.tellText(1)]).toEqual(['', '']);
+    expect(hud.tellText(0)).toBe('');
   });
 
-  it('shows each window, and BOTH at once when both are running', () => {
+  it('shows the SLOWED window while it runs, and only it (Story 9.4: one tell)', () => {
     const hud = new Hud(new Container());
     draw(hud, ownStatus({ slowedMsLeft: 2000 }));
     expect([hud.tellText(0), hud.tellText(1)]).toEqual(['SLOWED 2s', '']);
-    draw(hud, ownStatus({ dazzledMsLeft: 3000 }));
-    expect([hud.tellText(0), hud.tellText(1)]).toEqual(['', 'DAZZLED 3s']);
-    draw(hud, ownStatus({ slowedMsLeft: 1500, dazzledMsLeft: 4000 }));
-    expect([hud.tellText(0), hud.tellText(1)]).toEqual(['SLOWED 2s', 'DAZZLED 4s']);
+    draw(hud, ownStatus({ slowedMsLeft: 1500 }));
+    expect(hud.tellText(0)).toBe('SLOWED 2s');
   });
 
-  it('a single running tell takes the TOP slot — the column never shows a hole', () => {
+  it('the running tell takes the TOP slot, at the column anchor', () => {
     const hud = new Hud(new Container());
     draw(hud, ownStatus({ slowedMsLeft: 2000 }));
-    const slowedOnly = hud.tellPosition(0);
-    expect(slowedOnly).toEqual(tellAnchor(FLOOR.w));
-    draw(hud, ownStatus({ dazzledMsLeft: 2000 }));
-    expect(hud.tellPosition(1)).toEqual(slowedOnly);
-    draw(hud, ownStatus({ slowedMsLeft: 2000, dazzledMsLeft: 2000 }));
-    expect(hud.tellPosition(0)).toEqual(slowedOnly);
-    expect(hud.tellPosition(1)?.y).toBe((slowedOnly?.y ?? 0) + V.tellGap);
+    expect(hud.tellPosition(0)).toEqual(tellAnchor(FLOOR.w));
   });
 
   it('keeps the tells through the SINKING window and clears them on a dead hull', () => {
     const hud = new Hud(new Container());
     draw(hud, ownStatus({ alive: false, sinking: true, slowedMsLeft: 2000 }));
     expect(hud.tellText(0)).toBe('SLOWED 2s'); // still conning, still fouled
-    draw(hud, ownStatus({ slowedMsLeft: 2000, dazzledMsLeft: 2000 }));
-    draw(hud, ownStatus()); // both expired
-    expect([hud.tellText(0), hud.tellText(1)]).toEqual(['', '']);
+    draw(hud, ownStatus({ slowedMsLeft: 2000 }));
+    draw(hud, ownStatus()); // expired
+    expect(hud.tellText(0)).toBe('');
     draw(hud, ownStatus({ alive: false, slowedMsLeft: 5000 })); // a sunk hull is not fouled
     expect(hud.tellText(0)).toBe('');
   });
 
   it('drops the tells on a spectate frame (they die with the hull)', () => {
     const hud = new Hud(new Container());
-    draw(hud, ownStatus({ dazzledMsLeft: 5000 }));
+    draw(hud, ownStatus({ slowedMsLeft: 5000 }));
     hud.updateSpectate(QUIET, MATCH, FLOOR.w, FLOOR.h, 'SPECTATING', 0);
-    expect(hud.tellText(1)).toBe('');
+    expect(hud.tellText(0)).toBe('');
   });
 
   it('shows IN STORM at its anchor, and drops it when the hull is clear or spectating', () => {

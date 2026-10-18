@@ -39,7 +39,7 @@ import {
   type SunkEvent,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import type { GameState } from '../state.js';
+import type { GameState, HeldCloud } from '../state.js';
 import type { Predictor } from '../sim/prediction.js';
 import { conningFlag, isSinkingNow } from '../sim/sinkingWindow.js';
 import type { Connection } from './connection.js';
@@ -52,13 +52,13 @@ import type { Effects } from '../render/effects.js';
 import type { Radar } from '../render/radar.js';
 import type { Smoke } from '../render/smoke.js';
 import type { Fire } from '../render/fire.js';
-import type { ChaffGhosts } from '../render/chaffGhosts.js';
 import { bearingTo, bandGain, type Foghorn } from '../render/foghorn.js';
 import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
 import type { BurnZones } from '../render/burnZones.js';
+import type { FoulZones } from '../render/foulZones.js';
 import type { Decoys } from '../render/decoys.js';
-import type { SmokeScreen } from '../render/smokeScreen.js';
+import type { Countermeasure } from '../render/countermeasure.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { bountyKillLine } from '../ui/bounty.js';
 import { fleetSizeName, killLine, pinDroneColor, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
@@ -105,10 +105,6 @@ export interface RoomBindingDeps {
   /** ON FIRE (render/fire.ts, cycle 162) — flame tongues fanned out of the
    *  SAME `sm` pulse beside `smoke`; only tier 2 (hull under 25 %) spawns. */
   fire: Fire;
-  /** THE CHAFF OWNER'S GHOSTS (render/chaffGhosts.ts, cycle 162) — fed from
-   *  the self-private `you.chaffGhosts` at the frame's server time; never an
-   *  `events` blip, so the scope's `radar` never receives one. */
-  chaffGhosts: ChaffGhosts;
   /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
    *  visual twin, accumulated from `fh` exactly as plumes are from `sm`. */
   foghorn: Foghorn;
@@ -127,13 +123,16 @@ export interface RoomBindingDeps {
   /** PHOSPHOR SHELLS burning zones (render/burnZones.ts, Story 8.17) — synced
    *  contact-like from FrameMsg.burnZones every tick, exactly like litZones. */
   burnZones: BurnZones;
+  /** FOULING SHELL foul zones (render/foulZones.ts, Story 9.4) — synced
+   *  contact-like from FrameMsg.foulZones every tick, exactly like burnZones. */
+  foulZones: FoulZones;
   /** DECOY BUOY markers (render/decoys.ts, Story 8.16) — synced contact-like
    *  from FrameMsg.decoys every tick, exactly like mines/litZones. */
   decoys: Decoys;
-  /** SMOKE SCREEN puffs (render/smokeScreen.ts, Story 8.18) — synced
-   *  contact-like from FrameMsg.smoke every tick, exactly like burnZones. NOT
-   *  `smoke` above (that is WOUNDED smoke, an event-built plume). */
-  smokeScreen: SmokeScreen;
+  /** MULTI-SPECTRAL COUNTERMEASURE clouds (render/countermeasure.ts, Story
+   *  9.3) — synced contact-like from FrameMsg.clouds every tick, exactly like
+   *  burnZones. NOT `smoke` above (that is WOUNDED smoke, an event-built plume). */
+  countermeasure: Countermeasure;
   /** Screen-shake driver (render/shake.ts) — triggered on own-ship damage. */
   shake: ShakeDriver;
   /** Tone player (audio/context.ts) — a minimal play-only surface here. The
@@ -371,8 +370,6 @@ interface BindState {
    *  status change into a machine-gun. The falling edge is silent — the line
    *  simply disappears, which is the whole visual twin doing its job. */
   slowed: boolean;
-  /** ...and the same for the DAZZLE window. */
-  dazzled: boolean;
   /**
    * Server time (ms) of the last frame on which the own hull stood inside SOME
    * enemy incendiary zone — the burn classifier's memory (see readsAsBurn).
@@ -581,7 +578,6 @@ function freshBindState(): BindState {
   return {
     pendingSnap: false,
     slowed: false,
-    dazzled: false,
     burningAt: -Infinity,
     impacts: new ImpactDedup(),
     hitCallTone: hitCallToneFloor(),
@@ -746,7 +742,6 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });
     if (deps.state.mode === 'predict') deps.predictor.onServerState(f.you, f.ackSeq);
     deps.radar.onSweepSample(f.you.sweep, f.t); // authoritative sweep anchor
-    routeChaffGhosts(f.you, f.t, deps);
     // First authoritative pose after a reconnect: snap the camera to the resumed
     // hull (completes the handleSpawn mirror), consuming the one-shot flag.
     if (s.pendingSnap) {
@@ -763,53 +758,72 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
 }
 
 /**
- * THE CHAFF OWNER'S GHOSTS (cycle 162, Eric 2026-10-01): the self-private
- * `you.chaffGhosts` — this hull's OWN fakes its beam painted this tick — go to
- * their own grey renderer at the frame's server time, and NEVER to the scope
- * (`radar.onBlip`): the scope's three colors and its identity-free blips stay
- * exactly what every other observer gets. Omitted on the wire when nothing was
- * painted, so an absent key routes nothing.
- */
-function routeChaffGhosts(you: OwnShip, t: number, deps: RoomBindingDeps): void {
-  if (you.chaffGhosts !== undefined) deps.chaffGhosts.onGhosts(you.chaffGhosts, t);
-}
-
-/**
  * The CONTACT-LIKE reconciles — mines, lit zones, burning zones, decoys, smoke
  * puffs — and the zone + puff mirrors into state. Split out of handleFrame when Story 8.17's
  * burning-zone channel joined them; the order and every line are unchanged.
  */
 function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   const net = deps.state.net;
-  // Contact-like reconciles. Story 1.12: the marker tint is the FIRER's personal
-  // hue (MineView/DecoyView/LitZoneView `by` → deps.ordnanceHue), the same hue for
-  // every observer; the own/enemy discriminator (`own`) now only drives the fog
-  // layer + brightness inside each renderer.
+  // Contact-like reconciles. Story 9.11 (epic-9 amendments 152–153): mines and
+  // the three zone kinds are ALERTS — own white, anybody else's the shared
+  // yellow↔orange blend — so they take no hue lookup: a mine's own/enemy is
+  // `MineView.own` from the server, a zone's is `by === sessionId` (undefined
+  // for a spectator → nobody's). Decoys keep the FIRER's personal hue (Story
+  // 1.12, `by` → deps.ordnanceHue).
   // Own mines carry their owner-private radius rings (always-on, our stats,
   // THE FRAME's clock); enemy mines get exactly the marker they always got.
   // f.t — not a local clock reading: the arming dim measures a server-side
   // window, so both ends of it have to come off the server's own timestamps.
-  deps.mines.sync(f.mines, deps.ordnanceHue, deps.ownMineRings(f.t));
+  deps.mines.sync(f.mines, deps.ownMineRings(f.t));
+  const ownId = net.sessionId;
   // Star-shell lit zones, same reconcile. Frames OMIT the key when the observer
   // sees no zones, so treat a missing key as an empty list.
   const litZones = f.litZones ?? [];
-  deps.litZones.sync(litZones, deps.ordnanceHue);
+  deps.litZones.sync(litZones, ownId);
   // PHOSPHOR burning zones (Story 8.17), same reconcile, same omitted-key rule.
   const burnZones = f.burnZones ?? [];
-  deps.burnZones.sync(burnZones, deps.ordnanceHue);
+  deps.burnZones.sync(burnZones, ownId);
+  // FOULING SHELL foul zones (Story 9.4), same reconcile, same omitted-key rule.
+  const foulZones = f.foulZones ?? [];
+  deps.foulZones.sync(foulZones, ownId);
   // Decoy buoys (Story 8.16), same reconcile. Frames OMIT the key when the
   // observer sees no decoys, so treat a missing key as an empty list.
   const decoys = f.decoys ?? [];
   deps.decoys.sync(decoys, deps.ordnanceHue);
-  // SMOKE SCREEN puffs (Story 8.18), same reconcile, same omitted-key rule.
-  const smoke = f.smoke ?? [];
-  deps.smokeScreen.sync(smoke);
+  // COUNTERMEASURE clouds (Story 9.3): NOT the same reconcile — the frame's
+  // clouds MERGE into the held set (amendment 51: a cloud once seen is held
+  // until it dies — delivery is per-sweep, Eric 2026-10-12: "If it's detected
+  // by my radar, I want my radar to paint it"; nothing new is disclosed by
+  // holding what was already sent, a cloud being stationary and fully derived
+  // from {id,x,y,t0}), and the held, unexpired list is what the renderer
+  // sees (a held cloud's sprite then outlives the list until its paint fades —
+  // render/countermeasure.ts). The held set lives on `net` (state.ts) so the
+  // match-start edge in main.ts can clear it with the renderer.
+  const clouds = holdClouds(f, (net.heldClouds ??= new Map()));
+  deps.countermeasure.sync(clouds);
   // Mirror the raw list into state (net → state → render): the render loop
   // derives the own ACTIVE zones from it to keep beyond-sight shells alive
   // (projectiles) and clear the own fog over them (fog).
   net.litZones = litZones;
   net.burnZones = burnZones; // the burn classifier's zone list (trackBurning)
-  net.smoke = smoke; // the wake mirror's occluder list (render/wake.ts)
+  net.foulZones = foulZones;
+  net.clouds = clouds; // the HELD list (the match-start edge clears it)
+}
+
+/**
+ * Merge this frame's clouds into the held set and drop every held cloud whose
+ * life has ended on the FRAME's server time (never a local clock reading).
+ * A cloud is stationary, so a re-delivery only refreshes the same record —
+ * and STAMPS it `deliveredAt` = the frame's server time: the radar's return
+ * source paints a held cloud only while that delivery is fresh (Story 9.8
+ * review gate F1, render/cloudReturnGate.ts — ruling 123, the delivery rolls
+ * per revolution). Returns the held, unexpired list (Map-insertion order =
+ * first-seen order).
+ */
+function holdClouds(f: FrameMsg, held: Map<string, HeldCloud>): HeldCloud[] {
+  for (const c of f.clouds ?? []) held.set(c.id, { ...c, deliveredAt: f.t });
+  for (const [id, c] of held) if (f.t - c.t0 >= CONFIG.countermeasure.lifeMs) held.delete(id);
+  return [...held.values()];
 }
 
 /**
@@ -831,7 +845,7 @@ function trackBurning(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
 }
 
 /**
- * Pure: is a victim window (`slowedUntil` / `dazzledUntil`) running at server
+ * Pure: is a victim window (`slowedUntil` / `fouledUntil`) running at server
  * time `t`? An absent field is a window that never started. Measured against
  * the FRAME's own `t` — exact server time, not the local clock estimate — so
  * the edge cannot chatter on clock jitter around the expiry instant.
@@ -841,22 +855,22 @@ export function windowRunning(until: number | undefined, t: number): boolean {
 }
 
 /**
- * The victim tells (Story 2.9): SLOWED and DAZZLED each fire their cue on the
- * RISING edge of their window and nothing on the falling one. The visual twin
- * is the HUD status line the same fields drive (render/hud.ts drawTells) —
- * plus, for dazzle, the sight hole already shrinking (render/fog.ts) — so the
- * information is on screen whether or not the sound is.
+ * The victim tell (Story 2.9): SLOWED fires its cue on the RISING edge of the
+ * slow window and nothing on the falling one. The visual twin is the HUD status
+ * line the same fields drive (render/hud.ts drawTells), so the information is
+ * on screen whether or not the sound is.
  *
- * Both fields are victim-private on `you`: nobody else's affliction ever
- * reaches this client, and a spectator frame (no `you`) simply clears both.
+ * Since Story 9.4 the window is the LATER of the two slow sources — the
+ * fouling mine's `slowedUntil` and the FOULING SHELL zone's `fouledUntil`
+ * (the SLOWED tell covers both; no new copy) — so a captain moving from one
+ * source into the other hears one cue, not two. Both fields are victim-private
+ * on `you`: nobody else's affliction ever reaches this client, and a spectator
+ * frame (no `you`) simply clears it.
  */
 function routeVictimTells(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
-  const slowed = windowRunning(f.you?.slowedUntil, f.t);
-  const dazzled = windowRunning(f.you?.dazzledUntil, f.t);
+  const slowed = windowRunning(f.you?.slowedUntil, f.t) || windowRunning(f.you?.fouledUntil, f.t);
   if (slowed && !s.slowed) deps.audio.play('slowed');
-  if (dazzled && !s.dazzled) deps.audio.play('dazzled');
   s.slowed = slowed;
-  s.dazzled = dazzled;
 }
 
 /** Self-private denied presses (Story 1.10): frames OMIT the key when none,
@@ -989,8 +1003,9 @@ function handlePulseEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: B
  *     server-known position, so the bearing is derived here from the camera
  *     centre and FIXED AT RECEIPT (see bearingTo): a bearing re-derived per
  *     frame would swing as the spectator panned.
- *   • `b`/`v` — a fogged listener. Bearing and volume BAND (which eighth of our
- *     own intel range the honker sits in, server-resolved — amendment 122), and
+ *   • `b`/`v` — a fogged listener. Bearing and volume BAND (which twelfth of our
+ *     own intel range the honker sits in, server-resolved — amendment 122,
+ *     twelve bands since Story 9.8 ruling 129), and
  *     nothing else on the whole row (no x, no y, no id, no correlation handle
  *     of any kind).
  *
@@ -1170,7 +1185,7 @@ function worldTone(
 function placeCue(pos: { x: number; y: number } | null, deps: RoomBindingDeps, t: number): WorldCue {
   if (!pos) return unplacedCue();
   const ear = listenerPos(deps, t);
-  // CONFIG.vision.radar — the eighths ladder's 8/8 rung (full intel range) — is
+  // CONFIG.vision.radar — the twelfths ladder's 12/12 rung (full intel range) — is
   // the falloff scale for EVERY world cue, read from shared CONFIG rather than
   // mirrored into a client tunable. Per-cue rungs were considered and rejected:
   // they would re-derive the server's own disclosure decision (audio/tones.ts).
@@ -1511,14 +1526,14 @@ function shellClaim(e: BallisticEvent, deps: RoomBindingDeps): OwnFire {
 
 /** The click-latched weapons whose round rides the `shell` wire kind: the gun,
  *  the broadside, the flak gun, the star shell, and (Story 8.17) PHOSPHOR
- *  SHELLS and the FLASH SHELLS consumable. */
+ *  SHELLS and (Story 9.4) the FOULING SHELL consumable. */
 const SHELL_CLAIMS: ReadonlySet<OwnFire> = new Set<OwnFire>([
   'gun',
   'broadside',
   'starShells',
   'flak',
   'phosphorShells',
-  'dazzleShells',
+  'foulingShell',
 ]);
 
 /**
@@ -1545,12 +1560,12 @@ function ownShellWeapon(e: BallisticEvent, claim: OwnFire): OwnFire {
 
 /** Pure: the own-fire cue a claimed shell weapon reports with. The star shell
  *  earns its own launch report (Story 2.9: every fitted line is felt), and
- *  PHOSPHOR / FLASH SHELLS (Story 8.17) report through the same launch cue
- *  (audio/tones FIRE_TONE); anything the claim could not name falls to the gun
- *  crack. */
-function shellFireId(own: OwnFire): 'gun' | 'broadside' | 'starShells' | 'phosphorShells' | 'dazzleShells' {
+ *  PHOSPHOR SHELLS (Story 8.17) and the FOULING SHELL (Story 9.4) report through
+ *  the same launch cue (audio/tones FIRE_TONE); anything the claim could not
+ *  name falls to the gun crack. */
+function shellFireId(own: OwnFire): 'gun' | 'broadside' | 'starShells' | 'phosphorShells' | 'foulingShell' {
   if (own === 'broadside' || own === 'starShells') return own;
-  if (own === 'phosphorShells' || own === 'dazzleShells') return own;
+  if (own === 'phosphorShells' || own === 'foulingShell') return own;
   return 'gun';
 }
 
@@ -2177,6 +2192,13 @@ function sunkCue(
  * The zone list is the one the client already holds (net → state, mirrored in
  * handleFrame) — no new wire data, and no way to mistake our OWN flare for a
  * hazard (`by !== self`; you cannot burn yourself).
+ *
+ * STORY 9.5 — CONTACT BLEED (amendments 79 + 83). While the own hull bleeds
+ * against a hull or the coast (`state.contactBleeding`, stamped by main.ts
+ * from the predictor), an own `dmg` under `contactFx.bleedThudMaxHp` is the
+ * server's windowed grind and is SKIPPED: no thud, no shake — the grind tone
+ * is the cue. Only the events that still count are summed; if none count, no
+ * cue. A big `dmg` during a scrape (a ram hit, a shell) still slams.
  */
 function flushDamage(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   const selfId = deps.state.net.sessionId;
@@ -2184,8 +2206,10 @@ function flushDamage(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   let total = 0;
   let hit = false;
   let allBurn = true;
+  const bleeding = deps.state.contactBleeding;
   for (const e of f.events) {
     if (e.k !== 'dmg' || e.id !== selfId) continue;
+    if (bleeding && e.amount < CLIENT_CONFIG.contactFx.bleedThudMaxHp) continue; // the grind is the cue
     hit = true;
     total += e.amount;
     if (!readsAsBurn(e.amount, since)) allBurn = false;

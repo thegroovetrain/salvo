@@ -90,8 +90,9 @@ function setup() {
     ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
+    foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
-    smokeScreen: { sync: vi.fn() },
+    countermeasure: { sync: vi.fn() },
     onOwnStats: vi.fn(),
     onOwnSpawn,
     onDrop,
@@ -176,8 +177,9 @@ function setupChannels(over: Partial<RoomBindingDeps> = {}) {
     ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
+    foulZones: { sync: vi.fn() },
     decoys: { sync: decoysSync },
-    smokeScreen: { sync: vi.fn() },
+    countermeasure: { sync: vi.fn() },
     colors: vi.fn(() => null),
     ordnanceHue: vi.fn(() => 0),
     ...over,
@@ -213,25 +215,74 @@ describe('bindRoom decoy channel (Story 8.16)', () => {
   });
 });
 
-describe('bindRoom SMOKE SCREEN channel (Story 8.18)', () => {
-  // FrameMsg.smoke (SmokeView {id,x,y,t0}) is contact-like state, reconciled
-  // every frame like burnZones/decoys, and mirrored into state.net.smoke for the
-  // wake mirror (render/wake.ts). No hue: a puff says nothing about whose it is.
-  it('hands a present smoke list to the renderer and mirrors it into state', () => {
-    const smokeSync = vi.fn();
-    const { sink, deps } = setupChannels({ smokeScreen: { sync: smokeSync } as never });
-    const smoke = [{ id: 'sk1', x: 10, y: 20, t0: 90 }];
-    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], smoke });
-    expect(smokeSync).toHaveBeenCalledWith(smoke);
-    expect(deps.state.net.smoke).toEqual(smoke);
+describe('bindRoom COUNTERMEASURE cloud channel (Story 9.3)', () => {
+  // FrameMsg.clouds (CloudView {id,x,y,t0}) is contact-like state, but NOT
+  // reconciled by absence (epic-9 amendment 51): delivery is per-sweep, so a
+  // cloud once seen is HELD until it dies (frame time − t0 ≥ lifeMs), and the
+  // held list is what the renderer and state.net.clouds (the wake mirror's
+  // occluder list, render/wake.ts) see. No hue: a cloud says nothing about
+  // whose it is.
+  it('hands a present cloud list to the renderer and mirrors it into state', () => {
+    const cloudSync = vi.fn();
+    const { sink, deps } = setupChannels({ countermeasure: { sync: cloudSync } as never });
+    const clouds = [{ id: 'cl1', x: 10, y: 20, t0: 90 }];
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds });
+    // Held with its delivery stamp (the frame's server time — Story 9.8 F1).
+    const held = [{ ...clouds[0], deliveredAt: 100 }];
+    expect(cloudSync).toHaveBeenCalledWith(held);
+    expect(deps.state.net.clouds).toEqual(held);
   });
 
-  it('treats an omitted smoke key as an empty list (frames omit it when none)', () => {
-    const smokeSync = vi.fn();
-    const { sink, deps } = setupChannels({ smokeScreen: { sync: smokeSync } as never });
+  it('treats an omitted clouds key as an empty list (frames omit it when none)', () => {
+    const cloudSync = vi.fn();
+    const { sink, deps } = setupChannels({ countermeasure: { sync: cloudSync } as never });
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
-    expect(smokeSync).toHaveBeenCalledWith([]);
-    expect(deps.state.net.smoke).toEqual([]);
+    expect(cloudSync).toHaveBeenCalledWith([]);
+    expect(deps.state.net.clouds).toEqual([]);
+  });
+
+  it('HOLDS a cloud present in frame N and absent in frame N+1 — the renderer and the wake mirror still see it — until its life ends', () => {
+    const cloudSync = vi.fn();
+    const { sink, deps } = setupChannels({ countermeasure: { sync: cloudSync } as never });
+    const c = { id: 'cl1', x: 10, y: 20, t0: 90 };
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [c] });
+    sink.handler({ t: 150, tick: 2, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
+    const held = { ...c, deliveredAt: 100 };
+    expect(cloudSync).toHaveBeenLastCalledWith([held]);
+    expect(deps.state.net.clouds).toEqual([held]); // the wake mirror reads the held cloud
+    const LIFE = CONFIG.countermeasure.lifeMs;
+    sink.handler({ t: 90 + LIFE - 1, tick: 3, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
+    expect(deps.state.net.clouds).toEqual([held]);
+    sink.handler({ t: 90 + LIFE, tick: 4, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
+    expect(cloudSync).toHaveBeenLastCalledWith([]);
+    expect(deps.state.net.clouds).toEqual([]);
+  });
+
+  it('a re-delivered held cloud is held once, and a second cloud joins it in first-seen order', () => {
+    const cloudSync = vi.fn();
+    const { sink, deps } = setupChannels({ countermeasure: { sync: cloudSync } as never });
+    const a = { id: 'a', x: 0, y: 0, t0: 90 };
+    const b = { id: 'b', x: 5, y: 5, t0: 120 };
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [a] });
+    sink.handler({ t: 150, tick: 2, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [b, a] });
+    expect(deps.state.net.clouds).toEqual([{ ...a, deliveredAt: 150 }, { ...b, deliveredAt: 150 }]);
+  });
+
+  // F1 (Story 9.8 review gate): the radar return gates on WHEN a held cloud's
+  // row last arrived, so every frame carrying the row re-stamps it with the
+  // frame's server time, and a frame without it leaves the stamp alone.
+  it('stamps a held cloud deliveredAt = the frame time of its LAST row; an absent row keeps the old stamp', () => {
+    const cloudSync = vi.fn();
+    const { sink, deps } = setupChannels({ countermeasure: { sync: cloudSync } as never });
+    const c = { id: 'cl1', x: 10, y: 20, t0: 90 };
+    const at = (): number | undefined => deps.state.net.heldClouds.get('cl1')?.deliveredAt;
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [c] });
+    expect(at()).toBe(100);
+    sink.handler({ t: 150, tick: 2, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
+    expect(at()).toBe(100);
+    sink.handler({ t: 4100, tick: 3, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], clouds: [c] });
+    expect(at()).toBe(4100);
+    expect(cloudSync).toHaveBeenLastCalledWith([{ ...c, deliveredAt: 4100 }]);
   });
 });
 
@@ -263,8 +314,9 @@ function setupEvents(over: Record<string, unknown> = {}) {
     ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
+    foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
-    smokeScreen: { sync: vi.fn() },
+    countermeasure: { sync: vi.fn() },
     projectiles: {
       onBurst: over.onBurst ?? onBurst,
       onBoom,
@@ -365,8 +417,9 @@ describe('bindRoom own sunk', () => {
       ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
+    foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
-    smokeScreen: { sync: vi.fn() },
+    countermeasure: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
       audio: { play: vi.fn() },
       names: (id: string) => id,
@@ -415,8 +468,9 @@ describe('bindRoom own sunk', () => {
       ownMineRings: () => undefined,
       litZones: { sync: vi.fn() },
       burnZones: { sync: vi.fn() },
+      foulZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
-      smokeScreen: { sync: vi.fn() },
+      countermeasure: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
       audio: { play: vi.fn() },
       names: (id: string) => id,
@@ -479,8 +533,9 @@ describe('bindRoom own sunk — the respawn ETA', () => {
       ownMineRings: () => undefined,
       litZones: { sync: vi.fn() },
       burnZones: { sync: vi.fn() },
+      foulZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
-      smokeScreen: { sync: vi.fn() },
+      countermeasure: { sync: vi.fn() },
       effects: { spawnEffect },
       audio: { play: vi.fn() },
       names: (id: string) => id,
@@ -582,8 +637,9 @@ describe('bindRoom own spawn resets the honk cooldown', () => {
       ownMineRings: () => undefined,
       litZones: { sync: vi.fn() },
       burnZones: { sync: vi.fn() },
+      foulZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
-      smokeScreen: { sync: vi.fn() },
+      countermeasure: { sync: vi.fn() },
       resetThrottle,
       respawnArmed: () => true, // the ready-room shape: the server DID arm a respawn
       resetHonkCooldown,
@@ -678,8 +734,9 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
       ownMineRings: () => undefined,
       litZones: { sync: vi.fn() },
       burnZones: { sync: vi.fn() },
+      foulZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
-      smokeScreen: { sync: vi.fn() },
+      countermeasure: { sync: vi.fn() },
       effects: { spawnEffect },
       audio: { play },
       // Story 4.7: this harness spectates (`you` is null), so the witnessed
@@ -1153,8 +1210,9 @@ function setupToasts(spectating = false, held = false) {
     ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
+    foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
-    smokeScreen: { sync: vi.fn() },
+    countermeasure: { sync: vi.fn() },
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
     predictor: { onServerState: vi.fn(), forceSnap: vi.fn() },
     radar: { onSweepSample: vi.fn(), onBlip: vi.fn() },
@@ -1408,14 +1466,14 @@ describe('bindRoom drone-drop receipt (`dp`)', () => {
   it('one toast line per drop (three drops in one frame = three lines)', () => {
     document.body.replaceChildren();
     const { sink } = setupToasts();
-    const frame = rewardFrame(null, { alive: true, cards: ['chaff', 'chaff', 'decoyBuoy'] }) as { events: unknown[] };
+    const frame = rewardFrame(null, { alive: true, cards: ['countermeasure', 'countermeasure', 'decoyBuoy'] }) as { events: unknown[] };
     frame.events = [
-      { k: 'dp', id: 'me', boon: 'chaff' },
-      { k: 'dp', id: 'me', boon: 'chaff' },
+      { k: 'dp', id: 'me', boon: 'countermeasure' },
+      { k: 'dp', id: 'me', boon: 'countermeasure' },
       { k: 'dp', id: 'me', boon: 'decoyBuoy' },
     ];
     sink.handler(frame);
-    expect([...toastLines()].sort()).toEqual(['◆ CHAFF STOCKED', '◆ CHAFF STOCKED', '◆ DECOY BUOY STOCKED']);
+    expect([...toastLines()].sort()).toEqual(['◆ DECOY BUOY STOCKED', '◆ MULTI-SPECTRAL CM STOCKED', '◆ MULTI-SPECTRAL CM STOCKED']);
   });
 
   it('a captain sunk LATER IN THE SAME TICK still gets the receipt (the copy is stocked; the frame reads dead)', () => {
@@ -1424,17 +1482,17 @@ describe('bindRoom drone-drop receipt (`dp`)', () => {
     // the end-of-tick frame carries `alive: false` AND a legitimate `dp`.
     document.body.replaceChildren();
     const { sink, play, onBoonFitted, onSpendAck } = setupToasts();
-    sink.handler(rewardFrame({ k: 'dp', id: 'me', boon: 'chaff' }, { alive: false, cards: ['chaff'] }));
-    expect(toastLines()).toEqual(['◆ CHAFF STOCKED']);
+    sink.handler(rewardFrame({ k: 'dp', id: 'me', boon: 'countermeasure' }, { alive: false, cards: ['countermeasure'] }));
+    expect(toastLines()).toEqual(['◆ MULTI-SPECTRAL CM STOCKED']);
     expect(play).toHaveBeenCalledWith(fitTone('consumable'), { detune: fitDetune('consumable') });
-    expect(onBoonFitted).toHaveBeenCalledWith('chaff');
+    expect(onBoonFitted).toHaveBeenCalledWith('countermeasure');
     expect(onSpendAck).not.toHaveBeenCalled();
   });
 
   it('a SPECTATING frame (no `you`) gets nothing — no toast, no tone, no flash', () => {
     document.body.replaceChildren();
     const { sink, play, onBoonFitted, onSpendAck } = setupToasts(true);
-    sink.handler(rewardFrame({ k: 'dp', id: 'me', boon: 'chaff' }, null));
+    sink.handler(rewardFrame({ k: 'dp', id: 'me', boon: 'countermeasure' }, null));
     expect(toastLines()).toEqual([]);
     expect(play).not.toHaveBeenCalled();
     expect(onBoonFitted).not.toHaveBeenCalled();
@@ -1444,7 +1502,7 @@ describe('bindRoom drone-drop receipt (`dp`)', () => {
   it("another player's `dp` is ignored", () => {
     document.body.replaceChildren();
     const { sink, play, onBoonFitted, onSpendAck } = setupToasts();
-    sink.handler(rewardFrame({ k: 'dp', id: 'someone-else', boon: 'chaff' }, { alive: true, cards: [] }));
+    sink.handler(rewardFrame({ k: 'dp', id: 'someone-else', boon: 'countermeasure' }, { alive: true, cards: [] }));
     expect(toastLines()).toEqual([]);
     expect(play).not.toHaveBeenCalled();
     expect(onBoonFitted).not.toHaveBeenCalled();
@@ -1506,7 +1564,7 @@ function setupWater(
   const knownIds = new Set<string>();
   const deps = {
     state: {
-      net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0, litZones: [], burnZones: [] },
+      net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0, litZones: [], burnZones: [], foulZones: [], clouds: [], heldClouds: new Map() },
       spectating: false, phase: '', respawnEta: null, mode: 'interp',
     },
     clock: { addSample: vi.fn() },
@@ -1523,10 +1581,9 @@ function setupWater(
     ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
+    foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
-    smokeScreen: { sync: vi.fn() },
-    // Cycle 162: the chaff owner's grey ghosts (render/chaffGhosts.ts).
-    chaffGhosts: { onGhosts: vi.fn() },
+    countermeasure: { sync: vi.fn() },
     projectiles: {
       onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn(),
       ownFireOf: () => null, isKnown: (id: string) => knownIds.has(id),
@@ -1564,11 +1621,11 @@ describe('own-fire correlation (Story 2.9) — telling our broadside from our gu
     expect(play).toHaveBeenCalledWith('fireBroadside'); // the heavier report, finally played
   });
 
-  // STORY 8.17: PHOSPHOR SHELLS and the FLASH SHELLS consumable each fire one
-  // shell on the `shell` kind — a genuine claim (it sizes the own burst ring)
-  // that reports with the star shell's launch cue, and no heavy muzzle.
-  it('an OWN phosphor or flash shell is claimed, and reports with the flare cue', () => {
-    for (const id of ['phosphorShells', 'dazzleShells'] as const) {
+  // STORY 8.17 / 9.4: PHOSPHOR SHELLS and the FOULING SHELL consumable each
+  // fire one shell on the `shell` kind — a genuine claim (it sizes the own burst
+  // ring) that reports with the star shell's launch cue, and no heavy muzzle.
+  it('an OWN phosphor or fouling shell is claimed, and reports with the flare cue', () => {
+    for (const id of ['phosphorShells', 'foulingShell'] as const) {
       const { sink, play, spawnEffect, onShell } = setupWater(id);
       sink.handler(victimFrame([{ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 }], {}));
       expect(onShell, id).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), id, id);
@@ -1776,7 +1833,7 @@ describe('boom identity — spark on a hit, splash on a miss', () => {
 // --- STORY 4.3: THE GUNNERY CONVERSATION ---------------------------------------
 //
 // Three server rows replace three client-side guesses. `mz` says a gun-family
-// weapon fired HERE (for anyone in the 412.5u halo, and deliberately anonymous),
+// weapon fired HERE (for anyone in the muzzle-flash halo, and deliberately anonymous),
 // `sp` is our own fall of shot through any fog, `hc` is "something you fired
 // connected" with no severity of any kind. The two impact rows CLAIM their
 // point, so a shooter who can see their own impact draws one mark, not two.
@@ -2099,6 +2156,44 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     expect(trigger).toHaveBeenCalledWith(35);
   });
 
+  // Story 9.5 (amendments 79 + 83): while the own hull bleeds against a hull
+  // or the coast, the server's small windowed grind `dmg` is carried by the
+  // grind tone — no thud, no shake. A big `dmg` (a ram hit, a shell) still
+  // slams; with the flag clear a small `dmg` thuds as ever.
+  it('CONTACT BLEED: a small dmg while bleeding plays nothing; a big one still slams', () => {
+    const { sink, play, trigger, deps } = setupWater();
+    deps.state.contactBleeding = true;
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 3 }], {}));
+    expect(play).not.toHaveBeenCalled();
+    expect(trigger).not.toHaveBeenCalled();
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 60 }], {}));
+    expect(play).toHaveBeenCalledWith('damage');
+    expect(trigger).toHaveBeenCalledWith(60);
+  });
+
+  it('CONTACT BLEED: a big dmg beside a bleed sums only the events that count', () => {
+    const { sink, trigger, deps } = setupWater();
+    deps.state.contactBleeding = true;
+    sink.handler(
+      victimFrame(
+        [
+          { k: 'dmg', id: 'me', amount: 3 },
+          { k: 'dmg', id: 'me', amount: 60 },
+        ],
+        {},
+      ),
+    );
+    expect(trigger).toHaveBeenCalledWith(60);
+  });
+
+  it('CONTACT BLEED: with the flag clear a 3-hp dmg thuds as today', () => {
+    const { sink, play, trigger, deps } = setupWater();
+    deps.state.contactBleeding = false;
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 3 }], {}));
+    expect(play).toHaveBeenCalledWith('damage');
+    expect(trigger).toHaveBeenCalledWith(3);
+  });
+
   it('a lone DoT flush still reads as BURN', () => {
     const { sink, play, trigger } = setupWater();
     sink.handler(victimFrame(dmg, {}, { burnZones: burning('foe') }));
@@ -2146,48 +2241,26 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
   });
 });
 
-// STORY 8.18 (amendment 149): the self-private `you.inSmoke` rides the own-ship
-// mirror VERBATIM — main.ts `inSmokeActive` reads it off `state.net.you` to
-// shrink fog, radar seam and projectile cull through the shared
-// `effectiveSight`. No cue and no tell ride it (Eric asked for none).
-describe('the in-smoke own-ship read (Story 8.18)', () => {
-  it('mirrors you.inSmoke onto state.net.you, and drops it when the server omits it', () => {
-    const { sink, play, deps } = setupWater();
-    const you = (): { inSmoke?: true } | null => (deps.state.net as { you: { inSmoke?: true } | null }).you;
+describe('the FOULING SHELL foul-zone channel (Story 9.4) — the burnZones twin', () => {
+  const zone = { id: 'fz1', x: 10, y: 20, r: 150, until: 16_000, by: 'foe' };
+
+  it('adopts FrameMsg.foulZones into the renderer and mirrors it on state.net', () => {
+    const { sink, deps } = setupWater();
+    sink.handler(victimFrame([], {}, { foulZones: [zone] }));
+    expect(deps.foulZones.sync).toHaveBeenLastCalledWith([zone], 'me'); // own = by === sessionId
+    expect(deps.state.net.foulZones).toEqual([zone]);
+  });
+
+  it('reads an OMITTED key as an empty list (frames omit it when none is visible)', () => {
+    const { sink, deps } = setupWater();
+    sink.handler(victimFrame([], {}, { foulZones: [zone] }));
     sink.handler(victimFrame([], {}));
-    expect(you()?.inSmoke).toBeUndefined();
-    sink.handler(victimFrame([], { inSmoke: true }));
-    expect(you()?.inSmoke).toBe(true);
-    sink.handler(victimFrame([], {})); // stepped out: the key is absent, not false
-    expect(you()?.inSmoke).toBeUndefined();
-    expect(play).not.toHaveBeenCalled(); // no sound, no DAZZLED-style tell
+    expect(deps.foulZones.sync).toHaveBeenLastCalledWith([], 'me');
+    expect(deps.state.net.foulZones).toEqual([]);
   });
 });
 
-// CYCLE 162 (Eric 2026-10-01): the chaff owner's OWN fakes ride the
-// self-private `you.chaffGhosts` and go to their own grey renderer at the
-// frame's server time — NEVER to the scope, whose blips stay identity-free.
-describe('the chaff owner\'s ghosts (cycle 162)', () => {
-  const rect = { gx: 3, gy: -4, w: 2, h: 2, bits: [15] };
-
-  it('routes you.chaffGhosts to the ghost renderer at the FRAME\'s time, and never to the scope', () => {
-    const { sink, deps } = setupWater();
-    sink.handler(victimFrame([], { chaffGhosts: [rect] }));
-    const onGhosts = (deps.chaffGhosts as unknown as { onGhosts: ReturnType<typeof vi.fn> }).onGhosts;
-    expect(onGhosts).toHaveBeenCalledTimes(1);
-    expect(onGhosts).toHaveBeenCalledWith([rect], 1000);
-    expect((deps.radar as unknown as { onBlip: ReturnType<typeof vi.fn> }).onBlip).not.toHaveBeenCalled();
-  });
-
-  it('an omitted key (nothing painted this tick) routes nothing', () => {
-    const { sink, deps } = setupWater();
-    sink.handler(victimFrame([], {}));
-    sink.handler(victimFrame([], null)); // a spectator frame carries no `you` at all
-    expect((deps.chaffGhosts as unknown as { onGhosts: ReturnType<typeof vi.fn> }).onGhosts).not.toHaveBeenCalled();
-  });
-});
-
-describe('victim tells (Story 2.9) — SLOWED / DAZZLED cue edges', () => {
+describe('victim tells (Story 2.9) — SLOWED cue edges, both slow sources (Story 9.4)', () => {
   it('fires each cue ONCE on the rising edge, and never on a refresh', () => {
     const { sink, play } = setupWater();
     sink.handler(victimFrame([], { slowedUntil: 4000 }));
@@ -2200,9 +2273,9 @@ describe('victim tells (Story 2.9) — SLOWED / DAZZLED cue edges', () => {
 
   it('says nothing on the falling edge (the line simply disappears)', () => {
     const { sink, play } = setupWater();
-    sink.handler(victimFrame([], { dazzledUntil: 4000 }));
+    sink.handler(victimFrame([], { fouledUntil: 4000 }));
     play.mockClear();
-    sink.handler(victimFrame([], { dazzledUntil: 0 })); // expired
+    sink.handler(victimFrame([], {})); // expired (the key is omitted)
     expect(play).not.toHaveBeenCalled();
   });
 
@@ -2215,13 +2288,21 @@ describe('victim tells (Story 2.9) — SLOWED / DAZZLED cue edges', () => {
     expect(play).toHaveBeenCalledWith('slowed');
   });
 
-  it('drives the two windows independently, and stays quiet with neither running', () => {
+  it('a FOULING SHELL zone (fouledUntil) rises the same SLOWED cue, and stays quiet with neither running', () => {
     const { sink, play } = setupWater();
     sink.handler(victimFrame([], {}));
     expect(play).not.toHaveBeenCalled();
-    sink.handler(victimFrame([], { slowedUntil: 4000, dazzledUntil: 4000 }));
+    sink.handler(victimFrame([], { fouledUntil: 4000 }));
     expect(play).toHaveBeenCalledWith('slowed');
-    expect(play).toHaveBeenCalledWith('dazzled');
+  });
+
+  it('moving from one slow source into the other is ONE window — no second cue', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([], { slowedUntil: 4000 }));
+    play.mockClear();
+    sink.handler(victimFrame([], { slowedUntil: 4000, fouledUntil: 6000 })); // both
+    sink.handler(victimFrame([], { fouledUntil: 6000 })); // the mine lapsed, the zone holds
+    expect(play).not.toHaveBeenCalled();
   });
 
   it('a spectator frame (no `you`) clears both without a sound', () => {
@@ -2251,7 +2332,7 @@ describe('the fit cue is transposed by KIND (Story 2.9 carry-over, re-keyed in 8
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
     sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reload' }, { alive: true, cards: ['reload'] }));
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'dazzleShells' }, { alive: true, cards: ['dazzleShells'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'foulingShell' }, { alive: true, cards: ['foulingShell'] }));
     const [first, second] = play.mock.calls;
     expect(first[0]).toBe(second[0]); // both light → same tone id
     expect(first[1]).not.toEqual(second[1]); // ...heard as a different event
@@ -2292,8 +2373,9 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
       mines: { sync: vi.fn() },
       litZones: { sync: vi.fn() },
       burnZones: { sync: vi.fn() },
+      foulZones: { sync: vi.fn() },
       decoys: { sync: vi.fn() },
-      smokeScreen: { sync: vi.fn() },
+      countermeasure: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
       radar: { onSweepSample: vi.fn(), onBlip },
@@ -2372,8 +2454,10 @@ describe('the sound map (Story 4.7) — placement, suppression, and the tone flo
 
   it('an ENEMY muzzle flash reports — attenuated, and panned toward the flash', () => {
     const { sink, play } = setupWater();
-    // Own hull at the origin; the flash is well off to starboard.
-    sink.handler(victimFrame([{ k: 'mz', x: 330, y: 0 }], {}));
+    // Own hull at the origin; the flash is well off to starboard, on the 6/12
+    // rung — half the audio reach, which is the full radar range (epic-9
+    // amendment 103).
+    sink.handler(victimFrame([{ k: 'mz', x: (CONFIG.vision.radar * 6) / 12, y: 0 }], {}));
     expect(ids(play)).toEqual(['gunReport']);
     const opts = optsOf(play, 'gunReport');
     expect(opts.pan).toBeCloseTo(0.5 * CLIENT_CONFIG.audio.panMax, 5); // half a reach to starboard
@@ -2383,7 +2467,7 @@ describe('the sound map (Story 4.7) — placement, suppression, and the tone flo
 
   it('...and to PORT the pan flips sign, so the ear is pointed at the mark the eye can find', () => {
     const { sink, play } = setupWater();
-    sink.handler(victimFrame([{ k: 'mz', x: -330, y: 0 }], {}));
+    sink.handler(victimFrame([{ k: 'mz', x: -(CONFIG.vision.radar * 6) / 12, y: 0 }], {}));
     expect(optsOf(play, 'gunReport').pan).toBeLessThan(0);
   });
 
@@ -2821,8 +2905,9 @@ function setupSignals(early: { results: unknown; bound: boolean } = { results: n
     ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     burnZones: { sync: vi.fn() },
+    foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
-    smokeScreen: { sync: vi.fn() },
+    countermeasure: { sync: vi.fn() },
     onOwnStats: vi.fn(),
     onOwnSpawn: vi.fn(),
     audio: { play: vi.fn(), playHorn: vi.fn() },

@@ -34,6 +34,7 @@ import {
   type ShipClassId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../../src/game/world.js';
+import { spawnRingRadii } from '../../src/game/spawn.js';
 import { Match, type MatchEndCause, type MatchHooks, type MatchTimings } from '../../src/game/match.js';
 import { isFleetHull } from '../../src/game/participants.js';
 import { CONTROL_REGISTRY, type CaptainControl, type ControlFactory } from './controls.js';
@@ -230,6 +231,13 @@ export type HarnessEndCause = MatchEndCause | 'unresolved';
 export interface MatchSample {
   index: number;
   seed: number;
+  /** SPAWN-LATTICE READOUT (Epic 9 tuning pass): hulls afloat on the activation
+   *  tick, and how many of them sit OFF every ring radius of the installed
+   *  layout (±SPAWN_LATTICE_TOL u) — i.e. took the validated fallback ladder
+   *  because no coarse slot was island-clear and free. ADDITIVE; absent on a
+   *  sample taken before the match activated. */
+  spawnHulls?: number;
+  spawnOffLattice?: number;
   durationS: number;
   endedBy: HarnessEndCause;
   /** Hull class of the winning captain, or null when there is no winner (an
@@ -259,6 +267,13 @@ export interface MatchSample {
   /** POOL READOUTS (Story 8.20): gun, level-reach slot state, weapon takes and
    *  the live-mine peak. OPTIONAL for the same reason `bots` is. */
   pool?: PoolMatchSample;
+  /** STORY 9.13 MATCH READOUTS (botReadouts.ts MatchReadouts) — the endgame
+   *  stall and the drone grounding. OPTIONAL for the same reason `bots` is;
+   *  present on every bot-lobby sample. */
+  lastTwoS?: number;
+  endgameNoContactMaxS?: number;
+  droneGroundedTicks?: number;
+  droneStormDeaths?: number;
 }
 
 export interface BatchResult {
@@ -508,27 +523,59 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   // slack. Honest but bounded: a full control run fits comfortably; nothing
   // spins forever on a degenerate override (zoneClosedAtMs fails closed to 0).
   const tickCap = Math.ceil((COUNTDOWN_MS + zoneClosedAtMs(CONFIG.zone) + ENDGAME_SLACK_MS) / CONFIG.tick.simDtMs);
+  let spawnDiag: SpawnDiag | undefined;
   for (let tick = 0; tick < tickCap; tick += 1) {
     for (const c of controls) c.tick(world);
     world.step();
     match.update();
+    spawnDiag = noteSpawn(spawnDiag, world, match);
     collector.observe(world, match);
     bots.observe(world, match.activatedAt);
     catalog.observe(world, match.activatedAt !== 0);
     pool.observe(world, match.activatedAt);
-    if (match.phase === 'finished') return withPool(finishSample(index, matchSeed, world, match, collector, captainIds, bots, catalog), pool, world);
+    if (match.phase === 'finished') {
+      return { ...withPool(finishSample(index, matchSeed, world, match, collector, captainIds, bots, catalog), pool, world, bots), ...spawnDiag };
+    }
   }
   if (match.activatedAt === 0) {
     throw new Error(`match ${index} (seed ${matchSeed}) never activated within ${tickCap} ticks`);
   }
-  return withPool(capSample(index, matchSeed, world, match, collector, captainIds, bots, catalog), pool, world);
+  return { ...withPool(capSample(index, matchSeed, world, match, collector, captainIds, bots, catalog), pool, world, bots), ...spawnDiag };
 }
 
-/** Attach the pool readings to a finished sample — only when the lobby has
- *  bots, so a captains-only sample keeps its exact pre-8.20 shape. */
-function withPool(sample: MatchSample, pool: PoolCollector, world: World): MatchSample {
+type SpawnDiag = Pick<MatchSample, 'spawnHulls' | 'spawnOffLattice'>;
+
+/** A hull placed by pickSpawn sits exactly on a ring radius; one activation
+ *  tick of motion moves it under 3 u. Anything further off every ring took
+ *  the fallback ladder (spawn.ts fallbackSpawn). */
+const SPAWN_LATTICE_TOL = 8;
+
+/** Take the readout ONCE, on the first tick the match is live (the hulls have
+ *  just been redeployed onto the lattice); a no-op every tick after. */
+function noteSpawn(prev: SpawnDiag | undefined, world: World, match: Match): SpawnDiag | undefined {
+  if (prev !== undefined || match.activatedAt === 0) return prev;
+  return spawnDiagOf(world);
+}
+
+function spawnDiagOf(world: World): SpawnDiag {
+  const radii = spawnRingRadii(world.map);
+  let spawnHulls = 0;
+  let spawnOffLattice = 0;
+  for (const ship of world.ships.values()) {
+    if (isFleetHull(ship)) continue;
+    spawnHulls += 1;
+    const r = Math.hypot(ship.state.x, ship.state.y);
+    if (!radii.some((ring) => Math.abs(r - ring) <= SPAWN_LATTICE_TOL)) spawnOffLattice += 1;
+  }
+  return { spawnHulls, spawnOffLattice };
+}
+
+/** Attach the pool readings and the Story 9.13 match readouts to a finished
+ *  sample — only when the lobby has bots, so a captains-only sample keeps its
+ *  exact pre-8.20 shape. */
+function withPool(sample: MatchSample, pool: PoolCollector, world: World, bots: BotCollector): MatchSample {
   if (sample.bots === undefined || sample.bots.length === 0) return sample;
-  return { ...sample, pool: pool.result(world) };
+  return { ...sample, pool: pool.result(world), ...bots.matchReadouts() };
 }
 
 /**

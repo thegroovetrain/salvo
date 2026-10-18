@@ -13,14 +13,12 @@ import {
   isAfloat,
   isSunk,
   type FrameMsg,
-  type GhostPaint,
   type MatchPhase,
   type OwnShip,
   type ShipClassId,
 } from '@salvo/shared';
 import { observe, observeSpectator, type PerceptionView } from './perception.js';
 import { slotAmmo } from './equipment/index.js';
-import type { FakeSource } from './fakes.js';
 import type { ShipRecord, World } from './world.js';
 
 /** The own-ship `shield` key (Story 8.16): `{ shield: {hp, until} }` while a
@@ -50,34 +48,7 @@ function ownDraft(ship: ShipRecord): Pick<OwnShip, 'draft'> {
   return ship.draft > 0 ? { draft: ship.draft } : {};
 }
 
-/** The own-ship `chaff` key (Eric 2026-09-30, epic-8 amendment 191):
- *  `{ chaff: {x, y, until} }` — the owner's live CHAFF burst point and the
- *  cloud's expiry — while `now < until`, else an EMPTY object so the spread
- *  leaves the key absent. A re-fire REPLACES the World's source, so the key
- *  simply follows it. The fakes themselves never ride `events` for the owner
- *  (amendment 127's skip); since cycle 162 the owner receives the ones its
- *  own beam painted as `chaffGhosts` (ownChaffGhosts below). */
-function ownChaff(source: FakeSource | undefined, now: number): Pick<OwnShip, 'chaff'> {
-  if (source === undefined || now >= source.until) return {};
-  return { chaff: { x: source.x, y: source.y, until: source.until } };
-}
-
-/** The own-ship `chaffGhosts` key (Eric 2026-10-01, cycle 162, PV 68):
- *  `{ chaffGhosts: GhostPaint[] }` — the coverage rects of the owner's OWN
- *  chaff fakes its beam painted this tick, computed by perception.observe()
- *  (signals.ts ownerChaffGhosts: the same scatter and the same rect shaper
- *  every enemy's blips come from, gated by the owner's beam and the radar
- *  shadow but not the sight annulus) — PRESENT IFF non-empty, else an EMPTY
- *  object so the spread leaves the key absent (never `[]`, never
- *  `undefined`). SELF-PRIVATE BY CONSTRUCTION (the `chaff` / `shield` /
- *  `inSmoke` precedent): rides `you` and NOTHING else — the owner's fakes
- *  never reach `events` and no other observer's frame changes by a byte —
- *  so the perception exception count stays at SIX. */
-function ownChaffGhosts(ghosts: readonly GhostPaint[]): Pick<OwnShip, 'chaffGhosts'> {
-  return ghosts.length > 0 ? { chaffGhosts: [...ghosts] } : {};
-}
-
-function toOwnShip(ship: ShipRecord, now: number, chaff: FakeSource | undefined, ghosts: readonly GhostPaint[]): OwnShip {
+function toOwnShip(ship: ShipRecord, now: number): OwnShip {
   // Anti-cheat/invariant guard: OwnShip only ever describes a human client's
   // own ship, whose hullId is ALWAYS a ShipClassId. A drone hull id reaching
   // here means a drone record was routed to a client frame — an upstream bug,
@@ -136,7 +107,7 @@ function toOwnShip(ship: ShipRecord, now: number, chaff: FakeSource | undefined,
     // rides `you` and NOTHING else — never a Contact, blip, ballistic event,
     // boom, or spectator payload. An enemy observer can never learn that a hull
     // is repairing; it reads only the hp it can actually see change. REQUIRED
-    // (not optional like slowedUntil/dazzledUntil): the client's strip renders
+    // (not optional like slowedUntil/fouledUntil): the client's strip renders
     // the pool every frame, so a dropped key would read as "pool gone".
     // THE PAID POOL ALONE since Story 8.8 (epic-8 amendment 46): the free
     // per-level channel this used to be summed with is gone, and the
@@ -157,9 +128,9 @@ function toOwnShip(ship: ShipRecord, now: number, chaff: FakeSource | undefined,
     // Active debuff windows (Story 2.8), OPTIONAL on the wire — omitted (not
     // 0) when inactive, so debuff-free frames carry no dead keys. VICTIM-
     // PRIVATE like boostUntil: they ride `you` and NOTHING else — an enemy
-    // reads a fouled hull only through its observed kinematics, a dazzled one
-    // not at all. slowedUntil drives the predictor's slowedKinematics fold;
-    // dazzledUntil shrinks the client's own fog hole honestly.
+    // reads a fouled hull only through its observed kinematics. slowedUntil
+    // drives the predictor's FIRST slowedKinematics fold (the mine's slow);
+    // fouledUntil below drives its SECOND (the foul zone's, Story 9.4).
     ...(ship.slowedUntil > now ? { slowedUntil: ship.slowedUntil } : {}),
     // ... and, beside the window, ITS DEPTH (Story 8.13, epic-8 amendment 86):
     // the FOULING MINES line is tiered, so the victim's caps are scaled by the
@@ -170,18 +141,17 @@ function toOwnShip(ship: ShipRecord, now: number, chaff: FakeSource | undefined,
     // PRIVATE on exactly the same terms: it rides `you` and NOTHING else, so
     // the master perception invariant keeps its SIX declared exceptions.
     ...(ship.slowedUntil > now && ship.slowFactor !== 1 ? { slowFactor: ship.slowFactor } : {}),
-    ...(ship.dazzledUntil > now ? { dazzledUntil: ship.dazzledUntil } : {}),
-    // Standing in smoke (Story 8.18, amendment 149): PRESENT (`true`) IFF the
-    // server's per-tick stepSmoke stamp says this hull's centre is inside a
-    // live SMOKE SCREEN puff — whoever laid it — OMITTED otherwise, never
-    // `false` (the dazzledUntil precedent beside it; msgpack carries no dead
-    // keys). The client feeds it to the SAME shared effectiveSight the
-    // server's sightOf runs, so its fog hole shrinks to 1/8 of intel range
-    // exactly when the server's does. SELF-PRIVATE BY CONSTRUCTION on the
-    // boostUntil terms: it rides `you` and NOTHING else — never a Contact, a
-    // blip, an event or a spectator payload — so the perception exception
-    // count stays at SIX.
-    ...(ship.inSmoke ? { inSmoke: true as const } : {}),
+    // THE FOUL ZONE'S LINGER STAMP (Story 9.4, epic-9 amendments 61–68 — the
+    // seat FLASH SHELLS' `dazzledUntil` held): the server time the zone's
+    // slow ends, OMITTED (never 0, never `undefined`) unless it is in the
+    // future — the slowedUntil idiom exactly. VICTIM-PRIVATE on the same
+    // terms: it rides `you` and NOTHING else, so the master perception
+    // invariant keeps its SIX declared exceptions; the zone itself reaches
+    // observers through the separate `foulZones` channel, which says nothing
+    // about who is slowed. The predictor folds CONFIG.foulingShell.slowFactor
+    // while `serverNow < fouledUntil` — no factor rides (a consumable has no
+    // tiers), unlike the mine's `slowFactor` above.
+    ...(ship.fouledUntil > now ? { fouledUntil: ship.fouledUntil } : {}),
     // The WAKE-DRAFT lift (Story 8.19, amendments 151–155): the exact double
     // stepShips folded into this hull's forward cap THIS tick — PRESENT IFF
     // positive, OMITTED at 0, never `undefined` (the slowFactor precedent).
@@ -206,14 +176,14 @@ function toOwnShip(ship: ShipRecord, now: number, chaff: FakeSource | undefined,
     ...(ship.lifecycle.kind === 'sinking'
       ? { sinkingUntil: founderDeadline(ship.lifecycle.since) }
       : {}),
-    // ms — the DAMAGE CUT window end (Story 8.15, the Battleship's Shift,
+    // ms — the HUNKER (was DAMAGE CUT until Story 9.9) window end (Story 8.15, the Battleship's Shift,
     // amendments 99–102): present IFF a cut has been opened this life (the
     // record's value is non-zero), OMITTED otherwise — never an `undefined`
     // value (the slowedUntil precedent). SELF-PRIVATE BY CONSTRUCTION on the
     // boostUntil terms: it rides `you` and NOTHING else — never a Contact, a
     // blip, a ballistic event or a spectator payload — so the master
     // perception invariant keeps exactly SIX declared exceptions.
-    ...(ship.damageCutUntil > 0 ? { damageCutUntil: ship.damageCutUntil } : {}),
+    ...(ship.hunkerUntil > 0 ? { hunkerUntil: ship.hunkerUntil } : {}),
     // The SHIELD BLOCK seat (Story 8.16, amendments 100/116–118): present IFF
     // a shield is UP — hp left and not yet expired (the gate nulls a spent or
     // lapsed seat lazily, on the next hit, so the frame re-checks `until`) —
@@ -221,15 +191,6 @@ function toOwnShip(ship: ShipRecord, now: number, chaff: FakeSource | undefined,
     // CONSTRUCTION on the boostUntil terms: it rides `you` and NOTHING else,
     // so the perception exception count stays at SIX.
     ...ownShield(ship, now),
-    // The CHAFF owner's cloud (amendment 191): present IFF this ship's own
-    // chaff burst is live, OMITTED otherwise. SELF-PRIVATE BY CONSTRUCTION
-    // (the shield / inSmoke precedent): it rides `you` and NOTHING else — no
-    // other observer ever receives it — so the exception count stays at SIX.
-    ...ownChaff(chaff, now),
-    // ...and the ghosts of its own fakes its beam painted this tick (cycle
-    // 162): present IFF any, OMITTED otherwise. SELF-PRIVATE BY CONSTRUCTION
-    // on the same terms — `you` and NOTHING else — so the count stays at SIX.
-    ...ownChaffGhosts(ghosts),
   };
 }
 
@@ -270,20 +231,25 @@ function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
  * (unit tests, sandbox smokes) — the room always passes its live phase.
  */
 /**
- * The four OPTIONAL contact-like channels, on one rule for both frame paths:
+ * The five OPTIONAL contact-like channels, on one rule for both frame paths:
  * each is OMITTED (not an empty array) when this observer sees none, so
- * zone-free / decoy-free / smoke-free frames stay byte-identical to pre-1.7
+ * zone-free / decoy-free / cloud-free frames stay byte-identical to pre-1.7
  * frames. WIRE ORDER (key insertion, load-bearing for msgpack): `litZones`
  * (Story 1.7), `burnZones` (Story 8.17 — the PHOSPHOR burning zone on the lit
- * zone's gate), `decoys` (Story 8.16), then `smoke` (Story 8.18 — the SMOKE
- * SCREEN puffs, `{id,x,y,t0}` each).
+ * zone's gate), `foulZones` (Story 9.4 — the FOULING SHELL foul zone on the
+ * burn zone's gate, `{id,x,y,r,until,by}` each), `decoys` (Story 8.16), then
+ * `clouds` (Story 9.3 — the MULTI-SPECTRAL COUNTERMEASURE clouds,
+ * `{id,x,y,t0}` each; 8.18's `smoke` seat). FOG HAS NO CHANNEL (Story 9.10):
+ * the field is public weather off the welcome seed and the schema cut; its
+ * hiding is the toll inside every sight site, never a frame key.
  */
-function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'decoys' | 'smoke'> {
+function optionalChannels(view: PerceptionView): Pick<FrameMsg, 'litZones' | 'burnZones' | 'foulZones' | 'decoys' | 'clouds'> {
   return {
     ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
     ...(view.burnZones.length > 0 ? { burnZones: view.burnZones } : {}),
+    ...(view.foulZones.length > 0 ? { foulZones: view.foulZones } : {}),
     ...(view.decoys.length > 0 ? { decoys: view.decoys } : {}),
-    ...(view.smoke.length > 0 ? { smoke: view.smoke } : {}),
+    ...(view.clouds.length > 0 ? { clouds: view.clouds } : {}),
   };
 }
 
@@ -302,8 +268,8 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
       contacts: view.contacts,
       events: view.events,
       mines: view.mines,
-      // litZones / burnZones / decoys / smoke: OPTIONAL on the wire (see
-      // optionalChannels — the same rule on both paths).
+      // litZones / burnZones / foulZones / decoys / clouds: OPTIONAL on the
+      // wire (see optionalChannels — the same rule on both paths).
       ...optionalChannels(view),
       spec: true,
     };
@@ -317,11 +283,11 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
   const denied = world.denialsFor(playerId);
   return {
     ...base,
-    you: ship ? toOwnShip(ship, world.now, world.chaffSources.get(ship.id), view.chaffGhosts) : undefined,
+    you: ship ? toOwnShip(ship, world.now) : undefined,
     contacts: view.contacts,
     events: view.events,
     mines: view.mines,
-    ...optionalChannels(view), // litZones / burnZones / decoys / smoke, omitted when none
+    ...optionalChannels(view), // litZones / burnZones / foulZones / decoys / clouds, omitted when none
     ...(denied !== undefined && denied.length > 0 ? { denied: [...denied] } : {}),
   };
 }

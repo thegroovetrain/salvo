@@ -35,13 +35,16 @@ import {
   fitWakeVelocity,
   foldWakeCells,
   paintVelocity,
+  predictedAssocRadius,
   predictedPos,
   trackVelocity,
 } from '../game/ai/plot.js';
-import { SWEEP_MISS_GRACE_MS, sweptAndMissed, type SweepSite } from '../game/ai/sweepMiss.js';
+import { FOG_PLOT_DENSITY, SWEEP_MISS_GRACE_MS, sweptAndMissed, type SweepSite } from '../game/ai/sweepMiss.js';
 import { foldView } from '../game/ai/utility.js';
 import { aimPoint, solveTorpedoShot, type TacticContext } from '../game/ai/tacticKit.js';
 import { EQUIPMENT_TACTICS } from '../game/ai/tacticRegistry.js';
+import { gunBand } from '../game/ai/doctrine.js';
+import { profileOf } from '../game/ai/profiles.js';
 import { COMBAT_BRAIN, situationOf } from '../game/ai/tactics.js';
 
 const CELL = CONFIG.vision.radarCellU;
@@ -79,6 +82,7 @@ function anon(over: Partial<RememberedContact> = {}): RememberedContact {
     speed: null,
     seenAt: NOW,
     live: false,
+    sunk: false,
     cls: null,
     fleet: false,
     firstSeenAt: NOW - 10000,
@@ -96,7 +100,7 @@ function anon(over: Partial<RememberedContact> = {}): RememberedContact {
 }
 
 function view(events: GameEvent[]): PerceptionView {
-  return { contacts: [], events, mines: [], litZones: [], burnZones: [], decoys: [], smoke: [], chaffGhosts: [] };
+  return { contacts: [], events, mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [] };
 }
 
 /** The lattice cell centre the fold will derive for a one-cell rect at (x, y). */
@@ -363,7 +367,8 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
     const m = mkMind();
     m.contacts.set('c', anon({ x: 300, y: 0, seenAt: NOW - 4000, paintX: 300, paintY: 0, paintAt: NOW - 4000, vx: 45, vy: 0, vSrc: 'wake', vAt: NOW - 4000 }));
     for (let i = 11; i >= 1; i -= 1) {
-      const at = NOW - i * 50;
+      const at = NOW - i * 100; // one volley window apart (fix wave P7: credits are per volley)
+      m.fireSeq += 1; // eleven CLICKS, eleven volleys (epic-9 amendment 195)
       const q = predictedPos(m.contacts.get('c')!, at);
       foldView(m, view([{ k: 'hc', id: 'me', x: q.x, y: q.y }]), at);
     }
@@ -542,6 +547,105 @@ describe('ai/plot — the sweep-miss drop (Eric ruling 2026-10-02)', () => {
     expect(empty.contacts.size).toBe(0);
   });
 
+  it('THE DROPOUT LIMIT reads the WHOLE BAND (Story 9.8 review, F2): a miss is evidence only when the plot\'s association disc lies inside dropout.startU', () => {
+    const START = CONFIG.vision.dropout.startU;
+    const site: SweepSite = {
+      x: 0,
+      y: 0,
+      stats: { radarRange: CONFIG.vision.radar, sightRange: CONFIG.vision.sight, sweepPeriodMs: 4000 },
+      islands: [],
+    };
+    // A stationary course (vx = vy = 0) whose last paint is aged so the
+    // association radius is exactly 100 u — the prediction stays put.
+    const R = 100;
+    const ageMs = ((R - ANON_ASSOC_U) / (FASTEST_HULL_SPEED / 3)) * 1000;
+    const plotAt = (x: number): RememberedContact =>
+      anon({ x, y: 0, seenAt: NOW - 1000, vx: 0, vy: 0, vAt: NOW - ageMs, paintAt: NOW - ageMs });
+    const straddling = plotAt(START - 10); // centre inside startU, band reaching 90 u past it
+    const inside = plotAt(START - 200); // whole band inside startU
+    expect(predictedAssocRadius(straddling, NOW)).toBeCloseTo(R, 6);
+    expect(predictedAssocRadius(inside, NOW)).toBeCloseTo(R, 6);
+    expect(sweptAndMissed(ACROSS, site, straddling, NOW)).toBe(false);
+    expect(sweptAndMissed(ACROSS, site, inside, NOW)).toBe(true);
+  });
+
+  it('THE DROPOUT LIMIT (Story 9.8, epic-9 ruling 124): an empty sweep is evidence only inside dropout.startU — a far plot is not marked gone and ages on its clock', () => {
+    const START = CONFIG.vision.dropout.startU;
+    const site: SweepSite = {
+      x: 0,
+      y: 0,
+      stats: { radarRange: CONFIG.vision.radar, sightRange: CONFIG.vision.sight, sweepPeriodMs: 4000 },
+      islands: [],
+    };
+    const near = anon({ x: START - 100, y: 0, seenAt: NOW - 1000 }); // inside the flat band
+    const far = anon({ x: START + 200, y: 0, seenAt: NOW - 1000 }); // in the dropout band, inside radar
+    expect(START + 200).toBeLessThan(CONFIG.vision.radar); // premise: the far plot is a radar track
+    expect(sweptAndMissed(ACROSS, site, near, NOW)).toBe(true);
+    expect(sweptAndMissed(ACROSS, site, far, NOW)).toBe(false);
+    // Through the real fold: a full revolution of empty sweeps (plus the
+    // grace) drops the near plot and keeps the far one — never marked, so
+    // never expired — and the far one then ages out on the normal memory
+    // clock (`CONFIG.bots.contactMemoryMs`), exactly like any unpainted plot.
+    const m = mkMind();
+    m.contacts.set('near', near);
+    m.contacts.set('far', far);
+    const STEP = (2 * Math.PI * DT) / site.stats.sweepPeriodMs;
+    let last = 2 * Math.PI - 0.05;
+    let k = 0;
+    const sweepUntil = (ms: number): void => {
+      for (; k * DT <= ms; k += 1) {
+        const cur = (last + STEP) % (2 * Math.PI);
+        foldView(m, view([]), NOW + k * DT, { beam: { lastSweep: last, sweepAngle: cur }, site });
+        last = cur;
+      }
+    };
+    sweepUntil(site.stats.sweepPeriodMs + 2 * SWEEP_MISS_GRACE_MS);
+    expect(NOW + k * DT - far.seenAt).toBeLessThan(CONFIG.bots.contactMemoryMs); // premise: still inside memory
+    expect(m.contacts.has('near')).toBe(false);
+    expect(m.contacts.has('far')).toBe(true);
+    sweepUntil(CONFIG.bots.contactMemoryMs + 1000);
+    expect(m.contacts.has('far')).toBe(false);
+  });
+
+  it('THE FOG LIMIT (Story 9.10, epic-9 amendment 169): a plot whose predicted spot sits in fog is NOT a miss — never marked, it ages out on contactMemoryMs; a plot outside the fog is dropped as before', () => {
+    const inFog = anon({ x: 300, y: 0, seenAt: NOW - 1000 });
+    const thick = { ...SITE, fogAt: () => 1 };
+    const clear = { ...SITE, fogAt: () => 0 };
+    const elsewhere = { ...SITE, fogAt: (x: number) => (x > 600 ? 1 : 0) }; // fog past 600 u, the plot at 300 u is in the open
+    const thin = { ...SITE, fogAt: () => FOG_PLOT_DENSITY - 0.01 }; // the thin edge is not "in fog"
+    expect(sweptAndMissed(ACROSS, thick, inFog, NOW)).toBe(false);
+    expect(sweptAndMissed(ACROSS, { ...SITE, fogAt: () => FOG_PLOT_DENSITY }, inFog, NOW)).toBe(false); // the threshold is inclusive
+    expect(sweptAndMissed(ACROSS, clear, inFog, NOW)).toBe(true);
+    expect(sweptAndMissed(ACROSS, elsewhere, inFog, NOW)).toBe(true);
+    expect(sweptAndMissed(ACROSS, thin, inFog, NOW)).toBe(true);
+    expect(sweptAndMissed(ACROSS, SITE, inFog, NOW)).toBe(true); // no fogAt at all = no fog anywhere (today's behaviour)
+    // Through the real fold: a full revolution of empty sweeps (plus the
+    // grace) keeps the fogged plot and drops the clear one; the fogged plot
+    // then ages out on the normal memory clock like any unpainted plot.
+    const run = (site: SweepSite): { afterSweep: boolean; afterMemory: boolean } => {
+      const m = mkMind();
+      m.contacts.set('p', anon({ x: 300, y: 0, seenAt: NOW - 1000 }));
+      const STEP = (2 * Math.PI * DT) / site.stats.sweepPeriodMs;
+      let last = 2 * Math.PI - 0.05;
+      let k = 0;
+      const sweepUntil = (ms: number): void => {
+        for (; k * DT <= ms; k += 1) {
+          const cur = (last + STEP) % (2 * Math.PI);
+          foldView(m, view([]), NOW + k * DT, { beam: { lastSweep: last, sweepAngle: cur }, site });
+          last = cur;
+        }
+      };
+      sweepUntil(site.stats.sweepPeriodMs + 2 * SWEEP_MISS_GRACE_MS);
+      expect(NOW + k * DT - (NOW - 1000)).toBeLessThan(CONFIG.bots.contactMemoryMs); // premise: still inside memory
+      const afterSweep = m.contacts.has('p');
+      sweepUntil(CONFIG.bots.contactMemoryMs + 1000);
+      return { afterSweep, afterMemory: m.contacts.has('p') };
+    };
+    expect(run(thick)).toEqual({ afterSweep: true, afterMemory: false });
+    expect(run(clear)).toEqual({ afterSweep: false, afterMemory: false });
+    expect(run(elsewhere)).toEqual({ afterSweep: false, afterMemory: false });
+  });
+
   it('the window is half-open: start-inclusive, end-exclusive', () => {
     expect(sweptAndMissed({ lastSweep: 0, sweepAngle: 0.1 }, SITE, stale, NOW)).toBe(true);
     expect(sweptAndMissed({ lastSweep: 2 * Math.PI - 0.1, sweepAngle: 0 }, SITE, stale, NOW)).toBe(false);
@@ -660,6 +764,12 @@ function fakePort(w: World): BotWorldPort {
     helmEnabled: true,
     submitInput: () => true,
     spendPoint: () => true,
+    // Story 9.13 (amendment 190): the zone readouts — no timeline in a fake.
+    zoneNextRing: () => null,
+    zonePhase: () => ({ phase: 'idle', closesInMs: null }),
+    zoneSafeDisc() {
+      return this.zoneLiveRing;
+    },
   };
 }
 
@@ -678,17 +788,33 @@ function mgCtx(rec: ShipRecord, port: BotWorldPort, mind: BotMind, target: Remem
   return { self: rec, mind, sit: situationOf(rec, mind, port), port, target, posture: 'engage', slot: 0 };
 }
 
+/** u — the duelist's machine-gun HOLD line (amendment 198, ai/doctrine.ts):
+ *  past it the stream holds fire and closes, outside own light. */
+function mgHoldU(rec: ShipRecord): number {
+  return gunBand(profileOf('duelist'), rec.stats, 'machineGun').holdFireAboveU;
+}
+
+/** A mind whose view carries ONE own live lit zone (`by` the shooter, alive
+ *  past now) — small, centred on `at`, so the plot is lit but a point a hull
+ *  beyond it is not (amendments 187/198: the lift and the hold exemption). */
+function litMind(rec: ShipRecord, at: { x: number; y: number }): BotMind {
+  const m = mkMind();
+  m.view = { ...view([]), litZones: [{ id: 'lz', x: at.x, y: at.y, r: 30, until: NOW + 10000, by: rec.id }] };
+  return m;
+}
+
 describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
-  it('HOLDS its magazine on a course-less plot older than one sweep; streams at 3999 ms; streams at 8000 ms with a course', () => {
+  it('HOLDS its magazine on a course-less plot older than one sweep; streams at 3999 ms; streams at 8000 ms with a course (inside the amendment-198 hold line)', () => {
     const { rec, port } = mgShooter();
     const solve = (t: RememberedContact) => EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, mkMind(), t));
-    expect(solve(anon({ x: 300, y: 0, seenAt: NOW - TRACK_PERSIST_MS - 1 }))).toBeNull();
-    expect(solve(anon({ x: 300, y: 0, seenAt: NOW - TRACK_PERSIST_MS + 1 }))?.held).toBe(true);
-    expect(solve(anon({ x: 300, y: 0, seenAt: NOW - 8000, vx: 0, vy: 5, vSrc: 'paint', vAt: NOW - 8000 }))?.held).toBe(true);
+    const x = mgHoldU(rec) - 50; // inside the doctrine hold line, so only the staleness rule decides
+    expect(solve(anon({ x, y: 0, seenAt: NOW - TRACK_PERSIST_MS - 1 }))).toBeNull();
+    expect(solve(anon({ x, y: 0, seenAt: NOW - TRACK_PERSIST_MS + 1 }))?.held).toBe(true);
+    expect(solve(anon({ x, y: 0, seenAt: NOW - 8000, vx: 0, vy: 5, vSrc: 'paint', vAt: NOW - 8000 }))?.held).toBe(true);
     // A plot MEASURED STATIONARY has a course (zero): it streams, however old (F4).
-    expect(solve(anon({ x: 300, y: 0, seenAt: NOW - 6000, vx: 0, vy: 0, vSrc: 'paint', vAt: NOW - 6000 }))?.held).toBe(true);
+    expect(solve(anon({ x, y: 0, seenAt: NOW - 6000, vx: 0, vy: 0, vSrc: 'paint', vAt: NOW - 6000 }))?.held).toBe(true);
     // A live sighting is never held, however the clock reads.
-    expect(solve(anon({ x: 300, y: 0, live: true, seenAt: NOW - 8000 }))?.held).toBe(true);
+    expect(solve(anon({ x, y: 0, live: true, seenAt: NOW - 8000 }))?.held).toBe(true);
   });
 
   it('the cannon keeps NO staleness rule on the same stale course-less plot', () => {
@@ -698,7 +824,7 @@ describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
     expect(shot).not.toBeNull();
   });
 
-  it('AIMS PAST: aimDist = lead-point distance + the target\'s hull length (longest hull when unknown), clamped at reach', () => {
+  it('AIMS PAST: aimDist = lead-point distance + the target\'s hull length (longest hull when unknown), clamped at reach (the edge case in own light, amendment 198)', () => {
     const { rec, port } = mgShooter();
     const rangeU = rec.stats.equipment.machineGun.rangeU;
     const longest = Math.max(...SHIP_CLASS_IDS.map((id) => hullEnvelope(id).hull.length));
@@ -714,7 +840,12 @@ describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
       const p = aimPoint(twin, situationOf(rec, twin, port), t, CONFIG.machineGun.shellSpeed);
       expect(shot.aimDist).toBeCloseTo(Math.min(Math.hypot(p.x, p.y) + over, rangeU), 9);
     }
-    const edge = EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, mkMind(), anon({ x: rangeU - 20, y: 0, seenAt: NOW })))!;
+    // Past the hold line only own light lets the stream fire (amendment 198);
+    // the zone covers the plot but not a hull beyond it, so the overshoot
+    // still clamps at reach.
+    const at = { x: rangeU - 20, y: 0 };
+    expect(at.x).toBeGreaterThan(mgHoldU(rec));
+    const edge = EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, litMind(rec, at), anon({ ...at, seenAt: NOW })))!;
     expect(edge.aimDist).toBe(rangeU);
   });
 
@@ -726,14 +857,17 @@ describe('ai/equipment — the machine gun (Eric rulings 2026-10-02)', () => {
     expect(EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, mkMind(), leaving))).toBeNull();
   });
 
-  it('HOLDS when the INTERCEPT is beyond reach: outbound at 650 u (≈714 u intercept) holds, inbound at 650 u streams', () => {
+  it('HOLDS when the INTERCEPT is beyond reach: outbound 10 u inside reach holds, inbound at the same spot streams (plot in own light past the amendment-198 hold line)', () => {
     const { rec, port } = mgShooter();
     const rangeU = rec.stats.equipment.machineGun.rangeU;
-    expect(rangeU).toBe(660);
-    const out = anon({ x: 650, y: 0, seenAt: NOW, vx: 45, vy: 0, vSrc: 'paint', vAt: NOW });
-    expect(EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, mkMind(), out))).toBeNull();
-    const inbound = anon({ x: 650, y: 0, seenAt: NOW, vx: -45, vy: 0, vSrc: 'paint', vAt: NOW });
-    const shot = EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, mkMind(), inbound))!;
+    expect(rangeU).toBe(CONFIG.machineGun.rangeU); // its own Tier I dial (Story 9.8, ruling 125)
+    // The plot sits in a small own lit zone, so the doctrine hold is lifted
+    // and the INTERCEPT rule alone decides; the intercept itself is unlit.
+    const at = { x: rangeU - 10, y: 0 };
+    const out = anon({ ...at, seenAt: NOW, vx: 45, vy: 0, vSrc: 'paint', vAt: NOW });
+    expect(EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, litMind(rec, at), out))).toBeNull();
+    const inbound = anon({ ...at, seenAt: NOW, vx: -45, vy: 0, vSrc: 'paint', vAt: NOW });
+    const shot = EQUIPMENT_TACTICS.machineGun.solve(mgCtx(rec, port, litMind(rec, at), inbound))!;
     expect(shot.held).toBe(true);
     expect(shot.aimDist).toBe(rangeU); // the overshoot alone clamps at reach
   });

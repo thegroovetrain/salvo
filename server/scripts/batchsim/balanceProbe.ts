@@ -23,6 +23,7 @@ import {
   type LineId,
   CONFIG,
   effectiveStats,
+  damageMultiplierFor,
   hullEnvelope,
   DRONE_HULL_IDS,
   HULL_IDS,
@@ -154,26 +155,27 @@ function barrelBlock(): void {
   console.log('');
   console.log(`== BARREL PARALLEL TRACKS (DRAFT barrelSpacingU = ${g.barrelSpacingU}u, burstRadius ${g.burstRadius}u) ==`);
   console.log(`spacing ${g.barrelSpacingU}u vs burst DIAMETER ${g.burstRadius * 2}u: adjacent bursts ${g.barrelSpacingU < g.burstRadius * 2 ? 'OVERLAP' : 'are separate'}`);
-  console.log('barrels | damage/click | shells landing on one hull (aim = hull centre, R=300u)');
-  // Each row is priced at the damage of the BUILD named for that barrel
-  // count on Eric's 2026-10-02 CANNON ladder (amendment 232: barrels 1/2/2/3/3,
-  // damage 16/16/18/18/21): 1 barrel = the bare cannon (16), 2 barrels =
-  // CANNON ×1 (16, tier II), 3 barrels = CANNON ×4 (21, tier V — the max;
-  // tier IV reaches 3 barrels at 18). The damage is read off the real fold.
-  for (const [barrels, copies] of [[1, 0], [2, 1], [3, 4]] as const) {
-    const dmg = effectiveStats(hullEnvelope(SHIP_CLASS_IDS[0]), Array<LineId>(copies).fill('deckGun')).equipment.gun.damage;
-    const offsets = parallelOffsets(0, barrels, g.barrelSpacingU);
+  console.log('tier | barrels | damage/click | shells landing on one hull (aim = hull centre, R=300u, near — before range attenuation)');
+  // Each row is the CANNON build at that tier, read off the real fold: the
+  // barrels column is the fold's (TWO at every tier since Eric 2026-10-16,
+  // Story 9.12 — `CONFIG.gun.barrels`, no barrel rungs) and the damage is the
+  // ladder's (8/10/11/12/13). Nothing here is typed in.
+  const TIERS = ['I', 'II', 'III', 'IV', 'V'];
+  for (let copies = 0; copies < TIERS.length; copies += 1) {
+    const gun = effectiveStats(hullEnvelope(SHIP_CLASS_IDS[0]), Array<LineId>(copies).fill('deckGun')).equipment.gun;
+    const offsets = parallelOffsets(0, gun.barrels, g.barrelSpacingU);
     const cells: string[] = [];
     for (const hullId of HULL_IDS) {
       const targets = offsets.map((o) => ({ x: 300 + o.x, y: o.y }));
       const hits = shellsOn(targets, g.burstRadius, hullAt(hullId, { x: 300, y: 0 }, 0));
-      cells.push(`${hullId}=${hits}(${hits * dmg}hp)`);
+      cells.push(`${hullId}=${hits}(${hits * gun.damage}hp)`);
     }
-    console.log(`${String(barrels).padStart(7)} | ${String(barrels * dmg).padStart(12)} | ${cells.join(' ')}`);
+    console.log(`${TIERS[copies].padStart(4)} | ${String(gun.barrels).padStart(7)} | ${String(gun.barrels * gun.damage).padStart(12)} | ${cells.join(' ')}`);
   }
+  const barrels = effectiveStats(hullEnvelope(SHIP_CLASS_IDS[0]), []).equipment.gun.barrels;
   console.log('');
-  console.log('OFF-CENTRE CLICK — how far the aim can miss a stationary hull centre and still land N shells (3 barrels — the reachable max, R=300u):');
-  const offsets = parallelOffsets(0, 3, g.barrelSpacingU);
+  console.log(`OFF-CENTRE CLICK — how far the aim can miss a stationary hull centre and still land N shells (${barrels} barrels — the fold's, R=300u):`);
+  const offsets = parallelOffsets(0, barrels, g.barrelSpacingU);
   for (const hullId of [...SHIP_CLASS_IDS, 'droneSmall' as HullId]) {
     const row: string[] = [];
     for (const miss of [0, 10, 20, 30, 40, 60]) {
@@ -188,7 +190,7 @@ function barrelBlock(): void {
  *  stacked to its copy cap (the ADDITIVE speed/range ladders of Story 7-5). */
 function statsBlock(): void {
   console.log('== MAX-STACK STAT ENVELOPE (universal lines only, each to its copy cap) ==');
-  const universal = ['armor', 'speed', 'turning', 'reload', 'radarSweep'];
+  const universal = ['hullPoints', 'armor', 'armorPiercing', 'speed', 'turning', 'reload', 'radarSweep', 'passiveHealing'];
   const maxCards: string[] = [];
   for (const id of universal) {
     // Fail LOUDLY on an id the catalog no longer holds. This list is hand-kept
@@ -201,7 +203,7 @@ function statsBlock(): void {
   // detect is SIGHT-scaled (`sightOf(me) * detectFactor`), NOT radar-scaled —
   // the one rung that hangs off sight rather than radar range. Derived here the
   // same way the server does it so the ladder ordering is checkable by eye.
-  console.log('class        |  maxHp |  speed | radar |  sight | detect | 5/8 rung | gun rangeU | broadside rangeU | cooldownScale');
+  console.log('class        |  maxHp |  speed | radar |  sight | detect | 6/12 rung | gun rangeU | broadside rangeU | cooldownScale | armor | armorPiercing | damageMultiplier | pierceMult');
   for (const cls of SHIP_CLASS_IDS) {
     for (const [tag, cards] of [['base', [] as string[]] as const, ['MAXED', maxCards] as const]) {
       const st = effectiveStats(hullEnvelope(cls), cards);
@@ -209,10 +211,43 @@ function statsBlock(): void {
       console.log(
         `${(cls + ' ' + tag).padEnd(12)} | ${fmt(st.maxHp).padStart(6)} | ${fmt(st.kinematics.maxSpeed).padStart(6)} | ` +
           `${fmt(st.radarRange).padStart(5)} | ${fmt(st.sightRange).padStart(6)} | ${fmt(st.sightRange * CONFIG.vision.detectFactor).padStart(6)} | ` +
-          `${fmt(rung).padStart(8)} | ${fmt(st.equipment.gun.rangeU).padStart(10)} | ${fmt(st.equipment.broadside.rangeU).padStart(16)} | ${fmt(st.cooldownScale, 3)}`,
+          `${fmt(rung).padStart(9)} | ${fmt(st.equipment.gun.rangeU).padStart(10)} | ${fmt(st.equipment.broadside.rangeU).padStart(16)} | ${fmt(st.cooldownScale, 3).padStart(13)} | ${fmt(st.armor, 0).padStart(5)} | ${fmt(st.armorPiercing, 0).padStart(13)} | ${fmt(st.damageMultiplier, 3).padStart(16)} | ${fmt(damageMultiplierFor(-st.armorPiercing), 3)}`,
       );
     }
   }
+  console.log('');
+}
+
+/** Every gun line's catalog id and the folded equipment row its reach lives
+ *  on (Story 9.8, ruling 125: each reach is its own tiered dial). */
+const REACH_LINES = [
+  ['deckGun', 'gun'],
+  ['machineGun', 'machineGun'],
+  ['flak', 'flak'],
+  ['broadside', 'broadside'],
+  ['starShells', 'starShells'],
+  ['phosphorShells', 'phosphorShells'],
+] as const;
+
+/** Each gun's Tier I and Tier V reach, through the real fold (Story 9.8,
+ *  ruling 125): Tier I is the bare row (`CONFIG.<w>.rangeU`), Tier V the line
+ *  stacked to its copy cap — the four upgrade cards (for an equipment line,
+ *  copy 1 is the fit itself). Then the radar dropout's flat band and knee
+ *  (rulings 121–123), the dials `--tune vision.dropout.*` moves. */
+function reachBlock(): void {
+  console.log('== WEAPON REACH (Tier I -> Tier V, u) + RADAR DROPOUT ==');
+  const cls = hullEnvelope(SHIP_CLASS_IDS[0]);
+  for (const [line, row] of REACH_LINES) {
+    if (!Object.hasOwn(CATALOG, line)) throw new Error(`balanceProbe: '${line}' is not in CATALOG (deleted line?)`);
+    const tierI = effectiveStats(cls, []).equipment[row].rangeU;
+    const tierV = effectiveStats(cls, new Array<string>(CATALOG[line].cap).fill(line)).equipment[row].rangeU;
+    console.log(`  ${line.padEnd(15)} Tier I ${fmt(tierI).padStart(7)}  Tier V ${fmt(tierV).padStart(7)}`);
+  }
+  console.log(`  fouling shell   fixed  ${fmt(CONFIG.foulingShell.rangeU).padStart(7)}`);
+  const dr = CONFIG.vision.dropout;
+  console.log(
+    `  dropout: p=1 to ${fmt(dr.startU)}u, knee ${fmt(dr.kneeU)}u (p=${fmt(dr.kneeP, 2)}), rim ${fmt(CONFIG.vision.radar)}u (p=${fmt(dr.rimP, 2)})`,
+  );
   console.log('');
 }
 
@@ -226,5 +261,6 @@ for (const hullId of HULL_IDS) {
 }
 console.log('HULLS PROBED: ' + HULL_IDS.join(' ') + ` (classes: ${SHIP_CLASS_IDS.join(' ')}; fleet: ${DRONE_HULL_IDS.join(' ')})`);
 statsBlock();
+reachBlock();
 broadsideBlock();
 barrelBlock();

@@ -41,18 +41,21 @@ import { cardEquipmentIds, slotForCard } from '../render/equipmentInfo.js';
 import { lookForReveal } from '../render/projectiles.js';
 import { BurnZones } from '../render/burnZones.js';
 import { glyphPaths } from '../render/equipmentIcons.js';
-import { tellLine } from '../render/hud.js';
+import { FoulZones } from '../render/foulZones.js';
 
 const LINES: readonly CatalogLine[] = Object.values(CATALOG);
 const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
 
 describe('fit-check — catalog sanity (the walk covers something real)', () => {
-  it('the catalog has every id keyed to itself and exactly the ratified 24 lines', () => {
+  it('the catalog has every id keyed to itself and exactly the ratified 26 lines', () => {
     expect(LINES).toHaveLength(LINE_IDS.length);
     // 29 until Story 8.15 CUT missile, monitor and heat seeking (amendment 89e);
     // 26 until DECK GUN TURRET and DECK GUN BARREL folded into the CANNON
-    // ladder (amendment 197).
-    expect(LINE_IDS).toHaveLength(24);
+    // ladder (amendment 197); 24 until CHAFF left in Story 9.2 (amendment 31);
+    // 24 again since PASSIVE HEALING joined in Story 9.6 (epic-9 amendment 95);
+    // 25 since ARMOR joined in Story 9.7 (epic-9 amendments 110–117); 26 since
+    // ARMOR PIERCING joined in Story 9.9 (epic-9 amendments 145, 159).
+    expect(LINE_IDS).toHaveLength(26);
     for (const [key, line] of Object.entries(CATALOG)) expect(line.id).toBe(key);
   });
 });
@@ -247,14 +250,17 @@ describe('fit-check — SLOT ROUTING (every line lands on a slot or is shipwide)
     expect(unrouted).toEqual([]);
   });
 
-  it('the shipwide lines are EXACTLY the five universal ladders — no gap, no orphan', () => {
+  it('the shipwide lines are EXACTLY the eight universal ladders — no gap, no orphan', () => {
+    // Story 9.6 (epic-9 amendments 93/95): ARMOR → hullPoints, PASSIVE HEALING joins;
+    // Story 9.7 (epic-9 amendments 110–117): the new ARMOR ladder joins;
+    // Story 9.9 (epic-9 amendments 145, 159): ARMOR PIERCING joins.
     const shipwide = LINES.filter((l) => cardEquipmentIds(l.id).length === 0 && l.kind !== 'consumable').map((l) => l.id);
-    expect(shipwide.sort()).toEqual(['armor', 'radarSweep', 'reload', 'speed', 'turning']);
+    expect(shipwide.sort()).toEqual(['armor', 'armorPiercing', 'hullPoints', 'passiveHealing', 'radarSweep', 'reload', 'speed', 'turning']);
   });
 
   it('a shipwide ladder owns no slot, so its fit falls through to the rank-wide pulse', () => {
     const loadout: (EquipmentId | null)[] = ['gun', 'navalMines', 'starShells', null];
-    expect(slotForCard(loadout, 'armor')).toBeNull();
+    expect(slotForCard(loadout, 'hullPoints')).toBeNull();
     expect(slotForCard(loadout, 'radarSweep')).toBeNull();
     // ...and an id nothing can resolve fails open the same way.
     expect(slotForCard(loadout, 'notACard')).toBeNull();
@@ -360,18 +366,21 @@ describe('fit-check — DOCTRINE IDENTITY (every doctrine line registers an on-w
 // They are no longer verbs, so they left DOCTRINE_IDENTITY — but the rule that
 // table enforced ("no fitted card is presentation-silent") still holds for the
 // lines they became. PHOSPHOR SHELLS is a weapon: its slot draws a glyph and
-// its burst leaves a BURNING zone whose ember breathes. FLASH SHELLS is a belt
-// consumable: its square draws a glyph and its victim wears the DAZZLED tell.
+// its burst leaves a BURNING zone of white fire (Story 9.11). FLASH SHELLS was a belt
+// consumable; its Story 9.4 successor, the FOULING SHELL, draws a glyph and its
+// burst leaves a FOUL zone on the water (the victim's tell is the shared SLOWED).
 describe('fit-check — the former add-ons are not presentation-silent (Story 8.17)', () => {
-  it('PHOSPHOR SHELLS: a slot glyph and a breathing burning zone', () => {
+  it('PHOSPHOR SHELLS: a slot glyph and a burning zone of flame tongues', () => {
     expect(glyphPaths('phosphorShells')).not.toBeNull();
     const zones = new BurnZones(new Container());
-    zones.sync([{ id: 'z-burn', x: 0, y: 0, r: 100, until: 10_000, by: 'firer' }], () => null);
-    expect(zones.emberAlphaOf('z-burn')).toBeGreaterThan(0);
+    zones.sync([{ id: 'z-burn', x: 0, y: 0, r: 100, until: 10_000, by: 'firer' }], 'me');
+    expect(zones.flameCountOf('z-burn')).toBeGreaterThan(0);
   });
 
-  it('FLASH SHELLS: a belt glyph and the victim\'s DAZZLED tell', () => {
-    expect(glyphPaths('dazzleShells')).not.toBeNull();
-    expect(tellLine('DAZZLED', 2000)).toBe('DAZZLED 2s');
+  it('FOULING SHELL: a glyph and a foul zone on the water (Story 9.4)', () => {
+    expect(glyphPaths('foulingShell')).not.toBeNull();
+    const zones = new FoulZones(new Container());
+    zones.sync([{ id: 'z-foul', x: 0, y: 0, r: 150, until: 10_000, by: 'firer' }], 'me');
+    expect(zones.size).toBe(1);
   });
 });

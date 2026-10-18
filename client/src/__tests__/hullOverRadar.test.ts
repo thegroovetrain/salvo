@@ -8,7 +8,7 @@
 //      when he asked for it (*"less prominent in the near sight range where i am
 //      going to aim based on LOS rather than radar ghosts"*). It now floors
 //      across the bubble and climbs only outside it, and because the bubble is
-//      not a constant (dazzle shrinks it at read time) the ramp is
+//      not the base constant (a sight boon moves it) the ramp is
 //      OBSERVER-SCALED off `Radar.sightHoleU` — `fogHoleRadiusU`, the same number
 //      the fog hole is baked at and the server gates contacts with.
 //
@@ -27,7 +27,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { Container, Texture } from 'pixi.js';
-import { CONFIG, effectiveSight } from '@salvo/shared';
+import { CONFIG } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { hullSightSoftness } from '../render/fog.js';
 import { Radar } from '../render/radar.js';
@@ -59,16 +59,20 @@ vi.mock('../render/textures.js', async (importOriginal) => {
 
 const SIGHT = CONFIG.vision.sight;
 const RADAR = CONFIG.vision.radar;
-// A FLASHED observer's bubble: the shared effectiveSight — 1/8 of the intel
-// (radar) range, 82.5 u at base (Story 8.17, amendment 132; was sight × 0.5).
-const DAZZLED = effectiveSight({ sightRange: SIGHT, radarRange: RADAR }, true);
+// A SYNTHETIC narrower observer bubble. The pure ramp and feather functions take
+// any radius; nothing in the game shrinks sight at runtime since Story 9.4
+// retired the FLASH SHELLS dazzle, but the observer-scaling contract still has
+// to hold in both directions.
+const NARROW = SIGHT * 0.375;
 const FLOOR = CLIENT_CONFIG.blip.heatmap.dim.minScale;
 
-describe('the dim ramp is anchored to TRUESIGHT, on the eighths ladder', () => {
-  it('puts the two radii on the 4/8 and 5/8 rungs for a base hull', () => {
-    expect(BASE_DIM_RADII.innerU, 'inner = the sight bubble (4/8)').toBeCloseTo(SIGHT, 12);
-    expect(BASE_DIM_RADII.innerU, '...which is 4/8 of intel range').toBeCloseTo(RADAR / 2, 12);
-    expect(BASE_DIM_RADII.outerU, 'outer = the next rung out (5/8)').toBeCloseTo((RADAR * 5) / 8, 12);
+describe('the dim ramp is anchored to TRUESIGHT, on the twelfths ladder', () => {
+  // Epic-9 amendment 103: the sensor ladder is TWELFTHS of intel range now
+  // (sight = 4/12, flash = 6/12). The ramp still runs sight bubble -> flash halo.
+  it('puts the two radii on the 4/12 and 6/12 rungs for a base hull', () => {
+    expect(BASE_DIM_RADII.innerU, 'inner = the sight bubble (4/12)').toBeCloseTo(SIGHT, 12);
+    expect(BASE_DIM_RADII.innerU, '...which is 4/12 of intel range').toBeCloseTo((RADAR * 4) / 12, 12);
+    expect(BASE_DIM_RADII.outerU, 'outer = the flash rung (6/12)').toBeCloseTo((RADAR * 6) / 12, 12);
     expect(BASE_DIM_RADII.outerU, '...which is the muzzle-flash halo')
       .toBeCloseTo(CONFIG.vision.muzzleFlash, 12);
   });
@@ -78,17 +82,20 @@ describe('the dim ramp is anchored to TRUESIGHT, on the eighths ladder', () => {
     for (const d of [0, 1, SIGHT / 8, SIGHT / 2, SIGHT * 0.9, SIGHT]) {
       expect(dimScaleAt(d, SIGHT), `at ${d}u`).toBeCloseTo(FLOOR, 12);
     }
-    // The shipped ramp reached full at 5/8 of INTEL range from 1/8 of it, so at
-    // the bubble's edge it stood (330 − 82.5) / (412.5 − 82.5) = three quarters
-    // of the way up: 80% opacity at the very edge of the water the player aims
-    // at by eye, and 40% halfway out.
+    // The shipped ramp (amendment 181, on the old EIGHTHS ladder where intel
+    // range was 2x sight) reached full at 5/8 of intel range from 1/8 of it —
+    // i.e. sight/4 -> sight*5/4 — so at the bubble's edge it stood three
+    // quarters of the way up: 80% opacity at the very edge of the water the
+    // player aims at by eye, and 40% halfway out. Expressed in sight units so
+    // the historical defect stays reproducible after amendment 103.
+    const oldIntel = SIGHT * 2;
     const shipped = (d: number): number =>
-      FLOOR + (1 - FLOOR) * ((d - RADAR / 8) / ((RADAR * 5) / 8 - RADAR / 8));
+      FLOOR + (1 - FLOOR) * ((d - oldIntel / 8) / ((oldIntel * 5) / 8 - oldIntel / 8));
     expect(shipped(SIGHT), 'the behaviour this cycle removes').toBeCloseTo(0.8, 12);
     expect(shipped(SIGHT / 2), '...halfway out, too').toBeCloseTo(0.4, 12);
   });
 
-  it('reaches FULL painted opacity at the 5/8 rung and stays there — radar is '
+  it('reaches FULL painted opacity at the 6/12 rung and stays there — radar is '
     + 'never muted where it is the only sensor', () => {
     expect(dimScaleAt(BASE_DIM_RADII.outerU, SIGHT)).toBeCloseTo(1, 12);
     for (const d of [CONFIG.vision.farRadar, RADAR, RADAR * 4, 1e9]) {
@@ -126,17 +133,17 @@ describe('the dim ramp is anchored to TRUESIGHT, on the eighths ladder', () => {
     expect(dimRadii(Number.NaN)).toEqual({ innerU: 0, outerU: 0 });
   });
 
-  it('TRACKS A DAZZLED (SHRUNKEN) BUBBLE rather than a fixed radius', () => {
-    const dazzled = DAZZLED;
-    expect(dazzled, 'the fixture really is smaller').toBeLessThan(SIGHT);
-    const r = dimRadii(dazzled);
-    expect(r.innerU).toBeCloseTo(dazzled, 12);
-    expect(dimScaleAt(dazzled, dazzled), 'floor still covers the whole bubble')
+  it('TRACKS A NARROWER BUBBLE rather than a fixed radius', () => {
+    const narrow = NARROW;
+    expect(narrow, 'the fixture really is smaller').toBeLessThan(SIGHT);
+    const r = dimRadii(narrow);
+    expect(r.innerU).toBeCloseTo(narrow, 12);
+    expect(dimScaleAt(narrow, narrow), 'floor still covers the whole bubble')
       .toBeCloseTo(FLOOR, 12);
     // Water the base hull would still be quieting is at FULL strength for the
-    // dazzled one — which is the point: the eye lost it, so the scope owns it.
+    // narrower one — which is the point: the eye cannot see it, so the scope owns it.
     expect(dimScaleAt(SIGHT, SIGHT)).toBeCloseTo(FLOOR, 12);
-    expect(dimScaleAt(SIGHT, dazzled)).toBe(1);
+    expect(dimScaleAt(SIGHT, narrow)).toBe(1);
   });
 
   it('...AND A WIDENED BUBBLE, in the other direction', () => {
@@ -167,7 +174,7 @@ describe('the dim mask is re-baked when the observer\'s bubble moves', () => {
     expect(baked.calls).toEqual([SIGHT]);
   });
 
-  it('re-bakes at the DAZZLED radius, and at a boon-WIDENED one, and never on a '
+  it('re-bakes at a NARROWER radius, and at a boon-WIDENED one, and never on a '
     + 'frame where nothing moved', () => {
     const { radar } = radarFor();
     const own = { x: 0, y: 0 };
@@ -175,30 +182,29 @@ describe('the dim mask is re-baked when the observer\'s bubble moves', () => {
     radar.render(own, 100, null, null);
     expect(baked.calls, 'a steady frame costs one float compare').toEqual([SIGHT]);
 
-    radar.setDazzled(true);
+    radar.setRanges(NARROW, RADAR, 6000);
     radar.render(own, 200, null, null);
-    expect(baked.calls.at(-1), 'the dazzled bubble').toBeCloseTo(DAZZLED, 12);
+    expect(baked.calls.at(-1), 'the narrower bubble').toBeCloseTo(NARROW, 12);
     expect(baked.calls).toHaveLength(2);
 
     radar.render(own, 300, null, null);
-    expect(baked.calls, 'still dazzled: no second bake').toHaveLength(2);
+    expect(baked.calls, 'nothing moved: no second bake').toHaveLength(2);
 
-    // A stat change while the dazzle holds: a dazzled bubble follows the RADAR
-    // range (1/8 of it), exactly as `fogHoleRadiusU` derives the fog hole —
-    // the wider sight buys nothing until the flash wears off.
-    radar.setRanges(SIGHT * 1.5, RADAR * 1.25, 6000);
+    // A radar-range change alone does not move the bubble (sight is a different
+    // quantity from intel range): no bake owed.
+    radar.setRanges(NARROW, RADAR * 1.25, 6000);
     radar.render(own, 400, null, null);
-    expect(baked.calls.at(-1)).toBeCloseTo(RADAR * 1.25 * CONFIG.flashShells.sightFraction, 12);
+    expect(baked.calls).toHaveLength(2);
 
-    radar.setDazzled(false);
+    radar.setRanges(SIGHT * 1.5, RADAR, 6000);
     radar.render(own, 500, null, null);
-    expect(baked.calls.at(-1), 'the flare burned out').toBeCloseTo(SIGHT * 1.5, 12);
+    expect(baked.calls.at(-1), 'the widened bubble').toBeCloseTo(SIGHT * 1.5, 12);
   });
 
   it('bakes against the SAME radius the fog hole is baked at — one bubble, never '
     + 'two ideas of it', () => {
     const { radar } = radarFor();
-    radar.setDazzled(true);
+    radar.setRanges(NARROW, RADAR, 6000);
     radar.render({ x: 0, y: 0 }, 100, null, null);
     expect(baked.calls.at(-1)).toBe(radar.sightHoleU);
   });
@@ -240,15 +246,15 @@ describe('the hull sight-boundary feather (what the fog used to do for free)', (
       .toBeCloseTo(1 - FOG_FILL_ALPHA, 4);
   });
 
-  it('SCALES WITH THE OBSERVER, like the hole it mirrors: a dazzled bubble '
-    + 'feathers earlier, an intel boon later', () => {
-    const dazzled = DAZZLED;
-    expect(hullSightSoftness(dazzled, dazzled)).toBeCloseTo(1 - FOG_FILL_ALPHA, 12);
+  it('SCALES WITH THE OBSERVER, like the hole it mirrors: a narrower bubble '
+    + 'feathers earlier, a sight boon later', () => {
+    const narrow = NARROW;
+    expect(hullSightSoftness(narrow, narrow)).toBeCloseTo(1 - FOG_FILL_ALPHA, 12);
     // A hull at 60% of the BASE bubble is untouched for a base observer and deep
-    // in the feather for a dazzled one.
+    // in the feather for a narrower one.
     const d = SIGHT * 0.6;
     expect(hullSightSoftness(d, SIGHT)).toBe(1);
-    expect(hullSightSoftness(d, dazzled)).toBeLessThan(1);
+    expect(hullSightSoftness(d, narrow)).toBeLessThan(1);
     expect(hullSightSoftness(d, SIGHT * 1.5), 'a widened bubble is clear further out').toBe(1);
   });
 
@@ -260,24 +266,34 @@ describe('the hull sight-boundary feather (what the fog used to do for free)', (
   });
 });
 
-describe('the declared z-order: hulls over returns, reticle over hulls', () => {
+// RE-BASED 2026-10-12 (Story 9.3, "smoke is paint"). The lift put `ship`
+// directly above `blip`; Eric's countermeasure ruling re-cut that: "If I'm the
+// user, I should be on top so I can see where I am. If I am not the user then
+// it should render above everything except radar paints." A cloud above
+// contact hulls with paints above the cloud means paints above contact hulls,
+// so the OWN hull moved to its own `ownShip` layer above `blip`, and contact
+// hulls (`ship`) now sit below the returns.
+describe('the declared z-order: the own hull over returns, reticle over hulls', () => {
   const at = (name: string): number => CHART_LAYER_ORDER.indexOf(name as never);
 
-  it('puts `ship` ABOVE `blip` — the whole point of the lift', () => {
-    expect(at('ship'), 'ship is charted now').toBeGreaterThanOrEqual(0);
-    expect(at('ship')).toBeGreaterThan(at('blip'));
-    expect(WORLD_LAYER_ORDER as readonly string[], 'and no longer fogged')
+  it('puts the own hull (`ownShip`) ABOVE `blip`, and every hull layer is charted', () => {
+    expect(at('ownShip')).toBeGreaterThan(at('blip'));
+    expect(at('ship'), 'contact hulls are charted').toBeGreaterThanOrEqual(0);
+    expect(WORLD_LAYER_ORDER as readonly string[], 'and not fogged')
       .not.toContain('ship');
+    expect(WORLD_LAYER_ORDER as readonly string[]).not.toContain('ownShip');
   });
 
-  it('keeps `ship` BELOW the reticle and the burst rings', () => {
-    expect(at('ship')).toBeLessThan(at('aim'));
-    expect(at('ship')).toBeLessThan(at('burstFx'));
-    expect(at('ship')).toBeLessThan(at('sweep'));
+  it('keeps both hull layers BELOW the reticle and the burst rings', () => {
+    for (const hull of ['ship', 'ownShip']) {
+      expect(at(hull)).toBeLessThan(at('aim'));
+      expect(at(hull)).toBeLessThan(at('burstFx'));
+      expect(at(hull)).toBeLessThan(at('sweep'));
+    }
   });
 
-  it('leaves it directly above `blip`, so nothing slipped in underneath', () => {
-    expect(at('ship')).toBe(at('blip') + 1);
+  it('contact hulls sit below the returns (the 2026-10-12 re-cut)', () => {
+    expect(at('ship')).toBeLessThan(at('blip'));
   });
 
   // `aim` was `ship + 1` when this file was written, asserted as "nothing

@@ -112,8 +112,12 @@ function rowText(model: RefitTooltipModel): string[] {
 describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => {
   it('covers every catalog line × class × copies held — every built line opens a panel', () => {
     // 24 lines since DECK GUN TURRET and DECK GUN BARREL folded into the
-    // CANNON ladder (2026-09-30, amendment 197); 26 before.
-    expect(LINES).toHaveLength(24);
+    // CANNON ladder (2026-09-30, amendment 197); 26 before; 23 since CHAFF left
+    // the catalog in Story 9.2 (epic-9 amendment 31); 24 since PASSIVE HEALING
+    // joined in Story 9.6 (epic-9 amendment 95); 25 since ARMOR joined in
+    // Story 9.7 (epic-9 amendments 110–117); 26 since ARMOR PIERCING joined in
+    // Story 9.9 (epic-9 amendments 145, 159).
+    expect(LINES).toHaveLength(26);
     const lines = new Set(PANELS.map((p) => p.label.split('@')[0]));
     // Only the never-dealt stub opens no panel.
     expect(LINES.filter((d) => !lines.has(d.id)).map((d) => d.id)).toEqual(['depthCharge']);
@@ -129,20 +133,25 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     const band = refitBandLayout(1366, 768).band;
     const down = PANELS.filter(({ model }) => !refitTooltipPlacement(model, band).above).map((p) => p.label);
     expect(down).toEqual([]);
-    expect(refitTooltipMaxPanelH(band.y)).toBe(340);
+    // 340 at Story 8.8; 320 while the D-prime bar stood 20px taller (Story
+    // 9.2); 303 once the six-row card grew 17px (Story 9.8); 323 since the bar
+    // went back to its one 136px row (Story 9.11).
+    expect(refitTooltipMaxPanelH(band.y)).toBe(323);
   });
 
   // CYCLE 158: a stat table is much shorter than the prose it replaced (the
-  // tallest is a seven-row weapon table, 170px), so at the floor EVERY panel
-  // opens above the band. The flip rule still stands (the DOM pins below
-  // exercise it on a shorter viewport); the split is still the water line.
-  it('opens every panel ABOVE even at the 1280x614 floor — the split is the water line', () => {
-    expect(CONTAINER_H).toBe(186);
-    const down = PANELS.filter(({ model }) => !refitTooltipPlacement(model, FLOOR_BAND.band).above);
-    expect(down.map((p) => p.label)).toEqual([]);
+  // tallest is a seven-row weapon table, 170px). STORY 9.8's six-row card is
+  // 17px taller, and with the bar back on its one 136px row (Story 9.11, epic-9
+  // amendment 151) that leaves 169px above the band at the 1280x614 floor — so
+  // the tallest tables FLIP down over the card row there (amendment 37: flip
+  // rather than clip; the clip pin below proves none is cut). The split is
+  // still the water line.
+  it('splits the panels at the 1280x614 floor by the water line — above if it fits, else down', () => {
+    expect(CONTAINER_H).toBe(169);
     for (const { label, model } of PANELS) {
       const p = refitTooltipPlacement(model, FLOOR_BAND.band);
       expect(p.above, label).toBe(p.height <= CONTAINER_H);
+      if (!p.above) continue;
       expect(p.maxH, label).toBe(CONTAINER_H);
       expect(p.offset, label).toBe(0);
     }
@@ -178,10 +187,13 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     expect(clipped).toEqual([]);
   });
 
-  it('leaves real headroom at the floor — the pin is not on the boundary', () => {
-    const worst = Math.max(...PANELS.map(({ model }) => refitTooltipMetrics(model, CONTAINER_H).height));
-    expect(worst).toBe(170);
-    expect(CONTAINER_H - worst).toBeGreaterThanOrEqual(2);
+  it('leaves real headroom above the band at 1366x768 — the pin is not on the boundary', () => {
+    const room = refitTooltipMaxPanelH(refitBandLayout(1366, 768).band.y);
+    const worst = Math.max(...PANELS.map(({ model }) => refitTooltipMetrics(model, room).height));
+    // 187 since Story 9.9 (epic-9 amendment 159): a ship ladder's hover gained
+    // its eighth row, ARMOR PIERCING — one row box (17 px) over the 170 before.
+    expect(worst).toBe(187);
+    expect(room - worst).toBeGreaterThanOrEqual(2);
   });
 
   it('models each stat row as ONE line box, one rowGap before the block', () => {
@@ -252,7 +264,7 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
   // (BROADSIDE and HEAVY TORPEDO, 261px) are taller than the floor band itself,
   // so flipped DOWN they are nudged (-17px) rather than seated at the band's
   // top edge — which is not the placement these pins are about.
-  const OFFER = ['phosphorShells', 'radarSweep', 'armor', 'foulingMines'];
+  const OFFER = ['phosphorShells', 'radarSweep', 'hullPoints', 'foulingMines'];
 
   function open(): { menu: UpgradeMenu; cards: HTMLButtonElement[]; view: OfferView } {
     const you = {
@@ -488,7 +500,7 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
   it('paints the KIND word and the resting edge in the kind\'s colour; armed stays amber', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, pts: 1, offer: ['heavyTorpedo', 'deckGun', 'armor', 'hullRepair'],
+      cls: 'torpedoBoat' as const, pts: 1, offer: ['heavyTorpedo', 'deckGun', 'hullPoints', 'hullRepair'],
       boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
@@ -620,7 +632,7 @@ describe('the hover panel\'s consumable shape line', () => {
 
   it('fits inside the panel, at its shipped width (amendment 42)', () => {
     expect(REFIT_TIP.width).toBe(300);
-    for (const id of ['hullRepair', 'shieldBlock', 'smokeScreen', 'chaff', 'decoyBuoy']) {
+    for (const id of ['hullRepair', 'shieldBlock', 'countermeasure', 'decoyBuoy']) {
       const model = refitTooltipModel({ id, kind: 'consumable' }, boonName(id), consumableStatRows(id), 4);
       expect(refitTooltipWidestToken(model), id).toBeLessThanOrEqual(refitTooltipInnerWidth());
       // VERTICALLY the panel is measured against the placement it would take.

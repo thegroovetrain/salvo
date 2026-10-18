@@ -1,13 +1,13 @@
 // THE CLASS SHIFTS (Story 8.15, Eric rulings 2026-09-21/28, epic-8 amendments
 // 89(c) and 97–102) — slot 1 is a FIXED ability per hull: SPEED BOOST on the
-// Torpedo Boat (boost.test.ts), INSTANT RELOAD on the Mine Layer, DAMAGE CUT on
+// Torpedo Boat (boost.test.ts), INSTANT RELOAD on the Mine Layer, HUNKER (was DAMAGE CUT until Story 9.9) on
 // the Battleship. This file pins:
 //   * slot 1 per hull, from `classShift`, on every life boundary;
 //   * INSTANT RELOAD: finishes exactly ONE reload per running weapon slot
 //     (cannon / torpedo / mines; the MG magazine fills), the belt and the
 //     Shift itself untouched, a 60 s cooldown (Eric 2026-10-02, amendment
 //     232; was 45 s), `cooling` on a second press;
-//   * DAMAGE CUT: an 8 s window on a 30 s cooldown, `damageCutUntil` on the
+//   * HUNKER: a 10 s window (epic-9 amendment 88; was 8 s) on a 30 s cooldown, `hunkerUntil` on the
 //     own frame only — never a contact or spectator field;
 //   * THE NINE-COMBO PIN: every hull × every gun in a World mounts the gun's
 //     module in slot 0, lands ONE hit for the CONFIG damage (5 direct / 12
@@ -60,7 +60,7 @@ function pressShift(w: World, id: string, seq: number): void {
 // ---------- slot 1 per hull ---------------------------------------------------
 
 describe('slot 1 is the hull\'s CLASS SHIFT (amendment 89(c))', () => {
-  it.each([['torpedoBoat', 'boost'], ['mineLayer', 'instantReload'], ['battleship', 'damageCut']] as const)(
+  it.each([['torpedoBoat', 'boost'], ['mineLayer', 'instantReload'], ['battleship', 'hunker']] as const)(
     '%s fits %s in slot 1 with a full single charge, and keeps it across redeploy and respawn',
     (hull, shift) => {
       const w = bareWorld();
@@ -91,8 +91,8 @@ describe('slot 1 is the hull\'s CLASS SHIFT (amendment 89(c))', () => {
       w.applyCard(bs, 'reload');
     }
     expect(ml.stats.equipment.instantReload.reloadMs).toBe(45000); // 60000 × 0.75
-    expect(bs.stats.equipment.damageCut.reloadMs).toBe(22500);
-    expect(bs.stats.equipment.damageCut.durationMs).toBe(8000); // the window is not a reload
+    expect(bs.stats.equipment.hunker.reloadMs).toBe(22500);
+    expect(bs.stats.equipment.hunker.durationMs).toBe(10000); // the window is not a reload (10 s — epic-9 amendments 86–88 / 110–117, Story 9.7)
   });
 });
 
@@ -184,14 +184,17 @@ describe('INSTANT RELOAD — the Mine Layer\'s Shift (amendments 97–98)', () =
   });
 });
 
-// ---------- DAMAGE CUT --------------------------------------------------------
+// ---------- HUNKER --------------------------------------------------------
 
-describe('DAMAGE CUT — the Battleship\'s Shift (amendments 99–102)', () => {
-  it('opens an 8 s window at server apply time on a 30 s cooldown, and halves the next blow', () => {
+describe('HUNKER — the Battleship\'s Shift (amendments 99–102)', () => {
+  // Re-based by Story 9.7 (epic-9 amendments 86–88 / 110–117): the window is 10 s and the cut is +5
+  // temporary Armor — at Tier 0 that is Armor 5 → ×0.5 (Story 9.9: +100 at K 100 → E 100,
+  // still ×0.5, epic-9 amendment 144), so 15 → 7 still holds.
+  it('opens a 10 s window at server apply time on a 30 s cooldown; at Tier 0 the next blow takes E 100 → ×0.5 (amendment 144)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 'battleship');
     pressShift(w, 'a', 1);
-    expect(a.damageCutUntil).toBe(w.now + 8000);
+    expect(a.hunkerUntil).toBe(w.now + 10000);
     expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: 30000 });
     const gate = w as unknown as { applyDamage(v: ShipRecord, n: number, s: 'shell', by: string): void };
     gate.applyDamage(a, 15, 'shell', 'b');
@@ -199,40 +202,48 @@ describe('DAMAGE CUT — the Battleship\'s Shift (amendments 99–102)', () => {
     // A second press inside the cooldown: no-ammo, the window not extended.
     pressShift(w, 'a', 2);
     expect(w.denialsFor('a')).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2 }]);
-    expect(a.damageCutUntil).toBe(w.now - DT + 8000);
+    expect(a.hunkerUntil).toBe(w.now - DT + 10000);
     // After the window: full damage.
-    for (let i = 0; i < 160; i++) w.step();
-    expect(w.now).toBeGreaterThanOrEqual(a.damageCutUntil);
+    for (let i = 0; i < 10000 / DT; i++) w.step();
+    expect(w.now).toBeGreaterThanOrEqual(a.hunkerUntil);
     gate.applyDamage(a, 15, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 7 - 15);
   });
 
-  it('`damageCutUntil` rides the OWN frame only — never a contact, an event, or an enemy\'s frame; omitted until a cut is opened', () => {
+  it('`hunkerUntil` rides the OWN frame only — never a contact, an event, or an enemy\'s frame; omitted until a cut is opened', () => {
     const w = bareWorld();
     const a = place(w, 'a', 'battleship');
     const b = place(w, 'b', 'torpedoBoat', 'deckGun', 100, 0); // inside a's sight
-    expect('damageCutUntil' in buildFrame(w, 'a').you!).toBe(false); // nothing opened yet
+    expect('hunkerUntil' in buildFrame(w, 'a').you!).toBe(false); // nothing opened yet
     pressShift(w, 'a', 1);
     const own = buildFrame(w, 'a');
-    expect(own.you!.damageCutUntil).toBe(a.damageCutUntil);
+    expect(own.you!.hunkerUntil).toBe(a.hunkerUntil);
     const enemy = buildFrame(w, 'b');
     expect(enemy.contacts.some((c) => c.id === 'a')).toBe(true);
-    expect(JSON.stringify({ ...enemy, you: undefined })).not.toContain('damageCutUntil');
-    expect('damageCutUntil' in enemy.you!).toBe(false); // b never opened one
-    expect(JSON.stringify(buildFrame(w, 'b', 'finished'))).not.toContain('damageCutUntil'); // spectator view
-    expect(b.damageCutUntil).toBe(0);
+    expect(JSON.stringify({ ...enemy, you: undefined })).not.toContain('hunkerUntil');
+    expect('hunkerUntil' in enemy.you!).toBe(false); // b never opened one
+    expect(JSON.stringify(buildFrame(w, 'b', 'finished'))).not.toContain('hunkerUntil'); // spectator view
+    expect(b.hunkerUntil).toBe(0);
   });
 });
 
 // ---------- THE NINE-COMBO PIN ------------------------------------------------
 
 describe('every hull × every gun (the nine-combo pin)', () => {
-  const EXPECTED_DAMAGE: Record<GunId, number> = { deckGun: 16, machineGun: 5, flak: 12 };
+  // Each gun's BASE damage per shell, read off CONFIG. The click lands on the
+  // target's centre at 300 u (inside half of every gun's reach — no range
+  // attenuation), so the flak rim (D at the centre) takes nothing off. The
+  // cannon fires its TWO barrels per click (Story 9.12), both on the target.
+  const EXPECTED_DAMAGE: Record<GunId, number> = {
+    deckGun: CONFIG.gun.damage,
+    machineGun: CONFIG.machineGun.damage,
+    flak: CONFIG.flak.damage,
+  };
   const EXPECTED_FAMILY: Record<GunId, string> = { deckGun: 'cannon', machineGun: 'mg', flak: 'flak' };
 
   for (const hull of SHIP_CLASS_IDS) {
     for (const gun of GUN_IDS) {
-      it(`${hull} × ${gun}: slot 0 mounts ${MOUNTED_GUN[gun]}, one hit lands ${EXPECTED_DAMAGE[gun]}, reveals w:'${EXPECTED_FAMILY[gun]}', slot 1 holds ${classShift(hull)}`, () => {
+      it(`${hull} × ${gun}: slot 0 mounts ${MOUNTED_GUN[gun]}, each shell lands ${EXPECTED_DAMAGE[gun]}, reveals w:'${EXPECTED_FAMILY[gun]}', slot 1 holds ${classShift(hull)}`, () => {
         const w = bareWorld();
         const a = place(w, 'a', hull, gun);
         const target = place(w, 't', 'battleship', 'deckGun', 300, 0, Math.PI / 2); // broadside-on at 300 u
@@ -247,10 +258,11 @@ describe('every hull × every gun (the nine-combo pin)', () => {
           w.step();
           log.push(...w.tickEvents);
         }
-        expect(target.hp).toBe(target.stats.maxHp - EXPECTED_DAMAGE[gun]);
-        expect(log.filter((e) => e.k === 'shell')).toHaveLength(1);
+        const shells = gun === 'deckGun' ? a.stats.equipment.gun.barrels : 1; // one click / one held sample
+        expect(target.hp).toBe(target.stats.maxHp - shells * EXPECTED_DAMAGE[gun]);
+        expect(log.filter((e) => e.k === 'shell')).toHaveLength(shells);
         for (const e of log) if (e.k === 'shell') expect(e.w).toBe(EXPECTED_FAMILY[gun]);
-        expect(log.filter((e) => e.k === 'hc')).toHaveLength(1);
+        expect(log.filter((e) => e.k === 'hc')).toHaveLength(shells);
       });
     }
   }

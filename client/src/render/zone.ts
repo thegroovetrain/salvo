@@ -21,7 +21,7 @@
 //      (UX-DR5's edge clause — the `storm` fill is 2.87:1, below the 3:1 graphics
 //      threshold, so the EDGE, never the fill, carries the legibility).
 //      Both strokes are SCREEN-LOCKED: the world-space width is divided by the
-//      camera zoom, so a 2px edge stays 2px across the shipped 0.5×–1.5× range
+//      camera zoom, so a 2px edge stays 2px across the whole user-zoom range
 //      instead of thinning to a hairline when the player zooms out.
 //   2. SCREEN vignette (hudRoot): a pre-baked dimensional-purple radial-gradient
 //      sprite whose alpha pulses while the own ship is out of the zone — and
@@ -594,7 +594,7 @@ export class Zone {
   /** The X on the collapse point — updateTarget's sibling, throttled the same
    *  way. BOTH the arm length and the stroke width are screen-locked (divided
    *  by the camera zoom exactly as every zone edge is), so the mark is the same
-   *  size on screen across the 0.5×–1.5× range instead of swelling into a giant
+   *  size on screen across the whole zoom range instead of swelling into a giant
    *  cross when you zoom out. The arm length is what the throttle keys on,
    *  because it is the only part of the geometry that moves. */
   private updateMark(ring: ZoneRing, zoom: number, flash: number): void {

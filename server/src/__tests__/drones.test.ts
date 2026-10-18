@@ -27,11 +27,13 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import {
+  SLOT_COUNT,
   CONFIG,
   DEFAULT_HORN_ID,
   dist,
   droneHullOf,
   fleetHullIds,
+  hullBumper,
   fleetLevels,
   isAfloat,
   isSinking,
@@ -40,9 +42,11 @@ import {
   type ZoneTimeline,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { composeRudder } from '../game/drones.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import { isFleetHull } from '../game/participants.js';
 import { circleIsland } from './islandFixture.js';
+import { insideIntelDisc } from '../game/spawn.js';
 
 const DT = CONFIG.tick.simDtMs;
 // One sinking window in ticks: since the amendment-17 REVERSAL (Eric veto
@@ -108,11 +112,12 @@ describe('fleet hulls — inputs are the only interface', () => {
   it('never activates an ability or honks — actSeq/actSlot/hornSeq are structurally constant', () => {
     const w = bareWorld(7);
     const f1 = fleetShip(w, 'f1', 'large', 0, 0);
-    // THE STRUCTURAL REASON, restated for the nine-slot loadout (Story 8.5):
-    // a fleet hull fits the GUN IN SLOT 0 AND EIGHT EMPTIES — no boost in
-    // slot 1 (amendment 24), so there is no ability for a press to reach.
+    // THE STRUCTURAL REASON, restated for the SLOT_COUNT loadout (Story 8.5;
+    // eleven slots since Story 9.2): a fleet hull fits the GUN IN SLOT 0 AND
+    // NOTHING ELSE — no boost in slot 1 (amendment 24), so there is no
+    // ability for a press to reach.
     expect(f1.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', null, null, null, null, null, null, null, null,
+      'gun', ...new Array<null>(SLOT_COUNT - 1).fill(null),
     ]);
     captain(w, 'cap', 100, 0);
     shellHit(w, f1, 'cap'); // aggro it, so the hull is in its BUSIEST state
@@ -227,7 +232,79 @@ describe('fleet hulls — roving', () => {
     }
   });
 
-  it('heads for the LIVE ring centre when caught outside the safe ring', () => {
+  it('HULL AVOIDANCE (Story 9.5, amendment 78): a hull ahead within hullLookaheadU biases the rudder away; drones never ram', () => {
+    // The drone sits OUTSIDE the ring pointed straight at its centre, so the
+    // track term is exactly zero and only an avoidance term can move the
+    // rudder — the ring-escape override outranks waypoints and targets.
+    const build = (hullAt: { x: number; y: number } | null): number => {
+      const w = bareWorld(9, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 1 });
+      const d = fleetShip(w, 'f', 'medium', 0, 0);
+      w.startZone();
+      for (let t = 0; t < 10; t++) w.step();
+      const ring = w.zoneLiveRing;
+      d.state.x = ring.cx + w.map.radius * 0.5;
+      d.state.y = ring.cy;
+      d.state.heading = Math.PI; // bow at the ring centre
+      d.state.speed = 0;
+      if (hullAt !== null) captain(w, 'cap', d.state.x + hullAt.x, d.state.y + hullAt.y);
+      w.step();
+      return w.inputs.get('f')!.rudder;
+    };
+    expect(CONFIG.bots.hullLookaheadU).toBeGreaterThan(70);
+    expect(build(null)).toBe(0);
+    expect(build({ x: -60, y: -20 })).toBeLessThan(0); // ahead (−x), to port of a hull heading π -> steer starboard
+    expect(build({ x: -60, y: 20 })).toBeGreaterThan(0); // to starboard -> steer port
+    expect(build({ x: 60, y: -20 })).toBe(0); // astern: nothing
+    expect(build({ x: -(CONFIG.bots.hullLookaheadU + 50), y: -20 })).toBe(0); // beyond the lookahead
+  });
+
+  it('HULL AVOIDANCE (review gate): a fleet-mate and the hunted target are rounded only inside the bumper; a stranger and a sinking WRECK at the full lookahead', () => {
+    // The same geometry as above: outside the ring, bow at its centre (−x),
+    // track term exactly zero, so only an avoidance term moves the rudder.
+    const run = (setup: (w: World, d: ShipRecord) => void): number => {
+      const w = bareWorld(9, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 1 });
+      const d = fleetShip(w, 'f', 'medium', 0, 0);
+      w.startZone();
+      for (let t = 0; t < 10; t++) w.step();
+      const ring = w.zoneLiveRing;
+      d.state.x = ring.cx + w.map.radius * 0.5;
+      d.state.y = ring.cy;
+      d.state.heading = Math.PI;
+      d.state.speed = 0;
+      setup(w, d);
+      w.step();
+      return w.inputs.get('f')!.rudder;
+    };
+    const mate = hullBumper(droneHullOf('medium'), droneHullOf('medium'));
+    const prey = hullBumper(droneHullOf('medium'), 'torpedoBoat');
+    expect(mate).toBeLessThan(CONFIG.bots.hullLookaheadU);
+    // A FLEET-MATE 120 u ahead to port: inside the probe, outside the bumper — no bias.
+    expect(run((w, d) => void fleetShip(w, 'f2', 'medium', d.state.x - 120, d.state.y - 20, 1))).toBe(0);
+    // The same mate inside the bumper: rounded.
+    expect(run((w, d) => void fleetShip(w, 'f2', 'medium', d.state.x - (mate - 20), d.state.y - 20, 1))).toBeLessThan(0);
+    // ANOTHER fleet's hull at 120 u is a stranger: the full probe.
+    expect(run((w, d) => void fleetShip(w, 'g1', 'medium', d.state.x - 120, d.state.y - 20, 2))).toBeLessThan(0);
+    // The HUNTED TARGET 120 u ahead: no bias; inside the bumper: rounded.
+    expect(run((w, d) => {
+      const c = captain(w, 'cap', d.state.x - 120, d.state.y - 20);
+      shellHit(w, d, c.id);
+      expect(w.drones.targetOf('f')).toBe('cap');
+    })).toBe(0);
+    expect(run((w, d) => {
+      captain(w, 'cap', d.state.x - (prey - 20), d.state.y - 20);
+      shellHit(w, d, 'cap');
+    })).toBeLessThan(0);
+    // A SINKING WRECK 60 u ahead is solid (amendment 82): avoided like any hull.
+    expect(run((w, d) => {
+      captain(w, 'cap', d.state.x - 60, d.state.y - 20);
+      w.sinkShip('cap');
+    })).toBeLessThan(0);
+  });
+
+  // RE-STATED (Story 9.13, epic-9 amendment 192): this pinned "beeline for
+  // the live ring centre". The contract is that a drone caught outside the
+  // safe ring makes way back INTO it; the route it takes is the nav layer's.
+  it('makes way back into the LIVE ring when caught outside the safe ring', () => {
     const w = bareWorld(9, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 1 });
     const d = fleetShip(w, 'f', 'medium', 0, 0);
     w.startZone();
@@ -242,6 +319,84 @@ describe('fleet hulls — roving', () => {
     const before = ringDist(d);
     for (let t = 0; t < 300; t++) w.step();
     expect(ringDist(d)).toBeLessThan(before - 100);
+  });
+});
+
+describe('fleet helm — Story 9.13 (epic-9 amendments 191, 192)', () => {
+  it('composeRudder: avoidance claims the helm in proportion to its pressure (the bots\' helmLeft)', () => {
+    // A saturated track against one island term turns AWAY from the island;
+    // the plain sum it replaced (1 + −0.8 = +0.2) turned toward it.
+    expect(composeRudder(1, -0.8)).toBeLessThan(0);
+    expect(composeRudder(-1, 0.8)).toBeGreaterThan(0);
+    // No avoidance: the track term alone. Two terms' worth: avoidance alone.
+    expect(composeRudder(0.4, 0)).toBeCloseTo(0.4);
+    expect(composeRudder(1, -1.6)).toBe(-1);
+  });
+
+  it('a drone whose track is saturated toward an island ahead to port turns AWAY from the land', () => {
+    // Outside the ring, the ring-escape bearing lies 1 rad to port (track
+    // saturated at +1); a small island sits just ahead on the port bow.
+    const w = bareWorld(9, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 1 });
+    const d = fleetShip(w, 'f', 'medium', 0, 0);
+    w.startZone();
+    for (let t = 0; t < 10; t++) w.step();
+    const ring = w.zoneLiveRing;
+    d.state.x = ring.cx + w.map.radius * 0.5;
+    d.state.y = ring.cy;
+    const h = Math.PI - 1;
+    d.state.heading = h;
+    d.state.speed = 0;
+    const fx = Math.cos(h);
+    const fy = Math.sin(h);
+    // port normal = (−fy, fx); the island 70 u ahead and 30 u to port.
+    w.map.islands.push(circleIsland(d.state.x + fx * 70 - fy * 30, d.state.y + fy * 70 + fx * 30, 15));
+    w.step();
+    expect(w.inputs.get('f')!.rudder).toBeLessThan(0); // starboard: away from the port-bow coast
+  });
+
+  it('the un-beach trip arms on the sim\'s own land contact held for CONFIG.bots.stuckMs, even above STUCK_SPEED', () => {
+    const run = (landContact: boolean, ticks: number): number[] => {
+      const w = bareWorld(5);
+      const d = fleetShip(w, 'f', 'medium', 0, 0);
+      const throttles: number[] = [];
+      for (let t = 0; t < ticks; t++) {
+        // Grinding a coast at the grounding cap: 8 u/s, pressed into land.
+        d.state.speed = 8;
+        d.landContact = landContact;
+        w.step();
+        throttles.push(w.inputs.get('f')!.throttle);
+      }
+      return throttles;
+    };
+    const tripTicks = Math.ceil(CONFIG.bots.stuckMs / DT);
+    const grounded = run(true, tripTicks + 2);
+    expect(grounded.slice(0, tripTicks - 1).every((th) => th > 0)).toBe(true); // not before the hold
+    expect(grounded.slice(tripTicks - 1).some((th) => th < 0)).toBe(true); // astern once it is held
+    // The same speed with no land contact never trips.
+    expect(run(false, tripTicks * 3).every((th) => th > 0)).toBe(true);
+  });
+
+  it('a waypoint the fleet makes no progress toward is re-picked after the timeout, not before', () => {
+    const w = bareWorld(11);
+    const d = fleetShip(w, 'f', 'medium', 0, 0);
+    w.step();
+    const wp = w.drones.waypointOf('f')!;
+    expect(dist(d.state, wp)).toBeGreaterThan(200); // a real leg, not an instant reach
+    const ticks = Math.ceil(CONFIG.bots.nav.waypointTimeoutMs / DT);
+    let changedAt = -1;
+    for (let t = 1; t <= ticks + 5 && changedAt < 0; t++) {
+      // Held in place (an island it cannot round): no progress at all. The
+      // reported speed stays above STUCK_SPEED so the slow un-beach trip
+      // (which steers astern and skips the station read) stays out of it.
+      d.state.x = 0;
+      d.state.y = 0;
+      d.state.speed = 5;
+      w.step();
+      const now = w.drones.waypointOf('f')!;
+      if (now.x !== wp.x || now.y !== wp.y) changedAt = t;
+    }
+    expect(changedAt).toBeGreaterThanOrEqual(ticks - 1);
+    expect(changedAt).toBeGreaterThan(0);
   });
 });
 
@@ -627,7 +782,53 @@ describe('fleet waves — timing and exact composition (amendment 33)', () => {
   });
 });
 
+/** THE DENIAL DISC's radius is `CONFIG.vision.dropout.startU` (Eric
+ *  2026-10-13, Story 9.8: deny inside the dropout start, not radar). The
+ *  tests below that need a disc swallowing the ocean (or 90 % of the anchor
+ *  sampling radius) used to lever one captain's `stats.radarRange`; they now
+ *  lever the dial itself, restored in `finally`. */
+function withDenialRadius<T>(r: number, fn: () => T): T {
+  const dropout = CONFIG.vision.dropout as { startU: number };
+  const saved = dropout.startU;
+  dropout.startU = r;
+  try {
+    return fn();
+  } finally {
+    dropout.startU = saved;
+  }
+}
+
+/** The private derivation and the private anchor pick, reached for the
+ *  directed denial pins (the wave scheduler hides the anchor). */
+type AnchorSeams = {
+  captainDiscs(): { x: number; y: number; r: number }[];
+  fleetAnchor(): { x: number; y: number; fallback: boolean };
+};
+
 describe('fleet waves — the anchor rule (amendment 37)', () => {
+  it('DENY INSIDE THE DROPOUT START, NOT RADAR (Eric 2026-10-13, Story 9.8): each captain denies exactly startU — startU + 1 u is legal water', () => {
+    const w = bareWorld(29);
+    const START = CONFIG.vision.dropout.startU;
+    const cap = captain(w, 'cap', 0, 0);
+    expect(cap.stats.radarRange).toBeGreaterThan(START + 1); // premise: the old radar disc would deny startU + 1
+    const discs = (w as unknown as AnchorSeams).captainDiscs();
+    expect(discs).toEqual([{ x: cap.state.x, y: cap.state.y, r: START }]);
+    expect(insideIntelDisc({ x: cap.state.x + START, y: cap.state.y }, discs)).toBe(true);
+    expect(insideIntelDisc({ x: cap.state.x + START + 1, y: cap.state.y }, discs)).toBe(false);
+    // Through the real anchor pick: never within startU of any captain, and
+    // never the fallback on an ocean with room.
+    for (let i = 0; i < 6; i++) {
+      const a = (i * Math.PI * 2) / 6;
+      captain(w, `c${i}`, Math.cos(a) * 1_800, Math.sin(a) * 1_800);
+    }
+    const caps = [...w.ships.values()];
+    for (let k = 0; k < 200; k++) {
+      const anchor = (w as unknown as AnchorSeams).fleetAnchor();
+      expect(anchor.fallback).toBe(false);
+      for (const c of caps) expect(dist(anchor, c.state)).toBeGreaterThan(START);
+    }
+  });
+
   it('the anchor lands OUTSIDE every captain intel disc, and inside the live ring', () => {
     const w = bareWorld(31);
     // A ring of captains, none of whom may see the arrival.
@@ -643,11 +844,12 @@ describe('fleet waves — the anchor rule (amendment 37)', () => {
     // The ANCHOR is what the rule constrains, and it is not stored — but every
     // hull sits within spreadU of it, so a hull deep inside a captain's disc
     // would have to have come from an anchor inside it too. Assert the strong,
-    // checkable consequence: no hull within (radar - spread) of a captain.
+    // checkable consequence: no hull within (denial − spread) of a captain —
+    // the denial disc is startU (Eric 2026-10-13, Story 9.8), not radar.
     const slack = CONFIG.fleet.spreadU;
     for (const s of hulls) {
       for (const c of caps) {
-        expect(dist(s.state, c.state)).toBeGreaterThan(c.stats.radarRange - slack);
+        expect(dist(s.state, c.state)).toBeGreaterThan(CONFIG.vision.dropout.startU - slack);
       }
     }
     const ring = w.zoneLiveRing;
@@ -673,12 +875,17 @@ describe('fleet waves — the anchor rule (amendment 37)', () => {
       beatMs: 60000,
       ringSteps: [1 / 3, 2 / 3],
       offsetCap: 1.0,
-      terminalSightFactor: 2, // terminal ring = 2 × sight = 660u
+      // The terminal ring sits at 90 % of the floor-governs bound below (the
+      // guard's own expression), DERIVED rather than a sight multiple: the
+      // twelfths ladder (Story 9.8, amendment 103) moved 2 × sight from 660 u
+      // to 1000 u, past the bound, which stopped this test exercising the
+      // floor at all.
+      terminalSightFactor: (0.9 * CONFIG.fleet.spreadU) / 0.65 / CONFIG.vision.sight,
     };
     const w = bareWorld(41, smallRing);
     // Full closure for a three-group timeline: every wave beat has passed, so
     // all of them land together into the terminal ring.
-    armWaveClock(w, smallRing.beatMs * 4 * (smallRing.ringSteps.length + 1));
+    armWaveClock(w, smallRing.beatMs * 4 * (smallRing.ringSteps!.length + 1));
     w.step();
 
     const ring = w.zoneLiveRing;
@@ -697,11 +904,14 @@ describe('fleet waves — the anchor rule (amendment 37)', () => {
 
   it('no feasible anchor: the wave RETRIES, then arrives anyway at the max-min point AND LOGS', () => {
     const w = bareWorld(37);
-    const cap = captain(w, 'cap', 0, 0);
-    // One captain whose intel disc swallows the entire ocean: every sampled
-    // anchor is denied, forever. The wave must still arrive.
-    cap.stats = { ...cap.stats, radarRange: w.map.radius * 10 };
+    captain(w, 'cap', 0, 0);
+    // One captain whose denial disc swallows the entire ocean: every sampled
+    // anchor is denied, forever. The wave must still arrive. (The disc is
+    // startU since Eric 2026-10-13, so the dial is levered, not radarRange.)
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const dropout = CONFIG.vision.dropout as { startU: number };
+    const savedStart = dropout.startU;
+    dropout.startU = w.map.radius * 10;
     try {
       armWaveClock(w, CONFIG.fleet.waves[0].atMs);
       w.step();
@@ -713,6 +923,7 @@ describe('fleet waves — the anchor rule (amendment 37)', () => {
       const lines = log.mock.calls.map((c) => String(c[0]));
       expect(lines.filter((l) => l.includes('fleet.spawnFallback'))).toHaveLength(CONFIG.fleet.waves[0].fleets);
     } finally {
+      dropout.startU = savedStart;
       log.mockRestore();
     }
   });
@@ -732,35 +943,38 @@ describe('fleet waves — the anchor rule (amendment 37)', () => {
       const ring = w.zoneLiveRing;
       const cap = captain(w, 'cap', ring.cx, ring.cy);
       const sampleMax = ring.r - CONFIG.fleet.spreadU;
-      cap.stats = { ...cap.stats, radarRange: sampleMax * 0.9 };
-      armWaveClock(w, CONFIG.fleet.waves[0].atMs);
-      w.step();
-      const hulls = fleetHulls(w);
+      const DENY = sampleMax * 0.9; // the denial disc (startU since Eric 2026-10-13), levered
+      const hulls = withDenialRadius(DENY, () => {
+        armWaveClock(w, CONFIG.fleet.waves[0].atMs);
+        w.step();
+        return fleetHulls(w);
+      });
       expect(hulls.length).toBe(CONFIG.fleet.waves[0].fleets * fleetHullIds().length);
       let nearest = Infinity;
       for (const s of hulls) {
         const d = dist(s.state, cap.state);
-        expect(d).toBeGreaterThan(cap.stats.radarRange); // the whole point
+        expect(d).toBeGreaterThan(DENY); // the whole point
         nearest = Math.min(nearest, d);
       }
-      // NON-VACUITY: the spread disc really does reach into the intel disc —
+      // NON-VACUITY: the spread disc really does reach into the denial disc —
       // some hull ends up hard against its edge, which is exactly where the
       // pre-fix scatter would have crossed it.
-      expect(nearest).toBeLessThan(cap.stats.radarRange + CONFIG.fleet.spreadU);
+      expect(nearest).toBeLessThan(DENY + CONFIG.fleet.spreadU);
     }
   });
 
   it('a wave whose anchor frees up mid-retry spawns WITHOUT the fallback log', () => {
     const w = bareWorld(41);
-    const cap = captain(w, 'cap', 0, 0);
-    cap.stats = { ...cap.stats, radarRange: w.map.radius * 10 };
+    captain(w, 'cap', 0, 0);
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
-      armWaveClock(w, CONFIG.fleet.waves[0].atMs);
-      w.step();
+      withDenialRadius(w.map.radius * 10, () => {
+        armWaveClock(w, CONFIG.fleet.waves[0].atMs);
+        w.step();
+      });
       expect(fleetHulls(w)).toHaveLength(0);
-      cap.stats = { ...cap.stats, radarRange: CONFIG.vision.radar }; // the sky clears
-      w.step();
+      w.step(); // the sky clears: the shipped startU disc
+
       expect(fleetHulls(w)).toHaveLength(CONFIG.fleet.waves[0].fleets * fleetHullIds().length);
       expect(log.mock.calls.map((c) => String(c[0])).some((l) => l.includes('fleet.spawnFallback'))).toBe(false);
     } finally {

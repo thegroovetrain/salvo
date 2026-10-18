@@ -59,17 +59,18 @@ describe('cardViewModel — pips, keys, loadout', () => {
     expect(cardViewModel('mineLayer').pips.map((p) => p.filled)).toEqual([3, 3, 3]);
   });
 
-  it('labels the three pip rows SPEED / ARMOR / TURNING', () => {
-    // ARMOR since 2026-08-21 (Eric: *"on ship select, change 'toughness' to
+  it('labels the three pip rows SPEED / HULL / TURNING', () => {
+    // HULL since Story 9.6 (Eric 2026-10-13, epic-9 amendment 93 — the hp
+    // ladder's printed name); ARMOR from 2026-08-21 (Eric: *"on ship select, change 'toughness' to
     // 'armor' so the text fits better"*). A COPY ruling only — the anchor key
     // it reads (`CLIENT_CONFIG.home.pip.toughness`), the ladder and the fills
     // are all untouched, and the row still reports hp. Same shape as the KILL
     // LEADER rename, which moved the player-facing words and left every
     // internal identifier alone.
-    expect(cardViewModel('torpedoBoat').pips.map((p) => p.label)).toEqual(['SPEED', 'ARMOR', 'TURNING']);
+    expect(cardViewModel('torpedoBoat').pips.map((p) => p.label)).toEqual(['SPEED', 'HULL', 'TURNING']);
     for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
       expect(cardViewModel(cls).pips.map((p) => p.label), `${cls} agrees`)
-        .toEqual(['SPEED', 'ARMOR', 'TURNING']);
+        .toEqual(['SPEED', 'HULL', 'TURNING']);
     }
   });
 
@@ -120,7 +121,7 @@ describe('cardViewModel — pips, keys, loadout', () => {
     // through `classShift` so the card cannot disagree with slot 1.
     expect(cardViewModel('torpedoBoat').loadout).toEqual([{ key: 'SPECIAL', value: 'SPEED BOOST' }]);
     expect(cardViewModel('mineLayer').loadout).toEqual([{ key: 'SPECIAL', value: 'INSTANT RELOAD' }]);
-    expect(cardViewModel('battleship').loadout).toEqual([{ key: 'SPECIAL', value: 'DAMAGE CUT' }]);
+    expect(cardViewModel('battleship').loadout).toEqual([{ key: 'SPECIAL', value: 'HUNKER' }]);
     for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
       expect(cardViewModel(cls).loadout[0].value, cls).toBe(SPECIAL_NAMES[classShift(cls)]);
     }
@@ -773,7 +774,7 @@ describe('the Color Hoist is displayed in hue order', () => {
 
 describe('the SPECIAL row and the gun chips — words and fit (Story 8.15)', () => {
   it('names the three Shifts and the three guns exactly as ruled', () => {
-    expect(SPECIAL_NAMES).toEqual({ boost: 'SPEED BOOST', instantReload: 'INSTANT RELOAD', damageCut: 'DAMAGE CUT' });
+    expect(SPECIAL_NAMES).toEqual({ boost: 'SPEED BOOST', instantReload: 'INSTANT RELOAD', hunker: 'HUNKER' });
     expect(GUN_IDS.map((id) => GUN_CHIP_LABELS[id])).toEqual(['CANNON', 'MACHINE GUN', 'FLAK']);
   });
 
@@ -827,7 +828,7 @@ describe('openClassSelect — the gun pick (Story 8.15)', () => {
     openClassSelect({ initial: 'torpedoBoat', hoist: new ColorHoist(), blurTarget, onConfirm: vi.fn(), onClose: vi.fn() });
     const [tb, bs, ml] = cards();
     expect(tb.textContent).toContain('SPEED BOOST');
-    expect(bs.textContent).toContain('DAMAGE CUT');
+    expect(bs.textContent).toContain('HUNKER');
     expect(ml.textContent).toContain('INSTANT RELOAD');
     for (const card of cards()) {
       expect(chipsOf(card).map((c) => c.textContent)).toEqual(['CANNON', 'MACHINE GUN', 'FLAK']);

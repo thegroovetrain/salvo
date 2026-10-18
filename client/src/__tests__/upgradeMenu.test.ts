@@ -7,7 +7,7 @@
 // release predicate + its new outcome classifier. jsdom.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { CATALOG, CONFIG, MULLIGAN_CHOICE, type OwnShip } from '@salvo/shared';
+import { CATALOG, CONFIG, CONSUMABLE_KEY_ORDER, MULLIGAN_CHOICE, type OwnShip } from '@salvo/shared';
 import {
   REDRAW_FOOTER_PX,
   REDRAW_WORD,
@@ -15,6 +15,7 @@ import {
   SPEND_LATCH_TIMEOUT_MS,
   UpgradeMenu,
   canLatchSpend,
+  cardFoot,
   cardGreyed,
   frontOfferSignature,
   mulliganLanded,
@@ -51,7 +52,7 @@ const R = CLIENT_CONFIG.refit;
 
 /** A real four-LINE draw from the shipped Boon Catalog v1 (the deck draws four
  *  different card LINES — categories may repeat; these happen not to). */
-const OFFER = ['radarSweep', 'armor', 'deckGun', 'navalMines'];
+const OFFER = ['radarSweep', 'hullPoints', 'deckGun', 'navalMines'];
 const OFFER_B = ['reload', 'speed', 'radarSweep', 'navalMines'];
 
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {
@@ -168,10 +169,12 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
       expect(L.cards, name).toHaveLength(4);
       expect(L.row.w, name).toBe(4 * 216 + 3 * 20);
       expect(L.row.w, name).toBe(924);
-      expect(L.row.h, name).toBe(226);
+      // 226 → 243: the six-row grid (Story 9.8, Eric 2026-10-13) — one more
+      // 17px row; the width, the gaps and the one baseline are untouched.
+      expect(L.row.h, name).toBe(243);
       for (const c of L.cards) {
         expect(c.w, name).toBe(216);
-        expect(c.h, name).toBe(226);
+        expect(c.h, name).toBe(243);
         expect(c.y, name).toBe(L.row.y); // still ONE row, one baseline
       }
       for (let i = 1; i < L.cards.length; i += 1) {
@@ -213,16 +216,18 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
       expect(L.band.y + L.band.h, name).toBeLessThanOrEqual(h);
     }
     // The floor case, to the pixel. STORY 8.8 DELETED THE RAIL AND ITS SEAM, so
-    // the band is 244px (18 pips + 226 card) rather than 290: ending at 452 it
-    // now starts at 208 rather than 162, and the card row's own bottom IS the
-    // anchored edge. The ANCHOR is unchanged (amendment 36) — a shorter band
-    // simply leaves more clear water above it, which is what the tooltip's
-    // amendment-37 flip spends.
+    // the band is 244px (18 pips + 226 card) rather than 290, and the card row's
+    // own bottom IS the anchored edge. The ANCHOR is unchanged (amendment 36):
+    // STORY 9.2's D-prime bar was 20px taller (globes 104 -> 124), which raised
+    // the band 20px (452 -> 432); STORY 9.11 put the bar back on the one 136px
+    // row (epic-9 amendment 151), so the band drops back with it (432 -> 452).
+    // STORY 9.8's six-row card is one 17px row taller (244 -> 261), and that
+    // comes off the TOP: the anchored bottom stays at 452.
     const F = refitBandLayout(1280, 614);
     expect(F.band.h).toBe(R.pipsAbove + R.cardHeight);
-    expect(F.band.h).toBe(244);
-    expect(F.band.y).toBe(208);
-    expect(F.row.y).toBe(226);
+    expect(F.band.h).toBe(261);
+    expect(F.band.y).toBe(191);
+    expect(F.row.y).toBe(209);
     expect(F.row.y + F.row.h).toBe(452);
   });
 
@@ -238,8 +243,11 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
     const live = refitBandLayout(1366, 768);
     const countdown = refitBandLayout(1366, 768, CONFIG.offer.size, REDRAW_FOOTER_PX);
     expect(REDRAW_FOOTER_PX).toBe(44);
-    expect(live.row.y).toBe(380);
-    expect(countdown.row.y).toBe(336);
+    // 380 at Story 8.10; 360 while the D-prime bar stood 20px taller (Story
+    // 9.2); 343 once the six-row card grew 17px (Story 9.8); 363 since the bar
+    // went back to its one 136px row (Story 9.11).
+    expect(live.row.y).toBe(363);
+    expect(countdown.row.y).toBe(319);
     expect(live.row.y - countdown.row.y).toBe(REDRAW_FOOTER_PX);
     // The one edge that must NOT move, in either state.
     expect(live.band.y + live.band.h).toBe(606);
@@ -446,7 +454,7 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   // AMENDMENT 181 (Eric 2026-09-30): the kind is what the card does for the
   // player — a function of the line AND the copies held.
   it('carries the KIND word and its tone, unconditional, on every card', () => {
-    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGun', 'captiveMines', 'dazzleShells'] }), false, false, false);
+    const view = offerView(ownShip({ offer: ['radarSweep', 'deckGun', 'captiveMines', 'foulingShell'] }), false, false, false);
     expect(view?.options.map((o) => o.kind)).toEqual(['SHIP UPGRADE', 'WEAPON UPGRADE', 'WEAPON', 'CONSUMABLE']);
     expect(view?.options.map((o) => o.kindTone)).toEqual(['shipUpgrade', 'weaponUpgrade', 'weapon', 'consumable']);
     // Copy 2 of an equipment line is a WEAPON UPGRADE.
@@ -467,7 +475,7 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   });
 
   it('draws NO ladder for a consumable or an add-on — they have no rungs', () => {
-    const view = offerView(ownShip({ offer: ['hullRepair', 'dazzleShells', 'radarSweep'] }), false, false, false);
+    const view = offerView(ownShip({ offer: ['hullRepair', 'foulingShell', 'radarSweep'] }), false, false, false);
     expect(view?.options[0].tier).toBeNull();
     expect(view?.options[0].tierStep).toBeNull();
     expect(view?.options[1].tier).toBeNull();
@@ -488,8 +496,8 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   });
 
   it('resolves the card face against the OWN CLASS too (hull stats differ per class)', () => {
-    const tb = offerView(ownShip({ offer: ['armor'] }), false, false, false);
-    const bb = offerView(ownShip({ cls: 'battleship', offer: ['armor'] }), false, false, false);
+    const tb = offerView(ownShip({ offer: ['hullPoints'] }), false, false, false);
+    const bb = offerView(ownShip({ cls: 'battleship', offer: ['hullPoints'] }), false, false, false);
     expect(bb?.options[0].rows[0].cur).not.toBe(tb?.options[0].rows[0].cur);
   });
 
@@ -510,7 +518,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
 
   // THE RATIFIED FACE's OfferCard (Story 8.7, ruling 11): the icon box, the
   // name, the cap-rung ladder with its `cur → next` numerals, the KIND word, up
-  // to five live stat rows and the foot. No description, no lineage handrail,
+  // to six live stat rows and the foot. No description, no lineage handrail,
   // no copy count — those went with the interim face.
   const cardsOf = (ids: readonly string[]): OfferCard[] =>
     ids.map((id) => ({
@@ -523,6 +531,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
       rows: cardStatRows(CATALOG[id], 0, { cls: 'torpedoBoat', cards: [] }),
       hover: cardHoverRows(CATALOG[id], 0, { cls: 'torpedoBoat', cards: [] }),
       greyed: false,
+      foot: '',
       stack: 0,
       cap: CATALOG[id].cap,
     }));
@@ -561,7 +570,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
 
   // THE RATIFIED FACE, TOP-DOWN (Story 8.7, ruling 11 — mock `.rc`): key chip
   // (outside the clipped body, pinned first) · 40px icon box · name · ladder ·
-  // KIND word · five 17px rows · foot. No prose anywhere on it.
+  // KIND word · six 17px rows · foot. No prose anywhere on it.
   it('builds the ratified face in the mock\'s own DOM order', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(view());
@@ -574,14 +583,14 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     expect(kids[1].textContent).toBe(boonName(OFFER[0], 0));   // name
     expect(kids[2].style.height).toBe(`${R.ladderH}px`);       // ladder row
     expect(kids[3].textContent).toBe(cardKindLabel(cardKind(CATALOG[OFFER[0]], 0)));
-    expect(kids[4].style.display).toBe('grid');                // the five-row grid
+    expect(kids[4].style.display).toBe('grid');                // the six-row grid
     expect(kids[5].style.height).toBe(`${R.footH}px`);         // foot, blank at rest
     expect(kids[5].textContent).toBe('');
   });
 
-  it('always renders EXACTLY five rows, blank past the end of the card\'s stats', () => {
+  it('always renders EXACTLY six rows, blank past the end of the card\'s stats', () => {
     const menu = new UpgradeMenu(() => {});
-    // radarSweep moves ONE number, so four of its five rows are ruled blanks.
+    // radarSweep moves ONE number, so five of its six rows are ruled blanks.
     menu.toggle(view({ options: cardsOf(['radarSweep']) }));
     const grid = (cards()[0].lastElementChild as HTMLElement).children[4] as HTMLElement;
     expect(grid.children).toHaveLength(R.rowCount);
@@ -679,7 +688,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
       options: [
         { ...cardsOf(['radarSweep'])[0], stack: 2, tier: 'II → III', tierStep: { cur: 2, next: 3 } },
         { ...cardsOf(['hullRepair'])[0] },   // consumable: no ladder at all
-        { ...cardsOf(['dazzleShells'])[0] }, // FLASH SHELLS (a consumable since 8.17): likewise
+        { ...cardsOf(['foulingShell'])[0] }, // FOULING SHELL (a consumable, Story 9.4): likewise
       ],
     }));
     const [stacked, consumable, addon] = cards();
@@ -790,10 +799,12 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
 
   it('counter-scales the LABEL and the FOOT through it, and nothing else', () => {
     const menu = new UpgradeMenu(() => {});
-    const you = ownShip({ offer: ['supercavTorpedo', 'radarSweep'] });
-    const belt = [null, null, null, null, null, 'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as const;
-    menu.toggle(offerView(you, false, false, false, belt)!);
-    // The REFUSED card (supercavTorpedo) is the one that prints a foot; the live card
+    const you = ownShip({ offer: ['broadside', 'radarSweep'] });
+    // Q/E/R full: copy 1 of a weapon is refused `noWeaponSlot`, the one refusal
+    // that prints a foot word since Story 9.2 (epic-9 amendment 32).
+    const rowFull = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null, null, null] as const;
+    menu.toggle(offerView(you, false, false, false, rowFull)!);
+    // The REFUSED card (broadside) is the one that prints a foot; the live card
     // beside it (radarSweep) is the one that prints a stat row.
     const foot = (cards()[0].lastElementChild as HTMLElement).lastElementChild as HTMLElement;
     const body = cards()[1].lastElementChild as HTMLElement;
@@ -1430,7 +1441,9 @@ describe('spendOutcome — the stay-open state machine classifier (amendment 36)
 
 // --- THE GREYED CARD (Story 8.7, ruling 10 / UX-DR52) ---------------------------
 //
-// A consumable the belt cannot take is refused BEFORE the press, not after it.
+// A card the server would refuse (a line at its cap; copy 1 of a weapon with
+// Q/E/R full — the belt's "no room" refusal retired in Story 9.2) is refused
+// BEFORE the press, not after it.
 // The server would return false with no mutation and no event, so a client that
 // sent the pick anyway would sit through a 1.5s latch timeout and then fire a
 // denied pulse for a refusal it could have known about. Instead the card is
@@ -1438,81 +1451,73 @@ describe('spendOutcome — the stay-open state machine classifier (amendment 36)
 // nothing at all.
 //
 // DUAL-CODED, three ways, because the dim alone is hue/lightness only: the face
-// dims to `greyedAlpha`, the key chip goes DASHED, and the foot carries the
-// boxed reason word.
+// dims to `greyedAlpha`, the key chip goes DASHED, and — for the weapon-slot
+// refusal only (epic-9 amendment 32: no cap copy) — the foot carries the boxed
+// reason word.
 
 describe('the greyed card — a refusal stated before the press', () => {
   beforeEach(() => document.body.replaceChildren());
 
-  /** The four belt slots, holding four DISTINCT consumable lines — a full belt. */
-  const FULL_BELT = [null, null, null, null, null, 'hullRepair', 'shieldBlock', 'smokeScreen', 'chaff'] as const;
-  /** The same belt with one square free. */
-  const ROOM_LEFT = [null, null, null, null, null, 'hullRepair', null, null, null] as const;
+  /** Q/E/R all fitted — copy 1 of a weapon has nowhere to land. */
+  const ROW_FULL = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null, null, null] as const;
+  /** Every one of the six consumable kinds held — no belt exists to fill (Story 9.2). */
+  const ALL_KINDS = ['gun', 'boost', null, null, null, ...CONSUMABLE_KEY_ORDER] as const;
+  /** Nothing fitted past the gun and Shift. */
+  const ROOM_LEFT = ['gun', 'boost', null, null, null, null, null, null, null, null, null] as const;
+  const FIVE_REPAIRS = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
 
   function cards(): HTMLButtonElement[] {
     return [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
   }
 
-  it('greys a consumable the belt cannot take', () => {
-    // A fifth distinct line has nowhere to go. (SUPERCAV, not a stub line: the
-    // shared predicate reads an unbuilt line as a refusal of its own, and this
-    // pin is about the BELT.)
-    expect(cardGreyed(CATALOG.supercavTorpedo, FULL_BELT)).toBe(true);
-    // A line the belt ALREADY holds always fits — the stack just grows.
-    expect(cardGreyed(CATALOG.hullRepair, FULL_BELT)).toBe(false);
-    // With a square free, anything fits.
-    expect(cardGreyed(CATALOG.supercavTorpedo, ROOM_LEFT)).toBe(false);
-    // A ladder lands on the hull: it can never be refused by a full belt. (The
-    // add-on this pin also carried, DAZZLE SHELLS, is the FLASH SHELLS
-    // CONSUMABLE since Story 8.17 — so a full belt DOES refuse it now.)
-    expect(cardGreyed(CATALOG.radarSweep, FULL_BELT)).toBe(false);
-    expect(cardGreyed(CATALOG.dazzleShells, FULL_BELT)).toBe(true);
+  it('NEVER greys a consumable for want of room — every kind owns its own square (amendment 21)', () => {
+    // The belt is retired: holding all six kinds refuses nothing under the cap.
+    for (const id of CONSUMABLE_KEY_ORDER) {
+      expect(cardGreyed(CATALOG[id], ALL_KINDS, [...CONSUMABLE_KEY_ORDER]), id).toBe(false);
+    }
+    expect(cardGreyed(CATALOG.radarSweep, ALL_KINDS)).toBe(false);
   });
 
-  // --- THE OTHER TWO REFUSALS (Story 8.14 review, F1) -----------------------
-  // The card face used to ask `canStock` alone, which a line that already owns
-  // a belt square always passes. Amendment 94 deals a consumable AT ITS CAP on
-  // purpose, so the player was shown a live HULL REPAIR card that the server
-  // (after F1) refuses — a press into nothing, and before F1 a level spent on
-  // a sixth copy no belt square shows.
+  // --- THE TWO REFUSALS (Story 8.14 review, F1; the belt's third retired in 9.2)
+  // Amendment 94 deals a consumable AT ITS CAP on purpose, so the face greys it
+  // (the server refuses the pick silently); and copy 1 of a weapon with Q/E/R
+  // full is the fail-closed twin of the server's own guard.
 
-  it('greys a line the player already holds AT ITS CAP, even with belt room', () => {
-    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
-    expect(cardGreyed(CATALOG.hullRepair, ROOM_LEFT, five)).toBe(true);
+  it('greys a line the player already holds AT ITS CAP', () => {
+    expect(cardGreyed(CATALOG.hullRepair, ROOM_LEFT, FIVE_REPAIRS)).toBe(true);
     // ...one short of the cap it is a live card again.
-    expect(cardGreyed(CATALOG.hullRepair, ROOM_LEFT, five.slice(1))).toBe(false);
+    expect(cardGreyed(CATALOG.hullRepair, ROOM_LEFT, FIVE_REPAIRS.slice(1))).toBe(false);
     // Every kind, not just consumables.
-    expect(cardGreyed(CATALOG.armor, ROOM_LEFT, new Array<string>(CATALOG.armor.cap).fill('armor'))).toBe(true);
+    expect(cardGreyed(CATALOG.hullPoints, ROOM_LEFT, new Array<string>(CATALOG.hullPoints.cap).fill('hullPoints'))).toBe(true);
   });
 
   it('greys copy 1 of a weapon when Q/E/R are full, and never a later copy', () => {
-    const rowFull = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null] as const;
-    expect(cardGreyed(CATALOG.broadside, rowFull, [])).toBe(true);
-    expect(cardGreyed(CATALOG.broadside, rowFull, ['broadside'])).toBe(false); // a TIER card
+    expect(cardGreyed(CATALOG.broadside, ROW_FULL, [])).toBe(true);
+    expect(cardGreyed(CATALOG.broadside, ROW_FULL, ['broadside'])).toBe(false); // a TIER card
     expect(cardGreyed(CATALOG.broadside, ROOM_LEFT, [])).toBe(false); // row open
   });
 
-  it('carries the at-cap refusal onto the OfferCard too', () => {
-    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
-    const you = ownShip({ offer: ['hullRepair', 'radarSweep'], cards: five });
-    expect(offerView(you, false, false, false, ROOM_LEFT)?.options.map((o) => o.greyed)).toEqual([true, false]);
+  it('prints SLOTS FULL for the weapon-slot refusal ONLY — a capped consumable has NO foot word (amendment 32)', () => {
+    expect(cardFoot(CATALOG.broadside, ROW_FULL, [])).toBe(SLOTS_FULL);
+    expect(cardFoot(CATALOG.hullRepair, ROOM_LEFT, FIVE_REPAIRS)).toBe('');
+    expect(cardFoot(CATALOG.hullPoints, ROOM_LEFT, new Array<string>(CATALOG.hullPoints.cap).fill('hullPoints'))).toBe('');
+    expect(cardFoot(CATALOG.radarSweep, ROW_FULL, [])).toBe(''); // a live card
   });
 
-  it('carries the flag onto the OfferCard, through the same shared predicate', () => {
-    const you = ownShip({ offer: ['supercavTorpedo', 'hullRepair', 'radarSweep', 'dazzleShells'] });
-    const view = offerView(you, false, false, false, FULL_BELT);
-    // FLASH SHELLS (last) is a fifth distinct CONSUMABLE since Story 8.17, so
-    // the full belt refuses it exactly as it refuses the supercav.
-    expect(view?.options.map((o) => o.greyed)).toEqual([true, false, false, true]);
-    // ...and with room on the belt nothing is greyed.
+  it('carries the flag AND the foot onto the OfferCard, through the same shared predicate', () => {
+    const you = ownShip({ offer: ['broadside', 'hullRepair', 'radarSweep', 'supercavTorpedo'], cards: FIVE_REPAIRS });
+    const view = offerView(you, false, false, false, ROW_FULL);
+    expect(view?.options.map((o) => o.greyed)).toEqual([true, true, false, false]);
+    expect(view?.options.map((o) => o.foot)).toEqual([SLOTS_FULL, '', '', '']);
+    // ...and with room on the weapon row only the capped line stays greyed.
     expect(offerView(you, false, false, false, ROOM_LEFT)?.options.map((o) => o.greyed))
-      .toEqual([false, false, false, false]);
+      .toEqual([false, true, false, false]);
   });
 
-  it('renders the refusal three ways: dimmed face, DASHED chip, boxed SLOTS FULL', () => {
+  it('renders the weapon refusal three ways: dimmed face, DASHED chip, boxed SLOTS FULL', () => {
     const menu = new UpgradeMenu(() => {});
-    const you = ownShip({ offer: ['supercavTorpedo', 'radarSweep'] });
-    menu.toggle(offerView(you, false, false, false, FULL_BELT)!);
+    const you = ownShip({ offer: ['broadside', 'radarSweep'] });
+    menu.toggle(offerView(you, false, false, false, ROW_FULL)!);
     const [refused, ok] = cards();
     expect(refused.style.opacity).toBe(String(R.greyedAlpha));
     expect((refused.firstElementChild as HTMLElement).style.borderStyle).toBe('dashed');
@@ -1529,11 +1534,24 @@ describe('the greyed card — a refusal stated before the press', () => {
     menu.hide();
   });
 
+  it('renders a CAPPED consumable greyed with a BARE foot — dim and dashed chip, no word, no box', () => {
+    const menu = new UpgradeMenu(() => {});
+    const you = ownShip({ offer: ['hullRepair', 'radarSweep'], cards: FIVE_REPAIRS });
+    menu.toggle(offerView(you, false, false, false, ROOM_LEFT)!);
+    const [capped] = cards();
+    expect(capped.style.opacity).toBe(String(R.greyedAlpha));
+    expect((capped.firstElementChild as HTMLElement).style.borderStyle).toBe('dashed');
+    const foot = (capped.lastElementChild as HTMLElement).lastElementChild as HTMLElement;
+    expect(foot.textContent).toBe('');
+    expect(foot.style.height).toBe(`${R.footH}px`); // the face keeps its rhythm: no box, no jump
+    menu.hide();
+  });
+
   it('sends NOTHING on a greyed card\'s click — no spend, and no denied pulse', () => {
     const spends: number[] = [];
     const menu = new UpgradeMenu((c) => spends.push(c));
-    const you = ownShip({ offer: ['supercavTorpedo', 'radarSweep'] });
-    menu.toggle(offerView(you, false, false, false, FULL_BELT)!);
+    const you = ownShip({ offer: ['broadside', 'radarSweep'] });
+    menu.toggle(offerView(you, false, false, false, ROW_FULL)!);
     cards()[0].click();
     expect(spends).toEqual([]);
     expect(menu.deniedActive()).toBe(false); // the refusal is already on screen
@@ -1546,9 +1564,9 @@ describe('the greyed card — a refusal stated before the press', () => {
   it('is DISTINCT from the spend-latch dim — a refusal must stay readable', () => {
     expect(R.greyedAlpha).toBeGreaterThan(R.lockedAlpha);
     const menu = new UpgradeMenu(() => {});
-    const you = ownShip({ offer: ['supercavTorpedo', 'radarSweep'] });
+    const you = ownShip({ offer: ['broadside', 'radarSweep'] });
     // Locked dims the WHOLE row and genuinely disables it; greyed does neither.
-    menu.toggle({ ...offerView(you, false, true, false, FULL_BELT)!, locked: true });
+    menu.toggle({ ...offerView(you, false, true, false, ROW_FULL)!, locked: true });
     for (const b of cards()) {
       expect(b.disabled).toBe(true);
       expect(b.style.opacity).toBe(String(R.lockedAlpha));
