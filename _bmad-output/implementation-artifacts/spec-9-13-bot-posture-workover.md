@@ -4,7 +4,7 @@ type: 'feature'
 created: '2026-10-17'
 status: 'done'
 baseline_revision: 'f78405d1'
-final_revision: 'b32037fd (code HEAD; PR to development, 2026-10-17)'
+final_revision: 'b32037fd (code HEAD; PR #293 to development, 2026-10-17)'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
@@ -196,7 +196,7 @@ warnings: [oversized, multiple-goals]
 
 ## Auto Run Result
 
-Status: done (PR open to development; Eric judges on staging)
+Status: done (PR #293 open to development; Eric judges on staging)
 
 **Implemented.** Story 9.13 as the sixteen design-sitting rulings (amendments 189–203) plus the three gate rulings (204 lit bonus ×1.5, 205 shadowing lifts the hold line) and the readings of record (206): a shared pure navigation layer (grid, distance-to-land, flow fields, A*), a per-map nav cache with per-ring fields, a widened bot port (next ring, phase, time to close, safe disc), routed bot and drone helms with graded avoidance and the storm departure rule, the extended posture chain (odds gate, kite/shadow, hide, hold, ring clauses, disengage hysteresis, ram exit, gate hold), decoy-aware targeting and per-volley hits, per-gun doctrine bands with the MG/flak hold line and flare-to-shoot, every special/consumable trigger extension, cover in fog and island shadow, a cover-weighted routed patrol, the probed un-beach exit, the harness readouts and `--tune bots.*`. No weapon, ship, storm, map or fog number changed; no copy; `PROTOCOL_VERSION` 89.
 
