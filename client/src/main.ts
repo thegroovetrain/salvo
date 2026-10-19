@@ -81,7 +81,7 @@ import { createFlashBudget, FLASH_ELEMENTS, hotbarSlotKey, type FlashBudget } fr
 import { Hud, conning, reloadFraction, victimWindows, type OwnStatus } from './render/hud.js';
 import { hpGlobeHoldsLit, railFraction } from './render/hpGlobe.js';
 import { detentIndexOf, type HelmGlobeInput } from './render/helmGlobe.js';
-import { HudBar, type HudBarView } from './render/hudBar.js';
+import { HudBar, hudBarTopInset, type HudBarView } from './render/hudBar.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
 import { type HotbarView } from './render/hotbar.js';
 import { slotForCard } from './render/equipmentInfo.js';
@@ -2318,8 +2318,15 @@ function setupViewport(
     leadSeconds: CLIENT_CONFIG.camera.leadSeconds,
     leadMax: CLIENT_CONFIG.camera.leadMax,
     keepInViewPadU: CLIENT_CONFIG.camera.keepInViewPadU,
+    // The intel waypoint (epic-9 amendment 208): the radar sweep disc.
+    intelRadiusU: CONFIG.vision.radar,
+    // Event-driven center jumps glide (amendment 208 ruling 10).
+    slideEaseRate: CLIENT_CONFIG.camera.slideEaseRate,
   });
   camera.setViewport(stage.app.screen.width, stage.app.screen.height);
+  // The bar's top inset in REAL px: the UI scale is 1 until applyUiScale runs,
+  // which re-feeds it whenever the scale changes.
+  camera.setBottomInset(hudBarTopInset());
 
   // THE in-match keyboard chokepoint (Story 2.1): one keydown listener owns
   // every sim key through the hooks built in keyboardHooks() below.
@@ -4640,6 +4647,10 @@ function applyUiScale(g: Game): void {
   const factor = scaleFactor(effectiveScale(settings.current, g.stage.app.screen.width));
   if (factor === g.uiScale) return;
   g.uiScale = factor;
+  // The bar scales with the HUD layer, so its real-px inset does too
+  // (amendment 208: the intel waypoint keeps the radar disc above it). The
+  // moved flag is ignored: the ring-fed fog hysteresis (feedCameraRing) re-bakes.
+  g.camera.setBottomInset(hudBarTopInset() * factor);
   g.stage.layers.hud.scale.set(factor);
   setUiScaleVar(factor);
 }
@@ -5019,7 +5030,7 @@ function handleZoomStep(g: Game, dir: 1 | -1): void {
     spectateZoomAt(g, at.x, at.y, stepZoom(g.camera.zoomFactor, dir * CLIENT_CONFIG.zoom.keyStep, g.camera.zoomDetent));
     return;
   }
-  applyUserZoom(g, stepZoom(g.camera.userZoom, dir * CLIENT_CONFIG.zoom.keyStep, g.camera.zoomDetent));
+  applyUserZoom(g, stepZoom(g.camera.userZoom, dir * CLIENT_CONFIG.zoom.keyStep, g.camera.aliveZoomDetents));
 }
 
 /**
@@ -5111,7 +5122,7 @@ function bindWheelZoom(game: Game): () => void {
       return;
     }
     const amount = -e.deltaY * CLIENT_CONFIG.zoom.wheelRate;
-    applyUserZoom(game, stepZoom(game.camera.userZoom, amount, game.camera.zoomDetent));
+    applyUserZoom(game, stepZoom(game.camera.userZoom, amount, game.camera.aliveZoomDetents));
   };
   window.addEventListener('wheel', onWheel, { passive: true });
   return () => window.removeEventListener('wheel', onWheel);
