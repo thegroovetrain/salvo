@@ -1,7 +1,8 @@
 // Pure-math camera. Owns the world<->screen mapping, a zoom expressed as
 // ABSOLUTE world spans across the viewport's short axis (Story 9.8, epic-9
 // amendments 127/128 — never a factor over radar), a follow-with-lead target
-// smoother, the centre slide toward the storm ring, and a shake offset hook.
+// smoother, the centre slide toward the storm ring (held until the intel
+// waypoint, amendment 208), and a shake offset hook.
 // No Pixi import: render code reads `zoom`, `center`, `shake`, `screenCenter`
 // and applies the transform to the world/chart containers. Fully unit-testable.
 
@@ -43,7 +44,26 @@ export interface CameraOptions {
    *  CLIENT_CONFIG.camera.keepInViewPadU). Omitted = 0 (the hull point itself
    *  stays on screen). */
   keepInViewPadU?: number;
+  /** THE INTEL WAYPOINT's radius (u, epic-9 amendment 208): main.ts feeds
+   *  CONFIG.vision.radar, the radar sweep disc. The alive zoom stops where that
+   *  disc × `ringFitMargin` plus the maximum follow lead (`leadMax`, ruling 9),
+   *  around the own ship, has its bottom edge on the HUD bar's top edge
+   *  (`setBottomInset`) at any speed and heading, and the centre slide toward
+   *  the ring starts there. Omitted = no intel waypoint (the intel span is the
+   *  default framing: the pre-208 behavior). */
+  intelRadiusU?: number;
+  /** EASED CENTER JUMPS (Eric 2026-10-19, amendment 208 ruling 10): the rate
+   *  (1/s) at which a center jump caused by an EVENT — the ring feed, a
+   *  viewport resize, a UI-scale change — decays, so the center glides to its
+   *  new spot over about half a second (CLIENT_CONFIG.camera.slideEaseRate).
+   *  The player's own zoom stays direct. Omitted = no easing (the jump lands
+   *  at once, the pre-ruling behavior). */
+  slideEaseRate?: number;
 }
+
+/** Below this (u) an easing jump counts as finished and is dropped, so the
+ *  decaying tail never keeps the own-hull clamp armed forever. */
+const JUMP_SETTLE_EPS = 1e-3;
 
 /**
  * How close to the reveal target counts as ARRIVED. An exponential approach
@@ -127,6 +147,46 @@ function usableSpan(spanU: number): boolean {
   return Number.isFinite(spanU) && spanU > 0;
 }
 
+/** Every input finite and positive. */
+function allUsable(...xs: number[]): boolean {
+  return xs.every(usableSpan);
+}
+
+/**
+ * THE INTEL FIT SPAN (Eric 2026-10-19, epic-9 amendment 208: *"insert a
+ * 'waypoint' in between them that keeps the camera centered until I have
+ * zoomed out to my entire intel area, which should have a bit of clearance
+ * around it so that the hotbar isn't covering it up."*), in world units across
+ * the short axis.
+ *
+ * The own ship sits at the exact screen center (H/2) at rest; under way the
+ * camera centers on the ship + its follow lead, so the ship sits up to `leadU`
+ * off center in any direction (Eric 2026-10-19, ruling 9: LEAD IN THE FIT).
+ * The fit therefore covers an effective radius E = R·m + lead (m = the fit
+ * margin, the clearance): the disc's bottom edge clears the bar's top edge
+ * when H/2 + E·z ≤ H − inset, its sides when W/2 ≥ E·z (the top is symmetric
+ * with the bottom, so implied), at any speed and heading. The widest zoom that
+ * holds both is z = min(H/2 − inset, W/2) / E px per u, i.e. a span of
+ * min(W, H) / z. Everything in REAL px: `bottomInsetPx` is the bar's logical
+ * inset × the UI scale. NaN when unusable (no room above the bar, a missing
+ * radius or margin, a negative or non-finite lead, a degenerate viewport or
+ * inset) — the caller then falls back to the default framing.
+ */
+export function intelFitSpanU(
+  viewW: number,
+  viewH: number,
+  bottomInsetPx: number,
+  radiusU: number,
+  margin: number,
+  leadU = 0,
+): number {
+  if (!allUsable(viewW, viewH, radiusU, margin)) return NaN;
+  if (!Number.isFinite(bottomInsetPx) || !(Number.isFinite(leadU) && leadU >= 0)) return NaN;
+  const room = Math.min(viewH / 2 - Math.max(0, bottomInsetPx), viewW / 2);
+  if (!(room > 0)) return NaN;
+  return (Math.min(viewW, viewH) * (radiusU * margin + leadU)) / room;
+}
+
 /**
  * THE ZOOM-OUT SPAN (Eric 2026-10-14, amendment 142: *"Maybe we shouldn't cap
  * the zoom out to the current ring. Instead lets set the current ring as a sort
@@ -144,9 +204,11 @@ export function zoomOutSpanU(mapSpanU: number, ringSpanU: number): number {
 
 /**
  * THE RING WAYPOINT (amendment 142) as a span: the live ring fit, never
- * tighter than the default framing (so after the final close, or before any
- * ring, the waypoint IS the default framing). Every zoom step that would cross
- * it lands exactly on it (`stepZoom`); the next step continues past it.
+ * tighter than the floor span (so after the final close, or before any ring,
+ * the waypoint IS the floor). Every zoom step that would cross it lands exactly
+ * on it (`stepZoom`); the next step continues past it. The spectate camera
+ * floors it at the default framing; the alive camera at the intel waypoint
+ * (amendment 208), so a ring fit at or inside the intel span merges into it.
  */
 export function detentSpanU(defaultSpanU: number, ringSpanU: number): number {
   return usableSpan(ringSpanU) ? Math.max(defaultSpanU, ringSpanU) : defaultSpanU;
@@ -155,10 +217,11 @@ export function detentSpanU(defaultSpanU: number, ringSpanU: number): number {
 /**
  * THE CENTRE SLIDE (ruling 128): how far the camera centre has travelled from
  * the own ship toward the ring centre, 0..1. `spanU` is the CURRENT user span
- * across the short axis; at and inside the default framing t = 0 (the ship is
- * centred), at the ring-fit span t = 1 (the ring centre is). Linear in span
- * between them. A ring no wider than the default framing, or an unusable one,
- * never slides.
+ * across the short axis; at and inside the start span (the second argument)
+ * t = 0 (the ship is centered), at the ring-fit span t = 1 (the ring centre
+ * is). Linear in span between them. A ring no wider than the start span, or an
+ * unusable one, never slides. The alive camera starts it at the intel waypoint
+ * since amendment 208 (it was the default framing).
  */
 export function centreSlideT(spanU: number, defaultSpanU: number, ringSpanU: number): number {
   const room = ringSpanU - defaultSpanU;
@@ -180,17 +243,35 @@ export function centreSlideT(spanU: number, defaultSpanU: number, ringSpanU: num
  * the old ±0.1, and one 100-unit wheel notch e^−0.08 = ×0.923 against the old
  * −0.08. A non-finite amount returns the factor unchanged.
  *
- * `detent` (amendment 142) is the ring waypoint as a factor
- * (Camera.zoomDetent). A step that would CROSS it from either side lands
- * exactly on it and the rest of the step is dropped (a wheel event's whole
- * delta is one step); a step that STARTS on it moves on. Omitted or unusable =
- * a free step.
+ * `detents` (amendment 142; a list since amendment 208) are the waypoints as
+ * factors: the spectate ring waypoint (Camera.zoomDetent) or the alive pair
+ * [intel, ring] (Camera.aliveZoomDetents). A step that would CROSS any of them
+ * from either side lands exactly on the FIRST one crossed (the one nearest the
+ * starting factor) and the rest of the step is dropped (a wheel event's whole
+ * delta is one step); a step that STARTS on one moves on. Omitted or unusable
+ * = a free step.
  */
-export function stepZoom(factor: number, amount: number, detent?: number): number {
+export function stepZoom(factor: number, amount: number, detents?: number | readonly number[]): number {
   if (!Number.isFinite(amount)) return factor;
   const next = factor * Math.exp(amount);
-  if (detent === undefined || !usableSpan(detent)) return next;
-  return (factor - detent) * (next - detent) < 0 ? detent : next;
+  return firstCrossed(factor, next, detentList(detents)) ?? next;
+}
+
+/** The detent argument of `stepZoom` as a list. */
+function detentList(detents: number | readonly number[] | undefined): readonly number[] {
+  if (detents === undefined) return [];
+  return typeof detents === 'number' ? [detents] : detents;
+}
+
+/** Among the usable detents strictly crossed by from → to, the one nearest
+ *  `from`; undefined when none is crossed. */
+function firstCrossed(from: number, to: number, detents: readonly number[]): number | undefined {
+  let best: number | undefined;
+  for (const d of detents) {
+    if (!usableSpan(d) || (from - d) * (to - d) >= 0) continue;
+    if (best === undefined || Math.abs(d - from) < Math.abs(best - from)) best = d;
+  }
+  return best;
 }
 
 /**
@@ -215,6 +296,17 @@ export interface ScreenWorldRect {
   h: number;
 }
 
+/** What a re-clamp moves: a user zoom equal to `alive` goes to the alive
+ *  waypoint named by `aliveTo`, a spectate factor equal to `spectate` to the
+ *  spectate ring waypoint. NaN = nothing rides. */
+interface Rides {
+  alive: number;
+  aliveTo: 'ring' | 'intel';
+  spectate: number;
+}
+
+const NO_RIDE: Rides = { alive: NaN, aliveTo: 'ring', spectate: NaN };
+
 export class Camera {
   /** World-space point the camera is centered on. */
   readonly center: Point = { x: 0, y: 0 };
@@ -225,11 +317,19 @@ export class Camera {
    *  centre is this point slid toward the ring centre (ruling 128); follow and
    *  lead apply to this term ONLY. */
   private readonly follow: Point = { x: 0, y: 0 };
+  /** The decaying offset (u) between the eased center and the pure slide
+   *  target (ruling 10): an event that moves the target (ring feed, resize, UI
+   *  scale) adds the move here, and `update` decays it at `slideEaseRate`.
+   *  Always 0 without that option. */
+  private readonly jump: Point = { x: 0, y: 0 };
   private baseZoom = 1;
   private zoomFactorValue = 1;
   private userZoomValue = 1;
   private viewW = 1;
   private viewH = 1;
+  /** The HUD bar's top inset from the viewport floor in REAL px (amendment
+   *  208), fed by setBottomInset(). 0 until fed. */
+  private bottomInsetValue = 0;
   /** The live storm ring (ruling 127/128), fed every alive frame by setRing().
    *  NaN span until the first feed = no ring known: the zoom-out limit is the
    *  default framing and nothing slides. */
@@ -355,6 +455,7 @@ export class Camera {
     if (!Number.isFinite(rate) || rate <= 0) return;
     this.revealTargetValue = factor;
     this.revealRateValue = rate;
+    this.clearJump();
   }
 
   /** Leave the reveal framing, keeping whatever factor is currently reached.
@@ -424,23 +525,80 @@ export class Camera {
     return detentSpanU(this.opts.defaultSpanU, this.ringSpanValue);
   }
 
-  /** The ring waypoint as a zoom FACTOR — what main.ts hands `stepZoom` for
-   *  the alive user zoom and the spectate factor alike. */
+  /** The SPECTATE ring waypoint as a zoom FACTOR (floored at the default
+   *  framing) — what main.ts hands `stepZoom` / `wheelZoom` for the spectate
+   *  factor. The alive zoom uses `aliveZoomDetents` (amendment 208). */
   get zoomDetent(): number {
     return spanFactor(this.opts.defaultSpanU, this.detentSpanU);
   }
 
   /**
-   * The waypoint a value PARKED on it rides as the ring closes, or NaN when
-   * there is none to ride: only a real ring fit, wider than the default
-   * framing and strictly inside the out limit (at the first ring the fit IS
+   * THE INTEL WAYPOINT as a span (amendment 208): the intel fit
+   * (`intelFitSpanU`) of the LIVE viewport and bar inset — a getter, never a
+   * cached value, so a resize or a UI-scale change re-fits it — never tighter
+   * than the default framing, and never wider than the whole-map fit once that
+   * is known (so the stop stays reachable on a very short viewport). The fit
+   * includes the maximum follow lead (`leadMax`, ruling 9). Without
+   * `intelRadiusU`, or with an unusable fit, it IS the default framing (the
+   * pre-208 camera).
+   */
+  get intelSpanU(): number {
+    const d = this.opts.defaultSpanU;
+    const r = this.opts.intelRadiusU ?? NaN;
+    const fit = intelFitSpanU(this.viewW, this.viewH, this.bottomInsetValue, r, this.opts.ringFitMargin, this.opts.leadMax);
+    if (!usableSpan(fit)) return d;
+    const capped = usableSpan(this.mapSpanValue) ? Math.min(fit, this.mapSpanValue) : fit;
+    return Math.max(d, capped);
+  }
+
+  /** Whether the intel waypoint is a stop of its own (wider than the default
+   *  framing). False without the option, with an unusable fit (the fallback),
+   *  or when the map fit caps it at or under the default framing. */
+  private get hasIntelStop(): boolean {
+    return this.intelSpanU > this.opts.defaultSpanU;
+  }
+
+  /** The ALIVE ring waypoint as a span: the ring fit floored at the intel
+   *  waypoint (amendment 208), so a ring fit ≤ intel merges into one stop. */
+  get aliveDetentSpanU(): number {
+    return detentSpanU(this.intelSpanU, this.ringSpanValue);
+  }
+
+  /** The alive ring waypoint as a zoom FACTOR. */
+  private get aliveRingFactor(): number {
+    return spanFactor(this.opts.defaultSpanU, this.aliveDetentSpanU);
+  }
+
+  /** The alive waypoints as zoom FACTORS, [intel, ring] — what main.ts hands
+   *  `stepZoom` for the alive user zoom. A merged pair repeats one value.
+   *  Without a real intel stop (the option omitted, or the fallback) it is the
+   *  single ring waypoint, exactly the pre-208 detent: no stop appears at the
+   *  spawn framing. */
+  get aliveZoomDetents(): number[] {
+    if (!this.hasIntelStop) return [this.aliveRingFactor];
+    return [spanFactor(this.opts.defaultSpanU, this.intelSpanU), this.aliveRingFactor];
+  }
+
+  /**
+   * The ring waypoint (`detent`, a factor) a value PARKED on it rides as the
+   * ring closes, or NaN when there is none to ride: only a real ring fit,
+   * wider than `floorSpanU` (the spectate default framing, or the alive intel
+   * waypoint) and strictly inside the out limit (at the first ring the fit IS
    * the map fit, and a captain zoomed fully out must stay on the whole map).
    */
-  private rideableDetent(): number {
+  private rideableDetent(floorSpanU: number, detent: number): number {
     const ring = this.ringSpanValue;
-    if (!usableSpan(ring) || ring <= this.opts.defaultSpanU) return NaN;
+    if (!usableSpan(ring) || ring <= floorSpanU) return NaN;
     if (ring >= zoomOutSpanU(this.mapSpanValue, ring)) return NaN;
-    return this.zoomDetent;
+    return detent;
+  }
+
+  /** The intel waypoint (a factor) a user zoom PARKED on it rides through a
+   *  resize or a UI-scale change (amendment 208), or NaN when it is not a stop
+   *  of its own (no wider than the default framing: the spawn framing never
+   *  rides). */
+  private rideableIntel(): number {
+    return this.hasIntelStop ? spanFactor(this.opts.defaultSpanU, this.intelSpanU) : NaN;
   }
 
   /** The alive user span (u across the short axis) — defaultSpanU / userZoom. */
@@ -448,15 +606,18 @@ export class Camera {
     return this.opts.defaultSpanU / this.userZoomValue;
   }
 
-  /** This instant's centre slide toward the ring centre, 0..1 (ruling 128). */
+  /** This instant's centre slide toward the ring centre, 0..1 (ruling 128),
+   *  starting at the intel waypoint (amendment 208). */
   get slideT(): number {
-    return centreSlideT(this.userSpanU, this.opts.defaultSpanU, this.ringSpanValue);
+    return centreSlideT(this.userSpanU, this.intelSpanU, this.ringSpanValue);
   }
 
   /** The SECOND slide (amendment 142), 0..1: ring centre → map centre (the
-   *  origin) from the waypoint out to the whole-map fit. */
+   *  origin) from the alive ring waypoint out to the whole-map fit. With the
+   *  waypoints merged (ring ≤ intel) the first slide never engages, so this
+   *  one runs from the follow point straight to the map centre. */
   get mapSlideT(): number {
-    return centreSlideT(this.userSpanU, this.detentSpanU, this.mapSpanValue);
+    return centreSlideT(this.userSpanU, this.aliveDetentSpanU, this.mapSpanValue);
   }
 
   /**
@@ -466,7 +627,7 @@ export class Camera {
    */
   setMapRadius(r: number): void {
     this.mapSpanValue = ringFitSpanU(r, this.opts.ringFitMargin);
-    this.reclamp(NaN);
+    this.reclamp(NO_RIDE);
   }
 
   /** Set the alive user-zoom factor (X/Z keys + wheel), clamped to the live
@@ -488,6 +649,7 @@ export class Camera {
    *  product. */
   resetUserZoom(): void {
     this.userZoomValue = 1;
+    this.clearJump(); // a hard boundary: no easing center jump survives it
   }
 
   /**
@@ -497,35 +659,91 @@ export class Camera {
    * at its centre (ruling 128). A zoom parked ON the waypoint rides it as the
    * ring closes; everything else is only re-clamped. Returns whether either
    * zoom moved, so the caller can decide on a fog re-bake (with its own
-   * hysteresis).
+   * hysteresis). The center's move this causes (the ring's own motion, the
+   * merge when a parked ring stop drops onto the intel stop) eases (ruling 10).
    */
   setRing(cx: number, cy: number, r: number): boolean {
+    const before = this.slideTarget();
     if (Number.isFinite(cx) && Number.isFinite(cy)) {
       this.ring.x = cx;
       this.ring.y = cy;
     }
-    const ride = this.rideableDetent();
+    const ride: Rides = {
+      alive: this.rideableDetent(this.intelSpanU, this.aliveRingFactor),
+      aliveTo: 'ring',
+      spectate: this.rideableDetent(this.opts.defaultSpanU, this.zoomDetent),
+    };
     this.ringSpanValue = ringFitSpanU(r, this.opts.ringFitMargin);
-    return this.reclamp(ride);
+    const moved = this.reclamp(ride);
+    this.addJump(before);
+    return moved;
   }
 
   /**
-   * Re-clamp both zoom values into the live limits. A value PARKED on the old
-   * waypoint (`ride`; NaN = none) moves to the new one first, so a captain who
-   * stopped at the ring fit stays fitted to the ring as it closes (amendment
-   * 142). THE SPECTATE FACTOR RIDES THE SAME FEED (Eric 2026-10-14), never
-   * while the reveal framing owns it (amendment 25: exempt from the clamp); a
-   * no-op while alive (the factor is 1 there). Returns whether either moved.
+   * Re-clamp both zoom values into the live limits. A value PARKED on an old
+   * waypoint (`ride`; NaN = none) moves to the re-fitted one first, so a
+   * captain who stopped at the ring fit stays fitted to the ring as it closes
+   * (amendment 142), and one parked on the intel waypoint stays on it through
+   * a resize (amendment 208). The alive user zoom rides the alive waypoints;
+   * THE SPECTATE FACTOR rides its own ring waypoint on the same feed (Eric
+   * 2026-10-14), never while the reveal framing owns it (amendment 25: exempt
+   * from the clamp); a no-op while alive (the factor is 1 there). Returns
+   * whether either moved.
    */
-  private reclamp(ride: number): boolean {
+  private reclamp(ride: Rides): boolean {
     const lim = this.userZoomLimits;
-    const detent = this.zoomDetent;
-    const settle = (v: number): number => clamp(v === ride ? detent : v, lim.min, lim.max);
+    const aliveTo = ride.aliveTo === 'ring' ? this.aliveRingFactor : spanFactor(this.opts.defaultSpanU, this.intelSpanU);
+    const settle = (v: number, from: number, to: number): number => clamp(v === from ? to : v, lim.min, lim.max);
     const before = this.userZoomValue;
     const beforeF = this.zoomFactorValue;
-    this.userZoomValue = settle(before);
-    if (!this.revealing) this.zoomFactorValue = settle(beforeF);
+    this.userZoomValue = settle(before, ride.alive, aliveTo);
+    if (!this.revealing) this.zoomFactorValue = settle(beforeF, ride.spectate, this.zoomDetent);
     return this.userZoomValue !== before || this.zoomFactorValue !== beforeF;
+  }
+
+  /**
+   * Feed the HUD bar's top inset from the viewport floor in REAL px
+   * (`hudBarTopInset()` × the UI scale; amendment 208). The intel waypoint
+   * keeps the radar disc above it, and the own-hull clamp treats it as the
+   * view's bottom edge. A non-finite or negative value is ignored. A user zoom
+   * parked on the intel or the alive ring waypoint rides to the re-fitted one
+   * (`refit`). Returns whether the user zoom moved, like `setRing`, so a
+   * caller can schedule a fog re-bake.
+   */
+  setBottomInset(px: number): boolean {
+    if (!Number.isFinite(px) || px < 0) return false;
+    return this.refit(() => {
+      this.bottomInsetValue = px;
+    });
+  }
+
+  /**
+   * Apply `mutate` (a viewport or bar-inset change, both of which re-fit the
+   * intel waypoint) with the two rides and the eased center jump. A user zoom
+   * parked on the intel waypoint rides to the re-fitted one, so the disc never
+   * lands back under the bar; one parked on the alive ring waypoint rides it
+   * too (intel may lift over it, merging the two). When the re-fit is the
+   * fallback (no usable fit, so no intel stop) NOTHING rides: a transient
+   * degenerate viewport must not throw a parked zoom back to the spawn
+   * framing. Returns whether the user zoom moved.
+   */
+  private refit(mutate: () => void): boolean {
+    const before = this.slideTarget();
+    const intel = this.rideableIntel();
+    const ring = this.rideableDetent(this.intelSpanU, this.aliveRingFactor);
+    mutate();
+    let moved = false;
+    if (this.hasIntelStop) {
+      moved = this.reclamp({ alive: intel, aliveTo: 'intel', spectate: NaN });
+      moved = this.reclamp({ alive: ring, aliveTo: 'ring', spectate: NaN }) || moved;
+    }
+    this.addJump(before);
+    return moved;
+  }
+
+  /** The HUD bar's top inset (real px) the camera currently holds. */
+  get bottomInsetPx(): number {
+    return this.bottomInsetValue;
   }
 
   /** Screen-space center (px). */
@@ -559,20 +777,78 @@ export class Camera {
   /**
    * Set the viewport size (px) and recompute the base zoom so the default span
    * (CameraOptions.defaultSpanU) fits the screen's short axis. Call on init and
-   * resize.
+   * resize. A zoom parked on a waypoint rides the re-fit (`refit`, amendment
+   * 208).
    */
   setViewport(width: number, height: number): void {
-    this.viewW = width;
-    this.viewH = height;
-    this.baseZoom = Math.min(width, height) / this.opts.defaultSpanU;
+    this.refit(() => {
+      this.viewW = width;
+      this.viewH = height;
+      this.baseZoom = Math.min(width, height) / this.opts.defaultSpanU;
+    });
   }
 
-  /** Jump the camera center directly to a point (no smoothing). */
+  /** Jump the camera center directly to a point (no smoothing, and any easing
+   *  center jump dropped). */
   snapTo(p: Point): void {
     this.follow.x = p.x;
     this.follow.y = p.y;
     this.center.x = p.x;
     this.center.y = p.y;
+    this.clearJump();
+  }
+
+  /** THE PURE SLIDE TARGET (ruling 128, amendment 142) over the stored
+   *  follow point: lerp(lerp(follow, ring center, slideT), map center, mapSlideT).
+   *  A pure function of the zoom, the ring, the map and the follow point. */
+  private slideTarget(): Point {
+    const t = this.slideT;
+    const m = this.mapSlideT; // the map center is the origin (amendment 142)
+    return {
+      x: lerp(lerp(this.follow.x, this.ring.x, t), 0, m),
+      y: lerp(lerp(this.follow.y, this.ring.y, t), 0, m),
+    };
+  }
+
+  /** Whether event-driven center jumps ease (ruling 10): `slideEaseRate` set,
+   *  finite and positive. */
+  private get easesSlide(): boolean {
+    const r = this.opts.slideEaseRate;
+    return r !== undefined && Number.isFinite(r) && r > 0;
+  }
+
+  /** Fold an EVENT's move of the slide target (`before` → now) into the jump,
+   *  so the center stays put this instant and glides from there (ruling 10).
+   *  A no-op without easing, or when either target is non-finite. */
+  private addJump(before: Point): void {
+    if (!this.easesSlide) return;
+    const after = this.slideTarget();
+    const dx = before.x - after.x;
+    const dy = before.y - after.y;
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    this.jump.x += dx;
+    this.jump.y += dy;
+  }
+
+  /** Decay the jump toward 0 by `dt` seconds at `slideEaseRate`; a tail under
+   *  JUMP_SETTLE_EPS is dropped. */
+  private decayJump(dt: number): void {
+    const rate = this.opts.slideEaseRate;
+    if (rate === undefined || !this.easesSlide) return;
+    this.jump.x = expDecay(this.jump.x, 0, rate, dt);
+    this.jump.y = expDecay(this.jump.y, 0, rate, dt);
+    if (Math.hypot(this.jump.x, this.jump.y) < JUMP_SETTLE_EPS) this.clearJump();
+  }
+
+  private clearJump(): void {
+    this.jump.x = 0;
+    this.jump.y = 0;
+  }
+
+  /** Whether the center may sit off the follow point this frame: the slide is
+   *  engaged, or an event jump is still easing out. */
+  private get offFollow(): boolean {
+    return this.slideT > 0 || this.mapSlideT > 0 || this.jump.x !== 0 || this.jump.y !== 0;
   }
 
   /** Nudge the camera center by a world-space delta (spectator free pan).
@@ -629,20 +905,24 @@ export class Camera {
    * offset (exponential approach at followRate, deterministic given dt and
    * ship), then place the centre on the slide (ruling 128): lerp(follow point,
    * ring centre, slideT). At and inside the default framing slideT is 0 and the
-   * centre IS the follow point, exactly as before Story 9.8. The slide itself
-   * is not smoothed: it is a pure function of the zoom, which the player moves
-   * directly. While the slide is engaged the own hull is then kept on screen
-   * (`keepShipInView`).
+   * centre IS the follow point, exactly as before Story 9.8 — out to the intel
+   * waypoint since amendment 208. The slide itself is not smoothed: it is a
+   * pure function of the zoom, which the player moves directly. What IS eased
+   * is a jump of that target caused by an EVENT (ring feed, resize, UI scale —
+   * Eric 2026-10-19, ruling 10): center = slide target + a jump offset that
+   * decays at `slideEaseRate`, so the center glides over about half a second.
+   * While the slide is engaged or a jump is easing out, the own hull is then
+   * kept on screen (`keepShipInView`) on the final center.
    */
   update(dt: number, ship: Followable): void {
     const lead = this.leadOffset(ship);
     this.follow.x = expDecay(this.follow.x, ship.x + lead.x, this.opts.followRate, dt);
     this.follow.y = expDecay(this.follow.y, ship.y + lead.y, this.opts.followRate, dt);
-    const t = this.slideT;
-    const m = this.mapSlideT; // the map centre is the origin (amendment 142)
-    this.center.x = lerp(lerp(this.follow.x, this.ring.x, t), 0, m);
-    this.center.y = lerp(lerp(this.follow.y, this.ring.y, t), 0, m);
-    if (t > 0 || m > 0) this.keepShipInView(ship);
+    this.decayJump(dt);
+    const target = this.slideTarget();
+    this.center.x = target.x + this.jump.x;
+    this.center.y = target.y + this.jump.y;
+    if (this.offFollow) this.keepShipInView(ship);
   }
 
   /**
@@ -651,17 +931,28 @@ export class Camera {
    * (amendment 142), so a captain in the storm — farther from that centre than the view's half
    * extent — would be off screen with nothing pulling the camera back. Clamp
    * the centre, per axis of the VIEW RECT (not a circle), so the hull point
-   * stays `keepInViewPadU` inside every edge. A captain inside the ring never
-   * reaches the clamp, so their centre is exactly the slide's. Only while the
-   * slide is engaged: at and inside the default framing the centre is the
-   * follow point, untouched.
+   * stays `keepInViewPadU` inside every edge. The BOTTOM edge is the HUD bar's
+   * top edge across the whole width (amendment 208; conservative outside the
+   * bar's column, never wrong), so the hull never sits under the bar. A
+   * captain inside the ring never reaches the clamp, so their centre is
+   * exactly the slide's. Only while the slide is engaged (or an event jump is
+   * easing out): at and inside the intel waypoint the centre is the follow
+   * point, untouched (the ship is above the bar there by construction, lead
+   * included — ruling 9).
+   *
+   * A VIEWPORT TOO SHORT FOR THE BAR (review gate, Codex): the bottom
+   * half-extent is NOT floored at 0, so with the lower half exhausted the bar
+   * edge still wins; if the bar-edge bound then passes the top bound, the bar
+   * edge is preferred outright.
    */
   private keepShipInView(ship: Point): void {
     const v = this.worldView;
     const pad = this.opts.keepInViewPadU ?? 0;
     const hw = Math.max(0, v.halfW - pad);
     const hh = Math.max(0, v.halfH - pad);
+    const lower = ship.y - (v.halfH - this.bottomInsetValue / this.zoom - pad);
+    const upper = ship.y + hh;
     this.center.x = clamp(this.center.x, ship.x - hw, ship.x + hw);
-    this.center.y = clamp(this.center.y, ship.y - hh, ship.y + hh);
+    this.center.y = lower > upper ? lower : clamp(this.center.y, lower, upper);
   }
 }
