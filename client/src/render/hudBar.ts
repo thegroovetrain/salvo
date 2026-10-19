@@ -141,6 +141,17 @@ const MAIN_ROW_H = B.globe;
 const HUD_BAR_HEIGHT = MAIN_ROW_H + B.stripGap + B.stripRowH;
 
 /**
+ * Pure: the bar's vertical footprint in LOGICAL px — the distance from the
+ * viewport's bottom edge up to the bar's top edge (`hudBar.floor` + the bar's
+ * height). The one source for it: `hudBarLayout` hangs the bar from it, and
+ * main.ts hands it (× the UI scale, so in real px) to the camera, whose intel
+ * waypoint keeps the radar disc above it (epic-9 amendment 208).
+ */
+export function hudBarTopInset(): number {
+  return B.floor + HUD_BAR_HEIGHT;
+}
+
+/**
  * Pure: the whole bar from the viewport, in LOGICAL px.
  *
  * Horizontally the bar is centred and its left edge is INTEGER-ROUNDED (the
@@ -159,7 +170,7 @@ export function hudBarLayout(screenW: number, screenH: number): HudBarLayout {
   const w = HUD_BAR_WIDTH;
   const h = HUD_BAR_HEIGHT;
   const x = Math.round((screenW - w) / 2);
-  const y = screenH - B.floor - h;
+  const y = screenH - hudBarTopInset();
   const bar: Rect = { x, y, w, h };
 
   const r = B.globe / 2;
