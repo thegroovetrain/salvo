@@ -4,6 +4,7 @@ type: 'bugfix'
 created: '2026-10-19'
 status: 'done'
 baseline_revision: 'cb88ac88bca3aad171bf30d377df7c92cdad8a43'
+final_revision: '85891af9'
 review_loop_iteration: 0
 followup_review_recommended: true
 context: []
@@ -130,7 +131,7 @@ warnings: ['oversized']
 
 ## Auto Run Result
 
-**Status:** done (cycle 200, 0.18.65, PV 89 unchanged; epic-9 amendment 208).
+**Status:** done (cycle 200, 0.18.65, PV 89 unchanged; epic-9 amendment 208; PR #296 open to development).
 
 **Implemented:** the alive camera's zoom-out gains an INTEL waypoint — a hard detent at the span where the radar disc (`CONFIG.vision.radar` × the 1.05 fit margin, plus the maximum follow lead) around the screen-centered own ship has its bottom edge on the live HUD bar's top edge (real px = logical inset × UI scale). The ship → ring-center slide starts there instead of at the default framing; the ring stop is never tighter than it (merged = one stop, then the slide runs ship → map center); ring- or viewport-driven center jumps ease out at `camera.slideEaseRate`; the own-hull clamp treats the bar as the bottom edge. Spectate is unchanged.
 
