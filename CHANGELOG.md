@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.18.66] - 2026-10-19
+
+### Changed
+- **A tougher Speedboat.** The Speedboat's hull is now 300 hp (was 250), three pips on the HULL ladder, the same as the Repeater; the Dreadnought stays at 350. Eric picked 300 from a 91-match bot test: the Speedboat's share of wins rose from about 16 % to about 20 % (not yet a sure result at that size), with the other two hulls barely moving. 350 was also tested and not chosen: it took its gains mostly out of the Repeater.
+- Protocol version 89 → 90: the client reads the hull's hit points (the HP bar, upgrade previews, ramming prediction, the class card's HULL pips).
+
+### Not changed
+- Speed, turning, every weapon and every other number. The deck-gun range dropoff is being tuned in a follow-up.
+
 ## [0.18.65] - 2026-10-19
 
 ### Changed

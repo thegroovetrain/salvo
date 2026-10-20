@@ -59,7 +59,10 @@ describe('CONFIG.hullRepair — the paid heal, flat on every hull (Eric rulings 
     // half on every hull — measured as bots burning levels on heals instead of
     // boons, worst on the highest-hp hull.
     const heal = CONFIG.hullRepair.instantHp + CONFIG.hullRepair.regenHp;
-    const before = { torpedoBoat: 125, battleship: 350 / 2, mineLayer: 150 };
+    // The torpedoBoat left this record at epic-9 amendment 209 (Eric
+    // 2026-10-19: hp 250 → 300, the heal not repriced), so a heal is now a
+    // smaller fraction of its hull than the doubling kept it.
+    const before = { battleship: 350 / 2, mineLayer: 150 };
     for (const [hull, oldHp] of Object.entries(before)) {
       const nowFrac = heal / CONFIG.shipClasses[hull as keyof typeof CONFIG.shipClasses].hp;
       expect(nowFrac).toBeCloseTo(50 / oldHp, 10);

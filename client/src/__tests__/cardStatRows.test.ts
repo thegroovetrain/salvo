@@ -65,17 +65,18 @@ function held(id: string, n: number): typeof TB {
 
 describe('cardStatRows — LADDER lines print the one number they move', () => {
   it('labels HULL with the word the rest of the game uses, and prints integers', () => {
-    // The torpedo boat's base hull is 250 and HULL adds 50 a rung (Story 9.6,
-    // epic-9 amendments 90/93 — was ARMOR +25), so two copies held puts the
-    // card at 350 → 400, whole numbers on both sides (amendment 39).
+    // The torpedo boat's base hull is 300 (amendment 209; was 250) and HULL adds
+    // 50 a rung (Story 9.6, epic-9 amendments 90/93 — was ARMOR +25), so two
+    // copies held puts the card at 400 → 450, whole numbers on both sides
+    // (amendment 39).
     expect(cardStatRows(CATALOG.hullPoints, 2, held('hullPoints', 2))).toEqual([
-      { label: 'MAX HULL', cur: '350', next: '400' },
+      { label: 'MAX HULL', cur: '400', next: '450' },
     ]);
   });
 
   it('reads the FIRST copy against a bare hull', () => {
     expect(cardStatRows(CATALOG.hullPoints, 0, TB)).toEqual([
-      { label: 'MAX HULL', cur: '250', next: '300' },
+      { label: 'MAX HULL', cur: '300', next: '350' },
     ]);
   });
 

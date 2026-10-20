@@ -166,8 +166,9 @@ describe('schema 5: every Schema class stays under MAX_FIELDS', () => {
 // (b) the PV join gate moved with the framework
 // =============================================================================
 
-describe('the PV join gate refuses 88 and admits 89', () => {
-  it('PROTOCOL_VERSION is 89', () => {
+describe('the PV join gate refuses 89 and admits 90', () => {
+  it('PROTOCOL_VERSION is 90', () => {
+    // Cycle 201 bumped 89 -> 90 (amendment 209): Speedboat hp 250 -> 300, the class hp the client reads (maxHp, ramming mass, HULL pips).
     // Story 9.12 bumped 88 -> 89 (amendment 184): the second tuning pass — catalog content and every changed CONFIG block the client reads (gun.barrels, flak.rimFactor, gunAttenuation, the torpedo/mine ladders).
     // Fog tune 3 bumped 87 -> 88 (amendment 179): no fog past the ocean's rim (the client-drawn field changes), the own bank is free.
     // Fog tune 2 bumped 86 -> 87 (amendment 178): spinPeriodMs -> spinRimU, windU 1, solid-fog coverage.
@@ -245,7 +246,8 @@ describe('the PV join gate refuses 88 and admits 89', () => {
     // catalog stub flipped) and the client reads CONFIG.smokeScreen. Story
     // 8.17 bumped 59 -> 60 (the lit zone lost `phos`/`daz`, `burnZones`,
     // FLASH SHELLS); Story 8.16 bumped 58 -> 59 (`shield`, `decoys`).
-    expect(PROTOCOL_VERSION).toBe(89); // 88 → 89: the second tuning pass (Story 9.12, amendment 184); 87 → 88: fog tune 3 (amendment 179)
+    expect(PROTOCOL_VERSION).toBe(90); // 89 → 90: Speedboat hp 250 → 300 (amendment 209); 88 → 89: the second tuning pass (Story 9.12, amendment 184); 87 → 88: fog tune 3 (amendment 179)
+    expect(protocolVersionError(89)).toMatch(/refresh/i);
     expect(protocolVersionError(88)).toMatch(/refresh/i);
     expect(protocolVersionError(87)).toMatch(/refresh/i);
     expect(protocolVersionError(86)).toMatch(/refresh/i);
