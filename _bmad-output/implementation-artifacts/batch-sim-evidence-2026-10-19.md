@@ -10,6 +10,8 @@
 | `base` | Deck gun | none | WIP `8c7500fd` on top of `cb88ac88` (agent branch, see below) |
 | `cannonHarsh` | Deck gun | `gunAttenuation.perGun.cannon.fullFrac=0.3`, `…cannon.minFactor=0.25` | WIP `8c7500fd` |
 
+Four more deck-gun arms (`cannonK20F10`, `cannonK10F0`, `cannonK0F0`, `mgFlak80`) ran later the same day on the same settings; see Deck-gun phase 3.
+
 Every arm: **91 matches**, 6 shards (16 + 15 × 5), **16 bots**, even roster (486 Speedboat / 485 Dreadnought / 485 Repeater per arm), `--raw`, base seed **20261019**, so every arm plays the same 91 maps and seeds and each match has a twin in every other arm. Zero failures in any arm. No CONFIG value was changed permanently, nothing was committed to `development`, `PROTOCOL_VERSION` was not bumped.
 
 Shards: `~/hc-campaigns/speedboat-hp-2026-10-19/{base1019,tb300,tb350}-shard00..05.json` (combined `analyze-all.json`, per-bot `raw-readout-all.json`) and `~/hc-campaigns/deckgun-2026-10-19/{base,cannonHarsh}-shard00..05.json` (printout `phase2-analysis.txt`). Wall times 71–79 min per arm on a shared machine (load average 26–57 on 12 cores).
@@ -217,18 +219,123 @@ Cannon bots kill the **slowest** per minute alive (1.12 vs 1.30–1.46 per 10 bo
 
 Dropoff only lowers damage, and in bot hands it touches **under 2 % of machine-gun and flak damage** (0.3 % and 1.3 % of captain damage in `base`), because both guns land almost everything inside their knee or into their own light. Removing flak's dropoff entirely would hand it back at most about 1.5 % damage. Tighter knees for the machine gun or flak would only make those guns weaker, the opposite of the goal. Bringing flak up is a non-dropoff question; the agents proposed no numbers there, by brief.
 
+## Deck-gun phase 3 (cannon dose-response sweep + `mgFlak80`)
+
+Appended after Eric's rulings below (dropoff dials are the tool; sweep the cannon curve until the three guns are even). Four more arms on the same WIP `8c7500fd` tree, each **91 matches**, 16 bots, even roster, `--raw`, seed **20261019**, 6 shards, Speedboat hp untouched (250 on this tree), zero failures; every match has a twin in every other arm, and `base` / `cannonHarsh` are recomputed on the new metric. Shards `~/hc-campaigns/deckgun-2026-10-19/<arm>-shard00..05.json`; printout `phase3-analysis.txt` (`phase3_analyze.py`).
+
+| Arm | Tune | Cannon knee at gun tier I | Cannon damage at max range | Wall time |
+|---|---|---|---|---|
+| base | none | 500 u | 50 % | ~71 min |
+| cannonHarsh | cannon `fullFrac` 0.3, `minFactor` 0.25 | 300 u | 25 % | 78 min |
+| `cannonK20F10` (a) | cannon `fullFrac` 0.2, `minFactor` 0.1 | 200 u | 10 % | 136 min (run beside b, heavy load) |
+| `cannonK10F0` (b) | cannon `fullFrac` 0.1, `minFactor` 0.0 | 100 u | 0 (a full-range shot deals nothing) | 136 min |
+| `cannonK0F0` (c) | cannon `fullFrac` 0.0, `minFactor` 0.0 | at the muzzle | 0 | 29 min (quiet box) |
+| `mgFlak80` (Eric's ask) | machine gun `minFactor` 0.8, flak `minFactor` 0.8; cannon untouched | — | — | 41 min |
+
+### The metric (Eric's ruling, 2026-10-19)
+
+**Gun win share** = matches won by a captain carrying gun X ÷ resolved matches, target about 33 % each, read with the binomial 95 % CI on the same tiers as class share (91 matches ≈ ±10 pp). Companion: each gun's **placement distribution** (share of its bot-lives finishing in places 1–4 / 5–8 / 9–12 / 13–16, plus mean place) should look alike, so that victory reads as skill, not gun choice. The roster is not split exactly evenly by gun (cannon 479 / machine gun 463 / flak 514 bot-lives per arm = 32.9 / 31.8 / 35.3 %), so those are each gun's "fair" shares. Δ below is the paired change against `base` on the twin matches.
+
+### Gun win share (six arms)
+
+| Arm | Cannon | Machine gun | Flak | Resolved |
+|---|---|---|---|---|
+| base | **47.8** [37.8–58.0] | 25.6 [17.7–35.4] | 26.7 [18.6–36.6] | 90 |
+| cannonHarsh | 42.9 [33.2–53.1], Δ −5.6 ± 13.3 | 25.3 [17.5–35.1], Δ 0.0 ± 11.2 | 31.9 [23.2–42.0], Δ +5.6 ± 12.1 | 91 |
+| a K20F10 | 34.8 [25.7–45.2], Δ **−14.8 ± 14.0** | 23.6 [16.0–33.4], Δ 0.0 ± 11.9 | 41.6 [31.9–52.0], Δ **+14.8 ± 12.5** | 89 |
+| b K10F0 | **30.3** [21.8–40.5], Δ **−18.2 ± 12.5** | **31.5** [22.8–41.7], Δ +5.7 ± 11.1 | **38.2** [28.8–48.6], Δ +12.5 ± 13.0 | 89 |
+| c K0F0 | 34.1 [25.0–44.5], Δ −13.8 ± 14.4 | 21.6 [14.3–31.3], Δ −3.4 ± 12.6 | 44.3 [34.4–54.7], Δ **+17.2 ± 12.5** | 88 |
+| mgFlak80 | 42.0 [32.3–52.5], Δ −4.6 ± 9.0 | 26.1 [18.1–36.2], Δ −1.1 ± 8.8 | 31.8 [23.0–42.1], Δ +5.7 ± 6.7 | 88 |
+
+- In `base` the cannon wins nearly half the matches from a third of the roster; its whole interval sits above 33 %.
+- From setting a onward the cannon's lost wins are real (the paired Δ excludes zero in a and b) and go mostly to **flak**; the machine gun barely gains (its interval sits at or below 33 % in a and c).
+- **Only b has all three guns' intervals covering 33 %.**
+- a, b and c cannot be told apart from each other at 91 matches: the curve flattens after a.
+
+### Placement distribution per gun (top quarter / mid / bottom quarter)
+
+Share of each gun's bot-lives finishing 1–4 / 5–8 / 9–12 / 13–16; top-4 share with its 95 % range where the source gives it.
+
+| Arm | Cannon | Top-4 | Mean | Machine gun | Top-4 | Mean | Flak | Top-4 | Mean |
+|---|---|---|---|---|---|---|---|---|---|
+| base | 33/32/23/13 | 32.8 [29–37] | 6.98 | 20/21/26/33 | 19.9 [16–24] | 9.39 | 22/22/26/30 | 22.4 [19–26] | 9.11 |
+| cannonHarsh | 34/26/25/15 | 33.6 [30–38] | 7.26 | 19/26/25/30 | 19.2 | 9.16 | 22/23/25/30 | 22.2 | 9.06 |
+| a K20F10 | 30/28/25/17 | 30.5 [27–35] | 7.53 | 21/22/28/29 | 20.7 | 9.15 | 24/25/23/29 | 23.7 | 8.82 |
+| b K10F0 | 30/32/24/15 | 29.6 [26–34] | 7.37 | 23/21/26/31 | 22.9 | 9.12 | 23/23/26/29 | 22.6 | 8.99 |
+| c K0F0 | 28/30/23/18 | 28.4 [25–33] | 7.68 | 23/22/27/28 | 22.7 | 9.00 | 24/23/25/29 | 23.9 | 8.81 |
+| mgFlak80 | 32/33/22/13 | 31.7 | 7.05 | 22/21/26/32 | 21.6 | 9.26 | 22/21/27/30 | 21.8 | 9.17 |
+
+**Paired cannon placement gap** (per match: mean cannon place minus mean machine-gun/flak place; negative = the cannon places better):
+
+| Arm | Gap | Change vs base |
+|---|---|---|
+| base | −2.38 ± 0.49 | — |
+| cannonHarsh | −2.04 | +0.34 ± 0.53 |
+| a | −1.68 | +0.69 ± 0.55 |
+| b | −1.81 | +0.56 ± 0.53 |
+| c | −1.35 | **+1.03 ± 0.49** |
+| mgFlak80 | −2.28 | +0.09 ± 0.28 |
+
+**No setting meets the placement half of the target.** Even at c the cannon's top-4 share is 28 % against 23–24 %, and it still places about 1.3 places better. Per bot-life the cannon still lives longer at every dose (mean life 445–477 s vs 348–373 s for the other two; at c, Δ −31 ± 24 s), and its kills per 10 bot-min fall 1.12 → 0.92. The remaining edge is survival (standoff, rammed least, most drone farming), which dropoff barely reaches.
+
+### Attenuated-share ladder (captain damage removed by dropoff)
+
+| Arm | Cannon removed | Cannon damage kept (≤ 50 / 50–75 / 75–100 % band) | Cannon gun damage to captains | Machine gun removed | Flak removed |
+|---|---|---|---|---|---|
+| base | **7.3 %** | 1.00 / 0.89 / 0.64 | 226.7k | 0.3 % | 1.3 % |
+| cannonHarsh | **19.7 %** | 0.93 / 0.66 / 0.41 | 210.1k | 0.4 % | 1.5 % |
+| a | **29.4 %** | 0.84 / 0.54 / 0.26 | 176.6k | 0.4 % | 1.3 % |
+| b | **41.0 %** | 0.74 / 0.43 / 0.16 | 158.3k | 0.4 % | 1.4 % |
+| c | **46.1 %** | 0.67 / 0.39 / 0.14 | 145.1k | 0.4 % | 1.4 % |
+| mgFlak80 | 7.2 % | 1.00 / 0.89 / 0.64 | 229.0k | **0.1 %** | **0.6 %** |
+
+Cannon damage to fleet hulls moves in step: 9 → 21 → 29 → 40 → 44 % removed across the sweep.
+
+### `mgFlak80`: measured ceiling, measured zero
+
+The ceiling comes from `base`'s own readout: only 6 % of machine-gun and 16 % of flak captain damage lands past the knee, and base dropoff removes just 0.3 % (machine gun) and 1.3 % (flak) of it, so a floor of 80 % can give back at most those amounts. Measured: removed fell to 0.1 % and 0.6 %; gun win share Δ −1.1 ± 8.8 (machine gun) and +5.7 ± 6.7 (flak); cannon placement gap +0.09 ± 0.28. **Nothing measurable, as the ceiling predicted:** easing dropoff on the two short guns is not a lever in bot hands, because they hardly fight past their knee. The zero is now measured, not predicted.
+
+### Side effects: class share, attrition, bars unmoved
+
+| Arm | Speedboat / Dreadnought / Repeater % (paired Δ vs base) | Afloat at 4:00 / 8:00 / 12:00 | Bars: max kill share / ≥ 1 kill / storm / land / levels spent |
+|---|---|---|---|
+| base | 15.6 / 42.2 / 42.2 | 10.73 / 5.84 / 2.44 | 26.8 / 51.4 / 1.5 / 1.04 / 99.94 |
+| cannonHarsh | 18.7 / 50.5 / 30.8 (+3.3 / +7.8 / −11.1) | 10.47 / 5.95 / 2.55 | 26.6 / 52.2 / 1.5 / 0.78 / 99.96 |
+| a | 15.7 / 41.6 / 42.7 (+1.1 / −2.3 / +1.1) | 10.40 / 5.84 / 2.52 | 27.2 / 51.9 / 1.4 / 0.70 / 99.91 |
+| b | 15.7 / 44.9 / 39.3 (0.0 / +2.3 / −2.3) | 10.81 / 5.91 / 2.70 | 26.2 / 51.4 / 0.9 / 0.66 / 99.96 |
+| c | 18.2 / 46.6 / 35.2 (+4.6 / +3.4 / −8.0) | 10.54 / 5.75 / 2.51 | 26.5 / 51.9 / 0.9 / 0.57 / 99.91 |
+| mgFlak80 | 21.6 / 43.2 / 35.2 (+5.7 / +1.1 / −6.9) | 10.73 / 5.85 / 2.52 | 26.5 / 51.6 / 1.7 / 0.70 / 99.94 |
+
+All class changes are within their ±8–14 pp error ranges; all attrition changes within ±0.4 bots; resolution 88–91 of 91 in every arm. The same two bars fail everywhere (≥ 1 kill about 52 % vs 60 %; storm about 1–1.7 % vs the 5 % floor). These arms ran at Speedboat 250, so their class shares are not readings of the shipped 300 hp.
+
+### Standoff identity
+
+In bot hands the cannon keeps its standoff identity at every dose: its aim bands do not move (about 50 % of cannon shells aimed past half range in every arm), and it engages the most (52 → 55 % of ticks), retreats or hides the least (15 → 13 %) and is rammed the least (14 → 16 % of deaths). That is because **bots ignore the knee**. What changes is that long shots stop paying: a cannon hit in the 75–100 % band keeps 16 % of full damage at b and 14 % at c. With human players, a knee at 100–200 u would likely push cannon users to close in, which would blur the identity Eric wants preserved; the bots cannot show this.
+
 ## Proposals pending Eric
 
-1. **Speedboat `shipClasses.torpedoBoat.hp` 250 → 300 — PENDING Eric.** Class share: Speedboat 15.6 → 20.2 %, **+4.7 pp (−6.5, +15.9), not significant** at 91 matches, and its CI (13.2–29.7 %) still sits wholly **under** the 31–35 % band; Repeater −6.3 pp n.s., Dreadnought +1.6 pp n.s. Attrition unchanged (10.8 / 6.2 / 1.8 alive at 4:00 / 8:00 / 12:00, still 2–3 hulls above target at 4:00 and 8:00). Tier null (±10.1 pp); mutual-ram draws 1 → 2.
-2. **Speedboat `shipClasses.torpedoBoat.hp` 250 → 350 — PENDING Eric** (run as a bracket, not proposed by the agents; listed so Eric has the measured effect). Class share: Speedboat 15.6 → 34.9 %, **+19.3 pp (+6.8, +31.9), significant**, all three hulls consistent with the band at ±10 pp, but its CI runs up to 45.4 % so overshoot cannot be ruled out; **Repeater −15.5 pp (−29.3, −1.6), significant**, to 26.7 %, below the band by point estimate; Dreadnought −3.9 pp n.s. Attrition unchanged (10.6 / 5.6 / 2.0). Costs: Speedboat ramming deaths 28.8 → 35.9 % of its deaths, mutual-ram draws 1 → 5. Tier null (±10.1 pp).
-3. **Cannon dropoff `fullFrac` 0.5 → 0.3, `minFactor` 0.5 → 0.25 (per-gun override, cannon only) — PENDING Eric.** Gun target: cannon win 9.2 → 8.1 % (−1.0 ± 3.5 pp), placement 6.98 → 7.26 (+0.28 ± 0.40), machine gun 0.0 ± 2.4 pp, flak +1.0 ± 2.5 pp: **all inside error**, the cannon still about 2 places ahead, its standoff identity intact. Class-share and attrition targets: Speedboat +3.3 ± 11.4, Dreadnought +7.8 ± 14.6, Repeater −11.1 ± 13.3 pp; alive −0.25 ± 0.40 at 4:00, +0.11 ± 0.34 at 8:00: **all inside error**. Shipping it needs the per-gun override, which exists only on the agent branch (below).
+1. **Speedboat `shipClasses.torpedoBoat.hp` 250 → 300 — ACCEPTED (see Rulings 2026-10-19).** Class share: Speedboat 15.6 → 20.2 %, **+4.7 pp (−6.5, +15.9), not significant** at 91 matches, and its CI (13.2–29.7 %) still sits wholly **under** the 31–35 % band; Repeater −6.3 pp n.s., Dreadnought +1.6 pp n.s. Attrition unchanged (10.8 / 6.2 / 1.8 alive at 4:00 / 8:00 / 12:00, still 2–3 hulls above target at 4:00 and 8:00). Tier null (±10.1 pp); mutual-ram draws 1 → 2.
+2. **Speedboat `shipClasses.torpedoBoat.hp` 250 → 350 — REJECTED (see Rulings 2026-10-19)** (run as a bracket, not proposed by the agents; listed so Eric has the measured effect). Class share: Speedboat 15.6 → 34.9 %, **+19.3 pp (+6.8, +31.9), significant**, all three hulls consistent with the band at ±10 pp, but its CI runs up to 45.4 % so overshoot cannot be ruled out; **Repeater −15.5 pp (−29.3, −1.6), significant**, to 26.7 %, below the band by point estimate; Dreadnought −3.9 pp n.s. Attrition unchanged (10.6 / 5.6 / 2.0). Costs: Speedboat ramming deaths 28.8 → 35.9 % of its deaths, mutual-ram draws 1 → 5. Tier null (±10.1 pp).
+3. **Cannon dropoff `fullFrac` 0.5 → 0.3, `minFactor` 0.5 → 0.25 (per-gun override, cannon only) — SUPERSEDED by item 4.** No ruling on this point itself: Eric ordered the cannon sweep instead (Rulings 2026-10-19), and on his gun-win-share metric this setting measured 42.9 % cannon wins (Δ −5.6 ± 13.3 pp, inside error). Phase-2 per-bot readings, kept for the record — gun target: cannon win 9.2 → 8.1 % (−1.0 ± 3.5 pp), placement 6.98 → 7.26 (+0.28 ± 0.40), machine gun 0.0 ± 2.4 pp, flak +1.0 ± 2.5 pp: **all inside error**, the cannon still about 2 places ahead, its standoff identity intact. Class-share and attrition targets: Speedboat +3.3 ± 11.4, Dreadnought +7.8 ± 14.6, Repeater −11.1 ± 13.3 pp; alive −0.25 ± 0.40 at 4:00, +0.11 ± 0.34 at 8:00: **all inside error**. Shipping it needs the per-gun override, which exists only on the agent branch (below).
+
+4. **Cannon dropoff `fullFrac` 0.5 → 0.1, `minFactor` 0.5 → 0.0 (setting b; or `minFactor` 0.1 with `fullFrac` 0.2, setting a, indistinguishable at 91 matches) — PENDING Eric.** Gun-win-share target: b is the only measured setting where all three intervals cover 33 % — cannon 47.8 → **30.3 %** [21.8–40.5] (Δ −18.2 ± 12.5 pp, significant), machine gun 31.5 % [22.8–41.7] (Δ +5.7 ± 11.1), flak 38.2 % [28.8–48.6] (Δ +12.5 ± 13.0); a reads cannon 34.8 / machine gun 23.6 / flak 41.6 % with the machine gun's interval reaching only 33.4 %. **Cost, explicitly:** the placement half of the target is not met — the cannon still places 1.4–1.8 places better (b −1.81, a −1.68 vs base −2.38 ± 0.49; change +0.56 ± 0.53 at b, +0.69 ± 0.55 at a), its top-4 share 29.6 % [26–34] at b against 22.6–22.9 % for the other two; and far cannon shots become near-worthless (16 % of full damage kept in the 75–100 % band at b, 26 % at a; at b a full-range shot deals nothing), so with humans the knee may pull cannon users in and blur its standoff identity, which bots cannot show. Class-share and attrition targets: b Speedboat 0.0 / Dreadnought +2.3 / Repeater −2.3 pp, afloat 10.81 / 5.91 / 2.70 — all inside error (measured at Speedboat 250). **Confirmation:** a, b and c cannot be separated at 91 matches; telling whether the cannon really sits near 33 % and whether the machine gun stays under while flak overshoots needs the ±5 pp tier, about **360 matches** on one setting, above the 99-match cap (Eric's call). Shipping it needs the per-gun override, which exists only on the agent branch (below).
 
 Eric rules on every number; this campaign measured only the values above.
+
+## Rulings 2026-10-19
+
+- **Speedboat hp 300: ACCEPTED** (Eric) and shipped as **PR #297** — cycle 201, 0.18.66, PV 90, amendment 209.
+- **Speedboat hp 350: REJECTED** (Eric): the Repeater pays for it, −15.5 pp (−29.3, −1.6), significant.
+- **Deck-gun dropoff dials ARE the tool** (Eric): stop asking, sweep the cannon curve until the three guns are even (the machine gun and flak are already even with each other). That ruling launched the phase-3 sweep; `mgFlak80` was Eric's own ask, run so its expected zero would be measured rather than predicted.
+- **Deck-gun metric** (Eric): gun win share of matches, target about 33 % each with the binomial CI, plus a per-gun placement histogram that looks alike (definition in Deck-gun phase 3).
+- **Same-tick mutual-ram no-winner ending** (Eric): noted in deferred-work, fix later.
+- Pending: the cannon setting (item 4) and whether to spend a 360-match confirmation on it.
 
 ## Open after this ledger
 
 - **The ±5 pp confirm tier** needs about 360 matches per arm, above the 99-match-per-arm cap; confirming any value above is Eric's call to waive the cap.
-- **The mutual-ram no-winner ending** (same-tick mutual ram sinks the last two; `lastHumanSunk`, no winner credited) scales with Speedboat HP and can shave real wins off the Speedboat; already in deferred-work since 2026-10-17.
+- **The mutual-ram no-winner ending** (same-tick mutual ram sinks the last two; `lastHumanSunk`, no winner credited) scales with Speedboat HP and can shave real wins off the Speedboat; already in deferred-work since 2026-10-17, and Eric ruled it be noted there and fixed later.
+- **The placement gap the cannon dropoff cannot close:** 1.4–1.8 places at the settings that reach about 33 % win share; dropoff alone cannot make the placement histograms look alike.
 - **Bots ignore the knee:** `ai/doctrine.ts` `effectiveReach().fullU` is computed but no bot code reads it (only a test), so every dropoff arm measures damage only, never players moving in to full-damage range. Humans would reposition.
 - **The two failing bot bars:** ≥ 1-kill at 51–54 % against 60 %, storm share 1.1–1.5 % against a 5 % floor, in every arm. Class and gun shares remain partly decided by bot tactics.
 - **The experimental per-gun override and distance-band readout are not shipped.** They live only on worktree branch `worktree-agent-a6267c1a6d0af191c`, WIP commit `8c7500fd` (11 files, +261 / −15: `gunAttenuationFor` in `shared/src/sim/attenuation.ts`, the read-only `shellBlowProbe` harness hook in `world.ts`, `--tune gunAttenuation.perGun.<cannon|mg|flak>.<fullFrac|minFactor>`, and the `deckGunAim` / `deckGunHits` readouts), not pushed, no PR. Its gate run had one wall-clock timing failure under load (`machineGunFlashCost.test.ts`, 63.3 ms vs < 50) that passed alone; reported, not called fixed.
