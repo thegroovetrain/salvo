@@ -179,7 +179,11 @@ describe('ai/posture â€” THE ODDS GATE beyond own reach (epic-9 amendments 194â€
   });
 
   it('a LEANS-IN profile closes on a failed gate down to three quarters of its bar', () => {
-    const sit = situation({ profile: profileOf('raider') });
+    // A slightly worn hull (90 %), so the odds sit under the bar whatever the
+    // class hp ratio (a full 300 hp torpedoBoat vs a 350 hp battleship reads
+    // 0.857, over the raider's bar, since amendment 209).
+    const st = stats('torpedoBoat');
+    const sit = situation({ profile: profileOf('raider'), hp: st.maxHp * 0.9 });
     const t = track({ x: reachOf(sit.stats) + 200, cls: 'battleship' });
     const odds = oddsFor(sit, t, [t], []);
     const bar = profileOf('raider').oddsThreshold;

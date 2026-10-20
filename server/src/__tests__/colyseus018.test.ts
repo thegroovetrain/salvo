@@ -299,12 +299,12 @@ describe('the PV join gate refuses 89 and admits 90', () => {
   });
 
   it('refuses a FUTURE pv too (the gate is equality, not a floor)', () => {
-    expect(protocolVersionError(90)).toMatch(/refresh/i);
+    expect(protocolVersionError(91)).toMatch(/refresh/i);
   });
 
   it('admits exactly the current protocol', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
-    expect(protocolVersionError(89)).toBeNull();
+    expect(protocolVersionError(90)).toBeNull();
   });
 });
 
