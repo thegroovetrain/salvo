@@ -3103,3 +3103,20 @@ Closure stamps for three older entries (the originals are left as written), then
   status: OPEN — harness only, Eric 2026-10-19: "fine for now, fix later"
   summary: THE SAME-TICK MUTUAL-RAM ENDING CREDITS NO WINNER. When the last two hulls sink each other by ramming on the same tick (`sunkByContact`, identical life to 0.1 s), nobody is left, so the harness ends the match as `lastHumanSunk` with `winnerClass: null` and analyze drops it from class share. It grows with Speedboat hp (ram damage follows the energy law with mass = max hull): 1 → 2 → 5 matches of 91 across the 250 / 300 / 350 arms, 6 of the 7 tuned-arm cases involve a Speedboat, and in 3 of the 5 at 350 the Speedboat held placement 1 with no win credited, so it can shave real wins off the Speedboat's count. (The ledger says Story 9.13 already recorded this; no such entry was found here, so this is the first.)
   evidence: ledger `batch-sim-evidence-2026-10-19.md` ("The mutual-ram no-winner ending"); seeds `base1019` 2790982975; `tb300` 790620577, 3441840173; `tb350` 1806474295, 3021961079, 1389885742, 2041567043, 2390849062 (base seed 20261019).
+
+## 2026-10-21 — The entire sweep, cycle 202 (spec-radar-full-sweep-fog-dim.md)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-radar-full-sweep-fog-dim.md`
+  status: OPEN — Eric's call
+  summary: THE MENU SCOPE SHOWS NO IN-SIGHT WAKE. The menu's stand-in server never sent `wk` rows; in-sight wake on the menu came from the deleted client synthesis. Restoring it means the stand-in emitting wake rows for segments the beam crosses — new menu behaviour, not asked for.
+  evidence: client/src/render/ambientScene.ts `ambientPaints`; amendment 210 (b).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-radar-full-sweep-fog-dim.md`
+  status: OPEN — cleanup
+  summary: `wakeSourceObserved`, `WakeSource.observed`, `WakeSources.version` (client/src/render/wake.ts) and `FASTEST_BOOSTED_HULL_SPEED` (client/src/config.ts) have no production reader since the wake stamp cache was deleted; kept with honest docs. Remove when touched next.
+  evidence: amendment 210 (b).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-radar-full-sweep-fog-dim.md`
+  status: OPEN — Eric may re-rule
+  summary: BOTS SKIP ANY PAINT WITHIN `ANON_ASSOC_U` OF A HULL SIGHTED THIS VIEW (so a sighted hull's own echo never smears its live plot). A second hull inside that distance of a sighted one — e.g. half behind a low island — goes unplotted that tick. Also: an own-zone decoy now arrives twice (on `decoys` and as an anonymous blip), a direct consequence of "the entire sweep" covering own-zone hulls.
+  evidence: server/src/game/ai/utility.ts `foldBlip` / `nearSighted`; amendment 210 (a).

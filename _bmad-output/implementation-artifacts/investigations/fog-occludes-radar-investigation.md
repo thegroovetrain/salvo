@@ -199,3 +199,13 @@ Reproduce on staging before building: sit in a bank with a bot approaching from 
 - The dim ramp's 500–750 u band (floor rising to 1 at the flash rung) dims returns on water the eye NEVER sees. Under Eric's new rule that band is also wrong, not only the in-bubble floor. Confirmed: `radarDim.ts:67-69`.
 - Amendment 178 recorded that bots keep shooting a stale plot after a hull enters fog (amendment 169). Unchanged by anything here, but it is the "them seeing me" half of the fog feel; Eric may want it on the same ruling pass.
 - The 2026-08-02 island ruling (radar never paints an island-LOS-blocked hull inside the bubble) is the same hand-off gap for islands that amendment 163 is for fog. Fix 1 as framed above leaves islands as ruled (the height-raster shadow still gates); if Eric wants "if I can't see it, radar paints it" to cover islands too, that is a separate, explicit reversal.
+
+## Follow-up: 2026-10-21
+
+### New Evidence
+
+Eric, on the hand-off diagnosis: the server-side inner edge was never the intended design. *"The server needs to return the entire sweep, the client is what decides how much alpha it gets at any given point based on proximity. That 'first clause' of the target being further than my sight radius is dead wrong."* He also confirmed the specific instance was him in fog, the opponent in clear water, no return at all — Deduction 1's band.
+
+### Updated Conclusion
+
+Root cause stands (Confirmed, High). The fix direction changed from "radar inner edge follows the fogged eye" to "no inner edge at all": the server returns the entire sweep, the client paints only the wire, and the near-range dim slides to the fogged eye per bearing. Built as quick-dev `spec-radar-full-sweep-fog-dim.md`, cycle 202, amendment 210. Status: Concluded.
