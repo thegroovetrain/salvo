@@ -372,8 +372,9 @@ const WAKE_SUBJECT: WakeSubject = { x: 0, y: 0, ax: 0, ay: 0, bx: 0, by: 0, buck
  * span, conservative only) runs before the per-segment loop so cost scales
  * with what the beam crossed rather than with track length. Spectators get
  * none (no radar — the blip rule; the row also fails closed on mode).
- * SELF-EXCLUSION is the observer's own HULL ribbon only (key === me.id),
- * skipped here in the scan — the row/gate itself has none.
+ * NO SELF-EXCLUSION (Eric 2026-10-21, on the gate patch that skipped the
+ * observer's own hull ribbon: "I want ALL radar returns"): the observer's own
+ * water paints like any other return and the client's proximity dim mutes it.
  */
 function wakeScan(ctx: SignalContext): WakeBlipEvent[] {
   const out: WakeBlipEvent[] = [];
@@ -381,10 +382,7 @@ function wakeScan(ctx: SignalContext): WakeBlipEvent[] {
   const row = SIGNAL_REGISTRY.wk;
   for (const ribbon of ctx.wakes) {
     const key = ctx.wakeKeyOf(ribbon); // the dropout roll's target key (Story 9.8)
-    // THE OBSERVER'S OWN HULL WATER never paints its own scope (amendment 210 gate patch): a hull ribbon is
-    // keyed by its ship id, and the radar never paints the observer's own hull (shipScan skips me.id), so
-    // not its own water either. Own TORPEDO wakes are keyed by shell id and still disclose.
-    if (key === ctx.me.id || !sweepMayCrossWake(ctx.me, ribbon)) continue;
+    if (!sweepMayCrossWake(ctx.me, ribbon)) continue;
     eachWakeSegment(ribbon, ctx.now, (seg) => {
       const s = WAKE_SUBJECT;
       s.x = seg.mx;

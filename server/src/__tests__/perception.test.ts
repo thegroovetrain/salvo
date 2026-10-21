@@ -2449,7 +2449,7 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     expect(buildFrame(w, 'a').events.some((e) => e.k === 'wk')).toBe(false);
   });
 
-  it("the observer's own hull wake never reaches its own wk row (amendment 210 gate patch); another ship's in-sight water still does", () => {
+  it("the observer's OWN hull wake reaches its own wk row like any other return (Eric 2026-10-21: all radar returns); another ship's in-sight water does too", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     a.state.speed = 30; // a lone moving hull laying its own ribbon astern
@@ -2466,8 +2466,8 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
       }
       return out;
     };
-    expect(sweepAll()).toHaveLength(0);
-    // Another ship's water, deep inside sight, still discloses on the same sweep.
+    expect(sweepAll().length).toBeGreaterThan(0);
+    // Another ship's water, deep inside sight, discloses on the same sweep.
     const b = place(w, 'b', 900, 900);
     injectWakeTrack(b.wake, ANNULUS_D, 0, 0, 26, w.now, 5_000);
     expect(ANNULUS_D - 25 * 12 + 6).toBeLessThan(SIGHT); // premise: in-sight water
@@ -3895,10 +3895,10 @@ function wakeSegmentsOracle(r: WakeRibbon, now: number): WakeSegOracle[] {
  *  and the dropout roll keyed on the water's SOURCE (Story 9.8, ruling 123:
  *  `w.wakeKeyOf` — the ship id, or the fish's shell id). Ship and torpedo
  *  water alike; no cloud term (Story 9.3 session 2), NO zone term; the one
- *  self term is the observer's own HULL ribbon (key === me.id — amendment
- *  210 gate patch), and a midpoint on the observer's own point is no return. */
+ *  self term: NONE (Eric 2026-10-21: "I want ALL radar returns" — the
+ *  observer's own water paints too); a midpoint on the observer's own point
+ *  is no return. */
 function wakeDisclosed(w: World, me: ShipRecord, seg: WakeSegOracle, key: string): boolean {
-  if (key === me.id) return false;
   const mid = { x: seg.mx, y: seg.my };
   if (mid.x === me.state.x && mid.y === me.state.y) return false;
   const d = dist(me.state, mid);

@@ -1426,10 +1426,10 @@ function wakeMask(s: WakeSubject, t: number): HullCoverage {
  * sends.
  *
  * NO ownZoneCovers term (no radar row has one since amendment 210).
- * SELF-EXCLUSION is the observer's own HULL ribbon only, in the scan
- * (perception.wakeScan skips the ribbon keyed `me.id`, as shipScan skips the
- * observer's own hull — amendment 210 gate patch); this gate has none, so
- * the observer's own TORPEDO water (keyed by shell id) still paints.
+ * NO self-exclusion anywhere (Eric 2026-10-21: "I want ALL radar returns"):
+ * the observer's own hull water and own torpedo water paint on the
+ * observer's own scope like any other return; the client's proximity dim
+ * is the only thing that quiets them.
  * Spectators get none (they have no radar — the blip rule).
  *
  * materialize() emits GEOMETRY plus the age bucket and NOTHING else
