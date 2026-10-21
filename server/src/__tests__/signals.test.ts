@@ -140,7 +140,7 @@ const REGISTRY_KEYS = [
   // 1..8 volume band as of Story 4.9; islands muffle to max(5, band + 2)).
   'fh',
   // Story 4.12 — radar wakes: disturbed water disclosed segment by segment
-  // on the blipGate clause order, per-source inner bound (NOT a declared fog
+  // on the blipGate clause order, no inner bound (amendment 210) (NOT a declared fog
   // exception; identity-free {k,t,a,gx,gy,w,h,bits} coverage masks).
   'wk',
 ];
@@ -260,10 +260,10 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const me = place(w, 'a', 0, 0);
     me.prevSweepAngle = wrapPositive(-0.02);
     me.sweepAngle = wrapPositive(0.02); // beam just crossed bearing 0 this tick
-    // A 12u segment at 700u dead ahead — inside the annulus (sight 500 on the
-    // twelfths ladder, amendment 103) and inside the dropout's flat band, on
+    // A 12u segment at 700u dead ahead — inside radar range and inside the
+    // dropout's flat band, on
     // the swept bearing, open flat water (bareWorld flattens the raster).
-    const seg = { x: 700, y: 0, ax: 694, ay: 0, bx: 706, by: 0, bucket: 2, widthU: 9, torp: false, key: 'src' };
+    const seg = { x: 700, y: 0, ax: 694, ay: 0, bx: 706, by: 0, bucket: 2, widthU: 9, key: 'src' };
     const row = signalFor('wk')!;
     const ctx = foggedCtx(w, me);
     expect(row.visible(ctx, seg)).toBe(true);
@@ -273,19 +273,17 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(wire.a).toBe(2); // the quantized water-age bucket rides verbatim
   });
 
-  it('wk row fails closed: spectators (no radar), the sight bubble, an unswept bearing, and a world-emitted wire shape (no `ax`)', () => {
+  it('wk row fails closed: spectators (no radar), an unswept bearing, and a world-emitted wire shape (no `ax`) — and the sight bubble is NOT a fail (amendment 210)', () => {
     const w = bareWorld(1);
     const me = place(w, 'a', 0, 0);
     me.prevSweepAngle = wrapPositive(-0.02);
     me.sweepAngle = wrapPositive(0.02);
     const row = signalFor('wk')!;
-    const seg = { x: 500, y: 0, ax: 494, ay: 0, bx: 506, by: 0, bucket: 0, widthU: 9, torp: false };
+    const seg = { x: 500, y: 0, ax: 494, ay: 0, bx: 506, by: 0, bucket: 0, widthU: 9, key: 'src' };
     expect(row.visible(specCtx(w), seg)).toBe(false); // spectators have no radar
-    // Inside the sight bubble: the annulus' sight exclusion is inherited from
-    // blipGate verbatim for SHIP water (the row's documented in-bubble
-    // ruling; torpedo water discloses down to detect instead — P2, pinned in
-    // perception.test.ts's directed wake cases).
-    expect(row.visible(foggedCtx(w, me), { ...seg, x: 200, ax: 194, bx: 206 })).toBe(false);
+    // Inside the sight bubble the swept water DISCLOSES: the radar has no
+    // inner edge (amendment 210 — the server returns the entire sweep).
+    expect(row.visible(foggedCtx(w, me), { ...seg, x: 200, ax: 194, bx: 206 })).toBe(true);
     // Off the swept bearing (bearing π, window around 0).
     expect(row.visible(foggedCtx(w, me), { ...seg, x: -500, ax: -506, bx: -494 })).toBe(false);
     // A fabricated world-emitted `wk` WIRE event has no `ax` — dropped.
@@ -799,16 +797,16 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     expect(signalFor('mz')!.visible(foggedCtx(w, a), e)).toBe(false); // no ownZoneCovers term, by ruling
   });
 
-  it('blip: a zone-covered annulus ship fails the blip row even when swept (already a full contact)', () => {
+  it('blip: a zone-covered ship still passes the blip row when swept (amendment 210 ruling (a): the entire sweep)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 700, 0); // radar annulus (amendment 103: sight 500), inside the dropout's flat band, bearing 0
+    const b = place(w, 'b', 700, 0); // inside radar and the dropout's flat band, bearing 0
     a.prevSweepAngle = wrapPositive(-0.02);
     a.sweepAngle = wrapPositive(0.02); // beam crossing bearing 0 this tick
     const row = signalFor('blip')!;
-    expect(row.visible(foggedCtx(w, a), b)).toBe(true); // sanity: paints without a zone
+    expect(row.visible(foggedCtx(w, a), b)).toBe(true); // paints without a zone
     w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 700, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
-    expect(row.visible(foggedCtx(w, a), b)).toBe(false); // contact tier now — never a blip
+    expect(row.visible(foggedCtx(w, a), b)).toBe(true); // ...and inside the observer's own light too
   });
 });
 

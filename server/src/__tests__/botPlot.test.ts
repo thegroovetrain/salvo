@@ -39,7 +39,7 @@ import {
   predictedPos,
   trackVelocity,
 } from '../game/ai/plot.js';
-import { FOG_PLOT_DENSITY, SWEEP_MISS_GRACE_MS, sweptAndMissed, type SweepSite } from '../game/ai/sweepMiss.js';
+import { SWEEP_MISS_GRACE_MS, sweptAndMissed, type SweepSite } from '../game/ai/sweepMiss.js';
 import { foldView } from '../game/ai/utility.js';
 import { aimPoint, solveTorpedoShot, type TacticContext } from '../game/ai/tacticKit.js';
 import { EQUIPMENT_TACTICS } from '../game/ai/tacticRegistry.js';
@@ -323,6 +323,25 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
     expect(t.missSweptAt).toBe(-1);
   });
 
+  it("A SIGHTED HULL'S OWN ECHO (amendment 210): a paint on a hull the view also sights folds into nothing — one live id-keyed track, no anonymous plot, no paint baseline", () => {
+    const m = mkMind();
+    const both: PerceptionView = {
+      ...view([blipAt(200, 0, NOW)]),
+      contacts: [{ id: 's1', x: 200, y: 0, heading: 0, speed: 30, cls: 'torpedoBoat' }] as PerceptionView['contacts'],
+    };
+    foldView(m, both, NOW);
+    expect([...m.contacts.keys()]).toEqual(['s1']);
+    const t = m.contacts.get('s1')!;
+    expect(t.live).toBe(true);
+    expect(t.paintAt).toBe(-1); // the echo never wrote a paint baseline onto the sighted plot
+    expect([t.vx, t.vy, t.vSrc]).toEqual([30, 0, 'sight']);
+    // A second hull painted beyond association range of the sighted one is still folded.
+    const m2 = mkMind();
+    foldView(m2, { ...both, events: [blipAt(200, 0, NOW), blipAt(200 + 3 * ANON_ASSOC_U, 0, NOW)] }, NOW);
+    expect(m2.contacts.size).toBe(2);
+    expect(m2.contacts.get('s1')!.paintAt).toBe(-1);
+  });
+
   it('A MEASUREMENT OVERRIDES A GUESS (B3): a stopped hull with a stale wake course takes its next paint via rule (b) and reads stationary', () => {
     const m = mkMind();
     // Parked at (500, 0) but still carrying a 40 u/s wake guess: predicted 160 u ahead, outside its ~114 u band.
@@ -511,7 +530,7 @@ describe('ai/plot — the sweep-miss drop (Eric ruling 2026-10-02)', () => {
     expect(sweptAndMissed({ lastSweep: 0, sweepAngle: 0 }, SITE, stale, NOW)).toBe(false);
   });
 
-  it('THE RADAR SHADOW (E7): beyond sight, the gate is the perception boundary\'s own height march', () => {
+  it('THE RADAR SHADOW (E7): the gate is the perception boundary\'s own height march (at every distance since amendment 210)', () => {
     // A hard ridge on the ray that no island polygon models: shadowed → not a miss.
     const ridge = { ...SITE, raster: rasterFrom(700, ridgeField(250, 0, 10, 10, 255)) };
     expect(sweptAndMissed(ACROSS, ridge, stale, NOW)).toBe(false);
@@ -607,43 +626,32 @@ describe('ai/plot — the sweep-miss drop (Eric ruling 2026-10-02)', () => {
     expect(m.contacts.has('far')).toBe(false);
   });
 
-  it('THE FOG LIMIT (Story 9.10, epic-9 amendment 169): a plot whose predicted spot sits in fog is NOT a miss — never marked, it ages out on contactMemoryMs; a plot outside the fog is dropped as before', () => {
-    const inFog = anon({ x: 300, y: 0, seenAt: NOW - 1000 });
-    const thick = { ...SITE, fogAt: () => 1 };
-    const clear = { ...SITE, fogAt: () => 0 };
-    const elsewhere = { ...SITE, fogAt: (x: number) => (x > 600 ? 1 : 0) }; // fog past 600 u, the plot at 300 u is in the open
-    const thin = { ...SITE, fogAt: () => FOG_PLOT_DENSITY - 0.01 }; // the thin edge is not "in fog"
-    expect(sweptAndMissed(ACROSS, thick, inFog, NOW)).toBe(false);
-    expect(sweptAndMissed(ACROSS, { ...SITE, fogAt: () => FOG_PLOT_DENSITY }, inFog, NOW)).toBe(false); // the threshold is inclusive
-    expect(sweptAndMissed(ACROSS, clear, inFog, NOW)).toBe(true);
-    expect(sweptAndMissed(ACROSS, elsewhere, inFog, NOW)).toBe(true);
-    expect(sweptAndMissed(ACROSS, thin, inFog, NOW)).toBe(true);
-    expect(sweptAndMissed(ACROSS, SITE, inFog, NOW)).toBe(true); // no fogAt at all = no fog anywhere (today's behaviour)
-    // Through the real fold: a full revolution of empty sweeps (plus the
-    // grace) keeps the fogged plot and drops the clear one; the fogged plot
-    // then ages out on the normal memory clock like any unpainted plot.
-    const run = (site: SweepSite): { afterSweep: boolean; afterMemory: boolean } => {
-      const m = mkMind();
-      m.contacts.set('p', anon({ x: 300, y: 0, seenAt: NOW - 1000 }));
-      const STEP = (2 * Math.PI * DT) / site.stats.sweepPeriodMs;
-      let last = 2 * Math.PI - 0.05;
-      let k = 0;
-      const sweepUntil = (ms: number): void => {
-        for (; k * DT <= ms; k += 1) {
-          const cur = (last + STEP) % (2 * Math.PI);
-          foldView(m, view([]), NOW + k * DT, { beam: { lastSweep: last, sweepAngle: cur }, site });
-          last = cur;
-        }
-      };
-      sweepUntil(site.stats.sweepPeriodMs + 2 * SWEEP_MISS_GRACE_MS);
-      expect(NOW + k * DT - (NOW - 1000)).toBeLessThan(CONFIG.bots.contactMemoryMs); // premise: still inside memory
-      const afterSweep = m.contacts.has('p');
-      sweepUntil(CONFIG.bots.contactMemoryMs + 1000);
-      return { afterSweep, afterMemory: m.contacts.has('p') };
-    };
-    expect(run(thick)).toEqual({ afterSweep: true, afterMemory: false });
-    expect(run(clear)).toEqual({ afterSweep: false, afterMemory: false });
-    expect(run(elsewhere)).toEqual({ afterSweep: false, afterMemory: false });
+  it('NO FOG LIMIT (amendment 210, retiring amendment 169): radar sees through fog, so a fogged plot the beam sweeps clean is dropped like any other', () => {
+    // The mind carries solid fog everywhere (public weather — the cover
+    // search's read); the sweep-miss drop ignores it. A full revolution of
+    // empty sweeps (plus the grace) drops the plot well inside memory.
+    const m = mkMind();
+    m.fogAt = () => 1;
+    m.contacts.set('p', anon({ x: 300, y: 0, seenAt: NOW - 1000 }));
+    const STEP = (2 * Math.PI * DT) / SITE.stats.sweepPeriodMs;
+    let last = 2 * Math.PI - 0.05;
+    for (let k = 0; k * DT <= SITE.stats.sweepPeriodMs + 2 * SWEEP_MISS_GRACE_MS; k += 1) {
+      const cur = (last + STEP) % (2 * Math.PI);
+      foldView(m, view([]), NOW + k * DT, { beam: { lastSweep: last, sweepAngle: cur }, site: SITE });
+      last = cur;
+    }
+    expect(SITE.stats.sweepPeriodMs + 2 * SWEEP_MISS_GRACE_MS + 1000).toBeLessThan(CONFIG.bots.contactMemoryMs); // premise: memory alone would have kept it
+    expect(m.contacts.has('p')).toBe(false);
+  });
+
+  it('INSIDE SIGHT TOO the gate is the radar shadow march (amendment 210: radar has no inner edge) — an island polygon over a flat raster no longer saves an in-bubble plot', () => {
+    const near = anon({ x: SITE.stats.sightRange - 50, y: 0, seenAt: NOW - 1000 });
+    const flat = { ...SITE, islands: [circleIsland(100, 0, 30)], raster: flatRaster(700) };
+    expect(sweptAndMissed(ACROSS, flat, near, NOW)).toBe(true); // the beam would have painted it → a miss
+    const hard = { ...SITE, raster: rasterFrom(700, ridgeField(100, 0, 10, 10, 255)) };
+    expect(sweptAndMissed(ACROSS, hard, near, NOW)).toBe(false); // hard cover: it would not have answered
+    // No raster at hand: the conservative island-LOS fallback still holds.
+    expect(sweptAndMissed(ACROSS, { ...SITE, islands: [circleIsland(100, 0, 30)] }, near, NOW)).toBe(false);
   });
 
   it('the window is half-open: start-inclusive, end-exclusive', () => {

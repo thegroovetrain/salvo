@@ -2316,8 +2316,11 @@ export const CONFIG = {
    *   water still hides. Looking INTO a bank from clear water is unchanged.
    * - Fog exists only on the ocean (inside the map radius, where islands could
    *   be — amendment 179): density is 0 in the storm water beyond the rim.
-   * - NO RADAR TERM, EVER (149, 163): a hull inside the geometric sight radius
-   *   that fog hides is dark to BOTH sensors. The muzzle flash and wounded
+   * - NO RADAR TERM, EVER (149): the radar paints its ENTIRE sweep at every
+   *   distance (Eric 2026-10-21, amendment 210; 163's "dark to both" is
+   *   superseded), so a hull fog hides from the eye still paints on radar
+   *   wherever it is. The client's near-range radar dim follows, per bearing,
+   *   where the fog-tolled eye ends (sim/fog.ts `fogEyeReach`). The muzzle flash and wounded
    *   smoke halo pay the toll; zone circles, the foghorn and the storm never
    *   do (167). PvE drones are fogged by the same rule (168); a fogged plot
    *   is not a miss (169); drone avoidance is unfogged (170).

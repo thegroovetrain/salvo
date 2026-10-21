@@ -182,8 +182,8 @@ export interface BotTickEntry {
    * The FOG density at a point right now, in [0, 1] (Story 9.10, amendment
    * 169 — `World.fogDensityAt`, bound by world.ts). PUBLIC WEATHER a human
    * client evaluates from the welcome seed and the schema cut too — where
-   * fog is, never what it hides. Read by the sweep-miss rule alone: a plot
-   * whose predicted spot sits in fog is not a miss.
+   * fog is, never what it hides. Read by the cover search (ai/cover.ts) alone
+   * (the sweep-miss rule's fog limit was retired by amendment 210).
    */
   fogAt(x: number, y: number): number;
 }
@@ -521,8 +521,8 @@ export interface BotMind {
   cloudUntil?: number;
   /** The fog density thunk of this tick's entry (Story 9.10, amendment 169 —
    *  `BotTickEntry.fogAt`, copied by the driver before every decide) so the
-   *  fold's sweep-miss rule can ask whether a plot's predicted spot sits in
-   *  fog. OPTIONAL: absent reads as "no fog anywhere". */
+   *  cover search can find solid fog (ai/cover.ts). OPTIONAL: absent reads as
+   *  "no fog anywhere". */
   fogAt?: (x: number, y: number) => number;
   // -------------------------------------------------------------------------
   // STORY 9.13 SEATS (amendments 192–202). Created at enroll by botDriver.ts

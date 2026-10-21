@@ -37,12 +37,12 @@ import {
 } from '@salvo/shared';
 import type { BotMind } from './types.js';
 import { LONGEST_HULL_U, lineBlocked } from './plot.js';
-import { FOG_PLOT_DENSITY } from './sweepMiss.js';
 
 /** Density at or above which fog is SOLID cover (amendment 199: "density ≥
- *  ½") — the same "heart of a bank, not its thin edge" bar the sweep-miss
- *  rule reads (amendment 169), so one fog reading serves both. */
-export const FOG_COVER_DENSITY = FOG_PLOT_DENSITY;
+ *  ½") — the heart of a bank, not its thin edge. (The sweep-miss rule once
+ *  shared this bar through amendment 169's fog limit; amendment 210 retired
+ *  that limit, so cover is its only reader.) */
+export const FOG_COVER_DENSITY = 0.5;
 
 /** u — the three sample radii of the fog search, nearest first (the
  *  orchestrator's reading under amendment 199: 200 / 400 / 600 u). A search

@@ -14,8 +14,10 @@
 // itself is FOG-TOLLED since Story 9.10 (epic-9 amendments 149–150,
 // 163–170, 179 — the observer's own bank is free): a ray pays the world's `fogTollAlong` (the shared fog field's
 // density, marched) on top of its length, so a hull inside the bubble that
-// fog hides is on NO channel — radar's inner edge stays the geometric sight
-// radius (dark to both sensors, amendment 163). FOG IS A TOLL, NEVER A
+// fog hides is no contact — but RADAR HAS NO INNER EDGE (amendment 210, Eric
+// 2026-10-21, superseding amendment 163's "dark to both"): the server
+// returns the entire sweep, so that hull still paints as a blip, and a
+// sighted hull is a contact AND a blip. FOG IS A TOLL, NEVER A
 // CHANNEL: the field is public weather both sides derive from the welcome
 // seed and the schema cut, so nothing per-observer about fog rides a frame.
 //
@@ -164,9 +166,11 @@ function spectatorContext(world: World, observerId: string): SignalContext {
 /**
  * The shared single pass over ships: one loop decides both tiers per
  * observer/target pair (the historical pairScan structure), but the tier
- * predicates and wire shapes live entirely in the contact/blip rows. Sight
- * wins inside its radius — a ship that fails the contact row is offered to the
- * blip row, whose annulus gate excludes everything within sight.
+ * predicates and wire shapes live entirely in the contact/blip rows. The two
+ * tiers are tested INDEPENDENTLY (amendment 210): a sighted hull the beam
+ * crosses this tick is both a contact and a blip; a hull fog or an island
+ * hides from the eye may still blip. (HISTORY: until amendment 210 the blip
+ * row was offered only the ships that failed the contact row.)
  */
 function shipScan(world: World, ctx: SignalContext): { contacts: Contact[]; blips: BlipEvent[] } {
   const contacts: Contact[] = [];
@@ -175,7 +179,7 @@ function shipScan(world: World, ctx: SignalContext): { contacts: Contact[]; blip
   const blipRow = SIGNAL_REGISTRY.blip;
   for (const ship of world.ships.values()) {
     if (contactRow.visible(ctx, ship)) contacts.push(contactRow.materialize(ctx, ship));
-    else if (blipRow.visible(ctx, ship)) blips.push(blipRow.materialize(ctx, ship));
+    if (blipRow.visible(ctx, ship)) blips.push(blipRow.materialize(ctx, ship));
   }
   return { contacts, blips };
 }
@@ -353,15 +357,15 @@ function cloudScan(world: World, ctx: SignalContext): CloudView[] {
 /** Reused wake-subject scratch for the wake scan (the SEG_SCRATCH pattern):
  *  filled per segment, consumed synchronously by the row's visible()/
  *  materialize() — the materialized wire object is always fresh. */
-const WAKE_SUBJECT: WakeSubject = { x: 0, y: 0, ax: 0, ay: 0, bx: 0, by: 0, bucket: 0, widthU: 0, torp: false, key: '' };
+const WAKE_SUBJECT: WakeSubject = { x: 0, y: 0, ax: 0, ay: 0, bx: 0, by: 0, bucket: 0, widthU: 0, key: '' };
 
 /**
  * Per-observer wake disclosure (Story 4.12): every live ribbon — a ship's
  * active track, a running torpedo's, or detached water still ageing out — is
  * walked segment by segment through the `wk` row, which gates each segment at
- * its midpoint on the blipGate clause order with a PER-SOURCE inner bound and
- * band-consistent occlusion (cycle-69 review gate, P2 — see the row and
- * signals.wakeGate), in the `return` grammar only (P1). THE THIRD SCAN beside
+ * its midpoint on the blipGate clause order — range (no inner bound since
+ * amendment 210), sweep, shadow march, dropout (see the row and
+ * signals.wakeGate) — in the `return` grammar only (P1). THE THIRD SCAN beside
  * shipScan (which iterates ships ONLY, by construction) and ballisticScan —
  * wake is water, not a ship, so it gets its own subject list (ctx.wakes).
  * The ribbon-level broadphase (sweepMayCrossWake — bounding circle + bearing
@@ -386,7 +390,6 @@ function wakeScan(ctx: SignalContext): WakeBlipEvent[] {
       s.by = seg.by;
       s.bucket = seg.bucket;
       s.widthU = ribbon.widthU;
-      s.torp = ribbon.torp; // the per-source inner bound (review-gate P2)
       s.key = key;
       if (row.visible(ctx, s)) out.push(row.materialize(ctx, s));
     });

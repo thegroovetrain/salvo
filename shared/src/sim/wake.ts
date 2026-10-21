@@ -103,13 +103,11 @@ export interface WakeRibbon {
   widthU: number;
   /**
    * SOURCE KIND — true iff this is a TORPEDO's water (cycle-69 review gate,
-   * P2). The per-segment disclosure gate is PER SOURCE: a ship's wake stands
-   * in for the radar tier (inner bound = the sight bubble, blipGate's annulus
-   * verbatim), while a torpedo's wake stands in for the fish's own DETECT
-   * tier (inner bound = the 3/8 detect radius) — otherwise the (detect,
-   * sight] band is a dead band where the fish has no entity and its water no
-   * disclosure, killing amendment 196's tell exactly in the terminal
-   * approach. Travels with the ribbon so DETACHED water (a spent torpedo's
+   * P2). The per-segment disclosure gate was PER SOURCE (a ship's wake inner
+   * bound at the sight bubble, a torpedo's at the detect radius); since
+   * amendment 210 (Eric 2026-10-21: the radar returns its entire sweep) there
+   * is NO inner bound for either — both kinds disclose from the hull out to
+   * radar range. Travels with the ribbon so DETACHED water (a spent torpedo's
    * run in the orphan store) keeps its own gate. NEVER on the wire: the `wk`
    * payload stays identity-free (amendment 194) — the observer may infer the
    * source from WHERE water discloses, which is the ruled tell, not a wire

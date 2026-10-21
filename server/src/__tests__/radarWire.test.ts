@@ -4,7 +4,7 @@
 // exercise). What survives here are the pins on the SHIPPED behaviour: the
 // identity-free wire shape and its key order, world-anchored observer
 // independence, aspect disclosure, the anti-cheat bound (boons/hp never reach
-// the mask), the annulus/sweep gate, and the server-private per-match track-id
+// the mask), the range/sweep gate, and the server-private per-match track-id
 // stream (World.pseudonymFor — identity never leaves the server, and the
 // track map exists so any future identity consumer resolves through one
 // seam). The behavioral fog-of-war invariant runs in perception.test.ts; the
@@ -60,7 +60,7 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
   const CELL = CONFIG.vision.radarCellU;
   const RETURN_KEYS = ['k', 't', 'gx', 'gy', 'w', 'h', 'bits'] as const satisfies readonly (keyof BlipEvent)[];
   const FORBIDDEN = ['id', 'x', 'y', 'ext', 'cls', 'heading', 'speed'];
-  // Annulus placements sit 700-750 u out: past sight and inside the radar
+  // Placements sit 700-750 u out: past sight and inside the radar
   // dropout's flat band, so every swept paint lands (Story 9.8, amendment
   // 103 and ruling 121 — they were 400-450 u, which the twelfths ladder put
   // inside sight).
@@ -161,22 +161,23 @@ describe('the blip wire — THE SERVER RASTERIZES THE HULL: a coverage footprint
     expect(maskOf(observed)).toEqual(maskOf(before));
   });
 
-  it('the gate: an annulus ship paints only when swept, a sighted ship is a contact and never a blip', () => {
+  it('the gate: a ship paints only when swept, at any range — a swept sighted ship is a contact AND a blip (amendment 210)', () => {
     const w = bareWorld(56);
     const a = place(w, 'a', 0, 0);
-    place(w, 'in', 700, 0, 0.3); // annulus, swept — paints
-    place(w, 'out', 0, -700, 0.3); // annulus, unswept — silent
-    place(w, 'near', 100, 0, 0.3); // inside sight — contact, never a blip
+    place(w, 'in', 700, 0, 0.3); // beyond sight, swept — paints
+    place(w, 'out', 0, -700, 0.3); // beyond sight, unswept — silent
+    place(w, 'near', 100, 0, 0.3); // inside sight, swept — contact AND blip
     windowAround(a, 0);
     const f = buildFrame(w, 'a');
     const blips = blipsOf(f);
-    expect(blips).toHaveLength(1);
+    expect(blips).toHaveLength(2);
     expect(f.contacts.map((c) => c.id)).toEqual(['near']);
-    // The one footprint is the swept ship's, and neither hidden ship leaks:
-    // the mask lights the cell containing (700, 0) and equals that hull's raster.
+    // The two footprints are exactly the two swept hulls' rasters, and the
+    // unswept ship leaks nowhere.
+    const expected = [paintCoverage('torpedoBoat', 700, 0, 0.3, CELL, w.now), paintCoverage('torpedoBoat', 100, 0, 0.3, CELL, w.now)];
+    expect(blips.map(maskOf)).toEqual(expect.arrayContaining(expected));
     const cellOfU = (v: number): number => Math.floor(v / CELL);
-    expect(coverageHas(maskOf(blips[0]), cellOfU(700) - blips[0].gx, cellOfU(0) - blips[0].gy)).toBe(true);
-    expect(maskOf(blips[0])).toEqual(paintCoverage('torpedoBoat', 700, 0, 0.3, CELL, blips[0].t));
+    expect(blips.some((b) => coverageHas(maskOf(b), cellOfU(0) - b.gx, cellOfU(-700) - b.gy))).toBe(false);
   });
 });
 

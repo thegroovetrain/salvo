@@ -49,8 +49,9 @@ const SIGHT = CONFIG.vision.sight;
 const DETECT = SIGHT * 1; // the 4/8 rung (Story 9.1, Eric 2026-10-08; was 3/8) — independently re-derived, never CONFIG.vision.detect
 // THE RE-BASED PLACEMENTS (Story 9.8, epic-9 amendment 103 — the twelfths
 // ladder: sight = radar / 3, and radar's DROPOUT from `dropout.startU`,
-// rulings 121–123). ANNULUS is the one radar-annulus distance every scenario
-// uses: beyond sight and INSIDE the dropout's flat band, so a swept hull there
+// rulings 121–123). ANNULUS is the one beyond-sight radar distance every
+// scenario uses (the name predates amendment 210, which removed the radar's
+// inner edge): beyond sight and INSIDE the dropout's flat band, so a swept hull there
 // paints on every revolution (the snapshot pins a paint, never a coin flip).
 // BEYOND_RADAR is past the radar rim. Both derived, never a 1500/500 literal.
 const ANNULUS = SIGHT + 200;
@@ -134,7 +135,7 @@ const WAKE_SUBCASES = [
   'wake-identity-free',
   'wake-outlives-removal',
   'wake-outlives-ship',
-  'wake-sight-bubble-quiet',
+  'wake-sight-bubble-disclosed',
   'wake-torpedo-ribbon',
 ];
 
@@ -272,15 +273,16 @@ function injectMine(w: World, id: string, ownerId: string, x: number, y: number,
 
 // ---------- scenarios ---------------------------------------------------------
 
-/** contacts + spawn + a radar-only blip (target visible ONLY as a blip). */
+/** contacts + spawn + a radar-only blip (target visible ONLY as a blip), and
+ *  a sighted hull the beam crosses (a contact AND a blip — amendment 210). */
 function scnSightSpawnBlip(g: Golden): void {
   const w = bareWorld(1001);
   place(w, 'a', 0, 0);
-  place(w, 'b', 100, 0, 1.5); // inside sight -> live contact
+  place(w, 'b', 100, 0, 1.5); // inside sight, bearing 0 (swept) -> live contact AND blip (amendment 210)
   const brg = SWEEP_DELTA / 2; // painted by the first post-step window [0, δ)
-  place(w, 'c', ANNULUS * Math.cos(brg), ANNULUS * Math.sin(brg)); // annulus (inside the dropout's flat band) -> blip only
+  place(w, 'c', ANNULUS * Math.cos(brg), ANNULUS * Math.sin(brg)); // beyond sight (inside the dropout's flat band) -> blip only
   w.step(); // sweep advances 0 -> δ, publishing the join spawns
-  cap(g, w, 'a'); // spawn(a,b) + contact b + blip c (c is never a contact)
+  cap(g, w, 'a'); // spawn(a,b) + contact b + blips b and c (c is never a contact)
   cap(g, w, 'b');
 }
 
@@ -379,14 +381,16 @@ function scnStraddleBoom(g: Golden): void {
  * LOS-blocked -> never a contact), with `c` (inside sight, LOS-clear) the
  * positive control. RADAR occlusion now comes from the HEIGHT RASTER
  * (amendment 179): a hard (q255 ≥ mast) ridge is stamped under the island, so
- * `r` (in the radar annulus behind it) still never paints — while a LOW (q16)
- * ridge on the −x axis leaves `s` (annulus, behind it) PARTIALLY illuminated,
+ * `r` (beyond sight behind it) never paints, and neither does `b` (radar's
+ * own rule: hard cover darkens it at every range) — while a LOW (q16)
+ * ridge on the −x axis leaves `s` (beyond sight, behind it) PARTIALLY illuminated,
  * which DISCLOSES: the genuine widening the ruling accepts, pinned here on
- * the wire. `p` (annulus, open water, bearing swept) is the clear-water
+ * the wire. `p` (beyond sight, open water, bearing swept) is the clear-water
  * control. A wide manual paint window (windowAround-style — set, don't step)
  * exposes bearings 0, pi/2 and pi at once, so all three radar targets reach
- * the blip row in one frame; sight wins inside its radius, so b/c never touch
- * the blip row.
+ * the blip row in one frame. Since amendment 210 the radar has no inner edge:
+ * `c` (sighted, swept, open water) is a contact AND a blip, and `b` stays
+ * dark on both sensors (eye: island LOS; radar: hard cover).
  */
 function scnIslandLos(g: Golden): void {
   const w = bareWorld(1007);
@@ -400,9 +404,9 @@ function scnIslandLos(g: Golden): void {
   place(w, 'a', 0, 0);
   place(w, 'b', 150, 0, 1.5); // inside sight, behind the island -> no contact
   place(w, 'c', 100, 100); // inside sight, LOS-clear -> contact (sight control)
-  place(w, 'r', ANNULUS, 0); // radar annulus, behind hard cover -> no blip
-  place(w, 'p', 0, ANNULUS); // radar annulus, open water, swept -> blip (clear control)
-  place(w, 's', -ANNULUS, 0); // radar annulus, behind LOW cover -> blip (the 4.11 disclosure)
+  place(w, 'r', ANNULUS, 0); // beyond sight, behind hard cover -> no blip
+  place(w, 'p', 0, ANNULUS); // beyond sight, open water, swept -> blip (clear control)
+  place(w, 's', -ANNULUS, 0); // beyond sight, behind LOW cover -> blip (the 4.11 disclosure)
   const a = w.ships.get('a')!;
   a.prevSweepAngle = wrapPositive(-0.05); // window spans bearings 0..pi inclusive
   a.sweepAngle = Math.PI + 0.05;
@@ -931,24 +935,27 @@ function scnHeal(g: Golden): void {
 
 /**
  * RADAR WAKES on the wire (Story 4.12, amendments 194-196/200): a
- * deterministic laid track through a's radar annulus discloses as `wk`
+ * deterministic laid track through a's radar range discloses as `wk`
  * events — geometry plus a water-age bucket and NOTHING else — after the
  * hull that laid it SINKS, and still after its record leaves the room
  * entirely (amendment 200: water outlives its ship). A torpedo-laid ribbon
  * on the same wedge paints on the half-life clock while no torp event
- * exists. Water inside a's sight bubble stays off the row (the in-bubble
- * ruling), and no wk payload key carries identity.
+ * exists. Water inside a's sight bubble discloses like any radar return
+ * (amendment 210: no inner bound), and no wk payload key carries identity.
  */
 function scnWake(g: Golden): void {
   const w = bareWorld(1022);
   const a = place(w, 'a', 0, 0);
   const b = place(w, 'b', 900, 900); // its WATER is under test, not its hull
   // b's laid track along y=0 (raw ring injection — fixed poses, fixed ages):
-  // two in-sight samples (200, 212), then an annulus run ANNULUS..+48 (Story
-  // 9.8: re-based past the 4/12 sight and inside the dropout's flat band),
-  // ages spread so multiple quarter-life buckets ride the wire.
+  // two in-sight samples (200, 212), then a beyond-sight run ANNULUS..+48
+  // (Story 9.8: re-based past the 4/12 sight and inside the dropout's flat
+  // band), ages spread so multiple quarter-life buckets ride the wire. The
+  // ages sit INSIDE the torpedo boat's 5.5 s water life (amendment 213 cut it
+  // from 12 s; the old 11.6 s ages had silently expired the in-sight samples,
+  // leaving the bubble proof vacuous).
   const xs = [200, 212, ANNULUS, ANNULUS + 12, ANNULUS + 24, ANNULUS + 36, ANNULUS + 48];
-  const ages = [11_600, 11_300, 11_000, 8_000, 5_000, 2_000, 0];
+  const ages = [5_300, 5_200, 5_000, 4_000, 2_800, 1_200, 0];
   for (let i = 0; i < xs.length; i++) {
     b.wake.xs[i] = xs[i];
     b.wake.ys[i] = 0;
@@ -985,7 +992,7 @@ function scnWake(g: Golden): void {
     'wake-identity-free',
     wks.length > 0 && wks.every((e) => Object.keys(e).join(',') === 'k,t,a,gx,gy,w,h,bits'),
   );
-  prove(g, 'wake-sight-bubble-quiet', wks.length > 0 && !wks.some((e) => covers(e, 206, 0)));
+  prove(g, 'wake-sight-bubble-disclosed', wks.some((e) => covers(e, 206, 0)));
   prove(
     g,
     'wake-torpedo-ribbon',

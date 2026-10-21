@@ -10,9 +10,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  FOG_NO_CUT, FOG_SOLID_DENSITY, fogCutForTarget, fogDensityAt, fogLattice, fogNoiseAt, fogSinCos, fogTollAlong, makeFogField,
-  type FogFieldConfig,
+  FOG_NO_CUT, FOG_SOLID_DENSITY, fogCutForTarget, fogDensityAt, fogEyeReach, fogEyeReachFan, fogLattice, fogNoiseAt, fogSinCos,
+  fogTollAlong, makeFogField, type FogFieldConfig,
 } from '../sim/fog.js';
+import { CONFIG } from '../constants.js';
 
 const SRC = readFileSync(fileURLToPath(new URL('../sim/fog.ts', import.meta.url)), 'utf8');
 
@@ -231,6 +232,80 @@ describe('fogTollAlong', () => {
       checked += 1;
     }
     expect(checked).toBeGreaterThan(20);
+  });
+});
+
+describe('fogEyeReach / fogEyeReachFan (the eye\'s reach per bearing — Eric 2026-10-21, amendment 210)', () => {
+  const RANGE = CONFIG.vision.sight;
+  const BEARINGS = Array.from({ length: 16 }, (_, k) => (k * 2 * Math.PI) / 16);
+  const at = (ox: number, oy: number, a: number, d: number): [number, number] => [ox + Math.cos(a) * d, oy + Math.sin(a) * d];
+
+  it('with no fog the eye reaches the full range on every bearing', () => {
+    for (const p of SWEEP.slice(0, 20)) {
+      for (const a of BEARINGS) expect(fogEyeReach(field, p.x, p.y, a, RANGE, 1000, FOG_NO_CUT)).toBe(RANGE);
+    }
+  });
+
+  it('from clear water a solid bank ahead shortens the reach, and the reach is where d + fogTollAlong(observer → d) fills the range (within one march step of toll)', () => {
+    // just past the rim, looking inward under density 1 (amendment 179 makes the rim an exact clear/solid edge)
+    const ox = OCEAN_R + 10;
+    expect(fogDensityAt(field, ox, 0, 0, FULL)).toBe(0); // premise: the observer is in clear water
+    const r = fogEyeReach(field, ox, 0, Math.PI, RANGE, 0, FULL);
+    expect(r).toBeLessThan(RANGE);
+    expect(Math.abs(r + fogTollAlong(field, ox, 0, ox - r, 0, 0, FULL) - RANGE)).toBeLessThanOrEqual(CFG.marchStepU * CFG.sightCostPerU);
+    // the same identity over a sweep of real banks (cut 0), clear-water observers only
+    let shortened = 0;
+    for (const p of SWEEP) {
+      if (fogDensityAt(field, p.x, p.y, 2000, 0) >= FOG_SOLID_DENSITY) continue;
+      for (const a of BEARINGS) {
+        const reach = fogEyeReach(field, p.x, p.y, a, RANGE, 2000, 0);
+        if (reach >= RANGE) continue;
+        shortened += 1;
+        const [bx, by] = at(p.x, p.y, a, reach);
+        expect(Math.abs(reach + fogTollAlong(field, p.x, p.y, bx, by, 2000, 0) - RANGE)).toBeLessThanOrEqual(CFG.marchStepU * CFG.sightCostPerU);
+      }
+    }
+    expect(shortened).toBeGreaterThan(10); // the sweep is not vacuous
+  });
+
+  it('THE OWN BANK IS FREE: an observer in solid fog whose whole ray stays in that bank sees the full range', () => {
+    expect(fogDensityAt(field, 0, 0, 0, FULL)).toBeGreaterThanOrEqual(FOG_SOLID_DENSITY); // premise
+    for (const a of BEARINGS) expect(fogEyeReach(field, 0, 0, a, RANGE, 0, FULL)).toBe(RANGE);
+  });
+
+  it('non-finite pose, clock or cut reads "no shortening"; a non-positive range reaches nothing', () => {
+    expect(fogEyeReach(field, NaN, 0, 0, RANGE, 0, FULL)).toBe(RANGE);
+    expect(fogEyeReach(field, OCEAN_R + 10, NaN, Math.PI, RANGE, 0, FULL)).toBe(RANGE);
+    expect(fogEyeReach(field, OCEAN_R + 10, 0, NaN, RANGE, 0, FULL)).toBe(RANGE);
+    expect(fogEyeReach(field, OCEAN_R + 10, 0, Math.PI, RANGE, NaN, FULL)).toBe(RANGE);
+    expect(fogEyeReach(field, OCEAN_R + 10, 0, Math.PI, RANGE, 0, NaN)).toBe(RANGE);
+    expect(fogEyeReach(field, OCEAN_R + 10, 0, Math.PI, NaN, 0, FULL)).toBeNaN();
+    expect(fogEyeReach(field, OCEAN_R + 10, 0, Math.PI, 0, 0, FULL)).toBe(0);
+    expect(fogEyeReach(field, OCEAN_R + 10, 0, Math.PI, -RANGE, 0, FULL)).toBe(0);
+  });
+
+  it('is monotone non-decreasing in range and never exceeds it', () => {
+    const ranges = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3].map((f) => f * RANGE);
+    for (const p of SWEEP.slice(0, 40)) {
+      for (const a of BEARINGS) {
+        let prev = 0;
+        for (const range of ranges) {
+          const r = fogEyeReach(field, p.x, p.y, a, range, 3000, 0);
+          expect(r).toBeGreaterThanOrEqual(prev);
+          expect(r).toBeLessThanOrEqual(range);
+          prev = r;
+        }
+      }
+    }
+  });
+
+  it('the fan fills every slot of `out` at k × 2π / length and returns the same array', () => {
+    const out = new Float32Array(64);
+    const ox = OCEAN_R + 10;
+    expect(fogEyeReachFan(field, ox, 0, RANGE, 0, FULL, out)).toBe(out);
+    expect(out[0]).toBe(Math.fround(fogEyeReach(field, ox, 0, 0, RANGE, 0, FULL)));
+    expect(out[32]).toBe(Math.fround(fogEyeReach(field, ox, 0, (32 * 2 * Math.PI) / 64, RANGE, 0, FULL)));
+    expect(out[32]).toBeLessThan(RANGE); // the inward bearing is the shortened one
   });
 });
 
