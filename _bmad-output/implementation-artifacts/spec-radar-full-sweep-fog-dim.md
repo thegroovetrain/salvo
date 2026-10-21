@@ -130,6 +130,8 @@ context:
 - `npm run check` -- expected: green.
 - `grep -rn "dark to both\|inRadarAnnulus\|wakeInnerBound\|shipStamp\|buildTruesightWakeStamp" shared server/src client/src` -- expected: only history notes, no live rule.
 
+- **2026-10-21 — Eric's rulings on the present-step questions:** (1) gate patch P3 (skip the observer's own hull ribbon in `wakeScan`) VETOED — "I want ALL radar returns"; the skip, the oracle's self term and the test's expectation are reversed (own water paints; the dim mutes it); a watch item on bots fitting their own water is in deferred-work. (2) The menu must "look like footage from the game": the stand-in server now emits `wk` rows from every ribbon via the shared `paintSegmentCoverage` (`ambientScene.ts`), fed to `Radar.onWakeBlip`. (3) An own-zone decoy arriving on `decoys` and as a blip: explained (a sighted hull is likewise contact + blip), not vetoed; left as built. KEEP: no self term on any radar gate; the stand-in mirrors the server's wk gate and wire shape, never the deleted client synthesis.
+
 ## Suggested Review Order
 
 **The ruling, on the server: the entire sweep**

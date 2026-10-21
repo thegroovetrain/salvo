@@ -8,8 +8,8 @@
 //   • the ocean and its islands   — `generateMap` + `render/map.ts` (the ratified
 //     hypsometric terrain ramp; no ellipse stand-ins, no viewport fractions);
 //   • the scope                    — the real `Radar` in `return` grammar, with the
-//     height raster wired (so terrain SHADOWS the returns) and the client's own
-//     wake sources wired (so tracks paint);
+//     height raster wired (so terrain SHADOWS the returns), fed hull and wake
+//     rows by a stand-in server through the wire's own entries;
 //   • the hulls                    — real `ShipView` silhouettes on real `stepShip`
 //     kinematics, laying real wake through `WakeSources`/`Effects`;
 //   • the fog and the camera       — the game's own `Fog` composite and `Camera`.
@@ -42,7 +42,7 @@
 // set, drops the resize listener, and is a safe no-op the second time.
 
 import { Container, FillGradient, Graphics, Texture, type Sprite } from 'pixi.js';
-import { CONFIG, generateMap, paintCoverage, type GameMap } from '@salvo/shared';
+import { CONFIG, generateMap, paintCoverage, type GameMap, type WakeBlipEvent } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
 import { motionIntensity, settings } from '../settings/store.js';
@@ -55,12 +55,13 @@ import { buildMap, type MapChart } from './map.js';
 import { Radar } from './radar.js';
 import { ShipView, contactStyle, hueRevision, type ShipStyle } from './ships.js';
 import { applyCamera, type Stage, type StageLayers } from './stage.js';
-import type { WakeHull } from './wake.js';
+import { WakeSources, type WakeHull } from './wake.js';
 import {
   advanceAmbient,
   ambientCameraTarget,
   ambientContacts,
   ambientPaints,
+  ambientWakeRows,
   buildAmbientWorld,
   type AmbientHull,
   type AmbientTick,
@@ -192,6 +193,50 @@ function requestedSeed(): number | null {
   }
 }
 
+/** Scratch pose for `sampleWireWakes` — `WakeSources.observe` reads it and
+ *  keeps nothing of it, so one object serves every hull every frame. */
+const WIRE_POSE: WakeHull = { id: '', x: 0, y: 0, heading: 0, speed: 0, cls: 'torp', color: 0 };
+
+/**
+ * The stand-in server's wake upkeep (the server's `sampleWakes`): EVERY hull —
+ * the observer, sighted rivals and fogged ones alike — lays water at its LIVE
+ * pose, exactly as every ship on a real server does whether or not anyone can
+ * see it. This store is the server's ribbon set, NOT the foam's: `Effects`
+ * keeps its own ribbons from the interp-delayed, truesight-gated poses it
+ * draws, just as a live client's foam is separate from the server's radar
+ * water. Ageing and release are the shared model's (`WakeSources.prune`).
+ */
+export function sampleWireWakes(sources: WakeSources, world: AmbientWorld, now: number): void {
+  for (const h of world.hulls) {
+    const p = WIRE_POSE;
+    p.id = h.id;
+    p.x = h.state.x;
+    p.y = h.state.y;
+    p.heading = h.state.heading;
+    p.speed = h.state.speed;
+    p.cls = h.cls;
+    sources.observe(p, now);
+  }
+  sources.prune(now);
+}
+
+/**
+ * Hand this tick's stand-in `wk` rows to the scope through the SAME entry the
+ * real wire uses (`Radar.onWakeBlip` — validated, parked, merged per tick),
+ * so the menu scope paints wake returns the way a match does. `scratch` is the
+ * caller's reused row array. Returns how many rows were sent.
+ */
+export function feedWakeReturns(
+  radar: Pick<Radar, 'onWakeBlip'>,
+  world: AmbientWorld,
+  tick: AmbientTick,
+  sources: WakeSources,
+  scratch: WakeBlipEvent[],
+): number {
+  for (const e of ambientWakeRows(world, tick, sources, scratch)) radar.onWakeBlip(e);
+  return scratch.length;
+}
+
 export class AmbientScene {
   private readonly map: GameMap;
   private readonly world: AmbientWorld;
@@ -216,6 +261,11 @@ export class AmbientScene {
   private readonly scrim = new Graphics();
   /** This frame's wake sources — reused, never reallocated (render-loop rule). */
   private readonly wakes: WakeHull[] = [];
+  /** The stand-in SERVER's wake ribbons — every hull at its live pose (see
+   *  `sampleWireWakes`); the source of the menu scope's `wk` returns. */
+  private readonly wireWakes = new WakeSources();
+  /** This tick's `wk` rows — reused, never reallocated (render-loop rule). */
+  private readonly wakeRows: WakeBlipEvent[] = [];
   private destroyed = false;
   private readonly onResize = (): void => this.layout();
 
@@ -304,6 +354,9 @@ export class AmbientScene {
     // the scope stays black — silently.
     this.radar.onSweepSample(tick.sweep, now);
     this.paintReturns(tick, now);
+    // The server's order: ships step, wakes sample, THEN perception scans.
+    sampleWireWakes(this.wireWakes, this.world, now);
+    feedWakeReturns(this.radar, this.world, tick, this.wireWakes, this.wakeRows);
     // The camera eases on the MOTION-SCALED step, so `motion: off` stops the
     // drift as well as the fleet (an unscaled dt kept gliding toward a target
     // that never moved again — motion that outlived the setting that forbade it).
@@ -323,6 +376,8 @@ export class AmbientScene {
     this.destroyed = true;
     this.stage.app.renderer.off('resize', this.onResize);
     this.effects.clearWake();
+    this.wireWakes.clear();
+    this.wakeRows.length = 0;
     // THE MASK COMES OFF BEFORE THE SPRITE IS DESTROYED. `updateDimMask` parks
     // the near-range dim sprite on `layers.blip.mask` every frame (amendment
     // 181); clearing the layer destroys that sprite but would leave the live
@@ -375,13 +430,13 @@ export class AmbientScene {
    * calls) on the shipped lattice, so a menu echo and a match echo are the same
    * artifact by construction.
    *
-   * There is deliberately no `wk` (wake) row here. A hull's water reaches a real
-   * client's scope only because the SERVER rasterizes it per segment; with no
-   * server the honest options were to fake a disclosure nobody made, or to let a
-   * fogged hull lay visible foam on the water. The scene does neither: the wake
-   * you see is a truesighted hull's foam on the water, and the menu scope carries
-   * hull echoes only (the client no longer stamps its own ribbons onto the
-   * radar — amendment 210).
+   * The `wk` (wake) rows are NOT here: they are the stand-in server's third scan
+   * (`feedWakeReturns`, called right after this), walking the scene's own
+   * server-side ribbons (`wireWakes` — every hull, the observer's own water
+   * included: "I want ALL radar returns", Eric 2026-10-21) through the shared
+   * per-segment rasterizer, so the menu scope carries hull AND wake returns like
+   * footage from a match. The client still synthesizes nothing (amendment 210):
+   * the scope paints only rows handed to it through the wire's own entries.
    */
   private paintReturns(tick: AmbientTick, now: number): void {
     for (const hull of ambientPaints(this.world, tick)) {

@@ -3107,7 +3107,7 @@ Closure stamps for three older entries (the originals are left as written), then
 ## 2026-10-21 — The entire sweep, cycle 202 (spec-radar-full-sweep-fog-dim.md)
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-radar-full-sweep-fog-dim.md`
-  status: OPEN — Eric's call
+  status: RESOLVED 2026-10-21 — Eric: "I want the menu to look like footage from the game"; the stand-in server now emits wk rows from every ribbon through the shared paintSegmentCoverage (ambientScene.ts), the viewer's own included
   summary: THE MENU SCOPE SHOWS NO IN-SIGHT WAKE. The menu's stand-in server never sent `wk` rows; in-sight wake on the menu came from the deleted client synthesis. Restoring it means the stand-in emitting wake rows for segments the beam crosses — new menu behaviour, not asked for.
   evidence: client/src/render/ambientScene.ts `ambientPaints`; amendment 210 (b).
 
