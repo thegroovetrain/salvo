@@ -1469,8 +1469,9 @@ export class World {
    * MOOT); fog reaches a client only as the TOLL inside every sight predicate
    * (`fogTollAlong` below, through signals.ts `withinSight`): a ray pays
    * `sightCostPerU × density` extra sight distance per unit crossed, so a
-   * hull inside the geometric bubble that fog hides is dark to sight AND to
-   * radar (radar's inner edge stays the geometric sight radius, 163). Radar,
+   * hull inside the geometric bubble that fog hides is no contact — but radar
+   * has no inner edge (amendment 210, superseding 163's "dark to both"), so
+   * the beam still paints it. Radar,
    * zone circles, the foghorn and the storm never read the field. THE OWN
    * BANK IS FREE (Eric 2026-10-16, amendment 179 — "like grass patches in
    * League"): an observer standing in solid fog pays nothing along the ray

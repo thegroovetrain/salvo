@@ -10,7 +10,7 @@
 import { Texture } from 'pixi.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
-import { dimRadii, dimScaleAt } from './radarDim.js';
+import { dimFanSlides, dimRadii, dimRampU, dimScaleAt } from './radarDim.js';
 import { haloAlphaAt, haloSpanU } from './hazeHalo.js';
 
 const C = CLIENT_CONFIG.colors;
@@ -196,7 +196,7 @@ export const DIM_MASK_TEXTURE_SIZE = 1024;
  * boon). Pass the live texture back as `into` to redraw it IN PLACE — see
  * `bakeDimMaskTexture` below for why swapping-and-destroying is forbidden.
  */
-function drawDimMask(ctx: BakeCtx, sightU: number): void {
+function drawDimMask(ctx: BakeCtx, sightU: number, reach: Float32Array | null = null): void {
   // THE CANVAS IS REUSED NOW, so the context arrives carrying whatever state the
   // previous draw left rather than the virgin state a fresh canvas used to give us.
   // Resetting the channels a draw can depend on makes reuse structurally equivalent
@@ -215,6 +215,12 @@ function drawDimMask(ctx: BakeCtx, sightU: number): void {
   // corners, which is the whole point of the sprite being span-sized.
   ctx.fillStyle = cssRgba(C.white, 1);
   ctx.fillRect(0, 0, size, size);
+  // A fan that slides nothing (no fog on any bearing, or fogLift 0) IS the
+  // radial mask, so it takes the radial path below byte for byte.
+  if (reach !== null && dimFanSlides(reach, sightU)) {
+    drawDimFan(ctx, c, px, sightU, reach);
+    return;
+  }
   const r0 = Math.max(0, innerU * px);
   const r1 = Math.max(r0 + 1, outerU * px);
   const grad = ctx.createRadialGradient(c, c, r0, c, c, r1);
@@ -227,6 +233,61 @@ function drawDimMask(ctx: BakeCtx, sightU: number): void {
   ctx.beginPath();
   ctx.arc(c, c, r1, 0, Math.PI * 2);
   ctx.fill();
+}
+
+/** Half a degree of overlap on each side of a wedge, so neighbours never leave a
+ *  hairline seam of the full-strength underlay between them. */
+const DIM_WEDGE_OVERLAP_RAD = Math.PI / 360;
+
+/** Per-wedge scratch, mutated in place (no allocation inside the fan loop). */
+const WEDGE = { innerU: 0, outerU: 0 };
+const WEDGE_PX = { r0: 0, r1: 0, inner: 0 };
+
+/**
+ * The texture-px radii and inner level of wedge `k`'s gradient: `r0`/`r1` are
+ * the bearing's slid ramp (`dimRampU` × px; the inner one clamped at the
+ * centre), `inner` the mask level at `r0` READ OFF `dimScaleAt` on that bearing
+ * — the floor, or above it when the slide outran the bubble. Written into
+ * `out`. Exported for the tests: jsdom cannot rasterize, so the wedge geometry
+ * is pinned here.
+ */
+export function dimWedge(
+  reach: Float32Array,
+  k: number,
+  sightU: number,
+  px: number,
+  out: { r0: number; r1: number; inner: number } = { r0: 0, r1: 0, inner: 0 },
+): { r0: number; r1: number; inner: number } {
+  const ramp = dimRampU(sightU, reach[k], WEDGE);
+  out.r0 = Math.max(0, ramp.innerU * px);
+  out.r1 = Math.max(out.r0 + 1, ramp.outerU * px);
+  out.inner = dimScaleAt(out.r0 / px, sightU, reach[k]);
+  return out;
+}
+
+/**
+ * THE FOGGED FAN (amendment 210): one pie-slice wedge per bearing of `reach`
+ * (ray k centred on k·2π/N in WORLD axes — the haze halo's convention; the
+ * mask sprite is unrotated and world-anchored), each filled with its own
+ * radial gradient whose ramp is the observer's, slid inward to where the eye
+ * ends on that bearing. Drawn over the opaque full-canvas fill, so everything
+ * past each wedge's outer radius stays full strength out to the corners.
+ */
+function drawDimFan(ctx: BakeCtx, c: number, px: number, sightU: number, reach: Float32Array): void {
+  const step = (Math.PI * 2) / reach.length;
+  for (let k = 0; k < reach.length; k++) {
+    const { r0, r1, inner } = dimWedge(reach, k, sightU, px, WEDGE_PX);
+    const grad = ctx.createRadialGradient(c, c, r0, c, c, r1);
+    const lvl = Math.round(255 * Math.max(0, Math.min(1, inner)));
+    grad.addColorStop(0, cssRgba((lvl << 16) | (lvl << 8) | lvl, 1));
+    grad.addColorStop(1, cssRgba(C.white, 1));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(c, c);
+    ctx.arc(c, c, r1, (k - 0.5) * step - DIM_WEDGE_OVERLAP_RAD, (k + 0.5) * step + DIM_WEDGE_OVERLAP_RAD);
+    ctx.closePath();
+    ctx.fill();
+  }
 }
 
 /** Is this a canvas we can draw into? Structural, because the bake mints either
@@ -283,18 +344,28 @@ function redrawableCtx(into: Texture, size = DIM_MASK_TEXTURE_SIZE): BakeCtx | n
  *
  * With no `into` — first bake, or a caller holding `Texture.EMPTY` — it mints, as
  * it always did.
+ *
+ * `reach` (amendment 210) is the observer's fog-tolled eye reach per bearing
+ * (u; ray k at k·2π/N, world axes — FogFieldView `eyeReachFan`). Null, or a fan
+ * that slides nothing (every entry at sight, or `dim.fogLift` 0), draws exactly
+ * the radial ramp; otherwise each bearing gets its own wedge with the ramp slid
+ * inward to where the eye ends (`drawDimFan`).
  */
-export function bakeDimMaskTexture(sightU: number, into?: Texture | null): Texture {
+export function bakeDimMaskTexture(
+  sightU: number,
+  into?: Texture | null,
+  reach: Float32Array | null = null,
+): Texture {
   if (into != null) {
     const reuseCtx = redrawableCtx(into);
     if (reuseCtx !== null) {
-      drawDimMask(reuseCtx, sightU);
+      drawDimMask(reuseCtx, sightU, reach);
       into.source.update();
       return into;
     }
   }
   const { canvas, ctx } = makeCanvas(DIM_MASK_TEXTURE_SIZE, DIM_MASK_TEXTURE_SIZE);
-  drawDimMask(ctx, sightU);
+  drawDimMask(ctx, sightU, reach);
   // `skipCache` DELIBERATELY. `Texture.from` otherwise does `Cache.set(canvas, tex)`
   // and only releases it from the texture's own `destroy` event — which is the one
   // thing this function may never do. Nothing ever looks this texture up by its

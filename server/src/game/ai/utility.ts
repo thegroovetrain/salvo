@@ -455,10 +455,29 @@ function foldPaint(tracks: TrackMap, x: number, y: number, cells: number, fx: Fo
   t.stillSweeps = nextStillSweeps(prev?.stillSweeps, v);
 }
 
-/** Fold one radar paint — an identity-free coverage footprint. */
+/** Fold one radar paint — an identity-free coverage footprint. A paint whose
+ *  coverage rect covers the position cell of a hull the bot SEES this tick
+ *  (one-cell margin) is that hull's OWN echo (amendment 210: the radar has no
+ *  inner edge, so a sighted hull also paints) and is skipped — the contact
+ *  fold carries it at full confidence, and associating the paint would smear
+ *  the sighted plot or open a duplicate anonymous one. A paint merely NEAR a
+ *  sighted hull is a different return (a second hull, a decoy) and folds. */
 function foldBlip(tracks: TrackMap, e: BlipEvent, fx: FoldCtx): void {
   const c = paintCenter(e);
-  if (c !== null) foldPaint(tracks, c.x, c.y, paintCellCount(e), fx);
+  if (c !== null && !paintCoversSighted(e, fx.sighted)) foldPaint(tracks, c.x, c.y, paintCellCount(e), fx);
+}
+
+/** Does the paint's coverage rect (absolute `radarCellU` cell indices, grown
+ *  by one cell on every side) contain the position cell of a contact sighted
+ *  in this view? */
+function paintCoversSighted(e: BlipEvent, sighted: readonly Contact[]): boolean {
+  const cell = CONFIG.vision.radarCellU;
+  for (const c of sighted) {
+    const cx = Math.floor(c.x / cell);
+    const cy = Math.floor(c.y / cell);
+    if (cx >= e.gx - 1 && cx <= e.gx + e.w && cy >= e.gy - 1 && cy <= e.gy + e.h) return true;
+  }
+  return false;
 }
 
 /**
@@ -542,6 +561,9 @@ interface FoldCtx {
    *  ms of the last credited Hit Call (BotMind.hitVolleyAt). Null = no ledger
    *  (every row counts). */
   volleys: Map<string, number> | null;
+  /** This view's live truesight contacts — a paint on one of them is its own
+   *  echo and is not folded (foldBlip, amendment 210). */
+  sighted: readonly Contact[];
 }
 
 function foldEvent(tracks: TrackMap, e: GameEvent, fx: FoldCtx): void {
@@ -618,7 +640,10 @@ export interface FoldSweep {
  *   2. the view's `wk` wake rows go into the wake buffer (ai/plot.ts) — before
  *      the paints, so nothing below reads a stale buffer;
  *   3. events fold (radar paints with predicted-position association and
- *      paint-to-paint velocity, Hit Calls, sunk);
+ *      paint-to-paint velocity, Hit Calls, sunk) — a paint on a hull this
+ *      view also SIGHTS (its rect covers that hull's cell) is skipped
+ *      (amendment 210: a sighted hull paints too; its contact is the better
+ *      record) — a paint merely NEAR a sighted hull still folds;
  *   4. live truesight contacts fold — so a hull that is both painted and
  *      sighted this tick ends up stored LIVE (the reverse order would let a
  *      same-tick radar paint demote a sighted hull to a stale plot — the
@@ -645,6 +670,7 @@ export function foldView(mind: BotMind, view: PerceptionView, now: number, sweep
     waterR: sweep?.site.waterR ?? Infinity,
     sunkNow: new Set(),
     volleys: volleyLedger(mind),
+    sighted: view.contacts,
   };
   for (const e of view.events) foldEvent(tracks, e, fx);
   for (const c of view.contacts) foldContact(tracks, c, now, fx.sunkNow);
@@ -714,8 +740,9 @@ export function isActionable(t: BotTrack, now: number): boolean {
  * RE-SCATTER WHOLESALE each revolution, so no fake survives association as
  * one coherent track across a full sweep period, while a real hull's paints
  * keep refreshing the same plot. Two clauses:
- *   - a LIVE truesight contact passes instantly — a fake can never appear
- *     inside the observer's bubble, structurally;
+ *   - a LIVE truesight contact passes instantly — `live` is raised only by
+ *     a truesight Contact, never by a radar paint (a decoy's paint may land
+ *     inside the bubble since amendment 210, but it is still only a paint);
  *   - otherwise the track must have persisted one base sweep revolution
  *     since first acquisition.
  * Consumed by the torpedo and broadside tactics (30s reloads) and NOTHING

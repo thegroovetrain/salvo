@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.18.67] - 2026-10-21
+
+### Fixed
+- **Radar works through fog, at every range.** Until now the server sent radar returns only for things farther away than your sight circle (500 u) and trusted your eyes for everything inside it, while your client drew a fake radar echo for each hull you could see. When fog hid a hull inside that circle, neither path showed it, so a captain in a bank could face an opponent in clear water and see nothing at all. Now the server returns the entire sweep: every ship, decoy and wake the beam crosses inside radar range, at any distance, through the usual island shadows and the long-range dropout. Fog never touches radar. Eric: "Vision and radar are completely separate systems."
+- **The client no longer invents radar paint.** It draws only what the server sent. Your own wake paints on your own radar like any other return, muted by the proximity rule. Eric: "I want all radar returns."
+- **The menu looks like the game.** The home screen's stand-in server now emits radar wake returns the way the real server does (every hull's water the beam crosses, the viewer's own included), so the menu scope reads like live footage.
+
+### Changed
+- **The near-range muting follows your fogged eye.** Radar returns are still muted to 20 % inside your sight circle, rising to full at one and a half times it, exactly as before. New: on any bearing where fog has shortened what your eye can reach, that whole ramp slides inward to where your eye actually ends, so a hull you cannot see through the fog paints at full strength whether you are in the bank or it is. How far it slides is a new client dial (`fogLift`, shipped at full) for Eric to tune on staging. With no fog, nothing changes.
+- Bots: an empty radar sweep over a fogged spot now counts as evidence the target moved (fog no longer exempts a plot), and a bot's own view of a hull it can see is not smeared by that hull's radar echo.
+- Ships inside your own lit zone now paint on radar as well as showing as hulls.
+- Protocol version 90 → 91: an old client would draw a second echo inside the sight circle.
+
+### Not changed
+- Islands: radar still cannot see through cover at or above mast height, and your eye still cannot see around any island. Fog coverage, speed and the eye toll are untouched.
+
 ## [0.18.66] - 2026-10-19
 
 ### Changed

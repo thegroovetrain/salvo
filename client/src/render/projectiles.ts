@@ -290,7 +290,7 @@ export function cullRadiusSq(sightRange: number, kind: Kind): number {
  * `sightOf(me, now)`), detect-derived for a torpedo. Effective truesight is
  * the SHARED `effectiveSight` (shared/src/sim/sight.ts — a boon-widened
  * constant per build since Story 9.4 retired the FLASH SHELLS dazzle): the
- * server's `sightOf`, the fog hole and the radar source seam call the same
+ * server's `sightOf`, the fog hole and the radar's `sightHoleU` call the same
  * function, so there is exactly one derivation of an observer's sight.
  *
  * KNOWN AND ACCEPTED: ownership is a soft click-time latch, so a MISSED latch

@@ -69,10 +69,10 @@ describe('a dim-mask rebake never destroys the bound TextureSource', () => {
     const radar = radarFor();
     const first = radar.dimMask.texture;
     const destroyed = vi.spyOn(first, 'destroy');
-    radar.render(OWN, 100, null, null);
+    radar.render(OWN, 100, null);
 
     radar.setRanges(SIGHT * 1.15, RADAR * 1.15, 6000);
-    radar.render(OWN, 200, null, null);
+    radar.render(OWN, 200, null);
 
     expect(bakes.into.at(-1), 'the live texture is handed back to the bake').toBe(first);
     expect(radar.dimMask.texture, 'the same Texture object stays on the sprite').toBe(first);
@@ -85,14 +85,14 @@ describe('a dim-mask rebake never destroys the bound TextureSource', () => {
     const radar = radarFor();
     const first = radar.dimMask.texture;
     const destroyed = vi.spyOn(first, 'destroy');
-    radar.render(OWN, 100, null, null);
+    radar.render(OWN, 100, null);
 
     radar.setRanges(SIGHT * 0.5, RADAR, 6000);
-    radar.render(OWN, 200, null, null);
+    radar.render(OWN, 200, null);
     expect(bakes.into.at(-1), 'the narrowing rebake reuses it').toBe(first);
 
     radar.setRanges(SIGHT, RADAR, 6000);
-    radar.render(OWN, 300, null, null);
+    radar.render(OWN, 300, null);
     expect(bakes.into.at(-1), 'and so does widening back').toBe(first);
 
     expect(radar.dimMask.texture).toBe(first);
@@ -109,11 +109,11 @@ describe('a dim-mask rebake never destroys the bound TextureSource', () => {
     // is why nothing needed to guard it before. `radarDim` already treats a
     // non-finite bubble as reachable (both `dimRadii` and `dimScaleAt` guard it).
     const radar = radarFor();
-    radar.render(OWN, 100, null, null);
+    radar.render(OWN, 100, null);
     const baseline = bakes.into.length;
 
     radar.setRanges(Number.NaN, Number.NaN, 6000);
-    for (let t = 200; t <= 600; t += 100) radar.render(OWN, t, null, null);
+    for (let t = 200; t <= 600; t += 100) radar.render(OWN, t, null);
 
     expect(bakes.into, 'a NaN bubble holds the last good radius, it does not churn')
       .toHaveLength(baseline);
@@ -127,7 +127,7 @@ describe('a dim-mask rebake never destroys the bound TextureSource', () => {
     // be pinning style, not behaviour.
     expect(bakes.into[0] ?? null, 'and it had nothing to reuse').toBeNull();
 
-    radar.render(OWN, 100, null, null);
+    radar.render(OWN, 100, null);
     expect(bakes.into, 'a steady frame costs one float compare').toHaveLength(1);
   });
 });

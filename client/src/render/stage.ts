@@ -74,9 +74,9 @@
 // HULLS SIT ABOVE THE RADAR PAINT (this cycle, Eric: *"Lets make hulls in general
 // more visible over radar blips when they are visible."*). `ship` used to be the
 // top layer of worldRoot, which put it under `fogSprite` and therefore under
-// EVERY chart layer — including `blip`, so the radar echo the client synthesizes
-// for a hull you can already see (amendments 88/141) was drawn on top of the very
-// silhouette it represents. It now sits in chartRoot immediately ABOVE `blip` and
+// EVERY chart layer — including `blip`, so the radar echo of a hull you can
+// already see (synthesized client-side until amendment 210; a wire blip since)
+// was drawn on top of the very silhouette it represents. It now sits in chartRoot immediately ABOVE `blip` and
 // immediately BELOW `aim`: above the returns, below the reticle and the burst
 // rings, which are the marks you aim and read damage with and must never be
 // occluded by a hull.

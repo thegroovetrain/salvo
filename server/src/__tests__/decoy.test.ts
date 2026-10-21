@@ -243,12 +243,12 @@ describe('DECOY BUOY — the views and the radar paint', () => {
     obs.prevSweepAngle = 1;
     obs.sweepAngle = 1.1; // the beam elsewhere
     expect(blips(observe(w, 'obs').events)).toEqual([]);
-    // Inside the observer's own lit zone: the truth rides the `decoys`
-    // channel, never a doubled paint.
+    // Inside the observer's own lit zone the paint STILL rides (amendment 210
+    // ruling (a): the entire sweep) — beside the truth on the `decoys` channel.
     obs.prevSweepAngle = TAU - 0.05;
     obs.sweepAngle = 0.05;
     w.litZones.set('z', { id: 'z', ownerId: 'obs', x: 700, y: 0, r: 100, until: w.now + 5000 } as never);
-    expect(blips(observe(w, 'obs').events)).toEqual([]);
+    expect(blips(observe(w, 'obs').events)).toEqual(painted);
   });
 
   it('the OWNER\'s radar paints its own decoy through the same gate (no special case)', () => {

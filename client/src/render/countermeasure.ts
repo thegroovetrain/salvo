@@ -26,8 +26,8 @@
 // THE RADAR RETURN (session 4, Eric 2026-10-12: "Don't forget to composite it
 // onto the radar layer so it can be painted. It should give returns in
 // strength based on how thick the smoke is."): this module draws NOTHING on
-// the scope. The Radar holds this object as a return source (`setCloudSource`,
-// the `setWakeSources` precedent) and its beam march reads `coverAt` per
+// the scope. The Radar holds this object as a return source (`setCloudSource`)
+// and its beam march reads `coverAt` per
 // sample as one more field material (render/radarSources.ts `cloudSample`:
 // coefficient = radarGain × haze). From there the cloud's echo belongs to the
 // heat grid — swept, shadowed, frozen, banded, phosphor-decayed and in-bubble
@@ -59,7 +59,7 @@
 // wounded smoke reaches a client only with island LOS clear, so the haze obeys
 // it too. The halo mask is a LINE-OF-SIGHT mask: render/hazeLos.ts casts
 // `losRays` bearings from the own hull to halo + feather against the match's
-// islands (`setIslands`, once per map — the `setWakeSources` precedent), and
+// islands (`setIslands`, once per map), and
 // the bake fills the same halo gradient through the fan of hit points, so each
 // island cuts a hard shadow from its near edge outward. Re-cast only on a move
 // of `losRecastMoveU` or a halo / island change (cost — config.ts). No
@@ -166,8 +166,8 @@ export class Countermeasure {
     this.castX = Number.NaN; // the reach moved: re-cast on the next pose
   }
 
-  /** The match's islands — the halo's sight blockers (main.ts, once per map,
-   *  beside `radar.setWakeSources`). An empty set restores the plain disc at
+  /** The match's islands — the halo's sight blockers (main.ts, once per map).
+   *  An empty set restores the plain disc at
    *  once; otherwise the shadows are cast on the next pose. */
   setIslands(islands: readonly Island[]): void {
     this.islands = islands;

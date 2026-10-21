@@ -2,7 +2,7 @@
 // 2026-10-12: "It's not being read by radar. Don't forget to composite it onto
 // the radar layer so it can be painted. It should give returns in strength
 // based on how thick the smoke is."). The Radar pulls the cloud haze through
-// `setCloudSource` (the `setWakeSources` precedent) and its beam march reads it
+// `setCloudSource` and its beam march reads it
 // as one more field material — so the echo lands in the HEAT GRID and from
 // there is swept, shadowed, banded and decayed by the grid's own rules.
 // Contracts only: no literal intensity, no band pins.
@@ -58,7 +58,7 @@ function radarWith(src: CloudReturnSource | null, raster: HeightRaster | null = 
 /** Render frames from `from` to `to` at 16 ms (beam extrapolated from T0). */
 function play(radar: Radar, from: number, to: number, own: { x: number; y: number } | null = OWN, each?: (t: number) => void): void {
   for (let t = from; t <= to; t += 16) {
-    radar.render(own, t, null, null);
+    radar.render(own, t, null);
     each?.(t);
   }
 }
@@ -266,8 +266,8 @@ describe('the held cloud\'s radar return rolls per revolution (F1)', () => {
     const after = crossing(k) + HALF_WIN;
     // Off the cloud's bearings, coarse frames (cost only: nothing to paint
     // there); across the crossing, 16 ms frames.
-    for (let t = from; t < before; t += 80) radar.render(OWN, t, null, null);
-    radar.render(OWN, before, null, null);
+    for (let t = from; t < before; t += 80) radar.render(OWN, t, null);
+    radar.render(OWN, before, null);
     const a = heat(radar, cells);
     play(radar, before + 16, after);
     const b = heat(radar, cells);

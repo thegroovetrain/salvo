@@ -286,6 +286,87 @@ export function fogTollAlong(
 }
 
 /**
+ * Does the eye-reach march have fog to read? (a real cut, a positive FINITE
+ * cost, a finite pose and clock). A non-finite cost reads "no fog" — the
+ * reach is the full range — exactly as `fogTollAlong` clamps the non-finite
+ * toll such a cost produces to 0, so the eye and the server's sight gate
+ * agree on the degenerate dial instead of the eye going blind on its own.
+ */
+function reachHasFog(field: FogField, ox: number, oy: number, angle: number, tMs: number, cut: number): boolean {
+  const cost = field.cfg.sightCostPerU;
+  if (!Number.isFinite(cut) || cut >= FOG_NO_CUT || !(cost > 0) || !Number.isFinite(cost)) return false;
+  return allFinite(ox, oy, angle, tMs);
+}
+
+/** `marchDensity`'s own-bank rule for step `i`: is this step still in the observer's free solid run? */
+function stillFree(free: boolean, i: number, multi: boolean, dens: number): boolean {
+  return free && ((i === 0 && multi) || dens >= FOG_SOLID_DENSITY);
+}
+
+const RSC = { s: 0, c: 0 };
+
+/**
+ * How far the observer's EYE reaches along bearing `angle` (radians, world
+ * axes: dx = cos, dy = sin) for a sight `range` through the fog at `tMs`
+ * under `cut`: the first distance `d` where `d + toll(d) ≥ range`, toll(d)
+ * being the toll of the ray observer → the point at `d` with the SAME
+ * accounting as `fogTollAlong` (a `marchStepU` midpoint march, density ×
+ * step × sightCostPerU, the observer's own solid bank free — first step,
+ * then the leading solid run, never restarting). Linear inside the step
+ * that fills. The march is laid from the observer independent of `range`,
+ * so the result is monotone non-decreasing in `range` (above one march step;
+ * a range of at most one step is a single charged step, as in
+ * `fogTollAlong`) and never exceeds it.
+ * Presentation helper (the client's near-range radar dim mask, Eric
+ * 2026-10-21, amendment 210) — the server's sight gate stays `fogTollAlong`.
+ * Fail-safe "no shortening": no fog, a non-positive or non-finite cost, or any non-finite
+ * pose / clock / cut returns `range`; a non-finite `range` returns itself;
+ * `range ≤ 0` returns 0.
+ */
+export function fogEyeReach(
+  field: FogField, ox: number, oy: number, angle: number, range: number, tMs: number, cut: number,
+): number {
+  if (!Number.isFinite(range)) return range;
+  if (range <= 0) return 0;
+  if (!reachHasFog(field, ox, oy, angle, tMs, cut)) return range;
+  fogSinCos(angle, RSC);
+  const ux = RSC.c;
+  const uy = RSC.s;
+  // A non-positive step, or a range no longer than one step, is ONE step over the whole ray: read, never
+  // "own" — `fogTollAlong` marches ceil(len / step) = 1 step there and charges it (as in marchDensity).
+  const multi = field.cfg.marchStepU > 0 && range > field.cfg.marchStepU;
+  const step = multi ? field.cfg.marchStepU : range;
+  const cost = field.cfg.sightCostPerU;
+  let free = fogDensityAt(field, ox, oy, tMs, cut) >= FOG_SOLID_DENSITY;
+  let d0 = 0;
+  let toll = 0;
+  for (let i = 0; d0 + toll < range; i++) {
+    const mid = d0 + step / 2;
+    const dens = fogDensityAt(field, ox + ux * mid, oy + uy * mid, tMs, cut);
+    free = stillFree(free, i, multi, dens);
+    const rate = 1 + (free ? 0 : dens * cost); // eye distance spent per unit travelled in this step
+    const left = range - d0 - toll;
+    if (step * rate >= left) return d0 + left / rate;
+    d0 += step;
+    toll += step * (rate - 1);
+  }
+  return range; // unreachable: the step that fills returns inside the loop
+}
+
+/**
+ * `fogEyeReach` on `out.length` evenly spaced bearings — `out[k]` at
+ * `k × 2π / out.length` — so the client casts its mask's fan in one call.
+ * Returns `out`.
+ */
+export function fogEyeReachFan(
+  field: FogField, ox: number, oy: number, range: number, tMs: number, cut: number, out: Float32Array,
+): Float32Array {
+  const n = out.length;
+  for (let k = 0; k < n; k++) out[k] = fogEyeReach(field, ox, oy, (k * TWO_PI) / n, range, tMs, cut);
+  return out;
+}
+
+/**
  * The cut whose fogged share over `points` is `target`, where "fogged" is
  * density ≥ ½ (the solid half of the soft edge — what a captain calls fog):
  * the (1 − target) quantile of the noise at those points minus half the

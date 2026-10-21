@@ -21,8 +21,9 @@
 // COASTLINE (losClear: islandBlocksSegment — bounding-circle broadphase,
 // `core` early-out, then the exact polygon test). `sightClear` is the ONE
 // predicate every sight-tier site calls — contacts, shells, booms, spawns,
-// sinks, the mz/sm halos, the foghorn muffle and in-bubble torpedo water.
-// THE FOG TOLL (Story 9.10, epic-9 amendments 149–150 / 163–170): every
+// sinks, the mz/sm halos and the foghorn muffle (wake water is a RADAR
+// return at every range since amendment 210 — it never reads sightClear).
+// THE FOG TOLL (Story 9.10, epic-9 amendments 149–150 / 164–170): every
 // sight-RANGE comparison on those same sites goes through `withinSight`,
 // which adds the ray's fog toll (`SightField.fogToll` — the World's
 // `fogTollAlong`, the shared field's midpoint march; observer-first, since
@@ -165,7 +166,7 @@ interface SignalContextBase {
    *  fog field right now, read by every sight-range comparison through
    *  `withinSight` (`fogCostTo`). Rides both paths uniformly; the spectator
    *  path never calls it (spectators are unfogged). Never a radar input
-   *  (amendment 163). */
+   *  (amendment 149). */
   readonly fogToll: (ax: number, ay: number, bx: number, by: number) => number;
   /** Ship id → stable per-match track id (World.pseudonymFor — the server-
    *  private stream; see World.trackIds for the honest correlation bound).
@@ -281,8 +282,7 @@ export function losClear(a: Vec2, b: Vec2, islands: readonly Island[]): boolean 
  * THE sight predicate: may observer `me` see point `b` optically? Iff no
  * island coastline lies on the segment (losClear from the observer's own
  * state). Every sight-tier gate calls this — the contact row, pointSighted,
- * pointDetected, shipSees, the mz/sm halos, the foghorn muffle and in-bubble
- * torpedo water (wakeGate's sight clause). No cloud term (Story 9.3 session
+ * pointDetected, shipSees, the mz/sm halos and the foghorn muffle. No cloud term (Story 9.3 session
  * 2, Eric 2026-10-12: the countermeasure is a client overlay — cycle 174's
  * pixel occlusion and Story 8.18's smoke clamp are retired). No fog term
  * EITHER: fog is a RANGE cost, not an occluder — it lives in `withinSight`
@@ -327,11 +327,10 @@ function fogCostTo(field: SightField, me: ShipRecord, p: Vec2): number {
  * With no fog the toll thunk answers 0 without a march (the World's cut
  * gate), so the pre-fog gates are byte-identical. Every sight-tier range
  * site calls this — the contact row, pointSighted, pointDetected, shipSees,
- * discSighted (to the nearest rim point), the mz/sm halos and wakeGate's
- * in-bubble torpedo-water clause. Radar's annulus boundary
- * (`inRadarAnnulus`, `wakeInnerBound`) stays the plain geometric `sightOf`
- * — a hull fog hides inside the bubble is dark to BOTH sensors
- * (amendment 163).
+ * discSighted (to the nearest rim point) and the mz/sm halos. Radar has NO
+ * inner edge (amendment 210, Eric 2026-10-21, superseding amendment 163's
+ * "dark to both"): a hull fog hides inside the bubble is no contact, yet the
+ * beam still paints it — fog is never a radar input (amendment 149).
  */
 function withinSight(field: SightField, me: ShipRecord, p: Vec2, range: number): boolean {
   const dx = p.x - me.state.x;
@@ -353,11 +352,11 @@ function withinSight(field: SightField, me: ShipRecord, p: Vec2, range: number):
  * the argument and the mark are gone (and Story 9.3 had already removed the
  * 8.18 in-smoke argument — a cloud never scales sight). THE one place the
  * sight RADIUS enters perception — every sight-tier predicate below and
- * every derived rung (detect, the annulus boundary, the wake inner bounds)
- * calls this, so a future sight modifier lands in the shared function and
- * nowhere else. FOG (Story 9.10) does NOT scale this radius: it is a toll
- * on the RAY, added in `withinSight` — which is why the radar annulus, which
- * reads this radius directly, is fog-blind by construction (amendment 163).
+ * every derived rung (detect) calls this, so a future sight modifier lands
+ * in the shared function and nowhere else. FOG (Story 9.10) does NOT scale
+ * this radius: it is a toll on the RAY, added in `withinSight`. No radar
+ * gate reads this radius at all since amendment 210 (the radar paints from
+ * the observer's hull out to radar range — no inner edge).
  * Never re-derived here: one derivation, both sides.
  */
 export function sightOf(me: ShipRecord): number {
@@ -540,41 +539,32 @@ function discRollRev(me: ShipRecord, spanStart: number | null): number {
   return me.sweepRev - 1;
 }
 
-/** Radar-annulus test for a POINT: beyond sight (exclusive), within radar
- *  (inclusive) — both the OBSERVER'S effective ranges (the sight boundary is
- *  the SAME sightOf every sight predicate uses, so "sight wins inside its
- *  radius" stays coherent whatever that sight resolves to: a narrower bubble
- *  becomes paintable annulus, never a dead ring). Sight wins inside its
- *  radius: since Story 4.11 the annulus exclusion, not any shared occlusion predicate,
- *  is what keeps the two tiers from answering for the same point — sight
- *  occludes on binary island LOS while radar occludes on the height-aware
- *  shadow march, so an island-LOS-blocked ship inside sight is simply
- *  invisible (not in the annulus, so it cannot paint) even where a low island
- *  would leave it radar-visible (amendment 179; Eric 2026-08-02: islands
- *  block every sensor). (Story 8.18's in-bubble smoke clause re-entered the
- *  bubble; Story 9.3 session 2 retired it — a cloud hides nothing, so there
- *  is no smoke-hidden in-bubble hull to paint.) Point-based so a non-ship subject can share it (Story 1.8)
- *  runs the IDENTICAL test on a decoy position. */
-function inRadarAnnulus(me: ShipRecord, p: Vec2): boolean {
-  const dx = p.x - me.state.x;
-  const dy = p.y - me.state.y;
-  const d2 = dx * dx + dy * dy;
-  const sight = sightOf(me);
-  return d2 > sight * sight && withinRadarRange(me, p);
-}
-
-/** The annulus's OUTER edge alone — the point is within the observer's
- *  effective radar range (`stats.radarRange`, inclusive `<=`). */
+/** THE radar's range test for a POINT: within the observer's effective radar
+ *  range (`stats.radarRange`, inclusive `<=`) — and nothing else. THERE IS NO
+ *  INNER EDGE (amendment 210, Eric 2026-10-21: "The server needs to return
+ *  the entire sweep ... I always get radar information"): the radar paints
+ *  from the observer's hull outward, inside the sight radius too, so a hull
+ *  the eye has (contact) ALSO paints, and a hull the eye has lost to fog or a
+ *  low island still paints. HISTORY (superseded): the old `inRadarAnnulus`
+ *  excluded d ≤ sightOf (amendment 163's "dark to both"); the client then
+ *  synthesized echoes for sighted hulls (amendments 88/154) — both retired.
+ *  The two sensors keep their OWN island rules: the eye binary LOS, radar
+ *  the height-aware shadow march (blipGate). Point-based so a non-ship
+ *  subject (a decoy, a wake segment) runs the IDENTICAL test. */
 function withinRadarRange(me: ShipRecord, p: Vec2): boolean {
   const dx = p.x - me.state.x;
   const dy = p.y - me.state.y;
-  return dx * dx + dy * dy <= me.stats.radarRange * me.stats.radarRange;
+  const d2 = dx * dx + dy * dy;
+  // Zero distance (or NaN): nothing to bear on — atan2(0, 0) is an arbitrary 0 and visibilityTo fails open
+  // at length 0 — so a subject on the observer's own point is never a return.
+  if (!(d2 > 0)) return false;
+  return d2 <= me.stats.radarRange * me.stats.radarRange;
 }
 
 /**
  * THE ship-blip gate (one function, three callers — FR10's temporal
- * indistinguishability by construction): sight < dist ≤ radar (the annulus)
- * ∧ the observer's beam crossed the point's bearing this tick ∧ the target is
+ * indistinguishability by construction): dist ≤ radar (no inner edge —
+ * amendment 210) ∧ the observer's beam crossed the point's bearing this tick ∧ the target is
  * at least PARTIALLY illuminated under the height-aware radar shadow (Story
  * 4.11, amendment 179 — the shared `visibilityTo` march over the height
  * raster replaced binary island LOS on this one gate; a partially shadowed
@@ -585,7 +575,7 @@ function withinRadarRange(me: ShipRecord, p: Vec2): boolean {
  * retired; the gate is byte-identical to pre-8.18). The march is the SAME
  * shared function the client's beam march runs (the story's one-
  * implementation constraint), which is what keeps the scope and the gate
- * from ever disagreeing. TERM ORDER IS LOAD-BEARING FOR COST: annulus →
+ * from ever disagreeing. TERM ORDER IS LOAD-BEARING FOR COST: range →
  * swept-this-tick → shadow march, so the expensive march runs only for
  * candidates already in this tick's beam wedge. The genuine ship scan and
  * the decoy paint both call THIS, so anything afloat at a position paints
@@ -597,7 +587,7 @@ function withinRadarRange(me: ShipRecord, p: Vec2): boolean {
 function blipGate(ctx: FoggedSignalContext, p: Vec2, targetKey: string): boolean {
   const me = ctx.me;
   return (
-    inRadarAnnulus(me, p) &&
+    withinRadarRange(me, p) &&
     sweptThisTick(me, bearing(me.state, p)) &&
     visibilityTo(ctx.heightRaster, me.state.x, me.state.y, p.x, p.y) > 0 &&
     radarPaints(ctx, Math.hypot(p.x - me.state.x, p.y - me.state.y), targetKey)
@@ -617,8 +607,9 @@ function blipGate(ctx: FoggedSignalContext, p: Vec2, targetKey: string): boolean
  * EVERYTHING RADAR DELIVERS ROLLS (ruling 123): ship blips and decoy paints
  * (via blipGate), the wake's radar half (wakeGate) and the countermeasure
  * cloud's radar clause (discRadarDetected). No size weighting (ruling 122):
- * one curve for every return. Never consulted inside sight (the roll lives in
- * the RADAR gate only), and never by the lit / burn / foul zone circles —
+ * one curve for every return. Never consulted by a sight predicate (the roll
+ * lives in the RADAR gates only — inside the sight radius too since amendment
+ * 210, where p(paint) is 1 anyway), and never by the lit / burn / foul zone circles —
  * those are drawn hazards, not returns (`zoneCircleVisible`). A miss is the
  * gate answering false: nothing about the target is emitted.
  */
@@ -1041,8 +1032,8 @@ const cloudSignal: SignalSpec<StoredCloud, CloudView> = {
 // ---------------------------------------------------------------------------
 
 /**
- * `blip` — the radar tier: sight < dist ≤ radar (both boundaries as
- * written) ∧ shadow-visible (Story 4.11:
+ * `blip` — the radar tier: dist ≤ radar (no inner edge — amendment 210: a
+ * sighted hull is a contact AND a blip) ∧ shadow-visible (Story 4.11:
  * `visibilityTo` over the height raster > 0 — partial illumination
  * discloses; only full shadow deletes) ∧ the observer's beam crossed the
  * target's bearing this tick (the half-open window [prev, cur) — wrap-safe,
@@ -1050,12 +1041,13 @@ const cloudSignal: SignalSpec<StoredCloud, CloudView> = {
  * at-paint-time; the server keeps no blip history (phosphor decay is client
  * render math). ONLY SHIPS PAINT — torpedoes and mines never appear on radar
  * (the ship scan iterates ships only, by construction). A ship inside a lit
- * zone the observer OWNS never blips: it is already a FULL contact (Story
- * 1.7). No cloud term anywhere (Story 9.3 session 2: a cloud hides
- * nothing — a hull inside anyone's cloud paints like any hull). The row
- * stays self-contained rather
- * than leaning on the scan's contact-first ordering. Spectators get live
- * contacts instead, never blips.
+ * zone the observer OWNS paints too (amendment 210 ruling (a) — the entire
+ * sweep; the old "already a FULL contact — never doubled" exclusion of
+ * Story 1.7 is retired, so the zone has no term in this row). No cloud term
+ * anywhere (Story 9.3 session 2: a cloud hides nothing — a hull inside
+ * anyone's cloud paints like any hull). The row is self-contained: the scan
+ * tests contact and blip independently. Spectators get live contacts
+ * instead, never blips.
  *
  * COUNTER-INTEL IS DELETED (Story 7-5 wave 2). The one non-ship addition to
  * the blip subsequence — the DECOY BUOY's anonymous paint (Story 8.16) — is
@@ -1071,10 +1063,9 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
     if (ctx.mode !== 'fogged') return false;
     const me = ctx.me;
     // Afloat OR SINKING (Story 5.2, amendment 15 seam 3): a sinking hull
-    // still paints under the identical annulus/sweep/shadow gate — the blip
+    // still paints under the identical range/sweep/shadow gate — the blip
     // payload carries pose only, so nothing discloses the window here either.
     if ((!isAfloat(target.lifecycle) && !isSinking(target.lifecycle)) || target.id === me.id) return false;
-    if (ownZoneCovers(ctx, target.state)) return false; // already a full contact — never doubled as a blip
     // The observer's OWN radar, and nothing else (the radar buoy's relay and
     // its own-scope `src` tag were deleted with the buoy in Story 8.16).
     return blipGate(ctx, target.state, target.id);
@@ -1115,15 +1106,15 @@ function decoyPaintBlip(ctx: SignalContext, decoy: DecoyState): BlipEvent {
 
 /**
  * Every decoy this observer's OWN radar paints this tick: through the ONE
- * blipGate (annulus ∧ this-tick beam ∧ shadow march) and never inside a lit
- * zone the observer owns (there the truth rides the `decoy` channel). THE
- * OWNER INCLUDED — the owner's radar paints their own decoy through the same
+ * blipGate (range ∧ this-tick beam ∧ shadow march) — inside a lit zone the
+ * observer owns as well (amendment 210 ruling (a): the entire sweep; the
+ * truth ALSO rides the `decoy` channel there, exactly as a zone-lit hull is
+ * both a contact and a blip). THE OWNER INCLUDED — the owner's radar paints their own decoy through the same
  * gate, with no special case (orchestrator ruling, Story 8.16).
  */
 export function decoyRadarBlips(ctx: FoggedSignalContext): BlipEvent[] {
   const out: BlipEvent[] = [];
   for (const decoy of ctx.decoys.values()) {
-    if (ownZoneCovers(ctx, decoy)) continue;
     if (blipGate(ctx, decoy, decoy.id)) out.push(decoyPaintBlip(ctx, decoy));
   }
   return out;
@@ -1137,7 +1128,7 @@ export function decoyRadarBlips(ctx: FoggedSignalContext): BlipEvent[] {
  * One wake ribbon SEGMENT offered to the `wk` row by perception's wake scan
  * (the scan walks each ribbon via the shared eachWakeSegment and copies the
  * scratch into this shape). `x`/`y` is the segment MIDPOINT — the gate's one
- * test point, named so the shared point predicates (inRadarAnnulus, bearing)
+ * test point, named so the shared point predicates (withinRadarRange, bearing)
  * read it directly. `ax..by` are the endpoints the rasterizer projects;
  * `widthU` is the SOURCE-derived turbulent-core width (a hull's own beam, one
  * radar cell for a torpedo — carried on the ribbon, derived exactly once in
@@ -1160,10 +1151,6 @@ export interface WakeSubject {
   bucket: number;
   /** Turbulent-core width (u), derived from the source. */
   widthU: number;
-  /** TORPEDO water? (WakeRibbon.torp, copied by the scan.) Selects the
-   *  per-source inner disclosure bound — detect for a torpedo, sight for a
-   *  ship (review-gate P2; see the row doc). NEVER on the wire. */
-  torp: boolean;
   /** The dropout roll's TARGET KEY — the water's source id
    *  (`World.wakeKeyOf`, copied by the scan; Story 9.8). NEVER on the wire. */
   key: string;
@@ -1318,7 +1305,7 @@ function wedgeFor(me: ShipRecord): WedgeMemo {
  *  wedge strictly contains the true half-open window); `true` decides
  *  nothing — the exact production predicate still runs. Two cross products
  *  against the memoized wedge edges replace an atan2 per candidate segment
- *  (measured: the bearing atan2 over every in-annulus segment was the
+ *  (measured: the bearing atan2 over every in-range segment was the
  *  second-largest wake-scan cost in a full room). */
 function mayBeSwept(me: ShipRecord, dx: number, dy: number): boolean {
   const w = wedgeFor(me);
@@ -1327,55 +1314,26 @@ function mayBeSwept(me: ShipRecord, dx: number, dy: number): boolean {
 }
 
 /**
- * THE PER-SOURCE INNER DISCLOSURE BOUND (cycle-69 review gate, P2): the
- * radius inside which a source's water is NOT disclosed on the `wk` row. A
- * SHIP's wake stands in for the radar tier, so its inner bound is the sight
- * bubble (blipGate's annulus verbatim — the client synthesizes in-bubble hull
- * wake from the full pose it holds). A TORPEDO's wake stands in for the
- * fish's own DETECT tier: the fish reveals at `sightOf × detectFactor` (the
- * detect rung, pointDetected — 4/12 = sight since Story 9.8), so its water must disclose down to THAT radius —
- * with the ship bound, the (detect, sight] band was a dead band with no
- * entity, no disclosed wake, and no synthesized wake, killing amendment 196's
- * tell exactly in the terminal approach. Observer-scaled exactly as the tier
- * each bound mirrors (sightOf / pointDetected's own derivation), and it rides
- * `stats.radarRange` through them, so a future intel card moves both bounds
- * with no work here.
- */
-function wakeInnerBound(me: ShipRecord, torp: boolean): number {
-  const sight = sightOf(me);
-  return torp ? sight * CONFIG.vision.detectFactor : sight;
-}
-
-/**
- * THE PER-SEGMENT WAKE GATE (the blipGate mirror, per source — see the wk
- * row's doc for the full rationale): inner bound < dist ≤ radar ∧ swept this
- * tick ∧ occlusion CONSISTENT WITH THE SENSOR THE BAND STANDS IN FOR —
- * inside the sight bubble (reachable only by torpedo water, whose inner
- * bound is detect) the fish itself is hidden by pointDetected's BINARY
- * island LOS (sightClear), so its water uses that same binary test (the
- * shadow march must never reveal water that the sight predicate hides —
- * precisely the leak the sight exclusion exists to prevent); beyond sight,
- * the amendment-179 shadow accumulator, exactly as a hull. No cloud term on
- * either half (Story 9.3 session 2, Eric 2026-10-12: a cloud hides nothing).
- * Clause order is blipGate's cost order.
+ * THE PER-SEGMENT WAKE GATE (the blipGate mirror — see the wk row's doc for
+ * the full rationale): dist ≤ radar ∧ swept this tick ∧ the amendment-179
+ * shadow march ∧ the dropout roll keyed on the water's source (Story 9.8,
+ * ruling 123) — exactly as a hull, at EVERY distance, for ship and torpedo
+ * water alike. NO INNER BOUND (amendment 210, Eric 2026-10-21: the server
+ * returns the entire sweep). HISTORY (superseded): the per-source inner
+ * bound (`wakeInnerBound` — sight for ship water, detect for torpedo water,
+ * cycle-69 review gate P2) and the in-bubble torpedo-water clause that used
+ * the eye's binary LOS + fog toll are retired; in-bubble water is a radar
+ * return like any other. No cloud term (Story 9.3 session 2, Eric
+ * 2026-10-12: a cloud hides nothing). Clause order is blipGate's cost order.
  */
 function wakeGate(ctx: FoggedSignalContext, seg: WakeSubject): boolean {
   const me = ctx.me;
   const dx = seg.x - me.state.x;
   const dy = seg.y - me.state.y;
   const d2 = dx * dx + dy * dy;
-  const inner = wakeInnerBound(me, seg.torp);
-  if (d2 <= inner * inner || d2 > me.stats.radarRange * me.stats.radarRange) return false;
+  if (!(d2 > 0)) return false; // nothing to bear on (see withinRadarRange)
+  if (d2 > me.stats.radarRange * me.stats.radarRange) return false;
   if (!sweptThisTick(me, bearing(me.state, seg))) return false;
-  const sight = sightOf(me);
-  // Inside the GEOMETRIC bubble the water is SIGHT-delivered (torpedo water
-  // only — the ship bound is the bubble itself), so it pays the fog toll
-  // like the fish it stands in for (Story 9.10; the bubble's edge itself,
-  // the radar's inner bound, stays geometric — amendment 163).
-  if (d2 <= sight * sight) return withinSight(ctx, me, seg, sight) && sightClear(me, seg, ctx.islands);
-  // Beyond sight the water is a RADAR return: the shadow march, then the
-  // dropout roll keyed on the water's source (Story 9.8, ruling 123). The
-  // in-bubble half above (torpedo water inside sight) never rolls.
   if (visibilityTo(ctx.heightRaster, me.state.x, me.state.y, seg.x, seg.y) <= 0) return false;
   return radarPaints(ctx, Math.sqrt(d2), seg.key);
 }
@@ -1385,14 +1343,11 @@ function wakeGate(ctx: FoggedSignalContext, seg: WakeSubject): boolean {
  * crossed rather than with track length"): may ANY segment of this ribbon
  * pass the per-segment gate for this observer this tick? CONSERVATIVE ONLY —
  * a `true` here decides nothing (every disclosed segment still passes the
- * full per-segment gate); a `false` must be PROVABLY safe. Three culls, each
- * a superset bound of a gate clause:
+ * full per-segment gate); a `false` must be PROVABLY safe. Two culls, each
+ * a superset bound of a gate clause (the old inner-bound cull died with the
+ * inner bound — amendment 210):
  *   • entirely beyond radar (centre dist − rad > radarRange ⇒ every midpoint
- *     fails the annulus' outer bound);
- *   • entirely inside the source's INNER bound (centre dist + rad ≤ the
- *     ribbon's per-source inner radius — sight for a ship's water, DETECT
- *     for a torpedo's (review-gate P2) ⇒ every midpoint fails the inner
- *     exclusion — see the wk row's doc for the per-source split);
+ *     fails the range test);
  *   • bearing span disjoint from this tick's swept wedge (observer outside
  *     the bounding circle ⇒ ribbon bearings ⊂ [centre bearing ± asin(rad/d)];
  *     an observer INSIDE the circle gets no bearing cull).
@@ -1406,7 +1361,6 @@ export function sweepMayCrossWake(me: ShipRecord, r: WakeRibbon): boolean {
   const dy = b.cy - me.state.y;
   const d = Math.sqrt(dx * dx + dy * dy);
   if (d - b.rad > me.stats.radarRange) return false;
-  if (d + b.rad <= wakeInnerBound(me, r.torp)) return false;
   if (d <= b.rad) return true; // observer inside the bound — no bearing cull
   const half = Math.asin(Math.min(1, b.rad / d));
   const window = wrapPositive(me.sweepAngle - me.prevSweepAngle);
@@ -1451,47 +1405,32 @@ function wakeMask(s: WakeSubject, t: number): HullCoverage {
  * `wk` — a wake ribbon segment the observer's beam crossed this tick (Story
  * 4.12): disturbed water as a weak surface return. NOT a declared exception
  * to the master perception invariant — the gate mirrors the three `blipGate`
- * clauses per SEGMENT in the same cost order (annulus → swept-this-tick →
- * occlusion), evaluated at the segment MIDPOINT; segments are ~one sample
+ * clauses per SEGMENT in the same cost order (range → swept-this-tick →
+ * shadow march → dropout), evaluated at the segment MIDPOINT; segments are ~one sample
  * cadence (12u) long, so the midpoint predicate is about as tight as the
  * hull's centre predicate already is (a ledgered cycle-68 imprecision,
  * inherited knowingly). What is new is only that the subject is water rather
  * than a ship.
  *
- * THE INNER BOUND IS PER SOURCE (cycle-69 review gate, P2 — see
- * wakeInnerBound/wakeGate above): a SHIP's water inherits blipGate's sight
- * exclusion verbatim, a TORPEDO's water discloses down to the DETECT radius.
- * The ship-side exclusion stays a ruled implementation choice, recorded
- * here: a HULL inside sight behind an island is invisible by design (not a
- * contact — island LOS; not a blip — the annulus is what keeps the two
- * tiers' different occlusion predicates from answering for the same point,
- * see inRadarAnnulus). Disclosing in-bubble ship water through the radar's
- * shadow march would re-open exactly that seam — a fresh bucket-0 segment
- * ends within one cadence of its hull's stern, so in-bubble wake behind an
- * island would leak a hidden hull's position. Amendment 154's "the split
- * must not be visible" is satisfied the way amendment 88 already satisfies
- * it for hull paints: inside truesight the client synthesizes the same
- * appearance from the full pose it already holds (contacts/own ship — the
- * amendment 202/206 chop path), so scope and water agree from both sources.
- * Orphaned in-bubble water a client never learned of is unknowable to BOTH
- * its renderings — scope and water agree on silence — and previously-
- * disclosed paints persist on phosphor across the boundary AT THE BASE SWEEP
- * RATE (the three-clocks coincidence, amendment 205; a maxed intelSweep
- * build's three-paint window is 6s against 12s water — the ACCEPTED
- * shortfall ruled at the cycle-69 gate, P4, pinned in shared zone.test.ts).
- * The torpedo side has no such synthesis to lean on — beyond detect the
- * client is never told the fish exists — so the same exclusion produced a
- * dead band in (detect, sight] that killed amendment 196's tell in the
- * terminal approach; detect is therefore the fish-water bound, and its
- * IN-BUBBLE OCCLUSION IS BINARY ISLAND LOS, matching pointDetected (the
- * sensor it stands in for) rather than the shadow march (wakeGate above).
+ * NO INNER BOUND (amendment 210, Eric 2026-10-21 — the server returns the
+ * entire sweep): ship and torpedo water disclose at every distance up to
+ * radar range, through the same shadow march and dropout as a hull. This is
+ * leak-free by construction because the HULL now paints at every distance
+ * too: water behind a low island inside sight discloses exactly when the
+ * hull's own blip would (both ride the radar's shadow rule), and water
+ * behind hard cover ≥ mast height is dark like the hull. HISTORY
+ * (superseded): the per-source inner bound (sight for ship water, detect
+ * for torpedo water — cycle-69 review gate P2), the in-bubble torpedo-water
+ * binary-LOS clause, and the client's in-bubble wake synthesis (amendments
+ * 88/154/202/206) are all retired; the client draws only what this row
+ * sends.
  *
- * NO ownZoneCovers term, deliberately (the blip row's zone clause exists
- * because a zone-covered ship is already a FULL contact — water has no
- * contact tier to double). NO self-exclusion: your own wake DOES paint on
- * your own scope (amendment 204 — physically right; the client's near-range
- * display mask keeps it quiet). Spectators get none (they have no radar —
- * the blip rule).
+ * NO ownZoneCovers term (no radar row has one since amendment 210).
+ * NO self-exclusion anywhere (Eric 2026-10-21: "I want ALL radar returns"):
+ * the observer's own hull water and own torpedo water paint on the
+ * observer's own scope like any other return; the client's proximity dim
+ * is the only thing that quiets them.
+ * Spectators get none (they have no radar — the blip rule).
  *
  * materialize() emits GEOMETRY plus the age bucket and NOTHING else
  * (amendment 194): no ship id, class, hue, owner, or hull↔wake linkage — the
@@ -1517,8 +1456,7 @@ const wakeSignal: SignalSpec<WakeSubject, WakeBlipEvent> = {
     // over-accept, so it decides nothing): in wake geometry the ~4.5° wedge
     // is by far the most selective spatial clause, and this keeps the atan2
     // off the vast majority of a crossed ribbon's segments. The REAL gate
-    // (wakeGate) then mirrors blipGate's clause order exactly, with the
-    // per-source inner bound and occlusion split documented above.
+    // (wakeGate) then mirrors blipGate's clause order exactly.
     if (!mayBeSwept(ctx.me, seg.x - ctx.me.state.x, seg.y - ctx.me.state.y)) return false;
     return wakeGate(ctx, seg);
   },
@@ -2325,8 +2263,8 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   // max(5, band + 2) on the Story 4.9 eight-band ladder).
   fh: foghornSignal,
   // Story 4.12 (amendments 194-196/200): radar wakes — disturbed water gated
-  // per SEGMENT on the blipGate clause order with a per-source inner bound
-  // (cycle-69 review gate P2), in the `return` grammar only (P1); NOT a
+  // per SEGMENT on the blipGate clause order with no inner bound (amendment
+  // 210), in the `return` grammar only (P1); NOT a
   // declared fog exception (see the row above). Identity-free by construction.
   wk: wakeSignal,
 });

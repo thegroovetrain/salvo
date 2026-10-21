@@ -82,16 +82,15 @@ import {
 } from '../render/radarHeatmap.js';
 import {
   buildField,
-  buildShipStamp,
   cellKey,
   coverageCentre,
   hullSample,
   shipOnlyField,
   stampCoverage,
-  type EchoHull,
   type RadarField,
   type ShipStamp,
 } from '../render/radarField.js';
+import { buildShipStamp, type EchoHull } from './shipStampFixture.js';
 import {
   MAX_SLICES_PER_FRAME,
   catchUpArc,
@@ -529,7 +528,7 @@ describe('terrain casts a height-derived shadow', () => {
   // at full strength. The ruling behind it (amendment 127: anything the server
   // blips paints at least a speck, so a client-side occlusion test must never
   // suppress one) still binds and is asserted below; the CONCLUSION did not
-  // follow. Beyond truesight the wire is the ONLY way a hull reaches the scope,
+  // follow. The wire is the ONLY way a hull reaches the scope (amendment 210),
   // so refusing to attenuate meant a 5%-illuminated hull painted at FULL
   // strength until the server's gate flipped and then cut out — the exact line
   // the story's AC forbids, on the one tier this feature governs.
@@ -561,7 +560,7 @@ describe('terrain casts a height-derived shadow', () => {
     }
     // ...and the weakening is a real walk down the register, not a token dip:
     // the same half-mast cover moves the whole mark RED → BLUE, exactly as it
-    // does on the truesight contact path one test above.
+    // does for a hull in the world field one test above.
     expect(new Set(lit.map((w) => bandIndex(w, BANDS))), 'unshadowed: RED').toEqual(new Set([2]));
     expect(new Set(dim.map((w) => bandIndex(w, BANDS))), 'shadowed: BLUE').toEqual(new Set([1]));
   });

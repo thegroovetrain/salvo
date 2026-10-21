@@ -3103,3 +3103,25 @@ Closure stamps for three older entries (the originals are left as written), then
   status: OPEN — harness only, Eric 2026-10-19: "fine for now, fix later"
   summary: THE SAME-TICK MUTUAL-RAM ENDING CREDITS NO WINNER. When the last two hulls sink each other by ramming on the same tick (`sunkByContact`, identical life to 0.1 s), nobody is left, so the harness ends the match as `lastHumanSunk` with `winnerClass: null` and analyze drops it from class share. It grows with Speedboat hp (ram damage follows the energy law with mass = max hull): 1 → 2 → 5 matches of 91 across the 250 / 300 / 350 arms, 6 of the 7 tuned-arm cases involve a Speedboat, and in 3 of the 5 at 350 the Speedboat held placement 1 with no win credited, so it can shave real wins off the Speedboat's count. (The ledger says Story 9.13 already recorded this; no such entry was found here, so this is the first.)
   evidence: ledger `batch-sim-evidence-2026-10-19.md` ("The mutual-ram no-winner ending"); seeds `base1019` 2790982975; `tb300` 790620577, 3441840173; `tb350` 1806474295, 3021961079, 1389885742, 2041567043, 2390849062 (base seed 20261019).
+
+## 2026-10-21 — The entire sweep, cycle 202 (spec-radar-full-sweep-fog-dim.md)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-radar-full-sweep-fog-dim.md`
+  status: RESOLVED 2026-10-21 — Eric: "I want the menu to look like footage from the game"; the stand-in server now emits wk rows from every ribbon through the shared paintSegmentCoverage (ambientScene.ts), the viewer's own included
+  summary: THE MENU SCOPE SHOWS NO IN-SIGHT WAKE. The menu's stand-in server never sent `wk` rows; in-sight wake on the menu came from the deleted client synthesis. Restoring it means the stand-in emitting wake rows for segments the beam crosses — new menu behaviour, not asked for.
+  evidence: client/src/render/ambientScene.ts `ambientPaints`; amendment 210 (b).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-radar-full-sweep-fog-dim.md`
+  status: RESOLVED 2026-10-21 (review-gate patch P6)
+  summary: `wakeSourceObserved`, `WakeSource.observed`, `WakeSources.version` (client/src/render/wake.ts) and `FASTEST_BOOSTED_HULL_SPEED` (client/src/config.ts) have no production reader since the wake stamp cache was deleted; kept with honest docs. Remove when touched next.
+  evidence: amendment 210 (b).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-radar-full-sweep-fog-dim.md`
+  status: OPEN — Eric's call (own-zone decoy half only)
+  summary: The bot-fold half is RESOLVED 2026-10-21 (review-gate patch P2): the `ANON_ASSOC_U` disc around a sighted hull was replaced by the paint-rect criterion — a paint is skipped only when its coverage rect (± one cell) covers the sighted hull's cell, so a second hull or decoy nearby now folds. STILL OPEN: an own-zone decoy arrives twice (on `decoys` and as an anonymous blip), a direct consequence of "the entire sweep" covering own-zone hulls.
+  evidence: server/src/game/ai/utility.ts `foldBlip` / `paintCoversSighted`; amendment 210 (a).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-radar-full-sweep-fog-dim.md`
+  status: OPEN — watch on staging
+  summary: A BOT'S OWN WAKE IS IN ITS OWN WAKE BUFFER. Eric ruled all radar returns paint, own water included, so `wakeScan` has no self term; `foldWakeCells` keeps every wk cell identity-free, so `refitWakeCourses` can fit a bot's own water onto a courseless anonymous plot that sits close astern of it (a fogged hull or a decoy paint within the ribbon's reach). Rare; if it shows as bots chasing their own course, filter own-ribbon cells on the BOT side (the bot knows its own pose), never on the wire.
+  evidence: server/src/game/ai/plot.ts `refitWakeCourses`; amendment 210 gate reading P3.

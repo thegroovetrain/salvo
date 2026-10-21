@@ -472,11 +472,11 @@ describe('shared barrel', () => {
     // attenuation module is exported.
     // 89 -> 90 (Eric 2026-10-19, epic-9 amendment 209): Speedboat hp 250 -> 300,
     // the class hp the client reads (maxHp, ramming mass, HULL pips).
-    expect(PROTOCOL_VERSION).toBe(90);
+    expect(PROTOCOL_VERSION).toBe(91);
     for (const fn of [shared.rangeAttenuation, shared.flakRimFactor, shared.settleBlow]) {
       expect(typeof fn).toBe('function');
     }
-    for (const fn of [shared.makeFogField, shared.fogNoiseAt, shared.fogDensityAt, shared.fogTollAlong, shared.fogCutForTarget, shared.fogLattice]) {
+    for (const fn of [shared.makeFogField, shared.fogNoiseAt, shared.fogDensityAt, shared.fogTollAlong, shared.fogCutForTarget, shared.fogLattice, shared.fogEyeReach, shared.fogEyeReachFan]) {
       expect(typeof fn).toBe('function');
     }
     expect(shared.FOG_NO_CUT).toBe(9);

@@ -33,6 +33,20 @@
 // THE 0.2 FLOOR IS ERIC'S RATIFIED NUMBER (amendment 181: *"painted at 20% its
 // usual opacity"*) and is deliberately NOT touched here. Re-anchoring the radii
 // is the change; moving the floor would be a second knob nobody asked for.
+//
+// THE RAMP SLIDES ON A FOGGED BEARING (epic-9 amendment 210, Eric 2026-10-21:
+// the dim look stays "pretty much entirely", but "when my vision is reduced by
+// fog, or when I am detecting something in the fog that I would otherwise have
+// seen visually, the returns are NOT muted (or at least muted less)"). Both
+// cases are one rule: on each bearing the ramp TRANSLATES inward to where the
+// observer's fog-tolled EYE actually ends on that bearing (shared sim/fog.ts
+// `fogEyeReach`, ≤ sight, = sight with no fog), scaled by Eric's staging dial
+// `dim.fogLift`:
+//     scale(θ, d) = radial(d + (sight − reach(θ)) × fogLift)
+// where `radial` is the curve above. The ramp's WIDTH never changes, only where
+// it starts; the floor and the two factors are untouched. With no fog (every
+// reach = sight) or fogLift 0 the expression IS today's curve, so the radial
+// bake is the no-fog case rather than a second look.
 
 import { CONFIG } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -51,6 +65,8 @@ export function dimRadii(sightU: number): { innerU: number; outerU: number } {
  * The displayed fraction of a return's painted opacity at `distU` from own hull,
  * for an observer with `sightU` of effective truesight: flat at `minScale`
  * across the whole bubble, linear to 1 at the flash rung (6/12), flat at 1 beyond.
+ * `reachU` (default `sightU` = no fog) is where the fog-tolled eye ends on this
+ * bearing: the whole curve slides inward by `dimSlideU(sightU, reachU)`.
  *
  * IT FAILS TOWARD A FULLY VISIBLE SCOPE, and that is this file's inherited rule
  * rather than a new one: `Radar.updateDimMask` already DETACHES the mask on a
@@ -59,14 +75,74 @@ export function dimRadii(sightU: number): { innerU: number; outerU: number } {
  * instrument." A NaN distance, a NaN bubble or a collapsed bubble therefore all
  * read as 1 (full painted opacity), never as the floor.
  */
-export function dimScaleAt(distU: number, sightU: number): number {
+export function dimScaleAt(distU: number, sightU: number, reachU: number = sightU): number {
   const { innerU, outerU } = dimRadii(sightU);
   if (outerU <= innerU) return 1; // no bubble (or a degenerate one): nothing to quiet
   if (!Number.isFinite(distU)) return 1;
   const floor = CLIENT_CONFIG.blip.heatmap.dim.minScale;
-  if (distU <= innerU) return floor;
-  if (distU >= outerU) return 1;
-  return floor + (1 - floor) * ((distU - innerU) / (outerU - innerU));
+  const d = distU + dimSlideU(sightU, reachU);
+  if (d <= innerU) return floor;
+  if (d >= outerU) return 1;
+  return floor + (1 - floor) * ((d - innerU) / (outerU - innerU));
+}
+
+/** `dim.fogLift` clamped to [0, 1]; anything non-finite reads as 0 (no slide —
+ *  today's radial mask, the conservative look). */
+function fogLift(): number {
+  const f = CLIENT_CONFIG.blip.heatmap.dim.fogLift;
+  return Number.isFinite(f) ? Math.max(0, Math.min(1, f)) : 0;
+}
+
+/**
+ * How far (u) the ramp slides INWARD on a bearing whose fog-tolled eye ends at
+ * `reachU`, for an observer with `sightU` of effective truesight:
+ * `(sightU − reachU) × fogLift`. A reach that is non-finite, negative or not
+ * below the bubble (at float32 precision — the fan's storage — so a clear
+ * bearing of a non-dyadic sight is clear) reads as `sightU` — no slide — so a bad fan fails toward
+ * today's radial mask, never toward an unmuted scope.
+ */
+export function dimSlideU(sightU: number, reachU: number): number {
+  if (!(sightU > 0) || !Number.isFinite(sightU)) return 0;
+  // The fan is a Float32Array holding `fround(sight)` on a clear bearing; a sight that is not
+  // float32-representable must still read that bearing as clear, or every cadence re-bakes.
+  const clearU = Math.min(sightU, Math.fround(sightU));
+  if (!Number.isFinite(reachU) || reachU < 0 || reachU >= clearU) return 0;
+  return (sightU - reachU) * fogLift();
+}
+
+/** Does any bearing of the fan `reach` actually move the ramp? False for an
+ *  all-sight fan (no fog near the observer) and for `fogLift` 0 — the cases
+ *  whose bake IS the radial mask (render/textures.ts takes that path for them,
+ *  and render/radar.ts does not re-bake for them). */
+export function dimFanSlides(reach: Float32Array, sightU: number): boolean {
+  for (let k = 0; k < reach.length; k++) if (dimSlideU(sightU, reach[k]) > 0) return true;
+  return false;
+}
+
+/**
+ * The ramp's two radii (u) on ONE bearing whose eye ends at `reachU` — the
+ * observer's `dimRadii` translated inward by `dimSlideU`, so the width
+ * (outer − inner) never changes. Written into `out` (the bake calls it once per
+ * wedge; no allocation). The inner radius may come out NEGATIVE when the slide
+ * outruns the bubble's inner factor: the bake then starts its gradient at the
+ * centre and reads the centre's level off `dimScaleAt`.
+ */
+export function dimRampU(
+  sightU: number,
+  reachU: number,
+  out: { innerU: number; outerU: number },
+): { innerU: number; outerU: number } {
+  if (!(sightU > 0) || !Number.isFinite(sightU)) {
+    // no bubble: a zero ramp, never NaN radii into the bake's createRadialGradient
+    out.innerU = 0;
+    out.outerU = 0;
+    return out;
+  }
+  const { innerU, outerU } = dimRadii(sightU);
+  const slide = dimSlideU(sightU, reachU);
+  out.innerU = innerU - slide;
+  out.outerU = outerU - slide;
+  return out;
 }
 
 /** The base-hull radii, for documentation and for tests that want the shipped

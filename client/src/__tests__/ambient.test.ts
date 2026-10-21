@@ -300,7 +300,7 @@ describe('the motion setting is honoured (settings/store: off removes MOTION, ne
 
 // --- perception: the two-tier split -------------------------------------------
 
-describe('ambientPaints — the beyond-truesight paint decision', () => {
+describe('ambientPaints — the whole-sweep paint decision', () => {
   it('paints a hull in the annulus exactly when the beam crosses its bearing', () => {
     const w = buildAmbientWorld(OPEN);
     place(w, 1, 0.2, w.stats.sightRange + 100);
@@ -321,15 +321,24 @@ describe('ambientPaints — the beyond-truesight paint decision', () => {
     expect(paints, 'and it painted on exactly those advances').toBe(sweeps);
   });
 
-  it('a hull INSIDE truesight never paints — it is a contact, not a return', () => {
+  it('a hull INSIDE truesight paints too — the fake wire returns the whole sweep '
+    + '(amendment 210)', () => {
+    // The server returns the ENTIRE sweep, sight bubble included, and the client
+    // synthesizes no echo from a contact — so the menu's stand-in for the wire
+    // must blip a near hull exactly as it blips a far one.
     const w = buildAmbientWorld(OPEN);
-    for (const h of w.hulls.slice(1)) {
-      h.state.x = w.observer.state.x + 10;
-      h.state.y = w.observer.state.y + 10;
-    }
+    place(w, 1, 0.2, w.stats.sightRange * 0.5);
+    place(w, 2, 1.0, w.stats.radarRange + 200);
+    place(w, 3, 2.0, w.stats.radarRange + 200);
     let paints = 0;
-    for (let i = 0; i < 200; i += 1) paints += ambientPaints(w, advanceAmbient(w, OPEN, 50, OFF)).length;
-    expect(paints).toBe(0);
+    let sweeps = 0;
+    for (let i = 0; i < 200; i += 1) {
+      const tick = advanceAmbient(w, OPEN, 50, OFF);
+      if (sweepCrossed(tick.prevSweep, tick.sweep, 0.2)) sweeps += 1;
+      paints += ambientPaints(w, tick).length;
+    }
+    expect(sweeps, 'the beam did pass it').toBeGreaterThan(0);
+    expect(paints, 'and it painted on exactly those advances').toBe(sweeps);
   });
 
   it('a hull BEYOND radar range never paints either', () => {
