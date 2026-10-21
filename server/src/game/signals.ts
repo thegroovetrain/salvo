@@ -554,7 +554,11 @@ function discRollRev(me: ShipRecord, spanStart: number | null): number {
 function withinRadarRange(me: ShipRecord, p: Vec2): boolean {
   const dx = p.x - me.state.x;
   const dy = p.y - me.state.y;
-  return dx * dx + dy * dy <= me.stats.radarRange * me.stats.radarRange;
+  const d2 = dx * dx + dy * dy;
+  // Zero distance (or NaN): nothing to bear on — atan2(0, 0) is an arbitrary 0 and visibilityTo fails open
+  // at length 0 — so a subject on the observer's own point is never a return.
+  if (!(d2 > 0)) return false;
+  return d2 <= me.stats.radarRange * me.stats.radarRange;
 }
 
 /**
@@ -1327,6 +1331,7 @@ function wakeGate(ctx: FoggedSignalContext, seg: WakeSubject): boolean {
   const dx = seg.x - me.state.x;
   const dy = seg.y - me.state.y;
   const d2 = dx * dx + dy * dy;
+  if (!(d2 > 0)) return false; // nothing to bear on (see withinRadarRange)
   if (d2 > me.stats.radarRange * me.stats.radarRange) return false;
   if (!sweptThisTick(me, bearing(me.state, seg))) return false;
   if (visibilityTo(ctx.heightRaster, me.state.x, me.state.y, seg.x, seg.y) <= 0) return false;
@@ -1420,10 +1425,12 @@ function wakeMask(s: WakeSubject, t: number): HullCoverage {
  * 88/154/202/206) are all retired; the client draws only what this row
  * sends.
  *
- * NO ownZoneCovers term (no radar row has one since amendment 210). NO self-exclusion: your own wake DOES paint on
- * your own scope (amendment 204 — physically right; the client's near-range
- * display mask keeps it quiet). Spectators get none (they have no radar —
- * the blip rule).
+ * NO ownZoneCovers term (no radar row has one since amendment 210).
+ * SELF-EXCLUSION is the observer's own HULL ribbon only, in the scan
+ * (perception.wakeScan skips the ribbon keyed `me.id`, as shipScan skips the
+ * observer's own hull — amendment 210 gate patch); this gate has none, so
+ * the observer's own TORPEDO water (keyed by shell id) still paints.
+ * Spectators get none (they have no radar — the blip rule).
  *
  * materialize() emits GEOMETRY plus the age bucket and NOTHING else
  * (amendment 194): no ship id, class, hue, owner, or hull↔wake linkage — the

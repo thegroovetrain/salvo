@@ -3,7 +3,7 @@
 // single source of truth for anything gameplay-authoritative). If a value here
 // starts to feel gameplay-load-bearing, promote it to shared CONFIG instead.
 
-import { CATALOG, CONFIG, HULL_IDS, SHIP_CLASS_IDS, boostedKinematics, draftedKinematics, effectiveStats, hullEnvelope, type FoghornEvent } from '@salvo/shared';
+import { CONFIG, HULL_IDS, SHIP_CLASS_IDS, hullEnvelope, type FoghornEvent } from '@salvo/shared';
 import {
   SURFACE,
   fitGrainScale,
@@ -538,39 +538,6 @@ export const FASTEST_HULL_SPEED = HULL_IDS.reduce(
   (top, id) => Math.max(top, hullEnvelope(id).kinematics.maxSpeed),
   0,
 );
-
-/**
- * THE FASTEST A HULL CAN EVER TRAVEL (u/s) — the fastest BOOSTED, fully
- * SPEED-laddered hull in the game, RIDING ANOTHER HULL'S WAKE at the full draft
- * lift: 75.46875 at the shipped numbers (a Torpedo Boat at 45 + 5 SPEED copies =
- * 57.5, × 1.25 = 71.875, + 5 % of that).
- *
- * DERIVED, never written down, and derived THROUGH THE REAL FOLD: a capped
- * SPEED card stack goes through `effectiveStats` (so any clamp applies), the boost
- * goes through the ONE shared `boostedKinematics` hook at `CONFIG.boost.factor`
- * (so the proportional +25 % of epic-8 amendment 55 is read exactly as the sim
- * reads it), and the WAKE DRAFT goes through the ONE shared `draftedKinematics`
- * hook at the full `CONFIG.wake.draft.lift` (Story 8.19, epic-8 amendment 151)
- * — the same hooks in the same order as the server's `World.wakeTopSpeed`, so
- * both sides provision off the identical double. Since Story 8.9 the bonus is a
- * FRACTION of the post-fold cap, so `FASTEST_HULL_SPEED + <a flat bonus>` is no
- * longer a bound at all — the SPEED ladder is inside the boost, the boost is
- * inside the draft, and a hand-written sum would under-provision every ring
- * buffer that cites this.
- *
- * The name still says BOOSTED and still means "the true ceiling": the draft is
- * the last fold on top of the boost, not a separate bound.
- *
- * The reduce SEEDS with `FASTEST_HULL_SPEED` so the drone envelopes are covered
- * too: a drone fits no cards and never boosts, so its envelope maximum is its
- * true ceiling.
- */
-const CAPPED_SPEED_CARDS: readonly string[] = Array.from({ length: CATALOG.speed.cap }, () => 'speed');
-export const FASTEST_BOOSTED_HULL_SPEED = SHIP_CLASS_IDS.reduce((top, id) => {
-  const kin = effectiveStats(CONFIG.shipClasses[id], CAPPED_SPEED_CARDS).kinematics;
-  const boosted = boostedKinematics(kin, CONFIG.boost.factor, true);
-  return Math.max(top, draftedKinematics(boosted, CONFIG.wake.draft.lift, true).maxSpeed);
-}, FASTEST_HULL_SPEED);
 
 /**
  * Nominal travel time (ms) of the reveal zoom — the pull-back to the whole

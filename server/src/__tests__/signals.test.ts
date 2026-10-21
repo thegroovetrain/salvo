@@ -12,6 +12,7 @@ import type { MineState } from '../game/equipment/index.js';
 import {
   SIGNAL_REGISTRY,
   ballisticGateOpen,
+  decoyRadarBlips,
   signalFor,
   type BurstSubject,
   type FoggedSignalContext,
@@ -807,6 +808,21 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     expect(row.visible(foggedCtx(w, a), b)).toBe(true); // paints without a zone
     w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 700, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
     expect(row.visible(foggedCtx(w, a), b)).toBe(true); // ...and inside the observer's own light too
+  });
+
+  it("a decoy or wake subject at EXACTLY the observer's position is no return (zero distance: nothing to bear on)", () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    a.prevSweepAngle = wrapPositive(-0.02);
+    a.sweepAngle = wrapPositive(0.02); // the beam crossing bearing 0 — the arbitrary atan2(0, 0)
+    const decoyAt = (x: number) => ({ id: 'd1', ownerId: 'b', x, y: 0, hp: 50, poly: [] });
+    w.decoys.set('d1', decoyAt(0));
+    expect(decoyRadarBlips(foggedCtx(w, a))).toHaveLength(0);
+    w.decoys.set('d1', decoyAt(30)); // the same decoy a step down the beam paints
+    expect(decoyRadarBlips(foggedCtx(w, a))).toHaveLength(1);
+    const seg = (x: number) => ({ x, y: 0, ax: x - 6, ay: 0, bx: x + 6, by: 0, bucket: 0, widthU: 9, key: 'b' });
+    expect(SIGNAL_REGISTRY.wk.visible(foggedCtx(w, a), seg(0))).toBe(false);
+    expect(SIGNAL_REGISTRY.wk.visible(foggedCtx(w, a), seg(30))).toBe(true);
   });
 });
 

@@ -2449,6 +2449,31 @@ describe('perception — radar wakes (Story 4.12, directed)', () => {
     expect(buildFrame(w, 'a').events.some((e) => e.k === 'wk')).toBe(false);
   });
 
+  it("the observer's own hull wake never reaches its own wk row (amendment 210 gate patch); another ship's in-sight water still does", () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    a.state.speed = 30; // a lone moving hull laying its own ribbon astern
+    injectWakeTrack(a.wake, 0, 0, 0, 26, w.now, 5_000); // ends under its own hull, 300 u of water astern
+    expect(w.wakeKeyOf(a.wake)).toBe('a'); // premise: a hull ribbon is keyed by its ship id
+    const N = 64;
+    const sweepAll = (): WakeBlipEvent[] => {
+      const out: WakeBlipEvent[] = [];
+      for (let k = 0; k < N; k++) {
+        windowAround(a, (k * 2 * Math.PI) / N, Math.PI / N);
+        const f = buildFrame(w, 'a');
+        verifyFrame(w, 'a', f);
+        out.push(...f.events.filter((e): e is WakeBlipEvent => e.k === 'wk'));
+      }
+      return out;
+    };
+    expect(sweepAll()).toHaveLength(0);
+    // Another ship's water, deep inside sight, still discloses on the same sweep.
+    const b = place(w, 'b', 900, 900);
+    injectWakeTrack(b.wake, ANNULUS_D, 0, 0, 26, w.now, 5_000);
+    expect(ANNULUS_D - 25 * 12 + 6).toBeLessThan(SIGHT); // premise: in-sight water
+    expect(sweepAll().length).toBeGreaterThan(0);
+  });
+
   it('a track behind hard cover does not disclose; the same track over low terrain does (amendment 179 on water)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
@@ -3795,8 +3820,9 @@ function hornBandOracle(w: World, me: ShipRecord, p: { x: number; y: number }): 
 // the entire sweep; the per-source sight/detect inner bounds of review-gate
 // P2 and the in-bubble binary-LOS clause are retired) ∧ this-tick paint
 // window ∧ the height-aware shadow march ∧ the dropout roll, for ship and
-// torpedo water alike. NO owned-zone term and NO self-exclusion (your own wake
-// paints — amendment 204). Everything below re-derives the ribbon model from
+// torpedo water alike. NO owned-zone term; the ONLY self-exclusion is the
+// observer's own HULL ribbon (keyed by its ship id — the amendment-210 gate
+// patch, as the radar never paints its own hull); its own torpedo water paints. Everything below re-derives the ribbon model from
 // the documented contract, never the production sim/wake.ts or the segment
 // rasterizer: segmentation of the RAW ring storage (consecutive finite
 // samples chain, the ribbon closes across a non-finite one), the
@@ -3868,10 +3894,13 @@ function wakeSegmentsOracle(r: WakeRibbon, now: number): WakeSegOracle[] {
  *  window, the radar shadow march — FOG-BLIND by ruling (amendment 149) —
  *  and the dropout roll keyed on the water's SOURCE (Story 9.8, ruling 123:
  *  `w.wakeKeyOf` — the ship id, or the fish's shell id). Ship and torpedo
- *  water alike; no cloud term (Story 9.3 session 2), NO zone term and NO
- *  self term (deliberate). */
+ *  water alike; no cloud term (Story 9.3 session 2), NO zone term; the one
+ *  self term is the observer's own HULL ribbon (key === me.id — amendment
+ *  210 gate patch), and a midpoint on the observer's own point is no return. */
 function wakeDisclosed(w: World, me: ShipRecord, seg: WakeSegOracle, key: string): boolean {
+  if (key === me.id) return false;
   const mid = { x: seg.mx, y: seg.my };
+  if (mid.x === me.state.x && mid.y === me.state.y) return false;
   const d = dist(me.state, mid);
   if (d > effRadar()) return false;
   if (!inPaintWindow(me, bearing(me.state, mid))) return false;

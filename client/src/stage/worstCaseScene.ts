@@ -190,17 +190,19 @@ export interface SceneProfile {
   scene: typeof SCENE;
   /** Staged hulls BESIDES the local captain. */
   contacts: number;
-  /** True when slot `i` is staged inside the truesight bubble. Everything else
-   *  sits in the radar annulus and reaches the client as paint instead (see
-   *  `blipEvents`). A PREDICATE rather than a count, so a profile can INTERLEAVE
+  /** True when slot `i` is staged inside the truesight bubble (a live contact
+   *  AND, like every hull since amendment 210, a radar paint — see
+   *  `blipEvents`). Everything else sits in the radar annulus and reaches the
+   *  client as paint only. A PREDICATE rather than a count, so a profile can INTERLEAVE
    *  the two bands: NFR1's fleet hulls are the tail of the slot range, and a
    *  bare `i <= nearContacts` split would have put every one of them outside the
    *  bubble — no drone silhouette, no aggro bracket, no hull-hit flash, i.e. the
    *  cheap half of the picture measured as if it were the whole one. */
   near(i: number): boolean;
   /**
-   * Ticks between radar paints of ONE far hull. 1 = every far hull paints every
-   * tick, which is what Story 4.8's scene has always done and must keep doing.
+   * Ticks between radar paints of ONE hull (near or far — every hull paints
+   * since amendment 210). 1 = every hull paints every tick, which is what
+   * Story 4.8's scene has always done and must keep doing.
    *
    * A REAL SWEEP DOES NOT DO THAT, and at NFR1's population the difference stops
    * being cosmetic: a hull paints once per revolution (15 rpm = 4 s = 80 ticks),
@@ -383,7 +385,8 @@ export interface SceneHull {
   phase: number; // rad
   rateRadPerTick: number;
   /** True once the hull is far enough out to be a radar contact rather than a
-   *  truesighted one — it paints blips instead of reading as a live silhouette. */
+   *  truesighted one — no live silhouette. (Every hull, near or far, paints
+   *  blips: the server returns the entire sweep, amendment 210.) */
   far: boolean;
 }
 

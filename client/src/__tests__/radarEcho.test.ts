@@ -733,34 +733,35 @@ describe('the client paints ONLY wire-delivered returns (amendment 210)', () => 
     expect(radar.sightHoleU).toBe(effectiveSight({ sightRange: NARROW }));
   });
 
-  it('a hull INSIDE truesight is open water on the scope until its wire blip '
-    + 'arrives — the beam synthesizes nothing — and then it paints', () => {
-    const { radar } = makeRadar();
-    expect(MID).toBeLessThan(radar.sightHoleU);
+  it('THE WIRE PATH IS RANGE-BLIND: a blip rect inside the sight circle and the same rect '
+    + 'translated beyond it paint identical footprints, cell for cell, under the same beam crossing', () => {
+    const near = makeRadar().radar;
+    const far = makeRadar().radar;
+    expect(MID).toBeLessThan(near.sightHoleU);
+    // Translate along the beam's own bearing (0) by whole cells, out past the bubble but inside radar.
+    const shift = Math.ceil((near.sightHoleU + (CONFIG.vision.radar - near.sightHoleU) / 2 - MID) / CELL);
+    const farX = MID + shift * CELL;
+    expect(farX).toBeGreaterThan(near.sightHoleU);
+    expect(farX).toBeLessThan(CONFIG.vision.radar);
     const c = paintCoverage('battleship', MID, 0, 0, CELL, 0);
-    const footprint = (r: Radar): number[] => {
-      const out: number[] = [];
-      for (let row = 0; row < c.h; row++) {
-        for (let col = 0; col < c.w; col++) {
-          if (!coverageHas(c, col, row)) continue;
-          out.push(r.intensityAt((c.gx + col + 0.5) * CELL, (c.gy + row + 0.5) * CELL));
-        }
+    for (const r of [near, far]) r.render(OWN, 900);
+    near.onBlip({ k: 'blip', t: 1000, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
+    far.onBlip({ k: 'blip', t: 1000, gx: c.gx + shift, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
+    for (const r of [near, far]) r.render(OWN, 1000);
+    // The FOOTPRINT (which cells carry paint) — not the intensity, which the client's own model
+    // legitimately shades by range (falloff per cell, the SNR grain). One-cell margin around the rect.
+    const painted = (r: Radar, x: number, y: number): boolean => r.intensityAt(x, y) > 0;
+    let lit = 0;
+    for (let row = -1; row <= c.h; row++) {
+      for (let col = -1; col <= c.w; col++) {
+        const y = (c.gy + row + 0.5) * CELL;
+        const xNear = (c.gx + col + 0.5) * CELL;
+        const pNear = painted(near, xNear, y);
+        expect(painted(far, xNear + shift * CELL, y), `cell (${col},${row})`).toBe(pNear);
+        if (pNear) lit++;
       }
-      return out;
-    };
-    // A whole revolution over the hull's bearing with no blip on the wire: the
-    // footprint reads exactly as the same water on a scope that knows of no hull.
-    revolution(radar);
-    const water = makeRadar().radar;
-    revolution(water);
-    const before = footprint(radar);
-    expect(before).toEqual(footprint(water));
-    // The server's blip lands: now, and only now, the footprint lights.
-    radar.onBlip({ k: 'blip', t: 4250, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
-    radar.render(OWN, 4250);
-    const after = footprint(radar);
-    const brighter = after.filter((v, i) => v > before[i]).length;
-    expect(brighter, 'the wire blip lit its own footprint').toBeGreaterThan(after.length / 2);
+    }
+    expect(lit, 'the footprint actually painted (not two empty scopes)').toBeGreaterThan(0);
   });
 
   it('A WIRE BLIP INSIDE THE BUBBLE PAINTS (amendments 147 + 210): nothing on the '

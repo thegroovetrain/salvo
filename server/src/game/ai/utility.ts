@@ -455,22 +455,27 @@ function foldPaint(tracks: TrackMap, x: number, y: number, cells: number, fx: Fo
   t.stillSweeps = nextStillSweeps(prev?.stillSweeps, v);
 }
 
-/** Fold one radar paint — an identity-free coverage footprint. A paint
- *  landing within ANON_ASSOC_U of a hull the bot SEES this tick is that
- *  hull's own echo (amendment 210: the radar has no inner edge, so a sighted
- *  hull also paints) and is skipped — the contact fold carries it at full
- *  confidence, and associating the paint would smear the sighted plot or
- *  open a duplicate anonymous one. */
+/** Fold one radar paint — an identity-free coverage footprint. A paint whose
+ *  coverage rect covers the position cell of a hull the bot SEES this tick
+ *  (one-cell margin) is that hull's OWN echo (amendment 210: the radar has no
+ *  inner edge, so a sighted hull also paints) and is skipped — the contact
+ *  fold carries it at full confidence, and associating the paint would smear
+ *  the sighted plot or open a duplicate anonymous one. A paint merely NEAR a
+ *  sighted hull is a different return (a second hull, a decoy) and folds. */
 function foldBlip(tracks: TrackMap, e: BlipEvent, fx: FoldCtx): void {
   const c = paintCenter(e);
-  if (c !== null && !nearSighted(c, fx.sighted)) foldPaint(tracks, c.x, c.y, paintCellCount(e), fx);
+  if (c !== null && !paintCoversSighted(e, fx.sighted)) foldPaint(tracks, c.x, c.y, paintCellCount(e), fx);
 }
 
-/** Does `p` lie within the paint association radius of a contact sighted in
- *  this view? */
-function nearSighted(p: Vec2, sighted: readonly Contact[]): boolean {
+/** Does the paint's coverage rect (absolute `radarCellU` cell indices, grown
+ *  by one cell on every side) contain the position cell of a contact sighted
+ *  in this view? */
+function paintCoversSighted(e: BlipEvent, sighted: readonly Contact[]): boolean {
+  const cell = CONFIG.vision.radarCellU;
   for (const c of sighted) {
-    if (Math.hypot(c.x - p.x, c.y - p.y) <= ANON_ASSOC_U) return true;
+    const cx = Math.floor(c.x / cell);
+    const cy = Math.floor(c.y / cell);
+    if (cx >= e.gx - 1 && cx <= e.gx + e.w && cy >= e.gy - 1 && cy <= e.gy + e.h) return true;
   }
   return false;
 }
@@ -636,8 +641,9 @@ export interface FoldSweep {
  *      the paints, so nothing below reads a stale buffer;
  *   3. events fold (radar paints with predicted-position association and
  *      paint-to-paint velocity, Hit Calls, sunk) — a paint on a hull this
- *      view also SIGHTS is skipped (amendment 210: a sighted hull paints
- *      too; its contact is the better record);
+ *      view also SIGHTS (its rect covers that hull's cell) is skipped
+ *      (amendment 210: a sighted hull paints too; its contact is the better
+ *      record) — a paint merely NEAR a sighted hull still folds;
  *   4. live truesight contacts fold — so a hull that is both painted and
  *      sighted this tick ends up stored LIVE (the reverse order would let a
  *      same-tick radar paint demote a sighted hull to a stale plot — the

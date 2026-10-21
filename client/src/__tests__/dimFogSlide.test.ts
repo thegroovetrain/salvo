@@ -100,6 +100,24 @@ describe('dimScaleAt with a reach — the slide', () => {
     DIM.fogLift = 0;
     expect(dimFanSlides(fan, SIGHT)).toBe(false);
   });
+
+  it('a non-dyadic sight: an all-fround(sight) fan (the Float32Array a clear cast stores) slides nothing', () => {
+    DIM.fogLift = 1;
+    const sight = (SIGHT * 7) / 6;
+    expect(Math.fround(sight), 'premise: the sight is not float32-representable').not.toBe(sight);
+    const fan = new Float32Array(RAYS).fill(sight);
+    for (const r of fan) expect(dimSlideU(sight, r)).toBe(0);
+    expect(dimFanSlides(fan, sight)).toBe(false);
+  });
+
+  it('dimRampU with a non-finite or non-positive sight writes a zero ramp (never NaN into the gradient)', () => {
+    for (const s of [Number.NaN, Number.POSITIVE_INFINITY, 0, -SIGHT]) {
+      const out = dimRampU(s, SIGHT / 2, { innerU: 7, outerU: 9 });
+      expect(out).toEqual({ innerU: 0, outerU: 0 });
+      const w = dimWedge(new Float32Array(RAYS).fill(SIGHT / 2), 0, s, 1);
+      for (const v of [w.r0, w.r1, w.inner]) expect(Number.isFinite(v)).toBe(true);
+    }
+  });
 });
 
 describe('the wedge bake (real bakeDimMaskTexture over a recording canvas)', () => {
@@ -261,6 +279,44 @@ describe('Radar: the fan is cast and baked on a cadence, never per frame', () =>
     const radar = radarWith(sourceOf(() => true));
     for (let t = 0; t <= REFRESH * 2; t += 16) radar.render({ x: 0, y: 0 }, t, null);
     expect(bakes.fans).toHaveLength(0);
+  });
+
+  it('a non-dyadic sight with a clear fan (all fround(sight)) never takes the fanned bake', () => {
+    const sight = (SIGHT * 7) / 6;
+    expect(Math.fround(sight), 'premise: the sight is not float32-representable').not.toBe(sight);
+    const src = {
+      calls: 0,
+      eyeReachFan(_ox: number, _oy: number, sightU: number, _t: number, out: Float32Array): Float32Array {
+        src.calls++;
+        return out.fill(sightU); // a clear cast, stored at float32
+      },
+    };
+    const radar = radarWith(src);
+    radar.setRanges(sight, CONFIG.vision.radar, 60000 / CONFIG.vision.sweepRpm);
+    bakes.fans.length = 0;
+    for (let t = 0; t <= REFRESH * 4; t += 16) radar.render({ x: 0, y: 0 }, t, null);
+    expect(src.calls).toBeGreaterThan(1);
+    expect(bakes.fans.filter((f) => f !== null)).toHaveLength(0);
+  });
+
+  it('a non-finite clock never makes the cast due every frame', () => {
+    const src = sourceOf(() => true);
+    const radar = radarWith(src);
+    for (let i = 0; i < 20; i++) radar.render({ x: 0, y: 0 }, Number.NaN, null);
+    expect(src.calls).toBe(0);
+  });
+
+  it('a negative or non-finite reachRays dial constructs (an empty fan), never throws', () => {
+    const D = CLIENT_CONFIG.blip.heatmap.dim as unknown as { reachRays: number };
+    const shipped = D.reachRays;
+    try {
+      for (const n of [-5, Number.NaN, Number.POSITIVE_INFINITY, 2.7]) {
+        D.reachRays = n;
+        expect(() => radarWith(sourceOf(() => true)).render({ x: 0, y: 0 }, 0, null)).not.toThrow();
+      }
+    } finally {
+      D.reachRays = shipped;
+    }
   });
 
   it('the spectate path (no own pose) never casts and never bakes a fan', () => {

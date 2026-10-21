@@ -24,26 +24,18 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Container } from 'pixi.js';
 import {
-  CATALOG,
   CONFIG,
   WAKE_AGE_BUCKETS,
-  boostedKinematics,
   createShipWake,
-  draftedKinematics,
   appendWakeSample,
   eachWakeSegment,
-  effectiveStats,
   hullEnvelope,
   torpWakeLifeMs,
   type HullId,
 } from '@salvo/shared';
-import { CLIENT_CONFIG, FASTEST_BOOSTED_HULL_SPEED, FASTEST_HULL_SPEED } from '../config.js';
+import { CLIENT_CONFIG } from '../config.js';
 import { Effects, chopHalfWidthU, chopOutline, type ChopPoint } from '../render/effects.js';
-import {
-  WAKE_OBSERVE_GRACE_MS,
-  WakeSources,
-  type WakeHull,
-} from '../render/wake.js';
+import { WakeSources, type WakeHull } from '../render/wake.js';
 import { CHOP_HEAD_MULTIPLE, KELVIN_SIN } from '../render/radarSources.js';
 
 const LIFE_MS = CONFIG.vision.wakeLifeMs;
@@ -349,66 +341,6 @@ describe('hull-side displaced water rides the Kelvin half-angle', () => {
     effects.update(1 / 20, t + LIFE_MS * 2, []);
     expect(effects.liveChopEnvelopes).toBe(0);
     expect(effects.wakeSources.size).toBe(0);
-  });
-});
-
-// --- OBSERVATION BOOKKEEPING ---------------------------------------------------
-//
-// The radar no longer reads the ribbons (epic-9 amendment 210: the server
-// discloses every swept wake segment and the client synthesizes none), so the
-// in-truesight stamp, its cache and its handover suites are gone. What remains
-// of the P5 machinery is the observation edge on `version`.
-
-describe('a source stops counting as observed once its frames stop', () => {
-  /** A battleship under way near the observer, observed up to `t`. */
-  function tracked(): { sources: WakeSources; h: WakeHull; t: number } {
-    const sources = new WakeSources();
-    const h = hull('a', 'battleship', 60, 30);
-    h.y = 40;
-    let t = 0;
-    for (let i = 0; i < 8; i++) {
-      sources.observe(h, t);
-      h.x += STEP_U + 1;
-      t += 50;
-    }
-    return { sources, h, t };
-  }
-
-  it('the observation edge moves `version`', () => {
-    const { sources, t } = tracked();
-    const before = sources.version;
-    sources.prune(t + WAKE_OBSERVE_GRACE_MS + 1);
-    expect(sources.version).toBeGreaterThan(before);
-  });
-});
-
-// --- THE HEADROOM CONSTANT (Story 8.19) -----------------------------------------
-
-describe('the fastest attainable hull speed folds every hook', () => {
-  // STORY 8.19 — THE HEADROOM IS THE SERVER'S DOUBLE. `World.wakeTopSpeed`
-  // provisions a hull's ring off `draftedKinematics(boostedKinematics(kin,
-  // CONFIG.boost.factor, true), CONFIG.wake.draft.lift, true).maxSpeed`; the
-  // client constant is the MAX of that exact expression over every class's
-  // SPEED-capped kinematics — `toBe`, not `toBeCloseTo`, because a hand-written
-  // `× 1.05` rounds differently in the last bit and the two sides must agree.
-  it('FASTEST_BOOSTED_HULL_SPEED is the four-hook fold — stats, boost, then the full draft lift', () => {
-    const cards = Array.from({ length: CATALOG.speed.cap }, () => 'speed');
-    let top = FASTEST_HULL_SPEED;
-    for (const cls of Object.values(CONFIG.shipClasses)) {
-      const kin = effectiveStats(cls, cards).kinematics;
-      const folded = draftedKinematics(
-        boostedKinematics(kin, CONFIG.boost.factor, true),
-        CONFIG.wake.draft.lift,
-        true,
-      ).maxSpeed;
-      top = Math.max(top, folded);
-    }
-    expect(FASTEST_BOOSTED_HULL_SPEED).toBe(top);
-    // Non-vacuous: the draft really is inside it (the pre-8.19 value was the
-    // boosted cap alone).
-    const tb = effectiveStats(CONFIG.shipClasses.torpedoBoat, cards).kinematics;
-    const boostedOnly = boostedKinematics(tb, CONFIG.boost.factor, true).maxSpeed;
-    expect(FASTEST_BOOSTED_HULL_SPEED).toBe(boostedOnly + boostedOnly * CONFIG.wake.draft.lift);
   });
 });
 

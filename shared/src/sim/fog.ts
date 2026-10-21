@@ -285,9 +285,16 @@ export function fogTollAlong(
   return Number.isFinite(toll) && toll > 0 ? toll : 0;
 }
 
-/** Does the eye-reach march have fog to read? (a real cut, a positive cost, a finite pose and clock) */
+/**
+ * Does the eye-reach march have fog to read? (a real cut, a positive FINITE
+ * cost, a finite pose and clock). A non-finite cost reads "no fog" — the
+ * reach is the full range — exactly as `fogTollAlong` clamps the non-finite
+ * toll such a cost produces to 0, so the eye and the server's sight gate
+ * agree on the degenerate dial instead of the eye going blind on its own.
+ */
 function reachHasFog(field: FogField, ox: number, oy: number, angle: number, tMs: number, cut: number): boolean {
-  if (!Number.isFinite(cut) || cut >= FOG_NO_CUT || !(field.cfg.sightCostPerU > 0)) return false;
+  const cost = field.cfg.sightCostPerU;
+  if (!Number.isFinite(cut) || cut >= FOG_NO_CUT || !(cost > 0) || !Number.isFinite(cost)) return false;
   return allFinite(ox, oy, angle, tMs);
 }
 
@@ -307,10 +314,12 @@ const RSC = { s: 0, c: 0 };
  * step × sightCostPerU, the observer's own solid bank free — first step,
  * then the leading solid run, never restarting). Linear inside the step
  * that fills. The march is laid from the observer independent of `range`,
- * so the result is monotone non-decreasing in `range` and never exceeds it.
+ * so the result is monotone non-decreasing in `range` (above one march step;
+ * a range of at most one step is a single charged step, as in
+ * `fogTollAlong`) and never exceeds it.
  * Presentation helper (the client's near-range radar dim mask, Eric
  * 2026-10-21, amendment 210) — the server's sight gate stays `fogTollAlong`.
- * Fail-safe "no shortening": no fog, a non-positive cost, or any non-finite
+ * Fail-safe "no shortening": no fog, a non-positive or non-finite cost, or any non-finite
  * pose / clock / cut returns `range`; a non-finite `range` returns itself;
  * `range ≤ 0` returns 0.
  */
@@ -323,7 +332,9 @@ export function fogEyeReach(
   fogSinCos(angle, RSC);
   const ux = RSC.c;
   const uy = RSC.s;
-  const multi = field.cfg.marchStepU > 0; // a non-positive step is one step over the whole ray: read, never "own" (as in marchDensity)
+  // A non-positive step, or a range no longer than one step, is ONE step over the whole ray: read, never
+  // "own" — `fogTollAlong` marches ceil(len / step) = 1 step there and charges it (as in marchDensity).
+  const multi = field.cfg.marchStepU > 0 && range > field.cfg.marchStepU;
   const step = multi ? field.cfg.marchStepU : range;
   const cost = field.cfg.sightCostPerU;
   let free = fogDensityAt(field, ox, oy, tMs, cut) >= FOG_SOLID_DENSITY;

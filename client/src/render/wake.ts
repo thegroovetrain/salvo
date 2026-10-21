@@ -17,7 +17,7 @@
 // inside a per-source inner bound and this module synthesized that half into
 // the radar field — amendments 88 + 154, "two sources, one appearance" — behind
 // a binary-LOS and observed-right-now gate, cycle-69 review gate P5. All of that
-// is retired.)
+// is retired, its observation bookkeeping included — review-gate patch P6.)
 //
 // WHAT IT SAMPLES, AND WHY IT IS THE CENTRE. `World.sampleWakes` appends
 // `ship.state.x/y` — the hull's CENTRE — so this module appends the centre too
@@ -91,12 +91,6 @@ export interface WakeSource {
   /** Provisioned top speed (u/s), kept so a re-observation can check whether
    *  the hull could physically have travelled the gap. */
   topSpeedU: number;
-  /** Was this source being OBSERVED as of the last `prune`? Cached purely so
-   *  the observation EDGE can bump `version` (see `prune`) — the predicate
-   *  itself is `wakeSourceObserved`, and nothing reads this flag to decide
-   *  anything. (Its one consumer, the radar's in-bubble wake stamp cache, was
-   *  retired by amendment 210; the bookkeeping is kept but drives nothing.) */
-  observed: boolean;
 }
 
 /** A source's provisioned top speed: the fish's fixed speed, the caller's if it
@@ -113,36 +107,6 @@ function topSpeedOf(h: WakeHull): number {
  *  model's fish flag), a hull's is its class envelope's. */
 function ribbonFor(h: WakeHull, topSpeedU: number): WakeRibbon {
   return h.cls === 'torp' ? createTorpWake() : createShipWake(h.cls, topSpeedU);
-}
-
-/**
- * HOW STALE AN OBSERVATION MAY BE and still count as "this source is being
- * observed right now" (ms) — the clock `wakeSourceObserved` reads.
- *
- * TWO SERVER TICKS, derived rather than picked. The emitter samples every
- * visible source once per rendered frame off the server-clock estimate, so a
- * source observed this frame has `seenMs === nowMs` exactly;
- * the slack exists only to absorb a client rendering slower than the 20Hz sim
- * (down to 10fps) without flickering. It is deliberately FAR tighter than
- * `CONTACT_STALE_MS` (the contact store's own prune clock, `interpDelayMs +
- * 300`), which still decides when a ribbon may chain (`chainable`).
- */
-export const WAKE_OBSERVE_GRACE_MS = 2 * CONFIG.tick.simDtMs;
-
-/**
- * IS THIS SOURCE BEING OBSERVED RIGHT NOW? (cycle-69 review gate, P5.)
- *
- * HISTORY: this predicate gated the client's in-bubble wake SYNTHESIS onto the
- * radar — the REVEAL half of a remember-vs-reveal split. Amendment 210 retired
- * that synthesis (the server now discloses every swept wake segment, and the
- * scope paints wire rows only), so nothing on the radar path reads it. It still
- * drives `WakeSource.observed` / `version` in `prune`. The ribbon and its foam
- * were never gated by it: water you watched being laid stays remembered
- * (amendment 200).
- */
-export function wakeSourceObserved(src: WakeSource, nowMs: number): boolean {
-  const age = nowMs - src.seenMs;
-  return age >= 0 && age <= WAKE_OBSERVE_GRACE_MS;
 }
 
 /**
@@ -203,20 +167,13 @@ function chainable(src: WakeSource, h: WakeHull, nowMs: number): boolean {
 }
 
 /**
- * Every hull the client can see, and the water each has disturbed.
- *
- * `version` ticks whenever the SEGMENT SET changes (a sample stored, a tail
- * pruned, a source dropped or reset, an observation edge) and never merely
- * because a hull moved. It was the invalidation handle of the radar's in-bubble
- * wake stamp cache, retired by amendment 210; no production code reads it now.
+ * Every hull the client can see, and the water each has disturbed. (The
+ * segment-set `version` counter and the per-source observation edge were the
+ * invalidation handles of the radar's in-bubble wake stamp cache; both went
+ * with it — amendment 210, review-gate patch P6.)
  */
 export class WakeSources {
   private readonly srcs = new Map<string, WakeSource>();
-  private ver = 0;
-
-  get version(): number {
-    return this.ver;
-  }
 
   get size(): number {
     return this.srcs.size;
@@ -236,14 +193,7 @@ export class WakeSources {
     const src = this.sourceFor(h, nowMs);
     src.color = h.color;
     src.seenMs = nowMs;
-    // The OBSERVATION EDGE is part of the segment-set version (P5).
-    if (!src.observed) {
-      src.observed = true;
-      this.ver += 1;
-    }
-    const stored = appendWakeSample(src.ribbon, h.x, h.y, nowMs);
-    if (stored) this.ver += 1;
-    return stored;
+    return appendWakeSample(src.ribbon, h.x, h.y, nowMs);
   }
 
   /** The tracked source for this hull, resetting it when the kind changed or
@@ -251,7 +201,6 @@ export class WakeSources {
   private sourceFor(h: WakeHull, nowMs: number): WakeSource {
     const found = this.srcs.get(h.id);
     if (found !== undefined && found.cls === h.cls && chainable(found, h, nowMs)) return found;
-    if (found !== undefined) this.ver += 1;
     const top = topSpeedOf(h);
     const fresh: WakeSource = {
       id: h.id,
@@ -260,7 +209,6 @@ export class WakeSources {
       ribbon: ribbonFor(h, top),
       seenMs: nowMs,
       topSpeedU: top,
-      observed: false,
     };
     this.srcs.set(h.id, fresh);
     return fresh;
@@ -277,20 +225,10 @@ export class WakeSources {
    */
   prune(nowMs: number): void {
     for (const [id, src] of this.srcs) {
-      const before = src.ribbon.count;
       const live = pruneWake(src.ribbon, nowMs);
-      if (live !== before) this.ver += 1;
-      // THE OTHER HALF OF THE OBSERVATION EDGE (P5): a source that has just
-      // STOPPED being observed moves `version` exactly as one that started.
-      const observed = wakeSourceObserved(src, nowMs);
-      if (observed !== src.observed) {
-        src.observed = observed;
-        this.ver += 1;
-      }
       if (live > 0) continue;
       if (nowMs - src.seenMs <= CONTACT_STALE_MS) continue;
       this.srcs.delete(id);
-      this.ver += 1;
     }
   }
 
@@ -301,8 +239,6 @@ export class WakeSources {
 
   /** Drop everything (return to port, spectate entry — no hull, no history). */
   clear(): void {
-    if (this.srcs.size === 0) return;
     this.srcs.clear();
-    this.ver += 1;
   }
 }

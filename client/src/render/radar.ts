@@ -229,6 +229,13 @@ function maxSlices(): number {
  *  two apart by something better than list order. */
 export const DIM_MASK_LABEL = 'radarDimMask';
 
+/** The eye-reach fan's length from the `dim.reachRays` dial: a whole, non-negative
+ *  count (a negative dial would throw out of `new Float32Array`; a non-finite one
+ *  reads as 0 — no fan, the radial mask). */
+function rayCount(n: number): number {
+  return Math.max(0, Math.floor(Number.isFinite(n) ? n : 0));
+}
+
 const RING_SIGHT_COLOR = CLIENT_CONFIG.colors.phosphor; // sight ring — HUD chart chrome
 const RING_RADAR_COLOR = CLIENT_CONFIG.colors.silver; // radar ring — neutral linework
 
@@ -372,7 +379,7 @@ export class Radar {
   /** See `setEyeReachSource`. */
   private reachSource: EyeReachSource | null = null;
   /** The eye-reach fan, preallocated once and re-cast in place forever. */
-  private readonly reachFan = new Float32Array(CLIENT_CONFIG.blip.heatmap.dim.reachRays);
+  private readonly reachFan = new Float32Array(rayCount(CLIENT_CONFIG.blip.heatmap.dim.reachRays));
   /** Is the live `dim` texture a fanned (slid) bake rather than the radial one? */
   private dimFanned = false;
   /** Where and when (serverNow, ms) the fan was last cast — NaN = never. */
@@ -676,7 +683,9 @@ export class Radar {
   /**
    * Turn every parked echo into a slice, ONCE an own pose exists.
    *
-   * THIS IS THE ONLY HULL SOURCE (amendment 210). Everything arriving here came
+   * THIS IS THE ONLY LIVE HULL SOURCE (amendment 210). (`FieldSpec.ships`
+   * survives in radarField.ts as an optional TEST seam; the live beam never
+   * fills it.) Everything arriving here came
    * through the server's `blipGate` — at any distance inside radar range, sight
    * bubble included — so it is ALREADY SWEEP-GATED, by the server's own beam on
    * the tick it crossed the hull. Waiting for the local beam to reach that
@@ -1094,6 +1103,7 @@ export class Radar {
    */
   private reachDue(own: OwnPoint | null, serverNow: number): boolean {
     if (this.reachSource === null || own === null || !Number.isFinite(own.x + own.y)) return this.dimFanned;
+    if (!Number.isFinite(serverNow)) return false; // no clock: a NaN castT would make every frame due
     const { refreshMs } = CLIENT_CONFIG.fogField;
     if (!(Math.abs(serverNow - this.castT) < refreshMs)) return true; // NaN (never cast) is due
     return Math.hypot(own.x - this.castX, own.y - this.castY) >= CLIENT_CONFIG.blip.heatmap.dim.reachRecastMoveU;

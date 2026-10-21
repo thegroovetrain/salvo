@@ -179,11 +179,12 @@ export interface BotTickEntry {
    *  call count is a pinned invariant, not a nicety). */
   observe(): PerceptionView;
   /**
-   * The FOG density at a point right now, in [0, 1] (Story 9.10, amendment
-   * 169 — `World.fogDensityAt`, bound by world.ts). PUBLIC WEATHER a human
-   * client evaluates from the welcome seed and the schema cut too — where
-   * fog is, never what it hides. Read by the cover search (ai/cover.ts) alone
-   * (the sweep-miss rule's fog limit was retired by amendment 210).
+   * The FOG density at a point right now, in [0, 1] (`World.fogDensityAt`,
+   * bound by world.ts; Story 9.10). PUBLIC WEATHER a human client evaluates
+   * from the welcome seed and the schema cut too — where fog is, never what
+   * it hides. Read by the cover search (ai/cover.ts) alone. HISTORY:
+   * amendment 169 also had the sweep-miss rule read it as a fog limit;
+   * amendment 210 retired that use.
    */
   fogAt(x: number, y: number): number;
 }

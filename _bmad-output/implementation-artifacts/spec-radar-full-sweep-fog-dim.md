@@ -2,7 +2,7 @@
 title: 'Radar returns the entire sweep; the near-range dim follows the fogged eye'
 type: 'bugfix'
 created: '2026-10-21'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: '4a5715e9'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/investigations/fog-occludes-radar-investigation.md'
@@ -79,16 +79,16 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/sim/fog.ts` + `shared/src/__tests__/fog.test.ts` -- add `fogEyeReach`; tests: no fog → range; solid bank ahead → shorter; own bank free; NaN → range; monotone in range.
-- [ ] `shared/src/constants.ts`, `sim/radarRaster.ts`, `sim/wake.ts`, `index.ts` -- comments; PV 91.
-- [ ] `server/src/game/signals.ts` -- drop the inner edge in `inRadarAnnulus`, `wakeInnerBound`, `wakeGate`, `sweepMayCrossWake`; drop the own-lit-zone blip exclusions; docs.
-- [ ] `server/src/game/perception.ts` -- independent `if`s in `shipScan`; header docs.
-- [ ] `server/src/game/ai/sweepMiss.ts`, `ai/utility.ts` -- `wouldPaint` uses the shadow march whenever a raster exists; delete the fog-limit clause; fold contacts before blips so an in-bubble blip never smears a live plot.
-- [ ] server tests -- re-cut the oracle and directed cases listed in the Code Map; re-record goldens; move PV pins.
-- [ ] `client/src/render/radar.ts`, `radarField.ts`, `wake.ts`, `main.ts`, `ambient.ts`, `ambientScene.ts`, `stage/worstCaseScene.ts` -- remove synthesis; widen the two fake servers' blip gates to the whole sweep.
-- [ ] `client/src/render/radarDim.ts`, `textures.ts`, `fogField.ts`, `config.ts`, `radar.ts` -- per-bearing reach fan, wedge bake, `fogLift` dial, re-bake cadence.
-- [ ] client tests -- delete synthesis suites; re-cut dim tests (radial identity at no fog; a fogged bearing's floor ends at its reach; fogLift 0 = today); PV pin.
-- [ ] `VERSION`, `package.json`, `CHANGELOG.md`, both trackers, epic-9 amendment 210, `docs/codebase-map.md` lines.
+- [x] `shared/src/sim/fog.ts` + `shared/src/__tests__/fog.test.ts` -- add `fogEyeReach`; tests: no fog → range; solid bank ahead → shorter; own bank free; NaN → range; monotone in range.
+- [x] `shared/src/constants.ts`, `sim/radarRaster.ts`, `sim/wake.ts`, `index.ts` -- comments; PV 91.
+- [x] `server/src/game/signals.ts` -- drop the inner edge in `inRadarAnnulus`, `wakeInnerBound`, `wakeGate`, `sweepMayCrossWake`; drop the own-lit-zone blip exclusions; docs.
+- [x] `server/src/game/perception.ts` -- independent `if`s in `shipScan`; header docs.
+- [x] `server/src/game/ai/sweepMiss.ts`, `ai/utility.ts` -- `wouldPaint` uses the shadow march whenever a raster exists; delete the fog-limit clause; fold contacts before blips so an in-bubble blip never smears a live plot.
+- [x] server tests -- re-cut the oracle and directed cases listed in the Code Map; re-record goldens; move PV pins.
+- [x] `client/src/render/radar.ts`, `radarField.ts`, `wake.ts`, `main.ts`, `ambient.ts`, `ambientScene.ts`, `stage/worstCaseScene.ts` -- remove synthesis; widen the two fake servers' blip gates to the whole sweep.
+- [x] `client/src/render/radarDim.ts`, `textures.ts`, `fogField.ts`, `config.ts`, `radar.ts` -- per-bearing reach fan, wedge bake, `fogLift` dial, re-bake cadence.
+- [x] client tests -- delete synthesis suites; re-cut dim tests (radial identity at no fog; a fogged bearing's floor ends at its reach; fogLift 0 = today); PV pin.
+- [x] `VERSION`, `package.json`, `CHANGELOG.md`, both trackers, epic-9 amendment 210, `docs/codebase-map.md` lines.
 
 **Acceptance Criteria:**
 - Given a swept hull at any distance ≤ radar range with vis > 0, when a frame is built, then it carries a blip for that hull (and a contact too when sighted).

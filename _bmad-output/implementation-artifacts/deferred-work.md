@@ -3112,7 +3112,7 @@ Closure stamps for three older entries (the originals are left as written), then
   evidence: client/src/render/ambientScene.ts `ambientPaints`; amendment 210 (b).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-radar-full-sweep-fog-dim.md`
-  status: OPEN — cleanup
+  status: RESOLVED 2026-10-21 (review-gate patch P6)
   summary: `wakeSourceObserved`, `WakeSource.observed`, `WakeSources.version` (client/src/render/wake.ts) and `FASTEST_BOOSTED_HULL_SPEED` (client/src/config.ts) have no production reader since the wake stamp cache was deleted; kept with honest docs. Remove when touched next.
   evidence: amendment 210 (b).
 

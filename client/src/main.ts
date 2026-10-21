@@ -2180,9 +2180,8 @@ function makeGameReturnToPort(getG: () => Game | null): () => void {
       // about one moment on one ocean, and it must not survive into the next.
       g.foghorn.clear();
       // ...and for the wake (Story 4.12), which is the strongest case of the
-      // three: it is a whole ribbon of TRUE world positions per hull, and it
-      // also feeds the radar's in-truesight stamp, so a survivor would paint
-      // the next ocean as well as draw on it.
+      // three: it is a whole ribbon of TRUE world positions per hull, so a
+      // survivor would draw the last ocean's water onto the next one.
       g.effects.clearWake();
     },
   });

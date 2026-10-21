@@ -103,15 +103,17 @@ export interface WakeRibbon {
   widthU: number;
   /**
    * SOURCE KIND — true iff this is a TORPEDO's water (cycle-69 review gate,
-   * P2). The per-segment disclosure gate was PER SOURCE (a ship's wake inner
-   * bound at the sight bubble, a torpedo's at the detect radius); since
-   * amendment 210 (Eric 2026-10-21: the radar returns its entire sweep) there
-   * is NO inner bound for either — both kinds disclose from the hull out to
-   * radar range. Travels with the ribbon so DETACHED water (a spent torpedo's
-   * run in the orphan store) keeps its own gate. NEVER on the wire: the `wk`
-   * payload stays identity-free (amendment 194) — the observer may infer the
-   * source from WHERE water discloses, which is the ruled tell, not a wire
-   * field.
+   * P2). WHAT IT DOES TODAY: `draftLift` skips torpedo water (a fish's thin
+   * ribbon lifts no hull — Story 8.19), and it travels with the ribbon so
+   * DETACHED water (a spent torpedo's run in the orphan store) is still known
+   * as a fish's. The fish's half-life water (`wakeTorpLifeFactor`) and
+   * one-cell core are set once at creation by `createTorpWake`, and the
+   * client's foam keys its no-stern-offset rule on its own `'torp'` source
+   * kind, not on this flag. HISTORY: it selected the per-source disclosure
+   * inner bound (sight for ship water, detect for torpedo water); amendment
+   * 210 (Eric 2026-10-21: the radar returns its entire sweep) retired that
+   * bound for both kinds. NEVER on the wire: the `wk` payload stays
+   * identity-free (amendment 194).
    */
   torp: boolean;
   /**
@@ -154,7 +156,7 @@ export function wakeCapacity(maxSpeedU: number, lifeMs: number): number {
  * gracefully — see the module doc. A non-finite `lifeMs` degrades to 0
  * (everything instantly expired), a non-finite `widthU` to 0 (spine-only,
  * one-cell ribbon) — degrade, never throw. `torp` marks a TORPEDO source
- * (the per-source disclosure bound — see WakeRibbon.torp); it defaults to
+ * (see WakeRibbon.torp); it defaults to
  * false so every hull/drone caller stays a ship source by construction.
  * `hullAheadU` is the attached source hull's half length (see
  * WakeRibbon.hullAheadU); it defaults to 0 (render-only ribbons, torpedo
@@ -211,8 +213,7 @@ export function createShipWake(cls: HullId, maxSpeedU: number): WakeRibbon {
 }
 
 /** Convenience: a torpedo source's ribbon (fixed `CONFIG.torpedo.speed`,
- *  half-life water, one-cell core, `torp` flagged for the per-source
- *  disclosure bound — see WakeRibbon.torp). */
+ *  half-life water, one-cell core, `torp` flagged — see WakeRibbon.torp). */
 export function createTorpWake(): WakeRibbon {
   return createWakeRibbon(CONFIG.torpedo.speed, torpWakeLifeMs(), torpWakeWidthU(), true);
 }

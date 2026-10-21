@@ -299,6 +299,32 @@ describe('fogEyeReach / fogEyeReachFan (the eye\'s reach per bearing — Eric 20
     }
   });
 
+  it('a ray no longer than one march step is ONE step, as in fogTollAlong: no free "own" step, its thin sample is charged', () => {
+    // walk +x in 1 u steps to the last solid point before a bank's thin edge: the observer stands in solid fog
+    // and the one step's midpoint (range / 2 ahead) is thinner than solid — the own-step rule is the only free pass
+    const range = CFG.marchStepU / 2;
+    let ox = Number.NaN;
+    for (let x = -2500; x < 2500 && Number.isNaN(ox); x += 1) {
+      const solidHere = fogDensityAt(field, x, 0, 0, 0) >= FOG_SOLID_DENSITY;
+      const mid = fogDensityAt(field, x + range / 2, 0, 0, 0);
+      if (solidHere && mid < FOG_SOLID_DENSITY && mid > 0) ox = x;
+    }
+    expect(Number.isNaN(ox), 'premise: the walk found a solid observer facing a thin first step').toBe(false);
+    const r = fogEyeReach(field, ox, 0, 0, range, 0, 0);
+    expect(r).toBeLessThan(range);
+    // the one step is read at its midpoint and charged: eye spent per unit = 1 + density × cost
+    const dens = fogDensityAt(field, ox + range / 2, 0, 0, 0);
+    expect(r).toBeCloseTo(range / (1 + dens * CFG.sightCostPerU), 9);
+    // fogTollAlong over that same single step charges it too (no free own step on a one-step ray)
+    expect(fogTollAlong(field, ox, 0, ox + range, 0, 0, 0)).toBeCloseTo(dens * range * CFG.sightCostPerU, 9);
+  });
+
+  it('a non-finite sight cost reads "no fog" (the toll clamps it to 0), never a blind eye', () => {
+    const inf = makeFogField(12345, { ...CFG, sightCostPerU: Number.POSITIVE_INFINITY }, OCEAN_R);
+    expect(fogEyeReach(inf, OCEAN_R + 10, 0, Math.PI, RANGE, 0, FULL)).toBe(RANGE);
+    expect(fogTollAlong(inf, OCEAN_R + 10, 0, 0, 0, 0, FULL)).toBe(0);
+  });
+
   it('the fan fills every slot of `out` at k × 2π / length and returns the same array', () => {
     const out = new Float32Array(64);
     const ox = OCEAN_R + 10;

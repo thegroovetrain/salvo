@@ -97,12 +97,16 @@ function fogLift(): number {
  * How far (u) the ramp slides INWARD on a bearing whose fog-tolled eye ends at
  * `reachU`, for an observer with `sightU` of effective truesight:
  * `(sightU − reachU) × fogLift`. A reach that is non-finite, negative or not
- * below the bubble reads as `sightU` — no slide — so a bad fan fails toward
+ * below the bubble (at float32 precision — the fan's storage — so a clear
+ * bearing of a non-dyadic sight is clear) reads as `sightU` — no slide — so a bad fan fails toward
  * today's radial mask, never toward an unmuted scope.
  */
 export function dimSlideU(sightU: number, reachU: number): number {
   if (!(sightU > 0) || !Number.isFinite(sightU)) return 0;
-  if (!Number.isFinite(reachU) || reachU < 0 || reachU >= sightU) return 0;
+  // The fan is a Float32Array holding `fround(sight)` on a clear bearing; a sight that is not
+  // float32-representable must still read that bearing as clear, or every cadence re-bakes.
+  const clearU = Math.min(sightU, Math.fround(sightU));
+  if (!Number.isFinite(reachU) || reachU < 0 || reachU >= clearU) return 0;
   return (sightU - reachU) * fogLift();
 }
 
@@ -128,6 +132,12 @@ export function dimRampU(
   reachU: number,
   out: { innerU: number; outerU: number },
 ): { innerU: number; outerU: number } {
+  if (!(sightU > 0) || !Number.isFinite(sightU)) {
+    // no bubble: a zero ramp, never NaN radii into the bake's createRadialGradient
+    out.innerU = 0;
+    out.outerU = 0;
+    return out;
+  }
   const { innerU, outerU } = dimRadii(sightU);
   const slide = dimSlideU(sightU, reachU);
   out.innerU = innerU - slide;

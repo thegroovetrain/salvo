@@ -335,9 +335,12 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
     expect(t.live).toBe(true);
     expect(t.paintAt).toBe(-1); // the echo never wrote a paint baseline onto the sighted plot
     expect([t.vx, t.vy, t.vSrc]).toEqual([30, 0, 'sight']);
-    // A second hull painted beyond association range of the sighted one is still folded.
+    // A second hull painted INSIDE association range of the sighted one, whose coverage rect does not
+    // cover the sighted hull's cell (two cells off laterally), is a different return and is folded.
+    const off = 2 * CELL;
+    expect(off).toBeLessThan(ANON_ASSOC_U); // premise: near enough that a distance rule would have skipped it
     const m2 = mkMind();
-    foldView(m2, { ...both, events: [blipAt(200, 0, NOW), blipAt(200 + 3 * ANON_ASSOC_U, 0, NOW)] }, NOW);
+    foldView(m2, { ...both, events: [blipAt(200, 0, NOW), blipAt(200, off, NOW)] }, NOW);
     expect(m2.contacts.size).toBe(2);
     expect(m2.contacts.get('s1')!.paintAt).toBe(-1);
   });
