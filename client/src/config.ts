@@ -3,7 +3,7 @@
 // single source of truth for anything gameplay-authoritative). If a value here
 // starts to feel gameplay-load-bearing, promote it to shared CONFIG instead.
 
-import { CATALOG, CONFIG, HULL_IDS, SHIP_CLASS_IDS, boostedKinematics, draftedKinematics, effectiveStats, hullEnvelope, type FoghornEvent } from '@salvo/shared';
+import { CONFIG, HULL_IDS, SHIP_CLASS_IDS, hullEnvelope, type FoghornEvent } from '@salvo/shared';
 import {
   SURFACE,
   fitGrainScale,
@@ -538,39 +538,6 @@ export const FASTEST_HULL_SPEED = HULL_IDS.reduce(
   (top, id) => Math.max(top, hullEnvelope(id).kinematics.maxSpeed),
   0,
 );
-
-/**
- * THE FASTEST A HULL CAN EVER TRAVEL (u/s) — the fastest BOOSTED, fully
- * SPEED-laddered hull in the game, RIDING ANOTHER HULL'S WAKE at the full draft
- * lift: 75.46875 at the shipped numbers (a Torpedo Boat at 45 + 5 SPEED copies =
- * 57.5, × 1.25 = 71.875, + 5 % of that).
- *
- * DERIVED, never written down, and derived THROUGH THE REAL FOLD: a capped
- * SPEED card stack goes through `effectiveStats` (so any clamp applies), the boost
- * goes through the ONE shared `boostedKinematics` hook at `CONFIG.boost.factor`
- * (so the proportional +25 % of epic-8 amendment 55 is read exactly as the sim
- * reads it), and the WAKE DRAFT goes through the ONE shared `draftedKinematics`
- * hook at the full `CONFIG.wake.draft.lift` (Story 8.19, epic-8 amendment 151)
- * — the same hooks in the same order as the server's `World.wakeTopSpeed`, so
- * both sides provision off the identical double. Since Story 8.9 the bonus is a
- * FRACTION of the post-fold cap, so `FASTEST_HULL_SPEED + <a flat bonus>` is no
- * longer a bound at all — the SPEED ladder is inside the boost, the boost is
- * inside the draft, and a hand-written sum would under-provision every ring
- * buffer that cites this.
- *
- * The name still says BOOSTED and still means "the true ceiling": the draft is
- * the last fold on top of the boost, not a separate bound.
- *
- * The reduce SEEDS with `FASTEST_HULL_SPEED` so the drone envelopes are covered
- * too: a drone fits no cards and never boosts, so its envelope maximum is its
- * true ceiling.
- */
-const CAPPED_SPEED_CARDS: readonly string[] = Array.from({ length: CATALOG.speed.cap }, () => 'speed');
-export const FASTEST_BOOSTED_HULL_SPEED = SHIP_CLASS_IDS.reduce((top, id) => {
-  const kin = effectiveStats(CONFIG.shipClasses[id], CAPPED_SPEED_CARDS).kinematics;
-  const boosted = boostedKinematics(kin, CONFIG.boost.factor, true);
-  return Math.max(top, draftedKinematics(boosted, CONFIG.wake.draft.lift, true).maxSpeed);
-}, FASTEST_HULL_SPEED);
 
 /**
  * Nominal travel time (ms) of the reveal zoom — the pull-back to the whole
@@ -3334,9 +3301,9 @@ export const CLIENT_CONFIG = {
          *  transparent threshold: 0.2 × (1 − 0.45 × (1 − 0.2/0.7)) = 0.136 > 0.12.
          *
          *  THIS IS THE REAL GUARANTEE, not the asymptote (amendment 127): radar
-         *  range means ONE number for every hull, so anything the server blips —
-         *  or any sighted hull the client synthesizes — still paints at least a
-         *  green speck anywhere inside the scope, at any aspect, at any size.
+          *  range means ONE number for every hull, so anything the server blips
+         *  still paints at least a green speck anywhere inside the scope, at any
+         *  aspect, at any size.
          *  Dropping it so signature becomes stealth is a RULED-OUT design, not a
          *  realism correction; do not re-propose it. */
         minPeak: HEAT_MIN_PEAK,
@@ -3458,6 +3425,13 @@ export const CLIENT_CONFIG = {
        * rather than radar ghosts"*), and the shipped 1/8 → 5/8 ramp did not
        * follow it: it stood at 80% opacity at the EDGE of the bubble (40%
        * halfway out), over exactly the water the player aims at by eye.
+       *
+       * ON A FOGGED BEARING THE RAMP SLIDES INWARD (amendment 210, Eric
+       * 2026-10-21): the look above stays, but each bearing's ramp starts where
+       * the observer's fog-tolled EYE actually ends on it, by `fogLift` — so a
+       * return the fog hid from the eye is not muted as though it were in plain
+       * sight. Baked as a fan of `reachRays` wedges on the fog refresh cadence
+       * (or a move past `reachRecastMoveU`), never per frame.
        */
       dim: {
         /** Flat `minScale` at and inside this multiple of the observer's
@@ -3497,6 +3471,30 @@ export const CLIENT_CONFIG = {
          * nothing costs nothing.
          */
         spanU: CONFIG.vision.radar * 4,
+        /**
+         * THE FOG SLIDE (epic-9 amendment 210, Eric 2026-10-21) — ERIC'S STAGING
+         * DIAL, 0..1. On a bearing where the observer's fog-tolled eye ends at
+         * `reach` < sight (shared sim/fog.ts `fogEyeReach`), the whole ramp slides
+         * inward by `(sight − reach) × fogLift`: 1 = the floor ends exactly where
+         * the fogged eye ends (with the shipped innerFactor 1; in general the floor
+         * ends at innerU − (sight − reach)) and full strength begins one ramp-width later, so a
+         * return the eye cannot see is NOT muted; 0 = today's radial mask, fog or
+         * no fog. Covers both of Eric's cases with one rule — the observer inside
+         * a bank, and a clear observer looking into one. Shipped at 1; Eric tunes
+         * it on staging. render/radarDim.ts `dimSlideU` is the one place it is read.
+         */
+        fogLift: 1,
+        /** Bearings in the eye-reach fan the mask is baked from (one wedge each,
+         *  ray k at k·2π/N in world axes — the haze halo's `losRays` convention).
+         *  120 = 3° wedges: a bank's edge lands within ~26 u at the 500 u bubble,
+         *  under the ramp's own width, and a cast is 120 shared marches. */
+        reachRays: 120,
+        /** u — between fog-refresh ticks (`fogField.refreshMs`) the fan is
+         *  re-cast early only when own hull has moved at least this far since the
+         *  last cast: the wisps' `countermeasure.losRecastMoveU` precedent (a cast
+         *  is too dear for every frame, and a fog edge drawn this stale is off by
+         *  at most this much — well inside the ramp's width). */
+        reachRecastMoveU: 20,
       },
     },
   },

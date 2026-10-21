@@ -39,10 +39,12 @@
 import {
   CONFIG,
   coastNormal,
+  eachWakeSegment,
   effectiveStats,
   islandBlocksSegment,
   islandDistance,
   mulberry32,
+  paintSegmentCoverage,
   stepShip,
   wrapAngle,
   wrapPositive,
@@ -52,6 +54,8 @@ import {
   type ShipClassId,
   type ShipConfig,
   type ShipState,
+  type WakeBlipEvent,
+  type WakeRibbon,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 
@@ -478,11 +482,11 @@ export function sighted(world: AmbientWorld, h: AmbientHull, islands: readonly I
 }
 
 /**
- * The truesighted contacts this frame — the INSIDE-the-bubble source of hull
- * returns (amendment 89). They reach the scope only by being pushed through a
- * real `ContactStore`, which the radar samples `interpDelayMs` in the past
- * exactly as it does in a live match, so the synthesized echo, the drawn
- * silhouette and the wake all agree about where the hull was.
+ * The truesighted contacts this frame. They are pushed through a real
+ * `ContactStore`, sampled `interpDelayMs` in the past exactly as in a live
+ * match, so the drawn silhouette and its wake agree about where the hull was.
+ * They are NOT a radar source (epic-9 amendment 210): every echo on the menu
+ * scope comes from `ambientPaints`, the scene's stand-in for the server's wire.
  */
 export function ambientContacts(world: AmbientWorld, islands: readonly Island[]): Contact[] {
   const out: Contact[] = [];
@@ -494,11 +498,12 @@ export function ambientContacts(world: AmbientWorld, islands: readonly Island[])
 }
 
 /**
- * The hulls the beam PAINTED this frame: beyond truesight, inside radar range,
- * and the beam actually crossed their bearing on this advance. That is the
- * whole outside-the-bubble rule, and it is the reason a menu hull does not
- * simply glow — it is found, then decays, then is found again a revolution
- * later.
+ * The hulls the beam PAINTED this frame: anywhere inside radar range — the sight
+ * bubble included — and the beam actually crossed their bearing on this
+ * advance. That is the server's whole-sweep rule (epic-9 amendment 210: the
+ * server returns the ENTIRE sweep and the client synthesizes nothing), and it
+ * is the reason a menu hull does not simply glow — it is found, then decays,
+ * then is found again a revolution later.
  *
  * TERRAIN IS NOT TESTED HERE ON PURPOSE. Whether a return survives the ground
  * between it and the observer is the shipped height-aware shadow march's answer
@@ -511,9 +516,66 @@ export function ambientPaints(world: AmbientWorld, tick: AmbientTick): AmbientHu
   for (const h of world.hulls) {
     if (h === world.observer) continue;
     const range = rangeTo(world, h);
-    if (range <= world.stats.sightRange || range > world.stats.radarRange) continue;
+    if (range > world.stats.radarRange) continue;
     if (sweepCrossed(tick.prevSweep, tick.sweep, bearingTo(world, h))) out.push(h);
   }
+  return out;
+}
+
+/**
+ * The narrow view of a ribbon store this scan reads. `WakeSources`
+ * (render/wake.ts) satisfies it structurally; taking the shape rather than the
+ * class keeps this composer free of the render module and lets a test hand in
+ * bare shared ribbons.
+ */
+export interface AmbientRibbonStore {
+  each(fn: (src: { readonly ribbon: WakeRibbon }) => void): void;
+}
+
+/** Did the beam paint a wake segment whose midpoint is (mx, my)? The server's
+ *  per-segment gate (signals.ts `wakeGate`) in the menu's currency: a non-zero
+ *  distance inside radar range (no inner bound — amendment 210) and a bearing
+ *  this tick's sweep crossed. Terrain and dropout are NOT tested, for the same
+ *  reasons `ambientPaints` gives: the shadow march is the Radar's answer, and
+ *  the menu rolls no dropout on its hull echoes either. */
+function wakeSegmentPainted(world: AmbientWorld, tick: AmbientTick, mx: number, my: number): boolean {
+  const o = world.observer.state;
+  const dx = mx - o.x;
+  const dy = my - o.y;
+  const d2 = dx * dx + dy * dy;
+  const r = world.stats.radarRange;
+  if (!(d2 > 0) || d2 > r * r) return false;
+  return sweepCrossed(tick.prevSweep, tick.sweep, wrapPositive(Math.atan2(dy, dx)));
+}
+
+/**
+ * The `wk` rows the stand-in server sends this tick: every segment of every
+ * ribbon in `sources` — the observer's OWN water included (Eric 2026-10-21:
+ * "I want ALL radar returns") — whose midpoint the beam crossed inside radar
+ * range. It mirrors the server's `wakeScan` + the `wk` row's `materialize`:
+ * the shared `eachWakeSegment` walker (and its age bucket), the shared
+ * `paintSegmentCoverage` on `CONFIG.vision.radarCellU` with the ribbon's own
+ * width, and the wire's key order k,t,a,gx,gy,w,h,bits — so a menu wake
+ * return and a match wake return are the same artifact.
+ *
+ * `out` is cleared and refilled (the render-loop reuse rule) and returned.
+ */
+export function ambientWakeRows(
+  world: AmbientWorld,
+  tick: AmbientTick,
+  sources: AmbientRibbonStore,
+  out: WakeBlipEvent[] = [],
+): WakeBlipEvent[] {
+  out.length = 0;
+  const now = tick.nowMs;
+  const cell = CONFIG.vision.radarCellU;
+  sources.each(({ ribbon }) => {
+    eachWakeSegment(ribbon, now, (seg) => {
+      if (!wakeSegmentPainted(world, tick, seg.mx, seg.my)) return;
+      const c = paintSegmentCoverage(seg.ax, seg.ay, seg.bx, seg.by, ribbon.widthU, cell, now);
+      out.push({ k: 'wk', t: now, a: seg.bucket, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
+    });
+  });
   return out;
 }
 

@@ -3,6 +3,11 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  91 — THE ENTIRE SWEEP (Eric 2026-10-21, epic-9 amendment 210): the server
+ *  paints radar returns at every distance inside radar range (no sight-radius
+ *  inner edge on blips, decoy paints or wakes; amendment 163 superseded) and
+ *  the client no longer synthesizes echoes for sighted hulls — an old client
+ *  on this server would double-paint the sight circle, so the gate moves.
  *  90 — Speedboat hp 250 → 300 (Eric 2026-10-19, epic-9 amendment 209):
  *  CONFIG.shipClasses.torpedoBoat.hp, which the client reads — the own
  *  hull's maxHp through effectiveStats (HP bar, upgrade previews), the
@@ -889,7 +894,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 90;
+export const PROTOCOL_VERSION = 91;
 
 // Tunables
 export * from './constants.js';

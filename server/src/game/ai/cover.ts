@@ -23,6 +23,7 @@
 
 import {
   CONFIG,
+  FOG_SOLID_DENSITY,
   cellOf,
   isWater,
   lineClear,
@@ -37,12 +38,9 @@ import {
 } from '@salvo/shared';
 import type { BotMind } from './types.js';
 import { LONGEST_HULL_U, lineBlocked } from './plot.js';
-import { FOG_PLOT_DENSITY } from './sweepMiss.js';
 
-/** Density at or above which fog is SOLID cover (amendment 199: "density ≥
- *  ½") — the same "heart of a bank, not its thin edge" bar the sweep-miss
- *  rule reads (amendment 169), so one fog reading serves both. */
-export const FOG_COVER_DENSITY = FOG_PLOT_DENSITY;
+/** Density at or above which fog is SOLID cover — the shared solid-fog bar (amendment 199: "density ≥ ½"). */
+export const FOG_COVER_DENSITY = FOG_SOLID_DENSITY;
 
 /** u — the three sample radii of the fog search, nearest first (the
  *  orchestrator's reading under amendment 199: 200 / 400 / 600 u). A search

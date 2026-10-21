@@ -117,7 +117,8 @@ export const SCENE = {
   ownHpFrac: 0.2,
   /** Contacts inside the truesight bubble (hulls the eye must pick out). */
   nearContacts: 12,
-  /** Contacts in the radar annulus (fogged hulls that also paint as blips). */
+  /** Contacts in the radar annulus (fogged hulls: blips only — every hull, near
+   *  or far, paints since amendment 210). */
   farContacts: 7,
   /** Torpedoes inbound on the own hull. */
   torpedoes: 5,
@@ -190,17 +191,19 @@ export interface SceneProfile {
   scene: typeof SCENE;
   /** Staged hulls BESIDES the local captain. */
   contacts: number;
-  /** True when slot `i` is staged inside the truesight bubble. Everything else
-   *  sits in the radar annulus and reaches the client as paint instead (see
-   *  `blipEvents`). A PREDICATE rather than a count, so a profile can INTERLEAVE
+  /** True when slot `i` is staged inside the truesight bubble (a live contact
+   *  AND, like every hull since amendment 210, a radar paint — see
+   *  `blipEvents`). Everything else sits in the radar annulus and reaches the
+   *  client as paint only. A PREDICATE rather than a count, so a profile can INTERLEAVE
    *  the two bands: NFR1's fleet hulls are the tail of the slot range, and a
    *  bare `i <= nearContacts` split would have put every one of them outside the
    *  bubble — no drone silhouette, no aggro bracket, no hull-hit flash, i.e. the
    *  cheap half of the picture measured as if it were the whole one. */
   near(i: number): boolean;
   /**
-   * Ticks between radar paints of ONE far hull. 1 = every far hull paints every
-   * tick, which is what Story 4.8's scene has always done and must keep doing.
+   * Ticks between radar paints of ONE hull (near or far — every hull paints
+   * since amendment 210). 1 = every hull paints every tick, which is what
+   * Story 4.8's scene has always done and must keep doing.
    *
    * A REAL SWEEP DOES NOT DO THAT, and at NFR1's population the difference stops
    * being cosmetic: a hull paints once per revolution (15 rpm = 4 s = 80 ticks),
@@ -383,7 +386,8 @@ export interface SceneHull {
   phase: number; // rad
   rateRadPerTick: number;
   /** True once the hull is far enough out to be a radar contact rather than a
-   *  truesighted one — it paints blips instead of reading as a live silhouette. */
+   *  truesighted one — no live silhouette. (Every hull, near or far, paints
+   *  blips: the server returns the entire sweep, amendment 210.) */
   far: boolean;
 }
 
@@ -594,8 +598,9 @@ export function sceneOwn(world: SceneWorld, tick: number): OwnShip {
   };
 }
 
-/** The truesighted contacts this tick (the near band; the far band is fogged
- *  and reaches the client as radar paint instead — see `blipEvents`). */
+/** The truesighted contacts this tick (the near band). Every hull, near or
+ *  far, also reaches the client as radar paint — see `blipEvents`; the far
+ *  band is fogged, so paint is all it gets. */
 export function sceneContacts(world: SceneWorld, tick: number): Contact[] {
   return world.hulls.filter((h) => !h.far).map((h) => hullPose(h, world, tick));
 }
@@ -665,7 +670,11 @@ function impactEvents(world: SceneWorld, tick: number): GameEvent[] {
 }
 
 /**
- * Radar paint for the fogged far band — the scope's load under the same frame.
+ * Radar paint for EVERY hull — the scope's load under the same frame. The near
+ * (truesighted) contacts paint too: the server returns the ENTIRE sweep, sight
+ * bubble included, and the client synthesizes no echo from a contact (epic-9
+ * amendment 210), so a staged scope without them would be lighter than a real
+ * one.
  *
  * A wire blip is a world-anchored cell-rect plus a packed coverage mask,
  * carrying NO identity. The mask comes from the SHIPPED
@@ -676,21 +685,21 @@ function impactEvents(world: SceneWorld, tick: number): GameEvent[] {
  * sweep's paints are, and its `t` is the time it was painted at.
  *
  * THE STRIDE IS WHY THE NFR1 PROFILE'S SCOPE IS A MEASUREMENT AND NOT A FICTION
- * (Story 7.1). Story 4.8's profile paints EVERY far hull EVERY tick — fine at 7
- * hulls, and preserved byte-for-byte at `blipStrideTicks === 1`. At NFR1's 50
- * far hulls it would lay ~80x the phosphor a real sweep can produce, because a
+ * (Story 7.1). Story 4.8's profile paints EVERY hull EVERY tick — fine at a
+ * handful of hulls, and preserved at `blipStrideTicks === 1`. At NFR1's 50
+ * hulls it would lay ~80x the phosphor a real sweep can produce, because a
  * hull only paints when the beam crosses its bearing: once per revolution. Above
- * 1 the stride spreads the far band over one revolution — hull `i` paints on the
+ * 1 the stride spreads the hulls over one revolution — hull `i` paints on the
  * ticks where `(tick + i) % stride === 0` — so the scope holds the paint count a
  * player can actually provoke.
  */
 function blipEvents(world: SceneWorld, tick: number, serverT: number): GameEvent[] {
   const stride = world.profile.blipStrideTicks;
   const out: GameEvent[] = [];
-  const far = world.hulls.filter((h) => h.far);
-  for (let i = 0; i < far.length; i += 1) {
+  const hulls = world.hulls;
+  for (let i = 0; i < hulls.length; i += 1) {
     if (stride > 1 && (tick + i) % stride !== 0) continue;
-    const h = far[i];
+    const h = hulls[i];
     const age = (i * 7) % 40;
     const p = hullPose(h, world, tick - age);
     const t = serverT - age * SCENE_TICK_MS;

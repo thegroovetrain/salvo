@@ -383,7 +383,7 @@ export class BotController {
     mind.view = e.observe();
     mind.viewAt = this.port.now;
     mind.cloudUntil = e.cloudUntil; // the bot's OWN most recent cloud's expiry (Story 9.3)
-    mind.fogAt = e.fogAt; // the public fog density (Story 9.10, amendment 169 — the sweep-miss rule's one read)
+    mind.fogAt = e.fogAt; // the public fog density (Story 9.10 — the cover search's read, ai/cover.ts)
     this.observesLastTickCount += 1;
     // Deliberation (target reselection, posture, spends) runs on this bot's
     // own stagger slot; steering and firing are emitted every tick.

@@ -242,12 +242,14 @@ describe('staged worst-case scene — the population', () => {
     }
   });
 
-  it('keeps every painted blip in the radar ANNULUS — never inside truesight', () => {
+  it('paints the WHOLE sweep — near contacts inside truesight included (amendment 210)', () => {
     for (const t of [0, 91, 640, 3011]) {
       const own = ownPoseAt(world, t);
       const blips = sceneEvents(world, t, 0).filter((e) => e.k === 'blip');
-      // The far band is what the arena cap leaves after the near contacts.
-      expect(blips).toHaveLength(CONFIG.map.playerCap - 1 - SCENE.nearContacts);
+      // Every hull but the own one paints: the server returns the entire sweep
+      // and the client synthesizes no echo from a contact.
+      expect(blips).toHaveLength(CONFIG.map.playerCap - 1);
+      let inside = 0;
       for (const b of blips) {
         // `BlipEvent` is a TAGLESS union (silhouette | return); the scene speaks
         // A blip is a cell rect — its world
@@ -256,10 +258,12 @@ describe('staged worst-case scene — the population', () => {
         const cell = CONFIG.vision.radarCellU;
         const d = Math.hypot((b.gx + b.w / 2) * cell - own.x, (b.gy + b.h / 2) * cell - own.y);
         // Compared against the pose the blip was PAINTED at (blips are stale by
-        // design), so the bound is the band's own width plus that staleness.
-        expect(d).toBeGreaterThan(CONFIG.vision.sight * 0.5);
+        // design); every one still sits inside radar range.
         expect(d).toBeLessThan(CONFIG.vision.radar);
+        if (d < CONFIG.vision.sight) inside += 1;
       }
+      // Non-vacuous: echoes really do land inside the sight bubble.
+      expect(inside).toBeGreaterThan(0);
     }
   });
 

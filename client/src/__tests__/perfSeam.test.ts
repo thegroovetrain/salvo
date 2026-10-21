@@ -89,7 +89,7 @@ describe('the READABILITY profile is FROZEN (Story 4.8s ratified subject)', () =
     });
   });
 
-  it('stages the arena cap worth of hulls and paints every far hull every tick', () => {
+  it('stages the arena cap worth of hulls and paints every hull every tick', () => {
     // The arena cap bounds the population (16 since Story 9.8, Eric
     // 2026-10-13): 12 near + 7 far was the 20-captain arena's full roster; at
     // 16 the far band keeps what the cap leaves after the 12 near.
@@ -101,7 +101,10 @@ describe('the READABILITY profile is FROZEN (Story 4.8s ratified subject)', () =
     const world = buildSceneWorld(MAP_RADIUS);
     expect(world.profile).toBe(READABILITY_PROFILE);
     expect(sceneContacts(world, 0)).toHaveLength(SCENE.nearContacts);
-    expect(sceneEvents(world, 0, 0).filter((e) => e.k === 'blip')).toHaveLength(far);
+    // EVERY hull paints, near contacts included: the server returns the whole
+    // sweep and the client synthesizes no echo from a contact (epic-9
+    // amendment 210), so the staged wire carries the near band's echoes too.
+    expect(sceneEvents(world, 0, 0).filter((e) => e.k === 'blip')).toHaveLength(READABILITY_PROFILE.contacts);
   });
 });
 
@@ -140,19 +143,19 @@ describe('the NFR1 profile — the reference scenario the frame budget is judged
     expect(near.length / world.hulls.length).toBeCloseTo(bubbleShare, 1);
   });
 
-  it('paints the far band on a REAL sweep cadence, not once per hull per tick', () => {
+  it('paints every hull on a REAL sweep cadence, not once per hull per tick', () => {
     // 50 far hulls painting every tick would lay ~80x the phosphor a real sweep
     // can produce and report a frame cost no player could ever provoke. A hull
-    // paints when the beam crosses its bearing: once per revolution.
+    // paints when the beam crosses its bearing: once per revolution — near
+    // contacts too, since the server returns the whole sweep (amendment 210).
     const revolutionTicks = Math.round(60_000 / CONFIG.vision.sweepRpm / CONFIG.tick.simDtMs);
     expect(NFR1_PROFILE.blipStrideTicks).toBe(revolutionTicks);
-    const far = world.hulls.filter((h) => h.far).length;
     let painted = 0;
     for (let t = 0; t < revolutionTicks; t += 1) {
       painted += sceneEvents(world, t, 0).filter((e) => e.k === 'blip').length;
     }
-    // Exactly one paint per far hull across one full revolution.
-    expect(painted).toBe(far);
+    // Exactly one paint per hull across one full revolution.
+    expect(painted).toBe(world.hulls.length);
   });
 
   it('shares the readability profiles flash stack rather than re-inflating it', () => {

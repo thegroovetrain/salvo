@@ -6,10 +6,12 @@
 //   • the SERVER runs it in the `return`-grammar blip shaper (game/signals.ts)
 //     to build the coverage footprint that goes on the wire — a fogged hull is
 //     disclosed as "there is metal in these world cells" and NOTHING else
-//     (no id, no class, no heading, no extent scalar; amendment 152);
-//   • the CLIENT runs it on every sighted `Contact` (render/radarField.ts) so
-//     the inside-truesight echo is built by the IDENTICAL code from the
-//     identical inputs — two paint sources, one appearance (amendment 154).
+//     (no id, no class, no heading, no extent scalar; amendment 152). Since
+//     amendment 210 (Eric 2026-10-21) the server is the ONLY paint source, at
+//     every range — the radar returns its entire sweep;
+//   • the CLIENT runs the same code only to draw the wire's paints (it no
+//     longer synthesizes an inside-truesight echo from sighted contacts —
+//     amendment 154's second source is retired).
 //
 // ONE CODE PATH IS THE INDISTINGUISHABILITY LAW (amendment 11): the decoy
 // buoy's counter-intel paint is rasterized by this same pipeline from its
@@ -535,9 +537,9 @@ function cropPackedCoverage(cover: HullCoverage): HullCoverage {
 /**
  * THE WAKE PAINT PIPELINE (cycle-69 review gate, P3) — `paintCoverage`'s
  * segment sibling, and the ONE function every wire-bound or paint-bound wake
- * mask goes through (the server's `wk` shaper; the client's truesight
- * synthesis must call it too, or amendment 154's two-sources-one-appearance
- * breaks). The pipeline, in order — this exact sequence (including the RNG
+ * mask goes through (the server's `wk` shaper — since amendment 210 the only
+ * wake paint source, at every range; the client draws what the wire
+ * delivers). The pipeline, in order — this exact sequence (including the RNG
  * draw order) is the wire contract the perception oracle reimplements:
  *
  *   1. Sharp geometry over the capsule quad's cell bbox: width fill
@@ -811,10 +813,11 @@ function coveredBounds(work: Uint8Array, w: number, h: number): [number, number,
 /**
  * THE PAINT PIPELINE, whole: sharp rasterization → per-paint fuzz at the
  * shipped `CONFIG.vision.radarFuzz`, seeded from (paint time, exact pose).
- * This is the function BOTH paint sources call — the server's `return`-grammar
- * blip shaper with `t = world.now`, and the client's sighted-`Contact` stamp
- * with its per-revolution seed time — so a wire footprint and a synthesized
- * one are the same artifact by construction (amendments 11 + 154).
+ * The server's `return`-grammar blip shaper calls it with `t = world.now`;
+ * since amendment 210 that is the ONLY paint source at every range (the
+ * client calls it only for the wire's paints, never to synthesize one from a
+ * sighted `Contact`), so every footprint is the same artifact by construction
+ * (amendment 11).
  */
 export function paintCoverage(
   cls: HullId,

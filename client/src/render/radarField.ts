@@ -108,14 +108,12 @@ import {
   WAKE_AGE_BUCKETS,
   coverageCellCount,
   coverageHas,
-  paintCoverage,
   sampleHeight,
   SEA_HEIGHT,
   tileCeilingAt,
   tileSize,
   type HeightRaster,
   type HullCoverage,
-  type HullId,
   type Vec2,
 } from '@salvo/shared';
 import { POINT, SURFACE, attenuation, heightReflectivity } from './radarFalloff.js';
@@ -260,26 +258,15 @@ export function cellKey(gx: number, gy: number): number {
 /**
  * A CELL-INDEXED MATERIAL LAYER: absolute world cell -> the material there.
  *
- * Two layers use it — the per-frame SHIP stamp (amendment 141) and, since Story
- * 4.12, the WAKE stamp (core + the chop that hangs off it). `ShipStamp` remains
- * as the ship layer's name because that is what every existing caller says.
+ * Two layers use it — the SHIP stamp (one wire echo's footprint, `marchEcho` →
+ * `shipOnlyField`) and, since Story 4.12, the WAKE stamp (core + the chop that
+ * hangs off it). `ShipStamp` remains as the ship layer's name because that is
+ * what every existing caller says.
  */
 export type CellStamp = Map<number, FieldSample>;
 
-/** The per-frame ship layer: absolute world cell -> that hull's sample. */
+/** A ship layer: absolute world cell -> that hull's sample. */
 export type ShipStamp = CellStamp;
-
-/** The part of a `Contact` a hull footprint is built from: where it is and the
- *  two fields `hullSilhouette` + `perpendicularExtent` need. Deliberately a
- *  structural subset of `Contact`, so this module never imports the wire type or
- *  the snapshot layer. */
-export interface EchoHull {
-  id: string;
-  x: number;
-  y: number;
-  heading: number;
-  cls: HullId;
-}
 
 /**
  * Write one ship cell, MAX-WINS — the same rule `writeCell` applies one level
@@ -503,42 +490,6 @@ export function stampCoverage(
   }
 }
 
-/**
- * THE PER-FRAME SHIP LAYER, from the hulls the client already holds.
- *
- * BOTH PAINT SOURCES FEED ONE STAMP AND ONE RASTERIZER (amendments 141 + 154).
- * Inside truesight the client synthesizes a hull from its `Contact` (the
- * server deliberately sends no blip for a hull it is already sending as a
- * contact — `blipGate` excludes `dist <= sightRange`, a perception-invariant
- * surface that is untouched here) by running the SAME shared `paintCoverage`
- * pipeline the server runs for a wire blip — sharp rasterization + the
- * cycle-63 fuzz (dilation + per-paint glint, amendments 156-157); beyond it,
- * the footprint arrives already rasterized AND fuzzed on the wire. Two
- * sources, one appearance, by construction — the inside/outside split
- * survives but stops being visible. Neither can double-stamp one hull,
- * because the two ranges are exact complements about the same effective-truesight
- * radius.
- *
- * `seedT` is the glint seed's time term. The caller passes the CURRENT SWEEP
- * REVOLUTION INDEX rather than the frame time, so a stationary sighted hull
- * keeps one stable mask for the whole beam crossing and re-glints on the next
- * revolution — sweep-to-sweep scintillation, exactly like the wire source
- * (whose seed time is the paint tick, one paint per revolution per hull).
- */
-export function buildShipStamp(
-  hulls: readonly EchoHull[],
-  m: ReturnModelOpts,
-  cellU: number,
-  seedT = 0,
-): ShipStamp {
-  const stamp: ShipStamp = new Map();
-  const steel = hullSample(m);
-  for (const h of hulls) {
-    stampCoverage(stamp, paintCoverage(h.cls, h.x, h.y, h.heading, cellU, seedT), steel);
-  }
-  return stamp;
-}
-
 // --- the WAKE layer (Story 4.12) -------------------------------------------------
 
 /**
@@ -578,8 +529,8 @@ export interface WakeSegmentCover {
  * and the taper runs down it, reaching the bare core at the oldest bucket. The
  * Kelvin constant therefore sets the envelope's WIDTH rather than the taper's
  * rate; the rate is set by the source's own speed, since a fast hull spreads its
- * buckets over more water. Both sources agree on this because both express it in
- * buckets (amendment 154: two sources, one appearance).
+ * buckets over more water. The on-water envelope (render/effects.ts) expresses
+ * it in the same buckets, so the water and the scope agree by construction.
  */
 export function chopHaloCells(cov: HullCoverage, bucket: number): number {
   const span = Math.max(cov.w, cov.h);
@@ -696,25 +647,33 @@ export interface FieldSpec {
   /** The cycle-59 height raster, or null for a caller that has none (in which
    *  case the field carries no terrain at all rather than guessing at one). */
   raster: HeightRaster | null;
-  /** The per-frame ship layer. */
-  ships: ShipStamp;
   /**
-   * The per-frame WAKE layer (Story 4.12) — disturbed water the client holds
-   * POSE for, i.e. the inside-truesight source, exactly as `ships` is the
-   * inside-truesight hull source. Optional: a caller with no wake at all passes
-   * nothing and the field answers as it did before 4.12, cell for cell.
+   * An optional SHIP layer, composed with terrain by strength (`solidAt`).
    *
-   * BEYOND TRUESIGHT WAKE DOES NOT COME THROUGH HERE. It arrives already gated
-   * and rasterized on the wire and is marched at once through `wakeOnlyField`,
-   * for the same reason a wire hull echo is: the SERVER's beam already crossed
+   * THE LIVE BEAM NEVER PASSES ONE (epic-9 amendment 210). Every hull return
+   * arrives on the wire — at any range, sight bubble included — and is marched
+   * at once through `shipOnlyField`; the client synthesizes no hull from a
+   * `Contact` (Eric 2026-10-21: *"The client should never be calculating a
+   * ship's radar shadow for any reason."*). The layer stays on the seam because
+   * the field is a general composition of materials, and the march/heatmap
+   * suites drive it with fixture hulls. Omitted = no steel in the field.
+   */
+  ships?: ShipStamp;
+  /**
+   * An optional WAKE layer (Story 4.12), ranked below surf and above clutter.
+   *
+   * THE LIVE BEAM NEVER PASSES ONE EITHER (amendment 210): every disclosed wake
+   * segment arrives on the wire and is marched at once through `wakeOnlyField`,
+   * for the same reason a wire hull echo is — the SERVER's beam already crossed
    * it, and waiting for the local beam would paint it a revolution stale.
+   * Omitted = the field answers as it did before 4.12, cell for cell.
    */
   wake?: CellStamp;
   /**
    * THE COUNTERMEASURE CLOUD LAYER (Story 9.3 session 4) — the drawn smoke
    * thickness (0..maxAlpha) under a world point, max across every held cloud
    * (`Countermeasure.coverAt`, pulled through the Radar's `setCloudSource`
-   * thunk exactly as `wake` is pulled through `setWakeSources`). Optional: a
+   * thunk). Optional: a
    * frame with no cloud held passes nothing and the field answers as before.
    * The material is `cloudSample` — strength by thickness (Eric 2026-10-12).
    */
@@ -725,8 +684,9 @@ export interface FieldSpec {
 
 /** The ship layer's answer at a point, or null. */
 function shipAt(f: FieldSpec, x: number, y: number): FieldSample | null {
-  if (f.ships.size === 0) return null;
-  return f.ships.get(cellKey(cellOf(x, f.cellU), cellOf(y, f.cellU))) ?? null;
+  const ships = f.ships;
+  if (ships === undefined || ships.size === 0) return null;
+  return ships.get(cellKey(cellOf(x, f.cellU), cellOf(y, f.cellU))) ?? null;
 }
 
 /** The return one sample would make at `dist`, before grain — the same
@@ -835,8 +795,8 @@ function stampAt(stamp: CellStamp, x: number, y: number, cellU: number): FieldSa
  * `shipOnlyField`, and it inherits that function's whole argument.
  *
  * `disclosed: true` for the same reason: the server has already gated these
- * segments (annulus + swept-this-tick + amendment 179's shadow accumulator, per
- * segment), so a client-side occlusion test may ATTENUATE what it finds but may
+ * segments (radar range + swept-this-tick + amendment 179's shadow accumulator,
+ * per segment), so a client-side occlusion test may ATTENUATE what it finds but may
  * never SUPPRESS it, and this ray emits no NO-DATA marks — a bearing the server
  * answered is not a bearing the client learned nothing on. That is amendment 190
  * exactly: *"suppression is forbidden, attenuation with a floor is not."*
@@ -891,9 +851,8 @@ export function wakeOnlyField(
  * only ever SUPPRESS a blip the server legitimately disclosed, and *"anything
  * the server blips paints at least a speck"* forbids that in as many words. The
  * reasoning is sound and it still binds. The CONCLUSION did not follow: a null
- * raster does not merely refuse to suppress, it refuses to ATTENUATE, so beyond
- * truesight — the one tier this feature governs, since inside it a hull arrives
- * as a `Contact` and is painted through `buildField` — a 5%-illuminated hull
+ * raster does not merely refuse to suppress, it refuses to ATTENUATE, so a
+ * 5%-illuminated hull
  * painted at FULL strength right up to the tick the server's gate flipped, and
  * then vanished. That is exactly the cut Story 4.11's acceptance criterion
  * forbids (*"a ship crossing into a shadow ... fades through the weakest band

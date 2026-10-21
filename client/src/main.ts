@@ -2180,9 +2180,8 @@ function makeGameReturnToPort(getG: () => Game | null): () => void {
       // about one moment on one ocean, and it must not survive into the next.
       g.foghorn.clear();
       // ...and for the wake (Story 4.12), which is the strongest case of the
-      // three: it is a whole ribbon of TRUE world positions per hull, and it
-      // also feeds the radar's in-truesight stamp, so a survivor would paint
-      // the next ocean as well as draw on it.
+      // three: it is a whole ribbon of TRUE world positions per hull, so a
+      // survivor would draw the last ocean's water onto the next one.
       g.effects.clearWake();
     },
   });
@@ -2895,6 +2894,12 @@ function buildGame(
   const radar = new Radar(stage.layers.blip, stage.layers.sweep);
   const countermeasure = new Countermeasure(stage.layers.cloud);
   radar.setCloudSource(countermeasure);
+  // ...and the dim mask reads the rolling fog's eye-reach fan (amendment 210:
+  // on a fogged bearing the near-range dim slides inward to where the eye ends).
+  // The Radar owns the cadence and asks only with an own pose, so the spectate
+  // path (radar.render(null, ...)) never casts.
+  const fogField = new FogFieldView(stage.layers.fog);
+  radar.setEyeReachSource(fogField);
   // A far cloud's radar-delivery hold ages by FRAME time (net/clock.ts frameNow),
   // so a lagging server never blinks a return it is still delivering.
   const clock = new ServerClock();
@@ -2944,7 +2949,7 @@ function buildGame(
     smoke: new Smoke(stage.layers.smoke),
     fire: new Fire(stage.layers.smoke), // pins itself to the layer's bottom: under every puff
     countermeasure,
-    fogField: new FogFieldView(stage.layers.fog),
+    fogField,
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
     nextHonkAt: 0,
     fog: new Fog(stage.fogSprite),
@@ -2998,21 +3003,11 @@ function buildGame(
   // shipped coastline's own mask, and its elevation is what makes a steep
   // headland paint red where a low sandy island of the same size paints blue.
   g.radar.setHeightRaster(map.heightRaster);
-  // THE IN-TRUESIGHT WAKE SEAM (Story 4.12). One tracker, two renderings: the
-  // emitter owns the ribbons and draws the water, the scope stamps the SAME
-  // segments onto the radar lattice for the inner half the server does not
-  // disclose (per source: `blipGate`'s annulus for a hull, the detect rung
-  // for a fish). Read-only here — the radar samples ribbons and never appends.
+  // NO WAKE SEAM INTO THE RADAR (epic-9 amendment 210): the server discloses
+  // every wake segment its beam crosses, sight bubble included, so the scope
+  // paints wire `wk` rows only and never reads the emitter's ribbons.
   //
-  // THE ISLANDS RIDE ALONG (cycle-69 review gate, P5) because the synthesis is
-  // a STAND-IN for a disclosure the server withholds on BINARY-LOS grounds, so
-  // it owes the same binary test the server would have applied. They are the
-  // deterministic set rebuilt from the map seed — the same array the predictor
-  // and the fog already collide against, never a second geometry.
-  // (Countermeasure clouds rode along here until 2026-10-12; the server hides
-  // nothing behind smoke now, so the client mirrors nothing.)
-  g.radar.setWakeSources(g.effects.wakeSources, g.islands);
-  // ...and the haze halo sees past no island (Story 9.3 session 6, Eric
+  // The haze halo sees past no island (Story 9.3 session 6, Eric
   // 2026-10-12: "if I can't see it because of an island … don't render it").
   g.countermeasure.setIslands(g.islands);
   g.fogField.setIslands(g.islands); // ...and so does the fog haze (Story 9.10)
@@ -3303,8 +3298,8 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
  *
  * Own predicted pose first (or nothing, spectating), then every contact —
  * captains and drones alike, at the SAME interp-delayed time the hull renderer
- * and the radar's `shipStamp` sample them at, so the foam lands on the hull the
- * player can see rather than ~100ms ahead of it.
+ * samples them at, so the foam lands on the hull the player can see rather than
+ * ~100ms ahead of it.
  *
  * THERE IS NO DECOY BRANCH HERE AND THERE MUST NOT BE (amendment 201, and
  * Story 8.16's amendment 123: a decoy lays no wake). A decoy is anchored at its
@@ -3321,9 +3316,9 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
  * AND EVERY LIVE TORPEDO IS A SOURCE TOO (cycle-69 review gate, P10). A fish's
  * trail used to be a private one-shot dot chain inside `Projectiles` at 0.7s
  * while the same fish's radar ribbon ran 6s — the length fork amendment 204
- * forbids. It joins the ONE tracker here, so the water and the scope draw the
- * same geometry at the same life, and the client synthesizes its in-detect half
- * exactly as it synthesizes a hull's in-sight half.
+ * forbids. It joins the ONE tracker here, so the water draws the same geometry
+ * at the same life as the server's ribbon (the scope paints the fish's water
+ * from wire `wk` rows only — amendment 210).
  */
 function wakeHulls(g: Game, pose: RenderPose | null, now: number): WakeHull[] {
   const out: WakeHull[] = g.projectiles.torpWakeHulls(now);
@@ -4301,16 +4296,16 @@ function renderAlive(
   // Own pose feeds the projectile cull; own active zones keep a shell revealed
   // by our flare from being culled (exactly-once — Story 1.7).
   g.projectiles.render(now, pose ?? undefined, ownZones);
-  // The contact store is the radar's SECOND source of ship paints (amendment
-  // 89): a hull inside truesight is delivered as a `Contact` and never as a
-  // blip, so the scope synthesizes its echo from that store when the beam
-  // crosses it. Read-only here — the radar samples poses, nothing more.
-  // The fourth argument is the camera's world rect (amendment 96): the heatmap
+  // The contact store is NOT a radar source (epic-9 amendment 210): every hull
+  // return, inside the sight bubble or beyond it, arrives as a wire blip, so
+  // the scope is handed no contacts at all.
+  // The third argument is the camera's world rect (amendment 96): the heatmap
   // buffer is sized and centred on WHAT IS ON SCREEN, so a paint can never be
   // clipped by a ring-sized box around the ship. It reaches the buffer extent
   // and nothing else — no paint is created, retired or culled by it — which is
   // what makes a paint recorded while zoomed in appear when you zoom out.
-  // There is no fifth argument any more. It used to be the live zone view, which
+  // The fourth is the screen's world rect (the masked pass's clip). There is no
+  // zone argument any more. It used to be the live zone view, which
   // the radar read to paint the storm's closing wall as a volume return; cycle 72
   // deleted that material on Eric's ruling (*"I don't want the storm ring
   // highlighted by radar anymore"*). The storm is still fully legible on the water
@@ -4319,8 +4314,8 @@ function renderAlive(
   // THE SCOPE IS OFF AT THE START LINE (Story 6.1, amendment 8: *"radar off"*),
   // and it is turned off by passing NO OBSERVER — the exact call the spectate
   // path already makes. One argument does all of it: the sweep wedge and the
-  // range rings hide, the beam march never runs (so no paint is ever created,
-  // from the wire or from truesight), and the heat surface is hidden AND
+  // range rings hide, the beam march never runs and no parked wire paint
+  // resolves (so no paint is ever created), and the heat surface is hidden AND
   // blanked. An OFF scope, not an empty one — no wedge sweeping a clear screen.
   //
   // TRUESIGHT IS UNTOUCHED. "Radar off" is the radar SENSOR, not blindness: the
@@ -4330,8 +4325,8 @@ function renderAlive(
   // Resuming is clean for free — `updateSweep` drops `sliceFrom` whenever the
   // sweep is hidden, so the first live frame marches from the current bearing
   // instead of replaying a whole revolution of crossings at once.
-  if (atStartLine(g)) g.radar.render(null, now, null, null);
-  else g.radar.render(pose, now, g.contacts, g.camera.worldView, g.camera.screenWorldRect);
+  if (atStartLine(g)) g.radar.render(null, now, null);
+  else g.radar.render(pose, now, g.camera.worldView, g.camera.screenWorldRect);
   // Wounded smoke ages on the SERVER clock, so it is driven here rather than
   // inside renderOwn: a forceSnap gap (respawn / P-toggle) leaves us with no
   // own pose for a frame, and a plume that stopped drifting whenever our own
@@ -4608,7 +4603,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // Hides the sweep + rings. The zone view rides along for consistency with the
   // alive path, and paints nothing either way: with no own pose there is no
   // observer to freeze a paint against, so no source opens (Story 4.10).
-  g.radar.render(null, now, null, null);
+  g.radar.render(null, now, null);
   g.smoke.render(now); // a spectator receives every `sm` pulse — the plumes keep drifting
   g.fire.render(now); // ...and the flames on every tier-2 one
   // Spectator origin is the camera centre — honkBearing (roomBindings.ts)

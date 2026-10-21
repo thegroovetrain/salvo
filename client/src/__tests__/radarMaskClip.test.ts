@@ -59,10 +59,10 @@ describe('the radar layer\'s masked pass stays inside the screen', () => {
     const cam = camera(spanU);
     cam.snapTo(own);
     const screen = cam.screenWorldRect;
-    radar.render(own, 900, null, cam.worldView, screen);
+    radar.render(own, 900, cam.worldView, screen);
     const c = rasterizeHullCoverage('mineLayer', own.x + 240, own.y - 180, 0, CELL);
     radar.onBlip({ k: 'blip', t: 1000, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
-    radar.render(own, 1000, null, cam.worldView, screen);
+    radar.render(own, 1000, cam.worldView, screen);
 
     const heat = layer.children.find((k): k is Sprite => k instanceof Sprite && k.label !== DIM_MASK_LABEL);
     expect(heat?.visible, 'the scope holds paint').toBe(true);

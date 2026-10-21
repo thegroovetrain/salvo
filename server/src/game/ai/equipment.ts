@@ -397,7 +397,8 @@ function torpedoTacticFor(id: TorpedoLineId): EquipmentTactic {
     reachU: (stats) => torpedoReachU(stats, id),
     // Same persistence law as the broadside: a long-reload tube is never spent
     // on a track that has not persisted one sweep revolution (live truesight
-    // counts instantly — a fake can never appear inside the bubble).
+    // counts instantly — `live` is raised only by a truesight Contact, which
+    // a radar paint, fake or decoy, never is).
     want: (ctx) => ctx.target !== null && hasPersistence(ctx.target, ctx.sit.now),
     solve: (ctx) =>
       stamped(ctx, id, solveTorpedoShot(ctx, id, ctx.sit.stats.equipment[id].speed, torpedoReachU(ctx.sit.stats, id))),
