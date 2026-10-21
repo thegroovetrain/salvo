@@ -305,8 +305,8 @@ interface WakeParticle {
 // settles. The scope expresses the taper in AGE BUCKETS because the wire
 // carries no distance-astern channel (amendment 194 strips every identity and
 // linkage from the payload); the water expresses it in the SAME buckets, off the
-// same shared ribbon, so both sources agree by construction rather than by two
-// tunings that happen to match (amendment 154: two sources, one appearance).
+// same shared ribbon, so the water and the scope agree by construction rather
+// than by two tunings that happen to match.
 //
 // IT IS INFORMATION, NOT JUICE, so it is never motion-gated: `motion: 'off'`
 // removes MOTION and never INFORMATION (the standing rule at `isJuiceEffect`).
@@ -405,10 +405,9 @@ export class Effects {
   private readonly shots: OneShot[] = [];
   /**
    * THE ONE WAKE, as the client holds it (amendment 204): the shared ribbon per
-   * visible hull. Both renderings hang off it — this class draws the water,
-   * `render/radar.ts` stamps the same segments onto the radar lattice through
-   * `WakeStampCache`. Exposed rather than duplicated, because a second ribbon
-   * model is a desync surface.
+   * visible hull, from which this class draws the water. (The scope no longer
+   * reads it — amendment 210: radar wake is wire `wk` rows only.) Exposed rather
+   * than duplicated, because a second ribbon model is a desync surface.
    */
   readonly wakeSources = new WakeSources();
   /** Displaced-water envelopes, one Graphics per tracked source. */

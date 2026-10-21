@@ -50,7 +50,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { Container, Sprite, Texture } from 'pixi.js';
 import { CONFIG, rasterizeHullCoverage, type HeightRaster, type ReturnBlipEvent } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { ContactStore } from '../net/snapshots.js';
 import { Camera, ringFitSpanU, spanFactor } from '../render/camera.js';
 import { DIM_MASK_LABEL, Radar, type ViewRect } from '../render/radar.js';
 import { dimRadii } from '../render/radarDim.js';
@@ -280,7 +279,7 @@ function echo(x: number, y: number, t = 1000, id = 'trk-1'): TestEcho {
 function frame(radar: Radar, cam: Camera, own: { x: number; y: number }, t: number): ViewRect {
   cam.snapTo(own);
   const view = cam.worldView;
-  radar.render(own, t, null, view);
+  radar.render(own, t, view);
   return view;
 }
 
@@ -575,19 +574,19 @@ describe('the camera cannot touch what is painted or when it is retired', () => 
   /** A ridge to the east, as the height raster the march reads. */
   const RASTER = rasterFrom(900, slab(500, 0, 120, 90, 255));
 
-  /** Identical world state, one camera. Contacts, terrain, wire echoes — every
-   *  source of paints in the grammar. */
+  /** Identical world state, one camera. Terrain and wire echoes (one inside the
+   *  sight bubble, one beyond it) — every source of paints in the grammar since
+   *  amendment 210 retired the contact-synthesized echo. */
   function run(view: (own: { x: number; y: number }) => ViewRect | null, times: number[]): Radar {
     const layer = new Container();
     const radar = new Radar(layer, new Container());
-    const contacts = new ContactStore();
-    contacts.pushFrame(0, [{ id: 'ship-7', x: 200, y: 0, heading: 0, speed: 0, cls: 'battleship' }]);
     radar.setHeightRaster(RASTER);
     radar.onSweepSample(-0.6, 0);
     const own = { x: 0, y: 0 };
     for (const t of times) {
+      if (t === 200) radar.onBlip(echo(200, 0, 200, 'wire-near').e);
       if (t === 400) radar.onBlip(echo(500, 300, 400, 'wire-1').e);
-      radar.render(own, t, contacts, view(own));
+      radar.render(own, t, view(own));
     }
     return radar;
   }
@@ -713,7 +712,7 @@ function frameZone(
   t: number,
 ): void {
   cam.snapTo(own);
-  radar.render(own, t, null, cam.worldView);
+  radar.render(own, t, cam.worldView);
 }
 
 /**
@@ -1137,7 +1136,7 @@ describe('the near-range dim mask', () => {
     const { radar, layer } = harness();
     frame(radar, camera(1), { x: 300, y: 300 }, 0);
     expect(layer.mask).toBe(radar.dimMask);
-    radar.render(null, 500, null, null);
+    radar.render(null, 500, null);
     expect(layer.mask ?? null, 'no own pose, no mask').toBeNull();
     // ...and `clearBlips` (entering spectate) tears it down too.
     frame(radar, camera(1), { x: 300, y: 300 }, 900);
@@ -1162,7 +1161,7 @@ describe('the near-range dim mask', () => {
     expect(layer.mask).toBe(radar.dimMask);
 
     for (const own of [{ x: Number.NaN, y: 300 }, { x: 300, y: Infinity }]) {
-      radar.render(own, 500, null, cam.worldView);
+      radar.render(own, 500, cam.worldView);
       expect(layer.mask ?? null, `own = (${own.x}, ${own.y}): the mask comes off`).toBeNull();
       expect(Number.isFinite(radar.dimMask.position.x), 'and never takes a NaN position')
         .toBe(true);
@@ -1194,7 +1193,7 @@ describe('the near-range dim mask', () => {
     // Walk own ship a long way. The mask follows it — and the records it walked
     // past do not move one bit. (Later frames enrol NEW
     // slices at the end of the list; the ones already there are the history.)
-    radar.render({ x: 900, y: 900 }, 950, null, cam.worldView);
+    radar.render({ x: 900, y: 900 }, 950, cam.worldView);
     expect(radar.dimMask.position.x).toBeCloseTo(900, 9);
     const after = radar.paintList.slice(0, frozen.length);
     expect(after.map((s) => [...s.w.subarray(0, s.n)])).toEqual(frozen);

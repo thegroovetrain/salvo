@@ -478,11 +478,11 @@ export function sighted(world: AmbientWorld, h: AmbientHull, islands: readonly I
 }
 
 /**
- * The truesighted contacts this frame — the INSIDE-the-bubble source of hull
- * returns (amendment 89). They reach the scope only by being pushed through a
- * real `ContactStore`, which the radar samples `interpDelayMs` in the past
- * exactly as it does in a live match, so the synthesized echo, the drawn
- * silhouette and the wake all agree about where the hull was.
+ * The truesighted contacts this frame. They are pushed through a real
+ * `ContactStore`, sampled `interpDelayMs` in the past exactly as in a live
+ * match, so the drawn silhouette and its wake agree about where the hull was.
+ * They are NOT a radar source (epic-9 amendment 210): every echo on the menu
+ * scope comes from `ambientPaints`, the scene's stand-in for the server's wire.
  */
 export function ambientContacts(world: AmbientWorld, islands: readonly Island[]): Contact[] {
   const out: Contact[] = [];
@@ -494,11 +494,12 @@ export function ambientContacts(world: AmbientWorld, islands: readonly Island[])
 }
 
 /**
- * The hulls the beam PAINTED this frame: beyond truesight, inside radar range,
- * and the beam actually crossed their bearing on this advance. That is the
- * whole outside-the-bubble rule, and it is the reason a menu hull does not
- * simply glow — it is found, then decays, then is found again a revolution
- * later.
+ * The hulls the beam PAINTED this frame: anywhere inside radar range — the sight
+ * bubble included — and the beam actually crossed their bearing on this
+ * advance. That is the server's whole-sweep rule (epic-9 amendment 210: the
+ * server returns the ENTIRE sweep and the client synthesizes nothing), and it
+ * is the reason a menu hull does not simply glow — it is found, then decays,
+ * then is found again a revolution later.
  *
  * TERRAIN IS NOT TESTED HERE ON PURPOSE. Whether a return survives the ground
  * between it and the observer is the shipped height-aware shadow march's answer
@@ -511,7 +512,7 @@ export function ambientPaints(world: AmbientWorld, tick: AmbientTick): AmbientHu
   for (const h of world.hulls) {
     if (h === world.observer) continue;
     const range = rangeTo(world, h);
-    if (range <= world.stats.sightRange || range > world.stats.radarRange) continue;
+    if (range > world.stats.radarRange) continue;
     if (sweepCrossed(tick.prevSweep, tick.sweep, bearingTo(world, h))) out.push(h);
   }
   return out;

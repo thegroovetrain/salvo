@@ -200,8 +200,9 @@ export class AmbientScene {
   private readonly radar: Radar;
   private readonly effects: Effects;
   private readonly fog: Fog;
-  /** The truesight source of hull returns — a real store, fed real frames and
-   *  sampled `interpDelayMs` in the past, exactly as the live client does. */
+  /** The truesighted hulls' poses — a real store, fed real frames and sampled
+   *  `interpDelayMs` in the past, exactly as the live client does. It draws the
+   *  silhouettes and their foam; it is not a radar source (amendment 210). */
   private readonly contacts = new ContactStore();
   private readonly views = new Map<string, ShipView>();
   /** Each hull's resolved style, held so the silhouette and its wake are drawn
@@ -253,7 +254,6 @@ export class AmbientScene {
     // the "no combat on the menu" rule expressed as wiring rather than as a
     // check somebody has to remember.
     this.effects = new Effects(stage.layers.wake);
-    this.radar.setWakeSources(this.effects.wakeSources, this.map.islands);
     this.fog = new Fog(stage.fogSprite);
     this.fog.setSightRange(stats.sightRange, stats.radarRange);
     for (const h of this.world.hulls) {
@@ -312,7 +312,7 @@ export class AmbientScene {
     this.chart.update(this.camera.zoom);
     this.drawHulls(tick);
     this.effects.update(tick.dtSec, now, this.wakes);
-    this.radar.render(this.world.observer.state, now, this.contacts, this.camera.worldView);
+    this.radar.render(this.world.observer.state, now, this.camera.worldView);
     const hole = this.camera.worldToScreen(this.world.observer.state);
     this.fog.update(hole.x, hole.y);
   }
@@ -322,7 +322,6 @@ export class AmbientScene {
     if (this.destroyed) return;
     this.destroyed = true;
     this.stage.app.renderer.off('resize', this.onResize);
-    this.radar.setWakeSources(null);
     this.effects.clearWake();
     // THE MASK COMES OFF BEFORE THE SPRITE IS DESTROYED. `updateDimMask` parks
     // the near-range dim sprite on `layers.blip.mask` every frame (amendment
@@ -341,14 +340,13 @@ export class AmbientScene {
     this.stage.fogSprite.alpha = 1;
   }
 
-  // --- perception: the two sources of hull returns ----------------------------
+  // --- perception: contacts (drawn hulls) and the fake wire (radar) ------------
 
   /**
-   * Push this frame's TRUESIGHTED hulls into the contact store — the
-   * inside-the-bubble source (amendment 89). The radar samples this store at
-   * `serverNow − interpDelayMs`, so for the first ~100ms of scene time there is
-   * no history to sample and a near hull is simply not stamped yet; that is the
-   * live client's own behaviour at join and needs no special case.
+   * Push this frame's TRUESIGHTED hulls into the contact store. The hull views
+   * sample it at `serverNow − interpDelayMs`, so for the first ~100ms of scene
+   * time there is no history to sample and a near hull is simply not drawn yet;
+   * that is the live client's own behaviour at join and needs no special case.
    *
    * The id set it records is THIS FRAME's truesight membership, and it is the
    * authority `drawHulls` uses — see there for why the contact store cannot
@@ -360,27 +358,30 @@ export class AmbientScene {
     for (const c of list) this.sightedIds.add(c.id);
     if (list.length > 0) this.contacts.pushFrame(now, list);
     // A hull that sails out of the bubble (or behind a coast) stops being fed;
-    // pruning it BOUNDS how long the scope can keep synthesizing an echo from a
-    // dead-reckoned pose — it does not prevent it, and the 400ms TTL is the
-    // live client's own number. What it is emphatically NOT is a visibility
+    // pruning it BOUNDS how long the store keeps answering for a dead-reckoned
+    // pose — the 400ms TTL is the live client's own number. What it is
+    // emphatically NOT is a visibility
     // rule: the drawn hulls take theirs from `sightedIds` above, because
     // `sampleAt` keeps answering (frozen) right up to the prune.
     this.contacts.prune(now, CONTACT_STALE_MS);
   }
 
   /**
-   * Wire blips for the hulls the beam just found OUTSIDE truesight — the
-   * annulus source. The footprint comes from the SHIPPED shaper
+   * Wire blips for the hulls the beam just found ANYWHERE in radar range, the
+   * sight bubble included (epic-9 amendment 210: the server returns the whole
+   * sweep, and the scope paints only what the wire delivers). The footprint
+   * comes from the SHIPPED shaper
    * (`paintCoverage`, the very function the server's `return`-grammar blip row
    * calls) on the shipped lattice, so a menu echo and a match echo are the same
    * artifact by construction.
    *
-   * There is deliberately no `wk` (wake) row here. A far hull's water reaches a
-   * real client only because the SERVER rasterizes it per segment; with no
-   * server the honest options were to synthesize a disclosure nobody made, or to
-   * let a fogged hull lay visible foam on the water. The scene does neither: the
-   * wake you see, on the water and on the scope alike, is a truesighted hull's,
-   * through `setWakeSources` — the exact half the client owns in a real match.
+   * There is deliberately no `wk` (wake) row here. A hull's water reaches a real
+   * client's scope only because the SERVER rasterizes it per segment; with no
+   * server the honest options were to fake a disclosure nobody made, or to let a
+   * fogged hull lay visible foam on the water. The scene does neither: the wake
+   * you see is a truesighted hull's foam on the water, and the menu scope carries
+   * hull echoes only (the client no longer stamps its own ribbons onto the
+   * radar — amendment 210).
    */
   private paintReturns(tick: AmbientTick, now: number): void {
     for (const hull of ambientPaints(this.world, tick)) {
@@ -419,9 +420,9 @@ export class AmbientScene {
    * Place every visible hull and collect this frame's wake sources.
    *
    * The observer draws at its LIVE pose (it is the local ship); every other hull
-   * draws at its interp-delayed contact sample — the same time the radar's own
-   * `shipStamp` and the live client's `wakeHulls` read — so the silhouette, its
-   * foam and its echo all agree about where it was.
+   * draws at its interp-delayed contact sample — the same time the live client's
+   * `wakeHulls` reads — so the silhouette and its foam agree about where it
+   * was.
    *
    * VISIBILITY IS THIS FRAME'S TRUESIGHT MEMBERSHIP, NOT "did `sampleAt` answer".
    * That was the shipped bug and the mistake is easy to repeat: `sampleAt`

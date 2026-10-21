@@ -69,27 +69,41 @@
 // cadence: a stat change. (Until Story 9.4 a FLASH SHELLS dazzle moved it too.)
 // render/radarDim.ts owns the curve; render/textures.ts draws it.
 //
-// TWO SOURCES OF HULL RETURNS, COMPLEMENTARY BY RANGE (amendment 89, unchanged;
-// amendment 141 for how they paint). The server has never sent a blip for a
-// sighted hull — `blipGate` excludes `dist <= sightRange`, because such a hull is
-// delivered as a full `Contact` instead — and that rule is a perception-invariant
-// surface this cycle does not touch. So INSIDE truesight the client stamps the
-// hull into the field from the `Contact` it already holds and the beam paints it
-// on the crossing, exactly like terrain; BEYOND truesight the echo arrives on the
-// wire, and `resolvePending` marches THAT hull's own bearing window immediately,
-// through the same field seam and the same intensity model, because the SERVER's
-// beam has already gated it and waiting for the local beam to come round would
-// paint the hull a whole revolution stale. One list, one model, two arrival
-// paths; and no hull can be in both, because the two ranges are exact complements
-// about one effective-truesight radius.
+// ON A FOGGED BEARING THE RAMP SLIDES INWARD (epic-9 amendment 210, Eric
+// 2026-10-21): each bearing's ramp starts where the observer's fog-tolled EYE
+// actually ends on it, by the `dim.fogLift` dial, so a return the fog hid from
+// the eye is not muted as though it were in plain sight. The fan comes from an
+// `EyeReachSource` (main.ts hands over the FogFieldView once) and is re-cast
+// and re-baked on the fog refresh cadence or a move past `dim.reachRecastMoveU`,
+// never per frame (`syncDimMask`).
 //
-// WHICH IS WHY `sightHoleU` SURVIVES, WITH THE JOB IT HAS HELD SINCE CYCLE 56.
-// The radius is not a suppression boundary; it is the SOURCE SELECTOR that keeps
-// the two from overlapping. It stays `fogHoleRadiusU()` — the very function that
-// bakes the visible fog hole, and by construction the same effective truesight
-// (a boon-widened constant per build) the server's own `sightOf` uses — because if the client's
-// idea of truesight ever drifted from the server's, a hull at the seam would be
-// painted twice or not at all.
+// ONE SOURCE OF HULL AND WAKE RETURNS: THE WIRE (epic-9 amendment 210, Eric
+// 2026-10-21: *"The client should never be calculating a ship's radar shadow for
+// any reason."*). The server returns the ENTIRE sweep — a blip for every hull and
+// decoy, and a `wk` row for every wake segment, the beam crossed this tick at ANY
+// distance inside radar range, sight bubble included — through its own
+// height-aware shadow and dropout. So the client paints exactly what the wire
+// delivers and synthesizes nothing: `resolvePending` / `resolvePendingWake` march
+// each delivered footprint's own bearing window immediately, through the same
+// field seam and intensity model as the beam, because the SERVER's beam has
+// already gated it and waiting for the local beam to come round would paint it a
+// whole revolution stale. The local beam (`marchBeam`) paints only what the
+// client legitimately owns outright: terrain, surf, sea clutter and the
+// countermeasure clouds.
+//
+// HISTORY (superseded by amendment 210): from amendment 89 until 2026-10-21 the
+// server withheld every paint inside the sight bubble and the client stamped
+// sighted hulls (from their `Contact`) and in-bubble wake (from its own ribbons)
+// into the beam field — "two sources, one appearance" (amendments 88 + 154). A
+// fogged hull inside that radius therefore reached neither path, which is the
+// defect amendment 210 removes.
+//
+// `sightHoleU` SURVIVES as the observer's effective truesight radius — no longer
+// a source selector, but still the anchor of the near-range dim mask, the cloud
+// return gate and the hull feather. It stays `fogHoleRadiusU()` — the very
+// function that bakes the visible fog hole, and by construction the same
+// effective truesight (a boon-widened constant per build) the server's own
+// `sightOf` uses.
 //
 // TERRAIN COMES FROM THE HEIGHT RASTER, NOT FROM THE ISLAND POLYGONS. The
 // cycle-59 raster is the ratified elevation authority and its land/water truth is
@@ -143,12 +157,10 @@ import {
   type BlipEvent,
   type HeightRaster,
   type HullCoverage,
-  type Island,
   type WakeBlipEvent,
   WAKE_AGE_BUCKETS,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import type { ContactStore } from '../net/snapshots.js';
 import { settings } from '../settings/store.js';
 import type { ScreenWorldRect } from './camera.js';
 import { fogHoleRadiusU } from './fog.js';
@@ -168,7 +180,6 @@ import {
 } from './radarHeatmap.js';
 import {
   buildField,
-  buildShipStamp,
   buildWakeStamp,
   chopHaloCells,
   coverageCentre,
@@ -177,15 +188,14 @@ import {
   stampCoverage,
   wakeOnlyField,
   type CellStamp,
-  type EchoHull,
   type ShipStamp,
   type WakeSegmentCover,
 } from './radarField.js';
 import { echoArc, marchSlice, mergeSlices, planMarch, type MarchSlice } from './radarMarch.js';
 import { wakeLitFloor } from './radarSources.js';
-import { WakeStampCache, type WakeSources } from './wake.js';
 import { cloudReturns, type CloudReturnGate, type CloudReturnInfo } from './cloudReturnGate.js';
 import { DIM_MASK_TEXTURE_SIZE, SWEEP_TEXTURE_RADIUS, bakeDimMaskTexture, bakeSweepTexture } from './textures.js';
+import { dimFanSlides } from './radarDim.js';
 
 /**
  * Hard cap on the pending echo/wake parks. Radar paints arrive from network
@@ -295,6 +305,14 @@ export interface CloudReturnSource {
   returnHaze?(live: (c: CloudReturnInfo) => boolean): ((x: number, y: number) => number) | undefined;
 }
 
+/** Where the dim mask's eye-reach fan comes from (render/fogField.ts
+ *  `FogFieldView.eyeReachFan`): fills `out` with the fog-tolled eye reach per
+ *  bearing (ray k at k·2π/N, world axes) and returns it, or null when there is
+ *  no fog to toll — the mask then stays radial. */
+export interface EyeReachSource {
+  eyeReachFan(ox: number, oy: number, sightU: number, tMs: number, out: Float32Array): Float32Array | null;
+}
+
 export class Radar {
   private readonly sweep: Sprite;
   private readonly rings: Graphics;
@@ -329,7 +347,9 @@ export class Radar {
    * THE NEAR-RANGE DIM MASK (Story 4.11, amendment 181) — a baked radial ramp,
    * anchored on own hull in WORLD units, masking everything `blipLayer` draws.
    * Its two radii ride the observer's EFFECTIVE truesight (`sightHoleU`), so it
-   * is re-baked when that number moves; see `syncDimMask`.
+   * is re-baked when that number moves; and on a fogged bearing its ramp slides
+   * inward to where the eye ends (amendment 210), re-baked on the fog cadence.
+   * See `syncDimMask`.
    *
    * IT HANGS ON `blipLayer`, NEVER ON `heat.sprite`, and that is not a
    * preference: `fitHeat` DESTROYS the heat sprite and adds a new one whenever
@@ -349,6 +369,16 @@ export class Radar {
    *  compare sits on the per-frame placement path rather than on the stat
    *  setter (any future way in for the same number is covered too). */
   private dimBakedAtU: number;
+  /** See `setEyeReachSource`. */
+  private reachSource: EyeReachSource | null = null;
+  /** The eye-reach fan, preallocated once and re-cast in place forever. */
+  private readonly reachFan = new Float32Array(CLIENT_CONFIG.blip.heatmap.dim.reachRays);
+  /** Is the live `dim` texture a fanned (slid) bake rather than the radial one? */
+  private dimFanned = false;
+  /** Where and when (serverNow, ms) the fan was last cast — NaN = never. */
+  private castX = Number.NaN;
+  private castY = Number.NaN;
+  private castT = Number.NaN;
   /** Latest authoritative sweep sample (angle at server time t). */
   private lastSweep: { angle: number; t: number } | null = null;
   /** Last rendered own position — the observer an echo's bearing and range are
@@ -371,41 +401,10 @@ export class Radar {
   private radarRange: number = CONFIG.vision.radar;
   private sweepPeriodMs: number = 60000 / CONFIG.vision.sweepRpm;
   /**
-   * THE IN-BOUND WAKE SOURCE (Story 4.12) — the client's own ribbons, for the
-   * half of the scope's wake the server deliberately does not disclose.
-   *
-   * THE `wk` ROW'S INNER BOUND IS PER SOURCE (corrected at the cycle-69 review
-   * gate, P2 — this comment previously said the row simply inherited
-   * `blipGate`'s annulus, which is no longer true for the fish). A SHIP's water
-   * is withheld inside the sight bubble; a TORPEDO's is withheld only inside the
-   * DETECT rung (sight × detectFactor), so torpedo segments in the (detect, sight] band DO come off
-   * the wire and paint here through the ordinary adapter — `validWake` has no
-   * position gate, so nothing had to change to let them through.
-   *
-   * Either way the reason for the withheld half is the same: running water
-   * inside those radii through the height-aware disclosure march would leak a
-   * source that BINARY island LOS is hiding. The client synthesizes that half
-   * from pose it already holds — exactly what it already does for a sighted
-   * HULL's echo (amendments 88 + 154, two sources, one appearance) — and
-   * `buildTruesightWakeStamp` carries the server's reason with it: binary LOS
-   * per segment (hence `islands`) and only for a source being observed RIGHT
-   * NOW (cycle-69 review gate, P5).
-   *
-   * Null until main.ts wires the emitter, and null for any caller that has no
-   * wake at all: `FieldSpec.wake` is optional and the field answers as it did
-   * before 4.12 without it.
-   */
-  private wakeSources: WakeSources | null = null;
-  /** The deterministic island set (rebuilt from the map seed), for the wake
-   *  stamp's binary-LOS clause. Empty for a caller that has none — in which
-   *  case nothing blocks, which is the pre-P5 behaviour. */
-  private wakeIslands: readonly Island[] = [];
-  private readonly wakeCache = new WakeStampCache();
-  /**
    * THE COUNTERMEASURE CLOUDS AS A RETURN SOURCE (Story 9.3 session 4, Eric
    * 2026-10-12: "Don't forget to composite it onto the radar layer so it can
    * be painted. It should give returns in strength based on how thick the
-   * smoke is."). `setWakeSources`' sibling: main.ts hands the Countermeasure
+   * smoke is."). main.ts hands the Countermeasure
    * over once, and every march pulls the drawn haze through it per sample
    * (`FieldSpec.cloud` → `cloudSample`). The cloud is then a field material
    * like any other — swept, shadowed, grained, frozen, banded, decayed and
@@ -466,17 +465,15 @@ export class Radar {
   }
 
   /**
-   * THE SOURCE SEAM (u): the effective truesight radius, inside which a ship
-   * echo is SYNTHESIZED from its `Contact` and outside which it arrives as a
-   * wire blip (amendment 89). Nothing is suppressed on either side of it — the
-   * scope paints everything in radar range (amendment 88).
+   * THE OBSERVER'S EFFECTIVE TRUESIGHT RADIUS (u) — the dim mask's anchor, the
+   * cloud return gate's bubble and the hull feather's radius. It is NOT a paint
+   * source boundary any more (amendment 210: every return, inside the bubble or
+   * beyond it, arrives on the wire; nothing is synthesized on either side).
    *
    * It is `fogHoleRadiusU` — the very function that bakes the visible fog hole,
    * called rather than re-derived — because that is also, by construction, the
-   * effective-truesight number the server's own `sightOf` uses to decide the same
-   * question from the other side. If the two ever disagreed, a hull at the seam
-   * would be painted twice or dropped entirely. Exposed for tests and for
-   * exactly that equality assertion.
+   * effective-truesight number the server's own `sightOf` uses. Exposed for
+   * tests and for exactly that equality assertion.
    */
   get sightHoleU(): number {
     return fogHoleRadiusU({ sightRange: this.sightRange, radarRange: this.radarRange });
@@ -679,14 +676,13 @@ export class Radar {
   /**
    * Turn every parked echo into a slice, ONCE an own pose exists.
    *
-   * THIS IS THE BEYOND-TRUESIGHT SOURCE. Everything arriving here came through
-   * the server's `blipGate`, which excludes `dist <= sightRange` — so it is
-   * ALREADY SWEEP-GATED, by the server's own beam on the tick it crossed the
-   * hull. Waiting for the local beam to reach that bearing would paint the hull
-   * on the NEXT revolution instead, i.e. up to a full sweep period stale, which
-   * on a 45 u/s torpedo boat is most of a map away. The inside-truesight half of
-   * the scope has no such problem and is painted by the local beam through the
-   * field (`marchBeam`), exactly like terrain.
+   * THIS IS THE ONLY HULL SOURCE (amendment 210). Everything arriving here came
+   * through the server's `blipGate` — at any distance inside radar range, sight
+   * bubble included — so it is ALREADY SWEEP-GATED, by the server's own beam on
+   * the tick it crossed the hull. Waiting for the local beam to reach that
+   * bearing would paint the hull on the NEXT revolution instead, i.e. up to a
+   * full sweep period stale, which on a 45 u/s torpedo boat is most of a map
+   * away.
    *
    * IT IS STILL THE SAME MARCH. The hull is stamped into a one-hull field and
    * that field is marched across the bearing window it subtends, so its cells,
@@ -716,9 +712,8 @@ export class Radar {
    * the true hull polygon onto the shared radar grid and the mask's cells are
    * absolute world cells, so `stampCoverage` lays them down exactly where the
    * wire put them — the client adds only the intensity model (the material
-   * coefficient, range falloff per cell, the SNR grain), through the same
-   * stamp the sighted-contact source uses (amendment 154: two sources, one
-   * appearance).
+   * coefficient, range falloff per cell, the SNR grain). (Until amendment 210 a
+   * sighted-contact source shared this stamp; the wire is now the only one.)
    *
    * THE MARCH BOUND COVERS THE ECHO'S OWN RANGE, NOT MERELY THE LIVE SCOPE, and
    * that is amendment 127 holding at the rim. `marchSlice` clips every ray to the
@@ -734,8 +729,8 @@ export class Radar {
    * AND IT IS SHADOWED — ATTENUATED, NEVER SUPPRESSED (review gate). The
    * one-hull field carries the SAME height raster the beam march reads, so the
    * echo's cells are scaled by the ray's illuminated fraction at their own range
-   * and then floored at `minPeak` (`shade`, radarMarch.ts). Beyond truesight the
-   * wire is the ONLY way a hull reaches the scope, so without this a hull sliding
+   * and then floored at `minPeak` (`shade`, radarMarch.ts). The wire is the ONLY
+   * way a hull reaches the scope (amendment 210), so without this a hull sliding
    * into cover painted at full strength until the server's gate flipped and then
    * cut out — the very line Story 4.11 exists to soften. The floor is what keeps
    * amendment 127 intact through the change: a disclosed echo can be dimmed to
@@ -773,7 +768,7 @@ export class Radar {
    * IT MIRRORS `addReturnPaint` DELIBERATELY, down to the validator and the
    * capped park, because it is the same kind of thing: a world-anchored coverage
    * mask on the shared lattice, already sweep-gated by the SERVER's beam (the
-   * same three clauses `blipGate` enforces — annulus, swept-this-tick, and
+   * same clauses `blipGate` enforces — radar range, swept-this-tick, and
    * amendment 179's shadow accumulator, applied PER SEGMENT), which the client
    * prices through its own intensity model. It is NOT a declared exception to
    * the master perception invariant; what is new is only that the subject is
@@ -908,9 +903,6 @@ export class Radar {
   /** Per-frame: rotate/position the sweep + rings, march the arc the beam just
    *  swept, then decay every live mark and re-rasterize the heatmap.
    *
-   *  `contacts` is the truesight contact store (net/snapshots.ts) — the
-   *  inside-truesight source of hull returns (amendment 89).
-   *
    *  `view` is the world rectangle the camera is showing (amendment 96) — the
    *  heatmap buffer's extent, used by `paintHeat` and by NOTHING else on this
    *  path. Omitting it falls back to a radar-ring-sized window on the own ship,
@@ -920,7 +912,6 @@ export class Radar {
   render(
     own: OwnPoint | null,
     serverNow: number,
-    contacts: ContactStore | null = null,
     view: ViewRect | null = null,
     screen: ScreenWorldRect | null = null,
   ): void {
@@ -932,22 +923,17 @@ export class Radar {
     // all), so hanging the mask's placement off that path would leave it parked
     // at the previous hull position for as long as the scope stayed empty — and
     // then the next paint would appear through a stale ramp.
-    this.updateDimMask(own);
+    this.updateDimMask(own, serverNow);
     const rot = this.updateSweep(own, serverNow);
-    this.renderReturn(own, rot, serverNow, contacts);
+    this.renderReturn(own, rot, serverNow);
   }
 
   /** The whole frame: resolve parked echoes, march the swept arc, drop
    *  dead slices, re-rasterize the buffer from the survivors, upload. */
-  private renderReturn(
-    own: OwnPoint | null,
-    rot: number | null,
-    serverNow: number,
-    contacts: ContactStore | null,
-  ): void {
+  private renderReturn(own: OwnPoint | null, rot: number | null, serverNow: number): void {
     this.resolvePending();
     this.resolvePendingWake();
-    if (own !== null && rot !== null) this.marchBeam(own, rot, serverNow, contacts);
+    if (own !== null && rot !== null) this.marchBeam(own, rot, serverNow);
     this.pruneSlices(serverNow);
     this.paintHeat(own, serverNow);
   }
@@ -957,7 +943,7 @@ export class Radar {
    * grammar's paint creation, in one place.
    *
    * THE FIELD IS BUILT ONCE PER FRAME AND FROZEN (amendment 83). The observer
-   * and every hull's footprint are captured here; each slice then
+   * and the cloud haze are captured here; each slice then
    * freezes its own samples out of that field, so nothing a slice contains can
    * ever be re-evaluated against live state.
    *
@@ -968,12 +954,7 @@ export class Radar {
    * rate and the phosphor life alone. A frame that advances less than one quantum
    * emits nothing and loses nothing; the remainder is simply still owed.
    */
-  private marchBeam(
-    own: OwnPoint,
-    rot: number,
-    serverNow: number,
-    contacts: ContactStore | null,
-  ): void {
+  private marchBeam(own: OwnPoint, rot: number, serverNow: number): void {
     const cfg = CLIENT_CONFIG.blip.heatmap;
     // AN AGROUND OBSERVER CREATES NO PAINTS. A ray starts at d = 0, so a set
     // standing ON a landmass would paint that landmass at zero range — i.e. at
@@ -992,8 +973,6 @@ export class Radar {
     const field = buildField({
       obs: own,
       raster: this.heightRaster,
-      ships: this.shipStamp(own, serverNow, contacts),
-      wake: this.wakeStamp(own, serverNow),
       cloud: this.cloudHaze(own, serverNow),
       cellU: cfg.cellU,
       model: cfg.model,
@@ -1031,8 +1010,8 @@ export class Radar {
    * scope is strictly better than a HIDDEN one, since the dim is a legibility
    * ruling (amendment 181) while the returns are the instrument.
    */
-  private updateDimMask(own: OwnPoint | null): void {
-    this.syncDimMask();
+  private updateDimMask(own: OwnPoint | null, serverNow: number): void {
+    this.syncDimMask(own, serverNow);
     if (own === null || !Number.isFinite(own.x + own.y)) {
       this.blipLayer.mask = null;
       return;
@@ -1042,7 +1021,15 @@ export class Radar {
   }
 
   /**
-   * Re-bake the ramp if the observer's bubble has moved (this cycle).
+   * Re-bake the ramp if the observer's bubble has moved (this cycle), or — on
+   * the fog cadence — if the eye-reach fan slides it (amendment 210).
+   *
+   * THE FAN IS CAST ON A CADENCE, NEVER PER FRAME: `reachDue` owes a re-cast
+   * every `fogField.refreshMs` of server time or on a move past
+   * `dim.reachRecastMoveU`. A cast that slides nothing (no fog near, or
+   * `fogLift` 0) costs no bake while the mask is radial; a fanned mask whose
+   * fan goes null (fog lifted, source detached, no pose) gets ONE radial
+   * re-bake and is then quiet again.
    *
    * THE RAMP IS ANCHORED TO TRUESIGHT, AND TRUESIGHT IS NOT THE BASE CONSTANT: it
    * is a boon-widened constant per build, so a mask baked once at the base radius
@@ -1078,7 +1065,7 @@ export class Radar {
    * `Texture.EMPTY` guard went with the destroy: a headless caller holding EMPTY
    * simply gets a fresh mint from the bake.
    */
-  private syncDimMask(): void {
+  private syncDimMask(own: OwnPoint | null, serverNow: number): void {
     const want = this.sightHoleU;
     // NON-FINITE IS A LATCH FAILURE, NOT A DRAW FAILURE, and it only became one when
     // the destroy left: `NaN === this.dimBakedAtU` is false forever, so a NaN bubble
@@ -1087,18 +1074,71 @@ export class Radar {
     // instead.) `radarDim` already treats a non-finite bubble as reachable — both
     // `dimRadii` and `dimScaleAt` guard it — and holding the last good radius is
     // that module's own "fails toward a fully visible scope" rule.
-    if (!Number.isFinite(want) || want === this.dimBakedAtU) return;
-    // COMMIT THE RADIUS BEFORE THE BAKE, DELIBERATELY — the review gate tried the
-    // other order and it was wrong. The bake can throw (the mint fallback needs a 2d
-    // context), and app/loop.ts's contract is that a frame-path throw costs ONE
-    // FRAME. Committing first spends exactly that one frame and then early-returns
-    // forever after, leaving a stale-but-drawn ramp; committing afterwards would
-    // retry every frame, abort `render` every frame, and freeze the picture — the
-    // very failure class this cycle exists to remove. A stale radius is the same
-    // graceful degradation `radarDim` already chooses ("fails toward a fully
-    // visible scope").
-    this.dimBakedAtU = want;
-    this.dim.texture = bakeDimMaskTexture(want, this.dim.texture);
+    if (!Number.isFinite(want)) return;
+    const resized = want !== this.dimBakedAtU;
+    if (!resized && !this.reachDue(own, serverNow)) return;
+    const fan = this.castReach(own, want, serverNow);
+    const slid = fan !== null && dimFanSlides(fan, want);
+    // Nothing to change: same bubble, and radial before and after.
+    if (!resized && !slid && !this.dimFanned) return;
+    this.bakeDim(want, slid ? fan : null);
+  }
+
+  /**
+   * Is a fan re-cast owed this frame? Only on the fog refresh cadence
+   * (`fogField.refreshMs` of server time since the last cast) or a move of at
+   * least `dim.reachRecastMoveU` since it — the wisps' `losRecastMoveU`
+   * precedent — and never per frame. With no source or no finite pose there
+   * is nothing to cast, and the only thing owed is the ONE radial re-bake that
+   * takes a fanned mask back off.
+   */
+  private reachDue(own: OwnPoint | null, serverNow: number): boolean {
+    if (this.reachSource === null || own === null || !Number.isFinite(own.x + own.y)) return this.dimFanned;
+    const { refreshMs } = CLIENT_CONFIG.fogField;
+    if (!(Math.abs(serverNow - this.castT) < refreshMs)) return true; // NaN (never cast) is due
+    return Math.hypot(own.x - this.castX, own.y - this.castY) >= CLIENT_CONFIG.blip.heatmap.dim.reachRecastMoveU;
+  }
+
+  /** Cast the eye-reach fan from `own` into the preallocated `reachFan`, or null
+   *  when there is no source, no finite pose or no fog. */
+  private castReach(own: OwnPoint | null, sightU: number, serverNow: number): Float32Array | null {
+    if (this.reachSource === null || own === null || !Number.isFinite(own.x + own.y)) return null;
+    this.castX = own.x;
+    this.castY = own.y;
+    this.castT = serverNow;
+    return this.reachSource.eyeReachFan(own.x, own.y, sightU, serverNow, this.reachFan);
+  }
+
+  /**
+   * Redraw the live mask texture IN PLACE at `sightU`, radial (`fan` null) or
+   * fanned.
+   *
+   * COMMIT THE STATE BEFORE THE BAKE, DELIBERATELY — the review gate tried the
+   * other order and it was wrong. The bake can throw (the mint fallback needs a 2d
+   * context), and app/loop.ts's contract is that a frame-path throw costs ONE
+   * FRAME. Committing first spends exactly that one frame and then early-returns
+   * until the next real change, leaving a stale-but-drawn ramp; committing
+   * afterwards would retry every frame, abort `render` every frame, and freeze the
+   * picture — the very failure class this cycle exists to remove. A stale radius
+   * is the same graceful degradation `radarDim` already chooses ("fails toward a
+   * fully visible scope").
+   */
+  private bakeDim(sightU: number, fan: Float32Array | null): void {
+    this.dimBakedAtU = sightU;
+    this.dimFanned = fan !== null;
+    this.dim.texture = bakeDimMaskTexture(sightU, this.dim.texture, fan);
+  }
+
+  /**
+   * Hand the scope the dim mask's eye-reach source (main.ts passes the
+   * FogFieldView once, as it does the countermeasure through `setCloudSource`).
+   * Null (the default, and every test that does not set one) keeps the mask
+   * radial. The Radar owns the cadence: the source is asked only when a re-cast
+   * is due (`reachDue`), and only with a live own pose — a spectator never casts.
+   */
+  setEyeReachSource(source: EyeReachSource | null): void {
+    this.reachSource = source;
+    this.castT = Number.NaN; // the next frame with a pose casts at once
   }
 
   /** The dim mask sprite — the observation seam for amendment 181's placement,
@@ -1115,45 +1155,6 @@ export class Radar {
   private aground(own: OwnPoint): boolean {
     const r = this.heightRaster;
     return r !== null && sampleHeight(r, own.x, own.y) > 0;
-  }
-
-  /**
-   * THE PER-FRAME SHIP LAYER — the inside-truesight hulls, stamped into the field
-   * so the beam paints them exactly as it paints terrain (amendment 141).
-   *
-   * The range term is the EXACT COMPLEMENT of the server's: `dist <= sightU` here,
-   * `dist > sightU` in `blipGate`, off one effective-truesight radius both sides already
-   * agree on (`fogHoleRadiusU` ≡ the server's `sightOf`). That one line is what
-   * keeps the two sources from double-stamping a hull or dropping one between
-   * them; nothing here SUPPRESSES anything, since the scope paints everything in
-   * radar range (amendment 88).
-   *
-   * Poses are sampled at the SAME interp-delayed time the hull renderer draws
-   * them, so an echo lands on the hull the player can see rather than ~100ms ahead
-   * of it. (The observer is the live predicted own pose — the identical pairing
-   * every other world-space overlay already draws with.)
-   *
-   * NO LOS TEST LIVES HERE, AND THAT IS STILL TRUE UNDER STORY 4.11. A hull is
-   * stamped into the field wherever it is; whether the BEAM reaches it is the
-   * ray's business, decided by the shadow accumulator in `marchRay` against the
-   * same raster. Putting a second, per-hull occlusion test here would be the
-   * per-object occluder shortlist amendment 140 deleted, arriving again.
-   */
-  /**
-   * Hand the scope the client's wake ribbons (main.ts owns the emitter, which
-   * owns them — one tracker, two renderings). Null takes the layer off.
-   *
-   * `islands` is the binary-LOS geometry the synthesis owes (P5); omitted, the
-   * stamp blocks on nothing, which is the correct degradation for a caller that
-   * genuinely has no map (headless tests) and never a silent loosening in play,
-   * because main.ts always passes the set.
-   */
-  setWakeSources(
-    sources: WakeSources | null,
-    islands: readonly Island[] = [],
-  ): void {
-    this.wakeSources = sources;
-    this.wakeIslands = islands;
   }
 
   /** Hand the scope the countermeasure clouds (main.ts passes the one
@@ -1187,76 +1188,6 @@ export class Radar {
       holdRevs: CLIENT_CONFIG.countermeasure.returnHoldRevs,
     };
     return src.returnHaze((c) => cloudReturns(c, gate));
-  }
-
-  /**
-   * THE PER-FRAME IN-TRUESIGHT WAKE LAYER — `shipStamp`'s sibling, and it takes
-   * that function's whole argument.
-   *
-   * The range term is the EXACT COMPLEMENT of the server's, per SEGMENT and PER
-   * SOURCE: a segment whose midpoint is at or inside its source's inner bound
-   * (`sightHoleU` for a hull, the detect rung — sight × detectFactor — for a fish) is stamped
-   * here, one beyond it is the wire's (`wakeInnerBound`), off radii both sides
-   * already agree on. A 540u track therefore hands its near end to this stamp
-   * and its far end to `marchWake`, with no cell claimed twice and none dropped
-   * between them.
-   *
-   * A BINARY LOS TEST *DOES* LIVE HERE, unlike `shipStamp`, and the asymmetry is
-   * the point (cycle-69 review gate, P5). A hull inside truesight is a `Contact`
-   * the server already decided you may see, so its echo owes only the ray's
-   * shadow accumulator. A wake segment was decided by NOBODY — this stamp stands
-   * in for a disclosure the server withheld precisely because the height-aware
-   * march must never reveal water that binary LOS hides — so the synthesis owes
-   * the binary test itself, alongside the requirement that its source be
-   * observed right now. The accumulator still runs on top, in `marchRay`.
-   *
-   * The stamp is CACHED (`WakeStampCache`) on the segment set, the observer's
-   * position, the sight radius, the glint seed and the age-bucket clock, because
-   * rebuilding a roomful of ribbons on all sixty frames of a second would spend
-   * the radar layer's whole remaining headroom on an answer that changes a few
-   * times a second.
-   *
-   * THE GLINT SEED IS THE SWEEP REVOLUTION INDEX — `shipStamp`'s idiom exactly,
-   * and for its reason: a stationary source keeps one mask for the whole beam
-   * crossing and re-glints on the next revolution, matching the wire source's
-   * one-paint-per-revolution scintillation instead of tearing per frame.
-   */
-  private wakeStamp(own: OwnPoint, serverNow: number): CellStamp | undefined {
-    const sources = this.wakeSources;
-    if (sources === null || sources.size === 0) return undefined;
-    const cfg = CLIENT_CONFIG.blip.heatmap;
-    const at = serverNow - CLIENT_CONFIG.net.interpDelayMs;
-    return this.wakeCache.stampFor(
-      sources,
-      own,
-      this.sightHoleU,
-      serverNow,
-      cfg.cellU,
-      cfg.model,
-      this.wakeIslands,
-      Math.floor(at / this.sweepPeriodMs),
-    );
-  }
-
-  private shipStamp(own: OwnPoint, serverNow: number, contacts: ContactStore | null): ShipStamp {
-    const cfg = CLIENT_CONFIG.blip.heatmap;
-    if (contacts === null) return new Map();
-    const sight = this.sightHoleU;
-    const at = serverNow - CLIENT_CONFIG.net.interpDelayMs;
-    const hulls: EchoHull[] = [];
-    for (const id of contacts.ids()) {
-      const s = contacts.get(id)?.sampleAt(at);
-      const cls = contacts.classOf(id);
-      if (s === null || s === undefined || cls === undefined) continue;
-      if (Math.hypot(s.x - own.x, s.y - own.y) > sight) continue;
-      hulls.push({ id, x: s.x, y: s.y, heading: s.heading, cls });
-    }
-    // The glint seed's time term is the REVOLUTION INDEX, not the frame time:
-    // a stationary sighted hull keeps one mask for the whole beam crossing and
-    // re-glints on the next revolution — sweep-to-sweep scintillation, the
-    // same cadence the wire source gets from its per-tick paint (amendment
-    // 157; a per-frame seed would tear the footprint mid-crossing).
-    return buildShipStamp(hulls, cfg.model, cfg.cellU, Math.floor(at / this.sweepPeriodMs));
   }
 
   /** Position/rotate the sweep + rings; returns the beam angle this frame, or
@@ -1377,7 +1308,7 @@ export class Radar {
  * from the longest hull and the shared lattice, never a literal (cycle-63
  * review gate: the old literal 64 silently broke the moment `radarCellU` was
  * retuned small — the validator would have dropped every long-hull mask and
- * hulls would simply have vanished beyond truesight). The derivation: the
+ * hulls would simply have vanished from the scope). The derivation: the
  * worst-heading span of the biggest silhouette (its bounding-circle diameter),
  * in cells, plus one cell of lattice phase, plus two cells per side of fuzz
  * growth (one of dilation + one of stretch, `fuzzCoverage`), doubled as

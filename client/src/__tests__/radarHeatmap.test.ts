@@ -54,7 +54,6 @@ import {
 } from '../render/radarHeatmap.js';
 import {
   buildField,
-  buildShipStamp,
   buildWakeStamp,
   cellKey,
   chopHaloCells,
@@ -65,6 +64,7 @@ import {
   type ShipStamp,
   type WakeSegmentCover,
 } from '../render/radarField.js';
+import { buildShipStamp } from './shipStampFixture.js';
 import { chopSample, wakeAgeScale, wakeSample } from '../render/radarSources.js';
 import { marchSlice, returnStrength, type MarchSlice } from '../render/radarMarch.js';
 
@@ -1350,13 +1350,13 @@ describe('one hull spans MORE THAN ONE BAND at the shipped grain, strongest at i
     expect(bands.size, 'terrain carries the multi-band read').toBeGreaterThanOrEqual(2);
   });
 
-  it('a fogged wire footprint and a client-rasterized contact of the same pose paint IDENTICAL intensities (two sources, one appearance — amendment 154)', () => {
-    // Both sources run the same shared paint pipeline (rasterize + fuzz at
-    // the same seed) and the same stamp, so the buffers must agree cell for
-    // cell — the inside/outside split survives but stops being visible. The
-    // "wire" side stamps the coverage the server would send; the "contact"
-    // side rasterizes from the pose.
-    const viaContact = scope(OBS, { hulls: [HULL] }, CFG);
+  it('a wire footprint marched alone and the same pose in the field\'s ship layer paint IDENTICAL intensities', () => {
+    // The client paints hulls from the wire only (amendment 210), but these
+    // suites put fixture hulls into the world field's ship layer
+    // (`buildShipStamp`, shipStampFixture.ts). This pins that fixture to the
+    // wire path: both run the same shared paint pipeline (rasterize + fuzz at
+    // the same seed) and the same stamp, so the buffers agree cell for cell.
+    const viaField = scope(OBS, { hulls: [HULL] }, CFG);
     const cov = paintCoverage(HULL.cls, HULL.x, HULL.y, HULL.heading, CFG.cellU, 0);
     const stamp: ShipStamp = new Map();
     stampCoverage(stamp, cov, hullSample(CFG.model));
@@ -1367,7 +1367,7 @@ describe('one hull spans MORE THAN ONE BAND at the shipped grain, strongest at i
       for (let col = 0; col < cov.w; col++) {
         const x = (cov.gx + col + 0.5) * CFG.cellU;
         const y = (cov.gy + row + 0.5) * CFG.cellU;
-        expect(sampleGrid(g, x, y).w, `cell ${col},${row}`).toBeCloseTo(sampleGrid(viaContact, x, y).w, 9);
+        expect(sampleGrid(g, x, y).w, `cell ${col},${row}`).toBeCloseTo(sampleGrid(viaField, x, y).w, 9);
       }
     }
   });

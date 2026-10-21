@@ -54,6 +54,7 @@ import {
   CONFIG,
   FOG_NO_CUT,
   fogDensityAt,
+  fogEyeReachFan,
   makeFogField,
   type FogField,
   type Island,
@@ -276,6 +277,25 @@ export class FogFieldView {
     this.placeTile(screen);
     this.placeHalo(eye);
     this.clipToScreen(screen);
+  }
+
+  /**
+   * THE EYE-REACH FAN for the radar's near-range dim mask (amendment 210): how
+   * far the eye at (ox, oy) with `sightU` of effective truesight reaches through
+   * the fog on each of `out.length` bearings (ray k at k·2π/N, world axes),
+   * written into `out` by the shared `fogEyeReachFan` and returned. Null when
+   * there is nothing to toll — no field yet, no fog (the drawn cut at or past
+   * FOG_NO_CUT) or a non-finite pose — so the radar falls back to its radial bake.
+   *
+   * It marches at the EASED cut, the one this view draws, not the schema's
+   * target: the mask then follows the fog the player is looking at. The server
+   * gates sight on its own (≈ one cell different) march; this is presentation
+   * only, and the spec accepts that tolerance. The field stays private.
+   */
+  eyeReachFan(ox: number, oy: number, sightU: number, tMs: number, out: Float32Array): Float32Array | null {
+    if (this.field === null || !(this.eased < FOG_NO_CUT)) return null;
+    if (!Number.isFinite(ox + oy + sightU + tMs)) return null;
+    return fogEyeReachFan(this.field, ox, oy, sightU, tMs, this.eased, out);
   }
 
   // --- test seams ---------------------------------------------------------

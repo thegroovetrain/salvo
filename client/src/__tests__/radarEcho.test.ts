@@ -14,12 +14,11 @@
 //   • ONCE MARCHED IT STAYS FROZEN. The deferral exists to stop a paint being born
 //     wrong, not to make it track the observer: a phosphor paint is a historical
 //     snapshot and must not re-pose as the ship moves.
-//   • TWO ARRIVAL PATHS, ONE MODEL AND ONE LIST (amendments 89 + 141). Inside
-//     truesight the client stamps a hull into the field from its `Contact` and the
-//     beam paints it on the crossing; beyond truesight the echo arrives on the
-//     wire ALREADY sweep-gated by the server's own beam, and is marched at once.
-//     `sightHoleU` is the SOURCE SEAM that keeps them from overlapping — never a
-//     suppression boundary.
+//   • ONE ARRIVAL PATH FOR HULLS AND WAKE: THE WIRE (epic-9 amendment 210). The
+//     server returns the ENTIRE sweep, sight bubble included; every echo arrives
+//     ALREADY sweep-gated by the server's own beam and is marched at once. The
+//     client synthesizes nothing from a `Contact` or its own wake ribbons (the
+//     retired "two sources" of amendments 89 + 154).
 //   • THE SLICE LIST IS THE HISTORY, THE BUFFER IS DERIVED (ruling R1). Nothing
 //     decays in place; the buffer is re-rasterized in full every frame from the
 //     surviving slices. Retirement is by TIME and nothing else — there is no
@@ -44,7 +43,6 @@ import {
   type WakeBlipEvent,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { ContactStore } from '../net/snapshots.js';
 import { Radar } from '../render/radar.js';
 import { fogHoleRadiusU } from '../render/fog.js';
 import { blipLifeMs } from '../render/phosphor.js';
@@ -110,9 +108,9 @@ function ridge(cx: number, cy: number, hw: number, hh: number, h = 255) {
 }
 
 /** Run a whole beam revolution, so the march has walked every bearing. */
-function revolution(radar: Radar, own = OWN, contacts: ContactStore | null = null): void {
+function revolution(radar: Radar, own = OWN): void {
   radar.onSweepSample(-0.6, 0);
-  for (let t = 0; t <= 4200; t += 100) radar.render(own, t, contacts);
+  for (let t = 0; t <= 4200; t += 100) radar.render(own, t);
 }
 
 /** A wire coverage footprint for a hull pose — the cycle-63 payload, built by
@@ -366,8 +364,8 @@ describe('terrain paints from the height raster (amendments 129 + 140 + 142)', (
 // in radarMarch.test.ts: the one-hull field only shadows what it is HANDED, so
 // `marchEcho` failing to pass `heightRaster` would leave every wire echo painting
 // at full strength while the scope around it went grey — and no march-level test
-// could see it. Beyond truesight the wire is the ONLY source of a hull, so this
-// is the tier the whole feature is about.
+// could see it. The wire is the ONLY source of a hull (amendment 210), so this
+// is the path the whole feature is about.
 
 describe('a wire echo fades in terrain shadow, and is floored so it cannot vanish', () => {
   /** The echo used here sits on bearing 0 at 500u, with the cover between. */
@@ -706,172 +704,71 @@ describe('the scope paints INSIDE truesight (amendment 88)', () => {
   });
 });
 
-// --- the SECOND source: sighted ships, from their Contact (amendment 89) --------
+// --- ONE SOURCE: the wire, at every range (epic-9 amendment 210) --------------
+//
+// Eric 2026-10-21: "The client should never be calculating a ship's radar shadow
+// for any reason." The server returns the ENTIRE sweep — sight bubble included —
+// and the client paints only what the wire delivers. (Amendment 89's "second
+// source", a sighted hull synthesized from its `Contact`, is retired.)
 
-/** A static sighted contact at `x` on bearing 0 from the origin. */
-function sightedStore(x: number, id = 'ship-7', heading = 0): ContactStore {
-  const store = new ContactStore();
-  store.pushFrame(0, [{ id, x, y: 0, heading, speed: 0, cls: 'battleship' }]);
-  return store;
-}
-
-describe('a sighted ship paints from its Contact when the beam crosses it', () => {
-  it('a hull inside truesight paints an echo — the server has never sent a blip '
-    + 'for one', () => {
-    const store = sightedStore(200);
-    const { radar } = makeRadar();
-    revolution(radar, OWN, store);
-    expect(radar.bandAt(200, 0), 'the synthesized echo').toBeGreaterThanOrEqual(0);
-  });
-
-  it('and NOT before the beam reaches it — the sweep gate holds for this source', () => {
-    const store = sightedStore(200);
-    const { radar } = makeRadar();
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0, store);
-    radar.render(OWN, 200, store); // beam still short of bearing 0
-    expect(radar.bandAt(200, 0), 'a contact is not a paint trigger').toBe(-1);
-  });
-
-  it('a contact BEYOND truesight is left to the wire — the client never '
-    + 'synthesizes in the annulus the server blips', () => {
-    // The 6/12 rung (radar × 6/12, epic-9 amendment 103): past the 4/12 sight
-    // bubble, inside the annulus — the server's territory.
-    const BEYOND = (CONFIG.vision.radar * 6) / 12;
-    const store = sightedStore(BEYOND);
-    const { radar } = makeRadar();
-    revolution(radar, OWN, store);
-    expect(radar.bandAt(BEYOND, 0)).toBe(-1);
-  });
-
-  it('A HULL BEHIND A HEADLAND STILL PAINTS — the accepted, temporary cost of '
-    + 'amendment 140, recorded so it is not mistaken for a bug', () => {
-    // Islands block every sensor (Eric ruling 2026-08-02) and every SERVER-side
-    // gate still enforces that — `blipGate`, `pointSighted`, `pointDetected`, the
-    // muzzle and smoke halos, the foghorn muffle. What moved is the client's PAINT
-    // layer, for one cycle, on the explicit promise that Story 4.11 restores
-    // occlusion as a height-derived shadow length along the same ray.
-    const store = sightedStore(200);
-    const { radar } = makeRadar();
-    radar.setHeightRaster(rasterFrom(400, ridge(120, 0, 30, 40)));
-    revolution(radar, OWN, store);
-    expect(radar.bandAt(200, 0), 'painted through the headland').toBeGreaterThanOrEqual(0);
-  });
-
-});
-
-// --- the SOURCE SEAM is the drawn fog hole, wherever it sits (amendment 89) -----
-
-describe('the source seam is `fogHoleRadiusU`, so client and server agree', () => {
+describe('the client paints ONLY wire-delivered returns (amendment 210)', () => {
   const SIGHT = CONFIG.vision.sight;
   const BASE = { sightRange: SIGHT, radarRange: CONFIG.vision.radar };
   /** A SYNTHETIC narrower observer truesight (nothing shrinks sight at runtime
-   *  since Story 9.4 retired the FLASH SHELLS dazzle, but the seam must follow
-   *  whatever radius `fogHoleRadiusU` answers). */
+   *  since Story 9.4 retired the FLASH SHELLS dazzle, but `sightHoleU` must
+   *  follow whatever radius `fogHoleRadiusU` answers). */
   const NARROW = SIGHT * 0.375;
   const SWEEP_MS = 60000 / CONFIG.vision.sweepRpm;
-  /** Between the narrow hole and the base one: the annulus a smaller bubble
-   *  hands from the client's synthesis to the server's blips. */
+  /** Well inside the base sight bubble. */
   const MID = (SIGHT + NARROW) / 2;
-  const narrowed = (radar: ReturnType<typeof makeRadar>['radar']): void =>
-    radar.setRanges(NARROW, CONFIG.vision.radar, SWEEP_MS);
 
-  it('the seam radius IS fogHoleRadiusU, at base stats and narrowed', () => {
+  it('sightHoleU IS fogHoleRadiusU, at base stats and narrowed', () => {
     const { radar } = makeRadar();
     // Called, not re-derived: it is also, by construction, the server's own
-    // `sightOf`. If either side ever changes, this equality is the thing that
-    // breaks — rather than a hull at the seam painting twice.
+    // `sightOf` — and the dim mask, the cloud gate and the hull feather all
+    // anchor on it.
     expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE));
-    narrowed(radar);
+    radar.setRanges(NARROW, CONFIG.vision.radar, SWEEP_MS);
     expect(radar.sightHoleU).toBe(fogHoleRadiusU({ ...BASE, sightRange: NARROW }));
     expect(radar.sightHoleU).toBe(effectiveSight({ sightRange: NARROW }));
   });
 
-  it('a narrower bubble hands the annulus over: the client stops synthesizing '
-    + 'there, because the server blips it', () => {
-    expect(MID).toBeGreaterThan(NARROW);
-    expect(MID).toBeLessThan(SIGHT);
-    const store = sightedStore(MID);
-
+  it('a hull INSIDE truesight is open water on the scope until its wire blip '
+    + 'arrives — the beam synthesizes nothing — and then it paints', () => {
     const { radar } = makeRadar();
-    revolution(radar, OWN, store);
-    expect(radar.bandAt(MID, 0), 'base bubble: ours to synthesize').toBeGreaterThanOrEqual(0);
-
-    const narrow = makeRadar().radar;
-    narrowed(narrow);
-    revolution(narrow, OWN, store);
-    expect(narrow.bandAt(MID, 0), 'narrow bubble: the wire covers it').toBe(-1);
-  });
-
-  it('and a seam move never reaches back into a paint already on the scope', () => {
-    const store = sightedStore(MID);
-    const { radar } = makeRadar();
-    revolution(radar, OWN, store);
-    const band = radar.bandAt(MID, 0);
-    expect(band).toBeGreaterThanOrEqual(0);
-    narrowed(radar);
-    radar.render(OWN, 4250, store);
-    expect(radar.bandAt(MID, 0), 'the existing mark is untouched').toBe(band);
-  });
-
-  it('TWO SOURCES, ONE APPEARANCE (amendment 154): a wire footprint and a '
-    + 'synthesized contact echo of the same pose paint IDENTICAL intensities', () => {
-    // Same hull, same pose, same range, same observer — delivered once as a
-    // `Contact` (base bubble: inside the seam, the client rasterizes it) and
-    // once as the server's wire footprint (narrow bubble: the same annulus is
-    // the wire's). Both run the one shared rasterizer and the one stamp, so the
-    // buffers must agree cell for cell: the inside/outside split survives but
-    // stops being visible.
-    const pose = { x: MID, y: 0, heading: 0.7, cls: 'battleship' as const };
-    const viaContact = makeRadar().radar;
-    const store = new ContactStore();
-    store.pushFrame(0, [{ id: 's', x: pose.x, y: pose.y, heading: pose.heading, speed: 0, cls: pose.cls }]);
-    revolution(viaContact, OWN, store);
-    const viaWire = makeRadar().radar;
-    narrowed(viaWire);
-    viaWire.render(OWN, 900);
-    // The wire mask is the fuzzed paint (cycle-63 gate) at the SAME glint seed
-    // the contact source used: the adapter seeds a sighted hull's stamp with
-    // its revolution index, which is 0 for the whole first turn — so the two
-    // sources build byte-identical masks and the comparison stays cell-for-cell.
-    const c = paintCoverage(pose.cls, pose.x, pose.y, pose.heading, CELL, 0);
-    viaWire.onBlip({ k: 'blip', t: 1000, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
-    viaWire.render(OWN, 1000);
-    // Cell-for-cell comparable: the two paths fire DIFFERENT ray sets (the
-    // beam's fixed quanta vs the echo's own bearing window), so a cell's
-    // winning sample can sit up to half a ray step apart in range — a ~1e-3
-    // intensity difference, not a different reading. The pure-level identity
-    // (same rays, byte-equal) is pinned in radarHeatmap.test.ts; HERE the pin
-    // is that both sources light the same footprint at the same strength.
-    let both = 0;
-    let onlyOne = 0;
-    for (let row = 0; row < c.h; row++) {
-      for (let col = 0; col < c.w; col++) {
-        const x = (c.gx + col + 0.5) * CELL;
-        const y = (c.gy + row + 0.5) * CELL;
-        const a = viaContact.intensityAt(x, y);
-        const b = viaWire.intensityAt(x, y);
-        if (a === 0 && b === 0) continue;
-        if (a === 0 || b === 0) {
-          onlyOne++; // a corner-clipped cell one ray set catches and the other misses
-          continue;
+    expect(MID).toBeLessThan(radar.sightHoleU);
+    const c = paintCoverage('battleship', MID, 0, 0, CELL, 0);
+    const footprint = (r: Radar): number[] => {
+      const out: number[] = [];
+      for (let row = 0; row < c.h; row++) {
+        for (let col = 0; col < c.w; col++) {
+          if (!coverageHas(c, col, row)) continue;
+          out.push(r.intensityAt((c.gx + col + 0.5) * CELL, (c.gy + row + 0.5) * CELL));
         }
-        both++;
-        expect(Math.abs(b - a), `cell ${col},${row}`).toBeLessThan(0.02);
       }
-    }
-    expect(both, 'the footprints really overlap').toBeGreaterThan(5);
-    expect(onlyOne, 'and disagree on at most a corner cell or two').toBeLessThanOrEqual(2);
+      return out;
+    };
+    // A whole revolution over the hull's bearing with no blip on the wire: the
+    // footprint reads exactly as the same water on a scope that knows of no hull.
+    revolution(radar);
+    const water = makeRadar().radar;
+    revolution(water);
+    const before = footprint(radar);
+    expect(before).toEqual(footprint(water));
+    // The server's blip lands: now, and only now, the footprint lights.
+    radar.onBlip({ k: 'blip', t: 4250, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
+    radar.render(OWN, 4250);
+    const after = footprint(radar);
+    const brighter = after.filter((v, i) => v > before[i]).length;
+    expect(brighter, 'the wire blip lit its own footprint').toBeGreaterThan(after.length / 2);
   });
 
-  it('A WIRE BLIP INSIDE THE BUBBLE PAINTS (amendment 147): a cloud-hidden hull '
-    + 'arrives as an ordinary blip at bubble range, and nothing culls it', () => {
-    // Base bubble: the seam is the full sight range, and MID sits well inside it —
-    // territory that before 8.18 only ever held synthesized echoes. The server
-    // blipped a hull a countermeasure cloud hid from sight there (Story 9.3, until
-    // 2026-10-12 — the adapter contract stands either way); the adapter has no range
-    // gate on the wire path, so it paints (under the in-bubble dim mask, which
-    // is a display ramp on the layer, not a suppression).
+  it('A WIRE BLIP INSIDE THE BUBBLE PAINTS (amendments 147 + 210): nothing on the '
+    + 'wire path culls by range', () => {
+    // The server returns the whole sweep, so in-bubble blips are the ordinary
+    // case now; the adapter has no range gate on the wire path, so it paints
+    // (under the in-bubble dim mask, which is a display ramp on the layer, not a
+    // suppression).
     const { radar } = makeRadar();
     expect(MID).toBeLessThan(radar.sightHoleU);
     radar.render(OWN, 900);
@@ -881,4 +778,3 @@ describe('the source seam is `fogHoleRadiusU`, so client and server agree', () =
     expect(radar.bandAt(MID, 0), 'the in-bubble wire blip is on the scope').toBeGreaterThanOrEqual(0);
   });
 });
-

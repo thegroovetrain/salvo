@@ -665,7 +665,11 @@ function impactEvents(world: SceneWorld, tick: number): GameEvent[] {
 }
 
 /**
- * Radar paint for the fogged far band — the scope's load under the same frame.
+ * Radar paint for EVERY hull — the scope's load under the same frame. The near
+ * (truesighted) contacts paint too: the server returns the ENTIRE sweep, sight
+ * bubble included, and the client synthesizes no echo from a contact (epic-9
+ * amendment 210), so a staged scope without them would be lighter than a real
+ * one.
  *
  * A wire blip is a world-anchored cell-rect plus a packed coverage mask,
  * carrying NO identity. The mask comes from the SHIPPED
@@ -676,21 +680,21 @@ function impactEvents(world: SceneWorld, tick: number): GameEvent[] {
  * sweep's paints are, and its `t` is the time it was painted at.
  *
  * THE STRIDE IS WHY THE NFR1 PROFILE'S SCOPE IS A MEASUREMENT AND NOT A FICTION
- * (Story 7.1). Story 4.8's profile paints EVERY far hull EVERY tick — fine at 7
- * hulls, and preserved byte-for-byte at `blipStrideTicks === 1`. At NFR1's 50
- * far hulls it would lay ~80x the phosphor a real sweep can produce, because a
+ * (Story 7.1). Story 4.8's profile paints EVERY hull EVERY tick — fine at a
+ * handful of hulls, and preserved at `blipStrideTicks === 1`. At NFR1's 50
+ * hulls it would lay ~80x the phosphor a real sweep can produce, because a
  * hull only paints when the beam crosses its bearing: once per revolution. Above
- * 1 the stride spreads the far band over one revolution — hull `i` paints on the
+ * 1 the stride spreads the hulls over one revolution — hull `i` paints on the
  * ticks where `(tick + i) % stride === 0` — so the scope holds the paint count a
  * player can actually provoke.
  */
 function blipEvents(world: SceneWorld, tick: number, serverT: number): GameEvent[] {
   const stride = world.profile.blipStrideTicks;
   const out: GameEvent[] = [];
-  const far = world.hulls.filter((h) => h.far);
-  for (let i = 0; i < far.length; i += 1) {
+  const hulls = world.hulls;
+  for (let i = 0; i < hulls.length; i += 1) {
     if (stride > 1 && (tick + i) % stride !== 0) continue;
-    const h = far[i];
+    const h = hulls[i];
     const age = (i * 7) % 40;
     const p = hullPose(h, world, tick - age);
     const t = serverT - age * SCENE_TICK_MS;

@@ -13,9 +13,9 @@
 //      the fog hole is baked at and the server gates contacts with.
 //
 //   B. THE HULL LAYER MOVED ABOVE THE BLIP LAYER. `ship` was the top of worldRoot
-//      (under the fog, therefore under every chart layer), so the radar echo the
-//      client synthesizes for a hull you can already see was drawn ON TOP of that
-//      hull's silhouette. It now sits in chartRoot between `blip` and `aim`.
+//      (under the fog, therefore under every chart layer), so the radar echo of a
+//      hull you can already see (a wire blip since amendment 210) was drawn ON
+//      TOP of that hull's silhouette. It now sits in chartRoot between `blip` and `aim`.
 //
 //   C. ...WHICH COST THE FOG'S FEATHER, SO THE HULL CARRIES IT ITSELF. Being
 //      under the fog softened a contact as it approached the edge of the bubble.
@@ -179,25 +179,25 @@ describe('the dim mask is re-baked when the observer\'s bubble moves', () => {
     const { radar } = radarFor();
     const own = { x: 0, y: 0 };
     radar.onSweepSample(0, 0);
-    radar.render(own, 100, null, null);
+    radar.render(own, 100, null);
     expect(baked.calls, 'a steady frame costs one float compare').toEqual([SIGHT]);
 
     radar.setRanges(NARROW, RADAR, 6000);
-    radar.render(own, 200, null, null);
+    radar.render(own, 200, null);
     expect(baked.calls.at(-1), 'the narrower bubble').toBeCloseTo(NARROW, 12);
     expect(baked.calls).toHaveLength(2);
 
-    radar.render(own, 300, null, null);
+    radar.render(own, 300, null);
     expect(baked.calls, 'nothing moved: no second bake').toHaveLength(2);
 
     // A radar-range change alone does not move the bubble (sight is a different
     // quantity from intel range): no bake owed.
     radar.setRanges(NARROW, RADAR * 1.25, 6000);
-    radar.render(own, 400, null, null);
+    radar.render(own, 400, null);
     expect(baked.calls).toHaveLength(2);
 
     radar.setRanges(SIGHT * 1.5, RADAR, 6000);
-    radar.render(own, 500, null, null);
+    radar.render(own, 500, null);
     expect(baked.calls.at(-1), 'the widened bubble').toBeCloseTo(SIGHT * 1.5, 12);
   });
 
@@ -205,7 +205,7 @@ describe('the dim mask is re-baked when the observer\'s bubble moves', () => {
     + 'two ideas of it', () => {
     const { radar } = radarFor();
     radar.setRanges(NARROW, RADAR, 6000);
-    radar.render({ x: 0, y: 0 }, 100, null, null);
+    radar.render({ x: 0, y: 0 }, 100, null);
     expect(baked.calls.at(-1)).toBe(radar.sightHoleU);
   });
 });
