@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.18.66] - 2026-10-19
+
+### Changed
+- **A tougher Speedboat.** The Speedboat's hull is now 300 hp (was 250), three pips on the HULL ladder, the same as the Repeater; the Dreadnought stays at 350. Eric picked 300 from a 91-match bot test: the Speedboat's share of wins rose from about 16 % to about 20 % (not yet a sure result at that size), with the other two hulls barely moving. 350 was also tested and not chosen: it took its gains mostly out of the Repeater.
+- Protocol version 89 → 90: the client reads the hull's hit points (the HP bar, upgrade previews, ramming prediction, the class card's HULL pips).
+
+### Not changed
+- Speed, turning, every weapon and every other number. The deck-gun range dropoff is being tuned in a follow-up.
+
+## [0.18.65] - 2026-10-19
+
+### Changed
+- **A new zoom stop: your whole radar area.** Zooming out from your ship now stops first where your full radar disc, with a little clearance, fits on screen above the HUD bar, with your ship dead center at rest. Under way, the camera's look-ahead is part of the fit, so the radar disc clears the bar at any speed and heading. Only the next step out starts sliding the view toward the storm ring's center, then on to the ring stop and the whole map as before. Eric: "insert a 'waypoint' in between them that keeps the camera centered until I have zoomed out to my entire intel area, which should have a bit of clearance around it so that the hotbar isn't covering it up."
+- The stop re-fits when the window is resized or the UI scale changes, so the radar disc always clears the bar. A zoom parked on the radar stop or the ring stop follows the re-fit.
+- When the storm ring or a resize moves the view's center on its own (the ring stop merging into the radar stop, a window resize, a UI-scale change, the closing ring), the view glides there over about half a second instead of jumping. Your own zooming still moves the view directly.
+- When the storm ring is small enough to fit inside that stop, the two stops become one, and the next step out slides toward the map center.
+- Once the view has slid off your ship, your hull is now kept above the HUD bar, not just inside the screen edge, even on a window too short for the bar.
+- On a very small map or a very short window, the radar stop never sits past the whole-map limit, and a window too small to fit the radar disc adds no extra stop.
+- Protocol version unchanged (89): a client-only camera change; nothing on the wire moves.
+
+### Not changed
+- The spawn framing, the closest zoom, the whole-map limit, the reveal, and spectator zoom (ring stop, map limit, zoom at the cursor); every gameplay number.
+
 ## [0.18.64] - 2026-10-17
 
 ### Changed

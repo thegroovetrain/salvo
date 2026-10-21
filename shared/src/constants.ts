@@ -140,7 +140,7 @@ export const CONFIG = {
   shipClasses: {
     torpedoBoat: {
       hull: { length: 100, beam: 9 }, // u — silhouette bow-to-stern / max beam
-      hp: 250, // hit points — objective toughness ladder: 1 pip=200hp, +50/pip (balance cycle 1); 2 pips
+      hp: 300, // hit points — objective toughness ladder: 1 pip=200hp, +50/pip (balance cycle 1); 3 pips (250 → 300: Eric 2026-10-19, balance-sim ledger batch-sim-evidence-2026-10-19.md (+4.7 pp class share at 91 matches, not significant; 350 measured +19.3 pp at the Repeater's expense and was NOT chosen))
       // THE CLASS SHIFT (Story 8.15, amendment 89(c)): hull identity is
       // envelope + a FIXED Shift in slot 1 — SPEED BOOST on the Torpedo Boat.
       shift: 'boost',

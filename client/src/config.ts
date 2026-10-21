@@ -676,6 +676,15 @@ export const CLIENT_CONFIG = {
      * half-length plus a small margin (20 u), so the whole silhouette shows.
      */
     keepInViewPadU: Math.max(...SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].hull.length)) / 2 + 20,
+    /**
+     * EASED CENTER JUMPS (Eric 2026-10-19, epic-9 amendment 208 ruling 10:
+     * "about half a second"): when the ring feed, a window resize or a
+     * UI-scale change moves the camera's slide target, the center glides to
+     * the new spot at this exponential rate (1/s) instead of popping. 6 /s is
+     * three time constants (~95 % of the way) in half a second. The player's
+     * own zoom stays direct (ruling 128).
+     */
+    slideEaseRate: 6,
   },
 
   /**

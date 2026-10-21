@@ -53,8 +53,9 @@ describe('cardViewModel — pips, keys, loadout', () => {
   // fraction of a class-roster maximum. Under the rebalanced hull hp
   // (125/175/150 — the TTK fix landed alongside this pip rework) the fills
   // are TB 4/2/4 · BS 2/4/2 · ML 3/3/3.
-  it('pins Eric-ruled pip fills (TB 4/2/4 · BS 2/4/2 · ML 3/3/3)', () => {
-    expect(cardViewModel('torpedoBoat').pips.map((p) => p.filled)).toEqual([4, 2, 4]);
+  it('pins Eric-ruled pip fills (TB 4/3/4 · BS 2/4/2 · ML 3/3/3)', () => {
+    // TB HULL 2 → 3 pips: hp 250 → 300 (Eric 2026-10-19, epic-9 amendment 209).
+    expect(cardViewModel('torpedoBoat').pips.map((p) => p.filled)).toEqual([4, 3, 4]);
     expect(cardViewModel('battleship').pips.map((p) => p.filled)).toEqual([2, 4, 2]);
     expect(cardViewModel('mineLayer').pips.map((p) => p.filled)).toEqual([3, 3, 3]);
   });
@@ -164,13 +165,13 @@ describe('pipFill — objective anchored-linear mapper (Eric ruling 2026-08-03)'
     expect(pipFill(0.6, turning)).toBe(3); // 0.2 + 2*0.2
   });
 
-  it('the three hulls still read 2 / 3 / 4 toughness pips after the hp doubling', () => {
+  it('the three hulls read 3 / 3 / 4 toughness pips (TB 2 → 3 at amendment 209)', () => {
     // THE PROPERTY THE LADDER CHANGE EXISTS TO PRESERVE. Hull hp and the ladder
     // doubled together in balance cycle 1, so the rendered readout is identical
     // to what shipped before it. Pinned against CONFIG rather than literals, so
     // a future hp retune that forgets the ladder fails HERE — visibly — instead
     // of silently flattening all three hulls to a clamped 5.
-    expect(pipFill(CONFIG.shipClasses.torpedoBoat.hp, toughness)).toBe(2);
+    expect(pipFill(CONFIG.shipClasses.torpedoBoat.hp, toughness)).toBe(3); // 300 hp since amendment 209 (was 250 = 2)
     expect(pipFill(CONFIG.shipClasses.mineLayer.hp, toughness)).toBe(3);
     expect(pipFill(CONFIG.shipClasses.battleship.hp, toughness)).toBe(4);
   });

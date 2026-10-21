@@ -44,10 +44,10 @@ import {
 } from '../index.js';
 
 describe('ratified class table (exact Eric-approved values)', () => {
-  it('torpedoBoat: 100×9, hp 250, fast and fragile', () => {
+  it('torpedoBoat: 100×9, hp 300, fast and fragile', () => {
     expect(CONFIG.shipClasses.torpedoBoat).toEqual({
       hull: { length: 100, beam: 9 },
-      hp: 250,
+      hp: 300, // 250 → 300 Eric 2026-10-19 (epic-9 amendment 209)
       shift: 'boost', // Story 8.15, amendment 89(c)
       kinematics: {
         maxSpeed: 45,
@@ -98,10 +98,10 @@ describe('class ordering invariants', () => {
   const bb = CONFIG.shipClasses.battleship;
   const ml = CONFIG.shipClasses.mineLayer;
 
-  it('torpedoBoat is the fastest and most fragile', () => {
+  it('torpedoBoat is the fastest and never tougher than another class (ties the mineLayer at 300 since amendment 209)', () => {
     expect(tb.kinematics.maxSpeed).toBeGreaterThan(ml.kinematics.maxSpeed);
     expect(tb.kinematics.maxSpeed).toBeGreaterThan(bb.kinematics.maxSpeed);
-    expect(tb.hp).toBeLessThan(ml.hp);
+    expect(tb.hp).toBeLessThanOrEqual(ml.hp);
     expect(tb.hp).toBeLessThan(bb.hp);
     expect(tb.hull.beam).toBeLessThan(ml.hull.beam);
     expect(tb.hull.beam).toBeLessThan(bb.hull.beam);

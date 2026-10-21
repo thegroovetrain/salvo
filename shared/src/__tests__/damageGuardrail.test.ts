@@ -89,24 +89,24 @@ describe('one-hit-kill guardrail — CONFIG bases (player-piloted CLASSES only, 
     expect(CONFIG.broadside.damage).toBeLessThan(minHullHp);
   });
 
-  it('the lightest CLASS hull is the 250hp torpedoBoat; drones sit BELOW it and are no longer floor-eligible', () => {
+  it('the lightest CLASS hull is the 300hp torpedoBoat (tied with the mineLayer since amendment 209); drones sit BELOW it and are no longer floor-eligible', () => {
     // Objective toughness ladder (Eric ruling 2026-08-03) moved class hp onto
-    // 200 + 50/pip: TB 250 (2 pips) is the lightest CLASS hull, below ML 300
-    // (3 pips) and BS 175 (4 pips).
-    expect(Math.min(...classHps)).toBe(250);
+    // 200 + 50/pip: TB 300 (3 pips, 250 → 300 Eric 2026-10-19, amendment 209)
+    // ties ML 300 (3 pips) as the lightest CLASS hull, below BS 350 (4 pips).
+    expect(Math.min(...classHps)).toBe(300);
     expect(Math.min(...classHps)).toBe(CONFIG.shipClasses.torpedoBoat.hp);
     // Drones (45/60/75 — epic-6 amendment 24; 80/100/120 -> 60/75/90 -> here)
     // are ALL lighter than every pickable class hull. That does NOT make the
     // small drone "the lightest hull on the water" for GUARDRAIL purposes —
     // fleet hulls are PvE fodder (amendment 33) and are deliberately NOT
     // protected by the one-hit-kill law. minHullHp is therefore the CLASS
-    // floor (250), not the drone floor (45).
+    // floor (300), not the drone floor (45).
     for (const droneHp of droneHps) {
       for (const classHp of classHps) {
         expect(droneHp).toBeLessThan(classHp);
       }
     }
-    expect(minHullHp).toBe(250);
+    expect(minHullHp).toBe(300);
     expect(minDroneHp).toBe(45);
     expect(minDroneHp).toBe(CONFIG.drones.small.hp);
   });
@@ -122,7 +122,7 @@ describe('one-hit-kill guardrail — THE TWO PICKABLE GUNS (Story 8.15, amendmen
     expect(capped.damage).toBe(CONFIG.machineGun.damage);
     expect(capped.damage * 1).toBeLessThan(minHullHp);
     expect(CONFIG.machineGun.damage).toBeLessThan(minHullHp);
-    // Even a WHOLE capped magazine cannot sink the 250 hp hull from full — a
+    // Even a WHOLE capped magazine cannot sink the 300 hp hull from full — a
     // record, not a law: the stream is bounded per shell.
     expect(capped.maxAmmo * capped.damage).toBeLessThan(minHullHp);
   });
@@ -180,7 +180,7 @@ describe('the small drone (45hp) TRADES the one-hit-kill floor for the farming e
 // nothing left to sweep: a future damage line lands under the law
 // automatically, on the day it lands, instead of needing a new pin.
 describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; player-classes-only scope per Story 5.6)', () => {
-  it('EVERY damage path, max-stacked from the catalog, stays UNDER the 250hp lightest CLASS hull', () => {
+  it('EVERY damage path, max-stacked from the catalog, stays UNDER the 300hp lightest CLASS hull', () => {
     // Swept from the catalog rather than listed, so a new damage card is
     // covered the day it lands and a deleted one needs no edit here. Catalog
     // v3 widened the sweep: every `equipment.<id>.damage` path the GENERATED
@@ -214,7 +214,7 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     ]);
   });
 
-  it('the torpedo / mine damage endpoints (base + the authored steps) all stay under the 250hp floor', () => {
+  it('the torpedo / mine damage endpoints (base + the authored steps) all stay under the 300hp floor', () => {
     // Story 9.12 (Eric 2026-10-16): the four stepped lines top out at
     // 120 / 135 / 135 / 135 — no single torpedo or mine one-shots a captain at
     // any build (a two-tube salvo is a multi-shell case the per-shell law
@@ -243,7 +243,7 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
   it('the drafted ladder endpoints land where the spec ruled them', () => {
     // THE DECK GUN LADDER (Eric 2026-10-16, Story 9.12; was 12 -> 18, the
     // 2026-10-13 experiment): 8 -> 13 across four tiers — the base plus the
-    // authored steps — comfortably under the 250hp floor.
+    // authored steps — comfortably under the 300hp floor.
     const gunSteps = CATALOG.deckGun.tiers
       .flat()
       .filter((e) => e.kind === 'stat' && e.path === 'equipment.gun.damage')
@@ -352,7 +352,7 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     expect(maxed.equipment.broadside.damage).toBe(CONFIG.broadside.damage);
     expect(maxed.equipment.broadside.damage).toBeLessThan(minHullHp); // the law, per SHELL
     // The tier-V barrage total (6 x 15 = 90) clears the 45hp drone and stays
-    // under the 250hp class floor — the multi-shell click case the law
+    // under the 300hp class floor — the multi-shell click case the law
     // deliberately does not govern.
     expect(maxed.equipment.broadside.turrets * maxed.equipment.broadside.damage).toBeLessThan(minHullHp);
   });
