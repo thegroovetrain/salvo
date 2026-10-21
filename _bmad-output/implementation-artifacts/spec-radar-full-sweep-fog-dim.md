@@ -2,7 +2,7 @@
 title: 'Radar returns the entire sweep; the near-range dim follows the fogged eye'
 type: 'bugfix'
 created: '2026-10-21'
-status: 'in-review'
+status: 'done'
 baseline_commit: '4a5715e9'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/investigations/fog-occludes-radar-investigation.md'
@@ -129,3 +129,68 @@ context:
 - `npm test -w shared && npm test -w server && npm test -w client` -- expected: green, counts recorded in the PR.
 - `npm run check` -- expected: green.
 - `grep -rn "dark to both\|inRadarAnnulus\|wakeInnerBound\|shipStamp\|buildTruesightWakeStamp" shared server/src client/src` -- expected: only history notes, no live rule.
+
+## Suggested Review Order
+
+**The ruling, on the server: the entire sweep**
+
+- Entry point: the blip gate with no sight clause — range → swept → shadow march → dropout
+  [`signals.ts:587`](../../server/src/game/signals.ts#L587)
+- The range test, now also the zero-distance guard (nothing to bear on at d = 0)
+  [`signals.ts:554`](../../server/src/game/signals.ts#L554)
+- Wake segments: same shape, no inner bound, no in-bubble torpedo-water clause
+  [`signals.ts:1329`](../../server/src/game/signals.ts#L1329)
+- A hull is offered to BOTH rows: contact and, when gated, blip
+  [`perception.ts:175`](../../server/src/game/perception.ts#L175)
+- The observer's own hull ribbon is skipped (precedent: shipScan skips own hull)
+  [`perception.ts:378`](../../server/src/game/perception.ts#L378)
+
+**Bots see the same sweep**
+
+- Sweep-miss uses the shadow march at every distance; fog exemption gone
+  [`sweepMiss.ts:92`](../../server/src/game/ai/sweepMiss.ts#L92)
+- A sighted hull's own echo is skipped only when the paint rect covers its cell
+  [`utility.ts:473`](../../server/src/game/ai/utility.ts#L473)
+
+**The client paints only the wire**
+
+- The beam field no longer carries synthesized ships or wake
+  [`radar.ts:970`](../../client/src/render/radar.ts#L970)
+- The menu's stand-in server emits the whole sweep too
+  [`ambientScene.ts:510`](../../client/src/render/ambientScene.ts#L510)
+
+**The dim mask slides to the fogged eye**
+
+- Where the fog-tolled eye ends on a bearing — same accounting as fogTollAlong, no transcendentals
+  [`fog.ts:326`](../../shared/src/sim/fog.ts#L326)
+- The fan: k·2π/N bearings into a preallocated Float32Array
+  [`fog.ts:361`](../../shared/src/sim/fog.ts#L361)
+- The curve: today's radial, translated by (sight − reach) × fogLift
+  [`radarDim.ts:78`](../../client/src/render/radarDim.ts#L78)
+- The slide, float32-safe (a clear cast never reads as slid)
+  [`radarDim.ts:104`](../../client/src/render/radarDim.ts#L104)
+- Per-wedge radii; the ramp keeps its width
+  [`textures.ts:254`](../../client/src/render/textures.ts#L254)
+- N pie-slice wedges, each its own radial gradient; radial path untouched
+  [`textures.ts:276`](../../client/src/render/textures.ts#L276)
+- The fog view casts the fan at the drawn (eased) cut; null means radial
+  [`fogField.ts:295`](../../client/src/render/fogField.ts#L295)
+- Cadence: re-bake on a bubble change, a due cast that slides, never per frame, never for an identical fan
+  [`radar.ts:1081`](../../client/src/render/radar.ts#L1081)
+- The cast: fog refresh interval or a 20 u move
+  [`radar.ts:1132`](../../client/src/render/radar.ts#L1132)
+- The bake commits state before drawing (the frozen-client rule)
+  [`radar.ts:1154`](../../client/src/render/radar.ts#L1154)
+- Eric's dial, shipped at 1
+  [`config.ts:3486`](../../client/src/config.ts#L3486)
+
+**Peripherals**
+
+- The oracle: no inner edge, no zone term
+  [`perception.test.ts:3310`](../../server/src/__tests__/perception.test.ts#L3310)
+- Four directed amendment-210 cases, one per I/O-matrix row
+  [`perception.test.ts:5387`](../../server/src/__tests__/perception.test.ts#L5387)
+- The dim slide contracts and the cadence tests
+  [`dimFogSlide.test.ts:53`](../../client/src/__tests__/dimFogSlide.test.ts#L53)
+- Protocol 90 → 91
+  [`index.ts:897`](../../shared/src/index.ts#L897)
