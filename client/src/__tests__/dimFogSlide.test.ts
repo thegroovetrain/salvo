@@ -243,7 +243,30 @@ describe('Radar: the fan is cast and baked on a cadence, never per frame', () =>
     expect(bakes.fans[0]!.length).toBe(RAYS);
     radar.render({ x: 0, y: 0 }, REFRESH, null);
     expect(src.calls).toBe(2);
-    expect(bakes.fans).toHaveLength(2);
+    expect(bakes.fans, 'the same fan again: no re-bake (P10)').toHaveLength(1);
+  });
+
+  it('two consecutive due casts returning the same fan bake once; a changed entry bakes again', () => {
+    let short = 0;
+    const src = {
+      calls: 0,
+      eyeReachFan(_ox: number, _oy: number, sightU: number, _t: number, out: Float32Array): Float32Array {
+        src.calls++;
+        out.fill(sightU);
+        out[short] = sightU / 2;
+        return out;
+      },
+    };
+    const radar = radarWith(src);
+    radar.render({ x: 0, y: 0 }, 0, null);
+    radar.render({ x: 0, y: 0 }, REFRESH, null);
+    expect(src.calls, 'two due casts').toBe(2);
+    expect(bakes.fans, 'the identical fan baked once').toHaveLength(1);
+    short = 5;
+    radar.render({ x: 0, y: 0 }, REFRESH * 2, null);
+    expect(src.calls).toBe(3);
+    expect(bakes.fans, 'a changed entry bakes again').toHaveLength(2);
+    expect(bakes.fans[1]![5]).toBe(Math.fround(SIGHT / 2));
   });
 
   it('re-casts early on a move past reachRecastMoveU, not on a smaller one', () => {

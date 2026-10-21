@@ -117,7 +117,8 @@ export const SCENE = {
   ownHpFrac: 0.2,
   /** Contacts inside the truesight bubble (hulls the eye must pick out). */
   nearContacts: 12,
-  /** Contacts in the radar annulus (fogged hulls that also paint as blips). */
+  /** Contacts in the radar annulus (fogged hulls: blips only — every hull, near
+   *  or far, paints since amendment 210). */
   farContacts: 7,
   /** Torpedoes inbound on the own hull. */
   torpedoes: 5,
@@ -597,8 +598,9 @@ export function sceneOwn(world: SceneWorld, tick: number): OwnShip {
   };
 }
 
-/** The truesighted contacts this tick (the near band; the far band is fogged
- *  and reaches the client as radar paint instead — see `blipEvents`). */
+/** The truesighted contacts this tick (the near band). Every hull, near or
+ *  far, also reaches the client as radar paint — see `blipEvents`; the far
+ *  band is fogged, so paint is all it gets. */
 export function sceneContacts(world: SceneWorld, tick: number): Contact[] {
   return world.hulls.filter((h) => !h.far).map((h) => hullPose(h, world, tick));
 }

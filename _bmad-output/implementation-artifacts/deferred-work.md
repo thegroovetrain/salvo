@@ -3117,6 +3117,6 @@ Closure stamps for three older entries (the originals are left as written), then
   evidence: amendment 210 (b).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-radar-full-sweep-fog-dim.md`
-  status: OPEN — Eric may re-rule
-  summary: BOTS SKIP ANY PAINT WITHIN `ANON_ASSOC_U` OF A HULL SIGHTED THIS VIEW (so a sighted hull's own echo never smears its live plot). A second hull inside that distance of a sighted one — e.g. half behind a low island — goes unplotted that tick. Also: an own-zone decoy now arrives twice (on `decoys` and as an anonymous blip), a direct consequence of "the entire sweep" covering own-zone hulls.
-  evidence: server/src/game/ai/utility.ts `foldBlip` / `nearSighted`; amendment 210 (a).
+  status: OPEN — Eric's call (own-zone decoy half only)
+  summary: The bot-fold half is RESOLVED 2026-10-21 (review-gate patch P2): the `ANON_ASSOC_U` disc around a sighted hull was replaced by the paint-rect criterion — a paint is skipped only when its coverage rect (± one cell) covers the sighted hull's cell, so a second hull or decoy nearby now folds. STILL OPEN: an own-zone decoy arrives twice (on `decoys` and as an anonymous blip), a direct consequence of "the entire sweep" covering own-zone hulls.
+  evidence: server/src/game/ai/utility.ts `foldBlip` / `paintCoversSighted`; amendment 210 (a).

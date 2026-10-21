@@ -3476,7 +3476,8 @@ export const CLIENT_CONFIG = {
          * DIAL, 0..1. On a bearing where the observer's fog-tolled eye ends at
          * `reach` < sight (shared sim/fog.ts `fogEyeReach`), the whole ramp slides
          * inward by `(sight − reach) × fogLift`: 1 = the floor ends exactly where
-         * the fogged eye ends and full strength begins one ramp-width later, so a
+         * the fogged eye ends (with the shipped innerFactor 1; in general the floor
+         * ends at innerU − (sight − reach)) and full strength begins one ramp-width later, so a
          * return the eye cannot see is NOT muted; 0 = today's radial mask, fog or
          * no fog. Covers both of Eric's cases with one rule — the observer inside
          * a bank, and a clear observer looking into one. Shipped at 1; Eric tunes

@@ -380,6 +380,10 @@ export class Radar {
   private reachSource: EyeReachSource | null = null;
   /** The eye-reach fan, preallocated once and re-cast in place forever. */
   private readonly reachFan = new Float32Array(rayCount(CLIENT_CONFIG.blip.heatmap.dim.reachRays));
+  /** The fan the live `dim` texture was last baked from (valid while `dimFanned`;
+   *  its sight is `dimBakedAtU`), preallocated beside `reachFan` — a due cast
+   *  that reproduces it exactly skips the 120-wedge bake and upload. */
+  private readonly bakedFan = new Float32Array(this.reachFan.length);
   /** Is the live `dim` texture a fanned (slid) bake rather than the radial one? */
   private dimFanned = false;
   /** Where and when (serverNow, ms) the fan was last cast — NaN = never. */
@@ -1088,9 +1092,23 @@ export class Radar {
     if (!resized && !this.reachDue(own, serverNow)) return;
     const fan = this.castReach(own, want, serverNow);
     const slid = fan !== null && dimFanSlides(fan, want);
-    // Nothing to change: same bubble, and radial before and after.
-    if (!resized && !slid && !this.dimFanned) return;
+    if (!resized && this.bakeUnchanged(slid ? fan : null)) return;
     this.bakeDim(want, slid ? fan : null);
+  }
+
+  /** At an unchanged bubble, would baking `fan` (null = radial) redraw the live
+   *  texture exactly? Radial before and after, or fanned before and after with
+   *  the very same fan (element for element) — then the bake and upload are skipped. */
+  private bakeUnchanged(fan: Float32Array | null): boolean {
+    if (fan === null) return !this.dimFanned;
+    return this.sameAsBaked(fan);
+  }
+
+  /** Is the live texture a fanned bake of exactly this fan (element for element)? */
+  private sameAsBaked(fan: Float32Array): boolean {
+    if (!this.dimFanned || fan.length !== this.bakedFan.length) return false;
+    for (let k = 0; k < fan.length; k++) if (fan[k] !== this.bakedFan[k]) return false;
+    return true;
   }
 
   /**
@@ -1136,6 +1154,7 @@ export class Radar {
   private bakeDim(sightU: number, fan: Float32Array | null): void {
     this.dimBakedAtU = sightU;
     this.dimFanned = fan !== null;
+    if (fan !== null && fan.length === this.bakedFan.length) this.bakedFan.set(fan);
     this.dim.texture = bakeDimMaskTexture(sightU, this.dim.texture, fan);
   }
 

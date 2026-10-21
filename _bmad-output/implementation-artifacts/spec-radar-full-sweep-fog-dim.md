@@ -99,6 +99,23 @@ context:
 
 ## Spec Change Log
 
+- **2026-10-21 — Review gate (Blind Hunter + Edge Case Hunter + Acceptance Auditor on Fable, Codex gpt-5.6-sol).** Findings → changes:
+  - P1: a non-float32-representable sight read every clear bearing of the Float32 fan as short, so the 120-wedge bake ran every cadence → `dimSlideU` reads `reach ≥ min(sight, fround(sight))` as clear; `dimFanSlides` follows.
+  - P2: bots skipped every paint within `ANON_ASSOC_U` of a sighted hull, hiding a second hull or decoy beside it → a paint is skipped only when its coverage rect (± one cell) covers the sighted hull's cell (`paintCoversSighted`).
+  - P3: with no inner bound the observer's own hull ribbon painted its own scope and fed the bot its own course → `wakeScan` skips the ribbon keyed `me.id` (own torpedo water still paints); `blipGate`/`wakeGate` return false at zero distance; the perception oracle excludes both.
+  - P4: the "open water until its wire blip arrives" client test could not fail → replaced by a range-blind contract: the same wire rect inside and beyond the sight circle paints the same footprint, cell for cell.
+  - P5: guards → `reachRays` clamped to a whole non-negative count; `reachDue` false on a non-finite clock; `dimRampU` writes a zero ramp for a bad sight; `fogEyeReach` reads a non-finite cost as no fog and a range ≤ one march step as one charged step (as `fogTollAlong`).
+  - P6: dead wake bookkeeping → `wakeSourceObserved`, `WakeSource.observed`, `WakeSources.version`, `WAKE_OBSERVE_GRACE_MS` and `FASTEST_BOOSTED_HULL_SPEED` removed with their tests; deferred-work entry RESOLVED.
+  - P7: comment drift (main.ts teardown, worstCaseScene near/far, radar.ts hull-source header, ai/types.ts `fogAt`, sim/wake.ts `torp`) → re-worded to what the code does now.
+  - P8: CONFIG.fog comment still stated amendment 169's "a fogged plot is not a miss" as live → marked superseded by amendment 210.
+  - P9: `FOG_COVER_DENSITY = 0.5` duplicated `FOG_SOLID_DENSITY` → now aliases it.
+  - P10: a due cast reproducing the last baked fan re-baked and re-uploaded → the Radar keeps the last baked fan in a preallocated array and skips an identical bake.
+  - P11: doc nits → `fogLift` doc notes the innerFactor-1 assumption; worstCaseScene says every hull paints; "amendment 213" citations read "epic-4 amendment 213".
+  - P12: the bot-fold deferred-work entry → the second-hull/decoy half RESOLVED by P2; the own-zone decoy arriving twice stays OPEN (Eric's call).
+  - P13: this entry.
+  - Implementer readings that differ from the I/O matrix wording: (1) `fogEyeReach` returns 0 for `range ≤ 0` and NaN for a NaN range (the matrix row said "returns the range"); the mask reads both as "no slide", so the visible behaviour is the same. (2) The texel-identity AC is proven by identical recorded 2d draw-call logs (radial bake vs an all-sight / fogLift-0 fan), because jsdom cannot rasterize.
+  - KEPT: the radial code path stays byte-identical; the wedge bake is reached only when a fan slides.
+
 ## Design Notes
 
 - The ramp SLIDES, it does not step: `scale(θ, d) = radial(d + (sight − reach(θ)) × fogLift)`. With no fog every reach equals sight and the expression is today's curve. A dial at 0 is a byte-identical bake.

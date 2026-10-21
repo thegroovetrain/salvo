@@ -162,7 +162,7 @@ describe('wake length is speed × the SHARED life, per class', () => {
 
   it('runs 247.5u / 220u / 192.5u at full ahead for the three captain classes', () => {
     const at = (cls: HullId): number => hullEnvelope(cls).kinematics.maxSpeed * (LIFE_MS / 1000);
-    // Cut from 540 / 480 / 420 by amendment 213. The other two fall out of the
+    // Cut from 540 / 480 / 420 by epic-4 amendment 213. The other two fall out of the
     // torpedo boat's figure, since length is `speed x life` and only speed
     // differs. (That it once equalled the 3/8 detect rung was a coincidence,
     // not a rule — Eric 2026-10-08 — and is no longer pinned.)
@@ -348,7 +348,7 @@ describe('phosphor covers the water clock at every sweep rate', () => {
   // The phosphor window is three REVOLUTIONS, not a fixed span, so a stretch of
   // water painted a revolution after it was laid must still be lit when it
   // dissipates — at the base sweep rate and at `sweepRpmMax` alike (cycle-69
-  // review gate P4; amendment 213's shorter clock closed the maxed-sweep gap).
+  // review gate P4; epic-4 amendment 213's shorter clock closed the maxed-sweep gap).
   // These mirror the ruled pin pair in shared zone.test.ts; this
   // side additionally pins `persistSweeps` itself, because the shared oracle has
   // to write that 3 as a LITERAL (shared may not import client config) and a
@@ -365,7 +365,7 @@ describe('phosphor covers the water clock at every sweep rate', () => {
     expect(phosphorMs).toBeGreaterThanOrEqual(LIFE_MS);
   });
 
-  it('and AT sweepRpmMax TOO — cycle 69\'s accepted shortfall is resolved by the 5.5s clock (amendment 213)', () => {
+  it('and AT sweepRpmMax TOO — cycle 69\'s accepted shortfall is resolved by the 5.5s clock (epic-4 amendment 213)', () => {
     // Was `=== LIFE_MS / 2`, documenting a hole: 6s of phosphor against 12s of
     // water on a maxed intelSweep build. The shorter clock closes it, so the
     // handover guarantee now holds at EVERY sweep rate rather than only the

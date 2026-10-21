@@ -23,6 +23,7 @@
 
 import {
   CONFIG,
+  FOG_SOLID_DENSITY,
   cellOf,
   isWater,
   lineClear,
@@ -38,11 +39,8 @@ import {
 import type { BotMind } from './types.js';
 import { LONGEST_HULL_U, lineBlocked } from './plot.js';
 
-/** Density at or above which fog is SOLID cover (amendment 199: "density ≥
- *  ½") — the heart of a bank, not its thin edge. (The sweep-miss rule once
- *  shared this bar through amendment 169's fog limit; amendment 210 retired
- *  that limit, so cover is its only reader.) */
-export const FOG_COVER_DENSITY = 0.5;
+/** Density at or above which fog is SOLID cover — the shared solid-fog bar (amendment 199: "density ≥ ½"). */
+export const FOG_COVER_DENSITY = FOG_SOLID_DENSITY;
 
 /** u — the three sample radii of the fog search, nearest first (the
  *  orchestrator's reading under amendment 199: 200 / 400 / 600 u). A search

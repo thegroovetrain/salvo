@@ -951,7 +951,7 @@ function scnWake(g: Golden): void {
   // two in-sight samples (200, 212), then a beyond-sight run ANNULUS..+48
   // (Story 9.8: re-based past the 4/12 sight and inside the dropout's flat
   // band), ages spread so multiple quarter-life buckets ride the wire. The
-  // ages sit INSIDE the torpedo boat's 5.5 s water life (amendment 213 cut it
+  // ages sit INSIDE the torpedo boat's 5.5 s water life (epic-4 amendment 213 cut it
   // from 12 s; the old 11.6 s ages had silently expired the in-sight samples,
   // leaving the bubble proof vacuous).
   const xs = [200, 212, ANNULUS, ANNULUS + 12, ANNULUS + 24, ANNULUS + 36, ANNULUS + 48];
