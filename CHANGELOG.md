@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.18.70] - 2026-10-22
+
+### Changed
+- **The two end-to-end smokes no longer sail.** matchSmoke and weaponsSmoke used to drive little robot captains across a random ocean and often failed for reasons that had nothing to do with the game; they now place every hull exactly where the scene needs it, on a fixed map, with no computer fleet joining the fight, and check only the things they exist to check: a torpedo fired at a hull ahead strikes it, a hull at zero hull points sinks, a match whose last opponent sinks ends. Both pass first try, three times in a row, in about two and four minutes. The developer-only options that make this possible are switched off outside a developer's own server. No gameplay changed.
+
 ## [0.18.69] - 2026-10-22
 
 ### Changed
