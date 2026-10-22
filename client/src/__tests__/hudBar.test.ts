@@ -142,6 +142,9 @@ describe('(b) the squares — five weapons, six belt', () => {
     const colH = B.slot + B.chipGap + B.chipH;
     const beltH = B.beltPad.top + B.beltSlot + B.chipGap + B.chipH + B.beltPad.bottom;
     const rowTop = L.bar.y;
+    // Both columns FIT the main row — a slot retune can never overflow the globe height (9.14 gate P1).
+    expect(colH).toBeLessThanOrEqual(B.globe);
+    expect(beltH).toBeLessThanOrEqual(B.globe);
     expect(L.squares[SLOT_GUN].y).toBe(rowTop + (B.globe - colH) / 2);
     expect(L.belt.y).toBe(rowTop + (B.globe - beltH) / 2);
     expect(L.belt.h).toBe(beltH);

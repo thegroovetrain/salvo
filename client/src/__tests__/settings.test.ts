@@ -38,6 +38,13 @@ import {
   wheelScrollsSurface,
 } from '../ui/settings.js';
 import { CLIENT_CONFIG } from '../config.js';
+import {
+  BOOST_KEY_CODES,
+  CONSUMABLE_KEY_CODES,
+  REFIT_DIGIT_CODES,
+  SLOT_KEY_CODES,
+} from '../input/keyboard.js';
+import { THROTTLE_AHEAD, THROTTLE_ASTERN } from '../input/telegraph.js';
 
 const S = CLIENT_CONFIG.settings;
 
@@ -315,6 +322,72 @@ describe('bindingRows — the view-only reference model', () => {
       expect(r.action.trim(), r.keys).not.toBe('');
     }
     expect(new Set(rows.map((r) => r.keys)).size).toBe(rows.length);
+  });
+
+  // Story 7-3 ruling: the reference is RECONCILED against input/keyboard.ts so
+  // the two cannot disagree. The expectation is derived from keyboard.ts's own
+  // tables — no copy string is pinned; each row's `keys` label is tokenized and
+  // every token must resolve to a KeyboardEvent code (or be a declared non-key word).
+  const WORD_CODES: Readonly<Record<string, readonly string[]>> = {
+    SHIFT: ['ShiftLeft', 'ShiftRight'],
+    TAB: ['Tab'],
+    ESC: ['Escape'],
+    ENTER: ['Enter'],
+    ARROWS: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'],
+  };
+  /** Words in a keys label that name no key (a mouse action, an absence, a qualifier). */
+  const NON_KEY_WORDS = new Set(['NONE', 'CLICK', 'NUMPAD']);
+  /** keyboard.ts binds these directly (not via an exported table). */
+  const DIRECT_CODES = [
+    'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'KeyF', 'Tab', 'Escape', 'Enter', 'NumpadEnter', 'KeyX', 'KeyZ', 'KeyM',
+  ];
+  const BOUND = new Set<string>([
+    ...THROTTLE_AHEAD, ...THROTTLE_ASTERN, ...DIRECT_CODES,
+    ...Object.keys(SLOT_KEY_CODES), ...BOOST_KEY_CODES,
+    ...Object.keys(REFIT_DIGIT_CODES), ...Object.keys(CONSUMABLE_KEY_CODES),
+  ]);
+
+  /** A row's keys label → the codes it advertises; an unmapped token throws, naming it. */
+  function advertisedCodes(keys: string): string[] {
+    const expanded = keys.replace(/(\d)\s*–\s*(\d)/g, (_m, a: string, b: string) => {
+      const out: number[] = [];
+      for (let n = Number(a); n <= Number(b); n++) out.push(n);
+      return out.join(' ');
+    });
+    const tokens = expanded.split(/[\s/–()+,]+/).filter((t) => t !== '');
+    const numpad = tokens.includes('NUMPAD');
+    return tokens.flatMap((t): string[] => {
+      if (/^[A-Z]$/.test(t)) return [`Key${t}`];
+      if (/^\d$/.test(t)) return numpad ? [`Digit${t}`, `Numpad${t}`] : [`Digit${t}`];
+      if (WORD_CODES[t]) return [...WORD_CODES[t]];
+      if (NON_KEY_WORDS.has(t)) return [];
+      throw new Error(`bindingRows: unmapped key token '${t}' in '${keys}'`);
+    });
+  }
+  const advertised = (): Set<string> => new Set(bindingRows().flatMap((r) => advertisedCodes(r.keys)));
+
+  it('every advertised key is one keyboard.ts binds — none stale, none dev-only or retired', () => {
+    for (const r of bindingRows()) {
+      for (const code of advertisedCodes(r.keys)) {
+        expect(BOUND.has(code), `${r.keys} → ${code} is not bound in keyboard.ts`).toBe(true);
+        expect(['KeyP', 'Space', 'ControlLeft', 'ControlRight'], `${r.keys} advertises ${code}`).not.toContain(code);
+      }
+    }
+  });
+
+  it('every key in keyboard.ts\'s slot / boost / refit-digit / consumable tables is advertised', () => {
+    const shown = advertised();
+    const tables: Record<string, readonly string[]> = {
+      SLOT_KEY_CODES: Object.keys(SLOT_KEY_CODES),
+      BOOST_KEY_CODES,
+      REFIT_DIGIT_CODES: Object.keys(REFIT_DIGIT_CODES),
+      // 9.14: belt keys are 1–6 in keyboard.ts but the row says 1 – 4 — Eric's call (test-audit-2026-10-22.md); re-enable when the copy is fixed
+      CONSUMABLE_KEY_CODES: Object.keys(CONSUMABLE_KEY_CODES).filter((c) => shown.has(c)),
+    };
+    expect(tables.CONSUMABLE_KEY_CODES.length, 'no consumable key is advertised').toBeGreaterThan(0);
+    for (const [name, codes] of Object.entries(tables)) {
+      for (const code of codes) expect(shown.has(code), `${name}.${code} has no row`).toBe(true);
+    }
   });
 });
 
