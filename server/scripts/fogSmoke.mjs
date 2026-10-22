@@ -102,7 +102,7 @@ function onFrame(ctx, f) {
   ctx.contacts = f.contacts;
   for (const e of f.events) {
     if (e.k === 'blip') ctx.blips.push(e);
-    else if (e.k === 'shell') ctx.shells.push(e);
+    else if (e.k === 'shell') ctx.shells.push({ ...e, seenAt: ctx.you ? { x: ctx.you.x, y: ctx.you.y } : null }); // the observer's pose AT REVEAL (deferred-work :343)
     else if (e.k === 'boom') ctx.booms.push({ ...e, seenAt: ctx.you ? { x: ctx.you.x, y: ctx.you.y } : null });
   }
   if (ctx.frames && ctx.you && ctx.other?.you) {
@@ -373,7 +373,7 @@ async function phaseShellReveal(a, b, log) {
     // materializes at B's sight boundary, not at A's muzzle).
     assert(sb.t - sa.t >= CONFIG.tick.simDtMs, `shell: ${sb.id} revealed to B on its launch tick (+${(sb.t - sa.t).toFixed(0)}ms)`);
     assert(sa.ttl === undefined && sb.ttl === undefined, `shell: ${sb.id} carried a ttl (range-derivable field must not be on the wire)`);
-    assert(dist(sb, b.you) <= SIGHT + 60, `shell: ${sb.id} revealed ${dist(sb, b.you).toFixed(0)}u from B (outside sight)`);
+    assert(sb.seenAt && dist(sb, sb.seenAt) <= SIGHT + 60, `shell: ${sb.id} revealed ${sb.seenAt ? dist(sb, sb.seenAt).toFixed(0) : '?'}u from B (outside sight)`);
   }
   // A must never see its own out-of-sight impacts (no hit confirmation leak).
   const aBooms = a.booms.slice(aBooms0);

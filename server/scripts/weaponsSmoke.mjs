@@ -1,164 +1,165 @@
-// Weapons smoke: two live @colyseus/sdk clients against a running dev server,
-// exercising torpedoes + mines end to end.
-//   1. Torpedo kill: A (torpedo boat) faces B (mine layer) bow-on and holds
-//      fire until B sinks. The arithmetic is READ FROM CONFIG, never pinned
-//      here: at the numbers shipping today that is SIX 50-dmg fish
-//      (CONFIG.torpedo.damage) against a 300 hp Mine Layer
-//      (CONFIG.shipClasses.mineLayer.hp) across ~30 s reloads
-//      (CONFIG.torpedo.reloadMs) — 6x50 = 300 >= 300 hp. The smoke clicks every
-//      tick, so the fish count follows the hp and the damage automatically; the
-//      only thing tuning moves is the PATIENCE budget below. Asserts at least
-//      one hit at exactly CONFIG.torpedo.damage and the kill on the roster.
-//   2. Torpedo never blips: B collects every torpedo id it is shown (via `torp`
-//      events entering its sight) and every radar blip id — asserts the sets are
-//      DISJOINT (a torpedo can never appear on the scope).
-//   3. Mine visibility + NO EVICTION: B — the MINE LAYER, whose DEV SPAWN FIT
-//      puts `navalMines` in the FIRST WEAPON SLOT (Q, inp.slot = 2) under the
-//      Story 8.5 nine-slot fixed roles [gun, boost, <fitted weapon>, ...]; mines are
-//      CLICK-FIRED into the rear placement arc, not an ability — holds station clicking
-//      drops astern while A loiters within detect range but outside trigger
-//      range. Asserts A never sees an enemy mine beyond DETECT range (Story
-//      4.9: the detect rung — 4/12 = sight since Story 9.8 (detectFactor 1); no
-//      radar/fog leak), and that SIX laid mines are SIX LIVE mines at one
-//      moment — counted on A's OWN board, which a captain always sees in full
-//      at any range, so the no-eviction pin carries no geometry. Story 8.4
-//      (FR57/AR48) deleted every mine cap: the old assertion here — "never more
-//      than maxLive at once, yet more than maxLive distinct ids over time" —
-//      was the oldest-despawn proof, and the behaviour it proved is gone.
-//   5. LIGHT TORPEDO (Story 8.13): a fresh pair in their OWN room. LT-A is a
-//      Torpedo Boat fitted with ONE `lightTorpedo` card (tier I), which fires
-//      into the TWIN BEAM SECTORS, not the bow cone — so the harness steers
-//      the target ABEAM and clicks when it bears through either beam. Asserts
-//      at least one hit at exactly CONFIG.lightTorpedo.damage and the kill.
-//   6. CAPTIVE MINE (Story 8.13): another fresh pair. CM-A is a Mine Layer
-//      fitted with `captiveMines`, which lays ONE mine astern; CM-B then
-//      drives through its 144u TRIP RING, at which point the mine launches its
-//      fish instead of detonating. Asserts a hit at exactly
-//      CONFIG.captiveMines.damage — the CAPTIVE row's warhead, not the naval
-//      rack's.
-//   7. THE THREE GUNS (Story 8.15): one fresh room per seat gun (`gun` join
-//      option deckGun / machineGun / flak), the shooter firing slot 0 at a
-//      stationary target. Asserts a hit at that gun's CONFIG damage (15 / 4 /
-//      12 today) and that every shell reveal the target sees carries the
-//      gun's family `w` ('cannon' / 'mg' / 'flak'). The machine gun is driven
-//      as a LEVEL — `held: true` on slot 0 for ~1 s, then released, never a
-//      click.
-//   4. Mine ambush: A (the Torpedo Boat) sails onto a live armed mine laid by
-//      B (the Mine Layer) — asserts a CONFIG.mine.damage hp drop (55 today) +
-//      a boom, and that A first saw every B-mine only from within detect
-//      range. main() calls `ambushPhase(b, a, log)` (a role swap, same as
-//      minePhase above), so INSIDE the function the parameter names are
-//      swapped from what they name outside it: the function's own `a` is
-//      real client B (idled — the mine owner, holding station) and its own
-//      `b` is real client A (the one sailing onto the mine and taking the
-//      hit) — the log line `ambush: B.hp 250->195 boom=true` therefore
-//      reports real client A's hp, not real client B's.
+// Weapons smoke: live @colyseus/sdk clients against a running dev server,
+// exercising torpedoes, mines and the three deck guns end to end — as
+// SCRIPTED SCENARIOS (Story 9.15). "A smoke places, it does not sail."
 //
-// THE WEAPONS ARE PRE-FITTED (Story 8.10, epic-8 amendment 65). FR48 deleted
-// the interim spawn seed: every hull now spawns holding the SEAT'S GUN and the
-// Shift boost ONLY, and its first weapon arrives as a CARD from the level-zero
-// countdown offer — which this smoke's SANDBOX room does not even have (no
-// Match, so no countdown and no grant). Both clients therefore ask for their
-// class weapon explicitly through the DEV-ONLY `fitOverride` join option: A the
-// Torpedo Boat's `heavyTorpedo`, B the Mine Layer's `navalMines`, each landing
-// in slot 2 (Q) exactly where the deleted seed used to put it. Phases 5 and 6
-// ask for `lightTorpedo` and `captiveMines` the same way, and run in ROOMS OF
-// THEIR OWN (`client.create` + `joinById`) so no mine or wreck left by the
-// first four phases can contaminate their geometry.
+// WHY IT USED TO FLAKE. Every hull carried a heuristic pilot (rendezvous to
+// the midpoint, hold-station loiter, island-avoid rudder bias, nearest-mine
+// chase) on a RANDOM map, while the 60 s PvE fleet wave and passive regen
+// raced every kill — so a red run measured the piloting, not the weapon.
+// Now nothing sails by heuristic: every phase gets its OWN fresh room on a
+// PINNED map (`mapSeed`), every hull is PLACED by the dev-only `spawnOverride`
+// pose, the fleet wave is off (`matchOverride.fleetWaves: false`), and the
+// inputs are scripted per phase through the ordinary `i` channel (so they pass
+// `inputs.ts`' sanitizeInput like any client's).
 //
-// Run against a booted server (tsx server/src/index.ts + shared/dist built),
-// with HC_DEV_OPTIONS=1 in ITS env — this smoke's sandbox matchOverride +
-// zoneOverride + fitOverride are otherwise stripped by the room (see
-// server/src/rooms/roomOptions.ts):
-//   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
-//   node server/scripts/weaponsSmoke.mjs
+// THE PHASES (each in its own room; every number READ from CONFIG or from the
+// same `effectiveStats()` fold the server uses, never typed here):
+//   1. TORPEDO KILL + NEVER A BLIP — a Torpedo Boat posed dead astern of a
+//      stationary Mine Layer, bow on the bearing, clicks the heavy tube every
+//      tick. The KILL PLAN (fish count, time) is simulated below from the
+//      fitted row, the target's hp and its passive regen, and printed; the
+//      budget is the plan plus one reload. Asserts a hit at the row's damage,
+//      the roster death + kill, and that no torpedo id ever shows as a blip.
+//   2. MINE VISIBILITY + NO EVICTION — a stationary Mine Layer clicks naval
+//      mines astern (inside `placeRange`, spread over the rear sector) while a
+//      stationary observer sits at a FIXED point inside detect. Asserts SIX own
+//      mines live at once (Story 8.4 deleted every mine cap) and that the
+//      observer never sees an enemy mine beyond `CONFIG.vision.detect`.
+//   3. MINE AMBUSH — the layer lays ONE mine; after it arms, the victim joins
+//      posed beyond detect on a straight line THROUGH the mine and sails it at
+//      `throttle 1, rudder 0`. Asserts the mine's damage, a boom, and that the
+//      mine was first sighted inside detect.
+//   4. LIGHT TORPEDO — the target posed on the shooter's PORT BEAM (heading +
+//      π/2), inside the twin beam sector by construction; kill plan as in 1.
+//   5. CAPTIVE MINE — the layer lays one captive; the victim drives straight
+//      through its trip ring. Asserts the captive row's damage, a boom, and
+//      that the mine was expended.
+//   6. THE THREE GUNS — one room per seat gun (`gun` join option, EMPTY fit),
+//      shooter and target stationary inside the gun's full-damage band.
+//      Cannon/flak: one click per reload; machine gun: `held: true` for a
+//      derived window, `fireSeq` stays 0. Asserts the CONFIG damage, every
+//      shell reveal's family `w`, and the MG's zero click edges.
+//
+// THE WEAPONS ARE PRE-FITTED through the DEV-ONLY `fitOverride` join option
+// (Story 8.10, EPIC-8 amendment 65): the fitted line lands in slot 2 (Q) under
+// the Story 8.5 nine-slot fixed roles [gun, boost, <fitted weapon>, ...].
+//
+// A `PRECONDITION:` failure is a SCRIPT BUG (a pose that missed the island-free
+// center disc, a target outside an arc), not a smoke failure.
+//
+// Run against a booted server with HC_DEV_OPTIONS=1 in ITS env — every dev
+// option here is otherwise stripped (server/src/rooms/roomOptions.ts):
+//   cd server && HC_DEV_OPTIONS=1 PORT=2699 ../node_modules/.bin/tsx src/index.ts
+//   WS_URL=ws://localhost:2699 node server/scripts/weaponsSmoke.mjs
 import { Client } from '@colyseus/sdk';
-import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, generateMap } from '@salvo/shared';
-
-// How many of A's mines must be LIVE AT ONCE for the no-eviction pin to bite:
-// one past the per-player cap of 5 that Story 8.4 deleted.
-const NO_EVICTION_MINES = 6;
+import {
+  CONFIG,
+  MSG,
+  PROTOCOL_VERSION,
+  angleDiff,
+  arcFor,
+  bearing,
+  effectiveStats,
+  generateMap,
+  islandBlocksSegment,
+  islandDistance,
+  twinSectorSide,
+} from '@salvo/shared';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
-const SIGHT = CONFIG.vision.sight;
-const DETECT = CONFIG.vision.detect; // Story 4.9: the mine/torpedo detect rung (4/12 = sight since Story 9.8)
+const DETECT = CONFIG.vision.detect; // Story 4.9: the mine/torpedo detect rung (= sight since Story 9.8)
+const DT = CONFIG.tick.simDtMs;
+
+/** The pinned map (fogSmoke's seed). */
+const MAP_SEED = 265;
+const MAP = generateMap(MAP_SEED, CONFIG.map.playerCap);
+/** mapgen keeps INNER_FRACTION (0.15) of the map radius island-free by
+ *  construction (server/src/game/spawn.ts) — every pose lives in that disc. */
+const CENTER_DISC_U = 0.15 * MAP.radius;
+/** u — a pose's minimum clearance from any island edge (a hull half-length). */
+const POSE_CLEARANCE_U = 60;
+
+/** How many of the layer's mines must be LIVE AT ONCE for the no-eviction pin
+ *  to bite: one past the per-player cap of 5 that Story 8.4 deleted. */
+const NO_EVICTION_MINES = 6;
+
+/** Eric's ruling 4 (2026-10-22): a smoke may stack a torpedo line to TIER III. */
+const MAX_SMOKE_CARDS = 3;
+
+// Sandbox (dev-only): no match lifecycle, permissive combat policy, storm at
+// the 2nd join. The 10-minute beat parks the first close 30 minutes out, so
+// every phase runs on the full-map ring.
+const SANDBOX_ZONE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2 };
+const MATCH_OVERRIDE = { sandbox: true, fleetWaves: false };
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
 }
-const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+function precondition(cond, msg) {
+  if (!cond) throw new Error(`PRECONDITION: ${msg}`);
+}
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const secs = (ms) => `${(ms / 1000).toFixed(1)}s`;
 
-// Sandbox (dev-only): pre-step-14 room behavior — no match lifecycle, permissive
-// combat policy, storm at 2nd join. The long beat keeps that storm harmless
-// for the whole choreography (this smoke predates the zone / match steps).
-// Phased timeline (Story 3.1): a 10-minute beat parks the first close at 30
-// minutes out, so the whole choreography runs on the full-map ring.
-const SANDBOX_ZONE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2 };
-
-/** Each hull's own non-stub weapon line — the DEV SPAWN FIT this smoke asks
- *  for (amendment 65). Since Story 8.14 there is no deck to pay a copy out of:
- *  ANY non-stub catalog line is fittable, and an unknown or stub id (or one
- *  already held at its cap) is silently dropped. */
-const CLASS_WEAPON = { torpedoBoat: 'heavyTorpedo', mineLayer: 'navalMines', battleship: 'starShells' };
+/** The phase trace, hoisted so a FAILED run still prints what passed. */
+const TRACE = [];
 
 /**
- * `opts.weapon` — the line to fit instead of the hull's class weapon (Story
- * 8.13's `lightTorpedo` / `captiveMines`; any non-stub catalog line works since
- * Story 8.14 retired the decks).
- * `opts.roomId`  — join THAT room by id (the second half of a pair).
- * `opts.fresh`   — CREATE a room rather than joinOrCreate (the first half of a
- *                  pair that needs clean water).
- * `opts.gun`     — the SEAT'S GUN join option (Story 8.15: deckGun |
- *                  machineGun | flak); absent = the default cannon.
+ * Join one client. `opts.fit` — the dev fit (`fitOverride`, epic-8 amendment
+ * 65); `opts.pose` — the dev spawn pose; `opts.roomId` — join THAT room by id,
+ * else CREATE a fresh one; `opts.gun` — the seat's gun join option.
  */
-async function joinClient(name, cls = 'torpedoBoat', opts = {}) {
+async function joinClient(name, cls, opts) {
   const client = new Client(endpoint);
-  const fitOverride = Array.isArray(opts.weapon) ? [...opts.weapon] : [opts.weapon ?? CLASS_WEAPON[cls]];
-  const joinOpts = { name, pv: PROTOCOL_VERSION, cls, fitOverride, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE };
+  const joinOpts = {
+    name,
+    pv: PROTOCOL_VERSION,
+    cls,
+    mapSeed: MAP_SEED,
+    fitOverride: [...opts.fit],
+    matchOverride: MATCH_OVERRIDE,
+    zoneOverride: SANDBOX_ZONE,
+    spawnOverride: opts.pose,
+  };
   if (opts.gun !== undefined) joinOpts.gun = opts.gun;
-  const room = opts.roomId
-    ? await client.joinById(opts.roomId, joinOpts)
-    : opts.fresh
-      ? await client.create('arena', joinOpts)
-      : await client.joinOrCreate('arena', joinOpts);
+  const room = opts.roomId ? await client.joinById(opts.roomId, joinOpts) : await client.create('arena', joinOpts);
   const ctx = {
     name,
+    cls,
+    fit: opts.fit,
+    pose: opts.pose,
     room,
     welcome: null,
     you: null,
-    contacts: [],
     mines: [],
     booms: [],
     dmg: [],
     torpIds: new Set(),
     blipIds: new Set(),
     shellW: [], // Story 8.15: the gun family `w` of every shell reveal this client is shown
-    lastClickAt: 0, // the three-guns phase's click pacing (wall ms)
     seq: 0,
     fireSeq: 0,
-    goal: { mode: 'idle' },
-    // Mine-visibility trackers (updated every frame):
+    script: idle,
     mineLeakBeyondDetect: 0, // enemy mine seen at dist > detect (must stay 0 — Story 4.9)
-    maxConcurrentEnemy: 0, // most of A's mines seen at once
+    maxConcurrentEnemy: 0,
     maxConcurrentOwn: 0, // most of THIS ship's OWN mines live at once (Story 8.4)
     distinctEnemy: new Set(),
     distinctOwn: new Set(),
-    firstSeenDist: new Map(), // mineId -> distance at first sighting
-    islands: [], // rebuilt from the welcome — arms islandAvoid
+    firstSeenDist: new Map(), // enemy mineId -> distance at first sighting
   };
-  room.onMessage('w', (m) => {
+  room.onMessage(MSG.welcome, (m) => {
     ctx.welcome = m;
-    ctx.islands = generateMap(m.mapSeed, m.playerCap).islands; // arms islandAvoid
   });
-  room.onMessage('f', (m) => onFrame(ctx, m));
+  room.onMessage(MSG.frame, (m) => onFrame(ctx, m));
+  // Every other server->client type is a no-op here (the D1 ping loop's 'p',
+  // results, queue/lobby chatter) — registered so the SDK does not warn.
+  for (const t of Object.values(MSG)) if (t !== MSG.welcome && t !== MSG.frame) room.onMessage(t, () => {});
   return ctx;
 }
 
 function onFrame(ctx, f) {
   if (f.you) ctx.you = f.you;
-  ctx.contacts = f.contacts;
   ctx.mines = f.mines;
   for (const e of f.events) {
     if (e.k === 'boom') ctx.booms.push(e);
@@ -170,15 +171,11 @@ function onFrame(ctx, f) {
   trackEnemyMines(ctx);
 }
 
-/** Update mine-visibility invariants from this frame's mine list.
- *
- *  TWO TALLIES, for two different jobs. The ENEMY tally is the FOG pin: what B
- *  can see of A's field, and at what range. The OWN tally is the NO-EVICTION
- *  pin (Story 8.4): the mine signal row always discloses a captain's OWN mines
- *  at any range, so A's own count is a true board count with no geometry in it
- *  — which is exactly what "six laid, six live" needs. Counting A's field
- *  through B's eyes instead would measure the drifting layer's spread against
- *  the detect ring, not the store. */
+/** Mine-visibility tallies from this frame's mine list. TWO TALLIES, two
+ *  jobs: the ENEMY tally is the FOG pin (what this client sees of another
+ *  layer's field, and at what range); the OWN tally is the NO-EVICTION pin
+ *  (Story 8.4) — a captain's own mines are disclosed at any range, so its own
+ *  count is a true board count with no geometry in it. */
 function trackEnemyMines(ctx) {
   if (!ctx.you) return;
   let concurrent = 0;
@@ -199,465 +196,462 @@ function trackEnemyMines(ctx) {
   if (own > ctx.maxConcurrentOwn) ctx.maxConcurrentOwn = own;
 }
 
-function control(ctx) {
-  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
-  const g = ctx.goal;
-  if (g.mode === 'goto') steerToward(ctx, inp, g.target, 1);
-  else if (g.mode === 'hold') holdAt(ctx, inp, g.target);
-  else if (g.mode === 'engageTorp') engageTorp(ctx, inp, g.target);
-  else if (g.mode === 'dropMines') dropMines(ctx, inp);
-  else if (g.mode === 'engageLight') engageLightTorp(ctx, inp, g.target);
-  else if (g.mode === 'layCaptive') layCaptive(ctx, inp);
-  else if (g.mode === 'sailTo') steerToward(ctx, inp, g.target, 0.6);
-  else if (g.mode === 'gun') fireGun(ctx, inp, g);
-  ctx.room.send('i', inp);
+// --- scripted inputs --------------------------------------------------------
+
+function neutralInput(ctx) {
+  return { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
 }
-
-/**
- * THE THREE GUNS (Story 8.15): fire the MOUNTED gun (slot 0) at a stationary
- * target from a dead stop. CANNON and FLAK are click weapons: one fireSeq edge
- * per GUN_CLICK_MS (the reload paces them; an early click is a harmless
- * denial). The MACHINE GUN is a LEVEL (amendment 103): `held: true` on slot 0
- * for the first GUN_HOLD_MS of each GUN_CLICK_MS cycle, then released — never a
- * click. Its aim point sits a little PAST the target so the direct shell
- * crosses the hull before it expires at the point.
- */
-const GUN_CLICK_MS = 3000;
-const GUN_HOLD_MS = 1000;
-function fireGun(ctx, inp, g) {
-  if (!ctx.you || !g.target) return;
-  inp.slot = 0;
-  inp.aim = bearing(ctx.you, g.target);
-  inp.aimDist = dist(ctx.you, g.target) + (g.gun === 'machineGun' ? 30 : 0);
-  const now = Date.now();
-  if (g.gun === 'machineGun') {
-    inp.held = (now - g.t0) % GUN_CLICK_MS < GUN_HOLD_MS;
-    return;
-  }
-  if (now - ctx.lastClickAt >= GUN_CLICK_MS) {
-    ctx.lastClickAt = now;
-    inp.fireSeq = ++ctx.fireSeq;
-  }
-}
-
-
-/** Rudder bias steering away from any island ahead (dronesSmoke islandAvoid —
- *  needed since amendment 12 scaled the island budget with map area: long
- *  straight sail-ins on the 2400u board WILL cross rocks). */
-function islandAvoid(ctx) {
-  if (!ctx.you) return 0;
-  const fx = Math.cos(ctx.you.heading);
-  const fy = Math.sin(ctx.you.heading);
-  let bias = 0;
-  for (const c of ctx.islands ?? []) {
-    const dx = c.x - ctx.you.x;
-    const dy = c.y - ctx.you.y;
-    if (dx * fx + dy * fy <= 0 || Math.hypot(dx, dy) > 170 + c.r) continue;
-    bias += fx * dy - fy * dx > 0 ? -0.9 : 0.9;
-  }
-  return bias;
-}
-
-function steerToward(ctx, inp, target, throttle) {
-  if (!ctx.you || !target) return;
-  const want = bearing(ctx.you, target);
-  inp.rudder = clamp(angleDiff(ctx.you.heading, want) * 2 + islandAvoid(ctx), -1, 1);
-  inp.throttle = throttle;
-}
-
-/** Station-keep near a point: creep in if far, coast if close. islandAvoid
- *  rides the rudder (harness robustness, the engageTorp fix's sibling) so a
- *  trailing station-keeper can't pin itself nose-on against a rock. */
-function holdAt(ctx, inp, target) {
-  if (!ctx.you || !target) return;
-  const d = dist(ctx.you, target);
-  const want = bearing(ctx.you, target);
-  inp.rudder = clamp(angleDiff(ctx.you.heading, want) * 2 + islandAvoid(ctx), -1, 1);
-  inp.throttle = d > 40 ? 0.4 : 0;
-}
-
-/** Point the bow at the target and loose torpedoes when it bears in the arc.
- *  islandAvoid rides the rudder here too (harness robustness): without it a
- *  center island between the pair pins the shooter nose-on forever (the
- *  cycle-59 grounding cap holds it at the coast while the steering keeps
- *  re-aiming THROUGH the rock) and every fish dies on the island. And below
- *  ~60u the throttle drops to 0: a hull-to-hull scrum puts the target inside
- *  the fish's bow clearance, where no launch can ever connect. */
-function engageTorp(ctx, inp, target) {
-  if (!ctx.you || !target) return;
-  const brg = bearing(ctx.you, target);
-  inp.rudder = clamp(angleDiff(ctx.you.heading, brg) * 3 + islandAvoid(ctx), -1, 1);
-  const range = dist(ctx.you, target);
-  inp.throttle = range > 110 ? 0.6 : range > 60 ? 0.15 : 0; // close, keep steerageway, never scrum
-  inp.aim = brg;
-  // Slot 2 = the FIRST WEAPON slot (Q) in the Story 8.5 nine-slot fixed roles
-  // [gun, boost, <fitted weapon>, ...]: slot 0 is the deck gun, slot 1 is the
-  // universal Shift BOOST ability (Story 8.9), and this smoke's DEV SPAWN FIT
-  // (amendment 65) puts the Torpedo Boat's `heavyTorpedo` here.
+/** A stationary hull. */
+function idle() {}
+/** Click the fitted weapon (slot 2) at a CONSTANT bearing every tick — the
+ *  reload paces launches; an empty-pool click is a harmless denial. */
+const clickAt = (aim, aimDist = 0) => (ctx, inp) => {
   inp.slot = 2;
-  // Click every tick while the tube bears — the reload paces launches.
-  if (Math.abs(angleDiff(brg, ctx.you.heading)) < CONFIG.torpedo.halfArc) inp.fireSeq = ++ctx.fireSeq;
-}
-
-/**
- * THE LIGHT TORPEDO'S BEAM ENGAGEMENT (Story 8.13, catalog-v3 R18). The light
- * fish fires into TWO MIRRORED BEAM SECTORS (±45° about ±90°), with 90°-wide
- * DEAD ZONES dead ahead and dead astern — so the heavy's "point the bow and
- * click" is exactly what never works here. The harness steers to put the
- * target on the PORT BEAM (heading = bearing − 90°) and clicks whenever the
- * bearing falls in either beam, which is also what proves the twin-sector
- * denial is not simply refusing everything.
- */
-function engageLightTorp(ctx, inp, target) {
-  if (!ctx.you || !target) return;
-  const brg = bearing(ctx.you, target);
-  const want = brg - Math.PI / 2; // target on the port beam
-  inp.rudder = clamp(angleDiff(ctx.you.heading, want) * 3 + islandAvoid(ctx), -1, 1);
-  const range = dist(ctx.you, target);
-  inp.throttle = range > 140 ? 0.5 : range > 70 ? 0.15 : 0; // close, but never scrum
-  inp.aim = brg;
-  inp.slot = 2; // the fitted weapon slot (Q)
-  // Fire whenever the target bears through EITHER beam sector.
-  const off = Math.abs(angleDiff(ctx.you.heading, brg));
-  if (Math.abs(off - Math.PI / 2) < CONFIG.lightTorpedo.halfArc) inp.fireSeq = ++ctx.fireSeq;
-}
-
-/**
- * LAY ONE CAPTIVE MINE and then stop clicking (Story 8.13). The captive rack
- * shares the naval chassis — the same rear sector and the same 150u leash — so
- * the placement is `dropMines`' verbatim; what differs is that the phase wants
- * exactly ONE mine on the water, so the click stops as soon as the layer can
- * see one of its own.
- */
-function layCaptive(ctx, inp) {
-  if (!ctx.you) return;
-  inp.throttle = 0.12;
-  inp.slot = 2;
-  inp.aim = ctx.you.heading + Math.PI; // dead astern — centre of the placement arc
-  inp.aimDist = CONFIG.mine.placeRange * 0.6;
-  if (!ctx.mines.some((m) => m.own)) inp.fireSeq = ++ctx.fireSeq;
-}
-
-/** Hold station (light steerage) and CLICK mine drops astern — the Story 2.8
- *  aimed rear-arc placement: `navalMines` is a CLICK-FIRED WEAPON, so this goes
- *  down the fireSeq channel, not the actSeq ability one. Aim dead astern, well
- *  inside placeRange, so every click is a legal placement. */
-function dropMines(ctx, inp) {
-  if (!ctx.you) return;
-  inp.throttle = 0.12; // just enough steerageway to hold a heading
-  // Slot 2 = the FIRST WEAPON slot (Q) in the Story 8.5 nine-slot fixed roles
-  // [gun, boost, <fitted weapon>, ...], where this smoke's DEV SPAWN FIT
-  // (amendment 65) puts the Mine Layer's `navalMines` (the radar buoy is no
-  // longer fitted on any hull — amendment 22); slot 1 is the universal Shift
-  // BOOST ability (Story 8.9).
-  inp.slot = 2;
-  inp.aim = ctx.you.heading + Math.PI; // dead astern — center of the placement arc
-  inp.aimDist = CONFIG.mine.placeRange * 0.6; // comfortably inside placeRange
-  inp.fireSeq = ++ctx.fireSeq; // click every tick; CONFIG.mine.reloadMs (15s today) paces it
+  inp.aim = aim;
+  inp.aimDist = aimDist;
+  inp.fireSeq = ++ctx.fireSeq;
+};
+/** Sail straight ahead on the posed heading. */
+function sailAhead(_ctx, inp) {
+  inp.throttle = 1;
 }
 
 function roster(room, id) {
   return room.state.players.get(id);
 }
 
-async function pilotUntil(clients, tickFn, done, timeoutMs, label) {
+/** Send every client its scripted input once per sim tick until `done()`. */
+async function pilotUntil(clients, done, timeoutMs, label, tickFn) {
   const start = Date.now();
   while (!done()) {
-    for (const c of clients) control(c);
+    for (const c of clients) {
+      const inp = neutralInput(c);
+      c.script(c, inp);
+      c.room.send(MSG.input, inp);
+    }
     tickFn?.();
-    if (Date.now() - start > timeoutMs) throw new Error(`timeout: ${label}`);
-    await sleep(CONFIG.tick.simDtMs);
+    if (Date.now() - start > timeoutMs) throw new Error(`timeout (${secs(timeoutMs)}): ${label}`);
+    await sleep(DT);
+  }
+  return Date.now() - start;
+}
+
+/** Keep sending every client its scripted input for `ms` (a fixed wait). */
+async function holdFor(clients, ms) {
+  const until = Date.now() + ms;
+  await pilotUntil(clients, () => Date.now() >= until, ms + 5000, 'hold');
+}
+
+// --- placement preconditions ------------------------------------------------
+
+/** A pose is legal for a scripted scenario: inside the island-free center
+ *  disc and clear of every island edge on the pinned map. */
+function checkPoseWater(label, p) {
+  precondition(Math.hypot(p.x, p.y) <= CENTER_DISC_U, `${label} pose (${p.x.toFixed(0)},${p.y.toFixed(0)}) outside the ${CENTER_DISC_U.toFixed(0)}u center disc`);
+  for (const isle of MAP.islands) {
+    precondition(islandDistance(p, isle) > POSE_CLEARANCE_U, `${label} pose within ${POSE_CLEARANCE_U}u of an island`);
+  }
+}
+function checkLane(label, a, b) {
+  for (const isle of MAP.islands) precondition(!islandBlocksSegment(a, b, isle), `${label}: an island blocks the lane`);
+}
+
+/** Wait for every client's welcome + first `you`, then check each landed on
+ *  its pose (the dev door honored `spawnOverride`) on the pinned map. */
+async function awaitPosed(clients, label) {
+  // Budget: a join's welcome and first frame arrive within a few ticks; 5 s is
+  // a socket allowance, not a sim cadence.
+  await pilotUntil(clients, () => clients.every((c) => c.welcome && c.you), 5000, `${label}: first frames`);
+  for (const c of clients) {
+    precondition(c.welcome.mapSeed === MAP_SEED, `${label}: ${c.name} got mapSeed ${c.welcome.mapSeed}, expected ${MAP_SEED} (is HC_DEV_OPTIONS=1 set on the server?)`);
+    const off = dist(c.you, c.pose);
+    precondition(off < 2 && Math.abs(angleDiff(c.you.heading, c.pose.heading)) < 0.01,
+      `${label}: ${c.name} spawned at (${c.you.x.toFixed(0)},${c.you.y.toFixed(0)},${c.you.heading.toFixed(2)}), not its pose — spawnOverride stripped?`);
   }
 }
 
-/** Bring A and B within sight of each other around the midpoint of their poses. */
-async function rendezvous(a, b, log) {
-  // Wait until both ships exist, then steer both to the midpoint between them
-  // (much shorter sail than a fixed map point — they converge from the ring).
-  await pilotUntil([a, b], () => {
-    if (!a.you || !b.you) return;
-    const mid = { x: (a.you.x + b.you.x) / 2, y: (a.you.y + b.you.y) / 2 };
-    a.goal = { mode: 'goto', target: mid };
-    b.goal = { mode: 'goto', target: mid };
-  }, () => a.you && b.you && dist(a.you, b.you) < SIGHT * 0.8, 120000, 'rendezvous');
-  log.push(`rendezvous: range=${dist(a.you, b.you).toFixed(0)}`);
+async function leaveAll(clients) {
+  for (const c of clients) await c.room.leave();
 }
 
-async function torpedoPhase(a, b, log) {
-  b.torpIds.clear();
-  b.blipIds.clear();
-  const dmg0 = b.dmg.length;
-  b.goal = { mode: 'idle' };
-  await pilotUntil([a, b], () => {
-    a.goal = { mode: 'engageTorp', target: b.you };
-    b.goal = { mode: 'hold', target: b.you }; // hold roughly still as a target
-    // Budget WIDENED 120s -> 240s (2026-08-04 balance pass): the reload went
-    // 12s -> 30s and every MISS now costs a full 30s reload instead of 12s.
-    // At today's numbers B is the 300 hp mineLayer and the fish do 50, so the
-    // kill needs SIX hits (5x50 = 250 < 300) across ~150s of cadence — the 240s
-    // budget leaves a real, if thin, miss margin. If a future balance pass
-    // raises hull hp or drops torpedo damage, WIDEN THIS BUDGET rather than
-    // loosening the assertion, which is unchanged and reads CONFIG.
-  }, () => roster(a.room, b.room.sessionId)?.deaths >= 1, 240000, 'torpedo kill');
-  const hits = b.dmg.slice(dmg0).filter((d) => d.amount === CONFIG.torpedo.damage);
-  log.push(
-    `torpedo: B sank; ${CONFIG.torpedo.damage}-dmg hits=${hits.length} kills=${roster(a.room, a.room.sessionId).kills}`,
-  );
-  assert(hits.length >= 1, `no ${CONFIG.torpedo.damage}-damage torpedo hit recorded on B`);
+// --- kill plans -------------------------------------------------------------
+
+/**
+ * THE KILL PLAN, simulated from CONFIG/the fold (Eric ruling 4, 2026-10-22):
+ * a shooter clicking every tick from a FULL pool of `maxAmmo` (one launch per
+ * tick at most; the pool refills ONE round per `reloadMs` — equipment/ammo.ts),
+ * each fish landing `flightMs` after launch for `damage`, against a target of
+ * `hp` that regains `regen.missingPctPerS` of its MISSING hull per second once
+ * `regen.outOfCombatMs` have wholly passed since its last hit (World.tickRegen
+ * / regenDue). Returns the fish needed, the kill time and whether the kill
+ * landed inside one regen wait (no regen tick ever credited).
+ */
+function killPlan({ hp, damage, maxAmmo, reloadMs, flightMs, regen }) {
+  let t = 0;
+  let n = maxAmmo;
+  let left = 0;
+  let cur = hp;
+  let lastHit = -Infinity;
+  let firstHit = null;
+  let hits = 0;
+  let regenTicks = 0;
+  const pending = [];
+  while (t < 3_600_000) {
+    if (n > 0) {
+      n -= 1;
+      if (left <= 0) left = reloadMs;
+      pending.push(t + flightMs);
+    }
+    t += DT;
+    if (n < maxAmmo) {
+      left -= DT;
+      if (left <= 0) {
+        n += 1;
+        left = n < maxAmmo ? left + reloadMs : 0;
+      }
+    } else left = 0;
+    while (pending.length > 0 && pending[0] <= t) {
+      pending.shift();
+      cur -= damage;
+      hits += 1;
+      lastHit = t;
+      firstHit ??= t;
+      if (cur <= 0) return { fish: hits, killAtMs: t, insideRegenWait: regenTicks === 0 };
+    }
+    if (lastHit <= t - DT - regen.outOfCombatMs && cur < hp) {
+      cur += (hp - cur) * regen.missingPctPerS * (DT / 1000);
+      if (firstHit !== null) regenTicks += 1;
+    }
+  }
+  throw new Error(`PRECONDITION: no kill inside an hour (damage ${damage} vs hp ${hp} with regen)`);
+}
+
+/**
+ * Pick the torpedo fit: the smallest card stack (≤ tier III) that gives TWO
+ * tubes, IF its plan lands the kill inside one regen wait; otherwise one card
+ * (tier I). Both plans go to the trace.
+ */
+function torpedoFit(line, shooterCls, target, rangeU) {
+  const tgt = effectiveStats(CONFIG.shipClasses[target.cls], target.fit);
+  const planFor = (cards) => {
+    const row = effectiveStats(CONFIG.shipClasses[shooterCls], Array(cards).fill(line)).equipment[line];
+    const flightMs = (rangeU / row.speed) * 1000;
+    return { cards, row, plan: killPlan({ hp: tgt.maxHp, damage: row.damage, maxAmmo: row.maxAmmo, reloadMs: row.reloadMs, flightMs, regen: tgt.regen }) };
+  };
+  const one = planFor(1);
+  let two = null;
+  for (let k = 1; k <= MAX_SMOKE_CARDS && two === null; k++) {
+    const p = planFor(k);
+    if (p.row.maxAmmo >= 2) two = p;
+  }
+  const pick = two !== null && two.plan.insideRegenWait ? two : one;
+  const fmt = (p) => `${p.cards} card(s) tier ${p.row.tier}: ${p.row.maxAmmo} tube(s) x ${p.row.damage} dmg / ${secs(p.row.reloadMs)} -> ${p.plan.fish} fish, kill at ${secs(p.plan.killAtMs)}${p.plan.insideRegenWait ? ' (inside one regen wait)' : ' (regen races it)'}`;
+  return {
+    pick,
+    hp: tgt.maxHp,
+    text: `plan vs ${tgt.maxHp} hp, regen ${tgt.regen.missingPctPerS * 100}%/s of missing after ${secs(tgt.regen.outOfCombatMs)}: ` +
+      `[${fmt(one)}]` + (two ? ` [${fmt(two)}]` : ' [no two-tube tier <= III]') + ` => fitting ${pick.cards} card(s)`,
+  };
+}
+
+// --- phases -----------------------------------------------------------------
+
+/** PHASE 1 — heavy torpedo kill + torpedoes never blip. */
+async function torpedoPhase(log) {
+  // u — inside the heavy fish's run: a tier-I straight-runner has NO max range
+  // (torpedoCore: range = Infinity); a homing tier carries
+  // CONFIG.torpedo.homingMaxRangeU. Inside sight, so the target sees the fish.
+  const D = 300;
+  const target = { cls: 'mineLayer', fit: [] };
+  const fit = torpedoFit('heavyTorpedo', 'torpedoBoat', target, D);
+  log.push(`torpedo: ${fit.text}`);
+  const row = fit.pick.row;
+  const runU = row.homingTurnRate > 0 ? CONFIG.torpedo.homingMaxRangeU : Infinity;
+  const aPose = { x: -D, y: 0, heading: 0 };
+  const bPose = { x: 0, y: 0, heading: Math.PI / 2 }; // broadside to the shooter
+  checkPoseWater('torpedo A', aPose);
+  checkPoseWater('torpedo B', bPose);
+  checkLane('torpedo', aPose, bPose);
+  precondition(D < runU && D < CONFIG.vision.sight, `torpedo: range ${D}u outside the run (${runU}) or sight`);
+  const a = await joinClient('WPN-A', 'torpedoBoat', { fit: Array(fit.pick.cards).fill('heavyTorpedo'), pose: aPose });
+  const b = await joinClient('WPN-B', target.cls, { fit: target.fit, pose: bPose, roomId: a.room.roomId });
+  await awaitPosed([a, b], 'torpedo');
+  const brg = bearing(a.you, b.you);
+  precondition(Math.abs(angleDiff(a.you.heading, brg)) < CONFIG.torpedo.halfArc, 'torpedo: target outside the bow arc');
+  precondition(b.you.hp === fit.hp, `torpedo: target hp ${b.you.hp} != planned ${fit.hp}`);
+  a.script = clickAt(brg);
+  // Budget: the simulated kill time + ONE reload of slack.
+  const budget = fit.pick.plan.killAtMs + row.reloadMs;
+  const took = await pilotUntil([a, b], () => roster(a.room, b.room.sessionId)?.deaths >= 1, budget, 'torpedo kill');
+  const hits = b.dmg.filter((d) => d.amount === row.damage);
+  const kills = roster(a.room, a.room.sessionId).kills;
+  log.push(`torpedo: B sank in ${secs(took)} (budget ${secs(budget)}); ${row.damage}-dmg hits=${hits.length} kills=${kills}`);
+  assert(hits.length >= 1, `no ${row.damage}-damage torpedo hit recorded on B`);
+  assert(kills >= 1, 'the torpedo kill is not on the shooter\'s roster row');
   // Torpedoes must NEVER appear as radar blips.
   assert(b.torpIds.size > 0, 'B never saw a torpedo (test would be vacuous)');
   for (const id of b.torpIds) assert(!b.blipIds.has(id), `torpedo ${id} appeared as a radar blip!`);
   log.push(`torpedo: B saw ${b.torpIds.size} torps, ${b.blipIds.size} blips, zero overlap`);
-  // Let B respawn.
-  const before = b.you?.alive;
-  await pilotUntil([a, b], null, () => b.you && b.you.alive && before === false, 8000, 'B respawn');
+  await leaveAll([a, b]);
 }
 
-async function minePhase(a, b, log) {
-  await rendezvous(a, b, log);
-  // Reset visibility trackers now that B is in position.
-  b.mineLeakBeyondDetect = 0;
-  b.maxConcurrentEnemy = 0;
-  b.distinctEnemy.clear();
-  b.firstSeenDist.clear();
-  a.maxConcurrentOwn = 0;
-  a.distinctOwn.clear();
-  // A holds station dropping mines; B loiters within detect range (Story 4.9:
-  // the 120u trail sits well inside the detect rung), outside trigger.
-  // B's loiter point TRAILS A (recomputed every tick): even at minimum
-  // steerageway A drifts ~4.6 u/s, so a fixed point drops out of detect range
-  // of the later drops and the concurrent count never reaches six.
-  await pilotUntil([a, b], () => {
-    a.goal = { mode: 'dropMines' };
-    b.goal = { mode: 'hold', target: a.you ? { x: a.you.x, y: a.you.y + 120 } : null };
-  // Budget 150s -> 200s (Story 8.4): the pin now waits for SIX mines to be LIVE
-  // AT ONCE rather than for six distinct ids to have been seen over time, and
-  // with a 2-deep rack on a 15s reload the sixth drop cannot land before ~60s
-  // of arming and reloading even in the best case. B's trailing loiter is still
-  // recomputed every tick — it is what keeps the FOG half of this phase honest,
-  // even though the no-eviction half no longer depends on it.
-  }, () => a.maxConcurrentOwn >= NO_EVICTION_MINES, 200000, `A hold ${NO_EVICTION_MINES} mines live at once`);
+/** The naval rack's placement aim for the k-th drop: dead astern, fanned
+ *  across the rear sector so the drops do not stack on one point. */
+function astern(heading, k) {
+  return heading + Math.PI + ((k % 5) - 2) * 0.2;
+}
+const DROP_U = CONFIG.mine.placeRange * 0.6; // comfortably inside placeRange
+
+/** PHASE 2 — mine visibility + no eviction. */
+async function minePhase(log) {
+  const layerPose = { x: 0, y: 0, heading: 0 };
+  // FIXED observer: every legal drop lies within placeRange of the layer, so
+  // an observer within (detect − placeRange) of the layer has the whole field
+  // inside detect; and far outside any trigger ring.
+  const obsPose = { x: 0, y: 300, heading: 0 };
+  checkPoseWater('mine layer', layerPose);
+  checkPoseWater('mine observer', obsPose);
+  precondition(dist(layerPose, obsPose) + CONFIG.mine.placeRange < DETECT, 'mine: observer cannot see the whole drop zone inside detect');
+  const rack = effectiveStats(CONFIG.shipClasses.mineLayer, ['navalMines']).equipment.navalMines;
+  precondition(dist(layerPose, obsPose) - CONFIG.mine.placeRange > rack.triggerRadius + 50, 'mine: observer inside a trip ring');
+  const a = await joinClient('MINE-A', 'mineLayer', { fit: ['navalMines'], pose: layerPose });
+  const b = await joinClient('MINE-B', 'torpedoBoat', { fit: [], pose: obsPose, roomId: a.room.roomId });
+  await awaitPosed([a, b], 'mine');
+  a.script = (ctx, inp) => clickAt(astern(ctx.pose.heading, ctx.distinctOwn.size), DROP_U)(ctx, inp);
+  // Budget: NO_EVICTION_MINES drops at one per CONFIG.mine.reloadMs is an upper
+  // bound on the rack's cadence (it starts full, so it is faster), + armDelay,
+  // + ONE reload of slack.
+  const budget = NO_EVICTION_MINES * rack.reloadMs + CONFIG.mine.armDelay + rack.reloadMs;
+  const took = await pilotUntil([a, b], () => a.maxConcurrentOwn >= NO_EVICTION_MINES, budget, `A hold ${NO_EVICTION_MINES} mines live at once`);
   log.push(
-    `mines: A held ${a.maxConcurrentOwn} own mines live at once (${a.distinctOwn.size} laid); ` +
-      `B saw ${b.distinctEnemy.size} distinct A-mines, max ${b.maxConcurrentEnemy} at once, ` +
-      `leaksBeyondDetect=${b.mineLeakBeyondDetect}`,
+    `mines: A held ${a.maxConcurrentOwn} own mines live at once (${a.distinctOwn.size} laid) in ${secs(took)} (budget ${secs(budget)}, rack ${rack.maxAmmo} / ${secs(rack.reloadMs)}); ` +
+      `B saw ${b.distinctEnemy.size} distinct A-mines, max ${b.maxConcurrentEnemy} at once, leaksBeyondDetect=${b.mineLeakBeyondDetect}`,
   );
   assert(b.mineLeakBeyondDetect === 0, 'B saw an enemy mine beyond detect range (radar/fog leak — Story 4.9 bar)');
-  // NO EVICTION (Story 8.4, FR57/AR48): SIX LAID, SIX LIVE. Under the retired
-  // per-player cap of 5 the sixth drop silently despawned the owner's oldest,
-  // so this count could never have exceeded 5 — which is exactly what makes it
-  // the right pin, and why it replaced the old "never more than maxLive at
-  // once, yet more distinct ids over time" oldest-despawn proof.
-  //
-  // "SIX LIVE AT ONCE" IS THE WHOLE PIN, and deliberately the only one: a
-  // `distinctOwn.size === maxConcurrentOwn` equality alongside it would demand
-  // that NOTHING ever left the water, which a legitimately TRIPPED mine (B
-  // drifting onto one, a chain off an ambush) breaks without any eviction being
-  // involved. The high-water mark is what eviction could never produce.
-  assert(
-    a.maxConcurrentOwn >= NO_EVICTION_MINES,
-    `A never held ${NO_EVICTION_MINES} of its own mines at once (max ${a.maxConcurrentOwn}) — eviction may be back`,
-  );
+  assert(b.distinctEnemy.size > 0, 'B never saw an enemy mine inside detect (the fog pin would be vacuous)');
+  // NO EVICTION (Story 8.4, FR57/AR48): SIX LAID, SIX LIVE — under the retired
+  // per-player cap of 5 this high-water mark could never pass 5.
+  assert(a.maxConcurrentOwn >= NO_EVICTION_MINES, `A never held ${NO_EVICTION_MINES} of its own mines at once (max ${a.maxConcurrentOwn}) — eviction may be back`);
+  await leaveAll([a, b]);
 }
 
-async function ambushPhase(a, b, log) {
-  // B sails onto the nearest live A-mine → should take 55 damage + a boom.
-  a.goal = { mode: 'idle' };
+/** Lay exactly ONE mine of the fitted kind astern; return it once armed. */
+async function layOne(a, label) {
+  a.script = (ctx, inp) => {
+    if (!ctx.mines.some((m) => m.own)) clickAt(astern(ctx.pose.heading, 2), DROP_U)(ctx, inp);
+  };
+  // Budget: the rack starts loaded — a few ticks; one reload of slack.
+  const rowId = a.fit[0];
+  const reloadMs = effectiveStats(CONFIG.shipClasses[a.cls], a.fit).equipment[rowId].reloadMs;
+  await pilotUntil([a], () => a.mines.some((m) => m.own), reloadMs, `${label}: one mine laid`);
+  const laid = a.mines.find((m) => m.own);
+  a.script = idle;
+  // Let it arm (CONFIG.mine.armDelay — the shared chassis) + two ticks.
+  await holdFor([a], CONFIG.mine.armDelay + 2 * DT);
+  return laid;
+}
+
+/** Pose a victim beyond detect on a straight line through `mine`, heading at
+ *  it; the line runs along −y so it passes the layer (at the origin) wide. */
+function victimPoseThrough(mine) {
+  const approach = DETECT + 100; // u — starts OUTSIDE detect: the first sighting is a real fog crossing
+  return { pose: { x: mine.x, y: mine.y + approach, heading: -Math.PI / 2 }, approach };
+}
+
+/** Time (ms) for a hull from rest to cover `u` at full throttle — the class
+ *  kinematics (accel to maxSpeed, then cruise). */
+function sailMs(cls, u) {
+  const k = effectiveStats(CONFIG.shipClasses[cls], []).kinematics;
+  const accelU = (k.maxSpeed * k.maxSpeed) / (2 * k.accel);
+  if (u <= accelU) return Math.sqrt((2 * u) / k.accel) * 1000;
+  return (k.maxSpeed / k.accel + (u - accelU) / k.maxSpeed) * 1000;
+}
+
+/** PHASE 3 — the mine ambush. */
+async function ambushPhase(log) {
+  const layerPose = { x: 0, y: 0, heading: 0 };
+  checkPoseWater('ambush layer', layerPose);
+  const a = await joinClient('AMB-A', 'mineLayer', { fit: ['navalMines'], pose: layerPose });
+  await awaitPosed([a], 'ambush');
+  const laid = await layOne(a, 'ambush');
+  // The victim is posed AFTER the mine exists, from the mine's own position.
+  const { pose, approach } = victimPoseThrough(laid);
+  checkPoseWater('ambush victim', pose);
+  checkLane('ambush', pose, laid);
+  const b = await joinClient('AMB-B', 'torpedoBoat', { fit: [], pose, roomId: a.room.roomId });
+  await awaitPosed([a, b], 'ambush victim');
+  const blast = effectiveStats(CONFIG.shipClasses.mineLayer, ['navalMines']).equipment.navalMines;
   const hp0 = b.you.hp;
   const booms0 = b.booms.length;
-  await pilotUntil([a, b], () => {
-    const target = nearestEnemyMine(b);
-    b.goal = target ? { mode: 'sailTo', target } : { mode: 'idle' };
-  }, () => b.you && (b.you.hp <= hp0 - CONFIG.mine.damage || !b.you.alive), 60000, 'mine ambush');
+  b.script = sailAhead;
+  // Budget: the sail from rest over the approach + the same again of slack.
+  const budget = 2 * sailMs('torpedoBoat', approach);
+  const took = await pilotUntil([a, b], () => b.dmg.some((d) => d.amount === blast.damage) || !b.you.alive, budget, 'mine ambush');
+  b.script = idle;
+  await holdFor([a, b], 4 * DT);
   const boomed = b.booms.length > booms0;
-  log.push(`ambush: B.hp ${hp0}->${b.you?.hp} boom=${boomed}`);
+  log.push(`ambush: victim sailed ${approach}u onto ${laid.id} in ${secs(took)} (budget ${secs(budget)}); hp ${hp0}->${b.you.hp} (mine ${blast.damage}) boom=${boomed}; first seen at ${b.firstSeenDist.get(laid.id)?.toFixed(0)}u`);
+  assert(b.dmg.some((d) => d.amount === blast.damage), `no ${blast.damage}-damage mine hit on the victim`);
+  assert(b.you.hp <= hp0 - blast.damage + 1, `victim hp ${hp0}->${b.you.hp}: the mine's ${blast.damage} did not land`);
   assert(boomed, 'no boom on mine detonation');
-  // Every enemy mine B ever saw was first seen from within DETECT range
-  // (Story 4.9: the detect rung — 4/12 = sight since Story 9.8, so a first
-  // sighting beyond it would mean a radar/fog leak).
+  assert(b.firstSeenDist.has(laid.id), 'the victim never saw the mine it struck (the fog pin would be vacuous)');
   for (const [id, d] of b.firstSeenDist) assert(d <= DETECT + 1, `mine ${id} first seen at ${d.toFixed(0)}u (> detect)`);
   log.push('ambush: all enemy mines first seen within detect range');
+  await leaveAll([a, b]);
 }
 
-function nearestEnemyMine(b) {
-  if (!b.you) return null;
-  let best = null;
-  let bestD = Infinity;
-  for (const m of b.mines) {
-    if (m.own) continue;
-    const d = dist(b.you, m);
-    if (d < bestD) { bestD = d; best = { x: m.x, y: m.y }; }
-  }
-  return best;
-}
-
-/**
- * PHASE 5 — THE LIGHT TORPEDO (Story 8.13). Its own room, its own pair: LT-A
- * carries ONE `lightTorpedo` card, so it is at TIER I — a straight-runner with
- * one tube on a 25 s reload doing CONFIG.lightTorpedo.damage (40 today). The
- * target is a Torpedo Boat rather than the heavier Mine Layer purely so the
- * kill fits a sane budget: 250 hp / 40 = seven hits.
- */
+/** PHASE 4 — the light torpedo (twin beam sectors). */
 async function lightTorpedoPhase(log) {
-  const a = await joinClient('LT-A', 'torpedoBoat', { weapon: 'lightTorpedo', fresh: true });
-  const b = await joinClient('LT-B', 'torpedoBoat', { roomId: a.room.roomId });
-  await sleep(300);
-  assert(a.welcome && b.welcome, 'light torpedo: missing welcome');
-  await rendezvous(a, b, log);
-  const dmg0 = b.dmg.length;
-  const t0 = Date.now();
-  let seenHits = 0;
-  await pilotUntil([a, b], () => {
-    a.goal = { mode: 'engageLight', target: b.you };
-    b.goal = { mode: 'hold', target: b.you };
-    // Progress trace: a FAILED run still shows how many fish landed and when.
-    const n = b.dmg.slice(dmg0).filter((d) => d.amount === CONFIG.lightTorpedo.damage).length;
-    if (n !== seenHits) {
-      seenHits = n;
-      log.push(`lightTorpedo: hit #${n} at T+${((Date.now() - t0) / 1000).toFixed(0)}s, LT-B hp ${b.you?.hp?.toFixed(0)}`);
-    }
-  // ONE TUBE ON A 25 s RELOAD at 40 damage against 250 hp: seven hits, so the
-  // cadence alone is ~150 s before a single miss. WIDEN THIS BUDGET rather
-  // than loosening the assertion if a balance pass moves either number.
-  }, () => roster(a.room, b.room.sessionId)?.deaths >= 1, 300000, 'light torpedo kill');
-  const hits = b.dmg.slice(dmg0).filter((d) => d.amount === CONFIG.lightTorpedo.damage);
-  log.push(`lightTorpedo: LT-B sank; ${CONFIG.lightTorpedo.damage}-dmg hits=${hits.length}`);
-  assert(hits.length >= 1, `no ${CONFIG.lightTorpedo.damage}-damage LIGHT torpedo hit recorded`);
+  const D = 250; // u — inside sight; a tier-I light fish is a straight-runner with no max range
+  const target = { cls: 'torpedoBoat', fit: [] };
+  const fit = torpedoFit('lightTorpedo', 'torpedoBoat', target, D);
+  log.push(`lightTorpedo: ${fit.text}`);
+  const row = fit.pick.row;
+  const aPose = { x: 0, y: 0, heading: 0 };
+  const bPose = { x: 0, y: D, heading: 0 }; // the PORT BEAM: bearing = heading + π/2
+  checkPoseWater('light A', aPose);
+  checkPoseWater('light B', bPose);
+  checkLane('light', aPose, bPose);
+  const a = await joinClient('LT-A', 'torpedoBoat', { fit: Array(fit.pick.cards).fill('lightTorpedo'), pose: aPose });
+  const b = await joinClient('LT-B', target.cls, { fit: target.fit, pose: bPose, roomId: a.room.roomId });
+  await awaitPosed([a, b], 'light');
+  const brg = bearing(a.you, b.you);
+  const off = Math.abs(angleDiff(a.you.heading, brg));
+  precondition(Math.abs(off - Math.PI / 2) < CONFIG.lightTorpedo.halfArc, 'light: target outside the beam sector');
+  precondition(twinSectorSide(a.you.heading, brg, arcFor('lightTorpedo')) !== null, 'light: twinSectorSide refuses the bearing');
+  a.script = clickAt(brg);
+  const budget = fit.pick.plan.killAtMs + row.reloadMs; // the simulated kill + ONE reload of slack
+  const took = await pilotUntil([a, b], () => roster(a.room, b.room.sessionId)?.deaths >= 1, budget, 'light torpedo kill');
+  const hits = b.dmg.filter((d) => d.amount === row.damage);
+  log.push(`lightTorpedo: LT-B sank in ${secs(took)} (budget ${secs(budget)}); ${row.damage}-dmg hits=${hits.length}`);
+  assert(hits.length >= 1, `no ${row.damage}-damage LIGHT torpedo hit recorded`);
   assert(roster(a.room, a.room.sessionId).kills >= 1, 'light torpedo scored no kill');
-  await a.room.leave();
-  await b.room.leave();
+  await leaveAll([a, b]);
 }
 
-/**
- * PHASE 6 — THE CAPTIVE MINE (Story 8.13, R2.12 / amendment 77). CM-A lays ONE
- * captive mine astern and stops; CM-B then sails into its 144u TRIP RING,
- * where the mine LAUNCHES its fish instead of detonating. The assertion is on
- * the CAPTIVE row's warhead (CONFIG.captiveMines.damage), which is what proves
- * the fish read its own line's numbers rather than the naval rack's.
- */
+/** PHASE 5 — the captive mine (its fish, not a blast). */
 async function captiveMinePhase(log) {
-  const a = await joinClient('CM-A', 'mineLayer', { weapon: 'captiveMines', fresh: true });
-  const b = await joinClient('CM-B', 'torpedoBoat', { roomId: a.room.roomId });
-  await sleep(300);
-  assert(a.welcome && b.welcome, 'captive mine: missing welcome');
-  await rendezvous(a, b, log);
-  // A lays exactly one and lets it arm (CONFIG.mine.armDelay).
-  await pilotUntil([a, b], () => {
-    a.goal = { mode: 'layCaptive' };
-    b.goal = { mode: 'hold', target: b.you };
-  }, () => a.mines.filter((m) => m.own).length >= 1, 60000, 'captive mine laid');
-  const laid = a.mines.find((m) => m.own);
-  log.push(`captive: laid ${laid.id} kind=${laid.c ?? '(absent)'}`);
+  const layerPose = { x: 0, y: 0, heading: 0 };
+  checkPoseWater('captive layer', layerPose);
+  const a = await joinClient('CM-A', 'mineLayer', { fit: ['captiveMines'], pose: layerPose });
+  await awaitPosed([a], 'captive');
+  const laid = await layOne(a, 'captive');
   assert(laid.c === 'captive', `own MineView carried kind ${laid.c} — expected 'captive'`);
-  await sleep(CONFIG.mine.armDelay + 500);
-  // B drives at the mine point; the trip ring reaches out 144u, so the fish
-  // launches well before B is on top of it.
+  const row = effectiveStats(CONFIG.shipClasses.mineLayer, ['captiveMines']).equipment.captiveMines;
+  const { pose, approach } = victimPoseThrough(laid);
+  checkPoseWater('captive victim', pose);
+  checkLane('captive', pose, laid);
+  precondition(approach > row.triggerRadius, 'captive: victim posed inside the trip ring');
+  const b = await joinClient('CM-B', 'torpedoBoat', { fit: [], pose, roomId: a.room.roomId });
+  await awaitPosed([a, b], 'captive victim');
   const hp0 = b.you.hp;
-  const dmg0 = b.dmg.length;
-  await pilotUntil([a, b], () => {
-    a.goal = { mode: 'idle' };
-    b.goal = { mode: 'sailTo', target: { x: laid.x, y: laid.y } };
-  }, () => b.dmg.slice(dmg0).some((d) => d.amount === CONFIG.captiveMines.damage), 90000, 'captive fish hit');
-  log.push(`captive: CM-B.hp ${hp0}->${b.you?.hp} (fish dealt ${CONFIG.captiveMines.damage})`);
+  b.script = sailAhead;
+  // Budget: the sail from rest to the trip ring + the same again of slack.
+  const budget = 2 * sailMs('torpedoBoat', approach);
+  const took = await pilotUntil([a, b], () => b.dmg.some((d) => d.amount === row.damage), budget, 'captive fish hit');
+  b.script = idle;
+  await holdFor([a, b], 4 * DT);
+  log.push(`captive: laid ${laid.id} kind=${laid.c}; trip ring ${row.triggerRadius}u; CM-B.hp ${hp0}->${b.you.hp} (fish ${row.damage}) in ${secs(took)} (budget ${secs(budget)})`);
+  assert(row.damage === CONFIG.captiveMines.damage, 'captive: tier-I row damage is not CONFIG.captiveMines.damage');
   assert(!a.mines.some((m) => m.id === laid.id), 'the captive mine was not expended on firing');
   assert(b.booms.length > 0, 'no boom from the captive fish');
-  await a.room.leave();
-  await b.room.leave();
+  await leaveAll([a, b]);
 }
 
-/** The seat gun id -> the CONFIG damage one hit lands, and the shell-reveal
- *  family `w` the target is shown (Story 8.15). Read from CONFIG, never typed. */
+/** The seat gun id -> the CONFIG damage one hit lands, the shell-reveal
+ *  family `w` the target is shown (Story 8.15), and its stats row. */
 const GUN_DAMAGE = { deckGun: CONFIG.gun.damage, machineGun: CONFIG.machineGun.damage, flak: CONFIG.flak.damage };
 const GUN_W = { deckGun: 'cannon', machineGun: 'mg', flak: 'flak' };
+const GUN_ROW = { deckGun: 'gun', machineGun: 'machineGun', flak: 'flak' };
+/** u — the machine gun aims a little PAST the target so the direct shell
+ *  crosses the hull before it expires at its aim point. */
+const MG_OVERSHOOT_U = 30;
 
-/**
- * PHASE 7 — THE THREE GUNS (Story 8.15). One fresh room per gun: a shooter
- * seated with that `gun` join option (and an EMPTY weapon row, so slot 0 is
- * the only weapon aboard) fires at a stationary Mine Layer from a dead stop.
- * Asserts the shooter's own frame reads the picked gun, at least one hit at
- * exactly that gun's CONFIG damage (4 / 12 / 15), and that every shell reveal
- * the TARGET is shown carries that gun's family `w` ('mg' / 'flak' /
- * 'cannon'). The machine gun is driven as a LEVEL — `held: true` on slot 0
- * for ~1 s, then released — never a click (its fireSeq must stay 0).
- */
+/** PHASE 6 — one seat gun, stationary shooter and target. */
 async function gunPhase(log, gun) {
-  const a = await joinClient(`GUN-${gun}`, 'torpedoBoat', { weapon: [], fresh: true, gun });
-  const b = await joinClient(`TGT-${gun}`, 'mineLayer', { weapon: [], roomId: a.room.roomId });
-  await sleep(300);
-  assert(a.welcome && b.welcome, `${gun}: missing welcome`);
-  await rendezvous(a, b, log);
-  // Coast to a dead stop (throttle 0) so the target really is stationary.
-  const settleUntil = Date.now() + 4000;
-  await pilotUntil([a, b], () => {
-    a.goal = { mode: 'idle' };
-    b.goal = { mode: 'idle' };
-  }, () => Date.now() >= settleUntil, 10000, `${gun}: settle`);
+  // The tier-I row from the same fold the server uses (EMPTY fit). Every blow
+  // is range-attenuated past `gunAttenuation.fullFrac` of `rangeU`
+  // (sim/attenuation.ts), so the pair sits at 80 % of the full-damage band.
+  // There is no aim scatter (guns.ts: the cannon's two barrels straddle the
+  // click on parallel tracks, `barrelSpacingU` apart — both land on the hull).
+  const row = effectiveStats(CONFIG.shipClasses.torpedoBoat, []).equipment[GUN_ROW[gun]];
+  const D = Math.round(0.8 * CONFIG.gunAttenuation.fullFrac * row.rangeU);
+  const aPose = { x: -D, y: 0, heading: 0 };
+  const bPose = { x: 0, y: 0, heading: Math.PI / 2 };
+  checkPoseWater(`${gun} A`, aPose);
+  checkPoseWater(`${gun} B`, bPose);
+  checkLane(gun, aPose, bPose);
+  precondition(D <= CONFIG.gunAttenuation.fullFrac * row.rangeU && D < CONFIG.vision.sight, `${gun}: ${D}u outside the full-damage band or the target's sight`);
+  const a = await joinClient(`GUN-${gun}`, 'torpedoBoat', { fit: [], pose: aPose, gun });
+  const b = await joinClient(`TGT-${gun}`, 'mineLayer', { fit: [], pose: bPose, roomId: a.room.roomId });
+  await awaitPosed([a, b], gun);
   assert(a.you.gun === gun, `${gun}: the shooter's own frame reads gun '${a.you.gun}'`);
-  const range = dist(a.you, b.you);
-  const dmg0 = b.dmg.length;
-  const w0 = b.shellW.length;
-  const t0 = Date.now();
-  let heldSent = 0;
-  await pilotUntil([a, b], () => {
-    a.goal = { mode: 'gun', gun, target: b.you, t0 };
-    b.goal = { mode: 'idle' };
-    if (gun === 'machineGun' && (Date.now() - t0) % GUN_CLICK_MS < GUN_HOLD_MS) heldSent += 1;
-  }, () => b.dmg.slice(dmg0).some((d) => d.amount === GUN_DAMAGE[gun]), 30000, `${gun}: a ${GUN_DAMAGE[gun]}-damage hit`);
-  // Let any shell still in flight land, then stop firing.
-  const quietUntil = Date.now() + 1500;
-  await pilotUntil([a, b], () => {
-    a.goal = { mode: 'idle' };
-    b.goal = { mode: 'idle' };
-  }, () => Date.now() >= quietUntil, 5000, `${gun}: quiet`);
-  const hits = b.dmg.slice(dmg0).filter((d) => d.amount === GUN_DAMAGE[gun]);
-  const ws = b.shellW.slice(w0);
+  const brg = bearing(a.you, b.you);
+  const flightMs = (D / CONFIG.gun.shellSpeed) * 1000; // the gun family shares one muzzle velocity
+  let heldTicks = 0;
+  let lastClickAt = -Infinity;
+  if (gun === 'machineGun') {
+    // A LEVEL (amendment 103): held for the first shell's flight + four more
+    // `rateMs` shells, then released. fireSeq is never touched.
+    const holdMs = flightMs + 4 * row.rateMs;
+    const t0 = Date.now();
+    a.script = (_ctx, inp) => {
+      inp.slot = 0;
+      inp.aim = brg;
+      inp.aimDist = D + MG_OVERSHOOT_U;
+      inp.held = Date.now() - t0 < holdMs;
+      if (inp.held) heldTicks += 1;
+    };
+  } else {
+    // A CLICK weapon: one fireSeq edge per `reloadMs`.
+    a.script = (ctx, inp) => {
+      inp.slot = 0;
+      inp.aim = brg;
+      inp.aimDist = D;
+      if (Date.now() - lastClickAt >= row.reloadMs) {
+        lastClickAt = Date.now();
+        inp.fireSeq = ++ctx.fireSeq;
+      }
+    };
+  }
+  // Budget: the first shell's flight + ONE reload (swap) of slack + a second of socket allowance.
+  const budget = (gun === 'machineGun' ? flightMs + 4 * row.rateMs : 0) + flightMs + row.reloadMs + 1000;
+  const took = await pilotUntil([a, b], () => b.dmg.some((d) => d.amount === GUN_DAMAGE[gun]), budget, `${gun}: a ${GUN_DAMAGE[gun]}-damage hit`);
+  // Stop firing and let any shell still in flight land.
+  a.script = idle;
+  await holdFor([a, b], 2 * flightMs + 10 * DT);
+  const hits = b.dmg.filter((d) => d.amount === GUN_DAMAGE[gun]);
+  const ws = b.shellW;
   log.push(
-    `${gun}: range ${range.toFixed(0)}u, ${GUN_DAMAGE[gun]}-dmg hits=${hits.length}, ` +
+    `${gun}: range ${D}u (tier-I rangeU ${row.rangeU}), hit in ${secs(took)} (budget ${secs(budget)}), ${GUN_DAMAGE[gun]}-dmg hits=${hits.length}, ` +
       `target saw ${ws.length} shell reveals w=[${[...new Set(ws)].join(',')}]` +
-      (gun === 'machineGun' ? `, held ticks sent=${heldSent}, fireSeq=${a.fireSeq}` : ''),
+      (gun === 'machineGun' ? `, held ticks sent=${heldTicks}, fireSeq=${a.fireSeq}` : ''),
   );
   assert(hits.length >= 1, `${gun}: no ${GUN_DAMAGE[gun]}-damage hit recorded on the target`);
   assert(ws.length > 0, `${gun}: the target never saw a shell reveal (the w check would be vacuous)`);
   for (const w of ws) assert(w === GUN_W[gun], `${gun}: a shell reveal carried w='${w}', expected '${GUN_W[gun]}'`);
-  if (gun === 'machineGun') assert(a.fireSeq === 0, 'machineGun: the stream sent a click edge — it must be a level only');
-  await a.room.leave();
-  await b.room.leave();
+  if (gun === 'machineGun') {
+    assert(heldTicks > 0, 'machineGun: the level was never held (vacuous)');
+    assert(a.fireSeq === 0, 'machineGun: the stream sent a click edge — it must be a level only');
+  }
+  await leaveAll([a, b]);
 }
 
-/** The phase trace, hoisted so a FAILED run still prints what passed. */
-const TRACE = [];
-
 async function main() {
-  const a = await joinClient('WPN-A'); // torpedo boat — the torpedo-phase shooter
-  const b = await joinClient('WPN-B', 'mineLayer'); // the mine-phase dropper
-  assert(a.room.roomId === b.room.roomId, 'clients joined different rooms');
-  await sleep(300);
-  assert(a.welcome && b.welcome, 'missing welcome');
-
+  const t0 = Date.now();
   const log = TRACE;
-  await rendezvous(a, b, log);
-  await torpedoPhase(a, b, log);
-  // Role swap for the mine phases: B is the mine layer (the dropper); A observes
-  // in phase 3 and sails onto a mine in phase 4.
-  await minePhase(b, a, log);
-  await ambushPhase(b, a, log);
-  await a.room.leave();
-  await b.room.leave();
-  // Story 8.13's two new lines, each in clean water of its own.
+  await torpedoPhase(log);
+  await minePhase(log);
+  await ambushPhase(log);
   await lightTorpedoPhase(log);
   await captiveMinePhase(log);
-  // Story 8.15: the three guns, each in clean water of its own.
   for (const gun of ['deckGun', 'machineGun', 'flak']) await gunPhase(log, gun);
-
-  console.log('WEAPONS SMOKE OK:', {
-    room: a.room.roomId,
-    seed: a.welcome.mapSeed,
-    trace: log,
-  });
+  console.log('WEAPONS SMOKE OK:', { seed: MAP_SEED, wall: secs(Date.now() - t0), trace: log });
   process.exit(0);
 }
 
 main().catch((err) => {
-  console.error('WEAPONS SMOKE FAILED:', err.message, { trace: TRACE });
+  const bug = err.message.startsWith('PRECONDITION:');
+  console.error(bug ? 'WEAPONS SMOKE SCRIPT BUG:' : 'WEAPONS SMOKE FAILED:', err.message, { trace: TRACE });
   process.exit(1);
 });

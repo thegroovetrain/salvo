@@ -1,58 +1,57 @@
-// Match-lifecycle smoke: self-boots the colyseus server on PORT 2599 (never
-// the dev server's 2567), joins two live @colyseus/sdk clients with a DEV
-// matchOverride that shrinks the lifecycle timers, and proves the full loop:
+// Match-lifecycle smoke — a SCRIPTED SCENARIO (Story 9.15). Self-boots the
+// colyseus server on PORT 2599 (never the dev server's 2567), joins live
+// @colyseus/sdk clients through the DEV door, and proves the full loop:
 //   1. waiting -> GATHERING at the 2nd join: the room stays UNLOCKED for the
-//      joinWindowMs override (~5s here; production 30s), so a 3rd client's
-//      joinOrCreate lands in the SAME room. When the window elapses the
-//      countdown arms and the room LOCKS (a 4th client's joinOrCreate lands
-//      in a fresh room).
-//   2. Ready room is weapons-safe: A torpedoes B point blank — B sees the
-//      boom strike itself but loses ZERO hp until the match activates.
-//   3. countdown end -> active: both hulls teleported to the spawn ring at
-//      full hp, storm timeline anchored (zoneState leaves 'idle').
-//   4. A sinks B (two torpedoes): B's own sunk event carries by=A; B rides out
-//      its full sinking window (Story 5.2 — the match is HELD OPEN for a
-//      sinking captain since the amendment-17 reversal, Eric veto 2026-08-12)
-//      and then receives spec:true frames (you omitted, unfogged contacts
-//      incl. A). A NEVER receives a spec frame before the frame that reports
-//      B's sink (the finish lands at B's founder — from then on everyone
-//      spectates).
-//   5. results broadcast at B's FOUNDER (amendment 4 — drones no longer gate
-//      the win, so there is no storm mop-up phase any more): winnerId=A, A
-//      placed 1st and the FIRST row, B placed 2nd, and the table is exactly
-//      those TWO CAPTAINS — and since Story 5.6 the ROSTER is captains-only
-//      too: the match-start fill is deleted outright (amendment 41) and a PvE
-//      fleet hull holds no PlayerMeta row (amendment 39). A's kills >= 1 and
-//      damageDealt >= B's hull.
+//      joinWindowMs override, so a 3rd client's joinOrCreate lands in the SAME
+//      room. When the window elapses the countdown arms and the room LOCKS (a
+//      4th client's joinOrCreate lands in a fresh room).
+//   2. The ready room is weapons-safe: A's torpedo STRIKES B (a boom on B) but
+//      B loses ZERO hp until the match activates.
+//   3. countdown end -> active: both hulls redeployed to their dev pose at full
+//      hp, storm timeline anchored (zoneState leaves 'idle').
+//   4. A sinks B: every hit on B is the fitted fish's damage, B's own sunk
+//      event carries by=A, the fish count matches the kill plan derived from
+//      CONFIG; B rides out its sinking window (Story 5.2, the amendment-17
+//      reversal) and then receives spec:true frames (no `you`, A unfogged); A
+//      NEVER receives a spec frame before the frame that reports B's sink.
+//   5. results broadcast at B's FOUNDER (amendment 4): winnerId=A, A placed
+//      1st and the FIRST row, B 2nd, exactly the TWO CAPTAINS, dense
+//      placements, and a captains-only ROSTER (amendments 39/41). A's kills
+//      >= 1 and damageDealt >= B's hull.
 //   6. The room disconnects both clients ~resultsMs later (autoDispose).
 // Then kills its own server process group and verifies port 2599 is free.
 //
-// matchOverride is a dev tool — the real client never sets it.
+// WHY A SCRIPT, NOT A PILOT. This smoke used to sail two heuristic pilots
+// (racetrack strafing, island-avoidance rudder bias, an unstick routine)
+// from ring spawns ~8,000 u apart across a RANDOM map, with the PvE fleet wave
+// arriving 60 s into the fight and passive regen racing every single-tube
+// kill — so its red runs were piloting outcomes, not sim defects. Now nothing
+// sails: the map is PINNED (`mapSeed`), both hulls are PLACED by the dev-only
+// `spawnOverride` pose (honored at spawn, at the countdown->active redeploy
+// and at respawn), the fleet wave is OFF (`matchOverride.fleetWaves: false`),
+// and the only inputs are scripted ones sent on the ordinary `i` channel, so
+// they pass inputs.ts' sanitizeInput like any client's. Every number the
+// smoke waits on (kill plan, budgets, the countdown) is READ from CONFIG and
+// the same effectiveStats fold the server runs, at run time.
 //
-// THE TORPEDO IS PRE-FITTED (Story 8.10, epic-8 amendment 65). FR48 deleted
-// the interim spawn seed, so every hull now spawns holding the seat's gun and
-// the Shift boost ONLY and its first weapon arrives as a CARD from the
-// level-zero countdown offer. This smoke's whole choreography is torpedoes in
-// slot 2 (Q) — step 2's suppressed ready-room impact, step 4's kill — so it
-// asks for the fish explicitly through the DEV-ONLY `fitOverride` join option
-// (honoured only under HC_DEV_OPTIONS=1, which this script sets for the server
-// it boots). Gambling on the countdown draw instead was the rejected option.
-// The fit survives the activation redeploy: this is a dev-door room (no
-// expectedCaptains), so its countdown->active boundary takes the WIPE path and
-// redeployEconomy re-applies the dev fit there.
+// THE TORPEDO IS PRE-FITTED by the DEV-ONLY `fitOverride` join option (Story
+// 8.10, EPIC-8 amendment 65): every hull spawns with only the seat's gun and
+// the Shift boost, so A asks for `heavyTorpedo` explicitly; it lands in slot
+// 2 (Q). The line is stacked to the tier that gives TWO tubes (Eric ruling
+// 2026-10-22, Story 9.15 question 4) so a salvo lands inside the regen wait.
+// The fit survives the activation redeploy (redeployEconomy re-applies it).
+//
+// Every dev option here (matchOverride, zoneOverride, mapSeed, fitOverride,
+// spawnOverride) is honored only under HC_DEV_OPTIONS=1, which this script
+// sets for the server it boots; the real client never sends any of them.
 //
 // SCOPE SINCE STORY 6.1 — THIS SMOKE COVERS THE DEV DOOR. A production client
-// never reaches the arena this way any more: it queues into StandardQueueRoom
-// and arrives on a seat reservation (see queueSmoke.mjs, which proves that
-// path). `joinOrCreate('arena')` now survives only behind HC_DEV_OPTIONS=1 —
-// ArenaRoom.static onAuth rejects it outright otherwise — which is exactly the
-// door every headless smoke here uses, so nothing below changed. Read the
-// step-1 assertions with that scope attached: the gathering window and the
-// "a locked room scatters a late joiner into a FRESH room" behaviour are still
-// literally true OF THE DEV DOOR, and are worth keeping for it, but in
-// production CONFIG.match.joinWindow is 0 and the queue owns the wait instead
-// (epic-6 amendments 1, 2 and 7 — the queue does not fix scattering by
-// existing; the 2:00 pool timer is the lever that does).
+// queues into StandardQueueRoom and arrives on a seat reservation (see
+// queueSmoke.mjs); `joinOrCreate('arena')` survives only behind
+// HC_DEV_OPTIONS=1. The step-1 gathering window and the "a locked room
+// scatters a late joiner into a FRESH room" behavior are literally true OF THE
+// DEV DOOR; in production CONFIG.match.joinWindow is 0 and the queue owns the
+// wait (epic-6 amendments 1, 2 and 7).
 //
 // Run: node server/scripts/matchSmoke.mjs
 import { spawn } from 'node:child_process';
@@ -60,76 +59,167 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
-import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, generateMap, islandBlocksSegment } from '@salvo/shared';
+import {
+  CONFIG, PROTOCOL_VERSION, bearing, angleDiff, generateMap, islandBlocksSegment, islandDistance,
+  effectiveStats, equipmentMaxAmmo, equipmentReloadMs, damageMultiplierFor, zoneRingRadii,
+} from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = 2599;
 const endpoint = `ws://localhost:${PORT}`;
-// Countdown long enough for two ring-spawned ships to close to torpedo range
-// and prove damage suppression (with margin for missed passes — the flyby
-// orbits at current ship speeds mean each 12s reload gets roughly one shot per
-// pass); results short so the disposal is observable.
-//
-// 120000 -> 180000 (Story 5.6, amendment 42 — the ocean grew to R=2800). Two
-// captains spawn max-min apart on the spawn ring, so their separation is
-// 2 x 0.8R: 3840u before, 4480u now. At the Torpedo Boat's 45 u/s that is a
-// ~100s CLOSE before the first shot is even possible, and the 120s ready room
-// timed out with the fish still in the tube ("no torpedo struck B"). This is a
-// SMOKE-TUNING consequence of the map size, not a regression: nothing about
-// suppression, arcs or reloads moved. 180s restores the old ~35s of slack for
-// missed passes. joinWindowMs is a small REAL window
-// (unlike the other smokes' 0): step 1 proves the gathering phase over real
-// sockets — unlocked during the window, locked after it. 5s (not 2s) so the
-// post-join sleep(500) + CHARLIE's join round-trip can't eat the window on a
-// slow CI box and flake the same-room assertion.
-const MATCH_OVERRIDE = { countdownMs: 180000, resultsMs: 3000, joinWindowMs: 5000 };
-// After B sinks (step 4), A is the last human. The phased timeline (Story 3.1)
-// gives the step-4 fight a comfortable storm-free window — beats park the first
-// close at 3 x beatMs, well past the typical converge+two-torpedo fight, so A
-// (not the storm) sinks B — and full closure lands at 12 beats on a TINY
-// terminal floor.
-//
-// beatMs WIDENED 30000 -> 45000 (2026-08-04 balance pass). This is a REAL
-// FAILURE this cycle caught, not a precaution: at 30s beats the storm-free
-// window was 90s, tuned when a 12s tube reload made the converge+two-torpedo
-// fight ~50s and left room for several missed passes. The retune took the
-// reload to 30s, so two missed passes push the kill past 90s — the storm closed
-// and sank B first, and the smoke failed on `B sunk by undefined, expected A`.
-// The window must scale with the weapon cycle it exists to accommodate: 135s
-// covers a converge plus two missed passes (~20 + 30 + 30 + 30) with room to
-// spare. 45s (not 60s) is deliberate — beatMs stretches the WHOLE timeline, and
-// every extra second is paid twelve times over in this smoke's runtime.
-//
-// AMENDMENT 4 (Eric ruling 2026-08-11) RETIRED THE STORM ENDGAME THIS SMOKE USED
-// TO RUN. Drones no longer gate the win, so the match finishes the moment A
-// sinks B — there is no longer a phase where A must outlast the fill drones. The
-// step-5 storm mop-up (steerToCenter into a 13.2u floor pocket, a budget derived
-// from full closure at 12 beats) is DELETED with the rule that required it, and
-// terminalSightFactor's pocket tuning went with it: nothing in this smoke waits
-// on closure any more. beatMs still matters — the pre-close beats are what keep
-// the storm off the step-4 fight — so it stays exactly as tuned above.
+/** Hoisted so a failure prints how far the scenario got (weaponsSmoke's TRACE). */
+const TRACE = [];
+
+// --- the scenario, derived from CONFIG ----------------------------------------
+
+/** The pinned map (fogSmoke's documented pin). Islands never travel on the
+ *  wire, so the script rebuilds the same field from the welcome's seed. */
+const MAP_SEED = 265;
+const TB = CONFIG.shipClasses.torpedoBoat; // every client is the default class
+const HULL_L = TB.hull.length;
+const TORP = 'heavyTorpedo';
+const TORP_SLOT = 2; // slot 2 (Q) = the FIRST fitted weapon since Story 8.5
+/** The smoke's own clear-water bound for the poses: mapgen suppresses land
+ *  around the map centre, and both poses must sit well inside that. This is
+ *  the smoke's bound, not a mapgen guarantee — the real precondition is the
+ *  island-clearance + clear-lane check in assertLane(). */
+const CENTER_FRACTION = 0.15;
+
+/**
+ * THE FIT: the fewest `heavyTorpedo` cards whose fold carries TWO tubes (the
+ * line's +0.5 maxAmmo rungs — tubes 1,1,2,2,2 — reach two at tier III today).
+ * Derived from the same effectiveStats fold the server runs, never typed.
+ */
+function twoTubeFit() {
+  for (let k = 1; k <= 10; k += 1) {
+    const fit = Array(k).fill(TORP);
+    if (equipmentMaxAmmo(effectiveStats(TB, fit), TORP) >= 2) return fit;
+  }
+  throw new Error(`PRECONDITION: no ${TORP} stack reaches two tubes`);
+}
+const FIT = twoTubeFit();
+const SHOOTER = effectiveStats(TB, FIT);
+const TARGET = effectiveStats(TB, []); // B carries no fit: it only has to float
+const FISH = {
+  damage: SHOOTER.equipment[TORP].damage,
+  speed: SHOOTER.equipment[TORP].speed,
+  reloadMs: equipmentReloadMs(SHOOTER, TORP),
+  tubes: equipmentMaxAmmo(SHOOTER, TORP),
+};
+/** The blow B's hull takes per fish: the server's armor curve over B's armor
+ *  minus A's piercing, floored to a whole number (World.floorBlow). */
+const FISH_BLOW = Math.max(1, Math.floor(FISH.damage * damageMultiplierFor(TARGET.armor - SHOOTER.armorPiercing)));
+
+/**
+ * THE LANE. B (the target) at the origin facing +x; A (the shooter) astern-west
+ * of it on the x axis, heading 0, so the bearing A->B IS A's heading — dead
+ * centre of the bow arc by construction. d = three hull lengths: two hull
+ * lengths of open water between A's bow and B's stern, so the fish spawns well
+ * clear of A (hull edge + hitRadius + spawnClearance) and runs a short,
+ * straight lane, far inside sight and a homing fish's travel budget.
+ */
+const D = 3 * HULL_L;
+const B_POSE = { x: 0, y: 0, heading: 0 };
+const A_POSE = { x: -D, y: 0, heading: 0 };
+/** Fish run from spawn (A's bow + clearance) to B's stern, and its flight. */
+const FISH_RUN = D - HULL_L - CONFIG.torpedo.spawnClearance - 2 * CONFIG.torpedo.hitRadius;
+const FLIGHT_MS = (FISH_RUN / FISH.speed) * 1000;
+/** Socket + tick slack on every wait (join round-trips, frame delivery). */
+const SLACK_MS = 5000;
+
+/**
+ * THE KILL PLAN (Eric ruling 2026-10-22, Story 9.15 question 4: derived from
+ * CONFIG INCLUDING REGEN). A tick-stepped replay of the fight the server will
+ * run: A clicks every tick, a tube fires whenever one is loaded, the pool
+ * reloads one round per reloadMs (World.finishReloads), each fish lands
+ * FLIGHT_MS later for FISH_BLOW, and between hits B heals `missingPctPerS` of
+ * its MISSING hull per second once `outOfCombatMs` have passed since the last
+ * landed hit (World.tickRegen; the redeploy re-arms that clock at
+ * activation). Returns the fish B takes, the salvos (distinct firing moments)
+ * and the simulated sink time.
+ */
+function killPlan() {
+  const dt = CONFIG.tick.simDtMs;
+  const maxHp = TARGET.maxHp;
+  const { missingPctPerS, outOfCombatMs } = TARGET.regen;
+  let hp = maxHp;
+  let loaded = FISH.tubes;
+  let reloadLeft = 0;
+  let lastHitAt = 0;
+  let lastFireAt = -Infinity;
+  let salvos = 0;
+  let fish = 0;
+  const inFlight = [];
+  for (let t = 0; t < 3600000; t += dt) {
+    if (reloadLeft > 0) {
+      reloadLeft -= dt;
+      if (reloadLeft <= 0) {
+        loaded += 1;
+        reloadLeft = loaded < FISH.tubes ? FISH.reloadMs : 0;
+      }
+    }
+    if (loaded > 0) {
+      loaded -= 1;
+      if (reloadLeft <= 0) reloadLeft = FISH.reloadMs;
+      if (t - lastFireAt > dt) salvos += 1;
+      lastFireAt = t;
+      inFlight.push(t + FLIGHT_MS);
+    }
+    while (inFlight.length > 0 && inFlight[0] <= t) {
+      inFlight.shift();
+      hp -= FISH_BLOW;
+      fish += 1;
+      lastHitAt = t;
+      if (hp <= 0) return { fish, salvos, sinkMs: t };
+    }
+    if (hp < maxHp && t - lastHitAt >= outOfCombatMs) hp += (maxHp - hp) * missingPctPerS * (dt / 1000);
+  }
+  throw new Error('PRECONDITION: the kill plan never sinks B');
+}
+const PLAN = killPlan();
+/** The fight budget: one reload per salvo plus ONE reload of slack (AC 2). */
+const FIGHT_BUDGET_MS = PLAN.salvos * FISH.reloadMs + FISH.reloadMs;
+
+/**
+ * Lifecycle timers. The countdown is what step 2 needs and nothing more: the
+ * first fish's flight + one reload (a fish lost to a tick-phase race gets a
+ * second chance) + socket slack. resultsMs short so the disposal is
+ * observable. joinWindowMs is a small REAL window (unlike the other smokes'
+ * 0): step 1 proves the gathering phase over real sockets; 5 s so the
+ * post-join sleep + CHARLIE's join round-trip can't eat it on a slow box.
+ * fleetWaves:false keeps the PvE wave scheduler off the fight (Story 9.15).
+ */
+const COUNTDOWN_MS = Math.ceil(FLIGHT_MS + FISH.reloadMs + SLACK_MS);
+const MATCH_OVERRIDE = { countdownMs: COUNTDOWN_MS, resultsMs: 3000, joinWindowMs: 5000, fleetWaves: false };
+/**
+ * The storm: offsetCap 0 keeps every ring concentric on the map centre, where
+ * both poses sit, so the storm reaches a hull only once a ring SMALLER than
+ * its distance from the centre starts closing — the close into ring k starts
+ * at (4(k-1) + 3) x beatMs after activation. stormFreeMs() derives that window
+ * from the same zoneRingRadii the server runs, and assertLane() requires it to
+ * cover the fight budget plus B's sinking window (it does at today's CONFIG
+ * with room to spare — see the printed plan — so beatMs is not widened).
+ * Nothing here waits on closure any more (amendment 4 retired the storm
+ * endgame), so beatMs only has to keep the storm off the fight.
+ */
 const ZONE_OVERRIDE = { beatMs: 45000, ringSteps: [1 / 3, 2 / 3], offsetCap: 0, terminalSightFactor: 0.04 };
-// Fire only from close, well-aimed range: a short lane makes each fish
-// near-certain on a head-on target (fish + closing target ≈ 90 u/s over <4s).
-const TORP_RANGE = 350; // u — click only inside this
-// rad — click when the target bears within this of the bow. The bow TUBE arc is
-// halfArc 30° (0.524 rad) and a torpedo launches straight at `aim` whenever aim
-// sits inside it (server: torpedoes.ts inArc/clampToArc), so any click inside
-// ~0.4 rad puts a fish on a stationary target. Kept comfortably under 0.524 to
-// absorb the bow turning between client input-sample and server apply. A tight
-// gate (0.15) threw away most valid shots and made the ready-room hit flaky.
-const ARC = 0.4;
-// Island obstacle field, rebuilt client-side from welcome.mapSeed (deterministic,
-// islands never travel on the wire — see net/connection.ts). Populated once A's
-// welcome lands; used for PROACTIVE avoidance so a full-throttle hull never rams
-// (and jams on) an island mid-run. Empty until set — avoidance is then a no-op.
-let ISLANDS = [];
-const ISLAND_LOOKAHEAD = 170; // u — start turning this far ahead of an island
+
+function stormFreeMs(mapRadius) {
+  const reach = Math.max(Math.hypot(A_POSE.x, A_POSE.y), Math.hypot(B_POSE.x, B_POSE.y)) + HULL_L / 2;
+  const radii = zoneRingRadii(mapRadius, ZONE_OVERRIDE);
+  for (let k = 1; k < radii.length; k += 1) {
+    if (radii[k] < reach) return (4 * (k - 1) + 3) * ZONE_OVERRIDE.beatMs;
+  }
+  return Infinity;
+}
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
 }
-const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+/** A failed precondition is a SCRIPT bug (a bad pose or plan), not a smoke fail. */
+function precondition(cond, msg) {
+  if (!cond) throw new Error(`PRECONDITION: ${msg}`);
+}
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Non-captain hull ids. `drone-N` was the deleted match-start fill
@@ -143,9 +233,9 @@ function bootServer() {
   const proc = spawn(tsx, ['src/index.ts'], {
     cwd: path.join(REPO, 'server'),
     detached: true, // own process group, so we can kill tsx + its node child
-    // HC_DEV_OPTIONS=1 is required for the room to honor matchOverride/
-    // zoneOverride at all (see server/src/rooms/roomOptions.ts) — without it
-    // they're silently stripped and this smoke's assertions would fail.
+    // HC_DEV_OPTIONS=1 is required for the room to honor any dev option at all
+    // (see server/src/rooms/roomOptions.ts) — without it they're stripped and
+    // reported in rejectedKeys, and this smoke's assertions would fail.
     env: { ...process.env, NODE_ENV: 'development', PORT: String(PORT), HC_DEV_OPTIONS: '1' },
     stdio: ['ignore', 'ignore', 'inherit'],
   });
@@ -195,23 +285,27 @@ function killServerHard(proc) {
 
 // --- client harness ----------------------------------------------------------
 
-async function joinClient(name) {
+/** Join through the dev door. Every join pins the map and switches the fleet
+ *  off (room options ride the creating join); `pose`/`fit` are per-captain. */
+async function joinClient(name, { pose, fit } = {}) {
   const client = new Client(endpoint);
-  // Every client here is a Torpedo Boat (the default class), so every one asks
-  // for `heavyTorpedo`, which lands in slot 2 (Q) exactly where the deleted
-  // spawn seed used to put it. Any non-stub catalog line would do since Story
-  // 8.14 retired the decks; this one keeps the smoke's ballistics unchanged.
-  const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, fitOverride: ['heavyTorpedo'], matchOverride: MATCH_OVERRIDE, zoneOverride: ZONE_OVERRIDE });
+  const opts = { name, pv: PROTOCOL_VERSION, mapSeed: MAP_SEED, matchOverride: MATCH_OVERRIDE, zoneOverride: ZONE_OVERRIDE };
+  if (pose) opts.spawnOverride = pose;
+  if (fit) opts.fitOverride = fit;
+  const room = await client.joinOrCreate('arena', opts);
   const ctx = {
-    name, room, welcome: null, you: null, seq: 0, fireSeq: 0, fireAt: null,
+    name, room, welcome: null, you: null, firstYou: null, seq: 0, fireSeq: 0,
     frames: 0, specFrames: 0, specWithYou: 0, specContactIds: new Set(),
     specBeforeFinish: 0, seenPeerSunk: false, peerId: null,
-    boomsOnMe: 0, readyHpViolations: 0, activated: false, minHpActive: Infinity,
-    sunkSeen: false, sunkBy: 'UNSET', results: null, leftCode: null, parked: false,
+    boomsOnMe: 0, readyHpViolations: 0, activated: false, dmgActive: [],
+    sunkSeen: false, sunkBy: 'UNSET', results: null, leftCode: null,
   };
   room.onMessage('w', (m) => (ctx.welcome = m));
   room.onMessage('f', (m) => onFrame(ctx, m));
   room.onMessage('r', (m) => (ctx.results = m));
+  // The server's RTT ping — no reply needed here; registered so the SDK does
+  // not log "onMessage() not registered for type 'p'" every few seconds.
+  room.onMessage('p', () => {});
   room.onLeave((code) => (ctx.leftCode = code));
   return ctx;
 }
@@ -233,11 +327,12 @@ function onFrame(ctx, f) {
   if (hasPeerSunk) ctx.seenPeerSunk = true;
   if (f.you) {
     ctx.you = f.you;
-    if (!ctx.activated && f.you.hp < CONFIG.shipClasses.torpedoBoat.hp) ctx.readyHpViolations += 1;
-    if (ctx.activated) ctx.minHpActive = Math.min(ctx.minHpActive, f.you.hp);
+    if (ctx.firstYou === null) ctx.firstYou = f.you;
+    if (!ctx.activated && f.you.hp < TB.hp) ctx.readyHpViolations += 1;
   }
   for (const e of f.events) {
     if (e.k === 'boom' && e.hit === ctx.room.sessionId) ctx.boomsOnMe += 1;
+    if (e.k === 'dmg' && e.id === ctx.room.sessionId && ctx.activated) ctx.dmgActive.push(e);
     if (e.k === 'sunk' && e.id === ctx.room.sessionId) {
       ctx.sunkSeen = true;
       ctx.sunkBy = e.by;
@@ -245,176 +340,21 @@ function onFrame(ctx, f) {
   }
 }
 
-/** Steer toward the peer; torpedoes away when in range/arc and armed=true. */
-function control(ctx, target, armed) {
-  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
-  if (ctx.you && target) {
-    const brg = bearing(ctx.you, target);
-    inp.rudder = clamp(angleDiff(ctx.you.heading, brg) * 3, -1, 1);
-    inp.aim = brg;
-    const d = dist(ctx.you, target);
-    // Close fast, then stand off around ~150u: driving to point blank puts
-    // the pair in a 3-50u waltz where the bearing swings faster than the bow
-    // can track, so the ARC click gate never reopens and the fight stalls
-    // after the first fish. At standoff the solution is stable and a fish
-    // launches every reload.
-    inp.throttle = d > 300 ? 1 : d > 150 ? 0.4 : 0;
-    // Click every tick while the solution holds — the tube reload paces launches.
-    if (armed && d < TORP_RANGE && Math.abs(angleDiff(ctx.you.heading, brg)) < ARC) inp.fireSeq = ++ctx.fireSeq;
-  }
-  ctx.room.send('i', inp);
+/** A full legal InputMsg: dead stop, weapons cold (the fireSeq is not bumped). */
+function input(ctx) {
+  return { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: TORP_SLOT, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
 }
 
-/** Send a dead-stop input (throttle/rudder 0, weapons cold). */
+/** Send a dead-stop input. */
 function idle(ctx) {
-  ctx.room.send('i', { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+  ctx.room.send('i', input(ctx));
 }
 
-/** Full-astern + hard-rudder break-off input for a hull pinned on an island. */
-function backOff(ctx) {
-  return { seq: ++ctx.seq, throttle: -1, rudder: 1, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
-}
-
-/**
- * Rudder bias (added to the desired-heading rudder) that steers a hull clear of
- * any island ahead — the same trick the drone AI uses. For each island within
- * the forward lookahead, push the rudder to whichever side puts the bow around
- * it. Proactive avoidance means a full-throttle hull rarely rams/jams at all.
- */
-function islandBias(you, maxDist = Infinity) {
-  const fx = Math.cos(you.heading);
-  const fy = Math.sin(you.heading);
-  let bias = 0;
-  for (const c of ISLANDS) {
-    const dx = c.x - you.x;
-    const dy = c.y - you.y;
-    const ahead = dx * fx + dy * fy;
-    // Ignore islands behind us, and ones AT or BEYOND the target — otherwise an
-    // island near a parked B would steer the shooter off its firing run forever.
-    if (ahead <= 0 || ahead > maxDist - 30) continue;
-    if (Math.hypot(dx, dy) > ISLAND_LOOKAHEAD + c.r) continue;
-    bias += fx * dy - fy * dx > 0 ? -0.9 : 0.9; // island to port -> turn starboard
-  }
-  return clamp(bias, -1, 1);
-}
-
-/**
- * True iff the segment from→to crosses no island — a clear torpedo lane.
- * Polygon LOS (the shared seam the server itself runs), not the bounding
- * circle: islands are fractal polygons inscribed in `isle.r`, so the circle
- * test rejected lanes that are in fact clear water.
- */
-function losClear(from, to) {
-  for (const c of ISLANDS) {
-    if (islandBlocksSegment(from, to, c)) return false;
-  }
-  return true;
-}
-
-/**
- * Backup island-pin recovery (proactive avoidance above is the primary defense).
- * A full-throttle hull that stops moving is jammed bow-first on an island and
- * CANNOT turn off (stepShip gives ~zero rudder authority at ~zero speed). On a
- * pin, latch a short full-ASTERN + hard-rudder burst to back off (sternway
- * restores steerage), THEN a grace window where detection is paused while the
- * hull rebuilds headway — without that grace the slow sternway (< the movement
- * threshold) re-triggers instantly and the hull reverses forever. Returns the
- * break-off input while recovering, else null (caller sends its normal input).
- */
-function unstickInput(ctx) {
-  if (!ctx.you) return null;
-  const moved = ctx._lastPos ? Math.hypot(ctx.you.x - ctx._lastPos.x, ctx.you.y - ctx._lastPos.y) : 99;
-  ctx._lastPos = { x: ctx.you.x, y: ctx.you.y };
-  if (ctx._backing > 0) {
-    ctx._backing -= 1;
-    if (ctx._backing === 0) ctx._grace = 24; // ~1.2s to rebuild headway
-    return backOff(ctx);
-  }
-  if (ctx._grace > 0) {
-    ctx._grace -= 1;
-    ctx._stuck = 0;
-    return null;
-  }
-  ctx._stuck = moved < 1.5 ? (ctx._stuck ?? 0) + 1 : 0;
-  if (ctx._stuck > 10) {
-    ctx._backing = 14; // ~0.7s astern clears the bow off the island
-    ctx._stuck = 0;
-    return backOff(ctx);
-  }
-  return null;
-}
-
-/** Extend back out to at least this range before re-approaching for a shot. */
-const STANDOFF_OUT = 300;
-/** Passing inside this range ends the approach and begins the extend leg. */
-const STANDOFF_IN = 140;
-/** Max ticks in an extend leg before forcing a re-approach (island trap escape). */
-const EXTEND_MAX = 120;
-
-/**
- * Racetrack torpedo run against a (stationary) target. Drive at FULL throttle so
- * the ship always keeps steerage (stepShip grants zero rudder authority at a
- * standstill — a standoff-to-a-stop deadlocks the bow off-aim and never fires).
- * Two legs, alternated per shooter:
- *   - APPROACH: steer the bow onto the target and launch when it bears tightly
- *     (|err| < ARC) and is in range. On a straight run from range the bow tracks
- *     easily (bearing slews slowly) so the shot lands.
- *   - EXTEND: once the pass closes inside STANDOFF_IN, coast straight out (the
- *     point-blank bearing slews faster than the bow can turn — the torpedo waltz
- *     that stalls a chaser at 1 hit) until back beyond STANDOFF_OUT, then
- *     re-approach. There is no ship-ship collision, so the shooter flies through.
- * unstickInput() handles island pins (a jammed hull is backed off astern). The
- * 12s tube reload paces launches; each clean approach against a parked target
- * lands a fish.
- */
-function strafeFire(shooter, target, armed) {
-  const un = unstickInput(shooter);
-  if (un) {
-    shooter.room.send('i', un);
-    return;
-  }
-  const inp = { seq: ++shooter.seq, throttle: 1, rudder: 0, aim: 0, fireSeq: shooter.fireSeq, aimDist: 0, slot: 2, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
-  if (!shooter.you || !target) {
-    shooter.room.send('i', inp);
-    return;
-  }
-  const brg = bearing(shooter.you, target);
-  const err = angleDiff(shooter.you.heading, brg);
-  const d = dist(shooter.you, target);
-  inp.aim = brg;
-  if (shooter._extending) {
-    shooter._extAge = (shooter._extAge ?? 0) + 1;
-    // Re-approach once far enough out OR if the extend stalls (a B-adjacent island
-    // + avoidance/back-off can pin the leg short of STANDOFF_OUT — the trap that
-    // left A circling at ~127u never firing).
-    if (d > STANDOFF_OUT || shooter._extAge > EXTEND_MAX) shooter._extending = false;
-    inp.rudder = clamp(islandBias(shooter.you), -1, 1); // steer clear while coasting out
-  } else {
-    // Commit to the target: only dodge islands nearer than B (islandBias maxDist),
-    // never one sitting by B, or the firing run would curve away and never launch.
-    inp.rudder = clamp(err * 3 + islandBias(shooter.you, d), -1, 1);
-    // Fire only with a CLEAR torpedo lane (losClear) so a fish never wastes on an
-    // island between A and B — A racetracks to sample angles until one is open.
-    if (armed && d < TORP_RANGE && Math.abs(err) < ARC && losClear(shooter.you, target)) inp.fireSeq = ++shooter.fireSeq;
-    if (d < STANDOFF_IN) {
-      shooter._extending = true; // passed close — extend out
-      shooter._extAge = 0;
-    }
-  }
-  shooter.room.send('i', inp);
-}
-
-/**
- * A strafes B (full-throttle torpedo runs); B converges on A until the pair is
- * within 500u, then LATCHES to a dead stop (`b.parked`) so A always has a
- * stationary target. The latch + strafing defeat the flyby-orbit torpedo-luck
- * flake; it is cleared at activation so B closes fresh from the redeployed ring.
- */
-function huntPeer(a, b, armed) {
-  strafeFire(a, b.you, armed);
-  if (a.you && b.you && dist(a.you, b.you) <= 500) b.parked = true;
-  if (b.parked || !b.you || !a.you) idle(b);
-  else control(b, a.you, false);
+/** THE SCRIPTED CLICK: dead stop, aim = the bearing to B (A's own heading by
+ *  the pose), a fresh fireSeq edge every tick; the tube reload paces launches. */
+function fire(ctx) {
+  ctx.fireSeq += 1;
+  ctx.room.send('i', { ...input(ctx), aim: bearing(A_POSE, B_POSE) });
 }
 
 function phase(ctx) {
@@ -424,9 +364,7 @@ function phase(ctx) {
 /** Roster rows that are NOT one of the two captains — the independent oracle
  *  for amendment 41/39 over a real socket: the match-start drone fill is
  *  deleted outright and PvE fleet hulls hold no `PlayerMeta` row at all, so
- *  the roster this smoke sees must be captains and nothing else. (This
- *  replaces the pre-5.6 oracle, which asserted the opposite — that a fill of
- *  drones was still sailing at the finish.) */
+ *  the roster this smoke sees must be captains and nothing else. */
 function nonCaptainRosterRows(ctx, captainIds) {
   const out = [];
   ctx.room.state.players.forEach((_meta, id) => {
@@ -444,177 +382,195 @@ async function runUntil(tick, done, timeoutMs, label) {
   }
 }
 
+/** The lane precondition on the pinned map: both poses on clear water well
+ *  inside the centre, a hull length off every coast, no island across the
+ *  A->B lane, and a storm-free window that covers the fight. */
+function assertLane(welcome) {
+  precondition(welcome.mapSeed === MAP_SEED, `welcome mapSeed ${welcome.mapSeed} !== pinned ${MAP_SEED}`);
+  const map = generateMap(welcome.mapSeed, welcome.playerCap);
+  for (const [name, p] of [['A', A_POSE], ['B', B_POSE]]) {
+    precondition(Math.hypot(p.x, p.y) <= CENTER_FRACTION * map.radius, `${name} pose outside ${CENTER_FRACTION} x map radius`);
+    for (const isle of map.islands) {
+      precondition(islandDistance(p, isle) >= HULL_L, `${name} pose within a hull length of the island at (${isle.x.toFixed(0)},${isle.y.toFixed(0)})`);
+    }
+  }
+  for (const isle of map.islands) {
+    precondition(!islandBlocksSegment(A_POSE, B_POSE, isle), `the island at (${isle.x.toFixed(0)},${isle.y.toFixed(0)}) blocks the A->B lane`);
+  }
+  const stormFree = stormFreeMs(map.radius);
+  precondition(stormFree >= FIGHT_BUDGET_MS + CONFIG.ship.sinkingWindowMs,
+    `storm-free window ${stormFree} ms < fight budget ${FIGHT_BUDGET_MS} ms + sinking window — widen beatMs`);
+  return stormFree;
+}
+
+/** The pose/arc/fit precondition from each captain's FIRST `you` frame. */
+function assertPoses(a, b) {
+  for (const [ctx, pose] of [[a, A_POSE], [b, B_POSE]]) {
+    const y = ctx.firstYou;
+    precondition(dist(y, pose) < 1 && Math.abs(angleDiff(y.heading, pose.heading)) < 1e-6,
+      `${ctx.name} spawned at (${y.x.toFixed(1)},${y.y.toFixed(1)}) h=${y.heading.toFixed(3)}, not its dev pose`);
+  }
+  const off = Math.abs(angleDiff(a.firstYou.heading, bearing(a.firstYou, B_POSE)));
+  precondition(off < CONFIG.torpedo.halfArc, `bearing to B is ${off.toFixed(3)} rad off A's bow (halfArc ${CONFIG.torpedo.halfArc.toFixed(3)})`);
+  precondition(JSON.stringify(a.firstYou.cards) === JSON.stringify(FIT), `A fitted ${JSON.stringify(a.firstYou.cards)}, expected ${JSON.stringify(FIT)}`);
+  const pool = a.firstYou.ammo[TORP_SLOT];
+  precondition(pool !== null && pool.n === FISH.tubes, `A's slot ${TORP_SLOT} holds ${pool?.n} fish, expected ${FISH.tubes} tubes`);
+}
+
+function planLine(stormFree) {
+  return `plan: seed ${MAP_SEED}, d=${D}u (3 hull lengths), fit ${FIT.length}x${TORP} -> ${FISH.tubes} tubes, ` +
+    `${FISH_BLOW} dmg/fish (${FISH.damage} x armor curve), reload ${FISH.reloadMs}ms, flight ~${FLIGHT_MS.toFixed(0)}ms; ` +
+    `B ${TARGET.maxHp}hp, regen ${TARGET.regen.missingPctPerS * 100}%/s of missing after ${TARGET.regen.outOfCombatMs}ms -> ` +
+    `${PLAN.fish} fish in ${PLAN.salvos} salvos (sim sink at ${(PLAN.sinkMs / 1000).toFixed(1)}s); ` +
+    `fight budget ${FIGHT_BUDGET_MS}ms, countdown ${COUNTDOWN_MS}ms, storm-free ${stormFree}ms`;
+}
+
+/** Step 1 — waiting -> gathering (unlocked window) -> countdown + room lock. */
+async function stepGathering() {
+  const a = await joinClient('ALPHA', { pose: A_POSE, fit: FIT });
+  await sleep(500);
+  assert(phase(a) === 'waiting', `solo join should idle in waiting (got ${phase(a)})`);
+  assert(a.welcome, 'no welcome message received');
+  TRACE.push(planLine(assertLane(a.welcome)));
+  const b = await joinClient('BRAVO', { pose: B_POSE });
+  assert(a.room.roomId === b.room.roomId, 'A and B joined different rooms');
+  a.peerId = b.room.sessionId;
+  b.peerId = a.room.sessionId;
+  await sleep(500);
+  assert(phase(a) === 'gathering', `2nd join should open the gathering window (got ${phase(a)})`);
+  const gatherDeadline = a.room.state.countdownEndT;
+  assert(gatherDeadline > 0, 'gathering deadline (countdownEndT) not set');
+  // The gathering room is still UNLOCKED: a 3rd joinOrCreate lands in it.
+  const c = await joinClient('CHARLIE');
+  assert(c.room.roomId === a.room.roomId, 'gathering room bounced a 3rd client (window should be open)');
+  await c.room.leave(); // 2 humans remain (>= min) — the window keeps running
+  await runUntil(() => {}, () => phase(a) === 'countdown', MATCH_OVERRIDE.joinWindowMs + 10000, 'gathering window expiry -> countdown');
+  // The deadline must have MOVED to the countdown's (a stale gathering
+  // deadline would also be > 0 — assert re-arm, not mere presence).
+  assert(a.room.state.countdownEndT > gatherDeadline, 'countdownEndT was not re-armed past the gathering deadline');
+  const d = await joinClient('DELTA'); // locked room -> fresh room
+  assert(d.room.roomId !== a.room.roomId, 'locked room accepted a 4th client');
+  await d.room.leave();
+  TRACE.push('gathering opened at 2nd join (CHARLIE joined the SAME room); window expiry armed the countdown; locked room bounced DELTA to a fresh room');
+  return { a, b };
+}
+
+/** Step 2 — the ready room is weapons-safe: a fish strikes B, B loses nothing. */
+async function stepReadyRoom(a, b) {
+  await runUntil(() => {}, () => a.firstYou !== null && b.firstYou !== null, SLACK_MS, 'first own-ship frames');
+  assertPoses(a, b);
+  const readyTick = () => { fire(a); idle(b); };
+  await runUntil(readyTick, () => b.boomsOnMe >= 1 || phase(a) === 'active', FLIGHT_MS + FISH.reloadMs + SLACK_MS, 'suppressed torpedo impact');
+  assert(b.boomsOnMe >= 1, 'no torpedo struck B during the ready room');
+  assert(b.readyHpViolations === 0, 'B lost hp while weapons were safe');
+  TRACE.push(`weapons safe: ${b.boomsOnMe} boom(s) on B, zero hp lost`);
+}
+
+/** Step 3 — countdown end -> active: dev poses, full hp, tubes, zone anchored. */
+async function stepActivation(a, b) {
+  const calm = () => { idle(a); idle(b); };
+  await runUntil(calm, () => phase(a) === 'active', COUNTDOWN_MS + SLACK_MS, 'activation');
+  a.activated = true;
+  b.activated = true;
+  await sleep(300); // a few frames of active state
+  for (const [ctx, pose] of [[a, A_POSE], [b, B_POSE]]) {
+    assert(ctx.you.hp === TB.hp, `${ctx.name} not at full hp after reset`);
+    assert(dist(ctx.you, pose) < 2, `${ctx.name} not at its dev pose after the redeploy (${ctx.you.x.toFixed(1)},${ctx.you.y.toFixed(1)})`);
+  }
+  const pool = a.you.ammo[TORP_SLOT];
+  assert(pool !== null && pool.n === FISH.tubes, `A's tubes not refilled at the redeploy (${pool?.n}/${FISH.tubes})`);
+  assert(a.room.state.zoneState !== 'idle', 'storm timeline not anchored at activation');
+  TRACE.push(`active: both hulls redeployed to their dev poses, full hp, ${FISH.tubes} tubes loaded, zone=${a.room.state.zoneState}`);
+}
+
+/** Step 4 — A sinks B on the planned fish; B spectates unfogged; A never spec'd early. */
+async function stepSink(a, b) {
+  // A clicks every tick (the reload paces the fish); B sits still. Once B is
+  // sunk it spectates and sends nothing, and A stands down.
+  const fightTick = () => {
+    if (!a.results) (b.sunkSeen ? idle(a) : fire(a));
+    if (!b.sunkSeen && !b.results) idle(b);
+  };
+  await runUntil(fightTick, () => b.sunkSeen, FIGHT_BUDGET_MS, 'A sinking B');
+  assert(b.sunkBy === a.room.sessionId, `B sunk by ${b.sunkBy}, expected A`);
+  const blows = b.dmgActive.map((e) => e.amount);
+  assert(blows.every((x) => x === FISH_BLOW), `B took blows ${JSON.stringify(blows)}, expected only ${FISH_BLOW}`);
+  assert(blows.length === PLAN.fish, `B sank on ${blows.length} fish, the kill plan says ${PLAN.fish}`);
+  assert(b.dmgActive[b.dmgActive.length - 1].hp === 0, 'the sinking blow did not leave B at 0 hp');
+  // THE SINKING WINDOW HOLDS THE FINISH (Story 5.2 + the amendment-17
+  // REVERSAL, Eric veto 2026-08-12): spec frames (and the results right behind
+  // them) arrive only once B founders — the window plus socket slack.
+  await runUntil(fightTick, () => b.specFrames >= 5, CONFIG.ship.sinkingWindowMs + 2 * SLACK_MS, 'B spec frames');
+  assert(b.specWithYou === 0, 'a spec frame carried `you`');
+  assert(b.specContactIds.has(a.room.sessionId), 'B spec frames never showed A unfogged');
+  assert(a.specBeforeFinish === 0, 'A received a spec frame before the finishing sink');
+  assert(b.specBeforeFinish === 0, 'B received a spec frame before its own sink frame');
+  TRACE.push(`B sunk by A on ${blows.length} fish of ${FISH_BLOW} (plan ${PLAN.fish}); B got ${b.specFrames} spec frames (unfogged, no you); A spec'd only after the finish`);
+}
+
+/** Step 5 — results at B's FOUNDER (amendment 4): captains only, dense placements. */
+async function stepResults(a, b) {
+  await runUntil(() => {}, () => a.results !== null && b.results !== null, 10000, 'results broadcast');
+  const res = a.results;
+  assert(res.winnerId === a.room.sessionId, `winnerId=${res.winnerId}, expected A`);
+  const rowA = res.rows.find((r) => r.id === a.room.sessionId);
+  const rowB = res.rows.find((r) => r.id === b.room.sessionId);
+  assert(rowA && rowB, `results rows missing A/B (rows: ${res.rows.map((r) => r.id).join(',')})`);
+  assert(rowA.placement === 1, `A placement=${rowA.placement}, expected 1`);
+  // THE RULING over real sockets (Eric 2026-08-11, superseding amendment 8):
+  // the results table is CAPTAINS ONLY and placement is captain-relative.
+  assert(rowB.placement === 2, `B placement=${rowB.placement}, expected 2`);
+  assert(res.rows[0].id === rowA.id, `winner is not the first row (got ${res.rows[0].id})`);
+  const droneRows = res.rows.filter((r) => isDrone(r.id));
+  assert(droneRows.length === 0, `results carried ${droneRows.length} DRONE row(s): ${JSON.stringify(droneRows.map((r) => [r.id, r.placement]))}`);
+  assert(res.rows.length === 2, `expected exactly the 2 captains, got ${res.rows.length} rows`);
+  assert(res.rows.every((r) => r.placement >= 1), `a row was left unplaced: ${JSON.stringify(res.rows.map((r) => [r.id, r.placement]))}`);
+  // Dense 1..N with no duplicates and no gaps — the partition invariant.
+  const seen = res.rows.map((r) => r.placement).sort((x, y) => x - y);
+  assert(seen.every((p, i) => p === i + 1), `placements are not the dense range 1..${res.rows.length}: ${seen.join(',')}`);
+  // The independent oracle (Story 5.6, amendments 39/41): the roster is
+  // CAPTAINS ONLY — no fill exists and a fleet hull holds no PlayerMeta row.
+  const strays = nonCaptainRosterRows(a, [a.room.sessionId, b.room.sessionId]);
+  assert(strays.length === 0, `roster carried ${strays.length} non-captain row(s): ${JSON.stringify(strays)} (amendments 39/41)`);
+  for (let i = 1; i < res.rows.length; i++) {
+    assert(res.rows[i].placement >= res.rows[i - 1].placement, 'rows not sorted ascending by placement');
+  }
+  assert(rowA.kills >= 1, `A kills=${rowA.kills}, expected >= 1`);
+  assert(rowA.damageDealt >= TB.hp, `A damageDealt=${rowA.damageDealt} < ${TB.hp}`);
+  TRACE.push(
+    `results: winner=ALPHA (1st row, ${rowA.kills} kill, ${rowA.damageDealt}dmg); ` +
+    `B placed ${rowB.placement} of ${res.rows.length} rows — both CAPTAINS, dense 1..2; roster is CAPTAINS ONLY`,
+  );
+}
+
+/** Step 6 — the room disconnects both clients after resultsMs (autoDispose). */
+async function stepDispose(a, b) {
+  await runUntil(() => {}, () => a.leftCode !== null && b.leftCode !== null, MATCH_OVERRIDE.resultsMs + 8000, 'room disconnect after results');
+  TRACE.push(`room disconnected both clients (codes ${a.leftCode}/${b.leftCode}) after ~${MATCH_OVERRIDE.resultsMs}ms`);
+}
+
+async function scenario() {
+  const { a, b } = await stepGathering();
+  await stepReadyRoom(a, b);
+  await stepActivation(a, b);
+  await stepSink(a, b);
+  await stepResults(a, b);
+  await stepDispose(a, b);
+  return a.room.roomId;
+}
+
 async function main() {
   // Pre-boot guard (mirrors metricsSmoke): refuse to boot when a foreign
   // listener already holds the port, so we never touch a process we didn't
-  // start (e.g. a stale orphan or the user's own server) and never assert
-  // against someone else's room state.
+  // start and never assert against someone else's room state.
   assert(!(await portOpen(PORT)), `port ${PORT} is already in use — refusing to boot (won't touch a foreign listener)`);
+  const started = Date.now();
   const server = bootServer();
-  const log = [];
   let leaked = false;
   try {
     await waitForServer(15000);
-
-    // --- 1. waiting -> gathering (unlocked window) -> countdown + room lock --
-    const a = await joinClient('ALPHA');
-    await sleep(500);
-    assert(phase(a) === 'waiting', `solo join should idle in waiting (got ${phase(a)})`);
-    // Rebuild the exact island field for proactive avoidance (same deterministic
-    // generateMap the client uses; islands never travel on the wire).
-    assert(a.welcome, 'no welcome message received');
-    ISLANDS = generateMap(a.welcome.mapSeed, a.welcome.playerCap).islands;
-    const b = await joinClient('BRAVO');
-    assert(a.room.roomId === b.room.roomId, 'A and B joined different rooms');
-    a.peerId = b.room.sessionId;
-    b.peerId = a.room.sessionId;
-    await sleep(500);
-    assert(phase(a) === 'gathering', `2nd join should open the gathering window (got ${phase(a)})`);
-    const gatherDeadline = a.room.state.countdownEndT;
-    assert(gatherDeadline > 0, 'gathering deadline (countdownEndT) not set');
-    // The gathering room is still UNLOCKED: a 3rd joinOrCreate lands in it.
-    const c = await joinClient('CHARLIE');
-    assert(c.room.roomId === a.room.roomId, 'gathering room bounced a 3rd client (window should be open)');
-    await c.room.leave(); // 2 humans remain (>= min) — the window keeps running
-    // Window expiry -> countdown + lock. Generous timeout past the window.
-    await runUntil(() => {}, () => phase(a) === 'countdown', MATCH_OVERRIDE.joinWindowMs + 10000, 'gathering window expiry -> countdown');
-    // The deadline must have MOVED to the countdown's (a stale gathering
-    // deadline would also be > 0 — assert re-arm, not mere presence).
-    assert(a.room.state.countdownEndT > gatherDeadline, 'countdownEndT was not re-armed past the gathering deadline');
-    const d = await joinClient('DELTA'); // locked room -> fresh room
-    assert(d.room.roomId !== a.room.roomId, 'locked room accepted a 4th client');
-    await d.room.leave();
-    log.push('gathering opened at 2nd join (CHARLIE joined the SAME room); window expiry armed the countdown; locked room bounced DELTA to a fresh room');
-
-    // --- 2. weapons-safe ready room (fire torpedoes point blank) ------------
-    // huntPeer closes the pair, then LATCHES B to a dead stop once within 500u:
-    // mutual full-throttle charges otherwise produce flyby orbits where the bow
-    // rarely bears (one shot per 12s reload per pass, some passes wasted), which
-    // is exactly the historical step-2/step-4 torpedo-luck flake. Against a
-    // parked target A makes full-throttle strafing runs, landing a fish
-    // near-certain on each aligned pass (the 12s tube reload paces the launches).
-    const readyTick = () => huntPeer(a, b, true);
-    // Bounded by the countdown anyway (`active` is the escape): with B latched to
-    // a dead stop once A closes and proactive island avoidance clearing the run,
-    // A lands a fish well inside the window. Timeout > countdownMs so the phase
-    // flip — not this timer — ends the wait.
-    await runUntil(readyTick, () => b.boomsOnMe >= 1 || phase(a) === 'active', MATCH_OVERRIDE.countdownMs + 15000, 'suppressed torpedo impact');
-    assert(b.boomsOnMe >= 1, 'no torpedo struck B during the ready room');
-    assert(b.readyHpViolations === 0, 'B lost hp while weapons were safe');
-    log.push(`weapons safe: ${b.boomsOnMe} boom(s) on B, zero hp lost`);
-
-    // --- 3. countdown end -> active ------------------------------------------
-    await runUntil(readyTick, () => phase(a) === 'active', MATCH_OVERRIDE.countdownMs + 10000, 'activation');
-    a.activated = true;
-    b.activated = true;
-    b.parked = false; // clear the ready-room latch: B converges fresh from the ring
-    await sleep(300); // a few frames of active state
-    const ring = a.welcome.mapRadius * CONFIG.map.spawnFraction;
-    for (const ctx of [a, b]) {
-      assert(ctx.you.hp === CONFIG.shipClasses.torpedoBoat.hp, `${ctx.name} not at full hp after reset`);
-      const r = Math.hypot(ctx.you.x, ctx.you.y);
-      assert(Math.abs(r - ring) < 60, `${ctx.name} not on the spawn ring (r=${r.toFixed(0)} vs ${ring.toFixed(0)})`);
-    }
-    assert(a.room.state.zoneState !== 'idle', 'storm timeline not anchored at activation');
-    log.push(`active: hulls redeployed to the ring (r~${ring.toFixed(0)}u), full hp, zone=${a.room.state.zoneState}`);
-
-    // --- 4. A sinks B; B spectates unfogged; A never spec'd early ------------
-    // A hunts, B converges then parks (huntPeer) so A lands both fish quickly —
-    // the 90s of pre-close beats leave comfortable margin over the ~50s
-    // converge+two-torpedo fight, so A (not the storm) is the one that sinks B.
-    // Once B is sunk it spectates and sends nothing.
-    const fightTick = () => {
-      if (!a.results) strafeFire(a, b.sunkSeen ? null : b.you, !b.sunkSeen);
-      if (b.sunkSeen || b.results) return;
-      if (a.you && b.you && dist(a.you, b.you) <= 500) b.parked = true;
-      if (b.parked || !b.you || !a.you) idle(b);
-      else control(b, a.you, false);
-    };
-    // Budget WIDENED 120s -> 240s (2026-08-04 balance pass), same reason as the
-    // weaponsSmoke torpedo phase. B is a 125hp torpedo boat, so the heavier fish
-    // actually cuts the kill from THREE hits to two (2x70 = 140 >= 125, where
-    // 2x55 = 110 fell short) — but the reload went 12s -> 30s, so the nominal
-    // no-miss fight still spans one 30s cycle and every MISS costs 30s instead
-    // of 12s. (The superseded comment here read "110 dmg vs 100 hp", stale since
-    // the 2026-08-03 toughness ladder moved the TB to 125.)
-    // At 120s this had ~2 spare fish; the ready-room fish fired earlier in this
-    // smoke can also put A into the active phase mid-reload, eating more of the
-    // window. Assertion unchanged: only the patience is.
-    await runUntil(fightTick, () => b.sunkSeen, 240000, 'A sinking B');
-    assert(b.sunkBy === a.room.sessionId, `B sunk by ${b.sunkBy}, expected A`);
-    // THE SINKING WINDOW HOLDS THE FINISH (Story 5.2 + the amendment-17
-    // REVERSAL, Eric veto 2026-08-12): B's `sunk` lands at sink-entry, but B
-    // stays a fogged, firing hull for the whole CONFIG.ship.sinkingWindowMs
-    // and the match stays 'active' until B founders — spec frames (and the
-    // results right behind them) arrive only then, so the budget is the
-    // window plus generous socket slack.
-    await runUntil(fightTick, () => b.specFrames >= 5, CONFIG.ship.sinkingWindowMs + 10000, 'B spec frames');
-    assert(b.specWithYou === 0, 'a spec frame carried `you`');
-    assert(b.specContactIds.has(a.room.sessionId), 'B spec frames never showed A unfogged');
-    assert(a.specBeforeFinish === 0, 'A received a spec frame before the finishing sink');
-    assert(b.specBeforeFinish === 0, 'B received a spec frame before its own sink frame');
-    log.push(`B sunk by A; B got ${b.specFrames} spec frames (unfogged, no you); A spec'd only after the finish`);
-
-    // --- 5. results ----------------------------------------------------------
-    // AMENDMENT 4: B's sink DECIDES the finish — A is the only afloat CAPTAIN,
-    // and the fill drones (which used to have to storm-die first) no longer
-    // gate it. Since the amendment-17 reversal the broadcast rides B's FOUNDER
-    // tick rather than the sink tick (the match holds open for B's window) —
-    // step 4 already waited out the window, so this is the round trip only.
-    await runUntil(() => {}, () => a.results !== null && b.results !== null, 10000, 'results broadcast');
-    const res = a.results;
-    assert(res.winnerId === a.room.sessionId, `winnerId=${res.winnerId}, expected A`);
-    const rowA = res.rows.find((r) => r.id === a.room.sessionId);
-    const rowB = res.rows.find((r) => r.id === b.room.sessionId);
-    assert(rowA && rowB, `results rows missing A/B (rows: ${res.rows.map((r) => r.id).join(',')})`);
-    assert(rowA.placement === 1, `A placement=${rowA.placement}, expected 1`);
-    // THE RULING over real sockets (Eric 2026-08-11, superseding amendment 8):
-    // the results table is CAPTAINS ONLY, and placement is captain-relative — so
-    // this 2-captain match reads 1st and 2nd, not 1st and 20th. NOT ONE drone
-    // row appears, though the ROSTER below still shows a fill of them afloat.
-    assert(rowB.placement === 2, `B placement=${rowB.placement}, expected 2`);
-    assert(res.rows[0].id === rowA.id, `winner is not the first row (got ${res.rows[0].id})`);
-    const droneRows = res.rows.filter((r) => isDrone(r.id));
-    assert(
-      droneRows.length === 0,
-      `results carried ${droneRows.length} DRONE row(s): ${JSON.stringify(droneRows.map((r) => [r.id, r.placement]))}`,
-    );
-    assert(res.rows.length === 2, `expected exactly the 2 captains, got ${res.rows.length} rows`);
-    assert(
-      res.rows.every((r) => r.placement >= 1),
-      `a row was left unplaced: ${JSON.stringify(res.rows.map((r) => [r.id, r.placement]))}`,
-    );
-    // Dense 1..N with no duplicates and no gaps — the partition invariant.
-    const seen = res.rows.map((r) => r.placement).sort((x, y) => x - y);
-    assert(
-      seen.every((p, i) => p === i + 1),
-      `placements are not the dense range 1..${res.rows.length}: ${seen.join(',')}`,
-    );
-    // The independent oracle (Story 5.6, amendments 39/41): the roster is
-    // CAPTAINS ONLY. No fill was ever created, and a PvE fleet hull holds no
-    // PlayerMeta row, so nothing but the two captains may appear here.
-    const strays = nonCaptainRosterRows(a, [a.room.sessionId, b.room.sessionId]);
-    assert(
-      strays.length === 0,
-      `roster carried ${strays.length} non-captain row(s): ${JSON.stringify(strays)} (amendments 39/41)`,
-    );
-    for (let i = 1; i < res.rows.length; i++) {
-      assert(res.rows[i].placement >= res.rows[i - 1].placement, 'rows not sorted ascending by placement');
-    }
-    assert(rowA.kills >= 1, `A kills=${rowA.kills}, expected >= 1`);
-    assert(rowA.damageDealt >= CONFIG.shipClasses.torpedoBoat.hp, `A damageDealt=${rowA.damageDealt} < ${CONFIG.shipClasses.torpedoBoat.hp}`);
-    log.push(
-      `results: winner=ALPHA (1st row, ${rowA.kills} kill, ${rowA.damageDealt}dmg); ` +
-      `B (the only sink) placed ${rowB.placement} of ${res.rows.length} rows — both CAPTAINS, ` +
-      `dense 1..2; roster is CAPTAINS ONLY (zero fleet/drone rows anywhere)`,
-    );
-
-    // --- 6. room disconnects after resultsMs ---------------------------------
-    await runUntil(() => {}, () => a.leftCode !== null && b.leftCode !== null,
-      MATCH_OVERRIDE.resultsMs + 8000, 'room disconnect after results');
-    log.push(`room disconnected both clients (codes ${a.leftCode}/${b.leftCode}) after ~${MATCH_OVERRIDE.resultsMs}ms`);
-
-    console.log('MATCH SMOKE OK:', { room: a.room.roomId, trace: log });
+    const roomId = await scenario();
+    console.log('MATCH SMOKE OK:', { room: roomId, wallMs: Date.now() - started, trace: TRACE });
   } finally {
     killServer(server);
     await sleep(600);
@@ -633,5 +589,6 @@ async function main() {
 
 main().catch((err) => {
   console.error('MATCH SMOKE FAILED:', err.message);
+  console.error('trace so far:', TRACE);
   process.exit(1);
 });
