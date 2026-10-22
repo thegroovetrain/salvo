@@ -17,7 +17,6 @@ import { CLIENT_CONFIG } from '../config.js';
 import { textSafe } from '../util/color.js';
 import { PLAYER_HUES } from '../render/ships.js';
 import {
-  PLATE_FONT_PX,
   plateText,
   plateColor,
   resolvePlate,
@@ -75,6 +74,8 @@ beforeEach(() => {
 });
 
 const C = CLIENT_CONFIG.colors;
+/** The drone plate's label, read from the resolver — the label is copy, the rule is that it never varies with the roster. */
+const DRONE_TEXT = resolvePlate(null, null, true)!.text;
 
 describe('plateText — uppercase + ellipsize (ellipsis BEFORE uppercase)', () => {
   it('uppercases a short name unchanged', () => {
@@ -134,10 +135,13 @@ describe('plateColor — drone verbatim, human text-safe', () => {
 });
 
 describe('resolvePlate — the latch gate', () => {
-  it('a drone always resolves to the literal "DRONE" (never its roster name)', () => {
-    expect(resolvePlate('DRONE-07', null, true)).toEqual({ text: 'DRONE', color: C.droneOutline });
-    // Even if a (bogus) name/hue were present, the drone text stays "DRONE".
-    expect(resolvePlate('IMPOSTER', 3, true)).toEqual({ text: 'DRONE', color: C.droneOutline });
+  it('a drone always resolves to the one fixed drone label (never its roster name)', () => {
+    expect(DRONE_TEXT.length).toBeGreaterThan(0);
+    expect(resolvePlate('DRONE-07', null, true)).toEqual({ text: DRONE_TEXT, color: C.droneOutline });
+    // Even if a (bogus) name/hue were present, the drone text stays the fixed label.
+    const bogus = resolvePlate('IMPOSTER', 3, true);
+    expect(bogus).toEqual({ text: DRONE_TEXT, color: C.droneOutline });
+    expect(bogus!.text).not.toContain('IMPOSTER');
   });
 
   it('a human with an unsynced name OR hue does NOT resolve (no plate, no id leak)', () => {
@@ -197,7 +201,7 @@ describe('latchPlate — resolve once, then persist', () => {
 
   it('latches a drone on the first frame (always resolvable)', () => {
     const f = latchPlate(false, null, null, true);
-    expect(f.plate).toEqual({ text: 'DRONE', color: C.droneOutline });
+    expect(f.plate).toEqual({ text: DRONE_TEXT, color: C.droneOutline });
     expect(f.latched).toBe(true);
   });
 });
@@ -209,7 +213,7 @@ describe('plateScreenY — floats above the hull, constant screen font at any zo
     expect(plateScreenY(100, 'battleship', 1, pad)).toBeCloseTo(100 - r - pad, 9);
   });
 
-  it('the offset scales with zoom while the font size (9px) does NOT', () => {
+  it('the hull-radius offset scales with zoom while the pad does NOT', () => {
     const pad = 8;
     const r = polygonMaxRadius(hullSilhouette('battleship'));
     const full = plateScreenY(100, 'battleship', 1, pad); // 100 - r - 8
@@ -219,9 +223,6 @@ describe('plateScreenY — floats above the hull, constant screen font at any zo
     // The hull-radius offset (excluding the constant pad) halves at 0.5× — the
     // hull shrinks with zoom, so the plate sits closer to the ship's screen point.
     expect(100 - half - pad).toBeCloseTo((100 - full - pad) / 2, 9);
-    // The screen font size is a constant, independent of zoom — plates live in
-    // screen space, so 0.5× spectate zoom never shrinks the text.
-    expect(PLATE_FONT_PX).toBe(14); // Story 2.3 lift: hud-micro 9 -> 14 (amendment 15)
   });
 
   it('uses each hull id\'s own silhouette radius (per-class offset)', () => {
@@ -305,8 +306,8 @@ describe('ContactViews — every revealed hull latches a plate in one frame (UX-
       expect(rec!.style.fill).toBe(textSafe(PLAYER_HUES[h.hue]));
     }
 
-    // Drones: the literal "DRONE" (never a roster/session id) in drone-outline grey.
-    const droneRecs = textLog.filter((t) => t.text === 'DRONE');
+    // Drones: the fixed drone label (never a roster/session id) in drone-outline grey.
+    const droneRecs = textLog.filter((t) => t.text === DRONE_TEXT);
     expect(droneRecs).toHaveLength(droneIds.length);
     for (const r of droneRecs) expect(r.style.fill).toBe(C.droneOutline);
   });

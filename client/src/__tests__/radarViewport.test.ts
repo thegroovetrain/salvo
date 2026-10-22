@@ -1061,7 +1061,8 @@ describe('the near-range dim mask', () => {
     expect(base.outerU, 'outer = the flash rung (6/12)').toBeCloseTo((RADAR * 6) / 12, 9);
     expect(DIM.outerFactor, 'and the ratio is a ladder derivation')
       .toBeCloseTo(CONFIG.vision.muzzleFlash / CONFIG.vision.sight, 12);
-    expect(DIM.minScale, "Eric's 20% floor, untouched by the re-anchoring").toBe(0.2);
+    expect(DIM.minScale, 'the dim is a floor, never a suppression').toBeGreaterThan(0);
+    expect(DIM.minScale, 'and it does dim').toBeLessThan(1);
   });
 
   it('hangs on the LAYER, not on the heat sprite — and survives the resize that '

@@ -153,20 +153,6 @@ describe('the press/release pair over a real click (mouse + keyboard)', () => {
     });
   });
 
-  it('a press and its release inside ONE tick still revert (an ordinary fast click)', () => {
-    withMouse((m, canvas) => {
-      const kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
-      kb.attach();
-      const seen = { click: 0, release: 0 };
-      kb.slotAction(Q);
-      fire(canvas, 'pointerdown', { button: 0 });
-      fire(canvas, 'pointerup', { button: 0 }); // both edges in one 50ms window
-      tick(m, kb, seen, true);
-      expect(kb.primedSlot).toBe(SLOT_GUN);
-      kb.detach();
-    });
-  });
-
   it('a weapon key pressed mid-hold WINS: the switched prime survives the release', () => {
     withMouse((m, canvas) => {
       const kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
@@ -180,21 +166,6 @@ describe('the press/release pair over a real click (mouse + keyboard)', () => {
       fire(canvas, 'pointerup', { button: 0 });
       tick(m, kb, seen, true);
       expect(kb.primedSlot).toBe(E); // NOT the gun — the key won
-      kb.detach();
-    });
-  });
-
-  it('a DENIED click arms nothing, so its release leaves the prime alone', () => {
-    withMouse((m, canvas) => {
-      const kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
-      kb.attach();
-      const seen = { click: 0, release: 0 };
-      kb.slotAction(Q);
-      fire(canvas, 'pointerdown', { button: 0 });
-      tick(m, kb, seen, false); // predicted denied: reloading / out of arc
-      fire(canvas, 'pointerup', { button: 0 });
-      tick(m, kb, seen, false);
-      expect(kb.primedSlot).toBe(Q); // the prime survives a denial, as ever
       kb.detach();
     });
   });

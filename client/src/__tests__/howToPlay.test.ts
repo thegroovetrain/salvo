@@ -1,10 +1,10 @@
 // THE HOW-TO-PLAY PAGE (Story 7.3, FR39 / UX-DR29).
 //
 // Two things are pinned here and they are different in kind. The COPY tests
-// guard facts and scope — that the win condition is actually stated, that
-// every live catalog line is described, and that the page did not quietly
-// regrow the glossary Eric struck. The MOUNT tests guard that the page uses
-// the shared chrome rather than inventing its own.
+// guard structure and coverage — every live catalog line is described, under
+// its card name, no stub is, and the keycaps teach only bound keys. The MOUNT
+// tests guard that the page uses the shared chrome rather than inventing its
+// own. No sentence, heading or word is pinned (Story 9.14, ruling R3).
 //
 // ERIC HOLDS THE PEN (his copy pass, 2026-10-01): nothing here pins one of
 // his sentences — only facts. The stat tables' numbers are pinned in
@@ -48,8 +48,6 @@ const AWAITING_COPY: ReadonlySet<string> = new Set([
   'armor',
   'armorPiercing',
 ]);
-const allProse = (): string =>
-  HOWTO_SECTIONS.flatMap((s) => [...(s.paragraphs ?? []), ...(s.tail ?? [])]).join(' ');
 
 describe('how-to-play copy', () => {
   it('every section has a heading, and something under it', () => {
@@ -60,41 +58,6 @@ describe('how-to-play copy', () => {
       const bodyCount = (s.paragraphs?.length ?? 0) + (s.keys?.length ?? 0) + (s.entries?.length ?? 0);
       expect(bodyCount, s.heading).toBeGreaterThan(0);
     }
-  });
-
-  // THE REASON THIS STORY IS A BETA GATE (FR39, closing epic-5 amendment 46(c)):
-  // the win condition was stated nowhere a new player could read it. The results
-  // banner says it, but only to the player who already won.
-  it('STATES THE WIN CONDITION', () => {
-    expect(allProse().toLowerCase()).toContain('last hull floating wins');
-  });
-
-  // Eric ruled the scope down to the basics on 2026-08-19 and struck the boon
-  // glossary by name. This pins the SCOPE, so a later well-meaning expansion
-  // has to move a test rather than quietly reinstate a thing that was cut.
-  it('carries no boon glossary', () => {
-    const all = JSON.stringify(HOWTO_SECTIONS).toLowerCase();
-    for (const banned of ['glossary', 'rarity', 'exclusive', 'mk i', 'subdeck']) {
-      expect(all, `copy mentions ${banned}`).not.toContain(banned);
-    }
-  });
-
-  // Eric's own section set (his copy pass, 2026-10-01), exactly and in order.
-  it('the section headings, exactly, in order', () => {
-    expect(HOWTO_SECTIONS.map((s) => s.heading)).toEqual([
-      '[ HOW TO PLAY ]',
-      '[ CONTROLS ]',
-      '[ EXPERIENCE ]',
-      '[ UPGRADES ]',
-      '[ DECK GUNS ]',
-      '[ WEAPONS ]',
-      '[ CONSUMABLES ]',
-      '[ SHIP UPGRADES ]',
-    ]);
-  });
-
-  it('never calls a torpedo a fish (Eric 2026-10-01)', () => {
-    expect(JSON.stringify(HOWTO_SECTIONS).toLowerCase()).not.toMatch(/\bfish\b|\bfishes\b/);
   });
 
   // Derived from the catalog, so a new live line (or a stub flipping live)
@@ -119,12 +82,9 @@ describe('how-to-play copy', () => {
     for (const e of allEntries()) expect(e.description, e.name).not.toMatch(/\d/);
   });
 
-  it('DEPTH CHARGE (a stub) is described nowhere', () => {
-    expect(JSON.stringify(HOWTO_SECTIONS)).not.toContain('DEPTH CHARGE');
-  });
-
-  it('no heading is a glossary', () => {
-    for (const s of HOWTO_SECTIONS) expect(s.heading.toUpperCase()).not.toContain('GLOSSARY');
+  it('no entry describes a stub line', () => {
+    expect(LINE_IDS.some((id) => isStubLine(id)), 'the catalog carries a stub, so this is not vacuous').toBe(true);
+    for (const e of allEntries()) expect(isStubLine(e.lineId), e.lineId).toBe(false);
   });
 
   it('no keycaps row carries CTRL or SPACE', () => {

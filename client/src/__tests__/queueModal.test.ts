@@ -2,12 +2,11 @@
 // modal or something."*)
 //
 // Two things are load-bearing enough to be pinned hard here, because both are
-// rulings rather than taste. FIRST, THE COPY IS EXACTLY THREE STRINGS — `N/20
-// QUEUED`, `STARTS IN m:ss` and `CANCEL` — and nothing else may appear: the pass
-// before this one invented wording Eric never asked for, so there is a test below
-// that enumerates the rendered text and refuses anything outside that set.
-// SECOND, AN UNARMED POOL SHOWS NO COUNTDOWN AT ALL (epic-6 amendment 4): a
-// deadline that cannot fire is not a deadline.
+// rulings rather than taste. FIRST, THE PANEL HOLDS EXACTLY THREE THINGS — the
+// count, the countdown slot and CANCEL — and nothing else (the wording itself is
+// Eric's and is not pinned; Story 9.14, ruling R3). SECOND, AN UNARMED POOL
+// SHOWS NO COUNTDOWN AT ALL (epic-6 amendment 4): a deadline that cannot fire is
+// not a deadline.
 //
 // The lifecycle pins are about a leak: the 1Hz interval closes over module state
 // and must not survive ANY close path.
@@ -58,21 +57,19 @@ afterEach(() => {
 
 // --- pure copy ----------------------------------------------------------------
 
-describe('queuedCountLine — Eric copy, verbatim', () => {
-  it("is `N/20 QUEUED` and nothing else", () => {
-    expect(queuedCountLine(0, 20)).toBe('0/20 QUEUED');
-    expect(queuedCountLine(7, 20)).toBe('7/20 QUEUED');
-    expect(queuedCountLine(20, 20)).toBe('20/20 QUEUED');
+describe('queuedCountLine — the pooled count over the cap', () => {
+  it('prints the pooled count over the cap as n/cap', () => {
+    expect(queuedCountLine(0, 20)).toContain('0/20');
+    expect(queuedCountLine(7, 20)).toContain('7/20');
+    expect(queuedCountLine(20, 20)).toContain('20/20');
   });
 
   it('takes the cap from its ARGUMENT, so a playerCap retune moves it', () => {
-    expect(queuedCountLine(3, 12)).toBe('3/12 QUEUED');
+    expect(queuedCountLine(3, 12)).toContain('3/12');
   });
 
-  it('carries no threshold, no state word and no clock', () => {
-    const line = queuedCountLine(1, 20);
-    expect(line).not.toMatch(/NEEDS|STARTING|STARTS|\d:\d\d/);
-    expect(line).not.toContain('·');
+  it('carries no clock', () => {
+    expect(queuedCountLine(1, 20)).not.toMatch(/\d:\d\d/);
   });
 });
 
@@ -112,8 +109,8 @@ describe('queueArmed / queueDeadlineAt — a deadline that CAN fire', () => {
 });
 
 describe('queueCountdownLine — amendment 4, no clock that cannot fire', () => {
-  it('is `STARTS IN m:ss` while armed', () => {
-    expect(queueCountdownLine(true, 1_083_000, 1_000_000)).toBe('STARTS IN 1:23');
+  it('carries the m:ss remainder while armed', () => {
+    expect(queueCountdownLine(true, 1_083_000, 1_000_000).endsWith(countdownMmSs(83_000))).toBe(true);
   });
 
   it('is the EMPTY STRING while unarmed — not `0:00`, not a placeholder', () => {
@@ -124,7 +121,7 @@ describe('queueCountdownLine — amendment 4, no clock that cannot fire', () => 
 
 // --- DOM ----------------------------------------------------------------------
 
-describe('showQueueModal — the surface, and ONLY the copy Eric asked for', () => {
+describe('showQueueModal — the surface, and ONLY the three ruled parts', () => {
   beforeEach(() => hideQueueModal());
 
   it('opens over the home at z 1150 — above home (1100), below the class bay (1200)', () => {
@@ -150,15 +147,16 @@ describe('showQueueModal — the surface, and ONLY the copy Eric asked for', () 
   });
 
   it('carries NOTHING but the count, the countdown slot and CANCEL', () => {
-    // The hard guard against invented copy. Enumerate every rendered string and
-    // refuse anything outside the ruled set — no title, no prose, no reassurance,
-    // and specifically nothing about a lobby collapse.
+    // The hard guard against an invented extra line: the panel is exactly the
+    // three ruled parts, each painted by its own reducer.
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
     showQueueModal(vi.fn());
     updateQueueModal(status({ n: 4, min: 2, cap: 20, startsInMs: 83_000 }));
     expect(panel().children.length).toBe(3);
-    const text = (modal()?.textContent ?? '').replace(/\u00A0/g, '');
-    expect(text).toBe('4/20 QUEUEDSTARTS IN 1:23CANCEL');
-    expect(text).not.toMatch(/NEEDS|STARTING|DISBANDED|SEARCHING|WAITING|CAPTAIN|PLEASE|SOON/);
+    expect(panel().children[2]).toBe(cancelBtn());
+    expect(countEl().textContent).toBe(queuedCountLine(4, 20));
+    expect(countdownEl().textContent).toBe(queueCountdownLine(true, 1_083_000, 1_000_000));
   });
 
   it('opens EMPTY and holds both slots, since nothing is known until the first push', () => {
@@ -187,9 +185,9 @@ describe('updateQueueModal — the live MSG.queueStatus push', () => {
   it('paints the count on every push', () => {
     showQueueModal(vi.fn());
     updateQueueModal(status({ n: 1 }));
-    expect(countEl().textContent).toBe('1/20 QUEUED');
+    expect(countEl().textContent).toBe(queuedCountLine(1, 20));
     updateQueueModal(status({ n: 6 }));
-    expect(countEl().textContent).toBe('6/20 QUEUED');
+    expect(countEl().textContent).toBe(queuedCountLine(6, 20));
   });
 
   it('SHOWS NOTHING in the countdown slot while unarmed (amendment 4)', () => {
@@ -210,11 +208,14 @@ describe('updateQueueModal — the live MSG.queueStatus push', () => {
     vi.setSystemTime(1_000_000);
     showQueueModal(vi.fn());
     updateQueueModal(status({ n: 4, startsInMs: 83_000 }));
-    expect(countdownEl().textContent).toBe('STARTS IN 1:23');
+    const line = (): string => queueCountdownLine(true, 1_083_000, Date.now());
+    expect(countdownEl().textContent).toBe(line());
+    expect(countdownEl().textContent?.endsWith('1:23')).toBe(true);
     vi.advanceTimersByTime(3000); // no new push — the local clock alone moves it
-    expect(countdownEl().textContent).toBe('STARTS IN 1:20');
+    expect(countdownEl().textContent).toBe(line());
+    expect(countdownEl().textContent?.endsWith('1:20')).toBe(true);
     vi.advanceTimersByTime(60_000); // 83s − 3s − 60s
-    expect(countdownEl().textContent).toBe('STARTS IN 0:20');
+    expect(countdownEl().textContent?.endsWith('0:20')).toBe(true);
   });
 
   it('clamps at 0:00 rather than going negative past the deadline', () => {
@@ -223,7 +224,8 @@ describe('updateQueueModal — the live MSG.queueStatus push', () => {
     showQueueModal(vi.fn());
     updateQueueModal(status({ n: 4, startsInMs: 5000 }));
     vi.advanceTimersByTime(30_000);
-    expect(countdownEl().textContent).toBe('STARTS IN 0:00');
+    expect(countdownEl().textContent?.endsWith('0:00')).toBe(true);
+    expect(countdownEl().textContent).not.toMatch(/-/);
   });
 
   it('runs NO timer while unarmed, and stops one when a pool un-arms', () => {

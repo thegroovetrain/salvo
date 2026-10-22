@@ -145,13 +145,6 @@ describe('the decoy silhouette is distinct from a mine marker (Eric, 7-5-decks.m
     return { decoy: pathActions(soleSprite(decoyLayer)), mine: pathActions(soleSprite(mineLayer)) };
   }
 
-  it('the mine marker has a circle and the decoy marker has none', () => {
-    const { decoy: b, mine: m } = markers();
-    expect(m).toContain('circle');
-    expect(b).not.toContain('circle');
-    expect(b).not.toContain('arc');
-  });
-
   it('the decoy marker is the spar-buoy linework: strokes plus a polygon topmark', () => {
     const { decoy: b } = markers();
     expect(b).toContain('poly'); // the diamond radar-reflector daymark

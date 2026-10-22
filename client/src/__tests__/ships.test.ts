@@ -46,7 +46,8 @@ describe('PLAYER_HUES / PLAYER_FILLS — index-aligned to the wheel', () => {
 
 describe('hullStyle — personal hue or amber-hollow fallback', () => {
   it('resolves an index to its bright stroke + darker fill', () => {
-    expect(hullStyle(8)).toEqual({ stroke: C.players.cyan, fill: C.playerFills.cyan }); // index 8 = cyan
+    const name = REGATTA_HUES[8];
+    expect(hullStyle(8)).toEqual({ stroke: C.players[name], fill: C.playerFills[name] });
   });
 
   it('falls back to amber-hollow for null / out-of-range', () => {
@@ -69,7 +70,8 @@ describe('contactStyle / isDroneHull — drones wear greys', () => {
 
   it('routes a pickable class to its personal hue (or fallback)', () => {
     expect(isDroneHull('battleship')).toBe(false);
-    expect(contactStyle('battleship', 0)).toEqual({ stroke: C.players.lemon, fill: C.playerFills.lemon });
+    const name = REGATTA_HUES[0];
+    expect(contactStyle('battleship', 0)).toEqual({ stroke: C.players[name], fill: C.playerFills[name] });
     expect(contactStyle('torpedoBoat', null)).toEqual(FALLBACK_STYLE);
   });
 });
@@ -111,7 +113,7 @@ describe('isDroneHull — pinned against the shared hull-id tables (amendment 13
     // hue, its nameplate and its kill-feed line.
     for (const id of SHIP_CLASS_IDS) {
       expect(isDroneHull(id)).toBe(false);
-      expect(contactStyle(id, 8)).toEqual({ stroke: C.players.cyan, fill: C.playerFills.cyan });
+      expect(contactStyle(id, 8)).toEqual(hullStyle(8));
     }
     expect(HULL_IDS).toHaveLength(SHIP_CLASS_IDS.length + DRONE_HULL_IDS.length);
   });

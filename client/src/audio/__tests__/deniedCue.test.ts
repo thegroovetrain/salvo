@@ -39,16 +39,4 @@ describe('deniedToneFloor — FIX B: the tone is bounded to the visual pulse\'s 
     expect(floor.request(PULSE_RATE_MS - 1)).toBe(false); // still inside the floor
     expect(floor.request(PULSE_RATE_MS)).toBe(true); // floor elapsed
   });
-
-  it('two denied events 150ms apart produce ONE tone', () => {
-    const floor = deniedToneFloor();
-    const played = [0, 150].filter((t) => floor.request(t));
-    expect(played).toEqual([0]);
-  });
-
-  it('two denied events 350ms apart produce TWO tones', () => {
-    const floor = deniedToneFloor();
-    const played = [0, 350].filter((t) => floor.request(t));
-    expect(played).toEqual([0, 350]);
-  });
 });

@@ -76,22 +76,10 @@ describe('the dim ramp is anchored to TRUESIGHT, on the twelfths ladder', () => 
       .toBeCloseTo(CONFIG.vision.muzzleFlash, 12);
   });
 
-  it('HOLDS THE FLOOR ACROSS THE WHOLE BUBBLE — the shipped 1/8 anchoring did '
-    + 'not, and that is the defect', () => {
+  it('HOLDS THE FLOOR ACROSS THE WHOLE SIGHT BUBBLE, edge included', () => {
     for (const d of [0, 1, SIGHT / 8, SIGHT / 2, SIGHT * 0.9, SIGHT]) {
       expect(dimScaleAt(d, SIGHT), `at ${d}u`).toBeCloseTo(FLOOR, 12);
     }
-    // The shipped ramp (amendment 181, on the old EIGHTHS ladder where intel
-    // range was 2x sight) reached full at 5/8 of intel range from 1/8 of it —
-    // i.e. sight/4 -> sight*5/4 — so at the bubble's edge it stood three
-    // quarters of the way up: 80% opacity at the very edge of the water the
-    // player aims at by eye, and 40% halfway out. Expressed in sight units so
-    // the historical defect stays reproducible after amendment 103.
-    const oldIntel = SIGHT * 2;
-    const shipped = (d: number): number =>
-      FLOOR + (1 - FLOOR) * ((d - oldIntel / 8) / ((oldIntel * 5) / 8 - oldIntel / 8));
-    expect(shipped(SIGHT), 'the behaviour this cycle removes').toBeCloseTo(0.8, 12);
-    expect(shipped(SIGHT / 2), '...halfway out, too').toBeCloseTo(0.4, 12);
   });
 
   it('reaches FULL painted opacity at the 6/12 rung and stays there — radar is '
@@ -152,11 +140,6 @@ describe('the dim ramp is anchored to TRUESIGHT, on the twelfths ladder', () => 
     // hull that can SEE it.
     expect(dimScaleAt(CONFIG.vision.muzzleFlash, SIGHT)).toBeCloseTo(1, 12);
     expect(dimScaleAt(CONFIG.vision.muzzleFlash, wide)).toBeLessThan(1);
-  });
-
-  it("KEEPS ERIC'S 0.2 FLOOR — the re-anchoring moved the radii and nothing else", () => {
-    expect(FLOOR).toBe(0.2);
-    expect(dimScaleAt(0, SIGHT)).toBe(0.2);
   });
 });
 

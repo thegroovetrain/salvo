@@ -114,28 +114,23 @@ describe('communityLinks', () => {
     expect(communityLinks({})).toEqual([]);
   });
 
-  it('returns DISCORD then REDDIT when both are configured', () => {
-    expect(
-      communityLinks({ VITE_DISCORD_INVITE: 'abc123', VITE_SUBREDDIT: 'hullcracker' }),
-    ).toEqual([
-      { label: 'DISCORD', href: 'https://discord.gg/abc123' },
-      { label: 'REDDIT', href: 'https://www.reddit.com/r/hullcracker/' },
-    ]);
+  const hrefs = (env: Parameters<typeof communityLinks>[0]): string[] => communityLinks(env).map((l) => l.href);
+
+  it('returns the Discord link then the Reddit link when both are configured', () => {
+    const links = communityLinks({ VITE_DISCORD_INVITE: 'abc123', VITE_SUBREDDIT: 'hullcracker' });
+    expect(links.map((l) => l.href)).toEqual(['https://discord.gg/abc123', 'https://www.reddit.com/r/hullcracker/']);
+    for (const l of links) expect(l.label.length).toBeGreaterThan(0);
   });
 
   it('drops a missing one without reordering the rest', () => {
-    expect(communityLinks({ VITE_SUBREDDIT: 'hullcracker' })).toEqual([
-      { label: 'REDDIT', href: 'https://www.reddit.com/r/hullcracker/' },
-    ]);
-    expect(communityLinks({ VITE_DISCORD_INVITE: 'abc123' })).toEqual([
-      { label: 'DISCORD', href: 'https://discord.gg/abc123' },
-    ]);
+    expect(hrefs({ VITE_SUBREDDIT: 'hullcracker' })).toEqual(['https://www.reddit.com/r/hullcracker/']);
+    expect(hrefs({ VITE_DISCORD_INVITE: 'abc123' })).toEqual(['https://discord.gg/abc123']);
   });
 
   it('drops a MALFORMED one and leaves the other unaffected', () => {
-    expect(
-      communityLinks({ VITE_DISCORD_INVITE: 'a b/../x', VITE_SUBREDDIT: 'hullcracker' }),
-    ).toEqual([{ label: 'REDDIT', href: 'https://www.reddit.com/r/hullcracker/' }]);
+    expect(hrefs({ VITE_DISCORD_INVITE: 'a b/../x', VITE_SUBREDDIT: 'hullcracker' })).toEqual([
+      'https://www.reddit.com/r/hullcracker/',
+    ]);
   });
 
   describe('the default parameter reads import.meta.env', () => {
@@ -153,9 +148,7 @@ describe('communityLinks', () => {
       vi.stubEnv('VITE_SUBREDDIT', '');
       expect(communityLinks()).toEqual([]);
       vi.stubEnv('VITE_SUBREDDIT', 'hullcracker');
-      expect(communityLinks()).toEqual([
-        { label: 'REDDIT', href: 'https://www.reddit.com/r/hullcracker/' },
-      ]);
+      expect(communityLinks().map((l) => l.href)).toEqual(['https://www.reddit.com/r/hullcracker/']);
     });
   });
 });

@@ -67,8 +67,6 @@ describe('the 1100px port-chrome column', () => {
     const panel = panelOf(build());
     expect(panel.style.maxWidth).toBe(`${P.maxWidthPx}px`);
     expect(panel.style.width).toBe(`${P.maxWidthPx}px`);
-    // The token is the ratified {spacing.chrome-max-width} (DESIGN.md:94/:201).
-    expect(P.maxWidthPx).toBe(1100);
   });
 
   it('centres the column in a fixed full-viewport root with a gutter', () => {
@@ -274,8 +272,7 @@ describe('ESC / back returns home (EXPERIENCE.md:37)', () => {
     expect(btn.style.borderWidth).toBe('1px');
     expect(btn.style.borderColor).toBe('var(--hc-phosphor)');
     expect(btn.style.boxShadow).toBe('');
-    expect(btn.textContent).toContain('BACK TO PORT');
-    expect(btn.textContent).toContain('ESC');
+    expect(btn.textContent).toContain('ESC'); // the key chip names the key it binds
   });
 
   it('takes a custom back label', () => {

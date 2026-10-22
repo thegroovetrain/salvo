@@ -100,13 +100,7 @@ function shippedCurve(dist: number, ref: number, floor: number): number {
 // --- 1. the exponents are the geometry ------------------------------------------
 
 describe('the falloff exponent is chosen by the target GEOMETRY (amendment 106)', () => {
-  it('pins the three ratified exponents', () => {
-    expect(POINT).toBe(4);
-    expect(SURFACE).toBe(3);
-    expect(VOLUME).toBe(2);
-  });
-
-  it('and their ORDERING is what makes the taxonomy emergent: a hull fades '
+  it('their ORDERING is what makes the taxonomy emergent: a hull fades '
     + 'fastest, a squall slowest', () => {
     // Same reference, same floor, same range — only the geometry differs. If
     // this ordering ever inverts, sea clutter stops hugging the ship and the
@@ -292,19 +286,6 @@ describe('the floors survive the physics (amendment 127)', () => {
     expect(bindsAt, 'and only well OUTSIDE the scope').toBeGreaterThan(RIM);
     expect(hullPeak(1e6), 'and it holds all the way out').toBe(MODEL.minPeak);
   });
-
-  it('aspect no longer changes the register — colour is MATERIAL and RANGE '
-    + '(amendments 171-175)', () => {
-    // REPLACES the cycle-61 pin "a bow-on hull reads far weaker than the same
-    // hull abeam at the same range", which asserted the aspect DOUBLE-COUNT as
-    // correct and would have defended it against this fix (the pattern named in
-    // amendment 169). A ship's RCS is dominated by corner reflectors and is
-    // large from every aspect; the mask, not the colour, is where aspect lives.
-    // There is now no aspect ARGUMENT to vary — so the pin is that two ranges
-    // differ and nothing else can.
-    expect(hullPeak(480)).toBe(hullPeak(480));
-    expect(hullPeak(480)).toBeGreaterThan(hullPeak(600));
-  });
 });
 
 // --- 3. the fit's own edges -----------------------------------------------------
@@ -447,7 +428,7 @@ describe('the wake material is SOLVED between two rails (amendment 203)', () => 
   });
 
   it('THE REACH IS DERIVED ONTO THE LADDER: the worst draw crosses `bands[0].at` '
-    + `EXACTLY at the 5/8 rung (${REACH}u), and frays out beyond it`, () => {
+    + `EXACTLY at the muzzle-flash rung (${REACH}u), and frays out beyond it`, () => {
     expect(unlucky(wakeAt(REACH), MODEL.wakeGrain)).toBeCloseTo(GREEN, 12);
     // Inside: every cell lights. Outside: the draw window slides under, so the
     // lit FRACTION falls — which is the fade, emergent rather than drawn.

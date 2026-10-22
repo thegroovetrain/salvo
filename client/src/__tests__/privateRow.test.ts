@@ -12,15 +12,18 @@ function home(): HTMLElement {
   return document.getElementById('main-menu') as HTMLElement;
 }
 
-function door(label: 'CREATE' | 'JOIN'): HTMLButtonElement {
-  return [...home().querySelectorAll('button')].find((b) => b.textContent === label) as HTMLButtonElement;
+/** The private row is the deploy stack's third line: [create, join]. Found by
+ *  position, never by label (Story 9.14, ruling R3). */
+function door(which: 'CREATE' | 'JOIN'): HTMLButtonElement {
+  const solo = home().querySelector('[title="Deploy alone against a field of AI captains"]') as HTMLElement;
+  const row = (solo.parentElement as HTMLElement).children[2] as HTMLElement;
+  return row.children[which === 'CREATE' ? 0 : 1] as HTMLButtonElement;
 }
 
 describe('makePrivateRow', () => {
-  it('builds exactly two buttons, CREATE then JOIN, and nothing else', () => {
+  it('builds exactly two buttons, create then join, and nothing else', () => {
     const row = makePrivateRow(vi.fn(), vi.fn());
     expect([...row.root.children]).toEqual([row.create, row.join]);
-    expect(row.root.textContent).toBe('CREATEJOIN');
     expect(row.create.tagName).toBe('BUTTON');
     expect(row.join.tagName).toBe('BUTTON');
   });

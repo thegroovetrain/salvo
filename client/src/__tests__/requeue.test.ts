@@ -79,9 +79,14 @@ describe('makeRequeue — the chain always settles to exactly one enterPort', ()
   // NOT the return-to-port chain: a collapsed lobby is not a finished match, so
   // there is no ad break in front of the leave. If one is ever added, this is
   // the test that says it was a decision.
-  it('requests no ad break — the deps have no seam for one', () => {
-    const h = harness();
-    expect(Object.keys(h.deps)).not.toContain('requestAdBreak');
+  it('requests no ad break — neither the chain nor its main.ts wiring calls one', () => {
+    const chain = readFileSync(join(process.cwd(), 'src', 'app', 'requeue.ts'), 'utf8');
+    const main = readFileSync(join(process.cwd(), 'src', 'main.ts'), 'utf8');
+    const start = main.indexOf('function makeGameRequeue(');
+    expect(start).toBeGreaterThan(-1);
+    const wiring = main.slice(start, main.indexOf('\n}\n', start));
+    expect(chain).not.toMatch(/AdBreak/);
+    expect(wiring).not.toMatch(/AdBreak/);
   });
 
   it('leave() rejects: swallowed, and we still reach port', async () => {

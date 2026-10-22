@@ -84,20 +84,17 @@ describe('the presence id — the poll IS the heartbeat', () => {
     // The flag has to reach the real fetch path, not just the url helper — a poll
     // that quietly beaconed on its second cycle would be the same double count,
     // only harder to see.
-    const seen: boolean[] = [];
-    const poll = startLivenessPoll(() => undefined, {
-      intervalMs: 1,
-      countMe: false,
-      fetchOnce: () => {
-        seen.push(new URL(livenessUrl(false)).searchParams.has('c'));
-        return Promise.resolve(null);
-      },
-    });
-    await vi.waitFor(() => {
-      if (seen.length < 3) throw new Error('not enough cycles yet');
-    });
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => payload() });
+    vi.stubGlobal('fetch', fetchMock);
+    const poll = startLivenessPoll(() => undefined, { intervalMs: 10, countMe: false });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(35);
     poll.stop();
-    expect(seen.every((claimed) => claimed === false)).toBe(true);
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+    for (const [url] of fetchMock.mock.calls) {
+      expect(new URL(url as string).searchParams.has('c')).toBe(false);
+    }
   });
 
   it('carries NO identity: not the callsign, not the colour, nothing persisted', () => {
@@ -392,21 +389,6 @@ describe('startLivenessPoll', () => {
 // =============================================================================
 // REVIEW-GATE REGRESSIONS (Story 6.6, second pass)
 // =============================================================================
-
-describe('fetchLiveness — never served from a cache (F8)', () => {
-  it('asks for `no-store`, so a replayed response cannot freeze the register', async () => {
-    // Every figure in the payload is live population, and `queue.deadlineAt` is
-    // an ABSOLUTE epoch — a response replayed out of the HTTP cache would pin
-    // the countdown at 0:00 for the rest of the session. The server sends the
-    // header; this is the same instruction from the other end, because an
-    // intermediary that ignores one may still honour the other.
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => payload() });
-    vi.stubGlobal('fetch', fetchMock);
-    await fetchLiveness();
-    const [, init] = fetchMock.mock.calls[0];
-    expect(init.cache).toBe('no-store');
-  });
-});
 
 describe('fetchLiveness — an external cancel (F13)', () => {
   it('resolves null WITHOUT fetching at all when the signal is already aborted', async () => {

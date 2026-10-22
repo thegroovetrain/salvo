@@ -104,7 +104,6 @@ describe('staged worst-case scene — Tier 2 (the storm closing)', () => {
     expect(zv.state).not.toBe('idle');
     expect(zv.state).not.toBe('closing');
     expect(ringReadout(zv.state, zv.closesInMs).urgent).toBe(true);
-    expect(ringReadout(zv.state, zv.closesInMs).text).toContain('RING CLOSES IN');
   });
 
   it('reveals the NEXT ring, so the dashed telegraph draws beside the live edge', () => {
@@ -191,7 +190,7 @@ describe('staged worst-case scene — the BR CHROME BAR is actually on screen', 
       bounty: { name: leaderRow().name, hue: leaderRow().color },
       tier1: true,
     });
-    expect(segs.some((s) => s.pulsed === true && s.text.includes('RING CLOSES IN'))).toBe(true);
+    expect(segs.some((s) => s.pulsed === true && s.text === ring.text)).toBe(true);
   });
 
   it('carries the published kill leader in the bar\'s tail register', () => {

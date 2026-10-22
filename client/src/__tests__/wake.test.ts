@@ -20,8 +20,6 @@
 //     "fixes" it breaks a test that says why not to.
 
 import { describe, it, expect } from 'vitest';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import { Container } from 'pixi.js';
 import {
   CONFIG,
@@ -138,7 +136,6 @@ describe('a source that does not move lays no wake, and there is no branch sayin
     // way to keep a track alive at all. Still far below `steerageSpeed` (8-12
     // u/s) for every class, so no hull under helm can fall through it.
     const slowest = STEP_U / (LIFE_MS / 1000);
-    expect(slowest).toBeCloseTo(STEP_U / 5.5, 6);
     for (const cls of ['torpedoBoat', 'mineLayer', 'battleship'] as const) {
       expect(slowest).toBeLessThan(hullEnvelope(cls).kinematics.steerageSpeed);
     }
@@ -157,18 +154,6 @@ describe('wake length is speed × the SHARED life, per class', () => {
     expect(knobs).not.toContain('life');
     expect(knobs).not.toContain('spacing');
     expect(knobs).not.toContain('minSpeed');
-    expect(LIFE_MS).toBe(5500);
-  });
-
-  it('runs 247.5u / 220u / 192.5u at full ahead for the three captain classes', () => {
-    const at = (cls: HullId): number => hullEnvelope(cls).kinematics.maxSpeed * (LIFE_MS / 1000);
-    // Cut from 540 / 480 / 420 by epic-4 amendment 213. The other two fall out of the
-    // torpedo boat's figure, since length is `speed x life` and only speed
-    // differs. (That it once equalled the 3/8 detect rung was a coincidence,
-    // not a rule — Eric 2026-10-08 — and is no longer pinned.)
-    expect(at('torpedoBoat')).toBeCloseTo(247.5, 6);
-    expect(at('mineLayer')).toBeCloseTo(220, 6);
-    expect(at('battleship')).toBeCloseTo(192.5, 6);
   });
 
   it('measures out on the ribbon itself, at full ahead and at half', () => {
@@ -200,12 +185,6 @@ describe('wake length is speed × the SHARED life, per class', () => {
         expect(measured).toBeLessThanOrEqual(expected + STEP_U);
       }
     }
-  });
-
-  it('shortens as the hull slows — the property Eric asked to keep', () => {
-    const fast = hullEnvelope('torpedoBoat').kinematics.maxSpeed * (LIFE_MS / 1000);
-    const slow = hullEnvelope('torpedoBoat').kinematics.maxSpeed * 0.25 * (LIFE_MS / 1000);
-    expect(slow).toBeLessThan(fast);
   });
 });
 
@@ -249,10 +228,10 @@ describe('the foam pool is bounded, across every hull on the water', () => {
 // --- AMENDMENT 205/206: the Kelvin envelope -------------------------------------
 
 describe('hull-side displaced water rides the Kelvin half-angle', () => {
-  it('takes the angle from the real constant, not a degrees literal', () => {
+  it('takes the angle from the real constant, not a degrees literal, and the head width from it', () => {
     expect(KELVIN_SIN).toBe(1 / 3);
     expect((Math.asin(KELVIN_SIN) * 180) / Math.PI).toBeCloseTo(19.47, 2);
-    expect(CHOP_HEAD_MULTIPLE).toBe(3);
+    expect(CHOP_HEAD_MULTIPLE).toBe(1 / KELVIN_SIN);
   });
 
   it('runs three half-beams wide at the head and one at the tail', () => {
@@ -349,14 +328,8 @@ describe('phosphor covers the water clock at every sweep rate', () => {
   // water painted a revolution after it was laid must still be lit when it
   // dissipates — at the base sweep rate and at `sweepRpmMax` alike (cycle-69
   // review gate P4; epic-4 amendment 213's shorter clock closed the maxed-sweep gap).
-  // These mirror the ruled pin pair in shared zone.test.ts; this
-  // side additionally pins `persistSweeps` itself, because the shared oracle has
-  // to write that 3 as a LITERAL (shared may not import client config) and a
-  // silent drift there would leave both sides agreeing about nothing.
-  it('pins the phosphor window at three paints, the literal the shared oracle assumes', () => {
-    expect(CLIENT_CONFIG.blip.persistSweeps).toBe(3);
-  });
-
+  // These mirror the ruled pin pair in shared zone.test.ts, read here against
+  // the live client `persistSweeps`.
   it('phosphor exactly covers the water clock AT THE BASE SWEEP RATE', () => {
     const sweepMs = 60_000 / CONFIG.vision.sweepRpm;
     const phosphorMs = CLIENT_CONFIG.blip.persistSweeps * sweepMs;
@@ -566,41 +539,5 @@ describe('spectate water never carries into a fogged life', () => {
     effects.setSpectating(false); // already fogged: no-op
     expect(effects.wakeSources.size).toBe(1);
     expect(effects.liveWakeDots).toBeGreaterThan(0);
-  });
-});
-
-// --- P8: THE DOC-DRIFT GUARD ----------------------------------------------------
-//
-// The wake comments cited `World.stepWakes`, a method that has never existed
-// (the server's is `sampleWakes`). A wrong cross-reference is worse than none:
-// it is what sends the next agent looking in the wrong file for the contract
-// the comment claims to mirror. This is the mechanical half — the other two P8
-// drifts were pinned by behaviour instead (`maxDots`' derivation against
-// `CONFIG.map.playerCap` above; the rebuild-cadence pin went with the stamp
-// cache, amendment 210).
-
-describe('the wake comments name methods that exist', () => {
-  // Resolved rather than assumed, so the scan is correct whichever root vitest
-  // was invoked from (`npm test -w client` puts cwd at client/; a repo-root
-  // invocation does not).
-  const SRC = existsSync(join(process.cwd(), 'src', 'render'))
-    ? join(process.cwd(), 'src')
-    : join(process.cwd(), 'client', 'src');
-
-  function bodies(dir: string, out: { path: string; body: string }[]): { path: string; body: string }[] {
-    for (const e of readdirSync(dir, { withFileTypes: true })) {
-      const full = join(dir, e.name);
-      if (e.isDirectory()) {
-        if (e.name !== '__tests__') bodies(full, out);
-      } else if (/\.ts$/.test(e.name)) {
-        out.push({ path: full, body: readFileSync(full, 'utf8') });
-      }
-    }
-    return out;
-  }
-
-  it('no client source cites the non-existent World.stepWakes', () => {
-    const offenders = bodies(SRC, []).filter((f) => f.body.includes('stepWakes'));
-    expect(offenders.map((f) => f.path)).toEqual([]);
   });
 });

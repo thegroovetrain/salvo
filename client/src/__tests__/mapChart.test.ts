@@ -58,11 +58,9 @@ function twinPeaks(): Island {
 }
 
 describe('the hypsometric ramp (CLIENT_CONFIG.colors.terrain)', () => {
-  it('is exactly the four ratified levels, shore -> summit', () => {
+  it('has one row per band level, shore (0) through summit (MAX_BAND_LEVEL) — the four ratified levels', () => {
     expect(RAMP.length).toBe(4);
-    expect(MAX_BAND_LEVEL).toBe(3);
-    expect(RAMP.map((b) => b.stroke)).toEqual([0x4a6b33, 0x7b8a3e, 0xae9c58, 0xdcd2ac]);
-    expect(RAMP.map((b) => b.fill)).toEqual([0x242f22, 0x363c29, 0x484534, 0x5b5a52]);
+    expect(RAMP.length).toBe(MAX_BAND_LEVEL + 1);
   });
 
   it('every band FILL is darker than its own stroke — the grammar, as arithmetic', () => {

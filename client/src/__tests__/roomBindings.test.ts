@@ -22,9 +22,19 @@ import type { Connection } from '../net/connection';
 import type { OwnFire } from '../render/projectiles';
 import { CLIENT_CONFIG } from '../config';
 import { fitDetune, fitTone } from '../audio/tones';
-import { UNKNOWN_VESSEL } from '../ui/killFeed';
+import { UNKNOWN_VESSEL, fleetSizeName, killLine, type KillSegment, type NameRef } from '../ui/killFeed';
 import { cssHex } from '../util/color';
-import { KILL_LEADER_MARK } from '../ui/bounty';
+import { KILL_LEADER_MARK, bountyKillLine } from '../ui/bounty';
+import { pointToastLine } from '../ui/upgradeToast';
+import { boonFitToastLine } from '../ui/boonCopy';
+
+// The feed and toast COPY is owned by the pure line builders (killLine,
+// bountyKillLine, pointToastLine, boonFitToastLine — each unit-tested beside
+// its module). This suite pins the ROUTING: which refs, which builder, which
+// line reaches the DOM — so it compares against the builders, never a literal.
+const lineText = (segs: KillSegment[]): string => segs.map((s) => s.text).join('');
+const V: NameRef = { name: 'VICTIM', id: 'victim' };
+const K: NameRef = { name: 'KILLER', id: 'killer' };
 
 interface FakeRoom {
   onMessage: (type: string, cb: (msg: unknown) => void) => void;
@@ -566,7 +576,7 @@ describe('bindRoom own sunk — the respawn ETA', () => {
     },
   });
 
-  it('the READY ROOM still arms one — the overlay reads it exactly as before', () => {
+  it('a server-armed respawn sets the ETA to the sink time + respawnDelay', () => {
     const { sink, state } = setupEta(true);
     sink.handler(sinkingFrame(1000, 0, 0, [{ k: 'sunk', id: 'me', by: 'rival' }]));
     expect(state.respawnEta).toBe(1000 + CONFIG.ship.respawnDelay);
@@ -671,23 +681,6 @@ describe('bindRoom own spawn resets the honk cooldown', () => {
     expect(resetHonkCooldown).not.toHaveBeenCalled();
     expect(onOwnSpawn).not.toHaveBeenCalled();
   });
-
-  it('regression: the local cooldown gate would otherwise survive a death, eating an accepted respawn honk with zero feedback', () => {
-    // This is the exact bug scenario, expressed against handleFoghornPress's
-    // OWN logic (sim/inputSampler.ts hornPressVerdict) rather than re-deriving
-    // it: a stale g.nextHonkAt from before death reads as "still cooling" on
-    // the very next tick after respawn unless something zeroes it.
-    const { sink, resetHonkCooldown } = setupSpawn();
-    let nextHonkAt = 1_000_000; // armed by a honk just before death
-    resetHonkCooldown.mockImplementation(() => {
-      nextHonkAt = 0;
-    });
-    sink.handler(spawnFrame({ k: 'spawn', id: 'me', x: 0, y: 0 }));
-    // Respawning "inside" the old cooldown window (server time barely moved)
-    // must now read as ready, because the gate was reset at spawn.
-    const now = 1_000_050; // well before the OLD nextHonkAt, well after 0
-    expect(now >= nextHonkAt).toBe(true); // 'honk', not 'denied' — the press IS sent
-  });
 });
 
 // --- the public register (PV 23): `seen` gates the spatial half --------------
@@ -782,7 +775,7 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
   it('an UNSEEN sunk prints the feed line but spawns NO sink effect and calls NO markSunk', () => {
     const { sink, spawnEffect, markSunk, onSunkObserved } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer' }));
-    expect(feedLines()).toEqual(['VICTIM SUNK BY KILLER']); // identity is public...
+    expect(feedLines()).toEqual([lineText(killLine(V, K))]); // identity is public...
     expect(spawnEffect).not.toHaveBeenCalled(); // ...but a stale position never draws a plume
     expect(markSunk).not.toHaveBeenCalled();
     expect(onSunkObserved).toHaveBeenCalledWith('victim', 'killer', undefined); // score rides regardless
@@ -802,7 +795,7 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
   it('a SEEN sunk prints the line AND blows up NOW — but wears no wreck yet', () => {
     const { sink, spawnEffect, markSunk } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
-    expect(feedLines()).toEqual(['VICTIM SUNK BY KILLER']); // identity, immediately
+    expect(feedLines()).toEqual([lineText(killLine(V, K))]); // identity, immediately
     expect(spawnEffect).toHaveBeenCalledWith('sink', 40, 50); // ...and the mark, immediately
     expect(markSunk).not.toHaveBeenCalled(); // the hull is still fighting — no wreck look
   });
@@ -966,19 +959,19 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
   it("a victim-leads sinking ('v') marks the victim's name in the shipped line", () => {
     const { sink } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', bty: 'v' }));
-    expect(feedLines()).toEqual([`${KILL_LEADER_MARK} VICTIM SUNK BY KILLER`]);
+    expect(feedLines()).toEqual([lineText(bountyKillLine(V, K, 'v'))]);
   });
 
   it("a killer-leads sinking ('k') marks the killer's name instead", () => {
     const { sink } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', bty: 'k' }));
-    expect(feedLines()).toEqual([`VICTIM SUNK BY ${KILL_LEADER_MARK} KILLER`]);
+    expect(feedLines()).toEqual([lineText(bountyKillLine(V, K, 'k'))]);
   });
 
   it("a storm sink of the leader ('v', no killer) marks the LOST line", () => {
     const { sink } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: null, bty: 'v' }));
-    expect(feedLines()).toEqual([`${KILL_LEADER_MARK} VICTIM LOST WITH ALL HANDS`]);
+    expect(feedLines()).toEqual([lineText(bountyKillLine(V, null, 'v'))]);
   });
 
   it("a SELF-sink of the holder (by === id) is the VICTIM case — one mark, on the victim", () => {
@@ -986,13 +979,13 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     // simply wears the skull on the victim's name in both positions' text.
     const { sink } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'victim', bty: 'v' }));
-    expect(feedLines()).toEqual([`${KILL_LEADER_MARK} VICTIM SUNK BY VICTIM`]);
+    expect(feedLines()).toEqual([lineText(bountyKillLine(V, V, 'v'))]);
   });
 
   it('an ORDINARY sinking is byte-identical to before — no mark without the channel', () => {
     const { sink } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer' }));
-    expect(feedLines()).toEqual(['VICTIM SUNK BY KILLER']);
+    expect(feedLines()).toEqual([lineText(killLine(V, K))]);
     expect(feedLines().join('')).not.toContain(KILL_LEADER_MARK);
   });
 
@@ -1012,7 +1005,9 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     // every feed in the match.
     const { sink } = setupSunk(() => null);
     sink.handler(sunkFrame({ k: 'sunk', id: 'sess_victim1', by: 'sess_killer2' }));
-    expect(feedLines()).toEqual([`${UNKNOWN_VESSEL} SUNK BY ${UNKNOWN_VESSEL}`]);
+    expect(feedLines()).toEqual([
+      lineText(killLine({ name: UNKNOWN_VESSEL, id: 'sess_victim1' }, { name: UNKNOWN_VESSEL, id: 'sess_killer2' })),
+    ]);
     expect(feedLines().join('')).not.toContain('sess_'); // the raw id appears nowhere
     // The roster-miss name segments stay UNCOLORED (colors() misses the same
     // entry and returns null): no span carries an inline personal-hue color.
@@ -1034,7 +1029,11 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
   it('names a fleet killer from kcls when the client has no other answer', () => {
     const { sink } = setupSunk(() => null);
     sink.handler(sunkFrame({ k: 'sunk', id: 'sess_bob', by: 'sess_drone', kcls: 'droneSmall' }));
-    expect(feedLines()).toEqual([`${UNKNOWN_VESSEL} SUNK BY SMALL DRONE`]);
+    const drone = fleetSizeName('droneSmall');
+    expect(drone).not.toBeNull();
+    expect(feedLines()).toEqual([
+      lineText(killLine({ name: UNKNOWN_VESSEL, id: 'sess_bob' }, { name: drone!, id: 'sess_drone' })),
+    ]);
     expect(feedLines().join('')).not.toContain('sess_'); // still never a raw id
   });
 
@@ -1042,13 +1041,15 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     // `names` resolves, so step 1 wins and the wire field is never consulted.
     const { sink } = setupSunk();
     sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', kcls: 'droneLarge' }));
-    expect(feedLines()).toEqual(['VICTIM SUNK BY KILLER']);
+    expect(feedLines()).toEqual([lineText(killLine(V, K))]);
   });
 
   it('a row WITHOUT kcls is byte-identical to before — the absent-field guarantee', () => {
     const { sink, onSunkObserved } = setupSunk(() => null);
     sink.handler(sunkFrame({ k: 'sunk', id: 'sess_v', by: 'sess_k' }));
-    expect(feedLines()).toEqual([`${UNKNOWN_VESSEL} SUNK BY ${UNKNOWN_VESSEL}`]);
+    expect(feedLines()).toEqual([
+      lineText(killLine({ name: UNKNOWN_VESSEL, id: 'sess_v' }, { name: UNKNOWN_VESSEL, id: 'sess_k' })),
+    ]);
     expect(onSunkObserved).toHaveBeenCalledWith('sess_v', 'sess_k', undefined);
   });
 
@@ -1059,7 +1060,8 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     const { sink } = setupSunk(() => null);
     sink.handler(sunkFrame({ k: 'sunk', id: 'sess_bob', by: 'sess_drone', kcls: 'droneMedium' }));
     const spans = [...(document.getElementById('kill-feed')?.querySelectorAll('span') ?? [])] as HTMLElement[];
-    const named = spans.find((el) => el.textContent === 'MEDIUM DRONE');
+    const named = spans.find((el) => el.textContent === fleetSizeName('droneMedium'));
+    expect(named).toBeDefined();
     const ref = document.createElement('span');
     ref.style.color = cssHex(CLIENT_CONFIG.colors.droneOutline);
     expect(named?.style.color).toBe(ref.style.color);
@@ -1257,7 +1259,7 @@ describe('bindRoom reward toasts', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
     sink.handler(rewardFrame({ k: 'pt', id: 'me' }, { alive: true }));
-    expect(toastLines()).toEqual(['▲ LEVEL UP — TAB TO REFIT']);
+    expect(toastLines()).toEqual([pointToastLine()]);
     expect(play).toHaveBeenCalledWith('point');
   });
 
@@ -1279,7 +1281,7 @@ describe('bindRoom reward toasts', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts(false, false);
     sink.handler(rewardFrame({ k: 'pt', id: 'me' }, { alive: true }));
-    expect(toastLines()).toEqual(['▲ LEVEL UP — TAB TO REFIT']);
+    expect(toastLines()).toEqual([pointToastLine()]);
     expect(play).toHaveBeenCalledWith('point');
   });
 
@@ -1290,7 +1292,7 @@ describe('bindRoom reward toasts', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts(false, true);
     sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reload' }, { alive: true, cards: ['reload'] }));
-    expect(toastLines()).toEqual(['◆ RELOAD FITTED']);
+    expect(toastLines()).toEqual([boonFitToastLine('reload')]);
     expect(play).toHaveBeenCalled();
   });
 
@@ -1314,7 +1316,7 @@ describe('bindRoom reward toasts', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
     sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reload' }, { alive: false, cards: ['reload'] }));
-    expect(toastLines()).toEqual(['◆ RELOAD FITTED']);
+    expect(toastLines()).toEqual([boonFitToastLine('reload')]);
     // The cue carries BOTH axes as of Story 2.9, re-keyed in 8.1: the KIND picks
     // the tone AND transposes it (see the fitDetune suite below).
     expect(play).toHaveBeenCalledWith('fitCommon', { detune: fitDetune('ladder') });
@@ -1362,7 +1364,8 @@ describe('bindRoom reward toasts', () => {
       { k: 'bn', id: 'me', boon: 'reload' },
       { alive: true, cards: ['reload', 'reload', 'reload'] },
     ));
-    expect(toastLines()).toEqual(['◆ RELOAD FITTED']);
+    // The third copy's toast is the FIRST copy's toast — the line, not the rung.
+    expect(toastLines()).toEqual([boonFitToastLine('reload', 1)]);
   });
 
   // THE HEAL (cycle 46; a HULL REPAIR copy since Story 8.8): the `heal` row is
@@ -1457,7 +1460,7 @@ describe('bindRoom drone-drop receipt (`dp`)', () => {
     document.body.replaceChildren();
     const { sink, play, onBoonFitted, onSpendAck } = setupToasts();
     sink.handler(rewardFrame({ k: 'dp', id: 'me', boon: 'hullRepair' }, { alive: true, cards: ['hullRepair'] }));
-    expect(toastLines()).toEqual(['◆ HULL REPAIR STOCKED']);
+    expect(toastLines()).toEqual([boonFitToastLine('hullRepair', 1, 'consumable')]);
     expect(play).toHaveBeenCalledWith(fitTone('consumable'), { detune: fitDetune('consumable') });
     expect(onBoonFitted).toHaveBeenCalledWith('hullRepair');
     expect(onSpendAck).not.toHaveBeenCalled();
@@ -1473,7 +1476,11 @@ describe('bindRoom drone-drop receipt (`dp`)', () => {
       { k: 'dp', id: 'me', boon: 'decoyBuoy' },
     ];
     sink.handler(frame);
-    expect([...toastLines()].sort()).toEqual(['◆ DECOY BUOY STOCKED', '◆ MULTI-SPECTRAL CM STOCKED', '◆ MULTI-SPECTRAL CM STOCKED']);
+    expect([...toastLines()].sort()).toEqual([
+      boonFitToastLine('countermeasure', 2, 'consumable'),
+      boonFitToastLine('countermeasure', 2, 'consumable'),
+      boonFitToastLine('decoyBuoy', 1, 'consumable'),
+    ].sort());
   });
 
   it('a captain sunk LATER IN THE SAME TICK still gets the receipt (the copy is stocked; the frame reads dead)', () => {
@@ -1483,7 +1490,7 @@ describe('bindRoom drone-drop receipt (`dp`)', () => {
     document.body.replaceChildren();
     const { sink, play, onBoonFitted, onSpendAck } = setupToasts();
     sink.handler(rewardFrame({ k: 'dp', id: 'me', boon: 'countermeasure' }, { alive: false, cards: ['countermeasure'] }));
-    expect(toastLines()).toEqual(['◆ MULTI-SPECTRAL CM STOCKED']);
+    expect(toastLines()).toEqual([boonFitToastLine('countermeasure', 1, 'consumable')]);
     expect(play).toHaveBeenCalledWith(fitTone('consumable'), { detune: fitDetune('consumable') });
     expect(onBoonFitted).toHaveBeenCalledWith('countermeasure');
     expect(onSpendAck).not.toHaveBeenCalled();
@@ -2000,13 +2007,13 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
   // torpedo that slams a hull parked in a burning patch is not a crackle, and
   // the last DoT flush of a fire we have already sailed clear of is not a shell.
 
-  it('a full tier-V window flush (11 bites = 5.5 hp) inside an enemy burn zone reads as BURN; 5.6 does not', () => {
+  it('a flush of exactly BURN_AMOUNT_CAP inside an enemy burn zone reads as BURN; just above it does not', () => {
     const { sink, play } = setupWater();
-    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 5.5 }], {}, { burnZones: burning('foe') }));
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: BURN_AMOUNT_CAP }], {}, { burnZones: burning('foe') }));
     expect(play).toHaveBeenCalledWith('burn');
     expect(play).not.toHaveBeenCalledWith('damage');
     play.mockClear();
-    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 5.6 }], {}, { burnZones: burning('foe') }));
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: BURN_AMOUNT_CAP + 0.1 }], {}, { burnZones: burning('foe') }));
     expect(play).toHaveBeenCalledWith('damage');
     expect(play).not.toHaveBeenCalledWith('burn');
   });
@@ -2058,8 +2065,6 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     // once `now - since >= 500 ms` AFTER adding the bite, so at 20 Hz a window
     // holds 11 bites (t = 0..500 ms) = 0.55 s of burn.
     const cap = BURN_AMOUNT_CAP;
-    expect(cap).toBeCloseTo(5.5, 9);
-    expect(maxBurnDps()).toBe(10);
     expect(cap).toBeCloseTo(maxBurnDps() * (0.5 + CONFIG.tick.simDtMs / 1000), 9);
     expect(CONFIG.phosphorShells.dps).toBeLessThan(maxBurnDps()); // the ladder raised it
     expect(readsAsBurn(cap, 0)).toBe(true);

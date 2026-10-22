@@ -73,9 +73,9 @@ describe('bountyTransition — the one-shot edge off a polled scalar', () => {
 });
 
 describe('KILL_LEADER_MARK — the one exported glyph', () => {
-  it('is U+2620 forced to TEXT presentation (U+FE0E) — one constant, swappable in one edit', () => {
-    expect(KILL_LEADER_MARK).toBe('☠︎');
-    expect([...KILL_LEADER_MARK]).toHaveLength(2); // skull + variation selector, nothing else
+  it('is one glyph forced to TEXT presentation (U+FE0E), so it wears the name\'s hue', () => {
+    expect([...KILL_LEADER_MARK]).toHaveLength(2); // glyph + variation selector, nothing else
+    expect([...KILL_LEADER_MARK][1]).toBe('\uFE0E');
   });
 });
 
@@ -97,11 +97,10 @@ describe('leaderNameSegment — the mark and the name share ONE segment', () => 
 });
 
 describe('bountyClaimLine — the public claim register', () => {
-  it('reads `☠︎ <NAME> IS THE NEW KILL LEADER`, the marked name carrying its roster id', () => {
-    expect(bountyClaimLine({ name: 'ALPHA', id: 'a' })).toEqual([
-      { text: `${KILL_LEADER_MARK} ALPHA`, id: 'a', leader: true },
-      { text: ' IS THE NEW KILL LEADER' },
-    ]);
+  it('is the marked name segment, carrying its roster id, then one label segment', () => {
+    const line = bountyClaimLine({ name: 'ALPHA', id: 'a' });
+    expect(line).toHaveLength(2);
+    expect(line[0]).toEqual({ text: `${KILL_LEADER_MARK} ALPHA`, id: 'a', leader: true });
   });
 
   it('leaves the LABEL a connective — no id, so it never renders as a name', () => {
@@ -117,9 +116,6 @@ describe('bountyClaimLine — the public claim register', () => {
     // (the throne runs on `captainKills`). A raw session id never reaches this
     // builder in the first place, whichever label the caller picks.
     expect(bountyClaimLine({ name: 'UNKNOWN PILOT', id: 'x' })[0].text).toBe(`${KILL_LEADER_MARK} UNKNOWN PILOT`);
-    expect(bountyClaimLine({ name: 'UNKNOWN PILOT', id: 'x' })[0].text).not.toContain('DRONE');
-    // And it must FIT the shared display cap, or it renders `UNKNOWN…APTAIN`.
-    expect(ellipsizeName('UNKNOWN PILOT')).toBe('UNKNOWN PILOT');
   });
 
   it('names no count and no place — the throne is identity only', () => {
@@ -168,23 +164,24 @@ describe('bountyKillLine — the skull rides the leader wherever they appear', (
   const V = { name: 'ALPHA', id: 'a' };
   const K = { name: 'BRAVO', id: 'b' };
 
-  it("marks the VICTIM when the victim led ('v'): `☠ ALPHA SUNK BY BRAVO`", () => {
+  it("marks the VICTIM when the victim led ('v')", () => {
     const line = bountyKillLine(V, K, 'v');
-    expect(line.map((s) => s.text).join('')).toBe(`${KILL_LEADER_MARK} ALPHA SUNK BY BRAVO`);
     expect(line[0]).toEqual({ text: `${KILL_LEADER_MARK} ALPHA`, id: 'a', leader: true });
     expect(line[2]).toEqual({ text: 'BRAVO', id: 'b' }); // the killer stays unmarked
   });
 
-  it("marks the KILLER when the killer led ('k'): `ALPHA SUNK BY ☠ BRAVO`", () => {
+  it("marks the KILLER when the killer led ('k')", () => {
     const line = bountyKillLine(V, K, 'k');
-    expect(line.map((s) => s.text).join('')).toBe(`ALPHA SUNK BY ${KILL_LEADER_MARK} BRAVO`);
     expect(line[0]).toEqual({ text: 'ALPHA', id: 'a' }); // the victim stays unmarked
     expect(line[2]).toEqual({ text: `${KILL_LEADER_MARK} BRAVO`, id: 'b', leader: true });
   });
 
-  it("a storm sink of the leader ('v', no killer) marks the victim on the LOST line", () => {
+  it("a storm sink of the leader ('v', no killer) marks the victim on the unattributed line", () => {
     const line = bountyKillLine(V, null, 'v');
-    expect(line.map((s) => s.text).join('')).toBe(`${KILL_LEADER_MARK} ALPHA LOST WITH ALL HANDS`);
+    const plain = killLine(V, null);
+    expect(line).toHaveLength(plain.length);
+    expect(line[0]).toEqual({ text: `${KILL_LEADER_MARK} ALPHA`, id: 'a', leader: true });
+    expect(line[1]).toEqual(plain[1]); // the connective is untouched
   });
 
   it("a degenerate 'k' with no killer (the server never emits it) falls back to the unmarked line", () => {
@@ -200,8 +197,8 @@ describe('bountyKillLine — the skull rides the leader wherever they appear', (
 });
 
 describe('bountyToastLine — the self-claim copy', () => {
-  it('is the settled line, stated once', () => {
-    expect(bountyToastLine()).toBe('YOU ARE THE KILL LEADER');
+  it('is the one BOUNTY_TOAST constant, stated once', () => {
+    expect(BOUNTY_TOAST.length).toBeGreaterThan(0);
     expect(bountyToastLine()).toBe(BOUNTY_TOAST);
   });
 

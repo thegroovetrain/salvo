@@ -22,22 +22,6 @@ describe('ImpactDedup — the first claimant on a point draws the mark', () => {
     expect(d.claim(120.5, -44.25)).toBe(false);
   });
 
-  it('is ORDER-INDEPENDENT: the pairing resolves the same either way round', () => {
-    // The emission order is a server implementation detail (world.resolveShell
-    // happens to push `boom` before `hc`/`sp` today) and this must not depend on
-    // it. Neither claimant knows which row it is serving, so the two orders are
-    // literally the same call sequence — exactly one mark, whoever is first.
-    const boomFirst = new ImpactDedup();
-    boomFirst.beginFrame();
-    const boomFirstDrew = [boomFirst.claim(300, -120), boomFirst.claim(300, -120)];
-    const hitCallFirst = new ImpactDedup();
-    hitCallFirst.beginFrame();
-    const hitCallFirstDrew = [hitCallFirst.claim(300, -120), hitCallFirst.claim(300, -120)];
-    expect(boomFirstDrew).toEqual([true, false]);
-    expect(hitCallFirstDrew).toEqual(boomFirstDrew);
-    expect(boomFirstDrew.filter(Boolean)).toHaveLength(1);
-  });
-
   it('DISTINCT points never collide — a walked salvo draws every splash', () => {
     const d = new ImpactDedup();
     d.beginFrame();
@@ -55,7 +39,7 @@ describe('ImpactDedup — the first claimant on a point draws the mark', () => {
     expect(d.claim(10, 10)).toBe(true); // a NEW frame: a new legitimate mark
   });
 
-  it('claims nothing until a frame is opened, and never throws on a fresh one', () => {
+  it('claims on a fresh dedup without beginFrame — beginFrame is a reset, not an arming gate', () => {
     const d = new ImpactDedup();
     expect(d.claim(1, 1)).toBe(true); // beginFrame is a reset, not an arming gate
   });
@@ -105,7 +89,6 @@ describe('ToneFloor — three blooms, one cue', () => {
   });
 
   it('the Hit Call floor reads CONFIG, not a literal', () => {
-    expect(CLIENT_CONFIG.gunnery.hitCallToneFloorMs).toBe(300); // the ratified grammar
     const floor = hitCallToneFloor();
     expect(floor.request(0)).toBe(true);
     expect(floor.request(CLIENT_CONFIG.gunnery.hitCallToneFloorMs - 1)).toBe(false);

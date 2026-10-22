@@ -1,7 +1,8 @@
-// Story 1.14 — home chrome: pure copy/status reducers plus DOM pins on
-// showHome (first-run vs returning routing, chip copy, personal-color tint,
-// inert-note pattern, status-line states). DOM assertions follow the repo
-// pattern (build, assert textContent / attributes).
+// Story 1.14 — home chrome: pure status reducers plus DOM pins on showHome
+// (first-run vs returning routing, the chip, personal-color tint, status-line
+// states). STORY 9.14 (ruling R3): no label, prompt or status WORDING is pinned —
+// controls are found by title / href / data-* / position, and what a region
+// paints is checked against the reducer that paints it.
 //
 // Home-page maintenance patch re-takes pins DELIBERATELY: the home carries NO
 // color picker (the class bay footer owns it), the chip carries NO loadout
@@ -37,6 +38,7 @@ import { HOME_TAGLINES } from '../ui/taglines.js';
 beforeEach(() => __resetSessionColorPrefForTests());
 import { PLAYER_HUES } from '../render/ships.js';
 import { cssHex } from '../util/color.js';
+import { CLASS_DISPLAY_NAMES } from '../ui/classSelect.js';
 
 // --- pure reducers -----------------------------------------------------------
 
@@ -49,10 +51,13 @@ import { cssHex } from '../util/color.js';
 // same ruling, same reason.
 
 describe('serverStatusLine — probe reducer', () => {
-  it('probing / ready are quiet, unreachable is denied', () => {
-    expect(serverStatusLine('probing')).toEqual({ text: 'SERVER: CHECKING…', tone: 'tertiary' });
-    expect(serverStatusLine('ready')).toEqual({ text: 'SERVER: READY', tone: 'tertiary' });
-    expect(serverStatusLine('unreachable')).toEqual({ text: 'SERVER: UNREACHABLE', tone: 'denied' });
+  it('probing / ready are quiet, unreachable is denied, and the three read differently', () => {
+    expect(serverStatusLine('probing').tone).toBe('tertiary');
+    expect(serverStatusLine('ready').tone).toBe('tertiary');
+    expect(serverStatusLine('unreachable').tone).toBe('denied');
+    const texts = (['probing', 'ready', 'unreachable'] as const).map((s) => serverStatusLine(s).text);
+    expect(new Set(texts).size).toBe(3);
+    for (const t of texts) expect(t.length).toBeGreaterThan(0);
   });
 });
 
@@ -126,6 +131,31 @@ function nameInput(): HTMLInputElement {
   return home().querySelector('input') as HTMLInputElement;
 }
 
+/** The underplay LINK row — HOW TO PLAY's parent, found by its ROUTE. Every
+ *  child is an ANCHOR: Story 7.3 gave HOW TO PLAY a real page and PRIVACY's
+ *  treatment, and the 2026-08-28 community links take the same one. */
+function underplay(): HTMLElement {
+  return home().querySelector('a[href="/how-to-play"]')?.parentElement as HTMLElement;
+}
+
+/** The status line is the link row's SIBLING, not its child (Eric ruling
+ *  2026-08-18, Story 7.2 — see `makeUnderplay`). */
+function statusEl(): HTMLElement {
+  return underplay().parentElement?.children[1] as HTMLElement;
+}
+
+function statusText(): string {
+  return statusEl().textContent ?? '';
+}
+
+/** The class bay's footer primary: the one bay button that is neither a swatch
+ *  nor a gun chip (found by role, never by label). */
+function bayConfirm(): HTMLButtonElement {
+  return [...document.querySelectorAll<HTMLButtonElement>('#hc-class-select button')].find(
+    (b) => !b.hasAttribute('aria-label') && !b.classList.contains('hc-gunchip') && b.textContent !== '',
+  ) as HTMLButtonElement;
+}
+
 function chip(): HTMLElement {
   return home().querySelector('[title="Open the class-select layer"]') as HTMLElement;
 }
@@ -157,38 +187,26 @@ describe('showHome — first-run vs returning routing', () => {
     document.getElementById('hc-class-select')?.remove();
   });
 
-  // RE-TAKEN (Eric ruling 2026-08-17): the sub-line's "SELECT A CLASS TO DEPLOY"
-  // prompt is RETIRED with the sub-line itself — the chip's own SELECT CLASS /
-  // CHOOSE A HULL prompt is now the only first-run signal, and the routing it
-  // guards (SOLO opens the bay instead of deploying) is unchanged.
-  it('first run: the chip prompts SELECT CLASS and SOLO opens the layer (no deploy)', () => {
+  // RE-TAKEN (Eric ruling 2026-08-17): the sub-line's prompt is RETIRED with the
+  // sub-line itself — the chip's own prompt is now the only first-run signal,
+  // and the routing it guards (SOLO opens the bay instead of deploying) is
+  // unchanged.
+  it('first run: the primary door opens the class bay instead of deploying', () => {
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
-    const text = home().textContent ?? '';
-    expect(text).toContain('SELECT CLASS');
-    expect(text).toContain('CHOOSE A HULL');
-    expect(text).not.toContain('CLICK TO OPEN THE CLASS BAY'); // slimmed away with the sub-line
-    expect(text).not.toContain('DEPLOY AS'); // no sub-line survives anywhere
+    expect(playButton().children.length).toBe(1); // no sub-line survives anywhere
     playButton().click();
     expect(onDeploy).not.toHaveBeenCalled();
     expect(document.getElementById('hc-class-select')).not.toBeNull(); // layer opened
   });
 
   // RE-TAKEN pin (was "chip shows the class + loadout"): the chip is SLIM now —
-  // silhouette, role tag, class name, CHANGE CLASS. No loadout sub-line.
-  it('returning: chip shows the class with NO loadout sub-line, SOLO connects immediately', () => {
+  // silhouette, meta, change divider. No loadout sub-line.
+  it('returning: the chip is slim (silhouette, meta, divider) and the primary door deploys immediately', () => {
     localStorage.setItem('hullcracker.class', 'battleship');
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
-    const text = home().textContent ?? '';
-    expect(text).toContain('DREADNOUGHT');
-    expect(text).toContain('YOUR SHIP');
-    expect(text).toContain('CHANGE CLASS');
-    expect(text).not.toContain('STD GUN'); // the retired loadout sub-line
-    expect(text).not.toContain('LONG-RANGE CANNON');
-    // The chip is the ONLY place the hull is named now (Eric ruling 2026-08-17):
-    // the button's "DEPLOY AS BATTLESHIP · SOLO" sub-line was restating it.
-    expect(text).not.toContain('DEPLOY AS DREADNOUGHT');
+    expect(chip().children).toHaveLength(3); // sil, meta, [change] — no loadout slot
     playButton().click();
     expect(onDeploy).toHaveBeenCalledWith('', 'battleship', 'deckGun'); // empty callsign → server assigns
     expect(document.getElementById('hc-class-select')).toBeNull(); // no layer, connected
@@ -208,7 +226,6 @@ describe('showHome — first-run vs returning routing', () => {
     expect(name.style.minWidth).toBe('0px');
     expect(name.style.whiteSpace).toBe('nowrap');
     const divider = chip().children[2] as HTMLElement; // sil, meta, [change]
-    expect(divider.textContent).toContain('CHANGE CLASS');
     expect(divider.style.overflow).toBe('hidden');
     expect(divider.style.textOverflow).toBe('ellipsis');
     expect(divider.style.minWidth).toBe('0px');
@@ -217,13 +234,13 @@ describe('showHome — first-run vs returning routing', () => {
   it('first-run SOLO → layer → pick updates the chip without deploying', () => {
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
+    const firstRun = chip().textContent;
     playButton().click(); // opens the layer (TB pre-highlighted)
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '2' })); // highlight battleship
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); // pick it
     expect(onDeploy).not.toHaveBeenCalled();
-    const text = home().textContent ?? '';
-    expect(text).toContain('DREADNOUGHT'); // the chip, which is now the only place it shows
-    expect(text).not.toContain('SELECT CLASS'); // ...and the first-run prompt is gone
+    expect(chip().textContent).not.toBe(firstRun); // the first-run prompt gave way to the pick
+    expect(chip().textContent).toContain(CLASS_DISPLAY_NAMES.battleship);
     expect(localStorage.getItem('hullcracker.class')).toBe('battleship'); // persisted
   });
 });
@@ -250,17 +267,16 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     localStorage.setItem('hullcracker.class', 'torpedoBoat');
     showHome('0.0.0-test', vi.fn());
     expect(soloButton()).not.toBeNull();
-    expect(labelOf(soloButton()).textContent).toBe('SOLO VS AI');
-    expect(labelOf(playButton()).textContent).toBe('SOLO'); // was PLAY, Eric ruling 2026-08-17
     expect(soloButton().children.length).toBe(1);
     expect(playButton().children.length).toBe(1);
     // ...and the button says NOTHING beyond that label — no restated hull (the
     // reason amendment 31 struck the first sub-lines), no queue count, no steer.
-    expect(playButton().textContent).toBe('SOLO');
-    expect(soloButton().textContent).toBe('SOLO VS AI');
     for (const btn of [playButton(), soloButton()]) {
-      expect(btn.textContent).not.toMatch(/SPEEDBOAT|DREADNOUGHT|REPEATER|DEPLOY AS/);
+      expect(labelOf(btn).textContent).not.toBe('');
+      expect(btn.textContent).toBe(labelOf(btn).textContent);
+      expect(btn.textContent).not.toContain(CLASS_DISPLAY_NAMES.torpedoBoat);
     }
+    expect(playButton().textContent).not.toBe(soloButton().textContent);
   });
 
   it('is on its OWN row, below the mode row that will hold DUO and TRIO', () => {
@@ -278,9 +294,9 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     expect(stack.style.flexDirection).toBe('column');
     expect(stack.style.alignItems).toBe('center');
     // Row 3 (cycle 167, Eric ruling 7) is the private row: CREATE / JOIN.
-    const privateRow = stack.children[2] as HTMLElement;
-    expect([...stack.children]).toEqual([modeRow, soloButton(), privateRow]);
-    expect([...privateRow.children].map((b) => b.textContent)).toEqual(['CREATE', 'JOIN']);
+    const priv = stack.children[2] as HTMLElement;
+    expect([...stack.children]).toEqual([modeRow, soloButton(), priv]);
+    expect([...priv.children].map((b) => b.tagName)).toEqual(['BUTTON', 'BUTTON']);
   });
 
   it('sits AFTER the mode row in the DOM, so Tab reaches it in reading order', () => {
@@ -388,12 +404,12 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
   // must leave the button labels ALONE, since they are mode labels, not context.
   it('a class pick in the bay leaves both button labels untouched', () => {
     showHome('0.0.0-test', vi.fn());
+    const labels = [labelOf(playButton()).textContent, labelOf(soloButton()).textContent];
     playButton().click(); // first-run: opens the bay
     press('2'); // battleship
     press('Enter');
-    expect(labelOf(playButton()).textContent).toBe('SOLO');
-    expect(labelOf(soloButton()).textContent).toBe('SOLO VS AI');
-    expect(home().textContent).toContain('DREADNOUGHT'); // ...the chip took the pick
+    expect([labelOf(playButton()).textContent, labelOf(soloButton()).textContent]).toEqual(labels);
+    expect(chip().textContent).toContain(CLASS_DISPLAY_NAMES.battleship); // ...the chip took the pick
   });
 
   it('setBusy dims BOTH doors, and a busy solo press cannot start a second join', () => {
@@ -410,16 +426,15 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
   });
 
   // R4 (no lie on screen): the solo path never enters the pool, so the queue's
-  // waiting register must never appear on it — not before, not during, not after.
-  it('never renders the queue-wait copy on the solo path', () => {
+  // waiting surface must never appear on it — not before, not during, not after.
+  it('never opens the queue modal on the solo path', () => {
     localStorage.setItem('hullcracker.class', 'battleship');
     const handle = showHome('0.0.0-test', vi.fn(), vi.fn(), vi.fn());
     soloButton().click();
     handle.setBusy(true);
-    handle.setStatus('CONNECTING…', 'info');
-    expect(home().textContent).toContain('CONNECTING…');
-    expect(home().textContent).not.toContain('AWAITING A SECOND CAPTAIN');
-    expect(home().textContent).not.toContain('QUEUED');
+    handle.setStatus('STATUS-A', 'info');
+    expect(statusText()).toBe('STATUS-A');
+    expect(document.getElementById('queue-modal')).toBeNull();
   });
 
   it('the solo button is never personal-tinted (it is a system register, like PLAY)', () => {
@@ -488,12 +503,10 @@ describe('showHome — the color picker is GONE from home (it lives in the class
 
   // RE-TAKEN pin (was "a swatch click persists the hue connect() reads" ON HOME):
   // home carries no swatches at all now — the bay footer is the one picker.
-  it('renders NO swatches and no hoist caption anywhere on the home surface', () => {
+  it('renders NO swatches anywhere on the home surface', () => {
     showHome('0.0.0-test', vi.fn());
     expect(home().querySelectorAll('button[aria-label^="hue "]').length).toBe(0);
     expect(home().querySelector('button[aria-label="hue 9"]')).toBeNull();
-    expect(home().textContent).not.toContain('COLOR PREFERENCE:');
-    expect(home().textContent).not.toContain('PREFERENCE PICK');
   });
 
   it('mounting ENSURES a persisted personal hue (first visit rolls + writes it)', () => {
@@ -554,8 +567,7 @@ describe('showHome — the color picker is GONE from home (it lives in the class
     localStorage.setItem('hullcracker.color', '8');
     const handle = showHome('0.0.0-test', vi.fn());
     handle.setServerProbe('ready');
-    const status = [...home().querySelectorAll('span')].find((s) => s.textContent === 'SERVER: READY') as HTMLElement;
-    expect(status.style.color).toBe('var(--hc-phosphor)');
+    expect(statusEl().style.color).toBe('var(--hc-phosphor)');
   });
 });
 
@@ -566,22 +578,16 @@ describe('showHome — CONFIRM SELECTION saves the class WITHOUT deploying', () 
     document.getElementById('hc-class-select')?.remove();
   });
 
-  function confirmButton(): HTMLButtonElement {
-    return [...document.querySelectorAll('#hc-class-select button')].find(
-      (b) => b.textContent === 'CONFIRM SELECTION',
-    ) as HTMLButtonElement;
-  }
-
   it('click: class persisted, bay closes back to port, NO connection attempted', () => {
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
     playButton().click(); // first-run SOLO opens the bay (TB pre-highlighted)
     press('3'); // highlight mineLayer
-    confirmButton().click();
+    bayConfirm().click();
     expect(localStorage.getItem('hullcracker.class')).toBe('mineLayer');
     expect(onDeploy).not.toHaveBeenCalled(); // the buttons are the ONLY deploy path
     expect(document.getElementById('hc-class-select')).toBeNull();
-    expect(home().textContent).toContain('REPEATER'); // the chip took the pick
+    expect(chip().textContent).toContain(CLASS_DISPLAY_NAMES.mineLayer); // the chip took the pick
   });
 
   it('Enter in the bay confirms the same way (no deploy)', () => {
@@ -611,12 +617,11 @@ describe('showHome — the settings gear (Story 2.3: the inert note is gone)', (
   beforeEach(() => localStorage.clear());
   afterEach(() => home()?.remove());
 
-  it('gear click fires the settings callback — no "later refit" note survives', () => {
+  it('gear click fires the settings callback', () => {
     const onSettings = vi.fn();
     showHome('0.0.0-test', vi.fn(), onSettings);
     (home().querySelector('[title="Settings"]') as HTMLElement).click();
     expect(onSettings).toHaveBeenCalledTimes(1);
-    expect(home().textContent).not.toContain('SETTINGS ARRIVE IN A LATER REFIT');
   });
 
   it('home ESC toggles settings too (mirrors the gear and the in-match ESC)', () => {
@@ -753,23 +758,14 @@ describe('showHome — the settings gear (Story 2.3: the inert note is gone)', (
     document.getElementById('queue-modal')?.remove();
   });
 
-  // STORY 7.3 RETIRED THE STUB. This used to pin `FIELD MANUAL ARRIVES IN A
-  // LATER REFIT` — a placeholder that was correct for as long as there was no
-  // page behind the link. There is one now, so the pin inverts: the stub must be
-  // GONE, and the link must be a real anchor to it. The same shape as the gear's
-  // "no 'later refit' note survives" test above.
-  it('HOW TO PLAY is a REAL anchor to /how-to-play, and the field-manual stub is gone', () => {
+  // STORY 7.3 RETIRED THE STUB: there is a page behind the link now, so the
+  // link must be a real anchor to it — never a scripted span.
+  it('the how-to-play link is a REAL anchor to /how-to-play', () => {
     showHome('0.0.0-test', vi.fn());
-    const howto = [...home().querySelectorAll('a')].find(
-      (a) => a.textContent === 'HOW TO PLAY',
-    ) as HTMLAnchorElement | undefined;
-    expect(howto).toBeDefined();
-    expect(howto?.getAttribute('href')).toBe('/how-to-play');
-    // It is no longer a span, so a click handler cannot be what navigates.
-    expect([...home().querySelectorAll('span')].some((s) => s.textContent === 'HOW TO PLAY')).toBe(
-      false,
-    );
-    expect(home().textContent).not.toContain('FIELD MANUAL ARRIVES IN A LATER REFIT');
+    const howto = home().querySelector('a[href="/how-to-play"]') as HTMLAnchorElement | null;
+    expect(howto).not.toBeNull();
+    expect(howto?.tagName).toBe('A');
+    expect((howto?.textContent ?? '').trim()).not.toBe('');
   });
 });
 
@@ -785,18 +781,17 @@ describe('showHome — wordmark tagline (cycle 87: random pun, not a fixed line)
     return [...(home().children[0] as HTMLElement).children] as HTMLElement[];
   }
 
-  it('renders a HOME_TAGLINES member, not the retired win-condition line', () => {
+  it('renders a HOME_TAGLINES member as the tagline', () => {
     showHome('0.0.0-test', vi.fn());
     const [, tagline] = wordmarkChildren();
     expect(HOME_TAGLINES).toContain(tagline.textContent);
-    expect(home().textContent).not.toContain('LAST HULL FLOATING WINS');
   });
 
   it('wordmark is still exactly [mark, tagline, ver], style untouched', () => {
     showHome('0.0.0-test', vi.fn());
     const [mark, tagline] = wordmarkChildren();
     expect(wordmarkChildren().length).toBe(3);
-    expect(mark.textContent).toContain('HULLCRACKER');
+    expect((mark.textContent ?? '').trim()).not.toBe('');
     expect(tagline.style.letterSpacing).toBe('0.44em');
     expect(tagline.style.marginTop).toBe('8px');
     expect(tagline.style.color).toBe('var(--hc-phosphor)');
@@ -807,11 +802,10 @@ describe('showHome — wordmark tagline (cycle 87: random pun, not a fixed line)
   // the version." The register carries the version and nothing else. The
   // retirement pin lives here, in the test that owns the ruling, rather than
   // riding the structure test above (whose scope is the cycle-87 tagline).
-  it('version register is the bare version — the RT PROTOTYPE prefix is retired', () => {
+  it('the version register carries the build version it was handed', () => {
     showHome('0.0.0-test', vi.fn());
     const [, , ver] = wordmarkChildren();
-    expect(ver.textContent).toBe('v0.0.0-test');
-    expect(home().textContent).not.toMatch(/rt\s*prototype/i);
+    expect(ver.textContent).toContain('0.0.0-test');
   });
 });
 
@@ -821,21 +815,20 @@ describe('showHome — status-line states via the handle', () => {
 
   it('boots probing, then reflects probe + connect states', () => {
     const handle = showHome('0.0.0-test', vi.fn());
-    expect(home().textContent).toContain('SERVER: CHECKING…');
+    expect(statusText()).toBe(serverStatusLine('probing').text);
     handle.setServerProbe('ready');
-    expect(home().textContent).toContain('SERVER: READY');
+    expect(statusText()).toBe(serverStatusLine('ready').text);
     handle.setServerProbe('unreachable');
-    expect(home().textContent).toContain('SERVER: UNREACHABLE');
-    handle.setStatus('CONNECTING…', 'info');
-    expect(home().textContent).toContain('CONNECTING…');
+    expect(statusText()).toBe(serverStatusLine('unreachable').text);
+    handle.setStatus('STATUS-A', 'info');
+    expect(statusText()).toBe('STATUS-A');
   });
 
   it('a connect-flow status write locks out a late server-probe resolution (fix 2)', () => {
     const handle = showHome('0.0.0-test', vi.fn());
-    handle.setStatus('LINK REFUSED', 'denied'); // a connect failure claims the line
+    handle.setStatus('FAILURE-A', 'denied'); // a connect failure claims the line
     handle.setServerProbe('ready'); // ...a probe that resolves afterward
-    expect(home().textContent).toContain('LINK REFUSED'); // is ignored — error stays visible
-    expect(home().textContent).not.toContain('SERVER: READY');
+    expect(statusText()).toBe('FAILURE-A'); // is ignored — error stays visible
   });
 
   it('setBusy dims + un-dims the PLAY button', () => {
@@ -846,19 +839,18 @@ describe('showHome — status-line states via the handle', () => {
     expect(playButton().style.opacity).toBe('1');
   });
 
-  it('a PLAY press mid-queue RE-ASSERTS the live line rather than stamping CONNECTING…', () => {
+  it('a PLAY press mid-queue RE-ASSERTS the live line rather than stamping a connecting line', () => {
     // Never-silence, without blanking the queue readout: the line only refreshes
-    // when the server pushes, so a fixed CONNECTING… would hide the countdown
-    // until the next push.
+    // when the server pushes, so a fixed connecting line would hide the
+    // countdown until the next push.
     localStorage.setItem('hullcracker.class', 'battleship');
     const onDeploy = vi.fn();
     const handle = showHome('0.0.0-test', onDeploy);
     handle.setBusy(true);
-    handle.setStatus('QUEUED 2 CAPTAINS · DEPLOY IN 1:05', 'info');
+    handle.setStatus('LIVE-LINE', 'info');
     playButton().click();
     expect(onDeploy).not.toHaveBeenCalled(); // still busy — no second join
-    expect(home().textContent).toContain('QUEUED 2 CAPTAINS · DEPLOY IN 1:05');
-    expect(home().textContent).not.toContain('CONNECTING…');
+    expect(statusText()).toBe('LIVE-LINE'); // byte-identical: nothing was stamped over it
   });
 });
 
@@ -893,7 +885,7 @@ describe('showHome — setCancel drives the QUEUE MODAL (Story 6.1 plumbing, Eri
     const handle = showHome('0.0.0-test', vi.fn());
     handle.setCancel(vi.fn());
     expect(home().querySelector('[title="Leave the queue"]')).toBeNull();
-    expect(home().textContent).not.toContain('CANCEL');
+    expect(home().querySelector('#queue-modal-cancel')).toBeNull(); // the only CANCEL is the modal's
   });
 
   it('CANCEL fires the canceller AND closes the modal in the same press', () => {
@@ -935,19 +927,21 @@ function livePayload(over: Partial<LivenessPayload> = {}): LivenessPayload {
   };
 }
 
-describe('livenessLines — the top-left global register', () => {
+describe('livenessLines — the global population register', () => {
   it('renders the honest ZERO rather than hiding (Eric ruling)', () => {
     // "Nobody is here yet" is a fact the player needs at beta population;
     // hiding it is what makes an empty server read as a broken one.
-    expect(livenessLines(livePayload({ playersOnline: 0, liveGames: 0 }))).toEqual({
-      players: 'PLAYERS ONLINE: 0',
-      games: 'LIVE GAMES: 0',
-    });
+    const lines = livenessLines(livePayload({ playersOnline: 0, liveGames: 0 }));
+    expect(lines).not.toBeNull();
+    expect(lines?.players).toMatch(/\b0$/);
+    expect(lines?.games).toMatch(/\b0$/);
   });
 
-  it("is Eric's copy, in his order, uppercase", () => {
+  it('prints the players count and the games count, uppercase', () => {
     const lines = livenessLines(livePayload({ playersOnline: 23, liveGames: 2 }));
-    expect(lines).toEqual({ players: 'PLAYERS ONLINE: 23', games: 'LIVE GAMES: 2' });
+    expect(lines?.players).toMatch(/\b23$/);
+    expect(lines?.games).toMatch(/\b2$/);
+    expect(lines?.players.replace(/\d+$/, '')).not.toBe(lines?.games.replace(/\d+$/, '')); // two different lines
     expect(lines?.players).toBe(lines?.players.toUpperCase());
   });
 
@@ -955,9 +949,12 @@ describe('livenessLines — the top-left global register', () => {
     expect(livenessLines(null)).toBeNull();
   });
 
-  it('carries no per-mode breakdown — that ships in the endpoint only (Eric)', () => {
+  it('carries no per-mode breakdown — exactly the two lines (that ships in the endpoint only, Eric)', () => {
     const lines = livenessLines(livePayload());
-    expect(`${lines?.players} ${lines?.games}`).not.toMatch(/SOLO|AI|STANDARD/);
+    expect(Object.keys(lines ?? {}).sort()).toEqual(['games', 'players']);
+    // The per-mode counts (20 standard, 3 solo) reach neither line.
+    expect(lines?.players).toMatch(/\b23$/);
+    expect(lines?.games).toMatch(/\b2$/);
   });
 });
 
@@ -988,7 +985,7 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
     // every size measured. Same 22/26 insets, `bottom` instead of `top`.
     showHome('0.0.0-test', vi.fn());
     const block = livenessBlock();
-    const gear = [...home().children].find((el) => el.textContent === '⚙') as HTMLElement;
+    const gear = home().querySelector('[title="Settings"]') as HTMLElement;
     expect(block.style.position).toBe('absolute'); // costs the rigid column zero height
     expect(block.style.bottom).toBe('22px');
     expect(block.style.top).toBe(''); // the collision: never anchored to the top again
@@ -1001,8 +998,9 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
   it('is still a readout: no pointer events, and it still renders the honest zero', () => {
     const handle = showHome('0.0.0-test', vi.fn());
     expect(livenessBlock().style.pointerEvents).toBe('none');
-    handle.setLiveness(livePayload({ playersOnline: 0, liveGames: 0 }));
-    expect(livenessBlock().textContent).toContain('PLAYERS ONLINE: 0');
+    const zero = livePayload({ playersOnline: 0, liveGames: 0 });
+    handle.setLiveness(zero);
+    expect(livenessBlock().textContent).toContain(livenessLines(zero)?.players);
   });
 
   it('does not render at all until a payload arrives, and hides again on an outage', () => {
@@ -1011,38 +1009,37 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
     // it hides by `display`, which is not an inherited property and therefore
     // never argued with the yield.
     const handle = showHome('0.0.0-test', vi.fn());
+    const doors = [playButton().textContent, soloButton().textContent];
     expect(livenessBlock().style.display).toBe('none');
     handle.setLiveness(livePayload());
     expect(livenessBlock().style.display).toBe('flex');
     handle.setLiveness(null);
     expect(livenessBlock().style.display).toBe('none');
     // A payload arriving and going away again writes NOTHING to the buttons.
-    expect(playButton().textContent).toBe('SOLO');
-    expect(soloButton().textContent).toBe('SOLO VS AI');
+    expect([playButton().textContent, soloButton().textContent]).toEqual(doors);
   });
 
-  it('paints the two lines, PLAYERS ONLINE over LIVE GAMES', () => {
+  it('paints the two lines, the players line over the games line', () => {
     const handle = showHome('0.0.0-test', vi.fn());
-    handle.setLiveness(livePayload({ playersOnline: 23, liveGames: 2 }));
+    const payload = livePayload({ playersOnline: 23, liveGames: 2 });
+    handle.setLiveness(payload);
     const [players, games] = [...livenessBlock().children] as HTMLElement[];
-    expect(players.textContent).toBe('PLAYERS ONLINE: 23');
-    expect(games.textContent).toBe('LIVE GAMES: 2');
+    expect(players.textContent).toBe(livenessLines(payload)?.players);
+    expect(games.textContent).toBe(livenessLines(payload)?.games);
   });
 
   it('renders a genuine ZERO rather than disappearing', () => {
     const handle = showHome('0.0.0-test', vi.fn());
     // The empty-server payload as the SERVER now sends it: an emitted queue
     // block with a pool of zero, never a null the client has to guess at (F7).
-    handle.setLiveness(
-      livePayload({
-        playersOnline: 0,
-        liveGames: 0,
-        queue: { pooled: 0, min: 2, cap: 20, deadlineAt: null },
-      }),
-    );
+    const empty = livePayload({
+      playersOnline: 0,
+      liveGames: 0,
+      queue: { pooled: 0, min: 2, cap: 20, deadlineAt: null },
+    });
+    handle.setLiveness(empty);
     expect(livenessBlock().style.display).toBe('flex');
-    expect(livenessBlock().textContent).toContain('PLAYERS ONLINE: 0');
-    expect(home().textContent).not.toContain('QUEUED'); // ...and never on a button
+    expect(livenessBlock().textContent).toContain(livenessLines(empty)?.players);
   });
 
   it('is Geist Mono, uppercase, and NEVER text-muted (DESIGN.md:153, load-bearing numbers)', () => {
@@ -1056,19 +1053,17 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
     }
   });
 
-  // RETIRED (Eric ruling 2026-08-19): the two `STARTS INSTANTLY` pins — the
-  // constant-steer pin and the it-survives-an-outage pin. The copy is DELETED,
-  // not reworded, so there is no string left to assert and no replacement copy
-  // was authored for the dead-queue steer. Its INVERSE is pinned instead: the
-  // rendered home may contain that phrase in no state at all.
-  it('carries NO steer copy on either door, in EVERY liveness state', () => {
+  // RETIRED (Eric ruling 2026-08-19): the two steer-copy pins. The copy is
+  // DELETED, not reworded. Its INVERSE is pinned instead, structurally: no
+  // liveness state writes anything onto either door.
+  it('no liveness state changes either door', () => {
     const handle = showHome('0.0.0-test', vi.fn());
+    const doors = [playButton().textContent, soloButton().textContent];
     for (const state of [null, livePayload(), livePayload({ queue: null })]) {
       handle.setLiveness(state);
-      expect(home().textContent).not.toContain('STARTS INSTANTLY');
-      expect(home().textContent).not.toContain('QUEUED');
-      expect(playButton().textContent).toBe('SOLO');
-      expect(soloButton().textContent).toBe('SOLO VS AI');
+      expect([playButton().textContent, soloButton().textContent]).toEqual(doors);
+      expect(playButton().children.length).toBe(1);
+      expect(soloButton().children.length).toBe(1);
     }
   });
 
@@ -1101,10 +1096,11 @@ describe('showHome — the liveness surfaces (Story 6.6)', () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
     const handle = showHome('0.0.0-test', vi.fn());
+    const door = playButton().textContent;
     handle.setLiveness(livePayload({ queue: { pooled: 4, min: 2, cap: 20, deadlineAt: 1_083_000 } }));
-    expect(playButton().textContent).toBe('SOLO');
+    expect(playButton().textContent).toBe(door);
     vi.advanceTimersByTime(30_000); // 30s of clock changes nothing at all
-    expect(playButton().textContent).toBe('SOLO');
+    expect(playButton().textContent).toBe(door);
     expect(playButton().children.length).toBe(1);
     handle.hide();
     vi.useRealTimers();
@@ -1200,7 +1196,6 @@ describe('setLiveness(null) stands the whole surface down (F3)', () => {
 
     handle.setLiveness(null);
     expect(livenessBlock().style.display).toBe('none');
-    expect(home().textContent).not.toContain('QUEUED'); // nothing was left on a button
     // ...and 30s of clock cannot resurrect it: there is no timer left to do so.
     vi.advanceTimersByTime(30_000);
     expect(livenessBlock().style.display).toBe('none');
@@ -1226,19 +1221,7 @@ describe('the status line is NEVER written by queue code', () => {
     vi.stubEnv('VITE_SUBREDDIT', '');
   }
 
-  /** The underplay LINK row — HOW TO PLAY's parent. Every child is an ANCHOR:
-   *  Story 7.3 gave HOW TO PLAY a real page and PRIVACY's treatment, and the
-   *  2026-08-28 community links take the same one. */
-  function underplay(): HTMLElement {
-    return [...home().querySelectorAll('a')].find((s) => s.textContent === 'HOW TO PLAY')
-      ?.parentElement as HTMLElement;
-  }
-
-  /** The status line is the link row's SIBLING now, not its second child
-   *  (Eric ruling 2026-08-18, Story 7.2 — see `makeUnderplay`). */
-  function statusText(): string {
-    return (underplay().parentElement?.children[1] as HTMLElement).textContent ?? '';
-  }
+  const hrefs = (): (string | null)[] => [...underplay().children].map((c) => c.getAttribute('href'));
 
   it('the underplay row is the two static-page links, and nothing else', () => {
     // The CANCEL span that used to be a third child moved into the modal
@@ -1250,8 +1233,9 @@ describe('the status line is NEVER written by queue code', () => {
     noCommunityVars();
     showHome('0.0.0-test', vi.fn());
     expect(underplay().children.length).toBe(2);
-    expect([...underplay().children].map((c) => c.textContent)).toEqual(['HOW TO PLAY', 'PRIVACY']);
-    expect(statusText()).toBe('SERVER: CHECKING…');
+    expect([...underplay().children].map((c) => c.tagName)).toEqual(['A', 'A']);
+    expect(hrefs()).toEqual(['/how-to-play', '/privacy']);
+    expect(statusText()).toBe(serverStatusLine('probing').text);
   });
 
   it('the community links join the row when their env vars are set', () => {
@@ -1263,13 +1247,9 @@ describe('the status line is NEVER written by queue code', () => {
     vi.stubEnv('VITE_SUBREDDIT', 'hullcracker');
     showHome('0.0.0-test', vi.fn());
     const kids = [...underplay().children] as HTMLAnchorElement[];
-    expect(kids.map((c) => c.textContent)).toEqual([
-      'HOW TO PLAY',
-      'PRIVACY',
-      'DISCORD',
-      'REDDIT',
-    ]);
+    expect(kids).toHaveLength(4);
     expect(kids.map((c) => c.tagName)).toEqual(['A', 'A', 'A', 'A']);
+    expect(hrefs().slice(0, 2)).toEqual(['/how-to-play', '/privacy']);
     expect(kids[2].getAttribute('href')).toBe('https://discord.gg/abc123');
     expect(kids[3].getAttribute('href')).toBe('https://www.reddit.com/r/hullcracker/');
     // OFF-SITE: a new tab, and no window handle (or referrer) back to the game.
@@ -1278,7 +1258,7 @@ describe('the status line is NEVER written by queue code', () => {
       expect(el.getAttribute('rel')).toBe('noopener noreferrer');
     }
     // The status line beneath is the PROBE's alone, exactly as before.
-    expect(statusText()).toBe('SERVER: CHECKING…');
+    expect(statusText()).toBe(serverStatusLine('probing').text);
   });
 
   it('a malformed community var hides ITS link and nothing else', () => {
@@ -1287,12 +1267,12 @@ describe('the status line is NEVER written by queue code', () => {
     vi.stubEnv('VITE_DISCORD_INVITE', 'a b/../x');
     vi.stubEnv('VITE_SUBREDDIT', 'hullcracker');
     showHome('0.0.0-test', vi.fn());
-    expect([...underplay().children].map((c) => c.textContent)).toEqual(['HOW TO PLAY', 'PRIVACY', 'REDDIT']);
+    expect(hrefs()).toEqual(['/how-to-play', '/privacy', 'https://www.reddit.com/r/hullcracker/']);
     home().remove();
     vi.stubEnv('VITE_DISCORD_INVITE', 'abc123');
     vi.stubEnv('VITE_SUBREDDIT', 'hull cracker');
     showHome('0.0.0-test', vi.fn());
-    expect([...underplay().children].map((c) => c.textContent)).toEqual(['HOW TO PLAY', 'PRIVACY', 'DISCORD']);
+    expect(hrefs()).toEqual(['/how-to-play', '/privacy', 'https://discord.gg/abc123']);
   });
 
   it('PRIVACY is a REAL anchor to /privacy, not a scripted span', () => {
@@ -1300,35 +1280,24 @@ describe('the status line is NEVER written by queue code', () => {
     // setup both want a reachable, crawlable privacy-policy URL, and a span
     // that calls location.href is not one.
     showHome('0.0.0-test', vi.fn());
-    const link = [...underplay().children].find((c) => c.textContent === 'PRIVACY');
+    const link = [...underplay().children].find((c) => c.getAttribute('href') === '/privacy');
+    expect(link).toBeDefined();
     expect(link?.tagName).toBe('A');
-    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/privacy');
   });
 
   it('setServerProbe owns it, and the whole queue lifecycle does not disturb it', () => {
     const handle = showHome('0.0.0-test', vi.fn());
     handle.setServerProbe('ready');
-    expect(statusText()).toBe('SERVER: READY');
+    const ready = serverStatusLine('ready').text;
+    expect(statusText()).toBe(ready);
     // Join, an unarmed push, an armed push, a poll read, then leave.
     handle.setCancel(vi.fn());
     handle.setQueue({ n: 1, min: 2, cap: 20, startsInMs: null });
     handle.setQueue({ n: 7, min: 2, cap: 20, startsInMs: 65_000 });
     handle.setLiveness(livePayload({ queue: { pooled: 7, min: 2, cap: 20, deadlineAt: 1_083_000 } }));
-    expect(statusText()).toBe('SERVER: READY'); // untouched by every one of them
+    expect(statusText()).toBe(ready); // untouched by every one of them
     handle.setCancel(null);
-    expect(statusText()).toBe('SERVER: READY');
-  });
-
-  it('and no retired queue copy can reach the home surface at all', () => {
-    const handle = showHome('0.0.0-test', vi.fn());
-    handle.setServerProbe('ready');
-    handle.setCancel(vi.fn());
-    handle.setQueue({ n: 1, min: 2, cap: 20, startsInMs: null });
-    const text = home().textContent ?? '';
-    expect(text).not.toMatch(/AWAITING A SECOND CAPTAIN/);
-    expect(text).not.toMatch(/DEPLOY IN/);
-    expect(text).not.toMatch(/LOBBY DISBANDED|SEARCHING FOR A NEW MATCH/);
-    expect(text).not.toMatch(/NEEDS|STARTING/);
+    expect(statusText()).toBe(ready);
   });
 });
 
@@ -1424,18 +1393,16 @@ describe('the gun pick — persistence and the deploy doors (Story 8.15)', () =>
     document.getElementById('hc-class-select')?.remove();
   });
 
-  /** A chip on card `card` (0 TB · 1 BS · 2 ML). A chip click also highlights
-   *  ITS card, so a test that keeps the hull picks on that hull's own card. */
-  function gunChip(label: string, card = 0): HTMLButtonElement {
+  /** A chip on card `card` (0 TB · 1 BS · 2 ML), by its `data-gun` id. A chip
+   *  click also highlights ITS card, so a test that keeps the hull picks on
+   *  that hull's own card. */
+  function gunChip(gun: string, card = 0): HTMLButtonElement {
     const el = document.querySelectorAll('#hc-class-select .hc-ccard')[card];
-    const chips = [...el.querySelectorAll('.hc-gunchip')] as HTMLButtonElement[];
-    return chips.find((c) => c.textContent === label) as HTMLButtonElement;
+    return el.querySelector(`.hc-gunchip[data-gun="${gun}"]`) as HTMLButtonElement;
   }
 
   function confirm(): void {
-    ([...document.querySelectorAll('#hc-class-select button')].find(
-      (b) => b.textContent === 'CONFIRM SELECTION',
-    ) as HTMLButtonElement).click();
+    bayConfirm().click();
   }
 
   it('loadSavedGun: CANNON (deckGun) when unset or unknown, the stored pick otherwise', () => {
@@ -1462,14 +1429,15 @@ describe('the gun pick — persistence and the deploy doors (Story 8.15)', () =>
     localStorage.setItem('hullcracker.class', 'mineLayer');
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
+    const slim = chip().textContent;
     chip().click();
-    expect(gunChip('CANNON').getAttribute('aria-pressed')).toBe('true'); // preselected
-    gunChip('FLAK', 2).click(); // on the Mine Layer's own card
+    expect(gunChip('deckGun').getAttribute('aria-pressed')).toBe('true'); // preselected
+    gunChip('flak', 2).click(); // on the Mine Layer's own card
     confirm();
     expect(localStorage.getItem('hullcracker.gun')).toBe('flak');
     expect(localStorage.getItem('hullcracker.class')).toBe('mineLayer');
-    const text = home().textContent ?? '';
-    for (const word of ['FLAK', 'CANNON', 'MACHINE GUN', 'DECK GUN']) expect(text, word).not.toContain(word);
+    expect(chip().textContent).toBe(slim); // the gun pick never reaches the chip
+    expect(home().querySelector('.hc-gunchip')).toBeNull();
     playButton().click();
     expect(onDeploy).toHaveBeenCalledWith('', 'mineLayer', 'flak');
   });
@@ -1479,8 +1447,8 @@ describe('the gun pick — persistence and the deploy doors (Story 8.15)', () =>
     localStorage.setItem('hullcracker.gun', 'machineGun');
     showHome('0.0.0-test', vi.fn());
     chip().click();
-    expect(gunChip('MACHINE GUN').getAttribute('aria-pressed')).toBe('true');
-    gunChip('CANNON').click();
+    expect(gunChip('machineGun').getAttribute('aria-pressed')).toBe('true');
+    gunChip('deckGun').click();
     press('Escape');
     expect(localStorage.getItem('hullcracker.gun')).toBe('machineGun');
   });

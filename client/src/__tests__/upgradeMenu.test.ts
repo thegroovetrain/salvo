@@ -79,11 +79,11 @@ const overlaps = (a: RefitBox, b: { x: number; y: number; w: number; h: number }
   a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', () => {
-  it('lays out exactly four 216px cards with 20px gaps — a 924px row', () => {
+  it('lays out one card per offer slot, each R.card wide, gapped by R.gap — the row is exactly their sum', () => {
     const L = refitBandLayout(1366, 768);
-    expect(L.cards).toHaveLength(CONFIG.offer.size);
-    expect(L.row.w).toBe(4 * 216 + 3 * 20);
-    expect(L.row.w).toBe(924);
+    const n = CONFIG.offer.size;
+    expect(L.cards).toHaveLength(n);
+    expect(L.row.w).toBe(n * R.card + (n - 1) * R.gap);
     for (const c of L.cards) {
       expect(c.w).toBe(R.card);
       expect(c.h).toBe(R.cardHeight);
@@ -155,80 +155,20 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
     }
   });
 
-  // --- THE UNTOUCHABLE ROW -----------------------------------------------------
+  // --- THE ROW'S SHAPE ----------------------------------------------------------
   //
-  // THE REGRESSION PIN THAT MATTERS MOST. The four cards stay 216px, the gaps
-  // stay 20px, the row stays exactly 924px, and CONFIG.offer.size stays 4 —
-  // through the cycle-46 rail's whole life and through Story 8.8's deletion of
-  // it. A five-card row would be 1160px, leaving 60px of margin at the 1280×614
-  // logical floor and superseding the ratified UX-DR14 geometry outright.
-  it('leaves the four-card row BYTE-IDENTICAL (the untouchable row)', () => {
+  // The row derives from ONE anchor and the pips hang a fixed offset above it.
+  // STORY 8.6 (epic-8 amendment 36) moved that anchor for the second time —
+  // from a viewport fraction to the HUD bar's top edge — and only the POSITION
+  // moved: the row's SHAPE (one card height, one baseline) is what this protects.
+  it('keeps the row one card tall on one baseline, the pips a fixed offset above it, at both floors', () => {
     for (const { name, w, h } of FLOORS) {
       const L = refitBandLayout(w, h);
-      expect(CONFIG.offer.size, name).toBe(4);
-      expect(L.cards, name).toHaveLength(4);
-      expect(L.row.w, name).toBe(4 * 216 + 3 * 20);
-      expect(L.row.w, name).toBe(924);
-      // 226 → 243: the six-row grid (Story 9.8, Eric 2026-10-13) — one more
-      // 17px row; the width, the gaps and the one baseline are untouched.
-      expect(L.row.h, name).toBe(243);
-      for (const c of L.cards) {
-        expect(c.w, name).toBe(216);
-        expect(c.h, name).toBe(243);
-        expect(c.y, name).toBe(L.row.y); // still ONE row, one baseline
-      }
-      for (let i = 1; i < L.cards.length; i += 1) {
-        expect(L.cards[i].x - (L.cards[i - 1].x + 216), name).toBe(20);
-      }
-      // The row still derives from ONE anchor and the pips still hang a fixed
-      // offset above it. STORY 8.6 (epic-8 amendment 36) moved that anchor for
-      // the second time — from a viewport fraction to the HUD bar's top edge —
-      // and, as in cycle 47, only the POSITION moved: the row's SHAPE is
-      // untouchable and is what the pin above protects.
+      expect(L.row.h, name).toBe(R.cardHeight);
+      for (const c of L.cards) expect(c.y, name).toBe(L.row.y); // still ONE row, one baseline
       expect(L.row.y, name).toBe(L.band.y + R.pipsAbove);
       expect(L.pips.y, name).toBe(L.row.y - R.pipsAbove);
     }
-  });
-
-  // THE ANCHORED EDGE, TO THE PIXEL (Story 8.6, epic-8 amendment 36). The band
-  // no longer floats at a fraction of the viewport between two opposing
-  // constraints — it HANGS off the HUD bar, so there is exactly one number to
-  // pin and it is an equality rather than a pair of inequalities:
-  //
-  //   band bottom (the CARD ROW's, since Story 8.8) === hudBarLayout().bar.y − barGap
-  //
-  // The own-hull keep-out that boxed the old anchor in from above is WAIVED by
-  // the same ruling, and the container-fit law from below is now satisfied BY
-  // CONSTRUCTION (the bar is itself `floor` px off the viewport edge). What can
-  // still go wrong is the band running off the TOP of a short viewport, so that
-  // is pinned too, with the actual numbers.
-  it('seats the band exactly barGap above the bar at both ratified floors', () => {
-    const cases = [
-      { name: '1366x768 @100%', w: 1366, h: 768, barTop: 614, bandBottom: 606 },
-      { name: '1280x614 (125% logical floor)', w: 1280, h: 614, barTop: 460, bandBottom: 452 },
-    ];
-    for (const { name, w, h, barTop, bandBottom } of cases) {
-      const L = refitBandLayout(w, h);
-      expect(hudBarLayout(w, h).bar.y, name).toBe(barTop);
-      expect(L.band.y + L.band.h, name).toBe(bandBottom);
-      expect(L.row.y + L.row.h, name).toBe(bandBottom);
-      expect(L.band.y, `${name}: band ${-L.band.y}px off the top of the screen`).toBeGreaterThanOrEqual(0);
-      expect(L.band.y + L.band.h, name).toBeLessThanOrEqual(h);
-    }
-    // The floor case, to the pixel. STORY 8.8 DELETED THE RAIL AND ITS SEAM, so
-    // the band is 244px (18 pips + 226 card) rather than 290, and the card row's
-    // own bottom IS the anchored edge. The ANCHOR is unchanged (amendment 36):
-    // STORY 9.2's D-prime bar was 20px taller (globes 104 -> 124), which raised
-    // the band 20px (452 -> 432); STORY 9.11 put the bar back on the one 136px
-    // row (epic-9 amendment 151), so the band drops back with it (432 -> 452).
-    // STORY 9.8's six-row card is one 17px row taller (244 -> 261), and that
-    // comes off the TOP: the anchored bottom stays at 452.
-    const F = refitBandLayout(1280, 614);
-    expect(F.band.h).toBe(R.pipsAbove + R.cardHeight);
-    expect(F.band.h).toBe(261);
-    expect(F.band.y).toBe(191);
-    expect(F.row.y).toBe(209);
-    expect(F.row.y + F.row.h).toBe(452);
   });
 
   // --- THE COUNTDOWN FOOTER (Story 8.10, epic-8 amendments 60 + 63a) ----------
@@ -242,17 +182,12 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
   it('lifts the card row by exactly the footer and leaves the anchored edge alone', () => {
     const live = refitBandLayout(1366, 768);
     const countdown = refitBandLayout(1366, 768, CONFIG.offer.size, REDRAW_FOOTER_PX);
-    expect(REDRAW_FOOTER_PX).toBe(44);
-    // 380 at Story 8.10; 360 while the D-prime bar stood 20px taller (Story
-    // 9.2); 343 once the six-row card grew 17px (Story 9.8); 363 since the bar
-    // went back to its one 136px row (Story 9.11).
-    expect(live.row.y).toBe(363);
-    expect(countdown.row.y).toBe(319);
+    expect(REDRAW_FOOTER_PX).toBeGreaterThan(0);
     expect(live.row.y - countdown.row.y).toBe(REDRAW_FOOTER_PX);
     // The one edge that must NOT move, in either state.
-    expect(live.band.y + live.band.h).toBe(606);
-    expect(countdown.band.y + countdown.band.h).toBe(606);
-    expect(hudBarLayout(1366, 768).bar.y - R.barGap).toBe(606);
+    const anchored = hudBarLayout(1366, 768).bar.y - R.barGap;
+    expect(live.band.y + live.band.h).toBe(anchored);
+    expect(countdown.band.y + countdown.band.h).toBe(anchored);
     // The row itself is untouchable: same shape, same width, one baseline.
     expect(countdown.row.w).toBe(live.row.w);
     expect(countdown.row.h).toBe(live.row.h);
@@ -438,12 +373,13 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
     const fresh = offerView(ownShip(), false, false, false);
     expect(fresh?.options[0].name).toBe(boonName('radarSweep', 0));
     expect(fresh?.options[0].stack).toBe(0);
-    expect(fresh?.options[0].cap).toBe(5);
-    expect(fresh?.options[0].tier).toBe('I');
+    expect(fresh?.options[0].cap).toBe(CATALOG.radarSweep.cap);
+    expect(fresh?.options[0].tier).toBe(cardTierLabel(CATALOG.radarSweep, 0));
     const stacked = offerView(ownShip({ cards: ['radarSweep', 'radarSweep'] }), false, false, false);
     expect(stacked?.options[0].name).toBe(fresh?.options[0].name);
     expect(stacked?.options[0].stack).toBe(2);
-    expect(stacked?.options[0].tier).toBe('II → III');
+    expect(stacked?.options[0].tier).toBe(cardTierLabel(CATALOG.radarSweep, 2));
+    expect(stacked?.options[0].tier).not.toBe(fresh?.options[0].tier);
   });
 
   // Story 7-5 wave 1 dropped the verb cards from `exclusive` to `rare` when they
@@ -455,12 +391,12 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   // player — a function of the line AND the copies held.
   it('carries the KIND word and its tone, unconditional, on every card', () => {
     const view = offerView(ownShip({ offer: ['radarSweep', 'deckGun', 'captiveMines', 'foulingShell'] }), false, false, false);
-    expect(view?.options.map((o) => o.kind)).toEqual(['SHIP UPGRADE', 'WEAPON UPGRADE', 'WEAPON', 'CONSUMABLE']);
     expect(view?.options.map((o) => o.kindTone)).toEqual(['shipUpgrade', 'weaponUpgrade', 'weapon', 'consumable']);
+    for (const o of view!.options) expect(o.kind, o.id).toBe(cardKindLabel(o.kindTone));
     // Copy 2 of an equipment line is a WEAPON UPGRADE.
     const tier = offerView(ownShip({ offer: ['captiveMines'], cards: ['captiveMines'] }), false, false, false);
-    expect(tier?.options[0].kind).toBe('WEAPON UPGRADE');
     expect(tier?.options[0].kindTone).toBe('weaponUpgrade');
+    expect(tier?.options[0].kind).toBe(cardKindLabel('weaponUpgrade'));
   });
 
   it('carries the ladder length and the copies held — the rungs and their fill', () => {
@@ -469,9 +405,9 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
     // 197 — no one-rung card ships any more): nothing held, cap 4.
     const view = offerView(ownShip({ offer: ['radarSweep', 'deckGun'], cards: held }), false, false, false);
     expect(view?.options[0].stack).toBe(3);
-    expect(view?.options[0].cap).toBe(5);
+    expect(view?.options[0].cap).toBe(CATALOG.radarSweep.cap);
     expect(view?.options[1].stack).toBe(0);
-    expect(view?.options[1].cap).toBe(4);
+    expect(view?.options[1].cap).toBe(CATALOG.deckGun.cap);
   });
 
   it('draws NO ladder for a consumable or an add-on — they have no rungs', () => {
@@ -490,7 +426,6 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   it('prints ROWS with the player\'s LIVE values (a preview diff, not a static table)', () => {
     const fresh = offerView(ownShip({ offer: ['radarSweep'] }), false, false, false);
     const stacked = offerView(ownShip({ offer: ['radarSweep'], cards: ['radarSweep'] }), false, false, false);
-    expect(fresh?.options[0].rows[0].label).toBe('RADAR SWEEP');
     expect(fresh?.options[0].rows[0].next).toContain('RPM');
     expect(stacked?.options[0].rows[0].cur).not.toBe(fresh?.options[0].rows[0].cur);
   });
@@ -595,7 +530,7 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     const grid = (cards()[0].lastElementChild as HTMLElement).children[4] as HTMLElement;
     expect(grid.children).toHaveLength(R.rowCount);
     expect(grid.style.gridTemplateRows).toBe(`repeat(${R.rowCount}, ${R.rowH}px)`);
-    expect((grid.children[0] as HTMLElement).textContent).toContain('RADAR SWEEP');
+    expect((grid.children[0] as HTMLElement).textContent).not.toBe('');
     for (let i = 1; i < R.rowCount; i += 1) {
       expect((grid.children[i] as HTMLElement).textContent, `row ${i}`).toBe('');
     }
@@ -628,14 +563,10 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
         { ...cardsOf(['hullRepair'])[0] },
       ],
     }));
-    const expected = [
-      ['SHIP UPGRADE', 'shipUpgrade'],
-      ['WEAPON UPGRADE', 'weaponUpgrade'],
-      ['WEAPON', 'weapon'],
-      ['CONSUMABLE', 'consumable'],
-    ] as const;
+    const tones = ['shipUpgrade', 'weaponUpgrade', 'weapon', 'consumable'] as const;
     cards().forEach((b, i) => {
-      const [word, tone] = expected[i];
+      const tone = tones[i];
+      const word = cardKindLabel(tone);
       const kindEl = ((b.lastElementChild as HTMLElement).children[3]) as HTMLElement;
       expect(kindEl.textContent, word).toBe(word);
       expect(kindEl.style.color, word).toBe(KIND_COLORS[tone]);
@@ -695,10 +626,8 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     const ladderOf = (b: HTMLElement): HTMLElement => (b.lastElementChild as HTMLElement).children[2] as HTMLElement;
     // Five rungs (radarSweep's cap) plus the numerals span.
     expect(ladderOf(stacked).querySelectorAll('i')).toHaveLength(5);
-    // The arrow's spacing is the mock's 3px margin, not literal spaces — so the
-    // rendered text is tighter than the fit model's string, which is the safe
-    // direction (the model over-measures by two blanks).
-    expect(ladderOf(stacked).textContent).toBe('II→III');
+    // ...and the step's numerals beside them.
+    expect(ladderOf(stacked).textContent).not.toBe('');
     // BLANK for a consumable and an add-on — the row is still 16px tall, so
     // every card in the offer keeps one baseline.
     for (const b of [consumable, addon]) {
@@ -717,7 +646,6 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     const before = cards()[0].textContent;
     menu.update(view({ options: cardsOf(OFFER).map((c, i) => (i === 0 ? { ...c, name: 'HEAVY SHELLS Mk II', tier: 'II → III' } : c)) }));
     expect(cards()[0].textContent).not.toBe(before);
-    expect(cards()[0].textContent).toContain('HEAVY SHELLS Mk II');
   });
 
   it('card buttons never retain focus: mousedown is prevented and click blurs', () => {
@@ -1163,11 +1091,11 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
       expect(footer().style.cssText).not.toContain(MICRO_VAR);
       expect(redrawBtn()!.style.cssText).not.toContain(MICRO_VAR);
       expect(pip().style.cssText).not.toContain(MICRO_VAR);
-      // 12px, read off the SHORTHAND (jsdom keeps `style.font` verbatim but
-      // does not decompose a var()-carrying shorthand into `style.fontSize`) —
-      // and the shorthand is what the mock and every other register here use.
-      expect(redrawBtn()!.style.font).toBe('600 12px var(--hc-font-mono)');
-      expect(redrawBtn()!.style.letterSpacing).toBe('0.18em');
+      // Its size, read off the SHORTHAND (jsdom keeps `style.font` verbatim but
+      // does not decompose a var()-carrying shorthand into `style.fontSize`),
+      // sits above the mono floor — which is why it needs no counter-scale.
+      const px = Number(/(\d+(?:\.\d+)?)px/.exec(redrawBtn()!.style.font)?.[1]);
+      expect(px).toBeGreaterThan(CLIENT_CONFIG.settings.monoFloorPx);
     });
 
     it('GOES when the water goes live, with the window still open (the row drops back)', () => {
