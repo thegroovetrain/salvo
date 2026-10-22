@@ -22,6 +22,23 @@ import {
   type HullId,
 } from '../constants.js';
 
+describe('every hull envelope is finite and positive (a NaN or zero stat would fail closed into an unsailable hull)', () => {
+  it('every class and every drone size: hp, hull dims and all kinematics fields are finite and > 0', () => {
+    const envelopes = [
+      ...SHIP_CLASS_IDS.map((id) => CONFIG.shipClasses[id]),
+      ...DRONE_SIZE_IDS.map((size) => CONFIG.drones[size]),
+    ];
+    for (const e of envelopes) {
+      const values = [e.hp, e.hull.length, e.hull.beam, ...Object.values(e.kinematics)];
+      expect(values.length).toBeGreaterThan(3);
+      for (const v of values) {
+        expect(Number.isFinite(v)).toBe(true);
+        expect(v).toBeGreaterThan(0);
+      }
+    }
+  });
+});
+
 describe('class ordering invariants', () => {
   const tb = CONFIG.shipClasses.torpedoBoat;
   const bb = CONFIG.shipClasses.battleship;

@@ -725,14 +725,14 @@ describe('shared barrel', () => {
       'spreadU',
       'waves',
     ]);
-    // 8/4/2 GROUPS. The wave sizes are a RATIO — one twelve-hull fleet (i.e.
-    // TWO of these groups) per ~5 captains, held constant as the storm halves
-    // the field — so level totals are a consequence, never the input. Counts
-    // doubled from 4/2/1 when the spawn unit halved to six hulls.
+    // The wave sizes are a RATIO held against a shrinking field, so each later
+    // wave lands fewer fleets than the one before it — the ratio itself (today
+    // halving) is Eric's dial, not a contract (9.14 gate P2).
     const waves = CONFIG.fleet.waves;
     for (let i = 1; i < waves.length; i += 1) {
       expect(waves[i].atMs, `wave ${i}`).toBeGreaterThan(waves[i - 1].atMs);
-      expect(waves[i].fleets * 2, `wave ${i}`).toBe(waves[i - 1].fleets);
+      expect(waves[i].fleets, `wave ${i}`).toBeLessThan(waves[i - 1].fleets);
+      expect(waves[i].fleets, `wave ${i}`).toBeGreaterThan(0);
     }
   });
 });
