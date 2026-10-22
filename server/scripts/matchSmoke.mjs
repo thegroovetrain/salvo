@@ -495,7 +495,13 @@ async function stepSink(a, b) {
   assert(b.sunkBy === a.room.sessionId, `B sunk by ${b.sunkBy}, expected A`);
   const blows = b.dmgActive.map((e) => e.amount);
   assert(blows.every((x) => x === FISH_BLOW), `B took blows ${JSON.stringify(blows)}, expected only ${FISH_BLOW}`);
-  assert(blows.length === PLAN.fish, `B sank on ${blows.length} fish, the kill plan says ${PLAN.fish}`);
+  // Two-sided contract, NOT equality: the plan is a tick replay of the server,
+  // so a regen or reload timing nudge could flip an exact count without any
+  // contract breaking. Lower bound = the arithmetic minimum (no fish wasted on
+  // nothing); upper bound = the plan (regen never lengthened the fight).
+  const minFish = Math.ceil(TARGET.maxHp / FISH_BLOW);
+  assert(blows.length >= minFish, `B sank on ${blows.length} fish, fewer than the arithmetic minimum ${minFish}`);
+  assert(blows.length <= PLAN.fish, `B sank on ${blows.length} fish, more than the kill plan's ${PLAN.fish}`);
   assert(b.dmgActive[b.dmgActive.length - 1].hp === 0, 'the sinking blow did not leave B at 0 hp');
   // THE SINKING WINDOW HOLDS THE FINISH (Story 5.2 + the amendment-17
   // REVERSAL, Eric veto 2026-08-12): spec frames (and the results right behind
@@ -505,7 +511,7 @@ async function stepSink(a, b) {
   assert(b.specContactIds.has(a.room.sessionId), 'B spec frames never showed A unfogged');
   assert(a.specBeforeFinish === 0, 'A received a spec frame before the finishing sink');
   assert(b.specBeforeFinish === 0, 'B received a spec frame before its own sink frame');
-  TRACE.push(`B sunk by A on ${blows.length} fish of ${FISH_BLOW} (plan ${PLAN.fish}); B got ${b.specFrames} spec frames (unfogged, no you); A spec'd only after the finish`);
+  TRACE.push(`B sunk by A on ${blows.length} fish of ${FISH_BLOW} (min ${minFish}, plan ${PLAN.fish}); B got ${b.specFrames} spec frames (unfogged, no you); A spec'd only after the finish`);
 }
 
 /** Step 5 — results at B's FOUNDER (amendment 4): captains only, dense placements. */

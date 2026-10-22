@@ -327,9 +327,9 @@ function killPlan({ hp, damage, maxAmmo, reloadMs, flightMs, regen }) {
 }
 
 /**
- * Pick the torpedo fit: the smallest card stack (≤ tier III) that gives TWO
- * tubes, IF its plan lands the kill inside one regen wait; otherwise one card
- * (tier I). Both plans go to the trace.
+ * Pick the torpedo fit: ALWAYS the smallest card stack (≤ tier III) that gives
+ * TWO tubes (a tiered fit is allowed — Eric 2026-10-22). The tier-I plan and
+ * the chosen plan both go to the trace.
  */
 function torpedoFit(line, shooterCls, target, rangeU) {
   const tgt = effectiveStats(CONFIG.shipClasses[target.cls], target.fit);
@@ -344,7 +344,8 @@ function torpedoFit(line, shooterCls, target, rangeU) {
     const p = planFor(k);
     if (p.row.maxAmmo >= 2) two = p;
   }
-  const pick = two !== null && two.plan.insideRegenWait ? two : one;
+  precondition(two !== null, `${line}: no two-tube tier within ${MAX_SMOKE_CARDS} cards`);
+  const pick = two;
   const fmt = (p) => `${p.cards} card(s) tier ${p.row.tier}: ${p.row.maxAmmo} tube(s) x ${p.row.damage} dmg / ${secs(p.row.reloadMs)} -> ${p.plan.fish} fish, kill at ${secs(p.plan.killAtMs)}${p.plan.insideRegenWait ? ' (inside one regen wait)' : ' (regen races it)'}`;
   return {
     pick,
