@@ -7,13 +7,15 @@
 //      4th client's joinOrCreate lands in a fresh room).
 //   2. The ready room is weapons-safe: A's torpedo STRIKES B (a boom on B) but
 //      B loses ZERO hp until the match activates.
-//   3. countdown end -> active: both hulls redeployed to their dev pose at full
-//      hp, storm timeline anchored (zoneState leaves 'idle').
+//   3. countdown end -> active: both hulls redeployed (witnessed by the own
+//      `spawn` event and A's refilled tubes), at their dev pose at full hp,
+//      storm timeline anchored (zoneState leaves 'idle').
 //   4. A sinks B: every hit on B is the fitted fish's damage, B's own sunk
 //      event carries by=A, the fish count matches the kill plan derived from
 //      CONFIG; B rides out its sinking window (Story 5.2, the amendment-17
-//      reversal) and then receives spec:true frames (no `you`, A unfogged); A
-//      NEVER receives a spec frame before the frame that reports B's sink.
+//      reversal) and then receives spec:true frames (no `you`, A unfogged) —
+//      the hold is measured in SERVER time (frame `t`) and must cover the
+//      window; A NEVER receives a spec frame before the frame that reports B's sink.
 //   5. results broadcast at B's FOUNDER (amendment 4): winnerId=A, A placed
 //      1st and the FIRST row, B 2nd, exactly the TWO CAPTAINS, dense
 //      placements, and a captains-only ROSTER (amendments 39/41). A's kills
@@ -222,6 +224,9 @@ function precondition(cond, msg) {
 }
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Socket round-trip allowance for a state/message to reach a client after the
+ *  server changed it (join, phase flip): polled, never slept. */
+const ROUNDTRIP_MS = 2000;
 /** Non-captain hull ids. `drone-N` was the deleted match-start fill
  *  (amendment 41); `fleet-N` is the PvE wave namespace that replaced it. */
 const isDrone = (id) => typeof id === 'string' && (id.startsWith('drone-') || id.startsWith('fleet-'));
@@ -296,13 +301,16 @@ async function joinClient(name, { pose, fit } = {}) {
   const ctx = {
     name, room, welcome: null, you: null, firstYou: null, seq: 0, fireSeq: 0,
     frames: 0, specFrames: 0, specWithYou: 0, specContactIds: new Set(),
-    specBeforeFinish: 0, seenPeerSunk: false, peerId: null,
+    specBeforeFinish: 0, seenPeerSunk: false, lastT: 0, sunkT: null, firstSpecT: null, resultsT: null, spawnsSeen: 0, peerId: null,
     boomsOnMe: 0, readyHpViolations: 0, activated: false, dmgActive: [],
     sunkSeen: false, sunkBy: 'UNSET', results: null, leftCode: null,
   };
   room.onMessage('w', (m) => (ctx.welcome = m));
   room.onMessage('f', (m) => onFrame(ctx, m));
-  room.onMessage('r', (m) => (ctx.results = m));
+  room.onMessage('r', (m) => {
+    ctx.results = m;
+    ctx.resultsT = ctx.lastT; // ResultsMsg carries no clock: the last frame's server time
+  });
   // The server's RTT ping — no reply needed here; registered so the SDK does
   // not log "onMessage() not registered for type 'p'" every few seconds.
   room.onMessage('p', () => {});
@@ -312,10 +320,12 @@ async function joinClient(name, { pose, fit } = {}) {
 
 function onFrame(ctx, f) {
   ctx.frames += 1;
+  ctx.lastT = f.t;
   const hasPeerSunk = ctx.peerId !== null && f.events.some((e) => e.k === 'sunk' && e.id === ctx.peerId);
   const hasOwnSunk = f.events.some((e) => e.k === 'sunk' && e.id === ctx.room.sessionId);
   if (f.spec) {
     ctx.specFrames += 1;
+    if (ctx.firstSpecT === null) ctx.firstSpecT = f.t;
     if (f.you) ctx.specWithYou += 1;
     for (const c of f.contacts) ctx.specContactIds.add(c.id);
     // A spec frame is legal only once the observer is dead or the match ended.
@@ -333,8 +343,10 @@ function onFrame(ctx, f) {
   for (const e of f.events) {
     if (e.k === 'boom' && e.hit === ctx.room.sessionId) ctx.boomsOnMe += 1;
     if (e.k === 'dmg' && e.id === ctx.room.sessionId && ctx.activated) ctx.dmgActive.push(e);
+    if (e.k === 'spawn' && e.id === ctx.room.sessionId) ctx.spawnsSeen += 1;
     if (e.k === 'sunk' && e.id === ctx.room.sessionId) {
       ctx.sunkSeen = true;
+      if (ctx.sunkT === null) ctx.sunkT = f.t;
       ctx.sunkBy = e.by;
     }
   }
@@ -386,7 +398,7 @@ async function runUntil(tick, done, timeoutMs, label) {
  *  inside the centre, a hull length off every coast, no island across the
  *  A->B lane, and a storm-free window that covers the fight. */
 function assertLane(welcome) {
-  precondition(welcome.mapSeed === MAP_SEED, `welcome mapSeed ${welcome.mapSeed} !== pinned ${MAP_SEED}`);
+  assert(welcome.mapSeed === MAP_SEED, `welcome mapSeed ${welcome.mapSeed} !== pinned ${MAP_SEED}`);
   const map = generateMap(welcome.mapSeed, welcome.playerCap);
   for (const [name, p] of [['A', A_POSE], ['B', B_POSE]]) {
     precondition(Math.hypot(p.x, p.y) <= CENTER_FRACTION * map.radius, `${name} pose outside ${CENTER_FRACTION} x map radius`);
@@ -407,14 +419,15 @@ function assertLane(welcome) {
 function assertPoses(a, b) {
   for (const [ctx, pose] of [[a, A_POSE], [b, B_POSE]]) {
     const y = ctx.firstYou;
-    precondition(dist(y, pose) < 1 && Math.abs(angleDiff(y.heading, pose.heading)) < 1e-6,
+    assert(dist(y, pose) < 1 && Math.abs(angleDiff(y.heading, pose.heading)) < 1e-6,
       `${ctx.name} spawned at (${y.x.toFixed(1)},${y.y.toFixed(1)}) h=${y.heading.toFixed(3)}, not its dev pose`);
   }
+  assert(a.firstYou.hp === TB.hp && b.firstYou.hp === TARGET.maxHp, `spawn hp A ${a.firstYou.hp} / B ${b.firstYou.hp}, expected ${TB.hp} / ${TARGET.maxHp} (shared fold vs server maxHp)`);
   const off = Math.abs(angleDiff(a.firstYou.heading, bearing(a.firstYou, B_POSE)));
   precondition(off < CONFIG.torpedo.halfArc, `bearing to B is ${off.toFixed(3)} rad off A's bow (halfArc ${CONFIG.torpedo.halfArc.toFixed(3)})`);
-  precondition(JSON.stringify(a.firstYou.cards) === JSON.stringify(FIT), `A fitted ${JSON.stringify(a.firstYou.cards)}, expected ${JSON.stringify(FIT)}`);
+  assert(JSON.stringify(a.firstYou.cards) === JSON.stringify(FIT), `A fitted ${JSON.stringify(a.firstYou.cards)}, expected ${JSON.stringify(FIT)}`);
   const pool = a.firstYou.ammo[TORP_SLOT];
-  precondition(pool !== null && pool.n === FISH.tubes, `A's slot ${TORP_SLOT} holds ${pool?.n} fish, expected ${FISH.tubes} tubes`);
+  assert(pool !== null && pool.n === FISH.tubes, `A's slot ${TORP_SLOT} holds ${pool?.n} fish, expected ${FISH.tubes} tubes`);
 }
 
 function planLine(stormFree) {
@@ -428,7 +441,7 @@ function planLine(stormFree) {
 /** Step 1 — waiting -> gathering (unlocked window) -> countdown + room lock. */
 async function stepGathering() {
   const a = await joinClient('ALPHA', { pose: A_POSE, fit: FIT });
-  await sleep(500);
+  await runUntil(() => {}, () => a.welcome !== null && phase(a) !== 'unknown', ROUNDTRIP_MS, 'welcome + room state');
   assert(phase(a) === 'waiting', `solo join should idle in waiting (got ${phase(a)})`);
   assert(a.welcome, 'no welcome message received');
   TRACE.push(planLine(assertLane(a.welcome)));
@@ -436,7 +449,7 @@ async function stepGathering() {
   assert(a.room.roomId === b.room.roomId, 'A and B joined different rooms');
   a.peerId = b.room.sessionId;
   b.peerId = a.room.sessionId;
-  await sleep(500);
+  await runUntil(() => {}, () => phase(a) === 'gathering', ROUNDTRIP_MS, 'gathering window opens at the 2nd join');
   assert(phase(a) === 'gathering', `2nd join should open the gathering window (got ${phase(a)})`);
   const gatherDeadline = a.room.state.countdownEndT;
   assert(gatherDeadline > 0, 'gathering deadline (countdownEndT) not set');
@@ -469,9 +482,16 @@ async function stepReadyRoom(a, b) {
 /** Step 3 — countdown end -> active: dev poses, full hp, tubes, zone anchored. */
 async function stepActivation(a, b) {
   const calm = () => { idle(a); idle(b); };
+  const spawns0 = { a: a.spawnsSeen, b: b.spawnsSeen }; // join-time spawns, before the redeploy
   await runUntil(calm, () => phase(a) === 'active', COUNTDOWN_MS + SLACK_MS, 'activation');
   a.activated = true;
   b.activated = true;
+  // THE REDEPLOY WITNESSES: the server emits a `spawn` event to the own hull on
+  // every redeploy (World.redeployShip), and A's tubes refill. The pose check
+  // below is only a "did not drift" check — the hulls were posed already, so
+  // it cannot prove a redeploy happened.
+  await runUntil(calm, () => a.spawnsSeen > spawns0.a && b.spawnsSeen > spawns0.b, ROUNDTRIP_MS, 'own spawn event at the redeploy');
+  assert(a.spawnsSeen > spawns0.a && b.spawnsSeen > spawns0.b, `redeploy not witnessed: spawn events A ${spawns0.a}->${a.spawnsSeen} / B ${spawns0.b}->${b.spawnsSeen}`);
   await sleep(300); // a few frames of active state
   for (const [ctx, pose] of [[a, A_POSE], [b, B_POSE]]) {
     assert(ctx.you.hp === TB.hp, `${ctx.name} not at full hp after reset`);
@@ -480,7 +500,7 @@ async function stepActivation(a, b) {
   const pool = a.you.ammo[TORP_SLOT];
   assert(pool !== null && pool.n === FISH.tubes, `A's tubes not refilled at the redeploy (${pool?.n}/${FISH.tubes})`);
   assert(a.room.state.zoneState !== 'idle', 'storm timeline not anchored at activation');
-  TRACE.push(`active: both hulls redeployed to their dev poses, full hp, ${FISH.tubes} tubes loaded, zone=${a.room.state.zoneState}`);
+  TRACE.push(`active: both hulls redeployed (own spawn events A ${a.spawnsSeen} / B ${b.spawnsSeen}) and still on their dev poses, full hp, ${FISH.tubes} tubes loaded, zone=${a.room.state.zoneState}`);
 }
 
 /** Step 4 — A sinks B on the planned fish; B spectates unfogged; A never spec'd early. */
@@ -506,18 +526,27 @@ async function stepSink(a, b) {
   // THE SINKING WINDOW HOLDS THE FINISH (Story 5.2 + the amendment-17
   // REVERSAL, Eric veto 2026-08-12): spec frames (and the results right behind
   // them) arrive only once B founders — the window plus socket slack.
-  await runUntil(fightTick, () => b.specFrames >= 5, CONFIG.ship.sinkingWindowMs + 2 * SLACK_MS, 'B spec frames');
+  await runUntil(fightTick, () => b.specFrames >= 5, CONFIG.ship.sinkingWindowMs + 2 * SLACK_MS, 'B spec frames'); // wall-clock = timeout only
+  // The hold, in SERVER time: B stays a fogged, firing hull for the whole window.
+  const hold = b.firstSpecT - b.sunkT;
+  const holdMin = CONFIG.ship.sinkingWindowMs - CONFIG.tick.simDtMs;
+  assert(b.sunkT !== null && b.firstSpecT !== null, 'B never recorded its sunk / first spec frame time');
+  assert(hold >= holdMin, `B's sinking window held ${hold} ms of server time, < ${holdMin} ms (window ${CONFIG.ship.sinkingWindowMs} ms less one tick)`);
   assert(b.specWithYou === 0, 'a spec frame carried `you`');
   assert(b.specContactIds.has(a.room.sessionId), 'B spec frames never showed A unfogged');
   assert(a.specBeforeFinish === 0, 'A received a spec frame before the finishing sink');
   assert(b.specBeforeFinish === 0, 'B received a spec frame before its own sink frame');
-  TRACE.push(`B sunk by A on ${blows.length} fish of ${FISH_BLOW} (min ${minFish}, plan ${PLAN.fish}); B got ${b.specFrames} spec frames (unfogged, no you); A spec'd only after the finish`);
+  TRACE.push(`B sunk by A on ${blows.length} fish of ${FISH_BLOW} (min ${minFish}, plan ${PLAN.fish}); B held ${hold} ms of server time (>= ${holdMin}) before ${b.specFrames} spec frames (unfogged, no you); A spec'd only after the finish`);
 }
 
 /** Step 5 — results at B's FOUNDER (amendment 4): captains only, dense placements. */
 async function stepResults(a, b) {
   await runUntil(() => {}, () => a.results !== null && b.results !== null, 10000, 'results broadcast');
   const res = a.results;
+  // Results arrive no earlier than the first spec frame (the match holds open).
+  // `r` carries no clock, so its time is the last frame BEFORE it: the broadcast
+  // shares a tick with the first spec frame, hence one tick of resolution.
+  assert(b.resultsT + CONFIG.tick.simDtMs >= b.firstSpecT, `results reached B at server t=${b.resultsT}, before its first spec frame at t=${b.firstSpecT}`);
   assert(res.winnerId === a.room.sessionId, `winnerId=${res.winnerId}, expected A`);
   const rowA = res.rows.find((r) => r.id === a.room.sessionId);
   const rowB = res.rows.find((r) => r.id === b.room.sessionId);
@@ -594,7 +623,8 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('MATCH SMOKE FAILED:', err.message);
+  const bug = err.message.startsWith('PRECONDITION:');
+  console.error(bug ? 'MATCH SMOKE SCRIPT BUG:' : 'MATCH SMOKE FAILED:', err.message);
   console.error('trace so far:', TRACE);
   process.exit(1);
 });
