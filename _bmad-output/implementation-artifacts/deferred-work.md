@@ -1402,7 +1402,7 @@ and the next reader will again mistake a marker count for an open-work count.
   evidence: `client/src/ui/home.ts` `showHome` mount path; `client/src/main.ts` `endSession()`. Raised by the edge-case review agent at the cycle-105 gate.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-home-mode-subline-removal.md`
-  status: OPEN — quality-gate gap, project-wide, pre-existing
+  status: OPEN — quality-gate gap, project-wide, pre-existing; POINTED AT 9.16 by Story 9.14 (2026-10-22): un-ignoring `**/__tests__/**` is its own pass (the audit touched ~290 test files and found no lint leg over any of them), not a drive-by
   summary: ESLINT DOES NOT SEE ANY TEST FILE. `eslint.config.js` ignores `**/__tests__/**`, so `npm run check`'s lint leg covers zero test code across all three workspaces — the complexity-10 rule, unused-symbol detection and every other rule give no assurance there. This matters more than it looks: test files are where a lot of this project's reasoning lives, and cycles routinely land more changed lines in a test file than in the source it pins (cycle 105 itself was ~2/3 test code). "Lint clean" in any cycle report is therefore narrower than it sounds. Un-ignoring them is likely to surface a backlog, so it wants its own pass rather than a drive-by.
   evidence: `eslint.config.js:77` `ignores: [... '**/__tests__/**' ...]`; `npx eslint client/src/__tests__/home.test.ts` returns "File ignored because of a matching ignore pattern". Raised by the adversarial review agent at the cycle-105 gate.
 
@@ -1532,7 +1532,7 @@ and the next reader will again mistake a marker count for an open-work count.
   evidence: `server/scripts/batchsim/botReport.ts` `groupByClass`; `main.ts` per-variant push. Review gate 2026-08-20.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-balance-sim-harness-prep.md`
-  status: OPEN — PRE-EXISTING, surfaced incidentally; blocks a clean `npm run check` on this machine
+  status: RESOLVED 2026-10-22 (Story 9.14, cycle 204): the wall-clock pin is DELETED under Eric's ruling (never wall-clock timing in a test; it had been re-based 250 → 500 → 1500 ms under load); map-generation cost is a staging matter. Was: OPEN — PRE-EXISTING, surfaced incidentally; blocks a clean `npm run check` on this machine
   summary: THE SHARED MAP GENERATION TIMING GUARD IS LOAD-FLAKY AND SITS RIGHT ON ITS OWN BAR. `shared/src/__tests__/map.test.ts` "a production map generates within budget" asserts `elapsed < 500`ms; measured 499ms standalone (a 0.2% margin) and 529.9ms — FAILING — under `npm run check`, which runs three workspace suites concurrently. Reproduced twice under load and passing twice standalone. The test's own comment says it exists to catch an order-of-magnitude regression "without failing the build because three workspaces happened to run their suites at the same time", which is precisely what it now does. Not caused by cycle 117 (`git diff HEAD -- shared/ client/ server/src/` is empty); wants a wider budget or a load-independent measure.
   evidence: `shared/src/__tests__/map.test.ts:554`; `npm run check` runs 2026-08-20 (529.9ms fail x2, 499ms pass x2 standalone). Review gate 2026-08-20.
 
@@ -2554,7 +2554,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
   evidence: `shared/src/sim/shell.ts:133`; `server/src/game/world.ts` contact/burst `hitShip` calls (the burst site's comment records the deletion).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-16-catalog-v3-shield-chaff-decoy.md`
-  status: OPEN — record correction, no code change
+  status: RESOLVED 2026-10-22 (Story 9.14): spec-8-15:123 corrected to 20 (the shipped size); Eric ruled the count stays at 20. Was: OPEN — record correction, no code change
   summary: THE PERCEPTION FUZZ RUNS 20 SEEDED WORLDS, NOT 2000. The 8.16 spec's acceptance criterion said "2000 seeded perception fuzz worlds" — 8.15's wording carried forward; the shipped fuzz is 20 worlds (unchanged by this story), now seeding chaff sources and decoys, with non-vacuity counters proving the chaff and decoy-paint arms ran. The spec AC is corrected to the shipped size.
   evidence: `server/src/__tests__/perception.test.ts` (`for (let world = 0; world < 20; world++)`, `CHAFF_EXPECTED` / `DECOY_PAINT_EXPECTED`).
 
@@ -3129,6 +3129,23 @@ Closure stamps for three older entries (the originals are left as written), then
 ## 2026-10-21 — Cycle 203, the entire sweep's production look
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-radar-full-sweep-fog-dim.md`
-  status: OPEN — blocked on Eric's screenshot (every match on his desktop; not reproduced on this MacBook's Intel UHD 630 via ANGLE Metal in two matches)
+  status: CLOSED 2026-10-22 — Eric on development after cycle 203 (PR #301): "I can no longer reproduce any of the issues ... appears fixed"; the hull-over-wake write rule and the dim-wedge fix (amendments 211–212) took the square and the blue returns with them. Reopen only on a new screenshot. Was: OPEN — blocked on Eric's screenshot (every match on his desktop; not reproduced on this MacBook's Intel UHD 630 via ANGLE Metal in two matches)
   summary: THE 750 u "SMOKE RING" READS AS A SQUARE IN PRODUCTION (Eric 2026-10-21). ALSO OPEN FROM THE SAME REPORT: close enemy hull returns reading BLUE — the paint chain prices a close hull red over real terrain; no reading is to be offered without his screenshot. Headlessly the fog wisps sometimes fill the 1,890 u density-raster square around the hull with no halo clipping, sometimes a correct 790 u disc; every readable state (mask attached, canvas a disc, sprite placed/scaled, Pixi pass bounds positive) looked right, and the isolated FogFieldView never fails. Candidates not yet excluded: a stale halo sprite world transform at the mask-pass bounds intersection after a hide/show (reconnect, fog cut to FOG_NO_CUT and back), the first-frame mask effect before the sprite's transform update. Next evidence: Eric's screenshot (is the square the fog wisps? sharp edge? does zoom change it? does it persist after a reconnect?).
   evidence: client/src/render/fogField.ts placeHalo/clipToScreen; node_modules/pixi.js AlphaMaskPipe / FilterSystem._calculateFilterBounds (skip on non-positive bounds draws the content unmasked); amendment 211.
+
+## 2026-10-22 — Story 9.14, the test purposefulness audit (test-audit-2026-10-22.md)
+
+- source_spec: `_bmad-output/implementation-artifacts/test-audit-2026-10-22.md`
+  status: OPEN — bot behavior defect, the two wedge fixtures (ex `it.skip`, deleted by 9.14 as SKIPPED guards nothing)
+  summary: TWO REAL WEDGE FIXTURES STILL RE-GROUND AFTER THE PROBED UN-BEACH FREES THEM — carried out of `botReviewFixes.test.ts` with their numbers so nothing is lost. MOONRAKER: map seed 1026202030, run seed 21261020, island #30 notch, pose `{ x: -2263.1406506207636, y: 2360.970336695595, heading: 0.8072876976918231, speed: 0.9999999999999998 }` — "STILL FAILS (56.9 u at 30 s): backs out past 60 u (peak 64 u) twice, then the post-hold helm's patrol route steers it back into the bay". CROWSNEST: map seed 3676774083, run seed 25261032, island #50 pocket, pose `{ x: -109.09205889147326, y: 1654.2862307524579, heading: 0.12616461854440963, speed: -8.753248495766263 }` — "STILL FAILS (13.2 u at 30 s): backs out to 65 u, then the patrol route steers it back into the pocket". DOLDRUM stays as the live regression contract. The island polygons (`WEDGE_MOONRAKER`, `WEDGE_CROWSNEST`) are recoverable from commit 7907597b. Fix shape per the 9-13 record: a goal choice that does not run back into a dead-end inlet (a per-mind trap memory was tried and REVERTED 2026-10-17).
+  evidence: spec-9-13-bot-posture-workover.md § residual risks; the earlier entry above ("TWO REAL WEDGE FIXTURES STILL RE-GROUND").
+
+- source_spec: `_bmad-output/implementation-artifacts/test-audit-2026-10-22.md`
+  status: OPEN — Eric ruling pending since 2026-08-23 (moved out of a test comment)
+  summary: NFR6 — THE STORM-SINK TAIL vs "INSIDE ~15:00". `server/src/__tests__/zone.test.ts` carried an in-test note that an Eric ruling was pending on whether a full-hp battleship parked on the collapse point sinking within its computed storm-sink time satisfies NFR6's "a match ends inside ~15:00"; the literal `sunkS ≤ 90` bound was deleted as CONST and the geometry promise (sinks within computed time + one tick) stays. The question is Eric's, not a test's.
+  evidence: zone.test.ts "the collapse point" describe; the deleted comment block (350 hp / 4 dps / "AWAITING AN ERIC RULING").
+
+- source_spec: `_bmad-output/implementation-artifacts/test-audit-2026-10-22.md`
+  status: OPEN — 9.16 hygiene (no production change in 9.14)
+  summary: SMALL LEFTOVERS FROM THE AUDIT FOR 9.16: (a) `server/src/game/world.ts:1811` comment "the fogPerf pin reads it" — that test file is deleted; the `fogCellEvals` counter still has a reader (`fogField.test.ts:363`); (b) "`game/world.ts` / `game/match.ts` have zero Colyseus imports" has NO guard anywhere (no source scan, no eslint rule) — one source-scan test in `world.test.ts`; (c) the harness CLI error regexes that enumerate all 25 tune families (`batchSim.test.ts:288`) and the GUN_IDS list (~:1497) break on every family added; (d) client tests that LOCATE controls by `title` or text because the production DOM has no data-* hook (settings analytics row 'ANALYTICS'/'ON'/'OFF', `title="Settings"`, the home door titles) — add hooks, then re-aim the locators; (e) `contactsAggro.test.ts:103` waits a real `setTimeout(breakMs + 60)` because the driver reads `performance.now()` — inject the clock; (f) `classSelect.test.ts:145/:56` pip anchor/fill literals that `:162` depends on; (g) the hook test's two "protects itself" wording cases (`.claude/hooks/protect-claude-md.test.sh:331–334`) — Eric's edit (the hook protects its own directory).
+  evidence: test-audit-2026-10-22.md § (g) kept-but-brittle.
