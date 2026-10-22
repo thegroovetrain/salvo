@@ -3,7 +3,7 @@ baseline_commit: 8f05716f
 ---
 # Story 9.15: Smoke Flakes Fixed
 
-Status: ready-for-dev
+Status: in-progress
 
 <!-- Created 2026-10-22 by gds-create-story on development @ 8f05716f (0.18.69, PV 91). Every number below is a reading of CONFIG or the scripts on that commit, quoted so the dev agent knows what the smokes LEAN ON — none is a value to pin. The mechanism recommended in Dev Notes is a dev-door change (headless harness plumbing behind HC_DEV_OPTIONS=1), not a game mechanic; where it needs Eric's word, the question is collected at the end, not scattered. -->
 
