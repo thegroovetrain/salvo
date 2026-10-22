@@ -3141,7 +3141,7 @@ Closure stamps for three older entries (the originals are left as written), then
   evidence: spec-9-13-bot-posture-workover.md § residual risks; the earlier entry above ("TWO REAL WEDGE FIXTURES STILL RE-GROUND").
 
 - source_spec: `_bmad-output/implementation-artifacts/test-audit-2026-10-22.md`
-  status: OPEN — Eric ruling pending since 2026-08-23 (moved out of a test comment)
+  status: CLOSED 2026-10-22 — Eric: "The ~15 minute target is an estimate. There is a predefined length of time before the storm fully closes in and all remaining players take damage until someone sinks. That is how long the match takes, at its maximum. There should not be a test for this." Not a requirement and not a test subject; the ring ladder + storm damage define the maximum.
   summary: NFR6 — THE STORM-SINK TAIL vs "INSIDE ~15:00". `server/src/__tests__/zone.test.ts` carried an in-test note that an Eric ruling was pending on whether a full-hp battleship parked on the collapse point sinking within its computed storm-sink time satisfies NFR6's "a match ends inside ~15:00"; the literal `sunkS ≤ 90` bound was deleted as CONST and the geometry promise (sinks within computed time + one tick) stays. The question is Eric's, not a test's.
   evidence: zone.test.ts "the collapse point" describe; the deleted comment block (350 hp / 4 dps / "AWAITING AN ERIC RULING").
 

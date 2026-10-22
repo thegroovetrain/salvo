@@ -170,13 +170,11 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('authors the CANNON ladder: a whole-number damage step on EVERY rung, the turret on the rung to III only, NO barrel rung (Eric 2026-10-16, Story 9.12 — barrels are the fixed CONFIG.gun.barrels)', () => {
+  it('authors the CANNON ladder: a positive whole-number damage step on EVERY rung, the range step on every rung, NO barrel rung, and the steps sum to the fold\'s Tier V damage (barrels are the fixed CONFIG.gun.barrels)', () => {
     // Story 9.8 (ruling 125): every rung also carries the even range step.
     const range = rangeStepOf('gun');
-    const turret = { kind: 'stat', path: 'equipment.gun.maxAmmo', add: 1 };
     const tiers = CATALOG.deckGun.tiers;
     expect(CATALOG.deckGun.appliesTo).toEqual(['gun']);
-    expect(tiers).toHaveLength(4);
     let damageSum = 0;
     tiers.forEach((tier, k) => {
       const dmg = tier.filter((e) => e.kind === 'stat' && e.path === 'equipment.gun.damage');
@@ -185,13 +183,11 @@ describe('catalog v3 identity', () => {
       expect(Number.isInteger(add) && add > 0, `rung ${k + 2}`).toBe(true);
       damageSum += add;
       expect(tier, `rung ${k + 2}`).toContainEqual(range);
-      // The second turret lives on the rung reaching tier III (copy 2) and nowhere else.
-      expect(tier.some((e) => JSON.stringify(e) === JSON.stringify(turret)), `rung ${k + 2}`).toBe(k === 1);
       // No rung authors a barrel any more.
       expect(tier.some((e) => e.kind === 'stat' && e.path === 'equipment.gun.barrels'), `rung ${k + 2}`).toBe(false);
     });
     // The authored steps land the fold's Tier V damage exactly (no float, no floor dust).
-    const atV = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['deckGun', 'deckGun', 'deckGun', 'deckGun']);
+    const atV = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<string>(CATALOG.deckGun.cap).fill('deckGun'));
     expect(CONFIG.gun.damage + damageSum).toBe(atV.equipment.gun.damage);
   });
 
@@ -229,13 +225,10 @@ describe('catalog v3 identity', () => {
 
   it('gives every equipment line a copy-1 slotFill and FOUR AUTHORED tiers — no empty tier is left (Story 8.17)', () => {
     // The UNIFORM ladders (`tieredWeapon`): FOULING MINES and, since 8.17,
-    // BROADSIDE (amendment 133). Their exact steps are pinned in stats.test.ts,
-    // against the numbers, not against the effect shapes. STAR SHELLS and
-    // PHOSPHOR SHELLS are NON-UNIFORM (`tieredWeaponSteps`, amendments
-    // 130/131) — their per-tier shapes are pinned below — and since Story 9.12
-    // (Eric 2026-10-16) so are the two torpedo lines and the two damage mines
-    // (odd damage steps, tubes only on the rungs to II and III): see the
-    // next case.
+    // BROADSIDE (amendment 133). Every equipment line's fold is a relation in
+    // stats.test.ts THE TIERED-LINE FOLD (zero-card row + authored adds /
+    // mults, floored once), never a per-rung table (Story 9.14). The other
+    // equipment lines are NON-UNIFORM (`tieredWeaponSteps`): see the next case.
     const UNIFORM: readonly LineId[] = ['foulingMines', 'broadside'];
     for (const id of LINE_IDS) {
       const line = CATALOG[id];
@@ -250,7 +243,7 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('the NON-UNIFORM torpedo and mine ladders (Story 9.12): the authored damage steps sum to the fold\'s Tier V damage, and the +0.5 pool steps sit only on the rungs to II and III where the pool is capped at two', () => {
+  it('the NON-UNIFORM torpedo and mine ladders (Story 9.12): one whole-number damage step per rung, and the authored steps sum to the fold\'s Tier V damage', () => {
     const TB = CONFIG.shipClasses.torpedoBoat;
     const lines = ['lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines'] as const;
     for (const id of lines) {
@@ -269,51 +262,23 @@ describe('catalog v3 identity', () => {
         expect(Number.isInteger((dmg[0] as { add: number }).add), id).toBe(true);
       }
     }
-    // The three +0.5 pool lines: the half-steps sit on the rungs to II and III
-    // only, so the floored pool tops out at two (Eric 2026-10-16, Story 9.12).
-    for (const id of ['lightTorpedo', 'heavyTorpedo', 'captiveMines'] as const) {
-      const pooled = CATALOG[id].tiers
-        .slice(1)
-        .map((tier) => tier.some((e) => e.kind === 'stat' && e.path === `equipment.${id}.maxAmmo`));
-      expect(pooled, id).toEqual([true, true, false, false]);
+  });
+
+  it('every production stat effect is ONE of add / mult, each path folds ONE way across the whole catalog, and no effect is a no-op (add 0 / mult 1)', () => {
+    const way = new Map<string, 'add' | 'mult'>();
+    for (const id of LINE_IDS) {
+      for (const tier of CATALOG[id].tiers) {
+        for (const e of tier) {
+          if (e.kind !== 'stat') continue;
+          const tag = `${id}:${e.path}`;
+          expect((e.add === undefined) !== (e.mult === undefined), tag).toBe(true);
+          const kind = e.mult !== undefined ? 'mult' : 'add';
+          expect(kind === 'mult' ? e.mult !== 1 : e.add !== 0, `${tag} is a no-op`).toBe(true);
+          expect(way.get(e.path) ?? kind, tag).toBe(kind);
+          way.set(e.path, kind);
+        }
+      }
     }
-  });
-
-  it('authors the STAR SHELLS ladder tier by tier (Eric 2026-09-29, amendment 130)', () => {
-    const stepsOf = (damage: number): unknown[] => [
-      { kind: 'stat', path: 'equipment.starShells.litDurationMs', add: 2500 },
-      { kind: 'stat', path: 'equipment.starShells.litRadius', mult: 1.1 },
-      { kind: 'stat', path: 'equipment.starShells.maxAmmo', add: 0.5 },
-      { kind: 'stat', path: 'equipment.starShells.damage', add: damage },
-      rangeStepOf('starShells'),
-    ];
-    expect(CATALOG.starShells.tiers.slice(1)).toEqual([stepsOf(2), stepsOf(3), stepsOf(2), stepsOf(3)]);
-  });
-
-  it('authors the BROADSIDE ladder: +1 spread rung and +0.5 turret per tier, no damage step (amendment 133)', () => {
-    for (const tier of CATALOG.broadside.tiers.slice(1)) {
-      expect(tier).toEqual([
-        { kind: 'stat', path: 'equipment.broadside.spreadRung', add: 1 },
-        { kind: 'stat', path: 'equipment.broadside.turrets', add: 0.5 },
-        rangeStepOf('broadside'),
-      ]);
-    }
-  });
-
-  it('authors the PHOSPHOR SHELLS ladder tier by tier — a ZERO duration step is omitted (amendment 131)', () => {
-    const tier = (damage: number, dps: number, durMs?: number): unknown[] => [
-      { kind: 'stat', path: 'equipment.phosphorShells.damage', add: damage },
-      { kind: 'stat', path: 'equipment.phosphorShells.dps', add: dps },
-      { kind: 'stat', path: 'equipment.phosphorShells.zoneRadius', mult: 1.1 },
-      rangeStepOf('phosphorShells'),
-      ...(durMs === undefined ? [] : [{ kind: 'stat', path: 'equipment.phosphorShells.zoneDurationMs', add: durMs }]),
-    ];
-    expect(CATALOG.phosphorShells.tiers.slice(1)).toEqual([
-      tier(2, 1),
-      tier(3, 1, 1000),
-      tier(2, 1),
-      tier(3, 2, 1000),
-    ]);
   });
 
   it('tieredWeaponSteps gives every tier a FRESH array — never the caller\'s, never another tier\'s', () => {
@@ -393,19 +358,18 @@ describe('catalog v3 identity', () => {
   });
 
   it('the MACHINE GUN and FLAK lines are their guns\' LADDERS, exactly like DECK GUN (amendments 104/105)', () => {
-    // Per tier (Eric 2026-10-16, Story 9.12): MACHINE GUN a magazine step and
-    // the SAME shot-delay step on every rung, NO damage effect on any rung
-    // (damage 5 flat); FLAK the SAME damage step on every rung, +1 pool on the
-    // rung to II ONLY (turrets capped at two; blast fixed).
+    // Per tier: MACHINE GUN a whole-number magazine step and the SAME
+    // shot-delay step on every rung; FLAK the SAME whole-number damage step on
+    // every rung. Which rung carries which extra (a turret, a magazine size) is
+    // catalog content and is not pinned (Story 9.14); the fold of every rung is
+    // stats.test.ts THE TIERED-LINE FOLD.
     // The −5 % reload is the derived tier step, never an effect.
     expect(CATALOG.machineGun.appliesTo).toEqual(['machineGun']);
     expect(CATALOG.flak.appliesTo).toEqual(['flak']);
     const mgRange = rangeStepOf('machineGun'); // Story 9.8, ruling 125
-    const pathsOf = (tier: readonly { kind: string; path?: string }[]) => tier.map((e) => e.path);
     const addOf = (tier: readonly unknown[], path: string) =>
       (tier.find((e) => (e as { path?: string }).path === path) as { add: number } | undefined)?.add;
     for (const tier of CATALOG.machineGun.tiers) {
-      expect(pathsOf(tier)).toEqual(['equipment.machineGun.maxAmmo', 'equipment.machineGun.rateMs', 'equipment.machineGun.rangeU']);
       expect(tier).toContainEqual(mgRange);
       expect(Number.isInteger(addOf(tier, 'equipment.machineGun.maxAmmo'))).toBe(true);
       expect(addOf(tier, 'equipment.machineGun.rateMs')).toBe(addOf(CATALOG.machineGun.tiers[0], 'equipment.machineGun.rateMs'));
@@ -414,20 +378,16 @@ describe('catalog v3 identity', () => {
     const mgTiers = CATALOG.machineGun.tiers;
     expect(new Set(mgTiers).size).toBe(mgTiers.length);
     expect(mgTiers.every((tier) => Object.isFrozen(tier) && tier.every((e) => Object.isFrozen(e)))).toBe(true);
-    // FLAK: the same damage step every rung, and the second TURRET (+1 pool)
-    // on the rung reaching tier II only (Eric 2026-10-16, Story 9.12; the
-    // third turret at IV is cut). The blast radius never moves.
+    // FLAK: the same damage step every rung, and the range step on every rung.
     const flakStep = addOf(CATALOG.flak.tiers[0], 'equipment.flak.damage');
-    const flakPool = { kind: 'stat', path: 'equipment.flak.maxAmmo', add: 1 };
     const flakRange = rangeStepOf('flak'); // Story 9.8, ruling 125
     expect(Number.isInteger(flakStep)).toBe(true);
     CATALOG.flak.tiers.forEach((tier, k) => {
       expect(addOf(tier, 'equipment.flak.damage'), `rung ${k + 2}`).toBe(flakStep);
       expect(tier, `rung ${k + 2}`).toContainEqual(flakRange);
-      expect(tier.some((e) => JSON.stringify(e) === JSON.stringify(flakPool)), `rung ${k + 2}`).toBe(k === 0);
     });
-    // The blast radius never moves: it is not even a stat path (the fold below
-    // reads the CONFIG value at every rung — stats.test.ts FLAK table).
+    // The blast radius never moves: it is not even a stat path (every authored
+    // path's fold is stats.test.ts THE TIERED-LINE FOLD).
     // Each ladder advances its OWN gun's tier (the reload step reads it).
     expect(tierTargetOf(CATALOG.machineGun)).toBe('machineGun');
     expect(tierTargetOf(CATALOG.flak)).toBe('flak');
@@ -465,11 +425,23 @@ describe('catalog v3 identity', () => {
 
   it('gives every ladder tier its OWN array, and refuses a mutation of an effect', () => {
     expect(CATALOG.hullPoints.tiers[0]).not.toBe(CATALOG.hullPoints.tiers[1]);
+    const authored = (CATALOG.hullPoints.tiers[0][0] as unknown as { add: number }).add;
     expect(() => {
       (CATALOG.hullPoints.tiers[0][0] as unknown as { add: number }).add = 999;
     }).toThrow();
+    // The refused write left the fold reading the authored step.
     expect(effectiveStats(CONFIG.shipClasses.torpedoBoat, ['hullPoints']).maxHp)
-      .toBe(effectiveStats(CONFIG.shipClasses.torpedoBoat, []).maxHp + 50); // +50 since Story 9.6 (amendment 91)
+      .toBe(effectiveStats(CONFIG.shipClasses.torpedoBoat, []).maxHp + authored);
+  });
+
+  it('authors HULL POINTS as identical rungs of a positive add on the maxHp path alone', () => {
+    const line = CATALOG.hullPoints;
+    for (const tier of line.tiers) {
+      expect(tier).toEqual(line.tiers[0]);
+      expect(tier.map((e) => (e.kind === 'stat' ? e.path : e.kind))).toEqual(['maxHp']);
+      const e = tier[0]!;
+      expect(e.kind === 'stat' && e.add !== undefined && e.add > 0).toBe(true);
+    }
   });
 
   it('places PASSIVE HEALING last among the universal ladders, right after RELOAD (Story 9.6, amendment 90)', () => {
@@ -481,35 +453,41 @@ describe('catalog v3 identity', () => {
     expect(LINE_IDS.indexOf('armor')).toBe(LINE_IDS.indexOf('hullPoints') + 1);
   });
 
-  it('authors ARMOR as five identical rungs of +20 Armor — no hull, no heal (Story 9.7, rescaled by epic-9 amendment 144)', () => {
+  it('authors ARMOR as identical rungs on the armor path alone — universal, no hull, no heal (Story 9.7)', () => {
     const line = CATALOG.armor;
     expect(tierTargetOf(line)).toBeUndefined();
     expect(line.healOnGrant).toBeUndefined();
-    expect(line.tiers).toHaveLength(5);
-    for (const tier of line.tiers) expect(tier).toEqual([{ kind: 'stat', path: 'armor', add: 20 }]);
+    for (const tier of line.tiers) {
+      expect(tier).toEqual(line.tiers[0]);
+      expect(tier.map((e) => (e.kind === 'stat' ? e.path : e.kind))).toEqual(['armor']);
+    }
   });
 
   it('seats ARMOR PIERCING directly after ARMOR (Story 9.9, epic-9 amendment 145)', () => {
     expect(LINE_IDS.indexOf('armorPiercing')).toBe(LINE_IDS.indexOf('armor') + 1);
   });
 
-  it('authors ARMOR PIERCING as five identical rungs of +20 Armor Piercing — universal, no heal (Story 9.9, epic-9 amendments 144–145)', () => {
+  it('authors ARMOR PIERCING as identical rungs on the armorPiercing path alone — universal, no heal (Story 9.9, epic-9 amendment 145)', () => {
     const line = CATALOG.armorPiercing;
     expect(tierTargetOf(line)).toBeUndefined();
     expect(line.healOnGrant).toBeUndefined();
-    expect(line.tiers).toHaveLength(5);
-    for (const tier of line.tiers) expect(tier).toEqual([{ kind: 'stat', path: 'armorPiercing', add: 20 }]);
+    for (const tier of line.tiers) {
+      expect(tier).toEqual(line.tiers[0]);
+      expect(tier.map((e) => (e.kind === 'stat' ? e.path : e.kind))).toEqual(['armorPiercing']);
+    }
   });
 
-  it('authors PASSIVE HEALING as five identical rungs of +0.006 rate and −1000 ms wait (Story 9.6, amendment 91)', () => {
+  it('authors PASSIVE HEALING as identical rungs that raise the regen rate and shorten the wait — nothing else (Story 9.6, amendment 91)', () => {
     const line = CATALOG.passiveHealing;
     expect(tierTargetOf(line)).toBeUndefined();
     expect(line.healOnGrant).toBeUndefined();
+    const addOf = (tier: readonly unknown[], path: string) =>
+      (tier.find((e) => (e as { path?: string }).path === path) as { add?: number } | undefined)?.add;
     for (const tier of line.tiers) {
-      expect(tier).toEqual([
-        { kind: 'stat', path: 'regen.missingPctPerS', add: 0.006 },
-        { kind: 'stat', path: 'regen.outOfCombatMs', add: -1000 },
-      ]);
+      expect(tier).toEqual(line.tiers[0]);
+      expect(tier.map((e) => (e.kind === 'stat' ? e.path : e.kind))).toEqual(['regen.missingPctPerS', 'regen.outOfCombatMs']);
+      expect(addOf(tier, 'regen.missingPctPerS')).toBeGreaterThan(0);
+      expect(addOf(tier, 'regen.outOfCombatMs')).toBeLessThan(0);
     }
   });
 
