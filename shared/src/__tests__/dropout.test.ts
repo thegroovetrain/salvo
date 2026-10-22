@@ -20,8 +20,6 @@ describe('the dropout dials sit on the twelfths ruler (ruling 121)', () => {
   it('starts at 8/12, knees at 10/12, and the probabilities are a flat-then-cliff shape', () => {
     expect(D.startU).toBe(RUNG * 8);
     expect(D.kneeU).toBe(RUNG * 10);
-    // The far-radar fit anchor and the dropout start are the same rung.
-    expect(D.startU).toBe(CONFIG.vision.farRadar);
     expect(D.kneeP).toBeGreaterThan(D.rimP);
     expect(D.kneeP).toBeLessThanOrEqual(1);
     expect(D.rimP).toBeGreaterThanOrEqual(0);

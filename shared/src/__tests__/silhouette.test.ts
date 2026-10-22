@@ -57,13 +57,6 @@ describe('hullSilhouette — registry shape', () => {
       }
     }
   });
-
-  it('board outlines keep their vert counts (TB 8, BB 17, ML 11; drones 6)', () => {
-    expect(hullSilhouette('torpedoBoat')).toHaveLength(8);
-    expect(hullSilhouette('battleship')).toHaveLength(17);
-    expect(hullSilhouette('mineLayer')).toHaveLength(11);
-    for (const id of DRONE_HULL_IDS) expect(hullSilhouette(id)).toHaveLength(6);
-  });
 });
 
 describe('hullSilhouette — exact normalization (ratified length/beam, centered)', () => {
@@ -105,9 +98,9 @@ describe('hullSilhouette — bow lies in the +heading direction', () => {
 });
 
 describe('drone chevrons — legacy traceHull proportions at CONFIG.drones dims', () => {
-  it('droneSmall is the exact 85×25 chevron (shoulders 0.3·halfLen, stern inset 0.1·halfLen)', () => {
-    const hl = 85 / 2;
-    const hb = 25 / 2;
+  it('droneSmall is the exact chevron at its CONFIG dims (shoulders 0.3·halfLen, stern inset 0.1·halfLen)', () => {
+    const hl = CONFIG.drones.small.hull.length / 2;
+    const hb = CONFIG.drones.small.hull.beam / 2;
     expect(hullSilhouette('droneSmall')).toEqual([
       { x: hl, y: 0 },
       { x: hl * 0.3, y: -hb },

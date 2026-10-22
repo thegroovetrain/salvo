@@ -307,12 +307,12 @@ describe('eligibleLines — the whole eligibility law', () => {
 });
 
 describe('lineWeight — the weighting (amendments 90/91)', () => {
-  it('is 1.0 at zero takes, 0.75 at one, 0.5625 at two, and floored at 0.25 from five on', () => {
+  it('is factor^takes at the CONFIG dials, 1.0 at zero takes, and floored at the CONFIG floor', () => {
+    const { factor, floor } = CONFIG.offer.weighting;
     expect(lineWeight(0)).toBe(1);
-    expect(lineWeight(1)).toBe(0.75);
-    expect(lineWeight(2)).toBeCloseTo(0.5625, 12);
-    expect(lineWeight(5)).toBe(0.25);
-    expect(lineWeight(50)).toBe(0.25);
+    expect(lineWeight(1)).toBe(factor);
+    expect(lineWeight(2)).toBeCloseTo(factor * factor, 12);
+    expect(lineWeight(50)).toBe(floor);
   });
 
   it('is monotone NON-INCREASING in takes and never leaves [floor, 1]', () => {
@@ -326,8 +326,7 @@ describe('lineWeight — the weighting (amendments 90/91)', () => {
     }
   });
 
-  it('reads its numbers from CONFIG.offer.weighting — both [DRAFT] harness dials', () => {
-    expect(CONFIG.offer.weighting).toEqual({ factor: 0.75, floor: 0.25 });
+  it('takes an injected factor/floor pair in place of CONFIG.offer.weighting', () => {
     expect(lineWeight(1, { factor: 0.5, floor: 0.1 })).toBe(0.5);
     expect(lineWeight(9, { factor: 0.5, floor: 0.1 })).toBe(0.1);
   });

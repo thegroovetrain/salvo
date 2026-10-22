@@ -53,24 +53,7 @@ describe('slowedKinematics — active scales BOTH speed caps', () => {
     expect(kin).toEqual(before);
   });
 
-  it('the ratified values: the fouling slow cuts speed 25% for slowDurationMs', () => {
-    // Eric ruling 2026-08-19 (Story 7-5): *"simply slows affected ships by 25%
-    // for 5 seconds"* — was 0.5 / 4000ms. The slow got WEAKER and LONGER, and
-    // the doctrine stopped costing damage entirely.
-    //
-    // THE PIN MOVED HOME, not value (Eric ruling 2026-09-19, epic-8 amendment
-    // 81): FOULING MINES is its own tiered EQUIPMENT line now and NAVAL MINES
-    // no longer foul, so `CONFIG.mine.foulFactor`/`foulDurationMs` became
-    // `CONFIG.foulingMines.slowFactor`/`slowDurationMs`. The tier-I numbers
-    // are unchanged; tiers II–V deepen the FACTOR by 0.05 each (×0.55 at V)
-    // and the 5 s window never moves.
-    expect(CONFIG.foulingMines.slowFactor).toBe(0.75);
-    expect(CONFIG.foulingMines.slowDurationMs).toBe(5000);
-    expect('foulFactor' in CONFIG.mine).toBe(false);
-    expect('foulDurationMs' in CONFIG.mine).toBe(false);
-  });
-
-  it('the fouling SLOW deepens by tier and the DURATION never does (amendment 81)', () => {
+  it('the fouling SLOW deepens by tier from its CONFIG base and never reaches a full stop (amendment 81)', () => {
     const factorAt = (n: number): number =>
       effectiveStats(CONFIG.shipClasses.mineLayer, new Array<string>(n).fill('foulingMines'))
         .equipment.foulingMines.slowFactor;
@@ -79,8 +62,9 @@ describe('slowedKinematics — active scales BOTH speed caps', () => {
     // rounds it, because — unlike `cooldownScale`, which feeds a 50 ms-
     // quantized reload tick — a speed cap has no quantum for the dust to cost
     // a step of. Both sides run the identical arithmetic, so it cannot desync.
-    for (const [n, want] of [[1, 0.75], [2, 0.7], [3, 0.65], [4, 0.6], [5, 0.55]] as const) {
-      expect(factorAt(n), `${n} copies`).toBeCloseTo(want, 9);
+    expect(factorAt(1)).toBeCloseTo(CONFIG.foulingMines.slowFactor, 9);
+    for (let n = 2; n <= 5; n++) {
+      expect(factorAt(n), `${n} copies`).toBeLessThan(factorAt(n - 1));
     }
     // A capped fouling mine still leaves the victim MOVING — never a full stop.
     expect(factorAt(5)).toBeGreaterThan(0);
@@ -125,23 +109,22 @@ describe('two slow sources — mine × shell multiply through the one fold', () 
   it('the shell alone scales both caps by its CONFIG factor', () => {
     const kin = tbKinematics();
     const shell = slowedKinematics(kin, SHELL, true);
-    expect(SHELL).toBe(0.75);
-    expect(shell.maxSpeed).toBeCloseTo(kin.maxSpeed * 0.75, 9);
-    expect(shell.reverseSpeed).toBeCloseTo(kin.reverseSpeed * 0.75, 9);
+    expect(shell.maxSpeed).toBeCloseTo(kin.maxSpeed * SHELL, 9);
+    expect(shell.reverseSpeed).toBeCloseTo(kin.reverseSpeed * SHELL, 9);
   });
 
-  it('a tier-V mine (0.55) then the shell (0.75) scales both caps by 0.4125', () => {
+  it('a mine slow then the shell slow multiply on both caps', () => {
     const kin = tbKinematics();
     const both = slowedKinematics(slowedKinematics(kin, 0.55, true), SHELL, true);
-    expect(both.maxSpeed).toBeCloseTo(kin.maxSpeed * 0.4125, 9);
-    expect(both.reverseSpeed).toBeCloseTo(kin.reverseSpeed * 0.4125, 9);
+    expect(both.maxSpeed).toBeCloseTo(kin.maxSpeed * 0.55 * SHELL, 9);
+    expect(both.reverseSpeed).toBeCloseTo(kin.reverseSpeed * 0.55 * SHELL, 9);
   });
 
   it('when the mine window lapses only the shell factor remains', () => {
     const kin = tbKinematics();
     const shellOnly = slowedKinematics(slowedKinematics(kin, 0.55, false), SHELL, true);
-    expect(shellOnly.maxSpeed).toBeCloseTo(kin.maxSpeed * 0.75, 9);
-    expect(shellOnly.reverseSpeed).toBeCloseTo(kin.reverseSpeed * 0.75, 9);
+    expect(shellOnly.maxSpeed).toBeCloseTo(kin.maxSpeed * SHELL, 9);
+    expect(shellOnly.reverseSpeed).toBeCloseTo(kin.reverseSpeed * SHELL, 9);
   });
 
   it('both sources inactive: the input reference comes back (allocation-free tick)', () => {

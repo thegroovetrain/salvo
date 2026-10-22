@@ -40,12 +40,6 @@ function boostedCap(cls: ShipClassId, cards: LineId[] = []): number {
 }
 
 describe('CONFIG.boost — Eric ruling 2026-09-18 (amendment 54)', () => {
-  it('is exactly { factor 0.25, durationMs 10000, maxAmmo 1, reloadMs 25000 }', () => {
-    // Eric, verbatim: *"Build as-written, except 25s reload."* — R9's 20 s is
-    // superseded. The legacy flat block (+10 u/s, 6 s, 18 s) is DELETED.
-    expect(CONFIG.boost).toEqual({ factor: 0.25, durationMs: 10000, maxAmmo: 1, reloadMs: 25000 });
-  });
-
   it('honours `reloadMs >= durationMs` — an active window ALWAYS implies a cooling pool', () => {
     // The design invariant that makes re-activation while active impossible by
     // construction. The batch-sim override validator enforces it on the
@@ -73,7 +67,6 @@ describe('boostedKinematics — active raises the forward cap only, PROPORTIONAL
     const kin = tbKinematics();
     const boosted = boostedKinematics(kin, FACTOR, true);
     expect(boosted.maxSpeed).toBe(kin.maxSpeed + kin.maxSpeed * FACTOR);
-    expect(boosted.maxSpeed).toBe(56.25); // base TB 45 × 1.25
   });
 
   it('leaves reverseSpeed and every other field untouched', () => {
@@ -96,20 +89,17 @@ describe('boostedKinematics — active raises the forward cap only, PROPORTIONAL
 });
 
 describe('the SPEED ladder is INSIDE the bonus (amendment 55)', () => {
-  it('base hulls boost to 56.25 / 50 / 43.75', () => {
-    expect(boostedCap('torpedoBoat')).toBe(56.25);
-    expect(boostedCap('mineLayer')).toBe(50);
-    expect(boostedCap('battleship')).toBe(43.75);
-  });
-
-  it('SPEED-capped hulls boost to 71.875 / 65.625 / 59.375 — the ladder enlarges the boost', () => {
-    // Five SPEED copies (+2.5 each, catalog-v3 R10; cap 4 -> 5 in Story 9.6,
-    // epic-9 amendment 91) raise 45/40/35 to 57.5/52.5/47.5; the boost then
-    // adds a quarter OF THAT, not a flat +12.5.
+  it('SPEED-capped hulls boost by factor × their LADDERED cap — the ladder enlarges the boost', () => {
+    // The SPEED copies raise the rated cap first; the boost then adds `factor`
+    // OF THAT, not a flat bonus sized off the base hull.
     const capped = new Array<LineId>(CATALOG.speed.cap).fill('speed');
-    expect(boostedCap('torpedoBoat', capped)).toBe(71.875);
-    expect(boostedCap('mineLayer', capped)).toBe(65.625);
-    expect(boostedCap('battleship', capped)).toBe(59.375);
+    for (const id of SHIP_CLASS_IDS) {
+      const base = effectiveStats(CONFIG.shipClasses[id], []).kinematics.maxSpeed;
+      const laddered = effectiveStats(CONFIG.shipClasses[id], capped).kinematics.maxSpeed;
+      expect(laddered, id).toBeGreaterThan(base);
+      expect(boostedCap(id, capped), id).toBeCloseTo(laddered + laddered * FACTOR, 9);
+      expect(boostedCap(id, capped) - laddered, id).toBeGreaterThan(boostedCap(id) - base);
+    }
   });
 
   it('reverseSpeed never sees the boost, ladder or no ladder', () => {
@@ -123,25 +113,30 @@ describe('the SPEED ladder is INSIDE the bonus (amendment 55)', () => {
 
   it('the bonus is NEVER folded into EffectiveStats.kinematics (the bots read the RATED cap)', () => {
     const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat, []);
-    expect(stats.kinematics.maxSpeed).toBe(45); // rated, un-boosted
+    expect(stats.kinematics.maxSpeed).toBe(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed); // rated, un-boosted
   });
 });
 
 describe('the boost ROW — pool, window, and the one cooldownScale multiply (R40)', () => {
   it('base: CONFIG.boost verbatim, with no speed field to fold', () => {
     const row = effectiveStats(CONFIG.shipClasses.torpedoBoat, []).equipment.boost;
-    expect(row).toEqual({ tier: 1, reloadMs: 25000, maxAmmo: 1, durationMs: 10000 });
+    expect(row).toEqual({
+      tier: 1,
+      reloadMs: CONFIG.boost.reloadMs,
+      maxAmmo: CONFIG.boost.maxAmmo,
+      durationMs: CONFIG.boost.durationMs,
+    });
   });
 
-  it('five RELOAD copies scale the reload to 18750 and leave the window at 10000', () => {
+  it('capped RELOAD copies scale the boost reload by cooldownScale and leave the window unscaled', () => {
     const stats = effectiveStats(
       CONFIG.shipClasses.torpedoBoat,
       new Array<LineId>(CATALOG.reload.cap).fill('reload'),
     );
-    expect(stats.cooldownScale).toBe(0.75); // −0.05 × 5 (catalog-v3 R40)
-    expect(stats.equipment.boost.reloadMs).toBe(18750); // 25000 × 0.75
-    expect(stats.equipment.boost.durationMs).toBe(10000); // the window is NOT scaled
-    expect(stats.equipment.boost.maxAmmo).toBe(1);
+    expect(stats.cooldownScale).toBeLessThan(1);
+    expect(stats.equipment.boost.reloadMs).toBeCloseTo(CONFIG.boost.reloadMs * stats.cooldownScale, 9);
+    expect(stats.equipment.boost.durationMs).toBe(CONFIG.boost.durationMs); // the window is NOT scaled
+    expect(stats.equipment.boost.maxAmmo).toBe(CONFIG.boost.maxAmmo);
   });
 
   it('no card addresses the boost: the legacy flat-bonus row and its id are gone', () => {

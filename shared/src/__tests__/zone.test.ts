@@ -7,7 +7,6 @@ import {
   hullEnvelope,
   isOutside,
   mapRadius,
-  radarShadowK,
   rollZoneRings,
   zoneClosedAtMs,
   zoneEndgameAtMs,
@@ -40,26 +39,26 @@ function ringsFor(seed: number, cfg: ZoneTimeline = CONFIG.zone, mapR: number = 
 const dist = (a: ZoneRing, b: ZoneRing): number => Math.hypot(a.cx - b.cx, a.cy - b.cy);
 
 describe('zone timeline shape — the ratified design targets', () => {
-  it('runs 4 ring groups of 4 beats and closes fully at 16:00 (sudden death, Eric ruling 2026-08-14)', () => {
-    // THREE geometric groups (map → terminal, closing at 12:00) plus the
-    // appended COLLAPSE group: 12:00 clear, 13:00 supply, 14:00 the mark,
-    // 15:00-16:00 the terminal ring closing onto its own center.
-    expect(zoneGroups(CONFIG.zone)).toBe(4);
-    expect(zoneClosedAtMs(CONFIG.zone)).toBe(960_000); // 16:00
-    // The GEOMETRIC endgame is still reached at 12:00 — sudden death appended a
-    // group, it did not move one (this is what the Story 3.4 evidence and the
-    // batch-sim endgame pilot are gated on).
-    expect(zoneClosedAtMs({ ...CONFIG.zone, suddenDeath: false })).toBe(720_000); // 12:00
+  it('sudden death (Eric ruling 2026-08-14) appends exactly one group of ZONE_BEATS_PER_GROUP beats: full closure moves one group later, the geometric endgame does not move', () => {
+    // The geometric groups (map → terminal) plus the appended COLLAPSE group:
+    // clear, supply, the mark, then the terminal ring closing onto its own
+    // center. Sudden death appended a group, it did not move one (this is
+    // what the Story 3.4 evidence and the batch-sim endgame pilot are gated on).
+    const on = { ...CONFIG.zone, suddenDeath: true };
+    const off = { ...CONFIG.zone, suddenDeath: false };
+    expect(zoneGroups(on)).toBe(zoneGroups(off) + 1);
+    expect(zoneClosedAtMs(on)).toBe(zoneGroups(on) * GROUP_MS);
+    expect(zoneClosedAtMs(on)).toBe(zoneClosedAtMs(off) + GROUP_MS);
+    expect(zoneEndgameAtMs(on)).toBe(zoneClosedAtMs(off));
   });
 
-  it('zoneEndgameAtMs is the ENDGAME RING (12:00), separate from full closure once sudden death appends its group', () => {
+  it('zoneEndgameAtMs is the ENDGAME RING instant, separate from full closure once sudden death appends its group', () => {
     // The Story 3.4 Endgame Guarantee is about the instant the terminal
     // ring goes live, which sudden death did NOT move. Keeping the two apart is
     // what stops the batch-sim past-closure evidence line from scoring a
     // healthy ~13:00 campaign as 0% past closure.
-    expect(zoneEndgameAtMs(CONFIG.zone)).toBe(720_000); // 12:00
-    expect(zoneClosedAtMs(CONFIG.zone)).toBe(960_000); // 16:00
-    expect(zoneEndgameAtMs(CONFIG.zone)).toBeLessThan(zoneClosedAtMs(CONFIG.zone));
+    const on = { ...CONFIG.zone, suddenDeath: true };
+    expect(zoneEndgameAtMs(on)).toBeLessThan(zoneClosedAtMs(on));
     // On a non-collapsing timeline the two are the SAME instant, which is why
     // every pre-ruling caller could use either.
     const off = { ...CONFIG.zone, suddenDeath: false };
@@ -178,13 +177,8 @@ describe('Endgame Guarantee (Story 3.4) — sensor-vs-ring constraints', () => {
 // percentile of a map's height distribution, or an absolute elevation
 // converted per map — the shadow character would drift per seed instead of
 // being the ratified q64 decision (amendment 184 struck both out).
-describe('radar shadows (Story 4.11) — the 2RH pin and the fixed mast height', () => {
-  it('the model K equals radarRange²/4 — i.e. 2RH = radarRange²/4 holds by construction, R being the derived quantity (amendments 114/182/185)', () => {
-    expect(radarShadowK()).toBe(CONFIG.vision.radar ** 2 / 4);
-  });
-
-  it('radarMastQ is the FIXED literal 64, in raster q units — never computed, never a percentile (amendments 177/184; moving it is an Eric decision, not a tweak)', () => {
-    expect(CONFIG.vision.radarMastQ).toBe(64);
+describe('radar shadows (Story 4.11) — the fixed mast height (the 2RH pin K = radar²/4 lives in radarShadow.test.ts)', () => {
+  it('radarMastQ is a whole number of raster q units (raster heights are integers; amendments 177/184)', () => {
     expect(Number.isInteger(CONFIG.vision.radarMastQ)).toBe(true);
   });
 
@@ -201,22 +195,12 @@ describe('radar shadows (Story 4.11) — the 2RH pin and the fixed mast height',
 // a 192-247.5u full-ahead track; amendments 205 + 213) would silently
 // desynchronise.
 describe('radar wakes (Story 4.12) — the wake clock and cadence pins', () => {
-  it('wakeLifeMs is the FIXED literal 5500 — Eric-ruled (amendments 205 + 213), never a computed quantity', () => {
-    expect(CONFIG.vision.wakeLifeMs).toBe(5500);
-    expect(Number.isInteger(CONFIG.vision.wakeLifeMs)).toBe(true);
-  });
-
   // The wake clock was cut to 5.5 s on 2026-08-?? by eye from a full-ahead
   // torpedo boat (amendment 213). The cycle that recorded it also pinned the
   // COINCIDENCE that 45 u/s × 5.5 s landed on the then-3/8 detect rung; when
   // the rung moved to 4/8 (2026-10-08) Eric ruled there is no such rule —
   // *"We aren't talking about wake"* — so the two track-vs-rung pins are gone
   // and the clock stands on its own literal above.
-
-  it('wakeSampleU is the FIXED literal 12 — one sample per lattice cell plus margin, never a computed quantity', () => {
-    expect(CONFIG.vision.wakeSampleU).toBe(12);
-    expect(Number.isInteger(CONFIG.vision.wakeSampleU)).toBe(true);
-  });
 
   it('wakeSampleU > radarCellU — consecutive segments rasterize contiguously without oversampling the lattice', () => {
     expect(CONFIG.vision.wakeSampleU).toBeGreaterThan(CONFIG.vision.radarCellU);
@@ -525,25 +509,26 @@ describe('sudden death — the collapse group', () => {
   const rings = ringsFor(17);
   const ENDGAME = rings[rings.length - 2]; // the terminal ring
   const COLLAPSE = rings[rings.length - 1]; // its center, radius 0
-  /** The final group's beats on Eric's clock, at the shipped 60s beat. */
-  const CLEAR = START + 720_000; // 12:00
-  const SUPPLY = START + 780_000; // 13:00
-  const MARK = START + 840_000; // 14:00 — the reveal beat
-  const CLOSE = START + 900_000; // 15:00 — the collapse begins
-  const DONE = START + 960_000; // 16:00 — all storm
+  /** The final group's beats, derived from the timeline (never its literals). */
+  const CLEAR = START + zoneEndgameAtMs(CONFIG.zone); // the collapse group opens
+  const SUPPLY = CLEAR + BEAT;
+  const MARK = CLEAR + 2 * BEAT; // the reveal beat
+  const CLOSE = CLEAR + 3 * BEAT; // the collapse begins
+  const DONE = START + zoneClosedAtMs(CONFIG.zone); // all storm
 
-  it('lands its beats on Eric’s clock: 12:00 clear, 13:00 supply, 14:00 reveal, 15:00 closing, 16:00 closed', () => {
+  it('runs the collapse group in beat order — clear, supply, reveal, closing — and is closed at full closure', () => {
     for (const [t, phase] of [[CLEAR, 'clear'], [SUPPLY, 'supply'], [MARK, 'reveal'], [CLOSE, 'closing']] as const) {
       const s = zoneStateAt(t, START, rings);
       expect(s.phase).toBe(phase);
-      expect(s.groupIndex).toBe(3);
+      expect(s.groupIndex).toBe(zoneGroups(CONFIG.zone) - 1);
     }
+    expect(DONE).toBe(CLOSE + BEAT);
     expect(zoneStateAt(DONE, START, rings).phase).toBe('closed');
     expect(zoneStateAt(DONE - 1, START, rings).phase).toBe('closing');
   });
 
   it('marks the collapse point at the reveal beat: a next ring CONCENTRIC with the terminal, radius 0', () => {
-    expect(zoneStateAt(MARK - 1, START, rings).next).toBeNull(); // 13:59 — nothing yet
+    expect(zoneStateAt(MARK - 1, START, rings).next).toBeNull(); // the ms before the mark — nothing yet
     const s = zoneStateAt(MARK, START, rings);
     expect(s.next).toEqual({ cx: ENDGAME.cx, cy: ENDGAME.cy, r: 0 });
     expect(s.current).toEqual(ENDGAME); // the live ring still HOLDS through the mark
@@ -560,7 +545,7 @@ describe('sudden death — the collapse group', () => {
     expect(zoneStateAt(CLOSE + BEAT / 2, START, rings).current.r).toBeCloseTo(ENDGAME.r / 2, 9);
   });
 
-  it('is CLOSED on a radius-0 ring forever after 16:00', () => {
+  it('is CLOSED on a radius-0 ring forever after full closure', () => {
     for (const t of [DONE, DONE + 1, DONE + 10_000_000]) {
       const s = zoneStateAt(t, START, rings);
       expect(s.phase).toBe('closed');
@@ -604,7 +589,7 @@ describe('sudden death — the collapse group', () => {
     }
   });
 
-  it('and it agrees even in the STALE window, when the mirror still carries the 660u terminal past closure', () => {
+  it('and it agrees even in the STALE window, when the mirror still carries the terminal ring past closure', () => {
     // The promoting schema patch can land a tick or two after the local clock
     // crosses 16:00. Holding the terminal ring there would render an open safe
     // circle over a fully stormed map — closedState collapses it instead.
@@ -625,10 +610,11 @@ describe('sudden death — the collapse group', () => {
     const off: ZoneTimeline = { ...CONFIG.zone, suddenDeath: false };
     const offRings = rollZoneRings(MAP_R, off, seedsFor(17, off));
     expect(offRings).toEqual(rings.slice(0, -1));
-    expect(zoneGroups(off)).toBe(3);
-    for (let ms = 0; ms <= 720_000 + 2 * BEAT; ms += BEAT / 4) {
+    expect(zoneGroups(off)).toBe(zoneGroups(CONFIG.zone) - 1);
+    const offDone = zoneClosedAtMs(off);
+    for (let ms = 0; ms <= offDone + 2 * BEAT; ms += BEAT / 4) {
       const s = zoneStateAt(START + ms, START, offRings, off);
-      if (ms >= 720_000) {
+      if (ms >= offDone) {
         expect(s.phase).toBe('closed');
         expect(s.current).toEqual(offRings[offRings.length - 1]); // terminal HELD
         expect(s.current.r).toBeCloseTo(zoneTerminalRadius(off), 9);

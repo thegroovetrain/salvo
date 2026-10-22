@@ -253,7 +253,7 @@ describe('off-raster rays (matrix: ray leaves the grid — transparent beyond th
 describe('degenerate inputs fail OPEN (matrix: no terrain data ⇒ no shadow)', () => {
   const wall = rasterOf([[122, MID, 255]]);
 
-  it('missing raster', () => {
+  it('a missing raster fails open: full visibility at every distance, infinite reach', () => {
     expect(visibilityTo(null, 0, 0, R, 0)).toBe(1);
     expect(visibilityTo(undefined, 0, 0, R, 0)).toBe(1);
     const walk = beginShadowWalk(null, 0, 0, 1, 0);
@@ -262,7 +262,7 @@ describe('degenerate inputs fail OPEN (matrix: no terrain data ⇒ no shadow)', 
     expect(walk.reach()).toBe(Infinity);
   });
 
-  it('non-finite coordinates or direction, and the zero direction', () => {
+  it('non-finite coordinates or direction, and the zero direction, fail open to full visibility', () => {
     for (const walk of [
       beginShadowWalk(wall, NaN, 0, 1, 0),
       beginShadowWalk(wall, 0, Infinity, 1, 0),

@@ -46,42 +46,9 @@ describe('CONFIG.hullRepair — the paid heal, flat on every hull (Eric rulings 
     // caused for the pool's size.
     expect(CONFIG.hullRepair.regenHp / CONFIG.hullRepair.regenMs).toBe(0.01);
   });
-
-  it('pins the amounts: 50 instant + 50 pooled over 5000ms', () => {
-    expect(CONFIG.hullRepair.instantHp).toBe(50);
-    expect(CONFIG.hullRepair.regenHp).toBe(50);
-    expect(CONFIG.hullRepair.regenMs).toBe(5000);
-  });
-
-  it('a heal is worth the SAME FRACTION of every hull it was before the doubling', () => {
-    // The whole reason these amounts ever moved. They are flat by ruling, so
-    // hull hp doubling without them would have cut a heal's relative value by
-    // half on every hull — measured as bots burning levels on heals instead of
-    // boons, worst on the highest-hp hull.
-    const heal = CONFIG.hullRepair.instantHp + CONFIG.hullRepair.regenHp;
-    // The torpedoBoat left this record at epic-9 amendment 209 (Eric
-    // 2026-10-19: hp 250 → 300, the heal not repriced), so a heal is now a
-    // smaller fraction of its hull than the doubling kept it.
-    const before = { battleship: 350 / 2, mineLayer: 150 };
-    for (const [hull, oldHp] of Object.entries(before)) {
-      const nowFrac = heal / CONFIG.shipClasses[hull as keyof typeof CONFIG.shipClasses].hp;
-      expect(nowFrac).toBeCloseTo(50 / oldHp, 10);
-    }
-  });
 });
 
 describe('CONFIG.regen — the out-of-combat regen (Eric ruling 2026-09-17, amendments 46-48)', () => {
-  it('restores 2 % of MISSING hull per second at base (Story 9.6, epic-9 amendment 90; was 1 %)', () => {
-    // A fraction of MISSING, never of max and never a flat amount: worth most
-    // when nearly dead, asymptotic near full, and it needs NO repricing when
-    // hull hp next moves (the repricing the paid heal above had to absorb).
-    expect(CONFIG.regen.missingPctPerS).toBe(0.02);
-  });
-
-  it('waits 15 s since the last landed damage (Eric 2026-09-30; was 30 s)', () => {
-    expect(CONFIG.regen.outOfCombatMs).toBe(15000);
-  });
-
   it('both dials are finite and positive, and the clock is a whole number of sim ticks', () => {
     for (const v of [CONFIG.regen.missingPctPerS, CONFIG.regen.outOfCombatMs]) {
       expect(Number.isFinite(v)).toBe(true);
@@ -131,21 +98,6 @@ describe('HULL REPAIR is a LIVE consumable; one of the seven is still a stub', (
 describe('NFR6 — the authored heal budget and the collapse ceiling', () => {
   const HEAL_PER_COPY = CONFIG.hullRepair.instantHp + CONFIG.hullRepair.regenHp;
 
-  it('one HULL REPAIR copy is worth exactly 100 hp', () => {
-    expect(HEAL_PER_COPY).toBe(100);
-  });
-
-  it('the line caps at 5 copies — THE one heal bound now that decks are gone', () => {
-    // Story 8.14 (epic-8 amendment 89a): there is no deck and no match pool, so
-    // there is no AUTHORED copy budget under the cap any more. The common pool
-    // holds every line with unlimited copies, and `cap` alone bounds the heal.
-    expect(CATALOG.hullRepair.cap).toBe(5);
-  });
-
-  it('a captain can heal at most 500 hp in a match — the CATALOG bound is the whole bound', () => {
-    expect(CATALOG.hullRepair.cap * HEAL_PER_COPY).toBe(500);
-  });
-
   it('the collapse ceiling is (max hull + heal bound + shield bound) / the fully-closed storm rung — the storm always wins in the end', () => {
     // MAX HULL IS DERIVED, never typed: the HULL POINTS ladder (R8 as re-cut
     // by epic-9 amendment 28 / Story 9.6: +50 max hp per tier, cap 5; was
@@ -167,7 +119,6 @@ describe('NFR6 — the authored heal budget and the collapse ceiling', () => {
     // copy. The five-shield captain is Eric's "very lucky" lottery ticket —
     // the real ceiling in play is far lower than this pin.
     const shieldBound = CATALOG.shieldBlock.cap * CONFIG.shieldBlock.hp;
-    expect(shieldBound).toBe(500);
     // THE RAMP (Story 9.1, 2026-10-07): once the storm has fully closed the
     // rate is the ladder's LAST rung — the only rate that matters for the
     // ceiling, since the collapse is where the last hull must drown. The
@@ -178,12 +129,6 @@ describe('NFR6 — the authored heal budget and the collapse ceiling', () => {
     const ceilingS = (maxHull + healBound + shieldBound) / closedDps;
     expect(Number.isFinite(ceilingS)).toBe(true);
     expect(ceilingS).toBeGreaterThan(0);
-  });
-});
-
-describe('the four-card draw is untouched (regression pin)', () => {
-  it('CONFIG.offer.size is still 4 — this cycle must not have thinned the draw', () => {
-    expect(CONFIG.offer.size).toBe(4);
   });
 });
 

@@ -422,15 +422,6 @@ describe('gunReachU — an OWN live flare extends the gun past its range', () =>
     expect(pointInLitZone({ x: 10.001, y: 0 }, [{ x: 0, y: 0, r: 10 }])).toBe(false);
     expect(pointInLitZone({ x: 0, y: 0 }, [])).toBe(false);
   });
-
-  it('OWN + LIVE are the CALLER\'s filters — the type cannot express an owner or an expiry', () => {
-    // The predicate takes centre+radius only. There is no field an enemy zone or
-    // an expired one could arrive in, so "own flares only" is structural: both
-    // callers (World.ownLiveLitZones, render/litZones ownActiveZones) filter
-    // before the list ever reaches here.
-    const zone = { x: 0, y: 900, r: 120 } as Record<string, number>;
-    expect(Object.keys(zone).sort()).toEqual(['r', 'x', 'y']);
-  });
 });
 
 // --- THE BROADSIDE BATTERY'S TURRET MUZZLES (Eric's correction 2026-08-19) ---

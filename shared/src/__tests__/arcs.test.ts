@@ -69,9 +69,8 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
       offset: CONFIG.torpedo.offset,
       halfArc: CONFIG.torpedo.halfArc,
     });
-    // The ratified VALUES: bow-centered, ±30°.
+    // Bow-centered (the half-width is a tuning dial, not pinned here).
     expect(CONFIG.torpedo.offset).toBe(0);
-    expect(CONFIG.torpedo.halfArc).toBeCloseTo(deg(30), 12);
   });
 
   it('the mine is the aimed REAR sector heading + 180° ± placeHalfArcDeg (FLIPPED, Story 2.8)', () => {
@@ -81,8 +80,6 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
       halfArc: deg(CONFIG.mine.placeHalfArcDeg),
     });
     expect(CONFIG.mine.offset).toBeCloseTo(deg(180), 12);
-    expect(CONFIG.mine.placeHalfArcDeg).toBe(60); // DRAFT half-arc, 2.10 tunes
-    expect(CONFIG.mine.placeRange).toBe(150); // the ratified placement leash (Eric 2026-08-02)
   });
 
   it('the captive AND fouling mines share the naval mine chassis sector (R25, amendment 81)', () => {
@@ -92,19 +89,15 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     expect(arcFor('foulingMines')).toEqual(arcFor('navalMines'));
   });
 
-  it('the LIGHT TORPEDO is a TWIN SECTOR: both beams, +/-45 deg about 90 deg (R18)', () => {
+  it('the LIGHT TORPEDO is a TWIN SECTOR about both beams, byte-identical to CONFIG (R18)', () => {
     expect(arcFor('lightTorpedo')).toEqual({
       kind: 'twin-sector',
       offset: CONFIG.lightTorpedo.offset,
       halfArc: CONFIG.lightTorpedo.halfArc,
     });
-    // The ratified VALUES: the two sectors cover 45-135 deg and -45 to -135
-    // deg, leaving 90 deg dead zones dead ahead and dead astern.
+    // Centred on the beam, leaving dead zones dead ahead and dead astern.
     expect(CONFIG.lightTorpedo.offset).toBeCloseTo(deg(90), 12);
-    expect(CONFIG.lightTorpedo.halfArc).toBeCloseTo(deg(45), 12);
     const arc = twinSectorArcFor('lightTorpedo');
-    expect((arc.offset - arc.halfArc) / (Math.PI / 180)).toBeCloseTo(45, 9);
-    expect((arc.offset + arc.halfArc) / (Math.PI / 180)).toBeCloseTo(135, 9);
     // And the side rule is the broadside's, verbatim: a click dead ahead is in
     // NEITHER sector and is denied out-of-arc.
     expect(twinSectorSide(0, 0, arc)).toBeNull();
@@ -119,7 +112,6 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
       halfArc: CONFIG.supercavTorpedo.halfArc,
     });
     expect(CONFIG.supercavTorpedo.offset).toBe(0);
-    expect(CONFIG.supercavTorpedo.halfArc).toBeCloseTo(deg(15), 12);
     expect(isConsumableId('supercavTorpedo')).toBe(true);
   });
 
@@ -161,20 +153,14 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     expect((EQUIPMENT_IDS as readonly string[]).includes('radarBuoy')).toBe(false);
   });
 
-  it('the broadside is TWO mirrored beam sectors at ±90°, each 60° half-wide', () => {
+  it('the broadside is TWO mirrored beam sectors at ±90°, byte-identical to CONFIG', () => {
     expect(arcFor('broadside')).toEqual({
       kind: 'twin-sector',
       offset: deg(CONFIG.broadside.arcOffsetDeg),
       halfArc: deg(CONFIG.broadside.arcHalfArcDeg),
     });
-    // The ratified VALUES, taken verbatim from the class-era side arcs: port
-    // covers 30°–150°, starboard −30°–−150°, leaving 60°-wide dead zones dead
-    // ahead and dead astern.
+    // Centred on the beam (the half-width is a tuning dial, not pinned here).
     expect(CONFIG.broadside.arcOffsetDeg).toBe(90);
-    expect(CONFIG.broadside.arcHalfArcDeg).toBe(60);
-    const arc = twinSectorArcFor('broadside');
-    expect((arc.offset - arc.halfArc) / (Math.PI / 180)).toBeCloseTo(30, 9); // near edge
-    expect((arc.offset + arc.halfArc) / (Math.PI / 180)).toBeCloseTo(150, 9); // far edge
   });
 
   it('the Shift boost aims nothing (none)', () => {

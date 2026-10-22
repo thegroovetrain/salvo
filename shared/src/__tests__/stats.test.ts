@@ -207,68 +207,37 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
           rangeU: CONFIG.starShells.rangeU,
           litRadius: CONFIG.starShells.litRadius, // the ratified SIGHT/2 derivation
           litDurationMs: CONFIG.starShells.litDurationMs,
-          // Story 8.17 (amendments 130/134): the flare deals tier-I damage 20 (swapped with phosphor, amendment 208);
+          // Story 8.17 (amendments 130/134): the flare deals tier-I damage;
           // the `phosphor`/`dazzle` verbs are DELETED.
-          damage: 20,
+          damage: CONFIG.starShells.damage,
         },
         // PHOSPHOR SHELLS (Story 8.17, amendment 131) — its own weapon row.
         phosphorShells: {
           tier: 1,
-          reloadMs: 20000,
-          maxAmmo: 1,
+          reloadMs: CONFIG.phosphorShells.reloadMs,
+          maxAmmo: CONFIG.phosphorShells.maxAmmo,
           rangeU: CONFIG.phosphorShells.rangeU, // its own Tier I dial (Story 9.8, ruling 125)
-          damage: 10,
-          zoneRadius: 100,
-          zoneDurationMs: 8000,
-          dps: 5,
+          damage: CONFIG.phosphorShells.damage,
+          zoneRadius: CONFIG.phosphorShells.zoneRadius,
+          zoneDurationMs: CONFIG.phosphorShells.zoneDurationMs,
+          dps: CONFIG.phosphorShells.dps,
         },
         // (radarBuoy's row DELETED with the buoy, Story 8.16; the DECOY BUOY
         // consumable that replaces it carries NO row — the consumable law.)
         // THE TWO NEW CLASS SHIFTS (Story 8.15, amendments 97/99).
-        instantReload: { tier: 1, reloadMs: 60000, maxAmmo: 1 }, // 60 s (Eric 2026-10-02, amendment 232; was 45 s)
+        instantReload: { tier: 1, reloadMs: CONFIG.instantReload.reloadMs, maxAmmo: CONFIG.instantReload.maxAmmo },
         // Story 9.7 (epic-9 amendments 86–88 / 110–117): temporary Armor for
         // 10 s replaces the flat ×0.5 factor and the 8 s window; the bonus is
         // CONFIG's pass-through (5 -> 100 by amendment 144, ×0.5 kept).
-        hunker: { tier: 1, reloadMs: 30000, maxAmmo: 1, durationMs: 10000, armorBonus: CONFIG.hunker.armorBonus },
+        hunker: {
+          tier: 1,
+          reloadMs: CONFIG.hunker.reloadMs,
+          maxAmmo: CONFIG.hunker.maxAmmo,
+          durationMs: CONFIG.hunker.durationMs,
+          armorBonus: CONFIG.hunker.armorBonus,
+        },
       },
     });
-  });
-
-  it('the shipped numbers did not move in the rename except speed (catalog-v3 R17, Eric 2026-09-15): torpedo/mine bases', () => {
-    const eq = effectiveStats(BASE).equipment;
-    // Damage reads CONFIG: it moved deliberately since (Story 9.12, Eric
-    // 2026-10-16 — 50 → 90 and 55 → 90), not in the rename.
-    expect([eq.heavyTorpedo.reloadMs, eq.heavyTorpedo.speed, eq.heavyTorpedo.damage, eq.heavyTorpedo.maxAmmo])
-      .toEqual([30000, 65, CONFIG.torpedo.damage, 1]);
-    expect([eq.navalMines.reloadMs, eq.navalMines.damage, eq.navalMines.blastRadius, eq.navalMines.triggerRadius])
-      .toEqual([15000, CONFIG.mine.damage, 48, 32]);
-    // The captive rings: the CONFIG trip ring (120 u since 2026-10-08; 144 before) /
-    // 32u blast at base (catalog-v3 R25) — its OWN CONFIG pair rather than a
-    // transform (amendment 84d).
-    expect([eq.captiveMines.triggerRadius, eq.captiveMines.blastRadius]).toEqual([CONFIG.captiveMines.triggerRadius, 32]);
-  });
-
-  it('the STORY 8.13 tier-I rows come from their own CONFIG blocks (STUB_ROWS is gone since 8.15)', () => {
-    const eq = effectiveStats(BASE).equipment;
-    // LIGHT TORPEDO (R18): 45 u/s, 1 tube, 25 s, straight-running; damage
-    // its CONFIG base (80 since Story 9.12).
-    expect([eq.lightTorpedo.speed, eq.lightTorpedo.damage, eq.lightTorpedo.maxAmmo, eq.lightTorpedo.reloadMs])
-      .toEqual([45, CONFIG.lightTorpedo.damage, 1, 25000]);
-    expect(eq.lightTorpedo.homingTurnRate).toBe(0);
-    expect(eq.heavyTorpedo.homingTurnRate).toBe(0);
-    // CAPTIVE MINES (R25, amendment 77): 1 held on a 20 s clock; damage its
-    // CONFIG base (90 since Story 9.12).
-    expect([eq.captiveMines.maxAmmo, eq.captiveMines.reloadMs, eq.captiveMines.damage]).toEqual([1, 20000, CONFIG.captiveMines.damage]);
-    expect(eq.captiveMines.homingTurnRate).toBe(0);
-    // FOULING MINES (amendment 81): 10 dmg, 72 u blast, 48 u trip, 2 held,
-    // 15 s, ×0.75 victim slow.
-    expect([eq.foulingMines.damage, eq.foulingMines.blastRadius, eq.foulingMines.maxAmmo, eq.foulingMines.reloadMs])
-      .toEqual([10, 72, 2, 15000]);
-    expect(eq.foulingMines.triggerRadius).toBeCloseTo(48, 9);
-    expect(eq.foulingMines.slowFactor).toBe(0.75);
-    // The inert identities on the rows that do not own the field.
-    expect([eq.navalMines.slowFactor, eq.captiveMines.slowFactor]).toEqual([1, 1]);
-    expect([eq.navalMines.homingTurnRate, eq.foulingMines.homingTurnRate]).toEqual([0, 0]);
   });
 
   it('SUPERCAV TORPEDO has NO stat row — it is a consumable (amendment 74)', () => {
@@ -284,12 +253,6 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
     for (const id of EQUIPMENT_IDS) expect(eq[id].tier, id).toBe(1);
   });
 
-  it('the base radar sweep is 15 rpm = exactly 4000 ms per revolution', () => {
-    const s = effectiveStats(BASE);
-    expect(s.sweepRpm).toBe(15);
-    expect(s.sweepPeriodMs).toBe(4000);
-  });
-
   it('the signature is (cls, cards?): omitted and [] are byte-identical; junk ids fail closed', () => {
     expect(effectiveStats(BASE)).toEqual(effectiveStats(BASE, []));
     expect(effectiveStats(BASE, ['nope', 'constructor'])).toEqual(effectiveStats(BASE));
@@ -302,7 +265,6 @@ describe('effectiveStats — the eight universal ladders (catalog-v3 §4 + Stori
   it('HULL POINTS (R8): +50 max hp per tier, 5 tiers', () => {
     for (const n of [1, 2, 3, 4, 5]) expect(effectiveStats(BASE, stack('hullPoints', n)).maxHp).toBe(BASE.hp + 50 * n);
     expect(CATALOG.hullPoints.cap).toBe(5);
-    expect(effectiveStats(BASE, stack('hullPoints', 5)).maxHp).toBe(600); // dreadnought 350 -> 600
   });
 
   it('SPEED (R10): +2.5 u/s forward per tier — reverse deliberately untouched', () => {
@@ -477,9 +439,6 @@ describe('effectiveStats — the eight universal ladders (catalog-v3 §4 + Stori
         expect(regen.outOfCombatMs, `${id} ${n}`).toBe(CONFIG.regen.outOfCombatMs - 1000 * n);
       }
     }
-    // The ruled ceiling (amendment 90): 5 %/s after 10 s at V.
-    const v = effectiveStats(BASE, stack('passiveHealing', 5)).regen;
-    expect(v).toEqual({ missingPctPerS: 0.05, outOfCombatMs: 10000 });
   });
 
   it('PASSIVE HEALING: zero cards is CONFIG.regen as a COPY — a fold never writes through to CONFIG', () => {
@@ -498,15 +457,17 @@ describe('effectiveStats — the eight universal ladders (catalog-v3 §4 + Stori
     }
   });
 
-  it('RADAR SWEEP (R11): +3 rpm per tier, 15 -> 30 at the 5-copy cap, and the clamp holds', () => {
-    expect(CONFIG.vision.sweepRpmMax).toBe(30);
-    const capped = effectiveStats(BASE, stack('radarSweep', 5));
-    expect(capped.sweepRpm).toBe(30);
-    expect(capped.sweepPeriodMs).toBe(2000);
+  it('RADAR SWEEP (R11): +3 rpm per tier up to the sweepRpmMax clamp, and an over-stack holds at the clamp', () => {
+    const max = CONFIG.vision.sweepRpmMax;
+    for (let n = 0; n <= CATALOG.radarSweep.cap; n += 1) {
+      const s = effectiveStats(BASE, stack('radarSweep', n));
+      expect(s.sweepRpm, `${n} copies`).toBe(Math.min(CONFIG.vision.sweepRpm + 3 * n, max));
+      expect(s.sweepPeriodMs, `${n} copies`).toBe(60000 / s.sweepRpm);
+    }
     // Past the physical copy cap (test-only over-stack): still clamped, never NaN.
     const over = effectiveStats(BASE, stack('radarSweep', 20));
-    expect(over.sweepRpm).toBe(30);
-    expect(over.sweepPeriodMs).toBe(2000);
+    expect(over.sweepRpm).toBeLessThanOrEqual(max);
+    expect(over.sweepPeriodMs).toBe(60000 / over.sweepRpm);
   });
 
   it('RELOAD (R12): −0.05 cooldownScale per tier, ADDITIVE, EXACTLY 0.75 at the cap', () => {
@@ -528,11 +489,6 @@ describe('effectiveStats — the eight universal ladders (catalog-v3 §4 + Stori
     for (const id of EQUIPMENT_IDS) {
       expect(capped.equipment[id].reloadMs, id).toBeCloseTo(base.equipment[id].reloadMs * 0.75, 9);
     }
-    // R40: the Shift boost cooldown is in scope — 25 s -> 18.75 s at the cap.
-    // Story 8.9 (epic-8 amendment 54) authored the reload at 25 s, superseding
-    // the 20 s / 15 s pair catalog-v3 §4 quotes.
-    expect(capped.equipment.boost.reloadMs).toBe(18750);
-    expect(capped.equipment.gun.reloadMs).toBe(3750);
   });
 
   it('RELOAD moves ONLY the scale and the reloads (flatten diff)', () => {
@@ -697,18 +653,17 @@ describe('STORY 8.15 — the machine gun and flak ladders (amendments 104/105)',
 });
 
 describe('STORY 8.15 — the class Shift rows take RELOAD like every row (amendments 97/99)', () => {
-  it('INSTANT RELOAD 60 s → 45 s (Eric 2026-10-02, amendment 232; was 45 s → 33.75 s) and HUNKER 30 s → 22.5 s under a maxed RELOAD ladder', () => {
+  it('the three Shift rows take the maxed RELOAD ladder\'s ×0.75; their window, Armor bonus and charges never move', () => {
     const base = effectiveStats(BASE).equipment;
-    expect([base.instantReload.reloadMs, base.hunker.reloadMs, base.boost.reloadMs]).toEqual([60000, 30000, 25000]);
     const maxed = effectiveStats(BASE, stack('reload', 5)).equipment;
-    expect(maxed.instantReload.reloadMs).toBe(45000);
-    expect(maxed.hunker.reloadMs).toBe(22500);
-    expect(maxed.boost.reloadMs).toBe(18750); // the Story 8.9 pin, beside them
+    for (const shift of ['instantReload', 'hunker', 'boost'] as const) {
+      expect(maxed[shift].reloadMs, shift).toBe(base[shift].reloadMs * 0.75);
+      expect(maxed[shift].maxAmmo, shift).toBe(base[shift].maxAmmo);
+    }
     // The window and the Armor bonus are Eric's fixed numbers — RELOAD never
-    // moves them (Story 9.7, epic-9 amendments 86–88 / 110–117: 10 s, +5 Armor).
+    // moves them (Story 9.7, epic-9 amendments 86–88 / 110–117).
     expect([maxed.hunker.durationMs, maxed.hunker.armorBonus])
       .toEqual([CONFIG.hunker.durationMs, CONFIG.hunker.armorBonus]);
-    expect([maxed.instantReload.maxAmmo, maxed.hunker.maxAmmo]).toEqual([1, 1]);
   });
 
   it('no catalog line steps a Shift row\'s tier (no card can address a Shift)', () => {
@@ -807,15 +762,6 @@ describe('STORY 8.17 — the star shell, broadside and phosphor ladders (amendme
     });
   });
 
-  it('STAR SHELLS tier III / V: 18 s, 15 s lit, base r × 1.21, 2 flares, 25 dmg / 16 s, 20 s, base r × 1.4641, 3 flares, 30 dmg', () => {
-    const iii = effectiveStats(BASE, stack('starShells', 3)).equipment.starShells;
-    expect([iii.reloadMs, iii.litDurationMs, iii.maxAmmo, iii.damage]).toEqual([18000, 15000, 2, 25]);
-    expect(iii.litRadius).toBeCloseTo(CONFIG.starShells.litRadius * 1.21, 9); // 302.5 u at sight 500
-    const v = effectiveStats(BASE, stack('starShells', 5)).equipment.starShells;
-    expect([v.reloadMs, v.litDurationMs, v.maxAmmo, v.damage]).toEqual([16000, 20000, 3, 30]);
-    expect(v.litRadius).toBeCloseTo(CONFIG.starShells.litRadius * 1.4641, 9); // 366.025 u at sight 500
-  });
-
   it('BROADSIDE tier III / V: 16.2 s, rung 3, 5 turrets / 14.4 s, rung 5, 6 turrets — damage 15 throughout', () => {
     // [reloadMs, spreadRung, turrets] per rung 1..5
     const table = [
@@ -832,16 +778,12 @@ describe('STORY 8.17 — the star shell, broadside and phosphor ladders (amendme
       expect(row.reloadMs, `${tag}: reloadMs`).toBeCloseTo(reloadMs, 6);
       expect(row.spreadRung, `${tag}: rung`).toBe(rung);
       expect(row.turrets, `${tag}: turrets`).toBe(turrets);
-      expect(row.damage, `${tag}: damage`).toBe(15); // FIXED at every tier (amendment 133)
+      expect(row.damage, `${tag}: damage`).toBe(CONFIG.broadside.damage); // FIXED at every tier (amendment 133)
       // Both arc ladders ride the folded rung.
       expect(row.traverseRad, `${tag}: traverse`).toBe(broadsideTraverse(rung));
       expect(row.mountSpreadRad, `${tag}: mounts`).toBe(broadsideMountSpread(rung));
       expect(row.rangeU, `${tag}: range`).toBe(CONFIG.broadside.rangeU + i * rangeStep('broadside'));
     });
-    const v = effectiveStats(BASE, stack('broadside', 5)).equipment.broadside;
-    // Rung 5: mounts ±6°, traverse ±14° (the shipped ladders' cap).
-    expect(v.mountSpreadRad).toBeCloseTo((6 * Math.PI) / 180, 12);
-    expect(v.traverseRad).toBeCloseTo((14 * Math.PI) / 180, 12);
   });
 
   it('PHOSPHOR SHELLS tier I / III / V: 10/15/20 dmg, 5/7/10 hp/s, r100/121/146.41, 8/9/10 s, 20/18/16 s', () => {
@@ -870,7 +812,7 @@ describe('STORY 8.17 — the star shell, broadside and phosphor ladders (amendme
     });
   });
 
-  it('the acceptance fold: a Battleship holding STAR ×3, BROADSIDE ×5, PHOSPHOR ×1', () => {
+  it('three lines held together each fold to their own rung (STAR ×3, BROADSIDE ×5, PHOSPHOR ×1)', () => {
     const s = effectiveStats(BASE, [...stack('starShells', 3), ...stack('broadside', 5), 'phosphorShells']);
     const { starShells: star, broadside: bs, phosphorShells: ph } = s.equipment;
     expect([star.reloadMs, star.litDurationMs, star.maxAmmo, star.damage]).toEqual([18000, 15000, 2, 25]);
@@ -956,10 +898,8 @@ describe('STORY 8.13 — the three mine ladders (amendments 77/81/82/84d)', () =
       expect(row.reloadMs, `x${i + 1}: reloadMs`).toBeCloseTo(reloadMs, 6);
       expect(row.slowFactor, `x${i + 1}: slow`).toBeCloseTo(slow, 9);
       // DAMAGE IS FIXED AT 10 (amendment 81): "minimal damage" is the point.
-      expect(row.damage, `x${i + 1}: damage`).toBe(10);
+      expect(row.damage, `x${i + 1}: damage`).toBe(CONFIG.foulingMines.damage);
     });
-    // ...and so is the 5 s window — only the DEPTH of the slow tiers up.
-    expect(CONFIG.foulingMines.slowDurationMs).toBe(5000);
   });
 
   it('THE POOL FLOOR AND CAP on the three +0.5 lines: the half-step shows nothing alone, and the pool tops out at TWO (catalog-v3 R17; capped by Eric 2026-10-16, Story 9.12)', () => {
@@ -1044,7 +984,6 @@ describe('THE EQUIPMENT RELOAD STEP (catalog-v3 §3 standing rule)', () => {
     const cards = [...stack('deckGun', 4), ...stack('reload', 5)];
     const s = effectiveStats(BASE, cards);
     expect(s.equipment.gun.reloadMs).toBe(CONFIG.gun.reloadMs * 0.6);
-    expect(s.equipment.gun.reloadMs).toBe(3000); // §4: "80 % (4 s; 3 s under max Reload)"
   });
 
   it('a line with no tier target moves no tier at all (a consumable is not a rung)', () => {
@@ -1347,11 +1286,7 @@ describe('equipment helpers', () => {
     expect(equipmentReloadMs(s, 'gun')).toBeCloseTo(CONFIG.gun.reloadMs * 0.95, 9);
   });
 
-  it('the legacy upgrade vocabulary is GONE: no CONFIG.upgrades block survives', () => {
-    expect('upgrades' in CONFIG).toBe(false);
-  });
-
-  it('the tick-count consequence: a reload must land on a whole 50 ms tick boundary', () => {
+  it('the tick-count consequence: a maxed RELOAD never costs a reload an extra tick of float dust', () => {
     // Inlined ammo.ts loop shape (server/src/game/equipment/ammo.ts) — do not
     // import server code into a shared test. Float dust in the scale would cost
     // a whole extra tick; clampStats' round3 is what prevents it.
@@ -1364,10 +1299,13 @@ describe('equipment helpers', () => {
       }
       return n;
     };
+    const base = effectiveStats(BASE);
     const capped = effectiveStats(BASE, stack('reload', 5));
-    expect(capped.equipment.gun.reloadMs).toBe(3750);
-    expect(ticksToRefill(capped.equipment.gun.reloadMs)).toBe(75);
-    expect(ticksToRefill(capped.equipment.broadside.reloadMs)).toBe(270); // 13500 ms
+    for (const id of EQUIPMENT_IDS) {
+      // The independent oracle: ×0.75 as exact integer arithmetic (×3, ÷4).
+      const exact = (base.equipment[id].reloadMs * 3) / 4;
+      expect(ticksToRefill(capped.equipment[id].reloadMs), id).toBe(Math.ceil(exact / 50));
+    }
   });
 });
 

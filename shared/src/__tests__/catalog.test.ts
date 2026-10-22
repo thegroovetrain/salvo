@@ -138,33 +138,17 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
 const STUB_IDS: readonly LineId[] = ['depthCharge'];
 
 describe('catalog v3 identity', () => {
-  it('ships 26 lines in the ruled order, keyed by id', () => {
-    // 23 -> 24 in Story 9.6 (amendment 90: PASSIVE HEALING); 24 -> 25 in Story
-    // 9.7 (epic-9 amendments 86–88 / 110–117: ARMOR); 25 -> 26 in Story 9.9
-    // (epic-9 amendments 144–145: ARMOR PIERCING).
-    expect(LINE_IDS.length).toBe(26);
+  it('keys every line by its own id, in LINE_IDS order', () => {
     expect(Object.keys(CATALOG)).toEqual([...LINE_IDS]);
     for (const id of LINE_IDS) expect(CATALOG[id].id).toBe(id);
   });
 
-  it('matches the sheet line for line (cap, kind, stub) and sums to 127 cards', () => {
+  it('matches the sheet line for line (cap, kind, stub); the card total is the sum of the caps', () => {
     for (const id of LINE_IDS) {
       const line = CATALOG[id];
       expect({ cap: line.cap, kind: line.kind, stub: line.stub === true }).toEqual(SHEET[id]);
     }
-    // 109 -> 117 in Story 8.17 (amendments 131/132): the two 1-card add-ons
-    // became a 5-card equipment line and a 5-card consumable. 117 -> 114 on
-    // 2026-09-30: DECK GUN TURRET (1) and DECK GUN BARREL (2) deleted. 114 ->
-    // 109 in Story 9.2: CHAFF (5) retired (epic-9 amendment 31). 109 -> 117
-    // in Story 9.6 (amendments 90–91): HULL +1, SPEED +1, TURNING +1, PASSIVE
-    // HEALING +5. 117 -> 122 in Story 9.7 (epic-9 amendments 86–88 /
-    // 110–117): ARMOR +5. 122 -> 127 in Story 9.9 (epic-9 amendments
-    // 144–145): ARMOR PIERCING +5.
-    expect(catalogCardCount()).toBe(127);
-    // Eight universal ladders, 40 cards (Story 9.9).
-    const universal = LINE_IDS.filter((id) => CATALOG[id].kind === 'ladder' && tierTargetOf(CATALOG[id]) === undefined);
-    expect(universal).toHaveLength(8);
-    expect(universal.reduce((n, id) => n + CATALOG[id].cap, 0)).toBe(40);
+    expect(catalogCardCount()).toBe(LINE_IDS.reduce((n, id) => n + CATALOG[id].cap, 0));
   });
 
   it('resolves NO deleted one-off gun id (Eric 2026-09-30) — a dead id on the wire is dropped', () => {
@@ -263,8 +247,6 @@ describe('catalog v3 identity', () => {
       // Tiers II–V are the SAME step, four times, each in its OWN array.
       if (UNIFORM.includes(id)) for (const tier of line.tiers.slice(1)) expect(tier, id).toEqual(line.tiers[1]);
     }
-    // 7 -> 8 in Story 8.17: PHOSPHOR SHELLS joined as equipment (amendment 131).
-    expect(LINE_IDS.filter((id) => CATALOG[id].kind === 'equipment')).toHaveLength(8);
   });
 
   it('the NON-UNIFORM torpedo and mine ladders (Story 9.12): the authored damage steps sum to the fold\'s Tier V damage, and the +0.5 pool steps sit only on the rungs to II and III where the pool is capped at two', () => {
@@ -400,10 +382,8 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('DELETES the radar buoy end to end — no card fits it (Story 8.16); 14 equipment ids since 8.17', () => {
+  it('DELETES the radar buoy end to end — no card fits it (Story 8.16)', () => {
     expect((EQUIPMENT_IDS as readonly string[]).includes('radarBuoy')).toBe(false);
-    // 13 -> 14 in Story 8.17: `phosphorShells` joined (amendment 131).
-    expect(EQUIPMENT_IDS).toHaveLength(14);
     expect(EQUIPMENT_IDS).toContain('phosphorShells');
     expect((CONFIG as Record<string, unknown>).radarBuoy).toBeUndefined();
     // The DECOY BUOY that replaces it is a live CONSUMABLE line, not equipment.

@@ -261,10 +261,6 @@ describe('resolveShipPose — boundary clamp (heading-aware, never grounding)', 
 describe('open-ocean pin — pressing the map edge is not grounding', () => {
   const kin = CONFIG.shipClasses.battleship.kinematics;
   const polyMax = polygonMaxRadius(hullSilhouette('battleship'));
-  /** The pre-fix fixed point of the per-tick multiplier: accel·dt·m/(1−m). */
-  const OLD_PINNED_SPEED = (kin.accel * DT * DAMP) / (1 - DAMP);
-  /** Rudder authority there (deg/s) — the six-minute 90° turn. */
-  const OLD_PINNED_TURN = ((OLD_PINNED_SPEED / kin.steerageSpeed) * kin.turnRate * 180) / Math.PI;
 
   const map = generateMap(1, 10);
   /** Clearance from the hull's bounding circle to the nearest coastline. */
@@ -285,11 +281,6 @@ describe('open-ocean pin — pressing the map edge is not grounding', () => {
     }
     return s;
   }
-
-  it('the pre-fix numbers really were a pin (documented, not asserted behavior)', () => {
-    expect(OLD_PINNED_SPEED).toBeLessThan(0.1);
-    expect(OLD_PINNED_TURN).toBeLessThan(0.3); // deg/s — 90° in ~6 minutes
-  });
 
   it('keeps full way and full helm authority pinned against the edge', () => {
     const s = pressEdge(600, 0);

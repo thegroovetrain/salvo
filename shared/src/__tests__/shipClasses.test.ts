@@ -1,36 +1,6 @@
-// Pins the ratified beta class table and the drone/fleet envelope table. The
-// HULL HP DOUBLED in balance cycle 1 (Eric ruling 2026-08-20): TB 125→250,
-// BS 175→350, ML 150→300, alongside the paid heal's 25→50 (flat amounts
-// that would otherwise be silently repriced) and the client's toughness pip
-// ladder 100/25→200/50 (which preserves the 2/3/4 readout). The doubling is
-// PROPORTIONAL by design — a flat +100 was measured first and rejected because
-// it hands the thinnest hull the largest relative gain, favouring the class
-// that was already winning. Kinematics are UNCHANGED and still byte-pinned.
-//
-// class maxSpeeds are the Eric knot-realistic rescale (2026-07-21, Story 1.6):
-// TB 45 / ML 40 / BS 35 — a DELIBERATE pin update from the 50/38/28 of Story
-// 1.3. Class hp moved onto the objective toughness ladder (Eric ruling
-// 2026-08-03, TTK & Objective Pip Rebalance): 1 pip = 100 HP, +25 HP/pip — TB
-// 70→125 (2 pips), ML 105→150 (3 pips), BS 150→175 (4 pips). Every other
-// class field (reverseSpeed/accel/decel/turnRate/steerageSpeed, hull dims) is
-// UNCHANGED and byte-for-byte pinned.
-//
-// The drone table is DELIBERATELY RE-PINNED (Story 5.6, Eric rulings
-// 2026-08-14, epic-5 amendment 34): hp 80/100/120 → 60/75/90, and maxSpeed
-// 46/38/30 → 40/35/30 with reverse/accel/decel scaled proportionally —
-// discharging `epics.md:1090`'s open note that the drone envelopes predate
-// the 1.6 hull-speed rescale (droneSmall was the fastest hull afloat at 46,
-// above the Torpedo Boat's 45). turnRate and steerageSpeed deliberately do
-// NOT move, so agility stays a size property rather than drifting with the
-// speed retune. Hull dims are unchanged. These pins fail the moment any
-// envelope value drifts from the approved table without a matching test
-// change.
-//
-// THE `shift` KEY IS A DELIBERATE ADDITION (Story 8.15, Eric rulings
-// 2026-09-21/28, epic-8 amendments 89(c) and 97–99): hull identity is
-// envelope + a FIXED class Shift — TB `boost`, ML `instantReload`, BS
-// `hunker`. Every envelope number is untouched; the identity table gains
-// exactly one key per class, knowingly.
+// The class and drone envelope tables, as RELATIONS (the ratified class-table
+// identity pin is deleted, Eric 2026-10-22, story 9.14 ruling R5), plus
+// SHIP_CLASS_IDS / HULL_IDS, hullEnvelope and sanitizeClassId.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -42,56 +12,6 @@ import {
   hullEnvelope,
   sanitizeClassId,
 } from '../index.js';
-
-describe('ratified class table (exact Eric-approved values)', () => {
-  it('torpedoBoat: 100×9, hp 300, fast and fragile', () => {
-    expect(CONFIG.shipClasses.torpedoBoat).toEqual({
-      hull: { length: 100, beam: 9 },
-      hp: 300, // 250 → 300 Eric 2026-10-19 (epic-9 amendment 209)
-      shift: 'boost', // Story 8.15, amendment 89(c)
-      kinematics: {
-        maxSpeed: 45,
-        reverseSpeed: 15,
-        accel: 12,
-        decel: 18,
-        turnRate: 0.8,
-        steerageSpeed: 12,
-      },
-    });
-  });
-
-  it('battleship: 124×32, hp 350, slow and armored', () => {
-    expect(CONFIG.shipClasses.battleship).toEqual({
-      hull: { length: 124, beam: 32 },
-      hp: 350,
-      shift: 'hunker', // Story 8.15, amendments 89(c)/99
-      kinematics: {
-        maxSpeed: 35,
-        reverseSpeed: 9,
-        accel: 5,
-        decel: 9,
-        turnRate: 0.4,
-        steerageSpeed: 8,
-      },
-    });
-  });
-
-  it('mineLayer: 88×20, hp 300, the middle envelope', () => {
-    expect(CONFIG.shipClasses.mineLayer).toEqual({
-      hull: { length: 88, beam: 20 },
-      hp: 300,
-      shift: 'instantReload', // Story 8.15, amendments 89(c)/97
-      kinematics: {
-        maxSpeed: 40,
-        reverseSpeed: 14,
-        accel: 8,
-        decel: 15,
-        turnRate: 0.6,
-        steerageSpeed: 10,
-      },
-    });
-  });
-});
 
 describe('class ordering invariants', () => {
   const tb = CONFIG.shipClasses.torpedoBoat;
@@ -145,51 +65,22 @@ describe('SHIP_CLASS_IDS / HULL_IDS', () => {
 });
 
 describe('drone envelope table (Story 5.6, amendment 34 — retuned off the retired destroyer/cruiser/battleship blocks)', () => {
-  it('hp 45/60/75, chevron dims 85×25 / 100×30 / 115×35 (hull dims unchanged)', () => {
-    // RETUNED 60/75/90 -> 45/60/75 (Eric ruling 2026-08-16, epic-6 amendment
-    // 24). The ladder was exactly 3/4/5 hits from the then base 15-damage gun,
-    // which at its 5s reload is the ruled 15/20/25s time-to-kill. The cannon's
-    // base moved 15 -> 16 on 2026-10-02 (epic-8 amendment 232; drone hp did
-    // NOT move — Eric changes only the numbers he names), so the ratio is no
-    // longer whole. The base moved again 16 -> 12 (Eric 2026-10-13,
-    // experiment, Story 9.8), so the tier-I shots to kill are 4/5/7 now, not
-    // 3/4/5 — the 3/4/5 pin was a consequence of the old gun, never a rule of
-    // its own, and is gone; the time-to-kill is shots x the 5 s reload. HULL
-    // DIMS DO NOT MOVE: size still reads on the water at 85/100/115u.
-    expect(CONFIG.drones.small.hp).toBe(45);
-    expect(CONFIG.drones.medium.hp).toBe(60);
-    expect(CONFIG.drones.large.hp).toBe(75);
-    expect(CONFIG.gun.reloadMs).toBe(5000);
-    expect(CONFIG.drones.small.hull).toEqual({ length: 85, beam: 25 });
-    expect(CONFIG.drones.medium.hull).toEqual({ length: 100, beam: 30 });
-    expect(CONFIG.drones.large.hull).toEqual({ length: 115, beam: 35 });
+  it('size reads on the water: hp and hull length and beam all climb small → medium → large', () => {
+    const [s, m, l] = DRONE_SIZE_IDS.map((size) => CONFIG.drones[size]);
+    expect(s.hp).toBeLessThan(m.hp);
+    expect(m.hp).toBeLessThan(l.hp);
+    expect(s.hull.length).toBeLessThan(m.hull.length);
+    expect(m.hull.length).toBeLessThan(l.hull.length);
+    expect(s.hull.beam).toBeLessThan(m.hull.beam);
+    expect(m.hull.beam).toBeLessThan(l.hull.beam);
   });
 
-  it('kinematics: maxSpeed 40/35/30 with reverse/accel/decel scaled proportionally; turnRate/steerageSpeed UNCHANGED', () => {
-    expect(CONFIG.drones.small.kinematics).toEqual({
-      maxSpeed: 40,
-      reverseSpeed: 12,
-      accel: 9.5,
-      decel: 14.8,
-      turnRate: 0.9,
-      steerageSpeed: 12,
-    });
-    expect(CONFIG.drones.medium.kinematics).toEqual({
-      maxSpeed: 35,
-      reverseSpeed: 11,
-      accel: 8.3,
-      decel: 12.9,
-      turnRate: 0.75,
-      steerageSpeed: 10,
-    });
-    expect(CONFIG.drones.large.kinematics).toEqual({
-      maxSpeed: 30,
-      reverseSpeed: 10,
-      accel: 7,
-      decel: 11,
-      turnRate: 0.6,
-      steerageSpeed: 8,
-    });
+  it('agility is a size property: maxSpeed and turnRate both fall small → medium → large', () => {
+    const [s, m, l] = DRONE_SIZE_IDS.map((size) => CONFIG.drones[size].kinematics);
+    expect(s.maxSpeed).toBeGreaterThan(m.maxSpeed);
+    expect(m.maxSpeed).toBeGreaterThan(l.maxSpeed);
+    expect(s.turnRate).toBeGreaterThan(m.turnRate);
+    expect(m.turnRate).toBeGreaterThan(l.turnRate);
   });
 
   it('every drone entry has the ship-class envelope shape PLUS its own self-defence gun (amendment 34 — fit is gun-only)', () => {
@@ -203,7 +94,7 @@ describe('drone envelope table (Story 5.6, amendment 34 — retuned off the reti
     }
   });
 
-  it('gun damage is a FLAT 1 on every size, flat 5s reload (6/8/10 -> 1/2/3 -> 1/1/1)', () => {
+  it('drone gun damage is flat across sizes on the captain gun\'s reload, so the damage a drone deals back over its life equals its shots-to-kill', () => {
     // THE FLAT GUN IS A DERIVATION, NOT A FLATTENING (epic-6 amendment 24).
     // Eric specified the damage a hull deals back OVER ITS OWN LIFETIME as
     // 3/4/5. Because the drone reload equals the captain gun reload,
@@ -211,7 +102,8 @@ describe('drone envelope table (Story 5.6, amendment 34 — retuned off the reti
     // satisfies a per-size damage spec exactly, and a per-size damage table
     // would double-count the scaling hp already carries. Do not "restore" it.
     for (const size of DRONE_SIZE_IDS) {
-      expect(CONFIG.drones[size].gun).toEqual({ damage: 1, reloadMs: 5000 });
+      expect(CONFIG.drones[size].gun!.damage, size).toBe(CONFIG.drones.small.gun!.damage);
+      expect(CONFIG.drones[size].gun!.reloadMs, size).toBe(CONFIG.gun.reloadMs);
     }
     // Shots-to-kill is a whole count of clicks (ceil) at whatever the cannon's
     // base is (16 -> 12, Eric 2026-10-13, experiment: 45/60/75 hp take 4/5/7
