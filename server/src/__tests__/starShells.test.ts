@@ -64,7 +64,7 @@ function fireAndResolve(w: World, firer: string, input: Partial<InputMsg>, maxTi
 }
 
 describe('star shells — shell construction', () => {
-  it('firing spawns a TIERED DAMAGE flare (Story 8.17, amendment 130): speed 500, damage = the row (20 at tier I) on burst AND contact, burst = lit radius, lit tag set', () => {
+  it('firing spawns a TIERED DAMAGE flare (Story 8.17, amendment 130): the row\'s speed, the row\'s damage on burst AND contact, burst = lit radius, lit tag set', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     setInput(bb, { aim: 0, aimDist: 400, slot: SLOT_STAR });
@@ -75,8 +75,8 @@ describe('star shells — shell construction', () => {
     // row's tier damage (20 at tier I) to every hull inside the whole lit
     // circle, and the same number to an interceptor (the broadside precedent).
     expect(shell.damage).toBe(CONFIG.starShells.damage);
-    expect(shell.damage).toBe(20);
-    expect(shell.contactDamage).toBe(20);
+    expect(shell.damage).toBeGreaterThan(0);
+    expect(shell.contactDamage).toBe(CONFIG.starShells.damage);
     expect(shell.hits).toEqual(CONFIG.starShells.hits); // still no mine bit — lighting never clears a minefield
     expect(shell.burn).toBeUndefined(); // a flare never burns (PHOSPHOR SHELLS is its own row)
     expect(shell.foul).toBeUndefined(); // ...and never fouls (the FOULING SHELL is its own consumable row, Story 9.4)
@@ -112,7 +112,7 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
     // inside the circle takes the tier's 20, the one outside nothing, the
     // owner never — and the burst resolved a hull, so it is a Hit Call
     // (amendment 135(a)).
-    expect(near.hp).toBe(near.stats.maxHp - 20);
+    expect(near.hp).toBe(near.stats.maxHp - CONFIG.starShells.damage);
     expect(far.hp).toBe(far.stats.maxHp);
     expect(a.hp).toBe(a.stats.maxHp);
     expect(seen.filter((k) => k === 'dmg')).toHaveLength(1);
@@ -144,7 +144,7 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
     expect(seen).not.toContain('burst');
     // Story 8.17: the interceptor takes the row's 20 (the broadside precedent)
     // and the flare STILL lights where it stopped.
-    expect(mid.hp).toBe(mid.stats.maxHp - 20);
+    expect(mid.hp).toBe(mid.stats.maxHp - CONFIG.starShells.damage);
     expect(seen).toContain('dmg');
     expect(w.litZones.size).toBe(1);
     const zone = [...w.litZones.values()][0];

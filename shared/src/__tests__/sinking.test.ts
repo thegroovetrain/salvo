@@ -21,20 +21,13 @@ function ship(speed: number, heading = 0): ShipState {
 }
 
 describe('CONFIG.ship.sinkingWindowMs — amendment 13', () => {
-  it('is EXACTLY the flat 5000 ms Eric ruled, for all classes (there is only one)', () => {
-    // "5s is fine all around" — per-class windows were offered and DECLINED.
-    // A second window constant appearing anywhere is a ruling change.
-    expect(WINDOW).toBe(5000);
-  });
-
   it('is a whole number of 50 ms ticks, so cap-zero and the founder tick coincide', () => {
     expect(WINDOW % DT).toBe(0);
   });
 
-  it('fixes the mine interaction in place: armDelay (3000) < window (5000)', () => {
-    // Amendment 13 names this: a mine laid in the first two seconds of
-    // sinking arms BEFORE its layer founders; one laid later arms after.
-    expect(CONFIG.mine.armDelay).toBe(3000);
+  it('a mine laid early in the window arms before its layer founders: armDelay < window (amendment 13)', () => {
+    // Amendment 13 names this: a mine laid early in sinking arms BEFORE its
+    // layer founders; one laid later arms after.
     expect(CONFIG.mine.armDelay).toBeLessThan(WINDOW);
   });
 });

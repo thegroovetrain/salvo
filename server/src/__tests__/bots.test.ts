@@ -44,60 +44,7 @@ function botWorld(seed: number, bots: number): { w: World; ids: string[] } {
   return { w, ids };
 }
 
-describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled knobs', () => {
-  it('pins the key set (a knob added or dropped is a reviewed edit, not drift)', () => {
-    expect(Object.keys(CONFIG.bots).sort()).toEqual([
-      'aimScatterRefU',
-      'aimScatterU',
-      'callsigns',
-      'cardPoints', // Story 8.20: the points table replaced `boonWeights` (a DELIBERATE edit to this pin)
-      'contactBrokenMs', // Story 9.13 (epic-9 amendments 192–202): every "9.13" key here is a DELIBERATE edit to this pin
-      'contactMemoryMs',
-      'crowdPenalty', // 9.13 (amendment 204)
-      'decisionCadenceMs',
-      'decoyDemote', // 9.13
-      'decoyStillSweeps', // 9.13
-      'disengageHpFrac',
-      'disengageHysteresis', // 9.13
-      'gateHoldMs', // 9.13 fix wave P11 (orchestrator reading under amendment 194)
-      'gunBand', // 9.13
-      'healHpFrac',
-      'hullBumperU', // Story 9.5 review gate: the target / fleet-mate bumper clearance [DRAFT] (a DELIBERATE edit to this pin)
-      'hullLookaheadU', // Story 9.5: the hull-avoidance lookahead [DRAFT] (a DELIBERATE edit to this pin)
-      'kiteHoldFrac', // 9.13 (amendment 194)
-      'leanInFactor', // 9.13 (amendment 204)
-      'litTargetBonus', // 9.13 (amendment 204)
-      'nav', // 9.13: the navigation block
-      'outnumberedCount', // 9.13
-      'preparedMineReserve', // cycle 111: the prepared-lay headroom (a DELIBERATE edit to this pin)
-      'profiles',
-      'ramExitMs', // 9.13
-      'ramReachU', // Story 9.5: the ram trigger's reach [DRAFT] (a DELIBERATE edit to this pin)
-      'reactionMs',
-      'ringLeaveMarginMs', // 9.13
-      'ringOpenMarginMs', // 9.13
-      'stuckMs',
-      'supercavCredibleU', // 9.13
-      'unbeachAsternMaxMs',
-      'unbeachBackoutMs', // 9.13 fix wave P19 (orchestrator reading under amendment 192)
-      'unbeachClearU',
-      'unbeachHoldMs',
-      'unbeachProbeRetryTicks', // 9.13 fix wave P19 (ruled 2026-10-17)
-      'unbeachProbeTicks', // 9.13 fix wave P19 (ruled 2026-10-17)
-    ]);
-    // The navigation block's own keys (Story 9.13; routeRetryMs is fix wave P3).
-    expect(Object.keys(CONFIG.bots.nav).sort()).toEqual([
-      'avoidRays',
-      'avoidReachTurnRadii',
-      'cellU',
-      'clearancePenalty',
-      'coverDetourU',
-      'routeBudgetNodes',
-      'routeReplanGoalMoveU',
-      'routeRetryMs',
-      'waypointTimeoutMs',
-    ]);
-  });
+describe('CONFIG.bots — the un-beach maneuver is a set of relations, not three unrelated knobs', () => {
 
   // THE UN-BEACH MANOEUVRE'S FOUR NUMBERS, and the relations between them that
   // make it a manoeuvre rather than three unrelated knobs. It ran on ONE
@@ -143,18 +90,6 @@ describe('CONFIG.bots — the tuning panel exists and carries exactly its ruled 
     expect(new Set(CONFIG.bots.callsigns).size).toBe(CONFIG.bots.callsigns.length);
   });
 
-  it('cardPoints carries exactly Eric\'s R3 table (2026-09-30)', () => {
-    expect(CONFIG.bots.cardPoints).toEqual({
-      base: 2,
-      favorite: 1,
-      style: 1,
-      beltHunger: { low: -1, medium: 0, high: 1 },
-      carried: -1,
-      hurtRepair: 2,
-      weapon: 3.5,
-      favoriteWeapon: 3.75,
-    });
-  });
 });
 
 describe('addBot — an AI captain through the ordinary addShip path', () => {
@@ -216,7 +151,9 @@ describe('addBot — an AI captain through the ordinary addShip path', () => {
   it('a forced TEST row stays hull-bound; a forced in-game personality never decides the hull', () => {
     const w = new World(16);
     w.map.islands.length = 0;
-    expect(w.addBot(undefined, 'randomBattleship').hullId).toBe('battleship');
+    const testRow = w.addBot(undefined, 'randomBattleship');
+    expect(testRow.hullId).toBe('battleship');
+    expect(w.bots.profileOf(testRow.id)).toBe('randomBattleship');
     expect(w.addBot('torpedoBoat', 'randomMineLayer').hullId).toBe('mineLayer');
     const forced = w.addBot('mineLayer', 'raider');
     expect(forced.hullId).toBe('mineLayer');
@@ -476,14 +413,6 @@ describe('state lifecycle — created with the ship, silent while down, released
 // --- the wave-4 test rig: profile override + the engage gate -----------------
 
 describe('World.addBot — the optional TEST profile (Story 7-6 wave 4)', () => {
-  it('honours a forced test profile, and the profile governs the hull', () => {
-    const w = new World(5);
-    w.map.islands.length = 0;
-    const rec = w.addBot(undefined, 'randomBattleship');
-    expect(rec.hullId).toBe('battleship');
-    expect(w.bots.profileOf(rec.id)).toBe('randomBattleship');
-  });
-
   it('a forced profile does not shift the stream for the enrollments after it', () => {
     // The mirror of solo.test.ts's forced-CLASS pin: the controller still
     // rolls class AND profile and discards both, so callsigns and every later
@@ -499,16 +428,6 @@ describe('World.addBot — the optional TEST profile (Story 7-6 wave 4)', () => 
     expect(nextB.hullId).toBe(nextA.hullId);
     expect(w2names(a)).toEqual(w2names(b));
     expect(a.bots.profileOf(nextA.id)).toBe(b.bots.profileOf(nextB.id));
-  });
-
-  it('with NO override the rolled profile is always an in-game id (the safety property, live)', () => {
-    const w = new World(31);
-    w.map.islands.length = 0;
-    for (let i = 0; i < 12; i += 1) {
-      const rec = w.addBot(undefined, undefined);
-      const table: readonly string[] = CONFIG.bots.profiles;
-      expect(table).toContain(w.bots.profileOf(rec.id));
-    }
   });
 });
 

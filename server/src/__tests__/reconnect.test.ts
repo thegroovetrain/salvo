@@ -150,10 +150,10 @@ describe('protocolVersionError', () => {
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });
 
-  it('rejects missing, mismatched, and wrong-typed pv with a "refresh" message', () => {
+  it('rejects missing, mismatched, and wrong-typed pv with a message naming the server version', () => {
     for (const bad of [undefined, null, PROTOCOL_VERSION + 1, PROTOCOL_VERSION - 1, String(PROTOCOL_VERSION), NaN]) {
       const msg = protocolVersionError(bad);
-      expect(msg).toMatch(/refresh/);
+      expect(typeof msg).toBe('string');
       expect(msg).toContain(`v${PROTOCOL_VERSION}`);
     }
   });
@@ -177,19 +177,21 @@ describe('ArenaRoom static onAuth (pv gate)', () => {
     await expect(ArenaRoom.onAuth('', { pv: PROTOCOL_VERSION })).resolves.toBe(true);
   });
 
-  it('throws a ServerError(AUTH_FAILED) with the refresh message when pv is missing', async () => {
+  it('throws a ServerError(AUTH_FAILED) carrying the PV-gate message when pv is missing', async () => {
     const err = await ArenaRoom.onAuth('', {}).then(
       () => null,
       (e: unknown) => e,
     );
     expect(err).toBeInstanceOf(ServerError);
     expect((err as ServerError).code).toBe(ErrorCode.AUTH_FAILED);
-    expect((err as ServerError).message).toMatch(/refresh/);
+    expect((err as ServerError).message).toBe(protocolVersionError(undefined));
   });
 
   it('rejects a mismatched pv (stale bundle) and absent options', async () => {
-    await expect(ArenaRoom.onAuth('', { pv: PROTOCOL_VERSION + 1 })).rejects.toThrow(/refresh/);
-    await expect(ArenaRoom.onAuth('')).rejects.toThrow(/refresh/);
+    await expect(ArenaRoom.onAuth('', { pv: PROTOCOL_VERSION + 1 })).rejects.toThrow(
+      protocolVersionError(PROTOCOL_VERSION + 1)!,
+    );
+    await expect(ArenaRoom.onAuth('')).rejects.toThrow(protocolVersionError(undefined)!);
   });
 });
 
@@ -447,7 +449,7 @@ describe('ArenaRoom.onDrop wiring', () => {
 
 describe('CONFIG.net.reconnectGraceSeconds', () => {
   it('declares a positive, finite grace window', () => {
-    expect(CONFIG.net.reconnectGraceSeconds).toBe(60);
+    expect(CONFIG.net.reconnectGraceSeconds).toBeGreaterThan(0);
     expect(Number.isFinite(CONFIG.net.reconnectGraceSeconds)).toBe(true);
   });
 });

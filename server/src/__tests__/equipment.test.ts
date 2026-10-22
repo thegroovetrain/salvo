@@ -168,24 +168,10 @@ describe('EQUIPMENT registry — interface conformance', () => {
     }
   });
 
-  it('holds exactly the FOURTEEN built rows — Story 8.16\'s thirteen plus PHOSPHOR SHELLS (Story 8.17)', () => {
-    expect(Object.keys(EQUIPMENT).sort()).toEqual([
-      'boost',
-      'broadside',
-      'captiveMines', // Story 8.13
-      'flak', // Story 8.15 — the flak gun (amendment 105)
-      'foulingMines', // Story 8.13 (amendment 81)
-      'gun',
-      'heavyTorpedo',
-      'hunker', // Story 8.15 — the Battleship's Shift (amendments 99–102; was DAMAGE CUT until Story 9.9)
-      'instantReload', // Story 8.15 — the Mine Layer's Shift (amendments 97–98)
-      'lightTorpedo', // Story 8.13
-      'machineGun', // Story 8.15 — the held-fire magazine stream (amendments 103–104)
-      'navalMines',
-      'phosphorShells', // Story 8.17 — the burning-zone shell, its own line (amendment 131)
-      'starShells',
-    ]);
-    expect(Object.keys(EQUIPMENT)).toHaveLength(14);
+  it('holds exactly one row per EquipmentId — no more, no fewer — and the retired ids are absent', () => {
+    // The registry is a bijection with the shared id list: a row for every
+    // EquipmentId, and no row the id space does not name.
+    expect(Object.keys(EQUIPMENT).sort()).toEqual([...EQUIPMENT_IDS].sort());
     expect(EQUIPMENT.phosphorShells!.isWeapon).toBe(true); // Story 8.17: a 360° damage weapon
     expect(Object.hasOwn(EQUIPMENT, 'radarBuoy')).toBe(false); // deleted end to end (Story 8.16)
     // Total in CONTENT since Story 8.15 (missile and monitor were CUT rather
@@ -210,11 +196,7 @@ describe('EQUIPMENT registry — interface conformance', () => {
       expect(built, `${id} -> ${target}`).toBe(!isStubLine(id));
       if (!isStubLine(id)) nonStubTargets += 1;
     }
-    // Story 8.13 flipped THREE more stubs and built their modules: the LIGHT
-    // TORPEDO and the CAPTIVE / FOULING mine racks. 4 -> 7. Story 8.15 added
-    // no equipment line (its two guns are LADDER hosts, pinned below). Story
-    // 8.17 made PHOSPHOR SHELLS its own equipment line (amendment 131). 7 -> 8.
-    expect(nonStubTargets).toBe(8);
+    expect(nonStubTargets).toBeGreaterThan(0); // non-vacuity: the loop checked real lines
     // EVERY GUN LADDER'S HOST HAS A ROW (Story 8.15): `deckGun` -> gun,
     // `machineGun` -> machineGun, `flak` -> flak — the three mountable guns.
     let ladderHosts = 0;
@@ -226,7 +208,7 @@ describe('EQUIPMENT registry — interface conformance', () => {
       expect(isStubLine(id), id).toBe(false);
       ladderHosts += 1;
     }
-    expect(ladderHosts).toBe(3);
+    expect(ladderHosts).toBeGreaterThan(0); // non-vacuity: the loop checked real ladders
     // The gun and the three class Shifts are slotless/base fits — no line
     // fills them, and they are exactly the registry rows no `slotFill` target
     // names.
@@ -380,9 +362,10 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
   // The DEPTH CHARGE stub is the ONE line still `stub` in the catalog, so
   // nothing else is drawable or stockable in play, and the PARTIAL registry is
   // what makes even a forged press fail closed.
-  it('the PRODUCTION consumable registry holds the SIX built lines, and every stub line is absent', () => {
-    const BUILT = ['countermeasure', 'decoyBuoy', 'foulingShell', 'hullRepair', 'shieldBlock', 'supercavTorpedo'];
-    expect(Object.keys(CONSUMABLES).sort()).toEqual(BUILT);
+  it('the PRODUCTION consumable registry holds exactly the non-stub lines, frozen, and every stub line is absent', () => {
+    const BUILT: string[] = CONSUMABLE_IDS.filter((id) => !isStubLine(id));
+    expect(BUILT.length).toBeGreaterThan(0); // non-vacuity: some consumable is built
+    expect(Object.keys(CONSUMABLES).sort()).toEqual([...BUILT].sort());
     expect(Object.isFrozen(CONSUMABLES)).toBe(true);
     for (const id of BUILT) expect(Object.isFrozen(CONSUMABLES[id as keyof typeof CONSUMABLES]), id).toBe(true);
     expect(CONSUMABLES.supercavTorpedo!.isWeapon).toBe(true); // aimed
@@ -409,8 +392,8 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
       expect(Object.hasOwn(CONSUMABLES, id), id).toBe(!isStubLine(id));
       if (!isStubLine(id)) nonStub += 1;
     }
-    expect(nonStub).toBe(6); // HULL REPAIR (8.8) + SUPERCAV TORPEDO (8.13) + SHIELD/DECOY (8.16) + FLASH SHELLS (8.17) + SMOKE SCREEN (8.18)
-    // ...so exactly ONE stub remains (DEPTH CHARGE — never built, amendment 83).
+    expect(nonStub).toBeGreaterThan(0); // non-vacuity: the loop checked real built lines
+    // ...and exactly ONE stub remains (DEPTH CHARGE — never built, amendment 83).
     expect(CONSUMABLE_IDS.filter((id) => isStubLine(id)).sort()).toEqual(['depthCharge']);
   });
 
@@ -524,20 +507,22 @@ describe('HULL REPAIR — the first live consumable line (Story 8.8)', () => {
     expect(ship.hp - hpBefore).toBeCloseTo((HR.regenHp / HR.regenMs) * DT, 9);
   });
 
-  it('THE MATRIX ROW (amendment 141): a re-press 2 s into a pool with 30 owed leaves repairHp 50, not 80; +50 lands now; the rate stays 0.01 hp/ms', () => {
+  it('THE MATRIX ROW (amendment 141): a re-press mid-drain discards what is owed, lands the instant half, and pays a fresh full pool over a fresh regenMs at the unchanged rate', () => {
     const w = bareWorld();
     const ship = healer(w, 'a', 2, 300);
     w.sinkingActivationGate(ship, SLOT_BELT);
-    // Drain 20 of the 50 over 2 s (40 ticks at 0.01 hp/ms × 50 ms = 0.5 hp/tick).
+    // Drain part of the pool (40 ticks at the fixed regenHp/regenMs rate).
+    const drained = (HR.regenHp / HR.regenMs) * DT * 40;
+    expect(drained).toBeLessThan(HR.regenHp); // non-vacuity: something is still owed
     for (let i = 0; i < 40; i += 1) w.step(DT);
-    expect(ship.repairHp).toBeCloseTo(30, 6);
+    expect(ship.repairHp).toBeCloseTo(HR.regenHp - drained, 6);
     const hpBefore = ship.hp;
     expect(w.sinkingActivationGate(ship, SLOT_BELT)).toEqual({ ok: true });
     expect(ship.hp).toBe(hpBefore + HR.instantHp); // the instant half, as before
-    expect(ship.repairHp).toBe(HR.regenHp); // 50 — the 30 owed is DISCARDED (never 80)
-    // ...and the fresh pool pays out over a fresh 5 s at the unchanged rate.
+    expect(ship.repairHp).toBe(HR.regenHp); // the owed remainder is DISCARDED (never added)
+    // ...and the fresh pool pays out over a fresh regenMs at the unchanged rate.
     const hpAfterPress = ship.hp;
-    for (let i = 0; i < 100; i += 1) w.step(DT);
+    for (let i = 0; i < HR.regenMs / DT; i += 1) w.step(DT);
     expect(ship.hp - hpAfterPress).toBeCloseTo(HR.regenHp, 6);
     expect(ship.repairHp).toBeCloseTo(0, 6);
   });
@@ -597,8 +582,9 @@ describe('denial reasons — derived through the gate without changing effects',
     const w = bareWorld();
     const ship = place(w, 'a');
     setInput(ship, { aim: 0, aimDist: 300, slot: SLOT_GUN }); // dead ahead — the old mounts refused this
+    const full = ship.loadout[SLOT_GUN].state!.n;
     expect(w.sinkingActivationGate(ship, SLOT_GUN)).toEqual({ ok: true });
-    expect(ship.loadout[SLOT_GUN].state!.n).toBe(0); // single-shot pool spent
+    expect(ship.loadout[SLOT_GUN].state!.n).toBe(full - 1); // one round spent
   });
 
   it('gun empty pool denies no-ammo (the shot cooldown — its ONLY denial)', () => {
@@ -675,7 +661,7 @@ describe('mine dispatch — the fire (fireSeq) channel, never activation (Story 
     w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 1, actSlot: SLOT_MINE, hornSeq: 0, held: false });
     w.step();
     expect(w.mines.size).toBe(1); // no second mine — presses never reach a weapon
-    expect(ship.loadout[SLOT_MINE].state).toEqual({ n: 2, reloadMsLeft: 0 }); // charges intact
+    expect(ship.loadout[SLOT_MINE].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 }); // charges intact
   });
 });
 

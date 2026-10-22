@@ -60,7 +60,6 @@ describe('aggroFrame — the pure look, one state at a time', () => {
     expect(mid.alpha).toBeLessThan(A.holdAlpha);
     expect(mid.visible).toBe(true);
     expect(aggroFrame('break', A.breakMs, 1).visible).toBe(false);
-    expect(A.breakMs).toBe(400); // the ratified duration
   });
 
   it('the BREAK is the bigger motion, so it can never read as a lock in reverse', () => {
@@ -266,7 +265,6 @@ describe('the aggro cues carry their ratified grammar and their visual twins', (
 
   it('both name a real visual twin (EXPERIENCE.md\'s accessibility floor)', () => {
     for (const id of ['aggroLock', 'aggroRelease'] as const) {
-      expect(TONE_TWINS[id]).toMatch(/bracket/);
       expect(TONE_TWINS[id].length).toBeGreaterThan(20);
     }
   });

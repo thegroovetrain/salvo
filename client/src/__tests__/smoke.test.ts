@@ -29,7 +29,7 @@ import {
   Smoke,
 } from '../render/smoke.js';
 import { capOldest } from '../util/pool.js';
-import { motionIntensity } from '../settings/store.js';
+import { motionIntensity, settings } from '../settings/store.js';
 
 const S = CLIENT_CONFIG.smoke;
 const LIFE = S.puffLifeMs;
@@ -54,11 +54,6 @@ describe('the damage bands are single-sourced from shared CONFIG', () => {
     // IDENTITY; the comment in config.ts pins the intent.
     expect(CLIENT_CONFIG.vitals.amberBelow).toBe(CONFIG.damageBands.amberBelow);
     expect(CLIENT_CONFIG.vitals.criticalBelow).toBe(CONFIG.damageBands.criticalBelow);
-  });
-
-  it('leaves the rail byte-identical to its shipped values', () => {
-    expect(CLIENT_CONFIG.vitals.amberBelow).toBe(0.5);
-    expect(CLIENT_CONFIG.vitals.criticalBelow).toBe(0.25);
   });
 });
 
@@ -295,14 +290,24 @@ describe("motion: 'off' removes MOTION, never INFORMATION", () => {
   // information, so it is the opposite of an `isJuiceEffect` kind.
   const off = motionIntensity('off');
 
-  it('keeps PRESENCE: alpha is identical at off and at full', () => {
-    for (const age of [0, 300, 700, LIFE - 1]) {
-      // Alpha takes no intensity argument AT ALL — the motion level is
-      // structurally unable to dim a plume.
-      expect(puffAlpha(age, LIFE, HEAVY.peakAlpha)).toBeGreaterThanOrEqual(0);
-      expect(puffAlpha(age, LIFE, HEAVY.peakAlpha)).toBe(puffAlpha(age, LIFE, HEAVY.peakAlpha));
+  it('keeps PRESENCE: the adapter spawns and holds the same puffs at off as at full', () => {
+    // Alpha takes no intensity argument AT ALL, so the only place a motion gate
+    // could delete a plume is the adapter — drive it at every motion level.
+    const prev = settings.current.motion;
+    try {
+      const live: number[] = [];
+      for (const motion of ['full', 'reduced', 'off'] as const) {
+        settings.set({ motion });
+        const smoke = new Smoke(new Container());
+        smoke.onSmoke({ k: 'sm', x: 5, y: 6, tier: 2 }, 1000);
+        smoke.render(1000 + LIFE / 2);
+        live.push(smoke.livePuffs);
+      }
+      expect(live[0]).toBeGreaterThan(0);
+      expect(live).toEqual([live[0], live[0], live[0]]);
+    } finally {
+      settings.set({ motion: prev });
     }
-    expect(puffAlpha(LIFE / 2, LIFE, HEAVY.peakAlpha)).toBeGreaterThan(0);
   });
 
   it('keeps EXTENT: the radius at off equals the un-billowed true radius', () => {
@@ -363,13 +368,5 @@ describe('the puff cap is GLOBAL ONLY, because no correlation handle exists', ()
     // trimming legitimate plumes instead of guarding a backgrounded tab.
     const perHull = (LIFE / CONFIG.smoke.puffIntervalMs) * HEAVY.puffs;
     expect(S.maxPuffs).toBeGreaterThan(20 * perHull);
-  });
-
-  it('has no per-source key to cap by — the wire payload carries no id', () => {
-    // Amendment 45, structurally: `sm` is {k,x,y,tier} and nothing else, so
-    // there is no field a per-source cap could group on. If a correlation
-    // handle ever appears on this row, this test is the tripwire.
-    const e: SmokeEvent = { k: 'sm', x: 100, y: -40, tier: 2 };
-    expect(Object.keys(e).sort()).toEqual(['k', 'tier', 'x', 'y']);
   });
 });

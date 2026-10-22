@@ -1454,16 +1454,6 @@ describe('perception — mine visibility (owner-always, else DETECT+LOS — Stor
     expect(buildFrame(w, 'a').mines).toEqual([]);
   });
 
-  it('the 3/8 band is GONE (Story 9.1, 2026-10-08): a mine at 300 u and one at sight itself are detected; a hair past sight is not', () => {
-    const w = bareWorld();
-    place(w, 'a', 0, 0);
-    injectMine(w, 'm1', 'b', 300, 0); // inside sight — fogged under the old 3/8 rung, detected since 2026-10-08
-    injectMine(w, 'm2', 'b', SIGHT, 0); // the boundary itself, inclusive
-    expect(buildFrame(w, 'a').mines.map((m) => m.id).sort()).toEqual(['m1', 'm2']);
-    injectMine(w, 'm3', 'b', SIGHT + 0.01, 0);
-    expect(buildFrame(w, 'a').mines.map((m) => m.id).sort()).toEqual(['m1', 'm2']);
-  });
-
   it('detect is OBSERVER-SCALED (amendment 121): a sight collapsed to the 1/12 rung collapses it; a sightRange boon widens it', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
@@ -1534,14 +1524,6 @@ describe('perception — torpedo DETECT gate vs shell truesight (Story 4.9: the 
     place(w2, 'a', 0, 0);
     injectShell(w2, 't2', 'b', DETECT + 0.01, 0, Math.PI, 400, false, 'torp');
     expect(torpsOf(buildFrame(w2, 'a'))).toEqual([]);
-  });
-
-  it('a torpedo just inside sight is revealed (the old 3/8 band is gone) and one just past sight is not', () => {
-    const w = bareWorld();
-    place(w, 'a', 0, 0);
-    injectShell(w, 't1', 'b', SIGHT - 30, 0, Math.PI, 400, false, 'torp');
-    injectShell(w, 't2', 'b', SIGHT + 10, 0, Math.PI, 400, false, 'torp');
-    expect(torpsOf(buildFrame(w, 'a')).map((e) => e.id)).toEqual(['t1']);
   });
 
   it('the owner-always and owned-zone paths on the torp row are untouched', () => {

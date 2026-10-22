@@ -288,9 +288,9 @@ describe('poolReadouts — end to end on a tiny bot lobby', () => {
     expect(json.pool).toEqual(p);
     expect(JSON.stringify(aggA.pool)).not.toContain('NaN');
 
-    // Text: the section is in the bot report.
+    // Text: the pool block rides the bot report verbatim.
     const text = renderBotReport('baseline', aggA).join('\n');
-    expect(text).toContain('POOL READOUTS');
+    expect(text).toContain(renderPoolReadouts(p).join('\n'));
     expect(text).not.toContain('NaN');
 
     // Consistency.

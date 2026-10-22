@@ -42,19 +42,19 @@ describe('ellipsizeName — mid-ellipsize > 14 code points to exactly 14', () =>
 });
 
 describe('killLine — colored segments', () => {
-  it('names the killer when attributable (victim SUNK BY killer), carrying both ids', () => {
-    expect(killLine({ name: 'ALPHA', id: 'a' }, { name: 'BRAVO', id: 'b' })).toEqual([
-      { text: 'ALPHA', id: 'a' },
-      { text: ' SUNK BY ' },
-      { text: 'BRAVO', id: 'b' },
-    ]);
+  it('names the killer when attributable: victim, connective, killer, carrying both ids', () => {
+    const line = killLine({ name: 'ALPHA', id: 'a' }, { name: 'BRAVO', id: 'b' });
+    expect(line).toHaveLength(3);
+    expect(line[0]).toEqual({ text: 'ALPHA', id: 'a' });
+    expect(line[1].id).toBeUndefined(); // the connective is never a name
+    expect(line[2]).toEqual({ text: 'BRAVO', id: 'b' });
   });
 
-  it('reports a storm/unattributed loss when there is no killer', () => {
-    expect(killLine({ name: 'ALPHA', id: 'a' }, null)).toEqual([
-      { text: 'ALPHA', id: 'a' },
-      { text: ' LOST WITH ALL HANDS' },
-    ]);
+  it('reports a storm/unattributed loss when there is no killer: victim, then one connective', () => {
+    const line = killLine({ name: 'ALPHA', id: 'a' }, null);
+    expect(line).toHaveLength(2);
+    expect(line[0]).toEqual({ text: 'ALPHA', id: 'a' });
+    expect(line[1].id).toBeUndefined();
   });
 
   it('mid-ellipsizes an over-length name in the segment text (id preserved)', () => {
@@ -79,9 +79,9 @@ describe('the kill-leader feed registers render through the shipped adapter', ()
   const feed = (): HTMLElement => document.getElementById('kill-feed') as HTMLElement;
   const line = (): string => feed().firstChild!.textContent ?? '';
 
-  it('the CLAIM register prints `☠︎ <NAME> IS THE NEW KILL LEADER`, the marked name in the pilot\'s hue', () => {
+  it('the CLAIM register renders the mark and name as ONE hued NAME span, then an uncolored connective', () => {
     pushKillLine(bountyClaimLine({ name: 'ALPHA', id: 'a' }), () => 0x00d0ff);
-    expect(line()).toBe(`${KILL_LEADER_MARK} ALPHA IS THE NEW KILL LEADER`);
+    expect(line().startsWith(`${KILL_LEADER_MARK} ALPHA`)).toBe(true);
     const spans = feed().firstChild!.childNodes as NodeListOf<HTMLSpanElement>;
     expect(spans).toHaveLength(2);
     expect(spans[0].style.fontWeight).toBe('600'); // mark + name, one NAME span
@@ -90,26 +90,31 @@ describe('the kill-leader feed registers render through the shipped adapter', ()
     expect(spans[1].style.fontWeight).toBe('');
   });
 
-  it("a victim-leads sinking ('v') marks the VICTIM span: `☠ ALPHA SUNK BY BRAVO`", () => {
+  it("a victim-leads sinking ('v') marks the VICTIM span", () => {
     pushKillLine(bountyKillLine({ name: 'ALPHA', id: 'a' }, { name: 'BRAVO', id: 'b' }, 'v'), () => 0x00d0ff);
-    expect(line()).toBe(`${KILL_LEADER_MARK} ALPHA SUNK BY BRAVO`);
     const spans = feed().firstChild!.childNodes as NodeListOf<HTMLSpanElement>;
     expect(spans).toHaveLength(3);
+    expect(spans[0].textContent).toBe(`${KILL_LEADER_MARK} ALPHA`);
+    expect(spans[2].textContent).toBe('BRAVO');
     expect(spans[0].style.textShadow).not.toBe(''); // the leader glows
     expect(spans[2].style.textShadow).toBe(''); // the other captain does not
   });
 
-  it("a killer-leads sinking ('k') marks the KILLER span: `ALPHA SUNK BY ☠ BRAVO`", () => {
+  it("a killer-leads sinking ('k') marks the KILLER span", () => {
     pushKillLine(bountyKillLine({ name: 'ALPHA', id: 'a' }, { name: 'BRAVO', id: 'b' }, 'k'), () => 0x00d0ff);
-    expect(line()).toBe(`ALPHA SUNK BY ${KILL_LEADER_MARK} BRAVO`);
     const spans = feed().firstChild!.childNodes as NodeListOf<HTMLSpanElement>;
+    expect(spans[0].textContent).toBe('ALPHA');
+    expect(spans[2].textContent).toBe(`${KILL_LEADER_MARK} BRAVO`);
     expect(spans[0].style.textShadow).toBe('');
     expect(spans[2].style.textShadow).not.toBe('');
   });
 
-  it("a storm sink of the leader ('v', no killer) marks the LOST line", () => {
+  it("a storm sink of the leader ('v', no killer) marks the victim span of the two-span line", () => {
     pushKillLine(bountyKillLine({ name: 'ALPHA', id: 'a' }, null, 'v'), () => 0x00d0ff);
-    expect(line()).toBe(`${KILL_LEADER_MARK} ALPHA LOST WITH ALL HANDS`);
+    const spans = feed().firstChild!.childNodes as NodeListOf<HTMLSpanElement>;
+    expect(spans).toHaveLength(2);
+    expect(spans[0].textContent).toBe(`${KILL_LEADER_MARK} ALPHA`);
+    expect(spans[0].style.textShadow).not.toBe('');
   });
 
   it('the leader glow is STATIC, in the name\'s own text-safe hue, at DESIGN.md\'s glow register', () => {
@@ -284,27 +289,26 @@ describe('the kill feed names its victim: vcls, then the memo, then the roster',
   it('names OUR OWN kill by SIZE for each of the three fleet hulls, unseen or not', () => {
     // The whole reason the wire field exists: you can mine a fleet ship you
     // never once saw, and the size IS the payout (1/4, 1/3, 1/2 of a level).
-    const sizes: [HullId, string][] = [
-      ['droneSmall', 'SMALL DRONE'],
-      ['droneMedium', 'MEDIUM DRONE'],
-      ['droneLarge', 'LARGE DRONE'],
-    ];
-    for (const [cls, expected] of sizes) {
+    const sizes: HullId[] = ['droneSmall', 'droneMedium', 'droneLarge'];
+    const named = sizes.map((cls) => {
       const id = `never-seen-${cls}`;
       expect(store.everSeenClassOf(id)).toBeUndefined(); // never in our contact set
-      expect(victimName(id, cls)).toBe(expected);
-    }
+      expect(fleetSizeName(cls)).not.toBeNull();
+      expect(victimName(id, cls)).toBe(fleetSizeName(cls));
+      return victimName(id, cls);
+    });
+    expect(new Set(named).size).toBe(3); // three sizes, three distinct names
   });
 
-  it('vcls and the memo agree on SIZE — both steps answer MEDIUM DRONE (review-gate fix)', () => {
+  it('vcls and the memo agree on SIZE — both steps answer the sized name (review-gate fix)', () => {
     // Before the review-gate fix, step 2 (the memo, no `vcls`) answered plain
     // `DRONE`, so vcls "outranking" it was also a SIZE upgrade, not just a
     // priority tiebreak between two equally-precise sources. Now both steps
     // are sized off the same `fleetSizeName`, so the outrank is pure priority:
     // vcls still wins on a row that carries it, but the two answers coincide.
     sight('f-seen', 'droneMedium');
-    expect(victimName('f-seen')).toBe('MEDIUM DRONE'); // step 2 on its own, SIZED
-    expect(victimName('f-seen', 'droneMedium')).toBe('MEDIUM DRONE'); // step 1, same answer
+    expect(victimName('f-seen')).toBe(fleetSizeName('droneMedium')); // step 2 on its own, SIZED
+    expect(victimName('f-seen', 'droneMedium')).toBe(fleetSizeName('droneMedium')); // step 1, same answer
   });
 
   it('a fleet sinking we WITNESSED but did not cause reads its SIZE (no vcls, review-gate fix)', () => {
@@ -313,10 +317,10 @@ describe('the kill feed names its victim: vcls, then the memo, then the roster',
     // out of the live contact set (the mined-trap case: `everSeenClassOf`
     // outlives `classOf`).
     sight('f-other', 'droneLarge');
-    expect(victimName('f-other')).toBe('LARGE DRONE');
+    expect(victimName('f-other')).toBe(fleetSizeName('droneLarge'));
     store.prune(100_000, 500);
     expect(store.classOf('f-other')).toBeUndefined();
-    expect(victimName('f-other')).toBe('LARGE DRONE'); // the mined-trap case
+    expect(victimName('f-other')).toBe(fleetSizeName('droneLarge')); // the mined-trap case
   });
 
   it('never renames a CAPTAIN: fleetSizeName is null for every non-drone hull', () => {
@@ -330,53 +334,25 @@ describe('the kill feed names its victim: vcls, then the memo, then the roster',
     expect(victimName('ghost')).toBe(UNKNOWN_VESSEL);
   });
 
-  it('PINNING: the kill feed and the MATCH LOG agree on a fleet KILLER — same resolver, same size', () => {
-    // Eric: "I fixed a feed-vs-log disagreement about this exact event an hour
-    // ago. If the log says SMALL DRONE while the feed says DRONE, I have simply
-    // reintroduced the same class of bug in a subtler form."
-    //
-    // A fleet hull that SANK YOU is one you almost certainly saw (its gun range
-    // equals its 330u sight, symmetric with yours), so the memo has it. Both
-    // the kill feed's killer segment (`feedNameRef` → `deps.names`) and the
-    // MATCH LOG's `killerName` (main.ts `handleSunkObserved` → `feedName`) call
-    // the identical resolver modeled here as `names`/`killerName` — so this one
-    // assertion pins that a captain can never see the two surfaces disagree
-    // about the size, or about whether a size is shown at all.
-    sight('f-killer', 'droneSmall');
-    const feedKillerName = killerName('f-killer'); // the kill feed's "<X> SUNK BY <killer>"
-    const matchLogKillerName = names('f-killer') ?? UNKNOWN_VESSEL; // main.ts killerName fold input
-    expect(feedKillerName).toBe('SMALL DRONE');
-    expect(feedKillerName).toBe(matchLogKillerName);
-
-    // And the negative: a killer we never saw AND that the wire did not name is
-    // UNKNOWN VESSEL on BOTH — never plain DRONE on one and UNKNOWN on the other.
-    expect(killerName('never-seen-killer')).toBe(UNKNOWN_VESSEL);
-    expect(killerName('never-seen-killer')).toBe(names('never-seen-killer') ?? UNKNOWN_VESSEL);
-  });
-
   // ---- Story 7.6: SunkEvent.kcls, the killer's step 2 -----------------------
   it('names a NEVER-SEEN fleet killer by SIZE off kcls — the whole point of the field', () => {
     // Eric 2026-08-21: *"Yes I want to see that Bob was killed by SMALL DRONE if
     // that's what happened."* A captain's sinking is PUBLIC, so this line
     // renders on every client in the room, most of whom never had the killer in
     // their bubble — the memo is empty for them and only the wire can answer.
-    const sizes: [HullId, string][] = [
-      ['droneSmall', 'SMALL DRONE'],
-      ['droneMedium', 'MEDIUM DRONE'],
-      ['droneLarge', 'LARGE DRONE'],
-    ];
-    for (const [cls, expected] of sizes) {
+    for (const cls of ['droneSmall', 'droneMedium', 'droneLarge'] as const) {
       const id = `never-seen-killer-${cls}`;
       expect(store.everSeenClassOf(id)).toBeUndefined();
       expect(killerName(id)).toBe(UNKNOWN_VESSEL); // without the field: the old answer
-      expect(killerName(id, cls)).toBe(expected); // with it: named
+      expect(fleetSizeName(cls)).not.toBeNull();
+      expect(killerName(id, cls)).toBe(fleetSizeName(cls)); // with it: named by size
     }
   });
 
   it('the MEMO OUTRANKS kcls, and the two agree anyway (step 1 before step 2)', () => {
     sight('f-both', 'droneLarge');
-    expect(killerName('f-both')).toBe('LARGE DRONE'); // step 1 alone
-    expect(killerName('f-both', 'droneLarge')).toBe('LARGE DRONE'); // step 1 still wins, same answer
+    expect(killerName('f-both')).toBe(fleetSizeName('droneLarge')); // step 1 alone
+    expect(killerName('f-both', 'droneLarge')).toBe(fleetSizeName('droneLarge')); // step 1 still wins, same answer
   });
 
   it('kcls can NEVER rename a captain — two independent reasons', () => {
@@ -389,18 +365,6 @@ describe('the kill feed names its victim: vcls, then the memo, then the roster',
       expect(killerName('cap', cls)).toBe('SALT SHAKER');
       expect(killerName('ghost', cls)).toBe(UNKNOWN_VESSEL); // and no captain hull is ever named
     }
-  });
-
-  it('PINNING (Story 7.6): feed and MATCH LOG still agree once kcls answers', () => {
-    // Same rule as the pinning test above, extended to the new step: main.ts
-    // `handleSunkObserved` folds `feedName(g, id) ?? fleetSizeName(killerCls)`,
-    // which is this resolver minus only the terminal label the log spells
-    // differently (it omits the line rather than printing one).
-    const id = 'never-seen-killer-pin';
-    const feed = killerName(id, 'droneMedium');
-    const matchLog = (names(id) ?? fleetSizeName('droneMedium')) ?? UNKNOWN_VESSEL;
-    expect(feed).toBe('MEDIUM DRONE');
-    expect(feed).toBe(matchLog);
   });
 
   it('PINNING (Story 7.6): main.ts actually folds kcls into the MATCH LOG name', () => {

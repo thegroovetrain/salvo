@@ -410,7 +410,7 @@ describe('hornPressVerdict — what one F press means', () => {
     expect(hornPressVerdict(false, false, 0, 1500)).toBe('ignore');
   });
 
-  it('is deliberately blind to match phase (the server honks in the ready room)', () => {
+  it('is deliberately blind to match phase (the server honks in the pre-start phases too)', () => {
     // world.ts consumeHonk has no phase test — it gates on alive/drone/cooldown
     // only — and render/deniedFire.ts records why a client-only phase gate is a
     // bug: it makes the UI contradict what the sim actually did. There is no

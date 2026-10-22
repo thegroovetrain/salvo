@@ -160,9 +160,6 @@ describe('THE REACHABLE-HAND PROPERTY — a reachable hand can never out-card th
     }
   });
 
-  it('the row is exactly as wide as the draw rule is deep (3 == 3) — the reason the property holds', () => {
-    expect(WEAPON_SLOTS).toHaveLength(MAX_EQUIPMENT_LINES);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -183,18 +180,13 @@ describe("loadoutFor(stats, fleet, gun) — slot 0 is the SEAT'S gun", () => {
     expect(new Set(GUN_IDS.map((g) => MOUNTED_GUN[g])).size).toBe(GUN_IDS.length); // no two share one
   });
 
-  it.each(GUN_IDS)('%s mounts its module in slot 0 with a FULL pool (the MG magazine is 16)', (gun) => {
+  it.each(GUN_IDS)('%s mounts its module in slot 0 with a FULL pool', (gun) => {
     const eq = MOUNTED_GUN[gun];
     const loadout = loadoutFor(stats, false, gun);
     expect(loadout[SLOT_GUN]).toEqual({ equipmentId: eq, state: { n: stats.equipment[eq].maxAmmo, reloadMsLeft: 0 } });
     expect(loadout[SLOT_BOOST].equipmentId).toBe('boost');
     expect(loadout).toHaveLength(SLOT_COUNT);
     expect(EQUIPMENT_IS_WEAPON[eq]).toBe(true);
-  });
-
-  it('the machine gun mounts a 12-shell magazine and the flak gun one shell (amendments 103/105; 12 since Eric 2026-10-02, amendment 232)', () => {
-    expect(loadoutFor(stats, false, 'machineGun')[SLOT_GUN].state).toEqual({ n: 12, reloadMsLeft: 0 });
-    expect(loadoutFor(stats, false, 'flak')[SLOT_GUN].state).toEqual({ n: 1, reloadMsLeft: 0 });
   });
 
   it('the Shift rides beside ANY gun: every (gun × hull) seat fits slot 0 from the gun and slot 1 from the hull', () => {

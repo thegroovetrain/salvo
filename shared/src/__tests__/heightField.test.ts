@@ -56,19 +56,7 @@ function rasterFor(seed: number, radius = R): HeightRaster {
 }
 
 describe('TERRAIN_PARAMS — the single tuning panel', () => {
-  it('carries the eye-approved prototype values (changing one changes the ocean)', () => {
-    expect(TERRAIN_PARAMS.cell).toBe(14);
-    expect(TERRAIN_PARAMS.lobePersistence).toBe(0.68); // THE shape lever
-    expect(TERRAIN_PARAMS.lobeWeight).toBe(0.76);
-    expect(TERRAIN_PARAMS.ridgeWeight).toBe(0.24);
-    expect(TERRAIN_PARAMS.detailWeight).toBe(0.11);
-    expect(TERRAIN_PARAMS.regionWeight).toBe(0.05);
-    expect(TERRAIN_PARAMS.warpAmount).toBe(240);
-    expect(TERRAIN_PARAMS.warp2Amount).toBe(140);
-    expect(TERRAIN_PARAMS.contourLevels).toBe(3); // 4 bands, the ratified cap
-  });
-
-  it('keeps the coverage target inside the ratified [2%, 3%] band', () => {
+  it('keeps the coverage target inside its own [coverMin, coverMax] band', () => {
     expect(TERRAIN_PARAMS.coverTarget).toBeGreaterThanOrEqual(TERRAIN_PARAMS.coverMin);
     expect(TERRAIN_PARAMS.coverTarget).toBeLessThanOrEqual(TERRAIN_PARAMS.coverMax);
   });

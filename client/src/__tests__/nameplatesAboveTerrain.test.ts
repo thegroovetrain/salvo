@@ -194,7 +194,7 @@ describe('the declared ROOT order (the gap deferred-work named)', () => {
     expect(EVERY_ROOT_PLACED).toBe(true);
   });
 
-  it('leaves the world and HUD child orders alone — this cycle moved one layer', () => {
+  it('the world layers stack ocean → wake → projectile → mines → decoys, and the HUD vignette → hud → foghorn', () => {
     expect(WORLD_LAYER_ORDER as readonly string[]).toEqual([
       'ocean', 'wake', 'projectile', 'mineWorld', 'decoyWorld', // Story 8.16: buoyWorld renamed
     ]);

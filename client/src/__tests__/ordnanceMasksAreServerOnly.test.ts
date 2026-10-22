@@ -24,7 +24,6 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PROTOCOL_VERSION } from '@salvo/shared';
 
 const SRC_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..'); // client/src
 
@@ -60,92 +59,5 @@ describe('the ordnance `hits` masks never reach the client (Story 8.4)', () => {
   it('no client source names `TargetKind` or builds an ordnance `Target`', () => {
     const offenders = FILES.filter((f) => /\bTargetKind\b/.test(readFileSync(f, 'utf8'))).map(rel);
     expect(offenders).toEqual([]);
-  });
-
-  // FOUR STORIES HAVE MOVED THIS NUMBER, each for a reason this pin is happy
-  // with: Story 8.5's nine-slot re-cut widened `OwnShip.ammo` from four entries
-  // to nine (51 → 52), Story 8.8 deleted the `HEAL_CHOICE` wire sentinel and
-  // made `hullRepair` a dealable catalog line (52 → 53), and Story 8.9 deleted
-  // the `speedBoost` equipment id and re-cut `CONFIG.boost`, which the CLIENT
-  // READS to derive the boosted cap (53 → 54, epic-8 amendments 54-55), and
-  // Story 8.10 re-opened ONE negative on `SpendMsg.choice` — `MULLIGAN_CHOICE`
-  // (-2), the countdown redraw — while deleting the interim spawn seed
-  // (54 → 55, epic-8 amendment 60). The ordnance MASK is still server-only —
-  // that is what the three scans above assert, and they are the substance of
-  // this file. This line only witnesses that a bump, when it happens, happens
-  // deliberately.
-  it('PROTOCOL_VERSION is 91 — bumped by the entire sweep (91: no sight-radius inner edge on radar paints, the client stops synthesizing sighted echoes, amendment 210); 90 by the Speedboat hp 250 → 300 (90: the class hp read by the client, amendment 209); 89 by the second tuning pass (89: CONFIG.gun.barrels / gunAttenuation read by the client; 88 by the fog tunes (86, 87: CONFIG.fog read by the client; 88: no fog past the rim; 85 by FOG BANKS; 84 by ARMOR PIERCING (83 by the countermeasure cloud dial; 82 by the twelfths ladder; 81 by ARMOR; 80 by the HULL / PASSIVE HEALING re-cut; 79 by ramming; 78 by the fouling shell; 77 by smoke-is-paint, CONFIG.countermeasure shrinking to lifeMs/r0/r1; 76 by the countermeasure cloud; 75 by the fixed consumable keys; 74 by the 4/8 mine and torpedo detect rung (73 by the session 2 ocean and storm ramp; 72 by the big ocean; 71 by the private-lobby contract; 70 by cycle 166 the deck-gun catalog retune; 69 by cycle 163 the drone-drop `dp` event; 68 by cycle 162: MineView.c for every observer, OwnShip.chaffGhosts, chaff/smoke radii ×1.5), not by masks', () => {
-    // 55 until Story 8.13, whose ONE bump covered the catalog content, the id
-    // moves and `MineView`'s own-only kind field (epic-8 amendment 76); 56
-    // until Story 8.14, whose ONE bump covers the seat's `gun` join option,
-    // `OwnShip.gun` and the retired deck door (epic-8 amendments 89d/95). The
-    // `hits` masks still never reach the client — that is the claim this file
-    // makes, and no bump has ever been theirs. 57 until Story 8.15, whose ONE
-    // bump covers `InputMsg.held`, the reveal's `w`, `OwnShip.hunkerUntil`,
-    // the Shift ids and the catalog cuts (epic-8 amendments 97-110) — the
-    // flak row's new `ordnance` bit in its mask is server-only like every mask.
-    // 58 until Story 8.16, whose ONE bump covers `OwnShip.shield`,
-    // `FrameMsg.decoys` and the radar buoy's deletion (`FrameMsg.buoys`,
-    // `BuoyView`, the `src` blip tag — epic-8 amendments 116-124).
-    // 59 until Story 8.17, whose ONE bump covers `LitZoneView` losing
-    // `phos`/`daz`, `FrameMsg.burnZones`, the phosphor/flash id moves and the
-    // new CONFIG blocks (epic-8 amendments 129-135) — the phosphor and flash
-    // shells' `hits` masks stay server-only like every mask.
-    // 60 until Story 8.18, whose ONE bump covers `FrameMsg.smoke` (`SmokeView`),
-    // the SMOKE SCREEN stub flip and `CONFIG.smokeScreen` (epic-8 amendments
-    // 138-145) — smoke carries no mask at all.
-    // 61 until Story 8.19, whose ONE bump covers the self-private
-    // `OwnShip.draft` (the wake-draft lift the predictor folds) and
-    // `CONFIG.wake.draft` (epic-8 amendments 151-156) — a wake carries no mask.
-    // 62 until cycle 156, whose ONE bump covers the smoke puff radii 40/60 ->
-    // 82.5/165 u (1/8 -> 2/8 of intel range, Eric 2026-09-30), which the
-    // client reads to derive the disc — no wire shape moved, no mask either.
-    // 63 until cycle 158, whose ONE bump covers the machine-gun ladder's new
-    // `rateMs` steps (catalog content) and `idleReloadMs` leaving the stats
-    // row (Eric 2026-09-30), plus the self-private `OwnShip.chaff` cloud
-    // (amendment 191) — the machine gun's mask stays server-only.
-    // 64 until the gun-ladder fold (2026-09-30, amendment 197), whose ONE bump
-    // covers DECK GUN TURRET and DECK GUN BARREL leaving the catalog's card
-    // vocabulary — catalog content, no mask.
-    // 65 until cycle 160 (amendment 200), whose ONE bump covers the client
-    // reading CONFIG.mine.hitRadiusU for its mine ring. The same cycle moves
-    // `mine` in three masks (machine gun gains it, broadside and phosphor
-    // lose it) — server-only like every mask, never the reason for a bump.
-    // 66 until cycle 161 (amendment 208), whose ONE bump covers the STAR
-    // SHELLS / PHOSPHOR SHELLS burst-damage base swap (CONFIG values the refit
-    // card prints) — no mask moved. 67 until cycle 162, whose ONE bump covers
-    // MineView.c on every observer's mine row (Eric 2026-10-01, superseding
-    // amendment 76), the self-private OwnShip.chaffGhosts, and the client
-    // drawing chaff.radius 180 / smoke-screen 123.75→247.5 u from CONFIG;
-    // the machine gun's mask is unchanged — still not a mask bump. 68 -> 69
-    // (cycle 163) is the self-private `dp` drone-drop event; 69 -> 70 (cycle 166) is the deck-gun catalog content — no mask moved;
-    // 70 -> 71 (cycle 167) is the private-lobby contract (MSG lr/ls/lb/lg,
-    // CONFIG.lobby read by the client, arena mode 'private') — no mask moved.
-    // 74 -> 75 (Story 9.2) is the fixed kind -> slot loadout (eleven slots),
-    // `OwnShip.chaff`/`chaffGhosts` and the CHAFF line leaving — no mask moved.
-    // 75 -> 76 (Story 9.3) is `FrameMsg.clouds` (`CloudView`) replacing the
-    // smoke puffs, `OwnShip.inSmoke` deleted and `CONFIG.countermeasure` with
-    // its catalog line — a cloud carries no mask. 76 -> 77 (session 2, smoke is
-    // paint): CONFIG.countermeasure shrinks to lifeMs/r0/r1, which the client
-    // reads — still no mask. 77 -> 78 (Story 9.4) is `FrameMsg.foulZones`
-    // (`FoulZoneView`), `OwnShip.fouledUntil` replacing `dazzledUntil` and
-    // `CONFIG.foulingShell` with its catalog line — a foul zone carries no mask.
-    // 78 -> 79 (Story 9.5) is the client reading CONFIG.ram and running the
-    // shared hull-contact resolver in prediction — no wire shape, no mask.
-    // 79 -> 80 (Story 9.6) is the catalog re-cut (HULL / PASSIVE HEALING) and
-    // the regen fold the client reads through stats — no mask.
-    // 80 -> 81 (Story 9.7, epic-9 amendments 110–117) is the ARMOR ladder and
-    // the HUNKER's (was DAMAGE CUT until Story 9.9) armorBonus, read through the fold — no mask.
-    // 81 -> 82 (Story 9.8, epic-9 amendments 102–109, 121–129) is the twelfths
-    // sensor ladder, the per-weapon tiered range dials read through the fold
-    // and the server-side radar dropout — nothing new on the wire, no mask.
-    // 82 -> 83 (amendment 141) is the MULTI-SPECTRAL CM cloud dial the client
-    // derives — no mask. 83 -> 84 (Story 9.9, epic-9 amendments 144–147) is the
-    // ARMOR PIERCING ladder (catalog content), CONFIG.armor K 100 and HUNKER's
-    // armorBonus read through the fold, and the `hunkerUntil` wire-field rename
-    // — no mask.
-    // 84 -> 85 (Story 9.10, epic-9 amendments 162–168) is the FOG BANK `fog`
-    // row ({id,x,y,r,d}, the seventh declared exception) — no mask.
-    expect(PROTOCOL_VERSION).toBe(91); // 90 → 91: the entire sweep (amendment 210); 89 → 90: Speedboat hp 250 → 300 (amendment 209); 88 → 89: the second tuning pass (Story 9.12, amendments 184–185); 87 → 88: fog tune 3 (no fog past the rim, the own bank is free; amendment 179); 86 → 87: fog tune 2 (spinRimU, solid-fog coverage; amendment 178)
   });
 });

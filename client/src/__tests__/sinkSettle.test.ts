@@ -320,7 +320,7 @@ describe('ownSettle — the hull the player is still fighting from', () => {
 describe('spectateSettle — the wreck the player is watching from outside', () => {
   const sinking = (until: number): { alive: boolean; sinkingUntil: number } => ({ alive: false, sinkingUntil: until });
   const CAP = SHIP.ownSettleMax;
-  const COMPLETION = WINDOW * (1 - CAP); // 3500 ms — derived, never typed in
+  const COMPLETION = WINDOW * (1 - CAP); // derived, never typed in
 
   it('is 0 while alive — a winner spectating at `finished` draws no wreck', () => {
     expect(spectateSettle({ alive: true }, FOUNDER)).toBe(0);
@@ -355,9 +355,7 @@ describe('spectateSettle — the wreck the player is watching from outside', () 
   });
 
   it('is halfway between cap and wreck at half the derived duration', () => {
-    expect(COMPLETION).toBe(3_500);
     expect(spectateSettle(sinking(FOUNDER), FOUNDER + COMPLETION / 2)).toBeCloseTo(CAP + (1 - CAP) * 0.5, 12);
-    expect(spectateSettle(sinking(FOUNDER), FOUNDER + 1_750)).toBeCloseTo(0.65, 12);
   });
 
   // The whole span in one sweep, sink-entry through completion, at the client's

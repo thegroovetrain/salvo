@@ -16,11 +16,12 @@ const TIERED = [
 ];
 const SHIP = ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'];
 
-const row = (t: StatTable, label: string): readonly string[] => {
-  const r = t.rows.find((x) => x.label === label);
-  if (r === undefined) throw new Error(`no ${label} row in ${JSON.stringify(t.rows.map((x) => x.label))}`);
-  return r.values;
-};
+/** Every row's cells, label-blind — a derived row is found by its VALUES. */
+const cells = (t: StatTable): (readonly string[])[] => t.rows.map((r) => r.values);
+/** The copy counts a line's five tiers sit at: a ladder's tier I is the bare
+ *  mount (zero copies), a weapon line's tier I is its first card. */
+const tierCopies = (id: string): number[] => (CATALOG[id].kind === 'ladder' ? [0, 1, 2, 3, 4] : [1, 2, 3, 4, 5]);
+const fold = (id: string, k: number) => effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<string>(k).fill(id));
 
 describe('tier tables', () => {
   it('equipment tables are hull-independent', () => {
@@ -29,10 +30,10 @@ describe('tier tables', () => {
     }
   });
 
-  it('every tiered table has five tier columns I…V and one value per column', () => {
+  it('every tiered table has five tier columns and one value per column', () => {
     for (const id of TIERED) {
       const t = tierTable(id);
-      expect(t.columns, id).toEqual(['I', 'II', 'III', 'IV', 'V']);
+      expect(t.columns, id).toHaveLength(5);
       expect(t.rows.length, id).toBeGreaterThan(0);
       for (const r of t.rows) expect(r.values, `${id} ${r.label}`).toHaveLength(t.columns.length);
     }
@@ -43,46 +44,47 @@ describe('tier tables', () => {
   it('CANNON damage reads the folded gun damage at every tier', () => {
     const at = (k: number): string =>
       String(effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<string>(k).fill('deckGun')).equipment.gun.damage);
-    expect(row(tierTable('deckGun'), 'DAMAGE')).toEqual([0, 1, 2, 3, 4].map(at));
+    expect(cells(tierTable('deckGun'))).toContainEqual([0, 1, 2, 3, 4].map(at));
   });
 
-  it('FLAK reload runs 3.5 s down to 2.8 s (Eric 2026-10-02)', () => {
-    const reload = row(tierTable('flak'), 'RELOAD');
-    expect(reload[0]).toBe('3.5 s');
-    expect(reload[4]).toBe('2.8 s');
+  it('FLAK reload reads the folded flak reload (seconds, to the printed tenth) at every tier', () => {
+    const want = tierCopies('flak').map((k) => fold('flak', k).equipment.flak.reloadMs / 1000);
+    const match = cells(tierTable('flak')).filter((v) =>
+      v.every((c, i) => Math.abs(Number.parseFloat(c) - want[i]!) <= 0.05 + 1e-9));
+    expect(match.length).toBeGreaterThan(0);
   });
 
-  it('STAR SHELLS and PHOSPHOR SHELLS burst damage (amendment 208)', () => {
-    expect(row(tierTable('starShells'), 'DAMAGE')).toEqual(['20', '22', '25', '27', '30']);
-    expect(row(tierTable('phosphorShells'), 'DAMAGE')).toEqual(['10', '12', '15', '17', '20']);
+  it('STAR SHELLS and PHOSPHOR SHELLS burst damage reads the floored folded damage at every tier', () => {
+    for (const id of ['starShells', 'phosphorShells'] as const) {
+      const want = tierCopies(id).map((k) => String(Math.floor(fold(id, k).equipment[id].damage)));
+      expect(cells(tierTable(id)), id).toContainEqual(want);
+    }
   });
 });
 
 describe('ship upgrade tables', () => {
-  it('BASE then one column per card, three hull rows, one value per column', () => {
+  it('a BASE column then one column per card up to the cap, one row per hull, one value per column', () => {
     for (const id of SHIP) {
       const t = shipUpgradeTable(id);
-      expect(t.columns[0], id).toBe('BASE');
-      expect(t.rows.map((r) => r.label), id).toEqual(['SPEEDBOAT', 'REPEATER', 'DREADNOUGHT']);
+      expect(t.columns, id).toHaveLength(1 + CATALOG[id].cap);
+      expect(t.rows, id).toHaveLength(TABLE_HULLS.length);
       for (const r of t.rows) expect(r.values, `${id} ${r.label}`).toHaveLength(t.columns.length);
     }
-  });
-
-  it('every ship ladder has BASE then +1 … +5 (Story 9.6, epic-9 amendments 90/91)', () => {
-    for (const id of SHIP) expect(shipUpgradeTable(id).columns, id).toEqual(['BASE', '+1', '+2', '+3', '+4', '+5']);
   });
 
   it('HULL tops the DREADNOUGHT out at its base hull + 5 × 50 (Story 9.6, amendment 90; was ARMOR at 450)', () => {
     const base = effectiveStats(CONFIG.shipClasses.battleship, []).maxHp;
     const top = effectiveStats(CONFIG.shipClasses.battleship, Array<string>(CATALOG.hullPoints.cap).fill('hullPoints')).maxHp;
-    expect(row(shipUpgradeTable('hullPoints'), 'DREADNOUGHT')[0]).toBe(String(base));
-    expect(row(shipUpgradeTable('hullPoints'), 'DREADNOUGHT').at(-1)).toBe(String(top));
+    const dread = shipUpgradeTable('hullPoints').rows[TABLE_HULLS.indexOf('battleship')]!.values;
+    expect(dread[0]).toBe(String(base));
+    expect(dread.at(-1)).toBe(String(top));
   });
 
-  it('PASSIVE HEALING derives its table from the HEAL row: 2 %/S at BASE, 5 %/S at +5', () => {
-    const heal = row(shipUpgradeTable('passiveHealing'), 'SPEEDBOAT');
-    expect(heal[0]).toBe('2 %/S');
-    expect(heal.at(-1)).toBe('5 %/S');
+  it('PASSIVE HEALING derives its table from the folded heal rate (percent per second) at every count', () => {
+    const heal = shipUpgradeTable('passiveHealing').rows[TABLE_HULLS.indexOf('torpedoBoat')]!.values;
+    heal.forEach((cell, k) => {
+      expect(Number.parseFloat(cell), `+${k}`).toBeCloseTo(fold('passiveHealing', k).regen.missingPctPerS * 100, 6);
+    });
   });
 
   // ARMOR PIERCING (Story 9.9, epic-9 amendment 159): its table derives from the
@@ -90,13 +92,11 @@ describe('ship upgrade tables', () => {
   // adds — base 0, then the fold's value per card, on every hull.
   it('ARMOR PIERCING derives its table from the ARMOR PIERCING row', () => {
     const t = shipUpgradeTable('armorPiercing');
-    expect(t.columns).toEqual(['BASE', '+1', '+2', '+3', '+4', '+5']);
     TABLE_HULLS.forEach((cls, i) => {
       const at = (k: number): string =>
         String(effectiveStats(CONFIG.shipClasses[cls], Array<string>(k).fill('armorPiercing')).armorPiercing);
       expect(t.rows[i]!.values, cls).toEqual([0, 1, 2, 3, 4, 5].map(at));
     });
-    expect(row(t, 'SPEEDBOAT')[0]).toBe('0');
   });
 });
 

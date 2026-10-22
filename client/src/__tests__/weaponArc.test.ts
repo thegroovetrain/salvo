@@ -284,11 +284,6 @@ describe('weaponArcHit + twinSectorSide — the broadside beams', () => {
   const arc = arcFor('broadside');
   if (arc.kind !== 'twin-sector') throw new Error('broadside must declare twin sectors');
 
-  it('takes its geometry from the shared descriptor: ±90° centres, 60° half-arcs', () => {
-    expect((arc.offset * 180) / Math.PI).toBeCloseTo(90, 9);
-    expect((arc.halfArc * 180) / Math.PI).toBeCloseTo(60, 9);
-  });
-
   it('is in arc on EITHER beam and denied in the bow / stern dead zones', () => {
     expect(weaponArcHit(0, Math.PI / 2, 'broadside')).toBe(true); // starboard beam
     expect(weaponArcHit(0, -Math.PI / 2, 'broadside')).toBe(true); // port beam
@@ -296,7 +291,7 @@ describe('weaponArcHit + twinSectorSide — the broadside beams', () => {
     expect(weaponArcHit(0, Math.PI, 'broadside')).toBe(false); // dead astern
   });
 
-  it('leaves a 60°-wide dead zone fore and aft (boundary-inclusive edges)', () => {
+  it('leaves a dead zone fore and aft (boundary-inclusive edges)', () => {
     // Edges come off the DESCRIPTOR, never re-derived from degree literals: the
     // 30°/150° boundaries are `offset ∓ halfArc` to the last float bit, and a
     // literal would land a hair off and read as an off-by-one dead zone.
@@ -306,8 +301,6 @@ describe('weaponArcHit + twinSectorSide — the broadside beams', () => {
     expect(weaponArcHit(0, near - 0.001, 'broadside')).toBe(false); // into the bow zone
     expect(weaponArcHit(0, far, 'broadside')).toBe(true);
     expect(weaponArcHit(0, far + 0.001, 'broadside')).toBe(false); // into the stern zone
-    // The dead zones really are 60° wide: 2 × 30° either side of the bow.
-    expect(((2 * near * 180) / Math.PI)).toBeCloseTo(60, 9);
   });
 
   it('names WHICH beam fires (R2.2), and null in a dead zone', () => {

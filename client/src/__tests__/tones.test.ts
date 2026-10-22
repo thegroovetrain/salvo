@@ -4,7 +4,7 @@
 // untested adapter per convention — this file covers everything pure.
 
 import { describe, it, expect } from 'vitest';
-import { CATALOG, CONFIG, LINE_IDS, type LineKind } from '@salvo/shared';
+import { CATALOG, CONFIG, type LineKind } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import {
   TONES,
@@ -95,8 +95,7 @@ describe('TONES — spec table completeness', () => {
   // to move for it. If a horn ever appears in TONES, or MAX_TONE_S drifts up to
   // accommodate one, the ceiling has stopped meaning anything for the short cues
   // it was written for — which is the thing that ruling protected.
-  it('keeps the 150ms ceiling intact — the horn rides its own path, not an exemption', () => {
-    expect(MAX_TONE_S).toBe(0.15);
+  it('holds no horn — the horn rides its own path, never an exemption from the short-tone ceiling', () => {
     expect(Object.keys(TONES)).not.toContain('foghorn');
     expect(Object.keys(TONES).filter((id) => /horn/i.test(id))).toEqual([]);
   });
@@ -148,13 +147,6 @@ describe('fireTone — weapon -> own-fire tone mapping', () => {
     expect(fireTone('supercavTorpedo')).toBe('fireTorp'); // a BELT line, same cue
     expect(fireTone('captiveMines')).toBe('fireMine');
     expect(fireTone('foulingMines')).toBe('fireMine');
-  });
-
-  it('adds NO ToneId for them — the shipped five fire cues are still the five', () => {
-    const fireIds = Object.keys(TONES).filter((id) => id.startsWith('fire') && !id.startsWith('fit'));
-    expect(fireIds.sort()).toEqual(
-      ['fireBroadside', 'fireGun', 'fireMine', 'fireStarShells', 'fireTorp'],
-    );
   });
 
   it('the broadside report is heavier (lower start) than the gun crack; the flare is a distinct rise', () => {
@@ -251,8 +243,6 @@ describe('the FIT family (Story 2.9) — one two-note template, three tier weigh
   it('every catalog line maps to a fit cue with a real spec (no silent fit)', () => {
     const silent = Object.values(CATALOG).filter((line) => TONES[fitTone(line.kind)] === undefined);
     expect(silent).toEqual([]);
-    // Catalog v3 authors 29 lines (Eric ruling 2026-09-15, amendment 7).
-    expect(Object.keys(CATALOG)).toHaveLength(LINE_IDS.length);
   });
 });
 
@@ -415,7 +405,6 @@ describe('fitDetune — one fit family, four kind voices', () => {
   it('covers EXACTLY the catalog\'s kinds — no gap, no orphan', () => {
     expect([...FIT_KINDS].sort()).toEqual([...KINDS].sort());
     for (const k of USED) expect(KINDS).toContain(k);
-    expect([...USED].sort()).toEqual(['consumable', 'equipment', 'ladder']);
   });
 
   it('gives every kind a DISTINCT transposition inside ±4 semitones', () => {

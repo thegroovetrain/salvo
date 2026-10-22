@@ -126,25 +126,6 @@ describe('the refresh cadence — never per frame', () => {
     expect(Math.abs(r.ox % r.cellU)).toBe(0); // the origin snaps to the cell grid
     expect(r.density).toBe(buf);
   });
-
-  it('a refresh of the real field over the halo square is cheap (printed under HC_PERF_LOG=1)', () => {
-    const view = new FogFieldView(new Container());
-    view.setSeed(SEED, 5000);
-    view.setCut(MID);
-    view.update(16, 0, false, own); // warm-up
-    let best = Number.POSITIVE_INFINITY;
-    for (let k = 0; k < 5; k++) {
-      const t0 = performance.now();
-      view.update(F.refreshMs, (k + 1) * F.refreshMs, false, own);
-      best = Math.min(best, performance.now() - t0);
-    }
-    const n = view.raster.n;
-    if (process.env.HC_PERF_LOG === '1') {
-      console.log(`[fogField] refresh ${n}×${n} = ${n * n} samples: best-of-5 ${best.toFixed(2)} ms`);
-    }
-    expect(view.refreshCount).toBe(6);
-    expect(best).toBeLessThan(50); // a loose guard against an accidental O(n⁴); the target is < 2–3 ms
-  });
 });
 
 describe('the steady state allocates nothing', () => {

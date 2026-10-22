@@ -87,7 +87,7 @@ describe('claim — the per-key sliding window', () => {
     expect(b.claim(hotbarSlotKey(1), 1_000)).toBe('animate');
   });
 
-  it('survives a long stack without unbounded growth (the sweep)', () => {
+  it('a long stack never throws (the sweep)', () => {
     // 5000 claims across 500 keys with a rolling clock: purely a "does not throw
     // / does not stall" pin on the amortized sweep path.
     const b = createFlashBudget();

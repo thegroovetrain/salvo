@@ -14,7 +14,6 @@ import {
   ownMineRings,
   ringsKey,
   Mines,
-  GLYPH_R,
   type OwnMineRings,
 } from '../render/mines.js';
 import { alertClock, alertTint } from '../render/alertBlend.js';
@@ -174,10 +173,6 @@ describe('Mines — ALERTS (Story 9.11, amendment 152) + the own/enemy layer spl
     }
     expect(seen.size).toBeGreaterThan(3);
   });
-
-  it('the glyph box is 10 % larger than the hit disc; the hit disc is untouched', () => {
-    expect(GLYPH_R).toBeCloseTo(CONFIG.mine.hitRadiusU * 1.1, 12);
-  });
 });
 
 // --- OWN-MINE RINGS (aim-preview cycle) -------------------------------------
@@ -238,10 +233,9 @@ describe('ownMineRings — the owner-private radius set', () => {
   // came from through its own wire kind. The trip ring is DERIVED from the
   // line's tier inside the fold (144 u at I, ×1.1 a rung) and its 32 u burst is
   // fixed, so the ring set READS both and re-derives neither.
-  it('CAPTIVE: draws the CONFIG trip ring alone (120 u since 2026-10-08) — no 32u contact-blast ring', () => {
+  it('CAPTIVE: draws the CONFIG trip ring alone — no contact-blast ring', () => {
     const stats = effectiveStats(CONFIG.shipClasses.mineLayer, []);
     expect(stats.equipment.captiveMines.triggerRadius).toBeCloseTo(CONFIG.captiveMines.triggerRadius, 9);
-    expect(stats.equipment.captiveMines.blastRadius).toBeCloseTo(32, 9);
     const rings = ownMineRings(liveParams(), 'captive', true);
     expect(rings.map((r) => [r.r, r.style])).toEqual([[CONFIG.captiveMines.triggerRadius, 'dotted']]);
     // ...and specifically NOT the blast radius, in any style.
@@ -255,7 +249,6 @@ describe('ownMineRings — the owner-private radius set', () => {
     const maxed = Array<string>(5).fill('captiveMines');
     const e = effectiveStats(CONFIG.shipClasses.mineLayer, maxed).equipment.captiveMines;
     expect(e.triggerRadius).toBeCloseTo(CONFIG.captiveMines.triggerRadius * CONFIG.captiveMines.triggerStepPerTier ** 4, 6); // 175.7 u at the 120 u ring
-    expect(e.blastRadius).toBeCloseTo(32, 9);
     const [ring] = ownMineRings(liveParams(maxed), 'captive', true);
     expect(ring.r).toBe(e.triggerRadius);
   });
@@ -266,15 +259,11 @@ describe('ownMineRings — the owner-private radius set', () => {
   });
 
   it('dims the whole set while the mine is still arming, and snaps to full when armed', () => {
-    // LITERAL alphas, deliberately: re-deriving them from CLIENT_CONFIG would
-    // make this test agree with any value the config happens to hold, including
-    // an armingScale of 1 that renders the arming state invisible.
-    expect(ownMineRings(base, 'naval', true).map((r) => r.alpha)).toEqual([0.6, 0.65]);
+    // A relation, not the alphas: an armingScale of 1 (the arming state
+    // invisible) or of 0 (the rings vanish while arming) both fail it.
     const arming = ownMineRings(base, 'naval', false).map((r) => r.alpha);
-    expect(arming[0]).toBeCloseTo(0.24, 9); // 0.6 × armingScale 0.4 (cycle 162 rings)
-    expect(arming[1]).toBeCloseTo(0.26, 9); // 0.65 × 0.4
-    // ...and the arming set is unambiguously the quieter of the two.
     for (let i = 0; i < arming.length; i++) {
+      expect(arming[i]).toBeGreaterThan(0);
       expect(arming[i]).toBeLessThan(ownMineRings(base, 'naval', true)[i].alpha);
     }
   });
@@ -364,11 +353,6 @@ describe("Mines — the marker is the kind's glyph (cycle 162)", () => {
     expect(bogus.join(',')).toBe(marker('naval').join(','));
   });
 
-  it('the naval marker is the spiked sphere: one circle and eight spikes', () => {
-    const a = marker('naval');
-    expect(a.filter((x) => x === 'circle')).toHaveLength(1);
-    expect(a.filter((x) => x === 'lineTo')).toHaveLength(8);
-  });
 });
 
 describe('Mines — rings are drawn for OWN mines only', () => {

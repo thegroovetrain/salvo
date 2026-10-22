@@ -8,7 +8,7 @@
 // speed, and nothing survives the practice-field wipe.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, createShipWake, createTorpWake, wakeCapacity } from '@salvo/shared';
+import { isAfloat, CONFIG, SHIP_CLASS_IDS, createShipWake, createTorpWake, wakeCapacity } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 
@@ -40,35 +40,34 @@ function drive(w: World, id: string, ticks: number): void {
 }
 
 describe('world — wake ribbon store (Story 4.12)', () => {
-  it('ribbon constants derive from the source: 5.5s hull water at the hull beam, 2.75s torpedo water one cell wide (LITERAL pins)', () => {
-    // The one place these production derivations are pinned against literals
-    // (the perception oracle reads them as state — see its header).
-    expect(createShipWake('torpedoBoat', 55).lifeMs).toBe(5_500);
-    expect(createShipWake('torpedoBoat', 55).widthU).toBe(9);
-    expect(createShipWake('battleship', 45).widthU).toBe(32);
-    expect(createShipWake('mineLayer', 50).widthU).toBe(20);
+  it('ribbon dimensions derive from the source: hull water lives wakeLifeMs at the hull\'s own beam; torpedo water lives a fraction of that, one radar cell wide', () => {
+    // The perception oracle reads these as state (see its header); this is
+    // where the derivation itself is pinned, as relations to CONFIG.
+    for (const cls of SHIP_CLASS_IDS) {
+      const ribbon = createShipWake(cls, 50);
+      expect(ribbon.lifeMs, cls).toBe(CONFIG.vision.wakeLifeMs);
+      expect(ribbon.widthU, cls).toBe(CONFIG.shipClasses[cls].hull.beam);
+    }
     const torp = createTorpWake();
-    expect(torp.lifeMs).toBe(2_750); // 5.5s × the 0.5 torp life factor (amendment 213)
-    expect(torp.widthU).toBe(9); // exactly one radar cell
+    expect(torp.lifeMs).toBe(CONFIG.vision.wakeLifeMs * CONFIG.vision.wakeTorpLifeFactor); // amendment 213
+    expect(torp.lifeMs).toBeLessThan(CONFIG.vision.wakeLifeMs);
+    expect(torp.widthU).toBe(CONFIG.vision.radarCellU); // exactly one radar cell
   });
 
   it('provisions the ring from the TRUE attainable top speed — class max PLUS the boost bonus PLUS a full wake-draft lift (never base kinematics alone)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    // torpedoBoat 45 u/s + 25 % of it = 56.25 (Story 8.9, amendment 55: the
-    // boost pays a PROPORTION of the post-fold max, retiring the flat +10 u/s
-    // that made this 55), then + 5 % of THAT for a full wake-draft lift
-    // (Story 8.19, amendment 151) = 59.0625: capacity must cover a boosted,
-    // drafting hull, or its run would silently drop the oldest tail.
-    // wakeTopSpeed derives it through the SAME shared boostedKinematics →
-    // draftedKinematics hooks the client's ring budget uses. 28 → 30 samples.
-    const boosted = 45 + 45 * CONFIG.boost.factor;
+    // The class max + a PROPORTION of it for the boost (Story 8.9, amendment
+    // 55), then + the draft lift of THAT for a full wake-draft (Story 8.19,
+    // amendment 151): capacity must cover a boosted, drafting hull, or its run
+    // would silently drop the oldest tail. wakeTopSpeed derives it through the
+    // SAME shared boostedKinematics → draftedKinematics hooks the client's ring
+    // budget uses.
+    const base = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed;
+    const boosted = base + base * CONFIG.boost.factor;
     const top = boosted + boosted * CONFIG.wake.draft.lift;
-    expect(boosted).toBe(56.25);
-    expect(top).toBe(59.0625);
-    expect(a.wake.cap).toBe(wakeCapacity(top, 5_500));
-    expect(a.wake.cap).toBe(30);
-    expect(a.wake.cap).toBeGreaterThan(wakeCapacity(boosted, 5_500));
+    expect(a.wake.cap).toBe(wakeCapacity(top, CONFIG.vision.wakeLifeMs));
+    expect(a.wake.cap).toBeGreaterThan(wakeCapacity(boosted, CONFIG.vision.wakeLifeMs)); // the draft lift is counted, not just the boost
   });
 
   it('samples the RESOLVED pose on the distance cadence in step(); a stopped hull lays no SEGMENT', () => {

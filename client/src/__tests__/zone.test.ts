@@ -72,7 +72,6 @@ describe('ring grammar (amendment 14) — solid current, dashed next, both viole
 
   it('keeps the telegraph subordinate to the live boundary (alpha)', () => {
     expect(Z.telegraphAlpha).toBeLessThan(Z.edgeAlpha);
-    expect(Z.telegraphAlpha).toBeCloseTo(0.5, 6); // the ratified ~50%
   });
 
   it('dashSpans survives a degenerate config: always dashed, never empty', () => {

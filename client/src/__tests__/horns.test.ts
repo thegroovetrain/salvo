@@ -29,11 +29,6 @@ describe('HORNS — exactly one shipped horn, total over the shared catalog', ()
     expect(Object.keys(HORNS).sort()).toEqual([...HORN_IDS].sort());
   });
 
-  it('ships EXACTLY ONE horn — a second variant is CONTENT and Eric-gated (amendment 52)', () => {
-    expect(Object.keys(HORNS)).toHaveLength(1);
-    expect(Object.keys(HORNS)).toEqual(['standard']);
-  });
-
   it('ships no sample-backed catalog entry — no licensed recording exists (amendment 57)', () => {
     const sampled = (Object.keys(HORNS) as HornId[]).filter((id) => HORNS[id].kind === 'sample');
     expect(sampled).toEqual([]);
@@ -83,12 +78,6 @@ describe('the standard horn — a ship, not a beep (amendment 57)', () => {
     expect(STANDARD.releaseS).toBeGreaterThan(0);
     // Attack + release must fit inside the blast, or the envelope has no middle.
     expect(STANDARD.attackS + STANDARD.releaseS).toBeLessThanOrEqual(STANDARD.durationS);
-  });
-
-  it('is ~1.8s and inside the horn ceiling', () => {
-    expect(STANDARD.durationS).toBeCloseTo(1.8, 5);
-    expect(STANDARD.durationS).toBeGreaterThan(0);
-    expect(STANDARD.durationS).toBeLessThanOrEqual(MAX_HORN_S);
   });
 
   it('has a sane level, and layer weights that do not blow past it', () => {

@@ -15,11 +15,6 @@ import { CONFIG, type SmokeEvent } from '../index.js';
 // suite could still miss, so it is verified by reading that file, not here.
 
 describe('CONFIG.damageBands — the one set of damage thresholds (amendment 41)', () => {
-  it('carries the HP rail\'s SHIPPED values unchanged (0.5 / 0.25 — promoted, never retuned)', () => {
-    expect(CONFIG.damageBands.amberBelow).toBe(0.5);
-    expect(CONFIG.damageBands.criticalBelow).toBe(0.25);
-  });
-
   it('orders the bands: criticalBelow < amberBelow (heavy is strictly worse than light)', () => {
     expect(CONFIG.damageBands.criticalBelow).toBeLessThan(CONFIG.damageBands.amberBelow);
   });
@@ -58,7 +53,6 @@ describe('wounded smoke reach + cadence (amendment 42)', () => {
   });
 
   it('emits on a positive finite cadence (the server-side knob; puff LIFE is client-only)', () => {
-    expect(CONFIG.smoke.puffIntervalMs).toBe(250);
     expect(Number.isFinite(CONFIG.smoke.puffIntervalMs)).toBe(true);
     expect(CONFIG.smoke.puffIntervalMs).toBeGreaterThan(0);
   });
@@ -74,12 +68,13 @@ describe('SmokeEvent wire shape (amendments 41/45)', () => {
   });
 
   it('tier is a two-value ENUM keyed to the bands, never a fraction or an hp value', () => {
-    const light: SmokeEvent = { k: 'sm', x: 0, y: 0, tier: 1 };
-    const heavy: SmokeEvent = { k: 'sm', x: 0, y: 0, tier: 2 };
-    expect([light.tier, heavy.tier]).toEqual([1, 2]);
-    // Neither tier value may coincide with a band threshold — that would be
-    // the fraction-on-the-wire mistake amendment 41 forbids.
-    expect(light.tier).not.toBe(CONFIG.damageBands.amberBelow);
-    expect(heavy.tier).not.toBe(CONFIG.damageBands.criticalBelow);
+    // A TYPE-LEVEL PIN (this file type-checks in the gate): the tier admits
+    // exactly 1 and 2, so a band fraction on the wire fails to compile — the
+    // fraction-on-the-wire mistake amendment 41 forbids.
+    const tiers: SmokeEvent['tier'][] = [1, 2];
+    expect(tiers).toHaveLength(2);
+    // @ts-expect-error — a band threshold is a fraction, never a tier
+    const fraction: SmokeEvent['tier'] = CONFIG.damageBands.amberBelow;
+    expect(fraction).not.toBe(1);
   });
 });

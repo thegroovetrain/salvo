@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.18.69] - 2026-10-22
+
+### Changed
+- **The test suite was audited to contracts.** Every test in shared, server and client was read; a test now stays only if it guards a behavior of the function it names. Copy-string checks, wall-clock timing budgets, bare configuration-number pins, tautologies and duplicates are gone, and every pure function in the shared sim has a unit test of its own. Counts and every deletion with its reason are in `_bmad-output/implementation-artifacts/test-audit-2026-10-22.md`. No game code changed.
+
 ## [0.18.68] - 2026-10-21
 
 ### Fixed

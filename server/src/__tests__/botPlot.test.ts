@@ -446,8 +446,14 @@ describe('ai/plot — paint association to the PREDICTED position', () => {
     const plotAt = (m: BotMind): void => {
       m.contacts.set('c', anon({ x: 300, y: 0, seenAt: NOW - 4000, paintX: 300, paintY: 0, paintAt: NOW - 4000, vx: 45, vy: 0, vSrc: 'wake', vAt: NOW - 4000 }));
     };
-    // Predicted (480, 0); radius = 54 + 15 × 4 = 114 u.
-    expect(ANON_ASSOC_U + (FASTEST_HULL_SPEED / 3) * 4).toBeCloseTo(114, 6);
+    // Predicted (480, 0); the 4 s-old band reaches past a paint 90 u off and
+    // short of one 200 u off (a lattice cell of slack either way).
+    const probe: BotMind = mkMind();
+    plotAt(probe);
+    const band = predictedAssocRadius(probe.contacts.get('c')!, NOW);
+    expect(band).toBeGreaterThan(90 + CELL);
+    expect(band).toBeLessThan(200 - CELL);
+    expect(ANON_ASSOC_U).toBeLessThan(90 - CELL); // ...while a FRESH plot's fixed band does not reach 90 u
     const near = mkMind();
     plotAt(near);
     foldView(near, view([blipAt(480, 90, NOW)]), NOW);

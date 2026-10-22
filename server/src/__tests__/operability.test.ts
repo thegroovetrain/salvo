@@ -748,7 +748,7 @@ describe('log hygiene', () => {
   });
 
   it('CONFIG declares a positive, finite joining deadline', () => {
-    expect(CONFIG.net.joiningDeadlineSeconds).toBe(10);
+    expect(CONFIG.net.joiningDeadlineSeconds).toBeGreaterThan(0);
     expect(Number.isFinite(CONFIG.net.joiningDeadlineSeconds)).toBe(true);
   });
 });

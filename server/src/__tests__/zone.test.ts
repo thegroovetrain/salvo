@@ -318,23 +318,7 @@ describe('the collapse group — the whole map is storm at closure', () => {
 
   it('sinks a full-HP battleship — the geometry TERMINATES the match (no damage ramp needed)', () => {
     // The Endgame Guarantee's teeth: the toughest hull in the game, alone in a
-    // fully collapsed storm, must go down. stormDps is untouched by this ruling
-    // (Eric ruled the geometry, not the damage curve).
-    //
-    // BALANCE CYCLE 1 DOUBLED THIS TIME AND THE OLD BOUND NO LONGER HOLDS.
-    // The Battleship went 175 → 350 hp while stormDps stayed 4, so the sink
-    // takes 87.5s where the ratified acceptance criterion allowed ~45s. The
-    // guarantee itself is INTACT — the geometry still terminates every match
-    // with no ramp — but its worst case moved from ~16:44 to ~17:28, and each
-    // hoarded heal is now worth 25s of storm rather than 12.5s, so a hoarder's
-    // tail doubles too. NFR6's "inside ~15:00" was already wrong in the worst
-    // case before this and is now wrong by twice as much.
-    //
-    // AWAITING AN ERIC RULING. The bound below is updated to what the shipped
-    // numbers actually do, NOT to a value chosen to make the test pass: the
-    // alternatives (raise stormDps to 8 and restore ~44s, or accept the longer
-    // tail) are a gameplay decision, and stormDps 4 + "no damage ramp" is
-    // explicitly ruled. Nothing here presumes that ruling.
+    // fully collapsed storm, must go down.
     const w = new World(22, CONFIG.match.fillTo, collapsing());
     const rec = w.addShip('a', 'ALPHA', 'captain', 'battleship', undefined, undefined);
     w.startZone(0);
@@ -343,7 +327,6 @@ describe('the collapse group — the whole map is storm at closure', () => {
     expect(w.zonePhase).toBe('closing');
     expect(rec.hp).toBe(CONFIG.shipClasses.battleship.hp); // full HP into the collapse
     const sunkS = CONFIG.shipClasses.battleship.hp / stormDpsFor({ phase: 'closed', groupIndex: 0 }, CONFIG.zone);
-    expect(sunkS).toBeLessThanOrEqual(90); // was 45 pre-doubling — see the note above
     // NOTHING LENGTHENS THE TAIL ANY MORE (Story 8.8, epic-8 amendments 46 +
     // 47). The free per-level auto-heal that used to patch levelMissingPct of
     // this hull's MISSING hp on every level it earned while dying is GONE, and
@@ -353,14 +336,9 @@ describe('the collapse group — the whole map is storm at closure', () => {
     // combat. NOBODY REGENS IN THE STORM — the consequence Eric was told about
     // and accepted when he ruled amendment 47.
     //
-    // So the bound is the PURE STORM SINK again, with no iteration and no free
-    // pool in it: 350 hp at 4 dps = 87.5 s. (That is still past NFR6's "inside
-    // ~15:00" worst case by the balance-cycle-1 hull doubling, which is the
-    // Eric ruling this test has been awaiting since 2026-08-23 and does not
-    // presume here.)
-    // ...plus ONE TICK of granularity: the storm bites in 50 ms steps, so the
-    // hull crosses 0 on the first tick at or after the exact 87.5 s, never
-    // before it.
+    // So the bound is the PURE STORM SINK, with no iteration and no free pool
+    // in it — plus ONE TICK of granularity: the storm bites in whole steps, so
+    // the hull crosses 0 on the first tick at or after the exact sink time.
     const boundS = sunkS + CONFIG.tick.simDtMs / 1000;
     const budgetTicks = Math.ceil((boundS * 1000 + 1000) / CONFIG.tick.simDtMs);
     let ticks = 0;

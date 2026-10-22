@@ -18,7 +18,6 @@ describe('--tune floors — turnRate', () => {
   it('accepts every SHIPPED hull turn rate (the regression that motivated this)', () => {
     for (const hull of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
       const shipped = CONFIG.shipClasses[hull].kinematics.turnRate;
-      expect(shipped).toBeLessThan(1); // the whole point: all three are sub-1
       expect(() => validateTuneValue(`shipClasses.${hull}.kinematics.turnRate`, shipped)).not.toThrow();
     }
   });

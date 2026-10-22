@@ -63,7 +63,9 @@ describe('ringReadout — amendment 26\'s continuous-countdown grammar', () => {
   });
 
   it('a clear beat counts down to the next close START', () => {
-    expect(ringReadout('clear', 154_000)).toEqual({ text: 'RING CLOSES IN 2:34', urgent: false });
+    const r = ringReadout('clear', 154_000);
+    expect(r.urgent).toBe(false);
+    expect(r.text.endsWith(fmtRingClock(154_000))).toBe(true);
   });
 
   it('the SUPPLY beat is BYTE-IDENTICAL to clear (the parked slot has zero HUD trace)', () => {
@@ -73,22 +75,26 @@ describe('ringReadout — amendment 26\'s continuous-countdown grammar', () => {
   });
 
   it('the REVEAL beat keeps the countdown running — no announcement register (amendment 26; the RING REVEALED gap Eric hit live is retired)', () => {
-    expect(ringReadout('reveal', 47_000)).toEqual({ text: 'RING CLOSES IN 0:47', urgent: false });
-    for (const ms of [59_000, 30_000, 10_001]) {
+    expect(ringReadout('reveal', 47_000).urgent).toBe(false);
+    expect(ringReadout('reveal', 47_000).text.endsWith(fmtRingClock(47_000))).toBe(true);
+    for (const ms of [47_000, 59_000, 30_000, 10_001]) {
       expect(ringReadout('reveal', ms)).toEqual(ringReadout('clear', ms));
     }
   });
 
   it('the last 10s of ANY pre-close beat go amber, in the urgency window', () => {
-    expect(ringReadout('reveal', 9_400)).toEqual({ text: 'RING CLOSES IN 0:10', urgent: true });
-    expect(ringReadout('clear', 9_400)).toEqual({ text: 'RING CLOSES IN 0:10', urgent: true });
-    expect(ringReadout('supply', 4_100)).toEqual({ text: 'RING CLOSES IN 0:05', urgent: true });
+    for (const [state, ms] of [['reveal', 9_400], ['clear', 9_400], ['supply', 4_100]] as const) {
+      const r = ringReadout(state, ms);
+      expect(r.urgent, `${state} ${ms}`).toBe(true);
+      expect(r.text.endsWith(fmtRingClock(ms)), `${state} ${ms}`).toBe(true); // the countdown keeps running
+    }
+    expect(ringReadout('reveal', 9_400)).toEqual(ringReadout('clear', 9_400));
   });
 
   it('opens the urgency window at EXACTLY urgentMs (inclusive), not a tick later', () => {
     expect(ringReadout('reveal', CB.urgentMs).urgent).toBe(true);
     expect(ringReadout('reveal', CB.urgentMs + 1).urgent).toBe(false);
-    expect(ringReadout('reveal', CB.urgentMs + 1).text).toBe(`RING CLOSES IN ${fmtRingClock(CB.urgentMs + 1)}`);
+    expect(ringReadout('reveal', CB.urgentMs + 1).text.endsWith(fmtRingClock(CB.urgentMs + 1))).toBe(true);
     // ...and the window is defined on closesInMs itself, so a retuned timeline
     // (or a test beat config) can never put copy and countdown out of step.
     expect(ringReadout('clear', 3_000, 5_000).urgent).toBe(true);
@@ -96,20 +102,27 @@ describe('ringReadout — amendment 26\'s continuous-countdown grammar', () => {
   });
 
   it('the SHRINK counts to the close END and is never amber', () => {
-    expect(ringReadout('closing', 41_000)).toEqual({ text: 'RING CLOSING 0:41', urgent: false });
+    expect(ringReadout('closing', 41_000).urgent).toBe(false);
+    expect(ringReadout('closing', 41_000).text.endsWith(fmtRingClock(41_000))).toBe(true);
+    // A different register from the pre-close countdown at the same clock.
+    expect(ringReadout('closing', 41_000).text).not.toBe(ringReadout('clear', 41_000).text);
     // Deep inside the shrink, where a pre-close beat would have gone amber.
-    expect(ringReadout('closing', 2_000)).toEqual({ text: 'RING CLOSING 0:02', urgent: false });
+    expect(ringReadout('closing', 2_000).urgent).toBe(false);
+    expect(ringReadout('closing', 2_000).text.endsWith(fmtRingClock(2_000))).toBe(true);
   });
 
   it('a fully closed ring just says so — steady, no countdown', () => {
-    expect(ringReadout('closed', 0)).toEqual({ text: 'RING CLOSED', urgent: false });
-    expect(ringReadout('closed', 99_000)).toEqual({ text: 'RING CLOSED', urgent: false });
+    const closed = ringReadout('closed', 0);
+    expect(closed.urgent).toBe(false);
+    expect(closed.text).not.toBe('');
+    expect(closed.text).not.toMatch(/\d/); // no countdown
+    expect(ringReadout('closed', 99_000)).toEqual(closed); // steady whatever the clock
   });
 
   it('clamps a degenerate clock instead of printing a negative one', () => {
-    expect(ringReadout('clear', 0).text).toBe('RING CLOSES IN 0:00');
-    expect(ringReadout('clear', -5_000).text).toBe('RING CLOSES IN 0:00');
-    expect(ringReadout('closing', Number.NaN).text).toBe('RING CLOSING 0:00');
+    expect(ringReadout('clear', 0).text.endsWith(fmtRingClock(0))).toBe(true);
+    expect(ringReadout('clear', -5_000).text).toBe(ringReadout('clear', 0).text);
+    expect(ringReadout('closing', Number.NaN).text).toBe(ringReadout('closing', 0).text);
     expect(ringReadout('clear', Number.NaN).urgent).toBe(false); // a NaN clock is not an alarm
   });
 });
@@ -174,30 +187,39 @@ describe('fmtBarClock — the zero-padded, up-counting match timer', () => {
 // --- the composed row ----------------------------------------------------------
 
 describe('chromeBarSegments — the whole register', () => {
-  it('reads `n AFLOAT · n KILLS · T+mm:ss · <ring>` on a live clear beat', () => {
-    expect(row(view())).toBe('12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES IN 2:34');
+  it('composes the afloat tally, the kills tally, the match clock and the ring readout, in that order', () => {
+    const v = view();
+    const r = row(v);
+    const at = [String(v.afloat), String(v.kills), fmtBarClock(v.matchMs), v.ring.text].map((t) => r.indexOf(t));
+    for (const i of at) expect(i).toBeGreaterThanOrEqual(0);
+    for (let k = 1; k < at.length; k++) expect(at[k]).toBeGreaterThan(at[k - 1]);
+    expect(r.endsWith(v.ring.text)).toBe(true);
   });
 
   it('the supply beat renders byte-identically to clear', () => {
     expect(row(view({ ring: ringReadout('supply', 154_000) }))).toBe(row(view()));
   });
 
-  it('shows the whole matrix of ring states in place', () => {
-    expect(row(view({ ring: ringReadout('reveal', 47_000) }))).toMatch(/· RING CLOSES IN 0:47$/);
-    expect(row(view({ ring: ringReadout('reveal', 9_400) }))).toMatch(/· RING CLOSES IN 0:10$/);
-    expect(row(view({ ring: ringReadout('closing', 41_000) }))).toMatch(/· RING CLOSING 0:41$/);
-    expect(row(view({ ring: ringReadout('closed', 0) }))).toMatch(/· RING CLOSED$/);
+  it('shows every ring state in the ring slot at the tail of the row', () => {
+    for (const ring of [ringReadout('reveal', 47_000), ringReadout('reveal', 9_400), ringReadout('closing', 41_000), ringReadout('closed', 0)]) {
+      const segs = chromeBarSegments(view({ ring }));
+      expect(segs[segs.length - 1].text).toBe(ring.text);
+      expect(segs[segs.length - 1].pulsed).toBe(true);
+    }
   });
 
   it('AFLOAT counts whatever it is handed — the field thinning is the whole point', () => {
-    expect(row(view({ afloat: 20 }))).toMatch(/^20 AFLOAT/);
-    expect(row(view({ afloat: 1 }))).toMatch(/^1 AFLOAT/);
-    expect(row(view({ afloat: 0 }))).toMatch(/^0 AFLOAT/);
+    for (const afloat of [20, 1, 0]) {
+      expect(chromeBarSegments(view({ afloat }))[0].text).toBe(String(afloat));
+    }
   });
 
   it('never prints a negative / fractional / missing tally', () => {
-    expect(row(view({ afloat: -3, kills: Number.NaN }))).toMatch(/^0 AFLOAT · 0 KILLS/);
-    expect(row(view({ kills: 2.4 }))).toMatch(/· 2 KILLS/);
+    // Segment 0 is the afloat numeral, segment 3 the kills numeral (the style
+    // register's own destructure below names the same slots).
+    const bad = chromeBarSegments(view({ afloat: -3, kills: Number.NaN }));
+    expect([bad[0].text, bad[3].text]).toEqual(['0', '0']);
+    expect(chromeBarSegments(view({ kills: 2.4 }))[3].text).toBe('2');
   });
 
   it('never exceeds the segment count the renderer pools Texts for — and HITS it with the throne held', () => {
@@ -228,18 +250,18 @@ describe('chromeBarSegments — the KILL LEADER register', () => {
   const HUE = 0x35d07f;
 
   it('prints `☠︎ <NAME>` at the TAIL of the row when the throne is held', () => {
-    expect(row(view({ bounty: { name: 'ALPHA', hue: HUE } }))).toBe(
-      `12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES IN 2:34 · ${KILL_LEADER_MARK} ALPHA`,
-    );
+    const held = chromeBarSegments(view({ bounty: { name: 'ALPHA', hue: HUE } }));
+    expect(row(view({ bounty: { name: 'ALPHA', hue: HUE } })).startsWith(row(view()))).toBe(true);
+    expect(held[held.length - 1].text).toBe(`${KILL_LEADER_MARK} ALPHA`);
   });
 
   it('omits the WHOLE register — separator included — when the throne is vacant', () => {
     const segs = chromeBarSegments(view({ bounty: null }));
-    expect(row(view({ bounty: null }))).toBe('12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES IN 2:34');
+    expect(row(view({ bounty: null })).endsWith(view().ring.text)).toBe(true);
     expect(row(view({ bounty: null }))).not.toContain(KILL_LEADER_MARK);
     // No dangling separator artifact: the row ends on the ring readout, and the
-    // count of ` · ` separators is unchanged from the pre-bounty bar.
-    expect(segs.filter((s) => s.text === ' · ')).toHaveLength(3);
+    // count of separators is unchanged from the pre-bounty bar.
+    expect(segs.filter((s) => s.alpha === CB.sepAlpha)).toHaveLength(3);
     expect(segs[segs.length - 1].pulsed).toBe(true); // the ring is the last segment
   });
 
@@ -261,7 +283,8 @@ describe('chromeBarSegments — the KILL LEADER register', () => {
     // The ruling that shipped the bounty deleted every positional cue; the
     // register must not smuggle a kill count, a range or a bearing back in.
     const segs = chromeBarSegments(view({ bounty: { name: 'ALPHA', hue: HUE } })).slice(-2);
-    expect(segs.map((s) => s.text).join('')).toBe(` · ${KILL_LEADER_MARK} ALPHA`);
+    expect(segs[0].alpha).toBe(CB.sepAlpha); // a separator, then the marked name — nothing else
+    expect(segs[1].text).toBe(`${KILL_LEADER_MARK} ALPHA`);
     expect(segs.map((s) => s.text).join('')).not.toMatch(/\d/);
   });
 });
@@ -282,7 +305,6 @@ describe('chromeBarSegments — the STYLE register (amendments 17/21)', () => {
       expect(s.color).toBe(C.phosphor);
       expect(s.alpha).toBe(CB.labelAlpha);
     }
-    expect([afloatL.text, killsL.text, tPlus.text]).toEqual([' AFLOAT', ' KILLS', 'T+']);
   });
 
   it('NOTHING in the bar is `textMuted` — grey text is retired for load-bearing HUD text', () => {
@@ -292,7 +314,7 @@ describe('chromeBarSegments — the STYLE register (amendments 17/21)', () => {
 
   it('separators are punctuation: dimmer than the labels, and identical to each other', () => {
     for (const s of [sep1, sep2, sep3]) {
-      expect(s.text).toBe(' · ');
+      expect(s.text).toBe(sep1.text);
       expect(s.alpha).toBe(CB.sepAlpha);
     }
     expect(CB.sepAlpha).toBeLessThan(CB.labelAlpha);
@@ -316,7 +338,6 @@ describe('chromeBarSegments — the STYLE register (amendments 17/21)', () => {
 describe('RING_PULSE_HZ — exactly 1 Hz, under the ONE shared ceiling', () => {
   it('shares ONE ceiling with the HP rail and the storm vignette (no second literal)', () => {
     expect(RING_PULSE_HZ).toBe(Math.min(1, CAP_HZ));
-    expect(RING_PULSE_HZ).toBe(1); // the ratified rate at today's 1.1 Hz cap
     expect(RING_PULSE_HZ).toBeLessThanOrEqual(CAP_HZ);
   });
 

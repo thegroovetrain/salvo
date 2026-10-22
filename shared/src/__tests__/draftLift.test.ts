@@ -11,7 +11,6 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  CONFIG,
   appendWakeSample,
   createWakeRibbon,
   draftLift,
@@ -20,8 +19,10 @@ import {
   type WakeRibbon,
 } from '../index.js';
 
-const CFG: DraftConfig = CONFIG.wake.draft;
-const LIFT = CFG.lift; // 0.05
+// SYNTHETIC dials: the rows below test the function's geometry, never the
+// shipped CONFIG.wake.draft numbers (those are checked in draft.test.ts).
+const CFG: DraftConfig = { lift: 0.05, halfWidthBeams: 1 };
+const LIFT = CFG.lift;
 const LIFE = 10000; // ms — a round test life (the ribbon carries its own)
 const N = 11; // samples: x = 0, 12, …, 120
 

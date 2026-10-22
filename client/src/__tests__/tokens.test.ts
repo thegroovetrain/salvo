@@ -12,17 +12,17 @@
 //       232937, the DOM denied 5a6478 muted, and the retired DOM red ff3b30 —
 //       NOT the surviving ratified denied ff3b3b) appear nowhere in the scanned
 //       sources, config.ts, or theme.ts.
-//   (c) identity pins — the FULL ratified table resolves to its DESIGN.md
-//       values (this test is the one sanctioned duplicate of the values: it
-//       exists to catch token-value typos), the Regatta wheel is exactly 20
-//       unique hues, the legacy carry-overs stay byte-identical, and the type
-//       ramp registers carry their documented sizes/weights/tracking.
+//   (c) structure — the Regatta wheel is exactly 20 unique hues, the fills
+//       derive by rule, no mono register sits below the micro floor, and the
+//       vitals group reads its bands from shared CONFIG. (The literal-value
+//       identity pins were deleted by Story 9.14: a CONST pin is not a rule.)
 //   (d) util/color hardening — the numeric→CSS projectors mask inputs to 24
 //       bits and clamp alpha, so no input yields malformed output.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { CONFIG } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssHex, cssRgba, contrastRatio, textSafe } from '../util/color.js';
 
@@ -133,120 +133,25 @@ describe('(b) retirement asserts — deprecated prototype values are gone', () =
   }
 });
 
-describe('(c) identity pins — the full ratified table, values and counts', () => {
+describe('(c) the token table\'s structure — counts, derivations, retirements', () => {
   const C = CLIENT_CONFIG.colors;
 
-  it('pins every surface / linework / functional / effect / drone / utility value', () => {
-    // surfaces
-    expect(C.void).toBe(0x050807);
-    expect(C.fogBase).toBe(0x020604);
-    expect(C.panel).toBe(0x0a0f0d);
-    expect(C.panelDeep).toBe(0x070b0a);
-    expect(C.cardScrim).toBe(0x030605);
-    expect(C.hairline).toBe(0x1b2621);
-    // linework & text
-    expect(C.silver).toBe(0xc0c0c0);
-    expect(C.textPrimary).toBe(0xe2e8f0);
-    expect(C.textSecondary).toBe(0x8b95a5);
-    expect(C.textMuted).toBe(0x7a8496);
-    // functional
-    expect(C.phosphor).toBe(0x00ff88);
-    expect(C.phosphorBright).toBe(0x7fffc4);
-    expect(C.blipFresh).toBe(0x66ffaa);
-    expect(C.blipFaded).toBe(0x0a3d20);
-    expect(C.amber).toBe(0xffb800);
-    expect(C.storm).toBe(0x7b2fbe);
-    expect(C.stormReadout).toBe(0xb06ee8);
-    expect(C.info).toBe(0x38bdf8);
-    expect(C.danger).toBe(0x8b2020);
-    expect(C.denied).toBe(0xff3b3b);
-    expect(C.damage).toBe(0x8b0000);
-    expect(C.damageMarker).toBe(0xff6666);
+  it('the retired island tokens stay retired with their last consumer', () => {
     // islandFill / islandStroke were RETIRED in cycle 82 with their last
     // consumer (the Story 1.14 ambient's ellipse island stand-ins). The home
     // scene now draws real generated terrain through the hypsometric `terrain`
     // ramp, so the provisional yellow has nothing left to colour.
     expect('islandFill' in C).toBe(false);
     expect('islandStroke' in C).toBe(false);
-    // combat effects
-    expect(C.splash).toBe(0xb8ccc6);
-    expect(C.muzzle).toBe(0xe8f2ec);
-    expect(C.torpedo).toBe(0xcfe8dd);
-    expect(C.hitBloom).toBe(0xff9d3d);
-    expect(C.woundedSmoke).toBe(0x7a7168);
-    // drones
-    expect(C.droneOutline).toBe(0x9aa3b2);
-    expect(C.droneFill).toBe(0x454950);
-    // utility
-    expect(C.black).toBe(0x000000);
-    expect(C.white).toBe(0xffffff);
-    // alerts on the water (Story 9.11, amendments 152–153) — the two warning
-    // colors another's mine / zone breathes between
-    expect(C.alertYellow).toBe(0xfff04d);
-    expect(C.alertOrange).toBe(0xff5a00);
   });
 
-  it('pins the 20-hue Regatta wheel, all values unique', () => {
-    expect(C.players).toEqual({
-      lemon: 0xa1960d,
-      chartreuse: 0x778b0a,
-      olive: 0x5da20d,
-      lime: 0x11b519,
-      green: 0x12b563,
-      spring: 0x10a981,
-      jade: 0x0d9582,
-      aqua: 0x12adb3,
-      cyan: 0x0e97ab,
-      lagoon: 0x11a5d7,
-      sky: 0x0c8ac4,
-      azure: 0x0c86ea,
-      cobalt: 0x5c8efd,
-      periwinkle: 0x6c6ffd,
-      iris: 0x977afd,
-      orchid: 0xad58fd,
-      fuchsia: 0xd022fd,
-      magenta: 0xe312d9,
-      mulberry: 0xef11b2,
-      rose: 0xf8118d,
-    });
+  it('the Regatta wheel is 20 hues, all values unique', () => {
     const values = Object.values(C.players);
     expect(values).toHaveLength(20);
     expect(new Set(values).size).toBe(20);
   });
 
-  it('keeps the surviving legacy carry-overs byte-identical (1.12 retired the hull/ordnance trio)', () => {
-    // ownHull / enemyHull / ownAssetGreen were consumed + deleted by Story 1.12
-    // (hulls, wake, and ordnance markers now read personal hues / fallbacks).
-    expect(C.legacy).toEqual({
-      shellCore: 0xffe08a,
-      torpGlow: 0x3fbf8f,
-      torpWake: 0x9fd8c4,
-    });
-  });
-
-  it('pins playerFills — all 20 rule-derived, in wheel order', () => {
-    expect(C.playerFills).toEqual({
-      lemon: 0x484406,
-      chartreuse: 0x363f05,
-      olive: 0x2a4906,
-      lime: 0x08510b,
-      green: 0x08512d,
-      spring: 0x074c3a,
-      jade: 0x06433b,
-      aqua: 0x084e51,
-      cyan: 0x06444d,
-      lagoon: 0x084a61,
-      sky: 0x053e58,
-      azure: 0x053c69,
-      cobalt: 0x294072,
-      periwinkle: 0x313272,
-      iris: 0x443772,
-      orchid: 0x4e2872,
-      fuchsia: 0x5e0f72,
-      magenta: 0x660862,
-      mulberry: 0x6c0850,
-      rose: 0x70083f,
-    });
+  it('playerFills are 20 unique values, keyed in wheel order', () => {
     const values = Object.values(C.playerFills);
     expect(values).toHaveLength(20);
     expect(new Set(values).size).toBe(20);
@@ -271,22 +176,13 @@ describe('(c) identity pins — the full ratified table, values and counts', () 
     }
   });
 
-  it('pins the type ramp registers AT THE STORY 2.3 LIFT (amendment 15)', () => {
-    // The ratified ~1.6x micro lift moves the two micro registers: label 11 -> 17
-    // and hudMicro 9 -> 14. This supersedes DESIGN.md's 9px `hud-micro` pin
-    // (recorded for doc-sync; DESIGN.md is not edited in-story).
+  it('no MONO register ships below the hudMicro floor (amendment 15)', () => {
     const R = CLIENT_CONFIG.type.registers;
-    expect(R.label.size).toBe(17);
-    expect(R.label.weight).toBe(500);
-    expect(R.label.tracking).toBe('0.1em');
-    expect(R.hudMicro.size).toBe(14);
-    expect(R.hudMicro.tracking).toBe('0.18em');
-    // No MONO register ships below the 14px micro floor. (`data` carries no
-    // fixed size — context sizes it — so it is skipped by construction; the
-    // DISPLAY registers are body copy, not micro type, and keep their scale.)
+    // (`data` carries no fixed size — context sizes it — so it is skipped by
+    // construction; the DISPLAY registers are body copy, not micro type.)
     for (const [name, r] of Object.entries(R)) {
       if (!('size' in r) || r.family !== 'mono') continue;
-      expect(r.size, name).toBeGreaterThanOrEqual(14);
+      expect(r.size, name).toBeGreaterThanOrEqual(R.hudMicro.size);
     }
   });
 
@@ -319,47 +215,26 @@ describe('(c) identity pins — the full ratified table, values and counts', () 
     expect(V.railFillAlpha).toBeGreaterThan(0.5);
     // The pending-heal band (epic-8 amendment 35) sits under it, never over.
     expect(V.railPendingAlpha).toBeLessThan(V.railFillAlpha);
-    // Bands: the ratified 50% / 25% thresholds.
-    expect(V.amberBelow).toBe(0.5);
-    expect(V.criticalBelow).toBe(0.25);
-    // Pulse envelope: ~0.5 Hz at the band start, ramping to the SHARED ceiling
-    // at 10% hull. The ceiling itself lives once, in the settings group.
-    expect(V.pulseMinHz).toBe(0.5);
-    expect(V.pulseFloorFrac).toBe(0.1);
+    // Bands: read from shared CONFIG, never a second copy (amendment 41).
+    expect(V.amberBelow).toBe(CONFIG.damageBands.amberBelow);
+    expect(V.criticalBelow).toBe(CONFIG.damageBands.criticalBelow);
+    // Pulse envelope: from pulseMinHz at the band start, ramping UP to the
+    // SHARED ceiling at pulseFloorFrac of hull. The ceiling lives once, in the
+    // settings group.
+    expect(V.pulseMinHz).toBeGreaterThan(0);
+    expect(V.pulseMinHz).toBeLessThan(CLIENT_CONFIG.settings.pulseCapHz);
+    expect(V.pulseFloorFrac).toBeGreaterThan(0);
+    expect(V.pulseFloorFrac).toBeLessThan(V.amberBelow);
     expect(V.pulseAmp).toBeGreaterThan(0);
     expect(V.pulseAmp).toBeLessThan(V.railFillAlpha); // the fill never breathes to nothing
-    // Helm glyphs: three successful inputs per pair, under a standalone key.
-    expect(V.glyphFadeCount).toBe(3);
+    // Helm glyphs: a whole number of successful inputs per pair, under a standalone key.
+    expect(Number.isInteger(V.glyphFadeCount) && V.glyphFadeCount > 0).toBe(true);
     expect(V.glyphKey).toBe('hullcracker.helm');
     expect(V.glyphFadeSec).toBeGreaterThan(0);
   });
 
   it('pins the ONE photosensitivity ceiling shared by every breathing pulse', () => {
     expect(CLIENT_CONFIG.settings.pulseCapHz).toBe(1.1);
-  });
-
-  it('pins the drafted colorblind-assist families (Story 2.3, amendment 18)', () => {
-    expect(C.cvd).toEqual({
-      teal: 0x3f838c,
-      citron: 0xe1ff00,
-      cobalt: 0x266fff,
-      forest: 0x008c05,
-      azure: 0x00bbff,
-      mint: 0x8cff73,
-      ice: 0x73ffff,
-      rose: 0xff4d8e,
-    });
-    expect(C.cvdFills).toEqual({
-      teal: 0x1c3b3f,
-      citron: 0x657300,
-      cobalt: 0x113273,
-      forest: 0x003f02,
-      azure: 0x005473,
-      mint: 0x3f7334,
-      ice: 0x347373,
-      rose: 0x732340,
-    });
-    expect(new Set(Object.values(C.cvd)).size).toBe(8);
   });
 });
 
@@ -617,19 +492,5 @@ describe('(f) no Regatta hue sits in the surviving amber/red reserve (gate B1)',
     for (const name of Object.keys(fills) as (keyof typeof fills)[]) {
       expect(inAmberRedReserve(fills[name]), name).toBe(false);
     }
-  });
-
-  it('the RETIRED reservations are deliberately unpinned — four hues sit in them, by ruling', () => {
-    // Gate B1's cost, ASSERTED rather than described, so the next reader finds
-    // the decision here instead of re-opening it as a defect. If a future
-    // palette pass moves these out again, this test is what tells you the
-    // ruling's premise changed.
-    const C = CLIENT_CONFIG.colors;
-    expect(inGreenBand(C.players.green)).toBe(true); // 149.8°
-    expect(inGreenBand(C.players.spring)).toBe(true); // 164.3°
-    expect(inGreenBand(C.players.jade)).toBe(true); // 171.6°
-    const orchid = hsv(C.players.orchid).hue; // the old storm-violet band
-    expect(orchid).toBeGreaterThan(266);
-    expect(orchid).toBeLessThan(286);
   });
 });

@@ -149,7 +149,7 @@ const REGISTRY_KEYS = [
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 26 known channels (19 event kinds + 7 contact-like; Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added; Story 4.12: `wk` added; Story 8.17: `burnzone` added; Story 8.18: `smoke` added, renamed `cloud` in Story 9.3; 2026-10-01: `dp` added; Story 9.4: `foulzone` added; Story 9.10: fog is a toll, never a row)', () => {
+  it('holds exactly the declared channel set — a channel cannot exist without a row here (fog is a toll, never a row)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
     expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(26);
   });
@@ -1202,7 +1202,7 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
     expect(signalFor('CONTACT')).toBeUndefined(); // case-sensitive, not fuzzy
   });
 
-  it('signalFor resolves exactly the 16 event kinds to their registry rows', () => {
+  it('signalFor resolves every world-event kind to its own registry row', () => {
     for (const key of EVENT_KINDS) {
       expect(signalFor(key)).toBe(SIGNAL_REGISTRY[key as keyof typeof SIGNAL_REGISTRY]);
     }

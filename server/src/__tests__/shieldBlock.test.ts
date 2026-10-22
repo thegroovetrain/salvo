@@ -7,7 +7,7 @@
 // the real gate, and the self-private `OwnShip.shield` wire field.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, consumableSlotFor, type DamageEvent, type GameEvent, type Target, type TargetKind } from '@salvo/shared';
+import { CONFIG, consumableSlotFor, damageMultiplierFor, type DamageEvent, type GameEvent, type Target, type TargetKind } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
@@ -89,7 +89,7 @@ describe('SHIELD BLOCK — the row (Story 8.16)', () => {
 });
 
 describe('SHIELD BLOCK — the gate (I/O matrix, amendments 100/118)', () => {
-  it('CUT THEN SHIELD: a Battleship with the cut up takes a 55 hp mine -> 27 reaches the shield, 73 left, hull untouched, dmg 0, combat clock unmoved', () => {
+  it('CUT THEN SHIELD: a Battleship with HUNKER up takes a 55 hp mine -> only the armored remainder reaches the shield, hull untouched, dmg 0, combat clock unmoved', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 'battleship');
     place(w, 'b', 400, 0);
@@ -97,21 +97,23 @@ describe('SHIELD BLOCK — the gate (I/O matrix, amendments 100/118)', () => {
     expect(stockAndFire(w, a)).toEqual({ ok: true });
     a.lastDamagedAt = w.now - 12_345; // a stale combat clock the absorbed hit must NOT refresh
     const clock = a.lastDamagedAt;
+    const cut = Math.max(1, Math.floor(55 * damageMultiplierFor(a.stats.armor + a.stats.equipment.hunker.armorBonus)));
+    expect(cut).toBeLessThan(55); // the cut ran BEFORE the shield
     inner(w).applyDamage(a, 55, 'mine', 'b');
-    expect(a.shield?.hpLeft).toBe(CONFIG.shieldBlock.hp - 27);
+    expect(a.shield?.hpLeft).toBe(CONFIG.shieldBlock.hp - cut);
     expect(a.hp).toBe(a.stats.maxHp);
     expect(dmgOf(w).map((e) => e.amount)).toEqual([0]); // FR55: the victim's dmg reads 0
     expect(a.lastDamagedAt).toBe(clock); // amendment 47: a fully absorbed hit is not "taking damage"
   });
 
-  it('STORM and BURN are absorbed too (amendment 118): 0.2 + 0.25 -> 99.55 left, hull untouched', () => {
+  it('STORM and BURN are absorbed too (amendment 118): 0.2 + 0.25 come off the shield, hull untouched', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     place(w, 'b', 400, 0);
     expect(stockAndFire(w, a)).toEqual({ ok: true });
     inner(w).applyDamage(a, 0.2, 'storm', undefined);
     inner(w).applyDamage(a, 0.25, 'burn', 'b');
-    expect(a.shield?.hpLeft).toBeCloseTo(99.55, 12);
+    expect(a.shield?.hpLeft).toBeCloseTo(CONFIG.shieldBlock.hp - 0.2 - 0.25 * damageMultiplierFor(a.stats.armor), 12);
     expect(a.hp).toBe(a.stats.maxHp);
   });
 

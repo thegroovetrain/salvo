@@ -69,26 +69,23 @@ describe('detentIndexOf — throttle order -> telegraph index', () => {
   });
 });
 
-describe('detentLabel — the ratified detent vocabulary', () => {
-  it('labels the scale FULL/¾/½/¼/STOP symmetrically', () => {
+describe('detentLabel — one label per detent', () => {
+  it('labels the nine detents symmetrically about STOP', () => {
     expect(DETENT_LABELS).toHaveLength(9);
-    expect(detentLabel(0)).toBe('FULL'); // full astern
-    expect(detentLabel(3)).toBe('¼');
-    expect(detentLabel(4)).toBe('STOP');
-    expect(detentLabel(5)).toBe('¼');
-    expect(detentLabel(8)).toBe('FULL'); // full ahead
+    for (let i = 0; i < 9; i++) expect(detentLabel(i), `detent ${i}`).toBe(detentLabel(8 - i));
+    expect(new Set(DETENT_LABELS.slice(0, 5)).size).toBe(5); // astern half: five distinct rungs
   });
 
-  it('clamps an out-of-range index', () => {
-    expect(detentLabel(-5)).toBe('FULL');
-    expect(detentLabel(99)).toBe('FULL');
+  it('clamps an out-of-range index onto the end stops', () => {
+    expect(detentLabel(-5)).toBe(detentLabel(0));
+    expect(detentLabel(99)).toBe(detentLabel(8));
   });
 });
 
 describe('detentTickAngle — the nine ticks over the crown', () => {
-  it('runs -70 to +70 in 17.5 steps, STOP at 12 o`clock', () => {
+  it('runs the nine ticks evenly across the arc, STOP at 12 o`clock', () => {
     const angles = Array.from({ length: 9 }, (_, i) => detentTickAngle(i));
-    expect(angles).toEqual([-70, -52.5, -35, -17.5, 0, 17.5, 35, 52.5, 70]);
+    for (let i = 1; i < angles.length; i++) expect(angles[i] - angles[i - 1], `step ${i}`).toBeCloseTo(T.stepDeg, 9);
     expect(angles[4]).toBe(0); // STOP is the bright, longer tick straight up
     expect(angles).toHaveLength(DETENT_LABELS.length);
   });
@@ -178,21 +175,19 @@ describe('needleAngle — the solid amber pointer on the arc', () => {
     // (45 + 45 x 10 = 495 u/s), so the needle would sit frozen near STOP for a
     // whole match with nothing in the types to catch it.
     expect(FACTOR).toBeLessThan(1); // a proportion, never a speed
-    expect(BOOSTED_CAP).toBeCloseTo(KIN.maxSpeed * 1.25, 9);
-    expect(BOOSTED_CAP).toBeCloseTo(56.25, 9); // base TB, epic-8 amendment 55
+    expect(BOOSTED_CAP).toBeCloseTo(KIN.maxSpeed * (1 + FACTOR), 9);
 
     // ...and the SPEED LADDER IS INSIDE THE BONUS, because the hook's input is
-    // the POST-FOLD kinematics: a SPEED-capped Torpedo Boat's globe runs to
-    // 71.875, not to 57.5 + a flat add. (SPEED caps at five cards since Story
-    // 9.6, epic-9 amendment 91 — was four: 55 / 68.75.)
+    // the POST-FOLD kinematics: a SPEED-capped hull's boosted cap is the same
+    // proportion of ITS cap, not the base cap plus a flat add.
     const cappedDeck = Array.from({ length: CATALOG.speed.cap }, () => 'speed');
     const capped = effectiveStats(CONFIG.shipClasses.torpedoBoat, cappedDeck).kinematics;
     const cappedBoosted = boostedKinematics(capped, FACTOR, true);
-    expect(capped.maxSpeed).toBeCloseTo(57.5, 9);
-    expect(cappedBoosted.maxSpeed).toBeCloseTo(71.875, 9);
-    // The needle reads off THOSE denominators: full arc at 71.875, short of the
-    // end at the base hull's boosted cap.
-    expect(needleAngle(71.875, cappedBoosted)).toBeCloseTo(T.arcDeg, 9);
+    expect(capped.maxSpeed).toBeGreaterThan(KIN.maxSpeed);
+    expect(cappedBoosted.maxSpeed).toBeCloseTo(capped.maxSpeed * (1 + FACTOR), 9);
+    // The needle reads off THOSE denominators: full arc at the capped boosted
+    // cap, short of the end at the base hull's boosted cap.
+    expect(needleAngle(cappedBoosted.maxSpeed, cappedBoosted)).toBeCloseTo(T.arcDeg, 9);
     expect(needleAngle(BOOSTED_CAP, cappedBoosted)).toBeLessThan(T.arcDeg);
   });
 
@@ -272,12 +267,19 @@ describe('rudderTickCenter — the tick stays inside the bar`s 48px track', () =
 
 describe('the four coach marks sit where the mock puts them', () => {
   it('S left / W right at the crown, A / D at the rudder track`s ends', () => {
-    // The mock's 104 viewBox coordinates, measured from its (52,52) centre:
-    // S x13 y32, W x91 y32, A x17 y91, D x87 y91.
-    expect(HELM_LETTER_OFFSETS.S).toEqual({ x: -39, y: -20 });
-    expect(HELM_LETTER_OFFSETS.W).toEqual({ x: 39, y: -20 });
-    expect(HELM_LETTER_OFFSETS.A).toEqual({ x: -35, y: 39 });
-    expect(HELM_LETTER_OFFSETS.D).toEqual({ x: 35, y: 39 });
+    const { S, W, A, D } = HELM_LETTER_OFFSETS;
+    // S (astern) on the astern side, W (ahead) on the ahead side, both above centre.
+    expect(S.x).toBeLessThan(0);
+    expect(W.x).toBeGreaterThan(0);
+    expect(S.y).toBeLessThan(0);
+    expect(W.y).toBe(S.y);
+    expect(W.x).toBe(-S.x);
+    // A (port) left, D (starboard) right, both below centre on the rudder track.
+    expect(A.x).toBeLessThan(0);
+    expect(D.x).toBeGreaterThan(0);
+    expect(A.y).toBeGreaterThan(0);
+    expect(D.y).toBe(A.y);
+    expect(D.x).toBe(-A.x);
   });
 
   it('keeps all four inside the globe`s own 104px box', () => {
@@ -628,12 +630,19 @@ describe('HelmGlobe shell — a live frame and the coach-mark fade', () => {
     expect(() => globe.update(input({ speed: -3 }), GLOBE, 4, 0.9)).not.toThrow(); // 90% tier
   });
 
-  it('reads out the heading (3 digits + degree sign) and the speed', () => {
+  it('reads out the heading as three wrapped digits and the speed as a one-decimal magnitude', () => {
     const globe = new HelmGlobe(new Container(), new HelmGlyphStore(zeroHelmProgress()));
+    // readoutText() is `<heading> <label> <speed> <unit>`; only the numerals are pinned.
+    const numerals = (): [string, string] => {
+      const t = globe.readoutText().split(' ');
+      return [t[0], t[2]];
+    };
     globe.update(input({ headingRad: 0, speed: 0 }), GLOBE, 1, 1);
-    expect(globe.readoutText()).toBe('000° HDG 0.0 KTS');
+    expect(numerals()).toEqual(['000°', '0.0']);
     globe.update(input({ headingRad: Math.PI, speed: -4.25 }), GLOBE, 2, 1);
-    expect(globe.readoutText()).toBe('180° HDG 4.3 KTS'); // the readout is a magnitude
+    expect(numerals()).toEqual(['180°', '4.3']); // the readout is a magnitude
+    globe.update(input({ headingRad: -Math.PI / 2, speed: 0 }), GLOBE, 3, 1);
+    expect(numerals()[0]).toBe('270°'); // a negative heading wraps
   });
 
   it('does not replay the fade for a pair that crossed while the globe was hidden', () => {

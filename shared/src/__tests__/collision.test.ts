@@ -4,7 +4,9 @@ import { MAP_RULES, generateMap, islandFromPolygon } from '../sim/map.js';
 import {
   applyGroundingDamp,
   groundingSpeedFactor,
+  polygonOverlapsSolid,
   resolveShipPose,
+  solidEscape,
   type Pose,
   type ShipPoseResult,
 } from '../sim/collision.js';
@@ -261,10 +263,6 @@ describe('resolveShipPose — boundary clamp (heading-aware, never grounding)', 
 describe('open-ocean pin — pressing the map edge is not grounding', () => {
   const kin = CONFIG.shipClasses.battleship.kinematics;
   const polyMax = polygonMaxRadius(hullSilhouette('battleship'));
-  /** The pre-fix fixed point of the per-tick multiplier: accel·dt·m/(1−m). */
-  const OLD_PINNED_SPEED = (kin.accel * DT * DAMP) / (1 - DAMP);
-  /** Rudder authority there (deg/s) — the six-minute 90° turn. */
-  const OLD_PINNED_TURN = ((OLD_PINNED_SPEED / kin.steerageSpeed) * kin.turnRate * 180) / Math.PI;
 
   const map = generateMap(1, 10);
   /** Clearance from the hull's bounding circle to the nearest coastline. */
@@ -285,11 +283,6 @@ describe('open-ocean pin — pressing the map edge is not grounding', () => {
     }
     return s;
   }
-
-  it('the pre-fix numbers really were a pin (documented, not asserted behavior)', () => {
-    expect(OLD_PINNED_SPEED).toBeLessThan(0.1);
-    expect(OLD_PINNED_TURN).toBeLessThan(0.3); // deg/s — 90° in ~6 minutes
-  });
 
   it('keeps full way and full helm authority pinned against the edge', () => {
     const s = pressEdge(600, 0);
@@ -1075,5 +1068,36 @@ describe('coastNormal on an n-gon fixture', () => {
       // Inside → toward the boundary, i.e. ~outward radial for a near-circle.
       expect((n.nx * px) / d + (n.ny * py) / d).toBeGreaterThan(0.98);
     }
+  });
+});
+
+describe('solidEscape — the minimal push-out off a solid', () => {
+  const block = islandFromPolygon([
+    { x: -10, y: -10 },
+    { x: 10, y: -10 },
+    { x: 10, y: 10 },
+    { x: -10, y: 10 },
+  ]);
+  // A 4×2 box straddling the block's east face by 2 u.
+  const box: Vec2[] = [
+    { x: 8, y: -1 },
+    { x: 12, y: -1 },
+    { x: 12, y: 1 },
+    { x: 8, y: 1 },
+  ];
+
+  it('pushes along the face normal by the minimal clearing distance', () => {
+    expect(polygonOverlapsSolid(box, 0, 0, block)).toBe(true);
+    const esc = solidEscape(box, block, 50);
+    expect(esc).not.toBeNull();
+    if (esc === null) return;
+    expect(esc.nx).toBeCloseTo(1, 6);
+    expect(esc.ny).toBeCloseTo(0, 6);
+    expect(polygonOverlapsSolid(box, esc.nx * esc.depth, esc.ny * esc.depth, block)).toBe(false);
+    expect(polygonOverlapsSolid(box, esc.nx * esc.depth * 0.95, esc.ny * esc.depth * 0.95, block)).toBe(true);
+  });
+
+  it('answers null when no push within the cap clears the solid', () => {
+    expect(solidEscape(box, block, 0.5)).toBeNull();
   });
 });

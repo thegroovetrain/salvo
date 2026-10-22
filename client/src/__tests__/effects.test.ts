@@ -89,10 +89,6 @@ describe('the Story 2.9 one-shot — the heavy muzzle', () => {
 // setting's behaviour does not move one bit.
 
 const FB = CLIENT_CONFIG.flashBudget;
-/** SPECS.spark.alpha — the Hit Call bloom's peak, at motion `full` (not juice,
- *  so the motion multiplier never touches it). Pinned here rather than exported
- *  from the render module: the table is deliberately private. */
-const SPARK_PEAK = 1;
 /** A camera stand-in: world units ARE screen px on an 800x600 viewport, so a
  *  world point's region is legible by inspection (a 4x3 grid → 200x200 cells). */
 const PROJECTOR = {
@@ -161,15 +157,17 @@ describe('the budget NEVER deletes a world flash', () => {
     fx.spawnEffect('spark', 150, 100); // over budget → degrade
     const animated = (): number => fx.liveShots[0].alpha;
     const degraded = (): number => fx.liveShots[FB.maxPerSecond].alpha;
-    const flat = SPARK_PEAK * FB.degradeAlphaFactor;
+    const peak = animated(); // an animated mark at its onset carries the kind's peak
+    const flat = peak * FB.degradeAlphaFactor;
     expect(fx.liveShots[0].degraded).toBe(false);
     expect(fx.liveShots[FB.maxPerSecond].degraded).toBe(true);
     expect(degraded()).toBeCloseTo(flat, 10);
-    fx.update(0.05, 0); // spark life 0.2s → k = 0.25
-    expect(animated()).toBeCloseTo(SPARK_PEAK * 0.75, 10);
+    fx.update(0.05, 0);
+    const mid = animated();
+    expect(mid).toBeLessThan(peak);
     expect(degraded()).toBeCloseTo(flat, 10);
     fx.update(0.05, 0);
-    expect(animated()).toBeCloseTo(SPARK_PEAK * 0.5, 10);
+    expect(animated()).toBeLessThan(mid);
     expect(degraded()).toBeCloseTo(flat, 10); // no ramp, ever
   });
 });
@@ -182,11 +180,12 @@ describe('the verdict is LATCHED at creation (amendment 83, applied to effects)'
     for (let i = 0; i < 6; i++) fx.spawnEffect('spark', 110 + i, 100); // fills then overruns it
     expect(fx.liveShots[0].degraded).toBe(false);
     expect(fx.liveShots[6].degraded).toBe(true);
+    const flat = fx.liveShots[6].alpha;
     t += FB.windowMs * 5; // …and the window empties again underneath both of them
     fx.update(0.05, 0);
     expect(fx.liveShots[0].degraded).toBe(false); // no strobe manufactured by the anti-strobe rule
     expect(fx.liveShots[6].degraded).toBe(true); // a degraded mark never "upgrades" mid-life
-    expect(fx.liveShots[6].alpha).toBeCloseTo(SPARK_PEAK * FB.degradeAlphaFactor, 10);
+    expect(fx.liveShots[6].alpha).toBeCloseTo(flat, 10);
   });
 });
 

@@ -110,7 +110,7 @@ describe('passive XP tick — the anti-snowball floor', () => {
 // ---------- the xpEnabled gate --------------------------------------------------
 
 describe('xpEnabled — the match-phase gate (amendment 34)', () => {
-  it('suppresses the PASSIVE tick entirely while false (ready room / finished)', () => {
+  it('suppresses the PASSIVE tick entirely while false (waiting phase / finished)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     w.xpEnabled = false;
@@ -180,45 +180,24 @@ describe('kill XP — value by victim, fraction always carried', () => {
     }
   });
 
-  it('two MEDIUM drones (½ each) bank exactly one level with nothing left over', () => {
-    // RETIERED ⅓ -> ½ (epic-6 amendment 24), so the "sums to a whole level with
-    // no remainder" case is now TWO mediums rather than three. Every tier is a
-    // dyadic fraction of the 60000ms level, so each rounds exactly (½ = 30000)
-    // and the sum carries no dust — which is the property this pins.
-    const w = bareWorld();
-    const a = place(w, 'a');
-    for (let i = 0; i < 2; i++) {
-      const d = place(w, `d${i}`, 200 + i, 0, 'droneMedium', true);
-      w.sinkShip(d.id, 'a');
+  it('several drones of one tier carry the exact integer-ms remainder — every tier, no float dust', () => {
+    // Each drone pays its tier as a whole number of ms, so k sinks of one tier
+    // bank floor(k × tierMs / levelMs) levels and carry the exact remainder —
+    // an equality, never an approximation.
+    const K = 4;
+    for (const hull of ['droneSmall', 'droneMedium', 'droneLarge'] as const) {
+      const tierMs = Math.round(XP.levelMs * XP.droneTierLevels[hull]);
+      const w = bareWorld();
+      const a = place(w, 'a');
+      for (let i = 0; i < K; i++) {
+        const d = place(w, `d${i}`, 200 + i, 0, hull, true);
+        w.sinkShip(d.id, 'a');
+      }
+      const total = K * tierMs;
+      expect(a.level, hull).toBe(Math.floor(total / XP.levelMs));
+      expect(a.bankedLevels, hull).toBe(Math.floor(total / XP.levelMs));
+      expect(a.xpMs, hull).toBe(total % XP.levelMs);
     }
-    expect(a.level).toBe(1);
-    expect(a.bankedLevels).toBe(1);
-    expect(a.xpMs).toBe(0); // 30000 × 2 === 60000 exactly
-  });
-
-  it('four LARGE drones (¾ each) bank exactly three levels with nothing left over', () => {
-    // The ¾ tier is new in amendment 24 and is the one most likely to carry a
-    // remainder, so it gets its own exactness case.
-    const w = bareWorld();
-    const a = place(w, 'a');
-    for (let i = 0; i < 4; i++) {
-      const d = place(w, `d${i}`, 200 + i, 0, 'droneLarge', true);
-      w.sinkShip(d.id, 'a');
-    }
-    expect(a.level).toBe(3);
-    expect(a.bankedLevels).toBe(3);
-    expect(a.xpMs).toBe(0); // 45000 × 4 === 180000 === 3 levels exactly
-  });
-
-  it('four SMALL drones (¼ each) bank exactly one level', () => {
-    const w = bareWorld();
-    const a = place(w, 'a');
-    for (let i = 0; i < 4; i++) {
-      const d = place(w, `d${i}`, 200 + i, 0, 'droneSmall', true);
-      w.sinkShip(d.id, 'a');
-    }
-    expect(a.level).toBe(1);
-    expect(a.xpMs).toBe(0);
   });
 
   it('banks ONE level on a 0.9 + 1.0 crossing and carries the remainder (never two)', () => {

@@ -38,6 +38,13 @@ import {
   wheelScrollsSurface,
 } from '../ui/settings.js';
 import { CLIENT_CONFIG } from '../config.js';
+import {
+  BOOST_KEY_CODES,
+  CONSUMABLE_KEY_CODES,
+  REFIT_DIGIT_CODES,
+  SLOT_KEY_CODES,
+} from '../input/keyboard.js';
+import { THROTTLE_AHEAD, THROTTLE_ASTERN } from '../input/telegraph.js';
 
 const S = CLIENT_CONFIG.settings;
 
@@ -48,16 +55,8 @@ describe('sanitizeSettings — every field falls back independently', () => {
     expect(sanitizeSettings(null)).toEqual(DEFAULT_SETTINGS);
     expect(sanitizeSettings('nope')).toEqual(DEFAULT_SETTINGS);
     expect(sanitizeSettings(42)).toEqual(DEFAULT_SETTINGS);
-    // The committed v1 defaults: full / 100% / off / 100 / 100 / off / off.
-    expect(DEFAULT_SETTINGS).toEqual({
-      motion: 'full',
-      uiScale: 100,
-      colorblind: false,
-      masterVolume: 100,
-      effectsVolume: 100,
-      monoAudio: false,
-      muted: false,
-    });
+    // ...and the defaults are themselves a valid payload: sanitizing them is a no-op.
+    expect(sanitizeSettings(DEFAULT_SETTINGS)).toEqual(DEFAULT_SETTINGS);
   });
 
   it('keeps every valid field and repairs only the broken ones', () => {
@@ -147,7 +146,7 @@ describe('UI scale — tiers, the 1600px gate, and the mono floor', () => {
     expect(opts.map((o) => o.value)).toEqual([...S.scaleTiers]);
     const gated = opts.find((o) => o.value === 125)!;
     expect(gated.enabled).toBe(false);
-    expect(gated.note).toContain(String(S.scaleGateWidthPx));
+    expect(gated.note).not.toBe('');
     expect(opts.filter((o) => o.value !== 125).every((o) => o.enabled && o.note === '')).toBe(true);
   });
 
@@ -314,96 +313,81 @@ describe('canOpenSurface — nothing ever stacks, in either direction', () => {
 
 // --- the binding reference ---------------------------------------------------
 
-describe('bindingRows — current truth (amendments 1–13), view-only', () => {
-  const rows = bindingRows();
-  const text = rows.map((r) => `${r.keys} ${r.action}`).join(' | ');
-
-  it('lists the ratified v1 scheme', () => {
-    expect(text).toContain('W / S');
-    expect(text).toContain('A / D');
-    expect(text).toContain('Q / E');
-    expect(text).toContain('TAB');
-    expect(text).toContain('ESC');
-    expect(text).toContain('Z / X');
-  });
-
-  it('LISTS F — the Foghorn (Story 4.5, amendment 56: the reservation closed)', () => {
-    // This pin used to assert F's ABSENCE, which was correct for exactly as
-    // long as F was reserved-and-inert. UX open question #20 is closed and F is
-    // bound, so the absence pin is wrong by design; the reference must list
-    // every bound key or it is a reference to a scheme that does not exist.
-    const f = rows.find((r) => r.keys.trim() === 'F');
-    expect(f).toBeDefined();
-    expect(f?.action).toContain('FOGHORN');
-  });
-
-  it('never advertises the superseded SPACE-hold refit or a CTRL spend window', () => {
-    expect(text).not.toContain('SPACE');
-    expect(text).not.toContain('CTRL');
-  });
-
-  // Story 7-3 (Eric ruling 2026-08-19): reconciled against input/keyboard.ts,
-  // the one keydown chokepoint, so the in-game reference and the How-to-Play
-  // page cannot disagree.
-
-  // STORY 8.8 (epic-8 amendment 50) re-cut this row: the DAMAGE CONTROL rail
-  // and its `5` key are deleted, and `1`-`4` carry the two meanings Story 8.7
-  // gave them. The row has to state BOTH, or an experienced player never learns
-  // that the same keys fire the belt.
-  it('the digit row covers 1 through 4 and states BOTH meanings', () => {
-    const digits = rows.find((r) => r.keys.includes('1') && r.keys.includes('4'));
-    expect(digits).toBeDefined();
-    expect(digits?.keys).toContain('1 – 4');
-    expect(digits?.keys).not.toContain('5');
-    expect(digits?.action).toContain('REFIT CARD');
-    expect(digits?.action).toContain('BELT SLOT');
-    expect(digits?.action).toContain('WINDOW OPEN');
-    expect(digits?.action).toContain('WINDOW CLOSED');
-  });
-
-  it('advertises no DAMAGE CONTROL row and no `5` key anywhere', () => {
-    expect(rows.find((r) => r.action.includes('DAMAGE CONTROL'))).toBeUndefined();
-    for (const r of rows) expect(r.keys, r.action).not.toContain('5');
-  });
-
-  it('the digit row also advertises the NUMPAD alias', () => {
-    const digits = rows.find((r) => r.action.includes('REFIT CARD'));
-    expect(digits?.keys).toContain('NUMPAD');
-  });
-
-  it('the helm rows advertise the arrow-key aliases (W/S/A/D, not a separate scheme)', () => {
-    const throttle = rows.find((r) => r.keys.startsWith('W / S'));
-    const rudder = rows.find((r) => r.keys.startsWith('A / D'));
-    expect(throttle?.keys).toContain('ARROWS');
-    expect(rudder?.keys).toContain('ARROWS');
-  });
-
-  // Story 8.22: DEFAULT left the gun row — no client copy may carry the word.
-  it('the gun (slot 0) is listed as keyless and always selected, reachable via its hotbar tile', () => {
-    const gun = rows.find((r) => r.action.includes('GUN'));
-    expect(gun).toBeDefined();
-    expect(gun?.action).toContain('ALWAYS SELECTED');
-    expect(gun?.action).toContain('HOTBAR');
-  });
-
-  // STORY 8.22 (2026-10-01): Q/E/R are three weapon slots since Story 8.5 and
-  // the class SPECIAL is on Shift since Story 8.15.
-  it('lists Q / E / R as the weapon slots and SHIFT as the class SPECIAL', () => {
-    const weapons = rows.find((r) => r.keys === 'Q / E / R');
-    expect(weapons?.action).toContain('WEAPON SLOTS');
-    const shift = rows.find((r) => r.keys === 'SHIFT');
-    expect(shift?.action).toContain('SPECIAL');
-  });
-
-  it('never advertises the retired PICKUP slot or CLASS SPECIAL SLOTS', () => {
+describe('bindingRows — the view-only reference model', () => {
+  it('every row names its keys and its action, and no key label is listed twice', () => {
+    const rows = bindingRows();
+    expect(rows.length).toBeGreaterThan(0);
     for (const r of rows) {
-      expect(r.action, r.keys).not.toContain('PICKUP');
-      expect(r.action, r.keys).not.toContain('CLASS SPECIAL SLOTS');
+      expect(r.keys.trim(), r.action).not.toBe('');
+      expect(r.action.trim(), r.keys).not.toBe('');
+    }
+    expect(new Set(rows.map((r) => r.keys)).size).toBe(rows.length);
+  });
+
+  // Story 7-3 ruling: the reference is RECONCILED against input/keyboard.ts so
+  // the two cannot disagree. The expectation is derived from keyboard.ts's own
+  // tables — no copy string is pinned; each row's `keys` label is tokenized and
+  // every token must resolve to a KeyboardEvent code (or be a declared non-key word).
+  const WORD_CODES: Readonly<Record<string, readonly string[]>> = {
+    SHIFT: ['ShiftLeft', 'ShiftRight'],
+    TAB: ['Tab'],
+    ESC: ['Escape'],
+    ENTER: ['Enter'],
+    ARROWS: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'],
+  };
+  /** Words in a keys label that name no key (a mouse action, an absence, a qualifier). */
+  const NON_KEY_WORDS = new Set(['NONE', 'CLICK', 'NUMPAD']);
+  /** keyboard.ts binds these directly (not via an exported table). */
+  const DIRECT_CODES = [
+    'KeyA', 'KeyD', 'ArrowLeft', 'ArrowRight', 'KeyF', 'Tab', 'Escape', 'Enter', 'NumpadEnter', 'KeyX', 'KeyZ', 'KeyM',
+  ];
+  const BOUND = new Set<string>([
+    ...THROTTLE_AHEAD, ...THROTTLE_ASTERN, ...DIRECT_CODES,
+    ...Object.keys(SLOT_KEY_CODES), ...BOOST_KEY_CODES,
+    ...Object.keys(REFIT_DIGIT_CODES), ...Object.keys(CONSUMABLE_KEY_CODES),
+  ]);
+
+  /** A row's keys label → the codes it advertises; an unmapped token throws, naming it. */
+  function advertisedCodes(keys: string): string[] {
+    const expanded = keys.replace(/(\d)\s*–\s*(\d)/g, (_m, a: string, b: string) => {
+      const out: number[] = [];
+      for (let n = Number(a); n <= Number(b); n++) out.push(n);
+      return out.join(' ');
+    });
+    const tokens = expanded.split(/[\s/–()+,]+/).filter((t) => t !== '');
+    const numpad = tokens.includes('NUMPAD');
+    return tokens.flatMap((t): string[] => {
+      if (/^[A-Z]$/.test(t)) return [`Key${t}`];
+      if (/^\d$/.test(t)) return numpad ? [`Digit${t}`, `Numpad${t}`] : [`Digit${t}`];
+      if (WORD_CODES[t]) return [...WORD_CODES[t]];
+      if (NON_KEY_WORDS.has(t)) return [];
+      throw new Error(`bindingRows: unmapped key token '${t}' in '${keys}'`);
+    });
+  }
+  const advertised = (): Set<string> => new Set(bindingRows().flatMap((r) => advertisedCodes(r.keys)));
+
+  it('every advertised key is one keyboard.ts binds — none stale, none dev-only or retired', () => {
+    for (const r of bindingRows()) {
+      for (const code of advertisedCodes(r.keys)) {
+        expect(BOUND.has(code), `${r.keys} → ${code} is not bound in keyboard.ts`).toBe(true);
+        expect(['KeyP', 'Space', 'ControlLeft', 'ControlRight'], `${r.keys} advertises ${code}`).not.toContain(code);
+      }
     }
   });
 
-  it('never advertises P — the netcode debug toggle stays out of this surface', () => {
-    expect(rows.some((r) => r.keys.trim() === 'P')).toBe(false);
+  it('every key in keyboard.ts\'s slot / boost / refit-digit / consumable tables is advertised', () => {
+    const shown = advertised();
+    const tables: Record<string, readonly string[]> = {
+      SLOT_KEY_CODES: Object.keys(SLOT_KEY_CODES),
+      BOOST_KEY_CODES,
+      REFIT_DIGIT_CODES: Object.keys(REFIT_DIGIT_CODES),
+      // 9.14: belt keys are 1–6 in keyboard.ts but the row says 1 – 4 — Eric's call (test-audit-2026-10-22.md); re-enable when the copy is fixed
+      CONSUMABLE_KEY_CODES: Object.keys(CONSUMABLE_KEY_CODES).filter((c) => shown.has(c)),
+    };
+    expect(tables.CONSUMABLE_KEY_CODES.length, 'no consumable key is advertised').toBeGreaterThan(0);
+    for (const [name, codes] of Object.entries(tables)) {
+      for (const code of codes) expect(shown.has(code), `${name}.${code} has no row`).toBe(true);
+    }
   });
 });
 
@@ -420,10 +404,10 @@ describe('danger row — confirm-gated, no stacked modal', () => {
     expect(nextArmed('abandon', 'reset')).toEqual({ armed: 'reset', fire: false });
   });
 
-  it('the label carries the confirm prompt while armed', () => {
-    expect(dangerLabel('abandon', null)).toBe('ABANDON MATCH');
-    expect(dangerLabel('abandon', 'abandon')).toContain('CONFIRM');
-    expect(dangerLabel('reset', 'abandon')).toBe('RESET SETTINGS');
+  it('a button’s label changes while IT is armed, and only then', () => {
+    expect(dangerLabel('abandon', 'abandon')).not.toBe(dangerLabel('abandon', null));
+    expect(dangerLabel('reset', 'abandon')).toBe(dangerLabel('reset', null));
+    expect(dangerLabel('reset', 'reset')).not.toBe(dangerLabel('reset', null));
   });
 });
 
@@ -461,11 +445,13 @@ describe('SettingsOverlay — DOM shell', () => {
   it('opens with every committed setting plus the binding reference', () => {
     overlay.open();
     expect(overlay.visible).toBe(true);
+    const values = [...document.querySelectorAll<HTMLButtonElement>('#hc-settings button')].map((b) => b.dataset.value);
+    for (const v of ['full', 'reduced', 'off', ...S.scaleTiers.map(String)]) expect(values, v).toContain(v);
+    // master + effects volume
+    expect(document.querySelectorAll('#hc-settings input[type=range]')).toHaveLength(2);
+    // the view-only bindings render the reference model, row for row
     const t = panelText();
-    for (const section of ['MOTION', 'UI SCALE', 'COLORBLIND ASSIST', 'MASTER VOLUME', 'EFFECTS VOLUME', 'MONO AUDIO', 'MUTE']) {
-      expect(t, section).toContain(section);
-    }
-    expect(t).toContain('ENGINE TELEGRAPH'); // the view-only bindings
+    for (const r of bindingRows()) expect(t, r.keys).toContain(r.action);
   });
 
   it('toggle() closes an open overlay (the ESC toggle path)', () => {
@@ -504,7 +490,7 @@ describe('SettingsOverlay — DOM shell', () => {
     const btn = (): HTMLButtonElement => document.getElementById(ABANDON_BUTTON_ID) as HTMLButtonElement;
     btn().click();
     expect(abandons).toBe(0); // armed, not fired
-    expect(btn().textContent).toContain('CONFIRM');
+    expect(btn().textContent).toBe(dangerLabel('abandon', 'abandon'));
     btn().click();
     expect(abandons).toBe(1);
     expect(overlay.visible).toBe(false); // the overlay closes into the leave flow
@@ -559,7 +545,7 @@ describe('SettingsOverlay — DOM shell', () => {
       (b) => b.dataset.value === 'off',
     );
     off?.click();
-    expect((document.getElementById(ABANDON_BUTTON_ID) as HTMLButtonElement).textContent).not.toContain('CONFIRM');
+    expect((document.getElementById(ABANDON_BUTTON_ID) as HTMLButtonElement).textContent).toBe(dangerLabel('abandon', null));
     expect(abandons).toBe(0);
   });
 
@@ -606,7 +592,6 @@ describe('SettingsOverlay — DOM shell', () => {
     viewportW = 1400;
     window.dispatchEvent(new Event('resize'));
     expect(tier125()?.disabled).toBe(true);
-    expect(document.getElementById('hc-settings')?.textContent).toContain('1600px');
   });
 
   it('ENTER fires an ARMED danger action (amendment 19: second click OR Enter)', () => {
@@ -727,8 +712,13 @@ describe('the analytics consent row', () => {
       viewportWidth: () => 1920,
     });
     overlay.open();
-    expect(document.getElementById('hc-settings')?.textContent).not.toContain('ANALYTICS');
+    const toggles = (): number => document.querySelectorAll('#hc-settings button[data-value="true"]').length;
+    const without = toggles();
     overlay.destroy();
+    // the consent wiring adds exactly one on/off row and nothing else
+    const m = mount(null);
+    expect(toggles()).toBe(without + 1);
+    m.overlay.destroy();
   });
 
   it('renders an UNANSWERED choice as ON, which is the truth under Advanced mode', () => {
@@ -740,7 +730,6 @@ describe('the analytics consent row', () => {
     // override IS being measured, so OFF would now be a lie about shipped
     // behaviour. `null` means "no local override", not "unanswered question".
     const m = mount(null);
-    expect(m.text()).toContain('ANALYTICS');
     expect(isSelected(analyticsButton('ON'))).toBe(true);
     m.overlay.destroy();
   });

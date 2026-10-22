@@ -25,6 +25,7 @@ import {
   CONFIG,
   CONSUMABLE_KEY_ORDER,
   CONSUMABLE_SLOTS,
+  EQUIPMENT_IDS,
   SLOT_COUNT,
   GUN_IDS,
   MOUNTED_GUN,
@@ -184,99 +185,23 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     }
   });
 
-  it('carries the SIX TASTES of Eric ruling 2026-09-30 (R5) verbatim', () => {
-    const tastes = Object.fromEntries(Object.values(BOT_PROFILES).map((p) => [p.id, p.taste]));
-    expect(tastes).toEqual({
-      raider: {
-        style: 'specialist',
-        favoriteUpgrades: ['speed', 'weapons', 'armorPiercing'], // + 'armorPiercing': epic-9 amendment 157 (Story 9.9)
-        favoriteConsumables: ['countermeasure'],
-        favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
-        beltHunger: 'medium',
-      },
-      duelist: {
-        style: 'specialist',
-        favoriteUpgrades: ['gun', 'turning', 'reload', 'armorPiercing'], // + 'armorPiercing': epic-9 amendment 157 (Story 9.9)
-        favoriteConsumables: ['shieldBlock', 'foulingShell'],
-        favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
-        beltHunger: 'low',
-      },
-      bulwark: {
-        style: 'rounded',
-        favoriteUpgrades: ['hullPoints', 'passiveHealing', 'armor'], // + 'armor': epic-9 amendment 115 (Story 9.7)
-        favoriteConsumables: ['hullRepair', 'shieldBlock'],
-        favoriteWeapons: ['broadside', 'starShells'],
-        beltHunger: 'high',
-      },
-      siege: {
-        style: 'specialist',
-        favoriteUpgrades: ['weapons', 'radarSweep'],
-        favoriteConsumables: ['foulingShell', 'supercavTorpedo'],
-        favoriteWeapons: ['starShells', 'phosphorShells', 'broadside'],
-        beltHunger: 'low',
-      },
-      forager: {
-        style: 'rounded',
-        favoriteUpgrades: ['gun', 'reload'],
-        favoriteConsumables: ['hullRepair', 'decoyBuoy'],
-        favoriteWeapons: ['navalMines', 'captiveMines', 'foulingMines'],
-        beltHunger: 'medium',
-      },
-      trapper: {
-        style: 'rounded',
-        favoriteUpgrades: ['weapons', 'speed'],
-        favoriteConsumables: ['countermeasure', 'decoyBuoy'],
-        favoriteWeapons: ['navalMines', 'captiveMines', 'foulingMines'],
-        beltHunger: 'high',
-      },
-    });
+  it('every taste names real catalog lines, a known style and a belt-hunger level the scorer prices', () => {
     // Every favorite names something real.
     for (const p of Object.values(BOT_PROFILES)) {
       for (const c of p.taste.favoriteConsumables) expect(Object.hasOwn(CATALOG, c), c).toBe(true);
       for (const w of p.taste.favoriteWeapons) expect(Object.hasOwn(CATALOG, w), w).toBe(true);
+      expect(['specialist', 'rounded'], p.id).toContain(p.taste.style);
+      expect(Object.hasOwn(CONFIG.bots.cardPoints.beltHunger, p.taste.beltHunger), p.id).toBe(true);
     }
   });
 
-  // THE FAMILY FALLBACK IS GONE WITH ZERO BEHAVIOR CHANGE (Story 8.20). The
-  // old resolver read `appetite[id] ?? appetite[family[id]] ?? base`; the
-  // family map is hard-coded HERE as the oracle, so this pin proves the
-  // explicit per-line rows reproduce every number it used to resolve.
-  it('appetiteFor with explicit rows equals the retired APPETITE_FAMILY resolution, row x id', () => {
-    const OLD_FAMILY: Partial<Record<EquipmentId, EquipmentId>> = {
-      lightTorpedo: 'heavyTorpedo',
-      captiveMines: 'navalMines',
-      foulingMines: 'navalMines',
-      machineGun: 'gun',
-      flak: 'gun',
-      instantReload: 'boost',
-      hunker: 'boost',
-      phosphorShells: 'starShells',
-    };
-    // The pre-8.20 appetite tables, verbatim (the oracle's input).
-    const OLD_APPETITE: Record<AnyProfileId, Partial<Record<EquipmentId, number>>> = {
-      raider: { heavyTorpedo: 2.5, boost: 2.0 },
-      duelist: { heavyTorpedo: 1.5, boost: 1.5 },
-      bulwark: { broadside: 2.0, starShells: 1.2 },
-      siege: { starShells: 2.4, broadside: 2.2 },
-      forager: { navalMines: 1.4 },
-      trapper: { navalMines: 2.6 },
-      randomTorpedoBoat: { gun: 2.0, heavyTorpedo: 2.2, navalMines: 2.2, boost: 2.2, broadside: 2.2, starShells: 2.2 },
-      randomBattleship: { gun: 2.0, heavyTorpedo: 2.2, navalMines: 2.2, boost: 2.2, broadside: 2.2, starShells: 2.2 },
-      randomMineLayer: { gun: 2.0, heavyTorpedo: 2.2, navalMines: 2.2, boost: 2.2, broadside: 2.2, starShells: 2.2 },
-    };
-    const ALL_EQUIPMENT: EquipmentId[] = [
-      'gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'foulingMines',
-      'machineGun', 'flak', 'broadside', 'starShells', 'phosphorShells', 'instantReload', 'hunker',
-    ];
-    const rows: AnyProfileId[] = [...CONFIG.bots.profiles, ...TEST_PROFILE_IDS];
-    for (const id of rows) {
-      const row = profileOf(id);
-      const bare = { ...row, appetite: {} };
-      for (const eq of ALL_EQUIPMENT) {
-        const fam = OLD_FAMILY[eq];
-        const old = OLD_APPETITE[id][eq] ?? (fam === undefined ? undefined : OLD_APPETITE[id][fam]) ?? appetiteFor(bare, eq);
-        expect(appetiteFor(row, eq), `${id}.${eq}`).toBe(old);
-      }
+  it('appetiteFor reads the row\'s own entry, else the neutral base — and the guns sit below neutral (the fallback, tried last)', () => {
+    const bare = { ...profileOf('raider'), appetite: {} };
+    const GUNS: readonly string[] = ['gun', 'machineGun', 'flak'];
+    for (const eq of EQUIPMENT_IDS) {
+      expect(appetiteFor({ ...bare, appetite: { [eq]: 7 } as Partial<Record<EquipmentId, number>> }, eq), eq).toBe(7);
+      if (GUNS.includes(eq)) expect(appetiteFor(bare, eq), eq).toBeLessThan(APPETITE_NEUTRAL);
+      else expect(appetiteFor(bare, eq), eq).toBe(APPETITE_NEUTRAL);
     }
   });
 
@@ -331,22 +256,18 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
     }
   });
 
-  it('THE MINE LAYER HANGS BACK (Eric ruling 2026-08-20, cycle 111): ruled bands and thresholds', () => {
+  it('THE MINE LAYER HANGS BACK (Eric ruling 2026-08-20, cycle 111): both nudge the band outward and forager breaks off earliest', () => {
     // Cycle 110's A/B measured the ML dying before its payoff (181.1s afloat
     // vs the random control's 264.0s); Eric ruled these values verbatim —
-    // hang back to survive to the payoff. Pinned as literals so a "tuning"
-    // drift is a reviewed edit, not an accident.
+    // hang back to survive to the payoff. The relations below are the ruling's
+    // shape; the dial values themselves are Eric's to retune.
     // (The ruled 0.45–0.80 / 0.25–0.50 bands retired with every profile
     // fraction in Story 9.13, amendment 198: both now nudge the gun's band
     // OUTWARD — hanging back — and lean away at the odds gate, amendment 194.)
     const forager = profileOf('forager');
     expect(forager.bandNudge).toBeGreaterThan(0);
-    expect(forager.disengageHpFrac).toBe(0.55);
-    expect(forager.healHpFrac).toBe(0.6);
     const trapper = profileOf('trapper');
     expect(trapper.bandNudge).toBeGreaterThan(0);
-    expect(trapper.disengageHpFrac).toBe(0.45);
-    expect(trapper.healHpFrac).toBe(0.6);
     // Forager is now the EARLIEST break-off in the game — survival IS its
     // plan — and its whole band stays inside its own gun reach (the band is a
     // fraction of that reach, Story 9.8 ruling 126), so hanging back costs no
@@ -1120,9 +1041,7 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
       slotIds: slotsOf(['heavyTorpedo', 'lightTorpedo', 'navalMines']),
     });
     expect(cardScore(raider, s, 'heavyTorpedo')).toBe(P.base + P.favorite + P.style);
-    expect(cardScore(raider, s, 'heavyTorpedo')).toBe(4);
     expect(cardScore(raider, s, 'countermeasure')).toBe(P.base + P.favorite + P.beltHunger.medium);
-    expect(cardScore(raider, s, 'countermeasure')).toBe(3);
     expect(chooseSpend(raider, { ...s, offer: ['countermeasure', 'heavyTorpedo'] })).toBe(1);
   });
 
@@ -1145,7 +1064,6 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
     const s = spendState({ cards: ['radarSweep'] });
     expect(cardScore(siege, s, 'starShells')).toBe(P.favoriteWeapon);
     expect(cardScore(siege, s, 'radarSweep')).toBe(P.base + P.favorite + P.style);
-    expect(cardScore(siege, s, 'radarSweep')).toBe(4);
     expect(chooseSpend(siege, { ...s, offer: ['starShells', 'radarSweep'] })).toBe(1);
   });
 
@@ -1161,7 +1079,6 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
     const hurt = spendState({ hp: 30 });
     expect(30 / 100).toBeLessThan(siege.healHpFrac);
     expect(cardScore(siege, hurt, 'hullRepair')).toBe(P.base + P.hurtRepair);
-    expect(cardScore(siege, hurt, 'hullRepair')).toBe(4);
     expect(chooseSpend(siege, { ...hurt, offer: ['starShells', 'hullRepair'] })).toBe(1);
     // The same bot healthy reads its LOW belt hunger instead: 2 − 1 = 1.
     expect(cardScore(siege, spendState(), 'hullRepair')).toBe(P.base + P.beltHunger.low);
@@ -1183,7 +1100,6 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
     const duelist = profileOf('duelist');
     const s = spendState({ cards: ['speed'] }); // hullPoints below max(U): no specialist bonus
     expect(cardScore(duelist, s, 'hullRepair')).toBe(P.base + P.beltHunger.low);
-    expect(cardScore(duelist, s, 'hullRepair')).toBe(1);
     expect(cardScore(duelist, s, 'hullPoints')).toBe(P.base);
     expect(chooseSpend(duelist, { ...s, offer: ['hullRepair', 'hullPoints'] })).toBe(1);
   });
@@ -1192,9 +1108,7 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
     const bulwark = profileOf('bulwark');
     const s = spendState({ cards: ['shieldBlock'], slotIds: slotsOf([], ['shieldBlock']) });
     expect(cardScore(bulwark, s, 'shieldBlock')).toBe(P.base + P.favorite + P.carried);
-    expect(cardScore(bulwark, s, 'shieldBlock')).toBe(2);
     expect(cardScore(bulwark, s, 'countermeasure')).toBe(P.base + P.beltHunger.high);
-    expect(cardScore(bulwark, s, 'countermeasure')).toBe(3);
     expect(chooseSpend(bulwark, { ...s, offer: ['shieldBlock', 'countermeasure'] })).toBe(1);
   });
 
@@ -1278,9 +1192,7 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
     const bulwark = profileOf('bulwark'); // rounded; favorite upgrades hullPoints + passiveHealing; favorite weapons broadside + starShells
     const s = spendState();
     expect(cardScore(bulwark, s, 'hullPoints')).toBe(P.base + P.favorite);
-    expect(cardScore(bulwark, s, 'hullPoints')).toBe(3);
     expect(cardScore(bulwark, s, 'lightTorpedo')).toBe(P.weapon);
-    expect(cardScore(bulwark, s, 'lightTorpedo')).toBe(3.5);
     expect(chooseSpend(bulwark, { ...s, offer: ['hullPoints', 'lightTorpedo'] })).toBe(1);
   });
 
@@ -1288,9 +1200,7 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
     const bulwark = profileOf('bulwark');
     const s = spendState({ cards: ['lightTorpedo'], slotIds: slotsOf(['lightTorpedo']) });
     expect(cardScore(bulwark, s, 'hullPoints')).toBe(P.base + P.favorite + P.style);
-    expect(cardScore(bulwark, s, 'hullPoints')).toBe(4);
     expect(cardScore(bulwark, s, 'speed')).toBe(P.base + P.style);
-    expect(cardScore(bulwark, s, 'speed')).toBe(3);
     expect(chooseSpend(bulwark, { ...s, offer: ['speed', 'hullPoints'] })).toBe(1);
   });
 

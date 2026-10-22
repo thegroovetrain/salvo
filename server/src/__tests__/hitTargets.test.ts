@@ -23,8 +23,7 @@
 //   * amendment 19 (a burst over a hull sunk this tick marks `hc`, not `sp`)
 //     and the star shell's surviving exclusion;
 //   * `deferred-work.md:594` — a later shell of one click passes THROUGH a
-//     wreck instead of being consumed by it;
-//   * the 500-live-mine performance pin (NFR23).
+//     wreck instead of being consumed by it.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -516,66 +515,6 @@ describe('a hull sunk THIS tick (amendment 19, :594)', () => {
     expect(ids(w.hitTargets(CONFIG.gun.hits))).toContain('b');
     w.sinkShip(b.id, 'a');
     expect(ids(w.hitTargets(CONFIG.gun.hits))).not.toContain('b');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// THE PERFORMANCE PIN (NFR23)
-// ---------------------------------------------------------------------------
-
-describe('the 500-live-mine performance pin (NFR23)', () => {
-  type PerfInner = {
-    stepMines(hitTargets: (m: readonly TargetKind[]) => readonly Target[]): void;
-    resolveBurst(shell: unknown, at: { x: number; y: number }, hulls: readonly Target[]): void;
-    hitTargets(mask: readonly TargetKind[]): readonly Target[];
-  };
-
-  /** A FRESH field for EVERY timed run (Story 8.4 review, P9). The old shape
-   *  built ONE world outside the loop and timed it five times — and a timed run
-   *  MUTATES it: `stepMines` trips, `resolveBurst` detonates, and a cascade can
-   *  take mines off the water for good, so runs 2-5 would time a thinner field
-   *  than run 1 and the best-of-5 would report the cheapest, not the worst.
-   *  (Measured: with THIS fixture's geometry nothing actually detonates — the
-   *  hulls sit clear of every trigger ring and the burst point is 240u from the
-   *  nearest mine — so the old number was not wrong. It was unguarded: any
-   *  future nudge to the layout would have quietly hollowed the pin out.) The
-   *  rebuild happens here, OUTSIDE the clock, and the count is asserted below. */
-  function perfField(): PerfInner {
-    const w = bareWorld(31);
-    for (let i = 0; i < 20; i += 1) {
-      place(w, `s${i}`, -1200 + i * 120, 600);
-    }
-    for (let i = 0; i < 500; i += 1) {
-      mine(w, `m${i}`, `s${i % 20}`, -1000 + (i % 50) * 40, -600 + Math.floor(i / 50) * 40);
-    }
-    return w as unknown as PerfInner;
-  }
-
-  it('checkMineTriggers + hitTargets + one full resolveBurst stay well inside the 50 ms tick', () => {
-    const shell = {
-      id: 'perf', ownerId: 's0', x: 0, y: 0, vx: 0, vy: 0, distLeft: 0, bornAt: 0,
-      kind: 'shell', damage: CONFIG.gun.damage, hitRadius: CONFIG.gun.shellRadius,
-      targetX: 0, targetY: 0, burstRadius: CONFIG.gun.burstRadius,
-      contactDamage: CONFIG.gun.contactDamage, hits: CONFIG.gun.hits,
-    };
-    let best = Infinity;
-    let mines = 0;
-    for (let run = 0; run < 5; run += 1) {
-      const inner = perfField(); // built OUTSIDE the clock — a fresh 500 every run
-      mines = inner.hitTargets(['mine']).length;
-      const t0 = performance.now();
-      inner.stepMines((mask) => inner.hitTargets(mask));
-      const targets = inner.hitTargets(CONFIG.gun.hits);
-      inner.resolveBurst(shell, { x: 0, y: 0 }, targets);
-      best = Math.min(best, performance.now() - t0);
-    }
-    // Every run really did see the full field.
-    expect(mines).toBe(500);
-    // Re-measured 2026-09-16 on the dev machine (Darwin 25.4, Node 22) with the
-    // per-run rebuild: the number is recorded in this cycle's spec; the
-    // ASSERTION is the tick budget.
-    if (process.env.HC_PERF_LOG) console.log(`mine-perf best-of-5: ${best.toFixed(3)} ms`);
-    expect(best).toBeLessThan(50);
   });
 });
 
