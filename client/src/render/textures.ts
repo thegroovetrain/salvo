@@ -10,7 +10,7 @@
 import { Texture } from 'pixi.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
-import { dimFanSlides, dimRadii, dimRampU, dimScaleAt } from './radarDim.js';
+import { dimFanSlides, dimRadii, dimRampU, dimScaleAt, dimSlideU } from './radarDim.js';
 import { haloAlphaAt, haloSpanU } from './hazeHalo.js';
 
 const C = CLIENT_CONFIG.colors;
@@ -40,6 +40,8 @@ function makeCanvas(w: number, h: number): { canvas: BakeCanvas; ctx: BakeCtx } 
  * as it approached the bubble's edge. `render/fog.ts`'s `hullSightSoftness`
  * reproduces that softening as a per-hull alpha, and it reads THESE constants —
  * one feather, two consumers, so the drawn fog and the hull ramp cannot drift.
+ * The per-hull ramp is retired by epic-9 amendment 212 (cycle 203): hulls draw
+ * at full alpha, and this feather is the fog's look on the water alone.
  */
 export const FOG_FILL_ALPHA = 0.85;
 /** Hole feather: fully clear to 0.75×sight, fading to full fog at 1.0×sight.
@@ -215,12 +217,6 @@ function drawDimMask(ctx: BakeCtx, sightU: number, reach: Float32Array | null = 
   // corners, which is the whole point of the sprite being span-sized.
   ctx.fillStyle = cssRgba(C.white, 1);
   ctx.fillRect(0, 0, size, size);
-  // A fan that slides nothing (no fog on any bearing, or fogLift 0) IS the
-  // radial mask, so it takes the radial path below byte for byte.
-  if (reach !== null && dimFanSlides(reach, sightU)) {
-    drawDimFan(ctx, c, px, sightU, reach);
-    return;
-  }
   const r0 = Math.max(0, innerU * px);
   const r1 = Math.max(r0 + 1, outerU * px);
   const grad = ctx.createRadialGradient(c, c, r0, c, c, r1);
@@ -233,6 +229,14 @@ function drawDimMask(ctx: BakeCtx, sightU: number, reach: Float32Array | null = 
   ctx.beginPath();
   ctx.arc(c, c, r1, 0, Math.PI * 2);
   ctx.fill();
+  // THE RADIAL MASK IS ALWAYS THE BASE. A fan that slides nothing (no fog on
+  // any bearing, or fogLift 0) ends here, byte for byte today's bake. A fan
+  // that slides draws ONLY its slid bearings' wedges OVER the radial base
+  // (cycle 203): the first cut drew every wedge over the opaque WHITE fill, and
+  // the anti-aliased seams between neighbouring wedges let that white underlay
+  // bleed through as a starburst of full-strength hairlines across the muted
+  // bubble. Over the radial base a seam can only bleed the floor.
+  if (reach !== null && dimFanSlides(reach, sightU)) drawDimFan(ctx, c, px, sightU, reach);
 }
 
 /** Half a degree of overlap on each side of a wedge, so neighbours never leave a
@@ -275,7 +279,13 @@ export function dimWedge(
  */
 function drawDimFan(ctx: BakeCtx, c: number, px: number, sightU: number, reach: Float32Array): void {
   const step = (Math.PI * 2) / reach.length;
+  // Every wedge reaches the RADIAL BASE's outer radius, never just its own r1:
+  // the gradient holds its last stop (white) past r1, so the slid bearing reads
+  // full strength from r1 out to where the base is white anyway. A wedge cut at
+  // its own r1 would hand the water beyond it back to the base's floor.
+  const rOut = Math.max(1, dimRadii(sightU).outerU * px);
   for (let k = 0; k < reach.length; k++) {
+    if (!(dimSlideU(sightU, reach[k]) > 0)) continue; // an unfogged bearing keeps the radial base
     const { r0, r1, inner } = dimWedge(reach, k, sightU, px, WEDGE_PX);
     const grad = ctx.createRadialGradient(c, c, r0, c, c, r1);
     const lvl = Math.round(255 * Math.max(0, Math.min(1, inner)));
@@ -284,7 +294,7 @@ function drawDimFan(ctx: BakeCtx, c: number, px: number, sightU: number, reach: 
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.moveTo(c, c);
-    ctx.arc(c, c, r1, (k - 0.5) * step - DIM_WEDGE_OVERLAP_RAD, (k + 0.5) * step + DIM_WEDGE_OVERLAP_RAD);
+    ctx.arc(c, c, Math.max(r1, rOut), (k - 0.5) * step - DIM_WEDGE_OVERLAP_RAD, (k + 0.5) * step + DIM_WEDGE_OVERLAP_RAD);
     ctx.closePath();
     ctx.fill();
   }

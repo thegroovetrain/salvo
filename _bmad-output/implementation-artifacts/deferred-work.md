@@ -3125,3 +3125,10 @@ Closure stamps for three older entries (the originals are left as written), then
   status: OPEN — watch on staging
   summary: A BOT'S OWN WAKE IS IN ITS OWN WAKE BUFFER. Eric ruled all radar returns paint, own water included, so `wakeScan` has no self term; `foldWakeCells` keeps every wk cell identity-free, so `refitWakeCourses` can fit a bot's own water onto a courseless anonymous plot that sits close astern of it (a fogged hull or a decoy paint within the ribbon's reach). Rare; if it shows as bots chasing their own course, filter own-ribbon cells on the BOT side (the bot knows its own pose), never on the wire.
   evidence: server/src/game/ai/plot.ts `refitWakeCourses`; amendment 210 gate reading P3.
+
+## 2026-10-21 — Cycle 203, the entire sweep's production look
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-radar-full-sweep-fog-dim.md`
+  status: OPEN — blocked on Eric's screenshot (every match on his desktop; not reproduced on this MacBook's Intel UHD 630 via ANGLE Metal in two matches)
+  summary: THE 750 u "SMOKE RING" READS AS A SQUARE IN PRODUCTION (Eric 2026-10-21). ALSO OPEN FROM THE SAME REPORT: close enemy hull returns reading BLUE — the paint chain prices a close hull red over real terrain; no reading is to be offered without his screenshot. Headlessly the fog wisps sometimes fill the 1,890 u density-raster square around the hull with no halo clipping, sometimes a correct 790 u disc; every readable state (mask attached, canvas a disc, sprite placed/scaled, Pixi pass bounds positive) looked right, and the isolated FogFieldView never fails. Candidates not yet excluded: a stale halo sprite world transform at the mask-pass bounds intersection after a hide/show (reconnect, fog cut to FOG_NO_CUT and back), the first-frame mask effect before the sprite's transform update. Next evidence: Eric's screenshot (is the square the fog wisps? sharp edge? does zoom change it? does it persist after a reconnect?).
+  evidence: client/src/render/fogField.ts placeHalo/clipToScreen; node_modules/pixi.js AlphaMaskPipe / FilterSystem._calculateFilterBounds (skip on non-positive bounds draws the content unmasked); amendment 211.

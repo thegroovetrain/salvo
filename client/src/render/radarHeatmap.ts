@@ -379,6 +379,7 @@ export function writeCell(
   gy: number,
   intensity: number,
   alpha: number,
+  tieTol = 0,
 ): void {
   const cx = gx - g.baseGx;
   const cy = gy - g.baseGy;
@@ -389,9 +390,21 @@ export function writeCell(
   // 0.699999988…, and a naive `alpha === g.a[i]` is therefore ALWAYS false —
   // which would make every same-age sample look fresher than the one before it
   // and quietly restore last-write-wins, losing the hull-over-terrain tiebreak.
+  //
+  // "SAME PAINT" IS ONE BEAM CROSSING WIDE (amendment 210 follow-up, cycle
+  // 203): `tieTol` is the alpha a paint loses across one crossing
+  // (`CLIENT_CONFIG.blip.heatmap.sameCrossingMs` / the paint life). Since the
+  // server sends the entire sweep, a hull and the water under it arrive as
+  // SEPARATE slices a tick or two apart — under a strict same-age tie a wake row
+  // stamped 50 ms after the hull's blip overwrote the hull's red cells with
+  // green water (the retired one-field synthesis never had the problem: steel
+  // outranked water inside one slice). Within a crossing the STRONGER return
+  // owns the cell; a paint from a later crossing displaces it as before. The
+  // displayed alpha is still the winner's own.
   const a = Math.fround(alpha);
-  if (a < g.a[i]) return; // an older paint never overwrites a fresher one
-  if (a === g.a[i] && !(intensity > g.w[i])) return; // same paint: strongest
+  const tol = Math.fround(tieTol > 0 ? tieTol : 0);
+  if (a < g.a[i] - tol) return; // a paint from an earlier crossing never overwrites a later one
+  if (a <= g.a[i] + tol && !(intensity > g.w[i])) return; // same crossing: strongest
   g.w[i] = intensity;
   g.a[i] = a;
 }
@@ -634,6 +647,10 @@ export interface RasterCtx {
   lifeMs: number;
   /** Colorblind-assist alpha floor (`blipAlpha`'s minAlpha). */
   alphaFloor: number;
+  /** The alpha one beam crossing spans (`sameCrossingMs` / `lifeMs`): paints
+   *  this close in age are ONE paint for the write rule — strongest wins
+   *  (`writeCell`'s `tieTol`). 0 or absent = the strict same-age tie. */
+  tieTol?: number;
 }
 
 /** Does a slice's world bounding box touch the buffer at all? */
@@ -654,10 +671,10 @@ function onBuffer(g: HeatGrid, s: MarchSlice): boolean {
  * been dropped by `writeCell`'s own bounds test one line later, and the slice
  * stays in the list either way.
  */
-export function stampSlice(g: HeatGrid, s: MarchSlice, alpha: number): void {
+export function stampSlice(g: HeatGrid, s: MarchSlice, alpha: number, tieTol = 0): void {
   if (!onBuffer(g, s)) return;
   for (let k = 0; k < s.n; k++) {
-    writeCell(g, s.cells[k * 2], s.cells[k * 2 + 1], s.w[k], alpha);
+    writeCell(g, s.cells[k * 2], s.cells[k * 2 + 1], s.w[k], alpha, tieTol);
   }
 }
 
@@ -673,7 +690,7 @@ export function rasterize(g: HeatGrid, slices: readonly MarchSlice[], ctx: Raste
   for (const s of slices) {
     const alpha = blipAlpha(ctx.now - s.t, ctx.lifeMs, ctx.alphaFloor);
     if (alpha <= 0) continue;
-    stampSlice(g, s, alpha);
+    stampSlice(g, s, alpha, ctx.tieTol ?? 0);
   }
 }
 

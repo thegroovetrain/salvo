@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.18.68] - 2026-10-21
+
+### Fixed
+- **A hull's own wake no longer paints over the hull on the scope.** With the server sending the entire sweep, a hull and the water under it arrive as separate radar returns a tick or two apart, and the scope's "newest paint wins" rule let the water's weak green cells overwrite the hull's red ones. Paints born within one beam crossing now count as one paint, and the stronger return keeps the cell. A later crossing still repaints as before. Dial: `blip.heatmap.sameCrossingMs` in the client config (150 ms).
+- **No bright hairlines through the muted scope in fog.** The fog-aware near-range mask drew every bearing's wedge over a white underlay, and the seams between wedges leaked full-strength lines across the muted bubble. The mask now lays today's radial muting first and draws only the fogged bearings' wedges over it, each reaching the muting's outer edge.
+
+- **A ship you can see is drawn at full strength right to the edge of your sight range.** Hulls near the rim of the sight circle were being faded toward 15 % by a leftover of the old fog-hole feather, so a ship still inside your sight read as hidden. The feather is gone from hulls and nameplates; the fog's own feather stays on the water only. Eric: "ships are being visually hidden while they are still near the edge of my sight range, and that should not be the case."
+
+### Not changed
+- The near-range muting is still an alpha mask over the painted returns, never a change to their strength or colour. A close hull's return is priced red at full strength by the scope; verified over real generated terrain at 150, 300 and 450 u on eight bearings.
+- Still open from Eric's report: close enemy returns reading blue, and the 750 u reach reading as a square. Neither reproduced on this machine's hardware GPU or in the paint chain; both need his screenshot.
+
 ## [0.18.67] - 2026-10-21
 
 ### Fixed
