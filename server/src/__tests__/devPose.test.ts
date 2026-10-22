@@ -6,9 +6,10 @@
 //     wave scheduler off, and nothing else.
 // The room-side gate (dev-only, value-sanitized) is pinned in roomOptions.test.ts.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { CONFIG, DEFAULT_GUN, DEFAULT_HORN_ID, wrapAngle } from '@salvo/shared';
 import { World, type DevPose, type WorldOptions } from '../game/world.js';
+import { islandClearance, SPAWN_ISLAND_CLEARANCE } from '../game/spawn.js';
 
 const DT = CONFIG.tick.simDtMs;
 
@@ -92,6 +93,65 @@ describe('dev spawn pose — a captain placed at its pose at every placement edg
     const bot = w.addShip('bot-1', 'BOT', 'bot', 'torpedoBoat', DEFAULT_HORN_ID, undefined, DEFAULT_GUN, [], pose);
     expect(bot.devPose).toBeUndefined();
     expect(Math.hypot(bot.state.x, bot.state.y)).toBeCloseTo(w.map.spawnRing, 6);
+  });
+});
+
+describe('dev spawn pose — an invalid pose is rejected at the World, logged, and the hull takes the spawn ring', () => {
+  /** Run `body` with console.log captured; returns the dev.poseRejected lines. */
+  function rejections(body: () => void): string[] {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      body();
+      return log.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('dev.poseRejected'));
+    } finally {
+      log.mockRestore();
+    }
+  }
+
+  function expectOnClearRing(w: World, rec: { state: { x: number; y: number; heading: number } }): void {
+    expect(Math.hypot(rec.state.x, rec.state.y)).toBeCloseTo(w.map.spawnRing, 6);
+    expect(rec.state.heading).toBeCloseTo(Math.atan2(-rec.state.y, -rec.state.x), 12);
+    expect(islandClearance(rec.state, w.map.islands)).toBeGreaterThan(SPAWN_ISLAND_CLEARANCE);
+  }
+
+  it('a pose on an island of the generated map falls back to an island-clear spawn-ring point and logs dev.poseRejected once', () => {
+    const w = new World(51, CONFIG.map.playerCap, CONFIG.zone);
+    const isle = w.map.islands[0];
+    expect(isle, 'the generated map has an island').toBeDefined();
+    const pose: DevPose = { x: isle.pole.x, y: isle.pole.y, heading: 0.5 };
+    let rec!: ReturnType<typeof posedCaptain>;
+    const lines = rejections(() => {
+      rec = posedCaptain(w, 'a', pose);
+    });
+    expectOnClearRing(w, rec);
+    expect(rec.landContact).toBe(false);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('"id":"a"');
+  });
+
+  it("a pose past the water's edge falls back to the spawn ring and logs, at the redeploy edge too", () => {
+    const w = openWorld(52);
+    const pose: DevPose = { x: w.map.radius, y: 0, heading: 0 };
+    let rec!: ReturnType<typeof posedCaptain>;
+    const atAdd = rejections(() => {
+      rec = posedCaptain(w, 'a', pose);
+    });
+    expectOnClearRing(w, rec);
+    expect(atAdd).toHaveLength(1);
+    const atRedeploy = rejections(() => w.resetForMatchStart());
+    expectOnClearRing(w, rec);
+    expect(atRedeploy).toHaveLength(1);
+  });
+
+  it('a valid pose is honoured exactly and logs nothing', () => {
+    const w = openWorld(53);
+    const pose = offRingPose(w);
+    let rec!: ReturnType<typeof posedCaptain>;
+    const lines = rejections(() => {
+      rec = posedCaptain(w, 'a', pose);
+    });
+    expectAtPose(rec, pose);
+    expect(lines).toHaveLength(0);
   });
 });
 

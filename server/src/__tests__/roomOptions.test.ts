@@ -3,7 +3,7 @@
 // Colyseus room needed to exercise every branch.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_GUN, GUN_IDS } from '@salvo/shared';
+import { CONFIG, DEFAULT_GUN, GUN_IDS, mapRadius } from '@salvo/shared';
 import {
   DEV_LIST_MAX,
   NAME_MAX,
@@ -200,7 +200,7 @@ describe('sanitizeRoomOptions — fitOverride (the dev spawn fit)', () => {
 // as every dev key; PRODUCTION MUST NEVER SEE EITHER.
 
 describe('sanitizeRoomOptions — spawnOverride (the dev spawn pose)', () => {
-  const R = CONFIG.map.baseRadius;
+  const R = mapRadius(CONFIG.map.playerCap); // the radius every room's World is built at
   const POSE = { x: R / 4, y: -R / 8, heading: 1.25 };
 
   it('is honoured under devEnabled as a fresh pose, nothing reported', () => {

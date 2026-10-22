@@ -170,6 +170,7 @@ import { observe } from './perception.js';
 import {
   insideIntelDisc,
   islandClearance,
+  isSpawnClear,
   pickFleetAnchor,
   pickSpawn,
   SPAWN_ISLAND_CLEARANCE,
@@ -2330,7 +2331,7 @@ export class World {
    *  again. */
   addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at: Vec2 | undefined, gun: GunId = DEFAULT_GUN, fit: readonly string[] = [], pose?: DevPose): ShipRecord {
     const devPose = role === 'captain' ? pose : undefined;
-    const { heading, ...p } = World.placement(devPose, () => at ?? pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng, this.spawnPhase));
+    const { heading, ...p } = this.placement(id, devPose, () => at ?? pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng, this.spawnPhase));
     const cls = hullEnvelope(hullId);
     const stats = effectiveStats(cls);
     // NO SPAWN SEED ANY MORE (Story 8.10, FR48, epic-8 amendment 62): the
@@ -2563,9 +2564,19 @@ export class World {
    * point facing the map centre (the shipped rule). Every edge — addShip,
    * redeployShip, respawn — goes through here, so the pose is honoured at all
    * three or none.
+   *
+   * THE POSE IS VALIDATED at every edge (Story 9.15 review gate): it must pass
+   * `isSpawnClear` — inside the map by a hull's clearance and island-clear by
+   * the spawn picker's own test. A pose that fails is NOT honoured: the hull
+   * takes `pick()` (today's placement) and one `dev.poseRejected` warning is
+   * logged for this placement. That is what keeps every edge's "island-clear
+   * by construction" `landContact = false` true and gives resolveShipPose a
+   * valid pose to induct from. Overlap between two posed hulls is NOT checked
+   * — that is the script's responsibility (see sanitizeSpawnPose).
    */
-  private static placement(pose: DevPose | undefined, pick: () => Vec2): DevPose {
-    if (pose !== undefined) return pose;
+  private placement(id: string, pose: DevPose | undefined, pick: () => Vec2): DevPose {
+    if (pose !== undefined && isSpawnClear(this.map, pose)) return pose;
+    if (pose !== undefined) logWarn('dev.poseRejected', { id, x: pose.x, y: pose.y });
     const p = pick();
     return { x: p.x, y: p.y, heading: Math.atan2(-p.y, -p.x) };
   }
@@ -2708,7 +2719,7 @@ export class World {
     } else {
       // A posed hull (Story 9.15, dev only) goes back to its pose — and still
       // counts as OCCUPIED for the hulls placed after it.
-      const p = World.placement(ship.devPose, () => pickSpawn(this.map, placed, this.rng, this.spawnPhase));
+      const p = this.placement(ship.id, ship.devPose, () => pickSpawn(this.map, placed, this.rng, this.spawnPhase));
       placed.push({ x: p.x, y: p.y });
       ship.state.x = p.x;
       ship.state.y = p.y;
@@ -7560,7 +7571,7 @@ export class World {
   private respawn(ship: ShipRecord): void {
     // A posed hull (Story 9.15, dev only) comes back at its pose; every other
     // hull back on the ring.
-    const p = World.placement(ship.devPose, () => {
+    const p = this.placement(ship.id, ship.devPose, () => {
       const occupied = [...this.ships.values()]
         .filter((s) => s.id !== ship.id && isAfloat(s.lifecycle))
         .map((s) => ({ x: s.state.x, y: s.state.y }));

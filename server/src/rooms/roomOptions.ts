@@ -9,6 +9,7 @@ import {
   CONFIG,
   DEFAULT_GUN,
   isGunId,
+  mapRadius,
   PROTOCOL_VERSION,
   REGATTA_HUES,
   wrapAngle,
@@ -199,16 +200,20 @@ function admitDevIdList(
 /**
  * A dev placement pose, or undefined when the value is not an object carrying
  * three FINITE numbers `x`, `y`, `heading` with `(x, y)` inside the map disc
- * (`CONFIG.map.baseRadius`). A fresh frozen object — nothing downstream
- * aliases the raw join options — with the heading wrapped by the shared
- * `wrapAngle`. Water vs island is NOT judged here: the pose is the script's
- * problem, and a script that parks a hull on a rock is a script bug.
+ * (`mapRadius(CONFIG.map.playerCap)`, the radius every room's World is built
+ * at). A fresh frozen object — nothing downstream aliases the raw join options
+ * — with the heading wrapped by the shared `wrapAngle`. This is a cheap
+ * shape/finite/disc check only; water vs island is judged by the World, which
+ * has the map: a pose on a rock (or within a hull of the edge) is rejected
+ * there, logged as `dev.poseRejected`, and the hull takes the shipped spawn
+ * pick. Overlap between two posed hulls is NOT checked anywhere — that is the
+ * script's responsibility.
  */
 function sanitizeSpawnPose(v: unknown): SpawnPose | undefined {
   if (typeof v !== 'object' || v === null) return undefined;
   const { x, y, heading } = v as { x?: unknown; y?: unknown; heading?: unknown };
   if (!isFiniteNumber(x) || !isFiniteNumber(y) || !isFiniteNumber(heading)) return undefined;
-  if (Math.hypot(x, y) > CONFIG.map.baseRadius) return undefined;
+  if (Math.hypot(x, y) > mapRadius(CONFIG.map.playerCap)) return undefined;
   return Object.freeze({ x, y, heading: wrapAngle(heading) });
 }
 
