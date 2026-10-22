@@ -1,6 +1,9 @@
+---
+baseline_commit: 081f8f72
+---
 # Story 9.14: Test Purposefulness Audit
 
-Status: ready-for-dev
+Status: in-progress
 
 <!-- Created 2026-10-22 by gds-create-story on development @ 9c1aa81c (0.18.68, PV 91). The rule this story enforces is Eric's (epic-8 amendment 243, project-context.md Testing Rules); the file lists, counts and defaults below are the story author's readings of the suite on that commit, to be re-measured by the dev agent before any row is quoted. Nothing here is a mechanic or a balance number. Open questions for Eric are collected at the end, not scattered. -->
 
