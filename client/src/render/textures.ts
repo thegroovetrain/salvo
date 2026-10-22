@@ -40,6 +40,8 @@ function makeCanvas(w: number, h: number): { canvas: BakeCanvas; ctx: BakeCtx } 
  * as it approached the bubble's edge. `render/fog.ts`'s `hullSightSoftness`
  * reproduces that softening as a per-hull alpha, and it reads THESE constants —
  * one feather, two consumers, so the drawn fog and the hull ramp cannot drift.
+ * The per-hull ramp is retired by epic-9 amendment 212 (cycle 203): hulls draw
+ * at full alpha, and this feather is the fog's look on the water alone.
  */
 export const FOG_FILL_ALPHA = 0.85;
 /** Hole feather: fully clear to 0.75×sight, fading to full fog at 1.0×sight.

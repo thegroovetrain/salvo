@@ -40,9 +40,9 @@
 //      into a compile error exactly as `EVERY_LAYER_PLACED` already does one
 //      level down.
 //
-// The feather curve itself is UNCHANGED — `hullSightSoftness` is the fog
-// texture's own two constants and nothing about it moved; what is new is that a
-// plate consumes it.
+// A plate consumes the same `hullSightSoftness` value as its hull — which
+// epic-9 amendment 212 (cycle 203) retired to 1 everywhere: a delivered
+// contact's plate draws at its fader alone.
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -65,7 +65,7 @@ import {
   STAGE_ROOT_ORDER,
   WORLD_LAYER_ORDER,
 } from '../render/stage.js';
-import { FOG_FILL_ALPHA, HOLE_FEATHER_START } from '../render/textures.js';
+import { HOLE_FEATHER_START } from '../render/textures.js';
 
 const SIGHT = CONFIG.vision.sight;
 // A SYNTHETIC narrower observer bubble — the feather takes any radius (nothing
@@ -358,65 +358,37 @@ describe("applyCamera puts the plate layer BACK into screen space", () => {
   });
 });
 
-describe('the plate feather (what the fog composite used to do for a plate)', () => {
-  const start = SIGHT * HOLE_FEATHER_START;
+// RETIRED FEATHER (Eric 2026-10-21, cycle 203, epic-9 amendment 212): a
+// delivered contact — and so its callsign — is never softened by the sight
+// boundary; the 150 ms fade alone removes a plate.
+describe('a plate is never softened by the sight boundary (amendment 212)', () => {
+  const distancesFor = (sight: number): number[] => {
+    const start = sight * HOLE_FEATHER_START;
+    return [0, 10, start, (start + sight) / 2, sight, sight * 2];
+  };
 
-  it('is FULL ALPHA through the clear centre — a near contact is unchanged', () => {
-    for (const d of [0, 10, start / 2, start]) {
-      expect(hullSightSoftness(d, SIGHT), `at ${d}u`).toBe(1);
+  it('is FULL ALPHA inside, at and beyond the rim, for the base, a narrower and '
+    + 'a widened bubble', () => {
+    for (const sight of [SIGHT, NARROW, SIGHT * 1.5]) {
+      for (const d of distancesFor(sight)) {
+        expect(hullSightSoftness(d, sight), `sight ${sight}u, at ${d}u`).toBe(1);
+      }
     }
   });
 
-  it('lands at exactly `1 − FOG_FILL_ALPHA` at the rim — the fog composite\'s '
-    + 'own endpoint, from the fog texture\'s own two constants', () => {
-    expect(hullSightSoftness(SIGHT, SIGHT)).toBeCloseTo(1 - FOG_FILL_ALPHA, 12);
-    expect(hullSightSoftness(SIGHT * 2, SIGHT), 'and holds past it')
-      .toBeCloseTo(1 - FOG_FILL_ALPHA, 12);
-  });
-
-  it('NEVER REACHES ZERO, so the feather alone can never delete a callsign — '
-    + 'the 150ms fade removes a plate, a feather only softens one', () => {
-    for (let d = 0; d <= SIGHT * 3; d += 5) {
-      expect(hullSightSoftness(d, SIGHT), `at ${d}u`).toBeGreaterThan(0);
-    }
-  });
-
-  it('is MONOTONE DOWN, so the product with a decaying fader never INVERTS the '
-    + 'fade-out of a pruned contact', () => {
-    let prev = Infinity;
-    for (let d = 0; d <= SIGHT * 1.2; d += 2) {
-      const v = hullSightSoftness(d, SIGHT);
-      expect(v, `non-increasing at ${d}u`).toBeLessThanOrEqual(prev + 1e-12);
-      expect(v, `and stays in (0, 1] at ${d}u`).toBeLessThanOrEqual(1);
-      prev = v;
-    }
-  });
-
-  it('SCALES WITH THE OBSERVER: a narrower bubble feathers a plate earlier', () => {
-    const narrow = NARROW;
-    expect(hullSightSoftness(narrow, narrow)).toBeCloseTo(1 - FOG_FILL_ALPHA, 12);
-    const d = SIGHT * 0.6;
-    expect(hullSightSoftness(d, SIGHT), 'untouched for a base observer').toBe(1);
-    expect(hullSightSoftness(d, narrow), '...deep in the feather for a narrower one')
-      .toBeLessThan(1);
-  });
-
-  it('FAILS TOWARD THE NAME BEING READABLE on garbage input — a plate is a '
-    + 'label, and an unwired path must never hide one', () => {
+  it('FAILS TOWARD THE NAME BEING READABLE on garbage input', () => {
     expect(hullSightSoftness(Number.NaN, SIGHT)).toBe(1);
     expect(hullSightSoftness(100, Number.NaN)).toBe(1);
-    expect(hullSightSoftness(100, 0), 'no bubble, nothing to feather against').toBe(1);
+    expect(hullSightSoftness(100, 0)).toBe(1);
     expect(hullSightSoftness(100, -1)).toBe(1);
   });
 
-  it('composes with the fader as a plain product, never a second evaluation', () => {
-    // The exact arithmetic drivePlate performs, spelled out: mid-fade contact at
-    // the rim of the bubble.
+  it('leaves a plate alpha equal to its fader alone (`fader × 1`), even at '
+    + 'the rim', () => {
     const fader = 0.4;
-    expect(fader * hullSightSoftness(SIGHT, SIGHT)).toBeCloseTo(0.4 * (1 - FOG_FILL_ALPHA), 12);
-    // ...and the spectate / own-ship case: NO_SOFTENING is 1, so the plate is
-    // exactly its fader.
-    expect(fader * 1).toBe(fader);
+    for (const d of distancesFor(SIGHT)) {
+      expect(fader * hullSightSoftness(d, SIGHT), `at ${d}u`).toBe(fader);
+    }
   });
 });
 
@@ -438,11 +410,11 @@ describe('NameplateLayer.place writes the composed alpha', () => {
     expect(textLog[0].position.y).toBe(50);
   });
 
-  it('sets `visible = alpha > 0`: a fully faded plate goes off, a feathered one '
-    + 'stays on', () => {
+  it('sets `visible = alpha > 0`: a fully faded plate goes off, a rim contact '
+    + 'plate stays on', () => {
     const plates = layerWithPlate();
     plates.place('ahab', 0, 0, hullSightSoftness(SIGHT, SIGHT));
-    expect(textLog[0].visible, 'the rim is dim, not gone').toBe(true);
+    expect(textLog[0].visible, 'the rim is not gone').toBe(true);
     plates.place('ahab', 0, 0, 0);
     expect(textLog[0].visible, 'the fader ran out').toBe(false);
   });
