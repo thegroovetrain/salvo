@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import type { World } from '../game/world.js';
 import type { SanitizedRoomOptions } from '../rooms/roomOptions.js';
+import { CONFIG } from '@salvo/shared';
 import { ArenaRoom } from '../rooms/ArenaRoom.js';
 
 interface BuildRoom {
@@ -29,11 +30,13 @@ describe('ArenaRoom zone seeds — the amendment-10 room pin', () => {
     expect(a.map).toEqual(b.map); // the map itself stays seed-deterministic
     a.step();
     b.step();
-    // Compare the terminal rings after collapsing time forward: cheapest is to
-    // compare the revealed prefix at the same instant — the first reveal.
-    const dtToReveal = 2 * 60000 + 50; // group 0 reveal beat (production beatMs)
-    while (a.now < dtToReveal) a.step();
-    while (b.now < dtToReveal) b.step();
+    // Compare the revealed prefix at the same instant — the first reveal —
+    // stepping both worlds in lockstep until it lands (bounded: one full timeline).
+    const bound = a.now + 4 * 4 * CONFIG.zone.beatMs;
+    while (a.zoneRevealedNextRing === null && a.now < bound) {
+      a.step();
+      b.step();
+    }
     const ringA = a.zoneRevealedNextRing;
     const ringB = b.zoneRevealedNextRing;
     expect(ringA).not.toBeNull();

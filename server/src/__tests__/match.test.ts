@@ -145,7 +145,7 @@ function stepUntilBoom(ctx: Ctx, maxTicks = 20): void {
   throw new Error('no boom within the tick budget');
 }
 
-describe('match — waiting phase (ready room)', () => {
+describe('match — waiting phase (pre-start, weapons-safe)', () => {
   it('starts weapons-safe: damage off, respawn on, XP off', () => {
     const ctx = setup(['a']);
     expect(ctx.m.phase).toBe('waiting');

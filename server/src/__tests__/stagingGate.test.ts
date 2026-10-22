@@ -158,7 +158,7 @@ describe('stagingGateMiddleware — the PAGE half', () => {
     const { req, res, next, state } = fakeExchange();
     stagingGateMiddleware(req, res, next);
     expect(state.status).toBe(401);
-    expect(state.body).toContain('STAGING ACCESS');
+    expect(state.body).toContain(`action="${GATE_PATH}"`);
     expect(state.nextCalls).toBe(0);
   });
 
@@ -204,7 +204,7 @@ describe('handleGateSubmit', () => {
     const { req, res, headers, state } = fakeExchange({ password: 'wrong' });
     handleGateSubmit(req, res);
     expect(state.status).toBe(401);
-    expect(state.body).toContain('Wrong password');
+    expect(state.body).toContain('class="err"');
     expect(headers.get('Set-Cookie')).toBeUndefined();
   });
 

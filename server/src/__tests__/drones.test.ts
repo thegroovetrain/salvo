@@ -668,7 +668,7 @@ describe('fleet waves — timing and exact composition (amendment 33)', () => {
     expect(fleetHulls(w)).toHaveLength(CONFIG.fleet.waves[0].fleets * fleetHullIds().length);
   });
 
-  it('each group is 1 large + 2 medium + 3 small, and its XP value is DERIVED, never declared', () => {
+  it('each group is CONFIG.fleet.composition, and its XP value is DERIVED from the parts, never declared', () => {
     const w = bareWorld(17);
     armWaveClock(w, CONFIG.fleet.waves[0].atMs);
     w.step();
@@ -693,7 +693,7 @@ describe('fleet waves — timing and exact composition (amendment 33)', () => {
     expect(fleetLevels()).toBe(byParts);
   });
 
-  it('the whole schedule lands every wave cumulatively (amendment 24: 8/4/2 groups of six)', () => {
+  it('the whole schedule lands every wave cumulatively (amendment 24)', () => {
     const w = bareWorld(19);
     w.startZone();
     const perFleet = fleetHullIds().length;
@@ -757,7 +757,7 @@ describe('fleet waves — timing and exact composition (amendment 33)', () => {
     }
   });
 
-  it('the six hulls of one group spawn within the ratified spread of their anchor', () => {
+  it('the hulls of one group spawn within the ratified spread of their anchor', () => {
     const w = bareWorld(29);
     armWaveClock(w, CONFIG.fleet.waves[2].atMs); // the 9:00 beat...
     w.step();

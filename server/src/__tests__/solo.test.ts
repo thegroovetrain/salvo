@@ -41,7 +41,7 @@ import {
   type ShipClassId,
 } from '@salvo/shared';
 import { ArenaRoom, ARENA_DIRECT_JOIN_ERROR } from '../rooms/ArenaRoom.js';
-import { sanitizeSolo, type RoomOptions } from '../rooms/roomOptions.js';
+import { protocolVersionError, sanitizeSolo, type RoomOptions } from '../rooms/roomOptions.js';
 import { lobbyTicket } from '../rooms/lobbyTicket.js';
 import { World } from '../game/world.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
@@ -67,8 +67,10 @@ describe('the solo door — ArenaRoom.static onAuth (Story 6.5)', () => {
   });
 
   it('runs the PV gate FIRST — a stale bundle is refused on the solo door too', async () => {
-    await expect(ArenaRoom.onAuth('', { solo: true, pv: PROTOCOL_VERSION + 1 })).rejects.toThrow(/refresh/);
-    await expect(ArenaRoom.onAuth('', { solo: true })).rejects.toThrow(/refresh/); // missing pv
+    await expect(ArenaRoom.onAuth('', { solo: true, pv: PROTOCOL_VERSION + 1 })).rejects.toThrow(
+      protocolVersionError(PROTOCOL_VERSION + 1)!,
+    );
+    await expect(ArenaRoom.onAuth('', { solo: true })).rejects.toThrow(protocolVersionError(undefined)!); // missing pv
   });
 
   it('coerces the flag STRICTLY — a truthy non-boolean is not a solo request', async () => {
@@ -178,7 +180,6 @@ describe('the solo room — construction', () => {
   it('fills the lobby to the PLAYER CAP with bots — a derived count, not a constant', () => {
     const r = soloRoom();
     expect(bots(r)).toHaveLength(BOTS);
-    expect(BOTS + 1).toBe(CONFIG.map.playerCap); // one human completes the lobby
     expect(r.world.ships.size).toBe(BOTS); // nothing else in the water yet
   });
 
@@ -225,7 +226,7 @@ describe('the solo room — construction', () => {
     for (const b of bots(r)) expect(r.state.players.get(b.id)!.name).toBe(b.name);
   });
 
-  it('deals a BALANCED class spread (round-robin over cap − 1 bots: 5/5/5 across 15 since Story 9.8), all three hulls present', () => {
+  it('deals a BALANCED class spread (round-robin over cap − 1 bots), all three hulls present', () => {
     const counts = new Map<string, number>();
     const r = soloRoom();
     for (const b of bots(r)) counts.set(b.hullId, (counts.get(b.hullId) ?? 0) + 1);
@@ -552,7 +553,7 @@ describe('private arenas — the lobby-formed room', () => {
     expect(r.state.players.size).toBe(CONFIG.map.playerCap - 3);
   });
 
-  it('a lone host with bot fill gets the solo-sized fleet (19) and minHumans 1', () => {
+  it('a lone host with bot fill gets the solo-sized fleet (cap − 1) and minHumans 1', () => {
     const r = privateRoom({ botFill: true, expectedCaptains: 1 });
     expect(bots(r)).toHaveLength(CONFIG.map.playerCap - 1);
     expect(minHumansOf(r)).toBe(1);
@@ -560,12 +561,11 @@ describe('private arenas — the lobby-formed room', () => {
     expect(r.match?.phase).toBe('countdown');
   });
 
-  it('private WITHOUT botFill adds no bots and keeps the CONFIG minHumans (2)', () => {
+  it('private WITHOUT botFill adds no bots and keeps the CONFIG minHumans', () => {
     const r = privateRoom({ expectedCaptains: 2 });
     expect(bots(r)).toHaveLength(0);
     expect(r.world.ships.size).toBe(0);
     expect(minHumansOf(r)).toBe(CONFIG.match.minHumans);
-    expect(CONFIG.match.minHumans).toBe(2);
   });
 
   it('is locked at birth and listed as mode private', () => {

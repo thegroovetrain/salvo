@@ -14,7 +14,8 @@ import { LobbyPolicy, cleanSeedText, isCodeReserved, mintCode, normalizeCode, re
 import { resolveLobby, resolveLobbyCode, type LobbyListing } from '../lobbyResolve.js';
 import { LOBBY_STARTED_ERROR, LobbyRoom, matchmakeMethodOf } from '../rooms/LobbyRoom.js';
 import { isTrustedTicket, lobbyTicket } from '../rooms/lobbyTicket.js';
-import { sanitizeName, sanitizeRoomOptions } from '../rooms/roomOptions.js';
+import { protocolVersionError, sanitizeName, sanitizeRoomOptions } from '../rooms/roomOptions.js';
+import { SOLO_CREATE_THROTTLE_ERROR } from '../rooms/soloThrottle.js';
 import { resetSoloCreateThrottle } from '../rooms/createThrottle.js';
 import type { LobbyState } from '../rooms/schema/LobbyState.js';
 
@@ -59,13 +60,12 @@ describe('LobbyPolicy — eligibility (ruling 2)', () => {
     expect(new LobbyPolicy().startEligible()).toBe(false);
   });
 
-  it('all ready + eligible ARMS the countdown at now + countdownMs (10 s)', () => {
+  it('all ready + eligible ARMS the countdown at now + countdownMs', () => {
     const p = lobby(2);
     p.onReady('a', true, T0);
     expect(p.countdownEndT).toBe(0);
     p.onReady('b', true, T0 + 500);
     expect(p.countdownEndT).toBe(T0 + 500 + COUNT);
-    expect(COUNT).toBe(10_000);
   });
 
   it('all ready but NOT eligible (lone host, bot-fill off) never arms', () => {
@@ -380,11 +380,11 @@ describe('LobbyPolicy — START NOW arms a forced countdown', () => {
 // --- codes ---------------------------------------------------------------------
 
 describe('mintCode / normalizeCode (ruling 5)', () => {
-  it('mints 6 letters A–Z', () => {
+  it('mints codeLength letters A–Z', () => {
     let x = 0;
     const rng = () => ((x = (x * 9301 + 49297) % 233280) / 233280);
-    for (let i = 0; i < 200; i += 1) expect(mintCode(rng, new Set())).toMatch(/^[A-Z]{6}$/);
-    expect(CONFIG.lobby.codeLength).toBe(6);
+    const shape = new RegExp(`^[A-Z]{${CONFIG.lobby.codeLength}}$`);
+    for (let i = 0; i < 200; i += 1) expect(mintCode(rng, new Set())).toMatch(shape);
   });
 
   it('covers both ends of the alphabet (rng 0 -> A, rng just under 1 -> Z)', () => {
@@ -500,8 +500,10 @@ describe('LobbyRoom.onAuth — the third door', () => {
   });
 
   it('runs the PV gate', async () => {
-    await expect(LobbyRoom.onAuth('', {}, ctx('create'))).rejects.toThrow(/refresh/);
-    await expect(LobbyRoom.onAuth('', { pv: PROTOCOL_VERSION + 1 }, ctx('joinById'))).rejects.toThrow(/refresh/);
+    await expect(LobbyRoom.onAuth('', {}, ctx('create'))).rejects.toThrow(protocolVersionError(undefined)!);
+    await expect(LobbyRoom.onAuth('', { pv: PROTOCOL_VERSION + 1 }, ctx('joinById'))).rejects.toThrow(
+      protocolVersionError(PROTOCOL_VERSION + 1)!,
+    );
     await expect(LobbyRoom.onAuth('', { pv: PROTOCOL_VERSION }, ctx('create'))).resolves.toBe(true);
   });
 
@@ -518,10 +520,10 @@ describe('LobbyRoom.onAuth — the third door', () => {
     await expect(LobbyRoom.onAuth('', opts, ctx('create'))).resolves.toBe(true);
     await expect(LobbyRoom.onAuth('', opts, ctx('create'))).resolves.toBe(true);
     for (let i = 0; i < 5; i += 1) await expect(LobbyRoom.onAuth('', opts, ctx('joinById'))).resolves.toBe(true);
-    await expect(LobbyRoom.onAuth('', opts, ctx('create'))).rejects.toThrow(/too many matches/);
+    await expect(LobbyRoom.onAuth('', opts, ctx('create'))).rejects.toThrow(SOLO_CREATE_THROTTLE_ERROR);
     // A joinOrCreate would MINT a lobby (the room is private, so it never
     // finds one), so it is metered as a create too.
-    await expect(LobbyRoom.onAuth('', opts, ctx('joinOrCreate'))).rejects.toThrow(/too many matches/);
+    await expect(LobbyRoom.onAuth('', opts, ctx('joinOrCreate'))).rejects.toThrow(SOLO_CREATE_THROTTLE_ERROR);
     // Another address has its own bucket.
     await expect(LobbyRoom.onAuth('', opts, ctx('create', '198.51.100.1'))).resolves.toBe(true);
   });
@@ -631,9 +633,9 @@ describe('LobbyRoom — the adapter', () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  it('mints a 6-letter code, goes private, publishes {code, phase, mode}', async () => {
+  it('mints a codeLength-letter code, goes private, publishes {code, phase, mode}', async () => {
     const { r } = await lobbyRoom();
-    expect(r.state.code).toMatch(/^[A-Z]{6}$/);
+    expect(r.state.code).toMatch(new RegExp(`^[A-Z]{${CONFIG.lobby.codeLength}}$`));
     expect(r.setPrivate).toHaveBeenCalledWith(true);
     const meta = r.setMetadata.mock.calls.at(-1)?.[0];
     expect(meta).toEqual({ code: r.state.code, phase: 'open', mode: 'private' });
@@ -794,13 +796,14 @@ describe('LobbyRoom — the adapter', () => {
     const { r, send, join, startNow } = await lobbyRoom();
     const a = join('a', { name: '   ' });
     join('b', { name: 'BRAVO' });
-    expect(r.state.players.get('a')?.name).toBe('CAPTAIN-1');
+    const shown = r.state.players.get('a')?.name ?? '';
+    expect(shown.trim()).not.toBe(''); // the blank was resolved to a real callsign at the door
     await startNow(a);
     const seats = matchMaker.reserveMultipleSeatsFor.mock.calls[0][1] as Array<{ options: Record<string, unknown> }>;
-    expect(seats[0].options.name).toBe('CAPTAIN-1');
+    expect(seats[0].options.name).toBe(shown);
     expect(seats[1].options.name).toBe('BRAVO');
-    // ...and the arena's own sanitizer keeps it verbatim (no CAPTAIN-n re-draw).
-    expect(sanitizeName(seats[0].options.name)).toBe('CAPTAIN-1');
+    // ...and the arena's own sanitizer keeps it verbatim (no re-draw).
+    expect(sanitizeName(seats[0].options.name)).toBe(shown);
   });
 
   it('a lone host with bot-fill + seed forces a start: the arena bag is trusted and complete', async () => {

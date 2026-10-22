@@ -178,25 +178,25 @@ describe('fireControl — two clicks landing in ONE tick are BOTH evaluated in s
 });
 
 describe('activationControl — two ability presses landing in ONE tick both evaluate', () => {
-  it('the ML places a mine (click) AND boosts... no: it places a mine (click) while an ability press on the SAME tick still evaluates (neither intent lost)', () => {
+  it('a mine click and an ability press landing in ONE tick are both evaluated (neither intent lost)', () => {
     // Story 2.8 flip: the mine is an aimed WEAPON (fireSeq click, rear arc).
     // The ability press that used to ride alongside it was the DECOY DROP,
     // deleted in Story 7-5 wave 2 — the radar buoy replacing it is a
     // click-placed weapon, and the placeholder row refuses activation. The
     // property under test is the COALESCING one and it is unchanged: one tick
-    // carrying a click AND a press evaluates BOTH channels, so the press
-    // produces its own denial rather than being swallowed by latest-wins.
+    // carrying a click AND a press evaluates BOTH channels — neither is
+    // swallowed by latest-wins.
     const w = bareWorld();
-    place(w, 'a', 0, 0, 0, 'mineLayer'); // the mine rack; heading 0 ⇒ astern π
+    const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // the mine rack; heading 0 ⇒ astern π
     w.step();
+    const shiftCharges = a.loadout[SLOT_BOOST].state!.n;
     w.submitInput('a', input(1, { fireSeq: 1, slot: SLOT_WEAPON, aim: Math.PI, aimDist: 40 }));
     w.submitInput('a', input(2, { actSeq: 1, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
     w.step(); // ONE tick — pre-2.1 the earlier intent was swallowed by latest-wins
     expect(w.mines.size).toBe(1); // the CLICK landed
-    // …and the PRESS was evaluated on the same tick: slot 2 is a weapon now,
-    // so the actSeq channel's weapon-only wall makes it a silent no-op rather
-    // than a denial — what matters is that the mine click was not swallowed.
     expect('denied' in buildFrame(w, 'a')).toBe(false);
+    expect(a.loadout[SLOT_BOOST].state!.n).toBe(shiftCharges - 1); // ...and the PRESS spent the class Shift
+    expect(a.lastActSeq).toBe(1);
   });
 
   it('a coalesced double press on an empty pool: the first fires, the second gets ITS denial', () => {

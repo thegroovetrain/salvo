@@ -286,7 +286,7 @@ describe('gunnery — sp/hc emission (victim resolution; exactly one per shell)'
     expect(acc.sp).toHaveLength(0);
   });
 
-  it('the weapons-safe ready room still calls hits: damage suppressed, hc NOT (victim resolution, never dmg)', () => {
+  it('the weapons-safe waiting phase still calls hits: damage suppressed, hc NOT (victim resolution, never dmg)', () => {
     const w = bareWorld();
     w.damageEnabled = false; // waiting/countdown target practice
     const a = place(w, 'a', 0, 0);

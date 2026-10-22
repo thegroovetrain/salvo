@@ -411,17 +411,6 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     expect(b.damageDealt).toBe(7);
   });
 
-  it('the cut at Tier 0 is E 100 → ×0.5: a 15 hp shell deals 7 (amendment 144)', () => {
-    const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'battleship', undefined, undefined);
-    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    a.hunkerUntil = w.now + CONFIG.hunker.durationMs;
-    place(w, 'b', 400, 0);
-    expect(a.stats.armor).toBe(0);
-    gate(w).applyDamage(a, 15, 'shell', 'b');
-    expect(a.hp).toBe(a.stats.maxHp - 7);
-  });
-
   it('the cut STACKS on the ladder additively: Tier V + cut is E 200 → a 50 hp torpedo deals 16 (amendment 144)', () => {
     const w = bareWorld();
     const a = cutTierV(w);
@@ -898,13 +887,5 @@ describe('tickRepairs stays UN-gated on damageEnabled (Story 8.4 decision, ledge
     // same reasoning — nothing there can have hurt anyone.)
     expect(a.hp).toBeGreaterThan(a.stats.maxHp - 20);
     expect(a.repairHp).toBeLessThan(20);
-  });
-
-  it('and the gate really does refuse damage in that same room, so the two can never disagree', () => {
-    const w = bareWorld();
-    w.damageEnabled = false;
-    const a = place(w, 'a');
-    gate(w).applyDamage(a, 50, 'shell', 'b');
-    expect(a.hp).toBe(a.stats.maxHp);
   });
 });

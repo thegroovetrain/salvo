@@ -17,6 +17,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { AuthContext } from 'colyseus';
 import { PROTOCOL_VERSION } from '@salvo/shared';
+import { protocolVersionError } from '../rooms/roomOptions.js';
 import {
   SOLO_CREATE_DEFAULT_LIMIT,
   SOLO_CREATE_THROTTLE_ERROR,
@@ -32,10 +33,10 @@ import { StandardQueueRoom } from '../rooms/StandardQueueRoom.js';
 const CFG = { limit: SOLO_CREATE_DEFAULT_LIMIT, windowMs: SOLO_CREATE_WINDOW_MS };
 
 describe('resolveSoloCreateLimit', () => {
-  it('defaults to 6 when the env var is absent or blank', () => {
-    expect(resolveSoloCreateLimit(undefined)).toBe(6);
-    expect(resolveSoloCreateLimit('')).toBe(6);
-    expect(resolveSoloCreateLimit('   ')).toBe(6);
+  it('defaults to SOLO_CREATE_DEFAULT_LIMIT when the env var is absent or blank', () => {
+    expect(resolveSoloCreateLimit(undefined)).toBe(SOLO_CREATE_DEFAULT_LIMIT);
+    expect(resolveSoloCreateLimit('')).toBe(SOLO_CREATE_DEFAULT_LIMIT);
+    expect(resolveSoloCreateLimit('   ')).toBe(SOLO_CREATE_DEFAULT_LIMIT);
   });
 
   it('honors a positive integer', () => {
@@ -48,11 +49,11 @@ describe('resolveSoloCreateLimit', () => {
   });
 
   // Fail CLOSED to the default: a typo must not silently remove the guard.
-  it('falls back to 6 on garbage, negatives, and fractions', () => {
-    expect(resolveSoloCreateLimit('banana')).toBe(6);
-    expect(resolveSoloCreateLimit('-1')).toBe(6);
-    expect(resolveSoloCreateLimit('2.5')).toBe(6);
-    expect(resolveSoloCreateLimit('NaN')).toBe(6);
+  it('falls back to the default on garbage, negatives, and fractions', () => {
+    expect(resolveSoloCreateLimit('banana')).toBe(SOLO_CREATE_DEFAULT_LIMIT);
+    expect(resolveSoloCreateLimit('-1')).toBe(SOLO_CREATE_DEFAULT_LIMIT);
+    expect(resolveSoloCreateLimit('2.5')).toBe(SOLO_CREATE_DEFAULT_LIMIT);
+    expect(resolveSoloCreateLimit('NaN')).toBe(SOLO_CREATE_DEFAULT_LIMIT);
   });
 });
 
@@ -180,22 +181,22 @@ describe('ArenaRoom.static onAuth — the adapter', () => {
 
   // THE REGRESSION DISCRIMINATOR: deleting the throttle call from onAuth
   // makes this fail (the 7th create would resolve true).
-  it('admits the 6th create from one address and refuses the 7th with the message', async () => {
-    for (let i = 0; i < 6; i += 1) {
+  it('admits the limit-th create from one address and refuses the next with the message', async () => {
+    for (let i = 0; i < SOLO_CREATE_DEFAULT_LIMIT; i += 1) {
       await expect(soloAuth(ctx('203.0.113.7'))).resolves.toBe(true);
     }
     await expect(soloAuth(ctx('203.0.113.7'))).rejects.toThrow(SOLO_CREATE_THROTTLE_ERROR);
   });
 
   it('keeps addresses independent — a throttled neighbor never blocks you', async () => {
-    for (let i = 0; i < 7; i += 1) await soloAuth(ctx('203.0.113.7')).catch(() => undefined);
+    for (let i = 0; i <= SOLO_CREATE_DEFAULT_LIMIT; i += 1) await soloAuth(ctx('203.0.113.7')).catch(() => undefined);
     await expect(soloAuth(ctx('198.51.100.9'))).resolves.toBe(true);
   });
 
   // The forgeable HALF of XFF must buy an attacker nothing: rotating the
   // leftmost entry per request still lands every create in one bucket.
   it('cannot be evaded by rotating a client-forged leftmost XFF entry', async () => {
-    for (let i = 0; i < 6; i += 1) {
+    for (let i = 0; i < SOLO_CREATE_DEFAULT_LIMIT; i += 1) {
       await expect(soloAuth(ctx(`fake-${i}, 203.0.113.7`))).resolves.toBe(true);
     }
     await expect(soloAuth(ctx('fake-99, 203.0.113.7'))).rejects.toThrow(SOLO_CREATE_THROTTLE_ERROR);
@@ -225,9 +226,9 @@ describe('ArenaRoom.static onAuth — the adapter', () => {
     await expect(soloAuth(ctx('203.0.113.7'))).rejects.toThrow(SOLO_CREATE_THROTTLE_ERROR);
   });
 
-  it('an invalid HC_SOLO_CREATE_LIMIT falls back to the default 6', async () => {
+  it('an invalid HC_SOLO_CREATE_LIMIT falls back to the default', async () => {
     process.env.HC_SOLO_CREATE_LIMIT = 'banana';
-    for (let i = 0; i < 6; i += 1) {
+    for (let i = 0; i < SOLO_CREATE_DEFAULT_LIMIT; i += 1) {
       await expect(soloAuth(ctx('203.0.113.7'))).resolves.toBe(true);
     }
     await expect(soloAuth(ctx('203.0.113.7'))).rejects.toThrow(SOLO_CREATE_THROTTLE_ERROR);
@@ -239,9 +240,9 @@ describe('ArenaRoom.static onAuth — the adapter', () => {
     for (let i = 0; i < 10; i += 1) {
       await expect(
         ArenaRoom.onAuth('', { solo: true, pv: PROTOCOL_VERSION + 1 }, ctx('203.0.113.7')),
-      ).rejects.toThrow(/refresh/);
+      ).rejects.toThrow(protocolVersionError(PROTOCOL_VERSION + 1)!);
     }
-    for (let i = 0; i < 6; i += 1) {
+    for (let i = 0; i < SOLO_CREATE_DEFAULT_LIMIT; i += 1) {
       await expect(soloAuth(ctx('203.0.113.7'))).resolves.toBe(true);
     }
   });
@@ -259,7 +260,7 @@ describe('ArenaRoom.static onAuth — the adapter', () => {
   it('logs room.soloThrottleShape once on the first admit, and on every refusal', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
-      for (let i = 0; i < 6; i += 1) {
+      for (let i = 0; i < SOLO_CREATE_DEFAULT_LIMIT; i += 1) {
         await expect(soloAuth(ctx('203.0.113.7'))).resolves.toBe(true);
       }
       await expect(soloAuth(ctx('203.0.113.7'))).rejects.toThrow(SOLO_CREATE_THROTTLE_ERROR);

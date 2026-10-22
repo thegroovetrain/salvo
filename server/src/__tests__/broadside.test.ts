@@ -121,7 +121,7 @@ describe('broadside — server loadout + barrage construction', () => {
     expect(bb.loadout[SLOT_BROADSIDE].state).toEqual({ n: CONFIG.broadside.maxAmmo, reloadMsLeft: 0 });
   });
 
-  it('firing spawns `turrets` CONFIG.broadside shells: speed 500, damage 20, burst 15, no lit tag', () => {
+  it('firing spawns `turrets` shells carrying the CONFIG.broadside speed, damage and burst, and no lit tag', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     setInput(bb, { aim: ABEAM, aimDist: 300, slot: SLOT_BROADSIDE });
@@ -203,9 +203,11 @@ describe('broadside — the TWIN-SECTOR arc (R2.1/R2.2)', () => {
     }
   });
 
-  it('the sector EDGES are exactly heading ± (offset ± halfArc): 30° in, 29° out', () => {
+  it('the sector EDGES are exactly heading ± (offset ± halfArc): one degree inside fires, one degree outside is denied', () => {
     const deg = (d: number): number => (d * Math.PI) / 180;
-    for (const [bearingDeg, ok] of [[31, true], [149, true], [29, false], [151, false]] as const) {
+    const lo = CONFIG.broadside.arcOffsetDeg - CONFIG.broadside.arcHalfArcDeg;
+    const hi = CONFIG.broadside.arcOffsetDeg + CONFIG.broadside.arcHalfArcDeg;
+    for (const [bearingDeg, ok] of [[lo + 1, true], [hi - 1, true], [lo - 1, false], [hi + 1, false]] as const) {
       const w = bareWorld();
       const bb = place(w, 'a', 'battleship', 0, 0);
       setInput(bb, { aim: deg(bearingDeg), aimDist: 300, slot: SLOT_BROADSIDE });
@@ -316,22 +318,23 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
     }
   });
 
-  it('BROADSIDE TURRETS raises the shell count to the ×2 cap of 6 — six guns, six arcs', () => {
+  it('BROADSIDE TURRETS adds a gun per card up to its cap — every added gun fires its own shell from its own arc', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     w.applyCard(bb, 'broadsideTurrets');
     w.applyCard(bb, 'broadsideTurrets');
-    expect(bb.stats.equipment.broadside.turrets).toBe(6);
+    const six = CONFIG.broadside.turrets + 2; // the injected ladder: +1 per card, cap 2
+    expect(bb.stats.equipment.broadside.turrets).toBe(six);
     setInput(bb, { aim: ABEAM, aimDist: 300, slot: SLOT_BROADSIDE });
     const aim = broadsideAim(bb, 1, w.map.radius);
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
-    expect(w.shells.size).toBe(6);
+    expect(w.shells.size).toBe(six);
     // Denser mounts on the SAME covered sector (ruling 3, ACCEPTED): an ODD
     // count seats one gun dead ON the beam with zero parallax, so at 6 the
     // wedges pack tighter and the extra guns each get their own arc — never a
     // wider battery, and no zero-overlap claim is made above the base count.
-    expect(aim).toHaveLength(6);
-    expect(new Set(aim.map((t) => `${t.muzzle.x.toFixed(6)},${t.muzzle.y.toFixed(6)}`)).size).toBe(6);
+    expect(aim).toHaveLength(six);
+    expect(new Set(aim.map((t) => `${t.muzzle.x.toFixed(6)},${t.muzzle.y.toFixed(6)}`)).size).toBe(six);
   });
 
   it('the fire path and broadsideAim agree exactly — ONE geometry, not two', () => {
@@ -361,12 +364,13 @@ describe('broadside — per-shell signals (R2.5, Eric A2)', () => {
     expect(kinds.filter((k) => k === 'mz')).toHaveLength(CONFIG.broadside.turrets);
   });
 
-  it('the count FOLLOWS the turret stat — 6 turrets, 6 flashes (no salvo aggregation)', () => {
+  it('the count FOLLOWS the turret stat — one flash per turret after the card (no salvo aggregation)', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     w.applyCard(bb, 'broadsideTurrets');
     w.applyCard(bb, 'broadsideTurrets');
-    expect(clickAndStep(w, 'a', {}).filter((k) => k === 'mz')).toHaveLength(6);
+    expect(bb.stats.equipment.broadside.turrets).toBeGreaterThan(CONFIG.broadside.turrets);
+    expect(clickAndStep(w, 'a', {}).filter((k) => k === 'mz')).toHaveLength(bb.stats.equipment.broadside.turrets);
   });
 
   it('THE GUN IS UNCHANGED: a multi-barrel gun click still collapses to ONE flash', () => {
@@ -406,7 +410,7 @@ describe('broadside — burst + interceptor outcomes (end-to-end steps)', () => 
     return seen;
   }
 
-  it('bursts at each shell point: an enemy hull inside 15u takes the full 20 (owner excluded)', () => {
+  it('bursts at each shell point: an enemy hull inside the burst takes the full broadside damage (owner excluded)', () => {
     const w = bareWorld();
     place(w, 'a', 'battleship', 0, 0);
     const e = place(w, 'e', 'battleship', 0, 300); // hull straddles the click point
@@ -616,7 +620,7 @@ describe('broadside - every shell fires from its OWN turret', () => {
     }
   });
 
-  it('BROADSIDE TURRETS RE-SPACES the same span: 4 -> 5 -> 6 guns, tighter, never longer', () => {
+  it('BROADSIDE TURRETS RE-SPACES the same span: each added gun packs tighter, never longer', () => {
     const spanAndGap = (boons: number): { span: number; gap: number; n: number } => {
       const w = bareWorld();
       const bb = place(w, 'a', 'battleship', 0, 0);
@@ -628,7 +632,8 @@ describe('broadside - every shell fires from its OWN turret', () => {
     const three = spanAndGap(0);
     const four = spanAndGap(1);
     const five = spanAndGap(2);
-    expect([three.n, four.n, five.n]).toEqual([4, 5, 6]);
+    const base = CONFIG.broadside.turrets;
+    expect([three.n, four.n, five.n]).toEqual([base, base + 1, base + 2]);
     // Same ship: the battery's along-hull span does not move one unit.
     expect(four.span).toBeCloseTo(three.span, 9);
     expect(five.span).toBeCloseTo(three.span, 9);

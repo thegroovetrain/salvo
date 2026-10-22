@@ -91,10 +91,8 @@ const count = (log: readonly GameEvent[], k: string): number => log.filter((e) =
 
 /** u — the cannon's Tier I reach (its own dial since Story 9.8, ruling 125). */
 const G = CONFIG.gun.rangeU;
-describe('CONFIG — the two numbers (amendments 200/201)', () => {
-  it('10 hp, a 10 u "on the mine" disc, and a fresh mine is laid at full hp', () => {
-    expect(CONFIG.mine.hp).toBe(10);
-    expect(CONFIG.mine.hitRadiusU).toBe(10);
+describe('a laid mine (amendments 200/201)', () => {
+  it('a fresh mine laid through the real rack carries the full CONFIG.mine.hp', () => {
     // Laid through the real rack: a Mine Layer dropping astern.
     const w = bareWorld();
     const ml = captain(w, 'ml', 0, 0, { hull: 'mineLayer' });
@@ -256,7 +254,7 @@ describe('the FLAK GUN — base damage >= mine hp, and the whole blast reaches m
   });
 });
 
-describe('the MACHINE GUN — 5 a shell, two near shells to pop one', () => {
+describe('the MACHINE GUN — two near shells to pop one', () => {
   /** Hold the trigger with the aim on (dist, 0) until `shellsResolved` shells
    *  have resolved, recording the mine's hp after every resolving tick. */
   function stream(w: World, id: string, dist: number, mineId: string, shellsResolved: number) {
@@ -278,30 +276,34 @@ describe('the MACHINE GUN — 5 a shell, two near shells to pop one', () => {
     return { log, hpAfter };
   }
 
-  it('held on the mine: hp 10 -> 5 -> pops on the SECOND shell; the first is an `sp` with no boom', () => {
+  it('held on the mine: the first shell takes one blow off its hp, the SECOND pops it; the first is an `sp` with no boom', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0, { gun: 'machineGun' });
-    expect(a.stats.equipment.machineGun.damage).toBe(5);
+    const D = a.stats.equipment.machineGun.damage;
+    expect(D).toBe(CONFIG.machineGun.damage);
+    // The premise of "two to pop": one shell falls short of the mine's hp, two reach it.
+    expect(D).toBeLessThan(CONFIG.mine.hp);
+    expect(2 * D).toBeGreaterThanOrEqual(CONFIG.mine.hp);
     lay(w, 'm1', 'x', 300, 0);
     const { log, hpAfter } = stream(w, 'a', 300, 'm1', 2);
-    expect(hpAfter).toEqual([5, null]);
+    expect(hpAfter).toEqual([CONFIG.mine.hp - D, null]);
     expect(mineBooms(log, 'm1')).toEqual([{ k: 'boom', id: 'm1', x: 300, y: 0 }]);
     expect(count(log, 'sp')).toBe(2); // every shell reached the water: fall of shot each
     expect(count(log, 'hc')).toBe(0);
     expect(count(log, 'burst')).toBe(0); // a direct shell never bursts
   });
 
-  it('one shell is not enough: the mine survives at 5 hp', () => {
+  it('one shell is not enough: the mine survives with one blow off its hp', () => {
     const w = bareWorld();
     captain(w, 'a', 0, 0, { gun: 'machineGun' });
     lay(w, 'm1', 'x', 300, 0);
     const { log, hpAfter } = stream(w, 'a', 300, 'm1', 1);
-    expect(hpAfter).toEqual([5]);
-    expect(w.mines.get('m1')!.hp).toBe(5);
+    expect(hpAfter).toEqual([CONFIG.mine.hp - CONFIG.machineGun.damage]);
+    expect(w.mines.get('m1')!.hp).toBe(CONFIG.mine.hp - CONFIG.machineGun.damage);
     expect(mineBooms(log, 'm1')).toEqual([]);
   });
 
-  it('tier II is still 5 a shell (no damage rungs since Story 9.12) and pops one in two', () => {
+  it('tier II keeps the flat per-shell damage (no damage rungs since Story 9.12) and pops one in two', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0, { gun: 'machineGun' });
     w.applyCard(a, 'machineGun');
@@ -354,14 +356,15 @@ describe('the MACHINE GUN — 5 a shell, two near shells to pop one', () => {
   it('a stream aimed 12 u off the mine never scratches it', () => {
     const w = bareWorld();
     captain(w, 'a', 0, 0, { gun: 'machineGun' });
+    expect(12).toBeGreaterThan(CONFIG.mine.hitRadiusU); // the premise: 12 u off is off the marker
     lay(w, 'm1', 'x', 300, 12);
     const { hpAfter } = stream(w, 'a', 300, 'm1', 3);
-    expect(hpAfter).toEqual([10, 10, 10]);
+    expect(hpAfter).toEqual([CONFIG.mine.hp, CONFIG.mine.hp, CONFIG.mine.hp]);
   });
 });
 
 describe('NOTHING ELSE damages a mine — broadside and phosphor lost the bit', () => {
-  it('a broadside barrage onto a mine leaves it at 10 hp', () => {
+  it('a broadside barrage onto a mine leaves its hp untouched', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0, { hull: 'battleship' });
     fitClassWeapons(w, a);
@@ -373,7 +376,7 @@ describe('NOTHING ELSE damages a mine — broadside and phosphor lost the bit', 
     expect(mineBooms(log, 'm1')).toEqual([]);
   });
 
-  it('a phosphor shell landing dead on a mine leaves it at 10 hp', () => {
+  it('a phosphor shell landing dead on a mine leaves its hp untouched', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0, { hull: 'battleship' });
     w.applyCard(a, 'phosphorShells');

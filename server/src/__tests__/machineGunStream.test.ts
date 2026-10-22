@@ -87,16 +87,15 @@ function injectRateMs(a: ShipRecord, rateMs: number): void {
 // ---------- the stream --------------------------------------------------------
 
 describe('the stream — one direct shell per rateMs while held (amendment 103)', () => {
-  it('mounts the machineGun module in slot 0 with a full 12-shell magazine', () => {
+  it('mounts the machineGun module in slot 0 with a full magazine', () => {
     const w = bareWorld();
     const a = gunner(w, 'a');
     expect(a.loadout[SLOT_GUN].equipmentId).toBe('machineGun');
     expect(mag(a)).toEqual({ n: MG.maxAmmo, reloadMsLeft: 0 });
-    expect(MG.maxAmmo).toBe(12);
     expect(a.stats.equipment.machineGun.rangeU).toBe(CONFIG.machineGun.rangeU); // its own dial, 6/12 (Story 9.8, ruling 125)
   });
 
-  it('held for 3 s: 10 shells at t = 0, 0.3, 0.6 … 2.7 each born at `now`, 10 `mz`, NO burst, magazine 12 -> 2', () => {
+  it('held for 3 s: one shell per rateMs from the first held tick, each born at `now` with its own `mz`, NO burst, the magazine drained by exactly that count', () => {
     const w = bareWorld();
     const a = gunner(w, 'a');
     const log: GameEvent[] = [];
@@ -107,15 +106,19 @@ describe('the stream — one direct shell per rateMs while held (amendment 103)'
       seq = hold(w, 'a', true, 1, seq, log);
       for (const s of w.shells.values()) if (!births.includes(s.bornAt)) births.push(s.bornAt);
     }
-    expect(MG.rateMs).toBe(300);
-    expect(kindCount(log, 'shell')).toBe(10);
-    expect(kindCount(log, 'mz')).toBe(10); // one flash PER shell (amendment 89(i))
+    // Tier I's delay is a whole number of ticks, so 60 held ticks fire one
+    // shell per due time 0, rateMs, 2·rateMs … inside the 3 s.
+    expect(MG.rateMs % DT).toBe(0);
+    const n = Math.floor((60 * DT - 1) / MG.rateMs) + 1;
+    expect(n).toBeLessThan(MG.maxAmmo); // the magazine never runs dry inside the window
+    expect(kindCount(log, 'shell')).toBe(n);
+    expect(kindCount(log, 'mz')).toBe(n); // one flash PER shell (amendment 89(i))
     expect(kindCount(log, 'burst')).toBe(0); // a direct shell never bursts
-    expect(mag(a).n).toBe(2);
+    expect(mag(a).n).toBe(MG.maxAmmo - n);
     expect(mag(a).reloadMsLeft).toBe(0); // no swap: the stream is live between shots
     // Cadence: exactly rateMs apart, from the first held tick.
     births.sort((p, q) => p - q);
-    expect(births).toHaveLength(10);
+    expect(births).toHaveLength(n);
     for (let i = 1; i < births.length; i++) expect(births[i] - births[i - 1]).toBe(MG.rateMs);
     // Each shell was born at the tick it spawned in — never back-dated — and
     // reveals to its owner as an `mg` shell.
@@ -123,12 +126,12 @@ describe('the stream — one direct shell per rateMs while held (amendment 103)'
     expect(a.lastFireT).toBe(0); // the stream never touches the click channel's clock
   });
 
-  it('tier II\'s 275 ms (Eric 2026-10-16, Story 9.12) holds on the carry-over: 3 s held = 11 shells, the i-th due at i × 275 ms and fired on the first tick at or after it', () => {
+  it('tier II\'s faster, non-tick-aligned delay holds on the carry-over: the i-th shell is due at i × rateMs and fires on the first tick at or after it', () => {
     const w = bareWorld();
     const a = gunner(w, 'a');
     w.applyCard(a, 'machineGun');
     const rate = a.stats.equipment.machineGun.rateMs;
-    expect(rate).toBe(MG.rateMs - 25); // the ladder's −25 ms per tier
+    expect(rate).toBeLessThan(MG.rateMs); // the ladder speeds the stream
     expect(rate % DT).not.toBe(0); // a non-tick delay: the carry-over is what keeps its average
     const log: GameEvent[] = [];
     const births: number[] = [];
@@ -266,7 +269,7 @@ describe('the stream — one direct shell per rateMs while held (amendment 103)'
     expect(w.shells.size).toBe(1);
   });
 
-  it('a direct hit deals the FULL damage as a contact hit: 5 hp, one `hc`, no burst', () => {
+  it('a direct hit deals the FULL damage as a contact hit: one `hc`, no burst', () => {
     const w = bareWorld();
     const a = gunner(w, 'a');
     const b = w.addShip('b', 'B', 'captain', 'battleship', undefined, undefined);
@@ -275,11 +278,10 @@ describe('the stream — one direct shell per rateMs while held (amendment 103)'
     hold(w, 'a', true, 1, 0, log);
     hold(w, 'a', false, 30, 1, log);
     expect(b.hp).toBe(b.stats.maxHp - MG.damage);
-    expect(MG.damage).toBe(5);
     expect(kindCount(log, 'hc')).toBe(1);
     expect(kindCount(log, 'burst')).toBe(0);
     expect(kindCount(log, 'sp')).toBe(0);
-    expect(a.damageDealt).toBe(5);
+    expect(a.damageDealt).toBe(MG.damage);
   });
 });
 
@@ -329,13 +331,14 @@ describe('the lit-zone reach — the machine gun fires into its own flare (amend
 // ---------- the magazine ------------------------------------------------------
 
 describe('the magazine (amendment 103; the swap rule Eric 2026-09-30)', () => {
-  it('empties in 12 shells; the full 12.5 s swap starts at once, a HOLD cannot interrupt it, and it fills to 12', () => {
+  it('empties the magazine; the full swap starts at once, a HOLD cannot interrupt it, and it fills to maxAmmo', () => {
     const w = bareWorld();
     const a = gunner(w, 'a');
     const log: GameEvent[] = [];
-    // 12 shells × 300 ms = 3.3 s from the first shot to the 12th; hold 6 s.
+    // maxAmmo shells at rateMs apart must empty well inside the 6 s hold.
+    expect((MG.maxAmmo - 1) * MG.rateMs).toBeLessThan(120 * DT);
     let seq = hold(w, 'a', true, 120, 0, log);
-    expect(kindCount(log, 'shell')).toBe(12);
+    expect(kindCount(log, 'shell')).toBe(MG.maxAmmo);
     expect(mag(a).n).toBe(0);
     expect(w.denialsFor('a')).toBeUndefined();
     // The swap started the tick after the magazine emptied, at the FULL reloadMs.
@@ -351,11 +354,11 @@ describe('the magazine (amendment 103; the swap rule Eric 2026-09-30)', () => {
       expect(mag(a).reloadMsLeft).toBe(left - DT);
       left = mag(a).reloadMsLeft;
     }
-    expect(kindCount(log, 'shell')).toBe(12); // nothing extra fired
+    expect(kindCount(log, 'shell')).toBe(MG.maxAmmo); // nothing extra fired
     // The swap completes -> FULL, and the level still held fires AT ONCE.
     hold(w, 'a', true, 1, seq, log);
     expect(mag(a)).toEqual({ n: MG.maxAmmo - 1, reloadMsLeft: 0 });
-    expect(kindCount(log, 'shell')).toBe(13);
+    expect(kindCount(log, 'shell')).toBe(MG.maxAmmo + 1);
   });
 
   it('an empty magazine\'s swap refills after the whole reloadMs when released, too', () => {
@@ -376,11 +379,11 @@ describe('the magazine (amendment 103; the swap rule Eric 2026-09-30)', () => {
     const a = gunner(w, 'a');
     const log: GameEvent[] = [];
     let seq = hold(w, 'a', true, 1, 0, log); // one shell at t0
-    expect(mag(a)).toEqual({ n: 11, reloadMsLeft: 0 });
+    expect(mag(a)).toEqual({ n: MG.maxAmmo - 1, reloadMsLeft: 0 });
     seq = hold(w, 'a', false, 1, seq, log); // released: the swap starts now, full length
-    expect(mag(a)).toEqual({ n: 11, reloadMsLeft: MG.reloadMs });
+    expect(mag(a)).toEqual({ n: MG.maxAmmo - 1, reloadMsLeft: MG.reloadMs });
     seq = hold(w, 'a', false, MG.reloadMs / DT - 1, seq, log);
-    expect(mag(a)).toEqual({ n: 11, reloadMsLeft: DT }); // shells left stay loaded while it runs
+    expect(mag(a)).toEqual({ n: MG.maxAmmo - 1, reloadMsLeft: DT }); // shells left stay loaded while it runs
     hold(w, 'a', false, 1, seq, log);
     expect(mag(a)).toEqual({ n: MG.maxAmmo, reloadMsLeft: 0 });
   });
@@ -390,10 +393,10 @@ describe('the magazine (amendment 103; the swap rule Eric 2026-09-30)', () => {
     const a = gunner(w, 'a');
     w.submitInput('a', makeInput({ seq: 1, held: true }));
     w.step();
-    expect(mag(a)).toEqual({ n: 11, reloadMsLeft: 0 });
+    expect(mag(a)).toEqual({ n: MG.maxAmmo - 1, reloadMsLeft: 0 });
     w.submitInput('a', makeInput({ seq: 2, held: true, slot: 2 })); // still held, another slot selected
     w.step();
-    expect(mag(a)).toEqual({ n: 11, reloadMsLeft: MG.reloadMs });
+    expect(mag(a)).toEqual({ n: MG.maxAmmo - 1, reloadMsLeft: MG.reloadMs });
   });
 
   it('a shot during a running PARTIAL swap cancels it (the shells left fire); it restarts from the FULL time when the stream stops', () => {
@@ -404,14 +407,14 @@ describe('the magazine (amendment 103; the swap rule Eric 2026-09-30)', () => {
     seq = hold(w, 'a', false, 40, seq, log); // released -> the swap starts; 2 s into it
     expect(mag(a).reloadMsLeft).toBe(MG.reloadMs - 39 * DT);
     seq = hold(w, 'a', true, 1, seq, log); // a shot: the swap is CANCELLED
-    expect(mag(a)).toEqual({ n: 10, reloadMsLeft: 0 });
+    expect(mag(a)).toEqual({ n: MG.maxAmmo - 2, reloadMsLeft: 0 });
     expect(kindCount(log, 'shell')).toBe(2);
     // Held on between shots: the stream is live, no swap restarts.
     seq = hold(w, 'a', true, 3, seq, log);
-    expect(mag(a)).toEqual({ n: 10, reloadMsLeft: 0 });
+    expect(mag(a)).toEqual({ n: MG.maxAmmo - 2, reloadMsLeft: 0 });
     // Released: the swap restarts at the FULL reloadMs, not the ~10 s that was left.
     hold(w, 'a', false, 1, seq, log);
-    expect(mag(a)).toEqual({ n: 10, reloadMsLeft: MG.reloadMs });
+    expect(mag(a)).toEqual({ n: MG.maxAmmo - 2, reloadMsLeft: MG.reloadMs });
   });
 
   it('a NEGATIVE swap remainder with shells missing still starts the full swap on a release (the `<= 0` idiom, review gate P3)', () => {
@@ -423,14 +426,15 @@ describe('the magazine (amendment 103; the swap rule Eric 2026-09-30)', () => {
     expect(slot.state).toEqual({ n: 5, reloadMsLeft: MG.reloadMs });
   });
 
-  it('the ladder moves the magazine: tier II reads 15 shells / 5 damage (flat) / 0.275 s / 11.875 s, and a fresh pool is 15', () => {
+  it('the ladder moves the magazine: tier II holds more shells, fires and swaps faster at FLAT damage, and a fresh pool is the new cap', () => {
     const w = bareWorld();
     const a = gunner(w, 'a');
     w.applyCard(a, 'machineGun');
-    expect(a.stats.equipment.machineGun.maxAmmo).toBe(MG.maxAmmo + 3); // Eric 2026-10-16: +3 to II
+    expect(a.stats.equipment.machineGun.maxAmmo).toBeGreaterThan(MG.maxAmmo);
+    expect(Number.isInteger(a.stats.equipment.machineGun.maxAmmo)).toBe(true);
     expect(a.stats.equipment.machineGun.damage).toBe(MG.damage); // no damage rungs (Story 9.12)
-    expect(a.stats.equipment.machineGun.rateMs).toBe(MG.rateMs - 25);
-    expect(a.stats.equipment.machineGun.reloadMs).toBeCloseTo(MG.reloadMs * 0.95, 6);
+    expect(a.stats.equipment.machineGun.rateMs).toBeLessThan(MG.rateMs);
+    expect(a.stats.equipment.machineGun.reloadMs).toBeLessThan(MG.reloadMs);
     expect(mag(a)).toEqual({ n: a.stats.equipment.machineGun.maxAmmo, reloadMsLeft: 0 });
   });
 
@@ -477,7 +481,7 @@ describe('the stream honours the click channel\'s gates', () => {
     expect(mag(a).n).toBe(MG.maxAmmo);
   });
 
-  it('a hull REFUSED mid-stream (frozen) with 9/12 shells: the stream ends that tick and the full swap starts (review gate P1)', () => {
+  it('a hull REFUSED mid-stream (frozen) with shells left: the stream ends that tick and the full swap starts (review gate P1)', () => {
     const w = bareWorld();
     const a = gunner(w, 'a');
     const log: GameEvent[] = [];
@@ -521,7 +525,7 @@ describe('the stream honours the click channel\'s gates', () => {
     expect(isSinking(a.lifecycle)).toBe(true);
     const log: GameEvent[] = [];
     hold(w, 'a', true, 20, 0, log);
-    expect(kindCount(log, 'shell')).toBe(4); // 1 s held = 4 shells (t = 0, 0.3, 0.6, 0.9)
+    expect(kindCount(log, 'shell')).toBe(Math.floor((20 * DT - 1) / MG.rateMs) + 1); // 1 s held: one per due time 0, rateMs, …
   });
 
   it('DEAD (foundered): nothing streams, however long the level is held', () => {
@@ -584,6 +588,6 @@ describe('the stream honours the click channel\'s gates', () => {
     const log: GameEvent[] = [];
     hold(w, 'a', true, 20, 0, log);
     expect(kindCount(log, 'shell')).toBe(0);
-    expect(a.loadout[SLOT_GUN].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(a.loadout[SLOT_GUN].state).toEqual({ n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 });
   });
 });

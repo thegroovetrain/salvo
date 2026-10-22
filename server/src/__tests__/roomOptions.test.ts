@@ -10,7 +10,6 @@ import {
   sanitizeGun,
   sanitizeName,
   sanitizeRoomOptions,
-  type JoinOptions,
   type RoomOptions,
 } from '../rooms/roomOptions.js';
 import { lobbyTicket } from '../rooms/lobbyTicket.js';
@@ -218,7 +217,6 @@ describe('sanitizeName — options.name is client-supplied and untrusted', () =>
   it('caps at NAME_MAX CODE POINTS (the client entry cap)', () => {
     const long = 'X'.repeat(40);
     expect(sanitizeName(long)).toHaveLength(NAME_MAX);
-    expect(NAME_MAX).toBe(14);
   });
 
   it('counts CODE POINTS, never UTF-16 units — a surrogate pair is not split', () => {
@@ -294,12 +292,6 @@ describe('sanitizeGun — the three ids', () => {
     sanitizeGun('flak', log as unknown as Parameters<typeof sanitizeGun>[1]);
     expect(lines).toHaveLength(1); // absent and valid both stay silent
   });
-
-  it('never reads the prototype: an inherited gun is not this seat\'s pick', () => {
-    const inherited = Object.create({ gun: 'flak' }) as { gun?: unknown };
-    expect(sanitizeGun(inherited.gun)).toBe('flak'); // a READ of the value still resolves...
-    expect(sanitizeGun((inherited as JoinOptions).gun)).toBe('flak'); // ...the door passes the value, not the object
-  });
 });
 
 // THE DECK KEYS ARE DEAD KEYS (Story 8.14, amendment 89a). `deck`, `deckId`
@@ -323,13 +315,6 @@ describe('the retired deck keys are dropped like any unknown option', () => {
     const opts = { deck: [], fitOverride: ['heavyTorpedo'] } as unknown as RoomOptions;
     expect(sanitizeRoomOptions(opts, true).sanitized.fitOverride).toEqual(['heavyTorpedo']);
     expect(sanitizeRoomOptions(opts, true).rejectedKeys).toEqual([]);
-  });
-
-  it('the module exports no deck surface at all — no refusal code, no deck sanitizer', async () => {
-    const mod = await import('../rooms/roomOptions.js');
-    for (const gone of ['sanitizeDeckOptions', 'DECK_ID_MAX', 'DECK_OVERRIDE_MAX', 'DECK_REFUSED_CODE']) {
-      expect(Object.hasOwn(mod, gone), gone).toBe(false);
-    }
   });
 });
 

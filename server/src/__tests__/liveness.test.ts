@@ -61,7 +61,7 @@ beforeEach(() => {
 // --- the I/O matrix ----------------------------------------------------------
 
 describe('foldLiveness — the spec I/O matrix', () => {
-  it('healthy server: 2 arenas (12 + 8) plus a queue of 3', () => {
+  it('sums arena sockets and queued captains into playersOnline and counts each arena as a live game', () => {
     const deadlineAt = NOW + 83_000;
     const out = foldLiveness(
       [

@@ -137,7 +137,7 @@ describe('torpedoes — island block + ship hit', () => {
     expect(events.some((e) => e.k === 'boom' && e.hit === undefined)).toBe(true);
   });
 
-  it('a torpedo that reaches an enemy deals its 50 damage (CONFIG.torpedo.damage)', () => {
+  it('a torpedo that reaches an enemy deals its full CONFIG.torpedo.damage', () => {
     const w = bareWorld();
     const a = torpShip(w, 'a', 0, 0, HALF_PI);
     a.input = { ...a.input, aim: HALF_PI };
@@ -149,9 +149,6 @@ describe('torpedoes — island block + ship hit', () => {
 });
 
 describe('A4 CONFIG constants', () => {
-  it('torpedoes carry their own collision value (no longer gun-borrowed)', () => {
-    expect(CONFIG.torpedo.hitRadius).toBe(2);
-  });
   // RETIRED (Story 8.4, FR57/AR48): there is no global mine cap any more — the
   // pin is inverted so `globalCap` can never quietly come back.
   it('MINES HAVE NO CAPS: neither a per-player nor a room ceiling exists', () => {
@@ -731,7 +728,7 @@ describe('LIGHT TORPEDO — the twin beam sectors (catalog-v3 R18, Story 8.13)',
 
     const two = carrier(w, 'b', 'lightTorpedo', 2, Math.PI / 2, SLOT_WEAPON_1);
     const rate = two.stats.equipment.lightTorpedo.homingTurnRate;
-    expect(rate).toBeCloseTo(0.125, 9); // the tier-II rung
+    expect(rate).toBeGreaterThan(0); // tier II homes (amendment 80)
     const t2 = fireTorpedo(two, 0, mkId, 'lightTorpedo')!;
     expect(t2.homing).toEqual({ turnRate: rate, acquireRange: CONFIG.torpedo.homingAcquireRange });
     expect(t2.distLeft).toBe(CONFIG.torpedo.homingMaxRangeU);

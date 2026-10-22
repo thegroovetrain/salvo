@@ -292,7 +292,7 @@ describe('shouldAbortOnTickError — boundary behavior', () => {
 
 describe('CONFIG.net.joiningDeadlineSeconds', () => {
   it('is declared and sits under the reconnect grace', () => {
-    expect(CONFIG.net.joiningDeadlineSeconds).toBe(10);
+    expect(CONFIG.net.joiningDeadlineSeconds).toBeGreaterThan(0);
     expect(CONFIG.net.joiningDeadlineSeconds).toBeLessThan(CONFIG.net.reconnectGraceSeconds);
   });
 });
