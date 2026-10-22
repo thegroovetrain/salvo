@@ -170,7 +170,17 @@ All eight are 9.14 (tests + record). The last code change under `server/scripts/
 - Ledger lines: table above; `test-audit-2026-10-22.md:277, :320`.
 - Auto-memory: `feedback_headless_smokes`, `feedback_never_move_past_errors`, `feedback_pr_at_end_only`, `feedback_merge_pr_to_development` (never merge), `feedback_gds_workflow_status` (both trackers), `project_parallel_cycle_collisions`.
 
-## Questions for Eric (collected; none blocks starting Task 1 under the defaults)
+## Questions for Eric — ANSWERED 2026-10-22 (AskUserQuestion, at story creation)
+
+Eric took the recommended default on all four. These are rulings; record them in the epic-9 amendment this story appends (Task 6) and do not re-ask.
+
+1. **Dev door: BUILD BOTH** — the dev-gated spawn pose and the fleet-waves-off switch, each behind `HC_DEV_OPTIONS=1`, each with strip/honor tests.
+2. **Gate: the smokes STAY OUTSIDE `npm run check`**, but are REQUIRED first-try before every PR from this story on — the dev-story and every later gate run both once and paste the `OK` line.
+3. **Scope: matchSmoke + weaponsSmoke + the fogSmoke one-line bookkeeping fix** only; combatSmoke and the other heuristic-pilot smokes are listed for 9.16, not converted here.
+4. **Kill plan: DERIVED FROM CONFIG INCLUDING REGEN, tiered fit allowed** — the script computes and prints the fish count; `fitOverride` may stack `heavyTorpedo` to tier III (two tubes) so a salvo lands inside the healing wait.
+
+The original questions, for the record:
+
 
 1. **Two new dev-door options.** The rewrite needs a dev-gated spawn pose (`spawnOverride`) and a dev-gated fleet-waves-off switch. Both are harness plumbing behind the existing `HC_DEV_OPTIONS=1` gate, stripped in production like `matchOverride`. Default: build both. Alternative (no server change): pre-compute a scripted sailing plan on a pinned seed — longer runs, still a sailing choreography, and the fleet wave still arrives at 60 s. Confirm the default?
 2. **Smokes in the gate.** They stay outside `npm run check` today (minutes of wall time, a booted server). Default: stay outside, but the dev-story and every later gate run them once, first-try, before a PR. Or add an `npm run smoke` script that runs both (matchSmoke self-boots; weaponsSmoke would need a boot wrapper) — still outside `check`?
