@@ -20,6 +20,7 @@ import {
   type ZonePhase,
   stormDpsFor,
 } from '../index.js';
+import { zoneCollapses } from '../sim/zone.js';
 
 const MAP_R = mapRadius(CONFIG.match.fillTo); // the production board (2400 at the shipped targets)
 const START = 10_000; // arbitrary non-zero anchor to prove startT is honored
@@ -720,5 +721,19 @@ describe('stormDpsFor — the damage ramp by close (Eric 2026-10-07)', () => {
     expect(stormDpsFor({ phase: 'closing', groupIndex: 0 }, short)).toBe(2);
     expect(stormDpsFor({ phase: 'closing', groupIndex: 5 }, short)).toBe(2);
     expect(stormDpsFor({ phase: 'closed', groupIndex: 5 }, short)).toBe(9);
+  });
+});
+
+describe('zoneCollapses — the one sudden-death predicate', () => {
+  const base: ZoneTimeline = { ...CONFIG.zone, suddenDeath: undefined };
+
+  it('only an explicit true collapses; an absent flag and false agree', () => {
+    expect(zoneCollapses({ ...base, suddenDeath: true })).toBe(true);
+    expect(zoneCollapses({ ...base, suddenDeath: false })).toBe(false);
+    expect(zoneCollapses(base)).toBe(false);
+  });
+
+  it('a collapsing timeline carries exactly one more ring group', () => {
+    expect(zoneGroups({ ...base, suddenDeath: true })).toBe(zoneGroups(base) + 1);
   });
 });

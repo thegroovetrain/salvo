@@ -38,6 +38,7 @@ import {
   type EquipmentId,
   type LineId,
 } from '../index.js';
+import { captiveTriggerRadius, deriveMineRings, mineTriggerRadius } from '../sim/stats.js';
 
 const BASE = CONFIG.shipClasses.battleship;
 
@@ -1361,5 +1362,40 @@ describe('a line held at ZERO copies never writes a tier', () => {
 
   it('...and an unheld catalog still reads every row at tier 1', () => {
     expect(effectiveStats(BASE, [], twoClaimants).equipment.gun.tier).toBe(1);
+  });
+});
+
+describe('deriveMineRings — the mine rings re-pinned from the folded row', () => {
+  const rows = (): EffectiveStats['equipment'] => structuredClone(effectiveStats(BASE).equipment);
+
+  it('a contact mine’s trip ring follows its own blast; the captive ring follows its tier', () => {
+    const eq = rows();
+    eq.navalMines.blastRadius = 123;
+    eq.navalMines.triggerRadius = -1;
+    eq.foulingMines.blastRadius = 77;
+    eq.foulingMines.triggerRadius = -1;
+    eq.captiveMines.tier = 3;
+    eq.captiveMines.triggerRadius = -1;
+    deriveMineRings(eq);
+    expect(eq.navalMines.triggerRadius).toBe(mineTriggerRadius(123));
+    expect(eq.foulingMines.triggerRadius).toBe(mineTriggerRadius(77));
+    expect(eq.captiveMines.triggerRadius).toBe(captiveTriggerRadius(3));
+  });
+
+  it('a captive burst grown by any path is pinned back to the base burst', () => {
+    const baseBurst = effectiveStats(BASE).equipment.captiveMines.blastRadius;
+    const eq = rows();
+    eq.captiveMines.blastRadius = baseBurst * 10;
+    deriveMineRings(eq);
+    expect(eq.captiveMines.blastRadius).toBe(baseBurst);
+  });
+
+  it('is idempotent: a second pass changes nothing', () => {
+    const eq = rows();
+    eq.navalMines.blastRadius = 200;
+    deriveMineRings(eq);
+    const once = structuredClone(eq);
+    deriveMineRings(eq);
+    expect(eq).toEqual(once);
   });
 });

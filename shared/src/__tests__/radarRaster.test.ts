@@ -25,6 +25,7 @@ import {
   type HullCoverage,
   type HullId,
 } from '../index.js';
+import { COVERAGE_WORD } from '../sim/radarRaster.js';
 
 const CELL = CONFIG.vision.radarCellU;
 
@@ -324,6 +325,18 @@ describe('THE CALIBRATION (amendments 156-157): measured, not asserted', () => {
         const north = fuzzedPaint(cls, k, Math.PI / 2);
         expect(east.w, `${cls} paint ${k} heading east`).toBeGreaterThan(east.h);
         expect(north.h, `${cls} paint ${k} heading north`).toBeGreaterThan(north.w);
+      }
+    }
+  });
+});
+
+describe('COVERAGE_WORD — the packing width of a coverage mask', () => {
+  it('every rasterized mask packs its w×h cells into ceil(w·h / COVERAGE_WORD) words', () => {
+    for (const cls of HULL_IDS) {
+      for (const heading of [0, 0.6, 2.2]) {
+        const c = rasterizeHullCoverage(cls, 37, -91, heading, 8);
+        expect(c.bits.length, cls).toBe(Math.ceil((c.w * c.h) / COVERAGE_WORD));
+        expect(coverageCellCount(c)).toBeLessThanOrEqual(c.w * c.h);
       }
     }
   });

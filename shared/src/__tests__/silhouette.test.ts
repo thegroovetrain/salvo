@@ -30,7 +30,7 @@ import { segSegClosest } from '../math/geom.js';
 // `polygonIsSimple` already exists in sim/islandShape.ts, mid-deletion this
 // same cycle by that parallel rewrite, so this file verifies simplicity with
 // its own test-local check rather than depending on either copy.)
-import { simplifyLoop } from '../sim/silhouette.js';
+import { polygonFitLimit, simplifyLoop } from '../sim/silhouette.js';
 
 function extents(poly: readonly Vec2[]): { minX: number; maxX: number; minY: number; maxY: number } {
   return {
@@ -506,5 +506,39 @@ describe('simplifyLoop — winding, floor, and purity', () => {
     simplifyLoop(circle, 8);
     expect(circle).toEqual(snapshot);
     expect(circle).toHaveLength(24);
+  });
+});
+
+describe('polygonFitLimit — how far a posed polygon may sit from a circle centre', () => {
+  const square: Vec2[] = [
+    { x: 1, y: 1 },
+    { x: -1, y: 1 },
+    { x: -1, y: -1 },
+    { x: 1, y: -1 },
+  ];
+  const farthest = (poly: readonly Vec2[], heading: number, ox: number, oy: number): number =>
+    Math.max(...transformPolygon(poly, ox, oy, heading).map((p) => Math.hypot(p.x, p.y)));
+
+  it('at the limit the farthest vert touches the circle exactly, at any pose', () => {
+    expect(polygonFitLimit(square, 0, 1, 0, 10)).toBeCloseTo(Math.sqrt(99) - 1, 12);
+    const poly = hullSilhouette('battleship');
+    for (const heading of [0, 0.7, 2, -2.5]) {
+      for (const a of [0, 1.1, 3]) {
+        const ux = Math.cos(a);
+        const uy = Math.sin(a);
+        const L = polygonFitLimit(poly, heading, ux, uy, 500);
+        expect(farthest(poly, heading, L * ux, L * uy)).toBeCloseTo(500, 6);
+      }
+    }
+  });
+
+  it('a hull running parallel to the edge sits nearer it than one pointing at it', () => {
+    const poly = hullSilhouette('battleship');
+    expect(polygonFitLimit(poly, Math.PI / 2, 1, 0, 500)).toBeGreaterThan(polygonFitLimit(poly, 0, 1, 0, 500));
+  });
+
+  it('a polygon that cannot fit inside the circle at all answers 0, never negative', () => {
+    expect(polygonFitLimit(square, 0, 1, 0, 1)).toBe(0);
+    expect(polygonFitLimit(square, 0.3, 0, 1, 0.5)).toBe(0);
   });
 });

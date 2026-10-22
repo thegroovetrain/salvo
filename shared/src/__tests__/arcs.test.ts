@@ -29,6 +29,7 @@ import {
   twinSectorSide,
   type EquipmentId,
 } from '../index.js';
+import { MINE_EQUIPMENT_IDS, isMineEquipment, mineEquipmentFor, mineKindOf } from '../sim/arcs.js';
 
 const deg = (d: number): number => (d * Math.PI) / 180;
 
@@ -238,5 +239,24 @@ describe('twinSectorArcFor — narrow-or-throw (the broadside beam accessor)', (
       'decoyBuoy', 'boost', 'supercavTorpedo'] as const) {
       expect(() => twinSectorArcFor(id)).toThrow(/must be a twin-sector/);
     }
+  });
+});
+
+describe('the mine-line family', () => {
+  it('a mine line and its kind round-trip through mineKindOf / mineEquipmentFor', () => {
+    const kinds = new Set<string>();
+    for (const id of MINE_EQUIPMENT_IDS) {
+      const kind = mineKindOf(id);
+      kinds.add(kind);
+      expect(mineEquipmentFor(kind)).toBe(id);
+    }
+    expect(kinds.size).toBe(MINE_EQUIPMENT_IDS.length);
+  });
+
+  it('isMineEquipment admits exactly the mine lines and refuses null', () => {
+    const mines = new Set<string>(MINE_EQUIPMENT_IDS);
+    for (const id of EQUIPMENT_IDS) expect(isMineEquipment(id), id).toBe(mines.has(id));
+    for (const id of CONSUMABLE_IDS) expect(isMineEquipment(id), id).toBe(false);
+    expect(isMineEquipment(null)).toBe(false);
   });
 });

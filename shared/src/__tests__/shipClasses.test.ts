@@ -12,6 +12,15 @@ import {
   hullEnvelope,
   sanitizeClassId,
 } from '../index.js';
+import {
+  REGATTA_HUES,
+  REGATTA_NO_HUE,
+  droneHullOf,
+  droneSizeOf,
+  hullBumper,
+  type DroneSizeId,
+  type HullId,
+} from '../constants.js';
 
 describe('class ordering invariants', () => {
   const tb = CONFIG.shipClasses.torpedoBoat;
@@ -178,5 +187,38 @@ describe('sanitizeClassId', () => {
     expect(sanitizeClassId(null)).toBe('torpedoBoat');
     expect(sanitizeClassId(3)).toBe('torpedoBoat');
     expect(sanitizeClassId({ cls: 'battleship' })).toBe('torpedoBoat');
+  });
+});
+
+describe('hullBumper — the contact clearance between two hulls', () => {
+  it('is symmetric, and a null other reads as the own hull', () => {
+    for (const a of HULL_IDS) {
+      expect(hullBumper(a, null)).toBe(hullBumper(a, a));
+      for (const b of HULL_IDS) expect(hullBumper(a, b)).toBe(hullBumper(b, a));
+    }
+  });
+
+  it('exceeds the two half-lengths by the same margin for every pair', () => {
+    const margin = (a: HullId, b: HullId): number =>
+      hullBumper(a, b) - (hullEnvelope(a).hull.length + hullEnvelope(b).hull.length) / 2;
+    const m0 = margin(HULL_IDS[0], HULL_IDS[0]);
+    for (const a of HULL_IDS) for (const b of HULL_IDS) expect(margin(a, b)).toBeCloseTo(m0, 9);
+  });
+});
+
+describe('droneSizeOf / droneHullOf', () => {
+  it('drone hulls and size keys round-trip; a ship class has no drone size', () => {
+    for (const size of DRONE_SIZE_IDS) expect(droneSizeOf(droneHullOf(size))).toBe(size);
+    for (const hull of DRONE_HULL_IDS) expect(droneHullOf(droneSizeOf(hull) as DroneSizeId)).toBe(hull);
+    for (const cls of SHIP_CLASS_IDS) expect(droneSizeOf(cls)).toBeNull();
+  });
+});
+
+describe('the Regatta hue wheel', () => {
+  it('the hues are distinct and the no-hue sentinel is a uint8 that is never a wheel index', () => {
+    expect(new Set(REGATTA_HUES).size).toBe(REGATTA_HUES.length);
+    expect(REGATTA_NO_HUE).toBeGreaterThanOrEqual(REGATTA_HUES.length);
+    expect(REGATTA_NO_HUE).toBeLessThanOrEqual(255);
+    expect(Number.isInteger(REGATTA_NO_HUE)).toBe(true);
   });
 });

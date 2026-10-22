@@ -4,7 +4,9 @@ import { MAP_RULES, generateMap, islandFromPolygon } from '../sim/map.js';
 import {
   applyGroundingDamp,
   groundingSpeedFactor,
+  polygonOverlapsSolid,
   resolveShipPose,
+  solidEscape,
   type Pose,
   type ShipPoseResult,
 } from '../sim/collision.js';
@@ -1066,5 +1068,36 @@ describe('coastNormal on an n-gon fixture', () => {
       // Inside → toward the boundary, i.e. ~outward radial for a near-circle.
       expect((n.nx * px) / d + (n.ny * py) / d).toBeGreaterThan(0.98);
     }
+  });
+});
+
+describe('solidEscape — the minimal push-out off a solid', () => {
+  const block = islandFromPolygon([
+    { x: -10, y: -10 },
+    { x: 10, y: -10 },
+    { x: 10, y: 10 },
+    { x: -10, y: 10 },
+  ]);
+  // A 4×2 box straddling the block's east face by 2 u.
+  const box: Vec2[] = [
+    { x: 8, y: -1 },
+    { x: 12, y: -1 },
+    { x: 12, y: 1 },
+    { x: 8, y: 1 },
+  ];
+
+  it('pushes along the face normal by the minimal clearing distance', () => {
+    expect(polygonOverlapsSolid(box, 0, 0, block)).toBe(true);
+    const esc = solidEscape(box, block, 50);
+    expect(esc).not.toBeNull();
+    if (esc === null) return;
+    expect(esc.nx).toBeCloseTo(1, 6);
+    expect(esc.ny).toBeCloseTo(0, 6);
+    expect(polygonOverlapsSolid(box, esc.nx * esc.depth, esc.ny * esc.depth, block)).toBe(false);
+    expect(polygonOverlapsSolid(box, esc.nx * esc.depth * 0.95, esc.ny * esc.depth * 0.95, block)).toBe(true);
+  });
+
+  it('answers null when no push within the cap clears the solid', () => {
+    expect(solidEscape(box, block, 0.5)).toBeNull();
   });
 });

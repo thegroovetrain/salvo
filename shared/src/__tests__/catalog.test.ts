@@ -76,6 +76,7 @@ import {
   type LineId,
   type LineKind,
 } from '../index.js';
+import { lineForEquipment } from '../sim/catalog.js';
 
 /** THE PER-CARD RANGE STEP a tiered weapon's upgrade card authors (Story 9.8,
  *  Eric 2026-10-13, epic-9 ruling 125): an EVEN split of Tier I → Tier V over
@@ -713,5 +714,36 @@ describe('THE COMMON POOL — nothing is homed to a hull any more (amendment 89a
     ]) {
       expect(barrel[name], name).toBeUndefined();
     }
+  });
+});
+
+describe('lineForEquipment — the inverse of tierTargetOf over equipment lines', () => {
+  it('every equipment line in CATALOG is the line found for the equipment it fits', () => {
+    for (const line of Object.values(CATALOG)) {
+      if (line.kind !== 'equipment') continue;
+      const eq = tierTargetOf(line);
+      if (eq === undefined) continue;
+      expect(lineForEquipment(eq), line.id).toBe(line);
+    }
+  });
+
+  it('a ladder targeting the equipment is never returned; no fitting line answers undefined', () => {
+    const ladder = {
+      id: 'ladderX',
+      kind: 'ladder',
+      cap: 1,
+      tiers: [[]],
+      appliesTo: ['navalMines'],
+    } as unknown as CatalogLine;
+    const fitter = {
+      id: 'fitterX',
+      kind: 'equipment',
+      cap: 1,
+      tiers: [[{ kind: 'slotFill', equipmentId: 'navalMines' }]],
+    } as unknown as CatalogLine;
+    expect(lineForEquipment('navalMines', { ladderX: ladder })).toBeUndefined();
+    expect(lineForEquipment('navalMines', { ladderX: ladder, fitterX: fitter })).toBe(fitter);
+    expect(lineForEquipment('captiveMines', { ladderX: ladder, fitterX: fitter })).toBeUndefined();
+    expect(lineForEquipment('navalMines', {})).toBeUndefined();
   });
 });
