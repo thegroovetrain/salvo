@@ -150,7 +150,7 @@ function countLine(rec: Record<string, number>): string {
   return keys.map((k) => `${k}=${rec[k]}`).join(' ');
 }
 
-/** The readout lines printed beside the six bars (no bar, no verdict). */
+/** The readout lines printed beside the quality bars (no bar, no verdict). */
 export function renderReadoutLines(a: BotReadoutAggregate): string[] {
   return [
     'READOUTS (Story 9.13 — measured, never judged):',

@@ -26,7 +26,7 @@ import {
 } from '@salvo/shared';
 import { World } from '../../../src/game/world.js';
 import { UsageError, buildVariants, parseArgs } from '../args.js';
-import { TunableError, applyOverrides, isTunableKey, validateTunableKey } from '../overrides.js';
+import { TunableError, applyOverrides, isTunableKey, isTuneKey, validateTunableKey } from '../overrides.js';
 import { buildBotAggregate } from '../botReport.js';
 import { endCause } from '../botMetrics.js';
 import { mixSeed, percentile, summarize } from '../stats.js';
@@ -36,6 +36,33 @@ import { Match } from '../../../src/game/match.js';
 import { MatchCollector, botGunDealer, buildBotLobby, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
 import { buildAggregate, renderBatchReport } from '../report.js';
 import { circleIsland } from '../../../src/__tests__/islandFixture.js';
+
+/** The message a refusal throws (fails the test if nothing is thrown). */
+function thrown(f: () => unknown): string {
+  try {
+    f();
+  } catch (e) {
+    return (e as Error).message;
+  }
+  throw new Error('expected a throw');
+}
+
+/** The comma-separated list a refusal prints as `(<label>: a, b, c)`. */
+function listIn(message: string, label: string): string[] {
+  const m = new RegExp(String.raw`\(${label}: ([^)]*)\)`).exec(message);
+  expect(m, message).not.toBeNull();
+  return m![1].split(', ');
+}
+
+/** Every CONFIG block path the --tune gate accepts as a family (the walk stops
+ *  at the first accepted block, so `offer.weighting` is found under `offer`). */
+function tuneFamiliesOf(node: object, at = ''): string[] {
+  return Object.entries(node).flatMap(([k, v]) => {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return [];
+    const path = at ? `${at}.${k}` : k;
+    return isTuneKey(`${path}.probe`) ? [path] : tuneFamiliesOf(v as object, path);
+  });
+}
 
 describe('args — CLI parsing', () => {
   it('parses the full flag set', () => {
@@ -285,9 +312,12 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     // xp.* is a legitimate --set dial; on the --tune surface it is not.
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(TunableError);
     expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(/not an equipment dial/);
-    expect(() => parseArgs(['--tune', 'xp.levelMs=1000'])).toThrow(
-      /gun\.\*, machineGun\.\*, flak\.\*, gunAttenuation\.\*, instantReload\.\*, hunker\.\*, broadside\.\*, torpedo\.\*, mine\.\*, captiveMines\.\*, foulingMines\.\*, countermeasure\.\*, foulingShell\.\*, ram\.\*, starShells\.\*, phosphorShells\.\*, boost\.\*, shipClasses\.\*, drones\.\*, hullRepair\.\*, regen\.\*, armor\.\*, offer\.weighting\.\*, vision\.dropout\.\*, fog\.\*/,
-    );
+    // DERIVED, never enumerated: the families the message names are exactly the
+    // CONFIG blocks the --tune gate (isTuneKey) accepts — a new family moves
+    // both sides at once and this test does not change.
+    const named = listIn(thrown(() => parseArgs(['--tune', 'xp.levelMs=1000'])), 'allowed').map((f) => f.replace(/\*$/, ''));
+    for (const f of named) expect(isTuneKey(`${f}probe`), f).toBe(true);
+    expect(new Set(named)).toEqual(new Set(tuneFamiliesOf(CONFIG).map((p) => `${p}.`)));
     expect(() => applyOverrides({}, { 'zone.stormDps': 8 })).toThrow(/not an equipment dial/);
   });
 
@@ -1472,7 +1502,7 @@ describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
 
   it('refuses an unknown gun (naming the legal set) and a --gun with no bots', () => {
     expect(() => parseArgs(['--bots', '4', '--gun', 'missile'])).toThrow(UsageError);
-    expect(() => parseArgs(['--bots', '4', '--gun', 'missile'])).toThrow(/deckGun, machineGun, flak/);
+    expect(new Set(listIn(thrown(() => parseArgs(['--bots', '4', '--gun', 'missile'])), 'available'))).toEqual(new Set(GUN_IDS));
     // The ENGINE id `gun` is not a seat gun id: the pick is deckGun.
     expect(() => parseArgs(['--bots', '4', '--gun', 'gun'])).toThrow(UsageError);
     expect(() => parseArgs(['--gun', 'flak'])).toThrow(/--gun needs --bots/);

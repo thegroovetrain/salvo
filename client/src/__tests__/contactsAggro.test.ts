@@ -100,25 +100,31 @@ describe('ContactViews — the aggro bracket is wired to Contact.aggro', () => {
     expect(r.cues).toEqual(['acquired']);
   });
 
-  it('losing the key breaks the bracket, sounds ONE release, and clears', async () => {
-    const r = rig();
-    r.store.pushFrame(0, hunter(true));
-    r.views.render(r.store, 0, 0, 16, rosterIndex, plates);
-    // The server stops sending `aggro` — the absence IS the de-aggro.
-    r.store.pushFrame(50, hunter());
-    r.views.render(r.store, 50, 50, 16, rosterIndex, plates);
-    expect(r.cues).toEqual(['acquired', 'released']);
-    const bracket = r.layer.children[1];
-    expect(bracket.visible).toBe(true); // still mid-break
+  it('losing the key breaks the bracket, sounds ONE release, and clears', () => {
+    // The driver clocks off `performance.now()` (one read per render), not the
+    // frame timestamps — so the test owns that clock instead of sleeping.
+    let clock = 1_000;
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => clock);
+    try {
+      const r = rig();
+      r.store.pushFrame(0, hunter(true));
+      r.views.render(r.store, 0, 0, 16, rosterIndex, plates);
+      // The server stops sending `aggro` — the absence IS the de-aggro.
+      r.store.pushFrame(50, hunter());
+      r.views.render(r.store, 50, 50, 16, rosterIndex, plates);
+      expect(r.cues).toEqual(['acquired', 'released']);
+      const bracket = r.layer.children[1];
+      expect(bracket.visible).toBe(true); // still mid-break
 
-    // ...and once the break has run its ~400ms the mark stops drawing. The
-    // driver clocks off `performance.now()`, so wait it out rather than
-    // pretending the frame timestamps drive it.
-    await new Promise((done) => setTimeout(done, A.breakMs + 60));
-    r.store.pushFrame(100, hunter());
-    r.views.render(r.store, 100, 100, 16, rosterIndex, plates);
-    expect(bracket.visible).toBe(false);
-    expect(r.cues).toEqual(['acquired', 'released']); // and nothing further
+      // ...and once the break has run its course the mark stops drawing.
+      clock += A.breakMs + 1;
+      r.store.pushFrame(100, hunter());
+      r.views.render(r.store, 100, 100, 16, rosterIndex, plates);
+      expect(bracket.visible).toBe(false);
+      expect(r.cues).toEqual(['acquired', 'released']); // and nothing further
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('a PRUNED hunter reads as no longer locked — the bracket leaves with the hull', () => {

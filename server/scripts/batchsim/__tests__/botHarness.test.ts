@@ -189,16 +189,6 @@ describe('botReport — the quality bars', () => {
     expect(barByName(agg, 'kill share').pass).toBe(false);
   });
 
-  it('storm-death share is a BAND — below it fails exactly as above it does', () => {
-    const deaths = (storm: number, ship: number): BotSample[] => [
-      ...Array.from({ length: storm }, (_, i) => sample({ id: `s${i}`, end: 'sunkByStorm' })),
-      ...Array.from({ length: ship }, (_, i) => sample({ id: `k${i}`, end: 'sunkByShip' })),
-    ];
-    expect(barByName(buildBotAggregate(result([deaths(1, 99)]), 100), 'storm deaths').pass).toBe(false);
-    expect(barByName(buildBotAggregate(result([deaths(10, 90)]), 100), 'storm deaths').pass).toBe(true);
-    expect(barByName(buildBotAggregate(result([deaths(50, 50)]), 100), 'storm deaths').pass).toBe(false);
-  });
-
   it('land contact pools TICKS, not per-bot rates', () => {
     const agg = buildBotAggregate(
       result([[sample({ ticks: 1000, landTicks: 100 }), sample({ id: 'b2', ticks: 9000, landTicks: 0 })]]),

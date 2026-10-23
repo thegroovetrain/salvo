@@ -224,8 +224,6 @@ function runVariants(
       restore();
     }
   }
-
-  return out;
 }
 
 /** The bot-arm keys of a JsonVariant (null = the default arm). */
