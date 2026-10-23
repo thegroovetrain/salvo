@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.71] - 2026-10-23
+
+### Changed
+- **The harness report and the deferred-work ledger say only what is still true.** Two bot-quality bars that had been retired on paper since August (bots scoring a kill, storm-death share) finally left the batch-sim report; four bars remain. Every one of the 446 open or unmarked entries in the deferred-work ledger was read against the code and stamped resolved, moot, standing record, Eric's call or open-with-owner, by appending only — nothing old was rewritten. The "follow-up review recommended" flag that sat on ~60 specs with zero follow-ups ever run is retired. A stale history comment in the shared barrel that still named the long-gone deck engine is corrected. No gameplay change; the protocol version is unchanged.
+
+### Fixed
+- A new test pins that the server's world and match simulation import nothing from the networking framework (the rule existed; the guard did not). The batch-sim harness type-checks clean again. A client test that slept on a real timer now drives the clock directly.
+
 ## [0.18.70] - 2026-10-22
 
 ### Changed

@@ -160,7 +160,7 @@ Status: done (cycle 150, 0.18.15; PROTOCOL_VERSION 57 → 58; epic-8 amendments 
 
 **Review.** Blind Hunter + Edge Case Hunter (Fable) and Codex `gpt-5.6-sol`: one medium (all three) and ten low patches, all fail-first proven; two deferred; zero rejected. See the Review Triage Log.
 
-**Follow-up review recommended: true** — the patch wave changed the room's drop path (a new `releaseHeld` seam), the burst's ordnance resolution and the client's own-fire attribution; each is pinned, but they were reviewed only by their implementer.
+**Follow-up review recommended: true** — the patch wave changed the room's drop path (a new `releaseHeld` seam), the burst's ordnance resolution and the client's own-fire attribution; each is pinned, but they were reviewed only by their implementer. [2026-10-23, Story 9.16 (cycle 206): flag RETIRED as a category by Eric's ruling — no follow-up was ever run on any of ~60 flagged specs across nine epics; the template no longer sets it. Where the flagged code was since rebuilt by a later gated story (decks → 8.14; the belt → 9.2; chaff → 9.3; the HUD bar → 9.2/9.11), that story's gate is the review. See epic-9 amendment 215.]
 
 **Verification.** `npm run check` exit 0 after the patch wave: shared 934 / server 2097 / client 3708 tests, hooks green; eslint 0 errors (3 pre-existing max-lines warnings). Headless smokes: weaponsSmoke PASS on attempt 1 with the new three-guns phase (cannon 15 / mg 4 / flak 12, reveals `w` cannon / mg / flak, held ticks sent with fireSeq 0), queueSmoke PASS (seat proof over all three gun ids), openingSmoke PASS; queue + opening re-run PASS after the patches.
 

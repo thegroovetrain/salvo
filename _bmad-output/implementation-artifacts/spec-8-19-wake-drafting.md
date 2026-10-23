@@ -152,7 +152,7 @@ Status: done — PR opened, NOT merged (Eric's call).
 
 **Review findings.** Patches applied: 6 (the stern rule after Eric's ruling; sawtooth absorbed; long stern-chase pins; independent perception clause; honest disclosure wording; `setDraft` clamp). Deferred: 1 (harness `draft%` counts occupancy). Rejected: 8 (see the triage log). Cross-model: the lane gap was found by both Fable reviewers and not by Codex; Codex alone raised the clamp (confirmed, fixed) and the scan cost (refuted).
 
-**Follow-up review recommended: true** — the review gate changed the lane's geometry (the stern rule, `hullAheadU`, the arc cut) and rewrote the server steady-state tests; an independent pass over `shared/src/sim/wake.ts` `ribbonLift`/`segmentLift` and `server/src/__tests__/draft.test.ts` would be worth it.
+**Follow-up review recommended: true** — the review gate changed the lane's geometry (the stern rule, `hullAheadU`, the arc cut) and rewrote the server steady-state tests; an independent pass over `shared/src/sim/wake.ts` `ribbonLift`/`segmentLift` and `server/src/__tests__/draft.test.ts` would be worth it. [2026-10-23, Story 9.16 (cycle 206): flag RETIRED as a category by Eric's ruling — no follow-up was ever run on any of ~60 flagged specs across nine epics; the template no longer sets it. Where the flagged code was since rebuilt by a later gated story (decks → 8.14; the belt → 9.2; chaff → 9.3; the HUD bar → 9.2/9.11), that story's gate is the review. See epic-9 amendment 215.]
 
 **Verification.** `npm run check` exit 0 after the review fixes (lint 0 errors / 3 pre-existing warnings; tsc ×3; shared 40 files / 1017 tests, server 80 / 2220, client 115 / 3748; hook test 266). Golden-frame snapshots untouched. No dev server, smoke or batch sim was run.
 
