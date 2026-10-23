@@ -3,7 +3,7 @@
 // Colyseus room needed to exercise every branch.
 
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_GUN, GUN_IDS } from '@salvo/shared';
+import { CONFIG, DEFAULT_GUN, GUN_IDS, mapRadius } from '@salvo/shared';
 import {
   DEV_LIST_MAX,
   NAME_MAX,
@@ -193,6 +193,76 @@ describe('sanitizeRoomOptions — fitOverride (the dev spawn fit)', () => {
   });
 });
 
+
+// --- spawnOverride + matchOverride.fleetWaves (Story 9.15) -------------------
+// The two dev-door keys a SCRIPTED smoke needs: a captain's placement pose and
+// a switch that keeps the PvE wave scheduler out of a scripted fight. Same gate
+// as every dev key; PRODUCTION MUST NEVER SEE EITHER.
+
+describe('sanitizeRoomOptions — spawnOverride (the dev spawn pose)', () => {
+  const R = mapRadius(CONFIG.map.playerCap); // the radius every room's World is built at
+  const POSE = { x: R / 4, y: -R / 8, heading: 1.25 };
+
+  it('is honoured under devEnabled as a fresh pose, nothing reported', () => {
+    const raw = { ...POSE };
+    const out = sanitizeRoomOptions({ spawnOverride: raw }, true);
+    expect(out.sanitized.spawnOverride).toEqual(POSE);
+    expect(out.sanitized.spawnOverride).not.toBe(raw);
+    expect(out.rejectedKeys).toEqual([]);
+  });
+
+  it('wraps the heading into [-π, π) with the shared wrapAngle', () => {
+    const out = sanitizeRoomOptions({ spawnOverride: { ...POSE, heading: POSE.heading + 2 * Math.PI } }, true);
+    expect(out.sanitized.spawnOverride?.heading).toBeCloseTo(POSE.heading, 12);
+  });
+
+  it('is DROPPED and reported without HC_DEV_OPTIONS, whatever its value', () => {
+    const out = sanitizeRoomOptions({ spawnOverride: POSE }, false);
+    expect(out.sanitized.spawnOverride).toBeUndefined();
+    expect(out.rejectedKeys).toEqual(['spawnOverride']);
+  });
+
+  it('is DROPPED and reported under dev when non-finite, non-numeric or outside the map disc', () => {
+    const bad: unknown[] = [
+      { ...POSE, x: NaN },
+      { ...POSE, y: Infinity },
+      { ...POSE, heading: -Infinity },
+      { ...POSE, x: '1' },
+      { x: POSE.x, y: POSE.y },
+      { x: R, y: 1, heading: 0 }, // just outside the disc
+      null,
+      'pose',
+      [POSE.x, POSE.y, POSE.heading],
+    ];
+    for (const v of bad) {
+      const out = sanitizeRoomOptions({ spawnOverride: v as typeof POSE }, true);
+      expect(out.sanitized.spawnOverride, JSON.stringify(v)).toBeUndefined();
+      expect(out.rejectedKeys, JSON.stringify(v)).toEqual(['spawnOverride']);
+    }
+    // ...and the disc edge itself is inside.
+    expect(sanitizeRoomOptions({ spawnOverride: { x: R, y: 0, heading: 0 } }, true).sanitized.spawnOverride)
+      .toEqual({ x: R, y: 0, heading: 0 });
+  });
+
+  it('no rejection noise when the caller passed no pose', () => {
+    expect(sanitizeRoomOptions({}, true).sanitized.spawnOverride).toBeUndefined();
+    expect(sanitizeRoomOptions({}, false).rejectedKeys).toEqual([]);
+  });
+});
+
+describe('sanitizeRoomOptions — matchOverride.fleetWaves (the dev no-fleet switch)', () => {
+  it('fleetWaves: false survives under devEnabled', () => {
+    const out = sanitizeRoomOptions({ matchOverride: { sandbox: true, fleetWaves: false } }, true);
+    expect(out.sanitized.matchOverride?.fleetWaves).toBe(false);
+    expect(out.rejectedKeys).toEqual([]);
+  });
+
+  it('is stripped WITH matchOverride without HC_DEV_OPTIONS', () => {
+    const out = sanitizeRoomOptions({ matchOverride: { fleetWaves: false } }, false);
+    expect(out.sanitized.matchOverride).toBeUndefined();
+    expect(out.rejectedKeys).toEqual(['matchOverride']);
+  });
+});
 
 // --- callsign hardening (Story 2.3 — deferred-work 127/130) ------------------
 

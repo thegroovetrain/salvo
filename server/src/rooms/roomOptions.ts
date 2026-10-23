@@ -9,8 +9,10 @@ import {
   CONFIG,
   DEFAULT_GUN,
   isGunId,
+  mapRadius,
   PROTOCOL_VERSION,
   REGATTA_HUES,
+  wrapAngle,
   type GunId,
   type ZoneTimeline,
 } from '@salvo/shared';
@@ -106,6 +108,27 @@ export interface JoinOptions {
    * behind the same dev gate.
    */
   fitOverride?: readonly string[];
+  /**
+   * DEV SMOKE POSE for tests/smokes only (Story 9.15) — the real client NEVER
+   * sets it, and production never sees it. A captain's PLACEMENT: the World
+   * puts this hull at `(x, y)` facing `heading` at EVERY placement edge it
+   * crosses — the first spawn, the countdown→active redeploy and any respawn —
+   * so a scripted scenario can stand two hulls where it needs them instead of
+   * sailing them there. A placement and nothing else: it never touches hp,
+   * ammo, the fit, or anything `applyDamage` owns, and it never reaches the
+   * wire. Honoured ONLY under HC_DEV_OPTIONS=1 (the `fitOverride` precedent);
+   * otherwise dropped, reported in `rejectedKeys` and logged once. VALUE-
+   * sanitized even when honoured: see sanitizeSpawnPose.
+   */
+  spawnOverride?: { x: number; y: number; heading: number };
+}
+
+/** A sanitized dev placement pose (Story 9.15): finite, inside the map disc,
+ *  heading wrapped to [-π, π). */
+export interface SpawnPose {
+  readonly x: number;
+  readonly y: number;
+  readonly heading: number;
 }
 
 /**
@@ -175,6 +198,43 @@ function admitDevIdList(
 }
 
 /**
+ * A dev placement pose, or undefined when the value is not an object carrying
+ * three FINITE numbers `x`, `y`, `heading` with `(x, y)` inside the map disc
+ * (`mapRadius(CONFIG.map.playerCap)`, the radius every room's World is built
+ * at). A fresh frozen object — nothing downstream aliases the raw join options
+ * — with the heading wrapped by the shared `wrapAngle`. This is a cheap
+ * shape/finite/disc check only; water vs island is judged by the World, which
+ * has the map: a pose on a rock (or within a hull of the edge) is rejected
+ * there, logged as `dev.poseRejected`, and the hull takes the shipped spawn
+ * pick. Overlap between two posed hulls is NOT checked anywhere — that is the
+ * script's responsibility.
+ */
+function sanitizeSpawnPose(v: unknown): SpawnPose | undefined {
+  if (typeof v !== 'object' || v === null) return undefined;
+  const { x, y, heading } = v as { x?: unknown; y?: unknown; heading?: unknown };
+  if (!isFiniteNumber(x) || !isFiniteNumber(y) || !isFiniteNumber(heading)) return undefined;
+  if (Math.hypot(x, y) > mapRadius(CONFIG.map.playerCap)) return undefined;
+  return Object.freeze({ x, y, heading: wrapAngle(heading) });
+}
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+/**
+ * THE DEV SPAWN POSE, gated and reported (Story 9.15) — `admitDevIdList`'s
+ * rule: absent → nothing at all; present but the gate is closed OR the value
+ * is malformed → `undefined` and `'spawnOverride'` pushed onto `rejectedKeys`.
+ * A DROP IS ALWAYS REPORTED, so a mistyped pose never silently sails the ring.
+ */
+function admitSpawnPose(raw: unknown, devEnabled: boolean, rejectedKeys: string[]): SpawnPose | undefined {
+  if (raw === undefined) return undefined;
+  const pose = devEnabled ? sanitizeSpawnPose(raw) : undefined;
+  if (pose === undefined) rejectedKeys.push('spawnOverride');
+  return pose;
+}
+
+/**
  * PROTOCOL_VERSION join gate (story 0.2). Returns null when the client's `pv`
  * matches, else the human-readable rejection message the menu status line
  * renders. A MISSING pv is rejected too — a stale-but-wire-compatible bundle
@@ -220,6 +280,16 @@ export interface MatchOverride {
    */
   mulligan?: boolean;
   sandbox?: boolean;
+  /**
+   * DEV SMOKE ARM (Story 9.15): `false` switches the PvE WAVE SCHEDULER off —
+   * `World.spawnFleetWaves` becomes a no-op, so a scripted fight is never
+   * joined by `CONFIG.fleet.waves` arriving off the zone clock. Only the
+   * boolean `false` disables; absent / anything else is today's schedule. It
+   * rides into the World as `WorldOptions.fleetWaves` (sandbox rooms too — no
+   * Match needed), and is read ONLY by the scheduler: bots, `solo` and
+   * `botFill` are untouched. Dev-gated with the rest of matchOverride.
+   */
+  fleetWaves?: boolean;
 }
 
 /**
@@ -281,6 +351,10 @@ export interface SanitizedRoomOptions {
    *  the deck door was deleted) — shape-sanitized, ids judged by the World.
    *  Present ONLY under HC_DEV_OPTIONS=1; stripped and reported otherwise. */
   fitOverride?: readonly string[];
+  /** THE DEV SPAWN POSE (Story 9.15) — value-sanitized, a captain's placement
+   *  at every edge. Present ONLY under HC_DEV_OPTIONS=1; stripped and reported
+   *  otherwise (and when malformed). */
+  spawnOverride?: SpawnPose;
   /** Clamped group size from the queue; undefined = no boarding expectation
    *  (a directly-created dev/smoke arena). */
   expectedCaptains?: number;
@@ -369,6 +443,7 @@ function sanitizeGated(options: RoomOptions, devEnabled: boolean, trusted: boole
         zoneOverride: options.zoneOverride,
         mapSeed: sanitizeMapSeed(options.mapSeed),
         fitOverride: admitDevIdList(options.fitOverride, true, 'fitOverride', rejectedKeys),
+        spawnOverride: admitSpawnPose(options.spawnOverride, true, rejectedKeys),
         expectedCaptains,
         solo,
       },
@@ -384,6 +459,7 @@ function sanitizeGated(options: RoomOptions, devEnabled: boolean, trusted: boole
   // Reported LAST of the room keys, and only when present (admitDevIdList's
   // absent-means-silent rule) — the gate is closed, so the list is dropped.
   admitDevIdList(options.fitOverride, false, 'fitOverride', rejectedKeys);
+  admitSpawnPose(options.spawnOverride, false, rejectedKeys);
   return { sanitized: { expectedCaptains, solo, mapSeed }, rejectedKeys };
 }
 

@@ -60,6 +60,7 @@ import {
   type JoinOptions,
   type RoomOptions,
   type SanitizedRoomOptions,
+  type SpawnPose,
 } from './roomOptions.js';
 import { stagingGateError } from '../stagingGate.js';
 import { assertSoloCreateAllowed, resetSoloCreateThrottle } from './createThrottle.js';
@@ -383,9 +384,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // The pseudonym seed is fresh per-room adapter entropy (the zoneSeeds
     // posture): track ids must never be derivable from the client-known
     // mapSeed.
+    // fleetWaves (Story 9.15) is read off the SANITIZED matchOverride — the
+    // dev-gated door — not off the Match, so a sandbox room (no Match) honours
+    // it too. Undefined on every production room.
     return new World(seed, CONFIG.map.playerCap, zoneCfg, {
       zoneSeeds,
       pseudonymSeed: (Math.random() * 0xffffffff) >>> 0,
+      fleetWaves: sanitized.matchOverride?.fleetWaves,
     });
   }
 
@@ -917,7 +922,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // deck door and its 4402 are gone): a bad gun coerces to `deckGun` and a
     // dev fit outside HC_DEV_OPTIONS=1 is stripped.
     const gun = this.resolveJoinGun(client, options);
-    const devFit = this.resolveDevFit(client, options);
+    const { devFit, devPose } = this.resolveDevJoin(client, options);
     // THE JOIN ORDINAL IS ROOM STATE, so it is bumped only once the join can
     // no longer be refused. Incrementing it first BURNED an ordinal on every
     // refusal: the next nameless captain came aboard as CAPTAIN-2 with no
@@ -942,7 +947,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // `devFit` (Story 8.10, amendment 65) is EMPTY on every production path —
     // the dev gate strips `fitOverride` and the queue never forwards it — so
     // this is the shipped spawn unless a smoke asked for a pre-fitted weapon.
-    this.world.addShip(client.sessionId, name, 'captain', classId, horn, undefined, gun, devFit);
+    // `devPose` (Story 9.15) likewise: undefined unless a smoke posed the hull.
+    this.world.addShip(client.sessionId, name, 'captain', classId, horn, undefined, gun, devFit, devPose);
 
     // Sandbox mode only (dev smokes): pre-lifecycle interim behavior — the
     // storm starts when the 2nd ship joins. The real lifecycle anchors the
@@ -1011,13 +1017,16 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * silently swallowed, and until now this door threw `rejectedKeys` away, so a
    * smoke that mistyped `fitOverride` saw a ship spawn bare with no line saying
    * why. `sessionId` distinguishes it from the room-create line.
+   *
+   * THE DEV SPAWN POSE (Story 9.15) rides the same admission: `spawnOverride`,
+   * dev-gated and value-sanitized there, undefined on every production path.
    */
-  private resolveDevFit(client: Client, options: JoinOptions): readonly string[] {
+  private resolveDevJoin(client: Client, options: JoinOptions): { devFit: readonly string[]; devPose: SpawnPose | undefined } {
     const { sanitized, rejectedKeys } = sanitizeRoomOptions(options as RoomOptions, process.env.HC_DEV_OPTIONS === '1');
     if (rejectedKeys.length > 0) {
       this.log.warn('join.devOptionsRejected', { rejected: rejectedKeys, sessionId: client.sessionId });
     }
-    return sanitized.fitOverride ?? [];
+    return { devFit: sanitized.fitOverride ?? [], devPose: sanitized.spawnOverride };
   }
 
   /**

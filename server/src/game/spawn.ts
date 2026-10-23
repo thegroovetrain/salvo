@@ -154,6 +154,19 @@ function clearOfIslands(p: Vec2, islands: readonly Island[]): boolean {
   return islandClearance(p, islands) > SPAWN_ISLAND_CLEARANCE;
 }
 
+/**
+ * IS THIS A POINT A HULL MAY BE PLACED AT (Story 9.15 review gate)? Inside the
+ * map disc by a full hull's clearance AND island-clear by the very test the
+ * spawn lattice applies (`clearOfIslands` at SPAWN_ISLAND_CLEARANCE) — one
+ * predicate, so a dev pose is judged by the same water the picker would accept.
+ * `World.placement` gates every dev pose through here; a point that fails falls
+ * back to the shipped pick, which keeps the edges' "island-clear by
+ * construction" claim (and resolveShipPose's induction base) true.
+ */
+export function isSpawnClear(map: MapShape, p: Vec2): boolean {
+  return Math.hypot(p.x, p.y) <= map.radius - SPAWN_ISLAND_CLEARANCE && clearOfIslands(p, map.islands);
+}
+
 function minDistTo(p: Vec2, others: readonly Vec2[]): number {
   let min = Infinity;
   for (const o of others) {
