@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.19.0] - 2026-10-24
+
+### Changed
+- **Epic 9, Tune and Clean, is closed.** Eric accepted the epic at the 2026-10-24 retrospective and set this release to 0.19.0: the big ocean and the storm ladder, six consumable keys, the multi-spectral countermeasure, the fouling shell, ramming, five upgrade tiers with passive healing, ARMOR and ARMOR PIERCING, the twelfths ladder, fog banks, alerts on the water, two tuning passes, the bot posture workover, the audited test suite and the scripted smokes, all as shipped through 0.18.71. No gameplay change in this build; the retrospective record and the tracker stamps ride with it (`epic-9-retro-2026-10-24.md`).
+
 ## [0.18.71] - 2026-10-23
 
 ### Changed
