@@ -18,6 +18,11 @@
     "check:hooks": "bash .claude/hooks/protect-claude-md.test.sh",
     "check": "npm run lint && npx tsc --noEmit -p shared/tsconfig.json && npx tsc --noEmit -p server/tsconfig.json && npx tsc --noEmit -p client/tsconfig.json && npm test && npm run check:hooks"
   },
+  "overrides": {
+    "request-oauth": {
+      "uuid": "^11.1.1"
+    }
+  },
   "devDependencies": {
     "concurrently": "^9.1.0",
     "eslint": "^10.1.0",
