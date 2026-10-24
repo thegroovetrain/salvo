@@ -3,7 +3,7 @@ baseline_commit: 9ed1ed7d
 ---
 # Story 9.17: Dependency Sweep
 
-Status: ready-for-dev
+Status: in-progress
 
 <!-- Created 2026-10-24 by gds-create-story on development @ 9ed1ed7d (0.18.71, PV 91). Every version, advisory count and line number below is a reading of the tree and the npm registry on that date — re-run `npm audit --omit=dev` and `npm outdated` before the first commit; the registry moves daily. This is a CHORE story: no gameplay change, no CONFIG change, no wire change, PV 91 unless a wire type changes. Four of the epic text's premises did not survive the read of the registry; they are named in § Where the epic text is wrong, and the questions they raise are collected at the end for Eric, not scattered. -->
 
@@ -192,6 +192,19 @@ No `engines`, `.node-version`, `.nvmrc` or `NODE_VERSION` anywhere (`render.yaml
 ## Dev Agent Record
 
 ### Agent Model Used
+
+Orchestrator: Claude Fable 5.1 (claude-fable-5-1). Subagents routed per `/orchestrate` (Sonnet mechanical, Opus standard, Fable + Codex gpt-5.6-sol at the gate).
+
+### Eric's rulings at dev-story start (2026-10-24, AskUserQuestion, eight questions)
+
+1. **The elliptic chain: REMOVE `@colyseus/auth` from the production tree until Epic 10** (not the recommended default). With it `@colyseus/admin`, `@colyseus/database` and the `colyseus` meta-package leave; the server depends on `@colyseus/core` + `@colyseus/tools` + `@colyseus/ws-transport` (+ `@colyseus/schema`) directly and imports `createRouter` from `@colyseus/core`. `npm audit --omit=dev` is to read 0. Story 10.1 / 10.2 re-install and re-verify the three packages; the ledger and the amendment say so.
+2. **TypeScript: STOP AT 6.0 this cycle** (not 7.0). The 7.0 defaults are made explicit in the tsconfigs; 7.x is taken when typescript-eslint supports it natively (ledgered with the upstream PR link).
+3. **Node 26**, pinned in `render.yaml` (`NODE_VERSION` both services), root `engines` (upper-bounded) and `@types/node` 26.
+4. **Express 5** (own commit, `@types/express` 5, production-mode curl list + smokes).
+5. **jsdom 30 and concurrently 10 both taken**, one commit each, revert-if-red.
+6. **Vitest 5 `clearMocks`: fix each test**; a workspace-level `clearMocks: false` only for a file built on carry-over, commented and listed in the spec.
+7. **Colyseus comment pins: re-pin only the lines re-verified** by the 8.0 re-verification list; others keep their honest 0.18.13 citation.
+8. **Smokes: all 15 run once against the new stack; the two scripted ones first-try.** A red non-scripted smoke is triaged (known heuristic-pilot flakes ledgered, not fixed here).
 
 ### Debug Log References
 
