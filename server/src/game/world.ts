@@ -1842,7 +1842,7 @@ export class World {
   private readonly fogObserverMemo = { x: NaN, y: NaN, epoch: 0, solid: false };
   /** The clock the current epoch's densities are evaluated at (the last refresh's `now`). */
   private fogEpochTValue = 0;
-  /** Cells evaluated since construction (perf accounting — the fogPerf pin reads it). */
+  /** Cells evaluated since construction (perf accounting — fogField.test.ts's memo-determinism test reads it). */
   private fogCellEvalCount = 0;
   /**
    * THE PSEUDONYM MAP (R3, radar realism cycle): ship id → stable per-match

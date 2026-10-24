@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { isAfloat, CONFIG, hullSilhouette, polygonMaxRadius, transformPolygon, wrapPositive } from '@salvo/shared';
 import { World } from '../game/world.js';
 
@@ -253,5 +255,23 @@ describe('World step — sweep + respawn', () => {
     }
     expect(seen).toEqual([expect.objectContaining({ k: 'spawn', id: 'a' })]);
     expect(w.tickEvents).toEqual([]); // events do not leak across ticks
+  });
+});
+
+// ARCHITECTURE INVARIANT (CLAUDE.md / project-context Engine rules):
+// `game/world.ts` and `game/match.ts` have ZERO Colyseus imports — the room is
+// a thin adapter over a framework-free sim. Read as source text (the
+// damageGate.test.ts idiom); a type-only import counts too.
+describe('World + Match are framework-free', () => {
+  const srcOf = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+  const MOD = String.raw`['"](?:colyseus(?:/[^'"]*)?|@colyseus/[^'"]*)['"]`;
+  const COLYSEUS_IMPORT = new RegExp(String.raw`\bfrom\s*${MOD}|\bimport\s*${MOD}|\b(?:require|import)\s*\(\s*${MOD}`, 'g');
+
+  it('game/world.ts and game/match.ts import nothing from colyseus or @colyseus/*', () => {
+    // The pattern is live: it sees the room adapter's real Colyseus import.
+    expect(srcOf('../rooms/ArenaRoom.ts').match(COLYSEUS_IMPORT)).not.toBeNull();
+    for (const rel of ['../game/world.ts', '../game/match.ts']) {
+      expect(srcOf(rel).match(COLYSEUS_IMPORT), rel).toBeNull();
+    }
   });
 });

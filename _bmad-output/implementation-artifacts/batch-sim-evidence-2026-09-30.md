@@ -48,6 +48,8 @@ By hull: Battleship 0.90 kills / 306 s life, Mine Layer 0.94 / 292 s, Torpedo Bo
 1. **Machine gun bots win half as often as cannon bots** (3.0 % vs 6.7 % win rate, worst mean placement) with an even deal. The pick is random and final (amendment 163); this is the first measurement of the three guns under bots and may be the gun, the bots' machine-gun tactic (hold the trigger inside reach), or both.
 2. **`bulwark` is now the weakest personality** (fewest kills, shortest life, 2.5 % alive) despite ARMOR-first and the most SHIELD BLOCK takes; `trapper` is second-weakest (the pre-8.20 ledger already named it the weak profile). `forager` is the strongest on every column (longest life, most levels, most kills — it farms 4.8 PvE hulls per bot-match).
 3. **The Story 6-4 quality bar "bots scoring ≥ 1 participant kill" reads 49.1 % against its ≥ 60 % bar (FAIL); the other five 6-4 bars pass.** That bar predates the pool, the tastes and the hull unlock; no pre-8.20 pool-era measurement of it exists to say whether this run moved it (the last recorded runs are cycle 128–131, deck era). Eric's call whether the bar still measures what he wants.
+
+> **Answered 2026-10-23 (Story 9.16, cycle 206):** the bar was retired by Eric at the Epic 7 retro (2026-08-27, "6-4-era bars measuring the wrong thing"); the any-kill bar and the storm-death band are removed from botReport.ts; the storm-death count stays as a measurement; the other four bars stay as gates.
 4. Mines: 27k laid, peak 155 live per match (max 259). `mineCount` is the same getter `/metrics` reads; the smoke peak was not sampled by the harness.
 
 ## Ledger status restated

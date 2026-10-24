@@ -124,3 +124,5 @@ a 60% bar; `storm deaths as a share of all bot deaths` 2.1% against a 5–20%
 band). While those are red, class win share is being decided by tactics rather
 than equipment, and equipment proposals built on it are the classic wrong fix.
 The AI work in flight is expected to clear them.
+
+*Correction 2026-10-23 (Story 9.16, cycle 206): the harness now carries FOUR bars; the any-kill bar and the storm-death band were retired (Epic 7 retro ruling) and removed. Storm deaths remain printed as a count.*
