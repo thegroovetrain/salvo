@@ -2490,7 +2490,7 @@ So that I do not re-derive 168 open threads or read a PASS/FAIL bar that measure
 **And** the 12 follow-up-review flags are each either run (a review gate on the story's landed code, findings into the ledger or quiet fixes) or dropped by Eric's ruling, and the spec template loses the flag if he rules it dead
 **And** the `shared/src/index.ts` barrel comment that still names `sim/deck.ts` as the engine is corrected; no gameplay change; both trackers stamped.
 
-### Story 9.17: Dependency Sweep *(inserted 2026-10-23 — `sprint-change-proposal-2026-10-23.md`; replaces How-to-Play and Record in this slot, which moves out of Epic 9; lands after 9.16 merges and closes the epic)*
+### Story 9.17: Dependency Sweep *(inserted 2026-10-23 — `sprint-change-proposal-2026-10-23.md`; replaces How-to-Play and Record in this slot, which moves out of Epic 9; lands after 9.16 merges and closes the epic)* — **CANCELLED 2026-10-24** *(Eric, mid-dev: "Lets cancel this entire story. I'm going to end the epic"; epic-9 amendment 217; Epic 9 closed at 9.16 + `epic-9-retro-2026-10-24.md`; the research and one patch commit stay on branch `worktree-create-story-9-17-dep-sweep` for the Epic 10 correct-course)*
 
 As the operator of a public game,
 I want every production dependency clean of known advisories and every framework on its current major,
