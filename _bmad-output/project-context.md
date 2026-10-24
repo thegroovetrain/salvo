@@ -96,6 +96,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - NO FRIENDLY FIRE: own ordnance never damages own hull (epic-8 amendments 54–55); the only exception is shooting your own mines to trigger them early. The old "torpedoes must outrun every hull" rule is retired.
 - The win check counts afloat PARTICIPANTS (`role !== 'fleet'` — humans AND combat bots contest it; only PvE fleet hulls are excluded), and a sinking hull holds the transition open. Fleet hulls and bots are ordinary ships driven through the same input pipeline — never special-case their physics or visibility.
 - Use the shared math primitives (`wrapPositive` for angles, `segCircleHit` for LOS) — don't hand-roll geometry that already exists.
+- **Never pre-install a module for a future epic** (Eric, epic-9 retro 2026-10-24, amendment 217): a dependency lands in the story that mounts it. Story 8.0's unmounted `@colyseus/auth` / `@colyseus/database` dragged an account decision into the 9.17 dependency sweep and killed the story.
 - Plans are one unit of work — never split into multiple PRs without explicit advance approval; halt on ANY error and surface it rather than working around it.
 - **`CLAUDE.md` is FROZEN and hook-enforced** (Eric, 2026-09-14): a `PreToolUse` hook (`.claude/hooks/protect-claude-md.sh`) denies every edit; only Eric lifts it. New agent rules go HERE or to auto-memory; rulings to `epic-N-context-amendments.md`. Long-form context that used to live there is archived (not auto-loaded) in `docs/codebase-map.md`, `docs/key-decisions.md`, `docs/deploy.md`.
 
@@ -116,4 +117,4 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Update when the technology stack or architecture invariants change
 - Review periodically for outdated rules; remove rules that become obvious over time
 
-Last Updated: 2026-10-06 (epic-8 retro: PV, offers, dev-server, friendly-fire lines corrected; test-contract rule added)
+Last Updated: 2026-10-24 (epic-9 retro: never-pre-install rule added)
