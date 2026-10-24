@@ -104,6 +104,14 @@ import {
   type LobbyHooks,
   type LobbyView,
 } from '../net/lobby.js';
+import { connectErrorStatus, QueueError } from '../net/connection.js';
+
+/** The home status lines a failure maps to, read off the ONE mapper rather than
+ *  typed: which BRANCH a failure lands on is the contract, the wording is Eric's
+ *  (Story 9.14, ruling R3). */
+const VERSION_GATE = connectErrorStatus({ code: 525 });
+const QUEUE_CLOSED = connectErrorStatus(new QueueError('closed'));
+const CONNECTION_FAILED = connectErrorStatus(new Error('unreachable'));
 
 function hooks(): LobbyHooks & { views: LobbyView[]; calls: string[] } {
   const views: LobbyView[] = [];
@@ -267,7 +275,7 @@ describe('CREATE', () => {
     createRejection = Object.assign(new Error('version mismatch'), { code: 525 });
     const h = hooks();
     expect(await createLobby({}, h)).toBeNull();
-    expect(h.calls).toEqual(['error:VERSION MISMATCH — PLEASE REFRESH THE PAGE']);
+    expect(h.calls).toEqual([`error:${VERSION_GATE}`]);
   });
 
   it('the seat hands off to the arena through the queue path stage 2', async () => {
@@ -293,7 +301,7 @@ describe('CREATE', () => {
     lobbyRoom.fireError(4000);
     lobbyRoom.fireLeave(4000);
     expect(await pending).toBeNull();
-    expect(h.calls).toEqual(['error:QUEUE CLOSED — PLEASE TRY AGAIN']);
+    expect(h.calls).toEqual([`error:${QUEUE_CLOSED}`]);
   });
 
   it('LEAVE settles at once even if the socket never reports its close', async () => {
@@ -404,20 +412,20 @@ describe('JOIN', () => {
     joinByIdRejection = Object.assign(new Error('version mismatch'), { code: 525 });
     const h = hooks();
     expect(await joinLobby('QWERTY', {}, h)).toBeNull();
-    expect(h.calls).toEqual(['error:VERSION MISMATCH — PLEASE REFRESH THE PAGE']);
+    expect(h.calls).toEqual([`error:${VERSION_GATE}`]);
   });
 
   it('an unreachable resolve route is a connection failure, not a refusal', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))));
     const h = hooks();
     expect(await joinLobby('QWERTY', {}, h)).toBeNull();
-    expect(h.calls).toEqual(['error:CONNECTION FAILED — IS THE SERVER RUNNING ON :2567?']);
+    expect(h.calls).toEqual([`error:${CONNECTION_FAILED}`]);
   });
 
   it('a garbled resolve answer is a connection failure, never a guessed refusal', async () => {
     stubFetch(500, { error: 'boom' });
     const h = hooks();
     expect(await joinLobby('QWERTY', {}, h)).toBeNull();
-    expect(h.calls).toEqual(['error:CONNECTION FAILED — IS THE SERVER RUNNING ON :2567?']);
+    expect(h.calls).toEqual([`error:${CONNECTION_FAILED}`]);
   });
 });

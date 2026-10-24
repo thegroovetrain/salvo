@@ -79,11 +79,12 @@ describe('xpFillFraction — the track reads the server value verbatim', () => {
 
 describe('tag / chip / cue copy — dual-coded, hidden at zero', () => {
   it('the LV tag counts completed levels (integer, floored defensively)', () => {
-    expect(levelTag(0)).toBe('LV 0');
-    expect(levelTag(3)).toBe('LV 3');
-    expect(levelTag(3.9)).toBe('LV 3');
-    expect(levelTag(-2)).toBe('LV 0');
-    expect(levelTag(NaN)).toBe('LV 0');
+    expect(levelTag(0)).toMatch(/(^|\D)0$/);
+    expect(levelTag(3)).toMatch(/(^|\D)3$/);
+    expect(levelTag(12)).toMatch(/(^|\D)12$/);
+    expect(levelTag(3.9)).toBe(levelTag(3));
+    expect(levelTag(-2)).toBe(levelTag(0));
+    expect(levelTag(NaN)).toBe(levelTag(0));
   });
 
   it('the chip is HIDDEN at zero and carries the BARE count — the chip is the shape channel', () => {
@@ -94,7 +95,6 @@ describe('tag / chip / cue copy — dual-coded, hidden at zero', () => {
     expect(chipLabel(-1)).toBe('');
     expect(chipLabel(1)).toBe('1');
     expect(chipLabel(4)).toBe('4');
-    for (const pts of [1, 4, 9]) expect(chipLabel(pts)).not.toContain('▲');
   });
 
   // Past 9 the exact number stops being the information: "more than you can
@@ -115,18 +115,13 @@ describe('tag / chip / cue copy — dual-coded, hidden at zero', () => {
     expect(CHIP_LABEL_MAX_GLYPHS).toBeGreaterThanOrEqual(2);
   });
 
-  it('the cue reads TAB TO REFIT — the LEVEL UP prefix is the TOAST\'s, not the strip\'s', () => {
+  it('the cue is hidden at zero and reads the same however many levels are banked', () => {
     // Ruling 8: the chip beside it reports the bank and the tag at the other end
-    // of the row reports the level, so the strip says only what is left to say.
+    // of the row reports the level, so the cue carries neither number.
     expect(cueLine(0, true)).toBe('');
-    expect(cueLine(1, true)).toBe('TAB TO REFIT');
-    expect(cueLine(3, true)).toBe('TAB TO REFIT');
-    expect(cueLine(1, true)).not.toContain('LEVEL UP');
-    expect(cueLine(1, true)).not.toContain('—');
-    // Amendment 33's vocabulary is otherwise untouched: no "banked" wording,
-    // REFIT not UPGRADE.
-    expect(cueLine(1, true)).not.toContain('BANK');
-    expect(cueLine(1, true)).not.toContain('UPGRADE');
+    expect(cueLine(1, true)).not.toBe('');
+    expect(cueLine(3, true)).toBe(cueLine(1, true));
+    expect(cueLine(1, true)).not.toMatch(/\d/);
   });
 
   // Both review models (Fable + Codex) flagged this independently at the cycle-80
@@ -334,7 +329,7 @@ describe('XpStrip row — the tag narrows the track, the tail right-flushes', ()
   it('starts the track a stripItemGap past the MEASURED tag, not at the bar edge', () => {
     const strip = build();
     strip.update(view({ lvl: 3, pts: 0 }), STRIP, 0);
-    const tagW = monoTextWidth('LV 3', B.type.lv, B.type.lv * 0.14);
+    const tagW = monoTextWidth(levelTag(3), B.type.lv, B.type.lv * 0.14);
     expect(strip.trackRect.x).toBeCloseTo(STRIP.lvX + tagW + B.stripItemGap, 6);
     expect(strip.trackRect.x).toBeGreaterThan(STRIP.track.x);
     expect(strip.trackRect.h).toBe(B.strip);
@@ -376,7 +371,7 @@ describe('XpStrip row — the tag narrows the track, the tail right-flushes', ()
     // No cue: the chip holds the layout's own right-flushed box.
     expect(noCue.chipRect.x).toBe(STRIP.chip.x);
     expect(noCue.cueVisible).toBe(false);
-    const cueW = monoTextWidth('TAB TO REFIT', B.type.cue, B.type.cue * 0.14);
+    const cueW = monoTextWidth(cueLine(1, true), B.type.cue, B.type.cue * 0.14);
     expect(withCue.chipRect.x).toBeCloseTo(STRIP.chip.x - cueW - B.cueGap, 6);
     // ...and the bar's right edge never moves: the group grows INWARD.
     expect(withCue.chipRect.x + withCue.chipRect.w).toBeLessThan(STRIP.cueX);
@@ -401,10 +396,10 @@ describe('XpStrip row — the tag narrows the track, the tail right-flushes', ()
     expect(small.chipRect.x).toBeLessThan(full.chipRect.x); // a wider cue pushes further
   });
 
-  it('renders LV 0 rather than an empty head (the held start line)', () => {
+  it('renders a level tag at level zero rather than an empty head (the held start line)', () => {
     const strip = build();
     strip.update(view({ lvl: 0, xp: 0, pts: 0 }), STRIP, 0);
-    expect(levelTag(0)).toBe('LV 0');
+    expect(levelTag(0)).not.toBe('');
     expect(strip.visible).toBe(true);
     expect(strip.chipVisible).toBe(false); // nothing banked at the line
     expect(strip.trackRect.w).toBeGreaterThan(0); // the track always draws

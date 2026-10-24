@@ -24,7 +24,8 @@ Make fights last long enough to be fights and make breaking off a real option. E
 - Story 9.14: Test Purposefulness Audit (was 9.9, 9.10 until 2026-10-14)
 - Story 9.15: Smoke Flakes Fixed (was 9.10, 9.11 until 2026-10-14)
 - Story 9.16: Harness and Ledger Hygiene (was 9.11, 9.12 until 2026-10-14)
-- Story 9.17: How-to-Play and Record (was 9.12, 9.13 until 2026-10-14)
+- Story 9.17: Dependency Sweep (inserted 2026-10-23 — `sprint-change-proposal-2026-10-23.md`; CANCELLED by Eric 2026-10-24 mid-dev, amendment 217; the epic closed at 9.16 + the 2026-10-24 retro)
+- Moved out of Epic 9 2026-10-23: How-to-Play and Record (was 9.17) → the Epic 10 correct-course, text kept in epics.md
 - Cancelled 2026-10-11 (do not re-propose): the original 9.2 Speed Boost and 9.3 Healing Buoy. Cancelled 2026-10-13: the optional 9.7 Depth Charge (`sprint-change-proposal-2026-10-13.md`); its `depthCharge` stub consumable line stays, no key `7` is reserved.
 
 ## Requirements & Constraints

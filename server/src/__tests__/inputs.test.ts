@@ -278,7 +278,7 @@ describe('InputStore', () => {
     expect(store.ackFor('a')).toBe(3);
   });
 
-  it('rate-caps at 40 messages per second per client', () => {
+  it('rate-caps each client at INPUT_RATE_CAP messages per window, independently per client, until the window rolls over', () => {
     const store = new InputStore();
     for (let i = 1; i <= INPUT_RATE_CAP; i++) {
       expect(store.submit('a', valid(i), 0)).toBe(true);

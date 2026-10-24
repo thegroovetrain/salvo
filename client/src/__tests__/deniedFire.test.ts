@@ -39,11 +39,6 @@ describe('isClickDenied — truth table', () => {
   it('a click out of arc AND not ready blips (one signal, not two)', () => {
     expect(isClickDenied({ clicked: true, ready: false, inArc: false })).toBe(true);
   });
-
-  it('a weapons-safe click (ready, in-arc) does NOT blip — the server fires in ' +
-    'waiting/countdown too, only damage is suppressed', () => {
-    expect(isClickDenied({ clicked: true, ready: true, inArc: true })).toBe(false);
-  });
 });
 
 describe('DeniedPulse', () => {

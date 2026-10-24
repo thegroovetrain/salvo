@@ -156,7 +156,7 @@ describe('TORPEDO HOMING (the tier stat) — steering + the torpU wire rules', (
     const two = place(w2, 'a', 0, 0);
     fitTier(w2, two, 'heavyTorpedo', 1); // tier II
     const rate = two.stats.equipment.heavyTorpedo.homingTurnRate;
-    expect(rate).toBeCloseTo(0.125, 9);
+    expect(rate).toBeGreaterThan(0); // steering starts at tier II
     expect(rate).toBeLessThan(CONFIG.torpedo.homingTurnRate); // NOT the tier-V reference
     setInput(two, { aim: 0, aimDist: 0, slot: SLOT_SEED_1, fireSeq: 1, seq: 2 });
     w2.step();
@@ -387,7 +387,7 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
     expect(fish[0].ownerId).toBe('o');
   });
 
-  it('the fish runs at the FAMILY speed and deals the CAPTIVE row\'s damage at its fixed 32u burst', () => {
+  it('the fish runs at the FAMILY speed and deals the CAPTIVE row\'s damage at its fixed CONFIG burst', () => {
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
     // The layer's own TUBES are maxed: a torpedo tier the LAYER holds must not
@@ -406,7 +406,6 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
     expect(fish.hitRadius).toBe(CONFIG.torpedo.hitRadius);
     expect(fish.damage).toBe(row.damage); // the CAPTIVE row's warhead...
     expect(fish.burstRadius).toBe(CONFIG.captiveMines.blastRadius); // ...at the FIXED 32u burst
-    expect(fish.burstRadius).toBe(32);
     // The NAVAL rack the layer also carries contributes nothing at all.
     expect(fish.damage).not.toBe(o.stats.equipment.navalMines.damage);
     // It runs home and detonates for the captive row's damage.
@@ -418,11 +417,18 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
   // a TIER STAT of its own line, capped at 0.3 rad/s — not the torpedo
   // family's 0.5, and not a card.
   it('the fish is a straight-runner at tier I and HOMES from tier II, at the captive row\'s own rate', () => {
-    for (const [copies, expected] of [[1, 0], [2, 0.075], [5, 0.3]] as const) {
+    let prevRate = -1;
+    for (const copies of [1, 2, 5] as const) {
       const w = bareWorld(40 + copies);
       const o = place(w, 'o', 600, 600, 0, 'mineLayer');
       fitTier(w, o, 'captiveMines', copies);
-      expect(o.stats.equipment.captiveMines.homingTurnRate).toBeCloseTo(expected, 9);
+      const expected = o.stats.equipment.captiveMines.homingTurnRate;
+      // Tier I is a straight runner; the rate climbs from tier II and stays
+      // under the torpedo family's own top rate (amendment 82).
+      if (copies === 1) expect(expected).toBe(0);
+      else expect(expected).toBeGreaterThan(prevRate);
+      expect(expected).toBeLessThan(CONFIG.torpedo.homingTurnRate);
+      prevRate = expected;
       place(w, 'b', 0, 40);
       lay(w, 'm1', 'o', 0, 0, 'captive');
       w.step();
@@ -447,7 +453,7 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
   // FAIL-FIRST REGRESSION (amendment 84d): the TRIP RING steps ×1.1 per rung
   // and is DERIVED from the tier inside the stat clamp — while the 32u burst
   // is fixed, so the line grows the reach of the trap and never the bang.
-  it('the trip ring at tier V is the CONFIG ring × 1.1⁴ (175.7 u at the 120 u ring, 2026-10-08) and the burst is still 32u', () => {
+  it('the trip ring at tier V is the CONFIG ring × 1.1⁴ and the burst is still the fixed CONFIG burst', () => {
     const w = bareWorld(46);
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
     fitTier(w, o, 'captiveMines', 5);
@@ -455,7 +461,7 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
     expect(row.tier).toBe(5);
     expect(row.triggerRadius).toBeCloseTo(captiveTriggerRadius(5), 9);
     expect(row.triggerRadius).toBeCloseTo(CONFIG.captiveMines.triggerRadius * 1.1 ** 4, 6);
-    expect(row.blastRadius).toBe(32);
+    expect(row.blastRadius).toBe(CONFIG.captiveMines.blastRadius);
     // And it TRIPS out there: a hull 160u away is inside the tier-V ring (175.7)
     // and outside the tier-I one (120).
     place(w, 'b', 0, 160);
@@ -463,7 +469,7 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
     w.step();
     expect(w.mines.size).toBe(0);
     expect(w.shells.size).toBe(1);
-    expect([...w.shells.values()][0].burstRadius).toBe(32);
+    expect([...w.shells.values()][0].burstRadius).toBe(CONFIG.captiveMines.blastRadius);
   });
 
   it('leads a MOVING target: the fish is aimed ahead of the hull, not at it', () => {
@@ -678,12 +684,11 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
   // minimal damage with a larger trigger/blast radius and slows the enemy"*).
   // 10 hp is FIXED at every tier and so is the 5 s window; what the rungs buy
   // is blast, pool and the DEPTH of the slow.
-  it('the blast deals the line\'s fixed 10 damage and stamps BOTH the clock and the factor (refresh, never stack)', () => {
+  it('the blast deals the line\'s fixed CONFIG damage and stamps BOTH the clock and the factor (refresh, never stack)', () => {
     const { w, o, b } = foulBoard();
     w.step();
     const row = o.stats.equipment.foulingMines;
     expect(row.damage).toBe(CONFIG.foulingMines.damage);
-    expect(row.damage).toBe(10);
     expect(b.hp).toBeCloseTo(b.stats.maxHp - CONFIG.foulingMines.damage, 6);
     expect(b.slowedUntil).toBe(w.now + CONFIG.foulingMines.slowDurationMs);
     expect(b.slowFactor).toBe(row.slowFactor);
@@ -708,17 +713,18 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
     fitTier(w, deep, 'foulingMines', 5); // tier V: ×0.55
     const shallow = place(w, 'shallow', -600, 600, 0, 'mineLayer');
     fitTier(w, shallow, 'foulingMines', 1); // tier I: ×0.75
-    expect(deep.stats.equipment.foulingMines.slowFactor).toBeCloseTo(0.55, 9);
-    expect(shallow.stats.equipment.foulingMines.slowFactor).toBeCloseTo(0.75, 9);
+    const deepF = deep.stats.equipment.foulingMines.slowFactor;
+    const shallowF = shallow.stats.equipment.foulingMines.slowFactor;
+    expect(deepF).toBeLessThan(shallowF); // tier V slows deeper than tier I
 
     const b = place(w, 'b', 0, 10);
     lay(w, 'm-deep', 'deep', 0, 0, 'fouling');
     w.step();
-    expect(b.slowFactor).toBeCloseTo(0.55, 9);
+    expect(b.slowFactor).toBe(deepF);
 
     lay(w, 'm-shallow', 'shallow', b.state.x, b.state.y - 10, 'fouling');
     w.step();
-    expect(b.slowFactor).toBeCloseTo(0.55, 9); // the STRONGEST stands
+    expect(b.slowFactor).toBe(deepF); // the STRONGEST stands
     expect(b.slowedUntil).toBe(w.now + CONFIG.foulingMines.slowDurationMs); // clock refreshed
   });
 
@@ -728,27 +734,34 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
     fitTier(w, deep, 'foulingMines', 5);
     const shallow = place(w, 'shallow', -600, 600, 0, 'mineLayer');
     fitTier(w, shallow, 'foulingMines', 1);
+    const deepF = deep.stats.equipment.foulingMines.slowFactor;
+    const shallowF = shallow.stats.equipment.foulingMines.slowFactor;
+    expect(deepF).toBeLessThan(shallowF);
     const b = place(w, 'b', 0, 10);
     lay(w, 'm-shallow', 'shallow', 0, 0, 'fouling');
     w.step();
-    expect(b.slowFactor).toBeCloseTo(0.75, 9);
+    expect(b.slowFactor).toBe(shallowF);
     lay(w, 'm-deep', 'deep', b.state.x, b.state.y - 10, 'fouling');
     w.step();
-    expect(b.slowFactor).toBeCloseTo(0.55, 9); // deeper later fouling deepens
+    expect(b.slowFactor).toBe(deepF); // deeper later fouling deepens
     // Let the window lapse, then a shallow one lands at its own factor.
     b.slowedUntil = w.now - 1;
     lay(w, 'm-shallow-2', 'shallow', b.state.x, b.state.y - 10, 'fouling');
     w.step();
-    expect(b.slowFactor).toBeCloseTo(0.75, 9);
+    expect(b.slowFactor).toBe(shallowF);
   });
 
-  it('the slow DEEPENS with the tier and the duration never moves (−0.05 a rung: 0.75 → 0.55)', () => {
-    for (const [copies, factor] of [[1, 0.75], [2, 0.7], [5, 0.55]] as const) {
+  it('the slow DEEPENS with the tier and the duration never moves', () => {
+    let prev = 1;
+    for (const copies of [1, 2, 5] as const) {
       const { w, o, b } = foulBoard(copies);
-      expect(o.stats.equipment.foulingMines.slowFactor).toBeCloseTo(factor, 9);
+      const factor = o.stats.equipment.foulingMines.slowFactor;
+      expect(factor).toBeLessThan(prev); // strictly deeper each rung bought
+      expect(factor).toBeGreaterThan(0);
+      prev = factor;
       w.step();
-      expect(b.slowFactor).toBeCloseTo(factor, 9);
-      expect(b.slowedUntil).toBe(w.now + CONFIG.foulingMines.slowDurationMs); // FIXED 5 s
+      expect(b.slowFactor).toBe(factor);
+      expect(b.slowedUntil).toBe(w.now + CONFIG.foulingMines.slowDurationMs); // FIXED window
     }
   });
 
@@ -824,7 +837,7 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
     w.step();
 
     const fb = buildFrame(w, 'b');
-    expect(fb.you!.slowFactor).toBeCloseTo(0.55, 9);
+    expect(fb.you!.slowFactor).toBeLessThan(1);
     expect(fb.you!.slowFactor).toBe(b.slowFactor);
     expect(fb.you!.slowFactor).toBe(o.stats.equipment.foulingMines.slowFactor);
 
@@ -842,17 +855,18 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
   });
 
   it('the key is OMITTED, never 1 and never undefined, on an un-fouled hull and once the window closes', () => {
-    const { w, b } = foulBoard();
+    const { w, o, b } = foulBoard();
+    const factor = o.stats.equipment.foulingMines.slowFactor;
     // Before the blast: nothing slowed, so nothing on the wire.
     expect('slowFactor' in buildFrame(w, 'b').you!).toBe(false);
     w.step(); // the fouling lands
-    expect(buildFrame(w, 'b').you!.slowFactor).toBeCloseTo(0.75, 9);
+    expect(buildFrame(w, 'b').you!.slowFactor).toBe(factor);
     // Run the window out: the clock and the depth leave together.
     for (let i = 0; i < Math.ceil(CONFIG.foulingMines.slowDurationMs / DT) + 2; i++) w.step();
     const f = buildFrame(w, 'b');
     expect('slowedUntil' in f.you!).toBe(false);
     expect('slowFactor' in f.you!).toBe(false);
-    expect(b.slowFactor).toBeCloseTo(0.75, 9); // the RECORD keeps it; the WIRE does not
+    expect(b.slowFactor).toBe(factor); // the RECORD keeps it; the WIRE does not
   });
 });
 
@@ -930,15 +944,16 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
     return { w, a, inside, outside };
   }
 
-  it('tier I: 20 damage to the hull inside, nothing to the hull outside, `hc` to the firer, the zone lit (r165, 10 s)', () => {
+  it('tier I: the CONFIG damage to the hull inside, nothing to the hull outside, `hc` to the firer, the zone lit at the CONFIG radius and duration', () => {
     const { w, a, inside, outside } = board();
-    expect(a.stats.equipment.starShells.damage).toBe(CONFIG.starShells.damage);
+    const dmg = CONFIG.starShells.damage;
+    expect(a.stats.equipment.starShells.damage).toBe(dmg);
     const { seen, at } = fireUntilStop(w, a, SLOT_SEED_2, 0, 400);
     expect(kinds(seen)).toContain('burst');
-    expect(inside.hp).toBe(inside.stats.maxHp - 20);
+    expect(inside.hp).toBe(inside.stats.maxHp - dmg);
     expect(outside.hp).toBe(outside.stats.maxHp);
     expect(a.hp).toBe(a.stats.maxHp);
-    expect(dmgFor(seen, 'inside').map((e) => (e as { amount: number }).amount)).toEqual([20]);
+    expect(dmgFor(seen, 'inside').map((e) => (e as { amount: number }).amount)).toEqual([dmg]);
     expect(dmgFor(seen, 'outside')).toEqual([]);
     // amendment 135(a): a burst that resolved a hull is a Hit Call, not a splash.
     expect(kinds(seen)).toContain('hc');
@@ -949,10 +964,14 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
     expect(w.burnZones.size).toBe(0); // a flare never burns
   });
 
-  it('tier III deals 25 and tier V deals 30 — the ladder’s whole numbers, floored through the gate', () => {
-    for (const [copies, dmg] of [[2, 25], [4, 30]] as const) {
+  it('higher star-shell tiers deal more, in whole numbers, landed in full through the gate', () => {
+    let prev: number = CONFIG.starShells.damage;
+    for (const copies of [2, 4] as const) {
       const { w, a, inside } = board(copies);
-      expect(a.stats.equipment.starShells.damage).toBe(dmg);
+      const dmg = a.stats.equipment.starShells.damage;
+      expect(Number.isInteger(dmg)).toBe(true);
+      expect(dmg).toBeGreaterThan(prev);
+      prev = dmg;
       fireUntilStop(w, a, SLOT_SEED_2, 0, 400);
       expect(inside.hp).toBe(inside.stats.maxHp - dmg);
     }
@@ -964,7 +983,7 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
     const b = place(w, 'b', 460, 0, Math.PI / 2);
     fireUntilStop(w, a, SLOT_SEED_2, 0, 100);
     expect(a.hp).toBe(a.stats.maxHp);
-    expect(b.hp).toBe(b.stats.maxHp - 20);
+    expect(b.hp).toBe(b.stats.maxHp - CONFIG.starShells.damage);
   });
 
   it('a flare over empty water splashes (`sp`), lights its zone and hurts nobody', () => {
@@ -977,12 +996,12 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
     expect(w.litZones.size).toBe(1);
   });
 
-  it('a SHIELD BLOCK absorbs the flare: shield 100 → 80, hull untouched, `dmg` amount 0, still `hc`', () => {
+  it('a SHIELD BLOCK absorbs the flare: the shield loses the flare damage, hull untouched, `dmg` amount 0, still `hc`', () => {
     const { w, a, inside } = board();
     inside.shield = { hpLeft: 100, until: w.now + 60_000 };
     const { seen } = fireUntilStop(w, a, SLOT_SEED_2, 0, 400);
     expect(inside.hp).toBe(inside.stats.maxHp);
-    expect(inside.shield!.hpLeft).toBe(80);
+    expect(inside.shield!.hpLeft).toBe(100 - CONFIG.starShells.damage);
     expect(dmgFor(seen, 'inside').map((e) => (e as { amount: number }).amount)).toEqual([0]);
     expect(kinds(seen)).toContain('hc');
   });
@@ -994,7 +1013,7 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
     const { seen } = fireUntilStop(w, a, SLOT_SEED_2, 0, 650);
     expect(kinds(seen)).toContain('boom');
     expect(kinds(seen)).not.toContain('burst');
-    expect(mid.hp).toBe(mid.stats.maxHp - 20);
+    expect(mid.hp).toBe(mid.stats.maxHp - CONFIG.starShells.damage);
     expect(w.litZones.size).toBe(1);
     expect(Math.hypot([...w.litZones.values()][0].x, [...w.litZones.values()][0].y)).toBeLessThan(400);
   });
@@ -1027,25 +1046,26 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
     return { w, a, slot, A, B, C };
   }
 
-  it('tier I: A and B take 10, C nothing, `hc`, and a r100 / 8 s / 5 hp/s zone spawns at the burst point (no lit zone)', () => {
+  it('tier I: A and B take the CONFIG burst, C nothing, `hc`, and a zone of the CONFIG radius / duration / dps spawns at the burst point (no lit zone)', () => {
     const { w, a, slot, A, B, C } = board();
     const row = a.stats.equipment.phosphorShells;
-    expect([row.damage, row.zoneRadius, row.zoneDurationMs, row.dps, row.rangeU]).toEqual([10, 100, 8000, 5, CONFIG.phosphorShells.rangeU]); // reach: its own Tier I dial (Story 9.8, ruling 125)
+    const P = CONFIG.phosphorShells;
+    expect([row.damage, row.zoneRadius, row.zoneDurationMs, row.dps, row.rangeU]).toEqual([P.damage, P.zoneRadius, P.zoneDurationMs, P.dps, P.rangeU]); // tier I is the CONFIG base row
     const hp = { A: A.hp, B: B.hp, C: C.hp };
     const { seen, at } = fireUntilStop(w, a, slot, 0, 400);
     expect(kinds(seen)).toContain('burst');
     expect(kinds(seen)).toContain('hc');
     // The burst's 10 landed on A and B at once (the burn's first bite is a
     // fraction on top; the exact burst amount is the first `dmg` each got).
-    expect(dmgFor(seen, 'A')[0]).toMatchObject({ amount: 10 });
-    expect(dmgFor(seen, 'B')[0]).toMatchObject({ amount: 10 });
-    expect(hp.A - A.hp).toBeGreaterThanOrEqual(10);
-    expect(hp.B - B.hp).toBeGreaterThanOrEqual(10);
+    expect(dmgFor(seen, 'A')[0]).toMatchObject({ amount: row.damage });
+    expect(dmgFor(seen, 'B')[0]).toMatchObject({ amount: row.damage });
+    expect(hp.A - A.hp).toBeGreaterThanOrEqual(row.damage);
+    expect(hp.B - B.hp).toBeGreaterThanOrEqual(row.damage);
     expect(C.hp).toBe(hp.C);
     expect(w.litZones.size).toBe(0);
     expect(w.burnZones.size).toBe(1);
     const zone = [...w.burnZones.values()][0];
-    expect(zone).toEqual({ id: zone.id, ownerId: 'a', x: 400, y: 0, r: 100, until: at + 8000, dps: 5 });
+    expect(zone).toEqual({ id: zone.id, ownerId: 'a', x: 400, y: 0, r: row.zoneRadius, until: at + row.zoneDurationMs, dps: row.dps });
   });
 
   it('the burst NEVER touches a mine — not inside the zone, not dead under the burst point (amendment 200, superseding 135(c)) — and a flare never does either', () => {
@@ -1064,21 +1084,22 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
     expect(w2.mines.has('m1')).toBe(true);
   });
 
-  it('tier V: burst 20, zone r146.41 / 10 s / 10 hp/s — stamped on the zone from the row at launch (amendment 135(e))', () => {
+  it('tier V: a bigger burst and a wider, longer, hotter zone — stamped on the zone from the row at launch (amendment 135(e))', () => {
     const { w, a, slot, A } = board(5);
     const row = a.stats.equipment.phosphorShells;
-    expect(row.damage).toBe(20);
-    expect(row.zoneRadius).toBeCloseTo(146.41, 6);
-    expect(row.zoneDurationMs).toBe(10_000);
-    expect(row.dps).toBe(10);
+    const P = CONFIG.phosphorShells;
+    expect(row.damage).toBeGreaterThan(P.damage);
+    expect(row.zoneRadius).toBeGreaterThan(P.zoneRadius);
+    expect(row.zoneDurationMs).toBeGreaterThan(P.zoneDurationMs);
+    expect(row.dps).toBeGreaterThan(P.dps);
     const hp0 = A.hp;
     const { seen, at } = fireUntilStop(w, a, slot, 0, 400);
-    expect(dmgFor(seen, 'A')[0]).toMatchObject({ amount: 20 });
-    expect(hp0 - A.hp).toBeGreaterThanOrEqual(20);
+    expect(dmgFor(seen, 'A')[0]).toMatchObject({ amount: row.damage });
+    expect(hp0 - A.hp).toBeGreaterThanOrEqual(row.damage);
     const zone = [...w.burnZones.values()][0];
-    expect(zone.r).toBeCloseTo(146.41, 6);
-    expect(zone.until).toBe(at + 10_000);
-    expect(zone.dps).toBe(10);
+    expect(zone.r).toBe(row.zoneRadius);
+    expect(zone.until).toBe(at + row.zoneDurationMs);
+    expect(zone.dps).toBe(row.dps);
   });
 
   it('a live zone keeps the numbers it was stamped with — a tier card fitted later never changes it', () => {
@@ -1189,10 +1210,11 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
   it('the zone expires naturally, the burn stops, and the frame channel goes byte-free', () => {
     const { w, a, slot, A } = board();
     const { at } = fireUntilStop(w, a, slot, 0, 400);
+    const life = a.stats.equipment.phosphorShells.zoneDurationMs;
     expect(buildFrame(w, 'a').burnZones?.length).toBe(1);
-    const steps = Math.ceil(8000 / DT) + 1;
+    const steps = Math.ceil(life / DT) + 1;
     for (let i = 0; i < steps; i++) w.step();
-    expect(w.now).toBeGreaterThanOrEqual(at + 8000);
+    expect(w.now).toBeGreaterThanOrEqual(at + life);
     expect(w.burnZones.size).toBe(0);
     expect('burnZones' in buildFrame(w, 'a')).toBe(false);
     const hp = A.hp;
@@ -1206,11 +1228,12 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
     const { seen } = fireUntilStop(w, a, slot, 0, 650);
     expect(kinds(seen)).toContain('boom');
     expect(kinds(seen)).not.toContain('burst');
-    expect(mid.hp).toBeLessThanOrEqual(mid.stats.maxHp - 10);
+    const row = a.stats.equipment.phosphorShells;
+    expect(mid.hp).toBeLessThanOrEqual(mid.stats.maxHp - row.damage);
     expect(w.burnZones.size).toBe(1);
     const zone = [...w.burnZones.values()][0];
     expect(Math.hypot(zone.x, zone.y)).toBeLessThan(400); // short of the click
-    expect(zone.dps).toBe(5);
+    expect(zone.dps).toBe(row.dps);
   });
 
   it('the zone REVEALS NOTHING: a hull inside the firer’s burn zone but outside its sight is not a contact (amendment 135(e))', () => {

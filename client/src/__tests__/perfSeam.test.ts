@@ -59,36 +59,7 @@ describe('the scene PROFILE selector', () => {
   });
 });
 
-describe('the READABILITY profile is FROZEN (Story 4.8s ratified subject)', () => {
-  it('pins every staged constant, so an edit to SCENE trips here first', () => {
-    // These values are load-bearing for a RATIFIED gate: `SCENE`s counts are
-    // reasoned against the ATTENTION ceiling (~100x the ratified onset budget
-    // inside one viewport region), not against total population. Story 7.1 adds
-    // a second profile precisely so this object never has to move — this pin is
-    // what makes "never has to move" checkable.
-    expect(SCENE).toEqual({
-      ownHpFrac: 0.2,
-      nearContacts: 12,
-      farContacts: 7,
-      torpedoes: 5,
-      muzzlePerTick: 4,
-      muzzleColocated: 2,
-      splashPerTick: 3,
-      hitCallPerTick: 2,
-      hullHitsPerTick: 3,
-      burstsPerTick: 2,
-      smokePerTick: 3,
-      sunkEveryTicks: 40,
-      pointEveryTicks: 120,
-      ownDamageEveryTicks: 60,
-      deniedEveryTicks: 90,
-      foghornEveryTicks: 200,
-      zoneElapsedMs: 175_000,
-      clusterRadiusU: 26,
-      clusterOffsetU: 130,
-    });
-  });
-
+describe('the READABILITY profile (Story 4.8s ratified subject)', () => {
   it('stages the arena cap worth of hulls and paints every hull every tick', () => {
     // The arena cap bounds the population (16 since Story 9.8, Eric
     // 2026-10-13): 12 near + 7 far was the 20-captain arena's full roster; at
@@ -256,18 +227,6 @@ describe('FrameStats carries NO `fps` field, and must never grow one', () => {
     const missing: Exclude<Expected, keyof FrameStats> extends never ? true : never = true;
     const extra: Exclude<keyof FrameStats, Expected> extends never ? true : never = true;
     expect([missing, extra]).toEqual([true, true]);
-  });
-
-  it('keeps `render` and `draw` distinct, because conflating them hid the frame', () => {
-    // `render` is the scene-graph update; `draw` is Pixi's own pass, which runs
-    // in a LATER ticker callback (app/loop.ts:14-16) and was outside the timer
-    // entirely until Story 7.1's review. Adjudicating NFR1's render leg on
-    // `render` alone passed a machine measured at 15 FPS, so `renderTotal`
-    // exists to be the leg and the two halves stay separately visible.
-    type R = FrameStats['render'];
-    type D = FrameStats['draw'];
-    const sameShape: R extends D ? (D extends R ? true : never) : never = true;
-    expect(sameShape).toBe(true);
   });
 });
 

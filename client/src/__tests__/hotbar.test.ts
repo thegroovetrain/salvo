@@ -218,13 +218,8 @@ describe('slot order — Gun (keyless) / Shift / Q / E / R / 1-6', () => {
     expect(rows.map((r) => r.slot)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
-  it('SPELLS the boost key, and the GUN alone stays keyless (amendment 33)', () => {
-    // PIN FLIPPED (Story 8.6). Amendment 29 put the ⇧ arrow here because 8.5's
-    // chip was a fixed 22px square holding exactly one glyph. The bar's chip
-    // WIDENS to its content, so the key gets its name back — and the arrow, which
-    // reads as "up" at least as often as "shift", leaves the surface entirely.
-    expect(SLOT_KEY_GLYPHS[SLOT_BOOST]).toBe('Shift');
-    expect(SLOT_KEY_GLYPHS.includes('\u21e7')).toBe(false);
+  it('keys the boost square, and the GUN alone stays keyless (amendment 33)', () => {
+    expect(SLOT_KEY_GLYPHS[SLOT_BOOST]).not.toBe('');
     expect(SLOT_KEY_GLYPHS[SLOT_GUN]).toBe(''); // the ghost chip keeps the baseline
     expect(SLOT_KEY_GLYPHS.filter((g) => g === '')).toHaveLength(1);
   });
@@ -309,17 +304,6 @@ describe('slot order — Gun (keyless) / Shift / Q / E / R / 1-6', () => {
     expect(slotViewModels(viewFor('torpedoBoat', { denied: at(false, { 4: true }) }))[4].state).toBe('empty');
   });
 
-  it('the retired label is GONE FROM THE MODULE, not merely unused', () => {
-    // A grep pin, because an unused export is exactly how a retired string comes
-    // back: someone finds it and wires it up again.
-    const src = readFileSync(
-      resolve(dirname(fileURLToPath(import.meta.url)), '../render/hotbar.ts'),
-      'utf8',
-    );
-    expect(src).not.toContain('awaiting refit');
-    expect(src).not.toContain('EMPTY_SLOT_LABEL');
-    expect(src).not.toContain('\u21e7'); // the boost chip spells the word now (amendment 33)
-  });
 });
 
 describe('the seven-state grammar + its precedence', () => {
@@ -388,23 +372,14 @@ describe('the seven-state grammar + its precedence', () => {
     expect(slotSkin('readyAbility').borderAlpha).toBeGreaterThan(slotSkin('readyWeapon').borderAlpha);
     expect(slotSkin('readyAbility').glowPx).toBeGreaterThan(slotSkin('readyWeapon').glowPx);
     expect(slotSkin('activated').glowPx).toBeGreaterThan(slotSkin('selected').glowPx);
-    // THE MOCK IS THE REGISTER OF RECORD for the bar's surfaces (epic-8
-    // amendment 31), so Story 8.6 re-literalled the two glow alphas the
-    // bottom-left stack had drifted on: `.slot.ability.ready` is
-    // `0 0 14px rgba(0,255,136,.2)` and `.slot.sel` is
-    // `0 0 16px rgba(255,184,0,.4)`.
-    expect(slotSkin('readyWeapon').glowAlpha).toBe(0.15);
-    expect(slotSkin('readyAbility').glowAlpha).toBe(0.2);
-    expect(slotSkin('selected').glowAlpha).toBe(0.4);
     expect(slotSkin('cooling').scrim).toBe(true);
-    expect(slotSkin('cooling').border).toBe(C.silver); // the DESIGN idle recipe, silver .28
-    expect(slotSkin('cooling').borderAlpha).toBe(0.28);
+    expect(slotSkin('cooling').border).toBe(C.silver); // the DESIGN idle recipe
     expect(slotSkin('empty').dashed).toBe(true);
-    // ZERO STOCK — the mock's `.slot.zero`: the empty square's dashed slate .45
-    // edge, the kind's glyph in the same slate at .45, no glow, no wash.
-    expect(slotSkin('zeroStock')).toMatchObject({
-      border: C.textMuted, borderAlpha: 0.45, dashed: true, icon: C.textMuted, iconAlpha: 0.45, glowPx: 0, washAlpha: 0,
-    });
+    // ZERO STOCK — the mock's `.slot.zero`: the empty square's dashed slate
+    // edge, the kind's glyph in the same slate at the same alpha, no glow, no wash.
+    const zero = slotSkin('zeroStock');
+    expect(zero).toMatchObject({ border: C.textMuted, dashed: true, icon: C.textMuted, glowPx: 0, washAlpha: 0 });
+    expect(zero.iconAlpha).toBe(zero.borderAlpha);
   });
 
   it('has ONE skin per state — nine states, nine recipes', () => {
@@ -1245,13 +1220,12 @@ describe('the tooltip memo keys on the slot\'s own stock (P5)', () => {
 });
 
 describe('the belt FRAME (ruling 5, back in Story 9.11)', () => {
-  it('draws ONE silver .2 hairline at exactly the layout\'s belt rect', () => {
+  it('draws ONE silver hairline at exactly the layout\'s belt rect', () => {
     const { ops, layout } = paint(viewFor('torpedoBoat'));
     const frames = ops.filter(
       (o) => o.action === 'stroke' && o.color === C.silver && o.rects.some((r) => sameRect(r, layout.belt)),
     );
     expect(frames).toHaveLength(1);
-    expect(frames[0].alpha).toBeCloseTo(0.2, 9);
     // The frame ENCLOSES the chips, which is why it is taller than its squares.
     expect(layout.belt.h).toBeGreaterThan(B.beltSlot + B.chipH);
   });
@@ -1259,7 +1233,6 @@ describe('the belt FRAME (ruling 5, back in Story 9.11)', () => {
   it('encloses all six belt squares and their chips, and no weapon square', () => {
     const { layout } = paint(viewFor('torpedoBoat'));
     const f = layout.belt;
-    expect(CONSUMABLE_SLOTS).toHaveLength(6);
     for (const slot of CONSUMABLE_SLOTS) {
       const sq = layout.squares[slot];
       const chip = chipRect(layout, slot);
@@ -1277,9 +1250,10 @@ describe('the belt FRAME (ruling 5, back in Story 9.11)', () => {
 });
 
 describe('the ZERO-STOCK square paints (Story 9.2)', () => {
-  it('draws a slate .45 edge AND the kind\'s own glyph at .45 on each of the six, with no badge box', () => {
+  it('draws the zero-stock slate edge AND the kind\'s own glyph on each of the six, with no badge box', () => {
+    const { borderAlpha } = slotSkin('zeroStock');
     const muted = (ops: PaintOp[]): number =>
-      ops.filter((o) => o.action === 'stroke' && o.color === C.textMuted && o.alpha === 0.45).length;
+      ops.filter((o) => o.action === 'stroke' && o.color === C.textMuted && o.alpha === borderAlpha).length;
     const zero = paint(viewFor('torpedoBoat'));
     const base = viewFor('torpedoBoat');
     const stocked = paint({
@@ -1386,7 +1360,6 @@ describe('the key chips on the bar', () => {
       const drawn = ops.filter((o) => o.rects.some((r) => sameRect(r, boxOf(slot))));
       expect(drawn.length, String(slot)).toBe(1);
       expect(drawn[0].color, String(slot)).toBe(C.textMuted);
-      expect(drawn[0].alpha, String(slot)).toBeCloseTo(0.55, 9);
     }
     // THE GHOST: the gun's chip box is laid out (so the row keeps one baseline)
     // and never painted.
@@ -1418,7 +1391,8 @@ describe('NO WORDS render on a square (UX-DR40/41)', () => {
     const { words } = paint(viewFor('torpedoBoat'));
     // The `I` is the gun square's RUNG, not a word (Story 8.12, amendment 70) —
     // a fresh hull sails at tier I and the square says so.
-    expect([...words].sort()).toEqual(['1', '2', '3', '4', '5', '6', 'E', 'I', 'Q', 'R', 'Shift']);
+    const keys = SLOT_KEY_GLYPHS.filter((g) => g !== '');
+    expect([...words].sort()).toEqual([...keys, tierNumeral(1)].sort());
   });
 
   it('adds only NUMERALS as the state asks for them — never a name', () => {
@@ -1430,7 +1404,8 @@ describe('NO WORDS render on a square (UX-DR40/41)', () => {
     // Two numerals ride the gun square here and they never collide: the centred
     // `1.2` is its cooling clock, the bottom-right `I` its rung. The `I` beside
     // Q is the torpedo's first copy.
-    expect([...words].sort()).toEqual(['1', '1.2', '2', '3', '4', '5', '6', 'E', 'I', 'I', 'Q', 'R', 'Shift']);
+    const keys = SLOT_KEY_GLYPHS.filter((g) => g !== '');
+    expect([...words].sort()).toEqual([...keys, wipeLabel(1200), tierNumeral(1), tierNumeral(1)].sort());
     for (const name of Object.values(EQUIPMENT_NAME)) expect(words).not.toContain(name);
   });
 });

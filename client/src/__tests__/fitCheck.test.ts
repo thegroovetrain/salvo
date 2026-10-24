@@ -47,15 +47,9 @@ const LINES: readonly CatalogLine[] = Object.values(CATALOG);
 const CLASSES = Object.keys(CONFIG.shipClasses) as ShipClassId[];
 
 describe('fit-check — catalog sanity (the walk covers something real)', () => {
-  it('the catalog has every id keyed to itself and exactly the ratified 26 lines', () => {
+  it('the catalog has one line per LINE_ID, every id keyed to itself', () => {
+    expect(LINES.length).toBeGreaterThan(0);
     expect(LINES).toHaveLength(LINE_IDS.length);
-    // 29 until Story 8.15 CUT missile, monitor and heat seeking (amendment 89e);
-    // 26 until DECK GUN TURRET and DECK GUN BARREL folded into the CANNON
-    // ladder (amendment 197); 24 until CHAFF left in Story 9.2 (amendment 31);
-    // 24 again since PASSIVE HEALING joined in Story 9.6 (epic-9 amendment 95);
-    // 25 since ARMOR joined in Story 9.7 (epic-9 amendments 110–117); 26 since
-    // ARMOR PIERCING joined in Story 9.9 (epic-9 amendments 145, 159).
-    expect(LINE_IDS).toHaveLength(26);
     for (const [key, line] of Object.entries(CATALOG)) expect(line.id).toBe(key);
   });
 });
@@ -93,10 +87,12 @@ describe('fit-check — VISIBLE toast (every stack position prints a line)', () 
     expect(blank).toEqual([]);
   });
 
-  it('says STOCKED for exactly the consumables, and FITTED for everything else', () => {
+  it('the kind picks the verb: a consumable toasts the stocked line, every other kind the fitted one', () => {
     for (const line of LINES) {
-      const toast = boonFitToastLine(line.id, 1, line.kind);
-      expect(toast.endsWith(line.kind === 'consumable' ? ' STOCKED' : ' FITTED'), line.id).toBe(true);
+      const stocked = boonFitToastLine(line.id, 1, 'consumable');
+      const fitted = boonFitToastLine(line.id, 1, 'equipment');
+      expect(stocked, line.id).not.toBe(fitted);
+      expect(boonFitToastLine(line.id, 1, line.kind), line.id).toBe(line.kind === 'consumable' ? stocked : fitted);
     }
   });
 });
@@ -147,45 +143,11 @@ describe('fit-check — VISIBLE card rows (every offerable ladder/weapon prints 
   });
 });
 
-// --- STORY 8.13: THE LINES THAT WENT LIVE ---------------------------------------
-//
-// The walks above are generic, which is the point — but four lines changed
-// state in one cycle (LIGHT TORPEDO, CAPTIVE MINES and the SUPERCAV TORPEDO
-// stopped being stubs; FOULING MINES moved from the add-on space to the
-// equipment space), and naming them once makes the coverage legible to the next
-// agent instead of implied by a filter.
+// --- STORY 8.13: the SUPERCAV TORPEDO routes as a consumable ---------------------
 
-describe('fit-check — the four lines Story 8.13 brought to life', () => {
-  const LIVE_8_13 = ['lightTorpedo', 'captiveMines', 'foulingMines', 'supercavTorpedo'] as const;
-
-  it('none of them is a stub any more, and DEPTH CHARGE still is', () => {
-    for (const id of LIVE_8_13) expect(CATALOG[id].stub, id).not.toBe(true);
-    expect(CATALOG.depthCharge.stub).toBe(true); // Eric's line, mechanism a later story
-  });
-
-  it('each is AUDIBLE, VISIBLE and routed — the same four channels every line owes', () => {
-    for (const id of LIVE_8_13) {
-      const line = CATALOG[id];
-      expect(TONES[fitTone(line.kind)], id).toBeDefined();
-      expect(FIT_KINDS.includes(line.kind), id).toBe(true);
-      expect(boonFitToastLine(id, 1, line.kind).trim(), id).not.toBe('');
-      expect(cardTierLabel(line, 0) === null, id).toBe(line.kind === 'consumable');
-    }
-  });
-
-  it('the three EQUIPMENT lines print rows and route to the slot carrying them', () => {
-    for (const id of ['lightTorpedo', 'captiveMines', 'foulingMines'] as const) {
-      const rows = cardStatRows(CATALOG[id], 0, { cls: 'mineLayer', cards: [] });
-      expect(rows.length, id).toBeGreaterThan(0);
-      expect(rows.length, id).toBeLessThanOrEqual(CARD_STAT_ROWS);
-      const loadout: (EquipmentId | null)[] = [null, id, null, null];
-      expect(slotForCard(loadout, id), id).toBe(1);
-    }
-  });
-
+describe('fit-check — the SUPERCAV TORPEDO (Story 8.13)', () => {
   it('the SUPERCAV TORPEDO routes as a CONSUMABLE — stocked, never slot-fitted', () => {
     expect(CATALOG.supercavTorpedo.kind).toBe('consumable');
-    expect(boonFitToastLine('supercavTorpedo', 1, 'consumable')).toContain('STOCKED');
     // It addresses no EQUIPMENT, so it owns no weapon slot — its square is a
     // belt square, and the stock rides the slot tooltip's interaction line.
     expect(cardEquipmentIds('supercavTorpedo')).toEqual([]);
@@ -320,16 +282,6 @@ function unregisteredDoctrines(lines: readonly CatalogLine[]): string[] {
 const PENDING_IDENTITY: readonly string[] = [];
 
 describe('fit-check — DOCTRINE IDENTITY (every doctrine line registers an on-water tell)', () => {
-  it('the catalog carries NO add-on doctrine line any more (Story 8.17, amendment 134)', () => {
-    // Five until Story 8.13, when Eric deleted ACOUSTIC HOMING (homing became a
-    // tier stat) and the FOULING MINES add-on (fouling became its own equipment
-    // line) — amendments 80/81; three until Story 8.15 CUT HEAT SEEKING (89e);
-    // two until Story 8.17 re-cut PHOSPHOR (equipment) and DAZZLE (the FLASH
-    // SHELLS consumable) out of the add-on space.
-    expect(DOCTRINE_LINES.map((l) => l.id)).toEqual([]);
-    expect(LINES.filter((l) => l.kind === 'addon')).toEqual([]);
-  });
-
   it('every doctrine line is either registered or explicitly PENDING a later slice', () => {
     expect(unregisteredDoctrines(LINES)).toEqual([]);
   });

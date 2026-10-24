@@ -1314,10 +1314,15 @@ export class Radar {
     heat.sprite.visible = this.paints.length > 0;
     if (!heat.sprite.visible) return;
     const cfg = CLIENT_CONFIG.blip.heatmap;
+    const lifeMs = blipLifeMs(this.sweepPeriodMs);
     const ctx: RasterCtx = {
       now: serverNow,
-      lifeMs: blipLifeMs(this.sweepPeriodMs),
+      lifeMs,
       alphaFloor: this.assist ? CLIENT_CONFIG.blip.assistMinAlpha : CLIENT_CONFIG.blip.minAlpha,
+      // Paints born within one beam crossing are ONE paint for the write rule
+      // (strongest wins), so the water under a hull never overwrites the hull
+      // — see `writeCell` (amendment 210 follow-up, cycle 203).
+      tieTol: lifeMs > 0 ? cfg.sameCrossingMs / lifeMs : 0,
     };
     // ONE pass over ONE list. The paint KINDS the retired grammar carried
     // (ship, island, surf, clutter — and the storm wall, deleted by cycle 72)

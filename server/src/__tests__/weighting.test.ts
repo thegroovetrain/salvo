@@ -93,39 +93,39 @@ describe('the take ledger — what goes in, and what never does', () => {
   });
 });
 
-describe('weightsFor — the numbers Eric ruled (amendment 90)', () => {
-  it('one OTHER taker weighs the line 0.75 for everybody else; the taker is untouched', () => {
+describe('weightsFor — the factor/floor law Eric ruled (amendment 90)', () => {
+  it('one OTHER taker weighs the line by the factor for everybody else; the taker is untouched', () => {
     const w = bareWorld();
     const a = captain(w, 'a');
     const b = captain(w, 'b');
     w.applyCard(a, WEAPON);
-    expect(weightOf(w, b, WEAPON)).toBeCloseTo(0.75, 12);
-    expect(FACTOR).toBe(0.75);
+    expect(weightOf(w, b, WEAPON)).toBeCloseTo(FACTOR, 12);
     // SELF-EXCLUSION: A's own weight for the line A took never moves.
     expect(weightOf(w, a, WEAPON)).toBe(1);
     expect(w.weightsFor(a).has(WEAPON)).toBe(false); // absent, not 1.0-valued
   });
 
-  it('TWO takers weigh it 0.5625 for a third; each taker sees only the OTHER one', () => {
+  it('TWO takers weigh it factor squared for a third; each taker sees only the OTHER one', () => {
     const w = bareWorld();
     const a = captain(w, 'a');
     const b = captain(w, 'b');
     const c = captain(w, 'c');
     w.applyCard(a, WEAPON);
     w.applyCard(b, WEAPON);
-    expect(weightOf(w, c, WEAPON)).toBeCloseTo(0.5625, 12);
-    expect(weightOf(w, a, WEAPON)).toBeCloseTo(0.75, 12); // only B counts for A
-    expect(weightOf(w, b, WEAPON)).toBeCloseTo(0.75, 12); // ...and only A for B
+    expect(weightOf(w, c, WEAPON)).toBeCloseTo(FACTOR ** 2, 12);
+    expect(weightOf(w, a, WEAPON)).toBeCloseTo(FACTOR, 12); // only B counts for A
+    expect(weightOf(w, b, WEAPON)).toBeCloseTo(FACTOR, 12); // ...and only A for B
   });
 
-  it('FIVE takers hit the floor, and it never goes below it however many follow', () => {
+  it('enough takers hit the floor, and it never goes below it however many follow', () => {
     const w = bareWorld();
     const victim = captain(w, 'victim');
-    for (let i = 0; i < 5; i += 1) w.applyCard(captain(w, `t${i}`), WEAPON);
-    expect(weightOf(w, victim, WEAPON)).toBeCloseTo(0.25, 12);
-    expect(FLOOR).toBe(0.25);
-    expect(FACTOR ** 5).toBeLessThan(FLOOR); // 0.2373… — the floor is doing work
-    for (let i = 5; i < 12; i += 1) w.applyCard(captain(w, `t${i}`), WEAPON);
+    // The first taker count whose bare product would undercut the floor.
+    const n = Math.ceil(Math.log(FLOOR) / Math.log(FACTOR));
+    expect(FACTOR ** n).toBeLessThanOrEqual(FLOOR); // the floor is doing work
+    for (let i = 0; i < n; i += 1) w.applyCard(captain(w, `t${i}`), WEAPON);
+    expect(weightOf(w, victim, WEAPON)).toBeCloseTo(FLOOR, 12);
+    for (let i = n; i < n + 7; i += 1) w.applyCard(captain(w, `t${i}`), WEAPON);
     expect(weightOf(w, victim, WEAPON)).toBe(FLOOR); // clamped, never lower
   });
 
@@ -155,16 +155,16 @@ describe('weightsFor — the numbers Eric ruled (amendment 90)', () => {
     const a = captain(w, 'a');
     const b = captain(w, 'b');
     w.applyCard(a, WEAPON);
-    expect(weightOf(w, b, WEAPON)).toBeCloseTo(0.75, 12);
+    expect(weightOf(w, b, WEAPON)).toBeCloseTo(FACTOR, 12);
     w.sinkShip('a');
-    expect(weightOf(w, b, WEAPON)).toBeCloseTo(0.75, 12);
+    expect(weightOf(w, b, WEAPON)).toBeCloseTo(FACTOR, 12);
     // ...nor does the taker LEAVING the room, which removes the record itself.
     w.removeShip('a');
     expect(w.ships.has('a')).toBe(false);
-    expect(weightOf(w, b, WEAPON)).toBeCloseTo(0.75, 12);
+    expect(weightOf(w, b, WEAPON)).toBeCloseTo(FACTOR, 12);
     // ...nor does the match boundary.
     w.resetForMatchStart();
-    expect(weightOf(w, b, WEAPON)).toBeCloseTo(0.75, 12);
+    expect(weightOf(w, b, WEAPON)).toBeCloseTo(FACTOR, 12);
   });
 
   it('a BOT\'s take weights a HUMAN — a participant is a participant', () => {
@@ -172,10 +172,10 @@ describe('weightsFor — the numbers Eric ruled (amendment 90)', () => {
     const human = captain(w, 'a');
     const bot = w.addBot(undefined, undefined);
     w.applyCard(bot, WEAPON);
-    expect(weightOf(w, human, WEAPON)).toBeCloseTo(0.75, 12);
+    expect(weightOf(w, human, WEAPON)).toBeCloseTo(FACTOR, 12);
     // ...and the other way round, which is the same rule read backwards.
     w.applyCard(human, 'navalMines');
-    expect(weightOf(w, bot, 'navalMines' as LineId)).toBeCloseTo(0.75, 12);
+    expect(weightOf(w, bot, 'navalMines' as LineId)).toBeCloseTo(FACTOR, 12);
   });
 
   it('an untouched match costs nothing: weightsFor is EMPTY, so every line weighs 1', () => {

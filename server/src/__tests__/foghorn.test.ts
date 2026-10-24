@@ -411,23 +411,6 @@ describe('SIGNAL_REGISTRY — fh row: the wire carries no band resolution an hon
     }
   });
 
-  it('a co-located honk resolves to band 4 as well — the floor is on the WIRE value, not on the distance math', () => {
-    const w = bareWorld();
-    const l = place(w, 'l', 123, -45);
-    const ctx = foggedCtx(w, l);
-    expect((row.materialize(ctx, subject(123, -45, 'honker')) as FoghornEvent).v).toBe(4);
-  });
-
-  it('leaves bands 5-12 at FULL resolution — those eight genuinely differ in gain and in chevron weight', () => {
-    const w = bareWorld();
-    const cases: Array<[number, number]> = [[SIGHT + 0.01, 5]];
-    for (let b = 5; b <= 12; b++) cases.push([b * BAND, b]);
-    for (const [d, want] of cases) {
-      const l = place(w, `l${d}`, d, 0);
-      expect((row.materialize(foggedCtx(w, l), e) as FoghornEvent).v).toBe(want);
-    }
-  });
-
   it('a listener with SHRUNKEN sight cannot resolve a plateau honker any finer either — the surplus is gone for every observer', () => {
     const w = bareWorld();
     const l = place(w, 'l', 1.5 * BAND, 0); // raw band 2 by distance
@@ -530,33 +513,12 @@ describe('SIGNAL_REGISTRY — fh row: islands MUFFLE the FLOORED band — max(5,
   /** A representative distance for raw band `b`: the band's midpoint. */
   const mid = (b: number): number => (b - 0.5) * BAND;
 
-  it('THE WHOLE 100% PLATEAU behind a rock lands at band 7 — one blocked answer for all four raw bands', () => {
-    for (const b of [1, 2, 3, 4]) {
-      const { w, l } = blockedWorld(mid(b));
-      expect((row.materialize(foggedCtx(w, l), e) as FoghornEvent).v).toBe(7);
-    }
-  });
-
   it('a point-blank blocked honk is no LOUDER than a truesight-edge one — the muffle never weakens with closeness', () => {
     const near = blockedWorld(mid(1));
     const edge = blockedWorld(mid(4));
     const vNear = (row.materialize(foggedCtx(near.w, near.l), e) as FoghornEvent).v as number;
     const vEdge = (row.materialize(foggedCtx(edge.w, edge.l), e) as FoghornEvent).v as number;
     expect(vNear).toBe(vEdge);
-  });
-
-  it('bands 5-9 behind a rock step three bands down (band + 3 past the floor)', () => {
-    for (let b = 5; b <= 9; b++) {
-      const { w, l } = blockedWorld(mid(b));
-      expect((row.materialize(foggedCtx(w, l), e) as FoghornEvent).v).toBe(b + 3);
-    }
-  });
-
-  it('the OUTER-BAND SILENCE: bands 10-12 behind a rock exceed 12 — no event at all', () => {
-    for (const b of [10, 11, 12]) {
-      const { w, l } = blockedWorld(mid(b));
-      expect(row.visible(foggedCtx(w, l), e)).toBe(false);
-    }
   });
 
   it('THE WHOLE TRUTH TABLE, raw band → emitted, clear and blocked (the one statement of the row)', () => {

@@ -17,10 +17,9 @@
 //      hull you can already see (a wire blip since amendment 210) was drawn ON
 //      TOP of that hull's silhouette. It now sits in chartRoot between `blip` and `aim`.
 //
-//   C. ...WHICH COST THE FOG'S FEATHER, SO THE HULL CARRIES IT ITSELF. Being
-//      under the fog softened a contact as it approached the edge of the bubble.
-//      `hullSightSoftness` reproduces that curve from the fog texture's OWN two
-//      constants, applied per contact as an alpha multiplier.
+//   C. ...WHICH COST THE FOG'S FEATHER. `hullSightSoftness` once reproduced it
+//      per contact; epic-9 amendment 212 (cycle 203) RETIRED that — a
+//      delivered hull draws at full alpha everywhere, pinned below.
 //
 // The 0.2 floor is untouched throughout — Eric's ratified number (amendment 181),
 // and re-anchoring the radii is the whole of the change.
@@ -38,7 +37,7 @@ import {
   HUD_LAYER_ORDER,
   WORLD_LAYER_ORDER,
 } from '../render/stage.js';
-import { FOG_FILL_ALPHA, HOLE_FEATHER_START } from '../render/textures.js';
+import { HOLE_FEATHER_START } from '../render/textures.js';
 
 // jsdom has no 2d canvas, so the two textures the radar bakes at construction
 // cannot rasterize here. The dim mask's stub RECORDS the radius it was asked for
@@ -77,22 +76,10 @@ describe('the dim ramp is anchored to TRUESIGHT, on the twelfths ladder', () => 
       .toBeCloseTo(CONFIG.vision.muzzleFlash, 12);
   });
 
-  it('HOLDS THE FLOOR ACROSS THE WHOLE BUBBLE — the shipped 1/8 anchoring did '
-    + 'not, and that is the defect', () => {
+  it('HOLDS THE FLOOR ACROSS THE WHOLE SIGHT BUBBLE, edge included', () => {
     for (const d of [0, 1, SIGHT / 8, SIGHT / 2, SIGHT * 0.9, SIGHT]) {
       expect(dimScaleAt(d, SIGHT), `at ${d}u`).toBeCloseTo(FLOOR, 12);
     }
-    // The shipped ramp (amendment 181, on the old EIGHTHS ladder where intel
-    // range was 2x sight) reached full at 5/8 of intel range from 1/8 of it —
-    // i.e. sight/4 -> sight*5/4 — so at the bubble's edge it stood three
-    // quarters of the way up: 80% opacity at the very edge of the water the
-    // player aims at by eye, and 40% halfway out. Expressed in sight units so
-    // the historical defect stays reproducible after amendment 103.
-    const oldIntel = SIGHT * 2;
-    const shipped = (d: number): number =>
-      FLOOR + (1 - FLOOR) * ((d - oldIntel / 8) / ((oldIntel * 5) / 8 - oldIntel / 8));
-    expect(shipped(SIGHT), 'the behaviour this cycle removes').toBeCloseTo(0.8, 12);
-    expect(shipped(SIGHT / 2), '...halfway out, too').toBeCloseTo(0.4, 12);
   });
 
   it('reaches FULL painted opacity at the 6/12 rung and stays there — radar is '
@@ -154,11 +141,6 @@ describe('the dim ramp is anchored to TRUESIGHT, on the twelfths ladder', () => 
     expect(dimScaleAt(CONFIG.vision.muzzleFlash, SIGHT)).toBeCloseTo(1, 12);
     expect(dimScaleAt(CONFIG.vision.muzzleFlash, wide)).toBeLessThan(1);
   });
-
-  it("KEEPS ERIC'S 0.2 FLOOR — the re-anchoring moved the radii and nothing else", () => {
-    expect(FLOOR).toBe(0.2);
-    expect(dimScaleAt(0, SIGHT)).toBe(0.2);
-  });
 });
 
 describe('the dim mask is re-baked when the observer\'s bubble moves', () => {
@@ -210,55 +192,33 @@ describe('the dim mask is re-baked when the observer\'s bubble moves', () => {
   });
 });
 
-describe('the hull sight-boundary feather (what the fog used to do for free)', () => {
-  const start = SIGHT * HOLE_FEATHER_START;
+// RETIRED FEATHER (Eric 2026-10-21, cycle 203, epic-9 amendment 212): "ships
+// are being visually hidden while they are still near the edge of my sight
+// range, and that should not be the case." A delivered contact is drawn at
+// FULL alpha wherever it is; the 150 ms sight fade alone takes a hull off.
+describe('a delivered hull is never softened by the sight boundary (amendment 212)', () => {
+  // Sample the whole bubble, the old feather band (derived, never a literal),
+  // the rim itself, and well past it.
+  const distancesFor = (sight: number): number[] => {
+    const start = sight * HOLE_FEATHER_START;
+    return [0, 10, start / 2, start, (start + sight) / 2, sight - 0.001, sight, sight * 1.5, sight * 3];
+  };
 
-  it('is FULLY OPAQUE through the clear part of the hole', () => {
-    for (const d of [0, 10, start / 2, start]) {
+  it('is FULL ALPHA inside, at and beyond the rim of the base bubble', () => {
+    for (const d of distancesFor(SIGHT)) {
       expect(hullSightSoftness(d, SIGHT), `at ${d}u`).toBe(1);
     }
   });
 
-  it('reproduces the fog composite exactly at the rim: what the overlay does NOT '
-    + 'swallow', () => {
-    expect(hullSightSoftness(SIGHT, SIGHT)).toBeCloseTo(1 - FOG_FILL_ALPHA, 12);
-    expect(hullSightSoftness(SIGHT * 2, SIGHT), 'and holds past it')
-      .toBeCloseTo(1 - FOG_FILL_ALPHA, 12);
-  });
-
-  it('NEVER REACHES ZERO — the 150ms sight fade removes a hull, a feather only '
-    + 'softens one', () => {
-    for (let d = 0; d <= SIGHT * 3; d += 5) {
-      expect(hullSightSoftness(d, SIGHT), `at ${d}u`).toBeGreaterThan(0);
+  it('is FULL ALPHA for a narrower bubble and a boon-widened one alike', () => {
+    for (const sight of [NARROW, SIGHT * 1.5]) {
+      for (const d of distancesFor(sight)) {
+        expect(hullSightSoftness(d, sight), `sight ${sight}u, at ${d}u`).toBe(1);
+      }
     }
   });
 
-  it('is MONOTONIC DOWN across the feather and continuous at both kinks', () => {
-    let prev = Infinity;
-    for (let d = 0; d <= SIGHT * 1.2; d += 2) {
-      const v = hullSightSoftness(d, SIGHT);
-      expect(v, `non-increasing at ${d}u`).toBeLessThanOrEqual(prev + 1e-12);
-      prev = v;
-    }
-    expect(hullSightSoftness(start + 0.001, SIGHT), 'no step at the feather start')
-      .toBeCloseTo(1, 4);
-    expect(hullSightSoftness(SIGHT - 0.001, SIGHT), 'nor at the rim')
-      .toBeCloseTo(1 - FOG_FILL_ALPHA, 4);
-  });
-
-  it('SCALES WITH THE OBSERVER, like the hole it mirrors: a narrower bubble '
-    + 'feathers earlier, a sight boon later', () => {
-    const narrow = NARROW;
-    expect(hullSightSoftness(narrow, narrow)).toBeCloseTo(1 - FOG_FILL_ALPHA, 12);
-    // A hull at 60% of the BASE bubble is untouched for a base observer and deep
-    // in the feather for a narrower one.
-    const d = SIGHT * 0.6;
-    expect(hullSightSoftness(d, SIGHT)).toBe(1);
-    expect(hullSightSoftness(d, narrow)).toBeLessThan(1);
-    expect(hullSightSoftness(d, SIGHT * 1.5), 'a widened bubble is clear further out').toBe(1);
-  });
-
-  it('fails toward the hull being VISIBLE on garbage input', () => {
+  it('still fails toward the hull being VISIBLE on garbage input', () => {
     expect(hullSightSoftness(Number.NaN, SIGHT)).toBe(1);
     expect(hullSightSoftness(100, Number.NaN)).toBe(1);
     expect(hullSightSoftness(100, 0)).toBe(1);

@@ -318,7 +318,7 @@ describe('machine-gun bot gunnery (probe scenarios as pins)', () => {
     expect(r.hitRate).toBeGreaterThanOrEqual(0.99);
   });
 
-  it('S2 RADAR MOVING: orbit at 500 u (radar only)', () => {
+  it('S2: a radar-only target orbiting at 500 u is led onto most shells, with few ghost ticks on at most two tracks', () => {
     const r = run({ x: 500, y: 0 }, orbit(500), 'S2 radar orbit 500');
     // Measured ~97 % on the clean fixture; the margin covers the chord bias
     // of a straight-line lead on a curved course.
@@ -327,7 +327,7 @@ describe('machine-gun bot gunnery (probe scenarios as pins)', () => {
     expect(r.maxTracks).toBeLessThanOrEqual(2);
   });
 
-  it('S3 RADAR PARKED END-ON: a parked target at 500 u, bow pointing away', () => {
+  it('S3: a parked radar-only target end-on at 500 u is hit at least half the time, on at most two tracks', () => {
     const r = run({ x: 500, y: 0 }, parked(500, 0), 'S3 radar parked 500 end-on', true);
     // Measured 59-64 %, bounded by geometry: the bot's aim scatter is a ~12 u disc
     // at 500 u against a 9 u-wide end-on torpedo boat. Scatter is the competence
@@ -336,13 +336,13 @@ describe('machine-gun bot gunnery (probe scenarios as pins)', () => {
     expect(r.maxTracks).toBeLessThanOrEqual(2);
   });
 
-  it('S3b RADAR PARKED BEAM-ON: same target broadside to the shooter', () => {
+  it('S3b: the same parked radar-only target beam-on is hit on nearly every shell', () => {
     const r = run({ x: 500, y: 0 }, parked(500, 0, Math.PI / 2), 'S3b radar parked 500 beam-on', true);
     // Measured 100 %: a 100 u long silhouette swallows the same scatter disc.
     expect(r.hitRate).toBeGreaterThanOrEqual(0.95);
   });
 
-  it('S4 RADAR STRAIGHT: a racetrack: straight legs joined by 60 u semicircles', () => {
+  it('S4: a radar-only target on a racetrack with tight U-turns is still hit most of the time, with few ghost ticks', () => {
     const r = run({ x: 500, y: -300 }, straight(), 'S4 radar straight x=500');
     // The racetrack reverses the target twice a minute through 60 u-radius U-turns
     // that complete inside one sweep, which no dead-reckoning can follow. Measured

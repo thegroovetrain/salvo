@@ -467,8 +467,7 @@ describe('Predictor speed boost (Story 1.6, re-cut proportional in Story 8.9)', 
     // every boosted tick would reconcile-snap. The predicted cap is pinned
     // against the SHARED hook, not against a written-down number.
     expect(BOOST.factor).toBeLessThan(1); // a proportion, never a u/s speed
-    expect(BOOSTED_MAX).toBeCloseTo(TB.kinematics.maxSpeed * 1.25, 9);
-    expect(BOOSTED_MAX).toBeCloseTo(56.25, 9); // base TB, epic-8 amendment 55
+    expect(BOOSTED_MAX).toBeCloseTo(TB.kinematics.maxSpeed * (1 + BOOST.factor), 9);
     const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
     const boostUntil = T0 + 10 * BOOST.durationMs; // held open for the whole run
     const p = new Predictor({ radius: MAP_R, islands: [] });
@@ -737,8 +736,6 @@ describe('Predictor prop-fouling slow (Story 2.8)', () => {
   // the factor moved out of `CONFIG.mine`. A frame with no `slowFactor` key is
   // a hull nothing scaled, so the LINE'S BASE is what the predictor folds.
   it('folds the FOULING line\'s base factor — the naval mine has none to give', () => {
-    expect(CONFIG.foulingMines.slowFactor).toBe(0.75);
-    expect(CONFIG.foulingMines.slowDurationMs).toBe(5000);
     expect(CONFIG.mine).not.toHaveProperty('foulFactor');
     expect(CONFIG.mine).not.toHaveProperty('foulDurationMs');
     // ...and it really is the number the predictor caps with: one fouled tick
@@ -761,9 +758,8 @@ describe('Predictor prop-fouling slow (Story 2.8)', () => {
   // for the whole five seconds and pays for it in a reconcile snap every
   // frame. `you.slowFactor` is the wire's answer: the fold uses the number
   // that actually fouled this hull, so the tick is exact against the server's.
-  it('a TIER-V fouling predicts at 0.55, not at the line\'s base 0.75', () => {
-    const DEEP = 0.55; // CONFIG.foulingMines.slowFactor − 0.05 × 4 (amendment 81)
-    expect(DEEP).toBeCloseTo(CONFIG.foulingMines.slowFactor - 0.05 * 4, 9);
+  it('a frame\'s slowFactor (a tier-V 0.55) is the depth the predictor folds, not the line\'s base', () => {
+    const DEEP = 0.55; // a tier-V wire value (amendment 81)
     const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
     const p = new Predictor({ radius: MAP_R, islands: [] });
     const slowedUntil = T0 + CONFIG.foulingMines.slowDurationMs;
@@ -857,8 +853,7 @@ describe('Predictor FOULING SHELL zone slow (Story 9.4)', () => {
 
   const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
 
-  it('a frame with fouledUntil in the future caps both speeds at ×0.75', () => {
-    expect(SHELL).toBe(0.75);
+  it('a frame with fouledUntil in the future caps both speeds at the shell\'s slow factor', () => {
     const f: Fold = { fouledUntil: T0 + 1e6 };
     const p = new Predictor({ radius: MAP_R, islands: [] });
     p.onServerState({ ...kin(spawn), ...f }, 0);

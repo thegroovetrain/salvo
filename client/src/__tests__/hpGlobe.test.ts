@@ -429,6 +429,13 @@ describe('HpGlobe shell — a healthy frame, a healing frame and a sunk one', ()
 
   afterEach(() => settings.reset());
 
+  /** The readout's two numerals — the shown value and the max label — read off
+   *  `readoutText()` (`<caption> <value> <max>`) without pinning the caption. */
+  function numerals(globe: HpGlobe): [number, string] {
+    const t = globe.readoutText().split(' ');
+    return [Number(t[t.length - 2]), t[t.length - 1]];
+  }
+
   it('draws every band, a pending band and an empty bowl without throwing', () => {
     const globe = new HpGlobe(new Container());
     for (const frac of [1, 0.6, 0.4, 0.2, 0]) {
@@ -440,14 +447,14 @@ describe('HpGlobe shell — a healthy frame, a healing frame and a sunk one', ()
     expect(() => globe.update(input({ hp: MAX, repairHp: MAX }), GLOBE, 3, false, 1)).not.toThrow();
   });
 
-  it('reads out `HULL n /max` and tracks the hull down', () => {
+  it('reads out the hull value over its max and tracks the hull down', () => {
     const globe = new HpGlobe(new Container());
     globe.update(input({ hp: 212, maxHp: 250 }), GLOBE, 1, false, 1);
-    expect(globe.readoutText()).toBe('HULL 212 /250');
+    expect(numerals(globe)).toEqual([212, hullMaxLabel(250)]);
     globe.update(input({ hp: 0.4, maxHp: 250 }), GLOBE, 2, false, 1);
-    expect(globe.readoutText()).toBe('HULL 1 /250'); // a live hull never reads 0
+    expect(numerals(globe)[0]).toBe(1); // a live hull never reads 0
     globe.update(input({ hp: 0, maxHp: 250, alive: false }), GLOBE, 3, false, 1);
-    expect(globe.readoutText()).toBe('HULL 0 /250');
+    expect(numerals(globe)[0]).toBe(0);
   });
 
   // THE SHIELDED READOUT (Story 8.16, epic-8 amendments 116/117): hull + shield
@@ -458,12 +465,12 @@ describe('HpGlobe shell — a healthy frame, a healing frame and a sunk one', ()
     globe.update(input({ hp: 212, maxHp: 250 }), GLOBE, 1, false, 1);
     expect(globe.valueFill).toBe(CLIENT_CONFIG.colors.textPrimary);
     globe.update(input({ hp: 212, maxHp: 250, shield: 100 }), GLOBE, 2, false, 1);
-    expect(globe.readoutText()).toBe('HULL 312 /250');
+    expect(numerals(globe)).toEqual([312, hullMaxLabel(250)]); // the max is untouched
     expect(globe.valueFill).toBe(CLIENT_CONFIG.colors.info);
     globe.update(input({ hp: 212, maxHp: 250, shield: 27 }), GLOBE, 3, false, 1);
-    expect(globe.readoutText()).toBe('HULL 239 /250'); // an absorbed hit: the blue number falls
+    expect(numerals(globe)[0]).toBe(239); // an absorbed hit: the blue number falls
     globe.update(input({ hp: 212, maxHp: 250, shield: 0 }), GLOBE, 4, false, 1);
-    expect(globe.readoutText()).toBe('HULL 212 /250');
+    expect(numerals(globe)).toEqual([212, hullMaxLabel(250)]);
     expect(globe.valueFill).toBe(CLIENT_CONFIG.colors.textPrimary);
   });
 

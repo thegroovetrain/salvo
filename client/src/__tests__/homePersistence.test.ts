@@ -23,10 +23,9 @@ beforeEach(() => __resetSessionColorPrefForTests());
 import { PLAYER_HUES } from '../render/ships.js';
 
 describe('sanitizeName', () => {
-  it('trims + caps at NAME_MAX (14 — matches the kill feed)', () => {
+  it('trims + caps at NAME_MAX', () => {
     expect(sanitizeName('  hi  ')).toBe('hi');
-    expect(NAME_MAX).toBe(14);
-    expect(sanitizeName('X'.repeat(40))).toHaveLength(14);
+    expect(sanitizeName('X'.repeat(40))).toHaveLength(NAME_MAX);
   });
 });
 
@@ -38,10 +37,10 @@ describe('loadSavedName', () => {
     expect(loadSavedName()).toBe('AHAB');
   });
 
-  it('re-slices a legacy stored 16-char name to the tightened 14 cap on load', () => {
-    localStorage.setItem('hullcracker.name', 'ABCDEFGHIJKLMNOP'); // 16 chars
-    expect(loadSavedName()).toBe('ABCDEFGHIJKLMN'); // sliced to 14
-    expect(loadSavedName()).toHaveLength(14);
+  it('re-slices a legacy stored name longer than NAME_MAX to the cap on load', () => {
+    const legacy = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.slice(0, NAME_MAX + 2);
+    localStorage.setItem('hullcracker.name', legacy);
+    expect(loadSavedName()).toBe(legacy.slice(0, NAME_MAX));
   });
 
   it('re-slices a stored legacy name of 8 astral emoji without a lone surrogate', () => {

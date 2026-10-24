@@ -2830,6 +2830,19 @@ export const CLIENT_CONFIG = {
        */
       bandAlpha: 0.8,
       /**
+       * ONE BEAM CROSSING, FOR THE WRITE RULE (amendment 210 follow-up, cycle
+       * 203). Paints born within this many ms of each other are ONE paint to
+       * `writeCell`: the STRONGER return owns a shared cell, not the newer one.
+       * Since the server sends the entire sweep, a hull and the water under it
+       * arrive as separate slices a tick or two apart (the beam crosses both on
+       * the same bearing); under the strict same-age tie the wake row stamped
+       * a tick after the hull's blip overwrote its red cells with green water.
+       * Three ticks: the crossing of one bearing, never a whole revolution —
+       * a later crossing still repaints as before. Converted to an alpha
+       * tolerance (`sameCrossingMs / blipLifeMs`) in render/radar.ts.
+       */
+      sameCrossingMs: 150,
+      /**
        * THE SNR GRAIN (cycle 62, amendment 143) — per-cell intensity jitter whose
        * AMPLITUDE is a function of the intensity itself. This REPLACES the flat
        * `noise: 0.3` multiplier, and it is a correction rather than a retune:

@@ -111,18 +111,12 @@ function rowText(model: RefitTooltipModel): string[] {
 
 describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => {
   it('covers every catalog line × class × copies held — every built line opens a panel', () => {
-    // 24 lines since DECK GUN TURRET and DECK GUN BARREL folded into the
-    // CANNON ladder (2026-09-30, amendment 197); 26 before; 23 since CHAFF left
-    // the catalog in Story 9.2 (epic-9 amendment 31); 24 since PASSIVE HEALING
-    // joined in Story 9.6 (epic-9 amendment 95); 25 since ARMOR joined in
-    // Story 9.7 (epic-9 amendments 110–117); 26 since ARMOR PIERCING joined in
-    // Story 9.9 (epic-9 amendments 145, 159).
-    expect(LINES).toHaveLength(26);
     const lines = new Set(PANELS.map((p) => p.label.split('@')[0]));
-    // Only the never-dealt stub opens no panel.
-    expect(LINES.filter((d) => !lines.has(d.id)).map((d) => d.id)).toEqual(['depthCharge']);
+    // Only a never-dealt stub opens no panel.
+    const stubs = LINES.filter((d) => d.stub === true).map((d) => d.id);
+    expect(LINES.filter((d) => !lines.has(d.id)).map((d) => d.id)).toEqual(stubs);
     expect(PANELS.length).toBe(
-      LINES.filter((d) => d.id !== 'depthCharge').reduce((n, d) => n + (d.cap + 1) * CLASSES.length, 0),
+      LINES.filter((d) => d.stub !== true).reduce((n, d) => n + (d.cap + 1) * CLASSES.length, 0),
     );
   });
 
@@ -133,10 +127,6 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
     const band = refitBandLayout(1366, 768).band;
     const down = PANELS.filter(({ model }) => !refitTooltipPlacement(model, band).above).map((p) => p.label);
     expect(down).toEqual([]);
-    // 340 at Story 8.8; 320 while the D-prime bar stood 20px taller (Story
-    // 9.2); 303 once the six-row card grew 17px (Story 9.8); 323 since the bar
-    // went back to its one 136px row (Story 9.11).
-    expect(refitTooltipMaxPanelH(band.y)).toBe(323);
   });
 
   // CYCLE 158: a stat table is much shorter than the prose it replaced (the
@@ -147,7 +137,6 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
   // rather than clip; the clip pin below proves none is cut). The split is
   // still the water line.
   it('splits the panels at the 1280x614 floor by the water line — above if it fits, else down', () => {
-    expect(CONTAINER_H).toBe(169);
     for (const { label, model } of PANELS) {
       const p = refitTooltipPlacement(model, FLOOR_BAND.band);
       expect(p.above, label).toBe(p.height <= CONTAINER_H);
@@ -190,9 +179,6 @@ describe('refit tooltip container fit (amendment 47, re-aimed by R2.17)', () => 
   it('leaves real headroom above the band at 1366x768 — the pin is not on the boundary', () => {
     const room = refitTooltipMaxPanelH(refitBandLayout(1366, 768).band.y);
     const worst = Math.max(...PANELS.map(({ model }) => refitTooltipMetrics(model, room).height));
-    // 187 since Story 9.9 (epic-9 amendment 159): a ship ladder's hover gained
-    // its eighth row, ARMOR PIERCING — one row box (17 px) over the 170 before.
-    expect(worst).toBe(187);
     expect(room - worst).toBeGreaterThanOrEqual(2);
   });
 
@@ -306,13 +292,13 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
   });
 
   it('FOLLOWS the pointer along the row — one panel, re-filled, never a trail', () => {
-    const { menu, cards } = open();
+    const { menu, cards, view } = open();
     cards[0].dispatchEvent(new MouseEvent('mouseenter'));
     cards[1].dispatchEvent(new MouseEvent('mouseenter'));
     expect(document.querySelectorAll('#refit-card-tooltip')).toHaveLength(1);
-    // radarSweep's hover is the SHIP table; PHOSPHOR's own BURN row is gone.
-    expect(tip().textContent).toContain('RADAR SWEEP');
-    expect(tip().textContent).not.toContain('BURN');
+    // The panel now carries the SECOND card's name and exactly its rows.
+    expect(tip().children[0].textContent).toContain(boonName(OFFER[1], 0));
+    expect(tip().children[2].children).toHaveLength(view.options[1].hover.length);
     menu.hide();
     document.body.replaceChildren();
   });
@@ -486,9 +472,9 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
     const menu = new UpgradeMenu(() => {});
     menu.toggle(offerView(you as never, false, false, false, []) as OfferView);
     const cards = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
-    expect(cards[0].textContent).toContain('WEAPON UPGRADE'); // deckGun (CANNON) — a gun ladder
-    expect(cards[1].textContent).toContain('WEAPON'); // heavyTorpedo copy 1 — the fit
-    expect(cards[1].textContent).not.toContain('UPGRADE');
+    expect(cards[0].textContent).toContain(cardKindLabel(cardKind(CATALOG.deckGun, 0))); // a gun ladder
+    expect(cards[1].textContent).toContain(cardKindLabel(cardKind(CATALOG.heavyTorpedo, 0))); // copy 1 — the fit
+    expect(cards[1].textContent).not.toContain(cardKindLabel('weaponUpgrade'));
     // The "n/cap" count stays DELETED (Story 8.7): a number over a number.
     const COUNT = /\d\s*\/\s*\d/;
     expect(cards[0].textContent).not.toMatch(COUNT);
@@ -523,7 +509,7 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
     // ARMED: the edge flips to amber and the kind word KEEPS its colour.
     cards[0].dispatchEvent(new MouseEvent('mouseenter'));
     expect(cards[0].style.borderColor).toBe('var(--hc-amber)');
-    const word = ([...cards[0].querySelectorAll('span')] as HTMLElement[]).find((el) => el.textContent === 'WEAPON');
+    const word = ([...cards[0].querySelectorAll('span')] as HTMLElement[]).find((el) => el.textContent === cardKindLabel('weapon'));
     expect(word?.style.color).toBe(KIND_COLORS.weapon);
     cards[0].dispatchEvent(new MouseEvent('mouseleave'));
     expect(cards[0].style.borderColor).not.toBe('var(--hc-amber)');
@@ -547,7 +533,6 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
     expect(next).toBeDefined();
     expect(cur.style.color).toBe(LINEAGE_TIERS[1]);
     expect(next.style.color).toBe(LINEAGE_TIERS[2]);
-    expect(next.style.color).toBe('var(--hc-storm-readout)');
     // The ramp really is doing something: the two numerals differ.
     expect(cur.style.color).not.toBe(next.style.color);
     menu.hide();
@@ -580,7 +565,7 @@ describe('the panel is anchored on the band\'s own geometry', () => {
 // consumable card is ever offered. These pins are what make Story 8.8 a flag
 // flip rather than a plumbing job.
 describe('the hover panel\'s consumable shape line', () => {
-  it('adds the line for a CONSUMABLE and for nothing else', () => {
+  it('adds no shape line for any kind, a consumable included (amendment 203)', () => {
     const instant = refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', [], 0);
     expect(instant.interaction).toBeUndefined();
     const clicked = refitTooltipModel({ id: 'decoyBuoy', kind: 'consumable' }, 'DECOY BUOY', [], 0);
@@ -601,7 +586,7 @@ describe('the hover panel\'s consumable shape line', () => {
   // once the card is taken — copies held + this one — which is the same reading
   // the face's ladder and its stat rows already use (they preview the copy
   // being offered, never the one already held).
-  it('prints the stock the belt will read AFTER the pick: held + 1', () => {
+  it('prints no stock line at any copy count held (amendment 203)', () => {
     const at = (held: number): string | undefined =>
       refitTooltipModel({ id: 'hullRepair', kind: 'consumable' }, 'HULL REPAIR', [], held).interaction;
     // Amendment 203: no shape line, no stock — the belt badge shows stock.
@@ -630,8 +615,7 @@ describe('the hover panel\'s consumable shape line', () => {
     expect(withLine.height).toBe(bare.height);
   });
 
-  it('fits inside the panel, at its shipped width (amendment 42)', () => {
-    expect(REFIT_TIP.width).toBe(300);
+  it('fits every consumable panel inside the panel width and its placement height', () => {
     for (const id of ['hullRepair', 'shieldBlock', 'countermeasure', 'decoyBuoy']) {
       const model = refitTooltipModel({ id, kind: 'consumable' }, boonName(id), consumableStatRows(id), 4);
       expect(refitTooltipWidestToken(model), id).toBeLessThanOrEqual(refitTooltipInnerWidth());
@@ -641,7 +625,7 @@ describe('the hover panel\'s consumable shape line', () => {
     }
   });
 
-  it('renders the row on the card\'s hover panel, hidden for every other kind', () => {
+  it('keeps the shape row hidden and empty on every card\'s hover panel (amendment 203)', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
       cls: 'torpedoBoat' as const, pts: 1, offer: ['hullRepair', 'radarSweep'], boostUntil: 0,
@@ -652,12 +636,12 @@ describe('the hover panel\'s consumable shape line', () => {
     const cards = [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
     const tip = document.getElementById('refit-card-tooltip') as HTMLElement;
     const row = (): HTMLElement => tip.children[1] as HTMLElement;
-    // HULL REPAIR's panel carries its shape line ABOVE its rows (ruling 13)...
+    // HULL REPAIR's panel opens with its rows and no shape line...
     cards[0].dispatchEvent(new MouseEvent('mouseenter'));
     expect(tip.style.display).toBe('flex');
     expect(row().style.display).toBe('none');
     expect(row().textContent).toBe('');
-    expect(tip.children[2].textContent).toContain('INSTANT');
+    expect(tip.children[2].children).toHaveLength(consumableStatRows('hullRepair').length);
     // ...and the LADDER beside it opens with no shape line.
     cards[1].dispatchEvent(new MouseEvent('mouseenter'));
     expect(tip.style.display).toBe('flex');

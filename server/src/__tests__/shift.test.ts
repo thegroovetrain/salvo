@@ -22,6 +22,7 @@ import {
   SLOT_BOOST,
   WEAPON_SLOTS,
   classShift,
+  damageMultiplierFor,
   type GameEvent,
   type GunId,
   type InputMsg,
@@ -82,7 +83,7 @@ describe('slot 1 is the hull\'s CLASS SHIFT (amendment 89(c))', () => {
     expect(d.loadout[SLOT_BOOST]).toEqual({ equipmentId: null, state: null });
   });
 
-  it('the two new Shifts take the RELOAD ladder\'s cooldownScale like every row (60 s -> 45 s, 30 s -> 22.5 s)', () => {
+  it('the two new Shifts take the RELOAD ladder\'s cooldownScale like every row; HUNKER\'s window is not a reload', () => {
     const w = bareWorld();
     const ml = place(w, 'ml', 'mineLayer');
     const bs = place(w, 'bs', 'battleship');
@@ -90,9 +91,10 @@ describe('slot 1 is the hull\'s CLASS SHIFT (amendment 89(c))', () => {
       w.applyCard(ml, 'reload');
       w.applyCard(bs, 'reload');
     }
-    expect(ml.stats.equipment.instantReload.reloadMs).toBe(45000); // 60000 × 0.75
-    expect(bs.stats.equipment.hunker.reloadMs).toBe(22500);
-    expect(bs.stats.equipment.hunker.durationMs).toBe(10000); // the window is not a reload (10 s — epic-9 amendments 86–88 / 110–117, Story 9.7)
+    expect(ml.stats.cooldownScale).toBeLessThan(1);
+    expect(ml.stats.equipment.instantReload.reloadMs).toBe(CONFIG.instantReload.reloadMs * ml.stats.cooldownScale);
+    expect(bs.stats.equipment.hunker.reloadMs).toBe(CONFIG.hunker.reloadMs * bs.stats.cooldownScale);
+    expect(bs.stats.equipment.hunker.durationMs).toBe(CONFIG.hunker.durationMs); // the window is not a reload (epic-9 amendments 86–88 / 110–117, Story 9.7)
   });
 });
 
@@ -117,7 +119,7 @@ describe('INSTANT RELOAD — the Mine Layer\'s Shift (amendments 97–98)', () =
     return a;
   }
 
-  it('finishes exactly ONE reload per running slot: cannon 1/0, torp 1/0, mines 2/0; the belt untouched; the Shift spent for 60 s', () => {
+  it('finishes exactly ONE reload per running slot: cannon 1/0, torp 1/0, mines 2/0; the belt untouched; the Shift spent for its full cooldown', () => {
     const w = bareWorld();
     const a = loaded(w);
     const belt = a.loadout.slice(5).map((s) => ({ ...s, state: s.state === null ? null : { ...s.state } }));
@@ -127,7 +129,6 @@ describe('INSTANT RELOAD — the Mine Layer\'s Shift (amendments 97–98)', () =
     expect(a.loadout[WEAPON_SLOTS[1]].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 });
     expect(a.loadout.slice(5)).toEqual(belt); // HULL REPAIR ×2, byte-identical
     expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: CONFIG.instantReload.reloadMs });
-    expect(CONFIG.instantReload.reloadMs).toBe(60000);
   });
 
   it('a weapon that is NOT reloading is untouched, and a deep deficit tops up by ONE round only (never a refill)', () => {
@@ -150,16 +151,18 @@ describe('INSTANT RELOAD — the Mine Layer\'s Shift (amendments 97–98)', () =
     expect(a.loadout[WEAPON_SLOTS[1]].state!.n).toBe(1); // still 1 a tick later
   });
 
-  it('the MACHINE GUN magazine FILLS (5/12 mid partial swap -> 12, timer 0); an idle full magazine is untouched', () => {
+  it('the MACHINE GUN magazine FILLS from a partial swap to maxAmmo, timer 0; an idle full magazine is untouched', () => {
     const w = bareWorld();
     const a = place(w, 'a', 'mineLayer', 'machineGun');
+    const mag = a.stats.equipment.machineGun.maxAmmo;
+    expect(mag).toBeGreaterThan(5);
     a.loadout[SLOT_GUN].state = { n: 5, reloadMsLeft: 9000 };
     pressShift(w, 'a', 1);
-    expect(a.loadout[SLOT_GUN].state).toEqual({ n: 12, reloadMsLeft: 0 });
+    expect(a.loadout[SLOT_GUN].state).toEqual({ n: mag, reloadMsLeft: 0 });
     const w2 = bareWorld();
     const b = place(w2, 'b', 'mineLayer', 'machineGun');
     pressShift(w2, 'b', 1);
-    expect(b.loadout[SLOT_GUN].state).toEqual({ n: 12, reloadMsLeft: 0 });
+    expect(b.loadout[SLOT_GUN].state).toEqual({ n: b.stats.equipment.machineGun.maxAmmo, reloadMsLeft: 0 });
   });
 
   it('a second press inside the 60 s is refused no-ammo -> `cooling` on the wire, and touches nothing', () => {
@@ -190,24 +193,27 @@ describe('HUNKER — the Battleship\'s Shift (amendments 99–102)', () => {
   // Re-based by Story 9.7 (epic-9 amendments 86–88 / 110–117): the window is 10 s and the cut is +5
   // temporary Armor — at Tier 0 that is Armor 5 → ×0.5 (Story 9.9: +100 at K 100 → E 100,
   // still ×0.5, epic-9 amendment 144), so 15 → 7 still holds.
-  it('opens a 10 s window at server apply time on a 30 s cooldown; at Tier 0 the next blow takes E 100 → ×0.5 (amendment 144)', () => {
+  it('opens the window at server apply time on its cooldown; inside it the next blow takes the armorBonus multiply, after it full damage (amendment 144)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 'battleship');
+    const hk = a.stats.equipment.hunker;
     pressShift(w, 'a', 1);
-    expect(a.hunkerUntil).toBe(w.now + 10000);
-    expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: 30000 });
+    expect(a.hunkerUntil).toBe(w.now + hk.durationMs);
+    expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: hk.reloadMs });
     const gate = w as unknown as { applyDamage(v: ShipRecord, n: number, s: 'shell', by: string): void };
+    const cut = Math.max(1, Math.floor(15 * damageMultiplierFor(a.stats.armor + hk.armorBonus)));
+    expect(cut).toBeLessThan(15);
     gate.applyDamage(a, 15, 'shell', 'b');
-    expect(a.hp).toBe(a.stats.maxHp - 7);
+    expect(a.hp).toBe(a.stats.maxHp - cut);
     // A second press inside the cooldown: no-ammo, the window not extended.
     pressShift(w, 'a', 2);
     expect(w.denialsFor('a')).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2 }]);
-    expect(a.hunkerUntil).toBe(w.now - DT + 10000);
+    expect(a.hunkerUntil).toBe(w.now - DT + hk.durationMs);
     // After the window: full damage.
-    for (let i = 0; i < 10000 / DT; i++) w.step();
+    for (let i = 0; i < hk.durationMs / DT; i++) w.step();
     expect(w.now).toBeGreaterThanOrEqual(a.hunkerUntil);
     gate.applyDamage(a, 15, 'shell', 'b');
-    expect(a.hp).toBe(a.stats.maxHp - 7 - 15);
+    expect(a.hp).toBe(a.stats.maxHp - cut - 15);
   });
 
   it('`hunkerUntil` rides the OWN frame only — never a contact, an event, or an enemy\'s frame; omitted until a cut is opened', () => {

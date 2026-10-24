@@ -562,24 +562,28 @@ describe('WRECKS, FLEET PAIRS, DRONES, the GATE and CREDIT', () => {
   });
 
   it('a RAM between two hulls: each blow carries the OTHER hull\'s ARMOR PIERCING, read live (Story 9.9, epic-9 amendments 146–147 / 156)', () => {
-    // A: Armor 20, AP 40. B: Armor 20, AP 0. A's blow on B is E 20 − 40 = −20
-    // (amplified); B's blow on A is E 20 − 0 = 20 (reduced). Both floored.
+    // A carries more AP than B's Armor; B carries none. A's blow on B lands at
+    // a NEGATIVE effective Armor (amplified); B's blow on A at a positive one
+    // (reduced). Both floored.
     const w = bareWorld();
     const { a, b, vn } = headOnPair(w);
     w.applyCard(a, 'armor');
     w.applyCard(a, 'armorPiercing');
     w.applyCard(a, 'armorPiercing');
     w.applyCard(b, 'armor');
-    expect([a.stats.armor, a.stats.armorPiercing, b.stats.armor, b.stats.armorPiercing]).toEqual([20, 40, 20, 0]);
+    const eOnB = b.stats.armor - a.stats.armorPiercing;
+    const eOnA = a.stats.armor - b.stats.armorPiercing;
+    expect(eOnB).toBeLessThan(0); // the fixture really pierces past B's Armor
+    expect(eOnA).toBeGreaterThan(0); // ...and B really pierces nothing
     const nominal = contactHitDamage(a.stats.maxHp, b.stats.maxHp, vn, RAM);
     const { events } = stepUntil(w, () => a.stats.maxHp - a.hp >= 1);
     const blow = (n: number, e: number): number => {
       expect(n).toBeGreaterThan(0); // a 0 nominal must never silently pass as 1
       return Math.max(1, Math.floor(n * damageMultiplierFor(e)));
     };
-    expect(dmgOf(events, 'b').map((e) => e.amount)).toEqual([blow(nominal.b, b.stats.armor - a.stats.armorPiercing)]);
-    expect(dmgOf(events, 'a').map((e) => e.amount)).toEqual([blow(nominal.a, a.stats.armor - b.stats.armorPiercing)]);
-    expect(blow(nominal.b, -20)).toBeGreaterThan(blow(nominal.b, 20)); // the pierced side really is amplified
+    expect(dmgOf(events, 'b').map((e) => e.amount)).toEqual([blow(nominal.b, eOnB)]);
+    expect(dmgOf(events, 'a').map((e) => e.amount)).toEqual([blow(nominal.a, eOnA)]);
+    expect(blow(nominal.b, eOnB)).toBeGreaterThan(blow(nominal.b, eOnA)); // the pierced side really is amplified
   });
 
   it('damageEnabled false: the push still happens, no hp moves, nothing is reported', () => {

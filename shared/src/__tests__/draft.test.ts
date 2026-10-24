@@ -18,17 +18,17 @@ import {
   type ShipConfig,
 } from '../index.js';
 
-/** A representative Torpedo Boat kinematics block (maxSpeed 45). */
+/** A representative Torpedo Boat kinematics block. */
 function tbKinematics(): ShipConfig {
   return { ...CONFIG.shipClasses.torpedoBoat.kinematics };
 }
 
 describe('CONFIG.wake.draft — the drafting dials (amendments 151–152)', () => {
-  it('lift is 5 % and the lane half-width is one wake-maker hull width', () => {
-    expect(CONFIG.wake.draft.lift).toBe(0.05);
-    expect(CONFIG.wake.draft.halfWidthBeams).toBe(1);
-    expect(Object.keys(CONFIG.wake)).toEqual(['draft']);
-    expect(Object.keys(CONFIG.wake.draft).sort()).toEqual(['halfWidthBeams', 'lift']);
+  it('the shipped drafting dials are positive and finite (draftLift fails closed to 0 on any other, silently disabling drafting)', () => {
+    for (const v of [CONFIG.wake.draft.lift, CONFIG.wake.draft.halfWidthBeams]) {
+      expect(Number.isFinite(v)).toBe(true);
+      expect(v).toBeGreaterThan(0);
+    }
   });
 
   it('the wake clocks stay in CONFIG.vision', () => {
@@ -79,9 +79,8 @@ describe('draftedKinematics — active raises the forward cap only', () => {
 });
 
 describe('the pinned composition boosted → slowed → drafted → hooks (Fold order row)', () => {
-  it('boost open + fouled 0.75 + draft 0.05 at maxSpeed 45', () => {
+  it('boost, then slow, then draft compose on the forward cap in that order; reverse is slowed only', () => {
     const kin = tbKinematics();
-    expect(kin.maxSpeed).toBe(45);
     const empty: HookRegistry = {};
     const boosted = boostedKinematics(kin, 0.25, true);
     const slowed = slowedKinematics(boosted, 0.75, true);
@@ -90,7 +89,7 @@ describe('the pinned composition boosted → slowed → drafted → hooks (Fold 
     // An empty registry is an identity on the drafted result.
     expect(out).toBe(drafted);
 
-    const m = (45 + 45 * 0.25) * 0.75;
+    const m = (kin.maxSpeed + kin.maxSpeed * 0.25) * 0.75;
     expect(slowed.maxSpeed).toBe(m);
     expect(out.maxSpeed).toBe(m + m * 0.05);
     // Reverse is slowed only — neither the boost nor the draft touches it.

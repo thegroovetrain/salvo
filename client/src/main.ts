@@ -4071,6 +4071,8 @@ function hullSoftnessFor(g: Game, pose: Point | null, zones: readonly OwnZone[],
       const r = z.r * litZoneFade(z.until - now);
       if ((x - z.x) ** 2 + (y - z.y) ** 2 <= r * r) return 1;
     }
+    // Retired by epic-9 amendment 212 (cycle 203): this is 1 everywhere — a
+    // delivered hull draws at full alpha; only the 150 ms sight fade removes it.
     return hullSightSoftness(Math.hypot(x - pose.x, y - pose.y), sightU);
   };
 }

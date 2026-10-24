@@ -318,10 +318,12 @@ describe('Projectiles.onBallisticUpdate — the homing-torpedo track update', ()
     p.onShell(launch);
     p.onBallisticUpdate(steer);
     expect(p.liveCount).toBe(1); // updated, never duplicated
-    // 500ms past the update, the fish is 30u further along the NEW bearing.
-    expect(shellPosition({ x: steer.x, y: steer.y }, steer, steer.t, 1000)).toEqual({ x: 30, y: 30 });
+    // 500ms past the update, the TRACK is 30u further along the NEW bearing.
     // The old track would have kept running down +x to x = 60 — the update is
     // what makes the rendered path agree with the server's steer.
+    const [pose] = p.torpWakeHulls(1000);
+    expect(pose.x).toBeCloseTo(30, 9);
+    expect(pose.y).toBeCloseTo(30, 9);
     p.render(1000, own, []);
     expect(p.liveCount).toBe(1); // still well inside the sight bubble
   });
@@ -339,7 +341,9 @@ describe('Projectiles.onBallisticUpdate — the homing-torpedo track update', ()
     // run 30u down the update's bearing and is still inside the bubble.
     p.render(1000, own, []);
     expect(p.liveCount).toBe(1);
-    expect(shellPosition({ x: steer.x, y: steer.y }, steer, steer.t, 1000)).toEqual({ x: 30, y: 30 });
+    const [pose] = p.torpWakeHulls(1000);
+    expect(pose.x).toBeCloseTo(30, 9);
+    expect(pose.y).toBeCloseTo(30, 9);
   });
 
   it('a post-boom update re-creates the track exactly once (no duplicate, no leak)', () => {

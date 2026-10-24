@@ -33,7 +33,6 @@ import {
 import { HUD_BAR_WIDTH, hudBarLayout } from '../render/hudBar.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
 import { CHROME_BAR_SEGMENTS, RING_LIT_ALPHA, chromeBarSegments, ringReadout, type ChromeBarView } from '../ui/chromeBar.js';
-import { KILL_LEADER_MARK } from '../ui/bounty.js';
 import { abilityPressDenied } from '../sim/inputSampler.js';
 import { DeniedPulse } from '../render/deniedFire.js';
 import { settings } from '../settings/store.js';
@@ -187,7 +186,6 @@ describe('the tells fit their box (amendment 47 — the container-fit law)', () 
 
 describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
   const status = ownStatus();
-  const LIVE_ROW = '12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES IN 2:34';
 
   function bar(over: Partial<ChromeBarView> = {}): ChromeBarView {
     return {
@@ -207,6 +205,11 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
   // an OPTIONAL tail after the ring.
   const RING = chromeBarSegments(bar()).findIndex((s) => s.pulsed);
 
+  /** What the composer says the row reads — the render half must draw exactly
+   *  that, whatever the words are (the words are chromeBar.ts's business). */
+  const composed = (v: ChromeBarView): string => chromeBarSegments(v).map((s) => s.text).join('');
+  const LIVE_ROW = composed(bar());
+
   const drive = (hud: Hud, v: ChromeBarView, nowSec: number): void =>
     hud.update(status, false, v, MATCH, FLOOR.w, FLOOR.h, nowSec);
 
@@ -224,7 +227,9 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
     const hud = new Hud(new Container());
     const held = bar({ bounty: { name: 'ALPHA', hue: 0x35d07f } });
     drive(hud, held, 1);
-    expect(hud.chromeBarText().join('')).toBe(`${LIVE_ROW} · ${KILL_LEADER_MARK} ALPHA`);
+    expect(hud.chromeBarText().join('')).toBe(composed(held));
+    expect(hud.chromeBarText().join('').startsWith(LIVE_ROW)).toBe(true); // a TAIL after the row
+    expect(hud.chromeBarText().join('')).toContain('ALPHA'); // the holder's name (data, not copy)
     // THE POOL MUST HOLD THE WHOLE ROW: layoutChromeBar bounds both its loops
     // by CHROME_BAR_SEGMENTS, so an under-sized pool truncates the tail
     // SILENTLY rather than failing.
@@ -248,11 +253,12 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
     expect(hud.chromeBarText().join('')).toBe(LIVE_ROW);
   });
 
-  it('re-centers on a viewport change and tracks the T+ tick', () => {
+  it('redraws the row when the match clock ticks', () => {
     const hud = new Hud(new Container());
     drive(hud, bar(), 1);
     drive(hud, bar({ matchMs: 253_000 }), 2);
-    expect(hud.chromeBarText().join('')).toContain('T+04:13');
+    expect(hud.chromeBarText().join('')).toBe(composed(bar({ matchMs: 253_000 })));
+    expect(hud.chromeBarText().join('')).not.toBe(LIVE_ROW);
   });
 
   it('breathes the ring ONLY in the urgency window — starting at the LIT keyframe', () => {
@@ -294,7 +300,7 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
       drive(hud, urgent, t);
       expect(hud.chromeBarAlpha(RING)).toBe(RING_LIT_ALPHA);
     }
-    expect(hud.chromeBarText().join('')).toContain('RING CLOSES IN 0:04'); // copy intact
+    expect(hud.chromeBarText().join('')).toBe(composed(urgent)); // the readout intact
   });
 
   it('carries the breath ACROSS the alive→spectate seam — no reset, no dt spike', () => {
@@ -402,9 +408,11 @@ describe('Hud — the tells and the storm warning on a live frame', () => {
   it('shows the SLOWED window while it runs, and only it (Story 9.4: one tell)', () => {
     const hud = new Hud(new Container());
     draw(hud, ownStatus({ slowedMsLeft: 2000 }));
-    expect([hud.tellText(0), hud.tellText(1)]).toEqual(['SLOWED 2s', '']);
+    expect(hud.tellText(0)).not.toBe('');
+    expect(hud.tellText(0).endsWith(` ${tellSeconds(2000)}s`)).toBe(true); // the live countdown
+    expect(hud.tellText(1)).toBe('');
     draw(hud, ownStatus({ slowedMsLeft: 1500 }));
-    expect(hud.tellText(0)).toBe('SLOWED 2s');
+    expect(hud.tellText(0).endsWith(` ${tellSeconds(1500)}s`)).toBe(true);
   });
 
   it('the running tell takes the TOP slot, at the column anchor', () => {
@@ -416,7 +424,7 @@ describe('Hud — the tells and the storm warning on a live frame', () => {
   it('keeps the tells through the SINKING window and clears them on a dead hull', () => {
     const hud = new Hud(new Container());
     draw(hud, ownStatus({ alive: false, sinking: true, slowedMsLeft: 2000 }));
-    expect(hud.tellText(0)).toBe('SLOWED 2s'); // still conning, still fouled
+    expect(hud.tellText(0)).not.toBe(''); // still conning, still fouled
     draw(hud, ownStatus({ slowedMsLeft: 2000 }));
     draw(hud, ownStatus()); // expired
     expect(hud.tellText(0)).toBe('');

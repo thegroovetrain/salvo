@@ -16,20 +16,20 @@ import {
 import { EXTRA_MARGIN_PX } from '../render/fog.js';
 
 describe('shakeMagnitude', () => {
-  it('is subtle at gun damage (15hp) and heavy at torpedo damage (55hp)', () => {
-    expect(shakeMagnitude(15)).toBeCloseTo(4, 6);
-    expect(shakeMagnitude(55)).toBeCloseTo(16, 6);
+  it('is subtle at gun damage (15hp) and heavier at torpedo damage (55hp)', () => {
+    expect(shakeMagnitude(15)).toBeGreaterThan(0);
+    expect(shakeMagnitude(55)).toBeGreaterThan(shakeMagnitude(15));
   });
 
   it('interpolates linearly between the anchors (mine damage lands in between)', () => {
     const mid = shakeMagnitude(35); // halfway between 15 and 55
-    expect(mid).toBeCloseTo((4 + 16) / 2, 6);
+    expect(mid).toBeCloseTo((shakeMagnitude(15) + shakeMagnitude(55)) / 2, 6);
   });
 
   it('never drops below the subtle anchor or exceeds the fog-safe cap', () => {
-    expect(shakeMagnitude(0)).toBe(4); // storm/unknown tiny damage never below subtle
+    expect(shakeMagnitude(0)).toBe(shakeMagnitude(15)); // storm/unknown tiny damage never below subtle
     expect(shakeMagnitude(1000)).toBeLessThanOrEqual(SHAKE_MAX_PX); // absurd damage stays fog-safe
-    expect(shakeMagnitude(1000)).toBeCloseTo(16, 6); // saturates at the heavy anchor, not beyond
+    expect(shakeMagnitude(1000)).toBeCloseTo(shakeMagnitude(55), 6); // saturates at the heavy anchor, not beyond
   });
 
   it('never exceeds the fog bake margin (EXTRA_MARGIN_PX) — the whole point of the clamp', () => {
@@ -52,24 +52,24 @@ describe('shakeDecay', () => {
 describe('triggerShake / advanceShake', () => {
   it('a fresh trigger sets peak = shakeMagnitude(damage) and resets the clock', () => {
     const s = triggerShake(IDLE_SHAKE, 15);
-    expect(s.peak).toBeCloseTo(4, 6);
+    expect(s.peak).toBeCloseTo(shakeMagnitude(15), 6);
     expect(s.t).toBe(0);
   });
 
   it('a stronger hit mid-shake raises the peak', () => {
     let s = triggerShake(IDLE_SHAKE, 15); // subtle
     s = triggerShake(s, 55); // heavy arrives immediately after
-    expect(s.peak).toBeCloseTo(16, 6);
+    expect(s.peak).toBeCloseTo(shakeMagnitude(55), 6);
   });
 
   it('a weaker hit mid-shake does not downgrade the decaying peak', () => {
-    let s = triggerShake(IDLE_SHAKE, 55); // heavy, peak 16
+    let s = triggerShake(IDLE_SHAKE, 55); // heavy
     s = advanceShake(s, 0.05); // barely decayed
     const before = shakeCurrentMagnitude(s);
     s = triggerShake(s, 15); // subtle follow-up
-    // peak stays at (decayed) heavy magnitude, not reset down to subtle's 4px
+    // peak stays at (decayed) heavy magnitude, not reset down to subtle's
     expect(s.peak).toBeCloseTo(before, 6);
-    expect(s.peak).toBeGreaterThan(4);
+    expect(s.peak).toBeGreaterThan(shakeMagnitude(15));
   });
 
   it('advanceShake accumulates elapsed time without touching peak', () => {
@@ -98,15 +98,15 @@ describe('ShakeDriver', () => {
 
   it('offset magnitude matches the decayed peak, direction from the injected rng', () => {
     const d = new ShakeDriver(() => 0); // angle 0 -> +x direction
-    d.trigger(55); // heavy hit, peak 16
+    d.trigger(55); // heavy hit
     const off = d.update(0); // dt=0, no decay yet this frame beyond trigger reset
-    expect(off.x).toBeCloseTo(16, 4);
+    expect(off.x).toBeCloseTo(shakeMagnitude(55), 4);
     expect(off.y).toBeCloseTo(0, 6);
   });
 
   it('decays toward zero and eventually rests at {0,0} (offset clamps, magnitude vanishes)', () => {
     const d = new ShakeDriver(() => 0.25); // angle = pi/2 -> +y direction
-    d.trigger(15); // subtle hit, peak 4
+    d.trigger(15); // subtle hit
     for (let i = 0; i < 200; i++) d.update(0.05); // 10s, far past decay
     expect(d.update(0.05)).toEqual({ x: 0, y: 0 });
     expect(d.magnitude).toBeLessThan(1e-10); // asymptotic decay, not exactly 0

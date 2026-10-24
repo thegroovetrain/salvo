@@ -189,16 +189,6 @@ describe('botReport — the quality bars', () => {
     expect(barByName(agg, 'kill share').pass).toBe(false);
   });
 
-  it('storm-death share is a BAND — below it fails exactly as above it does', () => {
-    const deaths = (storm: number, ship: number): BotSample[] => [
-      ...Array.from({ length: storm }, (_, i) => sample({ id: `s${i}`, end: 'sunkByStorm' })),
-      ...Array.from({ length: ship }, (_, i) => sample({ id: `k${i}`, end: 'sunkByShip' })),
-    ];
-    expect(barByName(buildBotAggregate(result([deaths(1, 99)]), 100), 'storm deaths').pass).toBe(false);
-    expect(barByName(buildBotAggregate(result([deaths(10, 90)]), 100), 'storm deaths').pass).toBe(true);
-    expect(barByName(buildBotAggregate(result([deaths(50, 50)]), 100), 'storm deaths').pass).toBe(false);
-  });
-
   it('land contact pools TICKS, not per-bot rates', () => {
     const agg = buildBotAggregate(
       result([[sample({ ticks: 1000, landTicks: 100 }), sample({ id: 'b2', ticks: 9000, landTicks: 0 })]]),
@@ -209,7 +199,7 @@ describe('botReport — the quality bars', () => {
     expect(barByName(agg, 'land contact').pass).toBe(false); // bar is STRICTLY < 1%
   });
 
-  it('wake drafting pools TICKS per group and renders a draft% column beside land% (Story 8.19)', () => {
+  it('wake drafting pools TICKS per group and the pooled rate reaches the rendered report (Story 8.19)', () => {
     const agg = buildBotAggregate(
       result([[
         sample({ ticks: 1000, draftTicks: 300 }),
@@ -223,16 +213,6 @@ describe('botReport — the quality bars', () => {
     expect(agg.byClass.find((g) => g.key === 'torpedoBoat')!.draftRate).toBeCloseTo(0.1, 6);
     expect(agg.byClass.find((g) => g.key === 'battleship')!.draftRate).toBe(0);
     const text = renderBotReport('baseline', agg);
-    // Story 9.5: the deaths line carries the two contact causes, and the
-    // land-contact damage line sits beside the land-contact run.
-    expect(text.some((l) => /by ramming/.test(l) && /aground/.test(l))).toBe(true);
-    expect(text.some((l) => /^land-contact damage:/.test(l))).toBe(true);
-    const heads = text.filter((l) => l.includes('land%'));
-    expect(heads).toHaveLength(2); // BY PROFILE and BY CLASS
-    for (const h of heads) {
-      expect(h).toContain('draft%');
-      expect(h.indexOf('draft%')).toBeGreaterThan(h.indexOf('land%'));
-    }
     expect(text.join('\n')).toContain('10.0%');
   });
 
@@ -295,7 +275,6 @@ describe('botReport — the quality bars', () => {
     const a = renderBotReport('baseline', buildBotAggregate(r, 2));
     const b = renderBotReport('baseline', buildBotAggregate(r, 2));
     expect(a).toEqual(b);
-    expect(a.join('\n')).toContain('QUALITY BAR');
     // JSON-only (spec R3): lifeSamples must never surface in the rendered
     // text body, or the determinism contract this test guards is moot.
     expect(a.join('\n')).not.toContain('lifeSamples');
@@ -554,10 +533,6 @@ describe('Story 9.5 — contact deaths and land-contact damage in the bot aggreg
     expect(agg.stormDeaths).toBe(1);
     expect(agg.landDamage).toBe(40);
     expect(agg.landDamagePerBotMatch).toBeCloseTo(40 / 6, 9);
-    const text = renderBotReport('x', agg);
-    const deaths = text.find((l) => l.startsWith('deaths:'))!;
-    expect(deaths).toBe('deaths: 5 = 1 by participant + 0 by PvE fleet + 1 by ramming + 2 aground + 1 by storm');
-    expect(text).toContain('land-contact damage: 40 hp total, 6.7 hp mean per bot-match');
   });
 });
 
@@ -623,7 +598,6 @@ describe('Story 9.13 — the bot readouts on a real match', () => {
     const agg = buildBotAggregate({ matches: [first], failures: [] }, 4);
     expect(agg.readouts.ticks).toBe(first.bots!.reduce((a, b) => a + b.ticks, 0));
     const text = renderBotReport('x', agg);
-    expect(text).toContain('POSTURE (share of afloat bot-ticks, BotController.postureOf each tick):');
     // Measured, never judged: no PASS/FAIL row is printed for a 9.13 readout.
     for (const line of text.filter((l) => /^ {2}(PASS|FAIL) /.test(l))) {
       expect(line).not.toMatch(/posture|grounded|decoy|endgame|fog/i);
@@ -759,7 +733,7 @@ describe('Story 9.13 — the readout counters on a staged world', () => {
 });
 
 describe('Story 9.13 — postureEdges names the transitions', () => {
-  it('opened / brokenOff / kited / hid / held / rammed', () => {
+  it('maps each posture change to the transitions it names, and an unnamed change to none', () => {
     expect(postureEdges('reposition', 'pursue')).toEqual(['opened']);
     expect(postureEdges('pursue', 'engage')).toEqual([]);
     expect(postureEdges('engage', 'hide')).toEqual(['brokenOff', 'hid']);

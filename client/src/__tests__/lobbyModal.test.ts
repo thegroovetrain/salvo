@@ -1,14 +1,13 @@
 // THE LOBBY MODAL (cycle 167, Eric rulings 2026-10-02; re-laid out the same
 // day on Eric's staging ruling: "two columns of 10 slots … the modal changes
 // size … options CLEARLY LABELED … Bot fill needs to be a yes/no selection …
-// Start Now triggers the countdown"). The copy is ruling 9's plus the option
-// labels / YES / NO / OPTIONAL, so the whole rendered text is pinned for the
-// host's view and for a non-host's — the queueModal.test.ts pattern. Also
-// pinned: ONE fixed geometry in every state, exactly CAP slots filled left to
-// right then top to bottom, the ready circle's color, label + control for the
-// host and label + status for everyone else, YES/NO with exactly one lit,
-// START NOW disabled while any countdown runs, YOU ARE HOST on a hand-off
-// (ruling 6), ESC = LEAVE, the z rung and backdrop.
+// Start Now triggers the countdown"). Pinned: ONE fixed geometry in every
+// state, exactly CAP slots filled left to right then top to bottom, the ready
+// circle's color, label + control for the host and label + status for everyone
+// else, the bot-fill pair with exactly one lit, START NOW disabled while any
+// countdown runs, the hand-off notice (ruling 6), ESC = LEAVE, the z rung and
+// backdrop. The WORDING is Eric's and is not pinned (Story 9.14, ruling R3):
+// every control is found by its data-lobby role or its cell, never its label.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { LobbyCaptain, LobbyView } from '../net/lobby.js';
@@ -67,25 +66,28 @@ function role(r: string): HTMLElement[] {
   return [...overlay().querySelectorAll<HTMLElement>(`[data-lobby="${r}"]`)];
 }
 
-/** Every string a player can see, in DOM order: visible leaf text, plus each
- *  input as `[value|placeholder]`. Hidden slots contribute nothing. */
-function rendered(): string[] {
-  const out: string[] = [];
-  overlay().querySelectorAll<HTMLElement>('*').forEach((el) => {
-    if (el instanceof HTMLInputElement) {
-      out.push(`[${el.value}|${el.placeholder}]`);
-      return;
-    }
-    if (el.children.length > 0 || el.style.visibility === 'hidden') return;
-    const t = (el.textContent ?? '').trim();
-    if (t !== '') out.push(t);
-  });
-  return out;
+/** A line's VISIBLE text: a reserved-but-empty slot (nbsp, hidden) reads ''. */
+function shown(el: Element | null | undefined): string {
+  if (!(el instanceof HTMLElement) || el.style.visibility === 'hidden') return '';
+  return (el.textContent ?? '').trim();
 }
 
-function button(label: string): HTMLButtonElement {
-  return [...overlay().querySelectorAll('button')].find((b) => b.textContent === label) as HTMLButtonElement;
+const line = (r: string): string => shown(role(r)[0]);
+
+/** The button row's three cells: [READY toggle, LEAVE, START NOW (host only)]. */
+function cellButton(i: number): HTMLButtonElement | undefined {
+  return (role('cell')[i]?.querySelector('button') ?? undefined) as HTMLButtonElement | undefined;
 }
+const readyBtn = (): HTMLButtonElement => cellButton(0) as HTMLButtonElement;
+const leaveBtn = (): HTMLButtonElement => cellButton(1) as HTMLButtonElement;
+const startBtn = (): HTMLButtonElement | undefined => cellButton(2);
+
+/** The host's bot-fill pair, [on, off], inside the second option row. */
+function chips(): HTMLButtonElement[] {
+  return [...role('option')[1].querySelectorAll<HTMLButtonElement>('[data-lobby="option-value"] button')];
+}
+const yesChip = (): HTMLButtonElement => chips()[0];
+const noChip = (): HTMLButtonElement => chips()[1];
 
 function seedInput(): HTMLInputElement | null {
   return overlay().querySelector('input');
@@ -126,14 +128,14 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('pure copy and rules', () => {
-  it('speaks ruling 9: CODE, N/CAP ABOARD, STARTS IN m:ss', () => {
-    expect(codeLine('KXQMAB')).toBe('CODE KXQMAB');
-    expect(aboardLine(1)).toBe(`1/${CAP} ABOARD`);
-    expect(aboardLine(CAP)).toBe(`${CAP}/${CAP} ABOARD`);
-    expect(lobbyCountdownLine(NOW + 9_000, NOW)).toBe('STARTS IN 0:09');
-    expect(lobbyCountdownLine(NOW + 10_000, NOW)).toBe('STARTS IN 0:10');
-    expect(lobbyCountdownLine(NOW - 50, NOW)).toBe('STARTS IN 0:00');
+describe('pure lines and rules', () => {
+  it('the code line carries the code, the aboard line n/CAP, the countdown m:ss or nothing', () => {
+    expect(codeLine('KXQMAB')).toContain('KXQMAB');
+    expect(aboardLine(1)).toContain(`1/${CAP}`);
+    expect(aboardLine(CAP)).toContain(`${CAP}/${CAP}`);
+    expect(lobbyCountdownLine(NOW + 9_000, NOW).endsWith('0:09')).toBe(true);
+    expect(lobbyCountdownLine(NOW + 10_000, NOW).endsWith('0:10')).toBe(true);
+    expect(lobbyCountdownLine(NOW - 50, NOW).endsWith('0:00')).toBe(true);
     expect(lobbyCountdownLine(null, NOW)).toBe('');
   });
 
@@ -144,28 +146,22 @@ describe('pure copy and rules', () => {
   });
 });
 
-describe('the whole rendered text', () => {
-  it("the HOST's view, alone and unready", () => {
+describe('what each role sees', () => {
+  it("the HOST's view, alone and unready: the seed field, the bot-fill pair, START NOW and the blocked reason", () => {
     showLobbyModal(actions());
     updateLobbyModal(view());
-    expect(rendered()).toEqual([
-      'LOBBY',
-      'CODE QWERTY',
-      'SEED',
-      '[|OPTIONAL]',
-      'BOT-FILL',
-      'YES',
-      'NO',
-      `1/${CAP} ABOARD`,
-      'NEMO',
-      'READY',
-      'LEAVE',
-      'START NOW',
-      '2 CAPTAINS OR BOT-FILL REQUIRED',
-    ]);
+    expect(seedInput()).not.toBeNull();
+    expect(chips()).toHaveLength(2);
+    expect(startBtn()).toBeDefined();
+    expect(line('reason')).not.toBe('');
+    expect(line('notice')).toBe('');
+    expect(line('countdown')).toBe('');
+    expect(line('code')).toBe(codeLine('QWERTY'));
+    expect(line('aboard')).toBe(aboardLine(1));
+    expect(role('slot')[0].textContent).toBe('NEMO');
   });
 
-  it("a NON-HOST's view, mid-countdown, with a seed set and the host ready", () => {
+  it("a NON-HOST's view, mid-countdown, with a seed set: the seed as status, the clock, no host controls", () => {
     showLobbyModal(actions());
     updateLobbyModal(
       view({
@@ -180,26 +176,28 @@ describe('the whole rendered text', () => {
         ],
       }),
     );
-    expect(rendered()).toEqual([
-      'LOBBY',
-      'CODE QWERTY',
-      'SEED',
-      'bananas',
-      'BOT-FILL',
-      'NO',
-      `2/${CAP} ABOARD`,
-      'AHAB',
-      'NEMO',
-      'STARTS IN 0:09',
-      'UNREADY',
-      'LEAVE',
-    ]);
+    expect(seedInput()).toBeNull();
+    expect(chips()).toHaveLength(0);
+    expect(startBtn()).toBeUndefined();
+    expect(shown(role('option-value')[0].firstElementChild)).toBe('bananas');
+    expect(line('countdown')).toBe(lobbyCountdownLine(NOW + 9_000, NOW));
+    expect(line('aboard')).toBe(aboardLine(2));
+    expect(role('slot').slice(0, 2).map((s) => s.textContent)).toEqual(['AHAB', 'NEMO']);
+    expect(line('reason')).toBe('');
   });
 
-  it("a NON-HOST sees bot-fill's status as YES, and a blank seed as nothing", () => {
+  it("a NON-HOST sees bot-fill's status follow the lobby, and a blank seed as nothing", () => {
     showLobbyModal(actions());
-    updateLobbyModal(view({ hostId: 'h', botFill: true, players: [{ id: 'h', name: 'AHAB', ready: false, slot: 0 }, { ...captains(1)[0], slot: 1 }] }));
-    expect(rendered()).toEqual(['LOBBY', 'CODE QWERTY', 'SEED', 'BOT-FILL', 'YES', `2/${CAP} ABOARD`, 'AHAB', 'CAPT1', 'UNREADY', 'LEAVE']);
+    const guest = (botFill: boolean): LobbyView =>
+      view({ hostId: 'h', botFill, players: [{ id: 'h', name: 'AHAB', ready: false, slot: 0 }, { ...captains(1)[0], slot: 1 }] });
+    updateLobbyModal(guest(true));
+    const on = shown(role('option-value')[1].firstElementChild);
+    expect(shown(role('option-value')[0].firstElementChild)).toBe('');
+    updateLobbyModal(guest(false));
+    const off = shown(role('option-value')[1].firstElementChild);
+    expect(on).not.toBe('');
+    expect(off).not.toBe('');
+    expect(on).not.toBe(off);
   });
 
   it('no title tooltips or other hidden words ride the modal', () => {
@@ -353,7 +351,7 @@ describe('the slot grid', () => {
     const filled = slots.map((s, i) => (s.textContent === '' ? -1 : i)).filter((i) => i >= 0);
     expect(filled).toEqual([0, 2, 5]);
     expect(role('dot').filter((d) => d.dataset.state === 'empty').length).toBe(CAP - 3);
-    expect(rendered()).toContain(`3/${CAP} ABOARD`);
+    expect(line('aboard')).toBe(aboardLine(3));
   });
 
   it('a vacated slot renders empty — nobody below it moves up', () => {
@@ -410,71 +408,72 @@ describe('the options block', () => {
     expect(panelKids.indexOf('options')).toBe(panelKids.indexOf('code') + 1);
     expect(panelKids.indexOf('aboard')).toBe(panelKids.indexOf('options') + 1);
     const [seedRow, botRow] = role('option');
-    expect(seedRow.querySelector('[data-lobby="option-label"]')?.textContent).toBe('SEED');
+    for (const r of [seedRow, botRow]) {
+      expect([...r.children].map((c) => (c as HTMLElement).dataset.lobby)).toEqual(['option-label', 'option-value']);
+      expect(shown(r.querySelector('[data-lobby="option-label"]'))).not.toBe('');
+    }
     expect(seedRow.querySelector('[data-lobby="option-value"] input')).not.toBeNull();
-    expect(botRow.querySelector('[data-lobby="option-label"]')?.textContent).toBe('BOT-FILL');
-    expect([...botRow.querySelectorAll('[data-lobby="option-value"] button')].map((b) => b.textContent)).toEqual(['YES', 'NO']);
+    expect(botRow.querySelectorAll('[data-lobby="option-value"] button')).toHaveLength(2);
   });
 
   it('label then status for a non-host — no input, no buttons', () => {
     showLobbyModal(actions());
     updateLobbyModal(view({ hostId: 'h', seedText: 'bananas', botFill: true, players: [{ id: 'h', name: 'AHAB', ready: false, slot: 0 }, { ...captains(1)[0], slot: 1 }] }));
     const [seedRow, botRow] = role('option');
-    expect(seedRow.querySelector('[data-lobby="option-label"]')?.textContent).toBe('SEED');
+    for (const r of [seedRow, botRow]) expect(shown(r.querySelector('[data-lobby="option-label"]'))).not.toBe('');
     expect(seedRow.querySelector('[data-lobby="option-value"]')?.textContent).toBe('bananas');
     expect(seedRow.querySelector('input')).toBeNull();
-    expect(botRow.querySelector('[data-lobby="option-label"]')?.textContent).toBe('BOT-FILL');
-    expect(botRow.querySelector('[data-lobby="option-value"]')?.textContent).toBe('YES');
+    expect(shown(botRow.querySelector('[data-lobby="option-value"]'))).not.toBe('');
     expect(botRow.querySelector('button')).toBeNull();
   });
 
-  it('BOT-FILL is YES | NO with exactly one lit, and each sends its own value', () => {
+  it('bot-fill is an on | off pair with exactly one lit, and each sends its own value', () => {
     const a = actions();
     showLobbyModal(a);
     updateLobbyModal(view());
     const lit = (): string[] =>
-      ['YES', 'NO'].filter((w) => button(w).getAttribute('aria-pressed') === 'true');
-    expect(lit()).toEqual(['NO']);
-    expect(button('NO').style.borderColor).toBe('var(--hc-phosphor)');
-    expect(button('YES').style.borderColor).toBe('var(--hc-hairline)');
-    button('YES').click();
+      (['on', 'off'] as const).filter((w) => (w === 'on' ? yesChip() : noChip()).getAttribute('aria-pressed') === 'true');
+    expect(lit()).toEqual(['off']);
+    expect(noChip().style.borderColor).toBe('var(--hc-phosphor)');
+    expect(yesChip().style.borderColor).toBe('var(--hc-hairline)');
+    yesChip().click();
     expect(a.onBotFill).toHaveBeenLastCalledWith(true);
-    expect(lit()).toEqual(['YES']);
+    expect(lit()).toEqual(['on']);
     updateLobbyModal(view({ botFill: true }));
-    expect(lit()).toEqual(['YES']);
-    button('YES').click(); // already YES — nothing to send
+    expect(lit()).toEqual(['on']);
+    yesChip().click(); // already on — nothing to send
     expect(a.onBotFill).toHaveBeenCalledTimes(1);
-    button('NO').click();
+    noChip().click();
     expect(a.onBotFill).toHaveBeenLastCalledWith(false);
-    expect(lit()).toEqual(['NO']);
+    expect(lit()).toEqual(['off']);
   });
 });
 
 describe('host controls', () => {
-  it('exist ONLY for the host — a non-host has no YES/NO, START NOW or seed input', () => {
+  it('exist ONLY for the host — a non-host has no bot-fill pair, START NOW or seed input', () => {
     showLobbyModal(actions());
     updateLobbyModal(view({ hostId: 'h', players: [{ id: 'h', name: 'AHAB', ready: false, slot: 0 }, { id: 'me', name: 'NEMO', ready: false, slot: 1 }] }));
-    expect(button('YES')).toBeUndefined();
-    expect(button('NO')).toBeUndefined();
-    expect(button('START NOW')).toBeUndefined();
+    expect(chips()).toHaveLength(0);
+    expect(startBtn()).toBeUndefined();
     expect(seedInput()).toBeNull();
-    expect(rendered()).not.toContain('2 CAPTAINS OR BOT-FILL REQUIRED');
+    expect(line('reason')).toBe('');
   });
 
   it('START NOW is disabled with the reason, then enabled by bot-fill or a second captain', () => {
     const a = actions();
     showLobbyModal(a);
     updateLobbyModal(view());
-    expect(button('START NOW').disabled).toBe(true);
-    button('START NOW').click();
+    expect(startBtn()?.disabled).toBe(true);
+    expect(line('reason')).not.toBe('');
+    startBtn()?.click();
     expect(a.onStart).not.toHaveBeenCalled();
     updateLobbyModal(view({ botFill: true }));
-    expect(button('START NOW').disabled).toBe(false);
-    expect(rendered()).not.toContain('2 CAPTAINS OR BOT-FILL REQUIRED');
-    button('START NOW').click();
+    expect(startBtn()?.disabled).toBe(false);
+    expect(line('reason')).toBe('');
+    startBtn()?.click();
     expect(a.onStart).toHaveBeenCalledTimes(1);
     updateLobbyModal(view({ players: captains(2) }));
-    expect(button('START NOW').disabled).toBe(false);
+    expect(startBtn()?.disabled).toBe(false);
   });
 
   // Eric R3: "START NOW locks it … START NOW stays lit during an all-ready
@@ -491,30 +490,30 @@ describe('host controls', () => {
     const a = actions();
     showLobbyModal(a);
     updateLobbyModal(view({ players: captains(2), countdownEndT: 6, deadlineAt: NOW + 10_000 }));
-    expect(button('START NOW').disabled).toBe(false);
-    button('START NOW').click();
+    expect(startBtn()?.disabled).toBe(false);
+    startBtn()?.click();
     expect(a.onStart).toHaveBeenCalledTimes(1);
     updateLobbyModal(view({ botFill: true, countdownEndT: 6, deadlineAt: NOW + 10_000, forced: true }));
-    expect(button('START NOW').disabled).toBe(true);
-    button('START NOW').click();
+    expect(startBtn()?.disabled).toBe(true);
+    startBtn()?.click();
     expect(a.onStart).toHaveBeenCalledTimes(1);
-    expect(rendered()).not.toContain('2 CAPTAINS OR BOT-FILL REQUIRED');
+    expect(line('reason')).toBe(''); // dim because forced, not because blocked
     updateLobbyModal(view({ players: captains(2) }));
-    expect(button('START NOW').disabled).toBe(false);
+    expect(startBtn()?.disabled).toBe(false);
   });
 
   // Review (low): the reason line and START NOW followed the server's botFill,
-  // so YES left "2 CAPTAINS OR BOT-FILL REQUIRED" up until the patch landed.
-  it('a YES click clears the reason line and lights START NOW before the patch lands', () => {
+  // so turning bot-fill on left the blocked reason up until the patch landed.
+  it('a bot-fill-on click clears the reason line and lights START NOW before the patch lands', () => {
     showLobbyModal(actions());
     updateLobbyModal(view());
-    expect(rendered()).toContain('2 CAPTAINS OR BOT-FILL REQUIRED');
-    button('YES').click();
-    expect(rendered()).not.toContain('2 CAPTAINS OR BOT-FILL REQUIRED');
-    expect(button('START NOW').disabled).toBe(false);
+    expect(line('reason')).not.toBe('');
+    yesChip().click();
+    expect(line('reason')).toBe('');
+    expect(startBtn()?.disabled).toBe(false);
     updateLobbyModal(view()); // a stale patch (botFill still false) keeps the intent
-    expect(rendered()).not.toContain('2 CAPTAINS OR BOT-FILL REQUIRED');
-    expect(button('START NOW').disabled).toBe(false);
+    expect(line('reason')).toBe('');
+    expect(startBtn()?.disabled).toBe(false);
   });
 
   it('the seed is sent on Enter and on blur, trimmed, and only when changed', () => {
@@ -538,7 +537,7 @@ describe('host controls', () => {
   it('the seed input is capped at CONFIG.lobby.seedTextMax', () => {
     showLobbyModal(actions());
     updateLobbyModal(view());
-    expect((seedInput() as HTMLInputElement).maxLength).toBe(32);
+    expect((seedInput() as HTMLInputElement).maxLength).toBe(CONFIG.lobby.seedTextMax);
   });
 
   it('a state push never clobbers what the host is typing', () => {
@@ -555,24 +554,25 @@ describe('host controls', () => {
 // Review (Opus): between the lobby forming and the seat landing the server
 // clears the countdown and sets phase 'started'; the modal must not look live.
 describe("phase 'started' (formed, waiting for the seat)", () => {
-  it('disables START NOW, READY and YES/NO, and the countdown line keeps its last text', () => {
+  it('disables START NOW, READY and the bot-fill pair, and the countdown line keeps its last text', () => {
     const a = actions();
     showLobbyModal(a);
     updateLobbyModal(view({ players: captains(2), countdownEndT: 6, deadlineAt: NOW + 10_000 }));
     vi.advanceTimersByTime(9_600);
-    expect(rendered()).toContain('STARTS IN 0:01');
+    const last = lobbyCountdownLine(NOW + 10_000, NOW + 9_600);
+    expect(line('countdown')).toBe(last);
     updateLobbyModal(view({ players: captains(2), countdownEndT: 0, deadlineAt: null, phase: 'started' }));
-    expect(button('START NOW').disabled).toBe(true);
-    expect(button('UNREADY').disabled).toBe(true);
-    expect(button('YES').disabled).toBe(true);
-    expect(button('NO').disabled).toBe(true);
-    expect(button('LEAVE').disabled).toBe(false);
-    expect(rendered()).toContain('STARTS IN 0:01');
+    expect(startBtn()?.disabled).toBe(true);
+    expect(readyBtn().disabled).toBe(true);
+    expect(yesChip().disabled).toBe(true);
+    expect(noChip().disabled).toBe(true);
+    expect(leaveBtn().disabled).toBe(false);
+    expect(line('countdown')).toBe(last);
     vi.advanceTimersByTime(2_000);
-    expect(rendered()).toContain('STARTS IN 0:01');
-    button('START NOW').click();
-    button('UNREADY').click();
-    button('YES').click();
+    expect(line('countdown')).toBe(last);
+    startBtn()?.click();
+    readyBtn().click();
+    yesChip().click();
     expect(a.onStart).not.toHaveBeenCalled();
     expect(a.onReady).not.toHaveBeenCalled();
     expect(a.onBotFill).not.toHaveBeenCalled();
@@ -580,15 +580,16 @@ describe("phase 'started' (formed, waiting for the seat)", () => {
 });
 
 describe('READY / UNREADY', () => {
-  it('reads READY until the player is ready, then UNREADY, and sends the flip', () => {
+  it('the ready toggle relabels once the player is ready, and sends the flip', () => {
     const a = actions();
     showLobbyModal(a);
     updateLobbyModal(view());
-    button('READY').click();
+    const idle = readyBtn().textContent;
+    readyBtn().click();
     expect(a.onReady).toHaveBeenLastCalledWith(true);
     updateLobbyModal(view({ players: [{ id: 'me', name: 'NEMO', ready: true, slot: 0 }] }));
-    expect(button('READY')).toBeUndefined();
-    button('UNREADY').click();
+    expect(readyBtn().textContent).not.toBe(idle);
+    readyBtn().click();
     expect(a.onReady).toHaveBeenLastCalledWith(false);
   });
 });
@@ -596,41 +597,43 @@ describe('READY / UNREADY', () => {
 // REVIEW C4: two clicks before the server's patch lands must flip twice. The
 // modal keeps a local intended value per control until the view catches up.
 describe('rapid double clicks', () => {
-  it('READY twice before the patch sends true then false, and the label follows the intent', () => {
+  it('the ready toggle twice before the patch sends true then false, and the label follows the intent', () => {
     const a = actions();
     showLobbyModal(a);
     updateLobbyModal(view());
-    button('READY').click();
-    expect(button('UNREADY')).toBeDefined();
-    button('UNREADY').click();
+    const idle = readyBtn().textContent;
+    readyBtn().click();
+    expect(readyBtn().textContent).not.toBe(idle);
+    readyBtn().click();
     expect(vi.mocked(a.onReady).mock.calls).toEqual([[true], [false]]);
-    expect(button('READY')).toBeDefined();
+    expect(readyBtn().textContent).toBe(idle);
   });
 
   it('a stale patch does not flip the label back; the matching one drops the intent', () => {
     const a = actions();
     showLobbyModal(a);
     updateLobbyModal(view());
-    button('READY').click();
-    button('UNREADY').click(); // intent: not ready
+    const idle = readyBtn().textContent;
+    readyBtn().click();
+    readyBtn().click(); // intent: not ready
     updateLobbyModal(view({ players: [{ id: 'me', name: 'NEMO', ready: true, slot: 0 }] })); // the first send's echo
-    expect(button('READY')).toBeDefined();
+    expect(readyBtn().textContent).toBe(idle);
     updateLobbyModal(view()); // the second send's echo — the view now matches
     updateLobbyModal(view({ players: [{ id: 'me', name: 'NEMO', ready: true, slot: 0 }] })); // ready set elsewhere
-    expect(button('UNREADY')).toBeDefined(); // the view rules again
+    expect(readyBtn().textContent).not.toBe(idle); // the view rules again
   });
 
-  it('YES then NO before the patch sends true then false, and the lit chip follows the intent', () => {
+  it('bot-fill on then off before the patch sends true then false, and the lit chip follows the intent', () => {
     const a = actions();
     showLobbyModal(a);
     updateLobbyModal(view());
-    button('YES').click();
-    expect(button('YES').getAttribute('aria-pressed')).toBe('true');
-    button('NO').click();
+    yesChip().click();
+    expect(yesChip().getAttribute('aria-pressed')).toBe('true');
+    noChip().click();
     expect(vi.mocked(a.onBotFill).mock.calls).toEqual([[true], [false]]);
-    expect(button('NO').getAttribute('aria-pressed')).toBe('true');
+    expect(noChip().getAttribute('aria-pressed')).toBe('true');
     updateLobbyModal(view({ botFill: true })); // the first send's echo — stale
-    expect(button('NO').getAttribute('aria-pressed')).toBe('true');
+    expect(noChip().getAttribute('aria-pressed')).toBe('true');
   });
 });
 
@@ -669,17 +672,17 @@ describe('seed debounce', () => {
   });
 });
 
-describe('STARTS IN', () => {
+describe('the countdown line', () => {
   it('appears only while a deadline stands, ticks, and goes when it is cleared', () => {
     showLobbyModal(actions());
     updateLobbyModal(view());
-    expect(rendered().some((t) => t.startsWith('STARTS IN'))).toBe(false);
+    expect(line('countdown')).toBe('');
     updateLobbyModal(view({ countdownEndT: 5, deadlineAt: NOW + 10_000 }));
-    expect(rendered()).toContain('STARTS IN 0:10');
+    expect(line('countdown')).toBe(lobbyCountdownLine(NOW + 10_000, NOW));
     vi.advanceTimersByTime(4_000);
-    expect(rendered()).toContain('STARTS IN 0:06');
+    expect(line('countdown')).toBe(lobbyCountdownLine(NOW + 10_000, NOW + 4_000));
     updateLobbyModal(view({ countdownEndT: 0, deadlineAt: null }));
-    expect(rendered().some((t) => t.startsWith('STARTS IN'))).toBe(false);
+    expect(line('countdown')).toBe('');
   });
 
   it('closing clears the tick', () => {
@@ -692,7 +695,7 @@ describe('STARTS IN', () => {
   });
 });
 
-describe('YOU ARE HOST', () => {
+describe('the hand-off notice (ruling 6)', () => {
   const two = [
     { id: 'h', name: 'AHAB', ready: false, slot: 0 },
     { id: 'me', name: 'NEMO', ready: false, slot: 1 },
@@ -702,30 +705,20 @@ describe('YOU ARE HOST', () => {
     showLobbyModal(actions());
     updateLobbyModal(view());
     updateLobbyModal(view({ players: two.slice(1) }));
-    expect(rendered()).not.toContain('YOU ARE HOST');
+    expect(line('notice')).toBe('');
   });
 
   it('shows on a hand-off under the heading, with the host controls revealed', () => {
     showLobbyModal(actions());
     updateLobbyModal(view({ hostId: 'h', players: two }));
-    expect(rendered()).not.toContain('YOU ARE HOST');
+    expect(line('notice')).toBe('');
     updateLobbyModal(view({ hostId: 'me', players: two.slice(1) }));
-    expect(rendered()).toEqual([
-      'LOBBY',
-      'YOU ARE HOST',
-      'CODE QWERTY',
-      'SEED',
-      '[|OPTIONAL]',
-      'BOT-FILL',
-      'YES',
-      'NO',
-      `1/${CAP} ABOARD`,
-      'NEMO',
-      'READY',
-      'LEAVE',
-      'START NOW',
-      '2 CAPTAINS OR BOT-FILL REQUIRED',
-    ]);
+    expect(line('notice')).not.toBe('');
+    const panelKids = [...role('panel')[0].children].map((el) => (el as HTMLElement).dataset.lobby);
+    expect(panelKids.indexOf('notice')).toBe(panelKids.indexOf('heading') + 1);
+    expect(seedInput()).not.toBeNull();
+    expect(chips()).toHaveLength(2);
+    expect(startBtn()).toBeDefined();
   });
 });
 
@@ -738,14 +731,14 @@ describe('lifecycle', () => {
     const panel = overlay().firstElementChild as HTMLElement;
     expect(panel.style.borderRadius).toBe('12px');
     expect(panel.style.borderColor).toBe('var(--hc-hairline)');
-    expect(button('LEAVE').style.borderRadius).toBe('8px');
+    expect(leaveBtn().style.borderRadius).toBe('8px');
   });
 
   it('LEAVE closes the modal, then leaves', () => {
     const a = actions();
     showLobbyModal(a);
     updateLobbyModal(view());
-    button('LEAVE').click();
+    leaveBtn().click();
     expect(a.onLeave).toHaveBeenCalledTimes(1);
     expect(lobbyModalVisible()).toBe(false);
   });
@@ -777,9 +770,7 @@ describe('lifecycle', () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     showLobbyModal(actions());
     updateLobbyModal(view());
-    const codeEl = [...overlay().querySelectorAll<HTMLElement>('div')].find((d) => d.textContent === 'CODE QWERTY');
-    codeEl?.click();
+    role('code')[0].click();
     expect(writeText).toHaveBeenCalledWith('QWERTY');
-    expect(rendered()).not.toContain('COPIED');
   });
 });

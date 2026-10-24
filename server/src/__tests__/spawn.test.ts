@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CONFIG, dist, generateMap, mulberry32, pointPolygonDistance, wrapPositive, type MapShape } from '@salvo/shared';
 import { circleIsland } from './islandFixture.js';
-import { pickSpawn, SPAWN_CANDIDATES, SPAWN_ISLAND_CLEARANCE } from '../game/spawn.js';
+import { isSpawnClear, pickSpawn, SPAWN_CANDIDATES, SPAWN_ISLAND_CLEARANCE } from '../game/spawn.js';
 import { World } from '../game/world.js';
 
 const SEEDS = Array.from({ length: 25 }, (_, i) => i * 7919 + 1);
@@ -224,6 +224,25 @@ describe('the shared spawn lattice — the phase is per-MATCH, not per-hull', ()
     const rngB = mulberry32(7);
     expect(pickSpawn(map, [], rngA, 1.234)).toEqual(pickSpawn(map, [], rngB, 1.234));
     expect(rngA.next()).toBe(rngB.next()); // neither call touched the stream
+  });
+});
+
+describe('isSpawnClear — the one placement predicate a dev pose is judged by', () => {
+  const map: MapShape = { radius: 2000, spawnRing: 1600, islands: [circleIsland(500, 0, 100)] };
+
+  it('open water inside the disc is clear', () => {
+    expect(isSpawnClear(map, { x: -500, y: 0 })).toBe(true);
+  });
+
+  it('a point on an island, or within a hull of its coast, is not', () => {
+    expect(isSpawnClear(map, { x: 500, y: 0 })).toBe(false);
+    expect(isSpawnClear(map, { x: 500 - 100 - SPAWN_ISLAND_CLEARANCE / 2, y: 0 })).toBe(false);
+  });
+
+  it('a point past the water\'s edge, or within a hull of it, is not', () => {
+    expect(isSpawnClear(map, { x: 0, y: map.radius + 1 })).toBe(false);
+    expect(isSpawnClear(map, { x: 0, y: map.radius - SPAWN_ISLAND_CLEARANCE / 2 })).toBe(false);
+    expect(isSpawnClear(map, { x: 0, y: map.radius - SPAWN_ISLAND_CLEARANCE })).toBe(true);
   });
 });
 

@@ -80,12 +80,14 @@ const NEAR_CLICK = 300;
 const AT_30U = falloffAt(30);
 
 describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amendment 105)', () => {
-  it('mounts the flak module in slot 0: one round, 3.5 s reload (Eric 2026-10-02, amendment 232; was 4 s, amendment 210), its own Tier I range dial, the AR44 mask', () => {
+  it('mounts the flak module in slot 0 with a full pool, its Tier I stats read off CONFIG.flak, its own range dial, the AR44 mask', () => {
     const w = bareWorld();
     const a = flakker(w, 'a');
     expect(a.loadout[SLOT_GUN].equipmentId).toBe('flak');
-    expect(a.loadout[SLOT_GUN].state).toEqual({ n: 1, reloadMsLeft: 0 });
-    expect(a.stats.equipment.flak).toMatchObject({ maxAmmo: 1, reloadMs: 3500, damage: CONFIG.flak.damage, burstRadius: 50, contactDamage: 4 });
+    expect(a.loadout[SLOT_GUN].state).toEqual({ n: FLAK.maxAmmo, reloadMsLeft: 0 });
+    expect(a.stats.equipment.flak).toMatchObject({
+      maxAmmo: FLAK.maxAmmo, reloadMs: FLAK.reloadMs, damage: FLAK.damage, burstRadius: FLAK.burstRadius, contactDamage: FLAK.contactDamage,
+    });
     expect(a.stats.equipment.flak.rangeU).toBe(CONFIG.flak.rangeU); // its own dial, 5/12 (Story 9.8, ruling 125)
     expect(FLAK.hits).toEqual(['hull', 'mine', 'decoy', 'ordnance']);
   });
@@ -119,12 +121,12 @@ describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amen
     expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
   });
 
-  it('BODYBLOCK: a hull crossing the shell\'s path takes the 4 hp contact hit, one `hc`, and the shell is consumed (no burst)', () => {
+  it('BODYBLOCK: a hull crossing the shell\'s path takes the contact hit, one `hc`, and the shell is consumed (no burst)', () => {
     const w = bareWorld();
     const a = flakker(w, 'a');
     const b = hull(w, 'b', 200, 0); // broadside-on ACROSS the line of fire, 200 u short of the 400 u click
     const log = click(w, 'a', 400);
-    expect(b.hp).toBe(b.stats.maxHp - 4);
+    expect(b.hp).toBe(b.stats.maxHp - FLAK.contactDamage);
     expect(count(log, 'hc')).toBe(1);
     expect(count(log, 'burst')).toBe(0);
     expect(count(log, 'boom')).toBe(1);

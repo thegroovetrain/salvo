@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.19.0] - 2026-10-24
+
+### Changed
+- **Epic 9, Tune and Clean, is closed.** Eric accepted the epic at the 2026-10-24 retrospective and set this release to 0.19.0: the big ocean and the storm ladder, six consumable keys, the multi-spectral countermeasure, the fouling shell, ramming, five upgrade tiers with passive healing, ARMOR and ARMOR PIERCING, the twelfths ladder, fog banks, alerts on the water, two tuning passes, the bot posture workover, the audited test suite and the scripted smokes, all as shipped through 0.18.71. No gameplay change in this build; the retrospective record and the tracker stamps ride with it (`epic-9-retro-2026-10-24.md`).
+
+## [0.18.71] - 2026-10-23
+
+### Changed
+- **The harness report and the deferred-work ledger say only what is still true.** Two bot-quality bars that had been retired on paper since August (bots scoring a kill, storm-death share) finally left the batch-sim report; four bars remain. Every one of the 446 open or unmarked entries in the deferred-work ledger was read against the code and stamped resolved, moot, standing record, Eric's call or open-with-owner, by appending only — nothing old was rewritten. The "follow-up review recommended" flag that sat on ~60 specs with zero follow-ups ever run is retired. A stale history comment in the shared barrel that still named the long-gone deck engine is corrected. No gameplay change; the protocol version is unchanged.
+
+### Fixed
+- A new test pins that the server's world and match simulation import nothing from the networking framework (the rule existed; the guard did not). The batch-sim harness type-checks clean again. A client test that slept on a real timer now drives the clock directly.
+
+## [0.18.70] - 2026-10-22
+
+### Changed
+- **The two end-to-end smokes no longer sail.** matchSmoke and weaponsSmoke used to drive little robot captains across a random ocean and often failed for reasons that had nothing to do with the game; they now place every hull exactly where the scene needs it, on a fixed map, with no computer fleet joining the fight, and check only the things they exist to check: a torpedo fired at a hull ahead strikes it, a hull at zero hull points sinks, a match whose last opponent sinks ends. Both pass first try, three times in a row, in about two and four minutes. The developer-only options that make this possible are switched off outside a developer's own server. No gameplay changed.
+
+## [0.18.69] - 2026-10-22
+
+### Changed
+- **The test suite was audited to contracts.** Every test in shared, server and client was read; a test now stays only if it guards a behavior of the function it names. Copy-string checks, wall-clock timing budgets, bare configuration-number pins, tautologies and duplicates are gone, and every pure function in the shared sim has a unit test of its own. Counts and every deletion with its reason are in `_bmad-output/implementation-artifacts/test-audit-2026-10-22.md`. No game code changed.
+
+## [0.18.68] - 2026-10-21
+
+### Fixed
+- **A hull's own wake no longer paints over the hull on the scope.** With the server sending the entire sweep, a hull and the water under it arrive as separate radar returns a tick or two apart, and the scope's "newest paint wins" rule let the water's weak green cells overwrite the hull's red ones. Paints born within one beam crossing now count as one paint, and the stronger return keeps the cell. A later crossing still repaints as before. Dial: `blip.heatmap.sameCrossingMs` in the client config (150 ms).
+- **No bright hairlines through the muted scope in fog.** The fog-aware near-range mask drew every bearing's wedge over a white underlay, and the seams between wedges leaked full-strength lines across the muted bubble. The mask now lays today's radial muting first and draws only the fogged bearings' wedges over it, each reaching the muting's outer edge.
+
+- **A ship you can see is drawn at full strength right to the edge of your sight range.** Hulls near the rim of the sight circle were being faded toward 15 % by a leftover of the old fog-hole feather, so a ship still inside your sight read as hidden. The feather is gone from hulls and nameplates; the fog's own feather stays on the water only. Eric: "ships are being visually hidden while they are still near the edge of my sight range, and that should not be the case."
+
+### Not changed
+- The near-range muting is still an alpha mask over the painted returns, never a change to their strength or colour. A close hull's return is priced red at full strength by the scope; verified over real generated terrain at 150, 300 and 450 u on eight bearings.
+- Still open from Eric's report: close enemy returns reading blue, and the 750 u reach reading as a square. Neither reproduced on this machine's hardware GPU or in the paint chain; both need his screenshot.
+
 ## [0.18.67] - 2026-10-21
 
 ### Fixed

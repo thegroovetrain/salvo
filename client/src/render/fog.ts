@@ -18,15 +18,15 @@
 // fogSprite (this) → chartRoot (islands/blips/HULLS/sweep, fog-immune) → hudRoot.
 // HULLS ARE NO LONGER UNDER THIS OVERLAY (this cycle): they moved into chartRoot
 // so radar paint stops covering the ships it represents, which means the sight-
-// boundary softening this composite used to give them for free is now applied
-// per hull by `hullSightSoftness` below — same feather, same numbers, different
-// channel. Thin Pixi adapter (not unit tested); the hole participation + fade
+// boundary softening this composite used to give them was mirrored per hull by
+// `hullSightSoftness` below — retired by epic-9 amendment 212 (cycle 203):
+// delivered hulls draw at full alpha. Thin Pixi adapter (not unit tested); the hole participation + fade
 // math it consumes are the pure functions in render/litZones.ts.
 
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { CONFIG, effectiveSight, type EffectiveStats } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { FOG_FILL_ALPHA, HOLE_FEATHER_START, bakeFogTexture } from './textures.js';
+import { FOG_FILL_ALPHA, bakeFogTexture } from './textures.js';
 
 /** The observer's two vision ranges, as the stat plumbing carries them; the
  *  sight derivation (`effectiveSight`, shared/src/sim/sight.ts) reads the
@@ -50,38 +50,25 @@ export function fogHoleRadiusU(ranges: VisionRanges): number {
 }
 
 /**
- * Pure: the alpha multiplier a HULL wears at `distU` from own hull, mirroring
- * the softening the fog composite used to give it (this cycle).
+ * Pure: the alpha multiplier a HULL wears at `_distU` from own hull — now 1,
+ * always.
  *
- * WHY IT EXISTS. Hulls now render ABOVE the fog (render/stage.ts), so radar
- * paint can no longer cover the ship it represents. What that lifted them out of
- * is the fog texture's feathered hole: a contact used to dim smoothly as it
- * approached the edge of the bubble and then hand off to its blip. Above the fog
- * it would instead read at FULL strength right to the boundary and then vanish,
- * which is a harder edge than the one the fog draws.
+ * THE FEATHER IS RETIRED (Eric 2026-10-21, cycle 203, epic-9 amendment 212):
+ * *"ships are being visually hidden while they are still near the edge of my
+ * sight range, and that should not be the case."* This used to mirror the fog
+ * composite's hole feather per hull (`1 − FOG_FILL_ALPHA × feather` across
+ * `HOLE_FEATHER_START × sight → sight`), which drew a contact at the rim of the
+ * bubble at 15 % alpha. The fog composite's hole feather is the fog's look on
+ * the WATER; a contact the server delivers is never softened. The 150 ms sight
+ * fade (render/fade.ts) alone takes a hull off when the server stops sending it.
  *
- * IT IS THE FOG'S OWN CURVE, NOT A NEW ONE. Under the composite a hull's
- * remaining contribution is `1 − fogAlpha × feather`, where `feather` ramps 0 → 1
- * across `HOLE_FEATHER_START × sight` → `sight` — so this reproduces exactly
- * that, from exactly those constants (render/textures.ts, one source). The fog
- * fill is near-black (`fogBase` = a hair above void), so the alpha term is the
- * whole of the effect and the reproduction is faithful rather than approximate:
- * 1 through the clear centre, 0.15 at the rim.
- *
- * IT NEVER REACHES 0. The 150ms sight fade (render/fade.ts) is what takes a hull
- * off the water when the server stops sending it; this is a softening, and a
- * softening that hit zero would delete a contact the observer legitimately holds
- * — including one revealed beyond the bubble by an owned star shell, which the
- * caller exempts outright (main.ts `hullSoftnessFor`). A non-finite input reads
- * as 1: fail toward the hull being VISIBLE, the same direction every other
- * unwired path in the render layer fails.
+ * KEPT, NOT DELETED, so its callers (main.ts `hullSoftnessFor`, and through it
+ * the hull, the aggro mark and the nameplate — render/contacts.ts) need no
+ * change. Every input, finite or garbage (NaN, non-positive sight), reads as 1:
+ * the hull is VISIBLE, the direction every unwired render path fails.
  */
-export function hullSightSoftness(distU: number, sightU: number): number {
-  if (!Number.isFinite(distU) || !(sightU > 0) || !Number.isFinite(sightU)) return 1;
-  const start = sightU * HOLE_FEATHER_START;
-  if (distU <= start) return 1;
-  const feather = distU >= sightU ? 1 : (distU - start) / (sightU - start);
-  return 1 - FOG_FILL_ALPHA * feather;
+export function hullSightSoftness(_distU: number, _sightU: number): number {
+  return 1;
 }
 
 /** One fog-clearing hole in SCREEN space: center + (fade-scaled) radius, px. */

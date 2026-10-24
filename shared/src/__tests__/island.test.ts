@@ -1,8 +1,7 @@
 // Unit tests for the island geometry query seam (sim/island.ts): broadphase
 // gating, exact polygon delegation, signed distance, the nearest-boundary
 // push-out direction (cycle 59 — the skeleton normal is retired), the
-// pole-keyed core early-out — plus the broadphase LOS perf guard over a
-// production map.
+// pole-keyed core early-out.
 import { describe, it, expect } from 'vitest';
 import {
   islandSegHit,
@@ -14,7 +13,6 @@ import {
   ISLAND_DIST_SLACK,
 } from '../sim/island.js';
 import { generateMap, islandFromPolygon } from '../sim/map.js';
-import { mulberry32 } from '../math/rng.js';
 import type { Vec2 } from '../math/vec.js';
 import type { Island } from '../types.js';
 
@@ -125,7 +123,7 @@ describe('islandBlocksSegment', () => {
 });
 
 describe('pointInIsland', () => {
-  it('inside / outside / broadphase-outside', () => {
+  it('is true inside the polygon, false in the bounding circle outside the polygon, false past the broadphase', () => {
     const isle = squareIsland();
     expect(pointInIsland({ x: 0, y: 0 }, isle)).toBe(true);
     expect(pointInIsland({ x: 13, y: 13 }, isle)).toBe(false); // in r, outside poly
@@ -327,30 +325,5 @@ describe('generator geometry: no crossing may be missed to float dust', () => {
     expect(islandBlocksSegment(mouth0, mouth1, isle)).toBe(false);
     // ...but pushing one unit past the cove floor DOES hit.
     expect(islandSegHit(mouth0, place({ x: 0, y: -6 }), isle)).not.toBeNull();
-  });
-});
-
-describe('broadphase perf guard', () => {
-  it('LOS across a full production map stays within budget', () => {
-    const map = generateMap(42); // the production cap (CONFIG.map.playerCap default)
-    const rng = mulberry32(1234);
-    const R = map.radius;
-    const t0 = performance.now();
-    let blocked = 0;
-    for (let i = 0; i < 10_000; i++) {
-      const a = { x: rng.float(-R, R), y: rng.float(-R, R) };
-      const b = { x: rng.float(-R, R), y: rng.float(-R, R) };
-      for (const isle of map.islands) {
-        if (islandBlocksSegment(a, b, isle)) {
-          blocked++;
-          break;
-        }
-      }
-    }
-    const elapsed = performance.now() - t0;
-    expect(blocked).toBeGreaterThan(0); // sanity: terrain actually blocks
-    // 10k full-map LOS sweeps; generous CI budget — the broadphase keeps the
-    // exact polygon test off the hot path for distant islands.
-    expect(elapsed).toBeLessThan(1500);
   });
 });

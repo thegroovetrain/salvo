@@ -32,6 +32,11 @@ import { createPrivateLobby, openJoinPrivateLobby, type PrivateLobbyDeps } from 
 import { hideJoinCodeModal } from '../ui/joinCodeModal.js';
 import { hideLobbyModal } from '../ui/lobbyModal.js';
 import type { HomeHandle } from '../ui/home.js';
+import { connectErrorStatus } from '../net/connection.js';
+
+/** Two non-refusal failure lines, off the one mapper (never typed copy). */
+const VERSION_GATE = connectErrorStatus({ code: 525 });
+const CONNECTION_FAILED = connectErrorStatus(new Error('unreachable'));
 
 function view(): LobbyView {
   return {
@@ -89,11 +94,13 @@ afterEach(() => {
 });
 
 describe('CREATE', () => {
-  it('busies the home, says CONNECTING…, opens the lobby modal on the first view', async () => {
+  it('busies the home, posts an info status, opens the lobby modal on the first view', async () => {
     const d = deps();
     void createPrivateLobby(d, { name: 'NEMO' });
     await flush();
-    expect(d.log).toEqual(['busy:true', 'status:CONNECTING…:info']);
+    expect(d.log).toHaveLength(2);
+    expect(d.log[0]).toBe('busy:true');
+    expect(d.log[1]).toMatch(/^status:.+:info$/);
     capturedHooks?.onLobby(view());
     expect(lobbyModal()).not.toBeNull();
     expect(d.log).toContain('serverReady');
@@ -115,10 +122,10 @@ describe('CREATE', () => {
     const d = deps();
     const done = createPrivateLobby(d, {});
     await flush();
-    capturedHooks?.onError('VERSION MISMATCH — PLEASE REFRESH THE PAGE');
+    capturedHooks?.onError(VERSION_GATE);
     settle?.(null);
     await done;
-    expect(d.log).toContain('status:VERSION MISMATCH — PLEASE REFRESH THE PAGE:denied');
+    expect(d.log).toContain(`status:${VERSION_GATE}:denied`);
     expect(d.log.at(-1)).toBe('backToPort');
   });
 
@@ -162,9 +169,9 @@ describe('JOIN', () => {
     openJoinPrivateLobby(d, {});
     typeAndJoin('qwerty');
     await flush();
-    capturedHooks?.onError('CONNECTION FAILED — IS THE SERVER RUNNING ON :2567?');
+    capturedHooks?.onError(CONNECTION_FAILED);
     expect(joinModal()).toBeNull();
-    expect(d.log).toContain('status:CONNECTION FAILED — IS THE SERVER RUNNING ON :2567?:denied');
+    expect(d.log).toContain(`status:${CONNECTION_FAILED}:denied`);
   });
 
   it('LEAVE from the lobby modal returns the port quietly', async () => {

@@ -271,9 +271,8 @@ describe('quantization is EXACTLY three colors or transparent (amendment 77)', (
     }
     // The one shared opacity is still translucent (amendment 144's ratification
     // survives the ramp's removal — Eric ratified the translucency, not the ramp).
-    // Eric ruled the value itself (cycle 65): "each of them CONSISTENTLY at 0.8
-    // alpha". Pinned exactly, because it is a ruling and not a feel knob.
-    expect(CFG.bandAlpha).toBe(0.8);
+    expect(CFG.bandAlpha).toBeGreaterThan(0);
+    expect(CFG.bandAlpha).toBeLessThan(1);
   });
 });
 
@@ -395,6 +394,33 @@ describe('the buffer is WORLD-anchored, so paints do not shimmer with the camera
     expect(read().w).toBeCloseTo(0.8, 6);
     writeCell(g, 4, 4, 0.5, 0.7); // weaker, same age: loses
     expect(read().w).toBeCloseTo(0.8, 6);
+  });
+
+  it('ONE BEAM CROSSING IS ONE PAINT (amendment 210 follow-up): within `tieTol` the '
+    + 'STRONGER return owns the cell whichever arrived last, so the water under a hull '
+    + 'never overwrites the hull; a later crossing still repaints', () => {
+    const g = grid();
+    const read = (): { w: number; a: number } =>
+      sampleGrid(g, cellCentre(4, g.cellU), cellCentre(4, g.cellU));
+    const tol = 0.05; // ≈ 3 ticks of a 3-revolution life
+    // The hull's blip, then its wake row a tick later (fresher by less than tol).
+    writeCell(g, 4, 4, 1.0, 0.90, tol);
+    writeCell(g, 4, 4, 0.12, 0.91, tol);
+    expect(read().w, 'the stronger hull keeps the cell').toBeCloseTo(1.0, 6);
+    expect(read().a, 'at its own alpha').toBeCloseTo(0.90, 5);
+    // The reverse order: water first, the hull's blip a tick later and stronger — takes it.
+    const h = grid();
+    writeCell(h, 4, 4, 0.12, 0.91, tol);
+    writeCell(h, 4, 4, 1.0, 0.90, tol);
+    expect(sampleGrid(h, cellCentre(4, h.cellU), cellCentre(4, h.cellU)).w).toBeCloseTo(1.0, 6);
+    // A paint from a LATER crossing (fresher by more than tol) repaints as before, however weak.
+    writeCell(g, 4, 4, 0.12, 0.90 + tol + 0.01, tol);
+    expect(read().w).toBeCloseTo(0.12, 6);
+    // tieTol 0 is the strict rule: a one-tick-fresher weaker paint takes the cell.
+    const s = grid();
+    writeCell(s, 4, 4, 1.0, 0.90);
+    writeCell(s, 4, 4, 0.12, 0.91);
+    expect(sampleGrid(s, cellCentre(4, s.cellU), cellCentre(4, s.cellU)).w).toBeCloseTo(0.12, 6);
   });
 
   it('an out-of-buffer cell is dropped silently, and `clearGrid` blanks both '

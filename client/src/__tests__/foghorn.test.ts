@@ -68,10 +68,6 @@ describe('the foghorn cooldown is NOT copied client-side', () => {
     expect(Object.keys(F)).not.toContain('cooldownMs');
     expect(JSON.stringify(F)).not.toContain(String(CONFIG.foghorn.cooldownMs));
   });
-
-  it('leaves the shared cadence byte-identical to its ruled value', () => {
-    expect(CONFIG.foghorn.cooldownMs).toBe(1500); // Eric ruling, amendment 56
-  });
 });
 
 // --- band → gain (TWELVE BANDS, Story 9.8 ruling 129; eighths since amendment 122)
@@ -151,19 +147,14 @@ describe('bandGain — twelve bands, both of Eric’s anchors intact (ruling 129
 // --- band → chevron weight ---------------------------------------------------
 
 describe('chevronWeight — the visual twin rides the SAME band curve', () => {
-  // TODAY'S SHIPPED LOOK, verbatim. These two literals are the anchors the
-  // eighths rebase and the twelve-band rebase (ruling 129) had to preserve: the old tier-1 weight and the old tier-3
-  // weight. Written out rather than read from config so a config retune that
-  // moved the look would FAIL here instead of quietly agreeing with itself.
-  const SHIPPED_LOUD = { size: 22, thickness: 3, alpha: 0.95 };
-  const SHIPPED_FAINT = { size: 13, thickness: 1.8, alpha: 0.5 };
+  // The two anchors: the plateau weight (bands 1-4) and the radar-edge weight
+  // (band 12). Read from the function, so the relations below hold whatever
+  // the look is tuned to.
+  const LOUD = chevronWeight(1);
+  const FAINT = chevronWeight(EDGE);
 
-  it('keeps bands 1-4 at TODAY’s tier-1 weight, exactly', () => {
-    for (const v of [1, 2, 3, 4] as const) expect(chevronWeight(v)).toEqual(SHIPPED_LOUD);
-  });
-
-  it('keeps band 12 (the radar edge) at TODAY’s tier-3 weight, exactly', () => {
-    expect(chevronWeight(EDGE)).toEqual(SHIPPED_FAINT);
+  it('holds bands 1-4 at one plateau weight, like the gain curve’s full-volume plateau', () => {
+    for (const v of [1, 2, 3, 4] as const) expect(chevronWeight(v)).toEqual(LOUD);
   });
 
   it('interpolates 5..11 between the anchors on the gain curve’s own fractions', () => {
@@ -172,12 +163,12 @@ describe('chevronWeight — the visual twin rides the SAME band curve', () => {
     for (const v of [5, 6, 7, 8, 9, 10, 11] as const) {
       const k = curveK(v);
       const w = chevronWeight(v);
-      expect(w.size).toBeCloseTo(SHIPPED_LOUD.size + (SHIPPED_FAINT.size - SHIPPED_LOUD.size) * k, 9);
+      expect(w.size).toBeCloseTo(LOUD.size + (FAINT.size - LOUD.size) * k, 9);
       expect(w.thickness).toBeCloseTo(
-        SHIPPED_LOUD.thickness + (SHIPPED_FAINT.thickness - SHIPPED_LOUD.thickness) * k,
+        LOUD.thickness + (FAINT.thickness - LOUD.thickness) * k,
         9,
       );
-      expect(w.alpha).toBeCloseTo(SHIPPED_LOUD.alpha + (SHIPPED_FAINT.alpha - SHIPPED_LOUD.alpha) * k, 9);
+      expect(w.alpha).toBeCloseTo(LOUD.alpha + (FAINT.alpha - LOUD.alpha) * k, 9);
     }
   });
 
@@ -500,9 +491,6 @@ describe('chevronPop — the one animated flourish', () => {
 
 describe("motion: 'off' removes MOTION, never INFORMATION (UX-DR36, amendment 55)", () => {
   it('keeps PRESENCE: alpha is identical at off and at full', () => {
-    for (const age of [0, 300, 900]) {
-      expect(chevronAlpha(age, chevronWeight(2).alpha)).toBe(chevronAlpha(age, chevronWeight(2).alpha));
-    }
     // The fade is not motion-parameterised at all — there is no level to pass.
     // (`Function.length` counts required params: ageMs + peak, ttlMs defaulted.)
     expect(chevronAlpha.length).toBe(2);
@@ -510,9 +498,6 @@ describe("motion: 'off' removes MOTION, never INFORMATION (UX-DR36, amendment 55
 
   it('keeps DIRECTION: the placement takes no motion input whatsoever', () => {
     expect(chevronPoint.length).toBe(5); // bearing, originX, originY, w, h — inset defaulted, no level
-    const off = chevronPoint(1.1, W / 2, H / 2, W, H);
-    const same = chevronPoint(1.1, W / 2, H / 2, W, H);
-    expect(off).toEqual(same);
   });
 
   it('keeps BAND WEIGHT: every band draws at its true weight at off', () => {
@@ -536,13 +521,15 @@ describe("motion: 'off' removes MOTION, never INFORMATION (UX-DR36, amendment 55
     // defaulted one, and not a scaled-away one.
     settings.set({ motion: 'off' });
     try {
-      const f = new Foghorn(new Container());
+      const layer = new Container();
+      const f = new Foghorn(layer);
       f.onHonk(Math.PI, EDGE, 1000);
       expect(f.liveMarks).toBe(1); // PRESENCE
       f.render(1000, W / 2, H / 2, W, H);
       expect(f.liveMarks).toBe(1);
       expect(chevronPoint(Math.PI, W / 2, H / 2, W, H).x).toBeCloseTo(CH.insetPx, 6); // DIRECTION: π = LEFT
-      expect(chevronWeight(EDGE)).toEqual({ size: 13, thickness: 1.8, alpha: 0.5 }); // WEIGHT
+      // WEIGHT: the drawn mark carries the edge band's own peak, not a default
+      expect((layer.children[0] as Graphics).alpha).toBeCloseTo(chevronAlpha(0, chevronWeight(EDGE).alpha), 9);
       expect(chevronPop(0, motionIntensity('off'))).toBe(1); // ...and only the pop is gone
     } finally {
       settings.reset();
@@ -553,7 +540,6 @@ describe("motion: 'off' removes MOTION, never INFORMATION (UX-DR36, amendment 55
     const age = 60;
     expect(chevronPop(age, 0)).toBe(1); // gone
     expect(chevronAlpha(age, 0.9)).toBeGreaterThan(0); // stays
-    expect(chevronPoint(2.2, W / 2, H / 2, W, H)).toEqual(chevronPoint(2.2, W / 2, H / 2, W, H)); // stays
   });
 });
 

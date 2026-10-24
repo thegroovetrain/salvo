@@ -167,21 +167,34 @@ describe('the wedge bake (real bakeDimMaskTexture over a recording canvas)', () 
     expect(b.log).toEqual(a.log);
   });
 
-  it('a fogged fan draws one gradient wedge per bearing over the opaque full-canvas fill', async () => {
+  it('a fogged fan draws the RADIAL BASE first, then one gradient wedge per FOGGED bearing only — '
+    + 'an unfogged bearing keeps the base (no seam can bleed full strength through the bubble)', async () => {
     DIM.fogLift = 1;
     const { bakeDimMaskTexture } = await actual();
     const rec = recording();
     const fan = new Float32Array(RAYS).fill(SIGHT);
     fan[0] = SIGHT / 2;
+    fan[7] = SIGHT / 4;
     bakeDimMaskTexture(SIGHT, rec.tex, fan);
     expect(rec.log[0]).toMatch(new RegExp(`^fillRect 0,0,${SIZE},${SIZE} `));
-    expect(rec.log.filter((l) => l.startsWith('grad '))).toHaveLength(RAYS);
-    expect(rec.log.filter((l) => l === 'fill')).toHaveLength(RAYS);
+    // the radial base (one gradient + one full-circle arc) and then exactly two wedges
+    expect(rec.log.filter((l) => l.startsWith('grad '))).toHaveLength(1 + 2);
+    expect(rec.log.filter((l) => l === 'fill')).toHaveLength(1 + 2);
+    const arcs = rec.log.filter((l) => l.startsWith('arc ')).map((l) => l.split(' ')[1].split(',').map(Number));
+    expect(arcs).toHaveLength(3);
+    expect(arcs[0][4] - arcs[0][3]).toBeCloseTo(Math.PI * 2, 9); // the base is the full disc
     // wedge 0 is centred on bearing 0 (world +x), and overlaps its neighbours
-    const arc0 = rec.log.find((l) => l.startsWith('arc '))!.split(' ')[1].split(',').map(Number);
     const half = Math.PI / RAYS;
-    expect(arc0[3]).toBeLessThan(-half);
-    expect(arc0[4]).toBeGreaterThan(half);
+    expect(arcs[1][3]).toBeLessThan(-half);
+    expect(arcs[1][4]).toBeGreaterThan(half);
+    // wedge 7 is centred on 7·2π/N
+    const c7 = (7 * 2 * Math.PI) / RAYS;
+    expect((arcs[2][3] + arcs[2][4]) / 2).toBeCloseTo(c7, 9);
+    // every fogged wedge reaches the BASE's outer radius (the gradient holds white
+    // past its own r1), never just its own r1 — otherwise the water beyond r1 on a
+    // fogged bearing would fall back to the base's floor
+    expect(arcs[1][2]).toBeCloseTo(arcs[0][2], 6);
+    expect(arcs[2][2]).toBeCloseTo(arcs[0][2], 6);
   });
 
   it("dimWedge: a fogged bearing's ramp starts at its slid inner radius and keeps the observer's width", () => {

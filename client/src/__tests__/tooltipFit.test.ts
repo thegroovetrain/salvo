@@ -171,7 +171,6 @@ describe('slot tooltip container fit (amendment 47)', () => {
     const room = tooltipRoomAbove(hoverAnchor('ship', FLOOR));
     for (const c of SHIP_CASES) {
       expect(c.model.stats, c.label).toHaveLength(8);
-      expect(c.model.stats[2]!.label, c.label).toBe('ARMOR PIERCING');
       const m = tooltipMetrics(c.model, room);
       expect(m.overflow, c.label).toBeLessThanOrEqual(0);
       expect(m.height, c.label).toBeLessThanOrEqual(room);

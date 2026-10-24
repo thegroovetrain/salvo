@@ -6,6 +6,8 @@
 // quality and the story's "measured, not felt" acceptance criterion rests on
 // it. Every row is stated with the bar it is judged against and a PASS/FAIL, so
 // a campaign either clears the spec or visibly does not.
+// (Two of the original six 6-4 bars — any-kill and the storm-death band — were
+// retired at the Epic 7 retro, 2026-08-27, and removed by Story 9.16: four remain.)
 //
 // Determinism contract (NFR5), inherited verbatim from report.ts: pure over the
 // collected samples, explicitly sorted keys, fixed-decimal formatting, no wall
@@ -36,11 +38,6 @@ const BARS = {
   resolutionRate: 0.95,
   /** Mean per-match share of participant kills taken by the top bot. */
   maxKillShare: 0.4,
-  /** Bot-matches scoring at least one participant kill. */
-  anyKillRate: 0.6,
-  /** Storm deaths as a fraction of ALL bot deaths (a band, not a floor). */
-  stormDeathLo: 0.05,
-  stormDeathHi: 0.2,
   /** Afloat bot-ticks spent in land contact. */
   landContactRate: 0.01,
   /** Banked levels spent before death. */
@@ -75,7 +72,6 @@ export interface BotGroup {
    *  win rate — a bot alive at the finish in a bot-only lobby IS the winner,
    *  except in an unresolved cap-out where several may survive). */
   aliveRate: number;
-  anyKillRate: number;
   stormShareOfDeaths: number;
   landRate: number;
   /** Afloat bot-ticks spent riding another hull's wake (Story 8.19), pooled
@@ -132,8 +128,6 @@ export interface BotAggregate {
   resolutionRate: number;
   maxKillShare: Summary;
   killShareBreachRate: number;
-  anyKillRate: number;
-  stormDeathRate: number;
   deaths: number;
   stormDeaths: number;
   /** Deaths at the hands of a PvE FLEET hull — armed, and not the brain's
@@ -204,7 +198,6 @@ function groupOf(key: string, rows: readonly BotSample[]): BotGroup {
     damage: summarize(rows.map((r) => r.damageDealt)),
     lifeS: summarize(rows.map((r) => r.lifeS)),
     aliveRate: ratio(rows.filter((r) => r.end === 'alive').length, rows.length),
-    anyKillRate: ratio(rows.filter((r) => r.kills > 0).length, rows.length),
     stormShareOfDeaths: ratio(rows.filter((r) => r.end === 'sunkByStorm').length, deaths),
     landRate: ratio(
       rows.reduce((a, r) => a + r.landTicks, 0),
@@ -326,8 +319,6 @@ export function buildBotAggregate(result: BatchResult, botsPerMatch: number): Bo
     resolutionRate: ratio(resolved, matches.length),
     maxKillShare: summarize(shares),
     killShareBreachRate: ratio(shares.filter((s) => s > BARS.maxKillShare).length, shares.length),
-    anyKillRate: ratio(rows.filter((r) => r.kills > 0).length, rows.length),
-    stormDeathRate: ratio(stormDeaths, deaths),
     deaths,
     stormDeaths,
     fleetDeaths,
@@ -389,18 +380,6 @@ export function buildBars(a: BotAggregate): BotBar[] {
       pass: a.maxKillShare.mean <= BARS.maxKillShare,
     },
     {
-      name: 'bots scoring >= 1 participant kill',
-      measured: pct(a.anyKillRate),
-      bar: `>= ${pct(BARS.anyKillRate)}`,
-      pass: a.anyKillRate >= BARS.anyKillRate,
-    },
-    {
-      name: 'storm deaths as a share of all bot deaths',
-      measured: pct(a.stormDeathRate),
-      bar: `${pct(BARS.stormDeathLo)}-${pct(BARS.stormDeathHi)}`,
-      pass: a.stormDeathRate >= BARS.stormDeathLo && a.stormDeathRate <= BARS.stormDeathHi,
-    },
-    {
       name: 'afloat bot-ticks in land contact',
       measured: pct(a.landContactRate),
       bar: `< ${pct(BARS.landContactRate)}`,
@@ -457,7 +436,6 @@ const GROUP_COLS: { head: string; w: number; value: (g: BotGroup) => string }[] 
   { head: 'n', w: 5, value: (g) => String(g.n) },
   { head: 'kills', w: 6, value: (g) => fmt(g.kills.mean, 2) },
   { head: 'pve', w: 6, value: (g) => fmt(g.pveKills.mean, 2) },
-  { head: 'kill%', w: 6, value: (g) => pct(g.anyKillRate) },
   { head: 'alive%', w: 7, value: (g) => pct(g.aliveRate) },
   { head: 'lifeS', w: 7, value: (g) => fmt(g.lifeS.mean, 1) },
   { head: 'lvl', w: 6, value: (g) => fmt(g.levels.mean, 2) },

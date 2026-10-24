@@ -161,7 +161,6 @@ describe('loadoutFor — THE UNIVERSAL SLOT FIT (Story 8.5)', () => {
       const stats = statsFor(id);
       const loadout = loadoutFor(stats);
       expect(loadout[SLOT_GUN].state, id).toEqual({ n: equipmentMaxAmmo(stats, 'gun'), reloadMsLeft: 0 });
-      expect(loadout[SLOT_GUN].state, id).toEqual({ n: 1, reloadMsLeft: 0 }); // single-shot gun pool
       expect(loadout[SLOT_BOOST].state, id).toEqual({ n: equipmentMaxAmmo(stats, 'boost'), reloadMsLeft: 0 });
       expect(loadout[SLOT_BOOST].state, id).toEqual({ n: CONFIG.boost.maxAmmo, reloadMsLeft: 0 });
     }
@@ -181,8 +180,8 @@ describe('loadoutFor — THE UNIVERSAL SLOT FIT (Story 8.5)', () => {
       const stats = statsFor(id);
       const loadout = loadoutFor(stats, false, DEFAULT_GUN, classShift(id));
       expect(loadout[SLOT_BOOST].equipmentId, id).toBe(want[id]);
-      // A FULL single charge, idle — the boost's semantics for every Shift.
-      expect(loadout[SLOT_BOOST].state, id).toEqual({ n: 1, reloadMsLeft: 0 });
+      // A FULL charge, idle — the boost's semantics for every Shift.
+      expect(loadout[SLOT_BOOST].state, id).toEqual({ n: equipmentMaxAmmo(stats, want[id]), reloadMsLeft: 0 });
       expect(EQUIPMENT_IS_WEAPON[want[id]], id).toBe(false);
       // The rest of the fit does not move with the Shift.
       expect(loadout.map((s) => s.equipmentId).filter((_, i) => i !== SLOT_BOOST), id)
@@ -214,7 +213,7 @@ describe('loadoutFor — THE UNIVERSAL SLOT FIT (Story 8.5)', () => {
       expect(loadout.map((s) => s.equipmentId), id).toEqual([
         'gun', ...new Array<null>(SLOT_COUNT - 1).fill(null),
       ]);
-      expect(loadout[SLOT_GUN].state, id).toEqual({ n: 1, reloadMsLeft: 0 });
+      expect(loadout[SLOT_GUN].state, id).toEqual({ n: equipmentMaxAmmo(statsFor(id), 'gun'), reloadMsLeft: 0 });
     }
   });
 
@@ -224,7 +223,7 @@ describe('loadoutFor — THE UNIVERSAL SLOT FIT (Story 8.5)', () => {
         const loadout = loadoutFor(statsFor(id), fleet);
         expect(loadout, `${id}/${String(fleet)}`).toHaveLength(SLOT_COUNT);
         expect(loadout[SLOT_GUN].equipmentId).toBe('gun');
-        expect(loadout[SLOT_GUN].state).toEqual({ n: 1, reloadMsLeft: 0 });
+        expect(loadout[SLOT_GUN].state).toEqual({ n: equipmentMaxAmmo(statsFor(id), 'gun'), reloadMsLeft: 0 });
       }
     }
   });
@@ -316,12 +315,7 @@ describe('SlotItemId — the disjoint union a slot may hold (Story 8.7)', () => 
     for (const id of CONSUMABLE_IDS) expect(equipment.has(id), id).toBe(false);
     const consumables = new Set<string>(CONSUMABLE_IDS);
     for (const id of EQUIPMENT_IDS) expect(consumables.has(id), id).toBe(false);
-    // FIVE until Story 8.13 (epic-8 amendments 74/83): `supercavTorpedo` moved
-    // in from the equipment space and `depthCharge` is new. SEVEN until Story
-    // 8.17 (amendment 132): `dazzleShells` (FLASH SHELLS) moved in from the
-    // add-on space. SEVEN again since Story 9.2: CHAFF retired (epic-9
-    // amendment 31). Story 9.4 replaced `dazzleShells` with `foulingShell`.
-    expect(CONSUMABLE_IDS).toHaveLength(7);
+    // Story 9.4 replaced `dazzleShells` with `foulingShell`.
     expect(CONSUMABLE_IDS).toContain('foulingShell');
     expect((CONSUMABLE_IDS as readonly string[]).includes('dazzleShells')).toBe(false);
     expect((EQUIPMENT_IDS as readonly string[]).includes('foulingShell')).toBe(false);
@@ -338,7 +332,7 @@ describe('SlotItemId — the disjoint union a slot may hold (Story 8.7)', () => 
     expect(belt.state?.reloadMsLeft).toBe(0);
   });
 
-  it('isConsumableId is the ONE guard: true for the eight, false for every EquipmentId and for junk', () => {
+  it('isConsumableId is the ONE guard: true for every consumable id, false for every EquipmentId and for junk', () => {
     for (const id of CONSUMABLE_IDS) expect(isConsumableId(id), id).toBe(true);
     for (const id of EQUIPMENT_IDS) expect(isConsumableId(id), id).toBe(false);
     for (const junk of ['', 'nope', 'constructor', 'toString', 'hullrepair', 'HullRepair']) {
@@ -382,7 +376,6 @@ describe('slotMaxAmmo — a stack is capped by its LINE, a weapon by its stats r
   it('routes every ConsumableId to its catalog line CAP (five copies, five uses)', () => {
     for (const id of CONSUMABLE_IDS) {
       expect(slotMaxAmmo(stats, id), id).toBe(CATALOG[id].cap);
-      expect(slotMaxAmmo(stats, id), id).toBe(5);
     }
   });
 
@@ -437,7 +430,6 @@ describe('THE KEY ROW — every consumable kind owns one fixed slot (Story 9.2, 
   });
 
   it('CHAFF is retired: not a consumable id (amendment 31)', () => {
-    expect(CONSUMABLE_IDS).toHaveLength(7);
     expect(isConsumableId('chaff')).toBe(false);
   });
 });

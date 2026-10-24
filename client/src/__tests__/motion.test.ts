@@ -45,10 +45,10 @@ describe('storm vignette — the PULSE is motion, the hazard is information', ()
   });
 
   it('reduced halves the swing around the same base', () => {
-    const peakT = 0.25 / 1.1; // a quarter period of the 1.1Hz pulse
+    const peakT = 0.25 / CLIENT_CONFIG.settings.pulseCapHz; // a quarter period of the pulse
     const base = vignetteAlpha(true, 0, 0);
     const full = vignetteAlpha(true, peakT) - base;
-    const half = vignetteAlpha(true, peakT, 0.17 / 2) - base;
+    const half = vignetteAlpha(true, peakT, motionScaled(CLIENT_CONFIG.zone.vignetteAmp, 'reduced')) - base;
     expect(half).toBeCloseTo(full / 2, 6);
   });
 

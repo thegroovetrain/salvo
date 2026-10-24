@@ -170,6 +170,7 @@ import { observe } from './perception.js';
 import {
   insideIntelDisc,
   islandClearance,
+  isSpawnClear,
   pickFleetAnchor,
   pickSpawn,
   SPAWN_ISLAND_CLEARANCE,
@@ -217,6 +218,18 @@ const NO_BEHAVIORS: readonly BoonBehaviorEffect[] = Object.freeze([]);
  *  every hull in production, every bot and every fleet hull carries, so the
  *  no-fit case is one shared allocation-free identity. */
 const EMPTY_FIT: readonly string[] = Object.freeze([]);
+
+/**
+ * A DEV PLACEMENT POSE (Story 9.15): where a scripted smoke asked a captain to
+ * stand, and which way to face. Already dev-gated and value-sanitized at the
+ * door (`roomOptions.ts` sanitizeSpawnPose). Structural so the World needs no
+ * import from the room layer.
+ */
+export interface DevPose {
+  readonly x: number;
+  readonly y: number;
+  readonly heading: number;
+}
 
 // (`DAZZLE_GRACE_MS` — the per-tick refresh grace of the old star-shell DAZZLE
 // zone — was DELETED with the verb, Story 8.17 / epic-8 amendment 134, and the
@@ -293,6 +306,15 @@ export interface WorldOptions {
    * room.
    */
   pseudonymSeed?: number;
+  /**
+   * THE PVE WAVE SCHEDULER SWITCH (Story 9.15, a DEV SMOKE ARM). `false` makes
+   * `spawnFleetWaves` a no-op, so no `CONFIG.fleet.waves` hull ever arrives —
+   * a scripted socket scenario's fight stays between the hulls it placed.
+   * Absent / `true` = the shipped schedule. ArenaRoom passes it ONLY from the
+   * dev-gated `matchOverride.fleetWaves` (stripped without HC_DEV_OPTIONS=1);
+   * bots, solo and bot fill never read it.
+   */
+  fleetWaves?: boolean;
 }
 
 /** The item id fitted in `loadout[slotIndex]`, or null when the slot is
@@ -565,6 +587,18 @@ export interface ShipRecord {
    * SERVER-PRIVATE: never on the wire.
    */
   devFit: readonly string[];
+  /**
+   * THE DEV SPAWN POSE (Story 9.15) — the placement a DEV-ONLY `spawnOverride`
+   * join option asked this hull to take, already dev-gated and value-sanitized
+   * at the door. UNDEFINED on every production path and on every bot / fleet
+   * hull: the option is stripped without HC_DEV_OPTIONS=1 and addShip keeps it
+   * only for a `captain` (the `devFit` rule). Honoured at EVERY placement edge
+   * — addShip, redeployShip (unless the start line is held) and respawn — in
+   * place of `pickSpawn`, heading included. A PLACEMENT ONLY: it never touches
+   * hp, ammo, the fit or anything applyDamage owns. SERVER-PRIVATE: never on
+   * the wire.
+   */
+  devPose?: DevPose;
   /**
    * THE SEAT'S GUN (Story 8.14, epic-8 amendments 89d/95): which gun this
    * captain PICKED — deck gun, machine gun or flak gun — sanitized at the door
@@ -1808,7 +1842,7 @@ export class World {
   private readonly fogObserverMemo = { x: NaN, y: NaN, epoch: 0, solid: false };
   /** The clock the current epoch's densities are evaluated at (the last refresh's `now`). */
   private fogEpochTValue = 0;
-  /** Cells evaluated since construction (perf accounting — the fogPerf pin reads it). */
+  /** Cells evaluated since construction (perf accounting — fogField.test.ts's memo-determinism test reads it). */
   private fogCellEvalCount = 0;
   /**
    * THE PSEUDONYM MAP (R3, radar realism cycle): ship id → stable per-match
@@ -1966,6 +2000,10 @@ export class World {
    */
   private readonly spawnPhase: number;
 
+  /** THE PVE WAVE SCHEDULER SWITCH (Story 9.15) — see WorldOptions.fleetWaves.
+   *  False only when a dev smoke asked for no fleet. */
+  private readonly fleetWavesEnabled: boolean;
+
   constructor(
     seed: number,
     playerCap: number = CONFIG.map.playerCap,
@@ -1975,6 +2013,7 @@ export class World {
     this.hookRegistry = opts.hookRegistry ?? HOOK_REGISTRY;
     this.catalog = opts.catalog ?? CATALOG;
     this.consumables = opts.consumables ?? CONSUMABLES;
+    this.fleetWavesEnabled = opts.fleetWaves !== false;
     this.playerCap = playerCap;
     this.seed = seed;
     this.map = generateMap(seed, playerCap);
@@ -2283,10 +2322,16 @@ export class World {
    *  `fit` (Story 8.10, amendment 65) is the DEV-ONLY spawn fit — the ids a
    *  smoke's `fitOverride` asked this hull to come up holding. It defaults to
    *  NOTHING, which is every production join and every existing caller, and it
-   *  is honoured for a CAPTAIN only (see spawnFit / applyDevFit). */
-  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at: Vec2 | undefined, gun: GunId = DEFAULT_GUN, fit: readonly string[] = []): ShipRecord {
-    const p = at ?? pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng, this.spawnPhase);
-    const heading = Math.atan2(-p.y, -p.x);
+   *  is honoured for a CAPTAIN only (see spawnFit / applyDevFit).
+   *
+   *  `pose` (Story 9.15) is the DEV-ONLY spawn pose — a smoke's
+   *  `spawnOverride`. Absent on every production join and every existing
+   *  caller; honoured for a CAPTAIN only, it wins over `at` and is kept on the
+   *  record (`devPose`) so the redeploy and respawn edges place the hull there
+   *  again. */
+  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at: Vec2 | undefined, gun: GunId = DEFAULT_GUN, fit: readonly string[] = [], pose?: DevPose): ShipRecord {
+    const devPose = role === 'captain' ? pose : undefined;
+    const { heading, ...p } = this.placement(id, devPose, () => at ?? pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng, this.spawnPhase));
     const cls = hullEnvelope(hullId);
     const stats = effectiveStats(cls);
     // NO SPAWN SEED ANY MORE (Story 8.10, FR48, epic-8 amendment 62): the
@@ -2323,7 +2368,7 @@ export class World {
       // THE SEAT'S GUN and the ship's private DRAW stream (8.14): there is no
       // deck to deal any more — the pool is the catalog and a draw is a pure
       // read of this record's own state (materializeOffer).
-      gun, devFit: World.spawnFit(role, fit), drawRng: this.drawRngFor(this.joinSeq++),
+      gun, devFit: World.spawnFit(role, fit), devPose, drawRng: this.drawRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null, hands: [], mulliganed: false, openingGranted: false,
       xpMs: 0, level: 0, damageFrom: new Map(),
       cards: [],
@@ -2513,6 +2558,29 @@ export class World {
    * balance in the one environment (a dev room) where a smoke is watching. The
    * list is frozen so nothing downstream can mutate what the door admitted.
    */
+  /**
+   * ONE PLACEMENT at any edge (Story 9.15): the hull's dev pose when it carries
+   * one — no `pickSpawn` call at all, so no spawn-stream draw — else `pick()`'s
+   * point facing the map centre (the shipped rule). Every edge — addShip,
+   * redeployShip, respawn — goes through here, so the pose is honoured at all
+   * three or none.
+   *
+   * THE POSE IS VALIDATED at every edge (Story 9.15 review gate): it must pass
+   * `isSpawnClear` — inside the map by a hull's clearance and island-clear by
+   * the spawn picker's own test. A pose that fails is NOT honoured: the hull
+   * takes `pick()` (today's placement) and one `dev.poseRejected` warning is
+   * logged for this placement. That is what keeps every edge's "island-clear
+   * by construction" `landContact = false` true and gives resolveShipPose a
+   * valid pose to induct from. Overlap between two posed hulls is NOT checked
+   * — that is the script's responsibility (see sanitizeSpawnPose).
+   */
+  private placement(id: string, pose: DevPose | undefined, pick: () => Vec2): DevPose {
+    if (pose !== undefined && isSpawnClear(this.map, pose)) return pose;
+    if (pose !== undefined) logWarn('dev.poseRejected', { id, x: pose.x, y: pose.y });
+    const p = pick();
+    return { x: p.x, y: p.y, heading: Math.atan2(-p.y, -p.x) };
+  }
+
   private static spawnFit(role: ShipRole, fit: readonly string[]): readonly string[] {
     if (role !== 'captain' || fit.length === 0) return EMPTY_FIT;
     return Object.freeze([...fit]);
@@ -2649,11 +2717,13 @@ export class World {
       // costs one push.
       placed.push({ x: ship.state.x, y: ship.state.y });
     } else {
-      const p = pickSpawn(this.map, placed, this.rng, this.spawnPhase);
-      placed.push(p);
+      // A posed hull (Story 9.15, dev only) goes back to its pose — and still
+      // counts as OCCUPIED for the hulls placed after it.
+      const p = this.placement(ship.id, ship.devPose, () => pickSpawn(this.map, placed, this.rng, this.spawnPhase));
+      placed.push({ x: p.x, y: p.y });
       ship.state.x = p.x;
       ship.state.y = p.y;
-      ship.state.heading = Math.atan2(-p.y, -p.x);
+      ship.state.heading = p.heading;
       ship.state.speed = 0;
       // The sweep re-anchors to the NEW heading at this placement edge (Eric
       // ruling 2026-08-16) — see addShip for the rule and why prev must equal it.
@@ -5032,6 +5102,8 @@ export class World {
    * ship mid-match before this (amendment 37).
    */
   private spawnFleetWaves(): void {
+    // Story 9.15: a dev smoke switched the scheduler off (WorldOptions.fleetWaves).
+    if (!this.fleetWavesEnabled) return;
     if (this.zoneStartT === null || !this.damageEnabled) return;
     this.enqueueDueWaves(this.now - this.zoneStartT);
     this.placePendingFleets();
@@ -7497,13 +7569,17 @@ export class World {
   }
 
   private respawn(ship: ShipRecord): void {
-    const occupied = [...this.ships.values()]
-      .filter((s) => s.id !== ship.id && isAfloat(s.lifecycle))
-      .map((s) => ({ x: s.state.x, y: s.state.y }));
-    const p = pickSpawn(this.map, occupied, this.rng, this.spawnPhase);
+    // A posed hull (Story 9.15, dev only) comes back at its pose; every other
+    // hull back on the ring.
+    const p = this.placement(ship.id, ship.devPose, () => {
+      const occupied = [...this.ships.values()]
+        .filter((s) => s.id !== ship.id && isAfloat(s.lifecycle))
+        .map((s) => ({ x: s.state.x, y: s.state.y }));
+      return pickSpawn(this.map, occupied, this.rng, this.spawnPhase);
+    });
     ship.state.x = p.x;
     ship.state.y = p.y;
-    ship.state.heading = Math.atan2(-p.y, -p.x);
+    ship.state.heading = p.heading;
     ship.state.speed = 0;
     // The THIRD placement edge re-anchors the sweep to the new heading too (Eric
     // ruling 2026-08-16) — one rule at addShip / redeployShip / respawn alike.

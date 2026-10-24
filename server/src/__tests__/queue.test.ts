@@ -14,7 +14,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { CONFIG, PROTOCOL_VERSION } from '@salvo/shared';
 import { ErrorCode, ServerError } from 'colyseus';
 import { defaultQueueConfig, queueStep, type QueueConfig, type QueueState } from '../rooms/queue.js';
-import { sanitizeExpectedCaptains, sanitizeRoomOptions } from '../rooms/roomOptions.js';
+import { protocolVersionError, sanitizeExpectedCaptains, sanitizeRoomOptions } from '../rooms/roomOptions.js';
 import { ArenaRoom, ARENA_DIRECT_JOIN_ERROR } from '../rooms/ArenaRoom.js';
 
 const CFG: QueueConfig = defaultQueueConfig();
@@ -35,11 +35,6 @@ describe('defaultQueueConfig', () => {
     expect(CFG.minHumans).toBe(CONFIG.match.minHumans);
     expect(CFG.cap).toBe(CONFIG.map.playerCap);
     expect(CFG.queueTimerMs).toBe(CONFIG.match.queueTimerMs);
-    // The ruled shape (Eric 2026-08-14): 2 captains, 2:00 hold. The CAP is
-    // not re-pinned here — it is the arena's own number (20 then, 16 since
-    // Story 9.8, Eric 2026-10-13), and the projection above is the contract.
-    expect(CFG.minHumans).toBe(2);
-    expect(CFG.queueTimerMs).toBe(120000);
   });
 });
 
@@ -291,7 +286,7 @@ describe('ArenaRoom direct-join door', () => {
   it('rejects a direct join for any non-"1" HC_DEV_OPTIONS value (fail closed)', async () => {
     for (const value of ['0', 'true', '', 'yes']) {
       process.env.HC_DEV_OPTIONS = value;
-      await expect(ArenaRoom.onAuth('', { pv: PROTOCOL_VERSION })).rejects.toThrow(/not joinable directly/);
+      await expect(ArenaRoom.onAuth('', { pv: PROTOCOL_VERSION })).rejects.toThrow(ARENA_DIRECT_JOIN_ERROR);
     }
   });
 
@@ -304,7 +299,9 @@ describe('ArenaRoom direct-join door', () => {
     // Ordering matters for the menu: a stale client must be told to refresh,
     // not told it used the wrong door.
     delete process.env.HC_DEV_OPTIONS;
-    await expect(ArenaRoom.onAuth('', { pv: PROTOCOL_VERSION + 1 })).rejects.toThrow(/refresh/);
+    await expect(ArenaRoom.onAuth('', { pv: PROTOCOL_VERSION + 1 })).rejects.toThrow(
+      protocolVersionError(PROTOCOL_VERSION + 1)!,
+    );
   });
 });
 

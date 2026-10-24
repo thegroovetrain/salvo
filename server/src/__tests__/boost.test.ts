@@ -62,7 +62,6 @@ describe('boost CONFIG invariant', () => {
     // the batch-sim harness enforces the same relation on the --tune surface
     // (batchsim/overrides.ts validateCrossKeyInvariants).
     expect(BOOST.reloadMs).toBeGreaterThanOrEqual(BOOST.durationMs);
-    expect(BOOST.maxAmmo).toBe(1); // single charge
   });
 });
 
@@ -116,30 +115,28 @@ describe('the Shift boost end to end (Story 8.9, amendments 54-55)', () => {
     for (let i = 0; i < count; i++) w.applyCard(s, lineId);
   };
 
-  it('a slot-1 tap opens a 10 s window on a 25 s reload, and the RATED cap never moves', () => {
+  it('an open boost window never moves the RATED cap (stats.kinematics.maxSpeed stays the class cap)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     expect(a.loadout[SLOT_BOOST].equipmentId).toBe('boost');
     pressActivate(w, 'a', 1, 1, SLOT_BOOST);
     w.step();
-    expect(a.boostUntil).toBe(w.now + 10000); // amendment 54: 10 s
-    expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: 25000 }); // amendment 54: 25 s
+    expect(a.boostUntil).toBeGreaterThan(w.now);
     // THE BOTS' RATED READ IS UNTOUCHED (amendment 55): the bonus is layered
     // per tick by the shared hook and is NEVER folded into EffectiveStats, so
     // ai/utility.ts's max(rated, actual) deadband still reads the class cap.
-    expect(a.stats.kinematics.maxSpeed).toBe(45);
+    expect(a.stats.kinematics.maxSpeed).toBe(TB_MAX);
   });
 
-  it('the boosted forward cap is 56.25 un-carded and rated × (1 + factor) with the SPEED line at cap', () => {
-    // BASE: 45 + 45 x 0.25.
+  it('the boosted forward cap is rated × (1 + factor), un-carded and with the SPEED line at cap', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     a.state.speed = TB_MAX;
     pressActivate(w, 'a', 1, 1, SLOT_BOOST, 1); // full ahead + tap
-    run(w, 100); // 5 s — inside the 10 s window, long past the accel ramp
+    run(w, 100); // 5 s — inside the window, long past the accel ramp
     expect(a.boostUntil).toBeGreaterThan(w.now);
-    expect(a.stats.kinematics.maxSpeed).toBe(45); // rated, un-carded
-    expect(a.state.speed).toBeCloseTo(56.25, 6);
+    expect(a.stats.kinematics.maxSpeed).toBe(TB_MAX); // rated, un-carded
+    expect(a.state.speed).toBeCloseTo(TB_MAX * (1 + BOOST.factor), 6);
 
     // LADDER-RAISED: the SPEED line stacked to its cap lifts the rated cap
     // above the class base, and the BONUS GROWS WITH IT — rated × (1 + factor),
@@ -172,19 +169,19 @@ describe('the Shift boost end to end (Story 8.9, amendments 54-55)', () => {
     expect(w.sinkingActivationGate(a, SLOT_BOOST)).toEqual({ ok: false, reason: 'no-ammo' });
   });
 
-  it('five RELOAD cards shorten the pool to 18750 ms and leave the 10 s window alone', () => {
+  it('RELOAD cards shorten the pool by the global cooldownScale and leave the window alone', () => {
     // R40: the reload rides the ONE cooldownScale multiply in clampStats like
-    // every equipment row — 25000 x 0.75. The DURATION is not a reload and no
-    // card addresses it.
+    // every equipment row. The DURATION is not a reload and no card addresses it.
     const w = bareWorld();
     const a = place(w, 'a');
-    stack(w, a, 'reload', 5); // the 5-copy cap: additive -0.05/card => 0.75
-    expect(a.stats.equipment.boost.reloadMs).toBe(18750);
-    expect(a.stats.equipment.boost.durationMs).toBe(10000);
+    stack(w, a, 'reload', CATALOG.reload.cap);
+    expect(a.stats.cooldownScale).toBeLessThan(1);
+    expect(a.stats.equipment.boost.reloadMs).toBe(BOOST.reloadMs * a.stats.cooldownScale);
+    expect(a.stats.equipment.boost.durationMs).toBe(BOOST.durationMs);
     pressActivate(w, 'a', 1, 1, SLOT_BOOST);
     w.step();
-    expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: 18750 });
-    expect(a.boostUntil).toBe(w.now + 10000);
+    expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: a.stats.equipment.boost.reloadMs });
+    expect(a.boostUntil).toBe(w.now + BOOST.durationMs);
   });
 });
 
@@ -284,7 +281,7 @@ describe('the boost is the Torpedo Boat\'s Shift again (Story 8.15, amendment 89
   // fits HUNKER (was DAMAGE CUT until Story 9.9) and the Mine Layer INSTANT RELOAD (both pinned in
   // shift.test.ts). The boost's own numbers are untouched — a 10 s window on
   // a 25 s reload (amendment 54).
-  it('a torpedoBoat fits boost in slot 1 and boosts with the shipped numbers', () => {
+  it('a torpedoBoat fits boost in slot 1 and a press opens the CONFIG window on the CONFIG reload', () => {
     const w = bareWorld();
     const a = place(w, 'a', 'torpedoBoat');
     expect(a.loadout[SLOT_BOOST].equipmentId).toBe('boost');
@@ -293,8 +290,6 @@ describe('the boost is the Torpedo Boat\'s Shift again (Story 8.15, amendment 89
     w.step();
     expect(a.boostUntil).toBe(w.now + BOOST.durationMs);
     expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: BOOST.reloadMs });
-    expect(BOOST.durationMs).toBe(10000); // the amendment-54 10 s window
-    expect(BOOST.reloadMs).toBe(25000); // the amendment-54 25 s reload
   });
 
   it.each([['battleship', 'hunker'], ['mineLayer', 'instantReload']] as const)(

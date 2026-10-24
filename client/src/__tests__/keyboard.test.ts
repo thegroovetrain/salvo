@@ -617,7 +617,7 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
     expect(kb.actSlot).toBe(BOOST);
   });
 
-  it('the FIFO caps at SLOT_COUNT (11) — the 12th same-window press gets DENIED FEEDBACK', () => {
+  it('the FIFO caps at SLOT_COUNT — every over-cap same-window press gets DENIED FEEDBACK', () => {
     // The cap simply follows the slot count (Story 8.5 moved it 4 → 9, Story 9.2
     // 9 → 11). It is still only reachable by MASHING: eleven presses inside ONE
     // 50ms sample window. Over-cap presses are dropped WITH feedback.
@@ -630,8 +630,7 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
       onAbilityCapped: (slot) => capped.push(slot),
     });
     kb.attach();
-    expect(SLOT_COUNT).toBe(11);
-    for (let i = 0; i < SLOT_COUNT + 3; i++) press('ShiftLeft'); // 14 presses in one window
+    for (let i = 0; i < SLOT_COUNT + 3; i++) press('ShiftLeft'); // three past the cap, in one window
     expect(kb.pendingActivationCount).toBe(SLOT_COUNT); // capped
     expect(presses).toHaveLength(SLOT_COUNT); // over-cap presses never reach onAbility
     expect(capped).toEqual([BOOST, BOOST, BOOST]); // …but EACH fires the denied hook
@@ -1133,21 +1132,16 @@ describe('the refit CLOSE GRACE (ruling 8) — the digits\' dead zone', () => {
 
   const GRACE = CLIENT_CONFIG.refit.closeGraceMs;
 
-  it('is 400 ms, matching the results.keyGraceMs precedent', () => {
-    expect(GRACE).toBe(400);
-    expect(GRACE).toBe(CLIENT_CONFIG.results.keyGraceMs);
-  });
-
   // THE EDGE IS `<`, exactly like resultsKeysArmed's `>=`: the grace is the
-  // HALF-OPEN interval [closedAt, closedAt + 400). At 400 ms on the nose the
+  // HALF-OPEN interval [closedAt, closedAt + grace). At the grace on the nose the
   // digit fires — a grace that included its own end would be unpinnable by a
   // frame clock that lands on it.
-  it('is live for 150 ms and dead at the 400 ms edge itself', () => {
+  it('is live inside [closedAt, closedAt + grace) and dead at the edge itself', () => {
     expect(refitGraceActive(1000, 1000, GRACE)).toBe(true); // the close instant
-    expect(refitGraceActive(1150, 1000, GRACE)).toBe(true); // 150 ms after
-    expect(refitGraceActive(1399.9, 1000, GRACE)).toBe(true);
-    expect(refitGraceActive(1400, 1000, GRACE)).toBe(false); // the edge FIRES
-    expect(refitGraceActive(1401, 1000, GRACE)).toBe(false);
+    expect(refitGraceActive(1000 + GRACE / 2, 1000, GRACE)).toBe(true); // mid-grace
+    expect(refitGraceActive(1000 + GRACE - 0.1, 1000, GRACE)).toBe(true);
+    expect(refitGraceActive(1000 + GRACE, 1000, GRACE)).toBe(false); // the edge FIRES
+    expect(refitGraceActive(1000 + GRACE + 1, 1000, GRACE)).toBe(false);
   });
 
   it('is dead before the window has EVER closed (the -Infinity seed)', () => {
@@ -1383,7 +1377,7 @@ describe('the close edge is seen at the DIGIT\'s keydown, with no frame between 
     expect(w.fired).toEqual([]);
   });
 
-  it('...and the same key fires once the 400 ms grace lapses', () => {
+  it('...and the same key fires once the grace lapses', () => {
     const menu = new UpgradeMenu(() => {});
     const w = wired(menu);
     menu.toggle(view());

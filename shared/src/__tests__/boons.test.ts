@@ -557,7 +557,8 @@ describe('one derivation, both sides — incremental vs replayed slot-id parity'
     expect(loadout.map((s) => s.equipmentId)).toEqual([
       'gun', 'boost', 'navalMines', null, null, ...CONSUMABLE_SLOTS.map(() => null),
     ]);
-    expect(loadout[0].state).toEqual({ n: 2, reloadMsLeft: 0 }); // the CANNON tier-III pool
+    expect(loadout[0].state).toEqual({ n: equipmentMaxAmmo(stats, 'gun'), reloadMsLeft: 0 }); // the CANNON tier-III pool
+    expect(equipmentMaxAmmo(stats, 'gun')).toBeGreaterThan(CONFIG.gun.maxAmmo);
     expect(loadout[WEAPON_SLOTS[0]].state).toEqual({ n: equipmentMaxAmmo(stats, 'navalMines'), reloadMsLeft: 0 });
   });
 

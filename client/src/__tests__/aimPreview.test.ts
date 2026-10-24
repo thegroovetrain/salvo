@@ -272,10 +272,9 @@ describe('the gun — burst circle at the SERVER-TRUTH burst point', () => {
   // shell is on the click" are different promises to the player, and only one of
   // them can be true at a time.
   it('EVEN barrel count: the shells STRADDLE the click, none on it', () => {
-    // The real build: the BARE cannon already fires two barrels (Story 9.12 —
-    // fixed at CONFIG.gun.barrels, no barrel rungs).
-    const inp = input({ stats: stats() });
-    expect(inp.stats.equipment.gun.barrels).toBe(2);
+    // Set directly (the gunBarrelStats reasoning): the claim is the geometry of
+    // an EVEN volley, not the shipped barrel count (the next test reads that).
+    const inp = input({ stats: gunBarrelStats(2) });
     const m = computeAimPreview(inp);
     expect(m.bursts).toHaveLength(2);
     const truth = burstPointAlong(SHIP, 300, MAP_R, inp.stats.equipment.gun.rangeU, 0);
@@ -497,7 +496,7 @@ describe('the broadside — per-turret aim comes from the SHARED helper, not a r
     const onClick = (m: ReturnType<typeof computeAimPreview>): number =>
       m.bursts.filter((p) => Math.hypot(p.x - click.x, p.y - click.y) < 1e-9).length;
     expect(onClick(base)).toBe(0); // zero overlap: the abeam click is in a dead gap
-    expect(onClick(maxed)).toBe(4); // true convergence at the cap
+    expect(onClick(maxed)).toBe(CONFIG.broadside.turrets); // true convergence at the cap
     // Closer in, the cap still loses its OUTER guns to parallax — the payoff is
     // abeam and at range, never everywhere.
     const near = computeAimPreview(broadside({ aimDist: 150, stats: MAXED_SPREAD }));
@@ -700,12 +699,11 @@ describe('mine placement — both rings at the drop point', () => {
   // driven by WHICH LINE IS PRIMED and reads that line's own row. The old pin
   // had to smuggle the captive row into the `navalMines` slot because no
   // captive id could ever be primed; now it simply primes `captiveMines`.
-  it('CAPTIVE: previews the CONFIG trip ring (120 u since 2026-10-08), not the 32u contact-blast ring', () => {
+  it('CAPTIVE: previews the CONFIG trip ring, not a contact-blast ring', () => {
     const s = stats();
     const m = computeAimPreview(input({ id: 'captiveMines', stats: s, aim: 0, aimDist: 60 }));
     expect(m.place!.kind).toBe('captive');
     expect(m.place!.trigger).toBeCloseTo(CONFIG.captiveMines.triggerRadius, 9);
-    expect(m.place!.blast).toBeCloseTo(32, 9);
     // The numbers are the firewall's, never re-derived here — and off the
     // CAPTIVE row, which is the whole point.
     expect(m.place!.trigger).toBe(s.equipment.captiveMines.triggerRadius);
@@ -729,8 +727,8 @@ describe('mine placement — both rings at the drop point', () => {
     expect(m.place!.trigger).toBe(s.equipment.foulingMines.triggerRadius);
     // Wider than the naval mine's, which is the line's whole shape...
     expect(m.place!.blast).toBeGreaterThan(s.equipment.navalMines.blastRadius);
-    // ...and the trip ring is still the shared 2/3 derivation, not a new rule.
-    expect(m.place!.trigger).toBeCloseTo(m.place!.blast * (2 / 3), 9);
+    // ...and the trip ring is still the shared derivation, not a new rule.
+    expect(m.place!.trigger).toBeCloseTo(mineTriggerRadius(m.place!.blast), 9);
   });
 
   it('every mine LINE previews a placement — none falls through to EMPTY', () => {
@@ -746,9 +744,9 @@ describe('mine placement — both rings at the drop point', () => {
   it('the MINE blast scales the previewed rings, with the trip ring derived', () => {
     const widened = minesAt([], 1.1 ** 4);
     const m = computeAimPreview(input({ id: 'navalMines', stats: widened, aimDist: 60 }));
-    expect(m.place!.blast).toBeCloseTo(70.3, 1);
+    expect(m.place!.blast).toBe(widened.equipment.navalMines.blastRadius);
+    expect(m.place!.blast).toBeGreaterThan(stats().equipment.navalMines.blastRadius);
     expect(m.place!.trigger).toBe(widened.equipment.navalMines.triggerRadius);
-    expect(m.place!.trigger).toBeCloseTo(widened.equipment.navalMines.blastRadius * (2 / 3), 9);
   });
 });
 
@@ -788,7 +786,7 @@ describe('star shells — the lit radius is the preview', () => {
   // radius, exactly, at every tier.
   it('reads the TIERED lit radius — and no verb shrinks it any more', () => {
     const t3 = stats('starShells', 'starShells', 'starShells');
-    expect(t3.equipment.starShells.litRadius).toBeCloseTo(CONFIG.starShells.litRadius * 1.21, 9);
+    expect(t3.equipment.starShells.litRadius).toBeGreaterThan(CONFIG.starShells.litRadius);
     expect(effectiveLitRadius(t3)).toBe(t3.equipment.starShells.litRadius);
     expect(computeAimPreview(input({ id: 'starShells', stats: t3 })).bursts[0].r).toBe(effectiveLitRadius(t3));
   });
@@ -867,7 +865,7 @@ describe('phosphor + fouling shells — the star-shell preview pattern', () => {
     expect(m.lines).toHaveLength(1);
     expect(m.bursts[0].x).toBeCloseTo(300, 6);
     expect(m.bursts[0].r).toBe(s.equipment.phosphorShells.zoneRadius);
-    expect(m.bursts[0].r).toBeCloseTo(110, 9); // tier II: 100 × 1.1
+    expect(m.bursts[0].r).toBeGreaterThan(stats().equipment.phosphorShells.zoneRadius); // tier II widens it
     expect(m.bursts[0].effect).toBe(false); // a damage burst, not an effect radius
   });
 
@@ -971,7 +969,8 @@ describe('the broadside - one line per TURRET, from the shared muzzle helper', (
     const three = originsOf(CONFIG.broadside.turrets);
     const four = originsOf(CONFIG.broadside.turrets + 1);
     const five = originsOf(CONFIG.broadside.turrets + 2);
-    expect([three.length, four.length, five.length]).toEqual([4, 5, 6]);
+    const T = CONFIG.broadside.turrets;
+    expect([three.length, four.length, five.length]).toEqual([T, T + 1, T + 2]);
     const span = (xs: number[]): number => xs[xs.length - 1] - xs[0];
     expect(span(four)).toBeCloseTo(span(three), 9);
     expect(span(five)).toBeCloseTo(span(three), 9);

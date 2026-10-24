@@ -120,7 +120,7 @@ warnings: [oversized]
 - Given a join with each of the three guns on each of the three hulls (nine in-process worlds), when the captain fires once at a hull in reach, then slot 0 holds that gun's module, the hit lands for the CONFIG damage (4 direct / 12 burst / 15 burst), the reveal carries the matching `w`, and slot 1 holds the hull's Shift.
 - Given `held: true` for 3 s on a machine gun, when the ticks run, then exactly 6 shells spawn 500 ms apart at `now` with 6 `mz`, no `burst` events, an `sp` per shell that reaches water, and the magazine reads 10; released and idle for 5 s the reload starts and completes in 15 s to 16.
 - Given a Battleship with the cut up, when a 15 hp shell, a 55 hp mine, a 0.25 burn tick and a storm bite land, then 7, 27, 0.125 and the full bite are dealt, and the own-ship frame carries `damageCutUntil` while no other client's frame does.
-- Given 2000 seeded perception fuzz worlds with random guns and random `held`, then nothing outside sight ∪ this-tick paints reaches a client, `w` appears only on `shell` reveals from the three-word set, and the exception count is six.
+- Given 20 seeded perception fuzz worlds (the shipped size; the "2000" of the original wording was never built — corrected by 9.14, 2026-10-22) with random guns and random `held`, then nothing outside sight ∪ this-tick paints reaches a client, `w` appears only on `shell` reveals from the three-word set, and the exception count is six.
 - Given 20 machine-gun bots streaming in one World, then `world.step()` best-of-5 is under 50 ms and the per-tick `mz` count is recorded in the Auto Run Result.
 - Given `npm run check`, then lint, tsc ×3 and every test pass with zero references to `missile`, `monitor`, `heatSeeking`, `STUB_ROWS` content, or the `machineGun`/`flak` stub flags; `PROTOCOL_VERSION` is 58; `LINE_IDS` has 26 entries.
 
@@ -160,7 +160,7 @@ Status: done (cycle 150, 0.18.15; PROTOCOL_VERSION 57 → 58; epic-8 amendments 
 
 **Review.** Blind Hunter + Edge Case Hunter (Fable) and Codex `gpt-5.6-sol`: one medium (all three) and ten low patches, all fail-first proven; two deferred; zero rejected. See the Review Triage Log.
 
-**Follow-up review recommended: true** — the patch wave changed the room's drop path (a new `releaseHeld` seam), the burst's ordnance resolution and the client's own-fire attribution; each is pinned, but they were reviewed only by their implementer.
+**Follow-up review recommended: true** — the patch wave changed the room's drop path (a new `releaseHeld` seam), the burst's ordnance resolution and the client's own-fire attribution; each is pinned, but they were reviewed only by their implementer. [2026-10-23, Story 9.16 (cycle 206): flag RETIRED as a category by Eric's ruling — no follow-up was ever run on any of ~60 flagged specs across nine epics; the template no longer sets it. Where the flagged code was since rebuilt by a later gated story (decks → 8.14; the belt → 9.2; chaff → 9.3; the HUD bar → 9.2/9.11), that story's gate is the review. See epic-9 amendment 215.]
 
 **Verification.** `npm run check` exit 0 after the patch wave: shared 934 / server 2097 / client 3708 tests, hooks green; eslint 0 errors (3 pre-existing max-lines warnings). Headless smokes: weaponsSmoke PASS on attempt 1 with the new three-guns phase (cannon 15 / mg 4 / flak 12, reveals `w` cannon / mg / flak, held ticks sent with fireSeq 0), queueSmoke PASS (seat proof over all three gun ids), openingSmoke PASS; queue + opening re-run PASS after the patches.
 

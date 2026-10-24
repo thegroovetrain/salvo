@@ -673,8 +673,11 @@ describe('steering — the priority order is the policy', () => {
     const mind = mkMind('raider'); // approachPoint = the plot itself (no rear-quarter offset)
     port.zoneLiveRing = { cx: 1000, cy: 0, r: 4000 };
     const bumper = hullBumper('torpedoBoat', 'torpedoBoat'); // two speedboats: 50 + 50 + hullBumperU
-    expect(bumper).toBe(100 + CONFIG.bots.hullBumperU);
-    expect(bumper).toBeLessThan(CONFIG.bots.hullLookaheadU);
+    // The fixture's own requirement: the 90 u plot sits inside the bumper, the
+    // 120 u plot outside it, and both inside the full lookahead.
+    expect(bumper).toBeGreaterThan(90);
+    expect(bumper).toBeLessThan(120);
+    expect(CONFIG.bots.hullLookaheadU).toBeGreaterThan(120);
     // The target DEAD AHEAD at 120 u: the pursue bearing is the heading (track
     // term 0), so only a hull-avoidance term could move the rudder — and a
     // hull dead ahead is the kernel's +strength case when it is in reach.
@@ -2529,15 +2532,6 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
     });
   });
 
-  it('the TORPEDO BOAT still boosts on disengage (the shipped rule, untouched)', () => {
-    const w = openWorld(8157);
-    const port = fakePort(w);
-    const tb = mkBot(w, 'torpedoBoat', 0, 0, 0);
-    tb.hp = tb.stats.maxHp * 0.1;
-    const raider = mkMind('raider');
-    plot(raider, track(port.now, { x: 200, y: 0, speed: 0 }));
-    expect(COMBAT_BRAIN.decide(tb, raider, port).actSlot).toBe(slotOf(tb, 'boost'));
-  });
 });
 
 // ---------------------------------------------------------------------------

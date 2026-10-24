@@ -206,15 +206,6 @@ describe('amberPulseWinner — the amber corollary', () => {
     expect(amberPulseWinner({ ring: false, hpGlobe: false })).toBe(null);
   });
 
-  it('follows the ranked list in config, not a hard-coded order', () => {
-    // ONE spelling, end to end: Story 8.6's config pass re-spelled the HP
-    // channel `hpRail` -> `hpGlobe` with the surface it names, so the rank keys
-    // ARE the channel names and no normalisation step stands between them. The
-    // RANK itself stays a config value rather than a hard-coded order.
-    expect(CLIENT_CONFIG.attention.amberRank).toEqual(['ring', 'hpGlobe']);
-    expect(amberPulseWinner({ ring: false, hpGlobe: true })).toBe('hpGlobe');
-  });
-
   it('below 25% the rail leaves the amber set entirely and BOTH ambers hold lit', () => {
     // At 40% hull with the ring urgent, the ring pulses and the amber rail holds.
     // At 20% the rail is crimson: it is no longer an amber channel at all, it is

@@ -52,7 +52,8 @@ export type RosterIndex = (id: string) => number | null;
  * applied (an owned star-shell zone reveals a hull beyond the bubble, and a
  * spectator has no bubble at all). main.ts owns it because only main.ts knows the
  * own pose, the effective sight radius and the active zones; this module only
- * multiplies it in.
+ * multiplies it in. The sight feather is retired by epic-9 amendment 212
+ * (cycle 203): hulls draw at full alpha, so main.ts now hands 1 everywhere.
  *
  * THREE CONSUMERS, ONE VALUE PER HULL PER FRAME: the silhouette, the aggro
  * bracket, and — since the plate rose above the fog this cycle — the nameplate.

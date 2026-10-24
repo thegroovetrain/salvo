@@ -54,7 +54,8 @@
 // the SAME per-frame `HullSoftness` value the hull and the aggro mark already
 // multiply in (one softness per hull per frame — render/contacts.ts). The
 // own-ship plate stays at alpha 1: the observer is at distance 0, so its softness
-// is 1 by construction.
+// is 1 by construction. Retired by epic-9 amendment 212 (cycle 203): the
+// softness is now 1 everywhere, so a plate draws at its fader alone.
 //
 // THE FEATHER IS SAMPLED AT THE HULL, NOT AT THE PLATE, AND THAT IS A CHOICE
 // RATHER THAN A REPRODUCTION. A plate is drawn above its hull's bounding circle
@@ -90,6 +91,7 @@
 // effective truesight + LOS or inside an owned star-shell zone (server
 // signals.ts `contactSignal`), so every hull the client holds is one it has
 // legitimately seen — the fog was selling the reveal, never enforcing it.
+// Retired by epic-9 amendment 212 (cycle 203): hulls draw at full alpha.
 //
 // worldRoot and chartRoot share the same camera transform; fogSprite and hudRoot
 // stay in screen space, and the `plate` layer is put BACK into screen space by an

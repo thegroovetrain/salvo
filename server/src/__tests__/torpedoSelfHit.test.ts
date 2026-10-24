@@ -290,7 +290,7 @@ describe('torpedoes vs the DECOY BUOY (Story 8.16, amendments 119/120)', () => {
     expect(f!.x).toBeGreaterThan(110);
   });
 
-  it('an ENEMY fish detonates on the decoy for its FULL damage — a 50-damage fish kills a fresh decoy (amendment 120)', () => {
+  it('an ENEMY fish detonates on the decoy for its FULL damage — a fish at or above the decoy\'s hp kills a fresh decoy (amendment 120)', () => {
     const w = bareWorld();
     place(w, 'o', -600, 600, 0);
     place(w, 'e', -600, -600, 0); // the enemy shooter, off the line too
@@ -309,7 +309,7 @@ describe('torpedoes vs the DECOY BUOY (Story 8.16, amendments 119/120)', () => {
     expect(events.filter((e): e is DamageEvent => e.k === 'dmg')).toEqual([]); // a decoy is not a ship
   });
 
-  it('a LIGHTER blow leaves the decoy damaged, not destroyed (the decoy is a 50 hp buffer)', () => {
+  it('a LIGHTER blow leaves the decoy damaged, not destroyed (the decoy is an hp buffer)', () => {
     const w = bareWorld();
     place(w, 'o', -600, 600, 0);
     place(w, 'e', -600, -600, 0);
@@ -317,6 +317,7 @@ describe('torpedoes vs the DECOY BUOY (Story 8.16, amendments 119/120)', () => {
     const f = fish(w, 'enemy', 'e', 60);
     f.contactDamage = 20;
     f.damage = 20;
+    expect(f.damage).toBeLessThan(CONFIG.decoyBuoy.hp); // the premise: a blow short of the buffer
     for (let i = 0; i < 20 && w.shells.has('enemy'); i++) w.step();
     expect(w.shells.has('enemy')).toBe(false);
     expect(w.decoys.get('d1')?.hp).toBe(CONFIG.decoyBuoy.hp - 20);

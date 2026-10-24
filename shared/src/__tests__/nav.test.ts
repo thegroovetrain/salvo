@@ -23,6 +23,7 @@ import {
   lineClear,
   NAV_KIND,
   NAV_RULES,
+  orthoNeighbors,
   pointOf,
   routeTo,
   snapToWater,
@@ -283,5 +284,21 @@ describe('snapToWater — never across a spit (Story 9.13 fix wave P13, Edge Cas
     const grid: NavGrid = { n, cellU, radius: (n * cellU) / 2, cells };
     const p = { x: -grid.radius + 4.5 * cellU, y: -grid.radius + 4.5 * cellU };
     expect(snapToWater(grid, p)).toBe(4 * n + 6);
+  });
+});
+
+describe('orthoNeighbors — the 4-connected adjacency of the navigability check', () => {
+  it('an interior cell has its four orthogonal neighbours and no diagonals', () => {
+    const n = 5;
+    const idx = 2 * n + 2;
+    expect([...orthoNeighbors(n, idx)].sort((a, b) => a - b)).toEqual([idx - n, idx - 1, idx + 1, idx + n]);
+  });
+
+  it('corner and edge cells never wrap a row or leave the grid', () => {
+    const n = 4;
+    expect([...orthoNeighbors(n, 0)].sort((a, b) => a - b)).toEqual([1, n]);
+    expect([...orthoNeighbors(n, n - 1)].sort((a, b) => a - b)).toEqual([n - 2, 2 * n - 1]);
+    expect([...orthoNeighbors(n, n * n - 1)].sort((a, b) => a - b)).toEqual([n * n - n - 1, n * n - 2]);
+    expect(orthoNeighbors(n, n)).not.toContain(n - 1); // left edge never wraps to the row above's end
   });
 });

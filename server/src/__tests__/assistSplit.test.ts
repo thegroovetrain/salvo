@@ -29,11 +29,18 @@ import { World, type ShipRecord } from '../game/world.js';
 
 const XP = CONFIG.xp;
 const MUT = CONFIG.xp as { assistWindowMs: number; killerShare: number };
-const SHIPPED_WINDOW = 60000;
+/** The killer's guaranteed share, read off the dial so a retune moves every
+ *  expectation with it. */
+const K = (): number => XP.killerShare;
+/** The killer's payout (in levels of the pot) when it dealt `frac` of the
+ *  ledgered damage: the guaranteed share plus its cut of the remainder. */
+const killerCut = (frac: number, pot: number = XP.killLevels): number => (K() + (1 - K()) * frac) * pot;
+/** An assister's payout for `frac` of the ledgered damage. */
+const assistCut = (frac: number, pot: number = XP.killLevels): number => (1 - K()) * frac * pot;
 
 /** Run `fn` with the two dials moved, always restoring them. Shortening the
  *  window is how the lapse cases stay fast; the rule is window-RELATIVE, and
- *  one case below runs at the real 60 s to pin the shipped number itself. */
+ *  one case below runs at the real shipped window. */
 function withSplit<T>(windowMs: number, killerShare: number, fn: () => T): T {
   const w = MUT.assistWindowMs;
   const k = MUT.killerShare;
@@ -100,12 +107,7 @@ function idle(w: World, ms: number): void {
 const totalMs = (s: ShipRecord): number => s.level * XP.levelMs + s.xpMs;
 const levels = (s: ShipRecord): number => totalMs(s) / XP.levelMs;
 
-describe('assist split: the shipped dials', () => {
-  it('ships ON at the ruled 60 s window and a 1/10 killer share', () => {
-    expect(XP.assistWindowMs).toBe(SHIPPED_WINDOW);
-    expect(XP.killerShare).toBe(0.1);
-  });
-
+describe('assist split: the on-switch', () => {
   it('OFF (assistWindowMs 0, the harness arm) restores last-hit-takes-all', () => {
     withSplit(0, 0.1, () => {
       const w = bareWorld();
@@ -134,7 +136,7 @@ describe('assist split: the payout', () => {
     expect(levels(a)).toBeCloseTo(XP.killLevels, 6);
   });
 
-  it('splits the remainder BY DAMAGE, killer included — 0.55 / 0.45', () => {
+  it('splits the remainder BY DAMAGE, killer included — equal damage, equal cuts of the remainder', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0);
     const b = place(w, 'b', 300);
@@ -142,15 +144,14 @@ describe('assist split: the payout', () => {
     b.hp = 200;
     hit(w, 'c', b, 100, 'assist'); // c: 100 damage
     hit(w, 'a', b, 100, 'kill'); // a: 100 damage AND the kill
-    // a = 0.1 guaranteed + half of the remaining 0.9 = 0.55
-    // c = half of 0.9                                 = 0.45
-    expect(levels(a)).toBeCloseTo(0.55 * XP.killLevels, 6);
-    expect(levels(c)).toBeCloseTo(0.45 * XP.killLevels, 6);
+    // a = the guaranteed share + half of the remainder; c = the other half.
+    expect(levels(a)).toBeCloseTo(killerCut(0.5), 6);
+    expect(levels(c)).toBeCloseTo(assistCut(0.5), 6);
     // CONSERVATION: the pot is redistributed, never inflated.
     expect(levels(a) + levels(c)).toBeCloseTo(XP.killLevels, 6);
   });
 
-  it('weights an uneven split proportionally — 0.675 / 0.325', () => {
+  it('weights an uneven split proportionally to damage', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0);
     const b = place(w, 'b', 300);
@@ -158,8 +159,8 @@ describe('assist split: the payout', () => {
     b.hp = 200;
     hit(w, 'c', b, 150, 'assist'); // c did 75 % of the work
     hit(w, 'a', b, 50, 'kill'); // a did 25 % and landed it
-    expect(levels(c)).toBeCloseTo(0.9 * 0.75, 6); // 0.675
-    expect(levels(a)).toBeCloseTo(0.1 + 0.9 * 0.25, 6); // 0.325
+    expect(levels(c)).toBeCloseTo(assistCut(0.75), 6);
+    expect(levels(a)).toBeCloseTo(killerCut(0.25), 6);
     expect(levels(a) + levels(c)).toBeCloseTo(XP.killLevels, 6);
   });
 
@@ -174,7 +175,7 @@ describe('assist split: the payout', () => {
     hit(w, 'd', b, 200, 'd1');
     hit(w, 'a', b, 100, 'kill');
     expect(levels(a) + levels(c) + levels(d)).toBeCloseTo(XP.killLevels, 6);
-    expect(levels(d)).toBeCloseTo(0.9 * 0.5, 6); // half the damage, half the remainder
+    expect(levels(d)).toBeCloseTo(assistCut(0.5), 6); // half the damage, half the remainder
   });
 
   it('conservation is millisecond-approximate, not structural', () => {
@@ -196,7 +197,7 @@ describe('assist split: the payout', () => {
   });
 
   it('honours killerShare — at 1.0 the killer takes everything', () => {
-    withSplit(SHIPPED_WINDOW, 1, () => {
+    withSplit(XP.assistWindowMs, 1, () => {
       const w = bareWorld();
       const a = place(w, 'a', 0);
       const b = place(w, 'b', 300);
@@ -209,7 +210,7 @@ describe('assist split: the payout', () => {
     });
   });
 
-  it('splits a DRONE victim\'s pot too — the ¼/½/¾ tiers divide like a captain\'s', () => {
+  it('splits a DRONE victim\'s pot too — a size tier divides like a captain\'s', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0);
     const c = place(w, 'c', 600);
@@ -220,8 +221,8 @@ describe('assist split: the payout', () => {
     // The pot is the drone's own tier value (½ a level), split on the same
     // rules. Every measured arm behaved this way (Eric answer A5).
     const pot = XP.droneTierLevels.droneMedium;
-    expect(levels(a)).toBeCloseTo(0.55 * pot, 6);
-    expect(levels(c)).toBeCloseTo(0.45 * pot, 6);
+    expect(levels(a)).toBeCloseTo(killerCut(0.5, pot), 6);
+    expect(levels(c)).toBeCloseTo(assistCut(0.5, pot), 6);
     expect(levels(a) + levels(c)).toBeCloseTo(pot, 6);
   });
 });
@@ -265,29 +266,30 @@ describe('assist split: the rolling COUNTER (one dial, three jobs)', () => {
     });
   });
 
-  it('keeps a LONG fight whole — 3 minutes of continuous trade at the REAL 60 s window', () => {
+  it('keeps a LONG fight whole — continuous trade spanning three shipped windows', () => {
+    const gap = XP.assistWindowMs / 2;
     const w = bareWorld();
     const a = place(w, 'a', 0);
     const b = place(w, 'b', 300);
     const c = place(w, 'c', 600);
     b.hp = 100000; // survives the trade; made lethal at the end
     hit(w, 'c', b, 100, 'open'); // c OPENS the fight
-    // BOTH trade every 30 s for 3 minutes. Each attacker's own gap is 30 s —
-    // well inside the 60 s counter — so nobody's tally ever restarts and the
+    // BOTH trade every half-window for three windows. Each attacker's own gap
+    // is inside the counter, so nobody's tally ever restarts and the
     // opening damage survives the whole fight. This is exactly what a SLIDING
     // window over the same history would have thrown away.
     for (let k = 0; k < 6; k++) {
-      idle(w, 30000);
+      idle(w, gap);
       hit(w, 'a', b, 10, `ta${k}`);
       hit(w, 'c', b, 10, `tc${k}`);
     }
-    expect(w.now).toBeGreaterThan(180000);
+    expect(w.now).toBeGreaterThan(6 * gap);
     b.hp = 100;
     hit(w, 'a', b, 100, 'kill');
     // c: 100 opening + 60 traded = 160. a: 60 traded + 100 kill = 160.
     expect(b.damageFrom.size).toBe(0); // cleared by the sink
-    expect(levels(c)).toBeCloseTo(0.9 * 0.5, 6); // its OPENING damage still counts
-    expect(levels(a)).toBeCloseTo(0.1 + 0.9 * 0.5, 6);
+    expect(levels(c)).toBeCloseTo(assistCut(0.5), 6); // its OPENING damage still counts
+    expect(levels(a)).toBeCloseTo(killerCut(0.5), 6);
   });
 
   it('REJOINING STARTS YOU FRESH — 10, not 210, while the fight rages on', () => {
@@ -326,7 +328,7 @@ describe('assist split: the rolling COUNTER (one dial, three jobs)', () => {
       hit(w, 'c', b, 100, 'c-rejoin'); // c rejoins with 100
       b.hp = 100;
       hit(w, 'a', b, 100, 'kill'); // a total 200, c total 100
-      expect(levels(c)).toBeCloseTo(0.9 * (100 / 300), 4); // not 300/500
+      expect(levels(c)).toBeCloseTo(assistCut(100 / 300), 4); // not 300/500
     });
   });
 
@@ -464,8 +466,8 @@ describe('assist split: the edges', () => {
     hit(w, 'a', b, 900, 'kill'); // a: 900 nominal, only 100 absorbed
     // If the ledger took the nominal blow, a would hold 900/1000 of the
     // remainder. It takes the clamped figure, so the split is an even 50/50.
-    expect(levels(a)).toBeCloseTo(0.1 + 0.45, 6);
-    expect(levels(c)).toBeCloseTo(0.45, 6);
+    expect(levels(a)).toBeCloseTo(killerCut(0.5), 6);
+    expect(levels(c)).toBeCloseTo(assistCut(0.5), 6);
     // The RESULTS TALLY still counts the full nominal blow — Eric's ruling was
     // about the economy, not the scoreboard.
     expect(a.damageDealt).toBe(900);
@@ -482,10 +484,10 @@ describe('assist split: the edges', () => {
     b.hp = 200;
     hit(w, 'c', b, 100, 'assist');
     hit(w, 'a', b, 100, 'kill');
-    // a: the +1 bonus WHOLE, plus its 0.55 of the ordinary pot.
-    expect(levels(a)).toBeCloseTo(CONFIG.bounty.killLevels + 0.55, 6);
+    // a: the bounty bonus WHOLE, plus its cut of the ordinary pot.
+    expect(levels(a)).toBeCloseTo(CONFIG.bounty.killLevels + killerCut(0.5), 6);
     // c assisted the kill but earns nothing extra for the throne.
-    expect(levels(c) - cBefore).toBeCloseTo(0.45, 6);
+    expect(levels(c) - cBefore).toBeCloseTo(assistCut(0.5), 6);
   });
 
   it('clears the ledger with the life, so a respawn inherits no contributors', () => {

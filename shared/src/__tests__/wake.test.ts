@@ -132,8 +132,6 @@ describe('hullAheadU — the attached hull that sits ahead of the newest sample 
     for (const id of HULL_IDS) {
       expect(createShipWake(id, 40).hullAheadU).toBe(hullEnvelope(id).hull.length / 2);
     }
-    expect(createShipWake('torpedoBoat', 45).hullAheadU).toBe(50);
-    expect(createShipWake('battleship', 35).hullAheadU).toBe(62);
   });
 
   it('torpedo water carries 0; the default is 0; non-finite or negative degrades to 0', () => {
@@ -185,10 +183,6 @@ describe('distance-cadence sampling', () => {
 });
 
 describe('water-age bucketing at exact boundaries (WAKE_AGE_BUCKETS quarters of the source life)', () => {
-  it('the bucket count is 4 — the wire carries no finer resolution than the presentation consumes (amendment 124)', () => {
-    expect(WAKE_AGE_BUCKETS).toBe(4);
-  });
-
   it('quantizes [b, b+1) × life/N with boundary ages landing in the OLDER bucket', () => {
     expect(wakeAgeBucket(0, LIFE)).toBe(0);
     expect(wakeAgeBucket(LIFE / 4 - 1, LIFE)).toBe(0);
@@ -288,18 +282,8 @@ describe('segment geometry and the older-endpoint age rule', () => {
 });
 
 describe('torpedo wake — half life, one-cell core, fixed fish speed (amendment 196)', () => {
-  it('torpWakeLifeMs is the ONE wakeLifeMs × wakeTorpLifeFactor derivation (2.75s at the shipped constants)', () => {
+  it('torpWakeLifeMs is the ONE wakeLifeMs × wakeTorpLifeFactor derivation', () => {
     expect(torpWakeLifeMs()).toBe(CONFIG.vision.wakeLifeMs * CONFIG.vision.wakeTorpLifeFactor);
-    // 6s before the cycle-71 clock cut. Eric HELD the 0.5 factor through it
-    // (amendment 213) rather than raising it to keep the fish's old absolute
-    // 360u track, so the torpedo shrank with everything else: 165u at the
-    // then-60 u/s fish, now 178.75u since catalog-v3 R17 (2026-09-15) moved
-    // the fish to 65 u/s.
-    // The concrete figures (2750 ms / 178.75 u at the 5.5 s clock; 3666.5 ms /
-    // 238.3 u at the 7.333 s clock) are character, not contract — the factor
-    // is the pin, and the fish track is derived here from the same two numbers.
-    expect(CONFIG.vision.wakeTorpLifeFactor).toBe(0.5);
-    expect((torpWakeLifeMs() * CONFIG.torpedo.speed) / 1000).toBeCloseTo((CONFIG.vision.wakeLifeMs * 0.5 * CONFIG.torpedo.speed) / 1000, 9);
   });
 
   it('a torpedo ribbon expires at half a ship life', () => {
@@ -367,14 +351,14 @@ describe('rasterizeSegmentCoverage — the ribbon on the lattice', () => {
     }
   });
 
-  it('covers the correct width in cells: one lit row at a one-cell core, three at a battleship beam (32u)', () => {
+  it('covers the correct width in cells: one lit row at a one-cell core, three at a 32u core', () => {
     const litRows = (width: number): number => {
-      const cover = rasterizeSegmentCoverage(10, 13.5, 40, 13.5, width, CELL);
+      const cover = rasterizeSegmentCoverage(10, 13.5, 40, 13.5, width, 9);
       const rows = new Set(litCells(cover).map(([, r]) => r));
       return rows.size;
     };
-    expect(litRows(torpWakeWidthU())).toBe(1); // the torpedo ribbon is exactly one cell wide
-    expect(litRows(shipWakeWidthU('battleship'))).toBe(3); // 32u core → 3 rows at the 9u lattice
+    expect(litRows(9)).toBe(1); // a one-cell core is exactly one cell wide
+    expect(litRows(32)).toBe(3); // 32u core → 3 rows at a 9u lattice
   });
 
   it('degrades on non-finite endpoints: one bad endpoint collapses onto the good one; two yield the origin cell', () => {

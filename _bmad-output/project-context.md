@@ -75,16 +75,16 @@ _This file contains critical rules and patterns that AI agents must follow when 
 
 - `npm run check` (lint + tsc for all three workspaces + all tests, the count changes every cycle) is the gate — it must pass before any ship. It now also runs `check:hooks` (the CLAUDE.md protection hook's own test suite).
 - Perception invariant tests are property-style; any change touching `perception.ts`/`frames.ts` must keep them green and extend them for new events.
-- The PvE fleet envelope table and the three beta classes are pinned by an identity test (`shared/src/__tests__/shipClasses.test.ts`); the fleet table is NOT the retired prototype kinematics byte-for-byte (deliberately re-pinned at Story 5.6) — any change to either table must update that test knowingly.
+- The class and drone envelope tables are NOT pinned by an identity test any more (Eric 2026-10-22, Story 9.14, epic-9 amendment 213: a test that a stat is a certain number is useless; the generating relations are the contract). `shared/src/__tests__/shipClasses.test.ts` asserts structure and relations only (finite positive stats, class ordering, drone size ordering); a table change needs no test edit unless it breaks a relation.
 - Headless smokes (`server/scripts/*.mjs`) prove full flows over real sockets and require `HC_DEV_OPTIONS=1`.
 - Vitest versions differ: shared/server on 2.x, client on 4.x + jsdom — don't assume API parity across workspaces.
-- A test asserts a CONTRACT of the function under test (Eric, epic-8 retro 2026-10-06, amendment 243). Never pin vocabulary or copy strings, wall-clock timing, or geometry standing in for a perf claim — such a test breaks for reasons unrelated to what it guards and is debt, not coverage. If a test cannot name the contract it would catch failing, do not write it.
+- A test asserts a CONTRACT of the function under test (Eric, epic-8 retro 2026-10-06, amendment 243). Never pin vocabulary or copy strings, wall-clock timing, or geometry standing in for a perf claim — such a test breaks for reasons unrelated to what it guards and is debt, not coverage. If a test cannot name the contract it would catch failing, do not write it. Applied to the whole suite by Story 9.14 (2026-10-22, `test-audit-2026-10-22.md`): also never a bare CONFIG / px / hex literal with no relation behind it, never a coincidence of two ruled numbers, never a skipped test, never a seed-produced number; a copy test keeps only its structural half (routing, counts, composer equality via the module's own pure formatter); the shape is unit tests on pure functions, integration tests on compositions, the socket smokes end to end.
 
 ### Platform & Build Rules
 
 - Browser-only target. Build order matters: shared → client → server (`npm run build`).
 - The server must boot from `server/` (or with `--tsconfig server/tsconfig.json`) — Colyseus schema decorators need that tsconfig.
-- Dev-only room options (`matchOverride`/`zoneOverride`) are honored only under `HC_DEV_OPTIONS=1`; production behavior must never depend on them, and `sanitizeRoomOptions()` gates everything client-supplied.
+- Dev-only room options (`matchOverride` incl. `fleetWaves`, `zoneOverride`, `mapSeed`, `fitOverride`, `spawnOverride`) are honored only under `HC_DEV_OPTIONS=1`; production behavior must never depend on them, and `sanitizeRoomOptions()` gates everything client-supplied. The headless smokes are SCRIPTED SCENARIOS (Story 9.15, epic-9 amendment 214): a smoke places hulls by dev option and drives them by scripted input — it never sails a heuristic pilot; matchSmoke and weaponsSmoke stay outside `npm run check` but must pass FIRST-TRY before every PR (Eric 2026-10-22).
 - Versioning: `0.18.X` from cycle 136 — +1 per landed build cycle across epics (Eric ruling 2026-09-15); the `0.17.X` freeze is superseded. `VERSION` + root `package.json`, single-sourced into the client by Vite at build time.
 - Deploy is Render auto-deploy on push to a service's own branch: `main` -> production (https://hullcracker.io/), `development` -> the staging host. BRANCH FROM `development`, NOT `main` — merging to `main` deploys the public game, and the staging QA pass is the gate in front of it. `render.yaml` is the live Blueprint source for BOTH services: make config changes there, never in the Render dashboard or API. Ports: game server `:2567`, Vite `:5173`. Never start the dev server in Eric's checkout (he manages that one); in your own worktree you may, and must kill it after; curl-check `:5173` before any browser-based work.
 
@@ -96,6 +96,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - NO FRIENDLY FIRE: own ordnance never damages own hull (epic-8 amendments 54–55); the only exception is shooting your own mines to trigger them early. The old "torpedoes must outrun every hull" rule is retired.
 - The win check counts afloat PARTICIPANTS (`role !== 'fleet'` — humans AND combat bots contest it; only PvE fleet hulls are excluded), and a sinking hull holds the transition open. Fleet hulls and bots are ordinary ships driven through the same input pipeline — never special-case their physics or visibility.
 - Use the shared math primitives (`wrapPositive` for angles, `segCircleHit` for LOS) — don't hand-roll geometry that already exists.
+- **Never pre-install a module for a future epic** (Eric, epic-9 retro 2026-10-24, amendment 217): a dependency lands in the story that mounts it. Story 8.0's unmounted `@colyseus/auth` / `@colyseus/database` dragged an account decision into the 9.17 dependency sweep and killed the story.
 - Plans are one unit of work — never split into multiple PRs without explicit advance approval; halt on ANY error and surface it rather than working around it.
 - **`CLAUDE.md` is FROZEN and hook-enforced** (Eric, 2026-09-14): a `PreToolUse` hook (`.claude/hooks/protect-claude-md.sh`) denies every edit; only Eric lifts it. New agent rules go HERE or to auto-memory; rulings to `epic-N-context-amendments.md`. Long-form context that used to live there is archived (not auto-loaded) in `docs/codebase-map.md`, `docs/key-decisions.md`, `docs/deploy.md`.
 
@@ -116,4 +117,4 @@ _This file contains critical rules and patterns that AI agents must follow when 
 - Update when the technology stack or architecture invariants change
 - Review periodically for outdated rules; remove rules that become obvious over time
 
-Last Updated: 2026-10-06 (epic-8 retro: PV, offers, dev-server, friendly-fire lines corrected; test-contract rule added)
+Last Updated: 2026-10-24 (epic-9 retro: never-pre-install rule added)

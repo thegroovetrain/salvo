@@ -88,10 +88,16 @@ function dropsAfterStep(w: World): DropEvent[] {
 
 const beltIds = (s: ShipRecord) => CONSUMABLE_SLOTS.map((i) => s.loadout[i].equipmentId);
 
-describe('CONFIG.droneDrops — Eric\'s numbers', () => {
-  it('chance 0.5; rolls small 1 / medium 2 / large 3', () => {
-    expect(CONFIG.droneDrops.chance).toBe(0.5);
-    expect(CONFIG.droneDrops.rolls).toEqual({ droneSmall: 1, droneMedium: 2, droneLarge: 3 });
+describe('CONFIG.droneDrops — the shape the scripted coins rely on', () => {
+  it('the chance is a probability the PASS / FAIL coins straddle, and a bigger drone rolls more', () => {
+    const { chance, rolls } = CONFIG.droneDrops;
+    expect(PASS).toBeLessThan(chance);
+    expect(FAIL).toBeGreaterThanOrEqual(chance);
+    expect(chance).toBeGreaterThan(0);
+    expect(chance).toBeLessThanOrEqual(1);
+    expect(rolls.droneSmall).toBeGreaterThan(0);
+    expect(rolls.droneMedium).toBeGreaterThan(rolls.droneSmall);
+    expect(rolls.droneLarge).toBeGreaterThan(rolls.droneMedium);
   });
 });
 

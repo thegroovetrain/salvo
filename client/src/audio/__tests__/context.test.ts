@@ -245,13 +245,18 @@ describe('play() with a pan — the sound map splice', () => {
   it('...and the noise rides the SAME attenuated level as the tone, not a full-gain one', () => {
     // One level for the whole cue: a distant crack that kept a full-level
     // transient would sound like a near shot that lost its body.
-    const { audio, ctx } = setup();
-    audio.play('gunReport', { gain: 0.5 });
-    const gains = nodesOf(ctx, 'gain');
-    const tonePeak = peakOf(gains[3]);
-    const noisePeak = (gains.at(-1)!.gain as FakeParam).writes[0];
-    expect(tonePeak).toBeCloseTo(TONES.gunReport.volume * 0.5, 10);
-    expect(noisePeak).toBeCloseTo(tonePeak * 0.5, 10); // the fixed noise fraction
+    const levels = (gain?: number): { tone: number; noise: number } => {
+      const { audio, ctx } = setup();
+      audio.play('gunReport', gain === undefined ? undefined : { gain });
+      const gains = nodesOf(ctx, 'gain');
+      return { tone: peakOf(gains[3]), noise: (gains.at(-1)!.gain as FakeParam).writes[0] };
+    };
+    const full = levels();
+    const half = levels(0.5);
+    expect(half.tone).toBeCloseTo(TONES.gunReport.volume * 0.5, 10);
+    // the noise layer is attenuated by the SAME factor as the tone
+    expect(half.noise).toBeCloseTo(full.noise * 0.5, 10);
+    expect(half.noise / half.tone).toBeCloseTo(full.noise / full.tone, 10);
   });
 
   it('a browser with no createStereoPanner plays the cue CENTRED rather than not at all', () => {

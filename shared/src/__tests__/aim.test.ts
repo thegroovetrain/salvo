@@ -9,6 +9,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  blockedWater,
   burstPointAlong,
   clampInsideMap,
   gunReachU,
@@ -24,6 +25,7 @@ import {
 import { hullSilhouette, pointPolygonDistance, transformPolygon } from '../sim/silhouette.js';
 import { wrapAngle } from '../math/angle.js';
 import { CONFIG, hullEnvelope, type HullId } from '../constants.js';
+import { islandFromPolygon } from '../sim/map.js';
 
 const HULLS: HullId[] = ['torpedoBoat', 'battleship', 'mineLayer'];
 
@@ -422,15 +424,6 @@ describe('gunReachU — an OWN live flare extends the gun past its range', () =>
     expect(pointInLitZone({ x: 10.001, y: 0 }, [{ x: 0, y: 0, r: 10 }])).toBe(false);
     expect(pointInLitZone({ x: 0, y: 0 }, [])).toBe(false);
   });
-
-  it('OWN + LIVE are the CALLER\'s filters — the type cannot express an owner or an expiry', () => {
-    // The predicate takes centre+radius only. There is no field an enemy zone or
-    // an expired one could arrive in, so "own flares only" is structural: both
-    // callers (World.ownLiveLitZones, render/litZones ownActiveZones) filter
-    // before the list ever reaches here.
-    const zone = { x: 0, y: 900, r: 120 } as Record<string, number>;
-    expect(Object.keys(zone).sort()).toEqual(['r', 'x', 'y']);
-  });
 });
 
 // --- THE BROADSIDE BATTERY'S TURRET MUZZLES (Eric's correction 2026-08-19) ---
@@ -539,5 +532,28 @@ describe('turretMuzzles - N separate, evenly-spaced guns along the hull', () => 
     const ml = turretMuzzles(POSE, 'mineLayer', 3, 1);
     expect(abeam(ml[0])).toBeCloseTo(hullEnvelope('mineLayer').hull.beam / 2, 9);
     expect(Math.abs(along(ml[2]) - along(ml[0]))).toBeLessThan(Math.abs(along(bb[2]) - along(bb[0])));
+  });
+});
+
+describe('blockedWater — the one legality predicate for a placement point', () => {
+  const rock = islandFromPolygon([
+    { x: 100, y: -20 },
+    { x: 140, y: -20 },
+    { x: 140, y: 20 },
+    { x: 100, y: 20 },
+  ]);
+
+  it('open water inside the disk and off every island is legal', () => {
+    expect(blockedWater({ x: 0, y: 0 }, [rock], 500)).toBe(false);
+    expect(blockedWater({ x: 0, y: 0 }, [], 500)).toBe(false);
+  });
+
+  it('a point on an island’s land is blocked', () => {
+    expect(blockedWater({ x: 120, y: 0 }, [rock], 500)).toBe(true);
+  });
+
+  it('a point off the water disk is blocked even with no islands', () => {
+    expect(blockedWater({ x: 501, y: 0 }, [], 500)).toBe(true);
+    expect(blockedWater({ x: 0, y: -600 }, [rock], 500)).toBe(true);
   });
 });

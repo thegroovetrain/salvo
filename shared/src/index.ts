@@ -822,7 +822,10 @@
  *  placeHalfArcDeg, the foul and creep doctrine fields), CONFIG.torpedo gains
  *  the homing fields + commandBurstRadius, and
  *  new CONFIG.deck (rare-weight dials) ships. Offers are deck-drawn
- *  (rollBoonOffer died; sim/deck.ts is the engine).
+ *  (rollBoonOffer died; sim/deck.ts is the engine). [2026-10-23, Story 9.16:
+ *  sim/deck.ts and CONFIG.deck were retired at Story 8.14 (PV 57); the card
+ *  engine is sim/catalog.ts + sim/effects.ts (model) and sim/offers.ts +
+ *  sim/draw.ts (the draw).]
  *  15: offers — roll, bank, spend (Story 2.7) — the offer flow goes fully
  *  boon-typed. `OwnShip.offer` RE-TYPES from UPGRADE_IDS indices (number[]) to
  *  BOON IDS (string[]) and grows from 3 entries to `CONFIG.offer.size` (4,

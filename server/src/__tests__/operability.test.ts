@@ -704,11 +704,14 @@ describe('the collapse requeue hook is total', () => {
 // nothing anywhere saying why.
 // ---------------------------------------------------------------------------
 
-describe('resolveDevFit — the rejected dev keys are logged', () => {
+describe('resolveDevJoin — the rejected dev keys are logged', () => {
+  interface DevJoin { devFit: readonly string[]; devPose: unknown }
   interface FitDoor {
-    resolveDevFit(client: { sessionId: string }, options: Record<string, unknown>): readonly string[];
+    resolveDevJoin(client: { sessionId: string }, options: Record<string, unknown>): DevJoin;
   }
   const door = (): FitDoor => new ArenaRoom() as unknown as FitDoor;
+  const fitOf = (sessionId: string, options: Record<string, unknown>): readonly string[] =>
+    door().resolveDevJoin({ sessionId }, options).devFit;
   const REJECTED = 'warn join.devOptionsRejected';
 
   beforeEach(() => {
@@ -716,7 +719,7 @@ describe('resolveDevFit — the rejected dev keys are logged', () => {
   });
 
   it('logs ONCE, naming the key and the session, when the dev gate is closed', () => {
-    const fit = door().resolveDevFit({ sessionId: 'abc' }, { fitOverride: ['heavyTorpedo'] });
+    const fit = fitOf('abc', { fitOverride: ['heavyTorpedo'] });
     expect(fit).toEqual([]); // stripped, as production always strips it
     const ls = lines(REJECTED);
     expect(ls).toHaveLength(1);
@@ -725,15 +728,25 @@ describe('resolveDevFit — the rejected dev keys are logged', () => {
 
   it('logs a MALFORMED fit even with the gate OPEN — the shape check is the other half', () => {
     process.env.HC_DEV_OPTIONS = '1';
-    expect(door().resolveDevFit({ sessionId: 'def' }, { fitOverride: 'not-an-array' })).toEqual([]);
+    expect(fitOf('def', { fitOverride: 'not-an-array' })).toEqual([]);
     expect(fieldsOf(lines(REJECTED)[0])).toMatchObject({ rejected: ['fitOverride'], sessionId: 'def' });
   });
 
   it('says NOTHING when there is nothing to reject — an honoured fit, and no fit at all', () => {
     process.env.HC_DEV_OPTIONS = '1';
-    expect(door().resolveDevFit({ sessionId: 'ghi' }, { fitOverride: ['heavyTorpedo'] })).toEqual(['heavyTorpedo']);
-    expect(door().resolveDevFit({ sessionId: 'jkl' }, {})).toEqual([]);
+    expect(fitOf('ghi', { fitOverride: ['heavyTorpedo'] })).toEqual(['heavyTorpedo']);
+    expect(fitOf('jkl', {})).toEqual([]);
     expect(lines(REJECTED)).toEqual([]);
+  });
+
+  it('hands an honoured spawn pose to the World and logs a dropped one (Story 9.15)', () => {
+    process.env.HC_DEV_OPTIONS = '1';
+    const pose = { x: 10, y: -20, heading: 1 };
+    expect(door().resolveDevJoin({ sessionId: 'mno' }, { spawnOverride: pose }).devPose).toEqual(pose);
+    expect(lines(REJECTED)).toEqual([]);
+    expect(door().resolveDevJoin({ sessionId: 'pqr' }, { spawnOverride: { x: NaN, y: 0, heading: 0 } }).devPose)
+      .toBeUndefined();
+    expect(fieldsOf(lines(REJECTED)[0])).toMatchObject({ rejected: ['spawnOverride'], sessionId: 'pqr' });
   });
 });
 
@@ -748,7 +761,7 @@ describe('log hygiene', () => {
   });
 
   it('CONFIG declares a positive, finite joining deadline', () => {
-    expect(CONFIG.net.joiningDeadlineSeconds).toBe(10);
+    expect(CONFIG.net.joiningDeadlineSeconds).toBeGreaterThan(0);
     expect(Number.isFinite(CONFIG.net.joiningDeadlineSeconds)).toBe(true);
   });
 });

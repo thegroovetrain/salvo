@@ -55,7 +55,7 @@ describe('SnapshotBuffer sampling', () => {
     expect(s.y).toBe(7);
   });
 
-  it('extrapolates along heading*speed on underrun, capped at 100ms', () => {
+  it('extrapolates along heading*speed on underrun, then freezes at MAX_EXTRAPOLATION_MS', () => {
     const buf = new SnapshotBuffer();
     buf.push(snap(0, 0));
     buf.push(snap(1000, 100, 0, 0, 20)); // heading +x at 20 u/s
@@ -64,7 +64,7 @@ describe('SnapshotBuffer sampling', () => {
     const capped = buf.sampleAt(1000 + MAX_EXTRAPOLATION_MS)!;
     const frozen = buf.sampleAt(5000)!; // way past: frozen at the cap
     expect(frozen.x).toBeCloseTo(capped.x, 9);
-    expect(frozen.x).toBeCloseTo(102, 9);
+    expect(frozen.x).toBeCloseTo(100 + 20 * (MAX_EXTRAPOLATION_MS / 1000), 9);
   });
 
   it('drops non-monotonic pushes', () => {
