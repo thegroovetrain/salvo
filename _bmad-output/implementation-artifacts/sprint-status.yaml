@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-10-24 (epic-9 retro: Epic 9 CLOSED at 0.18.71, 9-17 Dependency Sweep cancelled, eleven review rows stamped done; next: gds-correct-course on Epic 10)
+# last_updated: 2026-10-25 (correct-course: roadmap rebuilt — Epic 10 The Playtest Pass, 11 The Ledger, 12 The Front Door inserted; The Account -> Epic 13; sprint-change-proposal-2026-10-25.md; next: gds-brainstorm-game for 10-2, then gds-create-story 10-1)
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -187,7 +187,7 @@
 # A32/A33 headers still read "cycle 110"/"cycle 111" and are stale.
 
 generated: 2026-07-17
-last_updated: 2026-10-24
+last_updated: 2026-10-25
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -342,24 +342,43 @@ development_status:
   9-14-test-purposefulness-audit: done  # 2026-10-24 (epic-9 retro): every PR merged, Eric accepted Epic 9 at 0.18.71; epic-9-retro-2026-10-24.md; was: review — 2026-10-22 cycle 204, 0.18.69, PV 91 unchanged, amendment 213; test-audit-2026-10-22.md; PR open to development. Story file 9-14-test-purposefulness-audit.md (Eric brief: pare down + SUFFICIENT useful tests, unit/integration/e2e over pure functions; six questions collected for him); was 9-5, 9-8 until 2026-10-13, 9-9 until 2026-10-13 (second), 9-10 until 2026-10-14; every test names its contract or goes; audit record per workspace
   9-15-smoke-flakes-fixed: done  # 2026-10-24 (epic-9 retro): every PR merged, Eric accepted Epic 9 at 0.18.71; epic-9-retro-2026-10-24.md; was: review — 2026-10-22 cycle 205, 0.18.70, PV 91 unchanged, amendment 214; spec-9-15-smoke-flakes-fixed.md; PR open to development; 2026-10-22 create-story (no cycle): 9-15-smoke-flakes-fixed.md — scripted scenarios (spawn pose + fleet-waves-off dev options, mapSeed, fitOverride), four questions for Eric; next: gds-dev-story 9-15; was 9-6, 9-9 until 2026-10-13, 9-10 until 2026-10-13 (second), 9-11 until 2026-10-14; matchSmoke / weaponsSmoke independent of bot piloting; three clean first-try runs
   9-16-harness-and-ledger-hygiene: done  # 2026-10-24 (epic-9 retro): every PR merged, Eric accepted Epic 9 at 0.18.71; epic-9-retro-2026-10-24.md; was: review — 2026-10-23 cycle 206, 0.18.71, PV 91 unchanged, amendment 215 (two 6-4 bars gone, 446 ledger stamps, flag retired, barrel fixed, decoy takes the full burst, dependency sweep replaces 9.17's slot); spec-9-16-harness-and-ledger-hygiene.md; PR open to development; next: gds-correct-course (dependency sweep in, How-to-Play later, playtest feedback). Earlier 2026-10-23 dev-story started (eight rulings taken); create-story (no cycle): 9-16-harness-and-ledger-hygiene.md — bars, ledger (198 OPEN + 245 status-less, not 168), flags (~60, not 12), barrel, four questions for Eric; next: gds-dev-story 9-16; was 9-7, 9-10 until 2026-10-13, 9-11 until 2026-10-13 (second), 9-12 until 2026-10-14; 6-4 bot bars retired; deferred-work triage (+ speed-boost/healing-buoy pointers MOOT); the 12 follow-up-review flags; barrel comment
-  9-17-how-to-play-and-record: deferred  # 2026-10-23 Eric: moved OUT of Epic 9 ("move How to Play until later"); re-homed at the Epic 10 correct-course; sprint-change-proposal-2026-10-23.md, epic-9 amendment 216; number re-used by 9-17-dependency-sweep; was 9-8, 9-11 until 2026-10-13, 9-12 until 2026-10-13 (second), 9-13 until 2026-10-14; entries in Eric's copy for the new items, retirements, keys, ramming (+ private lobbies, drone drops owed); GDD/catalog-v3/architecture dated supersessions; trackers
+  9-17-how-to-play-and-record: deferred  # 2026-10-25: re-homed as 10-8-how-to-play-and-record (Epic 10 The Playtest Pass, sprint-change-proposal-2026-10-25.md); 2026-10-23 Eric: moved OUT of Epic 9 ("move How to Play until later"); re-homed at the Epic 10 correct-course; sprint-change-proposal-2026-10-23.md, epic-9 amendment 216; number re-used by 9-17-dependency-sweep; was 9-8, 9-11 until 2026-10-13, 9-12 until 2026-10-13 (second), 9-13 until 2026-10-14; entries in Eric's copy for the new items, retirements, keys, ramming (+ private lobbies, drone drops owed); GDD/catalog-v3/architecture dated supersessions; trackers
   9-17-dependency-sweep: cancelled  # 2026-10-24 (epic-9 retro): Eric 2026-10-24 mid-dev ("Lets cancel this entire story. I'm going to end the epic"); amendment 217; branch worktree-create-story-9-17-dep-sweep kept (research + patch commit e92b0596) for the Epic 10 correct-course; was: backlog — inserted 2026-10-23 by sprint-change-proposal-2026-10-23.md (replaces How-to-Play in the slot; epic-9 amendment 216): npm audit --omit=dev to 0 (29 today, never by downgrading colyseus), frameworks current one major per commit, TypeScript 7.0 in; Node runtime + express 5 dials at spec; closes Epic 9; next: gds-create-story 9-17 after PR #304 merges
   epic-9-retrospective: done  # 2026-10-24 (epic-9 retro): epic-9-retro-2026-10-24.md (live with Eric; 1 significant-discovery alert: Epic 10 needs its correct-course before any story)
 
   # epic-10: The Account (GDD E10; was epic-9 until 2026-10-06 — sprint-change-proposal-2026-10-06.md; 10 stories in build order, Eric-approved 2026-09-11; 10-5 deleted and 10-4/10-6/10-7/10-11 re-scoped 2026-09-21 by sprint-change-proposal-2026-09-21.md)
-  epic-10: backlog
-  10-1-the-account-store-foundation: backlog  # floor story
-  10-2-sign-in-with-google-or-discord: backlog
-  10-3-two-state-settings-and-profile: backlog
-  10-4-the-ship-screen: backlog  # was 9-4-the-ship-and-deck-screen (deck column deleted 2026-09-21)
-  10-5-named-decks-and-the-pre-queue-gate: cancelled  # 2026-09-21 correct-course: no decks exist
-  10-6-tokens-xp-and-unlocks: backlog  # was 9-6-tokens-xp-and-per-copy-unlocks (lines whole + guns + hulls, 2026-09-21)
-  10-7-match-history-and-the-admin-console: backlog
-  10-8-delete-my-account: backlog
-  10-9-key-rebinding: backlog
-  10-10-the-privacy-paragraph: backlog
-  10-11-design-and-doc-reconciliation: backlog  # Epics 8-10 (was 8-9)
+  epic-10: backlog  # 2026-10-25 correct-course (sprint-change-proposal-2026-10-25.md): THE PLAYTEST PASS — Eric's eight playtest thoughts in his order + How-to-Play re-homed; epic-10-context-amendments.md #1
+  10-1-four-configurable-consumable-slots: backlog  # LOADOUT row, keys 1-4, offer filtered to the four
+  10-2-the-first-minute-objective: backlog  # DESIGN SITTING FIRST (gds-brainstorm-game / forge) — no story text until then
+  10-3-the-battle-ui-xp-seen-the-offer-in-the-corner: backlog  # visual candidates shown to Eric first
+  10-4-offer-composition: backlog  # ship / weapon / consumable / wildcard type-first, exhausted types fall back
+  10-5-flak-takes-no-range-dropoff: backlog  # per-gun attenuation dial
+  10-6-bots-fill-the-standard-queue-at-1-00: backlog  # FR34 superseded; minimum + labelling Eric's at spec
+  10-7-the-machine-gun-steepest-dropoff-high-explosive: backlog  # tiered HE DoT, every number Eric's
+  10-8-how-to-play-and-record: backlog  # re-homed from 9-17 (2026-10-23) + this epic's entries and stamps
   epic-10-retrospective: optional
+  epic-11: backlog  # 2026-10-25 correct-course (sprint-change-proposal-2026-10-25.md): THE LEDGER — Render Postgres + @colyseus/database behind the MatchRecord writer port, anonymous rows, no callsign
+  11-1-the-match-ledger: backlog  # floor story; databases: in render.yaml with the code; absence-gated
+  11-2-reading-the-ledger: backlog  # ledgerReport.mjs in the harness's report shapes
+  epic-11-retrospective: optional
+  epic-12: backlog  # 2026-10-25 correct-course (sprint-change-proposal-2026-10-25.md): THE FRONT DOOR — AdSense site review "can't crawl / no content"; H5 approved
+  12-1-the-landing-page-redesigned: backlog  # design pass in Google Stitch — agent writes prompts, Eric drives
+  12-2-crawlable-pages: backlog  # text in the HTML at build time, description / OG / canonical / robots.txt / sitemap
+  12-3-publisher-approval: backlog  # resubmit; production CMP + interstitial smoke (Epic 7 debt)
+  epic-12-retrospective: optional
+  epic-13: backlog  # 2026-10-25 correct-course (sprint-change-proposal-2026-10-25.md): was epic-10 from 2026-10-06; shifted right, text kept whole; 13-1 inherits the Epic 11 store
+  13-1-the-account-store-foundation: backlog  # floor story
+  13-2-sign-in-with-google-or-discord: backlog
+  13-3-two-state-settings-and-profile: backlog
+  13-4-the-ship-screen: backlog  # was 9-4-the-ship-and-deck-screen (deck column deleted 2026-09-21)
+  13-5-named-decks-and-the-pre-queue-gate: cancelled  # 2026-09-21 correct-course: no decks exist
+  13-6-tokens-xp-and-unlocks: backlog  # was 9-6-tokens-xp-and-per-copy-unlocks (lines whole + guns + hulls, 2026-09-21)
+  13-7-match-history-and-the-admin-console: backlog
+  13-8-delete-my-account: backlog
+  13-9-key-rebinding: backlog
+  13-10-the-privacy-paragraph: backlog
+  13-11-design-and-doc-reconciliation: backlog  # Epics 8-13 (was 8-10, 8-9)
+  epic-13-retrospective: optional
 
 # action_items — one line per entry. Rationale, evidence and "what will bite the next
 # agent" live in epic-N-context-amendments.md, deferred-work.md and the retros.
