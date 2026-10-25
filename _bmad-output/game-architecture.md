@@ -45,6 +45,8 @@ brief: '_bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2026-07-15/b
 > the deck loaded at BOTH doors, and the sim never learning the store exists.
 
 > **RENUMBERING NOTICE — 2026-10-06** (`sprint-change-proposal-2026-10-06.md`). Every "E9" in this document means **The Account**, which is now **Epic 10 / E10**; the new **Epic 9 is Tune and Clean** (an Eric-steered balance pass plus two or three consumables and the test audit — no new component, no new store, no architectural decision; its only architecture-shaped rule is that the HEALING BUOY is a signal-registry row whose frame invariant is EXTENDED, the exception count staying SIX). The dated text below is left as written; Story 10.11 reconciles.
+>
+> **RENUMBERING NOTICE — 2026-10-25** (`sprint-change-proposal-2026-10-25.md`). The Account is now **Epic 13 / E13**: Eric's correct-course of 2026-10-25 inserted **Epic 10 The Playtest Pass**, **Epic 11 The Ledger** and **Epic 12 The Front Door** after Tune and Clean. The Account Store amendment below is split in practice: its STORE half (Render Postgres, `@colyseus/database`, absence-gating, migrations, PGlite, the writer FIFO) is built FIRST by Epic 11 for anonymous match data — no auth, no account tables, no callsign stored (Eric 2026-10-25); the auth half waits for Epic 13. Every "E9 / E10 = The Account" sentence below is history and reads E13.
 
 > **AMENDMENT NOTICE — 2026-09-10 (The Deck, E8 / upgrades v3).** A second scoped
 > `gds-game-architecture` pass covers the systems catalog v3 (2026-09-09) and GDD epic *The Deck*
