@@ -3,6 +3,15 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  92 — Story 10.1 FOUR CONFIGURABLE CONSUMABLE SLOTS (Eric 2026-10-25/27,
+ *  epic-10 amendments 1(c) and 3): the consumable KIT rides the seat (join
+ *  option `kit`, validated by `isConsumableKit`, fail-open to `DEFAULT_KIT`)
+ *  and comes back self-privately as `OwnShip.kit`; SLOT_COUNT 11 → 9
+ *  (`InputMsg.slot` / `actSlot` 0..8, `OwnShip.ammo` length 9), the four kit
+ *  slots 5..8 on keys 1–4 bound per ship by the kit (`CONSUMABLE_KEY_ORDER`
+ *  deleted); the draw deals no consumable outside the kit; the
+ *  `countermeasure` line's player-facing name is SMOKE SCREEN again (id
+ *  untouched). Perception exception count stays SIX.
  *  91 — THE ENTIRE SWEEP (Eric 2026-10-21, epic-9 amendment 210): the server
  *  paints radar returns at every distance inside radar range (no sight-radius
  *  inner edge on blips, decoy paints or wakes; amendment 163 superseded) and
@@ -897,7 +906,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 91;
+export const PROTOCOL_VERSION = 92;
 
 // Tunables
 export * from './constants.js';

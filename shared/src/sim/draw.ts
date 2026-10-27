@@ -26,11 +26,16 @@
 //   - an `addon` (cap 1, so eligible only unheld) is an `upgrade` iff a host
 //     it names is already held OR a weapon slot is still open — holding an
 //     add-on ahead of its host is allowed while the ship can still fit one;
-//   - a `consumable` is ALWAYS eligible (amendment 94: at its cap it is dealt
-//     anyway — the card greys client-side, with no foot word since Story 9.2
-//     (epic-9 amendment 32), and the server refuses the pick as a silent
-//     no-op). THAT is what makes "the offer is never empty" structural:
-//     there is no exhaustion, no latch, no banked-empty branch.
+//   - a `consumable` THE SHIP CARRIES is ALWAYS eligible (amendment 94: at
+//     its cap it is dealt anyway — the card greys client-side, with no foot
+//     word since Story 9.2 (epic-9 amendment 32), and the server refuses the
+//     pick as a silent no-op). THAT is what makes "the offer is never empty"
+//     structural: there is no exhaustion, no latch, no banked-empty branch.
+//     Since Story 10.1 (Eric 2026-10-27, epic-10 amendment 3) a consumable
+//     OUTSIDE the ship's kit is NOT a candidate at all — not eligible, not
+//     usable — because it has no slot to stock into (`pickRefusal` refuses it
+//     as `stub`, the one gate). The kit always holds four dealable lines, so
+//     the never-empty property survives.
 //
 // THE DRAW IS TWO-STAGE (Eric ruling 2026-09-22, amendment 92). For each card:
 // stage 1 picks the KIND, with each kind's odds equal to its SHARE of the
@@ -72,7 +77,7 @@ import {
   type CatalogLine,
   type LineId,
 } from './catalog.js';
-import { WEAPON_SLOTS, type EquipmentId, type SlotItemId } from './loadout.js';
+import { WEAPON_SLOTS, type ConsumableKit, type EquipmentId, type SlotItemId } from './loadout.js';
 import { pickRefusal } from './boons.js';
 
 /**
@@ -93,7 +98,8 @@ export type DrawKind = 'weapon' | 'upgrade' | 'consumable';
  * CONTENTS (`loadout.map(s => s.equipmentId)` — the same array `stockSlotFor`
  * and `pickRefusal` take); `mountedGun` is the EQUIPMENT row the seat's gun
  * mounts (sim/loadout.ts MOUNTED_GUN), which is what a gun ladder's host is
- * matched against.
+ * matched against; `kit` is the ship's four consumable lines (Story 10.1,
+ * `ShipRecord.kit`) — the only consumables the draw may deal it.
  *
  * THE SLOT IDS REPLACED A `weaponSlotOpen` BOOLEAN (Story 8.14 review, F2).
  * The draw needs the weapon row for eligibility and the level-zero guarantee
@@ -105,6 +111,7 @@ export interface DrawShip {
   readonly held: readonly LineId[];
   readonly slotIds: readonly (SlotItemId | null)[];
   readonly mountedGun: EquipmentId;
+  readonly kit: ConsumableKit;
 }
 
 /** Is ANY of Q/E/R still empty — the one derivation of "a bare weapon has
@@ -242,10 +249,11 @@ export function eligibleLines(ship: DrawShip, catalog: Catalog = CATALOG): Eligi
     const line = catalog[key];
     if (line === undefined) continue;
     const id = key as LineId;
-    // A CONSUMABLE IS ALWAYS ELIGIBLE (amendment 94) — at cap, whatever the
-    // ship holds. That is what makes the offer never empty.
+    // A CARRIED CONSUMABLE IS ALWAYS ELIGIBLE (amendment 94) — at cap,
+    // whatever the ship holds. That is what makes the offer never empty. One
+    // outside the kit is never a candidate (Story 10.1).
     if (line.kind === 'consumable') {
-      out.push({ id, kind: 'consumable' });
+      if ((ship.kit as readonly string[]).includes(key)) out.push({ id, kind: 'consumable' });
       continue;
     }
     const kind = upgradeKindOf(line, boonStackCount(ship.held, id), ship, catalog);
@@ -275,7 +283,8 @@ export function lineWeight(takesByOthers: number, cfg: WeightingConfig = CONFIG.
  * the dealable lines, in CATALOG order, that would give the ship something it
  * can USE right now —
  *
- *   - every `consumable` line (a copy stocks a rack the ship can fire), and
+ *   - every `consumable` line THE KIT CARRIES (a copy stocks a slot the ship
+ *     can fire — one outside the kit has no slot, Story 10.1), and
  *   - every `equipment` line the ship holds NO copy of, whose next tier is
  *     therefore tier I: the bare weapon itself.
  *
@@ -290,11 +299,14 @@ export function lineWeight(takesByOthers: number, cfg: WeightingConfig = CONFIG.
  * filled the row, and there the guarantee could hand a hull copy 1 of a weapon
  * with nowhere to put it. A line is usable only when `pickRefusal` says the
  * ship could actually TAKE it, which is the same gate the pick itself runs. The
- * guarantee stays uniform and unweighted over whatever survives.
+ * guarantee stays uniform and unweighted over whatever survives. `kit` is the
+ * ship's four, handed to `pickRefusal` — which is the one place the kit is
+ * consulted here, so the guarantee and the pick can never disagree.
  */
 export function usableLines(
   held: readonly LineId[],
   slotIds: readonly (SlotItemId | null)[],
+  kit: ConsumableKit,
   catalog: Catalog = CATALOG,
 ): LineId[] {
   const out: LineId[] = [];
@@ -304,7 +316,7 @@ export function usableLines(
     if (line === undefined) continue;
     const copies = boonStackCount(held, key);
     const usable = line.kind === 'consumable' || (line.kind === 'equipment' && copies === 0);
-    if (usable && pickRefusal(held, slotIds, key, catalog) === null) out.push(key as LineId);
+    if (usable && pickRefusal(held, slotIds, key, kit, catalog) === null) out.push(key as LineId);
   }
   return out;
 }
@@ -313,7 +325,7 @@ export function usableLines(
  *  exactly ONE rng.next(). Undefined — and NO rng value spent — when nothing is
  *  usable, which is what keeps the guarantee vacuous instead of a reroll. */
 function pickUsable(ship: DrawShip, catalog: Catalog, rng: Rng): LineId | undefined {
-  const usable = usableLines(ship.held, ship.slotIds, catalog);
+  const usable = usableLines(ship.held, ship.slotIds, ship.kit, catalog);
   if (usable.length === 0) return undefined;
   const i = Math.min(Math.floor(rng.next() * usable.length), usable.length - 1); // clamp: float dust
   return usable[i];

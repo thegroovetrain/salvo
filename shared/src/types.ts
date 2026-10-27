@@ -7,6 +7,7 @@
 
 import type { GameConfig, HornId, HullId, ShipClassId } from './constants.js';
 import type { GunId } from './sim/loadout.js';
+import type { ConsumableId } from './sim/effects.js';
 import type { Vec2 } from './math/vec.js';
 
 /** Short message-name tags used on the Colyseus channel. */
@@ -286,7 +287,8 @@ export interface InputMsg {
    */
   aimDist: number;
   /**
-   * Loadout slot this click activates (int 0..SLOT_COUNT-1; see sim/loadout.ts).
+   * Loadout slot this click activates (int 0..SLOT_COUNT-1 — 0..8 since Story
+   * 10.1, the four kit slots being 5..8; see sim/loadout.ts).
    * 0 (the gun, the permanently-selected default) unless the client resolved a
    * primed skillshot at click time — the server keeps NO priming state; the
    * click's slot IS the resolved prime. Validated server-side like every field.
@@ -313,8 +315,8 @@ export interface InputMsg {
    */
   actSeq: number;
   /**
-   * Loadout slot index the current activation targets (int 0..SLOT_COUNT-1; see
-   * sim/loadout.ts). Only a slot holding non-weapon (`EQUIPMENT_IS_WEAPON:false`)
+   * Loadout slot index the current activation targets (int 0..SLOT_COUNT-1 —
+   * 0..8 since Story 10.1; see sim/loadout.ts). Only a slot holding non-weapon (`EQUIPMENT_IS_WEAPON:false`)
    * equipment can activate; an actSeq advance against a weapon or empty slot is
    * structurally inert. Validated server-side like every field.
    */
@@ -406,13 +408,14 @@ export interface WeaponAmmo {
  * Your own ship as seen in a frame — full, unfogged. `sweep` is the current
  * radar angle (rad), used to draw the sweep wedge client-side.
  *
- * `ammo` is SLOT-ALIGNED: length SLOT_COUNT — ELEVEN since Story 9.2 (nine
- * from Story 8.5; see sim/loadout.ts), one entry per loadout slot — null iff
- * that slot is empty (mirrors the loadout invariant: an empty slot carries no
- * state). Slots 5–10 are the six consumable kinds in key order, each bound to
- * its kind for the whole match (`consumableKindAt`), so a `null` there is that
+ * `ammo` is SLOT-ALIGNED: length SLOT_COUNT — NINE since Story 10.1 (eleven
+ * from Story 9.2, nine from Story 8.5; see sim/loadout.ts), one entry per
+ * loadout slot — null iff that slot is empty (mirrors the loadout invariant:
+ * an empty slot carries no state). Slots 5–8 are the ship's four consumable
+ * lines in key order — `kit[i]` at slot `5 + i`, each bound to its kind for
+ * the whole match (`consumableKindAt(kit, slot)`), so a `null` there is that
  * kind at ZERO STOCK. A Torpedo Boat holding one heavy torpedo reads
- * [gun, boost, heavyTorpedo, null, null, null, null, null, null, null, null].
+ * [gun, boost, heavyTorpedo, null, null, null, null, null, null].
  * maxAmmo / reloadMs are NOT on the wire — the client reads them from CONFIG
  * (and, after upgrades, from its own effective-stats computation) and derives
  * reload fractions from reloadMsLeft.
@@ -441,6 +444,22 @@ export interface OwnShip {
    * spectator payload. Which gun an enemy picked is build information.
    */
   gun: GunId;
+  /**
+   * THE SEAT'S KIT (Story 10.1, Eric 2026-10-25/27, epic-10 amendments 1(c)
+   * and 3): the four consumable lines this captain carries, in KEY ORDER —
+   * `kit[i]` is the kind bound to slot `5 + i` and key `i + 1`. Picked at
+   * class select (bots roll four at spawn), validated server-side by
+   * `isConsumableKit` and frozen on the seat like `gun`. The client reads every
+   * kind → slot answer from THIS field (`consumableKindAt`, `stockSlotFor`,
+   * `slotsWithCards`), never from localStorage, which is why it rides the
+   * frame at all.
+   *
+   * SELF-PRIVATE by construction, exactly like `gun` and `cards`: it rides
+   * `you` and NOTHING else — never a Contact, a blip, a ballistic event or a
+   * spectator payload. Which consumables an enemy carries is build
+   * information. Non-spatial, so NOT a perception exception.
+   */
+  kit: ConsumableId[];
   /**
    * Banked LEVELS not yet spent (Story 2.6/2.8 — the economy is levels, earned
    * by passive XP, not kills; `lvl` is the running total earned, `pts` what is
