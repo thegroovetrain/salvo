@@ -1,6 +1,9 @@
+---
+baseline_commit: 55b08203
+---
 # Story 10.1: Four Configurable Consumable Slots
 
-Status: ready-for-dev
+Status: in-progress
 
 <!-- Created 2026-10-27 by gds-create-story on development @ a10e722d (0.19.0, PV 91). Every line number below is a reading of the tree on that commit — re-grep before editing. Eric answered the ten spec-step questions in chat BEFORE this file was written (gds-dev-story 10-1 asked them; the answers are § Eric's rulings and become epic-10 amendment #3). Nothing in this story is a number the author filled in. -->
 
