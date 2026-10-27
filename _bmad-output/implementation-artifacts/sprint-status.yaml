@@ -347,15 +347,16 @@ development_status:
   epic-9-retrospective: done  # 2026-10-24 (epic-9 retro): epic-9-retro-2026-10-24.md (live with Eric; 1 significant-discovery alert: Epic 10 needs its correct-course before any story)
 
   # epic-10: The Account (GDD E10; was epic-9 until 2026-10-06 — sprint-change-proposal-2026-10-06.md; 10 stories in build order, Eric-approved 2026-09-11; 10-5 deleted and 10-4/10-6/10-7/10-11 re-scoped 2026-09-21 by sprint-change-proposal-2026-09-21.md)
-  epic-10: backlog  # 2026-10-25 correct-course (sprint-change-proposal-2026-10-25.md): THE PLAYTEST PASS — Eric's eight playtest thoughts in his order + How-to-Play re-homed; epic-10-context-amendments.md #1
-  10-1-four-configurable-consumable-slots: backlog  # LOADOUT row, keys 1-4, offer filtered to the four
+  epic-10: backlog  # 2026-10-25 correct-course (sprint-change-proposal-2026-10-25.md): THE PLAYTEST PASS — Eric's eight playtest thoughts in his order + How-to-Play re-homed; epic-10-context-amendments.md #1; 2026-10-27 correct-course (sprint-change-proposal-2026-10-27.md): 10-9 added, built after 10-1; amendment #2
+  10-1-four-configurable-consumable-slots: backlog  # LOADOUT row, keys 1-4, offer filtered to the four; 2026-10-27: BUILDS the consumables row (no LOADOUT screen exists), picker lists every non-stub line
   10-2-the-first-minute-objective: backlog  # DESIGN SITTING FIRST (gds-brainstorm-game / forge) — no story text until then
   10-3-the-battle-ui-xp-seen-the-offer-in-the-corner: backlog  # visual candidates shown to Eric first
   10-4-offer-composition: backlog  # ship / weapon / consumable / wildcard type-first, exhausted types fall back
   10-5-flak-takes-no-range-dropoff: backlog  # per-gun attenuation dial
   10-6-bots-fill-the-standard-queue-at-1-00: backlog  # FR34 superseded; minimum + labelling Eric's at spec
   10-7-the-machine-gun-steepest-dropoff-high-explosive: backlog  # tiered HE DoT, every number Eric's
-  10-8-how-to-play-and-record: backlog  # re-homed from 9-17 (2026-10-23) + this epic's entries and stamps
+  10-8-how-to-play-and-record: backlog  # re-homed from 9-17 (2026-10-23) + this epic's entries and stamps (+ 10-9's five lines, 2026-10-27)
+  10-9-the-flash-shell-and-the-four-buoys: backlog  # 2026-10-27 correct-course (sprint-change-proposal-2026-10-27.md), BUILT SECOND after 10-1: FLASH SHELLS back beside FOULING SHELL; DECOY BUOY -> RADAR / HEALING / SHIELD / SPEED buoys (50 hp, 750 u, 1:00); ten lines, pick four; amendment #2
   epic-10-retrospective: optional
   epic-11: backlog  # 2026-10-25 correct-course (sprint-change-proposal-2026-10-25.md): THE LEDGER — Render Postgres + @colyseus/database behind the MatchRecord writer port, anonymous rows, no callsign
   11-1-the-match-ledger: backlog  # floor story; databases: in render.yaml with the code; absence-gated
