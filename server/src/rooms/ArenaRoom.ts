@@ -778,6 +778,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    */
   private buildBotFleet(count: number): void {
     const order = this.shuffledClasses();
+    // THE KIT STREAM (Story 10.1 review gate): its own mulberry32 off the same
+    // map seed the hue stream is built from, decorrelated by 0x6b17, so the
+    // kit roll never moves a hue or gun draw of a pinned seed.
+    const kitRng = mulberry32((this.state.mapSeed ^ 0x6b17) >>> 0);
     for (let i = 0; i < count; i += 1) {
       // Bots draw from the SAME common pool a captain draws from (Story 8.14)
       // and each MOUNTS A RANDOM GUN (Story 8.15, amendment 109): one of the
@@ -786,9 +790,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // guns and a pinned map seed seats a pinned fleet. Never Math.random.
       const gun = GUN_IDS[this.hueRng.int(0, GUN_IDS.length - 1)];
       // ...and CARRIES A RANDOM FOUR (Story 10.1, Eric ruling 6): four distinct
-      // non-stub consumable lines, uniform, rolled RIGHT AFTER the gun off the
-      // same seeded stream (exactly four draws per bot). Never Math.random.
-      const kit = rollKit(() => this.hueRng.next());
+      // non-stub consumable lines, uniform, rolled after the gun off the
+      // room's separate seeded KIT stream. Never Math.random.
+      const kit = rollKit(() => kitRng.next());
       const rec = this.world.addBot(order[i % order.length], undefined, gun, kit);
       const meta = new PlayerMeta();
       meta.id = rec.id;

@@ -36,6 +36,7 @@ import {
   dealableConsumables,
   isConsumableKit,
   MOUNTED_GUN,
+  mulberry32,
   PROTOCOL_VERSION,
   REGATTA_HUES,
   REGATTA_NO_HUE,
@@ -47,6 +48,7 @@ import { ArenaRoom, ARENA_DIRECT_JOIN_ERROR } from '../rooms/ArenaRoom.js';
 import { protocolVersionError, sanitizeSolo, type RoomOptions } from '../rooms/roomOptions.js';
 import { lobbyTicket } from '../rooms/lobbyTicket.js';
 import { World } from '../game/world.js';
+import { assignHue } from '../game/regatta.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import type { ArenaState, PlayerMeta } from '../rooms/schema/ArenaState.js';
 
@@ -267,7 +269,7 @@ describe('the solo room — construction', () => {
   });
 
   // Story 10.1 (Eric ruling 6): every bot CARRIES A RANDOM FOUR consumable
-  // lines, rolled right after its gun off the same seeded room stream.
+  // lines, rolled after its gun off the room's separate seeded kit stream.
   it('seats every bot with a valid kit off the SEEDED stream: a pinned seed yields the same kits twice, kits vary, and every dealable line appears across a few seeds', () => {
     process.env.HC_DEV_OPTIONS = '1'; // a pinned map seed is a dev-only option
     const kitsOf = (r: SoloRoom): string[][] => bots(r).map((b) => [...r.world.ships.get(b.id)!.kit]);
@@ -282,6 +284,34 @@ describe('the solo room — construction', () => {
       for (const k of kitsOf(soloRoom({ mapSeed: seed }))) for (const id of k) seen.add(id);
     }
     expect([...seen].sort()).toEqual([...dealableConsumables()].sort());
+  });
+
+  // Story 10.1 review gate (F3): the kit roll rides its OWN stream (hue seed
+  // ^ 0x6b17), so the room's hue stream — and with it every class, gun and hue
+  // of a pinned seed — is exactly what it was before kits. The relation:
+  // replaying the hue stream ALONE in the pre-10.1 draw order (class shuffle,
+  // then per bot: gun, hue) reproduces the seated fleet.
+  it('the kit roll never touches the hue stream: a replay of the pre-kit draw order reproduces every class, gun and hue', () => {
+    process.env.HC_DEV_OPTIONS = '1'; // a pinned map seed is a dev-only option
+    for (const mapSeed of [7, 12345]) {
+      const r = soloRoom({ mapSeed });
+      const rng = mulberry32((mapSeed ^ 0xc2b2ae35) >>> 0);
+      const order = [...SHIP_CLASS_IDS];
+      for (let i = order.length - 1; i > 0; i -= 1) {
+        const j = rng.int(0, i);
+        [order[i], order[j]] = [order[j], order[i]];
+      }
+      const used = new Set<number>();
+      bots(r).forEach((b, i) => {
+        const gun = GUN_IDS[rng.int(0, GUN_IDS.length - 1)];
+        const hue = assignHue(used, undefined, rng, i + 1);
+        used.add(hue);
+        const at = `seed ${mapSeed} ${b.id}`;
+        expect(b.hullId, at).toBe(order[i % order.length]);
+        expect(r.world.ships.get(b.id)!.gun, at).toBe(gun);
+        expect(r.state.players.get(b.id)!.color, at).toBe(hue);
+      });
+    }
   });
 
   it('varies the class DEAL ORDER across rooms (the order is rolled, not fixed)', () => {

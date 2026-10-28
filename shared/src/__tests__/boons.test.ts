@@ -45,6 +45,7 @@ import {
   equipmentMaxAmmo,
   isConsumableKit,
   KIT_SIZE,
+  KitRollError,
   loadoutFor,
   mulberry32,
   rollKit,
@@ -964,16 +965,22 @@ describe('rollKit — a seeded uniform four without replacement (Eric ruling 6)'
     }
   });
 
-  it('never throws and never repeats on a thin catalog: fewer lines than KIT_SIZE roll short and fail the validator', () => {
-    const thin: Catalog = { hullRepair: CATALOG.hullRepair, shieldBlock: CATALOG.shieldBlock };
-    const kit = rollKit(mulberry32(1).next, thin);
-    expect(new Set(kit).size).toBe(kit.length);
-    expect(kit.length).toBe(Object.keys(thin).length);
-    expect(isConsumableKit(kit, thin)).toBe(false);
-    expect(rollKit(mulberry32(1).next, {})).toEqual([]);
-    // ...and a float-dust 1.0 from a bad source still lands inside the pool.
-    expect(isConsumableKit(rollKit(() => 0.999_999_999_999_999_9))).toBe(true);
-    expect(isConsumableKit(rollKit(() => 0))).toBe(true);
+  it('THROWS KitRollError on a catalog with fewer dealable lines than KIT_SIZE — never a silent short kit', () => {
+    const thin: Catalog = {
+      hullRepair: CATALOG.hullRepair,
+      shieldBlock: CATALOG.shieldBlock,
+      countermeasure: CATALOG.countermeasure,
+    };
+    expect(dealableConsumables(thin).length).toBe(KIT_SIZE - 1);
+    expect(() => rollKit(mulberry32(1).next, thin)).toThrow(KitRollError);
+    expect(() => rollKit(mulberry32(1).next, {})).toThrow(KitRollError);
+  });
+
+  it('a broken rng (NaN, negative, >= 1, float dust) is clamped into the pool and still rolls a VALID kit', () => {
+    for (const bad of [Number.NaN, -0.5, 2, 0.999_999_999_999_999_9, 0]) {
+      const kit = rollKit(() => bad);
+      expect(isConsumableKit(kit), String(bad)).toBe(true);
+    }
   });
 });
 

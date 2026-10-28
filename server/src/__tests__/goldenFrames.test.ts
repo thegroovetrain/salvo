@@ -1199,10 +1199,8 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // world) and (2) the new self-private `you.kit` field beside `gun` — the
   // default four, since no golden world names a kit. No `offer` hand, contact,
   // event, blip, mine, zone, position or hp byte moved (verified with both
-  // differences masked out). BOT KITS: ArenaRoom.buildBotFleet now rolls each
-  // bot's kit right after its gun off the room's hueRng — four draws per bot —
-  // so for the same seed every later bot's hue and gun draw shifts; no golden
-  // world is built through ArenaRoom or addBot, so nothing here moved for it.
+  // differences masked out). BOT KITS roll off a separate kit stream (map
+  // seed ^ 0x6b17), so every hue and gun draw of a pinned seed is unchanged.
   it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
     expect(runBattery()).toMatchSnapshot();
   });

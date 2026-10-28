@@ -54,6 +54,7 @@ import {
   hullIsFull,
   isAfloat,
   isConsumableId,
+  isConsumableKit,
   isSinking,
   isSunk,
   slotsWithCards,
@@ -101,6 +102,7 @@ import {
   type CatalogLine,
   type DrawShip,
   type ConsumableKit,
+  type PickRefusal,
   type GunId,
   type ShiftId,
   type Weights,
@@ -2352,7 +2354,7 @@ export class World {
    *  record (`devPose`) so the redeploy and respawn edges place the hull there
    *  again. */
   addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at: Vec2 | undefined, gun: GunId = DEFAULT_GUN, kit: ConsumableKit = DEFAULT_KIT, fit: readonly string[] = [], pose?: DevPose): ShipRecord {
-    const devPose = role === 'captain' ? pose : undefined;
+    const seatKit = World.seatKit(id, kit), devPose = role === 'captain' ? pose : undefined;
     const { heading, ...p } = this.placement(id, devPose, () => at ?? pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng, this.spawnPhase));
     const cls = hullEnvelope(hullId);
     const stats = effectiveStats(cls);
@@ -2390,7 +2392,7 @@ export class World {
       // THE SEAT'S GUN and the ship's private DRAW stream (8.14): there is no
       // deck to deal any more — the pool is the catalog and a draw is a pure
       // read of this record's own state (materializeOffer).
-      gun, kit: [...kit], devFit: World.spawnFit(role, fit), devPose, drawRng: this.drawRngFor(this.joinSeq++),
+      gun, kit: seatKit, devFit: World.spawnFit(role, fit), devPose, drawRng: this.drawRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null, hands: [], mulliganed: false, openingGranted: false,
       xpMs: 0, level: 0, damageFrom: new Map(),
       cards: [],
@@ -2606,6 +2608,15 @@ export class World {
     return { x: p.x, y: p.y, heading: Math.atan2(-p.y, -p.x) };
   }
 
+  /** THE KIT AT THE addShip SEAM (Story 10.1 review gate) is a programming
+   *  invariant, not input: every production door sanitizes it (fail-open to
+   *  DEFAULT_KIT) and bots roll theirs, so an invalid kit here is a bug and
+   *  throws before anything is placed. Answers the record's own copy. */
+  private static seatKit(id: string, kit: ConsumableKit): ConsumableKit {
+    if (!isConsumableKit(kit)) throw new Error(`addShip: invalid kit for ${id}: ${JSON.stringify(kit)}`);
+    return [...kit];
+  }
+
   private static spawnFit(role: ShipRole, fit: readonly string[]): readonly string[] {
     if (role !== 'captain' || fit.length === 0) return EMPTY_FIT;
     return Object.freeze([...fit]);
@@ -2632,9 +2643,18 @@ export class World {
    * weapon in `cards` with no slot to live in (and recording a take for it);
    * the cap one is what stops a dev fit stacking a build no pick, draw or offer
    * could ever produce. Nothing is restated here: one predicate, one path.
+   *
+   * A REFUSED LINE IS LOGGED (Story 10.1 review gate): one `devFit.refused`
+   * warning per dropped id, with `pickRefusal`'s reason — so a smoke whose
+   * `fitOverride` names a consumable outside the seat's kit sees why the belt
+   * came up empty instead of a silent drop.
    */
   private applyDevFit(ship: ShipRecord): void {
-    for (const id of ship.devFit) this.applyCard(ship, id);
+    for (const line of ship.devFit) {
+      const reason = this.cardRefusal(ship, line);
+      if (reason !== null) logWarn('devFit.refused', { id: ship.id, line, reason });
+      else this.applyCard(ship, line);
+    }
   }
 
   /** Remove a ship entirely (client left). Its wake is water, not a ship
@@ -3646,7 +3666,12 @@ export class World {
    *     then become eligible.
    */
   private refusesCard(ship: ShipRecord, lineId: string): boolean {
-    return pickRefusal(ship.cards, ship.loadout.map((s) => s.equipmentId), lineId, ship.kit, this.catalog) !== null;
+    return this.cardRefusal(ship, lineId) !== null;
+  }
+
+  /** `refusesCard`'s reason (`pickRefusal`), or `null` when the pick is legal. */
+  private cardRefusal(ship: ShipRecord, lineId: string): PickRefusal | null {
+    return pickRefusal(ship.cards, ship.loadout.map((s) => s.equipmentId), lineId, ship.kit, this.catalog);
   }
 
   /**

@@ -6,7 +6,7 @@
 //                                    ^ the belt frame this module draws
 //
 // Since Story 9.2 every consumable kind owns one fixed belt square and key
-// (keys 1–6, epic-9 amendment 21), and a kind at zero stock keeps its square in
+// (keys 1–6 then, epic-9 amendment 21), and a kind at zero stock keeps its square in
 // the ZERO-STOCK state (dashed, its own glyph faint, no badge). Story 9.2's
 // two-row stack is retired: Story 9.11 (epic-9 amendment 151) put the row and
 // its belt frame back, the frame then holding all six squares. Since Story
@@ -1250,7 +1250,7 @@ export class Hotbar {
 
   /**
    * THE BELT FRAME (ruling 5, back in Story 9.11) — one 1px silver .2 rectangle
-   * around the six consumable squares AND their chips (the mock's `.belt`
+   * around the kit's consumable squares AND their chips (the mock's `.belt`
    * encloses the whole `.sw` column). It is the only grouping mark on the bar:
    * the belt is a different KIND of slot (stock you spend, not kit you fire),
    * and the frame is what says so without a word.

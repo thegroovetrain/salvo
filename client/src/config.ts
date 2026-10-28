@@ -1830,12 +1830,13 @@ export const CLIENT_CONFIG = {
    * from the mock's 96 to the helm globe's 104, so ONE `globe` number serves
    * both). Story 9.2's two-row D-prime stack (`mockups/hud-consumables-1.html`)
    * is RETIRED: Eric 2026-10-14 (epic-9 amendment 151) put the bar back on the
-   * literal 8.6 one-row geometry, with the framed belt holding all SIX
-   * consumable squares (keys 1–6).
+   * literal 8.6 one-row geometry, with the framed belt holding the
+   * consumable squares (all SIX, keys 1–6, from Story 9.11 until Story 10.1; the
+   * kit's four, keys 1–4, since).
    *
-   * Anatomy of the 868 px bar, left to right:
+   * Anatomy of the bar, left to right (868 px with the six squares of Story 9.11):
    *   HP globe 104 | 16 | Gun Shift Q E R (5 x 54, 8 gaps) | 16 |
-   *   framed belt 1-6 (8 + 6 x 44 + 5 x 6 + 8) | 16 | helm globe 104
+   *   framed belt 1-n (8 + n x 44 + (n - 1) x 6 + 8, n = KIT_SIZE) | 16 | helm globe 104
    * with the XP strip's 24 px row 8 px beneath the 104 px main row
    * (104 + 8 + 24 = 136 tall).
    *
@@ -1862,7 +1863,7 @@ export const CLIENT_CONFIG = {
     slot: 54,
     slotGap: 8,
     /** Consumable belt square (px) and its tighter gap (mock `.belt .slot`,
-     *  `.belt { gap: 6px }`). Six of them since Story 9.11 (keys 1–6). */
+     *  `.belt { gap: 6px }`). The kit's four (keys 1–4, Story 10.1); six from Story 9.11 until then. */
     beltSlot: 44,
     beltGap: 6,
     /** Belt frame padding (mock `.belt { padding: 8px 8px 6px }`). The frame

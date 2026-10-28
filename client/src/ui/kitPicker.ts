@@ -29,7 +29,7 @@ import { cssRgba } from '../util/color.js';
 import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
 import { SLOT_KEY_GLYPHS } from '../render/equipmentInfo.js';
 import { boonName, consumableStatRows, statValueText, type CardStatRow } from './boonCopy.js';
-import { LOADOUT_KEY_COL_PX, LOADOUT_KEY_GAP_PX, LOADOUT_KEY_TRACKING_EM } from './classSelect.js';
+import { LOADOUT_KEY_COL_PX, LOADOUT_KEY_GAP_PX, LOADOUT_KEY_TRACKING_EM } from './loadoutGrammar.js';
 import { registerCss } from './theme.js';
 
 const C = CLIENT_CONFIG.colors;
@@ -247,6 +247,7 @@ function makeTitleBar(onClose: () => void): HTMLElement {
   title.style.cssText = `font:500 13px ${MONO};letter-spacing:.24em;color:var(--hc-text-primary)`;
   const esc = document.createElement('button');
   esc.type = 'button';
+  esc.dataset.kitEsc = '';
   esc.style.cssText =
     `${registerCss('hudMicro')};letter-spacing:.14em;color:var(--hc-text-muted);background:transparent;` +
     'border:0;padding:0;cursor:pointer;display:flex;align-items:center;gap:6px';
@@ -352,6 +353,7 @@ export function openKitPicker(opts: KitPickerOpts): KitPickerHandle {
   live?.close();
   const root = document.createElement('div');
   root.dataset.kitPicker = '';
+  const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   root.style.cssText =
     'position:absolute;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center';
   const dim = document.createElement('div');
@@ -364,6 +366,8 @@ export function openKitPicker(opts: KitPickerOpts): KitPickerHandle {
     root.remove();
     if (live === handle) live = null;
     opts.onClose();
+    // After onClose: the layer lifts its `inert` there, and an inert square cannot take focus.
+    if (opener?.isConnected) opener.focus();
   };
   const pick = (id: ConsumableId): void => {
     const next = pickLine(opts.kit, opts.slot, id);
@@ -383,6 +387,7 @@ export function openKitPicker(opts: KitPickerOpts): KitPickerHandle {
     },
   };
   opts.host.appendChild(root);
+  root.querySelector<HTMLElement>('[data-kit-esc]')?.focus(); // focus moves into the modal
   live = handle;
   return handle;
 }

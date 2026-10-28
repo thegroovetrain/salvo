@@ -309,18 +309,40 @@ export function isConsumableKit(raw: unknown, catalog: Catalog = CATALOG): raw i
  * same seeded stream always rolls the same four. `next` is an injected
  * uniform source in [0, 1) (an `Rng`'s `next`), never `Math.random`.
  *
- * With fewer dealable lines than `KIT_SIZE` (an injected catalog — production
- * has six) the roll returns every line there is and the result does NOT pass
- * `isConsumableKit`; it never throws and never repeats a line.
+ * A broken source (NaN, negative, >= 1) is clamped into the remaining pool
+ * (NaN counts as 0), so every index lands on a real line. The result is then
+ * checked with `isConsumableKit`; with fewer dealable lines than `KIT_SIZE`
+ * (an injected catalog — production has six) it throws `KitRollError`, a bug
+ * guard like `MapGenerationError`, never a silent short kit.
  */
 export function rollKit(next: () => number, catalog: Catalog = CATALOG): ConsumableKit {
   const pool = dealableConsumables(catalog);
   const n = Math.min(KIT_SIZE, pool.length);
   for (let i = 0; i < n; i += 1) {
-    const j = i + Math.min(Math.floor(next() * (pool.length - i)), pool.length - i - 1); // clamp: float dust
+    const j = i + kitPickOffset(next(), pool.length - i);
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
-  return pool.slice(0, n);
+  const kit = pool.slice(0, n);
+  if (!isConsumableKit(kit, catalog)) throw new KitRollError(pool.length);
+  return kit;
+}
+
+/** One Fisher–Yates offset in [0, remaining - 1], whatever `u` is (NaN -> 0). */
+function kitPickOffset(u: number, remaining: number): number {
+  const raw = Math.floor((Number.isNaN(u) ? 0 : u) * remaining);
+  return Math.min(Math.max(raw, 0), remaining - 1);
+}
+
+/**
+ * THE KIT-ROLL BUG GUARD (Story 10.1 review gate): `rollKit` could not build a
+ * valid kit — the catalog deals fewer than `KIT_SIZE` consumable lines.
+ * Production deals six, so this only fires on a broken catalog.
+ */
+export class KitRollError extends Error {
+  constructor(readonly dealable: number) {
+    super(`rollKit: cannot roll a valid kit — ${dealable} dealable consumable lines, KIT_SIZE is ${KIT_SIZE}`);
+    this.name = 'KitRollError';
+  }
 }
 
 /**

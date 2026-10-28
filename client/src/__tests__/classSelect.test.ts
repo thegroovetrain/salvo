@@ -919,4 +919,34 @@ describe('openClassSelect — the CONSUMABLES row (Story 10.1)', () => {
     keydown('Enter');
     expect(onConfirm).toHaveBeenCalledWith('torpedoBoat', 'deckGun', DEFAULT_KIT); // highlight and kit unchanged
   });
+
+  describe('focus is trapped in the picker', () => {
+    const panelOf = (): HTMLElement =>
+      [...layer().children].find((c) => c.querySelector('[data-kit-row]')) as HTMLElement;
+
+    it('the panel is inert while the picker is up and not after; Tab is default-prevented while up', () => {
+      open();
+      expect(panelOf().hasAttribute('inert')).toBe(false);
+      slots()[0].click();
+      expect(panelOf().hasAttribute('inert')).toBe(true);
+      const tab = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true });
+      window.dispatchEvent(tab);
+      expect(tab.defaultPrevented).toBe(true);
+      keydown('Escape');
+      expect(panelOf().hasAttribute('inert')).toBe(false);
+      const tab2 = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true });
+      window.dispatchEvent(tab2);
+      expect(tab2.defaultPrevented).toBe(false);
+    });
+
+    it('focus moves to the picker close chip on open and returns to the opening square on close', () => {
+      open();
+      const opener = slots()[2];
+      opener.focus();
+      opener.click();
+      expect(document.activeElement).toBe(layer().querySelector('[data-kit-esc]'));
+      keydown('Escape');
+      expect(document.activeElement).toBe(opener);
+    });
+  });
 });

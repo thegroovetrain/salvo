@@ -46,6 +46,13 @@ import { ensureColorPref, COLOR_PREF_KEY } from '../net/connection.js';
 import { registerCss } from './theme.js';
 import { monoTextWidth } from './refitCardFit.js';
 import { CLASS_DISPLAY_NAMES } from './classNames.js';
+import {
+  LOADOUT_KEY_COL_PX,
+  LOADOUT_KEY_GAP_PX,
+  LOADOUT_KEY_TRACKING_EM,
+  LOADOUT_VALUE_PX,
+  LOADOUT_VALUE_TRACKING_EM,
+} from './loadoutGrammar.js';
 import { makeKitRow, openKitPicker, type KitPickerHandle, type KitRow } from './kitPicker.js';
 
 const C = CLIENT_CONFIG.colors;
@@ -111,14 +118,14 @@ function loadoutRows(cls: ShipClassId): readonly LoadoutRow[] {
 // UI-scale tier; the pins in __tests__/classSelect.test.ts measure them with
 // the refit card's mono model (`monoTextWidth`).
 
-/** The card's inner content width (px): 356 − 2 × 22 padding. */
-export const CARD_INNER_PX = 356 - 2 * 22;
-/** The loadout row grammar: key column, key→value gap, value type. */
-export const LOADOUT_KEY_COL_PX = 108;
-export const LOADOUT_KEY_GAP_PX = 10;
-export const LOADOUT_KEY_TRACKING_EM = 0.14;
-export const LOADOUT_VALUE_PX = 20;
-export const LOADOUT_VALUE_TRACKING_EM = 0.05;
+export {
+  CARD_INNER_PX,
+  LOADOUT_KEY_COL_PX,
+  LOADOUT_KEY_GAP_PX,
+  LOADOUT_KEY_TRACKING_EM,
+  LOADOUT_VALUE_PX,
+  LOADOUT_VALUE_TRACKING_EM,
+} from './loadoutGrammar.js';
 /** The gun chips: hudMicro-sized mono, tighter tracking than the register's
  *  0.18em so the three chips sit on ONE line with room to spare. */
 export const GUN_CHIP_TRACKING_EM = 0.1;
@@ -983,10 +990,12 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
       },
       onClose: () => {
         if (picker?.handle === handle) picker = null;
+        panel.removeAttribute('inert');
         repaint();
       },
     });
     picker = { slot, handle };
+    panel.setAttribute('inert', ''); // the layer's buttons are out of the tab order while the picker is up
     repaint();
   }
   /** A gun chip: move the ONE gun pick and repaint. The chip's click then
@@ -1014,7 +1023,10 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   }
   function onKey(e: KeyboardEvent): void {
     if (e.timeStamp <= openedAt) return; // the opening keystroke — never ours to act on
-    if (picker) return picker.handle.key(e); // the picker owns the keyboard (ESC only)
+    if (picker) {
+      if (e.key === 'Tab') e.preventDefault(); // belt-and-braces with `inert`: no focus walk under the dim
+      return picker.handle.key(e); // the picker owns the keyboard (ESC only)
+    }
     if (isIgnoredKey(e, container)) return;
     const action = keyAction(e.key, cards.length);
     if (!action) return;

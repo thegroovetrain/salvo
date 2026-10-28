@@ -319,8 +319,8 @@ interface Game {
   hud: Hud;
   /**
    * THE HUD BAR (render/hudBar.ts, Story 8.6) — the ONE bottom-centre cluster
-   * that replaced the three corners: the HP globe, the eleven-slot row (the
-   * five weapon squares, then the framed belt of six consumables, Story 9.11 — the loadout surface, its full state grammar, hover
+   * that replaced the three corners: the HP globe, the nine-slot row (SLOT_COUNT) (the
+   * five weapon squares, then the framed belt of the kit's four consumables (keys 1–4, Story 10.1; six from Story 9.11 until then) — the loadout surface, its full state grammar, hover
    * tooltip and key-equivalent slot clicks), the helm globe and the XP strip
    * with its banked-level chip. Shown only while conning a hull in-match.
    */
@@ -3581,7 +3581,7 @@ function hotbarDeniedDegraded(g: Game, status: OwnStatus): boolean[] {
 }
 
 /**
- * The slot stack's half of the bar's frame (the eleven squares, the key chips,
+ * The slot stack's half of the bar's frame (the nine squares, the key chips,
  * the wipe and the tooltip). `dim` is set here for shape's sake and
  * OVERWRITTEN by the HudBar from the bar-wide `dim` — one predicate, applied
  * once, to the exactly-two groups that carry it (ruling 9).
