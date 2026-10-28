@@ -78,7 +78,7 @@ describe('the take ledger — what goes in, and what never does', () => {
 
   it('a DEV SPAWN FIT counts as a take — it goes through the same applyCard', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, [WEAPON]);
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, undefined, [WEAPON]);
     expect(a.cards).toEqual([WEAPON]);
     expect([...w.takes.get(WEAPON)!]).toEqual(['a']);
   });

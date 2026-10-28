@@ -808,7 +808,9 @@ describe('LobbyRoom — the adapter', () => {
 
   it('a lone host with bot-fill + seed forces a start: the arena bag is trusted and complete', async () => {
     const { r, send, tick, join, timeouts, startNow } = await lobbyRoom();
-    const a = join('a', { name: 'ERIC', gun: 'flak' });
+    // A NON-default kit (Story 10.1): it must ride the seat's `auth` verbatim.
+    const kit = ['decoyBuoy', 'hullRepair', 'supercavTorpedo', 'shieldBlock'];
+    const a = join('a', { name: 'ERIC', gun: 'flak', kit });
     send(a, MSG.lobbyStart); // not eligible yet: dropped
     expect(created).toEqual([]);
     send(a, MSG.lobbyBotFill, { on: true });
@@ -831,6 +833,9 @@ describe('LobbyRoom — the adapter', () => {
     const seats = matchMaker.reserveMultipleSeatsFor.mock.calls[0][1] as Array<{ options: Record<string, unknown>; auth: Record<string, unknown> }>;
     expect(seats[0].auth.gun).toBe('flak');
     expect(seats[0].options.gun).toBeUndefined();
+    // ...and so did the kit (Story 10.1), byte for byte like the gun.
+    expect(seats[0].auth.kit).toEqual(kit);
+    expect(seats[0].options.kit).toBeUndefined();
     // The code is dead, the room locked, and it lingers before closing.
     expect(r.state.phase).toBe('started');
     expect(r.setMetadata.mock.calls.at(-1)?.[0]).toMatchObject({ phase: 'started' });

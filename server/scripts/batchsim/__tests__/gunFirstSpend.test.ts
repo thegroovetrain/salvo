@@ -8,7 +8,7 @@
 // batch-sim runner, and no shipped profile row is 'gunFirst'.
 
 import { describe, it, expect } from 'vitest';
-import { CATALOG, CONSUMABLE_SLOTS, WEAPON_SLOTS, type EquipmentId, type SlotItemId } from '@salvo/shared';
+import { CATALOG, CONSUMABLE_SLOTS, WEAPON_SLOTS, type ConsumableKit, type EquipmentId, type SlotItemId } from '@salvo/shared';
 import { parseArgs } from '../args.js';
 import { chooseSpend, type BotSpendState } from '../../../src/game/ai/spending.js';
 import { BOT_PROFILES, profileOf } from '../../../src/game/ai/profiles.js';
@@ -22,8 +22,11 @@ function slotsOf(gun: EquipmentId): (SlotItemId | null)[] {
   return out;
 }
 
+/** A NON-default kit (Story 10.1): the spend state must carry the bot's own four. */
+const KIT: ConsumableKit = ['supercavTorpedo', 'foulingShell', 'decoyBuoy', 'hullRepair'];
+
 function state(over: Partial<BotSpendState>): BotSpendState {
-  return { bankedLevels: 1, offer: null, cards: [], hp: 100, maxHp: 100, ...over };
+  return { bankedLevels: 1, offer: null, cards: [], kit: KIT, hp: 100, maxHp: 100, ...over };
 }
 
 const weighted = profileOf('raider');

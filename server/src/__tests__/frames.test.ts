@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, SLOT_COUNT } from '@salvo/shared';
+import { isAfloat, CONFIG, DEFAULT_KIT, SLOT_COUNT, type ConsumableKit } from '@salvo/shared';
 
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -61,11 +61,11 @@ describe('buildFrame — shape and clock', () => {
       speed: ship.state.speed,
       hp: CONFIG.shipClasses.torpedoBoat.hp,
       alive: true,
-      // Slot-aligned ammo: length SLOT_COUNT (eleven since Story 9.2), null
-      // for every empty slot. Gun in 0, the universal boost in 1, and every
+      // Slot-aligned ammo: length SLOT_COUNT (nine since Story 10.1: five
+      // fixed slots + one per carried kit line), null for every empty slot. Gun in 0, the universal boost in 1, and every
       // other slot empty since Story 8.10 deleted the spawn seed: a fresh
-      // hull's weapon row is bare until its first card, and every consumable
-      // kind's fixed slot is empty until it is stocked.
+      // hull's weapon row is bare until its first card, and every kit line's
+      // slot is empty until it is stocked.
       ammo: [
         { n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 },
         { n: CONFIG.boost.maxAmmo, reloadMsLeft: 0 },
@@ -76,6 +76,9 @@ describe('buildFrame — shape and clock', () => {
       // THE SEAT'S GUN (Story 8.14, amendment 95) — self-private beside `cls`,
       // and the deck gun unless the client picked otherwise at the door.
       gun: 'deckGun',
+      // THE SEAT'S KIT (Story 10.1) — self-private beside `gun`; this fixture
+      // names none, so the hull sails the default four.
+      kit: [...DEFAULT_KIT],
       // (upg died with the legacy upgrade economy — Story 2.8 strip; slowedUntil
       // / fouledUntil are OMITTED, not 0, while inactive.)
       pts: 0, // no points banked
@@ -95,6 +98,17 @@ describe('buildFrame — shape and clock', () => {
       xp: CONFIG.tick.simDtMs / CONFIG.xp.levelMs,
     });
     expect(f.spec).toBeUndefined();
+  });
+
+  it('the seat\'s KIT rides `you` as the hull\'s own four, in key order, and as a copy (Story 10.1)', () => {
+    const w = new World(1);
+    const kit: ConsumableKit = ['decoyBuoy', 'foulingShell', 'shieldBlock', 'supercavTorpedo'];
+    const ship = w.addShip('k', 'K', 'captain', 'torpedoBoat', undefined, undefined, undefined, kit);
+    const you = buildFrame(w, 'k').you!;
+    expect(you.kit).toEqual(kit);
+    expect(you.kit).not.toBe(ship.kit); // a mutation on the wire copy never reaches the record
+    // ...and `ammo` holds exactly one entry per slot, the kit's four included.
+    expect(you.ammo).toHaveLength(SLOT_COUNT);
   });
 
   it('throws if a drone record is ever routed into an OwnShip (chokepoint guard)', () => {

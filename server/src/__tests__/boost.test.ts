@@ -7,7 +7,7 @@
 // a fixed seed or scripted input.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CATALOG, CONFIG, SLOT_BOOST, effectiveStats, type InputMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, CATALOG, CONFIG, SLOT_BOOST, SLOT_COUNT, consumableSlotFor, effectiveStats, type InputMsg, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -261,11 +261,13 @@ describe('actSeq is inert on a weapon or empty slot', () => {
     expect(a.boostUntil).toBe(0);
   });
 
-  it('an empty BELT slot (8, the last index): actSeq advance is inert', () => {
+  it('an empty BELT slot (the last kit line\'s, the last index): actSeq advance is inert', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    expect(a.loadout[8]).toEqual({ equipmentId: null, state: null });
-    pressActivate(w, 'a', 1, 1, 8);
+    const last = consumableSlotFor(a.kit, a.kit[a.kit.length - 1])!;
+    expect(last).toBe(SLOT_COUNT - 1);
+    expect(a.loadout[last]).toEqual({ equipmentId: null, state: null });
+    pressActivate(w, 'a', 1, 1, last);
     w.step();
     expect(a.boostUntil).toBe(0);
     expect(a.lastActSeq).toBe(1); // consumed, then inert

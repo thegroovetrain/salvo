@@ -28,7 +28,7 @@ function offRingPose(w: World): DevPose {
 }
 
 function posedCaptain(w: World, id: string, pose: DevPose) {
-  return w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', DEFAULT_HORN_ID, undefined, DEFAULT_GUN, [], pose);
+  return w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', DEFAULT_HORN_ID, undefined, DEFAULT_GUN, undefined, [], pose);
 }
 
 function expectAtPose(rec: { state: { x: number; y: number; heading: number } }, pose: DevPose): void {
@@ -90,7 +90,7 @@ describe('dev spawn pose — a captain placed at its pose at every placement edg
   it('the pose is a CAPTAIN arm only — a bot handed one spawns by pickSpawn', () => {
     const w = openWorld(35);
     const pose = offRingPose(w);
-    const bot = w.addShip('bot-1', 'BOT', 'bot', 'torpedoBoat', DEFAULT_HORN_ID, undefined, DEFAULT_GUN, [], pose);
+    const bot = w.addShip('bot-1', 'BOT', 'bot', 'torpedoBoat', DEFAULT_HORN_ID, undefined, DEFAULT_GUN, undefined, [], pose);
     expect(bot.devPose).toBeUndefined();
     expect(Math.hypot(bot.state.x, bot.state.y)).toBeCloseTo(w.map.spawnRing, 6);
   });

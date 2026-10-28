@@ -31,7 +31,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ClientState } from 'colyseus';
 import {
   CONFIG,
+  DEFAULT_KIT,
   GUN_IDS,
+  dealableConsumables,
+  isConsumableKit,
   MOUNTED_GUN,
   PROTOCOL_VERSION,
   REGATTA_HUES,
@@ -263,6 +266,24 @@ describe('the solo room — construction', () => {
     expect([...seen].sort()).toEqual([...GUN_IDS].sort());
   });
 
+  // Story 10.1 (Eric ruling 6): every bot CARRIES A RANDOM FOUR consumable
+  // lines, rolled right after its gun off the same seeded room stream.
+  it('seats every bot with a valid kit off the SEEDED stream: a pinned seed yields the same kits twice, kits vary, and every dealable line appears across a few seeds', () => {
+    process.env.HC_DEV_OPTIONS = '1'; // a pinned map seed is a dev-only option
+    const kitsOf = (r: SoloRoom): string[][] => bots(r).map((b) => [...r.world.ships.get(b.id)!.kit]);
+    const first = kitsOf(soloRoom({ mapSeed: 7 }));
+    expect(first).toHaveLength(BOTS);
+    for (const k of first) expect(isConsumableKit(k), k.join(',')).toBe(true);
+    expect(kitsOf(soloRoom({ mapSeed: 7 }))).toEqual(first); // the same seed, the same kits
+    // A random four PER BOT, not one fixed four for the fleet.
+    expect(new Set(first.map((k) => k.join(','))).size).toBeGreaterThan(1);
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 6; seed += 1) {
+      for (const k of kitsOf(soloRoom({ mapSeed: seed }))) for (const id of k) seen.add(id);
+    }
+    expect([...seen].sort()).toEqual([...dealableConsumables()].sort());
+  });
+
   it('varies the class DEAL ORDER across rooms (the order is rolled, not fixed)', () => {
     // The shuffle rides the room's seeded stream, which is keyed off the map
     // seed — so across many rooms the class dealt FIRST (the one that takes
@@ -284,6 +305,15 @@ describe('the solo room — the human joins', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     delete process.env.HC_DEV_OPTIONS;
+  });
+
+  it('seats the human with the kit from the join option, and DEFAULT_KIT for junk (Story 10.1, fail-open)', () => {
+    const r = soloRoom();
+    const kit = ['foulingShell', 'decoyBuoy', 'hullRepair', 'countermeasure'];
+    join(r, 'alice', { kit });
+    expect(r.world.ships.get('alice')!.kit).toEqual(kit);
+    join(r, 'bob', { kit: ['hullRepair', 'hullRepair', 'shieldBlock', 'depthCharge'] });
+    expect(r.world.ships.get('bob')!.kit).toEqual([...DEFAULT_KIT]);
   });
 
   it('arms the countdown with ONE human aboard (expectedCaptains 1, minHumans 1)', () => {

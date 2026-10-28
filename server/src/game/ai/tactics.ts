@@ -240,6 +240,8 @@ export function spendStateOf(self: BotSelf): BotSpendState {
     // The nine slot contents, so the scorer can skip a card `spendCard` would
     // refuse (Story 8.14 review, F4) — a self-read like every other field here.
     slotIds: self.loadout.map((s) => s.equipmentId),
+    // Its own four consumable lines (Story 10.1): the spend stays inside them.
+    kit: self.kit,
     hp: self.hp,
     // The paid HULL REPAIR still draining in (Story 8.20): the scorer's HURT
     // read is (hp + repairHp) / maxHp — the heal tactic's own read.

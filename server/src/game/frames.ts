@@ -87,6 +87,11 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // false, gun, shift)` from it, which is the only reason it rides at all.
     // Slot 0 mounts each gun's OWN module since Story 8.15.
     gun: ship.gun,
+    // THE SEAT'S KIT (Story 10.1, epic-10 amendment 3) — SELF-PRIVATE on the
+    // gun's exact terms: the viewer's own four consumable lines, in key order,
+    // riding `you` and nothing else (non-spatial; not a perception exception).
+    // The client derives every kind -> slot answer from it. Defensively copied.
+    kit: [...ship.kit],
     // (OwnShip.upg died with the legacy upgrade economy — Story 2.8's
     // wholesale strip. The client derives effective stats from (cls, boons).)
     // Banked levels = the bare unspent-level count (single source of truth).

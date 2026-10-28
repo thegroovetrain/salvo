@@ -27,7 +27,7 @@
 //   node_modules/.bin/tsx --tsconfig server/scripts/batchsim/tsconfig.json \
 //     server/scripts/batchsim/encounterSpan.ts [matches] [seed]
 
-import { CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
+import { CONFIG, SHIP_CLASS_IDS, isAfloat, mulberry32, rollKit } from '@salvo/shared';
 import { World } from '../../src/game/world.js';
 import { Match } from '../../src/game/match.js';
 import { isFleetHull } from '../../src/game/participants.js';
@@ -83,7 +83,10 @@ for (let m = 0; m < MATCHES; m++) {
   // ...and every bot draws from the COMMON POOL on the default gun, exactly
   // as a production bot does (Story 8.14).
   // A FULL lobby: the player cap (16 since Story 9.8, Eric 2026-10-13), never a literal.
-  for (let i = 0; i < CONFIG.map.playerCap; i++) world.addBot(SHIP_CLASS_IDS[(i + m) % SHIP_CLASS_IDS.length], undefined);
+  // ...each carrying a RANDOM FOUR consumable lines (Story 10.1, ruling 6) off
+  // a seeded stream of its own (the runner's bot-kit ordinal), never Math.random.
+  const kits = mulberry32(mixSeed(mixSeed(SEED, m), 0x6b17));
+  for (let i = 0; i < CONFIG.map.playerCap; i++) world.addBot(SHIP_CLASS_IDS[(i + m) % SHIP_CLASS_IDS.length], undefined, undefined, rollKit(kits.next));
   match.notifyRosterChanged();
 
   let prev = new Map<string, Per[]>();

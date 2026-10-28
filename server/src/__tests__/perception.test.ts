@@ -111,6 +111,7 @@ import {
   CATALOG,
   CONFIG,
   consumableSlotFor,
+  DEFAULT_KIT,
   DEFAULT_GUN,
   GUN_IDS,
   HORN_IDS,
@@ -122,6 +123,7 @@ import {
   effectiveStats,
   hullSilhouette,
   mulberry32,
+  rollKit,
   FOG_NO_CUT,
   FOG_SOLID_DENSITY,
   fogCutForTarget,
@@ -2745,6 +2747,10 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   expect(JSON.stringify(withoutYou)).not.toContain('"gun"');
   expect(JSON.stringify(f)).not.toContain('"held"');
   if (f.you !== undefined) expect(f.you.gun).toBe(me.gun);
+  // THE SEAT'S KIT (Story 10.1) rides `you` on the gun's exact terms: the
+  // observer's OWN four, and nowhere else in the frame.
+  expect(JSON.stringify(withoutYou)).not.toContain('"kit"');
+  if (f.you !== undefined) expect(f.you.kit).toEqual([...me.kit]);
   // And when it IS on `you`, it is this observer's own record's factor and
   // present only while the observer's own window runs.
   if (f.you !== undefined) {
@@ -4389,6 +4395,10 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         // one `mz` per stream shell, flak bursts over fish.
         const rec = place(w, id, Math.cos(ang) * r, Math.sin(ang) * r, rng.float(0, TAU), GUN_IDS[rng.int(0, GUN_IDS.length - 1)]);
         rec.sweepAngle = rng.float(0, TAU); // decorrelate paint windows
+        // Story 10.1: every seat carries a RANDOM FOUR, so the self-private pin
+        // on `kit` sees varied kits. Off a stream of its OWN (keyed by world and
+        // seat), so the shared `rng` — and every scenario it draws — is unmoved.
+        rec.kit = rollKit(mulberry32(((world + 1) * 0x9e3779b1 + i) >>> 0).next);
         // ...and ~a third open a HUNKER window (a raw state write, like the
         // scratches below) so the self-private pin on `hunkerUntil` is
         // exercised on real frames rather than vacuous.
@@ -4709,7 +4719,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           const patient = w.ships.get(ids[rng.int(0, ids.length - 1)])!;
           patient.hp = Math.max(1, patient.hp - rng.float(10, 60));
           w.applyCard(patient, 'hullRepair');
-          w.sinkingActivationGate(patient, consumableSlotFor('hullRepair')!);
+          w.sinkingActivationGate(patient, consumableSlotFor(DEFAULT_KIT, 'hullRepair')!);
         }
         w.step();
         // THE WAKE-DRAFT LIFT (Story 8.19) must be EXERCISED on the wire, not

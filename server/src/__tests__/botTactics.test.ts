@@ -19,6 +19,10 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  consumableSlotFor,
+  DEFAULT_KIT,
+  type ConsumableId,
+  type ConsumableKit,
   CONFIG,
   hullBumper,
   angleDiff,
@@ -117,8 +121,14 @@ function mkMind(profile: BotProfileId, seed = 7): BotMind {
 /** A bot hull placed exactly where the test wants it, pointed where it wants.
  *  Islands are cleared so placement is never fought by the spawn lattice or
  *  the collision push-out (the island-specific tests clear nothing). */
-function mkBot(w: World, hullId: ShipClassId, x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(`b-${w.ships.size + 1}`, 'TESTER', 'bot', hullId, undefined, { x, y });
+/** A kit that CARRIES `line` (Story 10.1) — on key 1, the default four
+ *  filling the rest — so a belt case never depends on the default holding it. */
+function kitWith(line: ConsumableId): ConsumableKit {
+  return [line, ...DEFAULT_KIT.filter((k) => k !== line)].slice(0, DEFAULT_KIT.length);
+}
+
+function mkBot(w: World, hullId: ShipClassId, x: number, y: number, heading = 0, kit: ConsumableKit = DEFAULT_KIT): ShipRecord {
+  const rec = w.addShip(`b-${w.ships.size + 1}`, 'TESTER', 'bot', hullId, undefined, { x, y }, undefined, kit);
   // THE CLASS WEAPON IS A CARD (Story 8.10, amendment 62): a hull spawns with
   // gun + Shift and an EMPTY weapon row, so this fixture fits the tube / the
   // barrage / the rack explicitly — every weapon-policy case below is about
@@ -1923,7 +1933,7 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
   // steering to a band computed as though it had only its gun.
   it('THE BELT PULLS TOO: a ready SUPERCAV stack contributes its reach', () => {
     const w = openWorld(416);
-    const rec = mkBot(w, 'battleship', 0, 0, 0);
+    const rec = mkBot(w, 'battleship', 0, 0, 0, kitWith('supercavTorpedo'));
     // Strip the hull back to the GUN alone, so the only thing that can move the
     // band is the belt.
     for (let i = 0; i < rec.loadout.length; i += 1) {
@@ -2552,7 +2562,7 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
   } {
     const w = openWorld(seed);
     const port = fakePort(w);
-    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0);
+    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0, kitWith(line));
     for (const i of [SLOT_BOOST, 2, 3, 4]) rec.loadout[i] = { equipmentId: null, state: null };
     w.applyCard(rec, line);
     const belt = slotOf(rec, line);
@@ -2897,10 +2907,13 @@ describe('Story 8.20 — the total registries (ai/tacticRegistry.ts)', () => {
     const port = fakePort(w);
     const rec = mkBot(w, 'torpedoBoat', 0, 0, 0);
     rec.hp = rec.stats.maxHp * 0.1; // disengaging: every retreat cue is live
-    rec.loadout[5] = { equipmentId: 'depthCharge', state: { n: 3, reloadMsLeft: 0 } };
+    // The stub has no slot under any kit (Story 10.1), so it is forced into
+    // the FIRST kit line's slot — "somehow holding" it.
+    const slot = consumableSlotFor(rec.kit, rec.kit[0])!;
+    rec.loadout[slot] = { equipmentId: 'depthCharge', state: { n: 3, reloadMsLeft: 0 } };
     const mind = mkMind('duelist');
     plot(mind, track(port.now, { x: 150, y: 0, speed: 0 }));
-    const ctx = { self: rec, mind, sit: { now: port.now }, posture: 'disengage', target: null, slot: 5 } as unknown as Parameters<
+    const ctx = { self: rec, mind, sit: { now: port.now }, posture: 'disengage', target: null, slot } as unknown as Parameters<
       typeof row.want
     >[0];
     expect(row.want(ctx)).toBe(false);

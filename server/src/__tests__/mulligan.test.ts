@@ -420,7 +420,7 @@ function fitted(
   fit: readonly string[],
   hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
 ): ShipRecord {
-  return w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined,DEFAULT_GUN, fit);
+  return w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, DEFAULT_GUN, undefined, fit);
 }
 
 const slotIds = (rec: ShipRecord): (string | null)[] => rec.loadout.map((s) => s.equipmentId);
@@ -468,8 +468,8 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
 
   it('NEVER a bot and NEVER a fleet hull — the same option buys them nothing', () => {
     const w = bareWorld();
-    const ai = w.addShip('bot-1', 'BOT-1', 'bot', 'torpedoBoat', undefined, undefined,DEFAULT_GUN, ['heavyTorpedo']);
-    const drone = w.addShip('fleet-1', 'FLEET-1', 'fleet', 'droneSmall', undefined, undefined,DEFAULT_GUN, ['heavyTorpedo']);
+    const ai = w.addShip('bot-1', 'BOT-1', 'bot', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, undefined, ['heavyTorpedo']);
+    const drone = w.addShip('fleet-1', 'FLEET-1', 'fleet', 'droneSmall', undefined, undefined, DEFAULT_GUN, undefined, ['heavyTorpedo']);
     for (const s of [ai, drone]) {
       expect(s.devFit, s.id).toEqual([]);
       expect(s.cards, s.id).toEqual([]);

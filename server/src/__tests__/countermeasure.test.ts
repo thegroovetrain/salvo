@@ -27,6 +27,7 @@ import {
   CONFIG,
   cloudOutlineRadius,
   consumableSlotFor,
+  DEFAULT_KIT,
   islandBlocksSegment,
   isSinking,
   wrapPositive,
@@ -39,7 +40,7 @@ import { circleIsland, flatRaster, rasterFrom, ridgeField } from './islandFixtur
 
 const CM = CONFIG.countermeasure;
 const DT = CONFIG.tick.simDtMs;
-const KEY = consumableSlotFor('countermeasure')!;
+const KEY = consumableSlotFor(DEFAULT_KIT, 'countermeasure')!;
 
 type P = { x: number; y: number };
 

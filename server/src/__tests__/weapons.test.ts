@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   consumableSlotFor,
+  type ConsumableKit,
   SLOT_COUNT,
   isAfloat,
   CONFIG,
@@ -677,11 +678,15 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
 // STORY 8.13 — THE LIGHT TORPEDO AND THE SUPERCAV CONSUMABLE
 // ---------------------------------------------------------------------------
 
+/** The carriers' kit (Story 10.1): it must CARRY the supercav, which the
+ *  default four do not — a consumable outside the kit has no slot. */
+const KIT: ConsumableKit = ['shieldBlock', 'supercavTorpedo', 'hullRepair', 'foulingShell'];
+
 /** A captain holding `n` copies of `line`, aimed at `aim`, with the named slot
  *  selected. Everything real: production catalog, production registry, the
  *  same `applyCard` path a pick takes. */
 function carrier(w: World, id: string, line: string, n: number, aim: number, slot: number): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, undefined, KIT);
   rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
   for (let i = 0; i < n; i += 1) w.applyCard(rec, line);
   rec.input = { seq: 1, throttle: 0, rudder: 0, aim, fireSeq: 1, aimDist: 0, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
@@ -689,8 +694,9 @@ function carrier(w: World, id: string, line: string, n: number, aim: number, slo
 }
 
 const SLOT_WEAPON_1 = 2;
-/** SUPERCAV TORPEDO's own fixed slot (Story 9.2) — the subject below. */
-const SLOT_BELT_1 = consumableSlotFor('supercavTorpedo')!;
+/** SUPERCAV TORPEDO's slot under the carrier's kit (Story 10.1) — the subject
+ *  below. */
+const SLOT_BELT_1 = consumableSlotFor(KIT, 'supercavTorpedo')!;
 
 describe('LIGHT TORPEDO — the twin beam sectors (catalog-v3 R18, Story 8.13)', () => {
   // THE ARC IS THE WHOLE POINT OF THIS LINE. The heavy fires into a ±30° bow

@@ -34,6 +34,7 @@ import type {
   ZoneRing,
   CONFIG,
   BoonOffer,
+  ConsumableKit,
   EffectiveStats,
   LoadoutSlot,
   ShipLifecycle,
@@ -125,6 +126,10 @@ export interface BotSelf {
   readonly repairHp: number;
   readonly stats: EffectiveStats;
   readonly loadout: readonly LoadoutSlot[];
+  /** This hull's OWN FOUR consumable lines, in key order (Story 10.1, Eric
+   *  ruling 6) — exactly the `OwnShip.kit` a human client is sent. The spend
+   *  policy reads it to stay inside the four; ShipRecord has it. */
+  readonly kit: ConsumableKit;
   /** The sim's own "this hull is pressing into LAND" bit (map-edge press is
    *  deliberately NOT contact — cycle 59). The un-beach trip reads this,
    *  never a speed guess. */

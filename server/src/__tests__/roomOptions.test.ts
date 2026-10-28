@@ -3,11 +3,12 @@
 // Colyseus room needed to exercise every branch.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_GUN, GUN_IDS, mapRadius } from '@salvo/shared';
+import { CONFIG, DEFAULT_GUN, DEFAULT_KIT, GUN_IDS, KIT_SIZE, dealableConsumables, isConsumableKit, mapRadius } from '@salvo/shared';
 import {
   DEV_LIST_MAX,
   NAME_MAX,
   sanitizeGun,
+  sanitizeKit,
   sanitizeName,
   sanitizeRoomOptions,
   type RoomOptions,
@@ -338,6 +339,54 @@ describe('sanitizeName — options.name is client-supplied and untrusted', () =>
 // like `cls` and `horn`, not a privileged override: it fails OPEN to `deckGun`
 // and can never refuse a join. All three ids are accepted today;
 // `machineGun`/`flak` mount the shipped deck-gun module until Story 8.15.
+
+// sanitizeKit (Story 10.1, epic-10 amendment 3) — THE SEAT'S KIT, the gun's
+// twin: an identity option that fails OPEN to DEFAULT_KIT, logs a
+// present-but-invalid value once (`join.kitCoerced`) and never refuses.
+describe('sanitizeKit — the seat\'s four consumable lines', () => {
+  type Log = Parameters<typeof sanitizeKit>[1];
+  const capture = () => {
+    const lines: { event: string; fields: unknown }[] = [];
+    const log = { warn: (event: string, fields?: unknown) => lines.push({ event, fields }) } as unknown as Log;
+    return { lines, log };
+  };
+  const pool = dealableConsumables();
+
+  it('passes a valid kit through as the same four, in order (a copy, never the caller\'s array)', () => {
+    // Non-default: the pool's LAST four, reversed.
+    const kit = pool.slice(-KIT_SIZE).reverse();
+    expect(isConsumableKit(kit)).toBe(true);
+    const { lines, log } = capture();
+    const out = sanitizeKit(kit, log);
+    expect(out).toEqual(kit);
+    expect(out).not.toBe(kit);
+    expect(lines).toEqual([]);
+  });
+
+  it('an ABSENT kit is DEFAULT_KIT, silently', () => {
+    const { lines, log } = capture();
+    expect(sanitizeKit(undefined, log)).toEqual(DEFAULT_KIT);
+    expect(lines).toEqual([]);
+  });
+
+  it('junk, a wrong length, a duplicate, a stub and an unknown id are each DEFAULT_KIT with ONE join.kitCoerced', () => {
+    const valid = pool.slice(0, KIT_SIZE);
+    const bad: unknown[] = [
+      null, 42, 'hullRepair', {}, [], // junk
+      valid.slice(0, KIT_SIZE - 1), // short
+      [...valid, pool[KIT_SIZE]], // long
+      [valid[0], valid[0], ...valid.slice(2)], // a duplicate
+      [...valid.slice(0, KIT_SIZE - 1), 'depthCharge'], // the stub
+      [...valid.slice(0, KIT_SIZE - 1), 'noSuchLine'], // unknown
+      [...valid.slice(0, KIT_SIZE - 1), 7], // a non-string entry
+    ];
+    for (const raw of bad) {
+      const { lines, log } = capture();
+      expect(sanitizeKit(raw, log), JSON.stringify(raw)).toEqual(DEFAULT_KIT);
+      expect(lines.map((l) => l.event), JSON.stringify(raw)).toEqual(['join.kitCoerced']);
+    }
+  });
+});
 
 describe('sanitizeGun — the three ids', () => {
   it('passes every GunId through verbatim', () => {

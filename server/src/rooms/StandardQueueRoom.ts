@@ -13,7 +13,7 @@
 
 import { ClientState, CloseCode, ErrorCode, Room, ServerError, type AuthContext, type Client } from 'colyseus';
 import { CONFIG, MSG, type QueueStatusMsg } from '@salvo/shared';
-import { protocolVersionError, sanitizeGun, type JoinOptions } from './roomOptions.js';
+import { protocolVersionError, sanitizeGun, sanitizeKit, type JoinOptions } from './roomOptions.js';
 import { stagingGateError } from '../stagingGate.js';
 import { defaultQueueConfig, queueStep, type QueueConfig, type QueueDecision } from './queue.js';
 import { formArena, sanitizeArenaOptions, type SeatedCaptain } from './formArena.js';
@@ -118,11 +118,12 @@ export class StandardQueueRoom extends Room {
     // `auth`. Nothing at this door can refuse a join any more — the deck door
     // and its 4402 are gone — so a malformed gun simply coerces to `deckGun`.
     const arenaOptions = sanitizeArenaOptions(options);
-    // ONLY THE GUN travels: the dev spawn fit (`fitOverride`, amendment 65) is
+    // ONLY THE GUN (and, since Story 10.1, THE KIT) travels: the dev spawn fit (`fitOverride`, amendment 65) is
     // a direct-door smoke arm and is deliberately NOT written into the seat
     // reservation — a queued captain can never reach it.
     const gun = sanitizeGun(options.gun, this.log);
-    this.pool.push({ client, options: arenaOptions, gun });
+    const kit = sanitizeKit(options.kit, this.log); // Story 10.1: rides `auth` beside the gun
+    this.pool.push({ client, options: arenaOptions, gun, kit });
     this.log.info('queue.join', { sessionId: client.sessionId, pooled: this.pool.length });
     this.armJoiningDeadline(client);
     this.evaluate(true);

@@ -65,6 +65,7 @@ import {
   tierTargetOf,
   type Catalog,
   type CatalogLine,
+  type ConsumableKit,
   type EquipmentId,
   type Rng,
   type SlotItemId,
@@ -82,7 +83,7 @@ export interface BotSpendState {
   /** Card line ids already fitted, in fit order (repeats = stacks). */
   cards: readonly string[];
   /**
-   * The bot's ELEVEN SLOT CONTENTS (`loadout.map(s => s.equipmentId)`) — the same
+   * The bot's NINE SLOT CONTENTS (`SLOT_COUNT`, Story 10.1) (`loadout.map(s => s.equipmentId)`) — the same
    * array the server's `pickRefusal` takes, read off the bot's own ShipRecord
    * by the driver like everything else here (ai/ never sees a World).
    *
@@ -95,6 +96,14 @@ export interface BotSpendState {
    * the many hand-built test states keep compiling.
    */
   slotIds?: readonly (SlotItemId | null)[];
+  /**
+   * The bot's OWN FOUR consumable lines (Story 10.1, Eric ruling 6) — rolled
+   * at enrollment, read off its ShipRecord (`BotSelf.kit`). REQUIRED: it is
+   * what `pickRefusal` confines the spend to (a consumable outside it has no
+   * slot and is refused as `stub`) and what `carries` maps a kind to its slot
+   * by, so no state may silently ride a default kit.
+   */
+  kit: ConsumableKit;
   hp: number;
   /**
    * The paid HULL REPAIR pool still draining in (`BotSelf.repairHp`) — hp
@@ -130,7 +139,7 @@ function spendableIndices(s: BotSpendState, catalog: Catalog): number[] {
   const slotIds = slotIdsOf(s);
   const out: number[] = [];
   for (let i = 0; i < offer.length; i += 1) {
-    if (pickRefusal(s.cards, slotIds, offer[i], catalog) === null) out.push(i);
+    if (pickRefusal(s.cards, slotIds, offer[i], s.kit, catalog) === null) out.push(i);
   }
   return out;
 }
@@ -210,10 +219,11 @@ function isHurt(profile: BotProfile, s: BotSpendState): boolean {
   return s.maxHp > 0 && (s.hp + (s.repairHp ?? 0)) / s.maxHp < profile.healHpFrac;
 }
 
-/** Does this consumable's FIXED slot (`consumableSlotFor`, Story 9.2) hold a
- *  stack? */
+/** Does this consumable's slot under the bot's OWN kit (`consumableSlotFor`,
+ *  Story 10.1) hold a stack? A kind outside the kit has no slot — never
+ *  carried. */
 function carries(s: BotSpendState, id: string): boolean {
-  const slot = isConsumableId(id) ? consumableSlotFor(id) : null;
+  const slot = isConsumableId(id) ? consumableSlotFor(s.kit, id) : null;
   return slot !== null && slotIdsOf(s)[slot] === id;
 }
 
@@ -238,7 +248,7 @@ export function cardScore(
   lineId: string,
   catalog: Catalog = CATALOG,
 ): number | null {
-  if (pickRefusal(s.cards, slotIdsOf(s), lineId, catalog) !== null) return null;
+  if (pickRefusal(s.cards, slotIdsOf(s), lineId, s.kit, catalog) !== null) return null;
   const line = catalog[lineId];
   if (line === undefined) return null;
   if (line.kind === 'consumable') return consumableScore(profile, s, lineId);
