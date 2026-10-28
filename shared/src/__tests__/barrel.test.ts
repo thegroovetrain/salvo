@@ -17,6 +17,12 @@ import {
   WEAPON_SLOTS,
   CONSUMABLE_SLOTS,
   consumableSlotFor,
+  consumableKindAt,
+  DEFAULT_KIT,
+  KIT_SIZE,
+  dealableConsumables,
+  isConsumableKit,
+  rollKit,
   MULLIGAN_CHOICE,
   effectiveStats,
   equipmentMaxAmmo,
@@ -114,7 +120,9 @@ describe('shared barrel', () => {
 
   it('re-exports config, wire tags, and functions', () => {
     expect(MSG.input).toBe('i');
-    expect(SLOT_COUNT).toBe(2 + WEAPON_SLOTS.length + CONSUMABLE_SLOTS.length); // gun, Shift, Q/E/R, one per keyed consumable
+    expect(SLOT_COUNT).toBe(2 + WEAPON_SLOTS.length + CONSUMABLE_SLOTS.length); // gun, Shift, Q/E/R, one per carried consumable
+    expect(CONSUMABLE_SLOTS).toHaveLength(KIT_SIZE); // Story 10.1: four, per ship, by its kit
+    expect(SLOT_COUNT).toBe(2 + WEAPON_SLOTS.length + KIT_SIZE);
     expect(typeof mapRadius).toBe('function');
     expect(typeof stepShip).toBe('function');
     expect(typeof generateMap).toBe('function');
@@ -263,12 +271,20 @@ describe('shared barrel', () => {
     // through the guard.
     for (const id of CONSUMABLE_IDS) expect((EQUIPMENT_IDS as readonly string[]).includes(id), id).toBe(false);
     for (const id of EQUIPMENT_IDS) expect(isConsumableId(id), id).toBe(false);
-    // A kind stocks at its OWN fixed slot (Story 9.2) and nowhere else.
+    // A kind stocks at its OWN fixed slot under the ship's KIT (Story 9.2 /
+    // 10.1) and nowhere else.
     const empty: (SlotItemId | null)[] = Array.from({ length: SLOT_COUNT }, () => null);
-    expect(stockSlotFor(empty, 'hullRepair')).toBe(consumableSlotFor('hullRepair'));
-    // `canStock` and the `beltFull` refusal are DELETED with the belt.
+    expect(stockSlotFor(empty, 'hullRepair', DEFAULT_KIT)).toBe(consumableSlotFor(DEFAULT_KIT, 'hullRepair'));
+    // THE KIT LAW (Story 10.1): the validator, the roll, the pool and the
+    // default ride the barrel for both sides.
+    for (const fn of [isConsumableKit, rollKit, dealableConsumables, consumableKindAt]) expect(typeof fn).toBe('function');
+    expect(isConsumableKit(DEFAULT_KIT)).toBe(true);
+    expect(DEFAULT_KIT).toHaveLength(KIT_SIZE);
+    // `canStock` and the `beltFull` refusal are DELETED with the belt; the
+    // global key row `CONSUMABLE_KEY_ORDER` is DELETED with Story 10.1 (no alias).
     const ns = shared as Record<string, unknown>;
     expect(ns.canStock).toBeUndefined();
+    expect(ns.CONSUMABLE_KEY_ORDER).toBeUndefined();
   });
 
   it('CONFIG.broadside never hits a mine, carries its own range dial and no arc field, and both arc ladders are cap-long', () => {

@@ -8,11 +8,14 @@
 import {
   CONFIG,
   DEFAULT_GUN,
+  DEFAULT_KIT,
+  isConsumableKit,
   isGunId,
   mapRadius,
   PROTOCOL_VERSION,
   REGATTA_HUES,
   wrapAngle,
+  type ConsumableKit,
   type GunId,
   type ZoneTimeline,
 } from '@salvo/shared';
@@ -91,6 +94,17 @@ export interface JoinOptions {
    */
   gun?: unknown;
   /**
+   * THE SEAT'S CONSUMABLE KIT (Story 10.1, epic-10 amendment 3): the FOUR
+   * distinct non-stub consumable lines this captain picked on the port screen,
+   * in key order (`kit[i]` on key `i + 1`, slot `5 + i`). A PLAIN identity join
+   * option exactly like `gun` (NOT gated by HC_DEV_OPTIONS): onJoin runs it
+   * through `sanitizeKit`, so anything missing or invalid (wrong length, a
+   * duplicate, a stub, an unknown id, not an array) becomes `DEFAULT_KIT`.
+   * The queue freezes the sanitized value into the seat reservation's
+   * server-only `auth` beside the gun.
+   */
+  kit?: unknown;
+  /**
    * DEV SMOKE ARM for tests/smokes only (Story 8.10, epic-8 amendment 65) —
    * the real client NEVER sets it, and production never sees it. A list of
    * card LINE ids the World pre-fits at the CAPTAIN's spawn, each consuming
@@ -148,6 +162,20 @@ export function sanitizeGun(raw: unknown, log?: Logger): GunId {
   if (isGunId(raw)) return raw;
   if (raw !== undefined) log?.warn('join.gunCoerced', { to: DEFAULT_GUN });
   return DEFAULT_GUN;
+}
+
+/**
+ * THE SEAT'S KIT, SANITIZED (Story 10.1, epic-10 amendment 3) — `sanitizeGun`'s
+ * twin. A copy of the four lines when `isConsumableKit` (shared, the ONE
+ * validator both sides call) accepts the value, else `DEFAULT_KIT`. FAIL-OPEN,
+ * never a refusal: the kit is an identity option like `cls` and `gun`. A
+ * PRESENT-BUT-INVALID value is logged once (`join.kitCoerced`); an ABSENT one
+ * logs nothing. Pure apart from the optional logger.
+ */
+export function sanitizeKit(raw: unknown, log?: Logger): ConsumableKit {
+  if (isConsumableKit(raw)) return [...raw];
+  if (raw !== undefined) log?.warn('join.kitCoerced', { to: DEFAULT_KIT });
+  return DEFAULT_KIT;
 }
 
 /** Bounds on a dev id list: entries, and code points per entry. Generous —

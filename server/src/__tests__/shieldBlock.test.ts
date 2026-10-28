@@ -7,12 +7,13 @@
 // the real gate, and the self-private `OwnShip.shield` wire field.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, consumableSlotFor, damageMultiplierFor, type DamageEvent, type GameEvent, type Target, type TargetKind } from '@salvo/shared';
+import { CONFIG, consumableSlotFor,
+  DEFAULT_KIT, damageMultiplierFor, type DamageEvent, type GameEvent, type Target, type TargetKind } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
 
-const BELT = consumableSlotFor('shieldBlock')!;
+const BELT = consumableSlotFor(DEFAULT_KIT, 'shieldBlock')!;
 
 type Src = 'shell' | 'burst' | 'torpedo' | 'mine' | 'burn' | 'storm' | 'contact';
 

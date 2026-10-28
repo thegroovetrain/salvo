@@ -28,8 +28,10 @@ import {
   GUN_IDS,
   SHIP_CLASS_IDS,
   mulberry32,
+  rollKit,
   zoneClosedAtMs,
   zoneGroups,
+  type ConsumableKit,
   type GunId,
   type ShipClassId,
 } from '@salvo/shared';
@@ -62,6 +64,10 @@ const ZONE_SEED_ORDINAL = 0x7a0e;
 /** mixSeed ordinal reserved for a match's BOT-GUN stream (Story 8.15) — outside
  *  the captain band (0x100 + i) and the zone band (ZONE_SEED_ORDINAL + ring). */
 const BOT_GUN_SEED_ORDINAL = 0x6a4e;
+/** mixSeed ordinal reserved for a match's BOT-KIT stream (Story 10.1) — its own
+ *  stream beside the gun's, so rolling kits moves no other roll. Outside the
+ *  captain band (0x100 + i), the zone band and the bot-gun ordinal. */
+const BOT_KIT_SEED_ORDINAL = 0x6b17;
 
 export interface RunSpec {
   seed: number;
@@ -160,6 +166,7 @@ export function buildBotLobby(world: World, spec: RunSpec, botCount: number, mat
   // BEFORE any enrollment — the mode is stamped onto each mind at enroll.
   if (spec.botSpend !== undefined) world.bots.spend = spec.botSpend;
   const guns = botGunDealer(spec, matchSeed);
+  const kits = botKitDealer(matchSeed);
   const ids: string[] = [];
   for (let i = 0; i < botCount; i += 1) {
     const profile = botProfileFor(spec, i, index);
@@ -174,7 +181,8 @@ export function buildBotLobby(world: World, spec: RunSpec, botCount: number, mat
     // and MOUNT A GUN (Story 8.15): the forced --gun, else a seeded uniform
     // draw — production's rule (see botGunDealer).
     const hull = profile === undefined ? (spec.botHull ?? botHull(spec, index, i)) : undefined;
-    ids.push(world.addBot(hull, profile, guns()).id);
+    // ...and CARRY A RANDOM FOUR (Story 10.1, ruling 6) off the kit stream.
+    ids.push(world.addBot(hull, profile, guns(), kits()).id);
   }
   return ids;
 }
@@ -193,6 +201,18 @@ export function botGunDealer(spec: Pick<RunSpec, 'botGun'>, matchSeed: number): 
   if (forced !== undefined) return () => forced;
   const rng = mulberry32(mixSeed(matchSeed, BOT_GUN_SEED_ORDINAL));
   return () => GUN_IDS[rng.int(0, GUN_IDS.length - 1)];
+}
+
+/**
+ * THE BOT KIT DEAL (Story 10.1, Eric ruling 6): each bot rolls four distinct
+ * non-stub consumable lines uniformly (`rollKit`, shared) off a stream seeded
+ * from the MATCH seed on its own ordinal — the harness twin of
+ * ArenaRoom.buildBotFleet's seeded roll. Never Math.random. Exported for the
+ * determinism pin.
+ */
+export function botKitDealer(matchSeed: number): () => ConsumableKit {
+  const rng = mulberry32(mixSeed(matchSeed, BOT_KIT_SEED_ORDINAL));
+  return () => rollKit(rng.next);
 }
 
 export interface ReachSample {

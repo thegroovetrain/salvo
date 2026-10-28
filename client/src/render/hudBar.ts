@@ -6,7 +6,7 @@
 // three corners (bottom-left hotbar stack, bottom-right vitals cluster,
 // bottom-left XP rail). Left to right it reads
 //
-//   HP globe | Gun  Shift  Q  E  R | [ 1 2 3 4 5 6 ] | helm globe
+//   HP globe | Gun  Shift  Q  E  R | [ 1 2 3 4 ] | helm globe
 //                                   ^ the framed consumable belt
 //
 // with the XP strip's row beneath the whole thing. Every number comes from
@@ -16,7 +16,8 @@
 // px (amendment 32; the mock draws the HP globe at 96). Story 9.2's two-row
 // stack is retired: Story 9.11 (Eric 2026-10-14, epic-9 amendment 151) put the
 // bar back on this one row, with the belt frame holding all SIX consumable
-// squares (keys 1–6).
+// squares (keys 1–6); Story 10.1 (epic-10 amendment 3) narrowed it to the
+// ship's four-line KIT (keys 1–4) — `CONSUMABLE_SLOTS.length`, never a literal.
 //
 // LOGICAL UNITS. main.ts divides the real screen by the UI scale before it
 // hands sizes to the HUD, so `hudBarLayout` never sees a scale factor and every
@@ -94,9 +95,9 @@ export interface StripLayout {
 
 /**
  * The whole bar, laid out. `squares` and `chips` are indexed by LOADOUT SLOT
- * (0 gun, 1 boost, 2-4 Q/E/R, 5-10 the six consumable kinds in key order), so
+ * (0 gun, 1 boost, 2-4 Q/E/R, then the kit's squares in key order), so
  * a caller never re-derives the slot order; `belt` is the consumable FRAME
- * (its padding encloses the six belt squares AND their chips); `dimGroups` is
+ * (its padding encloses the kit's belt squares AND their chips); `dimGroups` is
  * the exactly-two boxes that drop to `dimAlpha` while the refit window is open
  * or the start line is held (the mock's `.B-slots` and `.belt`) — the globes
  * and the XP strip stay at full.
@@ -112,15 +113,15 @@ export interface HudBarLayout {
   dimGroups: Rect[];
 }
 
-/** How many squares sit in the belt frame (6) and ahead of it (5). */
+/** How many squares sit in the belt frame (the kit's) and ahead of it (5). */
 const BELT_COUNT = CONSUMABLE_SLOTS.length;
 const WEAPON_ROW_COUNT = SLOT_COUNT - BELT_COUNT;
 
 /** The five-square weapon run: 5 x 54 + 4 x 8 = 302. */
 const SLOT_RUN_W = WEAPON_ROW_COUNT * B.slot + (WEAPON_ROW_COUNT - 1) * B.slotGap;
 
-/** The belt FRAME: its padding encloses six 44 px squares AND their chips —
- *  8 + 6 x 44 + 5 x 6 + 8 = 310. */
+/** The belt FRAME: its padding encloses BELT_COUNT 44 px squares AND their
+ *  chips — 8 + n x 44 + (n - 1) x 6 + 8. */
 const BELT_W = B.beltPad.side * 2 + BELT_COUNT * B.beltSlot + (BELT_COUNT - 1) * B.beltGap;
 
 /** A slot's full column (54 + 5 + 16 = 75) and the belt frame's height
@@ -129,9 +130,10 @@ const SLOT_COL_H = B.slot + B.chipGap + B.chipH;
 const BELT_COL_H = B.beltPad.top + B.beltSlot + B.chipGap + B.chipH + B.beltPad.bottom;
 
 /**
- * THE BAR'S WIDTH (px) — 868, DERIVED, never a literal:
- *   104 + 16 + (5 x 54 + 4 x 8) + 16 + (8 + 6 x 44 + 5 x 6 + 8) + 16 + 104
- * (Story 8.6's 768 with the belt frame widened from four squares to six).
+ * THE BAR'S WIDTH (px) — DERIVED, never a literal:
+ *   104 + 16 + (5 x 54 + 4 x 8) + 16 + BELT_W + 16 + 104
+ * (Story 8.6's four-square belt, widened to six by 9.11, back to the kit's
+ * four by Story 10.1 — only BELT_COUNT moves).
  */
 export const HUD_BAR_WIDTH =
   B.globe + B.globeGap + SLOT_RUN_W + B.globeGap + BELT_W + B.globeGap + B.globe;

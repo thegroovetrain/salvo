@@ -297,7 +297,7 @@ class PacifistControl implements CaptainControl {
     // drain at most one banked level per tick through the REAL spend flow.
     if (ship.offer !== null) {
       // null = every card in the hand is refused (review F4): hold the level.
-      const choice = pickSpendChoice(ship.offer, this.rng, ship.cards, ship.loadout.map((s) => s.equipmentId));
+      const choice = pickSpendChoice(ship.offer, this.rng, ship.cards, ship.loadout.map((s) => s.equipmentId), ship.kit);
       if (choice !== null) world.spendPoint(this.id, choice);
     }
     if (!isAfloat(ship.lifecycle)) {

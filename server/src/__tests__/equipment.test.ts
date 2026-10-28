@@ -28,6 +28,7 @@ import {
   SLOT_GUN,
   WEAPON_SLOTS,
   consumableSlotFor,
+  DEFAULT_KIT,
   equipmentMaxAmmo,
   isStubLine,
   tierTargetOf,
@@ -81,7 +82,7 @@ const SLOT_SECOND = WEAPON_SLOTS[1];
 const SLOT_EMPTY_WEAPON = WEAPON_SLOTS[2];
 /** HULL REPAIR's FIXED consumable slot (Story 9.2 — every kind owns one; the
  *  cases below stock HULL REPAIR, so this is where its stack lives). */
-const SLOT_BELT = consumableSlotFor('hullRepair')!;
+const SLOT_BELT = consumableSlotFor(DEFAULT_KIT, 'hullRepair')!;
 
 // ---------- construction helpers ---------------------------------------------
 

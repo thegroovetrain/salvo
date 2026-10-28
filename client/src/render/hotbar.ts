@@ -1,15 +1,17 @@
 // THE SLOT ROW (Story 2.2's hotbar, RE-CUT onto the HUD bar in Story 8.6) —
-// eleven squares and one framed belt, drawn in Pixi over the water at the
+// nine squares and one framed belt, drawn in Pixi over the water at the
 // geometry `render/hudBar.ts` hands it:
 //
-//   HP globe | Gun  Shift  Q  E  R | [ 1  2  3  4  5  6 ] | helm globe
+//   HP globe | Gun  Shift  Q  E  R | [ 1  2  3  4 ] | helm globe
 //                                    ^ the belt frame this module draws
 //
 // Since Story 9.2 every consumable kind owns one fixed belt square and key
-// (keys 1–6, epic-9 amendment 21), and a kind at zero stock keeps its square in
+// (keys 1–6 then, epic-9 amendment 21), and a kind at zero stock keeps its square in
 // the ZERO-STOCK state (dashed, its own glyph faint, no badge). Story 9.2's
 // two-row stack is retired: Story 9.11 (epic-9 amendment 151) put the row and
-// its belt frame back, the frame now holding all six squares.
+// its belt frame back, the frame then holding all six squares. Since Story
+// 10.1 (epic-10 amendment 3) the belt holds the ship's KIT — the four lines the
+// captain picked, keys 1–4, `kit[i]` at slot `5 + i` — read off `view.kit`.
 //
 // WHAT STORY 8.6 DELETED, and why it is deletion rather than a flag:
 //   • `hotbarLayout` / `HotbarLayout` — the bottom-left stack is gone; the bar's
@@ -73,6 +75,7 @@ import {
   consumableKindAt,
   equipmentMaxAmmo,
   isConsumableId,
+  type ConsumableKit,
   type EquipmentId,
   type EffectiveStats,
   type ShipClassId,
@@ -113,7 +116,7 @@ const B = CLIENT_CONFIG.hudBar;
 const W = B.wipe;
 const MONO = CLIENT_CONFIG.type.mono;
 
-/** Pure: is this slot one of the six fixed CONSUMABLE squares (the framed
+/** Pure: is this slot one of the four KIT squares (the framed
  *  belt's 44px squares, no tier numeral)? Membership is shared's, never a local
  *  range. */
 export function isConsumableSlot(slot: number): boolean {
@@ -125,7 +128,7 @@ export function isConsumableSlot(slot: number): boolean {
 /** The NINE slot states: the seven ratified in DESIGN.md · Components · Hotbar
  *  Slot, plus ACTIVE (amendment 48 — an ability window is RUNNING) and
  *  ZERO-STOCK (Story 9.2, epic-9 amendment 22 — a consumable square whose kind
- *  is at zero copies; it replaces `empty` on the six consumable squares only). */
+ *  is at zero copies; it replaces `empty` on the kit's squares only). */
 export type SlotState =
   | 'empty'
   | 'zeroStock'
@@ -255,6 +258,10 @@ export interface SlotViewModel {
 export interface HotbarView {
   /** Slot-aligned own loadout ids (null = unfitted). */
   loadout: readonly (SlotItemId | null)[];
+  /** The own ship's KIT (Story 10.1, `OwnShip.kit` off the wire): the four
+   *  consumable lines in key order — `consumableKindAt(kit, slot)` names a
+   *  ZERO-STOCK square's kind. Required, so no caller rides a default kit. */
+  kit: ConsumableKit;
   /** Slot-aligned server-authoritative pools + reload timers. */
   ammo: readonly (WeaponAmmo | null)[];
   /** Own effective stats — every denominator (reload, pool size). */
@@ -423,8 +430,8 @@ export function slotDegraded(view: HotbarView, slot: number, denied: boolean): b
 /**
  * Pure: a consumable square whose kind is at ZERO stock (Story 9.2, epic-9
  * amendments 22/35). The slot is still that kind's — `consumableKindAt` names
- * it — so the model carries the kind's id for the glyph and the tooltip (the
- * stocked square's own content, read at stock 0; no new copy) while the STATE
+ * it off the ship's kit (Story 10.1) — so the model carries the kind's id for
+ * the glyph and the tooltip (the stocked square's own content, read at stock 0; no new copy) while the STATE
  * is `zeroStock`: dashed, the glyph faint, no badge, no tier, no clock. A key
  * press on it is the empty-slot denial, so the denied latch wins here exactly
  * as it does on a stocked square — the square flashes red.
@@ -443,7 +450,7 @@ function zeroStockModel(view: HotbarView, slot: number, kind: SlotItemId, keyGly
 /** Pure: the model for a square that holds nothing this frame — ZERO-STOCK on a
  *  consumable square (its kind is fixed), the ruled empty dash everywhere else. */
 function unheldSlotModel(view: HotbarView, slot: number, keyGlyph: string): SlotViewModel {
-  const kind = consumableKindAt(slot);
+  const kind = consumableKindAt(view.kit, slot);
   return kind === null ? emptySlotModel(slot, keyGlyph) : zeroStockModel(view, slot, kind, keyGlyph);
 }
 
@@ -1243,7 +1250,7 @@ export class Hotbar {
 
   /**
    * THE BELT FRAME (ruling 5, back in Story 9.11) — one 1px silver .2 rectangle
-   * around the six consumable squares AND their chips (the mock's `.belt`
+   * around the kit's consumable squares AND their chips (the mock's `.belt`
    * encloses the whole `.sw` column). It is the only grouping mark on the bar:
    * the belt is a different KIND of slot (stock you spend, not kit you fire),
    * and the frame is what says so without a word.

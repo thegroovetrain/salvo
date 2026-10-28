@@ -1,10 +1,20 @@
 // Slot-based equipment loadout — the shared spine every fitted system builds
 // on (Story 1.2, re-cut in Story 8.5). A ship's loadout IS its equipment
-// runtime: ELEVEN FIXED-ROLE SLOTS, identical for every captain hull —
-// [gun, boost, weapon, weapon, weapon, consumable ×6] — each either empty or
+// runtime: NINE FIXED-ROLE SLOTS, identical in SHAPE for every captain hull —
+// [gun, boost, weapon, weapon, weapon, consumable ×4] — each either empty or
 // holding one equipment id + its state. Since Story 9.2 (epic-9 amendments 21
-// and 31) the six consumable slots are not a packed belt: EACH KIND OWNS ONE
-// FIXED SLOT and one fixed key (`CONSUMABLE_KEY_ORDER`).
+// and 31) the consumable slots are not a packed belt: EACH KIND OWNS ONE
+// FIXED SLOT and one fixed key. From 9.2 to Story 10.1 that was a GLOBAL
+// six-long key row (`CONSUMABLE_KEY_ORDER`, slots 5..10, keys 1–6).
+//
+// STORY 10.1 (Eric 2026-10-25/27, epic-10 amendments 1(c) and 3): the key row
+// is PER SHIP — a `ConsumableKit` of exactly FOUR distinct non-stub consumable
+// lines the captain picks on the port screen (bots roll a random four), keys
+// back to 1–4, slots 5..8. `CONSUMABLE_KEY_ORDER` is DELETED; every kind →
+// slot question takes the ship's kit (`consumableSlotFor(kit, id)`,
+// `consumableKindAt(kit, slot)`), and a consumable outside the kit has NO slot
+// — which is the one gate (sim/boons.ts pickRefusal) that keeps the draw and
+// the drone drops inside the captain's four.
 //
 // THE PER-HULL FIT IS GONE (Story 8.5, epic-8 amendments 21–24). There is no
 // `specialsFor` and no `SLOT_EXTRA`: every captain sails with the SAME shape,
@@ -141,7 +151,8 @@ export const DEFAULT_SHIFT: ShiftId = 'boost';
 
 /**
  * WHAT A SLOT MAY HOLD (Story 8.7): a piece of EQUIPMENT (slots 0–4) or a
- * CONSUMABLE line (the six fixed consumable slots since Story 9.2). The two id spaces stay DISJOINT —
+ * CONSUMABLE line (its kit slot — four per ship since Story 10.1, six fixed
+ * since Story 9.2). The two id spaces stay DISJOINT —
  * `EquipmentId` is never widened — because five records are keyed by
  * EquipmentId (`EquipmentRows`, `EQUIPMENT_STAT_FIELDS`, `EQUIPMENT_IS_WEAPON`,
  * the server's equipment registry, the client's glyph table) and every
@@ -270,7 +281,8 @@ export interface EquipmentState {
  *
  * `equipmentId` holds a `SlotItemId`: an EquipmentId in the gun, boost and
  * weapon slots (0–4), and a CONSUMABLE line id in that kind's OWN fixed slot
- * (5–10, Story 9.2; a packed belt 5–8 from Story 8.7 until then).
+ * (5–8 by the ship's kit since Story 10.1; 5–10 by the global key row from
+ * Story 9.2; a packed belt 5–8 from Story 8.7 until then).
  * The FIELD NAME is unchanged — it rides every mirror, view model and test on
  * both sides — but a reader that indexes an EquipmentId-keyed record with it
  * must narrow through `isConsumableId` first (never a cast).
@@ -281,32 +293,52 @@ export interface LoadoutSlot {
 }
 
 /**
- * THE KEY ROW (Story 9.2, Eric 2026-10-11, epic-9 amendments 21 and 31): every
- * consumable kind that can be held owns ONE FIXED SLOT and ONE FIXED KEY, in
- * this order — key `1` is index 0. The belt is retired: nothing ever packs or
- * shifts, so "key N" means the same kind for the whole match. THE ONE HOME of
- * the key order and the kind → slot map; both sides derive from it.
+ * THE KIT (Story 10.1, Eric 2026-10-25/27, epic-10 amendments 1(c) and 3): the
+ * FOUR consumable lines a ship carries, in KEY ORDER — key `1` is index 0,
+ * slot `FIRST_CONSUMABLE_SLOT + i` holds `kit[i]` and nothing else, for the
+ * whole match. A captain picks the four on the port screen (saved like the
+ * callsign); a bot rolls four at spawn (`rollKit`, sim/boons.ts). The kit is
+ * a SEAT value like the gun: it rides the join, lives on the server's ship
+ * record and comes back self-privately on `OwnShip.kit`, which is what both
+ * sides derive every kind → slot answer from. Nothing global remains: the 9.2
+ * key row (`CONSUMABLE_KEY_ORDER`, six fixed keys) is DELETED, not aliased.
  *
- * `depthCharge` is absent on purpose: a STUB line (never dealt) has no slot and
- * no key. `countermeasure` holds `3` (Story 9.3, Eric 2026-10-11) and
- * `foulingShell` (FOULING SHELL) holds `4` (Story 9.4, Eric 2026-10-11 — it
- * took FLASH SHELLS' key, as the 9.2 key row planned).
+ * INVARIANTS (`isConsumableKit`, sim/boons.ts — the ONE validator both sides
+ * call; it needs the catalog, which this leaf module may not import):
+ * length exactly `KIT_SIZE`, every entry distinct, every entry a NON-STUB
+ * consumable line (the DEPTH CHARGE stub can never be carried). The helpers
+ * here are pure index arithmetic over whatever kit they are handed and
+ * fail closed on a malformed one (an entry past `KIT_SIZE` has no slot).
  */
-export const CONSUMABLE_KEY_ORDER: readonly ConsumableId[] = Object.freeze([
+export type ConsumableKit = readonly ConsumableId[];
+
+/** How many consumable lines a ship carries — four (Eric 2026-10-25). The
+ *  structural number behind the slot count, the key row and the port picker;
+ *  NOT a CONFIG tunable. */
+export const KIT_SIZE = 4;
+
+/**
+ * The kit a FRESH BROWSER sails with (Eric 2026-10-27, Story 10.1 ruling 5):
+ * `1` HULL REPAIR · `2` SHIELD BLOCK · `3` SMOKE SCREEN (the `countermeasure`
+ * line, renamed back player-side by the same ruling; id untouched) · `4`
+ * FOULING SHELL — the first four of the retired 9.2 key row. Also what the
+ * server falls back to when a join carries no valid kit (fail-open, like the
+ * gun).
+ */
+export const DEFAULT_KIT: ConsumableKit = Object.freeze([
   'hullRepair',
   'shieldBlock',
   'countermeasure',
   'foulingShell',
-  'decoyBuoy',
-  'supercavTorpedo',
 ] as const);
 
 /** Slot index of the first consumable slot (key `1`). */
 const FIRST_CONSUMABLE_SLOT = 5;
 
-/** Total slots in a loadout: gun, boost, three weapons, one per keyed
- *  consumable kind (six since Story 9.2). */
-export const SLOT_COUNT = FIRST_CONSUMABLE_SLOT + CONSUMABLE_KEY_ORDER.length;
+/** Total slots in a loadout: gun, boost, three weapons, one per carried
+ *  consumable (four since Story 10.1; six from 9.2; a four-wide belt from
+ *  8.5). */
+export const SLOT_COUNT = FIRST_CONSUMABLE_SLOT + KIT_SIZE;
 
 /** Slot index of the gun — the permanently-selected default weapon. */
 export const SLOT_GUN = 0;
@@ -319,25 +351,31 @@ export const SLOT_BOOST = 1;
  *  first of these that is still empty (sim/boons.ts applySlotEffect). */
 export const WEAPON_SLOTS = [2, 3, 4] as const;
 
-/** The six CONSUMABLE slots, in key order: slot `5 + i` is permanently bound
- *  to `CONSUMABLE_KEY_ORDER[i]` (Story 9.2). Derived, never a second list. */
+/** The CONSUMABLE slots, in key order: slot `5 + i` is bound to `kit[i]` of
+ *  whichever kit the ship sails with (Story 10.1). Derived from `KIT_SIZE`,
+ *  never a second list. */
 export const CONSUMABLE_SLOTS: readonly number[] = Object.freeze(
-  CONSUMABLE_KEY_ORDER.map((_, i) => FIRST_CONSUMABLE_SLOT + i),
+  Array.from({ length: KIT_SIZE }, (_, i) => FIRST_CONSUMABLE_SLOT + i),
 );
 
-/** THE fixed slot of a consumable kind, or `null` for a kind with no key (the
- *  DEPTH CHARGE stub). */
-export function consumableSlotFor(id: ConsumableId): number | null {
-  const i = CONSUMABLE_KEY_ORDER.indexOf(id);
-  return i < 0 ? null : FIRST_CONSUMABLE_SLOT + i;
+/** THE slot of a consumable kind under `kit`, or `null` for a kind the ship
+ *  does not carry (which since Story 10.1 includes every stub — a stub can
+ *  never pass `isConsumableKit`). Fail-closed on a malformed kit: an entry
+ *  past `KIT_SIZE` has no slot. */
+export function consumableSlotFor(kit: ConsumableKit, id: ConsumableId): number | null {
+  const i = kit.indexOf(id);
+  return i < 0 || i >= KIT_SIZE ? null : FIRST_CONSUMABLE_SLOT + i;
 }
 
-/** THE kind a consumable slot is bound to, or `null` for any slot that is not
- *  a consumable slot (gun, Shift, weapon row, out of range, non-integer). The
- *  client reads a zero-stock slot's kind through this — a `null` slot content
- *  still belongs to its kind. */
-export function consumableKindAt(slot: number): ConsumableId | null {
-  return CONSUMABLE_KEY_ORDER[slot - FIRST_CONSUMABLE_SLOT] ?? null;
+/** THE kind a consumable slot is bound to under `kit`, or `null` for any slot
+ *  that is not a consumable slot (gun, Shift, weapon row, out of range,
+ *  non-integer) or for a slot a short kit leaves unbound. The client reads a
+ *  zero-stock slot's kind through this — a `null` slot content still belongs
+ *  to its kind. */
+export function consumableKindAt(kit: ConsumableKit, slot: number): ConsumableId | null {
+  const i = slot - FIRST_CONSUMABLE_SLOT;
+  if (!Number.isInteger(i) || i < 0 || i >= KIT_SIZE) return null;
+  return kit[i] ?? null;
 }
 
 /** The role a slot plays in the grammar. */
@@ -352,7 +390,7 @@ export const SLOT_ROLES: readonly SlotRole[] = Object.freeze([
   'weapon',
   'weapon',
   'weapon',
-  ...CONSUMABLE_KEY_ORDER.map((): SlotRole => 'consumable'),
+  ...CONSUMABLE_SLOTS.map((): SlotRole => 'consumable'),
 ]);
 
 /** The effective pool size for a piece of equipment — a record lookup since
@@ -371,11 +409,17 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
 
 /**
  * The loadout a ship spawns with — THE SAME SLOT SHAPE FOR EVERY CAPTAIN HULL
- * (Story 8.5; eleven slots since Story 9.2). A captain fits the gun in slot 0 and its Shift in slot 1,
- * both with a full pool and an idle reload timer (exactly the server's
- * `freshAmmo(equipmentMaxAmmo(stats, id))` semantics); slots 2–10 start empty
- * and are filled by CARDS — the level-zero offer at the start line first
- * (Story 8.10), then every offer after it.
+ * (Story 8.5; nine slots since Story 10.1, eleven from 9.2). A captain fits
+ * the gun in slot 0 and its Shift in slot 1, both with a full pool and an idle
+ * reload timer (exactly the server's `freshAmmo(equipmentMaxAmmo(stats, id))`
+ * semantics); slots 2–8 start empty and are filled by CARDS — the level-zero
+ * offer at the start line first (Story 8.10), then every offer after it.
+ *
+ * THE KIT IS NOT A PARAMETER HERE (Story 10.1): the consumable slots start
+ * EMPTY whatever the ship carries, so the fit is kit-independent by
+ * construction. Which kind a slot is BOUND to is a question for
+ * `consumableKindAt(kit, slot)`, and the stock path (`stockSlotFor`,
+ * `slotsWithCards` — sim/boons.ts) is where the kit enters.
  *
  * `fleet === true` is the PvE drone fit: the gun in slot 0 and empties,
  * nothing else (epic-5 amendment 34, epic-8 amendment 24) — a drone has no

@@ -420,7 +420,7 @@ function fitted(
   fit: readonly string[],
   hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
 ): ShipRecord {
-  return w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined,DEFAULT_GUN, fit);
+  return w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, DEFAULT_GUN, undefined, fit);
 }
 
 const slotIds = (rec: ShipRecord): (string | null)[] => rec.loadout.map((s) => s.equipmentId);
@@ -468,8 +468,8 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
 
   it('NEVER a bot and NEVER a fleet hull — the same option buys them nothing', () => {
     const w = bareWorld();
-    const ai = w.addShip('bot-1', 'BOT-1', 'bot', 'torpedoBoat', undefined, undefined,DEFAULT_GUN, ['heavyTorpedo']);
-    const drone = w.addShip('fleet-1', 'FLEET-1', 'fleet', 'droneSmall', undefined, undefined,DEFAULT_GUN, ['heavyTorpedo']);
+    const ai = w.addShip('bot-1', 'BOT-1', 'bot', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, undefined, ['heavyTorpedo']);
+    const drone = w.addShip('fleet-1', 'FLEET-1', 'fleet', 'droneSmall', undefined, undefined, DEFAULT_GUN, undefined, ['heavyTorpedo']);
     for (const s of [ai, drone]) {
       expect(s.devFit, s.id).toEqual([]);
       expect(s.cards, s.id).toEqual([]);
@@ -528,5 +528,50 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
     expect(b.cards).toEqual([]);
     expect(slotIds(b)).toEqual(slotIds(a));
     expect(w.takes.size).toBe(0);
+  });
+});
+
+// ---------- Story 10.1 review gate: the kit at the addShip seam --------------
+//
+// F4: a dev fit line that `refusesCard` drops (an off-kit consumable, a stub,
+// a capped line) is no longer dropped silently — one `devFit.refused` warning
+// per dropped line. F2: `addShip`'s kit is a programming invariant, not input
+// (every production door sanitizes it), so an invalid kit throws.
+
+describe('the dev spawn fit — a refused line is logged, not silently dropped (Story 10.1 F4)', () => {
+  it('an OFF-KIT consumable logs devFit.refused and leaves the belt unstocked', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      const w = bareWorld();
+      // DEFAULT_KIT does not carry the DECOY BUOY.
+      const a = fitted(w, 'a', ['decoyBuoy']);
+      expect(a.cards).toEqual([]);
+      expect(slotIds(a).slice(5)).toEqual(new Array<null>(SLOT_COUNT - 5).fill(null));
+      const prefix = 'warn devFit.refused ';
+      const warns = log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith(prefix));
+      expect(warns).toHaveLength(1);
+      expect(JSON.parse(warns[0].slice(prefix.length))).toEqual({ id: 'a', line: 'decoyBuoy', reason: 'stub' });
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
+
+describe('addShip — an invalid kit is a programming error and throws (Story 10.1 F2)', () => {
+  const seat = (w: World, id: string, kit: readonly string[]): ShipRecord =>
+    w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, kit as never);
+
+  it('throws on an empty kit and on a kit with a repeat, seating nothing', () => {
+    const w = bareWorld();
+    expect(() => seat(w, 'a', [])).toThrow(/addShip: invalid kit for a/);
+    expect(() => seat(w, 'b', ['hullRepair', 'hullRepair', 'shieldBlock', 'countermeasure'])).toThrow(/addShip: invalid kit for b/);
+    expect(w.ships.size).toBe(0);
+  });
+
+  it('stores a valid non-default kit in the order given, and addBot inherits the guard', () => {
+    const w = bareWorld();
+    const kit = ['decoyBuoy', 'foulingShell', 'hullRepair', 'shieldBlock'];
+    expect(seat(w, 'a', kit).kit).toEqual(kit);
+    expect(() => w.addBot('torpedoBoat', undefined, DEFAULT_GUN, [] as never)).toThrow(/addShip: invalid kit/);
   });
 });

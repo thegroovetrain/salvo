@@ -28,10 +28,14 @@ import {
   SLOT_BOOST,
   WEAPON_SLOTS,
   CONSUMABLE_SLOTS,
-  CONSUMABLE_KEY_ORDER,
+  DEFAULT_KIT,
+  KIT_SIZE,
   SLOT_ROLES,
   consumableKindAt,
   consumableSlotFor,
+  isConsumableKit,
+  mulberry32,
+  rollKit,
   EQUIPMENT_IDS,
   EQUIPMENT_IS_WEAPON,
   effectiveStats,
@@ -44,6 +48,7 @@ import {
   slotMaxAmmo,
   type Catalog,
   type CatalogLine,
+  type ConsumableKit,
   type EffectiveStats,
   type HullId,
   type LineId,
@@ -61,16 +66,17 @@ function isFleet(id: HullId): boolean {
   return !(SHIP_CLASS_IDS as readonly string[]).includes(id);
 }
 
-describe('slot-grammar constants — the fixed roles (Story 8.5; six consumable keys since Story 9.2)', () => {
-  it('SLOT_GUN 0, SLOT_BOOST 1, weapons [2,3,4], then ONE consumable slot per keyed kind', () => {
-    // WAS 4 (gun, two per-hull specials, one extra); nine from Story 8.5; since
-    // Story 9.2 (epic-9 amendments 21/31) the belt is retired and every keyed
-    // consumable kind owns one slot, so the count follows the key order.
+describe('slot-grammar constants — the fixed roles (Story 8.5; KIT_SIZE consumable keys per ship since Story 10.1)', () => {
+  it('SLOT_GUN 0, SLOT_BOOST 1, weapons [2,3,4], then ONE consumable slot per carried kind', () => {
+    // WAS 4 (gun, two per-hull specials, one extra); nine from Story 8.5; six
+    // keyed kinds from Story 9.2 (epic-9 amendments 21/31); since Story 10.1
+    // the count follows the KIT — four lines a ship carries, bound per ship.
     expect(SLOT_GUN).toBe(0);
     expect(SLOT_BOOST).toBe(1);
     expect(WEAPON_SLOTS).toEqual([2, 3, 4]);
-    expect(CONSUMABLE_SLOTS).toEqual(CONSUMABLE_KEY_ORDER.map((id) => consumableSlotFor(id)));
-    expect(SLOT_COUNT).toBe(WEAPON_SLOTS.length + 2 + CONSUMABLE_KEY_ORDER.length);
+    expect(CONSUMABLE_SLOTS).toHaveLength(KIT_SIZE);
+    expect(CONSUMABLE_SLOTS).toEqual(DEFAULT_KIT.map((id) => consumableSlotFor(DEFAULT_KIT, id)));
+    expect(SLOT_COUNT).toBe(WEAPON_SLOTS.length + 2 + KIT_SIZE);
   });
 
   it('the four role groups PARTITION 0..SLOT_COUNT-1 exactly once', () => {
@@ -87,10 +93,11 @@ describe('slot-grammar constants — the fixed roles (Story 8.5; six consumable 
     for (const i of CONSUMABLE_SLOTS) expect(SLOT_ROLES[i], `slot ${i}`).toBe('consumable');
   });
 
-  it('`SLOT_EXTRA` and `specialsFor` are GONE from the module surface (no per-hull fit to name)', async () => {
+  it('`SLOT_EXTRA`, `specialsFor` and `CONSUMABLE_KEY_ORDER` are GONE from the module surface (no per-hull fit, no global key row)', async () => {
     const mod = (await import('../index.js')) as Record<string, unknown>;
     expect(mod.SLOT_EXTRA).toBeUndefined();
     expect(mod.specialsFor).toBeUndefined();
+    expect(mod.CONSUMABLE_KEY_ORDER).toBeUndefined(); // Story 10.1: deleted, not aliased
   });
 });
 
@@ -393,40 +400,59 @@ describe('slotMaxAmmo — a stack is capped by its LINE, a weapon by its stats r
   });
 });
 
-describe('THE KEY ROW — every consumable kind owns one fixed slot (Story 9.2, epic-9 amendments 21/31)', () => {
-  it('the key order holds each consumable at most once and names only consumable ids', () => {
-    expect(new Set(CONSUMABLE_KEY_ORDER).size).toBe(CONSUMABLE_KEY_ORDER.length);
-    for (const id of CONSUMABLE_KEY_ORDER) expect(isConsumableId(id), id).toBe(true);
+describe('THE KIT — every carried consumable kind owns one fixed slot (Story 9.2 → Story 10.1, epic-10 amendment 3)', () => {
+  /** A handful of valid kits: the default, its reverse, and seeded rolls. */
+  const KITS: ConsumableKit[] = [
+    DEFAULT_KIT,
+    [...DEFAULT_KIT].reverse(),
+    ...Array.from({ length: 20 }, (_, seed) => rollKit(mulberry32(seed).next)),
+  ];
+
+  it('DEFAULT_KIT is a valid kit of KIT_SIZE distinct consumable ids (its members are Eric\'s, not pinned here)', () => {
+    expect(isConsumableKit(DEFAULT_KIT)).toBe(true);
+    expect(new Set(DEFAULT_KIT).size).toBe(KIT_SIZE);
+    for (const id of DEFAULT_KIT) expect(isConsumableId(id), id).toBe(true);
+    for (const id of DEFAULT_KIT) expect(CATALOG[id].stub, id).not.toBe(true);
   });
 
-  it('every LIVE consumable line is keyed and every STUB line is not', () => {
-    for (const id of CONSUMABLE_IDS) {
-      const keyed = consumableSlotFor(id) !== null;
-      expect(keyed, id).toBe(CATALOG[id].stub !== true);
+  it('consumableSlotFor and consumableKindAt round-trip for every kit line: slot 5+i ⇔ kit[i]', () => {
+    for (const kit of KITS) {
+      kit.forEach((id, i) => {
+        const slot = consumableSlotFor(kit, id);
+        expect(slot, id).toBe(CONSUMABLE_SLOTS[i]);
+        expect(SLOT_ROLES[slot ?? -1], id).toBe('consumable');
+        expect(consumableKindAt(kit, slot ?? -1), id).toBe(id);
+      });
+      expect(CONSUMABLE_SLOTS.map((i) => consumableKindAt(kit, i))).toEqual([...kit]);
     }
   });
 
-  it('consumableSlotFor and consumableKindAt round-trip for every keyed kind', () => {
-    for (const id of CONSUMABLE_KEY_ORDER) {
-      const slot = consumableSlotFor(id);
-      expect(slot, id).not.toBeNull();
-      expect(SLOT_ROLES[slot ?? -1], id).toBe('consumable');
-      expect(consumableKindAt(slot ?? -1), id).toBe(id);
+  it('a kind the kit does not carry has NO slot — the DEPTH CHARGE stub never, a live line only when carried', () => {
+    for (const kit of KITS) {
+      for (const id of CONSUMABLE_IDS) {
+        const carried = (kit as readonly string[]).includes(id);
+        expect(consumableSlotFor(kit, id) !== null, `${id} in [${kit.join(',')}]`).toBe(carried);
+      }
+      expect(consumableSlotFor(kit, 'depthCharge')).toBeNull();
     }
-  });
-
-  it('key `4` is the FOULING SHELL — it took FLASH SHELLS\' key (Story 9.4)', () => {
-    expect(CONSUMABLE_KEY_ORDER[3]).toBe('foulingShell');
-  });
-
-  it('the DEPTH CHARGE stub has no slot and no key', () => {
-    expect(consumableSlotFor('depthCharge')).toBeNull();
   });
 
   it('consumableKindAt is null off the consumable slots (gun, Shift, weapon row, out of range, non-integer)', () => {
     for (const slot of [SLOT_GUN, SLOT_BOOST, ...WEAPON_SLOTS, -1, SLOT_COUNT, SLOT_COUNT + 5, 5.5, Number.NaN]) {
-      expect(consumableKindAt(slot), String(slot)).toBeNull();
+      expect(consumableKindAt(DEFAULT_KIT, slot), String(slot)).toBeNull();
     }
+  });
+
+  it('the helpers are FAIL-CLOSED over a malformed kit: an entry past KIT_SIZE has no slot, a short kit leaves slots unbound', () => {
+    const long = [...DEFAULT_KIT, 'decoyBuoy'] as const;
+    expect(isConsumableKit(long)).toBe(false);
+    expect(consumableSlotFor(long, 'decoyBuoy')).toBeNull();
+    expect(consumableKindAt(long, CONSUMABLE_SLOTS[CONSUMABLE_SLOTS.length - 1] + 1)).toBeNull();
+    const short = DEFAULT_KIT.slice(0, 1);
+    expect(isConsumableKit(short)).toBe(false);
+    expect(consumableKindAt(short, CONSUMABLE_SLOTS[0])).toBe(short[0]);
+    expect(consumableKindAt(short, CONSUMABLE_SLOTS[1])).toBeNull();
+    expect(consumableSlotFor([], 'hullRepair')).toBeNull();
   });
 
   it('CHAFF is retired: not a consumable id (amendment 31)', () => {

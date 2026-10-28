@@ -29,7 +29,9 @@ import { Client, type Room, type SeatReservation } from '@colyseus/sdk';
 import {
   CONFIG,
   DEFAULT_GUN,
+  DEFAULT_KIT,
   MSG,
+  type ConsumableKit,
   type GunId,
   type LobbyBotFillMsg,
   type LobbyPhase,
@@ -104,6 +106,8 @@ export interface LobbyDeploy {
   name?: string;
   cls?: string;
   gun?: GunId;
+  /** The four consumable lines (Story 10.1) — DEFAULT_KIT when absent. */
+  kit?: ConsumableKit;
 }
 
 // --- pure helpers (tested) ---------------------------------------------------
@@ -309,7 +313,7 @@ async function runLobby(client: Client, room: Room, hooks: LobbyHooks): Promise<
 }
 
 function optionsFor(deploy: LobbyDeploy): Record<string, unknown> {
-  return joinOptions(deploy.name || undefined, deploy.cls, deploy.gun ?? DEFAULT_GUN);
+  return joinOptions(deploy.name || undefined, deploy.cls, deploy.gun ?? DEFAULT_GUN, deploy.kit ?? DEFAULT_KIT);
 }
 
 /**

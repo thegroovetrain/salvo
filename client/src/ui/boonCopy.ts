@@ -131,7 +131,9 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   // one-line tooltip heading, even at the long type step, and Eric shortened
   // the NAME rather than add an exemption or a type step. The full name is
   // How-to-Play's (Story 9.11) and the record's.
-  countermeasure: 'MULTI-SPECTRAL CM',
+  // 2026-10-27, Story 10.1, Eric: renamed back to SMOKE SCREEN; the id
+  // `countermeasure` and the 9.3 cloud are untouched.
+  countermeasure: 'SMOKE SCREEN',
   decoyBuoy: 'DECOY BUOY',
   // `SUPERCAV TORPEDO`, NOT `SUPERCAVITATING TORPEDO` (Eric ruling 2026-09-19,
   // epic-8 amendment 75). The sheet's full word never fitted the refit card's

@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  DEFAULT_KIT,
   LINE_IDS,
   SLOT_BOOST,
   SLOT_COUNT,
@@ -50,7 +51,7 @@ function view(gun: SlotItemId, shift: SlotItemId, over: Partial<HotbarView> = {}
   const ammo: (WeaponAmmo | null)[] = loadout.map((id) =>
     id === null ? null : { n: equipmentMaxAmmo(s, id as never), reloadMsLeft: 0 },
   );
-  return { loadout, ammo, stats: s, primedSlot: SLOT_GUN, denied: nine(false), activated: nine(false), dim: false, ...over };
+  return { loadout, kit: DEFAULT_KIT, ammo, stats: s, primedSlot: SLOT_GUN, denied: nine(false), activated: nine(false), dim: false, ...over };
 }
 
 describe('the four new glyphs (amendment 110 — implementer drafts)', () => {

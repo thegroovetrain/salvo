@@ -7,7 +7,17 @@
 // release predicate + its new outcome classifier. jsdom.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { CATALOG, CONFIG, CONSUMABLE_KEY_ORDER, MULLIGAN_CHOICE, type OwnShip } from '@salvo/shared';
+import {
+  CATALOG,
+  CONFIG,
+  CONSUMABLE_SLOTS,
+  DEFAULT_KIT,
+  MULLIGAN_CHOICE,
+  SLOT_COUNT,
+  type ConsumableKit,
+  type OwnShip,
+  type SlotItemId,
+} from '@salvo/shared';
 import {
   REDRAW_FOOTER_PX,
   REDRAW_WORD,
@@ -55,10 +65,14 @@ const R = CLIENT_CONFIG.refit;
 const OFFER = ['radarSweep', 'hullPoints', 'deckGun', 'navalMines'];
 const OFFER_B = ['reload', 'speed', 'radarSweep', 'navalMines'];
 
+/** The suite's KIT (Story 10.1): a NON-DEFAULT four, so the greyed predicate is
+ *  proven to read `you.kit` and never a default. */
+const KIT: ConsumableKit = ['supercavTorpedo', 'hullRepair', 'foulingShell', 'shieldBlock'];
+
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {
   return {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
-    ammo: [], sweep: 0, cls: 'torpedoBoat', gun: 'deckGun', pts: 1, offer: [...OFFER],
+    ammo: [], sweep: 0, cls: 'torpedoBoat', gun: 'deckGun', kit: [...KIT], pts: 1, offer: [...OFFER],
     boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
     ...over,
   };
@@ -1386,12 +1400,14 @@ describe('spendOutcome — the stay-open state machine classifier (amendment 36)
 describe('the greyed card — a refusal stated before the press', () => {
   beforeEach(() => document.body.replaceChildren());
 
+  type Slots = readonly (SlotItemId | null)[];
+  const NO_KIT_STOCK = CONSUMABLE_SLOTS.map(() => null);
   /** Q/E/R all fitted — copy 1 of a weapon has nowhere to land. */
-  const ROW_FULL = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null, null, null] as const;
-  /** Every one of the six consumable kinds held — no belt exists to fill (Story 9.2). */
-  const ALL_KINDS = ['gun', 'boost', null, null, null, ...CONSUMABLE_KEY_ORDER] as const;
+  const ROW_FULL: Slots = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', ...NO_KIT_STOCK];
+  /** Every kind of the kit held — each owns its own square (Story 9.2; the kit's since 10.1). */
+  const ALL_KINDS: Slots = ['gun', 'boost', null, null, null, ...KIT];
   /** Nothing fitted past the gun and Shift. */
-  const ROOM_LEFT = ['gun', 'boost', null, null, null, null, null, null, null, null, null] as const;
+  const ROOM_LEFT: Slots = ['gun', 'boost', ...Array.from({ length: SLOT_COUNT - 2 }, () => null)];
   const FIVE_REPAIRS = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
 
   function cards(): HTMLButtonElement[] {
@@ -1399,11 +1415,21 @@ describe('the greyed card — a refusal stated before the press', () => {
   }
 
   it('NEVER greys a consumable for want of room — every kind owns its own square (amendment 21)', () => {
-    // The belt is retired: holding all six kinds refuses nothing under the cap.
-    for (const id of CONSUMABLE_KEY_ORDER) {
-      expect(cardGreyed(CATALOG[id], ALL_KINDS, [...CONSUMABLE_KEY_ORDER]), id).toBe(false);
+    // The belt is retired: holding the whole kit refuses nothing under the cap.
+    for (const id of KIT) {
+      expect(cardGreyed(CATALOG[id], ALL_KINDS, [...KIT], KIT), id).toBe(false);
     }
-    expect(cardGreyed(CATALOG.radarSweep, ALL_KINDS)).toBe(false);
+    expect(cardGreyed(CATALOG.radarSweep, ALL_KINDS, [], KIT)).toBe(false);
+  });
+
+  it('a consumable OUTSIDE the kit is refused by the same shared gate — greyed, no foot word (Story 10.1)', () => {
+    // The draw never deals one (the kit confines it), so this is the fail-closed
+    // face of `pickRefusal`'s `'stub'`: it reads the kit it is handed.
+    const offKit = DEFAULT_KIT.find((id) => !KIT.includes(id));
+    if (offKit === undefined) throw new Error('KIT must differ from DEFAULT_KIT');
+    expect(cardGreyed(CATALOG[offKit], ROOM_LEFT, [], KIT)).toBe(true);
+    expect(cardGreyed(CATALOG[offKit], ROOM_LEFT, [], DEFAULT_KIT)).toBe(false);
+    expect(cardFoot(CATALOG[offKit], ROOM_LEFT, [], KIT)).toBe('');
   });
 
   // --- THE TWO REFUSALS (Story 8.14 review, F1; the belt's third retired in 9.2)
@@ -1412,24 +1438,24 @@ describe('the greyed card — a refusal stated before the press', () => {
   // full is the fail-closed twin of the server's own guard.
 
   it('greys a line the player already holds AT ITS CAP', () => {
-    expect(cardGreyed(CATALOG.hullRepair, ROOM_LEFT, FIVE_REPAIRS)).toBe(true);
+    expect(cardGreyed(CATALOG.hullRepair, ROOM_LEFT, FIVE_REPAIRS, KIT)).toBe(true);
     // ...one short of the cap it is a live card again.
-    expect(cardGreyed(CATALOG.hullRepair, ROOM_LEFT, FIVE_REPAIRS.slice(1))).toBe(false);
+    expect(cardGreyed(CATALOG.hullRepair, ROOM_LEFT, FIVE_REPAIRS.slice(1), KIT)).toBe(false);
     // Every kind, not just consumables.
-    expect(cardGreyed(CATALOG.hullPoints, ROOM_LEFT, new Array<string>(CATALOG.hullPoints.cap).fill('hullPoints'))).toBe(true);
+    expect(cardGreyed(CATALOG.hullPoints, ROOM_LEFT, new Array<string>(CATALOG.hullPoints.cap).fill('hullPoints'), KIT)).toBe(true);
   });
 
   it('greys copy 1 of a weapon when Q/E/R are full, and never a later copy', () => {
-    expect(cardGreyed(CATALOG.broadside, ROW_FULL, [])).toBe(true);
-    expect(cardGreyed(CATALOG.broadside, ROW_FULL, ['broadside'])).toBe(false); // a TIER card
-    expect(cardGreyed(CATALOG.broadside, ROOM_LEFT, [])).toBe(false); // row open
+    expect(cardGreyed(CATALOG.broadside, ROW_FULL, [], KIT)).toBe(true);
+    expect(cardGreyed(CATALOG.broadside, ROW_FULL, ['broadside'], KIT)).toBe(false); // a TIER card
+    expect(cardGreyed(CATALOG.broadside, ROOM_LEFT, [], KIT)).toBe(false); // row open
   });
 
   it('prints SLOTS FULL for the weapon-slot refusal ONLY — a capped consumable has NO foot word (amendment 32)', () => {
-    expect(cardFoot(CATALOG.broadside, ROW_FULL, [])).toBe(SLOTS_FULL);
-    expect(cardFoot(CATALOG.hullRepair, ROOM_LEFT, FIVE_REPAIRS)).toBe('');
-    expect(cardFoot(CATALOG.hullPoints, ROOM_LEFT, new Array<string>(CATALOG.hullPoints.cap).fill('hullPoints'))).toBe('');
-    expect(cardFoot(CATALOG.radarSweep, ROW_FULL, [])).toBe(''); // a live card
+    expect(cardFoot(CATALOG.broadside, ROW_FULL, [], KIT)).toBe(SLOTS_FULL);
+    expect(cardFoot(CATALOG.hullRepair, ROOM_LEFT, FIVE_REPAIRS, KIT)).toBe('');
+    expect(cardFoot(CATALOG.hullPoints, ROOM_LEFT, new Array<string>(CATALOG.hullPoints.cap).fill('hullPoints'), KIT)).toBe('');
+    expect(cardFoot(CATALOG.radarSweep, ROW_FULL, [], KIT)).toBe(''); // a live card
   });
 
   it('carries the flag AND the foot onto the OfferCard, through the same shared predicate', () => {

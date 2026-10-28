@@ -2498,8 +2498,10 @@ export const CONFIG = {
    * from the lines the ship could legally take right now by the refit card's
    * own predicate (`pickRefusal === null` — a stub or a line at its cap is
    * skipped). Since Story 9.2 (epic-9 amendments 21/31) every kind owns a fixed
-   * slot, so the eligible set is simply every non-stub consumable under its cap
-   * of 5 — there is no belt to fill. An empty eligible set wastes the roll.
+   * slot, so there is no belt to fill; since Story 10.1 (ruling 8) the same
+   * predicate confines a drop to the killer's KIT — the eligible set is the
+   * carried non-stub consumables under their cap of 5, and a drop never lands
+   * in no slot. An empty eligible set wastes the roll.
    * Server-only; the killer sees the STOCKED toast via the self-private `dp`
    * event.
    */

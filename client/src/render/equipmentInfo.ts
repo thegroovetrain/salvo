@@ -19,8 +19,8 @@
 
 import {
   CATALOG,
-  CONSUMABLE_KEY_ORDER,
   EQUIPMENT_IS_WEAPON,
+  KIT_SIZE,
   LINE_IDS,
   SLOT_GUN,
   boonStackCount,
@@ -48,14 +48,14 @@ import {
  * padding each side), and the arrow — which players read as "up" as often as
  * "shift" — no longer has to stand in for a key that has a name.
  *
- * Slots 2-4 are the three generic weapon slots; slots 5-10 are the six
- * consumable kinds' FIXED squares (Story 9.2, epic-9 amendments 21/31), keyed
- * `1`…`6` in shared `CONSUMABLE_KEY_ORDER` — the digits are derived from that
- * tuple's length so the chips follow the key row.
+ * Slots 2-4 are the three generic weapon slots; the rest are the ship's
+ * KIT squares (Story 10.1, epic-10 amendment 3: four lines the captain picks,
+ * `kit[i]` at key `i + 1`; six fixed kinds keyed `1`…`6` from Story 9.2) — the
+ * digits are derived from shared `KIT_SIZE` so the chips follow the kit.
  */
 export const SLOT_KEY_GLYPHS: readonly string[] = [
   '', 'Shift', 'Q', 'E', 'R',
-  ...CONSUMABLE_KEY_ORDER.map((_, i) => String(i + 1)),
+  ...Array.from({ length: KIT_SIZE }, (_, i) => String(i + 1)),
 ];
 
 /**

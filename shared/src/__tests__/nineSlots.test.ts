@@ -1,5 +1,6 @@
 // THE SLOTS (Story 8.5, re-cut for THE COMMON POOL in Story 8.14; eleven slots,
-// one per keyed consumable, since Story 9.2) — the
+// one per keyed consumable, from Story 9.2; NINE since Story 10.1 — four bound
+// per ship by its KIT) — the
 // properties that tie the moving parts of the slot grammar together: the DRAW
 // RULE (a ship is never dealt copy 1 of an equipment line with all three weapon
 // slots full — sim/draw.ts), the FILL RULE (a `slotFill` takes the first empty
@@ -26,8 +27,9 @@
 //    mounts slot 0 from MOUNTED_GUN — each seat gun on its OWN module since
 //    Story 8.15 (amendments 103–105).
 //
-// 3. THE FIXED-PLACEMENT PROPERTY (Story 9.2): every consumable stack sits at
-//    its kind's own slot over any reachable hand, in any pick order.
+// 3. THE PER-KIT PLACEMENT PROPERTY (Story 9.2, re-cut in Story 10.1): for any
+//    kit, slot `5 + i` holds `kit[i]` and nothing else over any reachable
+//    hand, in any pick order; a line outside the kit stocks nowhere.
 //
 // Pure, zero I/O. Seeded PRNG (mulberry32), so a failure is reproducible.
 
@@ -43,9 +45,12 @@ import {
   SHIP_CLASS_IDS,
   WEAPON_SLOTS,
   CONSUMABLE_SLOTS,
-  CONSUMABLE_KEY_ORDER,
+  DEFAULT_KIT,
+  KIT_SIZE,
   consumableKindAt,
   consumableSlotFor,
+  isConsumableKit,
+  rollKit,
   SLOT_BOOST,
   SLOT_COUNT,
   SLOT_GUN,
@@ -60,6 +65,7 @@ import {
   slotsWithCards,
   type Catalog,
   type CatalogLine,
+  type ConsumableKit,
   type EquipmentId,
   type LineId,
   type Rng,
@@ -139,7 +145,7 @@ describe('THE REACHABLE-HAND PROPERTY — a reachable hand can never out-card th
         expect(copy, `${label}:${id}`).toBeLessThanOrEqual(line.cap);
         for (const e of line.tiers[copy - 1] ?? []) {
           if (e.kind !== 'slotFill') continue;
-          applySlotEffect(loadout, e, stats, CATALOG);
+          applySlotEffect(loadout, e, stats, DEFAULT_KIT, CATALOG);
           // THE FULL-ROW REFUSAL IS NEVER REACHED: a non-stub fill always ends
           // up fitted somewhere (this same copy, or an earlier one).
           if (isStubLine(id)) continue;
@@ -197,7 +203,7 @@ describe("loadoutFor(stats, fleet, gun) — slot 0 is the SEAT'S gun", () => {
         expect(loadout[SLOT_GUN].equipmentId, `${cls}/${gun}`).toBe(MOUNTED_GUN[gun]);
         expect(loadout[SLOT_BOOST].equipmentId, `${cls}/${gun}`).toBe(classShift(cls));
         // The client replay (slotsWithCards) lands on the SAME fit.
-        expect(slotsWithCards(clsStats, [], CATALOG, false, gun, classShift(cls)), `${cls}/${gun}`).toEqual(loadout);
+        expect(slotsWithCards(clsStats, [], DEFAULT_KIT, CATALOG, false, gun, classShift(cls)), `${cls}/${gun}`).toEqual(loadout);
       }
     }
   });
@@ -222,13 +228,16 @@ describe("loadoutFor(stats, fleet, gun) — slot 0 is the SEAT'S gun", () => {
 });
 
 // ---------------------------------------------------------------------------
-// THE FIXED-PLACEMENT PROPERTY (Story 8.7's rack, re-cut in Story 9.2 — epic-9
-// amendments 21/31). The packed belt is retired: every keyed consumable kind
-// owns ONE fixed slot (`consumableSlotFor`), so over any reachable hand taken
-// in any order each stack sits at its own slot, nothing packs and nothing
-// shifts. The property runs on the production catalog with every consumable
-// UN-STUBBED, so the unkeyed DEPTH CHARGE is exercised as a live line that
-// still has nowhere to go.
+// THE PER-KIT PLACEMENT PROPERTY (Story 8.7's rack, re-cut in Story 9.2 — epic-9
+// amendments 21/31 — and again in Story 10.1, epic-10 amendment 3). The packed
+// belt is retired and the global key row with it: every consumable kind a SHIP
+// CARRIES owns ONE fixed slot, `5 + i` for `kit[i]` (`consumableSlotFor`), so
+// over any reachable hand taken in any order each stack sits at its own slot,
+// nothing packs, nothing shifts, and a line the kit does not carry — live or
+// stub — stocks nowhere. The kits are SAMPLED by seed over the production pool
+// (`rollKit`); the property also runs on the production catalog with every
+// consumable UN-STUBBED, so the DEPTH CHARGE is exercised as a live line that
+// no sampled kit carries and that still has nowhere to go.
 // ---------------------------------------------------------------------------
 
 /** The production catalog, consumables un-stubbed — nothing else changed. */
@@ -241,48 +250,74 @@ const UNSTUBBED: Catalog = (() => {
   return rows;
 })();
 
-describe('THE FIXED-PLACEMENT PROPERTY — the consumable slots over random reachable hands and random pick orders', () => {
-  it('over 200 random reachable hands: each kind at its own slot, n = copies held, weapons untouched, order-invariant', () => {
+/** The per-kit placement contract over one replayed loadout: slot `5 + i`
+ *  holds `kit[i]` at n = copies held (capped) or is empty, and no slot holds a
+ *  kind the kit does not carry. */
+function expectKitPlacement(
+  loadout: readonly { equipmentId: string | null; state: { n: number; reloadMsLeft: number } | null }[],
+  kit: ConsumableKit,
+  copies: ReadonlyMap<string, number>,
+  catalog: Catalog,
+  label: string,
+): void {
+  kit.forEach((kind, i) => {
+    const slot = CONSUMABLE_SLOTS[i];
+    expect(consumableKindAt(kit, slot), `${label}: slot ${slot} is bound to kit[${i}]`).toBe(kind);
+    expect(consumableSlotFor(kit, kind), `${label}: ${kind} owns slot ${slot}`).toBe(slot);
+    const n = Math.min(copies.get(kind) ?? 0, catalog[kind].cap);
+    const want = n === 0 ? { equipmentId: null, state: null } : { equipmentId: kind, state: { n, reloadMsLeft: 0 } };
+    expect(loadout[slot], `${label}: ${kind}`).toEqual(want);
+  });
+  for (const id of CONSUMABLE_IDS) {
+    if (consumableSlotFor(kit, id) !== null) continue;
+    expect(loadout.some((s) => s.equipmentId === id), `${label}: ${id} is not carried`).toBe(false);
+  }
+}
+
+describe('THE PER-KIT PLACEMENT PROPERTY — the consumable slots over sampled kits, random reachable hands and random pick orders', () => {
+  it('over 200 trials: slot 5+i holds kit[i] and nothing else, n = copies held, weapons untouched, order-invariant', () => {
     const rng = mulberry32(0x8_7_be17);
     const stats = effectiveStats(hullEnvelope('torpedoBoat'));
     for (let trial = 0; trial < 200; trial += 1) {
+      const kit = rollKit(rng.next);
+      expect(isConsumableKit(kit)).toBe(true);
       const { cards } = randomReachableHand(rng);
-      const label = `trial ${trial}`;
-      const loadout = slotsWithCards(stats, cards, UNSTUBBED);
+      const label = `trial ${trial} [${kit.join(',')}]`;
+      const loadout = slotsWithCards(stats, cards, kit, UNSTUBBED);
       const copies = new Map<string, number>();
       for (const id of cards) copies.set(id, (copies.get(id) ?? 0) + 1);
 
-      // 1. EVERY CONSUMABLE SLOT HOLDS ITS OWN KIND OR NOTHING, with n = copies
-      //    held (capped by the line) and no reload; an unheld kind's slot is empty.
-      for (const i of CONSUMABLE_SLOTS) {
-        const kind = consumableKindAt(i);
-        expect(kind, `${label}: slot ${i} is bound`).not.toBeNull();
-        if (kind === null) continue;
-        const n = Math.min(copies.get(kind) ?? 0, UNSTUBBED[kind].cap);
-        const want = n === 0 ? { equipmentId: null, state: null } : { equipmentId: kind, state: { n, reloadMsLeft: 0 } };
-        expect(loadout[i], `${label}: ${kind}`).toEqual(want);
-      }
+      // 1. EVERY CONSUMABLE SLOT HOLDS ITS KIT LINE OR NOTHING; every line the
+      //    kit does not carry (the live-in-UNSTUBBED DEPTH CHARGE included) is
+      //    nowhere.
+      expectKitPlacement(loadout, kit, copies, UNSTUBBED, label);
 
-      // 2. AN UNKEYED KIND STOCKS NOWHERE, even un-stubbed.
-      for (const id of CONSUMABLE_IDS) {
-        if (consumableSlotFor(id) !== null) continue;
-        expect(loadout.some((s) => s.equipmentId === id), `${label}: ${id}`).toBe(false);
-      }
+      // 2. THE WEAPON ROW IS UNTOUCHED: the whole loadout is byte-identical to
+      //    the same hand folded through the production catalog (every sampled
+      //    kit line is live in production, and the stub never stocks).
+      expect(loadout, label).toEqual(slotsWithCards(stats, cards, kit, CATALOG));
 
-      // 3. THE WEAPON ROW IS UNTOUCHED: slots 0–4 are byte-identical to the
-      //    same hand folded through the production catalog, and the consumable
-      //    slots match it too (every keyed kind is live in production).
-      const production = slotsWithCards(stats, cards, CATALOG);
-      expect(loadout, label).toEqual(production);
-
-      // 4. ORDER INVARIANCE. Re-taking the same cards in another order lands
-      //    every stack in the SAME slot — nothing depends on pick order now.
-      const other = slotsWithCards(stats, shuffled(rng, cards), UNSTUBBED);
+      // 3. ORDER INVARIANCE. Re-taking the same cards in another order lands
+      //    every stack in the SAME slot — nothing depends on pick order.
+      const other = slotsWithCards(stats, shuffled(rng, cards), kit, UNSTUBBED);
       for (const i of CONSUMABLE_SLOTS) expect(other[i], `${label}: slot ${i}`).toEqual(loadout[i]);
+
+      // 4. THE SLOT FOLLOWS THE KIT, NOT THE LINE: the same four in another
+      //    order put each stack at that order's slot, same counts.
+      const permuted = shuffled(rng, kit);
+      const again = slotsWithCards(stats, cards, permuted, UNSTUBBED);
+      expectKitPlacement(again, permuted, copies, UNSTUBBED, `${label} permuted`);
+      for (const i of [SLOT_GUN, SLOT_BOOST, ...WEAPON_SLOTS]) expect(again[i], `${label}: slot ${i}`).toEqual(loadout[i]);
     }
   });
 
-  it('there is one consumable slot per keyed kind — no kind ever competes for room', () => {
-    expect(CONSUMABLE_SLOTS.map((i) => consumableKindAt(i))).toEqual([...CONSUMABLE_KEY_ORDER]);
+  it('there is one consumable slot per carried kind and KIT_SIZE of them — no kind ever competes for room', () => {
+    expect(CONSUMABLE_SLOTS).toHaveLength(KIT_SIZE);
+    expect(SLOT_COUNT).toBe(SLOT_BOOST + 1 + WEAPON_SLOTS.length + KIT_SIZE);
+    for (let seed = 0; seed < 50; seed += 1) {
+      const kit = rollKit(mulberry32(seed).next);
+      expect(CONSUMABLE_SLOTS.map((i) => consumableKindAt(kit, i)), `seed ${seed}`).toEqual([...kit]);
+      expect(new Set(kit.map((id) => consumableSlotFor(kit, id))).size, `seed ${seed}`).toBe(KIT_SIZE);
+    }
   });
 });

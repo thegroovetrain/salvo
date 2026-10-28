@@ -5,15 +5,22 @@
 // (`pickRefusal`). Every row of the spec's I/O matrix is driven through the
 // REAL kill path (`sinkShip(id, by)` → creditKill), with the world's private
 // drop stream swapped for a scripted one so each coin and pick is chosen.
+//
+// STORY 10.1 (Eric ruling 8): the eligible set is CONFINED TO THE CAPTAIN'S
+// FOUR — a consumable outside the ship's kit has no slot, so `pickRefusal`
+// refuses it (`stub`) and `pickDrop` never offers it. No second filter: the
+// confinement suite at the bottom proves it through the real `pickDrop` path.
 
 import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
-  CONSUMABLE_KEY_ORDER,
   CONSUMABLE_SLOTS,
+  DEFAULT_KIT,
   consumableSlotFor,
+  dealableConsumables,
   type ConsumableId,
+  type ConsumableKit,
   boonStackCount,
   isAfloat,
   type DropEvent,
@@ -27,14 +34,31 @@ import { buildFrame } from '../game/frames.js';
 /** Every live consumable line, in catalog order (DEPTH CHARGE is a stub). */
 const LIVE_CONSUMABLES = Object.keys(CATALOG).filter((id) => CATALOG[id].kind === 'consumable' && CATALOG[id].stub !== true);
 
+/** The test captains' kit (Story 10.1) — deliberately NOT the default four, so
+ *  nothing here silently rides DEFAULT_KIT. Carries the decoy (the refit-hand
+ *  suite offers it) and HULL REPAIR + SHIELD BLOCK (the cap matrix). */
+const KIT: ConsumableKit = ['hullRepair', 'shieldBlock', 'decoyBuoy', 'supercavTorpedo'];
+
+/** The lines a KIT captain can be dropped, in the CATALOG order `pickDrop`
+ *  walks — the live lines the kit carries. */
+const CARRIED = LIVE_CONSUMABLES.filter((id) => (KIT as readonly string[]).includes(id));
+
 function bareWorld(seed = 3): World {
   const w = new World(seed);
   w.map.islands.length = 0;
   return w;
 }
 
-function place(w: World, id: string, x = 0, y = 0, hull: HullId = 'torpedoBoat', role: 'captain' | 'fleet' | 'bot' = 'captain'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), role, hull, undefined, undefined);
+function place(
+  w: World,
+  id: string,
+  x = 0,
+  y = 0,
+  hull: HullId = 'torpedoBoat',
+  role: 'captain' | 'fleet' | 'bot' = 'captain',
+  kit: ConsumableKit = KIT,
+): ShipRecord {
+  const rec = w.addShip(id, id.toUpperCase(), role, hull, undefined, undefined, undefined, kit);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.speed = 0;
@@ -102,15 +126,15 @@ describe('CONFIG.droneDrops — the shape the scripted coins rely on', () => {
 });
 
 describe('drone drops — roll counts by drone size', () => {
-  it('SMALL, coin passes: one live consumable stocked into its own slot, one `dp` to the killer', () => {
+  it('SMALL, coin passes: one carried consumable stocked into its own slot, one `dp` to the killer', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     const d = place(w, 'd', 200, 0, 'droneSmall', 'fleet');
     const log = scriptDrops(w, [PASS], [1]);
     w.sinkShip(d.id, 'a');
     expect(log.coins).toBe(1);
-    expect(log.picks).toEqual([{ min: 0, max: LIVE_CONSUMABLES.length - 1 }]);
-    const picked = LIVE_CONSUMABLES[1];
+    expect(log.picks).toEqual([{ min: 0, max: CARRIED.length - 1 }]);
+    const picked = CARRIED[1];
     expect(a.cards).toEqual([picked]);
     expect(beltIds(a)).toContain(picked);
     expect(dropsAfterStep(w)).toEqual([{ k: 'dp', id: 'a', boon: picked }]);
@@ -151,10 +175,10 @@ describe('drone drops — roll counts by drone size', () => {
     w.sinkShip(d.id, 'a');
     expect(log.coins).toBe(3);
     expect(log.picks).toHaveLength(3);
-    const [x, , z] = [LIVE_CONSUMABLES[0], LIVE_CONSUMABLES[0], LIVE_CONSUMABLES[2]];
+    const [x, , z] = [CARRIED[0], CARRIED[0], CARRIED[2]];
     expect([...a.cards].sort()).toEqual([x, x, z].sort());
     expect(boonStackCount(a.cards, x)).toBe(2);
-    const xSlot = consumableSlotFor(x as ConsumableId)!;
+    const xSlot = consumableSlotFor(KIT, x as ConsumableId)!;
     expect(a.loadout[xSlot].state!.n).toBe(2);
     expect(beltIds(a).filter((id) => id !== null)).toHaveLength(2);
     const drops = dropsAfterStep(w);
@@ -184,28 +208,29 @@ describe('drone drops — roll counts by drone size', () => {
 
 describe('drone drops — the eligible set is the refit card\'s predicate', () => {
   // Since Story 9.2 (epic-9 amendment 21; amendment 226 without its belt
-  // branch) every keyed kind owns its own fixed slot, so the eligible set is
-  // simply every non-stub consumable kind under its cap.
-  const FOUR = ['hullRepair', 'shieldBlock', 'countermeasure', 'decoyBuoy'];
+  // branch) every carried kind owns its own slot — and since Story 10.1 only
+  // the KIT's kinds have one — so the eligible set is every kind the captain
+  // carries that is under its cap.
+  const HELD3 = KIT.slice(0, 3) as readonly string[];
 
-  it('HOLDING FOUR KINDS narrows nothing: every live kind under cap stays eligible, and a new kind lands in its own slot', () => {
+  it('HOLDING THREE CARRIED KINDS narrows nothing: every carried kind under cap stays eligible, and the fourth lands in its own slot', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    for (const id of FOUR) w.applyCard(a, id);
+    for (const id of HELD3) w.applyCard(a, id);
     const d = place(w, 'd', 200, 0, 'droneSmall', 'fleet');
-    const fresh = LIVE_CONSUMABLES.find((id) => !FOUR.includes(id))!;
-    const log = scriptDrops(w, [PASS], [LIVE_CONSUMABLES.indexOf(fresh)]);
+    const fresh = CARRIED.find((id) => !HELD3.includes(id))!;
+    const log = scriptDrops(w, [PASS], [CARRIED.indexOf(fresh)]);
     w.sinkShip(d.id, 'a');
-    expect(log.picks).toEqual([{ min: 0, max: LIVE_CONSUMABLES.length - 1 }]);
+    expect(log.picks).toEqual([{ min: 0, max: CARRIED.length - 1 }]);
     expect(boonStackCount(a.cards, fresh)).toBe(1);
-    expect(a.loadout[consumableSlotFor(fresh as ConsumableId)!].equipmentId).toBe(fresh);
-    for (const id of FOUR) expect(a.loadout[consumableSlotFor(id as ConsumableId)!].equipmentId, id).toBe(id); // nothing moved
+    expect(a.loadout[consumableSlotFor(KIT, fresh as ConsumableId)!].equipmentId).toBe(fresh);
+    for (const id of HELD3) expect(a.loadout[consumableSlotFor(KIT, id as ConsumableId)!].equipmentId, id).toBe(id); // nothing moved
   });
 
-  it('EVERY kind at cap 5: the roll is wasted — no pick drawn, no event, no throw', () => {
+  it('EVERY carried kind at cap 5: the roll is wasted — no pick drawn, no event, no throw', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    for (const id of LIVE_CONSUMABLES) for (let i = 0; i < CATALOG[id].cap; i++) w.applyCard(a, id);
+    for (const id of CARRIED) for (let i = 0; i < CATALOG[id].cap; i++) w.applyCard(a, id);
     const before = [...a.cards];
     const d = place(w, 'd', 200, 0, 'droneLarge', 'fleet');
     const log = scriptDrops(w, [PASS, PASS, PASS]);
@@ -216,13 +241,13 @@ describe('drone drops — the eligible set is the refit card\'s predicate', () =
     expect(dropsAfterStep(w)).toEqual([]);
   });
 
-  it('LINE AT CAP: that line is excluded; the pick is among the other live lines', () => {
+  it('LINE AT CAP: that line is excluded; the pick is among the other carried lines', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     for (let i = 0; i < CATALOG.hullRepair.cap; i++) w.applyCard(a, 'hullRepair');
     const d = place(w, 'd', 200, 0, 'droneSmall', 'fleet');
-    const others = LIVE_CONSUMABLES.filter((id) => id !== 'hullRepair');
-    expect(others).toHaveLength(LIVE_CONSUMABLES.length - 1);
+    const others = CARRIED.filter((id) => id !== 'hullRepair');
+    expect(others).toHaveLength(CARRIED.length - 1);
     const log = scriptDrops(w, [PASS], [others.length - 1]);
     w.sinkShip(d.id, 'a');
     expect(log.picks).toEqual([{ min: 0, max: others.length - 1 }]);
@@ -230,8 +255,8 @@ describe('drone drops — the eligible set is the refit card\'s predicate', () =
     expect(boonStackCount(a.cards, others[others.length - 1])).toBe(1);
   });
 
-  it('REPAIR x5 + SHIELD x2, nothing else: eligible = every other live kind, the shield included (the spec matrix)', () => {
-    const eligible = LIVE_CONSUMABLES.filter((id) => id !== 'hullRepair');
+  it('REPAIR x5 + SHIELD x2, nothing else: eligible = every other carried kind, the shield included (the spec matrix)', () => {
+    const eligible = CARRIED.filter((id) => id !== 'hullRepair');
     expect(eligible).toContain('shieldBlock');
     for (let i = 0; i < eligible.length; i++) {
       const wi = bareWorld();
@@ -251,16 +276,16 @@ describe('drone drops — the eligible set is the refit card\'s predicate', () =
   it('DEPTH CHARGE (a stub) is never dropped: walking every pick index never lands it', () => {
     expect(CATALOG.depthCharge.kind).toBe('consumable');
     expect(LIVE_CONSUMABLES).not.toContain('depthCharge');
-    // The live set is exactly the keyed kinds (Story 9.2).
-    expect([...LIVE_CONSUMABLES].sort()).toEqual([...CONSUMABLE_KEY_ORDER].sort());
-    for (let i = 0; i < LIVE_CONSUMABLES.length; i++) {
+    // The live set is exactly the kit-eligible pool (Story 10.1).
+    expect([...LIVE_CONSUMABLES].sort()).toEqual([...dealableConsumables()].sort());
+    for (let i = 0; i < CARRIED.length; i++) {
       const w = bareWorld();
       const a = place(w, 'a');
       const d = place(w, 'd', 200, 0, 'droneSmall', 'fleet');
       const log = scriptDrops(w, [PASS], [i]);
       w.sinkShip(d.id, 'a');
-      expect(log.picks).toEqual([{ min: 0, max: LIVE_CONSUMABLES.length - 1 }]);
-      expect(a.cards).toEqual([LIVE_CONSUMABLES[i]]);
+      expect(log.picks).toEqual([{ min: 0, max: CARRIED.length - 1 }]);
+      expect(a.cards).toEqual([CARRIED[i]]);
     }
   });
 
@@ -269,13 +294,13 @@ describe('drone drops — the eligible set is the refit card\'s predicate', () =
     const a = place(w, 'a');
     for (let i = 0; i < CATALOG.hullRepair.cap - 1; i++) w.applyCard(a, 'hullRepair');
     const d = place(w, 'd', 200, 0, 'droneMedium', 'fleet');
-    // First pick: every live kind (hullRepair one short of its cap). Pick it.
-    const first = LIVE_CONSUMABLES.indexOf('hullRepair');
+    // First pick: every carried kind (hullRepair one short of its cap). Pick it.
+    const first = CARRIED.indexOf('hullRepair');
     const log = scriptDrops(w, [PASS, PASS], [first, 0]);
     w.sinkShip(d.id, 'a');
     expect(log.picks).toEqual([
-      { min: 0, max: LIVE_CONSUMABLES.length - 1 },
-      { min: 0, max: LIVE_CONSUMABLES.length - 2 },
+      { min: 0, max: CARRIED.length - 1 },
+      { min: 0, max: CARRIED.length - 2 },
     ]);
     expect(boonStackCount(a.cards, 'hullRepair')).toBe(CATALOG.hullRepair.cap);
   });
@@ -289,7 +314,7 @@ describe('drone drops — who rolls', () => {
     const d = place(w, 'd', 200, 0, 'droneSmall', 'fleet');
     scriptDrops(w, [PASS], [0]);
     w.sinkShip(d.id, 'bot1');
-    expect(bot.cards).toEqual([...before, LIVE_CONSUMABLES[0]]);
+    expect(bot.cards).toEqual([...before, CARRIED[0]]);
   });
 
   it('a SINKING killer (mutual destruction) gets the XP but NO roll', () => {
@@ -358,7 +383,7 @@ describe('drone drops — determinism and stream isolation', () => {
     for (const seed of [1, 2, 3, 7, 42, 1234]) {
       const first = realDrops(seed);
       expect(realDrops(seed)).toEqual(first);
-      for (const id of first) expect(LIVE_CONSUMABLES).toContain(id);
+      for (const id of first) expect(CARRIED).toContain(id);
       if (first.length > 0) anyDrop = true;
     }
     expect(anyDrop).toBe(true);
@@ -410,7 +435,7 @@ describe('drone drops — determinism and stream isolation', () => {
 });
 
 describe('drone drops — a drop landing while a refit hand is open (Eric 2026-10-01, amendment 227)', () => {
-  const HELD = ['hullRepair', 'shieldBlock', 'countermeasure'];
+  const HELD = ['hullRepair', 'shieldBlock'];
   const spendStock = (w: World, s: ShipRecord, id: string) =>
     (w as unknown as { spendStock(ship: ShipRecord, line: string): void }).spendStock(s, id);
 
@@ -422,9 +447,9 @@ describe('drone drops — a drop landing while a refit hand is open (Eric 2026-1
     a.offer = ['decoyBuoy', 'speed', 'reload', 'radarSweep'];
     const offer = a.offer;
     const offerBefore = [...offer];
-    const fourth = LIVE_CONSUMABLES.find((id) => !HELD.includes(id) && id !== 'decoyBuoy')!;
+    const fourth = CARRIED.find((id) => !HELD.includes(id) && id !== 'decoyBuoy')!;
     const d = place(w, 'd', 200, 0, 'droneSmall', 'fleet');
-    scriptDrops(w, [PASS], [LIVE_CONSUMABLES.indexOf(fourth)]);
+    scriptDrops(w, [PASS], [CARRIED.indexOf(fourth)]);
     w.sinkShip(d.id, 'a');
     expect(new Set(beltIds(a).filter((id) => id !== null))).toEqual(new Set([...HELD, fourth]));
     // Accepted as designed: same hand, same object, same bank.
@@ -434,7 +459,7 @@ describe('drone drops — a drop landing while a refit hand is open (Eric 2026-1
     // No full belt exists: the offered decoy still lands, in its own slot.
     expect(w.spendPoint('a', 0)).toBe(true);
     expect(a.bankedLevels).toBe(0);
-    expect(a.loadout[consumableSlotFor('decoyBuoy')!].equipmentId).toBe('decoyBuoy');
+    expect(a.loadout[consumableSlotFor(KIT, 'decoyBuoy')!].equipmentId).toBe('decoyBuoy');
   });
 
   it('a drop that tops a held line to its cap while the hand offers it: that pick is refused (at cap), nothing throws', () => {
@@ -447,7 +472,7 @@ describe('drone drops — a drop landing while a refit hand is open (Eric 2026-1
     const offer = a.offer;
     const offerBefore = [...offer];
     const d = place(w, 'd', 200, 0, 'droneSmall', 'fleet');
-    scriptDrops(w, [PASS], [LIVE_CONSUMABLES.indexOf('hullRepair')]);
+    scriptDrops(w, [PASS], [CARRIED.indexOf('hullRepair')]);
     expect(() => w.sinkShip(d.id, 'a')).not.toThrow();
     expect(boonStackCount(a.cards, 'hullRepair')).toBe(cap);
     expect(a.offer).toBe(offer);
@@ -464,5 +489,45 @@ describe('drone drops — a drop landing while a refit hand is open (Eric 2026-1
     expect(w.spendPoint('a', 0)).toBe(true);
     expect(a.bankedLevels).toBe(0);
     expect(boonStackCount(a.cards, 'hullRepair')).toBe(cap);
+  });
+});
+
+describe('drone drops — confined to the captain\'s four (Story 10.1, Eric ruling 8)', () => {
+  const ROLLS = 600;
+  const pickDrop = (w: World, s: ShipRecord) => (w as unknown as { pickDrop(ship: ShipRecord): void }).pickDrop(s);
+  const spendStock = (w: World, s: ShipRecord, id: string) =>
+    (w as unknown as { spendStock(ship: ShipRecord, line: string): void }).spendStock(s, id);
+
+  /** ROLLS real `pickDrop` rolls on the world's own seeded drop stream; each
+   *  landed copy is spent again so no line ever reaches its cap (which would
+   *  narrow the set for a reason other than the kit). Returns every line dropped. */
+  function dropsFor(kit: ConsumableKit, seed: number): Set<string> {
+    const w = bareWorld(seed);
+    const a = place(w, 'a', 0, 0, 'torpedoBoat', 'captain', kit);
+    const seen = new Set<string>();
+    for (let i = 0; i < ROLLS; i += 1) {
+      pickDrop(w, a);
+      const landed = a.cards[a.cards.length - 1];
+      expect(landed, `roll ${i}`).toBeDefined();
+      seen.add(landed);
+      spendStock(w, a, landed);
+      expect(a.cards).toEqual([]);
+    }
+    return seen;
+  }
+
+  it('a captain whose kit lacks the DECOY BUOY is never dropped one; every drop is one of its four', () => {
+    expect(DEFAULT_KIT).not.toContain('decoyBuoy');
+    const seen = dropsFor(DEFAULT_KIT, 101);
+    expect(seen.has('decoyBuoy')).toBe(false);
+    // Uniform over the four: every carried line shows up, and nothing else.
+    expect([...seen].sort()).toEqual([...DEFAULT_KIT].sort());
+  });
+
+  it('a captain whose kit carries the DECOY BUOY is dropped one, and still nothing outside its four', () => {
+    expect(KIT).toContain('decoyBuoy');
+    const seen = dropsFor(KIT, 101);
+    expect(seen.has('decoyBuoy')).toBe(true);
+    expect([...seen].sort()).toEqual([...KIT].sort());
   });
 });

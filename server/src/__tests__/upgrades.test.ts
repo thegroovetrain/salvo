@@ -22,8 +22,9 @@ import {
   classShift,
   equipmentMaxAmmo,
   MULLIGAN_CHOICE,
-  CONSUMABLE_KEY_ORDER,
   CONSUMABLE_SLOTS,
+  DEFAULT_KIT,
+  dealableConsumables,
   SLOT_COUNT,
   DEFAULT_GUN,
   GUN_IDS,
@@ -46,6 +47,7 @@ import {
   type CatalogLine,
   type BoonOffer,
   type ConsumableId,
+  type ConsumableKit,
   type FrameMsg,
   type InputMsg,
   type GameEvent,
@@ -134,7 +136,7 @@ function front(ship: ShipRecord): string[] {
 function spendPlainCard(w: World, ship: ShipRecord): string {
   const hand = front(ship);
   const slotIds = ship.loadout.map((s) => s.equipmentId);
-  const idx = hand.findIndex((id) => pickRefusal(ship.cards, slotIds, id) === null);
+  const idx = hand.findIndex((id) => pickRefusal(ship.cards, slotIds, id, ship.kit) === null);
   expect(idx, `no fittable card in ${hand.join(',')}`).toBeGreaterThanOrEqual(0);
   expect(w.spendPoint(ship.id, idx)).toBe(true);
   return hand[idx];
@@ -168,6 +170,7 @@ const eligibleFor = (ship: ShipRecord): string[] =>
     held: ship.cards as readonly LineId[],
     slotIds: ship.loadout.map((s) => s.equipmentId),
     mountedGun: MOUNTED_GUN[ship.gun],
+    kit: ship.kit,
   }).map((e) => e.id);
 
 describe('the common pool — every dealable line, for every hull (Story 8.14)', () => {
@@ -186,7 +189,10 @@ describe('the common pool — every dealable line, for every hull (Story 8.14)',
         const line = CATALOG[id];
         const gunLadder = line.kind === 'ladder' && line.appliesTo !== undefined;
         const mounted = gunLadder && line.appliesTo!.includes(MOUNTED_GUN[rec.gun]);
-        const want = !isStubLine(id) && (!gunLadder || mounted);
+        // ...and a consumable OUTSIDE the hull's kit is never a candidate
+        // (Story 10.1, the one gate): only its four are dealt.
+        const offKit = line.kind === 'consumable' && !(rec.kit as readonly string[]).includes(id);
+        const want = !isStubLine(id) && (!gunLadder || mounted) && !offKit;
         expect(eligible.has(id), `${hull}/${id}`).toBe(want);
       }
       // ...and it is IDENTICAL across hulls: class identity is the envelope and
@@ -667,8 +673,9 @@ describe('spendPoint — validation table', () => {
 
 const HEALS_OF = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'heal');
 const HR = CONFIG.hullRepair;
-/** HULL REPAIR's fixed slot (Story 9.2) — where a stocked copy lands. */
-const SLOT_BELT = consumableSlotFor('hullRepair')!;
+/** HULL REPAIR's slot under the default kit these fixtures sail (Story 10.1)
+ *  — where a stocked copy lands. */
+const SLOT_BELT = consumableSlotFor(DEFAULT_KIT, 'hullRepair')!;
 /** hp per 50ms tick at the fixed regen rate (50hp / 5000ms = 10 hp/s). */
 const REGEN_PER_TICK = (HR.regenHp / HR.regenMs) * DT;
 
@@ -1169,21 +1176,22 @@ describe('the offer is never empty — consumables are never filtered out (Story
     // Amendment 94 (Eric): a captain is always shown a FULL offer. Since Story
     // 9.2 (epic-9 amendment 21) every consumable kind owns its own slot, so
     // holding every other kind can never crowd one out.
+    // Since Story 10.1 "every other kind" is every other kind OF THE KIT.
     const w = bareWorld(1, { catalog: BELT_CATALOG });
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, undefined, BELT_KIT);
     a.state.speed = 0;
-    const others = CONSUMABLE_KEY_ORDER.filter((k) => k !== 'decoyBuoy');
+    const others = BELT_KIT.filter((k) => k !== 'decoyBuoy');
     for (const id of others) w.applyCard(a, id);
-    for (const id of others) expect(a.loadout[consumableSlotFor(id)!].equipmentId, id).toBe(id);
+    for (const id of others) expect(a.loadout[consumableSlotFor(BELT_KIT, id)!].equipmentId, id).toBe(id);
     expect(eligibleLines(
-      { held: a.cards as readonly LineId[], slotIds: a.loadout.map((s) => s.equipmentId), mountedGun: 'gun' },
+      { held: a.cards as readonly LineId[], slotIds: a.loadout.map((s) => s.equipmentId), mountedGun: 'gun', kit: a.kit },
       BELT_CATALOG,
     ).map((e) => e.id)).toContain('decoyBuoy');
     a.bankedLevels = 1;
     a.offer = ['decoyBuoy'];
     expect(w.spendPoint('a', 0)).toBe(true);
-    expect(a.loadout[consumableSlotFor('decoyBuoy')!]).toEqual({ equipmentId: 'decoyBuoy', state: { n: 1, reloadMsLeft: 0 } });
-    for (const id of others) expect(a.loadout[consumableSlotFor(id)!].equipmentId, id).toBe(id); // nothing moved
+    expect(a.loadout[consumableSlotFor(BELT_KIT, 'decoyBuoy')!]).toEqual({ equipmentId: 'decoyBuoy', state: { n: 1, reloadMsLeft: 0 } });
+    for (const id of others) expect(a.loadout[consumableSlotFor(BELT_KIT, id)!].equipmentId, id).toBe(id); // nothing moved
   });
 
   // --- THE AT-CAP PICK (Story 8.14 review, F1) ------------------------------
@@ -1199,11 +1207,11 @@ describe('the offer is never empty — consumables are never filtered out (Story
     const a = place(w, 'a', 0, 0);
     for (let i = 0; i < CATALOG.hullRepair.cap; i += 1) w.applyCard(a, 'hullRepair');
     expect(a.cards).toHaveLength(CATALOG.hullRepair.cap);
-    const beltSlot = consumableSlotFor('hullRepair')!;
+    const beltSlot = consumableSlotFor(a.kit, 'hullRepair')!;
     expect(a.loadout[beltSlot].state!.n).toBe(CATALOG.hullRepair.cap);
     // The slot would still TAKE a copy — it is the line's own — so the CAP is
     // what refuses it.
-    expect(stockSlotFor(a.loadout.map((sl) => sl.equipmentId), 'hullRepair')).toBe(beltSlot);
+    expect(stockSlotFor(a.loadout.map((sl) => sl.equipmentId), 'hullRepair', a.kit)).toBe(beltSlot);
 
     a.bankedLevels = 1;
     a.offer = ['hullRepair'];
@@ -1231,7 +1239,7 @@ describe('the offer is never empty — consumables are never filtered out (Story
   it('a FOUR-LINE dev fitOverride fits THREE weapons and drops the fourth — ledger included', () => {
     const w = bareWorld();
     // Four equipment lines, one weapon row three wide.
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN,
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, undefined,
       ['heavyTorpedo', 'navalMines', 'broadside', 'starShells']);
     expect(a.cards).toEqual(['heavyTorpedo', 'navalMines', 'broadside']);
     expect(WEAPON_SLOTS.map((i) => a.loadout[i].equipmentId)).toEqual(['heavyTorpedo', 'navalMines', 'broadside']);
@@ -1248,7 +1256,7 @@ describe('the offer is never empty — consumables are never filtered out (Story
     // row, which is the reachable path to the F2 bug: `usableLines` used to be
     // a pure fact about the HOLD and would name copy 1 of an unheld weapon.
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN,
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, undefined,
       ['heavyTorpedo', 'navalMines', 'broadside']);
     expect(WEAPON_SLOTS.every((i) => a.loadout[i].equipmentId !== null)).toBe(true);
     w.grantOpening();
@@ -1874,7 +1882,7 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
       // IS the spawn now.
       expect(a.stats).toEqual(effectiveStats(a.cls));
       expect(a.loadout).toEqual(loadoutFor(a.stats, false, DEFAULT_GUN, classShift(hull)));
-      expect(a.loadout).toEqual(slotsWithCards(a.stats, a.cards, CATALOG, false, DEFAULT_GUN, classShift(hull)));
+      expect(a.loadout).toEqual(slotsWithCards(a.stats, a.cards, a.kit, CATALOG, false, DEFAULT_GUN, classShift(hull)));
       for (const i of WEAPON_SLOTS) expect(a.loadout[i]).toEqual({ equipmentId: null, state: null });
       for (const i of CONSUMABLE_SLOTS) expect(a.loadout[i]).toEqual({ equipmentId: null, state: null });
       expect(a.loadout[SLOT_GUN].equipmentId).toBe('gun');
@@ -1937,8 +1945,10 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
 // ---------- THE CONSUMABLE SLOTS (Story 8.7's belt; fixed slots since 9.2) ---
 
 // Since Story 9.2 (epic-9 amendment 21) every consumable kind owns ONE FIXED
-// slot (`consumableSlotFor`, 5-10 in CONSUMABLE_KEY_ORDER): nothing packs,
-// nothing re-packs, and the only consumable refusal is the cap.
+// slot: nothing packs, nothing re-packs, and the only consumable refusal for a
+// CARRIED kind is the cap. Since Story 10.1 the slot comes from the ship's
+// KIT (`consumableSlotFor(kit, id)`, slots 5-8) and a kind outside the kit has
+// no slot at all — the belt fixtures below sail BELT_KIT.
 //
 // STOCK, REFUSE, USE, CLEAR — the whole consumable mechanism, end to end
 // through the REAL seams (spendPoint -> settleSpend -> applyCard -> the shared
@@ -1957,19 +1967,24 @@ function consumableLine(id: ConsumableId, cap = 5): CatalogLine {
   return { id, kind: 'consumable', cap, tiers } as unknown as CatalogLine;
 }
 
-/** Every KEYED consumable kind (CONSUMABLE_KEY_ORDER — Story 9.2), all
- *  NON-STUB, plus a non-consumable control line. Module-scope since Story
- *  8.14: the never-empty-offer suite needs every kind a captain can stock. */
+/** The belt fixtures' kit (Story 10.1): the four kinds the suite names, in a
+ *  NON-default order so slot placement is exercised, not assumed. */
+const BELT_KIT: ConsumableKit = ['decoyBuoy', 'countermeasure', 'hullRepair', 'shieldBlock'];
+
+/** Every DEALABLE consumable kind (`dealableConsumables()` — the pool a kit
+ *  is picked from, Story 10.1), all NON-STUB, plus a non-consumable control
+ *  line. Module-scope since Story 8.14: the never-empty-offer suite needs every
+ *  kind a captain can stock. */
 const BELT_CATALOG: Catalog = {
-  ...Object.fromEntries(CONSUMABLE_KEY_ORDER.map((id) => [id, consumableLine(id)])),
+  ...Object.fromEntries(dealableConsumables().map((id) => [id, consumableLine(id)])),
   gunUp: ladderLine('gunUp', 9), // a non-consumable control line
 };
 
-describe('the consumable slots — stock, the cap refusal, use, and clear-at-zero (Story 8.7 / 9.2)', () => {
-  /** HULL REPAIR's fixed slot — the subject of most cases below. */
-  const HR_SLOT = consumableSlotFor('hullRepair')!;
-  /** The DECOY BUOY's fixed slot — the `isWeapon` (click-channel) subject. */
-  const DB = consumableSlotFor('decoyBuoy')!;
+describe('the consumable slots — stock, the cap refusal, use, and clear-at-zero (Story 8.7 / 9.2 / 10.1)', () => {
+  /** HULL REPAIR's slot under BELT_KIT — the subject of most cases below. */
+  const HR_SLOT = consumableSlotFor(BELT_KIT, 'hullRepair')!;
+  /** The DECOY BUOY's slot under BELT_KIT — the `isWeapon` (click-channel) subject. */
+  const DB = consumableSlotFor(BELT_KIT, 'decoyBuoy')!;
   /** Every consumable slot but `slot`. */
   const othersThan = (slot: number): number[] => CONSUMABLE_SLOTS.filter((i) => i !== slot);
   /** A World on the belt catalog with ONE key-fires row and ONE `isWeapon` row
@@ -1990,7 +2005,7 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
    *  retired them. */
   function placeBelt(w: World, id: string, list: readonly LineId[]): ShipRecord {
     void list;
-    const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
+    const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, undefined, BELT_KIT);
     rec.state.x = 0;
     rec.state.y = 0;
     rec.state.speed = 0;
@@ -2054,11 +2069,11 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
   it('every kind lands in ITS OWN fixed slot whatever the pick order; a second kind never moves the first; the weapon row never takes one', () => {
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
-    const order = [...CONSUMABLE_KEY_ORDER].reverse(); // the opposite of key order
+    const order = [...BELT_KIT].reverse(); // the opposite of key order
     for (const [n, id] of order.entries()) {
       w.applyCard(a, id);
       // Every kind stocked so far still sits in its own slot — nothing moved.
-      for (const held of order.slice(0, n + 1)) expect(a.loadout[consumableSlotFor(held)!].equipmentId, held).toBe(held);
+      for (const held of order.slice(0, n + 1)) expect(a.loadout[consumableSlotFor(BELT_KIT, held)!].equipmentId, held).toBe(held);
     }
     for (const i of CONSUMABLE_SLOTS) expect(a.loadout[i].state).toEqual({ n: 1, reloadMsLeft: 0 });
     for (const i of WEAPON_SLOTS) expect(a.loadout[i]).toEqual({ equipmentId: null, state: null });
@@ -2106,7 +2121,7 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
   it('with EVERY kind stocked, a held kind under its cap still takes another copy in its own slot', () => {
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
-    for (const id of CONSUMABLE_KEY_ORDER) w.applyCard(a, id);
+    for (const id of BELT_KIT) w.applyCard(a, id);
     arm(a, ['hullRepair']);
     expect(w.spendPoint('a', 0)).toBe(true);
     expect(a.loadout[HR_SLOT]).toEqual({ equipmentId: 'hullRepair', state: { n: 2, reloadMsLeft: 0 } });
@@ -2115,7 +2130,7 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
   it('a NON-consumable pick is never gated by the consumable slots (every kind stocked does not refuse a ladder)', () => {
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', new Array<LineId>(9).fill('gunUp' as LineId));
-    for (const id of CONSUMABLE_KEY_ORDER) w.applyCard(a, id);
+    for (const id of BELT_KIT) w.applyCard(a, id);
     arm(a, ['gunUp' as LineId]);
     expect(w.spendPoint('a', 0)).toBe(true);
   });
@@ -2137,7 +2152,7 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
     expect(a.stats).toEqual(effectiveStats(a.cls, a.cards, BELT_CATALOG));
     // ...and the shared replay (what respawn/redeploy and the client both run)
     // agrees with the live loadout: a used copy is never restored.
-    expect(slotsWithCards(a.stats, a.cards, BELT_CATALOG)).toEqual(a.loadout);
+    expect(slotsWithCards(a.stats, a.cards, a.kit, BELT_CATALOG)).toEqual(a.loadout);
   });
 
   it('the LAST copy clears the slot in the SAME tick — loadout, slotAmmo and the replay all agree', () => {
@@ -2148,7 +2163,7 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
     expect(a.loadout[HR_SLOT]).toEqual({ equipmentId: null, state: null });
     expect(slotAmmo(a)[HR_SLOT]).toBeNull();
     expect(a.cards).toEqual([]);
-    expect(slotsWithCards(a.stats, a.cards, BELT_CATALOG)).toEqual(a.loadout);
+    expect(slotsWithCards(a.stats, a.cards, a.kit, BELT_CATALOG)).toEqual(a.loadout);
   });
 
   it('the LAST occurrence goes: a mixed card list keeps its order and loses exactly one copy', () => {
@@ -2167,7 +2182,7 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
     expect(w.sinkingActivationGate(a, HR_SLOT)).toEqual({ ok: true }); // 2 -> 1
     // The REBUILD (respawn / redeploy / the client's replay) is this one shared
     // derivation over `cards` — it can only ever show what is still held.
-    expect(slotsWithCards(a.stats, a.cards, BELT_CATALOG)[HR_SLOT]).toEqual({
+    expect(slotsWithCards(a.stats, a.cards, a.kit, BELT_CATALOG)[HR_SLOT]).toEqual({
       equipmentId: 'hullRepair', state: { n: 1, reloadMsLeft: 0 },
     });
     w.applyCard(a, 'hullRepair'); // ...and a fresh copy deepens it again
@@ -2198,15 +2213,17 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
     expect(a.loadout[HR_SLOT]).toEqual({ equipmentId: null, state: null }); // cleared in its own slot
     // Every OTHER slot is exactly as it was: same kind, same count.
     expect(CONSUMABLE_SLOTS.map((i) => a.loadout[i].equipmentId)).toEqual(before.map((id, k) => (CONSUMABLE_SLOTS[k] === HR_SLOT ? null : id)));
-    expect(a.loadout[consumableSlotFor('shieldBlock')!].state).toEqual({ n: 2, reloadMsLeft: 0 });
-    expect(a.loadout.slice(5)).toEqual(slotsWithCards(a.stats, a.cards, BELT_CATALOG).slice(5));
+    expect(a.loadout[consumableSlotFor(BELT_KIT, 'shieldBlock')!].state).toEqual({ n: 2, reloadMsLeft: 0 });
+    expect(a.loadout.slice(5)).toEqual(slotsWithCards(a.stats, a.cards, a.kit, BELT_CATALOG).slice(5));
     expect(slotAmmo(a)[HR_SLOT]).toBeNull();
     // ...and slots 0-4 were never touched: the gun's live timer is intact.
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: 3, reloadMsLeft: 777 });
   });
 
-  it('PROPERTY: after EVERY stock and EVERY use the slots equal the replay, every stack sits in its kind\'s fixed slot, and slotAmmo agrees', () => {
-    const LINES: readonly ConsumableId[] = CONSUMABLE_KEY_ORDER;
+  it('PROPERTY: after EVERY stock and EVERY use the slots equal the replay, every stack sits in its kind\'s kit slot, and slotAmmo agrees', () => {
+    // EVERY dealable kind is tried (Story 10.1): a stock of a kind outside the
+    // ship's kit must be refused, so only kit kinds can ever be seen below.
+    const LINES: readonly ConsumableId[] = dealableConsumables();
     for (let seed = 1; seed <= 24; seed++) {
       // Every keyed kind gets a row, so any key can be pressed.
       const reg = buildConsumableRegistry(LINES.map((id) => consumableRow(id, () => ({ ok: true }))));
@@ -2223,16 +2240,16 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
           w.applyCard(a, LINES[next(LINES.length)]); // a STOCK (refused if it cannot land)
         } else {
           actSeq += 1; // a USE — through the real ability channel, as a key press
-          send(w, 'a', actSeq, { actSeq, actSlot: next(SLOT_COUNT) }); // any slot 0..10
+          send(w, 'a', actSeq, { actSeq, actSlot: next(SLOT_COUNT) }); // any slot
           w.step();
         }
-        const replay = slotsWithCards(a.stats, a.cards, BELT_CATALOG);
+        const replay = slotsWithCards(a.stats, a.cards, a.kit, BELT_CATALOG);
         const where = `seed ${seed} step ${step} cards ${a.cards.join(',')}`;
         expect(a.loadout.slice(5), where).toEqual(replay.slice(5));
         expect(slotAmmo(a).slice(5), where).toEqual(slotAmmo({ ...a, loadout: replay } as ShipRecord).slice(5));
         for (const i of CONSUMABLE_SLOTS) {
           const id = a.loadout[i].equipmentId;
-          if (id !== null) expect(consumableSlotFor(id as ConsumableId), where).toBe(i); // never packed
+          if (id !== null) expect(consumableSlotFor(BELT_KIT, id as ConsumableId), where).toBe(i); // never packed, never off-kit
         }
       }
     }
@@ -2251,7 +2268,7 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
     expect(w.sinkingActivationGate(a, HR_SLOT)).toEqual({ ok: false, reason: 'blocked' });
     expect(a.loadout[HR_SLOT]).toEqual({ equipmentId: 'hullRepair', state: { n: 1, reloadMsLeft: 0 } });
     expect(a.cards).toEqual(cards); // no `{n:0}` zombie, no copy refunded on respawn
-    expect(slotsWithCards(a.stats, a.cards, BELT_CATALOG)).toEqual(a.loadout);
+    expect(slotsWithCards(a.stats, a.cards, a.kit, BELT_CATALOG)).toEqual(a.loadout);
     // ...and the copy is still there to try again with.
     expect(w.sinkingActivationGate(a, HR_SLOT)).toEqual({ ok: false, reason: 'blocked' });
     expect(a.loadout[HR_SLOT].state).toEqual({ n: 1, reloadMsLeft: 0 });
@@ -2275,10 +2292,10 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
     expect(a.cards).toEqual(cards);
     expect(JSON.parse(JSON.stringify(a.loadout))).toEqual(loadout);
     expect(a.stats).toBe(stats);
-    expect(slotsWithCards(a.stats, a.cards, BELT_CATALOG)).toEqual(a.loadout);
+    expect(slotsWithCards(a.stats, a.cards, a.kit, BELT_CATALOG)).toEqual(a.loadout);
     // ...while a held kind under its cap still lands, in its own slot.
     w.applyCard(a, 'countermeasure');
-    expect(a.loadout[consumableSlotFor('countermeasure')!].state).toEqual({ n: 2, reloadMsLeft: 0 });
+    expect(a.loadout[consumableSlotFor(BELT_KIT, 'countermeasure')!].state).toEqual({ n: 2, reloadMsLeft: 0 });
   });
 
   it('SINKING policy is unchanged: a belt slot activates while going down', () => {
@@ -2355,7 +2372,7 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
     const w = bareWorld(1, { catalog: BELT_CATALOG, consumables: buildConsumableRegistry([]) });
     const a = placeBelt(w, 'a', deckOf('shieldBlock'));
     w.applyCard(a, 'shieldBlock');
-    const SB = consumableSlotFor('shieldBlock')!;
+    const SB = consumableSlotFor(BELT_KIT, 'shieldBlock')!;
     expect(a.loadout[SB].state).toEqual({ n: 1, reloadMsLeft: 0 }); // stocked...
     expect(w.sinkingActivationGate(a, SB)).toEqual({ ok: false, reason: 'empty-slot' }); // ...but inert
     expect(a.loadout[SB].state).toEqual({ n: 1, reloadMsLeft: 0 }); // nothing spent

@@ -31,16 +31,16 @@
 //                  cannot machine-gun it), suspended with Q/E/R while the refit
 //                  modal is open and swallowed by a focused overlay
 //   TAB            toggles the refit modal (main.ts owns open/close policy)
-//   1–6            TWO MEANINGS, decided at the keydown itself (Story 8.7,
-//                  ruling 7; Story 9.2 re-cut): with the refit window OPEN
-//                  1–4 pick a card and 5/6 are inert; with it CLOSED 1–6 are
-//                  the six consumable kinds' FIXED keys (shared
-//                  CONSUMABLE_SLOTS, in CONSUMABLE_KEY_ORDER), acting through
+//   1–4            TWO MEANINGS, decided at the keydown itself (Story 8.7,
+//                  ruling 7; Story 9.2 re-cut; Story 10.1 back to four): with
+//                  the refit window OPEN 1–4 pick a card; with it CLOSED 1–4
+//                  are the ship's KIT keys (shared CONSUMABLE_SLOTS — key `n`
+//                  fires `kit[n - 1]`'s square), acting through
 //                  the very same slotAction the weapon keys use. In between
 //                  sits the CLOSE GRACE (ruling 8): for a few hundred ms after
 //                  the window closes by ANY path every digit is swallowed, so
 //                  the key that spent the last banked level cannot fall
-//                  through onto a consumable. Digits 7+ are unbound
+//                  through onto a consumable. Digits 5+ are unbound
 //   ESC            closes the TOPMOST open surface (results modal / refit modal
 //                  / settings overlay) and, with nothing open, toggles settings
 //                  — the uniform law (Story 2.3, amendment 23). Never leaves the
@@ -149,9 +149,9 @@ export const BOOST_KEY_CODES: readonly string[] = ['ShiftLeft', 'ShiftRight'];
 
 /**
  * Digit key → the refit choice it sends (top row + numpad): card indices 0..3,
- * and nothing else. EVERY choice on the wire is an offer index; `5`/`6` carry
- * no choice, so while the window is open they are bound-inert (they pick
- * nothing and reach no consumable square).
+ * and nothing else. EVERY choice on the wire is an offer index. Since Story
+ * 10.1 the open-window digit set and the kit's key set are the same four keys
+ * (`5`/`6` — bound-inert from Story 9.2 — are unbound again).
  *
  * This is the OPEN-WINDOW meaning of the digits; the CLOSED-window meaning is
  * CONSUMABLE_KEY_CODES.
@@ -164,12 +164,13 @@ export const REFIT_DIGIT_CODES: Record<string, number> = {
 };
 
 /**
- * THE SECOND MEANING (Story 9.2, epic-9 amendments 21/31): digit key → the
- * consumable slot it fires while the refit window is CLOSED. Every consumable
- * kind owns one FIXED slot (shared `CONSUMABLE_SLOTS`, in
- * `CONSUMABLE_KEY_ORDER`), and key `n` is the n-th of them — derived from the
- * shared tuple, never re-typed as literals, so a re-cut of the key row moves
- * the keys with it. Top row and numpad are the same key.
+ * THE SECOND MEANING (Story 9.2, epic-9 amendments 21/31; Story 10.1, epic-10
+ * amendment 3): digit key → the consumable slot it fires while the refit
+ * window is CLOSED. The ship carries a four-line KIT, `kit[i]` in shared
+ * `CONSUMABLE_SLOTS[i]`, and key `n` is the n-th of those slots — derived from
+ * the shared list, never re-typed as literals, so the keys follow `KIT_SIZE`.
+ * Which KIND a key fires is the kit's business, not the keyboard's. Top row
+ * and numpad are the same key.
  */
 export const CONSUMABLE_KEY_CODES: Readonly<Record<string, number>> = Object.fromEntries(
   CONSUMABLE_SLOTS.flatMap((slot, i) => [
@@ -180,7 +181,7 @@ export const CONSUMABLE_KEY_CODES: Readonly<Record<string, number>> = Object.fro
 
 /**
  * The slots whose EMPTY press DENIES on the client — the two rows a card fills:
- * the weapon row (Story 8.5, epic-8 amendment 26) and the six consumable
+ * the weapon row (Story 8.5, epic-8 amendment 26) and the kit's consumable
  * squares (a kind at ZERO stock — Story 9.2, epic-9 amendment 35). The gun is never empty and slot 1 is empty only on a PvE drone
  * (amendment 24), which no keyboard is attached to, so a denial on either could
  * only ever be a construction-gap artefact.
@@ -424,9 +425,9 @@ export interface KeyboardHooks {
    *  with the actSeq it WILL ride once drained — main.ts predicts the verdict
    *  for feedback. */
   onAbility?: (slot: number, actSeq: number) => void;
-  /** A press hit the full FIFO (pendingActs at SLOT_COUNT — ELEVEN since Story
-   *  9.2, and still only reachable by mashing: it is eleven presses inside one
-   *  50ms sample window): the press is dropped and this fires INSTEAD — denied
+  /** A press hit the full FIFO (pendingActs at SLOT_COUNT — it follows the
+   *  slot count, and is still only reachable by mashing: that many presses
+   *  inside one 50ms sample window): the press is dropped and this fires INSTEAD — denied
    *  feedback, never silence. */
   onAbilityCapped?: (slot: number) => void;
   /**
@@ -513,8 +514,8 @@ export class KeyboardInput {
    * evaluation, but the WIRE carries at most one press per input — multiple
    * presses inside one 50ms sample window MUST be spread across successive
    * inputs; consumeActivation() drains exactly one per built input. Capped at
-   * SLOT_COUNT (ELEVEN since Story 9.2 — the cap simply follows the slot
-   * count, so it is eleven presses inside ONE 50ms window); a press against a full queue
+   * SLOT_COUNT (the cap simply follows the slot count — nine since Story
+   * 10.1 — so it is that many presses inside ONE 50ms window); a press against a full queue
    * fires onAbilityCapped (denied feedback — Story 2.1 closes the silent-drop
    * debt, and the drop at the cap stays reachable only by mashing). Cleared on the hard
    * state boundaries (death / respawn / spectate / reconnect) so a queued
@@ -796,14 +797,14 @@ export class KeyboardInput {
   }
 
   /**
-   * Digits 1–6, and they mean TWO different things (Story 8.7, ruling 7; Story
-   * 9.2). The meaning is read against the window's state AT THIS KEYDOWN —
+   * Digits 1–4, and they mean TWO different things (Story 8.7, ruling 7; Story
+   * 9.2; Story 10.1). The meaning is read against the window's state AT THIS KEYDOWN —
    * never at the key-up, never at sample time:
-   *   • window OPEN → a refit pick (1–4 → card 0..3; 5/6 inert). A GREYED
+   *   • window OPEN → a refit pick (1–4 → card 0..3). A GREYED
    *     card's digit is swallowed downstream by main.ts's handleRefitPick
    *     (ruling 10), not here — the chokepoint does not know what is on the
    *     cards;
-   *   • window CLOSED → the consumable row: 1–6 are slots 5–10 through the
+   *   • window CLOSED → the kit's row: key `n` is `CONSUMABLE_SLOTS[n - 1]`, through the
    *     very same `slotAction` a hotbar click and the weapon keys use. A kind
    *     at zero stock is an empty slot, so its press is the empty-slot denial
    *     (epic-9 amendment 35). Inside the CLOSE GRACE the key does not act at

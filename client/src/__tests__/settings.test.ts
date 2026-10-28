@@ -381,10 +381,8 @@ describe('bindingRows — the view-only reference model', () => {
       SLOT_KEY_CODES: Object.keys(SLOT_KEY_CODES),
       BOOST_KEY_CODES,
       REFIT_DIGIT_CODES: Object.keys(REFIT_DIGIT_CODES),
-      // 9.14: belt keys are 1–6 in keyboard.ts but the row says 1 – 4 — Eric's call (test-audit-2026-10-22.md); re-enable when the copy is fixed
-      CONSUMABLE_KEY_CODES: Object.keys(CONSUMABLE_KEY_CODES).filter((c) => shown.has(c)),
+      CONSUMABLE_KEY_CODES: Object.keys(CONSUMABLE_KEY_CODES),
     };
-    expect(tables.CONSUMABLE_KEY_CODES.length, 'no consumable key is advertised').toBeGreaterThan(0);
     for (const [name, codes] of Object.entries(tables)) {
       for (const code of codes) expect(shown.has(code), `${name}.${code} has no row`).toBe(true);
     }

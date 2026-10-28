@@ -23,8 +23,9 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
-  CONSUMABLE_KEY_ORDER,
   CONSUMABLE_SLOTS,
+  isConsumableKit,
+  rollKit,
   EQUIPMENT_IDS,
   SLOT_COUNT,
   GUN_IDS,
@@ -40,6 +41,7 @@ import {
   mulberry32,
   slotsWithCards,
   type ConsumableId,
+  type ConsumableKit,
   type Contact,
   type EffectiveStats,
   type EquipmentId,
@@ -885,15 +887,22 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
 
 // --- spending ---------------------------------------------------------------
 
+/** The spend tests' kit (Story 10.1) — deliberately NOT the default four
+ *  (members and order both differ), so nothing here silently rides
+ *  DEFAULT_KIT. Carries every consumable the suite names; FOULING SHELL and
+ *  the DECOY BUOY stay outside it. */
+const KIT: ConsumableKit = ['countermeasure', 'supercavTorpedo', 'hullRepair', 'shieldBlock'];
+
 /** A bare spend state: one level banked, healthy, nothing fitted, every slot
- *  empty and the cannon mounted (the defaults `BotSpendState` documents). */
+ *  empty and the cannon mounted (the defaults `BotSpendState` documents),
+ *  carrying KIT. */
 function spendState(over: Partial<BotSpendState> = {}): BotSpendState {
-  return { bankedLevels: 1, offer: null, cards: [], hp: 100, maxHp: 100, ...over };
+  return { bankedLevels: 1, offer: null, cards: [], kit: KIT, hp: 100, maxHp: 100, ...over };
 }
 
 /** SLOT_COUNT slot ids: the given gun, the boost, then Q/E/R as named, and
- *  each named consumable in ITS OWN fixed slot (`consumableSlotFor`, Story
- *  9.2) — every other slot empty. */
+ *  each named consumable in ITS slot under KIT (`consumableSlotFor`, Story
+ *  10.1) — every other slot empty. */
 function slotsOf(
   weapons: readonly (SlotItemId | null)[] = [],
   consumables: readonly ConsumableId[] = [],
@@ -902,7 +911,7 @@ function slotsOf(
   const out: (SlotItemId | null)[] = [gun, 'boost'];
   for (let i = 0; i < WEAPON_SLOTS.length; i += 1) out.push(weapons[i] ?? null);
   for (let i = 0; i < CONSUMABLE_SLOTS.length; i += 1) out.push(null);
-  for (const id of consumables) out[consumableSlotFor(id)!] = id;
+  for (const id of consumables) out[consumableSlotFor(KIT, id)!] = id;
   return out;
 }
 
@@ -993,16 +1002,31 @@ describe('ai/spending — the card policy', () => {
     expect(cardScore(profileOf('siege'), spendState({ cards: five }), 'hullRepair')).toBeNull();
   });
 
-  it('SKIPS copy 1 of a weapon with Q/E/R full — and never a consumable for want of a slot (Story 9.2)', () => {
+  it('SKIPS copy 1 of a weapon with Q/E/R full — and never a CARRIED consumable for want of a slot (Story 9.2 / 10.1)', () => {
     const rowFull: (SlotItemId | null)[] = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', ...new Array<null>(SLOT_COUNT - 5).fill(null)];
     const idx = chooseSpend(profileOf('siege'), spendState({ slotIds: rowFull, offer: ['broadside', 'hullPoints'] }));
     expect(idx).toBe(1); // `broadside` is copy 1 with nowhere to go
-    // Every OTHER keyed kind stocked in its own fixed slot: the last kind's
+    // Every OTHER kind of the kit stocked in its own slot: the last kind's
     // slot is still its own, so the card is scored, never refused.
     const slotIds: (SlotItemId | null)[] = ['gun', 'boost', null, null, null, ...new Array<null>(SLOT_COUNT - 5).fill(null)];
-    const others = CONSUMABLE_KEY_ORDER.filter((k) => k !== 'supercavTorpedo');
-    for (const k of others) slotIds[consumableSlotFor(k)!] = k;
+    const others = KIT.filter((k) => k !== 'supercavTorpedo');
+    for (const k of others) slotIds[consumableSlotFor(KIT, k)!] = k;
     expect(cardScore(profileOf('siege'), spendState({ slotIds, cards: [...others] }), 'supercavTorpedo')).not.toBeNull();
+  });
+
+  it('REFUSES a consumable OUTSIDE the bot\'s own kit (Story 10.1, the one gate) — never scored, never chosen', () => {
+    const outside = (['foulingShell', 'decoyBuoy'] as const).filter((k) => !KIT.includes(k));
+    expect(outside.length).toBeGreaterThan(0);
+    const siege = profileOf('siege');
+    for (const k of outside) {
+      expect(cardScore(siege, spendState(), k), k).toBeNull();
+      // The same card IS scored for a bot whose kit carries it.
+      const carrying: ConsumableKit = [k, ...KIT.slice(1)];
+      expect(isConsumableKit(carrying)).toBe(true);
+      expect(cardScore(siege, spendState({ kit: carrying }), k), k).not.toBeNull();
+      // A hand of [outside, legal] picks the legal card.
+      expect(chooseSpend(siege, spendState({ offer: [k, 'hullPoints'] }))).toBe(1);
+    }
   });
 
   it('DOES NOT SPEND when every card in the hand is refused — the level stays banked (matrix: Dead hand)', () => {
@@ -1271,19 +1295,21 @@ describe('ai/spending — ten seeded levels through the real draw (Story 8.20)',
     const pickRng = mulberry32((seed * 7919 + 17) >>> 0);
     const cls = pickRng.pick(SHIP_CLASS_IDS);
     const gun = pickRng.pick(GUN_IDS);
+    // A random four per run (Story 10.1, ruling 6), off the same pick stream.
+    const kit = rollKit(pickRng.next);
     const drawRng = mulberry32(seed);
     const spendRng = mulberry32((seed * 104729 + 3) >>> 0);
     const profile = profileOf(id);
     const cards: string[] = [];
     let wasted = 0;
     const slotIds = (): (SlotItemId | null)[] =>
-      slotsWithCards(effectiveStats(hullEnvelope(cls), cards), cards, CATALOG, false, gun, classShift(cls))
+      slotsWithCards(effectiveStats(hullEnvelope(cls), cards), cards, kit, CATALOG, false, gun, classShift(cls))
         .map((s) => s.equipmentId);
     for (let level = 0; level < LEVELS; level += 1) {
       const ids = slotIds();
-      const ship = { held: cards as readonly LineId[], slotIds: ids, mountedGun: MOUNTED_GUN[gun] };
+      const ship = { held: cards as readonly LineId[], slotIds: ids, mountedGun: MOUNTED_GUN[gun], kit };
       const offer = drawOffer(ship, new Map(), drawRng, CATALOG, { guarantee: level === 0 });
-      const choice = chooseSpend(profile, spendState({ offer, cards, slotIds: ids }), CATALOG, spendRng);
+      const choice = chooseSpend(profile, spendState({ offer, cards, slotIds: ids, kit }), CATALOG, spendRng);
       if (choice === null) wasted += 1;
       else cards.push(offer[choice]);
     }

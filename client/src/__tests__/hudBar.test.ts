@@ -6,13 +6,16 @@
 // the bar's surfaces), with the one ruled change that BOTH globes are 104 px
 // (amendment 32; the mock draws the HP globe at 96 and the helm at 104). Story
 // 9.2's two-row stack is retired (Eric 2026-10-14, epic-9 amendment 151): the
-// framed belt is back, holding all SIX consumable squares (keys 1–6).
+// framed belt is back, holding all SIX consumable squares (keys 1–6); Story
+// 10.1 (epic-10 amendment 3) narrowed it to the ship's KIT (keys 1–KIT_SIZE) —
+// the belt holds `CONSUMABLE_SLOTS.length` squares and the width FORMULA is
+// what is pinned, never a count or a pixel total.
 //
 // Three kinds of assertion live here and they are deliberately separate:
 //   (a) the CONFIG block keeps the relations its numbers encode;
 //   (b) the LAYOUT composes those numbers correctly — the width derivation,
 //       the floor anchor, the centring, the two centred columns, the belt frame
-//       enclosing its six squares and their chips, and the exactly-two dim
+//       enclosing its kit squares and their chips, and the exactly-two dim
 //       groups;
 //   (c) the COMPOSITION — `class HudBar`, which owns the layout cache, the one
 //       dim, visibility as ONE object, and the two forwards main.ts needs.
@@ -23,7 +26,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, CONSUMABLE_SLOTS, SLOT_COUNT, SLOT_GUN, WEAPON_SLOTS, effectiveStats, isConsumableId, slotsWithCards } from '@salvo/shared';
+import { CONFIG, CONSUMABLE_SLOTS, DEFAULT_KIT, SLOT_COUNT, SLOT_GUN, WEAPON_SLOTS, effectiveStats, isConsumableId, slotsWithCards } from '@salvo/shared';
 import type { EquipmentId, WeaponAmmo } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { HUD_BAR_WIDTH, HudBar, hudBarLayout, microScale, type HudBarView } from '../render/hudBar.js';
@@ -39,7 +42,7 @@ const REF_H = 768;
 const FLOOR_W = 1280;
 const FLOOR_H = 614;
 
-/** The main group's slots (gun, Shift, Q, E, R) and the belt's (1–6). */
+/** The main group's slots (gun, Shift, Q, E, R) and the belt's (the kit's). */
 const WEAPON_ROW: readonly number[] = [SLOT_GUN, 1, ...WEAPON_SLOTS];
 const BELT_ROW: readonly number[] = CONSUMABLE_SLOTS;
 
@@ -101,10 +104,10 @@ describe('(b) hudBarLayout — the bar, derived and anchored', () => {
   });
 });
 
-describe('(b) the squares — five weapons, six belt', () => {
+describe('(b) the squares — five weapons, the kit belt', () => {
   const L = hudBarLayout(REF_W, REF_H);
 
-  it('indexes by LOADOUT SLOT: the main group at the slot size, the belt (1–6) at the smaller belt size', () => {
+  it('indexes by LOADOUT SLOT: the main group at the slot size, the belt (the kit) at the smaller belt size', () => {
     expect(L.squares).toHaveLength(SLOT_COUNT);
     expect(WEAPON_ROW.length + BELT_ROW.length).toBe(SLOT_COUNT);
     for (const i of WEAPON_ROW) {
@@ -166,7 +169,7 @@ describe('(b) the key chips hang under their square', () => {
   });
 });
 
-describe('(b) the belt FRAME encloses its six squares AND their chips', () => {
+describe('(b) the belt FRAME encloses its kit squares AND their chips', () => {
   const L = hudBarLayout(REF_W, REF_H);
   const first = BELT_ROW[0];
   const last = BELT_ROW[BELT_ROW.length - 1];
@@ -181,8 +184,7 @@ describe('(b) the belt FRAME encloses its six squares AND their chips', () => {
     expect(L.belt.y + L.belt.h).toBe(L.chips[first].y + B.chipH + B.beltPad.bottom);
   });
 
-  it('really does contain all SIX belt squares and all six belt chips — and nothing else', () => {
-    expect(BELT_ROW).toHaveLength(6);
+  it('really does contain every belt square and every belt chip — and nothing else', () => {
     for (const i of BELT_ROW) {
       const s = L.squares[i];
       expect(s.x, `sq ${i} left`).toBeGreaterThanOrEqual(L.belt.x);
@@ -303,7 +305,7 @@ const STATS = effectiveStats(CONFIG.shipClasses[CLS]);
 // the gun and Shift alone. What this suite pins is the BAR's composition with a
 // weapon in the row, not where the weapon came from.
 const FITTED: readonly string[] = ['heavyTorpedo'];
-const LOADOUT: (EquipmentId | null)[] = slotsWithCards(STATS, FITTED).map((s) =>
+const LOADOUT: (EquipmentId | null)[] = slotsWithCards(STATS, FITTED, DEFAULT_KIT).map((s) =>
   s.equipmentId === null || isConsumableId(s.equipmentId) ? null : s.equipmentId,
 );
 const AMMO: (WeaponAmmo | null)[] = LOADOUT.map((id) =>
@@ -317,6 +319,7 @@ function nine<T>(v: T): T[] {
 function slotsView(): HotbarView {
   return {
     loadout: LOADOUT,
+    kit: DEFAULT_KIT,
     ammo: AMMO,
     stats: STATS,
     primedSlot: SLOT_GUN,
@@ -419,7 +422,7 @@ describe('(c) HudBar — one container, four members', () => {
     const { bar } = build();
     bar.update(barView(), REF_W, REF_H, null, 10, 10_000, 1);
     const layout = hudBarLayout(REF_W, REF_H);
-    for (const slot of [0, 4, 5, 10]) {
+    for (const slot of [SLOT_GUN, WEAPON_SLOTS[WEAPON_SLOTS.length - 1], CONSUMABLE_SLOTS[0], SLOT_COUNT - 1]) {
       const sq = layout.squares[slot];
       expect(bar.slotAt({ x: sq.x + sq.w / 2, y: sq.y + sq.h / 2 })).toBe(slot);
     }

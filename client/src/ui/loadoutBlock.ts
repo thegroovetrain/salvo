@@ -4,8 +4,9 @@
 // The design of record is DESIGN.md `{components.loadout-block}` + mockup
 // `countdown-results-1.html` frame 2: a section head `LOADOUT`, then the HUD
 // bar's own slot row AS IT ENDED at scale .72 (gun · Shift · Q E R · the framed
-// belt 1–6 in key order, zero-stock included, each with its key chip), then the
-// line of the ship ladders. Story 9.11 (epic-9 amendment 151) put the twin back
+// belt — the ship's four-line kit, keys 1–4 since Story 10.1 — in key order,
+// zero-stock included, each with its key chip), then the line of the ship
+// ladders. Story 9.11 (epic-9 amendment 151) put the twin back
 // on one row with the live bar; Story 9.2's two-row stack is retired.
 //
 // A DOM TWIN, NOT A SECOND DERIVATION. The modal is DOM chrome, so the boxes are
@@ -307,9 +308,10 @@ function makeZeroStockGlyph(kind: SlotItemId): SVGSVGElement | null {
 }
 
 /** The mark an UNHELD square shows: a zero-stock kind's faint glyph on the
- *  belt (its kind is fixed by the slot), the empty dash on the main group. */
-function makeUnheldMark(slot: number): Element {
-  const kind = consumableKindAt(slot);
+ *  belt (its kind is fixed by the slot under the ship's kit), the empty dash on
+ *  the main group. */
+function makeUnheldMark(own: ResultsOwn, slot: number): Element {
+  const kind = consumableKindAt(own.kit, slot);
   return (kind === null ? null : makeZeroStockGlyph(kind)) ?? makeEmptyDash(slot);
 }
 
@@ -328,7 +330,7 @@ function makeSquare(own: ResultsOwn, slot: number): HTMLDivElement {
   const id = own.slots[slot] ?? null;
   const box = squareBox(slot, id !== null);
   if (id === null) {
-    box.appendChild(makeUnheldMark(slot));
+    box.appendChild(makeUnheldMark(own, slot));
     return box;
   }
   const glyph = makeGlyph(id, slot);
@@ -346,7 +348,7 @@ function makeColumn(own: ResultsOwn, slot: number): HTMLDivElement {
   return col;
 }
 
-/** The main group (gun · Shift · Q E R) and the framed belt (1–6, key order). */
+/** The main group (gun · Shift · Q E R) and the framed belt (the kit, key order). */
 function makeGroups(own: ResultsOwn): [HTMLDivElement, HTMLDivElement] {
   const main = document.createElement('div');
   main.style.cssText = `display:flex;align-items:flex-start;gap:${P.slotGap}px`;

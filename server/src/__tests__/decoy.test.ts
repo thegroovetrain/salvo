@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   consumableSlotFor,
+  type ConsumableKit,
   paintSegmentCoverage,
   type BlipEvent,
   type GameEvent,
@@ -25,7 +26,9 @@ import { addDecoy } from '../game/decoys.js';
 import { circleIsland, flatRaster } from './islandFixture.js';
 
 const TAU = Math.PI * 2;
-const BELT = consumableSlotFor('decoyBuoy')!;
+/** A kit that CARRIES the decoy (Story 10.1) — off the default four, on key 2. */
+const KIT: ConsumableKit = ['hullRepair', 'decoyBuoy', 'shieldBlock', 'countermeasure'];
+const BELT = consumableSlotFor(KIT, 'decoyBuoy')!;
 
 function bareWorld(seed = 816): World {
   const w = new World(seed);
@@ -35,7 +38,7 @@ function bareWorld(seed = 816): World {
 }
 
 function place(w: World, id: string, x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'mineLayer', undefined, undefined);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'mineLayer', undefined, undefined, undefined, KIT);
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }

@@ -36,6 +36,7 @@ import {
   drawOffer,
   lineWeight,
   DEFAULT_GUN,
+  DEFAULT_KIT,
   DEFAULT_SHIFT,
   MOUNTED_GUN,
   SLOT_GUN,
@@ -53,6 +54,7 @@ import {
   hullIsFull,
   isAfloat,
   isConsumableId,
+  isConsumableKit,
   isSinking,
   isSunk,
   slotsWithCards,
@@ -99,6 +101,8 @@ import {
   type Catalog,
   type CatalogLine,
   type DrawShip,
+  type ConsumableKit,
+  type PickRefusal,
   type GunId,
   type ShiftId,
   type Weights,
@@ -612,6 +616,21 @@ export interface ShipRecord {
    * default and never draws.
    */
   gun: GunId;
+  /**
+   * THE SEAT'S CONSUMABLE KIT (Story 10.1, epic-10 amendment 3): the FOUR
+   * consumable lines this ship carries, in key order — slot `5 + i` is bound
+   * to `kit[i]` for the whole match. A captain's comes off the join (sanitized
+   * at the door, `sanitizeKit`), a bot's is rolled at enrollment off the room's
+   * seeded stream (`rollKit`), a fleet drone's is the inert `DEFAULT_KIT` (a
+   * drone holds no consumables and never draws). Set ONCE at `addShip` and,
+   * like `gun`, never touched again: the record outlives every life boundary
+   * (respawn, redeploy, founder), so the kit does too. It is the one input the
+   * gate (`pickRefusal`) needs to confine the draw, the spend and the drone
+   * drops to the captain's four.
+   *
+   * SELF-PRIVATE: it rides the own-ship frame (`OwnShip.kit`) and nothing else.
+   */
+  kit: ConsumableKit;
   /**
    * This ship's PRIVATE DRAW stream (Story 2.8, renamed in 8.14 when the deck
    * became the common pool): mulberry32 decorrelated from mapgen/spawn/drone
@@ -2319,6 +2338,11 @@ export class World {
    *  caller that does not care. THERE IS NO DECK PARAMETER ANY MORE: decks are
    *  retired (amendment 89a) and every captain draws from the one common pool.
    *
+   *  `kit` (Story 10.1, epic-10 amendment 3) is THE SEAT'S CONSUMABLE KIT —
+   *  the four lines a captain picked (sanitized at the door) or a bot rolled.
+   *  It defaults to DEFAULT_KIT only for callers that do not care (tests, the
+   *  fleet drones); every production seat passes it explicitly.
+   *
    *  `fit` (Story 8.10, amendment 65) is the DEV-ONLY spawn fit — the ids a
    *  smoke's `fitOverride` asked this hull to come up holding. It defaults to
    *  NOTHING, which is every production join and every existing caller, and it
@@ -2329,8 +2353,8 @@ export class World {
    *  caller; honoured for a CAPTAIN only, it wins over `at` and is kept on the
    *  record (`devPose`) so the redeploy and respawn edges place the hull there
    *  again. */
-  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at: Vec2 | undefined, gun: GunId = DEFAULT_GUN, fit: readonly string[] = [], pose?: DevPose): ShipRecord {
-    const devPose = role === 'captain' ? pose : undefined;
+  addShip(id: string, name: string, role: ShipRole = 'captain', hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID, at: Vec2 | undefined, gun: GunId = DEFAULT_GUN, kit: ConsumableKit = DEFAULT_KIT, fit: readonly string[] = [], pose?: DevPose): ShipRecord {
+    const seatKit = World.seatKit(id, kit), devPose = role === 'captain' ? pose : undefined;
     const { heading, ...p } = this.placement(id, devPose, () => at ?? pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng, this.spawnPhase));
     const cls = hullEnvelope(hullId);
     const stats = effectiveStats(cls);
@@ -2368,7 +2392,7 @@ export class World {
       // THE SEAT'S GUN and the ship's private DRAW stream (8.14): there is no
       // deck to deal any more — the pool is the catalog and a draw is a pure
       // read of this record's own state (materializeOffer).
-      gun, devFit: World.spawnFit(role, fit), devPose, drawRng: this.drawRngFor(this.joinSeq++),
+      gun, kit: seatKit, devFit: World.spawnFit(role, fit), devPose, drawRng: this.drawRngFor(this.joinSeq++),
       bankedLevels: 0, offer: null, hands: [], mulliganed: false, openingGranted: false,
       xpMs: 0, level: 0, damageFrom: new Map(),
       cards: [],
@@ -2477,14 +2501,17 @@ export class World {
    * not a profile was forced. A forced profile governs the hull (each row is
    * hull-bound), so callers pass the profile alone.
    */
-  addBot(hull: ShipClassId | undefined, profile: AnyProfileId | undefined, gun: GunId = DEFAULT_GUN): ShipRecord {
+  addBot(hull: ShipClassId | undefined, profile: AnyProfileId | undefined, gun: GunId = DEFAULT_GUN, kit: ConsumableKit = DEFAULT_KIT): ShipRecord {
     this.botSeq += 1;
     const id = `bot-${this.botSeq}`;
     const { name, hullId } = this.bots.enroll(id, hull, profile);
     // A bot sails the DEFAULT GUN unless a caller says otherwise (Story 8.14):
     // there is no deck resolver any more — every participant draws from the one
     // common pool, so a bot's economy is a captain's economy exactly.
-    return this.addShip(id, name, 'bot', hullId, DEFAULT_HORN_ID, undefined, gun);
+    // Its KIT (Story 10.1, ruling 6) is rolled by the CALLER off its own seeded
+    // stream (ArenaRoom off hueRng, the harnesses off theirs) and passed in;
+    // DEFAULT_KIT is the fallback for tests that do not care.
+    return this.addShip(id, name, 'bot', hullId, DEFAULT_HORN_ID, undefined, gun, kit);
   }
 
   /**
@@ -2581,6 +2608,15 @@ export class World {
     return { x: p.x, y: p.y, heading: Math.atan2(-p.y, -p.x) };
   }
 
+  /** THE KIT AT THE addShip SEAM (Story 10.1 review gate) is a programming
+   *  invariant, not input: every production door sanitizes it (fail-open to
+   *  DEFAULT_KIT) and bots roll theirs, so an invalid kit here is a bug and
+   *  throws before anything is placed. Answers the record's own copy. */
+  private static seatKit(id: string, kit: ConsumableKit): ConsumableKit {
+    if (!isConsumableKit(kit)) throw new Error(`addShip: invalid kit for ${id}: ${JSON.stringify(kit)}`);
+    return [...kit];
+  }
+
   private static spawnFit(role: ShipRole, fit: readonly string[]): readonly string[] {
     if (role !== 'captain' || fit.length === 0) return EMPTY_FIT;
     return Object.freeze([...fit]);
@@ -2607,9 +2643,18 @@ export class World {
    * weapon in `cards` with no slot to live in (and recording a take for it);
    * the cap one is what stops a dev fit stacking a build no pick, draw or offer
    * could ever produce. Nothing is restated here: one predicate, one path.
+   *
+   * A REFUSED LINE IS LOGGED (Story 10.1 review gate): one `devFit.refused`
+   * warning per dropped id, with `pickRefusal`'s reason — so a smoke whose
+   * `fitOverride` names a consumable outside the seat's kit sees why the belt
+   * came up empty instead of a silent drop.
    */
   private applyDevFit(ship: ShipRecord): void {
-    for (const id of ship.devFit) this.applyCard(ship, id);
+    for (const line of ship.devFit) {
+      const reason = this.cardRefusal(ship, line);
+      if (reason !== null) logWarn('devFit.refused', { id: ship.id, line, reason });
+      else this.applyCard(ship, line);
+    }
   }
 
   /** Remove a ship entirely (client left). Its wake is water, not a ship
@@ -2841,7 +2886,7 @@ export class World {
     // The fit is the nine-slot loadout with THIS hull's PRESERVED cards
     // replayed over it through the SHARED fill rule. The fleet flag is
     // load-bearing (without it a drone would grow a boost in slot 1).
-    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship), ship.gun, World.shiftOf(ship));
+    ship.loadout = slotsWithCards(ship.stats, ship.cards, ship.kit, this.catalog, roleIsFleetHull(ship), ship.gun, World.shiftOf(ship));
     ship.hp = ship.stats.maxHp;
   }
 
@@ -3464,6 +3509,9 @@ export class World {
       held: ship.cards as readonly LineId[],
       slotIds: ship.loadout.map((s) => s.equipmentId),
       mountedGun: MOUNTED_GUN[ship.gun],
+      // THE KIT (Story 10.1): a consumable outside the ship's four is never a
+      // candidate — the draw is confined at the source.
+      kit: ship.kit,
     };
   }
 
@@ -3618,7 +3666,12 @@ export class World {
    *     then become eligible.
    */
   private refusesCard(ship: ShipRecord, lineId: string): boolean {
-    return pickRefusal(ship.cards, ship.loadout.map((s) => s.equipmentId), lineId, this.catalog) !== null;
+    return this.cardRefusal(ship, lineId) !== null;
+  }
+
+  /** `refusesCard`'s reason (`pickRefusal`), or `null` when the pick is legal. */
+  private cardRefusal(ship: ShipRecord, lineId: string): PickRefusal | null {
+    return pickRefusal(ship.cards, ship.loadout.map((s) => s.equipmentId), lineId, ship.kit, this.catalog);
   }
 
   /**
@@ -3652,7 +3705,7 @@ export class World {
   private applyGrantSlots(ship: ShipRecord, line: CatalogLine, lineId: string): void {
     for (const effect of line.tiers[boonStackCount(ship.cards, lineId) - 1] ?? []) {
       if (effect.kind === 'slotFill' && !Object.hasOwn(EQUIPMENT, effect.equipmentId)) continue;
-      applySlotEffect(ship.loadout, effect, ship.stats, this.catalog);
+      applySlotEffect(ship.loadout, effect, ship.stats, ship.kit, this.catalog);
     }
   }
 
@@ -3796,7 +3849,7 @@ export class World {
     // cost a level, never reach its slot, and refill the stack from `cards`
     // on the next use.
     const lineId = front[choice];
-    if (pickRefusal(ship.cards, ship.loadout.map((s) => s.equipmentId), lineId, this.catalog) !== null) return false;
+    if (pickRefusal(ship.cards, ship.loadout.map((s) => s.equipmentId), lineId, ship.kit, this.catalog) !== null) return false;
     ship.offer = null;
     ship.bankedLevels -= 1;
     this.settleSpend(ship, front, choice);
@@ -5206,10 +5259,12 @@ export class World {
       // The name is the HULL's name, not a numbered roster identity (amendment
       // 39): fleet hulls hold no PlayerMeta row, and every client-side surface
       // reads `DRONE` off Contact.cls. Never `DRONE-07`.
+      // A DRONE'S KIT IS INERT (Story 10.1): it holds no consumables and never
+      // draws, so it sails DEFAULT_KIT explicitly — nothing ever reads it.
       this.addShip(id, FLEET_SHIP_NAME, 'fleet', hullId, DEFAULT_HORN_ID, {
         x: anchor.x + offset.x,
         y: anchor.y + offset.y,
-      });
+      }, DEFAULT_GUN, DEFAULT_KIT);
       this.drones.add(id, fleetSizeOf(hullId), fleetId, offset);
     }
   }
@@ -6955,7 +7010,7 @@ export class World {
    * LoadoutSlot it activated sees the truth.
    */
   private rebuildConsumableSlots(ship: ShipRecord): void {
-    const replay = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship), ship.gun, World.shiftOf(ship));
+    const replay = slotsWithCards(ship.stats, ship.cards, ship.kit, this.catalog, roleIsFleetHull(ship), ship.gun, World.shiftOf(ship));
     for (const i of CONSUMABLE_SLOTS) {
       const live = ship.loadout[i];
       const want = replay[i];
@@ -7647,7 +7702,7 @@ export class World {
     // loadout re-derives with their slot effects replayed — the SAME shared
     // derivation the client runs (slotsWithCards ≡ loadoutFor at zero cards,
     // and over the spawn SEED alone, byte-identical).
-    ship.loadout = slotsWithCards(ship.stats, ship.cards, this.catalog, roleIsFleetHull(ship), ship.gun, World.shiftOf(ship));
+    ship.loadout = slotsWithCards(ship.stats, ship.cards, ship.kit, this.catalog, roleIsFleetHull(ship), ship.gun, World.shiftOf(ship));
     // The respawn TELEPORTS the hull (Story 4.12, amendment 200): the old
     // life's water detaches into the orphan store — where it keeps disclosing
     // and ageing out, a fading track with nothing attached — and the new life

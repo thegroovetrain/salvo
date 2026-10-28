@@ -23,6 +23,7 @@ import {
   transitionLifecycle,
   CONFIG,
   consumableSlotFor,
+  DEFAULT_KIT,
   coverageHas,
   wrapPositive,
   type BallisticEvent,
@@ -908,7 +909,7 @@ function scnHeal(g: Golden): void {
   place(w, 'b', 60, 0); // hull-to-hull: fully sighted, and still told nothing
   a.hp -= 60;
   w.applyCard(a, 'hullRepair');
-  expect(w.sinkingActivationGate(a, consumableSlotFor('hullRepair')!)).toEqual({ ok: true });
+  expect(w.sinkingActivationGate(a, consumableSlotFor(DEFAULT_KIT, 'hullRepair')!)).toEqual({ ok: true });
   w.step();
   const fa = cap(g, w, 'a');
   const fb = cap(g, w, 'b');
@@ -1189,6 +1190,17 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // a contact) and drops scnMines' stale `nearFog` row. No dropout roll is
   // pinned on a paint: every blip/wake the battery records sits inside
   // `dropout.startU` (scnHoming's far observer moved beyond radar for that).
+  // REGENERATED KNOWINGLY IN STORY 10.1 (PV 92, the per-ship consumable kit —
+  // epic-10 amendment 3). The ammo array went 9 → 11 (Story 9.2's six fixed
+  // keys) → 9 (SLOT_COUNT = 5 + KIT_SIZE). 159 of 169 snapshot lines moved,
+  // read by diffing old against new, and in EVERY one the only differences
+  // are (1) `you.ammo` shrinking from eleven entries to nine by dropping two
+  // trailing `null`s (the two retired consumable slots, empty in every golden
+  // world) and (2) the new self-private `you.kit` field beside `gun` — the
+  // default four, since no golden world names a kit. No `offer` hand, contact,
+  // event, blip, mine, zone, position or hp byte moved (verified with both
+  // differences masked out). BOT KITS roll off a separate kit stream (map
+  // seed ^ 0x6b17), so every hue and gun draw of a pinned seed is unchanged.
   it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
     expect(runBattery()).toMatchSnapshot();
   });

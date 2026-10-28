@@ -34,8 +34,9 @@ export type BoonId = string;
  * never appear in `EquipmentId`.
  *
  * Since Story 8.7 a copy does hold a SLOT — since Story 9.2 its kind's OWN
- * fixed slot (`CONSUMABLE_SLOTS` / `consumableSlotFor`, sim/loadout.ts; the
- * DEPTH CHARGE stub has none), which is why a slot's content is typed
+ * fixed slot (`CONSUMABLE_SLOTS` / `consumableSlotFor`, sim/loadout.ts; since
+ * Story 10.1 bound by the SHIP'S KIT of four, so a kind outside the kit — and
+ * the DEPTH CHARGE stub always — has none), which is why a slot's content is typed
  * `SlotItemId = EquipmentId | ConsumableId`. That union is the ONLY place the
  * two spaces meet: no EquipmentId-keyed record ever gains a consumable key, and
  * every read of one narrows through `isConsumableId` first.

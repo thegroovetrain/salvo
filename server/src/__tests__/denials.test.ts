@@ -10,7 +10,8 @@
 // The stale-client join error's refresh instruction is pinned here too.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, consumableSlotFor, PROTOCOL_VERSION, SLOT_BOOST, type InputMsg } from '@salvo/shared';
+import { CONFIG, consumableSlotFor,
+  DEFAULT_KIT, PROTOCOL_VERSION, SLOT_BOOST, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
@@ -121,7 +122,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyCard(a, 'hullRepair');
-    const belt = consumableSlotFor('hullRepair')!;
+    const belt = consumableSlotFor(DEFAULT_KIT, 'hullRepair')!;
     expect(a.hp).toBe(a.stats.maxHp);
     w.submitInput('a', input(1, { actSeq: 1, actSlot: belt }));
     w.step();
@@ -147,7 +148,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyCard(a, 'hullRepair');
-    const belt = consumableSlotFor('hullRepair')!;
+    const belt = consumableSlotFor(DEFAULT_KIT, 'hullRepair')!;
     a.hp = a.stats.maxHp - 0.4;
     w.submitInput('a', input(1, { actSeq: 1, actSlot: belt }));
     w.step();
@@ -164,7 +165,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyCard(a, 'hullRepair');
-    const belt = consumableSlotFor('hullRepair')!;
+    const belt = consumableSlotFor(DEFAULT_KIT, 'hullRepair')!;
     a.hp = a.stats.maxHp - 1;
     w.submitInput('a', input(1, { actSeq: 1, actSlot: belt }));
     w.step();

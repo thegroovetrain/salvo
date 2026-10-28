@@ -28,9 +28,11 @@
 
 import {
   CATALOG,
+  DEFAULT_KIT,
   SLOT_COUNT,
   boonStackCount,
   pickRefusal,
+  type ConsumableKit,
   type LineKind,
   type Rng,
   type SlotItemId,
@@ -60,7 +62,8 @@ function preferenceRank(id: string, fitted: readonly string[]): number {
 /**
  * The deterministic spend policy used by the scripted control. `fitted` = the
  * ship's currently-fitted card line ids (ship.cards); `slotIds` = its SLOT_COUNT slot
- * contents (`loadout.map(s => s.equipmentId)`).
+ * contents (`loadout.map(s => s.equipmentId)`); `kit` = its four consumable
+ * lines (Story 10.1, `ship.kit`) — a consumable outside them is refused.
  *
  * IT ONLY EVER NAMES A CARD THE SERVER WOULD ACCEPT (Story 8.14 review, F4).
  * `World.spendCard` refuses a card this hull cannot take and the offer does not
@@ -73,10 +76,11 @@ export function pickSpendChoice(
   rng: Rng,
   fitted: readonly string[],
   slotIds: readonly (SlotItemId | null)[] = EMPTY_SLOTS,
+  kit: ConsumableKit = DEFAULT_KIT,
 ): number | null {
   const legal: number[] = [];
   for (let i = 0; i < offer.length; i += 1) {
-    if (pickRefusal(fitted, slotIds, offer[i]) === null) legal.push(i);
+    if (pickRefusal(fitted, slotIds, offer[i], kit) === null) legal.push(i);
   }
   if (legal.length === 0) return null;
   const ranks = legal.map((i) => preferenceRank(offer[i], fitted));

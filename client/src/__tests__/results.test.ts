@@ -17,7 +17,23 @@
 // the reducers themselves as the oracle for what a region paints.
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { CONFIG, CONSUMABLE_SLOTS, effectiveStats, type ResultsMsg, type ResultsRow, type SlotItemId, type WeaponAmmo } from '@salvo/shared';
+import {
+  CONFIG,
+  CONSUMABLE_SLOTS,
+  DEFAULT_KIT,
+  SLOT_COUNT,
+  SLOT_GUN,
+  consumableKindAt,
+  consumableSlotFor,
+  effectiveStats,
+  type ConsumableKit,
+  type ResultsMsg,
+  type ResultsRow,
+  type SlotItemId,
+  type WeaponAmmo,
+} from '@salvo/shared';
+import { SLOT_KEY_GLYPHS } from '../render/equipmentInfo.js';
+import { equipmentGlyphSvg } from '../render/equipmentIcons.js';
 import { LADDER_LINE_PX, LOADOUT_PX, LOADOUT_TEXT_FLOOR_PX, ladderEntries } from '../ui/loadoutBlock.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
 import { LINEAGE_TIERS } from '../ui/tierRamp.js';
@@ -84,13 +100,14 @@ function log(tMs: number, kind: 'sank' | 'sunkBy', name: string): MatchLogEntry 
  *  are the real fold over `cards`, exactly as main.ts's `g.ownStats` is. */
 function own(over: Partial<ResultsOwn> = {}): ResultsOwn {
   const cards = over.cards ?? [];
-  const slots: (SlotItemId | null)[] = ['gun', 'boost', null, null, null, null, null, null, null];
+  const slots: (SlotItemId | null)[] = ['gun', 'boost', ...Array.from({ length: SLOT_COUNT - 2 }, () => null)];
   return {
     name: 'TIN SPARROW',
     cls: 'torpedoBoat',
     hue: 0x00d0ff,
     cards,
     gun: 'deckGun',
+    kit: DEFAULT_KIT,
     slots,
     ammo: slots.map(() => null),
     stats: effectiveStats(CONFIG.shipClasses.torpedoBoat, cards),
@@ -99,6 +116,12 @@ function own(over: Partial<ResultsOwn> = {}): ResultsOwn {
 }
 
 const rep = (id: string, n: number): string[] => Array.from({ length: n }, () => id);
+
+/** The mock fixture's KIT (Story 10.1): a NON-DEFAULT four with HULL REPAIR
+ *  off key 1, so the twin is proven to read the view's kit and never a default. */
+const MOCK_KIT: ConsumableKit = ['foulingShell', 'hullRepair', 'supercavTorpedo', 'shieldBlock'];
+/** Where HULL REPAIR sits under MOCK_KIT — derived, never a literal slot. */
+const REPAIR_SLOT = consumableSlotFor(MOCK_KIT, 'hullRepair') as number;
 
 /**
  * THE MOCK'S FIXTURE (countdown-results-1.html frame 2): gun IV, Shift, Q light
@@ -128,11 +151,12 @@ function mockOwn(
   ];
   const repair = over.hullRepair ?? 1;
   const slots: (SlotItemId | null)[] = [
-    'gun', 'boost', 'lightTorpedo', 'navalMines', 'heavyTorpedo', repair > 0 ? 'hullRepair' : null, null, null, null, null, null,
+    'gun', 'boost', 'lightTorpedo', 'navalMines', 'heavyTorpedo', ...CONSUMABLE_SLOTS.map(() => null),
   ];
+  slots[REPAIR_SLOT] = repair > 0 ? 'hullRepair' : null;
   const ammo: (WeaponAmmo | null)[] = slots.map((id) => (id === null ? null : { n: 1, reloadMsLeft: 0 }));
-  ammo[5] = repair > 0 ? { n: repair, reloadMsLeft: 0 } : null;
-  return own({ cards, slots, ammo });
+  ammo[REPAIR_SLOT] = repair > 0 ? { n: repair, reloadMsLeft: 0 } : null;
+  return own({ cards, slots, ammo, kit: MOCK_KIT });
 }
 
 describe('sortRows', () => {
@@ -422,13 +446,14 @@ describe('showResults — the elimination modal', () => {
     const tierOf = (slot: number): HTMLElement | null => square(slot).querySelector<HTMLElement>('[data-loadout-tier]');
     const open = (o: ResultsOwn): void => showResults(view({ own: o }), { onSpectate: () => undefined, onReturn: () => undefined });
 
-    it('draws eleven squares on ONE row, weapons then the framed belt (1–6), each over its key chip', () => {
+    it('draws one square per slot on ONE row, weapons then the framed kit belt, each over its key chip', () => {
       open(mockOwn());
-      expect(block().querySelectorAll('[data-loadout-slot]')).toHaveLength(11);
+      expect(block().querySelectorAll('[data-loadout-slot]')).toHaveLength(SLOT_COUNT);
       // The live bar's one row (Story 9.11, epic-9 amendment 151): the main
-      // group first, then the framed belt in key order.
+      // group first, then the framed belt in key order — the bar's own chips,
+      // with the gun's ghost.
       const chips = [...block().querySelectorAll('[data-loadout-chip]')].map((c) => c.textContent);
-      expect(chips).toEqual(['·', 'Shift', 'Q', 'E', 'R', '1', '2', '3', '4', '5', '6']);
+      expect(chips).toEqual(SLOT_KEY_GLYPHS.map((g, slot) => (slot === SLOT_GUN ? '·' : g)));
       const slots = [...block().querySelectorAll<HTMLElement>('[data-loadout-slot]')].map((e) => Number(e.dataset.loadoutSlot));
       expect(slots).toEqual([0, 1, 2, 3, 4, ...CONSUMABLE_SLOTS]);
       // One row: a horizontal flex, not a column.
@@ -438,7 +463,7 @@ describe('showResults — the elimination modal', () => {
       expect((block().querySelector('[data-loadout-chip="0"]') as HTMLElement).style.color).toBe('transparent');
     });
 
-    it('frames the six belt squares (and only them) in the bar\'s 1px silver hairline', () => {
+    it('frames the kit\'s belt squares (and only them) in the bar\'s 1px silver hairline', () => {
       open(mockOwn());
       const belt = block().querySelector<HTMLElement>('[data-loadout-belt]');
       if (belt === null) throw new Error('no belt frame');
@@ -447,7 +472,7 @@ describe('showResults — the elimination modal', () => {
       const inside = [...belt.querySelectorAll<HTMLElement>('[data-loadout-slot]')].map((e) => Number(e.dataset.loadoutSlot));
       expect(inside).toEqual([...CONSUMABLE_SLOTS]);
       const chipsInside = [...belt.querySelectorAll('[data-loadout-chip]')].map((c) => c.textContent);
-      expect(chipsInside).toEqual(['1', '2', '3', '4', '5', '6']);
+      expect(chipsInside).toEqual(CONSUMABLE_SLOTS.map((slot) => SLOT_KEY_GLYPHS[slot]));
     });
 
     it('the one row (main group, group gap, framed belt) fits the panel\'s 530 px content column', () => {
@@ -462,12 +487,12 @@ describe('showResults — the elimination modal', () => {
       expect(LOADOUT_PX.slot).toBe(Math.round(CLIENT_CONFIG.hudBar.slot * 0.72));
       expect(LOADOUT_PX.beltSlot).toBe(Math.round(CLIENT_CONFIG.hudBar.beltSlot * 0.72));
       expect(square(0).style.width).toBe(`${LOADOUT_PX.slot}px`);
-      expect(square(5).style.width).toBe(`${LOADOUT_PX.beltSlot}px`);
+      expect(square(REPAIR_SLOT).style.width).toBe(`${LOADOUT_PX.beltSlot}px`);
       // Every fitted square — the belt's HULL REPAIR included, which takes its
       // rod of Asclepius (cycle 162) from the ONE glyph source
       // (equipmentIcons.ts), never art drawn by this block.
-      for (const slot of [0, 1, 2, 3, 4, 5]) expect(square(slot).querySelector('svg'), `slot ${slot}`).not.toBeNull();
-      expect(square(5).style.borderStyle).toBe('solid');
+      for (const slot of [0, 1, 2, 3, 4, REPAIR_SLOT]) expect(square(slot).querySelector('svg'), `slot ${slot}`).not.toBeNull();
+      expect(square(REPAIR_SLOT).style.borderStyle).toBe('solid');
     });
 
     it('prints the tier numerals on the absolute ramp — gun IV, Q III, E II, R I — and none on Shift', () => {
@@ -481,10 +506,10 @@ describe('showResults — the elimination modal', () => {
       for (const slot of CONSUMABLE_SLOTS) expect(tierOf(slot), `consumable ${slot}`).toBeNull();
     });
 
-    it('badges the stock `×1` and draws the five zero-stock kinds DASHED with their own faint glyph (no ×0, no word)', () => {
+    it('badges the stock `×1` and draws the other zero-stock kinds DASHED with their own faint glyph (no ×0, no word)', () => {
       open(mockOwn());
-      expect(square(5).querySelector('[data-loadout-badge]')?.textContent).toBe('×1');
-      for (const slot of CONSUMABLE_SLOTS.slice(1)) {
+      expect(square(REPAIR_SLOT).querySelector('[data-loadout-badge]')?.textContent).toBe('×1');
+      for (const slot of CONSUMABLE_SLOTS.filter((s) => s !== REPAIR_SLOT)) {
         const svg = square(slot).querySelector<SVGElement>('svg');
         expect(svg, `consumable ${slot}`).not.toBeNull(); // the kind's own glyph…
         expect(svg?.dataset.loadoutZeroStock, `consumable ${slot}`).toBe('');
@@ -495,10 +520,21 @@ describe('showResults — the elimination modal', () => {
       expect(block().textContent).not.toContain('×0');
     });
 
+    it('a zero-stock square wears THE VIEW\'S kit\'s kind at that slot (Story 10.1), not a default kit\'s', () => {
+      open(mockOwn({ hullRepair: 0 }));
+      for (const slot of CONSUMABLE_SLOTS) {
+        const kind = consumableKindAt(MOCK_KIT, slot);
+        if (kind === null) throw new Error(`no kind at ${slot}`);
+        const want = equipmentGlyphSvg(kind, LOADOUT_PX.beltIcon)?.innerHTML;
+        expect(square(slot).querySelector('svg')?.innerHTML, `slot ${slot}`).toBe(want);
+      }
+      expect(CONSUMABLE_SLOTS.some((s) => consumableKindAt(MOCK_KIT, s) !== consumableKindAt(DEFAULT_KIT, s))).toBe(true);
+    });
+
     it('a stack fired to zero reads as its ZERO-STOCK square (Eric R4, amendment 34)', () => {
       open(mockOwn({ hullRepair: 0 }));
-      expect(square(5).querySelector('svg')?.dataset.loadoutZeroStock).toBe('');
-      expect(square(5).style.borderStyle).toBe('dashed');
+      expect(square(REPAIR_SLOT).querySelector('svg')?.dataset.loadoutZeroStock).toBe('');
+      expect(square(REPAIR_SLOT).style.borderStyle).toBe('dashed');
       expect(block().querySelectorAll('[data-loadout-badge]')).toHaveLength(0);
     });
 

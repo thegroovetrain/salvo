@@ -13,7 +13,10 @@
 //   5. `stock` effects mutate the same LoadoutSlot[] through the same
 //      applySlotEffect, in the kind's OWN FIXED consumable slot (Story 9.2,
 //      epic-9 amendments 21/31 — the packed belt of Story 8.7 is retired):
-//      nothing packs, nothing shifts, an unkeyed stub stocks nowhere.
+//      nothing packs, nothing shifts, a line with no slot stocks nowhere.
+//      Since Story 10.1 the slot comes from the SHIP'S KIT (sim/loadout.ts
+//      `ConsumableKit`): every stock, pick and replay path below takes it,
+//      and a consumable outside the kit has no slot at all.
 // Nothing else moves — a stat-only card leaves the loadout reference-equal, a
 // slot-only card leaves stats byte-identical (property-pinned in tests).
 //
@@ -35,10 +38,11 @@
 // covers a mid-fold write to a path a derived number rides) and clampStats (the
 // firewall's unconditional output pass). Nothing else re-derives.
 
-import type { EquipmentId, GunId, LoadoutSlot, ShiftId, SlotItemId } from './loadout.js';
+import type { ConsumableKit, EquipmentId, GunId, LoadoutSlot, ShiftId, SlotItemId } from './loadout.js';
 import {
   DEFAULT_GUN,
   DEFAULT_SHIFT,
+  KIT_SIZE,
   WEAPON_SLOTS,
   consumableSlotFor,
   equipmentMaxAmmo,
@@ -260,19 +264,107 @@ export function slotMaxAmmo(stats: EffectiveStats, id: SlotItemId, catalog: Cata
 }
 
 /**
- * THE SLOT a copy of `lineId` would go into: the kind's OWN FIXED slot
- * (`consumableSlotFor`, Story 9.2) — whether it already holds a stack (a second
- * copy deepens it) or is empty (a first copy opens it). `null` when the kind
- * has no key (the DEPTH CHARGE stub) or when the slot holds something else or
- * is missing (a malformed array is fail-closed: a missing slot is never
+ * THE DEALABLE CONSUMABLE LINES of a catalog, in catalog key order: every
+ * `consumable` line that is not a stub — the pool a kit is drawn from and
+ * validated against. The same "known, non-stub" reading sim/draw.ts applies
+ * to every line (amendment 11), narrowed to the consumable kind.
+ */
+export function dealableConsumables(catalog: Catalog = CATALOG): ConsumableId[] {
+  const out: ConsumableId[] = [];
+  for (const key of Object.keys(catalog)) {
+    const line = catalog[key];
+    if (line === undefined || line.kind !== 'consumable' || line.stub === true) continue;
+    if (isConsumableId(key)) out.push(key);
+  }
+  return out;
+}
+
+/**
+ * THE ONE KIT VALIDATOR (Story 10.1, epic-10 amendment 3) — both sides call
+ * it: the client over what it reads back from localStorage, the server over
+ * the join option (fail-open to `DEFAULT_KIT` on `false`), and the tests over
+ * every `rollKit`. A kit is an ARRAY of exactly `KIT_SIZE` DISTINCT ids, each
+ * a dealable consumable line of `catalog` — so a stub (the DEPTH CHARGE), an
+ * unknown id, a weapon id, a repeat, a short or long list, and anything that
+ * is not an array all fail. Never throws.
+ *
+ * IT LIVES HERE, NOT IN sim/loadout.ts, for the reason `slotMaxAmmo` does: it
+ * needs the catalog, and loadout.ts must stay a leaf.
+ */
+export function isConsumableKit(raw: unknown, catalog: Catalog = CATALOG): raw is ConsumableKit {
+  if (!Array.isArray(raw) || raw.length !== KIT_SIZE) return false;
+  const pool = new Set<string>(dealableConsumables(catalog));
+  const seen = new Set<string>();
+  for (const id of raw as unknown[]) {
+    if (typeof id !== 'string' || !pool.has(id) || seen.has(id)) return false;
+    seen.add(id);
+  }
+  return true;
+}
+
+/**
+ * ROLL A BOT'S KIT (Story 10.1, Eric ruling 6): `KIT_SIZE` distinct lines,
+ * UNIFORM over the dealable consumable pool, without replacement — a partial
+ * Fisher–Yates over the pool in catalog order, one `next()` per slot, so the
+ * same seeded stream always rolls the same four. `next` is an injected
+ * uniform source in [0, 1) (an `Rng`'s `next`), never `Math.random`.
+ *
+ * A broken source (NaN, negative, >= 1) is clamped into the remaining pool
+ * (NaN counts as 0), so every index lands on a real line. The result is then
+ * checked with `isConsumableKit`; with fewer dealable lines than `KIT_SIZE`
+ * (an injected catalog — production has six) it throws `KitRollError`, a bug
+ * guard like `MapGenerationError`, never a silent short kit.
+ */
+export function rollKit(next: () => number, catalog: Catalog = CATALOG): ConsumableKit {
+  const pool = dealableConsumables(catalog);
+  const n = Math.min(KIT_SIZE, pool.length);
+  for (let i = 0; i < n; i += 1) {
+    const j = i + kitPickOffset(next(), pool.length - i);
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const kit = pool.slice(0, n);
+  if (!isConsumableKit(kit, catalog)) throw new KitRollError(pool.length);
+  return kit;
+}
+
+/** One Fisher–Yates offset in [0, remaining - 1], whatever `u` is (NaN -> 0). */
+function kitPickOffset(u: number, remaining: number): number {
+  const raw = Math.floor((Number.isNaN(u) ? 0 : u) * remaining);
+  return Math.min(Math.max(raw, 0), remaining - 1);
+}
+
+/**
+ * THE KIT-ROLL BUG GUARD (Story 10.1 review gate): `rollKit` could not build a
+ * valid kit — the catalog deals fewer than `KIT_SIZE` consumable lines.
+ * Production deals six, so this only fires on a broken catalog.
+ */
+export class KitRollError extends Error {
+  constructor(readonly dealable: number) {
+    super(`rollKit: cannot roll a valid kit — ${dealable} dealable consumable lines, KIT_SIZE is ${KIT_SIZE}`);
+    this.name = 'KitRollError';
+  }
+}
+
+/**
+ * THE SLOT a copy of `lineId` would go into: the kind's OWN FIXED slot under
+ * the ship's `kit` (`consumableSlotFor`, Story 9.2 / 10.1) — whether it
+ * already holds a stack (a second copy deepens it) or is empty (a first copy
+ * opens it). `null` when the kit does not carry the kind (a stub, or any line
+ * outside the captain's four) or when the slot holds something else or is
+ * missing (a malformed array is fail-closed: a missing slot is never
  * "empty"). There is no packing: another kind's stack can never move it.
  *
- * Pure over the slot ids alone, so both sides call the same function over the
- * same data: the server passes `loadout.map(s => s.equipmentId)` and the client
- * passes the ids it replayed from `OwnShip.cards`.
+ * Pure over the slot ids and the kit alone, so both sides call the same
+ * function over the same data: the server passes
+ * `loadout.map(s => s.equipmentId)` and `ship.kit`; the client passes the ids
+ * it replayed from `OwnShip.cards` and `OwnShip.kit`.
  */
-export function stockSlotFor(slotIds: readonly (SlotItemId | null)[], lineId: ConsumableId): number | null {
-  const slot = consumableSlotFor(lineId);
+export function stockSlotFor(
+  slotIds: readonly (SlotItemId | null)[],
+  lineId: ConsumableId,
+  kit: ConsumableKit,
+): number | null {
+  const slot = consumableSlotFor(kit, lineId);
   if (slot === null) return null;
   const held = slotIds[slot];
   return held === null || held === lineId ? slot : null;
@@ -294,7 +386,10 @@ export function stockSlotFor(slotIds: readonly (SlotItemId | null)[], lineId: Co
  * The three refusals, in the order they are decided:
  *   - `stub` — the line's mechanism is not built (amendment 11), or the id is
  *     not an OWN PROPERTY of the catalog at all (fail closed: an unknown id and
- *     a prototype key are both refusals, never a grant).
+ *     a prototype key are both refusals, never a grant) — or, since Story 10.1,
+ *     a CONSUMABLE THE KIT DOES NOT CARRY: a line with no slot has no slot,
+ *     and this one branch is what confines the draw (sim/draw.ts), the spend,
+ *     the bot scorer and the drone drops to the captain's four. No new word.
  *   - `atCap` — the ship already holds `cap` copies. TRUE FOR EVERY KIND,
  *     consumables included: the draw deals a consumable at its cap on purpose
  *     (amendment 94), and THIS is what makes that card unpickable. Since Story
@@ -320,14 +415,16 @@ export function pickRefusal(
   held: readonly string[],
   slotIds: readonly (SlotItemId | null)[],
   lineId: string,
+  kit: ConsumableKit,
   catalog: Catalog = CATALOG,
 ): PickRefusal | null {
   const line = Object.hasOwn(catalog, lineId) ? catalog[lineId] : undefined;
   if (line === undefined || line.stub === true) return 'stub';
-  // A consumable with no key has no slot to stock into (Story 9.2): it is
-  // refused like a stub, so an un-stubbed but unkeyed line can never enter
-  // `cards` without a home. Production has no such line; this guards the gap.
-  if (line.kind === 'consumable' && consumableSlotFor(lineId as ConsumableId) === null) return 'stub';
+  // A consumable with no slot has nowhere to stock (Story 9.2): it is refused
+  // like a stub, so a line can never enter `cards` without a home. Since
+  // Story 10.1 "no slot" means "not in this ship's kit" — THE gate that keeps
+  // every offer and every drone drop inside the captain's four.
+  if (line.kind === 'consumable' && consumableSlotFor(kit, lineId as ConsumableId) === null) return 'stub';
   const copies = boonStackCount(held, lineId);
   if (copies >= line.cap) return 'atCap';
   if (line.kind === 'equipment' && copies === 0) return weaponRowRefusal(slotIds);
@@ -340,20 +437,21 @@ function weaponRowRefusal(slotIds: readonly (SlotItemId | null)[]): PickRefusal 
 }
 
 /**
- * Stock ONE copy at the kind's FIXED slot (Story 9.2): `n += 1` on the stack
- * already there, or a fresh `{ n: 1, reloadMsLeft: 0 }` stack in that empty
- * slot. A STUB line is refused by the same catalog-driven gate `slotFill` uses;
- * an unkeyed kind or a malformed slot is a SILENT no-op that leaves the loadout
- * byte-identical. No other slot is ever read or written.
+ * Stock ONE copy at the kind's FIXED slot under `kit` (Story 9.2 / 10.1):
+ * `n += 1` on the stack already there, or a fresh `{ n: 1, reloadMsLeft: 0 }`
+ * stack in that empty slot. A STUB line is refused by the same catalog-driven
+ * gate `slotFill` uses; a kind the kit does not carry or a malformed slot is a
+ * SILENT no-op that leaves the loadout byte-identical. No other slot is ever
+ * read or written.
  */
-function applyStock(loadout: LoadoutSlot[], effect: BoonStockEffect, catalog: Catalog): void {
+function applyStock(loadout: LoadoutSlot[], effect: BoonStockEffect, kit: ConsumableKit, catalog: Catalog): void {
   // The consumable's line IS its id (a consumable line fills its own rack), so
   // the stub gate reads the catalog row directly rather than through
   // `lineForEquipment`, which maps equipment rows to the lines that FIT them.
   const line = catalog[effect.equipmentId];
   if (line?.stub === true) return;
-  const index = stockSlotFor(loadout.map((s) => s.equipmentId), effect.equipmentId);
-  if (index === null) return; // unkeyed kind or malformed slot: nothing moves
+  const index = stockSlotFor(loadout.map((s) => s.equipmentId), effect.equipmentId, kit);
+  if (index === null) return; // not in the kit or malformed slot: nothing moves
   const slot = loadout[index];
   if (slot === undefined) return;
   if (slot.equipmentId === effect.equipmentId && slot.state !== null) {
@@ -369,10 +467,13 @@ function applyStock(loadout: LoadoutSlot[], effect: BoonStockEffect, catalog: Ca
  * Apply ONE effect's slot consequence to a live loadout IN PLACE — THE single
  * slot-mutation path of the engine, shared verbatim by the server (incremental,
  * on grant) and the client (slotsWithCards, replayed over loadoutFor output).
- * `stat`/`behavior`/`doctrine` effects are structural no-ops here.
+ * `stat`/`behavior`/`doctrine` effects are structural no-ops here. `kit` is
+ * the ship's `ConsumableKit` (Story 10.1) — REQUIRED, never defaulted, so no
+ * caller can replay a stock against the wrong four by omission.
  *
  * TWO HOMES INSIDE THE ONE ARRAY: a `slotFill` takes the first empty WEAPON
- * slot, a `stock` takes its kind's FIXED consumable slot (applyStock above).
+ * slot, a `stock` takes its kind's FIXED consumable slot under the kit
+ * (applyStock above).
  * Neither can reach the other's row, which is why a full weapon row never
  * spills into the consumable slots and a consumable never displaces a weapon.
  *
@@ -391,10 +492,11 @@ export function applySlotEffect(
   loadout: LoadoutSlot[],
   effect: BoonEffect,
   stats: EffectiveStats,
+  kit: ConsumableKit,
   catalog: Catalog = CATALOG,
 ): void {
   if (effect.kind === 'stock') {
-    applyStock(loadout, effect, catalog); // the kind's fixed slot (Story 9.2)
+    applyStock(loadout, effect, kit, catalog); // the kind's slot under the kit (Story 9.2 / 10.1)
     return;
   }
   if (effect.kind !== 'slotFill') return; // not a slot home
@@ -423,9 +525,11 @@ export function applySlotEffect(
 /**
  * The client-side loadout derivation (ONE derivation, both sides): the
  * universal loadoutFor fit with every held card's slot effects
- * replayed over it, IN FIT ORDER. `fleet` selects the gun-only drone fit;
- * `gun` is the seat's pick (slot 0) and `shift` the hull's class Shift (slot 1,
- * Story 8.15 — resolve it with `classShift(cls)`).
+ * replayed over it, IN FIT ORDER. `kit` is the ship's four (Story 10.1 —
+ * `ShipRecord.kit` server-side, `OwnShip.kit` off the wire client-side, never
+ * localStorage); `fleet` selects the gun-only drone fit; `gun` is the seat's
+ * pick (slot 0) and `shift` the hull's class Shift (slot 1, Story 8.15 —
+ * resolve it with `classShift(cls)`).
  *
  * THIS REPLAY IS IN FIT ORDER, NOT FOLD ORDER, and that is the one place the
  * two diverge on purpose. The weapon row fills FIRST-EMPTY-FIRST, so WHICH
@@ -439,16 +543,17 @@ export function applySlotEffect(
  * Pool STATE here is the fresh full-pool baseline (the live counts ride
  * OwnShip.ammo, slot-aligned).
  *
- * THE CONSUMABLE SLOTS NEED NO CODE HERE (Story 8.7; fixed slots since 9.2).
- * Every copy of a consumable line is replayed like any other card, and each one
- * runs the same `stock` branch the server ran on grant — so k copies held IS
- * `n = k` in that kind's own fixed slot, whatever order the kinds arrived in,
- * with no wire field to carry the count. A copy SPENT in play leaves
+ * THE CONSUMABLE SLOTS NEED NO CODE HERE (Story 8.7; fixed slots since 9.2;
+ * the kit's slots since 10.1). Every copy of a consumable line is replayed
+ * like any other card, and each one runs the same `stock` branch the server
+ * ran on grant — so k copies held IS `n = k` in that kind's own slot, whatever
+ * order the kinds arrived in, with no wire field to carry the count. A copy SPENT in play leaves
  * `ship.cards` server-side, so the next replay lands on `n − 1` by itself.
  */
 export function slotsWithCards(
   stats: EffectiveStats,
   cards: readonly string[],
+  kit: ConsumableKit,
   catalog: Catalog = CATALOG,
   fleet = false,
   gun: GunId = DEFAULT_GUN,
@@ -460,7 +565,7 @@ export function slotsWithCards(
   const loadout = loadoutFor(stats, fleet, gun, shift);
   const seen = new Map<string, number>();
   for (const id of cards) {
-    for (const e of copyEffects(id, seen, catalog)) applySlotEffect(loadout, e, stats, catalog);
+    for (const e of copyEffects(id, seen, catalog)) applySlotEffect(loadout, e, stats, kit, catalog);
   }
   return loadout;
 }

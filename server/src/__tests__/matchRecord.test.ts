@@ -304,7 +304,7 @@ describe('the hand log — only an OFFER pick is a hand', () => {
 
   it('the dev spawn fit lands in `cards` but creates NO hand', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, ['hullPoints', 'speed']);
+    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, undefined, ['hullPoints', 'speed']);
     expect(a.cards).toEqual(['hullPoints', 'speed']);
     expect(a.hands).toEqual([]);
   });

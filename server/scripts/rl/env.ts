@@ -23,6 +23,7 @@ import {
   CONFIG,
   isWeaponItem,
   mulberry32,
+  rollKit,
   zoneClosedAtMs,
   zoneGroups,
   type Rng,
@@ -40,6 +41,9 @@ const COUNTDOWN_MS = 1000;
 const ENDGAME_SLACK_MS = 600000;
 const ZONE_SEED_ORDINAL = 0x7a0e;
 const SPEND_STREAM_K = 0x51ed;
+/** mixSeed ordinal for the bots' KIT stream (Story 10.1) — the batchsim
+ *  runner's bot-kit ordinal, a stream of its own so no other roll moves. */
+const BOT_KIT_SEED_ORDINAL = 0x6b17;
 
 /** Integer action bins, decoded server-side (see decode()). */
 export interface AgentAction {
@@ -126,7 +130,10 @@ export class HullcrackerEnv {
     this.agents = enrollAgents(world, seed, opts);
     // Bots draw from the COMMON POOL on the default gun (Story 8.14), like
     // the arena's.
-    for (let i = 0; i < botCount; i += 1) world.addBot(undefined, undefined);
+    // Each carries a RANDOM FOUR consumable lines (Story 10.1, ruling 6), rolled
+    // off its own seeded stream — never Math.random.
+    const kits = mulberry32(mixSeed(seed, BOT_KIT_SEED_ORDINAL));
+    for (let i = 0; i < botCount; i += 1) world.addBot(undefined, undefined, undefined, rollKit(kits.next));
     match.notifyRosterChanged();
     this.world = world;
     this.match = match;

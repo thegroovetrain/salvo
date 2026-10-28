@@ -18,6 +18,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   consumableSlotFor,
+  DEFAULT_KIT,
   SLOT_BOOST,
   founderDeadline,
   isAfloat,
@@ -306,7 +307,7 @@ describe('refit closed — "once sinking, you\'re done"', () => {
     // activation gate (amendment 10's fitment rule), and the ROW refuses it
     // — 'blocked', nothing spent (Story 8.8).
     a.hp = a.stats.maxHp - 50; // so "full hull" is not what refuses it
-    expect(w.sinkingActivationGate(a, consumableSlotFor('hullRepair')!)).toEqual({ ok: false, reason: 'blocked' });
+    expect(w.sinkingActivationGate(a, consumableSlotFor(DEFAULT_KIT, 'hullRepair')!)).toEqual({ ok: false, reason: 'blocked' });
     expect(a.bankedLevels).toBe(1); // bank and queue untouched
     expect(a.cards).toEqual(['heavyTorpedo', 'hullRepair']); // the seed + the un-spent heal copy
     expect(a.repairHp).toBe(0);

@@ -78,8 +78,8 @@ describe('showHome — the CREATE / JOIN doors', () => {
     showHome('0.0.0-test', onDeploy, vi.fn(), onSolo, { onCreate, onJoin });
     door('CREATE').click();
     door('JOIN').click();
-    expect(onCreate).toHaveBeenCalledWith('NEMO', 'battleship', expect.any(String));
-    expect(onJoin).toHaveBeenCalledWith('NEMO', 'battleship', expect.any(String));
+    expect(onCreate).toHaveBeenCalledWith('NEMO', 'battleship', expect.any(String), expect.any(Array));
+    expect(onJoin).toHaveBeenCalledWith('NEMO', 'battleship', expect.any(String), expect.any(Array));
     expect(onDeploy).not.toHaveBeenCalled();
     expect(onSolo).not.toHaveBeenCalled();
   });

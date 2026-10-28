@@ -18,6 +18,7 @@ import {
   CONFIG,
   DEFAULT_HORN_ID,
   consumableSlotFor,
+  DEFAULT_KIT,
   droneHullOf,
   isAfloat,
   isSinking,
@@ -32,7 +33,7 @@ import { flatRaster } from './islandFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 const FS = CONFIG.foulingShell;
-const SLOT = consumableSlotFor('foulingShell')!;
+const SLOT = consumableSlotFor(DEFAULT_KIT, 'foulingShell')!;
 
 /** Islands cleared and the raster flattened: open water, nothing to stop a
  *  shell or shadow a sensor. */

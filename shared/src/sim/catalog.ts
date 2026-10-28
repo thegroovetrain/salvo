@@ -715,8 +715,9 @@ export const CATALOG: Catalog = deepFreezeRows({
   // 2026-10-11) replaced SMOKE SCREEN with the COUNTERMEASURE line. The
   // FOULING SHELL (Story 9.4, replacing Story 8.17's FLASH SHELLS) is a live
   // consumable that sits at the foot of the list with the former add-ons. CHAFF (R39) is RETIRED since Story 9.2 (epic-9 amendment
-  // 31). Since 9.2 every live consumable owns a fixed key (sim/loadout.ts
-  // CONSUMABLE_KEY_ORDER) — the belt and its `1`–`4` keys are gone.
+  // 31). Since 9.2 every live consumable owns a fixed key — the belt is gone;
+  // since Story 10.1 the keys `1`–`4` are back, bound per ship by its KIT of
+  // four (sim/loadout.ts `ConsumableKit`; the global key row is deleted).
   hullRepair: consumable('hullRepair'), // R13 — 50 instant + 50 pooled (CONFIG.hullRepair)
   shieldBlock: consumable('shieldBlock'), // R37 — absorbs 100 hp for 10 s (CONFIG.shieldBlock)
   countermeasure: consumable('countermeasure'), // Story 9.3 (Eric 2026-10-11) — one cloud per press, 15 s life (CONFIG.countermeasure)

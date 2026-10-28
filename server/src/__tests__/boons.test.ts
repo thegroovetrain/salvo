@@ -24,6 +24,7 @@ import {
   WEAPON_SLOTS,
   effectiveStats,
   consumableSlotFor,
+  DEFAULT_KIT,
   equipmentMaxAmmo,
   isConsumableId,
   type Catalog,
@@ -301,10 +302,10 @@ describe('World.applyCard — two homes, nothing else', () => {
     // reloads. Neither can reach the other's row.
     // Since Story 9.2 the stock lands in HULL REPAIR's own fixed slot.
     const expected: (string | null)[] = ['gun', 'boost', 'starShells', ...new Array<null>(SLOT_COUNT - 3).fill(null)];
-    expected[consumableSlotFor('hullRepair')!] = 'hullRepair';
+    expected[consumableSlotFor(DEFAULT_KIT, 'hullRepair')!] = 'hullRepair';
     expect(a.loadout.map((s) => s.equipmentId)).toEqual(expected);
     expect(a.loadout[SLOT_FILL].state).toEqual({ n: CONFIG.starShells.maxAmmo, reloadMsLeft: 0 });
-    expect(a.loadout[consumableSlotFor('hullRepair')!].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(a.loadout[consumableSlotFor(DEFAULT_KIT, 'hullRepair')!].state).toEqual({ n: 1, reloadMsLeft: 0 });
     // Hooks — the behavior effect executes on the real tick (outruns control).
     a.input.throttle = 1;
     c.input.throttle = 1;

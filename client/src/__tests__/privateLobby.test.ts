@@ -6,10 +6,13 @@
 // port with the lock released.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { DEFAULT_KIT } from '@salvo/shared';
 import type { LobbyHooks, LobbyView } from '../net/lobby.js';
 
 let capturedHooks: LobbyHooks | null = null;
 let settle: ((c: unknown) => void) | null = null;
+/** The deploy identity the last create/join was handed (Story 10.1: the kit rides it). */
+let capturedDeploy: unknown = null;
 
 vi.mock('../net/lobby.js', async (orig) => {
   const real = await orig<typeof import('../net/lobby.js')>();
@@ -21,8 +24,8 @@ vi.mock('../net/lobby.js', async (orig) => {
   };
   return {
     ...real,
-    createLobby: (deploy: unknown, hooks: LobbyHooks) => run(deploy, null, hooks),
-    joinLobby: (code: unknown, deploy: unknown, hooks: LobbyHooks) => run(code, deploy, hooks),
+    createLobby: (deploy: unknown, hooks: LobbyHooks) => ((capturedDeploy = deploy), run(deploy, null, hooks)),
+    joinLobby: (code: unknown, deploy: unknown, hooks: LobbyHooks) => ((capturedDeploy = deploy), run(code, deploy, hooks)),
     leaveLobby: vi.fn(),
   };
 });
@@ -266,5 +269,23 @@ describe('the home doors under the join modal', () => {
     expect(d.log.at(-1)).toBe('busy:true');
     pressEscape();
     expect(lastBusy(d.log)).toBe('busy:false');
+  });
+});
+
+// Story 10.1: the private doors carry the deploy identity — the kit with it — untouched.
+describe('the kit rides the private doors', () => {
+  afterEach(() => {
+    hideJoinCodeModal();
+    hideLobbyModal();
+    capturedDeploy = null;
+  });
+
+  it('CREATE hands net/lobby the deploy verbatim, kit included', async () => {
+    const deploy = { name: 'NEMO', cls: 'battleship', gun: 'flak' as const, kit: [...DEFAULT_KIT].reverse() };
+    void createPrivateLobby(deps(), deploy);
+    await flush();
+    expect(capturedDeploy).toEqual(deploy);
+    settle?.(null);
+    await flush();
   });
 });

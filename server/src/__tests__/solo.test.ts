@@ -31,8 +31,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ClientState } from 'colyseus';
 import {
   CONFIG,
+  DEFAULT_KIT,
   GUN_IDS,
+  dealableConsumables,
+  isConsumableKit,
   MOUNTED_GUN,
+  mulberry32,
   PROTOCOL_VERSION,
   REGATTA_HUES,
   REGATTA_NO_HUE,
@@ -44,6 +48,7 @@ import { ArenaRoom, ARENA_DIRECT_JOIN_ERROR } from '../rooms/ArenaRoom.js';
 import { protocolVersionError, sanitizeSolo, type RoomOptions } from '../rooms/roomOptions.js';
 import { lobbyTicket } from '../rooms/lobbyTicket.js';
 import { World } from '../game/world.js';
+import { assignHue } from '../game/regatta.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import type { ArenaState, PlayerMeta } from '../rooms/schema/ArenaState.js';
 
@@ -263,6 +268,52 @@ describe('the solo room — construction', () => {
     expect([...seen].sort()).toEqual([...GUN_IDS].sort());
   });
 
+  // Story 10.1 (Eric ruling 6): every bot CARRIES A RANDOM FOUR consumable
+  // lines, rolled after its gun off the room's separate seeded kit stream.
+  it('seats every bot with a valid kit off the SEEDED stream: a pinned seed yields the same kits twice, kits vary, and every dealable line appears across a few seeds', () => {
+    process.env.HC_DEV_OPTIONS = '1'; // a pinned map seed is a dev-only option
+    const kitsOf = (r: SoloRoom): string[][] => bots(r).map((b) => [...r.world.ships.get(b.id)!.kit]);
+    const first = kitsOf(soloRoom({ mapSeed: 7 }));
+    expect(first).toHaveLength(BOTS);
+    for (const k of first) expect(isConsumableKit(k), k.join(',')).toBe(true);
+    expect(kitsOf(soloRoom({ mapSeed: 7 }))).toEqual(first); // the same seed, the same kits
+    // A random four PER BOT, not one fixed four for the fleet.
+    expect(new Set(first.map((k) => k.join(','))).size).toBeGreaterThan(1);
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 6; seed += 1) {
+      for (const k of kitsOf(soloRoom({ mapSeed: seed }))) for (const id of k) seen.add(id);
+    }
+    expect([...seen].sort()).toEqual([...dealableConsumables()].sort());
+  });
+
+  // Story 10.1 review gate (F3): the kit roll rides its OWN stream (hue seed
+  // ^ 0x6b17), so the room's hue stream — and with it every class, gun and hue
+  // of a pinned seed — is exactly what it was before kits. The relation:
+  // replaying the hue stream ALONE in the pre-10.1 draw order (class shuffle,
+  // then per bot: gun, hue) reproduces the seated fleet.
+  it('the kit roll never touches the hue stream: a replay of the pre-kit draw order reproduces every class, gun and hue', () => {
+    process.env.HC_DEV_OPTIONS = '1'; // a pinned map seed is a dev-only option
+    for (const mapSeed of [7, 12345]) {
+      const r = soloRoom({ mapSeed });
+      const rng = mulberry32((mapSeed ^ 0xc2b2ae35) >>> 0);
+      const order = [...SHIP_CLASS_IDS];
+      for (let i = order.length - 1; i > 0; i -= 1) {
+        const j = rng.int(0, i);
+        [order[i], order[j]] = [order[j], order[i]];
+      }
+      const used = new Set<number>();
+      bots(r).forEach((b, i) => {
+        const gun = GUN_IDS[rng.int(0, GUN_IDS.length - 1)];
+        const hue = assignHue(used, undefined, rng, i + 1);
+        used.add(hue);
+        const at = `seed ${mapSeed} ${b.id}`;
+        expect(b.hullId, at).toBe(order[i % order.length]);
+        expect(r.world.ships.get(b.id)!.gun, at).toBe(gun);
+        expect(r.state.players.get(b.id)!.color, at).toBe(hue);
+      });
+    }
+  });
+
   it('varies the class DEAL ORDER across rooms (the order is rolled, not fixed)', () => {
     // The shuffle rides the room's seeded stream, which is keyed off the map
     // seed — so across many rooms the class dealt FIRST (the one that takes
@@ -284,6 +335,15 @@ describe('the solo room — the human joins', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     delete process.env.HC_DEV_OPTIONS;
+  });
+
+  it('seats the human with the kit from the join option, and DEFAULT_KIT for junk (Story 10.1, fail-open)', () => {
+    const r = soloRoom();
+    const kit = ['foulingShell', 'decoyBuoy', 'hullRepair', 'countermeasure'];
+    join(r, 'alice', { kit });
+    expect(r.world.ships.get('alice')!.kit).toEqual(kit);
+    join(r, 'bob', { kit: ['hullRepair', 'hullRepair', 'shieldBlock', 'depthCharge'] });
+    expect(r.world.ships.get('bob')!.kit).toEqual([...DEFAULT_KIT]);
   });
 
   it('arms the countdown with ONE human aboard (expectedCaptains 1, minHumans 1)', () => {

@@ -4,7 +4,17 @@
 // sets reconnection.enabled + a maxRetries sized to span that window, and rides
 // a `pv` (PROTOCOL_VERSION) in the join options for the server's version gate.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CONFIG, DEFAULT_GUN, DEFAULT_HORN_ID, MSG, PROTOCOL_VERSION, REGATTA_HUES, type GunId } from '@salvo/shared';
+import {
+  CONFIG,
+  DEFAULT_GUN,
+  DEFAULT_HORN_ID,
+  DEFAULT_KIT,
+  MSG,
+  PROTOCOL_VERSION,
+  REGATTA_HUES,
+  type ConsumableKit,
+  type GunId,
+} from '@salvo/shared';
 
 interface FakeRoom {
   reconnection: { enabled: boolean; maxRetries: number };
@@ -180,8 +190,9 @@ const SEAT = { room: { roomId: 'arena-1', processId: 'p1' }, sessionId: 'arena-s
 async function connectAndWelcome(
   hooks: ConnectHooks = {},
   gun?: GunId,
+  kit?: ConsumableKit,
 ): Promise<Awaited<ReturnType<typeof connect>>> {
-  const pending = connect('tester', undefined, hooks, false, gun);
+  const pending = connect('tester', undefined, hooks, false, gun, kit);
   await vi.waitFor(() => {
     if (!queue.has(MSG.seat)) throw new Error('seat handler not yet registered');
   });
@@ -389,6 +400,7 @@ describe('connect — the SOLO VS AI door (Story 6.5)', () => {
     // Story 8.14: the SEAT'S GUN rides the solo door exactly as it rides the
     // queue door — the solo arena seats a captain the same way.
     expect(lastCreateOpts?.gun).toBe(DEFAULT_GUN);
+    expect(lastCreateOpts?.kit).toEqual([...DEFAULT_KIT]); // Story 10.1: the kit rides the solo door too
   });
 
   it('binds NO queue channel and hands out NO canceller — there is nothing to wait for', async () => {
@@ -453,6 +465,19 @@ describe('connect', () => {
   it('forwards the THREADED gun pick verbatim (Story 8.15: startGame, connect, joinOptions)', async () => {
     await connectAndWelcome({}, 'machineGun');
     expect(lastJoinOpts?.gun).toBe('machineGun');
+  });
+
+  // Story 10.1 (epic-10 amendment 3): the kit rides exactly as the gun does.
+  it("forwards the seat's kit as `kit` — DEFAULT_KIT when the caller names none", async () => {
+    await connectAndWelcome();
+    expect(lastJoinOpts?.kit).toEqual([...DEFAULT_KIT]);
+  });
+
+  it('forwards the THREADED kit verbatim, as a plain array', async () => {
+    const kit = [...DEFAULT_KIT].reverse();
+    await connectAndWelcome({}, undefined, kit);
+    expect(lastJoinOpts?.kit).toEqual(kit);
+    expect(Array.isArray(lastJoinOpts?.kit)).toBe(true);
   });
 
   it('forwards the persisted foghorn variant as `horn` (Story 4.5, amendment 52)', async () => {

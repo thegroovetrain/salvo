@@ -46,6 +46,7 @@ import {
   pickRefusal,
   resolveCards,
   type CatalogLine,
+  type ConsumableKit,
   type OwnShip,
   type SlotItemId,
 } from '@salvo/shared';
@@ -548,7 +549,7 @@ export function shouldAutoOpen(s: { latched: boolean; phase: string; visible: bo
 /**
  * Pure: is this offered line REFUSED (ruling 10, widened by the Story 8.14
  * review F1)? The answer comes from the SHARED `pickRefusal` over the replayed
- * slot ids AND the held cards, which is byte-for-byte what `world.spendCard`
+ * slot ids, the held cards AND the ship's kit, which is byte-for-byte what `world.spendCard`
  * evaluates before it mutates anything. Two evaluations of one function, so the
  * greyed face and the server's refusal can never disagree.
  *
@@ -561,9 +562,10 @@ export function shouldAutoOpen(s: { latched: boolean; phase: string; visible: bo
 export function cardGreyed(
   line: CatalogLine,
   ownSlots: readonly (SlotItemId | null)[],
-  ownCards: readonly string[] = [],
+  ownCards: readonly string[],
+  kit: ConsumableKit,
 ): boolean {
-  return pickRefusal(ownCards, ownSlots, line.id) !== null;
+  return pickRefusal(ownCards, ownSlots, line.id, kit) !== null;
 }
 
 /**
@@ -577,9 +579,10 @@ export function cardGreyed(
 export function cardFoot(
   line: CatalogLine,
   ownSlots: readonly (SlotItemId | null)[],
-  ownCards: readonly string[] = [],
+  ownCards: readonly string[],
+  kit: ConsumableKit,
 ): string {
-  return pickRefusal(ownCards, ownSlots, line.id) === 'noWeaponSlot' ? SLOTS_FULL : '';
+  return pickRefusal(ownCards, ownSlots, line.id, kit) === 'noWeaponSlot' ? SLOTS_FULL : '';
 }
 
 /**
@@ -601,8 +604,10 @@ function toCard(line: CatalogLine, you: OwnShip, ownSlots: readonly (SlotItemId 
     tierStep: cardTierSteps(line, stack),
     rows: cardStatRows(line, stack, you),
     hover: cardHoverRows(line, stack, you),
-    greyed: cardGreyed(line, ownSlots, you.cards),
-    foot: cardFoot(line, ownSlots, you.cards),
+    // The KIT (Story 10.1) rides `you` itself (`OwnShip.kit`, self-private):
+    // the same seat value the server's `spendCard` hands `pickRefusal`.
+    greyed: cardGreyed(line, ownSlots, you.cards, you.kit),
+    foot: cardFoot(line, ownSlots, you.cards, you.kit),
     stack,
     cap: line.cap,
   };
