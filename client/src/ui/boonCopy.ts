@@ -60,10 +60,14 @@ import {
   CONFIG,
   EQUIPMENT_STAT_FIELDS,
   LINE_IDS,
+  arcFor,
+  buoyKindOf,
   effectiveStats,
   isStubLine,
   tierTargetOf,
   type BoonStatPath,
+  type BuoyKind,
+  type BuoyLineId,
   type CatalogLine,
   type EffectiveStats,
   type EquipmentId,
@@ -134,7 +138,14 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   // 2026-10-27, Story 10.1, Eric: renamed back to SMOKE SCREEN; the id
   // `countermeasure` and the 9.3 cloud are untouched.
   countermeasure: 'SMOKE SCREEN',
-  decoyBuoy: 'DECOY BUOY',
+  // Story 10.9 (Eric 2026-10-27/28, epic-10 amendments 2 and 4): FLASH SHELLS
+  // returns beside the FOULING SHELL (the id amendment 132 locked), and the
+  // retired DECOY BUOY splits into four buoys.
+  dazzleShells: 'FLASH SHELLS',
+  radarBuoy: 'RADAR BUOY',
+  healingBuoy: 'HEALING BUOY',
+  shieldBuoy: 'SHIELD BUOY',
+  speedBuoy: 'SPEED BUOY',
   // `SUPERCAV TORPEDO`, NOT `SUPERCAVITATING TORPEDO` (Eric ruling 2026-09-19,
   // epic-8 amendment 75). The sheet's full word never fitted the refit card's
   // name box — it was the ONE name carrying a Story 8.1 fit exemption — and
@@ -1004,7 +1015,8 @@ function supercavTorpedoRows(): CardStatRow[] {
  * number is read off `CONFIG` — never a literal — in the hullRepair shape
  * (`cur` null, absolute): what the line does, and for how long.
  *   - SHIELD BLOCK: how much it absorbs, and for how long.
- * *   - DECOY BUOY: its hull, and where it drops (the mine's rear arc).
+ * (The DECOY BUOY that sat here was retired by Story 10.9 — the four buoys'
+ * rows are below.)
  */
 function shieldBlockRows(): CardStatRow[] {
   const s = CONFIG.shieldBlock;
@@ -1014,10 +1026,58 @@ function shieldBlockRows(): CardStatRow[] {
   ];
 }
 
-function decoyBuoyRows(): CardStatRow[] {
+/**
+ * THE FOUR BUOYS' ROWS (Story 10.9, epic-10 amendments 2 and 4). Every buoy
+ * shares the body's four rows — its hull, its effect reach, its life and its
+ * drop arc — then ONE row says what its kind does. Every number off
+ * `CONFIG.buoy` (and the arc off the shared `arcFor`), never a literal.
+ */
+function buoyBodyRows(id: BuoyLineId): CardStatRow[] {
+  const b = CONFIG.buoy;
   return [
-    { label: 'HULL', cur: null, next: `${num(CONFIG.decoyBuoy.hp)} HP` },
-    { label: 'DROP', cur: null, next: 'REAR ARC' },
+    { label: 'HULL', cur: null, next: `${num(b.hp)} HP` },
+    { label: 'RANGE', cur: null, next: `${num(b.radiusU)} U` },
+    { label: 'LASTS', cur: null, next: `${num(b.lifetimeMs / 1000)} S` },
+    { label: 'DROP', cur: null, next: arcFor(id).kind === 'full' ? '360°' : 'ARC' },
+  ];
+}
+
+/** Each kind's one effect row — what the buoy does inside its range. */
+const BUOY_KIND_ROW: Readonly<Record<BuoyKind, () => CardStatRow>> = {
+  radar: () => ({ label: 'RADAR', cur: null, next: `${num(CONFIG.buoy.radiusU)} U SWEEP` }),
+  healing: () => ({ label: 'HEAL', cur: null, next: `${pct(CONFIG.buoy.heal.missingPctPerS)} MISSING/S` }),
+  shield: () => ({ label: 'SHIELD', cur: null, next: `${pct(CONFIG.buoy.shield.maxHpPctPerS)} MAX/S` }),
+  speed: () => ({ label: 'SPEED', cur: null, next: `+${pct(CONFIG.buoy.speed.factor)}` }),
+};
+
+/** Pure: one buoy line's rows — the body's four plus its kind's one. */
+function buoyRows(id: BuoyLineId): CardStatRow[] {
+  return [...buoyBodyRows(id), BUOY_KIND_ROW[buoyKindOf(id)]()];
+}
+
+/**
+ * Pure: a 0..1 fraction as the card prints it — `1/N` when it is a unit
+ * fraction (FLASH SHELLS' `sightFraction` 0.25 → `1/4`), else a percentage.
+ * Formatted FROM the CONFIG value, so a retune moves the card with it.
+ */
+function fractionText(f: number): string {
+  const inv = 1 / f;
+  const n = Math.round(inv);
+  return f > 0 && Math.abs(inv - n) < 1e-9 ? `1/${n}` : pct(f);
+}
+
+/**
+ * FLASH SHELLS' ROWS (Story 8.17's rows, restored by Story 10.9 — epic-10
+ * amendment 4 ruling 1): the burst's radius, how long it blinds, and how much
+ * of SIGHT a blinded hull keeps — `RADIUS 150 U` / `BLINDS 10 S` / `SIGHT
+ * 1/4`, every number off `CONFIG.flashShells`.
+ */
+function flashShellRows(): CardStatRow[] {
+  const f = CONFIG.flashShells;
+  return [
+    { label: 'RADIUS', cur: null, next: `${num(f.radius)} U` },
+    { label: 'BLINDS', cur: null, next: `${num(f.durationMs / 1000)} S` },
+    { label: 'SIGHT', cur: null, next: fractionText(f.sightFraction) },
   ];
 }
 
@@ -1059,8 +1119,12 @@ const CONSUMABLE_ROWS: Readonly<Partial<Record<LineId, () => CardStatRow[]>>> = 
   hullRepair: hullRepairRows,
   supercavTorpedo: supercavTorpedoRows,
   shieldBlock: shieldBlockRows,
-  decoyBuoy: decoyBuoyRows,
   foulingShell: foulingShellRows, // Story 9.4
+  dazzleShells: flashShellRows, // Story 10.9 — FLASH SHELLS restored
+  radarBuoy: () => buoyRows('radarBuoy'), // Story 10.9 — the four buoys
+  healingBuoy: () => buoyRows('healingBuoy'),
+  shieldBuoy: () => buoyRows('shieldBuoy'),
+  speedBuoy: () => buoyRows('speedBuoy'),
   countermeasure: countermeasureRows, // Story 9.3
 };
 

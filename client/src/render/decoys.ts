@@ -1,48 +1,50 @@
-// DECOY-BUOY rendering from FrameMsg.decoys (contact-like per-observer state,
-// not events — the mines.ts / litZones.ts precedent, Story 1.8).
+// BUOY rendering from FrameMsg.decoys (contact-like per-observer state, not
+// events — the mines.ts / litZones.ts precedent, Story 1.8).
 //
-// STORY 8.16 (catalog-v3 R36/R41, epic-8 amendments 119–124) brought the DECOY
-// BUOY back as a CONSUMABLE and deleted the RADAR BUOY this module used to draw
-// (render/buoys.ts, `BuoyView`, `FrameMsg.buoys`). Everything that was the radar
-// buoy's own is gone with it: the 330u coverage ring, the JAMMING wash and the
-// masthead LIFE arc (a decoy has no radar, no doctrine and NO LIFETIME — it
-// floats until it is destroyed, and outlives its owner, amendment 122).
+// THE NAME `decoy` IS KEPT FOR THE BODY (Story 10.9, epic-10 amendment 4): the
+// plain DECOY BUOY line is retired and its body became the FOUR BUOYS — RADAR,
+// HEALING, SHIELD, SPEED — each 50 hp, a torpedo sponge, a 30 s life
+// (`CONFIG.buoy`). The wire row (`DecoyView`), the frame key and this module
+// keep the machinery name; the catalog ids are the buoys'.
 //
-// WHAT EVERY OBSERVER READS: WHERE it is — the spar-buoy marker below, in the
-// OWNER'S personal hue for every observer (Eric 2026-09-11, UX-DR56; `DecoyView.by`
-// rides every view for exactly this, amendment 124(a)). A decoy lays no wake
-// (amendment 123) and draws nothing else on the water.
+// WHAT EVERY OBSERVER READS: WHERE it is and WHAT KIND it is — the spar-buoy
+// marker below in the OWNER'S personal hue (Eric 2026-09-11, UX-DR56;
+// `DecoyView.by` rides every view for exactly this), with the kind's mark hung
+// under the waterline (render/buoyMarks.ts — the one mark vocabulary the belt
+// glyph shares). A buoy lays no wake and draws nothing else on the water; an
+// ENEMY buoy shows its kind and never its timer or sweep (the wire carries
+// neither for it).
 //
-// WHAT ONLY THE OWNER READS: ITS HULL — `DecoyView.hp` is present only on the
-// owner's own view (the `MineView.c` idiom), and the owner's marker wears a
-// masthead arc at `hp / CONFIG.decoyBuoy.hp` (full at the drop, shrinking as it
-// takes fire). IMPLEMENTER DRAFT (amendment 124(f)): the arc reuses the deleted
-// radar buoy's life-arc geometry, for Eric's eye on staging.
+// WHAT ONLY THE OWNER READS: ITS HULL and ITS LIFE — `DecoyView.hp` and
+// `DecoyView.until` are present only on the owner's own view (the `MineView.c`
+// idiom). The owner's marker wears two concentric MASTHEAD ARCS: the inner at
+// `hp / CONFIG.buoy.hp` (shrinks as it takes fire) and the outer at
+// `(until − serverNow) / CONFIG.buoy.lifetimeMs` (runs down over its 30 s).
 //
 // THE MARKER IS A SPAR BUOY, NOT A RING (Eric, 7-5-decks.md: *"The icon needs to
 // be distinguished from the mines a bit more"*). A mine's mark is a ring plus a
 // dot; this one shares NO primitive with a mine: a waterline tick, a vertical
-// spar and a DIAMOND radar-reflector daymark at the masthead, drawn with zero
-// circles. Shape is the channel (DESIGN.md's dual-coding floor); hue still says
-// whose it is.
+// spar, a DIAMOND radar-reflector daymark at the masthead and the kind mark,
+// drawn with zero circles. Shape is the channel (DESIGN.md's dual-coding
+// floor); hue still says whose it is.
 //
 // OWN vs OTHER LAYER split (mirrors mines.ts, driven by DecoyView.own): OWN
-// decoys draw in chartRoot's decoy layer (fog-immune) so you always read your
-// own decoy even under fog beyond sight range; anyone else's decoy draws in
-// worldRoot's decoy layer and only ever arrives while sighted (or lit by your
-// own zone), so fog over it is a non-issue — exactly the mine convention.
+// buoys draw in chartRoot's decoy layer (fog-immune) so you always read your
+// own buoy even under fog beyond sight range; anyone else's draws in
+// worldRoot's decoy layer and only ever arrives while sighted.
 //
-// A decoy is a static point (its position is fixed at drop) so a sprite's
-// position is set once, exactly like a mine; reconcile() is the pure
-// list -> lifecycle diff (unit-tested), the Pixi wiring a thin adapter. A decoy
-// dropping out of the list means DESTROYED or out of view — the client cannot
-// tell, and that ambiguity is the design (the mines precedent).
+// A buoy is a static point (its position is fixed at drop) so a sprite's
+// position is set once; reconcile() is the pure list -> lifecycle diff
+// (unit-tested), the Pixi wiring a thin adapter. A buoy dropping out of the
+// list means DESTROYED, EXPIRED or out of view — the client cannot tell, and
+// that ambiguity is the design (the mines precedent).
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import { CONFIG, type DecoyView } from '@salvo/shared';
+import { BUOY_LINE_IDS, CONFIG, buoyKindOf, type BuoyKind, type BuoyLineId, type DecoyView } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { clamp01 } from '../util/math.js';
+import { placeKindMark } from './buoyMarks.js';
 import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
 
 export type { HueFor };
@@ -51,7 +53,7 @@ const R = CLIENT_CONFIG.mineRings; // the shared ordnance-ring stroke weights
 
 /** The whole on-water marker drawn 25 % larger than the Story 8.16 silhouette
  *  (Eric 2026-10-17: "Make the buoy about 25% larger on the water"; epic-9
- *  amendment 188). Scales the three lengths below together, so the shape — and
+ *  amendment 188). Scales every length below together, so the shape — and
  *  the "distinct from a mine" property — is unchanged. */
 const BUOY_SCALE = 1.25;
 /** u — half-width of the waterline tick (7 × BUOY_SCALE). */
@@ -60,17 +62,28 @@ const WATERLINE = 7 * BUOY_SCALE;
 const SPAR = 16 * BUOY_SCALE;
 /** u — half-diagonal of the diamond radar-reflector topmark (6 × BUOY_SCALE). */
 const TOPMARK = 6 * BUOY_SCALE;
+/** u — half-size of the kind mark hung under the waterline (5 × BUOY_SCALE). */
+const KIND_MARK_HALF = 5 * BUOY_SCALE;
+/** u — clear water between the waterline tick and the top of the kind mark. */
+const KIND_MARK_GAP = 2.5 * BUOY_SCALE;
 /** u — radius of the owner-only masthead hp arc (clear of the topmark's points). */
 const HP_ARC_R = TOPMARK + 3.5;
+/** u — radius of the owner-only masthead LIFE arc, one stroke outside the hp arc. */
+const LIFE_ARC_R = HP_ARC_R + 3;
 /** Alpha of the owner-only masthead hp arc. */
 const HP_ARC_ALPHA = 0.85;
+/** Alpha of the owner-only masthead life arc — quieter than the hp arc: the hull
+ *  is the number a fight moves, the life is a clock. */
+const LIFE_ARC_ALPHA = 0.55;
+/** The life arc is redrawn only when its fraction moves by this much — a
+ *  30 s life redraws in ~1/240 steps (8 Hz), never every render frame. */
+const LIFE_STEP = 1 / 240;
 
 /**
- * THE DECOY'S SILHOUETTE, as pure geometry in the sprite's local frame — a
+ * THE BUOY'S SILHOUETTE, as pure geometry in the sprite's local frame — a
  * waterline tick, a spar, and a diamond daymark. Exported so the "distinct from
  * a mine" property is testable without reaching into the display list, and so
- * the belt glyph (render/equipmentIcons.ts) can be checked against the same
- * shape language.
+ * the aim preview's drop marker draws the same shape.
  *
  * DELIBERATELY CIRCLE-FREE. A mine's marker is a ring plus a dot; anything
  * round here walks straight back into the mark Eric asked to be told apart.
@@ -93,29 +106,73 @@ export const BUOY_MARKER = {
   ],
 } as const;
 
+/** Pure: the kind mark's polylines in the sprite's local frame — the shared
+ *  mark (render/buoyMarks.ts) hung centred under the waterline. */
+export function buoyKindMark(kind: BuoyKind): [number, number][][] {
+  return placeKindMark(kind, 0, KIND_MARK_GAP + KIND_MARK_HALF, KIND_MARK_HALF) as [number, number][][];
+}
+
 /**
- * Pure: the fraction of its hull an OWN decoy has left — `hp / CONFIG.decoyBuoy.hp`,
+ * Pure: the fraction of its hull an OWN buoy has left — `hp / CONFIG.buoy.hp`,
  * clamped to [0, 1]. `null` when there is no owner readout at all (someone
- * else's decoy, or a view without `hp`): the arc is the owner's number and is
+ * else's buoy, or a view without `hp`): the arc is the owner's number and is
  * never drawn for anyone else.
  */
 export function decoyHpFrac(view: Pick<DecoyView, 'own' | 'hp'>): number | null {
   if (!view.own || view.hp === undefined) return null;
-  return clamp01(view.hp / CONFIG.decoyBuoy.hp);
+  return clamp01(view.hp / CONFIG.buoy.hp);
 }
 
-/** What changed between the sprites we hold and the incoming decoy list. */
+/**
+ * Pure: the fraction of its LIFE an OWN buoy has left at `serverNow` —
+ * `(until − serverNow) / CONFIG.buoy.lifetimeMs`, clamped to [0, 1]. `null`
+ * for someone else's buoy or a view without `until`: an enemy buoy's timer is
+ * never on the wire, and never drawn.
+ */
+export function buoyLifeFrac(view: Pick<DecoyView, 'own' | 'until'>, serverNow: number): number | null {
+  if (!view.own || view.until === undefined) return null;
+  return clamp01((view.until - serverNow) / CONFIG.buoy.lifetimeMs);
+}
+
+/**
+ * Pure: per buoy LINE, the server-clock expiry of the EARLIEST own LIVE buoy
+ * of that line's kind (`until > serverNow`) — the hotbar's ACTIVE window for a
+ * buoy square (Story 10.9, AC 8: "the existing tell grammar, no new copy").
+ * A line with no live own buoy is absent (no window). Someone else's buoy, or
+ * an own view without `until`, never counts.
+ */
+export function ownBuoyUntil(
+  decoys: readonly DecoyView[],
+  serverNow: number,
+): Partial<Record<BuoyLineId, number>> {
+  const out: Partial<Record<BuoyLineId, number>> = {};
+  for (const line of BUOY_LINE_IDS) {
+    const kind = buoyKindOf(line);
+    for (const d of decoys) {
+      if (!d.own || d.kind !== kind || d.until === undefined || d.until <= serverNow) continue;
+      out[line] = Math.min(out[line] ?? Infinity, d.until);
+    }
+  }
+  return out;
+}
+
+/** Pure: a life fraction snapped to the redraw step (null passes through). */
+function lifeStep(frac: number | null): number | null {
+  return frac === null ? null : Math.ceil(frac / LIFE_STEP) * LIFE_STEP;
+}
+
+/** What changed between the sprites we hold and the incoming buoy list. */
 export interface DecoyDiff {
   add: DecoyView[];
   remove: string[];
 }
 
 /**
- * Pure: given the ids we currently have sprites for and the new frame's decoy
- * list, return which decoys to add and which sprite ids to remove. Ids present
- * in both are left in place (a decoy is static — only its owner-only hp arc
- * moves, and that is refreshed separately). A kill / out-of-view drop resolves
- * to a plain remove.
+ * Pure: given the ids we currently have sprites for and the new frame's buoy
+ * list, return which buoys to add and which sprite ids to remove. Ids present
+ * in both are left in place (a buoy is static — only its owner-only arcs move,
+ * and those are refreshed separately). A kill / expiry / out-of-view drop
+ * resolves to a plain remove.
  */
 export function reconcileDecoys(current: ReadonlySet<string>, incoming: readonly DecoyView[]): DecoyDiff {
   const seen = new Set<string>();
@@ -129,27 +186,35 @@ export function reconcileDecoys(current: ReadonlySet<string>, incoming: readonly
   return { add, remove };
 }
 
-/** A live decoy sprite + its owner-hue latch (retryHue recolors it once the
+/** A live buoy sprite + its owner-hue latch (retryHue recolors it once the
  *  owner's roster hue syncs). `own` drives brightness and the layer. */
 interface DecoySprite extends HueState {
   g: Graphics;
   own: boolean;
+  kind: BuoyKind;
   /** The color the marker is currently painted in (hue latch or amber fallback). */
   color: number;
   /** The owner-only hp fraction currently painted (null = no arc). */
   hpFrac: number | null;
+  /** The owner-only server-clock expiry (undefined = not ours / not sent). */
+  until: number | undefined;
+  /** The owner-only life fraction currently painted, snapped (null = no arc). */
+  lifeFrac: number | null;
 }
 
 export class Decoys {
   private readonly sprites = new Map<string, DecoySprite>();
+  /** The last server time `render` saw — a spawn between renders paints its
+   *  life arc against it rather than drawing a full arc for one frame. */
+  private lastNow = -Infinity;
 
   /**
    * `ownLayer` = chartRoot's decoy layer (fog-immune); `otherLayer` = worldRoot's
-   * decoy layer (fogged). `onOwnDecoySpawn` (optional) fires once per OWN decoy
-   * newly added this sync — the `placeDecoy` audio cue hook (a decoy has no
+   * decoy layer (fogged). `onOwnDecoySpawn` (optional) fires once per OWN buoy
+   * newly added this sync — the `placeDecoy` audio cue hook (a buoy has no
    * discrete GameEvent of its own; this reconcile diff is the only "just
    * placed" signal, and gating on `own` means it can never misfire on someone
-   * else's decoy — the Mines onOwnMineSpawn precedent).
+   * else's buoy — the Mines onOwnMineSpawn precedent).
    */
   constructor(
     private readonly ownLayer: Container,
@@ -158,9 +223,9 @@ export class Decoys {
   ) {}
 
   /**
-   * Reconcile sprites against this observer's decoy list for the tick. The
+   * Reconcile sprites against this observer's buoy list for the tick. The
    * caller passes `f.decoys ?? []` (frames omit the key when the observer sees
-   * no decoys). An empty list clears every sprite, which is how a match reset
+   * no buoys). An empty list clears every sprite, which is how a match reset
    * lands (the mines precedent).
    */
   sync(decoys: readonly DecoyView[], hueFor: HueFor): void {
@@ -169,7 +234,7 @@ export class Decoys {
     for (const d of add) this.spawn(d, hueFor);
     for (const d of decoys) this.refresh(d);
     for (const s of this.sprites.values()) {
-      // Story 1.12: recolor any decoy that booted on the amber fallback (owner
+      // Story 1.12: recolor any buoy that booted on the amber fallback (owner
       // hue not yet synced at spawn) once its personal hue lands.
       retryHue(s, hueFor, (color) => {
         s.color = color;
@@ -178,21 +243,48 @@ export class Decoys {
     }
   }
 
-  /** The owner-only hp fraction a decoy's arc is currently drawn at (null for
-   *  someone else's decoy) — the render-state seam the tests read. */
+  /**
+   * Per render frame: run each OWN buoy's life arc down against the server
+   * clock (timestamp math off `until − serverNow`; no client timers). Redraws
+   * only when the snapped fraction moves — a handful of own buoys at most.
+   */
+  render(serverNow: number): void {
+    this.lastNow = serverNow;
+    for (const s of this.sprites.values()) {
+      const frac = lifeStep(buoyLifeFrac({ own: s.own, until: s.until }, serverNow));
+      if (frac === s.lifeFrac) continue;
+      s.lifeFrac = frac;
+      this.redraw(s);
+    }
+  }
+
+  /** The owner-only hp fraction a buoy's arc is currently drawn at (null for
+   *  someone else's buoy) — the render-state seam the tests read. */
   hpFracAt(id: string): number | null {
     return this.sprites.get(id)?.hpFrac ?? null;
   }
 
-  /** The color a decoy's marker is currently painted in (tests/debug). */
+  /** The owner-only life fraction a buoy's outer arc is currently drawn at
+   *  (snapped; null for someone else's buoy) — a render-state test seam. */
+  lifeFracAt(id: string): number | null {
+    return this.sprites.get(id)?.lifeFrac ?? null;
+  }
+
+  /** The kind a buoy's marker is drawn as (null when not held) — test seam. */
+  kindAt(id: string): BuoyKind | null {
+    return this.sprites.get(id)?.kind ?? null;
+  }
+
+  /** The color a buoy's marker is currently painted in (tests/debug). */
   colorAt(id: string): number | null {
     return this.sprites.get(id)?.color ?? null;
   }
 
-  /** Redraw an existing sprite's hp arc when the owner's readout moved. */
+  /** Redraw an existing sprite's arcs when the owner's readout moved. */
   private refresh(d: DecoyView): void {
     const s = this.sprites.get(d.id);
     if (s === undefined) return;
+    s.until = d.until;
     const frac = decoyHpFrac(d);
     if (frac === s.hpFrac) return;
     s.hpFrac = frac;
@@ -204,7 +296,18 @@ export class Decoys {
     const { color, colored, rev } = resolveHue(d.by, hueFor);
     g.position.set(d.x, d.y);
     (d.own ? this.ownLayer : this.otherLayer).addChild(g);
-    const s: DecoySprite = { g, by: d.by, own: d.own, colored, rev, color, hpFrac: decoyHpFrac(d) };
+    const s: DecoySprite = {
+      g,
+      by: d.by,
+      own: d.own,
+      kind: d.kind,
+      colored,
+      rev,
+      color,
+      hpFrac: decoyHpFrac(d),
+      until: d.until,
+      lifeFrac: lifeStep(buoyLifeFrac(d, this.lastNow)),
+    };
     this.sprites.set(d.id, s);
     this.redraw(s);
     if (d.own) this.onOwnDecoySpawn?.(d);
@@ -217,16 +320,18 @@ export class Decoys {
     this.sprites.delete(id);
   }
 
-  /** The whole sprite: marker + (own) masthead hp arc. */
+  /** The whole sprite: marker + kind mark + (own) masthead hp and life arcs. */
   private redraw(s: DecoySprite): void {
     drawMarker(s.g, s.own, s.color);
-    if (s.hpFrac !== null) drawHpArc(s.g, s.hpFrac, s.color);
+    drawKindMark(s.g, s.kind, s.own, s.color);
+    if (s.hpFrac !== null) drawMastArc(s.g, HP_ARC_R, s.hpFrac, s.color, HP_ARC_ALPHA);
+    if (s.lifeFrac !== null) drawMastArc(s.g, LIFE_ARC_R, s.lifeFrac, s.color, LIFE_ARC_ALPHA);
   }
 }
 
 /**
- * Draw the decoy silhouette onto `g` (clearing prior geometry — the recolor and
- * hp paths redraw in place): waterline tick, spar, diamond radar-reflector
+ * Draw the buoy silhouette onto `g` (clearing prior geometry — the recolor and
+ * arc paths redraw in place): waterline tick, spar, diamond radar-reflector
  * topmark. NO CIRCLES — see the file header. `color` = the owner's personal hue
  * (same for all observers); `own` drives only the brightness (dim on your own
  * chart, brighter as a warning on someone else's).
@@ -242,16 +347,28 @@ function drawMarker(g: Graphics, own: boolean, color: number): void {
   g.poly([...m.topmark], true).stroke({ width: 1.5, color, alpha: own ? 0.8 : 1 });
 }
 
+/** The KIND mark under the waterline, in the marker's own stroke register —
+ *  same width, same hue, same own/other brightness. Every observer sees it. */
+function drawKindMark(g: Graphics, kind: BuoyKind, own: boolean, color: number): void {
+  for (const line of buoyKindMark(kind)) {
+    g.moveTo(line[0][0], line[0][1]);
+    for (let i = 1; i < line.length; i++) g.lineTo(line[i][0], line[i][1]);
+  }
+  g.stroke({ width: 1.5, color, alpha: own ? 0.7 : 0.9 });
+}
+
 /**
- * The OWNER-ONLY masthead hp arc (IMPLEMENTER DRAFT, amendment 124(f)): a clock
- * face around the topmark that empties as the decoy is shot down. Drawn at the
+ * An OWNER-ONLY masthead arc: a clock face around the topmark that empties
+ * clockwise from twelve o'clock as `frac` falls — the hp arc (inner) as the
+ * buoy is shot down, the life arc (outer) as its 30 s run out. Drawn at the
  * MASTHEAD rather than around the hull so it can never be read as a mine's
- * ring, and only ever for an own decoy — an enemy's hull is not ours to know.
+ * ring, and only ever for an own buoy — an enemy's hull and clock are not
+ * ours to know.
  */
-function drawHpArc(g: Graphics, frac: number, color: number): void {
+function drawMastArc(g: Graphics, r: number, frac: number, color: number, alpha: number): void {
   if (frac <= 0) return;
   const cy = -SPAR;
   const a0 = -Math.PI / 2;
-  g.moveTo(0, cy - HP_ARC_R).arc(0, cy, HP_ARC_R, a0, a0 + Math.PI * 2 * frac);
-  g.stroke({ width: R.width, color, alpha: HP_ARC_ALPHA });
+  g.moveTo(0, cy - r).arc(0, cy, r, a0, a0 + Math.PI * 2 * frac);
+  g.stroke({ width: R.width, color, alpha });
 }

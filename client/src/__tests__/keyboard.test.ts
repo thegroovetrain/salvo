@@ -265,7 +265,8 @@ describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
     expect(slotHoldsAbility(withBelt('hullRepair'), BELT_1)).toBe(true);
     expect(slotHoldsAbility(withBelt('countermeasure'), BELT_1)).toBe(true);
     expect(slotHoldsAbility(withBelt('shieldBlock'), BELT_1)).toBe(true);
-    expect(slotHoldsAbility(withBelt('decoyBuoy'), BELT_1)).toBe(false); // aimed → primes
+    expect(slotHoldsAbility(withBelt('radarBuoy'), BELT_1)).toBe(false); // aimed → primes
+    expect(slotHoldsAbility(withBelt('dazzleShells'), BELT_1)).toBe(false); // FLASH SHELLS — click-fired
     expect(slotHoldsAbility(withBelt(null, 'hullRepair'), BELT_2)).toBe(true);
     expect(slotHoldsAbility(withBelt('hullRepair'), BELT_2)).toBe(false); // that square is empty
   });

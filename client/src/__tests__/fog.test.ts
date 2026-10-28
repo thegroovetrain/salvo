@@ -1,12 +1,14 @@
 // THE FOG SIGHT HOLE (render/fog.ts) — the honesty rule: the baked hole is the
 // SHARED `effectiveSight` — the very function the server's `sightOf` calls —
 // so the fog circle can never draw clear water the server reveals nothing in.
-// Story 9.4 retired the FLASH SHELLS dazzle (and with it the hole's only
-// runtime modifier and the `setDazzled` staleness edge); a sight boon is the
-// one input that moves the radius now.
+// Story 10.9 RESTORED the FLASH SHELLS dazzle (Story 8.17's, retired in 9.4):
+// while the own hull is dazzled the server has cut its perceived sight to
+// `effectiveSight(stats, true)` — a fraction of SIGHT (CONFIG.flashShells.
+// sightFraction) — so the baked hole must be exactly that number.
 //
 // The rebake itself is a Pixi/canvas operation (untestable in jsdom); what is
-// pinned here is the pure radius rule the honesty depends on.
+// pinned here is the pure radius rule and the staleness edge that decides WHEN
+// a rebake is owed — the two pieces the honesty depends on.
 
 import { describe, it, expect } from 'vitest';
 import { Container } from 'pixi.js';
@@ -16,18 +18,49 @@ import { CLIENT_CONFIG } from '../config.js';
 
 const BASE = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
 
-describe('fogHoleRadiusU — the honest hole radius', () => {
-  it('is the effective sight range — base and boon-widened alike', () => {
-    expect(fogHoleRadiusU(BASE)).toBe(CONFIG.vision.sight);
-    expect(fogHoleRadiusU({ sightRange: 400, radarRange: 660 })).toBe(400);
+describe('fogHoleRadiusU — the dazzle-honest hole radius', () => {
+  it('is the effective sight range while NOT dazzled — base and boon-widened alike', () => {
+    expect(fogHoleRadiusU(BASE, false)).toBe(CONFIG.vision.sight);
+    expect(fogHoleRadiusU({ sightRange: 400, radarRange: 660 }, false)).toBe(400);
   });
 
-  it('IS the shared effectiveSight — the function the server\'s sightOf calls', () => {
-    for (const r of [BASE, { sightRange: 400, radarRange: 800 }]) expect(fogHoleRadiusU(r)).toBe(effectiveSight(r));
+  it('is sightRange × sightFraction while dazzled — smaller than sight', () => {
+    expect(fogHoleRadiusU(BASE, true)).toBe(CONFIG.vision.sight * CONFIG.flashShells.sightFraction);
+    expect(fogHoleRadiusU(BASE, true)).toBeLessThan(CONFIG.vision.sight);
   });
 
-  it('does not follow the radar range (sight is a different quantity from intel)', () => {
-    expect(fogHoleRadiusU({ ...BASE, radarRange: 800 })).toBe(CONFIG.vision.sight);
+  it('follows the SIGHT range, never the radar range, dazzled or not', () => {
+    for (const d of [false, true]) {
+      expect(fogHoleRadiusU({ ...BASE, radarRange: BASE.radarRange * 2 }, d)).toBe(fogHoleRadiusU(BASE, d));
+    }
+    expect(fogHoleRadiusU({ ...BASE, sightRange: BASE.sightRange * 2 }, true)).toBe(2 * fogHoleRadiusU(BASE, true));
+  });
+
+  it("IS the shared effectiveSight — the function the server's sightOf calls", () => {
+    for (const r of [BASE, { sightRange: 400, radarRange: 800 }]) {
+      for (const d of [false, true]) expect(fogHoleRadiusU(r, d)).toBe(effectiveSight(r, d));
+    }
+  });
+});
+
+describe('Fog.setDazzled — the rebake staleness edge', () => {
+  it('starts un-dazzled and reports a rebake ONLY on a real state flip', () => {
+    const fog = new Fog(new Container());
+    expect(fog.isDazzled).toBe(false);
+    expect(fog.setDazzled(false)).toBe(false); // no change, no rebake owed
+    expect(fog.setDazzled(true)).toBe(true); // entered the dazzle: hole is stale
+    expect(fog.isDazzled).toBe(true);
+    expect(fog.setDazzled(true)).toBe(false); // still dazzled, every later frame
+    expect(fog.setDazzled(false)).toBe(true); // left it: stale again
+    expect(fog.isDazzled).toBe(false);
+  });
+
+  it('costs at most two rebakes per dazzle event, however long it lasts', () => {
+    const fog = new Fog(new Container());
+    let rebakes = 0;
+    for (let i = 0; i < 120; i += 1) if (fog.setDazzled(true)) rebakes += 1;
+    for (let i = 0; i < 120; i += 1) if (fog.setDazzled(false)) rebakes += 1;
+    expect(rebakes).toBe(2);
   });
 });
 

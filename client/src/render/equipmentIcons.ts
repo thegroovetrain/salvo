@@ -40,6 +40,12 @@
 // A line with NO glyph draws NOTHING and throws nothing — today that is only
 // the stub DEPTH CHARGE, which has no mechanism to draw.
 //
+// STORY 10.9 (2026-10-28) RESTORED ONE AND DREW FOUR (IMPLEMENTER DRAFTS for
+// Eric's candidate page, epic-10 amendment 4): FLASH SHELLS comes back with
+// its 8.17 struck-through eye, and the retired DECOY BUOY's spar buoy becomes
+// the four BUOYS' body, each hanging its kind's mark (render/buoyMarks.ts —
+// the one mark vocabulary the chart marker shares).
+//
 // STORY 9.4 (2026-10-12) DREW ONE, ERIC'S PICK from three rendered candidates
 // (epic-9 amendment 69): FOULING SHELL (a FOULED PROP — a three-bladed screw
 // with a snare line drawn across it). It replaces Story 8.17's FLASH SHELLS
@@ -66,7 +72,8 @@
 // are CUT (amendment 89e) and never had glyphs.
 
 import type { Graphics, StrokeInput } from 'pixi.js';
-import { isConsumableId, type EquipmentId, type LineId, type SlotItemId } from '@salvo/shared';
+import { buoyKindOf, isConsumableId, type BuoyKind, type EquipmentId, type LineId, type SlotItemId } from '@salvo/shared';
+import { placeKindMark } from './buoyMarks.js';
 
 /** A point in the unit glyph frame: (0,0) is the icon box's centre, ±1 its edge. */
 export type GlyphPoint = readonly [number, number];
@@ -339,17 +346,41 @@ const shieldBlock: GlyphPaths = [
 ];
 
 /**
- * Decoy buoy (Story 8.16 DRAFT, epic-8 amendment 124(f)): the on-water SPAR
- * BUOY marker (render/decoys.ts `BUOY_MARKER`) — waterline, mast, and a DIAMOND
- * radar-reflector daymark at the masthead — so the belt square and the float on
- * the chart share one shape. It has no round part at all, so Eric's *"the icon
- * needs to be distinguished from the mines a bit more"* (said of the deleted
- * radar buoy, whose glyph this was) still holds beside the spiked sphere.
+ * THE FOUR BUOYS (Story 10.9 DRAFT, for Eric's eye on the candidate page —
+ * epic-10 amendment 4): the old DECOY BUOY glyph's on-water SPAR BUOY
+ * (render/decoys.ts `BUOY_MARKER` — waterline, mast, DIAMOND radar-reflector
+ * daymark; no round part, so it still reads apart from the spiked sphere),
+ * lifted into the top of the box, with the KIND's mark hung under the
+ * waterline — the SAME mark the chart marker hangs (render/buoyMarks.ts, the
+ * one vocabulary): radar a sweep fan, healing a plus, shield a heater shield,
+ * speed a double chevron.
  */
-const decoyBuoy: GlyphPaths = [
-  path([-0.75, 0.85], [0.75, 0.85]),
-  path([0, 0.85], [0, -0.28]),
-  path([0, -0.7], [0.42, -0.28], [0, 0.14], [-0.42, -0.28], [0, -0.7]),
+const BUOY_BODY: GlyphPaths = [
+  path([-0.75, 0.2], [0.75, 0.2]),
+  path([0, 0.2], [0, -0.62]),
+  path([0, -0.95], [0.33, -0.62], [0, -0.29], [-0.33, -0.62], [0, -0.95]),
+];
+
+/** The kind mark's centre and half-size in the glyph frame (under the waterline). */
+const BUOY_MARK_CY = 0.62;
+const BUOY_MARK_HALF = 0.34;
+
+/** One buoy glyph: the body plus its kind's mark. */
+function buoyGlyph(kind: BuoyKind): GlyphPaths {
+  return [...BUOY_BODY, ...placeKindMark(kind, 0, BUOY_MARK_CY, BUOY_MARK_HALF).map((pts) => path(...pts))];
+}
+
+/**
+ * Flash shells (`dazzleShells` — Story 8.17 DRAFT, epic-8 amendment 135(j);
+ * deleted with its line in Story 9.4 and RESTORED with it by Story 10.9): a
+ * BLINDED EYE — a lens-shaped eye outline with its pupil, struck through by
+ * one diagonal. It says what the shell does to the hull it catches (sight cut
+ * to a quarter), and shares no shape with the star shell's rayed burst.
+ */
+const dazzleShells: GlyphPaths = [
+  path([-0.95, 0], [-0.5, -0.42], [0, -0.55], [0.5, -0.42], [0.95, 0], [0.5, 0.42], [0, 0.55], [-0.5, 0.42], [-0.95, 0]),
+  circle(0, 0, 0.2),
+  path([-0.8, 0.8], [0.8, -0.8]),
 ];
 
 /**
@@ -423,8 +454,14 @@ const CONSUMABLE_GLYPHS: Partial<Record<string, GlyphPaths>> = {
   // Story 8.16 — the three lines that went live, each an IMPLEMENTER DRAFT for
   // Eric's eye on staging (amendment 124(f), the amendment 110 precedent).
   shieldBlock,
-  decoyBuoy,
   foulingShell, // FOULING SHELL — Story 9.4, Eric's pick 2026-10-12 (above)
+  dazzleShells, // FLASH SHELLS — the 8.17 struck-through eye, restored (Story 10.9)
+  // THE FOUR BUOYS (Story 10.9 DRAFT, above) — the retired DECOY BUOY's glyph
+  // carried their body; each now hangs its kind's mark.
+  radarBuoy: buoyGlyph(buoyKindOf('radarBuoy')),
+  healingBuoy: buoyGlyph(buoyKindOf('healingBuoy')),
+  shieldBuoy: buoyGlyph(buoyKindOf('shieldBuoy')),
+  speedBuoy: buoyGlyph(buoyKindOf('speedBuoy')),
   countermeasure, // Story 9.3 — Eric's pick 2026-10-11 (above)
 };
 

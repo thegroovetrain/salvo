@@ -35,6 +35,7 @@ import {
   railSig,
   repairFraction,
   shieldedFill,
+  shieldPoolHp,
   type HpGlobeInput,
 } from '../render/hpGlobe.js';
 import { circleSegmentBelow } from '../render/globe.js';
@@ -480,6 +481,27 @@ describe('HpGlobe shell — a healthy frame, a healing frame and a sunk one', ()
     plain.update(input({ hp: MAX * 0.4 }), GLOBE, 1, false, 1);
     shielded.update(input({ hp: MAX * 0.4, shield: 100 }), GLOBE, 1, false, 1);
     expect(shielded.fillAlpha).toBe(plain.fillAlpha);
+  });
+
+  // THE SHIELD BUOY (Story 10.9, AC 7): its pool joins the SHIELD BLOCK's in the
+  // one shielded readout — the globe shows hp + shield + buoyShield.
+  it('shieldPoolHp sums the SHIELD BLOCK and the SHIELD BUOY pools; absent keys read 0', () => {
+    expect(shieldPoolHp({ shield: { hp: 40 }, buoyShield: { hp: 17.5 } })).toBe(57.5);
+    expect(shieldPoolHp({ shield: { hp: 40 } })).toBe(40);
+    expect(shieldPoolHp({ buoyShield: { hp: 17.5 } })).toBe(17.5);
+    expect(shieldPoolHp({})).toBe(0);
+    expect(shieldPoolHp(null)).toBe(0);
+  });
+
+  it('the globe shows hp + shield + buoyShield, in the shielded fill, the max untouched', () => {
+    const globe = new HpGlobe(new Container());
+    const you = { shield: { hp: 30 }, buoyShield: { hp: 25 } };
+    globe.update(input({ hp: 200, maxHp: 250, shield: shieldPoolHp(you) }), GLOBE, 1, false, 1);
+    expect(numerals(globe)).toEqual([hullShownValue(200 + 30 + 25), hullMaxLabel(250)]);
+    expect(globe.valueFill).toBe(shieldedFill(shieldPoolHp(you)));
+    // A buoy pool alone shields the number too — same fill, no new colour.
+    globe.update(input({ hp: 200, maxHp: 250, shield: shieldPoolHp({ buoyShield: { hp: 5 } }) }), GLOBE, 2, false, 1);
+    expect(globe.valueFill).toBe(shieldedFill(1));
   });
 
   it('shieldedFill is info iff shield hp is left', () => {

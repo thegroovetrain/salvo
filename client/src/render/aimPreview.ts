@@ -25,6 +25,7 @@ import { Container, Graphics } from 'pixi.js';
 import {
   CONFIG,
   blockedWater,
+  buoyKindOf,
   burstPointAlong,
   clampInsideMap,
   hullEnvelope,
@@ -39,12 +40,13 @@ import {
   type HullId,
   type Island,
   type MineKind,
+  type BuoyKind,
   type SlotItemId,
   type Vec2,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { dashArcs } from '../util/math.js';
-import { BUOY_MARKER } from './decoys.js';
+import { BUOY_MARKER, buoyKindMark } from './decoys.js';
 import type { OwnFire } from './projectiles.js';
 import { isMineEquipment, isTorpedoItem, mineKindOf, type MineEquipmentId } from './weaponArc.js';
 
@@ -154,12 +156,14 @@ export interface PreviewPlacement {
   blocked: boolean; // inside a rock / off the water — the server refuses it
 }
 
-/** A DECOY BUOY's drop point (Story 8.16): the marker alone, no radii — a
- *  decoy has no blast, trigger or effect circle. */
+/** A BUOY's drop point (the DECOY BUOY's since Story 8.16; the four buoys'
+ *  since 10.9): the marker alone with its KIND mark, no radii — the drop
+ *  preview draws no effect circle (the card row carries the 750 u reach). */
 export interface PreviewDrop {
   x: number;
   y: number;
   blocked: boolean; // inside a rock / off the water — the server refuses it
+  kind: BuoyKind; // which buoy — its mark hangs under the waterline, as on the chart
 }
 
 /** A HOMING fish's acquisition corridor along the initial track (a tier stat
@@ -178,7 +182,7 @@ export interface AimPreviewModel {
   bursts: PreviewBurst[];
   place: PreviewPlacement | null;
   band: PreviewBand | null;
-  /** The DECOY BUOY's ring-free drop marker (Story 8.16) — absent for every
+  /** A BUOY's ring-free drop marker (Story 8.16 / 10.9) — absent for every
    *  other id. */
   drop?: PreviewDrop;
 }
@@ -484,6 +488,26 @@ function foulingShellPreview(inp: AimPreviewInput): AimPreviewModel {
 }
 
 /**
+ * FLASH SHELLS (internal id `dazzleShells` — Story 8.17, restored beside the
+ * fouling shell by Story 10.9): the FOULING SHELL's preview with the flash's
+ * own burst — one 360° shell to the click at the ONE shared click-shell reach,
+ * `CONFIG.foulingShell.rangeU` (ruling 2: "reaches 1000 u, like the FOULING
+ * SHELL" — one dial, never a second literal), with the one-time blinding
+ * burst at `CONFIG.flashShells.radius`. Drawn in the quieter EFFECT register:
+ * the flash deals no damage.
+ */
+function flashShellPreview(inp: AimPreviewInput): AimPreviewModel {
+  return parallelVolley(inp, {
+    rangeU: CONFIG.foulingShell.rangeU,
+    burstRadius: CONFIG.flashShells.radius,
+    shellRadius: CONFIG.flashShells.shellRadius,
+    barrels: 1,
+    spacingU: 0,
+    effect: true,
+  });
+}
+
+/**
  * u — the FITTED turn rate of the torpedo line being previewed (rad/s), which
  * is what decides whether this fish steers at all. Homing is a TIER STAT since
  * epic-8 amendment 80: zero at tier I on both lines, +0.125/tier to 0.5 at V.
@@ -563,15 +587,16 @@ function minePreview(inp: AimPreviewInput, id: MineEquipmentId): AimPreviewModel
 }
 
 /**
- * DECOY BUOY placement (Story 8.16, catalog-v3 R36): the drop point ALONE — the
- * decoy's own spar-buoy marker (render/decoys.ts `BUOY_MARKER`) drawn at the
- * click, dimmed when the water refuses it. NO RINGS: a decoy has no blast, no
- * trigger and no effect circle, so the mine preview's placement is taken
- * WITHOUT any of its circles. Same placement rule as the mine, shared verbatim
- * by the server (the mine's rear sector out to `CONFIG.mine.placeRange`), so
- * `blockedWater` is the same refusal test on both sides.
+ * BUOY placement (the DECOY BUOY's preview since Story 8.16, carried to the
+ * four buoys by Story 10.9): the drop point ALONE — the spar-buoy marker
+ * (render/decoys.ts `BUOY_MARKER`) with the KIND's mark, drawn at the click
+ * and dimmed when the water refuses it. NO RINGS: the drop preview draws no
+ * blast, trigger or effect circle. Same placement rule as the mine, shared
+ * verbatim by the server — the leash `CONFIG.mine.placeRange`, now over the
+ * FULL circle (ruling 9: any bearing; the click gate's `weaponRangeHit` is the
+ * range half) — so `blockedWater` is the same refusal test on both sides.
  */
-function decoyPreview(inp: AimPreviewInput): AimPreviewModel {
+function buoyPreview(inp: AimPreviewInput, kind: BuoyKind): AimPreviewModel {
   const dist = Math.max(0, inp.aimDist);
   const p = { x: inp.ship.x + Math.cos(inp.aim) * dist, y: inp.ship.y + Math.sin(inp.aim) * dist };
   return {
@@ -579,7 +604,7 @@ function decoyPreview(inp: AimPreviewInput): AimPreviewModel {
     bursts: [],
     band: null,
     place: null,
-    drop: { x: p.x, y: p.y, blocked: blockedWater(p, inp.islands, inp.mapRadius) },
+    drop: { x: p.x, y: p.y, blocked: blockedWater(p, inp.islands, inp.mapRadius), kind },
   };
 }
 
@@ -612,7 +637,12 @@ const SINGLE_ID_PREVIEWS: Partial<Record<SlotItemId, (inp: AimPreviewInput) => A
   starShells: starShellPreview,
   phosphorShells: phosphorShellPreview,
   foulingShell: foulingShellPreview,
-  decoyBuoy: decoyPreview,
+  dazzleShells: flashShellPreview, // FLASH SHELLS — Story 10.9
+  // THE FOUR BUOYS (Story 10.9): one placement preview, the kind's mark on it.
+  radarBuoy: (inp) => buoyPreview(inp, buoyKindOf('radarBuoy')),
+  healingBuoy: (inp) => buoyPreview(inp, buoyKindOf('healingBuoy')),
+  shieldBuoy: (inp) => buoyPreview(inp, buoyKindOf('shieldBuoy')),
+  speedBuoy: (inp) => buoyPreview(inp, buoyKindOf('speedBuoy')),
 };
 
 /**
@@ -641,6 +671,7 @@ const OWN_BURST_RADIUS: Partial<Record<NonNullable<OwnFire>, (stats: EffectiveSt
   // never a row).
   phosphorShells: (s) => s.equipment.phosphorShells.zoneRadius,
   foulingShell: () => CONFIG.foulingShell.radius,
+  dazzleShells: () => CONFIG.flashShells.radius, // FLASH SHELLS' one-time burst (Story 10.9)
 };
 
 /** The stroke tint for a weapon's preview: the TORPEDO FAMILY keeps its
@@ -744,14 +775,19 @@ export class AimPreview {
    * say for the naval mine. Nothing on the placement preview announces the slow;
    * that is the card's row, not a circle.
    */
-  /** The DECOY BUOY's drop marker: its own spar-buoy silhouette at the click,
-   *  no circles (Story 8.16). Blocked water dims it like a refused mine drop. */
+  /** A buoy's drop marker: its own spar-buoy silhouette and kind mark at the
+   *  click, no circles (Story 8.16 / 10.9). Blocked water dims it like a
+   *  refused mine drop. */
   private drawDrop(d: PreviewDrop, tint: number): void {
     const alpha = d.blocked ? P.blockedAlpha : P.burstAlpha;
     const m = BUOY_MARKER;
     const g = this.g;
     g.moveTo(d.x + m.waterline[0].x, d.y + m.waterline[0].y).lineTo(d.x + m.waterline[1].x, d.y + m.waterline[1].y);
     g.moveTo(d.x + m.spar[0].x, d.y + m.spar[0].y).lineTo(d.x + m.spar[1].x, d.y + m.spar[1].y);
+    for (const line of buoyKindMark(d.kind)) {
+      g.moveTo(d.x + line[0][0], d.y + line[0][1]);
+      for (const [x, y] of line.slice(1)) g.lineTo(d.x + x, d.y + y);
+    }
     g.stroke({ width: P.lineWidth, color: tint, alpha });
     g.poly(m.topmark.flatMap((q) => [d.x + q.x, d.y + q.y]), true).stroke({ width: P.lineWidth, color: tint, alpha });
   }

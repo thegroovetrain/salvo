@@ -12,20 +12,22 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { Container, Graphics } from 'pixi.js';
-import { CONFIG, type DecoyView } from '@salvo/shared';
-import { BUOY_MARKER, Decoys, decoyHpFrac, reconcileDecoys } from '../render/decoys.js';
+import { BUOY_KINDS, BUOY_LINE_IDS, CONFIG, buoyKindOf, type BuoyKind, type DecoyView } from '@salvo/shared';
+import { BUOY_MARKER, Decoys, buoyKindMark, buoyLifeFrac, decoyHpFrac, ownBuoyUntil, reconcileDecoys } from '../render/decoys.js';
+import { BUOY_KIND_MARKS } from '../render/buoyMarks.js';
 import { Mines } from '../render/mines.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 /** The amber fallback the hue latch paints while an owner hue is unresolved. */
 const CONFIG_AMBER = CLIENT_CONFIG.colors.amber;
 
-const decoy = (id: string, own = false, by = 'p1', hp?: number): DecoyView => ({
+const decoy = (id: string, own = false, by = 'p1', hp?: number, kind: BuoyKind = 'healing'): DecoyView => ({
   id,
   x: 0,
   y: 0,
   own,
   by,
+  kind,
   ...(hp === undefined ? {} : { hp }),
 });
 
@@ -176,9 +178,9 @@ describe('the decoy silhouette is distinct from a mine marker (Eric, 7-5-decks.m
 // --- THE OWNER-ONLY HP ARC (amendment 124(f) — IMPLEMENTER DRAFT) -----------
 
 describe('decoyHpFrac — the owner’s readout of its decoy’s hull', () => {
-  it('is hp / CONFIG.decoyBuoy.hp for an own decoy: full at the drop, shrinking under fire', () => {
-    expect(decoyHpFrac({ own: true, hp: CONFIG.decoyBuoy.hp })).toBe(1);
-    expect(decoyHpFrac({ own: true, hp: CONFIG.decoyBuoy.hp / 2 })).toBeCloseTo(0.5, 9);
+  it('is hp / CONFIG.buoy.hp for an own decoy: full at the drop, shrinking under fire', () => {
+    expect(decoyHpFrac({ own: true, hp: CONFIG.buoy.hp })).toBe(1);
+    expect(decoyHpFrac({ own: true, hp: CONFIG.buoy.hp / 2 })).toBeCloseTo(0.5, 9);
   });
 
   it('is null for someone else’s decoy, and for an own view without `hp`', () => {
@@ -189,7 +191,7 @@ describe('decoyHpFrac — the owner’s readout of its decoy’s hull', () => {
 
   it('clamps rather than running negative or past full', () => {
     expect(decoyHpFrac({ own: true, hp: -5 })).toBe(0);
-    expect(decoyHpFrac({ own: true, hp: CONFIG.decoyBuoy.hp * 3 })).toBe(1);
+    expect(decoyHpFrac({ own: true, hp: CONFIG.buoy.hp * 3 })).toBe(1);
   });
 });
 
@@ -198,18 +200,18 @@ describe('Decoys — the hp arc is owner-only and follows the wire', () => {
     const ownLayer = new Container();
     const otherLayer = new Container();
     const d = new Decoys(ownLayer, otherLayer);
-    d.sync([decoy('mine', true, 'me', CONFIG.decoyBuoy.hp), decoy('theirs', false)], HUE);
+    d.sync([decoy('mine', true, 'me', CONFIG.buoy.hp), decoy('theirs', false)], HUE);
     expect(d.hpFracAt('mine')).toBe(1);
     expect(d.hpFracAt('theirs')).toBeNull();
     expect(pathActions(soleSprite(ownLayer))).toContain('arc');
     expect(pathActions(soleSprite(otherLayer))).not.toContain('arc');
   });
 
-  it('the arc shrinks as the owner’s decoy takes damage (35 of 50 hp)', () => {
+  it('the arc shrinks as the owner’s buoy takes damage', () => {
     const d = new Decoys(new Container(), new Container());
-    d.sync([decoy('mine', true, 'me', 50)], HUE);
-    d.sync([decoy('mine', true, 'me', 35)], HUE);
-    expect(d.hpFracAt('mine')).toBeCloseTo(35 / CONFIG.decoyBuoy.hp, 9);
+    d.sync([decoy('mine', true, 'me', CONFIG.buoy.hp)], HUE);
+    d.sync([decoy('mine', true, 'me', CONFIG.buoy.hp * 0.7)], HUE);
+    expect(d.hpFracAt('mine')).toBeCloseTo(0.7, 9);
   });
 
   it('an own view that somehow lacks `hp` draws the marker alone, never a crash', () => {
@@ -218,5 +220,119 @@ describe('Decoys — the hp arc is owner-only and follows the wire', () => {
     d.sync([decoy('mine', true, 'me')], HUE);
     expect(d.hpFracAt('mine')).toBeNull();
     expect(pathActions(soleSprite(ownLayer))).not.toContain('arc');
+  });
+});
+
+// --- STORY 10.9: THE FOUR BUOYS — kind mark, own life arc, enemy shows no timer --
+
+const withLife = (d: DecoyView, until: number): DecoyView => ({ ...d, until });
+
+describe('the kind mark — one vocabulary, four distinct marks, every observer', () => {
+  it('every kind has a mark, and no two kinds draw the same one', () => {
+    const drawn = BUOY_KINDS.map((k) => JSON.stringify(buoyKindMark(k)));
+    expect(new Set(drawn).size).toBe(BUOY_KINDS.length);
+    for (const k of BUOY_KINDS) expect(BUOY_KIND_MARKS[k].length).toBeGreaterThan(0);
+  });
+
+  it('the mark hangs UNDER the waterline, centred on the spar, inside the marker width', () => {
+    for (const k of BUOY_KINDS) {
+      for (const line of buoyKindMark(k)) {
+        for (const [x, y] of line) {
+          expect(y).toBeGreaterThan(BUOY_MARKER.waterline[0].y);
+          expect(Math.abs(x)).toBeLessThanOrEqual(BUOY_MARKER.waterline[1].x);
+        }
+      }
+    }
+  });
+
+  it('the marker draws its kind for own AND sighted enemy buoys, still circle-free', () => {
+    for (const own of [true, false]) {
+      const actions: string[][] = BUOY_KINDS.map((k) => {
+        const layer = new Container();
+        const d = new Decoys(own ? layer : new Container(), own ? new Container() : layer);
+        d.sync([decoy('b', own, 'p1', own ? CONFIG.buoy.hp : undefined, k)], HUE);
+        expect(d.kindAt('b')).toBe(k);
+        return pathActions(soleSprite(layer));
+      });
+      for (const a of actions) expect(a).not.toContain('circle');
+      expect(new Set(actions.map((a) => a.join(','))).size).toBe(BUOY_KINDS.length);
+    }
+  });
+
+  it('every buoy line maps to a kind with a mark (the line ↔ kind map is total)', () => {
+    for (const line of BUOY_LINE_IDS) expect(BUOY_KIND_MARKS[buoyKindOf(line)]).toBeDefined();
+  });
+});
+
+describe('buoyLifeFrac — the owner’s clock, never an enemy’s', () => {
+  it('is (until − now) / CONFIG.buoy.lifetimeMs for an own buoy, clamped to [0, 1]', () => {
+    const L = CONFIG.buoy.lifetimeMs;
+    expect(buoyLifeFrac({ own: true, until: 1000 + L }, 1000)).toBe(1);
+    expect(buoyLifeFrac({ own: true, until: 1000 + L / 2 }, 1000)).toBeCloseTo(0.5, 9);
+    expect(buoyLifeFrac({ own: true, until: 1000 }, 2000)).toBe(0);
+    expect(buoyLifeFrac({ own: true, until: 1000 + 3 * L }, 1000)).toBe(1);
+  });
+
+  it('is null for an enemy buoy (even a defensive `until`) and for an own view without one', () => {
+    expect(buoyLifeFrac({ own: false, until: 99_999 }, 0)).toBeNull();
+    expect(buoyLifeFrac({ own: true }, 0)).toBeNull();
+  });
+});
+
+describe('Decoys — the owner-only LIFE arc runs down on the server clock', () => {
+  it('an own buoy draws a second masthead arc that shrinks as `until` nears; an enemy draws none', () => {
+    const ownLayer = new Container();
+    const otherLayer = new Container();
+    const d = new Decoys(ownLayer, otherLayer);
+    const L = CONFIG.buoy.lifetimeMs;
+    d.render(0);
+    d.sync([withLife(decoy('mine', true, 'me', CONFIG.buoy.hp), L), decoy('theirs', false)], HUE);
+    expect(d.lifeFracAt('mine')).toBe(1);
+    expect(d.lifeFracAt('theirs')).toBeNull();
+    const arcs = (g: Graphics) => pathActions(g).filter((a) => a === 'arc').length;
+    expect(arcs(soleSprite(ownLayer))).toBe(2); // hp + life
+    expect(arcs(soleSprite(otherLayer))).toBe(0); // an enemy's hull and clock are not ours
+    d.render(L / 2);
+    expect(d.lifeFracAt('mine')).toBeCloseTo(0.5, 2);
+    d.render(L);
+    expect(d.lifeFracAt('mine')).toBe(0);
+    expect(arcs(soleSprite(ownLayer))).toBe(1); // the life arc has run out; the hull remains
+  });
+
+  it('does not redraw on every frame — the snapped fraction only moves in steps', () => {
+    const ownLayer = new Container();
+    const d = new Decoys(ownLayer, new Container());
+    d.render(0);
+    d.sync([withLife(decoy('mine', true, 'me', CONFIG.buoy.hp), CONFIG.buoy.lifetimeMs)], HUE);
+    const g = soleSprite(ownLayer);
+    const clear = vi.spyOn(g, 'clear');
+    d.render(1);
+    d.render(2);
+    expect(clear.mock.calls.length).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('ownBuoyUntil — the hotbar ACTIVE window per buoy line', () => {
+  it('is the EARLIEST own live buoy of the line’s kind', () => {
+    const now = 1000;
+    const list = [
+      withLife(decoy('a', true, 'me', 50, 'healing'), 9000),
+      withLife(decoy('b', true, 'me', 50, 'healing'), 5000),
+      withLife(decoy('c', true, 'me', 50, 'radar'), 7000),
+    ];
+    const w = ownBuoyUntil(list, now);
+    expect(w.healingBuoy).toBe(5000);
+    expect(w.radarBuoy).toBe(7000);
+    expect(w.shieldBuoy).toBeUndefined();
+    expect(w.speedBuoy).toBeUndefined();
+  });
+
+  it('ignores enemy buoys, expired buoys and own views without `until`', () => {
+    const list = [
+      withLife(decoy('e', false, 'them', undefined, 'speed'), 9000),
+      withLife(decoy('x', true, 'me', 50, 'speed'), 500),
+      decoy('n', true, 'me', 50, 'speed'),
+    ];
+    expect(ownBuoyUntil(list, 1000).speedBuoy).toBeUndefined();
   });
 });

@@ -14,6 +14,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  BUOY_LINE_IDS,
   CONFIG,
   effectiveStats,
   turretMountBearings,
@@ -21,9 +22,11 @@ import {
   wrapAngle,
   broadsideMountSpread,
   broadsideTraverse,
+  type SlotItemId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { arcFillStyle, turretWedges, twinBeamStyle } from '../render/firing.js';
+import { Container, type Graphics } from 'pixi.js';
+import { FiringUX, arcFillStyle, turretWedges, twinBeamStyle } from '../render/firing.js';
 
 const IDENTITY = { x: 0, y: 0, heading: 0 };
 const BW = CLIENT_CONFIG.broadsideArcs;
@@ -182,5 +185,37 @@ describe('twinBeamStyle — a torpedo beam is a filled sector, the broadside is 
     expect(twinBeamStyle('supercavTorpedo')).toBe('filled-sector');
     expect(twinBeamStyle('gun')).toBe('outline-turrets');
     expect(twinBeamStyle(null)).toBe('outline-turrets');
+  });
+});
+
+// STORY 10.9 (ruling 9): a BUOY places on a 360° arc at the unchanged leash, so
+// its reachable water is the whole DISC — drawn on the arcs graphic in the
+// placement grammar — while the mine keeps its rear WEDGE and a gun draws none.
+describe('FiringUX — a buoy draws its placement DISC, the mine its wedge, a gun nothing', () => {
+  /** The path actions the hull-local arcs graphic emitted for one primed id. */
+  function arcActions(id: SlotItemId): string[] {
+    const ship = new Container();
+    const ux = new FiringUX(ship, new Container());
+    ux.update({ x: 0, y: 0, heading: 0 }, 0, id, { hasAmmo: true, reloadFrac: 0 }, { x: 50, y: 0 }, false, CONFIG.mine.placeRange);
+    const g = ship.children[0] as Graphics;
+    return g.context.instructions.flatMap((ins) => {
+      const path = (ins.data as { path?: { instructions: { action: string }[] } }).path;
+      return path === undefined ? [] : path.instructions.map((p) => p.action);
+    });
+  }
+
+  it('every buoy draws a full circle at the leash; no buoy draws a sector wedge', () => {
+    for (const id of BUOY_LINE_IDS) {
+      const a = arcActions(id);
+      expect(a, id).toContain('circle');
+      expect(a, id).not.toContain('arc');
+    }
+  });
+
+  it('the mine still draws its wedge (an arc), and the gun draws no placement shape', () => {
+    expect(arcActions('navalMines')).toContain('arc');
+    expect(arcActions('navalMines')).not.toContain('circle');
+    expect(arcActions('gun')).toEqual([]);
+    expect(arcActions('dazzleShells')).toEqual([]); // a shell clamps; it is not placed
   });
 });

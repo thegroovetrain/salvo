@@ -48,6 +48,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  BUOY_LINE_IDS,
+  buoyKindOf,
   CATALOG,
   CONFIG,
   CONSUMABLE_SLOTS,
@@ -117,6 +119,7 @@ import {
 import { tooltipModel } from '../render/slotTooltip.js';
 import { hudBarLayout, microScale } from '../render/hudBar.js';
 import { equipmentGlyphSvg, glyphPaths } from '../render/equipmentIcons.js';
+import { BUOY_KIND_MARKS } from '../render/buoyMarks.js';
 import { wipeLabel } from '../render/cooldownWipe.js';
 import {
   EQUIPMENT_NAME,
@@ -1563,8 +1566,8 @@ describe('a stocked BELT square', () => {
   // amendment 124(f)), in the shipped unit-box line-glyph style. The radar
   // buoy's glyph is DELETED with the buoy; the DECOY BUOY takes the on-water
   // spar-buoy marker's linework.
-  it('draws the two surviving 8.16 consumables, each distinct, and no radar buoy or chaff', () => {
-    const ids = ['shieldBlock', 'decoyBuoy'] as const;
+  it('draws SHIELD BLOCK, FLASH SHELLS and the four buoys, each distinct, and no chaff or decoy buoy (Story 10.9)', () => {
+    const ids = ['shieldBlock', 'dazzleShells', ...BUOY_LINE_IDS] as const;
     for (const id of ids) {
       const parts = glyphPaths(id);
       expect(parts, id).not.toBeNull();
@@ -1575,12 +1578,32 @@ describe('a stocked BELT square', () => {
       }
       expect(equipmentGlyphSvg(id, 24)?.tagName.toLowerCase(), id).toBe('svg');
     }
-    expect(glyphPaths('shieldBlock')).not.toEqual(glyphPaths('decoyBuoy'));
+    expect(new Set(ids.map((id) => JSON.stringify(glyphPaths(id)))).size).toBe(ids.length);
     expect(glyphPaths('shieldBlock')).not.toEqual(glyphPaths('hunker')); // absorb ≠ reduce
     expect(glyphPaths('chaff')).toBeNull(); // CHAFF left the catalog in Story 9.2 (amendment 31)
-    // The decoy shares NO round part with the mine (Eric: tell them apart).
-    expect(glyphPaths('decoyBuoy')!.some((p) => p.kind === 'circle')).toBe(false);
-    expect(glyphPaths('radarBuoy')).toBeNull();
+    expect(glyphPaths('decoyBuoy')).toBeNull(); // the DECOY BUOY left the catalog in Story 10.9
+    // A buoy shares NO round part with the mine (Eric: tell them apart).
+    for (const id of BUOY_LINE_IDS) expect(glyphPaths(id)!.some((p) => p.kind === 'circle'), id).toBe(false);
+  });
+
+  // STORY 10.9 — ONE MARK VOCABULARY: each buoy glyph is the shared body plus
+  // its kind's mark from render/buoyMarks.ts, the same mark the chart marker
+  // hangs — so the belt square and the float on the water agree on the kind.
+  it('every buoy glyph = the one shared body + its kind\'s mark (the chart marker\'s vocabulary)', () => {
+    const bodies = BUOY_LINE_IDS.map((id) => {
+      const parts = glyphPaths(id)!;
+      const markLines = BUOY_KIND_MARKS[buoyKindOf(id)].length;
+      expect(parts.length, id).toBeGreaterThan(markLines);
+      return JSON.stringify(parts.slice(0, parts.length - markLines));
+    });
+    expect(new Set(bodies).size).toBe(1); // one body
+    for (const id of BUOY_LINE_IDS) {
+      const parts = glyphPaths(id)!;
+      const marks = BUOY_KIND_MARKS[buoyKindOf(id)];
+      const tail = parts.slice(parts.length - marks.length);
+      // each tail polyline is its kind's mark, scaled + translated by one affine map
+      tail.forEach((p, i) => expect(p.kind === 'path' && p.pts.length, id).toBe(marks[i].length));
+    }
   });
 
   // STORY 9.3 — the MULTI-SPECTRAL COUNTERMEASURE glyph (Eric's pick 2026-10-11).

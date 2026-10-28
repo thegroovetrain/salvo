@@ -2318,6 +2318,20 @@ describe('victim tells (Story 2.9) — SLOWED cue edges, both slow sources (Stor
     expect(play).not.toHaveBeenCalled();
   });
 
+  it('DAZZLED (FLASH SHELLS, Story 10.9) fires its own cue ONCE on the rising edge, never on a refresh', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([], { dazzledUntil: 4000 }));
+    expect(play).toHaveBeenCalledWith('dazzled');
+    expect(play).not.toHaveBeenCalledWith('slowed');
+    play.mockClear();
+    sink.handler(victimFrame([], { dazzledUntil: 4000 })); // still running
+    sink.handler(victimFrame([], { dazzledUntil: 9000 })); // a second flash keeps the later expiry
+    sink.handler(victimFrame([], {})); // the falling edge is silent
+    expect(play).not.toHaveBeenCalled();
+    sink.handler(victimFrame([], { dazzledUntil: 12_000 })); // flashed again after it ended
+    expect(play).toHaveBeenCalledWith('dazzled');
+  });
+
   it('windowRunning measures against the FRAME\'s own server time', () => {
     expect(windowRunning(1001, 1000)).toBe(true);
     expect(windowRunning(1000, 1000)).toBe(false); // expires AT the instant

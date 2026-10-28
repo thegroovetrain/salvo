@@ -352,7 +352,7 @@ describe('a BELT slot has NO interaction line (amendment 203)', () => {
   it('prints nothing for any consumable, whatever its shape or stock', () => {
     expect(interactionLine(BELT_1, 'hullRepair', [], 2)).toBe('');
     expect(interactionLine(BELT_2, 'countermeasure', [], 1)).toBe('');
-    expect(interactionLine(BELT_1, 'decoyBuoy', [], 3)).toBe('');
+    expect(interactionLine(BELT_1, 'radarBuoy', [], 3)).toBe('');
     expect(interactionLine(BELT_2, 'supercavTorpedo', [], 2)).toBe('');
   });
 
@@ -381,7 +381,7 @@ describe('the panel keeps its box (amendment 42)', () => {
     expect(headingHeight('')).toBe(TIP_TYPE.headLineHeight);
     expect(interactionLines('TIER II')).toBe(1);
     expect(headingHeight('TIER II')).toBe(TIP_TYPE.headLineHeight * 2);
-    const m = tooltipModel(BELT_1, 'decoyBuoy', STATS, [], 5)!;
+    const m = tooltipModel(BELT_1, 'radarBuoy', STATS, [], 5)!;
     expect(tooltipMetrics(m).interactionLines).toBe(0);
     expect(tooltipMetrics(m).overflow).toBeLessThanOrEqual(0);
   });

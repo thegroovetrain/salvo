@@ -89,6 +89,8 @@ import {
   applyGroundingDamp,
   applySinkingDecel,
   boostedKinematics,
+  buoyTail,
+  combinedBoostFactor,
   draftedKinematics,
   hookKinematics,
   slowedKinematics,
@@ -182,6 +184,13 @@ export interface ServerKinematics {
    * hull is outside every other hull's wake.
    */
   draft?: number;
+  /**
+   * ms — the server tick the hull last stood inside one of its own SPEED
+   * BUOYs (OwnShip.speedBuoyAt, Story 10.9); ABSENT once the tail has run
+   * out (0 = never). Its factor is `composedBoostFactor` off the shared
+   * `buoyTail`. Optional for the same reason as the fields above.
+   */
+  speedBuoyAt?: number;
 }
 
 interface PendingInput {
@@ -215,6 +224,33 @@ export interface RenderPose {
   y: number;
   heading: number;
   speed: number;
+}
+
+/**
+ * THE FOLD'S FIRST-STAGE FACTOR (Story 10.9, ruling 6) — the ONE client
+ * composition of the Shift's boost and the SPEED BUOY's tail, mirroring the
+ * server's `World.boostFactorAt` exactly: the shared `combinedBoostFactor`
+ * over `shiftActive` and `buoyTail(t, speedBuoyAt, CONFIG.buoy.tailHoldMs,
+ * CONFIG.buoy.tailRampMs)` — the two ADD on the rated base (+50 % together).
+ * The predictor's `tickKin` and every render reader of composed kinematics
+ * (the helm globe's needle cap) take it from here; nobody re-derives it.
+ * `speedBuoyAt` 0 (never inside a speed buoy) reads tail 0.
+ */
+export function composedBoostFactor(
+  shiftActive: boolean,
+  t: number,
+  speedBuoyAt: number,
+  shiftFactor: number = CONFIG.boost.factor,
+): number {
+  const tail = buoyTail(t, speedBuoyAt, CONFIG.buoy.tailHoldMs, CONFIG.buoy.tailRampMs);
+  return combinedBoostFactor(shiftActive, tail, shiftFactor, CONFIG.buoy.speed.factor);
+}
+
+/** The CEILING of that factor — Shift on and a full speed-buoy tail — the
+ *  number the server's `wakeTopSpeed` provisions its ring buffer at
+ *  (`combinedBoostFactor(true, 1, …)`), so the own wake ring is sized alike. */
+export function topBoostFactor(): number {
+  return combinedBoostFactor(true, 1, CONFIG.boost.factor, CONFIG.buoy.speed.factor);
 }
 
 function clone(s: ShipState): ShipState {
@@ -282,6 +318,14 @@ export class Predictor {
    * stands in for the un-acked ticks' own.
    */
   private authDraft = 0;
+  /**
+   * The AUTHORITATIVE speed-buoy stamp (you.speedBuoyAt from the latest server
+   * frame; 0 = none — Story 10.9). Authoritative-ONLY, like the slows: the
+   * server runs the inside-a-buoy test; the client never re-derives it from
+   * the buoy circle. Each tick, live or replayed, reads its tail at ITS OWN
+   * recorded time through `composedBoostFactor` — the server's own rule.
+   */
+  private authSpeedBuoyAt = 0;
   /**
    * Optimistic boost window opened at a predicted-ready activation press
    * (predictBoostActivation), so the speed-up doesn't wait a round trip.
@@ -484,6 +528,7 @@ export class Predictor {
     this.authSlowedUntil = 0;
     this.authSlowFactor = CONFIG.foulingMines.slowFactor;
     this.authFouledUntil = 0; // ...and the shell zone's slow window (Story 9.4)
+    this.authSpeedBuoyAt = 0; // ...and the speed buoy's stamp (Story 10.9)
     // ...and for the sinking window. A hard re-init is a respawn / reconnect /
     // class swap, none of which a sinking hull survives — leaving a stale
     // deadline behind would cap the NEXT life's speed to zero for the rest of
@@ -554,6 +599,21 @@ export class Predictor {
     if (this.optimisticBoost !== null && ackedActSeq >= this.optimisticBoost.actSeq) {
       this.optimisticBoost = null;
     }
+    this.adoptWindows(you);
+    const replayed = this.replayFrom(you);
+    if (!this.ready) {
+      this.adopt(replayed);
+      this.ready = true;
+      return;
+    }
+    this.reconcile(replayed);
+  }
+
+  /** Adopt every authoritative per-hull window and fold input off the frame's
+   *  `you` — BEFORE the replay (see each line's reason). Lifted out of
+   *  onServerState so the reconcile stays under the complexity ceiling as the
+   *  `you`-derived fields accumulate. */
+  private adoptWindows(you: ServerKinematics): void {
     this.authBoostUntil = you.boostUntil ?? 0;
     // The slow window is authoritative-only (see authSlowedUntil): adopting it
     // BEFORE the replay is what makes the replayed ticks re-make the same
@@ -566,6 +626,9 @@ export class Predictor {
     // The shell zone's window, adopted BEFORE the replay for the same reason
     // (Story 9.4). An omitted key is a hull no zone holds.
     this.authFouledUntil = you.fouledUntil ?? 0;
+    // The SPEED BUOY's stamp (Story 10.9), adopted BEFORE the replay for the
+    // same reason: an omitted key is a hull whose tail has run out.
+    this.authSpeedBuoyAt = you.speedBuoyAt ?? 0;
     // Adopted BEFORE the replay for the same reason the slow is: the pending
     // ticks about to be replayed will be re-stepped from here on under this
     // window, so they must re-make the same decisions the original local ticks
@@ -577,13 +640,6 @@ export class Predictor {
     // key is a hull in no wake, so the replay runs at 0, never at the last
     // wake's lift held over.
     this.setDraft(you.draft ?? 0);
-    const replayed = this.replayFrom(you);
-    if (!this.ready) {
-      this.adopt(replayed);
-      this.ready = true;
-      return;
-    }
-    this.reconcile(replayed);
   }
 
   /**
@@ -712,7 +768,11 @@ export class Predictor {
    * what keeps a replay across a slow window self-consistent.
    */
   private tickKin(t: number, seq: number): ShipConfig {
-    const boosted = boostedKinematics(this.kin, this.boost.factor, this.boostActiveAt(t, seq));
+    // STAGE ONE (Story 10.9, ruling 6): the Shift and the SPEED BUOY's tail
+    // add on the RATED kinematics — one boostedKinematics call on the shared
+    // combined factor, exactly the server's `World.boostFactorAt`.
+    const factor = composedBoostFactor(this.boostActiveAt(t, seq), t, this.authSpeedBuoyAt, this.boost.factor);
+    const boosted = boostedKinematics(this.kin, factor, factor > 0);
     const slowed = slowedKinematics(boosted, this.authSlowFactor, this.slowActiveAt(t));
     const fouled = slowedKinematics(slowed, CONFIG.foulingShell.slowFactor, this.foulActiveAt(t));
     const drafted = draftedKinematics(fouled, this.authDraft, this.authDraft > 0);

@@ -42,6 +42,7 @@ const ALL_TONE_IDS: ToneId[] = [
   'burn',
   'hitCall',
   'slowed',
+  'dazzled',
   'sink',
   'bounty',
   // the AGGRO STINGS (Story 5.6, amendment 40) — the matched acquire/release pair
@@ -124,7 +125,7 @@ describe('fireTone — weapon -> own-fire tone mapping', () => {
       'gun', 'broadside', 'starShells',
       'lightTorpedo', 'heavyTorpedo', 'supercavTorpedo',
       'navalMines', 'captiveMines', 'foulingMines',
-      'phosphorShells', 'foulingShell',
+      'phosphorShells', 'foulingShell', 'dazzleShells',
     ] as const;
     for (const id of ids) expect(TONES[fireTone(id)], id).toBeDefined();
   });
@@ -134,6 +135,7 @@ describe('fireTone — weapon -> own-fire tone mapping', () => {
   it('gives PHOSPHOR SHELLS and the FOULING SHELL the star-shell launch cue', () => {
     expect(fireTone('phosphorShells')).toBe('fireStarShells');
     expect(fireTone('foulingShell')).toBe('fireStarShells');
+    expect(fireTone('dazzleShells')).toBe(fireTone('foulingShell')); // FLASH SHELLS (Story 10.9) — same click path, same cue
   });
 
   // STORY 8.13 — FOUR NEW FIRING IDS, NO NEW TONE (epic-8 amendments 74/76/81).
@@ -449,8 +451,15 @@ describe('the victim cues (Story 2.9) — burn / slowed', () => {
     expect(TONES.slowed.freqEnd).toBeLessThan(TONES.slowed.freqStart); // revs falling
   });
 
-  it('the tell cannot be confused with the denied refusal or a fire cue', () => {
-    for (const id of ['slowed'] as const) {
+  it('dazzled (FLASH SHELLS, Story 10.9) WASHES UP — the optical opposite of the sag, inside the budget', () => {
+    expect(TONES.dazzled.duration).toBeLessThanOrEqual(MAX_TONE_S);
+    expect(TONES.dazzled.freqMid).toBeGreaterThan(TONES.dazzled.freqStart); // washes up
+    expect(TONES.dazzled.freqStart).toBeGreaterThan(TONES.slowed.freqStart); // brighter than the sag
+    expect(TONES.dazzled.freqStart).not.toBe(TONES.fireStarShells.freqStart); // not the firer's launch
+  });
+
+  it('the tells cannot be confused with the denied refusal or a fire cue', () => {
+    for (const id of ['slowed', 'dazzled'] as const) {
       expect(TONES[id].type).not.toBe(TONES.denied.type); // never the square blat
       expect(TONES[id].noise).toBeUndefined(); // never a gun-family transient
     }

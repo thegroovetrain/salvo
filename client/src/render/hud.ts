@@ -14,7 +14,7 @@
 //     composed in ui/chromeBar.ts, drawn from BOTH update paths because it is a
 //     member of the ratified reveal-HUD SURVIVOR set;
 //   • the match-phase lines and the big countdown numeral;
-//   • the `IN STORM` warning and the victim tell (SLOWED), which as
+//   • the `IN STORM` warning and the victim tells (SLOWED / DAZZLED), which as
 //     of 8.6 are CENTRED above the bar rather than stacked over a corner;
 //   • the centre-screen SUNK — RESPAWNING overlay and the spectate banner.
 //
@@ -109,6 +109,9 @@ export interface OwnStatus {
    *  mine's `you.slowedUntil` and the FOULING SHELL zone's `you.fouledUntil`
    *  (Story 9.4) vs the server clock; 0 = not slowed — Story 2.9's victim tell. */
   slowedMsLeft: number;
+  /** ms remaining on the DAZZLE window (`you.dazzledUntil` vs the server
+   *  clock; 0 = not dazzled) — FLASH SHELLS, restored by Story 10.9. */
+  dazzledMsLeft: number;
 }
 
 /**
@@ -132,21 +135,24 @@ export function conning(status: Pick<OwnStatus, 'alive' | 'sinking'>): boolean {
  *
  * Since Story 9.4 SLOWED reads the LATER of the two slow windows — the fouling
  * mine's `slowedUntil` and the FOULING SHELL zone's `fouledUntil` — so the one
- * existing tell covers both sources (no new copy). The DAZZLED tell is gone
- * with FLASH SHELLS.
+ * existing tell covers both sources (no new copy). DAZZLED (FLASH SHELLS,
+ * restored by Story 10.9) reads `dazzledUntil` the same way.
  */
 export function victimWindows(
-  you: Pick<OwnShip, 'slowedUntil' | 'fouledUntil'> | null | undefined,
+  you: Pick<OwnShip, 'slowedUntil' | 'fouledUntil' | 'dazzledUntil'> | null | undefined,
   now: number,
-): Pick<OwnStatus, 'slowedMsLeft'> {
+): Pick<OwnStatus, 'slowedMsLeft' | 'dazzledMsLeft'> {
   const until = Math.max(you?.slowedUntil ?? 0, you?.fouledUntil ?? 0);
-  return { slowedMsLeft: Math.max(0, until - now) };
+  return {
+    slowedMsLeft: Math.max(0, until - now),
+    dazzledMsLeft: Math.max(0, (you?.dazzledUntil ?? 0) - now),
+  };
 }
 
 /** The victim tells, top-down in the order they stack under the storm line.
- *  One since Story 9.4 deleted DAZZLED with FLASH SHELLS; SLOWED covers both
- *  slow sources. */
-const TELL_LABELS = ['SLOWED'] as const;
+ *  SLOWED covers both slow sources; DAZZLED is the FLASH SHELLS burst
+ *  (restored by Story 10.9). */
+const TELL_LABELS = ['SLOWED', 'DAZZLED'] as const;
 
 /**
  * Pure: WHOLE remaining seconds of a victim window, floored at 1 so a live
@@ -244,7 +250,7 @@ export class Hud {
   private readonly matchTag: Text;
   private readonly countdownBig: Text;
   private readonly spectateBanner: Text;
-  /** The victim tells, index-aligned with TELL_LABELS (SLOWED). */
+  /** The victim tells, index-aligned with TELL_LABELS (SLOWED, DAZZLED). */
   private readonly tells: Text[];
   private readonly lastTells: string[];
   private lastOverlay = '';
@@ -465,7 +471,7 @@ export class Hud {
    */
   private drawTells(status: OwnStatus, screenW: number): void {
     const at = tellAnchor(screenW);
-    const windows = [status.slowedMsLeft];
+    const windows = [status.slowedMsLeft, status.dazzledMsLeft];
     let slot = 0;
     for (let i = 0; i < this.tells.length; i++) {
       const line = conning(status) ? tellLine(TELL_LABELS[i], windows[i]) : '';

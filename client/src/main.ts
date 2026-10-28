@@ -65,7 +65,8 @@ import { clickInArc, weaponReachU } from './render/weaponArc.js';
 import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
-import { Decoys } from './render/decoys.js';
+import { Decoys, ownBuoyUntil } from './render/decoys.js';
+import { BuoySweep, buoySweepModels } from './render/buoySweep.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { BurnZones } from './render/burnZones.js';
 import { FoulZones } from './render/foulZones.js';
@@ -81,7 +82,7 @@ import { Zone } from './render/zone.js';
 import { freezeAtDimKeyframe, tier1Active, tier2Active } from './render/attention.js';
 import { createFlashBudget, FLASH_ELEMENTS, hotbarSlotKey, type FlashBudget } from './render/flashBudget.js';
 import { Hud, conning, reloadFraction, victimWindows, type OwnStatus } from './render/hud.js';
-import { hpGlobeHoldsLit, railFraction } from './render/hpGlobe.js';
+import { hpGlobeHoldsLit, railFraction, shieldPoolHp } from './render/hpGlobe.js';
 import { detentIndexOf, type HelmGlobeInput } from './render/helmGlobe.js';
 import { HudBar, hudBarTopInset, type HudBarView } from './render/hudBar.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
@@ -138,7 +139,7 @@ import { clearResumeToken, loadPrivateMatch, loadResumeToken, savePrivateMatch }
 import { ServerClock } from './net/clock.js';
 import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
 import { bindRoom, type RoomUnbind } from './net/roomBindings.js';
-import { Predictor, type RenderPose } from './sim/prediction.js';
+import { Predictor, composedBoostFactor, topBoostFactor, type RenderPose } from './sim/prediction.js';
 import { ContactBodies } from './sim/contactBodies.js';
 import { ContactFx } from './render/contactFx.js';
 import { bleedSpeed } from './sim/contactBleed.js';
@@ -276,6 +277,9 @@ interface Game {
   /** DECOY BUOY markers (render/decoys.ts, Story 8.16) — synced from
    *  FrameMsg.decoys, the mines precedent (Story 1.8). */
   decoys: Decoys;
+  /** RADAR BUOY second sweeps (render/buoySweep.ts, Story 10.9) — one wedge
+   *  per own radar buoy, on the own beam's chart layer. */
+  buoySweep: BuoySweep;
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced from
    *  FrameMsg.litZones, faded per render frame by serverNow. */
   litZones: LitZones;
@@ -822,7 +826,9 @@ function boostUntilNow(g: Game): number {
  * authoritative, never predicted (the `repairHp` precedent).
  */
 function ownShieldHp(you: OwnShip | null): number {
-  return you?.shield?.hp ?? 0;
+  // ...plus the SHIELD BUOY's pool (Story 10.9, AC 7): the globe shows every
+  // shield the hull holds, summed, in the one shielded fill.
+  return shieldPoolHp(you);
 }
 
 /** Derive HUD/combat status from the latest server own-ship + respawn ETA. */
@@ -2810,10 +2816,10 @@ function abilityFeedbackState(): Pick<
 }
 
 /**
- * An OWN decoy buoy just appeared in the reconcile (render/decoys' own-spawn
+ * An OWN buoy (Story 10.9; the decoy body) just appeared in the reconcile (render/decoys' own-spawn
  * hook, Story 8.16): play its placement cue. The hook only ever fires for
  * decoys we own, so someone else's decoy can never sound our drop. It latches
- * nothing — a decoy has no lifetime and no ACTIVE window.
+ * nothing — a buoy's ACTIVE window rides its wire `until` (activeWindows).
  */
 function onOwnDecoy(audio: Audio): void {
   audio.play('placeDecoy');
@@ -2840,13 +2846,17 @@ function latchFitFlash(g: Game, cardId: string): void {
  * Shift) reads the server's self-private `you.hunkerUntil` — no prediction,
  * the window arrives with the frame — so the Shift square takes the boost's
  * ACTIVE grammar for its 8 s (amendment 34). INSTANT RELOAD has no window: it
- * goes straight to the cooldown wipe. Everything else has no window.
+ * goes straight to the cooldown wipe. A BUOY square (Story 10.9) reads the
+ * EARLIEST own live buoy of its kind (`ownBuoyUntil`) — the server's own
+ * `until`, never predicted — so a dropped buoy's slot breathes with its
+ * seconds like the boost's does. Everything else has no window.
  */
 function activeWindows(g: Game, status: OwnStatus): number[] {
   const now = g.clock.serverNow();
   const until: Partial<Record<string, number>> = {
     boost: boostUntilNow(g),
     hunker: g.state.net.you?.hunkerUntil ?? 0,
+    ...ownBuoyUntil(g.state.net.decoys ?? [], now),
   };
   return status.loadout.map((id) => Math.max(0, (id === null ? 0 : until[id] ?? 0) - now));
 }
@@ -2962,6 +2972,7 @@ function buildGame(
     // that laid one is gone, and a captive mine is MOORED — nothing can move.
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
     decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, () => onOwnDecoy(audio)),
+    buoySweep: new BuoySweep(stage.layers.sweep, radar.sweepTexture),
     litZones: new LitZones(stage.layers.litZone),
     burnZones: new BurnZones(stage.layers.litZone),
     foulZones: new FoulZones(stage.layers.litZone),
@@ -3357,8 +3368,11 @@ function wakeHulls(g: Game, pose: RenderPose | null, now: number): WakeHull[] {
       // SPEED card lengthens both rings or neither. The full wake-draft lift
       // is folded on top through its own shared hook (Story 8.19), exactly as
       // `wakeTopSpeed` folds it — a drafting, boosted hull is the true ceiling.
+      // Since Story 10.9 the boost ceiling is the Shift PLUS a full SPEED
+      // BUOY tail (`topBoostFactor` — the server's `wakeTopSpeed` reads the
+      // same `combinedBoostFactor(true, 1, …)`).
       maxSpeedU: draftedKinematics(
-        boostedKinematics(own.kinematics, CONFIG.boost.factor, true),
+        boostedKinematics(own.kinematics, topBoostFactor(), true),
         CONFIG.wake.draft.lift,
         true,
       ).maxSpeed,
@@ -3534,6 +3548,12 @@ function hudBarView(g: Game, status: OwnStatus, pose: RenderPose, ringUrgent: bo
  *  `HELD_AXES` at the start line included), the ACTUAL signed speed off the
  *  predicted pose, and the ladder's denominators off `EffectiveStats` — the
  *  boost's cap is applied inside the globe by the ONE shared speed mutator. */
+function helmBoost(g: Game, status: OwnStatus): Pick<HelmGlobeInput, 'boostFactor' | 'boostActive'> {
+  const now = g.clock.serverNow();
+  const factor = composedBoostFactor(status.boostActive, now, g.state.net.you?.speedBuoyAt ?? 0);
+  return { boostFactor: factor, boostActive: factor > 0 };
+}
+
 function helmGlobeView(g: Game, status: OwnStatus, pose: RenderPose): HelmGlobeInput {
   const axes = helmAxes(g);
   return {
@@ -3542,8 +3562,10 @@ function helmGlobeView(g: Game, status: OwnStatus, pose: RenderPose): HelmGlobeI
     orderedDetent: detentIndexOf(axes.throttle),
     rudder: axes.rudder,
     kin: status.stats.kinematics,
-    boostFactor: CONFIG.boost.factor,
-    boostActive: status.boostActive,
+    // THE FOLD'S FIRST STAGE, from the ONE client composition the predictor
+    // steps with (Story 10.9, ruling 6): the Shift and the SPEED BUOY's tail
+    // add on the base, so the needle's denominator is the cap the hull has.
+    ...helmBoost(g, status),
   };
 }
 
@@ -4068,6 +4090,54 @@ function handleServerDenial(g: Game, d: DeniedView): void {
 }
 
 /**
+ * Pure-ish: is the own hull dazzled by an enemy FLASH SHELLS burst right now
+ * (Story 8.17; restored by Story 10.9, epic-10 amendment 4)? Read VERBATIM off
+ * the victim-private `you.dazzledUntil` against the server-clock estimate —
+ * never predicted, never interpolated. No own ship (death / spectate / the
+ * pre-first-frame gap) is never dazzled.
+ */
+function dazzleActive(g: Game, now: number): boolean {
+  return (g.state.net.you?.dazzledUntil ?? 0) > now;
+}
+
+/**
+ * THE DAZZLE CHAIN (the 8.17 shape, restored by Story 10.9): ONE derived
+ * `dazzled` fanned out to every client mirror of the server's truesight —
+ *   • the FOG hole (`fogHoleRadiusU`), rebaked only on the two frames per
+ *     dazzle event where the state flips (Fog.setDazzled reports staleness);
+ *   • the RADAR's sight radius (`sightHoleU` — the dim mask's anchor, the
+ *     cloud return gate's bubble, the hull feather's radius);
+ *   • the PROJECTILE cull's ENEMY rings (the server corrects an enemy's
+ *     ballistics only inside `sightOf(me, now)`, which IS dazzle-scaled; own
+ *     tracks keep the undazzled ring).
+ * All three resolve the radius through the shared `effectiveSight(stats,
+ * dazzled)` — the function the server's `sightOf` calls — never a local
+ * fraction. The radar and the projectiles are set UNCONDITIONALLY and before
+ * the fog's changed-flag early-return: that flag guards the expensive rebake
+ * and nothing else. Radar RANGE is never touched: dazzle blinds, it does not
+ * deafen.
+ */
+function updateDazzle(g: Game, now: number): void {
+  const dazzled = dazzleActive(g, now);
+  g.radar.setDazzled(dazzled);
+  g.projectiles.setDazzled(dazzled);
+  if (!g.fog.setDazzled(dazzled)) return;
+  g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
+}
+
+/**
+ * The OWN buoys' per-frame motion (Story 10.9): every own buoy's masthead LIFE
+ * arc runs down against the server clock, and every own RADAR buoy turns its
+ * second sweep wedge at the own sweep period (the buoy turns at the owner's
+ * RPM) from the wire `sweep` sampled at the list's frame time.
+ */
+function renderBuoys(g: Game, now: number): void {
+  g.decoys.render(now);
+  const net = g.state.net;
+  g.buoySweep.render(buoySweepModels(net.decoys ?? [], net.decoysAt ?? now, now, g.ownStats.sweepPeriodMs));
+}
+
+/**
  * THIS FRAME'S HULL FEATHER (this cycle) — the spatial alpha multiplier a
  * contact hull wears, now that hulls render ABOVE the fog composite and no longer
  * inherit its feathered sight hole (render/stage.ts).
@@ -4318,6 +4388,14 @@ function renderAlive(
   }
   updateZone(g, zv, inStorm, tier1, now, nowMs);
   updateContactFx(g, pose, nowMs);
+  // AHEAD OF THE RADAR AND THE PROJECTILES ON PURPOSE (FLASH SHELLS, restored
+  // by Story 10.9): the fog hole, the radar's sight radius and the enemy
+  // projectile cull rings are one dazzle-scaled radius, and both read it
+  // during their render — a flip adopted after them would leave them one frame
+  // behind the fog and the server. Camera zoom (which the fog rebake reads)
+  // was updated in renderOwn.
+  updateDazzle(g, now);
+  renderBuoys(g, now); // own buoys' life arcs + the radar buoys' second sweeps
   // Own pose feeds the projectile cull; own active zones keep a shell revealed
   // by our flare from being culled (exactly-once — Story 1.7).
   g.projectiles.render(now, pose ?? undefined, ownZones);
@@ -4621,6 +4699,8 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   // fire control) — the plane renders, the vignette does not.
   updateZone(g, zv, false, false, now, nowMs);
   g.projectiles.render(now); // no sight cull: spec frames are unfogged
+  g.decoys.render(now); // a spectator owns no buoy: no life arc runs
+  g.buoySweep.clear(); // ...and no radar buoy turns for a hull we no longer have
   // A SPECTATOR HAS NO HULL BUT SEES EVERY OTHER ONE, and spec frames are
   // unfogged — so the water keeps working exactly as it does alive (amendment
   // 199 is about visible hulls, and from here they all are).

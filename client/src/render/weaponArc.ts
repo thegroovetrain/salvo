@@ -13,15 +13,16 @@
 // diverge: the gun FAMILY (gun / star shells) declares `full` (360° — always in
 // arc, never denied for bearing, aimed to the clicked point); the torpedo
 // declares its bow `sector` and — as of Story 2.8 (amendment 45) — the MINE and
-// (Story 8.16) the DECOY BUOY consumable declare their rear placement `sector`; the
+// (Story 8.16) the old DECOY BUOY declared their rear placement `sector` (since
+// Story 10.9 the four BUOYS declare `full` — 360°, ruling 9 — on the same leash); the
 // BROADSIDE BARRAGE declares `twin-sector`, two mirrored beam sectors at
 // `heading ± 90°` each 60° wide; the boost aims nothing (`none`). Callers
 // derive the id from the own loadout (main.ts's slotIdsFor / shared loadoutFor).
 //
 // STORY 7-5 WAVE 2 RETIRED the `stern-drop` branch: the old decoy buoy was that
 // shape's only user, and every buoy since (the radar buoy, deleted in Story
-// 8.16, and the 8.16 DECOY BUOY consumable) is click-placed in the mine's rear
-// SECTOR. Nothing here may re-add a branch for it.
+// 8.16, the 8.16 DECOY BUOY and the 10.9 four buoys) is click-placed on the mine's
+// leash. Nothing here may re-add a branch for it.
 //
 // STORY 8.13 TOOK THE ID EQUALITIES OUT. Three mine LINES now share the rear
 // placement grammar (naval/captive/fouling), the LIGHT TORPEDO declares a
@@ -36,6 +37,7 @@ import {
   arcFor,
   gunReachU,
   inArc,
+  isBuoyLine,
   isConsumableId,
   isMineEquipment,
   isWeaponItem,
@@ -71,12 +73,14 @@ export {
   type MineEquipmentId,
 } from '@salvo/shared';
 
-/** Pure: does this id share the mine's REAR PLACEMENT grammar — the three mine
- *  lines plus the click-placed DECOY BUOY consumable (Story 8.16 — it replaced
- *  the deleted radar buoy in this set)? The one predicate the placement leash,
- *  the true-radius wedge and the amber placement tint read. */
+/** Pure: is this id CLICK-PLACED on the mine's leash (`CONFIG.mine.placeRange`)
+ *  — the three mine lines plus the four BUOYS (Story 10.9; the retired DECOY
+ *  BUOY before them)? The one predicate the placement leash (range denial),
+ *  the true-radius placement shape and the amber placement tint read. The
+ *  SHAPE is the arc descriptor's: a mine's rear sector draws a wedge, a buoy's
+ *  360° arc (ruling 9) the whole disc. */
 export function isPlacedItem(id: SlotItemId | null): boolean {
-  return isMineEquipment(id) || id === 'decoyBuoy';
+  return isMineEquipment(id) || (id !== null && isBuoyLine(id));
 }
 
 /**
@@ -124,8 +128,8 @@ export type FireArcKind = 'gunLike' | 'sector' | 'twin' | 'none';
 export function fireArcKind(id: SlotItemId | null): FireArcKind {
   if (id === null) return 'none'; // an unfitted weapon slot / defensive null
   const arc = arcFor(id);
-  if (arc.kind === 'full') return 'gunLike'; // the guns / starShells / phosphorShells / foulingShell
-  if (arc.kind === 'sector') return 'sector'; // torpedo bow arc / mine + decoy rear arc
+  if (arc.kind === 'full') return 'gunLike'; // the guns / star, phosphor, fouling, flash shells / the four buoys
+  if (arc.kind === 'sector') return 'sector'; // torpedo bow arc / the mines' rear arc
   if (arc.kind === 'twin-sector') return 'twin'; // broadside beams
   return 'none'; // none (boost)
 }
@@ -176,7 +180,7 @@ export { twinSectorSide };
  * reads its OWN folded `stats.equipment.<w>.rangeU`, never radar and never the
  * cannon's by assumption. The FOULING SHELL consumable has no stats row and no
  * card: it reads its fixed dial `CONFIG.foulingShell.rangeU`. The MINE lines
- * and — since Story 8.16 — the DECOY BUOY read the ratified
+ * and — since Story 10.9 — the four BUOYS read the ratified
  * CONFIG.mine.placeRange: their placement reach is a fixed short leash and no
  * boon moves it.
  *
@@ -193,7 +197,8 @@ export function weaponRangeU(stats: EffectiveStats, id: SlotItemId | null): numb
   // STORY 8.17: PHOSPHOR SHELLS reads its own row; the FOULING SHELL consumable
   // (Story 9.4, FLASH SHELLS' successor) has no row — its fixed dial (ruling 125).
   if (id === 'phosphorShells') return stats.equipment.phosphorShells.rangeU;
-  if (id === 'foulingShell') return CONFIG.foulingShell.rangeU;
+  // FLASH SHELLS (Story 10.9, ruling 2) shares the fouling shell's ONE reach dial.
+  if (id === 'foulingShell' || id === 'dazzleShells') return CONFIG.foulingShell.rangeU;
   // THE TWO PICKABLE GUNS (Story 8.15) read their OWN row (ruling 125).
   if (id === 'machineGun') return stats.equipment.machineGun.rangeU;
   if (id === 'flak') return stats.equipment.flak.rangeU;
@@ -279,8 +284,8 @@ export function weaponReachU(
 
 /**
  * Pure: is the CLICKED POINT within a hard range DENIAL gate? Only the CLICK-
- * PLACED ids have one (Story 2.8, amendment 45; the DECOY BUOY joined the mine
- * on it in Story 8.16): a click past CONFIG.mine.placeRange is refused
+ * PLACED ids have one (Story 2.8, amendment 45; the four BUOYS share the mine's
+ * since Story 10.9): a click past CONFIG.mine.placeRange is refused
  * outright, exactly like a click outside the rear arc — nothing is consumed and
  * the denial register fires. Every other id answers true, because none of them
  * denies on distance: the gun family CLAMPS the aim point to rangeU and fires
@@ -293,9 +298,9 @@ export function weaponReachU(
  * for a placement the server refused.
  */
 export function weaponRangeHit(aimDist: number, id: SlotItemId | null): boolean {
-  // ONE leash for every click-placed id: the DECOY BUOY row reuses
-  // CONFIG.mine.placeRange verbatim (Story 8.16, catalog-v3 R36 — the mine's
-  // rear sector) and the captive/fouling rows read the naval chassis's
+  // ONE leash for every click-placed id: the four BUOY rows reuse
+  // CONFIG.mine.placeRange verbatim (Story 10.9, ruling 9 — the range is
+  // unchanged, only the arc opened) and the captive/fouling rows read the naval chassis's
   // `placeRange` too (Story 8.13), so the client must refuse at exactly the same
   // distance or a long placement click silently consumes the prime for a drop
   // the server will deny.
@@ -309,8 +314,8 @@ export function weaponRangeHit(aimDist: number, id: SlotItemId | null): boolean 
  *
  * Every click-aimed CONSUMABLE now DECLARES geometry and is gated exactly like
  * a fitted weapon: the SUPERCAV TORPEDO's bow ±15° sector (Story 8.13, epic-8
- * amendment 74) and — Story 8.16 — the DECOY BUOY, click-placed in the mine's
- * rear sector out to `CONFIG.mine.placeRange` (`isPlacedItem` gives it the
+ * amendment 74) and — Story 10.9 — the four BUOYS, click-placed on a 360° arc
+ * out to `CONFIG.mine.placeRange` (`isPlacedItem` gives them the
  * leash). The decoy was blind-trusted to the server while it had no arc; that
  * trust is gone with the arc's arrival. The test is the DESCRIPTOR, not the
  * id: anything that declares an arc is gated by it.

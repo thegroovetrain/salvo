@@ -727,10 +727,21 @@ describe('the client paints ONLY wire-delivered returns (amendment 210)', () => 
     // Called, not re-derived: it is also, by construction, the server's own
     // `sightOf` — and the dim mask, the cloud gate and the hull feather all
     // anchor on it.
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE));
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, false));
     radar.setRanges(NARROW, CONFIG.vision.radar, SWEEP_MS);
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU({ ...BASE, sightRange: NARROW }));
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU({ ...BASE, sightRange: NARROW }, false));
     expect(radar.sightHoleU).toBe(effectiveSight({ sightRange: NARROW }));
+  });
+
+  it('sightHoleU follows the DAZZLE (FLASH SHELLS, Story 10.9) — the same radius the fog bakes', () => {
+    const { radar } = makeRadar();
+    expect(radar.isDazzled).toBe(false);
+    expect(radar.setDazzled(true)).toBe(true);
+    expect(radar.setDazzled(true)).toBe(false); // the changed-flag contract
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, true));
+    expect(radar.sightHoleU).toBeLessThan(fogHoleRadiusU(BASE, false));
+    expect(radar.setDazzled(false)).toBe(true);
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, false));
   });
 
   it('THE WIRE PATH IS RANGE-BLIND: a blip rect inside the sight circle and the same rect '

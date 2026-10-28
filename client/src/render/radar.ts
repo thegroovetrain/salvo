@@ -411,6 +411,13 @@ export class Radar {
   private sightRange: number = CONFIG.vision.sight;
   private radarRange: number = CONFIG.vision.radar;
   private sweepPeriodMs: number = 60000 / CONFIG.vision.sweepRpm;
+  /** Is the own ship dazzled by an enemy FLASH SHELLS burst right now (Story
+   *  2.8; the flash since 8.17, restored by 10.9 — sight → the shared
+   *  `effectiveSight(…, true)`)? The SAME flag `Fog` carries, plumbed from the
+   *  same place in main.ts (`updateDazzle`) — the dim mask, the cloud return
+   *  gate and the drawn fog hole are one radius, so they cannot be allowed to
+   *  disagree about dazzle. */
+  private dazzled = false;
   /**
    * THE COUNTERMEASURE CLOUDS AS A RETURN SOURCE (Story 9.3 session 4, Eric
    * 2026-10-12: "Don't forget to composite it onto the radar layer so it can
@@ -487,7 +494,32 @@ export class Radar {
    * tests and for exactly that equality assertion.
    */
   get sightHoleU(): number {
-    return fogHoleRadiusU({ sightRange: this.sightRange, radarRange: this.radarRange });
+    return fogHoleRadiusU({ sightRange: this.sightRange, radarRange: this.radarRange }, this.dazzled);
+  }
+
+  /**
+   * Adopt the DAZZLE state (Story 2.8; FLASH SHELLS, restored by 10.9) — the
+   * radar half of the plumbing `Fog` has. Returns TRUE when the state actually
+   * flipped, mirroring `Fog.setDazzled`'s changed-flag contract so one call
+   * site drives both; there is nothing to rebake here (the dim mask re-bakes
+   * off `sightHoleU` on the per-frame path), so the caller may ignore it.
+   * A dazzle never touches the RADAR range: it blinds, it does not deafen.
+   */
+  setDazzled(dazzled: boolean): boolean {
+    if (dazzled === this.dazzled) return false;
+    this.dazzled = dazzled;
+    return true;
+  }
+
+  /** Is the dazzle currently held? Test/observation seam (mirrors `Fog`). */
+  get isDazzled(): boolean {
+    return this.dazzled;
+  }
+
+  /** The baked sweep wedge texture — shared with the RADAR BUOY's second
+   *  sweep (render/buoySweep.ts, Story 10.9) so there is one bake. */
+  get sweepTexture(): Texture {
+    return this.sweep.texture;
   }
 
   private applyRanges(): void {

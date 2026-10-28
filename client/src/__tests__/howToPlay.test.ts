@@ -47,6 +47,13 @@ const AWAITING_COPY: ReadonlySet<string> = new Set([
   'passiveHealing',
   'armor',
   'armorPiercing',
+  // Story 10.9: the four BUOYS replaced the DECOY BUOY (whose stale entry stays,
+  // tolerated by `inCatalog`); their copy is owed to Story 10.8. FLASH SHELLS'
+  // 8.17 entry is live again under its own name.
+  'radarBuoy',
+  'healingBuoy',
+  'shieldBuoy',
+  'speedBuoy',
 ]);
 
 describe('how-to-play copy', () => {
