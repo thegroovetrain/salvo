@@ -1,9 +1,9 @@
 // arcFor — the single arc-shape source (Story 1.10). These tests pin the
 // RATIFIED geometry byte-for-byte to CONFIG: the gun family 360°, the heavy torpedo
 // bow sector ±30°, the mine's aimed REAR sector (FLIPPED from the stern drop
-// in Story 2.8, amendment 45 — offset 180° ± placeHalfArcDeg) which the DECOY
-// BUOY consumable now shares (Story 8.16 — the radar buoy that shared it before
-// is deleted), the
+// in Story 2.8, amendment 45 — offset 180° ± placeHalfArcDeg; the DECOY BUOY
+// consumable shared it from Story 8.16 until Story 10.9 deleted it — the four
+// BUOYS that replace it are placed at ANY bearing, Eric 2026-10-28 ruling 9), the
 // BROADSIDE's twin beam sectors, and the aimless speed boost. A geometry change
 // here is a DESIGN change and must be deliberate — these are regression pins,
 // not derivations.
@@ -18,6 +18,8 @@ import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   CONSUMABLE_IDS,
+  CONSUMABLE_IS_WEAPON,
+  BUOY_LINE_IDS,
   EQUIPMENT_IDS,
   GUN_IDS,
   MOUNTED_GUN,
@@ -116,28 +118,41 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     expect(isConsumableId('supercavTorpedo')).toBe(true);
   });
 
-  it('EVERY OTHER consumable declares no arc — the three aimed ones are the supercav, the decoy and the FOULING SHELL', () => {
+  it('EVERY OTHER consumable declares no arc — the aimed ones are exactly the click-aimed set (CONSUMABLE_IS_WEAPON)', () => {
     // FLASH SHELLS joined the aimed set in Story 8.17 (amendment 132); the
-    // FOULING SHELL took its seat in Story 9.4.
-    const AIMED: readonly string[] = ['supercavTorpedo', 'decoyBuoy', 'foulingShell'];
+    // FOULING SHELL took its seat in Story 9.4; Story 10.9 brought FLASH
+    // SHELLS back and added the four BUOYS. The arc table and the weapon table
+    // must agree id for id: aimed ⇔ it declares an arc.
     for (const id of CONSUMABLE_IDS) {
-      if (AIMED.includes(id)) continue;
-      expect(arcFor(id), id).toEqual({ kind: 'none' });
+      expect(arcFor(id).kind !== 'none', id).toBe(CONSUMABLE_IS_WEAPON[id]);
     }
     const aimed = CONSUMABLE_IDS.filter((id) => arcFor(id).kind !== 'none');
-    expect([...aimed].sort()).toEqual(['decoyBuoy', 'foulingShell', 'supercavTorpedo']);
+    expect([...aimed].sort()).toEqual(
+      ['supercavTorpedo', 'foulingShell', 'dazzleShells', ...BUOY_LINE_IDS].sort(),
+    );
   });
 
-  it('the DECOY BUOY SHARES the mine rear sector exactly (click-placed, Story 8.16)', () => {
-    // Not merely equal-shaped: the SAME sector, so the two placement wedges can
-    // never drift apart (catalog-v3 R36 — dropped in the rear arc like a mine).
-    expect(arcFor('decoyBuoy')).toEqual({
+  it('FLASH SHELLS is 360° like the FOULING SHELL — one arc dial each, both `full` (Story 10.9, ruling 2)', () => {
+    expect(arcFor('dazzleShells')).toEqual({ kind: CONFIG.flashShells.arc });
+    expect(arcFor('dazzleShells')).toEqual(arcFor('foulingShell'));
+    expect(arcFor('dazzleShells').kind).toBe('full');
+  });
+
+  it('EVERY BUOY is placed at ANY bearing — a `full` arc, NOT the mine sector (Story 10.9, Eric 2026-10-28 ruling 9)', () => {
+    for (const id of BUOY_LINE_IDS) {
+      expect(arcFor(id), id).toEqual({ kind: 'full' });
+      expect(arcFor(id), id).not.toEqual(arcFor('navalMines'));
+      expect(isConsumableId(id), id).toBe(true);
+    }
+    // The mines KEEP their rear sector — the buoys leaving it changed nothing
+    // for them.
+    expect(arcFor('navalMines')).toEqual({
       kind: 'sector',
       offset: CONFIG.mine.offset,
       halfArc: deg(CONFIG.mine.placeHalfArcDeg),
     });
-    expect(arcFor('decoyBuoy')).toEqual(arcFor('navalMines'));
-    expect(isConsumableId('decoyBuoy')).toBe(true);
+    // The deleted DECOY BUOY is no consumable at all any more.
+    expect(isConsumableId('decoyBuoy')).toBe(false);
   });
 
   it('the THREE class Shifts declare no arc — nothing else does (Story 8.15)', () => {
@@ -206,7 +221,7 @@ describe('sectorArcFor — narrow-or-throw (torpedo bow arc + mine/decoy rear ar
       offset: CONFIG.mine.offset,
       halfArc: deg(CONFIG.mine.placeHalfArcDeg),
     });
-    expect(sectorArcFor('decoyBuoy')).toEqual(sectorArcFor('navalMines'));
+    expect(sectorArcFor('foulingMines')).toEqual(sectorArcFor('navalMines'));
   });
 
   it('THROWS on any non-sector id (a CONFIG/arcs authoring error, loud at load)', () => {
@@ -236,7 +251,7 @@ describe('twinSectorArcFor — narrow-or-throw (the broadside beam accessor)', (
 
   it('THROWS on every other id — including the plain SECTOR weapons', () => {
     for (const id of ['gun', 'starShells', 'heavyTorpedo', 'navalMines', 'foulingMines',
-      'decoyBuoy', 'boost', 'supercavTorpedo'] as const) {
+      'healingBuoy', 'dazzleShells', 'boost', 'supercavTorpedo'] as const) {
       expect(() => twinSectorArcFor(id)).toThrow(/must be a twin-sector/);
     }
   });

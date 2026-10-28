@@ -70,7 +70,7 @@ const BS = CONFIG.shipClasses.battleship;
 /** THE TEST KIT (Story 10.1): a deliberate four that is NOT `DEFAULT_KIT`, so
  *  nothing in this file passes by riding the fresh-browser default — it swaps
  *  the FOULING SHELL out for the DECOY BUOY the stock tests reach for. */
-const KIT: ConsumableKit = ['hullRepair', 'shieldBlock', 'countermeasure', 'decoyBuoy'];
+const KIT: ConsumableKit = ['hullRepair', 'shieldBlock', 'countermeasure', 'healingBuoy'];
 
 /** Every consumable id the test kit does NOT carry — live or stub, the kit law
  *  treats them alike: no slot. */
@@ -751,11 +751,11 @@ describe('the consumable slots — stockSlotFor / the stock fold (Story 8.7, fix
     applySlotEffect(loadout, stock('hullRepair'), stats, KIT);
     const repair = loadout[slotOf('hullRepair')];
     const repairState = repair.state;
-    applySlotEffect(loadout, stock('decoyBuoy'), stats, KIT);
+    applySlotEffect(loadout, stock('healingBuoy'), stats, KIT);
     expect(loadout[slotOf('hullRepair')]).toBe(repair);
     expect(loadout[slotOf('hullRepair')].state).toBe(repairState);
-    expect(loadout[slotOf('decoyBuoy')].equipmentId).toBe('decoyBuoy');
-    expectFixedPlacement(loadout, ['hullRepair', 'decoyBuoy'], 'repair then decoy');
+    expect(loadout[slotOf('healingBuoy')].equipmentId).toBe('healingBuoy');
+    expectFixedPlacement(loadout, ['hullRepair', 'healingBuoy'], 'repair then healing buoy');
   });
 
   it('a STUB consumable line is REFUSED — the same gate `slotFill` uses, catalog-driven', () => {
@@ -850,7 +850,7 @@ describe('the consumable slots — stockSlotFor / the stock fold (Story 8.7, fix
   });
 
   it('the replay agrees with the INCREMENTAL path over a mixed hand, in either fit order', () => {
-    const cards: ConsumableId[] = ['decoyBuoy', 'hullRepair', 'decoyBuoy', 'countermeasure', 'hullRepair', 'decoyBuoy'];
+    const cards: ConsumableId[] = ['healingBuoy', 'hullRepair', 'healingBuoy', 'countermeasure', 'hullRepair', 'healingBuoy'];
     for (const hand of [cards, [...cards].reverse()]) {
       const replayed = slotsWithCards(stats, hand, KIT);
       const incremental = loadoutFor(stats);
@@ -863,7 +863,7 @@ describe('the consumable slots — stockSlotFor / the stock fold (Story 8.7, fix
   it('using the LAST copy nulls ONLY that kind’s slot — every other stack stays put', () => {
     // A spent copy leaves `cards` server-side, so the next replay is the
     // clear-at-zero state: the kind's own slot reads null, nothing shifts.
-    const before: ConsumableId[] = ['hullRepair', 'countermeasure', 'decoyBuoy', 'decoyBuoy'];
+    const before: ConsumableId[] = ['hullRepair', 'countermeasure', 'healingBuoy', 'healingBuoy'];
     const after = before.filter((id) => id !== 'countermeasure');
     const a = slotsWithCards(stats, before, KIT);
     const b = slotsWithCards(stats, after, KIT);
@@ -1022,7 +1022,7 @@ describe('pickRefusal — every branch', () => {
     expect(pickRefusal([], OPEN_SLOTS, 'lightTorpedo', KIT)).toBeNull(); // copy 1, row open
     expect(pickRefusal(['lightTorpedo'], ROW_FULL, 'lightTorpedo', KIT)).toBeNull(); // a TIER card
     expect(pickRefusal([], OPEN_SLOTS, 'hullPoints', KIT)).toBeNull(); // a ladder
-    expect(pickRefusal([], OPEN_SLOTS, 'decoyBuoy', KIT)).toBeNull(); // DECOY BUOY, a carried consumable (no add-on is left since 8.17)
+    expect(pickRefusal([], OPEN_SLOTS, 'healingBuoy', KIT)).toBeNull(); // HEALING BUOY, a carried consumable (no add-on is left since 8.17)
     expect(pickRefusal([], OPEN_SLOTS, 'hullRepair', KIT)).toBeNull(); // a carried consumable
   });
 
@@ -1084,7 +1084,7 @@ describe('pickRefusal — every branch', () => {
     expect(pickRefusal(['starShells'], ROW_FULL, 'starShells', KIT)).toBeNull(); // tier II lands on the hull
     // Only EQUIPMENT claims the row: a ladder and two consumables (the
     // FOULING SHELL and HULL REPAIR) all pass with the row full.
-    for (const id of ['hullPoints', 'decoyBuoy', 'hullRepair']) {
+    for (const id of ['hullPoints', 'healingBuoy', 'hullRepair']) {
       expect(pickRefusal([], ROW_FULL, id, KIT), id).toBeNull();
     }
   });

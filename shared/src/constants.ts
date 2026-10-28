@@ -2240,20 +2240,76 @@ export const CONFIG = {
   },
 
   /**
-   * DECOY BUOY (catalog-v3 R36/R41; Story 8.16, epic-8 amendments 119–124) —
-   * a click-placed consumable dropped in the MINE's rear sector
-   * (`CONFIG.mine.offset` ± `placeHalfArcDeg`, out to `placeRange`). It floats
-   * until destroyed (no lifetime, it does not sink with its owner — amendment
-   * 122), paints on radar as an anonymous `sizeU` square, and is the `decoy`
-   * target kind: enemy shells, bursts and fish damage it (a 50-damage fish
-   * kills a fresh one — amendment 120); the owner's own ordnance never does
-   * (amendment 119). It REPLACES the deleted RADAR BUOY (Story 8.16) — the
-   * radar buoy's `CONFIG.radarBuoy` block, its gun, its jamming and its bot
-   * weights are gone. No `EffectiveStats` row.
+   * THE FOUR BUOYS (Story 10.9, Eric 2026-10-27/28, epic-10 amendments 2 and
+   * 4) — RADAR, HEALING, SHIELD and SPEED (`radarBuoy` / `healingBuoy` /
+   * `shieldBuoy` / `speedBuoy`, sim/buoy.ts `BUOY_LINE_IDS`). They REPLACE the
+   * plain DECOY BUOY of Story 8.16 (its `CONFIG.decoyBuoy` block is gone with
+   * the line) and share its BODY: a click-placed consumable dropped at ANY
+   * bearing (a 360° `'full'` arc — ruling 9; the rear sector was the decoy's)
+   * out to the unchanged `CONFIG.mine.placeRange`; `hp` hull, destructible by
+   * enemy ordnance only (never the owner's — amendment 119); an anonymous
+   * `sizeU` radar paint square; the `decoy` target kind, which every homing
+   * fish PREFERS over a hull inside its acquire range (ruling 3); it persists
+   * past its owner's sinking. NEW with 10.9: every buoy EXPIRES `lifetimeMs`
+   * after the drop (ruling 0: "30s (rather than 1 min)") and carries an
+   * OWNER-ONLY effect of `radiusU` around itself (ruling 0: 750 u, every kind):
+   * - RADAR: a second sweep for the owner at the owner's sweep period.
+   * - HEALING: `heal.missingPctPerS` of MISSING hp per second, uninterruptible,
+   *   on top of passive healing.
+   * - SHIELD: a second shield pool growing `shield.maxHpPctPerS` of MAX hp
+   *   per second, NO CAP (the 30 s life bounds it — ruling 4), eaten after
+   *   armor and BEFORE the SHIELD BLOCK.
+   * - SPEED: `speed.factor` of the RATED top speed, ADDING on the base with
+   *   the Speedboat's Shift (ruling 6: +50 % together).
+   * A KIND COUNTS ONCE (ruling 5): any number of healing buoys heal at one
+   * rate; radar buoys each sweep their own spot. The shield and speed effects
+   * TAIL after the hull leaves (or the buoy expires): full for `tailHoldMs`,
+   * then linear to zero over `tailRampMs` (sim/buoy.ts `buoyTail`). No
+   * `EffectiveStats` row: a consumable's numbers are read straight from CONFIG.
    */
-  decoyBuoy: {
-    hp: 50, // hp — destructible by enemy ordnance (R36)
-    sizeU: 12, // u — side of its radar paint square (R36)
+  buoy: {
+    hp: 50, // hp — destructible by enemy ordnance (R36, kept)
+    sizeU: 12, // u — side of its radar paint square (R36, kept)
+    lifetimeMs: 30_000, // ms — Eric 2026-10-28: 30 s after the drop, not 1:00
+    radiusU: 750, // u — the effect radius, EVERY kind (Eric 2026-10-28)
+    tailHoldMs: 15_000, // ms — shield/speed: held in full after leaving or expiry
+    tailRampMs: 15_000, // ms — then linear to zero
+    heal: { missingPctPerS: 0.02 }, // HEALING: 2 % of missing hp per second (amendment 2(e))
+    shield: { maxHpPctPerS: 0.01 }, // SHIELD: pool grows 1 % of max hp per second (amendment 2(f), ruling 4)
+    speed: { factor: 0.25 }, // SPEED: +25 % of the rated top speed (amendment 2(g), ruling 6)
+  },
+
+  /**
+   * FLASH SHELLS (Story 8.17, Eric ruling 2026-09-29, epic-8 amendments
+   * 131/132; RESTORED by Story 10.9, Eric 2026-10-27/28, epic-10 amendments 2
+   * and 4, BESIDE the FOULING SHELL that replaced it in Story 9.4) — the
+   * DAZZLE SHELLS line as a CONSUMABLE (display name FLASH SHELLS; the internal
+   * id stays `dazzleShells`). The key primes, a click fires ONE 360°
+   * gun-pattern shell on the FOULING SHELL's click path that bursts ONCE in
+   * `radius`: every non-owner afloat hull whose centre is inside is dazzled
+   * for `durationMs` (a second flash sets the LATER expiry — never stacks,
+   * never shortens). While dazzled a hull's effective sight is `sightRange ×
+   * sightFraction` (sim/sight.ts `effectiveSight` — ruling 1: 1/4 of SIGHT;
+   * Eric's equivalence check "1/12 of intel range" holds at today's 500 u /
+   * 1500 u). Radar is untouched: dazzle blinds, it does not deafen. NO
+   * lingering zone, no light, no reveal, no damage.
+   *
+   * REACH (ruling 2): the flash reaches EXACTLY as far as the fouling shell —
+   * the server reads `CONFIG.foulingShell.rangeU` for both click-aimed shells.
+   * There is deliberately NO `rangeU` here: one dial, never a second literal.
+   * No `EffectiveStats` row: a consumable's numbers are read straight from
+   * CONFIG (the consumable law).
+   */
+  flashShells: {
+    arc: 'full', // 360° (sim/arcs.ts consumableArc)
+    // The star shell's mask: interception by a hull or a decoy flashes at the
+    // stop point; a flash never detonates a mine (amendment 135(d)).
+    hits: HITS_HULL_DECOY,
+    shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
+    shellRadius: 2, // u — shell collision radius (star-shell parity)
+    radius: 150, // u — the one-time burst radius (amendment 136: centre test)
+    durationMs: 10_000, // ms — how long a flashed hull stays dazzled
+    sightFraction: 0.25, // × SIGHT range — a dazzled hull's effective sight (Eric 2026-10-28: 1/4 of sight = 1/12 of intel today)
   },
 
   /**

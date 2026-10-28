@@ -169,6 +169,14 @@ import {
  * re-sort would silently re-cut the fold order. The
  * section headings therefore describe where a line SITS, not what kind it is;
  * the kind is in CATALOG.
+ *
+ * STORY 10.9 (Eric 2026-10-27/28, epic-10 amendments 2 and 4) DELETED ONE AND
+ * APPENDED FIVE: 26 → 30. The plain DECOY BUOY (`decoyBuoy`) is GONE — no
+ * alias, its slot closes and every line after it moves up one. APPENDED, in
+ * this order and never inserted: `dazzleShells` (FLASH SHELLS, back beside the
+ * FOULING SHELL that replaced it in 9.4), then the four buoys `radarBuoy`,
+ * `healingBuoy`, `shieldBuoy`, `speedBuoy` (sim/buoy.ts). All five are live
+ * cap-5 consumables.
  */
 export const LINE_IDS = [
   // --- the eight universal ladders (catalog-v3 §4 + Stories 9.6 / 9.7 / 9.9)
@@ -198,7 +206,8 @@ export const LINE_IDS = [
   'hullRepair',
   'shieldBlock',
   'countermeasure', // Story 9.3 (Eric 2026-10-11): replaces smokeScreen in its slot
-  'decoyBuoy',
+  // `decoyBuoy` sat here until Story 10.9 DELETED it (Eric 2026-10-27): the
+  // four buoys that replace it are APPENDED at the foot of the list.
   // DEPTH CHARGE takes ACOUSTIC HOMING's place in the 29 (Eric ruling
   // 2026-09-19, epic-8 amendments 80/83): a new STUB consumable, and the Mine
   // Layer's 40th default card.
@@ -211,9 +220,18 @@ export const LINE_IDS = [
   'foulingMines',
   'foulingShell', // Story 9.4 (Eric 2026-10-11): replaces dazzleShells (FLASH SHELLS) in its slot
   'phosphorShells', // an EQUIPMENT line since 8.17
+  // --- Story 10.9 (Eric 2026-10-27/28, epic-10 amendments 2 and 4) ----------
+  // FLASH SHELLS is BACK, beside the FOULING SHELL — a new seat, not its old
+  // one (which the fouling shell keeps). Then the FOUR BUOYS that replace the
+  // deleted DECOY BUOY (sim/buoy.ts BUOY_LINE_IDS, same order).
+  'dazzleShells',
+  'radarBuoy',
+  'healingBuoy',
+  'shieldBuoy',
+  'speedBuoy',
 ] as const;
 
-/** One of the 26 authored card lines. */
+/** One of the 30 authored card lines. */
 export type LineId = (typeof LINE_IDS)[number];
 
 /**
@@ -721,7 +739,8 @@ export const CATALOG: Catalog = deepFreezeRows({
   hullRepair: consumable('hullRepair'), // R13 — 50 instant + 50 pooled (CONFIG.hullRepair)
   shieldBlock: consumable('shieldBlock'), // R37 — absorbs 100 hp for 10 s (CONFIG.shieldBlock)
   countermeasure: consumable('countermeasure'), // Story 9.3 (Eric 2026-10-11) — one cloud per press, 15 s life (CONFIG.countermeasure)
-  decoyBuoy: consumable('decoyBuoy'), // R36 — a 50 hp rear-dropped decoy (CONFIG.decoyBuoy)
+  // `decoyBuoy` (R36) sat here until Story 10.9 deleted it; see the five lines
+  // appended at the foot of this object.
   // DEPTH CHARGE (amendment 83): Eric's line, mechanism a later story — a STUB
   // in full shape so the id is final, and the Mine Layer's 40th default card.
   depthCharge: consumable('depthCharge', true),
@@ -753,6 +772,19 @@ export const CATALOG: Catalog = deepFreezeRows({
     phosphorTier(2, 1, 0),
     phosphorTier(3, 2, 1000),
   ]),
+  // --- Story 10.9 (Eric 2026-10-27/28, epic-10 amendments 2 and 4) ----------
+  // FLASH SHELLS (epic-8 amendment 132, restored): a CONSUMABLE — one 360°
+  // shell on the FOULING SHELL's click path (same reach) whose burst dazzles
+  // every non-owner hull inside r150 for 10 s to 1/4 of its sight.
+  // CONFIG.flashShells.
+  dazzleShells: consumable('dazzleShells'),
+  // THE FOUR BUOYS (CONFIG.buoy; sim/buoy.ts): the decoy's 50 hp body with a
+  // 30 s life and an owner-only 750 u effect — a second radar sweep, an
+  // uninterruptible heal, a ramping shield pool, a +25 % speed term.
+  radarBuoy: consumable('radarBuoy'),
+  healingBuoy: consumable('healingBuoy'),
+  shieldBuoy: consumable('shieldBuoy'),
+  speedBuoy: consumable('speedBuoy'),
 });
 
 /** The immutable zero-cards list — the shared allocation-free identity for

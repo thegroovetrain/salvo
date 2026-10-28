@@ -3,6 +3,13 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  93 — Story 10.9 THE FLASH SHELL AND THE FOUR BUOYS (Eric 2026-10-27/28,
+ *  epic-10 amendments 2 and 4): catalog −decoyBuoy +dazzleShells +radarBuoy
+ *  +healingBuoy +shieldBuoy +speedBuoy (26 → 30 lines, catalog content is
+ *  wire contract — `LINE_IDS` order is the fold); OwnShip.dazzledUntil /
+ *  buoyShield / speedBuoyAt (self-private, omitted when inactive);
+ *  DecoyView.kind for every observer + own-only sweep/until. Perception
+ *  exception count stays SIX.
  *  92 — Story 10.1 FOUR CONFIGURABLE CONSUMABLE SLOTS (Eric 2026-10-25/27,
  *  epic-10 amendments 1(c) and 3): the consumable KIT rides the seat (join
  *  option `kit`, validated by `isConsumableKit`, fail-open to `DEFAULT_KIT`)
@@ -906,7 +913,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 92;
+export const PROTOCOL_VERSION = 93;
 
 // Tunables
 export * from './constants.js';
@@ -933,6 +940,7 @@ export * from './sim/hooks.js';
 export * from './sim/loadout.js';
 export * from './sim/arcs.js';
 export * from './sim/boost.js';
+export * from './sim/buoy.js';
 export * from './sim/slow.js';
 export * from './sim/draft.js';
 export * from './sim/sight.js';

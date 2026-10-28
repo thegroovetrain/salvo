@@ -8,6 +8,7 @@
 import type { GameConfig, HornId, HullId, ShipClassId } from './constants.js';
 import type { GunId } from './sim/loadout.js';
 import type { ConsumableId } from './sim/effects.js';
+import type { BuoyKind } from './sim/buoy.js';
 import type { Vec2 } from './math/vec.js';
 
 /** Short message-name tags used on the Colyseus channel. */
@@ -568,6 +569,22 @@ export interface OwnShip {
    */
   fouledUntil?: number;
   /**
+   * ms — server-clock time this ship's FLASH SHELLS dazzle ends (Story 8.17,
+   * epic-8 amendment 132; RESTORED by Story 10.9, Eric 2026-10-27/28, epic-10
+   * amendments 2 and 4). A flash burst whose r150 u disc holds this hull's
+   * CENTRE stamps `max(dazzledUntil, now + CONFIG.flashShells.durationMs)` —
+   * a later expiry wins, never stacks, never shortens. While `serverNow <
+   * dazzledUntil` the hull's truesight is `effectiveSight(stats, true)` =
+   * `sightRange × CONFIG.flashShells.sightFraction` (sim/sight.ts), on the
+   * server's perception AND the client's fog hole / radar sight hole /
+   * projectile cull, which derive ONE `dazzled` state from this field. Radar
+   * is untouched. OMITTED when not in the future (never 0, never undefined).
+   * VICTIM-PRIVATE exactly like `fouledUntil`: rides `you` and NOTHING else —
+   * NOT a perception exception (the count stays at SIX): it is the viewer's
+   * own seat.
+   */
+  dazzledUntil?: number;
+  /**
    * ms — server-clock time this SINKING hull founders (Story 5.2, amendments
    * 13/16): `sinceMs + CONFIG.ship.sinkingWindowMs`, stamped at sink-entry via
    * sim/sinking.ts founderDeadline(). Present IFF the hull is in the sinking
@@ -613,6 +630,38 @@ export interface OwnShip {
    * persistence under fire, and the perception exception count stays at SIX.
    */
   shield?: { hp: number; until: number };
+  /**
+   * The SHIELD BUOY's pool (Story 10.9, Eric 2026-10-27/28, epic-10 amendments
+   * 2 and 4, rulings 4/5): `hp` = buoy-shield hp left to absorb, ROUNDED UP
+   * to a whole number (display only — a live pool never reads 0). It grows
+   * `maxHp × CONFIG.buoy.shield.maxHpPctPerS` per second while the hull's
+   * centre is inside any OWN SHIELD BUOY (one pool, however many buoys — a
+   * kind counts once), with NO CAP (the 30 s life bounds it); outside, it is
+   * scaled down by the shared `buoyTail` (full through `tailHoldMs`, then
+   * linear to zero over `tailRampMs`). The damage gate eats it AFTER armor
+   * and BEFORE the SHIELD BLOCK's pool. Present IFF the pool is non-null;
+   * OMITTED otherwise, never an `undefined` value (the `shield` conditional-
+   * spread precedent). The hp globe shows `hp + shield + buoyShield` in the
+   * existing shielded fill. SELF-PRIVATE BY CONSTRUCTION (the boostUntil
+   * precedent): rides `you` and NOTHING else — the perception exception count
+   * stays at SIX.
+   */
+  buoyShield?: { hp: number };
+  /**
+   * ms — the server-clock tick this hull's centre was last inside an OWN
+   * SPEED BUOY (Story 10.9, Eric 2026-10-27/28, epic-10 amendments 2 and 4,
+   * ruling 6). The predictor folds it exactly as the server does:
+   * `combinedBoostFactor(serverNow < boostUntil, buoyTail(serverNow,
+   * speedBuoyAt, CONFIG.buoy.tailHoldMs, CONFIG.buoy.tailRampMs),
+   * CONFIG.boost.factor, CONFIG.buoy.speed.factor)` is the FIRST stage's factor
+   * (`boostedKinematics` on the RATED kinematics), so the Shift and the buoy
+   * ADD on the base (+50 % together). OMITTED while the tail is 0 (never
+   * inside, or the hold + ramp fully elapsed) — never 0 on the wire, never an
+   * `undefined` value (the `slowedUntil` conditional-spread precedent).
+   * SELF-PRIVATE BY CONSTRUCTION (the boostUntil precedent): rides `you` and
+   * NOTHING else — the perception exception count stays at SIX.
+   */
+  speedBuoyAt?: number;
   /**
    * The WAKE-DRAFT lift (Story 8.19, Eric rulings 2026-09-30, epic-8
    * amendments 151–155) the server folded into this hull's forward speed cap
@@ -706,7 +755,7 @@ export interface Contact {
  * range-derivable quantity. It is observer-INDEPENDENT: every observer
  * painting this hull this tick receives the identical mask. (The radar buoy's
  * frozen-pose paint went with the buoy in Story 8.16; a DECOY BUOY paints as
- * an anonymous `CONFIG.decoyBuoy.sizeU` square. The CHAFF fakes, shaped like
+ * an anonymous `CONFIG.buoy.sizeU` square. The CHAFF fakes, shaped like
  * a real hull's footprint, were retired with CHAFF in Story 9.2.)
  *
  * WIRE LAYOUT: `gx`/`gy` are ABSOLUTE world cell indices of the rect's min
@@ -1454,8 +1503,19 @@ export interface FoulZoneView {
  * remaining hull; the key is ABSENT for every other observer, never an
  * `undefined` value. Own-only field on an own-only object — it opens no new
  * disclosure and the perception exception count stays at SIX. A decoy
- * dropping out of the list means DESTROYED or out of view — the client cannot
- * tell (the mines precedent); it has no lifetime and outlives its owner.
+ * dropping out of the list means DESTROYED, EXPIRED or out of view — the
+ * client cannot tell (the mines precedent); it outlives its owner for the rest
+ * of its life.
+ *
+ * STORY 10.9 (Eric 2026-10-27/28, epic-10 amendments 2 and 4): the body is one
+ * of FOUR BUOYS now (the plain DECOY BUOY is retired; the machinery keeps the
+ * `decoy` name for the physical sponge object). `kind` rides EVERY observer's
+ * view — whoever sees the body sees what it is, as a mine's `c` does — and
+ * the two OWN-ONLY fields are self-private exactly like `hp`: `sweep`, the
+ * RADAR kind's own sweep angle (absent on the other kinds), and `until`, the
+ * server-clock expiry (`CONFIG.buoy.lifetimeMs` after the drop) that drives
+ * the owner's life arc and the hotbar's ACTIVE readout. A sighted ENEMY buoy
+ * shows its kind, never its sweep or its timer.
  */
 export interface DecoyView {
   id: string; // the decoy's own id
@@ -1463,7 +1523,10 @@ export interface DecoyView {
   y: number; // u
   own: boolean; // true iff the receiving observer OWNS this decoy (per-observer, the mines precedent)
   by: string; // the owner's ship id (personal-hue + roster attribution) — every observer
+  kind: BuoyKind; // what the buoy DOES — every observer who sees the body (Story 10.9)
   hp?: number; // hp left — PRESENT ONLY when `own` (self-private, the OwnShip shield idiom)
+  sweep?: number; // rad — the RADAR buoy's sweep angle — PRESENT ONLY when `own` AND `kind === 'radar'` (self-private, like OwnShip.sweep)
+  until?: number; // ms — server-clock expiry — PRESENT ONLY when `own` (self-private)
 }
 
 /**
@@ -1501,7 +1564,7 @@ export interface CloudView {
  *   'cooling'    — a WEAPON click against an empty pool (the round is
  *                  reloading; the weapon channel's empty-pool vocabulary).
  *   'no-ammo'    — an ABILITY press against an empty pool (no charge).
- *   'blocked'    — a placement (mine/decoyBuoy) whose point lands inside an
+ *   'blocked'    — a placement (mine/buoy) whose point lands inside an
  *                  island or outside the water — nothing consumed.
  * The gate's 'dead'/'empty-slot' refusals never ride the wire: they are
  * either perfectly client-predictable (dead) or unreachable for an honest

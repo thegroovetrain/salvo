@@ -24,6 +24,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
+  CONSUMABLE_IDS,
   EQUIPMENT_IDS,
   EQUIPMENT_INT_FIELDS,
   LINE_IDS,
@@ -798,7 +799,7 @@ describe('THE EQUIPMENT RELOAD STEP (catalog-v3 §3 standing rule)', () => {
     // there are none left — FLASH SHELLS (the FOULING SHELL since Story 9.4) is
     // a consumable and PHOSPHOR SHELLS a real equipment line (whose own tier it
     // DOES move).
-    const s = effectiveStats(BASE, ['foulingShell', 'hullRepair', 'decoyBuoy']);
+    const s = effectiveStats(BASE, ['foulingShell', 'hullRepair', 'healingBuoy']);
     for (const id of EQUIPMENT_IDS) expect(s.equipment[id].tier, id).toBe(1);
   });
 });
@@ -1061,9 +1062,10 @@ describe('effectiveStats — every NON-STUB line folds (no dead cards)', () => {
     // supercav is the proof that the id MOVED id spaces rather than keeping a
     // row: five copies of it move nothing at all.
     // FLASH SHELLS joined in Story 8.17 (amendment 132) and became the
-    // FOULING SHELL in Story 9.4: like supercav, it carries no stat row.
-    for (const id of ['hullRepair', 'shieldBlock', 'countermeasure', 'decoyBuoy',
-      'depthCharge', 'supercavTorpedo', 'foulingShell'] as const) {
+    // FOULING SHELL in Story 9.4: like supercav, it carries no stat row. Story
+    // 10.9 brought FLASH SHELLS back and added the four buoys — the law is over
+    // EVERY consumable id, so the list is the table itself.
+    for (const id of CONSUMABLE_IDS) {
       expect(effectiveStats(BASE, stack(id, 5)), id).toEqual(effectiveStats(BASE));
     }
   });

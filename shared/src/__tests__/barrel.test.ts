@@ -343,8 +343,9 @@ describe('shared barrel', () => {
   });
 
   it('CONFIG.foulingShell: no damage, no tiers, and a slow that leaves the hull moving (Story 9.4, epic-9 amendments 61–68)', () => {
-    // FLASH SHELLS' block is gone with its dazzle; the FOULING SHELL took its seat.
-    expect('flashShells' in CONFIG).toBe(false);
+    // FLASH SHELLS' block left with Story 9.4 and is BACK beside this one since
+    // Story 10.9 (its own pin below); the two click shells share this reach.
+    expect('flashShells' in CONFIG).toBe(true);
     const fs = CONFIG.foulingShell;
     expect('damage' in fs).toBe(false); // zero damage — a slow is not damage
     // Its reach is its own FIXED dial since Story 9.8 (ruling 125: 8/12, no
@@ -385,9 +386,44 @@ describe('shared barrel', () => {
     // swap-and-triple multiplier has no consumer. Inverted pin, same reason.
     expect('captiveTriggerFactor' in CONFIG.mine).toBe(false);
     expect((CONFIG as Record<string, unknown>).cannon).toBeUndefined();
-    // The LEGACY decoy-buoy EQUIPMENT block stays gone: `CONFIG.decoyBuoy` is
-    // the 8.16 CONSUMABLE's two numbers now, nothing of the 7-5 equipment.
-    expect(Object.keys(CONFIG.decoyBuoy).sort()).toEqual(['hp', 'sizeU']);
+    // The LEGACY decoy-buoy EQUIPMENT block stays gone, and so does the 8.16
+    // CONSUMABLE's `CONFIG.decoyBuoy` (Story 10.9): the four buoys share ONE
+    // `CONFIG.buoy` block — the body's two numbers plus the life, the effect
+    // radius, the two tail dials and one sub-block per effect kind.
+    expect((CONFIG as Record<string, unknown>).decoyBuoy).toBeUndefined();
+    expect(Object.keys(CONFIG.buoy).sort()).toEqual(
+      ['heal', 'hp', 'lifetimeMs', 'radiusU', 'shield', 'sizeU', 'speed', 'tailHoldMs', 'tailRampMs'],
+    );
+    expect(Object.keys(CONFIG.buoy.heal)).toEqual(['missingPctPerS']);
+    expect(Object.keys(CONFIG.buoy.shield)).toEqual(['maxHpPctPerS']);
+    expect(Object.keys(CONFIG.buoy.speed)).toEqual(['factor']);
+    // RELATIONS, not values: a buoy lives, reaches, and every rate is a
+    // positive fraction; the tail dials are non-negative.
+    expect(CONFIG.buoy.lifetimeMs).toBeGreaterThan(0);
+    expect(CONFIG.buoy.radiusU).toBeGreaterThan(CONFIG.buoy.sizeU);
+    expect(CONFIG.buoy.tailHoldMs).toBeGreaterThanOrEqual(0);
+    expect(CONFIG.buoy.tailRampMs).toBeGreaterThanOrEqual(0);
+    for (const pct of [CONFIG.buoy.heal.missingPctPerS, CONFIG.buoy.shield.maxHpPctPerS, CONFIG.buoy.speed.factor]) {
+      expect(pct).toBeGreaterThan(0);
+      expect(pct).toBeLessThan(1);
+    }
+  });
+
+  it('CONFIG.flashShells: back beside the fouling shell — no damage, no reach of its own, a sight fraction in (0, 1) (Story 10.9)', () => {
+    const fl = CONFIG.flashShells;
+    expect(Object.keys(fl).sort()).toEqual(
+      ['arc', 'durationMs', 'hits', 'radius', 'shellRadius', 'shellSpeed', 'sightFraction'],
+    );
+    expect('damage' in fl).toBe(false); // a dazzle is not damage
+    // ONE reach for the two click shells (ruling 2): the flash has NO rangeU
+    // of its own — the server reads CONFIG.foulingShell.rangeU for both.
+    expect('rangeU' in fl).toBe(false);
+    expect(fl.hits).toEqual(['hull', 'decoy']); // the star shell's mask — never a mine
+    expect(fl.arc).toBe('full');
+    expect(fl.sightFraction).toBeGreaterThan(0);
+    expect(fl.sightFraction).toBeLessThan(1);
+    expect(fl.radius).toBeGreaterThan(0);
+    expect(fl.durationMs).toBeGreaterThan(0);
   });
 
   it('CONFIG.torpedo: the homing travel budget is finite and positive, so a fish can never orbit forever', () => {
@@ -473,16 +509,29 @@ describe('shared barrel', () => {
     // TYPE-LEVEL PINS as much as runtime ones — this file type-checks in the
     // gate, so a missing `DecoyView` export, a required `hp`, a missing
     // `FrameMsg.decoys` or `OwnShip.shield` fails to compile here.
-    const own: DecoyView = { id: 'd1', x: 10, y: 20, own: true, by: 'ship1', hp: 50 };
+    // Story 10.9: `kind` rides every view; `sweep` (radar kind) and `until`
+    // are own-only, like `hp`.
+    const own: DecoyView = { id: 'd1', x: 10, y: 20, own: true, by: 'ship1', kind: 'radar', hp: 50, sweep: 0.5, until: 30000 };
     expect(own.hp).toBe(50);
-    // Every other observer: `by` (the hue latch, amendment 124(a)), NO `hp`.
-    const seen: DecoyView = { id: 'd1', x: 10, y: 20, own: false, by: 'ship1' };
+    expect(own.kind).toBe('radar');
+    // Every other observer: `by` (the hue latch, amendment 124(a)) and `kind`,
+    // NO `hp`, NO `sweep`, NO `until`.
+    const seen: DecoyView = { id: 'd1', x: 10, y: 20, own: false, by: 'ship1', kind: 'healing' };
     expect(seen.hp).toBeUndefined();
-    expect(Object.keys(seen)).toEqual(['id', 'x', 'y', 'own', 'by']);
+    expect(seen.sweep).toBeUndefined();
+    expect(seen.until).toBeUndefined();
+    expect(Object.keys(seen)).toEqual(['id', 'x', 'y', 'own', 'by', 'kind']);
     const frame: Pick<FrameMsg, 'decoys'> = { decoys: [own] };
     expect(frame.decoys).toHaveLength(1);
     const shield: NonNullable<OwnShip['shield']> = { hp: 100, until: 10000 };
     expect(shield.hp).toBe(CONFIG.shieldBlock.hp);
+    // Story 10.9's three self-private own-ship fields compile in their shapes.
+    const you: Pick<OwnShip, 'dazzledUntil' | 'buoyShield' | 'speedBuoyAt'> = {
+      dazzledUntil: 12000,
+      buoyShield: { hp: 7 },
+      speedBuoyAt: 11000,
+    };
+    expect(you.buoyShield?.hp).toBe(7);
   });
 
   it('re-exports the 9.3 COUNTERMEASURE shapes: the cloud.ts disc functions, CloudRecord (server store), CloudView + FrameMsg.clouds (wire)', () => {

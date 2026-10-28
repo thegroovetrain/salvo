@@ -719,9 +719,9 @@ describe('stepShell — a DIRECT shell expires at its aim point, never bursts (S
 // acquires it; an ENEMY's ordnance treats it like any target. The skip is in
 // the pure sweep / acquire / burst math, so both sides agree by construction.
 
-/** A DECOY BUOY target: a `CONFIG.decoyBuoy.sizeU` square centred on (x, y). */
+/** A BUOY target (the `decoy` body, Story 10.9): a `CONFIG.buoy.sizeU` square centred on (x, y). */
 function decoyAt(x: number, y: number, ownerId: string | undefined, id = 'd1'): Target {
-  const h = CONFIG.decoyBuoy.sizeU / 2;
+  const h = CONFIG.buoy.sizeU / 2;
   const poly = [
     { x: x - h, y: y - h },
     { x: x + h, y: y - h },
@@ -783,6 +783,89 @@ describe("stepShell / burstVictims — the OWNER'S own decoy is never touched (S
   it('mines are STILL never a sweep subject, whatever their ownerId (amendment 20 unchanged)', () => {
     const enemyMine: Target = { id: 'm1', kind: 'mine', poly: [{ x: 300, y: 0 }], ownerId: 'enemy' };
     expect(stepToOutcome(shell(), ctx({ targets: [enemyMine] })).kind).toBe('expired');
+  });
+});
+
+// --- Story 10.9: homing PREFERS an enemy buoy (Eric 2026-10-28, ruling 3) ----
+// Any ENEMY buoy (a `decoy` target not the owner's) inside the fish's acquire
+// range wins: the fish locks the NEAREST BUOY and ignores every hull. With no
+// enemy buoy in range the nearest-hull law is unchanged. Own buoys are never a
+// target (no friendly fire). The acquire range is read from CONFIG, never
+// pinned. The fish's velocity is left pointing +x so the lock alone is read.
+
+describe('acquireNearest via stepShell — an enemy buoy in range beats every hull (Story 10.9, ruling 3)', () => {
+  const R = CONFIG.torpedo.homingAcquireRange;
+  const nearD = Math.floor(R / 12); // "near" — a hull a fish would otherwise lock first
+  const farD = Math.floor(R * 0.9); // "far" — still inside the acquire range
+
+  /** A fish with homing at CONFIG values, launched from the origin along +x. */
+  function fish(ownerId = 'owner'): ShellState {
+    return homingTorp({ ownerId });
+  }
+
+  it('a hull at 1/12 R and an ENEMY buoy at 0.9 R → the BUOY is locked', () => {
+    const t = fish();
+    stepShell(t, ctx({ targets: [hullAt(nearD, 0, 0, 'prey'), decoyAt(farD, 0, 'enemy', 'eb')] }));
+    expect(t.homing!.targetId).toBe('eb');
+  });
+
+  it('the OWN buoy at 1/12 R and a hull at 0.9 R → the HULL (own buoys are never a target)', () => {
+    const t = fish();
+    stepShell(t, ctx({ targets: [decoyAt(nearD, 0, 'owner', 'ob'), hullAt(farD, 0, 0, 'prey')] }));
+    expect(t.homing!.targetId).toBe('prey');
+  });
+
+  it('an enemy buoy OUTSIDE R and a hull inside → the hull (the preference is bounded by the acquire range)', () => {
+    const t = fish();
+    stepShell(t, ctx({ targets: [decoyAt(R + 10, 0, 'enemy', 'eb'), hullAt(farD, 0, 0, 'prey')] }));
+    expect(t.homing!.targetId).toBe('prey');
+  });
+
+  it('two enemy buoys in range → the NEARER buoy, whatever the hulls', () => {
+    const t = fish();
+    stepShell(t, ctx({
+      targets: [hullAt(nearD, 0, 0, 'prey'), decoyAt(farD, 0, 'enemy', 'farB'), decoyAt(farD / 2, 0, 'other', 'nearB')],
+    }));
+    expect(t.homing!.targetId).toBe('nearB');
+  });
+
+  it('no buoy at all → the nearest hull exactly as before (and the owner is still skipped)', () => {
+    const t = fish();
+    stepShell(t, ctx({ targets: [hullAt(nearD, 0, 0, 'owner'), hullAt(farD, 0, 0, 'farther'), hullAt(farD / 2, 0, 0, 'nearer')] }));
+    expect(t.homing!.targetId).toBe('nearer');
+  });
+
+  it('PROPERTY: over seeded layouts, a buoy is locked iff an enemy buoy lies within R', () => {
+    let seed = 0x10_09;
+    const rnd = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 0x1_0000_0000;
+    };
+    for (let i = 0; i < 200; i += 1) {
+      const targets: Target[] = [];
+      const nHulls = 1 + Math.floor(rnd() * 3);
+      const nBuoys = Math.floor(rnd() * 3);
+      for (let h = 0; h < nHulls; h += 1) {
+        const a = rnd() * Math.PI * 2;
+        const d = rnd() * R * 1.5;
+        targets.push(hullAt(Math.cos(a) * d, Math.sin(a) * d, 0, `h${h}`));
+      }
+      let enemyBuoyInRange = false;
+      for (let b = 0; b < nBuoys; b += 1) {
+        const a = rnd() * Math.PI * 2;
+        const d = rnd() * R * 1.5;
+        const own = rnd() < 0.3;
+        // Keep the centre clear of the band edge so the inclusive compare is unambiguous.
+        if (Math.abs(d - R) < 1) continue;
+        if (!own && d < R) enemyBuoyInRange = true;
+        targets.push(decoyAt(Math.cos(a) * d, Math.sin(a) * d, own ? 'owner' : 'enemy', `b${b}`));
+      }
+      const t = fish();
+      stepShell(t, ctx({ targets, mapRadius: 10_000 }));
+      const locked = t.homing!.targetId;
+      const lockedKind = targets.find((x) => x.id === locked)?.kind;
+      expect(lockedKind === 'decoy', `layout ${i}: locked ${locked ?? 'nothing'}`).toBe(enemyBuoyInRange);
+    }
   });
 });
 
