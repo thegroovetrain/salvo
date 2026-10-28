@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import {
   CATALOG,
   CONFIG,
+  DEFAULT_KIT,
   EQUIPMENT_IDS,
   arcFor,
   effectiveStats,
@@ -77,7 +78,7 @@ const FITTED: Record<'torpedoBoat' | 'battleship' | 'mineLayer', readonly string
  */
 function idAt(cls: 'torpedoBoat' | 'battleship' | 'mineLayer', slot: number): EquipmentId | null {
   const stats = effectiveStats(CONFIG.shipClasses[cls]);
-  const id = slotsWithCards(stats, FITTED[cls])[slot].equipmentId;
+  const id = slotsWithCards(stats, FITTED[cls], DEFAULT_KIT)[slot].equipmentId;
   // A slot's content is a `SlotItemId` since Story 8.7 — narrowed, never cast.
   return id === null || isConsumableId(id) ? null : id;
 }

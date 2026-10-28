@@ -12,6 +12,7 @@ import type { Room } from '@colyseus/sdk';
 import {
   CONFIG,
   DEFAULT_GUN,
+  DEFAULT_KIT,
   MSG,
   MULLIGAN_CHOICE,
   NO_CARDS,
@@ -35,6 +36,7 @@ import {
   type Island,
   type ContactBody,
   type DeniedView,
+  type ConsumableKit,
   type EffectiveStats,
   type EquipmentId,
   type GunId,
@@ -681,6 +683,15 @@ interface Game {
    */
   ownSlots: readonly (SlotItemId | null)[];
   /**
+   * Own consumable KIT (Story 10.1, epic-10 amendment 3) — the four lines in
+   * key order, `kit[i]` at slot `5 + i`. Comes from the WIRE (`OwnShip.kit`,
+   * self-private) through the ownStatsChanged seam, never from localStorage;
+   * `DEFAULT_KIT` is only the placeholder until the first own-ship frame (the
+   * way `ownClass` starts as a guess). `ownSlots` is replayed from it, and the
+   * hotbar / results twin / fit flash name a kit square's kind through it.
+   */
+  ownKit: ConsumableKit;
+  /**
    * performance.now() when the refit window last CLOSED (-Infinity until it
    * ever has — so a fresh match is never inside the grace). For
    * CLIENT_CONFIG.refit.closeGraceMs afterwards the digits `1`-`4` are inert:
@@ -750,6 +761,9 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
  * `classShift(cls)` — the same read the server fits slot 1 from — so the Mine
  * Layer's square holds INSTANT RELOAD and the Battleship's HUNKER (was DAMAGE CUT until Story 9.9).
  *
+ * THE KIT SQUARES ARE REPLAYED FROM THE SEAT'S KIT (Story 10.1): `kit[i]` is
+ * the only line slot `5 + i` can hold — the server's own `loadoutFor` input.
+ *
  * NO HULL ID. Story 8.5 deleted the per-hull fit: what a captain carries is a
  * fact about their PICKS, never about their hardware, so the replay is the only
  * thing that can answer "what is in slot 3". The `fleet` flag is not passed
@@ -759,9 +773,10 @@ function slotIdsFor(
   stats: EffectiveStats,
   cards: readonly string[],
   cls: ShipClassId,
+  kit: ConsumableKit,
   gun: GunId = DEFAULT_GUN,
 ): (SlotItemId | null)[] {
-  return slotsWithCards(stats, cards, CATALOG, false, gun, classShift(cls)).map((s) => s.equipmentId);
+  return slotsWithCards(stats, cards, kit, CATALOG, false, gun, classShift(cls)).map((s) => s.equipmentId);
 }
 
 /**
@@ -1763,6 +1778,9 @@ function ownResultsIdentity(g: Game): ResultsOwn | null {
     // `g.ownStats` in the frame handler that advances `net.you`, so they are
     // coherent with it at death and at game end alike — no second fold.
     gun: you.gun,
+    // The kit the loadout was replayed from (Story 10.1): names a ZERO-STOCK
+    // belt square's kind on the twin, exactly as on the live bar.
+    kit: g.ownKit,
     slots: g.ownSlots,
     ammo: you.ammo,
     stats: g.ownStats,
@@ -2809,7 +2827,7 @@ function onOwnDecoy(audio: Audio): void {
 function latchFitFlash(g: Game, cardId: string): void {
   // A consumable's square is FIXED (Story 9.2): flash the kind's own square even
   // when the stack was at zero a frame ago (`ownSlots` has not replayed yet).
-  const slot = isConsumableId(cardId) ? consumableSlotFor(cardId) : slotForCard(g.ownSlots, cardId);
+  const slot = isConsumableId(cardId) ? consumableSlotFor(g.ownKit, cardId) : slotForCard(g.ownSlots, cardId);
   if (slot === null) g.fitFramePress = true;
   else g.fitPress[slot] = true;
 }
@@ -2988,7 +3006,9 @@ function buildGame(
     wasHpFrac: null, hpStingFloor: hpStingFloor(),
     prevClickCount: 0, lastTickClick: 0, lastTickRelease: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
-    ownStats: stats, ownSlots: slotIdsFor(stats, NO_CARDS, cls),
+    // The kit is DEFAULT_KIT only until the first own-ship frame replaces it
+    // with the seat's own (Story 10.1 — the wire, never localStorage).
+    ownStats: stats, ownSlots: slotIdsFor(stats, NO_CARDS, cls, DEFAULT_KIT), ownKit: DEFAULT_KIT,
     refitClosedAt: -Infinity, refitWasOpen: false,
     // Story 8.10: both are per-MATCH latches, and a fresh Game is built per
     // join — so a join is already a reset, and `updateMatchEpoch` owns every
@@ -3063,7 +3083,7 @@ function visionChanged(a: EffectiveStats, b: EffectiveStats): boolean {
  * localStorage correction); an upgrade that touches kinematics swaps the
  * config in place and lets the next reconcile replay pending inputs under it.
  */
-function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun: GunId): void {
+function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun: GunId, kit: ConsumableKit): void {
   // FAIL-OPEN ON THE CLASS TABLE, BEFORE ANY MUTATION (cycle 91 review gate).
   // This is the PRIMARY site — gating boonCopy/upgradeMenu alone did not make an
   // unresolvable `cls` survivable, because this function threw first. Worse, it
@@ -3090,7 +3110,8 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   // the slot activate-vs-prime split, HUD chips, and ammo fallback all read
   // from here — derived via the SAME shared slot-effect replay the server
   // applies incrementally (slotsWithCards), so slot ids agree by construction.
-  g.ownSlots = slotIdsFor(stats, cards, cls, gun);
+  g.ownKit = kit; // Story 10.1: the seat's kit, off the wire
+  g.ownSlots = slotIdsFor(stats, cards, cls, kit, gun);
   // A PRIME CANNOT OUTLIVE ITS SLOT (review patch P8). A consumable square
   // empties itself: the last copy of a stocked kind is spent and the square
   // goes to ZERO-STOCK (dashed). A prime left standing on it would swallow every click that follows
@@ -3185,7 +3206,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // bearing from), so the bearing is derived from wherever the camera is at
     // the instant it lands — read live, never captured.
     cameraCenter: () => g.camera.center,
-    onOwnStats: (cls, cards, gun) => applyOwnStats(g, cls, cards, gun),
+    onOwnStats: (cls, cards, gun, kit) => applyOwnStats(g, cls, cards, gun, kit),
     // Story 1.10: self-private server denials route through the
     // exactly-one-feedback dedup (predicted-first suppresses the echo).
     onDenied: (d) => handleServerDenial(g, d),
@@ -3567,6 +3588,7 @@ function hotbarDeniedDegraded(g: Game, status: OwnStatus): boolean[] {
 function hotbarView(g: Game, status: OwnStatus): HotbarView {
   return {
     loadout: status.loadout,
+    kit: g.ownKit, // Story 10.1: a zero-stock kit square's kind
     ammo: status.ammo,
     stats: status.stats,
     // The HP globe's SHIP tooltip names the hull (epic-8 amendment 186).

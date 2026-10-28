@@ -11,7 +11,7 @@ import { hullFillAlpha, hullPulseHz } from '../render/hpGlobe.js';
 import { motionIntensity, motionScaled } from '../settings/store.js';
 import { hullLook } from '../render/ships.js';
 import { CLIENT_CONFIG } from '../config.js';
-import { CONFIG, effectiveStats } from '@salvo/shared';
+import { CONFIG, DEFAULT_KIT, effectiveStats } from '@salvo/shared';
 
 /** A deterministic rng so the shake offset is a pure function of magnitude. */
 const RNG = (): number => 0;
@@ -124,6 +124,7 @@ describe('hotbar — the ACTIVATED pop is juice; DENIED never is', () => {
   function view(motion: 'full' | 'reduced' | 'off'): HotbarView {
     return {
       loadout: ['gun', 'heavyTorpedo', 'boost', null],
+      kit: DEFAULT_KIT,
       ammo: [null, null, null, null],
       stats,
       primedSlot: 0,

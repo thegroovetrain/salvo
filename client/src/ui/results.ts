@@ -50,6 +50,7 @@
 // rest is a thin DOM adapter.
 
 import {
+  type ConsumableKit,
   type EffectiveStats,
   type GunId,
   type ResultsMsg,
@@ -323,6 +324,10 @@ export interface ResultsOwn {
   cards: readonly string[];
   /** The seat gun (`OwnShip.gun`) — slot 0's mount. */
   gun: GunId;
+  /** The ship's KIT (`OwnShip.kit`, Story 10.1): the four consumable lines in
+   *  key order — the LOADOUT twin names a ZERO-STOCK belt square's kind
+   *  through `consumableKindAt(kit, slot)`. */
+  kit: ConsumableKit;
   /** Slot-aligned item ids of the own loadout as it ended (`g.ownSlots`: the
    *  replayed `slotIdsFor`), `null` for an empty square — a belt stack fired to
    *  zero has left `cards`, so it is simply empty here too (Eric R4). */

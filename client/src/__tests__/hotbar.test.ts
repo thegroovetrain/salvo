@@ -26,6 +26,9 @@
 // weapon row plus six FIXED consumable squares in CONSUMABLE_KEY_ORDER, keys
 // 1–6 — and a NEW state, ZERO-STOCK, on a consumable square whose kind is at
 // zero copies (dashed, the kind's own glyph faint, no badge, deniable).
+// STORY 10.1 (epic-10 amendment 3) cut the row to the ship's KIT: four lines
+// the captain picks, `kit[i]` at slot `5 + i`, keys `1`…`KIT_SIZE`. This suite
+// sails a NON-DEFAULT kit (`KIT`) so nothing rides DEFAULT_KIT silently.
 //
 // STORY 8.6 MOVED THE WHOLE THING onto the bottom-centre bar. What changed here:
 //   • the geometry block is gone — `hudBarLayout` (render/hudBar.ts) owns every
@@ -47,9 +50,10 @@ import { fileURLToPath } from 'node:url';
 import {
   CATALOG,
   CONFIG,
-  CONSUMABLE_KEY_ORDER,
   CONSUMABLE_SLOTS,
+  DEFAULT_KIT,
   GUN_IDS,
+  KIT_SIZE,
   MOUNTED_GUN,
   SLOT_BOOST,
   SLOT_COUNT,
@@ -59,6 +63,9 @@ import {
   isConsumableId,
   slotsWithCards,
   classShift,
+  consumableKindAt,
+  consumableSlotFor,
+  type ConsumableKit,
   type EffectiveStats,
   type EquipmentId,
   type GunId,
@@ -158,6 +165,10 @@ const FITTED: Record<ShipClassId, readonly string[]> = {
   mineLayer: ['navalMines'],
 };
 
+/** The suite's KIT (Story 10.1): a NON-DEFAULT four, in a non-default order,
+ *  so a reader that silently fell back to DEFAULT_KIT would name the wrong kind. */
+const KIT: ConsumableKit = ['foulingShell', 'supercavTorpedo', 'hullRepair', 'shieldBlock'];
+
 /**
  * The slot ids a hull sails with once those cards are aboard — main.ts's
  * slotIdsFor, verbatim. Story 8.5: the base fit is hull-free (gun + boost +
@@ -170,7 +181,7 @@ function idsFor(cls: ShipClassId, stats: EffectiveStats): (EquipmentId | null)[]
   // through the shared guard here exactly as main.ts's readers do. These cards
   // never stock the belt, so this is the identity today — it is written as a
   // narrowing rather than a cast because ruling 1 forbids the cast.
-  return slotsWithCards(stats, FITTED[cls]).map((s) =>
+  return slotsWithCards(stats, FITTED[cls], KIT).map((s) =>
     s.equipmentId === null || isConsumableId(s.equipmentId) ? null : s.equipmentId,
   );
 }
@@ -188,7 +199,8 @@ function at<T>(v: T, over: Record<number, T>): T[] {
   return out;
 }
 
-/** A live hotbar view: full pools, nothing cooling, gun selected, no flags. */
+/** A live hotbar view: full pools, nothing cooling, gun selected, no flags,
+ *  sailing the suite's NON-DEFAULT `KIT`. */
 function viewFor(cls: ShipClassId, over: Partial<HotbarView> = {}): HotbarView {
   const stats = statsFor(cls);
   const loadout = idsFor(cls, stats);
@@ -197,6 +209,7 @@ function viewFor(cls: ShipClassId, over: Partial<HotbarView> = {}): HotbarView {
   );
   return {
     loadout,
+    kit: KIT,
     ammo,
     stats,
     primedSlot: SLOT_GUN,
@@ -207,15 +220,18 @@ function viewFor(cls: ShipClassId, over: Partial<HotbarView> = {}): HotbarView {
   };
 }
 
-describe('slot order — Gun (keyless) / Shift / Q / E / R / 1-6', () => {
-  it('is ELEVEN squares with the gun first and no key of its own', () => {
-    const keys = ['', 'Shift', 'Q', 'E', 'R', '1', '2', '3', '4', '5', '6'];
-    expect(SLOT_KEY_GLYPHS).toEqual(keys);
+describe('slot order — Gun (keyless) / Shift / Q / E / R / the kit\'s keys', () => {
+  it('is one square per slot with the gun first and no key of its own; the kit keys run 1…KIT_SIZE', () => {
+    expect(SLOT_COUNT).toBe(WEAPON_SLOTS[WEAPON_SLOTS.length - 1] + 1 + KIT_SIZE);
     expect(SLOT_KEY_GLYPHS).toHaveLength(SLOT_COUNT);
+    // The kit squares' chips are the digits 1…KIT_SIZE, in slot order.
+    expect(CONSUMABLE_SLOTS.map((slot) => SLOT_KEY_GLYPHS[slot])).toEqual(
+      CONSUMABLE_SLOTS.map((_, i) => String(i + 1)),
+    );
     const rows = slotViewModels(viewFor('torpedoBoat'));
     expect(rows).toHaveLength(SLOT_COUNT);
-    expect(rows.map((r) => r.keyGlyph)).toEqual(keys);
-    expect(rows.map((r) => r.slot)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(rows.map((r) => r.keyGlyph)).toEqual(SLOT_KEY_GLYPHS);
+    expect(rows.map((r) => r.slot)).toEqual(Array.from({ length: SLOT_COUNT }, (_, i) => i));
   });
 
   it('keys the boost square, and the GUN alone stays keyless (amendment 33)', () => {
@@ -224,22 +240,32 @@ describe('slot order — Gun (keyless) / Shift / Q / E / R / 1-6', () => {
     expect(SLOT_KEY_GLYPHS.filter((g) => g === '')).toHaveLength(1);
   });
 
-  it('EVERY captain hull carries the same shape: gun, boost, fitted weapons, empties, the six kinds', () => {
+  it('EVERY captain hull carries the same shape: gun, boost, fitted weapons, empties, the kit', () => {
     // The per-hull fit is gone (Story 8.5). What differs between hulls is what
     // their CARDS put in the weapon row — here, this suite's own fixture. The
-    // six consumable squares name their FIXED kind even at zero stock (Story
-    // 9.2): the model carries it for the glyph and the tooltip.
+    // kit squares name their kind even at zero stock (Story 9.2; the KIT's
+    // kind since Story 10.1): the model carries it for the glyph and the tooltip.
     expect(slotViewModels(viewFor('torpedoBoat')).map((r) => r.id)).toEqual(
-      ['gun', 'boost', 'heavyTorpedo', null, null, ...CONSUMABLE_KEY_ORDER],
+      ['gun', 'boost', 'heavyTorpedo', null, null, ...KIT],
     );
     expect(slotViewModels(viewFor('battleship')).map((r) => r.id)).toEqual(
-      ['gun', 'boost', 'broadside', 'starShells', null, ...CONSUMABLE_KEY_ORDER],
+      ['gun', 'boost', 'broadside', 'starShells', null, ...KIT],
     );
     // AMENDMENT 22: the Mine Layer lost the radar buoy — no card reaches it,
     // so E stays empty; Story 8.16 deleted the module.
     expect(slotViewModels(viewFor('mineLayer')).map((r) => r.id)).toEqual(
-      ['gun', 'boost', 'navalMines', null, null, ...CONSUMABLE_KEY_ORDER],
+      ['gun', 'boost', 'navalMines', null, null, ...KIT],
     );
+  });
+
+  it('a zero-stock kit square names THE VIEW\'S kit\'s kind — another kit, another glyph', () => {
+    const mine = slotViewModels(viewFor('torpedoBoat'));
+    const fresh = slotViewModels(viewFor('torpedoBoat', { kit: DEFAULT_KIT }));
+    for (const slot of CONSUMABLE_SLOTS) {
+      expect(mine[slot].id, String(slot)).toBe(consumableKindAt(KIT, slot));
+      expect(fresh[slot].id, String(slot)).toBe(consumableKindAt(DEFAULT_KIT, slot));
+    }
+    expect(CONSUMABLE_SLOTS.some((slot) => mine[slot].id !== fresh[slot].id)).toBe(true);
   });
 
   it('gives NO SQUARE any words at all — fitted or empty (UX-DR41 / Story 8.6)', () => {
@@ -250,7 +276,7 @@ describe('slot order — Gun (keyless) / Shift / Q / E / R / 1-6', () => {
     expect(model.name).toBeUndefined();
     expect(model.quickInfo).toBeUndefined();
     const empties = slotViewModels(viewFor('battleship')).filter((r) => r.state === 'empty' || r.state === 'zeroStock');
-    expect(empties).toHaveLength(7); // R + the six kinds at zero stock
+    expect(empties).toHaveLength(1 + CONSUMABLE_SLOTS.length); // R + the kit at zero stock
     for (const row of empties) {
       expect(row.badge).toBeNull();
       expect(row.tier).toBe(0);
@@ -270,11 +296,11 @@ describe('slot order — Gun (keyless) / Shift / Q / E / R / 1-6', () => {
     expect(refused[slot].state).toBe('denied');
   });
 
-  it('the six consumable squares at ZERO STOCK read zeroStock with their OWN kind (amendment 22)', () => {
+  it('the kit squares at ZERO STOCK read zeroStock with their OWN kind (amendment 22)', () => {
     const rows = slotViewModels(viewFor('torpedoBoat'));
     CONSUMABLE_SLOTS.forEach((slot, i) => {
       expect(rows[slot].state, String(slot)).toBe('zeroStock');
-      expect(rows[slot].id, String(slot)).toBe(CONSUMABLE_KEY_ORDER[i]); // the glyph's kind
+      expect(rows[slot].id, String(slot)).toBe(KIT[i]); // the glyph's kind — the view's kit
       expect(rows[slot].badge, String(slot)).toBeNull(); // no badge
       expect(rows[slot].tier, String(slot)).toBe(0); // a consumable never shows a tier
       expect(slotNumeral(rows[slot]), String(slot)).toBe('');
@@ -290,10 +316,11 @@ describe('slot order — Gun (keyless) / Shift / Q / E / R / 1-6', () => {
   });
 
   it('a ZERO-STOCK square is DENIABLE: its denied latch flashes it red, budget verdict and all', () => {
-    const slot = CONSUMABLE_SLOTS[3];
+    const last = CONSUMABLE_SLOTS.length - 1;
+    const slot = CONSUMABLE_SLOTS[last];
     const denied = slotViewModels(viewFor('torpedoBoat', { denied: at(false, { [slot]: true }) }))[slot];
     expect(denied.state).toBe('denied');
-    expect(denied.id).toBe(CONSUMABLE_KEY_ORDER[3]); // still its own glyph, now in denied red
+    expect(denied.id).toBe(KIT[last]); // still its own glyph, now in denied red
     expect(denied.badge).toBeNull();
     const degraded = slotViewModels(viewFor('torpedoBoat', {
       denied: at(false, { [slot]: true }),
@@ -563,7 +590,7 @@ describe('the machine gun\'s partial swap shows the ordinary wipe (amendment 112
 describe('the bar\'s rects — what the row draws on, and what it swallows', () => {
   const layout = hudBarLayout(1366, 768);
 
-  it('takes ELEVEN squares from the bar: five weapon squares and a framed six-kind belt', () => {
+  it('takes one square per slot from the bar: five weapon squares and the framed kit belt', () => {
     // The GEOMETRY is hudBarLayout's and is pinned there (hudBar.test.ts); what
     // this file pins is that the row reads the rects it is handed, in slot order.
     expect(layout.squares).toHaveLength(SLOT_COUNT);
@@ -625,17 +652,18 @@ describe('the bar\'s rects — what the row draws on, and what it swallows', () 
   });
 
   it('gives a belt square its OWN left-edge column back from the neighbour\'s badge', () => {
-    // `beltBadgeOverhang` (6) is exactly the belt gap (6), so slot 5's badge ends
-    // ON slot 6's left edge. With an inclusive rect tested before the next
-    // square, a press on that column's top 10px routed to slot 5 — the wrong
-    // kind, from a pixel that is visibly inside slot 6.
-    const six = layout.squares[6];
-    const five = badgeRect(layout, 5);
-    expect(five.x + five.w).toBe(six.x); // the edges really do coincide
-    expect(slotAtPoint({ x: six.x, y: six.y }, layout)).toBe(6);
-    expect(slotAtPoint({ x: six.x, y: six.y + 1 }, layout)).toBe(6);
+    // `beltBadgeOverhang` (6) is exactly the belt gap (6), so the first kit
+    // square's badge ends ON the second's left edge. With an inclusive rect
+    // tested before the next square, a press on that column's top 10px routed
+    // to the first — the wrong kind, from a pixel visibly inside the second.
+    const [first, second] = CONSUMABLE_SLOTS;
+    const next = layout.squares[second];
+    const badge = badgeRect(layout, first);
+    expect(badge.x + badge.w).toBe(next.x); // the edges really do coincide
+    expect(slotAtPoint({ x: next.x, y: next.y }, layout)).toBe(second);
+    expect(slotAtPoint({ x: next.x, y: next.y + 1 }, layout)).toBe(second);
     // The badge still owns everything of its own that is not another square.
-    expect(slotAtPoint({ x: five.x + five.w - 1, y: five.y + 1 }, layout)).toBe(5);
+    expect(slotAtPoint({ x: badge.x + badge.w - 1, y: badge.y + 1 }, layout)).toBe(first);
   });
 
   it('leaves the gaps, the belt\'s padding and open water as WATER', () => {
@@ -1230,7 +1258,7 @@ describe('the belt FRAME (ruling 5, back in Story 9.11)', () => {
     expect(layout.belt.h).toBeGreaterThan(B.beltSlot + B.chipH);
   });
 
-  it('encloses all six belt squares and their chips, and no weapon square', () => {
+  it('encloses every kit square and its chip, and no weapon square', () => {
     const { layout } = paint(viewFor('torpedoBoat'));
     const f = layout.belt;
     for (const slot of CONSUMABLE_SLOTS) {
@@ -1250,7 +1278,7 @@ describe('the belt FRAME (ruling 5, back in Story 9.11)', () => {
 });
 
 describe('the ZERO-STOCK square paints (Story 9.2)', () => {
-  it('draws the zero-stock slate edge AND the kind\'s own glyph on each of the six, with no badge box', () => {
+  it('draws the zero-stock slate edge AND the kind\'s own glyph on each kit square, with no badge box', () => {
     const { borderAlpha } = slotSkin('zeroStock');
     const muted = (ops: PaintOp[]): number =>
       ops.filter((o) => o.action === 'stroke' && o.color === C.textMuted && o.alpha === borderAlpha).length;
@@ -1258,12 +1286,12 @@ describe('the ZERO-STOCK square paints (Story 9.2)', () => {
     const base = viewFor('torpedoBoat');
     const stocked = paint({
       ...base,
-      loadout: base.loadout.map((id, slot) => (isConsumableSlot(slot) ? CONSUMABLE_KEY_ORDER[slot - CONSUMABLE_SLOTS[0]] : id)),
+      loadout: base.loadout.map((id, slot) => (isConsumableSlot(slot) ? consumableKindAt(KIT, slot) : id)),
       ammo: base.ammo.map((a, slot) => (isConsumableSlot(slot) ? { n: 1, reloadMsLeft: 0 } : a)),
     });
-    // Six edges plus at least six glyph strokes leave the slate register when
-    // every kind is stocked.
-    expect(muted(zero.ops) - muted(stocked.ops)).toBeGreaterThanOrEqual(12);
+    // One edge plus at least one glyph stroke per kit square leave the slate
+    // register when every kind is stocked.
+    expect(muted(zero.ops) - muted(stocked.ops)).toBeGreaterThanOrEqual(2 * CONSUMABLE_SLOTS.length);
     for (const slot of CONSUMABLE_SLOTS) {
       expect(zero.ops.some((o) => o.rects.some((r) => sameRect(r, badgeRect(zero.layout, slot)))), String(slot)).toBe(false);
     }
@@ -1466,11 +1494,13 @@ describe('a stocked BELT square', () => {
     // The server clears the slot the same tick a stack hits zero, so the two can
     // only disagree for the frame in between — and `×0` would be worse than the
     // ruled zero-stock square.
+    // HULL REPAIR's square under the suite's kit (Story 10.1) — derived.
+    const slot = consumableSlotFor(KIT, 'hullRepair') as number;
     const row = slotViewModels({
       ...viewFor('torpedoBoat'),
-      loadout: at<SlotItemId | null>(null, { 5: 'hullRepair' }),
+      loadout: at<SlotItemId | null>(null, { [slot]: 'hullRepair' }),
       ammo: nine<WeaponAmmo | null>(null),
-    })[5];
+    })[slot];
     expect(row.state).toBe('zeroStock');
     expect(row.id).toBe('hullRepair');
     expect(row.badge).toBeNull();
@@ -1629,7 +1659,7 @@ describe("slot 0 is the SEAT'S gun, replayed as main.ts derives it", () => {
     cls: ShipClassId,
     gun: GunId,
   ): (SlotItemId | null)[] {
-    return slotsWithCards(stats, cards, CATALOG, false, gun, classShift(cls)).map((s) => s.equipmentId);
+    return slotsWithCards(stats, cards, KIT, CATALOG, false, gun, classShift(cls)).map((s) => s.equipmentId);
   }
 
   it('walks every seat gun there is — the list is the shared one, so it cannot rot', () => {
@@ -1647,7 +1677,7 @@ describe("slot 0 is the SEAT'S gun, replayed as main.ts derives it", () => {
       expect(ids[SLOT_GUN]).toBe(MODULE[gun]);
       // ...and the PICK addresses slot 0 alone: a card's slotFill takes the
       // first empty of Q/E/R, so the rest of the row is the plain card replay.
-      const plain = slotsWithCards(stats, cards).map((s) => s.equipmentId);
+      const plain = slotsWithCards(stats, cards, KIT).map((s) => s.equipmentId);
       expect(ids.slice(1)).toEqual(plain.slice(1));
       expect(ids).toHaveLength(SLOT_COUNT);
     });
@@ -1671,7 +1701,7 @@ describe("slot 0 is the SEAT'S gun, replayed as main.ts derives it", () => {
   it('main.ts really pins the slot from the loadout, not from a literal', () => {
     // The helper above is a copy; this is the pin that keeps the copy honest.
     const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../main.ts'), 'utf8');
-    expect(src).toMatch(/slotsWithCards\(stats, cards, CATALOG, false, gun, classShift\(cls\)\)/);
+    expect(src).toMatch(/slotsWithCards\(stats, cards, kit, CATALOG, false, gun, classShift\(cls\)\)/);
   });
 });
 

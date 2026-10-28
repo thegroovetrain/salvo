@@ -15,6 +15,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { bindRoom } from '../net/roomBindings.js';
 import type { Connection } from '../net/connection.js';
 import type { RoomBindingDeps } from '../net/roomBindings.js';
+import { DEFAULT_KIT } from '@salvo/shared';
 
 /** The room surface bindRoom touches — signals are callable, not objects. */
 function fakeRoom(): unknown {
@@ -38,7 +39,7 @@ function frameWith(tick: number, cards: readonly string[]): unknown {
     events: [],
     you: {
       x: 0, y: 0, heading: 0, speed: 0, alive: true, hp: 100,
-      cls: 'torpedoBoat', cards, sweep: 0, pts: 0, offer: [], ammo: [],
+      cls: 'torpedoBoat', kit: [...DEFAULT_KIT], cards, sweep: 0, pts: 0, offer: [], ammo: [],
     },
   };
 }

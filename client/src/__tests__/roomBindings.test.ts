@@ -7,7 +7,7 @@
 // and reverts the primed weapon to the gun (the sunk-path symmetry: a resume is
 // a hard boundary, so a pre-outage prime never fires on the first click back).
 import { describe, expect, it, vi } from 'vitest';
-import { CONFIG, MSG } from '@salvo/shared';
+import { CONFIG, DEFAULT_KIT, MSG } from '@salvo/shared';
 import {
   BURN_AMOUNT_CAP,
   bindRoom,
@@ -66,7 +66,7 @@ function ownFrame(x: number, y: number): unknown {
     t: 100,
     tick: 1,
     ackSeq: 0,
-    you: { x, y, heading: 0, speed: 0, cls: 'torpedoBoat', upg: [], cards: [], alive: true, sweep: 0 },
+    you: { x, y, heading: 0, speed: 0, cls: 'torpedoBoat', kit: [...DEFAULT_KIT], upg: [], cards: [], alive: true, sweep: 0 },
     contacts: [],
     mines: [],
     events: [],
@@ -500,7 +500,7 @@ describe('bindRoom own sunk', () => {
     // events, so the window is read off the very frame that opened it.
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 0, alive: false, ammo: [], sweep: 0,
-      cls: 'torpedoBoat', pts: 0, offer: [], boostUntil: 0, cards: [], lvl: 0, xp: 0,
+      cls: 'torpedoBoat', kit: [...DEFAULT_KIT], pts: 0, offer: [], boostUntil: 0, cards: [], lvl: 0, xp: 0,
       repairHp: 0, sinkingUntil: 5200,
     };
     sink.handler({ t: 200, tick: 2, ackSeq: 0, you, contacts: [], mines: [], events: [{ k: 'sunk', id: 'me', by: 'rival' }] });
@@ -571,7 +571,7 @@ describe('bindRoom own sunk — the respawn ETA', () => {
     t, tick: 1, ackSeq: 0, contacts: [], mines: [], events,
     you: {
       id: 'me', x, y, heading: 0, speed: 10, hp: 0, alive: false, ammo: [], sweep: 0,
-      cls: 'torpedoBoat', pts: 0, offer: [], cards: [], boostUntil: 0, lvl: 0, xp: 0,
+      cls: 'torpedoBoat', kit: [...DEFAULT_KIT], pts: 0, offer: [], cards: [], boostUntil: 0, lvl: 0, xp: 0,
       repairHp: 0, sinkingUntil: 1000 + CONFIG.ship.sinkingWindowMs,
     },
   });
@@ -1186,7 +1186,7 @@ function rewardFrame(event: unknown, own: { alive: boolean; cards?: string[] } |
   if (!own) return { ...base, spec: true };
   return {
     ...base,
-    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', cards: own.cards ?? [], alive: own.alive, sweep: 0 },
+    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', kit: [...DEFAULT_KIT], cards: own.cards ?? [], alive: own.alive, sweep: 0 },
   };
 }
 
@@ -1535,7 +1535,7 @@ function victimFrame(
   if (!you) return { ...base, spec: true };
   return {
     ...base,
-    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', cards: [], alive: true, sweep: 0, ...you },
+    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', kit: [...DEFAULT_KIT], cards: [], alive: true, sweep: 0, ...you },
   };
 }
 
@@ -2035,7 +2035,7 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     sink.handler({
       t: 1400, tick: 4, ackSeq: 0, contacts: [], mines: [],
       events: [{ k: 'dmg', id: 'me', amount: 5 }],
-      you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', cards: [], alive: true, sweep: 0 },
+      you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', kit: [...DEFAULT_KIT], cards: [], alive: true, sweep: 0 },
     });
     expect(play).toHaveBeenLastCalledWith('burn');
     expect(trigger).toHaveBeenLastCalledWith(5 * CLIENT_CONFIG.burnZone.burnShakeScale);
@@ -2047,7 +2047,7 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     sink.handler({
       t: 6000, tick: 9, ackSeq: 0, contacts: [], mines: [],
       events: [{ k: 'dmg', id: 'me', amount: 5 }],
-      you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', cards: [], alive: true, sweep: 0 },
+      you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', kit: [...DEFAULT_KIT], cards: [], alive: true, sweep: 0 },
     });
     expect(play).toHaveBeenLastCalledWith('damage');
   });
