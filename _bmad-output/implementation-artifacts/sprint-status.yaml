@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-10-25 (correct-course: roadmap rebuilt — Epic 10 The Playtest Pass, 11 The Ledger, 12 The Front Door inserted; The Account -> Epic 13; sprint-change-proposal-2026-10-25.md; next: gds-brainstorm-game for 10-2, then gds-create-story 10-1)
+# last_updated: 2026-10-28 (Story 10.1 in review — cycle 207, 0.19.1, PV 92; next: 10-9); 2026-10-25 (correct-course: roadmap rebuilt — Epic 10 The Playtest Pass, 11 The Ledger, 12 The Front Door inserted; The Account -> Epic 13; sprint-change-proposal-2026-10-25.md; next: gds-brainstorm-game for 10-2, then gds-create-story 10-1)
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -187,7 +187,7 @@
 # A32/A33 headers still read "cycle 110"/"cycle 111" and are stale.
 
 generated: 2026-07-17
-last_updated: 2026-10-27
+last_updated: 2026-10-28
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -348,7 +348,7 @@ development_status:
 
   # epic-10: The Account (GDD E10; was epic-9 until 2026-10-06 — sprint-change-proposal-2026-10-06.md; 10 stories in build order, Eric-approved 2026-09-11; 10-5 deleted and 10-4/10-6/10-7/10-11 re-scoped 2026-09-21 by sprint-change-proposal-2026-09-21.md)
   epic-10: in-progress  # 2026-10-27 create-story 10-1 (first story of the epic); 2026-10-25 correct-course (sprint-change-proposal-2026-10-25.md): THE PLAYTEST PASS — Eric's eight playtest thoughts in his order + How-to-Play re-homed; epic-10-context-amendments.md #1; 2026-10-27 correct-course (sprint-change-proposal-2026-10-27.md): 10-9 added, built after 10-1; amendment #2
-  10-1-four-configurable-consumable-slots: in-progress  # 2026-10-27 dev-story started; 2026-10-27 story file created (ten Eric rulings at the spec step); LOADOUT row, keys 1-4, offer filtered to the four; 2026-10-27: BUILDS the consumables row (no LOADOUT screen exists), picker lists every non-stub line
+  10-1-four-configurable-consumable-slots: review  # 2026-10-28 cycle 207, 0.19.1, PV 91 -> 92, epic-10 amendment 3 (the kit: four chosen lines on the class-select footer, SMOKE SCREEN name back, bots roll four, drops confined by the one gate); spec-10-1-four-configurable-consumable-slots.md; PR open to development; next: 10-9; was: in-progress 2026-10-27; 2026-10-27 story file created (ten Eric rulings at the spec step); LOADOUT row, keys 1-4, offer filtered to the four; 2026-10-27: BUILDS the consumables row (no LOADOUT screen exists), picker lists every non-stub line
   10-2-the-first-minute-objective: backlog  # DESIGN SITTING FIRST (gds-brainstorm-game / forge) — no story text until then
   10-3-the-battle-ui-xp-seen-the-offer-in-the-corner: backlog  # visual candidates shown to Eric first
   10-4-offer-composition: backlog  # ship / weapon / consumable / wildcard type-first, exhausted types fall back

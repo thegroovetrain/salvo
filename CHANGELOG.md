@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.19.1] - 2026-10-28
+
+### Changed
+- **Four consumable slots, chosen by you.** The six fixed consumable keys are gone: before you sail, the class-select screen has a CONSUMABLES row with four squares, and pressing a square opens a picker of every consumable line. The four you choose are your keys 1–4 for the match, the game only ever offers you those four (and only drops them from drones), and your choice is remembered in the browser. A fresh browser starts with HULL REPAIR, SHIELD BLOCK, SMOKE SCREEN and FOULING SHELL. Bots carry a random four each match. The in-match belt is four squares wide. The MULTI-SPECTRAL CM line is called SMOKE SCREEN again (same cloud, same radar return). Protocol version 91 → 92 (Story 10.1, cycle 207; epic-10 amendment 3).
+
 ## [0.19.0] - 2026-10-24
 
 ### Changed
