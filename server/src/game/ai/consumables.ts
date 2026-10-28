@@ -12,7 +12,7 @@
 // Every want() here is AFLOAT-guarded (a sinking hull presses nothing the
 // server would refuse anyway), draws no rng and writes nothing.
 
-import { CONFIG, isAfloat, sectorArcFor, type ConsumableId } from '@salvo/shared';
+import { BUOY_LINE_IDS, CONFIG, buoyKindOf, isAfloat, type BuoyKind, type BuoyLineId, type ConsumableId } from '@salvo/shared';
 import type { BotMind, BotPosture, BotSelf } from './types.js';
 import { hasPersistence, type BotTrack } from './utility.js';
 import {
@@ -25,9 +25,9 @@ import {
   movingAway,
   nearestLiveAstern,
   nearestLiveInSight,
-  ownDecoyLive,
+  ownBuoyLive,
   radarChaser,
-  sectorPlacement,
+  ringPlacement,
   solveTorpedoShot,
   stamped,
   type ConsumableTactic,
@@ -35,13 +35,16 @@ import {
 } from './tacticKit.js';
 import { torpedoInbound } from './torpedoThreat.js';
 
-/** The DECOY BUOY's placement sector — the mine's astern sector verbatim
- *  (sectorArcFor('decoyBuoy') IS the mine's descriptor, Story 8.16). */
-const DECOY_SECTOR = sectorArcFor('decoyBuoy');
-
 // ---------------------------------------------------------------------------
 // HULL REPAIR — pressed under the profile's healHpFrac.
 // ---------------------------------------------------------------------------
+
+/** THE HURT READ (HULL REPAIR's want, shared since Story 10.9 with the
+ *  HEALING BUOY — never a second dial): the hull plus its paid pool under the
+ *  profile's `healHpFrac`. */
+function hurt(ctx: TacticContext): boolean {
+  return ctx.sit.maxHp > 0 && (ctx.sit.hp + ctx.self.repairHp) / ctx.sit.maxHp < ctx.sit.profile.healHpFrac;
+}
 
 const hullRepairTactic: ConsumableTactic = {
   id: 'hullRepair',
@@ -64,10 +67,7 @@ const hullRepairTactic: ConsumableTactic = {
   //
   // The threshold is the profile's `healHpFrac` — the same HURT read the card
   // scorer uses.
-  want: (ctx) =>
-    isAfloat(ctx.self.lifecycle) &&
-    ctx.sit.maxHp > 0 &&
-    (ctx.sit.hp + ctx.self.repairHp) / ctx.sit.maxHp < ctx.sit.profile.healHpFrac,
+  want: (ctx) => isAfloat(ctx.self.lifecycle) && hurt(ctx),
   // Abilities ride the actSeq channel and solve no shot.
   solve: () => null,
 };
@@ -99,7 +99,7 @@ const supercavTorpedoTactic: ConsumableTactic = {
 };
 
 // ---------------------------------------------------------------------------
-// SHIELD BLOCK, MULTI-SPECTRAL COUNTERMEASURE, DECOY BUOY — each rule reuses a cue
+// SHIELD BLOCK, MULTI-SPECTRAL COUNTERMEASURE, THE FOUR BUOYS — each rule reuses a cue
 // another row already acts on.
 // ---------------------------------------------------------------------------
 
@@ -175,25 +175,75 @@ const countermeasureTactic: ConsumableTactic = {
 };
 
 /** THE RADAR DECOY (amendment 199): breaking off (disengage / hide) from a
- *  radar chaser, with none of the bot's own buoys already on the water (the
- *  own-cloud rule's twin — one float at a time, never the whole stack). */
+ *  radar chaser. (The one-buoy-at-a-time rule now lives in buoyTactic, per
+ *  kind — ruling 5.) */
 function radarDecoyWant(ctx: TacticContext): boolean {
-  if (!BREAK_OFF_POSTURES.includes(ctx.posture) || ownDecoyLive(ctx.mind)) return false;
+  if (!BREAK_OFF_POSTURES.includes(ctx.posture)) return false;
   return radarChaser(ctx);
 }
 
-/** DECOY BUOY — dropped dead astern at the full placeRange (the mine's rear
- *  sector, the same sector-centre construction) when a seen enemy torpedo is
- *  inbound (a float behind you for the homing fish to find first), or as a
- *  radar decoy when breaking off from a radar chaser (radarDecoyWant). */
-const decoyBuoyTactic: ConsumableTactic = {
-  id: 'decoyBuoy',
-  kind: 'placement',
-  reachU: () => CONFIG.mine.placeRange,
-  want: (ctx) =>
-    isAfloat(ctx.self.lifecycle) && (torpedoInbound(ctx.self, ctx.mind, ctx.sit.now) || radarDecoyWant(ctx)),
-  solve: (ctx) => stamped(ctx, 'decoyBuoy', sectorPlacement(ctx, DECOY_SECTOR, CONFIG.mine.placeRange)),
+/**
+ * THE FOUR BUOYS' OWN OCCASIONS (Story 10.9, Eric ruling 7 — neutral
+ * appetite, no tuning): RADAR when no contact is held (the radar-decoy read
+ * the DECOY BUOY dropped on); HEALING when hurt (HULL REPAIR's own read);
+ * SHIELD when engaged; SPEED when disengaging.
+ */
+const BUOY_OCCASION: Readonly<Record<BuoyKind, (ctx: TacticContext) => boolean>> = Object.freeze({
+  radar: radarDecoyWant,
+  healing: hurt,
+  shield: (ctx: TacticContext) => ctx.posture === 'engage',
+  speed: (ctx: TacticContext) => ctx.posture === 'disengage',
+});
+
+/**
+ * ONE BUOY ROW per line (Story 10.9 — the retired DECOY BUOY's row, split by
+ * kind). Dropped on ANY seen enemy torpedo inbound (a float for the homing
+ * fish to find first — every buoy is a sponge, ruling 3) or on the kind's own
+ * occasion (BUOY_OCCASION), afloat only, and NEVER while one of the bot's own
+ * buoys of THAT kind is live (a kind counts once — ruling 5 — so a second is
+ * worthless). Placement is the one ring solver over the FULL circle at
+ * `CONFIG.mine.placeRange` (ruling 9 — the decoy's rear sector is retired).
+ */
+function buoyTactic(id: BuoyLineId): ConsumableTactic {
+  const kind = buoyKindOf(id);
+  return {
+    id,
+    kind: 'placement',
+    reachU: () => CONFIG.mine.placeRange,
+    want: (ctx) =>
+      isAfloat(ctx.self.lifecycle) &&
+      !ownBuoyLive(ctx.mind, kind) &&
+      (torpedoInbound(ctx.self, ctx.mind, ctx.sit.now) || BUOY_OCCASION[kind](ctx)),
+    solve: (ctx) => stamped(ctx, id, ringPlacement(ctx, CONFIG.mine.placeRange)),
+  };
+}
+
+/** The four buoy rows, keyed by line id (BUOY_LINE_IDS order). */
+const BUOY_TACTICS = Object.fromEntries(BUOY_LINE_IDS.map((id) => [id, buoyTactic(id)])) as Record<
+  BuoyLineId,
+  ConsumableTactic
+>;
+
+/**
+ * FLASH SHELLS (`dazzleShells`, Story 8.17; RESTORED by Story 10.9 beside the
+ * FOULING SHELL) — the fouling shell's 'shot' row shape with the flash's
+ * reach (ruling 2: the fouling shell's own dial, `CONFIG.foulingShell.rangeU`
+ * — the server clamps both there): fired ENGAGED at the nearest live contact
+ * in sight (the 8.17 rule — blind the target), afloat only.
+ */
+const dazzleShellsTactic: ConsumableTactic = {
+  id: 'dazzleShells',
+  kind: 'shot',
+  reachU: () => CONFIG.foulingShell.rangeU,
+  want: (ctx) => isAfloat(ctx.self.lifecycle) && dazzleShellsTarget(ctx) !== null,
+  solve: (ctx) =>
+    stamped(ctx, 'dazzleShells', burstOnLiveContact(ctx, CONFIG.foulingShell.rangeU, dazzleShellsTarget(ctx))),
 };
+
+/** The flash's target: engaged → the nearest live contact in sight; else none. */
+function dazzleShellsTarget(ctx: TacticContext): BotTrack | null {
+  return ctx.posture === 'engage' ? nearestLiveInSight(ctx) : null;
+}
 
 /**
  * FOULING SHELL (`foulingShell`, Story 9.4 — FLASH SHELLS' seat) — a 'shot'
@@ -251,9 +301,10 @@ export const CONSUMABLE_TACTICS: Readonly<Record<ConsumableId, ConsumableTactic>
   supercavTorpedo: supercavTorpedoTactic,
   shieldBlock: shieldBlockTactic,
   countermeasure: countermeasureTactic,
-  decoyBuoy: decoyBuoyTactic,
   foulingShell: foulingShellTactic,
   depthCharge: depthChargeTactic,
+  dazzleShells: dazzleShellsTactic,
+  ...BUOY_TACTICS,
 });
 
 /**
@@ -268,10 +319,14 @@ const CONSUMABLE_APPETITE: Readonly<Record<ConsumableId, number>> = Object.freez
   hullRepair: APPETITE_NEUTRAL,
   shieldBlock: APPETITE_NEUTRAL,
   countermeasure: APPETITE_NEUTRAL,
-  decoyBuoy: APPETITE_NEUTRAL,
   depthCharge: APPETITE_NEUTRAL,
   supercavTorpedo: APPETITE_NEUTRAL,
   foulingShell: APPETITE_NEUTRAL,
+  dazzleShells: APPETITE_NEUTRAL,
+  radarBuoy: APPETITE_NEUTRAL,
+  healingBuoy: APPETITE_NEUTRAL,
+  shieldBuoy: APPETITE_NEUTRAL,
+  speedBuoy: APPETITE_NEUTRAL,
 });
 
 /** How eager any bot is about one belt line. */

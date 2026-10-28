@@ -9,6 +9,7 @@
 import {
   CONFIG,
   DRONE_HULL_IDS,
+  buoyTail,
   founderDeadline,
   isAfloat,
   isSunk,
@@ -33,6 +34,22 @@ function ownShield(ship: ShipRecord, now: number): Pick<OwnShip, 'shield'> {
   const s = ship.shield;
   if (s === null || s.hpLeft <= 0 || now >= s.until) return {};
   return { shield: { hp: Math.ceil(s.hpLeft), until: s.until } };
+}
+
+/** The own-ship `buoyShield` key (Story 10.9): `{ buoyShield: {hp} }` while
+ *  the SHIELD BUOY's pool holds hp — `hp` ROUNDED UP for the readout exactly
+ *  as the block's is (ownShield) — else an EMPTY object (key absent). */
+function ownBuoyShield(ship: ShipRecord): Pick<OwnShip, 'buoyShield'> {
+  const pool = ship.buoyShield;
+  if (pool === null || !(pool.hpLeft > 0)) return {};
+  return { buoyShield: { hp: Math.ceil(pool.hpLeft) } };
+}
+
+/** The own-ship `speedBuoyAt` key (Story 10.9): the raw stamp while the
+ *  shared `buoyTail` over it is still above 0, else an EMPTY object. */
+function ownSpeedBuoy(ship: ShipRecord, now: number): Pick<OwnShip, 'speedBuoyAt'> {
+  const tail = buoyTail(now, ship.speedBuoyAt, CONFIG.buoy.tailHoldMs, CONFIG.buoy.tailRampMs);
+  return tail > 0 ? { speedBuoyAt: ship.speedBuoyAt } : {};
 }
 
 /** The own-ship `draft` key (Story 8.19): `{ draft }` — the exact double —
@@ -157,6 +174,19 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // while `serverNow < fouledUntil` — no factor rides (a consumable has no
     // tiers), unlike the mine's `slowFactor` above.
     ...(ship.fouledUntil > now ? { fouledUntil: ship.fouledUntil } : {}),
+    // THE FLASH SHELLS DAZZLE (Story 8.17, amendment 132; RESTORED by Story
+    // 10.9 beside the foul stamp): the server time the dazzle ends, OMITTED
+    // unless it is in the future — the fouledUntil idiom. VICTIM-PRIVATE on
+    // the same terms: it rides `you` and NOTHING else (an enemy cannot learn
+    // a hull is dazzled), a self-private own field, NOT a perception
+    // exception — the count stays SIX. The client feeds the same shared
+    // `effectiveSight(stats, dazzled)` from it, so its fog hole is honest.
+    ...(ship.dazzledUntil > now ? { dazzledUntil: ship.dazzledUntil } : {}),
+    // THE SPEED BUOY's clock (Story 10.9, ruling 6): the last tick this hull
+    // stood inside an own SPEED BUOY — PRESENT while its shared `buoyTail` is
+    // still above 0, OMITTED after. The predictor folds the same
+    // combinedBoostFactor from it. SELF-PRIVATE on the boostUntil terms.
+    ...ownSpeedBuoy(ship, now),
     // The WAKE-DRAFT lift (Story 8.19, amendments 151–155): the exact double
     // stepShips folded into this hull's forward cap THIS tick — PRESENT IFF
     // positive, OMITTED at 0, never `undefined` (the slowFactor precedent).
@@ -196,6 +226,10 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // CONSTRUCTION on the boostUntil terms: it rides `you` and NOTHING else,
     // so the perception exception count stays at SIX.
     ...ownShield(ship, now),
+    // THE SHIELD BUOY's pool (Story 10.9, ruling 4): present IFF it holds hp
+    // (ceil'd for display like the block's); OMITTED otherwise. SELF-PRIVATE
+    // on the boostUntil terms — the count stays SIX.
+    ...ownBuoyShield(ship),
   };
 }
 

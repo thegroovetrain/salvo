@@ -357,6 +357,25 @@ describe('SIGNAL_REGISTRY — fh row: the twelve volume bands (twelfths of the L
     }
   });
 
+  it('DAZZLE CANNOT DEAFEN (Story 10.9 restores the FLASH SHELLS mark): a dazzled listener bands identically to an undazzled one at every distance', () => {
+    const w = bareWorld();
+    const l = place(w, 'l', 0, 0);
+    const probes: Array<[number, number | null]> = [];
+    for (let b = 1; b <= 12; b++) probes.push([(b - 0.5) * BAND, Math.max(b, 4)]);
+    probes.push([RADAR + 1, null]);
+    const bandOf = (d: number, tag: string): number | null => {
+      const ctx = foggedCtx(w, l);
+      const e = subject(d, 0, `${tag}${d}`);
+      return row.visible(ctx, e) ? ((row.materialize(ctx, e) as FoghornEvent).v ?? null) : null;
+    };
+    const undazzled = probes.map(([d]) => bandOf(d, 'u'));
+    expect(undazzled).toEqual(probes.map(([, want]) => want));
+    // The mark is live: the listener's SIGHT collapses (the shared
+    // effectiveSight), its intel range — the bands' one ruler — does not.
+    l.dazzledUntil = w.now + CONFIG.flashShells.durationMs;
+    expect(probes.map(([d]) => bandOf(d, 'd'))).toEqual(undazzled);
+  });
+
   it('a listener with a widened intel range hears farther — the bands stretch with stats.radarRange, never the CONFIG constant (driven by poking stats directly: no card writes radarRange since the 2026-08-20 INTEL RANGE deletion, and the row must still read the field)', () => {
     const w = bareWorld();
     const l = place(w, 'l', 0, 0);

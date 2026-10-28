@@ -850,10 +850,12 @@ describe('the hp-INCREASE whitelist (AR47 read as "the only REGEN path")', () =>
       'ship.hp = Math.min(ship.hp + paid, ship.stats.maxHp);',
       // tickRegen — the OUT-OF-COMBAT regen (amendment 46): the snap to full
       // on the SHARED full-hull predicate (amendment 53 — under 1 hp missing,
-      // the same word the HULL REPAIR row refuses on), then the hull's own
-      // %-of-missing-per-second trickle (stats.regen, Story 9.6).
+      // the same word the HULL REPAIR row refuses on), then the
+      // %-of-missing-per-second trickle at the caller's rate (healPctPerS:
+      // the hull's own stats.regen when due, Story 9.6, PLUS the HEALING
+      // BUOY's term, Story 10.9 — one write for both).
       'if (hullIsFull(ship.hp, maxHp)) ship.hp = maxHp;',
-      'else ship.hp += missing * ship.stats.regen.missingPctPerS * (dtMs / 1000);',
+      'else ship.hp += missing * pctPerS * (dtMs / 1000);',
       // applyRepair — HULL REPAIR's instant half, reached ONLY through
       // ActivationContext.applyRepair (Story 8.8).
       'ship.hp = Math.min(ship.hp + instantHp, ship.stats.maxHp);',

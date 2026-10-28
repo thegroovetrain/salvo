@@ -19,6 +19,7 @@ import {
   type ShipClassId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { circleIsland } from './islandFixture.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { COMBAT_BRAIN, situationOf } from '../game/ai/tactics.js';
 import { CONSUMABLE_TACTICS, EQUIPMENT_TACTICS, SHIFT_TACTICS } from '../game/ai/tacticRegistry.js';
@@ -29,7 +30,7 @@ import { hunkerCues, type TacticContext } from '../game/ai/tacticKit.js';
 import type { BotMind, BotPosture, BotProfileId, BotWorldPort, RememberedContact } from '../game/ai/types.js';
 import type { PerceptionView } from '../game/perception.js';
 
-const REAR_SECTOR = sectorArcFor('decoyBuoy');
+const REAR_SECTOR = sectorArcFor('navalMines'); // the mine's astern sector — where the ring solver tries first
 
 function fakePort(w: World): BotWorldPort & { now: number } {
   return {
@@ -416,13 +417,13 @@ describe('special / consumable triggers (amendment 199)', () => {
     expect(cm.want(ctxOf(tb, hurt, port, 'hide', h))).toBe(true);
   });
 
-  it('DECOY BUOY: dropped astern when breaking off from a radar chaser — not with one of its own already out, not for a sighted contact', () => {
+  it('RADAR BUOY (the DECOY BUOY\'s radar-decoy want, Story 10.9): dropped astern when breaking off from a radar chaser — not with an own RADAR buoy already out, not for a sighted contact', () => {
     const w = openWorld(9145);
     const port = fakePort(w);
     const tb = mkBot(w, 'torpedoBoat');
-    w.applyCard(tb, 'decoyBuoy');
-    const slot = tb.loadout.findIndex((s) => s.equipmentId === 'decoyBuoy');
-    const decoy = CONSUMABLE_TACTICS.decoyBuoy;
+    w.applyCard(tb, 'radarBuoy');
+    const slot = tb.loadout.findIndex((s) => s.equipmentId === 'radarBuoy');
+    const decoy = CONSUMABLE_TACTICS.radarBuoy;
     const plotX = (CONFIG.vision.sight + tb.stats.radarRange) / 2;
     for (const posture of ['disengage', 'hide'] as const) {
       const mind = mkMind('duelist');
@@ -433,7 +434,11 @@ describe('special / consumable triggers (amendment 199)', () => {
       const shot = decoy.solve(ctx);
       expect(shot).not.toBeNull();
       expect(inArc(shot!.aim, wrapAngle(tb.state.heading + REAR_SECTOR.offset), REAR_SECTOR.halfArc)).toBe(true);
-      setView(mind, { decoys: [{ id: 'd1', x: -50, y: 0, own: true, by: tb.id }] });
+      // An own buoy of ANOTHER kind does not block it (a kind counts once — ruling 5) ...
+      setView(mind, { decoys: [{ id: 'd1', x: -50, y: 0, own: true, by: tb.id, kind: 'healing' }] });
+      expect(decoy.want(ctxOf(tb, mind, port, posture, t, slot)), posture).toBe(true);
+      // ... an own RADAR buoy already out does.
+      setView(mind, { decoys: [{ id: 'd1', x: -50, y: 0, own: true, by: tb.id, kind: 'radar' }] });
       expect(decoy.want(ctxOf(tb, mind, port, posture, t, slot)), posture).toBe(false);
     }
     const sighted = mkMind('duelist');
@@ -444,6 +449,69 @@ describe('special / consumable triggers (amendment 199)', () => {
     const p = plot(pursuing, track(port.now, { x: -plotX, live: false, cls: null }));
     setView(pursuing, {});
     expect(decoy.want(ctxOf(tb, pursuing, port, 'pursue', p, slot))).toBe(false);
+  });
+
+  it('THE FOUR BUOYS (Story 10.9, ruling 7): HEALING when hurt (HULL REPAIR\'s read), SHIELD when engaged, SPEED when disengaging — never with an own buoy of that kind live', () => {
+    const w = openWorld(9147);
+    const port = fakePort(w);
+    const tb = mkBot(w, 'torpedoBoat');
+    const want = (id: 'healingBuoy' | 'shieldBuoy' | 'speedBuoy', posture: BotPosture, mind = mkMind('duelist')): boolean => {
+      if (mind.view === null) setView(mind, {});
+      return CONSUMABLE_TACTICS[id].want(ctxOf(tb, mind, port, posture, null));
+    };
+    // HEALING — the same hurt line as HULL REPAIR (the profile's healHpFrac), no new dial.
+    const frac = profileOf('duelist').healHpFrac;
+    tb.hp = tb.stats.maxHp * frac * 0.5;
+    expect(want('healingBuoy', 'reposition')).toBe(CONSUMABLE_TACTICS.hullRepair.want(ctxOf(tb, mkMind('duelist'), port, 'reposition', null)));
+    expect(want('healingBuoy', 'reposition')).toBe(true);
+    const healingOut = mkMind('duelist');
+    setView(healingOut, { decoys: [{ id: 'd1', x: 0, y: 0, own: true, by: tb.id, kind: 'healing' }] });
+    expect(want('healingBuoy', 'reposition', healingOut)).toBe(false); // a kind counts once (ruling 5)
+    tb.hp = tb.stats.maxHp;
+    expect(want('healingBuoy', 'reposition')).toBe(false);
+    // SHIELD — engaged only.
+    expect(want('shieldBuoy', 'engage')).toBe(true);
+    expect(want('shieldBuoy', 'reposition')).toBe(false);
+    const shieldOut = mkMind('duelist');
+    setView(shieldOut, { decoys: [{ id: 'd1', x: 0, y: 0, own: true, by: tb.id, kind: 'shield' }] });
+    expect(want('shieldBuoy', 'engage', shieldOut)).toBe(false);
+    // An ENEMY shield buoy is not ours: it never holds the drop back.
+    const enemyOut = mkMind('duelist');
+    setView(enemyOut, { decoys: [{ id: 'd1', x: 0, y: 0, own: false, by: 'x', kind: 'shield' }] });
+    expect(want('shieldBuoy', 'engage', enemyOut)).toBe(true);
+    // SPEED — disengaging only.
+    expect(want('speedBuoy', 'disengage')).toBe(true);
+    expect(want('speedBuoy', 'engage')).toBe(false);
+    // A sinking hull wants none of them.
+    tb.lifecycle = { kind: 'sinking', since: port.now };
+    expect(want('speedBuoy', 'disengage')).toBe(false);
+  });
+
+  it('THE BUOY RING SOLVER (ruling 9): dead astern on open water; round the circle when astern is ashore; null when every bearing is', () => {
+    const w = openWorld(9148);
+    const port = fakePort(w);
+    const tb = mkBot(w, 'torpedoBoat', 0, 0, 0); // bow +x: astern is −x
+    w.applyCard(tb, 'shieldBuoy');
+    const slot = tb.loadout.findIndex((s) => s.equipmentId === 'shieldBuoy');
+    const row = CONSUMABLE_TACTICS.shieldBuoy;
+    const solve = (): ReturnType<typeof row.solve> => {
+      const mind = mkMind('duelist');
+      setView(mind, {});
+      return row.solve(ctxOf(tb, mind, port, 'engage', null, slot));
+    };
+    const open = solve()!;
+    expect(inArc(open.aim, wrapAngle(Math.PI), 1e-9)).toBe(true);
+    expect(open.aimDist).toBe(CONFIG.mine.placeRange);
+    // An island sitting on the astern drop point: the solver turns to another bearing, same range.
+    const R = CONFIG.mine.placeRange;
+    w.map.islands.push(circleIsland(-R, 0, 40));
+    const turned = solve()!;
+    expect(inArc(turned.aim, wrapAngle(Math.PI), 0.1)).toBe(false);
+    expect(turned.aimDist).toBe(R);
+    // Ring every candidate in rock: no drop.
+    w.map.islands.length = 0;
+    w.map.islands.push(circleIsland(0, 0, R + 50));
+    expect(solve()).toBeNull();
   });
 
   it('FOULING SHELL in pursue: at the nearest live contact in sight that is moving AWAY — not one closing', () => {

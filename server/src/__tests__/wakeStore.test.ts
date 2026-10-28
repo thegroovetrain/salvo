@@ -54,7 +54,7 @@ describe('world — wake ribbon store (Story 4.12)', () => {
     expect(torp.widthU).toBe(CONFIG.vision.radarCellU); // exactly one radar cell
   });
 
-  it('provisions the ring from the TRUE attainable top speed — class max PLUS the boost bonus PLUS a full wake-draft lift (never base kinematics alone)', () => {
+  it('provisions the ring from the TRUE attainable top speed — class max PLUS the boost bonus AND a full SPEED BUOY term PLUS a full wake-draft lift (never base kinematics alone)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     // The class max + a PROPORTION of it for the boost (Story 8.9, amendment
@@ -63,8 +63,10 @@ describe('world — wake ribbon store (Story 4.12)', () => {
     // would silently drop the oldest tail. wakeTopSpeed derives it through the
     // SAME shared boostedKinematics → draftedKinematics hooks the client's ring
     // budget uses.
+    // Story 10.9 (ruling 6): the Shift and a SPEED BUOY add on the base —
+    // the first fold stage's one combined factor.
     const base = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed;
-    const boosted = base + base * CONFIG.boost.factor;
+    const boosted = base + base * (CONFIG.boost.factor + CONFIG.buoy.speed.factor);
     const top = boosted + boosted * CONFIG.wake.draft.lift;
     expect(a.wake.cap).toBe(wakeCapacity(top, CONFIG.vision.wakeLifeMs));
     expect(a.wake.cap).toBeGreaterThan(wakeCapacity(boosted, CONFIG.vision.wakeLifeMs)); // the draft lift is counted, not just the boost

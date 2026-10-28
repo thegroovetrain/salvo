@@ -30,7 +30,7 @@ describe('botMetrics — placeables that actually reached the water', () => {
     expect(col.samples(world)[0].decoysDeployed).toBe(0);
     expect(col.samples(world)[0].minesLaid).toBe(0);
 
-    addDecoy(world.decoys, bot.id, 100, 100, 'd1');
+    addDecoy(world.decoys, bot.id, 100, 100, 'd1', 'healing', Number.POSITIVE_INFINITY, 0);
     addMine(world.mines, bot.id, 200, 200, world.now, 'm1');
     col.observe(world, 1);
 
@@ -65,7 +65,7 @@ describe('botMetrics — placeables that actually reached the water', () => {
     // And the mirror image: a real placement moves the deployment counter while
     // the request counter stands still. Together these two assertions prove the
     // columns cannot be reading one underlying signal.
-    addDecoy(world.decoys, ship!.id, 50, 50, 'd9');
+    addDecoy(world.decoys, ship!.id, 50, 50, 'd9', 'healing', Number.POSITIVE_INFINITY, 0);
     col.observe(world, 1);
     const placed = col.samples(world)[0];
     expect(placed.shots).toBe(25);

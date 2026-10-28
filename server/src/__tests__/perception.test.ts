@@ -120,6 +120,7 @@ import {
   coverageHas,
   dropoutPaintP,
   dropoutPaints,
+  effectiveSight,
   effectiveStats,
   hullSilhouette,
   mulberry32,
@@ -459,8 +460,13 @@ function applySightShrink(w: World, ids: readonly string[]): void {
 // muzzle/smoke halo un-shrunk by construction. (Story 9.3: the 8.18 in-smoke eighth is GONE — a
 // cloud never touches sight.)
 function effSight(w: World, me: ShipRecord): number {
-  if (w.now < (SIGHT_SHRUNK.get(me.id) ?? 0)) return effRadar() / 12;
-  return effRadar() / 3;
+  const seam = w.now < (SIGHT_SHRUNK.get(me.id) ?? 0) ? effRadar() / 12 : effRadar() / 3;
+  // THE FLASH SHELLS DAZZLE (Story 10.9 restores it): the observer's own mark
+  // collapses the seam's sight through the ONE shared `effectiveSight` (the
+  // orchestrator's reading: the dazzle FRACTION is shared law, pinned in
+  // shared sight.test.ts; this suite owns WHERE it applies — every sight-tier
+  // gate, never a radar-anchored one).
+  return effectiveSight({ sightRange: seam }, w.now < me.dazzledUntil);
 }
 
 // INTEL RANGE IS FLAT AGAIN (Eric ruling 2026-08-20). `intelRange` — the only
@@ -2918,6 +2924,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     expect('fouledUntil' in f.you).toBe(me.fouledUntil > w.now);
     if (f.you.fouledUntil !== undefined) expect(f.you.fouledUntil).toBe(me.fouledUntil);
   }
+  verifyBuoyOwnFields(w, me, f, withoutYou);
   for (const d of f.decoys ?? []) verifyDecoy(w, me, d);
   // The OWNER always sees its own decoys (own field awareness, even under fog).
   for (const d of w.decoys.values()) {
@@ -2948,6 +2955,32 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   verifyBlipOrdering(w, f);
   verifyBlipCompleteness(w, me, f);
   verifyWakeCompleteness(w, me, f);
+}
+
+/**
+ * THE STORY 10.9 SELF-PRIVATE OWN FIELDS — `dazzledUntil` (the FLASH SHELLS
+ * mark), `buoyShield` (the SHIELD BUOY pool) and `speedBuoyAt` (the SPEED
+ * BUOY clock) — and the own buoy view's `sweep` / `until`. NONE is a
+ * perception exception (the count stays SIX): each is the viewer's own seat
+ * (the `fouledUntil` / `shield` idiom) and may exist NOWHERE but `you` (or,
+ * for the buoy pair, the OWN DecoyView — verifyDecoy pins its key set); on
+ * `you` each is present IFF the observer's own record holds it live.
+ * Re-derived: the dazzle is live while now < mark; the pool while it holds
+ * hp; the speed clock while its tail (hold + ramp, read from CONFIG) has not
+ * run out — written here as the plain window test, never via buoyTail.
+ */
+function verifyBuoyOwnFields(w: World, me: ShipRecord, f: FrameMsg, withoutYou: object): void {
+  const text = JSON.stringify(withoutYou);
+  for (const k of ['dazzledUntil', 'buoyShield', 'speedBuoyAt']) expect(text).not.toContain(k);
+  if (f.you === undefined) return;
+  expect('dazzledUntil' in f.you).toBe(me.dazzledUntil > w.now);
+  if (f.you.dazzledUntil !== undefined) expect(f.you.dazzledUntil).toBe(me.dazzledUntil);
+  const pool = me.buoyShield;
+  expect('buoyShield' in f.you).toBe(pool !== null && pool.hpLeft > 0);
+  if (f.you.buoyShield !== undefined) expect(f.you.buoyShield).toEqual({ hp: Math.ceil(pool!.hpLeft) });
+  const tailLive = me.speedBuoyAt > 0 && w.now - me.speedBuoyAt < CONFIG.buoy.tailHoldMs + CONFIG.buoy.tailRampMs;
+  expect('speedBuoyAt' in f.you).toBe(tailLive);
+  if (f.you.speedBuoyAt !== undefined) expect(f.you.speedBuoyAt).toBe(me.speedBuoyAt);
 }
 
 /**
@@ -3015,6 +3048,46 @@ function expectedDecoyBlips(w: World, me: ShipRecord): ExpectedBlip[] {
 const DECOY_PAINT_EXPECTED = { n: 0 };
 
 /**
+ * THE RADAR BUOY's paints (Story 10.9, AC 5) — independently re-derived: for
+ * every RADAR buoy the OBSERVER owns, the buoy's own beam paints every hull
+ * on the water but the observer's (afloat, the ship oracle's subjects) and
+ * every buoy the observer does NOT own, iff the subject's centre lies within
+ * the buoy's effect radius (inclusive, nonzero distance), the BUOY's window
+ * crossed the bearing FROM THE BUOY this tick, the shadow march FROM THE BUOY
+ * discloses it, and the dropout roll keyed by the BUOY's id and its own
+ * revolution counter paints it. Wakes are never painted by a buoy. Nobody
+ * but the owner gets them.
+ */
+function expectedBuoyBlips(w: World, me: ShipRecord): ExpectedBlip[] {
+  const out: ExpectedBlip[] = [];
+  for (const b of w.decoys.values()) {
+    if (b.ownerId !== me.id || b.sweep === null) continue;
+    const paints = (p: { x: number; y: number }, key: string): boolean => {
+      const d = dist(b, p);
+      return (
+        d > 0 &&
+        d <= CONFIG.buoy.radiusU &&
+        inPaintWindow(b.sweep!, bearing(b, p)) &&
+        shadowVisibleFrom(w, b, p) &&
+        dropoutPaints(d, w.dropoutSeed, b.id, key, b.sweep!.sweepRev)
+      );
+    };
+    for (const t of w.ships.values()) {
+      if (t.id === me.id || !isAfloat(t.lifecycle) || !paints(t.state, t.id)) continue;
+      out.push({ mask: maskOracle(t.hullId, t.state.x, t.state.y, t.state.heading, w.now), label: `radar buoy ${b.id} → ship ${t.id}` });
+    }
+    for (const o of w.decoys.values()) {
+      if (o.ownerId === me.id || !paints(o, o.id)) continue;
+      out.push({ mask: decoyMaskOracle(o, w.now), label: `radar buoy ${b.id} → buoy ${o.id}` });
+    }
+  }
+  return out;
+}
+
+/** Non-vacuity counter for the fuzz: the RADAR BUOY arm must run. */
+const BUOY_PAINT_EXPECTED = { n: 0 };
+
+/**
  * THE RETURN-MODE COMPLETENESS ORACLE (cycle-63 review gate; hardened at the
  * Story 7-5 wave-2 review gate). With no id on the wire, `blipMatchesShip`
  * justifies a blip if SOME gated ship matches — an upper bound only, under
@@ -3037,7 +3110,9 @@ function verifyBlipCompleteness(w: World, me: ShipRecord, f: FrameMsg): void {
   const unmatched = f.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
   const decoys = expectedDecoyBlips(w, me);
   DECOY_PAINT_EXPECTED.n += decoys.length;
-  const expected = [...expectedShipBlips(w, me), ...decoys];
+  const buoys = expectedBuoyBlips(w, me);
+  BUOY_PAINT_EXPECTED.n += buoys.length;
+  const expected = [...expectedShipBlips(w, me), ...decoys, ...buoys];
   for (const exp of expected) {
     const i = unmatched.findIndex((b) => maskEquals(exp.mask, b));
     expect(i, `${exp.label} accounted for by its own blip`).toBeGreaterThanOrEqual(0);
@@ -3115,8 +3190,14 @@ function verifyDecoy(w: World, me: ShipRecord, d: DecoyView): void {
   const decoy = w.decoys.get(d.id)!;
   expect(decoy).toBeDefined();
   const own = decoy.ownerId === me.id;
-  expect(Object.keys(d)).toEqual(own ? ['id', 'x', 'y', 'own', 'by', 'hp'] : ['id', 'x', 'y', 'own', 'by']);
-  expect(d).toEqual({ id: decoy.id, x: decoy.x, y: decoy.y, own, by: decoy.ownerId, ...(own ? { hp: decoy.hp } : {}) });
+  // Story 10.9: `kind` rides EVERY view (a field on a delivered row — the
+  // MineView.c precedent); the OWNER alone gets hp, the RADAR buoy's beam
+  // `sweep` and the expiry `until` (self-private, never on a non-own view).
+  const radar = decoy.sweep !== null;
+  const ownKeys = ['hp', ...(radar ? ['sweep'] : []), 'until'];
+  expect(Object.keys(d)).toEqual(['id', 'x', 'y', 'own', 'by', 'kind', ...(own ? ownKeys : [])]);
+  const tail = own ? { hp: decoy.hp, ...(radar ? { sweep: decoy.sweep!.sweepAngle } : {}), until: decoy.expiresAt } : {};
+  expect(d).toEqual({ id: decoy.id, x: decoy.x, y: decoy.y, own, by: decoy.ownerId, kind: decoy.kind, ...tail });
   if (!own) expect(sighted(w, me, decoy) || zoneCovers(w, me, decoy)).toBe(true);
 }
 
@@ -3318,7 +3399,7 @@ function blipPredicate(w: World, me: ShipRecord, p: { x: number; y: number }, ke
 // 9.2). Every rule below is re-derived from the ruling text — sizes as
 // literals.
 
-/** The decoy's paint square as a literal (CONFIG.decoyBuoy.sizeU, R36). */
+/** The decoy's paint square as a literal (CONFIG.buoy.sizeU, R36). */
 const DECOY_PAINT_W_U = 12;
 
 /** The decoy's OWN paint mask: the degenerate-segment square at its fixed
@@ -3557,7 +3638,7 @@ function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   // Shape gate: the exact key set, both directions — no blip carries `src`.
   expect(Object.keys(ev).sort()).toEqual(RETURN_BLIP_KEYS);
   for (const forbidden of RETURN_FORBIDDEN_KEYS) expect(Object.hasOwn(ev, forbidden)).toBe(false);
-  // THE JUSTIFICATION. Every blip must byte-match one of TWO independently
+  // THE JUSTIFICATION. Every blip must byte-match one of THREE independently
   // re-derived sources:
   //   1. a GENUINE SHIP PAINT through the observer's own gate (unchanged);
   //   2. a DECOY's small anonymous paint through the observer's gate.
@@ -3568,7 +3649,15 @@ function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   // recomputation, so a real ship's footprint emitted outside every gate —
   // at its true pose, with its true hull — matches no arm and fails (pinned
   // by the directed leak-catch case below the invariant suite).
-  expect(blipMatchesShip(w, me, ev) || blipMatchesDecoyPaint(w, me, ev)).toBe(true);
+  //   3. (Story 10.9) a paint of the observer's OWN RADAR BUOY's beam — a
+  //      ship or a non-own buoy through the buoy's gate (expectedBuoyBlips).
+  expect(blipMatchesShip(w, me, ev) || blipMatchesDecoyPaint(w, me, ev) || blipMatchesBuoySweep(w, me, ev)).toBe(true);
+}
+
+/** True iff `ev` is one of the observer's OWN RADAR BUOYS' paints this tick
+ *  (Story 10.9) — exact mask equality against the independent buoy oracle. */
+function blipMatchesBuoySweep(w: World, me: ShipRecord, ev: BlipEvent): boolean {
+  return expectedBuoyBlips(w, me).some((exp) => maskEquals(exp.mask, ev as ReturnBlipEvent));
 }
 
 // shell AND torp share one verifier — with the Story 4.9 fork: a shell
@@ -4358,6 +4447,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
   it('no frame ever references anything outside sight ∪ this-tick paints', () => {
     const rng = mulberry32(0x5eed_f0f0);
     DECOY_PAINT_EXPECTED.n = 0;
+    BUOY_PAINT_EXPECTED.n = 0;
     CLOUD_SIGHT_THROUGH.n = 0;
     CLOUD_DELIVERED_BY_SIGHT.n = 0;
     CLOUD_DELIVERED_BY_RADAR.n = 0;
@@ -4597,8 +4687,34 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const obs = w.ships.get(ids[rng.int(0, ids.length - 1)])!;
         const brg = obs.sweepAngle + rng.float(0.02, 0.4);
         const d = rng.float(0, 1) < 0.7 ? rng.float(SIGHT + 10, RADAR - 10) : rng.float(0, RADAR * 1.5);
-        addDecoy(w.decoys, owner.id, obs.state.x + Math.cos(brg) * d, obs.state.y + Math.sin(brg) * d, `decoy${di}`).hp =
-          rng.float(1, CONFIG.decoyBuoy.hp);
+        addDecoy(w.decoys, owner.id, obs.state.x + Math.cos(brg) * d, obs.state.y + Math.sin(brg) * d, `decoy${di}`, 'healing', Number.POSITIVE_INFINITY, 0).hp =
+          rng.float(1, CONFIG.buoy.hp);
+      }
+      // RADAR BUOYS AND DAZZLE MARKS (Story 10.9) — on their OWN stream so
+      // every draw above and below is untouched (the foul-zone idiom). Each
+      // observer lays 0–3 RADAR buoys through production addDecoy, most
+      // seated within the effect radius of ANOTHER hull with the beam parked
+      // just short of that hull's bearing (so the step's advance sweeps it —
+      // the paint arm runs), the rest anywhere; and ~a fifth of the hulls
+      // carry a live FLASH SHELLS dazzle mark (the shared effectiveSight
+      // collapses their sight on top of the shrink seam).
+      const brng = mulberry32(0xb0e1_0000 + world);
+      for (const id of ids) {
+        const owner = w.ships.get(id)!;
+        for (let k = 0; k < brng.int(0, 3); k++) {
+          const target = w.ships.get(ids[brng.int(0, ids.length - 1)])!;
+          const near = brng.float(0, 1) < 0.7;
+          const ang = brng.float(0, TAU);
+          const r = near ? brng.float(20, CONFIG.buoy.radiusU * 0.9) : brng.float(0, w.map.radius * 0.9);
+          const cx = near ? target.state.x : 0;
+          const cy = near ? target.state.y : 0;
+          const bx = cx + Math.cos(ang) * r;
+          const by = cy + Math.sin(ang) * r;
+          const seed = wrapPositive(bearing({ x: bx, y: by }, target.state) - brng.float(0.005, 0.06));
+          const b = addDecoy(w.decoys, owner.id, bx, by, `rb-${id}-${k}`, 'radar', w.now + CONFIG.buoy.lifetimeMs, seed);
+          b.sweep!.periodMs = owner.stats.sweepPeriodMs;
+        }
+        if (brng.float(0, 1) < 0.2) owner.dazzledUntil = w.now + brng.float(DT, CONFIG.flashShells.durationMs);
       }
       // COUNTERMEASURE CLOUDS (Story 9.3): 1–4 live clouds of RANDOM age (a
       // fresh 200 u disc to a nearly-expired 500 u one), each owned by a
@@ -4782,6 +4898,9 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     // ...and so must the Story 8.16 decoy-paint arm: decoy paints actually
     // reached (and were consumed from) real frames.
     expect(DECOY_PAINT_EXPECTED.n).toBeGreaterThan(0);
+    // ...and the Story 10.9 RADAR BUOY arm: an owner's buoy beam painted real
+    // subjects that the oracle paired with real blips.
+    expect(BUOY_PAINT_EXPECTED.n).toBeGreaterThan(0);
     // THE FOG ARMS (Story 9.10) must each have been EXERCISED: a hull inside
     // geometric sight hidden by toll (verified absent), a hull seen through
     // thin fog, a detect-rung subject hidden, an `sm` hidden inside the halo,
@@ -4799,7 +4918,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
       console.log(
         `perception fuzz ledgers: CLOUD_SIGHT_THROUGH ${CLOUD_SIGHT_THROUGH.n} | ` +
           `CLOUD_DELIVERED_BY_SIGHT ${CLOUD_DELIVERED_BY_SIGHT.n} | CLOUD_DELIVERED_BY_RADAR ${CLOUD_DELIVERED_BY_RADAR.n} | ` +
-          `DECOY_PAINT_EXPECTED ${DECOY_PAINT_EXPECTED.n} | ` +
+          `DECOY_PAINT_EXPECTED ${DECOY_PAINT_EXPECTED.n} | BUOY_PAINT_EXPECTED ${BUOY_PAINT_EXPECTED.n} | ` +
           `DRAFT_SEEN ${DRAFT_SEEN.n} | FOUL_ZONE_DELIVERED ${FOUL_ZONE_DELIVERED.n} | wk ${wkSeen} | reReveals ${reReveals} | ` +
           `dropout painted ${DROPOUT_LEDGER.painted} missed ${DROPOUT_LEDGER.missed} | ` +
           `FOG_HID_CONTACT ${FOG_HID_CONTACT.n} | FOG_THIN_SEEN ${FOG_THIN_SEEN.n} | FOG_HID_MINE_OR_TORP ${FOG_HID_MINE_OR_TORP.n} | ` +
@@ -4838,7 +4957,7 @@ describe('perception — the radar dropout, end to end (Story 9.8, rulings 121�
     const far = place(w, 'far', at(FAR, BRG.far).x, at(FAR, BRG.far).y);
     const near = place(w, 'near', at(NEAR, BRG.near).x, at(NEAR, BRG.near).y);
     const dp = at(FAR, BRG.decoy);
-    addDecoy(w.decoys, 'z', dp.x, dp.y, 'dk');
+    addDecoy(w.decoys, 'z', dp.x, dp.y, 'dk', 'healing', Number.POSITIVE_INFINITY, 0);
     const cp = at(FAR, BRG.cloud);
     injectCloud(w, 'ck', 'z', cp.x, cp.y);
     w.clouds.set('ck', { ...w.clouds.get('ck')!, until: 1e9 }); // keep it on the water for the whole run

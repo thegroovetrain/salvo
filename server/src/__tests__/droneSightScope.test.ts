@@ -52,7 +52,7 @@ describe('drone sight scope — hull avoidance reads only what the drone can see
     const w = bareWorld(3);
     const d = fleetShip(w, 'f', 'medium', 0, 0);
     captain(w, 'far', 2000, 0);
-    expect(sightOf(d)).toBeLessThan(2000);
+    expect(sightOf(d, 0)).toBeLessThan(2000);
     for (let t = 0; t < 20; t++) w.step();
     expect(w.drones.probe.hullPairs).toBe(0);
   });
@@ -71,7 +71,7 @@ describe('drone sight scope — hull avoidance reads only what the drone can see
     const all = [...w.ships.values()];
     let expected = 0;
     for (const d of fleet) {
-      const s = sightOf(d);
+      const s = sightOf(d, 0);
       for (const o of all) {
         if (o !== d && (o.state.x - d.state.x) ** 2 + (o.state.y - d.state.y) ** 2 <= s * s) expected++;
       }
@@ -136,7 +136,7 @@ describe('drone sight scope — being shot is not a sight scan', () => {
     const d = fleetShip(w, 'f', 'medium', 0, 0);
     d.state.heading = Math.PI / 2; // broadside-on to the shooter
     captain(w, 'cap', 1500, 0);
-    expect(sightOf(d)).toBeLessThan(1500);
+    expect(sightOf(d, 0)).toBeLessThan(1500);
     shellHit(w, d, 'cap');
     expect(w.drones.targetOf('f')).toBe('cap');
     const err0 = Math.abs(angleDiff(d.state.heading, bearing(d.state, { x: 1500, y: 0 })));
@@ -201,7 +201,7 @@ describe('drone sight scope — the fog field blinds a drone exactly as it blind
           const cap = { x: gx + ux * CAP_D, y: gy + uy * CAP_D };
           const far = { x: gx + ux * CHASE_U, y: gy + uy * CHASE_U };
           const witness = { x: gx - uy * 200, y: gy + ux * 200 };
-          if (CAP_D - CHASE_U + w.fogTollAlong(far.x, far.y, cap.x, cap.y) <= sightOf(w.ships.get('f')!) + 60) continue; // hidden from the chase's end, with margin
+          if (CAP_D - CHASE_U + w.fogTollAlong(far.x, far.y, cap.x, cap.y) <= sightOf(w.ships.get('f')!, 0) + 60) continue; // hidden from the chase's end, with margin
           if (!clear(witness.x, witness.y) || w.fogTollAlong(witness.x, witness.y, cap.x, cap.y) < 100) continue;
           return { drone: { x: gx, y: gy }, cap, witness };
         }
@@ -223,8 +223,8 @@ describe('drone sight scope — the fog field blinds a drone exactly as it blind
     const g = fleetShip(w, 'g', 'medium', spots.witness.x, spots.witness.y);
     const cap = captain(w, 'cap', spots.cap.x, spots.cap.y);
     expect(cap.id).toBe('cap');
-    expect(CAP_D).toBeLessThanOrEqual(sightOf(d)); // premise: seen with no fog
-    expect(CAP_D + w.fogTollAlong(d.state.x, d.state.y, cap.state.x, cap.state.y)).toBeGreaterThan(sightOf(d)); // premise: hidden by the bank
+    expect(CAP_D).toBeLessThanOrEqual(sightOf(d, 0)); // premise: seen with no fog
+    expect(CAP_D + w.fogTollAlong(d.state.x, d.state.y, cap.state.x, cap.state.y)).toBeGreaterThan(sightOf(d, 0)); // premise: hidden by the bank
     expect(w.fogDensityAt(d.state.x, d.state.y)).toBeLessThan(0.5); // premise: the drone is NOT in a bank (its own bank would be free)
     if (!fogged) w.setFogCutForTest(FOG_NO_CUT);
     return { w, d, g, cap: spots.cap };

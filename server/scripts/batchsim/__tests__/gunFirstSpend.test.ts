@@ -23,7 +23,7 @@ function slotsOf(gun: EquipmentId): (SlotItemId | null)[] {
 }
 
 /** A NON-default kit (Story 10.1): the spend state must carry the bot's own four. */
-const KIT: ConsumableKit = ['supercavTorpedo', 'foulingShell', 'decoyBuoy', 'hullRepair'];
+const KIT: ConsumableKit = ['supercavTorpedo', 'foulingShell', 'healingBuoy', 'hullRepair'];
 
 function state(over: Partial<BotSpendState>): BotSpendState {
   return { bankedLevels: 1, offer: null, cards: [], kit: KIT, hp: 100, maxHp: 100, ...over };

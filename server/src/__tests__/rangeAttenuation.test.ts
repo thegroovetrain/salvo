@@ -236,7 +236,7 @@ describe('a DECOY takes exactly what a hull would (reading r6)', () => {
     const a = ship(w, 'a', 0, 0);
     ship(w, 'o', 0, -1500);
     const X = 0.9 * a.stats.equipment.gun.rangeU;
-    const decoy = addDecoy(w.decoys, 'o', X, 0, 'd1');
+    const decoy = addDecoy(w.decoys, 'o', X, 0, 'd1', 'healing', Number.POSITIVE_INFINITY, 0);
     const before = decoy.hp;
     const { shells } = fire(w, 'a', X);
     const expected = settleBlow(CONFIG.gun.damage * burstAtten(shells[0]));
@@ -249,7 +249,7 @@ describe('a DECOY takes exactly what a hull would (reading r6)', () => {
     const a = ship(w, 'a', 0, 0, { gun: 'machineGun' });
     ship(w, 'o', 0, -1500);
     const R = a.stats.equipment.machineGun.rangeU;
-    const decoy = addDecoy(w.decoys, 'o', 0.92 * R, 0, 'd1');
+    const decoy = addDecoy(w.decoys, 'o', 0.92 * R, 0, 'd1', 'healing', Number.POSITIVE_INFINITY, 0);
     const before = decoy.hp;
     const { log, shells } = fire(w, 'a', R);
     const boom = log.find((e): e is BoomEvent => e.k === 'boom' && e.hit === 'd1')!;
@@ -355,7 +355,7 @@ describe('a machine-gun blow settled to 0 is NO blow (resolveInterception agrees
       const w = bareWorld();
       ship(w, 'o', -3000, 0);
       ship(w, 'a', 0, -3000);
-      const decoy = addDecoy(w.decoys, 'o', 0, 0, 'd1');
+      const decoy = addDecoy(w.decoys, 'o', 0, 0, 'd1', 'healing', Number.POSITIVE_INFINITY, 0);
       const before = decoy.hp;
       const inner = w as unknown as Inner;
       const shell = { ...maxRangeMgShell(w, 0), ownerId: 'a' };

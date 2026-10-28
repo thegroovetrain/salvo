@@ -288,7 +288,7 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
       // the DECOY BUOY is click-placed (catalog-v3 R1).
       expect(row.isWeapon, id).toBe(CONSUMABLE_IS_WEAPON[id]);
     }
-    expect(consumableRow('decoyBuoy', () => ({ ok: true })).isWeapon).toBe(true);
+    expect(consumableRow('healingBuoy', () => ({ ok: true })).isWeapon).toBe(true);
     expect(consumableRow('hullRepair', () => ({ ok: true })).isWeapon).toBe(false);
   });
 
@@ -370,7 +370,8 @@ describe('consumable rows — the belt half of the Equipment interface (Story 8.
     expect(Object.isFrozen(CONSUMABLES)).toBe(true);
     for (const id of BUILT) expect(Object.isFrozen(CONSUMABLES[id as keyof typeof CONSUMABLES]), id).toBe(true);
     expect(CONSUMABLES.supercavTorpedo!.isWeapon).toBe(true); // aimed
-    expect(CONSUMABLES.decoyBuoy!.isWeapon).toBe(true); // click-placed (Story 8.16)
+    expect(CONSUMABLES.healingBuoy!.isWeapon).toBe(true); // click-placed (the buoy body, Story 8.16 / 10.9)
+    expect(CONSUMABLES.dazzleShells!.isWeapon).toBe(true); // FLASH SHELLS: prime-and-click (Story 10.9, beside the fouling shell)
     expect(CONSUMABLES.foulingShell!.isWeapon).toBe(true); // FOULING SHELL: prime-and-click (Story 9.4 — FLASH SHELLS' seat)
     expect(CONSUMABLES.hullRepair!.isWeapon).toBe(false);
     expect(CONSUMABLES.shieldBlock!.isWeapon).toBe(false); // key-fired (Story 8.16)

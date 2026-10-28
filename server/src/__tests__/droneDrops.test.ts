@@ -37,7 +37,7 @@ const LIVE_CONSUMABLES = Object.keys(CATALOG).filter((id) => CATALOG[id].kind ==
 /** The test captains' kit (Story 10.1) — deliberately NOT the default four, so
  *  nothing here silently rides DEFAULT_KIT. Carries the decoy (the refit-hand
  *  suite offers it) and HULL REPAIR + SHIELD BLOCK (the cap matrix). */
-const KIT: ConsumableKit = ['hullRepair', 'shieldBlock', 'decoyBuoy', 'supercavTorpedo'];
+const KIT: ConsumableKit = ['hullRepair', 'shieldBlock', 'healingBuoy', 'supercavTorpedo'];
 
 /** The lines a KIT captain can be dropped, in the CATALOG order `pickDrop`
  *  walks — the live lines the kit carries. */
@@ -444,10 +444,10 @@ describe('drone drops — a drop landing while a refit hand is open (Eric 2026-1
     const a = place(w, 'a');
     for (const id of HELD) w.applyCard(a, id);
     a.bankedLevels = 1;
-    a.offer = ['decoyBuoy', 'speed', 'reload', 'radarSweep'];
+    a.offer = ['healingBuoy', 'speed', 'reload', 'radarSweep'];
     const offer = a.offer;
     const offerBefore = [...offer];
-    const fourth = CARRIED.find((id) => !HELD.includes(id) && id !== 'decoyBuoy')!;
+    const fourth = CARRIED.find((id) => !HELD.includes(id) && id !== 'healingBuoy')!;
     const d = place(w, 'd', 200, 0, 'droneSmall', 'fleet');
     scriptDrops(w, [PASS], [CARRIED.indexOf(fourth)]);
     w.sinkShip(d.id, 'a');
@@ -459,7 +459,7 @@ describe('drone drops — a drop landing while a refit hand is open (Eric 2026-1
     // No full belt exists: the offered decoy still lands, in its own slot.
     expect(w.spendPoint('a', 0)).toBe(true);
     expect(a.bankedLevels).toBe(0);
-    expect(a.loadout[consumableSlotFor(KIT, 'decoyBuoy')!].equipmentId).toBe('decoyBuoy');
+    expect(a.loadout[consumableSlotFor(KIT, 'healingBuoy')!].equipmentId).toBe('healingBuoy');
   });
 
   it('a drop that tops a held line to its cap while the hand offers it: that pick is refused (at cap), nothing throws', () => {
@@ -516,18 +516,18 @@ describe('drone drops — confined to the captain\'s four (Story 10.1, Eric ruli
     return seen;
   }
 
-  it('a captain whose kit lacks the DECOY BUOY is never dropped one; every drop is one of its four', () => {
-    expect(DEFAULT_KIT).not.toContain('decoyBuoy');
+  it('a captain whose kit lacks the HEALING BUOY is never dropped one; every drop is one of its four', () => {
+    expect(DEFAULT_KIT).not.toContain('healingBuoy');
     const seen = dropsFor(DEFAULT_KIT, 101);
-    expect(seen.has('decoyBuoy')).toBe(false);
+    expect(seen.has('healingBuoy')).toBe(false);
     // Uniform over the four: every carried line shows up, and nothing else.
     expect([...seen].sort()).toEqual([...DEFAULT_KIT].sort());
   });
 
-  it('a captain whose kit carries the DECOY BUOY is dropped one, and still nothing outside its four', () => {
-    expect(KIT).toContain('decoyBuoy');
+  it('a captain whose kit carries the HEALING BUOY is dropped one, and still nothing outside its four', () => {
+    expect(KIT).toContain('healingBuoy');
     const seen = dropsFor(KIT, 101);
-    expect(seen.has('decoyBuoy')).toBe(true);
+    expect(seen.has('healingBuoy')).toBe(true);
     expect([...seen].sort()).toEqual([...KIT].sort());
   });
 });

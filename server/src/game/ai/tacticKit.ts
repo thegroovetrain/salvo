@@ -13,7 +13,7 @@
 // What lives here: the tactic types, the appetite resolver and thresholds,
 // aiming (lead solve + scatter + the coastline check), the torpedo shot solve
 // (shared by both torpedo lines and the SUPERCAV belt fish), the sector
-// placement (mines and the DECOY BUOY), the live-contact burst (PHOSPHOR
+// placement (mines and the buoys), the live-contact burst (PHOSPHOR
 // SHELLS and the FOULING SHELL) with its astern-filtered pick, the HUNKER (was DAMAGE CUT until Story 9.9)
 // cues (the Shift and SHIELD BLOCK) and the registry freezer.
 //
@@ -29,6 +29,7 @@ import {
   twinSectorArcFor,
   twinSectorSide,
   wrapAngle,
+  type BuoyKind,
   type ConsumableId,
   type EffectiveStats,
   type EquipmentId,
@@ -299,7 +300,30 @@ export function solveTorpedoShot(
 /** A drop commanded at the centre of the given ratified placement sector —
  *  so arc and range pass by construction and only the water can refuse
  *  (`blockedWater` is the SAME predicate the equipment rows deny with). The
- *  mines and the DECOY BUOY both drop this way. */
+ *  mines drop this way; the buoys try it bearing by bearing (ringPlacement). */
+/** The ring solver's bearing step (rad) — twelve candidate bearings round
+ *  the hull. A sampling resolution, not a gameplay dial. */
+const RING_STEP = Math.PI / 6;
+
+/**
+ * THE FULL-CIRCLE drop (Story 10.9, ruling 9 — the buoys' 360° arc): the
+ * first WATER-LEGAL point at `dropU` (the full placeRange), trying dead
+ * astern first (the mine's sector centre, `CONFIG.mine.offset` — where the
+ * DECOY BUOY always dropped) and then fanning out alternately port and
+ * starboard round the whole circle; null when every candidate is ashore or
+ * off the disk. Range passes by construction; only the water can refuse
+ * (`blockedWater`, the equipment row's own predicate).
+ */
+export function ringPlacement(ctx: TacticContext, dropU: number): Shot | null {
+  const steps = Math.round((2 * Math.PI) / RING_STEP);
+  for (let i = 0; i < steps; i++) {
+    const k = Math.ceil(i / 2) * (i % 2 === 0 ? 1 : -1);
+    const shot = sectorPlacement(ctx, { offset: CONFIG.mine.offset + k * RING_STEP }, dropU);
+    if (shot !== null) return shot;
+  }
+  return null;
+}
+
 export function sectorPlacement(
   ctx: TacticContext,
   sector: { offset: number },
@@ -415,10 +439,12 @@ export function healthy(sit: BotSituation): boolean {
   return sit.maxHp > 0 && sit.hp / sit.maxHp >= sit.profile.disengageHpFrac;
 }
 
-/** Is one of the bot's OWN decoy buoys on the water? The owner is always sent
- *  its own (`DecoyView.own`, the decoy row's owner-always clause). */
-export function ownDecoyLive(mind: BotMind): boolean {
-  return mind.view?.decoys.some((d) => d.own) ?? false;
+/** Is one of the bot's OWN buoys of `kind` on the water (Story 10.9 — the
+ *  DECOY BUOY's `ownDecoyLive`, now per kind)? The owner is always sent its
+ *  own (`DecoyView.own`, the decoy row's owner-always clause), and every view
+ *  carries `kind`. */
+export function ownBuoyLive(mind: BotMind, kind: BuoyKind): boolean {
+  return mind.view?.decoys.some((d) => d.own && d.kind === kind) ?? false;
 }
 
 /** THE HARNESS STAMP (Story 9.13): record the tactic row that produced a shot

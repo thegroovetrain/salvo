@@ -378,6 +378,7 @@ describe('sanitizeKit — the seat\'s four consumable lines', () => {
       [valid[0], valid[0], ...valid.slice(2)], // a duplicate
       [...valid.slice(0, KIT_SIZE - 1), 'depthCharge'], // the stub
       [...valid.slice(0, KIT_SIZE - 1), 'noSuchLine'], // unknown
+      ['decoyBuoy', ...valid.slice(1)], // the RETIRED DECOY BUOY (Story 10.9) — a saved kit holding it, no alias
       [...valid.slice(0, KIT_SIZE - 1), 7], // a non-string entry
     ];
     for (const raw of bad) {

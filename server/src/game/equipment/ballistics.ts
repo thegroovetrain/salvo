@@ -96,6 +96,11 @@ export interface BallisticParams {
    *  seat): a burst — or an interception stop — spawns a FOUL ZONE there (see
    *  ShellState.foul). Only the FOULING SHELL row sets it; never on the wire. */
   foul?: { radius: number; durationMs: number };
+  /** Server-internal FLASH tag (Story 8.17, restored by Story 10.9 beside
+   *  `foul`): a burst — or an interception stop — dazzles every non-owner
+   *  hull whose centre is inside (see ShellState.flash). Only the FLASH
+   *  SHELLS row sets it; never on the wire. */
+  flash?: { radius: number; durationMs: number };
   /** ACOUSTIC HOMING doctrine (Story 2.8): the per-tick steering params
    *  (ShellState.homing — turn rate + acquire range). Never on the wire. */
   homing?: { turnRate: number; acquireRange: number };
@@ -158,6 +163,7 @@ export function makeBallistic(
   if (p.lit) shell.lit = p.lit;
   if (p.burn) shell.burn = p.burn;
   if (p.foul) shell.foul = p.foul;
+  if (p.flash) shell.flash = p.flash;
   if (p.homing) shell.homing = p.homing;
   return shell;
 }

@@ -19,6 +19,7 @@
 
 import {
   isConsumableId,
+  type BuoyKind,
   type EquipmentId,
   type Island,
   type LitCircle,
@@ -78,11 +79,11 @@ export interface ActivationContext {
    *  one hull may now hold all three and the owner's stats can no longer say
    *  which kind a given mine is. */
   dropMine: (x: number, y: number, kind: MineKind) => void;
-  /** Place a DECOY BUOY at an already-validated point (Story 8.16) — the
-   *  dropMine sibling: the row validates the rear sector / placeRange / water
-   *  legality and hands the World the clicked point. (Replaces the deleted
-   *  radar buoy's `dropBuoy`.) */
-  dropDecoy: (x: number, y: number) => void;
+  /** Place a BUOY of `kind` at an already-validated point (Story 8.16's
+   *  DECOY BUOY body; Story 10.9's four buoy lines share it) — the dropMine
+   *  sibling: the row validates placeRange / water legality (no sector since
+   *  10.9, ruling 9) and hands the World the clicked point and the kind. */
+  dropDecoy: (x: number, y: number, kind: BuoyKind) => void;
   /**
    * THE STAR-SHELL GUN REACH (Story 7-5 wave 2, R2.15): the LIVE lit zones owned
    * by the ACTIVATING ship, as centre+radius circles. The three DECK GUN rows

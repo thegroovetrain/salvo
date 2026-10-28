@@ -93,7 +93,7 @@ export interface BotReadouts {
    *  two counters below. Per SHELL, so a two-barrel cannon click is two. */
   gunShells: number;
   /** Shells (any gun-pattern shell with an aim point) whose aim point fell
-   *  within CONFIG.decoyBuoy.sizeU + CONFIG.vision.radarCellU of an ENEMY decoy
+   *  within CONFIG.buoy.sizeU + CONFIG.vision.radarCellU of an ENEMY decoy
    *  buoy — the bait taken. */
   shotsAtDecoy: number;
   /** As shotsAtDecoy, but at the bot's OWN decoy (counted first; a shell near
@@ -424,7 +424,7 @@ function survivorsTookFire(world: World, survivors: readonly ShipRecord[]): bool
 }
 
 /** The decoy radius a shell's aim point is matched within. */
-const decoyReach = (): number => CONFIG.decoyBuoy.sizeU + CONFIG.vision.radarCellU;
+const decoyReach = (): number => CONFIG.buoy.sizeU + CONFIG.vision.radarCellU;
 
 /** Fold one newly launched shell into its owner's shot counters. */
 function creditShell(world: World, o: BotReadouts, s: ShellState): void {

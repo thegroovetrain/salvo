@@ -356,12 +356,13 @@ export class FleetController {
     // ONE sight field per hit (Story 9.10): built once here, never inside the
     // per-witness loop.
     const field = this.sightField();
+    const now = this.world.now;
     for (const [id, mind] of this.minds) {
       if (id === victim.id || mind.targetId !== null) continue;
       const witness = this.world.ships.get(id);
       if (!witness || !isAfloat(witness.lifecycle)) continue;
-      if (!shipSees(witness, attacker, field)) continue;
-      if (!shipSees(witness, victim, field)) continue;
+      if (!shipSees(witness, attacker, field, now)) continue;
+      if (!shipSees(witness, victim, field, now)) continue;
       this.acquire(id, attacker);
     }
   }
@@ -437,7 +438,7 @@ export class FleetController {
       return;
     }
     const now = this.world.now;
-    if (shipSees(ship, target, this.field)) {
+    if (shipSees(ship, target, this.field, now)) {
       mind.lastContactMs = now;
       mind.lastKnown = { x: target.state.x, y: target.state.y };
       return;
@@ -711,7 +712,11 @@ export class FleetController {
     const { x, y, heading } = ship.state;
     const fx = Math.cos(heading);
     const fy = Math.sin(heading);
-    const sight = sightOf(ship);
+    // UNDAZZLED on purpose (Story 10.9): this scope is an EXACT speed-up cut
+    // (the kernel's reach lies inside the undazzled sight), so reading the
+    // dazzled quarter-sight here would change behavior — a flashed drone
+    // would stop avoiding hulls inside its kernel reach and ram.
+    const sight = sightOf(ship, 0);
     const sight2 = sight * sight;
     let bias = 0;
     for (const other of this.solids) {
@@ -739,7 +744,7 @@ export class FleetController {
     if (!slot.state || slot.state.n <= 0 || slot.state.reloadMsLeft > 0) return null;
     const target = this.world.ships.get(mind.targetId);
     if (!target || !isAfloat(target.lifecycle)) return null;
-    if (!shipSees(ship, target, this.field)) return null;
+    if (!shipSees(ship, target, this.field, this.world.now)) return null;
     const point = this.aimPoint(ship, target, mind);
     mind.fireSeq += 1;
     return { aim: bearing(ship.state, point), aimDist: dist(ship.state, point) };
