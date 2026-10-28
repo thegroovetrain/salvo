@@ -13,7 +13,11 @@ import {
   isFirstRun,
   NAME_MAX,
   showHome,
+  KIT_KEY,
+  loadSavedKit,
+  saveKit,
 } from '../ui/home.js';
+import { DEFAULT_KIT, KIT_SIZE, dealableConsumables, isConsumableKit } from '@salvo/shared';
 import { loadColorPref, __resetSessionColorPrefForTests } from '../net/connection.js';
 
 // The connection module caches the session's rolled hue (review-gate fix for
@@ -124,5 +128,44 @@ describe('hullcracker.color — ensured at home mount', () => {
     showHome('0.0.0-test', vi.fn());
     expect(loadColorPref()).not.toBeUndefined();
     expect(Number(localStorage.getItem('hullcracker.color'))).toBeLessThan(PLAYER_HUES.length);
+  });
+});
+
+// Story 10.1 (epic-10 amendment 3): the kit is stored as JSON beside the gun;
+// anything `isConsumableKit` refuses is REPLACED by DEFAULT_KIT, never partly kept.
+describe('loadSavedKit / saveKit', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('round-trips a valid kit through KIT_KEY', () => {
+    const kit = dealableConsumables().slice(-KIT_SIZE).reverse();
+    expect(isConsumableKit(kit)).toBe(true);
+    saveKit(kit);
+    expect(JSON.parse(localStorage.getItem(KIT_KEY)!)).toEqual(kit);
+    expect(loadSavedKit()).toEqual(kit);
+  });
+
+  it('unset, junk, short, duplicated or stale kits load as DEFAULT_KIT', () => {
+    expect(loadSavedKit()).toEqual(DEFAULT_KIT);
+    const pool = dealableConsumables();
+    const bad = [
+      'not json {',
+      JSON.stringify('hullRepair'),
+      JSON.stringify(pool.slice(0, KIT_SIZE - 1)), // short
+      JSON.stringify([...pool.slice(0, KIT_SIZE - 1), pool[0]]), // duplicate
+      JSON.stringify([...pool.slice(0, KIT_SIZE - 1), 'multiSpectralCm']), // a line that does not exist
+      JSON.stringify([...pool.slice(0, KIT_SIZE), pool[KIT_SIZE]]), // too long
+    ];
+    for (const raw of bad) {
+      localStorage.setItem(KIT_KEY, raw);
+      expect(loadSavedKit(), raw).toEqual(DEFAULT_KIT);
+    }
+  });
+
+  it('falls open to DEFAULT_KIT when storage throws', () => {
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    expect(loadSavedKit()).toEqual(DEFAULT_KIT);
+    spy.mockRestore();
   });
 });

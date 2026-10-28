@@ -26,9 +26,12 @@
 import {
   CONFIG,
   DEFAULT_GUN,
+  DEFAULT_KIT,
   GUN_IDS,
   SHIP_CLASS_IDS,
   classShift,
+  isConsumableKit,
+  type ConsumableKit,
   type GunId,
   type ShiftId,
   type ShipClassId,
@@ -43,6 +46,7 @@ import { ensureColorPref, COLOR_PREF_KEY } from '../net/connection.js';
 import { registerCss } from './theme.js';
 import { monoTextWidth } from './refitCardFit.js';
 import { CLASS_DISPLAY_NAMES } from './classNames.js';
+import { makeKitRow, openKitPicker, type KitPickerHandle, type KitRow } from './kitPicker.js';
 
 const C = CLIENT_CONFIG.colors;
 
@@ -787,7 +791,7 @@ function buildRail(cards: CardEls[]): RailEls {
  * one container-fit concession: the 300px fixed width becomes a MIN width so
  * the longer label can't overrun its own border box (amendment 47).
  */
-function buildConfirm(onConfirm: () => void): HTMLElement {
+function buildConfirm(onConfirm: () => void): HTMLButtonElement {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.textContent = 'CONFIRM SELECTION';
@@ -800,18 +804,26 @@ function buildConfirm(onConfirm: () => void): HTMLElement {
   return btn;
 }
 
-function buildFooter(hoist: ColorHoist, onConfirm: () => void): HoistRow {
+interface FooterEls extends HoistRow {
+  confirm: HTMLButtonElement;
+}
+
+/** The footer: the CONSUMABLES row (Story 10.1 — a full-width first line, the
+ *  kit is the captain's, shared by every card) above the hoist and CONFIRM. */
+function buildFooter(hoist: ColorHoist, kitRow: KitRow, onConfirm: () => void): FooterEls {
   const foot = document.createElement('div');
   // flex-wrap:wrap — below ~700px viewport width this nowrap row (label + 20
   // swatches + the 300px-min CONFIRM button) clipped the button outside the
   // panel (vertical-only scroll can't reach it). Wrapping degrades gracefully
   // instead; the ratified 1366x768 floor is unchanged (still fits on one row).
   foot.style.cssText =
-    'display:flex;align-items:center;flex-wrap:wrap;gap:30px;padding:18px 42px 0;' +
+    'display:flex;align-items:center;flex-wrap:wrap;gap:18px 30px;padding:18px 42px 0;' +
     'border-top:1px solid var(--hc-hairline);margin-top:4px';
   const hoistRow = makeHoistRow(hoist);
-  foot.append(hoistRow.el, buildConfirm(onConfirm));
-  return { el: foot, off: hoistRow.off };
+  const confirm = buildConfirm(onConfirm);
+  kitRow.el.style.flexBasis = '100%';
+  foot.append(kitRow.el, hoistRow.el, confirm);
+  return { el: foot, off: hoistRow.off, confirm };
 }
 
 // --- open / lifecycle --------------------------------------------------------
@@ -821,13 +833,15 @@ export interface ClassSelectOpts {
   initial: ShipClassId;
   /** The gun chip lit on open (Story 8.15) — the stored pick, else CANNON. */
   initialGun?: GunId;
+  /** The CONSUMABLES row's kit on open (Story 10.1) — the saved kit, else DEFAULT_KIT. */
+  initialKit?: ConsumableKit;
   hoist: ColorHoist;
   /** Home overlay to blur/dim behind the layer while open. */
   blurTarget: HTMLElement;
   /** Footer CONFIRM SELECTION (and Enter): persist the highlight + close back to
    *  port. NEVER deploys — PLAY is the one launch path. Carries the gun pick
-   *  beside the class (Story 8.15). */
-  onConfirm: (cls: ShipClassId, gun: GunId) => void;
+   *  beside the class (Story 8.15) and the kit (Story 10.1). */
+  onConfirm: (cls: ShipClassId, gun: GunId, kit: ConsumableKit) => void;
   /** ESC / dimmer dismiss: close with no change. */
   onClose: () => void;
 }
@@ -860,6 +874,12 @@ function isLayerButton(el: Element | null, container: HTMLElement): boolean {
  */
 function isSwallowedKey(e: KeyboardEvent, container: HTMLElement): boolean {
   return (e.key === 'Enter' || e.key === ' ') && isLayerButton(document.activeElement, container);
+}
+
+/** Keys the layer never acts on: a focused text input owns them, or a focused
+ *  layer button's native Enter/Space activation must win. */
+function isIgnoredKey(e: KeyboardEvent, container: HTMLElement): boolean {
+  return isTextInput(document.activeElement) || isSwallowedKey(e, container);
 }
 
 /** The single live layer, if any — so a re-open fully tears the prior one down
@@ -932,10 +952,15 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   const cards = SHIP_CLASS_IDS.map((cls) => buildCard(cardViewModel(cls), select, pickGun));
   let highlight = Math.max(0, SHIP_CLASS_IDS.indexOf(opts.initial));
   let gun: GunId = opts.initialGun ?? DEFAULT_GUN;
+  let kit: ConsumableKit = opts.initialKit ?? DEFAULT_KIT;
+  /** The CONSUMABLES picker while it is up (Story 10.1): the layer's keys are
+   *  routed to it — only ESC acts, closing the picker, never the layer. */
+  let picker: { slot: number; handle: KitPickerHandle } | null = null;
 
   const { container, dimmer, panel } = makeLayerShell();
   const rail = buildRail(cards);
-  const footer = buildFooter(opts.hoist, confirmPick);
+  const kitRow = makeKitRow(openSlot);
+  const footer = buildFooter(opts.hoist, kitRow, confirmPick);
   panel.append(buildHeader(), rail.el, footer.el);
 
   // Ignore any keydown dispatched at/before this instant — the very keystroke
@@ -945,6 +970,24 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   const onResize = (): void => rail.evaluateOverflow();
   function repaint(): void {
     paintCards(cards, highlight, opts.hoist, gun);
+    kitRow.paint(kit, picker?.slot ?? null);
+    footer.confirm.disabled = !isConsumableKit(kit); // a guard, not a state
+  }
+  /** A CONSUMABLES square: open the picker for that kit index over the layer. */
+  function openSlot(slot: number): void {
+    const handle = openKitPicker({
+      host: container, kit, slot, accent: opts.hoist,
+      onPick: (next) => {
+        kit = next;
+        repaint();
+      },
+      onClose: () => {
+        if (picker?.handle === handle) picker = null;
+        repaint();
+      },
+    });
+    picker = { slot, handle };
+    repaint();
   }
   /** A gun chip: move the ONE gun pick and repaint. The chip's click then
    *  bubbles to its card, which highlights that card too. */
@@ -960,9 +1003,10 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   }
   /** CONFIRM SELECTION / Enter: resolve the highlight, close, hand it back. */
   function confirmPick(): void {
+    if (!isConsumableKit(kit)) return;
     const cls = SHIP_CLASS_IDS[highlight];
     close();
-    opts.onConfirm(cls, gun);
+    opts.onConfirm(cls, gun, kit);
   }
   function dismiss(): void {
     close();
@@ -970,8 +1014,8 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   }
   function onKey(e: KeyboardEvent): void {
     if (e.timeStamp <= openedAt) return; // the opening keystroke — never ours to act on
-    if (isTextInput(document.activeElement)) return;
-    if (isSwallowedKey(e, container)) return; // let native Enter/Space button activation win
+    if (picker) return picker.handle.key(e); // the picker owns the keyboard (ESC only)
+    if (isIgnoredKey(e, container)) return;
     const action = keyAction(e.key, cards.length);
     if (!action) return;
     e.preventDefault();
@@ -984,6 +1028,7 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   function close(): void {
     window.removeEventListener('keydown', onKey);
     window.removeEventListener('resize', onResize);
+    picker?.handle.close();
     unsubHoist();
     footer.off();
     container.remove();

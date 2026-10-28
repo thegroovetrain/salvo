@@ -80,8 +80,11 @@
 
 import {
   DEFAULT_GUN,
+  DEFAULT_KIT,
+  isConsumableKit,
   isGunId,
   sanitizeClassId,
+  type ConsumableKit,
   type GunId,
   type LivenessPayload,
   type QueueStatusMsg,
@@ -119,6 +122,9 @@ const NAME_KEY = 'hullcracker.name';
 const CLASS_KEY = 'hullcracker.class';
 /** THE GUN PICK (Story 8.15, amendment 107), stored beside the class. */
 export const GUN_KEY = 'hullcracker.gun';
+/** THE KIT (Story 10.1, epic-10 amendment 3): the four consumable lines on keys
+ *  1–4, a JSON array stored beside the gun. */
+export const KIT_KEY = 'hullcracker.kit';
 const MODE_KEY = 'hullcracker.mode';
 
 const NOTE_CONNECTING = 'CONNECTING…'; // re-asserted when PLAY is pressed mid-connect
@@ -211,6 +217,30 @@ function saveGun(gun: GunId): void {
 }
 
 /**
+ * The saved kit (Story 10.1) — `DEFAULT_KIT` when nothing is stored, the value
+ * is not JSON, fails `isConsumableKit` (short, duplicated, a retired or stub
+ * line), or storage is unavailable. A bad kit is REPLACED whole, never partly
+ * kept (Eric ruling 3: exactly four, always).
+ */
+export function loadSavedKit(): ConsumableKit {
+  try {
+    const raw = localStorage.getItem(KIT_KEY);
+    const parsed: unknown = raw === null ? null : JSON.parse(raw);
+    return isConsumableKit(parsed) ? parsed : DEFAULT_KIT;
+  } catch {
+    return DEFAULT_KIT;
+  }
+}
+
+export function saveKit(kit: ConsumableKit): void {
+  try {
+    localStorage.setItem(KIT_KEY, JSON.stringify(kit));
+  } catch {
+    // storage unavailable — the kit just won't persist
+  }
+}
+
+/**
  * The MODE a deploy goes out through. `standard` is the queue; `soloVsAi` is
  * the queue-free `create('arena', {solo:true})` door (Story 6.5). It is an
  * IDENTIFIER rather than a boolean so DUO/TRIO slot in beside it without
@@ -222,9 +252,10 @@ function saveGun(gun: GunId): void {
  */
 export type DeployMode = 'standard' | 'soloVsAi';
 
-/** A deploy door's callback: the callsign, the hull, and the gun pick (Story
- *  8.15 threads the gun through `startGame` → `connect` → `joinOptions`). */
-export type DeployFn = (name: string, cls: ShipClassId, gun: GunId) => void;
+/** A deploy door's callback: the callsign, the hull, the gun pick (Story 8.15
+ *  threads the gun through `startGame` → `connect` → `joinOptions`) and the kit
+ *  (Story 10.1, threaded the same way). */
+export type DeployFn = (name: string, cls: ShipClassId, gun: GunId, kit: ConsumableKit) => void;
 
 /** The private-lobby doors (cycle 167): CREATE and JOIN. Not `DeployMode`s —
  *  neither is ever persisted as `hullcracker.mode`. */
@@ -903,6 +934,8 @@ interface Home {
   currentClass: ShipClassId | null;
   /** The captain's gun pick (Story 8.15) — never null, CANNON by default. */
   currentGun: GunId;
+  /** The captain's four consumable lines (Story 10.1) — never short, DEFAULT_KIT by default. */
+  currentKit: ConsumableKit;
   layerOpen: boolean;
   busy: boolean;
   /** Drives the callsign field's personal-color focus ring (see paintCallsign). */
@@ -1013,7 +1046,7 @@ function deploy(h: Home, go: DeployFn): void {
   if (h.currentClass === null) return;
   const name = sanitizeName(h.input.value);
   saveName(name);
-  go(name, h.currentClass, h.currentGun);
+  go(name, h.currentClass, h.currentGun, h.currentKit);
 }
 
 function onPlay(h: Home): void {
@@ -1050,17 +1083,20 @@ function openLayer(h: Home): void {
   h.layer = openClassSelect({
     initial: h.currentClass ?? 'torpedoBoat',
     initialGun: h.currentGun,
+    initialKit: h.currentKit,
     hoist: h.hoist,
     blurTarget: h.overlay,
     // CONFIRM SELECTION (and Enter) saves the class and comes back to port —
     // deliberately NO deploy(h) here: PLAY is the only path to onDeploy.
-    onConfirm: (cls, gun) => {
+    onConfirm: (cls, gun, kit) => {
       h.layerOpen = false;
       h.layer = null;
       // The gun is saved beside the class (Story 8.15). The home chip stays
       // slim — no `class · gun` sub-line until Story 9.4 (amendment 107).
       h.currentGun = gun;
       saveGun(gun);
+      h.currentKit = kit; // the kit saves on CONFIRM exactly as the gun does (Story 10.1)
+      saveKit(kit);
       setClass(h, cls);
       refocusInput(h);
     },
@@ -1207,6 +1243,7 @@ export function showHome(
     onSettings,
     currentClass: loadSavedClassOrNull(),
     currentGun: loadSavedGun(),
+    currentKit: loadSavedKit(),
     layerOpen: false,
     busy: false,
     inputFocused: false,

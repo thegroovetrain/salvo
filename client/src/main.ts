@@ -147,6 +147,7 @@ import { showBanner, hideBanner } from './util/banner.js';
 import {
   loadSavedClass,
   loadSavedGun,
+  loadSavedKit,
   loadSavedMode,
   loadSavedName,
   saveMode,
@@ -5286,7 +5287,7 @@ function startHomeLiveness(home: HomeHandle, countMe = true): void {
  * human leaves the room simply disposes. The field earns its keep for DUO/TRIO,
  * where a collapse is real and re-queueing into Standard would be wrong.
  */
-let lastDeploy: { name: string; cls: ShipClassId; gun: GunId; mode: DeployMode } | null = null;
+let lastDeploy: { name: string; cls: ShipClassId; gun: GunId; kit: ConsumableKit; mode: DeployMode } | null = null;
 
 /** Did the live session come through a private lobby (cycle 167)? Read only by
  *  the collapse requeue, which sends a private captain home instead of into the
@@ -5368,31 +5369,31 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
   const { start: startAmbient, stop: stopAmbient } = makeAmbient(shell.stage);
   const home = showHome(
     shell.version,
-    (name, cls, gun) => {
+    (name, cls, gun, kit) => {
       shell.audio.resume(); // must happen inside the PLAY click's user-gesture handler
       // FUNNEL: mode_pick. This closure runs only AFTER home's `deploy()` has
       // cleared its busy and no-class guards, so "a press that actually
       // deploys" is structural — a press that opens the class bay instead
       // never reaches here, and neither does the machine-driven auto-requeue.
       analytics.modePick('standard');
-      void startGame(shell, home, stopAmbient, name, cls, 'standard', gun);
+      void startGame(shell, home, stopAmbient, name, cls, 'standard', gun, kit);
     },
     () => shell.settingsOverlay.toggle(),
     // SOLO VS AI (Story 6.5): same deploy identity, queue-free door.
-    (name, cls, gun) => {
+    (name, cls, gun, kit) => {
       shell.audio.resume(); // same user-gesture rule as the SOLO primary
       analytics.modePick('soloVsAi'); // FUNNEL: mode_pick, same guard story
-      void startGame(shell, home, stopAmbient, name, cls, 'soloVsAi', gun);
+      void startGame(shell, home, stopAmbient, name, cls, 'soloVsAi', gun, kit);
     },
     // PRIVATE LOBBIES (cycle 167): CREATE / JOIN — the flow is app/privateLobby.ts.
     {
-      onCreate: (name, cls, gun) => {
+      onCreate: (name, cls, gun, kit) => {
         shell.audio.resume(); // same user-gesture rule as the other doors
-        void createPrivateLobby(privateDeps(shell, home, stopAmbient, cls), { name, cls, gun });
+        void createPrivateLobby(privateDeps(shell, home, stopAmbient, cls), { name, cls, gun, kit });
       },
-      onJoin: (name, cls, gun) => {
+      onJoin: (name, cls, gun, kit) => {
         shell.audio.resume();
-        openJoinPrivateLobby(privateDeps(shell, home, stopAmbient, cls), { name, cls, gun });
+        openJoinPrivateLobby(privateDeps(shell, home, stopAmbient, cls), { name, cls, gun, kit });
       },
     },
   );
@@ -5412,17 +5413,18 @@ function enterPort(shell: Shell, autoQueue: boolean): void {
     // deploy, which the lifecycle does not allow; it takes the saved hull rather
     // than inventing one — and the queue, which is the only door a collapse can
     // arrive from today.
-    const { name, cls, gun, mode } = lastDeploy ?? {
+    const { name, cls, gun, kit, mode } = lastDeploy ?? {
       name: '',
       cls: loadSavedClass(),
       gun: loadSavedGun(),
+      kit: loadSavedKit(),
       // Story 6.6: the persisted mode, so a reload between the deploy and the
       // collapse still re-enters the door the player actually chose.
       mode: loadSavedMode() ?? 'standard',
     };
     // Eric ruling 2026-08-17: re-enter the mode the player last chose, not
     // always Standard. (Unreachable for `soloVsAi` — see `lastDeploy`.)
-    void startGame(shell, home, stopAmbient, name, cls, mode, gun);
+    void startGame(shell, home, stopAmbient, name, cls, mode, gun, kit);
     return;
   }
   // THE CONSENT CARD IS DELETED (Story 7.4, Eric ruling 2026-08-19). Nothing is
@@ -5493,6 +5495,7 @@ async function startGame(
   cls: ShipClassId,
   mode: DeployMode = 'standard',
   gun: GunId = DEFAULT_GUN,
+  kit: ConsumableKit = DEFAULT_KIT,
 ): Promise<void> {
   const solo = mode === 'soloVsAi';
   home.setBusy(true);
@@ -5512,7 +5515,7 @@ async function startGame(
     startHomeLiveness(home); // another tab is at sea; this home stays live + informed
     return;
   }
-  lastDeploy = { name, cls, gun, mode }; // what the auto-requeue re-deploys with
+  lastDeploy = { name, cls, gun, kit, mode }; // what the auto-requeue re-deploys with
   markPrivateSession(false);
   saveMode(mode); // ...and what a RELOAD re-deploys with (Story 6.6)
   // Every deploy opens on CONNECTING… now, the auto-requeue included: the
@@ -5552,7 +5555,7 @@ async function startGame(
           },
       solo,
       gun, // Story 8.15: the captain's gun pick, frozen at queue as the seat's `gun`
-    );
+      kit); // Story 10.1: the captain's four consumable lines, frozen at queue as the seat's `kit`
   } catch (err) {
     // A CANCEL rejects through the same door but is NOT a failure: it is quiet
     // (tertiary, not denied) and never reaches the console.
@@ -5712,7 +5715,7 @@ async function tryResumeMatch(shell: Shell): Promise<'none' | 'resumed' | 'faile
   }
   // What the auto-requeue would re-deploy with, had we come through the home.
   const mode = loadSavedMode() ?? 'standard';
-  lastDeploy = { name: loadSavedName(), cls: loadSavedClass(), gun: loadSavedGun(), mode };
+  lastDeploy = { name: loadSavedName(), cls: loadSavedClass(), gun: loadSavedGun(), kit: loadSavedKit(), mode };
   // `loadSavedClass()` is a GUESS and is meant to be: `buildGame` seeds the
   // predictor and the hull view from it, and the very first frame's `you.cls`
   // replaces every derived stat through `applyOwnStats` — the same desync

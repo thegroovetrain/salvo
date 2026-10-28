@@ -18,11 +18,13 @@
 import { Client, type Room, type SeatReservation } from '@colyseus/sdk';
 import {
   DEFAULT_GUN,
+  DEFAULT_KIT,
   generateMap,
   MSG,
   PROTOCOL_VERSION,
   REGATTA_HUES,
   sanitizeHornId,
+  type ConsumableKit,
   type FrameMsg,
   type GunId,
   type HornId,
@@ -273,8 +275,18 @@ function waitForWelcome(room: Room): Promise<WelcomeMsg> {
  *  pick, frozen at queue and re-sanitized server-side exactly as `cls` is. Story
  *  8.15 (amendment 107) built the pick on the class-select cards: it is stored
  *  under `hullcracker.gun` (ui/home.ts) and threaded here through
- *  `startGame` → `connect(…, gun)`. Always SENT, never omitted. */
-export function joinOptions(name?: string, cls?: string, gun: GunId = DEFAULT_GUN): Record<string, unknown> {
+ *  `startGame` → `connect(…, gun)`. Always SENT, never omitted.
+ *
+ *  `kit` is THE SEAT'S FOUR CONSUMABLE LINES (Story 10.1, epic-10 amendment 3),
+ *  carried exactly as `gun` is: chosen on the class-select CONSUMABLES row,
+ *  stored under `hullcracker.kit`, always SENT (a fresh browser sends
+ *  DEFAULT_KIT), re-sanitized server-side (fail-open to DEFAULT_KIT). */
+export function joinOptions(
+  name?: string,
+  cls?: string,
+  gun: GunId = DEFAULT_GUN,
+  kit: ConsumableKit = DEFAULT_KIT,
+): Record<string, unknown> {
   // `pv` is the join-time protocol gate: the server's onAuth rejects a missing
   // or mismatched PROTOCOL_VERSION with a "version mismatch" ServerError that
   // startGame() surfaces on the menu status line. Reconnects bypass onAuth, so
@@ -286,7 +298,8 @@ export function joinOptions(name?: string, cls?: string, gun: GunId = DEFAULT_GU
     colorPref?: number;
     horn?: string;
     gun: GunId;
-  } = { pv: PROTOCOL_VERSION, gun };
+    kit: string[];
+  } = { pv: PROTOCOL_VERSION, gun, kit: [...kit] };
   if (name) opts.name = name;
   if (cls) opts.cls = cls;
   // Story 4.5: the equipped foghorn variant, alongside cls/colorPref. Always
@@ -587,9 +600,10 @@ export async function connect(
   hooks: ConnectHooks = {},
   solo = false,
   gun: GunId = DEFAULT_GUN,
+  kit: ConsumableKit = DEFAULT_KIT,
 ): Promise<Connection> {
   const client = new Client(wsEndpoint());
-  const opts = joinOptions(name, cls, gun);
+  const opts = joinOptions(name, cls, gun, kit);
   // Everything below this line is the pre-6.1 flow byte for byte: `room` is the
   // ARENA room, so bindRoom/buildGame see exactly what they always did.
   const room = await acquireArena(client, opts, hooks, solo);

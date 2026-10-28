@@ -6,7 +6,7 @@
 // through the queue path's own stage 2.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CONFIG, MSG, PROTOCOL_VERSION } from '@salvo/shared';
+import { CONFIG, DEFAULT_KIT, MSG, PROTOCOL_VERSION } from '@salvo/shared';
 
 interface FakeRoom {
   sessionId: string;
@@ -263,12 +263,22 @@ describe('CREATE', () => {
     await vi.waitFor(() => expect(lobbyRoom.has(MSG.seat)).toBe(true));
     expect(created?.name).toBe('lobby');
     expect(created?.opts).toMatchObject({ pv: PROTOCOL_VERSION, name: 'NEMO', cls: 'battleship', gun: 'flak' });
+    expect(created?.opts.kit).toEqual([...DEFAULT_KIT]); // Story 10.1: absent kit → DEFAULT_KIT
     lobbyRoom.fireState(STATE);
     expect(h.views.at(-1)?.code).toBe('QWERTY');
     expect(lobbyActive()).toBe(true);
     leaveLobby();
     expect(await pending).toBeNull();
     expect(h.calls).toEqual(['left']);
+  });
+
+  it('the deploy kit rides the lobby join options (Story 10.1)', async () => {
+    const kit = [...DEFAULT_KIT].reverse();
+    const pending = createLobby({ cls: 'battleship', kit }, hooks());
+    await vi.waitFor(() => expect(lobbyRoom.has(MSG.seat)).toBe(true));
+    expect(created?.opts.kit).toEqual(kit);
+    leaveLobby();
+    expect(await pending).toBeNull();
   });
 
   it('a refused create (version gate) reports the queue door copy and settles null', async () => {

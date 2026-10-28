@@ -15,13 +15,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   homeYieldStyle,
   livenessLines,
+  KIT_KEY,
   loadSavedGun,
   loadSavedMode,
   saveMode,
   serverStatusLine,
   showHome,
 } from '../ui/home.js';
-import type { LivenessPayload } from '@salvo/shared';
+import { DEFAULT_KIT, dealableConsumables, type LivenessPayload } from '@salvo/shared';
 
 // The community links (Eric ruling 2026-08-28) are env-gated and read
 // `import.meta.env` at call time, so ANY test in this file that stubs a
@@ -208,7 +209,7 @@ describe('showHome — first-run vs returning routing', () => {
     showHome('0.0.0-test', onDeploy);
     expect(chip().children).toHaveLength(3); // sil, meta, [change] — no loadout slot
     playButton().click();
-    expect(onDeploy).toHaveBeenCalledWith('', 'battleship', 'deckGun'); // empty callsign → server assigns
+    expect(onDeploy).toHaveBeenCalledWith('', 'battleship', 'deckGun', DEFAULT_KIT); // empty callsign → server assigns
     expect(document.getElementById('hc-class-select')).toBeNull(); // no layer, connected
   });
 
@@ -386,7 +387,7 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     showHome('0.0.0-test', onDeploy, vi.fn(), onSolo);
     nameInput().value = 'skipper';
     soloButton().click();
-    expect(onSolo).toHaveBeenCalledWith('skipper', 'mineLayer', 'deckGun');
+    expect(onSolo).toHaveBeenCalledWith('skipper', 'mineLayer', 'deckGun', DEFAULT_KIT);
     expect(onDeploy).not.toHaveBeenCalled(); // the two doors never cross
     expect(localStorage.getItem('hullcracker.name')).toBe('skipper'); // callsign persisted
   });
@@ -1420,9 +1421,9 @@ describe('the gun pick — persistence and the deploy doors (Story 8.15)', () =>
     const onSolo = vi.fn();
     showHome('0.0.0-test', onDeploy, () => undefined, onSolo);
     playButton().click();
-    expect(onDeploy).toHaveBeenCalledWith('', 'battleship', 'machineGun');
+    expect(onDeploy).toHaveBeenCalledWith('', 'battleship', 'machineGun', DEFAULT_KIT);
     soloButton().click();
-    expect(onSolo).toHaveBeenCalledWith('', 'battleship', 'machineGun');
+    expect(onSolo).toHaveBeenCalledWith('', 'battleship', 'machineGun', DEFAULT_KIT);
   });
 
   it('picking a chip and CONFIRMING stores it beside the class; the chip stays slim', () => {
@@ -1439,7 +1440,7 @@ describe('the gun pick — persistence and the deploy doors (Story 8.15)', () =>
     expect(chip().textContent).toBe(slim); // the gun pick never reaches the chip
     expect(home().querySelector('.hc-gunchip')).toBeNull();
     playButton().click();
-    expect(onDeploy).toHaveBeenCalledWith('', 'mineLayer', 'flak');
+    expect(onDeploy).toHaveBeenCalledWith('', 'mineLayer', 'flak', DEFAULT_KIT);
   });
 
   it('re-opening the bay lights the STORED gun, and ESC discards a changed pick', () => {
@@ -1451,5 +1452,37 @@ describe('the gun pick — persistence and the deploy doors (Story 8.15)', () =>
     gunChip('deckGun').click();
     press('Escape');
     expect(localStorage.getItem('hullcracker.gun')).toBe('machineGun');
+  });
+
+  // Story 10.1: the kit saves on CONFIRM beside the gun and rides every door.
+  it('a stored kit opens the CONSUMABLES row and rides PLAY as the fourth argument', () => {
+    const kit = [...DEFAULT_KIT].reverse();
+    localStorage.setItem('hullcracker.class', 'battleship');
+    localStorage.setItem(KIT_KEY, JSON.stringify(kit));
+    const onDeploy = vi.fn();
+    showHome('0.0.0-test', onDeploy);
+    playButton().click();
+    expect(onDeploy).toHaveBeenCalledWith('', 'battleship', 'deckGun', kit);
+    chip().click();
+    const squares = [...document.querySelectorAll<HTMLButtonElement>('#hc-class-select button[data-slot]')];
+    expect(squares.map((b) => b.dataset.kind)).toEqual(kit);
+  });
+
+  it('a kit picked in the bay is saved on CONFIRM, and ESC discards it', () => {
+    localStorage.setItem('hullcracker.class', 'torpedoBoat');
+    showHome('0.0.0-test', vi.fn());
+    const lit = dealableConsumables().find((l) => !DEFAULT_KIT.includes(l))!;
+    const pickInto = (slot: number): void => {
+      document.querySelectorAll<HTMLButtonElement>('#hc-class-select button[data-slot]')[slot].click();
+      document.querySelector<HTMLButtonElement>(`#hc-class-select [data-line="${lit}"]`)!.click();
+    };
+    chip().click();
+    pickInto(0);
+    press('Escape'); // closes the layer — the picker is already shut
+    expect(localStorage.getItem(KIT_KEY)).toBeNull();
+    chip().click();
+    pickInto(0);
+    confirm();
+    expect(JSON.parse(localStorage.getItem(KIT_KEY)!)).toEqual(DEFAULT_KIT.map((l, i) => (i === 0 ? lit : l)));
   });
 });

@@ -40,7 +40,7 @@ import { monoTextWidth } from '../ui/refitCardFit.js';
 import { loadColorPref, __resetSessionColorPrefForTests, COLOR_PREF_KEY } from '../net/connection.js';
 import { pipFill } from '../util/pips.js';
 import { CLIENT_CONFIG } from '../config.js';
-import { CONFIG, GUN_IDS, classShift } from '@salvo/shared';
+import { CONFIG, DEFAULT_KIT, GUN_IDS, KIT_SIZE, classShift, dealableConsumables } from '@salvo/shared';
 
 // The connection module caches the session's rolled hue (review-gate fix for
 // blocked-storage divergence); reset it per test so corrupt/absent-pref cases
@@ -401,7 +401,7 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     const { onConfirm } = open();
     press('2'); // highlight battleship
     press('Enter');
-    expect(onConfirm).toHaveBeenCalledWith('battleship', 'deckGun');
+    expect(onConfirm).toHaveBeenCalledWith('battleship', 'deckGun', DEFAULT_KIT);
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
@@ -414,7 +414,7 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     const cards = [...layer.querySelectorAll('.hc-ccard')];
     (cards[1] as HTMLElement).click(); // highlight battleship via click
     press('Enter');
-    expect(onConfirm).toHaveBeenCalledWith('battleship', 'deckGun');
+    expect(onConfirm).toHaveBeenCalledWith('battleship', 'deckGun', DEFAULT_KIT);
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
@@ -443,7 +443,7 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     const { onConfirm, onClose } = open();
     press('3'); // highlight mineLayer
     confirmButton().click();
-    expect(onConfirm).toHaveBeenCalledWith('mineLayer', 'deckGun');
+    expect(onConfirm).toHaveBeenCalledWith('mineLayer', 'deckGun', DEFAULT_KIT);
     expect(onClose).not.toHaveBeenCalled();
     expect(document.getElementById('hc-class-select')).toBeNull(); // closed back to port
   });
@@ -520,7 +520,7 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     (cards[1] as HTMLElement).click(); // battleship
     confirmButton().click();
     expect(onConfirm).toHaveBeenCalledOnce();
-    expect(onConfirm).toHaveBeenCalledWith('battleship', 'deckGun');
+    expect(onConfirm).toHaveBeenCalledWith('battleship', 'deckGun', DEFAULT_KIT);
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
@@ -556,7 +556,7 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     expect(hoist.selected).toBe(5); // swatch pick persisted immediately
 
     confirmButton().click();
-    expect(onConfirm).toHaveBeenCalledWith('mineLayer', 'deckGun');
+    expect(onConfirm).toHaveBeenCalledWith('mineLayer', 'deckGun', DEFAULT_KIT);
     expect(hoist.selected).toBe(5); // untouched by confirm — already persisted at swatch click
   });
 
@@ -645,7 +645,7 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     swatch.click();
     expect(document.activeElement).not.toBe(swatch); // blurred after the pick
     press('Enter');
-    expect(onConfirm).toHaveBeenCalledWith('torpedoBoat', 'deckGun'); // highlight unchanged; only the color changed
+    expect(onConfirm).toHaveBeenCalledWith('torpedoBoat', 'deckGun', DEFAULT_KIT); // highlight unchanged; only the color changed
   });
 });
 
@@ -835,7 +835,7 @@ describe('openClassSelect — the gun pick (Story 8.15)', () => {
       expect(chipsOf(card).map((c) => c.getAttribute('aria-pressed'))).toEqual(['false', 'true', 'false']);
     }
     confirm();
-    expect(onConfirm).toHaveBeenCalledWith('mineLayer', 'machineGun');
+    expect(onConfirm).toHaveBeenCalledWith('mineLayer', 'machineGun', DEFAULT_KIT);
   });
 
   it('opens on the stored pick (initialGun)', () => {
@@ -845,6 +845,78 @@ describe('openClassSelect — the gun pick (Story 8.15)', () => {
     });
     expect(chipsOf(cards()[0]).map((c) => c.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'true']);
     confirm();
-    expect(onConfirm).toHaveBeenCalledWith('battleship', 'flak');
+    expect(onConfirm).toHaveBeenCalledWith('battleship', 'flak', DEFAULT_KIT);
+  });
+});
+
+// --- Story 10.1: the CONSUMABLES row on the footer ------------------------------
+
+describe('openClassSelect — the CONSUMABLES row (Story 10.1)', () => {
+  let blurTarget: HTMLElement;
+  beforeEach(() => {
+    localStorage.clear();
+    blurTarget = document.createElement('div');
+    document.body.appendChild(blurTarget);
+  });
+  afterEach(() => {
+    document.getElementById('hc-class-select')?.remove();
+    blurTarget.remove();
+  });
+
+  const layer = (): HTMLElement => document.getElementById('hc-class-select') as HTMLElement;
+  const slots = (): HTMLButtonElement[] => [...layer().querySelectorAll<HTMLButtonElement>('button[data-slot]')];
+  const pickerOpen = (): boolean => layer().querySelector('[data-kit-picker]') !== null;
+  const keydown = (key: string): void => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key }));
+  };
+  function open(initialKit?: typeof DEFAULT_KIT): ReturnType<typeof vi.fn> {
+    const onConfirm = vi.fn();
+    openClassSelect({
+      initial: 'torpedoBoat', hoist: new ColorHoist(), blurTarget, onConfirm, onClose: vi.fn(),
+      ...(initialKit ? { initialKit } : {}),
+    });
+    return onConfirm;
+  }
+
+  it('the footer carries the row: KIT_SIZE squares showing the kit in slot order, above the hoist', () => {
+    open();
+    expect(slots()).toHaveLength(KIT_SIZE);
+    expect(slots().map((b) => b.dataset.kind)).toEqual([...DEFAULT_KIT]);
+    const row = layer().querySelector('[data-kit-row]') as HTMLElement;
+    const swatch = layer().querySelector('button[aria-label^="hue "]') as HTMLElement;
+    expect((row.parentElement as HTMLElement).contains(swatch)).toBe(true);
+    expect(row.compareDocumentPosition(swatch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('opens on initialKit', () => {
+    const kit = [...DEFAULT_KIT].reverse();
+    open(kit);
+    expect(slots().map((b) => b.dataset.kind)).toEqual(kit);
+  });
+
+  it('onConfirm receives the kit after a pick', () => {
+    const lit = dealableConsumables().find((l) => !DEFAULT_KIT.includes(l))!;
+    const onConfirm = open();
+    slots()[1].click();
+    expect(pickerOpen()).toBe(true);
+    layer().querySelector<HTMLButtonElement>(`[data-line="${lit}"]`)!.click();
+    expect(pickerOpen()).toBe(false);
+    const expected = DEFAULT_KIT.map((l, i) => (i === 1 ? lit : l));
+    expect(slots().map((b) => b.dataset.kind)).toEqual(expected);
+    keydown('Enter');
+    expect(onConfirm).toHaveBeenCalledWith('torpedoBoat', 'deckGun', expected);
+  });
+
+  it('while the picker is open the layer keys are suppressed; ESC closes the picker, not the layer', () => {
+    const onConfirm = open();
+    slots()[0].click();
+    keydown('2'); // would highlight the second card
+    keydown('Enter'); // would confirm
+    expect(onConfirm).not.toHaveBeenCalled();
+    keydown('Escape');
+    expect(pickerOpen()).toBe(false);
+    expect(document.getElementById('hc-class-select')).not.toBeNull();
+    keydown('Enter');
+    expect(onConfirm).toHaveBeenCalledWith('torpedoBoat', 'deckGun', DEFAULT_KIT); // highlight and kit unchanged
   });
 });
