@@ -13,7 +13,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { Container, Graphics } from 'pixi.js';
 import { BUOY_KINDS, BUOY_LINE_IDS, CONFIG, buoyKindOf, type BuoyKind, type DecoyView } from '@salvo/shared';
-import { Decoys, buoyLifeFrac, buoyLineOf, decoyHpFrac, ownBuoyUntil, reconcileDecoys } from '../render/decoys.js';
+import { Decoys, buoyLifeFrac, buoyLineOf, decoyHpFrac, reconcileDecoys } from '../render/decoys.js';
 import { BUOY_HEADS } from '../render/buoyMarks.js';
 import { ringModelFor } from '../render/buoyRings.js';
 import { alertClock, alertTint } from '../render/alertBlend.js';
@@ -427,27 +427,3 @@ describe('Decoys — the owner-only LIFE arc runs down on the server clock', () 
   });
 });
 
-describe('ownBuoyUntil — the hotbar ACTIVE window per buoy line', () => {
-  it('is the EARLIEST own live buoy of the line’s kind', () => {
-    const now = 1000;
-    const list = [
-      withLife(decoy('a', true, 'me', 50, 'healing'), 9000),
-      withLife(decoy('b', true, 'me', 50, 'healing'), 5000),
-      withLife(decoy('c', true, 'me', 50, 'radar'), 7000),
-    ];
-    const w = ownBuoyUntil(list, now);
-    expect(w.healingBuoy).toBe(5000);
-    expect(w.radarBuoy).toBe(7000);
-    expect(w.shieldBuoy).toBeUndefined();
-    expect(w.speedBuoy).toBeUndefined();
-  });
-
-  it('ignores enemy buoys, expired buoys and own views without `until`', () => {
-    const list = [
-      withLife(decoy('e', false, 'them', undefined, 'speed'), 9000),
-      withLife(decoy('x', true, 'me', 50, 'speed'), 500),
-      decoy('n', true, 'me', 50, 'speed'),
-    ];
-    expect(ownBuoyUntil(list, 1000).speedBuoy).toBeUndefined();
-  });
-});

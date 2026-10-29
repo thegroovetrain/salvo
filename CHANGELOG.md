@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.19.3] - 2026-10-29
+
+### Changed
+- **No timer on a buoy's hotbar square.** A dropped buoy's slot no longer counts down: you can drop another as soon as you have stock, and with two buoys out the number meant nothing. The buoy's remaining life is on the chart, in its ring and the arc over its head.
+
 ## [0.19.2] - 2026-10-29
 
 ### Changed

@@ -110,28 +110,6 @@ export function decoyHpFrac(view: Pick<DecoyView, 'own' | 'hp'>): number | null 
   return clamp01(view.hp / CONFIG.buoy.hp);
 }
 
-/**
- * Pure: per buoy LINE, the server-clock expiry of the EARLIEST own LIVE buoy
- * of that line's kind (`until > serverNow`) — the hotbar's ACTIVE window for a
- * buoy square (Story 10.9, AC 8: "the existing tell grammar, no new copy").
- * A line with no live own buoy is absent (no window). Someone else's buoy, or
- * an own view without `until`, never counts.
- */
-export function ownBuoyUntil(
-  decoys: readonly DecoyView[],
-  serverNow: number,
-): Partial<Record<BuoyLineId, number>> {
-  const out: Partial<Record<BuoyLineId, number>> = {};
-  for (const line of BUOY_LINE_IDS) {
-    const kind = buoyKindOf(line);
-    for (const d of decoys) {
-      if (!d.own || d.kind !== kind || d.until === undefined || d.until <= serverNow) continue;
-      out[line] = Math.min(out[line] ?? Infinity, d.until);
-    }
-  }
-  return out;
-}
-
 /** Pure: a life fraction snapped to the redraw step (null passes through). */
 function lifeStep(frac: number | null): number | null {
   return frac === null ? null : Math.ceil(frac / LIFE_STEP) * LIFE_STEP;
