@@ -42,7 +42,7 @@ export const OWN_FIRE_WINDOW_MS = 400;
 
 /** The BALLISTIC ids a reveal can be attributed to — the only slot contents
  *  that ever produce a `shell`/`torp` event. An ability (the boost), the
- *  CLICK-PLACED ids (the three mine lines and the DECOY BUOY — placed, never
+ *  CLICK-PLACED ids (the three mine lines and the four BUOYS — placed, never
  *  revealed as a track) and every non-firing consumable can never leak through
  *  into a projectile's identity, so they are rejected at the claim.
  *
@@ -62,6 +62,10 @@ const BALLISTIC: readonly SlotItemId[] = [
   // fire one shell per click.
   'phosphorShells',
   'foulingShell',
+  // STORY 10.9: FLASH SHELLS (`dazzleShells`) returns beside the fouling shell
+  // on its click path — one shell per click. The four BUOYS are click-PLACED
+  // (like the decoy they replace), never revealed as a track: absent here.
+  'dazzleShells',
 ];
 
 /** Pure: is this slot content one a `shell`/`torp` reveal could have come from? */

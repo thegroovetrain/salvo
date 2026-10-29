@@ -19,6 +19,7 @@ import {
   type BoonFitEvent,
   type BurnZoneView,
   type BurstEvent,
+  type DecoyView,
   type DeniedView,
   type DropEvent,
   type FoghornEvent,
@@ -373,6 +374,8 @@ interface BindState {
    *  status change into a machine-gun. The falling edge is silent — the line
    *  simply disappears, which is the whole visual twin doing its job. */
   slowed: boolean;
+  /** ...and the same for the DAZZLE window (FLASH SHELLS, Story 10.9). */
+  dazzled: boolean;
   /**
    * Server time (ms) of the last frame on which the own hull stood inside SOME
    * enemy incendiary zone — the burn classifier's memory (see readsAsBurn).
@@ -581,6 +584,7 @@ function freshBindState(): BindState {
   return {
     pendingSnap: false,
     slowed: false,
+    dazzled: false,
     burningAt: -Infinity,
     impacts: new ImpactDedup(),
     hitCallTone: hitCallToneFloor(),
@@ -745,6 +749,12 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });
     if (deps.state.mode === 'predict') deps.predictor.onServerState(f.you, f.ackSeq);
     deps.radar.onSweepSample(f.you.sweep, f.t); // authoritative sweep anchor
+    // The own RADAR BUOYS (Story 10.9 review gate) — the second antennas'
+    // positions, fed beside the own sweep anchor and BEFORE this frame's
+    // events (handleEvents runs last): a blip tagged `src` is marched from the
+    // buoy it names, and dropped when that buoy is not in this list. Only an
+    // own-ship (fogged) frame can carry a `src` paint.
+    deps.radar.setOwnRadarBuoys(ownRadarBuoys(f));
     // First authoritative pose after a reconnect: snap the camera to the resumed
     // hull (completes the handleSpawn mirror), consuming the one-shot flag.
     if (s.pendingSnap) {
@@ -758,6 +768,12 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   trackBurning(f, deps, s);
   routeDenials(f, deps);
   handleEvents(f, deps, s);
+}
+
+/** The frame's OWN RADAR buoys (Story 10.9 review gate) — the radar's
+ *  `src` paint origins. Own non-radar buoys and anyone else's are not. */
+function ownRadarBuoys(f: FrameMsg): DecoyView[] {
+  return (f.decoys ?? []).filter((d) => d.own && d.kind === 'radar');
 }
 
 /**
@@ -810,6 +826,8 @@ function syncContactLike(f: FrameMsg, deps: RoomBindingDeps): void {
   net.litZones = litZones;
   net.burnZones = burnZones; // the burn classifier's zone list (trackBurning)
   net.foulZones = foulZones;
+  net.decoys = decoys; // the hotbar ACTIVE windows + the radar-buoy sweep (Story 10.9)
+  net.decoysAt = f.t; // the server time every own buoy `sweep` in it was sampled at
   net.clouds = clouds; // the HELD list (the match-start edge clears it)
 }
 
@@ -869,11 +887,18 @@ export function windowRunning(until: number | undefined, t: number): boolean {
  * source into the other hears one cue, not two. Both fields are victim-private
  * on `you`: nobody else's affliction ever reaches this client, and a spectator
  * frame (no `you`) simply clears it.
+ *
+ * DAZZLED (FLASH SHELLS, restored by Story 10.9) rides the same rule off the
+ * victim-private `dazzledUntil`: its cue on the rising edge only; its visual
+ * twin is the DAZZLED tell plus the shrunken sight hole.
  */
 function routeVictimTells(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   const slowed = windowRunning(f.you?.slowedUntil, f.t) || windowRunning(f.you?.fouledUntil, f.t);
+  const dazzled = windowRunning(f.you?.dazzledUntil, f.t);
   if (slowed && !s.slowed) deps.audio.play('slowed');
+  if (dazzled && !s.dazzled) deps.audio.play('dazzled');
   s.slowed = slowed;
+  s.dazzled = dazzled;
 }
 
 /** Self-private denied presses (Story 1.10): frames OMIT the key when none,
@@ -1532,7 +1557,8 @@ function shellClaim(e: BallisticEvent, deps: RoomBindingDeps): OwnFire {
 
 /** The click-latched weapons whose round rides the `shell` wire kind: the gun,
  *  the broadside, the flak gun, the star shell, and (Story 8.17) PHOSPHOR
- *  SHELLS and (Story 9.4) the FOULING SHELL consumable. */
+ *  SHELLS, (Story 9.4) the FOULING SHELL consumable and (Story 10.9) FLASH
+ *  SHELLS beside it. */
 const SHELL_CLAIMS: ReadonlySet<OwnFire> = new Set<OwnFire>([
   'gun',
   'broadside',
@@ -1540,6 +1566,7 @@ const SHELL_CLAIMS: ReadonlySet<OwnFire> = new Set<OwnFire>([
   'flak',
   'phosphorShells',
   'foulingShell',
+  'dazzleShells',
 ]);
 
 /**
@@ -1569,9 +1596,11 @@ function ownShellWeapon(e: BallisticEvent, claim: OwnFire): OwnFire {
  *  PHOSPHOR SHELLS (Story 8.17) and the FOULING SHELL (Story 9.4) report through
  *  the same launch cue (audio/tones FIRE_TONE); anything the claim could not
  *  name falls to the gun crack. */
-function shellFireId(own: OwnFire): 'gun' | 'broadside' | 'starShells' | 'phosphorShells' | 'foulingShell' {
+function shellFireId(
+  own: OwnFire,
+): 'gun' | 'broadside' | 'starShells' | 'phosphorShells' | 'foulingShell' | 'dazzleShells' {
   if (own === 'broadside' || own === 'starShells') return own;
-  if (own === 'phosphorShells' || own === 'foulingShell') return own;
+  if (own === 'phosphorShells' || own === 'foulingShell' || own === 'dazzleShells') return own;
   return 'gun';
 }
 

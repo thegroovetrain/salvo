@@ -38,7 +38,7 @@ import {
   type SlotItemId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { fireArcKind, isPlacedItem, isTorpedoItem, sectorOutline, twinSectorSide, weaponArcHit } from './weaponArc.js';
+import { fireArcKind, isPlacedItem, isTorpedoItem, sectorOutline, twinSectorSide, weaponArcHit, type FireArcKind } from './weaponArc.js';
 
 const AMBER = CLIENT_CONFIG.colors.amber;
 const TORP_TINT = CLIENT_CONFIG.colors.legacy.torpGlow; // cool green — torpedo bow arc (legacy tone)
@@ -249,9 +249,26 @@ export class FiringUX {
     // mine's rear placement arc (Story 2.8), or the broadside's twin beams
     // (Story 7-5 wave 2). The gun family is 360° (no wedge) and the remaining
     // ability (the boost) draws no marker.
-    if (kind === 'sector' && id !== null) this.drawSectorArc(id, aim, pose.heading, ammo, denied);
-    if (kind === 'twin' && id !== null) this.drawTwinArcs(id, aim, pose.heading, ammo, denied, broadside);
+    if (id !== null) this.drawArcShape(kind, id, aim, pose.heading, ammo, denied, broadside);
     this.drawReticle(pose, aim, id, ammo.hasAmmo, cursor);
+  }
+
+  /** The arc shape a fitted slot's kind draws (none for the gun family). */
+  private drawArcShape(
+    kind: FireArcKind,
+    id: SlotItemId,
+    aim: number,
+    heading: number,
+    ammo: FiringAmmo,
+    denied: boolean,
+    broadside: BroadsideArcs | null,
+  ): void {
+    if (kind === 'sector') this.drawSectorArc(id, aim, heading, ammo, denied);
+    if (kind === 'twin') this.drawTwinArcs(id, aim, heading, ammo, denied, broadside);
+    // THE FOUR BUOYS (Story 10.9, ruling 9) place on a 360° arc at the
+    // unchanged `CONFIG.mine.placeRange`: their reachable water is the whole
+    // DISC, drawn in the placement grammar the mine's wedge uses.
+    if (kind === 'gunLike' && isPlacedItem(id)) this.drawPlacementDisc(ammo, denied);
   }
 
   /**
@@ -442,6 +459,24 @@ export class FiringUX {
     this.strokeSectorOutline(offset, halfArc, radius, color, lit, EDGE);
   }
 
+  /**
+   * A 360° PLACEMENT weapon's reachable water (the four buoys, Story 10.9 —
+   * ruling 9): the placement wedge's grammar over the whole circle — one soft
+   * fill (dimmed while reloading, never a second shape) under one crisp edge at
+   * the true reach (`this.rangeU` = `CONFIG.mine.placeRange`). Lit while the
+   * slot has a round; the denial red is the denial register's alone. No side
+   * rays: a full circle has no sector edges.
+   */
+  private drawPlacementDisc(ammo: FiringAmmo, denied: boolean): void {
+    const g = this.arcs;
+    const lit = denied || ammo.hasAmmo;
+    const color = denied ? DENIED_RED : AMBER;
+    const reloading = ammo.reloadFrac > 0 && ammo.reloadFrac < 1;
+    const style = arcFillStyle(color, lit);
+    g.circle(0, 0, this.rangeU).fill({ ...style, alpha: reloading ? style.alpha * 0.45 : style.alpha });
+    g.circle(0, 0, this.rangeU).stroke({ width: EDGE.width, color, alpha: lit ? EDGE.alpha : EDGE.dimAlpha });
+  }
+
   /** One sector fill (+ reload sweep-back), in the arcs graphic's local frame. */
   private sector(
     offset: number,
@@ -501,7 +536,9 @@ export class FiringUX {
     // (epic-8 amendment 84f): `weaponRangeU` hands it the cannon's range as a
     // fallback purely so nothing crashes, and drawing a clamp ring at it would
     // promise the fish stops there.
-    if ((kind === 'gunLike' || kind === 'twin') && !isTorpedoItem(id)) {
+    // NOR FOR A BUOY (Story 10.9): a placement past the leash is DENIED, never
+    // clamped — the placement disc is its whole truth, so no clamp marker.
+    if ((kind === 'gunLike' || kind === 'twin') && !isTorpedoItem(id) && !isPlacedItem(id)) {
       this.drawRangeClampMarker(pose, aim, cursor, color);
     }
   }

@@ -211,8 +211,8 @@ describe('hitTargets — the four kinds', () => {
   it('`decoy` is every live DECOY BUOY from the store, carrying its OWNER id (Story 8.16)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    addDecoy(w.decoys, a.id, 300, 0, 'd1');
-    addDecoy(w.decoys, 'b', 400, 0, 'd2');
+    addDecoy(w.decoys, a.id, 300, 0, 'd1', 'healing', Number.POSITIVE_INFINITY, 0);
+    addDecoy(w.decoys, 'b', 400, 0, 'd2', 'healing', Number.POSITIVE_INFINITY, 0);
     expect(kinds(w.hitTargets(['decoy']))).toEqual(['decoy', 'decoy']);
     // The owner id rides the target so the shared sweep/acquire/burst math can
     // skip the OWNER's own decoy (amendment 119) — without it the owner's fish
@@ -267,7 +267,7 @@ describe('hitTargets — the four kinds', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     mine(w, 'm1', 'b', 100, 0);
-    addDecoy(w.decoys, a.id, 300, 0, 'd1');
+    addDecoy(w.decoys, a.id, 300, 0, 'd1', 'healing', Number.POSITIVE_INFINITY, 0);
     expect(kinds(w.hitTargets(['hull', 'mine', 'decoy']))).toEqual(['hull', 'mine', 'decoy']);
   });
 });
@@ -549,7 +549,7 @@ describe('P2 — the interception dispatches by KIND, not by store membership', 
 describe('P3 — a destroyed decoy invalidates the memo THE SAME TICK (Story 8.16: the buoy\'s successor)', () => {
   /** A decoy on the +x axis with a hand-set hp. */
   function decoy(w: World, id: string, ownerId: string, x: number, hp: number): void {
-    addDecoy(w.decoys, ownerId, x, 0, id).hp = hp;
+    addDecoy(w.decoys, ownerId, x, 0, id, 'healing', Number.POSITIVE_INFINITY, 0).hp = hp;
   }
 
   it('a decoy DESTROYED by fire is gone from the next list built the same tick', () => {

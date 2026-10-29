@@ -40,6 +40,16 @@
 // A line with NO glyph draws NOTHING and throws nothing — today that is only
 // the stub DEPTH CHARGE, which has no mechanism to draw.
 //
+// STORY 10.9 (2026-10-28) RESTORED ONE AND DREW FOUR: FLASH SHELLS comes back
+// with its 8.17 struck-through eye, and the four BUOYS draw the TINTED BEACON
+// family (Eric 2026-10-29, family C + the PULSE healing head): a monochrome
+// hull (waterline, can, mast) under a head FILLED in the kind's colour
+// (render/buoyMarks.ts — the one vocabulary the chart marker and the drop
+// preview share). They are the only glyphs with colour of their own: a `path`
+// part may carry `fill` (a filled outline in that colour) or `ink` (a line in
+// that colour, the head's cut) — every other part stays linework in the
+// caller's colour.
+//
 // STORY 9.4 (2026-10-12) DREW ONE, ERIC'S PICK from three rendered candidates
 // (epic-9 amendment 69): FOULING SHELL (a FOULED PROP — a three-bladed screw
 // with a snare line drawn across it). It replaces Story 8.17's FLASH SHELLS
@@ -66,16 +76,27 @@
 // are CUT (amendment 89e) and never had glyphs.
 
 import type { Graphics, StrokeInput } from 'pixi.js';
-import { isConsumableId, type EquipmentId, type LineId, type SlotItemId } from '@salvo/shared';
+import { buoyKindOf, isConsumableId, type BuoyKind, type EquipmentId, type LineId, type SlotItemId } from '@salvo/shared';
+import { BUOY_CUT_COLOR, BUOY_HEADS, BUOY_HULL } from './buoyMarks.js';
 
 /** A point in the unit glyph frame: (0,0) is the icon box's centre, ±1 its edge. */
 export type GlyphPoint = readonly [number, number];
 
 /** One primitive of a glyph's linework. `path` is an open polyline (a closed
  *  shape simply repeats its first point, exactly as the Pixi code always did);
- *  `circle` is the one curved primitive the set needs. */
+ *  `circle` is the one curved primitive the set needs.
+ *
+ *  A `path` with `fill` is instead a CLOSED outline filled in that colour, and
+ *  one with `ink` is a line stroked in that colour at `inkW` (unit frame) — the
+ *  buoy heads' own colours (Story 10.9). A plain part takes the caller's. */
 export type GlyphPart =
-  | { readonly kind: 'path'; readonly pts: readonly GlyphPoint[] }
+  | {
+      readonly kind: 'path';
+      readonly pts: readonly GlyphPoint[];
+      readonly fill?: number;
+      readonly ink?: number;
+      readonly inkW?: number;
+    }
   | { readonly kind: 'circle'; readonly c: GlyphPoint; readonly r: number };
 
 /** One glyph: its primitives, in draw order. */
@@ -339,17 +360,30 @@ const shieldBlock: GlyphPaths = [
 ];
 
 /**
- * Decoy buoy (Story 8.16 DRAFT, epic-8 amendment 124(f)): the on-water SPAR
- * BUOY marker (render/decoys.ts `BUOY_MARKER`) — waterline, mast, and a DIAMOND
- * radar-reflector daymark at the masthead — so the belt square and the float on
- * the chart share one shape. It has no round part at all, so Eric's *"the icon
- * needs to be distinguished from the mines a bit more"* (said of the deleted
- * radar buoy, whose glyph this was) still holds beside the spiked sphere.
+ * THE FOUR BUOYS — the TINTED BEACON (Eric 2026-10-29, family C): the shared
+ * monochrome HULL (render/buoyMarks.ts `BUOY_HULL` — waterline, can, mast) and
+ * the kind's HEAD, filled in its own colour, with its cut (radar's mast,
+ * healing's pulse) drawn over it in the ground colour. The chart marker draws
+ * this same glyph (render/decoys.ts), so belt and water agree on the kind.
  */
-const decoyBuoy: GlyphPaths = [
-  path([-0.75, 0.85], [0.75, 0.85]),
-  path([0, 0.85], [0, -0.28]),
-  path([0, -0.7], [0.42, -0.28], [0, 0.14], [-0.42, -0.28], [0, -0.7]),
+function buoyGlyph(kind: BuoyKind): GlyphPaths {
+  const head = BUOY_HEADS[kind];
+  const parts: GlyphPart[] = [...BUOY_HULL.map((pts) => path(...pts)), { kind: 'path', pts: head.fill, fill: head.color }];
+  if (head.cut !== null) parts.push({ kind: 'path', pts: head.cut, ink: BUOY_CUT_COLOR, inkW: head.cutWidth });
+  return parts;
+}
+
+/**
+ * Flash shells (`dazzleShells` — Story 8.17 DRAFT, epic-8 amendment 135(j);
+ * deleted with its line in Story 9.4 and RESTORED with it by Story 10.9): a
+ * BLINDED EYE — a lens-shaped eye outline with its pupil, struck through by
+ * one diagonal. It says what the shell does to the hull it catches (sight cut
+ * to a quarter), and shares no shape with the star shell's rayed burst.
+ */
+const dazzleShells: GlyphPaths = [
+  path([-0.95, 0], [-0.5, -0.42], [0, -0.55], [0.5, -0.42], [0.95, 0], [0.5, 0.42], [0, 0.55], [-0.5, 0.42], [-0.95, 0]),
+  circle(0, 0, 0.2),
+  path([-0.8, 0.8], [0.8, -0.8]),
 ];
 
 /**
@@ -423,8 +457,13 @@ const CONSUMABLE_GLYPHS: Partial<Record<string, GlyphPaths>> = {
   // Story 8.16 — the three lines that went live, each an IMPLEMENTER DRAFT for
   // Eric's eye on staging (amendment 124(f), the amendment 110 precedent).
   shieldBlock,
-  decoyBuoy,
   foulingShell, // FOULING SHELL — Story 9.4, Eric's pick 2026-10-12 (above)
+  dazzleShells, // FLASH SHELLS — the 8.17 struck-through eye, restored (Story 10.9)
+  // THE FOUR BUOYS — the tinted beacon (Story 10.9, Eric 2026-10-29, above).
+  radarBuoy: buoyGlyph(buoyKindOf('radarBuoy')),
+  healingBuoy: buoyGlyph(buoyKindOf('healingBuoy')),
+  shieldBuoy: buoyGlyph(buoyKindOf('shieldBuoy')),
+  speedBuoy: buoyGlyph(buoyKindOf('speedBuoy')),
   countermeasure, // Story 9.3 — Eric's pick 2026-10-11 (above)
 };
 
@@ -568,17 +607,56 @@ export function drawEquipmentIcon(
   const parts = glyphPaths(id);
   if (parts === null) return;
   const r = size / 2;
+  const at = (p: GlyphPoint): [number, number] => [cx + p[0] * r, cy + p[1] * r];
   for (const part of parts) {
-    if (part.kind === 'circle') {
-      g.circle(cx + part.c[0] * r, cy + part.c[1] * r, part.r * r);
-      continue;
-    }
-    part.pts.forEach(([x, y], i) => {
-      if (i === 0) g.moveTo(cx + x * r, cy + y * r);
-      else g.lineTo(cx + x * r, cy + y * r);
-    });
+    if (part.kind === 'circle') g.circle(...at(part.c), part.r * r);
+    else if (isLinework(part)) tracePolyline(g, part.pts.map(at));
   }
   g.stroke(style);
+  const alpha = styleAlpha(style);
+  for (const part of parts) {
+    if (part.kind === 'path') paintTinted(g, part, at, r, alpha);
+  }
+}
+
+type PathPart = Extract<GlyphPart, { kind: 'path' }>;
+
+/** A part drawn in the CALLER's colour (no colour of its own). */
+function isLinework(part: PathPart): boolean {
+  return part.fill === undefined && part.ink === undefined;
+}
+
+/** moveTo/lineTo along already-placed points. */
+function tracePolyline(g: Graphics, pts: readonly (readonly [number, number])[]): void {
+  pts.forEach(([x, y], i) => {
+    if (i === 0) g.moveTo(x, y);
+    else g.lineTo(x, y);
+  });
+}
+
+/** The alpha a stroke style carries (1 when it names none) — a coloured head
+ *  dims with the glyph around it (a wipe, a zero-stock square, a blocked drop). */
+function styleAlpha(style: StrokeInput): number {
+  return typeof style === 'object' && style !== null && 'alpha' in style && typeof style.alpha === 'number'
+    ? style.alpha
+    : 1;
+}
+
+/** A part with a colour of its own: a filled outline, or an inked line. */
+function paintTinted(
+  g: Graphics,
+  part: PathPart,
+  at: (p: GlyphPoint) => [number, number],
+  r: number,
+  alpha: number,
+): void {
+  if (part.fill !== undefined) {
+    g.poly(part.pts.flatMap(at), true).fill({ color: part.fill, alpha });
+    return;
+  }
+  if (part.ink === undefined) return;
+  tracePolyline(g, part.pts.map(at));
+  g.stroke({ width: (part.inkW ?? 0) * r, color: part.ink, alpha, join: 'round', cap: 'butt' });
 }
 
 /** The SVG namespace — DOM `<svg>` children must be created in it or they
@@ -601,8 +679,22 @@ function svgPart(part: GlyphPart): SVGElement {
     return el;
   }
   const el = document.createElementNS(SVG_NS, 'path');
-  el.setAttribute('d', part.pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x} ${y}`).join(' '));
+  const d = part.pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x} ${y}`).join(' ');
+  el.setAttribute('d', part.fill === undefined ? d : `${d} Z`);
+  if (part.fill !== undefined) {
+    el.setAttribute('fill', svgHex(part.fill));
+    el.setAttribute('stroke', 'none');
+  } else if (part.ink !== undefined) {
+    el.setAttribute('stroke', svgHex(part.ink));
+    el.setAttribute('stroke-width', String(part.inkW ?? 0));
+    el.setAttribute('stroke-linejoin', 'round');
+  }
   return el;
+}
+
+/** 0xRRGGBB → `#rrggbb`. */
+function svgHex(color: number): string {
+  return `#${color.toString(16).padStart(6, '0')}`;
 }
 
 /**

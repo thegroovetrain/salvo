@@ -411,6 +411,109 @@ describe('a wire echo fades in terrain shadow, and is floored so it cannot vanis
   });
 });
 
+// THE PAINT'S ORIGIN (Story 10.9 review gate). A RADAR BUOY's paint is
+// gated on the server FROM THE BUOY (range, beam, terrain shadow), and the
+// client prices every echo by marching it from an origin — range falloff and
+// the terrain shadow along the ray. Marched from the OWN hull, a hull the buoy
+// sees clearly but the owner sees behind an island would read as the floor
+// speck: the very thing the buoy was placed to see past. `src` names the
+// owner's own buoy; the echo is marched from it, with the buoy's range.
+describe('a buoy-origin paint (`src`) is marched from its RADAR BUOY', () => {
+  /** On bearing 0 at 500 u from the own hull, hard cover between them. */
+  const ECHO = wireEcho('battleship', 500, 0, 0);
+  /** The buoy: due +y of the echo, inside its radius, with open water between. */
+  const BUOY = { id: 'rb1', x: 500, y: 300 };
+  const HARD = rasterWithPyramid(900, ridge(250, 0, 60, 200, 255));
+  const SEA = rasterWithPyramid(900, () => 0);
+
+  /** The buffer's reading at the echo centre after one paint, with no beam
+   *  advance (the echoIntensity idiom above). Null when nothing marched. */
+  function paint(o: {
+    raster?: HeightRaster | null;
+    own?: { x: number; y: number };
+    buoys?: readonly { id: string; x: number; y: number }[];
+    src?: unknown;
+    ranges?: [number, number, number];
+    whole?: boolean;
+  }): number | null {
+    const { radar } = makeRadar();
+    if (o.ranges) radar.setRanges(...o.ranges);
+    if (o.raster) radar.setHeightRaster(o.raster);
+    radar.setOwnRadarBuoys(o.buoys ?? [BUOY]);
+    const own = o.own ?? OWN;
+    radar.render(own, 1000);
+    const e = o.src === undefined ? ECHO.e : ({ ...ECHO.e, src: o.src } as ReturnBlipEvent);
+    radar.onBlip({ ...e, t: 1000 });
+    if (radar.livePaints === 0) return null;
+    expect(radar.livePaints).toBe(1);
+    radar.render(own, 1000);
+    if (o.whole !== true) return radar.intensityAt(ECHO.x, ECHO.y);
+    // The WHOLE footprint, cell by cell — the march's ray density is set by
+    // the origin's range, so only the full record tells two ranges apart.
+    let sum = 0;
+    for (let dx = -120; dx <= 120; dx += CELL) {
+      for (let dy = -120; dy <= 120; dy += CELL) sum += Math.max(0, radar.intensityAt(ECHO.x + dx, ECHO.y + dy));
+    }
+    return sum;
+  }
+
+  it('behind an island FROM THE OWNER but clear from the buoy: the src paint reads at '
+    + 'full strength, the same footprint without src reads shadowed', () => {
+    const shadowed = paint({ raster: HARD })!;
+    const fromBuoy = paint({ raster: HARD, src: BUOY.id })!;
+    const fromBuoyOpen = paint({ raster: SEA, src: BUOY.id })!;
+    expect(shadowed, 'premise: the own-sweep echo is floored behind the ridge')
+      .toBeCloseTo(Math.min(paint({ raster: SEA })!, CLIENT_CONFIG.blip.heatmap.model.minPeak), 6);
+    expect(fromBuoy, 'the buoy paint is not shadowed by cover that is not on ITS ray')
+      .toBeCloseTo(fromBuoyOpen, 12);
+    expect(fromBuoy).toBeGreaterThan(shadowed);
+  });
+
+  it('is priced from the buoy at the BUOY\'s range — exactly the echo an own hull '
+    + 'standing on the buoy with the buoy\'s radar range would see', () => {
+    const sight = CONFIG.vision.sight;
+    const period = 60_000 / CONFIG.vision.sweepRpm;
+    expect(CONFIG.vision.radar, 'premise: the two ranges differ').not.toBe(CONFIG.buoy.radiusU);
+    const viaBuoy = paint({ own: { x: -900, y: 0 }, src: BUOY.id, whole: true })!;
+    const standIn = paint({ own: { x: BUOY.x, y: BUOY.y }, ranges: [sight, CONFIG.buoy.radiusU, period], whole: true })!;
+    const atOwnRange = paint({ own: { x: BUOY.x, y: BUOY.y }, whole: true })!;
+    expect(atOwnRange, 'premise: the range is observable in the record').not.toBeCloseTo(standIn, 6);
+    expect(viaBuoy).toBeCloseTo(standIn, 12);
+    const fromOwn = paint({ own: { x: -900, y: 0 } })!;
+    expect(paint({ own: { x: -900, y: 0 }, src: BUOY.id })!, 'and 300 u from the buoy reads stronger than 1400 u from the owner')
+      .toBeGreaterThan(fromOwn);
+  });
+
+  it('an UNKNOWN src (the buoy expired or was sunk between frames) is DROPPED — '
+    + 'never marched from the own hull', () => {
+    expect(paint({ src: 'ghost' })).toBeNull();
+    expect(paint({ src: BUOY.id, buoys: [] })).toBeNull();
+  });
+
+  it('a buoy that disappears while the paint is parked drops it at resolve', () => {
+    const { radar } = makeRadar();
+    radar.setOwnRadarBuoys([BUOY]);
+    radar.onBlip({ ...ECHO.e, src: BUOY.id }); // no own pose yet: parked
+    radar.setOwnRadarBuoys([]);
+    radar.render(OWN, 1000);
+    expect(radar.livePaints).toBe(0);
+  });
+
+  it('the own-aground rule is the OWN antenna\'s: a buoy paint still enrolls '
+    + 'while the owner is aground, an own-sweep paint does not', () => {
+    const ASHORE = rasterWithPyramid(900, ridge(0, 0, 40, 40, 255));
+    expect(paint({ raster: ASHORE }), 'premise: an aground own sweep paints nothing').toBeNull();
+    expect(paint({ raster: ASHORE, src: BUOY.id })).not.toBeNull();
+  });
+
+  it('a malformed src is treated as absent — the paint is the own sweep\'s', () => {
+    const own = paint({ raster: HARD })!;
+    expect(paint({ raster: HARD, src: 42 })).toBeCloseTo(own, 12);
+    expect(paint({ raster: HARD, src: '' })).toBeCloseTo(own, 12);
+    expect(paint({ raster: HARD, src: 'x'.repeat(200) })).toBeCloseTo(own, 12);
+  });
+});
+
 /** Would the heatmap draw this intensity at all (i.e. is it in a band)? */
 function radarDraws(w: number): boolean {
   return w >= CLIENT_CONFIG.blip.heatmap.bands[0].at;
@@ -727,10 +830,21 @@ describe('the client paints ONLY wire-delivered returns (amendment 210)', () => 
     // Called, not re-derived: it is also, by construction, the server's own
     // `sightOf` — and the dim mask, the cloud gate and the hull feather all
     // anchor on it.
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE));
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, false));
     radar.setRanges(NARROW, CONFIG.vision.radar, SWEEP_MS);
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU({ ...BASE, sightRange: NARROW }));
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU({ ...BASE, sightRange: NARROW }, false));
     expect(radar.sightHoleU).toBe(effectiveSight({ sightRange: NARROW }));
+  });
+
+  it('sightHoleU follows the DAZZLE (FLASH SHELLS, Story 10.9) — the same radius the fog bakes', () => {
+    const { radar } = makeRadar();
+    expect(radar.isDazzled).toBe(false);
+    expect(radar.setDazzled(true)).toBe(true);
+    expect(radar.setDazzled(true)).toBe(false); // the changed-flag contract
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, true));
+    expect(radar.sightHoleU).toBeLessThan(fogHoleRadiusU(BASE, false));
+    expect(radar.setDazzled(false)).toBe(true);
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, false));
   });
 
   it('THE WIRE PATH IS RANGE-BLIND: a blip rect inside the sight circle and the same rect '

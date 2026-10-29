@@ -1731,6 +1731,44 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     expect(d3.aimDist).toBeCloseTo(200, 6);
   });
 
+  /** A torpedo boat at the origin, bow EAST, holding ONE FLASH SHELLS copy
+   *  and nothing else that fires (Story 10.9 — the fouling boat's twin). */
+  function flashShellBoat(seed: number): { port: FakePort; rec: ShipRecord; slot: number } {
+    const w = openWorld(seed);
+    const port = fakePort(w);
+    const rec = mkBot(w, 'torpedoBoat', 0, 0, 0, kitWith('dazzleShells'));
+    for (const i of [SLOT_BOOST, 2, 3, 4]) rec.loadout[i] = { equipmentId: null, state: null };
+    w.applyCard(rec, 'dazzleShells');
+    const slot = slotOf(rec, 'dazzleShells');
+    expect(slot).toBeGreaterThanOrEqual(5);
+    return { port, rec, slot };
+  }
+
+  it('FLASH SHELLS (10.9, ruling 7) — a \'shot\' row on the fouling shell\'s reach: ENGAGING it fires at the nearest live contact in sight; never disengaging, never at a blip', () => {
+    const { port, rec, slot } = flashShellBoat(410);
+    expect(CONSUMABLE_TACTICS.dazzleShells.kind).toBe('shot');
+    expect(CONSUMABLE_TACTICS.dazzleShells.reachU(rec.stats)).toBe(CONFIG.foulingShell.rangeU); // ONE shared reach (ruling 2)
+    const band = gunBand(profileOf('duelist'), rec.stats);
+    const mid = Math.min((band.min + band.max) / 2, 250);
+    const engaged = mkMind('duelist');
+    plot(engaged, track(port.now, { x: mid, y: 0, live: true, speed: 0 }));
+    const d = COMBAT_BRAIN.decide(rec, engaged, port);
+    expect(engaged.posture).toBe('engage');
+    expect(d.fireSlot).toBe(slot);
+    expect(d.aimDist).toBeCloseTo(mid, 6); // burst ON the contact
+    // A NON-live plot (a blip) never draws the flash.
+    const blip = mkMind('duelist');
+    plot(blip, track(port.now, { x: mid, y: 0, live: false, speed: 0 }));
+    expect(COMBAT_BRAIN.decide(rec, blip, port).fireSlot).not.toBe(slot);
+    // Disengaging with a live chaser astern: the flash is an ENGAGED tool only.
+    rec.hp = rec.stats.maxHp * 0.1;
+    const chased = mkMind('duelist');
+    plot(chased, track(port.now, { x: -150, y: 0, live: true, speed: 20 }));
+    const d2 = COMBAT_BRAIN.decide(rec, chased, port);
+    expect(chased.posture).toBe('disengage');
+    expect(d2.fireSlot).not.toBe(slot);
+  });
+
   it('CAPTIVE MINES keeps the base mine UNCONDITIONAL withdrawal lay', () => {
     // REGRESSION (review gate, cycle 110). `mineWant` lays astern on
     // `disengage` at any appetite and with NO target; the captive branch ran
@@ -2554,7 +2592,7 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
   /** A TORPEDO BOAT with its boost AND its tube stripped, so the stocked belt
    *  line is the only ability/placement the brain can choose (the tests are
    *  about the belt row, not about ranking). */
-  function beltOnly(seed: number, line: 'shieldBlock' | 'decoyBuoy' | 'countermeasure'): {
+  function beltOnly(seed: number, line: 'shieldBlock' | 'healingBuoy' | 'countermeasure'): {
     w: World;
     port: FakePort;
     rec: ShipRecord;
@@ -2583,7 +2621,9 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
 
   it('the belt rows carry their kinds', () => {
     expect(CONSUMABLE_TACTICS.shieldBlock.kind).toBe('ability');
-    expect(CONSUMABLE_TACTICS.decoyBuoy.kind).toBe('placement');
+    for (const id of ['radarBuoy', 'healingBuoy', 'shieldBuoy', 'speedBuoy'] as const) {
+      expect(CONSUMABLE_TACTICS[id].kind, id).toBe('placement');
+    }
     expect(CONSUMABLE_TACTICS.countermeasure.kind).toBe('ability');
   });
 
@@ -2810,8 +2850,8 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
     expect(COMBAT_BRAIN.decide(rec, lapsed, port).actSlot).toBe(belt);
   });
 
-  it('DECOY BUOY: a rear-sector placement at full placeRange when a fish is inbound — and only then', () => {
-    const { port, rec, belt } = beltOnly(81603, 'decoyBuoy');
+  it('ANY BUOY (Story 10.9 — the DECOY BUOY\'s sponge want): dropped dead astern at full placeRange on open water when a fish is inbound — and only then', () => {
+    const { port, rec, belt } = beltOnly(81603, 'healingBuoy');
     const calm = mkMind('duelist');
     viewOf(calm, port.now, []);
     expect(COMBAT_BRAIN.decide(rec, calm, port).fireSlot).toBeNull();
@@ -2824,17 +2864,17 @@ describe('Story 8.16 — the three new belt lines (amendment 124(g))', () => {
     expect(d.aimDist).toBeCloseTo(CONFIG.mine.placeRange, 6);
   });
 
-  it('DECOY BUOY: a SINKING bot with a fish inbound does not want the decoy (the afloat guard its siblings carry)', () => {
-    const { port, rec } = beltOnly(81604, 'decoyBuoy');
+  it('ANY BUOY: a SINKING bot with a fish inbound does not want it (the afloat guard its siblings carry)', () => {
+    const { port, rec } = beltOnly(81604, 'healingBuoy');
     rec.lifecycle = transitionLifecycle(rec.lifecycle, 'sink', port.now);
     const threatened = mkMind('duelist');
     viewOf(threatened, port.now, [inbound(port.now)]);
-    const tactic = CONSUMABLE_TACTICS.decoyBuoy;
+    const tactic = CONSUMABLE_TACTICS.healingBuoy;
     const ctx = { self: rec, mind: threatened, sit: { now: port.now }, posture: 'reposition' } as unknown as Parameters<typeof tactic.want>[0];
     noteTorpedoes(threatened, rec, port.now);
     expect(tactic.want(ctx)).toBe(false);
     // ...and the same fish over an AFLOAT hull is wanted (the guard is the only difference).
-    const afloat = beltOnly(81605, 'decoyBuoy').rec;
+    const afloat = beltOnly(81605, 'healingBuoy').rec;
     const mind2 = mkMind('duelist');
     viewOf(mind2, port.now, [inbound(port.now)]);
     noteTorpedoes(mind2, afloat, port.now);

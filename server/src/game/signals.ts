@@ -344,13 +344,16 @@ function withinSight(field: SightField, me: ShipRecord, p: Vec2, range: number):
 
 /**
  * The observer's EFFECTIVE sight radius this tick: the SHARED `effectiveSight`
- * (sim/sight.ts) over its stats — today simply the derived `sightRange`,
- * since nothing in the game scales sight at runtime any more. HISTORY: the
- * FLASH SHELLS dazzle (Story 8.17, amendment 132) once collapsed it to 1/8 of
- * intel range through a second argument; Story 9.4 replaced that consumable
- * with the FOULING SHELL, whose zone slows props and never touches sight, so
- * the argument and the mark are gone (and Story 9.3 had already removed the
- * 8.18 in-smoke argument — a cloud never scales sight). THE one place the
+ * (sim/sight.ts) over its stats and its dazzle mark. A FLASH SHELLS burst
+ * (Story 8.17, amendment 132; RESTORED by Story 10.9 beside the FOULING
+ * SHELL, epic-10 amendments 2 and 4) sets `dazzledUntil` (World.applyFlash);
+ * while it is in the future the observer's truesight collapses to
+ * `sightRange × CONFIG.flashShells.sightFraction` (ruling 1: a quarter of
+ * sight). Else `stats.sightRange`. The hull's own wire field
+ * OwnShip.dazzledUntil reads the same mark and the client's mirror calls the
+ * same shared function, so the server's shrunken sight and the client's
+ * honest fog hole agree by construction. (Story 9.3 removed the 8.18
+ * in-smoke argument — a cloud never scales sight.) THE one place the
  * sight RADIUS enters perception — every sight-tier predicate below and
  * every derived rung (detect) calls this, so a future sight modifier lands
  * in the shared function and nowhere else. FOG (Story 9.10) does NOT scale
@@ -359,8 +362,8 @@ function withinSight(field: SightField, me: ShipRecord, p: Vec2, range: number):
  * the observer's hull out to radar range — no inner edge).
  * Never re-derived here: one derivation, both sides.
  */
-export function sightOf(me: ShipRecord): number {
-  return effectiveSight(me.stats);
+export function sightOf(me: ShipRecord, now: number): number {
+  return effectiveSight(me.stats, now < me.dazzledUntil);
 }
 
 /**
@@ -381,16 +384,16 @@ export function sightOf(me: ShipRecord): number {
  * view and its shot inside fog by the same rule a client does; the
  * shot-from chase (amendment 139) never calls this and is untouched.
  */
-export function shipSees(me: ShipRecord, other: ShipRecord, field: SightField): boolean {
-  return withinSight(field, me, other.state, sightOf(me)) && sightClear(me, other.state, field.islands);
+export function shipSees(me: ShipRecord, other: ShipRecord, field: SightField, now: number): boolean {
+  return withinSight(field, me, other.state, sightOf(me, now)) && sightClear(me, other.state, field.islands);
 }
 
 /** Sight-tier test for a point: within the OBSERVER'S effective sight range
  *  (inclusive — sightOf, fog-tolled through withinSight) + SIGHT-clear
  *  (island LOS). Takes the ShipRecord so the sightRange boons apply to every
  *  point-sighted gate (ballistics, mines, booms, wrecks, spawns) uniformly. */
-function pointSighted(me: ShipRecord, p: Vec2, field: SightField): boolean {
-  return withinSight(field, me, p, sightOf(me)) && sightClear(me, p, field.islands);
+function pointSighted(me: ShipRecord, p: Vec2, field: SightField, now: number): boolean {
+  return withinSight(field, me, p, sightOf(me, now)) && sightClear(me, p, field.islands);
 }
 
 /**
@@ -413,8 +416,8 @@ function pointSighted(me: ShipRecord, p: Vec2, field: SightField): boolean {
  * withinSight exactly as sight is (Story 9.10): a mine or a fish inside a
  * bank is spotted late by the same ray cost.
  */
-function pointDetected(me: ShipRecord, p: Vec2, field: SightField): boolean {
-  return withinSight(field, me, p, sightOf(me) * CONFIG.vision.detectFactor) && sightClear(me, p, field.islands);
+function pointDetected(me: ShipRecord, p: Vec2, field: SightField, now: number): boolean {
+  return withinSight(field, me, p, sightOf(me, now) * CONFIG.vision.detectFactor) && sightClear(me, p, field.islands);
 }
 
 /**
@@ -475,9 +478,9 @@ export function ownZoneCovers(ctx: SignalContext, p: Vec2): boolean {
   return false;
 }
 
-/** Anything carrying a radar sweep window — a ShipRecord (the radar buoy's
- *  own sweep, the other implementer, was deleted in Story 8.16):
- *  sweptThisTick reads exactly these two fields. */
+/** Anything carrying a radar sweep window — a ShipRecord, or (Story 10.9)
+ *  a RADAR BUOY's own beam (`DecoyState.sweep`): sweptThisTick reads exactly
+ *  these two fields. */
 interface SweepWindow {
   sweepAngle: number;
   prevSweepAngle: number;
@@ -539,27 +542,7 @@ function discRollRev(me: ShipRecord, spanStart: number | null): number {
   return me.sweepRev - 1;
 }
 
-/** THE radar's range test for a POINT: within the observer's effective radar
- *  range (`stats.radarRange`, inclusive `<=`) — and nothing else. THERE IS NO
- *  INNER EDGE (amendment 210, Eric 2026-10-21: "The server needs to return
- *  the entire sweep ... I always get radar information"): the radar paints
- *  from the observer's hull outward, inside the sight radius too, so a hull
- *  the eye has (contact) ALSO paints, and a hull the eye has lost to fog or a
- *  low island still paints. HISTORY (superseded): the old `inRadarAnnulus`
- *  excluded d ≤ sightOf (amendment 163's "dark to both"); the client then
- *  synthesized echoes for sighted hulls (amendments 88/154) — both retired.
- *  The two sensors keep their OWN island rules: the eye binary LOS, radar
- *  the height-aware shadow march (blipGate). Point-based so a non-ship
- *  subject (a decoy, a wake segment) runs the IDENTICAL test. */
-function withinRadarRange(me: ShipRecord, p: Vec2): boolean {
-  const dx = p.x - me.state.x;
-  const dy = p.y - me.state.y;
-  const d2 = dx * dx + dy * dy;
-  // Zero distance (or NaN): nothing to bear on — atan2(0, 0) is an arbitrary 0 and visibilityTo fails open
-  // at length 0 — so a subject on the observer's own point is never a return.
-  if (!(d2 > 0)) return false;
-  return d2 <= me.stats.radarRange * me.stats.radarRange;
-}
+
 
 /**
  * THE ship-blip gate (one function, three callers — FR10's temporal
@@ -586,11 +569,57 @@ function withinRadarRange(me: ShipRecord, p: Vec2): boolean {
  */
 function blipGate(ctx: FoggedSignalContext, p: Vec2, targetKey: string): boolean {
   const me = ctx.me;
+  return radarOriginPaints(
+    ctx,
+    { at: me.state, window: me, rangeU: me.stats.radarRange, key: me.id, rev: me.sweepRev },
+    p,
+    targetKey,
+  );
+}
+
+/**
+ * ONE RADAR ANTENNA's view of a point — the four terms every paint gate
+ * shares, from an explicit ORIGIN (Story 10.9): the observer's own hull for
+ * blipGate, a RADAR BUOY for buoyRadarBlips. `key` is the antenna's term of
+ * the dropout roll (the observer's ship id, or the buoy's id) and `rev` its
+ * revolution counter.
+ */
+interface RadarOrigin {
+  readonly at: Vec2;
+  readonly window: SweepWindow;
+  readonly rangeU: number;
+  readonly key: string;
+  readonly rev: number;
+}
+
+/** The four paint terms from `o`, in blipGate's cost order: range → this
+ *  tick's beam window → the height-aware shadow march → the dropout roll at
+ *  the centre distance (Story 10.9 hoisted them off the observer so a RADAR
+ *  BUOY runs the identical gate). THE RANGE TERM: within the antenna's radar
+ *  range (`o.rangeU` — the hull's `stats.radarRange`, a buoy's
+ *  `CONFIG.buoy.radiusU`; inclusive `<=`) — and nothing else. THERE IS NO
+ *  INNER EDGE (amendment 210, Eric 2026-10-21: "The server needs to return
+ *  the entire sweep ... I always get radar information"): the radar paints
+ *  from the observer's hull outward, inside the sight radius too, so a hull
+ *  the eye has (contact) ALSO paints, and a hull the eye has lost to fog or a
+ *  low island still paints. HISTORY (superseded): the old `inRadarAnnulus`
+ *  excluded d ≤ sightOf (amendment 163's "dark to both"); the client then
+ *  synthesized echoes for sighted hulls (amendments 88/154) — both retired.
+ *  The two sensors keep their OWN island rules: the eye binary LOS, radar
+ *  the height-aware shadow march (blipGate). Point-based so a non-ship
+ *  subject (a decoy, a wake segment) runs the IDENTICAL test.
+ *  Zero distance (or NaN): nothing to bear on — atan2(0, 0) is an arbitrary
+ *  0 and visibilityTo fails open at length 0 — so a subject on the antenna's
+ *  own point is never a return; a non-finite range fails closed. */
+function radarOriginPaints(ctx: FoggedSignalContext, o: RadarOrigin, p: Vec2, targetKey: string): boolean {
+  const dx = p.x - o.at.x;
+  const dy = p.y - o.at.y;
+  const d2 = dx * dx + dy * dy;
+  if (!(d2 > 0 && d2 <= o.rangeU * o.rangeU)) return false;
   return (
-    withinRadarRange(me, p) &&
-    sweptThisTick(me, bearing(me.state, p)) &&
-    visibilityTo(ctx.heightRaster, me.state.x, me.state.y, p.x, p.y) > 0 &&
-    radarPaints(ctx, Math.hypot(p.x - me.state.x, p.y - me.state.y), targetKey)
+    sweptThisTick(o.window, bearing(o.at, p)) &&
+    visibilityTo(ctx.heightRaster, o.at.x, o.at.y, p.x, p.y) > 0 &&
+    dropoutPaints(Math.hypot(dx, dy), ctx.dropoutSeed, o.key, targetKey, o.rev)
   );
 }
 
@@ -711,7 +740,7 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
     // (Story 9.10: withinSight adds the ray's bank cost before comparing);
     // the owned-zone OR is untouched (a flare lights from above).
     return (
-      (withinSight(ctx, me, ship.state, sightOf(me)) && sightClear(me, ship.state, ctx.islands)) ||
+      (withinSight(ctx, me, ship.state, sightOf(me, ctx.now)) && sightClear(me, ship.state, ctx.islands)) ||
       ownZoneCovers(ctx, ship.state)
     );
   },
@@ -757,7 +786,7 @@ const mineSignal: SignalSpec<MineState, MineView> = {
     if (ctx.mode === 'spectator') return true;
     return (
       mine.ownerId === ctx.me.id ||
-      pointDetected(ctx.me, mine, ctx) ||
+      pointDetected(ctx.me, mine, ctx, ctx.now) ||
       ownZoneCovers(ctx, mine)
     );
   },
@@ -915,20 +944,36 @@ const decoySignal: SignalSpec<DecoyState, DecoyView> = {
     if (ctx.mode === 'spectator') return true;
     return (
       decoy.ownerId === ctx.me.id ||
-      pointSighted(ctx.me, decoy, ctx) ||
+      pointSighted(ctx.me, decoy, ctx, ctx.now) ||
       ownZoneCovers(ctx, decoy)
     );
   },
   materialize(ctx, decoy) {
-    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,own,by[,hp] — the shared
-    // DecoyView declaration order. `by` (the owner's ship id) rides EVERY
-    // view (amendment 124(a) — the client's hue latch keys on it, the
-    // MineView.by precedent); `hp` ONLY on the owner's own view, appended
-    // LAST with the key ABSENT otherwise (the MineView.c idiom).
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,own,by,kind[,hp,sweep,until]
+    // — the shared DecoyView declaration order. `by` (the owner's ship id)
+    // rides EVERY view (amendment 124(a) — the client's hue latch keys on it,
+    // the MineView.by precedent); `kind` (Story 10.9) rides EVERY view too —
+    // what the buoy does is a field on a delivered, sight-gated row (the
+    // MineView.c precedent), so it discloses nothing beyond the body. The
+    // OWNER's view alone appends `hp`, the RADAR buoy's `sweep` angle and the
+    // expiry `until` (self-private, the OwnShip.sweep idiom); for every other
+    // observer those keys are ABSENT — a sighted enemy buoy shows its kind,
+    // never its sweep or its timer.
     const own = decoy.ownerId === ctx.observerId;
-    return { id: decoy.id, x: decoy.x, y: decoy.y, own, by: decoy.ownerId, ...(own ? { hp: decoy.hp } : {}) };
+    const base = { id: decoy.id, x: decoy.x, y: decoy.y, own, by: decoy.ownerId, kind: decoy.kind };
+    return own ? { ...base, ...ownDecoyTail(decoy) } : base;
   },
 };
+
+/** The OWNER-ONLY tail of a DecoyView (Story 10.9): `hp`, then — radar
+ *  kind — the beam's `sweep` angle, then the expiry `until`. */
+function ownDecoyTail(decoy: DecoyState): Pick<DecoyView, 'hp' | 'sweep' | 'until'> {
+  return {
+    hp: decoy.hp,
+    ...(decoy.sweep !== null ? { sweep: decoy.sweep.sweepAngle } : {}),
+    until: decoy.expiresAt,
+  };
+}
 
 /**
  * `cloud` — the MULTI-SPECTRAL COUNTERMEASURE cloud (Story 9.3 — 8.18's
@@ -985,9 +1030,10 @@ function nearestRimPoint(o: Vec2, c: Vec2, r: number): Vec2 {
  *  in solid fog pays nothing on that segment until it leaves its own bank. */
 function discSighted(ctx: FoggedSignalContext, cloud: StoredCloud, d: number, r: number): boolean {
   const me = ctx.me;
-  if (d - r > sightOf(me)) return false;
+  const sight = sightOf(me, ctx.now);
+  if (d - r > sight) return false;
   const rim = nearestRimPoint(me.state, cloud, r);
-  return withinSight(ctx, me, rim, sightOf(me)) && losClear(me.state, rim, ctx.islands);
+  return withinSight(ctx, me, rim, sight) && losClear(me.state, rim, ctx.islands);
 }
 
 /** Clause (b): the disc's nearest point within radar range, its bearing span
@@ -1090,7 +1136,7 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
 
 /**
  * THE DECOY'S PAINT: a small degenerate-segment square at the decoy's fixed
- * position — its TRUE physical footprint (`CONFIG.decoyBuoy.sizeU`, the same
+ * position — its TRUE physical footprint (`CONFIG.buoy.sizeU`, the same
  * square the ballistic paths collide with), rasterized and per-paint glinted
  * by the SAME shared segment pipeline the wake row uses, onto the same
  * lattice, in the same {k:'blip',...} wire shape. Deliberately NOT
@@ -1099,7 +1145,7 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
  * no id, no class, no owner, nothing.
  */
 function decoyPaintBlip(ctx: SignalContext, decoy: DecoyState): BlipEvent {
-  const s = CONFIG.decoyBuoy.sizeU;
+  const s = CONFIG.buoy.sizeU;
   const c = paintSegmentCoverage(decoy.x, decoy.y, decoy.x, decoy.y, s, CONFIG.vision.radarCellU, ctx.now);
   return { k: 'blip', t: ctx.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits };
 }
@@ -1120,6 +1166,64 @@ export function decoyRadarBlips(ctx: FoggedSignalContext): BlipEvent[] {
   return out;
 }
 
+/**
+ * THE RADAR BUOY's SWEEP (Story 10.9, Eric 2026-10-27/28, epic-10
+ * amendments 2 and 4; AC 5) — a second paint SOURCE for its OWNER, never a
+ * signal kind (the registry stays 26 keys; the SIX exceptions stay six). For
+ * every RADAR buoy the observer OWNS, the buoy's own beam runs the ONE radar
+ * gate (`radarOriginPaints`) from the BUOY: centre within
+ * `CONFIG.buoy.radiusU` of it, swept this tick by the buoy's window (bearing
+ * from the buoy), shadow-visible from the buoy (`visibilityTo` over the height
+ * raster — islands block EVERY sensor at ALL ranges, Eric 2026-08-02), and
+ * the dropout roll keyed by the BUOY's id and its `sweepRev`. It paints every
+ * hull on the water but the owner's (afloat or sinking, exactly the ship-blip
+ * row's subjects) and every buoy the owner does NOT own — in the SAME
+ * anonymous wire shapes the ship scan and the decoy paint produce (blipShape /
+ * decoyPaintBlip: no id, no hue) — plus `src` = the buoy's id, the paint's
+ * ORIGIN, so the owner's client marches it from the buoy (self-private: the
+ * owner already holds the buoy on DecoyView; never on an own-sweep paint).
+ * Wakes are NOT painted by the buoy sweep
+ * (implementer reading: ships and buoys only). Paints for nobody but the
+ * owner: another observer's frame never reads someone else's buoy beam. A
+ * hull the owner's own radar paints this tick may paint twice (two antennas,
+ * two returns — no identity rides either).
+ */
+export function buoyRadarBlips(ctx: FoggedSignalContext): BlipEvent[] {
+  const out: BlipEvent[] = [];
+  for (const buoy of ctx.decoys.values()) {
+    if (buoy.ownerId !== ctx.me.id || buoy.sweep === null) continue;
+    const o: RadarOrigin = {
+      at: buoy,
+      window: buoy.sweep,
+      rangeU: CONFIG.buoy.radiusU,
+      key: buoy.id,
+      rev: buoy.sweep.sweepRev,
+    };
+    paintHullsFrom(ctx, o, out);
+    paintBuoysFrom(ctx, o, out);
+  }
+  return out;
+}
+
+/** The buoy beam's HULL paints: every hull on the water but the owner's. */
+function paintHullsFrom(ctx: FoggedSignalContext, o: RadarOrigin, out: BlipEvent[]): void {
+  for (const target of ctx.ships.values()) {
+    if (target.id === ctx.me.id) continue;
+    if (!isAfloat(target.lifecycle) && !isSinking(target.lifecycle)) continue;
+    if (radarOriginPaints(ctx, o, target.state, target.id)) {
+      out.push({ ...blipShape(ctx, target.state, target.hullId, target.state.heading), src: o.key });
+    }
+  }
+}
+
+/** The buoy beam's BUOY paints: every buoy the owner does not own. */
+function paintBuoysFrom(ctx: FoggedSignalContext, o: RadarOrigin, out: BlipEvent[]): void {
+  for (const other of ctx.decoys.values()) {
+    if (other.ownerId === ctx.me.id) continue;
+    if (radarOriginPaints(ctx, o, other, other.id)) out.push({ ...decoyPaintBlip(ctx, other), src: o.key });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // `wk` — RADAR WAKES (Story 4.12, amendments 194-196/200/205).
 // ---------------------------------------------------------------------------
@@ -1128,7 +1232,7 @@ export function decoyRadarBlips(ctx: FoggedSignalContext): BlipEvent[] {
  * One wake ribbon SEGMENT offered to the `wk` row by perception's wake scan
  * (the scan walks each ribbon via the shared eachWakeSegment and copies the
  * scratch into this shape). `x`/`y` is the segment MIDPOINT — the gate's one
- * test point, named so the shared point predicates (withinRadarRange, bearing)
+ * test point, named so the shared point predicates (radarOriginPaints, bearing)
  * read it directly. `ax..by` are the endpoints the rasterizer projects;
  * `widthU` is the SOURCE-derived turbulent-core width (a hull's own beam, one
  * radar cell for a torpedo — carried on the ribbon, derived exactly once in
@@ -1331,7 +1435,7 @@ function wakeGate(ctx: FoggedSignalContext, seg: WakeSubject): boolean {
   const dx = seg.x - me.state.x;
   const dy = seg.y - me.state.y;
   const d2 = dx * dx + dy * dy;
-  if (!(d2 > 0)) return false; // nothing to bear on (see withinRadarRange)
+  if (!(d2 > 0)) return false; // nothing to bear on (see radarOriginPaints)
   if (d2 > me.stats.radarRange * me.stats.radarRange) return false;
   if (!sweptThisTick(me, bearing(me.state, seg))) return false;
   if (visibilityTo(ctx.heightRaster, me.state.x, me.state.y, seg.x, seg.y) <= 0) return false;
@@ -1495,8 +1599,8 @@ export function ballisticGateOpen(ctx: SignalContext, shell: ShellState): boolea
   return (
     shell.ownerId === me.id ||
     (shell.kind === 'torp'
-      ? pointDetected(me, shell, ctx)
-      : pointSighted(me, shell, ctx)) ||
+      ? pointDetected(me, shell, ctx, ctx.now)
+      : pointSighted(me, shell, ctx, ctx.now)) ||
     ownZoneCovers(ctx, shell)
   );
 }
@@ -1641,14 +1745,14 @@ const boomSignal: SignalSpec<BoomEvent, BoomEvent> = {
   eventType: 'boom',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.hit === ctx.me.id || pointSighted(ctx.me, e, ctx) || ownZoneCovers(ctx, e);
+    return e.hit === ctx.me.id || pointSighted(ctx.me, e, ctx, ctx.now) || ownZoneCovers(ctx, e);
   },
   materialize(ctx, e) {
     if (ctx.mode === 'spectator') return e;
     const me = ctx.me;
     if (!e.hit || e.hit === me.id) return e;
     const victim = ctx.ships.get(e.hit);
-    if (victim && (pointSighted(me, victim.state, ctx) || ownZoneCovers(ctx, victim.state))) {
+    if (victim && (pointSighted(me, victim.state, ctx, ctx.now) || ownZoneCovers(ctx, victim.state))) {
       return e;
     }
     return { k: 'boom', id: e.id, x: e.x, y: e.y }; // impact visible, victim id stripped
@@ -1687,7 +1791,7 @@ const burstSignal: SignalSpec<BurstSubject, BurstEvent> = {
   eventType: 'burst',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.own === ctx.me.id || pointSighted(ctx.me, e, ctx) || ownZoneCovers(ctx, e);
+    return e.own === ctx.me.id || pointSighted(ctx.me, e, ctx, ctx.now) || ownZoneCovers(ctx, e);
   },
   materialize(_ctx, e) {
     // ALWAYS a fresh bare object — never `e` verbatim, which would leak the
@@ -1710,7 +1814,7 @@ function sunkWitnessed(ctx: SignalContext, e: SunkEvent): boolean {
   if (ctx.mode === 'spectator' || e.id === ctx.me.id) return true;
   const wreck = ctx.ships.get(e.id);
   if (wreck === undefined) return false;
-  return pointSighted(ctx.me, wreck.state, ctx) || ownZoneCovers(ctx, wreck.state);
+  return pointSighted(ctx.me, wreck.state, ctx, ctx.now) || ownZoneCovers(ctx, wreck.state);
 }
 
 /**
@@ -1898,7 +2002,7 @@ const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
   eventType: 'spawn',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.id === ctx.me.id || pointSighted(ctx.me, e, ctx) || ownZoneCovers(ctx, e);
+    return e.id === ctx.me.id || pointSighted(ctx.me, e, ctx, ctx.now) || ownZoneCovers(ctx, e);
   },
   materialize(_ctx, e) {
     return e;

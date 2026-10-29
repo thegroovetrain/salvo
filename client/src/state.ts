@@ -5,7 +5,7 @@
 // main.ts. Kept a leaf module: it imports only shared types, never render,
 // net, or input code.
 
-import type { BurnZoneView, CloudView, FoulZoneView, LitZoneView, OwnShip } from '@salvo/shared';
+import type { BurnZoneView, CloudView, DecoyView, FoulZoneView, LitZoneView, OwnShip } from '@salvo/shared';
 
 /** Coarse client phase. Expands (waiting/countdown/spectate) in later steps. */
 export type Phase = 'connecting' | 'active';
@@ -36,6 +36,13 @@ export interface NetState {
    *  nothing; its slow reaches this client only as the victim-private
    *  `you.fouledUntil`, never from this list. */
   foulZones: FoulZoneView[];
+  /** Latest per-observer buoy list (mirrors FrameMsg.decoys; absent / [] when
+   *  none — Story 10.9). Read by the hotbar's ACTIVE windows (an own buoy's
+   *  `until`) and the radar-buoy sweep (an own RADAR buoy's `sweep`). */
+  decoys?: DecoyView[];
+  /** Server time (ms) of the frame `decoys` came from — the instant each own
+   *  radar buoy's `sweep` was sampled (render/buoySweep.ts extrapolates it). */
+  decoysAt?: number;
   /** The HELD MULTI-SPECTRAL COUNTERMEASURE cloud list (Story 9.3, epic-9
    *  amendment 51): every cloud any FrameMsg.clouds has delivered, held until
    *  its life ends on the frame's server time — a cloud once seen is held

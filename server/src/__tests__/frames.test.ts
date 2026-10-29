@@ -102,7 +102,7 @@ describe('buildFrame — shape and clock', () => {
 
   it('the seat\'s KIT rides `you` as the hull\'s own four, in key order, and as a copy (Story 10.1)', () => {
     const w = new World(1);
-    const kit: ConsumableKit = ['decoyBuoy', 'foulingShell', 'shieldBlock', 'supercavTorpedo'];
+    const kit: ConsumableKit = ['healingBuoy', 'foulingShell', 'shieldBlock', 'supercavTorpedo'];
     const ship = w.addShip('k', 'K', 'captain', 'torpedoBoat', undefined, undefined, undefined, kit);
     const you = buildFrame(w, 'k').you!;
     expect(you.kit).toEqual(kit);
@@ -284,5 +284,35 @@ describe('buildFrame — the self-private wake-draft lift (Story 8.19)', () => {
     expect(other.contacts.some((c) => c.id === 'a')).toBe(true);
     expect(JSON.stringify({ ...other, you: undefined })).not.toContain('"draft"');
     expect('draft' in other.you!).toBe(false);
+  });
+});
+
+describe('buildFrame — the Story 10.9 self-private own fields (dazzledUntil, buoyShield, speedBuoyAt)', () => {
+  it('each is OMITTED while inactive and rides ONLY its own `you` while live — never a contact, never another observer', () => {
+    const w = makeWorld();
+    const a = w.ships.get('a')!;
+    const idle = buildFrame(w, 'a').you!;
+    for (const k of ['dazzledUntil', 'buoyShield', 'speedBuoyAt']) expect(k in idle, k).toBe(false);
+    w.now = 100_000;
+    a.dazzledUntil = w.now + CONFIG.flashShells.durationMs;
+    a.buoyShield = { hpLeft: 12.25, insideAt: w.now };
+    a.speedBuoyAt = w.now;
+    const you = buildFrame(w, 'a').you!;
+    expect(you.dazzledUntil).toBe(a.dazzledUntil);
+    expect(you.buoyShield).toEqual({ hp: 13 }); // rounded UP for the readout, the SHIELD BLOCK idiom
+    expect(you.speedBuoyAt).toBe(a.speedBuoyAt);
+    const other = buildFrame(w, 'b');
+    expect(other.contacts.some((c) => c.id === 'a')).toBe(true);
+    const text = JSON.stringify({ ...other, you: undefined });
+    for (const k of ['dazzledUntil', 'buoyShield', 'speedBuoyAt']) {
+      expect(text).not.toContain(k);
+      expect(k in other.you!, k).toBe(false);
+    }
+    // Lapsed: the dazzle past its mark, the pool emptied, the speed tail run out.
+    w.now = a.speedBuoyAt + CONFIG.buoy.tailHoldMs + CONFIG.buoy.tailRampMs;
+    expect(w.now).toBeGreaterThanOrEqual(a.dazzledUntil); // premise
+    a.buoyShield = { hpLeft: 0, insideAt: a.speedBuoyAt };
+    const after = buildFrame(w, 'a').you!;
+    for (const k of ['dazzledUntil', 'buoyShield', 'speedBuoyAt']) expect(k in after, k).toBe(false);
   });
 });

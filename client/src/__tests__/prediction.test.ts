@@ -3,6 +3,8 @@ import {
   CONFIG,
   HOOK_REGISTRY,
   boostedKinematics,
+  buoyTail,
+  combinedBoostFactor,
   draftedKinematics,
   hookKinematics,
   slowedKinematics,
@@ -29,6 +31,8 @@ import {
   PENDING_CAPACITY,
   HARD_SNAP_U,
   ERROR_DECAY_RATE,
+  composedBoostFactor,
+  topBoostFactor,
 } from '../sim/prediction.js';
 
 const DT = CONFIG.tick.simDtMs / 1000;
@@ -910,6 +914,114 @@ describe('Predictor FOULING SHELL zone slow (Story 9.4)', () => {
     const k = foldKin(T0, f);
     const boosted = boostedKinematics(TB.kinematics, CONFIG.boost.factor, true).maxSpeed;
     expect(k.maxSpeed).toBeCloseTo(boosted * 0.55 * SHELL * (1 + CONFIG.wake.draft.lift), 9);
+  });
+});
+
+// --- Story 10.9: THE SPEED BUOY — the fold's FIRST stage, Shift + buoy tail ----
+//
+// The server's tickKinematics opens with ONE boostedKinematics call on the rated
+// kinematics at `combinedBoostFactor(t < boostUntil, buoyTail(t, speedBuoyAt,
+// hold, ramp), CONFIG.boost.factor, CONFIG.buoy.speed.factor)` — the Shift and
+// the buoy ADD on the base (ruling 6). The predictor adopts the self-private
+// `you.speedBuoyAt` and must land on the identical doubles at all four
+// (shift, tail) corners, with the tail read at each tick's OWN time.
+
+describe('Predictor SPEED BUOY first stage (Story 10.9)', () => {
+  const T0 = 650_000;
+  const tickT = (seq: number): number => T0 + seq * CONFIG.tick.simDtMs;
+  const B = CONFIG.buoy;
+
+  interface Fold {
+    boostUntil?: number;
+    speedBuoyAt?: number;
+  }
+
+  /** The server's first stage, verbatim (world.ts boostFactorAt + tickKinematics). */
+  function serverFactor(t: number, f: Fold): number {
+    const tail = buoyTail(t, f.speedBuoyAt ?? 0, B.tailHoldMs, B.tailRampMs);
+    return combinedBoostFactor(t < (f.boostUntil ?? 0), tail, CONFIG.boost.factor, B.speed.factor);
+  }
+
+  function serverFoldStep(s: ShipState, inp: InputMsg, t: number, f: Fold): void {
+    const prev: Pose = { x: s.x, y: s.y, heading: s.heading };
+    const factor = serverFactor(t, f);
+    stepShip(s, inp, boostedKinematics(TB.kinematics, factor, factor > 0), DT);
+    applyGroundingDamp(s, resolveShipPose(prev, s, [], MAP_R, TB_POLY), TB.kinematics.maxSpeed);
+  }
+
+  function run(p: Predictor, spawn: ShipState, f: Fold, ticks: number): ShipState {
+    const server: ShipState = { ...spawn };
+    const history: ShipState[] = [{ ...spawn }];
+    for (let seq = 1; seq <= ticks; seq++) {
+      const inp = input(seq, 1, 0);
+      p.localTick(inp, tickT(seq));
+      serverFoldStep(server, inp, tickT(seq), f);
+      history[seq] = { ...server };
+      if (seq % 5 === 0) p.onServerState({ ...kin(history[seq - 3]), ...f }, seq - 3);
+    }
+    return server;
+  }
+
+  const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
+  const ON = T0 + 1e7; // a Shift window that outlasts the run
+  const INSIDE = (): number => tickT(400); // a stamp later than every tick → tail 1 throughout
+
+  const corners: [string, Fold, number][] = [
+    ['neither', {}, 0],
+    ['Shift only', { boostUntil: ON }, CONFIG.boost.factor],
+    ['buoy tail only', { speedBuoyAt: INSIDE() }, B.speed.factor],
+    ['Shift + buoy', { boostUntil: ON, speedBuoyAt: INSIDE() }, CONFIG.boost.factor + B.speed.factor],
+  ];
+
+  for (const [name, f, factor] of corners) {
+    it(`${name}: matches the server fold to the bit, at rated × (1 + the summed factor)`, () => {
+      const p = new Predictor({ radius: MAP_R, islands: [] });
+      p.onServerState({ ...kin(spawn), ...f }, 0);
+      const server = run(p, spawn, f, 200);
+      expect(p.predicted.x).toBe(server.x);
+      expect(p.predicted.speed).toBe(server.speed);
+      expect(serverFactor(T0, f)).toBeCloseTo(factor, 12);
+      expect(server.speed).toBeCloseTo(boostedKinematics(TB.kinematics, factor, factor > 0).maxSpeed, 6);
+    });
+  }
+
+  it('Shift + buoy ADD on the base — never a product (ruling 6)', () => {
+    const both = boostedKinematics(TB.kinematics, CONFIG.boost.factor + B.speed.factor, true).maxSpeed;
+    const base = TB.kinematics.maxSpeed;
+    const shift = boostedKinematics(TB.kinematics, CONFIG.boost.factor, true).maxSpeed - base;
+    const buoy = boostedKinematics(TB.kinematics, B.speed.factor, true).maxSpeed - base;
+    expect(both - base).toBeCloseTo(shift + buoy, 9);
+  });
+
+  it('the tail RAMPS on each tick\'s own clock — a stamp in the past fades the lift mid-run, still in lock-step', () => {
+    // Stamped so the hold ends early in the run and the ramp crosses it.
+    const f: Fold = { speedBuoyAt: tickT(40) - B.tailHoldMs };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), ...f }, 0);
+    const server = run(p, spawn, f, 200);
+    expect(p.predicted.x).toBe(server.x);
+    expect(p.predicted.speed).toBe(server.speed);
+    expect(serverFactor(tickT(40) + B.tailRampMs / 2, f)).toBeCloseTo(B.speed.factor / 2, 9);
+  });
+
+  it('an omitted speedBuoyAt is no buoy, and a hard re-init drops the stamp', () => {
+    const fast: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(fast), speedBuoyAt: INSIDE() }, 0);
+    p.forceSnap();
+    p.onServerState(kin(fast), 0);
+    const server = run(p, fast, {}, 20);
+    expect(p.predicted.speed).toBe(server.speed);
+    expect(p.predicted.speed).toBeCloseTo(TB.kinematics.maxSpeed, 6); // never lifted
+  });
+
+  it('composedBoostFactor IS the server\'s factor; topBoostFactor is its ceiling', () => {
+    for (const [, f] of corners) {
+      for (const t of [T0, T0 + B.tailHoldMs + B.tailRampMs / 3]) {
+        expect(composedBoostFactor(t < (f.boostUntil ?? 0), t, f.speedBuoyAt ?? 0)).toBe(serverFactor(t, f));
+      }
+    }
+    expect(topBoostFactor()).toBe(combinedBoostFactor(true, 1, CONFIG.boost.factor, B.speed.factor));
   });
 });
 

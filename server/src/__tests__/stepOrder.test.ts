@@ -57,13 +57,19 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       'applyStorm',
       'stepShells',
       'stepMines',
-      // (Story 7-5 wave 2's `tickBuoys` row was REMOVED with the radar buoy
-      // in Story 8.16: the DECOY BUOY has no tick — amendment 124(e).)
+      // Story 10.9's BUOY EXPIRY — in the seat Story 7-5 wave 2's `tickBuoys`
+      // row held until Story 8.16 removed it: after the ordnance rows (a buoy
+      // soaks through its final tick), before the buoy effects (an expired
+      // buoy grants nothing). See the row comment in world.ts.
+      'expireBuoys',
       'applyZoneEffects',
       // Story 9.4's FOUL ZONE stamp — immediately after the burn DoT: against
       // post-move hull OUTLINES (the tick's hull snapshot), before its own
       // expiry sweep below. See the row comment in world.ts.
       'applyFoulZones',
+      // Story 10.9's BUOY EFFECTS — directly before tickRepairs, which pays
+      // the HEALING BUOY term it flags this tick (see the row comment).
+      'applyBuoyEffects',
       'tickRepairs',
       'tickSmoke',
       'expireLitZones',

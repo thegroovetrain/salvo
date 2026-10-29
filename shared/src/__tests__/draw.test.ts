@@ -75,7 +75,7 @@ const ROW_FULL: readonly (SlotItemId | null)[] = [
 /** THE TEST KIT (Story 10.1): a deliberate four that is NOT `DEFAULT_KIT` —
  *  the two lines this suite stacks to cap (HULL REPAIR, SUPERCAV TORPEDO)
  *  plus two more; the FOULING SHELL and the COUNTERMEASURE are OFF it. */
-const KIT: ConsumableKit = ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'decoyBuoy'];
+const KIT: ConsumableKit = ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'healingBuoy'];
 
 /** Is `id` one of the kit's four? */
 const inKit = (id: string, kit: ConsumableKit = KIT): boolean => (kit as readonly string[]).includes(id);
@@ -304,7 +304,7 @@ describe('eligibleLines — the whole eligibility law', () => {
         ...new Array<LineId>(CATALOG.supercavTorpedo.cap).fill('supercavTorpedo'),
         ...new Array<LineId>(CATALOG.shieldBlock.cap).fill('shieldBlock'),
         ...new Array<LineId>(CATALOG.countermeasure.cap).fill('countermeasure'),
-        ...new Array<LineId>(CATALOG.decoyBuoy.cap).fill('decoyBuoy'),
+        ...new Array<LineId>(CATALOG.healingBuoy.cap).fill('healingBuoy'),
         ...new Array<LineId>(CATALOG.foulingShell.cap).fill('foulingShell'),
       ],
     };
@@ -503,7 +503,7 @@ describe('drawOffer — the shape of an offer', () => {
       ...CATALOG,
       shieldBlock: { ...CATALOG.shieldBlock, stub: true },
       countermeasure: { ...CATALOG.countermeasure, stub: true },
-      decoyBuoy: { ...CATALOG.decoyBuoy, stub: true },
+      healingBuoy: { ...CATALOG.healingBuoy, stub: true },
       foulingShell: { ...CATALOG.foulingShell, stub: true },
     };
     const held: LineId[] = [

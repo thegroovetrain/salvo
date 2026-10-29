@@ -35,6 +35,7 @@ export type ToneId =
   | 'burn'
   | 'hitCall'
   | 'slowed'
+  | 'dazzled'
   | 'sink'
   | 'bounty'
   | 'aggroLock'
@@ -160,6 +161,11 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // Fouled (PROP-FOULING): a sagging low sine — the engine losing revs. Falls
   // like the denied blat but soft and round, never that curt square refusal.
   slowed: { freqStart: 300, freqMid: 190, freqEnd: 130, duration: 0.14, volume: 0.34, type: 'sine' },
+  // Dazzled (FLASH SHELLS, Story 8.17's tone restored by 10.9): a bright glassy
+  // sting that washes UP and thins out — the optical opposite of the fouled
+  // sag, and audibly nothing like the shell's own launch whistle (that one is
+  // the firer's, this one is the victim's: shorter, higher, no body).
+  dazzled: { freqStart: 900, freqMid: 1400, freqEnd: 1250, duration: 0.12, volume: 0.34, type: 'sine' },
   // Own sink: the one long tone — alarm warble sliding down into a low boom.
   sink: { freqStart: 320, freqMid: 180, freqEnd: 60, duration: 0.4, volume: 0.55, type: 'sawtooth' },
   // --- THE BOUNTY (Story 4.6, Eric ruling 2026-08-10) -------------------------
@@ -409,6 +415,9 @@ type FiringEquipmentId = Extract<
   // a click-fired consumable) — both launch one shell like the star shell.
   | 'phosphorShells'
   | 'foulingShell'
+  // STORY 10.9: FLASH SHELLS (`dazzleShells`) returns beside the fouling shell
+  // on the same click path — the same launch cue it had in 8.17.
+  | 'dazzleShells'
   // THE TORPEDO FAMILY (Story 8.13): two LINES plus the belt's SUPERCAV
   // TORPEDO, a click-aimed CONSUMABLE (epic-8 amendment 74) — which is why the
   // Extract widened from `EquipmentId` to `SlotItemId`.
@@ -448,6 +457,7 @@ const FIRE_TONE: Record<FiringEquipmentId, ToneId> = {
   // exactly as a flare does, so it reuses the star-shell launch cue.
   phosphorShells: 'fireStarShells',
   foulingShell: 'fireStarShells',
+  dazzleShells: 'fireStarShells',
 };
 
 /** Pure: which tone a weapon's own-fire cue plays. */

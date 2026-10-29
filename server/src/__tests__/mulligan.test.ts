@@ -543,14 +543,14 @@ describe('the dev spawn fit — a refused line is logged, not silently dropped (
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     try {
       const w = bareWorld();
-      // DEFAULT_KIT does not carry the DECOY BUOY.
-      const a = fitted(w, 'a', ['decoyBuoy']);
+      // DEFAULT_KIT does not carry the HEALING BUOY.
+      const a = fitted(w, 'a', ['healingBuoy']);
       expect(a.cards).toEqual([]);
       expect(slotIds(a).slice(5)).toEqual(new Array<null>(SLOT_COUNT - 5).fill(null));
       const prefix = 'warn devFit.refused ';
       const warns = log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith(prefix));
       expect(warns).toHaveLength(1);
-      expect(JSON.parse(warns[0].slice(prefix.length))).toEqual({ id: 'a', line: 'decoyBuoy', reason: 'stub' });
+      expect(JSON.parse(warns[0].slice(prefix.length))).toEqual({ id: 'a', line: 'healingBuoy', reason: 'stub' });
     } finally {
       log.mockRestore();
     }
@@ -570,7 +570,7 @@ describe('addShip — an invalid kit is a programming error and throws (Story 10
 
   it('stores a valid non-default kit in the order given, and addBot inherits the guard', () => {
     const w = bareWorld();
-    const kit = ['decoyBuoy', 'foulingShell', 'hullRepair', 'shieldBlock'];
+    const kit = ['healingBuoy', 'foulingShell', 'hullRepair', 'shieldBlock'];
     expect(seat(w, 'a', kit).kit).toEqual(kit);
     expect(() => w.addBot('torpedoBoat', undefined, DEFAULT_GUN, [] as never)).toThrow(/addShip: invalid kit/);
   });

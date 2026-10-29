@@ -48,6 +48,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  BUOY_LINE_IDS,
+  buoyKindOf,
   CATALOG,
   CONFIG,
   CONSUMABLE_SLOTS,
@@ -117,6 +119,7 @@ import {
 import { tooltipModel } from '../render/slotTooltip.js';
 import { hudBarLayout, microScale } from '../render/hudBar.js';
 import { equipmentGlyphSvg, glyphPaths } from '../render/equipmentIcons.js';
+import { BUOY_CUT_COLOR, BUOY_HEADS, BUOY_HULL, HEAL_PULSE } from '../render/buoyMarks.js';
 import { wipeLabel } from '../render/cooldownWipe.js';
 import {
   EQUIPMENT_NAME,
@@ -1563,8 +1566,8 @@ describe('a stocked BELT square', () => {
   // amendment 124(f)), in the shipped unit-box line-glyph style. The radar
   // buoy's glyph is DELETED with the buoy; the DECOY BUOY takes the on-water
   // spar-buoy marker's linework.
-  it('draws the two surviving 8.16 consumables, each distinct, and no radar buoy or chaff', () => {
-    const ids = ['shieldBlock', 'decoyBuoy'] as const;
+  it('draws SHIELD BLOCK, FLASH SHELLS and the four buoys, each distinct, and no chaff or decoy buoy (Story 10.9)', () => {
+    const ids = ['shieldBlock', 'dazzleShells', ...BUOY_LINE_IDS] as const;
     for (const id of ids) {
       const parts = glyphPaths(id);
       expect(parts, id).not.toBeNull();
@@ -1575,12 +1578,84 @@ describe('a stocked BELT square', () => {
       }
       expect(equipmentGlyphSvg(id, 24)?.tagName.toLowerCase(), id).toBe('svg');
     }
-    expect(glyphPaths('shieldBlock')).not.toEqual(glyphPaths('decoyBuoy'));
+    expect(new Set(ids.map((id) => JSON.stringify(glyphPaths(id)))).size).toBe(ids.length);
     expect(glyphPaths('shieldBlock')).not.toEqual(glyphPaths('hunker')); // absorb ≠ reduce
     expect(glyphPaths('chaff')).toBeNull(); // CHAFF left the catalog in Story 9.2 (amendment 31)
-    // The decoy shares NO round part with the mine (Eric: tell them apart).
-    expect(glyphPaths('decoyBuoy')!.some((p) => p.kind === 'circle')).toBe(false);
-    expect(glyphPaths('radarBuoy')).toBeNull();
+    expect(glyphPaths('decoyBuoy')).toBeNull(); // the DECOY BUOY left the catalog in Story 10.9
+    // A buoy shares NO round part with the mine (Eric: tell them apart).
+    for (const id of BUOY_LINE_IDS) expect(glyphPaths(id)!.some((p) => p.kind === 'circle'), id).toBe(false);
+  });
+
+  // STORY 10.9 — THE TINTED BEACON (Eric 2026-10-29, family C): every buoy
+  // glyph is the ONE shared hull (render/buoyMarks.ts — the vocabulary the
+  // chart marker and drop preview draw too) plus its kind's head, filled in
+  // the kind's own colour.
+  describe('the four buoys are the tinted beacon', () => {
+    const plain = (id: string) => glyphPaths(id)!.filter((p) => p.kind === 'path' && p.fill === undefined && p.ink === undefined);
+    type PathPart = Extract<NonNullable<ReturnType<typeof glyphPaths>>[number], { kind: 'path' }>;
+    const head = (id: string): PathPart | undefined =>
+      glyphPaths(id)!.find((p): p is PathPart => p.kind === 'path' && p.fill !== undefined);
+    const tokens = new Set<number>((Object.values(CLIENT_CONFIG.colors) as unknown[]).filter((v): v is number => typeof v === 'number'));
+
+    it('all four share one hull — the shared table\'s, in the caller\'s colour', () => {
+      const hulls = BUOY_LINE_IDS.map((id) => JSON.stringify(plain(id)));
+      expect(new Set(hulls).size).toBe(1);
+      expect(plain(BUOY_LINE_IDS[0]).map((p) => (p.kind === 'path' ? p.pts : []))).toEqual(BUOY_HULL);
+    });
+
+    it('they differ by head path AND head colour, each the kind\'s head from the table', () => {
+      const paths = BUOY_LINE_IDS.map((id) => JSON.stringify(head(id)?.pts));
+      const colors = BUOY_LINE_IDS.map((id) => head(id)?.fill);
+      expect(new Set(paths).size).toBe(BUOY_LINE_IDS.length);
+      expect(new Set(colors).size).toBe(BUOY_LINE_IDS.length);
+      for (const id of BUOY_LINE_IDS) {
+        expect(head(id)?.fill, id).toBe(BUOY_HEADS[buoyKindOf(id)].color);
+      }
+    });
+
+    it('every head colour (and the cut colour) is a CLIENT_CONFIG colour token', () => {
+      for (const id of BUOY_LINE_IDS) {
+        for (const p of glyphPaths(id)!) {
+          if (p.kind !== 'path') continue;
+          if (p.fill !== undefined) expect(tokens.has(p.fill), id).toBe(true);
+          if (p.ink !== undefined) expect(tokens.has(p.ink), id).toBe(true);
+        }
+      }
+      expect(tokens.has(BUOY_CUT_COLOR)).toBe(true);
+    });
+
+    it('the healing head is a disc cut by the PULSE — no cross anywhere in the table', () => {
+      expect(BUOY_HEADS.healing.cut).toEqual(HEAL_PULSE);
+      // the healing fill is a disc: every outline point is one distance from its centroid
+      const pts = BUOY_HEADS.healing.fill;
+      const cx = pts.reduce((a, p) => a + p[0], 0) / pts.length;
+      const cy = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+      const radii = pts.map(([x, y]) => Math.hypot(x - cx, y - cy));
+      expect(Math.max(...radii) - Math.min(...radii)).toBeLessThan(1e-9);
+      // the pulse is ONE polyline with a spike, not a cross's two crossing bars
+      expect(HEAL_PULSE.length).toBeGreaterThan(2);
+      expect(glyphPaths('healingBuoy')!.filter((p) => p.kind === 'path' && p.ink !== undefined)).toHaveLength(1);
+    });
+
+    it('the head sits ABOVE the hull (the top of the glyph), the cut over the head', () => {
+      const hullTop = Math.min(...BUOY_HULL.flat().map((p) => p[1]));
+      for (const id of BUOY_LINE_IDS) {
+        const h = BUOY_HEADS[buoyKindOf(id)];
+        const headTop = Math.min(...h.fill.map((p) => p[1]));
+        expect(headTop, id).toBeLessThan(hullTop);
+      }
+    });
+
+    it('the DOM glyph fills the head in its colour and leaves the hull to currentColor', () => {
+      for (const id of BUOY_LINE_IDS) {
+        const svg = equipmentGlyphSvg(id, 22)!;
+        const filled = [...svg.querySelectorAll('path')].filter((el) => (el.getAttribute('fill') ?? 'none') !== 'none');
+        expect(filled, id).toHaveLength(1);
+        const want = BUOY_HEADS[buoyKindOf(id)].color;
+        expect(parseInt(filled[0].getAttribute('fill')!.slice(1), 16), id).toBe(want);
+        expect(svg.getAttribute('stroke')).toBe('currentColor');
+      }
+    });
   });
 
   // STORY 9.3 — the MULTI-SPECTRAL COUNTERMEASURE glyph (Eric's pick 2026-10-11).

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.19.2] - 2026-10-29
+
+### Changed
+- **The Flash Shell is back, and the buoy comes in four kinds.** The consumable picker now lists ten lines. FLASH SHELLS returns beside the FOULING SHELL: click-aimed to the same 1000 u, no damage, one 150 u burst that leaves every enemy hull caught inside with a quarter of its sight for 10 s (radar untouched; the victim sees DAZZLED). The plain DECOY BUOY is gone; RADAR, HEALING, SHIELD and SPEED BUOYs take its place. Every buoy keeps the decoy's body (50 hp, a torpedo sponge, on radar as before) and can now be placed at any bearing around the ship at the same range; it lasts 30 s and works for its owner alone within 750 u. RADAR BUOY: a second radar sweep centred on the buoy, 750 u, turning at your own sweep speed, with islands shadowing it. HEALING BUOY: heal 2 % of missing hull per second, never paused by a hit, on top of your passive heal. SHIELD BUOY: gain shield worth 1 % of max hull per second inside; after you leave (or it expires) the shield holds 15 s then drains to zero over 15 s; it is spent before a SHIELD BLOCK. SPEED BUOY: +25 % top speed inside, the same 15 s hold and 15 s fade after, adding to the Speedboat's Shift. Two buoys of one kind do not stack. Homing torpedoes now go for the nearest enemy buoy in reach before any ship. Bots carry and use all five.
+- **Buoys you can read.** Each buoy has a new glyph: a can-hull beacon whose head is filled in the kind's colour (silver dish, green pulse, blue shield, amber arrow), the same on the belt, in the picker and on the chart. Every buoy draws its 750 u effect ring as a dashed line: yours in the kind's colour with a light tint (the radar buoy's ring holds its sweep), fading as it expires; an enemy's in the mine's alert colour so you see where its effect reaches.
+- **Wire:** protocol 92 → 93 (catalog content; the owner's dazzle, buoy shield, speed stamp and buoy views).
+
+### Fixed
+- A fleet drone that had ever been flashed kept a quarter-sight hull-avoidance scope for the rest of the match (found at the review gate by all three reviewers; never shipped).
+
 ## [0.19.1] - 2026-10-28
 
 ### Changed

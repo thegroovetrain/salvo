@@ -167,16 +167,16 @@ export type SlotItemId = EquipmentId | ConsumableId;
  * The consumable half of the weapon/ability split (D21) — the same law
  * `EQUIPMENT_IS_WEAPON` states for equipment: true iff the consumable is AIMED
  * and fired at a clicked point, false iff it is an instant activation off its
- * fixed number key. THREE are click-aimed: the DECOY BUOY (catalog-v3 R1, the
- * buoy it replaces was too), the SUPERCAV TORPEDO (epic-8 amendment 74) and
- * FLASH SHELLS (Story 8.17, amendment 132). Compile-forced to cover every
- * ConsumableId.
+ * fixed number key. SEVEN are click-aimed since Story 10.9: the SUPERCAV
+ * TORPEDO (epic-8 amendment 74), the FOULING SHELL (Story 9.4), FLASH SHELLS
+ * (Story 8.17 amendment 132, restored by 10.9) and the FOUR BUOYS (Story 10.9,
+ * click-placed at any bearing — the deleted DECOY BUOY was click-placed too).
+ * Compile-forced to cover every ConsumableId.
  */
 export const CONSUMABLE_IS_WEAPON: Readonly<Record<ConsumableId, boolean>> = {
   hullRepair: false,
   shieldBlock: false,
   countermeasure: false, // an instant key activation (Story 9.3)
-  decoyBuoy: true,
   // DEPTH CHARGE (amendment 83) — STUB: Eric's line, mechanism a later story.
   // Declared NON-aimed until he rules; a stub is never dealt, so nothing can
   // reach either channel with it today.
@@ -189,6 +189,16 @@ export const CONSUMABLE_IS_WEAPON: Readonly<Record<ConsumableId, boolean>> = {
   // replaces FLASH SHELLS): the digit primes, a click fires one 360° shell to
   // the radar rung whose burst leaves a stationary slowing zone.
   foulingShell: true,
+  // FLASH SHELLS (Story 10.9, restoring epic-8 amendment 132): the digit
+  // primes, a click fires one 360° shell on the fouling shell's path (same
+  // reach) whose burst dazzles every non-owner hull inside it.
+  dazzleShells: true,
+  // THE FOUR BUOYS (Story 10.9, Eric 2026-10-28 ruling 9): the digit primes, a
+  // click PLACES the buoy at any bearing out to `CONFIG.mine.placeRange`.
+  radarBuoy: true,
+  healingBuoy: true,
+  shieldBuoy: true,
+  speedBuoy: true,
 };
 
 /** Membership over the ONE consumable id list (sim/effects.ts) — never a second

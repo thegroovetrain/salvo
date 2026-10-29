@@ -79,7 +79,7 @@ function setup(onOwnStats: () => void): {
     ordnanceHue: () => 0,
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
     predictor: { onServerState },
-    radar: { onSweepSample: vi.fn() },
+    radar: { onSweepSample: vi.fn(), setOwnRadarBuoys: vi.fn() },
     onOwnStats,
     onOwnSpawn: vi.fn(),
     resetThrottle: vi.fn(),

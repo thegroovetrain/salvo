@@ -6,7 +6,7 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, SHELL_FAMILIES, paintCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
+import { CONFIG, SHELL_FAMILIES, paintCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type DecoyView, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
@@ -19,6 +19,7 @@ import {
   type SpectatorSignalContext,
 } from '../game/signals.js';
 import { observe } from '../game/perception.js';
+import type { DecoyState } from '../game/decoys.js';
 import { circleIsland, flatRaster } from './islandFixture.js';
 
 const SIGHT = CONFIG.vision.sight;
@@ -330,28 +331,35 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
   // fabricates a ship contact. (The Story 8.16 DECOY BUOY's `decoy` row is
   // pinned below with its own key order.)
 
-  it('decoy row (Story 8.16): [id,x,y,own,by] for others, `hp` appended LAST for the owner only; the mine visibility rule', () => {
+  it('decoy row (Story 8.16 / 10.9): [id,x,y,own,by,kind] for others; the owner alone appends hp, the radar sweep and until; the sight rule', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const b = place(w, 'b', 2000, 0); // far away: neither sight nor detect
-    const decoy = { id: 'd1', ownerId: 'a', x: 30, y: 0, hp: 50, poly: [] };
+    const decoy: DecoyState = {
+      id: 'd1', ownerId: 'a', x: 30, y: 0, hp: 50, poly: [], kind: 'radar', expiresAt: 31_000,
+      sweep: { sweepAngle: 1.25, prevSweepAngle: 1.2, sweepRev: 0, periodMs: 4000 },
+    };
     const row = SIGNAL_REGISTRY.decoy; // pseudo-row: direct access (not signalFor)
-    // OWNER: always visible, `hp` present and LAST.
+    // OWNER: always visible; `kind` rides, then the self-private hp, sweep, until.
     expect(row.visible(foggedCtx(w, a), decoy)).toBe(true);
     const own = row.materialize(foggedCtx(w, a), decoy);
-    expect(Object.keys(own as object)).toEqual(['id', 'x', 'y', 'own', 'by', 'hp']);
-    expect(own).toEqual({ id: 'd1', x: 30, y: 0, own: true, by: 'a', hp: 50 });
+    expect(Object.keys(own as object)).toEqual(['id', 'x', 'y', 'own', 'by', 'kind', 'hp', 'sweep', 'until']);
+    expect(own).toEqual({ id: 'd1', x: 30, y: 0, own: true, by: 'a', kind: 'radar', hp: 50, sweep: 1.25, until: 31_000 });
+    // A NON-radar own buoy carries no `sweep` key at all.
+    const healing: DecoyState = { ...decoy, kind: 'healing', sweep: null };
+    expect(Object.keys(row.materialize(foggedCtx(w, a), healing) as object)).toEqual(['id', 'x', 'y', 'own', 'by', 'kind', 'hp', 'until']);
     // A FAR non-owner: invisible (beyond detect, no lit zone).
     expect(row.visible(foggedCtx(w, b), decoy)).toBe(false);
     // Move b inside DETECT range: visible, `by` rides, `hp` key ABSENT.
     b.state.x = 60;
     expect(row.visible(foggedCtx(w, b), decoy)).toBe(true);
     const other = row.materialize(foggedCtx(w, b), decoy);
-    expect(Object.keys(other as object)).toEqual(['id', 'x', 'y', 'own', 'by']);
-    expect('hp' in (other as object)).toBe(false);
+    expect(Object.keys(other as object)).toEqual(['id', 'x', 'y', 'own', 'by', 'kind']);
+    expect((other as DecoyView).kind).toBe('radar'); // a sighted enemy buoy shows its kind ...
+    for (const k of ['hp', 'sweep', 'until']) expect(k in (other as object)).toBe(false); // ... never its hp, sweep or timer
     // The spectator sees every decoy, never as own.
     expect(row.visible(specCtx(w), decoy)).toBe(true);
-    expect('hp' in (row.materialize(specCtx(w), decoy) as object)).toBe(false);
+    for (const k of ['hp', 'sweep', 'until']) expect(k in (row.materialize(specCtx(w), decoy) as object)).toBe(false);
     // A fabricated k:'decoy' world event never dispatches (pseudo-row).
     expect(signalFor('decoy')).toBeUndefined();
   });
@@ -570,6 +578,10 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     // once did this left in Story 9.4; the bypass is the contract.
     at.stats = { ...at.stats, sightRange: at.stats.radarRange / 12 };
     expect(row.visible(foggedCtx(w, at), e)).toBe(true);
+    // ...and the FLASH SHELLS dazzle (restored by Story 10.9) does not either:
+    // the halo rides intel range, which dazzle never touches.
+    at.dazzledUntil = w.now + CONFIG.flashShells.durationMs;
+    expect(row.visible(foggedCtx(w, at), e)).toBe(true);
     // Island LOS blocks the flash exactly like every other sensor
     // (Eric ruling 2026-08-02).
     w.map.islands.push(circleIsland(200, 0, 40));
@@ -627,6 +639,9 @@ describe('SIGNAL_REGISTRY — sm row (Story 4.4: wounded smoke, the fifth declar
     // A sight reduction shrinks the observer's SIGHT, never the smoke halo
     // (the mz rule: the halo is the raw constant, deliberately not sightOf).
     a.stats = { ...a.stats, sightRange: a.stats.radarRange / 12 };
+    expect(row.visible(foggedCtx(w, a), e)).toBe(true);
+    // ...and a FLASH SHELLS dazzle (Story 10.9) does not shrink it either.
+    a.dazzledUntil = w.now + CONFIG.flashShells.durationMs;
     expect(row.visible(foggedCtx(w, a), e)).toBe(true);
     w.map.islands.push(circleIsland(200, 0, 40)); // on the segment
     expect(row.visible(foggedCtx(w, a), e)).toBe(false);
@@ -815,7 +830,7 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     const a = place(w, 'a', 0, 0);
     a.prevSweepAngle = wrapPositive(-0.02);
     a.sweepAngle = wrapPositive(0.02); // the beam crossing bearing 0 — the arbitrary atan2(0, 0)
-    const decoyAt = (x: number) => ({ id: 'd1', ownerId: 'b', x, y: 0, hp: 50, poly: [] });
+    const decoyAt = (x: number): DecoyState => ({ id: 'd1', ownerId: 'b', x, y: 0, hp: 50, poly: [], kind: 'healing', expiresAt: Infinity, sweep: null });
     w.decoys.set('d1', decoyAt(0));
     expect(decoyRadarBlips(foggedCtx(w, a))).toHaveLength(0);
     w.decoys.set('d1', decoyAt(30)); // the same decoy a step down the beam paints
@@ -1180,6 +1195,25 @@ describe('SIGNAL_REGISTRY — the DETECT gate (Story 4.9, amendments 119/121): m
     expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: rung, y: 0 }))).toBe(true);
     expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: rung + 0.1, y: 0 }))).toBe(false);
     expect(signalFor('torp')!.visible(foggedCtx(w, a), makeShell({ id: 'tz', ownerId: 'z', kind: 'torp', x: 2 * rung, y: 0 }))).toBe(false);
+  });
+
+  it('a FLASH SHELLS dazzle (Story 10.9) collapses sight AND detect to sightRange × sightFraction on the sight-tier rows — the contact and mine rows included — and lapses at its mark', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const full = a.stats.sightRange;
+    const dazzled = full * CONFIG.flashShells.sightFraction;
+    const between = (full + dazzled) / 2;
+    const b = place(w, 'b', between, 0);
+    const mine = makeMine({ ownerId: 'z', x: 0, y: between });
+    expect(SIGNAL_REGISTRY.contact.visible(foggedCtx(w, a), b)).toBe(true);
+    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), mine)).toBe(true);
+    a.dazzledUntil = w.now + CONFIG.flashShells.durationMs;
+    expect(SIGNAL_REGISTRY.contact.visible(foggedCtx(w, a), b)).toBe(false);
+    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), mine)).toBe(false);
+    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 0, y: dazzled * CONFIG.vision.detectFactor }))).toBe(true);
+    // The mark is a deadline: at `now === dazzledUntil` full sight is back.
+    a.dazzledUntil = w.now;
+    expect(SIGNAL_REGISTRY.contact.visible(foggedCtx(w, a), b)).toBe(true);
   });
 
   // RETIRED (Story 7-5 wave 2): "the decoy row does NOT ride detect". The row

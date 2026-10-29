@@ -809,7 +809,7 @@ describe('LobbyRoom — the adapter', () => {
   it('a lone host with bot-fill + seed forces a start: the arena bag is trusted and complete', async () => {
     const { r, send, tick, join, timeouts, startNow } = await lobbyRoom();
     // A NON-default kit (Story 10.1): it must ride the seat's `auth` verbatim.
-    const kit = ['decoyBuoy', 'hullRepair', 'supercavTorpedo', 'shieldBlock'];
+    const kit = ['healingBuoy', 'hullRepair', 'supercavTorpedo', 'shieldBlock'];
     const a = join('a', { name: 'ERIC', gun: 'flak', kit });
     send(a, MSG.lobbyStart); // not eligible yet: dropped
     expect(created).toEqual([]);

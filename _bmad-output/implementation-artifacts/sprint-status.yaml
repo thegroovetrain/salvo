@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-10-28 (Story 10.1 in review — cycle 207, 0.19.1, PV 92; next: 10-9); 2026-10-25 (correct-course: roadmap rebuilt — Epic 10 The Playtest Pass, 11 The Ledger, 12 The Front Door inserted; The Account -> Epic 13; sprint-change-proposal-2026-10-25.md; next: gds-brainstorm-game for 10-2, then gds-create-story 10-1)
+# last_updated: 2026-10-29 (Story 10.9 in review — cycle 208, 0.19.2, PV 93, amendment 4; next: 10-2 design sitting); 2026-10-28 (Story 10.1 in review — cycle 207, 0.19.1, PV 92); 2026-10-25 (correct-course: roadmap rebuilt — Epic 10 The Playtest Pass, 11 The Ledger, 12 The Front Door inserted; The Account -> Epic 13; sprint-change-proposal-2026-10-25.md; next: gds-brainstorm-game for 10-2, then gds-create-story 10-1)
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -356,7 +356,7 @@ development_status:
   10-6-bots-fill-the-standard-queue-at-1-00: backlog  # FR34 superseded; minimum + labelling Eric's at spec
   10-7-the-machine-gun-steepest-dropoff-high-explosive: backlog  # tiered HE DoT, every number Eric's
   10-8-how-to-play-and-record: backlog  # re-homed from 9-17 (2026-10-23) + this epic's entries and stamps (+ 10-9's five lines, 2026-10-27)
-  10-9-the-flash-shell-and-the-four-buoys: backlog  # 2026-10-27 correct-course (sprint-change-proposal-2026-10-27.md), BUILT SECOND after 10-1: FLASH SHELLS back beside FOULING SHELL; DECOY BUOY -> RADAR / HEALING / SHIELD / SPEED buoys (50 hp, 750 u, 1:00); ten lines, pick four; amendment #2
+  10-9-the-flash-shell-and-the-four-buoys: review  # 2026-10-29 cycle 208, 0.19.2, PV 92 -> 93, epic-10 amendment 4 (FLASH SHELLS back beside the FOULING SHELL at 1/4 sight; DECOY BUOY -> RADAR / HEALING / SHIELD / SPEED buoys 50 hp / 750 u / 30 s / 360 deg, owner-only, kinds count once; enemy-buoy-first homing); spec-10-9-the-flash-shell-and-the-four-buoys.md; PR open to development; next: 10-2 design sitting (gds-brainstorm-game); was: in-progress 2026-10-28 (story file created, dev started)
   epic-10-retrospective: optional
   epic-11: backlog  # 2026-10-25 correct-course (sprint-change-proposal-2026-10-25.md): THE LEDGER — Render Postgres + @colyseus/database behind the MatchRecord writer port, anonymous rows, no callsign
   11-1-the-match-ledger: backlog  # floor story; databases: in render.yaml with the code; absence-gated

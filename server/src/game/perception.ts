@@ -53,7 +53,7 @@
 
 import { eachWakeSegment, type BallisticEvent, type BlipEvent, type BurnZoneView, type Contact, type DecoyView, type FoulZoneView, type GameEvent, type LitZoneView, type MineView, type ShellState, type CloudView, type TorpedoUpdateEvent, type WakeBlipEvent } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
-import { SIGNAL_REGISTRY, ballisticGateOpen, decoyRadarBlips, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
+import { SIGNAL_REGISTRY, ballisticGateOpen, buoyRadarBlips, decoyRadarBlips, signalFor, sweepMayCrossWake, type SignalContext, type WakeSubject } from './signals.js';
 
 /** Everything one observer may know this tick. */
 export interface PerceptionView {
@@ -485,7 +485,9 @@ function view(world: World, ctx: SignalContext): PerceptionView {
     // BUOY's anonymous paint. It joins the ONE blip subsequence
     // BEFORE the payload-only sort, so a frame's blip ordering still carries
     // zero source information — the exact property the sort was kept for.
-    if (ctx.mode === 'fogged') blips.push(...decoyRadarBlips(ctx));
+    // Story 10.9: the OWNER's RADAR BUOY sweeps — a second paint source
+    // merged into the SAME subsequence before the same sort (buoyRadarBlips).
+    if (ctx.mode === 'fogged') blips.push(...decoyRadarBlips(ctx), ...buoyRadarBlips(ctx));
     events.push(...blips.sort(blipOrder));
     // Wake segments (Story 4.12) CLOSE the frame as a new trailing subsequence
     // — every historical kind keeps its exact position — sorted by wakeOrder

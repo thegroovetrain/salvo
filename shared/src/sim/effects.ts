@@ -64,18 +64,28 @@ export type BoonId = string;
  * STORY 9.4 (Eric 2026-10-11, epic-9 amendments 61–68): `dazzleShells` (FLASH
  * SHELLS) is REPLACED by `foulingShell` (FOULING SHELL) in the same place;
  * still seven.
+ *
+ * STORY 10.9 (Eric 2026-10-27/28, epic-10 amendments 2 and 4): `decoyBuoy` is
+ * DELETED and FIVE join — `dazzleShells` (FLASH SHELLS, back beside the fouling
+ * shell) and the four buoys `radarBuoy`, `healingBuoy`, `shieldBuoy`,
+ * `speedBuoy` (sim/buoy.ts) — ELEVEN, ten of them dealable (DEPTH CHARGE stays
+ * the one stub).
  */
 export const CONSUMABLE_IDS = [
   'hullRepair',
   'shieldBlock',
   'countermeasure',
-  'decoyBuoy',
   'depthCharge',
   'supercavTorpedo',
   'foulingShell',
+  'dazzleShells',
+  'radarBuoy',
+  'healingBuoy',
+  'shieldBuoy',
+  'speedBuoy',
 ] as const;
 
-/** One of the seven consumables. */
+/** One of the eleven consumables. */
 export type ConsumableId = (typeof CONSUMABLE_IDS)[number];
 
 /**

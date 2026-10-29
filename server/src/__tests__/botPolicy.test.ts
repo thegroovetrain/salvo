@@ -890,7 +890,7 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
 /** The spend tests' kit (Story 10.1) — deliberately NOT the default four
  *  (members and order both differ), so nothing here silently rides
  *  DEFAULT_KIT. Carries every consumable the suite names; FOULING SHELL and
- *  the DECOY BUOY stay outside it. */
+ *  the HEALING BUOY stay outside it. */
 const KIT: ConsumableKit = ['countermeasure', 'supercavTorpedo', 'hullRepair', 'shieldBlock'];
 
 /** A bare spend state: one level banked, healthy, nothing fitted, every slot
@@ -1015,7 +1015,7 @@ describe('ai/spending — the card policy', () => {
   });
 
   it('REFUSES a consumable OUTSIDE the bot\'s own kit (Story 10.1, the one gate) — never scored, never chosen', () => {
-    const outside = (['foulingShell', 'decoyBuoy'] as const).filter((k) => !KIT.includes(k));
+    const outside = (['foulingShell', 'healingBuoy'] as const).filter((k) => !KIT.includes(k));
     expect(outside.length).toBeGreaterThan(0);
     const siege = profileOf('siege');
     for (const k of outside) {

@@ -336,7 +336,8 @@ describe('cardTierLabel — the step, not the position', () => {
 
   it('shows NO ladder at all for a consumable or an add-on', () => {
     expect(cardTierLabel(CATALOG.hullRepair, 0)).toBeNull();
-    expect(cardTierLabel(CATALOG.decoyBuoy, 0)).toBeNull();
+    expect(cardTierLabel(CATALOG.radarBuoy, 0)).toBeNull();
+    expect(cardTierLabel(CATALOG.dazzleShells, 0)).toBeNull();
     expect(cardTierLabel(CATALOG.foulingShell, 0)).toBeNull();
   });
 

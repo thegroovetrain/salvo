@@ -317,7 +317,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     taste: {
       style: 'rounded',
       favoriteUpgrades: ['gun', 'reload'],
-      favoriteConsumables: ['hullRepair', 'decoyBuoy'],
+      favoriteConsumables: ['hullRepair', 'healingBuoy'],
       favoriteWeapons: ['navalMines', 'captiveMines', 'foulingMines'],
       beltHunger: 'medium',
     },
@@ -352,7 +352,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     taste: {
       style: 'rounded',
       favoriteUpgrades: ['weapons', 'speed'],
-      favoriteConsumables: ['countermeasure', 'decoyBuoy'],
+      favoriteConsumables: ['countermeasure', 'radarBuoy'],
       favoriteWeapons: ['navalMines', 'captiveMines', 'foulingMines'],
       beltHunger: 'high',
     },

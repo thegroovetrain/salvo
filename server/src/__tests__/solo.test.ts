@@ -339,7 +339,7 @@ describe('the solo room — the human joins', () => {
 
   it('seats the human with the kit from the join option, and DEFAULT_KIT for junk (Story 10.1, fail-open)', () => {
     const r = soloRoom();
-    const kit = ['foulingShell', 'decoyBuoy', 'hullRepair', 'countermeasure'];
+    const kit = ['foulingShell', 'healingBuoy', 'hullRepair', 'countermeasure'];
     join(r, 'alice', { kit });
     expect(r.world.ships.get('alice')!.kit).toEqual(kit);
     join(r, 'bob', { kit: ['hullRepair', 'hullRepair', 'shieldBlock', 'depthCharge'] });

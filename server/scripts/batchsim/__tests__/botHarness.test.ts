@@ -623,8 +623,8 @@ describe('Story 9.13 — the readout counters on a staged world', () => {
     const bot = world.addBot(undefined, undefined);
     const other = world.addBot(undefined, undefined);
     const col = new BotCollector([bot.id, other.id]);
-    world.decoys.set('d1', { id: 'd1', ownerId: bot.id, x: 900, y: 900, hp: 10, poly: [] } as never);
-    world.decoys.set('d2', { id: 'd2', ownerId: other.id, x: -900, y: -900, hp: 10, poly: [] } as never);
+    world.decoys.set('d1', { id: 'd1', ownerId: bot.id, x: 900, y: 900, hp: 10, poly: [], kind: 'healing', expiresAt: Number.POSITIVE_INFINITY, sweep: null } as never);
+    world.decoys.set('d2', { id: 'd2', ownerId: other.id, x: -900, y: -900, hp: 10, poly: [], kind: 'healing', expiresAt: Number.POSITIVE_INFINITY, sweep: null } as never);
     world.shells.set('s1', stagedShell('s1', bot.id, { targetX: 903, targetY: 898 }));
     world.shells.set('s2', stagedShell('s2', bot.id, { targetX: other.state.x, targetY: other.state.y }));
     col.observe(world, 1);

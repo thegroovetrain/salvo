@@ -17,6 +17,7 @@ import {
   CATALOG,
   CONFIG,
   CONSUMABLE_IDS,
+  BUOY_LINE_IDS,
   CONSUMABLE_IS_WEAPON,
   DEFAULT_GUN,
   HULL_IDS,
@@ -281,14 +282,18 @@ describe('equipmentMaxAmmo / equipmentReloadMs cover broadside + starShells + ph
 });
 
 describe('the radar buoy is DELETED (Story 8.16) — no id, no stat row, no pool', () => {
-  it('radarBuoy is gone from EquipmentId and the stats record; the DECOY BUOY is a consumable with NO row', () => {
+  it('radarBuoy is gone from EquipmentId and the stats record; the four BUOYS are consumables with NO row', () => {
     const stats = statsFor('mineLayer');
     expect((EQUIPMENT_IDS as readonly string[]).includes('radarBuoy')).toBe(false);
     expect('radarBuoy' in stats.equipment).toBe(false);
-    // The consumable law: the replacement DECOY BUOY carries no EffectiveStats
-    // row — its numbers are read straight from CONFIG.decoyBuoy.
-    expect('decoyBuoy' in stats.equipment).toBe(false);
-    expect(isConsumableId('decoyBuoy')).toBe(true);
+    // The consumable law: a buoy carries no EffectiveStats row — its numbers
+    // are read straight from CONFIG.buoy (Story 10.9). The deleted DECOY BUOY
+    // is no id at all any more.
+    for (const id of BUOY_LINE_IDS) {
+      expect(id in stats.equipment, id).toBe(false);
+      expect(isConsumableId(id), id).toBe(true);
+    }
+    expect(isConsumableId('decoyBuoy')).toBe(false);
   });
 });
 
@@ -322,10 +327,12 @@ describe('SlotItemId — the disjoint union a slot may hold (Story 8.7)', () => 
     for (const id of CONSUMABLE_IDS) expect(equipment.has(id), id).toBe(false);
     const consumables = new Set<string>(CONSUMABLE_IDS);
     for (const id of EQUIPMENT_IDS) expect(consumables.has(id), id).toBe(false);
-    // Story 9.4 replaced `dazzleShells` with `foulingShell`.
+    // Story 9.4 replaced `dazzleShells` with `foulingShell`; Story 10.9 brought
+    // `dazzleShells` back BESIDE it — both consumables, neither equipment.
     expect(CONSUMABLE_IDS).toContain('foulingShell');
-    expect((CONSUMABLE_IDS as readonly string[]).includes('dazzleShells')).toBe(false);
+    expect(CONSUMABLE_IDS).toContain('dazzleShells');
     expect((EQUIPMENT_IDS as readonly string[]).includes('foulingShell')).toBe(false);
+    expect((EQUIPMENT_IDS as readonly string[]).includes('dazzleShells')).toBe(false);
   });
 
   it('a LoadoutSlot may hold either kind — a weapon slot an EquipmentId, a consumable slot a ConsumableId', () => {
@@ -349,15 +356,19 @@ describe('SlotItemId — the disjoint union a slot may hold (Story 8.7)', () => 
 });
 
 describe('CONSUMABLE_IS_WEAPON / isWeaponItem — the split both activation channels read', () => {
-  it('is the exact table: the DECOY BUOY, the SUPERCAV TORPEDO and the FOULING SHELL are click-aimed (D21)', () => {
+  it('is the exact table: the SUPERCAV TORPEDO, the two click shells and the four BUOYS are click-aimed (D21)', () => {
     expect(CONSUMABLE_IS_WEAPON).toEqual({
       hullRepair: false,
       shieldBlock: false,
       countermeasure: false,
-      decoyBuoy: true, // click-placed in the mine's rear sector (catalog-v3 R1/R36, Story 8.16)
       depthCharge: false, // STUB, non-aimed until Eric rules (amendment 83)
       supercavTorpedo: true, // KEY PRIMES, CLICK FIRES — bow +/-15 deg (amendment 74)
-      foulingShell: true, // FOULING SHELL — KEY PRIMES, CLICK FIRES, 360° (Story 9.4; FLASH SHELLS' seat)
+      foulingShell: true, // FOULING SHELL — KEY PRIMES, CLICK FIRES, 360° (Story 9.4)
+      dazzleShells: true, // FLASH SHELLS — KEY PRIMES, CLICK FIRES, 360° (Story 10.9 restoring amendment 132)
+      radarBuoy: true, // the four BUOYS: click-PLACED at any bearing (Story 10.9, ruling 9)
+      healingBuoy: true,
+      shieldBuoy: true,
+      speedBuoy: true,
     });
     expect(Object.keys(CONSUMABLE_IS_WEAPON)).toEqual([...CONSUMABLE_IDS]);
     for (const value of Object.values(CONSUMABLE_IS_WEAPON)) expect(typeof value).toBe('boolean');
@@ -369,7 +380,9 @@ describe('CONSUMABLE_IS_WEAPON / isWeaponItem — the split both activation chan
 
   it('isWeaponItem agrees with CONSUMABLE_IS_WEAPON over every ConsumableId', () => {
     for (const id of CONSUMABLE_IDS) expect(isWeaponItem(id), id).toBe(CONSUMABLE_IS_WEAPON[id]);
-    expect(CONSUMABLE_IDS.filter((id) => isWeaponItem(id))).toEqual(['decoyBuoy', 'supercavTorpedo', 'foulingShell']);
+    expect(CONSUMABLE_IDS.filter((id) => isWeaponItem(id))).toEqual([
+      'supercavTorpedo', 'foulingShell', 'dazzleShells', ...BUOY_LINE_IDS,
+    ]);
   });
 });
 
@@ -395,7 +408,7 @@ describe('slotMaxAmmo — a stack is capped by its LINE, a weapon by its stats r
     };
     const cat: Catalog = { hullRepair: short };
     expect(slotMaxAmmo(stats, 'hullRepair', cat)).toBe(2);
-    expect(slotMaxAmmo(stats, 'decoyBuoy', cat)).toBe(0); // no line in this catalog
+    expect(slotMaxAmmo(stats, 'healingBuoy', cat)).toBe(0); // no line in this catalog
     expect(slotMaxAmmo(stats, 'gun', cat)).toBe(equipmentMaxAmmo(stats, 'gun')); // equipment ignores it
   });
 });
@@ -444,9 +457,9 @@ describe('THE KIT — every carried consumable kind owns one fixed slot (Story 9
   });
 
   it('the helpers are FAIL-CLOSED over a malformed kit: an entry past KIT_SIZE has no slot, a short kit leaves slots unbound', () => {
-    const long = [...DEFAULT_KIT, 'decoyBuoy'] as const;
+    const long = [...DEFAULT_KIT, 'healingBuoy'] as const;
     expect(isConsumableKit(long)).toBe(false);
-    expect(consumableSlotFor(long, 'decoyBuoy')).toBeNull();
+    expect(consumableSlotFor(long, 'healingBuoy')).toBeNull();
     expect(consumableKindAt(long, CONSUMABLE_SLOTS[CONSUMABLE_SLOTS.length - 1] + 1)).toBeNull();
     const short = DEFAULT_KIT.slice(0, 1);
     expect(isConsumableKit(short)).toBe(false);

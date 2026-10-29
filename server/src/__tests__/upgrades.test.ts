@@ -1180,17 +1180,17 @@ describe('the offer is never empty — consumables are never filtered out (Story
     const w = bareWorld(1, { catalog: BELT_CATALOG });
     const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, undefined, BELT_KIT);
     a.state.speed = 0;
-    const others = BELT_KIT.filter((k) => k !== 'decoyBuoy');
+    const others = BELT_KIT.filter((k) => k !== 'healingBuoy');
     for (const id of others) w.applyCard(a, id);
     for (const id of others) expect(a.loadout[consumableSlotFor(BELT_KIT, id)!].equipmentId, id).toBe(id);
     expect(eligibleLines(
       { held: a.cards as readonly LineId[], slotIds: a.loadout.map((s) => s.equipmentId), mountedGun: 'gun', kit: a.kit },
       BELT_CATALOG,
-    ).map((e) => e.id)).toContain('decoyBuoy');
+    ).map((e) => e.id)).toContain('healingBuoy');
     a.bankedLevels = 1;
-    a.offer = ['decoyBuoy'];
+    a.offer = ['healingBuoy'];
     expect(w.spendPoint('a', 0)).toBe(true);
-    expect(a.loadout[consumableSlotFor(BELT_KIT, 'decoyBuoy')!]).toEqual({ equipmentId: 'decoyBuoy', state: { n: 1, reloadMsLeft: 0 } });
+    expect(a.loadout[consumableSlotFor(BELT_KIT, 'healingBuoy')!]).toEqual({ equipmentId: 'healingBuoy', state: { n: 1, reloadMsLeft: 0 } });
     for (const id of others) expect(a.loadout[consumableSlotFor(BELT_KIT, id)!].equipmentId, id).toBe(id); // nothing moved
   });
 
@@ -1969,7 +1969,7 @@ function consumableLine(id: ConsumableId, cap = 5): CatalogLine {
 
 /** The belt fixtures' kit (Story 10.1): the four kinds the suite names, in a
  *  NON-default order so slot placement is exercised, not assumed. */
-const BELT_KIT: ConsumableKit = ['decoyBuoy', 'countermeasure', 'hullRepair', 'shieldBlock'];
+const BELT_KIT: ConsumableKit = ['healingBuoy', 'countermeasure', 'hullRepair', 'shieldBlock'];
 
 /** Every DEALABLE consumable kind (`dealableConsumables()` — the pool a kit
  *  is picked from, Story 10.1), all NON-STUB, plus a non-consumable control
@@ -1983,8 +1983,8 @@ const BELT_CATALOG: Catalog = {
 describe('the consumable slots — stock, the cap refusal, use, and clear-at-zero (Story 8.7 / 9.2 / 10.1)', () => {
   /** HULL REPAIR's slot under BELT_KIT — the subject of most cases below. */
   const HR_SLOT = consumableSlotFor(BELT_KIT, 'hullRepair')!;
-  /** The DECOY BUOY's slot under BELT_KIT — the `isWeapon` (click-channel) subject. */
-  const DB = consumableSlotFor(BELT_KIT, 'decoyBuoy')!;
+  /** The HEALING BUOY's slot under BELT_KIT — the `isWeapon` (click-channel) subject. */
+  const DB = consumableSlotFor(BELT_KIT, 'healingBuoy')!;
   /** Every consumable slot but `slot`. */
   const othersThan = (slot: number): number[] => CONSUMABLE_SLOTS.filter((i) => i !== slot);
   /** A World on the belt catalog with ONE key-fires row and ONE `isWeapon` row
@@ -1993,7 +1993,7 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
     const used: string[] = [];
     const rows = [
       consumableRow('hullRepair', () => { used.push('hullRepair'); return { ok: true }; }),
-      consumableRow('decoyBuoy', () => { used.push('decoyBuoy'); return { ok: true }; }),
+      consumableRow('healingBuoy', () => { used.push('healingBuoy'); return { ok: true }; }),
     ];
     const w = bareWorld(seed, { catalog: BELT_CATALOG, consumables: buildConsumableRegistry(rows) });
     return { w, used };
@@ -2201,7 +2201,7 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
   it('a spent-to-zero slot clears IN PLACE — nothing re-packs, exactly as the client replay does', () => {
     const { w } = beltWorld();
     const a = placeBelt(w, 'a', deckOf('hullRepair'));
-    for (const id of ['hullRepair', 'shieldBlock', 'shieldBlock', 'countermeasure', 'decoyBuoy']) {
+    for (const id of ['hullRepair', 'shieldBlock', 'shieldBlock', 'countermeasure', 'healingBuoy']) {
       w.applyCard(a, id);
     }
     const before = CONSUMABLE_SLOTS.map((i) => a.loadout[i].equipmentId);
@@ -2332,9 +2332,9 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
 
   it('an isWeapon consumable (the decoy shape) rides input.slot on the CLICK channel; the ability channel ignores it', () => {
     const { w, used } = beltWorld();
-    const a = placeBelt(w, 'a', deckOf('decoyBuoy'));
-    w.applyCard(a, 'decoyBuoy');
-    w.applyCard(a, 'decoyBuoy');
+    const a = placeBelt(w, 'a', deckOf('healingBuoy'));
+    w.applyCard(a, 'healingBuoy');
+    w.applyCard(a, 'healingBuoy');
     // A PRESS naming the belt slot is inert — the ability-only wall.
     send(w, 'a', 1, { actSeq: 1, actSlot: DB });
     w.step();
@@ -2343,7 +2343,7 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
     // The CLICK activates it.
     send(w, 'a', 2, { fireSeq: 1, slot: DB, aimDist: 100 });
     w.step();
-    expect(used).toEqual(['decoyBuoy']);
+    expect(used).toEqual(['healingBuoy']);
     expect(a.loadout[DB].state).toEqual({ n: 1, reloadMsLeft: 0 });
   });
 

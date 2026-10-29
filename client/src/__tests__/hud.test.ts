@@ -60,6 +60,7 @@ function ownStatus(over: Partial<OwnStatus> = {}): OwnStatus {
     loadout: ['gun', 'heavyTorpedo', null, null],
     boostActive: false,
     slowedMsLeft: 0,
+    dazzledMsLeft: 0,
     ...over,
   };
 }
@@ -166,7 +167,7 @@ describe('the tells fit their box (amendment 47 — the container-fit law)', () 
   // beside the bar — so the pin measures a deliberately absurd window, not just
   // today's few-second one.
   it('every reachable tell line fits the bar`s width', () => {
-    for (const label of ['SLOWED']) {
+    for (const label of ['SLOWED', 'DAZZLED']) {
       for (const ms of [1, 999, 1000, 9000, 60_000, TELL_FIT_MAX_MS]) {
         const line = tellLine(label, ms);
         const w = monoTextWidth(line, TELL_STYLE.fontSize, TELL_STYLE.letterSpacing);
@@ -395,6 +396,19 @@ describe('victimWindows — SLOWED covers both slow sources (Story 9.4)', () => 
   });
 });
 
+describe('victimWindows — DAZZLED reads you.dazzledUntil (FLASH SHELLS, Story 10.9)', () => {
+  it('is the remaining dazzle window, independent of the slow sources', () => {
+    expect(victimWindows({ dazzledUntil: 4000 }, 1000).dazzledMsLeft).toBe(3000);
+    expect(victimWindows({ dazzledUntil: 4000, slowedUntil: 9000 }, 1000).dazzledMsLeft).toBe(3000);
+    expect(victimWindows({ slowedUntil: 9000 }, 1000).dazzledMsLeft).toBe(0);
+  });
+
+  it('an absent / expired window, or no hull, reads 0', () => {
+    expect(victimWindows({ dazzledUntil: 900 }, 1000).dazzledMsLeft).toBe(0);
+    expect(victimWindows(null, 1000).dazzledMsLeft).toBe(0);
+  });
+});
+
 describe('Hud — the tells and the storm warning on a live frame', () => {
   const draw = (hud: Hud, status: OwnStatus, inStorm = false): void =>
     hud.update(status, inStorm, QUIET, MATCH, FLOOR.w, FLOOR.h, 10);
@@ -405,7 +419,7 @@ describe('Hud — the tells and the storm warning on a live frame', () => {
     expect(hud.tellText(0)).toBe('');
   });
 
-  it('shows the SLOWED window while it runs, and only it (Story 9.4: one tell)', () => {
+  it('shows the SLOWED window while it runs, and only it', () => {
     const hud = new Hud(new Container());
     draw(hud, ownStatus({ slowedMsLeft: 2000 }));
     expect(hud.tellText(0)).not.toBe('');
@@ -413,6 +427,18 @@ describe('Hud — the tells and the storm warning on a live frame', () => {
     expect(hud.tellText(1)).toBe('');
     draw(hud, ownStatus({ slowedMsLeft: 1500 }));
     expect(hud.tellText(0).endsWith(` ${tellSeconds(1500)}s`)).toBe(true);
+  });
+
+  it('shows the DAZZLED window beside SLOWED in the same grammar (Story 10.9)', () => {
+    const hud = new Hud(new Container());
+    draw(hud, ownStatus({ dazzledMsLeft: 3000 }));
+    expect(hud.tellText(0)).toBe('');
+    expect(hud.tellText(1).endsWith(` ${tellSeconds(3000)}s`)).toBe(true);
+    // ...a lone dazzle takes the TOP slot; both running stack SLOWED over DAZZLED.
+    expect(hud.tellPosition(1)).toEqual(tellAnchor(FLOOR.w));
+    draw(hud, ownStatus({ slowedMsLeft: 2000, dazzledMsLeft: 3000 }));
+    expect(hud.tellPosition(0)).toEqual(tellAnchor(FLOOR.w));
+    expect(hud.tellPosition(1)!.y).toBeGreaterThan(hud.tellPosition(0)!.y);
   });
 
   it('the running tell takes the TOP slot, at the column anchor', () => {

@@ -15,7 +15,7 @@
 // each value is the fold's number in the face's printer.
 
 import { describe, expect, it } from 'vitest';
-import { CATALOG, CONFIG, LINE_IDS, effectiveStats, isStubLine, tierTargetOf, type CatalogLine } from '@salvo/shared';
+import { BUOY_LINE_IDS, CATALOG, CONFIG, LINE_IDS, effectiveStats, isStubLine, tierTargetOf, type CatalogLine } from '@salvo/shared';
 import { CARD_STAT_ROWS, cardStatRows, cardTierLabel, shipStatRows } from '../ui/boonCopy.js';
 
 
@@ -453,16 +453,53 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
     ]);
   });
 
-  it('gives DECOY BUOY its hull, off CONFIG, and a drop row', () => {
-    const rows = cardStatRows(CATALOG.decoyBuoy, 0, TB);
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ cur: null, next: `${CONFIG.decoyBuoy.hp} HP` });
-    expect(rows[1].cur).toBeNull();
+  // THE FOUR BUOYS (Story 10.9): the body's four rows (hull, effect reach,
+  // life, drop arc) plus ONE kind row; every number derived from CONFIG.buoy.
+  it('gives every BUOY the shared body rows off CONFIG.buoy, then exactly one kind row', () => {
+    const b = CONFIG.buoy;
+    const kindRows = new Set<string>();
+    for (const id of BUOY_LINE_IDS) {
+      const rows = cardStatRows(CATALOG[id], 0, TB);
+      expect(rows.length, id).toBe(5);
+      expect(rows.length, id).toBeLessThanOrEqual(CARD_STAT_ROWS);
+      expect(pairs(rows.slice(0, 3)), id).toEqual([
+        [null, `${b.hp} HP`],
+        [null, `${b.radiusU} U`],
+        [null, `${b.lifetimeMs / 1000} S`],
+      ]);
+      expect(rows.every((r) => r.cur === null), id).toBe(true);
+      kindRows.add(rows[4].next);
+    }
+    expect(kindRows.size).toBe(BUOY_LINE_IDS.length); // each kind says something different
   });
 
+  it('the buoys\' kind rows carry their CONFIG numbers', () => {
+    const b = CONFIG.buoy;
+    const kindRow = (id: (typeof BUOY_LINE_IDS)[number]) => cardStatRows(CATALOG[id], 0, TB)[4].next;
+    expect(kindRow('radarBuoy')).toContain(`${b.radiusU}`);
+    expect(kindRow('healingBuoy')).toContain(`${b.heal.missingPctPerS * 100}%`);
+    expect(kindRow('shieldBuoy')).toContain(`${b.shield.maxHpPctPerS * 100}%`);
+    expect(kindRow('speedBuoy')).toContain(`${b.speed.factor * 100}%`);
+  });
+
+  it('every buoy prints the SAME drop row (one arc for the four)', () => {
+    const drops = new Set(BUOY_LINE_IDS.map((id) => cardStatRows(CATALOG[id], 0, TB)[3].next));
+    expect(drops.size).toBe(1);
+  });
+
+  // FLASH SHELLS (Story 10.9 — the 8.17 rows restored): radius, blind time and
+  // the sight fraction, every number off CONFIG.flashShells.
+  it('prints the FLASH SHELLS rows from CONFIG.flashShells (radius, blind time, sight fraction)', () => {
+    const f = CONFIG.flashShells;
+    expect(pairs(cardStatRows(CATALOG.dazzleShells, 0, TB))).toEqual([
+      [null, `${f.radius} U`],
+      [null, `${f.durationMs / 1000} S`],
+      [null, `1/${Math.round(1 / f.sightFraction)}`],
+    ]);
+  });
 
   it('the 8.16 rows are the same on every hull and at every copy count', () => {
-    for (const id of ['shieldBlock', 'decoyBuoy'] as const) {
+    for (const id of ['shieldBlock', ...BUOY_LINE_IDS, 'dazzleShells'] as const) {
       const base = cardStatRows(CATALOG[id], 0, TB);
       expect(base.length, id).toBeGreaterThan(0);
       expect(cardStatRows(CATALOG[id], 3, { cls: 'battleship', cards: ['hullPoints'] }), id).toEqual(base);

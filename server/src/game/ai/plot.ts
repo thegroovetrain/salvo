@@ -147,7 +147,7 @@ export function paintCenter(e: GhostPaint): Vec2 | null {
 
 /** How many lattice cells a paint lights — the FOOTPRINT a human reads off
  *  the scope (Story 9.13, epic-9 amendment 197): a decoy buoy's paint square
- *  (`CONFIG.decoyBuoy.sizeU`) lights a handful, a hull's silhouette many. */
+ *  (`CONFIG.buoy.sizeU`) lights a handful, a hull's silhouette many. */
 export function paintCellCount(e: GhostPaint): number {
   let n = 0;
   for (let bit = 0; bit < e.w * e.h; bit += 1) {
@@ -164,7 +164,7 @@ export function paintCellCount(e: GhostPaint): number {
  *  bot's own, at any range, or an enemy buoy inside its sight / own light) to
  *  be that buoy's paint: the buoy's paint square plus one lattice cell of
  *  rasterization slop (amendment 197(a)). */
-export const DECOY_SLOP_U = CONFIG.decoyBuoy.sizeU + CONFIG.vision.radarCellU;
+export const DECOY_SLOP_U = CONFIG.buoy.sizeU + CONFIG.vision.radarCellU;
 
 /** Lit cells at or under which a paint is buoy-sized (amendment 197(b), the
  *  orchestrator's reading: the 12 u buoy square on the 9 u lattice lights at

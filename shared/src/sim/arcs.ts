@@ -4,9 +4,9 @@
 // torpedo launches in a bow sector (heading + CONFIG.torpedo.offset ±
 // halfArc); the mine — a click-aimed weapon as of Story 2.8 (amendment 45) —
 // places within a REAR sector (heading + CONFIG.mine.offset ±
-// placeHalfArcDeg), and since Story 8.16 the DECOY BUOY consumable is
-// click-placed in that SAME rear sector (the radar buoy that used it before is
-// deleted); the BROADSIDE BARRAGE fires into one of two
+// placeHalfArcDeg) — Story 8.16's DECOY BUOY consumable shared that rear
+// sector until Story 10.9 replaced it with FOUR BUOYS placed at ANY bearing
+// (a 360° `'full'` arc, Eric 2026-10-28 ruling 9); the BROADSIDE BARRAGE fires into one of two
 // mirrored BEAM sectors (Story 7-5 wave 2, R2.1 — the class-era side arcs
 // restored verbatim); the class Shifts (boost, instant reload, hunker) aim
 // nothing.
@@ -29,6 +29,7 @@
 
 import { CONFIG } from '../constants.js';
 import { inArc, wrapAngle } from '../math/angle.js';
+import { isBuoyLine } from './buoy.js';
 import { isConsumableId } from './loadout.js';
 import type { EquipmentId, SlotItemId } from './loadout.js';
 import type { ConsumableId } from './effects.js';
@@ -38,10 +39,11 @@ import type { MineKind } from '../types.js';
  * One equipment id's firing-arc shape:
  * - `full`        — 360°, aimed to the clicked point, never out of arc
  *                   (every gun — cannon, machine gun, flak — star shells,
- *                   phosphor shells and the FLASH SHELLS consumable).
+ *                   phosphor shells, the FOULING SHELL and FLASH SHELLS
+ *                   consumables, and the four BUOYS' placement — Story 10.9).
  * - `sector`      — an aimed launch sector `heading + offset ± halfArc`
- *                   (the torpedo's bow arc; the mine's and the decoy buoy's
- *                   rear placement arc — aim outside it is DENIED).
+ *                   (the torpedo's bow arc; the mines' rear placement arc —
+ *                   aim outside it is DENIED).
  * - `twin-sector` — TWO MIRRORED aimed sectors at `heading ± offset`, each
  *                   `halfArc` wide (the BROADSIDE BARRAGE's beams; the LIGHT
  *                   TORPEDO's two beam tubes since 8.13). The side
@@ -78,26 +80,32 @@ export function arcFor(id: SlotItemId): ArcShape {
 }
 
 /**
- * A CONSUMABLE's arc. THREE lines aim: the SUPERCAV TORPEDO's bow ±15° sector
- * (`CONFIG.supercavTorpedo`, amendment 74); the DECOY BUOY, which is
- * click-placed in the MINE's rear sector (`CONFIG.mine.offset` ±
- * `placeHalfArcDeg`, out to `placeRange` — Story 8.16, catalog-v3 R36); and
- * the FOULING SHELL (`foulingShell`, Story 9.4, Eric 2026-10-11, epic-9
- * amendments 61–68 — FLASH SHELLS' successor), a 360° gun-pattern shell
- * (`CONFIG.foulingShell.arc`) whose reach is its own dial,
- * `CONFIG.foulingShell.rangeU` (Story 9.8, ruling 125: 8/12 of the ruler, fixed —
- * a consumable has no tiers). Every other consumable is an instant key
- * activation that aims nothing.
+ * A CONSUMABLE's arc. SEVEN lines aim since Story 10.9: the SUPERCAV
+ * TORPEDO's bow ±15° sector (`CONFIG.supercavTorpedo`, amendment 74); the
+ * FOULING SHELL (`foulingShell`, Story 9.4, Eric 2026-10-11, epic-9 amendments
+ * 61–68), a 360° gun-pattern shell (`CONFIG.foulingShell.arc`) whose reach is
+ * its own dial, `CONFIG.foulingShell.rangeU` (Story 9.8, ruling 125: 8/12 of
+ * the ruler, fixed — a consumable has no tiers); FLASH SHELLS
+ * (`dazzleShells`, Story 8.17 amendment 132, RESTORED by Story 10.9 beside the
+ * fouling shell), 360° (`CONFIG.flashShells.arc`) at the fouling shell's reach
+ * (ruling 2); and the FOUR BUOYS (sim/buoy.ts), click-PLACED at ANY bearing —
+ * a 360° `'full'` arc (Eric 2026-10-28, ruling 9: "all buoys ... 360 degree
+ * firing arc so they can be placed anywhere around the ship. Placement range
+ * should not change") out to the unchanged `CONFIG.mine.placeRange`, which the
+ * server's placement clamp reads. The deleted DECOY BUOY was the one consumable
+ * in the mine's rear sector; the mines keep it alone now. Every other
+ * consumable is an instant key activation that aims nothing.
  */
 function consumableArc(id: ConsumableId): ArcShape {
   if (id === 'foulingShell') return { kind: CONFIG.foulingShell.arc };
-  if (id === 'decoyBuoy') return mineSector();
+  if (id === 'dazzleShells') return { kind: CONFIG.flashShells.arc };
+  if (isBuoyLine(id)) return { kind: 'full' };
   if (id !== 'supercavTorpedo') return { kind: 'none' };
   return { kind: 'sector', offset: CONFIG.supercavTorpedo.offset, halfArc: CONFIG.supercavTorpedo.halfArc };
 }
 
-/** The MINE's rear placement sector — shared by the three mine lines and the
- *  DECOY BUOY consumable. */
+/** The MINE's rear placement sector — shared by the three mine lines (and,
+ *  until Story 10.9 deleted it, the DECOY BUOY consumable). */
 function mineSector(): ArcShape {
   return { kind: 'sector', offset: CONFIG.mine.offset, halfArc: deg(CONFIG.mine.placeHalfArcDeg) };
 }

@@ -23,6 +23,10 @@ import {
   applySlotEffect,
   cardBehaviors,
   boostedKinematics,
+  buoyTail,
+  combinedBoostFactor,
+  insideBuoy,
+  type BuoyKind,
   contactGrindRate,
   contactHitDamage,
   landGrindRate,
@@ -1012,6 +1016,50 @@ export interface ShipRecord {
    */
   fouledUntil: number;
   /**
+   * ms — server time this ship's FLASH SHELLS dazzle ends (Story 8.17,
+   * amendment 132; RESTORED by Story 10.9, epic-10 amendments 2 and 4); 0 =
+   * never dazzled. Written ONLY by applyFlash: every non-owner afloat hull
+   * whose CENTRE is inside a flash burst gets `max(current, now +
+   * durationMs)` — a second flash keeps the LATER expiry, never stacks, never
+   * shortens. Read by perception (signals.sightOf → the shared
+   * `effectiveSight(stats, dazzled)`) and mirrored onto OwnShip.dazzledUntil
+   * (VICTIM-PRIVATE, frames.toOwnShip only, omitted when not in the future).
+   * Reset wherever `fouledUntil` resets (addShip, founder, respawn, redeploy /
+   * match start); sink-entry keeps it like every debuff window.
+   */
+  dazzledUntil: number;
+  /**
+   * THE SHIELD BUOY's pool (Story 10.9, epic-10 amendments 2 and 4, rulings
+   * 4 and 5) — a SECOND shield, separate from the SHIELD BLOCK's `shield`
+   * seat. applyBuoyEffects grows `hpLeft` by `maxHp × CONFIG.buoy.shield.
+   * maxHpPctPerS × dt` every tick the hull's centre is inside any OWN shield
+   * buoy (once per tick — a kind counts once; NO cap — ruling 4) and stamps
+   * `insideAt = now`; outside, the shared `buoyTail` scales it down: full
+   * through `tailHoldMs`, then linear to zero over `tailRampMs` from the pool
+   * it held when the ramp began (`rampFrom` — damage can only lower it). The
+   * damage gate eats it AFTER armor and BEFORE the SHIELD BLOCK
+   * (absorbBuoyShield). null = no pool. Mirrored onto the SELF-PRIVATE
+   * `OwnShip.buoyShield` by frames.ts while it holds hp. Reset to null
+   * wherever `shield` is (addShip, sink-entry, redeploy, respawn).
+   */
+  buoyShield: { hpLeft: number; insideAt: number; rampFrom?: number } | null;
+  /**
+   * ms — the last tick this hull's centre stood inside an OWN SPEED BUOY
+   * (Story 10.9, rulings 5 and 6); 0 = never. tickKinematics' FIRST fold
+   * stage reads it through the shared `buoyTail` + `combinedBoostFactor`
+   * (adds on the base with the Shift). Mirrored onto OwnShip.speedBuoyAt
+   * (SELF-PRIVATE, omitted once the tail is 0). Reset to 0 wherever
+   * `boostUntil` resets.
+   */
+  speedBuoyAt: number;
+  /**
+   * THE HEALING BUOY's per-tick flag (Story 10.9, AC 6): set by
+   * applyBuoyEffects when the hull's centre is inside any OWN healing buoy
+   * this tick, consumed (and cleared) by tickRepairs in the same tick. Never
+   * on the wire.
+   */
+  buoyHealTick: boolean;
+  /**
    * The WAKE-DRAFT lift folded into this hull's forward cap on the CURRENT
    * tick (Story 8.19, Eric rulings 2026-09-30, epic-8 amendments 151–155): the
    * shared `draftLift` over every OTHER hull's ribbon as it stood after last
@@ -1484,10 +1532,13 @@ export class World {
    * drop order — the mines/litZones store shape, and the `decoy` target kind's
    * occupant (it replaced the deleted RADAR BUOY store). A decoy is world
    * state, not a ship: it never enters `ships`, the roster, spawn clearance,
-   * or the AI target sets. It has NO tick and NO lifetime, and it does NOT
-   * sink with its owner (amendment 122): it leaves only when enemy ordnance
-   * takes its hp to 0 (damageDecoy), paying NO XP and emitting NO event — a
-   * destroyed decoy simply drops out of the next frame's `decoys` list.
+   * or the AI target sets. It does NOT sink with its owner (amendment 122):
+   * it leaves when enemy ordnance takes its hp to 0 (damageDecoy) or — since
+   * Story 10.9, when the four buoy lines took this body — at its `expiresAt`
+   * (expireBuoys), paying NO XP and emitting NO event either way: it simply
+   * drops out of the next frame's `decoys` list. Each carries its KIND; a
+   * radar one also its own beam (advanceSweeps). The internal `decoy` name is
+   * kept for the body (decoys.ts header).
    */
   readonly decoys = new Map<string, DecoyState>();
   /**
@@ -2422,8 +2473,9 @@ export class World {
       // here anyway, so the wait costs nothing.
       boostUntil: 0, repairHp: 0, lastDamagedAt: this.now, slowedUntil: 0, slowFactor: 1, fouledUntil: 0, shield: null,
       // Story 8.15: no HUNKER window, and the machine gun's stream clock
-      // at the epoch (fire on the first held tick), no stream live.
-      hunkerUntil: 0, streamNextAt: 0, streamLive: false,
+      // at the epoch (fire on the first held tick), no stream live. Story
+      // 10.9: no dazzle, no buoy shield pool, no speed-buoy tail, no heal flag.
+      hunkerUntil: 0, streamNextAt: 0, streamLive: false, dazzledUntil: 0, buoyShield: null, speedBuoyAt: 0, buoyHealTick: false,
 
       rttMs: null,
       lastFireT: 0,
@@ -2806,9 +2858,12 @@ export class World {
     ship.lastDamagedAt = this.now;
     // ...nor a SHIELD BLOCK (Story 8.4 review, P5 — the clearRepair rule).
     ship.shield = null;
+    ship.buoyShield = null; // ...nor a SHIELD BUOY pool (Story 10.9 — the shield rule)
+    ship.speedBuoyAt = 0; // ...nor a SPEED BUOY tail (Story 10.9 — the boostUntil rule)
     ship.slowedUntil = 0;
     ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
     ship.fouledUntil = 0; // ...nor a practice-water foul-zone stamp (Story 9.4; the zones left with foulZones.clear())
+    ship.dazzledUntil = 0; // ...nor a practice-water dazzle (Story 10.9 — the fouledUntil rule)
     // A fresh match never inherits a stale smoke timer (Story 4.4) — nor a
     // stale foghorn cooldown (Story 4.5) — nor a stale own-cloud stamp
     // (Story 9.3; the clouds themselves left with clouds.clear()).
@@ -2965,6 +3020,7 @@ export class World {
     // ...and so does the SHIELD BLOCK, on the same rule (Story 8.4 review, P5):
     // an absorbing pool is economy, and a sinking captain loses their economy.
     ship.shield = null;
+    ship.buoyShield = null; // ...and the SHIELD BUOY pool on the same rule (Story 10.9)
     // ...and the own-cloud stamp dies with the life (Story 9.3): a sinking
     // press is refused by the row anyway, and the bot's self-read must not
     // hold its next life. The clouds already made stay in World.clouds to
@@ -3017,6 +3073,8 @@ export class World {
       ship.slowedUntil = 0;
       ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
       ship.fouledUntil = 0; // the foul zone's stamp dies with the life too (Story 9.4)
+      ship.dazzledUntil = 0; // ...and the flash's dazzle (Story 10.9)
+      ship.speedBuoyAt = 0; // ...and the SPEED BUOY tail (Story 10.9 — the boostUntil rule)
       ship.cloudUntil = 0; // already cleared at sinkShip; symmetric for directed callers (Story 9.3)
       ship.draft = 0; // ...and rides no wake (Story 8.19): never a stale lift on the wire
       // The land edge dies with the life (Story 9.5); the damage-source
@@ -3986,9 +4044,13 @@ export class World {
     // (see stepContext()), and the two mine rows below reuse it as-is.
     { name: 'stepShells', run: (w, ctx) => w.stepShells(ctx.dt, ctx.hitTargets) },
     { name: 'stepMines', run: (w, ctx) => w.stepMines(ctx.hitTargets) },
-    // (The RADAR BUOY's `tickBuoys` row was REMOVED in Story 8.16 with the
-    // buoy — the DECOY BUOY that took the `decoy` kind has no tick: no
-    // lifetime, no sweep, no gun, no wake. Amendment 124(e).)
+    // BUOY EXPIRY (Story 10.9, ruling 0 — 30 s after the drop) — in the seat
+    // the RADAR BUOY's `tickBuoys` row held until Story 8.16 deleted it.
+    // AFTER stepShells/stepMines so a buoy soaks this tick's ordnance through
+    // its final tick (the last-tick precedent of every zone sweep), BEFORE
+    // applyBuoyEffects so an expired buoy grants nothing on the tick it
+    // leaves. Bumps the collector's generation when anything leaves.
+    { name: 'expireBuoys', run: (w) => w.expireBuoys() },
     // PHOSPHOR burning-zone DoT (Story 2.8's seat, Story 8.17's source):
     // against post-move centers, BEFORE the expiry sweep so a zone burns
     // through its final tick. (The dazzle mark left this row with the verb in
@@ -4017,6 +4079,13 @@ export class World {
     // restores full hp and zeroes the pool, so anything paid to a wreck here
     // would be overwritten rather than banked. Nothing downstream in the step
     // reads hp or repairHp, so no other system depends on this position.
+    // THE BUOY EFFECTS (Story 10.9, rulings 4–6) — DIRECTLY before
+    // tickRepairs: one scan per hull of its OWN live buoys (a kind counts
+    // once — ruling 5) stamps the SPEED BUOY clock (read by next tick's
+    // stepShips), grows or tails the SHIELD BUOY pool, and flags the HEALING
+    // BUOY term tickRepairs pays this same tick. After every damage source
+    // (post-damage afloat truth, the regen rationale below).
+    { name: 'applyBuoyEffects', run: (w, ctx) => w.applyBuoyEffects(ctx.dtMs) },
     { name: 'tickRepairs', run: (w, ctx) => w.tickRepairs(ctx.dtMs) },
     // WOUNDED SMOKE (Story 4.4) — DELIBERATE step-order position: directly
     // after the LAST hp mover (tickRepairs), so every damage source AND the
@@ -4590,7 +4659,7 @@ export class World {
    *
    * PINNED COMPOSITION ORDER (server AND predictor, byte-identical — sim/
    * boost.ts, sim/slow.ts, sim/draft.ts, sim/hooks.ts headers) — five stages:
-   *   boostedKinematics
+   *   boostedKinematics (Shift + SPEED BUOY tail, one combined factor — 10.9)
    *   → slowedKinematics (mine:  ship.slowFactor,                now < slowedUntil)
    *   → slowedKinematics (shell: CONFIG.foulingShell.slowFactor, now < fouledUntil)
    *   → draftedKinematics
@@ -4603,16 +4672,25 @@ export class World {
    * chain (Story 2.5) last; the client's Predictor.tickKin mirrors this exact
    * order from you.boostUntil / you.slowedUntil / you.fouledUntil / you.draft.
    */
+  /** The fold's FIRST-stage factor for this hull at `now` (Story 10.9,
+   *  ruling 6): the shared `combinedBoostFactor` over the Shift window and
+   *  the SPEED BUOY's `buoyTail` — the two add on the base. 0 = no boost. */
+  private static boostFactorAt(ship: ShipRecord, now: number): number {
+    const tail = buoyTail(now, ship.speedBuoyAt, CONFIG.buoy.tailHoldMs, CONFIG.buoy.tailRampMs);
+    return combinedBoostFactor(now < ship.boostUntil, tail, CONFIG.boost.factor, CONFIG.buoy.speed.factor);
+  }
+
   private tickKinematics(ship: ShipRecord, ribbons: readonly WakeRibbon[]): ShipConfig {
     ship.draft = draftLift(
       ribbons, ship.wake, ship.state.x, ship.state.y, ship.state.heading,
       ship.cls.hull.length / 2, this.now, CONFIG.wake.draft,
     );
-    const boosted = boostedKinematics(
-      ship.stats.kinematics,
-      CONFIG.boost.factor,
-      this.now < ship.boostUntil,
-    );
+    // STAGE ONE (Story 10.9, ruling 6): the Shift's boost and the SPEED
+    // BUOY's tailed term ADD on the RATED kinematics — ONE boostedKinematics
+    // call on the shared combined factor (the predictor computes the same
+    // factor from you.boostUntil / you.speedBuoyAt).
+    const boostFactor = World.boostFactorAt(ship, this.now);
+    const boosted = boostedKinematics(ship.stats.kinematics, boostFactor, boostFactor > 0);
     const slowed = slowedKinematics(boosted, ship.slowFactor, this.now < ship.slowedUntil);
     const fouled = slowedKinematics(slowed, CONFIG.foulingShell.slowFactor, this.now < ship.fouledUntil);
     const drafted = draftedKinematics(fouled, ship.draft, ship.draft > 0);
@@ -4880,7 +4958,10 @@ export class World {
    *  on the identical double. The kinematics come off effectiveStats(), the
    *  sole derivation path. Never raw CONFIG for the cap. */
   private static wakeTopSpeed(stats: EffectiveStats): number {
-    const boosted = boostedKinematics(stats.kinematics, CONFIG.boost.factor, true);
+    // Story 10.9: the TRUE top speed is the Shift AND a full SPEED BUOY term
+    // on the base — the same shared combined factor stage one folds.
+    const factor = combinedBoostFactor(true, 1, CONFIG.boost.factor, CONFIG.buoy.speed.factor);
+    const boosted = boostedKinematics(stats.kinematics, factor, true);
     return draftedKinematics(boosted, CONFIG.wake.draft.lift, true).maxSpeed;
   }
 
@@ -5063,10 +5144,28 @@ export class World {
     const budget = (hr.regenHp / hr.regenMs) * dtMs;
     const tickStart = this.now - dtMs;
     for (const ship of this.ships.values()) {
+      const healPct = World.healPctPerS(ship, tickStart);
+      ship.buoyHealTick = false; // consumed this tick (applyBuoyEffects re-flags it)
       if (!isAfloat(ship.lifecycle)) continue;
       if (ship.repairHp > 0) World.payRepair(ship, budget);
-      if (World.regenDue(ship, tickStart)) World.tickRegen(ship, dtMs);
+      if (healPct > 0) World.tickRegen(ship, dtMs, healPct);
     }
+  }
+
+  /**
+   * The % of MISSING hp per second this hull heals this tick: the
+   * out-of-combat regen's own rate when it is due (regenDue), PLUS the
+   * HEALING BUOY's `CONFIG.buoy.heal.missingPctPerS` when applyBuoyEffects
+   * flagged the hull inside an own healing buoy (Story 10.9, AC 6) — ONE buoy
+   * term however many healing buoys cover it (ruling 5), with NO `regenDue`
+   * gate (a hit does not pause it), ADDITIVE with the regen on the same
+   * missing hp. Fleet hulls never heal by either (amendment 48 — and they
+   * own no buoys); the caller's afloat gate excludes sinking hulls.
+   */
+  private static healPctPerS(ship: ShipRecord, tickStart: number): number {
+    if (roleIsFleetHull(ship)) return 0;
+    const regen = World.regenDue(ship, tickStart) ? ship.stats.regen.missingPctPerS : 0;
+    return regen + (ship.buoyHealTick ? CONFIG.buoy.heal.missingPctPerS : 0);
   }
 
   /** Is this hull's out-of-combat regen due this tick? Never for a PvE fleet
@@ -5098,8 +5197,10 @@ export class World {
    * eligible (afloat, not a drone, past the window). Split out of tickRepairs
    * for the complexity budget.
    *
-   * THE RATE is the hull's own `stats.regen.missingPctPerS` (Story 9.6) —
-   * never `CONFIG.regen` read at tick time.
+   * THE RATE is the caller's `pctPerS` (healPctPerS): the hull's own
+   * `stats.regen.missingPctPerS` (Story 9.6 — never `CONFIG.regen` read at
+   * tick time) when the regen is due, plus the HEALING BUOY's term (Story
+   * 10.9) — both on the same missing hp.
    *
    * THE SNAP TO FULL is not a rounding convenience: a % of MISSING is
    * asymptotic and never reaches zero missing on its own, so without it HULL
@@ -5109,12 +5210,70 @@ export class World {
    * and the client's consumable-key pre-denial mirrors, so "full" has exactly one
    * definition and this snap can never drift away from that refusal.
    */
-  private static tickRegen(ship: ShipRecord, dtMs: number): void {
+  private static tickRegen(ship: ShipRecord, dtMs: number, pctPerS: number): void {
     const maxHp = ship.stats.maxHp;
     const missing = maxHp - ship.hp;
     if (missing <= 0) return;
     if (hullIsFull(ship.hp, maxHp)) ship.hp = maxHp;
-    else ship.hp += missing * ship.stats.regen.missingPctPerS * (dtMs / 1000);
+    else ship.hp += missing * pctPerS * (dtMs / 1000);
+  }
+
+  /**
+   * THE BUOY EFFECTS (Story 10.9, Eric 2026-10-27/28, epic-10 amendments 2
+   * and 4) — once per tick, directly before tickRepairs. For every hull, ONE
+   * scan of its OWN live buoys yields the set of kinds whose `radiusU` covers
+   * its centre (`insideBuoy`, inclusive); a KIND COUNTS ONCE (ruling 5), so
+   * the effects read the set, never the buoys:
+   *   - healing → `buoyHealTick` (tickRepairs pays the term this tick);
+   *   - speed   → `speedBuoyAt = now` (tickKinematics' first stage, tailed);
+   *   - shield  → the pool grows (stepBuoyShield), else it tails.
+   * OWNER ONLY ("friendly ships" = the owner's own ship — amendment 2): an
+   * enemy's buoy grants nothing. The RADAR kind's effect is its sweep
+   * (advanceSweeps + perception), not a per-hull term.
+   */
+  private applyBuoyEffects(dtMs: number): void {
+    for (const ship of this.ships.values()) {
+      const inside = this.buoyKindsInside(ship);
+      ship.buoyHealTick = inside.has('healing');
+      if (inside.has('speed')) ship.speedBuoyAt = this.now;
+      this.stepBuoyShield(ship, inside.has('shield'), dtMs);
+    }
+  }
+
+  /** The kinds of this hull's OWN live buoys whose effect radius covers its
+   *  centre — empty for a hull that is not afloat or is a fleet hull. */
+  private buoyKindsInside(ship: ShipRecord): Set<BuoyKind> {
+    const out = new Set<BuoyKind>();
+    if (!isAfloat(ship.lifecycle) || roleIsFleetHull(ship)) return out;
+    for (const d of this.decoys.values()) {
+      if (d.ownerId !== ship.id) continue;
+      if (insideBuoy(d.x, d.y, ship.state.x, ship.state.y, CONFIG.buoy.radiusU)) out.add(d.kind);
+    }
+    return out;
+  }
+
+  /**
+   * THE SHIELD BUOY's pool, one tick (rulings 4 and 5). INSIDE: grows by
+   * `maxHp × CONFIG.buoy.shield.maxHpPctPerS × dt` — NO cap (the 30 s life
+   * bounds it) — and stamps `insideAt = now` (a fresh hold; any ramp in
+   * progress is cancelled). OUTSIDE: the shared `buoyTail` — 1 through
+   * `tailHoldMs`, then linear to 0 over `tailRampMs` — scales the pool from
+   * the value it held when the ramp began (`rampFrom`): `hpLeft = min(hpLeft,
+   * rampFrom × tail)`, so damage can only lower it. At tail 0, or once
+   * damage has eaten it, the pool is gone (null).
+   */
+  private stepBuoyShield(ship: ShipRecord, inside: boolean, dtMs: number): void {
+    const prev = ship.buoyShield;
+    if (inside) {
+      const grow = ship.stats.maxHp * CONFIG.buoy.shield.maxHpPctPerS * (dtMs / 1000);
+      ship.buoyShield = { hpLeft: (prev?.hpLeft ?? 0) + grow, insideAt: this.now };
+      return;
+    }
+    if (prev === null) return;
+    const tail = buoyTail(this.now, prev.insideAt, CONFIG.buoy.tailHoldMs, CONFIG.buoy.tailRampMs);
+    if (tail < 1 && prev.rampFrom === undefined) prev.rampFrom = prev.hpLeft;
+    if (prev.rampFrom !== undefined) prev.hpLeft = Math.min(prev.hpLeft, prev.rampFrom * tail);
+    if (tail === 0 || prev.hpLeft <= 0) ship.buoyShield = null;
   }
 
   /** Zero the repair pool. ONE helper for the three sites that end a hull's
@@ -5745,7 +5904,8 @@ export class World {
    *       storm is scaled by the victim's Armor, plus the HUNKER's bonus while
    *       its window is open, minus the attacker's ARMOR PIERCING read live
    *       (armorDamage below).
-   *   (c) THE SHIELD absorbs next, from EVERY source — storm bites and burn
+   *   (c) THE SHIELDS absorb next — the SHIELD BUOY's pool first, then the
+   *       SHIELD BLOCK (Story 10.9, ruling 4) — from EVERY source — storm bites and burn
    *       ticks included (AR47, amendment 118) — after the armor multiply
    *       (epic-8 amendment 100). Armed by the SHIELD BLOCK consumable (Story 8.16).
    *   (d) The overkill clamp, the ONE hp write, and the COMBAT CLOCK stamp
@@ -5771,7 +5931,9 @@ export class World {
     if (!this.damageEnabled) return; // (b) weapons-safe phases
     if (isSinking(victim.lifecycle)) return; // (b) a sinking hull cannot be finished off
     const armored = this.armorDamage(victim, amount, src, byId); // (b′) ARMOR (+ the HUNKER's bonus − the attacker's ARMOR PIERCING), before the shield (Stories 9.7 / 9.9)
-    const net = this.absorbShield(victim, armored); // (c)
+    // (c) THE SHIELDS: the SHIELD BUOY's pool FIRST, then the SHIELD BLOCK
+    // (Story 10.9, ruling 4: armor → buoy shield → block → hull).
+    const net = this.absorbShield(victim, World.absorbBuoyShield(victim, armored));
     const dealt = Math.max(0, Math.min(net, victim.hp)); // (d) overkill clamp, read BEFORE the write
     victim.hp -= dealt; // (d) THE ONE HULL-HP DECREMENT IN THE GAME
     // (d) THE COMBAT CLOCK (amendment 47): every source that actually removed
@@ -5875,6 +6037,19 @@ export class World {
    *  2026-10-13 at the 9.7 review gate). A 0 blow stays 0. Pure. */
   private static floorBlow(amount: number, scaled: number): number {
     return amount > 0 ? Math.max(1, Math.floor(scaled)) : 0;
+  }
+
+  /** (c) THE SHIELD BUOY STEP (Story 10.9, ruling 4) — BEFORE the SHIELD
+   *  BLOCK: the pool eats what it can of `amount` and is gone (null) once
+   *  spent; returns the remainder the block (then the hull) faces. Its tail
+   *  and expiry live in applyBuoyEffects, not here. */
+  private static absorbBuoyShield(victim: ShipRecord, amount: number): number {
+    const pool = victim.buoyShield;
+    if (pool === null) return amount;
+    const absorbed = Math.min(pool.hpLeft, amount);
+    pool.hpLeft -= absorbed;
+    if (pool.hpLeft <= 0) victim.buoyShield = null;
+    return amount - absorbed;
   }
 
   /** (c) THE SHIELD STEP. Expires a lapsed or spent block, absorbs what is
@@ -6438,12 +6613,43 @@ export class World {
    *  point, or an interception's stop point — the ONE shared list, so the two
    *  resolution paths can never disagree about a tag): a `lit` flare lights a
    *  zone (Story 1.7), a `burn` phosphor shell spawns a burning zone (Story
-   *  8.17) and a `foul` fouling shell spawns a foul zone (Story 9.4). Plain
-   *  shells carry no tag and leave nothing. */
+   *  8.17), a `foul` fouling shell spawns a foul zone (Story 9.4) and a
+   *  `flash` shell dazzles every non-owner hull inside it (Story 8.17,
+   *  restored by Story 10.9). Plain shells carry no tag and leave nothing. */
   private applyStopTags(shell: ShellState, at: Vec2): void {
     if (shell.lit) this.spawnLitZone(shell, at);
     if (shell.burn) this.spawnBurnZone(shell, at);
     if (shell.foul) this.spawnFoulZone(shell, at);
+    if (shell.flash) this.applyFlash(at, shell.ownerId, shell.flash.radius, shell.flash.durationMs);
+  }
+
+  /**
+   * A FLASH SHELLS burst (Story 8.17, Eric ruling 2026-09-29, amendment 132;
+   * RESTORED by Story 10.9, epic-10 amendments 2 and 4): every AFLOAT
+   * non-owner ship whose CENTRE is within `radius` of `at` (amendment 136) —
+   * captains AND fleet drones alike (a drone is a ship; a spectator or a
+   * wreck has no eyes to dazzle) — is marked `dazzledUntil = max(current,
+   * now + durationMs)`: a hull already dazzled keeps whichever expiry is
+   * LATER, so a second flash never stacks and never shortens. One-time: no
+   * zone, no light, no reveal, no damage, nothing refreshes the mark.
+   * Perception (signals.sightOf → the shared `effectiveSight`) collapses the
+   * DAZZLED observer's own sight; frames mirror the mark to the victim alone.
+   *
+   * GATED ON damageEnabled (Story 2.8 review, P9): a flash is a HOSTILE
+   * effect, so a ready-room burst blinds nobody — the shell still flies and
+   * bursts, and nothing else happens.
+   */
+  private applyFlash(at: Vec2, ownerId: string, radius: number, durationMs: number): void {
+    if (!this.damageEnabled) return; // ready-room flashes blind nobody
+    const r2 = radius * radius;
+    const until = this.now + durationMs;
+    for (const ship of this.ships.values()) {
+      if (ship.id === ownerId || !isAfloat(ship.lifecycle)) continue;
+      const dx = ship.state.x - at.x;
+      const dy = ship.state.y - at.y;
+      if (dx * dx + dy * dy > r2) continue;
+      ship.dazzledUntil = Math.max(ship.dazzledUntil, until);
+    }
   }
 
   /** Spawn a lit zone where a star shell stopped (burst point, or the
@@ -7033,9 +7239,10 @@ export class World {
       mkId: () => this.nextBallisticId(),
       spawnBallistic: (shell, opts) => this.spawnBallistic(shell, opts?.perShellFlash === true),
       dropMine: (x, y, kind) => this.spawnMine(ship, x, y, kind, fireT),
-      // Story 8.16 — the DECOY BUOY's placement capability, the dropMine
-      // sibling (hp is CONFIG.decoyBuoy's; no lifetime).
-      dropDecoy: (x, y) => this.spawnDecoy(ship, x, y),
+      // Story 8.16 — the buoy body's placement capability, the dropMine
+      // sibling; Story 10.9 stamps the line's KIND (hp is CONFIG.buoy's, the
+      // lifetime CONFIG.buoy.lifetimeMs).
+      dropDecoy: (x, y, kind) => this.spawnDecoy(ship, x, y, kind),
       // R2.15 — keyed on the ACTIVATING ship, which is what makes the star-shell
       // gun reach OWN-FLARES-ONLY: a row cannot ask about anyone else's zones.
       ownLitZones: () => this.ownLiveLitZones(ship.id),
@@ -7290,14 +7497,45 @@ export class World {
     this.targetsGen += 1;
   }
 
-  /** Store a newly-placed DECOY BUOY at an already-validated point (Story
-   *  8.16) — the spawnMine sibling. Unlike a mine a decoy is a target the
-   *  instant it lands (no arming), so the collector's memo must not outlive
-   *  the store change. */
-  private spawnDecoy(owner: ShipRecord, x: number, y: number): void {
+  /** Store a newly-placed BUOY of `kind` at an already-validated point
+   *  (Story 8.16's decoy body; Story 10.9's four kinds) — the spawnMine
+   *  sibling. Unlike a mine a buoy is a target the instant it lands (no
+   *  arming), so the collector's memo must not outlive the store change. It
+   *  leaves the water `CONFIG.buoy.lifetimeMs` after the drop (expireBuoys);
+   *  a RADAR buoy's beam starts at the owner's heading and turns at the
+   *  owner's sweep period (advanceSweeps). */
+  private spawnDecoy(owner: ShipRecord, x: number, y: number, kind: BuoyKind): void {
     this.decoySeq += 1;
-    addDecoy(this.decoys, owner.id, x, y, `d${this.decoySeq}`);
+    const decoy = addDecoy(
+      this.decoys,
+      owner.id,
+      x,
+      y,
+      `d${this.decoySeq}`,
+      kind,
+      this.now + CONFIG.buoy.lifetimeMs,
+      wrapPositive(owner.state.heading),
+    );
+    if (decoy.sweep !== null) decoy.sweep.periodMs = owner.stats.sweepPeriodMs;
     this.targetsGen += 1;
+  }
+
+  /**
+   * THE BUOY LIFETIME (Story 10.9, ruling 0: "will last for 30s"): every buoy
+   * whose `expiresAt` has come leaves the water — no event, no XP; it simply
+   * drops out of the next frame's `decoys` list, exactly as a destroyed one
+   * does — and the collector's generation bumps so no shell of this tick can
+   * die on a float that is gone. An owner's sinking does not shorten it
+   * (amendment 122 — everything on the water outlives its owner).
+   */
+  private expireBuoys(): void {
+    let removed = false;
+    for (const [id, decoy] of this.decoys) {
+      if (decoy.expiresAt > this.now) continue;
+      this.decoys.delete(id);
+      removed = true;
+    }
+    if (removed) this.targetsGen += 1;
   }
 
   /**
@@ -7401,6 +7639,31 @@ export class World {
       // step), so floor(raw / TAU) is the number of wraps this tick (0 or 1 at
       // any sane period).
       ship.sweepRev += Math.floor(raw / TAU);
+    }
+    this.advanceBuoySweeps(dtMs);
+  }
+
+  /**
+   * THE RADAR BUOY's own beam (Story 10.9, AC 5): every radar-kind buoy turns
+   * at its OWNER's `stats.sweepPeriodMs` (the `radarSweep` ladder — Eric's
+   * "intel speed RPM"), re-read every tick while the owner's record exists
+   * and KEPT at its last value once the owner is gone (the beam still turns;
+   * its paints go to nobody — perception paints for the owner only). The
+   * same wrap-and-count law as a hull's beam (`sweepRev` keys the dropout
+   * roll). Behind the radar lock with the hulls' beams (the caller returns
+   * first when `radarEnabled` is false).
+   */
+  private advanceBuoySweeps(dtMs: number): void {
+    for (const decoy of this.decoys.values()) {
+      const sweep = decoy.sweep;
+      if (sweep === null) continue;
+      const owner = this.ships.get(decoy.ownerId);
+      if (owner !== undefined) sweep.periodMs = owner.stats.sweepPeriodMs;
+      if (!(sweep.periodMs > 0)) continue;
+      const raw = sweep.sweepAngle + (TAU * dtMs) / sweep.periodMs;
+      sweep.prevSweepAngle = sweep.sweepAngle;
+      sweep.sweepAngle = wrapPositive(raw);
+      sweep.sweepRev += Math.floor(raw / TAU);
     }
   }
 
@@ -7673,9 +7936,12 @@ export class World {
     // ...nor a SHIELD BLOCK (Story 8.4 review, P5; sinkShip already nulled it,
     // kept symmetric here for directed callers).
     ship.shield = null;
+    ship.buoyShield = null; // ...nor a SHIELD BUOY pool (Story 10.9)
+    ship.speedBuoyAt = 0; // ...nor a SPEED BUOY tail (Story 10.9 — the boostUntil rule)
     ship.slowedUntil = 0;
     ship.slowFactor = 1; // the fouling factor clears with its clock (amendment 81)
     ship.fouledUntil = 0; // the foul zone's stamp (Story 9.4)
+    ship.dazzledUntil = 0; // ...nor the flash's dazzle (Story 10.9)
     // ...nor a previous life's contributors: creditKill already cleared the
     // ledger at the sink, kept symmetric here for directed callers.
     ship.damageFrom.clear();

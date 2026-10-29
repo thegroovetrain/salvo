@@ -4,7 +4,11 @@
 // (`dealableConsumables()`), and every pick keeps `isConsumableKit` true.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  BUOY_LINE_IDS,
+  CATALOG,
   CONSUMABLE_SLOTS,
+  LINE_IDS,
+  isStubLine,
   DEFAULT_KIT,
   KIT_SIZE,
   dealableConsumables,
@@ -54,6 +58,16 @@ describe('pickerModel — every dealable line, one current, the rest of the kit 
         expect(new Set(taken)).toEqual(new Set(kit.filter((_, i) => i !== slot)));
       }
     }
+  });
+});
+
+describe('the picker follows the catalog — Story 10.9 lists FLASH SHELLS and the four buoys', () => {
+  it('lists every non-stub consumable line, the five new ones included, the retired decoy gone', () => {
+    const ids = pickerModel(DEFAULT_KIT, 0).map((c) => c.id);
+    const consumables = LINE_IDS.filter((id) => CATALOG[id].kind === 'consumable' && !isStubLine(id));
+    expect(new Set(ids)).toEqual(new Set(consumables));
+    for (const id of ['dazzleShells', ...BUOY_LINE_IDS]) expect(ids, id).toContain(id);
+    expect(ids).not.toContain('decoyBuoy');
   });
 });
 

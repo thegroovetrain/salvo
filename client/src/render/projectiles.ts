@@ -169,6 +169,8 @@ export type OwnFire =
   // both are claimable and both keep the generic shell look, like the star shell.
   | 'phosphorShells'
   | 'foulingShell'
+  // STORY 10.9: FLASH SHELLS (`dazzleShells`) back beside the fouling shell.
+  | 'dazzleShells'
   // THE THREE FISH (Story 8.13): two torpedo LINES and the belt's SUPERCAV
   // TORPEDO, a click-aimed consumable (epic-8 amendment 74). All three ride the
   // one `torp` wire kind, so all three are claimable by the own-fire latch.
@@ -297,9 +299,11 @@ export function cullRadiusSq(sightRange: number, kind: Kind): number {
  * degrades an own track to the enemy ring. That one-sided error is deliberate —
  * inverting it would hand every enemy fish a long ghost.
  */
-export function trackCullRadiusSq(ranges: VisionRanges, kind: Kind, own: OwnFire): number {
-  if (own !== null) return cullRadiusSq(ranges.sightRange, 'shell'); // believed-own: the plain sight ring
-  return cullRadiusSq(effectiveSight(ranges), kind);
+export function trackCullRadiusSq(ranges: VisionRanges, dazzled: boolean, kind: Kind, own: OwnFire): number {
+  // believed-own: the plain, UN-DAZZLED sight ring — the server's owner path
+  // never consults a range or a dazzle (FLASH SHELLS, Story 10.9).
+  if (own !== null) return cullRadiusSq(ranges.sightRange, 'shell');
+  return cullRadiusSq(effectiveSight(ranges, dazzled), kind);
 }
 
 /** Pure: dead-reckoned shell position at server time `now` (ms). */
@@ -399,6 +403,9 @@ export class Projectiles {
    *  every cull ring is resolved from, per track and per frame
    *  (`trackCullRadiusSq`). */
   private ranges: VisionRanges = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
+  /** The DAZZLE flag (FLASH SHELLS) — kept beside the ranges so either can
+   *  change alone without silently resetting the other. */
+  private dazzled = false;
 
   constructor(
     private readonly mapRadius: number,
@@ -459,6 +466,27 @@ export class Projectiles {
    *  never a second plumbing path. */
   setSightRange(sightRange: number, radarRange: number): void {
     this.ranges = { sightRange, radarRange };
+  }
+
+  /**
+   * Adopt the DAZZLE state (Story 2.8; FLASH SHELLS, restored by 10.9) — the
+   * projectile half of the plumbing `Fog` and `Radar` have, and the reason it
+   * is not optional: the SERVER reveals and corrects an ENEMY's ballistics
+   * inside `sightOf(me, now)`, which IS dazzle-scaled, so a client holding the
+   * full ring would go on dead-reckoning a track the server had already
+   * stopped correcting. It reaches the ENEMY rings only: the server's owner
+   * path never consults a range at all (`trackCullRadiusSq`). Returns TRUE
+   * when the state flipped, mirroring `Fog.setDazzled`; nothing to rebake.
+   */
+  setDazzled(dazzled: boolean): boolean {
+    if (dazzled === this.dazzled) return false;
+    this.dazzled = dazzled;
+    return true;
+  }
+
+  /** Is the dazzle currently held? Test/observation seam (mirrors `Fog`). */
+  get isDazzled(): boolean {
+    return this.dazzled;
   }
 
   /** Set the own loadout's doctrine modes (main.applyOwnStats). Affects only
@@ -770,7 +798,7 @@ export class Projectiles {
         continue;
       }
       const p = shellPosition({ x: s.x0, y: s.y0 }, s, s.t0, serverNow);
-      const cull2 = trackCullRadiusSq(this.ranges, s.kind, s.own);
+      const cull2 = trackCullRadiusSq(this.ranges, this.dazzled, s.kind, s.own);
       if (ownPos && shellCulledBeyondSight(p, ownPos, cull2, keepZones)) {
         this.remove(id);
         continue;

@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { OWN_FIRE_WINDOW_MS, OwnFireLatch, isBallisticFire } from '../sim/ownFire';
+import { BUOY_LINE_IDS } from '@salvo/shared';
 
 describe('OwnFireLatch — the one-shot claim', () => {
   it('hands the claim to the FIRST reveal and to nothing after it', () => {
@@ -58,7 +59,8 @@ describe('OwnFireLatch — the one-shot claim', () => {
     expect(isBallisticFire('phosphorShells')).toBe(true); // Story 8.17 — one shell per click
     expect(isBallisticFire('foulingShell')).toBe(true); // FOULING SHELL — a consumable that fires a shell
     expect(isBallisticFire('boost')).toBe(false);
-    expect(isBallisticFire('decoyBuoy')).toBe(false); // placed, never revealed as a track
+    for (const id of BUOY_LINE_IDS) expect(isBallisticFire(id)).toBe(false); // placed, never revealed as a track
+    expect(isBallisticFire('dazzleShells')).toBe(true); // FLASH SHELLS (Story 10.9) — one shell per click
     expect(isBallisticFire('navalMines')).toBe(false); // placed, never revealed as a track
     const latch = new OwnFireLatch();
     latch.latch('boost', 1000);

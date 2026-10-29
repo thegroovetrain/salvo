@@ -1007,6 +1007,25 @@ export const CLIENT_CONFIG = {
     armingScale: 0.4,
   },
 
+  /** THE BUOY EFFECT RINGS (Story 10.9, Eric 2026-10-29: every own buoy and
+   *  every SIGHTED enemy buoy draws its `CONFIG.buoy.radiusU` ring on the
+   *  chart, all DASHED — render/buoyRings.ts). A 1 px non-scaling hairline
+   *  (Pixi `pixelLine`); own rings in the kind's colour, an enemy's in the
+   *  shared alert blend. Feel knobs only — the radius is CONFIG's. */
+  buoyRing: {
+    /** Stroke alpha of an own ring at full life (scaled by its life left). */
+    alpha: 0.55,
+    /** Stroke alpha of a sighted enemy's ring (the alert tint rides on it). */
+    enemyAlpha: 0.6,
+    /** Interior wash of an own HEALING / SHIELD / SPEED ring at full life;
+     *  RADAR has none (its sweep wedge is the interior); an enemy's has none. */
+    fillAlpha: 0.07,
+    /** The dash: segments around the full circle and the inked fraction of
+     *  each — more than the mine rings' 28, because this ring is ~100× wider. */
+    dashSegments: 120,
+    dashDuty: 0.5,
+  },
+
   /** Own/contact ship view feel constants. */
   ship: {
     flashMs: 130, // ms — hit-flash duration

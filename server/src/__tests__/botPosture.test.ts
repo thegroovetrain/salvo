@@ -353,7 +353,7 @@ describe('ai/posture — HOLD in cover with no target (epic-9 amendments 199/202
 });
 
 describe('ai/utility — DECOYS (epic-9 amendment 197)', () => {
-  const ownBuoy = (x: number, y: number): DecoyView => ({ id: 'd1', x, y, own: true, by: 'me', hp: 50 });
+  const ownBuoy = (x: number, y: number): DecoyView => ({ id: 'd1', x, y, own: true, by: 'me', kind: 'healing', hp: 50 });
 
   it('an OWN decoy\'s paint is never selected, even as the only thing on the water', () => {
     const m = mind();
@@ -364,7 +364,7 @@ describe('ai/utility — DECOYS (epic-9 amendment 197)', () => {
 
   it('a SIGHTED enemy decoy\'s plot is excluded; the live hull in reach is selected', () => {
     const m = mind();
-    m.view = view({ decoys: [{ id: 'd2', x: 300, y: 0, own: false, by: 'enemy' }] });
+    m.view = view({ decoys: [{ id: 'd2', x: 300, y: 0, own: false, by: 'enemy', kind: 'radar' }] });
     m.contacts.set('buoy', plot({ x: 300, y: 5 }));
     m.contacts.set('hull', track({ id: 'hull', x: 0, y: 450 }));
     expect(selectTargetKey(m, situation())).toBe('hull');

@@ -59,7 +59,7 @@ export type WakeSourceKind = HullId | 'torp';
 /** One visible source, as the wake layer needs it: pose, kind and the tint its
  *  foam carries. `maxSpeedU` provisions the ring buffer — pass the source's
  *  TRUE attainable top speed when it is known (own ship:
- *  `draftedKinematics(boostedKinematics(kinematics, CONFIG.boost.factor, true),
+ *  `draftedKinematics(boostedKinematics(kinematics, topBoostFactor(), true),
  *  CONFIG.wake.draft.lift, true).maxSpeed`, mirroring `World.wakeTopSpeed` —
  *  boost AND full wake-draft lift, Story 8.19); omitted, the class
  *  envelope is used and a boosted or drafting hull loses a little tail early, which is the

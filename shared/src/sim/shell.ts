@@ -163,6 +163,17 @@ export interface ShellState {
    */
   foul?: { radius: number; durationMs: number };
   /**
+   * SERVER-INTERNAL flash tag (Story 8.17, FLASH SHELLS, epic-8 amendments 132
+   * and 135(d); RESTORED by Story 10.9, Eric 2026-10-27/28, epic-10 amendments
+   * 2 and 4, beside `foul`): when set, a BURST of this shell — at its aim
+   * point, or at the stop point of an interception, exactly as a flare lights
+   * there — dazzles every non-owner afloat hull whose CENTRE is inside
+   * `radius` for `durationMs` (a later expiry wins; never stacks). No zone, no
+   * light, no damage. stepShell never reads it; NEVER on the wire (the `lit`
+   * tag's exact posture).
+   */
+  flash?: { radius: number; durationMs: number };
+  /**
    * SERVER-INTERNAL no-aggro tag (Story 7-5 fix cycle, R2.21a): a hit by this
    * shell must aggro NOBODY at its owner — the GUN BUOY's shells carried it
    * (the gun buoy is deleted with the radar buoy, Story 8.16), because "the layer may be dead or across the map, so there is nothing to
@@ -183,7 +194,9 @@ export interface ShellState {
    * ACOUSTIC HOMING doctrine (Story 2.8, torpedoHoming): per tick the fish
    * acquires the nearest non-owner TARGET whose centroid is within
    * `acquireRange` and steers its velocity direction toward it at up to
-   * `turnRate` rad/s.
+   * `turnRate` rad/s. Since Story 10.9 (Eric 2026-10-28, ruling 3) an ENEMY
+   * BUOY in range is acquired BEFORE any hull: the nearest buoy wins when one
+   * is within `acquireRange`, else the nearest hull as before (`acquireNearest`).
    *
    * "Target" is whatever the caller puts in `ctx.targets`: live hulls plus every
    * live DECOY BUOY (Story 8.16 — the radar buoy that held the `decoy` kind
@@ -443,32 +456,53 @@ function steerHoming(shell: ShellState, ctx: ShellContext): void {
   shell.vy = speed * Math.sin(dir);
 }
 
-/** The nearest legal target's centroid within `acquireRange`, RE-ACQUIRED every
- *  tick and recorded in `homing.targetId` — the shipped ACOUSTIC HOMING rule,
- *  lifted out of `steerHoming` unchanged. Null (and the lock cleared) when
- *  nothing qualifies. */
+/** One nearest-centroid pass over `targets` within `acquireRange`, keeping the
+ *  `<=` tie law (the later entry wins a tie). `legal` is the pass's own filter;
+ *  the owner's hull and the owner's own decoy are never legal (no friendly
+ *  fire, amendment 119), and a mine never is (amendment 20). */
+function nearestLegal(
+  shell: ShellState,
+  acquireRange: number,
+  ctx: ShellContext,
+  legal: (t: Target) => boolean,
+): { c: Vec2; id: string } | null {
+  let best: { c: Vec2; id: string } | null = null;
+  let bestD = acquireRange;
+  for (const t of ctx.targets) {
+    if (t.kind === 'mine') continue; // a fish never locks a mine (amendment 20)
+    if (t.kind === 'hull' && t.id === shell.ownerId) continue; // never homes on the owner
+    if (isOwnDecoy(t, shell.ownerId)) continue; // never homes on the owner's decoy (amendment 119)
+    if (!legal(t)) continue;
+    const c = polyCentroid(t.poly);
+    const d = Math.hypot(c.x - shell.x, c.y - shell.y);
+    if (d <= bestD) {
+      bestD = d;
+      best = { c, id: t.id };
+    }
+  }
+  return best;
+}
+
+const isDecoyTarget = (t: Target): boolean => t.kind === 'decoy';
+const anyTarget = (): boolean => true;
+
+/** The target's centroid within `acquireRange`, RE-ACQUIRED every tick and
+ *  recorded in `homing.targetId`. TWO PASSES since Story 10.9 (Eric
+ *  2026-10-28, ruling 3 — "any ENEMY buoy inside the fish's acquire range
+ *  wins"): first the nearest ENEMY BUOY (a `decoy` target that is not the
+ *  owner's); only when no buoy is in range, the shipped ACOUSTIC HOMING rule —
+ *  the nearest hull — unchanged. Null (and the lock cleared) when nothing
+ *  qualifies. */
 function acquireNearest(
   shell: ShellState,
   homing: NonNullable<ShellState['homing']>,
   ctx: ShellContext,
 ): Vec2 | null {
-  let best: Vec2 | null = null;
-  let bestId: string | undefined;
-  let bestD = homing.acquireRange;
-  for (const t of ctx.targets) {
-    if (t.kind === 'mine') continue; // a fish never locks a mine (amendment 20)
-    if (t.kind === 'hull' && t.id === shell.ownerId) continue; // never homes on the owner
-    if (isOwnDecoy(t, shell.ownerId)) continue; // never homes on the owner's decoy (amendment 119)
-    const c = polyCentroid(t.poly);
-    const d = Math.hypot(c.x - shell.x, c.y - shell.y);
-    if (d <= bestD) {
-      bestD = d;
-      best = c;
-      bestId = t.id;
-    }
-  }
-  homing.targetId = bestId;
-  return best;
+  const hit =
+    nearestLegal(shell, homing.acquireRange, ctx, isDecoyTarget) ??
+    nearestLegal(shell, homing.acquireRange, ctx, anyTarget);
+  homing.targetId = hit?.id;
+  return hit?.c ?? null;
 }
 
 /** The PINNED target's centroid, or null when it is no longer in `ctx.targets`

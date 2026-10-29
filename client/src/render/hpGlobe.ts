@@ -88,6 +88,18 @@ export function hullShownValue(hp: number): number {
   return hp <= 0 ? 0 : Math.max(1, Math.floor(hp));
 }
 
+/**
+ * Pure: hp — EVERY shield pool the own hull holds, summed: the SHIELD BLOCK's
+ * remaining absorb (`OwnShip.shield.hp`) plus the SHIELD BUOY's pool
+ * (`OwnShip.buoyShield.hp`, Story 10.9, AC 7). Both keys are ABSENT when their
+ * pool is empty (the conditional-spread wire rule), and a missing `you` reads
+ * 0. The globe adds this to the printed number in the existing shielded fill
+ * — one register for "shielded", no new colour, no new copy.
+ */
+export function shieldPoolHp(you: { shield?: { hp: number }; buoyShield?: { hp: number } } | null | undefined): number {
+  return (you?.shield?.hp ?? 0) + (you?.buoyShield?.hp ?? 0);
+}
+
 /** Pure: the HP numeral's fill — `info` while a SHIELD BLOCK has hp left
  *  (amendment 116), the ordinary `textPrimary` otherwise. */
 export function shieldedFill(shield: number): number {
@@ -329,8 +341,9 @@ export interface HpGlobeInput {
   alive: boolean;
   /** Inside the five-second sinking window (Story 5.2's third state). */
   sinking: boolean;
-  /** hp — the SHIELD BLOCK's remaining absorb (`OwnShip.shield.hp`; 0 when no
-   *  shield is up). Story 8.16, epic-8 amendments 116/117: it is added to the
+  /** hp — every shield pool's remaining absorb (`shieldPoolHp`: the SHIELD
+   *  BLOCK's plus, since Story 10.9, the SHIELD BUOY's; 0 when none is up).
+   *  Story 8.16, epic-8 amendments 116/117: it is added to the
    *  printed NUMBER only, tinted `info` — the globe, its band and the max label
    *  never see it. */
   shield: number;

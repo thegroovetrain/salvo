@@ -58,6 +58,7 @@ import * as shared from '../index.js';
 import {
   CATALOG,
   CONFIG,
+  BUOY_LINE_IDS,
   EQUIPMENT_IDS,
   LINE_IDS,
   SHIP_CLASS_IDS,
@@ -117,7 +118,7 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   hullRepair: { cap: 5, kind: 'consumable', stub: false }, // LIVE since Story 8.8 (R13)
   shieldBlock: { cap: 5, kind: 'consumable', stub: false }, // LIVE since 8.16 (R37)
   countermeasure: { cap: 5, kind: 'consumable', stub: false }, // LIVE since 9.3 (replaced SMOKE SCREEN, live since 8.18)
-  decoyBuoy: { cap: 5, kind: 'consumable', stub: false }, // LIVE since 8.16 (R36)
+  // `decoyBuoy` (LIVE since 8.16, R36) sat here until Story 10.9 DELETED it.
   depthCharge: { cap: 5, kind: 'consumable', stub: true }, // NEW in 8.13 (amendment 83)
   // AN EQUIPMENT LINE since 8.13 (amendment 81) — it keeps its LINE_IDS slot.
   foulingMines: { cap: 5, kind: 'equipment', stub: false },
@@ -126,6 +127,14 @@ const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   foulingShell: { cap: 5, kind: 'consumable', stub: false },
   // An EQUIPMENT line since 8.17 (amendment 131), slot kept.
   phosphorShells: { cap: 5, kind: 'equipment', stub: false },
+  // STORY 10.9 (Eric 2026-10-27/28, epic-10 amendments 2 and 4) APPENDED FIVE:
+  // FLASH SHELLS back beside the fouling shell, and the four BUOYS that replace
+  // the deleted DECOY BUOY. All live consumables.
+  dazzleShells: { cap: 5, kind: 'consumable', stub: false },
+  radarBuoy: { cap: 5, kind: 'consumable', stub: false },
+  healingBuoy: { cap: 5, kind: 'consumable', stub: false },
+  shieldBuoy: { cap: 5, kind: 'consumable', stub: false },
+  speedBuoy: { cap: 5, kind: 'consumable', stub: false },
 };
 
 /** The 1 stub id (Eric ruling 2026-09-15, amendment 5). 13 until Story 8.8
@@ -348,13 +357,28 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('DELETES the radar buoy end to end — no card fits it (Story 8.16)', () => {
+  it('DELETES the 8.16 radar buoy EQUIPMENT end to end — no card fits it; the 10.9 buoys are CONSUMABLE lines', () => {
     expect((EQUIPMENT_IDS as readonly string[]).includes('radarBuoy')).toBe(false);
     expect(EQUIPMENT_IDS).toContain('phosphorShells');
     expect((CONFIG as Record<string, unknown>).radarBuoy).toBeUndefined();
-    // The DECOY BUOY that replaces it is a live CONSUMABLE line, not equipment.
-    expect(CATALOG.decoyBuoy.kind).toBe('consumable');
-    expect(CATALOG.decoyBuoy.stub).toBeUndefined();
+    // The DECOY BUOY that replaced it is gone too (Story 10.9); the four buoys
+    // that replace THAT are live CONSUMABLE lines, not equipment.
+    expect((LINE_IDS as readonly string[]).includes('decoyBuoy')).toBe(false);
+    expect((CONFIG as Record<string, unknown>).decoyBuoy).toBeUndefined();
+    for (const id of BUOY_LINE_IDS) {
+      expect(CATALOG[id].kind, id).toBe('consumable');
+      expect(CATALOG[id].stub, id).toBeUndefined();
+      expect((EQUIPMENT_IDS as readonly string[]).includes(id), id).toBe(false);
+    }
+  });
+
+  it('FLASH SHELLS is BACK beside the FOULING SHELL — two live click shells, neither in the other\'s seat (Story 10.9)', () => {
+    expect(CATALOG.dazzleShells.kind).toBe('consumable');
+    expect(CATALOG.dazzleShells.stub).toBeUndefined();
+    expect(CATALOG.foulingShell.kind).toBe('consumable');
+    expect(LINE_IDS.indexOf('dazzleShells')).toBeGreaterThan(LINE_IDS.indexOf('foulingShell'));
+    // The five 10.9 lines are APPENDED, in order, at the foot of the list.
+    expect(LINE_IDS.slice(-5)).toEqual(['dazzleShells', ...BUOY_LINE_IDS]);
   });
 
   it('the MACHINE GUN and FLAK lines are their guns\' LADDERS, exactly like DECK GUN (amendments 104/105)', () => {
@@ -665,8 +689,8 @@ describe('THE ORDER-INDEPENDENCE PROPERTY', () => {
 // ---------------------------------------------------------------------------
 
 /** The lines that were in no default deck when decks existed (five until
- *  HEAT SEEKING was cut in Story 8.15). */
-const FORMERLY_UNHOMED: readonly LineId[] = ['foulingMines', 'broadside', 'decoyBuoy', 'phosphorShells'];
+ *  HEAT SEEKING was cut in Story 8.15; the DECOY BUOY left with Story 10.9). */
+const FORMERLY_UNHOMED: readonly LineId[] = ['foulingMines', 'broadside', 'phosphorShells'];
 
 describe('THE COMMON POOL — nothing is homed to a hull any more (amendment 89a)', () => {
   it('every line the catalog knows is in LINE_IDS, and the formerly-unhomed lines are ordinary lines', () => {
