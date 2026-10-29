@@ -75,6 +75,7 @@ import {
   bearing,
   dist,
   droneSizeOf,
+  effectiveSight,
   hullBumper,
   isAfloat,
   isOutside,
@@ -92,7 +93,7 @@ import {
   type Vec2,
   type ZoneRing,
 } from '@salvo/shared';
-import { shipSees, sightOf, type SightField } from './signals.js';
+import { shipSees, type SightField } from './signals.js';
 import { leadIntercept } from './lead.js';
 import { isFleetHull } from './participants.js';
 import {
@@ -715,8 +716,11 @@ export class FleetController {
     // UNDAZZLED on purpose (Story 10.9): this scope is an EXACT speed-up cut
     // (the kernel's reach lies inside the undazzled sight), so reading the
     // dazzled quarter-sight here would change behavior — a flashed drone
-    // would stop avoiding hulls inside its kernel reach and ram.
-    const sight = sightOf(ship, 0);
+    // would stop avoiding hulls inside its kernel reach and ram. The one-arg
+    // `effectiveSight` IS the undazzled read; `sightOf(ship, 0)` was NOT
+    // (`0 < dazzledUntil` holds for any once-flashed hull — review gate,
+    // Codex + both hunters, 2026-10-28).
+    const sight = effectiveSight(ship.stats);
     const sight2 = sight * sight;
     let bias = 0;
     for (const other of this.solids) {

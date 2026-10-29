@@ -99,6 +99,34 @@ describe('drone sight scope — hull avoidance reads only what the drone can see
   });
 });
 
+describe('drone sight scope — the cut is UNDAZZLED (Story 10.9 review gate: Codex + both hunters)', () => {
+  // `sightOf(ship, 0)` reads `0 < dazzledUntil`, which is TRUE for any hull that
+  // was ever flashed — the quarter-sight for the rest of the match, the exact
+  // ram the scope comment says it avoids. The scope must read the undazzled
+  // sight regardless of the drone's dazzle state.
+  it('a once-flashed drone still evaluates a hull between the dazzled quarter-sight and the kernel reach', () => {
+    const w = bareWorld(11);
+    const d = fleetShip(w, 'f', 'medium', 0, 0);
+    const dazzled = d.stats.sightRange * CONFIG.flashShells.sightFraction;
+    const probe = CONFIG.bots.hullLookaheadU;
+    expect(dazzled).toBeLessThan(probe); // premise: the bug has room to bite
+    captain(w, 'near', (dazzled + probe) / 2, 0);
+    d.dazzledUntil = 1; // flashed long ago — expired at t = 1 ms
+    w.step();
+    expect(w.drones.probe.hullPairs).toBe(1);
+  });
+
+  it('an ACTIVELY dazzled drone evaluates that hull too (the cut never shrinks under a flash)', () => {
+    const w = bareWorld(12);
+    const d = fleetShip(w, 'f', 'medium', 0, 0);
+    const dazzled = d.stats.sightRange * CONFIG.flashShells.sightFraction;
+    captain(w, 'near', (dazzled + CONFIG.bots.hullLookaheadU) / 2, 0);
+    d.dazzledUntil = Number.MAX_SAFE_INTEGER;
+    w.step();
+    expect(w.drones.probe.hullPairs).toBe(1);
+  });
+});
+
 describe('drone sight scope — the fleet waypoint is vetted once, when picked', () => {
   it('an afloat waypoint is never re-tested for land on later ticks', () => {
     const w = bareWorld(11);

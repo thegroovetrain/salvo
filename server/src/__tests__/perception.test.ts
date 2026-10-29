@@ -3073,7 +3073,7 @@ function expectedBuoyBlips(w: World, me: ShipRecord): ExpectedBlip[] {
       );
     };
     for (const t of w.ships.values()) {
-      if (t.id === me.id || !isAfloat(t.lifecycle) || !paints(t.state, t.id)) continue;
+      if (t.id === me.id || !(isAfloat(t.lifecycle) || isSinking(t.lifecycle)) || !paints(t.state, t.id)) continue;
       out.push({ mask: maskOracle(t.hullId, t.state.x, t.state.y, t.state.heading, w.now), label: `radar buoy ${b.id} → ship ${t.id}` });
     }
     for (const o of w.decoys.values()) {
