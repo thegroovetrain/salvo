@@ -65,7 +65,7 @@ import { clickInArc, weaponReachU } from './render/weaponArc.js';
 import { Effects, WorldFlashGate } from './render/effects.js';
 import type { WakeHull } from './render/wake.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
-import { Decoys, ownBuoyUntil } from './render/decoys.js';
+import { Decoys } from './render/decoys.js';
 import { BuoySweep, buoySweepModels } from './render/buoySweep.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { BurnZones } from './render/burnZones.js';
@@ -2846,17 +2846,17 @@ function latchFitFlash(g: Game, cardId: string): void {
  * Shift) reads the server's self-private `you.hunkerUntil` — no prediction,
  * the window arrives with the frame — so the Shift square takes the boost's
  * ACTIVE grammar for its 8 s (amendment 34). INSTANT RELOAD has no window: it
- * goes straight to the cooldown wipe. A BUOY square (Story 10.9) reads the
- * EARLIEST own live buoy of its kind (`ownBuoyUntil`) — the server's own
- * `until`, never predicted — so a dropped buoy's slot breathes with its
- * seconds like the boost's does. Everything else has no window.
+ * goes straight to the cooldown wipe. A BUOY square has NO window (Eric
+ * 2026-10-29, epic-10 amendment 4n: a buoy is usable again at once while stock
+ * remains, and with two live buoys of one kind the slot's countdown was
+ * ambiguous — the chart's ring and life arc are the buoy's clock). Everything
+ * else has no window.
  */
 function activeWindows(g: Game, status: OwnStatus): number[] {
   const now = g.clock.serverNow();
   const until: Partial<Record<string, number>> = {
     boost: boostUntilNow(g),
     hunker: g.state.net.you?.hunkerUntil ?? 0,
-    ...ownBuoyUntil(g.state.net.decoys ?? [], now),
   };
   return status.loadout.map((id) => Math.max(0, (id === null ? 0 : until[id] ?? 0) - now));
 }
