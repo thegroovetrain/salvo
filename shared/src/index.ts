@@ -3,6 +3,12 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  94 — FLASH SHELLS re-cut (Eric 2026-10-29, THE WHITEOUT LAW): a flashed
+ *  hull's truesight is 0 through `rampMs + holdMs`, then grows linearly to the
+ *  full sightRange across `clearMs`; `OwnShip.dazzledUntil` = hit + 10 s
+ *  (`FLASH_WINDOW_MS`, the sum); `effectiveSight(stats, dazzledUntil, now)`
+ *  replaces the boolean; `CONFIG.flashShells` shape changes (durationMs +
+ *  sightFraction → rampMs / holdMs / clearMs — the client reads it).
  *  93 — Story 10.9 THE FLASH SHELL AND THE FOUR BUOYS (Eric 2026-10-27/28,
  *  epic-10 amendments 2 and 4): catalog −decoyBuoy +dazzleShells +radarBuoy
  *  +healingBuoy +shieldBuoy +speedBuoy (26 → 30 lines, catalog content is
@@ -914,7 +920,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 93;
+export const PROTOCOL_VERSION = 94;
 
 // Tunables
 export * from './constants.js';

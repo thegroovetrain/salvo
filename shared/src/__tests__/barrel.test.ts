@@ -8,6 +8,7 @@ import type { EquipmentId } from '../index.js';
 const TWELFTH = CONFIG.vision.sight / 4;
 import {
   damageMultiplierFor,
+  FLASH_WINDOW_MS,
   CONFIG,
   DRONE_HULL_IDS,
   fleetHullIds,
@@ -409,10 +410,10 @@ describe('shared barrel', () => {
     }
   });
 
-  it('CONFIG.flashShells: back beside the fouling shell — no damage, no reach of its own, a sight fraction in (0, 1) (Story 10.9)', () => {
+  it('CONFIG.flashShells: back beside the fouling shell — no damage, no reach of its own, a three-phase whiteout window (Story 10.9; Eric 2026-10-29)', () => {
     const fl = CONFIG.flashShells;
     expect(Object.keys(fl).sort()).toEqual(
-      ['arc', 'durationMs', 'hits', 'radius', 'shellRadius', 'shellSpeed', 'sightFraction'],
+      ['arc', 'clearMs', 'hits', 'holdMs', 'radius', 'rampMs', 'shellRadius', 'shellSpeed'],
     );
     expect('damage' in fl).toBe(false); // a dazzle is not damage
     // ONE reach for the two click shells (ruling 2): the flash has NO rangeU
@@ -420,10 +421,15 @@ describe('shared barrel', () => {
     expect('rangeU' in fl).toBe(false);
     expect(fl.hits).toEqual(['hull', 'decoy']); // the star shell's mask — never a mine
     expect(fl.arc).toBe('full');
-    expect(fl.sightFraction).toBeGreaterThan(0);
-    expect(fl.sightFraction).toBeLessThan(1);
     expect(fl.radius).toBeGreaterThan(0);
-    expect(fl.durationMs).toBeGreaterThan(0);
+    // THE WHITEOUT LAW: three finite non-negative phases whose SUM is the
+    // window (sim/sight.ts FLASH_WINDOW_MS — never a fourth literal).
+    for (const ms of [fl.rampMs, fl.holdMs, fl.clearMs]) {
+      expect(Number.isFinite(ms)).toBe(true);
+      expect(ms).toBeGreaterThanOrEqual(0);
+    }
+    expect(fl.rampMs + fl.holdMs + fl.clearMs).toBeGreaterThan(0);
+    expect(FLASH_WINDOW_MS).toBe(fl.rampMs + fl.holdMs + fl.clearMs);
   });
 
   it('CONFIG.torpedo: the homing travel budget is finite and positive, so a fish can never orbit forever', () => {
