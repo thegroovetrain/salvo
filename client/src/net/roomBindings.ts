@@ -19,6 +19,7 @@ import {
   type BoonFitEvent,
   type BurnZoneView,
   type BurstEvent,
+  type DecoyView,
   type DeniedView,
   type DropEvent,
   type FoghornEvent,
@@ -748,6 +749,12 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });
     if (deps.state.mode === 'predict') deps.predictor.onServerState(f.you, f.ackSeq);
     deps.radar.onSweepSample(f.you.sweep, f.t); // authoritative sweep anchor
+    // The own RADAR BUOYS (Story 10.9 review gate) — the second antennas'
+    // positions, fed beside the own sweep anchor and BEFORE this frame's
+    // events (handleEvents runs last): a blip tagged `src` is marched from the
+    // buoy it names, and dropped when that buoy is not in this list. Only an
+    // own-ship (fogged) frame can carry a `src` paint.
+    deps.radar.setOwnRadarBuoys(ownRadarBuoys(f));
     // First authoritative pose after a reconnect: snap the camera to the resumed
     // hull (completes the handleSpawn mirror), consuming the one-shot flag.
     if (s.pendingSnap) {
@@ -761,6 +768,12 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   trackBurning(f, deps, s);
   routeDenials(f, deps);
   handleEvents(f, deps, s);
+}
+
+/** The frame's OWN RADAR buoys (Story 10.9 review gate) — the radar's
+ *  `src` paint origins. Own non-radar buoys and anyone else's are not. */
+function ownRadarBuoys(f: FrameMsg): DecoyView[] {
+  return (f.decoys ?? []).filter((d) => d.own && d.kind === 'radar');
 }
 
 /**

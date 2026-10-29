@@ -17,7 +17,7 @@ import {
   type ReturnBlipEvent,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
-import { observe } from '../game/perception.js';
+import { observe, observeSpectator } from '../game/perception.js';
 import { addDecoy, type DecoyState } from '../game/decoys.js';
 import { flatRaster, rasterFrom, ridgeField } from './islandFixture.js';
 
@@ -67,7 +67,7 @@ describe('RADAR BUOY — a second sweep for its OWNER (AC 5)', () => {
     const x = place(w, 'x', far, R / 3); // a third hull near the buoy (and inside its radius)
     expect(Math.hypot(t.state.x, t.state.y)).toBeGreaterThan(o.stats.radarRange); // premise: the owner's own radar cannot reach t
     const own = blips(w, 'o');
-    expect(own).toContainEqual(hullPaint(w, t));
+    expect(own).toContainEqual({ ...hullPaint(w, t), src: 'rb' });
     expect(own).toHaveLength(1); // x lies NORTH of the buoy: outside this tick's window (bearing 0 only)
     // Nobody but the owner gets the buoy's paints.
     expect(blips(w, 't')).toEqual([]);
@@ -109,7 +109,7 @@ describe('RADAR BUOY — a second sweep for its OWNER (AC 5)', () => {
     addDecoy(w.decoys, e.id, far + R / 2, 0, 'enemy', 'healing', w.now + CONFIG.buoy.lifetimeMs, 0);
     addDecoy(w.decoys, o.id, far + R / 3, 0, 'mine', 'healing', w.now + CONFIG.buoy.lifetimeMs, 0);
     const want = paintSegmentCoverage(far + R / 2, 0, far + R / 2, 0, CONFIG.buoy.sizeU, CONFIG.vision.radarCellU, w.now);
-    expect(blips(w, 'o')).toEqual([{ k: 'blip', t: w.now, gx: want.gx, gy: want.gy, w: want.w, h: want.h, bits: want.bits }]);
+    expect(blips(w, 'o')).toEqual([{ k: 'blip', t: w.now, gx: want.gx, gy: want.gy, w: want.w, h: want.h, bits: want.bits, src: 'rb' }]);
     expect(observe(w, 'o').events.some((ev) => ev.k === 'wk')).toBe(false);
   });
 
@@ -156,5 +156,66 @@ describe('RADAR BUOY — a second sweep for its OWNER (AC 5)', () => {
     b.sweep!.sweepAngle = TAU - 1e-6;
     w.step();
     expect(b.sweep!.sweepRev).toBe(1);
+  });
+
+  // THE PAINT'S ORIGIN TAG (Story 10.9 review gate): the client marches every
+  // echo from an origin — the own hull for the own sweep, the BUOY for a buoy
+  // paint — so a buoy paint carries `src` = the owner's own buoy id. Self-
+  // private: only the owner ever receives one, and the owner already holds
+  // the buoy's id/position/sweep on DecoyView. NOT a perception exception.
+  describe('`src` names the owner\'s own RADAR buoy on its paints, and nothing else carries it', () => {
+    it('a buoy paint carries src = that buoy\'s id; the own sweep\'s paint of the same hull carries none', () => {
+      const w = bareWorld();
+      const o = place(w, 'o', 0, 0);
+      const t = place(w, 't', R / 2, 0); // inside both the owner's radar and the buoy's radius
+      radarBuoy(w, o, 0, -R / 4, 'rb1'); // bearing to t is NOT east: park its beam on t's bearing instead
+      const b = w.decoys.get('rb1')!;
+      const brg = Math.atan2(t.state.y - b.y, t.state.x - b.x);
+      const at = (brg + TAU) % TAU;
+      b.sweep!.prevSweepAngle = at - 0.05;
+      b.sweep!.sweepAngle = at + 0.05;
+      o.prevSweepAngle = TAU - 0.05; // and the owner's OWN beam crosses east (t's bearing) this tick
+      o.sweepAngle = 0.05;
+      const got = blips(w, 'o');
+      const bare = hullPaint(w, t);
+      expect(got).toHaveLength(2); // two antennas, two returns
+      expect(got).toContainEqual(bare); // the own sweep: no src key at all
+      expect(got).toContainEqual({ ...bare, src: 'rb1' });
+      expect(got.filter((e) => !('src' in e))).toHaveLength(1);
+    });
+
+    it('with two radar buoys each paint names the buoy whose beam made it', () => {
+      const w = bareWorld();
+      const o = place(w, 'o', 0, 0);
+      const far = o.stats.radarRange + 1000;
+      radarBuoy(w, o, far, 0, 'east');
+      radarBuoy(w, o, far, 4 * R, 'north');
+      const a = place(w, 'a', far + R / 2, 0);
+      const c = place(w, 'c', far + R / 2, 4 * R);
+      expect(blips(w, 'o')).toEqual(expect.arrayContaining([
+        { ...hullPaint(w, a), src: 'east' },
+        { ...hullPaint(w, c), src: 'north' },
+      ]));
+      expect(blips(w, 'o')).toHaveLength(2);
+    });
+
+    it('a non-owner never receives a src blip — not through its own sweep, not as a spectator', () => {
+      const w = bareWorld();
+      const o = place(w, 'o', 0, 0);
+      const x = place(w, 'x', 200, 0);
+      x.prevSweepAngle = TAU - 0.05; // x's own beam crosses east this tick
+      x.sweepAngle = 0.05;
+      const far = o.stats.radarRange - 200;
+      radarBuoy(w, o, far, 0);
+      place(w, 't', far + R / 2, 0);
+      const owner = blips(w, 'o');
+      expect(owner.some((e) => e.src === 'rb')).toBe(true); // premise: the owner's buoy paints
+      const seen = blips(w, 'x');
+      expect(seen).toHaveLength(1); // premise: x's own sweep paints t
+      expect(seen.some((e) => 'src' in e)).toBe(false);
+      for (const id of ['o', 'x', 'nobody']) {
+        expect(observeSpectator(w, id).events.some((e) => e.k === 'blip' && 'src' in e)).toBe(false);
+      }
+    });
   });
 });

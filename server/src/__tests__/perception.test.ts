@@ -3014,6 +3014,10 @@ function verifyAggro(w: World, me: ShipRecord, c: Contact, target: ShipRecord): 
 interface ExpectedBlip {
   mask: MaskOracle;
   label: string;
+  /** Story 10.9: the own RADAR buoy whose beam this paint comes from
+   *  (absent for the observer's own sweep) — verifyBlipSrc's filter; the
+   *  completeness pairing stays geometry-only. */
+  src?: string;
 }
 
 /** Gated SHIP paints through the observer's OWN radar. */
@@ -3074,11 +3078,11 @@ function expectedBuoyBlips(w: World, me: ShipRecord): ExpectedBlip[] {
     };
     for (const t of w.ships.values()) {
       if (t.id === me.id || !(isAfloat(t.lifecycle) || isSinking(t.lifecycle)) || !paints(t.state, t.id)) continue;
-      out.push({ mask: maskOracle(t.hullId, t.state.x, t.state.y, t.state.heading, w.now), label: `radar buoy ${b.id} → ship ${t.id}` });
+      out.push({ mask: maskOracle(t.hullId, t.state.x, t.state.y, t.state.heading, w.now), label: `radar buoy ${b.id} → ship ${t.id}`, src: b.id });
     }
     for (const o of w.decoys.values()) {
       if (o.ownerId === me.id || !paints(o, o.id)) continue;
-      out.push({ mask: decoyMaskOracle(o, w.now), label: `radar buoy ${b.id} → buoy ${o.id}` });
+      out.push({ mask: decoyMaskOracle(o, w.now), label: `radar buoy ${b.id} → buoy ${o.id}`, src: b.id });
     }
   }
   return out;
@@ -3622,22 +3626,31 @@ function blipMatchesDecoyPaint(w: World, me: ShipRecord, ev: BlipEvent): boolean
 
 /** The exact blip key set (cycle 63, amendment 152): the coverage footprint
  *  and NOTHING else — pinned as an exact key set, so the deletion of `id`,
- *  the position, `ext`, every pose channel AND (Story 8.16, PV 59) the radar
- *  buoy's `src` sensor tag is structural on every blip the fuzz sees. */
+ *  the position, `ext` and every pose channel is structural on every blip the
+ *  fuzz sees. The ONE optional key is Story 10.9's `src` (the paint's ORIGIN:
+ *  the observer's OWN radar buoy) — legal only on a paint of that buoy's
+ *  beam, delivered to its owner (verifyBlipSrc). */
 const RETURN_BLIP_KEYS = ['bits', 'gx', 'gy', 'h', 'k', 't', 'w'];
+const RETURN_BLIP_KEYS_SRC = [...RETURN_BLIP_KEYS, 'src'].sort();
 /** Fields the `return` payload must NEVER grow back — asserted by name as well
  *  as by the exact key set, because each is its own disclosure channel: `id`
  *  the cross-sweep correlation handle, x/y the exact float position, `ext`
- *  the derived aspect scalar, cls/heading/speed the 4.2 pose, `src` the
- *  deleted sensor attribution. */
-const RETURN_FORBIDDEN_KEYS = ['id', 'x', 'y', 'ext', 'cls', 'heading', 'speed', 'src'];
+ *  the derived aspect scalar, cls/heading/speed the 4.2 pose. (`src` came
+ *  back in Story 10.9 as the OWN-buoy origin tag — verifyBlipSrc gates it.) */
+const RETURN_FORBIDDEN_KEYS = ['id', 'x', 'y', 'ext', 'cls', 'heading', 'speed'];
 
 function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as BlipEvent;
   expect(ev.t).toBe(w.now);
-  // Shape gate: the exact key set, both directions — no blip carries `src`.
-  expect(Object.keys(ev).sort()).toEqual(RETURN_BLIP_KEYS);
+  // Shape gate: the exact key set, both directions — `src` only where
+  // verifyBlipSrc proves it is the observer's own radar buoy's paint.
+  const tagged = Object.hasOwn(ev, 'src');
+  expect(Object.keys(ev).sort()).toEqual(tagged ? RETURN_BLIP_KEYS_SRC : RETURN_BLIP_KEYS);
   for (const forbidden of RETURN_FORBIDDEN_KEYS) expect(Object.hasOwn(ev, forbidden)).toBe(false);
+  if (tagged) {
+    verifyBlipSrc(w, me, ev);
+    return;
+  }
   // THE JUSTIFICATION. Every blip must byte-match one of THREE independently
   // re-derived sources:
   //   1. a GENUINE SHIP PAINT through the observer's own gate (unchanged);
@@ -3650,15 +3663,30 @@ function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   // at its true pose, with its true hull — matches no arm and fails (pinned
   // by the directed leak-catch case below the invariant suite).
   //   3. (Story 10.9) a paint of the observer's OWN RADAR BUOY's beam — a
-  //      ship or a non-own buoy through the buoy's gate (expectedBuoyBlips).
-  expect(blipMatchesShip(w, me, ev) || blipMatchesDecoyPaint(w, me, ev) || blipMatchesBuoySweep(w, me, ev)).toBe(true);
+  //      ship or a non-own buoy through the buoy's gate (expectedBuoyBlips) —
+  //      which is TAGGED `src` and so verified above (verifyBlipSrc). An
+  //      UNTAGGED blip must come from the observer's own sweep.
+  expect(blipMatchesShip(w, me, ev) || blipMatchesDecoyPaint(w, me, ev)).toBe(true);
 }
 
-/** True iff `ev` is one of the observer's OWN RADAR BUOYS' paints this tick
- *  (Story 10.9) — exact mask equality against the independent buoy oracle. */
-function blipMatchesBuoySweep(w: World, me: ShipRecord, ev: BlipEvent): boolean {
-  return expectedBuoyBlips(w, me).some((exp) => maskEquals(exp.mask, ev as ReturnBlipEvent));
+/** THE ORIGIN TAG (Story 10.9 review gate): a blip carrying `src` must name
+ *  a live RADAR buoy the OBSERVER owns, and byte-match a paint of THAT
+ *  buoy's beam this tick (the independent buoy oracle, filtered to `src`).
+ *  So no own-sweep paint is ever tagged, no non-owner ever receives a tag,
+ *  and a tag never names a buoy that did not make the paint. */
+function verifyBlipSrc(w: World, me: ShipRecord, ev: BlipEvent): void {
+  const src = ev.src;
+  expect(typeof src).toBe('string');
+  const b = w.decoys.get(src as string);
+  expect(b?.ownerId, `src ${src} is a buoy the observer ${me.id} owns`).toBe(me.id);
+  expect(b?.sweep ?? null, `src ${src} is a RADAR buoy`).not.toBeNull();
+  BUOY_SRC_VERIFIED.n += 1;
+  const fromIt = expectedBuoyBlips(w, me).filter((exp) => exp.src === src);
+  expect(fromIt.some((exp) => maskEquals(exp.mask, ev as ReturnBlipEvent)), `src ${src} made this paint`).toBe(true);
 }
+
+/** Non-vacuity counter for the fuzz: the `src` arm must run. */
+const BUOY_SRC_VERIFIED = { n: 0 };
 
 // shell AND torp share one verifier — with the Story 4.9 fork: a shell
 // reveals at first-SIGHT, a torpedo at first-DETECT (1×sight since 2026-10-08 — the once-tighter
@@ -4448,6 +4476,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     const rng = mulberry32(0x5eed_f0f0);
     DECOY_PAINT_EXPECTED.n = 0;
     BUOY_PAINT_EXPECTED.n = 0;
+    BUOY_SRC_VERIFIED.n = 0;
     CLOUD_SIGHT_THROUGH.n = 0;
     CLOUD_DELIVERED_BY_SIGHT.n = 0;
     CLOUD_DELIVERED_BY_RADAR.n = 0;
@@ -4901,6 +4930,9 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     // ...and the Story 10.9 RADAR BUOY arm: an owner's buoy beam painted real
     // subjects that the oracle paired with real blips.
     expect(BUOY_PAINT_EXPECTED.n).toBeGreaterThan(0);
+    // ...and every one of those reached the owner TAGGED with its buoy's id
+    // (the `src` origin arm of verifyBlip ran on real frames).
+    expect(BUOY_SRC_VERIFIED.n).toBeGreaterThan(0);
     // THE FOG ARMS (Story 9.10) must each have been EXERCISED: a hull inside
     // geometric sight hidden by toll (verified absent), a hull seen through
     // thin fog, a detect-rung subject hidden, an `sm` hidden inside the halo,

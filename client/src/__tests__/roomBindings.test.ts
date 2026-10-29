@@ -90,7 +90,7 @@ function setup() {
     clock: { addSample: vi.fn() },
     ownBuffer: { clear: ownBufferClear, push: vi.fn() },
     predictor: { forceSnap, onServerState: vi.fn() },
-    radar: { onSweepSample: vi.fn() },
+    radar: { onSweepSample: vi.fn(), setOwnRadarBuoys: vi.fn() },
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
     // The own-private preview seams (aim-preview cycle): the burst ring's
@@ -488,7 +488,7 @@ describe('bindRoom own sunk', () => {
       ordnanceHue: () => 0,
       onOwnStats: vi.fn(),
       ownBuffer: { push: vi.fn() },
-      radar: { onSweepSample: vi.fn() },
+      radar: { onSweepSample: vi.fn(), setOwnRadarBuoys: vi.fn() },
       resetThrottle,
       respawnArmed: () => true, // the ready-room shape: the server DID arm a respawn
       resetPrime,
@@ -553,7 +553,7 @@ describe('bindRoom own sunk — the respawn ETA', () => {
       ordnanceHue: () => 0,
       onOwnStats: vi.fn(),
       ownBuffer: { push: vi.fn() },
-      radar: { onSweepSample: vi.fn() },
+      radar: { onSweepSample: vi.fn(), setOwnRadarBuoys: vi.fn() },
       predictor: { onServerState: vi.fn() },
       resetThrottle: vi.fn(),
       resetPrime: vi.fn(),
@@ -1217,7 +1217,7 @@ function setupToasts(spectating = false, held = false) {
     countermeasure: { sync: vi.fn() },
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
     predictor: { onServerState: vi.fn(), forceSnap: vi.fn() },
-    radar: { onSweepSample: vi.fn(), onBlip: vi.fn() },
+    radar: { onSweepSample: vi.fn(), setOwnRadarBuoys: vi.fn(), onBlip: vi.fn() },
     effects: { spawnEffect: vi.fn() },
     audio: { play },
     names: (id: string) => id,
@@ -1577,7 +1577,7 @@ function setupWater(
     clock: { addSample: vi.fn() },
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
     predictor: { onServerState: vi.fn(), forceSnap: vi.fn() },
-    radar: { onSweepSample: vi.fn(), onBlip: vi.fn() },
+    radar: { onSweepSample: vi.fn(), setOwnRadarBuoys: vi.fn(), onBlip: vi.fn() },
     contacts: { pushFrame: vi.fn(), ids: () => [], get: () => null },
     contactViews: { flash, sinkFlash: vi.fn(), setSink: vi.fn() },
     mines: { sync: vi.fn() },
@@ -2379,6 +2379,7 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
     const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
     const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
     const onBlip = vi.fn();
+    const setOwnRadarBuoys = vi.fn();
     const onSmoke = vi.fn();
     const onFire = vi.fn();
     const onHonk = vi.fn();
@@ -2397,7 +2398,10 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
       countermeasure: { sync: vi.fn() },
       ownBurstRadius: () => undefined,
       ownMineRings: () => undefined,
-      radar: { onSweepSample: vi.fn(), onBlip },
+      radar: { onSweepSample: vi.fn(), setOwnRadarBuoys, onBlip },
+      // An own-ship frame's surface (the radar-buoy hand-off rides `you`).
+      ownBuffer: { push: vi.fn() },
+      onOwnStats: vi.fn(),
       smoke: { onSmoke },
       fire: { onSmoke: onFire },
       foghorn: { onHonk },
@@ -2410,8 +2414,29 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
       ordnanceHue: vi.fn(() => 0),
     } as unknown as RoomBindingDeps;
     bindRoom(conn, deps);
-    return { sink, onBlip, onSmoke, onFire, onHonk, playHorn, play };
+    return { sink, onBlip, setOwnRadarBuoys, onSmoke, onFire, onHonk, playHorn, play };
   }
+
+  it('hands the radar the frame\'s OWN RADAR buoys before the frame\'s blips (Story 10.9 review gate)', () => {
+    // A blip tagged `src` is marched from the own radar buoy it names, so the
+    // radar must hold this frame's own radar buoys before handleEvents feeds it
+    // the blips — and only those: own non-radar buoys and anyone else's are
+    // not paint origins.
+    const { sink, onBlip, setOwnRadarBuoys } = setupPulses();
+    const mine = { id: 'd1', x: 10, y: 20, own: true, by: 'me', kind: 'radar', sweep: 0, until: 9000, hp: 50 };
+    const heal = { id: 'd2', x: 30, y: 40, own: true, by: 'me', kind: 'healing', until: 9000, hp: 50 };
+    const theirs = { id: 'd3', x: 50, y: 60, own: false, by: 'them', kind: 'radar' };
+    const you = { x: 0, y: 0, heading: 0, speed: 0, sweep: 0, alive: true, cls: 'torpedoBoat', gun: 'cannon', cards: [], kit: [] };
+    sink.handler({
+      t: 400, tick: 4, ackSeq: 0, you, contacts: [], mines: [], decoys: [mine, heal, theirs],
+      events: [{ k: 'blip', t: 400, gx: 0, gy: 0, w: 1, h: 1, bits: [1], src: 'd1' }],
+    });
+    expect(setOwnRadarBuoys).toHaveBeenCalledWith([mine]);
+    expect(setOwnRadarBuoys.mock.invocationCallOrder[0]).toBeLessThan(onBlip.mock.invocationCallOrder[0]);
+    // A frame that omits the key empties the set (every buoy gone).
+    sink.handler({ t: 450, tick: 5, ackSeq: 0, you, contacts: [], mines: [], events: [] });
+    expect(setOwnRadarBuoys).toHaveBeenLastCalledWith([]);
+  });
 
   it('fans blip, sm and fh out of ONE frame, each to its own subsystem', () => {
     const { sink, onBlip, onSmoke, onHonk, playHorn } = setupPulses();
@@ -2917,7 +2942,7 @@ function setupSignals(early: { results: unknown; bound: boolean } = { results: n
     clock: { addSample },
     ownBuffer: { clear: vi.fn(), push: vi.fn() },
     predictor: { forceSnap: vi.fn(), onServerState: vi.fn() },
-    radar: { onSweepSample: vi.fn() },
+    radar: { onSweepSample: vi.fn(), setOwnRadarBuoys: vi.fn() },
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
     ownBurstRadius: () => undefined,

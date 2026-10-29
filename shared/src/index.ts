@@ -8,8 +8,9 @@
  *  +healingBuoy +shieldBuoy +speedBuoy (26 → 30 lines, catalog content is
  *  wire contract — `LINE_IDS` order is the fold); OwnShip.dazzledUntil /
  *  buoyShield / speedBuoyAt (self-private, omitted when inactive);
- *  DecoyView.kind for every observer + own-only sweep/until. Perception
- *  exception count stays SIX.
+ *  DecoyView.kind for every observer + own-only sweep/until; BlipEvent.src
+ *  (buoy-origin paints — self-private, the owner's own RADAR BUOY id).
+ *  Perception exception count stays SIX.
  *  92 — Story 10.1 FOUR CONFIGURABLE CONSUMABLE SLOTS (Eric 2026-10-25/27,
  *  epic-10 amendments 1(c) and 3): the consumable KIT rides the seat (join
  *  option `kit`, validated by `isConsumableKit`, fail-open to `DEFAULT_KIT`)

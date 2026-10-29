@@ -773,6 +773,18 @@ export interface Contact {
 export interface ReturnBlipEvent extends GhostPaint {
   k: 'blip';
   t: number; // ms — server time the blip was painted (drives phosphor decay)
+  /**
+   * THE PAINT'S ORIGIN (Story 10.9 review gate, PV 93): the id of the
+   * OWNER's own RADAR BUOY whose beam made this paint; ABSENT for the
+   * observer's own sweep. The client marches every echo from an origin
+   * (range falloff, terrain shadow along the ray) — a buoy paint marched from
+   * the own hull would price a hull behind an island from the OWNER, which
+   * is exactly what the buoy was placed to see past. Self-private: only ever
+   * set on a paint delivered to that buoy's owner, who already receives the
+   * buoy's id/position/sweep on `DecoyView`. NOT a perception exception: it
+   * discloses nothing the owner lacks. Last key (msgpack insertion order).
+   */
+  src?: string;
 }
 
 /**

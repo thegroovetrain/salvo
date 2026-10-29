@@ -1179,7 +1179,10 @@ export function decoyRadarBlips(ctx: FoggedSignalContext): BlipEvent[] {
  * hull on the water but the owner's (afloat or sinking, exactly the ship-blip
  * row's subjects) and every buoy the owner does NOT own — in the SAME
  * anonymous wire shapes the ship scan and the decoy paint produce (blipShape /
- * decoyPaintBlip: no id, no hue). Wakes are NOT painted by the buoy sweep
+ * decoyPaintBlip: no id, no hue) — plus `src` = the buoy's id, the paint's
+ * ORIGIN, so the owner's client marches it from the buoy (self-private: the
+ * owner already holds the buoy on DecoyView; never on an own-sweep paint).
+ * Wakes are NOT painted by the buoy sweep
  * (implementer reading: ships and buoys only). Paints for nobody but the
  * owner: another observer's frame never reads someone else's buoy beam. A
  * hull the owner's own radar paints this tick may paint twice (two antennas,
@@ -1208,7 +1211,7 @@ function paintHullsFrom(ctx: FoggedSignalContext, o: RadarOrigin, out: BlipEvent
     if (target.id === ctx.me.id) continue;
     if (!isAfloat(target.lifecycle) && !isSinking(target.lifecycle)) continue;
     if (radarOriginPaints(ctx, o, target.state, target.id)) {
-      out.push(blipShape(ctx, target.state, target.hullId, target.state.heading));
+      out.push({ ...blipShape(ctx, target.state, target.hullId, target.state.heading), src: o.key });
     }
   }
 }
@@ -1217,7 +1220,7 @@ function paintHullsFrom(ctx: FoggedSignalContext, o: RadarOrigin, out: BlipEvent
 function paintBuoysFrom(ctx: FoggedSignalContext, o: RadarOrigin, out: BlipEvent[]): void {
   for (const other of ctx.decoys.values()) {
     if (other.ownerId === ctx.me.id) continue;
-    if (radarOriginPaints(ctx, o, other, other.id)) out.push(decoyPaintBlip(ctx, other));
+    if (radarOriginPaints(ctx, o, other, other.id)) out.push({ ...decoyPaintBlip(ctx, other), src: o.key });
   }
 }
 
