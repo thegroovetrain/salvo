@@ -54,6 +54,10 @@ Verdicts: Codex FIX-FIRST (one item), Blind Hunter FIX-FIRST (one item), Edge Ca
 - **Edge Case Hunter #3/#4 (hygiene):** two legitimate antennas may paint one hull twice in a tick (each now carries its own origin and intensity — left as is); `now = 0` is the "never" sentinel for the two stamps (unreachable in a room; test worlds start past 0).
 - **Traced clean by all three:** the trust boundary (`sweep`/`until`/`hp` own-only; buoy paints owner-only, fogged mode, anonymous shape; every sight-tier gate passes `now`; radar rungs undazzled; spectators get no paints); the prediction fold (same factor, same clock basis, `speedBuoyAt` omitted → stamp reset, same order with the slows and draft, the wake ring at +50 %); the tail math at every breakpoint and re-entry mid-ramp; the step order (a buoy soaks its last tick's ordnance, grants nothing after expiry); the homing two-pass law vs the captive mine's locked fish and own buoys; the catalog append order, PV 93, `sanitizeKit` on a `decoyBuoy` kit, `rollKit` over ten.
 
+### 2026-10-29 — Eric's visual review of the PR (post-gate nudge, amendment 4m)
+
+- *"What do the buoys look like?"* → the marks were unreadable at chart scale and the icon disliked → three glyph directions rendered (https://claude.ai/artifact/RbbBMoLnaWtNGeoVyxt1bj), round 2 without a cross → **the tinted beacon with a pulse healing head**; **range rings** on every buoy: own in the kind colour with a light tint (radar silver + its sweep), enemy in the mine's alert blend, every outer ring dashed, own rings fading with the life. Built on the branch after the gate (client only), re-gated, pushed to the open PR.
+
 ## Verification
 
 | Check | Result |
@@ -68,7 +72,7 @@ Verdicts: Codex FIX-FIRST (one item), Blind Hunter FIX-FIRST (one item), Edge Ca
 
 ## Residual risks
 
-- At default zoom the chart's kind marks are ~7 px and the owner's two masthead arcs nearly merge (Eric: leave it; judged on staging).
+- The first marker family (spar + under-waterline mark) was unreadable at default zoom; Eric replaced it on the PR (amendment 4m: the tinted beacon, a pulse healing head, dashed range rings). The buoy is now the only chart object whose glyph carries a non-personal colour in sight; the radar paint is untouched.
 - The ten-line picker ends ~24 px above the 768 fold at 1366×768 (the amendment-3 fold ruling stands).
 - A buoy paint that arrives after its buoy left the client's view (expired or sunk between frames) is dropped rather than drawn; a one-frame miss at most.
 - `drones.avoidHulls` and `how-to-play/copy.ts` were the only two places that still read the retired decoy/flash the old way; How-to-Play is 10.8's.

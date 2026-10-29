@@ -10,13 +10,16 @@
 // The own-spawn hook fires ONLY for newly-added OWN decoys (the `placeDecoy`
 // cue), so it can never misfire on someone else's decoy.
 
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { Container, Graphics } from 'pixi.js';
 import { BUOY_KINDS, BUOY_LINE_IDS, CONFIG, buoyKindOf, type BuoyKind, type DecoyView } from '@salvo/shared';
-import { BUOY_MARKER, Decoys, buoyKindMark, buoyLifeFrac, decoyHpFrac, ownBuoyUntil, reconcileDecoys } from '../render/decoys.js';
-import { BUOY_KIND_MARKS } from '../render/buoyMarks.js';
+import { Decoys, buoyLifeFrac, buoyLineOf, decoyHpFrac, ownBuoyUntil, reconcileDecoys } from '../render/decoys.js';
+import { BUOY_HEADS } from '../render/buoyMarks.js';
+import { ringModelFor } from '../render/buoyRings.js';
+import { alertClock, alertTint } from '../render/alertBlend.js';
 import { Mines } from '../render/mines.js';
 import { CLIENT_CONFIG } from '../config.js';
+import { settings } from '../settings/store.js';
 
 /** The amber fallback the hue latch paints while an owner hue is unresolved. */
 const CONFIG_AMBER = CLIENT_CONFIG.colors.amber;
@@ -34,6 +37,15 @@ const decoy = (id: string, own = false, by = 'p1', hp?: number, kind: BuoyKind =
 /** Stub owner-hue resolver for the render harness (Story 1.12). */
 const HUE = (): number => 0x123456;
 
+/** Every fill colour one sprite's Graphics painted. */
+function fillColors(g: Graphics): number[] {
+  return g.context.instructions.flatMap((ins) => {
+    if (ins.action !== 'fill') return [];
+    const style = (ins.data as { style?: { color?: number } }).style;
+    return style?.color === undefined ? [] : [style.color];
+  });
+}
+
 /** Every path action one sprite's Graphics emitted, flattened. */
 function pathActions(g: Graphics): string[] {
   return g.context.instructions.flatMap((ins) => {
@@ -42,10 +54,11 @@ function pathActions(g: Graphics): string[] {
   });
 }
 
-/** The single sprite one marker renderer put in a layer. */
+/** The single buoy's MARKER in a layer — each buoy puts two Graphics there:
+ *  its effect ring first (beneath), then its marker. */
 function soleSprite(layer: Container): Graphics {
-  expect(layer.children).toHaveLength(1);
-  return layer.children[0] as Graphics;
+  expect(layer.children).toHaveLength(2);
+  return layer.children[1] as Graphics;
 }
 
 describe('reconcileDecoys — decoy list → sprite lifecycle diff', () => {
@@ -93,11 +106,11 @@ describe('Decoys — own/other layer split, owner hue by `by`, own-spawn cue hoo
     expect(decoys.colorAt('d2')).toBe(0x222222);
   });
 
-  it('routes an OWN decoy to the chart layer and anyone else’s to the world layer', () => {
+  it('routes an OWN decoy (marker + ring) to the chart layer and anyone else’s to the world layer', () => {
     const { ownLayer, otherLayer, decoys } = harness();
     decoys.sync([decoy('mine', true, 'me', 50), decoy('theirs', false)], HUE);
-    expect(ownLayer.children).toHaveLength(1);
-    expect(otherLayer.children).toHaveLength(1);
+    expect(ownLayer.children).toHaveLength(2);
+    expect(otherLayer.children).toHaveLength(2);
   });
 
   it('recolors a decoy that booted on the amber fallback once its owner hue resolves, then latches', () => {
@@ -144,13 +157,13 @@ describe('the decoy silhouette is distinct from a mine marker (Eric, 7-5-decks.m
     new Decoys(new Container(), decoyLayer).sync([decoy('b', false)], HUE);
     const mineLayer = new Container();
     new Mines(new Container(), mineLayer).sync([{ id: 'm', x: 0, y: 0, own: false, by: 'p1' }]);
-    return { decoy: pathActions(soleSprite(decoyLayer)), mine: pathActions(soleSprite(mineLayer)) };
+    return { decoy: pathActions(soleSprite(decoyLayer)), mine: pathActions(mineLayer.children[0] as Graphics) };
   }
 
-  it('the decoy marker is the spar-buoy linework: strokes plus a polygon topmark', () => {
+  it('the buoy marker is the tinted beacon: hull strokes plus a filled head polygon', () => {
     const { decoy: b } = markers();
-    expect(b).toContain('poly'); // the diamond radar-reflector daymark
-    expect(b.filter((a) => a === 'lineTo').length).toBeGreaterThanOrEqual(2); // waterline + spar
+    expect(b).toContain('poly'); // the filled head
+    expect(b.filter((a) => a === 'lineTo').length).toBeGreaterThanOrEqual(3); // waterline + can + mast
   });
 
   // Re-pinned in cycle 162: the mine marker became the naval mine's GLYPH
@@ -162,16 +175,9 @@ describe('the decoy silhouette is distinct from a mine marker (Eric, 7-5-decks.m
     const { decoy: b, mine: m } = markers();
     expect(m).toContain('circle'); // the mine's sphere
     expect(b).not.toContain('circle');
-    expect(b).toContain('poly'); // the decoy's diamond daymark
+    expect(b).toContain('poly'); // the buoy's filled head
     expect(m).not.toContain('poly');
     expect(b.join(',')).not.toBe(m.join(','));
-  });
-
-  it('the exported geometry is a waterline, a spar and a 4-point diamond', () => {
-    expect(BUOY_MARKER.topmark).toHaveLength(4);
-    expect(BUOY_MARKER.spar[0]).toEqual({ x: 0, y: 0 });
-    expect(BUOY_MARKER.spar[1].y).toBeLessThan(0);
-    for (const p of BUOY_MARKER.topmark) expect(p.y).toBeLessThan(BUOY_MARKER.waterline[0].y);
   });
 });
 
@@ -227,40 +233,149 @@ describe('Decoys — the hp arc is owner-only and follows the wire', () => {
 
 const withLife = (d: DecoyView, until: number): DecoyView => ({ ...d, until });
 
-describe('the kind mark — one vocabulary, four distinct marks, every observer', () => {
-  it('every kind has a mark, and no two kinds draw the same one', () => {
-    const drawn = BUOY_KINDS.map((k) => JSON.stringify(buoyKindMark(k)));
-    expect(new Set(drawn).size).toBe(BUOY_KINDS.length);
-    for (const k of BUOY_KINDS) expect(BUOY_KIND_MARKS[k].length).toBeGreaterThan(0);
-  });
-
-  it('the mark hangs UNDER the waterline, centred on the spar, inside the marker width', () => {
-    for (const k of BUOY_KINDS) {
-      for (const line of buoyKindMark(k)) {
-        for (const [x, y] of line) {
-          expect(y).toBeGreaterThan(BUOY_MARKER.waterline[0].y);
-          expect(Math.abs(x)).toBeLessThanOrEqual(BUOY_MARKER.waterline[1].x);
-        }
-      }
-    }
-  });
-
-  it('the marker draws its kind for own AND sighted enemy buoys, still circle-free', () => {
+describe('the tinted beacon on the chart — hull in the owner hue, head in the kind colour', () => {
+  it('own AND sighted enemy markers draw hull + head per kind, the head filled in the kind’s colour', () => {
     for (const own of [true, false]) {
-      const actions: string[][] = BUOY_KINDS.map((k) => {
+      const drawn = BUOY_KINDS.map((k) => {
         const layer = new Container();
         const d = new Decoys(own ? layer : new Container(), own ? new Container() : layer);
         d.sync([decoy('b', own, 'p1', own ? CONFIG.buoy.hp : undefined, k)], HUE);
         expect(d.kindAt('b')).toBe(k);
-        return pathActions(soleSprite(layer));
+        const g = soleSprite(layer);
+        expect(pathActions(g), `${k} own=${own}`).not.toContain('circle');
+        expect(fillColors(g), `${k} own=${own}`).toContain(BUOY_HEADS[k].color);
+        return `${pathActions(g).join(',')}|${fillColors(g).join(',')}`;
       });
-      for (const a of actions) expect(a).not.toContain('circle');
-      expect(new Set(actions.map((a) => a.join(','))).size).toBe(BUOY_KINDS.length);
+      expect(new Set(drawn).size).toBe(BUOY_KINDS.length);
     }
   });
 
-  it('every buoy line maps to a kind with a mark (the line ↔ kind map is total)', () => {
-    for (const line of BUOY_LINE_IDS) expect(BUOY_KIND_MARKS[buoyKindOf(line)]).toBeDefined();
+  it('the marker draws the buoy line’s own glyph (the belt’s vocabulary): the line ↔ kind map is total', () => {
+    for (const line of BUOY_LINE_IDS) expect(buoyLineOf(buoyKindOf(line))).toBe(line);
+  });
+});
+
+// --- STORY 10.9 (Eric 2026-10-29): THE EFFECT RINGS --------------------------
+
+describe('ringModelFor — the effect ring view-model', () => {
+  const L = CONFIG.buoy.lifetimeMs;
+  const ALERT = 0xabcdef;
+
+  it('own RADAR: a silver dashed ring with NO interior wash (the sweep is its interior)', () => {
+    const m = ringModelFor(withLife(decoy('r', true, 'me', 50, 'radar'), L), 0, ALERT)!;
+    expect(m.color).toBe(CLIENT_CONFIG.colors.silver);
+    expect(m.color).toBe(BUOY_HEADS.radar.color);
+    expect(m.fillAlpha).toBe(0);
+    expect(m.dashed).toBe(true);
+    expect(m.alpha).toBeGreaterThan(0);
+  });
+
+  it('own HEALING / SHIELD / SPEED: the kind’s colour with a light interior wash', () => {
+    for (const kind of ['healing', 'shield', 'speed'] as const) {
+      const m = ringModelFor(withLife(decoy('k', true, 'me', 50, kind), L), 0, ALERT)!;
+      expect(m.color, kind).toBe(BUOY_HEADS[kind].color);
+      expect(m.fillAlpha, kind).toBeGreaterThan(0);
+      expect(m.fillAlpha, kind).toBeLessThan(m.alpha);
+      expect(m.dashed).toBe(true);
+      expect(m.layer, kind).toBe('chart');
+    }
+  });
+
+  it('the radius is CONFIG.buoy.radiusU, every kind, own and enemy', () => {
+    for (const k of BUOY_KINDS) {
+      expect(ringModelFor(withLife(decoy('a', true, 'me', 50, k), L), 0, ALERT)!.radiusU).toBe(CONFIG.buoy.radiusU);
+      expect(ringModelFor(decoy('b', false, 'them', undefined, k), 0, ALERT)!.radiusU).toBe(CONFIG.buoy.radiusU);
+    }
+  });
+
+  it('an own ring’s alpha (and wash) follows the life left — half life, half strength; expired, gone', () => {
+    const v = withLife(decoy('h', true, 'me', 50, 'healing'), L);
+    const full = ringModelFor(v, 0, ALERT)!;
+    const half = ringModelFor(v, L / 2, ALERT)!;
+    const done = ringModelFor(v, L, ALERT)!;
+    expect(half.alpha).toBeCloseTo(full.alpha / 2, 9);
+    expect(half.fillAlpha).toBeCloseTo(full.fillAlpha / 2, 9);
+    expect(done.alpha).toBe(0);
+    expect(half.alpha / full.alpha).toBeCloseTo(buoyLifeFrac(v, L / 2)!, 9);
+  });
+
+  it('a sighted ENEMY ring: the alert colour, no wash, on the world layer — not the chart', () => {
+    for (const k of BUOY_KINDS) {
+      const m = ringModelFor(decoy('e', false, 'them', undefined, k), 0, ALERT)!;
+      expect(m.color, k).toBe(ALERT);
+      expect(m.fillAlpha, k).toBe(0);
+      expect(m.layer, k).toBe('world');
+      expect(m.dashed).toBe(true);
+    }
+  });
+
+  it('defaults the enemy colour to the shared alert clock (steady orange at motion off)', () => {
+    settings.set({ motion: 'off' });
+    try {
+      expect(ringModelFor(decoy('e', false), 0)!.color).toBe(CLIENT_CONFIG.colors.alertOrange);
+    } finally {
+      settings.reset();
+    }
+  });
+
+  it('no ring for a view without a finite position', () => {
+    expect(ringModelFor({ ...decoy('n', true, 'me', 50), x: Number.NaN }, 0, ALERT)).toBeNull();
+    expect(ringModelFor({ ...decoy('n', false), y: Number.POSITIVE_INFINITY }, 0, ALERT)).toBeNull();
+  });
+});
+
+describe('Decoys — the rings on the water', () => {
+  beforeEach(() => alertClock.reset());
+  afterEach(() => settings.reset());
+
+  it('an own ring sits on the chart layer beneath its marker, an enemy’s on the world layer', () => {
+    const ownLayer = new Container();
+    const otherLayer = new Container();
+    const d = new Decoys(ownLayer, otherLayer);
+    d.render(0);
+    d.sync([withLife(decoy('mine', true, 'me', 50, 'shield'), CONFIG.buoy.lifetimeMs), decoy('theirs', false)], HUE);
+    expect(d.ringGraphicsAt('mine')!.parent).toBe(ownLayer);
+    expect(ownLayer.children.indexOf(d.ringGraphicsAt('mine')!)).toBe(0); // beneath the marker
+    expect(d.ringGraphicsAt('theirs')!.parent).toBe(otherLayer);
+    expect(d.ringAt('mine')!.layer).toBe('chart');
+    expect(d.ringAt('theirs')!.layer).toBe('world');
+    // both rings are dashed arcs; the own shield ring also washes its interior
+    expect(pathActions(d.ringGraphicsAt('mine')!)).toContain('arc');
+    expect(pathActions(d.ringGraphicsAt('theirs')!)).not.toContain('circle');
+    expect(pathActions(d.ringGraphicsAt('mine')!)).toContain('circle');
+  });
+
+  it('the own ring dims with the life arc (alpha tracks lifeFracAt)', () => {
+    const d = new Decoys(new Container(), new Container());
+    const L = CONFIG.buoy.lifetimeMs;
+    d.render(0);
+    d.sync([withLife(decoy('mine', true, 'me', 50, 'speed'), L)], HUE);
+    const full = d.ringAt('mine')!.alpha;
+    d.render(L / 2);
+    expect(d.ringAt('mine')!.alpha / full).toBeCloseTo(d.lifeFracAt('mine')!, 2);
+    d.render(L);
+    expect(d.ringAt('mine')!.alpha).toBe(0);
+  });
+
+  it('the enemy ring wears the alert tint (steady orange at motion off); the own ring none', () => {
+    settings.set({ motion: 'off' });
+    const d = new Decoys(new Container(), new Container());
+    d.sync([withLife(decoy('mine', true, 'me', 50, 'radar'), CONFIG.buoy.lifetimeMs), decoy('theirs', false)], HUE);
+    for (let t = 0; t < 2000; t += 230) {
+      d.render(t);
+      expect(d.ringGraphicsAt('theirs')!.tint).toBe(CLIENT_CONFIG.colors.alertOrange);
+      expect(d.ringGraphicsAt('mine')!.tint).toBe(CLIENT_CONFIG.colors.white);
+    }
+    expect(alertTint(alertClock.phase, 'off')).toBe(CLIENT_CONFIG.colors.alertOrange);
+  });
+
+  it('the ring leaves with the buoy (out of view, sunk or expired)', () => {
+    const otherLayer = new Container();
+    const d = new Decoys(new Container(), otherLayer);
+    d.sync([decoy('theirs', false)], HUE);
+    d.sync([], HUE);
+    expect(d.ringAt('theirs')).toBeNull();
+    expect(otherLayer.children).toHaveLength(0);
   });
 });
 

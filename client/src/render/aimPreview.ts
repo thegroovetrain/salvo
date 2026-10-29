@@ -46,7 +46,8 @@ import {
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { dashArcs } from '../util/math.js';
-import { BUOY_MARKER, buoyKindMark } from './decoys.js';
+import { BUOY_MARKER_BOX_U, buoyLineOf } from './decoys.js';
+import { drawEquipmentIcon } from './equipmentIcons.js';
 import type { OwnFire } from './projectiles.js';
 import { isMineEquipment, isTorpedoItem, mineKindOf, type MineEquipmentId } from './weaponArc.js';
 
@@ -588,8 +589,8 @@ function minePreview(inp: AimPreviewInput, id: MineEquipmentId): AimPreviewModel
 
 /**
  * BUOY placement (the DECOY BUOY's preview since Story 8.16, carried to the
- * four buoys by Story 10.9): the drop point ALONE — the spar-buoy marker
- * (render/decoys.ts `BUOY_MARKER`) with the KIND's mark, drawn at the click
+ * four buoys by Story 10.9): the drop point ALONE — the tinted-beacon marker
+ * (render/decoys.ts, the buoy line's own glyph) in its kind, drawn at the click
  * and dimmed when the water refuses it. NO RINGS: the drop preview draws no
  * blast, trigger or effect circle. Same placement rule as the mine, shared
  * verbatim by the server — the leash `CONFIG.mine.placeRange`, now over the
@@ -775,21 +776,13 @@ export class AimPreview {
    * say for the naval mine. Nothing on the placement preview announces the slow;
    * that is the card's row, not a circle.
    */
-  /** A buoy's drop marker: its own spar-buoy silhouette and kind mark at the
-   *  click, no circles (Story 8.16 / 10.9). Blocked water dims it like a
-   *  refused mine drop. */
+  /** A buoy's drop marker: the same tinted-beacon glyph the chart marker draws
+   *  (render/decoys.ts — hull in the preview tint, head in the kind's colour),
+   *  in the same box, at the click; no circles (Story 8.16 / 10.9). Blocked
+   *  water dims it like a refused mine drop. */
   private drawDrop(d: PreviewDrop, tint: number): void {
     const alpha = d.blocked ? P.blockedAlpha : P.burstAlpha;
-    const m = BUOY_MARKER;
-    const g = this.g;
-    g.moveTo(d.x + m.waterline[0].x, d.y + m.waterline[0].y).lineTo(d.x + m.waterline[1].x, d.y + m.waterline[1].y);
-    g.moveTo(d.x + m.spar[0].x, d.y + m.spar[0].y).lineTo(d.x + m.spar[1].x, d.y + m.spar[1].y);
-    for (const line of buoyKindMark(d.kind)) {
-      g.moveTo(d.x + line[0][0], d.y + line[0][1]);
-      for (const [x, y] of line.slice(1)) g.lineTo(d.x + x, d.y + y);
-    }
-    g.stroke({ width: P.lineWidth, color: tint, alpha });
-    g.poly(m.topmark.flatMap((q) => [d.x + q.x, d.y + q.y]), true).stroke({ width: P.lineWidth, color: tint, alpha });
+    drawEquipmentIcon(this.g, buoyLineOf(d.kind), d.x, d.y, BUOY_MARKER_BOX_U, { width: P.lineWidth, color: tint, alpha });
   }
 
   private drawPlacement(p: PreviewPlacement, tint: number): void {

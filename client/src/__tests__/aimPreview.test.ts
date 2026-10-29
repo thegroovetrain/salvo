@@ -206,7 +206,7 @@ describe('buoy placement — the drop marker with its kind, no rings (Story 8.16
     expect(computeAimPreview(input({ id: 'gun', aimDist: 300 })).drop).toBeUndefined();
   });
 
-  it('the Pixi adapter strokes the spar-buoy silhouette and no circle', () => {
+  it('the Pixi adapter draws the tinted beacon (filled head) and no circle', () => {
     const layer = new Container();
     const preview = new AimPreview(layer);
     preview.update(decoy(), 0xffffff);
