@@ -277,16 +277,23 @@ const MID_CLEAR = flashAt(RAMP + HOLD + CLEAR / 2);
 describe('trackCullRadiusSq — the enemy ring is the shared effectiveSight', () => {
   const ranges = { sightRange: CONFIG.vision.sight * 1.5, radarRange: CONFIG.vision.radar };
 
-  it('an enemy shell culls at effectiveSight, an enemy fish at its detect fraction — flashed or not', () => {
-    for (const d of [NONE, flashAt(0), MID_CLEAR]) {
+  it('undazzled, an enemy shell culls at sight + the margin and an enemy fish at its detect fraction + the margin', () => {
+    expect(trackCullRadiusSq(ranges, NONE, 'shell', null)).toBe(cullRadiusSq(ranges.sightRange, 'shell'));
+    expect(trackCullRadiusSq(ranges, NONE, 'torp', null)).toBe(cullRadiusSq(ranges.sightRange, 'torp'));
+    expect(trackCullRadiusSq(ranges, NONE, 'shell', null)).toBe((ranges.sightRange + 40) ** 2); // the margin kept
+  });
+
+  it('WHILE A MARK IS PENDING the enemy ring is effectiveSight EXACTLY — no 40 u margin (gate fix F5): 0 through the white, the bare clear circle after', () => {
+    for (const d of [flashAt(0), flashAt(RAMP + HOLD), MID_CLEAR]) {
       const sight = effectiveSight(ranges, d.until, d.now);
-      expect(trackCullRadiusSq(ranges, d, 'shell', null)).toBe(cullRadiusSq(sight, 'shell'));
-      expect(trackCullRadiusSq(ranges, d, 'torp', null)).toBe(cullRadiusSq(sight, 'torp'));
+      expect(trackCullRadiusSq(ranges, d, 'shell', null)).toBe(sight ** 2);
+      expect(trackCullRadiusSq(ranges, d, 'torp', null)).toBe((sight * CONFIG.vision.detectFactor) ** 2);
     }
+    expect(trackCullRadiusSq(ranges, flashAt(RAMP), 'shell', null)).toBe(0);
   });
 
   it('the ring grows back with the shared curve: half the sight at mid-clear', () => {
-    expect(trackCullRadiusSq(ranges, MID_CLEAR, 'shell', null)).toBeCloseTo(cullRadiusSq(ranges.sightRange / 2, 'shell'), 6);
+    expect(trackCullRadiusSq(ranges, MID_CLEAR, 'shell', null)).toBeCloseTo((ranges.sightRange / 2) ** 2, 6);
   });
 
   it('an own track rides the plain, un-dazzled sight ring, for a fish too', () => {
@@ -300,8 +307,9 @@ describe('Projectiles.setDazzle — both enemy cull rings follow the clear circl
   const own = { x: 0, y: 0 };
   const BASE = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
   const DZ = effectiveSight(BASE, MID_CLEAR.until, MID_CLEAR.now);
-  const dzShell = Math.sqrt(cullRadiusSq(DZ, 'shell'));
-  const dzTorp = Math.sqrt(cullRadiusSq(DZ, 'torp'));
+  // While the mark is pending the enemy rings carry NO margin (gate fix F5).
+  const dzShell = Math.sqrt(cullRadiusSq(DZ, 'shell', 0));
+  const dzTorp = Math.sqrt(cullRadiusSq(DZ, 'torp', 0));
   const ownRing = Math.sqrt(cullRadiusSq(CONFIG.vision.sight, 'shell'));
   const at = (k: 'shell' | 'torp', x: number): BallisticEvent => ({ k, id: 'p1', x, y: 0, vx: 0, vy: 0, t: 0 });
 
@@ -346,7 +354,7 @@ describe('Projectiles.setDazzle — both enemy cull rings follow the clear circl
     p.setDazzle(MID_CLEAR.until, MID_CLEAR.now);
     p.setSightRange(CONFIG.vision.sight * 2, CONFIG.vision.radar); // a boon lands mid-flash
     const sight = effectiveSight({ sightRange: CONFIG.vision.sight * 2 }, MID_CLEAR.until, MID_CLEAR.now);
-    p.onShell(at('shell', Math.sqrt(cullRadiusSq(sight, 'shell')) + 1));
+    p.onShell(at('shell', Math.sqrt(cullRadiusSq(sight, 'shell', 0)) + 1));
     p.render(1, own, []);
     expect(p.liveCount).toBe(0);
   });
@@ -379,7 +387,23 @@ describe('main.updateDazzle — the flash mark actually reaches all three mirror
   it('the whiteout frame is the pure whiteoutModel handed to the overlay', () => {
     const fn = MAIN_TS.slice(MAIN_TS.indexOf('function renderWhiteout('));
     const wb = fn.slice(0, fn.indexOf('\n}'));
-    expect(wb).toContain('g.whiteout.render(whiteoutModel(until, now, g.ownStats, screen)');
+    // ...carrying the overlay's last alpha, so a re-flash ramps from the white on screen (gate fix F3).
+    expect(wb).toContain('g.whiteout.render(whiteoutModel(until, now, g.ownStats, screen, g.whiteout.carriedAlpha)');
+  });
+
+  it('the RESULTS screen is never under white (gate fix F7): presentResults hides the overlay, and renderWhiteout keeps it hidden while the results modal is visible', () => {
+    // The results message lands one server message BEFORE the first `finished`
+    // spec frame (ArenaRoom broadcasts results inside the step, frames follow),
+    // so a render can run between them with `spectating` still false — the
+    // spectate hide alone leaves a window.
+    const pr = MAIN_TS.slice(MAIN_TS.indexOf('function presentResults('));
+    expect(pr.slice(0, pr.indexOf('\n}'))).toContain('g.whiteout.hide()');
+    const fn = MAIN_TS.slice(MAIN_TS.indexOf('function renderWhiteout('));
+    const wb = fn.slice(0, fn.indexOf('\n}'));
+    const gate = wb.indexOf('if (resultsVisible())');
+    expect(gate).toBeGreaterThan(-1);
+    expect(wb.slice(gate, wb.indexOf('\n', wb.indexOf('\n', gate) + 1))).toContain('g.whiteout.hide()');
+    expect(gate).toBeLessThan(wb.indexOf('g.whiteout.render('));
   });
 
   it('a spectator hides the whiteout', () => {

@@ -6,7 +6,8 @@
 // the own ship (its radius is the shared sight law's, `effectiveSight`) while
 // the white outside it fades, both over `clearMs`. A re-flash restarts the
 // timeline (the later `dazzledUntil` wins), which falls out of reading the
-// elapsed time off the one mark.
+// elapsed time off the one mark — and its ramp starts from the white already
+// on screen (the overlay carries its last alpha; gate fix F3).
 //
 // ONE DOM ELEMENT at the top of the DOM z-scale (CLIENT_CONFIG.flashWhiteout.
 // zIndex) — the only way to cover DOM chrome — `pointer-events: none`, pure
@@ -46,12 +47,24 @@ const HIDDEN: WhiteoutFrame = Object.freeze({ hidden: true, alpha: 0, holeR: 0 }
  * whiteout — 0 → 1 linearly across `rampMs`, 1 through the hold, then
  * `1 − flashClearFraction` (the shared curve the clear circle grows on), so it
  * reaches 0 exactly as the mark lapses. Clamped to [0, 1].
+ *
+ * A RE-FLASH RAMPS FROM WHERE THE WHITE IS (gate fix F3, amendment 5e):
+ * `prevAlpha` is the alpha the overlay last drew (0 when it was hidden).
+ * Through the ramp the alpha is `max(prevAlpha, ramp)` — a second hit while
+ * the first whiteout is clearing never dips the white to 0 and climbs again;
+ * it rises from its current value. Past the ramp the normal curve rules. A
+ * first hit carries 0, so its ramp is unchanged.
  */
-export function whiteoutAlpha(elapsedMs: number): number {
+export function whiteoutAlpha(elapsedMs: number, prevAlpha = 0): number {
   const { rampMs } = CONFIG.flashShells;
-  if (!(elapsedMs > 0)) return 0; // also NaN
-  if (elapsedMs < rampMs) return elapsedMs / rampMs;
+  if (!(elapsedMs > 0)) return clamp01(prevAlpha); // also NaN — the hit frame keeps the white it has
+  if (elapsedMs < rampMs) return Math.max(clamp01(prevAlpha), elapsedMs / rampMs);
   return 1 - flashClearFraction(elapsedMs);
+}
+
+/** [0, 1], NaN → 0. */
+function clamp01(v: number): number {
+  return v > 0 ? Math.min(1, v) : 0;
 }
 
 /**
@@ -60,16 +73,18 @@ export function whiteoutAlpha(elapsedMs: number): number {
  * has lapsed (`until <= now`). Otherwise the alpha above and the clear circle's
  * radius in px: `effectiveSight(ownStats, until, now) × pxPerU` — the very
  * radius the server perceives this hull with, so what the white hides and what
- * the server withholds agree.
+ * the server withholds agree. `prevAlpha` is the overlay's carried alpha
+ * (`FlashWhiteout.carriedAlpha`) — see whiteoutAlpha's re-flash rule.
  */
 export function whiteoutModel(
   until: number | undefined,
   now: number,
   ownStats: Pick<EffectiveStats, 'sightRange'>,
   screen: WhiteoutScreen | null,
+  prevAlpha = 0,
 ): WhiteoutFrame {
   if (screen === null || until === undefined || !(until > now)) return HIDDEN;
-  const alpha = whiteoutAlpha(flashElapsedMs(until, now));
+  const alpha = whiteoutAlpha(flashElapsedMs(until, now), prevAlpha);
   const holeR = effectiveSight(ownStats, until, now) * screen.pxPerU;
   return { hidden: false, alpha, holeR: Number.isFinite(holeR) && holeR > 0 ? holeR : 0 };
 }
@@ -110,6 +125,7 @@ export class FlashWhiteout {
   readonly el: HTMLDivElement;
   private lastMask = '';
   private lastAlpha = -1;
+  private carried = 0;
 
   constructor(host: HTMLElement) {
     this.el = host.ownerDocument.createElement('div');
@@ -120,6 +136,12 @@ export class FlashWhiteout {
     host.appendChild(this.el);
   }
 
+  /** The alpha this overlay last DREW (0 while hidden) — the `prevAlpha` the
+   *  next frame's model ramps a re-flash from (gate fix F3). */
+  get carriedAlpha(): number {
+    return this.carried;
+  }
+
   /** Draw one frame (`feather` off drops the soft edge — the motion setting). */
   render(frame: WhiteoutFrame, screen: WhiteoutScreen | null, feather: boolean): void {
     if (frame.hidden || screen === null) {
@@ -127,6 +149,7 @@ export class FlashWhiteout {
       return;
     }
     this.el.hidden = false;
+    this.carried = frame.alpha;
     if (frame.alpha !== this.lastAlpha) {
       this.lastAlpha = frame.alpha;
       this.el.style.opacity = String(frame.alpha);
@@ -141,6 +164,7 @@ export class FlashWhiteout {
   /** Take the overlay off (spectate, results, lapsed). Idempotent. */
   hide(): void {
     this.el.hidden = true;
+    this.carried = 0;
   }
 
   /** Remove the element (session teardown with no page reload behind it). */

@@ -1460,6 +1460,58 @@ describe('FLASH SHELLS (`dazzleShells`) — a consumable whose one-time burst da
     }
   });
 
+  it('an INTERCEPTED flash round also emits the flash burst (`f: true`) at the STOP POINT — the owner and a sighted bystander get it beside the ordinary boom; an intercepted CANNON round emits a boom and NO burst (gate fix F1)', () => {
+    const w = bareWorld();
+    const a = w.addShip('a', 'A', 'captain', 'battleship', undefined, undefined, undefined, FLASH_KIT);
+    fitClassWeapons(w, a);
+    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    w.applyCard(a, 'dazzleShells');
+    place(w, 'mid', 300, 0, 0); // bodyblocks the line of fire
+    place(w, 'far', 650, 0, Math.PI / 2); // the clicked point — never reached
+    place(w, 'by', 300, FL.radius + 100, 0); // outside the radius, inside sight of the stop point
+    const { seen } = fireUntilStop(w, a, BELT, 0, 650);
+    const boom = seen.find((e) => e.k === 'boom') as { id: string; x: number; y: number } | undefined;
+    expect(boom).toBeDefined();
+    const internal = seen.find((e) => e.k === 'burst') as { id: string; x: number; y: number; f?: true } | undefined;
+    expect(internal).toBeDefined();
+    expect(internal!.f).toBe(true);
+    expect(internal!.x).toBeCloseTo(boom!.x, 9); // AT the stop point, not the click
+    expect(internal!.y).toBeCloseTo(boom!.y, 9);
+    for (const obs of ['a', 'by']) {
+      const evs = buildFrame(w, obs).events;
+      const burst = evs.find((e) => e.k === 'burst');
+      expect(burst, obs).toBeDefined();
+      expect(Object.keys(burst!)).toEqual(['k', 'id', 'x', 'y', 'f']);
+      expect(evs.some((e) => e.k === 'boom'), obs).toBe(true);
+    }
+    // ...and an intercepted cannon round (slot 0) bursts nowhere: boom only.
+    const w2 = bareWorld();
+    const a2 = place(w2, 'a', 0, 0, 0, 'battleship');
+    place(w2, 'mid', 300, 0, 0);
+    place(w2, 'far', 650, 0, Math.PI / 2);
+    const { seen: seen2 } = fireUntilStop(w2, a2, 0, 0, 650);
+    expect(kinds(seen2)).toContain('boom');
+    expect(kinds(seen2)).not.toContain('burst');
+  });
+
+  it('the flashed VICTIM receives the flash burst (`f: true`) in the very tick its sight drops to 0 — its centre is inside the radius (Eric 2026-10-29, gate fix F2); a blind hull 100 u from a CANNON burst still receives nothing', () => {
+    const { w, a, A } = board(); // A sits 100 u from the burst point
+    fireUntilStop(w, a, BELT, 0, 400);
+    expect(sightOf(A, w.now)).toBe(0); // premise: blind this tick
+    const burst = buildFrame(w, 'A').events.find((e) => e.k === 'burst');
+    expect(burst).toBeDefined();
+    expect(Object.keys(burst!)).toEqual(['k', 'id', 'x', 'y', 'f']);
+    expect((burst as { f?: true }).f).toBe(true);
+    // A CANNON burst 100 u from an already-blind hull: the point is unsighted
+    // and the radius arm is the flash row's alone.
+    const { w: w2, a: a2, A: A2 } = board();
+    A2.dazzledUntil = w2.now + FLASH_WINDOW_MS;
+    const { seen } = fireUntilStop(w2, a2, 0, 0, 400);
+    expect(kinds(seen)).toContain('burst');
+    expect(sightOf(A2, w2.now)).toBe(0); // premise: still blind at the burst tick
+    expect(buildFrame(w2, 'A').events.filter((e) => e.k === 'burst')).toEqual([]);
+  });
+
   it('dazzledUntil rides ONLY the victim\'s own frame (`you`) — a watcher\'s contact for the victim never carries it', () => {
     const { w, a, A } = board();
     fireUntilStop(w, a, BELT, 0, 400);

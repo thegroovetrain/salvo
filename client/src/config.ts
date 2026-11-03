@@ -3779,8 +3779,10 @@ export const CLIENT_CONFIG = {
     /** The fog hole and the radar dim mask re-bake on a CHANGE of their sight
      *  radius, so while the circle grows they follow it in this many equal
      *  steps of the sight range (floored — never wider than the server's
-     *  sight): ~7 re-bakes a second across the 8.5 s clear, not 60. */
-    sightSteps: 60,
+     *  sight): ~3.5 re-bakes a second across the 8.5 s clear, not 60 — 30
+     *  steps ≈ 17 u at base sight, inside the clear circle's feather (gate
+     *  fix F9, rebake cost). Staging judges whether the steps read. */
+    sightSteps: 30,
   },
   /**
    * THE FLASH SHELLS BURST (Eric 2026-10-29, epic-10 amendment 5(d)): a disc of

@@ -62,6 +62,7 @@
 import {
   CONFIG,
   SHIP_CLASS_IDS,
+  effectiveSight,
   pointInLitZone,
   type BlipEvent,
   type Contact,
@@ -182,6 +183,21 @@ export interface BotSituation {
    *  the bot (ai/navigate.ts departureDue) — ringEscaping arms on it.
    *  Optional = false. */
   departing?: boolean;
+  /** ms — the bot's OWN FLASH SHELLS mark (BotSelf.dazzledUntil, a self-read
+   *  of exactly what a human client is sent). Read ONLY through `ownSightU`
+   *  (gate fix F8). Optional = never flashed. */
+  dazzledUntil?: number;
+}
+
+/**
+ * u — THE BOT'S OWN TRUESIGHT RADIUS this tick (gate fix F8, Eric 2026-10-29:
+ * "reflect this in what bots can see"): the SHARED `effectiveSight` over its
+ * stats and its own flash mark — the clear circle the server perceives this
+ * hull with (signals.sightOf), so a whited-out bot's own "inside my sight"
+ * gates shrink exactly as its contacts do. Never re-derived.
+ */
+export function ownSightU(sit: Pick<BotSituation, 'stats' | 'now' | 'dazzledUntil'>): number {
+  return effectiveSight(sit.stats, sit.dazzledUntil ?? 0, sit.now);
 }
 
 /**

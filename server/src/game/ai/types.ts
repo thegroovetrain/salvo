@@ -154,6 +154,15 @@ export interface BotSelf {
    * Read by ai/plot.ts's sweep-miss drop.
    */
   readonly sweepAngle: number;
+  /**
+   * ms — this hull's OWN FLASH SHELLS mark (epic-10 amendment 5) — exactly
+   * the `OwnShip.dazzledUntil` a human client is sent (0 / absent = never
+   * flashed). The bot's sight gates resolve their radius through the shared
+   * `effectiveSight(stats, dazzledUntil, now)` (gate fix F8), the clear
+   * circle the server's own perception of this hull uses. Optional so
+   * hand-built fixtures stay valid; ShipRecord has it.
+   */
+  readonly dazzledUntil?: number;
 }
 
 /**

@@ -13,6 +13,7 @@ import {
   SIGNAL_REGISTRY,
   ballisticGateOpen,
   decoyRadarBlips,
+  shipSees,
   signalFor,
   type BurstSubject,
   type FoggedSignalContext,
@@ -1269,6 +1270,23 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
     expect(Object.isFrozen(SIGNAL_REGISTRY)).toBe(true);
     for (const row of Object.values(SIGNAL_REGISTRY)) {
       expect(Object.isFrozen(row)).toBe(true);
+    }
+  });
+});
+
+describe('withinSight FAILS CLOSED at zero sight (gate fix F4): a blind observer admits nothing — not even a point at its own centre', () => {
+  it('a whited-out observer (sight 0) sees no co-located hull and no boom/burst at its own centre; the undazzled twin sees all three', () => {
+    for (const blind of [true, false]) {
+      const w = bareWorld();
+      const a = place(w, 'a', 0, 0);
+      const b = place(w, 'b', 0, 0); // hull centre EXACTLY on a's
+      if (blind) a.dazzledUntil = w.now + FLASH_WINDOW_MS; // the hit tick: sight 0
+      const ctx = foggedCtx(w, a);
+      const boom: BoomEvent = { k: 'boom', id: 's1', x: 0, y: 0 };
+      const burst: BurstSubject = { k: 'burst', id: 's2', x: 0, y: 0, own: 'b' };
+      expect(shipSees(a, b, ctx, w.now), `blind=${blind}`).toBe(!blind);
+      expect(signalFor('boom')!.visible(ctx, boom), `blind=${blind}`).toBe(!blind);
+      expect(signalFor('burst')!.visible(ctx, burst), `blind=${blind}`).toBe(!blind);
     }
   });
 });

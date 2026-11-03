@@ -2044,6 +2044,7 @@ function presentResults(g: Game, view: ResultsView): void {
   // drift against. Latched because a spectating survivor reaches it twice.
   sendMatchEndOnce(g);
   g.upgradeMenu.hide();
+  g.whiteout.hide(); // the score screen is never under white (gate fix F7)
   g.settingsOverlay.close();
   g.keyboard.clearKeys();
   g.resultsShownAt = performance.now();
@@ -4150,12 +4151,19 @@ function updateDazzle(g: Game, now: number, pose: Point | null): void {
  * own hull's screen position — the fog hole's own anchor rule, screen centre
  * through a forceSnap gap so one missing pose never flashes the screen clear —
  * at the camera's composed zoom. The soft edge drops at motion `off`.
- * Spectating hides it outright (renderSpectate).
+ * Spectating hides it outright (renderSpectate), and so does a visible results
+ * modal (gate fix F7): the results message lands one server message before
+ * the first `finished` spec frame, so a render can run between the two with
+ * `spectating` still false — the score screen must never sit under white.
  */
 function renderWhiteout(g: Game, until: number, now: number, pose: Point | null): void {
+  if (resultsVisible()) {
+    g.whiteout.hide(); // never white over the score screen (gate fix F7)
+    return;
+  }
   const at = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   const screen: WhiteoutScreen = { x: at.x, y: at.y, pxPerU: g.camera.zoom };
-  g.whiteout.render(whiteoutModel(until, now, g.ownStats, screen), screen, motionIntensity(settings.current.motion) > 0);
+  g.whiteout.render(whiteoutModel(until, now, g.ownStats, screen, g.whiteout.carriedAlpha), screen, motionIntensity(settings.current.motion) > 0);
 }
 
 /**

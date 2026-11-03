@@ -38,7 +38,7 @@ import {
   type Vec2,
 } from '@salvo/shared';
 import type { BotMind, BotPosture, BotSelf, BotWorldPort } from './types.js';
-import { isActionable, lineBlocked, plotAt, tracksOf, type BotSituation, type BotTrack } from './utility.js';
+import { isActionable, lineBlocked, ownSightU, plotAt, tracksOf, type BotSituation, type BotTrack } from './utility.js';
 import type { BotProfile } from './profiles.js';
 import { torpedoInbound } from './torpedoThreat.js';
 import { TRACK_PERSIST_MS, trackVelocity } from './plot.js';
@@ -338,14 +338,16 @@ export function sectorPlacement(
 /** The nearest LIVE, actionable track inside our own truesight bubble — the
  *  target the PHOSPHOR SHELLS row and the engaging FOULING SHELL row burst
  *  on. `keep` narrows the candidates (the astern pick below); the default
- *  keeps every track. */
+ *  keeps every track. The bubble is the bot's EFFECTIVE sight (`ownSightU` —
+ *  a flashed bot's clear circle, gate fix F8). */
 export function nearestLiveInSight(ctx: TacticContext, keep: (t: BotTrack) => boolean = () => true): BotTrack | null {
   let best: BotTrack | null = null;
   let bestD = Infinity;
+  const sight = ownSightU(ctx.sit);
   for (const t of tracksOf(ctx.mind)) {
     if (!t.live || !isActionable(t, ctx.sit.now) || !keep(t)) continue;
     const d = distTo(ctx.sit, t);
-    if (d > ctx.sit.stats.sightRange) continue;
+    if (d > sight) continue;
     if (d < bestD) {
       bestD = d;
       best = t;

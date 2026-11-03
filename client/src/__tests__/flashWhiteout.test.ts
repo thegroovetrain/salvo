@@ -79,6 +79,31 @@ describe('whiteoutModel — the frame the overlay draws', () => {
     expect(reflash.alpha).toBe(1);
     expect(reflash.holeR).toBe(0);
   });
+
+  it('a re-flash RAMPS FROM WHERE THE WHITE IS (gate fix F3, amendment 5e): hits at t = 0 and t = 7 000 — the alpha never dips through the new ramp, and is 1 at the new ramp\'s end', () => {
+    const second = 7000;
+    const a6999 = whiteoutModel(FLASH_WINDOW_MS, second - 1, STATS, SCREEN).alpha;
+    expect(a6999).toBeGreaterThan(0); // premise: the first whiteout is still clearing
+    // The overlay carries its last alpha frame to frame (16 ms frames).
+    let prev = a6999;
+    let lowest = Infinity;
+    for (let t = second + 1; t <= second + rampMs; t += 16) {
+      prev = whiteoutModel(second + FLASH_WINDOW_MS, t, STATS, SCREEN, prev).alpha;
+      lowest = Math.min(lowest, prev);
+    }
+    expect(whiteoutModel(second + FLASH_WINDOW_MS, second + 1, STATS, SCREEN, a6999).alpha).toBeGreaterThanOrEqual(a6999);
+    expect(lowest).toBeGreaterThanOrEqual(a6999);
+    expect(whiteoutModel(second + FLASH_WINDOW_MS, second + rampMs, STATS, SCREEN, prev).alpha).toBe(1);
+    // ...and the DOM sink carries it: rendering the first frame then the
+    // re-flash frame never drops the opacity.
+    const sink = new FlashWhiteout(document.body);
+    sink.render(whiteoutModel(FLASH_WINDOW_MS, second - 1, STATS, SCREEN, sink.carriedAlpha), SCREEN, true);
+    sink.render(whiteoutModel(second + FLASH_WINDOW_MS, second + 1, STATS, SCREEN, sink.carriedAlpha), SCREEN, true);
+    expect(Number(sink.el.style.opacity)).toBeGreaterThanOrEqual(a6999 - 1e-9);
+    sink.hide();
+    expect(sink.carriedAlpha).toBe(0); // a hidden overlay carries nothing into the next whiteout
+    sink.destroy();
+  });
 });
 
 describe('the mask and its feather', () => {

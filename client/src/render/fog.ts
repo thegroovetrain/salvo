@@ -41,6 +41,11 @@ export interface DazzleClock {
   now: number;
 }
 
+/** u — the smallest hole-radius change `Fog.setDazzle` calls a move: float
+ *  noise at a quantizer step boundary (quantizeSightU's F6 clamp) is far
+ *  below it, every real step (sight / sightSteps) far above. */
+const HOLE_MOVE_EPS_U = 1e-6;
+
 /** No flash mark: the undazzled clock every mirror starts from. */
 export const NO_DAZZLE: DazzleClock = Object.freeze({ until: 0, now: 0 });
 
@@ -56,8 +61,10 @@ export function quantizeSightU(sightU: number, sightRange: number): number {
   if (!(sightU < sightRange)) return sightU;
   const step = sightRange / CLIENT_CONFIG.flashWhiteout.sightSteps;
   if (!(step > 0)) return sightU;
-  // the epsilon absorbs float error at a step boundary; the min keeps its last step on sight exactly
-  return Math.min(sightRange, Math.floor(sightU / step + 1e-9) * step);
+  // the epsilon absorbs float error at a step boundary; the min keeps its last
+  // step on sight exactly — and NEVER ABOVE the input (gate fix F6): just below
+  // a boundary the epsilon rounds up, so the hole is clamped to sightU there.
+  return Math.min(sightU, sightRange, Math.floor(sightU / step + 1e-9) * step);
 }
 
 /**
@@ -212,13 +219,15 @@ export class Fog {
    * the whiteout since Eric 2026-10-29, epic-10 amendment 5). Returns TRUE when
    * the baked hole went stale — the (quantized) radius actually moved — so the
    * caller rebakes only then: twice around the hold, then once per
-   * `sightSteps` step while the circle grows (~60 over 8.5 s), never per frame.
+   * `sightSteps` step while the circle grows (one per step over 8.5 s), never per frame.
    */
   setDazzle(until: number, now: number): boolean {
     const before = this.holeRadiusU();
     this.dazzle.until = until;
     this.dazzle.now = now;
-    return this.holeRadiusU() !== before;
+    // A float-noise move is no move: at a step boundary the F6 clamp can hand
+    // back sightU a hair under the lattice point the next frame reaches.
+    return Math.abs(this.holeRadiusU() - before) > HOLE_MOVE_EPS_U;
   }
 
   /** Is the flash mark currently held? Test/observation seam. */

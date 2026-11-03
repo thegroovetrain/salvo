@@ -6322,6 +6322,9 @@ export class World {
     // (amendments 131 / 135(d)). The interceptor then takes the shell's
     // contactDamage below like any other early hit (0 for the flash).
     this.applyStopTags(shell, outcome);
+    // ...and a FLASH round flashes VISIBLY there too (gate fix F1): its burst
+    // (tagged `f`) rides beside the boom at the stop point.
+    this.emitInterceptionBurst(shell, outcome);
     // THE CAPTIVE MINE'S TORPEDO (Story 7-5 wave 2, R2.12/R2.14) — the game's
     // one CONTACT-BLAST projectile: it detonates AT ITS IMPACT POINT for the
     // layer's CAPTIVE MINES damage over that row's FIXED 32 u burst, instead of
@@ -6386,11 +6389,7 @@ export class World {
    * cycle-44 rebalance.
    */
   private resolveBurst(shell: ShellState, at: Vec2, hulls: readonly Target[]): void {
-    const burst: BurstSubject = { k: 'burst', id: shell.id, x: at.x, y: at.y, own: shell.ownerId };
-    // FLASH SHELLS tag (epic-10 amendment 5): everyone who sees the detonation
-    // sees the disc — the burst row's gate is unchanged, only the bit rides.
-    if (shell.flash) burst.f = true;
-    this.pending.push(burst);
+    this.pushBurst(shell, at);
     // A star shell's burst also lights its zone (Story 1.7), a PHOSPHOR
     // shell's spawns its burning zone (Story 8.17) and a FOULING shell's
     // spawns its foul zone (Story 9.4): the three server-internal tags ride
@@ -6611,6 +6610,27 @@ export class World {
     }
     if (!this.consumeMine(mine.id)) return;
     this.pending.push({ k: 'boom', id: mine.id, x: mine.x, y: mine.y });
+  }
+
+  /** THE one burst subject a shell emits (the burst point, or a FLASH
+   *  round's interception stop point): the wire BurstEvent plus the internal
+   *  `own` the burst row's owner arm reads. FLASH SHELLS tag (epic-10
+   *  amendment 5): everyone who sees the detonation sees the disc — `f` rides,
+   *  and the burst row widens its gate for a tagged subject ONLY to the hulls
+   *  inside the flash radius (gate fix F2: the flashed victim sees it too). */
+  private pushBurst(shell: ShellState, at: Vec2): void {
+    const burst: BurstSubject = { k: 'burst', id: shell.id, x: at.x, y: at.y, own: shell.ownerId };
+    if (shell.flash) burst.f = true;
+    this.pending.push(burst);
+  }
+
+  /** An INTERCEPTED FLASH round's burst at the stop point (gate fix F1): the
+   *  flash fires there (applyStopTags), so its disc must be seen there — the
+   *  same subject resolveBurst pushes, beside the interception's boom. Every
+   *  other intercepted round (no `flash` tag) bursts nowhere: boom only. */
+  private emitInterceptionBurst(shell: ShellState, at: Vec2): void {
+    if (!shell.flash) return;
+    this.pushBurst(shell, { x: at.x, y: at.y });
   }
 
   /** WHAT A SHELL LEAVES WHERE IT STOPS, whichever way it stopped (its burst

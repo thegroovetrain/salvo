@@ -99,7 +99,13 @@
 // fog-blind oracle says. The fuzz PINS the cut per world through the World's
 // test seam (worlds ≡ 0 mod 3 at ~30 % coverage, ≡ 1 at ~5 %, ≡ 2 with no
 // fog) so the toll arms are non-vacuous, and the five FOG_* /
-// RADAR_THROUGH_FOG ledgers prove each arm ran. The checks below
+// RADAR_THROUGH_FOG ledgers prove each arm ran. FLASH SHELLS (epic-10
+// amendment 5; gate fixes F2/F4, Eric 2026-10-29) add ONE row-rule widening,
+// not a seventh exception: a `burst` carrying the flash tag `f` may also
+// reach an observer whose hull CENTRE is within `CONFIG.flashShells.radius`
+// of the burst point (the flashed victim, whose sight is 0 that tick — see
+// verifyBurst); and zero sight admits NOTHING, not even a point at the
+// observer's own centre. The exceptions stay SIX. The checks below
 // are a deliberate test-local reimplementation of the
 // visibility predicates so a refactor of perception.ts cannot silently agree
 // with its own bug.
@@ -1380,6 +1386,22 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
 
 // ---------- directed cases: mine visibility (contact-like) -------------------
 
+describe('perception — ZERO SIGHT ADMITS NOTHING (gate fix F4: withinSight fails closed at range 0)', () => {
+  it('a whited-out observer co-located with another hull gets no contact for it, and standing inside a cloud (beam parked) gets no cloud row; the undazzled twin gets both', () => {
+    for (const blind of [true, false]) {
+      const w = bareWorld();
+      const me = place(w, 'me', 0, 0);
+      place(w, 'b', 0, 0); // hull centre exactly on the observer's
+      injectCloud(w, 'ck', 'b', 0, 0); // the observer stands in it
+      if (blind) me.dazzledUntil = w.now + FLASH_WINDOW_MS; // the hit tick: sight 0
+      me.prevSweepAngle = me.sweepAngle; // park the beam: only the SIGHT arm can deliver the cloud
+      const f = buildFrame(w, 'me');
+      expect(f.contacts.some((c) => c.id === 'b'), `blind=${blind}`).toBe(!blind);
+      expect((f.clouds ?? []).some((c) => c.id === 'ck'), `blind=${blind}`).toBe(!blind);
+    }
+  });
+});
+
 describe('perception — burst visibility (owner always, else burst point sighted)', () => {
   /** Route an internal burst subject through the real pending-events choke,
    *  the way World.resolveBurst emits it (wire BurstEvent + internal `own`). */
@@ -1423,14 +1445,19 @@ describe('perception — burst visibility (owner always, else burst point sighte
     expect(buildFrame(w, 'c').events.filter((e) => e.k === 'burst')).toEqual([]);
   });
 
-  it('the FLASH tag (epic-10 amendment 5) adds one bit, never a recipient: over random boards the set of observers receiving a flagged burst is EXACTLY the set receiving the same burst unflagged, and only the flagged one carries `f: true` (LAST)', () => {
+  it('the FLASH tag (epic-10 amendment 5) adds one bit and ONE recipient arm (gate fix F2, Eric 2026-10-29: the flashed victim sees the disc): over random boards — some observers blind — the observers receiving a flagged burst are EXACTLY those receiving the same burst unflagged ∪ those whose hull centre is inside the flash radius, and only the flagged one carries `f: true` (LAST)', () => {
     const rng = mulberry32(0xf1a5).next;
     let reached = 0;
     let fogged = 0;
+    let widened = 0; // in-radius observers the unflagged burst did NOT reach (blind ones)
     for (let trial = 0; trial < 40; trial++) {
+      const blind = Array.from({ length: 6 }, (_, i) => i > 0 && rng() < 0.5); // never the owner
       const build = (): World => {
         const w = bareWorld();
-        for (let i = 0; i < 6; i++) place(w, `o${i}`, (i - 3) * 160, (i % 2) * 120);
+        for (let i = 0; i < 6; i++) {
+          const o = place(w, `o${i}`, (i - 3) * 160, (i % 2) * 120);
+          if (blind[i]) o.dazzledUntil = w.now + FLASH_WINDOW_MS; // white at the frame: sight 0
+        }
         return w;
       };
       const bx = Math.floor(rng() * 1200) - 600;
@@ -1452,12 +1479,20 @@ describe('perception — burst visibility (owner always, else burst point sighte
         return ids;
       };
       const plainIds = got(plain, false);
-      expect(got(flagged, true)).toEqual(plainIds);
+      const inRadius: string[] = [];
+      for (let i = 0; i < 6; i++) {
+        const o = flagged.ships.get(`o${i}`)!;
+        if (dist(o.state, { x: bx, y: by }) <= CONFIG.flashShells.radius) inRadius.push(`o${i}`);
+      }
+      const expected = [...new Set([...plainIds, ...inRadius])].sort();
+      expect([...got(flagged, true)].sort()).toEqual(expected);
+      widened += expected.length - plainIds.length;
       reached += plainIds.length;
       fogged += 6 - plainIds.length;
     }
     expect(reached).toBeGreaterThan(40); // non-vacuous: owners and sighted observers received it...
-    expect(fogged).toBeGreaterThan(0); // ...and fogged observers did not, flag or no flag
+    expect(fogged).toBeGreaterThan(0); // ...and fogged observers did not, flag or no flag...
+    expect(widened).toBeGreaterThan(0); // ...and a blind in-radius observer got the flagged one alone
   });
 
   it('END-TO-END: a real gun burst reaches the fogged owner as {k,id,x,y} only', () => {
@@ -3784,8 +3819,14 @@ function verifyBurst(w: World, me: ShipRecord, e: GameEvent): void {
   } else {
     expect(Object.keys(ev).sort()).toEqual(['id', 'k', 'x', 'y']);
   }
-  // Burst point: sighted OR inside a zone the observer OWNS (Story 1.7 parity).
-  if (src!.own !== me.id) expect(sighted(w, me, ev) || zoneCovers(w, me, ev)).toBe(true);
+  // Burst point: sighted OR inside a zone the observer OWNS (Story 1.7 parity)
+  // — OR, for a FLASH-tagged burst only (Eric 2026-10-29, gate fix F2), the
+  // observer's hull CENTRE inside the flash radius of the burst point (the
+  // flashed victim sees the disc; it already learns the flash through its own
+  // `dazzledUntil`). Re-derived here off CONFIG, never the row.
+  if (src!.own === me.id) return;
+  const inFlash = src!.f === true && dist(me.state, ev) <= CONFIG.flashShells.radius;
+  expect(sighted(w, me, ev) || zoneCovers(w, me, ev) || inFlash).toBe(true);
 }
 
 // THE PUBLIC REGISTER (PV 23) — `sunk` is the 4th DECLARED exception to the

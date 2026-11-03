@@ -57,6 +57,7 @@ import {
   hasPersistence,
   isActionable,
   ownLiveMines,
+  ownSightU,
   plotAt,
   tracksOf,
   type BotSituation,
@@ -575,18 +576,21 @@ function flareStaleFloorMs(profile: BotProfile): number {
 /**
  * THE SENSOR FLARE (Eric ruling C2): the stalest plot worth lighting — an
  * actionable track we have LOST, quiet past this profile's staleness floor,
- * beyond our own truesight bubble, inside flare reach. Nearest wins.
+ * beyond our own truesight bubble, inside flare reach. Nearest wins. The
+ * bubble is the bot's EFFECTIVE sight (`ownSightU` — a flashed bot's clear
+ * circle, gate fix F8).
  */
 function sensorFlareTarget(ctx: TacticContext): BotTrack | null {
   const sit = ctx.sit;
   const floorMs = flareStaleFloorMs(sit.profile);
+  const sight = ownSightU(sit);
   let best: BotTrack | null = null;
   let bestD = Infinity;
   for (const t of tracksOf(ctx.mind)) {
     if (t.live || !isActionable(t, sit.now)) continue;
     if (sit.now - t.seenAt < floorMs) continue;
     const d = distTo(sit, t);
-    if (d <= sit.stats.sightRange || d > sit.stats.equipment.starShells.rangeU) continue;
+    if (d <= sight || d > sit.stats.equipment.starShells.rangeU) continue;
     if (d < bestD) {
       bestD = d;
       best = t;

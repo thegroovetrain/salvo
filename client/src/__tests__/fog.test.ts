@@ -62,6 +62,13 @@ describe('quantizeSightU — the rebake quantum', () => {
     expect(quantizeSightU(STEP * 3.5, BASE.sightRange)).toBeCloseTo(STEP * 3, 9);
     expect(quantizeSightU(0, BASE.sightRange)).toBe(0);
   });
+
+  it('NEVER exceeds the input (gate fix F6): just below a step boundary the boundary epsilon must not round the hole UP past effectiveSight', () => {
+    for (const k of [1, 2, 7, CLIENT_CONFIG.flashWhiteout.sightSteps - 1]) {
+      const sightU = STEP * k - 1e-12;
+      expect(quantizeSightU(sightU, BASE.sightRange)).toBeLessThanOrEqual(sightU);
+    }
+  });
 });
 
 describe('Fog.setDazzle — the rebake staleness edge', () => {

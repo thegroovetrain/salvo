@@ -217,6 +217,7 @@ export function situationOf(self: BotSelf, mind: BotMind, port: BotWorldPort): B
     hullId: self.hullId,
     ownLitZones: ownLitZones(mind.view?.litZones, selfIdOf(self), port.now),
     departing: departingNow(self, mind, port),
+    dazzledUntil: self.dazzledUntil ?? 0, // the bot's own flash mark (gate fix F8 — ownSightU)
   };
 }
 

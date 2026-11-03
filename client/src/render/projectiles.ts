@@ -271,9 +271,9 @@ const SIGHT_CULL_MARGIN = 40; // u
  * CONFIG.vision.detectFactor` is pinned shared-side precisely so there is one
  * derivation, and an observer's detect ring must scale with their own sight.
  */
-export function cullRadiusSq(sightRange: number, kind: Kind): number {
+export function cullRadiusSq(sightRange: number, kind: Kind, marginU: number = SIGHT_CULL_MARGIN): number {
   const reveal = kind === 'torp' ? sightRange * CONFIG.vision.detectFactor : sightRange;
-  return (reveal + SIGHT_CULL_MARGIN) ** 2;
+  return (reveal + marginU) ** 2;
 }
 
 /**
@@ -305,7 +305,11 @@ export function trackCullRadiusSq(ranges: VisionRanges, dazzle: DazzleClock, kin
   // believed-own: the plain, UN-DAZZLED sight ring — the server's owner path
   // never consults a range or a dazzle (FLASH SHELLS, Story 10.9).
   if (own !== null) return cullRadiusSq(ranges.sightRange, 'shell');
-  return cullRadiusSq(effectiveSight(ranges, dazzle.until, dazzle.now), kind);
+  // NO MARGIN WHILE A MARK IS PENDING (gate fix F5): a whited-out observer
+  // must not dead-reckon an enemy track 40 u past a clear circle the server
+  // perceives it with — the ring is effectiveSight EXACTLY (0 in the white).
+  const pending = dazzle.until > dazzle.now;
+  return cullRadiusSq(effectiveSight(ranges, dazzle.until, dazzle.now), kind, pending ? 0 : SIGHT_CULL_MARGIN);
 }
 
 /** Pure: dead-reckoned shell position at server time `now` (ms). */

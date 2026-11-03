@@ -323,7 +323,8 @@ function fogCostTo(field: SightField, me: ShipRecord, p: Vec2): number {
  * to its length — `d + fogCostTo ≤ range`, boundary inclusive. The plain
  * squared test runs FIRST and rejects anything beyond geometric range before
  * any march (fog never widens sight) — written `!(d2 <= r²)` so a non-finite
- * range REJECTS (fail-closed: a NaN range sees nothing, never everything).
+ * range REJECTS (fail-closed: a NaN range sees nothing, never everything),
+ * and a ZERO range rejects even `d = 0` (gate fix F4: blind is blind).
  * With no fog the toll thunk answers 0 without a march (the World's cut
  * gate), so the pre-fog gates are byte-identical. Every sight-tier range
  * site calls this — the contact row, pointSighted, pointDetected, shipSees,
@@ -336,6 +337,10 @@ function withinSight(field: SightField, me: ShipRecord, p: Vec2, range: number):
   const dx = p.x - me.state.x;
   const dy = p.y - me.state.y;
   const d2 = dx * dx + dy * dy;
+  // ZERO SIGHT ADMITS NOTHING (gate fix F4): a whited-out observer (range 0)
+  // must not sight a point at its own centre (`0 <= 0`) — a co-located hull,
+  // a cloud it stands in, an event on its own hull. Also rejects NaN/negative.
+  if (!(range > 0)) return false;
   if (!(d2 <= range * range)) return false;
   const toll = fogCostTo(field, me, p);
   if (toll <= 0) return true;
@@ -1788,18 +1793,35 @@ export interface BurstSubject extends BurstEvent {
  * hull can never be probed this way, and any LOS-clear hull inside gun range
  * (gun range = radar range) is painted by the radar sweep within one ~4s
  * revolution regardless. The owner learns nothing the sweep would not reveal.
+ *
+ * THE FLASH ARM (Eric 2026-10-29, gate fix F2 — a widening of THIS row for
+ * one tagged subject, NOT a seventh exception): a burst carrying the FLASH
+ * tag `f` is ALSO visible to an observer whose hull CENTRE is within
+ * `CONFIG.flashShells.radius` of the burst point (inclusive — the same
+ * centre test World.applyFlash marks hulls by). That observer is the flashed
+ * victim, whose own sight is 0 that very tick; it already learns it was
+ * flashed through its own `dazzledUntil`, so the burst point is the only new
+ * bit — and it is within the flash radius of a hull it owns.
  */
+function insideFlash(me: ShipRecord, e: BurstSubject): boolean {
+  if (e.f !== true) return false;
+  const dx = e.x - me.state.x;
+  const dy = e.y - me.state.y;
+  const r = CONFIG.flashShells.radius;
+  return dx * dx + dy * dy <= r * r;
+}
+
 const burstSignal: SignalSpec<BurstSubject, BurstEvent> = {
   eventType: 'burst',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.own === ctx.me.id || pointSighted(ctx.me, e, ctx, ctx.now) || ownZoneCovers(ctx, e);
+    return e.own === ctx.me.id || pointSighted(ctx.me, e, ctx, ctx.now) || ownZoneCovers(ctx, e) || insideFlash(ctx.me, e);
   },
   materialize(_ctx, e) {
     // ALWAYS a fresh bare object — never `e` verbatim, which would leak the
     // server-internal `own` field (spectator path included). The FLASH tag `f`
-    // (epic-10 amendment 5) is appended LAST, only when the subject carries it;
-    // it never widens `visible` above — same recipients, one more bit.
+    // (epic-10 amendment 5) is appended LAST, only when the subject carries it.
+    // Its ONE recipient widening is `insideFlash` in `visible` above.
     const ev: BurstEvent = { k: 'burst', id: e.id, x: e.x, y: e.y };
     if (e.f === true) ev.f = true;
     return ev;
