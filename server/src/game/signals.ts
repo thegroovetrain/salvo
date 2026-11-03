@@ -346,10 +346,11 @@ function withinSight(field: SightField, me: ShipRecord, p: Vec2, range: number):
  * The observer's EFFECTIVE sight radius this tick: the SHARED `effectiveSight`
  * (sim/sight.ts) over its stats and its dazzle mark. A FLASH SHELLS burst
  * (Story 8.17, amendment 132; RESTORED by Story 10.9 beside the FOULING
- * SHELL, epic-10 amendments 2 and 4) sets `dazzledUntil` (World.applyFlash);
- * while it is in the future the observer's truesight collapses to
- * `sightRange × CONFIG.flashShells.sightFraction` (ruling 1: a quarter of
- * sight). Else `stats.sightRange`. The hull's own wire field
+ * SHELL, epic-10 amendments 2 and 4; RE-CUT as the WHITEOUT by amendment 5)
+ * sets `dazzledUntil = hit + FLASH_WINDOW_MS` (World.applyFlash); while it is
+ * in the future the observer's truesight is the whiteout's CLEAR CIRCLE — 0
+ * through ramp + hold, then linear from 0 to `sightRange` across clearMs —
+ * for bots and captains alike. Else `stats.sightRange`. The hull's own wire field
  * OwnShip.dazzledUntil reads the same mark and the client's mirror calls the
  * same shared function, so the server's shrunken sight and the client's
  * honest fog hole agree by construction. (Story 9.3 removed the 8.18
@@ -363,7 +364,7 @@ function withinSight(field: SightField, me: ShipRecord, p: Vec2, range: number):
  * Never re-derived here: one derivation, both sides.
  */
 export function sightOf(me: ShipRecord, now: number): number {
-  return effectiveSight(me.stats, now < me.dazzledUntil);
+  return effectiveSight(me.stats, me.dazzledUntil, now);
 }
 
 /**

@@ -1020,9 +1020,10 @@ export interface ShipRecord {
    * amendment 132; RESTORED by Story 10.9, epic-10 amendments 2 and 4); 0 =
    * never dazzled. Written ONLY by applyFlash: every non-owner afloat hull
    * whose CENTRE is inside a flash burst gets `max(current, now +
-   * durationMs)` — a second flash keeps the LATER expiry, never stacks, never
-   * shortens. Read by perception (signals.sightOf → the shared
-   * `effectiveSight(stats, dazzled)`) and mirrored onto OwnShip.dazzledUntil
+   * FLASH_WINDOW_MS)` — a second flash keeps the LATER expiry (a re-flash
+   * restarts the whiteout), never stacks, never shortens. Read by perception
+   * (signals.sightOf → the shared `effectiveSight(stats, dazzledUntil, now)`,
+   * the whiteout's clear circle, epic-10 amendment 5) and mirrored onto OwnShip.dazzledUntil
    * (VICTIM-PRIVATE, frames.toOwnShip only, omitted when not in the future).
    * Reset wherever `fouledUntil` resets (addShip, founder, respawn, redeploy /
    * match start); sink-entry keeps it like every debuff window.
@@ -6629,11 +6630,15 @@ export class World {
    * non-owner ship whose CENTRE is within `radius` of `at` (amendment 136) —
    * captains AND fleet drones alike (a drone is a ship; a spectator or a
    * wreck has no eyes to dazzle) — is marked `dazzledUntil = max(current,
-   * now + durationMs)`: a hull already dazzled keeps whichever expiry is
-   * LATER, so a second flash never stacks and never shortens. One-time: no
+   * now + durationMs)` — `durationMs` is the shell's tag, stamped by the row
+   * as FLASH_WINDOW_MS (the whole whiteout, epic-10 amendment 5): a hull
+   * already dazzled keeps whichever expiry is LATER, so a second flash
+   * restarts the whiteout, never stacks and never shortens. One-time: no
    * zone, no light, no reveal, no damage, nothing refreshes the mark.
-   * Perception (signals.sightOf → the shared `effectiveSight`) collapses the
-   * DAZZLED observer's own sight; frames mirror the mark to the victim alone.
+   * Perception (signals.sightOf → the shared `effectiveSight`) reads the
+   * mark as the whiteout's clear circle — 0 through ramp + hold, then growing
+   * to full sight — for the DAZZLED observer's own sight; frames mirror the
+   * mark to the victim alone.
    *
    * GATED ON damageEnabled (Story 2.8 review, P9): a flash is a HOSTILE
    * effect, so a ready-room burst blinds nobody — the shell still flies and

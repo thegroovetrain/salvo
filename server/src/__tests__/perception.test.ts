@@ -120,6 +120,7 @@ import {
   coverageHas,
   dropoutPaintP,
   dropoutPaints,
+  FLASH_WINDOW_MS,
   effectiveSight,
   effectiveStats,
   hullSilhouette,
@@ -463,10 +464,10 @@ function effSight(w: World, me: ShipRecord): number {
   const seam = w.now < (SIGHT_SHRUNK.get(me.id) ?? 0) ? effRadar() / 12 : effRadar() / 3;
   // THE FLASH SHELLS DAZZLE (Story 10.9 restores it): the observer's own mark
   // collapses the seam's sight through the ONE shared `effectiveSight` (the
-  // orchestrator's reading: the dazzle FRACTION is shared law, pinned in
-  // shared sight.test.ts; this suite owns WHERE it applies — every sight-tier
-  // gate, never a radar-anchored one).
-  return effectiveSight({ sightRange: seam }, w.now < me.dazzledUntil);
+  // orchestrator's reading: the WHITEOUT clear-circle curve is shared law,
+  // pinned in shared sight.test.ts; this suite owns WHERE it applies — every
+  // sight-tier gate, never a radar-anchored one).
+  return effectiveSight({ sightRange: seam }, me.dazzledUntil, w.now);
 }
 
 // INTEL RANGE IS FLAT AGAIN (Eric ruling 2026-08-20). `intelRange` — the only
@@ -4743,7 +4744,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           const b = addDecoy(w.decoys, owner.id, bx, by, `rb-${id}-${k}`, 'radar', w.now + CONFIG.buoy.lifetimeMs, seed);
           b.sweep!.periodMs = owner.stats.sweepPeriodMs;
         }
-        if (brng.float(0, 1) < 0.2) owner.dazzledUntil = w.now + brng.float(DT, CONFIG.flashShells.durationMs);
+        if (brng.float(0, 1) < 0.2) owner.dazzledUntil = w.now + brng.float(DT, FLASH_WINDOW_MS); // anywhere in the whiteout: white, or a clear circle of any size
       }
       // COUNTERMEASURE CLOUDS (Story 9.3): 1–4 live clouds of RANDOM age (a
       // fresh 200 u disc to a nearly-expired 500 u one), each owned by a
