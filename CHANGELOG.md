@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.19.4] - 2026-10-29
+
+### Changed
+- **FLASH SHELLS is a whiteout now.** The burst is a black disc that wipes to white and vanishes. A hull caught in it has its whole screen go white in half a second, hold for a second, then clear over 8.5 s from the ship outward: a circle of normal sight grows around you while the white beyond it fades more slowly. That growing circle is your true sight on the server too, the same for humans and bots, so nothing beyond it reaches you until it does; radar is untouched. A second flash restarts the white. Replaces the quarter-sight dazzle of 0.19.2.
+- **Wire:** protocol 93 → 94 (the flash's timing shape).
+
 ## [0.19.3] - 2026-10-29
 
 ### Changed
