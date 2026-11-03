@@ -957,12 +957,25 @@ export interface TorpedoUpdateEvent {
  * field may EVER be added here (burstRadius ships in CONFIG; the BallisticEvent
  * rationale applies unchanged). Damage still arrives ONLY as victim-private
  * `dmg` events — a multi-victim burst emits one `dmg` per victim.
+ *
+ * `f` — the FLASH BURST TAG (Eric 2026-10-29, epic-10 amendment 5: everyone
+ * who sees the detonation sees the disc). Present (`true`) ONLY on the burst
+ * of a FLASH SHELLS round, absent on every other burst. It is the one fact the
+ * client cannot derive itself: a reveal's `w` names only the gun FAMILY
+ * (`cannon` for a flash round too), so without it only the shooter's own-fire
+ * claim could tell a flash from a cannon burst. It is NOT range-derivable: a
+ * constant tag, no radius (the flash radius ships in CONFIG), no origin.
+ * ANTI-CHEAT: it rides the EXISTING anonymous burst under the burst row's
+ * unchanged visibility gate — no new reach, no new recipients; a flash is a
+ * visible detonation and the disc reveals nothing beyond the burst point.
+ * KEY ORDER IS LOAD-BEARING (msgpack): k,id,x,y,f — `f` is appended LAST.
  */
 export interface BurstEvent {
   k: 'burst';
   id: string; // originating shell id
   x: number; // u — burst center (the target point)
   y: number; // u
+  f?: true; // FLASH SHELLS burst tag — present only on a flash round's burst; LAST key
 }
 
 /**

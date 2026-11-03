@@ -1436,6 +1436,30 @@ describe('FLASH SHELLS (`dazzleShells`) — a consumable whose one-time burst da
     expect(painted).toBeGreaterThan(0); // premise: the radar did paint inside the window
   });
 
+  it('the flash round\'s burst carries the FLASH tag `f: true` (appended LAST) to every observer it reaches — the owner and a watcher outside the radius — while a cannon burst never does (epic-10 amendment 5)', () => {
+    const { w, a } = board();
+    const { seen } = fireUntilStop(w, a, BELT, 0, 400);
+    const internal = seen.find((e) => e.k === 'burst') as { f?: true } | undefined;
+    expect(internal?.f).toBe(true);
+    for (const obs of ['a', 'watcher']) {
+      const burst = buildFrame(w, obs).events.find((e) => e.k === 'burst');
+      expect(burst).toBeDefined();
+      expect(Object.keys(burst!)).toEqual(['k', 'id', 'x', 'y', 'f']); // key order: f LAST (msgpack)
+      expect((burst as { f?: true }).f).toBe(true);
+    }
+    // ...and the ordinary cannon (slot 0) burst carries no tag at all.
+    const { w: w2, a: a2 } = board();
+    const { seen: seen2 } = fireUntilStop(w2, a2, 0, 0, 400);
+    const cannon = seen2.find((e) => e.k === 'burst');
+    expect(cannon).toBeDefined();
+    expect('f' in cannon!).toBe(false);
+    for (const obs of ['a', 'watcher']) {
+      const burst = buildFrame(w2, obs).events.find((e) => e.k === 'burst');
+      expect(burst).toBeDefined();
+      expect(Object.keys(burst!)).toEqual(['k', 'id', 'x', 'y']);
+    }
+  });
+
   it('dazzledUntil rides ONLY the victim\'s own frame (`you`) — a watcher\'s contact for the victim never carries it', () => {
     const { w, a, A } = board();
     fireUntilStop(w, a, BELT, 0, 400);

@@ -6387,6 +6387,9 @@ export class World {
    */
   private resolveBurst(shell: ShellState, at: Vec2, hulls: readonly Target[]): void {
     const burst: BurstSubject = { k: 'burst', id: shell.id, x: at.x, y: at.y, own: shell.ownerId };
+    // FLASH SHELLS tag (epic-10 amendment 5): everyone who sees the detonation
+    // sees the disc — the burst row's gate is unchanged, only the bit rides.
+    if (shell.flash) burst.f = true;
     this.pending.push(burst);
     // A star shell's burst also lights its zone (Story 1.7), a PHOSPHOR
     // shell's spawns its burning zone (Story 8.17) and a FOULING shell's

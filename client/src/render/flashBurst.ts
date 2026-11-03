@@ -5,10 +5,10 @@
 // `blackMs`, black → white across `wipeMs`, then white fading out across
 // `fadeMs`, then removed (CLIENT_CONFIG.flashBurst).
 //
-// It replaces the ordinary burst ring ONLY for a burst whose shell the client
-// knows was a FLASH SHELLS round (roomBindings' `handleBurst` keys on the shell's
-// claim); a burst whose shell the client never saw — or could not attribute —
-// renders as the ordinary burst. Drawn on the fog-immune burst layer (the chart
+// It replaces the ordinary burst ring ONLY for a FLASH SHELLS round's burst —
+// the wire's `f` tag (everyone who sees the detonation sees the disc) or the
+// shooter's own claim (roomBindings' `isFlashBurst`); any other burst renders
+// as the ordinary ring. Drawn on the fog-immune burst layer (the chart
 // root, above the water, under the HUD), like every other burst mark.
 //
 // The math is the pure `flashBurstModel`; the class is a thin Pixi sink that

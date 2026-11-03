@@ -1764,7 +1764,8 @@ const boomSignal: SignalSpec<BoomEvent, BoomEvent> = {
  * Server-INTERNAL burst subject: the wire BurstEvent plus the firing shell's
  * ownerId, carried only inside World.tickEvents for the owner-visibility rule
  * below. `own` NEVER reaches the wire — materialize() always rebuilds the
- * bare {k,id,x,y} shape, on BOTH the fogged and spectator paths.
+ * bare {k,id,x,y} shape (plus `f` on a FLASH SHELLS burst), on BOTH the
+ * fogged and spectator paths.
  */
 export interface BurstSubject extends BurstEvent {
   own: string;
@@ -1796,8 +1797,12 @@ const burstSignal: SignalSpec<BurstSubject, BurstEvent> = {
   },
   materialize(_ctx, e) {
     // ALWAYS a fresh bare object — never `e` verbatim, which would leak the
-    // server-internal `own` field (spectator path included).
-    return { k: 'burst', id: e.id, x: e.x, y: e.y };
+    // server-internal `own` field (spectator path included). The FLASH tag `f`
+    // (epic-10 amendment 5) is appended LAST, only when the subject carries it;
+    // it never widens `visible` above — same recipients, one more bit.
+    const ev: BurstEvent = { k: 'burst', id: e.id, x: e.x, y: e.y };
+    if (e.f === true) ev.f = true;
+    return ev;
   },
 };
 

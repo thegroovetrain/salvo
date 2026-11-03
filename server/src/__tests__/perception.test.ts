@@ -1383,9 +1383,10 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
 describe('perception — burst visibility (owner always, else burst point sighted)', () => {
   /** Route an internal burst subject through the real pending-events choke,
    *  the way World.resolveBurst emits it (wire BurstEvent + internal `own`). */
-  function emitBurst(w: World, id: string, own: string, x: number, y: number): void {
+  function emitBurst(w: World, id: string, own: string, x: number, y: number, flash = false): void {
     interface Pendable { pending: GameEvent[] }
-    (w as unknown as Pendable).pending.push({ k: 'burst', id, x, y, own } as GameEvent);
+    const subject = flash ? { k: 'burst', id, x, y, own, f: true } : { k: 'burst', id, x, y, own };
+    (w as unknown as Pendable).pending.push(subject as GameEvent);
     w.step();
   }
 
@@ -1420,6 +1421,43 @@ describe('perception — burst visibility (owner always, else burst point sighte
     place(w, 'c', 0, 0);
     emitBurst(w, 'b1', 'a', 200, 0); // inside sight range but behind the rock
     expect(buildFrame(w, 'c').events.filter((e) => e.k === 'burst')).toEqual([]);
+  });
+
+  it('the FLASH tag (epic-10 amendment 5) adds one bit, never a recipient: over random boards the set of observers receiving a flagged burst is EXACTLY the set receiving the same burst unflagged, and only the flagged one carries `f: true` (LAST)', () => {
+    const rng = mulberry32(0xf1a5).next;
+    let reached = 0;
+    let fogged = 0;
+    for (let trial = 0; trial < 40; trial++) {
+      const build = (): World => {
+        const w = bareWorld();
+        for (let i = 0; i < 6; i++) place(w, `o${i}`, (i - 3) * 160, (i % 2) * 120);
+        return w;
+      };
+      const bx = Math.floor(rng() * 1200) - 600;
+      const by = Math.floor(rng() * 600) - 300;
+      const plain = build();
+      const flagged = build();
+      emitBurst(plain, 'b1', 'o0', bx, by, false);
+      emitBurst(flagged, 'b1', 'o0', bx, by, true);
+      const got = (w: World, flash: boolean): string[] => {
+        const ids: string[] = [];
+        for (let i = 0; i < 6; i++) {
+          const b = buildFrame(w, `o${i}`).events.filter((e) => e.k === 'burst');
+          expect(b.length).toBeLessThanOrEqual(1);
+          if (b.length === 0) continue;
+          ids.push(`o${i}`);
+          if (flash) expect(Object.keys(b[0])).toEqual(['k', 'id', 'x', 'y', 'f']);
+          else expect('f' in b[0]).toBe(false);
+        }
+        return ids;
+      };
+      const plainIds = got(plain, false);
+      expect(got(flagged, true)).toEqual(plainIds);
+      reached += plainIds.length;
+      fogged += 6 - plainIds.length;
+    }
+    expect(reached).toBeGreaterThan(40); // non-vacuous: owners and sighted observers received it...
+    expect(fogged).toBeGreaterThan(0); // ...and fogged observers did not, flag or no flag
   });
 
   it('END-TO-END: a real gun burst reaches the fogged owner as {k,id,x,y} only', () => {
@@ -3733,11 +3771,19 @@ function verifyBoom(w: World, me: ShipRecord, e: GameEvent): void {
 // registry row.
 function verifyBurst(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as BurstEvent;
-  expect(Object.keys(ev).sort()).toEqual(['id', 'k', 'x', 'y']);
   const src = w.tickEvents.find((t) => t.k === 'burst' && t.id === ev.id) as
     | (BurstEvent & { own?: string })
     | undefined;
   expect(src).toBeDefined();
+  // The FLASH tag `f` (epic-10 amendment 5) is the ONE optional key: present
+  // (exactly `true`, LAST) iff the internal subject carries it — never on any
+  // other burst. It never changes WHO receives the burst (the gate below).
+  if (src!.f === true) {
+    expect(Object.keys(ev)).toEqual(['k', 'id', 'x', 'y', 'f']);
+    expect(ev.f).toBe(true);
+  } else {
+    expect(Object.keys(ev).sort()).toEqual(['id', 'k', 'x', 'y']);
+  }
   // Burst point: sighted OR inside a zone the observer OWNS (Story 1.7 parity).
   if (src!.own !== me.id) expect(sighted(w, me, ev) || zoneCovers(w, me, ev)).toBe(true);
 }
@@ -4491,6 +4537,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     DROPOUT_LEDGER.painted = 0;
     DROPOUT_LEDGER.missed = 0;
     let wkSeen = 0; // Story 4.12: proves the wake oracle ran non-vacuously
+    let fSeen = 0; // epic-10 amendment 5: proves a FLASH-tagged burst reached the oracle
     let reReveals = 0; // Story 8.13: proves the per-visit ledger saw a re-entry
     for (let world = 0; world < 20; world++) {
       const w = new World(rng.int(0, 2 ** 31 - 1), CONFIG.match.fillTo, CONFIG.zone);
@@ -4636,6 +4683,12 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           rng.float(20, CONFIG.vision.radar), // gun range base = radar range (shellRange retired)
           rng.float(0, 1) < 0.5, // half the shells are targeted bursters (real gun shape)
         );
+        // FLASH tag (epic-10 amendment 5): every odd targeted burster carries
+        // the server-internal flash tag, so the burst oracle sees flagged
+        // bursts (`f` present, LAST) beside bare ones. Off the slot parity —
+        // the shared `rng`, and every scenario it draws, is unmoved.
+        const injected = w.shells.get(`inj${s}`)!;
+        if (s % 2 === 1 && injected.targetX !== null) injected.flash = { radius: CONFIG.flashShells.radius, durationMs: FLASH_WINDOW_MS };
       }
       for (let s = 0; s < rng.int(0, 4); s++) {
         const ang = rng.float(0, TAU);
@@ -4883,6 +4936,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         for (const id of ids) {
           const f = buildFrame(w, id);
           wkSeen += f.events.filter((e) => e.k === 'wk').length;
+          fSeen += f.events.filter((e) => e.k === 'burst' && 'f' in e).length;
           verifyFrame(w, id, f);
           ledger.verify(w, id, f);
         }
@@ -4918,6 +4972,8 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     // with 70% of hulls pre-laid with tracks across 20 worlds × 6 ticks, zero
     // disclosed segments would mean the channel silently died.
     expect(wkSeen).toBeGreaterThan(0);
+    // ...and so must the FLASH tag: at least one flagged burst was verified.
+    expect(fSeen).toBeGreaterThan(0);
     // ...and so must the re-reveal: zero second reveals across 20 shrunk
     // worlds would mean the per-visit mark silently reverted to permanent.
     expect(reReveals).toBeGreaterThan(0);

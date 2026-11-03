@@ -1785,20 +1785,22 @@ function handleBurst(e: BurstEvent, t: number, deps: RoomBindingDeps, s: BindSta
 }
 
 /**
- * Pure: is this burst a FLASH SHELLS round as far as the client honestly knows?
- * Only the shell's own track can say (its claim, set when the client saw the
- * shell leave): the wire's `burst` carries no weapon, and a reveal's `w` names
- * only the gun FAMILY (`cannon` for a flash round too), so an unattributed
- * burst is never a flash here (epic-10 amendment 5(f)).
+ * Pure: is this burst a FLASH SHELLS round? Everyone who sees the detonation
+ * sees the disc (Eric 2026-10-29, epic-10 amendment 5): the server tags a flash
+ * round's burst `f: true` for every observer the burst reaches, so an enemy's
+ * or a third party's flash draws the disc too. The shooter's own-fire claim
+ * (set when the client saw its own shell leave) stays a second, independent
+ * path — a reveal's `w` names only the gun FAMILY (`cannon` for a flash round
+ * too), so nothing else can tell a flash from a cannon burst.
  */
-export function isFlashBurst(own: OwnFire): boolean {
-  return own === 'dazzleShells';
+export function isFlashBurst(e: Pick<BurstEvent, 'f'>, own: OwnFire): boolean {
+  return e.f === true || own === 'dazzleShells';
 }
 
-/** The burst's mark: the FLASH SHELLS disc for a known flash round (when the
- *  host wired the disc layer), else the ordinary ring at `radius`. */
+/** The burst's mark: the FLASH SHELLS disc for a flash round (when the host
+ *  wired the disc layer), else the ordinary ring at `radius`. */
 function spawnBurstMark(e: BurstEvent, own: OwnFire, radius: number | undefined, deps: RoomBindingDeps): void {
-  if (isFlashBurst(own) && deps.flashBursts) deps.flashBursts.spawn(e.x, e.y);
+  if (isFlashBurst(e, own) && deps.flashBursts) deps.flashBursts.spawn(e.x, e.y);
   else deps.effects.spawnEffect('burst', e.x, e.y, 1, radius);
 }
 

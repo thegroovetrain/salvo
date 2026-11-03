@@ -389,8 +389,9 @@ describe('bindRoom burst events', () => {
   });
 
   // THE FLASH SHELLS BURST (epic-10 amendment 5(d)): a burst whose shell the
-  // client knows as a FLASH SHELLS round draws the disc INSTEAD of the ring; one
-  // it never saw (or could not attribute) stays the ordinary burst.
+  // client knows as a FLASH SHELLS round (its own claim, or the wire's `f` tag)
+  // draws the disc INSTEAD of the ring; an untagged burst it never saw (or could
+  // not attribute) stays the ordinary burst.
   it('a known FLASH SHELLS round bursts as the disc, not the ring', () => {
     const spawn = vi.fn();
     const { sink, spawnEffect } = setupEvents({ ownFireOf: () => 'dazzleShells', flashBursts: { spawn } });
@@ -407,9 +408,27 @@ describe('bindRoom burst events', () => {
     expect(spawnEffect).toHaveBeenCalledWith('burst', 10, 20, 1, undefined);
   });
 
-  it('isFlashBurst keys on the FLASH SHELLS claim alone', () => {
-    expect(isFlashBurst('dazzleShells')).toBe(true);
-    for (const own of [null, 'gun', 'starShells', 'foulingShell', 'phosphorShells'] as const) expect(isFlashBurst(own)).toBe(false);
+  it('an ENEMY burst tagged `f` (no own claim) draws the flash disc, never the ring (epic-10 amendment 5)', () => {
+    const spawn = vi.fn();
+    const { sink, spawnEffect } = setupEvents({ ownFireOf: () => null, flashBursts: { spawn } });
+    sink.handler(eventFrame({ k: 'burst', id: 'shell-7', x: -30, y: 90, f: true }));
+    expect(spawn).toHaveBeenCalledWith(-30, 90);
+    expect(spawnEffect).not.toHaveBeenCalledWith('burst', expect.anything(), expect.anything(), expect.anything(), expect.anything());
+  });
+
+  it('an ENEMY burst without `f` draws the ordinary ring, never the disc', () => {
+    const spawn = vi.fn();
+    const { sink, spawnEffect } = setupEvents({ ownFireOf: () => null, flashBursts: { spawn } });
+    sink.handler(eventFrame({ k: 'burst', id: 'shell-8', x: 5, y: 6 }));
+    expect(spawn).not.toHaveBeenCalled();
+    expect(spawnEffect).toHaveBeenCalledWith('burst', 5, 6, 1, undefined);
+  });
+
+  it('isFlashBurst: the wire tag OR the own FLASH SHELLS claim — either alone suffices', () => {
+    expect(isFlashBurst({ f: true }, null)).toBe(true);
+    expect(isFlashBurst({}, 'dazzleShells')).toBe(true);
+    expect(isFlashBurst({ f: true }, 'gun')).toBe(true);
+    for (const own of [null, 'gun', 'starShells', 'foulingShell', 'phosphorShells'] as const) expect(isFlashBurst({}, own)).toBe(false);
   });
 });
 

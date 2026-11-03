@@ -8,7 +8,9 @@
  *  full sightRange across `clearMs`; `OwnShip.dazzledUntil` = hit + 10 s
  *  (`FLASH_WINDOW_MS`, the sum); `effectiveSight(stats, dazzledUntil, now)`
  *  replaces the boolean; `CONFIG.flashShells` shape changes (durationMs +
- *  sightFraction → rampMs / holdMs / clearMs — the client reads it).
+ *  sightFraction → rampMs / holdMs / clearMs — the client reads it);
+ *  BurstEvent.f (flash burst tag — present only on a FLASH SHELLS round's
+ *  burst, under the burst's unchanged visibility gate, appended LAST).
  *  93 — Story 10.9 THE FLASH SHELL AND THE FOUR BUOYS (Eric 2026-10-27/28,
  *  epic-10 amendments 2 and 4): catalog −decoyBuoy +dazzleShells +radarBuoy
  *  +healingBuoy +shieldBuoy +speedBuoy (26 → 30 lines, catalog content is
