@@ -11,6 +11,7 @@ import { CONFIG, DEFAULT_KIT, MSG } from '@salvo/shared';
 import {
   BURN_AMOUNT_CAP,
   bindRoom,
+  isFlashBurst,
   frameIsDeadOrSpectating,
   inEnemyBurningZone,
   maxBurnDps,
@@ -344,6 +345,7 @@ function setupEvents(over: Record<string, unknown> = {}) {
     colors: vi.fn(() => null),
     ordnanceHue: vi.fn(() => 0),
     ...(over.ownBurstRadius ? { ownBurstRadius: over.ownBurstRadius } : {}),
+    ...(over.flashBursts ? { flashBursts: over.flashBursts } : {}),
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
   return { sink, onBurst, spawnEffect, onBallisticUpdate, play };
@@ -384,6 +386,30 @@ describe('bindRoom burst events', () => {
     const { sink, spawnEffect } = setupEvents({ ownFireOf: () => null });
     sink.handler(eventFrame({ k: 'burst', id: 'shell-9', x: 0, y: 0 }));
     expect(spawnEffect).toHaveBeenCalledWith('burst', 0, 0, 1, undefined);
+  });
+
+  // THE FLASH SHELLS BURST (epic-10 amendment 5(d)): a burst whose shell the
+  // client knows as a FLASH SHELLS round draws the disc INSTEAD of the ring; one
+  // it never saw (or could not attribute) stays the ordinary burst.
+  it('a known FLASH SHELLS round bursts as the disc, not the ring', () => {
+    const spawn = vi.fn();
+    const { sink, spawnEffect } = setupEvents({ ownFireOf: () => 'dazzleShells', flashBursts: { spawn } });
+    sink.handler(eventFrame({ k: 'burst', id: 'shell-5', x: 40, y: -60 }));
+    expect(spawn).toHaveBeenCalledWith(40, -60);
+    expect(spawnEffect).not.toHaveBeenCalledWith('burst', expect.anything(), expect.anything(), expect.anything(), expect.anything());
+  });
+
+  it('an unknown shell (never seen / unattributed) bursts as the ordinary ring', () => {
+    const spawn = vi.fn();
+    const { sink, spawnEffect } = setupEvents({ ownFireOf: () => null, flashBursts: { spawn } });
+    sink.handler(eventFrame({ k: 'burst', id: 'shell-6', x: 10, y: 20 }));
+    expect(spawn).not.toHaveBeenCalled();
+    expect(spawnEffect).toHaveBeenCalledWith('burst', 10, 20, 1, undefined);
+  });
+
+  it('isFlashBurst keys on the FLASH SHELLS claim alone', () => {
+    expect(isFlashBurst('dazzleShells')).toBe(true);
+    for (const own of [null, 'gun', 'starShells', 'foulingShell', 'phosphorShells'] as const) expect(isFlashBurst(own)).toBe(false);
   });
 });
 

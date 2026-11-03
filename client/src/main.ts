@@ -77,6 +77,8 @@ import { hazeHaloU } from './render/hazeHalo.js';
 import { Fire } from './render/fire.js';
 import { Foghorn } from './render/foghorn.js';
 import { Fog, fogZoomStale, hullSightSoftness, type FogHole } from './render/fog.js';
+import { FlashBursts } from './render/flashBurst.js';
+import { FlashWhiteout, whiteoutModel, type WhiteoutScreen } from './ui/flashWhiteout.js';
 import { Radar } from './render/radar.js';
 import { Zone } from './render/zone.js';
 import { freezeAtDimKeyframe, tier1Active, tier2Active } from './render/attention.js';
@@ -291,6 +293,13 @@ interface Game {
    *  FrameMsg.foulZones in the lit zones' layer; faded per render frame,
    *  nothing breathes. A hazard only: never a fog hole, never a cull-keep. */
   foulZones: FoulZones;
+  /** FLASH SHELLS burst discs (render/flashBurst.ts, epic-10 amendment 5(d)) —
+   *  spawned by roomBindings for a burst of a known flash round, aged per
+   *  render frame on the frame clock. */
+  flashBursts: FlashBursts;
+  /** THE WHITEOUT (ui/flashWhiteout.ts, epic-10 amendment 5(c)) — one DOM
+   *  element above every rung, driven per frame by `updateDazzle`. */
+  whiteout: FlashWhiteout;
   fog: Fog;
   radar: Radar;
   /** WOUNDED SMOKE plumes (render/smoke.ts, Story 4.4) — accumulated from
@@ -2983,6 +2992,8 @@ function buildGame(
     foghorn: new Foghorn(stage.layers.foghorn, flashBudget),
     nextHonkAt: 0,
     fog: new Fog(stage.fogSprite),
+    flashBursts: new FlashBursts(stage.layers.burstFx), // fog-immune, under the HUD
+    whiteout: new FlashWhiteout(document.body),
     radar,
     zone: new Zone(stage.layers.zone, stage.layers.vignette),
     hud: new Hud(stage.layers.hud),
@@ -3053,6 +3064,12 @@ function buildGame(
   // would still reach handlers closed over the destroyed game and paint match
   // chrome over the fresh port. Registered here, at the moment it is created.
   g.disposers.push(bindGameRoom(g, conn));
+  // The whiteout lives OUTSIDE the Pixi app (document.body, the top DOM rung),
+  // so the reload-less exit must take it off by name; the discs are Pixi.
+  g.disposers.push(() => {
+    g.whiteout.destroy();
+    g.flashBursts.clear();
+  });
   return g;
 }
 
@@ -3274,6 +3291,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     // The own-burst ring's EFFECTIVE radius (undefined = keep the CONFIG base,
     // which is what every burst we cannot honestly claim as ours renders at).
     ownBurstRadius: (own) => ownBurstRadius(g.ownStats, own),
+    flashBursts: g.flashBursts, // a known FLASH SHELLS round bursts as the disc
     // The owner-private mine rings: our live effective radii + our clock. The
     // acquisition ring exists only while we actually hold the doctrine.
     ownMineRings: (t) => ownMineRingParams(g, t),
@@ -4090,39 +4108,54 @@ function handleServerDenial(g: Game, d: DeniedView): void {
 }
 
 /**
- * Pure-ish: is the own hull dazzled by an enemy FLASH SHELLS burst right now
- * (Story 8.17; restored by Story 10.9, epic-10 amendment 4)? Read VERBATIM off
- * the victim-private `you.dazzledUntil` against the server-clock estimate —
- * never predicted, never interpolated. No own ship (death / spectate / the
- * pre-first-frame gap) is never dazzled.
+ * The own hull's FLASH SHELLS mark (Story 8.17; restored by Story 10.9; the
+ * whiteout since Eric 2026-10-29, epic-10 amendment 5): read VERBATIM off the
+ * victim-private `you.dazzledUntil` — never predicted, never interpolated. No
+ * own ship (death / spectate / the pre-first-frame gap) holds no mark (0).
  */
-function dazzleActive(g: Game, now: number): boolean {
-  return (g.state.net.you?.dazzledUntil ?? 0) > now;
+function dazzleUntil(g: Game): number {
+  return g.state.net.you?.dazzledUntil ?? 0;
 }
 
 /**
- * THE DAZZLE CHAIN (the 8.17 shape, restored by Story 10.9): ONE derived
- * `dazzled` fanned out to every client mirror of the server's truesight —
- *   • the FOG hole (`fogHoleRadiusU`), rebaked only on the two frames per
- *     dazzle event where the state flips (Fog.setDazzled reports staleness);
+ * THE DAZZLE CHAIN (the 8.17 shape, re-cut for the whiteout, epic-10
+ * amendment 5): ONE mark `(dazzledUntil, serverNow)` fanned out to every
+ * client mirror of the server's truesight, every frame —
+ *   • the FOG hole (`fogHoleRadiusU`), rebaked only when its QUANTIZED radius
+ *     moves (Fog.setDazzle reports staleness: ~60 steps over the 8.5 s clear);
  *   • the RADAR's sight radius (`sightHoleU` — the dim mask's anchor, the
  *     cloud return gate's bubble, the hull feather's radius);
  *   • the PROJECTILE cull's ENEMY rings (the server corrects an enemy's
- *     ballistics only inside `sightOf(me, now)`, which IS dazzle-scaled; own
- *     tracks keep the undazzled ring).
- * All three resolve the radius through the shared `effectiveSight(stats,
- * dazzled)` — the function the server's `sightOf` calls — never a local
- * fraction. The radar and the projectiles are set UNCONDITIONALLY and before
- * the fog's changed-flag early-return: that flag guards the expensive rebake
- * and nothing else. Radar RANGE is never touched: dazzle blinds, it does not
- * deafen.
+ *     ballistics only inside `sightOf(me, now)`, which IS the clear circle;
+ *     own tracks keep the undazzled ring);
+ *   • and THE WHITEOUT overlay over the whole screen (`renderWhiteout`).
+ * All resolve the radius through the shared `effectiveSight(stats, until,
+ * now)` — the function the server's `sightOf` calls — never a local curve.
+ * The radar, the projectiles and the overlay are set UNCONDITIONALLY and
+ * before the fog's changed-flag early-return: that flag guards the expensive
+ * rebake and nothing else. Radar RANGE is never touched: a flash blinds, it
+ * does not deafen.
  */
-function updateDazzle(g: Game, now: number): void {
-  const dazzled = dazzleActive(g, now);
-  g.radar.setDazzled(dazzled);
-  g.projectiles.setDazzled(dazzled);
-  if (!g.fog.setDazzled(dazzled)) return;
+function updateDazzle(g: Game, now: number, pose: Point | null): void {
+  const until = dazzleUntil(g);
+  g.radar.setDazzle(until, now);
+  g.projectiles.setDazzle(until, now);
+  renderWhiteout(g, until, now, pose);
+  if (!g.fog.setDazzle(until, now)) return;
   g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
+}
+
+/**
+ * THE WHITEOUT's frame (ui/flashWhiteout.ts): the clear circle centred on the
+ * own hull's screen position — the fog hole's own anchor rule, screen centre
+ * through a forceSnap gap so one missing pose never flashes the screen clear —
+ * at the camera's composed zoom. The soft edge drops at motion `off`.
+ * Spectating hides it outright (renderSpectate).
+ */
+function renderWhiteout(g: Game, until: number, now: number, pose: Point | null): void {
+  const at = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
+  const screen: WhiteoutScreen = { x: at.x, y: at.y, pxPerU: g.camera.zoom };
+  g.whiteout.render(whiteoutModel(until, now, g.ownStats, screen), screen, motionIntensity(settings.current.motion) > 0);
 }
 
 /**
@@ -4394,7 +4427,7 @@ function renderAlive(
   // during their render — a flip adopted after them would leave them one frame
   // behind the fog and the server. Camera zoom (which the fog rebake reads)
   // was updated in renderOwn.
-  updateDazzle(g, now);
+  updateDazzle(g, now, pose);
   renderBuoys(g, now); // own buoys' life arcs + the radar buoys' second sweeps
   // Own pose feeds the projectile cull; own active zones keep a shell revealed
   // by our flare from being culled (exactly-once — Story 1.7).
@@ -4664,6 +4697,7 @@ function driveOwnWreckSettle(g: Game, now: number): void {
 
 function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv: ZoneView, mu: MatchUx): void {
   enterSpectateVisuals(g); // idempotent belt-and-braces with onSpectate
+  g.whiteout.hide(); // a spectator has no hull to be flashed (epic-10 amendment 5)
   // A spectator has no hull and no bubble, and the fog overlay is off entirely
   // here — so there is no feather to mirror and every hull (and every plate that
   // now rides the same product) draws at full strength, exactly as it did before
@@ -4903,6 +4937,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       g.effects.setSpectating(g.state.spectating);
       if (g.state.spectating) renderSpectate(g, frameDt, now, nowMs, zv, mu);
       else renderAlive(g, alpha, frameDt, now, nowMs, zv, mu);
+      g.flashBursts.render(nowMs); // FLASH SHELLS discs age on the frame clock they spawned on
       syncRefitBand(g);
       g.contactViews.render(
         g.contacts,

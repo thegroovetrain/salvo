@@ -487,14 +487,15 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
     expect(drops.size).toBe(1);
   });
 
-  // FLASH SHELLS (Story 10.9 — the 8.17 rows restored): radius, blind time and
-  // the sight fraction, every number off CONFIG.flashShells.
-  it('prints the FLASH SHELLS rows from CONFIG.flashShells (radius, blind time, sight fraction)', () => {
+  // FLASH SHELLS (the WHITEOUT re-cut, epic-10 amendment 5(f)): radius, the
+  // full-white time (ramp + hold) and the clear time, every number off
+  // CONFIG.flashShells.
+  it('prints the FLASH SHELLS rows from CONFIG.flashShells (radius, white time, clear time)', () => {
     const f = CONFIG.flashShells;
     expect(pairs(cardStatRows(CATALOG.dazzleShells, 0, TB))).toEqual([
       [null, `${f.radius} U`],
-      [null, `${f.durationMs / 1000} S`],
-      [null, `1/${Math.round(1 / f.sightFraction)}`],
+      [null, `${(f.rampMs + f.holdMs) / 1000} S`],
+      [null, `${f.clearMs / 1000} S`],
     ]);
   });
 

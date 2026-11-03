@@ -193,6 +193,13 @@ export interface RoomBindingDeps {
    */
   ownBurstRadius: (own: OwnFire) => number | undefined;
   /**
+   * THE FLASH SHELLS BURST DISC (Eric 2026-10-29, epic-10 amendment 5(d)) —
+   * render/flashBurst.ts. A burst whose shell the client knows as a FLASH
+   * SHELLS round spawns this disc INSTEAD of the ordinary ring. Optional: a
+   * harness without it draws every burst as the ordinary ring.
+   */
+  flashBursts?: { spawn(x: number, y: number): void };
+  /**
    * The OWNER's live mine radii for the own-mine rings, stamped with the FRAME
    * time `t` the caller hands in (the arming window is server-side, so it is
    * measured against server timestamps, never a local receive time). Undefined
@@ -1751,9 +1758,10 @@ function handleBoom(e: BoomEvent, t: number, deps: RoomBindingDeps, s: BindState
 function handleBurst(e: BurstEvent, t: number, deps: RoomBindingDeps, s: BindState): void {
   // Ask the track who fired it BEFORE onBurst retires it (Story 2.9's click
   // latch is long expired by burst time; the track carries the answer).
-  const radius = deps.ownBurstRadius(deps.projectiles.ownFireOf(e.id));
+  const own = deps.projectiles.ownFireOf(e.id);
+  const radius = deps.ownBurstRadius(own);
   deps.projectiles.onBurst(e);
-  deps.effects.spawnEffect('burst', e.x, e.y, 1, radius);
+  spawnBurstMark(e, own, radius, deps);
   // STORY 4.7 — the second half of report-then-boom: the `mz` crack goes off at
   // the muzzle, and seconds later at range the burst thuds at the clicked point.
   // Both are already on the wire; this is the pair finally being audible. It
@@ -1774,6 +1782,24 @@ function handleBurst(e: BurstEvent, t: number, deps: RoomBindingDeps, s: BindSta
   // outright: a ring filling the screen and nothing to hear. The RING above
   // still draws in every case. Do not "restore" the hull ball.
   if (!inOwnBlast(e.x, e.y, radius, deps)) worldTone('impact', s.worldTones.impact, e, t, deps);
+}
+
+/**
+ * Pure: is this burst a FLASH SHELLS round as far as the client honestly knows?
+ * Only the shell's own track can say (its claim, set when the client saw the
+ * shell leave): the wire's `burst` carries no weapon, and a reveal's `w` names
+ * only the gun FAMILY (`cannon` for a flash round too), so an unattributed
+ * burst is never a flash here (epic-10 amendment 5(f)).
+ */
+export function isFlashBurst(own: OwnFire): boolean {
+  return own === 'dazzleShells';
+}
+
+/** The burst's mark: the FLASH SHELLS disc for a known flash round (when the
+ *  host wired the disc layer), else the ordinary ring at `radius`. */
+function spawnBurstMark(e: BurstEvent, own: OwnFire, radius: number | undefined, deps: RoomBindingDeps): void {
+  if (isFlashBurst(own) && deps.flashBursts) deps.flashBursts.spawn(e.x, e.y);
+  else deps.effects.spawnEffect('burst', e.x, e.y, 1, radius);
 }
 
 /**

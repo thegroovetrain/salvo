@@ -35,6 +35,7 @@ import {
   buildHeightRaster,
   coverageHas,
   effectiveSight,
+  FLASH_WINDOW_MS,
   paintCoverage,
   rasterizeSegmentCoverage,
   type HeightRaster,
@@ -830,21 +831,27 @@ describe('the client paints ONLY wire-delivered returns (amendment 210)', () => 
     // Called, not re-derived: it is also, by construction, the server's own
     // `sightOf` — and the dim mask, the cloud gate and the hull feather all
     // anchor on it.
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, false));
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE));
     radar.setRanges(NARROW, CONFIG.vision.radar, SWEEP_MS);
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU({ ...BASE, sightRange: NARROW }, false));
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU({ ...BASE, sightRange: NARROW }));
     expect(radar.sightHoleU).toBe(effectiveSight({ sightRange: NARROW }));
   });
 
-  it('sightHoleU follows the DAZZLE (FLASH SHELLS, Story 10.9) — the same radius the fog bakes', () => {
+  it('sightHoleU follows the FLASH SHELLS whiteout (epic-10 amendment 5) — the same radius the fog bakes', () => {
     const { radar } = makeRadar();
+    const { rampMs, holdMs, clearMs } = CONFIG.flashShells;
+    const hit = { until: FLASH_WINDOW_MS, now: 0 };
+    const mid = { until: FLASH_WINDOW_MS, now: rampMs + holdMs + clearMs / 2 };
     expect(radar.isDazzled).toBe(false);
-    expect(radar.setDazzled(true)).toBe(true);
-    expect(radar.setDazzled(true)).toBe(false); // the changed-flag contract
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, true));
-    expect(radar.sightHoleU).toBeLessThan(fogHoleRadiusU(BASE, false));
-    expect(radar.setDazzled(false)).toBe(true);
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, false));
+    expect(radar.setDazzle(hit.until, hit.now)).toBe(true);
+    expect(radar.setDazzle(hit.until, rampMs)).toBe(false); // the changed-flag contract (0 through the hold)
+    expect(radar.sightHoleU).toBe(0);
+    expect(radar.setDazzle(mid.until, mid.now)).toBe(true);
+    // the hole grows back with the shared curve: half the sight at mid-clear
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE, mid));
+    expect(radar.sightHoleU).toBeCloseTo(SIGHT / 2, 6);
+    expect(radar.setDazzle(FLASH_WINDOW_MS, FLASH_WINDOW_MS)).toBe(true);
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(BASE));
   });
 
   it('THE WIRE PATH IS RANGE-BLIND: a blip rect inside the sight circle and the same rect '

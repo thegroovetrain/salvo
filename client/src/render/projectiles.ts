@@ -42,7 +42,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import { Pool } from '../util/pool.js';
 import type { WakeHull } from './wake.js';
-import type { VisionRanges } from './fog.js';
+import type { DazzleClock, VisionRanges } from './fog.js';
 
 const C = CLIENT_CONFIG.colors;
 const O = CLIENT_CONFIG.ordnance;
@@ -290,20 +290,22 @@ export function cullRadiusSq(sightRange: number, kind: Kind): number {
  *
  * EVERYTHING ELSE rides the effective-truesight ring (the server gates it on
  * `sightOf(me, now)`), detect-derived for a torpedo. Effective truesight is
- * the SHARED `effectiveSight` (shared/src/sim/sight.ts — a boon-widened
- * constant per build since Story 9.4 retired the FLASH SHELLS dazzle): the
- * server's `sightOf`, the fog hole and the radar's `sightHoleU` call the same
- * function, so there is exactly one derivation of an observer's sight.
+ * the SHARED `effectiveSight` (shared/src/sim/sight.ts — the boon-widened
+ * sight, or the FLASH SHELLS whiteout's clear circle while `dazzle` holds,
+ * epic-10 amendment 5): the server's `sightOf`, the fog hole and the radar's
+ * `sightHoleU` call the same function, so there is exactly one derivation of
+ * an observer's sight. The cull reads it UNQUANTIZED (it is per-track
+ * arithmetic, nothing to re-bake), so it tracks the server's circle exactly.
  *
  * KNOWN AND ACCEPTED: ownership is a soft click-time latch, so a MISSED latch
  * degrades an own track to the enemy ring. That one-sided error is deliberate —
  * inverting it would hand every enemy fish a long ghost.
  */
-export function trackCullRadiusSq(ranges: VisionRanges, dazzled: boolean, kind: Kind, own: OwnFire): number {
+export function trackCullRadiusSq(ranges: VisionRanges, dazzle: DazzleClock, kind: Kind, own: OwnFire): number {
   // believed-own: the plain, UN-DAZZLED sight ring — the server's owner path
   // never consults a range or a dazzle (FLASH SHELLS, Story 10.9).
   if (own !== null) return cullRadiusSq(ranges.sightRange, 'shell');
-  return cullRadiusSq(effectiveSight(ranges, dazzled), kind);
+  return cullRadiusSq(effectiveSight(ranges, dazzle.until, dazzle.now), kind);
 }
 
 /** Pure: dead-reckoned shell position at server time `now` (ms). */
@@ -403,9 +405,10 @@ export class Projectiles {
    *  every cull ring is resolved from, per track and per frame
    *  (`trackCullRadiusSq`). */
   private ranges: VisionRanges = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
-  /** The DAZZLE flag (FLASH SHELLS) — kept beside the ranges so either can
-   *  change alone without silently resetting the other. */
-  private dazzled = false;
+  /** The own hull's FLASH SHELLS mark against the server clock — kept beside
+   *  the ranges so either can change alone without silently resetting the
+   *  other. */
+  private readonly dazzle: DazzleClock = { until: 0, now: 0 };
 
   constructor(
     private readonly mapRadius: number,
@@ -469,24 +472,23 @@ export class Projectiles {
   }
 
   /**
-   * Adopt the DAZZLE state (Story 2.8; FLASH SHELLS, restored by 10.9) — the
+   * Adopt the own hull's FLASH SHELLS mark against the server clock — the
    * projectile half of the plumbing `Fog` and `Radar` have, and the reason it
    * is not optional: the SERVER reveals and corrects an ENEMY's ballistics
-   * inside `sightOf(me, now)`, which IS dazzle-scaled, so a client holding the
-   * full ring would go on dead-reckoning a track the server had already
-   * stopped correcting. It reaches the ENEMY rings only: the server's owner
-   * path never consults a range at all (`trackCullRadiusSq`). Returns TRUE
-   * when the state flipped, mirroring `Fog.setDazzled`; nothing to rebake.
+   * inside `sightOf(me, now)`, which IS the whiteout's clear circle, so a
+   * client holding the full ring would go on dead-reckoning a track the server
+   * had already stopped correcting. It reaches the ENEMY rings only: the
+   * server's owner path never consults a range at all (`trackCullRadiusSq`).
+   * Set every frame (the circle grows continuously); nothing to rebake.
    */
-  setDazzled(dazzled: boolean): boolean {
-    if (dazzled === this.dazzled) return false;
-    this.dazzled = dazzled;
-    return true;
+  setDazzle(until: number, now: number): void {
+    this.dazzle.until = until;
+    this.dazzle.now = now;
   }
 
-  /** Is the dazzle currently held? Test/observation seam (mirrors `Fog`). */
+  /** Is the flash mark currently held? Test/observation seam (mirrors `Fog`). */
   get isDazzled(): boolean {
-    return this.dazzled;
+    return this.dazzle.until > this.dazzle.now;
   }
 
   /** Set the own loadout's doctrine modes (main.applyOwnStats). Affects only
@@ -798,7 +800,7 @@ export class Projectiles {
         continue;
       }
       const p = shellPosition({ x: s.x0, y: s.y0 }, s, s.t0, serverNow);
-      const cull2 = trackCullRadiusSq(this.ranges, this.dazzled, s.kind, s.own);
+      const cull2 = trackCullRadiusSq(this.ranges, this.dazzle, s.kind, s.own);
       if (ownPos && shellCulledBeyondSight(p, ownPos, cull2, keepZones)) {
         this.remove(id);
         continue;

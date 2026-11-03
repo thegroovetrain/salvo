@@ -163,7 +163,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import { settings } from '../settings/store.js';
 import type { ScreenWorldRect } from './camera.js';
-import { fogHoleRadiusU } from './fog.js';
+import { fogHoleRadiusU, type DazzleClock } from './fog.js';
 import { blipAlpha, blipLifeMs, sweepRotation } from './phosphor.js';
 import {
   FULL_TURN,
@@ -432,13 +432,13 @@ export class Radar {
   private sightRange: number = CONFIG.vision.sight;
   private radarRange: number = CONFIG.vision.radar;
   private sweepPeriodMs: number = 60000 / CONFIG.vision.sweepRpm;
-  /** Is the own ship dazzled by an enemy FLASH SHELLS burst right now (Story
-   *  2.8; the flash since 8.17, restored by 10.9 — sight → the shared
-   *  `effectiveSight(…, true)`)? The SAME flag `Fog` carries, plumbed from the
-   *  same place in main.ts (`updateDazzle`) — the dim mask, the cloud return
-   *  gate and the drawn fog hole are one radius, so they cannot be allowed to
-   *  disagree about dazzle. */
-  private dazzled = false;
+  /** The own hull's FLASH SHELLS mark against the server clock (Story 2.8;
+   *  the whiteout since Eric 2026-10-29, epic-10 amendment 5 — sight → the
+   *  shared `effectiveSight(…, until, now)` clear circle). The SAME clock `Fog`
+   *  carries, plumbed from the same place in main.ts (`updateDazzle`) — the dim
+   *  mask, the cloud return gate and the drawn fog hole are one radius, so
+   *  they cannot be allowed to disagree about the flash. */
+  private readonly dazzle: DazzleClock = { until: 0, now: 0 };
   /**
    * THE COUNTERMEASURE CLOUDS AS A RETURN SOURCE (Story 9.3 session 4, Eric
    * 2026-10-12: "Don't forget to composite it onto the radar layer so it can
@@ -518,26 +518,29 @@ export class Radar {
    * tests and for exactly that equality assertion.
    */
   get sightHoleU(): number {
-    return fogHoleRadiusU({ sightRange: this.sightRange, radarRange: this.radarRange }, this.dazzled);
+    return fogHoleRadiusU({ sightRange: this.sightRange, radarRange: this.radarRange }, this.dazzle);
   }
 
   /**
-   * Adopt the DAZZLE state (Story 2.8; FLASH SHELLS, restored by 10.9) — the
-   * radar half of the plumbing `Fog` has. Returns TRUE when the state actually
-   * flipped, mirroring `Fog.setDazzled`'s changed-flag contract so one call
-   * site drives both; there is nothing to rebake here (the dim mask re-bakes
-   * off `sightHoleU` on the per-frame path), so the caller may ignore it.
-   * A dazzle never touches the RADAR range: it blinds, it does not deafen.
+   * Adopt the own hull's FLASH SHELLS mark against the server clock — the
+   * radar half of the plumbing `Fog` has. Returns TRUE when `sightHoleU`
+   * actually moved (it is the fog's quantized radius, so at most once per
+   * `sightSteps` step), mirroring `Fog.setDazzle`'s changed-flag contract so one
+   * call site drives both; there is nothing to rebake here (the dim mask
+   * re-bakes off `sightHoleU` on the per-frame path, on a real change only),
+   * so the caller may ignore it.
+   * A flash never touches the RADAR range: it blinds, it does not deafen.
    */
-  setDazzled(dazzled: boolean): boolean {
-    if (dazzled === this.dazzled) return false;
-    this.dazzled = dazzled;
-    return true;
+  setDazzle(until: number, now: number): boolean {
+    const before = this.sightHoleU;
+    this.dazzle.until = until;
+    this.dazzle.now = now;
+    return this.sightHoleU !== before;
   }
 
-  /** Is the dazzle currently held? Test/observation seam (mirrors `Fog`). */
+  /** Is the flash mark currently held? Test/observation seam (mirrors `Fog`). */
   get isDazzled(): boolean {
-    return this.dazzled;
+    return this.dazzle.until > this.dazzle.now;
   }
 
   /** The baked sweep wedge texture — shared with the RADAR BUOY's second
