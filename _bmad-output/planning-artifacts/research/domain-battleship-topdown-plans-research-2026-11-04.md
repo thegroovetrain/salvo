@@ -360,6 +360,9 @@ The live page is `battleship-sitting-2026-11-04.html` beside this file (artifact
 | Turrets | Each at its **real station**, drawn and turned on its own, chasing the target cursor. |
 | Traverse | **Load-bearing**: a turret fires only once it has turned onto the aim point. **45°/s** as a first number ("i think?"), to be felt on the page and re-ruled at the 10.4 spec step. **Hard stop** at the train limit: across the blind sector is the long way round. |
 | Cooldown | The main-gun cooldown **rises** once secondaries land; number unruled, Eric's harness. |
+| Traverse rate, second pass | **90°/s** felt best (amendment 7(j)); 45 superseded. |
+| Deck detail | The outlines on the page (gunhouses, tiers, towers, funnels, secondaries, tubs, rails, cranes) are the sprite. Accepted (7(i)). |
+| Color | Regatta hue wheel removed. **Outline = relation**: cyan own/allied, red enemy. **Interior = skin**: Default, Gold, Pride, Funny per hull; Tomato (Yamato) and Corn (Iowa) ruled, Pretzel (Bismarck) and Sprite (Warspite) candidates (7(k), 7(l)). |
 
 Still open for the 10.4 spec step: the final scale value, per-hull traverse rates if any, the cooldown number, the turret's on-screen read at game zoom.
 

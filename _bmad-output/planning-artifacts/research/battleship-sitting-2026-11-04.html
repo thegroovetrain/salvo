@@ -97,15 +97,24 @@ textarea { width: 100%; min-height: 120px; font-family: var(--mono); font-size: 
   <div class="dial"><label>Relative length</label><div class="seg" role="group"><button id="len-real" aria-pressed="true">Real</button><button id="len-equal" aria-pressed="false">All equal</button></div></div>
   <div class="dial"><label>Arc origin</label><div class="seg" role="group"><button id="org-house" aria-pressed="true">Gunhouse</button><button id="org-pivot" aria-pressed="false">Pivot</button></div></div>
   <div class="dial"><label for="brg">Target bearing</label><input id="brg" type="range" min="0" max="359" step="1" value="45"><span class="val" id="brgv"></span></div>
-  <div class="dial"><label for="rate">Traverse rate, degrees per second</label><input id="rate" type="range" min="15" max="180" step="5" value="45"><span class="val" id="ratev"></span></div>
+  <div class="dial"><label for="rate">Traverse rate, degrees per second</label><input id="rate" type="range" min="15" max="180" step="5" value="90"><span class="val" id="ratev"></span></div>
+  <div class="dial"><label>Skin</label><div class="seg" role="group" id="skinseg"><button data-skin="default" aria-pressed="true">Default</button><button data-skin="gold" aria-pressed="false">Gold</button><button data-skin="pride" aria-pressed="false">Pride</button><button data-skin="funny" aria-pressed="false">Funny</button></div></div>
+  <div class="dial"><label>Outline</label><div class="seg" role="group"><button id="ol-ally" aria-pressed="true">Own / allied</button><button id="ol-enemy" aria-pressed="false">Enemy</button></div></div>
   <div class="dial"><label>Show</label><div style="display:flex;gap:12px;flex-wrap:wrap"><label class="check"><input id="anim" type="checkbox" checked>turrets traverse</label><label class="check"><input id="arcs" type="checkbox" checked>arcs</label><label class="check"><input id="ghost" type="checkbox" checked>today's 124×32</label><label class="check"><input id="deck" type="checkbox" checked>deck detail</label></div></div>
 </section>
 
 <section class="board" aria-label="Fleet board">
   <h2>The four at one scale</h2>
   <canvas id="fleet" width="1140" height="900"></canvas>
-  <div class="legend"><span style="--k:var(--fwd)">forward turret and its arc</span><span style="--k:var(--aft)">aft turret and its arc</span><span style="--k:var(--ghost)">today's battleship polygon, 124 × 32 u</span><span style="--k:var(--accent)">target bearing ray</span></div>
+  <div class="legend"><span style="--k:var(--fwd)">forward arc</span><span style="--k:var(--aft)">aft arc</span><span style="--k:var(--ghost)">today's battleship polygon, 124 × 32 u</span><span style="--k:var(--accent)">target bearing ray; a turret on target gets the orange ring</span></div>
   <div class="stats" id="fleetstats"></div>
+</section>
+
+<section class="board" aria-label="Skins gallery">
+  <h2>Skins</h2>
+  <p class="sub" style="color:var(--muted)">Outline is relation, not choice: cyan for your own and allied hulls, red for enemies. The interior is the skin. Every hull gets Default (realistic), Gold, Pride and one Funny skin of its own. Left column own, right column as an enemy sees it.</p>
+  <canvas id="gallery" width="1140" height="1200"></canvas>
+  <div class="legend" id="gallerynote"></div>
 </section>
 
 <section class="cards" id="cards"></section>
@@ -115,7 +124,9 @@ textarea { width: 100%; min-height: 120px; font-family: var(--mono); font-size: 
   <ol>
     <li><b>Proportions.</b> True to scale, beam multiplier 1.0. The traced outlines are the sprite shapes.</li>
     <li><b>Relative size.</b> Real sizes: Iowa 124, Yamato 121, Bismarck 115, Warspite 90 units at 0.4585 units per meter.</li>
-    <li><b>Turrets.</b> Each at its real station, drawn and turned on its own. Traverse is load-bearing: a turret fires only once it has turned onto the aim point. First number 45 degrees per second, felt here with the bearing slider; hard stop at the train limit, so a target across the blind sector is reached the long way round. The main-gun cooldown rises once secondaries land; that number is Eric's harness.</li>
+    <li><b>Turrets.</b> Each at its real station, drawn and turned on its own. Traverse is load-bearing: a turret fires only once it has turned onto the aim point. <b>90 degrees per second</b> (45 was tried first and felt slow); hard stop at the train limit, so a target across the blind sector is reached the long way round. The main-gun cooldown rises once secondaries land; that number is Eric's harness.</li>
+    <li><b>Deck detail.</b> The outlines above are the sprite: gunhouses on barbettes, tiers, tower rings, funnels, secondaries, tubs, rails, cranes. Accepted.</li>
+    <li><b>Color.</b> The Regatta personal-hue wheel goes. Outline is relation: cyan own and allied, red enemy. Interior is a skin: Default, Gold, Pride, Funny per hull. Funny: Tomato (Yamato), Corn (Iowa); Bismarck and Warspite open.</li>
   </ol>
   <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="copy">Copy spec JSON</button><button class="btn alt" id="show">Show JSON</button></div>
   <textarea id="json" hidden readonly aria-label="Spec JSON"></textarea>
@@ -213,7 +224,76 @@ const SHIPS = [
 const TODAY = [[24,2],[32,20],[34,30],[34,38],[40,44],[40,84],[34,90],[34,106],[30,118],[18,118],[14,106],[14,90],[8,84],[8,44],[14,38],[14,30],[16,20]];
 const TODAY_HULL = { length: 124, beam: 32 };
 
-const S = { upm: .4585, fat: 1, len: "real", org: "house", brg: 45, rate: 45, anim: true, arcs: true, ghost: true, deck: true };
+const S = { upm: .4585, fat: 1, len: "real", org: "house", brg: 45, rate: 90, anim: true, arcs: true, ghost: true, deck: true, skin: "default", outline: "ally" };
+
+// ---- skins ----
+// Outline color is the relation to the viewer, never a choice (Eric 2026-11-04).
+const OUTLINE = { ally: "#22d3ee", enemy: "#ef4444" };
+// A palette: deck fill, tier fills [1,2,3], tower rings, funnel, secondary
+// houses, main gunhouse, barrels, plus an optional pattern drawn over the
+// deck inside the hull clip.
+const GREY = { tier: ["#8d969c", "#7d868c", "#6f787e"], round: "#9aa3a8", funnel: "#2f3539", sec: "#8a9399", turret: "#7a838a", barrel: "#3f474c" };
+const SKINS = {
+  default: {
+    label: "Default",
+    yamato:   { deck: "#b8a874", ...GREY },
+    bismarck: { deck: "#c4a86f", ...GREY },
+    warspite: { deck: "#6b7176", tier: ["#9aa5ab", "#8c979d", "#7e898f"], round: "#a8b2b8", funnel: "#2f3539", sec: "#95a0a6", turret: "#8b969c", barrel: "#3b4246" },
+    iowa:     { deck: "#2f4a6b", tier: ["#3f5f80", "#365373", "#2e4866"], round: "#4d6d8e", funnel: "#1b2838", sec: "#3b5878", turret: "#3b5878", barrel: "#1f2f42" },
+  },
+  gold: {
+    label: "Gold",
+    all: { deck: "#e3bc3c", tier: ["#f0cf5a", "#dcb434", "#c69c22"], round: "#f6df8a", funnel: "#7a5a10", sec: "#d9ad2c", turret: "#d2a528", barrel: "#8f6a12", pattern: "gold" },
+  },
+  pride: {
+    label: "Pride",
+    all: { deck: "#e40303", tier: ["#f7f7f7", "#e6e6e6", "#d2d2d2"], round: "#ffffff", funnel: "#2b2b2b", sec: "#f2f2f2", turret: "#ffffff", barrel: "#2b2b2b", pattern: "pride" },
+  },
+  funny: {
+    label: "Funny",
+    yamato:   { name: "Tomato", deck: "#e0392b", tier: ["#4f9a3c", "#44873a", "#3a7532"], round: "#f0d24a", funnel: "#2f5e29", sec: "#5aa845", turret: "#5aa845", barrel: "#2f5e29", pattern: "tomato" },
+    bismarck: { name: "Pretzel", deck: "#9c5b1f", tier: ["#7d4716", "#6e3e12", "#5c3410"], round: "#f5efe0", funnel: "#4a2a0c", sec: "#b8743a", turret: "#b8743a", barrel: "#4a2a0c", pattern: "salt" },
+    warspite: { name: "Sprite", deck: "#17a84f", tier: ["#f4f4f4", "#e4e4e4", "#d4d4d4"], round: "#ffffff", funnel: "#0f6b33", sec: "#f8e71c", turret: "#f8e71c", barrel: "#0f6b33", pattern: "bubbles" },
+    iowa:     { name: "Corn", deck: "#f2c230", tier: ["#5f9e3a", "#539033", "#46802c"], round: "#8fcc5a", funnel: "#466d2a", sec: "#7fb84e", turret: "#7fb84e", barrel: "#466d2a", pattern: "kernels" },
+  },
+};
+function paletteFor(ship, skin) { const k = SKINS[skin]; return k[ship.id] || k.all; }
+// deterministic pseudo-random for patterns
+function lcg(seed) { let s = seed >>> 0; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }
+function drawPattern(ctx, P, poly, L, B, s) {
+  if (!P.pattern) return;
+  ctx.save();
+  ctx.beginPath(); poly.forEach(([x, y], i) => i ? ctx.lineTo(x * s, y * s) : ctx.moveTo(x * s, y * s)); ctx.closePath(); ctx.clip();
+  const hl = L * s / 2, hb = B * s / 2;
+  if (P.pattern === "pride") {
+    const cols = ["#e40303", "#ff8c00", "#ffed00", "#008026", "#004dff", "#750787"];
+    cols.forEach((c, i) => { ctx.fillStyle = c; ctx.fillRect(-hl, -hb + i * (2 * hb / 6), 2 * hl, 2 * hb / 6 + 1); });
+  } else if (P.pattern === "gold") {
+    const g = ctx.createLinearGradient(0, -hb, 0, hb);
+    g.addColorStop(0, "#f9e58a"); g.addColorStop(0.35, "#e3bc3c"); g.addColorStop(0.5, "#fff3b0"); g.addColorStop(0.65, "#d4a62a"); g.addColorStop(1, "#9c7414");
+    ctx.fillStyle = g; ctx.fillRect(-hl, -hb, 2 * hl, 2 * hb);
+    ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = Math.max(1, hb * 0.08);
+    ctx.beginPath(); ctx.moveTo(-hl * 0.95, -hb * 0.3); ctx.lineTo(hl * 0.95, -hb * 0.3); ctx.stroke();
+  } else if (P.pattern === "tomato") {
+    const g = ctx.createRadialGradient(0, -hb * 0.3, hb * 0.1, 0, 0, hl);
+    g.addColorStop(0, "#ff6b4a"); g.addColorStop(0.5, "#e0392b"); g.addColorStop(1, "#a8231a");
+    ctx.fillStyle = g; ctx.fillRect(-hl, -hb, 2 * hl, 2 * hb);
+  } else if (P.pattern === "salt") {
+    const r = lcg(7); ctx.fillStyle = "#f5efe0";
+    for (let i = 0; i < 90; i++) { const x = (r() * 2 - 1) * hl, y = (r() * 2 - 1) * hb; ctx.beginPath(); ctx.ellipse(x, y, Math.max(1, hb * 0.05), Math.max(1, hb * 0.035), r() * 3, 0, Math.PI * 2); ctx.fill(); }
+  } else if (P.pattern === "bubbles") {
+    const r = lcg(11); ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.lineWidth = 1;
+    for (let i = 0; i < 60; i++) { const x = (r() * 2 - 1) * hl, y = (r() * 2 - 1) * hb; ctx.beginPath(); ctx.arc(x, y, Math.max(1, hb * (0.03 + r() * 0.06)), 0, Math.PI * 2); ctx.stroke(); }
+  } else if (P.pattern === "kernels") {
+    const kw = Math.max(3, hb * 0.16), kh = Math.max(2.5, hb * 0.12);
+    ctx.fillStyle = "#f7d458"; ctx.strokeStyle = "#c9931a"; ctx.lineWidth = 1;
+    for (let row = -hb; row < hb; row += kh) for (let col = -hl; col < hl; col += kw) {
+      const ox = ((Math.round(row / kh) % 2) ? kw / 2 : 0);
+      ctx.beginPath(); ctx.ellipse(col + ox + kw / 2, row + kh / 2, kw * 0.42, kh * 0.4, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
 // Turret traverse state: unwrapped angle in degrees. Forward turrets live in
 // [-train, train], aft turrets in [180-train, 180+train]; a hard stop at each
 // end, so a target in the blind sector parks the turret at the nearer stop and
@@ -275,13 +355,14 @@ function gunsBearing(ship, brg) {
 }
 
 // ---- drawing ----
-function drawHull(ctx, ship, cx, cy, s) {
+function drawHull(ctx, ship, cx, cy, s, skin = S.skin, outline = S.outline, withArcs = S.arcs, withRay = true) {
   const L = lengthU(ship), B = beamU(ship);
   const poly = localPolygon(ship);
+  const P = paletteFor(ship, skin);
   ctx.save();
   ctx.translate(cx, cy);
   // arcs first (under the hull)
-  if (S.arcs) {
+  if (withArcs) {
     const r = Math.max(B * s * 0.95, 30);
     for (const t of ship.turrets) {
       const tx = (0.5 - turretFrac(t)) * L * s;
@@ -301,25 +382,23 @@ function drawHull(ctx, ship, cx, cy, s) {
   ctx.beginPath();
   poly.forEach(([x, y], i) => i ? ctx.lineTo(x * s, y * s) : ctx.moveTo(x * s, y * s));
   ctx.closePath();
-  ctx.fillStyle = css("--line");
+  ctx.fillStyle = P.deck;
   ctx.fill();
-  ctx.strokeStyle = css("--ink");
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
+  drawPattern(ctx, P, poly, L, B, s);
   // deck detail: superstructure tiers, tower tops, funnels, secondaries, tubs, rails, cranes
-  if (S.deck) drawFeatures(ctx, ship, L, B, s);
+  if (S.deck) drawFeatures(ctx, ship, L, B, s, P);
   // main turrets: barbette ring, gunhouse polygon turned to the turret angle, barrels
   const H = HOUSES[ship.id];
   const m = S.upm * s;
   for (const t of ship.turrets) {
     const tx = (0.5 - turretFrac(t)) * L * s;
-    const col = t.f === "fwd" ? css("--fwd") : css("--aft");
+    const col = P.turret;
     const a = t.ang * DEG, ux = Math.cos(a), uy = Math.sin(a), vx = -uy, vy = ux;
     const rot = (x, y) => [tx + ux * x * m + vx * y * m, uy * x * m + vy * y * m];
     ctx.beginPath(); ctx.arc(tx, 0, H.barbette * m, 0, Math.PI * 2);
     ctx.strokeStyle = css("--ink"); ctx.lineWidth = 1; ctx.stroke();
     const face = H.poly[2][0];
-    ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, 1.1 * m); ctx.lineCap = "round";
+    ctx.strokeStyle = P.barrel; ctx.lineWidth = Math.max(1, 1.1 * m); ctx.lineCap = "round";
     for (let i = 0; i < t.g; i++) {
       const o = (i - (t.g - 1) / 2) * H.gap;
       const p0 = rot(face - 2, o), p1 = rot(face + H.barrel, o);
@@ -331,19 +410,27 @@ function drawHull(ctx, ship, cx, cy, s) {
     ctx.closePath();
     ctx.fillStyle = col; ctx.fill();
     ctx.strokeStyle = css("--ink"); ctx.lineWidth = 1; ctx.stroke();
-    if (onTarget(ship, t)) { ctx.strokeStyle = css("--accent"); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(tx, 0, H.barbette * m + 2, 0, Math.PI * 2); ctx.stroke(); }
+    if (withRay && onTarget(ship, t)) { ctx.strokeStyle = css("--accent"); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(tx, 0, H.barbette * m + 2, 0, Math.PI * 2); ctx.stroke(); }
   }
+  // the relation outline, drawn last so nothing covers it
+  ctx.beginPath();
+  poly.forEach(([x, y], i) => i ? ctx.lineTo(x * s, y * s) : ctx.moveTo(x * s, y * s));
+  ctx.closePath();
+  ctx.strokeStyle = OUTLINE[outline]; ctx.lineWidth = Math.max(1.5, Math.min(2.5, s * 0.5)); ctx.lineJoin = "round";
+  ctx.stroke();
   // bearing ray
-  ctx.strokeStyle = css("--accent"); ctx.lineWidth = 1.2; ctx.setLineDash([4, 4]);
-  const ray = Math.max(B * s * 1.1, 40);
-  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(S.brg * DEG) * ray, Math.sin(S.brg * DEG) * ray); ctx.stroke();
-  ctx.setLineDash([]);
+  if (withRay) {
+    ctx.strokeStyle = css("--accent"); ctx.lineWidth = 1.2; ctx.setLineDash([4, 4]);
+    const ray = Math.max(B * s * 1.1, 40);
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(S.brg * DEG) * ray, Math.sin(S.brg * DEG) * ray); ctx.stroke();
+    ctx.setLineDash([]);
+  }
   ctx.restore();
 }
-function drawFeatures(ctx, ship, L, B, s) {
+function drawFeatures(ctx, ship, L, B, s, P) {
   const m = S.upm * s;
   const X = (fx) => (0.5 - fx) * L * s, Y = (fy) => fy * B * s;
-  const ink = css("--ink"), tier = [null, css("--ghost") + "55", css("--ghost") + "88", css("--muted") + "aa"];
+  const ink = "#1a222b", tier = [null, ...P.tier];
   ctx.lineJoin = "round";
   for (const f of FEATURES[ship.id]) {
     ctx.lineWidth = 1; ctx.strokeStyle = ink;
@@ -352,18 +439,18 @@ function drawFeatures(ctx, ship, L, B, s) {
       ctx.fillStyle = tier[f.lvl]; ctx.fill(); ctx.stroke();
     } else if (f.t === "round") {
       ctx.beginPath(); ctx.arc(X(f.x), Y(f.y), Math.max(1.5, f.r * m), 0, Math.PI * 2);
-      ctx.fillStyle = css("--paper") + "aa"; ctx.fill(); ctx.stroke();
+      ctx.fillStyle = P.round; ctx.fill(); ctx.stroke();
     } else if (f.t === "funnel") {
       ctx.beginPath(); ctx.ellipse(X(f.x), Y(f.y), Math.max(2, f.l / 2 * m), Math.max(1.5, f.w / 2 * m), 0, 0, Math.PI * 2);
-      ctx.fillStyle = css("--ink"); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(X(f.x), Y(f.y), Math.max(1, f.l / 2 * m - 1.5), Math.max(1, f.w / 2 * m - 1.5), 0, 0, Math.PI * 2);
-      ctx.fillStyle = css("--sea"); ctx.fill();
+      ctx.fillStyle = P.funnel; ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(X(f.x), Y(f.y), Math.max(1, f.l / 2 * m - 2), Math.max(1, f.w / 2 * m - 2), 0, 0, Math.PI * 2);
+      ctx.fillStyle = "#0b0f13"; ctx.fill();
     } else if (f.t === "sec") {
       const a = f.a * DEG, ux = Math.cos(a), uy = Math.sin(a), vx = -uy, vy = ux;
       const cx = X(f.x), cy = Y(f.y);
       const rot = (x, y) => [cx + ux * x * m + vx * y * m, cy + uy * x * m + vy * y * m];
       const hl = f.l / 2, hw = f.w / 2;
-      ctx.strokeStyle = css("--muted"); ctx.lineWidth = Math.max(1, 0.5 * m); ctx.lineCap = "round";
+      ctx.strokeStyle = P.barrel; ctx.lineWidth = Math.max(1, 0.5 * m); ctx.lineCap = "round";
       for (let i = 0; i < f.n; i++) {
         const o = (i - (f.n - 1) / 2) * hw * 0.9;
         const p0 = rot(hl * 0.3, o), p1 = rot(hl + f.b, o);
@@ -372,9 +459,9 @@ function drawFeatures(ctx, ship, L, B, s) {
       ctx.lineCap = "butt";
       const pts = [[-hl, -hw], [hl * 0.45, -hw], [hl, -hw * 0.5], [hl, hw * 0.5], [hl * 0.45, hw], [-hl, hw]].map(([x, y]) => rot(x, y));
       ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath();
-      ctx.fillStyle = css("--muted"); ctx.fill(); ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = P.sec; ctx.fill(); ctx.strokeStyle = ink; ctx.lineWidth = 1; ctx.stroke();
     } else if (f.t === "case") {
-      ctx.fillStyle = css("--muted");
+      ctx.fillStyle = P.sec;
       ctx.fillRect(X(f.x) - f.l / 2 * m, Y(f.y) - f.w / 2 * m, f.l * m, f.w * m);
     } else if (f.t === "rail") {
       ctx.strokeStyle = ink; ctx.lineWidth = Math.max(1, 0.8 * m);
@@ -383,9 +470,9 @@ function drawFeatures(ctx, ship, L, B, s) {
       const a = f.a * DEG;
       ctx.strokeStyle = ink; ctx.lineWidth = Math.max(1, 0.6 * m);
       ctx.beginPath(); ctx.moveTo(X(f.x), Y(f.y)); ctx.lineTo(X(f.x) + Math.cos(a) * f.l * m, Y(f.y) + Math.sin(a) * f.l * m); ctx.stroke();
-      ctx.beginPath(); ctx.arc(X(f.x), Y(f.y), Math.max(1.5, 1.6 * m), 0, Math.PI * 2); ctx.fillStyle = css("--paper"); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(X(f.x), Y(f.y), Math.max(1.5, 1.6 * m), 0, Math.PI * 2); ctx.fillStyle = P.round; ctx.fill(); ctx.stroke();
     } else if (f.t === "line") {
-      ctx.strokeStyle = css("--muted"); ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(0,0,0,.35)"; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(X(f.x0), Y(f.y0)); ctx.lineTo(X(f.x1), Y(f.y1)); ctx.stroke();
     }
   }
@@ -433,6 +520,43 @@ function renderFleet() {
   }
   const st = document.getElementById("fleetstats");
   st.innerHTML = SHIPS.map(sh => { const now = sh.turrets.reduce((n, t) => n + (onTarget(sh, t) ? t.g : 0), 0); return `<span><b>${sh.name}</b>${lengthU(sh).toFixed(0)} × ${beamU(sh).toFixed(1)} u, ratio ${(lengthU(sh)/beamU(sh)).toFixed(2)}; at ${S.brg}°: ${now} guns on target now, ${gunsBearing(sh, S.brg)} once swung, ${swingSeconds(sh).toFixed(1)} s to go</span>`; }).join("");
+}
+
+function renderGallery() {
+  const c = document.getElementById("gallery");
+  const W = c.width, cols = 4, pad = 14;
+  const cellW = (W - pad * (cols + 1)) / cols;
+  const maxL = Math.max(...SHIPS.map(lengthU));
+  const s = (cellW - 16) / maxL;
+  const rowH = (ship) => Math.max(beamU(ship) * s * 1.5, 48) + 26;
+  const skins = Object.keys(SKINS);
+  // rows: ship × skin, columns: own (cyan) / enemy (red), two ships per row of columns
+  const rows = [];
+  for (const ship of SHIPS) for (const sk of skins) rows.push({ ship, sk });
+  const perRow = 2; // two (ship,skin) pairs per canvas row, each drawn own + enemy
+  const lines = Math.ceil(rows.length / perRow);
+  let H = pad;
+  for (let i = 0; i < lines; i++) H += rowH(rows[i * perRow].ship);
+  c.height = Math.round(H + pad);
+  const ctx = c.getContext("2d");
+  ctx.clearRect(0, 0, W, c.height);
+  ctx.font = "600 14px " + css("--display");
+  let y = pad;
+  rows.forEach((r, i) => {
+    const line = Math.floor(i / perRow), k = i % perRow;
+    if (k === 0 && i) y += rowH(rows[(line - 1) * perRow].ship);
+    const rh = rowH(r.ship);
+    const cy = y + 18 + (rh - 18) / 2;
+    const P = paletteFor(r.ship, r.sk);
+    const label = `${r.ship.name} · ${SKINS[r.sk].label}${P.name ? " (" + P.name + ")" : ""}`;
+    ctx.fillStyle = css("--ink"); ctx.textAlign = "left";
+    ctx.fillText(label, pad + k * 2 * (cellW + pad), y + 13);
+    ["ally", "enemy"].forEach((ol, j) => {
+      const cx = pad + (k * 2 + j) * (cellW + pad) + cellW / 2;
+      drawHull(ctx, r.ship, cx, cy, s, r.sk, ol, false, false);
+    });
+  });
+  document.getElementById("gallerynote").innerHTML = `<span style="--k:${OUTLINE.ally}">own / allied outline</span><span style="--k:${OUTLINE.enemy}">enemy outline</span><span style="--k:var(--muted)">Funny names: Tomato and Corn are Eric's; Pretzel and Sprite are candidates</span>`;
 }
 
 function renderRose(ship) {
@@ -529,8 +653,14 @@ function renderAll() {
   document.getElementById("ratev").textContent = S.rate + "°/s  (bow to stern " + (180 / S.rate).toFixed(1) + " s, to the stop " + (150 / S.rate).toFixed(1) + " s)";
   if (!S.anim) snapTurrets();
   renderFleet();
+  renderGallery();
   renderCards();
 }
+document.querySelectorAll("#skinseg button").forEach(b => b.addEventListener("click", () => {
+  S.skin = b.dataset.skin;
+  document.querySelectorAll("#skinseg button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  renderAll();
+}));
 let lastT = 0;
 function loop(ts) {
   const dt = lastT ? Math.min(0.1, (ts - lastT) / 1000) : 0;
@@ -555,6 +685,7 @@ document.getElementById("rate").addEventListener("input", e => { S.rate = +e.tar
 for (const k of ["anim", "arcs", "ghost", "deck"]) document.getElementById(k).addEventListener("change", e => { S[k] = e.target.checked; renderAll(); });
 seg("len-real", "len-equal", "len", "real", "equal");
 seg("org-house", "org-pivot", "org", "house", "pivot");
+seg("ol-ally", "ol-enemy", "outline", "ally", "enemy");
 document.getElementById("show").addEventListener("click", () => { const t = document.getElementById("json"); t.hidden = !t.hidden; t.value = JSON.stringify(spec(), null, 1); });
 document.getElementById("copy").addEventListener("click", async (e) => {
   const txt = JSON.stringify(spec(), null, 1);
