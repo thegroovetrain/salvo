@@ -347,9 +347,21 @@ Open questions for Eric at the sitting: (a) true proportions vs. a readability f
 
 Our own silhouette polygons traced from PD drawings are ours. A polygon traced from Y-A inherits CC-BY-SA; cleanest is to trace Yamato's hull outline from Y-A but keep the deliverable a hand-authored polygon (as the existing board SVG outlines are), and credit Alexpl in the research doc, which this does.
 
-### 5.5 Recommended next step
+### 5.5 The sitting (done 2026-11-04)
 
-Run the design sitting as a live artifact: the four primary drawings side by side, our silhouette polygons overlaid at one scale, turret dots at the fractions above, arc wedges at ±150° (±145° Bismarck) with superstructure-blocked sectors dimmed, dials for scale and arc. Eric's yes on that page becomes the spec input for `gds-create-story 10-4`.
+The live page is `battleship-sitting-2026-11-04.html` beside this file (artifact "Four Hulls Sitting"). Every hull outline on it was traced by machine from the primary drawing (column scan of the plan view, median-filtered, Douglas-Peucker simplified; the 1923 Brassey's plate traced too but Warspite's polygon comes from the ONI 1937 plate). Dials: units per meter, beam multiplier, real vs equal length, target bearing, traverse rate; fire roses per hull; a Copy button exports the polygons and turret tables as JSON for the 10.4 story.
+
+**Eric's rulings (Epic 10 amendment 7):**
+
+| Question | Ruling |
+|---|---|
+| Proportions | **True to scale**, beam multiplier 1.0. The traced outlines are the sprite shapes. Fattening rejected. |
+| Relative size | **Real sizes**: at 0.4585 u/m Iowa 124.0 × 15.1 u, Yamato 120.6 × 17.8, Bismarck 115.1 × 16.5, Warspite 90.0 × 14.5. Equalizing rejected. |
+| Turrets | Each at its **real station**, drawn and turned on its own, chasing the target cursor. |
+| Traverse | **Load-bearing**: a turret fires only once it has turned onto the aim point. **45°/s** as a first number ("i think?"), to be felt on the page and re-ruled at the 10.4 spec step. **Hard stop** at the train limit: across the blind sector is the long way round. |
+| Cooldown | The main-gun cooldown **rises** once secondaries land; number unruled, Eric's harness. |
+
+Still open for the 10.4 spec step: the final scale value, per-hull traverse rates if any, the cooldown number, the turret's on-screen read at game zoom.
 
 ---
 

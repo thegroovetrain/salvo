@@ -97,7 +97,8 @@ textarea { width: 100%; min-height: 120px; font-family: var(--mono); font-size: 
   <div class="dial"><label>Relative length</label><div class="seg" role="group"><button id="len-real" aria-pressed="true">Real</button><button id="len-equal" aria-pressed="false">All equal</button></div></div>
   <div class="dial"><label>Arc origin</label><div class="seg" role="group"><button id="org-house" aria-pressed="true">Gunhouse</button><button id="org-pivot" aria-pressed="false">Pivot</button></div></div>
   <div class="dial"><label for="brg">Target bearing</label><input id="brg" type="range" min="0" max="359" step="1" value="45"><span class="val" id="brgv"></span></div>
-  <div class="dial"><label>Show</label><div style="display:flex;gap:12px;flex-wrap:wrap"><label class="check"><input id="arcs" type="checkbox" checked>arcs</label><label class="check"><input id="ghost" type="checkbox" checked>today's 124×32</label><label class="check"><input id="deck" type="checkbox" checked>deck blocks</label></div></div>
+  <div class="dial"><label for="rate">Traverse rate, degrees per second</label><input id="rate" type="range" min="15" max="180" step="5" value="45"><span class="val" id="ratev"></span></div>
+  <div class="dial"><label>Show</label><div style="display:flex;gap:12px;flex-wrap:wrap"><label class="check"><input id="anim" type="checkbox" checked>turrets traverse</label><label class="check"><input id="arcs" type="checkbox" checked>arcs</label><label class="check"><input id="ghost" type="checkbox" checked>today's 124×32</label><label class="check"><input id="deck" type="checkbox" checked>deck blocks</label></div></div>
 </section>
 
 <section class="board" aria-label="Fleet board">
@@ -110,11 +111,11 @@ textarea { width: 100%; min-height: 120px; font-family: var(--mono); font-size: 
 <section class="cards" id="cards"></section>
 
 <section class="board q">
-  <h2>Questions for Eric</h2>
+  <h2>Rulings, 2026-11-04</h2>
   <ol>
-    <li><b>Proportions.</b> Real hulls are 6.2 to 8.2 lengths per beam; today's battleship polygon is 3.9. Keep them to scale (beam multiplier 1.0), or fatten for readability? If fatten, pick the multiplier on the dial.</li>
-    <li><b>Relative size.</b> Warspite is 27 percent shorter than Iowa in real life. Keep the real sizes, or make all four the same length?</li>
-    <li><b>Arc origin.</b> Gunhouse center (as measured) or the barbette pivot about one percent of length toward amidships. It moves the wedge apex, nothing else.</li>
+    <li><b>Proportions.</b> True to scale, beam multiplier 1.0. The traced outlines are the sprite shapes.</li>
+    <li><b>Relative size.</b> Real sizes: Iowa 124, Yamato 121, Bismarck 115, Warspite 90 units at 0.4585 units per meter.</li>
+    <li><b>Turrets.</b> Each at its real station, drawn and turned on its own. Traverse is load-bearing: a turret fires only once it has turned onto the aim point. First number 45 degrees per second, felt here with the bearing slider; hard stop at the train limit, so a target across the blind sector is reached the long way round. The main-gun cooldown rises once secondaries land; that number is Eric's harness.</li>
   </ol>
   <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="copy">Copy spec JSON</button><button class="btn alt" id="show">Show JSON</button></div>
   <textarea id="json" hidden readonly aria-label="Spec JSON"></textarea>
@@ -145,7 +146,30 @@ const SHIPS = [
 const TODAY = [[24,2],[32,20],[34,30],[34,38],[40,44],[40,84],[34,90],[34,106],[30,118],[18,118],[14,106],[14,90],[8,84],[8,44],[14,38],[14,30],[16,20]];
 const TODAY_HULL = { length: 124, beam: 32 };
 
-const S = { upm: .4585, fat: 1, len: "real", org: "house", brg: 45, arcs: true, ghost: true, deck: true };
+const S = { upm: .4585, fat: 1, len: "real", org: "house", brg: 45, rate: 45, anim: true, arcs: true, ghost: true, deck: true };
+// Turret traverse state: unwrapped angle in degrees. Forward turrets live in
+// [-train, train], aft turrets in [180-train, 180+train]; a hard stop at each
+// end, so a target in the blind sector parks the turret at the nearer stop and
+// a target across the blind sector is reached the long way round.
+for (const ship of SHIPS) for (const t of ship.turrets) t.ang = t.f === "fwd" ? 0 : 180;
+function desiredAngle(ship, t) {
+  if (t.f === "fwd") {
+    let b = ((S.brg + 180) % 360) - 180; // (-180, 180]
+    return Math.max(-ship.train, Math.min(ship.train, b));
+  }
+  let b = ((S.brg % 360) + 360) % 360; // [0, 360)
+  return Math.max(180 - ship.train, Math.min(180 + ship.train, b));
+}
+function stepTurrets(dt) {
+  for (const ship of SHIPS) for (const t of ship.turrets) {
+    const d = desiredAngle(ship, t) - t.ang;
+    const m = S.rate * dt;
+    t.ang += Math.abs(d) <= m ? d : Math.sign(d) * m;
+  }
+}
+function snapTurrets() { for (const ship of SHIPS) for (const t of ship.turrets) t.ang = desiredAngle(ship, t); }
+function onTarget(ship, t) { return offRest(t, S.brg) <= ship.train && Math.abs(desiredAngle(ship, t) - t.ang) < 0.5; }
+function swingSeconds(ship) { return Math.max(...ship.turrets.map(t => Math.abs(desiredAngle(ship, t) - t.ang))) / S.rate; }
 const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const DEG = Math.PI / 180;
 
@@ -231,16 +255,17 @@ function drawHull(ctx, ship, cx, cy, s) {
     const tx = (0.5 - turretFrac(t)) * L * s;
     const rr = Math.max(2.5, ship.house / 2 * S.upm * s * S.fat);
     const col = t.f === "fwd" ? css("--fwd") : css("--aft");
-    const dir = t.f === "fwd" ? 1 : -1;
     const bl = ship.barrel * S.upm * s;
+    const a = t.ang * DEG, ux = Math.cos(a), uy = Math.sin(a), vx = -uy, vy = ux;
     ctx.strokeStyle = col; ctx.lineWidth = Math.max(1, rr * 0.22);
     const n = t.g, gap = rr * 0.55;
     for (let i = 0; i < n; i++) {
-      const oy = (i - (n - 1) / 2) * gap;
-      ctx.beginPath(); ctx.moveTo(tx, oy); ctx.lineTo(tx + dir * (rr + bl), oy); ctx.stroke();
+      const o = (i - (n - 1) / 2) * gap;
+      ctx.beginPath(); ctx.moveTo(tx + vx * o, vy * o); ctx.lineTo(tx + vx * o + ux * (rr + bl), vy * o + uy * (rr + bl)); ctx.stroke();
     }
     ctx.beginPath(); ctx.arc(tx, 0, rr, 0, Math.PI * 2);
     ctx.fillStyle = col; ctx.fill();
+    if (onTarget(ship, t)) { ctx.strokeStyle = css("--accent"); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(tx, 0, rr + 2, 0, Math.PI * 2); ctx.stroke(); }
   }
   // bearing ray
   ctx.strokeStyle = css("--accent"); ctx.lineWidth = 1.2; ctx.setLineDash([4, 4]);
@@ -290,7 +315,7 @@ function renderFleet() {
     ctx.fillText("Today's battleship polygon  124 × 32 u", 16, y - ghostH / 2 + 16);
   }
   const st = document.getElementById("fleetstats");
-  st.innerHTML = SHIPS.map(sh => `<span><b>${sh.name}</b>${lengthU(sh).toFixed(0)} × ${beamU(sh).toFixed(1)} u, ratio ${(lengthU(sh)/beamU(sh)).toFixed(2)}, ${gunsBearing(sh, S.brg)} guns bear at ${S.brg}°</span>`).join("");
+  st.innerHTML = SHIPS.map(sh => { const now = sh.turrets.reduce((n, t) => n + (onTarget(sh, t) ? t.g : 0), 0); return `<span><b>${sh.name}</b>${lengthU(sh).toFixed(0)} × ${beamU(sh).toFixed(1)} u, ratio ${(lengthU(sh)/beamU(sh)).toFixed(2)}; at ${S.brg}°: ${now} guns on target now, ${gunsBearing(sh, S.brg)} once swung, ${swingSeconds(sh).toFixed(1)} s to go</span>`; }).join("");
 }
 
 function renderRose(ship) {
@@ -367,7 +392,7 @@ function renderCards() {
 function spec() {
   return {
     generated: "Four Hulls Sitting, 2026-11-04",
-    dials: { unitsPerMeter: S.upm, beamMultiplier: S.fat, relativeLength: S.len, arcOrigin: S.org },
+    dials: { unitsPerMeter: S.upm, beamMultiplier: S.fat, relativeLength: S.len, arcOrigin: S.org, traverseDegPerSec: S.rate, hardStopAtTrainLimit: true },
     ships: SHIPS.map(ship => ({
       id: ship.id, name: ship.name, real: { loaM: ship.loa, beamM: ship.beam },
       hull: { length: +lengthU(ship).toFixed(2), beam: +beamU(ship).toFixed(2) },
@@ -384,9 +409,23 @@ function renderAll() {
   document.getElementById("upmv").textContent = S.upm.toFixed(4) + " u/m  (Iowa = " + (270.4 * S.upm).toFixed(0) + " u)";
   document.getElementById("fatv").textContent = "×" + S.fat.toFixed(2);
   document.getElementById("brgv").textContent = S.brg + "° (0 = dead ahead, 90 = starboard beam)";
+  document.getElementById("ratev").textContent = S.rate + "°/s  (bow to stern " + (180 / S.rate).toFixed(1) + " s, to the stop " + (150 / S.rate).toFixed(1) + " s)";
+  if (!S.anim) snapTurrets();
   renderFleet();
   renderCards();
 }
+let lastT = 0;
+function loop(ts) {
+  const dt = lastT ? Math.min(0.1, (ts - lastT) / 1000) : 0;
+  lastT = ts;
+  if (S.anim && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const before = SHIPS.map(sh => sh.turrets.map(t => t.ang).join());
+    stepTurrets(dt);
+    if (SHIPS.map(sh => sh.turrets.map(t => t.ang).join()).join("|") !== before.join("|")) renderFleet();
+  } else if (S.anim) { snapTurrets(); }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
 function seg(idA, idB, key, a, b) {
   const A = document.getElementById(idA), B = document.getElementById(idB);
   const set = (v) => { S[key] = v; A.setAttribute("aria-pressed", String(v === a)); B.setAttribute("aria-pressed", String(v === b)); renderAll(); };
@@ -395,7 +434,8 @@ function seg(idA, idB, key, a, b) {
 document.getElementById("upm").addEventListener("input", e => { S.upm = +e.target.value; renderAll(); });
 document.getElementById("fat").addEventListener("input", e => { S.fat = +e.target.value; renderAll(); });
 document.getElementById("brg").addEventListener("input", e => { S.brg = +e.target.value; renderAll(); });
-for (const k of ["arcs", "ghost", "deck"]) document.getElementById(k).addEventListener("change", e => { S[k] = e.target.checked; renderAll(); });
+document.getElementById("rate").addEventListener("input", e => { S.rate = +e.target.value; renderAll(); });
+for (const k of ["anim", "arcs", "ghost", "deck"]) document.getElementById(k).addEventListener("change", e => { S[k] = e.target.checked; renderAll(); });
 seg("len-real", "len-equal", "len", "real", "equal");
 seg("org-house", "org-pivot", "org", "house", "pivot");
 document.getElementById("show").addEventListener("click", () => { const t = document.getElementById("json"); t.hidden = !t.hidden; t.value = JSON.stringify(spec(), null, 1); });
