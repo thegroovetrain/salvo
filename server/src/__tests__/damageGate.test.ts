@@ -17,14 +17,22 @@
 // Also here: the hp-INCREASE whitelist (AR47's "payRepair is the only regen
 // path", read as a pinned list of the legitimate `hp =` sites — since Story
 // 8.8 that list is payRepair, tickRegen and applyRepair plus the life-boundary
-// resets), and `tickRepairs`' weapons-safe-room decision
-// (`deferred-work.md:564`).
+// resets — tickRegen renamed tickHeal by Story 10.3), and `tickRepairs`'
+// weapons-safe-room decision (`deferred-work.md:564`).
+//
+// 2026-11-04 (Story 10.3, Eric, epic-10 amendment 7 — "passive healing
+// dies"): `regen.test.ts` (the OUT-OF-COMBAT regen's wait, shape, combat-clock
+// reset, per-hull ladder, who-regens and silence pins) is DELETED with the
+// regen itself and `CONFIG.regen`. What survives of it lives here: the combat
+// clock stamp (the (d) step pins below), "tickRepairs stays UN-gated" for the
+// HULL REPAIR pool, and the new "no out-of-combat regen" pin; the healing
+// buoy's term is pinned in buoyEffects.test.ts.
 
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CONFIG, DEFAULT_HORN_ID, damageMultiplierFor, droneHullOf, type DamageEvent, type GameEvent } from '@salvo/shared';
+import { CONFIG, DEFAULT_HORN_ID, damageMultiplierFor, droneHullOf, hullEnvelope, type DamageEvent, type GameEvent } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 
@@ -376,12 +384,13 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     return rec;
   }
 
-  it('the helper and the fold agree: damageMultiplierFor(stats.armor) === stats.damageMultiplier at every tier', () => {
+  it('the helper and the fold agree: damageMultiplierFor(armor − base) === stats.damageMultiplier at every tier (the published, average-attacker number)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
+    const seed = a.stats.armor;
     for (let n = 0; n <= 5; n++) {
-      expect(a.stats.armor, `tier ${n}`).toBe(20 * n); // +20 per card (amendment 144)
-      expect(damageMultiplierFor(a.stats.armor), `tier ${n}`).toBe(a.stats.damageMultiplier);
+      expect(a.stats.armor - seed, `tier ${n}`).toBe(20 * n); // +20 per card (amendment 144; ruling 4)
+      expect(damageMultiplierFor(a.stats.armor - CONFIG.index.base), `tier ${n}`).toBe(a.stats.damageMultiplier);
       if (n < 5) w.applyCard(a, 'armor');
     }
   });
@@ -434,8 +443,10 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
   it('EXACT RATIO: a 15 hp shell on a Battleship at Tier V with the cut open (E 200) deals 5 (15 × 1/3), not 4', () => {
     const w = bareWorld();
     const a = cutTierV(w);
-    place(w, 'b', 400, 0);
-    expect(a.stats.armor + CONFIG.hunker.armorBonus).toBe(200); // Tier V 100 + HUNKER 100 (amendment 144)
+    const b = place(w, 'b', 400, 0);
+    // Tier V +100 over the attacker's POWER + HUNKER 100 (amendment 144; the
+    // indices since Story 10.3 — E is victim ARMOR + bonus − attacker POWER).
+    expect(a.stats.armor + CONFIG.hunker.armorBonus - b.stats.power).toBe(200);
     gate(w).applyDamage(a, 15, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 5);
   });
@@ -478,11 +489,11 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
     expect(a.hp).toBeCloseTo(a.stats.maxHp - 0.5 * (5 / 6), 12);
   });
 
-  it('FLOOR OF ONE is a no-op at ×1: a 1 hp shell at Armor 0 with no cut deals 1', () => {
+  it('FLOOR OF ONE is a no-op at ×1: a 1 hp shell at E 0 (victim ARMOR = attacker POWER) with no cut deals 1', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    place(w, 'b', 400, 0);
-    expect(a.stats.armor).toBe(0);
+    const b = place(w, 'b', 400, 0);
+    expect(a.stats.armor - b.stats.power).toBe(0);
     gate(w).applyDamage(a, 1, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 1);
   });
@@ -498,9 +509,9 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
   it('a 0.2 hp GRIND tick at ARMOR Tier II applies the exact product — never floored', () => {
     const w = bareWorld();
     const a = armored(w, place(w, 'a'), 2);
-    place(w, 'b', 400, 0);
+    const b = place(w, 'b', 400, 0);
     fullGate(w).applyDamage(a, 0.2, 'grind', 'b');
-    expect(a.hp).toBeCloseTo(a.stats.maxHp - 0.2 * damageMultiplierFor(a.stats.armor), 12);
+    expect(a.hp).toBeCloseTo(a.stats.maxHp - 0.2 * damageMultiplierFor(a.stats.armor - b.stats.power), 12);
     expect(a.stats.maxHp - a.hp).toBeGreaterThan(0);
   });
 
@@ -555,7 +566,7 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
 // but the storm; the coast, a wreck and a departed owner read AP 0.
 // ---------------------------------------------------------------------------
 
-describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9.9)', () => {
+describe('applyDamage — (b′) POWER (was ARMOR PIERCING), the attacker read live (Stories 9.9 / 10.3)', () => {
   interface FullGate {
     applyDamage(victim: ShipRecord, amount: number, src: Src | 'grind', byId: string | undefined): void;
   }
@@ -567,12 +578,11 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
     return rec;
   }
 
-  it('a pierced BARE hull: AP 100 vs Armor 0, a 12 hp shell lands 18 (E −100 → ×1.5); the dmg report and the attacker tally read 18 (amendments 113 / 146)', () => {
+  it('a POWER-capped attacker on a BARE hull: E −100, a 12 hp shell lands 18 (×1.5); the dmg report and the attacker tally read 18 (amendments 113 / 146)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     const b = carded(w, place(w, 'b', 400, 0), 'power', 5);
-    expect(b.stats.power).toBe(100);
-    expect(a.stats.armor).toBe(0);
+    expect(a.stats.armor - b.stats.power).toBe(-100); // five +20 POWER cards over an equal seed
     gate(w).applyDamage(a, 12, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 18);
     expect(dmgEvents(w).map((e) => e.amount)).toEqual([18]);
@@ -587,11 +597,11 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
     expect(a.hp).toBe(a.stats.maxHp - 14);
   });
 
-  it('CANCELLED OUT: Armor 60 vs AP 60 is E 0 — a 12 hp shell lands 12', () => {
+  it('CANCELLED OUT: three ARMOR cards vs three POWER cards is E 0 — a 12 hp shell lands 12', () => {
     const w = bareWorld();
     const a = carded(w, place(w, 'a'), 'armor', 3);
-    carded(w, place(w, 'b', 400, 0), 'power', 3);
-    expect(a.stats.armor).toBe(60);
+    const b = carded(w, place(w, 'b', 400, 0), 'power', 3);
+    expect(a.stats.armor - b.stats.power).toBe(0);
     gate(w).applyDamage(a, 12, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 12);
   });
@@ -650,11 +660,11 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
     expect(v.stats.maxHp - v.hp).toBe(3);
   });
 
-  it('DRONES hold no cards (amendment 147): a 1 hp drone shell on Armor 100 still lands 1 (floor of one, amendment 119); a pierced drone takes ×1.5', () => {
+  it('DRONES hold no cards but carry their envelope indices (amendment 147; Story 10.3): a 1 hp drone shell on an ARMOR-capped hull still lands 1 (floor of one, amendment 119); a POWER-capped captain hits a drone ×1.5', () => {
     const w = bareWorld();
     const d = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 800 });
-    expect(d.stats.power).toBe(0);
-    expect(d.stats.armor).toBe(0);
+    expect(d.stats.power).toBe(hullEnvelope(droneHullOf('medium')).index.power);
+    expect(d.stats.armor).toBe(hullEnvelope(droneHullOf('medium')).index.armor);
     const a = carded(w, place(w, 'a'), 'armor', 5);
     gate(w).applyDamage(a, 1, 'shell', 'd');
     expect(a.stats.maxHp - a.hp).toBe(1);
@@ -674,13 +684,14 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
     expect(a.stats.maxHp - a.hp).toBe(12 + 14);
   });
 
-  it('an owner who LEFT the room (removeShip) reads AP 0 — no throw, the blow lands unpierced', () => {
+  it('an owner who LEFT the room (removeShip) reads the AVERAGE POWER (CONFIG.index.base, Story 10.3) — no throw, its cards gone with it', () => {
     const w = bareWorld();
-    const a = place(w, 'a');
+    const a = carded(w, place(w, 'a'), 'armor', 1);
     carded(w, place(w, 'b', 400, 0), 'power', 5);
     w.removeShip('b');
     expect(() => gate(w).applyDamage(a, 12, 'mine', 'b')).not.toThrow();
-    expect(a.stats.maxHp - a.hp).toBe(12);
+    const e = a.stats.armor - CONFIG.index.base;
+    expect(a.stats.maxHp - a.hp).toBe(Math.floor(12 * damageMultiplierFor(e)));
   });
 
   it('a SUNK owner keeps its record until it leaves, so its ordnance still carries its piercing (amendment 156)', () => {
@@ -696,11 +707,19 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
     expect(before - a.hp).toBe(18);
   });
 
-  it('the COAST and a WRECK (byId undefined) read AP 0: a 12 hp contact on Armor 20 lands 10 (E 20)', () => {
+  it('the COAST and a WRECK (byId undefined) read the AVERAGE POWER, CONFIG.index.base (Story 10.3): E = victim ARMOR − base', () => {
     const w = bareWorld();
     const a = carded(w, place(w, 'a'), 'armor', 1);
     gate(w).applyDamage(a, 12, 'contact', undefined);
-    expect(a.stats.maxHp - a.hp).toBe(10);
+    expect(a.stats.maxHp - a.hp).toBe(Math.floor(12 * damageMultiplierFor(a.stats.armor - CONFIG.index.base)));
+  });
+
+  it('a coast strike against a BASE hull (ARMOR = CONFIG.index.base) lands ×1 — the missing attacker is an average one', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    a.stats.armor = CONFIG.index.base; // an average hull, whatever the scaffold seeds
+    gate(w).applyDamage(a, 12, 'contact', undefined);
+    expect(a.stats.maxHp - a.hp).toBe(12);
   });
 
   it('the SHIELD comes after the multiply: shield 20, a 12 hp shell at E −100 → 18 eaten, hp and combat clock untouched, dealt 0', () => {
@@ -849,12 +868,11 @@ describe('the hp-INCREASE whitelist (AR47 read as "the only REGEN path")', () =>
       'ship.hp = Math.min(ship.hp, ship.stats.maxHp);',
       // payRepair — the PAID HULL REPAIR pool's drain.
       'ship.hp = Math.min(ship.hp + paid, ship.stats.maxHp);',
-      // tickRegen — the OUT-OF-COMBAT regen (amendment 46): the snap to full
-      // on the SHARED full-hull predicate (amendment 53 — under 1 hp missing,
+      // tickHeal (was tickRegen until Story 10.3 deleted the out-of-combat
+      // regen) — the HEALING BUOY's term (Story 10.9): the snap to full on
+      // the SHARED full-hull predicate (amendment 53 — under 1 hp missing,
       // the same word the HULL REPAIR row refuses on), then the
-      // %-of-missing-per-second trickle at the caller's rate (healPctPerS:
-      // the hull's own stats.regen when due, Story 9.6, PLUS the HEALING
-      // BUOY's term, Story 10.9 — one write for both).
+      // %-of-missing-per-second heal at the caller's rate (healPctPerS).
       'if (hullIsFull(ship.hp, maxHp)) ship.hp = maxHp;',
       'else ship.hp += missing * pctPerS * (dtMs / 1000);',
       // applyRepair — HULL REPAIR's instant half, reached ONLY through
@@ -886,9 +904,26 @@ describe('tickRepairs stays UN-gated on damageEnabled (Story 8.4 decision, ledge
     // damage a hull while damageEnabled is false (the gate's own step (b)), so
     // an open pool in the ready room can only be one a captain paid for
     // BEFORE the phase changed, and gating it would put a phase read on the
-    // one repair path. (The OUT-OF-COMBAT regen reaches the same room on the
+    // one repair path. (The healing buoy's term reaches the same room on the
     // same reasoning — nothing there can have hurt anyone.)
     expect(a.hp).toBeGreaterThan(a.stats.maxHp - 20);
     expect(a.repairHp).toBeLessThan(20);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NO OUT-OF-COMBAT REGEN (Story 10.3, Eric 2026-11-04, epic-10 amendment 7):
+// HULL REPAIR and the healing buoy are the only ways hp comes back.
+// ---------------------------------------------------------------------------
+
+describe('no out-of-combat regen (Story 10.3 — passive healing dies)', () => {
+  it('a hurt hull idle for a full minute, no pool and no buoy, heals NOTHING', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    a.hp = a.stats.maxHp / 2;
+    a.lastDamagedAt = -1e9; // out of combat for ages
+    const before = a.hp;
+    for (let t = 0; t < 60_000; t += CONFIG.tick.simDtMs) w.step();
+    expect(a.hp).toBe(before);
   });
 });

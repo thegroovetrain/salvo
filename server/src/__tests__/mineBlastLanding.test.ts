@@ -81,12 +81,15 @@ describe('the flak burst clears a cluster', () => {
   });
 });
 
-describe('the cannon — two shells, two blows', () => {
-  it('a Tier I click on a mine lands BOTH shells\' bursts on it: D + D pops a mine one shell could not', () => {
+describe('the cannon — every barrel, one blow each', () => {
+  // 2026-11-04 (Story 10.3): the cannon's ×3 placeholder damage (24, Eric
+  // ruling 10) pops the 10 hp mine with ONE shell, so "one shell could not"
+  // is no longer a fact of the tables; the contract kept is that a Tier I
+  // click lands every barrel on the mine and the summed blows pop it once.
+  it('a Tier I click on a mine lands EVERY barrel\'s burst on it: the summed blows pop it, one boom', () => {
     const w = bareWorld();
     const a = captain(w, 'a');
     expect(a.stats.equipment.gun.barrels).toBe(CONFIG.gun.barrels);
-    expect(CONFIG.gun.damage).toBeLessThan(CONFIG.mine.hp); // one shell alone does not pop it
     expect(CONFIG.gun.barrels * CONFIG.gun.damage).toBeGreaterThanOrEqual(CONFIG.mine.hp);
     lay(w, 'm1', 300, 0);
     const { log, shells } = fire(w, 'a', 300);
@@ -111,15 +114,25 @@ describe('the cannon — two shells, two blows', () => {
 
 describe('the machine gun — no blast, within 10 u of where it arrived', () => {
   it('hurts a mine 9 u off its arrival point and leaves one 12 u off', () => {
+    // Two worlds, one mine each (Story 10.3): the ×3 placeholder MG now POPS
+    // the near mine, and its naval blast would chain the off mine — which
+    // measures the chain, not the shell's 10 u reach.
     const w = bareWorld();
     captain(w, 'a', 'machineGun');
     lay(w, 'near', 300, 9);
-    lay(w, 'off', 300, -12);
     const { shells } = fire(w, 'a', 300);
     expect(shells).toHaveLength(1);
     expect(landAtten(shells[0])).toBe(1);
-    expect(w.mines.get('near')!.hp).toBe(CONFIG.mine.hp - CONFIG.machineGun.damage);
-    expect(w.mines.get('off')!.hp).toBe(CONFIG.mine.hp);
+    // The near mine takes ONE whole blow: popped if the blow reaches its hp,
+    // else hp − D.
+    const left = CONFIG.mine.hp - CONFIG.machineGun.damage;
+    expect(w.mines.get('near')?.hp ?? 0).toBe(Math.max(0, left));
+    expect(w.mines.has('near')).toBe(left > 0);
+    const w2 = bareWorld();
+    captain(w2, 'a', 'machineGun');
+    lay(w2, 'off', 300, -12);
+    fire(w2, 'a', 300);
+    expect(w2.mines.get('off')!.hp).toBe(CONFIG.mine.hp);
   });
 
   it('at max range the mine takes the attenuated blow: settleBlow(D × a factor in [minFactor, 1))', () => {

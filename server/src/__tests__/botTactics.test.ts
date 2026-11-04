@@ -1225,8 +1225,10 @@ describe('weapons — every shot is a LEGAL shot', () => {
     const belt = slotOf(bot, 'hullRepair');
     expect(belt).toBeGreaterThanOrEqual(0);
 
-    // Mid-payment: the instant 50 has landed, the pooled 50 has not.
-    bot.hp = 170;
+    // Mid-payment: the instant half has landed, the pooled half has not. The
+    // hull sits half a pool under the heal bar, so the pool still owed lifts
+    // it over (fractions of maxHp — 1000 since Story 10.3).
+    bot.hp = bot.stats.maxHp * profileOf('bulwark').healHpFrac - CONFIG.hullRepair.regenHp / 2;
     bot.repairHp = CONFIG.hullRepair.regenHp;
     expect(bot.hp / bot.stats.maxHp).toBeLessThan(profileOf('bulwark').healHpFrac); // the bare read still says "heal"
     expect(COMBAT_BRAIN.decide(bot, mkMind('bulwark'), port).actSlot).toBeNull();

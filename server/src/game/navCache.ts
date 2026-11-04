@@ -20,6 +20,7 @@ import {
   SHIP_CLASS_IDS,
   buildNavGrid,
   distanceToLand,
+  effectiveStats,
   flowField,
   goalCellsInsideDisc,
   hullEnvelope,
@@ -39,7 +40,11 @@ import {
  *  participant's rated full-ahead turn radius (the ring-escape deadband's own
  *  family, utility.ts ringDeadband), so one field per ring serves every hull. */
 export const FIELD_MARGIN_U = Math.max(
-  ...SHIP_CLASS_IDS.map((id) => hullEnvelope(id).kinematics.maxSpeed / hullEnvelope(id).kinematics.turnRate),
+  ...SHIP_CLASS_IDS.map((id) => {
+    // Story 10.3: speed and turn rate are DERIVED (ENGINES / RUDDER) — read the fold.
+    const k = effectiveStats(hullEnvelope(id)).kinematics;
+    return k.maxSpeed / k.turnRate;
+  }),
 );
 
 /** Fields kept per map (the live ring, the next, the one after while a close

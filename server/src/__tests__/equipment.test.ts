@@ -511,7 +511,7 @@ describe('HULL REPAIR — the first live consumable line (Story 8.8)', () => {
 
   it('THE MATRIX ROW (amendment 141): a re-press mid-drain discards what is owed, lands the instant half, and pays a fresh full pool over a fresh regenMs at the unchanged rate', () => {
     const w = bareWorld();
-    const ship = healer(w, 'a', 2, 300);
+    const ship = healer(w, 'a', 2, 2 * (HR.instantHp + HR.regenHp)); // room for both heals: no clamp
     w.sinkingActivationGate(ship, SLOT_BELT);
     // Drain part of the pool (40 ticks at the fixed regenHp/regenMs rate).
     const drained = (HR.regenHp / HR.regenMs) * DT * 40;

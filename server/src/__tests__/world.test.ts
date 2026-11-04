@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { isAfloat, CONFIG, hullSilhouette, polygonMaxRadius, transformPolygon, wrapPositive } from '@salvo/shared';
+import { isAfloat, CONFIG, effectiveStats, hullSilhouette, polygonMaxRadius, transformPolygon, wrapPositive } from '@salvo/shared';
 import { World } from '../game/world.js';
 
 const SIM_DT = CONFIG.tick.simDtMs;
@@ -67,7 +67,7 @@ describe('World clock + lifecycle', () => {
     // effectiveStats accepts the drone envelope: hp/kinematics flow through.
     expect(d.hp).toBe(CONFIG.drones.medium.hp);
     expect(d.stats.maxHp).toBe(CONFIG.drones.medium.hp);
-    expect(d.stats.kinematics.maxSpeed).toBe(CONFIG.drones.medium.kinematics.maxSpeed);
+    expect(d.stats.kinematics.maxSpeed).toBe(effectiveStats(CONFIG.drones.medium).kinematics.maxSpeed);
   });
 });
 
@@ -162,7 +162,7 @@ describe('World step — boundary', () => {
     rec.state.x = w.map.radius - 1;
     rec.state.y = 0;
     rec.state.heading = 0;
-    rec.state.speed = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed;
+    rec.state.speed = effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics.maxSpeed;
     w.submitInput('a', input(1, 1, 0));
     w.step();
     const d = Math.hypot(rec.state.x, rec.state.y);
@@ -176,7 +176,7 @@ describe('World step — boundary', () => {
       expect(Math.hypot(v.x, v.y)).toBeLessThanOrEqual(w.map.radius + 1e-6);
     }
     // Full way kept, so full rudder authority: the edge costs nothing.
-    expect(rec.state.speed).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed, 9);
+    expect(rec.state.speed).toBeCloseTo(effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics.maxSpeed, 9);
   });
 
   it('never lets a ship escape the map over a long full-throttle run', () => {

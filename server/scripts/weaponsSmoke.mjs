@@ -5,7 +5,7 @@
 // WHY IT USED TO FLAKE. Every hull carried a heuristic pilot (rendezvous to
 // the midpoint, hold-station loiter, island-avoid rudder bias, nearest-mine
 // chase) on a RANDOM map, while the 60 s PvE fleet wave and passive regen
-// raced every kill — so a red run measured the piloting, not the weapon.
+// (gone since Story 10.3) raced every kill — so a red run measured the piloting, not the weapon.
 // Now nothing sails by heuristic: every phase gets its OWN fresh room on a
 // PINNED map (`mapSeed`), every hull is PLACED by the dev-only `spawnOverride`
 // pose, the fleet wave is off (`matchOverride.fleetWaves: false`), and the
@@ -16,8 +16,8 @@
 // same `effectiveStats()` fold the server uses, never typed here):
 //   1. TORPEDO KILL — a Torpedo Boat posed broadside-on to a stationary Mine
 //      Layer, bow on the bearing, clicks the heavy tube every tick. The KILL
-//      PLAN (fish count, time) is simulated below from the fitted row, the
-//      target's hp and its passive regen, and printed; the budget is the plan
+//      PLAN (fish count, time) is simulated below from the fitted row and
+//      the target's hp (no regen since Story 10.3), and printed; the budget is the plan
 //      plus one reload. Asserts a hit at the armor-curve blow, the roster
 //      death + kill. The radar half of the torpedo contract (a torpedo's WATER
 //      paints while the fish itself stays silent beyond detect, amendment 196)
@@ -284,20 +284,16 @@ async function leaveAll(clients) {
  * a shooter clicking every tick from a FULL pool of `maxAmmo` (one launch per
  * tick at most; the pool refills ONE round per `reloadMs` — equipment/ammo.ts),
  * each fish landing `flightMs` after launch for `damage`, against a target of
- * `hp` that regains `regen.missingPctPerS` of its MISSING hull per second once
- * `regen.outOfCombatMs` have wholly passed since its last hit (World.tickRegen
- * / regenDue). Returns the fish needed, the kill time and whether the kill
- * landed inside one regen wait (no regen tick ever credited).
+ * `hp`. 2026-11-04 (Story 10.3): the regen term is GONE with the out-of-combat
+ * regen itself — the target heals nothing between hits. Returns the fish
+ * needed and the kill time.
  */
-function killPlan({ hp, damage, maxAmmo, reloadMs, flightMs, regen }) {
+function killPlan({ hp, damage, maxAmmo, reloadMs, flightMs }) {
   let t = 0;
   let n = maxAmmo;
   let left = 0;
   let cur = hp;
-  let lastHit = -Infinity;
-  let firstHit = null;
   let hits = 0;
-  let regenTicks = 0;
   const pending = [];
   while (t < 3_600_000) {
     if (n > 0) {
@@ -317,16 +313,10 @@ function killPlan({ hp, damage, maxAmmo, reloadMs, flightMs, regen }) {
       pending.shift();
       cur -= damage;
       hits += 1;
-      lastHit = t;
-      firstHit ??= t;
-      if (cur <= 0) return { fish: hits, killAtMs: t, insideRegenWait: regenTicks === 0 };
-    }
-    if (lastHit <= t - DT - regen.outOfCombatMs && cur < hp) {
-      cur += (hp - cur) * regen.missingPctPerS * (DT / 1000);
-      if (firstHit !== null) regenTicks += 1;
+      if (cur <= 0) return { fish: hits, killAtMs: t };
     }
   }
-  throw new Error(`PRECONDITION: no kill inside an hour (damage ${damage} vs hp ${hp} with regen)`);
+  throw new Error(`PRECONDITION: no kill inside an hour (damage ${damage} vs hp ${hp})`);
 }
 
 /**
@@ -340,10 +330,11 @@ function torpedoFit(line, shooterCls, target, rangeU) {
     const row = effectiveStats(CONFIG.shipClasses[shooterCls], Array(cards).fill(line)).equipment[line];
     const flightMs = (rangeU / row.speed) * 1000;
     const shooter = effectiveStats(CONFIG.shipClasses[shooterCls], Array(cards).fill(line));
-    // The blow the target's hull takes: the server's armor curve over its armor
-    // minus the shooter's piercing, floored (World.floorBlow) — as matchSmoke.
+    // The blow the target's hull takes: the server's armor curve over its ARMOR
+    // minus the shooter's POWER (Story 10.3 indices), floored (World.floorBlow)
+    // — as matchSmoke.
     const blow = Math.max(1, Math.floor(row.damage * damageMultiplierFor(tgt.armor - shooter.power)));
-    return { cards, row, blow, plan: killPlan({ hp: tgt.maxHp, damage: blow, maxAmmo: row.maxAmmo, reloadMs: row.reloadMs, flightMs, regen: tgt.regen }) };
+    return { cards, row, blow, plan: killPlan({ hp: tgt.maxHp, damage: blow, maxAmmo: row.maxAmmo, reloadMs: row.reloadMs, flightMs }) };
   };
   const one = planFor(1);
   let two = null;
@@ -353,11 +344,11 @@ function torpedoFit(line, shooterCls, target, rangeU) {
   }
   precondition(two !== null, `${line}: no two-tube tier within ${MAX_SMOKE_CARDS} cards`);
   const pick = two;
-  const fmt = (p) => `${p.cards} card(s) tier ${p.row.tier}: ${p.row.maxAmmo} tube(s) x ${p.row.damage} dmg (${p.blow} after armor) / ${secs(p.row.reloadMs)} -> ${p.plan.fish} fish, kill at ${secs(p.plan.killAtMs)}${p.plan.insideRegenWait ? ' (inside one regen wait)' : ' (regen races it)'}`;
+  const fmt = (p) => `${p.cards} card(s) tier ${p.row.tier}: ${p.row.maxAmmo} tube(s) x ${p.row.damage} dmg (${p.blow} after armor) / ${secs(p.row.reloadMs)} -> ${p.plan.fish} fish, kill at ${secs(p.plan.killAtMs)}`;
   return {
     pick,
     hp: tgt.maxHp,
-    text: `plan vs ${tgt.maxHp} hp, regen ${tgt.regen.missingPctPerS * 100}%/s of missing after ${secs(tgt.regen.outOfCombatMs)}: ` +
+    text: `plan vs ${tgt.maxHp} hp, no regen: ` +
       `[${fmt(one)}]` + (two ? ` [${fmt(two)}]` : ' [no two-tube tier <= III]') + ` => fitting ${pick.cards} card(s)`,
   };
 }

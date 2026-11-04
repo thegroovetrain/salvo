@@ -254,7 +254,7 @@ describe('the FLAK GUN — base damage >= mine hp, and the whole blast reaches m
   });
 });
 
-describe('the MACHINE GUN — two near shells to pop one', () => {
+describe('the MACHINE GUN — ceil(mine hp / D) near shells to pop one', () => {
   /** Hold the trigger with the aim on (dist, 0) until `shellsResolved` shells
    *  have resolved, recording the mine's hp after every resolving tick. */
   function stream(w: World, id: string, dist: number, mineId: string, shellsResolved: number) {
@@ -276,41 +276,43 @@ describe('the MACHINE GUN — two near shells to pop one', () => {
     return { log, hpAfter };
   }
 
-  it('held on the mine: the first shell takes one blow off its hp, the SECOND pops it; the first is an `sp` with no boom', () => {
+  // 2026-11-04 (Story 10.3): the machine gun's ×3 placeholder damage (Eric
+  // ruling 10) reaches the mine's 10 hp in ONE shell, so "two to pop" is no
+  // longer a fact of the tables — the contract is the shell COUNT
+  // ceil(mine hp / D), each shell taking one whole blow until the pop. The
+  // "one shell is not enough" pin (true only while D < mine hp) is gone with
+  // the premise; the derived sequence below still covers a multi-shell pop
+  // should a retune bring it back.
+  /** The mine's hp after each shell of a held stream that pops it. */
+  const popSequence = (d: number): (number | null)[] => {
+    const n = Math.ceil(CONFIG.mine.hp / d);
+    return Array.from({ length: n }, (_, i) => (i === n - 1 ? null : CONFIG.mine.hp - (i + 1) * d));
+  };
+
+  it('held on the mine: each shell takes one whole blow off its hp until ceil(hp / D) pops it; every shell is an `sp`, one boom', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0, { gun: 'machineGun' });
     const D = a.stats.equipment.machineGun.damage;
     expect(D).toBe(CONFIG.machineGun.damage);
-    // The premise of "two to pop": one shell falls short of the mine's hp, two reach it.
-    expect(D).toBeLessThan(CONFIG.mine.hp);
-    expect(2 * D).toBeGreaterThanOrEqual(CONFIG.mine.hp);
+    const seq = popSequence(D);
     lay(w, 'm1', 'x', 300, 0);
-    const { log, hpAfter } = stream(w, 'a', 300, 'm1', 2);
-    expect(hpAfter).toEqual([CONFIG.mine.hp - D, null]);
+    const { log, hpAfter } = stream(w, 'a', 300, 'm1', seq.length);
+    expect(hpAfter).toEqual(seq);
     expect(mineBooms(log, 'm1')).toEqual([{ k: 'boom', id: 'm1', x: 300, y: 0 }]);
-    expect(count(log, 'sp')).toBe(2); // every shell reached the water: fall of shot each
+    expect(count(log, 'sp')).toBe(seq.length); // every shell reached the water: fall of shot each
     expect(count(log, 'hc')).toBe(0);
     expect(count(log, 'burst')).toBe(0); // a direct shell never bursts
   });
 
-  it('one shell is not enough: the mine survives with one blow off its hp', () => {
-    const w = bareWorld();
-    captain(w, 'a', 0, 0, { gun: 'machineGun' });
-    lay(w, 'm1', 'x', 300, 0);
-    const { log, hpAfter } = stream(w, 'a', 300, 'm1', 1);
-    expect(hpAfter).toEqual([CONFIG.mine.hp - CONFIG.machineGun.damage]);
-    expect(w.mines.get('m1')!.hp).toBe(CONFIG.mine.hp - CONFIG.machineGun.damage);
-    expect(mineBooms(log, 'm1')).toEqual([]);
-  });
-
-  it('tier II keeps the flat per-shell damage (no damage rungs since Story 9.12) and pops one in two', () => {
+  it('tier II keeps the flat per-shell damage (no damage rungs since Story 9.12) and pops one in the same count', () => {
     const w = bareWorld();
     const a = captain(w, 'a', 0, 0, { gun: 'machineGun' });
     w.applyCard(a, 'machineGun');
     expect(a.stats.equipment.machineGun.damage).toBe(CONFIG.machineGun.damage);
+    const seq = popSequence(CONFIG.machineGun.damage);
     lay(w, 'm1', 'x', 300, 0);
-    const { hpAfter } = stream(w, 'a', 300, 'm1', 2);
-    expect(hpAfter).toEqual([CONFIG.mine.hp - CONFIG.machineGun.damage, null]);
+    const { hpAfter } = stream(w, 'a', 300, 'm1', seq.length);
+    expect(hpAfter).toEqual(seq);
   });
 
   it('a hull in the stream\'s path takes the hit; the mine behind it is untouched', () => {

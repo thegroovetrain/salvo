@@ -201,7 +201,8 @@ describe('HUNKER — the Battleship\'s Shift (amendments 99–102)', () => {
     expect(a.hunkerUntil).toBe(w.now + hk.durationMs);
     expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: hk.reloadMs });
     const gate = w as unknown as { applyDamage(v: ShipRecord, n: number, s: 'shell', by: string): void };
-    const cut = Math.max(1, Math.floor(15 * damageMultiplierFor(a.stats.armor + hk.armorBonus)));
+    // 'b' is no ship here: a missing attacker reads the AVERAGE POWER (Story 10.3).
+    const cut = Math.max(1, Math.floor(15 * damageMultiplierFor(a.stats.armor + hk.armorBonus - CONFIG.index.base)));
     expect(cut).toBeLessThan(15);
     gate.applyDamage(a, 15, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - cut);

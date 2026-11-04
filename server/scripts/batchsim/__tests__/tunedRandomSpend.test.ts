@@ -58,7 +58,11 @@ describe('runner — the tuned-profile measurement lobby', () => {
   });
 
   it('random spend reaches chooseSpend: same seed, different picks than weighted', () => {
-    const restore = applyOverrides({ 'zone.beatMs': 3000 });
+    // A short passive level (2026-11-04, Story 10.3): at 1000 hp the storm's
+    // 10–50 hp/s ladder sinks a compressed-timeline lobby before the default
+    // first passive level, and a match with zero picks makes the comparison
+    // vacuous — so the level clock is compressed with the zone's.
+    const restore = applyOverrides({ 'zone.beatMs': 3000, 'xp.levelMs': 15000 });
     try {
       const weighted = runMatch(0, { seed: 4242, matches: 1, captains: 0, bots: 6 });
       const random = runMatch(0, { seed: 4242, matches: 1, captains: 0, bots: 6, botSpend: 'random' });

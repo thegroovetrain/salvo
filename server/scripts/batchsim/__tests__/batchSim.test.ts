@@ -419,25 +419,28 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     // is 0/0 = NaN straight into heading and position.
     expect(() => parseArgs(['--tune', 'shipClasses.torpedoBoat.kinematics.steerageSpeed=0'])).toThrow(TunableError);
     expect(() => parseArgs(['--tune', 'shipClasses.torpedoBoat.kinematics.steerageSpeed=0'])).toThrow(/>= 1/);
-    // turnRate: the AI divides by it; the resulting Infinity/NaN steer fails
-    // the finite check in game/inputs.ts and is SILENTLY DROPPED — the harness
-    // would print an ordinary report of a campaign whose bots were inert.
-    // ITS FLOOR IS 0.05, NOT 1: every hull ships 0.4-0.8, so a floor of 1 made
-    // the leaf untunable at its own shipped values (see TUNE_SUB_ONE_FLOORS and
-    // tuneFloor.test.ts). The hazard being guarded is a divide by ZERO, and 0
-    // is still refused here — only the floor's MAGNITUDE changed.
-    expect(() => parseArgs(['--tune', 'shipClasses.battleship.kinematics.turnRate=0'])).toThrow(TunableError);
-    expect(() => parseArgs(['--tune', 'shipClasses.battleship.kinematics.turnRate=0'])).toThrow(/>= 0\.05/);
+    // THE INDICES the fold derives from (Story 10.3): RUDDER becomes the turn
+    // rate the AI divides by (a 0 there was the old `turnRate` NaN-steer
+    // hazard), and clampStats floors reload / engines / rudder / intel /
+    // range at 1 — so a 0 arm would print as moved while the sim ran 1.
+    for (const id of ['reload', 'engines', 'rudder', 'intel', 'range']) {
+      expect(() => parseArgs(['--tune', `shipClasses.battleship.index.${id}=0`])).toThrow(/>= 1/);
+    }
+    // ...while ARMOR / POWER keep floor 0 (the fold floors them at 0).
+    expect(() => parseArgs(['--tune', 'shipClasses.battleship.index.armor=0'])).not.toThrow();
+    expect(() => parseArgs(['--tune', 'shipClasses.battleship.index.power=0'])).not.toThrow();
     // shellSpeed / torpedo.speed: the lead solve divides by the ordnance speed.
     expect(() => parseArgs(['--tune', 'gun.shellSpeed=0'])).toThrow(/>= 1/);
     expect(() => parseArgs(['--tune', 'torpedo.speed=0'])).toThrow(/>= 1/);
     // hp seeds EffectiveStats.maxHp, which world.ts divides by unguarded.
     expect(() => parseArgs(['--tune', 'shipClasses.mineLayer.hp=0'])).toThrow(/>= 1/);
     // Apply-time too, and a legitimate low value still passes.
-    expect(() => applyOverrides({}, { 'shipClasses.battleship.kinematics.turnRate': 0 })).toThrow(TunableError);
-    const restore = applyOverrides({}, { 'shipClasses.battleship.kinematics.turnRate': 1 });
-    expect(CONFIG.shipClasses.battleship.kinematics.turnRate).toBe(1);
+    expect(() => applyOverrides({}, { 'shipClasses.battleship.index.rudder': 0 })).toThrow(TunableError);
+    const shipped = CONFIG.shipClasses.battleship.index.rudder;
+    const restore = applyOverrides({}, { 'shipClasses.battleship.index.rudder': shipped + 1 });
+    expect(CONFIG.shipClasses.battleship.index.rudder).toBe(shipped + 1);
     restore();
+    expect(CONFIG.shipClasses.battleship.index.rudder).toBe(shipped);
   });
 
   it('refuses a DERIVED path that the stats firewall re-pins post-fold', () => {

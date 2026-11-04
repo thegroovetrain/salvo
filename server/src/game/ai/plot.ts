@@ -35,6 +35,7 @@ import {
   CONFIG,
   SHIP_CLASS_IDS,
   WAKE_AGE_BUCKETS,
+  effectiveStats,
   hullEnvelope,
   islandBlocksSegment,
   type DecoyView,
@@ -57,11 +58,12 @@ type TrackMap = Map<string, RememberedContact>;
 export const TRACK_PERSIST_MS = 60000 / CONFIG.vision.sweepRpm;
 
 /** u/s — the fastest PARTICIPANT hull's rated top speed, off the class table
- *  (never a literal): the reach of a wake ribbon, the plausibility cap on a
+ *  through the fold (never a literal — since Story 10.3 the envelope carries
+ *  ENGINES and the speed is DERIVED by effectiveStats()): the reach of a wake ribbon, the plausibility cap on a
  *  course estimate and the association radius for a course-less plot all
  *  scale with it, so a hull retune moves them together. */
 export const FASTEST_HULL_SPEED = Math.max(
-  ...SHIP_CLASS_IDS.map((id) => hullEnvelope(id).kinematics.maxSpeed),
+  ...SHIP_CLASS_IDS.map((id) => effectiveStats(hullEnvelope(id)).kinematics.maxSpeed),
 );
 
 /** u — the LONGEST participant hull (off the class table, never a literal):

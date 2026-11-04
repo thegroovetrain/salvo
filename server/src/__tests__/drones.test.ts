@@ -308,6 +308,10 @@ describe('fleet hulls — roving', () => {
     const w = bareWorld(9, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 1 });
     const d = fleetShip(w, 'f', 'medium', 0, 0);
     w.startZone();
+    // Weapons-safe: the contract is the HELM, not survival — at the last storm
+    // rung (50 hp/s since Story 10.3) a drone outside the ring would sink
+    // before it had sailed far enough to measure.
+    w.damageEnabled = false;
     for (let t = 0; t < 10; t++) w.step();
     const ring = w.zoneLiveRing;
     const ringDist = (s: ShipRecord): number => Math.hypot(s.state.x - ring.cx, s.state.y - ring.cy);

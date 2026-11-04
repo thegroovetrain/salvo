@@ -658,19 +658,19 @@ describe('ai/utility — THE RAM TRIGGER [DRAFT] (Story 9.5, amendment 77)', () 
     // estimate, so any strike above the allowance is judged to sink it.
     const crippled = sighted('droneMedium', 150, 3);
     expect(CONFIG.bots.ramReachU).toBeGreaterThan(150);
-    expect(contactHitDamage(TB.maxHp, hullEnvelope('droneMedium').hp, TB.kinematics.maxSpeed, CONFIG.ram).b).toBeGreaterThan(0);
+    expect(contactHitDamage(TB.armor, hullEnvelope('droneMedium').index.armor, TB.kinematics.maxSpeed, CONFIG.ram).b).toBeGreaterThan(0);
     expect(choosePosture(sit(), crippled)).toBe('ram');
     // ...and a FRESH target whose base hp the predicted hit covers outright —
     // the target's own approach speed adds to the closing speed.
     const fresh = sighted('droneSmall', 150, 0, 20, Math.PI);
     const vn = TB.kinematics.maxSpeed + 20;
-    expect(contactHitDamage(TB.maxHp, hullEnvelope('droneSmall').hp, vn, CONFIG.ram).b).toBeGreaterThanOrEqual(hullEnvelope('droneSmall').hp);
+    expect(contactHitDamage(TB.armor, hullEnvelope('droneSmall').index.armor, vn, CONFIG.ram).b).toBeGreaterThanOrEqual(hullEnvelope('droneSmall').hp);
     expect(choosePosture(sit(), fresh)).toBe('ram');
   });
 
   it('holds with a healthy target the hit cannot sink: the broken hull disengages instead', () => {
     const healthy = sighted('battleship', 150, 0);
-    const hit = contactHitDamage(TB.maxHp, hullEnvelope('battleship').hp, TB.kinematics.maxSpeed, CONFIG.ram).b;
+    const hit = contactHitDamage(TB.armor, hullEnvelope('battleship').index.armor, TB.kinematics.maxSpeed, CONFIG.ram).b;
     expect(hit).toBeLessThan(hullEnvelope('battleship').hp);
     expect(choosePosture(sit(), healthy)).toBe('disengage');
   });
@@ -814,7 +814,7 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
 
   it('the deadband is the HULL\'s own full-ahead turn radius — per class, off EffectiveStats', () => {
     for (const cls of SHIP_CLASS_IDS) {
-      const k = CONFIG.shipClasses[cls].kinematics;
+      const k = effectiveStats(CONFIG.shipClasses[cls]).kinematics;
       expect(ringDeadband(stats(cls), 0)).toBeCloseTo(k.maxSpeed / k.turnRate, 6);
     }
     // The ordering is the whole point: the hull that takes longest to turn

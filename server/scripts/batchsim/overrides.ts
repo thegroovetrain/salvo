@@ -114,6 +114,11 @@ const TUNE_FAMILIES = [
   // became its own tiered dial on the twelfths ruler (ruling 125).
   'phosphorShells.',
   'boost.',
+  // THE HULL CLASSES. Since Story 10.3 each class carries its seven INDICES
+  // (`shipClasses.<cls>.index.<armor|power|reload|engines|rudder|intel|range>`
+  // — the fold derives speed / turn rate / sweep / cooldown / reach from them),
+  // its hp (1000) and the four pass-through kinematics; `maxSpeed` / `turnRate`
+  // are no longer leaves (derived from ENGINES / RUDDER).
   'shipClasses.',
   // PvE FLEET ENVELOPES. `drones.<size>.hp` is the dial behind the question
   // "should a drone be worth, through damage, what its kill tier already says
@@ -131,15 +136,10 @@ const TUNE_FAMILIES = [
   // and the highest-HP hull paid most — so the heal has to be reachable to
   // tell a real class problem apart from that repricing.
   'hullRepair.',
-  // OUT-OF-COMBAT REGEN (epic-8 amendment 46) rides the same surface for the
-  // same reason: it is the other half of how a hull gets hp back, and the
-  // fraction-of-MISSING shape means it never needs repricing with hull HP —
-  // but a class read still has to be able to turn it off or up. From Story
-  // 9.6 the PASSIVE HEALING ladder ADDED to these bases inside the fold
-  // (+0.006 rate, −1000 ms wait per card); Story 10.3 (Eric 2026-11-04,
-  // epic-10 amendment 7) DELETED that ladder, so `regen.missingPctPerS=0` is
-  // "off" for every hull again. (The regen itself leaves in a later 10.3 wave.)
-  'regen.',
+  // 2026-11-04 (Story 10.3, Eric, epic-10 amendment 7): the `regen.` family
+  // (OUT-OF-COMBAT REGEN, epic-8 amendment 46 / Story 9.6) is GONE with the
+  // regen itself and `CONFIG.regen` — "passive healing dies". HULL REPAIR
+  // (above) and the healing buoy are the only heals left.
   // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88): `armor.k`,
   // the K in the curve (K / (K + E) for E ≥ 0, (K − 2E) / (K − E) below zero
   // since Story 9.9, amendment 146; 100 by amendment 144), is the dial — floor
@@ -413,10 +413,15 @@ export function validateTuneKey(key: string): void {
  *    steerageSpeed — shared/src/sim/ship.ts:69 `clampUnit(s.speed /
  *      cfg.steerageSpeed)`; at rest that is 0/0 = NaN, which propagates
  *      straight into heading and then position.
- *    turnRate — server/src/game/ai/tactics.ts:816 and ai/utility.ts:518 both
- *      divide by it; the resulting Infinity/NaN steer fails the finite check in
- *      game/inputs.ts and the input is SILENTLY DROPPED, so the bots go inert
- *      while every row still reads plausible.
+ *    reload / engines / rudder / intel / range — THE INDICES the fold
+ *      derives from (Story 10.3, sim/indexStats.ts): the RELOAD haste law
+ *      divides by `1 + (RELOAD − 100) / 100`, ENGINES / RUDDER become the
+ *      speed and turn rate the bots divide by (ai/navigate.ts, ai/utility.ts —
+ *      a 0 turn rate was the old `turnRate` floor's NaN-steer hazard) and
+ *      INTEL the sweep period's divisor. clampStats floors each at 1, so a 0
+ *      arm would print as 0 while the sim ran 1 — false evidence; refused
+ *      here instead. `armor` / `power` keep floor 0 (the fold floors them at
+ *      0 and E may legitimately go negative through the gate).
  *    shellSpeed / speed (torpedo) — server/src/game/ai/tactics.ts:277
  *      `hypot(...) / speed` in the lead solve, same silent-drop ending; a
  *      0 u/s projectile also never leaves the muzzle.
@@ -447,7 +452,11 @@ const TUNE_MIN_ONE_LEAVES = new Set([
   // that fires into its own muzzle and a bot band collapsed to a point.
   'rangeU',
   'steerageSpeed',
-  'turnRate',
+  'reload',
+  'engines',
+  'rudder',
+  'intel',
+  'range',
   'shellSpeed',
   'speed',
   'hp',
@@ -465,22 +474,10 @@ const TUNE_MIN_ONE_LEAVES = new Set([
  *  stay although no CONFIG leaf needs them today — they name a HAZARD CLASS, and a
  *  future `<equipment>.cooldownMs` must inherit the floor by existing, not by
  *  someone remembering to come back here. */
-/**
- * Leaves whose only hazard is ZERO but whose legitimate range sits BELOW 1.
- *
- * `turnRate` is rad/s and ships at 0.4 / 0.6 / 0.8 across the three hulls, so
- * the blanket floor of 1 did not merely restrict it — it made the leaf
- * UNTUNABLE AT ITS OWN SHIPPED VALUES, refusing every arm including a no-op
- * one (`--tune shipClasses.battleship.kinematics.turnRate=0.4` was an error).
- * The hazard the floor exists for is the DIVIDE at ai/tactics.ts:816 and
- * ai/utility.ts:518, and that is a divide by zero, not by anything under 1 —
- * so the correct floor here is a small epsilon well clear of 0 and well below
- * any value a hull would plausibly carry.
- *
- * Checked BEFORE the min-one set, which still names `turnRate` because that
- * set documents the hazard class; this map only corrects its magnitude.
- */
-const TUNE_SUB_ONE_FLOORS = new Map<string, number>([['turnRate', 0.05]]);
+// 2026-11-04 (Story 10.3): `TUNE_SUB_ONE_FLOORS` (the `turnRate` 0.05 floor —
+// a rad/s leaf whose shipped values sat below 1) is GONE with the leaf itself:
+// turn rate is DERIVED from the RUDDER index (whole numbers around 100, floor
+// 1 in TUNE_MIN_ONE_LEAVES above), so no tunable leaf lives below 1 any more.
 
 /** Exact --tune keys floored at 1 (Story 9.8): the dropout curve's two
  *  distances. Not leaf names — `startU` / `kneeU` are generic words, and the
@@ -524,8 +521,6 @@ function tuneFloor(key: string): number {
   const leaf = key.slice(key.lastIndexOf('.') + 1);
   const lower = leaf.toLowerCase();
   if (lower.endsWith('reloadms') || lower.endsWith('cooldownms')) return 1;
-  const subOne = TUNE_SUB_ONE_FLOORS.get(leaf);
-  if (subOne !== undefined) return subOne;
   return TUNE_MIN_ONE_LEAVES.has(leaf) ? 1 : 0;
 }
 

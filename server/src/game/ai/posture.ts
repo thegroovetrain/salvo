@@ -243,8 +243,8 @@ function idle(sit: BotSituation, inp: PostureInputs): BotPosture {
  * THE ODDS of closing on `target` (amendment 195, the orchestrator's form):
  *   ownHpFrac × (1 + damageEstimate) / peerFactor − crowdPenalty × max(0, nearby − 1)
  * `damageEstimate` is the bot's own Hit-Call estimate (counted per click);
- * `peerFactor` the sighted class's BASE hull over the bot's own class base
- * hull (1 for an unclassed plot — a peer); `nearby` the other hostiles
+ * `peerFactor` the sighted class's BASE ARMOR over the bot's own class base
+ * ARMOR (Story 10.3 — toughness is ARMOR; 1 for an unclassed plot — a peer); `nearby` the other hostiles
  * tracked within radar range (nearbyHostiles). Passes at
  * `profile.oddsThreshold`.
  */
@@ -287,13 +287,16 @@ export function nearbyHostiles(
   return n;
 }
 
-/** The sighted class's BASE hull over the bot's own class base hull (never
- *  either side's upgrades — amendment 195); 1 for an unclassed plot. Without
- *  a hull id on the situation the bot's own folded max hull stands in. */
+/** The sighted class's BASE toughness over the bot's own class base
+ *  toughness (never either side's upgrades — amendment 195); 1 for an
+ *  unclassed plot. Toughness is the ARMOR index since Story 10.3 ("toughness
+ *  = ARMOR, never HP" — every hull is 1000 hp), read off the envelope's
+ *  `index.armor`; 1 for every scaffold pair today, the relation stands.
+ *  Without a hull id on the situation the bot's own folded ARMOR stands in. */
 function peerFactor(sit: BotSituation, target: BotTrack): number {
   if (target.cls === null) return 1;
-  const own = sit.hullId === undefined ? sit.maxHp : hullEnvelope(sit.hullId).hp;
-  return own > 0 ? hullEnvelope(target.cls).hp / own : 1;
+  const own = sit.hullId === undefined ? sit.stats.armor : hullEnvelope(sit.hullId).index.armor;
+  return own > 0 ? hullEnvelope(target.cls).index.armor / own : 1;
 }
 
 /** u — the reach a SIGHTED class carries by what the seat can see: its base
@@ -482,16 +485,19 @@ function ramRefused(mind: BotMind | null, key: string | null, now: number): bool
 }
 
 /** The amendment-77 arithmetic: in reach, and the priced hit lands and
- *  covers the estimated remaining hull. */
+ *  covers the estimated remaining hull. MASS = ARMOR (Story 10.3, ruling 2):
+ *  the bot's own folded ARMOR against the target class's BASE ARMOR (its
+ *  cards are private — amendment 84(j)); the remaining hull is still the
+ *  class's base hp. */
 function ramLands(sit: BotSituation, target: BotTrack, cls: HullId): boolean {
   const p = plotAt(sit, target);
   const dx = p.x - sit.x;
   const dy = p.y - sit.y;
   const d = Math.hypot(dx, dy);
   if (d > CONFIG.bots.ramReachU) return false;
-  const baseHp = hullEnvelope(cls).hp;
-  const hit = contactHitDamage(sit.maxHp, baseHp, closingSpeed(sit, target, dx, dy, d), CONFIG.ram).b;
-  return hit > 0 && hit >= estimatedRemainingHp(target, baseHp);
+  const env = hullEnvelope(cls);
+  const hit = contactHitDamage(sit.stats.armor, env.index.armor, closingSpeed(sit, target, dx, dy, d), CONFIG.ram).b;
+  return hit > 0 && hit >= estimatedRemainingHp(target, env.hp);
 }
 
 /** The strike happened (`ramStruckAt` stamped) and CONFIG.bots.ramExitMs has

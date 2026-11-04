@@ -692,7 +692,7 @@ describe('HULL REPAIR — the paid heal as a card (Eric rulings 2026-08-04; Stor
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0); // hull-to-hull neighbour: sighted, and told nothing
-    stock(w, a, 2, 75);
+    stock(w, a, 2, HR.instantHp + HR.regenHp); // room for the whole heal: no clamp
     const hpBefore = a.hp;
     expect(press(w, a)).toEqual({ ok: true });
     expect(a.hp).toBe(hpBefore + HR.instantHp);
@@ -719,7 +719,7 @@ describe('HULL REPAIR — the paid heal as a card (Eric rulings 2026-08-04; Stor
   it('the pool pays out exactly regenHp over regenMs at the FIXED rate, then stops', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    stock(w, a, 1, 100);
+    stock(w, a, 1, HR.instantHp + HR.regenHp); // room for the whole heal: no clamp
     press(w, a);
     const hpAfterInstant = a.hp;
     const ticks = HR.regenMs / DT;
@@ -734,7 +734,7 @@ describe('HULL REPAIR — the paid heal as a card (Eric rulings 2026-08-04; Stor
   it('A RE-PRESS REPLACES THE POOL, the rate never changes (Eric ruling 2026-09-29, amendment 141): a second copy mid-drain discards what was owed and restarts, never stacks or steepens', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    stock(w, a, 2, 150);
+    stock(w, a, 2, 2 * (HR.instantHp + HR.regenHp)); // room for both heals: no clamp
     press(w, a);
     // Drain 10hp of the pool (the rate's own units), then fire the second copy.
     const ticks = Math.round(10 / REGEN_PER_TICK);
@@ -803,14 +803,18 @@ describe('HULL REPAIR — the paid heal as a card (Eric rulings 2026-08-04; Stor
     expect(a.hp).toBe(a.stats.maxHp);
   });
 
-  it('STORM OVERLAP nets positive: the pool out-paces the bite, both independent', () => {
+  // 2026-11-04 (Story 10.3): "nets positive" is no longer a fact of the
+  // tables — the pool pays 100 hp over 5 s (ruling 7) against a last storm
+  // rung of 50 hp/s (ruling 12), so the storm now OUT-PACES the pool. The
+  // contract kept is independence: the two integrate on the same float.
+  it('STORM OVERLAP: the pool and the bite are independent — net over the pool\'s life is regenHp − storm × life', () => {
     // A collapsed timeline (1ms beats) so the terminal ring is live in one step;
     // the hull sits far outside it and bleeds stormDps for the pool's whole life.
     const w = new World(3, CONFIG.match.fillTo, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 0, terminalSightFactor: 1 });
     w.map.islands.length = 0;
     const a = place(w, 'a', w.map.radius * 0.8, 0);
     w.startZone();
-    stock(w, a, 1, 100);
+    stock(w, a, 1, HR.instantHp + HR.regenHp);
     expect(press(w, a)).toEqual({ ok: true });
     const hpAfterInstant = a.hp;
     // An instant (1 ms beat) timeline is fully closed by the first step, so
@@ -819,12 +823,9 @@ describe('HULL REPAIR — the paid heal as a card (Eric rulings 2026-08-04; Stor
     const ticks = HR.regenMs / DT;
     for (let i = 0; i < ticks; i++) w.step();
     expect(a.repairHp).toBeCloseTo(0, 9);
-    // Net over the pool's life = regenHp - stormDps*regenMs. The storm bite
-    // also stamps `lastDamagedAt` every tick, so the OUT-OF-COMBAT regen
-    // (amendment 47) contributes exactly nothing here — this is the paid pool
-    // against the storm and nothing else.
+    // Net over the pool's life = regenHp - stormDps*regenMs (no out-of-combat
+    // regen since Story 10.3) — the paid pool against the storm and nothing else.
     expect(a.hp).toBeCloseTo(hpAfterInstant + HR.regenHp - stormPerTick * ticks, 6);
-    expect(a.hp).toBeGreaterThan(hpAfterInstant); // the pool out-paces the storm
     // ...and once it drains, the storm has the hull to itself again.
     const afterPool = a.hp;
     w.step();
@@ -1469,12 +1470,17 @@ describe('per-observer sweep (intelSweep)', () => {
 // ---------- effective weapon stats in the fire path --------------------------
 
 describe('effective weapon stats in the fire path (catalog ladders)', () => {
-  /** The full RELOAD stack's scale, as the catalog authors it: additive-linear
-   *  over the line's cooldownScale steps, never compounded. */
-  const reloadLadderScale = (): number =>
-    1 + CATALOG.reload.tiers
+  /** The full RELOAD stack's scale, as the catalog authors it: the RELOAD
+   *  index (the hull's own + every rung's step, additive) through Eric's haste
+   *  law 1 / (1 + (RELOAD − base) / base) — Story 10.3 ruling 14; never a
+   *  compounded product of per-card scales. */
+  const reloadLadderScale = (cls: ShipClassId = 'torpedoBoat'): number => {
+    const steps = CATALOG.reload.tiers
       .flat()
-      .reduce((sum, e) => sum + (e.kind === 'stat' && e.path === 'cooldownScale' ? (e.add ?? 0) : 0), 0);
+      .reduce((sum, e) => sum + (e.kind === 'stat' && e.path === 'reload' ? (e.add ?? 0) : 0), 0);
+    const reload = CONFIG.shipClasses[cls].index.reload + steps;
+    return Math.round((1 / (1 + (reload - CONFIG.index.base) / CONFIG.index.base)) * 1000) / 1000;
+  };
 
   it('RELOAD: ONE card shortens EVERY equipment — a consumed gun AND torpedo round both start the SCALED reload', () => {
     const w = bareWorld();
@@ -1485,7 +1491,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     stack(w, a, 'reload', CATALOG.reload.cap); // the full stack
     const scale = a.stats.cooldownScale;
     expect(scale).toBeLessThan(1); // non-vacuity: the ladder shortens reloads
-    expect(scale).toBeCloseTo(reloadLadderScale(), 9); // additive-linear, never compounded
+    expect(scale).toBeCloseTo(reloadLadderScale(), 9); // the haste law over the summed index, never compounded
     // clampStats rounds the accumulated scale to 3 decimals before the
     // multiplies (shared/src/sim/stats.ts), so a full stack carries NO float
     // dust — the regression the exact-tick refill pins below depend on.
@@ -1769,9 +1775,9 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
       w.submitInput('base', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
       w.step();
     }
-    expect(up.stats.kinematics.maxSpeed).toBeGreaterThan(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed);
+    expect(up.stats.kinematics.maxSpeed).toBeGreaterThan(effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics.maxSpeed);
     expect(w.ships.get('up')!.state.speed).toBeCloseTo(up.stats.kinematics.maxSpeed, 6);
-    expect(w.ships.get('base')!.state.speed).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed, 6);
+    expect(w.ships.get('base')!.state.speed).toBeCloseTo(effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics.maxSpeed, 6);
   });
 });
 

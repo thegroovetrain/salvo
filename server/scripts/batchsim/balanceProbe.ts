@@ -24,6 +24,8 @@ import {
   CONFIG,
   effectiveStats,
   damageMultiplierFor,
+  publishedDamageMultiplier,
+  INDEX_IDS,
   hullEnvelope,
   DRONE_HULL_IDS,
   HULL_IDS,
@@ -202,18 +204,26 @@ function statsBlock(): void {
     maxCards.push(...new Array<string>(CATALOG[id].cap).fill(id));
   }
   console.log(`stack: ${universal.map((id) => `${id}x${CATALOG[id].cap}`).join(' ')}`);
-  // detect is SIGHT-scaled (`sightOf(me) * detectFactor`), NOT radar-scaled —
-  // the one rung that hangs off sight rather than radar range. Derived here the
-  // same way the server does it so the ladder ordering is checkable by eye.
-  console.log('class        |  maxHp |  speed | radar |  sight | detect | 6/12 rung | gun rangeU | broadside rangeU | cooldownScale | armor | power | damageMultiplier | pierceMult');
+  // THE INDEX READOUT (Story 10.3, Eric 2026-11-04, epic-10 amendment 7): the
+  // seven authored indices, then what the fold DERIVES from them (speed u/s,
+  // sweep RPM, the cooldown scale, the deck gun's reach), then the two gate
+  // reads — `dmgMult` is the hull's published multiplier against an AVERAGE
+  // attacker (publishedDamageMultiplier), `pierceMult` what its POWER does to
+  // an AVERAGE victim (E = base ARMOR − POWER). Hull hp is never printed: it is
+  // 1000 on every hull and a captain only ever reads it as a percent.
+  console.log(
+    `${'class'.padEnd(18)} | ${INDEX_IDS.map((id) => id.padStart(7)).join(' ')} | ` +
+      `${'speed'.padStart(6)} ${'rpm'.padStart(5)} ${'cdScale'.padStart(7)} ${'gunRangeU'.padStart(9)} | ` +
+      `${'dmgMult'.padStart(7)} ${'pierceMult'.padStart(10)}`,
+  );
   for (const cls of SHIP_CLASS_IDS) {
     for (const [tag, cards] of [['base', [] as string[]] as const, ['MAXED', maxCards] as const]) {
       const st = effectiveStats(hullEnvelope(cls), cards);
-      const rung = st.radarRange * CONFIG.vision.muzzleFlashFactor;
       console.log(
-        `${(cls + ' ' + tag).padEnd(12)} | ${fmt(st.maxHp).padStart(6)} | ${fmt(st.kinematics.maxSpeed).padStart(6)} | ` +
-          `${fmt(st.radarRange).padStart(5)} | ${fmt(st.sightRange).padStart(6)} | ${fmt(st.sightRange * CONFIG.vision.detectFactor).padStart(6)} | ` +
-          `${fmt(rung).padStart(9)} | ${fmt(st.equipment.gun.rangeU).padStart(10)} | ${fmt(st.equipment.broadside.rangeU).padStart(16)} | ${fmt(st.cooldownScale, 3).padStart(13)} | ${fmt(st.armor, 0).padStart(5)} | ${fmt(st.power, 0).padStart(5)} | ${fmt(st.damageMultiplier, 3).padStart(16)} | ${fmt(damageMultiplierFor(-st.power), 3)}`,
+        `${(cls + ' ' + tag).padEnd(18)} | ${INDEX_IDS.map((id) => fmt(st[id], 0).padStart(7)).join(' ')} | ` +
+          `${fmt(st.kinematics.maxSpeed).padStart(6)} ${fmt(st.sweepRpm).padStart(5)} ${fmt(st.cooldownScale, 3).padStart(7)} ` +
+          `${fmt(st.equipment.gun.rangeU).padStart(9)} | ${fmt(publishedDamageMultiplier(st.armor), 3).padStart(7)} ` +
+          `${fmt(damageMultiplierFor(CONFIG.index.base - st.power), 3).padStart(10)}`,
       );
     }
   }

@@ -63,6 +63,15 @@ function stats(cls: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat'):
   return effectiveStats(hullEnvelope(cls));
 }
 
+/** hp — a worn hull for the bulwark (the default profile): 90 % of max, under
+ *  its odds bar (1.0) against a peer, well above its disengage fraction. */
+function wornHp(st: EffectiveStats): number {
+  const hp = st.maxHp * 0.9;
+  expect(hp / st.maxHp).toBeLessThan(profileOf('bulwark').oddsThreshold);
+  expect(hp / st.maxHp).toBeGreaterThan(profileOf('bulwark').disengageHpFrac + CONFIG.bots.disengageHysteresis);
+  return hp;
+}
+
 /** A hull on the torpedo-boat class at full health by default. */
 function situation(over: Partial<BotSituation> = {}): BotSituation {
   const st = over.stats ?? stats('torpedoBoat');
@@ -124,9 +133,10 @@ describe('ai/posture — THE ODDS GATE beyond own reach (epic-9 amendments 194�
     const sit = situation({ hp: situation().maxHp / 2 });
     const anon = plot({ x: reachOf(sit.stats) + 200, hits: 1 });
     expect(oddsFor(sit, anon, [anon], [])).toBeCloseTo(0.5 * (1 + damageEstimate(anon)), 9);
-    // A sighted battleship: its base hull over the torpedo boat's base hull.
+    // A sighted battleship: its base toughness over the torpedo boat's — the
+    // ARMOR index since Story 10.3 (toughness = ARMOR, never HP).
     const bs = track({ x: reachOf(sit.stats) + 200, cls: 'battleship' });
-    const peer = hullEnvelope('battleship').hp / hullEnvelope('torpedoBoat').hp;
+    const peer = hullEnvelope('battleship').index.armor / hullEnvelope('torpedoBoat').index.armor;
     expect(oddsFor(sit, bs, [bs], [])).toBeCloseTo(0.5 / peer, 9);
   });
 
@@ -147,7 +157,10 @@ describe('ai/posture — THE ODDS GATE beyond own reach (epic-9 amendments 194�
   it('FAIL -> KITE (shadow) on a contact that is not closing, or that closes against a gun no longer than own', () => {
     const base = stats('torpedoBoat');
     const longer = { ...base, equipment: { ...base.equipment, gun: { ...base.equipment.gun, rangeU: base.equipment.gun.rangeU * 1.3 } } };
-    const sit = situation({ stats: longer });
+    // A worn hull, so the gate FAILS on the odds whatever the class toughness
+    // ratio (every scaffold hull is ARMOR 100 since Story 10.3 — a peer).
+    const worn = { hp: wornHp(base) };
+    const sit = situation({ stats: longer, ...worn });
     const at = reachOf(longer) + 100;
     const closing = track({ x: at, cls: 'battleship', heading: Math.PI, speed: 20 });
     expect(oddsFor(sit, closing, [closing], [])).toBeLessThan(profileOf('bulwark').oddsThreshold);
@@ -155,16 +168,16 @@ describe('ai/posture — THE ODDS GATE beyond own reach (epic-9 amendments 194�
     // Running away (not closing): shadowed too.
     expect(choosePosture(sit, track({ x: at, cls: 'battleship', heading: 0, speed: 20 }))).toBe('kite');
     // A course-less plot is not closing: shadowed.
-    expect(choosePosture(situation(), track({ x: reachOf(base) + 200, cls: 'battleship' }))).toBe('kite');
+    expect(choosePosture(situation(worn), track({ x: reachOf(base) + 200, cls: 'battleship' }))).toBe('kite');
     // A closing sighted peer whose base reach equals own: ≥, so shadowed.
     expect(targetReachU(situation(), track({ cls: 'battleship' }))).toBeLessThanOrEqual(reachOf(base));
-    expect(choosePosture(situation(), track({ x: reachOf(base) + 100, cls: 'battleship', heading: Math.PI, speed: 20 }))).toBe('kite');
+    expect(choosePosture(situation(worn), track({ x: reachOf(base) + 100, cls: 'battleship', heading: Math.PI, speed: 20 }))).toBe('kite');
   });
 
   it('FAIL + closing with the LONGER gun -> HIDE with a cover point (solid fog), DISENGAGE without one', () => {
     const base = stats('torpedoBoat');
     const shorter = { ...base, equipment: { ...base.equipment, gun: { ...base.equipment.gun, rangeU: base.equipment.gun.rangeU * 0.7 } } };
-    const sit = situation({ stats: shorter });
+    const sit = situation({ stats: shorter, hp: wornHp(base) });
     const t = track({ x: reachOf(shorter) + 200, cls: 'battleship', heading: Math.PI, speed: 20 });
     expect(targetReachU(sit, t)).toBeGreaterThan(reachOf(shorter));
     const foggy = mind();
@@ -179,11 +192,11 @@ describe('ai/posture — THE ODDS GATE beyond own reach (epic-9 amendments 194�
   });
 
   it('a LEANS-IN profile closes on a failed gate down to three quarters of its bar', () => {
-    // A slightly worn hull (90 %), so the odds sit under the bar whatever the
-    // class hp ratio (a full 300 hp torpedoBoat vs a 350 hp battleship reads
-    // 0.857, over the raider's bar, since amendment 209).
+    // A worn hull at 90 % of the raider's bar, so the odds sit under the bar
+    // whatever the class toughness ratio (every scaffold hull is a peer since
+    // Story 10.3) yet above the lean-in floor.
     const st = stats('torpedoBoat');
-    const sit = situation({ profile: profileOf('raider'), hp: st.maxHp * 0.9 });
+    const sit = situation({ profile: profileOf('raider'), hp: st.maxHp * profileOf('raider').oddsThreshold * 0.9 });
     const t = track({ x: reachOf(sit.stats) + 200, cls: 'battleship' });
     const odds = oddsFor(sit, t, [t], []);
     const bar = profileOf('raider').oddsThreshold;

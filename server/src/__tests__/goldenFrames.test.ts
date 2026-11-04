@@ -1203,6 +1203,20 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // event, blip, mine, zone, position or hp byte moved (verified with both
   // differences masked out). BOT KITS roll off a separate kit stream (map
   // seed ^ 0x6b17), so every hue and gun draw of a pinned seed is unchanged.
+  // REGENERATED KNOWINGLY IN STORY 10.3 (2026-11-04, PV 95, THE INDEX MODEL —
+  // epic-10 amendment 7), twice: wave 0 when the line list went 30 → 28
+  // (HULL POINTS / PASSIVE HEALING deleted, four ids renamed — the seeded draw
+  // deals differently, so `you.offer` hands moved), and wave 2a for the
+  // numbers. 159 of the snapshot's lines moved in wave 2a, diffed field by
+  // field: (1) every `hp` — hulls are 1000 (was 300 / 350), and the fixtures
+  // that set a raw hp now read a different FRACTION, so (2) the wounded-smoke
+  // `sm` tier moves 1 → 2 on five rows; (3) `dmg.amount` follows Eric's
+  // damage table (cannon 8 → 24 — a ×3 placeholder, naval mine 90 → 200,
+  // fouling mine 10 → 100) and `you.repairHp` the HULL REPAIR pool (50 →
+  // 100 over 5 s); (4) in scnMineBurstDetonation the cannon's FIRST shell now pops the
+  // 10 hp mine (24 ≥ 10), so that one row's boom / burst / sp order follows
+  // (the same events, the mine popping a shell earlier). No contact,
+  // position, channel or event TYPE was added or removed.
   it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
     expect(runBattery()).toMatchSnapshot();
   });
