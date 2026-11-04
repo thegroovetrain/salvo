@@ -1,3 +1,5 @@
+> *Renumbered 2026-11-04 (Eric): Story 10.9 is now **Story 10.2**; How-to-Play is 10.14 (was 10.8); the first-minute objective / beacons is 10.8 (was 10.2). Table: epics.md Epic 10 intro.*
+
 ---
 baseline_commit: 55b08203
 ---

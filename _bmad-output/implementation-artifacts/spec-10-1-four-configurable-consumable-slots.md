@@ -1,3 +1,5 @@
+> *Renumbered 2026-11-04 (Eric): Story 10.9 is now **Story 10.2**; How-to-Play is 10.14 (was 10.8); the first-minute objective / beacons is 10.8 (was 10.2). Table: epics.md Epic 10 intro.*
+
 ---
 title: 'Story 10.1: Four Configurable Consumable Slots'
 type: 'feature'
@@ -73,7 +75,7 @@ Verdicts: Blind Hunter BUILD-ON-IT, Edge Case Hunter BUILD-ON-IT, Codex FIX-FIRS
 - A saved kit that names a line retired by a later story (10.9 retires `decoyBuoy`) is replaced by `DEFAULT_KIT` on both sides silently — by ruling 3; no copy tells the player.
 - `rollKit` on the production catalog can never throw (six dealable lines); the guard exists for a future catalog edit that leaves fewer than four.
 
-## Owed to Story 10.8 (not written here — no in-game copy unasked)
+## Owed to Story 10.14 (not written here — no in-game copy unasked)
 
 - How-to-Play: the consumables section (four chosen slots, keys 1–4, the SMOKE SCREEN name, the FOULING SHELL entry that is still missing since 9.4).
 - DESIGN.md: `consumable-strip` (four squares), `loadout-block` (four), `loadout-row` (a CONSUMABLES row exists on the class-select footer ahead of the LOADOUT sheet), the Component Patterns "belt 1–6" clauses; epics.md Story 9.2 / 9.3 dated stamps (six keys superseded; the name).

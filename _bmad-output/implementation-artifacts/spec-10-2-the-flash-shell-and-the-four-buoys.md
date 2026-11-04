@@ -1,15 +1,17 @@
+> *Renumbered 2026-11-04 (Eric): Story 10.9 is now **Story 10.2**; How-to-Play is 10.14 (was 10.8); the first-minute objective / beacons is 10.8 (was 10.2). Table: epics.md Epic 10 intro.*
+
 ---
-title: 'Story 10.9: The Flash Shell and the Four Buoys'
+title: 'Story 10.2: The Flash Shell and the Four Buoys'
 type: 'feature'
 created: '2026-10-28'
 status: 'review'
 baseline_revision: '366f100c'
-final_revision: 'see the PR head (code + record on worktree-story-10-9-flash-shell-four-buoys; PR to development, 2026-10-29)'
+final_revision: 'see the PR head (code + record on worktree-story-10-2-flash-shell-four-buoys; PR to development, 2026-10-29)'
 review_loop_iteration: 1
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-10-context-amendments.md'
-  - '{project-root}/_bmad-output/implementation-artifacts/10-9-the-flash-shell-and-the-four-buoys.md'
+  - '{project-root}/_bmad-output/implementation-artifacts/10-2-the-flash-shell-and-the-four-buoys.md'
 ---
 
 ## Intent
@@ -77,7 +79,7 @@ Verdicts: Codex FIX-FIRST (one item), Blind Hunter FIX-FIRST (one item), Edge Ca
 - A buoy paint that arrives after its buoy left the client's view (expired or sunk between frames) is dropped rather than drawn; a one-frame miss at most.
 - `drones.avoidHulls` and `how-to-play/copy.ts` were the only two places that still read the retired decoy/flash the old way; How-to-Play is 10.8's.
 
-## Owed to Story 10.8 (not written here — no in-game copy unasked)
+## Owed to Story 10.14 (not written here — no in-game copy unasked)
 
 - How-to-Play: entries for FLASH SHELLS, RADAR / HEALING / SHIELD / SPEED BUOY; the DECOY BUOY retirement (`copy.ts` :153-160 still lists `smokeScreen`, `chaff`, `dazzleShells` and `decoyBuoy` — a stale table since 9.3/9.4).
 - GDD Consumables v3: the DECOY BUOY bullet and the "Radar Buoy — DELETED (R1)" bullet get dated stamps; catalog-v3 R36 / R1; DESIGN.md `consumable-strip` and `loadout-row` rows (ten lines, the marks).

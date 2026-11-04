@@ -1,5 +1,7 @@
+> *Renumbered 2026-11-04 (Eric): Story 10.9 is now **Story 10.2**; How-to-Play is 10.14 (was 10.8); the first-minute objective / beacons is 10.8 (was 10.2). Table: epics.md Epic 10 intro.*
+
 ---
-title: 'Story 10.9 follow-up: the Flash Shell as a whiteout'
+title: 'Story 10.2 follow-up: the Flash Shell as a whiteout'
 type: 'feature'
 created: '2026-10-29'
 status: 'review'
@@ -9,7 +11,7 @@ review_loop_iteration: 1
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-10-context-amendments.md'
-  - '{project-root}/_bmad-output/implementation-artifacts/spec-10-9-the-flash-shell-and-the-four-buoys.md'
+  - '{project-root}/_bmad-output/implementation-artifacts/spec-10-2-the-flash-shell-and-the-four-buoys.md'
 ---
 
 ## Intent
@@ -69,7 +71,7 @@ Verdicts: Codex FIX-FIRST (5), Blind Hunter FIX-FIRST (1 fix + 1 question), Edge
 - The overlay is a DOM element: a modified client can strip it, but the server withholds everything beyond the clear circle, so stripping buys only the dim world under the white.
 - A burst whose `f` tag a very old client ignores renders as the ordinary ring — PV 94 gates the join anyway.
 
-## Owed to Story 10.8
+## Owed to Story 10.14
 
 - How-to-Play: the FLASH SHELLS entry (whiteout, 1.5 s blind, 8.5 s clearing from the ship).
 - GDD / catalog-v3 R33 dated stamp ("DAZZLE" → the whiteout); DESIGN.md: the DOM z-scale gains the 1300 screen-effect rung.
