@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { consumableTable, shipUpgradeTable, tierTable, TABLE_HULLS, type StatTable } from '../how-to-play/weaponTables.js';
 import { HOWTO_SECTIONS } from '../how-to-play/copy.js';
-import { CATALOG, CONFIG, LINE_IDS, effectiveStats } from '@salvo/shared';
+import { CATALOG, CONFIG, DEFAULT_CLASS_ID, LINE_IDS, effectiveStats } from '@salvo/shared';
 
 const TIERED = [
   'deckGun', 'machineGun', 'flak', 'heavyTorpedo', 'lightTorpedo', 'broadside',
@@ -23,12 +23,16 @@ const cells = (t: StatTable): (readonly string[])[] => t.rows.map((r) => r.value
 /** The copy counts a line's five tiers sit at: a ladder's tier I is the bare
  *  mount (zero copies), a weapon line's tier I is its first card. */
 const tierCopies = (id: string): number[] => (CATALOG[id].kind === 'ladder' ? [0, 1, 2, 3, 4] : [1, 2, 3, 4, 5]);
-const fold = (id: string, k: number) => effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<string>(k).fill(id));
+const fold = (id: string, k: number) => effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], new Array<string>(k).fill(id));
 
 describe('tier tables', () => {
-  it('equipment tables are hull-independent', () => {
+  // Story 10.4: the four hulls carry different RELOAD and RANGE indices, and
+  // those fold into the equipment rows, so the VALUES now follow the hull. What
+  // stays hull-independent is the table's SHAPE: the same tiers, the same rows.
+  it('equipment tables have the same shape on every hull', () => {
+    const shape = (t: StatTable) => ({ columns: t.columns, labels: t.rows.map((r) => r.label) });
     for (const id of TIERED) {
-      for (const cls of TABLE_HULLS) expect(tierTable(id, cls), `${id} on ${cls}`).toEqual(tierTable(id));
+      for (const cls of TABLE_HULLS) expect(shape(tierTable(id, cls)), `${id} on ${cls}`).toEqual(shape(tierTable(id)));
     }
   });
 
@@ -45,7 +49,7 @@ describe('tier tables', () => {
   // expectation is read off the fold the card reads, tier I..V = 0..4 copies.
   it('CANNON damage reads the folded gun damage at every tier', () => {
     const at = (k: number): string =>
-      String(effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<string>(k).fill('deckGun')).equipment.gun.damage);
+      String(effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], new Array<string>(k).fill('deckGun')).equipment.gun.damage);
     expect(cells(tierTable('deckGun'))).toContainEqual([0, 1, 2, 3, 4].map(at));
   });
 

@@ -16,26 +16,26 @@ function contact(id: string, cls: HullId, x: number, y: number, heading = 0): Co
 describe('ContactBodies.build', () => {
   it('poses each sighted contact at the sample time, with its envelope ARMOR index as mass', () => {
     const store = new ContactStore();
-    store.pushFrame(1000, [contact('a', 'battleship', 10, 20, 0.5), contact('d', 'droneSmall', -40, 0)]);
+    store.pushFrame(1000, [contact('a', 'bismarck', 10, 20, 0.5), contact('d', 'droneSmall', -40, 0)]);
     const bodies = new ContactBodies().build(store, 1000, 'me');
     expect(bodies.map((b) => b.id).sort()).toEqual(['a', 'd']);
     const a = bodies.find((b) => b.id === 'a')!;
     expect(a.state).toMatchObject({ x: 10, y: 20, heading: 0.5 });
-    expect(a.poly).toEqual(transformPolygon(hullSilhouette('battleship'), 10, 20, 0.5));
-    expect(a.mass).toBe(hullEnvelope('battleship').index.armor);
+    expect(a.poly).toEqual(transformPolygon(hullSilhouette('bismarck'), 10, 20, 0.5));
+    expect(a.mass).toBe(hullEnvelope('bismarck').index.armor);
     expect(a.movable).toBe(true);
     expect(bodies.find((b) => b.id === 'd')!.mass).toBe(hullEnvelope('droneSmall').index.armor);
   });
 
   it('never includes the own hull', () => {
     const store = new ContactStore();
-    store.pushFrame(1000, [contact('me', 'torpedoBoat', 0, 0), contact('a', 'mineLayer', 50, 0)]);
+    store.pushFrame(1000, [contact('me', 'iowa', 0, 0), contact('a', 'warspite', 50, 0)]);
     expect(new ContactBodies().build(store, 1000, 'me').map((b) => b.id)).toEqual(['a']);
   });
 
   it('drops a contact once the sample time runs past its live dead-reckoning', () => {
     const store = new ContactStore();
-    store.pushFrame(1000, [contact('a', 'battleship', 0, 0)]);
+    store.pushFrame(1000, [contact('a', 'bismarck', 0, 0)]);
     const cb = new ContactBodies();
     expect(cb.build(store, 1000 + MAX_EXTRAPOLATION_MS, 'me')).toHaveLength(1);
     expect(cb.build(store, 1000 + MAX_EXTRAPOLATION_MS + 1, 'me')).toHaveLength(0);
@@ -43,10 +43,10 @@ describe('ContactBodies.build', () => {
 
   it('reuses one body per id across frames', () => {
     const store = new ContactStore();
-    store.pushFrame(1000, [contact('a', 'battleship', 0, 0)]);
+    store.pushFrame(1000, [contact('a', 'bismarck', 0, 0)]);
     const cb = new ContactBodies();
     const first = cb.build(store, 1000, 'me')[0];
-    store.pushFrame(1050, [contact('a', 'battleship', 5, 0)]);
+    store.pushFrame(1050, [contact('a', 'bismarck', 5, 0)]);
     const second = cb.build(store, 1050, 'me')[0];
     expect(second).toBe(first);
     expect(second.state.x).toBe(5);

@@ -4,118 +4,61 @@
 // drone hull ids render the legacy chevron (exactly what hullSilhouette returns
 // for a drone id) plus their TIER's rank ticks (Story 7.6 — see RANK_TICKS).
 //
-// Story 1.12 (Regatta Hoist): every combatant hull — own AND contact — draws as
-// a 1.5px stroke in the pilot's BRIGHT personal hue over a SOLID interior in that
-// hue's darker ~45%-value fill. Drones (roster sentinel 255) wear the drone greys.
-// A roster-miss / pre-roster hull falls back to an amber hollow outline (the old
-// contact look). The style is per-view and swappable (setColors) so the own hull
-// can boot on the fallback and recolor the instant its roster hue is known.
+// Story 10.4 (Eric's ruling R6): the personal hue wheel is gone. Every captain
+// hull — own AND contact — draws in its RELATION color (render/relationColor.ts:
+// own cyan, everyone else red) as one stroke over that color's dark interior.
+// Drones wear the drone greys. The style is per-view and swappable (setColors).
+//
+// TURRETS (Story 10.4): a captain hull carries one plain turret Graphics per
+// mount of its shared `battery` — a gunhouse box plus one line per barrel — as a
+// CHILD of the view's container at `turretStation(hullId, i)`, rotated by the
+// turret's hull-relative angle (`setTurretAngles`). Children inherit the hull's
+// pose, settle, sight fade and hit-flash tint for free. Drones have no battery
+// and draw none.
+//
+// THE ART SEAM (for the hull-art wave): `drawHull(g, hullId, style)` and
+// `drawTurret(g, hullId, i, style)` are the ONLY two functions that put pixels
+// down; `ShipView` builds its Graphics once through them and per frame only
+// writes rotations. Swap those two (or the Graphics they fill) and no caller
+// changes.
 //
 // The render polygon is the shared local-frame silhouette VERBATIM (bow at +x,
 // origin-centered, world units) — no independent geometry, so what you see is
 // the collision/hit-test hull. The view is added to a camera-transformed layer,
 // so world heading == sprite rotation (no y-flip — see camera.ts).
 
-import { Graphics } from 'pixi.js';
+import { Container, Graphics } from 'pixi.js';
 import {
+  DEFAULT_CLASS_ID,
   DRONE_HULL_IDS,
   DRONE_SIZE_IDS,
-  REGATTA_HUES,
   droneSizeOf,
   hullSilhouette,
+  turretMounts,
+  turretRest,
+  turretStation,
   type HullId,
   type Vec2,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import type { WorldFlashGate } from './effects.js';
+import { relationStyle, type Relation, type ShipStyle } from './relationColor.js';
+
+export type { ShipStyle } from './relationColor.js';
 
 const C = CLIENT_CONFIG.colors;
 const FB = CLIENT_CONFIG.flashBudget;
-
-/** The full 20-hue Regatta wheel (bright outline / darker fill), wheel order. */
-const REGATTA_OUTLINES: readonly number[] = REGATTA_HUES.map((n) => C.players[n]);
-const REGATTA_FILLS: readonly number[] = REGATTA_HUES.map((n) => C.playerFills[n]);
-
-/** The eight colorblind-assist families (config key order IS family order). */
-const CVD_OUTLINES: readonly number[] = Object.values(C.cvd);
-const CVD_FILLS: readonly number[] = Object.values(C.cvdFills);
-
-/**
- * Pure: the assist FAMILY index a Regatta wheel index collapses onto
- * (amendment 18). Modulo keeps the 20 wheel indices evenly spread over the 8
- * families — adjacent wheel entries (which are adjacent HUES, the pairs the
- * assist exists to separate) always land on different families.
- */
-export function cvdFamilyIndex(wheelIndex: number, families = CVD_OUTLINES.length): number {
-  return ((wheelIndex % families) + families) % families;
-}
-
-/**
- * Bright outline hue by Regatta wheel index. LIVE binding: `setColorblindAssist`
- * swaps the whole table at this ONE chokepoint, and every consumer (hulls,
- * nameplates, wake, kill feed, ordnance tint) reads through it, so the assist
- * needs no per-consumer wiring. ESM live bindings mean importers see the swap.
- */
-export let PLAYER_HUES: readonly number[] = REGATTA_OUTLINES;
-/** Darker interior fill by Regatta wheel index — swapped with PLAYER_HUES. */
-export let PLAYER_FILLS: readonly number[] = REGATTA_FILLS;
-
-/** Bumped every time the hue tables are swapped, so latched consumers (own hull
- *  color, contact styles, nameplates) know to re-resolve. */
-let revision = 0;
-let assistOn = false;
-
-/** The current hue-table revision (see `revision` above). */
-export function hueRevision(): number {
-  return revision;
-}
-
-/** Is the colorblind-assist remap currently applied? */
-export function colorblindAssist(): boolean {
-  return assistOn;
-}
-
-/**
- * THE colorblind-assist chokepoint: project the 20-hue wheel onto the eight
- * separated families (on) or restore the ratified Regatta wheel (off). Cheap
- * and idempotent — a no-op call leaves the revision untouched.
- */
-export function setColorblindAssist(on: boolean): void {
-  if (on === assistOn) return;
-  assistOn = on;
-  PLAYER_HUES = on ? REGATTA_OUTLINES.map((_, i) => CVD_OUTLINES[cvdFamilyIndex(i)]) : REGATTA_OUTLINES;
-  PLAYER_FILLS = on ? REGATTA_FILLS.map((_, i) => CVD_FILLS[cvdFamilyIndex(i)]) : REGATTA_FILLS;
-  revision += 1;
-}
-
-export interface ShipStyle {
-  /** Hull outline (stroke) color. */
-  stroke: number;
-  /** Solid interior fill color, or null for a hollow outline (the fallback). */
-  fill: number | null;
-}
 
 /** Roster-miss / pre-roster fallback: amber hollow outline. */
 export const FALLBACK_STYLE: ShipStyle = { stroke: C.amber, fill: null };
 /** Drone hull style (roster sentinel 255): grey outline + solid grey interior. */
 export const DRONE_STYLE: ShipStyle = { stroke: C.droneOutline, fill: C.droneFill };
 
-/**
- * Personal-hue style for a Regatta wheel index — bright stroke + darker fill —
- * or the amber-hollow fallback when the index is null (roster miss / not yet
- * assigned) or out of range. Drones never route here (they use DRONE_STYLE via
- * their hull id).
- */
-export function hullStyle(index: number | null): ShipStyle {
-  if (index === null || index < 0 || index >= PLAYER_HUES.length) return FALLBACK_STYLE;
-  return { stroke: PLAYER_HUES[index], fill: PLAYER_FILLS[index] };
-}
-
-/** Style for a contact, given its hull id and resolved roster hue index. A drone
- *  hull id wins (greys); otherwise the personal-hue style (or fallback). */
-export function contactStyle(hullId: HullId, index: number | null): ShipStyle {
-  return isDroneHull(hullId) ? DRONE_STYLE : hullStyle(index);
+/** Style for a contact, given its hull id and its relation to the viewer. A
+ *  drone hull id wins (greys); every captain hull wears its relation color. */
+export function contactStyle(hullId: HullId, relation: Relation): ShipStyle {
+  return isDroneHull(hullId) ? DRONE_STYLE : relationStyle(relation);
 }
 
 /**
@@ -134,9 +77,9 @@ export function contactStyle(hullId: HullId, index: number | null): ShipStyle {
  * THE INVARIANT THAT KEEPS THEM ALIGNED: a hull id is a drone hull id **iff**
  * it is in shared's `DRONE_HULL_IDS`. PvE fleet hulls spawn on those three ids
  * and nothing else does — a captain, human or AI, carries a real class hull id
- * (`torpedoBoat` / `battleship` / `mineLayer`), which is precisely why Story
+ * (`yamato` / `bismarck` / `warspite` / `iowa`), which is precisely why Story
  * 6.4's bot captains do not move this function: a bot is a participant that is
- * not a fleet hull, and it will render in a personal hue like any captain.
+ * not a fleet hull, and it will render in its relation color like any captain.
  *
  * This predicate answers "is this a PvE FLEET HULL" — presentation and economy
  * (greyscale style, nameplate, kill-feed suppression). It is NOT the
@@ -145,8 +88,8 @@ export function contactStyle(hullId: HullId, index: number | null): ShipStyle {
  *
  * `ships.test.ts` PINS the set against `DRONE_HULL_IDS` / `HULL_IDS` so a hull
  * id added server-side fails a test rather than silently mis-classifying a ship
- * (a new drone hull would render in a personal hue and count as a contestant; a
- * new class listed as a drone would lose its hue).
+ * (a new drone hull would render in a relation color and count as a contestant;
+ * a new class listed as a drone would turn grey).
  */
 export function isDroneHull(hullId: HullId): boolean {
   return hullId === 'droneSmall' || hullId === 'droneMedium' || hullId === 'droneLarge';
@@ -231,8 +174,7 @@ export function hullLook(flash: number, sink: number, fade: number): HullLook {
 // over-budget flash DEGRADES rather than disappearing: same 130 ms, same hull,
 // `degradeAlphaFactor` of the intensity it would have held.
 //
-// A MODULE-LEVEL GATE, deliberately, in the same shape as this module's live
-// hue tables (`setColorblindAssist`): `ShipView`s are constructed in several
+// A MODULE-LEVEL GATE, deliberately: `ShipView`s are constructed in several
 // places (own hull in main.ts, every contact in render/contacts.ts), and a
 // constructor parameter would leave the CONTACT hulls — the twenty that actually
 // stack — unbudgeted while budgeting the one hull that cannot stack with itself.
@@ -345,7 +287,7 @@ const RANK_TICKS: Readonly<Record<string, readonly RankTick[]>> = Object.fromEnt
 
 /** The rank ticks a hull wears: 1 / 2 / 3 for the small / medium / large fleet
  *  hulls, and NONE for every captain hull (a captain's class is already carried
- *  by a distinct silhouette and a personal hue). */
+ *  by a distinct silhouette). */
 export function droneRankTicks(hullId: HullId): readonly RankTick[] {
   return RANK_TICKS[hullId] ?? NO_TICKS;
 }
@@ -357,8 +299,92 @@ function tracePolygon(g: Graphics, poly: readonly Vec2[]): void {
   g.closePath();
 }
 
+/**
+ * THE HULL ART SEAM (Story 10.4): draw `hullId` in `style` onto `g` (cleared
+ * first) — the shared silhouette as a solid relation-dark interior under ONE
+ * relation stroke (a null fill leaves a hollow outline), plus a fleet hull's
+ * rank ticks. The hull-art wave replaces this body.
+ */
+export function drawHull(g: Graphics, hullId: HullId, style: ShipStyle): void {
+  g.clear();
+  tracePolygon(g, hullSilhouette(hullId));
+  if (style.fill !== null) g.fill({ color: style.fill, alpha: 1 });
+  g.stroke({ width: CLIENT_CONFIG.ship.hullStrokeU, color: style.stroke, alpha: 1 });
+  drawRankTicks(g, hullId, style.stroke);
+}
+
+/**
+ * The tier mark on a PvE fleet hull (Story 7.6) — a no-op for every captain
+ * hull. Drawn AFTER the silhouette so the bars sit over the interior fill,
+ * and in the hull's OWN stroke colour so the greyscale rule needs no
+ * exception: for a drone that colour is `DRONE_STYLE.stroke`, and a hull
+ * recoloured through `setColors` carries its ticks with it.
+ */
+function drawRankTicks(g: Graphics, hullId: HullId, stroke: number): void {
+  const ticks = droneRankTicks(hullId);
+  if (ticks.length === 0) return;
+  for (const t of ticks) {
+    g.moveTo(t.x, -t.halfLenU);
+    g.lineTo(t.x, t.halfLenU);
+  }
+  g.stroke({ width: CLIENT_CONFIG.droneRank.widthU, color: stroke, alpha: 1 });
+}
+
+/** Pure: the plain turret's geometry for mount `i` of `hullId`, in the turret's
+ *  own frame (barrels along +x, pivot at the origin), sized off the hull beam. */
+export interface TurretGeometry {
+  /** Gunhouse box: half-length along the barrels and half-width across. */
+  houseHalfLen: number;
+  houseHalfWid: number;
+  /** Barrel tip x (barrels run from the pivot to here). */
+  barrelLen: number;
+  /** Across-track y of each barrel. */
+  barrelYs: readonly number[];
+}
+
+export function turretGeometry(hullId: HullId, i: number): TurretGeometry {
+  const cfg = CLIENT_CONFIG.ship.turret;
+  const { beamU } = hullExtent(hullSilhouette(hullId));
+  const guns = turretMounts(hullId)[i]?.guns ?? 0;
+  const houseHalfWid = (beamU * cfg.houseBeamFrac) / 2;
+  const span = houseHalfWid * cfg.barrelSpreadFrac * 2;
+  const barrelYs: number[] = [];
+  for (let k = 0; k < guns; k++) barrelYs.push(guns === 1 ? 0 : -span / 2 + (span * k) / (guns - 1));
+  return {
+    houseHalfLen: (beamU * cfg.houseLenBeamFrac) / 2,
+    houseHalfWid,
+    barrelLen: beamU * cfg.barrelBeamFrac,
+    barrelYs,
+  };
+}
+
+/**
+ * THE TURRET ART SEAM (Story 10.4): draw turret `i` of `hullId` onto `g`
+ * (cleared first) in its own frame — a gunhouse box and one line per barrel
+ * along +x. The hull-art wave replaces this body.
+ */
+export function drawTurret(g: Graphics, hullId: HullId, i: number, style: ShipStyle): void {
+  const t = turretGeometry(hullId, i);
+  const w = CLIENT_CONFIG.ship.turret.strokeU;
+  g.clear();
+  for (const y of t.barrelYs) {
+    g.moveTo(0, y);
+    g.lineTo(t.barrelLen, y);
+  }
+  g.stroke({ width: w, color: style.stroke, alpha: 1 });
+  g.rect(-t.houseHalfLen, -t.houseHalfWid, t.houseHalfLen * 2, t.houseHalfWid * 2);
+  if (style.fill !== null) g.fill({ color: style.fill, alpha: 1 });
+  g.stroke({ width: w, color: style.stroke, alpha: 1 });
+}
+
 export class ShipView {
-  readonly gfx: Graphics;
+  /** The view's root — position, heading, settle, fade and flash tint live
+   *  here and reach the hull and every turret child. */
+  readonly gfx: Container;
+  /** The hull Graphics (the `drawHull` seam's target). */
+  readonly hull: Graphics;
+  /** One Graphics per battery mount, bow to stern (empty for a drone). */
+  private turrets: Graphics[] = [];
   /** THE SETTLE (Story 5.2 fix): progress through the sinking window, [0,1].
    *  0 alive, 1 the wreck. Was a boolean `downed` — see `hullLook`. */
   private sink = 0;
@@ -373,54 +399,75 @@ export class ShipView {
   private hullId: HullId;
   private style: ShipStyle;
 
-  constructor(style: ShipStyle, hullId: HullId = 'torpedoBoat') {
-    this.gfx = new Graphics();
+  constructor(style: ShipStyle, hullId: HullId = DEFAULT_CLASS_ID) {
+    this.gfx = new Container();
+    this.hull = new Graphics();
+    this.gfx.addChild(this.hull);
     this.style = style;
     this.hullId = hullId;
     this.draw();
+    this.buildTurrets();
   }
 
   /** Re-draw for a new hull id (own ship only; contacts know their hull at
-   *  creation). Preserves position/rotation/tint applied by update(). */
+   *  creation). Preserves position/rotation/tint applied by update(); the
+   *  turrets are rebuilt at their rest bearings. */
   setHullId(hullId: HullId): void {
+    if (hullId === this.hullId) return;
     this.hullId = hullId;
     this.draw();
+    this.buildTurrets();
   }
 
-  /** Swap the hull colors (Story 1.12): stroke = bright personal hue, fill =
-   *  its darker interior (null = hollow fallback). Redraws in place. */
+  /** Swap the hull colors: stroke = the relation's bright linework, fill = its
+   *  dark interior (null = hollow outline). Redraws hull and turrets in place. */
   setColors(stroke: number, fill: number | null): void {
+    if (stroke === this.style.stroke && fill === this.style.fill) return;
     this.style = { stroke, fill };
     this.draw();
+    for (let i = 0; i < this.turrets.length; i++) drawTurret(this.turrets[i], this.hullId, i, this.style);
   }
 
-  private draw(): void {
-    const g = this.gfx;
-    g.clear();
-    tracePolygon(g, hullSilhouette(this.hullId));
-    // Solid personal-hue interior (the darker ~45%-value fill) under the bright
-    // outline; a null fill leaves a hollow outline (the roster-miss fallback).
-    if (this.style.fill !== null) g.fill({ color: this.style.fill, alpha: 1 });
-    g.stroke({ width: 1.5, color: this.style.stroke, alpha: 1 });
-    this.drawRankTicks();
+  /** How many turret children this view carries (tests/debug). */
+  get turretCount(): number {
+    return this.turrets.length;
+  }
+
+  /** Turret `i`'s child Graphics (tests/debug), or undefined. */
+  turretView(i: number): Graphics | undefined {
+    return this.turrets[i];
   }
 
   /**
-   * The tier mark on a PvE fleet hull (Story 7.6) — a no-op for every captain
-   * hull. Drawn AFTER the silhouette so the bars sit over the interior fill,
-   * and in the hull's OWN stroke colour so the greyscale rule needs no
-   * exception: for a drone that colour is `DRONE_STYLE.stroke`, and a hull
-   * recoloured through `setColors` carries its ticks with it.
+   * Point the turrets: `angles[i]` is turret i's HULL-RELATIVE angle (shared
+   * sim/turrets.ts convention, 0 = the bow). A missing entry holds the turret
+   * at its rest bearing. Rotation writes only — no redraw, no allocation.
    */
-  private drawRankTicks(): void {
-    const ticks = droneRankTicks(this.hullId);
-    if (ticks.length === 0) return;
-    const g = this.gfx;
-    for (const t of ticks) {
-      g.moveTo(t.x, -t.halfLenU);
-      g.lineTo(t.x, t.halfLenU);
+  setTurretAngles(angles: readonly number[]): void {
+    const mounts = turretMounts(this.hullId);
+    for (let i = 0; i < this.turrets.length; i++) {
+      const a = angles[i];
+      this.turrets[i].rotation = a === undefined ? turretRest(mounts[i]) : a;
     }
-    g.stroke({ width: CLIENT_CONFIG.droneRank.widthU, color: this.style.stroke, alpha: 1 });
+  }
+
+  private draw(): void {
+    drawHull(this.hull, this.hullId, this.style);
+  }
+
+  private buildTurrets(): void {
+    for (const t of this.turrets) t.destroy();
+    this.turrets = [];
+    const mounts = turretMounts(this.hullId);
+    for (let i = 0; i < mounts.length; i++) {
+      const g = new Graphics();
+      drawTurret(g, this.hullId, i, this.style);
+      const p = turretStation(this.hullId, i);
+      g.position.set(p.x, p.y);
+      g.rotation = turretRest(mounts[i]);
+      this.gfx.addChild(g);
+      this.turrets.push(g);
+    }
   }
 
   /**
@@ -525,6 +572,6 @@ export class ShipView {
   }
 
   destroy(): void {
-    this.gfx.destroy();
+    this.gfx.destroy({ children: true });
   }
 }

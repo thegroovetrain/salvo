@@ -203,7 +203,7 @@ export function makeKitRow(onSlot: (slot: number) => void): KitRow {
 
 // --- the picker modal ------------------------------------------------------------
 
-/** The personal hue, read off the layer's ColorHoist (structural — no import). */
+/** The own accent (ui/ownAccent.ts — structural, no import). */
 export interface PickerAccent {
   accent: string;
   accentValue: number;

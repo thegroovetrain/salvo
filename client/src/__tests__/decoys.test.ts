@@ -1,7 +1,7 @@
 // DECOY-BUOY reconcile + render (render/decoys.ts, Story 8.16 — replacing the
 // deleted radar buoy's render/buoys.ts) — the pure list -> sprite lifecycle
-// diff, the own/other layer split, the owner-hue latch keyed on `by` for EVERY
-// observer (amendment 124(a)), the own-spawn cue hook (the mines.ts precedent),
+// diff, the own/other layer split, the marker painted in its owner's RELATION
+// color to this viewer (Story 10.4, ruling R6 — `own` decides it), the own-spawn cue hook (the mines.ts precedent),
 // the silhouette that shares NO primitive with a mine's, and the OWNER-ONLY hp
 // arc (the amendment 124(f) implementer draft).
 //
@@ -20,9 +20,7 @@ import { alertClock, alertTint } from '../render/alertBlend.js';
 import { Mines } from '../render/mines.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { settings } from '../settings/store.js';
-
-/** The amber fallback the hue latch paints while an owner hue is unresolved. */
-const CONFIG_AMBER = CLIENT_CONFIG.colors.amber;
+import { relationStroke } from '../render/relationColor.js';
 
 const decoy = (id: string, own = false, by = 'p1', hp?: number, kind: BuoyKind = 'healing'): DecoyView => ({
   id,
@@ -33,9 +31,6 @@ const decoy = (id: string, own = false, by = 'p1', hp?: number, kind: BuoyKind =
   kind,
   ...(hp === undefined ? {} : { hp }),
 });
-
-/** Stub owner-hue resolver for the render harness (Story 1.12). */
-const HUE = (): number => 0x123456;
 
 /** Every fill colour one sprite's Graphics painted. */
 function fillColors(g: Graphics): number[] {
@@ -87,7 +82,7 @@ describe('reconcileDecoys — decoy list → sprite lifecycle diff', () => {
   });
 });
 
-describe('Decoys — own/other layer split, owner hue by `by`, own-spawn cue hook', () => {
+describe('Decoys — own/other layer split, relation color by `own`, own-spawn cue hook', () => {
   function harness() {
     const ownLayer = new Container();
     const otherLayer = new Container();
@@ -96,54 +91,39 @@ describe('Decoys — own/other layer split, owner hue by `by`, own-spawn cue hoo
     return { ownLayer, otherLayer, onOwnDecoySpawn, decoys };
   }
 
-  it('resolves each decoy’s tint from its OWNER id (`by`) for every observer — own and not', () => {
+  it('paints an OWN decoy in the own relation stroke and anyone else’s in the enemy stroke', () => {
     const { decoys } = harness();
-    const hueFor = vi.fn((by: string) => (by === 'alice' ? 0x111111 : 0x222222) as number | null);
-    decoys.sync([decoy('d1', true, 'alice', 50), decoy('d2', false, 'bob')], hueFor);
-    expect(hueFor.mock.calls.map((c) => c[0]).sort()).toEqual(['alice', 'bob']);
-    expect(decoys.colorAt('d1')).toBe(0x111111);
-    // Someone else's decoy is painted in ITS OWNER's hue, not ours and not amber.
-    expect(decoys.colorAt('d2')).toBe(0x222222);
+    decoys.sync([decoy('d1', true, 'alice', 50), decoy('d2', false, 'bob')]);
+    expect(decoys.colorAt('d1')).toBe(relationStroke('own'));
+    expect(decoys.colorAt('d2')).toBe(relationStroke('enemy'));
+    expect(relationStroke('own')).not.toBe(relationStroke('enemy'));
   });
 
   it('routes an OWN decoy (marker + ring) to the chart layer and anyone else’s to the world layer', () => {
     const { ownLayer, otherLayer, decoys } = harness();
-    decoys.sync([decoy('mine', true, 'me', 50), decoy('theirs', false)], HUE);
+    decoys.sync([decoy('mine', true, 'me', 50), decoy('theirs', false)]);
     expect(ownLayer.children).toHaveLength(2);
     expect(otherLayer.children).toHaveLength(2);
   });
 
-  it('recolors a decoy that booted on the amber fallback once its owner hue resolves, then latches', () => {
-    const { decoys } = harness();
-    const hueFor = vi.fn((_by: string) => null as number | null);
-    decoys.sync([decoy('d1', false, 'late')], hueFor);
-    expect(decoys.colorAt('d1')).toBe(CONFIG_AMBER);
-    hueFor.mockReturnValue(0x00ff00);
-    decoys.sync([decoy('d1', false, 'late')], hueFor); // retry resolves + redraws
-    expect(decoys.colorAt('d1')).toBe(0x00ff00);
-    const afterResolve = hueFor.mock.calls.length;
-    decoys.sync([decoy('d1', false, 'late')], hueFor); // latched — no more probes
-    expect(hueFor.mock.calls.length).toBe(afterResolve);
-  });
-
   it('fires the own-spawn hook ONLY for newly-added OWN decoys (never for anyone else’s)', () => {
     const { onOwnDecoySpawn, decoys } = harness();
-    decoys.sync([decoy('mine', true, 'me', 50), decoy('theirs', false)], HUE);
+    decoys.sync([decoy('mine', true, 'me', 50), decoy('theirs', false)]);
     expect(onOwnDecoySpawn).toHaveBeenCalledTimes(1);
     expect(onOwnDecoySpawn.mock.calls[0][0].id).toBe('mine');
   });
 
   it('fires the hook once per drop, not every tick a decoy persists', () => {
     const { onOwnDecoySpawn, decoys } = harness();
-    decoys.sync([decoy('mine', true, 'me', 50)], HUE);
-    decoys.sync([decoy('mine', true, 'me', 35)], HUE); // still present (and hit) — no re-cue
+    decoys.sync([decoy('mine', true, 'me', 50)]);
+    decoys.sync([decoy('mine', true, 'me', 35)]); // still present (and hit) — no re-cue
     expect(onOwnDecoySpawn).toHaveBeenCalledTimes(1);
   });
 
   it('clears both layers when the incoming list empties', () => {
     const { ownLayer, otherLayer, decoys } = harness();
-    decoys.sync([decoy('mine', true, 'me', 50), decoy('theirs', false)], HUE);
-    decoys.sync([], HUE);
+    decoys.sync([decoy('mine', true, 'me', 50), decoy('theirs', false)]);
+    decoys.sync([]);
     expect(ownLayer.children).toHaveLength(0);
     expect(otherLayer.children).toHaveLength(0);
   });
@@ -154,7 +134,7 @@ describe('the decoy silhouette is distinct from a mine marker (Eric, 7-5-decks.m
    *  is the MARKER itself and nothing else. */
   function markers() {
     const decoyLayer = new Container();
-    new Decoys(new Container(), decoyLayer).sync([decoy('b', false)], HUE);
+    new Decoys(new Container(), decoyLayer).sync([decoy('b', false)]);
     const mineLayer = new Container();
     new Mines(new Container(), mineLayer).sync([{ id: 'm', x: 0, y: 0, own: false, by: 'p1' }]);
     return { decoy: pathActions(soleSprite(decoyLayer)), mine: pathActions(mineLayer.children[0] as Graphics) };
@@ -206,7 +186,7 @@ describe('Decoys — the hp arc is owner-only and follows the wire', () => {
     const ownLayer = new Container();
     const otherLayer = new Container();
     const d = new Decoys(ownLayer, otherLayer);
-    d.sync([decoy('mine', true, 'me', CONFIG.buoy.hp), decoy('theirs', false)], HUE);
+    d.sync([decoy('mine', true, 'me', CONFIG.buoy.hp), decoy('theirs', false)]);
     expect(d.hpFracAt('mine')).toBe(1);
     expect(d.hpFracAt('theirs')).toBeNull();
     expect(pathActions(soleSprite(ownLayer))).toContain('arc');
@@ -215,15 +195,15 @@ describe('Decoys — the hp arc is owner-only and follows the wire', () => {
 
   it('the arc shrinks as the owner’s buoy takes damage', () => {
     const d = new Decoys(new Container(), new Container());
-    d.sync([decoy('mine', true, 'me', CONFIG.buoy.hp)], HUE);
-    d.sync([decoy('mine', true, 'me', CONFIG.buoy.hp * 0.7)], HUE);
+    d.sync([decoy('mine', true, 'me', CONFIG.buoy.hp)]);
+    d.sync([decoy('mine', true, 'me', CONFIG.buoy.hp * 0.7)]);
     expect(d.hpFracAt('mine')).toBeCloseTo(0.7, 9);
   });
 
   it('an own view that somehow lacks `hp` draws the marker alone, never a crash', () => {
     const ownLayer = new Container();
     const d = new Decoys(ownLayer, new Container());
-    d.sync([decoy('mine', true, 'me')], HUE);
+    d.sync([decoy('mine', true, 'me')]);
     expect(d.hpFracAt('mine')).toBeNull();
     expect(pathActions(soleSprite(ownLayer))).not.toContain('arc');
   });
@@ -233,13 +213,13 @@ describe('Decoys — the hp arc is owner-only and follows the wire', () => {
 
 const withLife = (d: DecoyView, until: number): DecoyView => ({ ...d, until });
 
-describe('the tinted beacon on the chart — hull in the owner hue, head in the kind colour', () => {
+describe('the tinted beacon on the chart — hull in the owner relation color, head in the kind colour', () => {
   it('own AND sighted enemy markers draw hull + head per kind, the head filled in the kind’s colour', () => {
     for (const own of [true, false]) {
       const drawn = BUOY_KINDS.map((k) => {
         const layer = new Container();
         const d = new Decoys(own ? layer : new Container(), own ? new Container() : layer);
-        d.sync([decoy('b', own, 'p1', own ? CONFIG.buoy.hp : undefined, k)], HUE);
+        d.sync([decoy('b', own, 'p1', own ? CONFIG.buoy.hp : undefined, k)]);
         expect(d.kindAt('b')).toBe(k);
         const g = soleSprite(layer);
         expect(pathActions(g), `${k} own=${own}`).not.toContain('circle');
@@ -333,7 +313,7 @@ describe('Decoys — the rings on the water', () => {
     const otherLayer = new Container();
     const d = new Decoys(ownLayer, otherLayer);
     d.render(0);
-    d.sync([withLife(decoy('mine', true, 'me', 50, 'shield'), CONFIG.buoy.lifetimeMs), decoy('theirs', false)], HUE);
+    d.sync([withLife(decoy('mine', true, 'me', 50, 'shield'), CONFIG.buoy.lifetimeMs), decoy('theirs', false)]);
     expect(d.ringGraphicsAt('mine')!.parent).toBe(ownLayer);
     expect(ownLayer.children.indexOf(d.ringGraphicsAt('mine')!)).toBe(0); // beneath the marker
     expect(d.ringGraphicsAt('theirs')!.parent).toBe(otherLayer);
@@ -349,7 +329,7 @@ describe('Decoys — the rings on the water', () => {
     const d = new Decoys(new Container(), new Container());
     const L = CONFIG.buoy.lifetimeMs;
     d.render(0);
-    d.sync([withLife(decoy('mine', true, 'me', 50, 'speed'), L)], HUE);
+    d.sync([withLife(decoy('mine', true, 'me', 50, 'speed'), L)]);
     const full = d.ringAt('mine')!.alpha;
     d.render(L / 2);
     expect(d.ringAt('mine')!.alpha / full).toBeCloseTo(d.lifeFracAt('mine')!, 2);
@@ -360,7 +340,7 @@ describe('Decoys — the rings on the water', () => {
   it('the enemy ring wears the alert tint (steady orange at motion off); the own ring none', () => {
     settings.set({ motion: 'off' });
     const d = new Decoys(new Container(), new Container());
-    d.sync([withLife(decoy('mine', true, 'me', 50, 'radar'), CONFIG.buoy.lifetimeMs), decoy('theirs', false)], HUE);
+    d.sync([withLife(decoy('mine', true, 'me', 50, 'radar'), CONFIG.buoy.lifetimeMs), decoy('theirs', false)]);
     for (let t = 0; t < 2000; t += 230) {
       d.render(t);
       expect(d.ringGraphicsAt('theirs')!.tint).toBe(CLIENT_CONFIG.colors.alertOrange);
@@ -372,8 +352,8 @@ describe('Decoys — the rings on the water', () => {
   it('the ring leaves with the buoy (out of view, sunk or expired)', () => {
     const otherLayer = new Container();
     const d = new Decoys(new Container(), otherLayer);
-    d.sync([decoy('theirs', false)], HUE);
-    d.sync([], HUE);
+    d.sync([decoy('theirs', false)]);
+    d.sync([]);
     expect(d.ringAt('theirs')).toBeNull();
     expect(otherLayer.children).toHaveLength(0);
   });
@@ -401,7 +381,7 @@ describe('Decoys — the owner-only LIFE arc runs down on the server clock', () 
     const d = new Decoys(ownLayer, otherLayer);
     const L = CONFIG.buoy.lifetimeMs;
     d.render(0);
-    d.sync([withLife(decoy('mine', true, 'me', CONFIG.buoy.hp), L), decoy('theirs', false)], HUE);
+    d.sync([withLife(decoy('mine', true, 'me', CONFIG.buoy.hp), L), decoy('theirs', false)]);
     expect(d.lifeFracAt('mine')).toBe(1);
     expect(d.lifeFracAt('theirs')).toBeNull();
     const arcs = (g: Graphics) => pathActions(g).filter((a) => a === 'arc').length;
@@ -418,7 +398,7 @@ describe('Decoys — the owner-only LIFE arc runs down on the server clock', () 
     const ownLayer = new Container();
     const d = new Decoys(ownLayer, new Container());
     d.render(0);
-    d.sync([withLife(decoy('mine', true, 'me', CONFIG.buoy.hp), CONFIG.buoy.lifetimeMs)], HUE);
+    d.sync([withLife(decoy('mine', true, 'me', CONFIG.buoy.hp), CONFIG.buoy.lifetimeMs)]);
     const g = soleSprite(ownLayer);
     const clear = vi.spyOn(g, 'clear');
     d.render(1);

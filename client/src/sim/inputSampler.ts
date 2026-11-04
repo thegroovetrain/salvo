@@ -25,6 +25,9 @@ export interface Aiming {
    *  since the last sample (`MouseInput.consumeHeld`). Drives the machine gun's
    *  stream server-side; every other weapon ignores it. */
   held: boolean;
+  /** THE SECONDARIES LEVEL (Story 10.4): the right mouse button held
+   *  (`MouseInput.secHeld`). A level, `held`'s grammar. */
+  sec: boolean;
 }
 
 /**
@@ -123,6 +126,7 @@ export function buildInput(seq: number, axes: Axes, aiming: Aiming, hornSeq = 0)
     actSlot: aiming.actSlot,
     hornSeq,
     held: aiming.held,
+    sec: aiming.sec,
   };
 }
 
@@ -138,6 +142,7 @@ export class InputSampler {
     actSeq: 0,
     actSlot: 0,
     held: false,
+    sec: false,
   };
   /**
    * Cumulative FOGHORN counter (InputMsg.hornSeq); 0 = never honked, the
@@ -210,8 +215,9 @@ export class InputSampler {
    * monotonic, and `actSlot` only adopts the live slot when the live counter
    * is genuinely newer. Keeps the last aim bearing / aim distance / primed
    * slot and a monotonic seq shared with sample(), so it slots into local
-   * prediction exactly like a regular tick. `held` is always false here (Story
-   * 8.15): the stream stops the moment the tab hides or the window blurs.
+   * prediction exactly like a regular tick. `held` and `sec` are always false
+   * here (Stories 8.15 / 10.4): a stream stops the moment the tab hides or the
+   * window blurs.
    */
   sendNeutralNow(
     throttle: number,
@@ -228,7 +234,7 @@ export class InputSampler {
     const actSlot = live ? (currentActSlot ?? this.lastAiming.actSlot) : this.lastAiming.actSlot;
     // `held` IS FORCED FALSE (Story 8.15): a hidden or blurred tab must never
     // leave the machine gun streaming on the server's latest-input model.
-    this.lastAiming = { ...this.lastAiming, fireSeq, fireT, actSeq, actSlot, held: false };
+    this.lastAiming = { ...this.lastAiming, fireSeq, fireT, actSeq, actSlot, held: false, sec: false };
     // The honk counter needs no gap-handling parameter: it lives on the sampler
     // itself, so a press landing in the <=1-tick gap before the tab hid is
     // already reflected here and sounds NOW rather than on refocus (the fireSeq

@@ -7,7 +7,7 @@
 // and reverts the primed weapon to the gun (the sunk-path symmetry: a resume is
 // a hard boundary, so a pre-outage prime never fires on the first click back).
 import { describe, expect, it, vi } from 'vitest';
-import { CONFIG, DEFAULT_KIT, MSG } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_KIT, DEFAULT_SHIFT, MSG, SHIFT_IDS, type OwnShip } from '@salvo/shared';
 import {
   BURN_AMOUNT_CAP,
   bindRoom,
@@ -15,6 +15,7 @@ import {
   frameIsDeadOrSpectating,
   inEnemyBurningZone,
   maxBurnDps,
+  ownStatsChanged,
   readsAsBurn,
   windowRunning,
   type RoomBindingDeps,
@@ -62,19 +63,19 @@ function fakeRoom(): FakeRoom {
 }
 
 /** A minimal own-ship-carrying frame at a given world position. */
-function ownFrame(x: number, y: number): unknown {
+function ownFrame(x: number, y: number, you: Record<string, unknown> = {}): unknown {
   return {
     t: 100,
     tick: 1,
     ackSeq: 0,
-    you: { x, y, heading: 0, speed: 0, cls: 'torpedoBoat', kit: [...DEFAULT_KIT], upg: [], cards: [], alive: true, sweep: 0 },
+    you: { x, y, heading: 0, speed: 0, cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, kit: [...DEFAULT_KIT], upg: [], cards: [], alive: true, sweep: 0, ...you },
     contacts: [],
     mines: [],
     events: [],
   };
 }
 
-function setup() {
+function setup(extra: Record<string, unknown> = {}) {
   const room = fakeRoom();
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
   const conn = { room, welcome: {}, sink, early: { results: null, bound: false } } as unknown as Connection;
@@ -85,6 +86,7 @@ function setup() {
   const onOwnSpawn = vi.fn();
   const onDenied = vi.fn();
   const resetPrime = vi.fn();
+  const onOwnStats = vi.fn();
   const deps = {
     // handleFrame surface (enough for an own-ship frame to flow through).
     state: { net: { you: null, tick: 0, ackSeq: 0 }, spectating: false, phase: '', respawnEta: null, mode: 'interp' },
@@ -104,18 +106,63 @@ function setup() {
     foulZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     countermeasure: { sync: vi.fn() },
-    onOwnStats: vi.fn(),
+    onOwnStats,
     onOwnSpawn,
     onDrop,
     onReconnect,
     onDenied,
     resetPrime,
     colors: vi.fn(() => null),
-    ordnanceHue: vi.fn(() => 0),
+    ...extra,
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
-  return { room, sink, ownBufferClear, forceSnap, onDrop, onReconnect, onOwnSpawn, onDenied, resetPrime };
+  return { room, sink, ownBufferClear, forceSnap, onDrop, onReconnect, onOwnSpawn, onDenied, resetPrime, onOwnStats };
 }
+
+// --- STORY 10.4: THE OWN BATTERY + THE SEAT SHIFT ---------------------------
+
+describe('bindRoom own frame — the own battery is corrected from every own frame', () => {
+  it('calls deps.ownBattery.correct(you) with the frame\'s own ship, every frame', () => {
+    const correct = vi.fn();
+    const { sink } = setup({ ownBattery: { correct } });
+    const f1 = ownFrame(1, 2) as { you: unknown };
+    sink.handler(f1);
+    expect(correct).toHaveBeenCalledTimes(1);
+    expect(correct).toHaveBeenCalledWith(f1.you);
+    const f2 = ownFrame(3, 4) as { you: unknown };
+    sink.handler(f2);
+    expect(correct).toHaveBeenCalledTimes(2);
+    expect(correct).toHaveBeenLastCalledWith(f2.you);
+  });
+
+  it('is optional — an own frame flows through with no ownBattery dep', () => {
+    const { sink } = setup();
+    expect(() => sink.handler(ownFrame(1, 2))).not.toThrow();
+  });
+});
+
+describe('ownStatsChanged — the seat Shift is one of its inputs', () => {
+  const [shiftA, shiftB] = SHIFT_IDS;
+  const own = (shift: OwnShip['shift']): OwnShip =>
+    ({ cls: DEFAULT_CLASS_ID, shift, kit: [...DEFAULT_KIT], cards: [] }) as unknown as OwnShip;
+
+  it('fires on a shift change and not on an identical frame', () => {
+    expect(shiftA).not.toBe(shiftB);
+    expect(ownStatsChanged(own(shiftA), own(shiftA))).toBe(false);
+    expect(ownStatsChanged(own(shiftB), own(shiftA))).toBe(true);
+  });
+
+  it('re-runs onOwnStats with the new shift when a frame changes it', () => {
+    const { sink, onOwnStats } = setup();
+    sink.handler(ownFrame(0, 0, { shift: shiftA }));
+    sink.handler(ownFrame(0, 0, { shift: shiftA }));
+    expect(onOwnStats).toHaveBeenCalledTimes(1);
+    expect(onOwnStats.mock.calls[0][2]).toBe(shiftA);
+    sink.handler(ownFrame(0, 0, { shift: shiftB }));
+    expect(onOwnStats).toHaveBeenCalledTimes(2);
+    expect(onOwnStats.mock.calls[1][2]).toBe(shiftB);
+  });
+});
 
 describe('bindRoom reconnect signals', () => {
   it('delegates a drop to deps.onDrop (RECONNECTING banner) without touching prediction', () => {
@@ -192,7 +239,6 @@ function setupChannels(over: Partial<RoomBindingDeps> = {}) {
     decoys: { sync: decoysSync },
     countermeasure: { sync: vi.fn() },
     colors: vi.fn(() => null),
-    ordnanceHue: vi.fn(() => 0),
     ...over,
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
@@ -209,20 +255,20 @@ describe('bindRoom decoy channel (Story 8.16)', () => {
     const { sink, decoysSync } = setupChannels();
     const decoys = [{ id: 'd1', x: 10, y: 20, own: true, by: 'p1', hp: 50 }];
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], decoys });
-    expect(decoysSync).toHaveBeenCalledWith(decoys, expect.any(Function));
+    expect(decoysSync).toHaveBeenCalledWith(decoys);
   });
 
   it('treats an omitted decoys key as an empty list (frames omit it when none)', () => {
     const { sink, decoysSync } = setupChannels();
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
-    expect(decoysSync).toHaveBeenCalledWith([], expect.any(Function));
+    expect(decoysSync).toHaveBeenCalledWith([]);
   });
 
   it('ignores a stale `buoys` key entirely — the radar-buoy channel is gone', () => {
     const { sink, decoysSync } = setupChannels();
     const buoys = [{ id: 'b1', x: 0, y: 0, until: 5000, own: true, by: 'p1', sweep: 0 }];
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], buoys });
-    expect(decoysSync).toHaveBeenCalledWith([], expect.any(Function));
+    expect(decoysSync).toHaveBeenCalledWith([]);
   });
 });
 
@@ -343,7 +389,6 @@ function setupEvents(over: Record<string, unknown> = {}) {
     onSunkObserved: vi.fn(),
     onSpectate: vi.fn(),
     colors: vi.fn(() => null),
-    ordnanceHue: vi.fn(() => 0),
     ...(over.ownBurstRadius ? { ownBurstRadius: over.ownBurstRadius } : {}),
     ...(over.flashBursts ? { flashBursts: over.flashBursts } : {}),
   } as unknown as RoomBindingDeps;
@@ -479,7 +524,6 @@ describe('bindRoom own sunk', () => {
       audio: { play: vi.fn() },
       names: (id: string) => id,
       colors: () => null,
-      ordnanceHue: () => 0,
       resetThrottle,
       respawnArmed: () => true, // the ready-room shape: the server DID arm a respawn
       resetPrime,
@@ -530,7 +574,6 @@ describe('bindRoom own sunk', () => {
       audio: { play: vi.fn() },
       names: (id: string) => id,
       colors: () => null,
-      ordnanceHue: () => 0,
       onOwnStats: vi.fn(),
       ownBuffer: { push: vi.fn() },
       radar: { onSweepSample: vi.fn(), setOwnRadarBuoys: vi.fn() },
@@ -545,7 +588,7 @@ describe('bindRoom own sunk', () => {
     // events, so the window is read off the very frame that opened it.
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 0, alive: false, ammo: [], sweep: 0,
-      cls: 'torpedoBoat', kit: [...DEFAULT_KIT], pts: 0, offer: [], boostUntil: 0, cards: [], lvl: 0, xp: 0,
+      cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], pts: 0, offer: [], boostUntil: 0, cards: [], lvl: 0, xp: 0,
       repairHp: 0, sinkingUntil: 5200,
     };
     sink.handler({ t: 200, tick: 2, ackSeq: 0, you, contacts: [], mines: [], events: [{ k: 'sunk', id: 'me', by: 'rival' }] });
@@ -595,7 +638,6 @@ describe('bindRoom own sunk — the respawn ETA', () => {
       audio: { play: vi.fn() },
       names: (id: string) => id,
       colors: () => null,
-      ordnanceHue: () => 0,
       onOwnStats: vi.fn(),
       ownBuffer: { push: vi.fn() },
       radar: { onSweepSample: vi.fn(), setOwnRadarBuoys: vi.fn() },
@@ -616,7 +658,7 @@ describe('bindRoom own sunk — the respawn ETA', () => {
     t, tick: 1, ackSeq: 0, contacts: [], mines: [], events,
     you: {
       id: 'me', x, y, heading: 0, speed: 10, hp: 0, alive: false, ammo: [], sweep: 0,
-      cls: 'torpedoBoat', kit: [...DEFAULT_KIT], pts: 0, offer: [], cards: [], boostUntil: 0, lvl: 0, xp: 0,
+      cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], pts: 0, offer: [], cards: [], boostUntil: 0, lvl: 0, xp: 0,
       repairHp: 0, sinkingUntil: 1000 + CONFIG.ship.sinkingWindowMs,
     },
   });
@@ -700,7 +742,6 @@ describe('bindRoom own spawn resets the honk cooldown', () => {
       resetHonkCooldown,
       onOwnSpawn,
       colors: () => null,
-      ordnanceHue: () => 0,
     } as unknown as RoomBindingDeps;
     bindRoom(conn, deps);
     return { sink, resetThrottle, resetHonkCooldown, onOwnSpawn, forceSnap, ownBufferClear };
@@ -782,7 +823,6 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
       cameraCenter: () => ({ x: 0, y: 0 }),
       names,
       colors: () => null,
-      ordnanceHue: () => 0,
       resetThrottle: vi.fn(),
       respawnArmed: () => true,
       resetPrime: vi.fn(),
@@ -1231,7 +1271,7 @@ function rewardFrame(event: unknown, own: { alive: boolean; cards?: string[] } |
   if (!own) return { ...base, spec: true };
   return {
     ...base,
-    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', kit: [...DEFAULT_KIT], cards: own.cards ?? [], alive: own.alive, sweep: 0 },
+    you: { x: 0, y: 0, heading: 0, speed: 0, cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], cards: own.cards ?? [], alive: own.alive, sweep: 0 },
   };
 }
 
@@ -1267,7 +1307,6 @@ function setupToasts(spectating = false, held = false) {
     audio: { play },
     names: (id: string) => id,
     colors: () => null,
-    ordnanceHue: () => 0,
     onOwnStats: vi.fn(),
     onOwnSpawn: vi.fn(),
     onSpectate: vi.fn(),
@@ -1580,7 +1619,7 @@ function victimFrame(
   if (!you) return { ...base, spec: true };
   return {
     ...base,
-    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', kit: [...DEFAULT_KIT], cards: [], alive: true, sweep: 0, ...you },
+    you: { x: 0, y: 0, heading: 0, speed: 0, cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], cards: [], alive: true, sweep: 0, ...you },
   };
 }
 
@@ -1649,7 +1688,6 @@ function setupWater(
     onOwnStats: vi.fn(),
     onOwnSpawn: vi.fn(),
     onSpectate: vi.fn(),
-    ordnanceHue: () => 0,
     colors: () => null,
     ownFireWeapon,
     // The sunk-path seams, stubbed so a death frame can be driven through this
@@ -2080,7 +2118,7 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     sink.handler({
       t: 1400, tick: 4, ackSeq: 0, contacts: [], mines: [],
       events: [{ k: 'dmg', id: 'me', amount: 5 }],
-      you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', kit: [...DEFAULT_KIT], cards: [], alive: true, sweep: 0 },
+      you: { x: 0, y: 0, heading: 0, speed: 0, cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], cards: [], alive: true, sweep: 0 },
     });
     expect(play).toHaveBeenLastCalledWith('burn');
     expect(trigger).toHaveBeenLastCalledWith(5 * CLIENT_CONFIG.burnZone.burnShakeScale);
@@ -2092,7 +2130,7 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     sink.handler({
       t: 6000, tick: 9, ackSeq: 0, contacts: [], mines: [],
       events: [{ k: 'dmg', id: 'me', amount: 5 }],
-      you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', kit: [...DEFAULT_KIT], cards: [], alive: true, sweep: 0 },
+      you: { x: 0, y: 0, heading: 0, speed: 0, cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], cards: [], alive: true, sweep: 0 },
     });
     expect(play).toHaveBeenLastCalledWith('damage');
   });
@@ -2456,7 +2494,6 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
       onSunkObserved: vi.fn(),
       onSpectate: vi.fn(),
       colors: vi.fn(() => null),
-      ordnanceHue: vi.fn(() => 0),
     } as unknown as RoomBindingDeps;
     bindRoom(conn, deps);
     return { sink, onBlip, setOwnRadarBuoys, onSmoke, onFire, onHonk, playHorn, play };
@@ -2471,7 +2508,7 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
     const mine = { id: 'd1', x: 10, y: 20, own: true, by: 'me', kind: 'radar', sweep: 0, until: 9000, hp: 50 };
     const heal = { id: 'd2', x: 30, y: 40, own: true, by: 'me', kind: 'healing', until: 9000, hp: 50 };
     const theirs = { id: 'd3', x: 50, y: 60, own: false, by: 'them', kind: 'radar' };
-    const you = { x: 0, y: 0, heading: 0, speed: 0, sweep: 0, alive: true, cls: 'torpedoBoat', gun: 'cannon', cards: [], kit: [] };
+    const you = { x: 0, y: 0, heading: 0, speed: 0, sweep: 0, alive: true, cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, cards: [], kit: [] };
     sink.handler({
       t: 400, tick: 4, ackSeq: 0, you, contacts: [], mines: [], decoys: [mine, heal, theirs],
       events: [{ k: 'blip', t: 400, gx: 0, gy: 0, w: 1, h: 1, bits: [1], src: 'd1' }],
@@ -2488,7 +2525,7 @@ describe('bindRoom pulse fan-out with the foghorn row present', () => {
     sink.handler({
       t: 400, tick: 4, ackSeq: 0, spec: true, contacts: [], mines: [],
       events: [
-        { k: 'blip', id: 'c1', x: 10, y: 20, heading: 0, speed: 0, cls: 'torpedoBoat' },
+        { k: 'blip', id: 'c1', x: 10, y: 20, heading: 0, speed: 0, cls: DEFAULT_CLASS_ID },
         { k: 'sm', x: 30, y: 40, tier: 1 },
         { k: 'fh', h: 'standard', b: 1.25, v: 2 },
       ],
@@ -3001,7 +3038,6 @@ function setupSignals(early: { results: unknown; bound: boolean } = { results: n
     onOwnSpawn: vi.fn(),
     audio: { play: vi.fn(), playHorn: vi.fn() },
     colors: vi.fn(() => null),
-    ordnanceHue: vi.fn(() => 0),
     onRequeue,
     onRoomLeave,
     onResults,

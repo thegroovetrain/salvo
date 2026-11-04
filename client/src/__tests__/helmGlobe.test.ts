@@ -14,7 +14,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Container } from 'pixi.js';
-import { CATALOG, CONFIG, boostedKinematics, draftedKinematics, effectiveStats } from '@salvo/shared';
+import { CATALOG, CONFIG, DEFAULT_CLASS_ID, SHIP_CLASS_IDS, boostedKinematics, draftedKinematics, effectiveStats } from '@salvo/shared';
 import { hullBaseKinematics } from '../sim/hullKinematics.js';
 import {
   DETENT_LABELS,
@@ -113,7 +113,7 @@ describe('detentTickAngle — the nine ticks over the crown', () => {
 });
 
 describe('speedLadderFraction — ACTUAL speed on the [-1,1] telegraph axis', () => {
-  const KIN = hullBaseKinematics('torpedoBoat');
+  const KIN = hullBaseKinematics(DEFAULT_CLASS_ID);
 
   it('is 0 at rest, +1 at full ahead, -1 at full astern', () => {
     expect(speedLadderFraction(0, KIN)).toBe(0);
@@ -128,14 +128,18 @@ describe('speedLadderFraction — ACTUAL speed on the [-1,1] telegraph axis', ()
     expect(speedLadderFraction(-KIN.reverseSpeed * 3, KIN)).toBe(-1);
   });
 
-  it('uses the passed class denominators (battleship is slower per unit speed)', () => {
-    const BB = hullBaseKinematics('battleship');
-    expect(speedLadderFraction(20, BB)).toBeGreaterThan(speedLadderFraction(20, KIN));
+  it('uses the passed class denominators (a slower hull reads further up the ladder per unit speed)', () => {
+    const bySpeed = SHIP_CLASS_IDS.map((id) => hullBaseKinematics(id)).sort((a, b) => a.maxSpeed - b.maxSpeed);
+    const slow = bySpeed[0]!;
+    const fast = bySpeed[bySpeed.length - 1]!;
+    expect(slow.maxSpeed).toBeLessThan(fast.maxSpeed);
+    const v = slow.maxSpeed / 2;
+    expect(speedLadderFraction(v, slow)).toBeGreaterThan(speedLadderFraction(v, fast));
   });
 });
 
 describe('needleAngle — the solid amber pointer on the arc', () => {
-  const KIN = hullBaseKinematics('torpedoBoat');
+  const KIN = hullBaseKinematics(DEFAULT_CLASS_ID);
   const FACTOR = CONFIG.boost.factor;
   /** The boosted forward cap, through the ONE shared hook (never a flat add). */
   const BOOSTED_CAP = boostedKinematics(KIN, FACTOR, true).maxSpeed;
@@ -182,7 +186,7 @@ describe('needleAngle — the solid amber pointer on the arc', () => {
     // the POST-FOLD kinematics: a SPEED-capped hull's boosted cap is the same
     // proportion of ITS cap, not the base cap plus a flat add.
     const cappedDeck = Array.from({ length: CATALOG.engines.cap }, () => 'engines');
-    const capped = effectiveStats(CONFIG.shipClasses.torpedoBoat, cappedDeck).kinematics;
+    const capped = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], cappedDeck).kinematics;
     const cappedBoosted = boostedKinematics(capped, FACTOR, true);
     expect(capped.maxSpeed).toBeGreaterThan(KIN.maxSpeed);
     expect(cappedBoosted.maxSpeed).toBeCloseTo(capped.maxSpeed * (1 + FACTOR), 9);
@@ -597,7 +601,7 @@ describe('helm glyph fade — only a LIVE helm counts', () => {
 // --- the Pixi shell ------------------------------------------------------------
 
 describe('HelmGlobe shell — a live frame and the coach-mark fade', () => {
-  const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+  const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
 
   function input(over: Partial<HelmGlobeInput> = {}): HelmGlobeInput {
     return {

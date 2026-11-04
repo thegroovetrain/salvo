@@ -14,7 +14,7 @@ import { ContactStore } from '../net/snapshots.js';
 import { isDroneHull } from '../render/ships.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssHex, cssRgba, textSafe } from '../util/color.js';
-import type { HullId } from '@salvo/shared';
+import { DEFAULT_CLASS_ID, SHIP_CLASS_IDS, type HullId } from '@salvo/shared';
 
 describe('ellipsizeName — mid-ellipsize > 14 code points to exactly 14', () => {
   it('leaves names of 14 chars or fewer untouched', () => {
@@ -324,10 +324,10 @@ describe('the kill feed names its victim: vcls, then the memo, then the roster',
   });
 
   it('never renames a CAPTAIN: fleetSizeName is null for every non-drone hull', () => {
-    for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) expect(fleetSizeName(cls)).toBeNull();
+    for (const cls of SHIP_CLASS_IDS) expect(fleetSizeName(cls)).toBeNull();
     expect(fleetSizeName(undefined)).toBeNull();
     // ...so a captain victim keeps their callsign even on a row carrying vcls.
-    expect(victimName('cap', 'battleship')).toBe('SALT SHAKER');
+    expect(victimName('cap', DEFAULT_CLASS_ID)).toBe('SALT SHAKER');
   });
 
   it('falls through to UNKNOWN VESSEL only for a hull that is neither ours nor seen', () => {
@@ -360,7 +360,7 @@ describe('the kill feed names its victim: vcls, then the memo, then the roster',
     // a captain's class never reaches this resolver at all; and (2) even if one
     // did, `fleetSizeName` is null for every non-drone hull, and the roster
     // callsign already won at step 1 regardless.
-    for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
+    for (const cls of SHIP_CLASS_IDS) {
       expect(fleetSizeName(cls)).toBeNull();
       expect(killerName('cap', cls)).toBe('SALT SHAKER');
       expect(killerName('ghost', cls)).toBe(UNKNOWN_VESSEL); // and no captain hull is ever named

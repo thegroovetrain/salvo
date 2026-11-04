@@ -14,6 +14,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { Container } from 'pixi.js';
 import type { Contact } from '@salvo/shared';
+import type { Relation } from '../render/relationColor.js';
 
 vi.mock('pixi.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('pixi.js')>();
@@ -43,7 +44,7 @@ const A = CLIENT_CONFIG.aggro;
 
 const camera = { worldToScreen: (p: { x: number; y: number }) => p, zoom: 1 };
 const plates = { nameOf: (): string | null => null, camera, pad: 8 };
-const rosterIndex = (): number | null => null;
+const relationOf = (): Relation => 'enemy';
 
 const hunter = (aggro?: true): Contact[] => [
   aggro
@@ -77,7 +78,7 @@ describe('ContactViews — the aggro bracket is wired to Contact.aggro', () => {
   it('a hull that has NEVER locked on pays nothing: no Graphics, no cue', () => {
     const r = rig();
     r.store.pushFrame(0, hunter());
-    r.views.render(r.store, 0, 0, 16, rosterIndex, plates);
+    r.views.render(r.store, 0, 0, 16, relationOf, plates);
     expect(r.children()).toBe(1); // the hull view alone
     expect(r.cues).toEqual([]);
   });
@@ -85,7 +86,7 @@ describe('ContactViews — the aggro bracket is wired to Contact.aggro', () => {
   it('an aggro\'d contact grows a bracket at the hull\'s pose and sounds ONE lock', () => {
     const r = rig();
     r.store.pushFrame(0, hunter(true));
-    r.views.render(r.store, 0, 0, 16, rosterIndex, plates);
+    r.views.render(r.store, 0, 0, 16, relationOf, plates);
     expect(r.children()).toBe(2); // hull + bracket
     expect(r.cues).toEqual(['acquired']);
     // The mark rides the SAME sample the hull drew, so the two cannot separate.
@@ -96,7 +97,7 @@ describe('ContactViews — the aggro bracket is wired to Contact.aggro', () => {
 
     // Held frames re-fire nothing.
     r.store.pushFrame(50, hunter(true));
-    r.views.render(r.store, 50, 50, 16, rosterIndex, plates);
+    r.views.render(r.store, 50, 50, 16, relationOf, plates);
     expect(r.cues).toEqual(['acquired']);
   });
 
@@ -108,10 +109,10 @@ describe('ContactViews — the aggro bracket is wired to Contact.aggro', () => {
     try {
       const r = rig();
       r.store.pushFrame(0, hunter(true));
-      r.views.render(r.store, 0, 0, 16, rosterIndex, plates);
+      r.views.render(r.store, 0, 0, 16, relationOf, plates);
       // The server stops sending `aggro` — the absence IS the de-aggro.
       r.store.pushFrame(50, hunter());
-      r.views.render(r.store, 50, 50, 16, rosterIndex, plates);
+      r.views.render(r.store, 50, 50, 16, relationOf, plates);
       expect(r.cues).toEqual(['acquired', 'released']);
       const bracket = r.layer.children[1];
       expect(bracket.visible).toBe(true); // still mid-break
@@ -119,7 +120,7 @@ describe('ContactViews — the aggro bracket is wired to Contact.aggro', () => {
       // ...and once the break has run its course the mark stops drawing.
       clock += A.breakMs + 1;
       r.store.pushFrame(100, hunter());
-      r.views.render(r.store, 100, 100, 16, rosterIndex, plates);
+      r.views.render(r.store, 100, 100, 16, relationOf, plates);
       expect(bracket.visible).toBe(false);
       expect(r.cues).toEqual(['acquired', 'released']); // and nothing further
     } finally {
@@ -130,13 +131,13 @@ describe('ContactViews — the aggro bracket is wired to Contact.aggro', () => {
   it('a PRUNED hunter reads as no longer locked — the bracket leaves with the hull', () => {
     const r = rig();
     r.store.pushFrame(0, hunter(true));
-    r.views.render(r.store, 0, 0, 16, rosterIndex, plates);
+    r.views.render(r.store, 0, 0, 16, relationOf, plates);
     expect(r.cues).toEqual(['acquired']);
     // Stop hearing about it entirely and advance past the stale TTL. We have
     // stopped being TOLD it has us, so holding a bracket on the fading ghost
     // would be an assertion the wire is no longer making.
     const late = 10_000;
-    r.views.render(r.store, late, late, 16, rosterIndex, plates);
+    r.views.render(r.store, late, late, 16, relationOf, plates);
     expect(r.cues).toEqual(['acquired', 'released']);
   });
 
@@ -146,7 +147,7 @@ describe('ContactViews — the aggro bracket is wired to Contact.aggro', () => {
       ...hunter(true),
       { id: 'f2', x: -80, y: 10, heading: 0, speed: 10, cls: 'droneSmall' },
     ]);
-    r.views.render(r.store, 0, 0, 16, rosterIndex, plates);
+    r.views.render(r.store, 0, 0, 16, relationOf, plates);
     // Two hull views + exactly ONE bracket.
     expect(r.children()).toBe(3);
     expect(r.cues).toEqual(['acquired']);

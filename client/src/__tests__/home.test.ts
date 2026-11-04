@@ -5,9 +5,8 @@
 // paints is checked against the reducer that paints it.
 //
 // Home-page maintenance patch re-takes pins DELIBERATELY: the home carries NO
-// color picker (the class bay footer owns it), the chip carries NO loadout
-// sub-line, and the callsign field + chip are TINTED with the ensured personal
-// hue (which a pick in the bay repaints live).
+// color picker, the chip carries NO loadout sub-line, and the callsign field +
+// chip are TINTED with the OWN accent (Story 10.4, R6 — the hue wheel is gone).
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -16,13 +15,23 @@ import {
   homeYieldStyle,
   livenessLines,
   KIT_KEY,
-  loadSavedGun,
+  SHIFT_KEY,
   loadSavedMode,
   saveMode,
   serverStatusLine,
   showHome,
 } from '../ui/home.js';
-import { DEFAULT_KIT, dealableConsumables, type LivenessPayload } from '@salvo/shared';
+import {
+  DEFAULT_CLASS_ID,
+  DEFAULT_KIT,
+  DEFAULT_SHIFT,
+  SHIFT_IDS,
+  SHIP_CLASS_IDS,
+  dealableConsumables,
+  type LivenessPayload,
+  type ShiftId,
+  type ShipClassId,
+} from '@salvo/shared';
 
 // The community links (Eric ruling 2026-08-28) are env-gated and read
 // `import.meta.env` at call time, so ANY test in this file that stubs a
@@ -30,16 +39,19 @@ import { DEFAULT_KIT, dealableConsumables, type LivenessPayload } from '@salvo/s
 // not per-describe, because a leak would surface as `expected 3 to be 2` in a
 // pin far from the stub (review gate, cycle 132; the ads.test.ts shape).
 afterEach(() => vi.unstubAllEnvs());
-import { loadColorPref, __resetSessionColorPrefForTests } from '../net/connection.js';
 import { HOME_TAGLINES } from '../ui/taglines.js';
-
-// The connection module caches the session's rolled hue (review-gate fix for
-// blocked-storage divergence); reset it per test so corrupt/absent-pref cases
-// exercise a fresh roll instead of the previous test's cached one.
-beforeEach(() => __resetSessionColorPrefForTests());
-import { PLAYER_HUES } from '../render/ships.js';
-import { cssHex } from '../util/color.js';
+import { OWN_ACCENT } from '../ui/ownAccent.js';
 import { CLASS_DISPLAY_NAMES } from '../ui/classSelect.js';
+
+/** A returning captain's stored hull — any real hull that is not the default. */
+const RETURNING: ShipClassId = SHIP_CLASS_IDS.find((c) => c !== DEFAULT_CLASS_ID)!;
+/** A hull to pick in the bay — neither the default (first-run highlight) nor
+ *  RETURNING, so every pick is observable whichever card opened lit. */
+const PICK: ShipClassId = SHIP_CLASS_IDS.find((c) => c !== DEFAULT_CLASS_ID && c !== RETURNING)!;
+/** The bay's digit key for a hull (cards are in SHIP_CLASS_IDS order). */
+const keyOf = (cls: ShipClassId): string => String(SHIP_CLASS_IDS.indexOf(cls) + 1);
+/** A Shift that is not the default — so a stored / picked Shift is observable. */
+const OTHER_SHIFT: ShiftId = SHIFT_IDS.find((id) => id !== DEFAULT_SHIFT)!;
 
 // --- pure reducers -----------------------------------------------------------
 
@@ -149,11 +161,11 @@ function statusText(): string {
   return statusEl().textContent ?? '';
 }
 
-/** The class bay's footer primary: the one bay button that is neither a swatch
- *  nor a gun chip (found by role, never by label). */
+/** The class bay's footer primary: the one bay button that is neither a kit
+ *  square nor a Shift chip (found by role, never by label). */
 function bayConfirm(): HTMLButtonElement {
   return [...document.querySelectorAll<HTMLButtonElement>('#hc-class-select button')].find(
-    (b) => !b.hasAttribute('aria-label') && !b.classList.contains('hc-gunchip') && b.textContent !== '',
+    (b) => !b.hasAttribute('aria-label') && !b.classList.contains('hc-shiftchip') && b.textContent !== '',
   ) as HTMLButtonElement;
 }
 
@@ -204,12 +216,12 @@ describe('showHome — first-run vs returning routing', () => {
   // RE-TAKEN pin (was "chip shows the class + loadout"): the chip is SLIM now —
   // silhouette, meta, change divider. No loadout sub-line.
   it('returning: the chip is slim (silhouette, meta, divider) and the primary door deploys immediately', () => {
-    localStorage.setItem('hullcracker.class', 'battleship');
+    localStorage.setItem('hullcracker.class', RETURNING);
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
     expect(chip().children).toHaveLength(3); // sil, meta, [change] — no loadout slot
     playButton().click();
-    expect(onDeploy).toHaveBeenCalledWith('', 'battleship', 'deckGun', DEFAULT_KIT); // empty callsign → server assigns
+    expect(onDeploy).toHaveBeenCalledWith('', RETURNING, DEFAULT_SHIFT, DEFAULT_KIT); // empty callsign → server assigns
     expect(document.getElementById('hc-class-select')).toBeNull(); // no layer, connected
   });
 
@@ -219,7 +231,7 @@ describe('showHome — first-run vs returning routing', () => {
   // properties that make truncation possible (overflow/text-overflow/min-width)
   // rather than simulating the narrow viewport itself.
   it('the class name and CHANGE CLASS divider are styled to clip with an ellipsis, not overflow', () => {
-    localStorage.setItem('hullcracker.class', 'battleship');
+    localStorage.setItem('hullcracker.class', RETURNING);
     showHome('0.0.0-test', vi.fn());
     const name = chip().querySelector('div') as HTMLElement;
     expect(name.style.overflow).toBe('hidden');
@@ -236,13 +248,13 @@ describe('showHome — first-run vs returning routing', () => {
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
     const firstRun = chip().textContent;
-    playButton().click(); // opens the layer (TB pre-highlighted)
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: '2' })); // highlight battleship
+    playButton().click(); // opens the layer (the default hull pre-highlighted)
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: keyOf(PICK) })); // highlight PICK
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); // pick it
     expect(onDeploy).not.toHaveBeenCalled();
     expect(chip().textContent).not.toBe(firstRun); // the first-run prompt gave way to the pick
-    expect(chip().textContent).toContain(CLASS_DISPLAY_NAMES.battleship);
-    expect(localStorage.getItem('hullcracker.class')).toBe('battleship'); // persisted
+    expect(chip().textContent).toContain(CLASS_DISPLAY_NAMES[PICK]);
+    expect(localStorage.getItem('hullcracker.class')).toBe(PICK); // persisted
   });
 });
 
@@ -265,7 +277,7 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
   // and its text is exactly the mode label. That single child is also what makes
   // the settings-yield escape unbuildable (see the yield-escape pin below).
   it('renders TWO mode buttons — each exactly ONE child, its bare mode label', () => {
-    localStorage.setItem('hullcracker.class', 'torpedoBoat');
+    localStorage.setItem('hullcracker.class', RETURNING);
     showHome('0.0.0-test', vi.fn());
     expect(soloButton()).not.toBeNull();
     expect(soloButton().children.length).toBe(1);
@@ -275,7 +287,7 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     for (const btn of [playButton(), soloButton()]) {
       expect(labelOf(btn).textContent).not.toBe('');
       expect(btn.textContent).toBe(labelOf(btn).textContent);
-      expect(btn.textContent).not.toContain(CLASS_DISPLAY_NAMES.torpedoBoat);
+      expect(btn.textContent).not.toContain(CLASS_DISPLAY_NAMES[RETURNING]);
     }
     expect(playButton().textContent).not.toBe(soloButton().textContent);
   });
@@ -362,14 +374,14 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
   });
 
   it('carries NO ⏎ chip — Enter is bound to the SOLO primary only', () => {
-    localStorage.setItem('hullcracker.class', 'battleship');
+    localStorage.setItem('hullcracker.class', RETURNING);
     showHome('0.0.0-test', vi.fn());
     expect(soloButton().textContent).not.toContain('⏎');
     expect(playButton().textContent).not.toContain('⏎');
   });
 
   it('Enter in the callsign field still runs the SOLO primary, never the solo-vs-AI door', () => {
-    localStorage.setItem('hullcracker.class', 'battleship');
+    localStorage.setItem('hullcracker.class', RETURNING);
     const onDeploy = vi.fn();
     const onSolo = vi.fn();
     showHome('0.0.0-test', onDeploy, vi.fn(), onSolo);
@@ -381,13 +393,13 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
   });
 
   it('a click deploys through the SOLO door with the same callsign + class', () => {
-    localStorage.setItem('hullcracker.class', 'mineLayer');
+    localStorage.setItem('hullcracker.class', RETURNING);
     const onDeploy = vi.fn();
     const onSolo = vi.fn();
     showHome('0.0.0-test', onDeploy, vi.fn(), onSolo);
     nameInput().value = 'skipper';
     soloButton().click();
-    expect(onSolo).toHaveBeenCalledWith('skipper', 'mineLayer', 'deckGun', DEFAULT_KIT);
+    expect(onSolo).toHaveBeenCalledWith('skipper', RETURNING, DEFAULT_SHIFT, DEFAULT_KIT);
     expect(onDeploy).not.toHaveBeenCalled(); // the two doors never cross
     expect(localStorage.getItem('hullcracker.name')).toBe('skipper'); // callsign persisted
   });
@@ -407,14 +419,14 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     showHome('0.0.0-test', vi.fn());
     const labels = [labelOf(playButton()).textContent, labelOf(soloButton()).textContent];
     playButton().click(); // first-run: opens the bay
-    press('2'); // battleship
+    press(keyOf(PICK));
     press('Enter');
     expect([labelOf(playButton()).textContent, labelOf(soloButton()).textContent]).toEqual(labels);
-    expect(chip().textContent).toContain(CLASS_DISPLAY_NAMES.battleship); // ...the chip took the pick
+    expect(chip().textContent).toContain(CLASS_DISPLAY_NAMES[PICK]); // ...the chip took the pick
   });
 
   it('setBusy dims BOTH doors, and a busy solo press cannot start a second join', () => {
-    localStorage.setItem('hullcracker.class', 'battleship');
+    localStorage.setItem('hullcracker.class', RETURNING);
     const onSolo = vi.fn();
     const handle = showHome('0.0.0-test', vi.fn(), vi.fn(), onSolo);
     handle.setBusy(true);
@@ -429,7 +441,7 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
   // R4 (no lie on screen): the solo path never enters the pool, so the queue's
   // waiting surface must never appear on it — not before, not during, not after.
   it('never opens the queue modal on the solo path', () => {
-    localStorage.setItem('hullcracker.class', 'battleship');
+    localStorage.setItem('hullcracker.class', RETURNING);
     const handle = showHome('0.0.0-test', vi.fn(), vi.fn(), vi.fn());
     soloButton().click();
     handle.setBusy(true);
@@ -438,10 +450,9 @@ describe('showHome — the SOLO VS AI button (Story 6.5)', () => {
     expect(document.getElementById('queue-modal')).toBeNull();
   });
 
-  it('the solo button is never personal-tinted (it is a system register, like PLAY)', () => {
-    localStorage.setItem('hullcracker.color', '8');
+  it('the solo button is never accent-tinted (it is a system register, like PLAY)', () => {
     showHome('0.0.0-test', vi.fn());
-    const hue = normColor(cssHex(PLAYER_HUES[8]));
+    const hue = normColor(OWN_ACCENT.accent);
     expect(soloButton().style.borderColor).not.toBe(hue);
     expect(nameInput().style.borderColor).toBe(hue); // ...but the callsign still is
   });
@@ -466,7 +477,7 @@ describe('showHome — layer interaction guards (Story 1.14 review fixes)', () =
   });
 
   it('Enter in the callsign field does NOT deploy while the layer is open (fix 4)', () => {
-    localStorage.setItem('hullcracker.class', 'battleship'); // returning: Enter would normally deploy
+    localStorage.setItem('hullcracker.class', RETURNING); // returning: Enter would normally deploy
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
     chip().click(); // open the layer
@@ -478,7 +489,7 @@ describe('showHome — layer interaction guards (Story 1.14 review fixes)', () =
   });
 
   it('hide() tears down an open layer — no orphaned window listener into the game (fix 6)', () => {
-    localStorage.setItem('hullcracker.class', 'battleship');
+    localStorage.setItem('hullcracker.class', RETURNING);
     const handle = showHome('0.0.0-test', vi.fn());
     chip().click();
     expect(document.getElementById('hc-class-select')).not.toBeNull();
@@ -489,46 +500,34 @@ describe('showHome — layer interaction guards (Story 1.14 review fixes)', () =
   it('refocuses the callsign field after a layer pick so Enter=PLAY lives again (fix 8)', () => {
     showHome('0.0.0-test', vi.fn());
     playButton().click(); // first-run: opens the layer (blurs the input)
-    press('2'); // highlight battleship
+    press(keyOf(PICK));
     press('Enter'); // pick it → layer closes
     expect(document.activeElement).toBe(nameInput());
   });
 });
 
-describe('showHome — the color picker is GONE from home (it lives in the class bay)', () => {
+describe('showHome — no color picker; the port chrome wears the OWN accent (Story 10.4, R6)', () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => {
     home()?.remove();
     document.getElementById('hc-class-select')?.remove();
   });
 
-  // RE-TAKEN pin (was "a swatch click persists the hue connect() reads" ON HOME):
-  // home carries no swatches at all now — the bay footer is the one picker.
   it('renders NO swatches anywhere on the home surface', () => {
     showHome('0.0.0-test', vi.fn());
     expect(home().querySelectorAll('button[aria-label^="hue "]').length).toBe(0);
-    expect(home().querySelector('button[aria-label="hue 9"]')).toBeNull();
   });
 
-  it('mounting ENSURES a persisted personal hue (first visit rolls + writes it)', () => {
+  it('tints the callsign field + chip with the own accent (no amber accents)', () => {
+    localStorage.setItem('hullcracker.class', RETURNING);
     showHome('0.0.0-test', vi.fn());
-    const idx = loadColorPref();
-    expect(idx).not.toBeUndefined();
-    expect(localStorage.getItem('hullcracker.color')).toBe(String(idx));
+    const accent = normColor(OWN_ACCENT.accent);
+    expect(nameInput().style.borderColor).toBe(accent);
+    expect(chip().style.borderColor).toBe(accent);
+    expect(chip().style.boxShadow).not.toBe(''); // accent glow
   });
 
-  it('tints the callsign field + chip with the ensured personal color (no amber accents)', () => {
-    localStorage.setItem('hullcracker.color', '8'); // cyan — deterministic
-    localStorage.setItem('hullcracker.class', 'battleship');
-    showHome('0.0.0-test', vi.fn());
-    const hue = normColor(cssHex(PLAYER_HUES[8]));
-    expect(nameInput().style.borderColor).toBe(hue);
-    expect(chip().style.borderColor).toBe(hue);
-    expect(chip().style.boxShadow).not.toBe(''); // personal-hue glow
-  });
-
-  it('the callsign focus ring is the personal color, and it lifts on blur', () => {
-    localStorage.setItem('hullcracker.color', '8');
+  it('the callsign focus ring lights on focus, and it lifts on blur', () => {
     showHome('0.0.0-test', vi.fn());
     const input = nameInput();
     input.focus();
@@ -538,34 +537,17 @@ describe('showHome — the color picker is GONE from home (it lives in the class
     expect(input.style.boxShadow).toBe('none');
   });
 
-  it('a pick in the class bay repaints the home tint live (modal → home)', () => {
-    localStorage.setItem('hullcracker.class', 'battleship');
+  // The accent paint must never land on a deploy button, while the
+  // chip/callsign both get it.
+  it('the SOLO primary is never accent-tinted — the amber action register stays amber', () => {
     showHome('0.0.0-test', vi.fn());
-    chip().click(); // open the bay
-    const swatch = document.querySelector('#hc-class-select button[aria-label="hue 9"]') as HTMLButtonElement;
-    swatch.click(); // idx 8 = cyan
-    expect(localStorage.getItem('hullcracker.color')).toBe('8');
-    expect(loadColorPref()).toBe(8);
-    const hue = normColor(cssHex(PLAYER_HUES[8]));
-    expect(chip().style.borderColor).toBe(hue);
-    expect(nameInput().style.borderColor).toBe(hue);
+    const accent = normColor(OWN_ACCENT.accent);
+    expect(playButton().style.borderColor).not.toBe(accent);
+    expect(playButton().style.boxShadow).not.toContain(accent);
+    expect(nameInput().style.borderColor).toBe(accent); // ...but the callsign does
   });
 
-  // The accent repaint must never write a personal hue onto a deploy button,
-  // while the chip/callsign both get one. (The amber outline itself is readable
-  // now that the border is assigned as separate properties rather than inside a
-  // `border:1px solid var(--x)` blob, which jsdom's cssstyle voids wholesale.)
-  it('the SOLO primary is never personal-tinted — the amber action register stays amber', () => {
-    localStorage.setItem('hullcracker.color', '8');
-    showHome('0.0.0-test', vi.fn());
-    const hue = normColor(cssHex(PLAYER_HUES[8]));
-    expect(playButton().style.borderColor).not.toBe(hue);
-    expect(playButton().style.boxShadow).not.toContain(hue);
-    expect(nameInput().style.borderColor).toBe(hue); // ...but the callsign does
-  });
-
-  it('the phosphor status line keeps its own register (never personal-tinted)', () => {
-    localStorage.setItem('hullcracker.color', '8');
+  it('the phosphor status line keeps its own register (never accent-tinted)', () => {
     const handle = showHome('0.0.0-test', vi.fn());
     handle.setServerProbe('ready');
     expect(statusEl().style.color).toBe('var(--hc-phosphor)');
@@ -582,33 +564,33 @@ describe('showHome — CONFIRM SELECTION saves the class WITHOUT deploying', () 
   it('click: class persisted, bay closes back to port, NO connection attempted', () => {
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
-    playButton().click(); // first-run SOLO opens the bay (TB pre-highlighted)
-    press('3'); // highlight mineLayer
+    playButton().click(); // first-run SOLO opens the bay (the default hull pre-highlighted)
+    press(keyOf(PICK));
     bayConfirm().click();
-    expect(localStorage.getItem('hullcracker.class')).toBe('mineLayer');
+    expect(localStorage.getItem('hullcracker.class')).toBe(PICK);
     expect(onDeploy).not.toHaveBeenCalled(); // the buttons are the ONLY deploy path
     expect(document.getElementById('hc-class-select')).toBeNull();
-    expect(chip().textContent).toContain(CLASS_DISPLAY_NAMES.mineLayer); // the chip took the pick
+    expect(chip().textContent).toContain(CLASS_DISPLAY_NAMES[PICK]); // the chip took the pick
   });
 
   it('Enter in the bay confirms the same way (no deploy)', () => {
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
     playButton().click();
-    press('2'); // battleship
+    press(keyOf(PICK));
     press('Enter');
-    expect(localStorage.getItem('hullcracker.class')).toBe('battleship');
+    expect(localStorage.getItem('hullcracker.class')).toBe(PICK);
     expect(onDeploy).not.toHaveBeenCalled();
   });
 
   it('ESC still closes with the class unchanged (semantics untouched)', () => {
-    localStorage.setItem('hullcracker.class', 'battleship');
+    localStorage.setItem('hullcracker.class', RETURNING);
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
     chip().click();
-    press('3'); // move the highlight to mineLayer — ESC must not commit it
+    press(keyOf(PICK)); // move the highlight — ESC must not commit it
     press('Escape');
-    expect(localStorage.getItem('hullcracker.class')).toBe('battleship');
+    expect(localStorage.getItem('hullcracker.class')).toBe(RETURNING);
     expect(onDeploy).not.toHaveBeenCalled();
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
@@ -687,7 +669,7 @@ describe('showHome — the settings gear (Story 2.3: the inert note is gone)', (
   // it cannot speak for them. See deferred-work.md. (The consent bar's z-1250
   // rung was the third until Story 7.4 deleted the card.)
   it('yield escape: NO descendant asserts paint or hit-testing while yielded', () => {
-    localStorage.setItem('hullcracker.class', 'battleship');
+    localStorage.setItem('hullcracker.class', RETURNING);
     const handle = showHome('0.0.0-test', vi.fn(), vi.fn());
     handle.setLiveness(livePayload()); // the payload that used to paint `visible`
     handle.setYielded(true);
@@ -844,7 +826,7 @@ describe('showHome — status-line states via the handle', () => {
     // Never-silence, without blanking the queue readout: the line only refreshes
     // when the server pushes, so a fixed connecting line would hide the
     // countdown until the next push.
-    localStorage.setItem('hullcracker.class', 'battleship');
+    localStorage.setItem('hullcracker.class', RETURNING);
     const onDeploy = vi.fn();
     const handle = showHome('0.0.0-test', onDeploy);
     handle.setBusy(true);
@@ -1383,93 +1365,85 @@ describe('main.ts stands liveness down at the deploy door (F3)', () => {
 });
 
 
-// STORY 8.15 (Eric ruling 2026-09-28, epic-8 amendment 107): the GUN PICK lives
-// on the class-select cards, is stored under `hullcracker.gun` beside the class,
-// and rides every deploy door as the third argument. The home chip stays SLIM —
-// no `class · gun` sub-line until Story 9.4.
-describe('the gun pick — persistence and the deploy doors (Story 8.15)', () => {
+// STORY 10.4: the SHIFT PICK (the retired gun pick's seat) lives on the
+// class-select cards, is stored under SHIFT_KEY beside the class, and rides every
+// deploy door as the third argument. The home chip stays SLIM — no
+// `class · Shift` sub-line. (loadSavedShift itself: homePersistence.test.ts.)
+describe('the Shift pick — persistence and the deploy doors (Story 10.4)', () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => {
     home()?.remove();
     document.getElementById('hc-class-select')?.remove();
   });
 
-  /** A chip on card `card` (0 TB · 1 BS · 2 ML), by its `data-gun` id. A chip
+  /** A Shift chip on the card of hull `cls`, by its `data-shift` id. A chip
    *  click also highlights ITS card, so a test that keeps the hull picks on
    *  that hull's own card. */
-  function gunChip(gun: string, card = 0): HTMLButtonElement {
-    const el = document.querySelectorAll('#hc-class-select .hc-ccard')[card];
-    return el.querySelector(`.hc-gunchip[data-gun="${gun}"]`) as HTMLButtonElement;
+  function shiftChip(id: ShiftId, cls: ShipClassId): HTMLButtonElement {
+    const el = document.querySelectorAll('#hc-class-select .hc-ccard')[SHIP_CLASS_IDS.indexOf(cls)];
+    return el.querySelector(`.hc-shiftchip[data-shift="${id}"]`) as HTMLButtonElement;
   }
 
   function confirm(): void {
     bayConfirm().click();
   }
 
-  it('loadSavedGun: CANNON (deckGun) when unset or unknown, the stored pick otherwise', () => {
-    expect(loadSavedGun()).toBe('deckGun');
-    localStorage.setItem('hullcracker.gun', 'flak');
-    expect(loadSavedGun()).toBe('flak');
-    localStorage.setItem('hullcracker.gun', 'missile'); // CUT — and never a gun
-    expect(loadSavedGun()).toBe('deckGun');
-  });
-
-  it('a stored gun rides PLAY and SOLO VS AI as the third argument', () => {
-    localStorage.setItem('hullcracker.class', 'battleship');
-    localStorage.setItem('hullcracker.gun', 'machineGun');
+  it('a stored Shift rides PLAY and SOLO VS AI as the third argument', () => {
+    localStorage.setItem('hullcracker.class', RETURNING);
+    localStorage.setItem(SHIFT_KEY, OTHER_SHIFT);
     const onDeploy = vi.fn();
     const onSolo = vi.fn();
     showHome('0.0.0-test', onDeploy, () => undefined, onSolo);
     playButton().click();
-    expect(onDeploy).toHaveBeenCalledWith('', 'battleship', 'machineGun', DEFAULT_KIT);
+    expect(onDeploy).toHaveBeenCalledWith('', RETURNING, OTHER_SHIFT, DEFAULT_KIT);
     soloButton().click();
-    expect(onSolo).toHaveBeenCalledWith('', 'battleship', 'machineGun', DEFAULT_KIT);
+    expect(onSolo).toHaveBeenCalledWith('', RETURNING, OTHER_SHIFT, DEFAULT_KIT);
   });
 
   it('picking a chip and CONFIRMING stores it beside the class; the chip stays slim', () => {
-    localStorage.setItem('hullcracker.class', 'mineLayer');
+    localStorage.setItem('hullcracker.class', RETURNING);
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
     const slim = chip().textContent;
     chip().click();
-    expect(gunChip('deckGun').getAttribute('aria-pressed')).toBe('true'); // preselected
-    gunChip('flak', 2).click(); // on the Mine Layer's own card
+    expect(shiftChip(DEFAULT_SHIFT, RETURNING).getAttribute('aria-pressed')).toBe('true'); // preselected
+    shiftChip(OTHER_SHIFT, RETURNING).click(); // on the stored hull's own card
     confirm();
-    expect(localStorage.getItem('hullcracker.gun')).toBe('flak');
-    expect(localStorage.getItem('hullcracker.class')).toBe('mineLayer');
-    expect(chip().textContent).toBe(slim); // the gun pick never reaches the chip
-    expect(home().querySelector('.hc-gunchip')).toBeNull();
+    expect(localStorage.getItem(SHIFT_KEY)).toBe(OTHER_SHIFT);
+    expect(localStorage.getItem('hullcracker.class')).toBe(RETURNING);
+    expect(chip().textContent).toBe(slim); // the Shift pick never reaches the chip
+    expect(home().querySelector('.hc-shiftchip')).toBeNull();
     playButton().click();
-    expect(onDeploy).toHaveBeenCalledWith('', 'mineLayer', 'flak', DEFAULT_KIT);
+    expect(onDeploy).toHaveBeenCalledWith('', RETURNING, OTHER_SHIFT, DEFAULT_KIT);
   });
 
-  it('re-opening the bay lights the STORED gun, and ESC discards a changed pick', () => {
-    localStorage.setItem('hullcracker.class', 'torpedoBoat');
-    localStorage.setItem('hullcracker.gun', 'machineGun');
+  it('re-opening the bay lights the STORED Shift, and ESC discards a changed pick', () => {
+    localStorage.setItem('hullcracker.class', RETURNING);
+    localStorage.setItem(SHIFT_KEY, OTHER_SHIFT);
     showHome('0.0.0-test', vi.fn());
     chip().click();
-    expect(gunChip('machineGun').getAttribute('aria-pressed')).toBe('true');
-    gunChip('deckGun').click();
+    expect(shiftChip(OTHER_SHIFT, RETURNING).getAttribute('aria-pressed')).toBe('true');
+    shiftChip(DEFAULT_SHIFT, RETURNING).click();
     press('Escape');
-    expect(localStorage.getItem('hullcracker.gun')).toBe('machineGun');
+    expect(localStorage.getItem(SHIFT_KEY)).toBe(OTHER_SHIFT);
   });
 
-  // Story 10.1: the kit saves on CONFIRM beside the gun and rides every door.
+  // Story 10.1: the kit saves on CONFIRM beside the Shift and rides every door.
   it('a stored kit opens the CONSUMABLES row and rides PLAY as the fourth argument', () => {
     const kit = [...DEFAULT_KIT].reverse();
-    localStorage.setItem('hullcracker.class', 'battleship');
+    localStorage.setItem('hullcracker.class', RETURNING);
     localStorage.setItem(KIT_KEY, JSON.stringify(kit));
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
     playButton().click();
-    expect(onDeploy).toHaveBeenCalledWith('', 'battleship', 'deckGun', kit);
+    expect(onDeploy).toHaveBeenCalledWith('', RETURNING, DEFAULT_SHIFT, kit);
     chip().click();
     const squares = [...document.querySelectorAll<HTMLButtonElement>('#hc-class-select button[data-slot]')];
     expect(squares.map((b) => b.dataset.kind)).toEqual(kit);
   });
 
   it('a kit picked in the bay is saved on CONFIRM, and ESC discards it', () => {
-    localStorage.setItem('hullcracker.class', 'torpedoBoat');
+    localStorage.setItem('hullcracker.class', RETURNING);
     showHome('0.0.0-test', vi.fn());
     const lit = dealableConsumables().find((l) => !DEFAULT_KIT.includes(l))!;
     const pickInto = (slot: number): void => {

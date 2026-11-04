@@ -20,6 +20,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import {
   CONFIG,
   CONSUMABLE_SLOTS,
+  DEFAULT_CLASS_ID,
   DEFAULT_KIT,
   SLOT_COUNT,
   SLOT_GUN,
@@ -107,14 +108,13 @@ function own(over: Partial<ResultsOwn> = {}): ResultsOwn {
   const slots: (SlotItemId | null)[] = ['gun', 'boost', ...Array.from({ length: SLOT_COUNT - 2 }, () => null)];
   return {
     name: 'TIN SPARROW',
-    cls: 'torpedoBoat',
+    cls: DEFAULT_CLASS_ID,
     hue: 0x00d0ff,
     cards,
-    gun: 'deckGun',
     kit: DEFAULT_KIT,
     slots,
     ammo: slots.map(() => null),
-    stats: effectiveStats(CONFIG.shipClasses.torpedoBoat, cards),
+    stats: effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], cards),
     ...over,
   };
 }
@@ -417,7 +417,7 @@ describe('showResults — the elimination modal', () => {
     showResults(view({ own: own({ hue }) }), { onSpectate: () => undefined, onReturn: () => undefined });
     const text = document.getElementById('results-overlay')?.textContent ?? '';
     expect(text).toContain('TIN SPARROW');
-    expect(text.indexOf('TIN SPARROW')).toBeLessThan(text.indexOf(CLASS_DISPLAY_NAMES.torpedoBoat));
+    expect(text.indexOf('TIN SPARROW')).toBeLessThan(text.indexOf(CLASS_DISPLAY_NAMES[DEFAULT_CLASS_ID]));
     const name = [...document.querySelectorAll<HTMLElement>('#results-overlay span')].find(
       (s) => s.textContent === 'TIN SPARROW',
     );

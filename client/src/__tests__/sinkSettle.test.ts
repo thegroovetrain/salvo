@@ -19,7 +19,7 @@
 //     a pulse — keeps carrying the information at every tier.
 
 import { afterEach, describe, it, expect } from 'vitest';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { ownSettle, settleProgress, settleToDeadline, spectateSettle } from '../render/sinkSettle.js';
 import { FALLBACK_STYLE, ShipView, hullLook, setHullFlashGate } from '../render/ships.js';
@@ -143,8 +143,8 @@ describe('ShipView — the founder handover is a continuation, not a step', () =
     // `ContactViews.markSunk` (the founder beat) is `setDowned(true)`, and the
     // ramp arrives at `setSink(1)` on the same tick. If these ever diverge,
     // every kill in the game pops at five seconds.
-    const ramped = new ShipView(FALLBACK_STYLE, 'torpedoBoat');
-    const snapped = new ShipView(FALLBACK_STYLE, 'torpedoBoat');
+    const ramped = new ShipView(FALLBACK_STYLE, DEFAULT_CLASS_ID);
+    const snapped = new ShipView(FALLBACK_STYLE, DEFAULT_CLASS_ID);
     ramped.update(0, 0, 0);
     snapped.update(0, 0, 0);
     ramped.setSink(1);
@@ -156,7 +156,7 @@ describe('ShipView — the founder handover is a continuation, not a step', () =
   });
 
   it('a settling hull sits between the two, and a respawn restores it whole', () => {
-    const v = new ShipView(FALLBACK_STYLE, 'torpedoBoat');
+    const v = new ShipView(FALLBACK_STYLE, DEFAULT_CLASS_ID);
     v.update(0, 0, 0);
     v.setSink(0.5);
     expect(v.gfx.alpha).toBeLessThan(1);
@@ -169,7 +169,7 @@ describe('ShipView — the founder handover is a continuation, not a step', () =
   });
 
   it('the settle applies WITHOUT a fresh pose — a dry snapshot buffer cannot freeze it', () => {
-    const v = new ShipView(FALLBACK_STYLE, 'torpedoBoat');
+    const v = new ShipView(FALLBACK_STYLE, DEFAULT_CLASS_ID);
     v.update(0, 0, 0);
     const before = v.gfx.alpha;
     v.setSink(0.8); // no update() in between
@@ -184,7 +184,7 @@ describe('the kill flash — the shipped hit-flash channel, held longer', () => 
     // exactly one floor slot and can never overlap the hit that preceded it.
     expect(SHIP.sinkFlashMs).toBe(CLIENT_CONFIG.gunnery.hitCallToneFloorMs);
     expect(SHIP.sinkFlashMs).toBeGreaterThan(SHIP.flashMs);
-    const v = new ShipView(FALLBACK_STYLE, 'torpedoBoat');
+    const v = new ShipView(FALLBACK_STYLE, DEFAULT_CLASS_ID);
     v.update(0, 0, 0);
     // BRACKET the call rather than sampling once. `sinkFlash()` stamps its
     // deadline from its OWN performance.now(), so a single `t0` taken before it
@@ -210,7 +210,7 @@ describe('the kill flash — the shipped hit-flash channel, held longer', () => 
     // information does not vanish, because the settle is a monotonic state ramp
     // rather than a pulse, and is not motion-gated (render/ships.ts hullLook).
     settings.set({ motion: 'off' });
-    const v = new ShipView(FALLBACK_STYLE, 'torpedoBoat');
+    const v = new ShipView(FALLBACK_STYLE, DEFAULT_CLASS_ID);
     v.update(0, 0, 0);
     v.sinkFlash();
     expect(v.flashIntensityAt(performance.now())).toBe(0);
@@ -223,7 +223,7 @@ describe('the kill flash — the shipped hit-flash channel, held longer', () => 
 
   it('motion REDUCED halves the strength and keeps the full duration', () => {
     settings.set({ motion: 'reduced' });
-    const v = new ShipView(FALLBACK_STYLE, 'torpedoBoat');
+    const v = new ShipView(FALLBACK_STYLE, DEFAULT_CLASS_ID);
     v.update(0, 0, 0);
     const t0 = performance.now();
     v.sinkFlash();
@@ -239,7 +239,7 @@ describe('the kill flash — the shipped hit-flash channel, held longer', () => 
       screenCenter: { x: 400, y: 300 },
     }, () => 1_000));
     const hulls = Array.from({ length: FB.maxPerSecond + 2 }, (_, i) => {
-      const v = new ShipView(FALLBACK_STYLE, 'torpedoBoat');
+      const v = new ShipView(FALLBACK_STYLE, DEFAULT_CLASS_ID);
       v.update(100 + i, 100, 0); // one region
       return v;
     });
@@ -280,7 +280,7 @@ describe('ownSettle — the hull the player is still fighting from', () => {
     expect(ownSettle({ alive: false }, FOUNDER)).toBe(CAP); // dead with no window
   });
 
-  it('stays clearly legible: the personal hue keeps most of its colour at the cap', () => {
+  it('stays clearly legible: the relation color keeps most of its colour at the cap', () => {
     // `sunkTint` has zero green and blue and a Pixi tint MULTIPLIES, so a fully
     // settled cyan/lime/spring hull renders black — which is what the own hull
     // used to SNAP to for the whole window. The cap is what stops that.

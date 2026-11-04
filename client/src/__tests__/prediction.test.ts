@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  DEFAULT_CLASS_ID,
   HOOK_REGISTRY,
+  SHIP_CLASS_IDS,
   boostedKinematics,
   buoyTail,
   combinedBoostFactor,
@@ -48,10 +50,12 @@ function hullOf(cls: ShipClassId): { kinematics: ShipConfig; mass: number } {
   return { kinematics: stats.kinematics, mass: stats.armor };
 }
 
-// The default class the Predictor seeds (torpedoBoat) — reference server steps
-// must use the same kinematics + silhouette to stay lock-step.
-const TB = hullOf('torpedoBoat');
-const TB_POLY = hullSilhouette('torpedoBoat');
+// The default class the Predictor seeds (DEFAULT_CLASS_ID) — reference server
+// steps must use the same kinematics + silhouette to stay lock-step.
+const TB = hullOf(DEFAULT_CLASS_ID);
+const TB_POLY = hullSilhouette(DEFAULT_CLASS_ID);
+/** A captain hull that is NOT the predictor's default (the non-default-config cases). */
+const OTHER: ShipClassId = SHIP_CLASS_IDS.find((id) => id !== DEFAULT_CLASS_ID)!;
 
 // `hornSeq: 0` is the "never honked" sentinel (Story 4.5). Prediction never
 // reads it — a honk is an emote with no kinematic consequence, so it rides the
@@ -59,7 +63,7 @@ const TB_POLY = hullSilhouette('torpedoBoat');
 // sentinel here is what would make a future honk that DID move a hull fail
 // loudly instead of quietly desyncing prediction.
 function input(seq: number, throttle = 1, rudder = 0, actSeq = 0): InputMsg {
-  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq, actSlot: actSeq > 0 ? 2 : 0, hornSeq: 0, held: false };
+  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq, actSlot: actSeq > 0 ? 2 : 0, hornSeq: 0, held: false, sec: false };
 }
 
 function kin(s: ShipState) {
@@ -288,8 +292,8 @@ describe('Predictor island collision (polygon parity with shared collision)', ()
     ticks: number,
     rudderAt: (seq: number) => number,
   ): { server: ShipState; aground: number } {
-    const BB = hullOf('battleship');
-    const BB_POLY = hullSilhouette('battleship');
+    const BB = hullOf(OTHER);
+    const BB_POLY = hullSilhouette(OTHER);
     const server: ShipState = { ...spawn };
     const p = new Predictor({ radius: MAP_R, islands }, BB.kinematics, BB_POLY);
     p.onServerState(kin(spawn), 0);
@@ -312,7 +316,7 @@ describe('Predictor island collision (polygon parity with shared collision)', ()
   }
 
   it('server and client agree bit-for-bit while grounded on a coastline', () => {
-    const BB = hullOf('battleship');
+    const BB = hullOf(OTHER);
     const island = circleIsland(300, 0, 120); // dead ahead of the spawn
     // Ram it head-on for 10s, then put the helm hard over and drive off.
     const { server, aground } = parityDrive(
@@ -323,29 +327,29 @@ describe('Predictor island collision (polygon parity with shared collision)', ()
     );
     expect(aground).toBeGreaterThan(20); // it really did ground and hold there
     // The hull ends free, with way on and full helm — not pinned.
-    expect(hullClearance(server, hullSilhouette('battleship'), island)).toBeGreaterThan(0);
+    expect(hullClearance(server, hullSilhouette(OTHER), island)).toBeGreaterThan(0);
     expect(server.speed).toBeGreaterThanOrEqual(BB.kinematics.steerageSpeed);
   });
 
   it('server and client agree bit-for-bit while pressed on the map edge', () => {
-    const BB = hullOf('battleship');
+    const BB = hullOf(OTHER);
     // The "pinned in open ocean" input pattern: full ahead into the boundary,
     // throttle held, no land anywhere.
     const spawn = { x: 820, y: 0, heading: 0, speed: BB.kinematics.maxSpeed };
     const { server, aground } = parityDrive([], spawn, 120, () => 0);
     expect(aground).toBe(0); // the edge is never grounding
     expect(server.speed).toBeCloseTo(BB.kinematics.maxSpeed, 9); // and costs no way
-    const world = transformPolygon(hullSilhouette('battleship'), server.x, server.y, server.heading);
+    const world = transformPolygon(hullSilhouette(OTHER), server.x, server.y, server.heading);
     for (const v of world) expect(Math.hypot(v.x, v.y)).toBeLessThanOrEqual(MAP_R + 1e-6);
   });
 });
 
 describe('Predictor with a non-default class config', () => {
-  it('replays against a battleship-stepped server exactly', () => {
-    const BB = hullOf('battleship');
+  it('replays against a non-default-class-stepped server exactly', () => {
+    const BB = hullOf(OTHER);
     const spawn: ShipState = { x: 0, y: 0, heading: 0.2, speed: 0 };
     const server: ShipState = { ...spawn };
-    const p = new Predictor({ radius: MAP_R, islands: [] }, BB.kinematics, hullSilhouette('battleship'));
+    const p = new Predictor({ radius: MAP_R, islands: [] }, BB.kinematics, hullSilhouette(OTHER));
     p.onServerState(kin(spawn), 0);
     for (let seq = 1; seq <= 40; seq++) {
       const inp = input(seq, 1, seq % 10 < 5 ? 0.6 : -0.6);
@@ -782,7 +786,10 @@ describe('Predictor prop-fouling slow (Story 2.8)', () => {
 
     const server: ShipState = { ...spawn };
     const base: ShipState = { ...spawn }; // what the OLD base-factor fold would have produced
-    for (let seq = 1; seq <= 20; seq++) {
+    // Half the fouling window: long enough for both caps to be reached and the
+    // two hulls to part, still inside the slow.
+    const ticks = Math.floor(CONFIG.foulingMines.slowDurationMs / CONFIG.tick.simDtMs / 2);
+    for (let seq = 1; seq <= ticks; seq++) {
       const inp = input(seq, 1, 0);
       p.localTick(inp, tickT(seq));
       serverSlowStep(server, inp, tickT(seq), 0, slowedUntil, DEEP);
@@ -1058,6 +1065,33 @@ describe('Predictor wake draft (Story 8.19)', () => {
   const FOUL = CONFIG.foulingMines.slowFactor;
   const LIFT = CONFIG.wake.draft.lift;
   const BOOST = CONFIG.boost.factor;
+  /** A tier-V fouling depth (amendment 81). */
+  const DEEP_V = 0.55;
+  /** True when the pinned fold order (boost → slow → draft) lands on a double
+   *  neither mis-ordered chain produces for this hull's cap — at some caps the
+   *  three orders happen to round alike, and the ORDER pin would be vacuous. */
+  const orderObservable = (k: ShipConfig): boolean => {
+    const boosted = boostedKinematics(k, BOOST, true);
+    const pinned = draftedKinematics(slowedKinematics(boosted, DEEP_V, true), LIFT, true).maxSpeed;
+    const draftFirst = slowedKinematics(draftedKinematics(boosted, LIFT, true), DEEP_V, true).maxSpeed;
+    const draftBeforeBoost = slowedKinematics(
+      boostedKinematics(draftedKinematics(k, LIFT, true), BOOST, true),
+      DEEP_V,
+      true,
+    ).maxSpeed;
+    return pinned !== draftFirst && pinned !== draftBeforeBoost;
+  };
+  /** The hull this block runs on (by intent: the first captain hull whose cap
+   *  makes the order observable), seeded into every predictor below. */
+  const H_ID: ShipClassId = SHIP_CLASS_IDS.find((id) => orderObservable(hullOf(id).kinematics))!;
+  const H = hullOf(H_ID);
+  const H_POLY = hullSilhouette(H_ID);
+  /** `makeInitialized`, seeded with this block's hull. */
+  function makeInitializedH(spawn: ShipState): Predictor {
+    const pr = new Predictor({ radius: MAP_R, islands: [] }, H.kinematics, H_POLY);
+    pr.onServerState(kin(spawn), 0);
+    return pr;
+  }
 
   /** What the server knows about one tick's folds. */
   interface Fold {
@@ -1071,7 +1105,7 @@ describe('Predictor wake draft (Story 8.19)', () => {
    *  false is the PRE-8.19 three-step fold (boosted → slowed → hooks), true the
    *  pinned four-step one (boosted → slowed → drafted → hooks). */
   function foldKin(t: number, f: Fold, withDraft: boolean): ShipConfig {
-    const boosted = boostedKinematics(TB.kinematics, BOOST, t < (f.boostUntil ?? 0));
+    const boosted = boostedKinematics(H.kinematics, BOOST, t < (f.boostUntil ?? 0));
     const slowed = slowedKinematics(boosted, f.slowFactor ?? FOUL, t < (f.slowedUntil ?? 0));
     const draft = f.draft ?? 0;
     const drafted = withDraft ? draftedKinematics(slowed, draft, draft > 0) : slowed;
@@ -1083,7 +1117,7 @@ describe('Predictor wake draft (Story 8.19)', () => {
   function stepWith(s: ShipState, inp: InputMsg, k: ShipConfig): void {
     const prev: Pose = { x: s.x, y: s.y, heading: s.heading };
     stepShip(s, inp, k, DT);
-    applyGroundingDamp(s, resolveShipPose(prev, s, [], MAP_R, TB_POLY), TB.kinematics.maxSpeed);
+    applyGroundingDamp(s, resolveShipPose(prev, s, [], MAP_R, H_POLY), H.kinematics.maxSpeed);
   }
 
   /** Reference server tick — the four-step composition. */
@@ -1116,7 +1150,7 @@ describe('Predictor wake draft (Story 8.19)', () => {
     frameDraft: number | undefined,
     ref: (s: ShipState, inp: InputMsg, t: number, f: Fold) => void,
   ): ShipState {
-    const spawn: ShipState = { x: 0, y: 0, heading: 0.4, speed: TB.kinematics.maxSpeed };
+    const spawn: ShipState = { x: 0, y: 0, heading: 0.4, speed: H.kinematics.maxSpeed };
     const server: ShipState = { ...spawn };
     const history: ShipState[] = [{ ...spawn }];
     const slowedUntil = tickT(80) + 1;
@@ -1125,7 +1159,7 @@ describe('Predictor wake draft (Story 8.19)', () => {
       slowedUntil,
       ...(frameDraft === undefined ? {} : { draft: frameDraft }),
     });
-    const p = new Predictor({ radius: MAP_R, islands: [] });
+    const p = new Predictor({ radius: MAP_R, islands: [] }, H.kinematics, H_POLY);
     p.onServerState({ ...kin(spawn), ...foldAt(1) }, 0);
     for (let seq = 1; seq <= 160; seq++) {
       const inp = input(seq, 1, seq % 16 < 8 ? 0.3 : -0.3);
@@ -1154,7 +1188,7 @@ describe('Predictor wake draft (Story 8.19)', () => {
     expect(zero).toEqual(absent);
     // The run really did visit the boosted cap (last phase), so it is a mixed
     // run and not forty ticks of open water.
-    expect(absent.speed).toBe(boostedKinematics(TB.kinematics, BOOST, true).maxSpeed);
+    expect(absent.speed).toBe(boostedKinematics(H.kinematics, BOOST, true).maxSpeed);
   });
 
   it('with you.draft > 0 every tick lands on the four-step server reference, to the identical doubles', () => {
@@ -1162,7 +1196,7 @@ describe('Predictor wake draft (Story 8.19)', () => {
     // NON-VACUOUS: the drafted hull is a materially different hull.
     const plain = mixedRun(undefined, pre819Step);
     expect(Math.abs(drafted.x - plain.x) + Math.abs(drafted.y - plain.y)).toBeGreaterThan(1);
-    const boostedCap = boostedKinematics(TB.kinematics, BOOST, true).maxSpeed;
+    const boostedCap = boostedKinematics(H.kinematics, BOOST, true).maxSpeed;
     expect(drafted.speed).toBe(boostedCap + boostedCap * 0.03);
   });
 
@@ -1173,18 +1207,18 @@ describe('Predictor wake draft (Story 8.19)', () => {
     // different last bit than the pinned order — which is exactly why the order
     // is pinned on both sides rather than left to taste.
     const DEEP = 0.55;
-    const boosted = boostedKinematics(TB.kinematics, BOOST, true);
+    const boosted = boostedKinematics(H.kinematics, BOOST, true);
     const pinned = draftedKinematics(slowedKinematics(boosted, DEEP, true), LIFT, true);
     const draftBeforeSlow = slowedKinematics(draftedKinematics(boosted, LIFT, true), DEEP, true);
     const draftBeforeBoost = slowedKinematics(
-      boostedKinematics(draftedKinematics(TB.kinematics, LIFT, true), BOOST, true),
+      boostedKinematics(draftedKinematics(H.kinematics, LIFT, true), BOOST, true),
       DEEP,
       true,
     );
     expect(draftBeforeSlow.maxSpeed).not.toBe(pinned.maxSpeed);
     expect(draftBeforeBoost.maxSpeed).not.toBe(pinned.maxSpeed);
     // The I/O matrix's own row: (max + max × 0.25) × factor, then m + m × lift.
-    const slowedCap = (TB.kinematics.maxSpeed + TB.kinematics.maxSpeed * BOOST) * DEEP;
+    const slowedCap = (H.kinematics.maxSpeed + H.kinematics.maxSpeed * BOOST) * DEEP;
     expect(pinned.maxSpeed).toBe(slowedCap + slowedCap * LIFT);
     // ...and the reverse cap is slowed only — never lifted.
     expect(pinned.reverseSpeed).toBe(slowedKinematics(boosted, DEEP, true).reverseSpeed);
@@ -1193,7 +1227,7 @@ describe('Predictor wake draft (Story 8.19)', () => {
     const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
     const server: ShipState = { ...spawn };
     const history: ShipState[] = [{ ...spawn }];
-    const p = new Predictor({ radius: MAP_R, islands: [] });
+    const p = new Predictor({ radius: MAP_R, islands: [] }, H.kinematics, H_POLY);
     p.onServerState({ ...kin(spawn), ...fold }, 0);
     for (let seq = 1; seq <= 120; seq++) {
       const inp = input(seq, 1, 0);
@@ -1220,16 +1254,16 @@ describe('Predictor wake draft (Story 8.19)', () => {
       },
     };
     const BEHAVIORS = [{ hookId: 'flat', params: { add: 3 } }];
-    const m = TB.kinematics.maxSpeed;
+    const m = H.kinematics.maxSpeed;
     const hooksLast = m + m * LIFT + 3;
     const hooksFirst = m + 3 + (m + 3) * LIFT;
     expect(Math.abs(hooksLast - hooksFirst)).toBeGreaterThan(0.1);
     expect(
-      hookKinematics(draftedKinematics(TB.kinematics, LIFT, true), BEHAVIORS, REGISTRY).maxSpeed,
+      hookKinematics(draftedKinematics(H.kinematics, LIFT, true), BEHAVIORS, REGISTRY).maxSpeed,
     ).toBe(hooksLast);
 
     const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: m };
-    const p = new Predictor({ radius: MAP_R, islands: [] }, TB.kinematics, TB_POLY, DT, REGISTRY);
+    const p = new Predictor({ radius: MAP_R, islands: [] }, H.kinematics, H_POLY, DT, REGISTRY);
     p.setBoons(BEHAVIORS);
     p.onServerState({ ...kin(spawn), draft: LIFT }, 0);
     for (let seq = 1; seq <= 60; seq++) p.localTick(input(seq, 1, 0), tickT(seq));
@@ -1237,8 +1271,8 @@ describe('Predictor wake draft (Story 8.19)', () => {
   });
 
   it('REPLAY — a frame with draft 0.03 and 4 un-acked inputs replays ALL FOUR ticks at 0.03', () => {
-    const spawn: ShipState = { x: 0, y: 0, heading: 0.2, speed: TB.kinematics.maxSpeed };
-    const p = makeInitialized(spawn); // no draft yet: the four live ticks run un-drafted
+    const spawn: ShipState = { x: 0, y: 0, heading: 0.2, speed: H.kinematics.maxSpeed };
+    const p = makeInitializedH(spawn); // no draft yet: the four live ticks run un-drafted
     const inputs: InputMsg[] = [];
     for (let seq = 1; seq <= 4; seq++) {
       inputs.push(input(seq, 1, 0.2));
@@ -1272,8 +1306,8 @@ describe('Predictor wake draft (Story 8.19)', () => {
   });
 
   it('the scalar is adopted BEFORE the replay — a frame that drops 0.05 to 0 replays the un-acked ticks at 0', () => {
-    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
-    const p = new Predictor({ radius: MAP_R, islands: [] });
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: H.kinematics.maxSpeed };
+    const p = new Predictor({ radius: MAP_R, islands: [] }, H.kinematics, H_POLY);
     p.onServerState({ ...kin(spawn), draft: 0.05 }, 0);
     const inputs: InputMsg[] = [];
     const lifted: ShipState = { ...spawn };
@@ -1290,7 +1324,7 @@ describe('Predictor wake draft (Story 8.19)', () => {
     expectSameDoubles(p, plain, 'replayed at 0');
     expect(p.predicted.x).not.toBe(lifted.x); // non-vacuous: the two replays differ
     // An explicit 0 on the wire reads the same as an absent key.
-    const q = new Predictor({ radius: MAP_R, islands: [] });
+    const q = new Predictor({ radius: MAP_R, islands: [] }, H.kinematics, H_POLY);
     q.onServerState({ ...kin(spawn), draft: 0.05 }, 0);
     for (let i = 0; i < 4; i++) q.localTick(inputs[i], tickT(i + 1));
     q.onServerState({ ...kin(spawn), draft: 0 }, 0);
@@ -1298,9 +1332,9 @@ describe('Predictor wake draft (Story 8.19)', () => {
   });
 
   it('leaving the lane lets the hull decay back to its rated cap, and no higher cap lingers', () => {
-    const m = TB.kinematics.maxSpeed;
+    const m = H.kinematics.maxSpeed;
     const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: m };
-    const p = new Predictor({ radius: MAP_R, islands: [] });
+    const p = new Predictor({ radius: MAP_R, islands: [] }, H.kinematics, H_POLY);
     p.onServerState({ ...kin(spawn), draft: LIFT }, 0);
     let peak = 0;
     for (let seq = 1; seq <= 40; seq++) {
@@ -1315,8 +1349,8 @@ describe('Predictor wake draft (Story 8.19)', () => {
 
   it('forceSnap() zeroes the scalar with the other authoritative fields', () => {
     const peek = (pr: Predictor): number => (pr as unknown as { authDraft: number }).authDraft;
-    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
-    const p = new Predictor({ radius: MAP_R, islands: [] });
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: H.kinematics.maxSpeed };
+    const p = new Predictor({ radius: MAP_R, islands: [] }, H.kinematics, H_POLY);
     p.onServerState({ ...kin(spawn), draft: 0.05 }, 0);
     expect(peek(p)).toBe(0.05);
     p.forceSnap(); // respawn / reconnect / class swap / P-toggle
@@ -1326,11 +1360,11 @@ describe('Predictor wake draft (Story 8.19)', () => {
     expect(peek(p)).toBe(0);
     // A class swap re-inits through the same door.
     p.onServerState({ ...kin(spawn), draft: 0.05 }, 0);
-    p.setClassConfig(TB.kinematics, TB_POLY, true);
+    p.setClassConfig(H.kinematics, H_POLY, true);
     expect(peek(p)).toBe(0);
     // ...while an upgrade grant (snap = false) keeps the ring AND the lift.
     p.onServerState({ ...kin(spawn), draft: 0.05 }, 0);
-    p.setClassConfig(TB.kinematics, TB_POLY, false);
+    p.setClassConfig(H.kinematics, H_POLY, false);
     expect(peek(p)).toBe(0.05);
     // Behaviourally: the life after a snap, on a frame with no key, is un-drafted.
     p.forceSnap();
@@ -1345,9 +1379,9 @@ describe('Predictor wake draft (Story 8.19)', () => {
   });
 
   it('setDraft: a non-finite or negative lift reads as 0; the top is clamped to CONFIG.wake.draft.lift', () => {
-    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: H.kinematics.maxSpeed };
     for (const bad of [NaN, -0.05, -Infinity, Infinity, -0]) {
-      const p = makeInitialized(spawn);
+      const p = makeInitializedH(spawn);
       p.setDraft(LIFT); // a real lift first, so "0" is a reset and not the default
       p.setDraft(bad);
       const server: ShipState = { ...spawn };
@@ -1359,7 +1393,7 @@ describe('Predictor wake draft (Story 8.19)', () => {
       expectSameDoubles(p, server, `setDraft(${bad})`);
     }
     // The same guard stands on the frame path (a malformed `you.draft`).
-    const viaFrame = new Predictor({ radius: MAP_R, islands: [] });
+    const viaFrame = new Predictor({ radius: MAP_R, islands: [] }, H.kinematics, H_POLY);
     viaFrame.onServerState({ ...kin(spawn), draft: NaN }, 0);
     const still: ShipState = { ...spawn };
     const first = input(1, 1, 0);
@@ -1370,7 +1404,7 @@ describe('Predictor wake draft (Story 8.19)', () => {
     // draftLift never exceeds it, so an honest value passes unchanged): a
     // lift past CONFIG's folds exactly as the cap itself does.
     for (const big of [Number.MAX_VALUE, 4 * LIFT, LIFT + 1e-9]) {
-      const p = makeInitialized(spawn);
+      const p = makeInitializedH(spawn);
       p.setDraft(big);
       const server: ShipState = { ...spawn };
       for (let seq = 1; seq <= 60; seq++) {
@@ -1379,11 +1413,11 @@ describe('Predictor wake draft (Story 8.19)', () => {
         serverDraftStep(server, inp, tickT(seq), { draft: LIFT });
       }
       expectSameDoubles(p, server, `clamped top ${big}`);
-      expect(p.predicted.speed).toBe(TB.kinematics.maxSpeed + TB.kinematics.maxSpeed * LIFT);
+      expect(p.predicted.speed).toBe(H.kinematics.maxSpeed + H.kinematics.maxSpeed * LIFT);
     }
     // ...and a value AT or under the cap is the server's exact double, untouched.
     const exact = LIFT * 0.6180339887;
-    const q = makeInitialized(spawn);
+    const q = makeInitializedH(spawn);
     q.setDraft(exact);
     const srv: ShipState = { ...spawn };
     for (let seq = 1; seq <= 60; seq++) {
@@ -1397,7 +1431,7 @@ describe('Predictor wake draft (Story 8.19)', () => {
   it('REVERSE never drafts — full astern in a wake tops out at the un-lifted reverse cap', () => {
     const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
     const server: ShipState = { ...spawn };
-    const p = new Predictor({ radius: MAP_R, islands: [] });
+    const p = new Predictor({ radius: MAP_R, islands: [] }, H.kinematics, H_POLY);
     p.onServerState({ ...kin(spawn), draft: LIFT }, 0);
     for (let seq = 1; seq <= 80; seq++) {
       const inp = input(seq, -1, 0);
@@ -1405,10 +1439,10 @@ describe('Predictor wake draft (Story 8.19)', () => {
       serverDraftStep(server, inp, tickT(seq), { draft: LIFT });
       expectSameDoubles(p, server, `tick ${seq}`);
     }
-    expect(p.predicted.speed).toBe(-TB.kinematics.reverseSpeed);
+    expect(p.predicted.speed).toBe(-H.kinematics.reverseSpeed);
     // ...and a FOULED hull astern in a wake is slowed only, never lifted back.
     const fouled: ShipState = { ...spawn };
-    const q = new Predictor({ radius: MAP_R, islands: [] });
+    const q = new Predictor({ radius: MAP_R, islands: [] }, H.kinematics, H_POLY);
     const slowedUntil = T0 + 1e6;
     q.onServerState({ ...kin(spawn), slowedUntil, draft: LIFT }, 0);
     for (let seq = 1; seq <= 80; seq++) {
@@ -1417,7 +1451,7 @@ describe('Predictor wake draft (Story 8.19)', () => {
       serverDraftStep(fouled, inp, tickT(seq), { slowedUntil, draft: LIFT });
     }
     expectSameDoubles(q, fouled, 'fouled astern');
-    expect(q.predicted.speed).toBe(-slowedKinematics(TB.kinematics, FOUL, true).reverseSpeed);
+    expect(q.predicted.speed).toBe(-slowedKinematics(H.kinematics, FOUL, true).reverseSpeed);
   });
 
   it('a SINKING rider is lifted too — the sinking ramp scales the POST-FOLD (drafted) cap', () => {
@@ -1425,18 +1459,18 @@ describe('Predictor wake draft (Story 8.19)', () => {
     // like an afloat one, and the ritardando reads the cap the fold produced.
     const since = T0;
     const sinkingUntil = since + CONFIG.ship.sinkingWindowMs;
-    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: H.kinematics.maxSpeed };
     /** `capDraft` is the lift in the max the RAMP reads; the step is always drafted. */
     const sinkStep = (s: ShipState, inp: InputMsg, t: number, capDraft: number): void => {
       const k = foldKin(t, { draft: LIFT }, true);
       const prev: Pose = { x: s.x, y: s.y, heading: s.heading };
       stepShip(s, inp, k, DT);
       applySinkingDecel(s, foldKin(t, { draft: capDraft }, true).maxSpeed, since, t);
-      applyGroundingDamp(s, resolveShipPose(prev, s, [], MAP_R, TB_POLY), TB.kinematics.maxSpeed);
+      applyGroundingDamp(s, resolveShipPose(prev, s, [], MAP_R, H_POLY), H.kinematics.maxSpeed);
     };
     const server: ShipState = { ...spawn };
     const ratedCap: ShipState = { ...spawn }; // what a ramp off the UN-drafted max would do
-    const p = new Predictor({ radius: MAP_R, islands: [] });
+    const p = new Predictor({ radius: MAP_R, islands: [] }, H.kinematics, H_POLY);
     p.onServerState({ ...kin(spawn), sinkingUntil, draft: LIFT }, 0);
     for (let seq = 1; seq <= 30; seq++) {
       const inp = input(seq, 1, 0);
@@ -1603,8 +1637,10 @@ describe('Predictor behavior boons (Story 2.5)', () => {
     const history: ShipState[] = [{ ...spawn }];
     const p = hookedPredictor();
     p.onServerState(kin(spawn), 0);
+    // Long enough to run up to the hooked cap from rest at the hull's accel.
+    const ticks = Math.ceil((TB.kinematics.maxSpeed * 1.2) / TB.kinematics.accel / DT) + 40;
 
-    for (let seq = 1; seq <= 130; seq++) {
+    for (let seq = 1; seq <= ticks; seq++) {
       const inp = input(seq, 1, seq % 16 < 8 ? 0.3 : -0.3);
       p.localTick(inp, tickT(seq));
       serverHookStep(server, inp, tickT(seq), 0);
@@ -1696,8 +1732,16 @@ describe('Predictor behavior boons (Story 2.5)', () => {
 
 describe('Predictor hull contact pass (Story 9.5)', () => {
   const OWN = 'own';
-  const BB = hullOf('battleship');
-  const BB_POLY = hullSilhouette('battleship');
+  const BB = hullOf(OTHER);
+  const BB_POLY = hullSilhouette(OTHER);
+  /** Half-beams of the own (default) hull and the contact: their sum is the
+   *  beam-to-beam touching distance; contacts below sit inside it. */
+  const OWN_HALF = CONFIG.shipClasses[DEFAULT_CLASS_ID].hull.beam / 2;
+  const TOUCH = OWN_HALF + CONFIG.shipClasses[OTHER].hull.beam / 2;
+  /** A contact abeam overlapping the own hull's beam. */
+  const ABEAM = TOUCH * 0.88;
+  /** A contact abeam overlapping a little less (the coast case). */
+  const ABEAM_COAST = TOUCH * 0.83;
 
   function body(id: string, x: number, y: number, heading = 0, speed = 0): ContactBody {
     return {
@@ -1735,12 +1779,12 @@ describe('Predictor hull contact pass (Story 9.5)', () => {
 
   it('pushes the own hull and the contact by their mass shares — the shared resolver, exactly', () => {
     const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
-    const contact = body('foe', 0, 18); // overlapping the own hull's beam
+    const contact = body('foe', 0, ABEAM); // overlapping the own hull's beam
     const p = solidPredictor([], spawn, [contact]);
     p.localTick(input(1, 0, 0), 0);
 
     const refOwn: ShipState = { ...spawn };
-    const refContact = body('foe', 0, 18);
+    const refContact = body('foe', 0, ABEAM);
     referenceTick(refOwn, refContact, input(1, 0, 0));
 
     expect(p.predicted.x).toBe(refOwn.x);
@@ -1749,29 +1793,31 @@ describe('Predictor hull contact pass (Story 9.5)', () => {
     expect(contact.state.y).toBe(refContact.state.y);
     // Non-trivial: both moved, apart, and the lighter own hull moved further.
     const ownMove = Math.hypot(refOwn.x - spawn.x, refOwn.y - spawn.y);
-    const foeMove = Math.hypot(refContact.state.x, refContact.state.y - 18);
+    const foeMove = Math.hypot(refContact.state.x, refContact.state.y - ABEAM);
     expect(ownMove).toBeGreaterThan(0);
     expect(foeMove).toBeGreaterThan(0);
     expect(ownMove / foeMove).toBeCloseTo(BB.mass / TB.mass, 6);
   });
 
   it('runs the hull pass BEFORE the land pass: a hull shoved into a coast still ends the tick clear of it', () => {
-    // A long flat coast whose shore runs at y = −6, just under the own hull.
+    // A long flat coast whose shore runs just under the own hull's beam — a
+    // sliver of the push away, so the shove crosses it.
+    const shore = -(OWN_HALF + (TOUCH - ABEAM_COAST) / 10);
     const island = islandFromPolygon([
-      { x: -150, y: -6 },
+      { x: -150, y: shore },
       { x: -150, y: -60 },
       { x: 150, y: -60 },
-      { x: 150, y: -6 },
+      { x: 150, y: shore },
     ]);
     const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
-    const contact = body('foe', 0, 17); // shoves the own hull toward the island
+    const contact = body('foe', 0, ABEAM_COAST); // shoves the own hull toward the island
     const p = solidPredictor([island], spawn, [contact]);
     p.localTick(input(1, 0, 0), 0);
 
     // The hull pass alone would leave the own hull INSIDE the island...
     const shoved: ShipState = { ...spawn };
     const ownBody: ContactBody = { id: OWN, state: shoved, poly: transformPolygon(TB_POLY, 0, 0, 0), mass: TB.mass, movable: true };
-    resolveHullContacts([ownBody, body('foe', 0, 17)]);
+    resolveHullContacts([ownBody, body('foe', 0, ABEAM_COAST)]);
     expect(hullClearance(shoved, TB_POLY, island)).toBeLessThan(0);
     // ...and the land pass that follows it resolves that the same tick.
     expect(hullClearance(p.predicted, TB_POLY, island)).toBeGreaterThanOrEqual(-1e-6);
@@ -1780,7 +1826,7 @@ describe('Predictor hull contact pass (Story 9.5)', () => {
 
   it('restores the contacts before every replayed tick — one push from its pose, never N stacked', () => {
     const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
-    const contact = body('foe', 0, 18);
+    const contact = body('foe', 0, ABEAM);
     const p = solidPredictor([], spawn, [contact]);
     const N = 3;
     for (let seq = 1; seq <= N; seq++) p.localTick(input(seq, 0, 0), 0);
@@ -1788,9 +1834,9 @@ describe('Predictor hull contact pass (Story 9.5)', () => {
 
     // Reference: every tick starts the contact from its handed-over pose.
     const refOwn: ShipState = { ...spawn };
-    let refContact = body('foe', 0, 18);
+    let refContact = body('foe', 0, ABEAM);
     for (let seq = 1; seq <= N; seq++) {
-      refContact = body('foe', 0, 18);
+      refContact = body('foe', 0, ABEAM);
       referenceTick(refOwn, refContact, input(seq, 0, 0));
     }
     expect(contact.state.x).toBe(refContact.state.x);
@@ -1799,14 +1845,14 @@ describe('Predictor hull contact pass (Story 9.5)', () => {
 
     // Without the restore the pushes would stack — a different place.
     const stackedOwn: ShipState = { ...spawn };
-    const stacked = body('foe', 0, 18);
+    const stacked = body('foe', 0, ABEAM);
     for (let seq = 1; seq <= N; seq++) referenceTick(stackedOwn, stacked, input(seq, 0, 0));
     expect(stacked.state.y).not.toBeCloseTo(refContact.state.y, 6);
   });
 
   it('reports the own hull\'s rows from the last live tick — and only the own hull\'s', () => {
     const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
-    const p = solidPredictor([], spawn, [body('foe', 0, 18)]);
+    const p = solidPredictor([], spawn, [body('foe', 0, ABEAM)]);
     p.localTick(input(1, 0, 0), 0);
     expect(p.ownContacts).toHaveLength(1);
     expect([p.ownContacts[0].a, p.ownContacts[0].b].sort()).toEqual(['foe', OWN].sort());

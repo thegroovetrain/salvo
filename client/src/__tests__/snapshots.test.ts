@@ -5,7 +5,7 @@ import {
   MAX_EXTRAPOLATION_MS,
   RETENTION_MS,
 } from '../net/snapshots.js';
-import { wrapAngle } from '@salvo/shared';
+import { DEFAULT_CLASS_ID, decodeTurretAngle, turretMounts, wrapAngle } from '@salvo/shared';
 
 function snap(t: number, x: number, y = 0, heading = 0, speed = 0) {
   return { t, x, y, heading, speed };
@@ -97,7 +97,7 @@ describe('SnapshotBuffer sampling', () => {
 
 describe('ContactStore lifecycle', () => {
   const contact = (id: string, x = 0) =>
-    ({ id, x, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat' as const });
+    ({ id, x, y: 0, heading: 0, speed: 0, cls: DEFAULT_CLASS_ID });
 
   it('creates a buffer on first sight and feeds it per frame', () => {
     const store = new ContactStore();
@@ -109,8 +109,8 @@ describe('ContactStore lifecycle', () => {
 
   it('records each contact class as a static attribute, cleared on prune', () => {
     const store = new ContactStore();
-    store.pushFrame(100, [{ id: 'a', x: 0, y: 0, heading: 0, speed: 0, cls: 'battleship' }]);
-    expect(store.classOf('a')).toBe('battleship');
+    store.pushFrame(100, [{ id: 'a', x: 0, y: 0, heading: 0, speed: 0, cls: DEFAULT_CLASS_ID }]);
+    expect(store.classOf('a')).toBe(DEFAULT_CLASS_ID);
     store.prune(1000, 100); // a is now stale
     expect(store.classOf('a')).toBeUndefined();
   });
@@ -157,6 +157,42 @@ describe('ContactStore lifecycle', () => {
     expect(store.aggroOf('d')).toBe(true);
     store.prune(1000, 100);
     expect(store.aggroOf('d')).toBe(false);
+  });
+
+  // Story 10.4: a contact's turret angles ride `Contact.tu` (whole degrees off
+  // each mount's rest bearing); the store hands back the decoded hull-relative
+  // angles, per frame.
+  it('decodes Contact.tu through decodeTurretAngle, per turret, bow to stern', () => {
+    const store = new ContactStore();
+    const n = turretMounts(DEFAULT_CLASS_ID).length;
+    const tu = Array.from({ length: n }, (_, i) => (i % 2 === 0 ? 1 : -1) * 10 * (i + 1));
+    store.pushFrame(100, [{ ...contact('a'), tu }]);
+    expect(store.turretAnglesOf('a')).toEqual(tu.map((q, i) => decodeTurretAngle(DEFAULT_CLASS_ID, i, q)));
+    // A later frame replaces the reading (angles are per frame, not latched).
+    const next = tu.map((q) => -q);
+    store.pushFrame(150, [{ ...contact('a'), tu: next }]);
+    expect(store.turretAnglesOf('a')).toEqual(next.map((q, i) => decodeTurretAngle(DEFAULT_CLASS_ID, i, q)));
+  });
+
+  it('has no turret angles for a contact without tu (a drone, or a frame that omits it)', () => {
+    const store = new ContactStore();
+    store.pushFrame(100, [{ id: 'd', x: 0, y: 0, heading: 0, speed: 0, cls: 'droneSmall' }, contact('a')]);
+    expect(store.turretAnglesOf('d')).toBeUndefined();
+    expect(store.turretAnglesOf('a')).toBeUndefined();
+    expect(store.turretAnglesOf('nobody')).toBeUndefined();
+    // A captain whose tu goes missing on a later frame drops its reading.
+    store.pushFrame(150, [{ ...contact('a'), tu: [0] }]);
+    expect(store.turretAnglesOf('a')).toBeDefined();
+    store.pushFrame(200, [contact('a')]);
+    expect(store.turretAnglesOf('a')).toBeUndefined();
+  });
+
+  it('drops the turret angles on prune', () => {
+    const store = new ContactStore();
+    store.pushFrame(100, [{ ...contact('a'), tu: [5] }]);
+    expect(store.turretAnglesOf('a')).toBeDefined();
+    store.prune(1000, 100);
+    expect(store.turretAnglesOf('a')).toBeUndefined();
   });
 
   it('prunes contacts unseen past the ttl and reports removals', () => {

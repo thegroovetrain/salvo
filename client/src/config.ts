@@ -144,102 +144,13 @@ const COLORS = {
   // epic-9 amendment 181): hot yellow / deep orange.
   alertYellow: 0xfff04d,
   alertOrange: 0xff5a00,
-  // Regatta Hoist personal combatant colors (20 hues; bright OUTLINE values —
-  // the hull stroke, wake, ordnance-marker tint, and kill-feed name source).
-  // Key order = the ratified wheel order (shared REGATTA_HUES): index i → this
-  // table's i-th entry. VERBATIM from DESIGN.md frontmatter.
-  players: {
-    lemon: 0xa1960d,
-    chartreuse: 0x778b0a,
-    olive: 0x5da20d,
-    lime: 0x11b519,
-    green: 0x12b563,
-    spring: 0x10a981,
-    jade: 0x0d9582,
-    aqua: 0x12adb3,
-    cyan: 0x0e97ab,
-    lagoon: 0x11a5d7,
-    sky: 0x0c8ac4,
-    azure: 0x0c86ea,
-    cobalt: 0x5c8efd,
-    periwinkle: 0x6c6ffd,
-    iris: 0x977afd,
-    orchid: 0xad58fd,
-    fuchsia: 0xd022fd,
-    magenta: 0xe312d9,
-    mulberry: 0xef11b2,
-    rose: 0xf8118d,
-  },
-  // Regatta Hoist interior FILL values (20 hues; the SOLID hull interior). SAME
-  // key order as `players`.
-  //
-  // ALL TWENTY ARE NOW RULE-DERIVED — the outline at HSV value x0.45, per
-  // channel. The old split ("12 DESIGN.md-documented pairs used VERBATIM at
-  // ~0.451, 8 rule-derived") dissolved when the whole wheel was regenerated in
-  // cycle 125 (epic-7 amendment 37): there are no surviving hand-authored pairs
-  // to preserve, so one rule covers the table and `tokens.test.ts` recomputes
-  // every entry rather than only eight. Scaling the gamma-encoded sRGB channels
-  // uniformly IS exactly an HSV V-scale (V = max channel; scaling all channels
-  // by k scales V by k and leaves H/S untouched) — Math.round(channel x 0.45)
-  // on the stored sRGB bytes, NOT on linear-light values.
-  playerFills: {
-    lemon: 0x484406,
-    chartreuse: 0x363f05,
-    olive: 0x2a4906,
-    lime: 0x08510b,
-    green: 0x08512d,
-    spring: 0x074c3a,
-    jade: 0x06433b,
-    aqua: 0x084e51,
-    cyan: 0x06444d,
-    lagoon: 0x084a61,
-    sky: 0x053e58,
-    azure: 0x053c69,
-    cobalt: 0x294072,
-    periwinkle: 0x313272,
-    iris: 0x443772,
-    orchid: 0x4e2872,
-    fuchsia: 0x5e0f72,
-    magenta: 0x660862,
-    mulberry: 0x6c0850,
-    rose: 0x70083f,
-  },
-  // Colorblind-assist families (Story 2.3, amendment 18 — IMPLEMENTER DRAFT,
-  // canon later). Eight OUTLINE hues that the 20-hue Regatta wheel collapses onto
-  // when the accessibility toggle is on (render/ships.ts is the single remap
-  // chokepoint, so nameplates / wake / kill feed follow for free).
-  //
-  // Selection rule (reproducible, and re-checked by cvd.test.ts):
-  //   • every hue avoids the RESERVED bands — denied red (0°), amber (43°),
-  //     phosphor (152°) and storm violet (272°), each ±20° — so the assist
-  //     palette can never impersonate a functional color;
-  //   • every hue clears 4.5:1 against the void, so a hull outline stays legible;
-  //   • under a simulated deuteranopia (LMS projection, util/cvd.ts) every PAIR
-  //     is separated by CIE-Lab ΔE ≥ 30 — the automated acceptance criterion.
-  // Key order IS the family order (family f = wheel index % 8).
-  cvd: {
-    teal: 0x3f838c,
-    citron: 0xe1ff00,
-    cobalt: 0x266fff,
-    forest: 0x008c05,
-    azure: 0x00bbff,
-    mint: 0x8cff73,
-    ice: 0x73ffff,
-    rose: 0xff4d8e,
-  },
-  // Interior FILLS for the assist families — the SAME HSV value ×0.45 rule the
-  // eight rule-derived playerFills use (Math.round(channel × 0.45) per sRGB byte).
-  // Same key order as `cvd`; recomputed from that rule by cvd.test.ts.
-  cvdFills: {
-    teal: 0x1c3b3f,
-    citron: 0x657300,
-    cobalt: 0x113273,
-    forest: 0x003f02,
-    azure: 0x005473,
-    mint: 0x3f7334,
-    ice: 0x347373,
-    rose: 0x732340,
-  },
+  // RELATION COLORS (Story 10.4, Eric's ruling R6 — the 20-hue wheel, its
+  // fills and the colorblind-assist families are gone everywhere). Every
+  // ship's linework reads ONE relation: own = cyan, enemy = red (the 10.4
+  // design-sitting page's candidates). render/relationColor.ts is the single
+  // rule; the dark interior fill is derived there (`CLIENT_CONFIG.ship.relationFillValue`).
+  relationOwn: 0x00e8ff,
+  relationEnemy: 0xff2a2a,
   // legacy carry-overs — byte-identical to pre-1.11 literals, owned by a later
   // story (deleted when that story lands its real color). NOT ratified roles.
   // (ownHull/enemyHull/ownAssetGreen retired by Story 1.12 — hulls, wake, and
@@ -1059,6 +970,26 @@ export const CLIENT_CONFIG = {
      * being contradicted — nothing can hit it to notice.
      */
     sunkScale: 0.85,
+    /** The relation hull's dark interior: the stroke at HSV value ×0.45, per
+     *  sRGB channel — the rule the retired wheel's fills used (render/relationColor.ts). */
+    relationFillValue: 0.45,
+    /** The hull's one relation stroke (world u — the pre-10.4 literal). */
+    hullStrokeU: 1.5,
+    /**
+     * THE PLAIN TURRETS (Story 10.4 functional pass — placeholders the hull-art
+     * wave replaces; nothing here is a ruled look). Sized off the hull's beam
+     * so a turret scales with its hull: gunhouse box `houseBeamFrac` of the beam
+     * across and `houseLenBeamFrac` of it along the barrels; barrels run from
+     * the pivot out to `barrelBeamFrac` of the beam, spread over
+     * `barrelSpreadFrac` of the house width.
+     */
+    turret: {
+      houseBeamFrac: 0.5,
+      houseLenBeamFrac: 0.4,
+      barrelBeamFrac: 0.75,
+      barrelSpreadFrac: 0.6,
+      strokeU: 1,
+    },
     /**
      * How far along the settle the OWN hull is ever allowed to travel.
      *
@@ -1273,9 +1204,9 @@ export const CLIENT_CONFIG = {
       seed: 82142026,
       /** The hull the camera follows and the scope belongs to. A battleship:
        *  slow and steady is the right helm for a backdrop. */
-      observerClass: 'battleship',
+      observerClass: 'bismarck',
       /** Rival hull classes, cycled over `rivalBands`. */
-      rivalClasses: ['torpedoBoat', 'mineLayer', 'torpedoBoat'],
+      rivalClasses: ['iowa', 'warspite', 'yamato'],
       /**
        * Each rival's roaming ANNULUS about the scene anchor (u), as multiples
        * of base truesight. Band 0 sits inside the bubble (a live silhouette

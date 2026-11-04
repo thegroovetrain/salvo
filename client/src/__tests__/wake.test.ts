@@ -27,6 +27,9 @@ import {
   createShipWake,
   appendWakeSample,
   eachWakeSegment,
+  DEFAULT_CLASS_ID,
+  HULL_IDS,
+  SHIP_CLASS_IDS,
   hullEnvelope,
   torpWakeLifeMs,
   type HullId,
@@ -39,6 +42,15 @@ import { CHOP_HEAD_MULTIPLE, KELVIN_SIN } from '../render/radarSources.js';
 
 const LIFE_MS = CONFIG.vision.wakeLifeMs;
 const STEP_U = CONFIG.vision.wakeSampleU;
+
+/** Captain hulls picked by the property a test leans on, never by name. */
+const beamOf = (id: HullId): number => hullEnvelope(id).hull.beam;
+const BY_BEAM = [...SHIP_CLASS_IDS].sort((a, b) => beamOf(a) - beamOf(b));
+/** The widest captain beam / the narrowest. */
+const WIDE = BY_BEAM[BY_BEAM.length - 1];
+const NARROW = BY_BEAM[0];
+/** The fastest captain hull. */
+const FAST = [...SHIP_CLASS_IDS].sort((a, b) => hullTopSpeed(b) - hullTopSpeed(a))[0];
 
 /** A hull under way along +x at `speed`, at time `t`. */
 function hull(id: string, cls: HullId, x: number, speed: number, t = 0): WakeHull {
@@ -66,8 +78,8 @@ describe('the emitter lays wake behind EVERY visible hull, not just the own one'
   it('tracks own ship, an enemy captain and a drone alike', () => {
     const effects = new Effects(new Container());
     const hulls = [
-      hull('me', 'torpedoBoat', 0, 40),
-      hull('enemy', 'battleship', 500, 30),
+      hull('me', FAST, 0, 40),
+      hull('enemy', WIDE, 500, 30),
       hull('drone', 'droneLarge', -500, 20),
     ];
     sail(effects, hulls, 60, 1 / 20);
@@ -85,7 +97,7 @@ describe('the emitter lays wake behind EVERY visible hull, not just the own one'
 
   it('clearWake drops every ribbon, dot and envelope (return-to-port teardown)', () => {
     const effects = new Effects(new Container());
-    const hulls = [hull('me', 'torpedoBoat', 0, 40), hull('enemy', 'battleship', 500, 30)];
+    const hulls = [hull('me', FAST, 0, 40), hull('enemy', WIDE, 500, 30)];
     sail(effects, hulls, 60, 1 / 20);
     expect(effects.liveWakeDots).toBeGreaterThan(0);
     effects.clearWake();
@@ -96,7 +108,7 @@ describe('the emitter lays wake behind EVERY visible hull, not just the own one'
 
   it('a hull that is not visible this frame is not tracked at all', () => {
     const effects = new Effects(new Container());
-    const only = [hull('me', 'torpedoBoat', 0, 40)];
+    const only = [hull('me', FAST, 0, 40)];
     sail(effects, only, 30, 1 / 20);
     expect(effects.wakeSources.get('someone-else')).toBeUndefined();
   });
@@ -111,7 +123,7 @@ describe('a source that does not move lays no wake, and there is no branch sayin
     // speed 0, position unchanged for as long as it stands. Nothing here names
     // it, which is the point — amendment 201 forbids a decoy branch in either
     // direction, and the rework will delete the entity, not a special case.
-    const frozen: WakeHull = { id: 'decoy', x: 200, y: -80, heading: 1, speed: 0, cls: 'torpedoBoat', color: 0xffffff };
+    const frozen: WakeHull = { id: 'decoy', x: 200, y: -80, heading: 1, speed: 0, cls: DEFAULT_CLASS_ID, color: 0xffffff };
     sail(effects, [frozen], 200, 1 / 20);
 
     const src = effects.wakeSources.get('decoy');
@@ -134,10 +146,10 @@ describe('a source that does not move lays no wake, and there is no branch sayin
     //
     // The threshold ROSE 1.0 -> 2.18 u/s at the cycle-71 clock cut (amendment
     // 213): a shorter dissipation clock means a source has to be making more
-    // way to keep a track alive at all. Still far below `steerageSpeed` (8-12
-    // u/s) for every class, so no hull under helm can fall through it.
+    // way to keep a track alive at all. Still well below `steerageSpeed`
+    // for every class, so no hull under helm can fall through it.
     const slowest = STEP_U / (LIFE_MS / 1000);
-    for (const cls of ['torpedoBoat', 'mineLayer', 'battleship'] as const) {
+    for (const cls of SHIP_CLASS_IDS) {
       expect(slowest).toBeLessThan(hullEnvelope(cls).kinematics.steerageSpeed);
     }
   });
@@ -158,7 +170,7 @@ describe('wake length is speed × the SHARED life, per class', () => {
   });
 
   it('measures out on the ribbon itself, at full ahead and at half', () => {
-    for (const cls of ['torpedoBoat', 'mineLayer', 'battleship'] as const) {
+    for (const cls of SHIP_CLASS_IDS) {
       const top = hullTopSpeed(cls);
       for (const frac of [1, 0.5]) {
         const speed = top * frac;
@@ -194,9 +206,7 @@ describe('wake length is speed × the SHARED life, per class', () => {
 describe('the foam pool is bounded, across every hull on the water', () => {
   it('derives its ceiling from the clock, the cadence, the fastest hull and the room', () => {
     const fastest = Math.max(
-      ...(['torpedoBoat', 'mineLayer', 'battleship', 'droneSmall', 'droneMedium', 'droneLarge'] as HullId[]).map(
-        (id) => hullTopSpeed(id),
-      ),
+      ...HULL_IDS.map((id) => hullTopSpeed(id)),
     );
     const perHull = Math.ceil(((LIFE_MS / 1000) * fastest) / STEP_U);
     expect(CLIENT_CONFIG.wake.maxDots).toBe(perHull * CONFIG.map.playerCap);
@@ -206,7 +216,7 @@ describe('the foam pool is bounded, across every hull on the water', () => {
     const effects = new Effects(new Container());
     const hulls: WakeHull[] = [];
     for (let i = 0; i < CONFIG.map.playerCap; i++) {
-      const h = hull(`s${i}`, 'torpedoBoat', i * 40, hullTopSpeed('torpedoBoat'));
+      const h = hull(`s${i}`, FAST, i * 40, hullTopSpeed(FAST));
       h.y = i * 40;
       hulls.push(h);
     }
@@ -236,7 +246,7 @@ describe('hull-side displaced water rides the Kelvin half-angle', () => {
   });
 
   it('runs three half-beams wide at the head and one at the tail', () => {
-    const beam = hullEnvelope('battleship').hull.beam;
+    const beam = beamOf(WIDE);
     expect(chopHalfWidthU(beam, 0)).toBeCloseTo((beam / 2) * CHOP_HEAD_MULTIPLE, 9);
     expect(chopHalfWidthU(beam, WAKE_AGE_BUCKETS - 1)).toBeCloseTo(beam / 2, 9);
     // Monotone narrowing astern — amendment 206's "widest at the head".
@@ -246,18 +256,15 @@ describe('hull-side displaced water rides the Kelvin half-angle', () => {
   });
 
   it('scales with the hull, which is what keeps a torpedo track naked', () => {
-    // A battleship's 32u beam pushes a real patch; a mine layer's 20u less; a
-    // torpedo's one-cell ribbon barely a cell — amendment 197's accepted
+    // The widest captain beam pushes the most water, the narrowest less, and a
+    // torpedo's one-cell ribbon less again — amendment 197's accepted
     // consequence (*"a lone torpedo track reads plainly"*) holding by
-    // construction, with no identity to branch on. A torpedo boat's 9u beam is
-    // the cell width, so the fish and the smallest captain push the same water:
-    // that is the floor of the scale, not a bug.
-    const big = chopHalfWidthU(hullEnvelope('battleship').hull.beam, 0);
-    const mid = chopHalfWidthU(hullEnvelope('mineLayer').hull.beam, 0);
-    const fish = chopHalfWidthU(CONFIG.vision.radarCellU, 0);
-    expect(big).toBeGreaterThan(mid);
-    expect(mid).toBeGreaterThan(fish);
-    expect(chopHalfWidthU(hullEnvelope('torpedoBoat').hull.beam, 0)).toBeCloseTo(fish, 9);
+    // construction, with no identity to branch on.
+    const big = chopHalfWidthU(beamOf(WIDE), 0);
+    const small = chopHalfWidthU(beamOf(NARROW), 0);
+    const torpedo = chopHalfWidthU(CONFIG.vision.radarCellU, 0);
+    expect(big).toBeGreaterThan(small);
+    expect(small).toBeGreaterThan(torpedo);
   });
 
   it('is the SAME expression the scope draws, in world units instead of cells', () => {
@@ -311,7 +318,7 @@ describe('hull-side displaced water rides the Kelvin half-angle', () => {
 
   it('draws for a moving hull and survives a hull that has gone (amendment 200)', () => {
     const effects = new Effects(new Container());
-    const h = hull('me', 'battleship', 0, 30);
+    const h = hull('me', WIDE, 0, 30);
     const t = sail(effects, [h], 40, 1 / 20);
     expect(effects.liveChopEnvelopes).toBe(1);
     // The hull stops being visible; its water keeps ageing on its own clock and
@@ -354,7 +361,7 @@ describe('phosphor covers the water clock at every sweep rate', () => {
 describe('the impossible-travel guard measures time from the sample it measures distance from', () => {
   it('survives a burst of non-finite frames instead of resetting on the next good one', () => {
     const sources = new WakeSources();
-    const h = hull('a', 'torpedoBoat', 0, 45);
+    const h = hull('a', FAST, 0, 45);
     sources.observe(h, 0);
     h.x = STEP_U + 1;
     sources.observe(h, 50); // last STORED sample: x = 13 at t = 50
@@ -377,7 +384,7 @@ describe('the impossible-travel guard measures time from the sample it measures 
 
   it('still resets across a genuine teleport that no elapsed time can excuse', () => {
     const sources = new WakeSources();
-    const h = hull('a', 'torpedoBoat', 0, 45);
+    const h = hull('a', FAST, 0, 45);
     sources.observe(h, 0);
     h.x = STEP_U + 1;
     sources.observe(h, 50);
@@ -391,7 +398,7 @@ describe('the impossible-travel guard measures time from the sample it measures 
 describe('a source only chains onto water the client actually watched being made', () => {
   it('resets across a teleport rather than drawing a line across the map', () => {
     const sources = new WakeSources();
-    const h = hull('a', 'torpedoBoat', 0, 40);
+    const h = hull('a', FAST, 0, 40);
     sources.observe(h, 0);
     h.x = STEP_U + 1;
     sources.observe(h, 50);
@@ -405,7 +412,7 @@ describe('a source only chains onto water the client actually watched being made
 
   it('resets after a gap longer than the contact store considers alive', () => {
     const sources = new WakeSources();
-    const h = hull('a', 'torpedoBoat', 0, 40);
+    const h = hull('a', FAST, 0, 40);
     sources.observe(h, 0);
     h.x = STEP_U + 1;
     sources.observe(h, 50);
@@ -418,18 +425,19 @@ describe('a source only chains onto water the client actually watched being made
 
   it('re-provisions when a hull comes back as a different class', () => {
     const sources = new WakeSources();
-    const h = hull('a', 'torpedoBoat', 0, 40);
+    const h = hull('a', FAST, 0, 40);
     sources.observe(h, 0);
     const before = sources.get('a');
-    const swapped: WakeHull = { ...h, cls: 'battleship' };
+    expect(WIDE).not.toBe(FAST); // the swap is a real class change
+    const swapped: WakeHull = { ...h, cls: WIDE };
     sources.observe(swapped, 50);
     expect(sources.get('a')).not.toBe(before);
-    expect(sources.get('a')?.cls).toBe('battleship');
+    expect(sources.get('a')?.cls).toBe(WIDE);
   });
 
   it('never throws on a non-finite pose, and closes the ribbon across it', () => {
     const sources = new WakeSources();
-    const h = hull('a', 'torpedoBoat', 0, 40);
+    const h = hull('a', FAST, 0, 40);
     sources.observe(h, 0);
     h.x = STEP_U + 1;
     sources.observe(h, 50);
@@ -493,7 +501,7 @@ describe('a torpedo lays the same one wake the scope paints', () => {
 
   it('a hull foam still runs the FULL life, so the two lengths are the ribbons and nothing else', () => {
     const effects = new Effects(new Container());
-    const h = hull('a', 'battleship', 0, 30);
+    const h = hull('a', WIDE, 0, 30);
     const t = sail(effects, [h], 30, 1 / 20);
     expect(effects.liveWakeDots).toBeGreaterThan(0);
     // Past a fish's life but inside a hull's: still there.
@@ -510,7 +518,7 @@ describe('a torpedo lays the same one wake the scope paints', () => {
 describe('spectate water never carries into a fogged life', () => {
   it('drops every ribbon on either edge of the spectate boundary', () => {
     const effects = new Effects(new Container());
-    const h = hull('enemy', 'battleship', 0, 30);
+    const h = hull('enemy', WIDE, 0, 30);
     sail(effects, [h], 30, 1 / 20);
     expect(effects.wakeSources.size).toBe(1);
 
@@ -522,7 +530,7 @@ describe('spectate water never carries into a fogged life', () => {
     expect(effects.liveWakeDots).toBe(0);
 
     // Fill it again from omniscient frames...
-    const far = hull('far', 'battleship', 4000, 30);
+    const far = hull('far', WIDE, 4000, 30);
     sail(effects, [far], 30, 1 / 20, 10_000);
     expect(effects.wakeSources.size).toBe(1);
 
@@ -535,7 +543,7 @@ describe('spectate water never carries into a fogged life', () => {
 
   it('is idempotent — a repeated regime does not drop live water', () => {
     const effects = new Effects(new Container());
-    const h = hull('me', 'battleship', 0, 30);
+    const h = hull('me', WIDE, 0, 30);
     sail(effects, [h], 30, 1 / 20);
     effects.setSpectating(false); // already fogged: no-op
     expect(effects.wakeSources.size).toBe(1);

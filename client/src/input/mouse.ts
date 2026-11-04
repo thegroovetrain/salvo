@@ -56,6 +56,17 @@
 // calls `consumeHeld()` exactly once per input. Every path that ends a hold
 // without a pointerup (blur, `endHolds()` on the refit window opening) also
 // drops the latch, so the next input carries `held: false`.
+//
+// Story 10.4 adds the SECONDARIES LEVEL on the RIGHT button (button 2):
+// `secHeld` / `consumeSec()` mirror `isHeld` / `consumeHeld()` — canvas-target
+// only, dropped while locked out, swallowed over a hotbar slot, ended by its
+// pointerup, a pointercancel, a blur or `endHolds()`, with the same press latch
+// so a sub-sample tap still yields one `sec: true`. Pointer Events report a
+// SECOND button pressed during a hold as a `pointermove` carrying that
+// `button` (not a pointerdown), so the move handler reads the right button's
+// chord edges, and — while the right button is down — the left's, so a gun
+// click made while the secondaries stream is never lost. The right button
+// counts no click and opens no prime-revert hold.
 
 /** A screen-space point (px). */
 export interface ScreenPoint {
@@ -109,6 +120,10 @@ export class MouseInput {
    *  `held: true` input. Cleared on read and by every hold-ending path that is
    *  not a pointerup (blur, `endHolds`). */
   private pressedSinceSample = false;
+  /** The right button is down on the canvas (Story 10.4 — the secondaries). */
+  private secDown = false;
+  /** A right press was accepted since the last `consumeSec()` (the tap latch). */
+  private secPressedSinceSample = false;
   private canvas: EventTarget | null = null;
   /**
    * Is the pointer currently INSIDE the window? Deliberately separate from
@@ -151,7 +166,34 @@ export class MouseInput {
     this.pos.y = e.clientY;
     this.inside = true;
     this.seen = true;
+    this.onChord(e);
   };
+
+  /** A button pressed or released DURING another hold arrives as a pointermove
+   *  carrying that `button` (Pointer Events chords). Right edges always; left
+   *  edges only while the right is down (otherwise a pointerdown/up carries them). */
+  private onChord(e: PointerEvent): void {
+    if (e.button === 2) {
+      if ((e.buttons & 2) !== 0) this.secPress(e);
+      else this.secRelease();
+    } else if (e.button === 0 && this.secDown) {
+      if ((e.buttons & 1) !== 0) this.onDown(e);
+      else this.onUp(e);
+    }
+  }
+
+  /** Accept a right press — the same canvas / lockout / hotbar gates as a click. */
+  private secPress(e: PointerEvent): void {
+    if (e.target !== this.canvas) return;
+    if (this.isLocked()) return;
+    if (this.onSlotPress({ x: e.clientX, y: e.clientY })) return;
+    this.secDown = true;
+    this.secPressedSinceSample = true;
+  }
+
+  private secRelease(): void {
+    this.secDown = false;
+  }
 
   /** The pointer left the WINDOW (a null relatedTarget — leaving for another
    *  element inside the page keeps presence). */
@@ -167,9 +209,15 @@ export class MouseInput {
     // a blur stops the stream that tick).
     this.endHold(null);
     this.pressedSinceSample = false;
+    this.secDown = false;
+    this.secPressedSinceSample = false;
   };
 
   private readonly onDown = (e: PointerEvent): void => {
+    if (e.button === 2) {
+      this.secPress(e);
+      return;
+    }
     if (e.button !== 0) return;
     if (e.target !== this.canvas) return; // canvas-target-only: DOM chrome never fires
     if (this.isLocked()) return; // refit modal — full combat lockout
@@ -194,6 +242,10 @@ export class MouseInput {
    *  the file header): the button is up, so any hold it began is over. It
    *  closes the OPEN hold only when it is that hold's own pointer. */
   private readonly onUp = (e: PointerEvent): void => {
+    if (e.button === 2) {
+      this.secRelease();
+      return;
+    }
     if (e.button !== 0) return;
     this.releases += 1;
     this.endHold(pointerIdOf(e));
@@ -208,6 +260,8 @@ export class MouseInput {
     const id = pointerIdOf(e);
     if (this.activePointerId !== null && id === this.activePointerId) this.pressedSinceSample = false;
     this.endHold(id);
+    this.secDown = false;
+    this.secPressedSinceSample = false;
   };
 
   /**
@@ -243,6 +297,8 @@ export class MouseInput {
   endHolds(): void {
     this.endHold(null);
     this.pressedSinceSample = false;
+    this.secDown = false;
+    this.secPressedSinceSample = false;
   }
 
   private readonly onContextMenu = (e: Event): void => {
@@ -310,6 +366,23 @@ export class MouseInput {
     const held = this.isHeld || this.pressedSinceSample;
     this.pressedSinceSample = false;
     return held;
+  }
+
+  /** THE SECONDARIES LEVEL (Story 10.4): the right button is held on the
+   *  canvas. Pure read; never clears the latch. */
+  get secHeld(): boolean {
+    return this.secDown;
+  }
+
+  /**
+   * The value `InputMsg.sec` carries for ONE sample: the live right-button level
+   * OR a right press accepted since the previous sample. Clears the latch — call
+   * it once per sampled input.
+   */
+  consumeSec(): boolean {
+    const sec = this.secDown || this.secPressedSinceSample;
+    this.secPressedSinceSample = false;
+    return sec;
   }
 
   /** Cumulative button-0 canvas clicks since boot (feeds InputMsg.fireSeq). */

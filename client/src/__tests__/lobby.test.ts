@@ -6,7 +6,12 @@
 // through the queue path's own stage 2.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CONFIG, DEFAULT_KIT, MSG, PROTOCOL_VERSION } from '@salvo/shared';
+import { CONFIG, DEFAULT_KIT, DEFAULT_SHIFT, MSG, PROTOCOL_VERSION, SHIFT_IDS, SHIP_CLASS_IDS } from '@salvo/shared';
+
+/** Any real hull — the lobby forwards `cls` verbatim. */
+const CLS = SHIP_CLASS_IDS[0];
+/** A Shift that is not the default — so a forwarded pick is observable. */
+const OTHER_SHIFT = SHIFT_IDS.find((id) => id !== DEFAULT_SHIFT)!;
 
 interface FakeRoom {
   sessionId: string;
@@ -259,10 +264,11 @@ describe('pure helpers', () => {
 describe('CREATE', () => {
   it("creates 'lobby' with the queue door's join options and pushes views", async () => {
     const h = hooks();
-    const pending = createLobby({ name: 'NEMO', cls: 'battleship', gun: 'flak' }, h);
+    const pending = createLobby({ name: 'NEMO', cls: CLS, shift: OTHER_SHIFT }, h);
     await vi.waitFor(() => expect(lobbyRoom.has(MSG.seat)).toBe(true));
     expect(created?.name).toBe('lobby');
-    expect(created?.opts).toMatchObject({ pv: PROTOCOL_VERSION, name: 'NEMO', cls: 'battleship', gun: 'flak' });
+    expect(created?.opts).toMatchObject({ pv: PROTOCOL_VERSION, name: 'NEMO', cls: CLS, shift: OTHER_SHIFT });
+    expect(created?.opts).not.toHaveProperty('gun');
     expect(created?.opts.kit).toEqual([...DEFAULT_KIT]); // Story 10.1: absent kit → DEFAULT_KIT
     lobbyRoom.fireState(STATE);
     expect(h.views.at(-1)?.code).toBe('QWERTY');
@@ -274,7 +280,7 @@ describe('CREATE', () => {
 
   it('the deploy kit rides the lobby join options (Story 10.1)', async () => {
     const kit = [...DEFAULT_KIT].reverse();
-    const pending = createLobby({ cls: 'battleship', kit }, hooks());
+    const pending = createLobby({ cls: CLS, kit }, hooks());
     await vi.waitFor(() => expect(lobbyRoom.has(MSG.seat)).toBe(true));
     expect(created?.opts.kit).toEqual(kit);
     leaveLobby();
@@ -350,11 +356,11 @@ describe('JOIN', () => {
   it('resolves the code (any case), then joinById with the join options', async () => {
     const f = stubFetch(200, { roomId: 'room-42' });
     const h = hooks();
-    const pending = joinLobby('qwerty', { name: 'NEMO', cls: 'battleship' }, h);
+    const pending = joinLobby('qwerty', { name: 'NEMO', cls: CLS }, h);
     await vi.waitFor(() => expect(lobbyRoom.has(MSG.seat)).toBe(true));
     expect(f).toHaveBeenCalledWith('http://localhost:2567/lobby/resolve?code=QWERTY', expect.anything());
     expect(joinedById?.id).toBe('room-42');
-    expect(joinedById?.opts).toMatchObject({ pv: PROTOCOL_VERSION, name: 'NEMO', cls: 'battleship' });
+    expect(joinedById?.opts).toMatchObject({ pv: PROTOCOL_VERSION, name: 'NEMO', cls: CLS });
     leaveLobby();
     expect(await pending).toBeNull();
   });

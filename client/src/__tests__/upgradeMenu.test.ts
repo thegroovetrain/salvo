@@ -12,9 +12,13 @@ import {
   CONFIG,
   effectiveStats,
   CONSUMABLE_SLOTS,
+  DEFAULT_CLASS_ID,
   DEFAULT_KIT,
+  DEFAULT_SHIFT,
   MULLIGAN_CHOICE,
+  SHIP_CLASS_IDS,
   SLOT_COUNT,
+  initialTurrets,
   type ConsumableKit,
   type OwnShip,
   type SlotItemId,
@@ -73,7 +77,8 @@ const KIT: ConsumableKit = ['supercavTorpedo', 'hullRepair', 'foulingShell', 'sh
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {
   return {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
-    ammo: [], sweep: 0, cls: 'torpedoBoat', gun: 'deckGun', kit: [...KIT], pts: 1, offer: [...OFFER],
+    ammo: [], sweep: 0, cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, turrets: initialTurrets(DEFAULT_CLASS_ID),
+    sec: { heat: 0, locked: false }, kit: [...KIT], pts: 1, offer: [...OFFER],
     boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
     ...over,
   };
@@ -442,14 +447,18 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
     const fresh = offerView(ownShip({ offer: ['intel'] }), false, false, false);
     const stacked = offerView(ownShip({ offer: ['intel'], cards: ['intel'] }), false, false, false);
     // Story 10.3: the INTEL card prints its own index (the fold's value).
-    expect(fresh?.options[0].rows[0].next).toBe(String(effectiveStats(CONFIG.shipClasses.torpedoBoat, ['intel']).intel));
+    expect(fresh?.options[0].rows[0].next).toBe(String(effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], ['intel']).intel));
     expect(stacked?.options[0].rows[0].cur).not.toBe(fresh?.options[0].rows[0].cur);
   });
 
   it('resolves the card face against the OWN CLASS too (hull stats differ per class)', () => {
     // ENGINES (top speed) since Story 10.3 deleted HULL, the old example here.
+    // Any hull whose ENGINES index differs from the default's.
+    const engines = (c: (typeof SHIP_CLASS_IDS)[number]): number => CONFIG.shipClasses[c].index.engines;
+    const other = SHIP_CLASS_IDS.find((c) => engines(c) !== engines(DEFAULT_CLASS_ID))!;
+    expect(other).toBeDefined();
     const tb = offerView(ownShip({ offer: ['engines'] }), false, false, false);
-    const bb = offerView(ownShip({ cls: 'battleship', offer: ['engines'] }), false, false, false);
+    const bb = offerView(ownShip({ cls: other, offer: ['engines'] }), false, false, false);
     expect(bb?.options[0].rows[0].cur).not.toBe(tb?.options[0].rows[0].cur);
   });
 
@@ -480,8 +489,8 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
       name: boonName(id, 0),
       tier: cardTierLabel(CATALOG[id], 0),
       tierStep: cardTierSteps(CATALOG[id], 0),
-      rows: cardStatRows(CATALOG[id], 0, { cls: 'torpedoBoat', cards: [] }),
-      hover: cardHoverRows(CATALOG[id], 0, { cls: 'torpedoBoat', cards: [] }),
+      rows: cardStatRows(CATALOG[id], 0, { cls: DEFAULT_CLASS_ID, cards: [] }),
+      hover: cardHoverRows(CATALOG[id], 0, { cls: DEFAULT_CLASS_ID, cards: [] }),
       greyed: false,
       foot: '',
       stack: 0,

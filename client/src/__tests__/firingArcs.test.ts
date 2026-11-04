@@ -16,12 +16,14 @@ import { describe, it, expect } from 'vitest';
 import {
   BUOY_LINE_IDS,
   CONFIG,
+  DEFAULT_CLASS_ID,
   effectiveStats,
   turretMountBearings,
   turretMuzzles,
   wrapAngle,
   broadsideMountSpread,
   broadsideTraverse,
+  type ShipClassId,
   type SlotItemId,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -46,21 +48,21 @@ const BW = CLIENT_CONFIG.broadsideArcs;
  * authors the tiers, with no edit here.
  */
 const arcsAt = (rung: number, turrets: number): {
-  hullId: 'battleship';
+  hullId: ShipClassId;
   turrets: number;
   traverseRad: number;
   mountSpreadRad: number;
 } => ({
-  hullId: 'battleship',
+  hullId: DEFAULT_CLASS_ID,
   turrets,
   traverseRad: broadsideTraverse(rung),
   mountSpreadRad: broadsideMountSpread(rung),
 });
 
-/** The base battleship broadside, straight off the firewall. */
+/** The base broadside on the default hull, straight off the firewall. */
 const arcsFor = (): ReturnType<typeof arcsAt> => {
-  const b = effectiveStats(CONFIG.shipClasses.battleship, []).equipment.broadside;
-  return { hullId: 'battleship', turrets: b.turrets, traverseRad: b.traverseRad, mountSpreadRad: b.mountSpreadRad };
+  const b = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], []).equipment.broadside;
+  return { hullId: DEFAULT_CLASS_ID, turrets: b.turrets, traverseRad: b.traverseRad, mountSpreadRad: b.mountSpreadRad };
 };
 
 /** The ladder's top rung with its full six guns (catalog-v3 R35's cap). */
@@ -71,7 +73,7 @@ describe('the broadside arc display — one wedge per gun, from the SHARED geome
     const bs = arcsFor();
     for (const side of [1, -1] as const) {
       const w = turretWedges(side, bs);
-      const muzzles = turretMuzzles(IDENTITY, 'battleship', bs.turrets, side);
+      const muzzles = turretMuzzles(IDENTITY, DEFAULT_CLASS_ID, bs.turrets, side);
       const mounts = turretMountBearings(0, bs.turrets, side, bs.mountSpreadRad);
       expect(w).toHaveLength(bs.turrets);
       w.forEach((wedge, i) => {
@@ -86,7 +88,7 @@ describe('the broadside arc display — one wedge per gun, from the SHARED geome
 
   it('N guns are N DISTINCT apexes on the engaged beam — never N wedges from one point', () => {
     const bs = arcsFor();
-    const half = CONFIG.shipClasses.battleship.hull.beam / 2;
+    const half = CONFIG.shipClasses[DEFAULT_CLASS_ID].hull.beam / 2;
     const port = turretWedges(1, bs);
     const stbd = turretWedges(-1, bs);
     expect(new Set(port.map((w) => `${w.apex.x.toFixed(9)},${w.apex.y.toFixed(9)}`)).size).toBe(bs.turrets);

@@ -28,6 +28,7 @@ import { Container } from 'pixi.js';
 import {
   CATALOG,
   CONFIG,
+  DEFAULT_CLASS_ID,
   LINE_IDS,
   effectiveStats,
   type CatalogLine,
@@ -126,7 +127,7 @@ describe('fit-check — VISIBLE card rows (every offerable ladder/weapon prints 
     const bad: string[] = [];
     for (const line of LIVE) {
       for (let k = 0; k < line.cap; k += 1) {
-        for (const row of cardStatRows(line, k, { cls: 'torpedoBoat', cards: Array<string>(k).fill(line.id) })) {
+        for (const row of cardStatRows(line, k, { cls: DEFAULT_CLASS_ID, cards: Array<string>(k).fill(line.id) })) {
           if (row.label.trim() === '' || row.next.trim() === '') bad.push(`${line.id}@${k}: ${JSON.stringify(row)}`);
         }
       }
@@ -191,7 +192,7 @@ describe('fit-check — VISIBLE tooltip (every authored line reports a real effe
   });
 
   it('the SILENT list cannot rot — every id on it really does print nothing', () => {
-    const stats = effectiveStats(CONFIG.shipClasses.mineLayer, []);
+    const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], []);
     const stale = SILENT_EFFECT_LINE.filter((id) => boonEffectLine(id, stats).trim() !== '');
     expect(stale).toEqual([]);
   });

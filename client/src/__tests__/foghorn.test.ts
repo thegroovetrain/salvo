@@ -23,7 +23,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Container, Graphics } from 'pixi.js';
-import { CONFIG, type FoghornEvent } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, type FoghornEvent } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import {
   Foghorn,
@@ -779,7 +779,6 @@ function setupHonk(over: Record<string, unknown> = {}) {
     onSunkObserved: vi.fn(),
     onSpectate: vi.fn(),
     colors: vi.fn(() => null),
-    ordnanceHue: vi.fn(() => 0),
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
   return { sink, playHorn, spawnEffect, onHonk };
@@ -792,7 +791,7 @@ function honkFrame(e: FoghornEvent): unknown {
 
 describe("roomBindings case 'fh' — three shapes, three behaviors", () => {
   it('SELF: plays at 100%, blooms the own hull, and draws NO chevron', () => {
-    const you = { x: 40, y: -60, heading: 0, speed: 0, cls: 'torpedoBoat', cards: [], alive: true, sweep: 0 };
+    const you = { x: 40, y: -60, heading: 0, speed: 0, cls: DEFAULT_CLASS_ID, cards: [], alive: true, sweep: 0 };
     const { sink, playHorn, spawnEffect, onHonk } = setupHonk({ you });
     sink.handler(honkFrame({ k: 'fh', h: 'standard', self: true }));
     expect(playHorn).toHaveBeenCalledWith('standard', 1);

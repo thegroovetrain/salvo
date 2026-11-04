@@ -14,7 +14,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, effectiveStats } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, effectiveStats } from '@salvo/shared';
 import {
   HpGlobe,
   advancePulsePhase,
@@ -88,7 +88,7 @@ describe('hpColor thresholds (Story 2.4 bands: 50% / 25%, damageMarker)', () => 
 // 0 means sunk. The relation is tested over the whole hull, never as literals
 // of a ruled number (the hull size is CONFIG's, whatever it is).
 describe('hullPercent — the hull as a whole-number percent (ruling 13)', () => {
-  const MAX = effectiveStats(CONFIG.shipClasses.battleship).maxHp;
+  const MAX = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]).maxHp;
 
   it('is the CEILING of 100 × hp / maxHp for every afloat hull', () => {
     for (let hp = 1; hp <= MAX; hp += 7) {
@@ -425,7 +425,7 @@ describe('hullFillHeld — the eased hold at the lit keyframe', () => {
 // --- the Pixi shell ------------------------------------------------------------
 
 describe('HpGlobe shell — a healthy frame, a healing frame and a sunk one', () => {
-  const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+  const stats = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID]);
   const MAX = stats.maxHp;
 
   function input(over: Partial<HpGlobeInput> = {}): HpGlobeInput {

@@ -1,53 +1,59 @@
 // Story 1.14 — the class-select layer: pure helpers (card view-model, key map,
-// highlight movement, the shared ColorHoist) plus DOM-level pins on
-// openClassSelect (pick / CONFIRM SELECTION / ESC / dimmer semantics, focus
-// suppression, blur of the home). DOM assertions follow the repo pattern.
+// highlight movement) plus DOM-level pins on openClassSelect (pick / CONFIRM
+// SELECTION / ESC / dimmer semantics, focus suppression, blur of the home).
+// DOM assertions follow the repo pattern.
 //
-// Home-page maintenance patch re-takes three pins DELIBERATELY: the footer
-// button is CONFIRM SELECTION (it saves + closes, it does NOT deploy), the
-// ColorHoist index is NEVER null (it seeds from ensureColorPref, which rolls +
-// persists a random Regatta hue when none is stored), and the claim-caveat
-// caption is replaced by a label left of the swatches.
+// The footer button is CONFIRM SELECTION (it saves + closes, it does NOT
+// deploy). Story 10.4: FOUR cards (one per SHIP_CLASS_IDS), no ghost card, no
+// Color Hoist (R6), and the DECK GUN chips became ONE three-way Shift pick
+// (`SPECIAL` row, chips from SHIFT_IDS, shared by every card).
 //
 // STORY 9.14 (ruling R3): no label, class name or card copy is pinned. The
 // highlight is read off the card's lit register (its glow), the chips off
-// `data-gun`, and names off the exported tables they come from.
+// `data-shift`, and names off the exported tables they come from.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   cardViewModel,
   keyAction,
   moveHighlight,
-  ColorHoist,
   openClassSelect,
   CLASS_DISPLAY_NAMES,
   PIP_LABEL_COL_PX,
   PIP_LABEL_TRACKING_EM,
-  hueAngle,
-  hueSortedIndices,
-  makeHoistRow,
-  SPECIAL_NAMES,
   SPECIAL_KEY,
   CARD_INNER_PX,
   LOADOUT_KEY_COL_PX,
-  LOADOUT_KEY_GAP_PX,
   LOADOUT_KEY_TRACKING_EM,
-  LOADOUT_VALUE_PX,
-  LOADOUT_VALUE_TRACKING_EM,
-  gunChipRowWidth,
+  shiftChipWidth,
 } from '../ui/classSelect.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
-import { loadColorPref, __resetSessionColorPrefForTests, COLOR_PREF_KEY } from '../net/connection.js';
 import { pipFill } from '../util/pips.js';
 import { CLIENT_CONFIG } from '../config.js';
-import { CONFIG, DEFAULT_KIT, GUN_IDS, KIT_SIZE, classShift, dealableConsumables } from '@salvo/shared';
+import {
+  CONFIG,
+  DEFAULT_KIT,
+  DEFAULT_SHIFT,
+  KIT_SIZE,
+  SHIFT_IDS,
+  SHIP_CLASS_IDS,
+  dealableConsumables,
+  type ShiftId,
+} from '@salvo/shared';
 
-// The connection module caches the session's rolled hue (review-gate fix for
-// blocked-storage divergence); reset it per test so corrupt/absent-pref cases
-// exercise a fresh roll instead of the previous test's cached one.
-beforeEach(() => __resetSessionColorPrefForTests());
-import { PLAYER_HUES, PLAYER_FILLS } from '../render/ships.js';
-import { cssHex } from '../util/color.js';
+const FIRST = SHIP_CLASS_IDS[0];
+const SECOND = SHIP_CLASS_IDS[1];
+const THIRD = SHIP_CLASS_IDS[2];
+/** A Shift that is not the default — so a pick is observable. */
+const OTHER_SHIFT = SHIFT_IDS.find((id) => id !== DEFAULT_SHIFT) as ShiftId;
+
+/** The footer primary: the one layer button that is neither a kit square
+ *  (aria-labelled) nor a Shift chip (found by role, never by label). */
+function confirmButtonIn(root: ParentNode): HTMLButtonElement {
+  return [...root.querySelectorAll<HTMLButtonElement>('button')].find(
+    (b) => !b.hasAttribute('aria-label') && !b.classList.contains('hc-shiftchip') && b.textContent !== '',
+  ) as HTMLButtonElement;
+}
 
 // --- card view-model ---------------------------------------------------------
 
@@ -59,7 +65,7 @@ describe('cardViewModel — pips, keys, loadout', () => {
   // `index` (never a derived speed or turn rate) on index anchors.
   it('each pip row is its index on its own anchor (Story 10.3)', () => {
     const anchors = CLIENT_CONFIG.home.pip;
-    for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
+    for (const cls of SHIP_CLASS_IDS) {
       const vm = cardViewModel(cls);
       expect(vm.pips.map((p) => p.index), cls).toEqual(['engines', 'armor', 'rudder']);
       for (const pip of vm.pips) {
@@ -69,9 +75,8 @@ describe('cardViewModel — pips, keys, loadout', () => {
   });
 
   it('a hull with the higher index never shows fewer pips on that row', () => {
-    const ids = ['torpedoBoat', 'battleship', 'mineLayer'] as const;
-    for (const a of ids) {
-      for (const b of ids) {
+    for (const a of SHIP_CLASS_IDS) {
+      for (const b of SHIP_CLASS_IDS) {
         for (const [row, pip] of cardViewModel(a).pips.entries()) {
           if (CONFIG.shipClasses[a].index[pip.index] > CONFIG.shipClasses[b].index[pip.index]) {
             expect(pip.filled, `${a} vs ${b} ${pip.index}`).toBeGreaterThanOrEqual(cardViewModel(b).pips[row].filled);
@@ -82,10 +87,10 @@ describe('cardViewModel — pips, keys, loadout', () => {
   });
 
   it('every card labels the same three pip rows, in the same order', () => {
-    const rows = cardViewModel('torpedoBoat').pips.map((p) => p.label);
+    const rows = cardViewModel(FIRST).pips.map((p) => p.label);
     expect(rows).toHaveLength(3);
     expect(new Set(rows).size).toBe(3);
-    for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
+    for (const cls of SHIP_CLASS_IDS) {
       expect(cardViewModel(cls).pips.map((p) => p.label), `${cls} agrees`).toEqual(rows);
     }
   });
@@ -102,7 +107,7 @@ describe('cardViewModel — pips, keys, loadout', () => {
     + 'rename, now a standing bound on any future row', () => {
     const px = CLIENT_CONFIG.type.registers.hudMicro.size;
     const track = px * PIP_LABEL_TRACKING_EM;
-    for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
+    for (const cls of SHIP_CLASS_IDS) {
       for (const pip of cardViewModel(cls).pips) {
         const w = monoTextWidth(pip.label, px, track);
         expect(w, `${pip.label} is ${w.toFixed(1)}px in a ${PIP_LABEL_COL_PX}px column`)
@@ -118,33 +123,24 @@ describe('cardViewModel — pips, keys, loadout', () => {
     expect(monoTextWidth('TOUGHNESS', px, track)).toBeGreaterThan(PIP_LABEL_COL_PX);
   });
 
-  it('displays zero-padded keys 01 / 02 / 03', () => {
-    expect(cardViewModel('torpedoBoat').key).toBe('01');
-    expect(cardViewModel('battleship').key).toBe('02');
-    expect(cardViewModel('mineLayer').key).toBe('03');
+  it('displays zero-padded keys in menu order, one per hull', () => {
+    SHIP_CLASS_IDS.forEach((cls, i) => {
+      expect(cardViewModel(cls).key, cls).toBe(String(i + 1).padStart(2, '0'));
+    });
   });
 
   it('carries NO fantasy tagline (Eric ruling 2026-07-24 — mock-era content, rejected)', () => {
-    expect('fantasy' in cardViewModel('torpedoBoat')).toBe(false);
+    expect('fantasy' in cardViewModel(FIRST)).toBe(false);
   });
 
-  it('carries NO weapon rows — its ONE row is the hull\'s SPECIAL, by name only (amendments 62 + 107)', () => {
-    // STORY 8.10 EMPTIED THE TABLE (amendment 62): no hull sails with a class
-    // weapon at 0:00. STORY 8.15 puts back exactly one row, the class Shift's
-    // NAME under the SPECIAL key (amendment 107), read through `classShift` so
-    // the card cannot disagree with slot 1.
-    for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
-      expect(cardViewModel(cls).loadout, cls).toEqual([{ key: SPECIAL_KEY, value: SPECIAL_NAMES[classShift(cls)] }]);
-    }
-    // ...and the three hulls carry three different Shifts.
-    expect(new Set((['torpedoBoat', 'battleship', 'mineLayer'] as const).map(classShift)).size).toBe(3);
+  it('carries NO read-only loadout rows — the Shift is the seat\'s pick, not the hull\'s (Story 10.4)', () => {
+    for (const cls of SHIP_CLASS_IDS) expect(cardViewModel(cls).loadout, cls).toEqual([]);
   });
 
   it('gives every class one distinct, non-empty display name (amendment 204)', () => {
-    const ids = ['torpedoBoat', 'battleship', 'mineLayer'] as const;
-    expect(Object.keys(CLASS_DISPLAY_NAMES).sort()).toEqual([...ids].sort());
-    for (const id of ids) expect(CLASS_DISPLAY_NAMES[id].length, id).toBeGreaterThan(0);
-    expect(new Set(Object.values(CLASS_DISPLAY_NAMES)).size).toBe(ids.length);
+    expect(Object.keys(CLASS_DISPLAY_NAMES).sort()).toEqual([...SHIP_CLASS_IDS].sort());
+    for (const id of SHIP_CLASS_IDS) expect(CLASS_DISPLAY_NAMES[id].length, id).toBeGreaterThan(0);
+    expect(new Set(Object.values(CLASS_DISPLAY_NAMES)).size).toBe(SHIP_CLASS_IDS.length);
   });
 });
 
@@ -229,79 +225,27 @@ describe('moveHighlight — wrap-around', () => {
   });
 });
 
-// --- ColorHoist --------------------------------------------------------------
-
-describe('ColorHoist — write/read round-trip + sync', () => {
-  beforeEach(() => localStorage.clear());
-
-  // RE-TAKEN pin (was: "starts null … and amber accent"). Unset no longer means
-  // amber — ensureColorPref rolls a real hue and persists it before first paint.
-  it('with NO stored preference: seeds a real random hue, persists it, never null', () => {
-    const h = new ColorHoist();
-    expect(h.selected).not.toBeNull();
-    expect(Number.isInteger(h.selected)).toBe(true);
-    expect(h.selected).toBeGreaterThanOrEqual(0);
-    expect(h.selected).toBeLessThan(PLAYER_HUES.length);
-    expect(localStorage.getItem('hullcracker.color')).toBe(String(h.selected)); // persisted at construction
-    expect(loadColorPref()).toBe(h.selected);
-    expect(h.accentFill).not.toBe('none'); // the fill-'none' unset branch is gone
-    expect(h.accent).toBe(cssHex(PLAYER_HUES[h.selected]));
-    expect(h.accentFill).toBe(cssHex(PLAYER_FILLS[h.selected]));
-  });
-
-  it('a VALID stored preference is used verbatim, never rerolled', () => {
-    localStorage.setItem('hullcracker.color', '8'); // cyan
-    const h = new ColorHoist();
-    expect(h.selected).toBe(8);
-    expect(h.accent).toBe(cssHex(PLAYER_HUES[8]));
-    expect(h.accentValue).toBe(PLAYER_HUES[8]);
-    expect(localStorage.getItem('hullcracker.color')).toBe('8');
-  });
-
-  it('a CORRUPT stored preference is treated as absent (reroll + persist)', () => {
-    localStorage.setItem('hullcracker.color', 'not-a-hue');
-    const h = new ColorHoist();
-    expect(Number.isInteger(h.selected)).toBe(true);
-    expect(h.selected).toBeLessThan(PLAYER_HUES.length);
-    expect(loadColorPref()).toBe(h.selected); // the garbage was replaced by a valid index
-  });
-
-  it('pick writes hullcracker.color (the exact key connect() reads) + notifies', () => {
-    const h = new ColorHoist();
-    const seen: number[] = [];
-    h.onChange((i) => seen.push(i));
-    h.pick(8); // cyan
-    expect(localStorage.getItem('hullcracker.color')).toBe('8');
-    expect(loadColorPref()).toBe(8); // connection.ts reads it back
-    expect(h.selected).toBe(8);
-    expect(seen).toEqual([8]);
-  });
-
-  it('two subscribers both fire on a pick (home + layer stay in sync)', () => {
-    const h = new ColorHoist();
-    const a = vi.fn();
-    const b = vi.fn();
-    h.onChange(a);
-    h.onChange(b);
-    h.pick(3);
-    expect(a).toHaveBeenCalledWith(3);
-    expect(b).toHaveBeenCalledWith(3);
-  });
-
-  it('unsubscribe stops further notifications', () => {
-    const h = new ColorHoist();
-    const fn = vi.fn();
-    const off = h.onChange(fn);
-    off();
-    h.pick(5);
-    expect(fn).not.toHaveBeenCalled();
-  });
-});
-
 // --- openClassSelect DOM -----------------------------------------------------
 
 function press(key: string): void {
   window.dispatchEvent(new KeyboardEvent('keydown', { key }));
+}
+
+/** Is card i the highlighted one? The lit register wears a glow; the unlit
+ *  one is `box-shadow: none` (paintCardOn / paintCardOff). */
+function lit(i: number): boolean {
+  const card = document.querySelectorAll<HTMLElement>('#hc-class-select .hc-ccard')[i];
+  return card.style.boxShadow !== 'none' && card.style.boxShadow !== '';
+}
+
+/** Which cards are lit, in rail order. */
+function litMap(): boolean[] {
+  return SHIP_CLASS_IDS.map((_, i) => lit(i));
+}
+
+/** The expected lit map with exactly card `i` lit. */
+function only(i: number): boolean[] {
+  return SHIP_CLASS_IDS.map((_, k) => k === i);
 }
 
 describe('openClassSelect — DOM pick / dismiss semantics', () => {
@@ -323,68 +267,38 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
   } {
     const onConfirm = vi.fn();
     const onClose = vi.fn();
-    openClassSelect({ initial: 'torpedoBoat', hoist: new ColorHoist(), blurTarget, onConfirm, onClose, ...cb });
+    openClassSelect({ initial: FIRST, blurTarget, onConfirm, onClose, ...cb });
     return { onConfirm, onClose };
   }
 
-  /** The footer primary: the one layer button that is neither a swatch nor a
-   *  gun chip (found by role, never by label). */
-  function confirmButton(): HTMLButtonElement {
-    return [...document.querySelectorAll<HTMLButtonElement>('#hc-class-select button')].find(
-      (b) => !b.hasAttribute('aria-label') && !b.classList.contains('hc-gunchip') && b.textContent !== '',
-    ) as HTMLButtonElement;
-  }
+  const confirmButton = (): HTMLButtonElement =>
+    confirmButtonIn(document.getElementById('hc-class-select') as HTMLElement);
 
-  /** Is card i the highlighted one? The lit register wears a glow; the unlit
-   *  one is `box-shadow: none` (paintCardOn / paintCardOff). */
-  function lit(i: number): boolean {
-    const card = document.querySelectorAll<HTMLElement>('#hc-class-select .hc-ccard')[i];
-    return card.style.boxShadow !== 'none' && card.style.boxShadow !== '';
-  }
-
-  it('renders three cards then the ghost card on one rail, each card naming its class', () => {
+  it('renders one card per hull on one rail — no ghost card — each card naming its class', () => {
     open();
     const layer = document.getElementById('hc-class-select') as HTMLElement;
     const cards = [...layer.querySelectorAll<HTMLElement>('.hc-ccard')];
-    expect(cards).toHaveLength(3);
+    expect(cards).toHaveLength(SHIP_CLASS_IDS.length);
     const rail = cards[0].parentElement as HTMLElement;
-    expect(rail.children).toHaveLength(4); // the three cards + the ghost
-    expect([...rail.children].slice(0, 3)).toEqual(cards);
-    (['torpedoBoat', 'battleship', 'mineLayer'] as const).forEach((cls, i) => {
+    expect([...rail.children]).toEqual(cards); // the cards and nothing else
+    SHIP_CLASS_IDS.forEach((cls, i) => {
       expect(cards[i].querySelector('.hc-cname')?.textContent, cls).toBe(CLASS_DISPLAY_NAMES[cls]);
     });
     expect(layer.querySelector('h3')).not.toBeNull(); // the header
   });
 
-  it('the footer labels the swatch row from its LEFT, in the same flex row', () => {
+  it('carries no Color Hoist: no hue swatch anywhere in the layer (R6)', () => {
     open();
     const layer = document.getElementById('hc-class-select') as HTMLElement;
-    const swatch = layer.querySelector('button[aria-label="hue 1"]') as HTMLElement;
-    const row = swatch.parentElement as HTMLElement;
-    const wrap = row.parentElement as HTMLElement;
-    expect(wrap.children).toHaveLength(2);
-    expect(wrap.lastElementChild).toBe(row);
-    expect((wrap.firstElementChild?.textContent ?? '').trim()).not.toBe('');
-    expect(wrap.style.flexDirection).toBe('row');
+    expect(layer.querySelectorAll('button[aria-label^="hue "]')).toHaveLength(0);
   });
 
-  it('the class bay still carries all 20 swatches (the ONE picker in the app)', () => {
-    open();
-    const layer = document.getElementById('hc-class-select') as HTMLElement;
-    expect(layer.querySelectorAll('button[aria-label^="hue "]').length).toBe(PLAYER_HUES.length);
-  });
-
-  // Finding B regression pin: the footer (label + 20 swatches + the min-width
-  // CONFIRM button) is a nowrap flex row in a panel with vertical-only
-  // scrolling — below ~700px viewport width the button clipped outside the
-  // panel and became partially unclickable. flex-wrap lets it degrade by
-  // wrapping instead (the ratified 1366x768 floor still fits on one row).
+  // Finding B regression pin: the footer is a flex row in a panel with
+  // vertical-only scrolling — below ~700px viewport width the button clipped
+  // outside the panel. flex-wrap lets it degrade by wrapping instead.
   it('the footer row wraps instead of clipping at narrow viewport widths (Finding B)', () => {
     open();
-    const layer = document.getElementById('hc-class-select') as HTMLElement;
-    const swatch = layer.querySelector('button[aria-label="hue 1"]') as HTMLElement;
-    const hoistWrap = swatch.parentElement!.parentElement as HTMLElement; // makeHoistRow's outer wrap
-    const footer = hoistWrap.parentElement as HTMLElement;
+    const footer = confirmButton().parentElement as HTMLElement;
     expect(footer.style.flexWrap).toBe('wrap');
   });
 
@@ -400,84 +314,62 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
   // RE-TAKEN pin: Enter ≡ CONFIRM SELECTION (it used to route to onPick, now retired).
   it('Enter CONFIRMS the highlighted class (no deploy) and closes', () => {
     const { onConfirm } = open();
-    press('2'); // highlight battleship
+    press('2');
     press('Enter');
-    expect(onConfirm).toHaveBeenCalledWith('battleship', 'deckGun', DEFAULT_KIT);
+    expect(onConfirm).toHaveBeenCalledWith(SECOND, DEFAULT_SHIFT, DEFAULT_KIT);
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
-  // Pins the click→Enter sequence: the existing Enter test above only reaches
-  // the highlight via a digit key — this proves a mouse card-click sets the
-  // same highlight Enter reads.
+  // Pins the click→Enter sequence: a mouse card-click sets the same highlight
+  // Enter reads.
   it('Enter after a mouse card-click confirms the clicked class', () => {
     const { onConfirm } = open();
     const layer = document.getElementById('hc-class-select') as HTMLElement;
     const cards = [...layer.querySelectorAll('.hc-ccard')];
-    (cards[1] as HTMLElement).click(); // highlight battleship via click
+    (cards[1] as HTMLElement).click();
     press('Enter');
-    expect(onConfirm).toHaveBeenCalledWith('battleship', 'deckGun', DEFAULT_KIT);
+    expect(onConfirm).toHaveBeenCalledWith(SECOND, DEFAULT_SHIFT, DEFAULT_KIT);
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
-  // AMENDMENT 62 (Story 8.10): the weapon-row BLOCK is not merely empty — it is
-  // not built at all. An empty wrap would still paint its 12px seam and its
-  // hairline rule above nothing, which reads as a block that failed to load.
-  // Pinned on the card's own child count, so a later story cannot quietly
-  // re-advertise a weapon no hull carries.
-  it('builds ONE loadout block (the special + the gun chips) and no weapon row on any card', () => {
+  // AMENDMENT 62 (Story 8.10): no weapon row on any card. Story 10.4: the
+  // loadout block holds only the SPECIAL row's Shift chips.
+  it('builds ONE loadout block (the Shift chips) and no weapon row on any card', () => {
     open();
     const layer = document.getElementById('hc-class-select') as HTMLElement;
     const cards = [...layer.querySelectorAll('.hc-ccard')] as HTMLElement[];
-    expect(cards).toHaveLength(3);
+    expect(cards).toHaveLength(SHIP_CLASS_IDS.length);
     for (const card of cards) {
-      // head, silhouette box, pip grid, the loadout block (Story 8.15: the
-      // special + the gun chips), pick-button row.
+      // head, silhouette box, pip grid, the loadout block, pick-button row.
       expect(card.children).toHaveLength(5);
       const loadout = card.children[3] as HTMLElement;
-      expect(loadout.querySelectorAll('.hc-gunchip')).toHaveLength(GUN_IDS.length);
+      expect(loadout.querySelectorAll('.hc-shiftchip')).toHaveLength(SHIFT_IDS.length);
+      expect(loadout.children).toHaveLength(1); // the SPECIAL row only
     }
   });
 
-  // RE-TAKEN pin (was "SET SAIL picks the highlight AND deploys in one press"):
-  // the button confirms the highlight and closes — deploying is PLAY's job now.
+  // RE-TAKEN pin: the button confirms the highlight and closes — deploying is PLAY's job.
   it('CONFIRM SELECTION hands back the highlight and closes — it never deploys', () => {
     const { onConfirm, onClose } = open();
-    press('3'); // highlight mineLayer
+    press('3');
     confirmButton().click();
-    expect(onConfirm).toHaveBeenCalledWith('mineLayer', 'deckGun', DEFAULT_KIT);
+    expect(onConfirm).toHaveBeenCalledWith(THIRD, DEFAULT_SHIFT, DEFAULT_KIT);
     expect(onClose).not.toHaveBeenCalled();
     expect(document.getElementById('hc-class-select')).toBeNull(); // closed back to port
   });
 
-  // NOTE: the amber outline+glow chrome (Eric ruling: byte-identical to the
-  // SET SAIL treatment it replaces) is NOT assertable here — jsdom's cssstyle
-  // cannot parse `border:1px solid var(--hc-amber)` and silently voids the
-  // WHOLE style blob (the documented CSSOM-blob hazard; the PLAY button has the
-  // same blind spot). What IS pinned: the button carries no personal-hue tint,
-  // i.e. the layer's accent repaint never touches it.
-  it('CONFIRM SELECTION is never personal-tinted (amber stays the action register)', () => {
-    const hoist = new ColorHoist();
-    hoist.pick(8);
-    open({ hoist });
-    const btn = confirmButton();
-    expect(btn.style.borderColor).not.toBe(cssHex(PLAYER_HUES[8]));
-    expect(btn.style.color).not.toBe(cssHex(PLAYER_HUES[8]));
-  });
-
-  // RE-TAKEN pin (Eric ruling 2026-08-03): a card click no longer picks-and-closes
-  // — it only highlights. onPick is retired entirely (no such callback exists
-  // anymore), so the surviving spies are onConfirm/onClose.
+  // RE-TAKEN pin (Eric ruling 2026-08-03): a card click only highlights.
   it('a card click highlights that card and keeps the layer open', () => {
     const { onConfirm, onClose } = open();
     const layer = document.getElementById('hc-class-select') as HTMLElement;
     const cards = [...layer.querySelectorAll('.hc-ccard')];
-    expect([0, 1, 2].map(lit)).toEqual([true, false, false]); // initial highlight: torpedoBoat (index 0)
+    expect(litMap()).toEqual(only(0)); // initial highlight
     const pickBtnText = (i: number): string | null | undefined => cards[i].querySelector('.hc-pickbtn')?.textContent;
     const [onLabel, offLabel] = [pickBtnText(0), pickBtnText(1)];
     expect(onLabel).not.toBe(offLabel); // the pick button reads the state too
 
-    (cards[1] as HTMLElement).click(); // battleship card
-    expect([0, 1, 2].map(lit)).toEqual([false, true, false]);
+    (cards[1] as HTMLElement).click();
+    expect(litMap()).toEqual(only(1));
     expect(pickBtnText(1)).toBe(onLabel);
     expect(pickBtnText(0)).toBe(offLabel);
     expect(document.getElementById('hc-class-select')).not.toBeNull(); // still mounted
@@ -485,30 +377,32 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  // Pins the spec's I/O-matrix row: re-clicking the card that's already
-  // highlighted must stay a pure no-op (no callback, no close).
+  it('opens on the initial class', () => {
+    open({ initial: SHIP_CLASS_IDS[SHIP_CLASS_IDS.length - 1] });
+    expect(litMap()).toEqual(only(SHIP_CLASS_IDS.length - 1));
+  });
+
   it('re-clicking the already-highlighted card is a no-op', () => {
     const { onConfirm, onClose } = open();
     const layer = document.getElementById('hc-class-select') as HTMLElement;
     const cards = [...layer.querySelectorAll('.hc-ccard')];
-    (cards[1] as HTMLElement).click(); // battleship — first click highlights it
-    (cards[1] as HTMLElement).click(); // second click on the already-highlighted card
-    expect([0, 1, 2].map(lit)).toEqual([false, true, false]);
+    (cards[1] as HTMLElement).click();
+    (cards[1] as HTMLElement).click();
+    expect(litMap()).toEqual(only(1));
     expect(document.getElementById('hc-class-select')).not.toBeNull(); // still mounted
     expect(onConfirm).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  // Pins the bubbling assumption: the in-card SELECT button is not a separate
-  // click target — it's part of the whole-card click handler. A future
-  // stopPropagation on the button would silently kill this path.
+  // Pins the bubbling assumption: the in-card SELECT button is part of the
+  // whole-card click handler.
   it('clicking the in-card SELECT button itself highlights via bubbling', () => {
     const { onConfirm, onClose } = open();
     const layer = document.getElementById('hc-class-select') as HTMLElement;
     const cards = [...layer.querySelectorAll('.hc-ccard')];
     const pickBtn = cards[1].querySelector('.hc-pickbtn') as HTMLElement;
     pickBtn.click();
-    expect([0, 1, 2].map(lit)).toEqual([false, true, false]);
+    expect(litMap()).toEqual(only(1));
     expect(document.getElementById('hc-class-select')).not.toBeNull(); // still mounted
     expect(onConfirm).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
@@ -518,10 +412,10 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     const { onConfirm } = open();
     const layer = document.getElementById('hc-class-select') as HTMLElement;
     const cards = [...layer.querySelectorAll('.hc-ccard')];
-    (cards[1] as HTMLElement).click(); // battleship
+    (cards[1] as HTMLElement).click();
     confirmButton().click();
     expect(onConfirm).toHaveBeenCalledOnce();
-    expect(onConfirm).toHaveBeenCalledWith('battleship', 'deckGun', DEFAULT_KIT);
+    expect(onConfirm).toHaveBeenCalledWith(SECOND, DEFAULT_SHIFT, DEFAULT_KIT);
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
@@ -529,36 +423,11 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     const { onConfirm, onClose } = open();
     const layer = document.getElementById('hc-class-select') as HTMLElement;
     const cards = [...layer.querySelectorAll('.hc-ccard')];
-    (cards[1] as HTMLElement).click(); // battleship
+    (cards[1] as HTMLElement).click();
     press('Escape');
     expect(onClose).toHaveBeenCalledOnce();
     expect(onConfirm).not.toHaveBeenCalled();
     expect(document.getElementById('hc-class-select')).toBeNull();
-  });
-
-  // One-visit flow (the ruling's whole point): a click on a card, a click on a
-  // color swatch, and CONFIRM — all in a single bay open — must hand back the
-  // clicked class while the swatch pick has already persisted independently.
-  it('one visit: card click + swatch click + CONFIRM changes both ship and color', () => {
-    // Pin the stored preference to an index other than 5 (hue 6) FIRST — with
-    // localStorage empty, ColorHoist seeds from ensureColorPref(), which rolls
-    // a RANDOM hue, and the `toBe(5)` assertion below could pass vacuously
-    // whenever that random roll happened to land on 5.
-    localStorage.setItem(COLOR_PREF_KEY, '0');
-    const hoist = new ColorHoist();
-    expect(hoist.selected).toBe(0); // seeded from the pinned pref, not a random roll
-    const { onConfirm } = open({ hoist });
-    const layer = document.getElementById('hc-class-select') as HTMLElement;
-    const cards = [...layer.querySelectorAll('.hc-ccard')];
-    (cards[2] as HTMLElement).click(); // mineLayer
-
-    const swatch = layer.querySelector('button[aria-label="hue 6"]') as HTMLButtonElement;
-    swatch.click();
-    expect(hoist.selected).toBe(5); // swatch pick persisted immediately
-
-    confirmButton().click();
-    expect(onConfirm).toHaveBeenCalledWith('mineLayer', 'deckGun', DEFAULT_KIT);
-    expect(hoist.selected).toBe(5); // untouched by confirm — already persisted at swatch click
   });
 
   it('suppresses shortcuts while a text input is focused (typing isolation)', () => {
@@ -588,212 +457,63 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  // RENAMED (Codex finding): the old name claimed to prove "native activation
-  // wins", but this dispatches keydown on `window` — jsdom has no native
-  // button-activation behavior to observe. What this actually proves: the
-  // window-level shortcut handler stays quiet for Enter/Space while a layer
-  // button holds focus. EXTENDED (Finding A ruling): the guard is narrowed to
-  // ONLY those two keys — ESC and arrows must still reach the layer even while
-  // a button (e.g. a focused swatch) holds focus.
+  // The window-level shortcut handler stays quiet for Enter/Space while a
+  // layer button holds focus (Finding A narrowed the guard to ONLY those two
+  // keys — ESC and arrows still reach the layer while a chip holds focus).
   it('Enter/Space stay swallowed by the window handler while a layer button holds focus; ESC and arrows still work regardless of focus', () => {
     const { onConfirm, onClose } = open();
     confirmButton().focus();
     press('Enter');
     expect(onConfirm).not.toHaveBeenCalled(); // the window shortcut did NOT steal Enter
-    press(' '); // Space is swallowed the same way (native button activation)
+    press(' ');
     expect(onConfirm).not.toHaveBeenCalled();
 
-    // Finding A: a color swatch is a layer BUTTON too (the bay is the app's
-    // ONLY color picker) — while it holds focus, ArrowRight must still move
-    // the highlight and ESC must still close.
     const layer = document.getElementById('hc-class-select') as HTMLElement;
-    expect(lit(0)).toBe(true); // initial highlight: torpedoBoat
-
-    const swatch = layer.querySelector('button[aria-label="hue 1"]') as HTMLButtonElement;
-    swatch.focus();
-    press('ArrowRight'); // must move despite the swatch (a BUTTON) holding focus
-    expect([0, 1, 2].map(lit)).toEqual([false, true, false]); // battleship now highlighted
+    expect(lit(0)).toBe(true);
+    const chip = layer.querySelector('.hc-shiftchip') as HTMLButtonElement;
+    chip.focus();
+    press('ArrowRight'); // must move despite the chip (a BUTTON) holding focus
+    expect(litMap()).toEqual(only(1));
 
     press('Escape'); // must still close despite focus
     expect(onClose).toHaveBeenCalledOnce();
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
-  // Finding A regression pin: clicking a swatch used to leave it focused, and
-  // the (unnarrowed) guard then swallowed EVERY key — ESC included — until a
-  // stray mouse click restored the keyboard. The fix blurs the swatch after
-  // pick, so ESC keeps working right after a real click.
-  it('a swatch click still lets ESC close the layer afterward (Finding A)', () => {
-    const { onClose } = open();
-    const layer = document.getElementById('hc-class-select') as HTMLElement;
-    const swatch = layer.querySelector('button[aria-label="hue 3"]') as HTMLButtonElement;
-    swatch.focus(); // simulate the browser's implicit focus-on-click
-    swatch.click();
-    press('Escape');
-    expect(onClose).toHaveBeenCalledOnce();
-    expect(document.getElementById('hc-class-select')).toBeNull();
-  });
-
-  // Finding A regression pin: without the post-pick blur, Enter stays
-  // swallowed by the narrowed guard too (it deliberately still swallows
-  // Enter/Space while ANY layer button — including a swatch — holds focus).
-  // Only the blur restores Enter → CONFIRM SELECTION via the window handler.
-  it('a swatch click still lets Enter confirm via the window handler afterward (Finding A)', () => {
+  // Finding A regression pin: a chip click blurs the chip, so Enter reaches the
+  // window handler again right after a real click.
+  it('a Shift chip click still lets Enter confirm via the window handler afterward (Finding A)', () => {
     const { onConfirm } = open();
-    const layer = document.getElementById('hc-class-select') as HTMLElement;
-    const swatch = layer.querySelector('button[aria-label="hue 3"]') as HTMLButtonElement;
-    swatch.focus();
-    swatch.click();
-    expect(document.activeElement).not.toBe(swatch); // blurred after the pick
+    const cards = [...document.querySelectorAll('#hc-class-select .hc-ccard')];
+    const chip = cards[0].querySelector(`.hc-shiftchip[data-shift="${OTHER_SHIFT}"]`) as HTMLButtonElement;
+    chip.focus();
+    chip.click();
+    expect(document.activeElement).not.toBe(chip); // blurred after the pick
     press('Enter');
-    expect(onConfirm).toHaveBeenCalledWith('torpedoBoat', 'deckGun', DEFAULT_KIT); // highlight unchanged; only the color changed
+    expect(onConfirm).toHaveBeenCalledWith(FIRST, OTHER_SHIFT, DEFAULT_KIT);
   });
 });
 
-describe('openClassSelect — teardown balances hoist subscriptions (no leak)', () => {
-  let blurTarget: HTMLElement;
-  beforeEach(() => {
-    localStorage.clear();
-    blurTarget = document.createElement('div');
-    document.body.appendChild(blurTarget);
-  });
-  afterEach(() => {
-    document.getElementById('hc-class-select')?.remove();
-    blurTarget.remove();
-  });
+// --- Story 10.4: the SPECIAL row — ONE three-way Shift pick ---------------------
 
-  it('a close() releases EVERY subscription the layer added (footer row included)', () => {
-    const hoist = new ColorHoist();
-    const before = hoist.listenerCount;
-    const handle = openClassSelect({
-      initial: 'torpedoBoat',
-      hoist,
-      blurTarget,
-      onConfirm: vi.fn(),
-      onClose: vi.fn(),
-    });
-    expect(hoist.listenerCount).toBeGreaterThan(before); // layer added subscriptions
-    handle.close();
-    expect(hoist.listenerCount).toBe(before); // ...and released all of them
-  });
-
-  it('re-opening fully tears the prior layer down (one live layer, balanced subs)', () => {
-    const hoist = new ColorHoist();
-    const before = hoist.listenerCount;
-    openClassSelect({ initial: 'torpedoBoat', hoist, blurTarget, onConfirm: vi.fn(), onClose: vi.fn() });
-    const afterFirst = hoist.listenerCount;
-    openClassSelect({ initial: 'battleship', hoist, blurTarget, onConfirm: vi.fn(), onClose: vi.fn() });
-    expect(hoist.listenerCount).toBe(afterFirst); // prior layer's subs freed, not stacked
-    expect(document.querySelectorAll('#hc-class-select').length).toBe(1);
-  });
-});
-
-// THE COLOR HOIST READS AS A WHEEL (Eric ruling 2026-08-21: *"organize the
-// colors by hue or something."*).
-//
-// The load-bearing half is what this DOES NOT touch. A wheel index is IDENTITY —
-// the server assigns it at join and it rides `PlayerMeta.color` on the wire — so
-// reordering `REGATTA_HUES` itself would repaint every player in the game and
-// break the index->hex agreement both sides depend on. Only the order the row is
-// WALKED in moves.
-describe('the Color Hoist is displayed in hue order', () => {
-  it('IS A PERMUTATION of the wheel — every index exactly once, none invented', () => {
-    const order = hueSortedIndices(PLAYER_HUES);
-    expect(order).toHaveLength(PLAYER_HUES.length);
-    expect([...order].sort((a, b) => a - b)).toEqual(PLAYER_HUES.map((_, i) => i));
-  });
-
-  it('ascends by hue angle across the whole row', () => {
-    const order = hueSortedIndices(PLAYER_HUES);
-    const angles = order.map((i) => hueAngle(PLAYER_HUES[i]));
-    for (let k = 1; k < angles.length; k++) {
-      expect(angles[k], `swatch ${k} (${angles[k].toFixed(1)}deg) vs ${angles[k - 1].toFixed(1)}deg`)
-        .toBeGreaterThanOrEqual(angles[k - 1]);
-    }
-  });
-
-  it('is STABLE on ties, so equal hues keep wheel order (the colorblind assist '
-    + 'collapses 20 indices onto 8 repeated families)', () => {
-    // Three distinct hues, the middle one duplicated: the duplicates must come
-    // out in ascending index order, not swapped.
-    expect(hueSortedIndices([0xff0000, 0x00ff00, 0x00ff00, 0x0000ff])).toEqual([0, 1, 2, 3]);
-    expect(hueSortedIndices([0x0000ff, 0x00ff00, 0x00ff00, 0xff0000])).toEqual([3, 1, 2, 0]);
-  });
-
-  it('is the IDENTITY on the shipped wheel — cycle 125 regenerated the palette '
-    + 'hue-monotonic by construction, so there is nothing left to reorder', () => {
-    // This case USED to assert the opposite. The pre-125 wheel carried two
-    // sub-4-degree inversions (cobalt 233.0 before periwinkle 230.9; orchid
-    // 293.4 before fuchsia 289.9) and the sort's entire mechanical effect was
-    // swapping those two pairs. The regenerated wheel is built by walking a hue
-    // arc in one direction, so it arrives sorted.
-    //
-    // THE SORT IS KEPT ANYWAY, and this pin is why it can be: it is a DERIVED
-    // guarantee, not a hand-maintained order. If a future palette edit lands a
-    // value out of sequence the row still reads as a wheel, and this test flips
-    // to telling you the palette moved rather than silently passing.
-    expect(hueSortedIndices(PLAYER_HUES)).toEqual(PLAYER_HUES.map((_, i) => i));
-  });
-
-  it('...and still REORDERS a wheel that needs it, so the identity above is a '
-    + 'property of the palette rather than a broken sort', () => {
-    // Deliberately unsorted input: green(120), red(0), blue(240).
-    expect(hueSortedIndices([0x00ff00, 0xff0000, 0x0000ff])).toEqual([1, 0, 2]);
-  });
-
-  it('hueAngle: primaries land where they should, and a grey is 0', () => {
-    expect(hueAngle(0xff0000)).toBeCloseTo(0, 6);
-    expect(hueAngle(0x00ff00)).toBeCloseTo(120, 6);
-    expect(hueAngle(0x0000ff)).toBeCloseTo(240, 6);
-    expect(hueAngle(0xffff00)).toBeCloseTo(60, 6);
-    for (const grey of [0x000000, 0x808080, 0xffffff]) expect(hueAngle(grey)).toBe(0);
-  });
-
-  it('the row renders one swatch per hue, in that order, each picking its OWN '
-    + 'wheel index', () => {
-    const hoist = new ColorHoist();
-    const { el, off } = makeHoistRow(hoist);
-    const buttons = [...el.querySelectorAll('button')];
-    expect(buttons).toHaveLength(PLAYER_HUES.length);
-    const order = hueSortedIndices(PLAYER_HUES);
-    // aria-label is `hue ${idx + 1}` — the TRUE wheel index, so it proves the
-    // swatch kept its identity through the reorder.
-    expect(buttons.map((b) => b.getAttribute('aria-label')))
-      .toEqual(order.map((i) => `hue ${i + 1}`));
-    // ...and clicking one selects that index, not its position in the row.
-    const pos = 3;
-    buttons[pos].click();
-    expect(hoist.selected).toBe(order[pos]);
-    off();
-  });
-});
-
-
-// --- Story 8.15: the SPECIAL row + the DECK GUN chips (amendment 107) ---------
-
-describe('the SPECIAL row and the gun chips — fit (Story 8.15)', () => {
+describe('the SPECIAL row — fit (Story 10.4)', () => {
   // THE CONTAINER-FIT LAW (amendment 47). The class bay is PORT chrome and does
-  // not ride `--hc-ui-scale`, so one measurement holds at 90 / 100 / 125 %: the
-  // row's box never scales, and nothing on it sits near the 9 px floor.
-  it('every SPECIAL value fits its row beside the 108 px key column, and the keys fit the column', () => {
+  // not ride `--hc-ui-scale`, so one measurement holds at every UI scale.
+  it('the SPECIAL key fits the loadout key column', () => {
     const micro = CLIENT_CONFIG.type.registers.hudMicro.size;
-    for (const key of ['SPECIAL', 'DECK GUN']) {
-      expect(monoTextWidth(key, micro, micro * LOADOUT_KEY_TRACKING_EM), key).toBeLessThanOrEqual(LOADOUT_KEY_COL_PX);
-    }
-    for (const name of Object.values(SPECIAL_NAMES)) {
-      const w = LOADOUT_KEY_COL_PX + LOADOUT_KEY_GAP_PX
-        + monoTextWidth(name, LOADOUT_VALUE_PX, LOADOUT_VALUE_PX * LOADOUT_VALUE_TRACKING_EM);
-      expect(w, `${name} is ${w.toFixed(1)}px on a ${CARD_INNER_PX}px line`).toBeLessThanOrEqual(CARD_INNER_PX);
-    }
+    expect(monoTextWidth(SPECIAL_KEY, micro, micro * LOADOUT_KEY_TRACKING_EM)).toBeLessThanOrEqual(LOADOUT_KEY_COL_PX);
   });
 
-  it('the three gun chips fit ONE line of the 356 px card, above the 9 px floor', () => {
-    expect(gunChipRowWidth()).toBeLessThanOrEqual(CARD_INNER_PX);
+  it('each Shift chip alone fits the card\'s inner line (the row wraps between chips), above the 9 px floor', () => {
+    for (const id of SHIFT_IDS) {
+      const w = shiftChipWidth(id);
+      expect(w, `${id} chip is ${w.toFixed(1)}px on a ${CARD_INNER_PX}px line`).toBeLessThanOrEqual(CARD_INNER_PX);
+    }
     expect(CLIENT_CONFIG.type.registers.hudMicro.size).toBeGreaterThanOrEqual(CLIENT_CONFIG.settings.monoFloorPx);
   });
 });
 
-describe('openClassSelect — the gun pick (Story 8.15)', () => {
+describe('openClassSelect — the Shift pick (Story 10.4)', () => {
   let blurTarget: HTMLElement;
   beforeEach(() => {
     localStorage.clear();
@@ -806,47 +526,43 @@ describe('openClassSelect — the gun pick (Story 8.15)', () => {
   });
 
   function chipsOf(card: Element): HTMLButtonElement[] {
-    return [...card.querySelectorAll('.hc-gunchip')] as HTMLButtonElement[];
+    return [...card.querySelectorAll('.hc-shiftchip')] as HTMLButtonElement[];
   }
   function cards(): HTMLElement[] {
     return [...document.querySelectorAll('#hc-class-select .hc-ccard')] as HTMLElement[];
   }
+  function pressedOf(card: Element): ShiftId[] {
+    return chipsOf(card).filter((c) => c.getAttribute('aria-pressed') === 'true').map((c) => c.dataset.shift as ShiftId);
+  }
   function confirm(): void {
-    ([...document.querySelectorAll<HTMLButtonElement>('#hc-class-select button')].find(
-      (b) => !b.hasAttribute('aria-label') && !b.classList.contains('hc-gunchip') && b.textContent !== '',
-    ) as HTMLButtonElement).click();
+    confirmButtonIn(document.getElementById('hc-class-select') as HTMLElement).click();
   }
 
-  it('every card carries its hull\'s special and the three chips in gun order, the deck gun preselected', () => {
-    openClassSelect({ initial: 'torpedoBoat', hoist: new ColorHoist(), blurTarget, onConfirm: vi.fn(), onClose: vi.fn() });
-    (['torpedoBoat', 'battleship', 'mineLayer'] as const).forEach((cls, i) => {
-      expect(cards()[i].textContent, cls).toContain(SPECIAL_NAMES[classShift(cls)]);
-    });
+  it('every card carries the three chips in SHIFT_IDS order, the default Shift lit alone', () => {
+    openClassSelect({ initial: FIRST, blurTarget, onConfirm: vi.fn(), onClose: vi.fn() });
     for (const card of cards()) {
-      expect(chipsOf(card).map((c) => c.dataset.gun)).toEqual([...GUN_IDS]);
-      expect(chipsOf(card).map((c) => c.getAttribute('aria-pressed'))).toEqual(['true', 'false', 'false']);
+      expect(chipsOf(card).map((c) => c.dataset.shift)).toEqual([...SHIFT_IDS]);
+      expect(pressedOf(card)).toEqual([DEFAULT_SHIFT]);
     }
   });
 
   it('a chip moves the ONE pick on every card, highlights its own card, and rides CONFIRM', () => {
     const onConfirm = vi.fn();
-    openClassSelect({ initial: 'torpedoBoat', hoist: new ColorHoist(), blurTarget, onConfirm, onClose: vi.fn() });
-    chipsOf(cards()[2])[1].click(); // MACHINE GUN on the Mine Layer's card
-    for (const card of cards()) {
-      expect(chipsOf(card).map((c) => c.getAttribute('aria-pressed'))).toEqual(['false', 'true', 'false']);
-    }
+    openClassSelect({ initial: FIRST, blurTarget, onConfirm, onClose: vi.fn() });
+    const target = chipsOf(cards()[2]).find((c) => c.dataset.shift === OTHER_SHIFT) as HTMLButtonElement;
+    target.click();
+    for (const card of cards()) expect(pressedOf(card)).toEqual([OTHER_SHIFT]);
+    expect(litMap()).toEqual(only(2));
     confirm();
-    expect(onConfirm).toHaveBeenCalledWith('mineLayer', 'machineGun', DEFAULT_KIT);
+    expect(onConfirm).toHaveBeenCalledWith(THIRD, OTHER_SHIFT, DEFAULT_KIT);
   });
 
-  it('opens on the stored pick (initialGun)', () => {
+  it('opens on the stored pick (initialShift)', () => {
     const onConfirm = vi.fn();
-    openClassSelect({
-      initial: 'battleship', initialGun: 'flak', hoist: new ColorHoist(), blurTarget, onConfirm, onClose: vi.fn(),
-    });
-    expect(chipsOf(cards()[0]).map((c) => c.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'true']);
+    openClassSelect({ initial: SECOND, initialShift: OTHER_SHIFT, blurTarget, onConfirm, onClose: vi.fn() });
+    for (const card of cards()) expect(pressedOf(card)).toEqual([OTHER_SHIFT]);
     confirm();
-    expect(onConfirm).toHaveBeenCalledWith('battleship', 'flak', DEFAULT_KIT);
+    expect(onConfirm).toHaveBeenCalledWith(SECOND, OTHER_SHIFT, DEFAULT_KIT);
   });
 });
 
@@ -873,20 +589,20 @@ describe('openClassSelect — the CONSUMABLES row (Story 10.1)', () => {
   function open(initialKit?: typeof DEFAULT_KIT): ReturnType<typeof vi.fn> {
     const onConfirm = vi.fn();
     openClassSelect({
-      initial: 'torpedoBoat', hoist: new ColorHoist(), blurTarget, onConfirm, onClose: vi.fn(),
+      initial: FIRST, blurTarget, onConfirm, onClose: vi.fn(),
       ...(initialKit ? { initialKit } : {}),
     });
     return onConfirm;
   }
 
-  it('the footer carries the row: KIT_SIZE squares showing the kit in slot order, above the hoist', () => {
+  it('the footer carries the row: KIT_SIZE squares showing the kit in slot order, before CONFIRM', () => {
     open();
     expect(slots()).toHaveLength(KIT_SIZE);
     expect(slots().map((b) => b.dataset.kind)).toEqual([...DEFAULT_KIT]);
     const row = layer().querySelector('[data-kit-row]') as HTMLElement;
-    const swatch = layer().querySelector('button[aria-label^="hue "]') as HTMLElement;
-    expect((row.parentElement as HTMLElement).contains(swatch)).toBe(true);
-    expect(row.compareDocumentPosition(swatch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const confirm = confirmButtonIn(layer());
+    expect(row.parentElement).toBe(confirm.parentElement);
+    expect(row.compareDocumentPosition(confirm) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('opens on initialKit', () => {
@@ -905,7 +621,7 @@ describe('openClassSelect — the CONSUMABLES row (Story 10.1)', () => {
     const expected = DEFAULT_KIT.map((l, i) => (i === 1 ? lit : l));
     expect(slots().map((b) => b.dataset.kind)).toEqual(expected);
     keydown('Enter');
-    expect(onConfirm).toHaveBeenCalledWith('torpedoBoat', 'deckGun', expected);
+    expect(onConfirm).toHaveBeenCalledWith(FIRST, DEFAULT_SHIFT, expected);
   });
 
   it('while the picker is open the layer keys are suppressed; ESC closes the picker, not the layer', () => {
@@ -918,7 +634,7 @@ describe('openClassSelect — the CONSUMABLES row (Story 10.1)', () => {
     expect(pickerOpen()).toBe(false);
     expect(document.getElementById('hc-class-select')).not.toBeNull();
     keydown('Enter');
-    expect(onConfirm).toHaveBeenCalledWith('torpedoBoat', 'deckGun', DEFAULT_KIT); // highlight and kit unchanged
+    expect(onConfirm).toHaveBeenCalledWith(FIRST, DEFAULT_SHIFT, DEFAULT_KIT); // highlight and kit unchanged
   });
 
   describe('focus is trapped in the picker', () => {

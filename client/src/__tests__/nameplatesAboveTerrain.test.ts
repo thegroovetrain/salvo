@@ -48,7 +48,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, DEFAULT_KIT, type OwnShip } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_KIT, DEFAULT_SHIFT, initialTurrets, type OwnShip } from '@salvo/shared';
+import type { Relation } from '../render/relationColor.js';
 import { CLIENT_CONFIG } from '../config.js';
 import type { Camera } from '../render/camera.js';
 import { hullSightSoftness } from '../render/fog.js';
@@ -123,7 +124,8 @@ function readIndexHtml(): string {
 function refitViewFixture(): OfferView {
   const you: OwnShip = {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
-    ammo: [], sweep: 0, cls: 'torpedoBoat', gun: 'deckGun', kit: [...DEFAULT_KIT], pts: 1,
+    ammo: [], sweep: 0, cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, turrets: initialTurrets(DEFAULT_CLASS_ID),
+    sec: { heat: 0, locked: false }, kit: [...DEFAULT_KIT], pts: 1,
     offer: ['intel', 'armor', 'deckGun', 'navalMines'],
     boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
   };
@@ -446,7 +448,7 @@ describe('drivePlate samples the feather at the hull pose, and multiplies it in'
     zoom: 1,
   };
   const plateFrame = { nameOf: (): string | null => null, camera, pad: 8 };
-  const rosterIndex = (): number | null => null;
+  const relationOf = (): Relation => 'enemy';
 
   const drive = (softnessValue: number) => {
     textLog.length = 0;
@@ -459,7 +461,7 @@ describe('drivePlate samples the feather at the hull pose, and multiplies it in'
       return softnessValue;
     };
     store.pushFrame(0, droneContact());
-    views.render(store, 0, 0, 16, rosterIndex, plateFrame, softness);
+    views.render(store, 0, 0, 16, relationOf, plateFrame, softness);
     return { seen, shipLayer };
   };
 
@@ -504,7 +506,7 @@ describe('drivePlate samples the feather at the hull pose, and multiplies it in'
     const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()), () => {});
     const store = new ContactStore();
     store.pushFrame(0, droneContact());
-    views.render(store, 0, 0, 16, rosterIndex, plateFrame); // softness omitted => NO_SOFTENING
+    views.render(store, 0, 0, 16, relationOf, plateFrame); // softness omitted => NO_SOFTENING
     expect(textLog[0].alpha, 'a full feather changes nothing').toBeCloseTo(withFeather, 12);
   });
 });
@@ -531,7 +533,7 @@ describe('a nameplate under thick countermeasure paint is hidden; the hull never
     const views = new ContactViews(shipLayer, new NameplateLayer(stubLayer()), () => {}, coverAt);
     const store = new ContactStore();
     store.pushFrame(0, [{ id: 'f1', x: WORLD.x, y: WORLD.y, heading: 0, speed: 10, cls: 'droneSmall' }]);
-    views.render(store, 0, 0, 16, () => null, plateFrame);
+    views.render(store, 0, 0, 16, () => 'enemy', plateFrame);
     const hull = shipLayer.children[0];
     return { plate: textLog[0], hull: { alpha: hull.alpha, visible: hull.visible }, sampled };
   };

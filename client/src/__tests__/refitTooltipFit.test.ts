@@ -31,7 +31,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CATALOG, CONFIG, DEFAULT_KIT, type CatalogLine, type ShipClassId } from '@salvo/shared';
+import { CATALOG, CONFIG, DEFAULT_CLASS_ID, DEFAULT_KIT, type CatalogLine, type ShipClassId } from '@salvo/shared';
 import {
   boonName,
   cardHoverRows,
@@ -255,7 +255,7 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
   function open(): { menu: UpgradeMenu; cards: HTMLButtonElement[]; view: OfferView } {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, kit: [...DEFAULT_KIT], pts: 1, offer: OFFER, boostUntil: 0,
+      cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], pts: 1, offer: OFFER, boostUntil: 0,
       cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const view = offerView(you as never, false, false, false) as OfferView;
@@ -340,7 +340,7 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
   const SHORT = { w: 1280, h: 560 };
   it('re-decides an OPEN tip\'s placement when the viewport resizes under it', () => {
     const TALL = OFFER.indexOf('phosphorShells');
-    const model = panelFor(CATALOG.phosphorShells, 0, 'torpedoBoat');
+    const model = panelFor(CATALOG.phosphorShells, 0, DEFAULT_CLASS_ID);
     const before = { w: window.innerWidth, h: window.innerHeight };
     const { menu, cards, view } = open();
     cards[TALL].dispatchEvent(new MouseEvent('mouseenter'));
@@ -366,7 +366,7 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
   // 100% (340px of water) and 512 at 150% (too little for the 170px panel).
   it('writes the ABOVE placement when the water is deep enough, DOWN when it is not', () => {
     const TALL = OFFER.indexOf('phosphorShells');
-    const model = panelFor(CATALOG.phosphorShells, 0, 'torpedoBoat');
+    const model = panelFor(CATALOG.phosphorShells, 0, DEFAULT_CLASS_ID);
     // Measured first, asserted after — a failed expectation inside the loop
     // would strand an open band in the document and poison every later DOM test.
     const seen = [1, 1.5].map((factor) => {
@@ -466,7 +466,7 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
   it('renders the KIND word on the card (the copy count left with the interim face)', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, kit: [...DEFAULT_KIT], pts: 1, offer: ['deckGun', 'heavyTorpedo'], boostUntil: 0,
+      cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], pts: 1, offer: ['deckGun', 'heavyTorpedo'], boostUntil: 0,
       cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
@@ -486,7 +486,7 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
   it('paints the KIND word and the resting edge in the kind\'s colour; armed stays amber', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, kit: [...DEFAULT_KIT], pts: 1, offer: ['heavyTorpedo', 'deckGun', 'armor', 'hullRepair'],
+      cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], pts: 1, offer: ['heavyTorpedo', 'deckGun', 'armor', 'hullRepair'],
       boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
@@ -520,7 +520,7 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
   it('tints each tier NUMERAL by the rung it names, on the absolute loot ramp', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, kit: [...DEFAULT_KIT], pts: 1, offer: ['intel'], boostUntil: 0,
+      cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], pts: 1, offer: ['intel'], boostUntil: 0,
       cards: ['intel', 'intel'], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
@@ -628,7 +628,7 @@ describe('the hover panel\'s consumable shape line', () => {
   it('keeps the shape row hidden and empty on every card\'s hover panel (amendment 203)', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, kit: [...DEFAULT_KIT], pts: 1, offer: ['hullRepair', 'intel'], boostUntil: 0,
+      cls: DEFAULT_CLASS_ID, kit: [...DEFAULT_KIT], pts: 1, offer: ['hullRepair', 'intel'], boostUntil: 0,
       cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});

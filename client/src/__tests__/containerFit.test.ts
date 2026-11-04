@@ -28,7 +28,8 @@
 import { describe, expect, it, afterEach } from 'vitest';
 import { showResults, hideResults } from '../ui/results.js';
 import { showHome } from '../ui/home.js';
-import { ColorHoist, openClassSelect } from '../ui/classSelect.js';
+import { openClassSelect } from '../ui/classSelect.js';
+import { DEFAULT_CLASS_ID } from '@salvo/shared';
 import { SettingsOverlay } from '../ui/settings.js';
 import { SettingsStore, DEFAULT_SETTINGS } from '../settings/store.js';
 
@@ -89,8 +90,7 @@ describe('port panels cap their height against the VIEWPORT, in border-box (amen
     const blurTarget = document.createElement('div');
     document.body.appendChild(blurTarget);
     openClassSelect({
-      initial: 'torpedoBoat',
-      hoist: new ColorHoist(),
+      initial: DEFAULT_CLASS_ID,
       blurTarget,
       onConfirm: () => undefined,
       onClose: () => undefined,

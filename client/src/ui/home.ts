@@ -60,15 +60,11 @@
 // The settings overlay is TRANSPARENT so the ambient scene breathes behind it;
 // the ambient's scrim keeps this text legible.
 //
-// The color picker lives ONLY in the class bay's footer now (Eric ruling — the
-// duplicate home hoist is retired). The shared ColorHoist still lives here, as
-// the state the home's PERSONAL TINT follows: the chip's border/glow/name and
-// the callsign field's border + focus ring all take the player's Regatta hue
-// (via `repaintAccent`, subscribed ONCE at mount to the hoist's onChange — not
-// resubscribed per pick — so a hue chosen in the bay repaints the port behind
-// it; the subscription is released by hide()'s disposers). Amber stays the
-// ACTION register (the SOLO primary only) and phosphor stays the system/status
-// register — neither is ever personalized.
+// The Color Hoist is gone (Story 10.4, Eric's ruling R6). The home's OWN TINT —
+// the chip's border/glow/name and the callsign field's border + focus ring —
+// is the own relation color (ui/ownAccent.ts), painted at mount by
+// `repaintAccent`. Amber stays the ACTION register (the SOLO primary only) and
+// phosphor stays the system/status register.
 //
 // First-run (no stored class): the chip shows a SELECT CLASS prompt and either
 // deploy button (or Enter) OPENS the layer instead of connecting — no default
@@ -76,16 +72,16 @@
 // the button they press. The callsign
 // persists in localStorage; sanitizeName/load-save helpers are pure + tested.
 // All colors/typography via CLIENT_CONFIG tokens (var(--hc-*) + registerCss;
-// cssHex for the personal hues, which have no --hc-* var).
+// cssHex for the own accent, which has no --hc-* var).
 
 import {
-  DEFAULT_GUN,
+  DEFAULT_CLASS_ID,
   DEFAULT_KIT,
   isConsumableKit,
-  isGunId,
   sanitizeClassId,
+  sanitizeShiftId,
   type ConsumableKit,
-  type GunId,
+  type ShiftId,
   type LivenessPayload,
   type QueueStatusMsg,
   type ShipClassId,
@@ -105,8 +101,8 @@ import { registerCss } from './theme.js';
 import { makePrivateRow, type PrivateRow } from './privateRow.js';
 import { silhouetteSvg } from '../util/silhouetteSvg.js';
 import { pickTagline } from './taglines.js';
+import { OWN_ACCENT, type OwnAccent } from './ownAccent.js';
 import {
-  ColorHoist,
   openClassSelect,
   CLASS_DISPLAY_NAMES,
   type ClassSelectHandle,
@@ -120,10 +116,11 @@ export { NAME_MAX };
 const HOME_ID = 'main-menu'; // kept id so index.html / any external hook is stable
 const NAME_KEY = 'hullcracker.name';
 const CLASS_KEY = 'hullcracker.class';
-/** THE GUN PICK (Story 8.15, amendment 107), stored beside the class. */
-export const GUN_KEY = 'hullcracker.gun';
+/** THE SHIFT PICK (Story 10.4 — it replaced the retired `hullcracker.gun`
+ *  pick), stored beside the class. */
+export const SHIFT_KEY = 'hullcracker.shift';
 /** THE KIT (Story 10.1, epic-10 amendment 3): the four consumable lines on keys
- *  1–4, a JSON array stored beside the gun. */
+ *  1–4, a JSON array stored beside the Shift. */
 export const KIT_KEY = 'hullcracker.kit';
 const MODE_KEY = 'hullcracker.mode';
 
@@ -176,9 +173,9 @@ export function loadSavedClassOrNull(): ShipClassId | null {
   }
 }
 
-/** Defaulting variant (torpedoBoat when unset/garbage) for in-game consumers. */
+/** Defaulting variant (DEFAULT_CLASS_ID — R7 — when unset) for in-game consumers. */
 export function loadSavedClass(): ShipClassId {
-  return loadSavedClassOrNull() ?? 'torpedoBoat';
+  return loadSavedClassOrNull() ?? DEFAULT_CLASS_ID;
 }
 
 /** True when no class is stored yet (drives first-run PLAY→layer routing). */
@@ -195,24 +192,23 @@ function saveClass(cls: ShipClassId): void {
 }
 
 /**
- * The saved gun pick (Story 8.15, amendment 107) — `deckGun` (the CANNON) when
- * nothing is stored, the value is unknown, or storage is unavailable. Unlike
- * the class there is no first-run signal: CANNON is simply preselected.
+ * The saved Shift pick (Story 10.4) — `DEFAULT_SHIFT` (R7: SPEED BOOST) when
+ * nothing is stored, the value is unknown, or storage is unavailable
+ * (`sanitizeShiftId` fails open). No first-run signal: it is simply preselected.
  */
-export function loadSavedGun(): GunId {
+export function loadSavedShift(): ShiftId {
   try {
-    const raw = localStorage.getItem(GUN_KEY);
-    return isGunId(raw) ? raw : DEFAULT_GUN;
+    return sanitizeShiftId(localStorage.getItem(SHIFT_KEY));
   } catch {
-    return DEFAULT_GUN;
+    return sanitizeShiftId(undefined);
   }
 }
 
-function saveGun(gun: GunId): void {
+export function saveShift(shift: ShiftId): void {
   try {
-    localStorage.setItem(GUN_KEY, gun);
+    localStorage.setItem(SHIFT_KEY, shift);
   } catch {
-    // storage unavailable — the gun just won't persist
+    // storage unavailable — the Shift just won't persist
   }
 }
 
@@ -252,10 +248,10 @@ export function saveKit(kit: ConsumableKit): void {
  */
 export type DeployMode = 'standard' | 'soloVsAi';
 
-/** A deploy door's callback: the callsign, the hull, the gun pick (Story 8.15
- *  threads the gun through `startGame` → `connect` → `joinOptions`) and the kit
+/** A deploy door's callback: the callsign, the hull, the Shift pick (Story 10.4
+ *  threads it through `startGame` → `connect` → `joinOptions`) and the kit
  *  (Story 10.1, threaded the same way). */
-export type DeployFn = (name: string, cls: ShipClassId, gun: GunId, kit: ConsumableKit) => void;
+export type DeployFn = (name: string, cls: ShipClassId, shift: ShiftId, kit: ConsumableKit) => void;
 
 /** The private-lobby doors (cycle 167): CREATE and JOIN. Not `DeployMode`s —
  *  neither is ever persisted as `hullcracker.mode`. */
@@ -520,7 +516,7 @@ function makeNameField(): HTMLInputElement {
   input.autocomplete = 'off';
   input.spellcheck = false;
   // The border color is a PLACEHOLDER: `paintCallsign` overwrites it (and the
-  // focus glow) with the player's personal hue on mount and on every hoist pick.
+  // focus glow) with the own accent on mount.
   input.style.cssText =
     'width:340px;max-width:calc(100vw - 48px);height:52px;background:var(--hc-panel-deep);' +
     'border:1px solid var(--hc-hairline);border-radius:6px;padding:0 18px;color:var(--hc-text-primary);' +
@@ -906,7 +902,8 @@ function makeGear(onClick: () => void): HTMLElement {
 interface Home {
   overlay: HTMLElement;
   input: HTMLInputElement;
-  hoist: ColorHoist;
+  /** The own accent the port chrome is tinted with (ui/ownAccent.ts). */
+  accent: OwnAccent;
   statusEl: HTMLElement;
   /** Leave the queue, set by setCancel() while the player is pooled. The
    *  AFFORDANCE lives in ui/queueModal.ts now; this is retained as the home's
@@ -919,21 +916,21 @@ interface Home {
   soloBtn: HTMLButtonElement;
   /** CREATE / JOIN (cycle 167) — the third line, built by ui/privateRow.ts. */
   privateRow: PrivateRow;
-  /** The private doors — same (name, cls, gun) contract, never a saved mode. */
+  /** The private doors — same (name, cls, shift) contract, never a saved mode. */
   privateDoors: PrivateDoors;
   /** The bottom-left PLAYERS ONLINE / LIVE GAMES register (Story 6.6). */
   livenessEls: LivenessEls;
   /** The last `/liveness` read, or null while UNAVAILABLE (nothing renders). */
   liveness: LivenessPayload | null;
   onDeploy: DeployFn;
-  /** Deploy into a solo-vs-AI match. Same (name, cls, gun) contract as
+  /** Deploy into a solo-vs-AI match. Same (name, cls, shift) contract as
    *  onDeploy — the mode is the DOOR, not a field on the identity. */
   onSolo: DeployFn;
   /** Open/toggle the settings overlay (gear + home ESC — Story 2.3). */
   onSettings: () => void;
   currentClass: ShipClassId | null;
-  /** The captain's gun pick (Story 8.15) — never null, CANNON by default. */
-  currentGun: GunId;
+  /** The captain's Shift pick (Story 10.4) — never null, DEFAULT_SHIFT by default. */
+  currentShift: ShiftId;
   /** The captain's four consumable lines (Story 10.1) — never short, DEFAULT_KIT by default. */
   currentKit: ConsumableKit;
   layerOpen: boolean;
@@ -983,43 +980,42 @@ function paintStatus(h: Home, text: string, tone: StatusTone): void {
 }
 
 /**
- * Rebuild the chip contents for the current class + personal accent. The border
- * and silhouette take the RAW hue (graphic marks); the class name is TEXT, so it
+ * Rebuild the chip contents for the current class + own accent. The border
+ * and silhouette take the RAW accent (graphic marks); the class name is TEXT, so it
  * takes the WCAG-lifted `accentText` (textSafe) instead. No loadout sub-line —
  * the chip is slim now (the class bay carries the loadout).
  */
 function repaintChip(h: Home): void {
-  const accent = h.hoist.accent;
+  const accent = h.accent.accent;
   h.chip.root.style.borderColor = accent;
-  h.chip.root.style.boxShadow = `0 0 22px ${cssRgba(h.hoist.accentValue, 0.16)}`;
-  h.chip.name.style.color = h.hoist.accentText;
+  h.chip.root.style.boxShadow = `0 0 22px ${cssRgba(h.accent.accentValue, 0.16)}`;
+  h.chip.name.style.color = h.accent.accentText;
   if (h.currentClass === null) {
     h.chip.sil.innerHTML = '';
     h.chip.role.textContent = 'SELECT CLASS';
     h.chip.name.textContent = 'CHOOSE A HULL';
     return;
   }
-  h.chip.sil.innerHTML = silhouetteSvg(h.currentClass, { stroke: accent, fill: h.hoist.accentFill, strokeWidth: 2 });
+  h.chip.sil.innerHTML = silhouetteSvg(h.currentClass, { stroke: accent, fill: h.accent.accentFill, strokeWidth: 2 });
   const svg = h.chip.sil.firstElementChild as HTMLElement | null;
   if (svg) svg.style.cssText = 'height:40px;width:auto';
   h.chip.role.textContent = 'YOUR SHIP';
   h.chip.name.textContent = CLASS_DISPLAY_NAMES[h.currentClass];
 }
 
-/** The callsign field's personal-color chrome: a hue border always, plus a ring
- *  + glow in the same hue while it holds focus (it replaces the native outline,
+/** The callsign field's own-accent chrome: an accent border always, plus a ring
+ *  + glow in the same color while it holds focus (it replaces the native outline,
  *  which is suppressed). Text stays --hc-text-primary; only the chrome tints. */
 function paintCallsign(h: Home): void {
-  const accent = h.hoist.accent;
+  const accent = h.accent.accent;
   h.input.style.borderColor = accent;
   h.input.style.boxShadow = h.inputFocused
-    ? `0 0 0 1px ${accent}, 0 0 18px ${cssRgba(h.hoist.accentValue, 0.28)}`
+    ? `0 0 0 1px ${accent}, 0 0 18px ${cssRgba(h.accent.accentValue, 0.28)}`
     : 'none';
 }
 
-/** Repaint everything the personal color owns (chip + callsign chrome). Runs at
- *  mount and on every hoist pick, so a hue chosen in the class bay is already
- *  painted on the port the moment the layer closes. */
+/** Repaint everything the own accent owns (chip + callsign chrome). Runs at
+ *  mount. */
 function repaintAccent(h: Home): void {
   repaintChip(h);
   paintCallsign(h);
@@ -1046,7 +1042,7 @@ function deploy(h: Home, go: DeployFn): void {
   if (h.currentClass === null) return;
   const name = sanitizeName(h.input.value);
   saveName(name);
-  go(name, h.currentClass, h.currentGun, h.currentKit);
+  go(name, h.currentClass, h.currentShift, h.currentKit);
 }
 
 function onPlay(h: Home): void {
@@ -1081,21 +1077,20 @@ function openLayer(h: Home): void {
   if (h.busy || h.layerOpen) return;
   h.layerOpen = true;
   h.layer = openClassSelect({
-    initial: h.currentClass ?? 'torpedoBoat',
-    initialGun: h.currentGun,
+    initial: h.currentClass ?? DEFAULT_CLASS_ID,
+    initialShift: h.currentShift,
     initialKit: h.currentKit,
-    hoist: h.hoist,
     blurTarget: h.overlay,
     // CONFIRM SELECTION (and Enter) saves the class and comes back to port —
     // deliberately NO deploy(h) here: PLAY is the only path to onDeploy.
-    onConfirm: (cls, gun, kit) => {
+    onConfirm: (cls, shift, kit) => {
       h.layerOpen = false;
       h.layer = null;
-      // The gun is saved beside the class (Story 8.15). The home chip stays
-      // slim — no `class · gun` sub-line until Story 9.4 (amendment 107).
-      h.currentGun = gun;
-      saveGun(gun);
-      h.currentKit = kit; // the kit saves on CONFIRM exactly as the gun does (Story 10.1)
+      // The Shift is saved beside the class (Story 10.4). The home chip stays
+      // slim — no `class · Shift` sub-line.
+      h.currentShift = shift;
+      saveShift(shift);
+      h.currentKit = kit; // the kit saves on CONFIRM exactly as the Shift does (Story 10.1)
       saveKit(kit);
       setClass(h, cls);
       refocusInput(h);
@@ -1118,7 +1113,6 @@ function mountHome(
 ): (e: KeyboardEvent) => void {
   const console_ = document.createElement('div');
   console_.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:22px';
-  // NO hoist row here: the color picker lives only in the class bay footer now.
   console_.append(
     makeCallsignRow(h.input),
     h.chip.root,
@@ -1151,7 +1145,6 @@ function mountHome(
     h.inputFocused = false;
     paintCallsign(h);
   });
-  h.disposers.push(h.hoist.onChange(() => repaintAccent(h)));
   repaintAccent(h);
   paintStatus(h, ...statusTuple(serverStatusLine('probing')));
   return bindHomeKeys(h);
@@ -1197,11 +1190,11 @@ function bindHomeKeys(h: Home): (e: KeyboardEvent) => void {
 }
 
 /**
- * Show the pre-join home. `onDeploy(name, cls, gun)` fires ONLY from PLAY with a
+ * Show the pre-join home. `onDeploy(name, cls, shift)` fires ONLY from PLAY with a
  * chosen class — the class bay never deploys (CONFIRM SELECTION saves and comes
  * back to port). First-run SOLO opens the layer instead of connecting.
  * `onSettings()` is the gear + home-ESC settings toggle (Story 2.3).
- * `onSoloDeploy(name, cls, gun)` is Story 6.5's SOLO VS AI door — same contract,
+ * `onSoloDeploy(name, cls, shift)` is Story 6.5's SOLO VS AI door — same contract,
  * different route (no queue). It defaults to the standard deploy so a caller
  * that predates the second button still behaves.
  * Returns the handle main.ts drives for status/busy/hide.
@@ -1228,7 +1221,7 @@ export function showHome(
   const h: Home = {
     overlay,
     input,
-    hoist: new ColorHoist(),
+    accent: OWN_ACCENT,
     statusEl,
     cancel: null,
     chip,
@@ -1242,7 +1235,7 @@ export function showHome(
     onSolo: onSoloDeploy,
     onSettings,
     currentClass: loadSavedClassOrNull(),
-    currentGun: loadSavedGun(),
+    currentShift: loadSavedShift(),
     currentKit: loadSavedKit(),
     layerOpen: false,
     busy: false,

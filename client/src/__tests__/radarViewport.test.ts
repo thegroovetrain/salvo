@@ -48,7 +48,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { Container, Sprite, Texture } from 'pixi.js';
-import { CONFIG, rasterizeHullCoverage, type HeightRaster, type ReturnBlipEvent } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, rasterizeHullCoverage, type HeightRaster, type ReturnBlipEvent } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { Camera, ringFitSpanU, spanFactor } from '../render/camera.js';
 import { DIM_MASK_LABEL, Radar, type ViewRect } from '../render/radar.js';
@@ -266,12 +266,12 @@ function measure(layer: Container, chart: Container, cam: Camera, skip?: Skip): 
 
 /** One wire echo footprint centred on a world point — built by the SAME shared
  *  rasterizer the server runs (cycle 63: the wire carries a coverage mask and
- *  nothing else), for a mine layer heading +x. The record keeps the intended
+ *  nothing else), for a captain hull heading +x. The record keeps the intended
  *  centre (and a label for messages) beside the wire event, because the event
  *  itself deliberately carries no position or id any more. */
 interface TestEcho { e: ReturnBlipEvent; x: number; y: number; id: string }
 function echo(x: number, y: number, t = 1000, id = 'trk-1'): TestEcho {
-  const c = rasterizeHullCoverage('mineLayer', x, y, 0, CELL);
+  const c = rasterizeHullCoverage(DEFAULT_CLASS_ID, x, y, 0, CELL);
   return { e: { k: 'blip', t, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits }, x, y, id };
 }
 

@@ -26,7 +26,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, CONSUMABLE_SLOTS, DEFAULT_KIT, SLOT_COUNT, SLOT_GUN, WEAPON_SLOTS, effectiveStats, isConsumableId, slotsWithCards } from '@salvo/shared';
+import { CONFIG, CONSUMABLE_SLOTS, DEFAULT_CLASS_ID, DEFAULT_KIT, SLOT_COUNT, SLOT_GUN, WEAPON_SLOTS, effectiveStats, isConsumableId, slotsWithCards } from '@salvo/shared';
 import type { EquipmentId, WeaponAmmo } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { HUD_BAR_WIDTH, HudBar, hudBarLayout, microScale, type HudBarView } from '../render/hudBar.js';
@@ -298,9 +298,9 @@ describe('microScale — the 9px floor at 90% UI scale', () => {
 // `barTop`, the bar's own top edge). Everything each member DRAWS is its own
 // suite's business.
 
-const CLS = 'torpedoBoat' as const;
+const CLS = DEFAULT_CLASS_ID;
 const STATS = effectiveStats(CONFIG.shipClasses[CLS]);
-// THE FITTED CARD (Story 8.10): the Torpedo Boat's torpedo, stated here rather
+// THE FITTED CARD (Story 8.10): a torpedo, stated here rather
 // than read off the interim spawn seed, which is deleted — a hull spawns with
 // the gun and Shift alone. What this suite pins is the BAR's composition with a
 // weapon in the row, not where the weapon came from.

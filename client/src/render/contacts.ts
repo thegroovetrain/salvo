@@ -15,25 +15,27 @@
 // deliberately keeps the Fader alone: plates still render below the fog, so
 // softening them here would apply the same feather twice.
 //
-// Story 1.12 (Regatta Hoist): each contact draws in its pilot's personal hue —
-// resolved from the roster via the `rosterIndex` callback threaded into render().
-// Drone contacts (drone hull ids) wear the greys; a human whose roster hue has
-// not yet synced boots on the amber-hollow fallback and recolors once it lands
-// (the `colored` latch avoids a per-frame redraw).
+// Story 10.4 (Eric's ruling R6): each contact draws in its RELATION color
+// (render/relationColor.ts — resolved through the `relationOf` callback threaded
+// into render(); a contact is every ship but our own, so in play that is the
+// enemy red). Drone contacts (drone hull ids) wear the greys. The contact's
+// turrets point along the latest frame's `Contact.tu` (ContactStore
+// `turretAnglesOf`); none on the wire holds them at rest.
 //
 // Story 1.13 (Class Silhouettes): each contact also floats a truesight nameplate
 // (render/nameplates.ts). The plate rides this view's SAME snapshot sample (its
 // last-applied world pose) projected to screen space, and its alpha is this
 // view's Fader alpha every frame — so it fades in/out with the hull for free.
-// Text + color latch once the roster name/hue resolve (`plated`); an unresolved
+// Text + color latch once the roster name resolves (`plated`); an unresolved
 // human gets NO plate (never a session id) and retries per frame.
 
 import type { Container } from 'pixi.js';
-import { CONFIG, type HullId } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, type HullId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import type { ContactStore } from '../net/snapshots.js';
 import type { Point } from './camera.js';
-import { ShipView, contactStyle, hueRevision, isDroneHull } from './ships.js';
+import { ShipView, contactStyle, isDroneHull } from './ships.js';
+import { relationStroke, type Relation } from './relationColor.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './nameplates.js';
 import { Fader } from './fade.js';
 import { AggroMark, bracketHalfSize } from './aggro.js';
@@ -42,9 +44,9 @@ import { AggroMark, bracketHalfSize } from './aggro.js';
  *  against `ServerClock.frameNow()`, never `serverNow()` (see `render`). */
 export const CONTACT_STALE_MS = CONFIG.tick.interpDelayMs + 300;
 
-/** Roster hue-index resolver: the contact's Regatta wheel index (0..19), or null
- *  for a drone/roster-miss/not-yet-synced pilot. */
-export type RosterIndex = (id: string) => number | null;
+/** A contact id's relation to the viewer (render/relationColor.ts `relationOf`
+ *  bound to the own id). */
+export type RelationFor = (id: string) => Relation;
 
 /**
  * The SPATIAL alpha multiplier for a hull at a world point — the sight-boundary
@@ -85,12 +87,11 @@ interface FadingView {
   /** The contact's hull id, cached at creation (a contact never changes hull
    *  mid-life). Used for the plate offset instead of re-reading store.classOf()
    *  per frame: once the store prunes the contact its class entry is DELETED, so
-   *  a live re-read falls back to 'torpedoBoat' during the fade-out and pops the
+   *  a live re-read falls back to the default hull during the fade-out and pops the
    *  plate to the wrong (smaller) hull radius. */
   hull: HullId;
-  /** True once a non-fallback style (drone greys or a resolved personal hue) has
-   *  been applied — stops the per-frame recolor probe. */
-  colored: boolean;
+  /** The relation the hull is painted in (repainted only when it changes). */
+  relation: Relation;
   /** True once the nameplate's text + color have resolved and been set —
    *  latched, so a later roster leave keeps the plate (position/alpha only). */
   plated: boolean;
@@ -108,20 +109,11 @@ interface FadingView {
  *  because the one-way data flow runs net → sim → render and never back. */
 export type AggroCue = (kind: 'acquired' | 'released') => void;
 
-/**
- * Pure: the latch state a view must fall back to when the hue table is swapped
- * (Story 2.3 — the colorblind-assist toggle must be LIVE, not next-contact).
- * A drone keeps its `colored` latch: the greys are outside the personal-hue
- * table and never move. Everything else re-resolves on the next frame.
- */
-export function relatchForHueSwap(isDrone: boolean): { colored: boolean; plated: boolean } {
-  return { colored: isDrone, plated: false };
-}
+/** The empty angle list (a contact with no `tu` holds its turrets at rest). */
+const NO_ANGLES: readonly number[] = [];
 
 export class ContactViews {
   private views = new Map<string, FadingView>();
-  /** The hue-table revision every live view is currently painted against. */
-  private hueRev = hueRevision();
   /**
    * THIS FRAME's monotonic timestamp, sampled ONCE at the top of `render` and
    * read by every aggro mark driven under it.
@@ -190,10 +182,9 @@ export class ContactViews {
 
   /**
    * Sample + draw every contact at `renderTime`, advance fades by `dtMs`,
-   * destroy views that have fully faded out. `rosterIndex` resolves each
-   * contact's personal hue (Story 1.12); `plates` drives the truesight
-   * nameplate per contact (Story 1.13) — a drone/miss/not-yet-synced pilot
-   * resolves to null (drone greys via the hull id, else the amber fallback).
+   * destroy views that have fully faded out. `relationOf` resolves each
+   * contact's relation color (Story 10.4); `plates` drives the truesight
+   * nameplate per contact (Story 1.13).
    * `softness` is the frame's sight-boundary feather (see `HullSoftness`);
    * omitted, hulls draw at full strength, which is the pre-lift behaviour and
    * the right degradation for a caller with no observer.
@@ -207,11 +198,10 @@ export class ContactViews {
     renderTime: number,
     staleNow: number,
     dtMs: number,
-    rosterIndex: RosterIndex,
+    relationOf: RelationFor,
     plates: PlateFrame,
     softness: HullSoftness = NO_SOFTENING,
   ): void {
-    this.syncHueRevision();
     this.frameNowMs = performance.now();
     store.prune(staleNow, CONTACT_STALE_MS);
     // Only start/keep a view for ids whose buffer can actually produce a pose.
@@ -222,31 +212,16 @@ export class ContactViews {
     // ShipView default (0,0) before real position data exists.
     for (const id of store.ids()) {
       const buf = store.get(id);
-      if (buf && buf.size > 0) this.viewFor(id, store, rosterIndex).fader.show();
+      if (buf && buf.size > 0) this.viewFor(id, store, relationOf).fader.show();
     }
     for (const [id, fv] of this.views) {
-      if (this.updateView(id, fv, store, renderTime, dtMs, rosterIndex, plates, softness)) {
+      if (this.updateView(id, fv, store, renderTime, dtMs, relationOf, plates, softness)) {
         this.nameplates.remove(id);
         fv.view.destroy();
         fv.aggro?.destroy();
         this.views.delete(id);
       }
     }
-  }
-
-  /**
-   * One int compare per FRAME (not per entity): if the colorblind-assist toggle
-   * swapped the hue tables since the last frame, drop the per-view hull-color
-   * and nameplate latches so every VISIBLE contact re-resolves into the new
-   * family on this same frame. Without it the latches (which exist to stop a
-   * per-frame recolor probe) would freeze already-sighted contacts and their
-   * plates in the old palette until they died and re-appeared.
-   */
-  private syncHueRevision(): void {
-    const rev = hueRevision();
-    if (rev === this.hueRev) return;
-    this.hueRev = rev;
-    for (const fv of this.views.values()) Object.assign(fv, relatchForHueSwap(isDroneHull(fv.hull)));
   }
 
   /** Advance one view (recolor probe, pose, fade, nameplate); returns true once
@@ -257,20 +232,23 @@ export class ContactViews {
     store: ContactStore,
     renderTime: number,
     dtMs: number,
-    rosterIndex: RosterIndex,
+    relationOf: RelationFor,
     plates: PlateFrame,
     softness: HullSoftness,
   ): boolean {
-    if (!fv.colored) this.tryRecolor(id, fv, store, rosterIndex);
+    this.recolor(id, fv, relationOf);
     const s = store.get(id)?.sampleAt(renderTime);
-    if (s) fv.view.update(s.x, s.y, s.heading);
+    if (s) {
+      fv.view.update(s.x, s.y, s.heading);
+      fv.view.setTurretAngles(store.turretAnglesOf(id) ?? NO_ANGLES);
+    }
     else if (!store.get(id)) fv.fader.hide(); // pruned: hold last pose, fade out
     // The feather reads the view's LAST-APPLIED pose (the same one the plate
     // rides), so a fading-out hull keeps softening against where it actually is
     // rather than snapping to full strength for its last 150ms.
     const p = fv.view.gfx.position;
     fv.view.setFade(fv.fader.update(dtMs) * softness(p.x, p.y));
-    this.drivePlate(id, fv, rosterIndex, plates, softness);
+    this.drivePlate(id, fv, plates, softness);
     this.driveAggro(id, fv, store, softness);
     return fv.fader.hidden;
   }
@@ -330,12 +308,11 @@ export class ContactViews {
   private drivePlate(
     id: string,
     fv: FadingView,
-    rosterIndex: RosterIndex,
     plates: PlateFrame,
     softness: HullSoftness,
   ): void {
     if (!fv.plated) {
-      const r = latchPlate(false, plates.nameOf(id), rosterIndex(id), isDroneHull(fv.hull));
+      const r = latchPlate(false, plates.nameOf(id), relationStroke(fv.relation), isDroneHull(fv.hull));
       if (r.plate) this.nameplates.set(id, r.plate.text, r.plate.color);
       fv.plated = r.latched;
     }
@@ -350,29 +327,28 @@ export class ContactViews {
     this.nameplates.place(id, sc.x, y, fv.fader.alpha * softness(gp.x, gp.y) * shown);
   }
 
-  /** A contact booted on the amber fallback because its roster hue had not synced
-   *  yet — retry each frame until it resolves, then latch (`colored`). */
-  private tryRecolor(id: string, fv: FadingView, store: ContactStore, rosterIndex: RosterIndex): void {
-    const idx = rosterIndex(id);
-    if (idx === null) return; // still unresolved — keep the fallback, retry next frame
-    const style = contactStyle(store.classOf(id) ?? 'torpedoBoat', idx);
+  /** Repaint a captain hull (and its plate) if its relation moved — one
+   *  compare per frame; in play a contact's relation never changes. */
+  private recolor(id: string, fv: FadingView, relationOf: RelationFor): void {
+    const r = relationOf(id);
+    if (r === fv.relation) return;
+    fv.relation = r;
+    const style = contactStyle(fv.hull, r);
     fv.view.setColors(style.stroke, style.fill);
-    fv.colored = true;
+    fv.plated = false;
   }
 
-  private viewFor(id: string, store: ContactStore, rosterIndex: RosterIndex): FadingView {
+  private viewFor(id: string, store: ContactStore, relationOf: RelationFor): FadingView {
     let fv = this.views.get(id);
     if (!fv) {
       // A contact's hull id is static (set on first sighting) — render its true
       // silhouette. Drone ids (droneSmall/Medium/Large) render the legacy
       // chevron; classes render their board silhouette. Default guards a
       // never-sighted id; drone ids must NOT be sanitized to a ship class.
-      const hullId = store.classOf(id) ?? 'torpedoBoat';
-      const idx = rosterIndex(id);
-      const style = contactStyle(hullId, idx);
-      // Colored already iff a drone (greys) or the personal hue resolved now;
-      // a still-null human hue leaves the amber fallback for tryRecolor to fix.
-      fv = { view: new ShipView(style, hullId), fader: new Fader(false), hull: hullId, colored: isDroneHull(hullId) || idx !== null, plated: false, aggro: null };
+      const hullId = store.classOf(id) ?? DEFAULT_CLASS_ID;
+      const relation = relationOf(id);
+      const style = contactStyle(hullId, relation);
+      fv = { view: new ShipView(style, hullId), fader: new Fader(false), hull: hullId, relation, plated: false, aggro: null };
       this.layer.addChild(fv.view.gfx);
       this.views.set(id, fv);
     }

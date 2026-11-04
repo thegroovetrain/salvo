@@ -1,62 +1,58 @@
-// Story 8.15 — the gun pick and the class Shifts on the HUD bar (Eric rulings
-// 2026-09-28, epic-8 amendments 97–110): the four draft glyphs exist, the
-// tooltip names are the ruled ones (the plain gun is `Cannon`, amendment 108),
-// the gun square's tier reads the MOUNTED gun's own fold, the held-fire drain
-// (UX-DR52) lights only while the machine gun streams, and HUNKER (was DAMAGE CUT until Story 9.9) takes the
-// boost's ACTIVE grammar (amendment 34).
+// Story 8.15 — the class Shifts on the HUD bar (Eric rulings 2026-09-28,
+// epic-8 amendments 97–110): the Shift glyphs exist, their tooltip names are
+// the ruled ones, and HUNKER (was DAMAGE CUT until Story 9.9) takes the boost's
+// ACTIVE grammar (amendment 34).
+//
+// STORY 10.4 retired the seat's GUN PICK (the machine gun / flak gun on slot
+// 0): every captain now mounts the hull's MAIN BATTERY there. What survives
+// here is the Shift square, and the main battery's slot-0 square — its glyph
+// and name resolve, its pool is the hull's turret count, and `ammo[0]` (the
+// battery SUMMARY: turrets ready + the soonest reload) drives the ordinary
+// badge / cooling grammar.
 
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   DEFAULT_KIT,
   LINE_IDS,
+  SHIP_CLASS_IDS,
   SLOT_BOOST,
   SLOT_COUNT,
   SLOT_GUN,
   effectiveStats,
   equipmentMaxAmmo,
-  gunReachU as sharedGunReachU,
+  initialTurrets,
   type EffectiveStats,
+  type ShipClassId,
   type SlotItemId,
   type WeaponAmmo,
 } from '@salvo/shared';
 import { glyphPaths } from '../render/equipmentIcons.js';
-import {
-  EQUIPMENT_NAME,
-  equipmentDamage,
-  interactionLine,
-  slotTier,
-} from '../render/equipmentInfo.js';
-import {
-  drainRect,
-  heldDrainFrac,
-  slotViewModels,
-  type HotbarView,
-} from '../render/hotbar.js';
-import { fireArcKind, weaponRangeU, weaponReachU } from '../render/weaponArc.js';
-import { computeAimPreview, ownBurstRadius, type AimPreviewInput } from '../render/aimPreview.js';
+import { EQUIPMENT_NAME, equipmentDamage } from '../render/equipmentInfo.js';
+import { slotViewModels, type HotbarView } from '../render/hotbar.js';
+import { fireArcKind, weaponRangeU } from '../render/weaponArc.js';
 
 function nine<T>(v: T): T[] {
   return Array.from({ length: SLOT_COUNT }, () => v);
 }
 
-function stats(cards: readonly string[] = []): EffectiveStats {
-  return effectiveStats(CONFIG.shipClasses.battleship, cards);
+function stats(cls: ShipClassId = SHIP_CLASS_IDS[0], cards: readonly string[] = []): EffectiveStats {
+  return effectiveStats(CONFIG.shipClasses[cls], cards);
 }
 
-/** A bare nine-slot view: `gun` in slot 0 and `shift` in slot 1, full pools. */
-function view(gun: SlotItemId, shift: SlotItemId, over: Partial<HotbarView> = {}): HotbarView {
-  const s = stats();
-  const loadout: (SlotItemId | null)[] = [gun, shift, ...nine<SlotItemId | null>(null).slice(2)];
+/** A bare nine-slot view: the main battery in slot 0 and `shift` in slot 1, full pools. */
+function view(shift: SlotItemId, over: Partial<HotbarView> = {}, cls: ShipClassId = SHIP_CLASS_IDS[0]): HotbarView {
+  const s = stats(cls);
+  const loadout: (SlotItemId | null)[] = ['mainBattery', shift, ...nine<SlotItemId | null>(null).slice(2)];
   const ammo: (WeaponAmmo | null)[] = loadout.map((id) =>
     id === null ? null : { n: equipmentMaxAmmo(s, id as never), reloadMsLeft: 0 },
   );
   return { loadout, kit: DEFAULT_KIT, ammo, stats: s, primedSlot: SLOT_GUN, denied: nine(false), activated: nine(false), dim: false, ...over };
 }
 
-describe('the four new glyphs (amendment 110 — implementer drafts)', () => {
-  it('machineGun, flak, instantReload and hunker each draw linework inside the unit frame', () => {
-    for (const id of ['machineGun', 'flak', 'instantReload', 'hunker']) {
+describe('the Shift glyphs (amendment 110 — implementer drafts)', () => {
+  it('instantReload and hunker each draw linework inside the unit frame', () => {
+    for (const id of ['instantReload', 'hunker']) {
       const parts = glyphPaths(id);
       expect(parts, id).not.toBeNull();
       expect(parts!.length, id).toBeGreaterThan(0);
@@ -70,13 +66,12 @@ describe('the four new glyphs (amendment 110 — implementer drafts)', () => {
     }
   });
 
-  // Cycle 162 (the icon pass): the set now spans every glyphed CARD LINE too,
-  // so none of the four may copy any line's drawing either. `deckGun` is left
-  // out because it IS the gun's glyph (the CANNON ladder), and the stub
-  // `depthCharge` has none.
-  it('no two of the four share a drawing, and none copies the cannon, the star shell or any line', () => {
+  // Cycle 162 (the icon pass): the set spans every glyphed CARD LINE too, so
+  // no Shift may copy any line's drawing either. `deckGun` is left out because
+  // it IS the cannon's glyph, and the stub `depthCharge` has none.
+  it('no two Shifts share a drawing, and none copies the cannon, the star shell or any line', () => {
     const lines = LINE_IDS.filter((id) => id !== 'deckGun' && id !== 'depthCharge');
-    const ids = [...new Set(['gun', 'starShells', 'boost', 'machineGun', 'flak', 'instantReload', 'hunker', ...lines])];
+    const ids = [...new Set(['gun', 'starShells', 'boost', 'instantReload', 'hunker', ...lines])];
     const drawn = ids.map((id) => JSON.stringify(glyphPaths(id)));
     expect(new Set(drawn).size).toBe(ids.length);
   });
@@ -88,79 +83,73 @@ describe('the four new glyphs (amendment 110 — implementer drafts)', () => {
 });
 
 describe('the ruled names (amendments 107/108)', () => {
-  it('the three guns and two Shifts each carry a name, and the CUT ids carry none', () => {
-    for (const id of ['gun', 'machineGun', 'flak', 'instantReload', 'hunker'] as const) {
+  it('the two Shifts each carry a name, and the CUT ids carry none', () => {
+    for (const id of ['instantReload', 'hunker'] as const) {
       expect(EQUIPMENT_NAME[id].trim(), id).not.toBe('');
     }
     expect(Object.keys(EQUIPMENT_NAME)).not.toContain('missile');
     expect(Object.keys(EQUIPMENT_NAME)).not.toContain('monitor');
   });
 
-  it('the Shifts deal no damage; the machine gun reports PER SHELL, the flak per burst victim', () => {
+  it('the Shifts deal no damage', () => {
     const s = stats();
     expect(equipmentDamage(s, 'instantReload')).toBeNull();
     expect(equipmentDamage(s, 'hunker')).toBeNull();
-    expect(equipmentDamage(s, 'machineGun')).toBe(CONFIG.machineGun.damage);
-    expect(equipmentDamage(s, 'flak')).toBe(CONFIG.flak.damage);
   });
 });
 
-describe('the gun family — the MOUNTED gun\'s tier', () => {
-  it('slot 0 reads the MOUNTED gun\'s own ladder rung (1 + copies), and the hover line follows the rung', () => {
-    const cards = ['machineGun', 'machineGun'];
-    const s = stats(cards);
-    expect(slotTier(s, cards, 'machineGun')).toBe(3);
-    expect(slotTier(s, cards, 'gun')).toBe(1); // the cannon's ladder is untouched
-    const tierIII = interactionLine(SLOT_GUN, 'machineGun', cards, 0, s);
-    expect(tierIII).not.toBe('');
-    expect(interactionLine(SLOT_GUN, 'machineGun', ['machineGun'], 0, stats(['machineGun']))).not.toBe(tierIII);
-    // No stats, no number: the fold is the only place a gun's rung lives.
-    expect(interactionLine(SLOT_GUN, 'machineGun', cards)).toBe('');
+// STORY 10.4: slot 0 is the MAIN BATTERY. Its name and glyph are the cannon's
+// (it fires cannon shells), its damage is its own row's, and it is a full-arc
+// gun that never draws a wedge.
+describe('the main battery on slot 0 (Story 10.4)', () => {
+  it('resolves a name and a glyph — the cannon\'s', () => {
+    expect(EQUIPMENT_NAME.mainBattery).toBe(EQUIPMENT_NAME.gun);
+    expect(glyphPaths('mainBattery')).not.toBeNull();
+    expect(JSON.stringify(glyphPaths('mainBattery'))).toBe(JSON.stringify(glyphPaths('gun')));
   });
 
-});
-
-describe('THE HELD-FIRE DRAIN (UX-DR52)', () => {
-  it('lights ONLY on the gun square holding the machine gun, while held, with shells left', () => {
-    const max = equipmentMaxAmmo(stats(), 'machineGun');
-    const live = view('machineGun', 'hunker', { held: true });
-    live.ammo = [{ n: 10, reloadMsLeft: 0 }, ...live.ammo.slice(1)];
-    expect(heldDrainFrac(live, SLOT_GUN)).toBeCloseTo(10 / max, 9);
-    expect(slotViewModels(live)[SLOT_GUN].drain).toBeCloseTo(10 / max, 9);
-    // Never from the pointer level alone:
-    expect(heldDrainFrac({ ...live, held: false }, SLOT_GUN)).toBeNull();
-    expect(heldDrainFrac({ ...live, held: undefined }, SLOT_GUN)).toBeNull();
-    // ...never on another slot:
-    expect(heldDrainFrac(live, SLOT_BOOST)).toBeNull();
-    // ...never for the cannon or the flak gun:
-    expect(heldDrainFrac(view('gun', 'hunker', { held: true }), SLOT_GUN)).toBeNull();
-    expect(heldDrainFrac(view('flak', 'hunker', { held: true }), SLOT_GUN)).toBeNull();
-    // ...never while ANOTHER slot is primed (the stream fires only with the
-    // gun selected — Eric 2026-09-29; the held pointer is that slot's hold):
-    expect(heldDrainFrac({ ...live, primedSlot: 2 }, SLOT_GUN)).toBeNull();
-    expect(slotViewModels({ ...live, primedSlot: 2 })[SLOT_GUN].drain).toBeNull();
-    // ...and never on an EMPTY magazine (the cooling wipe owns that square):
-    const empty = { ...live, ammo: [{ n: 0, reloadMsLeft: 9000 }, ...live.ammo.slice(1)] };
-    expect(heldDrainFrac(empty, SLOT_GUN)).toBeNull();
+  it('reports its own row\'s damage, aims as a gun-like and reaches its own row\'s range', () => {
+    for (const cls of SHIP_CLASS_IDS) {
+      const s = stats(cls);
+      expect(equipmentDamage(s, 'mainBattery'), cls).toBe(s.equipment.mainBattery.damage);
+      expect(weaponRangeU(s, 'mainBattery'), cls).toBe(s.equipment.mainBattery.rangeU);
+    }
+    expect(fireArcKind('mainBattery')).toBe('gunLike');
   });
 
-  it('a full magazine reads 1 — the fill starts at the whole square', () => {
-    expect(heldDrainFrac(view('machineGun', 'boost', { held: true }), SLOT_GUN)).toBe(1);
+  it('its pool is the hull\'s TURRET COUNT, on every hull', () => {
+    for (const cls of SHIP_CLASS_IDS) {
+      const s = stats(cls);
+      expect(equipmentMaxAmmo(s, 'mainBattery'), cls).toBe(initialTurrets(cls).length);
+      expect(equipmentMaxAmmo(s, 'mainBattery'), cls).toBe(s.equipment.mainBattery.maxAmmo);
+    }
   });
 
-  it('the fill is anchored on the FLOOR, full width, frac of the height (clamped)', () => {
-    const sq = { x: 100, y: 40, w: 54, h: 54 };
-    expect(drainRect(sq, 1)).toEqual({ x: 100, y: 40, w: 54, h: 54 });
-    expect(drainRect(sq, 0.5)).toEqual({ x: 100, y: 67, w: 54, h: 27 });
-    expect(drainRect(sq, 0)).toEqual({ x: 100, y: 94, w: 54, h: 0 });
-    expect(drainRect(sq, 2)).toEqual(drainRect(sq, 1));
-    expect(drainRect(sq, -1)).toEqual(drainRect(sq, 0));
+  it('the slot-0 square reads ammo[0] — the battery SUMMARY — through the ordinary pool grammar', () => {
+    for (const cls of SHIP_CLASS_IDS) {
+      const turrets = initialTurrets(cls).length;
+      // All turrets ready: the badge counts them and the square is not cooling.
+      const full = slotViewModels(view('boost', {}, cls))[SLOT_GUN];
+      expect(full.id, cls).toBe('mainBattery');
+      expect(full.badge, cls).toBe(String(turrets));
+      expect(full.state, cls).not.toBe('cooling');
+      // Some turrets reloading: the badge follows the ready count.
+      const partial = view('boost', {}, cls);
+      partial.ammo = [{ n: turrets - 1, reloadMsLeft: 4000 }, ...partial.ammo.slice(1)];
+      expect(slotViewModels(partial)[SLOT_GUN].badge, cls).toBe(String(turrets - 1));
+      // Every turret reloading: the cooling wipe with the soonest reload.
+      const spent = view('boost', {}, cls);
+      spent.ammo = [{ n: 0, reloadMsLeft: 4000 }, ...spent.ammo.slice(1)];
+      const m = slotViewModels(spent)[SLOT_GUN];
+      expect(m.state, cls).toBe('cooling');
+      expect(m.reloadMsLeft, cls).toBe(4000);
+    }
   });
 });
 
 describe('HUNKER takes the boost\'s ACTIVE grammar (amendment 34)', () => {
   it('a running cut window makes the Shift square ACTIVE with its seconds', () => {
-    const v = view('gun', 'hunker', { activeMsLeft: [0, 6400, 0, 0, 0, 0, 0, 0, 0] });
+    const v = view('hunker', { activeMsLeft: [0, 6400, 0, 0, 0, 0, 0, 0, 0] });
     v.ammo = [v.ammo[0], { n: 0, reloadMsLeft: 28000 }, ...v.ammo.slice(2)];
     const m = slotViewModels(v)[SLOT_BOOST];
     expect(m.state).toBe('active'); // ACTIVE outranks the cooldown that started with it
@@ -168,106 +157,8 @@ describe('HUNKER takes the boost\'s ACTIVE grammar (amendment 34)', () => {
   });
 
   it('INSTANT RELOAD has no window: a spent charge goes straight to the cooling wipe', () => {
-    const v = view('gun', 'instantReload');
+    const v = view('instantReload');
     v.ammo = [v.ammo[0], { n: 0, reloadMsLeft: 40000 }, ...v.ammo.slice(2)];
     expect(slotViewModels(v)[SLOT_BOOST].state).toBe('cooling');
-  });
-});
-
-
-// STORY 8.15 — the two pickable guns aim off their OWN rows, and no gun has an
-// arc (amendment 106): slot 0 never draws a wedge.
-describe('the machine gun and the flak gun — aim and reach (Story 8.15)', () => {
-  it('both are 360 gun-likes: never a wedge, never out of arc', () => {
-    expect(fireArcKind('machineGun')).toBe('gunLike');
-    expect(fireArcKind('flak')).toBe('gunLike');
-  });
-
-  it('weaponRangeU reads each gun\'s own row — its own tiered dial (Story 9.8, ruling 125)', () => {
-    const s = stats();
-    expect(weaponRangeU(s, 'machineGun')).toBe(s.equipment.machineGun.rangeU);
-    expect(weaponRangeU(s, 'flak')).toBe(s.equipment.flak.rangeU);
-    expect(weaponRangeU(s, 'machineGun')).toBe(CONFIG.machineGun.rangeU);
-    expect(weaponRangeU(s, 'flak')).toBe(CONFIG.flak.rangeU);
-  });
-
-  const base = (id: 'machineGun' | 'flak' | 'gun'): AimPreviewInput => ({
-    id,
-    ship: { x: 0, y: 0, heading: 0, cls: 'battleship' },
-    aim: 0,
-    aimDist: 300,
-    stats: stats(),
-    mapRadius: 5000,
-    islands: [],
-    legal: true,
-  });
-
-  it('the MACHINE GUN previews its travel line and NO ring (a direct-hit gun)', () => {
-    const m = computeAimPreview(base('machineGun'));
-    expect(m.lines).toHaveLength(1);
-    expect(m.bursts).toEqual([]);
-  });
-
-  it('the FLAK GUN previews one shell bursting at the click in its fixed 50 u blast', () => {
-    const m = computeAimPreview(base('flak'));
-    expect(m.lines).toHaveLength(1);
-    expect(m.bursts).toHaveLength(1);
-    expect(m.bursts[0].r).toBe(CONFIG.flak.burstRadius);
-    expect(m.bursts[0].x).toBeCloseTo(300, 6);
-  });
-
-  it('our own flak burst rings at the flak gun\'s radius; the machine gun never bursts', () => {
-    expect(ownBurstRadius(stats(), 'flak')).toBe(CONFIG.flak.burstRadius);
-    expect(ownBurstRadius(stats(), 'machineGun')).toBeUndefined();
-  });
-});
-
-// EVERY DECK GUN FIRES INTO ITS OWN LIT-UP AREA (Eric ruling 2026-09-29,
-// amendment 114): R2.15's reach extension applies to the machine gun and the
-// flak gun exactly as to the cannon, on both sides. The client resolves the
-// reach ONCE through weaponReachU (the shared gunReachU off each gun's OWN row)
-// and hands it to the range-clamp marker and the preview, so the preview shows
-// the extended reach into the player's own flare — and clamps at the gun's own
-// reach (its tiered dial, ruling 125) under an enemy's flare or none (ownActiveZones never hands the client an enemy zone).
-describe('the machine gun and the flak gun reach into their own flare (amendment 114)', () => {
-  const OWN_ZONE = [{ x: 800, y: 0, r: 120 }];
-  const SHIP = { x: 0, y: 0 };
-  const MAP_R = 5000;
-
-  it('weaponReachU lifts BOTH guns to an 800 u click inside an own live zone, and clamps to the gun\'s own reach without one', () => {
-    const s = stats();
-    for (const id of ['machineGun', 'flak'] as const) {
-      const reach = s.equipment[id].rangeU;
-      expect(reach, `${id}: the premise — the zone sits past the gun's own reach`).toBeLessThan(800);
-      expect(weaponReachU(s, id, SHIP, 0, 800, MAP_R, OWN_ZONE), id).toBe(800);
-      expect(weaponReachU(s, id, SHIP, 0, 800, MAP_R, []), id).toBe(reach);
-      expect(weaponReachU(s, id, SHIP, 0, 300, MAP_R, OWN_ZONE), id).toBe(reach); // in range: the base
-    }
-  });
-
-  it('IS the shared gunReachU off each gun\'s OWN row — the parity the server fires with', () => {
-    const s = stats();
-    const cases: [number, { x: number; y: number; r: number }[]][] = [
-      [300, OWN_ZONE], [800, OWN_ZONE], [800, []], [1200, OWN_ZONE], [NaN, OWN_ZONE],
-    ];
-    for (const id of ['gun', 'machineGun', 'flak'] as const) {
-      for (const [d, zones] of cases) {
-        expect(weaponReachU(s, id, SHIP, 0, d, MAP_R, zones), `${id} d=${d}`)
-          .toBe(sharedGunReachU(SHIP, 0, d, s.equipment[id].rangeU, MAP_R, zones));
-      }
-    }
-  });
-
-  it('the preview carries the lifted reach: the MG line and the flak burst land at 800 u', () => {
-    const at = (id: 'machineGun' | 'flak', reach: number) =>
-      computeAimPreview({
-        id, ship: { x: 0, y: 0, heading: 0, cls: 'battleship' }, aim: 0, aimDist: 800,
-        stats: stats(), mapRadius: MAP_R, islands: [], legal: true, gunReachU: reach,
-      });
-    expect(at('machineGun', 800).lines[0].x2).toBeCloseTo(800, 6);
-    expect(at('flak', 800).bursts[0].x).toBeCloseTo(800, 6);
-    // Not lifted (an enemy's flare, or none): the 660 u clamp.
-    expect(at('machineGun', 660).lines[0].x2).toBeCloseTo(660, 6);
-    expect(at('flak', 660).bursts[0].x).toBeCloseTo(660, 6);
   });
 });

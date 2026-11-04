@@ -45,7 +45,10 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   CONSUMABLE_SLOTS,
+  DEFAULT_CLASS_ID,
   DEFAULT_KIT,
+  DEFAULT_SHIFT,
+  initialTurrets,
   KIT_SIZE,
   SLOT_BOOST,
   SLOT_COUNT,
@@ -1235,7 +1238,8 @@ describe('refitCloseStamp — the close edge, over the real refit band', () => {
 
   const you = (): OwnShip => ({
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
-    ammo: [], sweep: 0, cls: 'torpedoBoat', gun: 'deckGun', kit: [...DEFAULT_KIT], pts: 1,
+    ammo: [], sweep: 0, cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, turrets: initialTurrets(DEFAULT_CLASS_ID),
+    sec: { heat: 0, locked: false }, kit: [...DEFAULT_KIT], pts: 1,
     offer: ['intel', 'armor', 'deckGun', 'navalMines'],
     boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
   });
@@ -1331,7 +1335,8 @@ describe('the close edge is seen at the DIGIT\'s keydown, with no frame between 
 
   const you = (): OwnShip => ({
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
-    ammo: [], sweep: 0, cls: 'torpedoBoat', gun: 'deckGun', kit: [...DEFAULT_KIT], pts: 1,
+    ammo: [], sweep: 0, cls: DEFAULT_CLASS_ID, shift: DEFAULT_SHIFT, turrets: initialTurrets(DEFAULT_CLASS_ID),
+    sec: { heat: 0, locked: false }, kit: [...DEFAULT_KIT], pts: 1,
     offer: ['intel', 'armor', 'deckGun', 'navalMines'],
     boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
   });

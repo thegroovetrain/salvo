@@ -12,11 +12,11 @@
 // that would make it look intermittent and player-specific.
 
 import { describe, it, expect } from 'vitest';
-import { CATALOG, CONFIG, effectiveStats, type OwnShip } from '@salvo/shared';
+import { CATALOG, CONFIG, DEFAULT_CLASS_ID, effectiveStats, type OwnShip } from '@salvo/shared';
 import { cardHoverRows, cardStatRows } from '../ui/boonCopy.js';
 import { beltPressDenied } from '../input/keyboard.js';
 
-const KNOWN = { cls: 'torpedoBoat', cards: [] as string[] };
+const KNOWN = { cls: DEFAULT_CLASS_ID, cards: [] as string[] };
 const UNKNOWN = { cls: 'notAHull', cards: [] as string[] };
 
 // CYCLE 158's review gate DELETED the one-sentence `boonDescription` reader;
@@ -55,7 +55,7 @@ describe('beltPressDenied — an unresolvable hull never claims FULL', () => {
   // the comparison under test, so exercise it AT the cap and one below it. A
   // `hp: 10_000` control would survive an inverted comparison.
   it('denies at exactly full health and allows one point below (the control)', () => {
-    const maxHp = effectiveStats(CONFIG.shipClasses['torpedoBoat'], []).maxHp;
+    const maxHp = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], []).maxHp;
     expect(beltPressDenied('hullRepair', maxHp, maxHp, false)).toBe(true);
     expect(beltPressDenied('hullRepair', maxHp - 1, maxHp, false)).toBe(false);
   });
@@ -80,7 +80,7 @@ describe('beltPressDenied — an unresolvable hull never claims FULL', () => {
   });
 
   it('never denies a square that does not hold HULL REPAIR', () => {
-    const maxHp = effectiveStats(CONFIG.shipClasses['torpedoBoat'], []).maxHp;
+    const maxHp = effectiveStats(CONFIG.shipClasses[DEFAULT_CLASS_ID], []).maxHp;
     expect(beltPressDenied('countermeasure', maxHp, maxHp, true)).toBe(false);
     expect(beltPressDenied(null, maxHp, maxHp, true)).toBe(false);
   });

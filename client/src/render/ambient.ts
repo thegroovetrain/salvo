@@ -53,7 +53,7 @@ import { Effects } from './effects.js';
 import { Fog } from './fog.js';
 import { buildMap, type MapChart } from './map.js';
 import { Radar } from './radar.js';
-import { ShipView, contactStyle, hueRevision, type ShipStyle } from './ships.js';
+import { ShipView, contactStyle, type ShipStyle } from './ships.js';
 import { applyCamera, type Stage, type StageLayers } from './stage.js';
 import { WakeSources, type WakeHull } from './wake.js';
 import {
@@ -253,8 +253,6 @@ export class AmbientScene {
   /** Each hull's resolved style, held so the silhouette and its wake are drawn
    *  from ONE value per frame (see `syncStyles`). */
   private readonly styles = new Map<string, ShipStyle>();
-  /** The hue-table revision these styles were resolved at (`ships.ts`). */
-  private styleRev = hueRevision();
   /** The ids inside truesight THIS FRAME — the visibility authority for the
    *  drawn hulls (see `drawHulls`), refreshed by `feedContacts`. */
   private readonly sightedIds = new Set<string>();
@@ -307,7 +305,7 @@ export class AmbientScene {
     this.fog = new Fog(stage.fogSprite);
     this.fog.setSightRange(stats.sightRange, stats.radarRange);
     for (const h of this.world.hulls) {
-      const style = contactStyle(h.cls, h.hue);
+      const style = contactStyle(h.cls, h.relation);
       this.styles.set(h.id, style);
       const view = new ShipView(style, h.cls);
       stage.layers.ship.addChild(view.gfx);
@@ -449,29 +447,6 @@ export class AmbientScene {
   // --- drawing ----------------------------------------------------------------
 
   /**
-   * Re-resolve every hull's style if the hue tables were swapped under us.
-   *
-   * The colorblind assist is a TABLE SWAP at the `ships.ts` chokepoint and it
-   * bumps a revision precisely so latched consumers can notice; the settings
-   * overlay is reachable pre-join through the home gear, so this really does
-   * change while the menu is up. The scene latched its styles once at
-   * construction and then recomputed only the WAKE's colour per frame, so
-   * toggling the assist recoloured a hull's foam and not the hull. One resolve
-   * per hull per frame, shared by the silhouette and the wake, makes the two
-   * incapable of disagreeing.
-   */
-  private syncStyles(): void {
-    const rev = hueRevision();
-    if (rev === this.styleRev) return;
-    this.styleRev = rev;
-    for (const h of this.world.hulls) {
-      const style = contactStyle(h.cls, h.hue);
-      this.styles.set(h.id, style);
-      this.views.get(h.id)?.setColors(style.stroke, style.fill);
-    }
-  }
-
-  /**
    * Place every visible hull and collect this frame's wake sources.
    *
    * The observer draws at its LIVE pose (it is the local ship); every other hull
@@ -497,7 +472,6 @@ export class AmbientScene {
    * live client's own join behaviour and it resolves itself in three frames.
    */
   private drawHulls(tick: AmbientTick): void {
-    this.syncStyles();
     this.wakes.length = 0;
     const at = tick.nowMs - CLIENT_CONFIG.net.interpDelayMs;
     for (const h of this.world.hulls) {
@@ -519,7 +493,7 @@ export class AmbientScene {
         // that knows the fleet stopped.
         speed: tick.travelSec > 0 ? pose.speed : 0,
         cls: h.cls,
-        color: (this.styles.get(h.id) ?? contactStyle(h.cls, h.hue)).stroke,
+        color: (this.styles.get(h.id) ?? contactStyle(h.cls, h.relation)).stroke,
       });
     }
   }

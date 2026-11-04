@@ -332,6 +332,9 @@ const phosphorShells: GlyphPaths = [
  */
 const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
   gun,
+  // STORY 10.4: the main battery fires the cannon's shell — it wears the
+  // cannon's glyph until the full UI pass draws its own.
+  mainBattery: gun,
   machineGun,
   flak,
   instantReload,

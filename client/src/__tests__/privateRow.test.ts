@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { makePrivateRow } from '../ui/privateRow.js';
 import { showHome } from '../ui/home.js';
+import { DEFAULT_CLASS_ID, DEFAULT_SHIFT, SHIP_CLASS_IDS } from '@salvo/shared';
 
 function home(): HTMLElement {
   return document.getElementById('main-menu') as HTMLElement;
@@ -62,6 +63,8 @@ describe('makePrivateRow', () => {
 });
 
 describe('showHome — the CREATE / JOIN doors', () => {
+  /** A returning captain's stored hull — any real hull but the default. */
+  const STORED = SHIP_CLASS_IDS.find((c) => c !== DEFAULT_CLASS_ID)!;
   beforeEach(() => localStorage.clear());
   afterEach(() => {
     home()?.remove();
@@ -69,7 +72,7 @@ describe('showHome — the CREATE / JOIN doors', () => {
   });
 
   it('hand the deploy identity to their own door, never the others', () => {
-    localStorage.setItem('hullcracker.class', 'battleship');
+    localStorage.setItem('hullcracker.class', STORED);
     localStorage.setItem('hullcracker.name', 'NEMO');
     const onDeploy = vi.fn();
     const onSolo = vi.fn();
@@ -78,8 +81,8 @@ describe('showHome — the CREATE / JOIN doors', () => {
     showHome('0.0.0-test', onDeploy, vi.fn(), onSolo, { onCreate, onJoin });
     door('CREATE').click();
     door('JOIN').click();
-    expect(onCreate).toHaveBeenCalledWith('NEMO', 'battleship', expect.any(String), expect.any(Array));
-    expect(onJoin).toHaveBeenCalledWith('NEMO', 'battleship', expect.any(String), expect.any(Array));
+    expect(onCreate).toHaveBeenCalledWith('NEMO', STORED, DEFAULT_SHIFT, expect.any(Array));
+    expect(onJoin).toHaveBeenCalledWith('NEMO', STORED, DEFAULT_SHIFT, expect.any(Array));
     expect(onDeploy).not.toHaveBeenCalled();
     expect(onSolo).not.toHaveBeenCalled();
   });
@@ -94,7 +97,7 @@ describe('showHome — the CREATE / JOIN doors', () => {
   });
 
   it('a busy home dims them and refuses the press', () => {
-    localStorage.setItem('hullcracker.class', 'battleship');
+    localStorage.setItem('hullcracker.class', STORED);
     const onCreate = vi.fn();
     const onJoin = vi.fn();
     const handle = showHome('0.0.0-test', vi.fn(), vi.fn(), vi.fn(), { onCreate, onJoin });
@@ -110,7 +113,7 @@ describe('showHome — the CREATE / JOIN doors', () => {
   });
 
   it('never writes hullcracker.mode', () => {
-    localStorage.setItem('hullcracker.class', 'battleship');
+    localStorage.setItem('hullcracker.class', STORED);
     showHome('0.0.0-test', vi.fn(), vi.fn(), vi.fn(), { onCreate: vi.fn(), onJoin: vi.fn() });
     door('CREATE').click();
     door('JOIN').click();
