@@ -180,15 +180,24 @@ export function mineEquipmentFor(kind: MineKind): MineEquipmentId {
  * genuinely declare no arc); the
  * broadside's twin beams read CONFIG.broadside.arcOffsetDeg/arcHalfArcDeg.
  */
+/**
+ * The equipment rows whose arc is the `arc` field of their own CONFIG block
+ * (all `'full'` today). THE MAIN BATTERY is one (Story 10.4): every bearing is
+ * inside SOME turret's arc on every hull and a click always fires (R4), so the
+ * weapon's arc is 360° — which turrets bear on a bearing is sim/turrets.ts
+ * `gunsBearing`, never this grammar.
+ */
+const CONFIG_ARC_ROWS = ['gun', 'machineGun', 'flak', 'starShells', 'phosphorShells', 'mainBattery'] as const satisfies
+  readonly EquipmentId[];
+
+function isConfigArcRow(id: EquipmentId): id is (typeof CONFIG_ARC_ROWS)[number] {
+  return (CONFIG_ARC_ROWS as readonly EquipmentId[]).includes(id);
+}
+
 function equipmentArc(id: EquipmentId): ArcShape {
   if (isMineEquipment(id)) return mineSector();
+  if (isConfigArcRow(id)) return { kind: CONFIG[id].arc };
   switch (id) {
-    case 'gun':
-    case 'machineGun':
-    case 'flak':
-    case 'starShells':
-    case 'phosphorShells':
-      return { kind: CONFIG[id].arc };
     case 'lightTorpedo':
       return { kind: 'twin-sector', offset: CONFIG.lightTorpedo.offset, halfArc: CONFIG.lightTorpedo.halfArc };
     case 'heavyTorpedo':

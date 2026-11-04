@@ -27,7 +27,7 @@ import { wrapAngle } from '../math/angle.js';
 import { CONFIG, hullEnvelope, type HullId } from '../constants.js';
 import { islandFromPolygon } from '../sim/map.js';
 
-const HULLS: HullId[] = ['torpedoBoat', 'battleship', 'mineLayer'];
+const HULLS: HullId[] = ['iowa', 'yamato', 'warspite'];
 
 function len(id: HullId): number {
   return hullEnvelope(id).hull.length;
@@ -36,7 +36,7 @@ function len(id: HullId): number {
 describe('hullClearOffset', () => {
   it('is half the hull length plus the extra clearance', () => {
     expect(hullClearOffset(120, 8)).toBe(68);
-    expect(hullClearOffset(len('battleship'), 0)).toBe(len('battleship') / 2);
+    expect(hullClearOffset(len('yamato'), 0)).toBe(len('yamato') / 2);
   });
 });
 
@@ -60,16 +60,16 @@ describe('muzzleSpawn — the silhouette-edge muzzle (no dead ring)', () => {
 
   it('sits on the aim bearing out of the ship centre', () => {
     const pose = { x: 0, y: 0, heading: 0 };
-    const m = muzzleSpawn(pose, 'battleship', 0, CONFIG.gun.shellRadius);
+    const m = muzzleSpawn(pose, 'yamato', 0, CONFIG.gun.shellRadius);
     expect(m.y).toBeCloseTo(0, 6);
     expect(m.x).toBeGreaterThan(0);
     // Bow tip + the shell radius, exactly (the bow is the polygon's +x extreme).
-    expect(m.x).toBeCloseTo(len('battleship') / 2 + CONFIG.gun.shellRadius, 3);
+    expect(m.x).toBeCloseTo(len('yamato') / 2 + CONFIG.gun.shellRadius, 3);
   });
 
   it('rotates with the hull (a heading turn moves the muzzle, not the bearing)', () => {
-    const a = muzzleSpawn({ x: 0, y: 0, heading: 0 }, 'torpedoBoat', 0, 2);
-    const b = muzzleSpawn({ x: 0, y: 0, heading: Math.PI / 2 }, 'torpedoBoat', 0, 2);
+    const a = muzzleSpawn({ x: 0, y: 0, heading: 0 }, 'iowa', 0, 2);
+    const b = muzzleSpawn({ x: 0, y: 0, heading: Math.PI / 2 }, 'iowa', 0, 2);
     // Beam-on, the silhouette is much narrower than it is long.
     expect(b.x).toBeLessThan(a.x);
   });
@@ -112,7 +112,7 @@ describe('turretAimPoints — per-turret firing arcs (Eric rulings 2026-08-20 / 
   };
   const aims = (r: number, phiDeg: number, rung = 1, count: number = TURRETS) => {
     const { tau, ms } = arc(rung);
-    return turretAimPoints(POSE, 'battleship', count, 1, clickAt(r, phiDeg), tau, ms, MAP_R);
+    return turretAimPoints(POSE, 'yamato', count, 1, clickAt(r, phiDeg), tau, ms, MAP_R);
   };
   const bearing = (r: number, phiDeg: number, rung = 1, count: number = TURRETS): number =>
     aims(r, phiDeg, rung, count).filter((t) => t.onClick).length;
@@ -233,7 +233,7 @@ describe('turretAimPoints — per-turret firing arcs (Eric rulings 2026-08-20 / 
   it('mounts pair UNCROSSED with muzzles on BOTH beams: the bow-most gun owns the bow-most arc', () => {
     const { ms } = arc(1);
     for (const side of [1, -1] as const) {
-      const muzzles = turretMuzzles(POSE, 'battleship', 3, side);
+      const muzzles = turretMuzzles(POSE, 'yamato', 3, side);
       const mounts = turretMountBearings(POSE.heading, 3, side, ms);
       const bowness = mounts.map((m) => Math.abs(wrapAngle(m - POSE.heading)));
       for (let i = 1; i < 3; i += 1) {
@@ -274,7 +274,7 @@ describe('turretAimPoints — per-turret firing arcs (Eric rulings 2026-08-20 / 
     const click = burstPointAlong(pose, 5000, R, CONFIG.broadside.rangeU, dir);
     expect(Math.hypot(click.x, click.y)).toBeLessThanOrEqual(R);
     const { tau, ms } = arc(1);
-    const out = turretAimPoints(pose, 'battleship', TURRETS, -1, click, tau, ms, R);
+    const out = turretAimPoints(pose, 'yamato', TURRETS, -1, click, tau, ms, R);
     let pulled = 0;
     for (const t of out) {
       expect(Math.hypot(t.target.x, t.target.y)).toBeLessThanOrEqual(R); // nothing bursts off the water
@@ -322,22 +322,22 @@ describe('muzzleOrTarget — no INNER dead ring either', () => {
   const pose = { x: 0, y: 0, heading: 0 };
   it('spawns AT the target for a point-blank click inside the muzzle', () => {
     const target = { x: 10, y: 0 }; // well inside a battleship's 62u bow
-    const o = muzzleOrTarget(pose, 'battleship', 0, target, CONFIG.gun.shellRadius);
+    const o = muzzleOrTarget(pose, 'yamato', 0, target, CONFIG.gun.shellRadius);
     expect(o).toEqual(target);
   });
 
   it('spawns at the muzzle for a normal click', () => {
     const target = { x: 400, y: 0 };
-    const o = muzzleOrTarget(pose, 'battleship', 0, target, CONFIG.gun.shellRadius);
-    expect(o.x).toBeCloseTo(len('battleship') / 2 + CONFIG.gun.shellRadius, 3);
+    const o = muzzleOrTarget(pose, 'yamato', 0, target, CONFIG.gun.shellRadius);
+    expect(o.x).toBeCloseTo(len('yamato') / 2 + CONFIG.gun.shellRadius, 3);
   });
 });
 
 describe('torpedo geometry', () => {
   it('torpedoSpawn is the bow-clear offset along the launch bearing', () => {
-    const p = torpedoSpawn({ x: 0, y: 0, heading: 0 }, len('torpedoBoat'), 0);
+    const p = torpedoSpawn({ x: 0, y: 0, heading: 0 }, len('iowa'), 0);
     const want = hullClearOffset(
-      len('torpedoBoat'),
+      len('iowa'),
       CONFIG.torpedo.hitRadius + CONFIG.torpedo.spawnClearance,
     );
     expect(p.x).toBeCloseTo(want, 6);
@@ -438,8 +438,8 @@ describe('gunReachU — an OWN live flare extends the gun past its range', () =>
 // shipped one-muzzle geometry (which produced N COPIES of a single point).
 describe('turretMuzzles - N separate, evenly-spaced guns along the hull', () => {
   const POSE = { x: 0, y: 0, heading: 0 };
-  const BEAM = hullEnvelope('battleship').hull.beam;
-  const LEN = hullEnvelope('battleship').hull.length;
+  const BEAM = hullEnvelope('yamato').hull.beam;
+  const LEN = hullEnvelope('yamato').hull.length;
 
   /** Fore-aft (along the bow) and athwartships (to the +1 beam) components of
    *  a muzzle, for a heading-0 pose at the origin. */
@@ -448,7 +448,7 @@ describe('turretMuzzles - N separate, evenly-spaced guns along the hull', () => 
 
   it('N turrets are N DISTINCT points, never N copies of one muzzle', () => {
     for (const n of [3, 4, 5]) {
-      const m = turretMuzzles(POSE, 'battleship', n, 1);
+      const m = turretMuzzles(POSE, 'yamato', n, 1);
       expect(m).toHaveLength(n);
       const keys = new Set(m.map((q) => `${q.x.toFixed(6)},${q.y.toFixed(6)}`));
       expect(keys.size, `${n} turrets`).toBe(n);
@@ -457,7 +457,7 @@ describe('turretMuzzles - N separate, evenly-spaced guns along the hull', () => 
 
   it('they are EVENLY SPACED along the hull, all on the same beam line', () => {
     for (const n of [3, 4, 5]) {
-      const m = turretMuzzles(POSE, 'battleship', n, 1);
+      const m = turretMuzzles(POSE, 'yamato', n, 1);
       const gaps = m.slice(1).map((q, i) => Math.abs(along(q) - along(m[i])));
       for (const g of gaps) expect(g, `${n} turrets`).toBeCloseTo(gaps[0], 9);
       // Every muzzle sits on the firing side at the half-beam: the hull's edge,
@@ -468,11 +468,11 @@ describe('turretMuzzles - N separate, evenly-spaced guns along the hull', () => 
 
   it('SPAN IS FIXED: 3 -> 4 -> 5 RE-SPACES the same hull section, never extends it', () => {
     const spanOf = (n: number): number => {
-      const m = turretMuzzles(POSE, 'battleship', n, 1);
+      const m = turretMuzzles(POSE, 'yamato', n, 1);
       return Math.abs(along(m[m.length - 1]) - along(m[0]));
     };
     const gapOf = (n: number): number => {
-      const m = turretMuzzles(POSE, 'battleship', n, 1);
+      const m = turretMuzzles(POSE, 'yamato', n, 1);
       return Math.abs(along(m[1]) - along(m[0]));
     };
     const span = LEN * CONFIG.broadside.turretSpanFactor;
@@ -488,21 +488,21 @@ describe('turretMuzzles - N separate, evenly-spaced guns along the hull', () => 
 
   it('the battery stays on the MIDSHIP section: no turret at the bow or stern tip', () => {
     for (const n of [3, 4, 5]) {
-      for (const q of turretMuzzles(POSE, 'battleship', n, 1)) {
+      for (const q of turretMuzzles(POSE, 'yamato', n, 1)) {
         expect(Math.abs(along(q))).toBeLessThan(LEN / 2);
       }
     }
   });
 
   it('an ODD count puts one turret exactly amidships; an EVEN count straddles it', () => {
-    expect(turretMuzzles(POSE, 'battleship', 3, 1).filter((q) => Math.abs(along(q)) < 1e-9)).toHaveLength(1);
-    expect(turretMuzzles(POSE, 'battleship', 5, 1).filter((q) => Math.abs(along(q)) < 1e-9)).toHaveLength(1);
-    expect(turretMuzzles(POSE, 'battleship', 4, 1).filter((q) => Math.abs(along(q)) < 1e-9)).toHaveLength(0);
+    expect(turretMuzzles(POSE, 'yamato', 3, 1).filter((q) => Math.abs(along(q)) < 1e-9)).toHaveLength(1);
+    expect(turretMuzzles(POSE, 'yamato', 5, 1).filter((q) => Math.abs(along(q)) < 1e-9)).toHaveLength(1);
+    expect(turretMuzzles(POSE, 'yamato', 4, 1).filter((q) => Math.abs(along(q)) < 1e-9)).toHaveLength(0);
   });
 
   it('the SIDE mirrors the battery across the keel and reverses the turret order', () => {
-    const port = turretMuzzles(POSE, 'battleship', 3, 1);
-    const stbd = turretMuzzles(POSE, 'battleship', 3, -1);
+    const port = turretMuzzles(POSE, 'yamato', 3, 1);
+    const stbd = turretMuzzles(POSE, 'yamato', 3, -1);
     for (const q of stbd) expect(abeam(q)).toBeCloseTo(-BEAM / 2, 9);
     // Index-for-index the two sides run opposite ways along the hull: that is
     // what keeps the pairing with turretMountBearings UNCROSSED on both beams
@@ -512,8 +512,8 @@ describe('turretMuzzles - N separate, evenly-spaced guns along the hull', () => 
 
   it('rotates rigidly with the hull: the battery is hull-fixed, not world-fixed', () => {
     const h = 0.9;
-    const rotated = turretMuzzles({ x: 12, y: -7, heading: h }, 'battleship', 5, 1);
-    const flat = turretMuzzles({ x: 0, y: 0, heading: 0 }, 'battleship', 5, 1);
+    const rotated = turretMuzzles({ x: 12, y: -7, heading: h }, 'yamato', 5, 1);
+    const flat = turretMuzzles({ x: 0, y: 0, heading: 0 }, 'yamato', 5, 1);
     rotated.forEach((q, i) => {
       expect(q.x).toBeCloseTo(12 + flat[i].x * Math.cos(h) - flat[i].y * Math.sin(h), 9);
       expect(q.y).toBeCloseTo(-7 + flat[i].x * Math.sin(h) + flat[i].y * Math.cos(h), 9);
@@ -521,16 +521,16 @@ describe('turretMuzzles - N separate, evenly-spaced guns along the hull', () => 
   });
 
   it('degenerates safely: 1 turret sits amidships, 0 turrets is an empty battery', () => {
-    const one = turretMuzzles(POSE, 'battleship', 1, 1);
+    const one = turretMuzzles(POSE, 'yamato', 1, 1);
     expect(one).toHaveLength(1);
     expect(along(one[0])).toBeCloseTo(0, 9);
-    expect(turretMuzzles(POSE, 'battleship', 0, 1)).toEqual([]);
+    expect(turretMuzzles(POSE, 'yamato', 0, 1)).toEqual([]);
   });
 
   it('reads the hull it is given: a narrower hull carries a shorter, tighter battery', () => {
-    const bb = turretMuzzles(POSE, 'battleship', 3, 1);
-    const ml = turretMuzzles(POSE, 'mineLayer', 3, 1);
-    expect(abeam(ml[0])).toBeCloseTo(hullEnvelope('mineLayer').hull.beam / 2, 9);
+    const bb = turretMuzzles(POSE, 'yamato', 3, 1);
+    const ml = turretMuzzles(POSE, 'warspite', 3, 1);
+    expect(abeam(ml[0])).toBeCloseTo(hullEnvelope('warspite').hull.beam / 2, 9);
     expect(Math.abs(along(ml[2]) - along(ml[0]))).toBeLessThan(Math.abs(along(bb[2]) - along(bb[0])));
   });
 });

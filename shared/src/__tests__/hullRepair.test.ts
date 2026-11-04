@@ -55,7 +55,7 @@ describe('CONFIG.hullRepair — the paid heal, flat on every hull (Eric rulings 
     const heal = CONFIG.hullRepair.instantHp + CONFIG.hullRepair.regenHp;
     for (const hull of SHIP_CLASS_IDS) {
       const maxHp = effectiveStats(CONFIG.shipClasses[hull]).maxHp;
-      expect(heal / maxHp, hull).toBe(heal / effectiveStats(CONFIG.shipClasses.torpedoBoat).maxHp);
+      expect(heal / maxHp, hull).toBe(heal / effectiveStats(CONFIG.shipClasses.iowa).maxHp);
       expect(heal, hull).toBeLessThan(maxHp); // a heal is a fraction, never a full hull
     }
   });
@@ -137,7 +137,7 @@ describe('NFR6 — the authored heal budget and the collapse ceiling', () => {
 // three callers.
 // ---------------------------------------------------------------------------
 describe('hullIsFull — under 1 hp missing is FULL (amendment 53)', () => {
-  const MAX = effectiveStats(CONFIG.shipClasses.battleship).maxHp;
+  const MAX = effectiveStats(CONFIG.shipClasses.yamato).maxHp;
 
   it('a whole point short is NOT full — a whole point of weapon damage is worth a copy', () => {
     expect(hullIsFull(MAX - 1, MAX)).toBe(false);

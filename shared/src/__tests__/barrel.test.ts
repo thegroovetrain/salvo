@@ -68,16 +68,11 @@ import {
   cardBehaviors,
   cardCounts,
   catalogCardCount,
-  DEFAULT_GUN,
-  GUN_IDS,
-  MOUNTED_GUN,
   SHIFT_IDS,
   DEFAULT_SHIFT,
   SHELL_FAMILIES,
-  classShift,
   drawOffer,
   eligibleLines,
-  isGunId,
   lineWeight,
   usableLines,
   hookKinematics,
@@ -176,7 +171,7 @@ describe('shared barrel', () => {
     // covered the day its module lands. The MONITOR GUN's 50 s was the tightest
     // margin until Story 8.15 cut it (amendment 89e); the tightest now is the
     // radar buoy's / heavy torpedo's 30 s class, far inside the window.
-    const stats = effectiveStats(CONFIG.shipClasses.battleship);
+    const stats = effectiveStats(CONFIG.shipClasses.yamato);
     for (const id of EQUIPMENT_IDS) {
       if (!EQUIPMENT_IS_WEAPON[id]) continue;
       expect(CONFIG.xp.assistWindowMs, id).toBeGreaterThan(stats.equipment[id].reloadMs);
@@ -732,22 +727,10 @@ describe('shared barrel', () => {
     expect('upgradePoints' in CONFIG).toBe(false);
   });
 
-  it("re-exports THE SEAT'S GUN (Story 8.14, amendments 89d/95)", () => {
-    expect(GUN_IDS).toEqual(['deckGun', 'machineGun', 'flak']);
-    expect(DEFAULT_GUN).toBe('deckGun');
-    expect(typeof isGunId).toBe('function');
-    // STORY 8.15 gave each gun its OWN module (amendments 103–105): the 8.14
-    // interim, where every seat gun mounted the deck-gun module, is over.
-    expect(MOUNTED_GUN).toEqual({ deckGun: 'gun', machineGun: 'machineGun', flak: 'flak' });
-  });
-
-  it('re-exports THE CLASS SHIFTS and the gun-family wire vocabulary (Story 8.15)', () => {
+  it('re-exports THE SHIFTS and the gun-family wire vocabulary (Story 8.15; the Shift is the seat\'s pick since 10.4)', () => {
     expect(SHIFT_IDS).toEqual(['boost', 'instantReload', 'hunker']);
     expect(DEFAULT_SHIFT).toBe('boost');
     expect(SHELL_FAMILIES).toEqual(['cannon', 'mg', 'flak']);
-    expect(classShift('torpedoBoat')).toBe('boost');
-    expect(classShift('mineLayer')).toBe('instantReload');
-    expect(classShift('battleship')).toBe('hunker');
     expect(CONFIG.machineGun.hits).toEqual(['hull', 'mine', 'decoy']);
     expect(CONFIG.flak.hits).toEqual(['hull', 'mine', 'decoy', 'ordnance']);
     expect([CONFIG.machineGun.arc, CONFIG.flak.arc]).toEqual(['full', 'full']);

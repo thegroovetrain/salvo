@@ -36,10 +36,8 @@ import {
   boonStackCount,
   drawOffer,
   eligibleLines,
-  GUN_IDS,
   ladderHost,
   lineWeight,
-  MOUNTED_GUN,
   mulberry32,
   usableLines,
   pickRefusal,
@@ -51,7 +49,6 @@ import {
   type Catalog,
   type ConsumableKit,
   type CatalogLine,
-  type GunId,
   type DrawKind,
   type DrawShip,
   type EquipmentId,
@@ -81,6 +78,10 @@ const KIT: ConsumableKit = ['hullRepair', 'supercavTorpedo', 'shieldBlock', 'hea
 const inKit = (id: string, kit: ConsumableKit = KIT): boolean => (kit as readonly string[]).includes(id);
 
 /** A ship with an open weapon row, holding nothing — the level-zero state. */
+/** The three RETIRED deck-gun modules (reference + the PvE fleet since Story
+ *  10.4) — the hosts the three gun ladders name. A captain mounts none of them. */
+const GUN_MODULES = ['gun', 'machineGun', 'flak'] as const satisfies readonly EquipmentId[];
+
 const OPEN: DrawShip = { held: [], slotIds: ROW_OPEN, mountedGun: 'gun', kit: KIT };
 
 /** The same ship with all three weapon slots full. */
@@ -227,8 +228,8 @@ describe('eligibleLines — the whole eligibility law', () => {
       expect(ladderHost(CATALOG[id]), id).toBeUndefined(); // universal
       // ...and so eligible on every seat, whatever gun it mounts (Story 9.9,
       // epic-9 amendment 145: the draw covers POWER like ARMOR).
-      for (const gun of GUN_IDS) {
-        const ship: DrawShip = { ...OPEN, mountedGun: MOUNTED_GUN[gun] };
+      for (const gun of [...GUN_MODULES, 'mainBattery'] as const) {
+        const ship: DrawShip = { ...OPEN, mountedGun: gun };
         expect(eligibleLines(ship).some((e) => e.id === id), `${id} on ${gun}`).toBe(true);
       }
     }
@@ -236,13 +237,13 @@ describe('eligibleLines — the whole eligibility law', () => {
     // Which gun ladders a seat can be dealt, per mounted gun — the WHOLE set,
     // so a cannon ladder can never reach a flak seat and vice versa.
     const GUN_LADDERS = ['deckGun', 'machineGun', 'flak'];
-    const want: Record<GunId, string[]> = {
-      deckGun: ['deckGun'],
+    const want: Record<(typeof GUN_MODULES)[number], string[]> = {
+      gun: ['deckGun'],
       machineGun: ['machineGun'],
       flak: ['flak'],
     };
-    for (const gun of GUN_IDS) {
-      const ship: DrawShip = { ...OPEN, mountedGun: MOUNTED_GUN[gun] };
+    for (const gun of GUN_MODULES) {
+      const ship: DrawShip = { ...OPEN, mountedGun: gun };
       const dealt = eligibleLines(ship).map((e) => e.id).filter((id) => GUN_LADDERS.includes(id));
       expect(dealt, gun).toEqual(want[gun]);
       // Every gun ladder that IS eligible is an UPGRADE, never a weapon.
@@ -254,8 +255,8 @@ describe('eligibleLines — the whole eligibility law', () => {
 
   it('the draw NEVER OFFERS a gun ladder for an unmounted gun, over many seeded offers (Story 8.15)', () => {
     const rng = mulberry32(0x815_0815);
-    for (const gun of GUN_IDS) {
-      const mounted = MOUNTED_GUN[gun];
+    for (const gun of GUN_MODULES) {
+      const mounted: EquipmentId = gun;
       const ship: DrawShip = { ...OPEN, mountedGun: mounted };
       for (let i = 0; i < 300; i += 1) {
         for (const id of drawOffer(ship, new Map(), rng)) {
@@ -263,6 +264,25 @@ describe('eligibleLines — the whole eligibility law', () => {
           if (CATALOG[id].kind === 'ladder' && host !== undefined) expect(host, `${gun} offered ${id}`).toBe(mounted);
         }
       }
+    }
+  });
+
+  it('A CAPTAIN IS NEVER DEALT A DECK-GUN LADDER (Story 10.4): the main battery hosts no ladder', () => {
+    // Every captain's slot 0 is `mainBattery`. No catalog ladder names that
+    // row, so CANNON / MACHINE GUN / FLAK are ineligible on any weapon row,
+    // and no seeded offer ever carries one.
+    const hosted = LINE_IDS.filter((id) => CATALOG[id].kind === 'ladder' && ladderHost(CATALOG[id]) !== undefined);
+    expect(hosted.length).toBeGreaterThan(0);
+    for (const id of hosted) expect(ladderHost(CATALOG[id]), id).not.toBe('mainBattery');
+    for (const base of [OPEN, CLOSED]) {
+      const ship: DrawShip = { ...base, mountedGun: 'mainBattery' };
+      const dealt = eligibleLines(ship).map((e) => e.id);
+      for (const id of hosted) expect(dealt, id).not.toContain(id);
+    }
+    const rng = mulberry32(0x104_0104);
+    const captain: DrawShip = { ...OPEN, mountedGun: 'mainBattery' };
+    for (let i = 0; i < 300; i += 1) {
+      for (const id of drawOffer(captain, new Map(), rng)) expect(hosted, id).not.toContain(id);
     }
   });
 

@@ -25,10 +25,11 @@ import {
   type ShipClassId,
   type ShipConfig,
 } from '../index.js';
+import { NEUTRAL_HULL } from './neutralHull.js';
 
 /** A representative Torpedo Boat kinematics block to boost. */
 function tbKinematics(): ShipConfig {
-  return { ...effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics };
+  return { ...effectiveStats(CONFIG.shipClasses.iowa).kinematics };
 }
 
 const FACTOR = CONFIG.boost.factor;
@@ -112,7 +113,7 @@ describe('the SPEED ladder is INSIDE the bonus (amendment 55)', () => {
   });
 
   it('the bonus is NEVER folded into EffectiveStats.kinematics (the bots read the RATED cap)', () => {
-    const cls = CONFIG.shipClasses.torpedoBoat;
+    const cls = CONFIG.shipClasses.iowa;
     const stats = effectiveStats(cls, []);
     // The rated, un-boosted cap is the ENGINES derivation alone (Story 10.3).
     expect(stats.kinematics.maxSpeed).toBe((CONFIG.index.engines * cls.index.engines) / CONFIG.index.base);
@@ -122,7 +123,7 @@ describe('the SPEED ladder is INSIDE the bonus (amendment 55)', () => {
 
 describe('the boost ROW — pool, window, and the one cooldownScale multiply (R40)', () => {
   it('base: CONFIG.boost verbatim, with no speed field to fold', () => {
-    const row = effectiveStats(CONFIG.shipClasses.torpedoBoat, []).equipment.boost;
+    const row = effectiveStats(NEUTRAL_HULL, []).equipment.boost;
     expect(row).toEqual({
       tier: 1,
       reloadMs: CONFIG.boost.reloadMs,
@@ -133,7 +134,7 @@ describe('the boost ROW — pool, window, and the one cooldownScale multiply (R4
 
   it('capped RELOAD copies scale the boost reload by cooldownScale and leave the window unscaled', () => {
     const stats = effectiveStats(
-      CONFIG.shipClasses.torpedoBoat,
+      CONFIG.shipClasses.iowa,
       new Array<LineId>(CATALOG.reload.cap).fill('reload'),
     );
     expect(stats.cooldownScale).toBeLessThan(1);
@@ -143,7 +144,7 @@ describe('the boost ROW — pool, window, and the one cooldownScale multiply (R4
   });
 
   it('no card addresses the boost: the legacy flat-bonus row and its id are gone', () => {
-    const rows = effectiveStats(CONFIG.shipClasses.torpedoBoat, []).equipment as unknown as Record<string, unknown>;
+    const rows = effectiveStats(CONFIG.shipClasses.iowa, []).equipment as unknown as Record<string, unknown>;
     expect(Object.hasOwn(rows, 'speedBoost')).toBe(false);
     expect(Object.hasOwn(rows.boost as object, 'speedBonus')).toBe(false);
   });
@@ -160,7 +161,7 @@ describe('the FIT — slot 1 on every captain, nothing on a fleet drone', () => 
   });
 
   it('a PvE fleet hull fits the gun and nothing else — slot 1 stays empty (amendment 24)', () => {
-    const loadout = loadoutFor(effectiveStats(CONFIG.shipClasses.torpedoBoat, []), true);
+    const loadout = loadoutFor(effectiveStats(CONFIG.shipClasses.iowa, []), true);
     expect(loadout[SLOT_BOOST]).toEqual({ equipmentId: null, state: null });
   });
 });

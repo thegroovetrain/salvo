@@ -6,7 +6,9 @@
 // (server->client, every tick).
 
 import type { GameConfig, HornId, HullId, ShipClassId } from './constants.js';
-import type { GunId } from './sim/loadout.js';
+import type { ShiftId } from './sim/loadout.js';
+import type { SecondariesHeat } from './sim/secondaries.js';
+import type { TurretState } from './sim/turrets.js';
 import type { ConsumableId } from './sim/effects.js';
 import type { BuoyKind } from './sim/buoy.js';
 import type { Vec2 } from './math/vec.js';
@@ -347,8 +349,24 @@ export interface InputMsg {
    * one sample is latched client-side so it still yields one `true` sample.
    * REQUIRED: a non-boolean drops the whole message (server/src/game/inputs.ts).
    * Drones and neutral inputs send `false`.
+   *
+   * Since Story 10.4 no captain mounts the machine gun, so this level drives
+   * nothing on a captain's hull; it stays on the wire for the retired module.
    */
   held: boolean;
+  /**
+   * THE SECONDARIES LEVEL (Story 10.4, R3, Eric 2026-11-04, epic-10 amendment
+   * 9): `true` while the captain's RIGHT mouse button is DOWN — a LEVEL sampled
+   * from the live pointer at input time, exactly `held`'s grammar. It drives
+   * the secondaries' stream (sim/secondaries.ts: one round per
+   * `CONFIG.secondaries.rateMs` while held, heat permitting) toward the aim
+   * point (`aim` / `aimDist`, clamped to `stats.secondaryRangeU`) and nothing
+   * else. The server reads it off the LATEST input; a tap shorter than one
+   * sample should be latched client-side like `held`.
+   * REQUIRED: a non-boolean drops the whole message (server/src/game/inputs.ts).
+   * Drones and neutral inputs send `false`.
+   */
+  sec: boolean;
 }
 
 /**
@@ -415,8 +433,14 @@ export interface WeaponAmmo {
  * an empty slot carries no state). Slots 5–8 are the ship's four consumable
  * lines in key order — `kit[i]` at slot `5 + i`, each bound to its kind for
  * the whole match (`consumableKindAt(kit, slot)`), so a `null` there is that
- * kind at ZERO STOCK. A Torpedo Boat holding one heavy torpedo reads
- * [gun, boost, heavyTorpedo, null, null, null, null, null, null].
+ * kind at ZERO STOCK. A captain who picked SPEED BOOST and holds one heavy
+ * torpedo reads [mainBattery, boost, heavyTorpedo, null, null, null, null,
+ * null, null].
+ *
+ * `ammo[0]` IS THE MAIN BATTERY'S SUMMARY since Story 10.4 — `n` = turrets
+ * READY to fire, `reloadMsLeft` = the soonest remaining turret reload (0 when
+ * every turret is ready) — `batterySummary(turrets)`, sim/turrets.ts. The
+ * per-turret truth is `turrets` below; the secondaries have no slot.
  * maxAmmo / reloadMs are NOT on the wire — the client reads them from CONFIG
  * (and, after upgrades, from its own effective-stats computation) and derives
  * reload fractions from reloadMsLeft.
@@ -433,18 +457,38 @@ export interface OwnShip {
   sweep: number; // rad — current radar sweep angle
   cls: ShipClassId; // ship class (drives hull dims / kinematics / max hp client-side)
   /**
-   * THE SEAT'S GUN (Story 8.14, epic-8 amendments 89d/95): which gun this
-   * captain picked at class select, frozen at queue — `deckGun`, `machineGun`
-   * or `flak`, defaulting to `deckGun`. The client replays its own loadout from
-   * it (`loadoutFor(stats, false, gun, shift)`), which is why it rides the
-   * frame at all; slot 0 mounts each gun's OWN module since Story 8.15
-   * (sim/loadout.ts MOUNTED_GUN).
+   * THE SEAT'S SHIFT (Story 10.4, R7, Eric 2026-11-04, epic-10 amendment 9):
+   * which Shift ability this captain picked at ship select, frozen at queue —
+   * `boost`, `instantReload` or `hunker`, defaulting to `boost`
+   * (`sanitizeShiftId`). The client replays its own loadout from it
+   * (`slotsWithCards(stats, cards, kit, catalog, false, shift)`), which is why
+   * it rides the frame at all. It REPLACES `gun` (the seat's deck-gun pick,
+   * Story 8.14 — gone with the three scaffold classes).
    *
    * SELF-PRIVATE by construction, exactly like `cards` below: it rides `you`
    * and NOTHING else — never a Contact, a blip, a ballistic event or a
-   * spectator payload. Which gun an enemy picked is build information.
+   * spectator payload. Which Shift an enemy picked is build information.
    */
-  gun: GunId;
+  shift: ShiftId;
+  /**
+   * THE OWN MAIN BATTERY, PER TURRET (Story 10.4): one entry per turret, bow
+   * to stern — its hull-relative angle `a` (rad, unwrapped, the convention in
+   * sim/turrets.ts) and its remaining reload. The client steps its own copy
+   * with the shared `stepTurrets` every tick and overwrites it from this
+   * (`copyTurrets`). `ammo[0]` is only the hotbar SUMMARY of this array
+   * (`batterySummary`: turrets ready + the soonest reload).
+   *
+   * SELF-PRIVATE: reload state rides `you` and nothing else. A sighted
+   * enemy's turret ANGLES ride its `Contact.tu`; its reloads never do.
+   */
+  turrets: TurretState[];
+  /**
+   * THE OWN SECONDARIES' HEAT (Story 10.4, R3): `heat` 0..1 and `locked`
+   * (overheated — no round until heat is back to 0). The client steps its own
+   * copy with the shared `stepSecondaries` and overwrites it from this.
+   * SELF-PRIVATE, non-spatial: `you` only.
+   */
+  sec: SecondariesHeat;
   /**
    * THE SEAT'S KIT (Story 10.1, Eric 2026-10-25/27, epic-10 amendments 1(c)
    * and 3): the four consumable lines this captain carries, in KEY ORDER —
@@ -719,6 +763,25 @@ export interface Contact {
    * 19) is updated deliberately alongside it.
    */
   aggro?: true;
+  /**
+   * THE HULL'S TURRET ANGLES (Story 10.4, epic-10 amendment 7(e): "Turret
+   * angles of a sighted hull travel in the per-client frames as part of that
+   * hull's pose — an extension of an existing sighted-contact field, not a
+   * seventh exception"). One whole number per turret, bow to stern: the
+   * turret's offset from its rest bearing in WHOLE DEGREES, counter-clockwise
+   * positive (`encodeTurretAngles` / `decodeTurretAngle`, sim/turrets.ts).
+   *
+   * Present on a battleship's contact row, ABSENT on a drone's (a drone has no
+   * turrets). ANGLES ONLY — never a reload, a heat or a readiness bit: when an
+   * enemy turret can fire again is the enemy's private state. It rides the
+   * contact row and therefore that row's own visibility gate; nothing about a
+   * hull outside sight ∪ this-tick radar may carry it (extend the invariant
+   * tests).
+   *
+   * APPENDED LAST, AND OPTIONAL: key order is load-bearing for msgpack, and
+   * the `aggro` precedent above is the shape.
+   */
+  tu?: number[];
 }
 
 // --- GameEvent union (discriminated on `k`) --------------------------------

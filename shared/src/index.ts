@@ -3,6 +3,22 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  96 — Story 10.4 THE FOUR BATTLESHIPS (Eric 2026-11-04, epic-10 amendments
+ *  7 and 9): the class id space is `yamato` / `bismarck` / `warspite` / `iowa`
+ *  (`torpedoBoat` / `battleship` / `mineLayer` are gone — `OwnShip.cls`,
+ *  `Contact.cls`, the join option); slot 0 mounts the new `mainBattery`
+ *  equipment id (`EquipmentId` + its stat row; `OwnShip.ammo[0]` is the
+ *  battery SUMMARY — turrets ready + soonest reload); InputMsg.sec (right
+ *  mouse held, REQUIRED boolean); OwnShip.gun is REPLACED by OwnShip.shift
+ *  (the seat's Shift pick) and OwnShip gains `turrets` (per-turret angle +
+ *  reload) and `sec` (secondaries heat + lock), all self-private; Contact.tu
+ *  (a sighted battleship's turret angles in whole degrees off rest — optional,
+ *  appended LAST, angles only); the join option `gun` is retired for `shift`;
+ *  CONFIG the client reads changed (`shipClasses` — four hulls with
+ *  `battery`, no `shift` field; `mainBattery` and `secondaries` new);
+ *  EffectiveStats gains `secondaryRangeU`; the Regatta hue exports are gone
+ *  (the roster color field is the server's to drop). Perception exception
+ *  count stays SIX.
  *  95 — Story 10.3 THE INDEX MODEL (Eric 2026-11-04, epic-10 amendment 8):
  *  the client reads the stat block, and it changed shape — EffectiveStats
  *  gains the authored indices `reload` / `engines` / `rudder` / `intel` /
@@ -937,7 +953,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 95;
+export const PROTOCOL_VERSION = 96;
 
 // Tunables
 export * from './constants.js';
@@ -958,6 +974,9 @@ export * from './sim/lifecycle.js';
 export * from './sim/sinking.js';
 export * from './sim/stats.js';
 export * from './sim/indexStats.js';
+export * from './sim/turrets.js';
+export * from './sim/secondaries.js';
+export * from './sim/hullOutlines.js';
 export * from './sim/effects.js';
 export * from './sim/catalog.js';
 export * from './sim/boons.js';

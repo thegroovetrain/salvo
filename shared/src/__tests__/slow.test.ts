@@ -11,7 +11,7 @@ import { CONFIG, boostedKinematics, effectiveStats, slowedKinematics, type ShipC
 
 /** A representative Torpedo Boat kinematics block to slow. */
 function tbKinematics(): ShipConfig {
-  return { ...effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics };
+  return { ...effectiveStats(CONFIG.shipClasses.iowa).kinematics };
 }
 
 const FACTOR = CONFIG.foulingMines.slowFactor;
@@ -55,7 +55,7 @@ describe('slowedKinematics — active scales BOTH speed caps', () => {
 
   it('the fouling SLOW deepens by tier from its CONFIG base and never reaches a full stop (amendment 81)', () => {
     const factorAt = (n: number): number =>
-      effectiveStats(CONFIG.shipClasses.mineLayer, new Array<string>(n).fill('foulingMines'))
+      effectiveStats(CONFIG.shipClasses.warspite, new Array<string>(n).fill('foulingMines'))
         .equipment.foulingMines.slowFactor;
     // CLOSE-TO, NOT EXACT, AND DELIBERATELY SO: an additive −0.05 ladder
     // accumulates float dust (0.55 folds to 0.5499999999999998) and nothing

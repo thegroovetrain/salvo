@@ -87,8 +87,8 @@ describe('resolveHullContacts — solidity', () => {
   });
 
   it('does the same with real hull silhouettes (abstract masses 250 vs 350)', () => {
-    const local = hullSilhouette('torpedoBoat');
-    const heavy = hullSilhouette('battleship');
+    const local = hullSilhouette('iowa');
+    const heavy = hullSilhouette('yamato');
     const a = body('a', local, ship(0, 0, 0.3), 250);
     const b = body('b', heavy, ship(30, 25, 2.0), 350);
     expect(overlaps(a.poly, b.poly)).toBe(true);
@@ -138,8 +138,8 @@ describe('resolveHullContacts — solidity', () => {
 
   it('gives the same final poses whichever order the bodies are listed in', () => {
     const make = () => [
-      body('hull-1', hullSilhouette('torpedoBoat'), ship(0, 0, 0.3, 40), 250),
-      body('hull-2', hullSilhouette('battleship'), ship(30, 25, 2.0, 20), 350),
+      body('hull-1', hullSilhouette('iowa'), ship(0, 0, 0.3, 40), 250),
+      body('hull-2', hullSilhouette('yamato'), ship(30, 25, 2.0, 20), 350),
     ];
     const fwd = make();
     const rev = make();
@@ -186,8 +186,8 @@ describe('resolveHullContacts — closing and sliding speed', () => {
     // overlapping 5 u at the tips: the minimal geometric escape is nearly
     // sideways (pointed bows slide off each other), but the contact speeds
     // are measured on the line of centres, so the ram reads 45 + 35 = 80.
-    const a = body('a', hullSilhouette('torpedoBoat'), ship(0, 0, 0, 45), 250);
-    const b = body('b', hullSilhouette('battleship'), ship(50 + 62 - 5, 0, Math.PI, 35), 350);
+    const a = body('a', hullSilhouette('iowa'), ship(0, 0, 0, 45), 250);
+    const b = body('b', hullSilhouette('yamato'), ship(50 + 62 - 5, 0, Math.PI, 35), 350);
     const [c] = resolveHullContacts([a, b]);
     expect(c.nx).toBeCloseTo(-1, 9);
     expect(c.ny).toBeCloseTo(0, 9);
@@ -199,8 +199,8 @@ describe('resolveHullContacts — closing and sliding speed', () => {
     // The small hull's centre sits inside the big hull, past the point where
     // the geometric escape would carry it out the far side: the push must
     // still move it down (away from B's centre at y = +3), not up through B.
-    const a = body('a', hullSilhouette('torpedoBoat'), ship(0, 0, 0, 45), 250);
-    const b = body('b', hullSilhouette('battleship'), ship(0, 3, 0, 0), 350);
+    const a = body('a', hullSilhouette('iowa'), ship(0, 0, 0, 45), 250);
+    const b = body('b', hullSilhouette('yamato'), ship(0, 3, 0, 0), 350);
     resolveHullContacts([a, b]);
     expect(a.state.y).toBeLessThan(0);
     expect(b.state.y).toBeGreaterThan(3);
@@ -216,7 +216,7 @@ describe('resolveHullContacts — closing and sliding speed', () => {
 // literal hp figure.
 describe('contact damage — Eric\'s calibration read from CONFIG.ram at mass = ARMOR (Story 10.3)', () => {
   const M = CONFIG.index.base; // every scaffold hull's ARMOR, so its mass
-  const HULL = CONFIG.shipClasses.torpedoBoat.hp; // 1000 on every class
+  const HULL = CONFIG.shipClasses.iowa.hp; // 1000 on every class
   /** The energy law by hand: the hit two equal masses M take at closing vn. */
   const equalHit = (vn: number): number => {
     const mu = (M * M) / (M + M);

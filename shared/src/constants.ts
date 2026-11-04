@@ -6,7 +6,6 @@
 // Angle helpers below keep mount/arc definitions readable in degrees.
 
 import type { TargetKind } from './sim/shell.js';
-import type { ShiftId } from './sim/loadout.js';
 
 const deg = (d: number): number => (d * Math.PI) / 180;
 
@@ -25,6 +24,12 @@ const SIGHT = 500;
 // Defined off SIGHT, never off `CONFIG.vision.radar` (CONFIG does not exist yet
 // at this point in the module).
 const RUNG = (SIGHT * 3) / 12;
+
+// u per metre — THE HULL SCALE (Story 10.4, R5, Eric 2026-11-04: "as drawn" on
+// the design-sitting page, epic-10 amendment 7(b)): every battleship's hull
+// dims are its real length overall and beam in metres times this. The RATIOS
+// between hulls are ruled; this one number is the dial.
+const U_PER_M = 0.4585;
 
 /**
  * THE ORDNANCE TARGET MASKS (Story 8.4, AR44). Every ordnance row declares,
@@ -165,87 +170,155 @@ export const CONFIG = {
   },
 
   /**
-   * Per-class hull + INDICES + kinematics — the ratified beta classes at
-   * literal board scale (Eric-approved 2026-07-19), SCAFFOLDED onto the index
-   * model by Story 10.3 (Eric 2026-11-04, epic-10 amendment 8) until Story
-   * 10.4 swaps the hulls. Three classes trade agility against nothing yet:
-   * every hull is 1000 hp and ARMOR / POWER / RELOAD / INTEL / RANGE 100
-   * (ruling 3 — toughness is ARMOR, never hp; the 300 / 350 gap is DROPPED);
-   * only ENGINES and RUDDER differ, chosen so today's three top speeds and
-   * turn rates come back out of the fold (ruling 15's 30 u/s base: 150 → 45,
-   * 117 → 35.1, 133 → 39.9 u/s — the battleship drifts 35 → 35.1 and the
-   * mine layer 40 → 39.9, whole-number indices being the implementer reading;
-   * RUDDER 200 / 100 / 150 → 0.8 / 0.4 / 0.6 rad/s exactly). `maxSpeed` and
-   * `turnRate` are NOT authored here any more: the fold derives them
-   * (sim/indexStats.ts). Per-class loadouts: the Torpedo Boat carries gun /
-   * torpedo / speed boost; the Battleship gun / broadside / star shells (the
-   * BROADSIDE BARRAGE — 7-5 wave 2, R2.6); Mine Layer the universal fit. Hull
-   * dims are the exact bow-to-stern length × max beam of the shared silhouette
-   * polygon (see sim/silhouette.ts — the silhouette IS the hitbox). Every
-   * number is a DESIGN TARGET, tunable (`--tune shipClasses.<cls>.index.<k>`).
+   * THE FOUR BATTLESHIPS (Story 10.4, Eric 2026-11-04, epic-10 amendments 7
+   * and 9) — `yamato`, `bismarck`, `warspite`, `iowa`, in that order (menu
+   * order and `SHIP_CLASS_IDS`). They REPLACE the three scaffold classes
+   * `torpedoBoat` / `battleship` / `mineLayer`, which are GONE from shared as
+   * of 2026-11-04 (Story 10.4, epic-10 amendment 9); git history keeps them.
+   *
+   * Per hull:
+   *   - `hull` — length overall × max beam in metres × `U_PER_M` (R5: "as
+   *     drawn", 0.4585 u/m — Iowa 124.0 × 15.1 u, Yamato 120.6 × 17.8,
+   *     Bismarck 115.1 × 16.5, Warspite 90.0 × 14.5). The traced silhouette
+   *     (sim/silhouette.ts) is normalized to EXACTLY these dims — the
+   *     silhouette IS the hitbox.
+   *   - `hp` — 1000 on every hull (Story 10.3, ruling 3).
+   *   - `index` — Eric's R1 table (RUDDER 100 on all four).
+   *   - `kinematics` — accel / decel / reverse / steerage are UNRULED per
+   *     hull: all four take the retired `battleship` row (implementer reading
+   *     of record). `maxSpeed` / `turnRate` are derived by the fold from
+   *     ENGINES / RUDDER (sim/indexStats.ts), never authored.
+   *   - `battery` — the MAIN BATTERY's per-hull half (the shared half is
+   *     `CONFIG.mainBattery`): the train limit either side of each turret's
+   *     rest bearing (±150°, Bismarck ±145° — amendment 7(d)); each turret's
+   *     station as a fraction of length overall FROM THE BOW, its rest facing
+   *     (`fwd` rests at the bow bearing, `aft` at the stern bearing) and its
+   *     gun count (amendment 7(c), Warspite per the 7(h) erratum); and the
+   *     damage of one shell (R2 "equal broadside": 24 on the three-gun
+   *     turrets, 27 on the two-gun turrets — guns × shellDamage sums to the
+   *     same broadside on every hull, a RELATION the tests assert). Turret
+   *     order is bow to stern; that index is the turret's identity on the
+   *     wire and the R4 tie-break order (sim/turrets.ts).
+   *
+   * THE CLASS `shift` FIELD IS GONE (and `classShift()` with it): the Shift
+   * is the SEAT's pick now, in the retired deck-gun pick's place (R7 default
+   * `boost`; sim/loadout.ts `sanitizeShiftId`).
+   *
+   * Every number is tunable (`--tune shipClasses.<cls>.index.<k>`).
    */
   shipClasses: {
-    torpedoBoat: {
-      hull: { length: 100, beam: 9 }, // u — silhouette bow-to-stern / max beam
+    yamato: {
+      hull: { length: 263.0 * U_PER_M, beam: 38.9 * U_PER_M }, // u — IJN Yamato, 1945 fit: 263.0 m × 38.9 m (120.6 × 17.8 u)
       hp: 1000, // hit points — 1000 on EVERY hull (Story 10.3, ruling 3); shown as a whole-number percent, never raw
-      // THE CLASS SHIFT (Story 8.15, amendment 89(c)): hull identity is
-      // envelope + a FIXED Shift in slot 1 — SPEED BOOST on the Torpedo Boat.
-      shift: 'boost',
       index: {
-        armor: 100, // ramming mass AND the gate's victim side (rulings 2 / 11)
-        power: 100, // the gate's attacker side (ruling 11)
-        reload: 100, // the haste law's input (ruling 14)
-        engines: 150, // 45 u/s on the 30 u/s base (ruling 15) — today's top speed
-        rudder: 200, // 0.8 rad/s on the 0.4 base (ruling 3) — today's turn rate
-        intel: 100, // 15 RPM
-        range: 100, // today's gun reach
-      },
-      kinematics: {
-        reverseSpeed: 15, // u/s — full-astern (magnitude)
-        accel: 12, // u/s^2 — throttling up
-        decel: 18, // u/s^2 — throttling down / braking
-        steerageSpeed: 12, // u/s — speed at which rudder reaches full authority
-      },
-    },
-    battleship: {
-      hull: { length: 124, beam: 32 }, // u
-      hp: 1000, // hit points — 1000 on EVERY hull (Story 10.3, ruling 3)
-      shift: 'hunker', // HUNKER (was DAMAGE CUT until Story 9.9) (amendments 89(c), 99–102)
-      // THE 100 OF THE SCAFFOLD (ruling 3) on every index but ENGINES.
-      index: {
-        armor: 100,
-        power: 100,
-        reload: 100,
-        engines: 117, // 35.1 u/s on the 30 u/s base (ruling 15; was 35 — the whole-number drift)
-        rudder: 100, // 0.4 rad/s — THE base
-        intel: 100, // 15 RPM — THE base
-        range: 100, // today's gun reach — THE base
+        armor: 130,
+        power: 140,
+        reload: 70,
+        engines: 85,
+        rudder: 100,
+        intel: 90,
+        range: 100,
       },
       kinematics: {
         reverseSpeed: 9, // u/s — full-astern (magnitude)
         accel: 5, // u/s^2 — throttling up
         decel: 9, // u/s^2 — throttling down / braking
-        steerageSpeed: 8, // u/s — speed at which rudder reaches full authority
+        steerageSpeed: 5.8, // u/s — full rudder authority; the retired battleship ratio (8 of 35.1 u/s) of this hull top speed, so a grounded hull still steers off a coast (reading, 10.4 wave-1 gate)
+      },
+      battery: {
+        trainDeg: 150, // ° either side of the rest bearing — the hard stop (amendment 7(d))
+        turrets: [
+          { frac: 0.31, facing: 'fwd', guns: 3 },
+          { frac: 0.39, facing: 'fwd', guns: 3 },
+          { frac: 0.74, facing: 'aft', guns: 3 },
+        ],
+        shellDamage: 24, // hp per shell (R2)
       },
     },
-    mineLayer: {
-      hull: { length: 88, beam: 20 }, // u
-      hp: 1000, // hit points — 1000 on EVERY hull (Story 10.3, ruling 3)
-      shift: 'instantReload', // INSTANT RELOAD (amendments 89(c), 97–98)
+    bismarck: {
+      hull: { length: 251.0 * U_PER_M, beam: 36.0 * U_PER_M }, // u — Bismarck, 1941: 251.0 m × 36.0 m (115.1 × 16.5 u)
+      hp: 1000, // hit points — 1000 on EVERY hull (Story 10.3, ruling 3); shown as a whole-number percent, never raw
+      index: {
+        armor: 120,
+        power: 95,
+        reload: 105,
+        engines: 95,
+        rudder: 100,
+        intel: 100,
+        range: 95,
+      },
+      kinematics: {
+        reverseSpeed: 9, // u/s — full-astern (magnitude)
+        accel: 5, // u/s^2 — throttling up
+        decel: 9, // u/s^2 — throttling down / braking
+        steerageSpeed: 6.5, // u/s — full rudder authority; same ratio reading as yamato
+      },
+      battery: {
+        trainDeg: 145, // ° either side of the rest bearing — the hard stop (amendment 7(d))
+        turrets: [
+          { frac: 0.215, facing: 'fwd', guns: 2 },
+          { frac: 0.29, facing: 'fwd', guns: 2 },
+          { frac: 0.72, facing: 'aft', guns: 2 },
+          { frac: 0.795, facing: 'aft', guns: 2 },
+        ],
+        shellDamage: 27, // hp per shell (R2)
+      },
+    },
+    warspite: {
+      hull: { length: 196.2 * U_PER_M, beam: 31.7 * U_PER_M }, // u — HMS Warspite, 1937 rebuild: 196.2 m × 31.7 m (90.0 × 14.5 u)
+      hp: 1000, // hit points — 1000 on EVERY hull (Story 10.3, ruling 3); shown as a whole-number percent, never raw
       index: {
         armor: 100,
         power: 100,
         reload: 100,
-        engines: 133, // 39.9 u/s on the 30 u/s base (ruling 15; was 40 — the whole-number drift)
-        rudder: 150, // 0.6 rad/s on the 0.4 base (ruling 3)
-        intel: 100,
+        engines: 80,
+        rudder: 100,
+        intel: 90,
+        range: 125,
+      },
+      kinematics: {
+        reverseSpeed: 9, // u/s — full-astern (magnitude)
+        accel: 5, // u/s^2 — throttling up
+        decel: 9, // u/s^2 — throttling down / braking
+        steerageSpeed: 5.5, // u/s — full rudder authority; same ratio reading as yamato
+      },
+      battery: {
+        trainDeg: 150, // ° either side of the rest bearing — the hard stop (amendment 7(d))
+        turrets: [
+          { frac: 0.23, facing: 'fwd', guns: 2 },
+          { frac: 0.31, facing: 'fwd', guns: 2 },
+          { frac: 0.735, facing: 'aft', guns: 2 },
+          { frac: 0.815, facing: 'aft', guns: 2 },
+        ],
+        shellDamage: 27, // hp per shell (R2)
+      },
+    },
+    iowa: {
+      hull: { length: 270.4 * U_PER_M, beam: 33.0 * U_PER_M }, // u — USS Iowa, 1943–45: 270.4 m × 33.0 m (124.0 × 15.1 u)
+      hp: 1000, // hit points — 1000 on EVERY hull (Story 10.3, ruling 3); shown as a whole-number percent, never raw
+      index: {
+        armor: 85,
+        power: 105,
+        reload: 95,
+        engines: 120,
+        rudder: 100,
+        intel: 115,
         range: 100,
       },
       kinematics: {
-        reverseSpeed: 14, // u/s — full-astern (magnitude)
-        accel: 8, // u/s^2 — throttling up
-        decel: 15, // u/s^2 — throttling down / braking
-        steerageSpeed: 10, // u/s — speed at which rudder reaches full authority
+        reverseSpeed: 9, // u/s — full-astern (magnitude)
+        accel: 5, // u/s^2 — throttling up
+        decel: 9, // u/s^2 — throttling down / braking
+        steerageSpeed: 8.2, // u/s — full rudder authority; same ratio reading as yamato
+      },
+      battery: {
+        trainDeg: 150, // ° either side of the rest bearing — the hard stop (amendment 7(d))
+        turrets: [
+          { frac: 0.284, facing: 'fwd', guns: 3 },
+          { frac: 0.364, facing: 'fwd', guns: 3 },
+          { frac: 0.741, facing: 'aft', guns: 3 },
+        ],
+        shellDamage: 24, // hp per shell (R2)
       },
     },
   },
@@ -1554,6 +1627,78 @@ export const CONFIG = {
   gunAttenuation: {
     fullFrac: 0.5, // fraction of the firer's rangeU flown at full damage
     minFactor: 0.5, // damage factor at (and beyond) the firer's rangeU (0.8 → 0.5 Eric 2026-10-17, amendment 187)
+  },
+
+  /**
+   * THE MAIN BATTERY (Story 10.4, Eric 2026-11-04, epic-10 amendments 7 and 9)
+   * — a captain's slot 0. The shared half of every battleship's guns; the
+   * per-hull half (train limit, turret stations, guns per turret, shell
+   * damage) is `CONFIG.shipClasses.<id>.battery`.
+   *
+   * Each TURRET is its own piece of state in the shared sim (sim/turrets.ts):
+   * an angle that traverses toward the one aim point at `traverseDegPerS` with
+   * a HARD STOP at the hull's train limit (amendment 7(e)/(j): load-bearing,
+   * 90°/s, never through the blind sector), and its own reload. A click fires
+   * ONE turret (R4): a ready turret that is ON the aim point (inside its arc
+   * and within `onTargetDeg` of the bearing it wants) wins, lowest index
+   * first; otherwise the ready turret with the smallest error fires along its
+   * CURRENT bearing; nothing ready fires nothing. The turret's guns fire as
+   * one salvo on PARALLEL tracks `barrelSpacingU` apart (sim/spread.ts — the
+   * cannon's barrel law), each shell `shipClasses.<id>.battery.shellDamage`.
+   *
+   * R2 "Equal broadside, 10 s": `reloadMs` per turret before RELOAD; reach is
+   * the cannon's Tier I reach (`RUNG × 8`), scaled once by RANGE in the fold
+   * (sim/indexStats.ts RANGE_ROWS).
+   *
+   * THE SHELL IS TODAY'S CANNON SHELL, READING OF RECORD (not a ruling): the
+   * five values marked below are COPIED from `CONFIG.gun` as it stood at
+   * Story 10.4 — copies, not aliases, so a later retune of the retired
+   * cannon row does not silently move the battleships. Its wire family word
+   * stays `'cannon'`, and `gunAttenuation` applies exactly as to the cannon.
+   *
+   * `hits` carries NO `mine` bit: a main-battery shell never damages a mine
+   * (R3 — the secondaries are the only thing that hurts one).
+   */
+  mainBattery: {
+    arc: 'full', // every bearing is inside SOME turret's arc on every hull, and a click always fires (R4)
+    hits: HITS_HULL_DECOY, // hulls + decoys; NO mine bit (R3)
+    rangeU: RUNG * 8, // u — the cannon's Tier I reach at RANGE 100 (R2)
+    reloadMs: 10000, // ms per turret, before RELOAD (R2)
+    traverseDegPerS: 90, // °/s — one rate for all four hulls (amendment 7(j))
+    onTargetDeg: 0.5, // ° — "on the aim point" tolerance (the sitting page's; implementer reading)
+    shellSpeed: 500, // u/s — today's cannon shell, reading of record
+    contactDamage: 18, // hp to an early interceptor outside the blast — today's cannon shell, reading of record
+    burstRadius: 15, // u — today's cannon shell, reading of record
+    shellRadius: 2, // u — today's cannon shell, reading of record
+    barrelSpacingU: 12, // u between adjacent parallel tracks of one turret's salvo — today's cannon shell, reading of record
+  },
+
+  /**
+   * THE SECONDARIES (Story 10.4, R3, Eric 2026-11-04, epic-10 amendment 9) —
+   * a uniform, slotless, 360° stream on RIGHT MOUSE HELD, identical on every
+   * hull, and the ONLY weapon that damages a mine. HEAT, NOT AMMO (Eric: "it
+   * can be used reliably in bursts, and as long as it hasn't overheated it
+   * will cool down when not being fired, but sustained fire might take it out
+   * of commission until it fully cools"): one round of `damage` every
+   * `rateMs` while held; `overheatMs` of continuous fire reaches full heat;
+   * full heat LOCKS the guns until heat is back to zero; full → zero takes
+   * `coolMs`; heat drains whenever not firing (sim/secondaries.ts).
+   *
+   * Reach is `rangeFrac` of the hull's FOLDED main-battery reach (so RANGE
+   * moves both). The round is today's machine-gun round, READING OF RECORD:
+   * `shellSpeed` and `shellRadius` are COPIED from `CONFIG.machineGun` as it
+   * stood at Story 10.4; direct hit, no burst; wire family word `'mg'`.
+   */
+  secondaries: {
+    arc: 'full', // 360°
+    hits: HITS_HULL_MINE_DECOY, // today's machine-gun mask: hulls + mines + decoys
+    damage: 3, // hp per round (R3: Eric's "3 per round" after the DPS math)
+    rateMs: 120, // ms — one round per 0.12 s while held (R3)
+    overheatMs: 4000, // ms of continuous fire from cold to full heat (R3)
+    coolMs: 6000, // ms from full heat to zero (R3)
+    rangeFrac: 0.5, // of the hull's folded main-battery reach (R3)
+    shellSpeed: 500, // u/s — today's machine-gun round, reading of record
+    shellRadius: 2, // u — today's machine-gun round, reading of record
   },
 
   /**
@@ -3001,6 +3146,27 @@ export interface Hull {
   beam: number; // u — max beam (widest point of the silhouette)
 }
 
+/** Which way a turret RESTS: `fwd` at the bow bearing, `aft` at the stern bearing. */
+export type TurretFacing = 'fwd' | 'aft';
+
+/** One main-battery turret as authored on a hull (CONFIG.shipClasses.<id>.battery.turrets). */
+export interface TurretMount {
+  /** Station of the gunhouse centre: fraction of length overall FROM THE BOW (0 = bow, 1 = stern). */
+  readonly frac: number;
+  readonly facing: TurretFacing;
+  /** Guns in the gunhouse = shells per salvo. */
+  readonly guns: number;
+}
+
+/** A hull's main battery (Story 10.4): train limit, turrets bow to stern, damage per shell. */
+export interface HullBattery {
+  /** ° either side of the rest bearing — the hard stop. */
+  readonly trainDeg: number;
+  readonly turrets: readonly TurretMount[];
+  /** hp per shell. */
+  readonly shellDamage: number;
+}
+
 /**
  * THE SEVEN INDEX IDS (Story 10.3, Eric 2026-11-04, epic-10 amendment 8), in
  * the order the SHIP tooltip and the harness print them (amendment 6(c)):
@@ -3041,6 +3207,13 @@ export interface HullEnvelope {
    * Absent on every real ship class, which therefore keeps CONFIG.gun verbatim.
    */
   gun?: { damage: number; reloadMs: number };
+  /**
+   * The MAIN BATTERY's per-hull half (Story 10.4). Present on every
+   * battleship, ABSENT on every PvE drone envelope (a drone keeps its single
+   * 360° `gun` module) — so "has a battery" is the one structural test for
+   * "is a captain's hull" in the fold (sim/stats.ts) and in sim/turrets.ts.
+   */
+  battery?: HullBattery;
   /** The seven authored indices (Story 10.3). */
   index: HullIndex;
   kinematics: {
@@ -3065,7 +3238,7 @@ export function hullBumper(own: HullId, other: HullId | null): number {
   return mine / 2 + theirs / 2 + CONFIG.bots.hullBumperU;
 }
 
-/** A ship-class key ('torpedoBoat' | 'battleship' | 'mineLayer'). */
+/** A ship-class key ('yamato' | 'bismarck' | 'warspite' | 'iowa' — Story 10.4). */
 export type ShipClassId = keyof typeof CONFIG.shipClasses;
 
 /** The resolved config for one class (hull + hp + kinematics). */
@@ -3078,13 +3251,13 @@ export type DroneSizeId = keyof typeof CONFIG.drones;
 export type DroneHullId = 'droneSmall' | 'droneMedium' | 'droneLarge';
 
 /**
- * Every hull id a Contact can carry: the three pickable classes plus the three
+ * Every hull id a Contact can carry: the four pickable battleships plus the three
  * drone sizes. OwnShip.cls stays ShipClassId (you can never BE a drone).
  */
 export type HullId = ShipClassId | DroneHullId;
 
 /** Ordered class ids: menu order and the balance table. */
-export const SHIP_CLASS_IDS: readonly ShipClassId[] = ['torpedoBoat', 'battleship', 'mineLayer'];
+export const SHIP_CLASS_IDS: readonly ShipClassId[] = ['yamato', 'bismarck', 'warspite', 'iowa'];
 
 /** Ordered drone hull ids (round-robin fill order), aligned with DRONE_SIZE_IDS. */
 export const DRONE_HULL_IDS: readonly DroneHullId[] = ['droneSmall', 'droneMedium', 'droneLarge'];
@@ -3168,22 +3341,21 @@ export function fleetLevels(): number {
   );
 }
 
-/**
- * THE CLASS SHIFT a hull fits in slot 1 (Story 8.15, amendment 89(c)) — the
- * one read of `CONFIG.shipClasses.<id>.shift`, and the compile check that
- * every class names a real `ShiftId`. Both sides call it with the class id, so
- * the server's fit and the client's replay can never disagree. Drones have no
- * Shift (and no ship-class id), so they never reach it.
- */
-export function classShift(id: ShipClassId): ShiftId {
-  return CONFIG.shipClasses[id].shift;
-}
+// `classShift()` and the per-class `shift` field are GONE (2026-11-04, Story
+// 10.4, epic-10 amendment 9): the Shift is the SEAT's pick, validated by
+// sim/loadout.ts `sanitizeShiftId`.
 
-/** Coerce arbitrary (wire/localStorage) input to a valid class id, default 'torpedoBoat'. */
+/**
+ * THE DEFAULT HULL (R7, Eric 2026-11-04): a fresh browser and every sanitizer
+ * fail-open land on Bismarck.
+ */
+export const DEFAULT_CLASS_ID: ShipClassId = 'bismarck';
+
+/** Coerce arbitrary (wire/localStorage) input to a valid class id, default `DEFAULT_CLASS_ID`. */
 export function sanitizeClassId(raw: unknown): ShipClassId {
   return typeof raw === 'string' && (SHIP_CLASS_IDS as readonly string[]).includes(raw)
     ? (raw as ShipClassId)
-    : 'torpedoBoat';
+    : DEFAULT_CLASS_ID;
 }
 
 /**
@@ -3228,52 +3400,7 @@ export function mapRadius(playerCap: number): number {
   return CONFIG.map.baseRadius * Math.sqrt(playerCap / CONFIG.map.capRef);
 }
 
-/**
- * The Regatta wheel — 20 personal-combatant hue NAMES in ratified wheel order
- * (Story 1.12; = the existing CLIENT_CONFIG.colors.players key order verbatim).
- * This ORDER is the single source of truth both sides share: the server assigns a
- * hue INDEX (0–19) into this array at join, the index rides the roster
- * (PlayerMeta.color), and the client maps that index → its hex through the
- * same-ordered CLIENT_CONFIG.colors.players / .playerFills tables. Only the ORDER
- * is promoted to shared (nearest-free assignment + index→hex must agree); the hex
- * VALUES stay client tokens so DESIGN.md remains the styling authority. The
- * reserved bands are AMBER and the RED FAMILY, and only those two: the
- * storm-violet and phosphor-green reservations were RETIRED by Eric ruling
- * 2026-08-21 (Story 7-6 question gate B1) to keep the palette expandable, so
- * the cycle-125 wheel legitimately places green/spring/jade in the old
- * phosphor band and orchid in the old storm-violet one. The surviving
- * amber/red reserve is pinned against the live wheel by
- * client/src/__tests__/tokens.test.ts. The wheel is the ONLY assignment source.
- */
-export const REGATTA_HUES = [
-  'lemon',
-  'chartreuse',
-  'olive',
-  'lime',
-  'green',
-  'spring',
-  'jade',
-  'aqua',
-  'cyan',
-  'lagoon',
-  'sky',
-  'azure',
-  'cobalt',
-  'periwinkle',
-  'iris',
-  'orchid',
-  'fuchsia',
-  'magenta',
-  'mulberry',
-  'rose',
-] as const;
-
-/**
- * Sentinel PlayerMeta.color value = "no personal hue": drones always, and any
- * roster entry before assignment lands. Renders the drone greys everywhere; it is
- * NEVER a wheel index (the wheel is 0..19). uint8-safe.
- */
-export const REGATTA_NO_HUE = 255;
-
-/** A Regatta hue name — one of the 20 wheel entries (REGATTA_HUES order). */
-export type RegattaHue = (typeof REGATTA_HUES)[number];
+// THE REGATTA HUE WHEEL IS GONE (2026-11-04, Story 10.4, R6, epic-10
+// amendments 7(k) and 9): `REGATTA_HUES`, `REGATTA_NO_HUE` and `RegattaHue`
+// are deleted with the personal-hue pick. Linework is RELATION color (own
+// cyan, enemy red) — a client concern; shared carries nothing in its place.

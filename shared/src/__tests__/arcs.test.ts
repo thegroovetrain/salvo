@@ -21,8 +21,6 @@ import {
   CONSUMABLE_IS_WEAPON,
   BUOY_LINE_IDS,
   EQUIPMENT_IDS,
-  GUN_IDS,
-  MOUNTED_GUN,
   SHIFT_IDS,
   arcFor,
   isConsumableId,
@@ -61,9 +59,11 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
       expect(CONFIG[id].arc, id).toBe('full');
       expect(arcFor(id), id).toEqual({ kind: 'full' });
     }
-    // …and every seat gun's MOUNTED module is one of them (no gun can be
-    // denied out-of-arc, whatever the captain picked).
-    for (const gun of GUN_IDS) expect(arcFor(MOUNTED_GUN[gun]), gun).toEqual({ kind: 'full' });
+    // …and so is THE MAIN BATTERY (Story 10.4): every bearing is inside some
+    // turret's arc and a click always fires (R4), so the weapon is never
+    // denied out-of-arc. Which turrets bear is sim/turrets.ts.
+    expect(arcFor('mainBattery')).toEqual({ kind: CONFIG.mainBattery.arc });
+    expect(arcFor('mainBattery')).toEqual({ kind: 'full' });
   });
 
   it('the torpedo is the bow sector heading + offset ± halfArc, byte-identical to CONFIG', () => {

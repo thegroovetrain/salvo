@@ -25,12 +25,16 @@
 // granted at countdown start — the opening — and lands in the row as a card
 // like every card after it.
 //
-// Slot 1 holds the hull's CLASS SHIFT — a FIXED ability no card can address,
-// chosen by `CONFIG.shipClasses.<id>.shift` (Story 8.15, Eric rulings
-// 2026-09-21/28, epic-8 amendments 89(c) and 97–102): SPEED BOOST on the
-// Torpedo Boat, INSTANT RELOAD on the Mine Layer, HUNKER (was DAMAGE CUT until Story 9.9) on the Battleship.
-// The boost was UNIVERSAL from Story 8.5 (amendment 23) to 8.9's module; 8.15
-// landed the split, so hull identity is now envelope + Shift.
+// Slot 0 holds THE MAIN BATTERY on a captain's hull (Story 10.4, Eric
+// 2026-11-04, epic-10 amendments 7 and 9): the `mainBattery` module, whose
+// per-turret truth lives in sim/turrets.ts. The seat-gun pick (deck gun /
+// machine gun / flak) is GONE with the three scaffold classes.
+//
+// Slot 1 holds the SEAT'S SHIFT — an ability no card can address, PICKED by
+// the captain at ship select in the retired gun pick's place (Story 10.4,
+// R7; default SPEED BOOST). From Story 8.15 to 10.4 it was fixed per class
+// (`CONFIG.shipClasses.<id>.shift`, epic-8 amendments 89(c) and 97–102);
+// that field and `classShift()` are gone.
 //
 // PvE FLEET HULLS FIT THE GUN AND NOTHING ELSE (epic-5 amendment 34, epic-8
 // amendment 24): Eric's ruling is "each has a gun to defend itself", singular.
@@ -86,7 +90,8 @@ export type EquipmentId =
   | 'starShells'
   | 'phosphorShells'
   | 'instantReload'
-  | 'hunker';
+  | 'hunker'
+  | 'mainBattery';
 
 /**
  * THE single source of the weapon/ability split: true iff a piece of equipment
@@ -131,23 +136,45 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   // boost's grammar exactly.
   instantReload: false,
   hunker: false,
+  // THE MAIN BATTERY (Story 10.4): a captain's slot 0 — click-aimed, one
+  // turret per click (sim/turrets.ts). Appended LAST so every pre-existing
+  // id keeps its place in `EQUIPMENT_IDS`.
+  mainBattery: true,
 };
 
 /**
- * THE CLASS SHIFT ids (Story 8.15, Eric rulings 2026-09-21/28, epic-8
- * amendments 89(c) and 97–102) — the three non-weapon abilities slot 1 may
- * hold, one FIXED per hull by `CONFIG.shipClasses.<id>.shift`. Each is its own
- * `EquipmentId` rather than one module dispatching on hull, so the stat row
- * (and with it RELOAD's `cooldownScale`), the server registry, the bot tactic
- * rows and the HUD glyph table all key on the id with no hull special case.
+ * THE SHIFT ids (Story 8.15, Eric rulings 2026-09-21/28, epic-8 amendments
+ * 89(c) and 97–102) — the three non-weapon abilities slot 1 may hold. THE
+ * SEAT'S PICK since Story 10.4 (Eric 2026-11-04, R7, epic-10 amendment 9): any
+ * hull, chosen at ship select and frozen on the seat, in the place the retired
+ * deck-gun pick held. Each is its own `EquipmentId` rather than one module
+ * dispatching on hull, so the stat row (and with it RELOAD's `cooldownScale`),
+ * the server registry, the bot tactic rows and the HUD glyph table all key on
+ * the id with no hull special case.
  */
 export type ShiftId = 'boost' | 'instantReload' | 'hunker';
 
-/** Every ShiftId, in class order (TB · ML · BS). */
+/** Every ShiftId, in pick order. */
 export const SHIFT_IDS: readonly ShiftId[] = Object.freeze(['boost', 'instantReload', 'hunker'] as const);
 
-/** The Shift a loadout fits when none is named — the Torpedo Boat's. */
+/** The Shift a seat carries when the pick is missing, unknown or malformed — SPEED BOOST (R7). */
 export const DEFAULT_SHIFT: ShiftId = 'boost';
+
+const SHIFT_ID_SET: ReadonlySet<string> = new Set<string>(SHIFT_IDS);
+
+/** Is `x` one of the three Shifts? Fail-closed: anything else is not. */
+export function isShiftId(x: unknown): x is ShiftId {
+  return typeof x === 'string' && SHIFT_ID_SET.has(x);
+}
+
+/**
+ * Coerce arbitrary (wire / localStorage / join-option) input to a valid Shift,
+ * default `DEFAULT_SHIFT`. Never throws — the same fail-open contract as
+ * `sanitizeClassId`.
+ */
+export function sanitizeShiftId(raw: unknown): ShiftId {
+  return isShiftId(raw) ? raw : DEFAULT_SHIFT;
+}
 
 /**
  * WHAT A SLOT MAY HOLD (Story 8.7): a piece of EQUIPMENT (slots 0–4) or a
@@ -227,46 +254,12 @@ export const EQUIPMENT_IDS: readonly EquipmentId[] = Object.freeze(
   Object.keys(EQUIPMENT_IS_WEAPON) as EquipmentId[],
 );
 
-/**
- * THE SEAT'S GUN (Story 8.14, Eric ruling 2026-09-21 amendment 89d): the gun is
- * the captain's PICK, not a fact about the hull — deck gun, machine gun or flak
- * gun, any class, chosen at class select and FROZEN at queue as the seat's
- * `gun`. It is a SEAT value, deliberately its own id space: it names which gun
- * a captain picked, while `EquipmentId` names which MODULE is mounted.
- */
-export type GunId = 'deckGun' | 'machineGun' | 'flak';
-
-/** Every GunId, in pick order — the totality spine the sanitizer and the
- *  class-select picker (Story 8.15) both key on. */
-export const GUN_IDS: readonly GunId[] = Object.freeze(['deckGun', 'machineGun', 'flak'] as const);
-
-/** The gun a seat carries when the join option is missing, unknown or
- *  malformed (the CANNON — amendment 108's player-facing name). */
-export const DEFAULT_GUN: GunId = 'deckGun';
-
-/** Membership over GUN_IDS — the ONE narrowing guard for a seat's gun value. */
-const GUN_ID_SET: ReadonlySet<string> = new Set<string>(GUN_IDS);
-
-/** Is `x` one of the three seat guns? Fail-closed: anything else is not. */
-export function isGunId(x: unknown): x is GunId {
-  return typeof x === 'string' && GUN_ID_SET.has(x);
-}
-
-/**
- * THE MOUNTED MODULE for each seat gun — the (GunId -> EquipmentId) map slot 0
- * is fitted from.
- *
- * STORY 8.15 GAVE EACH GUN ITS OWN MODULE (amendments 103–105): the deck gun
- * (the CANNON) mounts the shipped `gun` module, and the machine gun and the
- * flak gun mount their own. The 8.14 interim (every seat gun on the deck-gun
- * module, amendment 95) is over. The seat id `deckGun` and the module id `gun`
- * stay different strings on purpose — one names a pick, the other a module.
- */
-export const MOUNTED_GUN: Readonly<Record<GunId, EquipmentId>> = Object.freeze({
-  deckGun: 'gun',
-  machineGun: 'machineGun',
-  flak: 'flak',
-});
+// THE SEAT-GUN API IS GONE (2026-11-04, Story 10.4, epic-10 amendment 9):
+// `GunId`, `GUN_IDS`, `DEFAULT_GUN`, `isGunId` and `MOUNTED_GUN` named the
+// captain's deck-gun pick (Story 8.14/8.15). A captain mounts `mainBattery`
+// now and picks a SHIFT instead; the CANNON / MACHINE GUN / FLAK modules stay
+// as equipment ids for reference and for the PvE fleet, which mounts `gun`
+// directly (`loadoutFor(stats, true)`).
 
 /**
  * One piece of equipment's runtime state: a pool of `n` charges/rounds and a
@@ -350,11 +343,13 @@ const FIRST_CONSUMABLE_SLOT = 5;
  *  8.5). */
 export const SLOT_COUNT = FIRST_CONSUMABLE_SLOT + KIT_SIZE;
 
-/** Slot index of the gun — the permanently-selected default weapon. */
+/** Slot index of the gun — the permanently-selected default weapon: THE MAIN
+ *  BATTERY on a captain (Story 10.4), the `gun` module on a PvE drone. */
 export const SLOT_GUN = 0;
 
-/** Slot index of the class Shift (the boost, instant reload or hunker —
- *  Story 8.15). The name predates the split and is kept. */
+/** Slot index of the seat's Shift (the boost, instant reload or hunker —
+ *  Story 8.15; the captain's pick since 10.4). The name predates the split
+ *  and is kept. */
 export const SLOT_BOOST = 1;
 
 /** The three WEAPON slots (Q/E/R), in fill order: a `slotFill` card takes the
@@ -420,7 +415,7 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
 /**
  * The loadout a ship spawns with — THE SAME SLOT SHAPE FOR EVERY CAPTAIN HULL
  * (Story 8.5; nine slots since Story 10.1, eleven from 9.2). A captain fits
- * the gun in slot 0 and its Shift in slot 1, both with a full pool and an idle
+ * the main battery in slot 0 and the seat's Shift in slot 1, both with a full pool and an idle
  * reload timer (exactly the server's `freshAmmo(equipmentMaxAmmo(stats, id))`
  * semantics); slots 2–8 start empty and are filled by CARDS — the level-zero
  * offer at the start line first (Story 8.10), then every offer after it.
@@ -431,33 +426,29 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
  * `consumableKindAt(kit, slot)`, and the stock path (`stockSlotFor`,
  * `slotsWithCards` — sim/boons.ts) is where the kit enters.
  *
- * `fleet === true` is the PvE drone fit: the gun in slot 0 and empties,
- * nothing else (epic-5 amendment 34, epic-8 amendment 24) — a drone has no
- * seat, so it always mounts the default gun.
+ * `fleet === true` is the PvE drone fit: the `gun` module in slot 0 and
+ * empties, nothing else (epic-5 amendment 34, epic-8 amendment 24) — a drone
+ * has no seat, no battery and no Shift; its weaker envelope gun rides the
+ * `gun` row (Story 5.6).
  *
- * SLOT 0 IS THE SEAT'S GUN (Story 8.14): `gun` is the captain's pick and the
- * module it mounts comes from MOUNTED_GUN — its own module per gun since 8.15.
+ * SLOT 0 IS THE MAIN BATTERY on a captain (Story 10.4). Its slot state is the
+ * HOTBAR SUMMARY only — `n` = turrets ready (fitted full: every turret
+ * loaded), `reloadMsLeft` = the soonest turret's remaining reload; the
+ * per-turret truth is the `TurretState[]` beside the ship (sim/turrets.ts
+ * `batterySummary` writes this pair from it).
  *
- * SLOT 1 IS THE HULL'S SHIFT (Story 8.15): `shift` is the class's fixed ability,
- * which both sides resolve from `CONFIG.shipClasses.<id>.shift` (`classShift`,
- * constants.ts). A fleet drone has no Shift and ignores it.
+ * SLOT 1 IS THE SEAT'S SHIFT (Story 10.4): `shift` is the captain's pick,
+ * passed in already sanitized (`sanitizeShiftId`). A fleet drone ignores it.
  *
  * No hull parameter: which weapons a hull ends up carrying is a fact about its
- * picks, never about its hardware; the Shift is passed in already resolved.
+ * picks, never about its hardware (the turret count rides `stats`).
  */
-export function loadoutFor(
-  stats: EffectiveStats,
-  fleet = false,
-  gun: GunId = DEFAULT_GUN,
-  shift: ShiftId = DEFAULT_SHIFT,
-): LoadoutSlot[] {
+export function loadoutFor(stats: EffectiveStats, fleet = false, shift: ShiftId = DEFAULT_SHIFT): LoadoutSlot[] {
   const fitted = (equipmentId: EquipmentId): LoadoutSlot => ({
     equipmentId,
     state: { n: equipmentMaxAmmo(stats, equipmentId), reloadMsLeft: 0 },
   });
-  // A FLEET DRONE ALWAYS MOUNTS THE CANNON, whatever `gun` says: it has no
-  // seat, and its weaker envelope gun rides the `gun` row (Story 5.6).
-  const out: LoadoutSlot[] = [fitted(MOUNTED_GUN[fleet ? DEFAULT_GUN : gun])];
+  const out: LoadoutSlot[] = [fitted(fleet ? 'gun' : 'mainBattery')];
   if (!fleet) out.push(fitted(shift));
   while (out.length < SLOT_COUNT) out.push({ equipmentId: null, state: null });
   return out;

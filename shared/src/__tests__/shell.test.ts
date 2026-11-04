@@ -11,7 +11,8 @@ import {
 import { hullSilhouette, transformPolygon } from '../sim/silhouette.js';
 import { islandFromPolygon } from '../sim/map.js';
 import { segCircleHit } from '../math/geom.js';
-import { CONFIG, type HullId } from '../constants.js';
+import { CONFIG, SHIP_CLASS_IDS, hullEnvelope, type HullId } from '../constants.js';
+import { TRANSOM_NOTCH_HULL } from './concaveFixtures.js';
 import type { Island } from '../types.js';
 import type { Vec2 } from '../math/vec.js';
 
@@ -308,27 +309,38 @@ describe('stepShell — parameterized for torpedoes (no tunnel at torp speed)', 
 });
 
 describe('stepShell — per-hull silhouette thresholds', () => {
-  it('a graze that hits the wide battleship misses the narrow torpedoBoat', () => {
-    // Both hulls at the origin, heading 0 (+x). The BB's flat side runs at
-    // y = ±16 (beam 32); the TB never reaches past y = ±4.5 (beam 9). A shell
-    // sweeping parallel at y = 17.5 passes within hitRadius (2) of the BB side
-    // but stays > 10u away from the TB everywhere.
+  it('a graze that hits a wide hull misses a narrower one on the same track', () => {
+    // Both hulls at the origin, heading 0 (+x). The shell sweeps parallel to
+    // the centreline from just astern of the WIDE hull's widest vertex, on a
+    // track within its hitRadius of the wide hull's side and more than a
+    // hitRadius outside the narrow hull's.
+    const byBeam = [...SHIP_CLASS_IDS].sort((x, y) => hullEnvelope(x).hull.beam - hullEnvelope(y).hull.beam);
+    const narrow = byBeam[0];
+    const wide = byBeam[byBeam.length - 1];
+    const halfNarrow = hullEnvelope(narrow).hull.beam / 2;
+    const halfWide = hullEnvelope(wide).hull.beam / 2;
+    const r = shell({}).hitRadius;
+    expect(halfWide).toBeGreaterThan(halfNarrow);
+    // > halfNarrow + r (clear of the narrow hull everywhere) and within r of
+    // the wide hull's side at its widest vertex.
+    const y = halfNarrow + r + (halfWide - halfNarrow) / 2;
+    const widest = hullSilhouette(wide).reduce((best, v) => (v.y > best.y ? v : best));
     const graze = (hullId: HullId, victim: string) =>
       stepShell(
-        shell({ x: -3, y: 17.5 }),
+        shell({ x: widest.x - 1, y }),
         ctx({ targets: [{ id: victim, kind: 'hull', poly: transformPolygon(hullSilhouette(hullId), 0, 0, 0) }] }),
       );
-    const wide = graze('battleship', 'bb');
-    expect(wide.kind).toBe('hitShip');
-    if (wide.kind === 'hitShip') expect(wide.victimId).toBe('bb');
-    expect(graze('torpedoBoat', 'tb').kind).toBe('travel');
+    const hit = graze(wide, 'wide');
+    expect(hit.kind).toBe('hitShip');
+    if (hit.kind === 'hitShip') expect(hit.victimId).toBe('wide');
+    expect(graze(narrow, 'narrow').kind).toBe('travel');
   });
 
-  it('CONCAVE MISS: a torpedo up the mineLayer transom notch does not hit', () => {
-    // ML at origin heading 0: the stern cavity opens at x = −44, walls at
+  it('CONCAVE MISS: a torpedo up a transom notch does not hit', () => {
+    // The notched fixture at origin heading 0: the stern cavity opens at x = −44, walls at
     // y = ±3.5. A torpedo running up the centerline stops between the prongs
     // without coming within hitRadius of any hull edge.
-    const h: Target = { id: 'ml', kind: 'hull', poly: transformPolygon(hullSilhouette('mineLayer'), 0, 0, 0) };
+    const h: Target = { id: 'ml', kind: 'hull', poly: transformPolygon(TRANSOM_NOTCH_HULL, 0, 0, 0) };
     const t: ShellState = {
       ...shell({ x: -70, y: 0, vx: CONFIG.torpedo.speed, vy: 0 }),
       kind: 'torp',

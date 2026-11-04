@@ -166,6 +166,12 @@ export const EQUIPMENT_STAT_FIELDS = {
   // RELOAD's `cooldownScale` reaches it through the one multiply.
   instantReload: ['reloadMs', 'maxAmmo'],
   hunker: ['reloadMs', 'maxAmmo', 'durationMs'],
+  // THE MAIN BATTERY (Story 10.4) — the cannon row's shape less `barrels`
+  // (guns per turret is hull geometry, `CONFIG.shipClasses.<id>.battery`) and
+  // less `maxAmmo` (the turret count, hull geometry too). No card addresses
+  // it today; `reloadMs` and `rangeU` are row fields so RELOAD and RANGE reach
+  // them through the one multiply each.
+  mainBattery: ['reloadMs', 'rangeU', 'damage', 'contactDamage', 'burstRadius'],
 } as const satisfies Record<EquipmentId, readonly string[]>;
 
 /**

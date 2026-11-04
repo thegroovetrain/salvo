@@ -55,11 +55,14 @@ export const round3 = (v: number): number => Math.round(v * 1000) / 1000;
 /**
  * THE DECK-GUN ROWS whose reach the RANGE index scales (Story 10.3 reading of
  * "the main-gun reach": the four gun-family rows a captain aims by click —
- * the cannon, the two pickable guns and the broadside). STAR SHELLS and
+ * the cannon, the two pickable guns and the broadside) plus, since Story
+ * 10.4, THE MAIN BATTERY — the row a captain actually mounts, and through it
+ * the secondaries' reach (a fraction of the folded main reach, derived in
+ * sim/stats.ts clampStats AFTER this multiply). STAR SHELLS and
  * PHOSPHOR SHELLS keep their own tiered dials untouched: their reach is a
  * lighting / zone tool, not a gun's.
  */
-export const RANGE_ROWS = ['gun', 'machineGun', 'flak', 'broadside'] as const;
+export const RANGE_ROWS = ['gun', 'machineGun', 'flak', 'broadside', 'mainBattery'] as const;
 
 /**
  * `ref × index / base` — the one linear law every index obeys. PRODUCT

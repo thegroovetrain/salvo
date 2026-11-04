@@ -38,9 +38,8 @@
 // covers a mid-fold write to a path a derived number rides) and clampStats (the
 // firewall's unconditional output pass). Nothing else re-derives.
 
-import type { ConsumableKit, EquipmentId, GunId, LoadoutSlot, ShiftId, SlotItemId } from './loadout.js';
+import type { ConsumableKit, EquipmentId, LoadoutSlot, ShiftId, SlotItemId } from './loadout.js';
 import {
-  DEFAULT_GUN,
   DEFAULT_SHIFT,
   KIT_SIZE,
   WEAPON_SLOTS,
@@ -529,9 +528,9 @@ export function applySlotEffect(
  * universal loadoutFor fit with every held card's slot effects
  * replayed over it, IN FIT ORDER. `kit` is the ship's four (Story 10.1 —
  * `ShipRecord.kit` server-side, `OwnShip.kit` off the wire client-side, never
- * localStorage); `fleet` selects the gun-only drone fit; `gun` is the seat's
- * pick (slot 0) and `shift` the hull's class Shift (slot 1, Story 8.15 —
- * resolve it with `classShift(cls)`).
+ * localStorage); `fleet` selects the gun-only drone fit; `shift` is the SEAT'S
+ * pick (slot 1 — Story 10.4; `OwnShip.shift` off the wire client-side). Slot 0
+ * is the main battery on every captain, so there is no gun parameter any more.
  *
  * THIS REPLAY IS IN FIT ORDER, NOT FOLD ORDER, and that is the one place the
  * two diverge on purpose. The weapon row fills FIRST-EMPTY-FIRST, so WHICH
@@ -558,13 +557,12 @@ export function slotsWithCards(
   kit: ConsumableKit,
   catalog: Catalog = CATALOG,
   fleet = false,
-  gun: GunId = DEFAULT_GUN,
   shift: ShiftId = DEFAULT_SHIFT,
 ): LoadoutSlot[] {
-  // Slot 0 is the SEAT'S gun (Story 8.14) and slot 1 the HULL'S Shift (8.15):
-  // the same `loadoutFor` the spawn ran, so a replay on either side re-mounts
-  // what the captain picked and the class carries, never a literal.
-  const loadout = loadoutFor(stats, fleet, gun, shift);
+  // Slot 0 is the MAIN BATTERY and slot 1 the SEAT'S Shift (Story 10.4): the
+  // same `loadoutFor` the spawn ran, so a replay on either side re-mounts what
+  // the captain picked, never a literal.
+  const loadout = loadoutFor(stats, fleet, shift);
   const seen = new Map<string, number>();
   for (const id of cards) {
     for (const e of copyEffects(id, seen, catalog)) applySlotEffect(loadout, e, stats, kit, catalog);
