@@ -1232,7 +1232,7 @@ export const CLIENT_CONFIG = {
      *  (not per-batch relative) so a hull's pips never shift when the class
      *  roster changes AND the pip count means the same real-world value
      *  everywhere it's shown. */
-    // STORY 10.3 (Eric 2026-11-04, epic-10 amendment 7): the three rows are
+    // STORY 10.3 (Eric 2026-11-04, epic-10 amendment 8): the three rows are
     // INDICES now — ENGINES / ARMOR / RUDDER, read off the hull envelope's
     // `index` — on index anchors: 1 pip = the average ship (`CONFIG.index.base`,
     // 100), +1 pip per +20 (one ship-ladder card's step). [Story 10.3 reading]

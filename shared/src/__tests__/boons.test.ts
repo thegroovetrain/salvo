@@ -123,7 +123,7 @@ const diff = (a: EffectiveStats, b: EffectiveStats): string[] => {
 describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)', () => {
   it('is exactly the top-level paths plus every equipment.<id>.<field>', () => {
     const expected: string[] = [
-      // THE SEVEN INDICES (Story 10.3, Eric 2026-11-04, epic-10 amendment 7)
+      // THE SEVEN INDICES (Story 10.3, Eric 2026-11-04, epic-10 amendment 8)
       // after `maxHp`, then radarRange and the four pass-through kinematics.
       // `kinematics.maxSpeed` / `turnRate`, `sweepRpm`, `cooldownScale` and
       // the `regen.*` pair are GONE from the whitelist: derived or deleted.
@@ -152,7 +152,7 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       'sweepPeriodMs',
       // Story 9.7 (epic-9 amendments 86–88 / 110–117): derived from `armor`.
       'damageMultiplier',
-      // Story 10.3 (epic-10 amendment 7): derived from the indices in
+      // Story 10.3 (epic-10 amendment 8): derived from the indices in
       // sim/indexStats.ts — a card writes ENGINES, never the speed.
       'kinematics.maxSpeed',
       'kinematics.turnRate',

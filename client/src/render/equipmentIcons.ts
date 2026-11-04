@@ -468,7 +468,7 @@ const CONSUMABLE_GLYPHS: Partial<Record<string, GlyphPaths>> = {
 };
 
 // The HULL POINTS glyph (three stacked hull plates) sat here until Story 10.3
-// deleted the line (Eric 2026-11-04, epic-10 amendment 7).
+// deleted the line (Eric 2026-11-04, epic-10 amendment 8).
 
 /** Armor — Story 9.7 (2026-10-13), Eric's pick from three rendered candidates
  *  (epic-9 amendment 116): an ANGLED ARMOR BELT — two slanted riveted plate
@@ -486,7 +486,7 @@ const armor: GlyphPaths = [
  *  candidates (epic-9 amendment 160): a SHELL SPLITTING A PLATE — a short
  *  pointed shell nose entering a vertical plate that splits into a V at the
  *  point. Not the torpedo (no tail fins, no wake ticks), not ARMOR's belt.
- *  Keyed `power` since Story 10.3 (Eric 2026-11-04, epic-10 amendment 7). */
+ *  Keyed `power` since Story 10.3 (Eric 2026-11-04, epic-10 amendment 8). */
 const power: GlyphPaths = [
   path([-0.95, -0.32], [-0.1, -0.32], [0.55, 0], [-0.1, 0.32], [-0.95, 0.32], [-0.95, -0.32]),
   path([-0.55, -0.32], [-0.55, 0.32]),
@@ -496,7 +496,7 @@ const power: GlyphPaths = [
 
 /** Speed (cycle 162 DRAFT): a forward-pointing arrowhead with three motion
  *  lines trailing it — the middle one its shaft. Not BOOST's double chevron.
- *  Keyed `engines` (was `speed`) since Story 10.3 (epic-10 amendment 7). */
+ *  Keyed `engines` (was `speed`) since Story 10.3 (epic-10 amendment 8). */
 const engines: GlyphPaths = [
   path([0.25, -0.55], [0.95, 0], [0.25, 0.55], [0.25, -0.55]),
   path([-0.95, -0.35], [-0.3, -0.35]),
@@ -506,7 +506,7 @@ const engines: GlyphPaths = [
 
 /** Turning (cycle 162 DRAFT): a RUDDER — a tall blade widening aft, hung from
  *  a horizontal baseline, with a short tiller arm on its stock. Keyed `rudder`
- *  (was `turning`) since Story 10.3 (epic-10 amendment 7). */
+ *  (was `turning`) since Story 10.3 (epic-10 amendment 8). */
 const rudder: GlyphPaths = [
   path([-0.9, -0.7], [0.9, -0.7]),
   path([-0.2, -0.7], [0.2, -0.7], [0.5, 0.9], [-0.05, 0.9], [-0.2, -0.7]),
@@ -523,7 +523,7 @@ function fanArc(r: number): GlyphPart {
 
 /** Radar sweep (cycle 162 DRAFT): a DISH FAN — a centre dot, one sweep line and
  *  two concentric partial arcs. Not the star shell's burst, not a mine. Keyed
- *  `intel` (was `radarSweep`) since Story 10.3 (epic-10 amendment 7). */
+ *  `intel` (was `radarSweep`) since Story 10.3 (epic-10 amendment 8). */
 const intel: GlyphPaths = [
   circle(FAN[0], FAN[1], 0.1),
   path(FAN, [FAN[0] + 1.6 * Math.cos(-Math.PI / 3), FAN[1] + 1.6 * Math.sin(-Math.PI / 3)]),
@@ -541,7 +541,7 @@ const reload: GlyphPaths = [
 ];
 
 // The PASSIVE HEALING glyph (a heartbeat pulse trace, amendment 98) sat here
-// until Story 10.3 deleted the line (Eric 2026-11-04, epic-10 amendment 7).
+// until Story 10.3 deleted the line (Eric 2026-11-04, epic-10 amendment 8).
 
 /**
  * THE LINE half of the table (cycle 162): card lines that are NOT slot items —

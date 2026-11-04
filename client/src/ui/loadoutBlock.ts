@@ -96,7 +96,7 @@ const P = LOADOUT_PX;
 const MONO = 'var(--hc-font-mono)';
 
 /** The six ship ladders, in the ratified line order. Story 10.3 (Eric
- *  2026-11-04, epic-10 amendment 7) deleted HULL (`hullPoints`) and PASSIVE
+ *  2026-11-04, epic-10 amendment 8) deleted HULL (`hullPoints`) and PASSIVE
  *  HEALING (`passiveHealing`), made the six +20 index cards and set the line
  *  in the INDEX order (amendment 6(c), the SHIP panel's own — RANGE has no
  *  card): ARMOR · POWER · RELOAD over ENGINES · RUDDER · INTEL. */
@@ -113,7 +113,7 @@ const LADDER_LINES: readonly LineId[] = [
  *  copies rather than a numeral. Since Story 9.6 (Eric 2026-10-13, epic-9
  *  amendment 94) that is every ship ladder: HULL / SPEED / TURNING no longer
  *  sail at Tier I; ARMOR (Story 9.7) and ARMOR PIERCING (Story 9.9,
- *  amendment 159) too. The six since Story 10.3 (epic-10 amendment 7). */
+ *  amendment 159) too. The six since Story 10.3 (epic-10 amendment 8). */
 const DASH_AT_ZERO: ReadonlySet<LineId> = new Set<LineId>([
   'armor',
   'power',

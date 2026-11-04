@@ -613,7 +613,7 @@ describe('shared barrel', () => {
     }
     expect(BOON_STAT_PATHS).toContain('equipment.machineGun.rateMs');
     // THE SEVEN INDICES ARE THE AUTHORED PATHS (Story 10.3, Eric 2026-11-04,
-    // epic-10 amendment 7): `armor`, `power`, `reload`, `engines`, `rudder`,
+    // epic-10 amendment 8): `armor`, `power`, `reload`, `engines`, `rudder`,
     // `intel`, `range` — pinned PRESENT; what they derive is pinned ABSENT below.
     for (const idx of INDEX_IDS) expect(BOON_STAT_PATHS, idx).toContain(idx);
     for (const path of [

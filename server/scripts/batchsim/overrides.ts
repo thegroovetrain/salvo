@@ -136,7 +136,7 @@ const TUNE_FAMILIES = [
   // and the highest-HP hull paid most — so the heal has to be reachable to
   // tell a real class problem apart from that repricing.
   'hullRepair.',
-  // 2026-11-04 (Story 10.3, Eric, epic-10 amendment 7): the `regen.` family
+  // 2026-11-04 (Story 10.3, Eric, epic-10 amendment 8): the `regen.` family
   // (OUT-OF-COMBAT REGEN, epic-8 amendment 46 / Story 9.6) is GONE with the
   // regen itself and `CONFIG.regen` — "passive healing dies". HULL REPAIR
   // (above) and the healing buoy are the only heals left.

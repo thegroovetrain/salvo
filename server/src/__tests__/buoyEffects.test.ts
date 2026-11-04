@@ -73,7 +73,7 @@ describe('HEALING BUOY — 2 % of missing per second, uninterruptible, a kind co
     expect(o.hp - o.stats.maxHp / 2).toBeCloseTo(missing * B.heal.missingPctPerS * (DT / 1000), 9);
   });
 
-  // 2026-11-04 (Story 10.3, epic-10 amendment 7): the out-of-combat regen this
+  // 2026-11-04 (Story 10.3, epic-10 amendment 8): the out-of-combat regen this
   // term used to ADD to is gone — a long-idle hull inside the buoy heals by the
   // buoy term ALONE (it was `regen + buoy` here until then).
   it('a long-idle hull heals by the buoy term ALONE — no out-of-combat regen rides on it (Story 10.3)', () => {

@@ -186,7 +186,7 @@ export const EQUIPMENT_INT_FIELDS: readonly string[] = ['maxAmmo', 'barrels', 't
 
 /**
  * The top-level (non-equipment) stat paths — THE INDEX MODEL's authored
- * surface (Story 10.3, Eric 2026-11-04, epic-10 amendment 7). The SEVEN
+ * surface (Story 10.3, Eric 2026-11-04, epic-10 amendment 8). The SEVEN
  * INDICES are what a ship card may write; everything they buy is DERIVED
  * post-fold in sim/indexStats.ts and is DELIBERATELY ABSENT here, pinned
  * absent in barrel.test.ts: `kinematics.maxSpeed` (ENGINES), `kinematics

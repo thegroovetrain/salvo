@@ -929,7 +929,7 @@ function countingRng(seed: number): { rng: Rng; calls: () => number } {
 }
 
 const P = CONFIG.bots.cardPoints;
-const SHIP_LADDERS = ['armor', 'power', 'engines', 'rudder', 'intel', 'reload'] as const; // the six since Story 10.3 (Eric 2026-11-04, epic-10 amendment 7)
+const SHIP_LADDERS = ['armor', 'power', 'engines', 'rudder', 'intel', 'reload'] as const; // the six since Story 10.3 (Eric 2026-11-04, epic-10 amendment 8)
 /** Every equipment line (copy 1 = a new weapon), read off the catalog. */
 const EQUIPMENT_LINES = Object.keys(CATALOG).filter((k) => CATALOG[k].kind === 'equipment' && CATALOG[k].stub !== true);
 

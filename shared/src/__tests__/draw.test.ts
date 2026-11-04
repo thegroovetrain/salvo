@@ -203,7 +203,7 @@ describe('eligibleLines — the whole eligibility law', () => {
 
     // ...while the UNIVERSAL ladders (no `equipment.` stat path, no
     // appliesTo) are gun-blind and stay dealable whatever is mounted (Story
-    // 10.3, Eric 2026-11-04, epic-10 amendment 7: HULL POINTS and PASSIVE
+    // 10.3, Eric 2026-11-04, epic-10 amendment 8: HULL POINTS and PASSIVE
     // HEALING deleted; SPEED / TURNING / RADAR SWEEP renamed).
     for (const id of ['engines', 'rudder', 'intel', 'reload']) {
       expect(elsewhere, id).toContain(id);

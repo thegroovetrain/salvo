@@ -67,7 +67,7 @@ import { CLASS_DISPLAY_NAMES } from '../ui/classSelect.js';
 import { boonName } from '../ui/boonCopy.js';
 
 /** The ship ladders in their ruled order (Stories 9.7 / 9.9; Story 10.3, Eric
- *  2026-11-04, epic-10 amendment 7, deleted HULL POINTS and PASSIVE HEALING
+ *  2026-11-04, epic-10 amendment 8, deleted HULL POINTS and PASSIVE HEALING
  *  and renamed four ids in place), by ID. */
 // The six ship ladders in the ruled line order (Story 10.3: ARMOR · POWER ·
 // RELOAD over ENGINES · RUDDER · INTEL — the index order, amendment 6(c)).
@@ -134,7 +134,7 @@ const REPAIR_SLOT = consumableSlotFor(MOCK_KIT, 'hullRepair') as number;
  * RELOAD III` — read since Story 9.6 (epic-9 amendments 93/94) as `HULL II ·
  * SPEED III · TURNING I · RADAR SWEEP II · RELOAD III · PASSIVE HEALING —`:
  * every ship ladder counts its own copies from nothing now. Story 10.3 (Eric
- * 2026-11-04, epic-10 amendment 7) took HULL and PASSIVE HEALING out of it. The mock's E is a machine gun II, which since Story 8.15 is a gun
+ * 2026-11-04, epic-10 amendment 8) took HULL and PASSIVE HEALING out of it. The mock's E is a machine gun II, which since Story 8.15 is a gun
  * pick and can no longer sit in E — naval mines II stand in for it (same tier).
  */
 function mockOwn(

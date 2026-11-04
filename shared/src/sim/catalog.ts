@@ -197,15 +197,15 @@ import {
 export const LINE_IDS = [
   // --- the six universal ladders (catalog-v3 §4 + Stories 9.7 / 9.9 / 10.3)
   // `hullPoints` sat here (seat 1) until Story 10.3 DELETED it (Eric
-  // 2026-11-04, epic-10 amendment 7): HULL POINTS is gone from the catalog.
+  // 2026-11-04, epic-10 amendment 8): HULL POINTS is gone from the catalog.
   'armor', // Story 9.7 (Eric 2026-10-13, amendments 86–89): the new Armor ladder
-  'power', // was `armorPiercing` (Story 9.9) until Story 10.3 (Eric 2026-11-04, epic-10 amendment 7) — same seat
-  'engines', // was `speed` until Story 10.3 (Eric 2026-11-04, epic-10 amendment 7) — same seat
-  'rudder', // was `turning` until Story 10.3 (Eric 2026-11-04, epic-10 amendment 7) — same seat
-  'intel', // was `radarSweep` until Story 10.3 (Eric 2026-11-04, epic-10 amendment 7) — same seat
+  'power', // was `armorPiercing` (Story 9.9) until Story 10.3 (Eric 2026-11-04, epic-10 amendment 8) — same seat
+  'engines', // was `speed` until Story 10.3 (Eric 2026-11-04, epic-10 amendment 8) — same seat
+  'rudder', // was `turning` until Story 10.3 (Eric 2026-11-04, epic-10 amendment 8) — same seat
+  'intel', // was `radarSweep` until Story 10.3 (Eric 2026-11-04, epic-10 amendment 8) — same seat
   'reload',
   // `passiveHealing` sat here (after `reload`) until Story 10.3 DELETED it
-  // (Eric 2026-11-04, epic-10 amendment 7): PASSIVE HEALING is gone.
+  // (Eric 2026-11-04, epic-10 amendment 8): PASSIVE HEALING is gone.
   // --- the CANNON ladder (the deck gun: slotless, always fitted) ------------
   'deckGun',
   // --- the eleven equipment lines (+ one consumable that kept its slot) -----
@@ -276,7 +276,7 @@ export type LineKind = 'equipment' | 'ladder' | 'addon' | 'consumable';
  *
  * The `healOnGrant` flag (the grant healed the granted maxHp delta) was
  * DELETED with its only user, HULL POINTS, in Story 10.3 (Eric 2026-11-04,
- * epic-10 amendment 7), together with its validator and the server's
+ * epic-10 amendment 8), together with its validator and the server's
  * heal-on-grant branch.
  */
 export interface CatalogLine {
@@ -388,7 +388,7 @@ const cannonRange = (): BoonEffect => statEffect('equipment.gun.rangeU', { add: 
 const flakRange = (): BoonEffect => statEffect('equipment.flak.rangeU', { add: FLAK_RANGE_STEP });
 
 /** One CANNON rung's whole-number damage step. ×3 PLACEHOLDERS since Story
- *  10.3 (Eric 2026-11-04, epic-10 amendment 7, ruling 10 — the deck guns
+ *  10.3 (Eric 2026-11-04, epic-10 amendment 8, ruling 10 — the deck guns
  *  retire at 10.4 / 10.5): base 24; +6 on the rung to II, +3 on each of the
  *  rungs to III, IV and V → 24 / 30 / 33 / 36 / 39. (Eric's 2026-10-16 table,
  *  Story 9.12: base 8, +2 / +1 / +1 / +1 → 8 / 10 / 11 / 12 / 13; before it
@@ -470,7 +470,7 @@ function machineGunTier(magStep: number): BoonEffect[] {
 /** One upgrade tier of a TORPEDO line: the tier's whole-number damage step,
  *  +2.5 u/s and +0.125 rad/s of homing on every rung, and +0.5 tubes ONLY
  *  when `tubeUp` (the rungs to II and III — tubes 1,1,2,2,2, capped at two).
- *  Damage since Story 10.3 (Eric 2026-11-04, epic-10 amendment 7, ruling 5):
+ *  Damage since Story 10.3 (Eric 2026-11-04, epic-10 amendment 8, ruling 5):
  *  light +50 ×4 (200 → 400), heavy +75 ×4 (300 → 600). (Eric 2026-10-16,
  *  Story 9.12: light +10 ×4, 80 → 120; heavy +11 / +11 / +11 / +12,
  *  90 → 135.) */
@@ -556,7 +556,7 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  *
  * Every authored number cites its ruling:
  *   (HULL POINTS and PASSIVE HEALING were DELETED by Story 10.3, Eric
- *                  2026-11-04, epic-10 amendment 7.)
+ *                  2026-11-04, epic-10 amendment 8.)
  *   ARMOR   — +20 Armor per tier, 5 tiers; damage × K / (K + Armor), K = 100
  *                  (Eric 2026-10-13, epic-9 amendments 86–88; rescaled
  *                  +1/K 5 -> +20/K 100 by amendment 144).
@@ -564,7 +564,7 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  *                  the victim's Armor at the damage gate, the curve going
  *                  2 − K / (K − E) below zero (Eric 2026-10-14/15, epic-9
  *                  amendments 144–146).
- *   THE SIX INDEX CARDS (Story 10.3, Eric 2026-11-04, epic-10 amendment 7,
+ *   THE SIX INDEX CARDS (Story 10.3, Eric 2026-11-04, epic-10 amendment 8,
  *                  ruling 4: "the six ship ladders become the +20 flat index
  *                  cards NOW"): ARMOR, POWER, RELOAD, ENGINES (was SPEED,
  *                  +2.5 u/s), RUDDER (was TURNING, +0.05 rad/s), INTEL (was
@@ -600,8 +600,8 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
 export const CATALOG: Catalog = deepFreezeRows({
   // --- the six universal ladders -------------------------------------------
   // HULL POINTS (+50 max hp ×5, heal on grant) sat here until Story 10.3
-  // DELETED it (Eric 2026-11-04, epic-10 amendment 7).
-  // THE SIX INDEX CARDS (Story 10.3, Eric 2026-11-04, epic-10 amendment 7,
+  // DELETED it (Eric 2026-11-04, epic-10 amendment 8).
+  // THE SIX INDEX CARDS (Story 10.3, Eric 2026-11-04, epic-10 amendment 8,
   // ruling 4): each is +20 on ITS OWN INDEX, 5 tiers, authored literally (the
   // catalog is frozen at module load — amendment 110's reason). The index
   // seeds at the hull's envelope value (100 on every scaffold hull; the
@@ -647,7 +647,7 @@ export const CATALOG: Catalog = deepFreezeRows({
   // cooldowns; consumables have no reload.
   reload: ladder('reload', 5, [statEffect('reload', { add: 20 })]),
   // PASSIVE HEALING (+0.6 %/s missing hull, −1 s wait ×5) sat here until
-  // Story 10.3 DELETED it (Eric 2026-11-04, epic-10 amendment 7) together
+  // Story 10.3 DELETED it (Eric 2026-11-04, epic-10 amendment 8) together
   // with the out-of-combat regen itself (`CONFIG.regen`): HULL REPAIR is the
   // one heal (ruling 7).
   // --- the CANNON ladder ----------------------------------------------------
@@ -1014,7 +1014,7 @@ function validateFlags(line: CatalogLine): string[] {
     if (!EQUIPMENT_ID_SET.has(eq)) errs.push(`${line.id}: appliesTo unknown equipment '${eq}'`);
   }
   // The `healOnGrant` rules lived here until Story 10.3 deleted the flag with
-  // HULL POINTS (Eric 2026-11-04, epic-10 amendment 7).
+  // HULL POINTS (Eric 2026-11-04, epic-10 amendment 8).
   return errs;
 }
 

@@ -307,7 +307,7 @@ function scnCombat(g: Golden): void {
  *  banked offer is OVERRIDDEN with a fixed non-heal hand so the fixture stays
  *  content-stable — and the "a spend never heals" pin holds for every card
  *  since Story 10.3 deleted HULL POINTS' heal-on-grant (Eric 2026-11-04,
- *  epic-10 amendment 7). The hand's ids were renamed in place then:
+ *  epic-10 amendment 8). The hand's ids were renamed in place then:
  *  'radarSweep' -> 'intel', 'speed' -> 'engines', same seats.) */
 function scnPtBn(g: Golden): void {
   const w = bareWorld(1003);
@@ -1204,7 +1204,7 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // differences masked out). BOT KITS roll off a separate kit stream (map
   // seed ^ 0x6b17), so every hue and gun draw of a pinned seed is unchanged.
   // REGENERATED KNOWINGLY IN STORY 10.3 (2026-11-04, PV 95, THE INDEX MODEL —
-  // epic-10 amendment 7), twice: wave 0 when the line list went 30 → 28
+  // epic-10 amendment 8), twice: wave 0 when the line list went 30 → 28
   // (HULL POINTS / PASSIVE HEALING deleted, four ids renamed — the seeded draw
   // deals differently, so `you.offer` hands moved), and wave 2a for the
   // numbers. 159 of the snapshot's lines moved in wave 2a, diffed field by

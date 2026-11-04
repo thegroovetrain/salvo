@@ -84,7 +84,7 @@ export interface BotTargetWeights {
 /**
  * A favorite UPGRADE line family (Eric ruling 2026-09-30, R5). The six ship
  * ladders (ARMOR, POWER, ENGINES, RUDDER, INTEL, RELOAD) are named by their
- * line id. Story 10.3 (Eric 2026-11-04, epic-10 amendment 7) DELETED
+ * line id. Story 10.3 (Eric 2026-11-04, epic-10 amendment 8) DELETED
  * `hullPoints` and `passiveHealing` and RENAMED `armorPiercing` -> `power`
  * (joined in 9.9, epic-9 amendment 157), `speed` -> `engines`, `turning` ->
  * `rudder`, `radarSweep` -> `intel`; `gun` = any gun-ladder line (deckGun —
@@ -206,7 +206,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     taste: {
       style: 'specialist',
       // 'power' (was 'armorPiercing') — epic-9 amendment 157 (Eric 2026-10-15);
-      // ids renamed by Story 10.3 (Eric 2026-11-04, epic-10 amendment 7)
+      // ids renamed by Story 10.3 (Eric 2026-11-04, epic-10 amendment 8)
       favoriteUpgrades: ['engines', 'weapons', 'power'],
       favoriteConsumables: ['countermeasure'],
       favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
@@ -234,7 +234,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     taste: {
       style: 'specialist',
       // 'power' (was 'armorPiercing') — epic-9 amendment 157 (Eric 2026-10-15);
-      // ids renamed by Story 10.3 (Eric 2026-11-04, epic-10 amendment 7)
+      // ids renamed by Story 10.3 (Eric 2026-11-04, epic-10 amendment 8)
       favoriteUpgrades: ['gun', 'rudder', 'reload', 'power'],
       favoriteConsumables: ['shieldBlock', 'foulingShell'],
       favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
@@ -262,7 +262,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
       style: 'rounded',
       // 'armor' — epic-9 amendment 115 (Eric 2026-10-13). 'hullPoints' and
       // 'passiveHealing' (epic-9 amendment 97) left with their lines, Story
-      // 10.3 (Eric 2026-11-04, epic-10 amendment 7).
+      // 10.3 (Eric 2026-11-04, epic-10 amendment 8).
       favoriteUpgrades: ['armor'],
       favoriteConsumables: ['hullRepair', 'shieldBlock'],
       favoriteWeapons: ['broadside', 'starShells'],

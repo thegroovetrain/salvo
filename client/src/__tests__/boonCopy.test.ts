@@ -213,7 +213,7 @@ describe('the stat tables — one builder for the face and both hovers', () => {
     expect(consumableStatRows('constructor')).toEqual([]);
   });
 
-  // Story 10.3 (Eric 2026-11-04, epic-10 amendment 7): the SHIP panel is the
+  // Story 10.3 (Eric 2026-11-04, epic-10 amendment 8): the SHIP panel is the
   // SEVEN indices in amendment 6(c)'s order (`INDEX_IDS`) — RANGE included,
   // though no card moves it — each printed bare off its own index path. The
   // HULL (maxHp) and PASSIVE HEALING (regen) rows left with their lines.

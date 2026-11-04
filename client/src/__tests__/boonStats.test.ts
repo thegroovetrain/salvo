@@ -186,5 +186,5 @@ describe('HUD denominators react to effective stats', () => {
   });
 
   // The "maxHp grows by HULL stacks" case lived here until Story 10.3 deleted
-  // HULL POINTS (Eric 2026-11-04, epic-10 amendment 7): nothing writes maxHp.
+  // HULL POINTS (Eric 2026-11-04, epic-10 amendment 8): nothing writes maxHp.
 });

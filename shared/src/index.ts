@@ -3,7 +3,7 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
- *  95 — Story 10.3 THE INDEX MODEL (Eric 2026-11-04, epic-10 amendment 7):
+ *  95 — Story 10.3 THE INDEX MODEL (Eric 2026-11-04, epic-10 amendment 8):
  *  the client reads the stat block, and it changed shape — EffectiveStats
  *  gains the authored indices `reload` / `engines` / `rudder` / `intel` /
  *  `range` (with `armor` / `power` seeded at 100), loses `regen`, and derives

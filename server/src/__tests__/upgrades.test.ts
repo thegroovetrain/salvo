@@ -1020,7 +1020,7 @@ describe('equipment lines — copy 1 fits the weapon into the first EMPTY weapon
 
 // The HULL POINTS heal-on-grant tests lived here until Story 10.3 DELETED the
 // line, the `healOnGrant` flag and world.ts's heal branch (Eric 2026-11-04,
-// epic-10 amendment 7). No grant heals now.
+// epic-10 amendment 8). No grant heals now.
 describe('grant-time effects — no grant heals, and raised-cap top-ups', () => {
   it('a fit never heals — a ladder or a gun rung alike (Story 10.3 deleted heal-on-grant)', () => {
     const w = bareWorld();
@@ -1348,7 +1348,7 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     for (let i = 0; i < Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 1; i++) w.step();
     expect(isAfloat(a.lifecycle)).toBe(true);
     expect(a.cards).toEqual(['armor', 'armor']);
-    // Story 10.3 (Eric 2026-11-04, epic-10 amendment 7): HULL POINTS is gone,
+    // Story 10.3 (Eric 2026-11-04, epic-10 amendment 8): HULL POINTS is gone,
     // so the preserved build is read through ARMOR's folded stat instead.
     expect(a.stats).toEqual(effectiveStats(a.cls, ['armor', 'armor']));
     expect(a.stats.armor).toBeGreaterThan(effectiveStats(a.cls).armor);

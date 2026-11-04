@@ -15,7 +15,7 @@ const TIERED = [
   'starShells', 'phosphorShells', 'navalMines', 'captiveMines', 'foulingMines',
 ];
 // HULL POINTS and PASSIVE HEALING left with Story 10.3 (Eric 2026-11-04,
-// epic-10 amendment 7); the six that remain are index cards.
+// epic-10 amendment 8); the six that remain are index cards.
 const SHIP = ['armor', 'power', 'reload', 'engines', 'rudder', 'intel'] as const;
 
 /** Every row's cells, label-blind — a derived row is found by its VALUES. */
@@ -75,7 +75,7 @@ describe('ship upgrade tables', () => {
   });
 
   // The HULL (maxHp) and PASSIVE HEALING (heal rate) table tests lived here
-  // until Story 10.3 deleted both lines (Eric 2026-11-04, epic-10 amendment 7).
+  // until Story 10.3 deleted both lines (Eric 2026-11-04, epic-10 amendment 8).
 
   // Story 10.3 (ruling 4): every ship upgrade's table prints its OWN INDEX —
   // the hull's base, then the fold's value per card, on every hull (never a

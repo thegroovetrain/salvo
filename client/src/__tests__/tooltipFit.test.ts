@@ -171,7 +171,7 @@ describe('slot tooltip container fit (amendment 47)', () => {
   it('the SHIP panel prints all seven indices and still fits above the globe at the floor', () => {
     const room = tooltipRoomAbove(hoverAnchor('ship', FLOOR));
     for (const c of SHIP_CASES) {
-      expect(c.model.stats, c.label).toHaveLength(INDEX_IDS.length); // the seven indices since Story 10.3 (epic-10 amendment 7)
+      expect(c.model.stats, c.label).toHaveLength(INDEX_IDS.length); // the seven indices since Story 10.3 (epic-10 amendment 8)
       const m = tooltipMetrics(c.model, room);
       expect(m.overflow, c.label).toBeLessThanOrEqual(0);
       expect(m.height, c.label).toBeLessThanOrEqual(room);

@@ -936,7 +936,7 @@ export interface ShipRecord {
    * structural rather than a second rule.
    *
    * Its one in-sim reader, the out-of-combat regen, was DELETED by Story 10.3
-   * (Eric 2026-11-04, epic-10 amendment 7 — "passive healing dies"); the
+   * (Eric 2026-11-04, epic-10 amendment 8 — "passive healing dies"); the
    * stamp STAYS as the hull's combat clock (story AC 4), unchanged in where
    * it is written. SERVER-PRIVATE — never on the wire.
    *
@@ -3638,7 +3638,7 @@ export class World {
    * grant). Copies 2+, ladders, add-ons and consumables record nothing.
    *
    * HEAL-ON-GRANT is GONE: its only line, HULL POINTS, and the `healOnGrant`
-   * flag were DELETED by Story 10.3 (Eric 2026-11-04, epic-10 amendment 7),
+   * flag were DELETED by Story 10.3 (Eric 2026-11-04, epic-10 amendment 8),
    * so no grant heals. The hp clamp below stays for a maxHp-lowering fit.
    *
    * NEVER FIT AN ID WITH NO MODULE (Story 8.1): a `slotFill` whose target has
@@ -3678,7 +3678,7 @@ export class World {
     if (World.isTake(line, copiesBefore)) this.recordTake(ship.id, lineId as LineId);
     const prevStats = this.refoldCards(ship);
     // The heal-on-grant branch (HULL POINTS' `healOnGrant`) sat here until
-    // Story 10.3 deleted it (Eric 2026-11-04, epic-10 amendment 7).
+    // Story 10.3 deleted it (Eric 2026-11-04, epic-10 amendment 8).
     // hp invariant: a maxHp-LOWERING fit may not leave hp above the cap.
     ship.hp = Math.min(ship.hp, ship.stats.maxHp);
     if (line !== undefined) this.applyGrantSlots(ship, line, lineId);
@@ -5096,7 +5096,7 @@ export class World {
   /**
    * THE TWO WAYS HP COMES BACK (Eric rulings 2026-08-04; re-cut by epic-8
    * amendments 46-48; the out-of-combat regen DELETED by Story 10.3, Eric
-   * 2026-11-04, epic-10 amendment 7) — applyStorm's structural INVERSE:
+   * 2026-11-04, epic-10 amendment 8) — applyStorm's structural INVERSE:
    * per-tick fractional hp against the same float, clamped, with NO per-tick
    * event (that would spam ~20/s; the owner already receives live `hp` AND
    * `repairHp` on every frame via OwnShip, so the HUD stays exact).
@@ -5960,7 +5960,7 @@ export class World {
    *
    * THE ATTACKER IS READ LIVE AT IMPACT (amendment 156): POWER is the
    * CURRENT `stats.power` (Story 9.9's `armorPiercing`, renamed by Story 10.3,
-   * Eric 2026-11-04, epic-10 amendment 7) of the `byId` record, never stamped on the
+   * Eric 2026-11-04, epic-10 amendment 8) of the `byId` record, never stamped on the
    * ordnance at launch — a card bought while a torpedo swims counts; a SUNK
    * owner's record persists in `this.ships` until the client leaves, so their
    * mine / torpedo / burn still carries it. A MISSING ATTACKER — an owner who

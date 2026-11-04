@@ -102,7 +102,7 @@ import { hullPercent } from '../util/hullPercent.js';
  */
 const LINE_NAMES: Readonly<Record<LineId, string>> = {
   // --- the six universal ladders -------------------------------------------
-  // Story 10.3 (Eric 2026-11-04, epic-10 amendment 7, ruling 4) DELETED
+  // Story 10.3 (Eric 2026-11-04, epic-10 amendment 8, ruling 4) DELETED
   // `hullPoints` (HULL) and `passiveHealing` (PASSIVE HEALING) and made the
   // six ship ladders INDEX cards under the index words: ARMOR · POWER (was
   // ARMOR PIERCING) · RELOAD · ENGINES (was SPEED) · RUDDER (was TURNING) ·
@@ -369,7 +369,7 @@ function indexLine(id: IndexId): StatLine {
 const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
   ...equipmentStatLines(),
   // HULL POINTS' `Max hull` row sat here until Story 10.3 deleted the line
-  // (Eric 2026-11-04, epic-10 amendment 7).
+  // (Eric 2026-11-04, epic-10 amendment 8).
   // THE SIX SHIP LADDERS (Story 10.3, Eric's ruling 4): +20 index cards, ONE
   // row each, the bare index — `ARMOR 100 → 120`, `ENGINES 117 → 137`. Until
   // 10.3 four of them printed a derived figure (`TOP SPEED`, `TURNING °/s`,
@@ -381,7 +381,7 @@ const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
   rudder: indexLine('rudder'),
   intel: indexLine('intel'),
   // PASSIVE HEALING's `Heal` row sat here until Story 10.3 deleted the line
-  // (Eric 2026-11-04, epic-10 amendment 7).
+  // (Eric 2026-11-04, epic-10 amendment 8).
   // The DECK GUN ladder's HEADLINE is damage (its own reload is derived from
   // the tier in clampStats and stays silent): since Story 9.12 every CANNON
   // rung authors a damage step (8/10/11/12/13) and none a barrel — the two
@@ -831,7 +831,7 @@ function isRangePath(path: string): boolean {
  * AUTHORED STEPS THE CARD DOES NOT PRINT (Story 9.6, Eric 2026-10-13, epic-9
  * amendment 95 — "Rate row only"). Its one member, PASSIVE HEALING's
  * out-of-combat wait (`regen.outOfCombatMs`), left with the line and the regen
- * in Story 10.3 (epic-10 amendment 7); the set stays as the seam for the next
+ * in Story 10.3 (epic-10 amendment 8); the set stays as the seam for the next
  * authored-but-silent step.
  */
 const UNPRINTED_PATHS: ReadonlySet<string> = new Set<string>();

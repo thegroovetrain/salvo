@@ -199,7 +199,7 @@ export function lineForEquipment(id: EquipmentId): string | null {
  *
  * An EMPTY list means SHIPWIDE - the six universal ladders (ARMOR, POWER,
  * ENGINES, RUDDER, INTEL, RELOAD — Stories 9.7/9.9, re-cut by Story 10.3,
- * Eric 2026-11-04, epic-10 amendment 7) move the whole vessel and belong to no weapon.
+ * Eric 2026-11-04, epic-10 amendment 8) move the whole vessel and belong to no weapon.
  * Their fit flash is rank-wide rather than slot-local (amendment 51), and
  * since cycle 158 their numbers read on the HP globe's SHIP tooltip
  * (amendment 186).

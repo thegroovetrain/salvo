@@ -40,7 +40,7 @@ describe('every hull envelope is finite and positive (a NaN or zero stat would f
     }
   });
 
-  // THE INDEX MODEL (Story 10.3, Eric 2026-11-04, epic-10 amendment 7): every
+  // THE INDEX MODEL (Story 10.3, Eric 2026-11-04, epic-10 amendment 8): every
   // envelope carries the seven indices and NO authored top speed or turn rate
   // — those are DERIVED in the fold from ENGINES and RUDDER.
   it('every envelope carries exactly the seven indices, each a whole number ≥ 1, and no maxSpeed / turnRate of its own', () => {

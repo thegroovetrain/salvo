@@ -192,7 +192,7 @@ function barrelBlock(): void {
  *  stacked to its copy cap (the ADDITIVE speed/range ladders of Story 7-5). */
 function statsBlock(): void {
   console.log('== MAX-STACK STAT ENVELOPE (universal lines only, each to its copy cap) ==');
-  // The six universal ladders (Story 10.3, Eric 2026-11-04, epic-10 amendment 7:
+  // The six universal ladders (Story 10.3, Eric 2026-11-04, epic-10 amendment 8:
   // HULL POINTS and PASSIVE HEALING deleted; four ids renamed).
   const universal = ['armor', 'power', 'engines', 'rudder', 'reload', 'intel'];
   const maxCards: string[] = [];
@@ -204,7 +204,7 @@ function statsBlock(): void {
     maxCards.push(...new Array<string>(CATALOG[id].cap).fill(id));
   }
   console.log(`stack: ${universal.map((id) => `${id}x${CATALOG[id].cap}`).join(' ')}`);
-  // THE INDEX READOUT (Story 10.3, Eric 2026-11-04, epic-10 amendment 7): the
+  // THE INDEX READOUT (Story 10.3, Eric 2026-11-04, epic-10 amendment 8): the
   // seven authored indices, then what the fold DERIVES from them (speed u/s,
   // sweep RPM, the cooldown scale, the deck gun's reach), then the two gate
   // reads — `dmgMult` is the hull's published multiplier against an AVERAGE

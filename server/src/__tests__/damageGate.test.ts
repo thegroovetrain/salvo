@@ -20,7 +20,7 @@
 // resets — tickRegen renamed tickHeal by Story 10.3), and `tickRepairs`'
 // weapons-safe-room decision (`deferred-work.md:564`).
 //
-// 2026-11-04 (Story 10.3, Eric, epic-10 amendment 7 — "passive healing
+// 2026-11-04 (Story 10.3, Eric, epic-10 amendment 8 — "passive healing
 // dies"): `regen.test.ts` (the OUT-OF-COMBAT regen's wait, shape, combat-clock
 // reset, per-hull ladder, who-regens and silence pins) is DELETED with the
 // regen itself and `CONFIG.regen`. What survives of it lives here: the combat
@@ -912,7 +912,7 @@ describe('tickRepairs stays UN-gated on damageEnabled (Story 8.4 decision, ledge
 });
 
 // ---------------------------------------------------------------------------
-// NO OUT-OF-COMBAT REGEN (Story 10.3, Eric 2026-11-04, epic-10 amendment 7):
+// NO OUT-OF-COMBAT REGEN (Story 10.3, Eric 2026-11-04, epic-10 amendment 8):
 // HULL REPAIR and the healing buoy are the only ways hp comes back.
 // ---------------------------------------------------------------------------
 

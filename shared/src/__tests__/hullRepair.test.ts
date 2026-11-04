@@ -1,6 +1,6 @@
 // HULL REPAIR (catalog-v3 R13; Eric rulings 2026-08-04, moved onto a card by
 // epic-8 amendment 46) — THE ONE HEAL since Story 10.3 (Eric 2026-11-04,
-// epic-10 amendment 7, ruling 7: the out-of-combat regen of amendments 46–48
+// epic-10 amendment 8, ruling 7: the out-of-combat regen of amendments 46–48
 // and its PASSIVE HEALING ladder are DELETED) — its CONFIG shape, plus the
 // NFR6 arithmetic the collapse ceiling rests on. Relations only (Story 9.14):
 // the pool pays its whole amount over its whole window, the heal is a fixed
@@ -95,7 +95,7 @@ describe('NFR6 — the authored heal budget and the collapse ceiling', () => {
   it('the collapse ceiling is (max hull + heal bound + shield bound) / the fully-closed storm rung — the storm always wins in the end', () => {
     // MAX HULL IS DERIVED, never typed: the fold's maxHp on whichever hull
     // starts highest. The HULL POINTS ladder that once raised it (+50 ×5) was
-    // DELETED by Story 10.3 (Eric 2026-11-04, epic-10 amendment 7), so no card
+    // DELETED by Story 10.3 (Eric 2026-11-04, epic-10 amendment 8), so no card
     // moves it and the fold's maxHp IS the class base.
     const maxHull = Math.max(
       ...SHIP_CLASS_IDS.map((hull) => effectiveStats(CONFIG.shipClasses[hull]).maxHp),

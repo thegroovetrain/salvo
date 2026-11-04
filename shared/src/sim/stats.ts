@@ -16,7 +16,7 @@
 // EQUIPMENT_STAT_FIELDS) rather than hand-listed. The shipped `torpedo` id is
 // `heavyTorpedo` and `mine` is `navalMines`; the numbers did not move.
 //
-// THE INDEX MODEL (Story 10.3, Eric 2026-11-04, epic-10 amendment 7). Every
+// THE INDEX MODEL (Story 10.3, Eric 2026-11-04, epic-10 amendment 8). Every
 // ship stat is an INDEX — a whole number around 100 — and the hull envelope
 // seeds SEVEN of them (`INDEX_IDS`: armor, power, reload, engines, rudder,
 // intel, range) as the AUTHORED top-level fields of this tree; the six ship
@@ -79,7 +79,7 @@
 //     amendments 144–146; both indices seed at 100 since Story 10.3, so E is
 //     unchanged for every pair of today's hulls). Re-pinned in BOTH re-pin
 //     homes. `power` (Story 9.9's `armorPiercing`, renamed by Story 10.3,
-//     Eric 2026-11-04, epic-10 amendment 7) is floored the same way and
+//     Eric 2026-11-04, epic-10 amendment 8) is floored the same way and
 //     derives nothing here — it enters only at the server's gate.
 //
 // `cooldownScale` (Eric ruling 2026-08-04, retuned by catalog-v3 R12, re-cut
@@ -356,7 +356,7 @@ export interface EffectiveStats {
   damageMultiplier: number;
   // POWER (Story 9.9's ARMOR PIERCING, Eric 2026-10-14/15, epic-9 amendments
   // 144–146; renamed `armorPiercing` -> `power` by Story 10.3, Eric
-  // 2026-11-04, epic-10 amendment 7): an INDEX, 100 at base, +20 per card, a
+  // 2026-11-04, epic-10 amendment 8): an INDEX, 100 at base, +20 per card, a
   // whole number. The ATTACKER's stat: the gate subtracts it from the victim's
   // effective Armor (E = victim armor + HUNKER − attacker power).
   power: number;

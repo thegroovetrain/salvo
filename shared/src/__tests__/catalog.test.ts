@@ -1,7 +1,7 @@
 // THE CATALOG (Story 8.1) — catalog v3's identity, its authoring validator and
 // THE ORDER-INDEPENDENCE PROPERTY.
 //
-// STORY 10.3 (Eric 2026-11-04, epic-10 amendment 7): 30/147 -> 28/137 —
+// STORY 10.3 (Eric 2026-11-04, epic-10 amendment 8): 30/147 -> 28/137 —
 // HULL POINTS and PASSIVE HEALING are DELETED (and with them the
 // `healOnGrant` flag), and four universal ladders are RENAMED in their seats:
 // `armorPiercing` -> `power`, `speed` -> `engines`, `turning` -> `rudder`,
@@ -98,7 +98,7 @@ const rangeStepOf = (w: 'gun' | 'machineGun' | 'flak' | 'broadside' | 'starShell
 /** catalog-v3 §1, transcribed: every line's cap and kind. */
 const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
   // HULL POINTS (seat 1) and PASSIVE HEALING (after RELOAD) were DELETED by
-  // Story 10.3 (Eric 2026-11-04, epic-10 amendment 7); POWER / ENGINES /
+  // Story 10.3 (Eric 2026-11-04, epic-10 amendment 8); POWER / ENGINES /
   // RUDDER / INTEL are the renamed ARMOR PIERCING / SPEED / TURNING / RADAR
   // SWEEP, same seats.
   armor: { cap: 5, kind: 'ladder', stub: false }, // NEW in Story 9.7 (epic-9 amendments 86–88)
@@ -428,7 +428,7 @@ describe('catalog v3 identity', () => {
   });
 
   // HULL POINTS was the one heal-on-grant line; Story 10.3 (Eric 2026-11-04,
-  // epic-10 amendment 7) deleted it and the flag with it.
+  // epic-10 amendment 8) deleted it and the flag with it.
   it('carries NO healOnGrant flag on any line (Story 10.3 deleted the flag with HULL POINTS)', () => {
     expect(LINE_IDS.filter((id) => Object.hasOwn(CATALOG[id], 'healOnGrant'))).toEqual([]);
   });
@@ -469,7 +469,7 @@ describe('catalog v3 identity', () => {
   // The HULL POINTS rung test and the PASSIVE HEALING seat / rung tests lived
   // here until Story 10.3 DELETED both lines (Eric 2026-11-04, epic-10
   // amendment 7). Their ids — and the four pre-rename ids — resolve to nothing.
-  it('resolves NO id Story 10.3 deleted or renamed (Eric 2026-11-04, epic-10 amendment 7)', () => {
+  it('resolves NO id Story 10.3 deleted or renamed (Eric 2026-11-04, epic-10 amendment 8)', () => {
     for (const dead of ['hullPoints', 'passiveHealing', 'armorPiercing', 'speed', 'turning', 'radarSweep']) {
       expect((LINE_IDS as readonly string[]).includes(dead), dead).toBe(false);
       expect(Object.hasOwn(CATALOG, dead), dead).toBe(false);
@@ -516,7 +516,7 @@ describe('catalog v3 identity', () => {
 });
 
 // THE INDEX CARDS AND THE RE-RULED RUNGS (Story 10.3, Eric 2026-11-04, epic-10
-// amendment 7, rulings 4–9). Every step is READ from the catalog and compared
+// amendment 8, rulings 4–9). Every step is READ from the catalog and compared
 // to the FOLDED delta; a rung total is Tier I + Σ steps. No literal is pinned.
 describe('STORY 10.3 — the six index ladders and the re-ruled weapon rungs', () => {
   const TB = CONFIG.shipClasses.torpedoBoat;
@@ -704,7 +704,7 @@ describe('validateCatalog', () => {
   });
 
   // The healOnGrant validator test lived here until Story 10.3 deleted the
-  // flag with HULL POINTS (Eric 2026-11-04, epic-10 amendment 7).
+  // flag with HULL POINTS (Eric 2026-11-04, epic-10 amendment 8).
 });
 
 describe('resolveCards', () => {

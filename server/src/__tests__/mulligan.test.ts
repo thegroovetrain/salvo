@@ -446,7 +446,7 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
     // A weapon and a LADDER: the weapon takes slot 2, the ladder only moves
     // stats — both are ordinary card fits. Only the WEAPON is a take.
     // (HULL POINTS was the ladder here until Story 10.3 deleted it, Eric
-    // 2026-11-04, epic-10 amendment 7; ARMOR stands in.)
+    // 2026-11-04, epic-10 amendment 8; ARMOR stands in.)
     const a = fitted(w, 'a', ['heavyTorpedo', 'armor']);
     expect(a.cards).toEqual(['heavyTorpedo', 'armor']);
     expect(slotIds(a)[2]).toBe('heavyTorpedo');

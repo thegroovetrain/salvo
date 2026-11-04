@@ -1,4 +1,4 @@
-// THE INDEX DERIVATIONS (Story 10.3, Eric 2026-11-04, epic-10 amendment 7) —
+// THE INDEX DERIVATIONS (Story 10.3, Eric 2026-11-04, epic-10 amendment 8) —
 // the one home for "what does an index BUY". Every ship stat is a plain
 // number around 100 (ARMOR, POWER, RELOAD, ENGINES, RUDDER, INTEL, RANGE —
 // `INDEX_IDS` in constants.ts): the hull envelope seeds them, the six ship

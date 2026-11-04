@@ -529,7 +529,7 @@ export interface OwnShip {
    * FREE per-level auto-heal pool that used to be folded in beside it
    * (`ship.levelRepairHp`) IS GONE: epic-8 amendment 46 replaced the per-level
    * heal with an out-of-combat regen that paid STRAIGHT INTO hp and never owed
-   * this field a thing — and Story 10.3 (Eric 2026-11-04, epic-10 amendment 7)
+   * this field a thing — and Story 10.3 (Eric 2026-11-04, epic-10 amendment 8)
    * DELETED that regen and its PASSIVE HEALING ladder too, so HULL REPAIR (and
    * the healing buoy's own trickle) are the heals left. The pool resets to 0 wherever boostUntil
    * does (spawn, sink, respawn, match boundary). SELF-PRIVATE BY CONSTRUCTION

@@ -66,7 +66,7 @@ function held(id: string, n: number): typeof TB {
 
 describe('cardStatRows — LADDER lines print the one number they move', () => {
   // The HULL (maxHp) and PASSIVE HEALING (heal rate) row tests lived here
-  // until Story 10.3 deleted both lines (Eric 2026-11-04, epic-10 amendment 7).
+  // until Story 10.3 deleted both lines (Eric 2026-11-04, epic-10 amendment 8).
 
   // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 110–117): ONE row,
   // the whole-number Armor read through effectiveStats — no unit, no decimal.

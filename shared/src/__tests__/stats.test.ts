@@ -432,11 +432,11 @@ describe('effectiveStats — the six universal ladders (catalog-v3 §4 + Stories
       expect([s.armor, s.damageMultiplier], id).toEqual([base.armor, base.damageMultiplier]);
     }
     // The Tier-V HULL POINTS + Tier-V ARMOR case lived here until Story 10.3
-    // DELETED HULL POINTS (Eric 2026-11-04, epic-10 amendment 7).
+    // DELETED HULL POINTS (Eric 2026-11-04, epic-10 amendment 8).
   });
 
   // POWER (Story 9.9's ARMOR PIERCING, Eric 2026-10-14/15, epic-9 amendments
-  // 144–146; renamed by Story 10.3, Eric 2026-11-04, epic-10 amendment 7):
+  // 144–146; renamed by Story 10.3, Eric 2026-11-04, epic-10 amendment 8):
   // the ATTACKER's stat — folded, floored, and never in the holder's own
   // damageMultiplier (which stays victim-only, amendment 120(e)).
   it('POWER: n ARMOR + m POWER cards fold independently — damageMultiplier from armor alone', () => {
@@ -477,7 +477,7 @@ describe('effectiveStats — the six universal ladders (catalog-v3 §4 + Stories
   });
 
   // THE REGEN PAIR (Story 9.6) and its PASSIVE HEALING ladder are DELETED by
-  // Story 10.3 (Eric 2026-11-04, epic-10 amendment 7) — see THE INDEX MODEL
+  // Story 10.3 (Eric 2026-11-04, epic-10 amendment 8) — see THE INDEX MODEL
   // describe below for the `regen`-is-gone pin.
 
   it('INTEL never passes the sweepRpmMax clamp at any copy count, an over-stack included, and its period is 60000 / rpm', () => {
@@ -529,7 +529,7 @@ describe('effectiveStats — the six universal ladders (catalog-v3 §4 + Stories
 });
 
 // ---------------------------------------------------------------------------
-// THE INDEX MODEL (Story 10.3, Eric 2026-11-04, epic-10 amendment 7). Seven
+// THE INDEX MODEL (Story 10.3, Eric 2026-11-04, epic-10 amendment 8). Seven
 // AUTHORED indices — armor, power, reload, engines, rudder, intel, range — are
 // seeded from the hull envelope and stepped by the ship ladders; the speed,
 // turn rate, sweep rate, cooldown scale and deck-gun reach are DERIVED from

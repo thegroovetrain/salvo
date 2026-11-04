@@ -163,7 +163,7 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
     heading: '[ SHIP UPGRADES ]',
     entries: [
       // The HULL entry (lineId `hullPoints`) left with its line in Story 10.3
-      // (Eric 2026-11-04, epic-10 amendment 7); three lineIds renamed in place
+      // (Eric 2026-11-04, epic-10 amendment 8); three lineIds renamed in place
       // and their TITLES follow the index words (ENGINES / RUDDER / INTEL).
       // The descriptions are FROZEN COPY — Story 10.14 owns them.
       { name: 'ENGINES', lineId: 'engines', table: 'shipUpgrade', description: 'Higher top speed.' },

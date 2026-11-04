@@ -167,7 +167,7 @@ export const CONFIG = {
   /**
    * Per-class hull + INDICES + kinematics — the ratified beta classes at
    * literal board scale (Eric-approved 2026-07-19), SCAFFOLDED onto the index
-   * model by Story 10.3 (Eric 2026-11-04, epic-10 amendment 7) until Story
+   * model by Story 10.3 (Eric 2026-11-04, epic-10 amendment 8) until Story
    * 10.4 swaps the hulls. Three classes trade agility against nothing yet:
    * every hull is 1000 hp and ARMOR / POWER / RELOAD / INTEL / RANGE 100
    * (ruling 3 — toughness is ARMOR, never hp; the 300 / 350 gap is DROPPED);
@@ -290,7 +290,7 @@ export const CONFIG = {
    * un-beaching manoeuvre uses (drones.ts), which is why it could not simply
    * be left at the old block's value.
    *
-   * STORY 10.3 (Eric 2026-11-04, epic-10 amendment 7, ruling 10 — ×3
+   * STORY 10.3 (Eric 2026-11-04, epic-10 amendment 8, ruling 10 — ×3
    * PLACEHOLDERS, "it doesn't matter, this is all getting changed"; the drones
    * retire at 10.8): hp 45 / 60 / 75 → 135 / 180 / 225 and the flat gun 1 → 3,
    * so every shots-to-kill and exchange-rate relation above holds unchanged.
@@ -1379,7 +1379,7 @@ export const CONFIG = {
     // epic-9 amendments 184–185): every weapon's own ladder reaches ×2 its
     // Tier I output at Tier V): the ladder authored +2 / +1 / +1 / +1 →
     // 8/10/11/12/13 on TWO barrels at every tier. ×3 PLACEHOLDER 8 → 24
-    // (Story 10.3, Eric 2026-11-04, epic-10 amendment 7, ruling 10 — the deck
+    // (Story 10.3, Eric 2026-11-04, epic-10 amendment 8, ruling 10 — the deck
     // guns retire at 10.4 / 10.5, "it doesn't matter, this is all getting
     // changed"): the ladder authors +6 / +3 / +3 / +3 → 24/30/33/36/39, so the
     // max click is 2 × 39 = 78 of a 1000 hp hull (damageGuardrail.test reads
@@ -1606,7 +1606,7 @@ export const CONFIG = {
     // RETUNED 50 → 90 (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): pickups are the alpha; the HEAVY TORPEDO line
     // authored +11 / +11 / +11 / +12 → 90/101/112/123/135 (ruling 184(d)).
     // RE-RULED 90 → 300 on the 1000 hp hull (Story 10.3, Eric 2026-11-04,
-    // epic-10 amendment 7, ruling 5: "HEAVY 300 → 600"): the line authors
+    // epic-10 amendment 8, ruling 5: "HEAVY 300 → 600"): the line authors
     // +75 a rung → 300/375/450/525/600 — Tier V is 60 % of a hull.
     damage: 300,
     maxAmmo: 1, // one fish in the tube pool; the line's +0.5 on the rungs to II and III only → tubes 1,1,2,2,2
@@ -1767,7 +1767,7 @@ export const CONFIG = {
     // which is the Mine Layer fleet-farming ruling (2026-08-16).
     // RETUNED 55 → 90 (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): the NAVAL MINES line authored +11 / +11 / +11 /
     // +12 → 90/101/112/123/135 (ruling 184(d)). RE-RULED 90 → 200 on the
-    // 1000 hp hull (Story 10.3, Eric 2026-11-04, epic-10 amendment 7, ruling
+    // 1000 hp hull (Story 10.3, Eric 2026-11-04, epic-10 amendment 8, ruling
     // 6: "NAVAL 200 → 300 (+25 a rung)") — the line authors +25 a rung →
     // 200/225/250/275/300; the one stepped line that does NOT double at V.
     damage: 200,
@@ -2330,7 +2330,7 @@ export const CONFIG = {
    * (amendment 73).
    *
    * MASS IS THE ARMOR INDEX since Story 10.3 (Eric 2026-11-04, epic-10
-   * amendment 7, ruling 2 — "Ramming keeps today's outcomes as a percent of
+   * amendment 8, ruling 2 — "Ramming keeps today's outcomes as a percent of
    * hull"): a hull's mass is `effectiveStats().armor` (100 on every scaffold
    * hull, +20 per ARMOR card), NOT its max hull, which is 1000 everywhere and
    * says nothing about weight. The 9.5 energy law keeps its shape; only the
@@ -2793,7 +2793,7 @@ export const CONFIG = {
    * whose two dials a `CONFIG.regen` block replaced. What stayed: these three
    * numbers, byte-identical — until Story 10.3.
    *
-   * STORY 10.3 (Eric 2026-11-04, epic-10 amendment 7, ruling 7): "HULL REPAIR
+   * STORY 10.3 (Eric 2026-11-04, epic-10 amendment 8, ruling 7): "HULL REPAIR
    * heals 100 + 100" (100 instant + 100 pooled over 5 s; was 50 + 50) on the
    * 1000 hp hull — and HULL REPAIR becomes THE ONE HEAL: the out-of-combat
    * regen (`CONFIG.regen`, Eric 2026-09-17, epic-8 amendments 46–48, retuned
@@ -2894,7 +2894,7 @@ export const CONFIG = {
      * (`--set zone.stormDps.N`, or `zone.stormDps=X` to flatten every rung).
      */
     // RE-RULED ×10 on the 1000 hp hull (Story 10.3, Eric 2026-11-04, epic-10
-    // amendment 7, ruling 12): "10 / 20 / 30 / 40 / 50 hp per second by ring
+    // amendment 8, ruling 12): "10 / 20 / 30 / 40 / 50 hp per second by ring
     // (1–5 %/s)" — 100 s to sink in the first ring, 20 s in the last. The
     // 5 / 10 / 15 / 20 / 25 and flat ×3 alternatives were rejected.
     stormDps: [10, 20, 30, 40, 50],
@@ -3002,7 +3002,7 @@ export interface Hull {
 }
 
 /**
- * THE SEVEN INDEX IDS (Story 10.3, Eric 2026-11-04, epic-10 amendment 7), in
+ * THE SEVEN INDEX IDS (Story 10.3, Eric 2026-11-04, epic-10 amendment 8), in
  * the order the SHIP tooltip and the harness print them (amendment 6(c)):
  * ARMOR, POWER, RELOAD, ENGINES, RUDDER, INTEL, RANGE. Each is a whole number
  * around 100 (`CONFIG.index.base`), authored on every hull envelope and
