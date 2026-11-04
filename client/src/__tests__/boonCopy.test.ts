@@ -22,7 +22,7 @@
 // explanation) rather than breaking the card view.
 
 import { describe, it, expect } from 'vitest';
-import { CATALOG, CONFIG, LINE_IDS, effectiveStats, type CatalogLine } from '@salvo/shared';
+import { CATALOG, CONFIG, INDEX_IDS, LINE_IDS, effectiveStats, type CatalogLine } from '@salvo/shared';
 import {
   boonEffectLine,
   boonFitToastLine,
@@ -213,17 +213,19 @@ describe('the stat tables — one builder for the face and both hovers', () => {
     expect(consumableStatRows('constructor')).toEqual([]);
   });
 
-  // The HULL (maxHp) and PASSIVE HEALING (regen) rows left with their lines
-  // in Story 10.3 (Eric 2026-11-04, epic-10 amendment 7): six ladders now.
-  it('shipStatRows: the six ladders in order, each line\'s own printer', () => {
-    expect(text(shipStatRows(bare))).toEqual([
-      `${bare.armor}`, // Story 9.7 (epic-9 amendments 110–117)
-      `${bare.power}`, // Story 9.9: right after ARMOR (epic-9 amendment 159)
-      `${bare.kinematics.maxSpeed}`,
-      `${Math.round((bare.kinematics.turnRate * 180) / Math.PI)}°/s`, // rad/s printed as whole degrees/s (P10)
-      `${bare.sweepRpm} RPM`,
-      '100%', // the bare cooldown multiplier
-    ]);
+  // Story 10.3 (Eric 2026-11-04, epic-10 amendment 7): the SHIP panel is the
+  // SEVEN indices in amendment 6(c)'s order (`INDEX_IDS`) — RANGE included,
+  // though no card moves it — each printed bare off its own index path. The
+  // HULL (maxHp) and PASSIVE HEALING (regen) rows left with their lines.
+  it('shipStatRows: the seven indices in INDEX_IDS order, each its own index', () => {
+    expect(shipStatRows(bare)).toHaveLength(INDEX_IDS.length);
+    expect(text(shipStatRows(bare))).toEqual(INDEX_IDS.map((id) => String(bare[id])));
+    // A row reads ITS index: moving one index moves exactly one row.
+    const armored = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['armor']);
+    const moved = text(shipStatRows(armored)).map((v, i) => v !== text(shipStatRows(bare))[i]);
+    expect(moved).toEqual(INDEX_IDS.map((id) => id === 'armor'));
+    // Every label is distinct (seven rows, seven words).
+    expect(new Set(shipStatRows(bare).map((r) => r.label)).size).toBe(INDEX_IDS.length);
   });
 
   it('cardHoverRows: the full table of what the card touches, valued AFTER the card', () => {
@@ -449,10 +451,10 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
   it('reports a stat line\'s LIVE value, with no current→next arrow', () => {
     expect(boonEffectLine('armor', bare)).toContain(`${bare.armor}`);
     expect(boonEffectLine('armor', bare)).not.toContain('→');
-    expect(boonEffectLine('intel', bare)).toContain(`${bare.sweepRpm} RPM`);
-    expect(boonEffectLine('reload', bare)).toContain('100%');
-    // TURNING in whole degrees per second (Eric 2026-09-30).
-    expect(boonEffectLine('rudder', bare)).toContain(`${Math.round((bare.kinematics.turnRate * 180) / Math.PI)}°/s`);
+    // Story 10.3: every ship ladder reports its bare INDEX.
+    for (const id of ['power', 'reload', 'engines', 'rudder', 'intel'] as const) {
+      expect(boonEffectLine(id, bare), id).toContain(`${bare[id]}`);
+    }
   });
 
   it('MOVES with the fitted stack (it reads the firewall\'s output, not CONFIG)', () => {

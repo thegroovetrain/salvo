@@ -54,14 +54,31 @@ import { cssHex } from '../util/color.js';
 describe('cardViewModel — pips, keys, loadout', () => {
   // Objective anchor rework (Eric ruling 2026-08-03): pips derive from the
   // absolute {base, step} ladders in CLIENT_CONFIG.home.pip, not a relative
-  // fraction of a class-roster maximum. Under the rebalanced hull hp
-  // (125/175/150 — the TTK fix landed alongside this pip rework) the fills
-  // are TB 4/2/4 · BS 2/4/2 · ML 3/3/3.
-  it('pins Eric-ruled pip fills (TB 4/3/4 · BS 2/4/2 · ML 3/3/3)', () => {
-    // TB HULL 2 → 3 pips: hp 250 → 300 (Eric 2026-10-19, epic-9 amendment 209).
-    expect(cardViewModel('torpedoBoat').pips.map((p) => p.filled)).toEqual([4, 3, 4]);
-    expect(cardViewModel('battleship').pips.map((p) => p.filled)).toEqual([2, 4, 2]);
-    expect(cardViewModel('mineLayer').pips.map((p) => p.filled)).toEqual([3, 3, 3]);
+  // fraction of a class-roster maximum. Since Story 10.3 the three rows are
+  // INDICES — ENGINES / ARMOR / RUDDER — read off the hull envelope's own
+  // `index` (never a derived speed or turn rate) on index anchors.
+  it('each pip row is its index on its own anchor (Story 10.3)', () => {
+    const anchors = CLIENT_CONFIG.home.pip;
+    for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
+      const vm = cardViewModel(cls);
+      expect(vm.pips.map((p) => p.index), cls).toEqual(['engines', 'armor', 'rudder']);
+      for (const pip of vm.pips) {
+        expect(pip.filled, `${cls} ${pip.index}`).toBe(pipFill(CONFIG.shipClasses[cls].index[pip.index], anchors[pip.index]));
+      }
+    }
+  });
+
+  it('a hull with the higher index never shows fewer pips on that row', () => {
+    const ids = ['torpedoBoat', 'battleship', 'mineLayer'] as const;
+    for (const a of ids) {
+      for (const b of ids) {
+        for (const [row, pip] of cardViewModel(a).pips.entries()) {
+          if (CONFIG.shipClasses[a].index[pip.index] > CONFIG.shipClasses[b].index[pip.index]) {
+            expect(pip.filled, `${a} vs ${b} ${pip.index}`).toBeGreaterThanOrEqual(cardViewModel(b).pips[row].filled);
+          }
+        }
+      }
+    }
   });
 
   it('every card labels the same three pip rows, in the same order', () => {
@@ -99,8 +116,6 @@ describe('cardViewModel — pips, keys, loadout', () => {
     const px = CLIENT_CONFIG.type.registers.hudMicro.size;
     const track = px * PIP_LABEL_TRACKING_EM;
     expect(monoTextWidth('TOUGHNESS', px, track)).toBeGreaterThan(PIP_LABEL_COL_PX);
-    // ...while TURNING, now the longest of the three, has real room to spare.
-    expect(monoTextWidth('TURNING', px, track)).toBeLessThan(PIP_LABEL_COL_PX);
   });
 
   it('displays zero-padded keys 01 / 02 / 03', () => {
@@ -136,40 +151,26 @@ describe('cardViewModel — pips, keys, loadout', () => {
 // --- pipFill — objective anchor mapper edge cases ----------------------------
 
 describe('pipFill — objective anchored-linear mapper (Eric ruling 2026-08-03)', () => {
-  const { speed, toughness, turning } = CLIENT_CONFIG.home.pip;
+  const { engines } = CLIENT_CONFIG.home.pip;
+  const half = { base: 0.2, step: 0.2 }; // a non-dyadic ladder for the float-noise case
 
-  it('pins the config anchors', () => {
-    expect(speed).toEqual({ base: 30, step: 5 });
-    // DOUBLED with hull hp in balance cycle 1. The ladder is ABSOLUTE and
-    // pipFill clamps at 5, so leaving it at 100/25 while hulls doubled would
-    // have put all three at a clamped 5 pips and erased the readout.
-    expect(toughness).toEqual({ base: 200, step: 50 });
-    expect(turning).toEqual({ base: 0.2, step: 0.2 });
+  it('every index row is anchored at the index base (Story 10.3): the average ship reads 1 pip', () => {
+    for (const anchor of Object.values(CLIENT_CONFIG.home.pip)) {
+      expect(anchor.base).toBe(CONFIG.index.base);
+      expect(anchor.step).toBeGreaterThan(0);
+    }
   });
 
   it('below-base value clamps to 1 pip (never blank)', () => {
-    expect(pipFill(25, speed)).toBe(1); // < 30 base
+    expect(pipFill(engines.base - engines.step, engines)).toBe(1);
   });
 
   it('above-top value clamps to 5 pips', () => {
-    expect(pipFill(60, speed)).toBe(5); // > the 5-pip rung (50)
+    expect(pipFill(engines.base + 6 * engines.step, engines)).toBe(5);
   });
 
   it('exact anchor landings', () => {
-    expect(pipFill(45, speed)).toBe(4); // 30 + 3*5
-    expect(pipFill(350, toughness)).toBe(4); // 200 + 3*50 — the Battleship, still 4 pips
-    expect(pipFill(0.6, turning)).toBe(3); // 0.2 + 2*0.2
-  });
-
-  it('the three hulls read 3 / 3 / 4 toughness pips (TB 2 → 3 at amendment 209)', () => {
-    // THE PROPERTY THE LADDER CHANGE EXISTS TO PRESERVE. Hull hp and the ladder
-    // doubled together in balance cycle 1, so the rendered readout is identical
-    // to what shipped before it. Pinned against CONFIG rather than literals, so
-    // a future hp retune that forgets the ladder fails HERE — visibly — instead
-    // of silently flattening all three hulls to a clamped 5.
-    expect(pipFill(CONFIG.shipClasses.torpedoBoat.hp, toughness)).toBe(3); // 300 hp since amendment 209 (was 250 = 2)
-    expect(pipFill(CONFIG.shipClasses.mineLayer.hp, toughness)).toBe(3);
-    expect(pipFill(CONFIG.shipClasses.battleship.hp, toughness)).toBe(4);
+    for (let k = 0; k <= 4; k += 1) expect(pipFill(engines.base + k * engines.step, engines)).toBe(k + 1);
   });
 
   it('degenerate anchor (step <= 0 or non-finite base) clamps to 1', () => {
@@ -184,12 +185,12 @@ describe('pipFill — objective anchored-linear mapper (Eric ruling 2026-08-03)'
   it('exact half-step rungs round UP despite float noise (review-gate fix)', () => {
     // (0.5-0.2)/0.2 = 1.4999999999999998 in floats; the formula in exact
     // arithmetic reads round(1.5) → 3 pips. The epsilon makes it so.
-    expect(pipFill(0.5, turning)).toBe(3);
+    expect(pipFill(0.5, half)).toBe(3);
   });
 
   it('non-finite value clamps to 1', () => {
-    expect(pipFill(Number.NaN, speed)).toBe(1);
-    expect(pipFill(Number.POSITIVE_INFINITY, speed)).toBe(1);
+    expect(pipFill(Number.NaN, engines)).toBe(1);
+    expect(pipFill(Number.POSITIVE_INFINITY, engines)).toBe(1);
   });
 });
 

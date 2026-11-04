@@ -10,6 +10,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   CATALOG,
   CONFIG,
+  effectiveStats,
   CONSUMABLE_SLOTS,
   DEFAULT_KIT,
   MULLIGAN_CHOICE,
@@ -440,7 +441,8 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   it('prints ROWS with the player\'s LIVE values (a preview diff, not a static table)', () => {
     const fresh = offerView(ownShip({ offer: ['intel'] }), false, false, false);
     const stacked = offerView(ownShip({ offer: ['intel'], cards: ['intel'] }), false, false, false);
-    expect(fresh?.options[0].rows[0].next).toContain('RPM');
+    // Story 10.3: the INTEL card prints its own index (the fold's value).
+    expect(fresh?.options[0].rows[0].next).toBe(String(effectiveStats(CONFIG.shipClasses.torpedoBoat, ['intel']).intel));
     expect(stacked?.options[0].rows[0].cur).not.toBe(fresh?.options[0].rows[0].cur);
   });
 

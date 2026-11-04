@@ -19,6 +19,7 @@ import { motionIntensity, settings } from '../settings/store.js';
 import { CHOP_HEAD_MULTIPLE } from './radarSources.js';
 import { regionKey, type FlashBudget, type FlashVerdict } from './flashBudget.js';
 import { WakeSources, type WakeHull, type WakeSource } from './wake.js';
+import { hullTopSpeed } from '../sim/hullKinematics.js';
 
 /** Effect kinds routed through spawnEffect(). */
 export type EffectKind =
@@ -703,7 +704,7 @@ export class Effects {
     const env = hullEnvelope(h.cls);
     const half = env.hull.length / 2;
     const speed = Math.abs(h.speed);
-    const intensity = Math.min(speed / env.kinematics.maxSpeed, 1);
+    const intensity = Math.min(speed / hullTopSpeed(h.cls), 1);
     this.spawnWake(h.x - Math.cos(h.heading) * half, h.y - Math.sin(h.heading) * half, intensity, h.color, life);
   }
 

@@ -2306,7 +2306,8 @@ const BURN_TICK_S = CONFIG.tick.simDtMs / 1000;
 /**
  * hp/s — the HIGHEST burn rate any PHOSPHOR SHELLS zone can carry: the tier-I
  * `CONFIG.phosphorShells.dps` plus every `dps` step the catalog's ladder
- * authors (5 → 10 at tier V, Story 8.17, amendment 131). Summed off the ladder
+ * authors (20 → 40 at tier V since Story 10.3, ruling 9; was 5 → 10, Story 8.17,
+ * amendment 131). Summed off the ladder
  * rather than hard-coded so a retune of either moves the cap with it.
  */
 export function maxBurnDps(): number {
@@ -2323,8 +2324,9 @@ export function maxBurnDps(): number {
  * INCLUSIVE window. `bankDot` (server world.ts) opens a bucket with
  * `since = now` on the FIRST bite and flushes when `now - since >= 500 ms`
  * AFTER adding the current bite, so at 20 Hz a window holds 11 bites
- * (t = 0, 50, …, 500 ms) = window + one tick = 0.55 s of burn: 10 hp/s × 0.55 s
- * = 5.5 hp (Story 8.17 re-derived it from the burning zone that replaced the
+ * (t = 0, 50, …, 500 ms) = window + one tick = 0.55 s of burn: at Story 10.3's
+ * phosphor ladder (20 → 40 hp/s, Eric's ruling 9) that is 40 hp/s × 0.55 s
+ * = 22 hp — it follows the catalog (Story 8.17 re-derived it from the burning zone that replaced the
  * star-shell INCENDIARY verb, and the old ×4 overlap headroom went with it). The classifier exists to tell a burn `dmg` from an
  * impact: anything bigger than this arrived some other way — a torpedo, a
  * shell, a mine — and must read as the slam it was.

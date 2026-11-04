@@ -24,10 +24,8 @@ import {
   hpGlobeHoldsLit,
   hullFillAlpha,
   hullFillHeld,
-  hullHeaderValue,
-  hullMaxLabel,
+  hullPercent,
   hullPulseHz,
-  hullShownValue,
   railAmberChannel,
   railCritical,
   railFraction,
@@ -85,38 +83,44 @@ describe('hpColor thresholds (Story 2.4 bands: 50% / 25%, damageMarker)', () => 
   });
 });
 
-describe('the hull readout — `HULL 212 /250`', () => {
-  it('renders whole hull points and floors at zero', () => {
-    expect(hullHeaderValue(80, 100)).toBe('80/100');
-    expect(hullHeaderValue(72.4, 100)).toBe('72/100');
-    expect(hullHeaderValue(0, 100)).toBe('0/100');
-    expect(hullHeaderValue(-5, 100)).toBe('0/100'); // an overkill hit never reads negative
+// THE PERCENT READOUT (Story 10.3, Eric's ruling 13, 2026-11-04): the hull is
+// shown as a whole-number percent, the CEILING — an afloat hull never reads 0,
+// 0 means sunk. The relation is tested over the whole hull, never as literals
+// of a ruled number (the hull size is CONFIG's, whatever it is).
+describe('hullPercent — the hull as a whole-number percent (ruling 13)', () => {
+  const MAX = effectiveStats(CONFIG.shipClasses.battleship).maxHp;
+
+  it('is the CEILING of 100 × hp / maxHp for every afloat hull', () => {
+    for (let hp = 1; hp <= MAX; hp += 7) {
+      expect(hullPercent(hp, MAX)).toBe(Math.ceil((100 * hp) / MAX));
+    }
+    expect(hullPercent(MAX, MAX)).toBe(100);
   });
 
-  it('FLOORS rather than rounds, so the number agrees with the globe band', () => {
-    // 49.6 hp is an AMBER globe (the band uses the exact fraction) — rounding it
-    // to "50" would put a healthy-looking number beside a wounded bowl.
-    expect(hullHeaderValue(49.6, 100)).toBe('49/100');
-    expect(hullHeaderValue(50, 100)).toBe('50/100'); // exactly half still reads 50 (phosphor)
-    expect(hullHeaderValue(24.9, 100)).toBe('24/100');
+  it('never reads 0 while afloat — any hull left reads at least 1', () => {
+    for (const hp of [0.001, 0.4, 1, MAX / 200]) expect(hullPercent(hp, MAX)).toBe(1);
   });
 
-  it('never reads 0 on a LIVE hull (storm damage leaves fractions)', () => {
-    expect(hullHeaderValue(0.4, 100)).toBe('1/100');
-    expect(hullHeaderValue(0.001, 100)).toBe('1/100');
-    expect(hullHeaderValue(1, 100)).toBe('1/100');
-    // ...and only a genuinely sunk hull reads zero.
-    expect(hullHeaderValue(0, 100)).toBe('0/100');
-    expect(hullHeaderValue(-0.2, 100)).toBe('0/100');
+  it('reads 0 only when sunk (and never negative on an overkill hit)', () => {
+    expect(hullPercent(0, MAX)).toBe(0);
+    expect(hullPercent(-5, MAX)).toBe(0);
   });
 
-  // The globe splits the one string across two type registers (18px value,
-  // 10px max) — the SPLIT must be exactly the string, never a second rounding.
-  it('splits into the two registers without re-deriving either half', () => {
-    expect(`${hullShownValue(212)}${hullMaxLabel(250)}`).toBe(hullHeaderValue(212, 250));
-    expect(hullShownValue(212)).toBe(212);
-    expect(hullMaxLabel(250)).toBe('/250');
-    expect(hullMaxLabel(249.6)).toBe('/250'); // the max ROUNDS, as it always did
+  it('rounds UP, never to nearest: a hull a hair under a whole percent reads the higher one', () => {
+    const justUnder = (MAX * 0.72) - MAX / 10_000;
+    expect(hullPercent(justUnder, MAX)).toBe(72);
+    expect(hullPercent(MAX - MAX / 10_000, MAX)).toBe(100);
+  });
+
+  it('may pass 100 when a shield pool is added to the hull (amendment 116 in percent)', () => {
+    const shield = MAX * 0.12;
+    expect(hullPercent(MAX + shield, MAX)).toBe(Math.ceil((100 * (MAX + shield)) / MAX));
+    expect(hullPercent(MAX + shield, MAX)).toBeGreaterThan(100);
+  });
+
+  it('a malformed max reads 0 rather than Infinity / NaN', () => {
+    expect(hullPercent(50, 0)).toBe(0);
+    expect(hullPercent(Number.NaN, MAX)).toBe(0);
   });
 });
 
@@ -430,11 +434,17 @@ describe('HpGlobe shell — a healthy frame, a healing frame and a sunk one', ()
 
   afterEach(() => settings.reset());
 
-  /** The readout's two numerals — the shown value and the max label — read off
-   *  `readoutText()` (`<caption> <value> <max>`) without pinning the caption. */
-  function numerals(globe: HpGlobe): [number, string] {
+  /** The readout's shown percent (the numeral before the unit glyph), read off
+   *  `readoutText()` (`<caption> <value> <unit>`) without pinning the caption
+   *  or the glyph — both are copy. */
+  function shown(globe: HpGlobe): number {
     const t = globe.readoutText().split(' ');
-    return [Number(t[t.length - 2]), t[t.length - 1]];
+    return Number(t[t.length - 2]);
+  }
+  /** The unit glyph after the numeral (never pinned — only that it is constant). */
+  function unit(globe: HpGlobe): string {
+    const t = globe.readoutText().split(' ');
+    return t[t.length - 1];
   }
 
   it('draws every band, a pending band and an empty bowl without throwing', () => {
@@ -448,30 +458,39 @@ describe('HpGlobe shell — a healthy frame, a healing frame and a sunk one', ()
     expect(() => globe.update(input({ hp: MAX, repairHp: MAX }), GLOBE, 3, false, 1)).not.toThrow();
   });
 
-  it('reads out the hull value over its max and tracks the hull down', () => {
+  // Story 10.3 (ruling 13): the readout is the hull PERCENT — never a raw hp
+  // figure — and the unit glyph beside it never changes with the hull.
+  it('reads out the hull percent and tracks the hull down', () => {
     const globe = new HpGlobe(new Container());
-    globe.update(input({ hp: 212, maxHp: 250 }), GLOBE, 1, false, 1);
-    expect(numerals(globe)).toEqual([212, hullMaxLabel(250)]);
-    globe.update(input({ hp: 0.4, maxHp: 250 }), GLOBE, 2, false, 1);
-    expect(numerals(globe)[0]).toBe(1); // a live hull never reads 0
-    globe.update(input({ hp: 0, maxHp: 250, alive: false }), GLOBE, 3, false, 1);
-    expect(numerals(globe)[0]).toBe(0);
+    const hp = MAX * 0.715;
+    globe.update(input({ hp }), GLOBE, 1, false, 1);
+    expect(shown(globe)).toBe(hullPercent(hp, MAX));
+    const glyph = unit(globe);
+    globe.update(input({ hp: MAX / 1000 }), GLOBE, 2, false, 1);
+    expect(shown(globe)).toBe(1); // a live hull never reads 0
+    globe.update(input({ hp: 0, alive: false }), GLOBE, 3, false, 1);
+    expect(shown(globe)).toBe(0);
+    expect(unit(globe)).toBe(glyph);
+    expect(globe.readoutText()).not.toContain(String(MAX)); // the raw max is never printed
   });
 
-  // THE SHIELDED READOUT (Story 8.16, epic-8 amendments 116/117): hull + shield
-  // in the `info` token while a SHIELD BLOCK holds — NUMBER ONLY. The max label,
-  // the globe's band and its water never see the shield.
-  it('reads hull + shield past max in `info` while shielded, and reverts at 0', () => {
+  // THE SHIELDED READOUT (Story 8.16, epic-8 amendments 116/117; in percent
+  // since Story 10.3): hull + shield in the `info` token while a SHIELD BLOCK
+  // holds — NUMBER ONLY, and it may pass 100. The globe's band and its water
+  // never see the shield.
+  it('reads hull + shield past 100 in `info` while shielded, and reverts at 0', () => {
     const globe = new HpGlobe(new Container());
-    globe.update(input({ hp: 212, maxHp: 250 }), GLOBE, 1, false, 1);
+    globe.update(input({ hp: MAX }), GLOBE, 1, false, 1);
     expect(globe.valueFill).toBe(CLIENT_CONFIG.colors.textPrimary);
-    globe.update(input({ hp: 212, maxHp: 250, shield: 100 }), GLOBE, 2, false, 1);
-    expect(numerals(globe)).toEqual([312, hullMaxLabel(250)]); // the max is untouched
+    const shield = MAX * 0.12;
+    globe.update(input({ hp: MAX, shield }), GLOBE, 2, false, 1);
+    expect(shown(globe)).toBe(hullPercent(MAX + shield, MAX));
+    expect(shown(globe)).toBeGreaterThan(100);
     expect(globe.valueFill).toBe(CLIENT_CONFIG.colors.info);
-    globe.update(input({ hp: 212, maxHp: 250, shield: 27 }), GLOBE, 3, false, 1);
-    expect(numerals(globe)[0]).toBe(239); // an absorbed hit: the blue number falls
-    globe.update(input({ hp: 212, maxHp: 250, shield: 0 }), GLOBE, 4, false, 1);
-    expect(numerals(globe)).toEqual([212, hullMaxLabel(250)]);
+    globe.update(input({ hp: MAX, shield: shield / 2 }), GLOBE, 3, false, 1);
+    expect(shown(globe)).toBe(hullPercent(MAX + shield / 2, MAX)); // an absorbed hit: the blue number falls
+    globe.update(input({ hp: MAX, shield: 0 }), GLOBE, 4, false, 1);
+    expect(shown(globe)).toBe(hullPercent(MAX, MAX));
     expect(globe.valueFill).toBe(CLIENT_CONFIG.colors.textPrimary);
   });
 
@@ -493,14 +512,15 @@ describe('HpGlobe shell — a healthy frame, a healing frame and a sunk one', ()
     expect(shieldPoolHp(null)).toBe(0);
   });
 
-  it('the globe shows hp + shield + buoyShield, in the shielded fill, the max untouched', () => {
+  it('the globe shows hp + shield + buoyShield as one percent, in the shielded fill', () => {
     const globe = new HpGlobe(new Container());
-    const you = { shield: { hp: 30 }, buoyShield: { hp: 25 } };
-    globe.update(input({ hp: 200, maxHp: 250, shield: shieldPoolHp(you) }), GLOBE, 1, false, 1);
-    expect(numerals(globe)).toEqual([hullShownValue(200 + 30 + 25), hullMaxLabel(250)]);
+    const hp = MAX * 0.8;
+    const you = { shield: { hp: MAX * 0.12 }, buoyShield: { hp: MAX * 0.1 } };
+    globe.update(input({ hp, shield: shieldPoolHp(you) }), GLOBE, 1, false, 1);
+    expect(shown(globe)).toBe(hullPercent(hp + shieldPoolHp(you), MAX));
     expect(globe.valueFill).toBe(shieldedFill(shieldPoolHp(you)));
     // A buoy pool alone shields the number too — same fill, no new colour.
-    globe.update(input({ hp: 200, maxHp: 250, shield: shieldPoolHp({ buoyShield: { hp: 5 } }) }), GLOBE, 2, false, 1);
+    globe.update(input({ hp, shield: shieldPoolHp({ buoyShield: { hp: 5 } }) }), GLOBE, 2, false, 1);
     expect(globe.valueFill).toBe(shieldedFill(1));
   });
 

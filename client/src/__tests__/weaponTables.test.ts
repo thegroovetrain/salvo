@@ -14,8 +14,9 @@ const TIERED = [
   'deckGun', 'machineGun', 'flak', 'heavyTorpedo', 'lightTorpedo', 'broadside',
   'starShells', 'phosphorShells', 'navalMines', 'captiveMines', 'foulingMines',
 ];
-// HULL POINTS and PASSIVE HEALING left with Story 10.3 (Eric 2026-11-04, epic-10 amendment 7).
-const SHIP = ['engines', 'rudder', 'intel', 'reload'];
+// HULL POINTS and PASSIVE HEALING left with Story 10.3 (Eric 2026-11-04,
+// epic-10 amendment 7); the six that remain are index cards.
+const SHIP = ['armor', 'power', 'reload', 'engines', 'rudder', 'intel'] as const;
 
 /** Every row's cells, label-blind — a derived row is found by its VALUES. */
 const cells = (t: StatTable): (readonly string[])[] => t.rows.map((r) => r.values);
@@ -76,16 +77,17 @@ describe('ship upgrade tables', () => {
   // The HULL (maxHp) and PASSIVE HEALING (heal rate) table tests lived here
   // until Story 10.3 deleted both lines (Eric 2026-11-04, epic-10 amendment 7).
 
-  // ARMOR PIERCING (Story 9.9, epic-9 amendment 159): its table derives from the
-  // eighth SHIP-panel row by construction, ready for the entry Story 9.17's copy
-  // adds — base 0, then the fold's value per card, on every hull.
-  it('ARMOR PIERCING derives its table from the ARMOR PIERCING row', () => {
-    const t = shipUpgradeTable('power');
-    TABLE_HULLS.forEach((cls, i) => {
-      const at = (k: number): string =>
-        String(effectiveStats(CONFIG.shipClasses[cls], Array<string>(k).fill('power')).power);
-      expect(t.rows[i]!.values, cls).toEqual([0, 1, 2, 3, 4, 5].map(at));
-    });
+  // Story 10.3 (ruling 4): every ship upgrade's table prints its OWN INDEX —
+  // the hull's base, then the fold's value per card, on every hull (never a
+  // derived speed / turn / RPM / cooldown).
+  it('every ship upgrade table is its own index off the fold, per hull, per card', () => {
+    for (const id of SHIP) {
+      const t = shipUpgradeTable(id);
+      TABLE_HULLS.forEach((cls, i) => {
+        const at = (k: number): string => String(effectiveStats(CONFIG.shipClasses[cls], Array<string>(k).fill(id))[id]);
+        expect(t.rows[i]!.values, `${id} ${cls}`).toEqual(t.columns.map((_, k) => at(k)));
+      });
+    }
   });
 });
 

@@ -156,11 +156,16 @@ describe('HUD denominators react to effective stats', () => {
   // The HUD/hotbar surface reads the SAME scaled numbers the sim does — the
   // firewall's post-fold multiply is the only place the scale is applied, so a
   // full 5-stack build lands the scaled base reloads on the chips.
-  it('a FULL RELOAD stack is additive-linear (never compounding) and lands on the chips', () => {
-    const one = statsFor('battleship', { reload: 1 }).cooldownScale;
+  // Story 10.3 (Eric's ruling 14, the haste law): the RELOAD INDEX steps
+  // additively, and the cooldown is base / (1 + (RELOAD − 100) / 100) — never a
+  // compounded per-card multiplier.
+  it('a FULL RELOAD stack follows the haste law (never compounding) and lands on the chips', () => {
+    const base = CONFIG.index.base;
+    const one = statsFor('battleship', { reload: 1 });
     const maxed = statsFor('battleship', { reload: 5 });
-    expect(maxed.cooldownScale).toBeCloseTo(1 - 5 * (1 - one), 9);
-    expect(maxed.cooldownScale).not.toBeCloseTo(one ** 5, 3);
+    expect(maxed.reload - base).toBe(5 * (one.reload - base));
+    expect(maxed.cooldownScale).toBeCloseTo(1 / (1 + (maxed.reload - base) / base), 3);
+    expect(maxed.cooldownScale).not.toBeCloseTo(one.cooldownScale ** 5, 3);
     expect(equipmentReloadMs(maxed, 'gun')).toBe(CONFIG.gun.reloadMs * maxed.cooldownScale);
     expect(equipmentReloadMs(maxed, 'broadside')).toBe(CONFIG.broadside.reloadMs * maxed.cooldownScale);
   });

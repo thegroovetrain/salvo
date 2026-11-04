@@ -17,6 +17,7 @@
 import { describe, expect, it } from 'vitest';
 import { BUOY_LINE_IDS, CATALOG, CONFIG, LINE_IDS, effectiveStats, isStubLine, tierTargetOf, type CatalogLine } from '@salvo/shared';
 import { CARD_STAT_ROWS, cardStatRows, cardTierLabel, shipStatRows } from '../ui/boonCopy.js';
+import { hullPercent } from '../util/hullPercent.js';
 
 
 /** A torpedo boat with nothing fitted — the hull every value below is read on. */
@@ -93,23 +94,18 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
     expect(pairs(cardStatRows(CATALOG.deckGun, 0, TB))).toEqual([dmgPair('deckGun', 'gun', 0), rangePair('deckGun', 'gun', 0)]);
   });
 
-  it('TURNING prints WHOLE DEGREES PER SECOND with the unit (Eric 2026-09-30), and every rung moves the number', () => {
-    const deg = (n: number): string => `${Math.round((foldOf('rudder', n).kinematics.turnRate * 180) / Math.PI)}°/s`;
-    expect(pairs(cardStatRows(CATALOG.rudder, 0, TB))).toEqual([[deg(0), deg(1)]]);
-    const ladder = [0, 1, 2, 3].map((k) => cardStatRows(CATALOG.rudder, k, held('rudder', k))[0].next);
-    expect(ladder).toEqual([1, 2, 3, 4].map(deg));
-    expect(new Set(ladder).size).toBe(ladder.length);
-  });
-
-  it('keeps the RPM and PERCENTAGE printers the hover panel already uses', () => {
-    const sweep = cardStatRows(CATALOG.intel, 0, TB)[0];
-    expect(sweep.cur).toMatch(/ RPM$/);
-    expect(sweep.next).toMatch(/ RPM$/);
-    const cooldowns = cardStatRows(CATALOG.reload, 0, TB)[0];
-    expect(cooldowns.cur).toMatch(/^\d+%$/);
-    expect(cooldowns.next).toMatch(/^\d+%$/);
-    // A RELOAD card cuts every cooldown.
-    expect(Number.parseFloat(cooldowns.next)).toBeLessThan(Number.parseFloat(cooldowns.cur!));
+  // Story 10.3 (Eric's ruling 4): all six ship ladders are index cards — each
+  // prints its OWN INDEX bare, before → after (`ARMOR 100 → 120`), every rung
+  // moves the number, and the row reads the line's own index path (never a
+  // derived speed / turn / RPM / cooldown).
+  it('every ship ladder prints its own index, before → after, at every rung', () => {
+    for (const id of ['armor', 'power', 'reload', 'engines', 'rudder', 'intel'] as const) {
+      const at = (n: number): string => String(foldOf(id, n)[id]);
+      for (let k = 0; k < 4; k += 1) {
+        expect(pairs(cardStatRows(CATALOG[id], k, held(id, k))), `${id}@${k}`).toEqual([[at(k), at(k + 1)]]);
+      }
+      expect(Number(at(1))).toBeGreaterThan(Number(at(0)));
+    }
   });
 
   it('prints the DECK GUN ladder in whole hit points (amendment 39)', () => {
@@ -354,8 +350,13 @@ describe('cardStatRows — HULL REPAIR, the first live consumable', () => {
   it('reads every number off CONFIG.hullRepair, never a literal', () => {
     const h = CONFIG.hullRepair;
     const rows = cardStatRows(CATALOG.hullRepair, 0, TB);
-    expect(rows[0].next).toContain(String(h.instantHp));
-    expect(rows[1].next).toContain(String(h.regenHp));
+    // Story 10.3 (ruling 13's register): the heal is a PERCENT of the hull,
+    // never a raw hp figure.
+    const hull = CONFIG.shipClasses.battleship.hp;
+    expect(rows[0].next).toContain(String(hullPercent(h.instantHp, hull)));
+    expect(rows[0].next).not.toContain(String(h.instantHp));
+    expect(rows[1].next).toContain(String(hullPercent(h.regenHp, hull)));
+    expect(rows[1].next).not.toContain(String(h.regenHp));
     expect(rows[1].next).toContain(String(h.regenMs / 1000));
   });
 
@@ -425,11 +426,13 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
 
   // THE 8.16 CONSUMABLES (catalog-v3 R36/R37; CHAFF retired in 9.2): absolute rows in the
   // hullRepair shape, every number read off CONFIG — never a literal.
-  it('gives SHIELD BLOCK what it absorbs and how long it lasts, off CONFIG', () => {
-    expect(pairs(cardStatRows(CATALOG.shieldBlock, 0, TB))).toEqual([
-      [null, `${CONFIG.shieldBlock.hp} HP`],
-      [null, `${CONFIG.shieldBlock.durationMs / 1000} S`],
-    ]);
+  it('gives SHIELD BLOCK what it absorbs (a percent of the hull since 10.3) and how long it lasts, off CONFIG', () => {
+    const rows = pairs(cardStatRows(CATALOG.shieldBlock, 0, TB));
+    expect(rows).toHaveLength(2);
+    expect(rows[0][0]).toBeNull();
+    expect(rows[0][1]).toContain(String(hullPercent(CONFIG.shieldBlock.hp, CONFIG.shipClasses.battleship.hp)));
+    expect(rows[0][1]).not.toContain(String(CONFIG.shieldBlock.hp));
+    expect(rows[1]).toEqual([null, `${CONFIG.shieldBlock.durationMs / 1000} S`]);
   });
 
   // THE FOUR BUOYS (Story 10.9): the body's four rows (hull, effect reach,
@@ -551,7 +554,7 @@ describe('cardStatRows — the laws the five-row grid imposes', () => {
     const tb = cardStatRows(CATALOG.engines, 0, { cls: 'torpedoBoat', cards: [] })[0];
     const bb = cardStatRows(CATALOG.engines, 0, { cls: 'battleship', cards: [] })[0];
     expect(bb.cur).not.toBe(tb.cur);
-    expect(Number(bb.cur)).toBe(effectiveStats(CONFIG.shipClasses.battleship, []).kinematics.maxSpeed);
+    expect(Number(bb.cur)).toBe(effectiveStats(CONFIG.shipClasses.battleship, []).engines);
   });
 });
 

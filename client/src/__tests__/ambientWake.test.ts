@@ -19,6 +19,7 @@ import {
   type WakeBlipEvent,
   type WakeRibbon,
 } from '@salvo/shared';
+import { hullTopSpeed } from '../sim/hullKinematics.js';
 import { feedWakeReturns, sampleWireWakes } from '../render/ambient.js';
 import type { Radar } from '../render/radar.js';
 import { WakeSources } from '../render/wake.js';
@@ -52,7 +53,7 @@ function tickAcross(bearing: number): AmbientTick {
 function radialTrack(world: AmbientWorld, bearing: number, fromU: number): WakeRibbon {
   const o = world.observer.state;
   const cls = world.observer.cls;
-  const r = createShipWake(cls, CONFIG.shipClasses[cls].kinematics.maxSpeed);
+  const r = createShipWake(cls, hullTopSpeed(cls));
   const step = CONFIG.vision.wakeSampleU;
   for (let i = 0; i < 5; i += 1) {
     const d = fromU + i * step;

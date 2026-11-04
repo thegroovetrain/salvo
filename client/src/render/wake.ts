@@ -37,12 +37,12 @@ import {
   appendWakeSample,
   createShipWake,
   createTorpWake,
-  hullEnvelope,
   pruneWake,
   type HullId,
   type WakeRibbon,
 } from '@salvo/shared';
 import { CONTACT_STALE_MS } from './contacts.js';
+import { hullTopSpeed } from '../sim/hullKinematics.js';
 
 /**
  * WHAT KIND OF SOURCE laid this water — a hull class, or the fish.
@@ -99,7 +99,7 @@ function topSpeedOf(h: WakeHull): number {
   if (h.cls === 'torp') return CONFIG.torpedo.speed;
   const given = h.maxSpeedU;
   if (typeof given === 'number' && Number.isFinite(given) && given > 0) return given;
-  return hullEnvelope(h.cls).kinematics.maxSpeed;
+  return hullTopSpeed(h.cls);
 }
 
 /** A fresh ribbon for this source, from the SHARED model's own factories — the

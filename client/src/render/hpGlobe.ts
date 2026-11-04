@@ -31,6 +31,7 @@ import { CLIENT_CONFIG } from '../config.js';
 import { motionScaled, settings } from '../settings/store.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
 import type { PolyPoint } from '../util/poly.js';
+import { hullPercent } from '../util/hullPercent.js';
 // The Tier-1 hold easing is the storm vignette's, imported rather than
 // re-derived: amendment 16's hold is ONE behavior with one time constant shape.
 import { easeHold } from './zone.js';
@@ -54,8 +55,9 @@ const BED_RING_ALPHA = 0.28;
 const RAMP_RING_ALPHA = 0.35;
 
 /** Readout stack, globe-local (px from the centre): the `HULL` caption's
- *  CENTRE, and the shared BOTTOM edge of the `212` / `/250` pair — one line, as
- *  the mock's `.gt` column reads it. */
+ *  CENTRE, and the shared BOTTOM edge of the `72` / `%` pair — one line, as
+ *  the mock's `.gt` column reads it (the `%` took the old ` /250` max label's
+ *  seat and register in Story 10.3). */
 const HULL_LABEL_DY = -16;
 const READOUT_BOTTOM_DY = 16;
 
@@ -72,21 +74,19 @@ const VALUE_STYLE = {
   fill: C.textPrimary,
   letterSpacing: 0.5,
 } as const;
-const MAX_STYLE = { fontFamily: MONO, fontSize: B.type.hullMax, fill: C.textSecondary } as const;
+/** The unit glyph's register — the seat and dim colour the old ` /250` max
+ *  label held; its size is the `CLIENT_CONFIG.hudBar.type.hullPercent` feel
+ *  knob (Story 10.3 rendered candidate). */
+const UNIT_STYLE = { fontFamily: MONO, fontSize: B.type.hullPercent, fill: C.textSecondary } as const;
 
-/**
- * Pure: the displayed hull POINTS — floored, then floored again at 1 while any
- * hull remains.
- *   • floor, not round, so the number never disagrees with the globe's band —
- *     49.6 hp reads `49` beside an amber globe rather than a phosphor-looking
- *     `50` (the band uses the exact fraction);
- *   • but a LIVE hull never reads `0`: storm damage leaves fractions (0.4 hp is
- *     still afloat), and `HULL 0 /100` on a ship that is still fighting is a lie.
- *     Only a genuinely sunk hull (hp <= 0) reads zero.
- */
-export function hullShownValue(hp: number): number {
-  return hp <= 0 ? 0 : Math.max(1, Math.floor(hp));
-}
+/** The readout's unit glyph — the hull is a percent (Story 10.3). */
+export const HULL_UNIT = '%';
+
+/** The displayed hull PERCENT (Story 10.3, ruling 13 — the ceiling; an
+ *  afloat hull never reads 0). The one law lives in util/hullPercent.ts so the
+ *  card rows that speak of hull round it identically; re-exported here as the
+ *  globe's own readout function. */
+export { hullPercent };
 
 /**
  * Pure: hp — EVERY shield pool the own hull holds, summed: the SHIELD BLOCK's
@@ -104,17 +104,6 @@ export function shieldPoolHp(you: { shield?: { hp: number }; buoyShield?: { hp: 
  *  (amendment 116), the ordinary `textPrimary` otherwise. */
 export function shieldedFill(shield: number): number {
   return shield > 0 ? C.info : C.textPrimary;
-}
-
-/** Pure: the ` /250` half of the readout (its own dimmer register). */
-export function hullMaxLabel(maxHp: number): string {
-  return `/${Math.round(maxHp)}`;
-}
-
-/** Pure: the HP readout's value text — `72/100`. The globe splits it across two
- *  registers, but the ONE derivation stays here so the split can never drift. */
-export function hullHeaderValue(hp: number, maxHp: number): string {
-  return `${hullShownValue(hp)}${hullMaxLabel(maxHp)}`;
 }
 
 /**
@@ -344,8 +333,8 @@ export interface HpGlobeInput {
   /** hp — every shield pool's remaining absorb (`shieldPoolHp`: the SHIELD
    *  BLOCK's plus, since Story 10.9, the SHIELD BUOY's; 0 when none is up).
    *  Story 8.16, epic-8 amendments 116/117: it is added to the
-   *  printed NUMBER only, tinted `info` — the globe, its band and the max label
-   *  never see it. */
+   *  printed NUMBER only (a percent that may pass 100 since Story 10.3),
+   *  tinted `info` — the globe and its band never see it. */
   shield: number;
 }
 
@@ -361,10 +350,9 @@ export class HpGlobe {
   private readonly front = new Graphics();
   private readonly label: Text;
   private readonly value: Text;
-  private readonly max: Text;
+  private readonly unit: Text;
   private lastSig = '';
   private lastValue = '';
-  private lastMax = '';
   private lastFill: number = C.textPrimary;
   private lastMicro = 1;
   /** INTEGRATED pulse phase (radians) + the clock it was last advanced at. */
@@ -380,13 +368,13 @@ export class HpGlobe {
     this.label.anchor.set(0.5);
     this.value = new Text({ text: '', style: VALUE_STYLE });
     this.value.anchor.set(0, 1);
-    this.max = new Text({ text: '', style: MAX_STYLE });
-    this.max.anchor.set(0, 1);
-    this.root.addChild(this.label, this.value, this.max);
+    this.unit = new Text({ text: HULL_UNIT, style: UNIT_STYLE });
+    this.unit.anchor.set(0, 1);
+    this.root.addChild(this.label, this.value, this.unit);
     // The SHIELDED readout (UX-DR46, Story 8.16, epic-8 amendments 116/117) is
     // the NUMBER only: `readout()` prints hull + shield in `info` while a SHIELD
-    // BLOCK is up. No globe ring, no hull ring, and the globe geometry, band
-    // and max label never see the shield.
+    // BLOCK is up. No globe ring, no hull ring, and the globe geometry and
+    // band never see the shield.
   }
 
   /**
@@ -440,17 +428,16 @@ export class HpGlobe {
     this.fill.alpha = hullFillHeld(frac, this.pulsePhase, amp, this.hold);
   }
 
-  /** `HULL` over `212 /250`, centred as one block on the globe. While a
-   *  SHIELD BLOCK is up the value is hull + shield (it may read past max —
-   *  `HULL 312 /250`) in `info` (amendment 116); the max label is untouched. */
+  /** `HULL` over `72 %`, centred as one block on the globe. While a SHIELD
+   *  BLOCK is up the value is hull + shield as one percent (it may read past
+   *  100 — `HULL 112 %`) in `info` (amendment 116, in percent since 10.3). */
   private readout(input: HpGlobeInput, c: Circle, uiScale: number): void {
     const micro = microScale(uiScale);
     if (micro !== this.lastMicro) {
       this.label.scale.set(micro);
       this.lastMicro = micro;
     }
-    const value = `${hullShownValue(input.hp + input.shield)}`;
-    const max = hullMaxLabel(input.maxHp);
+    const value = `${hullPercent(input.hp + input.shield, input.maxHp)}`;
     if (value !== this.lastValue) {
       this.value.text = value;
       this.lastValue = value;
@@ -460,20 +447,16 @@ export class HpGlobe {
       this.value.style.fill = fill;
       this.lastFill = fill;
     }
-    if (max !== this.lastMax) {
-      this.max.text = max;
-      this.lastMax = max;
-    }
     this.label.position.set(c.cx, c.cy + HULL_LABEL_DY);
     // Widths come from the MONO MODEL (ui/refitCardFit.ts), never from
     // `Text.width`: the bar's type is one monospaced stack, so the model is
     // exact, and reading a Text's bounds would force a canvas measure every
     // time the hull ticks (and is unavailable headless).
     const vw = monoTextWidth(value, VALUE_STYLE.fontSize, VALUE_STYLE.letterSpacing);
-    const mw = monoTextWidth(max, MAX_STYLE.fontSize);
-    const x = c.cx - (vw + mw) / 2;
+    const uw = monoTextWidth(HULL_UNIT, UNIT_STYLE.fontSize);
+    const x = c.cx - (vw + uw) / 2;
     this.value.position.set(x, c.cy + READOUT_BOTTOM_DY);
-    this.max.position.set(x + vw, c.cy + READOUT_BOTTOM_DY);
+    this.unit.position.set(x + vw, c.cy + READOUT_BOTTOM_DY);
   }
 
   hide(): void {
@@ -496,6 +479,6 @@ export class HpGlobe {
   }
 
   readoutText(): string {
-    return `${this.label.text} ${this.value.text} ${this.max.text}`;
+    return `${this.label.text} ${this.value.text} ${this.unit.text}`;
   }
 }

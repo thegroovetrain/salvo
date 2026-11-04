@@ -59,6 +59,7 @@ import {
   CATALOG,
   CONFIG,
   EQUIPMENT_STAT_FIELDS,
+  INDEX_IDS,
   LINE_IDS,
   arcFor,
   buoyKindOf,
@@ -71,10 +72,12 @@ import {
   type CatalogLine,
   type EffectiveStats,
   type EquipmentId,
+  type IndexId,
   type LineId,
   type LineKind,
   type ShipClassId,
 } from '@salvo/shared';
+import { hullPercent } from '../util/hullPercent.js';
 
 /**
  * THE CARD NAMES — catalog v3 §1, Eric's own sheet, verbatim (Story 8.1).
@@ -99,15 +102,16 @@ import {
  */
 const LINE_NAMES: Readonly<Record<LineId, string>> = {
   // --- the six universal ladders -------------------------------------------
-  // Story 10.3 (Eric 2026-11-04, epic-10 amendment 7) DELETED `hullPoints`
-  // (HULL) and `passiveHealing` (PASSIVE HEALING) and RENAMED the ids
-  // `armorPiercing` -> `power`, `speed` -> `engines`, `turning` -> `rudder`,
-  // `radarSweep` -> `intel`. The display words move in a later 10.3 wave.
+  // Story 10.3 (Eric 2026-11-04, epic-10 amendment 7, ruling 4) DELETED
+  // `hullPoints` (HULL) and `passiveHealing` (PASSIVE HEALING) and made the
+  // six ship ladders INDEX cards under the index words: ARMOR · POWER (was
+  // ARMOR PIERCING) · RELOAD · ENGINES (was SPEED) · RUDDER (was TURNING) ·
+  // INTEL (was RADAR SWEEP) — one word per index (`INDEX_WORDS` below).
   armor: 'ARMOR', // Story 9.7 (epic-9 amendments 110–117)
-  power: 'ARMOR PIERCING', // Story 9.9 (epic-9 amendments 145, 159)
-  engines: 'SPEED',
-  rudder: 'TURNING',
-  intel: 'RADAR SWEEP',
+  power: 'POWER', // Story 9.9's ARMOR PIERCING (epic-9 amendments 145, 159)
+  engines: 'ENGINES',
+  rudder: 'RUDDER',
+  intel: 'INTEL',
   reload: 'RELOAD',
   // --- the deck-gun family --------------------------------------------------
   deckGun: 'CANNON',
@@ -329,9 +333,26 @@ function equipmentStatLines(): Partial<Record<LineId, StatLine>> {
   return out;
 }
 
-/** Pure: a yaw rate (rad/s) as WHOLE degrees per second with the unit. */
-function degPerSec(radPerSec: number): string {
-  return `${Math.round((radPerSec * 180) / Math.PI)}°/s`;
+/**
+ * THE INDEX WORDS (Story 10.3, Eric 2026-11-04, epic-10 amendment 6(c) / 7):
+ * every ship stat is a plain number around 100, and each has ONE word — the
+ * six ship ladders' card names and the SHIP panel's seven rows alike. RANGE
+ * is an index with no card yet (10.6 may deal one), so it is a SHIP row only.
+ */
+const INDEX_WORDS: Readonly<Record<IndexId, string>> = {
+  armor: 'Armor',
+  power: 'Power',
+  reload: 'Reload',
+  engines: 'Engines',
+  rudder: 'Rudder',
+  intel: 'Intel',
+  range: 'Range',
+};
+
+/** One index's stat line: its word, read bare off its own index path (`num`
+ *  prints the whole number with no unit — `ARMOR 100 → 120`). */
+function indexLine(id: IndexId): StatLine {
+  return { label: INDEX_WORDS[id], path: id };
 }
 
 /**
@@ -341,34 +362,24 @@ function degPerSec(radPerSec: number): string {
  * PARTIAL over the catalog: the five consumables are stubs and the five add-ons
  * are verbs, so neither has a number. What speaks is the six universal
  * ladders, the deck-gun family, and every LIVE equipment line (its own reload,
- * generated above). Each label below is carried over verbatim from the v2 line
- * this one replaces (see the `<-` notes), except TURNING, whose word is the
- * class-select stat label already shipped in ui/classSelect.ts.
+ * generated above). Since Story 10.3 the six ladders print their own INDEX
+ * (`indexLine`) — never the speed / turn / RPM / cooldown the fold derives
+ * from it.
  */
 const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
   ...equipmentStatLines(),
   // HULL POINTS' `Max hull` row sat here until Story 10.3 deleted the line
   // (Eric 2026-11-04, epic-10 amendment 7).
-  // ARMOR (Story 9.7, Eric 2026-10-13): ONE row, the whole-number Armor —
-  // `ARMOR 0 → 20` since Story 9.9 (+20 a card, epic-9 amendment 145); `num`
-  // prints an integer bare, no unit.
-  armor: { label: 'Armor', path: 'armor' },
-  // ARMOR PIERCING (Story 9.9, epic-9 amendment 159 — mirrors ARMOR): ONE row,
-  // the whole-number piercing — `ARMOR PIERCING 0 → 20`. Line and stat
-  // `armorPiercing` -> `power` since Story 10.3 (epic-10 amendment 7).
-  power: { label: 'Armor Piercing', path: 'power' },
-  engines: { label: 'Top speed', path: 'kinematics.maxSpeed' }, // <- shipSpeed (`speed` until Story 10.3)
-  // TURNING PRINTS IN DEGREES PER SECOND (Eric 2026-09-30, review gate P10):
-  // a whole number with its unit — 0.8 rad/s reads `46°/s` — on the card face,
-  // the SHIP tooltip and the results build line alike (one printer).
-  rudder: { label: 'Turning', path: 'kinematics.turnRate', fmt: degPerSec }, // `turning` until Story 10.3
-  // <- intelSweep (`radarSweep` until Story 10.3)
-  intel: { label: 'Radar sweep', path: 'sweepRpm', fmt: (v) => `${num(v)} RPM` },
-  // <- shipCooldown. The ONE global cooldown lever: `cooldownScale` multiplies
-  // every equipment's reload post-fold, so this row reads the scalar itself
-  // rather than any single weapon — printed as a percentage of base so
-  // 100% → 95% reads downward.
-  reload: { label: 'All cooldowns', path: 'cooldownScale', fmt: pct },
+  // THE SIX SHIP LADDERS (Story 10.3, Eric's ruling 4): +20 index cards, ONE
+  // row each, the bare index — `ARMOR 100 → 120`, `ENGINES 117 → 137`. Until
+  // 10.3 four of them printed a derived figure (`TOP SPEED`, `TURNING °/s`,
+  // `RADAR SWEEP RPM`, `ALL COOLDOWNS %`); the index IS the stat now.
+  armor: indexLine('armor'),
+  power: indexLine('power'),
+  reload: indexLine('reload'),
+  engines: indexLine('engines'),
+  rudder: indexLine('rudder'),
+  intel: indexLine('intel'),
   // PASSIVE HEALING's `Heal` row sat here until Story 10.3 deleted the line
   // (Eric 2026-11-04, epic-10 amendment 7).
   // The DECK GUN ladder's HEADLINE is damage (its own reload is derived from
@@ -818,11 +829,12 @@ function isRangePath(path: string): boolean {
 
 /**
  * AUTHORED STEPS THE CARD DOES NOT PRINT (Story 9.6, Eric 2026-10-13, epic-9
- * amendment 95 — "Rate row only"). A PASSIVE HEALING card authors two steps,
- * the rate and the out-of-combat wait, and the face prints the rate alone: the
- * wait is real on the server but is not a row anywhere.
+ * amendment 95 — "Rate row only"). Its one member, PASSIVE HEALING's
+ * out-of-combat wait (`regen.outOfCombatMs`), left with the line and the regen
+ * in Story 10.3 (epic-10 amendment 7); the set stays as the seam for the next
+ * authored-but-silent step.
  */
-const UNPRINTED_PATHS: ReadonlySet<string> = new Set(['regen.outOfCombatMs']);
+const UNPRINTED_PATHS: ReadonlySet<string> = new Set<string>();
 
 /** Pure: the row one authored step contributes, or NULL when the two folds
  *  print the same value (see `ladderRows`). The test is on the values BEFORE
@@ -977,16 +989,30 @@ function triggerFollows(field: string, fields: readonly string[]): boolean {
  * CHAFF retired in 9.2), the MULTI-SPECTRAL COUNTERMEASURE (9.3) and the FOULING SHELL (9.4) follow
  * below. The one remaining stub is never dealt and gets no rows.
  */
+/**
+ * A hull figure as a PERCENT of the hull (Story 10.3, ruling 13's register —
+ * nobody ever sees a raw figure out of 1000): the one law of
+ * util/hullPercent.ts against `HULL_BASIS`. A consumable's rows are absolute
+ * and hull-agnostic (the belt slot prints them with no fold in hand), so the
+ * basis is the AVERAGE hull — the battleship, the scaffold's 100 (ruling 3);
+ * every hull is the same size under the scaffold. [Story 10.3 reading]
+ */
+const HULL_BASIS = CONFIG.shipClasses.battleship.hp;
+function hullPct(hp: number): string {
+  return `${hullPercent(hp, HULL_BASIS)}%`;
+}
+
 function hullRepairRows(): CardStatRow[] {
   const h = CONFIG.hullRepair;
   return [
-    // The instant half: `instantHp` the moment the copy fires, clamped to maxHp.
-    { label: 'INSTANT', cur: null, next: `+${num(h.instantHp)} HP` },
-    // The pooled half: `regenHp` paid over `regenMs` (epic-8 amendment 51 — the
-    // shipped pool is 50 hp over 5 s; the "5 hp/s" in R13/FR47 is a stale
-    // figure). Printed as the AMOUNT over its TIME rather than as a rate,
-    // because the amount is what stacks: pools ADD, the rate never changes.
-    { label: 'OVER TIME', cur: null, next: `+${num(h.regenHp)} HP / ${num(h.regenMs / 1000)} S` },
+    // The instant half: `instantHp` the moment the copy fires, clamped to maxHp
+    // — a PERCENT of the hull since Story 10.3.
+    { label: 'INSTANT', cur: null, next: `+${hullPct(h.instantHp)}` },
+    // The pooled half: `regenHp` paid over `regenMs` (epic-8 amendment 51; the
+    // "5 hp/s" in R13/FR47 is a stale figure). Printed as the AMOUNT over its
+    // TIME rather than as a rate, because the amount is what stacks: pools
+    // ADD, the rate never changes.
+    { label: 'OVER TIME', cur: null, next: `+${hullPct(h.regenHp)} / ${num(h.regenMs / 1000)} S` },
   ];
 }
 
@@ -1021,7 +1047,7 @@ function supercavTorpedoRows(): CardStatRow[] {
 function shieldBlockRows(): CardStatRow[] {
   const s = CONFIG.shieldBlock;
   return [
-    { label: 'ABSORBS', cur: null, next: `${num(s.hp)} HP` },
+    { label: 'ABSORBS', cur: null, next: hullPct(s.hp) }, // a percent of the hull since Story 10.3
     { label: 'LASTS', cur: null, next: `${num(s.durationMs / 1000)} S` },
   ];
 }
@@ -1232,37 +1258,28 @@ export function consumableStatRows(id: string): CardStatRow[] {
   return Object.hasOwn(CONSUMABLE_ROWS, id) ? (CONSUMABLE_ROWS[id as LineId]?.() ?? []) : [];
 }
 
-/** The six shipwide ladders, in the order the SHIP panel prints them
- *  (ARMOR in Story 9.7, Eric 2026-10-13; ARMOR PIERCING — `power` since
- *  10.3 — right after ARMOR in Story 9.9, epic-9 amendment 159). Story 10.3
- *  (Eric 2026-11-04, epic-10 amendment 7) deleted the HULL and PASSIVE
- *  HEALING rows with their lines and renamed four ids in place. */
-const SHIP_STAT_LINES: readonly LineId[] = [
-  'armor',
-  'power',
-  'engines',
-  'rudder',
-  'intel',
-  'reload',
-];
+/** THE SHIP PANEL'S ROWS (Story 10.3, Eric 2026-11-04, epic-10 amendment
+ *  6(c)): the SEVEN indices in `INDEX_IDS` order — ARMOR, POWER, RELOAD,
+ *  ENGINES, RUDDER, INTEL, RANGE. Keyed by INDEX, not by line: RANGE is a
+ *  ship stat with no card, so a row never needs a line to exist. The HULL and
+ *  PASSIVE HEALING rows left with their lines (no hull size is ever printed). */
+const SHIP_STAT_LINES: readonly StatLine[] = INDEX_IDS.map(indexLine);
 
-/** Pure: the hull's six stats off a LIVE fold (the HP globe's SHIP panel and a
- *  ship ladder's hover) — each ladder's own `STAT_LINES` word and printer. */
+/** Pure: the hull's seven indices off a LIVE fold (the HP globe's SHIP panel
+ *  and a ship ladder's hover) — the index word and its bare number. */
 export function shipStatRows(stats: EffectiveStats): CardStatRow[] {
-  const rows: CardStatRow[] = [];
-  for (const id of SHIP_STAT_LINES) {
-    const line = STAT_LINES[id];
-    if (line === undefined) continue;
-    rows.push({ label: line.label.toUpperCase(), cur: null, next: (line.fmt ?? num)(readStatPath(stats, line.path)) });
-  }
-  return rows;
+  return SHIP_STAT_LINES.map((line) => ({
+    label: line.label.toUpperCase(),
+    cur: null,
+    next: (line.fmt ?? num)(readStatPath(stats, line.path)),
+  }));
 }
 
 /**
  * Pure: the refit card's HOVER rows (amendment 187) — the full table of what
  * the card touches, valued on the AFTER fold (the face's tense): a weapon line
- * its weapon's table, a gun ladder its gun's, a ship ladder the eight ship
- * stats, a consumable its `CONSUMABLE_ROWS`; a stub or an add-on none (no
+ * its weapon's table, a gun ladder its gun's, a ship ladder the seven ship
+ * indices, a consumable its `CONSUMABLE_ROWS`; a stub or an add-on none (no
  * panel). Fail-open on the class table, exactly as `cardStatRows`.
  */
 export function cardHoverRows(line: CatalogLine, _copiesHeld: number, you: BoonPreviewShip): readonly CardStatRow[] {

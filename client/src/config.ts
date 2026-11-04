@@ -3,7 +3,8 @@
 // single source of truth for anything gameplay-authoritative). If a value here
 // starts to feel gameplay-load-bearing, promote it to shared CONFIG instead.
 
-import { CONFIG, HULL_IDS, SHIP_CLASS_IDS, hullEnvelope, type FoghornEvent } from '@salvo/shared';
+import { CONFIG, HULL_IDS, SHIP_CLASS_IDS, type FoghornEvent } from '@salvo/shared';
+import { hullTopSpeed } from './sim/hullKinematics.js';
 import {
   SURFACE,
   fitGrainScale,
@@ -531,13 +532,11 @@ const HEAT_WAKE_REF = fitMaterialRef({
  * The fastest hull in the game (u/s), over EVERY hull id — the three pickable
  * classes and the three drone envelopes alike, because amendment 199 puts a
  * wake behind every visible hull and a drone is an ordinary ship. Read off
- * `hullEnvelope` rather than written down, so a kinematics retune or a fourth
- * class moves the wake pool's ceiling with it.
+ * the zero-card fold (`hullTopSpeed` — since Story 10.3 a top speed is DERIVED
+ * from the ENGINES index, never authored on the envelope) rather than written
+ * down, so an index retune or a fourth class moves the wake pool's ceiling.
  */
-export const FASTEST_HULL_SPEED = HULL_IDS.reduce(
-  (top, id) => Math.max(top, hullEnvelope(id).kinematics.maxSpeed),
-  0,
-);
+export const FASTEST_HULL_SPEED = HULL_IDS.reduce((top, id) => Math.max(top, hullTopSpeed(id)), 0);
 
 /**
  * Nominal travel time (ms) of the reveal zoom — the pull-back to the whole
@@ -1233,15 +1232,16 @@ export const CLIENT_CONFIG = {
      *  (not per-batch relative) so a hull's pips never shift when the class
      *  roster changes AND the pip count means the same real-world value
      *  everywhere it's shown. */
+    // STORY 10.3 (Eric 2026-11-04, epic-10 amendment 7): the three rows are
+    // INDICES now — ENGINES / ARMOR / RUDDER, read off the hull envelope's
+    // `index` — on index anchors: 1 pip = the average ship (`CONFIG.index.base`,
+    // 100), +1 pip per +20 (one ship-ladder card's step). [Story 10.3 reading]
+    // Under the scaffold every hull reads the same ARMOR — the truth of it.
+    // (Until 10.3: SPEED 30 kn +5, HULL 200 hp +50, TURNING 0.2 rad/s +0.2.)
     pip: {
-      speed: { base: 30, step: 5 }, // knots (numerically = u/s per the 2026-07-21 knot-realistic rescale) — 1 pip = 30kn, +5kn/pip
-      // hull hp — 1 pip = 200hp, +50hp/pip. DOUBLED WITH HULL HP in balance
-      // cycle 1: the ladder is absolute, and `pipFill` clamps at 5, so leaving
-      // it at 100/25 while hulls doubled would have rendered ALL THREE at a
-      // clamped 5 pips and erased the readout's whole point. Doubling both
-      // reproduces the shipped 2 / 3 / 4 exactly (TB 250, ML 300, BS 350).
-      toughness: { base: 200, step: 50 },
-      turning: { base: 0.2, step: 0.2 }, // rad/s — 1 pip = 0.2 rad/s, +0.2/pip
+      engines: { base: 100, step: 20 },
+      armor: { base: 100, step: 20 },
+      rudder: { base: 100, step: 20 },
     },
 
     /**
@@ -1956,11 +1956,14 @@ export const CLIENT_CONFIG = {
       /** The cooldown wipe's centred seconds numeral — mock `.cd { font: 600 18px }`
        *  (back with the 54 px squares in Story 9.11). */
       wipe: 18,
-      /** HP globe readout: `212` value, ` /250` max, `HULL` label (mock
+      /** HP globe readout: `72` value, `%` unit, `HULL` label (mock
        *  `.globe .gt b` 18 / `.globe .gt em` 10 / `.globe .gt` 9) — back with
-       *  the 104 px globes in Story 9.11. */
+       *  the 104 px globes in Story 9.11. Story 10.3 (ruling 13, the hull as
+       *  a percent): the `%` glyph took the retired ` /250` max label's seat
+       *  and its 10 px dim register — a FEEL KNOB, sized by the rendered
+       *  candidate. */
       hull: 18,
-      hullMax: 10,
+      hullPercent: 10,
       hullLabel: 9,
       /** Helm globe readout: `271°` value over its `HDG` caption. */
       hdg: 15,
@@ -2557,9 +2560,10 @@ export const CLIENT_CONFIG = {
     grindReleaseMs: 150,
     /** hp — while the own hull bleeds, an own `dmg` event UNDER this plays no
      *  thud and no shake: the server's 500 ms windowed contact bleed never
-     *  exceeds ~5 hp, a ram hit is tens. A big `dmg` during a scrape (a ram
-     *  hit, a shell) still thuds and shakes. */
-    bleedThudMaxHp: 8,
+     *  exceeds ~15 hp, a ram hit is many tens. A big `dmg` during a scrape (a
+     *  ram hit, a shell) still thuds and shakes. ×3 with the hull in Story 10.3
+     *  (was 8 at 300–350 hp hulls; every hull is 1000 now). */
+    bleedThudMaxHp: 24,
     /** ms — the own hull still counts as bleeding this long after the last
      *  bleeding frame: the server's window flush for a scrape we just left
      *  lands up to one 500 ms window (plus latency) later and must not thud.

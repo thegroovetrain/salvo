@@ -14,6 +14,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   CONSUMABLE_SLOTS,
+  INDEX_IDS,
   SLOT_BOOST,
   SLOT_COUNT,
   SLOT_GUN,
@@ -175,12 +176,12 @@ describe('the slot tooltip prints the LIVE stat table, one number per line (amen
 
 // --- THE SHIP PANEL ON THE HP GLOBE (amendment 186) ------------------------------
 
-describe('the HP globe opens a SHIP panel with the eight ship stats (amendment 186)', () => {
-  it('names the hull over SHIP and the eight ladders\' live values', () => {
+describe('the HP globe opens a SHIP panel with the seven ship indices (amendment 186; 10.3)', () => {
+  it('names the hull over SHIP and the seven indices\' live values', () => {
     const m = shipTooltipModel('torpedoBoat', STATS)!;
     expect(m.name).toBe(CLASS_DISPLAY_NAMES.torpedoBoat);
     expect(m.interaction).toBe(SHIP_INTERACTION);
-    expect(m.stats).toHaveLength(6); // eight until Story 10.3 deleted HULL and PASSIVE HEALING
+    expect(m.stats).toHaveLength(INDEX_IDS.length); // the seven indices since Story 10.3 (eight ladders before)
     expect(m.stats).toEqual(shipStatRows(STATS));
   });
 

@@ -69,7 +69,9 @@ import { boonName } from '../ui/boonCopy.js';
 /** The ship ladders in their ruled order (Stories 9.7 / 9.9; Story 10.3, Eric
  *  2026-11-04, epic-10 amendment 7, deleted HULL POINTS and PASSIVE HEALING
  *  and renamed four ids in place), by ID. */
-const LADDER_IDS = ['armor', 'power', 'engines', 'rudder', 'intel', 'reload'];
+// The six ship ladders in the ruled line order (Story 10.3: ARMOR · POWER ·
+// RELOAD over ENGINES · RUDDER · INTEL — the index order, amendment 6(c)).
+const LADDER_IDS = ['armor', 'power', 'reload', 'engines', 'rudder', 'intel'];
 
 /** Occurrences of `needle` in `hay`. */
 function count(hay: string, needle: string): number {
@@ -556,34 +558,32 @@ describe('showResults — the elimination modal', () => {
       // PIERCING right after ARMOR (Story 9.9, epic-9 amendment 159).
       open(mockOwn());
       const numerals = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')];
-      // In the ruled ladder order (Story 10.3 deleted HULL and PASSIVE
-      // HEALING): ARMOR I, POWER —, ENGINES III, RUDDER I, INTEL II, RELOAD III.
-      expect(numerals.map((n) => n.textContent)).toEqual(['I', '—', 'III', 'I', 'II', 'III']);
-      // TWO ROWS at LADDERS_PER_ROW 4 (Eric's pick, Story 9.9, epic-9
-      // amendment 160; four over three since amendment 114, two rows of three
-      // since amendment 99) — four over two since Story 10.3's deletions: no
-      // separator crosses the row break.
+      // In the ruled ladder order (Story 10.3): ARMOR I, POWER —, RELOAD III,
+      // ENGINES III, RUDDER I, INTEL II.
+      expect(numerals.map((n) => n.textContent)).toEqual(['I', '—', 'III', 'III', 'I', 'II']);
+      // TWO EQUAL ROWS (Story 10.3 — amendment 99's two rows of three return
+      // with the six ladders): no separator crosses the row break.
       const rows = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div')];
       expect(rows).toHaveLength(2);
-      rows.forEach((r, i) => {
+      rows.forEach((r) => {
         const kids = [...r.children];
-        expect(kids.filter((k) => k.children.length > 0)).toHaveLength([4, 2][i]!); // an entry carries its numeral
+        expect(kids.filter((k) => k.children.length > 0)).toHaveLength(LADDER_IDS.length / 2); // an entry carries its numeral
         expect(kids[0].children.length, 'no separator leads a row').toBeGreaterThan(0);
         expect(kids.at(-1)!.children.length, 'no separator trails a row').toBeGreaterThan(0);
       });
-      // ARMOR, (POWER dashes), ENGINES, RUDDER, INTEL, RELOAD.
+      // ARMOR, (POWER dashes), RELOAD, ENGINES, RUDDER, INTEL.
       expect([0, 2, 3, 4, 5].map((k) => numerals[k].style.color)).toEqual(
-        [0, 2, 0, 1, 2].map((i) => LINEAGE_TIERS[i]),
+        [0, 2, 2, 0, 1].map((i) => LINEAGE_TIERS[i]),
       );
     });
 
-    // THE 4 + 4 SPLIT FITS (Story 9.9, epic-9 amendment 160): each row of the
+    // THE SPLIT FITS (Story 9.9, epic-9 amendment 160; 3 + 3 since 10.3): each row of the
     // ladder line, at its WIDEST numerals (III on every entry — the longest
     // roman up to the cap of V), stays inside the panel's 530 px content
     // column. The mono model mirrors makeLadderLine/makeLadderEntry's CSS:
     // labels 10 px at .16em, numerals 11 px at .1em after a 6 px margin, and a
     // `·` separator at the label type with 12 px margins either side.
-    it('each row of the 4 + 4 ladder line fits the 530 px column at its widest numerals', () => {
+    it('each row of the 3 + 3 ladder line fits the 530 px column at its widest numerals', () => {
       const COLUMN = 530;
       const L = LADDER_LINE_PX;
       const label = (t: string): number => monoTextWidth(t, L.labelPx, L.labelPx * L.labelTrackingEm);
@@ -593,7 +593,8 @@ describe('showResults — the elimination modal', () => {
         labels.reduce((w, l) => w + label(l) + numeral, 0) + sep * (labels.length - 1);
       const labels = ladderEntries([]).map((e) => e.label);
       expect(labels).toEqual(LADDER_IDS.map((id) => boonName(id))); // the ruled order, by line id
-      const rows = [labels.slice(0, 4), labels.slice(4)];
+      const half = labels.length / 2;
+      const rows = [labels.slice(0, half), labels.slice(half)];
       for (const r of rows) expect(rowW(r), r.join(' · ')).toBeLessThanOrEqual(COLUMN);
     });
 
@@ -602,7 +603,7 @@ describe('showResults — the elimination modal', () => {
       // half of this row, left with Story 10.3).
       open(mockOwn({ engines: 0 }));
       const shownMarks = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')];
-      expect(shownMarks.map((m) => m.textContent)).toEqual(['I', '—', '—', 'I', 'II', 'III']);
+      expect(shownMarks.map((m) => m.textContent)).toEqual(['I', '—', 'III', '—', 'I', 'II']);
       const entries = ladderEntries([]);
       expect(entries).toHaveLength(LADDER_IDS.length);
       // Every ship ladder starts from nothing (amendment 94; ARMOR too, Story
@@ -610,7 +611,7 @@ describe('showResults — the elimination modal', () => {
       // amendment 159), so all six dash.
       expect(entries.map((e) => e.tier)).toEqual([null, null, null, null, null, null]);
       const marks = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')];
-      for (const dash of [marks[1], marks[2]]) { // POWER (no copies) and ENGINES (0)
+      for (const dash of [marks[1], marks[3]]) { // POWER (no copies) and ENGINES (0)
         expect(dash.textContent).toBe('—');
         expect(dash.style.color).toBe('var(--hc-text-muted)');
       }

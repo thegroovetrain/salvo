@@ -2395,9 +2395,9 @@ function setupViewport(
 
 /** Predictor seeded with the guessed class config (first frame confirms/swaps it). */
 function makePredictor(map: GameMap, cls: ShipClassId): Predictor {
-  const spec = CONFIG.shipClasses[cls];
-  const p = new Predictor({ radius: map.radius, islands: map.islands }, spec.kinematics, hullSilhouette(cls));
-  p.setOwnMass(spec.hp); // the zero-card fold; applyOwnStats re-sets it from effectiveStats
+  const base = effectiveStats(CONFIG.shipClasses[cls]); // the zero-card fold
+  const p = new Predictor({ radius: map.radius, islands: map.islands }, base.kinematics, hullSilhouette(cls));
+  p.setOwnMass(base.armor); // mass = ARMOR (Story 10.3); applyOwnStats re-sets it from effectiveStats
   return p;
 }
 
@@ -3157,9 +3157,10 @@ function applyOwnStats(g: Game, cls: ShipClassId, cards: readonly string[], gun:
   // Behavior-boon hooks ride it too (Story 2.5): the predictor folds these
   // per tick in the SAME boost-then-hooks order the server steps with.
   g.predictor.setBoons(cardBehaviors(cards));
-  // ...and the hull pass's own MASS (Story 9.5): the effective max hull, the
-  // same number the server's resolver splits the push by.
-  g.predictor.setOwnMass(stats.maxHp);
+  // ...and the hull pass's own MASS (Story 9.5): the ARMOR index since Story
+  // 10.3 (ruling 2 — mass = ARMOR), the same number the server's resolver
+  // splits the push by. HUNKER's temporary bonus adds no mass.
+  g.predictor.setOwnMass(stats.armor);
   // Story 2.9 — the OWN doctrine modes fan out to the on-water renderer, which
   // is how our own ordnance gets its identity from LAUNCH (an enemy's has to
   // earn it from observable behavior). Deliberately ABOVE the vision-change
