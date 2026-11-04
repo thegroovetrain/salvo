@@ -3543,3 +3543,20 @@ Eric-approved 2026-10-25. Append-only pointer entry — the older text in this l
   status: open — Eric's call — 2026-10-25 (correct-course)
   summary: A NEW GAP RECORDED, NOT RULED: the standing "Eric's call — the list for one sitting" (68 lines, 2026-10-23) is still unconvened (epic-9 retro action 5). Several lines now have a natural home in Epic 10 — :1551 / :1561 (the liveness `queue` block, Story 10.6 touches the queue), :2499 (REDRAW pip, Story 10.4 touches the offer), :2730 / :2779 / :2828 (glyph sign-offs, Story 10.7 adds a card face), :3278 (results dismissal, Story 10.3 touches the battle UI). The spec author of each story raises its lines at the spec step; the rest wait for the sitting.
   evidence: this ledger "Eric's call — the list for one sitting"; `sprint-change-proposal-2026-10-25.md` §1 Evidence
+
+## 2026-11-04 — Correct-course: Epic 10 re-cut around the beacons / battleships / index slice (no build cycle; `sprint-change-proposal-2026-11-04.md`)
+
+Eric-approved 2026-11-04. Append-only entry — the older text in this ledger stands as history; nothing above is rewritten.
+
+- source_spec: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-11-04.md`
+  status: STANDING RECORD, NOT WORK — 2026-11-04 (correct-course)
+  summary: THE BUILT SURFACES OF STORIES 10.1 AND 10.9 ARE RETIRED BY STORY 10.12 WHEN IT LANDS (cycles 207–210, PRs #309–#312: the CONSUMABLES row and picker, the four-slot kit on keys 1–4, the ten consumable lines and their caps, the four buoys and their rings / glyph family, SHIELD BLOCK, the DECOY store's catalog ids). FLASH SHELLS survives as a special-shell option keeping amendment 5's whiteout; SUPERCAVITATING TORPEDO as a torpedo option. An accepted cost (forge premise 6); not a defect, not a rollback — 10.12 owns the removal as a forward change. Every entry in this ledger owned by "10.1" or "10.9" (hotbar timer 4n, buoy stacking, flash numbers) is MOOT once 10.12 lands and is closed by 10.12's PR with a pointer here.
+  evidence: `sprint-change-proposal-2026-11-04.md` §2 Story impact; epic-10 amendments 3–5 (the record of what was built), 6(e)
+- source_spec: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-11-04.md`
+  status: open — owned, with a home — 2026-11-04 (correct-course)
+  summary: THE FOUR OPEN THREADS CARRIED OUT OF THE 2026-11-03 BRAINSTORM, EACH WITH AN OWNING STORY (none is a deferred design gap): (1) radar noise without drones → OBSERVED on Story 10.2's staging pass and recorded, not solved (brainstorm #65; options logged under #12: guards-as-noise, a beacon radar return, airdrop blips, accept every blip is a captain); (2) POWER on torpedo / mine damage and ARMOR against them → Story 10.13 builds BOTH settings behind one dev dial each, Eric chooses on staging (#52 / #53); (3) the four buoys as random map spawns → TABLED, no story (#62; 10.12 removes the consumable buoys); (4) every number in the brainstorm's ship table and the beacon / airdrop rates → Eric's harness session when 10.10 / 10.11 / 10.2 are created (Open Thread 4). Also `[unruled]` at spec steps: the airdrop stat glyph at sight vs radar range (10.14); FOULING SHELL as a special-shell option and the DEPTH CHARGE stub (10.13); what a drone drops between 10.12 and 10.2 (reading: XP only).
+  evidence: `brainstorming-session-2026-11-03.md` Open Threads; `forge/beacons-battleships-index/.memlog.md`; epic-10 amendment 6(e)–(h)
+- source_spec: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-11-04.md`
+  status: STANDING RECORD, NOT WORK — 2026-11-04 (correct-course)
+  summary: TABLED WITH THE DECK GUNS (Stories 10.5 / 10.7 CANCELLED): per-gun range attenuation (flak flat) and HIGH EXPLOSIVE on a tiered ladder. CANNON / MACHINE GUN / FLAK stay in `catalog.ts` for reference, never dealt (brainstorm #25). If the deck-gun pick ever returns these two ideas return with it; no story holds them. The "Eric's call — the list for one sitting" lines the 2026-10-25 entry mapped to 10.7 (:2730 / :2779 / :2828 glyph sign-offs) lose that home and fall back to the sitting.
+  evidence: `sprint-change-proposal-2026-11-04.md` §4 ruling 3; epic-10 amendment 6(a)
