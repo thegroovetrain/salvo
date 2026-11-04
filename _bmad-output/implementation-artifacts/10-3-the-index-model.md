@@ -3,7 +3,7 @@ baseline_commit: a2dd70b4
 ---
 # Story 10.3: The Index Model
 
-Status: in-progress
+Status: review
 
 <!-- Created 2026-11-04 by gds-create-story on development @ a2dd70b4 (0.19.4, PV 94, the Epic 10 renumbering merge). Every line number below is a reading of the tree on that commit — re-grep before editing. Eric answered the spec-step questions by AskUserQuestion in this session BEFORE this file was written (four rounds of four, plus ruling 15 in chat after the first read-back); the answers are § Eric's rulings and become epic-10 amendment #7 at the dev step. Nothing in this story is a number the author filled in; every implementer reading is labelled as one and Eric may veto it on staging. -->
 
@@ -49,36 +49,36 @@ so that I can read toughness, punch and speed on one ruler without ever doing ar
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — shared: the index stats and the fold** (AC 1, 2, 3, 6)
-  - [ ] `CONFIG.shipClasses`: every `hp` → 1000 (keep the field — the fold seeds `maxHp` from it); add per-class index offsets `{ armor, power, reload, engines, rudder, intel, range }` (battleship 100 everywhere but ENGINES 117; torpedoBoat engines 150 / rudder 200; mineLayer engines 133 / rudder 150; `[reading]` whole-number indices — the battleship's top speed drifts 35 → 35.1 u/s and the mine-layer's 40 → 39.9; Eric may prefer exact fractions); add the reference bases the indices scale: `CONFIG.index = { base: 100, k: 100, engines: 30 (u/s — ruling 15), rudder: 0.4 (rad/s), intel: 15 (RPM) }` `[reading — names]`; `maxSpeed` / `turnRate` leave the per-class kinematics table (derived) while accel / decel / reverse / steerage stay.
-  - [ ] `EffectiveStats`: replace `armorPiercing` with `power`; add `reload`, `engines`, `rudder`, `intel`, `range` (indices); keep `armor` (now seeded at the class offset, not 0), `maxHp`, `sweepRpm`, `cooldownScale`, `kinematics` as DERIVED fields re-pinned in BOTH `rePinDerived` (`boons.ts:174-204`) and `clampStats` (`stats.ts:798-842`): `kinematics.maxSpeed = 30 × engines/100` (ruling 15), `kinematics.turnRate = index.rudder × rudder/100`, `sweepRpm = 15 × intel/100` (clamped to `sweepRpmMax`), `cooldownScale = 1 / (1 + (reload − 100)/100)` (ruling 14; floor the index at 1 so the law stays finite `[reading]`), main-battery `rangeU = base × range/100` for the gun / machineGun / flak / broadside rows `[reading: "the main-gun reach" = the deck-gun rows; star / phosphor / fouling / flash reach unchanged]`; delete `regen` from the type.
-  - [ ] `damageMultiplierFor` unchanged; `armorDamage` (`world.ts:6019-6025`) computes `E = victim.stats.armor + hunkerBonus − this.powerOf(byId)`; `piercingOf` → `powerOf` reading `stats.power`, default **100** for a missing attacker (the coast, a wreck, a departed owner — today's "reads piercing 0" becomes "reads the average POWER" so the storm-exempt / coast / wreck cases still net to E = victim ARMOR − 100 `[reading — Eric may veto: alternative is POWER 0, which would make a coast strike ×0.5 against ARMOR 100]`).
-  - [ ] Stat-path whitelist (`effects.ts:192-220`): add `power`, `reload`, `engines`, `rudder`, `intel`, `range`; remove `armorPiercing`, `regen.*`; keep `maxHp` writable `[reading — no card writes it after this story; the SHIELD buoy's pool is a separate field]`; `kinematics.maxSpeed` / `turnRate` / `sweepRpm` / `cooldownScale` leave the whitelist (derived, never authored) `[reading]`.
-  - [ ] Catalog (`catalog.ts`): delete `hullPoints` (seat 1) and `passiveHealing` (seat 8) with dated notes in place, the header count 30/… → 28/…, the `LINE_IDS` doc entry; rename `armorPiercing → power`, `speed → engines`, `turning → rudder`, `radarSweep → intel` (ids AND `LINE_IDS` seats; same seats, same kind, same cap — the `foulingMines` precedent); each is `ladder(id, 5, [statEffect(id, { add: 20 })])`; `healOnGrant` validation loses its only user (keep the flag's validator or delete it with a note `[reading]`).
-  - [ ] Weapon numbers in `CONFIG` + catalog steps (rulings 5–10, 12): `torpedo.damage` 90 → 300 with `torpedoTier('heavyTorpedo', 75, …)`; `lightTorpedo` 80 → 200, step 50; `supercavTorpedo` 150 → 400 (consumable, no step); `navalMines` 90 → 200, `navalMineTier(25)`; `captiveMines` 90 → 100, `captiveMineTier(25, …)`; `foulingMines` 10 → 100 with a new `statEffect('equipment.foulingMines.damage', { add: 25 })` per rung; `starShells` 20 → 50, steps 12/13/12/13; `phosphorShells` 10 → 50 burst steps 12/13/12/13, `dps` 5 → 20 steps +5 ×4; `zone.stormDps` [1,2,3,4,5] → [10,20,30,40,50]; `hullRepair` 50/50 → 100/100 (`regenMs` 5000 stays); placeholders: gun 8 → 24 (deckGun steps +6/+3/+3/+3, `contactDamage` 6 → 18), machineGun 5 → 15, flak 16 → 48 (`flakDamage` step +6, `contactDamage` 12), broadside 15 → 45, `shieldBlock.hp` 100 → 300, drones hp 135/180/225 gun damage 3. Update the doc comments that quote the old numbers.
-  - [ ] `CONFIG.ram`: `energyPerHp` 126.5625, `grindPerUnit` 20/27; rewrite the calibration prose (`constants.ts:2177-2225`) for mass = ARMOR index.
-  - [ ] `PROTOCOL_VERSION` 94 → 95 + the history line at the top of `shared/src/index.ts`.
-  - [ ] Tests (red first): `shipClasses.test.ts` relations → every hull 1000, ENGINES tb > ml > bb, RUDDER tb > ml > bb, battleship 100 on every index; `stats.test.ts` the derivations (speed = base × engines/100, RPM = 15 × intel/100, cooldown = base/(1 + (reload−100)/100), E = armor − power, mass law fractions); `catalog.test.ts` 28 lines, the six +20 ladders, the rungs of rulings 5–9 as RELATIONS to the base (never literals); `contact.test.ts` outcomes as fractions of 1000 at mass 100; `boons` / `barrel` / `draw` whitelist pins.
-- [ ] **Task 2 — server: the tick, the gate, the mass, the bots, the harness** (AC 3, 4, 5, 8)
-  - [ ] `world.ts`: delete `regenDue` / the regen branch of `healPctPerS` (`:5166-5185`); `tickRepairs` keeps the HULL REPAIR pool and the healing buoy term through `tickRegen` (rename it `tickHeal` `[reading]`); `baseStats` seeds no regen; remove the `regen.` tune surface (`batchsim/overrides.ts:132-145`).
-  - [ ] Mass: `damagePair` (`:4877-4904`), `landHitDamage` (`:4946`), the collision body `mass` (`:4814/4817`) read `stats.armor`; HUNKER's temporary +100 adds NO mass `[reading — amendment 88's "ARMOR adds no mass" inverted: the INDEX is the mass, the Shift bonus is not]`.
-  - [ ] Gate: `powerOf(byId)` per Task 1; `applyDamage` otherwise untouched (friendly fire, gate order, floors, `lastDamagedAt` stamp all stand).
-  - [ ] Bots (`ai/`): `UpgradeId` union + `favoriteUpgrades` renamed (`hullPoints` → drop, `passiveHealing` → drop, `armorPiercing` → `power`, `speed` → `engines`, `turning` → `rudder`, `radarSweep` → `intel`; the bulwark's `['hullPoints','passiveHealing','armor']` → `['armor']` + the 8-20 rule `[reading]`); `posture.ts:492-493` ram estimate reads the ARMOR base; `peerFactor` (`:295-296`) is 1 for every pair now — leave the code, it is still the right relation; `plot.ts:57` `TRACK_PERSIST_MS` from `CONFIG.index.intel` RPM; `shift.ts` / `tactics.ts` class literals unchanged.
-  - [ ] Harness: `balanceProbe.ts:190-222` `statsBlock` prints `class | armor power reload engines rudder intel range | speed rpm cooldown gunRange | dmgMult pierceMult` (indices + derived), the `universal` list = the six ids; `--tune shipClasses.<cls>.<index>` works; `catalogReport` / `report` hp readouts become percent of 1000 where they print a figure.
-  - [ ] Smokes: `matchSmoke.mjs` / `weaponsSmoke.mjs` kill plans drop the regen term (`TARGET.regen` is gone); FISH_BLOW etc. still derive from the fold — both must pass FIRST-TRY before the PR.
-  - [ ] Tests (red first): `regen.test.ts` → deleted with a dated note in `damageGate.test.ts` (which keeps "tickRepairs stays UN-gated" for the pool); `contactDamage.test.ts` / `botPolicy.test.ts` outcomes as fractions; `damageGate` E = armor − power incl. the missing-attacker default; `goldenFrames` re-recorded ONCE with a header note (offer rows move with the line list — positions and hp change, no event or channel).
-- [ ] **Task 3 — client: percent and index everywhere** (AC 7, 8)
-  - [ ] `hpGlobe.ts`: `hullShownValue` → `hullPercent(hp, maxHp) = hp <= 0 ? 0 : max(1, ceil(100 × hp / maxHp))` (ruling 13); readout prints `HULL 72 %` `[reading — the glyph `%` and its type size are the rendered candidate's]`; `hullMaxLabel` / `hullHeaderValue` deleted; shielded readout = `ceil(100 × (hp + shield) / maxHp)` past 100 in `C.info`.
-  - [ ] `boonCopy.ts`: `LINE_NAMES` = `ARMOR · POWER · RELOAD · ENGINES · RUDDER · INTEL · RANGE` `[reading — RANGE has no card yet but is a SHIP row]`; `STAT_LINES` print bare indices (`ARMOR 100 → 120`); `SHIP_STAT_LINES` = the seven indices in amendment 6(c)'s order (MAX HULL and HEAL rows gone — 1000 is never printed); HULL REPAIR rows print `+100 HP` → percent `+10 %` / `+10 % / 5 S` `[reading]`; SHIELD BLOCK `ABSORBS 30 %` `[reading]`; buoy `HULL 50 HP` → the buoy is not a hull, keep `[reading]`; `UNPRINTED_PATHS` loses `regen.outOfCombatMs`.
-  - [ ] `classSelect.ts`: the three pip rows (SPEED / HULL / TURNING) → `ENGINES / ARMOR / RUDDER` `[reading]` on index anchors (`CLIENT_CONFIG.home.pip` re-based: `{ base: 100, step: 20 }` per row `[reading]` — all three hulls read ARMOR equal, which is the truth of the scaffold); the label column stays 88 px / 0.16 em (the 2026-08-21 width ruling); this row set is part of the rendered candidate.
-  - [ ] `loadoutBlock.ts`: the ladder line = the six ship ladders `ARMOR · POWER · RELOAD` over `ENGINES · RUDDER · INTEL` (3 + 3 `[reading — amendment 99's two rows of three return]`); `equipmentIcons.ts` glyphs renamed with the ids, `hullPoints` / `passiveHealing` glyphs deleted; `fitCheck` shipwide list.
-  - [ ] `weaponTables.ts` / How-to-Play: `shipUpgradeTable` prints indices; the `[ SHIP UPGRADES ]` entries re-key to the surviving ids (the `hullPoints` entry has no line — it goes; `AWAITING_COPY` covers the rest); the regen sentence (`copy.ts:92`) and the HULL REPAIR sentence are FROZEN COPY — 10.14's, not touched `[reading — the 9.6 amendment-96 precedent]`.
-  - [ ] Prediction / bodies: `setOwnMass(stats.armor)`, `contactBodies.ts:77` mass = the contact class's ARMOR base; `prediction.ts` kinematics read the folded `kinematics` (unchanged path).
-  - [ ] Feel knobs that were absolute hp: `shake.ts` `DMG_SUBTLE` 15 → 45, `DMG_HEAVY` 55 → 165; `contactFx.bleedThudMaxHp` 8 → 24; `roomBindings.ts` `BURN_AMOUNT_CAP` derives from the catalog (follows); `worstCaseScene.ts` reads `CONFIG.shipClasses[...].hp` (follows).
-  - [ ] **Rendered candidate** (the 10.1 / 10.2 precedent): one artifact page from the real modules (`hpGlobe` readout at 104 px, SHIP tooltip with the seven rows, a class card with the three index pip rows, a refit card `ARMOR 100 → 120`, the LOADOUT 3 + 3 line) — Eric's yes BEFORE the client commit.
-  - [ ] Tests (red first): `hpGlobe.test.ts` percent relation (ceil, 1 % floor afloat, 0 % sunk, shield past 100); `boonCopy` / `cardStatRows` / `weaponTables` / `classSelect` / `results` / `fitCheck` / `loadoutBlock` on the new ids and the index rows (structure, never copy); `boonStats.test.ts` `maxHp` grows-by-hullPoints case deleted.
-- [ ] **Task 4 — records** (AC 9)
-  - [ ] `epic-10-context-amendments.md` #7 = § Eric's rulings verbatim + implementer readings of record (the `[reading]` tags above, resolved); `spec-10-3-the-index-model.md` (the per-cycle record); `deferred-work.md` stamps: the regen-sentence entry (:2450) and the hp-band sting regen note (:941) MOOT (no regen), the 9.5 review-gate defers re-read for mass = ARMOR; both trackers ONE-LINE stamped; `VERSION` + root `package.json` 0.19.5; DESIGN.md dated stamps on the five rows of AC 9; the ×3 placeholders listed in the spec as scaffold.
+- [x] **Task 1 — shared: the index stats and the fold** (AC 1, 2, 3, 6)
+  - [x] `CONFIG.shipClasses`: every `hp` → 1000 (keep the field — the fold seeds `maxHp` from it); add per-class index offsets `{ armor, power, reload, engines, rudder, intel, range }` (battleship 100 everywhere but ENGINES 117; torpedoBoat engines 150 / rudder 200; mineLayer engines 133 / rudder 150; `[reading]` whole-number indices — the battleship's top speed drifts 35 → 35.1 u/s and the mine-layer's 40 → 39.9; Eric may prefer exact fractions); add the reference bases the indices scale: `CONFIG.index = { base: 100, k: 100, engines: 30 (u/s — ruling 15), rudder: 0.4 (rad/s), intel: 15 (RPM) }` `[reading — names]`; `maxSpeed` / `turnRate` leave the per-class kinematics table (derived) while accel / decel / reverse / steerage stay.
+  - [x] `EffectiveStats`: replace `armorPiercing` with `power`; add `reload`, `engines`, `rudder`, `intel`, `range` (indices); keep `armor` (now seeded at the class offset, not 0), `maxHp`, `sweepRpm`, `cooldownScale`, `kinematics` as DERIVED fields re-pinned in BOTH `rePinDerived` (`boons.ts:174-204`) and `clampStats` (`stats.ts:798-842`): `kinematics.maxSpeed = 30 × engines/100` (ruling 15), `kinematics.turnRate = index.rudder × rudder/100`, `sweepRpm = 15 × intel/100` (clamped to `sweepRpmMax`), `cooldownScale = 1 / (1 + (reload − 100)/100)` (ruling 14; floor the index at 1 so the law stays finite `[reading]`), main-battery `rangeU = base × range/100` for the gun / machineGun / flak / broadside rows `[reading: "the main-gun reach" = the deck-gun rows; star / phosphor / fouling / flash reach unchanged]`; delete `regen` from the type.
+  - [x] `damageMultiplierFor` unchanged; `armorDamage` (`world.ts:6019-6025`) computes `E = victim.stats.armor + hunkerBonus − this.powerOf(byId)`; `piercingOf` → `powerOf` reading `stats.power`, default **100** for a missing attacker (the coast, a wreck, a departed owner — today's "reads piercing 0" becomes "reads the average POWER" so the storm-exempt / coast / wreck cases still net to E = victim ARMOR − 100 `[reading — Eric may veto: alternative is POWER 0, which would make a coast strike ×0.5 against ARMOR 100]`).
+  - [x] Stat-path whitelist (`effects.ts:192-220`): add `power`, `reload`, `engines`, `rudder`, `intel`, `range`; remove `armorPiercing`, `regen.*`; keep `maxHp` writable `[reading — no card writes it after this story; the SHIELD buoy's pool is a separate field]`; `kinematics.maxSpeed` / `turnRate` / `sweepRpm` / `cooldownScale` leave the whitelist (derived, never authored) `[reading]`.
+  - [x] Catalog (`catalog.ts`): delete `hullPoints` (seat 1) and `passiveHealing` (seat 8) with dated notes in place, the header count 30/… → 28/…, the `LINE_IDS` doc entry; rename `armorPiercing → power`, `speed → engines`, `turning → rudder`, `radarSweep → intel` (ids AND `LINE_IDS` seats; same seats, same kind, same cap — the `foulingMines` precedent); each is `ladder(id, 5, [statEffect(id, { add: 20 })])`; `healOnGrant` validation loses its only user (keep the flag's validator or delete it with a note `[reading]`).
+  - [x] Weapon numbers in `CONFIG` + catalog steps (rulings 5–10, 12): `torpedo.damage` 90 → 300 with `torpedoTier('heavyTorpedo', 75, …)`; `lightTorpedo` 80 → 200, step 50; `supercavTorpedo` 150 → 400 (consumable, no step); `navalMines` 90 → 200, `navalMineTier(25)`; `captiveMines` 90 → 100, `captiveMineTier(25, …)`; `foulingMines` 10 → 100 with a new `statEffect('equipment.foulingMines.damage', { add: 25 })` per rung; `starShells` 20 → 50, steps 12/13/12/13; `phosphorShells` 10 → 50 burst steps 12/13/12/13, `dps` 5 → 20 steps +5 ×4; `zone.stormDps` [1,2,3,4,5] → [10,20,30,40,50]; `hullRepair` 50/50 → 100/100 (`regenMs` 5000 stays); placeholders: gun 8 → 24 (deckGun steps +6/+3/+3/+3, `contactDamage` 6 → 18), machineGun 5 → 15, flak 16 → 48 (`flakDamage` step +6, `contactDamage` 12), broadside 15 → 45, `shieldBlock.hp` 100 → 300, drones hp 135/180/225 gun damage 3. Update the doc comments that quote the old numbers.
+  - [x] `CONFIG.ram`: `energyPerHp` 126.5625, `grindPerUnit` 20/27; rewrite the calibration prose (`constants.ts:2177-2225`) for mass = ARMOR index.
+  - [x] `PROTOCOL_VERSION` 94 → 95 + the history line at the top of `shared/src/index.ts`.
+  - [x] Tests (red first): `shipClasses.test.ts` relations → every hull 1000, ENGINES tb > ml > bb, RUDDER tb > ml > bb, battleship 100 on every index; `stats.test.ts` the derivations (speed = base × engines/100, RPM = 15 × intel/100, cooldown = base/(1 + (reload−100)/100), E = armor − power, mass law fractions); `catalog.test.ts` 28 lines, the six +20 ladders, the rungs of rulings 5–9 as RELATIONS to the base (never literals); `contact.test.ts` outcomes as fractions of 1000 at mass 100; `boons` / `barrel` / `draw` whitelist pins.
+- [x] **Task 2 — server: the tick, the gate, the mass, the bots, the harness** (AC 3, 4, 5, 8)
+  - [x] `world.ts`: delete `regenDue` / the regen branch of `healPctPerS` (`:5166-5185`); `tickRepairs` keeps the HULL REPAIR pool and the healing buoy term through `tickRegen` (rename it `tickHeal` `[reading]`); `baseStats` seeds no regen; remove the `regen.` tune surface (`batchsim/overrides.ts:132-145`).
+  - [x] Mass: `damagePair` (`:4877-4904`), `landHitDamage` (`:4946`), the collision body `mass` (`:4814/4817`) read `stats.armor`; HUNKER's temporary +100 adds NO mass `[reading — amendment 88's "ARMOR adds no mass" inverted: the INDEX is the mass, the Shift bonus is not]`.
+  - [x] Gate: `powerOf(byId)` per Task 1; `applyDamage` otherwise untouched (friendly fire, gate order, floors, `lastDamagedAt` stamp all stand).
+  - [x] Bots (`ai/`): `UpgradeId` union + `favoriteUpgrades` renamed (`hullPoints` → drop, `passiveHealing` → drop, `armorPiercing` → `power`, `speed` → `engines`, `turning` → `rudder`, `radarSweep` → `intel`; the bulwark's `['hullPoints','passiveHealing','armor']` → `['armor']` + the 8-20 rule `[reading]`); `posture.ts:492-493` ram estimate reads the ARMOR base; `peerFactor` (`:295-296`) is 1 for every pair now — leave the code, it is still the right relation; `plot.ts:57` `TRACK_PERSIST_MS` from `CONFIG.index.intel` RPM (moot: INTEL's base stays CONFIG.vision.sweepRpm, R-A); `shift.ts` / `tactics.ts` class literals unchanged.
+  - [x] Harness: `balanceProbe.ts:190-222` `statsBlock` prints `class | armor power reload engines rudder intel range | speed rpm cooldown gunRange | dmgMult pierceMult` (indices + derived), the `universal` list = the six ids; `--tune shipClasses.<cls>.<index>` works; `catalogReport` / `report` hp readouts become percent of 1000 where they print a figure.
+  - [x] Smokes: `matchSmoke.mjs` / `weaponsSmoke.mjs` kill plans drop the regen term (`TARGET.regen` is gone); FISH_BLOW etc. still derive from the fold — both must pass FIRST-TRY before the PR.
+  - [x] Tests (red first): `regen.test.ts` → deleted with a dated note in `damageGate.test.ts` (which keeps "tickRepairs stays UN-gated" for the pool); `contactDamage.test.ts` / `botPolicy.test.ts` outcomes as fractions; `damageGate` E = armor − power incl. the missing-attacker default; `goldenFrames` re-recorded ONCE with a header note (offer rows move with the line list — positions and hp change, no event or channel).
+- [x] **Task 3 — client: percent and index everywhere** (AC 7, 8)
+  - [x] `hpGlobe.ts`: `hullShownValue` → `hullPercent(hp, maxHp) = hp <= 0 ? 0 : max(1, ceil(100 × hp / maxHp))` (ruling 13); readout prints `HULL 72 %` `[reading — the glyph `%` and its type size are the rendered candidate's]`; `hullMaxLabel` / `hullHeaderValue` deleted; shielded readout = `ceil(100 × (hp + shield) / maxHp)` past 100 in `C.info`.
+  - [x] `boonCopy.ts`: `LINE_NAMES` = `ARMOR · POWER · RELOAD · ENGINES · RUDDER · INTEL · RANGE` `[reading — RANGE has no card yet but is a SHIP row]`; `STAT_LINES` print bare indices (`ARMOR 100 → 120`); `SHIP_STAT_LINES` = the seven indices in amendment 6(c)'s order (MAX HULL and HEAL rows gone — 1000 is never printed); HULL REPAIR rows print `+100 HP` → percent `+10 %` / `+10 % / 5 S` `[reading]`; SHIELD BLOCK `ABSORBS 30 %` `[reading]`; buoy `HULL 50 HP` → the buoy is not a hull, keep `[reading]`; `UNPRINTED_PATHS` loses `regen.outOfCombatMs`.
+  - [x] `classSelect.ts`: the three pip rows (SPEED / HULL / TURNING) → `ENGINES / ARMOR / RUDDER` `[reading]` on index anchors (`CLIENT_CONFIG.home.pip` re-based: `{ base: 100, step: 20 }` per row `[reading]` — all three hulls read ARMOR equal, which is the truth of the scaffold); the label column stays 88 px / 0.16 em (the 2026-08-21 width ruling); this row set is part of the rendered candidate.
+  - [x] `loadoutBlock.ts`: the ladder line = the six ship ladders `ARMOR · POWER · RELOAD` over `ENGINES · RUDDER · INTEL` (3 + 3 `[reading — amendment 99's two rows of three return]`); `equipmentIcons.ts` glyphs renamed with the ids, `hullPoints` / `passiveHealing` glyphs deleted; `fitCheck` shipwide list.
+  - [x] `weaponTables.ts` / How-to-Play: `shipUpgradeTable` prints indices; the `[ SHIP UPGRADES ]` entries re-key to the surviving ids (the `hullPoints` entry has no line — it goes; `AWAITING_COPY` covers the rest); the regen sentence (`copy.ts:92`) and the HULL REPAIR sentence are FROZEN COPY — 10.14's, not touched `[reading — the 9.6 amendment-96 precedent]`.
+  - [x] Prediction / bodies: `setOwnMass(stats.armor)`, `contactBodies.ts:77` mass = the contact class's ARMOR base; `prediction.ts` kinematics read the folded `kinematics` (unchanged path).
+  - [x] Feel knobs that were absolute hp: `shake.ts` `DMG_SUBTLE` 15 → 45, `DMG_HEAVY` 55 → 165; `contactFx.bleedThudMaxHp` 8 → 24; `roomBindings.ts` `BURN_AMOUNT_CAP` derives from the catalog (follows); `worstCaseScene.ts` reads `CONFIG.shipClasses[...].hp` (follows).
+  - [x] **Rendered candidate** (the 10.1 / 10.2 precedent): one artifact page from the real modules (`hpGlobe` readout at 104 px, SHIP tooltip with the seven rows, a class card with the three index pip rows, a refit card `ARMOR 100 → 120`, the LOADOUT 3 + 3 line) — Eric's yes BEFORE the client commit.
+  - [x] Tests (red first): `hpGlobe.test.ts` percent relation (ceil, 1 % floor afloat, 0 % sunk, shield past 100); `boonCopy` / `cardStatRows` / `weaponTables` / `classSelect` / `results` / `fitCheck` / `loadoutBlock` on the new ids and the index rows (structure, never copy); `boonStats.test.ts` `maxHp` grows-by-hullPoints case deleted.
+- [x] **Task 4 — records** (AC 9)
+  - [x] `epic-10-context-amendments.md` #7 = § Eric's rulings verbatim + implementer readings of record (the `[reading]` tags above, resolved); `spec-10-3-the-index-model.md` (the per-cycle record); `deferred-work.md` stamps: the regen-sentence entry (:2450) and the hp-band sting regen note (:941) MOOT (no regen), the 9.5 review-gate defers re-read for mass = ARMOR; both trackers ONE-LINE stamped; `VERSION` + root `package.json` 0.19.5; DESIGN.md dated stamps on the five rows of AC 9; the ×3 placeholders listed in the spec as scaffold.
 
 ## Dev Notes
 
@@ -184,8 +184,186 @@ Last code cycle: 10.2 whiteout (PR #312, 2026-11-03, cycle 210) — shared on Fa
 
 ### Agent Model Used
 
+Orchestrator Claude Fable 5.1 (/gds-dev-story + /orchestrate); wave 0 Opus, wave 1 Fable, waves 2a/2b Opus, wave 3 Sonnet; gate Fable x2 + Codex gpt-5.6-sol
+
 ### Debug Log References
+
+- `npm run check` EXIT 0 on 277b4ec2 (wave 2a head); the one-line gate fix 4336caff verified by shared tsc + `stats.test.ts` 109/109 + lint. Wave 0: shared 1216, server 2846, client 4180, hook 266, all green. Wave 1: shared tsc clean, 1245 tests, lint 0 errors (server/client red until wave 2). Wave 2a: server tsc clean, 2830 tests, eslint 0. Wave 2b: client tsc clean, 4181 tests, lint 0 errors. The gate test makes shared 1246.
+- `matchSmoke` OK first-try (wall 82.8 s; plan: 3 heavy torpedoes of 450 sink 1000 hp, no regen). `weaponsSmoke` OK first-try (wall 187.5 s; torpedo 300/450, light 200/300, mine 200, captive 100, cannon 24, MG 15, flak 48 all landed).
+- `goldenFrames` re-recorded twice with dated header notes: wave 0 (two offer rows move with the line list), wave 2a (hp 1000, dmg amounts, repairHp, one mine-pop event order). No new wire field; the SIX exceptions stay six.
+- Gate red-first: the RANGE overflow regression test in `stats.test.ts` was shown red before 4336caff.
 
 ### Completion Notes List
 
+- **Wave 0 (Opus, 7e9e9c8d):** behavior-free rename. Ladders `armorPiercing/speed/turning/radarSweep` become `power/engines/rudder/intel` (same seats, steps); HULL POINTS and PASSIVE HEALING deleted (30 -> 28 lines, 147 -> 137 cards), heal-on-grant gone; `piercingOf` -> `powerOf`; bots / harness / client / How-to-Play keys / tests follow; goldenFrames re-recorded.
+- **Wave 1 (Fable, e6c458ac):** the shared fold. `CONFIG.index { base 100, engines 30, rudder 0.4 }`; every envelope carries `index` and loses `maxSpeed/turnRate`; every class hp 1000; `sim/indexStats.ts` derives speed, turn, sweep RPM and cooldownScale (haste law) idempotently in baseStats + rePinDerived + clampStats, plus the one-shot RANGE multiply on the four deck-gun rows; whitelist rewritten; six ladders +20; Eric's damage table; `CONFIG.regen` deleted; ram dials 126.5625 and 20/27; PV 94 -> 95.
+- **Wave 2a (Opus, 277b4ec2):** server. Regen deleted (`tickRegen` -> `tickHeal`), mass = ARMOR in contact / damagePair / damageLand, `powerOf` live with `CONFIG.index.base` default, bots read the folded kinematics and the ARMOR ratio, harness `statsBlock` / `--tune shipClasses.<cls>.index.<id>`, regen tune family gone, smokes first-try, `regen.test.ts` deleted.
+- **Wave 2b (Opus, 284a4e9a):** client. `util/hullPercent.ts` the one percent law (ceiling, afloat never 0), 10 px dim `%` glyph, SHIP panel of seven indices, bare-index card rows, class pips on `{ base 100, step 20 }`, loadout 3 + 3, `sim/hullKinematics.ts`, feel knobs x3. Rendered candidate approved by Eric as shown.
+- **Dev-step rulings (amendment 8 o-r):** R16 candidate as shown, and a FULL in-game UI/UX pass is coming (SHIELD BLOCK going away); R17 drones KEEP ARMOR 100; R18 mine hp stays 10; R19 HULL REPAIR vs the last storm ring and the 225 hp drone vs a base naval mine both OK.
+- **Readings of record (amendment 8 s, Eric may veto on staging):** R-A through R-K, notably: no `CONFIG.index.k` / `intel`; `maxSpeed/turnRate` derived in the fold; a missing attacker reads POWER 100; client contact mass = class-base ARMOR (84j); `publishedDamageMultiplier` reads against an average attacker; `lastDamagedAt` write-only.
+- **Gate (Fable Blind Hunter, Fable Edge Case Hunter, Codex gpt-5.6-sol):** FIX-FIRST / BUILD-ON-IT / FIX-FIRST. All three flagged the client peer-mass seam (pre-existing in kind, recorded to deferred-work); Codex alone found the RANGE overflow (confirmed, FIXED 4336caff red-first); Blind Hunter alone the drone mass gap (Eric R17, kept). Full log in `spec-10-3-the-index-model.md`.
+- **Amendment number:** this story's amendment is **#8**, not #7 as the pre-dev text says: PR #317 (the 10.4 design sitting) took 7 first; code comments renumbered in d2add61b.
+- **Records (wave 3, Sonnet):** amendment 8, `spec-10-3-the-index-model.md`, three new and stamped `deferred-work.md` entries, five DESIGN.md row stamps, VERSION / package.json 0.19.5, both trackers.
+
 ### File List
+
+**shared** (29)
+
+- M `shared/src/__tests__/barrel.test.ts`
+- M `shared/src/__tests__/boons.test.ts`
+- M `shared/src/__tests__/boost.test.ts`
+- M `shared/src/__tests__/catalog.test.ts`
+- M `shared/src/__tests__/collision.test.ts`
+- M `shared/src/__tests__/contact.test.ts`
+- M `shared/src/__tests__/damageGuardrail.test.ts`
+- M `shared/src/__tests__/draft.test.ts`
+- M `shared/src/__tests__/draw.test.ts`
+- M `shared/src/__tests__/effects.test.ts`
+- M `shared/src/__tests__/hooks.test.ts`
+- M `shared/src/__tests__/hullRepair.test.ts`
+- M `shared/src/__tests__/ship.test.ts`
+- M `shared/src/__tests__/shipClasses.test.ts`
+- M `shared/src/__tests__/sight.test.ts`
+- M `shared/src/__tests__/sinking.test.ts`
+- M `shared/src/__tests__/slow.test.ts`
+- M `shared/src/__tests__/stats.test.ts`
+- M `shared/src/__tests__/wake.test.ts`
+- M `shared/src/constants.ts`
+- M `shared/src/index.ts`
+- M `shared/src/sim/boons.ts`
+- M `shared/src/sim/catalog.ts`
+- M `shared/src/sim/draw.ts`
+- M `shared/src/sim/effects.ts`
+- M `shared/src/sim/hull.ts`
+- A `shared/src/sim/indexStats.ts`
+- M `shared/src/sim/stats.ts`
+- M `shared/src/types.ts`
+
+**server** (50)
+
+- M `server/scripts/batchsim/__tests__/batchSim.test.ts`
+- M `server/scripts/batchsim/__tests__/botHarness.test.ts`
+- M `server/scripts/batchsim/__tests__/gunFirstSpend.test.ts`
+- M `server/scripts/batchsim/__tests__/poolReadouts.test.ts`
+- M `server/scripts/batchsim/__tests__/tuneFloor.test.ts`
+- M `server/scripts/batchsim/__tests__/tunedRandomSpend.test.ts`
+- M `server/scripts/batchsim/__tests__/upgradeEvidence.test.ts`
+- M `server/scripts/batchsim/balanceProbe.ts`
+- M `server/scripts/batchsim/catalogReport.ts`
+- M `server/scripts/batchsim/overrides.ts`
+- M `server/scripts/matchSmoke.mjs`
+- M `server/scripts/weaponsSmoke.mjs`
+- M `server/src/__tests__/__snapshots__/goldenFrames.test.ts.snap`
+- M `server/src/__tests__/boons.test.ts`
+- M `server/src/__tests__/boost.test.ts`
+- M `server/src/__tests__/botPolicy.test.ts`
+- M `server/src/__tests__/botPosture.test.ts`
+- M `server/src/__tests__/botReviewFixes.test.ts`
+- M `server/src/__tests__/botTactics.test.ts`
+- M `server/src/__tests__/bots.test.ts`
+- M `server/src/__tests__/buoyEffects.test.ts`
+- M `server/src/__tests__/contactDamage.test.ts`
+- M `server/src/__tests__/damageGate.test.ts`
+- M `server/src/__tests__/droneDrops.test.ts`
+- M `server/src/__tests__/drones.test.ts`
+- M `server/src/__tests__/equipment.test.ts`
+- M `server/src/__tests__/goldenFrames.test.ts`
+- M `server/src/__tests__/matchRecord.test.ts`
+- M `server/src/__tests__/mineBlastLanding.test.ts`
+- M `server/src/__tests__/mineHp.test.ts`
+- M `server/src/__tests__/mulligan.test.ts`
+- M `server/src/__tests__/perception.test.ts`
+- M `server/src/__tests__/radarWire.test.ts`
+- D `server/src/__tests__/regen.test.ts`
+- M `server/src/__tests__/roomOptions.test.ts`
+- M `server/src/__tests__/shieldBlock.test.ts`
+- M `server/src/__tests__/shift.test.ts`
+- M `server/src/__tests__/torpedoSelfHit.test.ts`
+- M `server/src/__tests__/upgrades.test.ts`
+- M `server/src/__tests__/wakeStore.test.ts`
+- M `server/src/__tests__/weapons.test.ts`
+- M `server/src/__tests__/weighting.test.ts`
+- M `server/src/__tests__/world.test.ts`
+- M `server/src/game/ai/plot.ts`
+- M `server/src/game/ai/posture.ts`
+- M `server/src/game/ai/profiles.ts`
+- M `server/src/game/equipment/consumables/hullRepair.ts`
+- M `server/src/game/frames.ts`
+- M `server/src/game/navCache.ts`
+- M `server/src/game/world.ts`
+
+**client** (48)
+
+- M `client/src/__tests__/ambientWake.test.ts`
+- M `client/src/__tests__/boonCopy.test.ts`
+- M `client/src/__tests__/boonStats.test.ts`
+- M `client/src/__tests__/cardStatRows.test.ts`
+- M `client/src/__tests__/classSelect.test.ts`
+- M `client/src/__tests__/contactBodies.test.ts`
+- M `client/src/__tests__/fitCheck.test.ts`
+- M `client/src/__tests__/frameOrdering.test.ts`
+- M `client/src/__tests__/helmGlobe.test.ts`
+- M `client/src/__tests__/hotbar.test.ts`
+- M `client/src/__tests__/howToPlay.test.ts`
+- M `client/src/__tests__/hpGlobe.test.ts`
+- M `client/src/__tests__/keyboard.test.ts`
+- M `client/src/__tests__/lineGlyphs.test.ts`
+- M `client/src/__tests__/nameplatesAboveTerrain.test.ts`
+- M `client/src/__tests__/prediction.test.ts`
+- M `client/src/__tests__/refitCardFit.test.ts`
+- M `client/src/__tests__/refitFailOpen.test.ts`
+- M `client/src/__tests__/refitTooltipFit.test.ts`
+- M `client/src/__tests__/results.test.ts`
+- M `client/src/__tests__/roomBindings.test.ts`
+- M `client/src/__tests__/score.test.ts`
+- M `client/src/__tests__/shake.test.ts`
+- M `client/src/__tests__/slotTooltip.test.ts`
+- M `client/src/__tests__/smoke.test.ts`
+- M `client/src/__tests__/tooltipFit.test.ts`
+- M `client/src/__tests__/upgradeMenu.test.ts`
+- M `client/src/__tests__/wake.test.ts`
+- M `client/src/__tests__/weaponTables.test.ts`
+- M `client/src/__tests__/xpStrip.test.ts`
+- M `client/src/config.ts`
+- M `client/src/how-to-play/copy.ts`
+- M `client/src/main.ts`
+- M `client/src/net/roomBindings.ts`
+- M `client/src/render/effects.ts`
+- M `client/src/render/equipmentIcons.ts`
+- M `client/src/render/equipmentInfo.ts`
+- M `client/src/render/hpGlobe.ts`
+- M `client/src/render/shake.ts`
+- M `client/src/render/wake.ts`
+- M `client/src/sim/contactBodies.ts`
+- A `client/src/sim/hullKinematics.ts`
+- M `client/src/sim/prediction.ts`
+- M `client/src/stage/worstCaseScene.ts`
+- M `client/src/ui/boonCopy.ts`
+- M `client/src/ui/classSelect.ts`
+- M `client/src/ui/loadoutBlock.ts`
+- A `client/src/util/hullPercent.ts`
+
+**records / planning** (11)
+
+- M `_bmad-output/gds-workflow-status.yaml`
+- A `_bmad-output/implementation-artifacts/10-3-the-index-model.md`
+- M `_bmad-output/implementation-artifacts/epic-10-context-amendments.md`
+- M `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- A `_bmad-output/implementation-artifacts/spec-10-3-the-index-model.md`
+- M `_bmad-output/implementation-artifacts/deferred-work.md`
+- M `_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESIGN.md`
+- M `VERSION`
+- M `package.json`
+
+(`epic-10-context-amendments.md` also carries PR #317 amendment 7, and the two `planning-artifacts/research/` files arrived with the PR #317 merge, not this story.)
+
+## Change Log
+
+- 2026-11-04 — Story file created (c4ad7e64); ruling 15 applied (cc12e0ec, 1a6196f6).
+- 2026-11-04 — Wave 0 behavior-free rename (7e9e9c8d, Opus).
+- 2026-11-04 — Wave 1 shared index fold (e6c458ac, Fable).
+- 2026-11-04 — Wave 2b client percent and index (284a4e9a, Opus); rendered candidate approved by Eric.
+- 2026-11-04 — Wave 2a server tick / gate / mass / bots / harness (277b4ec2, Opus); smokes first-try.
+- 2026-11-04 — Review gate: RANGE multiply fails closed (4336caff, Codex finding).
+- 2026-11-04 — origin/development merged (4806722d); amendment 7 -> 8 renumber (d2add61b).
+- 2026-11-04 — Wave 3 records (Sonnet): amendment 8, spec, deferred-work, DESIGN.md stamps, trackers, 0.19.5; status review.

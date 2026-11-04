@@ -939,6 +939,7 @@ and the permanently-invisible straight torpedo — remain OPEN.
 
 - source_spec: `spec-4-7-the-real-time-sound-map.md`
   status: open — Eric's call — 2026-10-23 (Story 9.16, cycle 206): an hp-band sting hysteresis margin is a feel number — regen (CONFIG.regen) can still oscillate a band under fire; hpBandEdge re-arms with only the 300 ms floor (client/src/audio/hpSting.ts).
+  status_10_3: MOOT 2026-11-04 (Story 10.3, cycle 211, epic-10 amendment 8): `CONFIG.regen` and the out-of-combat regen are deleted; the only remaining heal is the HULL REPAIR pool and the healing buoy, so the oscillation named here needs a repair to be in flight. The hysteresis question stands only for those two sources.
   summary: THE HP-BAND STINGS ARE BOUNDED BY THE REUSED 300ms FLOOR BUT HAVE NO HYSTERESIS MARGIN, so DAMAGE CONTROL regen oscillating across a band under sustained fire can still re-fire the sting seconds apart.
   evidence: `repairHp` pays into hp every server tick while incoming fire subtracts, and `hpBandEdge` re-arms by construction (the property its tests celebrate is the same one that makes this unbounded). The 300ms floor bounds the pathological rapid case; a proper margin is a feel number that is Eric's to set, so the code comments in `hpSting.ts` and `main.ts` say so explicitly to stop a future agent inventing one. Amendment 236.
 
@@ -2447,6 +2448,7 @@ Source: `_bmad-output/game-architecture.md`, "Architecture Validation — The De
   evidence: Blind Hunter finding 4 (PLAUSIBLE-low, harness only); rl/env.ts autoSpend after the heal branch was removed.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
   status: RESOLVED-AS-RESTATED 2026-10-01 (Story 8.22, cycle 161, amendment 207(d)) — the page imports no game module by design (`how-to-play/main.ts`), so the numbers stay prose; every sentence that states a number now carries a `// CONFIG.xxx` citation comment beside it in `copy.ts`, so a retune greps its way to the copy. Not derived, deliberately. (Earlier note 2026-09-30, cycle 156, amendment 175: the delay moved 30 s → 15 s and the sentence was corrected to "fifteen seconds" in the same PR.)
+  status_10_3: MOOT 2026-11-04 (Story 10.3, cycle 211, epic-10 amendment 8): there is no regen to hardcode. The sentence at `client/src/how-to-play/copy.ts:92` is now simply WRONG (see the 2026-11-04 Story 10.3 entry below); 10.14 rewrites it.
   summary: THE HOW-TO-PLAY REGEN SENTENCE HARDCODES "THIRTY SECONDS" AND "EVERY SECOND" while `regen.` is on the batchsim --tune surface; a retune of `CONFIG.regen.outOfCombatMs` / `missingPctPerS` silently strands the copy (the HULL REPAIR card face reads CONFIG live, this sentence does not). Amendment 50 fixed only the lines that became false; 8.22 owns the re-cut and should derive or restate them.
   evidence: Blind Hunter finding 5; client/src/how-to-play/copy.ts UPGRADING paragraph; howToPlay.test.ts pin.
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-8-heal-is-a-card.md`
@@ -3162,6 +3164,7 @@ Source: `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-21.md` (
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-9-5-ramming-and-contact-damage.md`
   status: open — shared/src/sim/collision.ts — 2026-10-23 (Story 9.16, cycle 206): still true: resolveShipPose's full-revert path returns {contact: true, headOn: 1} (collision.ts:236) with no reverted bit, so world.ts damageLand can price a phantom dead-on strike; recorded, not ruled, at epic-9 amendment 84(k)
+  status_10_3: STAMPED 2026-11-04 (Story 10.3, cycle 211, epic-10 amendment 8): ram mass is now the ARMOR index (`landHitDamage(stats.armor, preDampSpeed)`, `energyPerHp` 126.5625), so the phantom strike prices the SAME FRACTION of hull as before on a 1000-hp hull; the 50-hp figure above is 9.5-era. Still open, unchanged in kind.
   summary: THE LAND PASS'S FULL-REVERT BRANCH PRICES A PHANTOM DEAD-ON STRIKE — `resolveShipPose` returns `{contact: true, headOn: 1}` on a full revert, so a hull running PARALLEL to a coast that is shoved by another hull farther than `pushLimit` (beam + speed·dt, ≈ 11 u) in one tick reverts and pays `landHitDamage(maxHp, preDampSpeed)` (50 hp for a speedboat at 45 u/s) for land it never drove at; needs an overlap push over ~11 u in a tick (a three-hull squeeze or an overlapping placement), so rare, and the guard is to carry a `reverted` bit on `ShipPoseResult` and skip the strike on it.
   evidence: Blind Hunter (Fable) PLAUSIBLE at the 2026-10-13 review gate — probe P5 produced 18 + 50 in one tick with a deep-overlap placement; the clean-geometry rerun resolved as a scrape with headOn 0.
 - source_spec: `_bmad-output/implementation-artifacts/spec-9-5-ramming-and-contact-damage.md`
@@ -3564,3 +3567,18 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: STANDING RECORD, NOT WORK — 2026-11-04 (renumbering)
   summary: EPIC 10 RENUMBERED THE SAME DAY (Eric): done first in the order done, then build order — 10.1 slots, 10.2 flash + buoys (was 10.9), 10.3 index (was 10.10), 10.4 battleships (10.11), 10.5 kit retire (10.12), 10.6 catalog (10.13), 10.7 offer (10.4), 10.8 beacons (10.2), 10.9 airdrops (10.14), 10.10 battle UI (10.3), 10.11 bot fill (10.6), 10.12 bot posture (10.15), 10.13 sound (10.16), 10.14 How-to-Play (10.8); cancelled 10.15 flak (10.5), 10.16 MG (10.7). The 2026-10-25 and 2026-11-04 entries above carry the NEW numbers; entries older than 2026-10-25 and every code comment keep the old ones — read them through this line.
   evidence: epics.md Epic 10 intro renumbering table; epic-10-context-amendments.md header note
+
+## 2026-11-04 - Story 10.3 The Index Model (cycle 211, 0.19.5, PV 95) - review-gate and wave defers
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-3-the-index-model.md`
+  status: open - Eric's call - 2026-11-04 (Story 10.3, cycle 211, epic-10 amendment 8 R-F)
+  summary: THE PREDICTOR'S PEER MASS IS THE CLASS-BASE ARMOR WHILE THE SERVER'S IS THE FOLDED ARMOR - the 9.5 / 84(j) seam, now reaching 2:1 at five ARMOR cards. A contact's cards are private, so the client prices a push split on the contact's class-base `index.armor` while the authority reads `stats.armor`; the server wins, the error is bounded by overlap depth and reconciled (a snap, not a leak). PRE-EXISTING in kind (it was maxHp vs class hp under HULL POINTS cards); 10.3 widens its range. Fixing it would need a contact's ARMOR on the wire, a widening of what a contact carries - not proposed.
+  evidence: flagged independently by the Fable Blind Hunter, the Fable Edge Case Hunter and Codex gpt-5.6-sol at the 2026-11-04 gate; `client/src/sim/contactBodies.ts` vs `server/src/game/world.ts` `contactBodyOf`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-3-the-index-model.md`
+  status: open - harness note - 2026-11-04 (Story 10.3, cycle 211)
+  summary: `FASTEST_HULL_SPEED` (`server/src/game/ai/plot.ts`) AND `FIELD_MARGIN_U` (`server/src/game/navCache.ts`) ARE EVALUATED AT IMPORT, so they are blind to `--tune shipClasses.*.index.engines|rudder`; a tuned run's bots keep the untuned fastest-hull and field-margin heuristics. Bounded bot heuristics, harness only. Also from the Edge Case Hunter: RELOAD index 1 gives cooldownScale 100 (no ceiling, unreachable by the catalog) and `--tune armor=0` on both hulls switches contact damage off (`pairIsPriceable` false).
+  evidence: Edge Case Hunter (Fable) at the 2026-11-04 gate, traced; none reachable in a real match.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-3-the-index-model.md`
+  status: open - owned by Story 10.14 - 2026-11-04 (Story 10.3, cycle 211, epic-10 amendment 8 R-K)
+  summary: THE HOW-TO-PLAY REGEN SENTENCE IS WRONG SINCE 10.3 - `client/src/how-to-play/copy.ts:92` ("You slowly regenerate HP...") describes a regen that no longer exists; the HULL REPAIR and "run out of HP" sentences still say HP, and no ARMOR / POWER / index entries exist. The copy was left FROZEN on purpose (the 9.6 amendment-96 precedent): 10.14 owns the rewrite.
+  evidence: Story 10.3 wave 2b (284a4e9a) title-only How-to-Play changes; epic-10 amendment 8 R-K.
