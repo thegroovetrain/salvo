@@ -421,7 +421,7 @@ describe('the belt-and-braces clip (NOT the fix — the pins above are)', () => 
     const menu = new UpgradeMenu(() => {});
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, gun: 'deckGun' as const, kit: [...DEFAULT_KIT], pts: 1, offer: ['captiveMines', 'radarSweep'], boostUntil: 0,
+      cls: 'torpedoBoat' as const, gun: 'deckGun' as const, kit: [...DEFAULT_KIT], pts: 1, offer: ['captiveMines', 'intel'], boostUntil: 0,
       cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     menu.toggle(offerView(you, false, false, false, [])!);

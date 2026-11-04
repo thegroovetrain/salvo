@@ -95,34 +95,32 @@ const TEXT = {
 const P = LOADOUT_PX;
 const MONO = 'var(--hc-font-mono)';
 
-/** The eight ship ladders, in the ratified line order (PASSIVE HEALING last,
- *  Story 9.6; ARMOR right after HULL, Story 9.7 — Eric 2026-10-13; ARMOR
- *  PIERCING right after ARMOR, Story 9.9 — epic-9 amendment 159). */
+/** The six ship ladders, in the ratified line order. Story 10.3 (Eric
+ *  2026-11-04, epic-10 amendment 8) deleted HULL (`hullPoints`) and PASSIVE
+ *  HEALING (`passiveHealing`), made the six +20 index cards and set the line
+ *  in the INDEX order (amendment 6(c), the SHIP panel's own — RANGE has no
+ *  card): ARMOR · POWER · RELOAD over ENGINES · RUDDER · INTEL. */
 const LADDER_LINES: readonly LineId[] = [
-  'hullPoints',
   'armor',
-  'armorPiercing',
-  'speed',
-  'turning',
-  'radarSweep',
+  'power',
   'reload',
-  'passiveHealing',
+  'engines',
+  'rudder',
+  'intel',
 ];
 
 /** Eric R2 (2026-09-30): ladders that start from nothing read `—` at ZERO
  *  copies rather than a numeral. Since Story 9.6 (Eric 2026-10-13, epic-9
  *  amendment 94) that is every ship ladder: HULL / SPEED / TURNING no longer
- *  sail at Tier I, and PASSIVE HEALING is new; ARMOR (Story 9.7) and ARMOR
- *  PIERCING (Story 9.9, amendment 159) too. */
+ *  sail at Tier I; ARMOR (Story 9.7) and ARMOR PIERCING (Story 9.9,
+ *  amendment 159) too. The six since Story 10.3 (epic-10 amendment 8). */
 const DASH_AT_ZERO: ReadonlySet<LineId> = new Set<LineId>([
-  'hullPoints',
   'armor',
-  'armorPiercing',
-  'speed',
-  'turning',
-  'radarSweep',
+  'power',
+  'engines',
+  'rudder',
+  'intel',
   'reload',
-  'passiveHealing',
 ]);
 
 /** The chip a keyless gun column carries (mock `.kc.ghost`) — laid out, never seen. */
@@ -159,7 +157,7 @@ export interface LadderEntry {
   tier: number | null;
 }
 
-/** Pure: the five ladder entries for a build (`cards` with repeats intact). */
+/** Pure: the six ladder entries for a build (`cards` with repeats intact). */
 export function ladderEntries(cards: readonly string[]): LadderEntry[] {
   return LADDER_LINES.map((id) => {
     const copies = boonStackCount(cards, id);
@@ -400,8 +398,9 @@ function makeLadderEntry(entry: LadderEntry): HTMLSpanElement {
 /** Ladders per row of the ladder line (Story 9.6, epic-9 amendment 99; four
  *  since Story 9.7, Eric 2026-10-13, epic-9 amendment 114 — seven read 4 + 3;
  *  kept at four in Story 9.9, Eric's pick on the rendered page, epic-9
- *  amendment 160 — eight read 4 + 4). */
-const LADDERS_PER_ROW = 4;
+ *  amendment 160 — eight read 4 + 4). THREE again since Story 10.3: the six
+ *  index ladders read 3 + 3 (amendment 99's two rows of three return). */
+const LADDERS_PER_ROW = 3;
 
 /** One row of the ladder line: its entries with a muted `·` between them. */
 function makeLadderRow(entries: readonly LadderEntry[]): HTMLDivElement {
@@ -415,13 +414,12 @@ function makeLadderRow(entries: readonly LadderEntry[]): HTMLDivElement {
 }
 
 /**
- * The eight ship ladders as TWO ROWS, FOUR OVER FOUR (mock `.lo-lad`, re-cut
+ * The six ship ladders as TWO ROWS, THREE OVER THREE (mock `.lo-lad`, re-cut
  * at Story 9.6 — Eric 2026-10-13, epic-9 amendment 99 — again at Story 9.7,
- * amendment 114, and at Story 9.9, amendment 160): with PASSIVE HEALING the
- * one line of six ran past the panel's 530 px content column, so it split into
- * rows; with ARMOR PIERCING, HULL · ARMOR · ARMOR PIERCING · SPEED sit over
- * TURNING · RADAR SWEEP · RELOAD · PASSIVE HEALING at the same type, tracking
- * and separators.
+ * amendment 114, at Story 9.9, amendment 160, and at Story 10.3): ARMOR ·
+ * POWER · RELOAD sit over ENGINES · RUDDER · INTEL at the same type, tracking
+ * and separators (a single line of six would run past the panel's 530 px
+ * content column at its widest numerals).
  */
 function makeLadderLine(cards: readonly string[]): HTMLDivElement {
   const line = document.createElement('div');

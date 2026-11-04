@@ -59,8 +59,8 @@ const droneHps = DRONE_SIZE_IDS.map((d) => CONFIG.drones[d].hp);
 const minHullHp = Math.min(...classHps);
 const minDroneHp = Math.min(...droneHps);
 
-const classSpeeds = SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].kinematics.maxSpeed);
-const droneSpeeds = DRONE_SIZE_IDS.map((d) => CONFIG.drones[d].kinematics.maxSpeed);
+const classSpeeds = SHIP_CLASS_IDS.map((c) => effectiveStats(CONFIG.shipClasses[c]).kinematics.maxSpeed);
+const droneSpeeds = DRONE_SIZE_IDS.map((d) => effectiveStats(CONFIG.drones[d]).kinematics.maxSpeed);
 const maxHullSpeed = Math.max(...classSpeeds, ...droneSpeeds);
 
 /** Stats under N copies of one catalog line (the max-stack computation). */
@@ -187,16 +187,17 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
       const s2 = effectiveStats(CONFIG.shipClasses.torpedoBoat, maxStackFor(path));
       expect(read(s2, path), path).toBeLessThan(minHullHp);
     }
-    // THE LADDERS THAT ACTUALLY MOVE DAMAGE TODAY: the DECK GUN, the FOUR
-    // torpedo / mine lines, FLAK (all as retuned by Eric 2026-10-16, Story
-    // 9.12), and since Story 8.17 STAR SHELLS and PHOSPHOR SHELLS (Eric
-    // 2026-09-29, amendments 130/131). FOULING MINES is deliberately absent —
-    // its 10 hp is FIXED at every tier (epic-8 amendment 81) — and so is the
-    // BROADSIDE, whose 15 per shell is fixed at every tier (amendment 133),
-    // and since Story 9.12 the MACHINE GUN, whose 5 per shell is flat.
+    // THE LADDERS THAT ACTUALLY MOVE DAMAGE TODAY: the DECK GUN, the FIVE
+    // torpedo / mine lines (FOULING MINES gained its first damage step in
+    // Story 10.3, Eric 2026-11-04, ruling 6), FLAK, and since Story 8.17 STAR
+    // SHELLS and PHOSPHOR SHELLS (Eric 2026-09-29, amendments 130/131). The
+    // BROADSIDE is deliberately absent — its per-shell damage is fixed at every
+    // tier (amendment 133) — and so, since Story 9.12, is the MACHINE GUN,
+    // whose per-shell damage is flat.
     expect(damagePaths.filter((p) => maxStackFor(p).length > 0).sort()).toEqual([
       'equipment.captiveMines.damage',
       'equipment.flak.damage',
+      'equipment.foulingMines.damage',
       'equipment.gun.damage',
       'equipment.heavyTorpedo.damage',
       'equipment.lightTorpedo.damage',
@@ -206,17 +207,17 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
     ]);
   });
 
-  it('the torpedo / mine damage endpoints (base + the authored steps) all stay under the 300hp floor', () => {
-    // Story 9.12 (Eric 2026-10-16): the four stepped lines top out at
-    // 120 / 135 / 135 / 135 — no single torpedo or mine one-shots a captain at
-    // any build (a two-tube salvo is a multi-shell case the per-shell law
-    // deliberately does not govern). The endpoint is DERIVED: the line's
-    // tier-I base plus every authored damage step.
+  it('the torpedo / mine damage endpoints (base + the authored steps) all stay under the lightest hull', () => {
+    // Story 10.3 (Eric 2026-11-04, rulings 5–6): no single torpedo or mine
+    // one-shots a captain at any build (a two-tube salvo is a multi-shell case
+    // the per-shell law deliberately does not govern). The endpoint is
+    // DERIVED: the line's tier-I base plus every authored damage step.
     const tops = [
       ['lightTorpedo', CONFIG.lightTorpedo.damage],
       ['heavyTorpedo', CONFIG.torpedo.damage],
       ['navalMines', CONFIG.mine.damage],
       ['captiveMines', CONFIG.captiveMines.damage],
+      ['foulingMines', CONFIG.foulingMines.damage],
     ] as const;
     for (const [id, base] of tops) {
       const path = `equipment.${id}.damage`;
@@ -228,11 +229,6 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8; pla
       expect(got, path).toBe(base + steps);
       expect(got, path).toBeLessThan(minHullHp);
     }
-    // FOULING MINES trades damage for the slow: its base hp per hit at every tier.
-    expect(
-      effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(CATALOG.foulingMines.cap).fill('foulingMines'))
-        .equipment.foulingMines.damage,
-    ).toBe(CONFIG.foulingMines.damage);
   });
 
   it('the drafted ladder endpoints land where the spec ruled them', () => {
@@ -470,7 +466,7 @@ describe('torpedo vs hull speeds — CURRENT FACTS, no longer a law (FR7 retired
     // 45) — so a TB at full ahead is never outrun by it — and a SPEED-capped,
     // boosted TB (71.875) outruns even the maxed fish.
     expect(base.speed).toBeLessThanOrEqual(maxHullSpeed);
-    const capped = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(CATALOG.speed.cap).fill('speed'));
+    const capped = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(CATALOG.engines.cap).fill('engines'));
     expect(boostedKinematics(capped.kinematics, CONFIG.boost.factor, true).maxSpeed)
       .toBeGreaterThan(maxed.speed);
     expect(maxed.speed).toBeLessThan(CONFIG.torpedo.speed); // always under the heavy's

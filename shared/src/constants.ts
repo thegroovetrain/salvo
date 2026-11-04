@@ -124,58 +124,127 @@ export const CONFIG = {
   },
 
   /**
-   * Per-class hull + kinematics — the ratified beta classes at literal board
-   * scale (Eric-approved 2026-07-19). Three classes trade speed against
-   * hull/hp: Torpedo Boat (fast, fragile) — Battleship (slow, armored) —
-   * Mine Layer (area denial). Per-class loadouts are now landing: as of Story
-   * 1.6 the Torpedo Boat carries its fitted loadout (gun / torpedo / speed
-   * boost); the Battleship carries gun / broadside / star shells (Story 1.7's
-   * cannon was REPLACED outright by the BROADSIDE BARRAGE — 7-5 wave 2, R2.6);
-   * Mine Layer keeps the universal fit (CONFIG.gun/torpedo/mine) until Story
-   * 1.8. Only hull dims, hp, and
-   * kinematics vary. Hull dims are the exact bow-to-stern length × max beam of
-   * the shared silhouette polygon (see sim/silhouette.ts — the silhouette IS
-   * the hitbox). Every number is a DESIGN TARGET, tunable.
+   * THE INDEX MODEL's reference bases (Story 10.3, Eric 2026-11-04, epic-10
+   * amendment 7). Every ship stat is an INDEX — a plain number around 100 —
+   * and these are the three numbers the fold multiplies an index by
+   * (sim/indexStats.ts). The other two bases are NOT restated here: INTEL's
+   * is `CONFIG.vision.sweepRpm` (15 RPM IS the sweep at INTEL 100) and the
+   * armor gate's K is `CONFIG.armor.k`.
+   *
+   * Eric's rulings, 2026-11-04 (story 10-3 § Eric's rulings):
+   *   3 — "The scaffold's 100 is the battleship (DREADNOUGHT), and the 300 /
+   *       350 hull gap is DROPPED": `battleship` is 100 on every index EXCEPT
+   *       ENGINES (ruling 15) — RUDDER 100 = 0.4 rad/s, INTEL 100 = 15 RPM,
+   *       RANGE 100 = today's gun reach; `torpedoBoat` RUDDER 200, `mineLayer`
+   *       RUDDER 150; ARMOR, POWER, RELOAD, RANGE 100 for all three. Accel /
+   *       decel / reverse / steerage stay per-class kinematics.
+   *   14 — RELOAD is the "standard ability haste" formula, verbatim: "Final
+   *       Cooldown = Base Cooldown / (1 + ((RELOAD − INDEX)/K), where INDEX
+   *       and K are both 100." (120 = ×0.833, 200 = half.) "Radar sweep = 15
+   *       RPM × INTEL / 100; INTEL 200 = 30 RPM" — today's `sweepRpmMax`.
+   *       RUDDER and RANGE take the same shape (turn rate, reach × index / 100
+   *       on the battleship's base); ENGINES has its own base — ruling 15.
+   *   15 — "Top speed = 30 u/s * (ENGINES / 100), lets set numbers based on
+   *       that. While we are not working on the new ships in this story, even
+   *       the Iowa is slower than the current Battleship in this game at its
+   *       top speed, and that's the fastest ship that will be coming in to
+   *       the game. 30 makes a more sensible baseline." The law is LINEAR and
+   *       stays linear: "+100 will be +100% more distance covered per minute.
+   *       Speed upgrades will simply scale slower on the card, which we'll
+   *       address later." (The ENGINES card's step shrinks at 10.6 — Eric's
+   *       number then; for 10.3 the +20 of ruling 4 stands as scaffold.)
+   *
+   * The indices are AUTHORED on each hull envelope below (`index`) and
+   * stepped by the six ship ladders (sim/catalog.ts); the three bases here are
+   * harness dials like any other CONFIG number.
+   */
+  index: {
+    base: 100, // the index that means "the average ship" — INDEX and K of ruling 14, the 100 of every linear law
+    engines: 30, // u/s — top speed at ENGINES 100 (ruling 15)
+    rudder: 0.4, // rad/s — turn rate at RUDDER 100 (ruling 3: the battleship's)
+  },
+
+  /**
+   * Per-class hull + INDICES + kinematics — the ratified beta classes at
+   * literal board scale (Eric-approved 2026-07-19), SCAFFOLDED onto the index
+   * model by Story 10.3 (Eric 2026-11-04, epic-10 amendment 8) until Story
+   * 10.4 swaps the hulls. Three classes trade agility against nothing yet:
+   * every hull is 1000 hp and ARMOR / POWER / RELOAD / INTEL / RANGE 100
+   * (ruling 3 — toughness is ARMOR, never hp; the 300 / 350 gap is DROPPED);
+   * only ENGINES and RUDDER differ, chosen so today's three top speeds and
+   * turn rates come back out of the fold (ruling 15's 30 u/s base: 150 → 45,
+   * 117 → 35.1, 133 → 39.9 u/s — the battleship drifts 35 → 35.1 and the
+   * mine layer 40 → 39.9, whole-number indices being the implementer reading;
+   * RUDDER 200 / 100 / 150 → 0.8 / 0.4 / 0.6 rad/s exactly). `maxSpeed` and
+   * `turnRate` are NOT authored here any more: the fold derives them
+   * (sim/indexStats.ts). Per-class loadouts: the Torpedo Boat carries gun /
+   * torpedo / speed boost; the Battleship gun / broadside / star shells (the
+   * BROADSIDE BARRAGE — 7-5 wave 2, R2.6); Mine Layer the universal fit. Hull
+   * dims are the exact bow-to-stern length × max beam of the shared silhouette
+   * polygon (see sim/silhouette.ts — the silhouette IS the hitbox). Every
+   * number is a DESIGN TARGET, tunable (`--tune shipClasses.<cls>.index.<k>`).
    */
   shipClasses: {
     torpedoBoat: {
       hull: { length: 100, beam: 9 }, // u — silhouette bow-to-stern / max beam
-      hp: 300, // hit points — objective toughness ladder: 1 pip=200hp, +50/pip (balance cycle 1); 3 pips (250 → 300: Eric 2026-10-19, balance-sim ledger batch-sim-evidence-2026-10-19.md (+4.7 pp class share at 91 matches, not significant; 350 measured +19.3 pp at the Repeater's expense and was NOT chosen))
+      hp: 1000, // hit points — 1000 on EVERY hull (Story 10.3, ruling 3); shown as a whole-number percent, never raw
       // THE CLASS SHIFT (Story 8.15, amendment 89(c)): hull identity is
       // envelope + a FIXED Shift in slot 1 — SPEED BOOST on the Torpedo Boat.
       shift: 'boost',
+      index: {
+        armor: 100, // ramming mass AND the gate's victim side (rulings 2 / 11)
+        power: 100, // the gate's attacker side (ruling 11)
+        reload: 100, // the haste law's input (ruling 14)
+        engines: 150, // 45 u/s on the 30 u/s base (ruling 15) — today's top speed
+        rudder: 200, // 0.8 rad/s on the 0.4 base (ruling 3) — today's turn rate
+        intel: 100, // 15 RPM
+        range: 100, // today's gun reach
+      },
       kinematics: {
-        maxSpeed: 45, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 15, // u/s — full-astern (magnitude)
         accel: 12, // u/s^2 — throttling up
         decel: 18, // u/s^2 — throttling down / braking
-        turnRate: 0.8, // rad/s — yaw rate at full rudder
         steerageSpeed: 12, // u/s — speed at which rudder reaches full authority
       },
     },
     battleship: {
       hull: { length: 124, beam: 32 }, // u
-      hp: 350, // hit points — objective toughness ladder: 1 pip=200hp, +50/pip (balance cycle 1); 4 pips
+      hp: 1000, // hit points — 1000 on EVERY hull (Story 10.3, ruling 3)
       shift: 'hunker', // HUNKER (was DAMAGE CUT until Story 9.9) (amendments 89(c), 99–102)
+      // THE 100 OF THE SCAFFOLD (ruling 3) on every index but ENGINES.
+      index: {
+        armor: 100,
+        power: 100,
+        reload: 100,
+        engines: 117, // 35.1 u/s on the 30 u/s base (ruling 15; was 35 — the whole-number drift)
+        rudder: 100, // 0.4 rad/s — THE base
+        intel: 100, // 15 RPM — THE base
+        range: 100, // today's gun reach — THE base
+      },
       kinematics: {
-        maxSpeed: 35, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 9, // u/s — full-astern (magnitude)
         accel: 5, // u/s^2 — throttling up
         decel: 9, // u/s^2 — throttling down / braking
-        turnRate: 0.4, // rad/s — yaw rate at full rudder
         steerageSpeed: 8, // u/s — speed at which rudder reaches full authority
       },
     },
     mineLayer: {
       hull: { length: 88, beam: 20 }, // u
-      hp: 300, // hit points — objective toughness ladder: 1 pip=200hp, +50/pip (balance cycle 1); 3 pips
+      hp: 1000, // hit points — 1000 on EVERY hull (Story 10.3, ruling 3)
       shift: 'instantReload', // INSTANT RELOAD (amendments 89(c), 97–98)
+      index: {
+        armor: 100,
+        power: 100,
+        reload: 100,
+        engines: 133, // 39.9 u/s on the 30 u/s base (ruling 15; was 40 — the whole-number drift)
+        rudder: 150, // 0.6 rad/s on the 0.4 base (ruling 3)
+        intel: 100,
+        range: 100,
+      },
       kinematics: {
-        maxSpeed: 40, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 14, // u/s — full-astern (magnitude)
         accel: 8, // u/s^2 — throttling up
         decel: 15, // u/s^2 — throttling down / braking
-        turnRate: 0.6, // rad/s — yaw rate at full rudder
         steerageSpeed: 10, // u/s — speed at which rudder reaches full authority
       },
     },
@@ -214,20 +283,34 @@ export const CONFIG = {
    * catalog-v3 R17, Eric 2026-09-15) still outruns everything — the
    * damageGuardrail pin holds.
    *
-   * `reverseSpeed`/`accel`/`decel` scale PROPORTIONALLY with maxSpeed;
-   * `turnRate`/`steerageSpeed` deliberately DO NOT MOVE, so agility stays a
-   * size property rather than drifting with a speed retune. Reverse is now
-   * load-bearing rather than decorative — it is the tool the un-beaching
-   * manoeuvre uses (drones.ts), which is why it could not simply be left at
-   * the old block's value.
+   * `reverseSpeed`/`accel`/`decel` scale PROPORTIONALLY with the top speed;
+   * the turn rate and `steerageSpeed` deliberately DO NOT MOVE, so agility
+   * stays a size property rather than drifting with a speed retune. Reverse
+   * is now load-bearing rather than decorative — it is the tool the
+   * un-beaching manoeuvre uses (drones.ts), which is why it could not simply
+   * be left at the old block's value.
    *
-   * The identity table in shared/src/__tests__/shipClasses.test.ts pins every
-   * number here; it updates deliberately with this block, never silently.
+   * STORY 10.3 (Eric 2026-11-04, epic-10 amendment 8, ruling 10 — ×3
+   * PLACEHOLDERS, "it doesn't matter, this is all getting changed"; the drones
+   * retire at 10.8): hp 45 / 60 / 75 → 135 / 180 / 225 and the flat gun 1 → 3,
+   * so every shots-to-kill and exchange-rate relation above holds unchanged.
+   * The envelopes carry the seven INDICES like a class: ARMOR / POWER / RELOAD
+   * / INTEL / RANGE 100, ENGINES 133 / 117 / 100 and RUDDER 225 / 188 / 150 —
+   * the nearest whole indices to the retired 40 / 35 / 30 u/s and 0.9 / 0.75 /
+   * 0.6 rad/s (the fold reads 39.9 / 35.1 / 30 u/s and 0.9 / 0.752 / 0.6
+   * rad/s: the medium drone turns 0.002 rad/s faster, the small and medium
+   * sail 0.1 u/s off — drift accepted, the drones are placeholders). The
+   * speed relations stand: small 39.9 still sits below the Torpedo Boat's 45,
+   * medium 35.1 ties the Battleship. No `maxSpeed` / `turnRate` is authored.
+   *
+   * shared/src/__tests__/shipClasses.test.ts pins the RELATIONS of this block
+   * (size ordering, the flat gun on the captain reload, the index shape),
+   * never a literal.
    */
   drones: {
     small: {
       hull: { length: 85, beam: 25 }, // u — legacy 34×10 chevron ×2.5
-      hp: 45, // hit points — 6 Tier I captain shells (8 dmg, two per click → 3 clicks near; Story 9.12, 2026-10-16) to sink, 15s
+      hp: 135, // hit points — 6 Tier I captain shells (24 dmg, two per click → 3 clicks near) to sink, 15s (45 ×3, Story 10.3 ruling 10)
       // The self-defence gun. Lives on the ENVELOPE rather than in
       // CONFIG.fleet so effectiveStats() can apply it structurally, with no
       // hull-id parameter threaded through the one derivation path.
@@ -235,44 +318,66 @@ export const CONFIG = {
       // HUNKER 6/8/10 → 1/2/3 (Eric ruling 2026-08-14, amendment 45:
       // *"Oops, they are too strong!"*), then FLATTENED TO 1 across all three
       // sizes (cycle 94, epic-6 amendment 24) — see the block docstring for why
-      // that still satisfies a per-size damage spec. A full six-hull group
-      // volley is 6 damage, 1.2 dps: a 125hp Torpedo Boat lasts ~104s under
-      // full group aggro. These are ATTRITION, not a threat that resolves a
-      // fight on its own — see amendment 45 for what that does and does not
-      // change about the farm.
-      gun: { damage: 1, reloadMs: 5000 },
+      // that still satisfies a per-size damage spec — then ×3 to a flat 3 with
+      // the 1000 hp hull (Story 10.3, ruling 10). A full six-hull group volley
+      // is 18 damage, 3.6 dps: a 1000 hp hull lasts ~278 s under full group
+      // aggro. These are ATTRITION, not a threat that resolves a fight on its
+      // own — see amendment 45 for what that does and does not change about
+      // the farm.
+      gun: { damage: 3, reloadMs: 5000 },
+      index: {
+        armor: 100,
+        power: 100,
+        reload: 100,
+        engines: 133, // 39.9 u/s — was 40 (Eric ruling 2026-08-14; 46 before, the fastest hull afloat)
+        rudder: 225, // 0.9 rad/s (UNCHANGED: agility is a size property)
+        intel: 100,
+        range: 100,
+      },
       kinematics: {
-        maxSpeed: 40, // u/s — full-ahead (Eric ruling 2026-08-14; was 46, the fastest hull afloat)
         reverseSpeed: 12, // u/s — full-astern (magnitude), scaled 14 × 40/46
         accel: 9.5, // u/s^2 — throttling up, scaled 11 × 40/46
         decel: 14.8, // u/s^2 — throttling down / braking, scaled 17 × 40/46
-        turnRate: 0.9, // rad/s — yaw rate at full rudder (UNCHANGED: agility is a size property)
         steerageSpeed: 12, // u/s — speed at which rudder reaches full authority (UNCHANGED)
       },
     },
     medium: {
       hull: { length: 100, beam: 30 }, // u — legacy 40×12 chevron ×2.5
-      hp: 60, // hit points — 4 captain gun hits to sink, 20s
-      gun: { damage: 1, reloadMs: 5000 }, // 8 → 2 (amendment 45) → 1 (amendment 24)
+      hp: 180, // hit points — 4 captain gun clicks to sink, 20s (60 ×3, Story 10.3 ruling 10)
+      gun: { damage: 3, reloadMs: 5000 }, // 8 → 2 (amendment 45) → 1 (amendment 24) → 3 (Story 10.3 ruling 10, ×3)
+      index: {
+        armor: 100,
+        power: 100,
+        reload: 100,
+        engines: 117, // 35.1 u/s — was 35 (Eric ruling 2026-08-14; 38 before) — ties the Battleship
+        rudder: 188, // 0.752 rad/s — was 0.75 (UNCHANGED in spirit: the nearest whole index)
+        intel: 100,
+        range: 100,
+      },
       kinematics: {
-        maxSpeed: 35, // u/s — full-ahead (Eric ruling 2026-08-14; was 38) — ties the Battleship
         reverseSpeed: 11, // u/s — full-astern (magnitude), scaled 12 × 35/38
         accel: 8.3, // u/s^2 — throttling up, scaled 9 × 35/38
         decel: 12.9, // u/s^2 — throttling down / braking, scaled 14 × 35/38
-        turnRate: 0.75, // rad/s — yaw rate at full rudder (UNCHANGED)
         steerageSpeed: 10, // u/s — speed at which rudder reaches full authority (UNCHANGED)
       },
     },
     large: {
       hull: { length: 115, beam: 35 }, // u — legacy 46×14 chevron ×2.5
-      hp: 75, // hit points — 5 captain gun hits to sink, 25s
-      gun: { damage: 1, reloadMs: 5000 }, // 10 → 3 (amendment 45) → 1 (amendment 24)
+      hp: 225, // hit points — 5 captain gun clicks to sink, 25s (75 ×3, Story 10.3 ruling 10)
+      gun: { damage: 3, reloadMs: 5000 }, // 10 → 3 (amendment 45) → 1 (amendment 24) → 3 (Story 10.3 ruling 10, ×3)
+      index: {
+        armor: 100,
+        power: 100,
+        reload: 100,
+        engines: 100, // 30 u/s — the ENGINES base exactly (Eric ruling 2026-08-14; unchanged, so the block below is too)
+        rudder: 150, // 0.6 rad/s
+        intel: 100,
+        range: 100,
+      },
       kinematics: {
-        maxSpeed: 30, // u/s — full-ahead (Eric ruling 2026-08-14; unchanged, so the block below is too)
         reverseSpeed: 10, // u/s — full-astern (magnitude)
         accel: 7, // u/s^2 — throttling up
         decel: 11, // u/s^2 — throttling down / braking
-        turnRate: 0.6, // rad/s — yaw rate at full rudder
         steerageSpeed: 8, // u/s — speed at which rudder reaches full authority
       },
     },
@@ -996,7 +1101,7 @@ export const CONFIG = {
       kneeP: 0.9, // paint probability at the knee
       rimP: 0.1, // paint probability at the radar rim (12/12)
     },
-    sweepRpm: 15, // rev/min — radar rotation rate (15 rpm = one 4 s revolution); keep ≤ sweepRpmMax — the effectiveStats clamp caps the TOTAL
+    sweepRpm: 15, // rev/min — radar rotation rate at INTEL 100 (15 rpm = one 4 s revolution; the fold reads sweepRpm × INTEL / 100 — Story 10.3, ruling 14); keep ≤ sweepRpmMax — the effectiveStats clamp caps the TOTAL
     // rev/min — THE ratified sweep-rate ceiling (survives the 2.8 legacy-upgrade
     // strip; formerly CONFIG.upgrades.sweepSpeed.maxRpm). Clamped inside the
     // effectiveStats firewall (base + boon fold) — nothing else may re-clamp it.
@@ -1272,11 +1377,15 @@ export const CONFIG = {
     // to III and V → 12/12/15/15/18, max click 3 × 18 = 54 (45 at IV).
     // RETUNED 12 → 8 (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math;
     // epic-9 amendments 184–185): every weapon's own ladder reaches ×2 its
-    // Tier I output at Tier V): the ladder authors +2 / +1 / +1 / +1 →
-    // 8/10/11/12/13 on TWO barrels at every tier, so the max click is
-    // 2 × 13 = 26 (damageGuardrail.test reads the ceiling from the fold).
-    // Every blow is range-attenuated (`gunAttenuation` below).
-    damage: 8,
+    // Tier I output at Tier V): the ladder authored +2 / +1 / +1 / +1 →
+    // 8/10/11/12/13 on TWO barrels at every tier. ×3 PLACEHOLDER 8 → 24
+    // (Story 10.3, Eric 2026-11-04, epic-10 amendment 8, ruling 10 — the deck
+    // guns retire at 10.4 / 10.5, "it doesn't matter, this is all getting
+    // changed"): the ladder authors +6 / +3 / +3 / +3 → 24/30/33/36/39, so the
+    // max click is 2 × 39 = 78 of a 1000 hp hull (damageGuardrail.test reads
+    // the ceiling from the fold). Every blow is range-attenuated
+    // (`gunAttenuation` below).
+    damage: 24,
     // shells per click — TWO BARRELS AT EVERY TIER, FIXED (Eric 2026-10-16,
     // Story 9.12, forge weapon-balance-math; epic-9 amendments 184–185): no
     // barrel rungs. Promoted from the literal 1 in sim/stats.ts gunRow (the
@@ -1287,8 +1396,9 @@ export const CONFIG = {
     // (Eric ruling 2026-08-04, weapon balance pass) — held at 40% of the then
     // 15 `damage`, the ratio the bodyblock was tuned at. NOT re-derived for the
     // 2026-10-02 base move (Eric: only the numbers he names change), nor for
-    // the 2026-10-13 experiment (16 → 12) on the same rule.
-    contactDamage: 6,
+    // the 2026-10-13 experiment (16 → 12) on the same rule. ×3 PLACEHOLDER
+    // 6 → 18 with the whole deck-gun family (Story 10.3, ruling 10).
+    contactDamage: 18,
     burstRadius: 15, // u — blast radius around the clicked point
     shellRadius: 2, // u — shell collision radius (added to hull capsule radius)
     // u — LATERAL spacing between ADJACENT shells of a multi-barrel click
@@ -1345,7 +1455,7 @@ export const CONFIG = {
     maxAmmo: 12, // shells — the MAGAZINE at tier I (Eric 2026-10-02, amendment 232; was 16)
     rateMs: 300, // ms — one shell per 0.30 s while held at tier I (Eric 2026-10-02, amendment 232; was 350, earlier 500)
     reloadMs: 12500, // ms — the full-magazine reload, always the whole 12.5 s at tier I → 10.0 s at V (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); was 12 s, 2026-10-02, amendment 232; earlier 10 s, 15 s)
-    damage: 5, // hp per shell at EVERY tier — no damage rungs since Eric 2026-10-16, Story 9.12 (2026-10-02, amendment 232; was 4) — two near shells pop a 10 hp mine, three far (attenuated to 4)
+    damage: 15, // hp per shell at EVERY tier — no damage rungs since Eric 2026-10-16, Story 9.12 (2026-10-02, amendment 232; was 4); ×3 PLACEHOLDER 5 → 15 (Story 10.3, Eric 2026-11-04, ruling 10) — one shell pops a 10 hp mine now
     shellRadius: 2, // u — shell collision radius (the gun family's)
   },
 
@@ -1384,14 +1494,15 @@ export const CONFIG = {
     shellSpeed: 500, // u/s (amendment 105)
     maxAmmo: 1, // one shell (amendment 105)
     reloadMs: 3500, // ms (4 s → 3.5 s, Eric 2026-10-02, epic-8 amendment 232; was 6 s → 4 s, amendment 210; amendment 105's 6 s before) — the −5 %/tier step runs it to 2.8 s at V
-    damage: 16, // hp per burst victim at the centre (amendment 105; 12 → 20 Eric 2026-10-13, experiment; 20 → 16 Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185))
-    // hp to an early interceptor — a FIXED 4 hp bodyblock, derived ONCE from
-    // the then base damage (floor(40 % × 12), like `gun.contactDamage`) and NOT
+    damage: 48, // hp per burst victim at the centre (amendment 105; 12 → 20 Eric 2026-10-13, experiment; 20 → 16 Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); ×3 PLACEHOLDER 16 → 48, Story 10.3, Eric 2026-11-04, ruling 10 — the ladder steps +6 → 48/54/60/66/72)
+    // hp to an early interceptor — a FIXED bodyblock, derived ONCE from the
+    // then base damage (floor(40 % × 12) = 4, like `gun.contactDamage`) and NOT
     // re-derived per tier: the ladder's damage steps never move it. Held at 4
     // through the 2026-10-13 base move 12 → 20 and the 2026-10-16 move
     // 20 → 16 (only the numbers Eric names change; ruling 184(c): never
-    // range-attenuated).
-    contactDamage: 4,
+    // range-attenuated); ×3 PLACEHOLDER 4 → 12 with the family (Story 10.3,
+    // ruling 10).
+    contactDamage: 12,
     burstRadius: 50, // u — FIXED; the ladder never grows it (amendment 105)
     // THE BURST'S RIM FALLOFF (Eric 2026-10-16, Story 9.12 (forge
     // weapon-balance-math; epic-9 amendments 184–185): "rim = half damage";
@@ -1468,10 +1579,10 @@ export const CONFIG = {
     // u/s — FR7'S OUTRUN LAW IS RETIRED (Eric 2026-09-11, epics.md AR49; epic-8
     // amendment 55): nothing requires a torpedo to outrun every hull any more.
     // What 65 buys today is a FACT, not a requirement — the base fish still
-    // outruns every BASE hull and drone (droneSmall at 46 is the fastest afloat
-    // un-boosted; the fastest BASE boosted hull is 56.25). A SPEED-capped
-    // Torpedo Boat under the Shift boost runs 71.875 u/s (57.5 x 1.25,
-    // CONFIG.boost.factor; SPEED cap 5 since Story 9.6) and OUTRUNS its own fish: allowed, because own
+    // outruns every BASE hull and drone (the Torpedo Boat at 45 is the fastest
+    // afloat un-boosted; the fastest BASE boosted hull is 56.25). An
+    // ENGINES-capped Torpedo Boat (index 250, Story 10.3) under the Shift boost
+    // runs 93.75 u/s (75 × 1.25, CONFIG.boost.factor) and OUTRUNS its own fish: allowed, because own
     // ordnance never damages the own hull (Story 8.4, no friendly fire), so a
     // firer that re-catches its own torpedo is not a self-damage hazard. Also a
     // deliberate balance change: torps are harder to dodge (owner call,
@@ -1493,8 +1604,11 @@ export const CONFIG = {
     // the Mine Layer — 50 put TB at 33.3 % and ML at 31.9 %, where 45 overshot
     // (ML 40.0 %) and 60 undershot (TB 46.1 %). It does NOT move the Battleship.
     // RETUNED 50 → 90 (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): pickups are the alpha; the HEAVY TORPEDO line
-    // authors +11 / +11 / +11 / +12 → 90/101/112/123/135 (ruling 184(d)).
-    damage: 90,
+    // authored +11 / +11 / +11 / +12 → 90/101/112/123/135 (ruling 184(d)).
+    // RE-RULED 90 → 300 on the 1000 hp hull (Story 10.3, Eric 2026-11-04,
+    // epic-10 amendment 8, ruling 5: "HEAVY 300 → 600"): the line authors
+    // +75 a rung → 300/375/450/525/600 — Tier V is 60 % of a hull.
+    damage: 300,
     maxAmmo: 1, // one fish in the tube pool; the line's +0.5 on the rungs to II and III only → tubes 1,1,2,2,2
     // ms — reload between fish (commitment spike). RETUNED 12000 → 30000 (Eric
     // ruling 2026-08-04, weapon balance pass): the heavier warhead buys a much
@@ -1561,7 +1675,7 @@ export const CONFIG = {
     offset: deg(90), // the twin sector's CENTER bearing — ±90° = both beams
     halfArc: deg(45), // ±45° about each beam (90° dead zones fore and aft, R18)
     speed: 45, // u/s — tier I (R18); tiers II–V add +2.5 each → 55 at V
-    damage: 80, // hp per contact hit — tier I; +10/tier → 120 at V (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); was 40 +5, R18)
+    damage: 200, // hp per contact hit — tier I; +50/tier → 400 at V (Story 10.3, Eric 2026-11-04, ruling 5: "LIGHT 200 → 400"; was 80 +10 → 120, Eric 2026-10-16, Story 9.12; 40 +5 before, R18)
     maxAmmo: 1, // tubes — tier I (R18); +0.5 on the rungs to II and III only, FLOORED → 1,1,2,2,2 (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); was 1,1,2,2,3)
     reloadMs: 25000, // ms — tier I (R18); the −5 %/tier step lands V on 20 s
     // AR44: a torpedo hits hulls and decoys — it runs UNDER a minefield.
@@ -1591,7 +1705,7 @@ export const CONFIG = {
     offset: deg(0), // bow-centered
     halfArc: deg(15), // ±15° bow sector (amendment 74, R19's arc kept)
     speed: 195, // u/s (amendment 74, R19's speed kept)
-    damage: 150, // hp per contact hit — 85 → 150, Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); 50 → 85, Eric 2026-10-01 (cycle 162; supersedes amendment 74's "R19's damage kept")
+    damage: 400, // hp per contact hit — 150 → 400, Story 10.3, Eric 2026-11-04, ruling 5 ("SUPERCAVITATING 400 → 800 over their tiers" — the 800 is 10.6's SUPERCAV track, ruling 8; this is its base); 85 → 150, Eric 2026-10-16, Story 9.12; 50 → 85, Eric 2026-10-01 (cycle 162; supersedes amendment 74's "R19's damage kept")
     // AR44: hulls and decoys, never a mine — it runs UNDER a minefield.
     hits: HITS_HULL_DECOY,
   },
@@ -1651,9 +1765,12 @@ export const CONFIG = {
     // GONE (`mineDamage`, deleted in Story 7-5 wave 1), so 55 is now the mine's
     // damage at every build — and it still clears the 45hp small drone at base,
     // which is the Mine Layer fleet-farming ruling (2026-08-16).
-    // RETUNED 55 → 90 (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): the NAVAL MINES line authors +11 / +11 / +11 /
-    // +12 → 90/101/112/123/135 (ruling 184(d)).
-    damage: 90,
+    // RETUNED 55 → 90 (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): the NAVAL MINES line authored +11 / +11 / +11 /
+    // +12 → 90/101/112/123/135 (ruling 184(d)). RE-RULED 90 → 200 on the
+    // 1000 hp hull (Story 10.3, Eric 2026-11-04, epic-10 amendment 8, ruling
+    // 6: "NAVAL 200 → 300 (+25 a rung)") — the line authors +25 a rung →
+    // 200/225/250/275/300; the one stepped line that does NOT double at V.
+    damage: 200,
     // stored drops in the ammo pool (one refilled per reload). RETUNED 1 → 2
     // (Eric ruling 2026-08-04, weapon balance pass): a Mine Layer could not lay
     // a FIELD with a one-deep rack. This is a BASE change with no new
@@ -1759,7 +1876,7 @@ export const CONFIG = {
     triggerRadius: 120, // u — the TRIP ring at tier I (R25; 144 until 2026-10-08)
     triggerStepPerTier: 1.1, // × per tier on the trip ring (amendment 84d) → 210.8 u at V
     blastRadius: 32, // u — the fish's burst. FIXED: it never steps (amendment 84d)
-    damage: 90, // hp — the fish's warhead at tier I; +11/+11/+11/+12 → 135 at V (Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185); was 55 +5, R25)
+    damage: 100, // hp — the fish's warhead at tier I; +25 a rung → 200 at V (Story 10.3, Eric 2026-11-04, ruling 6: "CAPTIVE 100 → 200"; was 90 +11/+11/+11/+12 → 135, Eric 2026-10-16, Story 9.12; 55 +5 before, R25)
     // The naval chassis is SHARED, not duplicated: the rear placement sector
     // (`CONFIG.mine.offset` / `placeHalfArcDeg`), the 150 u leash
     // (`placeRange`) and the 3 s `armDelay` are read from `CONFIG.mine`.
@@ -1791,7 +1908,7 @@ export const CONFIG = {
    * read from `CONFIG.mine`.
    */
   foulingMines: {
-    damage: 10, // hp — FIXED at every tier (amendment 81) [DRAFT]
+    damage: 100, // hp — tier I; +25 a rung → 200 at V (Story 10.3, Eric 2026-11-04, ruling 6: "FOULING 100 → 200 — the fouling mine's damage was FIXED at 10 with no step; it now has one"; amendment 81's fixed 10 is superseded)
     blastRadius: 72, // u — tier I; ×1.1/tier → 105.4 u at V [DRAFT]
     slowFactor: 0.75, // × maxSpeed AND reverseSpeed; −0.05/tier → 0.55 at V [DRAFT]
     slowDurationMs: 5000, // ms — FIXED at every tier (refresh, don't stack) [DRAFT]
@@ -1811,10 +1928,11 @@ export const CONFIG = {
    * window.
    *
    * `factor` is the FRACTION OF THE POST-FOLD forward maxSpeed added while the
-   * window is open, so the SPEED ladder is INSIDE the bonus (amendment 55):
-   * a SPEED-capped (five cards, Story 9.6) Torpedo Boat goes 57.5 → 71.875,
-   * Mine Layer 52.5 → 65.625, Battleship 47.5 → 59.375; at base 45/40/35 →
-   * 56.25/50/43.75. FORWARD CAP ONLY —
+   * window is open, so the ENGINES ladder is INSIDE the bonus (amendment 55;
+   * SPEED until Story 10.3): an ENGINES-capped (five +20 cards, Story 10.3)
+   * Torpedo Boat goes 75 → 93.75, Mine Layer 69.9 → 87.375, Battleship
+   * 65.1 → 81.375; at base 45/39.9/35.1 → 56.25/49.875/43.875 (the fold's
+   * derived `kinematics.maxSpeed`, sim/indexStats.ts). FORWARD CAP ONLY —
    * `reverseSpeed`, accel, decel, turn rate and steerage are untouched, so the
    * hull accelerates toward the raised cap at class accel and decays back at
    * class decel on expiry. The bonus is layered per tick by the one shared hook
@@ -1881,8 +1999,10 @@ export const CONFIG = {
    * amendment 88). An instant activation, aimed at nothing, that opens a
    * `durationMs` window during which the hull carries `armorBonus` TEMPORARY
    * ARMOR on top of its ARMOR ladder — it stacks additively inside the one
-   * formula (Tier 0 under the HUNKER is Armor 100 = ×0.5, Tier V is Armor 200
-   * = ×1/3 — amendment 144's rescale of 9.7's 5 / 10). The flat ×0.5 `factor` is DELETED (amendment 88 supersedes epic-8
+   * formula — E = victim ARMOR + this − attacker POWER (Story 10.3: both
+   * indices seed at 100, so a base hull under the HUNKER against an average
+   * attacker is E = 100 = ×0.5, an ARMOR-capped one E = 200 = ×1/3 —
+   * amendment 144's rescale of 9.7's 5 / 10, unchanged in effect). The flat ×0.5 `factor` is DELETED (amendment 88 supersedes epic-8
    * 89(c) and 99's 8 s window). Storm bites land in full (amendment 87). One
    * charge on a 30 s cooldown; `reloadMs` takes `cooldownScale` like every row
    * (22.5 s at a maxed RELOAD ladder).
@@ -1968,8 +2088,10 @@ export const CONFIG = {
     turretSpanFactor: 0.6,
     // hp per burst victim, per shell. BALANCE CYCLE 1 (Eric ruling 2026-08-20):
     // 20 → 15, superseding *"lets say 20 damage"* — the paired half of turrets
-    // 3 → 4 above, which holds base barrage alpha at exactly 60.
-    damage: 15,
+    // 3 → 4 above, which held base barrage alpha at exactly 60. ×3 PLACEHOLDER
+    // 15 → 45 (Story 10.3, Eric 2026-11-04, ruling 10 — the BROADSIDE retires
+    // with the deck guns): base barrage alpha 180 of a 1000 hp hull.
+    damage: 45,
     // u — blast radius around each shell's own point. DRAFT (the gun's own
     // burstRadius): Eric ruled the shells "burst like the gun" without naming
     // a radius, so the gun's number is the handwave until it is tuned.
@@ -2076,12 +2198,15 @@ export const CONFIG = {
     maxAmmo: 1, // single flare — a 1-round pool presented as a pure cooldown
     reloadMs: 20000, // ms — cooldown between flares
     // hp — TIER-I burst damage to every non-owner hull inside the whole lit
-    // circle (Eric ruling 2026-09-29, epic-8 amendment 130; the STAR SHELLS
-    // ladder steps it +2/+3/+2/+3 — sim/catalog.ts: 20 / 22 / 25 / 27 / 30,
-    // I–V). Whole numbers only (amendment 39's integer-damage rule still
-    // stands). (Swapped 2026-10-01, Eric, epic-8 amendment 208 — phosphor
-    // over-performed, star under-performed.)
-    damage: 20,
+    // circle (Eric ruling 2026-09-29, epic-8 amendment 130). RE-RULED 20 → 50
+    // on the 1000 hp hull (Story 10.3, Eric 2026-11-04, ruling 9: "STAR
+    // SHELLS 50 → 100 — shells are light chip damage; the lighting and the
+    // burn zone are the point"); the STAR SHELLS ladder steps it
+    // +12 / +13 / +12 / +13 (the implementer's split) — sim/catalog.ts:
+    // 50 / 62 / 75 / 87 / 100, I–V. Whole numbers only (amendment 39's
+    // integer-damage rule still stands). (Was 20 +2/+3/+2/+3 → 30 — swapped
+    // 2026-10-01, Eric, epic-8 amendment 208.)
+    damage: 50,
     // u — lit-zone radius, STRUCTURALLY half of base truesight (Eric ruling
     // 2026-07-23: star shells always light exactly half the BASE sight range,
     // independent of any player's sightRange upgrade stacks). Keep this as a
@@ -2125,12 +2250,14 @@ export const CONFIG = {
     maxAmmo: 1, // one shell in the pool — presented as a pure cooldown
     reloadMs: 20000, // ms — cooldown between shells (−5 %/tier derived)
     // hp — tier-I burst damage to every non-owner hull inside the zone; tiers
-    // I–V read 10 / 12 / 15 / 17 / 20 (swapped 2026-10-01, Eric, epic-8
-    // amendment 208 — phosphor over-performed, star under-performed).
-    damage: 10,
+    // I–V read 50 / 62 / 75 / 87 / 100 (Story 10.3, Eric 2026-11-04, ruling 9:
+    // "PHOSPHOR 50 burst + 20/s burn → 100 + 40/s", the +12/+13/+12/+13 split
+    // the implementer's; was 10 / 12 / 15 / 17 / 20 — swapped 2026-10-01,
+    // Eric, epic-8 amendment 208).
+    damage: 50,
     zoneRadius: 100, // u — tier-I burst AND burning-zone radius (×1.1 per tier)
     zoneDurationMs: 8000, // ms — tier-I burning-zone lifetime
-    dps: 5, // hp/s — tier-I burn on every non-owner afloat hull inside
+    dps: 20, // hp/s — tier-I burn on every non-owner afloat hull inside; +5 a rung → 40 at V (Story 10.3, ruling 9; was 5 → 10)
     shellRadius: 2, // u — shell collision radius (star-shell parity)
   },
 
@@ -2202,24 +2329,39 @@ export const CONFIG = {
    * amendment 82). The dials themselves were accepted by Eric 2026-10-12
    * (amendment 73).
    *
-   * CALIBRATION, from Eric's two sentences. `energyPerHp`: "a speedboat
-   * head-on a speedboat at 90 u/s closing costs each 200" — μ = 125,
-   * E = ½·125·90² = 506,250, half each = 253,125, / 200 = 1265.625.
-   * `grindPerUnit`: "a speedboat scraping a stopped speedboat at 45 u/s costs
-   * each 5 hp/s" — 5 = g·45·½, so g = 2/9. Eric was shown the ROUNDED prose
-   * values 1266 and 0.222; under the integer floor those read 199 / 49 /
-   * 4.995, so the literals below are the EXACT calibration (implementer
-   * reading 83(a)): the floored outcomes read exactly 200 / 200 (speedboats
-   * head-on at 90), 5 / 5 per second (the 45 u/s scrape), 50 (a speedboat
-   * into land at 45) and 215 / 153 (speedboat vs dreadnought at 80). Eric
-   * may veto on staging. `2 / 9` is written as an expression because it IS
-   * the exact calibration, not a derivation from another dial; otherwise
-   * never derive these in this object. Every number is a harness dial
-   * (`--tune ram.*`).
+   * MASS IS THE ARMOR INDEX since Story 10.3 (Eric 2026-11-04, epic-10
+   * amendment 8, ruling 2 — "Ramming keeps today's outcomes as a percent of
+   * hull"): a hull's mass is `effectiveStats().armor` (100 on every scaffold
+   * hull, +20 per ARMOR card), NOT its max hull, which is 1000 everywhere and
+   * says nothing about weight. The 9.5 energy law keeps its shape; only the
+   * two dials moved, ÷10 each, so every outcome keeps the FRACTION of a hull
+   * it cost before. HUNKER's temporary +100 adds no mass (the index is the
+   * mass, the Shift bonus is not).
+   *
+   * CALIBRATION, Eric's two 9.5 sentences re-based on mass 100 and a 1000 hp
+   * hull. `energyPerHp`: "a speedboat head-on a speedboat at 90 u/s closing"
+   * cost each 240 of 300 (80 %) on the old hp masses; at μ = 50,
+   * E = ½·50·90² = 202,500, half each = 101,250, and 101,250 / 126.5625 = 800
+   * of 1000 — the same 80 %. `grindPerUnit`: "a speedboat scraping a stopped
+   * speedboat at 45 u/s" bled 5 of 300 a second (1.67 %); (20/27)·45·½ =
+   * 16.67 of 1000 — the same fraction. The FLOORED outcomes at mass 100 read
+   * exactly 800 / 800 (head-on at 90), 16.67 / 16.67 per second (the 45 u/s
+   * scrape), 200 (a hull into land at 45 — one fifth, as 60 of 300 was) and
+   * 632 / 632 (any two scaffold hulls at 80 closing — the old 219 / 188
+   * speedboat-vs-dreadnought split collapses to equal shares because every
+   * scaffold hull has ARMOR 100; a one-card ARMOR hull, mass 120, against a
+   * base hull at 80 reads 626 for the heavy hull and 752 for the base hull —
+   * the lighter hull takes the other's mass share, as the law always did).
+   * Eric may veto on staging; the harness re-tunes later (`--tune ram.*`).
+   * `126.5625` and
+   * `20 / 27` are the EXACT ÷10 of the 9.5 calibration (amendment 84(a)'s
+   * rule: write the exact dial, never the rounded prose); `20 / 27` stays an
+   * expression because it IS the calibration, not a derivation from another
+   * dial. Every number is a harness dial.
    */
   ram: {
-    energyPerHp: 1265.625, // strike energy (½·μ·vn²) per hp — exact calibration (prose: 1266)
-    grindPerUnit: 2 / 9, // hp/s per u/s of sliding speed, before the mass share — exact (prose: 0.222)
+    energyPerHp: 126.5625, // strike energy (½·μ·vn²) per hp at mass = ARMOR — exact (1265.625 ÷ 10, Story 10.3 ruling 2)
+    grindPerUnit: 20 / 27, // hp/s per u/s of sliding speed, before the mass share — exact ((2/9) × 10, Story 10.3 ruling 2)
     allowanceU: 5, // u/s — closing speed at or under which a strike costs nothing
     landSoftness: 0.25, // × the infinite-mass land hit and grind
   },
@@ -2235,7 +2377,7 @@ export const CONFIG = {
    * consumable's numbers are read straight from CONFIG (the consumable law).
    */
   shieldBlock: {
-    hp: 100, // hp the shield absorbs before it breaks (R37)
+    hp: 300, // hp the shield absorbs before it breaks (R37; ×3 PLACEHOLDER 100 → 300, Story 10.3, Eric 2026-11-04, ruling 10 — 30 % of a 1000 hp hull)
     durationMs: 10000, // ms the shield lasts once fired (R37)
   },
 
@@ -2648,8 +2790,17 @@ export const CONFIG = {
    * THIS BLOCK WAS THE DAMAGE-CONTROL BLOCK (renamed by epic-8 amendment 46).
    * What left with the rename: the level spend and its reserved -1 wire
    * sentinel (the heal is a card now) and the FREE per-level auto-heal channel,
-   * whose two dials `CONFIG.regen` below replaces. What stayed: these three
-   * numbers, byte-identical.
+   * whose two dials a `CONFIG.regen` block replaced. What stayed: these three
+   * numbers, byte-identical — until Story 10.3.
+   *
+   * STORY 10.3 (Eric 2026-11-04, epic-10 amendment 8, ruling 7): "HULL REPAIR
+   * heals 100 + 100" (100 instant + 100 pooled over 5 s; was 50 + 50) on the
+   * 1000 hp hull — and HULL REPAIR becomes THE ONE HEAL: the out-of-combat
+   * regen (`CONFIG.regen`, Eric 2026-09-17, epic-8 amendments 46–48, retuned
+   * by Story 9.6) and its PASSIVE HEALING ladder are DELETED outright. Ruling
+   * 7 also RECORDS a tier track — HULL REPAIR grows 100+100 → 200+200 at
+   * +20+20 per rung, five rungs — which Story 10.6 builds (ruling 8); nothing
+   * of it is authored here. 150 + 150 and a 200 + 200 base were rejected.
    */
   hullRepair: {
     // BALANCE CYCLE 1 (Eric ruling 2026-08-20): both 25 → 50, DOUBLED IN STEP
@@ -2659,58 +2810,18 @@ export const CONFIG = {
     // boons (Battleship boons 2.27 → 1.95 while its levels ROSE), and the
     // highest-HP hull paid most. Doubling both holds a heal at the same fraction
     // of every hull it was worth before, and boons recovered past baseline.
-    instantHp: 50, // hp restored the instant the copy fires (clamped to maxHp)
-    regenHp: 50, // hp the regen pool is SET to per HULL REPAIR copy fired (replaces, never adds)
+    // Story 10.3 (ruling 7): 50 → 100 each — one copy is 20 % of the 1000 hp
+    // hull, printed as percent on the client (`+10 %`, `+10 % / 5 S`).
+    instantHp: 100, // hp restored the instant the copy fires (clamped to maxHp)
+    regenHp: 100, // hp the regen pool is SET to per HULL REPAIR copy fired (replaces, never adds)
     // ms — payout time of ONE regenHp pool. The rate is regenHp/regenMs =
-    // 0.01 hp/ms; it was ruled as 5 hp/s at regenHp 25 and doubled with the
-    // amount in balance cycle 1, so the shipped pool pays 50 hp over 5 s. The
-    // old stacking law (pools ADD, the rate never changes) is SUPERSEDED (Eric
-    // 2026-09-29, amendment 141): a re-press REPLACES the pool (`repairHp =
-    // regenHp`, remainder discarded); the 0.01 hp/ms rate is unchanged — see
-    // hullRepair.test.ts.
+    // 0.02 hp/ms since Story 10.3 (was 0.01: ruled as 5 hp/s at regenHp 25,
+    // doubled with the amount in balance cycle 1, doubled again with ruling 7
+    // while regenMs stayed 5000), so the shipped pool pays 100 hp over 5 s.
+    // The old stacking law (pools ADD, the rate never changes) is SUPERSEDED
+    // (Eric 2026-09-29, amendment 141): a re-press REPLACES the pool
+    // (`repairHp = regenHp`, remainder discarded) — see hullRepair.test.ts.
     regenMs: 5000,
-  },
-
-  /**
-   * OUT-OF-COMBAT REGEN (Eric ruling 2026-09-17 — epic-8 amendments 46-48).
-   * REPLACES the cycle-129 per-level auto-heal — the free second channel that
-   * lived inside the paid block above, with its own pool and its own
-   * duration-based rate, both dials now deleted. Healing is no longer paced by
-   * the economy but by DISENGAGING.
-   *
-   * SHAPE (amendment 46): once `outOfCombatMs` have passed since the hull last
-   * took LANDED damage, every second restores `missingPctPerS` of the hull's
-   * MISSING hp — `hp += (maxHp − hp) × rate` per second. Asymptotic on purpose:
-   * fast when badly hurt, slow near full, and it needs no repricing when hull
-   * HP next moves (a flat amount is worth a different fraction of every hull —
-   * the problem that forced the paid heal to double in balance cycle 1). It pays
-   * STRAIGHT INTO hp — no pool, no pending band, no `heal` cue (a continuous
-   * trickle would loop the tone) — and SNAPS to full once under 1 hp is
-   * missing, because a percentage of missing never reaches zero on its own
-   * and HULL REPAIR's "full hull" refusal must stay reachable.
-   *
-   * THE CLOCK (amendment 47): ANY hull-hp decrement that actually lands
-   * (`dealt > 0` — shells, torpedoes, mines, burn ticks, STORM bites) resets it
-   * at the damage gate. Dealing damage never does; a hit fully eaten by a
-   * future SHIELD BLOCK (`dealt` 0) is not taking damage. Consequence, stated
-   * to Eric and accepted: nobody regens inside the storm or through the
-   * sudden-death collapse, so the storm's listed rate is its net rate.
-   *
-   * WHO (amendment 48): captains and combat bots — the participants the level
-   * heal reached. A PvE FLEET DRONE NEVER REGENS (it is environment, amendments
-   * 12/24), so a disengaged drone keeps the damage it took.
-   *
-   * THE BASE AND THE LADDER (Story 9.6, Eric 2026-10-13, epic-9 amendments
-   * 90–91): base 2 %/s of missing hull after 15 s ("Passive Healing is going
-   * to increase by default to 2% to cut down on time spent sitting and
-   * waiting"; was 1 %/s). The PASSIVE HEALING ladder adds +0.6 %/s and −1 s
-   * of wait per card IN THE CATALOG, folded by effectiveStats into
-   * `stats.regen` — the sim reads that, never this block directly. The keys
-   * stay exactly these two.
-   */
-  regen: {
-    missingPctPerS: 0.02, // fraction of MISSING hull restored per second out of combat
-    outOfCombatMs: 15000, // ms since the last landed hull damage before it starts (Eric 2026-09-30: 30 s was "far too long given the current deadliness of the game"; was 30000, amendment 46)
   },
 
   /**
@@ -2782,7 +2893,11 @@ export const CONFIG = {
      * shape (damage is never overridable there). The harness may write it
      * (`--set zone.stormDps.N`, or `zone.stormDps=X` to flatten every rung).
      */
-    stormDps: [1, 2, 3, 4, 5],
+    // RE-RULED ×10 on the 1000 hp hull (Story 10.3, Eric 2026-11-04, epic-10
+    // amendment 8, ruling 12): "10 / 20 / 30 / 40 / 50 hp per second by ring
+    // (1–5 %/s)" — 100 s to sink in the first ring, 20 s in the last. The
+    // 5 / 10 / 15 / 20 / 25 and flat ×3 alternatives were rejected.
+    stormDps: [10, 20, 30, 40, 50],
   },
 
   /** Match lifecycle. */
@@ -2887,29 +3002,51 @@ export interface Hull {
 }
 
 /**
- * One hull envelope: dims + hp + kinematics. STRUCTURAL on purpose — both a
- * CONFIG.shipClasses entry and a CONFIG.drones entry satisfy it, so
+ * THE SEVEN INDEX IDS (Story 10.3, Eric 2026-11-04, epic-10 amendment 8), in
+ * the order the SHIP tooltip and the harness print them (amendment 6(c)):
+ * ARMOR, POWER, RELOAD, ENGINES, RUDDER, INTEL, RANGE. Each is a whole number
+ * around 100 (`CONFIG.index.base`), authored on every hull envelope and
+ * stepped by the six ship ladders (RANGE has no card yet — a SHIP stat, 10.6
+ * may deal one). The fold derives everything else from them
+ * (sim/indexStats.ts).
+ */
+export const INDEX_IDS = ['armor', 'power', 'reload', 'engines', 'rudder', 'intel', 'range'] as const;
+
+/** One of the seven indices. */
+export type IndexId = (typeof INDEX_IDS)[number];
+
+/** A hull's seven authored indices — the envelope's half of the fold's seed. */
+export type HullIndex = Record<IndexId, number>;
+
+/**
+ * One hull envelope: dims + hp + INDICES + kinematics. STRUCTURAL on purpose —
+ * both a CONFIG.shipClasses entry and a CONFIG.drones entry satisfy it, so
  * effectiveStats() accepts either (drones are ordinary ships whose envelope
  * merely comes from a different table).
+ *
+ * `maxSpeed` and `turnRate` LEFT `kinematics` with Story 10.3: they are
+ * DERIVED from ENGINES and RUDDER in the fold (sim/indexStats.ts), and the
+ * runtime `ShipConfig` (sim/ship.ts — what stepShip and the predictor read)
+ * is what carries them. An envelope never authors a speed.
  */
 export interface HullEnvelope {
   hull: Hull;
   hp: number;
   /**
    * OPTIONAL per-hull gun override (Story 5.6). Present only on PvE fleet
-   * envelopes, which carry a weaker gun than a captain's (1/2/3 vs 15).
-   * Applied inside `baseStats()` so `effectiveStats()` remains the single
-   * derivation path — no hull id is threaded through it and nothing mutates
-   * `ship.stats` after construction. Absent on every real ship class, which
-   * therefore keeps CONFIG.gun verbatim.
+   * envelopes, which carry a weaker gun than a captain's (3 vs 24 since the
+   * Story 10.3 ×3 placeholders). Applied inside `baseStats()` so
+   * `effectiveStats()` remains the single derivation path — no hull id is
+   * threaded through it and nothing mutates `ship.stats` after construction.
+   * Absent on every real ship class, which therefore keeps CONFIG.gun verbatim.
    */
   gun?: { damage: number; reloadMs: number };
+  /** The seven authored indices (Story 10.3). */
+  index: HullIndex;
   kinematics: {
-    maxSpeed: number; // u/s
     reverseSpeed: number; // u/s (magnitude)
     accel: number; // u/s^2
     decel: number; // u/s^2
-    turnRate: number; // rad/s
     steerageSpeed: number; // u/s
   };
 }

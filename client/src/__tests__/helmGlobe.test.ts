@@ -15,6 +15,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Container } from 'pixi.js';
 import { CATALOG, CONFIG, boostedKinematics, draftedKinematics, effectiveStats } from '@salvo/shared';
+import { hullBaseKinematics } from '../sim/hullKinematics.js';
 import {
   DETENT_LABELS,
   HELM_LETTER_OFFSETS,
@@ -112,7 +113,7 @@ describe('detentTickAngle — the nine ticks over the crown', () => {
 });
 
 describe('speedLadderFraction — ACTUAL speed on the [-1,1] telegraph axis', () => {
-  const KIN = CONFIG.shipClasses.torpedoBoat.kinematics;
+  const KIN = hullBaseKinematics('torpedoBoat');
 
   it('is 0 at rest, +1 at full ahead, -1 at full astern', () => {
     expect(speedLadderFraction(0, KIN)).toBe(0);
@@ -128,13 +129,13 @@ describe('speedLadderFraction — ACTUAL speed on the [-1,1] telegraph axis', ()
   });
 
   it('uses the passed class denominators (battleship is slower per unit speed)', () => {
-    const BB = CONFIG.shipClasses.battleship.kinematics;
+    const BB = hullBaseKinematics('battleship');
     expect(speedLadderFraction(20, BB)).toBeGreaterThan(speedLadderFraction(20, KIN));
   });
 });
 
 describe('needleAngle — the solid amber pointer on the arc', () => {
-  const KIN = CONFIG.shipClasses.torpedoBoat.kinematics;
+  const KIN = hullBaseKinematics('torpedoBoat');
   const FACTOR = CONFIG.boost.factor;
   /** The boosted forward cap, through the ONE shared hook (never a flat add). */
   const BOOSTED_CAP = boostedKinematics(KIN, FACTOR, true).maxSpeed;
@@ -180,7 +181,7 @@ describe('needleAngle — the solid amber pointer on the arc', () => {
     // ...and the SPEED LADDER IS INSIDE THE BONUS, because the hook's input is
     // the POST-FOLD kinematics: a SPEED-capped hull's boosted cap is the same
     // proportion of ITS cap, not the base cap plus a flat add.
-    const cappedDeck = Array.from({ length: CATALOG.speed.cap }, () => 'speed');
+    const cappedDeck = Array.from({ length: CATALOG.engines.cap }, () => 'engines');
     const capped = effectiveStats(CONFIG.shipClasses.torpedoBoat, cappedDeck).kinematics;
     const cappedBoosted = boostedKinematics(capped, FACTOR, true);
     expect(capped.maxSpeed).toBeGreaterThan(KIN.maxSpeed);

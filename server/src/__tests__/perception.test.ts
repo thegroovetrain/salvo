@@ -4622,7 +4622,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         // RANGE removed the only card that could widen a per-observer RADIUS,
         // so the fuzz no longer varies radii — every observer runs the base
         // ladder and the invariant is exercised across rpm instead.
-        for (let n = rng.int(0, 5); n > 0; n--) intel.push('radarSweep'); // toward the rpm cap
+        for (let n = rng.int(0, 5); n > 0; n--) intel.push('intel'); // toward the rpm cap
         rec.cards = intel;
         rec.cards = [...intel];
         rec.stats = effectiveStats(rec.cls, rec.cards);

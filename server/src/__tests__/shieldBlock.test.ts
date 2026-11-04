@@ -93,12 +93,13 @@ describe('SHIELD BLOCK — the gate (I/O matrix, amendments 100/118)', () => {
   it('CUT THEN SHIELD: a Battleship with HUNKER up takes a 55 hp mine -> only the armored remainder reaches the shield, hull untouched, dmg 0, combat clock unmoved', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 'battleship');
-    place(w, 'b', 400, 0);
+    const b = place(w, 'b', 400, 0);
     a.hunkerUntil = w.now + CONFIG.hunker.durationMs;
     expect(stockAndFire(w, a)).toEqual({ ok: true });
     a.lastDamagedAt = w.now - 12_345; // a stale combat clock the absorbed hit must NOT refresh
     const clock = a.lastDamagedAt;
-    const cut = Math.max(1, Math.floor(55 * damageMultiplierFor(a.stats.armor + a.stats.equipment.hunker.armorBonus)));
+    // E = victim ARMOR + HUNKER − attacker POWER (Story 10.3 indices).
+    const cut = Math.max(1, Math.floor(55 * damageMultiplierFor(a.stats.armor + a.stats.equipment.hunker.armorBonus - b.stats.power)));
     expect(cut).toBeLessThan(55); // the cut ran BEFORE the shield
     inner(w).applyDamage(a, 55, 'mine', 'b');
     expect(a.shield?.hpLeft).toBe(CONFIG.shieldBlock.hp - cut);
@@ -110,11 +111,11 @@ describe('SHIELD BLOCK — the gate (I/O matrix, amendments 100/118)', () => {
   it('STORM and BURN are absorbed too (amendment 118): 0.2 + 0.25 come off the shield, hull untouched', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    place(w, 'b', 400, 0);
+    const b = place(w, 'b', 400, 0);
     expect(stockAndFire(w, a)).toEqual({ ok: true });
     inner(w).applyDamage(a, 0.2, 'storm', undefined);
     inner(w).applyDamage(a, 0.25, 'burn', 'b');
-    expect(a.shield?.hpLeft).toBeCloseTo(CONFIG.shieldBlock.hp - 0.2 - 0.25 * damageMultiplierFor(a.stats.armor), 12);
+    expect(a.shield?.hpLeft).toBeCloseTo(CONFIG.shieldBlock.hp - 0.2 - 0.25 * damageMultiplierFor(a.stats.armor - b.stats.power), 12);
     expect(a.hp).toBe(a.stats.maxHp);
   });
 

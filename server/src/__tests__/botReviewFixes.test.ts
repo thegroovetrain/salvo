@@ -397,7 +397,10 @@ describe('P11 (Edge Case Hunter): an odds-gate verdict is HELD for CONFIG.bots.g
     paintX: 0, paintY: 0, paintAt: -1, missSweptAt: -1, ...over,
   });
   const sitAt = (now: number): BotSituation =>
-    situation({ now, stats: shorter, hullId: 'torpedoBoat', profile: profileOf('bulwark'), ring: { cx: 0, cy: 0, r: 100000 } });
+    // A worn hull (90 %), so the bulwark's bar (1.0) FAILS against a peer:
+    // every scaffold hull is ARMOR 100 since Story 10.3, so a full hull no
+    // longer fails the gate on the battleship's old hp edge.
+    situation({ now, stats: shorter, hp: shorter.maxHp * 0.9, hullId: 'torpedoBoat', profile: profileOf('bulwark'), ring: { cx: 0, cy: 0, r: 100000 } });
   const deliberate = (m: BotMind, now: number, t: RememberedContact, key = 'e1', prev: BotPosture = 'pursue'): BotPosture => {
     m.contacts.clear();
     m.contacts.set(key, { ...t, seenAt: now });

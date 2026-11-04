@@ -922,9 +922,9 @@ export interface ShipRecord {
    * never survive the death gap.
    *
    * THE ONLY REPAIR POOL. The free per-level channel (`levelRepairHp` /
-   * `levelRepairRate`) is GONE: epic-8 amendment 46 replaced the per-level
-   * auto-heal with out-of-combat regen, which pays straight into `hp` and
-   * needs no pool at all (see tickRepairs).
+   * `levelRepairRate`) is GONE (epic-8 amendment 46), and so is the
+   * out-of-combat regen that replaced it (Story 10.3, 2026-11-04 — see
+   * tickRepairs).
    */
   repairHp: number;
   /**
@@ -935,15 +935,13 @@ export interface ShipRecord {
    * both route through the one gate, so "the storm resets the clock" is
    * structural rather than a second rule.
    *
-   * READ BY ONE THING: the out-of-combat regen in tickRepairs, against the
-   * hull's OWN wait `stats.regen.outOfCombatMs` (base `CONFIG.regen` 15 s; the
-   * PASSIVE HEALING ladder shortens it — Story 9.6, epic-9 amendments 90–92).
-   * SERVER-PRIVATE — never on the wire.
+   * Its one in-sim reader, the out-of-combat regen, was DELETED by Story 10.3
+   * (Eric 2026-11-04, epic-10 amendment 8 — "passive healing dies"); the
+   * stamp STAYS as the hull's combat clock (story AC 4), unchanged in where
+   * it is written. SERVER-PRIVATE — never on the wire.
    *
-   * SET TO `now` AT SPAWN, RESPAWN AND REDEPLOY, not to 0: a fresh life waits
-   * the full window like everyone else. It costs nothing (the hull is full, so
-   * the regen has nothing to do) and it means a hull that respawns mid-fight
-   * cannot start trickling the instant it appears.
+   * SET TO `now` AT SPAWN, RESPAWN AND REDEPLOY, not to 0: a fresh life starts
+   * with a fresh combat clock, never a stale one from its previous life.
    */
   lastDamagedAt: number;
   /**
@@ -1690,8 +1688,9 @@ export class World {
    * per-tick stores the two contact rows share, reused every tick:
    *   - `contactBodies`: one `ContactBody` per hull, cached by id so the 20 Hz
    *     loop allocates nothing per tick; `mass` is re-read from
-   *     `ship.stats.maxHp` (effectiveStats — the ONLY mass source) every tick
-   *     and `poly` aliases the record's `hullPoly` scratch.
+   *     `ship.stats.armor` (the ARMOR index off effectiveStats — the ONLY mass
+   *     source since Story 10.3, ruling 2; HUNKER's bonus adds no mass) every
+   *     tick and `poly` aliases the record's `hullPoly` scratch.
    *   - `hullContacts`: this tick's overlapping pairs, written by
    *     resolveHullContacts and read by applyContactDamage.
    *   - `contactLatch`: the ONCE-PER-CONTACT latch — the sorted pair key of
@@ -2469,9 +2468,8 @@ export class World {
       // (2026-08-04), the mine's prop-fouling slow, the foul zone's slow
       // (Story 9.4) — the same four zeroed together at every other life
       // boundary (founderSinking / respawn / redeployShip / match start).
-      // ...and it waits the full out-of-combat window before it regens
-      // (amendment 47): `lastDamagedAt` is `now`, never 0 — the hull is full
-      // here anyway, so the wait costs nothing.
+      // ...and a fresh combat clock (amendment 47): `lastDamagedAt` is `now`,
+      // never 0.
       boostUntil: 0, repairHp: 0, lastDamagedAt: this.now, slowedUntil: 0, slowFactor: 1, fouledUntil: 0, shield: null,
       // Story 8.15: no HUNKER window, and the machine gun's stream clock
       // at the epoch (fire on the first held tick), no stream live. Story
@@ -2853,9 +2851,7 @@ export class World {
     // pool would drain entirely into the maxHp clamp — but the wire field would
     // still tick down on a brand-new match's HUD (the boostUntil rule).
     World.clearRepair(ship);
-    // ...nor a stale combat clock: a fresh life waits the full out-of-combat
-    // window (amendment 47), so a hull redeployed straight out of a fight
-    // cannot start regenerating on the start line.
+    // ...nor a stale combat clock (amendment 47).
     ship.lastDamagedAt = this.now;
     // ...nor a SHIELD BLOCK (Story 8.4 review, P5 — the clearRepair rule).
     ship.shield = null;
@@ -3016,7 +3012,7 @@ export class World {
     // the economy is what a sinking captain loses (amendment 10 — "once
     // sinking, you're done"), tickRepairs would never tick it anyway (afloat
     // gate), and nothing may trickle hp back onto a hull already at 0. The
-    // out-of-combat regen is refused on exactly the same afloat gate.
+    // healing buoy's term is refused on exactly the same afloat gate.
     World.clearRepair(ship);
     // ...and so does the SHIELD BLOCK, on the same rule (Story 8.4 review, P5):
     // an absorbing pool is economy, and a sinking captain loses their economy.
@@ -3641,10 +3637,9 @@ export class World {
    * every acquisition runs through (a spend, a dev spawn fit, a directed test
    * grant). Copies 2+, ladders, add-ons and consumables record nothing.
    *
-   * HEAL-ON-GRANT (ARMOR — the ONLY heal path): a `healOnGrant` line heals
-   * exactly the maxHp DELTA this fit produced (clamped to the new cap, never
-   * negative; only a LIVING hull heals — a corpse gets full effective hp on
-   * respawn anyway).
+   * HEAL-ON-GRANT is GONE: its only line, HULL POINTS, and the `healOnGrant`
+   * flag were DELETED by Story 10.3 (Eric 2026-11-04, epic-10 amendment 8),
+   * so no grant heals. The hp clamp below stays for a maxHp-lowering fit.
    *
    * NEVER FIT AN ID WITH NO MODULE (Story 8.1): a `slotFill` whose target has
    * no row in the server EQUIPMENT registry is a SILENT NO-OP. Stub lines are
@@ -3682,10 +3677,8 @@ export class World {
     // equipment line steps every OTHER captain's weight for it down.
     if (World.isTake(line, copiesBefore)) this.recordTake(ship.id, lineId as LineId);
     const prevStats = this.refoldCards(ship);
-    if (line?.healOnGrant === true && isAfloat(ship.lifecycle)) {
-      const delta = Math.max(0, ship.stats.maxHp - prevStats.maxHp);
-      ship.hp = Math.min(ship.hp + delta, ship.stats.maxHp);
-    }
+    // The heal-on-grant branch (HULL POINTS' `healOnGrant`) sat here until
+    // Story 10.3 deleted it (Eric 2026-11-04, epic-10 amendment 8).
     // hp invariant: a maxHp-LOWERING fit may not leave hp above the cap.
     ship.hp = Math.min(ship.hp, ship.stats.maxHp);
     if (line !== undefined) this.applyGrantSlots(ship, line, lineId);
@@ -4066,15 +4059,17 @@ export class World {
     // downstream in this tick reads `fouledUntil` except frames, which ship
     // the fresh stamp to the victim the same tick.
     { name: 'applyFoulZones', run: (w) => w.applyFoulZones() },
-    // DAMAGE CONTROL regen (Eric rulings 2026-08-04) — DELIBERATE step-order
+    // DAMAGE CONTROL (Eric rulings 2026-08-04; the out-of-combat regen gone
+    // since Story 10.3 — the HULL REPAIR pool and the healing buoy term
+    // remain) — DELIBERATE step-order
     // position: dead LAST among the hp movers, after EVERY damage source this
     // tick (storm, ballistics, mine blasts, the incendiary DoT) has already
     // bitten and any lethal bite has already routed through sinkShip. Two
     // things follow, both intended. (1) The afloat gate reads POST-DAMAGE truth
     // — a hull the storm sank this very tick is already `sunk` with its
-    // pool zeroed, so a regen pool can never un-sink a hull at 0 hp; damage
+    // pool zeroed, so a repair pool can never un-sink a hull at 0 hp; damage
     // wins the tie by construction, with no explicit tie-break code. (2) The
-    // storm overlap nets exactly (regen rate − stormDps) per tick, because both
+    // storm overlap nets exactly (heal rate − stormDps) per tick, because both
     // integrate the same dt against the same float hp in a fixed order. It sits
     // BEFORE processRespawns for the same reason tickXp sits after: a respawn
     // restores full hp and zeroes the pool, so anything paid to a wreck here
@@ -4085,12 +4080,12 @@ export class World {
     // once — ruling 5) stamps the SPEED BUOY clock (read by next tick's
     // stepShips), grows or tails the SHIELD BUOY pool, and flags the HEALING
     // BUOY term tickRepairs pays this same tick. After every damage source
-    // (post-damage afloat truth, the regen rationale below).
+    // (post-damage afloat truth, the repair rationale below).
     { name: 'applyBuoyEffects', run: (w, ctx) => w.applyBuoyEffects(ctx.dtMs) },
     { name: 'tickRepairs', run: (w, ctx) => w.tickRepairs(ctx.dtMs) },
     // WOUNDED SMOKE (Story 4.4) — DELIBERATE step-order position: directly
     // after the LAST hp mover (tickRepairs), so every damage source AND the
-    // regen drain have already resolved. A hull that crossed a band this tick
+    // repair / buoy heal have already resolved. A hull that crossed a band this tick
     // smokes at its post-resolution hp, and one healed above the band goes
     // silent the same tick it recovered.
     { name: 'tickSmoke', run: (w) => w.tickSmoke() },
@@ -4785,8 +4780,9 @@ export class World {
    * (per-tick scratch: resolveCollisions re-transforms it right after this
    * row and collectHulls again later, so the translation the push applies
    * here is consumed by this tick's resolver and never read stale). `mass` is
-   * `stats.maxHp` from effectiveStats — the one mass source, a drone's
-   * envelope hp included. The pass moves `state.x/y` directly; the land pass
+   * `stats.armor` from effectiveStats — the ARMOR index IS the mass (Story
+   * 10.3, Eric 2026-11-04, ruling 2: "ramming mass = ARMOR"), a drone's
+   * envelope ARMOR included; HUNKER's temporary bonus is NOT mass. The pass moves `state.x/y` directly; the land pass
    * then validates the pushed pose exactly as it validates a kinematics
    * candidate (rollback to `prevPose` if it cannot be cleared).
    *
@@ -4806,15 +4802,16 @@ export class World {
     resolveHullContacts(bodies, this.hullContacts);
   }
 
-  /** The cached body for a hull, its mass refreshed from effectiveStats. A
-   *  test that swaps a record's `state` object gets a fresh body. */
+  /** The cached body for a hull, its mass (the ARMOR index, Story 10.3)
+   *  refreshed from effectiveStats. A test that swaps a record's `state`
+   *  object gets a fresh body. */
   private contactBodyOf(ship: ShipRecord): ContactBody {
     let body = this.contactBodies.get(ship.id);
     if (body === undefined || body.state !== ship.state || body.poly !== ship.hullPoly) {
-      body = { id: ship.id, state: ship.state, poly: ship.hullPoly, mass: ship.stats.maxHp, movable: true };
+      body = { id: ship.id, state: ship.state, poly: ship.hullPoly, mass: ship.stats.armor, movable: true };
       this.contactBodies.set(ship.id, body);
     }
-    body.mass = ship.stats.maxHp;
+    body.mass = ship.stats.armor;
     return body;
   }
 
@@ -4879,8 +4876,10 @@ export class World {
     const b = this.ships.get(c.b);
     if (a === undefined || b === undefined) return;
     if (roleIsFleetHull(a) && roleIsFleetHull(b)) return;
-    const mA = a.stats.maxHp;
-    const mB = b.stats.maxHp;
+    // MASS = ARMOR (Story 10.3, ruling 2): the folded ARMOR index, never the
+    // HUNKER bonus and never maxHp.
+    const mA = a.stats.armor;
+    const mB = b.stats.armor;
     const key = `${c.a}|${c.b}`;
     if (!this.contactLatch.has(key) && c.vn > CONFIG.ram.allowanceU) {
       // THE CHARGED HIT (amendment 83): over the allowance, priced and
@@ -4943,7 +4942,7 @@ export class World {
     if (ship.landContact) {
       const headOn = ship.landHeadOn;
       if (!ship.landWasContact) {
-        this.dealContact(ship, landHitDamage(ship.stats.maxHp, ship.preDampSpeed * headOn, CONFIG.ram), undefined, 'land');
+        this.dealContact(ship, landHitDamage(ship.stats.armor, ship.preDampSpeed * headOn, CONFIG.ram), undefined, 'land');
       }
       const vt = ship.preDampSpeed * Math.sqrt(Math.max(0, 1 - headOn * headOn));
       this.bleedContact(ship, landGrindRate(vt, CONFIG.ram) * dt, undefined, 'land');
@@ -5096,10 +5095,11 @@ export class World {
 
   /**
    * THE TWO WAYS HP COMES BACK (Eric rulings 2026-08-04; re-cut by epic-8
-   * amendments 46-48) — applyStorm's structural INVERSE: per-tick fractional hp
-   * against the same float, clamped, with NO per-tick event (that would spam
-   * ~20/s; the owner already receives live `hp` AND `repairHp` on every frame
-   * via OwnShip, so the HUD stays exact).
+   * amendments 46-48; the out-of-combat regen DELETED by Story 10.3, Eric
+   * 2026-11-04, epic-10 amendment 8) — applyStorm's structural INVERSE:
+   * per-tick fractional hp against the same float, clamped, with NO per-tick
+   * event (that would spam ~20/s; the owner already receives live `hp` AND
+   * `repairHp` on every frame via OwnShip, so the HUD stays exact).
    *
    *   1. THE PAID POOL (`repairHp`) — what a fired HULL REPAIR copy bought.
    *      It drains on the WALL CLOCK at the fixed rate regenHp/regenMs:
@@ -5107,81 +5107,55 @@ export class World {
    *      lands. Overflow past maxHp is therefore LOST, not banked — the ruled
    *      behavior (a full-bar hull burns its pool for nothing), and the reason
    *      the row itself refuses to fire at full hp. Pools ADD but the rate
-   *      NEVER changes, so two copies run 10 s at 10 hp/s rather than 5 s at
-   *      20 hp/s: that property lives entirely in `repairHp += regenHp` at
-   *      apply time, not here.
+   *      NEVER changes: that property lives entirely in `repairHp += regenHp`
+   *      at apply time, not here.
    *
-   *   2. THE OUT-OF-COMBAT REGEN (amendment 46) — REPLACES the free per-level
-   *      auto-heal that used to be this method's second channel, and it is
-   *      deliberately NOT a pool: the hull's own `stats.regen.missingPctPerS`
-   *      of its MISSING hp per second, paid straight into `hp`, once its own
-   *      `stats.regen.outOfCombatMs` have WHOLLY passed since `lastDamagedAt`
-   *      (base `CONFIG.regen`: 2 %/s after 15 s; the PASSIVE HEALING ladder
-   *      raises the rate and shortens the wait, folded in effectiveStats() —
-   *      Story 9.6, epic-9 amendments 90–92). The tick that merely ENDS on the
-   *      wait's mark is still a tick of the wait and credits nothing (see
-   *      `regenDue`). No
-   *      pool, no rate field, no `heal` cue (a continuous trickle would loop
-   *      the tone), no pending band. Healing is paced by DISENGAGING now, not
-   *      by the economy.
+   *   2. THE HEALING BUOY (Story 10.9, AC 6) — `CONFIG.buoy.heal.missingPctPerS`
+   *      of the hull's MISSING hp per second while applyBuoyEffects flagged it
+   *      inside an own healing buoy (tickHeal). Not a pool, no `heal` cue, and
+   *      no combat wait (a hit does not pause it).
    *
-   * IT SITS IN THIS METHOD'S EXISTING STEP_ORDER SLOT rather than taking a new
-   * one: it replaces the level pool's drain at the same pinned position — dead
-   * LAST among the hp movers, after every damage source — so `stepOrder.test`
-   * keeps its name list unchanged.
+   * 2026-11-04 (Story 10.3): the OUT-OF-COMBAT REGEN that used to be the
+   * second channel here (amendment 46, per-hull `stats.regen` since 9.6) is
+   * GONE with the PASSIVE HEALING ladder — "passive healing dies" (amendment
+   * 6(c)). An idle hull no longer heals; HULL REPAIR and the healing buoy are
+   * the only ways hp comes back. `lastDamagedAt` stays (wounded smoke, sting,
+   * bot reads).
    *
-   * Only AFLOAT hulls tick either way — a wreck's pool is already zeroed by
-   * sinkShip, so the afloat gate is belt-and-braces for the paid pool and the
-   * actual rule for the regen ("no hp comes back to a hull in the sinking
-   * window", amendment 10).
+   * IT SITS IN THIS METHOD'S EXISTING STEP_ORDER SLOT — dead LAST among the hp
+   * movers, after every damage source — so `stepOrder.test` keeps its name
+   * list unchanged.
    *
-   * A PvE FLEET HULL NEVER REGENS (amendment 48): a drone is environment and
-   * keeps the damage it takes, so a disengaged one never comes back to full.
-   * The paid pool is not role-gated because a drone can never own one (it holds
-   * no cards).
+   * Only AFLOAT hulls tick — a wreck's pool is already zeroed by sinkShip, so
+   * the afloat gate is belt-and-braces for the paid pool and the actual rule
+   * for the buoy term ("no hp comes back to a hull in the sinking window",
+   * amendment 10). A PvE FLEET HULL never takes the buoy term (amendment 48 —
+   * and it owns no buoys); the paid pool is not role-gated because a drone can
+   * never own one (it holds no cards).
    */
   private tickRepairs(dtMs: number): void {
     const hr = CONFIG.hullRepair;
     const budget = (hr.regenHp / hr.regenMs) * dtMs;
-    const tickStart = this.now - dtMs;
     for (const ship of this.ships.values()) {
-      const healPct = World.healPctPerS(ship, tickStart);
+      const healPct = World.healPctPerS(ship);
       ship.buoyHealTick = false; // consumed this tick (applyBuoyEffects re-flags it)
       if (!isAfloat(ship.lifecycle)) continue;
       if (ship.repairHp > 0) World.payRepair(ship, budget);
-      if (healPct > 0) World.tickRegen(ship, dtMs, healPct);
+      if (healPct > 0) World.tickHeal(ship, dtMs, healPct);
     }
   }
 
   /**
-   * The % of MISSING hp per second this hull heals this tick: the
-   * out-of-combat regen's own rate when it is due (regenDue), PLUS the
-   * HEALING BUOY's `CONFIG.buoy.heal.missingPctPerS` when applyBuoyEffects
-   * flagged the hull inside an own healing buoy (Story 10.9, AC 6) — ONE buoy
-   * term however many healing buoys cover it (ruling 5), with NO `regenDue`
-   * gate (a hit does not pause it), ADDITIVE with the regen on the same
-   * missing hp. Fleet hulls never heal by either (amendment 48 — and they
-   * own no buoys); the caller's afloat gate excludes sinking hulls.
+   * The % of MISSING hp per second this hull heals this tick: the HEALING
+   * BUOY's `CONFIG.buoy.heal.missingPctPerS` when applyBuoyEffects flagged the
+   * hull inside an own healing buoy (Story 10.9, AC 6) — ONE buoy term however
+   * many healing buoys cover it (ruling 5). Fleet hulls never heal (amendment
+   * 48); the caller's afloat gate excludes sinking hulls. (The out-of-combat
+   * regen term left with Story 10.3.)
    */
-  private static healPctPerS(ship: ShipRecord, tickStart: number): number {
+  private static healPctPerS(ship: ShipRecord): number {
     if (roleIsFleetHull(ship)) return 0;
-    const regen = World.regenDue(ship, tickStart) ? ship.stats.regen.missingPctPerS : 0;
-    return regen + (ship.buoyHealTick ? CONFIG.buoy.heal.missingPctPerS : 0);
-  }
-
-  /** Is this hull's out-of-combat regen due this tick? Never for a PvE fleet
-   *  hull (amendment 48). The wait is PER HULL — its own
-   *  `stats.regen.outOfCombatMs` (Story 9.6).
-   *
-   *  THE WAIT IS EXCLUSIVE OF THE TICK THAT ENDS ON IT. A tick is a SPAN and
-   *  `now` is its END, so the tick ending at exactly
-   *  `lastDamagedAt + outOfCombatMs` covers (now − dtMs, now] — time still
-   *  inside the wait. Crediting it would pay a full tick of regen for waiting.
-   *  The WHOLE tick must lie past the window, so the stamp is compared against
-   *  the tick's START (`now − dtMs`), not its end. */
-  private static regenDue(ship: ShipRecord, tickStart: number): boolean {
-    if (roleIsFleetHull(ship)) return false;
-    return ship.lastDamagedAt <= tickStart - ship.stats.regen.outOfCombatMs;
+    return ship.buoyHealTick ? CONFIG.buoy.heal.missingPctPerS : 0;
   }
 
   /** Drain the PAID pool by its wall-clock budget. The pool decrements WHETHER
@@ -5194,24 +5168,20 @@ export class World {
   }
 
   /**
-   * ONE TICK OF THE OUT-OF-COMBAT REGEN for a hull the caller has already found
-   * eligible (afloat, not a drone, past the window). Split out of tickRepairs
-   * for the complexity budget.
-   *
-   * THE RATE is the caller's `pctPerS` (healPctPerS): the hull's own
-   * `stats.regen.missingPctPerS` (Story 9.6 — never `CONFIG.regen` read at
-   * tick time) when the regen is due, plus the HEALING BUOY's term (Story
-   * 10.9) — both on the same missing hp.
+   * ONE TICK OF THE %-OF-MISSING HEAL (the healing buoy's term — renamed from
+   * `tickRegen` by Story 10.3 when the out-of-combat regen left) for a hull the
+   * caller has already found eligible (afloat, not a drone). Split out of
+   * tickRepairs for the complexity budget.
    *
    * THE SNAP TO FULL is not a rounding convenience: a % of MISSING is
    * asymptotic and never reaches zero missing on its own, so without it HULL
-   * REPAIR's "full hull" refusal would be unreachable after any regen and the
-   * globe would read 349.9 forever. It snaps on the SHARED `hullIsFull`
+   * REPAIR's "full hull" refusal would be unreachable after any heal and the
+   * globe would never read full. It snaps on the SHARED `hullIsFull`
    * (epic-8 amendment 53) — the same predicate the HULL REPAIR row refuses on
    * and the client's consumable-key pre-denial mirrors, so "full" has exactly one
    * definition and this snap can never drift away from that refusal.
    */
-  private static tickRegen(ship: ShipRecord, dtMs: number, pctPerS: number): void {
+  private static tickHeal(ship: ShipRecord, dtMs: number, pctPerS: number): void {
     const maxHp = ship.stats.maxHp;
     const missing = maxHp - ship.hp;
     if (missing <= 0) return;
@@ -5903,8 +5873,8 @@ export class World {
    *       keeps its own `zoneStartT` gate at its caller.
    *   (b′) THE ARMOR MULTIPLY (Story 9.7; Story 9.9): every source but the
    *       storm is scaled by the victim's Armor, plus the HUNKER's bonus while
-   *       its window is open, minus the attacker's ARMOR PIERCING read live
-   *       (armorDamage below).
+   *       its window is open, minus the attacker's POWER read live
+   *       (armorDamage below; Story 10.3 renamed ARMOR PIERCING to POWER).
    *   (c) THE SHIELDS absorb next — the SHIELD BUOY's pool first, then the
    *       SHIELD BLOCK (Story 10.9, ruling 4) — from EVERY source — storm bites and burn
    *       ticks included (AR47, amendment 118) — after the armor multiply
@@ -5931,17 +5901,17 @@ export class World {
     if (byId !== undefined && byId === victim.id) return; // (a) NO FRIENDLY FIRE, every source
     if (!this.damageEnabled) return; // (b) weapons-safe phases
     if (isSinking(victim.lifecycle)) return; // (b) a sinking hull cannot be finished off
-    const armored = this.armorDamage(victim, amount, src, byId); // (b′) ARMOR (+ the HUNKER's bonus − the attacker's ARMOR PIERCING), before the shield (Stories 9.7 / 9.9)
+    const armored = this.armorDamage(victim, amount, src, byId); // (b′) ARMOR (+ the HUNKER's bonus − the attacker's POWER), before the shield (Stories 9.7 / 9.9 / 10.3)
     // (c) THE SHIELDS: the SHIELD BUOY's pool FIRST, then the SHIELD BLOCK
     // (Story 10.9, ruling 4: armor → buoy shield → block → hull).
     const net = this.absorbShield(victim, World.absorbBuoyShield(victim, armored));
     const dealt = Math.max(0, Math.min(net, victim.hp)); // (d) overkill clamp, read BEFORE the write
     victim.hp -= dealt; // (d) THE ONE HULL-HP DECREMENT IN THE GAME
     // (d) THE COMBAT CLOCK (amendment 47): every source that actually removed
-    // hp — shell, torpedo, mine, burn tick, STORM bite — resets the
-    // out-of-combat regen's wait (the hull's own `stats.regen.outOfCombatMs`,
-    // Story 9.6), because every one of them passes through
-    // here. A blow fully eaten by a SHIELD BLOCK leaves `dealt` 0 and does NOT
+    // hp — shell, torpedo, mine, burn tick, STORM bite — restamps the hull's
+    // combat clock, because every one of them passes through here (the
+    // out-of-combat regen that read it left with Story 10.3; the stamp
+    // stays). A blow fully eaten by a SHIELD BLOCK leaves `dealt` 0 and does NOT
     // count as taking damage (Eric restated this as THE rule 2026-10-13, epic-9
     // amendment 92); dealing damage never counts at all.
     if (dealt > 0) victim.lastDamagedAt = this.now;
@@ -5973,30 +5943,39 @@ export class World {
    * amendment 120(a): a rounded 0.833 floored an MG shell 6 one point low) —
    * BEFORE the shield absorbs it (a shield lasts longer on an armored hull).
    *
-   * EFFECTIVE ARMOR (amendment 146): E = victim Armor + the HUNKER's bonus
-   * while open − the ATTACKER's ARMOR PIERCING. The curve has two branches:
+   * EFFECTIVE ARMOR (amendment 146; Story 10.3 ruling 11): E = victim ARMOR +
+   * the HUNKER's bonus while open − the ATTACKER's POWER. Both are INDICES
+   * since Story 10.3 (100 on every scaffold hull, +20 a card), so an average
+   * pair nets E = 0 → ×1 exactly as 9.9's 0 − 0 did. The curve has two branches:
    * E ≥ 0 → K / (K + E), E < 0 → 2 − K / (K − E) = (K − 2E) / (K − E), equal
    * to 1 with matching slope at 0 and bounded strictly under ×2 (a floor at
    * E = 0 and a raw K / (K + E) below zero were both rejected). The scale
    * (amendment 144, was K = 5 / +1 per card / cut +5): K = CONFIG.armor.k =
-   * 100; the ARMOR ladder's `stats.armor` is +20 per card (Tier V = 100 →
-   * ×0.5, 9.7's multipliers reproduced exactly); the HUNKER (the Battleship's
+   * 100; the ARMOR ladder's `stats.armor` is +20 per card (Tier V = +100 over
+   * the attacker's POWER → ×0.5, 9.7's multipliers reproduced exactly); the HUNKER (the Battleship's
    * Shift, Story 8.15; was DAMAGE CUT) adds `stats.equipment.hunker.armorBonus`
    * = +100 while `now < hunkerUntil`, ADDITIVELY on the Armor value, never as
-   * a second multiply (amendment 88) — so at Tier 0 under HUNKER, E 100 → ×0.5.
+   * a second multiply (amendment 88) — so at Tier 0 under HUNKER against POWER
+   * 100, E 100 → ×0.5.
    *
-   * THE ATTACKER IS READ LIVE AT IMPACT (amendment 156): the piercing is the
-   * CURRENT `stats.armorPiercing` of the `byId` record, never stamped on the
+   * THE ATTACKER IS READ LIVE AT IMPACT (amendment 156): POWER is the
+   * CURRENT `stats.power` (Story 9.9's `armorPiercing`, renamed by Story 10.3,
+   * Eric 2026-11-04, epic-10 amendment 8) of the `byId` record, never stamped on the
    * ordnance at launch — a card bought while a torpedo swims counts; a SUNK
    * owner's record persists in `this.ships` until the client leaves, so their
-   * mine / torpedo / burn still pierces; an owner who LEFT (removeShip) reads
-   * 0, as do the coast and a wreck (`byId` undefined). Every source but the
-   * storm carries it (amendment 147): shells, bursts, torpedoes, mines, the
-   * ram 'contact' strike, its 'grind' bleed and the 'burn' tick. PvE drones
-   * hold no cards — AP 0 as attackers, Armor 0 as victims, so a pierced drone
-   * takes up to ×1.5 (Eric: "apply it to all damage"). A SINKING hull's ram and
-   * grind read piercing 0 (its `attackerId` is undefined per amendment 82) while
-   * its torpedo, mine and burn still carry its full piercing (its record
+   * mine / torpedo / burn still carries it. A MISSING ATTACKER — an owner who
+   * LEFT (removeShip), the coast and a wreck (`byId` undefined) — reads the
+   * AVERAGE POWER, `CONFIG.index.base` (Story 10.3 reading, Task 1: today's
+   * "reads piercing 0" becomes "reads the average POWER", so those blows still
+   * net E = victim ARMOR − base and a coast strike on a base hull is ×1; Eric
+   * may veto for POWER 0). Every source but the storm carries it (amendment
+   * 147): shells, bursts, torpedoes, mines, the ram 'contact' strike, its
+   * 'grind' bleed and the 'burn' tick. PvE drones hold no cards but carry
+   * their envelope's indices (ARMOR / POWER 100 since Story 10.3), so a drone
+   * pair nets ×1 and a POWER-carded captain hits a drone up to ×1.5 (Eric:
+   * "apply it to all damage"). A SINKING hull's ram and grind read the missing
+   * attacker's base POWER (its `attackerId` is undefined per amendment 82)
+   * while its torpedo, mine and burn still carry its own POWER (its record
    * persists) — both follow the rulings; do not 'fix' one side.
    *
    * A WHOLE blow rounds DOWN to a whole number (amendment 102 — damage stays
@@ -6019,18 +5998,22 @@ export class World {
   private armorDamage(victim: ShipRecord, amount: number, src: DamageSource, byId: string | undefined): number {
     if (src === 'storm') return amount;
     const bonus = this.now < victim.hunkerUntil ? victim.stats.equipment.hunker.armorBonus : 0;
-    const piercing = this.piercingOf(byId);
-    const scaled = amount * damageMultiplierFor(victim.stats.armor + bonus - piercing);
+    const power = this.powerOf(byId);
+    const scaled = amount * damageMultiplierFor(victim.stats.armor + bonus - power);
     return src === 'burn' || src === 'grind' ? scaled : World.floorBlow(amount, scaled);
   }
 
-  /** The attacker's ARMOR PIERCING, read LIVE at impact (Story 9.9, epic-9
-   *  amendment 156): the current stats of the `byId` record. No attacker (the
-   *  coast, a wreck) and an attacker who left the room both read 0; a sunk
-   *  attacker's record persists, so it still reads its piercing. */
-  private piercingOf(byId: string | undefined): number {
-    if (byId === undefined) return 0;
-    return this.ships.get(byId)?.stats.armorPiercing ?? 0;
+  /** The attacker's POWER (Story 9.9's ARMOR PIERCING; `piercingOf` reading
+   *  `stats.armorPiercing` until Story 10.3, Eric 2026-11-04, epic-10
+   *  amendment 7), read LIVE at impact (Story 9.9, epic-9 amendment 156): the
+   *  current stats of the `byId` record. No attacker (the coast, a wreck) and
+   *  an attacker who left the room both read the AVERAGE POWER,
+   *  `CONFIG.index.base` (Story 10.3 reading — E = victim ARMOR − base, so a
+   *  base hull takes them at ×1); a sunk attacker's record persists, so it
+   *  still reads its own power. */
+  private powerOf(byId: string | undefined): number {
+    if (byId === undefined) return CONFIG.index.base;
+    return this.ships.get(byId)?.stats.power ?? CONFIG.index.base;
   }
 
   /** A whole blow after the Armor multiply: floored to a whole number, but a
@@ -7673,7 +7656,7 @@ export class World {
 
   /**
    * THE RADAR BUOY's own beam (Story 10.9, AC 5): every radar-kind buoy turns
-   * at its OWNER's `stats.sweepPeriodMs` (the `radarSweep` ladder — Eric's
+   * at its OWNER's `stats.sweepPeriodMs` (the `intel` ladder, `radarSweep` until Story 10.3 — Eric's
    * "intel speed RPM"), re-read every tick while the owner's record exists
    * and KEPT at its last value once the owner is gone (the beam still turns;
    * its paints go to nobody — perception paints for the owner only). The
@@ -7958,8 +7941,7 @@ export class World {
     ship.boostUntil = 0;
     World.clearShiftClocks(ship); // ...nor a HUNKER window or a stream clock (Story 8.15)
     World.clearRepair(ship);
-    // ...nor the dead life's combat clock: the returning hull waits the full
-    // out-of-combat window before it regens (amendment 47).
+    // ...nor the dead life's combat clock (amendment 47).
     ship.lastDamagedAt = this.now;
     // ...nor a SHIELD BLOCK (Story 8.4 review, P5; sinkShip already nulled it,
     // kept symmetric here for directed callers).

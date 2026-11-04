@@ -2,10 +2,13 @@
 // Contracts only (epic-8 amendment 243): the push leaves the pair overlap-free,
 // splits the separation by mass, never moves an immovable body, never
 // teleports, is independent of input order; the damage formulas reproduce
-// Eric's two calibration sentences FROM THE DIALS (amendment 73) and the land
-// softness; nothing below the allowance.
+// Eric's two calibration sentences FROM THE DIALS (amendment 73; re-based for
+// mass = ARMOR by Story 10.3, Eric 2026-11-04, ruling 2) and the land
+// softness; nothing below the allowance. The push tests use ABSTRACT masses
+// (250 / 350): the split law is a ratio, whatever the masses are.
 import { describe, it, expect } from 'vitest';
 import {
+  CATALOG,
   CONFIG,
   contactGrindRate,
   contactHitDamage,
@@ -83,7 +86,7 @@ describe('resolveHullContacts — solidity', () => {
     expect(Math.abs(db / total - 250 / 600)).toBeLessThan(1e-6);
   });
 
-  it('does the same with real hull silhouettes (speedboat 250 vs dreadnought 350)', () => {
+  it('does the same with real hull silhouettes (abstract masses 250 vs 350)', () => {
     const local = hullSilhouette('torpedoBoat');
     const heavy = hullSilhouette('battleship');
     const a = body('a', local, ship(0, 0, 0.3), 250);
@@ -204,43 +207,78 @@ describe('resolveHullContacts — closing and sliding speed', () => {
   });
 });
 
-describe('contact damage — Eric\'s calibration read from CONFIG.ram', () => {
-  it('a speedboat head-on a speedboat at 90 u/s closing costs each 200', () => {
-    expect(contactHitDamage(250, 250, 90, RAM)).toEqual({ a: 200, b: 200 });
+// THE DIALS ARE RE-BASED FOR MASS = ARMOR (Story 10.3, Eric 2026-11-04,
+// ruling 2): a hull's ramming mass is its ARMOR INDEX (100 on every scaffold
+// hull), not its max hull, and `energyPerHp` / `grindPerUnit` moved so that
+// every outcome keeps its FRACTION of a 1000 hp hull — a full-speed speedboat
+// head-on still costs each hull ~80 %. Every expectation below is the formula
+// over CONFIG.ram at the index base, or a fraction of the ruled hull; never a
+// literal hp figure.
+describe('contact damage — Eric\'s calibration read from CONFIG.ram at mass = ARMOR (Story 10.3)', () => {
+  const M = CONFIG.index.base; // every scaffold hull's ARMOR, so its mass
+  const HULL = CONFIG.shipClasses.torpedoBoat.hp; // 1000 on every class
+  /** The energy law by hand: the hit two equal masses M take at closing vn. */
+  const equalHit = (vn: number): number => {
+    const mu = (M * M) / (M + M);
+    return Math.floor((0.5 * mu * vn * vn * (M / (M + M))) / RAM.energyPerHp);
+  };
+
+  it('two equal hulls head-on at 90 u/s closing each take the energy law\'s split — about four fifths of a hull (Eric: "~80 %")', () => {
+    const hit = contactHitDamage(M, M, 90, RAM);
+    expect(hit).toEqual({ a: equalHit(90), b: equalHit(90) });
+    expect(hit.a / HULL).toBeGreaterThan(0.75);
+    expect(hit.a / HULL).toBeLessThan(0.85);
+    expect(Number.isInteger(hit.a)).toBe(true); // floored, whole hp
   });
 
-  it('a speedboat scraping a stopped speedboat at 45 u/s costs each 5 hp/s (sliding 45, pressing 0)', () => {
-    const g = contactGrindRate(250, 250, 45, 0, RAM);
-    expect(Math.abs(g.a - 5)).toBeLessThan(1e-9);
-    expect(Math.abs(g.b - 5)).toBeLessThan(1e-9);
+  it('a hull scraping a stopped equal hull at 45 u/s bleeds grindPerUnit × 45 × ½ each — a small fraction of a hull per second', () => {
+    const g = contactGrindRate(M, M, 45, 0, RAM);
+    const want = RAM.grindPerUnit * 45 * (M / (M + M));
+    expect(Math.abs(g.a - want)).toBeLessThan(1e-9);
+    expect(Math.abs(g.b - want)).toBeLessThan(1e-9);
+    expect(g.a / HULL).toBeLessThan(0.05); // a scrape is attrition, never a strike
   });
 
   it('a sustained PUSH bleeds like a scrape (amendment 83): the rate rides sliding + pressing speed', () => {
     // Pressing at 45 with no slide costs exactly what sliding at 45 does...
-    expect(contactGrindRate(250, 250, 0, 45, RAM)).toEqual(contactGrindRate(250, 250, 45, 0, RAM));
+    expect(contactGrindRate(M, M, 0, 45, RAM)).toEqual(contactGrindRate(M, M, 45, 0, RAM));
     // ...and the two components add.
-    const both = contactGrindRate(250, 250, 30, 15, RAM);
-    expect(Math.abs(both.a - 5)).toBeLessThan(1e-9);
-    expect(contactGrindRate(250, 250, 0, 0, RAM)).toEqual({ a: 0, b: 0 }); // at rest, nothing
+    const both = contactGrindRate(M, M, 30, 15, RAM);
+    expect(Math.abs(both.a - contactGrindRate(M, M, 45, 0, RAM).a)).toBeLessThan(1e-9);
+    expect(contactGrindRate(M, M, 0, 0, RAM)).toEqual({ a: 0, b: 0 }); // at rest, nothing
   });
 
-  it('the lighter hull takes the larger share (the other hull\'s mass fraction)', () => {
-    // amendment 73's quoted outcome: speedboat vs dreadnought at 80 closing
-    expect(contactHitDamage(250, 350, 80, RAM)).toEqual({ a: 215, b: 153 });
-    const g = contactGrindRate(250, 350, 45, 0, RAM);
-    expect(g.a / g.b).toBeCloseTo(350 / 250, 12);
+  it('mass is ARMOR: the lower-ARMOR hull takes the larger share — the other hull\'s mass fraction', () => {
+    // An ARMOR-upgraded hull (the index + one card, read from the catalog)
+    // against a base hull at 80 closing: the base hull takes the heavy hull's
+    // share of the energy, the heavy hull the base hull's share.
+    const step = (CATALOG.armor.tiers[0].find((e) => e.kind === 'stat') as { add: number }).add;
+    const heavy = M + step;
+    const mu = (M * heavy) / (M + heavy);
+    const energy = 0.5 * mu * 80 * 80;
+    const hit = contactHitDamage(M, heavy, 80, RAM);
+    expect(hit).toEqual({
+      a: Math.floor((energy * (heavy / (M + heavy))) / RAM.energyPerHp),
+      b: Math.floor((energy * (M / (M + heavy))) / RAM.energyPerHp),
+    });
+    expect(hit.a).toBeGreaterThan(hit.b);
+    const g = contactGrindRate(M, heavy, 45, 0, RAM);
+    expect(g.a / g.b).toBeCloseTo(heavy / M, 12);
   });
 
-  it('land is the infinite-mass limit softened: a speedboat dead-on at 45 u/s takes 50', () => {
-    expect(landHitDamage(250, 45, RAM)).toBe(50);
+  it('land is the infinite-mass limit softened: a base hull dead-on at 45 u/s takes ½·M·vn²/energyPerHp × landSoftness — about a fifth of a hull', () => {
+    const want = Math.floor(((0.5 * M * 45 * 45) / RAM.energyPerHp) * RAM.landSoftness);
+    expect(landHitDamage(M, 45, RAM)).toBe(want);
+    expect(want / HULL).toBeGreaterThan(0.15);
+    expect(want / HULL).toBeLessThan(0.25);
     expect(landGrindRate(45, RAM)).toBeCloseTo(RAM.grindPerUnit * 45 * RAM.landSoftness, 12);
     expect(landGrindRate(0, RAM)).toBe(0); // a parked hull takes nothing
   });
 
   it('a strike at or under the allowance costs nothing', () => {
-    expect(contactHitDamage(250, 250, RAM.allowanceU, RAM)).toEqual({ a: 0, b: 0 });
-    expect(contactHitDamage(250, 250, 0, RAM)).toEqual({ a: 0, b: 0 });
-    expect(landHitDamage(250, RAM.allowanceU, RAM)).toBe(0);
+    expect(contactHitDamage(M, M, RAM.allowanceU, RAM)).toEqual({ a: 0, b: 0 });
+    expect(contactHitDamage(M, M, 0, RAM)).toEqual({ a: 0, b: 0 });
+    expect(landHitDamage(M, RAM.allowanceU, RAM)).toBe(0);
   });
 
   it('the land scrape rides the SLIDING speed only: a head-on press against a rock bleeds nothing', () => {
@@ -250,14 +288,14 @@ describe('contact damage — Eric\'s calibration read from CONFIG.ram', () => {
 
   it('a non-finite or empty pair prices as NOTHING, never NaN (the NaN contract)', () => {
     const NONE = { a: 0, b: 0 };
-    expect(contactHitDamage(NaN, 250, 90, RAM)).toEqual(NONE);
-    expect(contactHitDamage(250, Infinity, 90, RAM)).toEqual(NONE);
+    expect(contactHitDamage(NaN, M, 90, RAM)).toEqual(NONE);
+    expect(contactHitDamage(M, Infinity, 90, RAM)).toEqual(NONE);
     expect(contactHitDamage(0, 0, 90, RAM)).toEqual(NONE);
-    expect(contactHitDamage(250, 250, NaN, RAM)).toEqual(NONE);
-    expect(contactGrindRate(NaN, 250, 45, 0, RAM)).toEqual(NONE);
+    expect(contactHitDamage(M, M, NaN, RAM)).toEqual(NONE);
+    expect(contactGrindRate(NaN, M, 45, 0, RAM)).toEqual(NONE);
     expect(contactGrindRate(0, 0, 45, 0, RAM)).toEqual(NONE);
-    expect(contactGrindRate(250, 250, NaN, 0, RAM)).toEqual(NONE);
-    expect(contactGrindRate(250, 250, 0, Infinity, RAM)).toEqual(NONE);
+    expect(contactGrindRate(M, M, NaN, 0, RAM)).toEqual(NONE);
+    expect(contactGrindRate(M, M, 0, Infinity, RAM)).toEqual(NONE);
     expect(landHitDamage(NaN, 45, RAM)).toBe(0);
     expect(landGrindRate(NaN, RAM)).toBe(0);
   });

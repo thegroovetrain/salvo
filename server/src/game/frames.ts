@@ -132,9 +132,10 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // (not optional like slowedUntil/fouledUntil): the client's strip renders
     // the pool every frame, so a dropped key would read as "pool gone".
     // THE PAID POOL ALONE since Story 8.8 (epic-8 amendment 46): the free
-    // per-level channel this used to be summed with is gone, and the
-    // out-of-combat regen that replaced it has no pool — it pays straight into
-    // `hp`, which the owner already receives every frame.
+    // per-level channel this used to be summed with is gone (and the
+    // out-of-combat regen that replaced it is gone too, Story 10.3); the
+    // healing buoy's term has no pool — it pays straight into `hp`, which the
+    // owner already receives every frame.
     repairHp: ship.repairHp,
     // Fitted card LINE ids in fit order (Story 8.1 — catalog v3 renamed the
     // field from `boons`), defensive copy. SELF-PRIVATE like upg/boostUntil:

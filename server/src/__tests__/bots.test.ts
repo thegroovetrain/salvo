@@ -23,7 +23,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { CONFIG, SHIP_CLASS_IDS, isAfloat } from '@salvo/shared';
+import { CONFIG, SHIP_CLASS_IDS, effectiveStats, isAfloat } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { BotController, botPhase } from '../game/ai/botDriver.js';
 import type { BotWorldPort } from '../game/ai/types.js';
@@ -53,7 +53,7 @@ describe('CONFIG.bots — the un-beach maneuver is a set of relations, not three
   // 0.97s a Battleship spends killing its forward way at the grounding cap,
   // so its measured net displacement over one burst was +3.21u — deeper in.
   it('the un-beach constants clear the BATTLESHIP\'s own reverse kinematics', () => {
-    const bs = CONFIG.shipClasses.battleship.kinematics;
+    const bs = effectiveStats(CONFIG.shipClasses.battleship).kinematics;
     // Re-derived here from the hull's kinematics, independently of the
     // comment in constants.ts: kill the forward way the grounding cap leaves
     // on (decel), then build sternway (accel) far enough to satisfy the
@@ -76,7 +76,7 @@ describe('CONFIG.bots — the un-beach maneuver is a set of relations, not three
     // after the astern order — the reason plain displacement is a safe
     // stand-in for sternway made good.
     for (const cls of SHIP_CLASS_IDS) {
-      const k = CONFIG.shipClasses[cls].kinematics;
+      const k = effectiveStats(CONFIG.shipClasses[cls]).kinematics;
       const cap = k.maxSpeed * CONFIG.ship.islandSpeedMult;
       expect((cap * cap) / (2 * k.decel)).toBeLessThan(CONFIG.bots.unbeachClearU);
     }

@@ -250,7 +250,7 @@ describe('the tooltip is HOVER-ONLY (R2.17, Eric ruling 2026-08-19)', () => {
   // (BROADSIDE and HEAVY TORPEDO, 261px) are taller than the floor band itself,
   // so flipped DOWN they are nudged (-17px) rather than seated at the band's
   // top edge — which is not the placement these pins are about.
-  const OFFER = ['phosphorShells', 'radarSweep', 'hullPoints', 'foulingMines'];
+  const OFFER = ['phosphorShells', 'intel', 'armor', 'foulingMines'];
 
   function open(): { menu: UpgradeMenu; cards: HTMLButtonElement[]; view: OfferView } {
     const you = {
@@ -486,7 +486,7 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
   it('paints the KIND word and the resting edge in the kind\'s colour; armed stays amber', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, kit: [...DEFAULT_KIT], pts: 1, offer: ['heavyTorpedo', 'deckGun', 'hullPoints', 'hullRepair'],
+      cls: 'torpedoBoat' as const, kit: [...DEFAULT_KIT], pts: 1, offer: ['heavyTorpedo', 'deckGun', 'armor', 'hullRepair'],
       boostUntil: 0, cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
@@ -520,8 +520,8 @@ describe('ladder position and KIND are colour-coded AND dual-coded', () => {
   it('tints each tier NUMERAL by the rung it names, on the absolute loot ramp', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, kit: [...DEFAULT_KIT], pts: 1, offer: ['radarSweep'], boostUntil: 0,
-      cards: ['radarSweep', 'radarSweep'], lvl: 0, xp: 0, repairHp: 0,
+      cls: 'torpedoBoat' as const, kit: [...DEFAULT_KIT], pts: 1, offer: ['intel'], boostUntil: 0,
+      cards: ['intel', 'intel'], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});
     menu.toggle(offerView(you as never, false, false, false, []) as OfferView);
@@ -571,7 +571,7 @@ describe('the hover panel\'s consumable shape line', () => {
     const clicked = refitTooltipModel({ id: 'decoyBuoy', kind: 'consumable' }, 'DECOY BUOY', [], 0);
     expect(clicked.interaction).toBeUndefined();
     for (const line of [
-      { id: 'radarSweep', kind: 'ladder' },
+      { id: 'intel', kind: 'ladder' },
       { id: 'heavyTorpedo', kind: 'equipment' },
       { id: 'acousticHoming', kind: 'addon' },
     ]) {
@@ -628,7 +628,7 @@ describe('the hover panel\'s consumable shape line', () => {
   it('keeps the shape row hidden and empty on every card\'s hover panel (amendment 203)', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
-      cls: 'torpedoBoat' as const, kit: [...DEFAULT_KIT], pts: 1, offer: ['hullRepair', 'radarSweep'], boostUntil: 0,
+      cls: 'torpedoBoat' as const, kit: [...DEFAULT_KIT], pts: 1, offer: ['hullRepair', 'intel'], boostUntil: 0,
       cards: [], lvl: 0, xp: 0, repairHp: 0,
     };
     const menu = new UpgradeMenu(() => {});

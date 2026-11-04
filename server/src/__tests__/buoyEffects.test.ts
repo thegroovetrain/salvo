@@ -61,7 +61,7 @@ const inner = (w: World) =>
     applyDamage(victim: ShipRecord, amount: number, src: string, byId: string | undefined): void;
   };
 
-describe('HEALING BUOY — 2 % of missing per second, uninterruptible, additive with regen, a kind counts once', () => {
+describe('HEALING BUOY — 2 % of missing per second, uninterruptible, a kind counts once', () => {
   it('heals missing × pct × dt while a hit has just landed (no out-of-combat gate)', () => {
     const w = bareWorld();
     const o = place(w, 'o', 0, 0);
@@ -73,16 +73,18 @@ describe('HEALING BUOY — 2 % of missing per second, uninterruptible, additive 
     expect(o.hp - o.stats.maxHp / 2).toBeCloseTo(missing * B.heal.missingPctPerS * (DT / 1000), 9);
   });
 
-  it('ADDS to the passive regen when that is due — both on the same missing hp', () => {
+  // 2026-11-04 (Story 10.3, epic-10 amendment 8): the out-of-combat regen this
+  // term used to ADD to is gone — a long-idle hull inside the buoy heals by the
+  // buoy term ALONE (it was `regen + buoy` here until then).
+  it('a long-idle hull heals by the buoy term ALONE — no out-of-combat regen rides on it (Story 10.3)', () => {
     const w = bareWorld();
     const o = place(w, 'o', 0, 0);
     buoy(w, 'o', 100, 0, 'healing');
     o.hp = o.stats.maxHp / 2;
-    o.lastDamagedAt = -1e9; // regen long due
+    o.lastDamagedAt = -1e9; // idle for ages: the old regen would have been due
     const missing = o.stats.maxHp - o.hp;
     w.step();
-    const both = (o.stats.regen.missingPctPerS + B.heal.missingPctPerS) * (DT / 1000);
-    expect(o.hp - o.stats.maxHp / 2).toBeCloseTo(missing * both, 9);
+    expect(o.hp - o.stats.maxHp / 2).toBeCloseTo(missing * B.heal.missingPctPerS * (DT / 1000), 9);
   });
 
   it('two healing buoys heal exactly as one (ruling 5); an ENEMY\'s, or one out of radius, heals nothing', () => {

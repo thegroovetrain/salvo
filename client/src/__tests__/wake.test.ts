@@ -31,6 +31,7 @@ import {
   torpWakeLifeMs,
   type HullId,
 } from '@salvo/shared';
+import { hullTopSpeed } from '../sim/hullKinematics.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { Effects, chopHalfWidthU, chopOutline, type ChopPoint } from '../render/effects.js';
 import { WakeSources, type WakeHull } from '../render/wake.js';
@@ -41,7 +42,7 @@ const STEP_U = CONFIG.vision.wakeSampleU;
 
 /** A hull under way along +x at `speed`, at time `t`. */
 function hull(id: string, cls: HullId, x: number, speed: number, t = 0): WakeHull {
-  return { id, x, y: 0, heading: 0, speed, cls, color: 0xffffff, maxSpeedU: hullEnvelope(cls).kinematics.maxSpeed + t * 0 };
+  return { id, x, y: 0, heading: 0, speed, cls, color: 0xffffff, maxSpeedU: hullTopSpeed(cls) + t * 0 };
 }
 
 /** Drive `effects` for `frames` frames at `dt` seconds, advancing each moving
@@ -158,7 +159,7 @@ describe('wake length is speed × the SHARED life, per class', () => {
 
   it('measures out on the ribbon itself, at full ahead and at half', () => {
     for (const cls of ['torpedoBoat', 'mineLayer', 'battleship'] as const) {
-      const top = hullEnvelope(cls).kinematics.maxSpeed;
+      const top = hullTopSpeed(cls);
       for (const frac of [1, 0.5]) {
         const speed = top * frac;
         const r = createShipWake(cls, top);
@@ -194,7 +195,7 @@ describe('the foam pool is bounded, across every hull on the water', () => {
   it('derives its ceiling from the clock, the cadence, the fastest hull and the room', () => {
     const fastest = Math.max(
       ...(['torpedoBoat', 'mineLayer', 'battleship', 'droneSmall', 'droneMedium', 'droneLarge'] as HullId[]).map(
-        (id) => hullEnvelope(id).kinematics.maxSpeed,
+        (id) => hullTopSpeed(id),
       ),
     );
     const perHull = Math.ceil(((LIFE_MS / 1000) * fastest) / STEP_U);
@@ -205,7 +206,7 @@ describe('the foam pool is bounded, across every hull on the water', () => {
     const effects = new Effects(new Container());
     const hulls: WakeHull[] = [];
     for (let i = 0; i < CONFIG.map.playerCap; i++) {
-      const h = hull(`s${i}`, 'torpedoBoat', i * 40, hullEnvelope('torpedoBoat').kinematics.maxSpeed);
+      const h = hull(`s${i}`, 'torpedoBoat', i * 40, hullTopSpeed('torpedoBoat'));
       h.y = i * 40;
       hulls.push(h);
     }

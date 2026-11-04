@@ -162,10 +162,13 @@ export const HOWTO_SECTIONS: readonly HowToSection[] = [
   {
     heading: '[ SHIP UPGRADES ]',
     entries: [
-      { name: 'HULL', lineId: 'hullPoints', table: 'shipUpgrade', description: 'More max HP, and heals you by the same amount.' },
-      { name: 'SPEED', lineId: 'speed', table: 'shipUpgrade', description: 'Higher top speed.' },
-      { name: 'TURNING', lineId: 'turning', table: 'shipUpgrade', description: 'Turns faster.' },
-      { name: 'RADAR SWEEP', lineId: 'radarSweep', table: 'shipUpgrade', description: 'Radar spins faster.' },
+      // The HULL entry (lineId `hullPoints`) left with its line in Story 10.3
+      // (Eric 2026-11-04, epic-10 amendment 8); three lineIds renamed in place
+      // and their TITLES follow the index words (ENGINES / RUDDER / INTEL).
+      // The descriptions are FROZEN COPY — Story 10.14 owns them.
+      { name: 'ENGINES', lineId: 'engines', table: 'shipUpgrade', description: 'Higher top speed.' },
+      { name: 'RUDDER', lineId: 'rudder', table: 'shipUpgrade', description: 'Turns faster.' },
+      { name: 'INTEL', lineId: 'intel', table: 'shipUpgrade', description: 'Radar spins faster.' },
       { name: 'RELOAD', lineId: 'reload', table: 'shipUpgrade', description: 'Every reload and cooldown on the ship gets shorter, except consumables.' },
     ],
   },

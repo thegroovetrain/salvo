@@ -1,42 +1,52 @@
-// THE turnRate FLOOR — a leaf whose whole legitimate range sits below the
-// blanket min-one floor.
-//
-// `TUNE_MIN_ONE_LEAVES` exists to stop a divide-or-spin hazard: ai/tactics.ts
-// and ai/utility.ts both divide by `turnRate`, and a 0 there yields Infinity /
-// NaN steer that game/inputs.ts silently drops, leaving bots inert while every
-// report row still reads plausible. That hazard is real — but it is a divide by
-// ZERO, and the floor was set at 1 while all three hulls ship 0.4 / 0.6 / 0.8.
-// The leaf was therefore untunable at its own shipped values.
+// THE INDEX FLOORS (Story 10.3, 2026-11-04 — replaces the `turnRate` 0.05
+// floor, whose leaf left CONFIG when the turn rate became DERIVED from the
+// RUDDER index). Every `shipClasses.<cls>.index.<id>` is a --tune leaf; the
+// five indices the fold divides by or scales through (reload / engines /
+// rudder / intel / range) are floored at 1 — clampStats floors them there, so
+// a 0 arm would print as moved while the sim ran 1 — and ARMOR / POWER keep
+// floor 0.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, INDEX_IDS, SHIP_CLASS_IDS } from '@salvo/shared';
 import { applyOverrides, validateTuneKey, validateTuneValue, TunableError } from '../overrides.js';
 
-const TURN = 'shipClasses.battleship.kinematics.turnRate';
+const FLOOR_ONE = ['reload', 'engines', 'rudder', 'intel', 'range'] as const;
 
-describe('--tune floors — turnRate', () => {
-  it('accepts every SHIPPED hull turn rate (the regression that motivated this)', () => {
-    for (const hull of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
-      const shipped = CONFIG.shipClasses[hull].kinematics.turnRate;
-      expect(() => validateTuneValue(`shipClasses.${hull}.kinematics.turnRate`, shipped)).not.toThrow();
+describe('--tune floors — the seven indices', () => {
+  it('every class index is a --tune key and accepts its SHIPPED value', () => {
+    for (const cls of SHIP_CLASS_IDS) {
+      for (const id of INDEX_IDS) {
+        const key = `shipClasses.${cls}.index.${id}`;
+        expect(() => validateTuneKey(key)).not.toThrow();
+        expect(() => validateTuneValue(key, CONFIG.shipClasses[cls].index[id])).not.toThrow();
+      }
     }
   });
 
-  it('accepts a plausible buffed value', () => {
-    expect(() => validateTuneValue(TURN, 0.48)).not.toThrow();
+  it('REFUSES zero (and anything under 1) on the five derivation indices', () => {
+    for (const id of FLOOR_ONE) {
+      const key = `shipClasses.battleship.index.${id}`;
+      expect(() => validateTuneValue(key, 0)).toThrow(TunableError);
+      expect(() => validateTuneValue(key, 0.5)).toThrow(TunableError);
+      expect(() => validateTuneValue(key, 1)).not.toThrow();
+    }
   });
 
-  it('still REFUSES zero — the divide hazard the floor exists for', () => {
-    expect(() => validateTuneValue(TURN, 0)).toThrow(TunableError);
+  it('ARMOR and POWER may be zero; nothing may be negative or non-finite', () => {
+    for (const id of ['armor', 'power']) {
+      const key = `shipClasses.battleship.index.${id}`;
+      expect(() => validateTuneValue(key, 0)).not.toThrow();
+      expect(() => validateTuneValue(key, -1)).toThrow(TunableError);
+      expect(() => validateTuneValue(key, Number.NaN)).toThrow(TunableError);
+    }
   });
 
-  it('still refuses a negative and a non-finite value', () => {
-    expect(() => validateTuneValue(TURN, -0.5)).toThrow(TunableError);
-    expect(() => validateTuneValue(TURN, Number.NaN)).toThrow(TunableError);
-    expect(() => validateTuneValue(TURN, Number.POSITIVE_INFINITY)).toThrow(TunableError);
+  it('the retired speed leaves are no --tune keys: the speed and turn rate are DERIVED', () => {
+    expect(() => validateTuneKey('shipClasses.battleship.kinematics.maxSpeed')).toThrow(TunableError);
+    expect(() => validateTuneKey('shipClasses.battleship.kinematics.turnRate')).toThrow(TunableError);
   });
 
-  it('leaves the OTHER min-one leaves at 1 — this corrects one magnitude, not the class', () => {
+  it('leaves the OTHER min-one leaves at 1', () => {
     expect(() => validateTuneValue('shipClasses.battleship.hp', 0.5)).toThrow(TunableError);
     expect(() => validateTuneValue('shipClasses.battleship.kinematics.steerageSpeed', 0.5)).toThrow(TunableError);
     expect(() => validateTuneValue('torpedo.speed', 0.5)).toThrow(TunableError);

@@ -8,7 +8,7 @@
 // speed, and nothing survives the practice-field wipe.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, SHIP_CLASS_IDS, createShipWake, createTorpWake, wakeCapacity } from '@salvo/shared';
+import { isAfloat, CONFIG, SHIP_CLASS_IDS, effectiveStats, createShipWake, createTorpWake, wakeCapacity } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 
@@ -65,7 +65,7 @@ describe('world — wake ribbon store (Story 4.12)', () => {
     // budget uses.
     // Story 10.9 (ruling 6): the Shift and a SPEED BUOY add on the base —
     // the first fold stage's one combined factor.
-    const base = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed;
+    const base = effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics.maxSpeed;
     const boosted = base + base * (CONFIG.boost.factor + CONFIG.buoy.speed.factor);
     const top = boosted + boosted * CONFIG.wake.draft.lift;
     expect(a.wake.cap).toBe(wakeCapacity(top, CONFIG.vision.wakeLifeMs));
@@ -163,7 +163,7 @@ describe('world — wake ribbon store (Story 4.12)', () => {
     const laid = before.count;
     expect(laid).toBeGreaterThan(0);
     const capBefore = before.cap;
-    for (let i = 0; i < 5; i++) w.applyCard(a, 'speed'); // ×1.05⁵ maxSpeed
+    for (let i = 0; i < 5; i++) w.applyCard(a, 'engines'); // ×1.05⁵ maxSpeed
     expect(a.wake.cap).toBeGreaterThan(capBefore); // upsized for the faster hull
     expect(a.wake.count).toBe(laid); // every live sample replayed, none dropped
     expect(a.wake.xs[0]).toBe(before.xs[(before.head + 0) % before.cap]);

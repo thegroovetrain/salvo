@@ -19,7 +19,7 @@ import {
   type LineId,
 } from '../index.js';
 
-const BUILDS: LineId[][] = [[], new Array<LineId>(5).fill('radarSweep'), ['starShells', 'starShells', 'reload']];
+const BUILDS: LineId[][] = [[], new Array<LineId>(5).fill('intel'), ['starShells', 'starShells', 'reload']];
 const { rampMs, holdMs, clearMs } = CONFIG.flashShells;
 const BLIND = rampMs + holdMs;
 const HIT = 100_000; // ms — an arbitrary server-clock hit time

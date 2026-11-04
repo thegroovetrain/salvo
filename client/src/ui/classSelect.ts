@@ -140,8 +140,21 @@ const HOIST_LABEL = 'COLOR PREFERENCE:';
 
 interface PipRow {
   label: string;
+  /** The index this row reads (Story 10.3) — its anchor is `home.pip[index]`. */
+  index: PipIndex;
   filled: number; // 1..5
 }
+
+/** The three indices the hull card shows, in row order (Story 10.3). */
+type PipIndex = keyof typeof CLIENT_CONFIG.home.pip;
+
+/** The three pip rows: ENGINES / ARMOR / RUDDER (Story 10.3 — the index words;
+ *  until 10.3 SPEED / HULL / TURNING on raw speed, hp and turn rate). */
+const PIP_ROWS: readonly { label: string; index: PipIndex }[] = [
+  { label: 'ENGINES', index: 'engines' },
+  { label: 'ARMOR', index: 'armor' },
+  { label: 'RUDDER', index: 'rudder' },
+];
 
 export interface CardViewModel {
   cls: ShipClassId;
@@ -154,8 +167,9 @@ export interface CardViewModel {
 
 /**
  * The card's data per class: name, zero-padded key (index+1), the three
- * real-value pips (util/pips against the objective anchor ladders — TB 4/2/4,
- * BS 2/4/2, ML 3/3/3), and the loadout rows — which are EMPTY for every hull
+ * index pips (util/pips against the index anchors — under the Story 10.3
+ * scaffold ENGINES / ARMOR / RUDDER read TB 4/1/5, BS 2/1/1, ML 3/1/4), and
+ * the loadout rows — which are EMPTY for every hull
  * since Story 8.10 (amendment 62). Pure — the DOM builder + tests consume it.
  */
 /**
@@ -168,10 +182,10 @@ export interface CardViewModel {
  * *"on ship select, change 'toughness' to 'armor' so the text fits better."*).
  * The column is fixed, the face is mono, and the label carries a 0.16em track,
  * so `TOUGHNESS` measured 9 x (14 x 0.605 + 2.24) = 96.4px into an 88px cell and
- * overflowed it. `ARMOR` was 53.6px and `TURNING`, now the longest of the three,
- * is 75.0px. The row reads `HULL` since Story 9.6 (Eric 2026-10-13, epic-9
- * amendment 93 — the ladder's printed name), 4 x (14 x 0.605 + 2.24) = 42.8px,
- * shorter still, so the column ruling holds. The column is deliberately NOT shrunk to match: it was never the
+ * overflowed it. `ARMOR` was 53.6px and `TURNING` 75.0px. The middle row read
+ * `HULL` from Story 9.6 (epic-9 amendment 93) until Story 10.3 made the three
+ * rows indices — `ENGINES` / `ARMOR` / `RUDDER` (Eric 2026-11-04): `ENGINES`,
+ * the longest, is 7 chars = 75.0px, so the column ruling holds. The column is deliberately NOT shrunk to match: it was never the
  * thing at fault, and narrowing it would re-open the same trap for the next
  * label somebody adds.
  */
@@ -185,11 +199,7 @@ export function cardViewModel(cls: ShipClassId): CardViewModel {
     cls,
     name: CLASS_DISPLAY_NAMES[cls],
     key: String(SHIP_CLASS_IDS.indexOf(cls) + 1).padStart(2, '0'),
-    pips: [
-      { label: 'SPEED', filled: pipFill(spec.kinematics.maxSpeed, anchors.speed) },
-      { label: 'HULL', filled: pipFill(spec.hp, anchors.toughness) },
-      { label: 'TURNING', filled: pipFill(spec.kinematics.turnRate, anchors.turning) },
-    ],
+    pips: PIP_ROWS.map(({ label, index }) => ({ label, index, filled: pipFill(spec.index[index], anchors[index]) })),
     loadout: loadoutRows(cls),
   };
 }
@@ -484,7 +494,7 @@ function pipCell(): HTMLElement {
   return p;
 }
 
-/** A pip-scale grid (SPEED/HULL/TURNING × 5 bars); returns the row cells. */
+/** A pip-scale grid (ENGINES/ARMOR/RUDDER × 5 bars); returns the row cells. */
 function buildPips(vm: CardViewModel): { el: HTMLElement; rows: HTMLElement[][] } {
   const grid = document.createElement('div');
   grid.style.cssText =

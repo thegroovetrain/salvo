@@ -591,7 +591,7 @@ export function sceneOwn(world: SceneWorld, tick: number): OwnShip {
     gun: DEFAULT_GUN,
     kit: [...DEFAULT_KIT],
     pts: bankedPointsAt(tick, world.profile),
-    offer: ['radarSweep', 'heavyTorpedo', 'broadside'],
+    offer: ['intel', 'heavyTorpedo', 'broadside'],
     boostUntil: 0,
     cards: [],
     lvl: 4 + Math.floor(tick / s.pointEveryTicks),

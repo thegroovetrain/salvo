@@ -14,7 +14,9 @@ const TIERED = [
   'deckGun', 'machineGun', 'flak', 'heavyTorpedo', 'lightTorpedo', 'broadside',
   'starShells', 'phosphorShells', 'navalMines', 'captiveMines', 'foulingMines',
 ];
-const SHIP = ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'];
+// HULL POINTS and PASSIVE HEALING left with Story 10.3 (Eric 2026-11-04,
+// epic-10 amendment 8); the six that remain are index cards.
+const SHIP = ['armor', 'power', 'reload', 'engines', 'rudder', 'intel'] as const;
 
 /** Every row's cells, label-blind — a derived row is found by its VALUES. */
 const cells = (t: StatTable): (readonly string[])[] => t.rows.map((r) => r.values);
@@ -72,31 +74,20 @@ describe('ship upgrade tables', () => {
     }
   });
 
-  it('HULL tops the DREADNOUGHT out at its base hull + 5 × 50 (Story 9.6, amendment 90; was ARMOR at 450)', () => {
-    const base = effectiveStats(CONFIG.shipClasses.battleship, []).maxHp;
-    const top = effectiveStats(CONFIG.shipClasses.battleship, Array<string>(CATALOG.hullPoints.cap).fill('hullPoints')).maxHp;
-    const dread = shipUpgradeTable('hullPoints').rows[TABLE_HULLS.indexOf('battleship')]!.values;
-    expect(dread[0]).toBe(String(base));
-    expect(dread.at(-1)).toBe(String(top));
-  });
+  // The HULL (maxHp) and PASSIVE HEALING (heal rate) table tests lived here
+  // until Story 10.3 deleted both lines (Eric 2026-11-04, epic-10 amendment 8).
 
-  it('PASSIVE HEALING derives its table from the folded heal rate (percent per second) at every count', () => {
-    const heal = shipUpgradeTable('passiveHealing').rows[TABLE_HULLS.indexOf('torpedoBoat')]!.values;
-    heal.forEach((cell, k) => {
-      expect(Number.parseFloat(cell), `+${k}`).toBeCloseTo(fold('passiveHealing', k).regen.missingPctPerS * 100, 6);
-    });
-  });
-
-  // ARMOR PIERCING (Story 9.9, epic-9 amendment 159): its table derives from the
-  // eighth SHIP-panel row by construction, ready for the entry Story 9.17's copy
-  // adds — base 0, then the fold's value per card, on every hull.
-  it('ARMOR PIERCING derives its table from the ARMOR PIERCING row', () => {
-    const t = shipUpgradeTable('armorPiercing');
-    TABLE_HULLS.forEach((cls, i) => {
-      const at = (k: number): string =>
-        String(effectiveStats(CONFIG.shipClasses[cls], Array<string>(k).fill('armorPiercing')).armorPiercing);
-      expect(t.rows[i]!.values, cls).toEqual([0, 1, 2, 3, 4, 5].map(at));
-    });
+  // Story 10.3 (ruling 4): every ship upgrade's table prints its OWN INDEX —
+  // the hull's base, then the fold's value per card, on every hull (never a
+  // derived speed / turn / RPM / cooldown).
+  it('every ship upgrade table is its own index off the fold, per hull, per card', () => {
+    for (const id of SHIP) {
+      const t = shipUpgradeTable(id);
+      TABLE_HULLS.forEach((cls, i) => {
+        const at = (k: number): string => String(effectiveStats(CONFIG.shipClasses[cls], Array<string>(k).fill(id))[id]);
+        expect(t.rows[i]!.values, `${id} ${cls}`).toEqual(t.columns.map((_, k) => at(k)));
+      });
+    }
   });
 });
 

@@ -891,8 +891,8 @@ describe('the FIT flash — the slot-side visible change (amendment 51)', () => 
     // rack fitted therefore gets the rank-wide pulse, like any other card for
     // kit it does not carry.
     expect(slotForCard(loadout, 'foulingMines')).toBeNull();
-    expect(slotForCard(loadout, 'radarSweep')).toBeNull();
-    expect(slotForCard(loadout, 'hullPoints')).toBeNull();
+    expect(slotForCard(loadout, 'intel')).toBeNull();
+    expect(slotForCard(loadout, 'armor')).toBeNull();
     // A card for kit this hull does not carry owns no slot either (rank-wide).
     expect(slotForCard(loadout, 'heavyTorpedo')).toBeNull();
   });
@@ -1713,7 +1713,7 @@ describe('slotForCard over a belt that holds consumables', () => {
     // flash — it falls through to the rank-wide frame pulse, exactly as a
     // shipwide ladder does.
     expect(slotForCard(loadout, 'hullRepair')).toBeNull();
-    expect(slotForCard(loadout, 'hullPoints')).toBeNull();
+    expect(slotForCard(loadout, 'armor')).toBeNull();
   });
 });
 

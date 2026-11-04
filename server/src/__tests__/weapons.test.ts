@@ -323,11 +323,12 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
   });
 
   it('DRONES are valid blast victims (enemies AND drones — no special-casing)', () => {
-    // Since Story 9.12 the base mine (90) out-hits even the LARGE drone's 75
-    // hp, so the drone is ONE-SHOT; the FULL amount is read off its `dmg`
-    // event rather than off an hp raised past the hull's own max (an
-    // unreachable state — review gate).
-    expect(CONFIG.mine.damage).toBeGreaterThanOrEqual(CONFIG.drones.large.hp);
+    // The FULL amount is read off its `dmg` event rather than off an hp
+    // raised past the hull's own max (an unreachable state — review gate).
+    // Whether the LARGE drone survives is a fact of the tables, not the
+    // contract (2026-11-04, Story 10.3: the base mine 200 no longer one-shots
+    // the 225 hp ×3-placeholder large drone; the small-drone fleet-farm ruling
+    // below still holds) — so the outcome is derived.
     const { w } = minefield();
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // human trips it
     b.state = { x: 0, y: 10, heading: 0, speed: 0 };
@@ -337,8 +338,8 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     w.step();
     const hits = w.tickEvents.filter((e): e is DamageEvent => e.k === 'dmg' && e.id === 'dr');
     expect(hits.map((h) => h.amount)).toEqual([CONFIG.mine.damage]); // the full damage, one blow
-    expect(dr.hp).toBeLessThanOrEqual(0);
-    expect(dr.lifecycle.kind).not.toBe('alive'); // one-shot
+    expect(dr.hp).toBe(Math.max(0, dr.stats.maxHp - CONFIG.mine.damage));
+    expect(dr.lifecycle.kind === 'alive').toBe(CONFIG.mine.damage < dr.stats.maxHp);
   });
 
   it('a BASE mine one-shots a small drone — the Mine Layer fleet-farm (Eric ruling 2026-08-16)', () => {

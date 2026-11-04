@@ -201,9 +201,11 @@ describe('eligibleLines — the whole eligibility law', () => {
     expect(eligibleLines(OPEN, injected).some((e) => (e.id as string) === 'testGunPool')).toBe(true);
     expect(eligibleLines(otherGun, injected).some((e) => (e.id as string) === 'testGunPool')).toBe(false);
 
-    // ...while the six UNIVERSAL ladders (no `equipment.` stat path, no
-    // appliesTo) are gun-blind and stay dealable whatever is mounted.
-    for (const id of ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing']) {
+    // ...while the UNIVERSAL ladders (no `equipment.` stat path, no
+    // appliesTo) are gun-blind and stay dealable whatever is mounted (Story
+    // 10.3, Eric 2026-11-04, epic-10 amendment 8: HULL POINTS and PASSIVE
+    // HEALING deleted; SPEED / TURNING / RADAR SWEEP renamed).
+    for (const id of ['engines', 'rudder', 'intel', 'reload']) {
       expect(elsewhere, id).toContain(id);
     }
 
@@ -221,10 +223,10 @@ describe('eligibleLines — the whole eligibility law', () => {
     expect(ladderHost(CATALOG.machineGun)).toBe('machineGun');
     expect(ladderHost(CATALOG.flak)).toBe('flak');
     expect(ladderHost(CATALOG.deckGun)).toBe('gun');
-    for (const id of ['hullPoints', 'armor', 'armorPiercing', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'] as const) {
+    for (const id of ['armor', 'power', 'engines', 'rudder', 'intel', 'reload'] as const) {
       expect(ladderHost(CATALOG[id]), id).toBeUndefined(); // universal
       // ...and so eligible on every seat, whatever gun it mounts (Story 9.9,
-      // epic-9 amendment 145: the draw covers ARMOR PIERCING like ARMOR).
+      // epic-9 amendment 145: the draw covers POWER like ARMOR).
       for (const gun of GUN_IDS) {
         const ship: DrawShip = { ...OPEN, mountedGun: MOUNTED_GUN[gun] };
         expect(eligibleLines(ship).some((e) => e.id === id), `${id} on ${gun}`).toBe(true);

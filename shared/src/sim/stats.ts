@@ -16,7 +16,24 @@
 // EQUIPMENT_STAT_FIELDS) rather than hand-listed. The shipped `torpedo` id is
 // `heavyTorpedo` and `mine` is `navalMines`; the numbers did not move.
 //
-// Bases: the ship class for hull-ish stats (hp, kinematics); CONFIG.vision for
+// THE INDEX MODEL (Story 10.3, Eric 2026-11-04, epic-10 amendment 8). Every
+// ship stat is an INDEX — a whole number around 100 — and the hull envelope
+// seeds SEVEN of them (`INDEX_IDS`: armor, power, reload, engines, rudder,
+// intel, range) as the AUTHORED top-level fields of this tree; the six ship
+// ladders step six of them +20 a card and nothing else is authored. What they
+// buy is DERIVED, in sim/indexStats.ts, from BOTH re-pin homes:
+// `kinematics.maxSpeed` (30 u/s × ENGINES / 100), `kinematics.turnRate`
+// (0.4 rad/s × RUDDER / 100), `sweepRpm` + `sweepPeriodMs` (15 RPM × INTEL /
+// 100, capped at sweepRpmMax), `cooldownScale` (1 / (1 + (RELOAD − 100) /
+// 100) — the haste law), and in clampStats alone the ONE-SHOT multiply of the
+// four deck-gun rows' `rangeU` by RANGE / 100. `maxHp` is 1000 on every hull
+// (HULL POINTS is deleted), ARMOR is also the ramming MASS (sim/contact.ts
+// callers pass `stats.armor`), and `damageMultiplier` is published against an
+// AVERAGE attacker (POWER = base) so a base hull reads ×1. The `regen` pair is
+// GONE with PASSIVE HEALING and the out-of-combat regen.
+//
+// Bases: the ship class for hull-ish stats (hp, the seven indices, the four
+// pass-through kinematics); CONFIG.vision for
 // radar/sweep/sight; the per-equipment CONFIG blocks for everything else,
 // including every weapon's RANGE (Story 9.8, epic-9 amendment 105 / ruling
 // 125 — the 2026-07-21 "range = radar range" derivation is superseded). STORY 8.15 EMPTIED THE LAST STUB ROWS: missile and
@@ -38,7 +55,12 @@
 // live in exactly two homes, FOLD (sim/boons.ts rePinDerived) + CLAMP below.
 //
 // Defensive clamps + derivations (all inside this firewall, nowhere else):
-//   - sweepRpm ≤ CONFIG.vision.sweepRpmMax (the ratified 30-RPM ceiling);
+//   - EVERY INDEX floored whole (Story 10.3): `armor` / `power` ≥ 0 (the 9.7
+//     rule), `reload` / `engines` / `rudder` / `intel` / `range` ≥ 1 so no
+//     derivation divides by or multiplies to zero; then the index derivations
+//     (sim/indexStats.ts deriveIndexStats) re-run over the floored values;
+//   - sweepRpm ≤ CONFIG.vision.sweepRpmMax (the ratified 30-RPM ceiling —
+//     applied inside the INTEL derivation);
 //   - the mine ring derivations (deriveMineRings): a CONTACT mine's trip ring
 //     from its folded blastRadius, the CAPTIVE's from its TIER;
 //   - gun.barrels clamped to 1..3 integer — barrels are a fixed 2 since
@@ -50,17 +72,21 @@
 //   - THE EQUIPMENT RELOAD STEP, catalog-v3 §3/§4: −5 % per tier, additive
 //     five-point steps, composed BEFORE the global Reload ladder;
 //   - ARMOR (Story 9.7, epic-9 amendments 86–88): `armor` floored to a whole
-//     number ≥ 0, and `damageMultiplier = damageMultiplierFor(armor)` (K =
-//     CONFIG.armor.k) derived from it — the ONE curve, which the server's
-//     damage gate also calls with the full effective armor
-//     `armor + HUNKER bonus − attacker armorPiercing` (Story 9.9, epic-9
-//     amendments 144–146). Re-pinned in BOTH re-pin homes. `armorPiercing`
-//     (Story 9.9) is floored the same way and derives nothing.
+//     number ≥ 0, and `damageMultiplier = damageMultiplierFor(armor − base)`
+//     (K = CONFIG.armor.k, base = CONFIG.index.base) derived from it — the ONE
+//     curve, which the server's damage gate also calls with the full effective
+//     armor `armor + HUNKER bonus − attacker power` (Story 9.9, epic-9
+//     amendments 144–146; both indices seed at 100 since Story 10.3, so E is
+//     unchanged for every pair of today's hulls). Re-pinned in BOTH re-pin
+//     homes. `power` (Story 9.9's `armorPiercing`, renamed by Story 10.3,
+//     Eric 2026-11-04, epic-10 amendment 8) is floored the same way and
+//     derives nothing here — it enters only at the server's gate.
 //
-// `cooldownScale` (Eric ruling 2026-08-04, retuned by catalog-v3 R12) is the
-// ONE global cooldown lever: a base-1.0 scalar the universal RELOAD ladder
-// drives DOWN additively (−0.05/copy, 5 copies -> 0.75), applied post-fold to
-// EVERY equipment reloadMs in clampStats. One scalar, one multiply site.
+// `cooldownScale` (Eric ruling 2026-08-04, retuned by catalog-v3 R12, re-cut
+// as the RELOAD haste law by Story 10.3 ruling 14) is the ONE global cooldown
+// lever: a base-1.0 scalar DERIVED from the RELOAD index (1 / (1 + (RELOAD −
+// 100) / 100): 120 = ×0.833, 200 = ×0.5), applied post-fold to EVERY
+// equipment reloadMs in clampStats. One scalar, one multiply site.
 
 import { CONFIG, type ShipClass } from '../constants.js';
 import type { ShipConfig } from './ship.js';
@@ -68,11 +94,7 @@ import { applyCardStats } from './boons.js';
 import { CATALOG, type Catalog } from './catalog.js';
 import { EQUIPMENT_INT_FIELDS } from './effects.js';
 import { EQUIPMENT_IDS, type EquipmentId } from './loadout.js';
-
-/** ms per minute — the rpm -> period conversion for effective stats. Render-
- *  side BASE defaults (radar.ts, ambient.ts) derive 60000/CONFIG rpm at their
- *  own edges; only THIS conversion ever sees card-modified rpm. */
-const MS_PER_MINUTE = 60000;
+import { deriveIndexStats, round3, scaleDeckGunRange } from './indexStats.js';
 
 /**
  * What EVERY equipment row carries (Story 8.1).
@@ -225,7 +247,7 @@ export interface EffectiveStarShells extends EquipmentRowCommon {
   rangeU: number; // u — max flare travel — Tier I in CONFIG.starShells.rangeU, +step per upgrade card (ruling 125)
   litRadius: number; // u — lit-zone radius (= the burst radius)
   litDurationMs: number; // ms — lit-zone lifetime
-  damage: number; // hp per burst victim inside the whole lit circle (10 → 20)
+  damage: number; // hp per burst victim inside the whole lit circle (50 → 100 since Story 10.3)
 }
 
 /**
@@ -237,10 +259,10 @@ export interface EffectiveStarShells extends EquipmentRowCommon {
  */
 export interface EffectivePhosphorShells extends EquipmentRowCommon {
   rangeU: number; // u — max shell travel — Tier I in CONFIG.phosphorShells.rangeU, +step per upgrade card (ruling 125)
-  damage: number; // hp per burst victim inside the zone (20 → 30)
+  damage: number; // hp per burst victim inside the zone (50 → 100 since Story 10.3)
   zoneRadius: number; // u — burst AND burning-zone radius (100 → 146.41)
   zoneDurationMs: number; // ms — burning-zone lifetime (8 → 10 s)
-  dps: number; // hp/s — burn on every non-owner afloat hull inside (5 → 10)
+  dps: number; // hp/s — burn on every non-owner afloat hull inside (20 → 40 since Story 10.3)
 }
 
 /**
@@ -295,34 +317,60 @@ export interface EquipmentRows extends Record<EquipmentId, EquipmentStatRow> {
   hunker: EffectiveHunker;
 }
 
-/** Everything (class, cards) resolves to. See effectiveStats(). */
+/**
+ * Everything (class, cards) resolves to. See effectiveStats().
+ *
+ * THE INDEX MODEL (Story 10.3): the seven AUTHORED fields are the indices —
+ * `armor`, `power`, `reload`, `engines`, `rudder`, `intel`, `range` — seeded
+ * from the hull envelope's `index` block and stepped by the ship ladders.
+ * `maxHp` and `radarRange` are authored pass-throughs no card writes today.
+ * EVERYTHING ELSE AT THE TOP LEVEL IS DERIVED and never stat-addressable:
+ * `kinematics.maxSpeed` / `kinematics.turnRate` (sim/indexStats.ts; the other
+ * four kinematics are per-class pass-throughs), `sweepRpm`, `sweepPeriodMs`,
+ * `cooldownScale`, `sightRange`, `damageMultiplier`.
+ */
 export interface EffectiveStats {
+  // The runtime kinematics stepShip and the predictor read. `maxSpeed` and
+  // `turnRate` are DERIVED (CONFIG.index.engines × engines / 100, CONFIG.index
+  // .rudder × rudder / 100); reverse / accel / decel / steerage are the
+  // envelope's own.
   kinematics: ShipConfig;
-  maxHp: number;
+  maxHp: number; // 1000 on every hull since Story 10.3 (shown as a percent, never raw)
   radarRange: number; // u
-  sweepRpm: number; // rev/min — THE tracked radar rotation rate (capped at sweepRpmMax)
+  sweepRpm: number; // rev/min — DERIVED: CONFIG.vision.sweepRpm × intel / 100, capped at sweepRpmMax
   sweepPeriodMs: number; // ms per radar revolution — DERIVED: 60000 / sweepRpm
   sightRange: number; // u — true-sight bubble — DERIVED: radarRange / 3 (the 4/12 rung)
   // Global cooldown multiplier applied to EVERY equipment reloadMs post-fold
-  // (clampStats). Base 1.0 = a true no-op; the RELOAD ladder drives it down
-  // additively (−0.05/copy) to exactly 0.75 at the 5-copy cap.
+  // (clampStats). DERIVED from the RELOAD index by the haste law (ruling 14):
+  // 1 / (1 + (reload − 100) / 100), round3'd — 1 at base, 0.5 at RELOAD 200.
   cooldownScale: number;
-  // ARMOR (Story 9.7, epic-9 amendments 86–88): 0 at base, +20 per ARMOR card
-  // since Story 9.9 (amendment 144), a whole number. `damageMultiplier` is
-  // DERIVED from it in clampStats as damageMultiplierFor(armor) (1 at base,
-  // 0.5 at Tier V) — never stat-addressable, and VICTIM-ONLY (amendment
-  // 120(e)): the attacker's piercing enters only at the server's gate.
+  // ARMOR (Story 9.7, epic-9 amendments 86–88; +20 per card since Story 9.9,
+  // amendment 144): an INDEX since Story 10.3 — 100 at base on every scaffold
+  // hull, a whole number. It is ALSO the hull's ramming MASS (ruling 2) and
+  // the gate's victim side (ruling 11). `damageMultiplier` is DERIVED from it
+  // as damageMultiplierFor(armor − CONFIG.index.base) — the hull's multiplier
+  // against an AVERAGE attacker (POWER = base): ×1 at base, ×0.5 at Tier V.
+  // Never stat-addressable, and VICTIM-ONLY (amendment 120(e)): the attacker's
+  // POWER enters only at the server's gate, which computes its own E.
   armor: number;
   damageMultiplier: number;
-  // ARMOR PIERCING (Story 9.9, Eric 2026-10-14/15, epic-9 amendments
-  // 144–146): 0 at base, +20 per card, a whole number. The ATTACKER's stat:
-  // the gate subtracts it from the victim's effective Armor.
-  armorPiercing: number;
-  // OUT-OF-COMBAT REGEN, per hull (Story 9.6, epic-9 amendments 90–91): base
-  // CONFIG.regen; the PASSIVE HEALING ladder raises the rate (+0.006/copy) and
-  // shortens the wait (−1000 ms/copy). Server and client read it here — never
-  // CONFIG.regen at tick time.
-  regen: { missingPctPerS: number; outOfCombatMs: number };
+  // POWER (Story 9.9's ARMOR PIERCING, Eric 2026-10-14/15, epic-9 amendments
+  // 144–146; renamed `armorPiercing` -> `power` by Story 10.3, Eric
+  // 2026-11-04, epic-10 amendment 8): an INDEX, 100 at base, +20 per card, a
+  // whole number. The ATTACKER's stat: the gate subtracts it from the victim's
+  // effective Armor (E = victim armor + HUNKER − attacker power).
+  power: number;
+  // RELOAD (ruling 14): the haste law's input; `cooldownScale` derives from it.
+  reload: number;
+  // ENGINES (ruling 15): top speed = CONFIG.index.engines × engines / 100.
+  engines: number;
+  // RUDDER (ruling 3): turn rate = CONFIG.index.rudder × rudder / 100.
+  rudder: number;
+  // INTEL (ruling 14): sweep RPM = CONFIG.vision.sweepRpm × intel / 100.
+  intel: number;
+  // RANGE (ruling 14): the deck-gun rows' folded reach × range / 100 (the
+  // one-shot multiply in clampStats). No card writes it after 10.3.
+  range: number;
   equipment: EquipmentRows;
 }
 
@@ -627,29 +675,35 @@ function baseEquipment(cls: ShipClass): EquipmentRows {
 }
 
 /** The CONFIG-base stats tree for a class — every number a pure base. Split
- *  out so effectiveStats stays lean. */
+ *  out so effectiveStats stays lean. The seven indices are COPIED off the
+ *  envelope (never aliased — the fold mutates this tree); every derived field
+ *  is then written by the same derivations the two re-pin homes run
+ *  (sim/indexStats.ts), so a zero-card tree is already fully derived. */
 function baseStats(cls: ShipClass): EffectiveStats {
-  return {
-    kinematics: { ...cls.kinematics },
+  const stats: EffectiveStats = {
+    // maxSpeed / turnRate are DERIVED below from ENGINES / RUDDER; the four
+    // pass-through kinematics are the envelope's own.
+    kinematics: { ...cls.kinematics, maxSpeed: 0, turnRate: 0 },
     maxHp: cls.hp,
     radarRange: CONFIG.vision.radar,
-    sweepRpm: Math.min(CONFIG.vision.sweepRpm, CONFIG.vision.sweepRpmMax),
-    sweepPeriodMs: MS_PER_MINUTE / Math.min(CONFIG.vision.sweepRpm, CONFIG.vision.sweepRpmMax),
+    sweepRpm: 0, // DERIVED below (INTEL)
+    sweepPeriodMs: 0, // DERIVED below (INTEL)
     sightRange: CONFIG.vision.sight,
-    cooldownScale: 1, // base: the global cooldown scale is a no-op until RELOAD stacks
-    armor: 0, // base: no Armor until the ARMOR ladder stacks (amendment 86)
-    damageMultiplier: 1, // DERIVED — K / (K + 0)
-    armorPiercing: 0, // base: no Armor Piercing until the ladder stacks (amendment 145)
-    // A COPY of CONFIG.regen (never an alias — the fold mutates this tree).
-    regen: { missingPctPerS: CONFIG.regen.missingPctPerS, outOfCombatMs: CONFIG.regen.outOfCombatMs },
+    cooldownScale: 0, // DERIVED below (RELOAD)
+    armor: cls.index.armor,
+    damageMultiplier: 0, // DERIVED below (ARMOR)
+    power: cls.index.power,
+    reload: cls.index.reload,
+    engines: cls.index.engines,
+    rudder: cls.index.rudder,
+    intel: cls.index.intel,
+    range: cls.index.range,
     equipment: baseEquipment(cls),
   };
+  deriveIndexStats(stats);
+  stats.damageMultiplier = publishedDamageMultiplier(stats.armor);
+  return stats;
 }
-
-/** Round to 3 decimals — far finer than any authored step, and enough to kill
- *  the additive float dust a −0.05 ladder accumulates (five steps land on
- *  0.7500000000000001 without it). */
-const round3 = (v: number): number => Math.round(v * 1000) / 1000;
 
 /**
  * THE ARMOR DAMAGE MULTIPLIER (Story 9.7, Eric 2026-10-13, epic-9 amendments
@@ -677,10 +731,10 @@ const round3 = (v: number): number => Math.round(v * 1000) / 1000;
  * the identical IEEE double from the same integers, so the value stays
  * deterministic.
  *
- * TWO CALLERS, one curve: clampStats derives `stats.damageMultiplier =
- * damageMultiplierFor(stats.armor)` — the VICTIM-ONLY published number
- * (amendment 120(e)), never E — and the server's damage gate calls it with
- * `victim.armor + hunkerBonus − attacker.armorPiercing` (the attacker read
+ * TWO CALLERS, one curve: both re-pin homes derive `stats.damageMultiplier =
+ * publishedDamageMultiplier(stats.armor)` — the VICTIM-ONLY published number
+ * (amendment 120(e)), never E — and the server's damage gate calls THIS with
+ * `victim.armor + hunkerBonus − attacker.power` (the attacker read
  * live at impact, amendment 156).
  *
  * NON-FINITE E READS AS ×1 (the clampSpreadRung law): a NaN must never poison
@@ -693,16 +747,40 @@ export function damageMultiplierFor(effectiveArmor: number): number {
   return effectiveArmor >= 0 ? k / (k + effectiveArmor) : (k - 2 * effectiveArmor) / (k - effectiveArmor);
 }
 
-/** A whole number ≥ 0 (non-finite → 0): the EQUIPMENT_INT_FIELDS rule. */
-const wholeNonNegative = (v: number): number => (Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0);
+/**
+ * THE PUBLISHED DAMAGE MULTIPLIER of a hull with ARMOR index `armor` — the
+ * one curve evaluated against an AVERAGE attacker (POWER = CONFIG.index.base),
+ * so a base hull reads ×1, an ARMOR-capped one ×0.5 (Story 10.3 implementer
+ * reading: with every index seeded at 100, `damageMultiplierFor(armor)` alone
+ * would publish ×0.5 for an unupgraded hull — a number that means nothing to
+ * a reader). VICTIM-ONLY (amendment 120(e)): the server's gate never reads it;
+ * it computes E = victim armor + HUNKER − attacker power itself and calls
+ * `damageMultiplierFor` directly. The harness and any HUD row print this.
+ */
+export function publishedDamageMultiplier(armor: number): number {
+  return damageMultiplierFor(armor - CONFIG.index.base);
+}
 
-/** The ARMOR trio's post-fold clamp: Armor and Armor Piercing are authored in
- *  whole numbers, so each is floored at 0 and to an integer, then the
- *  victim-only multiplier is derived from Armor alone (amendment 120(e)). */
-function clampArmor(stats: EffectiveStats): void {
-  stats.armor = wholeNonNegative(stats.armor);
-  stats.armorPiercing = wholeNonNegative(stats.armorPiercing);
-  stats.damageMultiplier = damageMultiplierFor(stats.armor);
+/** A whole number ≥ `floor` (non-finite → `floor`): the EQUIPMENT_INT_FIELDS rule. */
+const wholeAtLeast = (v: number, floor: number): number => (Number.isFinite(v) ? Math.max(floor, Math.floor(v)) : floor);
+
+/**
+ * THE INDEX FLOOR (Story 10.3): every index is authored in whole numbers, so
+ * each is floored to an integer — `armor` and `power` at 0 (the 9.7 / 9.9
+ * rule: E may be negative only through the gate's subtraction), the five that
+ * feed a derivation at 1, so the speed, turn rate, sweep period and cooldown
+ * scale are always finite and non-zero whatever a fold hands them. Then the
+ * victim-only multiplier is derived from ARMOR alone (amendment 120(e)).
+ */
+function clampIndices(stats: EffectiveStats): void {
+  stats.armor = wholeAtLeast(stats.armor, 0);
+  stats.power = wholeAtLeast(stats.power, 0);
+  stats.reload = wholeAtLeast(stats.reload, 1);
+  stats.engines = wholeAtLeast(stats.engines, 1);
+  stats.rudder = wholeAtLeast(stats.rudder, 1);
+  stats.intel = wholeAtLeast(stats.intel, 1);
+  stats.range = wholeAtLeast(stats.range, 1);
+  stats.damageMultiplier = publishedDamageMultiplier(stats.armor);
 }
 
 /**
@@ -784,25 +862,21 @@ function guardRateMs(rateMs: number): number {
   return Number.isFinite(rateMs) && rateMs > 0 ? rateMs : CONFIG.machineGun.rateMs;
 }
 
-/** The regen pair's post-fold clamp (Story 9.6, amendments 90–91): the rate is
- *  round3'd — the cooldownScale dust rule, so five +0.006 copies land on 0.05
- *  exactly — and the wait is floored at 0 against malformed data (the cap
- *  makes 10000 ms the reachable floor). */
-function clampRegen(regen: EffectiveStats['regen']): void {
-  regen.missingPctPerS = round3(regen.missingPctPerS);
-  regen.outOfCombatMs = Math.max(0, regen.outOfCombatMs);
-}
-
 /** The post-fold defensive clamps + derivations (see the header). Mutates in
  *  place. */
 function clampStats(stats: EffectiveStats): void {
   const eq = stats.equipment;
-  // Sweep ceiling: the fold already clamps, but the firewall's OUTPUT is the
-  // contract — clamp unconditionally.
-  stats.sweepRpm = Math.min(stats.sweepRpm, CONFIG.vision.sweepRpmMax);
-  stats.sweepPeriodMs = MS_PER_MINUTE / stats.sweepRpm;
+  // THE INDICES FIRST (Story 10.3): floor every index whole, then re-run the
+  // index derivations over the floored values — speed, turn rate, the sweep
+  // (its ceiling is inside the INTEL derivation) and the cooldown scale. The
+  // fold's rePinDerived already derived them, but the firewall's OUTPUT is
+  // the contract — derive unconditionally.
+  clampIndices(stats);
+  deriveIndexStats(stats);
   // NO rangeU RE-PIN (Story 9.8, ruling 125): every weapon's reach is its own
-  // CONFIG dial plus its ladder's folded steps — never the radar rung.
+  // CONFIG dial plus its ladder's folded steps — never the radar rung. The
+  // RANGE index then scales the four deck-gun rows ONCE, below, beside the
+  // reload multiply (the two one-shot multiplies of this firewall).
   // The spread ladder is a TABLE, not a step, so the card writes a 1-based RUNG
   // and BOTH halves of the arc geometry are derived from it.
   eq.broadside.spreadRung = clampSpreadRung(eq.broadside.spreadRung);
@@ -821,18 +895,16 @@ function clampStats(stats: EffectiveStats): void {
   eq.gun.barrels = Math.min(3, Math.max(1, eq.gun.barrels));
   eq.machineGun.rateMs = guardRateMs(eq.machineGun.rateMs);
   // THE global cooldown scale, applied ONCE, post-fold, to every equipment.
-  // Additive folding accumulates float dust, and because ammo.ts ticks reloads
-  // down in 50ms steps and only refills at <= 0, un-rounded dust silently costs
-  // a whole extra 50ms tick on every affected weapon. Round to 3 decimals so
-  // every reachable stack lands on the exact ruled number (five RELOAD copies
-  // land on 0.75 exactly), THEN floor so hostile or over-stacked data can never
-  // reach zero/negative cadence. By CONSTRUCTION the reachable floor is 0.75 —
-  // the ladder caps at 5 copies — and the 0.1 guard below is defence against
-  // malformed data, not a reachable configuration.
-  const cd = Math.max(0.1, round3(stats.cooldownScale));
-  stats.cooldownScale = cd;
-  clampRegen(stats.regen);
-  clampArmor(stats);
+  // Since Story 10.3 it is DERIVED from the RELOAD index by the haste law
+  // (sim/indexStats.ts reloadCooldownScale — round3'd there, because ammo.ts
+  // ticks reloads down in 50ms steps and only refills at <= 0, so un-rounded
+  // dust would silently cost a whole extra tick; floored at 0.1 there as the
+  // malformed-data guard — RELOAD ≥ 1 above makes the law finite, and five
+  // +20 cards land on exactly 0.5).
+  const cd = stats.cooldownScale;
+  // THE RANGE INDEX, applied ONCE, post-fold, to the four deck-gun rows (the
+  // one-shot sibling of the reload multiply — never in rePinDerived).
+  scaleDeckGunRange(stats);
   // THE EQUIPMENT RELOAD STEP then the global scale, in that order, for EVERY
   // row — one site, no per-weapon special case (see reloadTierScale).
   for (const id of EQUIPMENT_IDS) {

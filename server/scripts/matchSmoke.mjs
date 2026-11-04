@@ -26,8 +26,8 @@
 // WHY A SCRIPT, NOT A PILOT. This smoke used to sail two heuristic pilots
 // (racetrack strafing, island-avoidance rudder bias, an unstick routine)
 // from ring spawns ~8,000 u apart across a RANDOM map, with the PvE fleet wave
-// arriving 60 s into the fight and passive regen racing every single-tube
-// kill — so its red runs were piloting outcomes, not sim defects. Now nothing
+// arriving 60 s into the fight and passive regen (gone since Story 10.3)
+// racing every single-tube kill — so its red runs were piloting outcomes, not sim defects. Now nothing
 // sails: the map is PINNED (`mapSeed`), both hulls are PLACED by the dev-only
 // `spawnOverride` pose (honored at spawn, at the countdown->active redeploy
 // and at respawn), the fleet wave is OFF (`matchOverride.fleetWaves: false`),
@@ -40,7 +40,8 @@
 // 8.10, EPIC-8 amendment 65): every hull spawns with only the seat's gun and
 // the Shift boost, so A asks for `heavyTorpedo` explicitly; it lands in slot
 // 2 (Q). The line is stacked to the tier that gives TWO tubes (Eric ruling
-// 2026-10-22, Story 9.15 question 4) so a salvo lands inside the regen wait.
+// 2026-10-22, Story 9.15 question 4 — a salvo landed inside the old regen
+// wait; the regen is gone since Story 10.3 and the fit stands).
 // The fit survives the activation redeploy (redeployEconomy re-applies it).
 //
 // Every dev option here (matchOverride, zoneOverride, mapSeed, fitOverride,
@@ -108,9 +109,10 @@ const FISH = {
   reloadMs: equipmentReloadMs(SHOOTER, TORP),
   tubes: equipmentMaxAmmo(SHOOTER, TORP),
 };
-/** The blow B's hull takes per fish: the server's armor curve over B's armor
- *  minus A's piercing, floored to a whole number (World.floorBlow). */
-const FISH_BLOW = Math.max(1, Math.floor(FISH.damage * damageMultiplierFor(TARGET.armor - SHOOTER.armorPiercing)));
+/** The blow B's hull takes per fish: the server's armor curve over B's ARMOR
+ *  minus A's POWER (Story 10.3 indices), floored to a whole number
+ *  (World.floorBlow). */
+const FISH_BLOW = Math.max(1, Math.floor(FISH.damage * damageMultiplierFor(TARGET.armor - SHOOTER.power)));
 
 /**
  * THE LANE. B (the target) at the origin facing +x; A (the shooter) astern-west
@@ -131,23 +133,18 @@ const SLACK_MS = 5000;
 
 /**
  * THE KILL PLAN (Eric ruling 2026-10-22, Story 9.15 question 4: derived from
- * CONFIG INCLUDING REGEN). A tick-stepped replay of the fight the server will
- * run: A clicks every tick, a tube fires whenever one is loaded, the pool
- * reloads one round per reloadMs (World.finishReloads), each fish lands
- * FLIGHT_MS later for FISH_BLOW, and between hits B heals `missingPctPerS` of
- * its MISSING hull per second once `outOfCombatMs` have passed since the last
- * landed hit (World.tickRegen; the redeploy re-arms that clock at
- * activation). Returns the fish B takes, the salvos (distinct firing moments)
- * and the simulated sink time.
+ * CONFIG). A tick-stepped replay of the fight the server will run: A clicks
+ * every tick, a tube fires whenever one is loaded, the pool reloads one round
+ * per reloadMs (World.finishReloads) and each fish lands FLIGHT_MS later for
+ * FISH_BLOW. 2026-11-04 (Story 10.3): the regen term is GONE with the
+ * out-of-combat regen itself — B heals nothing between hits. Returns the fish
+ * B takes, the salvos (distinct firing moments) and the simulated sink time.
  */
 function killPlan() {
   const dt = CONFIG.tick.simDtMs;
-  const maxHp = TARGET.maxHp;
-  const { missingPctPerS, outOfCombatMs } = TARGET.regen;
-  let hp = maxHp;
+  let hp = TARGET.maxHp;
   let loaded = FISH.tubes;
   let reloadLeft = 0;
-  let lastHitAt = 0;
   let lastFireAt = -Infinity;
   let salvos = 0;
   let fish = 0;
@@ -171,10 +168,8 @@ function killPlan() {
       inFlight.shift();
       hp -= FISH_BLOW;
       fish += 1;
-      lastHitAt = t;
       if (hp <= 0) return { fish, salvos, sinkMs: t };
     }
-    if (hp < maxHp && t - lastHitAt >= outOfCombatMs) hp += (maxHp - hp) * missingPctPerS * (dt / 1000);
   }
   throw new Error('PRECONDITION: the kill plan never sinks B');
 }
@@ -433,7 +428,7 @@ function assertPoses(a, b) {
 function planLine(stormFree) {
   return `plan: seed ${MAP_SEED}, d=${D}u (3 hull lengths), fit ${FIT.length}x${TORP} -> ${FISH.tubes} tubes, ` +
     `${FISH_BLOW} dmg/fish (${FISH.damage} x armor curve), reload ${FISH.reloadMs}ms, flight ~${FLIGHT_MS.toFixed(0)}ms; ` +
-    `B ${TARGET.maxHp}hp, regen ${TARGET.regen.missingPctPerS * 100}%/s of missing after ${TARGET.regen.outOfCombatMs}ms -> ` +
+    `B ${TARGET.maxHp}hp, no regen -> ` +
     `${PLAN.fish} fish in ${PLAN.salvos} salvos (sim sink at ${(PLAN.sinkMs / 1000).toFixed(1)}s); ` +
     `fight budget ${FIGHT_BUDGET_MS}ms, countdown ${COUNTDOWN_MS}ms, storm-free ${stormFree}ms`;
 }
@@ -516,9 +511,9 @@ async function stepSink(a, b) {
   const blows = b.dmgActive.map((e) => e.amount);
   assert(blows.every((x) => x === FISH_BLOW), `B took blows ${JSON.stringify(blows)}, expected only ${FISH_BLOW}`);
   // Two-sided contract, NOT equality: the plan is a tick replay of the server,
-  // so a regen or reload timing nudge could flip an exact count without any
-  // contract breaking. Lower bound = the arithmetic minimum (no fish wasted on
-  // nothing); upper bound = the plan (regen never lengthened the fight).
+  // so a reload timing nudge could flip an exact count without any contract
+  // breaking. Lower bound = the arithmetic minimum (no fish wasted on
+  // nothing); upper bound = the plan.
   const minFish = Math.ceil(TARGET.maxHp / FISH_BLOW);
   assert(blows.length >= minFish, `B sank on ${blows.length} fish, fewer than the arithmetic minimum ${minFish}`);
   assert(blows.length <= PLAN.fish, `B sank on ${blows.length} fish, more than the kill plan's ${PLAN.fish}`);

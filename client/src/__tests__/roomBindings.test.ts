@@ -1386,8 +1386,8 @@ describe('bindRoom reward toasts', () => {
     const { sink, onBoonFitted } = setupToasts();
     sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'navalMines' }, { alive: true, cards: ['navalMines'] }));
     expect(onBoonFitted).toHaveBeenCalledWith('navalMines');
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'radarSweep' }, { alive: true, cards: ['radarSweep'] }));
-    expect(onBoonFitted).toHaveBeenCalledWith('radarSweep'); // shipwide -> rank-wide flash
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'intel' }, { alive: true, cards: ['intel'] }));
+    expect(onBoonFitted).toHaveBeenCalledWith('intel'); // shipwide -> rank-wide flash
   });
 
   it('never goes SILENT on an unknown id (FR22): the common cue + a rank-wide flash', () => {
@@ -1444,7 +1444,7 @@ describe('bindRoom reward toasts', () => {
     document.body.replaceChildren();
     const { sink, play, onSpendAck } = setupToasts();
     sink.handler(rewardFrame({ k: 'pt', id: 'someone-else' }, { alive: true }));
-    sink.handler(rewardFrame({ k: 'bn', id: 'someone-else', boon: 'speed' }, { alive: true }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'someone-else', boon: 'engines' }, { alive: true }));
     expect(toastLines()).toEqual([]);
     expect(play).not.toHaveBeenCalled();
     expect(onSpendAck).not.toHaveBeenCalled(); // and no foreign spend can ack ours
@@ -1465,7 +1465,7 @@ describe('bindRoom reward toasts', () => {
   it('acks a boon fitted while DEAD too (spending while dead is legal)', () => {
     document.body.replaceChildren();
     const { sink, onSpendAck } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'speed' }, { alive: false, cards: ['speed'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'engines' }, { alive: false, cards: ['engines'] }));
     expect(onSpendAck).toHaveBeenCalledTimes(1);
   });
 

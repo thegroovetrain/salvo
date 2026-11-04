@@ -29,18 +29,18 @@ describe('botMetrics — builds, picks, offers, placement', () => {
     // REAL CATALOG LINES (8.14 review F1): `spendCard` now refuses an id the
     // catalog does not own, so the v2 leftovers this pin used to stage with
     // would be a no-op rather than a pick.
-    ship.offer = ['deckGun', 'reload', 'radarSweep', 'speed'] as never;
-    expect(world.spendPoint(bot.id, 2)).toBe(true); // radarSweep — bn fires next step
+    ship.offer = ['deckGun', 'reload', 'intel', 'engines'] as never;
+    expect(world.spendPoint(bot.id, 2)).toBe(true); // intel — bn fires next step
     world.step();
     col.observe(world, 1);
 
     const s = col.samples(world)[0];
     expect(s.picks).toHaveLength(1);
-    expect(s.picks[0].id).toBe('radarSweep'); // the CARD, not the spender
+    expect(s.picks[0].id).toBe('intel'); // the CARD, not the spender
     expect(s.picks[0].s).toBeGreaterThan(0); // stamped in sim-seconds
     // The build mirror agrees — and it is the pick ALONE now: Story 8.10
     // deleted the spawn seed, so a hull holds nothing until it picks.
-    expect(s.boons).toEqual(['radarSweep']);
+    expect(s.boons).toEqual(['intel']);
   });
 
   it('counts an offer hand ONCE across the ticks it sits open (reference diff)', () => {

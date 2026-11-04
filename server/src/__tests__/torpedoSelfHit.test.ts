@@ -13,6 +13,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
+  effectiveStats,
   hullSilhouette,
   pointPolygonDistance,
   transformPolygon,
@@ -52,11 +53,13 @@ const OVERDRIVE: Catalog = {
   // the torpedo boat with no torpedo. Tier I is the bare weapon, so carrying
   // it moves no number here.
   heavyTorpedo: CATALOG.heavyTorpedo,
-  speed: {
-    id: 'speed',
+  engines: {
+    id: 'engines',
     kind: 'ladder',
     cap: 9,
-    tiers: new Array(9).fill([{ kind: 'stat', path: 'kinematics.maxSpeed', add: 2.5 }]),
+    // Story 10.3: speed is DERIVED from the ENGINES index (maxSpeed is no
+    // longer stat-addressable), so the injected rung steps ENGINES.
+    tiers: new Array(9).fill([{ kind: 'stat', path: 'engines', add: 20 }]),
   } as unknown as CatalogLine,
 };
 
@@ -117,7 +120,7 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
   function runFullThrottleShot(aim: number, maxSpeedStacks = 0): { dmgs: DamageEvent[]; ship: ShipRecord } {
     const w = bareWorld(11, maxSpeedStacks > 0 ? { catalog: OVERDRIVE } : undefined);
     const a = place(w, 'a', 0, 0, 0); // torpedoBoat, bow points +x (heading 0)
-    if (maxSpeedStacks > 0) stack(w, a, 'speed', maxSpeedStacks);
+    if (maxSpeedStacks > 0) stack(w, a, 'engines', maxSpeedStacks);
 
     const dmgs: DamageEvent[] = [];
 
@@ -167,9 +170,9 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
     // the outrun geometry — the boost gets there on the shipped ladder. It
     // stays as a STRESS PIN: the most extreme overtake the harness can build,
     // held against the immunity rule rather than against a speed budget.
-    expect(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed + 2.5 * 9).toBeGreaterThan(
-      CONFIG.torpedo.speed,
-    );
+    expect(
+      effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<string>(9).fill('engines'), OVERDRIVE).kinematics.maxSpeed,
+    ).toBeGreaterThan(CONFIG.torpedo.speed);
     const { dmgs, ship } = runFullThrottleShot(0, 9);
     expect(ship.stats.kinematics.maxSpeed).toBeGreaterThan(CONFIG.torpedo.speed);
     expect(ship.hp).toBe(ship.stats.maxHp);

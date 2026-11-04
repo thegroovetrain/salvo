@@ -28,7 +28,7 @@ import {
 
 /** A representative Torpedo Boat kinematics block to boost. */
 function tbKinematics(): ShipConfig {
-  return { ...CONFIG.shipClasses.torpedoBoat.kinematics };
+  return { ...effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics };
 }
 
 const FACTOR = CONFIG.boost.factor;
@@ -92,7 +92,7 @@ describe('the SPEED ladder is INSIDE the bonus (amendment 55)', () => {
   it('SPEED-capped hulls boost by factor × their LADDERED cap — the ladder enlarges the boost', () => {
     // The SPEED copies raise the rated cap first; the boost then adds `factor`
     // OF THAT, not a flat bonus sized off the base hull.
-    const capped = new Array<LineId>(CATALOG.speed.cap).fill('speed');
+    const capped = new Array<LineId>(CATALOG.engines.cap).fill('engines');
     for (const id of SHIP_CLASS_IDS) {
       const base = effectiveStats(CONFIG.shipClasses[id], []).kinematics.maxSpeed;
       const laddered = effectiveStats(CONFIG.shipClasses[id], capped).kinematics.maxSpeed;
@@ -103,7 +103,7 @@ describe('the SPEED ladder is INSIDE the bonus (amendment 55)', () => {
   });
 
   it('reverseSpeed never sees the boost, ladder or no ladder', () => {
-    const capped = new Array<LineId>(CATALOG.speed.cap).fill('speed');
+    const capped = new Array<LineId>(CATALOG.engines.cap).fill('engines');
     for (const id of SHIP_CLASS_IDS) {
       const stats = effectiveStats(CONFIG.shipClasses[id], capped);
       const boosted = boostedKinematics(stats.kinematics, FACTOR, true);
@@ -112,8 +112,11 @@ describe('the SPEED ladder is INSIDE the bonus (amendment 55)', () => {
   });
 
   it('the bonus is NEVER folded into EffectiveStats.kinematics (the bots read the RATED cap)', () => {
-    const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat, []);
-    expect(stats.kinematics.maxSpeed).toBe(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed); // rated, un-boosted
+    const cls = CONFIG.shipClasses.torpedoBoat;
+    const stats = effectiveStats(cls, []);
+    // The rated, un-boosted cap is the ENGINES derivation alone (Story 10.3).
+    expect(stats.kinematics.maxSpeed).toBe((CONFIG.index.engines * cls.index.engines) / CONFIG.index.base);
+    expect(stats.kinematics.maxSpeed).toBeLessThan(boostedKinematics(stats.kinematics, FACTOR, true).maxSpeed);
   });
 });
 

@@ -8,7 +8,9 @@ import {
   DRONE_HULL_IDS,
   DRONE_SIZE_IDS,
   HULL_IDS,
+  INDEX_IDS,
   SHIP_CLASS_IDS,
+  effectiveStats,
   hullEnvelope,
   sanitizeClassId,
 } from '../index.js';
@@ -23,13 +25,13 @@ import {
 } from '../constants.js';
 
 describe('every hull envelope is finite and positive (a NaN or zero stat would fail closed into an unsailable hull)', () => {
-  it('every class and every drone size: hp, hull dims and all kinematics fields are finite and > 0', () => {
+  it('every class and every drone size: hp, hull dims, every kinematics field and every index are finite and > 0', () => {
     const envelopes = [
       ...SHIP_CLASS_IDS.map((id) => CONFIG.shipClasses[id]),
       ...DRONE_SIZE_IDS.map((size) => CONFIG.drones[size]),
     ];
     for (const e of envelopes) {
-      const values = [e.hp, e.hull.length, e.hull.beam, ...Object.values(e.kinematics)];
+      const values = [e.hp, e.hull.length, e.hull.beam, ...Object.values(e.kinematics), ...Object.values(e.index)];
       expect(values.length).toBeGreaterThan(3);
       for (const v of values) {
         expect(Number.isFinite(v)).toBe(true);
@@ -37,27 +39,50 @@ describe('every hull envelope is finite and positive (a NaN or zero stat would f
       }
     }
   });
+
+  // THE INDEX MODEL (Story 10.3, Eric 2026-11-04, epic-10 amendment 8): every
+  // envelope carries the seven indices and NO authored top speed or turn rate
+  // — those are DERIVED in the fold from ENGINES and RUDDER.
+  it('every envelope carries exactly the seven indices, each a whole number ≥ 1, and no maxSpeed / turnRate of its own', () => {
+    for (const id of HULL_IDS) {
+      const e = hullEnvelope(id);
+      expect(Object.keys(e.index).sort(), id).toEqual([...INDEX_IDS].sort());
+      for (const k of INDEX_IDS) {
+        expect(Number.isInteger(e.index[k]), `${id} ${k}`).toBe(true);
+        expect(e.index[k], `${id} ${k}`).toBeGreaterThanOrEqual(1);
+      }
+      expect('maxSpeed' in e.kinematics, id).toBe(false);
+      expect('turnRate' in e.kinematics, id).toBe(false);
+    }
+  });
 });
 
-describe('class ordering invariants', () => {
+describe('class relations under the index scaffold (Story 10.3, Eric rulings 3 and 15)', () => {
   const tb = CONFIG.shipClasses.torpedoBoat;
   const bb = CONFIG.shipClasses.battleship;
   const ml = CONFIG.shipClasses.mineLayer;
 
-  it('torpedoBoat is the fastest and never tougher than another class (ties the mineLayer at 300 since amendment 209)', () => {
-    expect(tb.kinematics.maxSpeed).toBeGreaterThan(ml.kinematics.maxSpeed);
-    expect(tb.kinematics.maxSpeed).toBeGreaterThan(bb.kinematics.maxSpeed);
-    expect(tb.hp).toBeLessThanOrEqual(ml.hp);
-    expect(tb.hp).toBeLessThan(bb.hp);
-    expect(tb.hull.beam).toBeLessThan(ml.hull.beam);
-    expect(tb.hull.beam).toBeLessThan(bb.hull.beam);
+  it('every class has the same hull (the 300 / 350 gap is DROPPED; toughness is ARMOR, never hp)', () => {
+    for (const id of SHIP_CLASS_IDS) expect(CONFIG.shipClasses[id].hp, id).toBe(tb.hp);
   });
 
-  it('battleship is the slowest and toughest', () => {
-    expect(bb.kinematics.maxSpeed).toBeLessThan(ml.kinematics.maxSpeed);
-    expect(bb.kinematics.turnRate).toBeLessThan(tb.kinematics.turnRate);
-    expect(bb.kinematics.turnRate).toBeLessThan(ml.kinematics.turnRate);
-    expect(bb.hp).toBeGreaterThan(ml.hp);
+  it('ENGINES and RUDDER both order torpedoBoat > mineLayer > battleship', () => {
+    expect(tb.index.engines).toBeGreaterThan(ml.index.engines);
+    expect(ml.index.engines).toBeGreaterThan(bb.index.engines);
+    expect(tb.index.rudder).toBeGreaterThan(ml.index.rudder);
+    expect(ml.index.rudder).toBeGreaterThan(bb.index.rudder);
+  });
+
+  it('the battleship IS the 100 of the scaffold on every index but ENGINES (ruling 15 re-based its speed on 30 u/s)', () => {
+    for (const k of INDEX_IDS) {
+      if (k === 'engines') continue;
+      expect(bb.index[k], k).toBe(CONFIG.index.base);
+    }
+  });
+
+  it('hull geometry still reads the class: the torpedoBoat is the narrowest, the battleship the longest and widest', () => {
+    expect(tb.hull.beam).toBeLessThan(ml.hull.beam);
+    expect(tb.hull.beam).toBeLessThan(bb.hull.beam);
     expect(bb.hull.length).toBeGreaterThan(tb.hull.length);
     expect(bb.hull.beam).toBeGreaterThan(ml.hull.beam);
   });
@@ -101,18 +126,23 @@ describe('drone envelope table (Story 5.6, amendment 34 — retuned off the reti
     expect(m.hull.beam).toBeLessThan(l.hull.beam);
   });
 
-  it('agility is a size property: maxSpeed and turnRate both fall small → medium → large', () => {
-    const [s, m, l] = DRONE_SIZE_IDS.map((size) => CONFIG.drones[size].kinematics);
-    expect(s.maxSpeed).toBeGreaterThan(m.maxSpeed);
-    expect(m.maxSpeed).toBeGreaterThan(l.maxSpeed);
-    expect(s.turnRate).toBeGreaterThan(m.turnRate);
-    expect(m.turnRate).toBeGreaterThan(l.turnRate);
+  it('agility is a size property: ENGINES and RUDDER both fall small → medium → large (and so do the derived speed and turn rate)', () => {
+    const [s, m, l] = DRONE_SIZE_IDS.map((size) => CONFIG.drones[size].index);
+    expect(s.engines).toBeGreaterThan(m.engines);
+    expect(m.engines).toBeGreaterThan(l.engines);
+    expect(s.rudder).toBeGreaterThan(m.rudder);
+    expect(m.rudder).toBeGreaterThan(l.rudder);
+    const [ks, km, kl] = DRONE_SIZE_IDS.map((size) => effectiveStats(CONFIG.drones[size]).kinematics);
+    expect(ks.maxSpeed).toBeGreaterThan(km.maxSpeed);
+    expect(km.maxSpeed).toBeGreaterThan(kl.maxSpeed);
+    expect(ks.turnRate).toBeGreaterThan(km.turnRate);
+    expect(km.turnRate).toBeGreaterThan(kl.turnRate);
   });
 
   it('every drone entry has the ship-class envelope shape PLUS its own self-defence gun (amendment 34 — fit is gun-only)', () => {
     for (const size of DRONE_SIZE_IDS) {
       const d = CONFIG.drones[size];
-      expect(Object.keys(d).sort()).toEqual(['gun', 'hp', 'hull', 'kinematics']);
+      expect(Object.keys(d).sort()).toEqual(['gun', 'hp', 'hull', 'index', 'kinematics']);
       expect(Object.keys(d.kinematics).sort()).toEqual(
         Object.keys(CONFIG.shipClasses.torpedoBoat.kinematics).sort(),
       );
@@ -120,27 +150,19 @@ describe('drone envelope table (Story 5.6, amendment 34 — retuned off the reti
     }
   });
 
-  it('drone gun damage is flat across sizes on the captain gun\'s reload, so the damage a drone deals back over its life equals its shots-to-kill', () => {
+  it('drone gun damage is flat across sizes on the captain gun\'s reload (size reads through hp, never a per-size damage table)', () => {
     // THE FLAT GUN IS A DERIVATION, NOT A FLATTENING (epic-6 amendment 24).
-    // Eric specified the damage a hull deals back OVER ITS OWN LIFETIME as
-    // 3/4/5. Because the drone reload equals the captain gun reload,
-    // volleys-back == shots-to-kill == 3/4/5 — so damage 1 on every size
+    // Eric specified the damage a hull deals back OVER ITS OWN LIFETIME as a
+    // per-size count; because the drone reload equals the captain gun reload,
+    // volleys-back == shots-to-kill, so ONE flat damage on every size
     // satisfies a per-size damage spec exactly, and a per-size damage table
     // would double-count the scaling hp already carries. Do not "restore" it.
+    // Story 10.3 (Eric 2026-11-04, ruling 10) scaled hp AND the flat gun ×3
+    // as a scaffold placeholder — the relation is untouched.
     for (const size of DRONE_SIZE_IDS) {
       expect(CONFIG.drones[size].gun!.damage, size).toBe(CONFIG.drones.small.gun!.damage);
       expect(CONFIG.drones[size].gun!.reloadMs, size).toBe(CONFIG.gun.reloadMs);
     }
-    // Shots-to-kill is a whole count of clicks (ceil) at whatever the cannon's
-    // base is (16 -> 12, Eric 2026-10-13, experiment: 45/60/75 hp take 4/5/7
-    // clicks). The derivation is what holds: with reloads equal and damage 1,
-    // the damage a drone deals back over its life IS its shots-to-kill.
-    const shotsToKill = (size: (typeof DRONE_SIZE_IDS)[number]) =>
-      Math.ceil(CONFIG.drones[size].hp / CONFIG.gun.damage);
-    const lifetimeDamage = (size: (typeof DRONE_SIZE_IDS)[number]) =>
-      Math.floor((shotsToKill(size) * CONFIG.gun.reloadMs) / CONFIG.drones[size].gun!.reloadMs) *
-      CONFIG.drones[size].gun!.damage;
-    for (const size of DRONE_SIZE_IDS) expect(lifetimeDamage(size), size).toBe(shotsToKill(size));
   });
 
   it('a full GROUP volley is attrition, not a kill threat — the PROPERTY, not a literal', () => {
@@ -167,14 +189,12 @@ describe('drone envelope table (Story 5.6, amendment 34 — retuned off the reti
     expect(CONFIG.drones.large.gun!.damage * 20).toBeLessThan(lightestClass);
   });
 
-  it('speed ruling: every drone size now sits AT OR BELOW every player class (discharges epics.md:1090)', () => {
+  it('speed ruling: every drone size now sits AT OR BELOW every player class (discharges epics.md:1090) — read through the fold', () => {
     const fastestClass = Math.max(
-      ...(['torpedoBoat', 'battleship', 'mineLayer'] as const).map(
-        (id) => CONFIG.shipClasses[id].kinematics.maxSpeed,
-      ),
+      ...SHIP_CLASS_IDS.map((id) => effectiveStats(CONFIG.shipClasses[id]).kinematics.maxSpeed),
     );
     for (const size of DRONE_SIZE_IDS) {
-      expect(CONFIG.drones[size].kinematics.maxSpeed).toBeLessThanOrEqual(fastestClass);
+      expect(effectiveStats(CONFIG.drones[size]).kinematics.maxSpeed, size).toBeLessThanOrEqual(fastestClass);
     }
   });
 });

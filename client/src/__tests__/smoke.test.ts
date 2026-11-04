@@ -18,6 +18,7 @@
 import { describe, it, expect } from 'vitest';
 import { Container } from 'pixi.js';
 import { CONFIG, type SmokeEvent } from '@salvo/shared';
+import { hullTopSpeed } from '../sim/hullKinematics.js';
 import { CLIENT_CONFIG } from '../config.js';
 import {
   puffAlpha,
@@ -209,7 +210,7 @@ describe('puffLifeMs keeps the plume an ATTACHED COLUMN, never a track', () => {
   // larger disclosure than "a hull is hurt, right there". Puff lifetime is the
   // ONLY knob deciding which of the two ships, so it is pinned here.
   const CLASSES = ['torpedoBoat', 'battleship', 'mineLayer'] as const;
-  const FASTEST = Math.max(...CLASSES.map((id) => CONFIG.shipClasses[id].kinematics.maxSpeed));
+  const FASTEST = Math.max(...CLASSES.map((id) => hullTopSpeed(id)));
 
   it('leaves a tail shorter than one hull length at flank speed', () => {
     const tailU = FASTEST * (LIFE / 1000);

@@ -528,9 +528,10 @@ export interface OwnShip {
    * at the fixed regenHp/regenMs rate (pools ADD, the rate never changes). The
    * FREE per-level auto-heal pool that used to be folded in beside it
    * (`ship.levelRepairHp`) IS GONE: epic-8 amendment 46 replaced the per-level
-   * heal with out-of-combat regen (the hull's own `stats.regen`, seeded from
-   * CONFIG.regen and raised by PASSIVE HEALING since Story 9.6), which pays STRAIGHT INTO hp
-   * and never owes this field a thing. The pool resets to 0 wherever boostUntil
+   * heal with an out-of-combat regen that paid STRAIGHT INTO hp and never owed
+   * this field a thing — and Story 10.3 (Eric 2026-11-04, epic-10 amendment 8)
+   * DELETED that regen and its PASSIVE HEALING ladder too, so HULL REPAIR (and
+   * the healing buoy's own trickle) are the heals left. The pool resets to 0 wherever boostUntil
    * does (spawn, sink, respawn, match boundary). SELF-PRIVATE BY CONSTRUCTION
    * (the boostUntil precedent): this field rides `you` and NOTHING else — it
    * never appears on a Contact, blip, ballistic event, boom, or spectator
@@ -1369,8 +1370,8 @@ export interface DropEvent {
  * + HUD flash): the authoritative numbers self-sync every frame via
  * OwnShip.hp / OwnShip.repairHp. ANTI-CHEAT — deliberately omitted: any hp
  * amount or total, any victim id, anything derivable about another ship. The
- * out-of-combat regen (`stats.regen`, base CONFIG.regen) fires NO event at all — a continuous
- * trickle would loop the tone.
+ * healing buoy's trickle fires NO event at all (nor did the out-of-combat
+ * regen Story 10.3 deleted) — a continuous trickle would loop the tone.
  */
 export interface HealEvent {
   k: 'heal';

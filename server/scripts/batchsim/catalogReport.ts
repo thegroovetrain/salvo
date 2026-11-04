@@ -21,7 +21,7 @@
 // C. THE ORDNANCE + GUARDRAIL LEDGER. See catalogMetrics.ts for how damage is
 //    attributed with no weapon field on the wire.
 
-import { CATALOG } from '@salvo/shared';
+import { CATALOG, HULL_IDS, effectiveStats, hullEnvelope, type HullId } from '@salvo/shared';
 import { fmt } from './stats.js';
 import type { CatalogSample } from './catalogMetrics.js';
 import type { BatchResult } from './runner.js';
@@ -163,6 +163,15 @@ export function renderOrdnanceLedger(label: string, agg: CatalogAggregate): stri
   return lines;
 }
 
+/** A per-HULL hp figure as a whole-number percent of that hull's base maxHp
+ *  (Story 10.3: a hull is read as 0–100 %, never a raw figure out of 1000;
+ *  drones have their own envelope hp). An unknown hull key prints raw hp. */
+function hullShare(hull: string, hp: number): string {
+  if (!(HULL_IDS as readonly string[]).includes(hull)) return `${fmt(hp, 1)} hp`;
+  const maxHp = effectiveStats(hullEnvelope(hull as HullId)).maxHp;
+  return `${Math.ceil((100 * hp) / maxHp)} % hull`;
+}
+
 function renderGuardrail(agg: CatalogAggregate): string[] {
   const lines: string[] = ['ONE-HIT-KILL GUARDRAIL (measured in play):'];
   lines.push(`  largest single DamageEvent: ${fmt(agg.maxEventDamage, 1)} hp`);
@@ -175,14 +184,14 @@ function renderGuardrail(agg: CatalogAggregate): string[] {
     const share = kills === 0 ? 0 : tick / kills;
     lines.push(
       `  ${h.padEnd(12)} kills=${String(kills).padStart(5)} fromFull-in-ONE-TICK=${String(tick).padStart(5)} (${pct(share)}) ` +
-        `of which SINGLE-EVENT=${event} | maxTick=${fmt(agg.maxTickByHull[h] ?? 0, 1)}`,
+        `of which SINGLE-EVENT=${event} | maxTick=${hullShare(h, agg.maxTickByHull[h] ?? 0)}`,
     );
   }
   lines.push('THE BARREL CLICK (gun-only multi-burst ticks — see catalogMetrics.ts):');
   for (const h of Object.keys(agg.multiBarrelTicks).sort()) {
     lines.push(
       `  ${h.padEnd(12)} multi-burst ticks=${String(agg.multiBarrelTicks[h]).padStart(5)} ` +
-        `maxGunOnlyTick=${fmt(agg.maxGunOnlyTick[h] ?? 0, 1).padStart(5)} ` +
+        `maxGunOnlyTick=${hullShare(h, agg.maxGunOnlyTick[h] ?? 0).padStart(10)} ` +
         `fromFull kills by such a tick=${agg.gunClickKills[h] ?? 0}`,
     );
   }

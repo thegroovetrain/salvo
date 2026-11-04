@@ -6,6 +6,7 @@ import {
   buoyTail,
   combinedBoostFactor,
   draftedKinematics,
+  effectiveStats,
   hookKinematics,
   slowedKinematics,
   hullSilhouette,
@@ -22,6 +23,7 @@ import {
   type InputMsg,
   type Island,
   type Pose,
+  type ShipClassId,
   type ShipConfig,
   type ShipState,
   type Vec2,
@@ -37,9 +39,18 @@ import {
 
 const DT = CONFIG.tick.simDtMs / 1000;
 const MAP_R = 900;
+/** A hull's zero-card fold (Story 10.3): `maxSpeed` / `turnRate` are DERIVED
+ *  from ENGINES / RUDDER inside `effectiveStats`, so the reference steps read
+ *  the folded kinematics, never the envelope; `mass` is the hull's ARMOR index
+ *  (ruling 2 — mass = ARMOR), the number the server's resolver splits by. */
+function hullOf(cls: ShipClassId): { kinematics: ShipConfig; mass: number } {
+  const stats = effectiveStats(CONFIG.shipClasses[cls]);
+  return { kinematics: stats.kinematics, mass: stats.armor };
+}
+
 // The default class the Predictor seeds (torpedoBoat) — reference server steps
 // must use the same kinematics + silhouette to stay lock-step.
-const TB = CONFIG.shipClasses.torpedoBoat;
+const TB = hullOf('torpedoBoat');
 const TB_POLY = hullSilhouette('torpedoBoat');
 
 // `hornSeq: 0` is the "never honked" sentinel (Story 4.5). Prediction never
@@ -277,7 +288,7 @@ describe('Predictor island collision (polygon parity with shared collision)', ()
     ticks: number,
     rudderAt: (seq: number) => number,
   ): { server: ShipState; aground: number } {
-    const BB = CONFIG.shipClasses.battleship;
+    const BB = hullOf('battleship');
     const BB_POLY = hullSilhouette('battleship');
     const server: ShipState = { ...spawn };
     const p = new Predictor({ radius: MAP_R, islands }, BB.kinematics, BB_POLY);
@@ -301,7 +312,7 @@ describe('Predictor island collision (polygon parity with shared collision)', ()
   }
 
   it('server and client agree bit-for-bit while grounded on a coastline', () => {
-    const BB = CONFIG.shipClasses.battleship;
+    const BB = hullOf('battleship');
     const island = circleIsland(300, 0, 120); // dead ahead of the spawn
     // Ram it head-on for 10s, then put the helm hard over and drive off.
     const { server, aground } = parityDrive(
@@ -317,7 +328,7 @@ describe('Predictor island collision (polygon parity with shared collision)', ()
   });
 
   it('server and client agree bit-for-bit while pressed on the map edge', () => {
-    const BB = CONFIG.shipClasses.battleship;
+    const BB = hullOf('battleship');
     // The "pinned in open ocean" input pattern: full ahead into the boundary,
     // throttle held, no land anywhere.
     const spawn = { x: 820, y: 0, heading: 0, speed: BB.kinematics.maxSpeed };
@@ -331,7 +342,7 @@ describe('Predictor island collision (polygon parity with shared collision)', ()
 
 describe('Predictor with a non-default class config', () => {
   it('replays against a battleship-stepped server exactly', () => {
-    const BB = CONFIG.shipClasses.battleship;
+    const BB = hullOf('battleship');
     const spawn: ShipState = { x: 0, y: 0, heading: 0.2, speed: 0 };
     const server: ShipState = { ...spawn };
     const p = new Predictor({ radius: MAP_R, islands: [] }, BB.kinematics, hullSilhouette('battleship'));
@@ -1685,7 +1696,7 @@ describe('Predictor behavior boons (Story 2.5)', () => {
 
 describe('Predictor hull contact pass (Story 9.5)', () => {
   const OWN = 'own';
-  const BB = CONFIG.shipClasses.battleship;
+  const BB = hullOf('battleship');
   const BB_POLY = hullSilhouette('battleship');
 
   function body(id: string, x: number, y: number, heading = 0, speed = 0): ContactBody {
@@ -1693,7 +1704,7 @@ describe('Predictor hull contact pass (Story 9.5)', () => {
       id,
       state: { x, y, heading, speed },
       poly: transformPolygon(BB_POLY, x, y, heading),
-      mass: BB.hp,
+      mass: BB.mass,
       movable: true,
     };
   }
@@ -1701,7 +1712,7 @@ describe('Predictor hull contact pass (Story 9.5)', () => {
   function solidPredictor(islands: Island[], spawn: ShipState, contacts: ContactBody[]): Predictor {
     const p = new Predictor({ radius: MAP_R, islands });
     p.setOwnId(OWN);
-    p.setOwnMass(TB.hp);
+    p.setOwnMass(TB.mass);
     p.onServerState(kin(spawn), 0);
     p.setContacts(contacts);
     return p;
@@ -1715,7 +1726,7 @@ describe('Predictor hull contact pass (Story 9.5)', () => {
       id: OWN,
       state: own,
       poly: transformPolygon(TB_POLY, own.x, own.y, own.heading),
-      mass: TB.hp,
+      mass: TB.mass,
       movable: true,
     };
     resolveHullContacts([ownBody, contact]);
@@ -1741,7 +1752,7 @@ describe('Predictor hull contact pass (Story 9.5)', () => {
     const foeMove = Math.hypot(refContact.state.x, refContact.state.y - 18);
     expect(ownMove).toBeGreaterThan(0);
     expect(foeMove).toBeGreaterThan(0);
-    expect(ownMove / foeMove).toBeCloseTo(BB.hp / TB.hp, 6);
+    expect(ownMove / foeMove).toBeCloseTo(BB.mass / TB.mass, 6);
   });
 
   it('runs the hull pass BEFORE the land pass: a hull shoved into a coast still ends the tick clear of it', () => {
@@ -1759,7 +1770,7 @@ describe('Predictor hull contact pass (Story 9.5)', () => {
 
     // The hull pass alone would leave the own hull INSIDE the island...
     const shoved: ShipState = { ...spawn };
-    const ownBody: ContactBody = { id: OWN, state: shoved, poly: transformPolygon(TB_POLY, 0, 0, 0), mass: TB.hp, movable: true };
+    const ownBody: ContactBody = { id: OWN, state: shoved, poly: transformPolygon(TB_POLY, 0, 0, 0), mass: TB.mass, movable: true };
     resolveHullContacts([ownBody, body('foe', 0, 17)]);
     expect(hullClearance(shoved, TB_POLY, island)).toBeLessThan(0);
     // ...and the land pass that follows it resolves that the same tick.

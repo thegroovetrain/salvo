@@ -82,24 +82,23 @@ export interface BotTargetWeights {
 }
 
 /**
- * A favorite UPGRADE line family (Eric ruling 2026-09-30, R5). The eight ship
- * ladders (HULL, ARMOR, ARMOR PIERCING, SPEED, TURNING, RADAR SWEEP, RELOAD, PASSIVE HEALING)
- * are named by their line id (`hullPoints` was `armor` until Story 9.6;
- * `passiveHealing` joined in 9.6, epic-9 amendment 97; `armorPiercing` joined in
- * 9.9, epic-9 amendment 157); `gun` = any gun-ladder line (deckGun —
+ * A favorite UPGRADE line family (Eric ruling 2026-09-30, R5). The six ship
+ * ladders (ARMOR, POWER, ENGINES, RUDDER, INTEL, RELOAD) are named by their
+ * line id. Story 10.3 (Eric 2026-11-04, epic-10 amendment 8) DELETED
+ * `hullPoints` and `passiveHealing` and RENAMED `armorPiercing` -> `power`
+ * (joined in 9.9, epic-9 amendment 157), `speed` -> `engines`, `turning` ->
+ * `rudder`, `radarSweep` -> `intel`; `gun` = any gun-ladder line (deckGun —
  * CANNON's own ladder, its turret and barrel are rungs of it — machineGun, flak;
  * the draw only ever offers the mounted gun's); `weapons` = a tier copy (2..cap) of an equipment line
  * the bot already holds (the spec's "Scorer definitions").
  */
 export type UpgradeFavorite =
-  | 'hullPoints'
   | 'armor'
-  | 'armorPiercing'
-  | 'speed'
-  | 'turning'
-  | 'radarSweep'
+  | 'power'
+  | 'engines'
+  | 'rudder'
+  | 'intel'
   | 'reload'
-  | 'passiveHealing'
   | 'gun'
   | 'weapons';
 
@@ -206,8 +205,9 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     spend: 'weighted',
     taste: {
       style: 'specialist',
-      // 'armorPiercing' — epic-9 amendment 157 (Eric 2026-10-15)
-      favoriteUpgrades: ['speed', 'weapons', 'armorPiercing'],
+      // 'power' (was 'armorPiercing') — epic-9 amendment 157 (Eric 2026-10-15);
+      // ids renamed by Story 10.3 (Eric 2026-11-04, epic-10 amendment 8)
+      favoriteUpgrades: ['engines', 'weapons', 'power'],
       favoriteConsumables: ['countermeasure'],
       favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
       beltHunger: 'medium',
@@ -233,8 +233,9 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     spend: 'weighted',
     taste: {
       style: 'specialist',
-      // 'armorPiercing' — epic-9 amendment 157 (Eric 2026-10-15)
-      favoriteUpgrades: ['gun', 'turning', 'reload', 'armorPiercing'],
+      // 'power' (was 'armorPiercing') — epic-9 amendment 157 (Eric 2026-10-15);
+      // ids renamed by Story 10.3 (Eric 2026-11-04, epic-10 amendment 8)
+      favoriteUpgrades: ['gun', 'rudder', 'reload', 'power'],
       favoriteConsumables: ['shieldBlock', 'foulingShell'],
       favoriteWeapons: ['heavyTorpedo', 'lightTorpedo'],
       beltHunger: 'low',
@@ -259,8 +260,10 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     spend: 'weighted',
     taste: {
       style: 'rounded',
-      // epic-9 amendment 97 (Eric 2026-10-13); 'armor' — epic-9 amendment 115 (Eric 2026-10-13)
-      favoriteUpgrades: ['hullPoints', 'passiveHealing', 'armor'],
+      // 'armor' — epic-9 amendment 115 (Eric 2026-10-13). 'hullPoints' and
+      // 'passiveHealing' (epic-9 amendment 97) left with their lines, Story
+      // 10.3 (Eric 2026-11-04, epic-10 amendment 8).
+      favoriteUpgrades: ['armor'],
       favoriteConsumables: ['hullRepair', 'shieldBlock'],
       favoriteWeapons: ['broadside', 'starShells'],
       beltHunger: 'high',
@@ -285,7 +288,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     spend: 'weighted',
     taste: {
       style: 'specialist',
-      favoriteUpgrades: ['weapons', 'radarSweep'],
+      favoriteUpgrades: ['weapons', 'intel'], // 'radarSweep' until Story 10.3
       favoriteConsumables: ['foulingShell', 'supercavTorpedo'],
       favoriteWeapons: ['starShells', 'phosphorShells', 'broadside'],
       beltHunger: 'low',
@@ -351,7 +354,7 @@ export const BOT_PROFILES: Readonly<Record<BotProfileId, BotProfile>> = Object.f
     spend: 'weighted',
     taste: {
       style: 'rounded',
-      favoriteUpgrades: ['weapons', 'speed'],
+      favoriteUpgrades: ['weapons', 'engines'], // 'speed' until Story 10.3
       favoriteConsumables: ['countermeasure', 'radarBuoy'],
       favoriteWeapons: ['navalMines', 'captiveMines', 'foulingMines'],
       beltHunger: 'high',

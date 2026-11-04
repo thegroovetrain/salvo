@@ -171,7 +171,7 @@ describe('behavior card — the kinematics hook executes in the REAL world tick'
       control.step();
     }
     const bonus = 20;
-    const base = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed;
+    const base = effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics.maxSpeed;
     expect(c.state.speed).toBeCloseTo(base, 6); // control capped at class max
     expect(a.state.speed).toBeCloseTo(base + bonus, 6); // hook raised the cap
     expect(a.state.x).toBeGreaterThan(c.state.x + 1); // measurable position change
@@ -217,7 +217,7 @@ describe('behavior card — the kinematics hook executes in the REAL world tick'
     // Story 8.9 / amendment 55: the boost pays a PROPORTION of the post-fold
     // max (factor x maxSpeed), not a flat u/s; the hook's +20 still lands on
     // top, additively, because it composes AFTER.
-    const tbMax = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed;
+    const tbMax = effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics.maxSpeed;
     const expected = tbMax + tbMax * CONFIG.boost.factor + 20;
     expect(a.state.speed).toBeCloseTo(expected, 6);
   });
@@ -313,7 +313,7 @@ describe('World.applyCard — two homes, nothing else', () => {
       w.step();
       control.step();
     }
-    expect(a.state.speed).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed + 20, 6);
+    expect(a.state.speed).toBeCloseTo(effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics.maxSpeed + 20, 6);
     expect(a.state.x).toBeGreaterThan(c.state.x + 1);
     // Nothing else — hp untouched by application (42 minus nothing; no damage here).
     expect(a.hp).toBe(42);

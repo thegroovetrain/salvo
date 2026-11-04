@@ -66,8 +66,12 @@ import { textSafe } from '../util/color.js';
 import { CLASS_DISPLAY_NAMES } from '../ui/classSelect.js';
 import { boonName } from '../ui/boonCopy.js';
 
-/** The ship ladders in their ruled order (Stories 9.6 / 9.7 / 9.9), by ID. */
-const LADDER_IDS = ['hullPoints', 'armor', 'armorPiercing', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'];
+/** The ship ladders in their ruled order (Stories 9.7 / 9.9; Story 10.3, Eric
+ *  2026-11-04, epic-10 amendment 8, deleted HULL POINTS and PASSIVE HEALING
+ *  and renamed four ids in place), by ID. */
+// The six ship ladders in the ruled line order (Story 10.3: ARMOR · POWER ·
+// RELOAD over ENGINES · RUDDER · INTEL — the index order, amendment 6(c)).
+const LADDER_IDS = ['armor', 'power', 'reload', 'engines', 'rudder', 'intel'];
 
 /** Occurrences of `needle` in `hay`. */
 function count(hay: string, needle: string): number {
@@ -129,11 +133,12 @@ const REPAIR_SLOT = consumableSlotFor(MOCK_KIT, 'hullRepair') as number;
  * and the ladder line `ARMOR III · SPEED IV · TURNING II · RADAR SWEEP II ·
  * RELOAD III` — read since Story 9.6 (epic-9 amendments 93/94) as `HULL II ·
  * SPEED III · TURNING I · RADAR SWEEP II · RELOAD III · PASSIVE HEALING —`:
- * every ship ladder counts its own copies from nothing now. The mock's E is a machine gun II, which since Story 8.15 is a gun
+ * every ship ladder counts its own copies from nothing now. Story 10.3 (Eric
+ * 2026-11-04, epic-10 amendment 8) took HULL and PASSIVE HEALING out of it. The mock's E is a machine gun II, which since Story 8.15 is a gun
  * pick and can no longer sit in E — naval mines II stand in for it (same tier).
  */
 function mockOwn(
-  over: { radarSweep?: number; hullRepair?: number; speed?: number; passiveHealing?: number; armor?: number } = {},
+  over: { intel?: number; hullRepair?: number; engines?: number; armor?: number } = {},
 ): ResultsOwn {
   const cards = [
     ...rep('deckGun', 3), // gun: 1 + copies = IV
@@ -141,13 +146,11 @@ function mockOwn(
     ...rep('navalMines', 2),
     'heavyTorpedo',
     ...rep('hullRepair', over.hullRepair ?? 1),
-    ...rep('hullPoints', 2), // every ship ladder starts from nothing: copies = II
-    ...rep('armor', over.armor ?? 1), // I (Story 9.7)
-    ...rep('speed', over.speed ?? 3), // III
-    'turning', // I
-    ...rep('radarSweep', over.radarSweep ?? 2), // II
+    ...rep('armor', over.armor ?? 1), // I (Story 9.7) — every ship ladder starts from nothing
+    ...rep('engines', over.engines ?? 3), // III
+    'rudder', // I
+    ...rep('intel', over.intel ?? 2), // II
     ...rep('reload', 3), // III
-    ...rep('passiveHealing', over.passiveHealing ?? 0), // — at zero
   ];
   const repair = over.hullRepair ?? 1;
   const slots: (SlotItemId | null)[] = [
@@ -555,33 +558,32 @@ describe('showResults — the elimination modal', () => {
       // PIERCING right after ARMOR (Story 9.9, epic-9 amendment 159).
       open(mockOwn());
       const numerals = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')];
-      // In the ruled ladder order: HULL II, ARMOR I, ARMOR PIERCING —, SPEED III,
-      // TURNING I, RADAR SWEEP II, RELOAD III, PASSIVE HEALING —.
-      expect(numerals.map((n) => n.textContent)).toEqual(['II', 'I', '—', 'III', 'I', 'II', 'III', '—']);
-      // TWO ROWS, FOUR OVER FOUR (Eric's pick, Story 9.9, epic-9 amendment 160;
-      // four over three since amendment 114, two rows of three since amendment
-      // 99): no separator crosses the row break.
+      // In the ruled ladder order (Story 10.3): ARMOR I, POWER —, RELOAD III,
+      // ENGINES III, RUDDER I, INTEL II.
+      expect(numerals.map((n) => n.textContent)).toEqual(['I', '—', 'III', 'III', 'I', 'II']);
+      // TWO EQUAL ROWS (Story 10.3 — amendment 99's two rows of three return
+      // with the six ladders): no separator crosses the row break.
       const rows = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div')];
       expect(rows).toHaveLength(2);
-      for (const r of rows) {
+      rows.forEach((r) => {
         const kids = [...r.children];
-        expect(kids.filter((k) => k.children.length > 0)).toHaveLength(4); // an entry carries its numeral
+        expect(kids.filter((k) => k.children.length > 0)).toHaveLength(LADDER_IDS.length / 2); // an entry carries its numeral
         expect(kids[0].children.length, 'no separator leads a row').toBeGreaterThan(0);
         expect(kids.at(-1)!.children.length, 'no separator trails a row').toBeGreaterThan(0);
-      }
-      // HULL, ARMOR, (ARMOR PIERCING dashes), SPEED, TURNING, RADAR SWEEP, RELOAD.
-      expect([0, 1, 3, 4, 5, 6].map((k) => numerals[k].style.color)).toEqual(
-        [1, 0, 2, 0, 1, 2].map((i) => LINEAGE_TIERS[i]),
+      });
+      // ARMOR, (POWER dashes), RELOAD, ENGINES, RUDDER, INTEL.
+      expect([0, 2, 3, 4, 5].map((k) => numerals[k].style.color)).toEqual(
+        [0, 2, 2, 0, 1].map((i) => LINEAGE_TIERS[i]),
       );
     });
 
-    // THE 4 + 4 SPLIT FITS (Story 9.9, epic-9 amendment 160): each row of the
+    // THE SPLIT FITS (Story 9.9, epic-9 amendment 160; 3 + 3 since 10.3): each row of the
     // ladder line, at its WIDEST numerals (III on every entry — the longest
     // roman up to the cap of V), stays inside the panel's 530 px content
     // column. The mono model mirrors makeLadderLine/makeLadderEntry's CSS:
     // labels 10 px at .16em, numerals 11 px at .1em after a 6 px margin, and a
     // `·` separator at the label type with 12 px margins either side.
-    it('each row of the 4 + 4 ladder line fits the 530 px column at its widest numerals', () => {
+    it('each row of the 3 + 3 ladder line fits the 530 px column at its widest numerals', () => {
       const COLUMN = 530;
       const L = LADDER_LINE_PX;
       const label = (t: string): number => monoTextWidth(t, L.labelPx, L.labelPx * L.labelTrackingEm);
@@ -591,23 +593,25 @@ describe('showResults — the elimination modal', () => {
         labels.reduce((w, l) => w + label(l) + numeral, 0) + sep * (labels.length - 1);
       const labels = ladderEntries([]).map((e) => e.label);
       expect(labels).toEqual(LADDER_IDS.map((id) => boonName(id))); // the ruled order, by line id
-      const rows = [labels.slice(0, 4), labels.slice(4)];
+      const half = labels.length / 2;
+      const rows = [labels.slice(0, half), labels.slice(half)];
       for (const r of rows) expect(rowW(r), r.join(' · ')).toBeLessThanOrEqual(COLUMN);
     });
 
-    it('a ladder at zero copies reads `—` in the muted label colour (Eric R2), all eight still listed', () => {
-      // The I/O matrix row: 0 × SPEED dashes, 3 × PASSIVE HEALING prints III.
-      open(mockOwn({ speed: 0, passiveHealing: 3 }));
+    it('a ladder at zero copies reads `—` in the muted label colour (Eric R2), all six still listed', () => {
+      // The I/O matrix row: 0 × ENGINES dashes (PASSIVE HEALING, the other
+      // half of this row, left with Story 10.3).
+      open(mockOwn({ engines: 0 }));
       const shownMarks = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')];
-      expect(shownMarks.map((m) => m.textContent)).toEqual(['II', 'I', '—', '—', 'I', 'II', 'III', 'III']);
+      expect(shownMarks.map((m) => m.textContent)).toEqual(['I', '—', 'III', '—', 'I', 'II']);
       const entries = ladderEntries([]);
       expect(entries).toHaveLength(LADDER_IDS.length);
       // Every ship ladder starts from nothing (amendment 94; ARMOR too, Story
       // 9.7, epic-9 amendments 110–117; ARMOR PIERCING too, Story 9.9, epic-9
-      // amendment 159), so all eight dash.
-      expect(entries.map((e) => e.tier)).toEqual([null, null, null, null, null, null, null, null]);
+      // amendment 159), so all six dash.
+      expect(entries.map((e) => e.tier)).toEqual([null, null, null, null, null, null]);
       const marks = [...block().querySelectorAll<HTMLElement>('[data-loadout-ladder] > div > span > span')];
-      for (const dash of [marks[2], marks[3]]) { // ARMOR PIERCING (no copies) and SPEED (0)
+      for (const dash of [marks[1], marks[3]]) { // POWER (no copies) and ENGINES (0)
         expect(dash.textContent).toBe('—');
         expect(dash.style.color).toBe('var(--hc-text-muted)');
       }
@@ -617,7 +621,7 @@ describe('showResults — the elimination modal', () => {
     // element that carries text reads its size from itself or its nearest sized
     // ancestor inside the block — and none is under the floor.
     it('THE 9 PX FLOOR — no text in the block renders under 9 px', () => {
-      open(mockOwn({ radarSweep: 0 }));
+      open(mockOwn({ intel: 0 }));
       // jsdom keeps a `font:` shorthand whose family is a `var()` verbatim but
       // never expands it into `fontSize`, so the size is read off the declaration
       // text: a `font-size` longhand, else the shorthand's first px length.

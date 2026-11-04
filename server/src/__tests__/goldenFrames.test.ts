@@ -305,15 +305,17 @@ function scnCombat(g: Golden): void {
  *  left the wire with the REPAIR spend — Story 2.1, PV 12; the legacy 'upg'
  *  event died with the 2.8 strip, so this scenario no longer drives one. The
  *  banked offer is OVERRIDDEN with a fixed non-heal hand so the fixture stays
- *  content-stable — and the "a spend never heals" pin holds for every non-
- *  healOnGrant card: only shipHull heals, by exactly its granted delta.) */
+ *  content-stable — and the "a spend never heals" pin holds for every card
+ *  since Story 10.3 deleted HULL POINTS' heal-on-grant (Eric 2026-11-04,
+ *  epic-10 amendment 8). The hand's ids were renamed in place then:
+ *  'radarSweep' -> 'intel', 'speed' -> 'engines', same seats.) */
 function scnPtBn(g: Golden): void {
   const w = bareWorld(1003);
   const a = place(w, 'a', 0, 0);
   place(w, 'b', ANNULUS, 0); // far (out of a's sight); sunk to bank a a level
   w.sinkShip('b', 'a'); // sunk(b) + pt(a) — the sunk now reaches a UNSEEN (PV 23: credited killer)
   a.hp -= 30; // damaged — a non-heal spend may not restore this
-  a.offer = ['deckGun', 'reload', 'radarSweep', 'speed']; // fixed non-heal hand
+  a.offer = ['deckGun', 'reload', 'intel', 'engines']; // fixed non-heal hand
   const hpBefore = a.hp;
   expect(w.spendPoint('a', 3)).toBe(true); // the fourth card — bn(a)
   expect(a.hp).toBe(hpBefore); // a non-heal spend never heals
@@ -1145,7 +1147,7 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // DECK GUN TURRET and DECK GUN BARREL left the catalog (their effects are
   // CANNON ladder rungs now), so the seeded draw deals differently — row 8
   // ['deckGun','chaff','dazzleShells','deckGunTurret'] became ['reload',
-  // 'chaff','dazzleShells','radarSweep'], row 31 dealt 'armor' where it dealt
+  // 'chaff','dazzleShells','intel'], row 31 dealt 'armor' where it dealt
   // 'speed'. No contact, event, blip, mine, zone, position or hp byte moved
   // (verified by diffing the rows with `offer` masked out).
   // REGENERATED KNOWINGLY IN STORY 9.2 (PV 75). 156 of 167 lines moved, read
@@ -1171,7 +1173,7 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // byte moved (verified by diffing the rows field by field).
   // REGENERATED KNOWINGLY IN STORY 9.6 (PV 80). Exactly TWO rows moved, and in
   // each the ONLY difference is `you.offer`'s content: row 8's hand
-  // ['reload','decoyBuoy','foulingShell','radarSweep'] became
+  // ['reload','decoyBuoy','foulingShell','intel'] became
   // ['passiveHealing','decoyBuoy','foulingShell','reload'] (the new PASSIVE
   // HEALING ladder joined the pool, so the seeded draw deals differently);
   // row 31 deals 'hullPoints' where it dealt 'armor' (the id rename, same
@@ -1201,6 +1203,20 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // event, blip, mine, zone, position or hp byte moved (verified with both
   // differences masked out). BOT KITS roll off a separate kit stream (map
   // seed ^ 0x6b17), so every hue and gun draw of a pinned seed is unchanged.
+  // REGENERATED KNOWINGLY IN STORY 10.3 (2026-11-04, PV 95, THE INDEX MODEL —
+  // epic-10 amendment 8), twice: wave 0 when the line list went 30 → 28
+  // (HULL POINTS / PASSIVE HEALING deleted, four ids renamed — the seeded draw
+  // deals differently, so `you.offer` hands moved), and wave 2a for the
+  // numbers. 159 of the snapshot's lines moved in wave 2a, diffed field by
+  // field: (1) every `hp` — hulls are 1000 (was 300 / 350), and the fixtures
+  // that set a raw hp now read a different FRACTION, so (2) the wounded-smoke
+  // `sm` tier moves 1 → 2 on five rows; (3) `dmg.amount` follows Eric's
+  // damage table (cannon 8 → 24 — a ×3 placeholder, naval mine 90 → 200,
+  // fouling mine 10 → 100) and `you.repairHp` the HULL REPAIR pool (50 →
+  // 100 over 5 s); (4) in scnMineBurstDetonation the cannon's FIRST shell now pops the
+  // 10 hp mine (24 ≥ 10), so that one row's boom / burst / sp order follows
+  // (the same events, the mine popping a shell earlier). No contact,
+  // position, channel or event TYPE was added or removed.
   it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
     expect(runBattery()).toMatchSnapshot();
   });

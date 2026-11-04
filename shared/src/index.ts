@@ -3,6 +3,21 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  95 — Story 10.3 THE INDEX MODEL (Eric 2026-11-04, epic-10 amendment 8):
+ *  the client reads the stat block, and it changed shape — EffectiveStats
+ *  gains the authored indices `reload` / `engines` / `rudder` / `intel` /
+ *  `range` (with `armor` / `power` seeded at 100), loses `regen`, and derives
+ *  `kinematics.maxSpeed` / `turnRate` / `sweepRpm` / `cooldownScale` from
+ *  them; `HullEnvelope` gains `index` and loses `maxSpeed` / `turnRate`;
+ *  every hull is 1000 hp (`CONFIG.shipClasses.*.hp`, read by the client);
+ *  catalog CONTENT changed (the six ship ladders write their own indices, the
+ *  HULL POINTS / PASSIVE HEALING lines are gone — 30 → 28 — and
+ *  `armorPiercing` / `speed` / `turning` / `radarSweep` are `power` /
+ *  `engines` / `rudder` / `intel`; the weapon damage rungs re-ruled); CONFIG
+ *  the client reads moved (`index` new, `regen` deleted, every damage dial,
+ *  `ram`, `zone.stormDps`, `hullRepair`, `shieldBlock.hp`, the drones).
+ *  Nothing new rides the wire; `OwnShip.hp` stays 0–1000 raw. Perception
+ *  exception count stays SIX.
  *  94 — FLASH SHELLS re-cut (Eric 2026-10-29, THE WHITEOUT LAW): a flashed
  *  hull's truesight is 0 through `rampMs + holdMs`, then grows linearly to the
  *  full sightRange across `clearMs`; `OwnShip.dazzledUntil` = hit + 10 s
@@ -922,7 +937,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 94;
+export const PROTOCOL_VERSION = 95;
 
 // Tunables
 export * from './constants.js';
@@ -942,6 +957,7 @@ export * from './sim/hull.js';
 export * from './sim/lifecycle.js';
 export * from './sim/sinking.js';
 export * from './sim/stats.js';
+export * from './sim/indexStats.js';
 export * from './sim/effects.js';
 export * from './sim/catalog.js';
 export * from './sim/boons.js';

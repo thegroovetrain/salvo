@@ -76,8 +76,9 @@
 // — runs the HULL pass (sim/contactPass.ts: the shared `resolveHullContacts`
 // over the own hull + the sighted contacts main.ts hands over each render
 // frame via setContacts) BEFORE the land pass, the server's own order. The
-// own mass is `effectiveStats().maxHp` (setOwnMass); a contact's is its class
-// base hp, because its upgrades are private — the share error is bounded by
+// own mass is `effectiveStats().armor` (setOwnMass — mass = ARMOR since Story
+// 10.3, ruling 2); a contact's is its class base ARMOR, because its upgrades
+// are private — the share error is bounded by
 // the overlap depth and the reconcile folds it away. With no contacts held the
 // pass is skipped and every tick is byte-identical to the pre-9.5 one. The
 // live tick's own rows (`ownContacts`) and its land result (`lastLand`) feed
@@ -115,6 +116,7 @@ import {
 } from '@salvo/shared';
 import { lerp, lerpAngle } from '../util/math.js';
 import { HullContactPass } from './contactPass.js';
+import { hullBaseKinematics } from './hullKinematics.js';
 
 /** Collision inputs the predictor shares with the server sim (radius + rocks). */
 export interface CollisionMap {
@@ -357,16 +359,17 @@ export class Predictor {
 
   constructor(
     private readonly map: CollisionMap,
-    private kin: ShipConfig = CONFIG.shipClasses.torpedoBoat.kinematics,
+    private kin: ShipConfig = hullBaseKinematics('torpedoBoat'),
     private localPoly: readonly Vec2[] = hullSilhouette('torpedoBoat'),
     private readonly dt: number = CONFIG.tick.simDtMs / 1000,
     /** Hook registry the kinematics fold runs against — injectable for tests
      *  (parity suites), the empty shared HOOK_REGISTRY in production. */
     private readonly hookRegistry: HookRegistry = HOOK_REGISTRY,
   ) {
-    // The seeded class's base hull until applyOwnStats calls setOwnMass with
-    // the effectiveStats fold (the default kinematics are the torpedo boat's).
-    this.hull.ownMass = CONFIG.shipClasses.torpedoBoat.hp;
+    // The seeded class's base ARMOR (its mass, Story 10.3) until applyOwnStats
+    // calls setOwnMass with the effectiveStats fold (the default kinematics
+    // are the torpedo boat's zero-card fold).
+    this.hull.ownMass = CONFIG.shipClasses.torpedoBoat.index.armor;
   }
 
   /**
@@ -419,9 +422,10 @@ export class Predictor {
     this.hull.set(bodies);
   }
 
-  /** The own hull's mass for the hull pass: `effectiveStats().maxHp`. */
-  setOwnMass(maxHp: number): void {
-    this.hull.ownMass = maxHp;
+  /** The own hull's mass for the hull pass: `effectiveStats().armor` (mass =
+   *  ARMOR since Story 10.3). */
+  setOwnMass(armor: number): void {
+    this.hull.ownMass = armor;
   }
 
   /** The own hull's id (the session id) — orients the hull-pass pair rows. */

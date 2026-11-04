@@ -1,7 +1,13 @@
 // THE CATALOG (Story 8.1) — catalog v3's identity, its authoring validator and
 // THE ORDER-INDEPENDENCE PROPERTY.
 //
-// Pinned here: 25 lines / 122 cards with the exact per-line caps and kinds of
+// STORY 10.3 (Eric 2026-11-04, epic-10 amendment 8): 30/147 -> 28/137 —
+// HULL POINTS and PASSIVE HEALING are DELETED (and with them the
+// `healOnGrant` flag), and four universal ladders are RENAMED in their seats:
+// `armorPiercing` -> `power`, `speed` -> `engines`, `turning` -> `rudder`,
+// `radarSweep` -> `intel`.
+//
+// Pinned here: the lines and cards with the exact per-line caps and kinds of
 // `catalog-v3.md` §1 as amended; `tiers.length === cap` on every line; the
 // 1-line stub set; the validator's rules, including its refusal of a stat
 // path that takes `add` from one line and `mult` from another; and a seeded
@@ -91,16 +97,16 @@ const rangeStepOf = (w: 'gun' | 'machineGun' | 'flak' | 'broadside' | 'starShell
 
 /** catalog-v3 §1, transcribed: every line's cap and kind. */
 const SHEET: Record<LineId, { cap: number; kind: LineKind; stub: boolean }> = {
-  // HULL POINTS / SPEED / TURNING cap 5 and PASSIVE HEALING new (Story 9.6,
-  // epic-9 amendments 27–29, 90–91).
-  hullPoints: { cap: 5, kind: 'ladder', stub: false },
+  // HULL POINTS (seat 1) and PASSIVE HEALING (after RELOAD) were DELETED by
+  // Story 10.3 (Eric 2026-11-04, epic-10 amendment 8); POWER / ENGINES /
+  // RUDDER / INTEL are the renamed ARMOR PIERCING / SPEED / TURNING / RADAR
+  // SWEEP, same seats.
   armor: { cap: 5, kind: 'ladder', stub: false }, // NEW in Story 9.7 (epic-9 amendments 86–88)
-  armorPiercing: { cap: 5, kind: 'ladder', stub: false }, // NEW in Story 9.9 (epic-9 amendments 144–145)
-  speed: { cap: 5, kind: 'ladder', stub: false },
-  turning: { cap: 5, kind: 'ladder', stub: false },
-  radarSweep: { cap: 5, kind: 'ladder', stub: false },
+  power: { cap: 5, kind: 'ladder', stub: false }, // NEW in Story 9.9 as armorPiercing (epic-9 amendments 144–145)
+  engines: { cap: 5, kind: 'ladder', stub: false },
+  rudder: { cap: 5, kind: 'ladder', stub: false },
+  intel: { cap: 5, kind: 'ladder', stub: false },
   reload: { cap: 5, kind: 'ladder', stub: false },
-  passiveHealing: { cap: 5, kind: 'ladder', stub: false },
   // CANNON — the one deck-gun line since 2026-09-30 (TURRET/BARREL deleted).
   deckGun: { cap: 4, kind: 'ladder', stub: false },
   lightTorpedo: { cap: 5, kind: 'equipment', stub: false }, // LIVE since 8.13 (R18)
@@ -203,7 +209,7 @@ describe('catalog v3 identity', () => {
   it('ladderSteps gives every rung a FRESH array (never the caller\'s, never a sibling\'s); the catalog rungs are deep-frozen', () => {
     const step = [{ kind: 'stat', path: 'maxHp', add: 1 }] as const;
     const steps = [step, step, step];
-    const line = ladderSteps('hullPoints', steps);
+    const line = ladderSteps('armor', steps);
     expect(line.kind).toBe('ladder');
     expect(line.cap).toBe(3);
     expect(line.tiers).toHaveLength(3);
@@ -421,8 +427,10 @@ describe('catalog v3 identity', () => {
     expect(CATALOG.flak.stub).toBeUndefined();
   });
 
-  it('marks HULL POINTS as the one heal-on-grant line', () => {
-    expect(LINE_IDS.filter((id) => CATALOG[id].healOnGrant === true)).toEqual(['hullPoints']);
+  // HULL POINTS was the one heal-on-grant line; Story 10.3 (Eric 2026-11-04,
+  // epic-10 amendment 8) deleted it and the flag with it.
+  it('carries NO healOnGrant flag on any line (Story 10.3 deleted the flag with HULL POINTS)', () => {
+    expect(LINE_IDS.filter((id) => Object.hasOwn(CATALOG[id], 'healOnGrant'))).toEqual([]);
   });
 
   it('is deep-frozen', () => {
@@ -448,70 +456,50 @@ describe('catalog v3 identity', () => {
   });
 
   it('gives every ladder tier its OWN array, and refuses a mutation of an effect', () => {
-    expect(CATALOG.hullPoints.tiers[0]).not.toBe(CATALOG.hullPoints.tiers[1]);
-    const authored = (CATALOG.hullPoints.tiers[0][0] as unknown as { add: number }).add;
+    expect(CATALOG.armor.tiers[0]).not.toBe(CATALOG.armor.tiers[1]);
+    const authored = (CATALOG.armor.tiers[0][0] as unknown as { add: number }).add;
     expect(() => {
-      (CATALOG.hullPoints.tiers[0][0] as unknown as { add: number }).add = 999;
+      (CATALOG.armor.tiers[0][0] as unknown as { add: number }).add = 999;
     }).toThrow();
     // The refused write left the fold reading the authored step.
-    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat, ['hullPoints']).maxHp)
-      .toBe(effectiveStats(CONFIG.shipClasses.torpedoBoat, []).maxHp + authored);
+    expect(effectiveStats(CONFIG.shipClasses.torpedoBoat, ['armor']).armor)
+      .toBe(effectiveStats(CONFIG.shipClasses.torpedoBoat, []).armor + authored);
   });
 
-  it('authors HULL POINTS as identical rungs of a positive add on the maxHp path alone', () => {
-    const line = CATALOG.hullPoints;
-    for (const tier of line.tiers) {
-      expect(tier).toEqual(line.tiers[0]);
-      expect(tier.map((e) => (e.kind === 'stat' ? e.path : e.kind))).toEqual(['maxHp']);
-      const e = tier[0]!;
-      expect(e.kind === 'stat' && e.add !== undefined && e.add > 0).toBe(true);
+  // The HULL POINTS rung test and the PASSIVE HEALING seat / rung tests lived
+  // here until Story 10.3 DELETED both lines (Eric 2026-11-04, epic-10
+  // amendment 7). Their ids — and the four pre-rename ids — resolve to nothing.
+  it('resolves NO id Story 10.3 deleted or renamed (Eric 2026-11-04, epic-10 amendment 8)', () => {
+    for (const dead of ['hullPoints', 'passiveHealing', 'armorPiercing', 'speed', 'turning', 'radarSweep']) {
+      expect((LINE_IDS as readonly string[]).includes(dead), dead).toBe(false);
+      expect(Object.hasOwn(CATALOG, dead), dead).toBe(false);
+      expect(resolveCards([dead]), dead).toEqual([]);
     }
   });
 
-  it('places PASSIVE HEALING last among the universal ladders, right after RELOAD (Story 9.6, amendment 90)', () => {
-    expect(LINE_IDS.indexOf('passiveHealing')).toBe(LINE_IDS.indexOf('reload') + 1);
-    expect(LINE_IDS.indexOf('hullPoints')).toBe(0); // armor's old seat
-  });
-
-  it('seats ARMOR directly after HULL POINTS (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–89 / 110–117)', () => {
-    expect(LINE_IDS.indexOf('armor')).toBe(LINE_IDS.indexOf('hullPoints') + 1);
+  it('seats the six universal ladders first, ARMOR to RELOAD (Story 10.3 closed the HULL POINTS and PASSIVE HEALING seats)', () => {
+    expect(LINE_IDS.slice(0, 6)).toEqual(['armor', 'power', 'engines', 'rudder', 'intel', 'reload']);
   });
 
   it('authors ARMOR as identical rungs on the armor path alone — universal, no hull, no heal (Story 9.7)', () => {
     const line = CATALOG.armor;
     expect(tierTargetOf(line)).toBeUndefined();
-    expect(line.healOnGrant).toBeUndefined();
     for (const tier of line.tiers) {
       expect(tier).toEqual(line.tiers[0]);
       expect(tier.map((e) => (e.kind === 'stat' ? e.path : e.kind))).toEqual(['armor']);
     }
   });
 
-  it('seats ARMOR PIERCING directly after ARMOR (Story 9.9, epic-9 amendment 145)', () => {
-    expect(LINE_IDS.indexOf('armorPiercing')).toBe(LINE_IDS.indexOf('armor') + 1);
+  it('seats POWER directly after ARMOR (Story 9.9, epic-9 amendment 145; renamed by Story 10.3)', () => {
+    expect(LINE_IDS.indexOf('power')).toBe(LINE_IDS.indexOf('armor') + 1);
   });
 
-  it('authors ARMOR PIERCING as identical rungs on the armorPiercing path alone — universal, no heal (Story 9.9, epic-9 amendment 145)', () => {
-    const line = CATALOG.armorPiercing;
+  it('authors POWER as identical rungs on the power path alone — universal (Story 9.9, epic-9 amendment 145; renamed by Story 10.3)', () => {
+    const line = CATALOG.power;
     expect(tierTargetOf(line)).toBeUndefined();
-    expect(line.healOnGrant).toBeUndefined();
     for (const tier of line.tiers) {
       expect(tier).toEqual(line.tiers[0]);
-      expect(tier.map((e) => (e.kind === 'stat' ? e.path : e.kind))).toEqual(['armorPiercing']);
-    }
-  });
-
-  it('authors PASSIVE HEALING as identical rungs that raise the regen rate and shorten the wait — nothing else (Story 9.6, amendment 91)', () => {
-    const line = CATALOG.passiveHealing;
-    expect(tierTargetOf(line)).toBeUndefined();
-    expect(line.healOnGrant).toBeUndefined();
-    const addOf = (tier: readonly unknown[], path: string) =>
-      (tier.find((e) => (e as { path?: string }).path === path) as { add?: number } | undefined)?.add;
-    for (const tier of line.tiers) {
-      expect(tier).toEqual(line.tiers[0]);
-      expect(tier.map((e) => (e.kind === 'stat' ? e.path : e.kind))).toEqual(['regen.missingPctPerS', 'regen.outOfCombatMs']);
-      expect(addOf(tier, 'regen.missingPctPerS')).toBeGreaterThan(0);
-      expect(addOf(tier, 'regen.outOfCombatMs')).toBeLessThan(0);
+      expect(tier.map((e) => (e.kind === 'stat' ? e.path : e.kind))).toEqual(['power']);
     }
   });
 
@@ -520,9 +508,109 @@ describe('catalog v3 identity', () => {
     // line again since 9.7 — epic-9 amendment 89 — so it left this list.)
     for (const stale of ['nope', 'constructor', 'hullpoints']) {
       expect(resolveCards([stale])).toEqual([]);
-      expect(effectiveStats(CONFIG.shipClasses.battleship, [stale, 'speed'])).toEqual(
-        effectiveStats(CONFIG.shipClasses.battleship, ['speed']),
+      expect(effectiveStats(CONFIG.shipClasses.battleship, [stale, 'engines'])).toEqual(
+        effectiveStats(CONFIG.shipClasses.battleship, ['engines']),
       );
+    }
+  });
+});
+
+// THE INDEX CARDS AND THE RE-RULED RUNGS (Story 10.3, Eric 2026-11-04, epic-10
+// amendment 8, rulings 4–9). Every step is READ from the catalog and compared
+// to the FOLDED delta; a rung total is Tier I + Σ steps. No literal is pinned.
+describe('STORY 10.3 — the six index ladders and the re-ruled weapon rungs', () => {
+  const TB = CONFIG.shipClasses.torpedoBoat;
+  const INDEX_LADDERS = ['armor', 'power', 'reload', 'engines', 'rudder', 'intel'] as const;
+  const addOf = (tier: readonly unknown[], path: string): number | undefined =>
+    (tier.find((e) => (e as { path?: string }).path === path) as { add?: number } | undefined)?.add;
+
+  it('the catalog has 28 lines and the six ship ladders are the six universal (hostless) ladders', () => {
+    expect(LINE_IDS).toHaveLength(28);
+    expect(Object.keys(CATALOG)).toHaveLength(28);
+    const universal = LINE_IDS.filter((id) => CATALOG[id].kind === 'ladder' && tierTargetOf(CATALOG[id]) === undefined);
+    expect([...universal].sort()).toEqual([...INDEX_LADDERS].sort());
+  });
+
+  it.each(INDEX_LADDERS.map((id) => [id] as const))('%s: five identical rungs, each ONE whole-number add on its own index, and the fold moves that index by exactly the authored step', (id) => {
+    const line = CATALOG[id];
+    expect(line.cap).toBe(5);
+    for (const tier of line.tiers) {
+      expect(tier).toEqual(line.tiers[0]);
+      expect(tier.map((e) => (e.kind === 'stat' ? e.path : e.kind))).toEqual([id]);
+    }
+    const step = addOf(line.tiers[0], id);
+    expect(step).toBeDefined();
+    expect(Number.isInteger(step) && (step as number) > 0).toBe(true);
+    for (let n = 0; n <= line.cap; n += 1) {
+      expect(effectiveStats(TB, new Array<LineId>(n).fill(id))[id], `${id} x${n}`).toBe(TB.index[id] + n * (step as number));
+    }
+  });
+
+  it('the six index ladders all author the SAME step (one ruler — ruling 4\'s "+20 flat" is one number, read once)', () => {
+    const steps = new Set(INDEX_LADDERS.map((id) => addOf(CATALOG[id].tiers[0], id)));
+    expect(steps.size).toBe(1);
+  });
+
+  it('no production card writes a DERIVED path any more: speed, turn rate, sweep RPM and cooldown scale are not stat paths', () => {
+    for (const id of LINE_IDS) {
+      for (const tier of CATALOG[id].tiers) {
+        for (const e of tier) {
+          if (e.kind !== 'stat') continue;
+          expect(['kinematics.maxSpeed', 'kinematics.turnRate', 'sweepRpm', 'cooldownScale'], `${id}: ${e.path}`).not.toContain(e.path);
+        }
+      }
+    }
+  });
+
+  it('the five stepped weapon lines (rulings 5–6): Tier V damage = Tier I + Σ steps, every step a positive whole number, uniform per line, FOULING MINES stepped at last', () => {
+    const lines = ['lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'foulingMines'] as const;
+    for (const id of lines) {
+      const path = `equipment.${id}.damage`;
+      const steps = CATALOG[id].tiers.slice(1).map((tier) => addOf(tier, path) as number);
+      expect(steps, id).toHaveLength(4);
+      for (const st of steps) expect(Number.isInteger(st) && st > 0, id).toBe(true);
+      expect(new Set(steps).size, id).toBe(1);
+      const atI = effectiveStats(TB, [id]).equipment[id].damage;
+      const atV = effectiveStats(TB, new Array<LineId>(5).fill(id)).equipment[id].damage;
+      expect(atV, id).toBe(atI + steps.reduce((a, b) => a + b, 0));
+    }
+    // The torpedoes and the two light mines DOUBLE Tier I at Tier V (the ×2
+    // ladder rule carried: 200 → 400, 300 → 600, 100 → 200, 100 → 200); the
+    // NAVAL MINE's 200 → 300 is the one ruled exception (ruling 6).
+    for (const id of ['lightTorpedo', 'heavyTorpedo', 'captiveMines', 'foulingMines'] as const) {
+      const atI = effectiveStats(TB, [id]).equipment[id].damage;
+      const atV = effectiveStats(TB, new Array<LineId>(5).fill(id)).equipment[id].damage;
+      expect(atV, id).toBe(atI * 2);
+    }
+    const nmI = effectiveStats(TB, ['navalMines']).equipment.navalMines.damage;
+    const nmV = effectiveStats(TB, new Array<LineId>(5).fill('navalMines')).equipment.navalMines.damage;
+    expect(nmV).toBeGreaterThan(nmI);
+    expect(nmV).toBeLessThan(nmI * 2);
+  });
+
+  it('STAR and PHOSPHOR SHELLS (ruling 9): four whole-number burst steps DOUBLING the Tier I burst at V; phosphor\'s burn steps uniform and doubling its base', () => {
+    for (const id of ['starShells', 'phosphorShells'] as const) {
+      const steps = CATALOG[id].tiers.slice(1).map((tier) => addOf(tier, `equipment.${id}.damage`) as number);
+      for (const st of steps) expect(Number.isInteger(st) && st > 0, id).toBe(true);
+      const atI = effectiveStats(TB, [id]).equipment[id].damage;
+      const atV = effectiveStats(TB, new Array<LineId>(5).fill(id)).equipment[id].damage;
+      expect(atV, id).toBe(atI + steps.reduce((a, b) => a + b, 0));
+      expect(atV, id).toBe(atI * 2);
+    }
+    const dps = CATALOG.phosphorShells.tiers.slice(1).map((tier) => addOf(tier, 'equipment.phosphorShells.dps') as number);
+    expect(new Set(dps).size).toBe(1);
+    const atI = effectiveStats(TB, ['phosphorShells']).equipment.phosphorShells.dps;
+    const atV = effectiveStats(TB, new Array<LineId>(5).fill('phosphorShells')).equipment.phosphorShells.dps;
+    expect(atV).toBe(atI + dps.reduce((a, b) => a + b, 0));
+    expect(atV).toBe(atI * 2);
+  });
+
+  it('the ×3 placeholders (ruling 10): CANNON and FLAK still author a whole-number damage step on every rung, and their Tier V is Tier I + Σ steps', () => {
+    for (const [line, w] of [['deckGun', 'gun'], ['flak', 'flak']] as const) {
+      const steps = CATALOG[line].tiers.map((tier) => addOf(tier, `equipment.${w}.damage`) as number);
+      for (const st of steps) expect(Number.isInteger(st) && st > 0, line).toBe(true);
+      const atV = effectiveStats(TB, new Array<LineId>(CATALOG[line].cap).fill(line)).equipment[w].damage;
+      expect(atV, line).toBe(CONFIG[w].damage + steps.reduce((a, b) => a + b, 0));
     }
   });
 });
@@ -534,20 +622,20 @@ describe('validateCatalog', () => {
   });
 
   it('refuses tiers.length ≠ cap', () => {
-    const line: CatalogLine = { id: 'hullPoints', kind: 'ladder', cap: 3, tiers: [[], []] };
+    const line: CatalogLine = { id: 'armor', kind: 'ladder', cap: 3, tiers: [[], []] };
     expect(validateLine(line).join(' ')).toContain('tiers.length 2 ≠ cap 3');
   });
 
   it('refuses a key that does not match its line id', () => {
-    const bad: Catalog = { speed: CATALOG.hullPoints };
-    expect(validateCatalog(bad).join(' ')).toContain("key 'speed' does not match line id 'hullPoints'");
+    const bad: Catalog = { engines: CATALOG.armor };
+    expect(validateCatalog(bad).join(' ')).toContain("key 'engines' does not match line id 'armor'");
   });
 
   it('refuses off-whitelist stat paths, unknown doctrine verbs and unknown slotFill/stock targets', () => {
     const bad: Catalog = {
-      a: { id: 'hullPoints', kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'sightRange' as never, add: 1 }]] },
-      b: { id: 'speed', kind: 'addon', cap: 1, tiers: [[{ kind: 'doctrine', weapon: 'gun', mode: 'homing' }]] },
-      c: { id: 'turning', kind: 'equipment', cap: 1, tiers: [[{ kind: 'slotFill', equipmentId: 'nope' as never }]] },
+      a: { id: 'armor', kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'sightRange' as never, add: 1 }]] },
+      b: { id: 'engines', kind: 'addon', cap: 1, tiers: [[{ kind: 'doctrine', weapon: 'gun', mode: 'homing' }]] },
+      c: { id: 'rudder', kind: 'equipment', cap: 1, tiers: [[{ kind: 'slotFill', equipmentId: 'nope' as never }]] },
       d: { id: 'reload', kind: 'consumable', cap: 1, tiers: [[{ kind: 'stock', equipmentId: 'nope' as never }]] },
     };
     const errs = validateCatalog(bad).join(' | ');
@@ -559,17 +647,17 @@ describe('validateCatalog', () => {
 
   it('REFUSES a stat path that takes add from one line and mult from another', () => {
     const bad: Catalog = {
-      hullPoints: { id: 'hullPoints', kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'maxHp', add: 25 }]] },
-      speed: { id: 'speed', kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'maxHp', mult: 1.1 }]] },
+      armor: { id: 'armor', kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'maxHp', add: 25 }]] },
+      engines: { id: 'engines', kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'maxHp', mult: 1.1 }]] },
     };
     const errs = validateCatalog(bad).join(' | ');
-    expect(errs).toContain("stat path 'maxHp' takes add (hullPoints) and mult (speed)");
+    expect(errs).toContain("stat path 'maxHp' takes add (armor) and mult (engines)");
   });
 
   it('refuses add and mult on one path even inside ONE line, across tiers', () => {
     const bad: Catalog = {
-      hullPoints: {
-        id: 'hullPoints',
+      armor: {
+        id: 'armor',
         kind: 'ladder',
         cap: 2,
         tiers: [[{ kind: 'stat', path: 'maxHp', add: 25 }], [{ kind: 'stat', path: 'maxHp', mult: 1.1 }]],
@@ -615,18 +703,13 @@ describe('validateCatalog', () => {
     expect(validateLine(bad).join(' ')).toContain('broadside: an equipment line needs a slotFill on copy 1');
   });
 
-  it('refuses a healOnGrant line with no positive maxHp add', () => {
-    const bad: CatalogLine = {
-      id: 'hullPoints', kind: 'ladder', cap: 1, healOnGrant: true,
-      tiers: [[{ kind: 'stat', path: 'kinematics.maxSpeed', add: 1 }]],
-    };
-    expect(validateLine(bad).join(' ')).toContain('healOnGrant requires a positive maxHp add effect');
-  });
+  // The healOnGrant validator test lived here until Story 10.3 deleted the
+  // flag with HULL POINTS (Eric 2026-11-04, epic-10 amendment 8).
 });
 
 describe('resolveCards', () => {
   it('keeps list order, resolves repeats each time and drops junk fail-closed', () => {
-    expect(resolveCards(['hullPoints', 'nope', 'hullPoints', 'constructor']).map((l) => l.id)).toEqual(['hullPoints', 'hullPoints']);
+    expect(resolveCards(['armor', 'nope', 'armor', 'constructor']).map((l) => l.id)).toEqual(['armor', 'armor']);
     expect(resolveCards([])).toEqual([]);
   });
 });
@@ -675,7 +758,8 @@ describe('THE ORDER-INDEPENDENCE PROPERTY', () => {
     const five = effectiveStats(cls, new Array<LineId>(5).fill('reload'));
     const nine = effectiveStats(cls, new Array<LineId>(9).fill('reload'));
     expect(nine).toEqual(five);
-    expect(five.cooldownScale).toBe(0.75);
+    const step = (CATALOG.reload.tiers[0][0] as { add: number }).add;
+    expect(five.reload).toBe(cls.index.reload + CATALOG.reload.cap * step);
   });
 });
 

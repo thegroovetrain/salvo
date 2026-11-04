@@ -140,15 +140,15 @@ export const EQUIPMENT_STAT_FIELDS = {
   // (amendment 82: 0 → 0.3 across the five rungs).
   captiveMines: ['reloadMs', 'maxAmmo', 'damage', 'homingTurnRate'],
   // FOULING MINES (amendment 81) — its own line now, not an add-on. `damage`
-  // is whitelisted although no tier steps it (10 hp is fixed): the table says
-  // what is addressable in principle, not what a card writes today.
+  // was whitelisted-but-unwritten (10 hp fixed) until Story 10.3 gave the line
+  // a +25 damage rung (Eric 2026-11-04, ruling 6: 100 → 200).
   foulingMines: ['reloadMs', 'maxAmmo', 'damage', 'blastRadius', 'slowFactor'],
   // THE TWO PICKABLE GUNS (Story 8.15, amendments 103–105). The MACHINE GUN
-  // ladder steps the magazine (+4), the per-shell damage (+1 on the rungs to
-  // II and IV) and the shot delay (`rateMs` −50 ms × 4, 300 → 100 ms; Eric
-  // 2026-10-02, amendment 232); the FLAK ladder steps damage (+8).
+  // ladder steps the magazine and the shot delay (`rateMs`; Eric 2026-10-16,
+  // Story 9.12); the FLAK ladder steps damage (+6 since Story 10.3's ×3
+  // placeholders, Eric 2026-11-04, ruling 10).
   // `flak.burstRadius` and `flak.contactDamage` are deliberately ABSENT: the blast is FIXED by ruling (amendment 105) and
-  // the 4 hp bodyblock is a CONFIG constant, and this table is the authoring
+  // the bodyblock is a CONFIG constant, and this table is the authoring
   // gate — the captive's fixed-burst precedent (both still flow CONFIG ->
   // stats row as pass-throughs; a harness `--tune flak.*` reaches CONFIG).
   // The −5 %/tier reload is the tier step in clampStats, never an effect.
@@ -179,44 +179,57 @@ export const EQUIPMENT_STAT_FIELDS = {
  */
 // `damage` and `contactDamage` are integers too (Eric 2026-09-17, epic-8
 // amendment 39): a shell NEVER deals a fractional hit point. The deck-gun
-// ladder steps whole numbers (base 8; +2 / +1 / +1 / +1 → 8 / 10 / 11 / 12 /
-// 13, Eric 2026-10-16, Story 9.12), so the floor is a no-op on it.
+// ladder steps whole numbers (base 24; +6 / +3 / +3 / +3 → 24 / 30 / 33 / 36 /
+// 39, the Story 10.3 ×3 placeholders of Eric's 2026-10-16 table), so the floor
+// is a no-op on it.
 export const EQUIPMENT_INT_FIELDS: readonly string[] = ['maxAmmo', 'barrels', 'turrets', 'damage', 'contactDamage'];
 
 /**
- * The top-level (non-equipment) stat paths. `sightRange`, `sweepPeriodMs` and
- * `damageMultiplier` are DELIBERATELY ABSENT — all three are derived post-fold
- * (radarRange/3, 60000/sweepRpm and damageMultiplierFor(armor)), pinned absent in
- * barrel.test.ts.
+ * The top-level (non-equipment) stat paths — THE INDEX MODEL's authored
+ * surface (Story 10.3, Eric 2026-11-04, epic-10 amendment 8). The SEVEN
+ * INDICES are what a ship card may write; everything they buy is DERIVED
+ * post-fold in sim/indexStats.ts and is DELIBERATELY ABSENT here, pinned
+ * absent in barrel.test.ts: `kinematics.maxSpeed` (ENGINES), `kinematics
+ * .turnRate` (RUDDER), `sweepRpm` + `sweepPeriodMs` (INTEL), `cooldownScale`
+ * (RELOAD), `damageMultiplier` (ARMOR), `sightRange` (radarRange / 3). The
+ * `regen.*` pair LEFT with PASSIVE HEALING and the out-of-combat regen (both
+ * deleted); `armorPiercing` is `power`.
  */
 export const TOP_LEVEL_STAT_PATHS = [
+  // `maxHp` keeps its seat with no writer: HULL POINTS is deleted (Story 10.3)
+  // and every hull is 1000, but a hull size is addressable in principle (the
+  // established shape — a path leaves only when the stat stops being a stat).
   'maxHp',
-  // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88): 0 at base,
-  // +20 per ARMOR card since Story 9.9 (amendment 144); clampStats derives
-  // `damageMultiplier` from it.
+  // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88; +20 per card
+  // since Story 9.9, amendment 144): an INDEX since Story 10.3 — 100 at base
+  // on every scaffold hull, the ramming MASS (ruling 2) and the gate's victim
+  // side (ruling 11); clampStats derives `damageMultiplier` from it.
   'armor',
-  // ARMOR PIERCING (Story 9.9, Eric 2026-10-14/15, epic-9 amendments
-  // 144–146): 0 at base, +20 per card. The ATTACKER's stat — the server's
-  // damage gate subtracts it from the victim's Armor; it derives nothing here.
-  'armorPiercing',
+  // POWER (Story 9.9's ARMOR PIERCING, Eric 2026-10-14/15, epic-9 amendments
+  // 144–146; renamed `armorPiercing` -> `power` by Story 10.3): an INDEX, 100
+  // at base, +20 per card. The ATTACKER's stat — the server's damage gate
+  // subtracts it from the victim's Armor; it derives nothing here.
+  'power',
+  // RELOAD (ruling 14): the haste law's input — `cooldownScale` is derived
+  // from it (the ladder used to write the scale −0.05 a copy; now +20 index).
+  'reload',
+  // ENGINES (ruling 15): top speed = CONFIG.index.engines × this / 100.
+  'engines',
+  // RUDDER (ruling 3): turn rate = CONFIG.index.rudder × this / 100.
+  'rudder',
+  // INTEL (ruling 14): sweep RPM = CONFIG.vision.sweepRpm × this / 100.
+  'intel',
+  // RANGE (ruling 14): the four deck-gun rows' reach × this / 100. A SHIP stat
+  // with no card after 10.3 — whitelisted-but-unwritten, like `maxHp`.
+  'range',
   'radarRange',
-  'sweepRpm',
-  // The ONE global cooldown lever (Eric ruling 2026-08-04, retuned by
-  // catalog-v3 R12): a top-level base-1 scalar multiplied into EVERY
-  // equipment reloadMs post-fold. The RELOAD ladder drives it with
-  // add: -0.05 per copy, so five copies land on exactly 0.75.
-  'cooldownScale',
-  'kinematics.maxSpeed',
+  // The four kinematics that stay per-class pass-throughs (ruling 3: "accel /
+  // decel / reverse / steerage stay per-class kinematics") — addressable in
+  // principle, no card writes them.
   'kinematics.reverseSpeed',
   'kinematics.accel',
   'kinematics.decel',
-  'kinematics.turnRate',
   'kinematics.steerageSpeed',
-  // OUT-OF-COMBAT REGEN (Story 9.6, Eric 2026-10-13, epic-9 amendments 90–91):
-  // seeded from CONFIG.regen in baseStats; the PASSIVE HEALING ladder adds
-  // +0.006 to the rate and −1000 ms to the wait per copy.
-  'regen.missingPctPerS',
-  'regen.outOfCombatMs',
 ] as const;
 
 /** Every `equipment.<id>.<field>` path the table above generates. */

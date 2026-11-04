@@ -14,7 +14,7 @@ import { buildFrame } from '../game/frames.js';
 
 const DT = CONFIG.tick.simDtMs;
 const BOOST = CONFIG.boost;
-const TB_MAX = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed; // 45
+const TB_MAX = effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics.maxSpeed; // 45
 // SLOT_BOOST is now SHARED (= 1): since Story 8.5 the boost sits in the same
 // fixed slot on EVERY captain hull (amendment 23), so this file no longer
 // authors its own constant.
@@ -144,7 +144,7 @@ describe('the Shift boost end to end (Story 8.9, amendments 54-55)', () => {
     // Story 9.6), never hard-coded.
     const w2 = bareWorld();
     const b = place(w2, 'b');
-    stack(w2, b, 'speed', CATALOG.speed.cap);
+    stack(w2, b, 'engines', CATALOG.engines.cap);
     const rated = b.stats.kinematics.maxSpeed;
     expect(rated).toBeGreaterThan(TB_MAX); // the ladder did raise it...
     expect(rated).toBe(effectiveStats(b.cls, b.cards).kinematics.maxSpeed); // ...and the read STILL rated
@@ -301,7 +301,7 @@ describe('the boost is the Torpedo Boat\'s Shift again (Story 8.15, amendment 89
       const a = place(w, 'a', hull);
       expect(a.loadout[SLOT_BOOST].equipmentId).toBe(shift);
       expect(a.loadout.some((s) => s.equipmentId === 'boost')).toBe(false);
-      const cap = CONFIG.shipClasses[hull].kinematics.maxSpeed;
+      const cap = effectiveStats(CONFIG.shipClasses[hull]).kinematics.maxSpeed;
       a.state.speed = cap;
       pressActivate(w, 'a', 1, 1, SLOT_BOOST, 1); // full ahead + the Shift edge
       for (let i = 0; i < 40; i++) w.step();

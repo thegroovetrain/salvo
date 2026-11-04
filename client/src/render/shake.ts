@@ -15,9 +15,12 @@ import { motionIntensity, settings } from '../settings/store.js';
 /** Exponential decay rate (1/s) — mag * e^(-DECAY_RATE * t). */
 export const DECAY_RATE = 8;
 
-/** Damage thresholds the magnitude curve is anchored to (gun / torpedo hit). */
-const DMG_SUBTLE = 15; // gun
-const DMG_HEAVY = 55; // torpedo
+/** Damage thresholds (hp) the magnitude curve is anchored to (gun / torpedo
+ *  hit). ×3 with the hull in Story 10.3 (every hull 300–350 → 1000 hp; the
+ *  anchors were 15 / 55) so a hit shakes as hard as the same SHARE of the hull
+ *  did before. Feel knobs. */
+export const DMG_SUBTLE = 45; // gun
+export const DMG_HEAVY = 165; // torpedo
 const PX_SUBTLE = 4;
 const PX_HEAVY = 16;
 
@@ -35,7 +38,7 @@ function clamp(v: number, lo: number, hi: number): number {
 
 /**
  * Peak shake magnitude (px) for a hit of `damage` hp, linearly interpolated
- * between the subtle (gun, 15hp) and heavy (torpedo, 55hp) anchors and
+ * between the subtle (gun, DMG_SUBTLE) and heavy (torpedo, DMG_HEAVY) anchors and
  * clamped to [PX_SUBTLE, SHAKE_MAX_PX] for any damage value outside that
  * range (mine hits land in between; any future weapon is clamped safely).
  */

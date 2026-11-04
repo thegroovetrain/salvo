@@ -22,7 +22,7 @@
 // explanation) rather than breaking the card view.
 
 import { describe, it, expect } from 'vitest';
-import { CATALOG, CONFIG, LINE_IDS, effectiveStats, type CatalogLine } from '@salvo/shared';
+import { CATALOG, CONFIG, INDEX_IDS, LINE_IDS, effectiveStats, type CatalogLine } from '@salvo/shared';
 import {
   boonEffectLine,
   boonFitToastLine,
@@ -68,12 +68,12 @@ describe('coverage — every catalog line has a name and a kind word', () => {
   it('names the LINE, not the rung — the tier numerals carry the position', () => {
     // The v2 ladders (HULL I..IV) are gone with the v2 catalog: the sheet gives
     // one name per line, so `stack` no longer selects anything.
-    expect(boonName('hullPoints', 0)).toBe(boonName('hullPoints', 3));
+    expect(boonName('armor', 0)).toBe(boonName('armor', 3));
     // Story 8.7 retired `boonLineageLine`'s "II/V" handrail: the ratified face
     // DRAWS the ladder, so what the numerals say is the STEP this card buys.
-    // HULL reads 0 → V since Story 9.6 (epic-9 amendment 94).
-    expect(cardTierLabel(CATALOG.hullPoints, 0)).toBe('I');
-    expect(cardTierLabel(CATALOG.hullPoints, 3)).toBe('III → IV');
+    // ARMOR reads 0 → V (HULL, the old example here, was deleted by Story 10.3).
+    expect(cardTierLabel(CATALOG.armor, 0)).toBe('I');
+    expect(cardTierLabel(CATALOG.armor, 3)).toBe('III → IV');
   });
 
   it('fails OPEN on an unknown id/kind (a readable fallback, never an empty card)', () => {
@@ -213,26 +213,28 @@ describe('the stat tables — one builder for the face and both hovers', () => {
     expect(consumableStatRows('constructor')).toEqual([]);
   });
 
-  it('shipStatRows: the eight ladders in order, each line\'s own printer', () => {
-    expect(text(shipStatRows(bare))).toEqual([
-      `${bare.maxHp}`,
-      `${bare.armor}`, // Story 9.7: right after HULL (epic-9 amendments 110–117)
-      `${bare.armorPiercing}`, // Story 9.9: right after ARMOR (epic-9 amendment 159)
-      `${bare.kinematics.maxSpeed}`,
-      `${Math.round((bare.kinematics.turnRate * 180) / Math.PI)}°/s`, // rad/s printed as whole degrees/s (P10)
-      `${bare.sweepRpm} RPM`,
-      '100%', // the bare cooldown multiplier
-      `${Math.round(bare.regen.missingPctPerS * 100)} %/S`, // Story 9.6, amendment 95
-    ]);
+  // Story 10.3 (Eric 2026-11-04, epic-10 amendment 8): the SHIP panel is the
+  // SEVEN indices in amendment 6(c)'s order (`INDEX_IDS`) — RANGE included,
+  // though no card moves it — each printed bare off its own index path. The
+  // HULL (maxHp) and PASSIVE HEALING (regen) rows left with their lines.
+  it('shipStatRows: the seven indices in INDEX_IDS order, each its own index', () => {
+    expect(shipStatRows(bare)).toHaveLength(INDEX_IDS.length);
+    expect(text(shipStatRows(bare))).toEqual(INDEX_IDS.map((id) => String(bare[id])));
+    // A row reads ITS index: moving one index moves exactly one row.
+    const armored = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['armor']);
+    const moved = text(shipStatRows(armored)).map((v, i) => v !== text(shipStatRows(bare))[i]);
+    expect(moved).toEqual(INDEX_IDS.map((id) => id === 'armor'));
+    // Every label is distinct (seven rows, seven words).
+    expect(new Set(shipStatRows(bare).map((r) => r.label)).size).toBe(INDEX_IDS.length);
   });
 
   it('cardHoverRows: the full table of what the card touches, valued AFTER the card', () => {
     // A weapon line: its weapon's table on the after fold.
     const after = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['lightTorpedo']);
     expect(cardHoverRows(CATALOG.lightTorpedo, 0, TB)).toEqual(equipmentStatRows('lightTorpedo', after));
-    // A ship ladder: the eight ship stats after the card (MAX HULL moved).
-    const hulled = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['hullPoints']);
-    expect(cardHoverRows(CATALOG.hullPoints, 0, TB)).toEqual(shipStatRows(hulled));
+    // A ship ladder: the six ship stats after the card (ARMOR moved).
+    const armored = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['armor']);
+    expect(cardHoverRows(CATALOG.armor, 0, TB)).toEqual(shipStatRows(armored));
     // A gun ladder: the CANNON's table after the card (the CANNON ladder —
     // DECK GUN BARREL folded into it, amendment 197).
     const cannon = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['deckGun']);
@@ -270,7 +272,7 @@ describe('cardKind — what the card does for the player', () => {
         expect(cardKind(CATALOG[id], n), id).toBe('weaponUpgrade');
       }
       // ARMOR PIERCING joined in Story 9.9 (epic-9 amendment 159).
-      for (const id of ['hullPoints', 'armor', 'armorPiercing', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing']) {
+      for (const id of ['armor', 'power', 'engines', 'rudder', 'intel', 'reload']) {
         expect(cardKind(CATALOG[id], n), id).toBe('shipUpgrade');
       }
     }
@@ -280,7 +282,7 @@ describe('cardKind — what the card does for the player', () => {
     for (const id of ['hullRepair', 'countermeasure', 'supercavTorpedo', 'foulingShell']) {
       expect(cardKind(CATALOG[id], 0), id).toBe('consumable');
     }
-    expect(cardKind({ ...CATALOG.hullPoints, kind: 'addon' } as CatalogLine, 0)).toBe('addon');
+    expect(cardKind({ ...CATALOG.armor, kind: 'addon' } as CatalogLine, 0)).toBe('addon');
   });
 
   it('every shipped line resolves to a kind at every copy count', () => {
@@ -306,13 +308,13 @@ describe('cardTierLabel — the step, not the position', () => {
     // amendment 94): five cards each, 0 → V, like PASSIVE HEALING — and ARMOR
     // (Story 9.7, epic-9 amendments 110–117) and ARMOR PIERCING (Story 9.9,
     // epic-9 amendment 159: out of the base-tier set, Tier 0 → V like ARMOR).
-    for (const id of ['hullPoints', 'armor', 'armorPiercing', 'speed', 'turning', 'passiveHealing']) {
+    for (const id of ['armor', 'power', 'engines', 'rudder']) {
       expect(cardTierLabel(CATALOG[id], 0), id).toBe('I');
       expect(cardTierLabel(CATALOG[id], 1), id).toBe('I → II');
       expect(cardTierLabel(CATALOG[id], 4), id).toBe('IV → V'); // the fifth card
       expect(cardTierLabel(CATALOG[id], 5), id).toBe('V'); // at the cap
     }
-    expect(cardTierLabel(CATALOG.radarSweep, 0)).toBe('I');
+    expect(cardTierLabel(CATALOG.intel, 0)).toBe('I');
     expect(cardTierLabel(CATALOG.reload, 0)).toBe('I');
     expect(cardTierLabel(CATALOG.heavyTorpedo, 0)).toBe('I');
     expect(cardTierLabel(CATALOG.navalMines, 0)).toBe('I');
@@ -331,7 +333,7 @@ describe('cardTierLabel — the step, not the position', () => {
   it('and as a step from the copy held once there is one', () => {
     expect(cardTierLabel(CATALOG.heavyTorpedo, 1)).toBe('I → II');
     expect(cardTierLabel(CATALOG.reload, 1)).toBe('I → II');
-    expect(cardTierLabel(CATALOG.radarSweep, 4)).toBe('IV → V');
+    expect(cardTierLabel(CATALOG.intel, 4)).toBe('IV → V');
   });
 
   it('shows NO ladder at all for a consumable or an add-on', () => {
@@ -343,7 +345,7 @@ describe('cardTierLabel — the step, not the position', () => {
 
   it('carries the same step as NUMBERS, so the DOM can tint each numeral', () => {
     expect(cardTierSteps(CATALOG.deckGun, 0)).toEqual({ cur: 1, next: 2 });
-    expect(cardTierSteps(CATALOG.radarSweep, 0)).toEqual({ cur: 1, next: null });
+    expect(cardTierSteps(CATALOG.intel, 0)).toEqual({ cur: 1, next: null });
     expect(cardTierSteps(CATALOG.heavyTorpedo, 2)).toEqual({ cur: 2, next: 3 });
     expect(cardTierSteps(CATALOG.hullRepair, 0)).toBeNull();
   });
@@ -356,17 +358,17 @@ describe('cardTierLabel — the step, not the position', () => {
   it('stops at the TOP RUNG — a card at the cap sells no step', () => {
     // HULL / SPEED / TURNING run five cards from nothing since Story 9.6
     // (epic-9 amendment 94), so they top out at the cap, as RADAR SWEEP does.
-    expect(cardTierLabel(CATALOG.hullPoints, 5)).toBe('V');
-    expect(cardTierLabel(CATALOG.speed, 5)).toBe('V');
-    expect(cardTierLabel(CATALOG.turning, 5)).toBe('V');
+    expect(cardTierLabel(CATALOG.armor, 5)).toBe('V');
+    expect(cardTierLabel(CATALOG.engines, 5)).toBe('V');
+    expect(cardTierLabel(CATALOG.rudder, 5)).toBe('V');
     expect(cardTierLabel(CATALOG.deckGun, 4)).toBe('V');
-    expect(cardTierLabel(CATALOG.radarSweep, 5)).toBe('V');
+    expect(cardTierLabel(CATALOG.intel, 5)).toBe('V');
     // An OVER-STACK of the CANNON ladder (more copies than its cap) still reads
     // the top rung. (This pinned the one-rung TURRET until it was deleted,
     // amendment 197; no one-rung ladder ships now.)
     expect(cardTierLabel(CATALOG.deckGun, 5)).toBe('V');
-    expect(cardTierSteps(CATALOG.hullPoints, 5)).toEqual({ cur: 5, next: null });
-    expect(cardTierSteps(CATALOG.radarSweep, 5)).toEqual({ cur: 5, next: null });
+    expect(cardTierSteps(CATALOG.armor, 5)).toEqual({ cur: 5, next: null });
+    expect(cardTierSteps(CATALOG.intel, 5)).toEqual({ cur: 5, next: null });
   });
 
   it('never prints a SIXTH rung — on any ladder, at any count the wire can carry', () => {
@@ -388,9 +390,9 @@ describe('cardTierLabel — the step, not the position', () => {
   it('moves NOTHING below the ceiling — every step is what it was', () => {
     expect(cardTierLabel(CATALOG.deckGun, 3)).toBe('IV → V');
     expect(cardTierLabel(CATALOG.deckGun, 2)).toBe('III → IV');
-    expect(cardTierLabel(CATALOG.radarSweep, 4)).toBe('IV → V');
+    expect(cardTierLabel(CATALOG.intel, 4)).toBe('IV → V');
     expect(cardTierLabel(CATALOG.heavyTorpedo, 4)).toBe('IV → V');
-    expect(cardTierSteps(CATALOG.hullPoints, 2)).toEqual({ cur: 2, next: 3 });
+    expect(cardTierSteps(CATALOG.armor, 2)).toEqual({ cur: 2, next: 3 });
     expect(cardTierSteps(CATALOG.deckGun, 3)).toEqual({ cur: 4, next: 5 });
   });
 
@@ -447,18 +449,18 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
   const bare = effectiveStats(CONFIG.shipClasses.torpedoBoat);
 
   it('reports a stat line\'s LIVE value, with no current→next arrow', () => {
-    expect(boonEffectLine('hullPoints', bare)).toContain(`${bare.maxHp}`);
-    expect(boonEffectLine('hullPoints', bare)).not.toContain('→');
-    expect(boonEffectLine('radarSweep', bare)).toContain(`${bare.sweepRpm} RPM`);
-    expect(boonEffectLine('reload', bare)).toContain('100%');
-    // TURNING in whole degrees per second (Eric 2026-09-30).
-    expect(boonEffectLine('turning', bare)).toContain(`${Math.round((bare.kinematics.turnRate * 180) / Math.PI)}°/s`);
+    expect(boonEffectLine('armor', bare)).toContain(`${bare.armor}`);
+    expect(boonEffectLine('armor', bare)).not.toContain('→');
+    // Story 10.3: every ship ladder reports its bare INDEX.
+    for (const id of ['power', 'reload', 'engines', 'rudder', 'intel'] as const) {
+      expect(boonEffectLine(id, bare), id).toContain(`${bare[id]}`);
+    }
   });
 
   it('MOVES with the fitted stack (it reads the firewall\'s output, not CONFIG)', () => {
-    const stacked = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['hullPoints', 'hullPoints']);
-    expect(boonEffectLine('hullPoints', stacked)).not.toBe(boonEffectLine('hullPoints', bare));
-    expect(boonEffectLine('hullPoints', stacked)).toContain(`${stacked.maxHp}`);
+    const stacked = effectiveStats(CONFIG.shipClasses.torpedoBoat, ['armor', 'armor']);
+    expect(boonEffectLine('armor', stacked)).not.toBe(boonEffectLine('armor', bare));
+    expect(boonEffectLine('armor', stacked)).toContain(`${stacked.armor}`);
   });
 
   // A verb card's holding row was its own short table until STORY 8.17 emptied
