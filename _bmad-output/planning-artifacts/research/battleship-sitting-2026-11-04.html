@@ -98,7 +98,7 @@ textarea { width: 100%; min-height: 120px; font-family: var(--mono); font-size: 
   <div class="dial"><label>Arc origin</label><div class="seg" role="group"><button id="org-house" aria-pressed="true">Gunhouse</button><button id="org-pivot" aria-pressed="false">Pivot</button></div></div>
   <div class="dial"><label for="brg">Target bearing</label><input id="brg" type="range" min="0" max="359" step="1" value="45"><span class="val" id="brgv"></span></div>
   <div class="dial"><label for="rate">Traverse rate, degrees per second</label><input id="rate" type="range" min="15" max="180" step="5" value="90"><span class="val" id="ratev"></span></div>
-  <div class="dial"><label>Skin</label><div class="seg" role="group" id="skinseg"><button data-skin="default" aria-pressed="true">Default</button><button data-skin="gold" aria-pressed="false">Gold</button><button data-skin="pride" aria-pressed="false">Pride</button><button data-skin="funny" aria-pressed="false">Funny</button></div></div>
+  <div class="dial"><label>Skin</label><div class="seg" role="group" id="skinseg"><button data-skin="default" aria-pressed="true">Default</button><button data-skin="gold" aria-pressed="false">Gold</button><button data-skin="pride" aria-pressed="false">Pride</button><button data-skin="funny" aria-pressed="false">Funny</button><button data-skin="funny2" aria-pressed="false">Funny alt</button></div></div>
   <div class="dial"><label>Outline</label><div class="seg" role="group"><button id="ol-ally" aria-pressed="true">Own / allied</button><button id="ol-enemy" aria-pressed="false">Enemy</button></div></div>
   <div class="dial"><label>Show</label><div style="display:flex;gap:12px;flex-wrap:wrap"><label class="check"><input id="anim" type="checkbox" checked>turrets traverse</label><label class="check"><input id="arcs" type="checkbox" checked>arcs</label><label class="check"><input id="ghost" type="checkbox" checked>today's 124×32</label><label class="check"><input id="deck" type="checkbox" checked>deck detail</label></div></div>
 </section>
@@ -126,7 +126,7 @@ textarea { width: 100%; min-height: 120px; font-family: var(--mono); font-size: 
     <li><b>Relative size.</b> Real sizes: Iowa 124, Yamato 121, Bismarck 115, Warspite 90 units at 0.4585 units per meter.</li>
     <li><b>Turrets.</b> Each at its real station, drawn and turned on its own. Traverse is load-bearing: a turret fires only once it has turned onto the aim point. <b>90 degrees per second</b> (45 was tried first and felt slow); hard stop at the train limit, so a target across the blind sector is reached the long way round. The main-gun cooldown rises once secondaries land; that number is Eric's harness.</li>
     <li><b>Deck detail.</b> The outlines above are the sprite: gunhouses on barbettes, tiers, tower rings, funnels, secondaries, tubs, rails, cranes. Accepted.</li>
-    <li><b>Color.</b> The Regatta personal-hue wheel goes. Outline is relation: cyan own and allied, red enemy. Interior is a skin: Default, Gold, Pride, Funny per hull. Funny: Tomato (Yamato), Corn (Iowa); Bismarck and Warspite open.</li>
+    <li><b>Color.</b> The Regatta personal-hue wheel goes. <b>All linework</b> is relation: cyan own and allied, red enemy, on the hull and every deck feature. Interior fills are the skin: Default, Gold, Pride (rainbow hull, trans white / light blue / pink works, Progress chevron at the bow), Funny per hull. Funny: Tomato (Yamato), Bratwurst (Bismarck), Corn (Iowa); Warspite open, two candidates shown.</li>
   </ol>
   <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="copy">Copy spec JSON</button><button class="btn alt" id="show">Show JSON</button></div>
   <textarea id="json" hidden readonly aria-label="Spec JSON"></textarea>
@@ -247,17 +247,22 @@ const SKINS = {
   },
   pride: {
     label: "Pride",
-    all: { deck: "#e40303", tier: ["#f7f7f7", "#e6e6e6", "#d2d2d2"], round: "#ffffff", funnel: "#2b2b2b", sec: "#f2f2f2", turret: "#ffffff", barrel: "#2b2b2b", pattern: "pride" },
+    // rainbow hull; the works carry the trans flag: white tiers, light-blue secondaries, pink turrets; Progress chevron at the bow
+    all: { deck: "#e40303", tier: ["#ffffff", "#5bcefa", "#f5a9b8"], round: "#ffffff", funnel: "#f5a9b8", sec: "#5bcefa", turret: "#f5a9b8", barrel: "#5bcefa", pattern: "pride" },
   },
   funny: {
     label: "Funny",
     yamato:   { name: "Tomato", deck: "#e0392b", tier: ["#4f9a3c", "#44873a", "#3a7532"], round: "#f0d24a", funnel: "#2f5e29", sec: "#5aa845", turret: "#5aa845", barrel: "#2f5e29", pattern: "tomato" },
-    bismarck: { name: "Pretzel", deck: "#9c5b1f", tier: ["#7d4716", "#6e3e12", "#5c3410"], round: "#f5efe0", funnel: "#4a2a0c", sec: "#b8743a", turret: "#b8743a", barrel: "#4a2a0c", pattern: "salt" },
-    warspite: { name: "Sprite", deck: "#17a84f", tier: ["#f4f4f4", "#e4e4e4", "#d4d4d4"], round: "#ffffff", funnel: "#0f6b33", sec: "#f8e71c", turret: "#f8e71c", barrel: "#0f6b33", pattern: "bubbles" },
+    bismarck: { name: "Bratwurst", deck: "#d9a37a", tier: ["#e9c13c", "#dcb232", "#cba228"], round: "#f6e7c4", funnel: "#c0392b", sec: "#b07a3c", turret: "#b07a3c", barrel: "#6b4423", pattern: "grill" },
+    warspite: { name: "Marmite", deck: "#3b2314", tier: ["#f2c316", "#e4b512", "#d1a60e"], round: "#f2c316", funnel: "#c8102e", sec: "#f2c316", turret: "#c8102e", barrel: "#1f1208", pattern: "gloss" },
     iowa:     { name: "Corn", deck: "#f2c230", tier: ["#5f9e3a", "#539033", "#46802c"], round: "#8fcc5a", funnel: "#466d2a", sec: "#7fb84e", turret: "#7fb84e", barrel: "#466d2a", pattern: "kernels" },
   },
+  funny2: {
+    label: "Funny, alternate", only: ["warspite"],
+    warspite: { name: "Double-Decker", deck: "#d32f2f", tier: ["#f4e9d2", "#e8dcc2", "#d9ccb0"], round: "#f4e9d2", funnel: "#2b2b2b", sec: "#f4e9d2", turret: "#f4e9d2", barrel: "#2b2b2b", pattern: "windows" },
+  },
 };
-function paletteFor(ship, skin) { const k = SKINS[skin]; return k[ship.id] || k.all; }
+function paletteFor(ship, skin) { const k = SKINS[skin]; return k[ship.id] || k.all || SKINS.funny[ship.id]; }
 // deterministic pseudo-random for patterns
 function lcg(seed) { let s = seed >>> 0; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }
 function drawPattern(ctx, P, poly, L, B, s) {
@@ -268,6 +273,31 @@ function drawPattern(ctx, P, poly, L, B, s) {
   if (P.pattern === "pride") {
     const cols = ["#e40303", "#ff8c00", "#ffed00", "#008026", "#004dff", "#750787"];
     cols.forEach((c, i) => { ctx.fillStyle = c; ctx.fillRect(-hl, -hb + i * (2 * hb / 6), 2 * hl, 2 * hb / 6 + 1); });
+    // Progress chevron from the bow (+x): white, pink, light blue, brown, black, innermost first
+    const chev = ["#ffffff", "#f5a9b8", "#5bcefa", "#613915", "#000000"];
+    const step = hl * 0.09;
+    chev.forEach((c, i) => {
+      const tip = hl * 0.62 - i * step;
+      ctx.fillStyle = c; ctx.beginPath();
+      ctx.moveTo(hl + 2, -hb - 2); ctx.lineTo(tip, 0); ctx.lineTo(hl + 2, hb + 2); ctx.closePath(); ctx.fill();
+    });
+    // re-cut the bow hull colour so the outermost (white) band is a band, not the whole bow
+  } else if (P.pattern === "grill") {
+    const g = ctx.createLinearGradient(0, -hb, 0, hb);
+    g.addColorStop(0, "#e8b98f"); g.addColorStop(0.5, "#d9a37a"); g.addColorStop(1, "#b9825a");
+    ctx.fillStyle = g; ctx.fillRect(-hl, -hb, 2 * hl, 2 * hb);
+    ctx.strokeStyle = "rgba(70,35,15,.75)"; ctx.lineWidth = Math.max(1.5, hb * 0.12);
+    for (let x = -hl; x < hl; x += hl * 0.16) { ctx.beginPath(); ctx.moveTo(x, -hb); ctx.lineTo(x + hb * 0.8, hb); ctx.stroke(); }
+  } else if (P.pattern === "gloss") {
+    const g = ctx.createLinearGradient(0, -hb, 0, hb);
+    g.addColorStop(0, "#5a3a22"); g.addColorStop(0.3, "#3b2314"); g.addColorStop(1, "#1f1208");
+    ctx.fillStyle = g; ctx.fillRect(-hl, -hb, 2 * hl, 2 * hb);
+    ctx.strokeStyle = "rgba(255,255,255,.35)"; ctx.lineWidth = Math.max(1, hb * 0.07);
+    ctx.beginPath(); ctx.moveTo(-hl * 0.9, -hb * 0.45); ctx.lineTo(hl * 0.9, -hb * 0.45); ctx.stroke();
+  } else if (P.pattern === "windows") {
+    const ww = Math.max(3, hl * 0.045), wh = Math.max(2, hb * 0.28);
+    ctx.fillStyle = "#f4e9d2";
+    for (const side of [-1, 1]) for (let x = -hl * 0.86; x < hl * 0.86; x += ww * 1.5) ctx.fillRect(x, side * hb * 0.62 - wh / 2, ww, wh);
   } else if (P.pattern === "gold") {
     const g = ctx.createLinearGradient(0, -hb, 0, hb);
     g.addColorStop(0, "#f9e58a"); g.addColorStop(0.35, "#e3bc3c"); g.addColorStop(0.5, "#fff3b0"); g.addColorStop(0.65, "#d4a62a"); g.addColorStop(1, "#9c7414");
@@ -386,7 +416,7 @@ function drawHull(ctx, ship, cx, cy, s, skin = S.skin, outline = S.outline, with
   ctx.fill();
   drawPattern(ctx, P, poly, L, B, s);
   // deck detail: superstructure tiers, tower tops, funnels, secondaries, tubs, rails, cranes
-  if (S.deck) drawFeatures(ctx, ship, L, B, s, P);
+  if (S.deck) drawFeatures(ctx, ship, L, B, s, P, OUTLINE[outline]);
   // main turrets: barbette ring, gunhouse polygon turned to the turret angle, barrels
   const H = HOUSES[ship.id];
   const m = S.upm * s;
@@ -396,7 +426,7 @@ function drawHull(ctx, ship, cx, cy, s, skin = S.skin, outline = S.outline, with
     const a = t.ang * DEG, ux = Math.cos(a), uy = Math.sin(a), vx = -uy, vy = ux;
     const rot = (x, y) => [tx + ux * x * m + vx * y * m, uy * x * m + vy * y * m];
     ctx.beginPath(); ctx.arc(tx, 0, H.barbette * m, 0, Math.PI * 2);
-    ctx.strokeStyle = css("--ink"); ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = OUTLINE[outline]; ctx.lineWidth = 1; ctx.stroke();
     const face = H.poly[2][0];
     ctx.strokeStyle = P.barrel; ctx.lineWidth = Math.max(1, 1.1 * m); ctx.lineCap = "round";
     for (let i = 0; i < t.g; i++) {
@@ -409,7 +439,7 @@ function drawHull(ctx, ship, cx, cy, s, skin = S.skin, outline = S.outline, with
     H.poly.forEach(([x, y], i) => { const p = rot(x, y); i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); });
     ctx.closePath();
     ctx.fillStyle = col; ctx.fill();
-    ctx.strokeStyle = css("--ink"); ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = OUTLINE[outline]; ctx.lineWidth = 1; ctx.stroke();
     if (withRay && onTarget(ship, t)) { ctx.strokeStyle = css("--accent"); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(tx, 0, H.barbette * m + 2, 0, Math.PI * 2); ctx.stroke(); }
   }
   // the relation outline, drawn last so nothing covers it
@@ -427,10 +457,10 @@ function drawHull(ctx, ship, cx, cy, s, skin = S.skin, outline = S.outline, with
   }
   ctx.restore();
 }
-function drawFeatures(ctx, ship, L, B, s, P) {
+function drawFeatures(ctx, ship, L, B, s, P, ink) {
   const m = S.upm * s;
   const X = (fx) => (0.5 - fx) * L * s, Y = (fy) => fy * B * s;
-  const ink = "#1a222b", tier = [null, ...P.tier];
+  const tier = [null, ...P.tier];
   ctx.lineJoin = "round";
   for (const f of FEATURES[ship.id]) {
     ctx.lineWidth = 1; ctx.strokeStyle = ink;
@@ -443,8 +473,8 @@ function drawFeatures(ctx, ship, L, B, s, P) {
     } else if (f.t === "funnel") {
       ctx.beginPath(); ctx.ellipse(X(f.x), Y(f.y), Math.max(2, f.l / 2 * m), Math.max(1.5, f.w / 2 * m), 0, 0, Math.PI * 2);
       ctx.fillStyle = P.funnel; ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.ellipse(X(f.x), Y(f.y), Math.max(1, f.l / 2 * m - 2), Math.max(1, f.w / 2 * m - 2), 0, 0, Math.PI * 2);
-      ctx.fillStyle = "#0b0f13"; ctx.fill();
+      ctx.beginPath(); ctx.ellipse(X(f.x), Y(f.y), Math.max(1, f.l / 2 * m - 2.5), Math.max(1, f.w / 2 * m - 2.5), 0, 0, Math.PI * 2);
+      ctx.fillStyle = "#0b0f13"; ctx.fill(); ctx.stroke();
     } else if (f.t === "sec") {
       const a = f.a * DEG, ux = Math.cos(a), uy = Math.sin(a), vx = -uy, vy = ux;
       const cx = X(f.x), cy = Y(f.y);
@@ -463,6 +493,7 @@ function drawFeatures(ctx, ship, L, B, s, P) {
     } else if (f.t === "case") {
       ctx.fillStyle = P.sec;
       ctx.fillRect(X(f.x) - f.l / 2 * m, Y(f.y) - f.w / 2 * m, f.l * m, f.w * m);
+      ctx.strokeRect(X(f.x) - f.l / 2 * m, Y(f.y) - f.w / 2 * m, f.l * m, f.w * m);
     } else if (f.t === "rail") {
       ctx.strokeStyle = ink; ctx.lineWidth = Math.max(1, 0.8 * m);
       ctx.beginPath(); ctx.moveTo(X(f.x0), Y(f.y0)); ctx.lineTo(X(f.x1), Y(f.y1)); ctx.stroke();
@@ -472,8 +503,9 @@ function drawFeatures(ctx, ship, L, B, s, P) {
       ctx.beginPath(); ctx.moveTo(X(f.x), Y(f.y)); ctx.lineTo(X(f.x) + Math.cos(a) * f.l * m, Y(f.y) + Math.sin(a) * f.l * m); ctx.stroke();
       ctx.beginPath(); ctx.arc(X(f.x), Y(f.y), Math.max(1.5, 1.6 * m), 0, Math.PI * 2); ctx.fillStyle = P.round; ctx.fill(); ctx.stroke();
     } else if (f.t === "line") {
-      ctx.strokeStyle = "rgba(0,0,0,.35)"; ctx.lineWidth = 1;
+      ctx.strokeStyle = ink; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(X(f.x0), Y(f.y0)); ctx.lineTo(X(f.x1), Y(f.y1)); ctx.stroke();
+      ctx.globalAlpha = 1;
     }
   }
   ctx.lineJoin = "miter";
@@ -532,7 +564,7 @@ function renderGallery() {
   const skins = Object.keys(SKINS);
   // rows: ship × skin, columns: own (cyan) / enemy (red), two ships per row of columns
   const rows = [];
-  for (const ship of SHIPS) for (const sk of skins) rows.push({ ship, sk });
+  for (const ship of SHIPS) for (const sk of skins) if (!SKINS[sk].only || SKINS[sk].only.includes(ship.id)) rows.push({ ship, sk });
   const perRow = 2; // two (ship,skin) pairs per canvas row, each drawn own + enemy
   const lines = Math.ceil(rows.length / perRow);
   let H = pad;
@@ -556,7 +588,7 @@ function renderGallery() {
       drawHull(ctx, r.ship, cx, cy, s, r.sk, ol, false, false);
     });
   });
-  document.getElementById("gallerynote").innerHTML = `<span style="--k:${OUTLINE.ally}">own / allied outline</span><span style="--k:${OUTLINE.enemy}">enemy outline</span><span style="--k:var(--muted)">Funny names: Tomato and Corn are Eric's; Pretzel and Sprite are candidates</span>`;
+  document.getElementById("gallerynote").innerHTML = `<span style="--k:${OUTLINE.ally}">own / allied outline</span><span style="--k:${OUTLINE.enemy}">enemy outline</span><span style="--k:var(--muted)">Funny: Tomato, Bratwurst and Corn are Eric's; Warspite's Marmite and Double-Decker are candidates</span>`;
 }
 
 function renderRose(ship) {
