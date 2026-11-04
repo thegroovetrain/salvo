@@ -126,7 +126,7 @@ textarea { width: 100%; min-height: 120px; font-family: var(--mono); font-size: 
     <li><b>Relative size.</b> Real sizes: Iowa 124, Yamato 121, Bismarck 115, Warspite 90 units at 0.4585 units per meter.</li>
     <li><b>Turrets.</b> Each at its real station, drawn and turned on its own. Traverse is load-bearing: a turret fires only once it has turned onto the aim point. <b>90 degrees per second</b> (45 was tried first and felt slow); hard stop at the train limit, so a target across the blind sector is reached the long way round. The main-gun cooldown rises once secondaries land; that number is Eric's harness.</li>
     <li><b>Deck detail.</b> The outlines above are the sprite: gunhouses on barbettes, tiers, tower rings, funnels, secondaries, tubs, rails, cranes. Accepted.</li>
-    <li><b>Color.</b> The Regatta personal-hue wheel goes. <b>All linework</b> is relation: cyan own and allied, red enemy, on the hull and every deck feature. Interior fills are the skin: Default, Gold, Pride (rainbow hull, trans white / light blue / pink works, Progress chevron at the bow), Funny per hull. Funny: Tomato (Yamato), Bratwurst (Bismarck), Pirate (Warspite), Corn (Iowa). Linework thick and bright.</li>
+    <li><b>Color.</b> The Regatta personal-hue wheel goes. <b>All linework</b> is relation: cyan own and allied, red enemy, on the hull and every deck feature. Interior fills are the skin: Default, Gold, Pride (rainbow hull, trans white / light blue / pink works, Progress chevron at the bow), Funny per hull. Funny: Tomato (Yamato), Bratwurst (Bismarck), Pirate (Warspite), Corn (Iowa). The hull outline is bold; the inner lines are the same colour at a lighter weight.</li>
   </ol>
   <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="copy">Copy spec JSON</button><button class="btn alt" id="show">Show JSON</button></div>
   <textarea id="json" hidden readonly aria-label="Spec JSON"></textarea>
@@ -229,7 +229,8 @@ const S = { upm: .4585, fat: 1, len: "real", org: "house", brg: 45, rate: 90, an
 // ---- skins ----
 // Outline color is the relation to the viewer, never a choice (Eric 2026-11-04).
 const OUTLINE = { ally: "#00e8ff", enemy: "#ff2a2a" };
-const LINE = { hull: (s) => Math.max(2.5, Math.min(4, s * 0.9)), feature: (s) => Math.max(1.5, Math.min(2.2, s * 0.45)) };
+// The hull outline is the bold line; every inner line is the same colour at about a third of the weight.
+const LINE = { hull: (s) => Math.max(2.5, Math.min(4, s * 0.9)), feature: (s) => Math.max(0.8, Math.min(1.2, s * 0.25)) };
 // A palette: deck fill, tier fills [1,2,3], tower rings, funnel, secondary
 // houses, main gunhouse, barrels, plus an optional pattern drawn over the
 // deck inside the hull clip.
@@ -503,11 +504,11 @@ function drawFeatures(ctx, ship, L, B, s, P, ink) {
       ctx.fillRect(X(f.x) - f.l / 2 * m, Y(f.y) - f.w / 2 * m, f.l * m, f.w * m);
       ctx.strokeRect(X(f.x) - f.l / 2 * m, Y(f.y) - f.w / 2 * m, f.l * m, f.w * m);
     } else if (f.t === "rail") {
-      ctx.strokeStyle = ink; ctx.lineWidth = Math.max(1, 0.8 * m);
+      ctx.strokeStyle = ink; ctx.lineWidth = lw * 1.5;
       ctx.beginPath(); ctx.moveTo(X(f.x0), Y(f.y0)); ctx.lineTo(X(f.x1), Y(f.y1)); ctx.stroke();
     } else if (f.t === "crane") {
       const a = f.a * DEG;
-      ctx.strokeStyle = ink; ctx.lineWidth = Math.max(1, 0.6 * m);
+      ctx.strokeStyle = ink; ctx.lineWidth = lw * 1.5;
       ctx.beginPath(); ctx.moveTo(X(f.x), Y(f.y)); ctx.lineTo(X(f.x) + Math.cos(a) * f.l * m, Y(f.y) + Math.sin(a) * f.l * m); ctx.stroke();
       ctx.beginPath(); ctx.arc(X(f.x), Y(f.y), Math.max(1.5, 1.6 * m), 0, Math.PI * 2); ctx.fillStyle = P.round; ctx.fill(); ctx.stroke();
     } else if (f.t === "line") {
