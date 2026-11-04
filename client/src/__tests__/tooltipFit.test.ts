@@ -167,10 +167,10 @@ describe('slot tooltip container fit (amendment 47)', () => {
   // is the eighth row, and the panel still hangs inside the room above the HP
   // globe at the 1280×614 floor (seven rows measured 228 px of 418 at 9.7,
   // amendment 120f) with every row inside the panel's inner width.
-  it('the SHIP panel prints all eight ship stats and still fits above the globe at the floor', () => {
+  it('the SHIP panel prints all six ship stats and still fits above the globe at the floor', () => {
     const room = tooltipRoomAbove(hoverAnchor('ship', FLOOR));
     for (const c of SHIP_CASES) {
-      expect(c.model.stats, c.label).toHaveLength(8);
+      expect(c.model.stats, c.label).toHaveLength(6); // eight until Story 10.3 deleted HULL and PASSIVE HEALING (epic-10 amendment 7)
       const m = tooltipMetrics(c.model, room);
       expect(m.overflow, c.label).toBeLessThanOrEqual(0);
       expect(m.height, c.label).toBeLessThanOrEqual(room);

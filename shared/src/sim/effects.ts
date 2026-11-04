@@ -195,10 +195,12 @@ export const TOP_LEVEL_STAT_PATHS = [
   // +20 per ARMOR card since Story 9.9 (amendment 144); clampStats derives
   // `damageMultiplier` from it.
   'armor',
-  // ARMOR PIERCING (Story 9.9, Eric 2026-10-14/15, epic-9 amendments
-  // 144–146): 0 at base, +20 per card. The ATTACKER's stat — the server's
-  // damage gate subtracts it from the victim's Armor; it derives nothing here.
-  'armorPiercing',
+  // POWER (Story 9.9's ARMOR PIERCING, Eric 2026-10-14/15, epic-9 amendments
+  // 144–146; renamed `armorPiercing` -> `power` by Story 10.3, Eric
+  // 2026-11-04, epic-10 amendment 7): 0 at base, +20 per card. The ATTACKER's
+  // stat — the server's damage gate subtracts it from the victim's Armor; it
+  // derives nothing here.
+  'power',
   'radarRange',
   'sweepRpm',
   // The ONE global cooldown lever (Eric ruling 2026-08-04, retuned by

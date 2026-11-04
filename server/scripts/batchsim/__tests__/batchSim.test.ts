@@ -841,7 +841,7 @@ describe('controls — determinism', () => {
     // the rest are ladders. The v2 ids this pin used to carry are not in
     // catalog v3 at all, and since the 8.14 review (F4) the policy skips any
     // card `World.spendCard` would refuse — an unknown id among them.
-    const offer = ['speed', 'heavyTorpedo', 'radarSweep', 'hullPoints'];
+    const offer = ['engines', 'heavyTorpedo', 'intel', 'armor'];
     const picks = new Set<number | null>();
     for (let i = 0; i < 50; i += 1) picks.add(pickSpendChoice(offer, mulberry32(i), []));
     expect(picks.has(1)).toBe(true); // the weapon gets picked
@@ -857,11 +857,11 @@ describe('controls — determinism', () => {
     const rowFull = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null] as const;
     // A capped consumable and a bare weapon with no slot are both out; only
     // the ladder is takeable, so every seed names it.
-    const offer = ['hullRepair', 'broadside', 'hullPoints'];
+    const offer = ['hullRepair', 'broadside', 'armor'];
     for (let i = 0; i < 50; i += 1) expect(pickSpendChoice(offer, mulberry32(i), five, rowFull)).toBe(2);
     // ...and with nothing takeable at all the instrument holds the level.
-    const capped = [...five, ...new Array<string>(CATALOG.hullPoints.cap).fill('hullPoints')];
-    expect(pickSpendChoice(['hullRepair', 'hullPoints'], mulberry32(1), capped, rowFull)).toBeNull();
+    const capped = [...five, ...new Array<string>(CATALOG.armor.cap).fill('armor')];
+    expect(pickSpendChoice(['hullRepair', 'armor'], mulberry32(1), capped, rowFull)).toBeNull();
   });
 });
 

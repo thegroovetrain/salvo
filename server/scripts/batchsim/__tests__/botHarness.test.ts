@@ -469,7 +469,7 @@ describe('botMetrics/botReport — gun and gun tier (balance campaign)', () => {
     expect(col.samples(world)[0]).toMatchObject({ gun: 'deckGun', gunTier: 1 });
 
     bot.bankedLevels = 1;
-    bot.offer = ['deckGun', 'reload', 'radarSweep', 'speed'] as never;
+    bot.offer = ['deckGun', 'reload', 'intel', 'engines'] as never;
     expect(world.spendPoint(bot.id, 0)).toBe(true);
     col.observe(world, 1);
     const s = col.samples(world)[0];

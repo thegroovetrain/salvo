@@ -64,29 +64,8 @@ function held(id: string, n: number): typeof TB {
 }
 
 describe('cardStatRows — LADDER lines print the one number they move', () => {
-  it('prints HULL as one row of whole numbers, the fold before and after the card', () => {
-    // Two copies held: the card reads the 2-copy fold → the 3-copy fold, whole
-    // numbers on both sides (amendment 39).
-    expect(pairs(cardStatRows(CATALOG.hullPoints, 2, held('hullPoints', 2)))).toEqual([
-      [String(foldOf('hullPoints', 2).maxHp), String(foldOf('hullPoints', 3).maxHp)],
-    ]);
-  });
-
-  it('reads the FIRST copy against a bare hull', () => {
-    expect(pairs(cardStatRows(CATALOG.hullPoints, 0, TB))).toEqual([
-      [String(foldOf('hullPoints', 0).maxHp), String(foldOf('hullPoints', 1).maxHp)],
-    ]);
-  });
-
-  // PASSIVE HEALING (Story 9.6, Eric 2026-10-13, epic-9 amendment 95): ONE row,
-  // the rate as a share of missing hull per second — the wait the card also
-  // shortens is not a row. The values are read through effectiveStats, off the
-  // SHIP panel's own HEAL printer (its last row).
-  it('prints PASSIVE HEALING as one row, the SHIP panel\'s folded heal rate before and after', () => {
-    const heal = (n: number): string | undefined => shipStatRows(foldOf('passiveHealing', n)).at(-1)?.next;
-    expect(pairs(cardStatRows(CATALOG.passiveHealing, 0, TB))).toEqual([[heal(0), heal(1)]]);
-    expect(pairs(cardStatRows(CATALOG.passiveHealing, 4, held('passiveHealing', 4)))).toEqual([[heal(4), heal(5)]]);
-  });
+  // The HULL (maxHp) and PASSIVE HEALING (heal rate) row tests lived here
+  // until Story 10.3 deleted both lines (Eric 2026-11-04, epic-10 amendment 7).
 
   // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 110–117): ONE row,
   // the whole-number Armor read through effectiveStats — no unit, no decimal.
@@ -99,14 +78,14 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
   // ARMOR PIERCING (Story 9.9, epic-9 amendments 145, 159 — mirrors ARMOR): ONE
   // row, the whole-number piercing off the fold.
   it('prints ARMOR PIERCING as one row, whole numbers off the fold', () => {
-    const apAt = (n: number): string => String(foldOf('armorPiercing', n).armorPiercing);
-    expect(pairs(cardStatRows(CATALOG.armorPiercing, 0, TB))).toEqual([[apAt(0), apAt(1)]]);
-    expect(pairs(cardStatRows(CATALOG.armorPiercing, 2, held('armorPiercing', 2)))).toEqual([[apAt(2), apAt(3)]]);
-    expect(cardTierLabel(CATALOG.armorPiercing, 2)).toBe('II → III');
+    const apAt = (n: number): string => String(foldOf('power', n).power);
+    expect(pairs(cardStatRows(CATALOG.power, 0, TB))).toEqual([[apAt(0), apAt(1)]]);
+    expect(pairs(cardStatRows(CATALOG.power, 2, held('power', 2)))).toEqual([[apAt(2), apAt(3)]]);
+    expect(cardTierLabel(CATALOG.power, 2)).toBe('II → III');
   });
 
   it('prints ONE row for each ship ladder, and the CANNON\'s damage step plus its reach', () => {
-    for (const id of ['speed', 'turning', 'radarSweep', 'reload'] as const) {
+    for (const id of ['engines', 'rudder', 'intel', 'reload'] as const) {
       expect(cardStatRows(CATALOG[id], 0, TB), id).toHaveLength(1);
     }
     // rung to II: the damage step (the barrels are FIXED since Story 9.12) and
@@ -115,15 +94,15 @@ describe('cardStatRows — LADDER lines print the one number they move', () => {
   });
 
   it('TURNING prints WHOLE DEGREES PER SECOND with the unit (Eric 2026-09-30), and every rung moves the number', () => {
-    const deg = (n: number): string => `${Math.round((foldOf('turning', n).kinematics.turnRate * 180) / Math.PI)}°/s`;
-    expect(pairs(cardStatRows(CATALOG.turning, 0, TB))).toEqual([[deg(0), deg(1)]]);
-    const ladder = [0, 1, 2, 3].map((k) => cardStatRows(CATALOG.turning, k, held('turning', k))[0].next);
+    const deg = (n: number): string => `${Math.round((foldOf('rudder', n).kinematics.turnRate * 180) / Math.PI)}°/s`;
+    expect(pairs(cardStatRows(CATALOG.rudder, 0, TB))).toEqual([[deg(0), deg(1)]]);
+    const ladder = [0, 1, 2, 3].map((k) => cardStatRows(CATALOG.rudder, k, held('rudder', k))[0].next);
     expect(ladder).toEqual([1, 2, 3, 4].map(deg));
     expect(new Set(ladder).size).toBe(ladder.length);
   });
 
   it('keeps the RPM and PERCENTAGE printers the hover panel already uses', () => {
-    const sweep = cardStatRows(CATALOG.radarSweep, 0, TB)[0];
+    const sweep = cardStatRows(CATALOG.intel, 0, TB)[0];
     expect(sweep.cur).toMatch(/ RPM$/);
     expect(sweep.next).toMatch(/ RPM$/);
     const cooldowns = cardStatRows(CATALOG.reload, 0, TB)[0];
@@ -503,7 +482,7 @@ describe('cardStatRows — the lines that legitimately print NOTHING', () => {
     for (const id of ['shieldBlock', ...BUOY_LINE_IDS, 'dazzleShells'] as const) {
       const base = cardStatRows(CATALOG[id], 0, TB);
       expect(base.length, id).toBeGreaterThan(0);
-      expect(cardStatRows(CATALOG[id], 3, { cls: 'battleship', cards: ['hullPoints'] }), id).toEqual(base);
+      expect(cardStatRows(CATALOG[id], 3, { cls: 'battleship', cards: ['armor'] }), id).toEqual(base);
     }
   });
 
@@ -568,10 +547,11 @@ describe('cardStatRows — the laws the five-row grid imposes', () => {
   });
 
   it('reads every value through effectiveStats — a class change moves the numbers', () => {
-    const tb = cardStatRows(CATALOG.hullPoints, 0, { cls: 'torpedoBoat', cards: [] })[0];
-    const bb = cardStatRows(CATALOG.hullPoints, 0, { cls: 'battleship', cards: [] })[0];
+    // ENGINES (top speed) since Story 10.3 deleted HULL, the old example here.
+    const tb = cardStatRows(CATALOG.engines, 0, { cls: 'torpedoBoat', cards: [] })[0];
+    const bb = cardStatRows(CATALOG.engines, 0, { cls: 'battleship', cards: [] })[0];
     expect(bb.cur).not.toBe(tb.cur);
-    expect(Number(bb.cur)).toBe(effectiveStats(CONFIG.shipClasses.battleship, []).maxHp);
+    expect(Number(bb.cur)).toBe(effectiveStats(CONFIG.shipClasses.battleship, []).kinematics.maxSpeed);
   });
 });
 

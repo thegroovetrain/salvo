@@ -467,14 +467,8 @@ const CONSUMABLE_GLYPHS: Partial<Record<string, GlyphPaths>> = {
   countermeasure, // Story 9.3 — Eric's pick 2026-10-11 (above)
 };
 
-/** Hull points (cycle 162 DRAFT, drawn for ARMOR; renamed with the line in
- *  Story 9.6, amendment 93): three stacked hull plates, each offset from the
- *  one above like overlapping plating. */
-const hullPoints: GlyphPaths = [
-  [-0.95, -0.8, 0.55, -0.4],
-  [-0.75, -0.2, 0.75, 0.2],
-  [-0.55, 0.4, 0.95, 0.8],
-].map(([x0, y0, x1, y1]) => path([x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]));
+// The HULL POINTS glyph (three stacked hull plates) sat here until Story 10.3
+// deleted the line (Eric 2026-11-04, epic-10 amendment 7).
 
 /** Armor — Story 9.7 (2026-10-13), Eric's pick from three rendered candidates
  *  (epic-9 amendment 116): an ANGLED ARMOR BELT — two slanted riveted plate
@@ -491,8 +485,9 @@ const armor: GlyphPaths = [
 /** Armor piercing — Story 9.9 (2026-10-15), Eric's pick from three rendered
  *  candidates (epic-9 amendment 160): a SHELL SPLITTING A PLATE — a short
  *  pointed shell nose entering a vertical plate that splits into a V at the
- *  point. Not the torpedo (no tail fins, no wake ticks), not ARMOR's belt. */
-const armorPiercing: GlyphPaths = [
+ *  point. Not the torpedo (no tail fins, no wake ticks), not ARMOR's belt.
+ *  Keyed `power` since Story 10.3 (Eric 2026-11-04, epic-10 amendment 7). */
+const power: GlyphPaths = [
   path([-0.95, -0.32], [-0.1, -0.32], [0.55, 0], [-0.1, 0.32], [-0.95, 0.32], [-0.95, -0.32]),
   path([-0.55, -0.32], [-0.55, 0.32]),
   path([0.45, -0.95], [0.45, -0.3], [0.9, -0.55]),
@@ -500,8 +495,9 @@ const armorPiercing: GlyphPaths = [
 ];
 
 /** Speed (cycle 162 DRAFT): a forward-pointing arrowhead with three motion
- *  lines trailing it — the middle one its shaft. Not BOOST's double chevron. */
-const speed: GlyphPaths = [
+ *  lines trailing it — the middle one its shaft. Not BOOST's double chevron.
+ *  Keyed `engines` (was `speed`) since Story 10.3 (epic-10 amendment 7). */
+const engines: GlyphPaths = [
   path([0.25, -0.55], [0.95, 0], [0.25, 0.55], [0.25, -0.55]),
   path([-0.95, -0.35], [-0.3, -0.35]),
   path([-0.8, 0], [0.25, 0]),
@@ -509,8 +505,9 @@ const speed: GlyphPaths = [
 ];
 
 /** Turning (cycle 162 DRAFT): a RUDDER — a tall blade widening aft, hung from
- *  a horizontal baseline, with a short tiller arm on its stock. */
-const turning: GlyphPaths = [
+ *  a horizontal baseline, with a short tiller arm on its stock. Keyed `rudder`
+ *  (was `turning`) since Story 10.3 (epic-10 amendment 7). */
+const rudder: GlyphPaths = [
   path([-0.9, -0.7], [0.9, -0.7]),
   path([-0.2, -0.7], [0.2, -0.7], [0.5, 0.9], [-0.05, 0.9], [-0.2, -0.7]),
   path([0, -0.7], [0, -0.95], [0.65, -0.95]),
@@ -525,8 +522,9 @@ function fanArc(r: number): GlyphPart {
 }
 
 /** Radar sweep (cycle 162 DRAFT): a DISH FAN — a centre dot, one sweep line and
- *  two concentric partial arcs. Not the star shell's burst, not a mine. */
-const radarSweep: GlyphPaths = [
+ *  two concentric partial arcs. Not the star shell's burst, not a mine. Keyed
+ *  `intel` (was `radarSweep`) since Story 10.3 (epic-10 amendment 7). */
+const intel: GlyphPaths = [
   circle(FAN[0], FAN[1], 0.1),
   path(FAN, [FAN[0] + 1.6 * Math.cos(-Math.PI / 3), FAN[1] + 1.6 * Math.sin(-Math.PI / 3)]),
   fanArc(0.8),
@@ -542,24 +540,22 @@ const reload: GlyphPaths = [
   path([-0.45, 0.9], [0.45, 0.9], [0, 0], [-0.45, 0.9]),
 ];
 
-/** Passive healing (Story 9.6, Eric's pick 2026-10-13, amendment 98): a flat baseline with one heartbeat spike — a pulse trace. Not HULL REPAIR's staff-and-serpent. */
-const passiveHealing: GlyphPaths = [path([-0.95, 0.2], [-0.5, 0.2], [-0.3, -0.7], [0.0, 0.9], [0.22, 0.2], [0.95, 0.2])];
+// The PASSIVE HEALING glyph (a heartbeat pulse trace, amendment 98) sat here
+// until Story 10.3 deleted the line (Eric 2026-11-04, epic-10 amendment 7).
 
 /**
  * THE LINE half of the table (cycle 162): card lines that are NOT slot items —
- * the eight ship ladders, and the CANNON ladder `deckGun`, which draws the
+ * the six ship ladders, and the CANNON ladder `deckGun`, which draws the
  * mounted `gun` it upgrades. Kept apart from `GLYPHS` so that table stays keyed
  * by what a weapon slot can actually hold.
  */
 const LINE_GLYPHS: Partial<Record<LineId, GlyphPaths>> = {
-  hullPoints,
   armor,
-  armorPiercing,
-  speed,
-  turning,
-  radarSweep,
+  power,
+  engines,
+  rudder,
+  intel,
   reload,
-  passiveHealing,
   deckGun: gun,
 };
 

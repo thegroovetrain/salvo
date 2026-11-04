@@ -305,15 +305,17 @@ function scnCombat(g: Golden): void {
  *  left the wire with the REPAIR spend — Story 2.1, PV 12; the legacy 'upg'
  *  event died with the 2.8 strip, so this scenario no longer drives one. The
  *  banked offer is OVERRIDDEN with a fixed non-heal hand so the fixture stays
- *  content-stable — and the "a spend never heals" pin holds for every non-
- *  healOnGrant card: only shipHull heals, by exactly its granted delta.) */
+ *  content-stable — and the "a spend never heals" pin holds for every card
+ *  since Story 10.3 deleted HULL POINTS' heal-on-grant (Eric 2026-11-04,
+ *  epic-10 amendment 7). The hand's ids were renamed in place then:
+ *  'radarSweep' -> 'intel', 'speed' -> 'engines', same seats.) */
 function scnPtBn(g: Golden): void {
   const w = bareWorld(1003);
   const a = place(w, 'a', 0, 0);
   place(w, 'b', ANNULUS, 0); // far (out of a's sight); sunk to bank a a level
   w.sinkShip('b', 'a'); // sunk(b) + pt(a) — the sunk now reaches a UNSEEN (PV 23: credited killer)
   a.hp -= 30; // damaged — a non-heal spend may not restore this
-  a.offer = ['deckGun', 'reload', 'radarSweep', 'speed']; // fixed non-heal hand
+  a.offer = ['deckGun', 'reload', 'intel', 'engines']; // fixed non-heal hand
   const hpBefore = a.hp;
   expect(w.spendPoint('a', 3)).toBe(true); // the fourth card — bn(a)
   expect(a.hp).toBe(hpBefore); // a non-heal spend never heals
@@ -1145,7 +1147,7 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // DECK GUN TURRET and DECK GUN BARREL left the catalog (their effects are
   // CANNON ladder rungs now), so the seeded draw deals differently — row 8
   // ['deckGun','chaff','dazzleShells','deckGunTurret'] became ['reload',
-  // 'chaff','dazzleShells','radarSweep'], row 31 dealt 'armor' where it dealt
+  // 'chaff','dazzleShells','intel'], row 31 dealt 'armor' where it dealt
   // 'speed'. No contact, event, blip, mine, zone, position or hp byte moved
   // (verified by diffing the rows with `offer` masked out).
   // REGENERATED KNOWINGLY IN STORY 9.2 (PV 75). 156 of 167 lines moved, read
@@ -1171,7 +1173,7 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // byte moved (verified by diffing the rows field by field).
   // REGENERATED KNOWINGLY IN STORY 9.6 (PV 80). Exactly TWO rows moved, and in
   // each the ONLY difference is `you.offer`'s content: row 8's hand
-  // ['reload','decoyBuoy','foulingShell','radarSweep'] became
+  // ['reload','decoyBuoy','foulingShell','intel'] became
   // ['passiveHealing','decoyBuoy','foulingShell','reload'] (the new PASSIVE
   // HEALING ladder joined the pool, so the seeded draw deals differently);
   // row 31 deals 'hullPoints' where it dealt 'armor' (the id rename, same

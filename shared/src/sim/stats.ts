@@ -53,9 +53,10 @@
 //     number ≥ 0, and `damageMultiplier = damageMultiplierFor(armor)` (K =
 //     CONFIG.armor.k) derived from it — the ONE curve, which the server's
 //     damage gate also calls with the full effective armor
-//     `armor + HUNKER bonus − attacker armorPiercing` (Story 9.9, epic-9
-//     amendments 144–146). Re-pinned in BOTH re-pin homes. `armorPiercing`
-//     (Story 9.9) is floored the same way and derives nothing.
+//     `armor + HUNKER bonus − attacker power` (Story 9.9, epic-9
+//     amendments 144–146). Re-pinned in BOTH re-pin homes. `power` (Story
+//     9.9's `armorPiercing`, renamed by Story 10.3, Eric 2026-11-04, epic-10
+//     amendment 7) is floored the same way and derives nothing.
 //
 // `cooldownScale` (Eric ruling 2026-08-04, retuned by catalog-v3 R12) is the
 // ONE global cooldown lever: a base-1.0 scalar the universal RELOAD ladder
@@ -314,10 +315,11 @@ export interface EffectiveStats {
   // 120(e)): the attacker's piercing enters only at the server's gate.
   armor: number;
   damageMultiplier: number;
-  // ARMOR PIERCING (Story 9.9, Eric 2026-10-14/15, epic-9 amendments
-  // 144–146): 0 at base, +20 per card, a whole number. The ATTACKER's stat:
-  // the gate subtracts it from the victim's effective Armor.
-  armorPiercing: number;
+  // POWER (Story 9.9's ARMOR PIERCING, Eric 2026-10-14/15, epic-9 amendments
+  // 144–146; renamed `armorPiercing` -> `power` by Story 10.3, Eric
+  // 2026-11-04, epic-10 amendment 7): 0 at base, +20 per card, a whole number.
+  // The ATTACKER's stat: the gate subtracts it from the victim's effective Armor.
+  power: number;
   // OUT-OF-COMBAT REGEN, per hull (Story 9.6, epic-9 amendments 90–91): base
   // CONFIG.regen; the PASSIVE HEALING ladder raises the rate (+0.006/copy) and
   // shortens the wait (−1000 ms/copy). Server and client read it here — never
@@ -639,7 +641,7 @@ function baseStats(cls: ShipClass): EffectiveStats {
     cooldownScale: 1, // base: the global cooldown scale is a no-op until RELOAD stacks
     armor: 0, // base: no Armor until the ARMOR ladder stacks (amendment 86)
     damageMultiplier: 1, // DERIVED — K / (K + 0)
-    armorPiercing: 0, // base: no Armor Piercing until the ladder stacks (amendment 145)
+    power: 0, // base: no Power until the ladder stacks (amendment 145; Story 10.3 rename)
     // A COPY of CONFIG.regen (never an alias — the fold mutates this tree).
     regen: { missingPctPerS: CONFIG.regen.missingPctPerS, outOfCombatMs: CONFIG.regen.outOfCombatMs },
     equipment: baseEquipment(cls),
@@ -680,7 +682,7 @@ const round3 = (v: number): number => Math.round(v * 1000) / 1000;
  * TWO CALLERS, one curve: clampStats derives `stats.damageMultiplier =
  * damageMultiplierFor(stats.armor)` — the VICTIM-ONLY published number
  * (amendment 120(e)), never E — and the server's damage gate calls it with
- * `victim.armor + hunkerBonus − attacker.armorPiercing` (the attacker read
+ * `victim.armor + hunkerBonus − attacker.power` (the attacker read
  * live at impact, amendment 156).
  *
  * NON-FINITE E READS AS ×1 (the clampSpreadRung law): a NaN must never poison
@@ -696,12 +698,12 @@ export function damageMultiplierFor(effectiveArmor: number): number {
 /** A whole number ≥ 0 (non-finite → 0): the EQUIPMENT_INT_FIELDS rule. */
 const wholeNonNegative = (v: number): number => (Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0);
 
-/** The ARMOR trio's post-fold clamp: Armor and Armor Piercing are authored in
+/** The ARMOR trio's post-fold clamp: Armor and Power are authored in
  *  whole numbers, so each is floored at 0 and to an integer, then the
  *  victim-only multiplier is derived from Armor alone (amendment 120(e)). */
 function clampArmor(stats: EffectiveStats): void {
   stats.armor = wholeNonNegative(stats.armor);
-  stats.armorPiercing = wholeNonNegative(stats.armorPiercing);
+  stats.power = wholeNonNegative(stats.power);
   stats.damageMultiplier = damageMultiplierFor(stats.armor);
 }
 

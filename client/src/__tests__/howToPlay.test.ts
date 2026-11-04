@@ -44,9 +44,8 @@ const inCatalog = (e: HowToEntry): boolean => (LINE_IDS as readonly string[]).in
 const AWAITING_COPY: ReadonlySet<string> = new Set([
   'countermeasure',
   'foulingShell',
-  'passiveHealing',
   'armor',
-  'armorPiercing',
+  'power',
   // Story 10.9: the four BUOYS replaced the DECOY BUOY (whose stale entry stays,
   // tolerated by `inCatalog`); their copy is owed to Story 10.8. FLASH SHELLS'
   // 8.17 entry is live again under its own name.

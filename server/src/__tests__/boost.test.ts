@@ -144,7 +144,7 @@ describe('the Shift boost end to end (Story 8.9, amendments 54-55)', () => {
     // Story 9.6), never hard-coded.
     const w2 = bareWorld();
     const b = place(w2, 'b');
-    stack(w2, b, 'speed', CATALOG.speed.cap);
+    stack(w2, b, 'engines', CATALOG.engines.cap);
     const rated = b.stats.kinematics.maxSpeed;
     expect(rated).toBeGreaterThan(TB_MAX); // the ladder did raise it...
     expect(rated).toBe(effectiveStats(b.cls, b.cards).kinematics.maxSpeed); // ...and the read STILL rated

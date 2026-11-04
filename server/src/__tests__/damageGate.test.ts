@@ -550,7 +550,7 @@ describe('applyDamage — (b′) ARMOR, before the shield (Story 9.7)', () => {
 // ---------------------------------------------------------------------------
 // (b′) ARMOR PIERCING — Story 9.9 (Eric 2026-10-14/15, epic-9 amendments
 // 144–147 / 156). E = victim Armor + HUNKER bonus − the ATTACKER's
-// armorPiercing, read LIVE at impact from the `byId` record; the curve's
+// power (`armorPiercing` until Story 10.3), read LIVE at impact from the `byId` record; the curve's
 // negative branch (K − 2E)/(K − E) amplifies, bounded under ×2. Every source
 // but the storm; the coast, a wreck and a departed owner read AP 0.
 // ---------------------------------------------------------------------------
@@ -562,7 +562,7 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
   const fullGate = (w: World): FullGate => w as unknown as FullGate;
 
   /** Fit `n` cards of `line` through the real pick path. */
-  function carded(w: World, rec: ShipRecord, line: 'armor' | 'armorPiercing', n: number): ShipRecord {
+  function carded(w: World, rec: ShipRecord, line: 'armor' | 'power', n: number): ShipRecord {
     for (let i = 0; i < n; i++) w.applyCard(rec, line);
     return rec;
   }
@@ -570,8 +570,8 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
   it('a pierced BARE hull: AP 100 vs Armor 0, a 12 hp shell lands 18 (E −100 → ×1.5); the dmg report and the attacker tally read 18 (amendments 113 / 146)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    const b = carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
-    expect(b.stats.armorPiercing).toBe(100);
+    const b = carded(w, place(w, 'b', 400, 0), 'power', 5);
+    expect(b.stats.power).toBe(100);
     expect(a.stats.armor).toBe(0);
     gate(w).applyDamage(a, 12, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 18);
@@ -582,7 +582,7 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
   it('ONE card of piercing on a bare hull: a 12 hp shell lands exactly 14 (12 × 7/6 — the whole product, amendment 120(a))', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    carded(w, place(w, 'b', 400, 0), 'armorPiercing', 1);
+    carded(w, place(w, 'b', 400, 0), 'power', 1);
     gate(w).applyDamage(a, 12, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 14);
   });
@@ -590,7 +590,7 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
   it('CANCELLED OUT: Armor 60 vs AP 60 is E 0 — a 12 hp shell lands 12', () => {
     const w = bareWorld();
     const a = carded(w, place(w, 'a'), 'armor', 3);
-    carded(w, place(w, 'b', 400, 0), 'armorPiercing', 3);
+    carded(w, place(w, 'b', 400, 0), 'power', 3);
     expect(a.stats.armor).toBe(60);
     gate(w).applyDamage(a, 12, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 12);
@@ -602,7 +602,7 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     carded(w, a, 'armor', 5);
     a.hunkerUntil = w.now + CONFIG.hunker.durationMs;
-    carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+    carded(w, place(w, 'b', 400, 0), 'power', 5);
     gate(w).applyDamage(a, 12, 'shell', 'b');
     expect(a.hp).toBe(a.stats.maxHp - 6);
   });
@@ -612,7 +612,7 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
       if (src === 'storm' || src === 'burn') continue;
       const w = bareWorld();
       const a = place(w, 'a');
-      carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+      carded(w, place(w, 'b', 400, 0), 'power', 5);
       gate(w).applyDamage(a, 12, src, 'b');
       expect(a.stats.maxHp - a.hp, src).toBe(18);
     }
@@ -621,7 +621,7 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
   it('a 0.5 hp BURN tick at E −100 lands 0.75 EXACTLY and banks into the DoT window (no immediate dmg)', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+    carded(w, place(w, 'b', 400, 0), 'power', 5);
     gate(w).applyDamage(a, 0.5, 'burn', 'b');
     expect(a.stats.maxHp - a.hp).toBe(0.75);
     expect(dmgEvents(w)).toEqual([]); // banked, not emitted per tick
@@ -632,7 +632,7 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
   it('a 0.2 hp GRIND tick at E −20 applies the exact 7/6 product — never floored, never raised to 1', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    carded(w, place(w, 'b', 400, 0), 'armorPiercing', 1);
+    carded(w, place(w, 'b', 400, 0), 'power', 1);
     fullGate(w).applyDamage(a, 0.2, 'grind', 'b');
     expect(a.stats.maxHp - a.hp).toBeCloseTo(0.2 * (7 / 6), 12);
     expect(a.stats.maxHp - a.hp).toBeCloseTo(0.2 * damageMultiplierFor(-20), 12);
@@ -641,7 +641,7 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
   it('the STORM is exempt at any armor and piercing (amendment 101): a 3 hp bite lands 3, even named against a piercer', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+    carded(w, place(w, 'b', 400, 0), 'power', 5);
     gate(w).applyDamage(a, 3, 'storm', undefined);
     gate(w).applyDamage(a, 3, 'storm', 'b'); // the early return precedes the attacker read
     expect(a.stats.maxHp - a.hp).toBe(6);
@@ -653,12 +653,12 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
   it('DRONES hold no cards (amendment 147): a 1 hp drone shell on Armor 100 still lands 1 (floor of one, amendment 119); a pierced drone takes ×1.5', () => {
     const w = bareWorld();
     const d = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 800 });
-    expect(d.stats.armorPiercing).toBe(0);
+    expect(d.stats.power).toBe(0);
     expect(d.stats.armor).toBe(0);
     const a = carded(w, place(w, 'a'), 'armor', 5);
     gate(w).applyDamage(a, 1, 'shell', 'd');
     expect(a.stats.maxHp - a.hp).toBe(1);
-    carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+    carded(w, place(w, 'b', 400, 0), 'power', 5);
     gate(w).applyDamage(d, 12, 'shell', 'b');
     expect(d.stats.maxHp - d.hp).toBe(18);
   });
@@ -669,7 +669,7 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
     const b = place(w, 'b', 400, 0);
     gate(w).applyDamage(a, 12, 'torpedo', 'b');
     expect(a.stats.maxHp - a.hp).toBe(12);
-    w.applyCard(b, 'armorPiercing'); // bought while the next one swims
+    w.applyCard(b, 'power'); // bought while the next one swims
     gate(w).applyDamage(a, 12, 'torpedo', 'b');
     expect(a.stats.maxHp - a.hp).toBe(12 + 14);
   });
@@ -677,7 +677,7 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
   it('an owner who LEFT the room (removeShip) reads AP 0 — no throw, the blow lands unpierced', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+    carded(w, place(w, 'b', 400, 0), 'power', 5);
     w.removeShip('b');
     expect(() => gate(w).applyDamage(a, 12, 'mine', 'b')).not.toThrow();
     expect(a.stats.maxHp - a.hp).toBe(12);
@@ -687,7 +687,7 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
     const w = bareWorld();
     w.respawnEnabled = false;
     const a = place(w, 'a');
-    const b = carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+    const b = carded(w, place(w, 'b', 400, 0), 'power', 5);
     w.sinkShip('b', 'a');
     w.step(CONFIG.ship.sinkingWindowMs); // past the founder edge
     expect(b.lifecycle.kind).toBe('sunk');
@@ -706,7 +706,7 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
   it('the SHIELD comes after the multiply: shield 20, a 12 hp shell at E −100 → 18 eaten, hp and combat clock untouched, dealt 0', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    const b = carded(w, place(w, 'b', 400, 0), 'armorPiercing', 5);
+    const b = carded(w, place(w, 'b', 400, 0), 'power', 5);
     a.shield = { hpLeft: 20, until: w.now + 5000 };
     a.lastDamagedAt = -1;
     gate(w).applyDamage(a, 12, 'shell', 'b');
@@ -719,7 +719,7 @@ describe('applyDamage — (b′) ARMOR PIERCING, the attacker read live (Story 9
 
   it('a SELF-HIT is refused before the attacker read, piercing or not', () => {
     const w = bareWorld();
-    const a = carded(w, place(w, 'a'), 'armorPiercing', 5);
+    const a = carded(w, place(w, 'a'), 'power', 5);
     gate(w).applyDamage(a, 12, 'shell', 'a');
     expect(a.hp).toBe(a.stats.maxHp);
     expect(combatEvents(w)).toHaveLength(0);
@@ -843,8 +843,9 @@ describe('the hp-INCREASE whitelist (AR47 read as "the only REGEN path")', () =>
       'ship.hp = ship.stats.maxHp;',
       // sinkShip — the wreck is zeroed.
       'ship.hp = 0;',
-      // applyCard — heal-on-grant, then the post-fold clamp to the new maxHp.
-      'ship.hp = Math.min(ship.hp + delta, ship.stats.maxHp);',
+      // applyCard — the post-fold clamp to the new maxHp (its heal-on-grant
+      // line left with HULL POINTS, Story 10.3, Eric 2026-11-04, epic-10
+      // amendment 7).
       'ship.hp = Math.min(ship.hp, ship.stats.maxHp);',
       // payRepair — the PAID HULL REPAIR pool's drain.
       'ship.hp = Math.min(ship.hp + paid, ship.stats.maxHp);',

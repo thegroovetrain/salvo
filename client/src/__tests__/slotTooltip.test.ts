@@ -180,14 +180,16 @@ describe('the HP globe opens a SHIP panel with the eight ship stats (amendment 1
     const m = shipTooltipModel('torpedoBoat', STATS)!;
     expect(m.name).toBe(CLASS_DISPLAY_NAMES.torpedoBoat);
     expect(m.interaction).toBe(SHIP_INTERACTION);
-    expect(m.stats).toHaveLength(8);
+    expect(m.stats).toHaveLength(6); // eight until Story 10.3 deleted HULL and PASSIVE HEALING
     expect(m.stats).toEqual(shipStatRows(STATS));
   });
 
   it('moves with the build, and has no panel for a hull it cannot name', () => {
-    const armored = statsFor('torpedoBoat', { hullPoints: 1 });
-    expect(shipTooltipModel('torpedoBoat', armored)!.stats[0]!.next).toBe(String(armored.maxHp));
-    expect(armored.maxHp).toBeGreaterThan(STATS.maxHp);
+    // ARMOR (row 0 since Story 10.3 deleted HULL, Eric 2026-11-04, epic-10
+    // amendment 7) moves the panel's first row.
+    const armored = statsFor('torpedoBoat', { armor: 1 });
+    expect(shipTooltipModel('torpedoBoat', armored)!.stats[0]!.next).toBe(String(armored.armor));
+    expect(armored.armor).toBeGreaterThan(STATS.armor);
     expect(shipTooltipModel(undefined, STATS)).toBeNull();
     expect(shipTooltipModel('dreadnought' as never, STATS)).toBeNull();
   });
@@ -256,7 +258,7 @@ describe('the model cache is keyed on the TARGET', () => {
     // A different hull is a different panel.
     expect(tipCacheHit(shipEntry, 'ship', null, stats, boons, 0, 'battleship')).toBe(false);
     // New stats (a fold) or a moved stock re-build.
-    expect(tipCacheHit(slotEntry, Q, 'heavyTorpedo', statsFor('torpedoBoat', { hullPoints: 1 }), boons, 1)).toBe(false);
+    expect(tipCacheHit(slotEntry, Q, 'heavyTorpedo', statsFor('torpedoBoat', { armor: 1 }), boons, 1)).toBe(false);
     expect(tipCacheHit(slotEntry, Q, 'heavyTorpedo', stats, boons, 2)).toBe(false);
     expect(tipCacheHit(null, Q, 'heavyTorpedo', stats, boons, 1)).toBe(false);
   });
@@ -338,7 +340,7 @@ describe('the interaction line carries a WEAPON slot\'s TIER (ruling 13)', () =>
   });
 
   it('leaves the ABILITY grammar untouched — an ability has no tier to print', () => {
-    expect(interactionLine(1, 'boost', ['hullPoints'])).toBe('');
+    expect(interactionLine(1, 'boost', ['armor'])).toBe('');
   });
 
   it('reaches the tooltip model, not just the helper', () => {

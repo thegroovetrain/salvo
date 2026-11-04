@@ -3,7 +3,7 @@ baseline_commit: a2dd70b4
 ---
 # Story 10.3: The Index Model
 
-Status: ready-for-dev
+Status: in-progress
 
 <!-- Created 2026-11-04 by gds-create-story on development @ a2dd70b4 (0.19.4, PV 94, the Epic 10 renumbering merge). Every line number below is a reading of the tree on that commit — re-grep before editing. Eric answered the spec-step questions by AskUserQuestion in this session BEFORE this file was written (four rounds of four, plus ruling 15 in chat after the first read-back); the answers are § Eric's rulings and become epic-10 amendment #7 at the dev step. Nothing in this story is a number the author filled in; every implementer reading is labelled as one and Eric may veto it on staging. -->
 

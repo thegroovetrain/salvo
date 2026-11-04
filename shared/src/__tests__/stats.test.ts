@@ -93,7 +93,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
       cooldownScale: 1, // the global cooldown lever is a true no-op at base
       armor: 0, // Story 9.7 (epic-9 amendment 86): no Armor until the ladder stacks
       damageMultiplier: 1, // DERIVED — K / (K + 0)
-      armorPiercing: 0, // Story 9.9 (epic-9 amendment 145): no Piercing until the ladder stacks
+      power: 0, // Story 9.9 (epic-9 amendment 145; `armorPiercing` until Story 10.3): no Power until the ladder stacks
       regen: { ...CONFIG.regen }, // Story 9.6 (amendments 90–91): CONFIG.regen verbatim at zero cards
       equipment: {
         gun: {
@@ -265,7 +265,7 @@ describe('effectiveStats — ZERO-CARD identity (per class, the 8.1 equipment re
   });
 });
 
-describe('effectiveStats — the eight universal ladders (catalog-v3 §4 + Stories 9.6 / 9.7 / 9.9)', () => {
+describe('effectiveStats — the six universal ladders (catalog-v3 §4 + Stories 9.7 / 9.9 / 10.3)', () => {
   // THE UNIVERSAL FOLD (Story 9.14, Eric 2026-10-22: the literal per-ladder
   // step pins were CONST pins of catalog content). Each rung is the zero-card
   // value plus the authored adds, then the firewall's post-fold rule for that
@@ -274,7 +274,7 @@ describe('effectiveStats — the eight universal ladders (catalog-v3 §4 + Stori
   const round3 = (v: number): number => Math.round(v * 1000) / 1000;
   const POST_FOLD: Record<string, (v: number) => number> = {
     armor: (v) => Math.max(0, Math.floor(v)),
-    armorPiercing: (v) => Math.max(0, Math.floor(v)),
+    power: (v) => Math.max(0, Math.floor(v)),
     sweepRpm: (v) => Math.min(v, CONFIG.vision.sweepRpmMax),
     cooldownScale: (v) => Math.max(0.1, round3(v)),
     'regen.missingPctPerS': round3,
@@ -282,8 +282,8 @@ describe('effectiveStats — the eight universal ladders (catalog-v3 §4 + Stori
   };
   const read = (s: EffectiveStats, path: string): number => flatten(s).get(path) as number;
 
-  it('the universal ladders are exactly the eight non-weapon ladders, each with a tier array per copy', () => {
-    expect(UNIVERSAL).toHaveLength(8);
+  it('the universal ladders are exactly the six non-weapon ladders (eight until Story 10.3 deleted HULL POINTS and PASSIVE HEALING), each with a tier array per copy', () => {
+    expect(UNIVERSAL).toHaveLength(6);
     for (const id of UNIVERSAL) expect(CATALOG[id].tiers, id).toHaveLength(CATALOG[id].cap);
   });
 
@@ -404,78 +404,76 @@ describe('effectiveStats — the eight universal ladders (catalog-v3 §4 + Stori
     expect(v.maxHp).toBe(base.maxHp);
     expect({ ...v, armor: base.armor, damageMultiplier: base.damageMultiplier }).toEqual(base);
     // ...and no other ladder moves it.
-    for (const id of ['hullPoints', 'armorPiercing', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'] as const) {
+    for (const id of ['power', 'engines', 'rudder', 'intel', 'reload'] as const) {
       const s = effectiveStats(BASE, stack(id, CATALOG[id].cap));
       expect([s.armor, s.damageMultiplier], id).toEqual([0, 1]);
     }
-    // A Tier-V HULL POINTS + Tier-V ARMOR hull carries both, independently.
-    const both = effectiveStats(BASE, [...stack('hullPoints', 5), ...stack('armor', 5)]);
-    expect([both.maxHp, both.armor, both.damageMultiplier])
-      .toEqual([effectiveStats(BASE, stack('hullPoints', 5)).maxHp, armorOf(5), damageMultiplierFor(armorOf(5))]);
+    // The Tier-V HULL POINTS + Tier-V ARMOR case lived here until Story 10.3
+    // DELETED HULL POINTS (Eric 2026-11-04, epic-10 amendment 7).
   });
 
-  // ARMOR PIERCING (Story 9.9, Eric 2026-10-14/15, epic-9 amendments 144–146):
+  // POWER (Story 9.9's ARMOR PIERCING, Eric 2026-10-14/15, epic-9 amendments
+  // 144–146; renamed by Story 10.3, Eric 2026-11-04, epic-10 amendment 7):
   // the ATTACKER's stat — folded, floored, and never in the holder's own
   // damageMultiplier (which stays victim-only, amendment 120(e)).
-  it('ARMOR PIERCING: n ARMOR + m PIERCING cards fold independently — damageMultiplier from armor alone', () => {
-    const pierceOf = (m: number): number => effectiveStats(BASE, stack('armorPiercing', m)).armorPiercing;
+  it('POWER: n ARMOR + m POWER cards fold independently — damageMultiplier from armor alone', () => {
+    const pierceOf = (m: number): number => effectiveStats(BASE, stack('power', m)).power;
     for (let n = 0; n <= CATALOG.armor.cap; n += 1) {
-      for (let m = 0; m <= CATALOG.armorPiercing.cap; m += 1) {
-        const s = effectiveStats(BASE, [...stack('armor', n), ...stack('armorPiercing', m)]);
-        expect([s.armor, s.armorPiercing], `${n}/${m}`).toEqual([armorOf(n), pierceOf(m)]);
+      for (let m = 0; m <= CATALOG.power.cap; m += 1) {
+        const s = effectiveStats(BASE, [...stack('armor', n), ...stack('power', m)]);
+        expect([s.armor, s.power], `${n}/${m}`).toEqual([armorOf(n), pierceOf(m)]);
         expect(s.damageMultiplier, `${n}/${m}`).toBe(damageMultiplierFor(armorOf(n)));
       }
     }
   });
 
-  it('ARMOR PIERCING is 0 on every hull at base and under every other ladder, and moves nothing else', () => {
-    for (const id of SHIP_CLASS_IDS) expect(effectiveStats(CONFIG.shipClasses[id]).armorPiercing, id).toBe(0);
-    for (const id of ['hullPoints', 'armor', 'speed', 'turning', 'radarSweep', 'reload', 'passiveHealing'] as const) {
-      expect(effectiveStats(BASE, stack(id, CATALOG[id].cap)).armorPiercing, id).toBe(0);
+  it('POWER is 0 on every hull at base and under every other ladder, and moves nothing else', () => {
+    for (const id of SHIP_CLASS_IDS) expect(effectiveStats(CONFIG.shipClasses[id]).power, id).toBe(0);
+    for (const id of ['armor', 'engines', 'rudder', 'intel', 'reload'] as const) {
+      expect(effectiveStats(BASE, stack(id, CATALOG[id].cap)).power, id).toBe(0);
     }
     const base = effectiveStats(BASE);
-    const v = effectiveStats(BASE, stack('armorPiercing', 5));
-    expect({ ...v, armorPiercing: base.armorPiercing }).toEqual(base);
+    const v = effectiveStats(BASE, stack('power', 5));
+    expect({ ...v, power: base.power }).toEqual(base);
   });
 
-  it('ARMOR and ARMOR PIERCING are floored to whole numbers before anything derives (injected fractional step)', () => {
+  it('ARMOR and POWER are floored to whole numbers before anything derives (injected fractional step)', () => {
     const half: Catalog = {
       armor: { id: 'armor', kind: 'ladder', cap: 2, tiers: [[{ kind: 'stat', path: 'armor', add: 1.5 }], [{ kind: 'stat', path: 'armor', add: 1.5 }]] },
-      armorPiercing: {
-        id: 'armorPiercing', kind: 'ladder', cap: 2,
-        tiers: [[{ kind: 'stat', path: 'armorPiercing', add: 2.5 }], [{ kind: 'stat', path: 'armorPiercing', add: 2.5 }]],
+      power: {
+        id: 'power', kind: 'ladder', cap: 2,
+        tiers: [[{ kind: 'stat', path: 'power', add: 2.5 }], [{ kind: 'stat', path: 'power', add: 2.5 }]],
       },
     };
-    const one = effectiveStats(BASE, ['armor', 'armorPiercing'], half);
-    expect([one.armor, one.armorPiercing, one.damageMultiplier]).toEqual([1, 2, damageMultiplierFor(1)]);
-    const two = effectiveStats(BASE, ['armor', 'armor', 'armorPiercing', 'armorPiercing'], half);
-    expect([two.armor, two.armorPiercing, two.damageMultiplier]).toEqual([3, 5, damageMultiplierFor(3)]);
+    const one = effectiveStats(BASE, ['armor', 'power'], half);
+    expect([one.armor, one.power, one.damageMultiplier]).toEqual([1, 2, damageMultiplierFor(1)]);
+    const two = effectiveStats(BASE, ['armor', 'armor', 'power', 'power'], half);
+    expect([two.armor, two.power, two.damageMultiplier]).toEqual([3, 5, damageMultiplierFor(3)]);
   });
 
-  // PASSIVE HEALING (Story 9.6, Eric 2026-10-13, epic-9 amendments 90–91): the
-  // regen pair is DERIVED in effectiveStats — zero cards ≙ CONFIG.regen, each
-  // copy's authored steps folded on (the rate round3'd, the cooldownScale dust
-  // rule) — the UNIVERSAL FOLD above.
-  it('PASSIVE HEALING: zero cards is CONFIG.regen as a COPY — a fold never writes through to CONFIG', () => {
+  // THE REGEN PAIR (Story 9.6, Eric 2026-10-13, epic-9 amendments 90–91) is
+  // seeded in effectiveStats as a COPY of CONFIG.regen. Its ladder, PASSIVE
+  // HEALING, was DELETED by Story 10.3 (Eric 2026-11-04, epic-10 amendment 7),
+  // so no card moves it; the regen itself goes in a later 10.3 wave.
+  it('REGEN: zero cards is CONFIG.regen as a COPY — a fold never writes through to CONFIG', () => {
     const s = effectiveStats(BASE);
     expect(s.regen).toEqual(CONFIG.regen);
     expect(s.regen).not.toBe(CONFIG.regen);
-    effectiveStats(BASE, stack('passiveHealing', 5));
+    effectiveStats(BASE, stack('reload', 5));
     expect(effectiveStats(BASE).regen).toEqual(CONFIG.regen);
   });
 
-  it('PASSIVE HEALING moves only the regen pair; no other ladder moves it', () => {
+  it('REGEN: no ladder moves the regen pair', () => {
     const base = effectiveStats(BASE);
-    expect({ ...effectiveStats(BASE, stack('passiveHealing', 3)), regen: base.regen }).toEqual(base);
-    for (const id of ['hullPoints', 'speed', 'turning', 'radarSweep', 'reload'] as const) {
+    for (const id of ['armor', 'power', 'engines', 'rudder', 'intel', 'reload'] as const) {
       expect(effectiveStats(BASE, stack(id, CATALOG[id].cap)).regen, id).toEqual(base.regen);
     }
   });
 
-  it('RADAR SWEEP never passes the sweepRpmMax clamp at any copy count, an over-stack included, and its period is 60000 / rpm', () => {
+  it('INTEL never passes the sweepRpmMax clamp at any copy count, an over-stack included, and its period is 60000 / rpm', () => {
     const max = CONFIG.vision.sweepRpmMax;
     for (const n of [0, 1, 2, 3, 4, 5, 20]) {
-      const s = effectiveStats(BASE, stack('radarSweep', n));
+      const s = effectiveStats(BASE, stack('intel', n));
       expect(s.sweepRpm, `${n} copies`).toBeLessThanOrEqual(max);
       expect(s.sweepPeriodMs, `${n} copies`).toBe(60000 / s.sweepRpm);
     }

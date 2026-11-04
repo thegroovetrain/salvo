@@ -190,7 +190,9 @@ function barrelBlock(): void {
  *  stacked to its copy cap (the ADDITIVE speed/range ladders of Story 7-5). */
 function statsBlock(): void {
   console.log('== MAX-STACK STAT ENVELOPE (universal lines only, each to its copy cap) ==');
-  const universal = ['hullPoints', 'armor', 'armorPiercing', 'speed', 'turning', 'reload', 'radarSweep', 'passiveHealing'];
+  // The six universal ladders (Story 10.3, Eric 2026-11-04, epic-10 amendment 7:
+  // HULL POINTS and PASSIVE HEALING deleted; four ids renamed).
+  const universal = ['armor', 'power', 'engines', 'rudder', 'reload', 'intel'];
   const maxCards: string[] = [];
   for (const id of universal) {
     // Fail LOUDLY on an id the catalog no longer holds. This list is hand-kept
@@ -203,7 +205,7 @@ function statsBlock(): void {
   // detect is SIGHT-scaled (`sightOf(me) * detectFactor`), NOT radar-scaled —
   // the one rung that hangs off sight rather than radar range. Derived here the
   // same way the server does it so the ladder ordering is checkable by eye.
-  console.log('class        |  maxHp |  speed | radar |  sight | detect | 6/12 rung | gun rangeU | broadside rangeU | cooldownScale | armor | armorPiercing | damageMultiplier | pierceMult');
+  console.log('class        |  maxHp |  speed | radar |  sight | detect | 6/12 rung | gun rangeU | broadside rangeU | cooldownScale | armor | power | damageMultiplier | pierceMult');
   for (const cls of SHIP_CLASS_IDS) {
     for (const [tag, cards] of [['base', [] as string[]] as const, ['MAXED', maxCards] as const]) {
       const st = effectiveStats(hullEnvelope(cls), cards);
@@ -211,7 +213,7 @@ function statsBlock(): void {
       console.log(
         `${(cls + ' ' + tag).padEnd(12)} | ${fmt(st.maxHp).padStart(6)} | ${fmt(st.kinematics.maxSpeed).padStart(6)} | ` +
           `${fmt(st.radarRange).padStart(5)} | ${fmt(st.sightRange).padStart(6)} | ${fmt(st.sightRange * CONFIG.vision.detectFactor).padStart(6)} | ` +
-          `${fmt(rung).padStart(9)} | ${fmt(st.equipment.gun.rangeU).padStart(10)} | ${fmt(st.equipment.broadside.rangeU).padStart(16)} | ${fmt(st.cooldownScale, 3).padStart(13)} | ${fmt(st.armor, 0).padStart(5)} | ${fmt(st.armorPiercing, 0).padStart(13)} | ${fmt(st.damageMultiplier, 3).padStart(16)} | ${fmt(damageMultiplierFor(-st.armorPiercing), 3)}`,
+          `${fmt(rung).padStart(9)} | ${fmt(st.equipment.gun.rangeU).padStart(10)} | ${fmt(st.equipment.broadside.rangeU).padStart(16)} | ${fmt(st.cooldownScale, 3).padStart(13)} | ${fmt(st.armor, 0).padStart(5)} | ${fmt(st.power, 0).padStart(5)} | ${fmt(st.damageMultiplier, 3).padStart(16)} | ${fmt(damageMultiplierFor(-st.power), 3)}`,
       );
     }
   }

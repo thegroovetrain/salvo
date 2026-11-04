@@ -110,7 +110,7 @@ const FISH = {
 };
 /** The blow B's hull takes per fish: the server's armor curve over B's armor
  *  minus A's piercing, floored to a whole number (World.floorBlow). */
-const FISH_BLOW = Math.max(1, Math.floor(FISH.damage * damageMultiplierFor(TARGET.armor - SHOOTER.armorPiercing)));
+const FISH_BLOW = Math.max(1, Math.floor(FISH.damage * damageMultiplierFor(TARGET.armor - SHOOTER.power)));
 
 /**
  * THE LANE. B (the target) at the origin facing +x; A (the shooter) astern-west

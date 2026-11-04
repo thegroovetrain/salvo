@@ -37,6 +37,6 @@ describe('one glyph per card line (cycle 162)', () => {
   });
 
   it('a ship ladder reaches the DOM surface as an svg', () => {
-    expect(equipmentGlyphSvg('hullPoints', 24)?.tagName.toLowerCase()).toBe('svg');
+    expect(equipmentGlyphSvg('armor', 24)?.tagName.toLowerCase()).toBe('svg');
   });
 });

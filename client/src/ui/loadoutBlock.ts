@@ -95,34 +95,33 @@ const TEXT = {
 const P = LOADOUT_PX;
 const MONO = 'var(--hc-font-mono)';
 
-/** The eight ship ladders, in the ratified line order (PASSIVE HEALING last,
- *  Story 9.6; ARMOR right after HULL, Story 9.7 — Eric 2026-10-13; ARMOR
- *  PIERCING right after ARMOR, Story 9.9 — epic-9 amendment 159). */
+/** The six ship ladders, in the ratified line order (ARMOR, Story 9.7 — Eric
+ *  2026-10-13; ARMOR PIERCING right after ARMOR, Story 9.9 — epic-9 amendment
+ *  159). Story 10.3 (Eric 2026-11-04, epic-10 amendment 7) deleted HULL
+ *  (`hullPoints`) and PASSIVE HEALING (`passiveHealing`) and renamed
+ *  `armorPiercing` / `speed` / `turning` / `radarSweep` to `power` /
+ *  `engines` / `rudder` / `intel` in place. */
 const LADDER_LINES: readonly LineId[] = [
-  'hullPoints',
   'armor',
-  'armorPiercing',
-  'speed',
-  'turning',
-  'radarSweep',
+  'power',
+  'engines',
+  'rudder',
+  'intel',
   'reload',
-  'passiveHealing',
 ];
 
 /** Eric R2 (2026-09-30): ladders that start from nothing read `—` at ZERO
  *  copies rather than a numeral. Since Story 9.6 (Eric 2026-10-13, epic-9
  *  amendment 94) that is every ship ladder: HULL / SPEED / TURNING no longer
- *  sail at Tier I, and PASSIVE HEALING is new; ARMOR (Story 9.7) and ARMOR
- *  PIERCING (Story 9.9, amendment 159) too. */
+ *  sail at Tier I; ARMOR (Story 9.7) and ARMOR PIERCING (Story 9.9,
+ *  amendment 159) too. The six since Story 10.3 (epic-10 amendment 7). */
 const DASH_AT_ZERO: ReadonlySet<LineId> = new Set<LineId>([
-  'hullPoints',
   'armor',
-  'armorPiercing',
-  'speed',
-  'turning',
-  'radarSweep',
+  'power',
+  'engines',
+  'rudder',
+  'intel',
   'reload',
-  'passiveHealing',
 ]);
 
 /** The chip a keyless gun column carries (mock `.kc.ghost`) — laid out, never seen. */

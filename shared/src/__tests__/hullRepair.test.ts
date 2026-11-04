@@ -98,16 +98,15 @@ describe('NFR6 — the authored heal budget and the collapse ceiling', () => {
   const HEAL_PER_COPY = CONFIG.hullRepair.instantHp + CONFIG.hullRepair.regenHp;
 
   it('the collapse ceiling is (max hull + heal bound + shield bound) / the fully-closed storm rung — the storm always wins in the end', () => {
-    // MAX HULL IS DERIVED, never typed: the HULL POINTS ladder (R8 as re-cut
-    // by epic-9 amendment 28 / Story 9.6: +50 max hp per tier, cap 5; was
-    // ARMOR +25 ×4) run to its own cap on whichever hull starts highest — the
-    // dreadnought at 350 + 5 × 50 = 600 today.
-    const hullCards = Array.from({ length: CATALOG.hullPoints.cap }, () => 'hullPoints');
+    // MAX HULL IS DERIVED, never typed: the fold's maxHp on whichever hull
+    // starts highest. The HULL POINTS ladder that once raised it (+50 ×5) was
+    // DELETED by Story 10.3 (Eric 2026-11-04, epic-10 amendment 7), so no card
+    // moves it and the fold's maxHp IS the class base.
     const maxHull = Math.max(
-      ...SHIP_CLASS_IDS.map((hull) => effectiveStats(CONFIG.shipClasses[hull], hullCards).maxHp),
+      ...SHIP_CLASS_IDS.map((hull) => effectiveStats(CONFIG.shipClasses[hull]).maxHp),
     );
     const topBase = Math.max(...SHIP_CLASS_IDS.map((hull) => CONFIG.shipClasses[hull].hp));
-    expect(maxHull).toBe(topBase + CATALOG.hullPoints.cap * 50);
+    expect(maxHull).toBe(topBase);
 
     const healBound = CATALOG.hullRepair.cap * HEAL_PER_COPY;
     // THE SHIELD BUDGET (epic-8 amendment 125, Eric 2026-09-29): SHIELD BLOCK

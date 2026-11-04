@@ -470,7 +470,7 @@ describe('torpedo vs hull speeds — CURRENT FACTS, no longer a law (FR7 retired
     // 45) — so a TB at full ahead is never outrun by it — and a SPEED-capped,
     // boosted TB (71.875) outruns even the maxed fish.
     expect(base.speed).toBeLessThanOrEqual(maxHullSpeed);
-    const capped = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(CATALOG.speed.cap).fill('speed'));
+    const capped = effectiveStats(CONFIG.shipClasses.torpedoBoat, new Array<LineId>(CATALOG.engines.cap).fill('engines'));
     expect(boostedKinematics(capped.kinematics, CONFIG.boost.factor, true).maxSpeed)
       .toBeGreaterThan(maxed.speed);
     expect(maxed.speed).toBeLessThan(CONFIG.torpedo.speed); // always under the heavy's

@@ -1,9 +1,18 @@
 // THE CATALOG (Story 8.1) — catalog v3, Eric's authored sheet
 // (`_bmad-output/planning-artifacts/gdds/.../catalog-v3.md`) expressed as data,
 // as amended by Eric's rulings (epic-8 amendments).
-// 26 card LINES / 127 physical cards: 8 equipment lines (40), 8 universal
-// ladders (40), the gun ladders (12 — CANNON, MACHINE GUN and FLAK, 4 each),
-// 0 add-ons, 7 consumables (35).
+// 28 card LINES / 137 physical cards: 8 equipment lines (40), 6 universal
+// ladders (30), the gun ladders (12 — CANNON, MACHINE GUN and FLAK, 4 each),
+// 0 add-ons, 11 consumables (55).
+//
+// THE COUNT MOVED 30/147 -> 28/137 IN STORY 10.3 (Eric 2026-11-04, epic-10
+// amendment 7): the HULL POINTS and PASSIVE HEALING ladders (cap 5 each) are
+// DELETED, and four universal ladders are RENAMED in their seats —
+// `armorPiercing` -> `power` (POWER), `speed` -> `engines` (ENGINES),
+// `turning` -> `rudder` (RUDDER), `radarSweep` -> `intel` (INTEL). Every
+// surviving line keeps its relative order. (The 30/147 figure is Story
+// 10.9's: it deleted DECOY BUOY and appended FLASH SHELLS and four buoys,
+// 26/127 -> 30/147; this header was not restated then.)
 //
 // THE COUNT MOVED 25/122 -> 26/127 IN STORY 9.9 (Eric 2026-10-14/15, epic-9
 // amendments 144–145): the new ARMOR PIERCING ladder (cap 5, +20 Armor
@@ -119,10 +128,17 @@ import {
 } from './effects.js';
 
 /**
- * THE 26 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
+ * THE 28 LINE IDS, in catalog order (Eric ruling 2026-09-15, amendment 7, as
  * amended by amendments 80/83 on 2026-09-19 and 89e on 2026-09-21). This order
  * IS the fold order, so it is part of the determinism contract — never
  * re-sort it.
+ *
+ * STORY 10.3 DELETED TWO AND RENAMED FOUR (30 -> 28; Eric 2026-11-04, epic-10
+ * amendment 7): `hullPoints` (seat 1) and `passiveHealing` (seat 8) are GONE —
+ * no alias, their slots close and every line after each moves up. RENAMED in
+ * their seats, same kind, same cap (the `foulingMines` precedent):
+ * `armorPiercing` -> `power`, `speed` -> `engines`, `turning` -> `rudder`,
+ * `radarSweep` -> `intel`.
  *
  * STORY 9.9 ADDED ONE (25 -> 26; Eric 2026-10-14/15, epic-9 amendments
  * 144–145): `armorPiercing` — the attacker's half of the Armor curve — sits
@@ -179,15 +195,17 @@ import {
  * cap-5 consumables.
  */
 export const LINE_IDS = [
-  // --- the eight universal ladders (catalog-v3 §4 + Stories 9.6 / 9.7 / 9.9)
-  'hullPoints', // was `armor` until Story 9.6 (Eric 2026-10-13, amendment 93) — same seat
-  'armor', // Story 9.7 (Eric 2026-10-13, amendments 86–89): the new Armor ladder, right after HULL
-  'armorPiercing', // Story 9.9 (Eric 2026-10-14/15, amendments 144–145): right after ARMOR
-  'speed',
-  'turning',
-  'radarSweep',
+  // --- the six universal ladders (catalog-v3 §4 + Stories 9.7 / 9.9 / 10.3)
+  // `hullPoints` sat here (seat 1) until Story 10.3 DELETED it (Eric
+  // 2026-11-04, epic-10 amendment 7): HULL POINTS is gone from the catalog.
+  'armor', // Story 9.7 (Eric 2026-10-13, amendments 86–89): the new Armor ladder
+  'power', // was `armorPiercing` (Story 9.9) until Story 10.3 (Eric 2026-11-04, epic-10 amendment 7) — same seat
+  'engines', // was `speed` until Story 10.3 (Eric 2026-11-04, epic-10 amendment 7) — same seat
+  'rudder', // was `turning` until Story 10.3 (Eric 2026-11-04, epic-10 amendment 7) — same seat
+  'intel', // was `radarSweep` until Story 10.3 (Eric 2026-11-04, epic-10 amendment 7) — same seat
   'reload',
-  'passiveHealing', // Story 9.6 (Eric 2026-10-13, amendments 90–91): last universal ladder
+  // `passiveHealing` sat here (after `reload`) until Story 10.3 DELETED it
+  // (Eric 2026-11-04, epic-10 amendment 7): PASSIVE HEALING is gone.
   // --- the CANNON ladder (the deck gun: slotless, always fitted) ------------
   'deckGun',
   // --- the eleven equipment lines (+ one consumable that kept its slot) -----
@@ -231,7 +249,7 @@ export const LINE_IDS = [
   'speedBuoy',
 ] as const;
 
-/** One of the 30 authored card lines. */
+/** One of the 28 authored card lines. */
 export type LineId = (typeof LINE_IDS)[number];
 
 /**
@@ -255,7 +273,11 @@ export type LineKind = 'equipment' | 'ladder' | 'addon' | 'consumable';
  *   TIER its copies advance (a mounted gun is slotless in the card sense, so it
  *   has no `slotFill` to read the target off).
  * - `stub` — the mechanism does not exist yet: never dealt (sim/draw.ts).
- * - `healOnGrant` — the grant heals the granted maxHp delta (HULL POINTS only).
+ *
+ * The `healOnGrant` flag (the grant healed the granted maxHp delta) was
+ * DELETED with its only user, HULL POINTS, in Story 10.3 (Eric 2026-11-04,
+ * epic-10 amendment 7), together with its validator and the server's
+ * heal-on-grant branch.
  */
 export interface CatalogLine {
   id: LineId;
@@ -264,7 +286,6 @@ export interface CatalogLine {
   tiers: readonly (readonly BoonEffect[])[];
   appliesTo?: readonly EquipmentId[];
   stub?: true;
-  healOnGrant?: true;
 }
 
 /** A catalog, keyed by line id. Injectable wherever ids resolve to lines
@@ -277,7 +298,7 @@ export type Catalog = Readonly<Record<string, CatalogLine>>;
  *
  * Freezing the LINE ROWS alone was not enough: `effectiveStats` reads these
  * effect objects on every fold, on BOTH sides, so a single stray write to
- * `CATALOG.hullPoints.tiers[0][0].add` is a permanent, silent, cross-match stat
+ * `CATALOG.armor.tiers[0][0].add` is a permanent, silent, cross-match stat
  * change — and a desync, because only the side that ran the write has it. The
  * whole tree is shared read-only data; it is frozen as such.
  */
@@ -310,7 +331,7 @@ function ladder(
   id: LineId,
   cap: number,
   effects: readonly BoonEffect[],
-  extra: { healOnGrant?: true; appliesTo?: readonly EquipmentId[] } = {},
+  extra: { appliesTo?: readonly EquipmentId[] } = {},
 ): CatalogLine {
   // A FRESH ARRAY PER TIER (never one shared `effects` reference repeated):
   // shared tier arrays make `tiers[0] === tiers[1]`, so any future per-tier
@@ -334,7 +355,7 @@ function ladder(
 export function ladderSteps(
   id: LineId,
   steps: readonly (readonly BoonEffect[])[],
-  extra: { healOnGrant?: true; appliesTo?: readonly EquipmentId[] } = {},
+  extra: { appliesTo?: readonly EquipmentId[] } = {},
 ): CatalogLine {
   const tiers = steps.map((step) => [...step] as readonly BoonEffect[]);
   return { id, kind: 'ladder', cap: tiers.length, tiers, ...extra };
@@ -520,21 +541,19 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  * THE production catalog — catalog v3. Key order IS `LINE_IDS` order (pinned).
  *
  * Every authored number cites its ruling:
- *   HULL POINTS R8 — +50 max hp per tier, 5 tiers, heals on grant (was ARMOR
- *                  +25 ×4; epic-9 amendments 27–29, 90–91).
+ *   (HULL POINTS and PASSIVE HEALING were DELETED by Story 10.3, Eric
+ *                  2026-11-04, epic-10 amendment 7.)
  *   ARMOR   — +20 Armor per tier, 5 tiers; damage × K / (K + Armor), K = 100
  *                  (Eric 2026-10-13, epic-9 amendments 86–88; rescaled
  *                  +1/K 5 -> +20/K 100 by amendment 144).
- *   ARMOR PIERCING — +20 Armor Piercing per tier, 5 tiers; subtracted from
+ *   POWER (was ARMOR PIERCING until Story 10.3) — +20 Power per tier, 5 tiers; subtracted from
  *                  the victim's Armor at the damage gate, the curve going
  *                  2 − K / (K − E) below zero (Eric 2026-10-14/15, epic-9
  *                  amendments 144–146).
- *   SPEED   R10 — +2.5 u/s forward max per tier, 5 tiers, reverse untouched.
- *   TURNING R6  — flat +0.05 rad/s per tier, 5 tiers.
- *   RADAR SWEEP R11 — +3 rpm per tier, 5 tiers (the 30 rpm clamp stays).
+ *   ENGINES R10 (was SPEED until Story 10.3) — +2.5 u/s forward max per tier, 5 tiers, reverse untouched.
+ *   RUDDER  R6 (was TURNING until Story 10.3) — flat +0.05 rad/s per tier, 5 tiers.
+ *   INTEL   R11 (was RADAR SWEEP until Story 10.3) — +3 rpm per tier, 5 tiers (the 30 rpm clamp stays).
  *   RELOAD  R12 — −5 % per tier, 5 tiers, cap 25 % (cooldownScale 1.0 → 0.75).
- *   PASSIVE HEALING — +0.6 %/s missing hull and −1 s wait per tier, 5 tiers
- *                  (Eric 2026-10-13, epic-9 amendments 90–91).
  *   DECK GUN R14 — damage 8/10/11/12/13 (base 8; +2, +1, +1, +1; Eric
  *                  2026-10-16, Story 9.12) on a FIXED two barrels
  *                  (CONFIG.gun.barrels, no barrel rungs) AND −5 % own reload
@@ -551,12 +570,9 @@ function consumable(id: LineId & ConsumableId, stub?: true): CatalogLine {
  *   CAPTIVE MINES R25 · FOULING MINES R28 (as amended) — Story 8.13.
  */
 export const CATALOG: Catalog = deepFreezeRows({
-  // --- the eight universal ladders -----------------------------------------
-  // HULL POINTS (R8 as re-cut by Eric 2026-10-11 / 2026-10-13, epic-9
-  // amendments 27–29, 90–91): +50 max hp per tier, 5 tiers (dreadnought 350 →
-  // 600 at cap); the grant HEALS the granted delta. Was `armor` (+25 ×4) until
-  // Story 9.6.
-  hullPoints: ladder('hullPoints', 5, [statEffect('maxHp', { add: 50 })], { healOnGrant: true }),
+  // --- the six universal ladders -------------------------------------------
+  // HULL POINTS (+50 max hp ×5, heal on grant) sat here until Story 10.3
+  // DELETED it (Eric 2026-11-04, epic-10 amendment 7).
   // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88; rescaled by
   // Story 9.9, amendment 144): +20 Armor per tier, 5 tiers (0 → 100);
   // effectiveStats derives damageMultiplier = K / (K + Armor) from it
@@ -564,37 +580,37 @@ export const CATALOG: Catalog = deepFreezeRows({
   // authored literally like every ladder's (CONFIG.armor holds only Eric's K;
   // amendment 110's reason — the catalog is frozen at module load).
   armor: ladder('armor', 5, [statEffect('armor', { add: 20 })]),
-  // ARMOR PIERCING (Story 9.9, Eric 2026-10-14/15, epic-9 amendments 144–146):
-  // +20 Armor Piercing per tier, 5 tiers (0 → 100). The ATTACKER's stat: the
-  // server's damage gate subtracts it from the victim's Armor (+ HUNKER), so
-  // it never moves the holder's own damageMultiplier. Authored literally.
-  armorPiercing: ladder('armorPiercing', 5, [statEffect('armorPiercing', { add: 20 })]),
-  // SPEED (R10; cap 5 since Eric 2026-10-11 / 2026-10-13, epic-9 amendments
+  // POWER (was ARMOR PIERCING, Story 9.9, Eric 2026-10-14/15, epic-9
+  // amendments 144–146; renamed `armorPiercing` -> `power`, line AND stat, by
+  // Story 10.3, Eric 2026-11-04, epic-10 amendment 7): +20 Power per tier,
+  // 5 tiers (0 → 100). The ATTACKER's stat: the server's damage gate subtracts
+  // it from the victim's Armor (+ HUNKER), so it never moves the holder's own
+  // damageMultiplier. Authored literally.
+  power: ladder('power', 5, [statEffect('power', { add: 20 })]),
+  // ENGINES (was SPEED until Story 10.3, Eric 2026-11-04, epic-10 amendment 7;
+  // R10; cap 5 since Eric 2026-10-11 / 2026-10-13, epic-9 amendments
   // 27–29, 90–91): +2.5 u/s of FORWARD top speed per tier, 5 tiers. Reverse is
   // explicitly untouched — no constant add preserves the reverse:forward ratio
   // across three hulls.
-  speed: ladder('speed', 5, [statEffect('kinematics.maxSpeed', { add: 2.5 })]),
-  // TURNING (R6; cap 5 since Eric 2026-10-11 / 2026-10-13, epic-9 amendments
+  engines: ladder('engines', 5, [statEffect('kinematics.maxSpeed', { add: 2.5 })]),
+  // RUDDER (was TURNING until Story 10.3, Eric 2026-11-04, epic-10 amendment 7;
+  // R6; cap 5 since Eric 2026-10-11 / 2026-10-13, epic-9 amendments
   // 27–29, 90–91): flat +0.05 rad/s per tier, 5 tiers (+0.25 at the cap —
   // flat, not proportional, so it helps the slow hulls most).
-  turning: ladder('turning', 5, [statEffect('kinematics.turnRate', { add: 0.05 })]),
-  // RADAR SWEEP (R11): +3 rpm per tier, 5 tiers, 15 → 30 rpm. The ratified
+  rudder: ladder('rudder', 5, [statEffect('kinematics.turnRate', { add: 0.05 })]),
+  // INTEL (was RADAR SWEEP until Story 10.3, Eric 2026-11-04, epic-10
+  // amendment 7; R11): +3 rpm per tier, 5 tiers, 15 → 30 rpm. The ratified
   // 30 rpm ceiling stays in clampStats and is what makes a 6th copy impossible
   // to exploit even if one existed.
-  radarSweep: ladder('radarSweep', 5, [statEffect('sweepRpm', { add: 3 })]),
+  intel: ladder('intel', 5, [statEffect('sweepRpm', { add: 3 })]),
   // RELOAD (R12): −5 % per tier, 5 tiers, cap 25 % — cooldownScale 1.0 → 0.75
   // exactly (round3 in clampStats kills the additive float dust). ADDITIVE, so
   // stacking is linear rather than 0.95^N. Scope (R40): every equipment reload
   // AND the Shift boost cooldown; consumables have no reload.
   reload: ladder('reload', 5, [statEffect('cooldownScale', { add: -0.05 })]),
-  // PASSIVE HEALING (Eric 2026-10-11 / 2026-10-13, epic-9 amendments 27–29,
-  // 90–91): +0.6 %/s of MISSING hull and −1 s of out-of-combat wait per tier,
-  // 5 tiers — base 2 %/s after 15 s (CONFIG.regen) → 5 %/s after 10 s at cap.
-  // round3 in clampStats kills the additive float dust on the rate.
-  passiveHealing: ladder('passiveHealing', 5, [
-    statEffect('regen.missingPctPerS', { add: 0.006 }),
-    statEffect('regen.outOfCombatMs', { add: -1000 }),
-  ]),
+  // PASSIVE HEALING (+0.6 %/s missing hull, −1 s wait ×5) sat here until
+  // Story 10.3 DELETED it (Eric 2026-11-04, epic-10 amendment 7). The base
+  // out-of-combat regen (CONFIG.regen) still runs until Story 10.3's later wave.
   // --- the CANNON ladder ----------------------------------------------------
   // DECK GUN (R14 as retuned by Eric 2026-10-16, Story 9.12 (forge weapon-balance-math; epic-9 amendments 184–185)): base 8, damage steps +2 (to II) and +1
   // (to III, IV and V) — whole numbers — so the gun deals Eric's scale
@@ -941,11 +957,8 @@ function validateFlags(line: CatalogLine): string[] {
   for (const eq of line.appliesTo ?? []) {
     if (!EQUIPMENT_ID_SET.has(eq)) errs.push(`${line.id}: appliesTo unknown equipment '${eq}'`);
   }
-  if (line.healOnGrant !== undefined && line.healOnGrant !== true) errs.push(`${line.id}: healOnGrant may only be true`);
-  if (line.healOnGrant === true) {
-    const heals = line.tiers.some((t) => t.some((e) => e.kind === 'stat' && e.path === 'maxHp' && (e.add ?? 0) > 0));
-    if (!heals) errs.push(`${line.id}: healOnGrant requires a positive maxHp add effect`);
-  }
+  // The `healOnGrant` rules lived here until Story 10.3 deleted the flag with
+  // HULL POINTS (Eric 2026-11-04, epic-10 amendment 7).
   return errs;
 }
 
@@ -984,8 +997,8 @@ function validateShape(line: CatalogLine): string[] {
 
 /**
  * Validate ONE catalog line (authoring-time). Returns problems, empty = valid:
- * camelCase id, known kind, `tiers.length === cap`, valid effects, coherent
- * `healOnGrant`, real `appliesTo` equipment.
+ * camelCase id, known kind, `tiers.length === cap`, valid effects, real
+ * `appliesTo` equipment.
  */
 export function validateLine(line: CatalogLine): string[] {
   const errs: string[] = [];

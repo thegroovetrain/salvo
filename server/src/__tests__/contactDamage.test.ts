@@ -568,11 +568,11 @@ describe('WRECKS, FLEET PAIRS, DRONES, the GATE and CREDIT', () => {
     const w = bareWorld();
     const { a, b, vn } = headOnPair(w);
     w.applyCard(a, 'armor');
-    w.applyCard(a, 'armorPiercing');
-    w.applyCard(a, 'armorPiercing');
+    w.applyCard(a, 'power');
+    w.applyCard(a, 'power');
     w.applyCard(b, 'armor');
-    const eOnB = b.stats.armor - a.stats.armorPiercing;
-    const eOnA = a.stats.armor - b.stats.armorPiercing;
+    const eOnB = b.stats.armor - a.stats.power;
+    const eOnA = a.stats.armor - b.stats.power;
     expect(eOnB).toBeLessThan(0); // the fixture really pierces past B's Armor
     expect(eOnA).toBeGreaterThan(0); // ...and B really pierces nothing
     const nominal = contactHitDamage(a.stats.maxHp, b.stats.maxHp, vn, RAM);

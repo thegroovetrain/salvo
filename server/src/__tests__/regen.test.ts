@@ -31,17 +31,32 @@
 //     alone, and a 20 Hz trickle would loop the tone.
 
 import { describe, it, expect } from 'vitest';
-import { CATALOG, CONFIG, type GameEvent, type HullId } from '@salvo/shared';
+import { CATALOG, CONFIG, type CatalogLine, type GameEvent, type HullId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
 
 const REGEN = CONFIG.regen;
+
+/** PASSIVE HEALING's old rungs as an INJECTED test line: Story 10.3 (Eric
+ *  2026-11-04, epic-10 amendment 7) DELETED the production ladder, but the
+ *  per-hull regen stat it wrote still drives the tick until a later 10.3 wave
+ *  removes the regen, so the per-hull cases below keep a writer. */
+const TEST_HEALING = {
+  id: 'testHealing',
+  kind: 'ladder',
+  cap: 5,
+  tiers: new Array(5).fill([
+    { kind: 'stat', path: 'regen.missingPctPerS', add: 0.006 },
+    { kind: 'stat', path: 'regen.outOfCombatMs', add: -1000 },
+  ]),
+} as unknown as CatalogLine;
+const HEALING_CATALOG = { ...CATALOG, testHealing: TEST_HEALING };
 const DT = CONFIG.tick.simDtMs;
 const TICKS_PER_S = 1000 / DT;
 
 function bareWorld(seed = 3): World {
-  const w = new World(seed);
+  const w = new World(seed, CONFIG.map.playerCap, CONFIG.zone, { catalog: HEALING_CATALOG });
   w.map.islands.length = 0;
   w.map.heightRaster = flatRaster();
   return w;
@@ -73,9 +88,9 @@ function missingAfter(missing0: number, ticks: number, pct: number = REGEN.missi
   return missing0 * (1 - pct * (DT / 1000)) ** ticks;
 }
 
-/** Fit the PASSIVE HEALING ladder to its catalog cap through the real grant. */
+/** Fit the TEST healing ladder to its cap through the real grant. */
 function maxHealing(w: World, rec: ShipRecord): void {
-  for (let i = 0; i < CATALOG.passiveHealing.cap; i += 1) w.applyCard(rec, 'passiveHealing');
+  for (let i = 0; i < TEST_HEALING.cap; i += 1) w.applyCard(rec, TEST_HEALING.id);
 }
 
 describe('the 15 s wait', () => {
@@ -239,7 +254,7 @@ describe('the combat clock (amendment 47)', () => {
   });
 });
 
-describe('the PASSIVE HEALING ladder — the wait and rate are PER HULL (Story 9.6)', () => {
+describe('a regen ladder (the deleted PASSIVE HEALING, injected) — the wait and rate are PER HULL (Story 9.6)', () => {
   it('a laddered hull and an un-carded hull idle the same time: only the laddered one has finished its wait', () => {
     const w = bareWorld();
     const plain = place(w, 'a');

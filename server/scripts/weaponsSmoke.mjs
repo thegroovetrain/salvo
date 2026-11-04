@@ -342,7 +342,7 @@ function torpedoFit(line, shooterCls, target, rangeU) {
     const shooter = effectiveStats(CONFIG.shipClasses[shooterCls], Array(cards).fill(line));
     // The blow the target's hull takes: the server's armor curve over its armor
     // minus the shooter's piercing, floored (World.floorBlow) — as matchSmoke.
-    const blow = Math.max(1, Math.floor(row.damage * damageMultiplierFor(tgt.armor - shooter.armorPiercing)));
+    const blow = Math.max(1, Math.floor(row.damage * damageMultiplierFor(tgt.armor - shooter.power)));
     return { cards, row, blow, plan: killPlan({ hp: tgt.maxHp, damage: blow, maxAmmo: row.maxAmmo, reloadMs: row.reloadMs, flightMs, regen: tgt.regen }) };
   };
   const one = planFor(1);

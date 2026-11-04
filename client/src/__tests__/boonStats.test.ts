@@ -57,8 +57,8 @@ describe('ownStatsChanged — the recompute gate', () => {
 
   it('stays quiet when cls and the boon list are unchanged (per-frame fast path)', () => {
     expect(ownStatsChanged(ownShip('torpedoBoat'), ownShip('torpedoBoat'))).toBe(false);
-    const prev = ownShip('torpedoBoat', ['radarSweep', 'radarSweep']);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['radarSweep', 'radarSweep']), prev)).toBe(false);
+    const prev = ownShip('torpedoBoat', ['intel', 'intel']);
+    expect(ownStatsChanged(ownShip('torpedoBoat', ['intel', 'intel']), prev)).toBe(false);
   });
 
   it('IGNORES pts/offer-only deltas — banking a level must not fire the stats/fog recompute', () => {
@@ -66,7 +66,7 @@ describe('ownStatsChanged — the recompute gate', () => {
     const next = {
       ...ownShip('torpedoBoat'),
       pts: 2,
-      offer: ['radarSweep', 'hullPoints', 'deckGun', 'navalMines'],
+      offer: ['intel', 'armor', 'deckGun', 'navalMines'],
     };
     expect(ownStatsChanged(next, prev)).toBe(false);
   });
@@ -83,19 +83,19 @@ describe('ownStatsChanged — the recompute gate', () => {
 
   it('fires on ANY boons change: first fit, append, removal, and reorder', () => {
     const prev = ownShip('torpedoBoat', []);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['radarSweep']), prev)).toBe(true);
-    const one = ownShip('torpedoBoat', ['radarSweep']);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['radarSweep', 'hullPoints']), one)).toBe(true);
+    expect(ownStatsChanged(ownShip('torpedoBoat', ['intel']), prev)).toBe(true);
+    const one = ownShip('torpedoBoat', ['intel']);
+    expect(ownStatsChanged(ownShip('torpedoBoat', ['intel', 'armor']), one)).toBe(true);
     expect(ownStatsChanged(ownShip('torpedoBoat', []), one)).toBe(true); // redeploy wipe
-    const two = ownShip('torpedoBoat', ['radarSweep', 'hullPoints']);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['hullPoints', 'radarSweep']), two)).toBe(true);
+    const two = ownShip('torpedoBoat', ['intel', 'armor']);
+    expect(ownStatsChanged(ownShip('torpedoBoat', ['armor', 'intel']), two)).toBe(true);
   });
 
   it('fires on a REPEAT of a line already held — a stack is a real stat change', () => {
     // The deck's copy-count law: occurrences stack, so appending the SAME id is
     // exactly as load-bearing as appending a new one.
-    const one = ownShip('torpedoBoat', ['radarSweep']);
-    expect(ownStatsChanged(ownShip('torpedoBoat', ['radarSweep', 'radarSweep']), one)).toBe(true);
+    const one = ownShip('torpedoBoat', ['intel']);
+    expect(ownStatsChanged(ownShip('torpedoBoat', ['intel', 'intel']), one)).toBe(true);
   });
 
   it('fires on a DOCTRINE SWAP — the rival id replaces the held one in place', () => {
@@ -105,8 +105,8 @@ describe('ownStatsChanged — the recompute gate', () => {
   });
 
   it('stays quiet on an IDENTICAL cards list in a fresh array (per-frame reallocation must not refire)', () => {
-    const prev = ownShip('torpedoBoat', ['radarSweep', 'hullPoints']);
-    const next = ownShip('torpedoBoat', ['radarSweep', 'hullPoints']);
+    const prev = ownShip('torpedoBoat', ['intel', 'armor']);
+    const next = ownShip('torpedoBoat', ['intel', 'armor']);
     expect(next.cards).not.toBe(prev.cards); // genuinely fresh arrays
     expect(ownStatsChanged(next, prev)).toBe(false);
   });
@@ -117,7 +117,7 @@ describe('HUD denominators react to effective stats', () => {
 
   it('speed ladder: at the same true speed, a SPEED stack reads a LOWER fraction', () => {
     const base = effectiveStats(TB).kinematics;
-    const fast = statsFor('torpedoBoat', { speed: 2 }).kinematics;
+    const fast = statsFor('torpedoBoat', { engines: 2 }).kinematics;
     expect(speedLadderFraction(20, fast)).toBeLessThan(speedLadderFraction(20, base));
     // Full ahead at the STACKED max still pins the needle at exactly 1.
     expect(speedLadderFraction(fast.maxSpeed, fast)).toBe(1);
@@ -180,10 +180,6 @@ describe('HUD denominators react to effective stats', () => {
     });
   });
 
-  it('hp bar: the effective maxHp denominator grows with HULL stacks', () => {
-    expect(statsFor('torpedoBoat', { hullPoints: 3 }).maxHp).toBeGreaterThan(TB.hp);
-    // Three copies of one line stack by occurrence — the deck's copy-count law.
-    const one = statsFor('torpedoBoat', { hullPoints: 1 }).maxHp - TB.hp;
-    expect(statsFor('torpedoBoat', { hullPoints: 3 }).maxHp).toBe(TB.hp + 3 * one);
-  });
+  // The "maxHp grows by HULL stacks" case lived here until Story 10.3 deleted
+  // HULL POINTS (Eric 2026-11-04, epic-10 amendment 7): nothing writes maxHp.
 });

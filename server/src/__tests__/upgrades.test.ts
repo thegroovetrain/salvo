@@ -948,7 +948,7 @@ describe('equipment lines — copy 1 fits the weapon into the first EMPTY weapon
     const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
     a.state.speed = 0;
     a.bankedLevels = 1 + extraLevels;
-    a.offer = ['navalMines', 'deckGun', 'hullPoints', 'radarSweep'];
+    a.offer = ['navalMines', 'deckGun', 'armor', 'intel'];
     return { w, a };
   }
 
@@ -1015,47 +1015,19 @@ describe('equipment lines — copy 1 fits the weapon into the first EMPTY weapon
 // doctrines.test.ts rather than here, where it only ever existed as the
 // counterexample to a swap.
 
-// ---------- heal-on-grant + capacity raises ----------------------------------
+// ---------- grant-time effects + capacity raises -----------------------------
 
-/** One HULL card's maxHp raise, read off the one fold (effectiveStats) rather
- *  than restated — the ladder value is Eric's dial, not this suite's. */
-const HULL_STEP =
-  effectiveStats(CONFIG.shipClasses.torpedoBoat, ['hullPoints']).maxHp - effectiveStats(CONFIG.shipClasses.torpedoBoat).maxHp;
-
-describe('grant-time effects — healOnGrant and raised-cap top-ups', () => {
-  it('HULL heals exactly the granted maxHp delta, clamped to the new cap (spec matrix row)', () => {
-    expect(HULL_STEP).toBeGreaterThan(0); // non-vacuity: a HULL card raises the cap
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    const baseMax = a.stats.maxHp;
-    a.hp = baseMax - 80;
-    w.applyCard(a, 'hullPoints'); // +HULL_STEP maxHp, healOnGrant
-    expect(a.stats.maxHp).toBe(baseMax + HULL_STEP);
-    expect(a.hp).toBe(baseMax - 80 + HULL_STEP); // healed by the delta, not to full
-    // Near-full: the heal is still exactly the delta (the raise moves the cap
-    // by the same amount, so the defensive clamp can never bind for shipHull —
-    // hp tracks the same distance below the new cap).
-    a.hp = a.stats.maxHp - 5;
-    w.applyCard(a, 'hullPoints');
-    expect(a.hp).toBe(a.stats.maxHp - 5);
-    expect(a.hp).toBeLessThanOrEqual(a.stats.maxHp); // never above the cap
-  });
-
-  it('a DEAD hull does not heal on a HULL fit (respawn restores full effective hp anyway)', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    w.respawnEnabled = false;
-    w.sinkShip('a');
-    w.applyCard(a, 'hullPoints');
-    expect(a.hp).toBe(0);
-    expect(a.stats.maxHp).toBe(CONFIG.shipClasses.torpedoBoat.hp + HULL_STEP); // the cap still moved
-  });
-
-  it('a NON-heal fit never heals (HULL is the only line carrying healOnGrant)', () => {
+// The HULL POINTS heal-on-grant tests lived here until Story 10.3 DELETED the
+// line, the `healOnGrant` flag and world.ts's heal branch (Eric 2026-11-04,
+// epic-10 amendment 7). No grant heals now.
+describe('grant-time effects — no grant heals, and raised-cap top-ups', () => {
+  it('a fit never heals — a ladder or a gun rung alike (Story 10.3 deleted heal-on-grant)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     a.hp = 40;
     w.applyCard(a, 'deckGun');
+    expect(a.hp).toBe(40);
+    w.applyCard(a, 'armor');
     expect(a.hp).toBe(40);
   });
 
@@ -1226,11 +1198,11 @@ describe('the offer is never empty — consumables are never filtered out (Story
   it('...and the same refusal holds for a capped LADDER and a capped EQUIPMENT line', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    for (let i = 0; i < CATALOG.hullPoints.cap; i += 1) w.applyCard(a, 'hullPoints');
+    for (let i = 0; i < CATALOG.armor.cap; i += 1) w.applyCard(a, 'armor');
     a.bankedLevels = 1;
-    a.offer = ['hullPoints'];
+    a.offer = ['armor'];
     expect(w.spendPoint('a', 0)).toBe(false);
-    expect(boonStackCount(a.cards, 'hullPoints')).toBe(CATALOG.hullPoints.cap);
+    expect(boonStackCount(a.cards, 'armor')).toBe(CATALOG.armor.cap);
     expect(a.bankedLevels).toBe(1);
   });
 
@@ -1364,7 +1336,7 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
   it('respawn (waiting phase) PRESERVES the build: boons, stats, effective hp + pools, bank, XP', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    stack(w, a, 'hullPoints', 2);
+    stack(w, a, 'armor', 2);
     bank(w, a, 2);
     w.grantXp(a, 0.5); // partial progress toward the next level
     const bankBefore = a.bankedLevels;
@@ -1374,9 +1346,11 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     // Story 5.2: the revive waits on the founder tick (window > respawn delay).
     for (let i = 0; i < Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 1; i++) w.step();
     expect(isAfloat(a.lifecycle)).toBe(true);
-    expect(a.cards).toEqual(['hullPoints', 'hullPoints']);
-    expect(a.stats.maxHp).toBe(effectiveStats(a.cls, ['hullPoints', 'hullPoints']).maxHp);
-    expect(a.stats.maxHp).toBeGreaterThan(CONFIG.shipClasses.torpedoBoat.hp);
+    expect(a.cards).toEqual(['armor', 'armor']);
+    // Story 10.3 (Eric 2026-11-04, epic-10 amendment 7): HULL POINTS is gone,
+    // so the preserved build is read through ARMOR's folded stat instead.
+    expect(a.stats).toEqual(effectiveStats(a.cls, ['armor', 'armor']));
+    expect(a.stats.armor).toBeGreaterThan(effectiveStats(a.cls).armor);
     expect(a.hp).toBe(a.stats.maxHp); // full EFFECTIVE hp
     expect(a.bankedLevels).toBe(bankBefore);
     expect(front(a)).toEqual(offerBefore);
@@ -1395,7 +1369,7 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     a.state.speed = 0;
     // Fit an equipment line so the live FIT diverges hard from a fresh build.
     a.bankedLevels = 1;
-    a.offer = ['navalMines', 'deckGun', 'hullPoints', 'radarSweep'];
+    a.offer = ['navalMines', 'deckGun', 'armor', 'intel'];
     w.spendPoint('a', 0);
     bank(w, a, 2);
     const bankBeforeReset = a.bankedLevels;
@@ -1481,7 +1455,7 @@ describe('per-observer sweep (intelSweep)', () => {
     const w = bareWorld();
     const up = place(w, 'up', 0, 0);
     const base = place(w, 'base', 0, 0);
-    stack(w, up, 'radarSweep', 1); // +3 rpm
+    stack(w, up, 'intel', 1); // +3 rpm
     const ticks = 20; // 1s — well inside the first (shorter) revolution
     for (let i = 0; i < ticks; i++) w.step();
     // Expected values read the effectiveStats contract (the desync firewall)
@@ -1662,7 +1636,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     const a = place(w, 'a', 0, 0);
     gunAtHalfReload(w, a);
     const before = a.loadout[SLOT_GUN].state!.reloadMsLeft;
-    w.applyCard(a, 'hullPoints'); // +HULL_STEP maxHp, heal-on-grant: ratio 1
+    w.applyCard(a, 'armor'); // a ladder that moves no reload: ratio 1
     expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(before);
     w.applyCard(a, 'testGunBarrel'); // a GUN card whose tier does not move: ratio 1
     expect(a.stats.equipment.gun.barrels).toBe(CONFIG.gun.barrels + 1); // the card did land
@@ -1789,7 +1763,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     const w = bareWorld();
     const up = place(w, 'up', 0, -200);
     place(w, 'base', 0, 200);
-    stack(w, up, 'speed', 2);
+    stack(w, up, 'engines', 2);
     for (let tick = 1; tick <= 200; tick++) {
       w.submitInput('up', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
       w.submitInput('base', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
@@ -1919,10 +1893,10 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'battleship');
     w.applyCard(a, 'broadside');
-    w.applyCard(a, 'hullPoints');
+    w.applyCard(a, 'armor');
     w.resetForMatchStart();
-    expect(a.cards).toEqual(['broadside', 'hullPoints']);
-    expect(a.stats).toEqual(effectiveStats(a.cls, ['broadside', 'hullPoints']));
+    expect(a.cards).toEqual(['broadside', 'armor']);
+    expect(a.stats).toEqual(effectiveStats(a.cls, ['broadside', 'armor']));
     expect(a.loadout[WEAPON_SLOTS[0]].equipmentId).toBe('broadside');
     // A hull that JOINS, by contrast, still comes up with nothing at all.
     const fresh = place(w, 'fresh', 0, 0, 0, 'battleship');

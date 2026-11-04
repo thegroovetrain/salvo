@@ -444,7 +444,7 @@ describe('drone drops — a drop landing while a refit hand is open (Eric 2026-1
     const a = place(w, 'a');
     for (const id of HELD) w.applyCard(a, id);
     a.bankedLevels = 1;
-    a.offer = ['healingBuoy', 'speed', 'reload', 'radarSweep'];
+    a.offer = ['healingBuoy', 'engines', 'reload', 'intel'];
     const offer = a.offer;
     const offerBefore = [...offer];
     const fourth = CARRIED.find((id) => !HELD.includes(id) && id !== 'healingBuoy')!;
@@ -468,7 +468,7 @@ describe('drone drops — a drop landing while a refit hand is open (Eric 2026-1
     const cap = CATALOG.hullRepair.cap;
     for (let i = 0; i < cap - 1; i++) w.applyCard(a, 'hullRepair');
     a.bankedLevels = 1;
-    a.offer = ['hullRepair', 'speed', 'reload', 'radarSweep'];
+    a.offer = ['hullRepair', 'engines', 'reload', 'intel'];
     const offer = a.offer;
     const offerBefore = [...offer];
     const d = place(w, 'd', 200, 0, 'droneSmall', 'fleet');

@@ -3641,10 +3641,9 @@ export class World {
    * every acquisition runs through (a spend, a dev spawn fit, a directed test
    * grant). Copies 2+, ladders, add-ons and consumables record nothing.
    *
-   * HEAL-ON-GRANT (ARMOR — the ONLY heal path): a `healOnGrant` line heals
-   * exactly the maxHp DELTA this fit produced (clamped to the new cap, never
-   * negative; only a LIVING hull heals — a corpse gets full effective hp on
-   * respawn anyway).
+   * HEAL-ON-GRANT is GONE: its only line, HULL POINTS, and the `healOnGrant`
+   * flag were DELETED by Story 10.3 (Eric 2026-11-04, epic-10 amendment 7),
+   * so no grant heals. The hp clamp below stays for a maxHp-lowering fit.
    *
    * NEVER FIT AN ID WITH NO MODULE (Story 8.1): a `slotFill` whose target has
    * no row in the server EQUIPMENT registry is a SILENT NO-OP. Stub lines are
@@ -3682,10 +3681,8 @@ export class World {
     // equipment line steps every OTHER captain's weight for it down.
     if (World.isTake(line, copiesBefore)) this.recordTake(ship.id, lineId as LineId);
     const prevStats = this.refoldCards(ship);
-    if (line?.healOnGrant === true && isAfloat(ship.lifecycle)) {
-      const delta = Math.max(0, ship.stats.maxHp - prevStats.maxHp);
-      ship.hp = Math.min(ship.hp + delta, ship.stats.maxHp);
-    }
+    // The heal-on-grant branch (HULL POINTS' `healOnGrant`) sat here until
+    // Story 10.3 deleted it (Eric 2026-11-04, epic-10 amendment 7).
     // hp invariant: a maxHp-LOWERING fit may not leave hp above the cap.
     ship.hp = Math.min(ship.hp, ship.stats.maxHp);
     if (line !== undefined) this.applyGrantSlots(ship, line, lineId);
@@ -5986,7 +5983,8 @@ export class World {
    * a second multiply (amendment 88) — so at Tier 0 under HUNKER, E 100 → ×0.5.
    *
    * THE ATTACKER IS READ LIVE AT IMPACT (amendment 156): the piercing is the
-   * CURRENT `stats.armorPiercing` of the `byId` record, never stamped on the
+   * CURRENT `stats.power` (Story 9.9's `armorPiercing`, renamed by Story 10.3,
+   * Eric 2026-11-04, epic-10 amendment 7) of the `byId` record, never stamped on the
    * ordnance at launch — a card bought while a torpedo swims counts; a SUNK
    * owner's record persists in `this.ships` until the client leaves, so their
    * mine / torpedo / burn still pierces; an owner who LEFT (removeShip) reads
@@ -6019,18 +6017,20 @@ export class World {
   private armorDamage(victim: ShipRecord, amount: number, src: DamageSource, byId: string | undefined): number {
     if (src === 'storm') return amount;
     const bonus = this.now < victim.hunkerUntil ? victim.stats.equipment.hunker.armorBonus : 0;
-    const piercing = this.piercingOf(byId);
+    const piercing = this.powerOf(byId);
     const scaled = amount * damageMultiplierFor(victim.stats.armor + bonus - piercing);
     return src === 'burn' || src === 'grind' ? scaled : World.floorBlow(amount, scaled);
   }
 
-  /** The attacker's ARMOR PIERCING, read LIVE at impact (Story 9.9, epic-9
-   *  amendment 156): the current stats of the `byId` record. No attacker (the
-   *  coast, a wreck) and an attacker who left the room both read 0; a sunk
-   *  attacker's record persists, so it still reads its piercing. */
-  private piercingOf(byId: string | undefined): number {
+  /** The attacker's POWER (Story 9.9's ARMOR PIERCING; `piercingOf` reading
+   *  `stats.armorPiercing` until Story 10.3, Eric 2026-11-04, epic-10
+   *  amendment 7), read LIVE at impact (Story 9.9, epic-9 amendment 156): the
+   *  current stats of the `byId` record. No attacker (the coast, a wreck) and
+   *  an attacker who left the room both read 0; a sunk attacker's record
+   *  persists, so it still reads its power. */
+  private powerOf(byId: string | undefined): number {
     if (byId === undefined) return 0;
-    return this.ships.get(byId)?.stats.armorPiercing ?? 0;
+    return this.ships.get(byId)?.stats.power ?? 0;
   }
 
   /** A whole blow after the Armor multiply: floored to a whole number, but a
@@ -7673,7 +7673,7 @@ export class World {
 
   /**
    * THE RADAR BUOY's own beam (Story 10.9, AC 5): every radar-kind buoy turns
-   * at its OWNER's `stats.sweepPeriodMs` (the `radarSweep` ladder — Eric's
+   * at its OWNER's `stats.sweepPeriodMs` (the `intel` ladder, `radarSweep` until Story 10.3 — Eric's
    * "intel speed RPM"), re-read every tick while the owner's record exists
    * and KEPT at its last value once the owner is gone (the beam still turns;
    * its paints go to nobody — perception paints for the owner only). The

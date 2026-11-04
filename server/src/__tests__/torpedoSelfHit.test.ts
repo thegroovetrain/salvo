@@ -52,8 +52,8 @@ const OVERDRIVE: Catalog = {
   // the torpedo boat with no torpedo. Tier I is the bare weapon, so carrying
   // it moves no number here.
   heavyTorpedo: CATALOG.heavyTorpedo,
-  speed: {
-    id: 'speed',
+  engines: {
+    id: 'engines',
     kind: 'ladder',
     cap: 9,
     tiers: new Array(9).fill([{ kind: 'stat', path: 'kinematics.maxSpeed', add: 2.5 }]),
@@ -117,7 +117,7 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
   function runFullThrottleShot(aim: number, maxSpeedStacks = 0): { dmgs: DamageEvent[]; ship: ShipRecord } {
     const w = bareWorld(11, maxSpeedStacks > 0 ? { catalog: OVERDRIVE } : undefined);
     const a = place(w, 'a', 0, 0, 0); // torpedoBoat, bow points +x (heading 0)
-    if (maxSpeedStacks > 0) stack(w, a, 'speed', maxSpeedStacks);
+    if (maxSpeedStacks > 0) stack(w, a, 'engines', maxSpeedStacks);
 
     const dmgs: DamageEvent[] = [];
 

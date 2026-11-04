@@ -98,17 +98,17 @@ import {
  * the CANNON ladder, so the family is the one line.
  */
 const LINE_NAMES: Readonly<Record<LineId, string>> = {
-  // --- the eight universal ladders -----------------------------------------
-  // HULL, NOT `HULL POINTS` (Story 9.6, Eric 2026-10-13, epic-9 amendment 93):
-  // the old ARMOR ladder's id is `hullPoints`; ARMOR is Story 9.7's id now.
-  hullPoints: 'HULL',
+  // --- the six universal ladders -------------------------------------------
+  // Story 10.3 (Eric 2026-11-04, epic-10 amendment 7) DELETED `hullPoints`
+  // (HULL) and `passiveHealing` (PASSIVE HEALING) and RENAMED the ids
+  // `armorPiercing` -> `power`, `speed` -> `engines`, `turning` -> `rudder`,
+  // `radarSweep` -> `intel`. The display words move in a later 10.3 wave.
   armor: 'ARMOR', // Story 9.7 (epic-9 amendments 110–117)
-  armorPiercing: 'ARMOR PIERCING', // Story 9.9 (epic-9 amendments 145, 159)
-  speed: 'SPEED',
-  turning: 'TURNING',
-  radarSweep: 'RADAR SWEEP',
+  power: 'ARMOR PIERCING', // Story 9.9 (epic-9 amendments 145, 159)
+  engines: 'SPEED',
+  rudder: 'TURNING',
+  intel: 'RADAR SWEEP',
   reload: 'RELOAD',
-  passiveHealing: 'PASSIVE HEALING', // Story 9.6 (amendment 95)
   // --- the deck-gun family --------------------------------------------------
   deckGun: 'CANNON',
   // --- the eleven equipment lines -------------------------------------------
@@ -205,7 +205,7 @@ export function boonKindLabel(kind: string): string {
  * THE REFIT CARD'S KIND (Eric ruling 2026-09-30, epic-8 amendment 188) — what
  * the card does for the player, which is a function of the line AND the copies
  * held: copy 1 of an equipment line FITS a weapon; every later copy, and every
- * gun ladder, upgrades a weapon; the eight shipwide ladders upgrade the hull.
+ * gun ladder, upgrades a weapon; the six shipwide ladders upgrade the hull.
  * The refit card colors its KIND word and resting edge by this (dual-coded:
  * the word carries the kind with the color stripped).
  */
@@ -221,7 +221,7 @@ const GUN_LADDER_TARGET: Readonly<Partial<Record<LineId, EquipmentId>>> = {
 };
 
 /** Pure: the card's kind. Any ladder that is not a gun ladder reads as a SHIP
- *  UPGRADE (fail-open: the eight shipwide ladders are every such line today). */
+ *  UPGRADE (fail-open: the six shipwide ladders are every such line today). */
 export function cardKind(line: CatalogLine, copiesHeld: number): CardKind {
   if (line.kind === 'equipment') return Number.isFinite(copiesHeld) && copiesHeld >= 1 ? 'weaponUpgrade' : 'weapon';
   if (line.kind === 'ladder') return Object.hasOwn(GUN_LADDER_TARGET, line.id) ? 'weaponUpgrade' : 'shipUpgrade';
@@ -339,7 +339,7 @@ function degPerSec(radPerSec: number): string {
  * `current → next`, and the WHOLE of what a stat card's face says (R2.17).
  *
  * PARTIAL over the catalog: the five consumables are stubs and the five add-ons
- * are verbs, so neither has a number. What speaks is the eight universal
+ * are verbs, so neither has a number. What speaks is the six universal
  * ladders, the deck-gun family, and every LIVE equipment line (its own reload,
  * generated above). Each label below is carried over verbatim from the v2 line
  * this one replaces (see the `<-` notes), except TURNING, whose word is the
@@ -347,30 +347,30 @@ function degPerSec(radPerSec: number): string {
  */
 const STAT_LINES: Readonly<Partial<Record<LineId, StatLine>>> = {
   ...equipmentStatLines(),
-  hullPoints: { label: 'Max hull', path: 'maxHp' }, // <- shipHull
+  // HULL POINTS' `Max hull` row sat here until Story 10.3 deleted the line
+  // (Eric 2026-11-04, epic-10 amendment 7).
   // ARMOR (Story 9.7, Eric 2026-10-13): ONE row, the whole-number Armor —
   // `ARMOR 0 → 20` since Story 9.9 (+20 a card, epic-9 amendment 145); `num`
   // prints an integer bare, no unit.
   armor: { label: 'Armor', path: 'armor' },
   // ARMOR PIERCING (Story 9.9, epic-9 amendment 159 — mirrors ARMOR): ONE row,
-  // the whole-number piercing — `ARMOR PIERCING 0 → 20`.
-  armorPiercing: { label: 'Armor Piercing', path: 'armorPiercing' },
-  speed: { label: 'Top speed', path: 'kinematics.maxSpeed' }, // <- shipSpeed
+  // the whole-number piercing — `ARMOR PIERCING 0 → 20`. Line and stat
+  // `armorPiercing` -> `power` since Story 10.3 (epic-10 amendment 7).
+  power: { label: 'Armor Piercing', path: 'power' },
+  engines: { label: 'Top speed', path: 'kinematics.maxSpeed' }, // <- shipSpeed (`speed` until Story 10.3)
   // TURNING PRINTS IN DEGREES PER SECOND (Eric 2026-09-30, review gate P10):
   // a whole number with its unit — 0.8 rad/s reads `46°/s` — on the card face,
   // the SHIP tooltip and the results build line alike (one printer).
-  turning: { label: 'Turning', path: 'kinematics.turnRate', fmt: degPerSec },
-  // <- intelSweep
-  radarSweep: { label: 'Radar sweep', path: 'sweepRpm', fmt: (v) => `${num(v)} RPM` },
+  rudder: { label: 'Turning', path: 'kinematics.turnRate', fmt: degPerSec }, // `turning` until Story 10.3
+  // <- intelSweep (`radarSweep` until Story 10.3)
+  intel: { label: 'Radar sweep', path: 'sweepRpm', fmt: (v) => `${num(v)} RPM` },
   // <- shipCooldown. The ONE global cooldown lever: `cooldownScale` multiplies
   // every equipment's reload post-fold, so this row reads the scalar itself
   // rather than any single weapon — printed as a percentage of base so
   // 100% → 95% reads downward.
   reload: { label: 'All cooldowns', path: 'cooldownScale', fmt: pct },
-  // PASSIVE HEALING (Story 9.6, Eric 2026-10-13, epic-9 amendment 95): ONE
-  // row, the rate — a share of MISSING hull per second, `2 %/S` at base to
-  // `5 %/S` at V. The out-of-combat wait the ladder also shortens is not a row.
-  passiveHealing: { label: 'Heal', path: 'regen.missingPctPerS', fmt: (v) => `${num(v * 100)} %/S` },
+  // PASSIVE HEALING's `Heal` row sat here until Story 10.3 deleted the line
+  // (Eric 2026-11-04, epic-10 amendment 7).
   // The DECK GUN ladder's HEADLINE is damage (its own reload is derived from
   // the tier in clampStats and stays silent): since Story 9.12 every CANNON
   // rung authors a damage step (8/10/11/12/13) and none a barrel — the two
@@ -780,7 +780,7 @@ function diffRow(path: string, before: EffectiveStats, after: EffectiveStats): C
  * half-tube is still bought and still lands, one tier later.
  *
  * A LADDER LINE'S OWN CARD DOES NOT TAKE THE RULE, because a ladder rung has no
- * reload row to fall back on: `turning` at rungs II and IV prints the same
+ * reload row to fall back on: `rudder` (was `turning`) at rungs II and IV prints the same
  * number on both sides, and dropping those rows would hand the player a BLANK
  * card rather than an honest one. Whether a ladder should say something else
  * there is a design question nobody has ruled on — the grid law pins that no
@@ -1232,22 +1232,21 @@ export function consumableStatRows(id: string): CardStatRow[] {
   return Object.hasOwn(CONSUMABLE_ROWS, id) ? (CONSUMABLE_ROWS[id as LineId]?.() ?? []) : [];
 }
 
-/** The eight shipwide ladders, in the order the SHIP panel prints them
- *  (PASSIVE HEALING joined last in Story 9.6, amendment 95; ARMOR right after
- *  HULL in Story 9.7, Eric 2026-10-13; ARMOR PIERCING right after ARMOR in
- *  Story 9.9, epic-9 amendment 159). */
+/** The six shipwide ladders, in the order the SHIP panel prints them
+ *  (ARMOR in Story 9.7, Eric 2026-10-13; ARMOR PIERCING — `power` since
+ *  10.3 — right after ARMOR in Story 9.9, epic-9 amendment 159). Story 10.3
+ *  (Eric 2026-11-04, epic-10 amendment 7) deleted the HULL and PASSIVE
+ *  HEALING rows with their lines and renamed four ids in place. */
 const SHIP_STAT_LINES: readonly LineId[] = [
-  'hullPoints',
   'armor',
-  'armorPiercing',
-  'speed',
-  'turning',
-  'radarSweep',
+  'power',
+  'engines',
+  'rudder',
+  'intel',
   'reload',
-  'passiveHealing',
 ];
 
-/** Pure: the hull's eight stats off a LIVE fold (the HP globe's SHIP panel and a
+/** Pure: the hull's six stats off a LIVE fold (the HP globe's SHIP panel and a
  *  ship ladder's hover) — each ladder's own `STAT_LINES` word and printer. */
 export function shipStatRows(stats: EffectiveStats): CardStatRow[] {
   const rows: CardStatRow[] = [];

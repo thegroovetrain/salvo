@@ -180,7 +180,7 @@ describe('needleAngle — the solid amber pointer on the arc', () => {
     // ...and the SPEED LADDER IS INSIDE THE BONUS, because the hook's input is
     // the POST-FOLD kinematics: a SPEED-capped hull's boosted cap is the same
     // proportion of ITS cap, not the base cap plus a flat add.
-    const cappedDeck = Array.from({ length: CATALOG.speed.cap }, () => 'speed');
+    const cappedDeck = Array.from({ length: CATALOG.engines.cap }, () => 'engines');
     const capped = effectiveStats(CONFIG.shipClasses.torpedoBoat, cappedDeck).kinematics;
     const cappedBoosted = boostedKinematics(capped, FACTOR, true);
     expect(capped.maxSpeed).toBeGreaterThan(KIN.maxSpeed);
