@@ -638,6 +638,18 @@ describe('THE INDEX MODEL — the seven authored indices and what the fold deriv
     expect(s.equipment.gun.rangeU).toBeCloseTo(CONFIG.gun.rangeUAtV * (s.range / CONFIG.index.base), 9);
   });
 
+  it('the RANGE multiply fails CLOSED on a non-finite product: a hostile finite RANGE near MAX_VALUE leaves every reach a finite number (review gate 2026-11-04)', () => {
+    const huge: Catalog = {
+      range: { id: 'range' as LineId, kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: 'range', add: Number.MAX_VALUE }]] },
+    } as unknown as Catalog;
+    const s = effectiveStats(BASE, ['range'], huge);
+    expect(Number.isFinite(s.range)).toBe(true);
+    for (const w of RANGE_ROWS) {
+      expect(Number.isFinite(s.equipment[w].rangeU), w).toBe(true);
+      expect(s.equipment[w].rangeU, w).toBeGreaterThan(0);
+    }
+  });
+
   it('every index is floored WHOLE in the fold: armor / power at 0, the rest at 1 (injected fractional and near-zero steps)', () => {
     const frac: Catalog = Object.fromEntries(
       INDEX_IDS.map((k) => [k, { id: k as LineId, kind: 'ladder', cap: 1, tiers: [[{ kind: 'stat', path: k, add: 0.5 }]] }]),

@@ -114,5 +114,13 @@ export function deriveIndexStats(stats: EffectiveStats): void {
  */
 export function scaleDeckGunRange(stats: EffectiveStats): void {
   const scale = stats.range / CONFIG.index.base;
-  for (const id of RANGE_ROWS) stats.equipment[id].rangeU = stats.equipment[id].rangeU * scale;
+  for (const id of RANGE_ROWS) {
+    const row = stats.equipment[id];
+    const scaled = row.rangeU * scale;
+    // FAIL CLOSED on a non-finite product (review gate 2026-11-04): a finite
+    // but absurd RANGE (an injected catalog near MAX_VALUE) passes the fold's
+    // positive-finite effect gate, and the multiply alone would overflow to
+    // Infinity. The unscaled reach stands — the firewall's output stays finite.
+    if (Number.isFinite(scaled)) row.rangeU = scaled;
+  }
 }

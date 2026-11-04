@@ -300,4 +300,3 @@ describe('contact damage — Eric\'s calibration read from CONFIG.ram at mass = 
     expect(landGrindRate(NaN, RAM)).toBe(0);
   });
 });
-
