@@ -17,6 +17,7 @@ import {
   createTorpWake,
   createWakeRibbon,
   eachWakeSegment,
+  effectiveStats,
   hullEnvelope,
   HULL_IDS,
   mulberry32,
@@ -87,7 +88,7 @@ function components4(cells: Array<[number, number]>): number {
 describe('wakeCapacity — the DERIVED ring capacity (never a literal)', () => {
   it('is ceil(life[s] × maxSpeed ÷ wakeSampleU) + 2 for every hull envelope', () => {
     for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
-      const speed = CONFIG.shipClasses[cls].kinematics.maxSpeed;
+      const speed = effectiveStats(CONFIG.shipClasses[cls]).kinematics.maxSpeed;
       expect(wakeCapacity(speed, LIFE)).toBe(Math.ceil(((LIFE / 1000) * speed) / STEP) + 2);
     }
     // The ring is sized from the clock (the cycle-71 cut roughly halved it;
@@ -105,7 +106,7 @@ describe('wakeCapacity — the DERIVED ring capacity (never a literal)', () => {
   });
 
   it('a source at max speed for exactly one life never overwrites an unexpired sample (the margin is real)', () => {
-    const speed = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed;
+    const speed = effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics.maxSpeed;
     const r = createShipWake('torpedoBoat', speed);
     // 40s at 50ms ticks, straight line at full ahead, pruning as the server would.
     for (let tick = 0; tick <= 800; tick++) {

@@ -11,6 +11,7 @@ import {
   FLASH_WINDOW_MS,
   CONFIG,
   DRONE_HULL_IDS,
+  INDEX_IDS,
   fleetHullIds,
   fleetLevels,
   MSG,
@@ -529,8 +530,8 @@ describe('shared barrel', () => {
     expect(Object.keys(seen)).toEqual(['id', 'x', 'y', 'own', 'by', 'kind']);
     const frame: Pick<FrameMsg, 'decoys'> = { decoys: [own] };
     expect(frame.decoys).toHaveLength(1);
-    const shield: NonNullable<OwnShip['shield']> = { hp: 100, until: 10000 };
-    expect(shield.hp).toBe(CONFIG.shieldBlock.hp);
+    const shield: NonNullable<OwnShip['shield']> = { hp: CONFIG.shieldBlock.hp, until: 10000 };
+    expect(Object.keys(shield).sort()).toEqual(['hp', 'until']);
     // Story 10.9's three self-private own-ship fields compile in their shapes.
     const you: Pick<OwnShip, 'dazzledUntil' | 'buoyShield' | 'speedBuoyAt'> = {
       dazzledUntil: 12000,
@@ -611,11 +612,21 @@ describe('shared barrel', () => {
       expect(BOON_STAT_PATHS, w).toContain(`equipment.${w}.rangeU`);
     }
     expect(BOON_STAT_PATHS).toContain('equipment.machineGun.rateMs');
+    // THE SEVEN INDICES ARE THE AUTHORED PATHS (Story 10.3, Eric 2026-11-04,
+    // epic-10 amendment 7): `armor`, `power`, `reload`, `engines`, `rudder`,
+    // `intel`, `range` — pinned PRESENT; what they derive is pinned ABSENT below.
+    for (const idx of INDEX_IDS) expect(BOON_STAT_PATHS, idx).toContain(idx);
     for (const path of [
       'sweepPeriodMs', 'sightRange',
       // Story 9.7 (epic-9 amendments 86–88 / 110–117): the Armor multiplier
       // is DERIVED from `armor` (which IS addressable) — never a card path.
       'damageMultiplier',
+      // Story 10.3: DERIVED from the indices (sim/indexStats.ts) — the speed
+      // from ENGINES, the turn rate from RUDDER, the sweep from INTEL, the
+      // cooldown scale from RELOAD; `regen.*` is DELETED with PASSIVE HEALING
+      // and the out-of-combat regen; `armorPiercing` is renamed `power`.
+      'kinematics.maxSpeed', 'kinematics.turnRate', 'sweepRpm', 'cooldownScale',
+      'regen.missingPctPerS', 'regen.outOfCombatMs', 'armorPiercing',
       // Every weapon `rangeU` LEFT this list with Story 9.8 (ruling 125 — a
       // tiered dial the cards step, pinned PRESENT above).
       'equipment.phosphorShells.tier',

@@ -515,6 +515,106 @@ describe('catalog v3 identity', () => {
   });
 });
 
+// THE INDEX CARDS AND THE RE-RULED RUNGS (Story 10.3, Eric 2026-11-04, epic-10
+// amendment 7, rulings 4–9). Every step is READ from the catalog and compared
+// to the FOLDED delta; a rung total is Tier I + Σ steps. No literal is pinned.
+describe('STORY 10.3 — the six index ladders and the re-ruled weapon rungs', () => {
+  const TB = CONFIG.shipClasses.torpedoBoat;
+  const INDEX_LADDERS = ['armor', 'power', 'reload', 'engines', 'rudder', 'intel'] as const;
+  const addOf = (tier: readonly unknown[], path: string): number | undefined =>
+    (tier.find((e) => (e as { path?: string }).path === path) as { add?: number } | undefined)?.add;
+
+  it('the catalog has 28 lines and the six ship ladders are the six universal (hostless) ladders', () => {
+    expect(LINE_IDS).toHaveLength(28);
+    expect(Object.keys(CATALOG)).toHaveLength(28);
+    const universal = LINE_IDS.filter((id) => CATALOG[id].kind === 'ladder' && tierTargetOf(CATALOG[id]) === undefined);
+    expect([...universal].sort()).toEqual([...INDEX_LADDERS].sort());
+  });
+
+  it.each(INDEX_LADDERS.map((id) => [id] as const))('%s: five identical rungs, each ONE whole-number add on its own index, and the fold moves that index by exactly the authored step', (id) => {
+    const line = CATALOG[id];
+    expect(line.cap).toBe(5);
+    for (const tier of line.tiers) {
+      expect(tier).toEqual(line.tiers[0]);
+      expect(tier.map((e) => (e.kind === 'stat' ? e.path : e.kind))).toEqual([id]);
+    }
+    const step = addOf(line.tiers[0], id);
+    expect(step).toBeDefined();
+    expect(Number.isInteger(step) && (step as number) > 0).toBe(true);
+    for (let n = 0; n <= line.cap; n += 1) {
+      expect(effectiveStats(TB, new Array<LineId>(n).fill(id))[id], `${id} x${n}`).toBe(TB.index[id] + n * (step as number));
+    }
+  });
+
+  it('the six index ladders all author the SAME step (one ruler — ruling 4\'s "+20 flat" is one number, read once)', () => {
+    const steps = new Set(INDEX_LADDERS.map((id) => addOf(CATALOG[id].tiers[0], id)));
+    expect(steps.size).toBe(1);
+  });
+
+  it('no production card writes a DERIVED path any more: speed, turn rate, sweep RPM and cooldown scale are not stat paths', () => {
+    for (const id of LINE_IDS) {
+      for (const tier of CATALOG[id].tiers) {
+        for (const e of tier) {
+          if (e.kind !== 'stat') continue;
+          expect(['kinematics.maxSpeed', 'kinematics.turnRate', 'sweepRpm', 'cooldownScale'], `${id}: ${e.path}`).not.toContain(e.path);
+        }
+      }
+    }
+  });
+
+  it('the five stepped weapon lines (rulings 5–6): Tier V damage = Tier I + Σ steps, every step a positive whole number, uniform per line, FOULING MINES stepped at last', () => {
+    const lines = ['lightTorpedo', 'heavyTorpedo', 'navalMines', 'captiveMines', 'foulingMines'] as const;
+    for (const id of lines) {
+      const path = `equipment.${id}.damage`;
+      const steps = CATALOG[id].tiers.slice(1).map((tier) => addOf(tier, path) as number);
+      expect(steps, id).toHaveLength(4);
+      for (const st of steps) expect(Number.isInteger(st) && st > 0, id).toBe(true);
+      expect(new Set(steps).size, id).toBe(1);
+      const atI = effectiveStats(TB, [id]).equipment[id].damage;
+      const atV = effectiveStats(TB, new Array<LineId>(5).fill(id)).equipment[id].damage;
+      expect(atV, id).toBe(atI + steps.reduce((a, b) => a + b, 0));
+    }
+    // The torpedoes and the two light mines DOUBLE Tier I at Tier V (the ×2
+    // ladder rule carried: 200 → 400, 300 → 600, 100 → 200, 100 → 200); the
+    // NAVAL MINE's 200 → 300 is the one ruled exception (ruling 6).
+    for (const id of ['lightTorpedo', 'heavyTorpedo', 'captiveMines', 'foulingMines'] as const) {
+      const atI = effectiveStats(TB, [id]).equipment[id].damage;
+      const atV = effectiveStats(TB, new Array<LineId>(5).fill(id)).equipment[id].damage;
+      expect(atV, id).toBe(atI * 2);
+    }
+    const nmI = effectiveStats(TB, ['navalMines']).equipment.navalMines.damage;
+    const nmV = effectiveStats(TB, new Array<LineId>(5).fill('navalMines')).equipment.navalMines.damage;
+    expect(nmV).toBeGreaterThan(nmI);
+    expect(nmV).toBeLessThan(nmI * 2);
+  });
+
+  it('STAR and PHOSPHOR SHELLS (ruling 9): four whole-number burst steps DOUBLING the Tier I burst at V; phosphor\'s burn steps uniform and doubling its base', () => {
+    for (const id of ['starShells', 'phosphorShells'] as const) {
+      const steps = CATALOG[id].tiers.slice(1).map((tier) => addOf(tier, `equipment.${id}.damage`) as number);
+      for (const st of steps) expect(Number.isInteger(st) && st > 0, id).toBe(true);
+      const atI = effectiveStats(TB, [id]).equipment[id].damage;
+      const atV = effectiveStats(TB, new Array<LineId>(5).fill(id)).equipment[id].damage;
+      expect(atV, id).toBe(atI + steps.reduce((a, b) => a + b, 0));
+      expect(atV, id).toBe(atI * 2);
+    }
+    const dps = CATALOG.phosphorShells.tiers.slice(1).map((tier) => addOf(tier, 'equipment.phosphorShells.dps') as number);
+    expect(new Set(dps).size).toBe(1);
+    const atI = effectiveStats(TB, ['phosphorShells']).equipment.phosphorShells.dps;
+    const atV = effectiveStats(TB, new Array<LineId>(5).fill('phosphorShells')).equipment.phosphorShells.dps;
+    expect(atV).toBe(atI + dps.reduce((a, b) => a + b, 0));
+    expect(atV).toBe(atI * 2);
+  });
+
+  it('the ×3 placeholders (ruling 10): CANNON and FLAK still author a whole-number damage step on every rung, and their Tier V is Tier I + Σ steps', () => {
+    for (const [line, w] of [['deckGun', 'gun'], ['flak', 'flak']] as const) {
+      const steps = CATALOG[line].tiers.map((tier) => addOf(tier, `equipment.${w}.damage`) as number);
+      for (const st of steps) expect(Number.isInteger(st) && st > 0, line).toBe(true);
+      const atV = effectiveStats(TB, new Array<LineId>(CATALOG[line].cap).fill(line)).equipment[w].damage;
+      expect(atV, line).toBe(CONFIG[w].damage + steps.reduce((a, b) => a + b, 0));
+    }
+  });
+});
+
 describe('validateCatalog', () => {
   it('passes the production catalog', () => {
     expect(validateCatalog()).toEqual([]);
@@ -658,7 +758,8 @@ describe('THE ORDER-INDEPENDENCE PROPERTY', () => {
     const five = effectiveStats(cls, new Array<LineId>(5).fill('reload'));
     const nine = effectiveStats(cls, new Array<LineId>(9).fill('reload'));
     expect(nine).toEqual(five);
-    expect(five.cooldownScale).toBe(0.75);
+    const step = (CATALOG.reload.tiers[0][0] as { add: number }).add;
+    expect(five.reload).toBe(cls.index.reload + CATALOG.reload.cap * step);
   });
 });
 

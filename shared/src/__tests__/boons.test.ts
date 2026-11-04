@@ -123,13 +123,12 @@ const diff = (a: EffectiveStats, b: EffectiveStats): string[] => {
 describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)', () => {
   it('is exactly the top-level paths plus every equipment.<id>.<field>', () => {
     const expected: string[] = [
-      // `armor` sits right after maxHp (Story 9.7, epic-9 amendments 86–88 / 110–117),
-      // `power` (Story 9.9's `armorPiercing`, renamed by Story 10.3) right after it (Story 9.9, epic-9 amendments 144–145).
-      'maxHp', 'armor', 'power', 'radarRange', 'sweepRpm', 'cooldownScale',
-      'kinematics.maxSpeed', 'kinematics.reverseSpeed', 'kinematics.accel',
-      'kinematics.decel', 'kinematics.turnRate', 'kinematics.steerageSpeed',
-      // The regen pair (Story 9.6, epic-9 amendments 90–91): PASSIVE HEALING's paths.
-      'regen.missingPctPerS', 'regen.outOfCombatMs',
+      // THE SEVEN INDICES (Story 10.3, Eric 2026-11-04, epic-10 amendment 7)
+      // after `maxHp`, then radarRange and the four pass-through kinematics.
+      // `kinematics.maxSpeed` / `turnRate`, `sweepRpm`, `cooldownScale` and
+      // the `regen.*` pair are GONE from the whitelist: derived or deleted.
+      'maxHp', 'armor', 'power', 'reload', 'engines', 'rudder', 'intel', 'range', 'radarRange',
+      'kinematics.reverseSpeed', 'kinematics.accel', 'kinematics.decel', 'kinematics.steerageSpeed',
     ];
     for (const id of EQUIPMENT_IDS) {
       for (const f of EQUIPMENT_STAT_FIELDS[id] as readonly string[]) expected.push(`equipment.${id}.${f}`);
@@ -153,6 +152,15 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       'sweepPeriodMs',
       // Story 9.7 (epic-9 amendments 86–88 / 110–117): derived from `armor`.
       'damageMultiplier',
+      // Story 10.3 (epic-10 amendment 7): derived from the indices in
+      // sim/indexStats.ts — a card writes ENGINES, never the speed.
+      'kinematics.maxSpeed',
+      'kinematics.turnRate',
+      'sweepRpm',
+      'cooldownScale',
+      // ...and the regen pair is DELETED with PASSIVE HEALING.
+      'regen.missingPctPerS',
+      'regen.outOfCombatMs',
       // The cut's Armor bonus is a CONFIG pass-through (amendment 88).
       'equipment.hunker.armorBonus',
       'equipment.broadside.traverseRad',
@@ -198,13 +206,14 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
     // and the STAR SHELLS / BROADSIDE / PHOSPHOR SHELLS ladders (Story 8.17,
     // Eric 2026-09-29, amendments 130/131/133), and ARMOR (Story 9.7, epic-9
     // amendments 86–88 / 110–117), and POWER (Story 9.9's ARMOR PIERCING,
-    // epic-9 amendments 144–145). `maxHp` (HULL POINTS) and the regen pair
-    // (PASSIVE HEALING) lost their only writers when Story 10.3 deleted both
-    // lines (Eric 2026-11-04, epic-10 amendment 7) — whitelisted, unwritten.
+    // epic-9 amendments 144–145). Story 10.3 (Eric 2026-11-04, epic-10
+    // amendment 7): the six ship ladders write THEIR OWN INDICES (`reload`,
+    // `engines`, `rudder`, `intel` replace `cooldownScale`, `kinematics.*`,
+    // `sweepRpm`), FOULING MINES gains a damage step, and `maxHp` / `range` /
+    // the four pass-through kinematics are whitelisted, unwritten.
     expect([...written].sort()).toEqual([
-      'armor', 'power',
-      'cooldownScale', 'equipment.gun.damage', 'equipment.gun.maxAmmo',
-      'kinematics.maxSpeed', 'kinematics.turnRate', 'sweepRpm',
+      'armor', 'power', 'reload', 'engines', 'rudder', 'intel',
+      'equipment.gun.damage', 'equipment.gun.maxAmmo',
       'equipment.lightTorpedo.damage', 'equipment.lightTorpedo.speed',
       'equipment.lightTorpedo.maxAmmo', 'equipment.lightTorpedo.homingTurnRate',
       'equipment.heavyTorpedo.damage', 'equipment.heavyTorpedo.speed',
@@ -212,7 +221,7 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       'equipment.navalMines.damage', 'equipment.navalMines.blastRadius', 'equipment.navalMines.maxAmmo',
       'equipment.captiveMines.damage', 'equipment.captiveMines.maxAmmo',
       'equipment.captiveMines.homingTurnRate',
-      'equipment.foulingMines.blastRadius', 'equipment.foulingMines.maxAmmo',
+      'equipment.foulingMines.damage', 'equipment.foulingMines.blastRadius', 'equipment.foulingMines.maxAmmo',
       'equipment.foulingMines.slowFactor',
       'equipment.machineGun.maxAmmo', 'equipment.machineGun.rateMs',
       'equipment.flak.damage', 'equipment.flak.maxAmmo',
@@ -225,14 +234,16 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
       'equipment.gun.rangeU', 'equipment.machineGun.rangeU', 'equipment.flak.rangeU',
       'equipment.broadside.rangeU', 'equipment.starShells.rangeU', 'equipment.phosphorShells.rangeU',
     ].sort());
-    // Still addressable in principle, still written by nothing: the FOULING
-    // mine's damage is fixed at 10 by ruling (amendment 81), the BROADSIDE's
-    // at 15 (amendment 133), radarRange has no card at all, and since Story
-    // 9.12 (Eric 2026-10-16) the cannon's barrels are a fixed CONFIG.gun.barrels
-    // and the machine gun's damage is 5 flat — no rung authors either.
+    // Still addressable in principle, still written by nothing: the
+    // BROADSIDE's damage is fixed by ruling (amendment 133), radarRange has no
+    // card at all, since Story 9.12 (Eric 2026-10-16) the cannon's barrels are
+    // a fixed CONFIG.gun.barrels and the machine gun's damage is flat, and
+    // since Story 10.3 `maxHp` (HULL POINTS deleted), `range` (no card yet)
+    // and the four pass-through kinematics have no writer.
     for (const path of [
-      'radarRange', 'equipment.foulingMines.damage', 'equipment.broadside.damage',
+      'radarRange', 'equipment.broadside.damage',
       'equipment.gun.barrels', 'equipment.machineGun.damage',
+      'maxHp', 'range', 'kinematics.reverseSpeed', 'kinematics.accel', 'kinematics.decel', 'kinematics.steerageSpeed',
     ]) {
       expect(BOON_STAT_PATHS, path).toContain(path);
       expect(written.has(path), path).toBe(false);
@@ -275,10 +286,16 @@ describe('BOON_STAT_PATHS — GENERATED from EQUIPMENT_STAT_FIELDS (Story 8.1)',
 
 describe('stat effects — home 1 (effectiveStats), fail-closed folds', () => {
   it('a mult stat card moves EXACTLY its targeted path (flatten diff), nothing else', () => {
-    const l = line('t', { kind: 'stat', path: 'kinematics.maxSpeed', mult: 1.1 });
+    const l = line('t', { kind: 'stat', path: 'kinematics.reverseSpeed', mult: 1.1 });
     const s = foldOne(TB, l);
-    expect(diff(effectiveStats(TB), s)).toEqual(['kinematics.maxSpeed']);
-    expect(s.kinematics.maxSpeed).toBeCloseTo(TB.kinematics.maxSpeed * 1.1, 9);
+    expect(diff(effectiveStats(TB), s)).toEqual(['kinematics.reverseSpeed']);
+    expect(s.kinematics.reverseSpeed).toBeCloseTo(TB.kinematics.reverseSpeed * 1.1, 9);
+  });
+
+  it('an INDEX card moves its index AND what the fold derives from it, nothing else (Story 10.3)', () => {
+    const s = foldOne(TB, line('e', { kind: 'stat', path: 'engines', mult: 1.5 }));
+    expect(diff(effectiveStats(TB), s)).toEqual(['engines', 'kinematics.maxSpeed']);
+    expect(s.kinematics.maxSpeed).toBe((CONFIG.index.engines * s.engines) / CONFIG.index.base);
   });
 
   it('a THREE-SEGMENT equipment path resolves (the 8.1 walk), and only that row moves', () => {
@@ -290,11 +307,12 @@ describe('stat effects — home 1 (effectiveStats), fail-closed folds', () => {
     expect(s.equipment.lightTorpedo.speed).toBe(CONFIG.lightTorpedo.speed);
   });
 
-  it('a sweepRpm card re-derives sweepPeriodMs, and the CEILING is re-applied over the fold', () => {
-    const s = foldOne(TB, line('r', { kind: 'stat', path: 'sweepRpm', add: 5 }));
-    expect(s.sweepRpm).toBe(CONFIG.vision.sweepRpm + 5);
+  it('an INTEL card re-derives sweepRpm and sweepPeriodMs, and the CEILING is re-applied over the fold', () => {
+    const s = foldOne(TB, line('r', { kind: 'stat', path: 'intel', add: 5 }));
+    expect(s.intel).toBe(TB.index.intel + 5);
+    expect(s.sweepRpm).toBe((CONFIG.vision.sweepRpm * s.intel) / CONFIG.index.base);
     expect(s.sweepPeriodMs).toBeCloseTo(60000 / s.sweepRpm, 9);
-    const over = foldOne(TB, line('o', { kind: 'stat', path: 'sweepRpm', add: 1000 }));
+    const over = foldOne(TB, line('o', { kind: 'stat', path: 'intel', add: 100000 }));
     expect(over.sweepRpm).toBe(CONFIG.vision.sweepRpmMax);
     expect(over.sweepPeriodMs).toBe(60000 / CONFIG.vision.sweepRpmMax);
   });
@@ -476,7 +494,7 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
 
 describe('two homes — a card may touch stats and slots, NOTHING else, each via its home', () => {
   it('a stat-only card leaves the loadout REFERENCE-EQUAL through the slot path', () => {
-    const l = line('t', { kind: 'stat', path: 'kinematics.maxSpeed', mult: 1.1 });
+    const l = line('t', { kind: 'stat', path: 'engines', mult: 1.1 });
     const stats = foldOne(TB, l);
     const base = loadoutFor(stats);
     const slotRefs = [...base];

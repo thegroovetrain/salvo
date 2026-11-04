@@ -184,10 +184,9 @@ const EQUIPMENT_STAT_PATH = /^equipment\.([^.]+)\./;
  *      an `equipment.gun.*` path -> `gun`. No production line reaches this
  *      source since the one-off DECK GUN TURRET and DECK GUN BARREL cards were
  *      deleted (Eric 2026-09-30); it stays as the guard for an injected
- *      catalog. The six universal ladders (HULL POINTS, SPEED, TURNING,
- *      RADAR SWEEP, RELOAD, PASSIVE HEALING) write `maxHp`, `kinematics.*`,
- *      `sweepRpm`, `cooldownScale` and `regen.*`, none of which is an `equipment.` path, so they stay
- *      universal.
+ *      catalog. The six universal ladders (ARMOR, POWER, ENGINES, RUDDER,
+ *      INTEL, RELOAD — Story 10.3) each write their own top-level INDEX
+ *      path, none of which is an `equipment.` path, so they stay universal.
  *
  * Without this, a seat that mounts the flak gun would be dealt CANNON cards
  * that step a module it is not carrying, and vice versa.

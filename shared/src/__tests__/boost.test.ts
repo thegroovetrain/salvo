@@ -28,7 +28,7 @@ import {
 
 /** A representative Torpedo Boat kinematics block to boost. */
 function tbKinematics(): ShipConfig {
-  return { ...CONFIG.shipClasses.torpedoBoat.kinematics };
+  return { ...effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics };
 }
 
 const FACTOR = CONFIG.boost.factor;
@@ -112,8 +112,11 @@ describe('the SPEED ladder is INSIDE the bonus (amendment 55)', () => {
   });
 
   it('the bonus is NEVER folded into EffectiveStats.kinematics (the bots read the RATED cap)', () => {
-    const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat, []);
-    expect(stats.kinematics.maxSpeed).toBe(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed); // rated, un-boosted
+    const cls = CONFIG.shipClasses.torpedoBoat;
+    const stats = effectiveStats(cls, []);
+    // The rated, un-boosted cap is the ENGINES derivation alone (Story 10.3).
+    expect(stats.kinematics.maxSpeed).toBe((CONFIG.index.engines * cls.index.engines) / CONFIG.index.base);
+    expect(stats.kinematics.maxSpeed).toBeLessThan(boostedKinematics(stats.kinematics, FACTOR, true).maxSpeed);
   });
 });
 

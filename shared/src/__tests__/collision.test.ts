@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { CONFIG, HULL_IDS, hullEnvelope } from '../constants.js';
+import { effectiveStats } from '../sim/stats.js';
 import { MAP_RULES, generateMap, islandFromPolygon } from '../sim/map.js';
 import {
   applyGroundingDamp,
@@ -95,13 +96,13 @@ function resolve(
   mapR = BIG_MAP,
 ): ShipPoseResult {
   const res = resolveShipPose(prev, s, isles, mapR, hullSilhouette(hullId));
-  applyGroundingDamp(s, res, hullEnvelope(hullId).kinematics.maxSpeed);
+  applyGroundingDamp(s, res, effectiveStats(hullEnvelope(hullId)).kinematics.maxSpeed);
   return res;
 }
 
 /** The speed a contact of this head-on-ness caps `hullId` at (u/s). */
 function groundedCap(hullId: HullId, headOn: number): number {
-  return hullEnvelope(hullId).kinematics.maxSpeed * groundingSpeedFactor(headOn);
+  return effectiveStats(hullEnvelope(hullId)).kinematics.maxSpeed * groundingSpeedFactor(headOn);
 }
 
 /** Distance from the map centre to the FURTHEST hull vert at this pose. */
@@ -261,7 +262,7 @@ describe('resolveShipPose — boundary clamp (heading-aware, never grounding)', 
 // press reported as grounding and the per-tick damp compounded every tick the
 // player held throttle.
 describe('open-ocean pin — pressing the map edge is not grounding', () => {
-  const kin = CONFIG.shipClasses.battleship.kinematics;
+  const kin = effectiveStats(CONFIG.shipClasses.battleship).kinematics;
   const polyMax = polygonMaxRadius(hullSilhouette('battleship'));
 
   const map = generateMap(1, 10);
@@ -323,7 +324,7 @@ describe('open-ocean pin — pressing the map edge is not grounding', () => {
 // hull is stopped without penetration, but the directional damp leaves it
 // enough way to keep steerage, so helm alone recovers it in bounded time.
 describe('coastal grounding — stopped, never pinned', () => {
-  const kin = CONFIG.shipClasses.battleship.kinematics;
+  const kin = effectiveStats(CONFIG.shipClasses.battleship).kinematics;
   const map = generateMap(1, CONFIG.match.fillTo); // production ocean size (cap = fillTo)
   const polyMax = polygonMaxRadius(hullSilhouette('battleship'));
 
@@ -467,7 +468,7 @@ describe('resolveShipPose — island push-out (nearest-boundary normal)', () => 
   });
 
   it('caps a DEAD-ON ram at islandSpeedMult × rated max, keeping steerage', () => {
-    const kin = CONFIG.shipClasses.battleship.kinematics;
+    const kin = effectiveStats(CONFIG.shipClasses.battleship).kinematics;
     const rock = ngonIsland(0, 0, 120);
     // Bow pointed at the island centre, driving straight in at full ahead.
     const prev: Pose = { x: -200, y: 0, heading: 0 };
@@ -499,7 +500,7 @@ describe('resolveShipPose — island push-out (nearest-boundary normal)', () => 
 //       astern must bring the hull fully clear in bounded ticks, and at NO
 //       tick may the silhouette overlap land.
 describe('ram-and-escape — real hook/bay coastlines', () => {
-  const kin = CONFIG.shipClasses.torpedoBoat.kinematics;
+  const kin = effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics;
   const polyMax = polygonMaxRadius(hullSilhouette('torpedoBoat'));
   const FREE_TRAVEL = kin.maxSpeed * DT; // the most an UNOBSTRUCTED tick can move
 
@@ -639,7 +640,7 @@ describe('graze-slide — a shallow drive past a single island slides, never sti
   const island = ngonIsland(0, 0, 50);
 
   it('slides along the island and past it without sticking or reversing', () => {
-    const kin = CONFIG.shipClasses.mineLayer.kinematics;
+    const kin = effectiveStats(CONFIG.shipClasses.mineLayer).kinematics;
     const s: ShipState = { x: -200, y: 58, heading: 0, speed: kin.maxSpeed };
     let touched = false;
     let maxX = s.x;
@@ -714,7 +715,7 @@ describe('#64 wedge — rotation is blocked by rock (pose-validity rollback)', (
 
 describe('#64 wedge — full astern escapes a placed wedge in bounded ticks', () => {
   const islands: Island[] = [ngonIsland(30, 70, 50), ngonIsland(-30, -70, 50)];
-  const kin = CONFIG.shipClasses.battleship.kinematics;
+  const kin = effectiveStats(CONFIG.shipClasses.battleship).kinematics;
 
   it('is a genuine double wedge at placement', () => {
     const s: ShipState = { x: -40, y: -6, heading: 0.7, speed: 0 };
@@ -754,7 +755,7 @@ describe('no-escape invariant: every resolved tick ends overlap-free', () => {
     ngonIsland(150, 0, 45),
     ngonIsland(-150, 20, 45),
   ];
-  const kin = CONFIG.shipClasses.battleship.kinematics;
+  const kin = effectiveStats(CONFIG.shipClasses.battleship).kinematics;
 
   function drive(seed: number): void {
     const rng = mulberry32(seed);
@@ -784,7 +785,7 @@ describe('no-escape invariant on a REAL generated map', () => {
   // just n-gon fixtures: ram the biggest landmass, then wander at random — no
   // tick may end with the silhouette overlapping land or outside the boundary.
   it('a long randomized drive never ends a tick overlapping or out of bounds', () => {
-    const kin = CONFIG.shipClasses.battleship.kinematics;
+    const kin = effectiveStats(CONFIG.shipClasses.battleship).kinematics;
     const polyMax = polygonMaxRadius(hullSilhouette('battleship'));
     for (const seed of [7, 33, 90]) {
       const map = generateMap(seed, CONFIG.match.fillTo);
@@ -877,7 +878,7 @@ describe('push-out teleport — the arm graze (deterministic repro, synthetic co
     // centre's nearest coast (east) does not describe what the bow is in
     // (the arm). The retired centre aim pointed due WEST, parallel to the arm,
     // and one 2 u step ahead resolved 209.6 u west in a single tick.
-    const kin = CONFIG.shipClasses.mineLayer.kinematics;
+    const kin = effectiveStats(CONFIG.shipClasses.mineLayer).kinematics;
     const half = CONFIG.shipClasses.mineLayer.hull.length / 2;
     const prev: Pose = { x: 0, y: 0, heading: -Math.PI / 2 + 0.17 }; // bow north, a hair east of straight up
     // The arm's south coast sits 0.5 u ABOVE the bow tip at `prev` (bow a hair
@@ -932,7 +933,7 @@ describe('sustained parallel coastal grind — every tick is tick-scaled', () =>
   /** A clear start pose just off coastline vertex `vi`, roughly tangential. */
   function grindStart(isle: Island, vi: number, hullId: HullId): ShipState | null {
     const polyMax = polygonMaxRadius(hullSilhouette(hullId));
-    const kin = hullEnvelope(hullId).kinematics;
+    const kin = effectiveStats(hullEnvelope(hullId)).kinematics;
     const v = isle.poly[vi];
     const d0 = Math.hypot(v.x - isle.x, v.y - isle.y);
     const out = { x: (v.x - isle.x) / d0, y: (v.y - isle.y) / d0 };
@@ -959,7 +960,7 @@ describe('sustained parallel coastal grind — every tick is tick-scaled', () =>
     ticks: number,
   ): number {
     const polyMax = polygonMaxRadius(hullSilhouette(hullId));
-    const kin = hullEnvelope(hullId).kinematics;
+    const kin = effectiveStats(hullEnvelope(hullId)).kinematics;
     let prev: Pose = { x: s.x, y: s.y, heading: s.heading };
     let contacts = 0;
     for (let t = 0; t < ticks; t++) {
@@ -1008,7 +1009,7 @@ describe('sustained parallel coastal grind — every tick is tick-scaled', () =>
 //     that the real prev-anchored rollback never does. ------------------------
 describe('bite proof — without the rollback anchor, push-only resolution wedges', () => {
   const channel: Island[] = [ngonIsland(0, 68, 50), ngonIsland(0, -68, 50)];
-  const kin = CONFIG.shipClasses.battleship.kinematics;
+  const kin = effectiveStats(CONFIG.shipClasses.battleship).kinematics;
 
   /** Creep forward with hard rudder in the tight channel; report whether any
    *  resolved tick ended overlapping. */

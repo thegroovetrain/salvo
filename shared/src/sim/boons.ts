@@ -49,7 +49,6 @@ import {
   isConsumableId,
   loadoutFor,
 } from './loadout.js';
-import { CONFIG } from '../constants.js';
 import {
   BOON_STAT_PATH_SET,
   DOCTRINE_MODES,
@@ -74,13 +73,11 @@ import {
   broadsideMountSpread,
   broadsideTraverse,
   clampSpreadRung,
-  damageMultiplierFor,
   deriveMineRings,
+  publishedDamageMultiplier,
   type EffectiveStats,
 } from './stats.js';
-
-/** ms per minute — sweepRpm -> sweepPeriodMs re-derivation after the fold. */
-const MS_PER_MINUTE = 60000;
+import { deriveIndexStats } from './indexStats.js';
 
 /** Write one stat effect onto the (freshly-built, mutation-safe) stats tree.
  *  Paths are one, two or three segments deep (`maxHp`, `kinematics.turnRate`,
@@ -173,8 +170,13 @@ function forEachHeldEffect(
  *  The sibling of the clampStats pass; these two sites are the only ones. */
 function rePinDerived(stats: EffectiveStats): void {
   const eq = stats.equipment;
-  stats.sweepRpm = Math.min(stats.sweepRpm, CONFIG.vision.sweepRpmMax);
-  stats.sweepPeriodMs = MS_PER_MINUTE / stats.sweepRpm;
+  // THE INDEX DERIVATIONS (Story 10.3, sim/indexStats.ts): speed from ENGINES,
+  // turn rate from RUDDER, sweep (and its period, capped) from INTEL, the
+  // cooldown scale from RELOAD — idempotent in the authored indices, so a
+  // mid-fold index write can never leave a derived number stale. The ONE-SHOT
+  // RANGE multiply on the deck-gun rows is NOT here (it would double-apply);
+  // it lives in clampStats alone, beside the reload multiply.
+  deriveIndexStats(stats);
   // NO rangeU RE-PIN (Story 9.8, ruling 125): every weapon's reach is a
   // stat-addressable dial the cards step, so it is folded, never derived.
   // The broadside TRAVERSE and MOUNT SPREAD both read their authored ladders
@@ -189,7 +191,7 @@ function rePinDerived(stats: EffectiveStats): void {
   // whitelisted `armor` path through the one formula, so a mid-fold Armor
   // write can never leave it stale (clampStats floors Armor and re-derives).
   // Victim-only (amendment 120(e)): `power` never enters it here.
-  stats.damageMultiplier = damageMultiplierFor(stats.armor);
+  stats.damageMultiplier = publishedDamageMultiplier(stats.armor);
   // EVERY MINE RING, all three kinds, through the one derivation
   // (sim/stats.ts deriveMineRings). A contact mine's trip ring rides its blast
   // radius; the captive's rides its TIER and its burst is pinned.

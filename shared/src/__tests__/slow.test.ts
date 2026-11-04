@@ -11,7 +11,7 @@ import { CONFIG, boostedKinematics, effectiveStats, slowedKinematics, type ShipC
 
 /** A representative Torpedo Boat kinematics block to slow. */
 function tbKinematics(): ShipConfig {
-  return { ...CONFIG.shipClasses.torpedoBoat.kinematics };
+  return { ...effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics };
 }
 
 const FACTOR = CONFIG.foulingMines.slowFactor;

@@ -14,6 +14,7 @@ import {
   HOOK_REGISTRY,
   LINE_IDS,
   cardBehaviors,
+  effectiveStats,
   hookKinematics,
   type HookRegistry,
   type HookParams,
@@ -21,7 +22,7 @@ import {
   type ShipConfig,
 } from '../index.js';
 
-const BASE_KIN: ShipConfig = CONFIG.shipClasses.torpedoBoat.kinematics;
+const BASE_KIN: ShipConfig = effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics;
 
 /**
  * COVERAGE TABLE — one row per registered hook, keyed LITERALLY by hookId,
