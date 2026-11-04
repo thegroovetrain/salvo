@@ -99,7 +99,13 @@
 // fog-blind oracle says. The fuzz PINS the cut per world through the World's
 // test seam (worlds ≡ 0 mod 3 at ~30 % coverage, ≡ 1 at ~5 %, ≡ 2 with no
 // fog) so the toll arms are non-vacuous, and the five FOG_* /
-// RADAR_THROUGH_FOG ledgers prove each arm ran. The checks below
+// RADAR_THROUGH_FOG ledgers prove each arm ran. FLASH SHELLS (epic-10
+// amendment 5; gate fixes F2/F4, Eric 2026-10-29) add ONE row-rule widening,
+// not a seventh exception: a `burst` carrying the flash tag `f` may also
+// reach an observer whose hull CENTRE is within `CONFIG.flashShells.radius`
+// of the burst point (the flashed victim, whose sight is 0 that tick — see
+// verifyBurst); and zero sight admits NOTHING, not even a point at the
+// observer's own centre. The exceptions stay SIX. The checks below
 // are a deliberate test-local reimplementation of the
 // visibility predicates so a refactor of perception.ts cannot silently agree
 // with its own bug.
@@ -120,6 +126,7 @@ import {
   coverageHas,
   dropoutPaintP,
   dropoutPaints,
+  FLASH_WINDOW_MS,
   effectiveSight,
   effectiveStats,
   hullSilhouette,
@@ -463,10 +470,10 @@ function effSight(w: World, me: ShipRecord): number {
   const seam = w.now < (SIGHT_SHRUNK.get(me.id) ?? 0) ? effRadar() / 12 : effRadar() / 3;
   // THE FLASH SHELLS DAZZLE (Story 10.9 restores it): the observer's own mark
   // collapses the seam's sight through the ONE shared `effectiveSight` (the
-  // orchestrator's reading: the dazzle FRACTION is shared law, pinned in
-  // shared sight.test.ts; this suite owns WHERE it applies — every sight-tier
-  // gate, never a radar-anchored one).
-  return effectiveSight({ sightRange: seam }, w.now < me.dazzledUntil);
+  // orchestrator's reading: the WHITEOUT clear-circle curve is shared law,
+  // pinned in shared sight.test.ts; this suite owns WHERE it applies — every
+  // sight-tier gate, never a radar-anchored one).
+  return effectiveSight({ sightRange: seam }, me.dazzledUntil, w.now);
 }
 
 // INTEL RANGE IS FLAT AGAIN (Eric ruling 2026-08-20). `intelRange` — the only
@@ -1379,12 +1386,29 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
 
 // ---------- directed cases: mine visibility (contact-like) -------------------
 
+describe('perception — ZERO SIGHT ADMITS NOTHING (gate fix F4: withinSight fails closed at range 0)', () => {
+  it('a whited-out observer co-located with another hull gets no contact for it, and standing inside a cloud (beam parked) gets no cloud row; the undazzled twin gets both', () => {
+    for (const blind of [true, false]) {
+      const w = bareWorld();
+      const me = place(w, 'me', 0, 0);
+      place(w, 'b', 0, 0); // hull centre exactly on the observer's
+      injectCloud(w, 'ck', 'b', 0, 0); // the observer stands in it
+      if (blind) me.dazzledUntil = w.now + FLASH_WINDOW_MS; // the hit tick: sight 0
+      me.prevSweepAngle = me.sweepAngle; // park the beam: only the SIGHT arm can deliver the cloud
+      const f = buildFrame(w, 'me');
+      expect(f.contacts.some((c) => c.id === 'b'), `blind=${blind}`).toBe(!blind);
+      expect((f.clouds ?? []).some((c) => c.id === 'ck'), `blind=${blind}`).toBe(!blind);
+    }
+  });
+});
+
 describe('perception — burst visibility (owner always, else burst point sighted)', () => {
   /** Route an internal burst subject through the real pending-events choke,
    *  the way World.resolveBurst emits it (wire BurstEvent + internal `own`). */
-  function emitBurst(w: World, id: string, own: string, x: number, y: number): void {
+  function emitBurst(w: World, id: string, own: string, x: number, y: number, flash = false): void {
     interface Pendable { pending: GameEvent[] }
-    (w as unknown as Pendable).pending.push({ k: 'burst', id, x, y, own } as GameEvent);
+    const subject = flash ? { k: 'burst', id, x, y, own, f: true } : { k: 'burst', id, x, y, own };
+    (w as unknown as Pendable).pending.push(subject as GameEvent);
     w.step();
   }
 
@@ -1419,6 +1443,56 @@ describe('perception — burst visibility (owner always, else burst point sighte
     place(w, 'c', 0, 0);
     emitBurst(w, 'b1', 'a', 200, 0); // inside sight range but behind the rock
     expect(buildFrame(w, 'c').events.filter((e) => e.k === 'burst')).toEqual([]);
+  });
+
+  it('the FLASH tag (epic-10 amendment 5) adds one bit and ONE recipient arm (gate fix F2, Eric 2026-10-29: the flashed victim sees the disc): over random boards — some observers blind — the observers receiving a flagged burst are EXACTLY those receiving the same burst unflagged ∪ those whose hull centre is inside the flash radius, and only the flagged one carries `f: true` (LAST)', () => {
+    const rng = mulberry32(0xf1a5).next;
+    let reached = 0;
+    let fogged = 0;
+    let widened = 0; // in-radius observers the unflagged burst did NOT reach (blind ones)
+    for (let trial = 0; trial < 40; trial++) {
+      const blind = Array.from({ length: 6 }, (_, i) => i > 0 && rng() < 0.5); // never the owner
+      const build = (): World => {
+        const w = bareWorld();
+        for (let i = 0; i < 6; i++) {
+          const o = place(w, `o${i}`, (i - 3) * 160, (i % 2) * 120);
+          if (blind[i]) o.dazzledUntil = w.now + FLASH_WINDOW_MS; // white at the frame: sight 0
+        }
+        return w;
+      };
+      const bx = Math.floor(rng() * 1200) - 600;
+      const by = Math.floor(rng() * 600) - 300;
+      const plain = build();
+      const flagged = build();
+      emitBurst(plain, 'b1', 'o0', bx, by, false);
+      emitBurst(flagged, 'b1', 'o0', bx, by, true);
+      const got = (w: World, flash: boolean): string[] => {
+        const ids: string[] = [];
+        for (let i = 0; i < 6; i++) {
+          const b = buildFrame(w, `o${i}`).events.filter((e) => e.k === 'burst');
+          expect(b.length).toBeLessThanOrEqual(1);
+          if (b.length === 0) continue;
+          ids.push(`o${i}`);
+          if (flash) expect(Object.keys(b[0])).toEqual(['k', 'id', 'x', 'y', 'f']);
+          else expect('f' in b[0]).toBe(false);
+        }
+        return ids;
+      };
+      const plainIds = got(plain, false);
+      const inRadius: string[] = [];
+      for (let i = 0; i < 6; i++) {
+        const o = flagged.ships.get(`o${i}`)!;
+        if (dist(o.state, { x: bx, y: by }) <= CONFIG.flashShells.radius) inRadius.push(`o${i}`);
+      }
+      const expected = [...new Set([...plainIds, ...inRadius])].sort();
+      expect([...got(flagged, true)].sort()).toEqual(expected);
+      widened += expected.length - plainIds.length;
+      reached += plainIds.length;
+      fogged += 6 - plainIds.length;
+    }
+    expect(reached).toBeGreaterThan(40); // non-vacuous: owners and sighted observers received it...
+    expect(fogged).toBeGreaterThan(0); // ...and fogged observers did not, flag or no flag...
+    expect(widened).toBeGreaterThan(0); // ...and a blind in-radius observer got the flagged one alone
   });
 
   it('END-TO-END: a real gun burst reaches the fogged owner as {k,id,x,y} only', () => {
@@ -3732,13 +3806,27 @@ function verifyBoom(w: World, me: ShipRecord, e: GameEvent): void {
 // registry row.
 function verifyBurst(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as BurstEvent;
-  expect(Object.keys(ev).sort()).toEqual(['id', 'k', 'x', 'y']);
   const src = w.tickEvents.find((t) => t.k === 'burst' && t.id === ev.id) as
     | (BurstEvent & { own?: string })
     | undefined;
   expect(src).toBeDefined();
-  // Burst point: sighted OR inside a zone the observer OWNS (Story 1.7 parity).
-  if (src!.own !== me.id) expect(sighted(w, me, ev) || zoneCovers(w, me, ev)).toBe(true);
+  // The FLASH tag `f` (epic-10 amendment 5) is the ONE optional key: present
+  // (exactly `true`, LAST) iff the internal subject carries it — never on any
+  // other burst. It never changes WHO receives the burst (the gate below).
+  if (src!.f === true) {
+    expect(Object.keys(ev)).toEqual(['k', 'id', 'x', 'y', 'f']);
+    expect(ev.f).toBe(true);
+  } else {
+    expect(Object.keys(ev).sort()).toEqual(['id', 'k', 'x', 'y']);
+  }
+  // Burst point: sighted OR inside a zone the observer OWNS (Story 1.7 parity)
+  // — OR, for a FLASH-tagged burst only (Eric 2026-10-29, gate fix F2), the
+  // observer's hull CENTRE inside the flash radius of the burst point (the
+  // flashed victim sees the disc; it already learns the flash through its own
+  // `dazzledUntil`). Re-derived here off CONFIG, never the row.
+  if (src!.own === me.id) return;
+  const inFlash = src!.f === true && dist(me.state, ev) <= CONFIG.flashShells.radius;
+  expect(sighted(w, me, ev) || zoneCovers(w, me, ev) || inFlash).toBe(true);
 }
 
 // THE PUBLIC REGISTER (PV 23) — `sunk` is the 4th DECLARED exception to the
@@ -4490,6 +4578,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     DROPOUT_LEDGER.painted = 0;
     DROPOUT_LEDGER.missed = 0;
     let wkSeen = 0; // Story 4.12: proves the wake oracle ran non-vacuously
+    let fSeen = 0; // epic-10 amendment 5: proves a FLASH-tagged burst reached the oracle
     let reReveals = 0; // Story 8.13: proves the per-visit ledger saw a re-entry
     for (let world = 0; world < 20; world++) {
       const w = new World(rng.int(0, 2 ** 31 - 1), CONFIG.match.fillTo, CONFIG.zone);
@@ -4635,6 +4724,12 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           rng.float(20, CONFIG.vision.radar), // gun range base = radar range (shellRange retired)
           rng.float(0, 1) < 0.5, // half the shells are targeted bursters (real gun shape)
         );
+        // FLASH tag (epic-10 amendment 5): every odd targeted burster carries
+        // the server-internal flash tag, so the burst oracle sees flagged
+        // bursts (`f` present, LAST) beside bare ones. Off the slot parity —
+        // the shared `rng`, and every scenario it draws, is unmoved.
+        const injected = w.shells.get(`inj${s}`)!;
+        if (s % 2 === 1 && injected.targetX !== null) injected.flash = { radius: CONFIG.flashShells.radius, durationMs: FLASH_WINDOW_MS };
       }
       for (let s = 0; s < rng.int(0, 4); s++) {
         const ang = rng.float(0, TAU);
@@ -4743,7 +4838,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           const b = addDecoy(w.decoys, owner.id, bx, by, `rb-${id}-${k}`, 'radar', w.now + CONFIG.buoy.lifetimeMs, seed);
           b.sweep!.periodMs = owner.stats.sweepPeriodMs;
         }
-        if (brng.float(0, 1) < 0.2) owner.dazzledUntil = w.now + brng.float(DT, CONFIG.flashShells.durationMs);
+        if (brng.float(0, 1) < 0.2) owner.dazzledUntil = w.now + brng.float(DT, FLASH_WINDOW_MS); // anywhere in the whiteout: white, or a clear circle of any size
       }
       // COUNTERMEASURE CLOUDS (Story 9.3): 1–4 live clouds of RANDOM age (a
       // fresh 200 u disc to a nearly-expired 500 u one), each owned by a
@@ -4882,6 +4977,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         for (const id of ids) {
           const f = buildFrame(w, id);
           wkSeen += f.events.filter((e) => e.k === 'wk').length;
+          fSeen += f.events.filter((e) => e.k === 'burst' && 'f' in e).length;
           verifyFrame(w, id, f);
           ledger.verify(w, id, f);
         }
@@ -4917,6 +5013,8 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
     // with 70% of hulls pre-laid with tracks across 20 worlds × 6 ticks, zero
     // disclosed segments would mean the channel silently died.
     expect(wkSeen).toBeGreaterThan(0);
+    // ...and so must the FLASH tag: at least one flagged burst was verified.
+    expect(fSeen).toBeGreaterThan(0);
     // ...and so must the re-reveal: zero second reveals across 20 shrunk
     // worlds would mean the per-visit mark silently reverted to permanent.
     expect(reReveals).toBeGreaterThan(0);

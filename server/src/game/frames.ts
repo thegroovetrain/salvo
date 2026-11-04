@@ -180,7 +180,8 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // the same terms: it rides `you` and NOTHING else (an enemy cannot learn
     // a hull is dazzled), a self-private own field, NOT a perception
     // exception — the count stays SIX. The client feeds the same shared
-    // `effectiveSight(stats, dazzled)` from it, so its fog hole is honest.
+    // `effectiveSight(stats, dazzledUntil, serverNow)` from it (the whiteout's
+    // clear circle, epic-10 amendment 5), so its fog hole is honest.
     ...(ship.dazzledUntil > now ? { dazzledUntil: ship.dazzledUntil } : {}),
     // THE SPEED BUOY's clock (Story 10.9, ruling 6): the last tick this hull
     // stood inside an own SPEED BUOY — PRESENT while its shared `buoyTail` is

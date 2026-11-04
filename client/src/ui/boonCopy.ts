@@ -1056,28 +1056,18 @@ function buoyRows(id: BuoyLineId): CardStatRow[] {
 }
 
 /**
- * Pure: a 0..1 fraction as the card prints it — `1/N` when it is a unit
- * fraction (FLASH SHELLS' `sightFraction` 0.25 → `1/4`), else a percentage.
- * Formatted FROM the CONFIG value, so a retune moves the card with it.
- */
-function fractionText(f: number): string {
-  const inv = 1 / f;
-  const n = Math.round(inv);
-  return f > 0 && Math.abs(inv - n) < 1e-9 ? `1/${n}` : pct(f);
-}
-
-/**
- * FLASH SHELLS' ROWS (Story 8.17's rows, restored by Story 10.9 — epic-10
- * amendment 4 ruling 1): the burst's radius, how long it blinds, and how much
- * of SIGHT a blinded hull keeps — `RADIUS 150 U` / `BLINDS 10 S` / `SIGHT
- * 1/4`, every number off `CONFIG.flashShells`.
+ * FLASH SHELLS' ROWS (re-cut as the WHITEOUT, Eric 2026-10-29, epic-10
+ * amendment 5(f)): the burst's radius, how long a hit hull is fully WHITE (the
+ * ramp + the hold — truesight 0), and how long the clear circle takes to grow
+ * back to full sight — `RADIUS 150 U` / `WHITE 1.5 S` / `CLEARS 8.5 S`, every
+ * number off `CONFIG.flashShells`.
  */
 function flashShellRows(): CardStatRow[] {
   const f = CONFIG.flashShells;
   return [
     { label: 'RADIUS', cur: null, next: `${num(f.radius)} U` },
-    { label: 'BLINDS', cur: null, next: `${num(f.durationMs / 1000)} S` },
-    { label: 'SIGHT', cur: null, next: fractionText(f.sightFraction) },
+    { label: 'WHITE', cur: null, next: `${num((f.rampMs + f.holdMs) / 1000)} S` },
+    { label: 'CLEARS', cur: null, next: `${num(f.clearMs / 1000)} S` },
   ];
 }
 

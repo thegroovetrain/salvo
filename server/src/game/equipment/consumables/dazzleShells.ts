@@ -9,8 +9,8 @@
 // 2: the two click-aimed shells share ONE dial; there is no flash `rangeU`) —
 // 360°, so no arc denial is ever possible and the only refusal is an empty
 // stack. It bursts ONCE in `CONFIG.flashShells.radius`: every non-owner
-// afloat hull whose CENTRE is inside gets `dazzledUntil = now + durationMs`
-// (World.applyFlash — a later expiry always wins, never stacks, never
+// afloat hull whose CENTRE is inside gets `dazzledUntil = now +
+// FLASH_WINDOW_MS` — the whiteout window, epic-10 amendment 5 (World.applyFlash — a later expiry always wins, never stacks, never
 // shortens). NO lingering zone, no light, no reveal, no damage: `damage 0` /
 // `contactDamage 0`, the star shell's `hull | decoy` mask (a flash never
 // detonates a mine), and the server-internal `flash` tag beside `lit` /
@@ -31,7 +31,7 @@
 // muzzleOrTarget / makeBallistic with D1 fireT); the World owns shell storage,
 // the dazzle mark and event emission.
 
-import { CONFIG, type LoadoutSlot } from '@salvo/shared';
+import { CONFIG, FLASH_WINDOW_MS, type LoadoutSlot } from '@salvo/shared';
 import type { ActivationContext, ActivationResult } from '../index.js';
 import { makeBallistic } from '../ballistics.js';
 import { burstPoint, muzzleOrTarget } from '../guns.js';
@@ -56,7 +56,7 @@ function dazzleShellsEffect(ctx: ActivationContext, _slot: LoadoutSlot): Activat
     contactDamage: 0, // an interception does 0 — and still flashes there (World.resolveInterception)
     hits: CONFIG.flashShells.hits, // the star shell's mask — never a mine (135(d))
     family: 'cannon', // a gun-pattern shell — `w: 'cannon'`
-    flash: { radius: CONFIG.flashShells.radius, durationMs: CONFIG.flashShells.durationMs },
+    flash: { radius: CONFIG.flashShells.radius, durationMs: FLASH_WINDOW_MS }, // the whole whiteout (amendment 5)
   });
   ctx.spawnBallistic(shell);
   return { ok: true };

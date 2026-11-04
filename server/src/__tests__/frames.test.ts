@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, DEFAULT_KIT, SLOT_COUNT, type ConsumableKit } from '@salvo/shared';
+import { isAfloat, CONFIG, FLASH_WINDOW_MS, DEFAULT_KIT, SLOT_COUNT, type ConsumableKit } from '@salvo/shared';
 
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -294,7 +294,7 @@ describe('buildFrame — the Story 10.9 self-private own fields (dazzledUntil, b
     const idle = buildFrame(w, 'a').you!;
     for (const k of ['dazzledUntil', 'buoyShield', 'speedBuoyAt']) expect(k in idle, k).toBe(false);
     w.now = 100_000;
-    a.dazzledUntil = w.now + CONFIG.flashShells.durationMs;
+    a.dazzledUntil = w.now + FLASH_WINDOW_MS;
     a.buoyShield = { hpLeft: 12.25, insideAt: w.now };
     a.speedBuoyAt = w.now;
     const you = buildFrame(w, 'a').you!;

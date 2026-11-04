@@ -3759,6 +3759,42 @@ export const CLIENT_CONFIG = {
   },
 
   /** Netcode render delays (ms behind estimated server time). */
+  /**
+   * THE FLASH SHELLS WHITEOUT (Eric 2026-10-29, epic-10 amendment 5(c)): a hit
+   * hull's whole screen — HUD and DOM chrome included — goes white, then a
+   * clear circle grows from the own ship at the shared sight law's radius
+   * (`effectiveSight`) while the white outside it fades. The timeline itself is
+   * `CONFIG.flashShells` (rampMs / holdMs / clearMs); nothing here restates it.
+   */
+  flashWhiteout: {
+    /** The TOP of the DOM z-scale: above feed/toasts 900, modals/banner 1000,
+     *  settings 1050, menu 1100, queue 1150 and the class bay 1200 — the only
+     *  way one element covers every piece of DOM chrome (ruling c). A screen
+     *  effect, not chrome: nothing else may claim this rung. */
+    zIndex: 1300,
+    /** The clear circle's soft edge, as a fraction of its radius (px)... */
+    featherFrac: 0.1,
+    /** ...and never thinner than this (px). Dropped at motion `off`. */
+    featherMinPx: 4,
+    /** The fog hole and the radar dim mask re-bake on a CHANGE of their sight
+     *  radius, so while the circle grows they follow it in this many equal
+     *  steps of the sight range (floored — never wider than the server's
+     *  sight): ~3.5 re-bakes a second across the 8.5 s clear, not 60 — 30
+     *  steps ≈ 17 u at base sight, inside the clear circle's feather (gate
+     *  fix F9, rebake cost). Staging judges whether the steps read. */
+    sightSteps: 30,
+  },
+  /**
+   * THE FLASH SHELLS BURST (Eric 2026-10-29, epic-10 amendment 5(d)): a disc of
+   * the burst radius at the burst point, BLACK for `blackMs`, wiping black →
+   * white over `wipeMs`, then fading out over `fadeMs` (~0.6 s). Rejected:
+   * 0.1/0.15/0.1 and 0.25/0.5/0.5.
+   */
+  flashBurst: {
+    blackMs: 150,
+    wipeMs: 250,
+    fadeMs: 200,
+  },
   net: {
     /** Remote contacts interpolate this far behind serverNow(). */
     interpDelayMs: CONFIG.tick.interpDelayMs,

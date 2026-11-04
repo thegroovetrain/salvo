@@ -572,13 +572,17 @@ export interface OwnShip {
    * ms — server-clock time this ship's FLASH SHELLS dazzle ends (Story 8.17,
    * epic-8 amendment 132; RESTORED by Story 10.9, Eric 2026-10-27/28, epic-10
    * amendments 2 and 4). A flash burst whose r150 u disc holds this hull's
-   * CENTRE stamps `max(dazzledUntil, now + CONFIG.flashShells.durationMs)` —
-   * a later expiry wins, never stacks, never shortens. While `serverNow <
-   * dazzledUntil` the hull's truesight is `effectiveSight(stats, true)` =
-   * `sightRange × CONFIG.flashShells.sightFraction` (sim/sight.ts), on the
-   * server's perception AND the client's fog hole / radar sight hole /
-   * projectile cull, which derive ONE `dazzled` state from this field. Radar
-   * is untouched. OMITTED when not in the future (never 0, never undefined).
+   * CENTRE stamps `max(dazzledUntil, now + FLASH_WINDOW_MS)` (sim/sight.ts;
+   * ramp + hold + clear = 10 s, Eric 2026-10-29 THE WHITEOUT LAW) — a later
+   * expiry wins, never stacks, never shortens. While `serverNow < dazzledUntil`
+   * the hull's truesight is `effectiveSight(stats, dazzledUntil, serverNow)`:
+   * 0 u through ramp + hold, then growing linearly to the full `sightRange`
+   * across the clear phase — on the server's perception AND the client's fog
+   * hole / radar sight hole / projectile cull. The client derives the WHOLE
+   * whiteout timeline (white ramp, hold, the clearing circle —
+   * `flashElapsedMs` / `flashClearFraction`) from this one stamp against its
+   * server-clock estimate; there is NO second wire field. Radar is untouched.
+   * OMITTED when not in the future (never 0, never undefined).
    * VICTIM-PRIVATE exactly like `fouledUntil`: rides `you` and NOTHING else —
    * NOT a perception exception (the count stays at SIX): it is the viewer's
    * own seat.
@@ -953,12 +957,25 @@ export interface TorpedoUpdateEvent {
  * field may EVER be added here (burstRadius ships in CONFIG; the BallisticEvent
  * rationale applies unchanged). Damage still arrives ONLY as victim-private
  * `dmg` events — a multi-victim burst emits one `dmg` per victim.
+ *
+ * `f` — the FLASH BURST TAG (Eric 2026-10-29, epic-10 amendment 5: everyone
+ * who sees the detonation sees the disc). Present (`true`) ONLY on the burst
+ * of a FLASH SHELLS round, absent on every other burst. It is the one fact the
+ * client cannot derive itself: a reveal's `w` names only the gun FAMILY
+ * (`cannon` for a flash round too), so without it only the shooter's own-fire
+ * claim could tell a flash from a cannon burst. It is NOT range-derivable: a
+ * constant tag, no radius (the flash radius ships in CONFIG), no origin.
+ * ANTI-CHEAT: it rides the EXISTING anonymous burst under the burst row's
+ * unchanged visibility gate — no new reach, no new recipients; a flash is a
+ * visible detonation and the disc reveals nothing beyond the burst point.
+ * KEY ORDER IS LOAD-BEARING (msgpack): k,id,x,y,f — `f` is appended LAST.
  */
 export interface BurstEvent {
   k: 'burst';
   id: string; // originating shell id
   x: number; // u — burst center (the target point)
   y: number; // u
+  f?: true; // FLASH SHELLS burst tag — present only on a flash round's burst; LAST key
 }
 
 /**

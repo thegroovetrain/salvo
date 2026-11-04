@@ -6,13 +6,14 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, SHELL_FAMILIES, paintCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type DecoyView, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
+import { CONFIG, FLASH_WINDOW_MS, SHELL_FAMILIES, paintCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type DecoyView, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
   SIGNAL_REGISTRY,
   ballisticGateOpen,
   decoyRadarBlips,
+  shipSees,
   signalFor,
   type BurstSubject,
   type FoggedSignalContext,
@@ -580,7 +581,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(row.visible(foggedCtx(w, at), e)).toBe(true);
     // ...and the FLASH SHELLS dazzle (restored by Story 10.9) does not either:
     // the halo rides intel range, which dazzle never touches.
-    at.dazzledUntil = w.now + CONFIG.flashShells.durationMs;
+    at.dazzledUntil = w.now + FLASH_WINDOW_MS;
     expect(row.visible(foggedCtx(w, at), e)).toBe(true);
     // Island LOS blocks the flash exactly like every other sensor
     // (Eric ruling 2026-08-02).
@@ -641,7 +642,7 @@ describe('SIGNAL_REGISTRY — sm row (Story 4.4: wounded smoke, the fifth declar
     a.stats = { ...a.stats, sightRange: a.stats.radarRange / 12 };
     expect(row.visible(foggedCtx(w, a), e)).toBe(true);
     // ...and a FLASH SHELLS dazzle (Story 10.9) does not shrink it either.
-    a.dazzledUntil = w.now + CONFIG.flashShells.durationMs;
+    a.dazzledUntil = w.now + FLASH_WINDOW_MS;
     expect(row.visible(foggedCtx(w, a), e)).toBe(true);
     w.map.islands.push(circleIsland(200, 0, 40)); // on the segment
     expect(row.visible(foggedCtx(w, a), e)).toBe(false);
@@ -1197,17 +1198,18 @@ describe('SIGNAL_REGISTRY — the DETECT gate (Story 4.9, amendments 119/121): m
     expect(signalFor('torp')!.visible(foggedCtx(w, a), makeShell({ id: 'tz', ownerId: 'z', kind: 'torp', x: 2 * rung, y: 0 }))).toBe(false);
   });
 
-  it('a FLASH SHELLS dazzle (Story 10.9) collapses sight AND detect to sightRange × sightFraction on the sight-tier rows — the contact and mine rows included — and lapses at its mark', () => {
+  it('a FLASH SHELLS dazzle (Story 10.9; the WHITEOUT, epic-10 amendment 5) collapses sight AND detect to the clear circle on the sight-tier rows — the contact and mine rows included — and lapses at its mark', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const full = a.stats.sightRange;
-    const dazzled = full * CONFIG.flashShells.sightFraction;
+    const { rampMs, holdMs, clearMs } = CONFIG.flashShells;
+    const dazzled = full / 4; // the circle a quarter of the way through the clear
     const between = (full + dazzled) / 2;
     const b = place(w, 'b', between, 0);
     const mine = makeMine({ ownerId: 'z', x: 0, y: between });
     expect(SIGNAL_REGISTRY.contact.visible(foggedCtx(w, a), b)).toBe(true);
     expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), mine)).toBe(true);
-    a.dazzledUntil = w.now + CONFIG.flashShells.durationMs;
+    a.dazzledUntil = w.now + FLASH_WINDOW_MS - (rampMs + holdMs + clearMs / 4); // hit was ramp + hold + clear/4 ago
     expect(SIGNAL_REGISTRY.contact.visible(foggedCtx(w, a), b)).toBe(false);
     expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), mine)).toBe(false);
     expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 0, y: dazzled * CONFIG.vision.detectFactor }))).toBe(true);
@@ -1268,6 +1270,23 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
     expect(Object.isFrozen(SIGNAL_REGISTRY)).toBe(true);
     for (const row of Object.values(SIGNAL_REGISTRY)) {
       expect(Object.isFrozen(row)).toBe(true);
+    }
+  });
+});
+
+describe('withinSight FAILS CLOSED at zero sight (gate fix F4): a blind observer admits nothing — not even a point at its own centre', () => {
+  it('a whited-out observer (sight 0) sees no co-located hull and no boom/burst at its own centre; the undazzled twin sees all three', () => {
+    for (const blind of [true, false]) {
+      const w = bareWorld();
+      const a = place(w, 'a', 0, 0);
+      const b = place(w, 'b', 0, 0); // hull centre EXACTLY on a's
+      if (blind) a.dazzledUntil = w.now + FLASH_WINDOW_MS; // the hit tick: sight 0
+      const ctx = foggedCtx(w, a);
+      const boom: BoomEvent = { k: 'boom', id: 's1', x: 0, y: 0 };
+      const burst: BurstSubject = { k: 'burst', id: 's2', x: 0, y: 0, own: 'b' };
+      expect(shipSees(a, b, ctx, w.now), `blind=${blind}`).toBe(!blind);
+      expect(signalFor('boom')!.visible(ctx, boom), `blind=${blind}`).toBe(!blind);
+      expect(signalFor('burst')!.visible(ctx, burst), `blind=${blind}`).toBe(!blind);
     }
   });
 });

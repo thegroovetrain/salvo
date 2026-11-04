@@ -21,6 +21,7 @@ import { describe, it, expect } from 'vitest';
 import {
   consumableSlotFor,
   DEFAULT_KIT,
+  FLASH_WINDOW_MS,
   type ConsumableId,
   type ConsumableKit,
   CONFIG,
@@ -1663,6 +1664,34 @@ describe('the equipment axis — acquired weapons work, doctrine changes behavio
     const bothMind = mkMind('bulwark');
     plot(bothMind, track(port.now, { x: LOST_X, y: 0, live: false, seenAt: port.now - 3400 }));
     expect(COMBAT_BRAIN.decide(both, bothMind, port).fireSlot).toBe(slotOf(both, 'starShells'));
+  });
+
+  it('A FLASHED BOT\'S TWO SIGHT GATES READ ITS WHITED-OUT SIGHT (gate fix F8): at hit + 1 s a live track 100 u away is NOT in sight (no phosphor) and a lost plot 200 u away IS beyond it (the sensor flare goes up); at the window\'s end both read full sight again', () => {
+    const w = openWorld(431);
+    const port = fakePort(w);
+    const atHitPlus1s = port.now - 1000 + FLASH_WINDOW_MS; // the mark a hit 1 s ago left
+    const lapsed = port.now; // the window has just ended
+    // PHOSPHOR (nearestLiveInSight): a live contact at 100 u.
+    const phosAt = (mark: number): boolean => {
+      const rec = mkBot(w, 'battleship', 0, 0, 0);
+      w.applyCard(rec, 'phosphorShells');
+      rec.dazzledUntil = mark;
+      const mind = mkMind('siege');
+      plot(mind, track(port.now, { x: 100, y: 0, live: true, speed: 10 }));
+      return COMBAT_BRAIN.decide(rec, mind, port).fireSlot === slotOf(rec, 'phosphorShells');
+    };
+    expect(phosAt(atHitPlus1s)).toBe(false);
+    expect(phosAt(lapsed)).toBe(true);
+    // SENSOR FLARE (sensorFlareTarget): a stale LOST plot at 200 u.
+    const flareAt = (mark: number): boolean => {
+      const rec = mkBot(w, 'battleship', 0, 0, 0);
+      rec.dazzledUntil = mark;
+      const mind = mkMind('siege');
+      plot(mind, track(port.now, { x: 200, y: 0, live: false, seenAt: port.now - 3000 }));
+      return COMBAT_BRAIN.decide(rec, mind, port).fireSlot === slotOf(rec, 'starShells');
+    };
+    expect(flareAt(atHitPlus1s)).toBe(true);
+    expect(flareAt(lapsed)).toBe(false);
   });
 
   /** A torpedo boat at the origin, bow EAST, holding ONE FOULING SHELL copy

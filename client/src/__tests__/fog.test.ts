@@ -1,10 +1,12 @@
 // THE FOG SIGHT HOLE (render/fog.ts) — the honesty rule: the baked hole is the
 // SHARED `effectiveSight` — the very function the server's `sightOf` calls —
 // so the fog circle can never draw clear water the server reveals nothing in.
-// Story 10.9 RESTORED the FLASH SHELLS dazzle (Story 8.17's, retired in 9.4):
-// while the own hull is dazzled the server has cut its perceived sight to
-// `effectiveSight(stats, true)` — a fraction of SIGHT (CONFIG.flashShells.
-// sightFraction) — so the baked hole must be exactly that number.
+// The FLASH SHELLS WHITEOUT (Eric 2026-10-29, epic-10 amendment 5): while the
+// own hull holds a flash mark the server perceives it through the CLEAR
+// CIRCLE — `effectiveSight(stats, dazzledUntil, now)`: 0 through ramp + hold,
+// then growing linearly back to full sight — so the baked hole follows that
+// curve, floored onto `sightSteps` steps of the sight range so the rebake
+// cost stays bounded (never wider than the server's sight).
 //
 // The rebake itself is a Pixi/canvas operation (untestable in jsdom); what is
 // pinned here is the pure radius rule and the staleness edge that decides WHEN
@@ -12,55 +14,94 @@
 
 import { describe, it, expect } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, effectiveSight } from '@salvo/shared';
-import { Fog, fogFrameRects, fogHoleRadiusU, fogZoomStale } from '../render/fog.js';
+import { CONFIG, FLASH_WINDOW_MS, effectiveSight } from '@salvo/shared';
+import { Fog, fogFrameRects, fogHoleRadiusU, fogZoomStale, quantizeSightU } from '../render/fog.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const BASE = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
+const { rampMs, holdMs, clearMs } = CONFIG.flashShells;
+/** The flash clock `elapsedMs` into a whiteout that hit at t = 0. */
+const at = (elapsedMs: number) => ({ until: FLASH_WINDOW_MS, now: elapsedMs });
+const STEP = BASE.sightRange / CLIENT_CONFIG.flashWhiteout.sightSteps;
 
-describe('fogHoleRadiusU — the dazzle-honest hole radius', () => {
-  it('is the effective sight range while NOT dazzled — base and boon-widened alike', () => {
-    expect(fogHoleRadiusU(BASE, false)).toBe(CONFIG.vision.sight);
-    expect(fogHoleRadiusU({ sightRange: 400, radarRange: 660 }, false)).toBe(400);
+describe('fogHoleRadiusU — the flash-honest hole radius', () => {
+  it('is the effective sight range with no flash mark — base and boon-widened alike', () => {
+    expect(fogHoleRadiusU(BASE)).toBe(CONFIG.vision.sight);
+    expect(fogHoleRadiusU({ sightRange: 400, radarRange: 660 }, { until: 0, now: 5000 })).toBe(400);
   });
 
-  it('is sightRange × sightFraction while dazzled — smaller than sight', () => {
-    expect(fogHoleRadiusU(BASE, true)).toBe(CONFIG.vision.sight * CONFIG.flashShells.sightFraction);
-    expect(fogHoleRadiusU(BASE, true)).toBeLessThan(CONFIG.vision.sight);
+  it('is 0 through the ramp and the hold — the whiteout leaves no hole', () => {
+    for (const e of [0, rampMs, rampMs + holdMs - 1]) expect(fogHoleRadiusU(BASE, at(e))).toBe(0);
   });
 
-  it('follows the SIGHT range, never the radar range, dazzled or not', () => {
-    for (const d of [false, true]) {
+  it('the hole grows back with the shared curve: half the sight at mid-clear, full at the end', () => {
+    expect(fogHoleRadiusU(BASE, at(rampMs + holdMs + clearMs / 2))).toBeCloseTo(BASE.sightRange / 2, 6);
+    expect(fogHoleRadiusU(BASE, at(FLASH_WINDOW_MS))).toBe(BASE.sightRange);
+  });
+
+  it('follows the SIGHT range, never the radar range, flashed or not', () => {
+    for (const d of [at(0), at(rampMs + holdMs + clearMs / 2), at(FLASH_WINDOW_MS)]) {
       expect(fogHoleRadiusU({ ...BASE, radarRange: BASE.radarRange * 2 }, d)).toBe(fogHoleRadiusU(BASE, d));
     }
-    expect(fogHoleRadiusU({ ...BASE, sightRange: BASE.sightRange * 2 }, true)).toBe(2 * fogHoleRadiusU(BASE, true));
   });
 
-  it("IS the shared effectiveSight — the function the server's sightOf calls", () => {
-    for (const r of [BASE, { sightRange: 400, radarRange: 800 }]) {
-      for (const d of [false, true]) expect(fogHoleRadiusU(r, d)).toBe(effectiveSight(r, d));
+  it("IS the shared effectiveSight — the function the server's sightOf calls — floored to one step", () => {
+    for (let e = 0; e <= FLASH_WINDOW_MS; e += 137) {
+      const exact = effectiveSight(BASE, FLASH_WINDOW_MS, e);
+      const hole = fogHoleRadiusU(BASE, at(e));
+      expect(hole).toBeLessThanOrEqual(exact + 1e-9); // never wider than the server's sight
+      expect(exact - hole).toBeLessThan(STEP); // and never more than one step narrower
+    }
+    expect(fogHoleRadiusU(BASE)).toBe(effectiveSight(BASE));
+  });
+});
+
+describe('quantizeSightU — the rebake quantum', () => {
+  it('passes a full radius through and floors a partial one onto the step lattice', () => {
+    expect(quantizeSightU(BASE.sightRange, BASE.sightRange)).toBe(BASE.sightRange);
+    expect(quantizeSightU(STEP * 3.5, BASE.sightRange)).toBeCloseTo(STEP * 3, 9);
+    expect(quantizeSightU(0, BASE.sightRange)).toBe(0);
+  });
+
+  it('NEVER exceeds the input (gate fix F6): just below a step boundary the boundary epsilon must not round the hole UP past effectiveSight', () => {
+    for (const k of [1, 2, 7, CLIENT_CONFIG.flashWhiteout.sightSteps - 1]) {
+      const sightU = STEP * k - 1e-12;
+      expect(quantizeSightU(sightU, BASE.sightRange)).toBeLessThanOrEqual(sightU);
     }
   });
 });
 
-describe('Fog.setDazzled — the rebake staleness edge', () => {
-  it('starts un-dazzled and reports a rebake ONLY on a real state flip', () => {
+describe('Fog.setDazzle — the rebake staleness edge', () => {
+  it('starts un-flashed and reports a rebake ONLY when the quantized radius moves', () => {
     const fog = new Fog(new Container());
     expect(fog.isDazzled).toBe(false);
-    expect(fog.setDazzled(false)).toBe(false); // no change, no rebake owed
-    expect(fog.setDazzled(true)).toBe(true); // entered the dazzle: hole is stale
+    expect(fog.setDazzle(0, 1000)).toBe(false); // no mark, no rebake owed
+    expect(fog.setDazzle(FLASH_WINDOW_MS, 0)).toBe(true); // flashed: the hole collapses
     expect(fog.isDazzled).toBe(true);
-    expect(fog.setDazzled(true)).toBe(false); // still dazzled, every later frame
-    expect(fog.setDazzled(false)).toBe(true); // left it: stale again
+    expect(fog.setDazzle(FLASH_WINDOW_MS, rampMs)).toBe(false); // still 0 through the hold
+    expect(fog.setDazzle(FLASH_WINDOW_MS, rampMs + holdMs + clearMs / 2)).toBe(true); // grew
+    expect(fog.setDazzle(FLASH_WINDOW_MS, FLASH_WINDOW_MS)).toBe(true); // lapsed: full sight
     expect(fog.isDazzled).toBe(false);
   });
 
-  it('costs at most two rebakes per dazzle event, however long it lasts', () => {
+  it('a whole whiteout at 60 fps costs at most sightSteps + 1 rebakes, never one per frame', () => {
     const fog = new Fog(new Container());
     let rebakes = 0;
-    for (let i = 0; i < 120; i += 1) if (fog.setDazzled(true)) rebakes += 1;
-    for (let i = 0; i < 120; i += 1) if (fog.setDazzled(false)) rebakes += 1;
-    expect(rebakes).toBe(2);
+    let frames = 0;
+    for (let t = 0; t <= FLASH_WINDOW_MS + 500; t += 1000 / 60) {
+      frames += 1;
+      if (fog.setDazzle(FLASH_WINDOW_MS, t)) rebakes += 1;
+    }
+    expect(rebakes).toBeLessThanOrEqual(CLIENT_CONFIG.flashWhiteout.sightSteps + 1);
+    expect(rebakes).toBeLessThan(frames / 5);
+  });
+
+  it('a re-flash (a later mark) collapses the hole again — the timeline restarts', () => {
+    const fog = new Fog(new Container());
+    fog.setDazzle(FLASH_WINDOW_MS, rampMs + holdMs + clearMs / 2);
+    const reflashAt = rampMs + holdMs + clearMs / 2;
+    expect(fog.setDazzle(reflashAt + FLASH_WINDOW_MS, reflashAt)).toBe(true);
+    expect(fogHoleRadiusU(BASE, { until: reflashAt + FLASH_WINDOW_MS, now: reflashAt })).toBe(0);
   });
 });
 

@@ -10,7 +10,7 @@
 // reimplemented oracle (the header rule).
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, DEFAULT_HORN_ID, type FoghornEvent, type GameEvent } from '@salvo/shared';
+import { isAfloat, CONFIG, FLASH_WINDOW_MS, DEFAULT_HORN_ID, type FoghornEvent, type GameEvent } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { neutralInput } from '../game/inputs.js';
 import { buildFrame } from '../game/frames.js';
@@ -372,7 +372,7 @@ describe('SIGNAL_REGISTRY — fh row: the twelve volume bands (twelfths of the L
     expect(undazzled).toEqual(probes.map(([, want]) => want));
     // The mark is live: the listener's SIGHT collapses (the shared
     // effectiveSight), its intel range — the bands' one ruler — does not.
-    l.dazzledUntil = w.now + CONFIG.flashShells.durationMs;
+    l.dazzledUntil = w.now + FLASH_WINDOW_MS;
     expect(probes.map(([d]) => bandOf(d, 'd'))).toEqual(undazzled);
   });
 

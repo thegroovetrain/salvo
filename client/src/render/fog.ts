@@ -33,21 +33,58 @@ import { FOG_FILL_ALPHA, bakeFogTexture } from './textures.js';
  *  sight half. */
 export type VisionRanges = Pick<EffectiveStats, 'sightRange' | 'radarRange'>;
 
+/** The own hull's FLASH SHELLS mark as the client reads it: the self-private
+ *  `you.dazzledUntil` (0 = none) and the server-clock estimate it is read
+ *  against. The one input every client mirror of the server's truesight takes. */
+export interface DazzleClock {
+  until: number;
+  now: number;
+}
+
+/** u — the smallest hole-radius change `Fog.setDazzle` calls a move: float
+ *  noise at a quantizer step boundary (quantizeSightU's F6 clamp) is far
+ *  below it, every real step (sight / sightSteps) far above. */
+const HOLE_MOVE_EPS_U = 1e-6;
+
+/** No flash mark: the undazzled clock every mirror starts from. */
+export const NO_DAZZLE: DazzleClock = Object.freeze({ until: 0, now: 0 });
+
+/**
+ * Pure: `sightU` floored onto `CLIENT_CONFIG.flashWhiteout.sightSteps` equal
+ * steps of the full `sightRange` — the re-bake quantum of the fog hole and the
+ * radar dim mask while a whiteout's clear circle grows (epic-10 amendment 5).
+ * A full (or wider) radius passes through untouched, so an undazzled hull's
+ * hole is exactly its sight; a partial one is floored, so the drawn hole is
+ * never WIDER than the server's sight (fail closed).
+ */
+export function quantizeSightU(sightU: number, sightRange: number): number {
+  if (!(sightU < sightRange)) return sightU;
+  const step = sightRange / CLIENT_CONFIG.flashWhiteout.sightSteps;
+  if (!(step > 0)) return sightU;
+  // the epsilon absorbs float error at a step boundary; the min keeps its last
+  // step on sight exactly — and NEVER ABOVE the input (gate fix F6): just below
+  // a boundary the epsilon rounds up, so the hole is clamped to sightU there.
+  return Math.min(sightU, sightRange, Math.floor(sightU / step + 1e-9) * step);
+}
+
 /**
  * Pure: the world-space radius (u) the fog's sight hole is baked at — the
- * observer's effective truesight: the boon-widened sight range, or
- * `sightRange × CONFIG.flashShells.sightFraction` while an enemy FLASH SHELLS
- * burst holds this ship (Story 8.17; restored by Story 10.9 at 1/4 of SIGHT,
- * epic-10 amendment 4 ruling 1). It is the SHARED `effectiveSight` — the very
- * function the server's perception (`sightOf`) calls for a dazzled observer —
- * never a local factor, which is the whole point: an un-shrunk hole would draw
- * clear water where the server reveals nothing, i.e. the fog circle would LIE.
+ * observer's effective truesight: the boon-widened sight range, or the
+ * whiteout's CLEAR CIRCLE while an enemy FLASH SHELLS mark holds this ship
+ * (Eric 2026-10-29, epic-10 amendment 5: 0 through ramp + hold, then growing
+ * linearly to full sight across the clear). It is the SHARED `effectiveSight`
+ * — the very function the server's perception (`sightOf`) calls — never a
+ * local factor, which is the whole point: an un-shrunk hole would draw clear
+ * water where the server reveals nothing, i.e. the fog circle would LIE. The
+ * growing circle is floored onto `quantizeSightU`'s steps so the hole (and
+ * the radar dim mask that shares this number) re-bakes a bounded number of
+ * times per flash, never per frame.
  *
  * (Story 9.3, epic-9 amendment 40, deleted the in-smoke argument: a
  * countermeasure cloud never shrinks the hole.)
  */
-export function fogHoleRadiusU(ranges: VisionRanges, dazzled: boolean): number {
-  return effectiveSight(ranges, dazzled);
+export function fogHoleRadiusU(ranges: VisionRanges, dazzle: DazzleClock = NO_DAZZLE): number {
+  return quantizeSightU(effectiveSight(ranges, dazzle.until, dazzle.now), ranges.sightRange);
 }
 
 /**
@@ -155,12 +192,12 @@ export class Fog {
   /** Effective sight AND radar radii (u) the hole is derived from — swapped
    *  by a boon via setSightRange(); base = CONFIG.vision. */
   private ranges: VisionRanges = { sightRange: CONFIG.vision.sight, radarRange: CONFIG.vision.radar };
-  /** Is the own ship dazzled by an enemy FLASH SHELLS burst right now (the
-   *  victim-private you.dazzledUntil)? While true the baked hole shrinks to
-   *  `effectiveSight(…, true)`, because the SERVER is already perceiving this
-   *  ship that way: an un-shrunk hole would draw clear water where the server
-   *  reveals nothing, i.e. the fog circle would lie. */
-  private dazzled = false;
+  /** The own hull's FLASH SHELLS mark (the victim-private you.dazzledUntil)
+   *  against the server clock. While it holds, the baked hole is the
+   *  whiteout's clear circle (`fogHoleRadiusU`), because the SERVER is already
+   *  perceiving this ship that way: an un-shrunk hole would draw clear water
+   *  where the server reveals nothing, i.e. the fog circle would lie. */
+  private readonly dazzle: DazzleClock = { until: 0, now: 0 };
 
   constructor(layer: Container) {
     this.sprite = new Sprite(Texture.EMPTY);
@@ -178,27 +215,29 @@ export class Fog {
   }
 
   /**
-   * Adopt the DAZZLE state (Story 2.8; a FLASH SHELLS burst since 8.17,
-   * restored by 10.9). Returns TRUE when the baked hole went stale (the state
-   * actually flipped) so the caller can rebake on exactly the two frames per
-   * dazzle event that need it — never per frame. Deliberately un-animated: the
-   * hole simply IS smaller while the dazzle holds (motion/accessibility — the
-   * information is carried by the radius, not by movement).
+   * Adopt the own hull's FLASH SHELLS mark against the server clock (Story 2.8;
+   * the whiteout since Eric 2026-10-29, epic-10 amendment 5). Returns TRUE when
+   * the baked hole went stale — the (quantized) radius actually moved — so the
+   * caller rebakes only then: twice around the hold, then once per
+   * `sightSteps` step while the circle grows (one per step over 8.5 s), never per frame.
    */
-  setDazzled(dazzled: boolean): boolean {
-    if (dazzled === this.dazzled) return false;
-    this.dazzled = dazzled;
-    return true;
+  setDazzle(until: number, now: number): boolean {
+    const before = this.holeRadiusU();
+    this.dazzle.until = until;
+    this.dazzle.now = now;
+    // A float-noise move is no move: at a step boundary the F6 clamp can hand
+    // back sightU a hair under the lattice point the next frame reaches.
+    return Math.abs(this.holeRadiusU() - before) > HOLE_MOVE_EPS_U;
   }
 
-  /** Is the dazzle currently held? Test/observation seam. */
+  /** Is the flash mark currently held? Test/observation seam. */
   get isDazzled(): boolean {
-    return this.dazzled;
+    return this.dazzle.until > this.dazzle.now;
   }
 
   /** The radius (u) this instance's hole is baked at (the pure rule above). */
   private holeRadiusU(): number {
-    return fogHoleRadiusU(this.ranges, this.dazzled);
+    return fogHoleRadiusU(this.ranges, this.dazzle);
   }
 
   /** The composed zoom of the last bake (NaN before the first). */

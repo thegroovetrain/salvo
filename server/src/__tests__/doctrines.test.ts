@@ -27,11 +27,12 @@
 // their notes survive below where the suites used to sit.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, transitionLifecycle, CATALOG, CONFIG, consumableSlotFor, effectiveStats, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, captiveTriggerRadius, type ConsumableKit, type GameEvent, type InputMsg, type MineKind, type ShipClassId } from '@salvo/shared';
+import { isAfloat, transitionLifecycle, CATALOG, CONFIG, FLASH_WINDOW_MS, consumableSlotFor, effectiveStats, DEFAULT_HORN_ID, HULL_IDS, droneHullOf, hullEnvelope, captiveTriggerRadius, type ConsumableKit, type GameEvent, type InputMsg, type MineKind, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
 import { sightOf } from '../game/signals.js';
+import { observe } from '../game/perception.js';
 import { circleIsland } from './islandFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
@@ -1273,9 +1274,11 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
 
 // THE FLASH SHELLS suite (Story 8.17, amendment 132) left with the consumable
 // in Story 9.4 and is RESTORED here by Story 10.9 (epic-10 amendments 2 and 4)
-// with the ruled changes: the reach is the FOULING SHELL's dial (ruling 2) and
-// a dazzled hull keeps `sightFraction` of its SIGHT (ruling 1). Numbers are
-// read from CONFIG, never pinned.
+// with the ruled changes: the reach is the FOULING SHELL's dial (ruling 2);
+// RE-CUT as the WHITEOUT (epic-10 amendment 5): a hit hull is marked for
+// FLASH_WINDOW_MS and its sight is the clear circle — 0 through ramp + hold,
+// then linear to full across clearMs. Numbers are read from CONFIG, never
+// pinned.
 
 describe('FLASH SHELLS (`dazzleShells`) — a consumable whose one-time burst dazzles every hull inside its radius (amendment 132; restored by Story 10.9)', () => {
   /** A kit that CARRIES the flash (Story 10.1). */
@@ -1300,14 +1303,14 @@ describe('FLASH SHELLS (`dazzleShells`) — a consumable whose one-time burst da
     return { w, a, A, B, watcher };
   }
 
-  it('the burst marks A (centre inside the radius) with dazzledUntil = now + durationMs, leaves B and the owner alone, spends the copy, emits `sp`, no damage, no zone', () => {
+  it('the burst marks A (centre inside the radius) with dazzledUntil = now + FLASH_WINDOW_MS, leaves B and the owner alone, spends the copy, emits `sp`, no damage, no zone', () => {
     const { w, a, A, B } = board();
     const { seen, at } = fireUntilStop(w, a, BELT, 0, 400);
     expect(kinds(seen)).toContain('burst');
     expect(kinds(seen)).toContain('sp'); // damage 0 resolves no victim (135(d))
     expect(kinds(seen)).not.toContain('hc');
     expect(kinds(seen)).not.toContain('dmg');
-    expect(A.dazzledUntil).toBe(at + FL.durationMs);
+    expect(A.dazzledUntil).toBe(at + FLASH_WINDOW_MS);
     expect(B.dazzledUntil).toBe(0);
     expect(a.dazzledUntil).toBe(0);
     expect(A.hp).toBe(A.stats.maxHp);
@@ -1325,7 +1328,7 @@ describe('FLASH SHELLS (`dazzleShells`) — a consumable whose one-time burst da
     expect(w.sinkingActivationGate(a, BELT)).toEqual({ ok: true });
     const shell = [...w.shells.values()][0];
     expect(shell.targetX).toBeCloseTo(-CONFIG.foulingShell.rangeU, 6);
-    expect(shell.flash).toEqual({ radius: FL.radius, durationMs: FL.durationMs });
+    expect(shell.flash).toEqual({ radius: FL.radius, durationMs: FLASH_WINDOW_MS });
     expect(shell.foul).toBeUndefined();
     expect(shell.damage).toBe(0);
     expect(shell.contactDamage).toBe(0);
@@ -1334,13 +1337,15 @@ describe('FLASH SHELLS (`dazzleShells`) — a consumable whose one-time burst da
     expect(shell.family).toBe('cannon');
   });
 
-  it('a second flash on an already-dazzled hull sets the LATER expiry — never stacks, never shortens', () => {
+  it('a second flash on an already-dazzled hull sets the LATER expiry — a re-flash RESTARTS the whiteout (sight back to 0), never stacks, never shortens', () => {
     const { w, a, A } = board();
-    A.dazzledUntil = w.now + FL.durationMs / 2;
+    A.dazzledUntil = w.now + FLASH_WINDOW_MS / 2; // half-way through an earlier whiteout: the circle is clearing
+    expect(sightOf(A, w.now)).toBeGreaterThan(0); // premise
     const { at } = fireUntilStop(w, a, BELT, 0, 400);
-    expect(A.dazzledUntil).toBe(at + FL.durationMs); // extended to a fresh flash
+    expect(A.dazzledUntil).toBe(at + FLASH_WINDOW_MS); // extended to a fresh flash
+    expect(sightOf(A, w.now)).toBe(0); // ...and the view is white again
     const { w: w2, a: a2, A: A2 } = board();
-    const longer = w2.now + FL.durationMs * 6;
+    const longer = w2.now + FLASH_WINDOW_MS * 6;
     A2.dazzledUntil = longer;
     fireUntilStop(w2, a2, BELT, 0, 400);
     expect(A2.dazzledUntil).toBe(longer); // unchanged — never shortened
@@ -1365,23 +1370,146 @@ describe('FLASH SHELLS (`dazzleShells`) — a consumable whose one-time burst da
     const { seen, at } = fireUntilStop(w, a, BELT, 0, 650);
     expect(kinds(seen)).toContain('boom');
     expect(mid.hp).toBe(mid.stats.maxHp);
-    expect(mid.dazzledUntil).toBe(at + FL.durationMs);
+    expect(mid.dazzledUntil).toBe(at + FLASH_WINDOW_MS);
     expect(far.dazzledUntil).toBe(0);
   });
 
-  it('the dazzled hull\'s OWN sight collapses to sightRange × sightFraction (sightOf → the shared effectiveSight); radar is untouched; full sight returns at expiry', () => {
+  it('the dazzled hull\'s OWN sight is the whiteout\'s clear circle (sightOf → the shared effectiveSight): 0 through ramp + hold, half at mid-clear, full at the window\'s end; radar is untouched', () => {
     const { w, a, A } = board();
-    const between = (A.stats.sightRange * (1 + FL.sightFraction)) / 2; // inside base sight, outside the dazzled quarter
-    place(w, 't', 500, between, 0);
+    const R = A.stats.sightRange;
+    place(w, 't', 500, 0.4 * R, 0); // inside base sight AND inside the half-cleared circle
     expect(buildFrame(w, 'A').contacts.map((c) => c.id)).toContain('t');
     const radarBefore = A.stats.radarRange;
-    fireUntilStop(w, a, BELT, 0, 400);
-    expect(sightOf(A, w.now)).toBeCloseTo(A.stats.sightRange * FL.sightFraction, 9);
+    const { at } = fireUntilStop(w, a, BELT, 0, 400);
+    const stepTo = (t: number): void => { while (w.now < t) w.step(); };
+    stepTo(at + 1000); // inside the hold: white
+    expect(sightOf(A, w.now)).toBe(0);
     expect(A.stats.radarRange).toBe(radarBefore);
     expect(buildFrame(w, 'A').contacts.map((c) => c.id)).not.toContain('t');
-    while (w.now < A.dazzledUntil) w.step();
-    expect(sightOf(A, w.now)).toBe(A.stats.sightRange);
+    stepTo(at + FL.rampMs + FL.holdMs + 0.2 * FL.clearMs); // the circle is 0.2 R — t (0.4 R) still hidden
+    expect(sightOf(A, w.now)).toBeCloseTo(0.2 * R, 6);
+    expect(buildFrame(w, 'A').contacts.map((c) => c.id)).not.toContain('t');
+    stepTo(at + FL.rampMs + FL.holdMs + 0.5 * FL.clearMs); // half-cleared
+    expect(sightOf(A, w.now)).toBeCloseTo(R / 2, 6);
     expect(buildFrame(w, 'A').contacts.map((c) => c.id)).toContain('t');
+    stepTo(at + FLASH_WINDOW_MS);
+    expect(sightOf(A, w.now)).toBe(R);
+    expect(A.stats.radarRange).toBe(radarBefore);
+  });
+
+  it('a flashed BOT is blind exactly as long as a captain (the uniform law): its observe view holds no contact for a hull 100 u away at hit + 1 s, holds it again once the circle has grown past 100 u — and its radar paints never change', () => {
+    // Twin worlds stepped in lockstep; only `dz`'s bot is flashed. The paint
+    // stream is compared tick for tick: a flash blinds, it never deafens.
+    const twin = (): { w: World; bot: ShipRecord } => {
+      const w = bareWorld(21);
+      const bot = w.addShip('bot', 'BOT', 'bot', 'torpedoBoat', undefined, { x: 0, y: 0 });
+      bot.state = { x: 0, y: 0, heading: 0, speed: 0 };
+      place(w, 't', 100, 0, Math.PI / 2); // inside sight; radar paints it too
+      return { w, bot };
+    };
+    const dz = twin();
+    const ctl = twin();
+    const hit = dz.w.now;
+    dz.bot.dazzledUntil = hit + FLASH_WINDOW_MS;
+    const ids = (v: ReturnType<typeof observe>): string[] => v.contacts.map((c) => c.id);
+    const paints = (v: ReturnType<typeof observe>): string => JSON.stringify(v.events.filter((e) => e.k === 'blip'));
+    let painted = 0;
+    const stepTo = (t: number): { d: ReturnType<typeof observe>; c: ReturnType<typeof observe> } => {
+      let d = observe(dz.w, 'bot');
+      let c = observe(ctl.w, 'bot');
+      while (dz.w.now < t) {
+        dz.w.step();
+        ctl.w.step();
+        d = observe(dz.w, 'bot');
+        c = observe(ctl.w, 'bot');
+        expect(paints(d)).toBe(paints(c));
+        if (paints(d) !== '[]') painted += 1;
+      }
+      return { d, c };
+    };
+    let v = stepTo(hit + 1000); // the hold: white
+    expect(ids(v.c)).toContain('t'); // premise: the undazzled twin sees it
+    expect(ids(v.d)).not.toContain('t');
+    v = stepTo(hit + CONFIG.flashShells.rampMs + CONFIG.flashShells.holdMs + 0.5 * CONFIG.flashShells.clearMs); // half sight
+    expect(sightOf(dz.bot, dz.w.now)).toBeGreaterThan(100); // premise
+    expect(ids(v.d)).toContain('t');
+    expect(painted).toBeGreaterThan(0); // premise: the radar did paint inside the window
+  });
+
+  it('the flash round\'s burst carries the FLASH tag `f: true` (appended LAST) to every observer it reaches — the owner and a watcher outside the radius — while a cannon burst never does (epic-10 amendment 5)', () => {
+    const { w, a } = board();
+    const { seen } = fireUntilStop(w, a, BELT, 0, 400);
+    const internal = seen.find((e) => e.k === 'burst') as { f?: true } | undefined;
+    expect(internal?.f).toBe(true);
+    for (const obs of ['a', 'watcher']) {
+      const burst = buildFrame(w, obs).events.find((e) => e.k === 'burst');
+      expect(burst).toBeDefined();
+      expect(Object.keys(burst!)).toEqual(['k', 'id', 'x', 'y', 'f']); // key order: f LAST (msgpack)
+      expect((burst as { f?: true }).f).toBe(true);
+    }
+    // ...and the ordinary cannon (slot 0) burst carries no tag at all.
+    const { w: w2, a: a2 } = board();
+    const { seen: seen2 } = fireUntilStop(w2, a2, 0, 0, 400);
+    const cannon = seen2.find((e) => e.k === 'burst');
+    expect(cannon).toBeDefined();
+    expect('f' in cannon!).toBe(false);
+    for (const obs of ['a', 'watcher']) {
+      const burst = buildFrame(w2, obs).events.find((e) => e.k === 'burst');
+      expect(burst).toBeDefined();
+      expect(Object.keys(burst!)).toEqual(['k', 'id', 'x', 'y']);
+    }
+  });
+
+  it('an INTERCEPTED flash round also emits the flash burst (`f: true`) at the STOP POINT — the owner and a sighted bystander get it beside the ordinary boom; an intercepted CANNON round emits a boom and NO burst (gate fix F1)', () => {
+    const w = bareWorld();
+    const a = w.addShip('a', 'A', 'captain', 'battleship', undefined, undefined, undefined, FLASH_KIT);
+    fitClassWeapons(w, a);
+    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    w.applyCard(a, 'dazzleShells');
+    place(w, 'mid', 300, 0, 0); // bodyblocks the line of fire
+    place(w, 'far', 650, 0, Math.PI / 2); // the clicked point — never reached
+    place(w, 'by', 300, FL.radius + 100, 0); // outside the radius, inside sight of the stop point
+    const { seen } = fireUntilStop(w, a, BELT, 0, 650);
+    const boom = seen.find((e) => e.k === 'boom') as { id: string; x: number; y: number } | undefined;
+    expect(boom).toBeDefined();
+    const internal = seen.find((e) => e.k === 'burst') as { id: string; x: number; y: number; f?: true } | undefined;
+    expect(internal).toBeDefined();
+    expect(internal!.f).toBe(true);
+    expect(internal!.x).toBeCloseTo(boom!.x, 9); // AT the stop point, not the click
+    expect(internal!.y).toBeCloseTo(boom!.y, 9);
+    for (const obs of ['a', 'by']) {
+      const evs = buildFrame(w, obs).events;
+      const burst = evs.find((e) => e.k === 'burst');
+      expect(burst, obs).toBeDefined();
+      expect(Object.keys(burst!)).toEqual(['k', 'id', 'x', 'y', 'f']);
+      expect(evs.some((e) => e.k === 'boom'), obs).toBe(true);
+    }
+    // ...and an intercepted cannon round (slot 0) bursts nowhere: boom only.
+    const w2 = bareWorld();
+    const a2 = place(w2, 'a', 0, 0, 0, 'battleship');
+    place(w2, 'mid', 300, 0, 0);
+    place(w2, 'far', 650, 0, Math.PI / 2);
+    const { seen: seen2 } = fireUntilStop(w2, a2, 0, 0, 650);
+    expect(kinds(seen2)).toContain('boom');
+    expect(kinds(seen2)).not.toContain('burst');
+  });
+
+  it('the flashed VICTIM receives the flash burst (`f: true`) in the very tick its sight drops to 0 — its centre is inside the radius (Eric 2026-10-29, gate fix F2); a blind hull 100 u from a CANNON burst still receives nothing', () => {
+    const { w, a, A } = board(); // A sits 100 u from the burst point
+    fireUntilStop(w, a, BELT, 0, 400);
+    expect(sightOf(A, w.now)).toBe(0); // premise: blind this tick
+    const burst = buildFrame(w, 'A').events.find((e) => e.k === 'burst');
+    expect(burst).toBeDefined();
+    expect(Object.keys(burst!)).toEqual(['k', 'id', 'x', 'y', 'f']);
+    expect((burst as { f?: true }).f).toBe(true);
+    // A CANNON burst 100 u from an already-blind hull: the point is unsighted
+    // and the radius arm is the flash row's alone.
+    const { w: w2, a: a2, A: A2 } = board();
+    A2.dazzledUntil = w2.now + FLASH_WINDOW_MS;
+    const { seen } = fireUntilStop(w2, a2, 0, 0, 400);
+    expect(kinds(seen)).toContain('burst');
+    expect(sightOf(A2, w2.now)).toBe(0); // premise: still blind at the burst tick
+    expect(buildFrame(w2, 'A').events.filter((e) => e.k === 'burst')).toEqual([]);
   });
 
   it('dazzledUntil rides ONLY the victim\'s own frame (`you`) — a watcher\'s contact for the victim never carries it', () => {

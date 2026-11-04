@@ -2286,13 +2286,17 @@ export const CONFIG = {
    * DAZZLE SHELLS line as a CONSUMABLE (display name FLASH SHELLS; the internal
    * id stays `dazzleShells`). The key primes, a click fires ONE 360°
    * gun-pattern shell on the FOULING SHELL's click path that bursts ONCE in
-   * `radius`: every non-owner afloat hull whose centre is inside is dazzled
-   * for `durationMs` (a second flash sets the LATER expiry — never stacks,
-   * never shortens). While dazzled a hull's effective sight is `sightRange ×
-   * sightFraction` (sim/sight.ts `effectiveSight` — ruling 1: 1/4 of SIGHT;
-   * Eric's equivalence check "1/12 of intel range" holds at today's 500 u /
-   * 1500 u). Radar is untouched: dazzle blinds, it does not deafen. NO
-   * lingering zone, no light, no reveal, no damage.
+   * `radius`: every non-owner afloat hull whose centre is inside is FLASHED
+   * for `rampMs + holdMs + clearMs` (10 s; a second flash sets the LATER
+   * expiry — never stacks, never shortens). THE WHITEOUT LAW (Eric
+   * 2026-10-29, re-cut of amendment 4(a)'s "1/4 of sight"): the victim's view
+   * ramps to full white over `rampMs`, holds white for `holdMs`, then clears
+   * over `clearMs` — around the ship first, growing outward. The TRUESIGHT
+   * follows the clear circle: 0 u through ramp + hold, then growing LINEARLY
+   * from 0 to the full `sightRange` across `clearMs` (sim/sight.ts
+   * `effectiveSight`, uniform for humans and bots — the server perceives the
+   * same curve the client paints). Radar is untouched: a flash blinds, it does
+   * not deafen. NO lingering zone, no light, no reveal, no damage.
    *
    * REACH (ruling 2): the flash reaches EXACTLY as far as the fouling shell —
    * the server reads `CONFIG.foulingShell.rangeU` for both click-aimed shells.
@@ -2308,8 +2312,11 @@ export const CONFIG = {
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity
     shellRadius: 2, // u — shell collision radius (star-shell parity)
     radius: 150, // u — the one-time burst radius (amendment 136: centre test)
-    durationMs: 10_000, // ms — how long a flashed hull stays dazzled
-    sightFraction: 0.25, // × SIGHT range — a dazzled hull's effective sight (Eric 2026-10-28: 1/4 of sight = 1/12 of intel today)
+    // THE WHITEOUT LAW (Eric 2026-10-29) — three phases, the total window is
+    // their SUM (sim/sight.ts FLASH_WINDOW_MS; never a fourth literal).
+    rampMs: 500, // ms — the view ramps to full white; truesight 0
+    holdMs: 1000, // ms — full white holds; truesight 0
+    clearMs: 8500, // ms — the clear circle grows from the ship to full sightRange, linearly
   },
 
   /**

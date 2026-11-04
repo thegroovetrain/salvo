@@ -715,8 +715,9 @@ export class FleetController {
     const fy = Math.sin(heading);
     // UNDAZZLED on purpose (Story 10.9): this scope is an EXACT speed-up cut
     // (the kernel's reach lies inside the undazzled sight), so reading the
-    // dazzled quarter-sight here would change behavior — a flashed drone
-    // would stop avoiding hulls inside its kernel reach and ram. The one-arg
+    // dazzled sight here (the whiteout's clear circle — 0 for 1.5 s, epic-10
+    // amendment 5) would change behavior — a flashed drone would stop
+    // avoiding hulls inside its kernel reach and ram. The one-arg
     // `effectiveSight` IS the undazzled read; `sightOf(ship, 0)` was NOT
     // (`0 < dazzledUntil` holds for any once-flashed hull — review gate,
     // Codex + both hunters, 2026-10-28).
