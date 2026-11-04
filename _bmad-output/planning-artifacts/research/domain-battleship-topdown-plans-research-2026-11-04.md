@@ -206,14 +206,14 @@ Superstructure along LOA **[measured on W-A, ±0.02]**: forward edge of the bloc
 
 Eight BL 15 in Mk I in four twin turrets A, B, X, Y in two superfiring pairs ([QE class](https://en.wikipedia.org/wiki/Queen_Elizabeth-class_battleship); mounts converted to 30° elevation in 1934–37, [navweaps](http://www.navweaps.com/Weapons/WNBR_15-42_mk1.php)). Barbettes were never moved, so the 1923 plate is valid for stations.
 
-| Turret | Fraction from bow, ONI 1937 [measured] | Fraction, Brassey's 1923 [measured] | Facing | **Recommended** |
+| Turret | Fraction from bow, ONI 1937 (black-blob centroid, machine) | Fraction, Brassey's 1923 (blob incl. barrels, machine) | Facing | **Recommended** |
 |---|---|---|---|---|
-| A | 0.19 | 0.19 | forward | **0.19** |
-| B | 0.27 | 0.26 | forward, superfires over A | **0.265** |
-| X | 0.69 | 0.69 | aft, superfires over Y | **0.69** |
-| Y | 0.77 | 0.77 | aft | **0.77** |
+| A | 0.230 | 0.173 (barrels pull it forward; house ≈0.20) | forward | **0.23** |
+| B | 0.312 | 0.25 | forward, superfires over A | **0.31** |
+| X | 0.735 | 0.74 | aft, superfires over Y | **0.735** |
+| Y | 0.817 | 0.77–0.84 (merged with X) | aft | **0.815** |
 
-Pair spacing ≈0.075–0.08 LOA (~50 ft).
+**Erratum 2026-11-04 (sitting, second pass):** the first-pass hand readings of 0.19 / 0.265 / 0.69 / 0.77 were wrong by about 0.04 toward the bow; a connected-component centroid pass over the black gunhouses on the ONI 1937 plan (the same image the hull was traced from) gives the values above, and the real QE layout (short quarterdeck, Y turret near 0.82) agrees. Pair spacing ≈0.08 LOA (~50 ft) holds.
 
 ### 3.4 Firing arcs
 
@@ -307,7 +307,7 @@ An 80-G-numbered WWII vertical overhead; official barbette frame numbers; a reac
 | Beam (m) | 38.9 | 36.0 | 31.7 | 33.0 |
 | LOA : beam | 6.76 | 6.97 | 6.19 | 8.20 |
 | Layout (ruled) | 3×3 | 4×2 | 4×2 | 3×3 |
-| Turret centers, fraction from bow | 0.31 · 0.39 · **0.74** | 0.215 · 0.29 · **0.72 · 0.795** | 0.19 · 0.265 · **0.69 · 0.77** | 0.284 · 0.364 · **0.741** |
+| Turret centers, fraction from bow | 0.31 · 0.39 · **0.74** | 0.215 · 0.29 · **0.72 · 0.795** | 0.23 · 0.31 · **0.735 · 0.815** (erratum, §3.3) | 0.284 · 0.364 · **0.741** |
 | (bold = aft-facing) | | | | |
 | Superfiring | No. 2 over No. 1 | Bruno over Anton; Caesar over Dora | B over A; X over Y | II over I |
 | Sourced train limit | ±150° | **±145°** | ±150° | ±150° |
