@@ -3586,15 +3586,15 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
 ## 2026-11-04 - Story 10.4 The Four Battleships (cycle 212, 0.19.6, PV 96) - review-gate and wave defers
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
-  status: open - Eric's call - 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9 R6)
+  status: RESOLVED 2026-11-04 (Story 10.4 review gate, epic-10 amendment 9(k)): the 2026-08-04 progress-fraction ruling holds - `rescaleReloadTimers` now scales each running turret reload by new / old and re-derives the slot pair; regression test in `upgrades.test.ts`. Was: open - Eric's call - 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9 R6)
   summary: A RELOAD CARD DOES NOT RESCALE A RUNNING TURRET RELOAD - RELOAD / RANGE cards apply at the next fire and a turret mid-reload keeps its countdown, which may conflict with the 2026-08-04 renormalization ruling (a RELOAD card rescales running reloads). The implementer's reading, not a ruling; flagged for Eric, not resolved.
   evidence: Story 10.4 wave 1 (93af0c02) `sim/turrets.ts`; epic-10 amendment 9 R6.
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
-  status: open - owned by Story 10.12 - 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9 R11)
+  status: RESOLVED 2026-11-04 (Story 10.4 review gate, epic-10 amendment 9(k)): the two thresholds are `CONFIG.bots.secReleaseHeat` / `secRepressHeat` with harness bounds; 10.12 tunes the values. Was: open - owned by Story 10.12 - 2026-11-04 (Story 10.4, cycle 212, epic-10 amendment 9 R11)
   summary: THE BOT SECONDARIES HEAT THRESHOLDS (release at 0.8, re-press at 0.2) ARE MODULE CONSTANTS in `server/src/game/ai/battery.ts`; they belong in `CONFIG.bots` when 10.12 tunes the bots under the four hulls.
   evidence: Story 10.4 wave 2a (0b3b558a).
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
-  status: open - harness note - 2026-11-04 (Story 10.4, cycle 212)
+  status: RESOLVED 2026-11-04 (Story 10.4 review gate, epic-10 amendment 9(k)): `U_PER_M` is exported from shared and the client's copy is deleted. Was: open - harness note - 2026-11-04 (Story 10.4, cycle 212)
   summary: `U_PER_M` IS NOT EXPORTED FROM SHARED - the client restates it in `client/src/render/hullArt/data.ts`; a test ties it to the CONFIG hull lengths. Export it from shared if a third reader appears.
   evidence: Story 10.4 wave 2c (7385d992).
 - source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
@@ -3621,3 +3621,15 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: open - flaky test - 2026-11-04 (Story 10.4, cycle 212)
   summary: THE `client/src/__tests__/radarMarch.test.ts` SOFT COVER CASE TAKES ~5-7 s and can time out under machine load. Pre-existing; observed once during this story, green alone and in the final gate.
   evidence: Story 10.4 wave 2b run (one timeout under load).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - owned by Story 10.12 - 2026-11-04 (Story 10.4 review gate, Blind Hunter, PLAUSIBLE)
+  summary: A BOT'S NON-BATTERY SHOT STEALS ITS TURRET AIM - when a torpedo, mine or consumable row returns a shot, `triggerOf` writes that shot's aim and the turrets chase it for the tick, so the main battery reads off-target for the ticks it takes to swing back at 90 deg/s; a bot with a torpedo fit fires its main guns less than intended.
+  evidence: `server/src/game/ai/tactics.ts` `triggerOf` (the aim written is the chosen shot's); `ai/battery.ts` `readyOnTarget`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - owned by Story 10.12 - 2026-11-04 (Story 10.4 review gate, Blind Hunter, PLAUSIBLE)
+  summary: A BOT'S ON-TARGET CHECK READS THE PRE-MOVE POSE - `readyOnTarget` steps a copy of the turrets with the pose from the bots tick, but the server's `stepTurrets` row runs after `stepShips` / `resolveCollisions`; in a hard turn or after a shove the aim offset can move by more than the 0.5 deg tolerance and the click resolves through the early-click fallback (fires along the current bearing).
+  evidence: `server/src/game/ai/battery.ts` `readyOnTarget`; `STEP_ORDER` (botsTick first, stepTurrets after the motion block).
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-4-the-four-battleships.md`
+  status: open - own story: smoke rewrites - 2026-11-04 (Story 10.4, cycle 212)
+  summary: THE THREE HEURISTIC-PILOT SMOKES ARE RED UNDER THE FOUR HULLS - `fogSmoke` ("timeout: park in radar band"), `combatSmoke` ("A never sank B", zero shells, range stuck at 6515 u) and `zoneSmoke` (a 37 hp contact blow plus grind bleed on the hull piloting to the ring centre, read by the smoke as storm damage). All three still sail heuristic pilots from random ring spawns; the default hull is now slower (28.5 u/s) and longer. Same family as the standing entry on the heuristic-pilot smokes; migrated to the new wire (they parse and send `sec`), not rewritten. `zoneSmoke` now prints its own dmg events in the failing assert.
+  evidence: Story 10.4 wave 3 runs (7a623e54) on a scratch server; matchSmoke and weaponsSmoke (the scripted scenarios) pass first try.
