@@ -4803,7 +4803,7 @@ function tickAiming(g: Game, aim: number, aimDist: number, primedSlot: number): 
     actSeq: g.keyboard.actSeq, // cumulative CONSUMED activation count (0-sentinel; keyboard owns it)
     act: g.keyboard.act,
     held: g.mouse.consumeHeld(), // Story 8.15: the held-fire level (live hold OR a latched tap)
-    sec: g.mouse.consumeSec(), // Story 10.4: the secondaries level — right button (live hold OR a latched tap); Story 10.5: masked while a weapon is readied
+    sec: g.mouse.consumeSec(), // Story 10.4: the secondaries level — right button (live hold OR a latched tap); Story 10.5: never masked by a ready (amendment 11(r))
   };
 }
 

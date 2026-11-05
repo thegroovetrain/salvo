@@ -176,7 +176,7 @@ Verdicts: Blind Hunter BUILD-ON-IT (3 low findings, 7 suspicion areas traced cle
 - An exhausted hull (45 cards) banks levels it cannot spend and the HUD chip still shows them — rides with Eric's 10.7 ruling.
 - INSTANT RELOAD is not predicted on the client: turrets and heat update one server frame later.
 - SUPERCAV reloads in about 64 s on Yamato (RELOAD 70) — Eric's accepted tradeoff.
-- Readings Eric may veto: a right button held before a weapon is readied resumes the secondaries once it fires; passive regen excludes PvE drones; the empty mine and shell placeholders look alike; the results strip's empty slot shows a dash.
+- Readings Eric may veto: passive regen excludes PvE drones; the empty mine and shell placeholders look alike; the results strip's empty slot shows a dash.
 - How-to-Play still teaches the retired kit until 10.14. `gds-workflow-status.yaml` does not parse as strict YAML (already so on `development`).
 - Bots are functional, not tuned (10.12): no wait-to-heal, dropped favorites for fouling shell / supercav.
 
@@ -195,6 +195,7 @@ Implementer readings of record (each Eric's to veto on staging; none is a ruling
 - **Empty offer — RULED mid-run** (Eric 2026-11-05, chat, on the wave-1 finding that a hull holding every ladder and three capped slot weapons draws nothing): *"Empty offer is fine, I think what should happen is you get some random stats. But I don't think ships reaching that level will be overly common. We'll address in 10.7"*. Built here: an empty offer never opens the refit window and never throws; a short offer shows fewer cards. Owed to Story 10.7: an exhausted hull gets random stats (ledger entry).
 - **R9 was built, then reversed by R11** the same day: RELOAD scales slot weapons; the Yamato consequence is Eric's accepted tradeoff.
 - **Hotbar candidate — Eric 2026-11-05** (AskUserQuestion on https://claude.ai/artifact/JnVc6K2ihRxPmr6LEtRtLZ): *"Almost right. I want the empty, grayed out slots to at least indicate what kind of slot they are, if that makes sense? Visually?"* → an empty Q / E / R square draws its family's glyph dimmed (reading: one existing glyph per family, no label). Also ruled there: the C / V tooltips show a cooldown row; the results LOADOUT strip draws C and V after R.
+- **A held right button through a ready — RULED** (Eric 2026-11-05, chat; epic-10 amendment 11(r)). First: *"Up through 3 is correct. You'd need to release and then repress the button to continue firing the secondary if you just held it down."* Superseded in the same conversation by: *"Wait, nvm. It shouldn't interrupt the secondary, but if the player releases the key then they can't fire the secondary again as long as the weapon is selected, because RMB would cancel the ready state while the weapon is selected. The player will probably self-release, and if not, arguably that is a skill? Does that make sense?"* Built: a right button already held when a weapon is readied keeps firing the secondaries until released (the readied mask and `secondariesLevel` are deleted); once released, a right press while a weapon is readied only cancels it. This supersedes the I/O matrix row "Readied blocks secondaries" and the Design Note "Right click with a ready…" as far as a HELD button goes; a fresh press while readied still cancels and fires nothing.
 - **Version** 0.19.8, cycle 214, PV 97.
 
 ## Verification

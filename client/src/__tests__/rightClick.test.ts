@@ -2,13 +2,14 @@
 // amendment 11 — orchestrator ruling B). The pure decision
 // (input/rightClick.ts) and its wiring through the real MouseInput +
 // KeyboardInput pair (the prime model is the keyboard's): a right PRESS with a
-// weapon readied cancels the ready and fires NO secondaries; while a weapon is
-// readied the secondaries level is never sent; with nothing readied the right
-// button is Story 10.4's secondaries, untouched.
+// weapon readied cancels the ready and fires NO secondaries; a right button
+// already held when a weapon is readied keeps firing until released
+// (amendment 11(r)); with nothing readied the right button is Story 10.4's
+// secondaries, untouched.
 
 import { describe, it, expect } from 'vitest';
 import { SLOT_GUN, WEAPON_SLOTS } from '@salvo/shared';
-import { rightPressVerdict, secondariesLevel, type RightPressFacts } from '../input/rightClick.js';
+import { rightPressVerdict, type RightPressFacts } from '../input/rightClick.js';
 import { MouseInput } from '../input/mouse.js';
 import { KeyboardInput } from '../input/keyboard.js';
 
@@ -29,15 +30,6 @@ describe('rightPressVerdict — what one right press does', () => {
       expect(rightPressVerdict({ ...CLEAR, readied, locked: true })).toBe('ignore');
       expect(rightPressVerdict({ ...CLEAR, readied, overHotbar: true })).toBe('ignore');
     }
-  });
-});
-
-describe('secondariesLevel — a ready masks the level', () => {
-  it('passes the raw level through only while nothing is readied', () => {
-    expect(secondariesLevel(true, false)).toBe(true);
-    expect(secondariesLevel(false, false)).toBe(false);
-    expect(secondariesLevel(true, true)).toBe(false);
-    expect(secondariesLevel(false, true)).toBe(false);
   });
 });
 
@@ -80,14 +72,39 @@ describe('MouseInput — the right button against a readied weapon', () => {
     });
   });
 
-  it('a right button already HELD when the weapon is readied sends no secondaries until the ready ends', () => {
+  it('a right button already HELD keeps firing through a ready, the shot, and the ready ending', () => {
     rig((m, kb, canvas) => {
       fire(canvas, 'pointerdown', { button: 2, buttons: 2 }); // secondaries streaming
       expect(m.consumeSec()).toBe(true);
       kb.slotAction(Q); // ready a weapon with the right button still down
-      expect(m.consumeSec()).toBe(false); // masked for as long as the ready lasts
-      kb.revertToGun(); // the ready ends (fired or cancelled)
-      expect(m.consumeSec()).toBe(true); // the held level is the secondaries again
+      expect(kb.primedSlot).toBe(Q);
+      expect(m.consumeSec()).toBe(true); // never interrupted
+      const clicks = m.clickCount;
+      fire(canvas, 'pointermove', { button: 0, buttons: 3 }); // left chord press: fire the weapon
+      expect(m.clickCount).toBeGreaterThan(clicks);
+      expect(m.consumeSec()).toBe(true); // …on the very tick the weapon fires
+      fire(canvas, 'pointermove', { button: 0, buttons: 2 }); // left chord release
+      kb.revertToGun(); // the ready ends
+      expect(m.consumeSec()).toBe(true);
+      fire(canvas, 'pointerup', { button: 2, buttons: 0 });
+      expect(m.consumeSec()).toBe(false); // a normal release ends it
+    });
+  });
+
+  it('released while readied: the next right press only cancels; a fresh press with nothing readied fires again', () => {
+    rig((m, kb, canvas) => {
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
+      kb.slotAction(Q);
+      expect(m.consumeSec()).toBe(true);
+      fire(canvas, 'pointerup', { button: 2, buttons: 0 }); // let go while readied
+      expect(m.consumeSec()).toBe(false);
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 }); // press again, still readied
+      expect(kb.primedSlot).toBe(SLOT_GUN); // that press cancelled the ready
+      expect(m.consumeSec()).toBe(false); // …and armed nothing
+      expect(m.consumeSec()).toBe(false); // still down, still nothing
+      fire(canvas, 'pointerup', { button: 2, buttons: 0 });
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 }); // fresh press, nothing readied
+      expect(m.consumeSec()).toBe(true);
     });
   });
 

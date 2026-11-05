@@ -4,9 +4,10 @@
 // With a slot WEAPON READIED (Q / E / R primed — the client-local prime model,
 // input/keyboard.ts), a right PRESS CANCELS the ready and fires nothing: the
 // secondaries level stays false until the button is released and pressed
-// again. While a weapon is readied the secondaries are NEVER sent — which also
-// covers a right button that was already held when the weapon was readied.
-// With nothing readied the right button is the secondaries exactly as Story
+// again. A right button ALREADY HELD when the weapon is readied is never
+// interrupted: it keeps firing until released (amendment 11(r) — Eric
+// 2026-11-05); once released, a right press only cancels while a weapon is
+// readied. With nothing readied the right button is the secondaries exactly as Story
 // 10.4 built it (the canvas-target, lock and hotbar-swallow gates included).
 
 /** What one right-button press does. */
@@ -35,11 +36,3 @@ export function rightPressVerdict(f: RightPressFacts): RightPressVerdict {
   return f.readied ? 'cancelReady' : 'secondaries';
 }
 
-/**
- * Pure: the secondaries LEVEL the wire carries this tick — the raw level
- * (live hold OR a latched tap) masked while a weapon is readied, so a ready
- * blocks every secondary round until it is cancelled or fired.
- */
-export function secondariesLevel(raw: boolean, readied: boolean): boolean {
-  return raw && !readied;
-}
