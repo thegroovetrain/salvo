@@ -3679,3 +3679,7 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: open - low, no owner story - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
   summary: AN `actSeq` JUMP OF MORE THAN ONE EVALUATES ONLY THE NEWEST `act` - a skipped press (rate cap, queue cap, a dropped message) is lost with no denial; since this story the lost press can be a different ability than the one that fires. Needs a throttled or modified client; the grammar predates the story.
   evidence: Edge Case Hunter; `server/src/game/world.ts` `consumePress`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - owned by Story 10.14 - 2026-11-05 (Story 10.5, cycle 214, epic-10 amendment 11 (s))
+  summary: HOW-TO-PLAY MUST TEACH RIGHT MOUSE AS THE SECONDARIES ONLY - right mouse fires the secondaries whether or not a weapon is readied and never cancels anything; a readied Q / E / R weapon is un-readied by pressing its key again (or by firing it). Eric: "actually, lets just make RMB secondaries no matter what, and get rid of the "right click to cancel" mechanic. Its complex for no reason. Pressing the key a second time already unreadies."
+  evidence: epic-10 amendment 11 (s); `client/src/input/mouse.ts`; the settings `RIGHT CLICK` row in `client/src/ui/settings.ts`.

@@ -15,7 +15,6 @@ import {
   EQUIPMENT_IS_WEAPON,
   MSG,
   SLOT_BOOST,
-  SLOT_GUN,
   abilityCode,
   MULLIGAN_CHOICE,
   NO_CARDS,
@@ -2249,13 +2248,7 @@ function setupViewport(
   // that slot's key-equivalent action and is swallowed, never a shot.
   // `overHotbar` is its side-effect-free twin (review gate C3a): the right
   // button's secondaries are swallowed over the bar and act on nothing.
-  // `ready` (Story 10.5, ruling B): with a slot weapon READIED (anything but
-  // the gun primed) a right press cancels the ready, and the secondaries stay
-  // masked until it is cancelled or fired (input/rightClick.ts).
-  const mouse = new MouseInput(nowServer, fireLocked, onSlotPress, overHotbar, {
-    isReadied: () => keyboard.primedSlot !== SLOT_GUN,
-    cancel: () => keyboard.revertToGun(),
-  });
+  const mouse = new MouseInput(nowServer, fireLocked, onSlotPress, overHotbar);
   mouse.attach(stage.app.canvas);
 
   // Guessed-class hull until the first frame confirms/corrects it, in the OWN
@@ -4803,7 +4796,7 @@ function tickAiming(g: Game, aim: number, aimDist: number, primedSlot: number): 
     actSeq: g.keyboard.actSeq, // cumulative CONSUMED activation count (0-sentinel; keyboard owns it)
     act: g.keyboard.act,
     held: g.mouse.consumeHeld(), // Story 8.15: the held-fire level (live hold OR a latched tap)
-    sec: g.mouse.consumeSec(), // Story 10.4: the secondaries level — right button (live hold OR a latched tap); Story 10.5: never masked by a ready (amendment 11(r))
+    sec: g.mouse.consumeSec(), // Story 10.4: the secondaries level — right button (live hold OR a latched tap)
   };
 }
 

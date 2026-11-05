@@ -101,7 +101,8 @@ export interface BindingRow {
  *
  * STORY 10.5 (2026-11-05, epic-10 amendment 11) re-cut it again: the digits
  * keep only the refit pick (the kit keys left with the kit), `C` / `V` are the
- * two cooldown abilities, and the right button cancels a readied weapon.
+ * two cooldown abilities, and the right button is the secondaries alone
+ * (amendment 11(s): it never cancels a readied weapon).
  *
  * STORY 8.22 (2026-10-01) re-cut the slot rows: they became false when Story
  * 8.5 made Q/E/R three weapon slots and Story 8.15 put the class SPECIAL on
@@ -114,14 +115,14 @@ export function bindingRows(): BindingRow[] {
     { keys: 'A / D (+ ARROWS)', action: 'RUDDER — HELD' },
     { keys: '(NONE)', action: 'GUN — ALWAYS SELECTED; CLICK ITS HOTBAR TILE TO RESELECT' },
     // Story 10.5 (2026-11-05, epic-10 amendment 11): the three family slots, the
-    // two cooldown abilities, the right button and the digits' one meaning.
+    // two cooldown abilities and the digits' one meaning.
     { keys: 'Q / E / R', action: 'TORPEDO / MINE / SPECIAL SHELL — PRESS TO READY, AGAIN TO CANCEL' },
     { keys: 'C', action: 'HULL REPAIR' },
     { keys: 'V', action: 'SMOKE SCREEN' },
     { keys: 'SHIFT', action: 'CLASS SPECIAL' },
     { keys: 'F', action: 'FOGHORN — SOUND OFF (BEARING ONLY)' },
     { keys: 'CLICK', action: 'FIRE THE MAIN BATTERY, OR THE READIED WEAPON' },
-    { keys: 'RIGHT CLICK', action: 'SECONDARIES (HOLD) / CANCEL A READIED WEAPON' },
+    { keys: 'RIGHT CLICK', action: 'SECONDARIES (HOLD)' },
     { keys: 'TAB', action: 'REFIT WINDOW — TOGGLE' },
     { keys: '1 – 4 (+ NUMPAD)', action: 'PICK A REFIT CARD' },
     { keys: 'ESC', action: 'CLOSE THE TOPMOST SURFACE / OPEN SETTINGS' },

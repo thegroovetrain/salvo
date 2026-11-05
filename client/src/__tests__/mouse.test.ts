@@ -6,7 +6,9 @@
 
 import { CLIENT_CONFIG } from '../config.js';
 import { describe, it, expect, vi } from 'vitest';
+import { SLOT_GUN, WEAPON_SLOTS } from '@salvo/shared';
 import { MouseInput, worldAim, worldAimDist } from '../input/mouse.js';
+import { KeyboardInput } from '../input/keyboard.js';
 import { Camera } from '../render/camera.js';
 
 const opts = {
@@ -592,6 +594,62 @@ describe('MouseInput.secHeld / consumeSec — the secondaries level (Story 10.4)
       fire(canvas, 'pointermove', { button: 0, buttons: 2 });
       expect(m.isHeld).toBe(false);
       expect(m.secHeld).toBe(true);
+    });
+  });
+});
+
+// STORY 10.5, epic-10 amendment 11(s) (Eric 2026-11-05): the right button is
+// the secondaries ALWAYS. A readied Q / E / R weapon (the keyboard's prime) is
+// never cancelled by it and never masks it; only its key, or firing it, ends
+// the ready. Wired against the real KeyboardInput, the prime model's owner.
+const [Q] = WEAPON_SLOTS;
+
+function withKeyboard(run: (m: MouseInput, kb: KeyboardInput, canvas: HTMLElement) => void): void {
+  const kb = new KeyboardInput({ isSlotFitted: () => true });
+  withMouse((m, canvas) => run(m, kb, canvas));
+}
+
+describe('MouseInput — the right button with a readied weapon (Story 10.5, amendment 11(s))', () => {
+  it('a right PRESS with a weapon readied is the secondaries and leaves the ready alone', () => {
+    withKeyboard((m, kb, canvas) => {
+      kb.slotAction(Q); // ready the Q weapon
+      expect(kb.primedSlot).toBe(Q);
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
+      expect(m.consumeSec()).toBe(true);
+      expect(kb.primedSlot).toBe(Q); // still readied
+      expect(m.consumeSec()).toBe(true); // held: the level
+      fire(canvas, 'pointerup', { button: 2, buttons: 0 });
+      expect(m.consumeSec()).toBe(false);
+      expect(kb.primedSlot).toBe(Q);
+    });
+  });
+
+  it('a right button already HELD keeps firing through a ready, the shot, and the ready ending', () => {
+    withKeyboard((m, kb, canvas) => {
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 }); // secondaries streaming
+      expect(m.consumeSec()).toBe(true);
+      kb.slotAction(Q); // ready a weapon with the right button still down
+      expect(kb.primedSlot).toBe(Q);
+      expect(m.consumeSec()).toBe(true); // never interrupted
+      const clicks = m.clickCount;
+      fire(canvas, 'pointermove', { button: 0, buttons: 3 }); // left chord press: fire the weapon
+      expect(m.clickCount).toBeGreaterThan(clicks);
+      expect(m.consumeSec()).toBe(true); // …on the very tick the weapon fires
+      fire(canvas, 'pointermove', { button: 0, buttons: 2 }); // left chord release
+      kb.revertToGun(); // the ready ends
+      expect(m.consumeSec()).toBe(true);
+      fire(canvas, 'pointerup', { button: 2, buttons: 0 });
+      expect(m.consumeSec()).toBe(false); // a normal release ends it
+    });
+  });
+
+  it('with nothing readied the right button is the secondaries, exactly as Story 10.4 built it', () => {
+    withKeyboard((m, kb, canvas) => {
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
+      expect(kb.primedSlot).toBe(SLOT_GUN);
+      expect(m.consumeSec()).toBe(true);
+      fire(canvas, 'pointerup', { button: 2, buttons: 0 });
+      expect(m.consumeSec()).toBe(false);
     });
   });
 });
