@@ -62,9 +62,8 @@ export interface BotGroup {
   levels: Summary;
   boons: Summary;
   shots: Summary;
-  /** Placeables that actually reached the water, per bot-match. Distinct from
+  /** Mines that actually reached the water, per bot-match. Distinct from
    *  `shots`, which counts REQUESTS including denied ones — see BotSample. */
-  decoys: Summary;
   mines: Summary;
   damage: Summary;
   lifeS: Summary;
@@ -192,7 +191,6 @@ function groupOf(key: string, rows: readonly BotSample[]): BotGroup {
     levels: summarize(rows.map((r) => r.levelsEarned)),
     boons: summarize(rows.map((r) => r.boonsFitted)),
     shots: summarize(rows.map((r) => r.shots)),
-    decoys: summarize(rows.map((r) => r.decoysDeployed)),
     mines: summarize(rows.map((r) => r.minesLaid)),
     damage: summarize(rows.map((r) => r.damageDealt)),
     lifeS: summarize(rows.map((r) => r.lifeS)),
@@ -435,10 +433,8 @@ const GROUP_COLS: { head: string; w: number; value: (g: BotGroup) => string }[] 
   { head: 'spent%', w: 7, value: (g) => pct(g.spentRate) },
   { head: 'shots', w: 7, value: (g) => fmt(g.shots.mean, 1) },
   // DEPLOYED, not requested — `shots` above counts denied requests too, so
-  // these two are the only columns that can answer "is this equipment being
-  // USED?" (the question that motivated them: do bots deploy the radar buoy —
-  // the DECOY BUOY since Story 8.16).
-  { head: 'decoys', w: 6, value: (g) => fmt(g.decoys.mean, 2) },
+  // this is the column that can answer "are the mines being USED?" (its decoy
+  // twin left with the buoys in Story 10.5).
   { head: 'mines', w: 6, value: (g) => fmt(g.mines.mean, 2) },
   { head: 'dmg', w: 8, value: (g) => fmt(g.damage.mean, 1) },
   { head: 'dmg/shot', w: 9, value: (g) => fmt(g.damagePerShot, 2) },

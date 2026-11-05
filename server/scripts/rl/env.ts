@@ -21,15 +21,16 @@
 
 import {
   CONFIG,
-  isWeaponItem,
+  SHIP_CLASS_IDS,
+  SLOT_COUNT,
+  abilityCode,
   mulberry32,
-  rollKit,
   zoneClosedAtMs,
   zoneGroups,
   type Rng,
   type ShipClassId,
 } from '@salvo/shared';
-import { World, type ShipRecord } from '../../src/game/world.js';
+import { World } from '../../src/game/world.js';
 import { Match, type MatchTimings } from '../../src/game/match.js';
 import { observe } from '../../src/game/perception.js';
 import { applyOverrides } from '../batchsim/overrides.js';
@@ -41,9 +42,6 @@ const COUNTDOWN_MS = 1000;
 const ENDGAME_SLACK_MS = 600000;
 const ZONE_SEED_ORDINAL = 0x7a0e;
 const SPEND_STREAM_K = 0x51ed;
-/** mixSeed ordinal for the bots' KIT stream (Story 10.1) — the batchsim
- *  runner's bot-kit ordinal, a stream of its own so no other roll moves. */
-const BOT_KIT_SEED_ORDINAL = 0x6b17;
 
 /** Integer action bins, decoded server-side (see decode()). */
 export interface AgentAction {
@@ -52,11 +50,11 @@ export interface AgentAction {
   fire: number; // 0|1
   bearing: number; // 0..15 (relative to own heading)
   range: number; // 0..7 (fraction of gun reach)
-  slot: number; // 0..3
-  boost: number; // 0|1 (activates the first non-weapon slot, if any)
+  slot: number; // 0..SLOT_COUNT-1 (battery, Shift, Q torpedo, E mine, R shell — Story 10.5)
+  boost: number; // 0|1 (presses the Shift ability, wire act 0)
 }
 
-export const ACTION_BINS = Object.freeze({ rudder: 5, throttle: 5, fire: 2, bearing: 16, range: 8, slot: 4, boost: 2 });
+export const ACTION_BINS = Object.freeze({ rudder: 5, throttle: 5, fire: 2, bearing: 16, range: 8, slot: SLOT_COUNT, boost: 2 });
 
 const RUDDER = [-1, -0.5, 0, 0.5, 1];
 const THROTTLE = [-0.5, 0, 0.35, 0.7, 1];
@@ -94,7 +92,7 @@ interface AgentState {
   prevKills: number;
 }
 
-const HULLS: readonly ShipClassId[] = ['torpedoBoat', 'battleship', 'mineLayer'];
+const HULLS: readonly ShipClassId[] = SHIP_CLASS_IDS;
 
 export class HullcrackerEnv {
   private world: World | null = null;
@@ -130,10 +128,7 @@ export class HullcrackerEnv {
     this.agents = enrollAgents(world, seed, opts);
     // Bots draw from the COMMON POOL on the default gun (Story 8.14), like
     // the arena's.
-    // Each carries a RANDOM FOUR consumable lines (Story 10.1, ruling 6), rolled
-    // off its own seeded stream — never Math.random.
-    const kits = mulberry32(mixSeed(seed, BOT_KIT_SEED_ORDINAL));
-    for (let i = 0; i < botCount; i += 1) world.addBot(undefined, undefined, undefined, rollKit(kits.next));
+    for (let i = 0; i < botCount; i += 1) world.addBot(undefined, undefined);
     match.notifyRosterChanged();
     this.world = world;
     this.match = match;
@@ -189,8 +184,7 @@ export class HullcrackerEnv {
     if (me === undefined) return;
     agent.seq += 1;
     if (action.fire === 1) agent.fireSeq += 1;
-    const boostSlot = action.boost === 1 ? nonWeaponSlot(me) : -1;
-    if (boostSlot >= 0) agent.actSeq += 1;
+    if (action.boost === 1) agent.actSeq += 1;
     const bearing = me.state.heading + (action.bearing / ACTION_BINS.bearing) * Math.PI * 2;
     const reach = me.stats.equipment.gun.rangeU;
     world.submitInput(agent.id, {
@@ -200,11 +194,11 @@ export class HullcrackerEnv {
       aim: bearing,
       fireSeq: agent.fireSeq,
       aimDist: ((action.range + 1) / ACTION_BINS.range) * reach,
-      slot: action.slot >= 0 && action.slot < 4 ? action.slot : 0,
+      slot: action.slot >= 0 && action.slot < SLOT_COUNT ? action.slot : 0,
       fireT: 0,
       actSeq: agent.actSeq,
-      actSlot: boostSlot >= 0 ? boostSlot : 0,
-      hornSeq: 0, held: false,
+      act: abilityCode('shift'),
+      hornSeq: 0, held: false, sec: false,
     });
   }
 
@@ -212,7 +206,8 @@ export class HullcrackerEnv {
    *  front offer. One spend per agent per tick, exactly the public path a
    *  SpendMsg lands on. The old "heal under 40%" arm is GONE with the -1
    *  sentinel (Story 8.8): an RL agent spends a level on CARDS and nothing
-   *  else — healing is a HULL REPAIR copy it fires from the belt. */
+   *  else — healing is the HULL REPAIR ability (Story 10.5), which the action
+   *  space does not press yet. */
   private autoSpend(world: World): void {
     for (const agent of this.agents) {
       const me = world.ships.get(agent.id);
@@ -285,13 +280,4 @@ function enrollAgents(world: World, seed: number, opts: ResetOptions): AgentStat
 
 function ringOf(ring: { cx: number; cy: number; r: number } | null): { cx: number; cy: number; r: number } | null {
   return ring === null ? null : { cx: ring.cx, cy: ring.cy, r: ring.r };
-}
-
-/** The first fitted non-weapon slot (the speed boost's shape), or -1. */
-function nonWeaponSlot(me: ShipRecord): number {
-  for (let i = 0; i < me.loadout.length; i += 1) {
-    const id = me.loadout[i]?.equipmentId;
-    if (id !== null && id !== undefined && !isWeaponItem(id)) return i;
-  }
-  return -1;
 }

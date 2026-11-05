@@ -108,9 +108,9 @@ export interface BotSample extends BotReadouts {
    *  includes shots the equipment refused for reload/arc/ammo). */
   shots: number;
   /**
-   * PLACEABLES THAT ACTUALLY REACHED THE WATER, counted by id off the World's
-   * own `decoys` / `mines` maps — NOT off `shots` (the radar buoy's `buoys` map
-   * became the DECOY BUOY's `decoys` in Story 8.16).
+   * MINES THAT ACTUALLY REACHED THE WATER, counted by id off the World's own
+   * `mines` map — NOT off `shots` (the decoy-buoy counter beside it left with
+   * the buoys in Story 10.5).
    *
    * The distinction is the whole reason these exist. `shots` is
    * `ship.lastFireSeq`, and world.ts is explicit that "consumption is
@@ -119,13 +119,12 @@ export interface BotSample extends BotReadouts {
    * one that deploys. Nothing in the report could previously tell those apart,
    * which made "do bots use their placeables at all?" unanswerable from a campaign.
    *
-   * Counted by DIFFING IDS rather than by watching a drop event: both maps are
-   * keyed by a monotonic id (`b<seq>`, `m<seq>`) that is never reused, so a
+   * Counted by DIFFING IDS rather than by watching a drop event: the map is
+   * keyed by a monotonic id (`m<seq>`) that is never reused, so a
    * first sighting is a deployment, and an entity that is placed and destroyed
    * between two observe() calls is the only thing this can miss — impossible
-   * today, since observe() runs every tick and neither expires same-tick.
+   * today, since observe() runs every tick and no mine expires same-tick.
    */
-  decoysDeployed: number;
   minesLaid: number;
   /** hp dealt to other hulls (self-hits and storm excluded). */
   damageDealt: number;
@@ -216,7 +215,6 @@ interface BotTrack {
   levelsUnspent: number;
   boonsFitted: number;
   shots: number;
-  decoysDeployed: number;
   minesLaid: number;
   damageDealt: number;
   contactDamageTaken: number;
@@ -246,7 +244,6 @@ function newTrack(): BotTrack {
     levelsUnspent: 0,
     boonsFitted: 0,
     shots: 0,
-    decoysDeployed: 0,
     minesLaid: 0,
     damageDealt: 0,
     contactDamageTaken: 0,
@@ -363,18 +360,17 @@ export class BotCollector {
   }
 
   /**
-   * Credit every placeable that appeared on the water since the last tick.
+   * Credit every mine that appeared on the water since the last tick.
    *
-   * READ-ONLY, like every other number in this module: it reads two World maps
-   * and writes only into this collector's own tracks. The `seen` set is keyed
-   * by TYPE-PREFIXED id (`d:`/`m:`) rather than the bare id, so the two id
-   * spaces can never collide even if the sim's prefixes ever converge.
+   * READ-ONLY, like every other number in this module: it reads the World's
+   * mine map and writes only into this collector's own tracks. The `seen` set
+   * is keyed by TYPE-PREFIXED id (`m:`), so a future placeable's id space can
+   * never collide with it.
    *
    * A placement by a NON-BOT (a captain in a mixed lobby, a fleet hull) finds
    * no track and is silently skipped — the same rule `recordKill` already uses.
    */
   private notePlacements(world: World): void {
-    this.creditNew(world.decoys.values(), 'd', (t) => { t.decoysDeployed += 1; });
     this.creditNew(world.mines.values(), 'm', (t) => { t.minesLaid += 1; });
   }
 
@@ -450,7 +446,6 @@ export class BotCollector {
         levelsUnspent: track.levelsUnspent,
         boonsFitted: track.boonsFitted,
         shots: track.shots,
-        decoysDeployed: track.decoysDeployed,
         minesLaid: track.minesLaid,
         damageDealt: track.damageDealt,
         contactDamageTaken: track.contactDamageTaken,

@@ -27,7 +27,7 @@
 // walks any dotted path, array indices included). map.baseRadius joins for the
 // 3.1 map-radius × ring evidence sweeps (amendment 7).
 
-import { CATALOG, CONFIG, SHIP_CLASS_IDS, TERRAIN_PARAMS, effectiveStats } from '@salvo/shared';
+import { CONFIG, TERRAIN_PARAMS } from '@salvo/shared';
 
 /** Unknown / non-tunable / non-numeric --set key — main prints and exits 2. */
 export class TunableError extends Error {}
@@ -148,8 +148,10 @@ const TUNE_FAMILIES = [
   'hullRepair.',
   // 2026-11-04 (Story 10.3, Eric, epic-10 amendment 8): the `regen.` family
   // (OUT-OF-COMBAT REGEN, epic-8 amendment 46 / Story 9.6) is GONE with the
-  // regen itself and `CONFIG.regen` — "passive healing dies". HULL REPAIR
-  // (above) and the healing buoy are the only heals left.
+  // regen itself and `CONFIG.regen` — "passive healing dies". 2026-11-05
+  // (Story 10.5, R8): passive regen is BACK as `CONFIG.regen` (2 % of missing
+  // hp per second after 15 s unhurt), but it is not re-opened as a dial here —
+  // nobody asked for it on the harness; add `'regen.'` the day someone does.
   // ARMOR (Story 9.7, Eric 2026-10-13, epic-9 amendments 86–88): `armor.k`,
   // the K in the curve (K / (K + E) for E ≥ 0, (K − 2E) / (K − E) below zero
   // since Story 9.9, amendment 146; 100 by amendment 144), is the dial — floor
@@ -191,16 +193,17 @@ const TUNE_FAMILIES = [
   'fog.',
   // THE BOT BRAIN (Story 9.13 wave 3, spec Harness paragraph): every numeric
   // leaf of CONFIG.bots is an arm Eric may run against the posture workover's
-  // baseline. Floors: the generic 0, except `disengageHysteresis` /
-  // `decoyDemote` and every `gunBand.<gun>.<0|1>` on CLOSED [0, 1]
+  // baseline. Floors: the generic 0, except `disengageHysteresis` and every
+  // `gunBand.<gun>.<0|1>` on CLOSED [0, 1]
   // (BOT_FRACTION_KEYS / BOT_GUN_BAND), each band's min <= max re-checked on
   // the finished CONFIG (validateBotDials), every `nav.*` leaf at 1 except
   // `nav.clearancePenalty` (0 = no shore cost, a real arm), `aimScatterRefU`
-  // / `contactMemoryMs` / `outnumberedCount` / `decoyStillSweeps` at 1
-  // (BOT_MIN_ONE_KEYS), `kiteHoldFrac` on (0, 1] and a gun band's far edge
-  // above 0 (fix wave P10), and the
-  // `cardPoints.*` scores, which ship NEGATIVE values (`carried` −1,
-  // `beltHunger.low` −1), take any finite number. `nav.cellU`,
+  // / `contactMemoryMs` / `outnumberedCount` at 1 (BOT_MIN_ONE_KEYS),
+  // `kiteHoldFrac` on (0, 1] and a gun band's far edge above 0 (fix wave
+  // P10), and the `cardPoints.*` scores, which may be NEGATIVE, take any
+  // finite number. (`decoyDemote`, `decoyStillSweeps` and the `carried` /
+  // `beltHunger` card scores left CONFIG with the decoys and the kit, Story
+  // 10.5.) `nav.cellU`,
   // `disengageHpFrac` and `healHpFrac` are REFUSED (DERIVED_TUNE_KEYS): the
   // first must equal the generator's NAV_CELL and is never read, the other
   // two are snapshotted into the profile tables at module load.
@@ -587,7 +590,7 @@ const UNIT_INTERVAL_KEYS = new Set(['offer.weighting.factor', 'offer.weighting.f
 const PROBABILITY_KEYS = new Set(['vision.dropout.kneeP', 'vision.dropout.rimP']);
 
 /** The bot dials on CLOSED [0, 1] (Story 9.13 wave 3; the secondaries heat lines since Story 10.4; see the `bots.` family). */
-const BOT_FRACTION_KEYS = new Set(['bots.disengageHysteresis', 'bots.decoyDemote', 'bots.secReleaseHeat', 'bots.secRepressHeat']);
+const BOT_FRACTION_KEYS = new Set(['bots.disengageHysteresis', 'bots.secReleaseHeat', 'bots.secRepressHeat']);
 /** A per-gun doctrine band end — `bots.gunBand.<gun>.0` (min) / `.1` (max). */
 const BOT_GUN_BAND = /^bots\.gunBand\.[A-Za-z]+\.[01]$/;
 /** The routing dials: counts / lengths / clocks, floored at 1 … */
@@ -598,13 +601,11 @@ const BOT_NAV_ZERO_OK = 'bots.nav.clearancePenalty';
 const BOT_CARD_POINTS = /^bots\.cardPoints\./;
 /** Bot dials floored at 1 (fix wave P10, Edge Case Hunter): the aim-scatter
  *  reference is a divisor; a 0 contact memory forgets every plot the tick it
- *  is folded; an outnumbered count of 0 reads every lone hull as a crowd; 0
- *  still sweeps flags every radar plot a probable decoy. */
+ *  is folded; an outnumbered count of 0 reads every lone hull as a crowd. */
 const BOT_MIN_ONE_KEYS = new Set([
   'bots.aimScatterRefU',
   'bots.contactMemoryMs',
   'bots.outnumberedCount',
-  'bots.decoyStillSweeps',
 ]);
 /** The kite's hold fraction of own reach: HALF-OPEN (0, 1] — 0 parks the
  *  kite on top of its target, above 1 the band's floor passes its ceiling. */
@@ -751,20 +752,10 @@ function validateUnitInterval(key: string, value: number): void {
  * the family gate before any write (pinned) — but the check runs on the
  * finished CONFIG after BOTH surfaces have written, so it is surface-blind.
  *
- * Story 8.9 REVIEW (Edge Case Hunter): the check above compared the RAW pair,
- * but the LIVE reload a match ever ticks against is `reloadMs *
- * cooldownScale`, and `cooldownScale` is moved by the RELOAD ladder (catalog-v3
- * R12: −5%/tier, cap 5 copies -> 0.75, floored at 0.1 in clampStats) — the same
- * fold every equipment reload takes (shared/src/sim/stats.ts clampStats).
- * `--tune boost.reloadMs=12000` cleared the raw check (12000 >= 10000) while a
- * five-RELOAD deck folds it to 9000ms < the 10000ms window — the exact
- * permanently-re-tappable state the raw check exists to forbid, just reached
- * one card-count away. So the relation is now checked through the REAL fold,
- * at the worst case the ladder can reach: `effectiveStats()` on a class with
- * RELOAD stacked to `CATALOG.reload.cap` copies, which is CONFIG-live so a
- * tuned `boost.reloadMs`/`boost.durationMs` is exactly what gets folded. The
- * Since Story 10.4 the hulls' RELOAD indices differ and the Shift is any
- * seat's pick, so the check folds EVERY hull and binds the shortest result.
+ * 2026-11-05 (Story 10.5, R10): the Story 8.9 review branch that folded the
+ * reload through a MAXED RELOAD ladder is gone — RELOAD no longer scales any
+ * Shift cooldown (it is the main battery's stat alone), so the live boost
+ * reload IS the raw one and the raw pair is the whole relation again.
  *
  * `boost.maxAmmo` (Story 8.9 REVIEW, Edge Case Hunter): the reload/duration
  * relation assumes a single charge. A second charge lets a mid-window tap
@@ -791,19 +782,11 @@ function validateCrossKeyInvariants(): void {
         "duration' cannot prevent",
     );
   }
-  const rawReloadMs = CONFIG.boost.reloadMs;
-  // Story 10.4: the Shift is any seat's pick, so the check binds the hull
-  // whose maxed reload is SHORTEST (the highest RELOAD index) — every hull.
-  const maxedReloadMs = Math.min(
-    ...SHIP_CLASS_IDS.map(
-      (id) => effectiveStats(CONFIG.shipClasses[id], Array.from({ length: CATALOG.reload.cap }, () => 'reload')).equipment.boost.reloadMs,
-    ),
-  );
-  if (maxedReloadMs < durationMs) {
+  const { reloadMs } = CONFIG.boost;
+  if (reloadMs < durationMs) {
     throw new TunableError(
-      `'boost.reloadMs' × the RELOAD ladder at cap must stay >= 'boost.durationMs' (raw ${rawReloadMs} ` +
-        `-> ${maxedReloadMs} live at five RELOAD copies < ${durationMs}): an active window must ` +
-        'always imply a cooling pool',
+      `'boost.reloadMs' must stay >= 'boost.durationMs' (got ${reloadMs} < ${durationMs}): an active ` +
+        'window must always imply a cooling pool',
     );
   }
 }

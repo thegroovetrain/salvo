@@ -26,7 +26,7 @@
 // WHY A SCRIPT, NOT A PILOT. This smoke used to sail two heuristic pilots
 // (racetrack strafing, island-avoidance rudder bias, an unstick routine)
 // from ring spawns ~8,000 u apart across a RANDOM map, with the PvE fleet wave
-// arriving 60 s into the fight and passive regen (gone since Story 10.3)
+// arriving 60 s into the fight and passive regen
 // racing every single-tube kill — so its red runs were piloting outcomes, not sim defects. Now nothing
 // sails: the map is PINNED (`mapSeed`), both hulls are PLACED by the dev-only
 // `spawnOverride` pose (honored at spawn, at the countdown->active redeploy
@@ -38,10 +38,11 @@
 //
 // THE TORPEDO IS PRE-FITTED by the DEV-ONLY `fitOverride` join option (Story
 // 8.10, EPIC-8 amendment 65): every hull spawns with only its main battery
-// (Story 10.4) and the seat's Shift, so A asks for `heavyTorpedo` explicitly; it lands in slot
-// 2 (Q). The line is stacked to the tier that gives TWO tubes (Eric ruling
-// 2026-10-22, Story 9.15 question 4 — a salvo landed inside the old regen
-// wait; the regen is gone since Story 10.3 and the fit stands).
+// (Story 10.4) and the seat's Shift, so A asks for `heavyTorpedo` explicitly; it lands in its
+// FAMILY slot, the torpedo slot Q (Story 10.5). The line is stacked to the tier that gives TWO
+// tubes (Eric ruling 2026-10-22, Story 9.15 question 4 — a salvo lands inside
+// the regen wait; the R8 passive regen is back since Story 10.5 and the plan
+// replays it).
 // The fit survives the activation redeploy (redeployEconomy re-applies it).
 //
 // Every dev option here (matchOverride, zoneOverride, mapSeed, fitOverride,
@@ -64,7 +65,7 @@ import path from 'node:path';
 import { Client } from '@colyseus/sdk';
 import {
   CONFIG, DEFAULT_CLASS_ID, PROTOCOL_VERSION, bearing, angleDiff, generateMap, islandBlocksSegment, islandDistance,
-  effectiveStats, equipmentMaxAmmo, equipmentReloadMs, damageMultiplierFor, zoneRingRadii,
+  effectiveStats, equipmentMaxAmmo, equipmentReloadMs, damageMultiplierFor, familySlotFor, regenGain, zoneRingRadii,
 } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -85,7 +86,7 @@ const TB = CONFIG.shipClasses[DEFAULT_CLASS_ID];
 const FULL_HP = effectiveStats(TB, []).maxHp;
 const HULL_L = TB.hull.length;
 const TORP = 'heavyTorpedo';
-const TORP_SLOT = 2; // slot 2 (Q) = the FIRST fitted weapon since Story 8.5
+const TORP_SLOT = familySlotFor(TORP); // the torpedo FAMILY slot, Q (Story 10.5)
 /** The smoke's own clear-water bound for the poses: mapgen suppresses land
  *  around the map centre, and both poses must sit well inside that. This is
  *  the smoke's bound, not a mapgen guarantee — the real precondition is the
@@ -140,9 +141,11 @@ const SLACK_MS = 5000;
  * CONFIG). A tick-stepped replay of the fight the server will run: A clicks
  * every tick, a tube fires whenever one is loaded, the pool reloads one round
  * per reloadMs (World.finishReloads) and each fish lands FLIGHT_MS later for
- * FISH_BLOW. 2026-11-04 (Story 10.3): the regen term is GONE with the
- * out-of-combat regen itself — B heals nothing between hits. Returns the fish
- * B takes, the salvos (distinct firing moments) and the simulated sink time.
+ * FISH_BLOW. 2026-11-05 (Story 10.5, R8): the PASSIVE REGEN is back — B,
+ * unhurt for CONFIG.regen.outOfCombatMs, heals the shared regenGain every tick
+ * (the heavy fish's reload outlasts the wait), so the replay heals it too.
+ * Returns the fish B takes, the salvos (distinct firing moments) and the
+ * simulated sink time.
  */
 function killPlan() {
   const dt = CONFIG.tick.simDtMs;
@@ -152,8 +155,10 @@ function killPlan() {
   let lastFireAt = -Infinity;
   let salvos = 0;
   let fish = 0;
+  let lastHit = 0;
   const inFlight = [];
   for (let t = 0; t < 3600000; t += dt) {
+    if (t - lastHit >= CONFIG.regen.outOfCombatMs) hp += regenGain(hp, TARGET.maxHp, dt / 1000);
     if (reloadLeft > 0) {
       reloadLeft -= dt;
       if (reloadLeft <= 0) {
@@ -172,6 +177,7 @@ function killPlan() {
       inFlight.shift();
       hp -= FISH_BLOW;
       fish += 1;
+      lastHit = t;
       if (hp <= 0) return { fish, salvos, sinkMs: t };
     }
   }
@@ -353,7 +359,7 @@ function onFrame(ctx, f) {
 
 /** A full legal InputMsg: dead stop, weapons cold (the fireSeq is not bumped). */
 function input(ctx) {
-  return { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: TORP_SLOT, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
+  return { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: TORP_SLOT, fireT: 0, actSeq: 0, act: 0, hornSeq: 0, held: false, sec: false };
 }
 
 /** Send a dead-stop input. */
@@ -432,7 +438,7 @@ function assertPoses(a, b) {
 function planLine(stormFree) {
   return `plan: seed ${MAP_SEED}, d=${D}u (3 hull lengths), fit ${FIT.length}x${TORP} -> ${FISH.tubes} tubes, ` +
     `${FISH_BLOW} dmg/fish (${FISH.damage} x armor curve), reload ${FISH.reloadMs}ms, flight ~${FLIGHT_MS.toFixed(0)}ms; ` +
-    `B ${TARGET.maxHp}hp, no regen -> ` +
+    `B ${TARGET.maxHp}hp, with regen -> ` +
     `${PLAN.fish} fish in ${PLAN.salvos} salvos (sim sink at ${(PLAN.sinkMs / 1000).toFixed(1)}s); ` +
     `fight budget ${FIGHT_BUDGET_MS}ms, countdown ${COUNTDOWN_MS}ms, storm-free ${stormFree}ms`;
 }

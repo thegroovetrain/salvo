@@ -38,8 +38,6 @@ export interface BotReadoutAggregate {
   /** Participant kills by the victim's last damage source. */
   killsBySource: Record<string, number>;
   gunShells: number;
-  shotsAtDecoy: number;
-  shotsAtOwnDecoy: number;
   shotsBeyondRange: Record<string, number>;
   litShots: number;
   starShellsFired: number;
@@ -50,7 +48,7 @@ export interface BotReadoutAggregate {
   fogRate: number;
   fogTicksByPosture: Record<string, number>;
   actPresses: number;
-  pressesByItem: Record<string, number>;
+  pressesByAbility: Record<string, number>;
   activations: Record<string, number>;
   /** Per-match endgame clock and stall (MatchSample.lastTwoS / endgameNoContactMaxS). */
   lastTwoS: Summary;
@@ -97,7 +95,7 @@ export function buildReadoutAggregate(matches: readonly MatchSample[]): BotReado
     fogRate: ratio(fog, ticks),
     fogTicksByPosture: sumRecords(emptyPostureTally(), rows.map((r) => r.fogTicksByPosture)),
     actPresses: sum(rows, (r) => r.actPresses),
-    pressesByItem: sumRecords({}, rows.map((r) => r.pressesByItem)),
+    pressesByAbility: sumRecords({}, rows.map((r) => r.pressesByAbility)),
     activations: sumRecords({}, rows.map((r) => r.activations)),
     lastTwoS: summarize(matches.flatMap((m) => (m.lastTwoS === undefined ? [] : [m.lastTwoS]))),
     endgameNoContactMaxS: summarize(
@@ -109,13 +107,11 @@ export function buildReadoutAggregate(matches: readonly MatchSample[]): BotReado
   };
 }
 
-type ShotKeys = 'gunShells' | 'shotsAtDecoy' | 'shotsAtOwnDecoy' | 'shotsBeyondRange' | 'litShots' | 'starShellsFired';
+type ShotKeys = 'gunShells' | 'shotsBeyondRange' | 'litShots' | 'starShellsFired';
 
 function shotReadouts(rows: readonly BotSample[]): Pick<BotReadoutAggregate, ShotKeys> {
   return {
     gunShells: sum(rows, (r) => r.gunShells),
-    shotsAtDecoy: sum(rows, (r) => r.shotsAtDecoy),
-    shotsAtOwnDecoy: sum(rows, (r) => r.shotsAtOwnDecoy),
     shotsBeyondRange: sumRecords(emptyFamilyTally(), rows.map((r) => r.shotsBeyondRange)),
     litShots: sum(rows, (r) => r.litShots),
     starShellsFired: sum(rows, (r) => r.starShellsFired),
@@ -158,9 +154,8 @@ export function renderReadoutLines(a: BotReadoutAggregate): string[] {
     `  outside the live ring: ${a.outsideRingTicks} ticks = ${pct(a.outsideRingRate)} | storm deaths aground-or-outside: ${a.stormDeathStuck} (aground: ${a.stormDeathAground})`,
     `  kills by source: ${countLine(a.killsBySource)}`,
     `  deck-gun shells: ${a.gunShells} | beyond full range: ${countLine(a.shotsBeyondRange)} | into own light: ${a.litShots} | star shells: ${a.starShellsFired}`,
-    `  shells aimed at a decoy: enemy ${a.shotsAtDecoy} | own ${a.shotsAtOwnDecoy}`,
     `  solid fog: ${a.fogTicks} ticks = ${pct(a.fogRate)} of afloat`,
-    `  ability presses: ${a.actPresses} | by item: ${countLine(a.pressesByItem)}`,
+    `  ability presses: ${a.actPresses} | by ability: ${countLine(a.pressesByAbility)}`,
     `  activations (took effect): ${countLine(a.activations)}`,
     `  endgame (<= 2 hulls) s per match: ${fmtSummary(a.lastTwoS)}`,
     `  endgame longest no-hit gap s: ${fmtSummary(a.endgameNoContactMaxS)}`,

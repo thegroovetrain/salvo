@@ -10,14 +10,15 @@
 //
 //   PHASE 1 — the honoured wire path, driven by this client.
 //     1. On the first COUNTDOWN frame: `pts 1`, `lvl 0`, `xp 0`, a four-card
-//        offer, and offer[0] is a USABLE line (a consumable, or an equipment
-//        line the hull holds no copy of) — the level-zero guarantee.
+//        offer, and offer[0] is a WEAPON that fills an EMPTY family slot
+//        (Story 10.5: torpedo Q / mine E / special shell R) — the level-zero
+//        guarantee.
 //     2. Send `{choice: -2}` (MULLIGAN_CHOICE): the offer changes, a `pt`
 //        event arrives, and the bank still reads 1 (a redraw spends nothing).
 //     3. Send it AGAIN: nothing moves. The offer stays byte-identical for at
 //        least five consecutive frames.
 //     4. The water goes live: the held offer SURVIVES activation (`pts` still
-//        1, the same four ids), the weapon row is still empty (no spawn seed),
+//        1, the same four ids), the three family slots are still empty (no spawn seed),
 //        and the sentinel is now refused.
 //     5. Take card 0: `pts` drops to 0 and the line is in `cards`.
 //
@@ -34,7 +35,7 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
-import { CATALOG, CONFIG, MSG, MULLIGAN_CHOICE, PROTOCOL_VERSION } from '@salvo/shared';
+import { CATALOG, CONFIG, MSG, MULLIGAN_CHOICE, PROTOCOL_VERSION, WEAPON_SLOTS, familySlotFor } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 // Free ports: matchSmoke/zoneSmoke 2599, reconnect/latency 2601, queue 2603,
@@ -147,12 +148,16 @@ async function nextFrames(ctx, n, timeoutMs, label) {
 
 // --- assertions ---------------------------------------------------------------
 
-/** A line the hull can actually USE: a consumable, or an equipment line it
- *  holds no copy of. The shared catalog is the same table the server drew from. */
+/** The level-zero guarantee (Story 10.5): a WEAPON whose FAMILY slot (the
+ *  shared `familySlotFor`) is still EMPTY — no held card fills that slot. The
+ *  shared catalog is the same table the server drew from. */
 function isUsable(lineId, cards) {
   const line = CATALOG[lineId];
   assert(line !== undefined, `offer carried an id the catalog does not know: ${lineId}`);
-  return line.kind === 'consumable' || (line.kind === 'equipment' && !cards.includes(lineId));
+  if (line.kind !== 'equipment') return false;
+  const slot = familySlotFor(lineId);
+  if (slot === null || slot === undefined) return false;
+  return !cards.some((id) => Object.hasOwn(CATALOG, id) && CATALOG[id].kind === 'equipment' && familySlotFor(id) === slot);
 }
 
 function proveOpening(you) {
@@ -210,8 +215,8 @@ async function runPhase1(log) {
   assert(you.pts === 1, `the held level did not survive activation (pts ${you.pts})`);
   assert(sig(you) === handB, `the held offer changed at activation: [${sig(you)}] vs [${handB}]`);
   assert(you.cards.length === 0, `cards is ${JSON.stringify(you.cards)} at 0:00 — nothing was taken`);
-  assert(you.ammo[2] === null, 'the weapon row is not empty at 0:00 — something fitted itself');
-  log.push(`activation: bank 1, the same hand [${handB}], an empty weapon row`);
+  for (const slot of WEAPON_SLOTS) assert(you.ammo[slot] === null, `family slot ${slot} is not empty at 0:00 — something fitted itself`);
+  log.push(`activation: bank 1, the same hand [${handB}], empty family slots`);
 
   // ...and the redraw is GONE on live water.
   ctx.room.send(MSG.spend, { choice: MULLIGAN_CHOICE });

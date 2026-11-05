@@ -513,31 +513,19 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
   // validation cannot catch it: each leaf is legal alone and only the PAIR is
   // illegal, so the check runs once on the finished CONFIG.
   // -------------------------------------------------------------------------
-  /** The boost reload a maxed RELOAD ladder folds the SHIPPED raw reload to,
-   *  over the raw reload — the scale the cross-key check judges through. */
-  const reloadCapScale = (): number =>
-    Math.min(
-      ...SHIP_CLASS_IDS.map(
-        (id) =>
-          effectiveStats(CONFIG.shipClasses[id], Array.from({ length: CATALOG.reload.cap }, () => 'reload')).equipment.boost
-            .reloadMs / CONFIG.boost.reloadMs,
-      ),
-    );
-
   it('REFUSES boost.reloadMs < boost.durationMs from EITHER direction, after every key is written', () => {
     const reload = CONFIG.boost.reloadMs;
     const duration = CONFIG.boost.durationMs;
-    const scale = reloadCapScale();
-    expect(reload * scale).toBeGreaterThanOrEqual(duration); // the shipped pair is legal through the fold
+    expect(reload).toBeGreaterThanOrEqual(duration); // the shipped pair is legal
 
     // Direction 1: shorten the reload under the window. 1 ms clears the
     // per-leaf reload floor (1), so ONLY the cross-key check can catch it.
     expect(() => applyOverrides({}, { 'boost.reloadMs': 1 })).toThrow(TunableError);
     expect(() => applyOverrides({}, { 'boost.reloadMs': 1 })).toThrow(/must stay >= 'boost\.durationMs'/);
 
-    // Direction 2: lengthen the window past the folded reload. Same relation,
-    // the other leaf — which is exactly why the check is on the pair.
-    const longWindow = Math.ceil(reload * scale) + 1;
+    // Direction 2: lengthen the window past the reload. Same relation, the
+    // other leaf — which is exactly why the check is on the pair.
+    const longWindow = reload + 1;
     expect(() => applyOverrides({}, { 'boost.durationMs': longWindow })).toThrow(TunableError);
     expect(() => applyOverrides({}, { 'boost.durationMs': longWindow })).toThrow(/must stay >= 'boost\.durationMs'/);
 
@@ -553,43 +541,15 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
     expect(CONFIG.boost.reloadMs).toBe(reload);
 
     // A LEGAL pair still applies and still restores — the invariant refuses a
-    // relation, not the family. The reload is sized so its FOLDED value still
-    // covers the window: legal through the real fold, not merely raw-legal.
-    const legalReload = Math.ceil(3000 / scale) + 1;
+    // relation, not the family. RELOAD scales no Shift (Story 10.5, R10), so
+    // the raw pair is the live pair.
+    const legalReload = 3000 + 1;
     const restore = applyOverrides({}, { 'boost.durationMs': 3000, 'boost.reloadMs': legalReload });
     expect(CONFIG.boost.durationMs).toBe(3000);
     expect(CONFIG.boost.reloadMs).toBe(legalReload);
     restore();
     expect(CONFIG.boost.durationMs).toBe(duration);
     expect(CONFIG.boost.reloadMs).toBe(reload);
-  });
-
-  // -------------------------------------------------------------------------
-  // Story 8.9 REVIEW (Edge Case Hunter): the invariant above compares the RAW
-  // reloadMs/durationMs pair, but the LIVE reload is scaled by the RELOAD
-  // ladder's cooldownScale (cap 5 copies -> 0.75, floored at 0.1 in
-  // clampStats). `--tune boost.reloadMs=12000` clears the raw pair
-  // (12000 >= 10000) but a five-RELOAD deck folds it to 9000ms < the 10000ms
-  // window — a permanently re-tappable boost the raw-only check missed.
-  // -------------------------------------------------------------------------
-  it('REFUSES boost.reloadMs that is raw-legal but live-illegal at a maxed RELOAD ladder', () => {
-    const reload = CONFIG.boost.reloadMs;
-    const duration = CONFIG.boost.durationMs;
-    const scale = reloadCapScale();
-    expect(scale).toBeLessThan(1); // the RELOAD ladder shortens the reload
-
-    // reload === duration is raw-legal, but the maxed ladder folds it under the window.
-    expect(() => applyOverrides({}, { 'boost.reloadMs': duration })).toThrow(TunableError);
-    expect(() => applyOverrides({}, { 'boost.reloadMs': duration })).toThrow(/must stay >= 'boost\.durationMs'/);
-    expect(CONFIG.boost.reloadMs).toBe(reload);
-
-    // Just past duration / scale folds to >= the window: legal at the cap, so it must pass.
-    const legalAtCap = Math.ceil(duration / scale) + 1;
-    const restore = applyOverrides({}, { 'boost.reloadMs': legalAtCap });
-    expect(CONFIG.boost.reloadMs).toBe(legalAtCap);
-    restore();
-    expect(CONFIG.boost.reloadMs).toBe(reload);
-    expect(CONFIG.boost.durationMs).toBe(duration);
   });
 
   // -------------------------------------------------------------------------
@@ -869,15 +829,16 @@ describe('controls — determinism', () => {
   // --- THE REFUSED CARD (Story 8.14 review, F4) -----------------------------
 
   it('NEVER names a card the server would refuse, and answers null for an all-refused hand', () => {
-    const five = new Array<string>(CATALOG.hullRepair.cap).fill('hullRepair');
-    const rowFull = ['gun', 'boost', 'lightTorpedo', 'heavyTorpedo', 'navalMines', null, null, null, null] as const;
-    // A capped consumable and a bare weapon with no slot are both out; only
-    // the ladder is takeable, so every seed names it.
-    const offer = ['hullRepair', 'broadside', 'armor'];
-    for (let i = 0; i < 50; i += 1) expect(pickSpendChoice(offer, mulberry32(i), five, rowFull)).toBe(2);
+    const capped = new Array<string>(CATALOG.armor.cap).fill('armor');
+    // The torpedo family slot already holds a LIGHT TORPEDO (Story 10.5: one
+    // kind per family slot).
+    const rowFull = [null, null, 'lightTorpedo', null, null] as const;
+    // A capped ladder and a second torpedo kind are both out; only the
+    // uncapped ladder is takeable, so every seed names it.
+    const offer = ['armor', 'heavyTorpedo', 'engines'];
+    for (let i = 0; i < 50; i += 1) expect(pickSpendChoice(offer, mulberry32(i), capped, rowFull)).toBe(2);
     // ...and with nothing takeable at all the instrument holds the level.
-    const capped = [...five, ...new Array<string>(CATALOG.armor.cap).fill('armor')];
-    expect(pickSpendChoice(['hullRepair', 'armor'], mulberry32(1), capped, rowFull)).toBeNull();
+    expect(pickSpendChoice(['armor', 'heavyTorpedo'], mulberry32(1), capped, rowFull)).toBeNull();
   });
 });
 
