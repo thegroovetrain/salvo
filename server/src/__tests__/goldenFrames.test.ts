@@ -29,6 +29,16 @@
 // driven by the secondaries (R3: the main battery never hurts a mine); and
 // blows are the 10.3 armor-folded numbers. The perception chokepoint, the six
 // exceptions and every proven sub-case are unchanged.
+//
+// RE-RECORDED AGAIN 2026-11-04 (Story 10.4 review gate). Values only — no key,
+// no row, no event added or removed: (1) heat per ROUND (shared secondaries
+// law) moves `you.sec.heat` (0.0125 / 0.025 → 0.03 …); (2) the shared turret
+// stop hysteresis / state-aware desired angle moves four `you.turrets[].a`
+// and two `tu` entries; (3) NO AIM (aimDist 0 → `batteryAimPoint` null, gate
+// S2) holds every turret at rest on the neutral input instead of slewing it to
+// a stop, so `you.turrets[].a` / contact `tu` read the rest angles and the
+// salvos fired after it leave from the rested bearings (six ballistic events'
+// x / y / vx / vy).
 
 import { describe, it, expect } from 'vitest';
 import {

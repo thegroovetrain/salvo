@@ -6,8 +6,8 @@
 
 import { describe, it, expect } from 'vitest';
 import type { Graphics } from 'pixi.js';
-import { CONFIG, SHIP_CLASS_IDS, hullSilhouette, turretMounts, turretStation, type Vec2 } from '@salvo/shared';
-import { FEATURES, HOUSES, LOA_M, U_PER_M } from '../render/hullArt/data.js';
+import { SHIP_CLASS_IDS, U_PER_M, hullSilhouette, turretMounts, turretStation, type Vec2 } from '@salvo/shared';
+import { FEATURES, HOUSES } from '../render/hullArt/data.js';
 import { barbetteRadiusU, hullArt, turretArt, type Prim } from '../render/hullArt/shapes.js';
 import { artCacheSize, lineWidthU } from '../render/hullArt/pixiArt.js';
 import { artBox, hullArtSvg, restingPrims, sharedFitPxPerU, svgLineWidth } from '../render/hullArt/svgArt.js';
@@ -24,10 +24,6 @@ function points(p: Prim): Vec2[] {
 }
 
 describe('hull art data — well-formed for every hull', () => {
-  it('restates the shared scale: CONFIG hull length = the real length overall × U_PER_M', () => {
-    for (const id of SHIP_CLASS_IDS) expect(CONFIG.shipClasses[id].hull.length).toBeCloseTo(LOA_M[id] * U_PER_M, 6);
-  });
-
   it('places every deck feature inside the hull’s length / beam box', () => {
     for (const id of SHIP_CLASS_IDS) {
       expect(FEATURES[id].length).toBeGreaterThan(0);

@@ -64,9 +64,19 @@
 // so a sub-sample tap still yields one `sec: true`. Pointer Events report a
 // SECOND button pressed during a hold as a `pointermove` carrying that
 // `button` (not a pointerdown), so the move handler reads the right button's
-// chord edges, and — while the right button is down — the left's, so a gun
-// click made while the secondaries stream is never lost. The right button
-// counts no click and opens no prime-revert hold.
+// chord edges and the left's, so a gun click made while the secondaries
+// stream is never lost. The right button counts no click and opens no
+// prime-revert hold.
+//
+// Review gate C3: a right press over the hotbar is swallowed through the
+// SIDE-EFFECT-FREE hit test (`overHotbar`), never the acting `onSlotPress`, so
+// it cannot burn the Shift or a consumable or move the prime. A button-0 chord
+// edge is read off the event's PHYSICAL `buttons` — a chord pointermove always
+// has some button still down, which is what tells it from a plain move — never
+// off whether the right press was accepted. And a right release we never heard
+// (released outside the window, a native context menu on chrome) cannot stream
+// forever: any pointermove whose `buttons` lacks the secondary bit, or the
+// pointer leaving the WINDOW, ends the level.
 
 /** A screen-space point (px). */
 export interface ScreenPoint {
@@ -154,11 +164,16 @@ export class MouseInput {
    *   the Pixi hotbar has the canvas as its target and would otherwise fire;
    *   this predicate is that gate, and it keeps the hit-test pure (no Pixi
    *   eventMode / interactivity system).
+   * @param overHotbar The SIDE-EFFECT-FREE twin of `onSlotPress` (review gate
+   *   C3a): true iff the point lies on the hotbar's swallowing chrome. The right
+   *   button asks this one, so a right press there is swallowed and acts on
+   *   nothing.
    */
   constructor(
     private readonly nowServer: () => number = () => 0,
     private readonly isLocked: () => boolean = () => false,
     private readonly onSlotPress: (p: ScreenPoint) => boolean = () => false,
+    private readonly overHotbar: (p: ScreenPoint) => boolean = () => false,
   ) {}
 
   private readonly onMove = (e: PointerEvent): void => {
@@ -170,23 +185,28 @@ export class MouseInput {
   };
 
   /** A button pressed or released DURING another hold arrives as a pointermove
-   *  carrying that `button` (Pointer Events chords). Right edges always; left
-   *  edges only while the right is down (otherwise a pointerdown/up carries them). */
+   *  carrying that `button` (Pointer Events chords). A left chord edge always
+   *  leaves SOME button down (`buttons !== 0` — the last button up is a
+   *  pointerup, the first down a pointerdown), which tells it from a plain
+   *  move. Any move without the secondary bit ends a right hold we never heard
+   *  released. */
   private onChord(e: PointerEvent): void {
+    if (this.secDown && (e.buttons & 2) === 0) this.secRelease();
     if (e.button === 2) {
       if ((e.buttons & 2) !== 0) this.secPress(e);
       else this.secRelease();
-    } else if (e.button === 0 && this.secDown) {
+    } else if (e.button === 0 && e.buttons !== 0) {
       if ((e.buttons & 1) !== 0) this.onDown(e);
       else this.onUp(e);
     }
   }
 
-  /** Accept a right press — the same canvas / lockout / hotbar gates as a click. */
+  /** Accept a right press — the same canvas / lockout / hotbar gates as a
+   *  click, the hotbar asked through the side-effect-free hit test. */
   private secPress(e: PointerEvent): void {
     if (e.target !== this.canvas) return;
     if (this.isLocked()) return;
-    if (this.onSlotPress({ x: e.clientX, y: e.clientY })) return;
+    if (this.overHotbar({ x: e.clientX, y: e.clientY })) return;
     this.secDown = true;
     this.secPressedSinceSample = true;
   }
@@ -196,9 +216,13 @@ export class MouseInput {
   }
 
   /** The pointer left the WINDOW (a null relatedTarget — leaving for another
-   *  element inside the page keeps presence). */
+   *  element inside the page keeps presence). Leaving the window also ends the
+   *  secondaries level (its release may land where we never hear it); the left
+   *  hold is untouched. */
   private readonly onOut = (e: PointerEvent): void => {
-    if (e.relatedTarget === null) this.inside = false;
+    if (e.relatedTarget !== null) return;
+    this.inside = false;
+    this.secRelease();
   };
 
   private readonly onBlur = (): void => {

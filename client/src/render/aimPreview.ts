@@ -23,7 +23,7 @@
 
 import { Container, Graphics } from 'pixi.js';
 import {
-  aimPointOf,
+  batteryAimPoint,
   initialTurrets,
   pickTurret,
   turretSalvo,
@@ -357,7 +357,11 @@ function mainBatteryPreview(inp: AimPreviewInput): AimPreviewModel {
   const row = inp.stats.equipment.mainBattery;
   const hull = inp.ship.cls;
   const turrets = inp.turrets ?? initialTurrets(hull);
-  const aimPoint = aimPointOf(inp.ship, inp.aim, inp.aimDist);
+  // NO AIM (review gate C5): the shared `batteryAimPoint` the server steps and
+  // fires with — null holds every turret and the click is denied, so nothing
+  // falls anywhere.
+  const aimPoint = batteryAimPoint(inp.ship, inp.aim, inp.aimDist);
+  if (aimPoint === null) return EMPTY;
   const pick = pickTurret(turrets, hull, inp.ship, aimPoint) ?? pickTurret(asLoaded(turrets), hull, inp.ship, aimPoint);
   if (pick === null) return EMPTY;
   const salvo = turretSalvo(pick, hull, inp.ship, inp.gunReachU ?? row.rangeU, inp.mapRadius);

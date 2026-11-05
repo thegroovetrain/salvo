@@ -612,6 +612,12 @@ export interface BotMind {
    */
   batteryScatter?: Vec2 | null;
   /**
+   * The `targetKey` `batteryScatter` was drawn for (Story 10.4 gate S4): a
+   * different target redraws, so one target's range-scaled offset is never
+   * applied to another. Optional; absent = no held draw.
+   */
+  batteryScatterKey?: string | null;
+  /**
    * SECONDARIES BURST DISCIPLINE (Story 10.4, ai/battery.ts): true while the
    * bot has released the secondaries at the high-heat line and is waiting for
    * them to cool below the low line before pressing again. Optional; absent =

@@ -210,6 +210,33 @@ describe('main battery — the R4 click on the authoritative world', () => {
     turretMounts(a.hullId).forEach((m, i) => expect(a.turrets[i].a).toBe(m.facing === 'fwd' ? 0 : Math.PI));
     expect(a.sec.heat).toBe(0);
   });
+
+  // Story 10.4 gate S2: aimDist 0 (the neutral input before a player's first
+  // real one, an idle bot) is NO AIM — before batteryAimPoint the aim point
+  // was the hull's own centre and every turret slewed to a hard stop.
+  it('NO AIM: a hull on the neutral input (aimDist 0, any bearing) keeps every turret at rest for 3 s', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 0, 2000);
+    const restA = a.turrets.map((t) => t.a);
+    const restB = b.turrets.map((t) => t.a);
+    // `a` never sends an input (neutralInput); `b` sends a bearing with no distance.
+    w.submitInput('b', inp(1, { aim: BEAM, aimDist: 0 }));
+    for (let i = 0; i < Math.ceil(3000 / DT); i++) w.step();
+    expect(a.turrets.map((t) => t.a)).toEqual(restA);
+    expect(b.turrets.map((t) => t.a)).toEqual(restB);
+  });
+
+  it('NO AIM: a click carrying aimDist 0 fires nothing, starts no reload, and is refused like nothing-ready', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    w.submitInput('a', inp(1, { aim: BEAM, aimDist: 0, fireSeq: 1 }));
+    w.step();
+    expect(shellsOf(w, 'a', 'cannon')).toHaveLength(0);
+    expect(reloading(a)).toEqual([]);
+    expect(a.loadout[SLOT_GUN].state).toEqual({ n: a.turrets.length, reloadMsLeft: 0 });
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: SLOT_GUN, reason: 'cooling', seq: 1 }]);
+  });
 });
 
 describe('secondaries — the heat-limited stream on the authoritative world', () => {
@@ -228,7 +255,9 @@ describe('secondaries — the heat-limited stream on the authoritative world', (
     const heat = a.sec.heat;
     const ids = new Set([...w.shells.keys()]);
     w.submitInput('a', inp(2, { aim: 0, aimDist: a.stats.secondaryRangeU, sec: false }));
-    w.step();
+    // The last round's own `rateMs` window does not cool (heat per ROUND,
+    // Story 10.4 gate): step past it before the drain shows.
+    for (let i = 0; i < Math.ceil(CONFIG.secondaries.rateMs / DT) + 1; i++) w.step();
     expect(a.sec.heat).toBeLessThan(heat);
     expect([...w.shells.values()].some((s) => !ids.has(s.id) && s.family === 'mg')).toBe(false);
     // ...and the own frame carries {heat, locked} only.
@@ -244,7 +273,8 @@ describe('secondaries — the heat-limited stream on the authoritative world', (
     expect(a.sec.locked).toBe(true);
     let count = shellsOf(w, 'a', 'mg').length + 0;
     const seen = new Set([...w.shells.keys()]);
-    const coolCap = Math.ceil(CONFIG.secondaries.coolMs / DT) + 2;
+    // The dark time is coolMs PLUS the locking round's own rateMs window.
+    const coolCap = Math.ceil((CONFIG.secondaries.coolMs + CONFIG.secondaries.rateMs) / DT) + 2;
     let firedWhileLocked = false;
     for (let i = 0; i < coolCap && a.sec.locked; i++) {
       w.step();

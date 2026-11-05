@@ -311,6 +311,9 @@ export interface HudBarView {
  *
  * No own-ship interpretation lives here: every number arrives on `HudBarView`.
  */
+/** The slot action of a hit test that must act on nothing. */
+const NO_SLOT_ACTION = (): void => {};
+
 export class HudBar {
   private readonly root = new Container();
   readonly hpGlobe: HpGlobe;
@@ -410,6 +413,12 @@ export class HudBar {
    *  the HP globe's swallowed no-op (Eric 2026-09-30), or false for water. */
   press(p: ScreenPoint, slotAction: (slot: number) => void): boolean {
     return this.hotbar.press(p, slotAction);
+  }
+
+  /** The SIDE-EFFECT-FREE twin of `press` (review gate C3a): would a press at
+   *  `p` (HUD space) be swallowed? Acts on nothing — the right button's gate. */
+  covers(p: ScreenPoint): boolean {
+    return this.hotbar.press(p, NO_SLOT_ACTION);
   }
 
   /** The layout this bar last computed; null before the first frame. */

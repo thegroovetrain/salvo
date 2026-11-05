@@ -16,9 +16,9 @@
 // is ~0.17 px at the default framing and ~0.26 px at the close limit — below a
 // pixel at every game zoom.
 
-import { CONFIG, hullSilhouette, turretMounts, turretStation, type ShipClassId, type Vec2 } from '@salvo/shared';
+import { CONFIG, U_PER_M, hullSilhouette, turretMounts, turretStation, type ShipClassId, type Vec2 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../../config.js';
-import { FEATURES, HOUSES, U_PER_M, type Feature, type FracPoint } from './data.js';
+import { FEATURES, HOUSES, type Feature, type FracPoint } from './data.js';
 
 /** A skin fill slot (CLIENT_CONFIG.skins.* keys; `tier1..3` index `tier[]`). */
 export type FillKey = 'deck' | 'tier1' | 'tier2' | 'tier3' | 'round' | 'funnel' | 'funnelMouth' | 'sec' | 'turret' | 'barrel';

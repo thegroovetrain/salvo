@@ -57,7 +57,6 @@ import { circleIsland } from './islandFixture.js';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { COMBAT_BRAIN, approachPoint, readyShotReaches } from '../game/ai/tactics.js';
-import { SEC_RELEASE_HEAT, SEC_REPRESS_HEAT } from '../game/ai/battery.js';
 import { CONSUMABLE_TACTICS, EQUIPMENT_TACTICS, SHIFT_ROWS, tacticFor } from '../game/ai/tacticRegistry.js';
 import { EQUIPMENT } from '../game/equipment/index.js';
 import { profileOf } from '../game/ai/profiles.js';
@@ -2474,6 +2473,29 @@ describe('Story 8.15 — the pickable guns and the class Shifts (amendment 109)'
     expect(COMBAT_BRAIN.decide(ml, inReach(), port).actSlot).toBeNull();
   });
 
+  // Story 10.4 gate S3: slot 0's summary `reloadMsLeft` is the SOONEST running
+  // turret reload, positive as soon as ONE turret fired — the battery only
+  // "wants a reload" when NO turret is ready (summary n === 0).
+  it('INSTANT RELOAD on the main battery: one turret reloading with others loaded → held; every turret reloading → pressed', () => {
+    const w = openWorld(8156);
+    const port = fakePort(w);
+    const ml = mkBot(w, 'warspite', 0, 0, 0);
+    const shift = slotOf(ml, 'instantReload');
+    expect(ml.loadout[0].equipmentId).toBe('mainBattery');
+    const inReach = (): BotMind => {
+      const m = mkMind('trapper');
+      plot(m, track(port.now, { x: 300, y: 0, speed: 0 }));
+      return m;
+    };
+    const reloadMs = ml.stats.equipment.mainBattery.reloadMs;
+    ml.turrets[0].reloadMsLeft = reloadMs;
+    ml.loadout[0].state = { n: ml.turrets.length - 1, reloadMsLeft: reloadMs };
+    expect(COMBAT_BRAIN.decide(ml, inReach(), port).actSlot).toBeNull();
+    for (const t of ml.turrets) t.reloadMsLeft = reloadMs;
+    ml.loadout[0].state = { n: 0, reloadMsLeft: reloadMs };
+    expect(COMBAT_BRAIN.decide(ml, inReach(), port).actSlot).toBe(shift);
+  });
+
   // HUNKER is PROACTIVE (Eric, 2026-09-29, amendment 115): pressed while
   // ENGAGED (the bot's own `engage` posture, with a target) or when a SEEN
   // enemy torpedo is inbound on a collision line within 150 u — NEVER as a
@@ -3127,6 +3149,26 @@ describe('THE MAIN BATTERY — the held aim and the on-target click (Story 10.4)
     expect([b.aim, b.aimDist]).toEqual([a.aim, a.aimDist]);
   });
 
+  // Story 10.4 gate S4: the held scatter is keyed to the target it was drawn
+  // for — a switch before the click redraws (the old target's range-scaled
+  // offset never lands on the new one); the same target holds with no draw.
+  it('the held scatter is KEYED to its target: a target switch redraws, the same target holds without a draw', () => {
+    const { rec, port, mind, dist } = rig(10405);
+    for (const t of rec.turrets) t.reloadMsLeft = rec.stats.equipment.mainBattery.reloadMs;
+    rec.loadout[0].state = { n: 0, reloadMsLeft: rec.stats.equipment.mainBattery.reloadMs };
+    plot(mind, track(port.now, { id: 'other', x: 0, y: dist, speed: 0, heading: null }));
+    mind.targetKey = 'tgt';
+    COMBAT_BRAIN.decide(rec, mind, port, false);
+    const first = mind.batteryScatter;
+    expect(first).toBeTruthy();
+    COMBAT_BRAIN.decide(rec, mind, port, false); // same target: held, no draw (the same object)
+    expect(mind.batteryScatter).toBe(first);
+    mind.targetKey = 'other'; // switched before any click
+    COMBAT_BRAIN.decide(rec, mind, port, false);
+    expect(mind.batteryScatter).not.toBe(first);
+    expect(mind.batteryScatterKey).toBe('other');
+  });
+
   it('BLIND SECTOR: only turrets that cannot bear are ready → it keeps aiming and does not click', () => {
     const { rec, port, mind } = rig(10404);
     const mounts = CONFIG.shipClasses.iowa.battery.turrets;
@@ -3162,14 +3204,14 @@ describe('THE SECONDARIES — held on a live hull in reach, with a burst discipl
     const { rec, port, mind } = rig(10413, 0.5);
     COMBAT_BRAIN.decide(rec, mind, port); // deliberate once: pick the target
     const decide = (): boolean => COMBAT_BRAIN.decide(rec, mind, port, false).sec === true;
-    const mid = (SEC_REPRESS_HEAT + SEC_RELEASE_HEAT) / 2;
+    const mid = (CONFIG.bots.secRepressHeat + CONFIG.bots.secReleaseHeat) / 2;
     rec.sec.heat = mid;
     expect(decide()).toBe(true);
-    rec.sec.heat = (SEC_RELEASE_HEAT + 1) / 2; // past the release line
+    rec.sec.heat = (CONFIG.bots.secReleaseHeat + 1) / 2; // past the release line
     expect(decide()).toBe(false);
     rec.sec.heat = mid; // cooling, still above the re-press line
     expect(decide()).toBe(false);
-    rec.sec.heat = SEC_REPRESS_HEAT / 2; // cooled below it
+    rec.sec.heat = CONFIG.bots.secRepressHeat / 2; // cooled below it
     expect(decide()).toBe(true);
     rec.sec.heat = 0;
     rec.sec.locked = true;

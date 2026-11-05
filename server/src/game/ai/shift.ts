@@ -12,6 +12,7 @@ import {
   WEAPON_SLOTS,
   isConsumableId,
   type EffectiveStats,
+  type LoadoutSlot,
   type ShiftId,
 } from '@salvo/shared';
 import type { BotPosture, BotSelf } from './types.js';
@@ -77,12 +78,21 @@ function mountedGunReachU(self: BotSelf, stats: EffectiveStats): number {
  *  Q/E/R weapon row — never the Shift slot, never the belt. */
 const RELOADABLE_SLOTS: readonly number[] = [SLOT_GUN, ...WEAPON_SLOTS];
 
+/** Does this fitted slot want a reload? THE MAIN BATTERY (Story 10.4 gate S3)
+ *  only when NO turret is ready (summary `n === 0`): its summary
+ *  `reloadMsLeft` is the soonest running turret reload, positive as soon as
+ *  ONE turret fired. Every other row: its timer is running. */
+function slotWantsReload(slot: LoadoutSlot): boolean {
+  if (slot.equipmentId === null || slot.state === null || isConsumableId(slot.equipmentId)) return false;
+  if (slot.equipmentId === 'mainBattery') return slot.state.n === 0;
+  return slot.state.reloadMsLeft > 0;
+}
+
 /** Is any weapon INSTANT RELOAD would serve reloading right now? */
 function weaponReloading(self: BotSelf): boolean {
   for (const i of RELOADABLE_SLOTS) {
     const slot = self.loadout[i];
-    if (slot === undefined || slot.equipmentId === null || slot.state === null) continue;
-    if (!isConsumableId(slot.equipmentId) && slot.state.reloadMsLeft > 0) return true;
+    if (slot !== undefined && slotWantsReload(slot)) return true;
   }
   return false;
 }

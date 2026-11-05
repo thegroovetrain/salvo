@@ -552,15 +552,20 @@ describe('openClassSelect — the Shift pick (Story 10.4)', () => {
     }
   });
 
-  it('a chip moves the ONE pick on every card, highlights its own card, and rides CONFIRM', () => {
+  // REVIEW GATE C4: the Shift is the captain's, independent of the hull — a
+  // chip on another card moves the Shift ONLY; the highlighted hull stays. A
+  // focused chip's Enter/Space is the same native `click` (the layer swallows
+  // those keys while a button holds focus), so this pins keyboard activation too.
+  it('a chip on card 3 while card 2 is selected moves the ONE pick on every card and leaves card 2 selected (review C4)', () => {
     const onConfirm = vi.fn();
-    openClassSelect({ initial: FIRST, blurTarget, onConfirm, onClose: vi.fn() });
+    openClassSelect({ initial: SECOND, blurTarget, onConfirm, onClose: vi.fn() });
+    expect(litMap()).toEqual(only(1));
     const target = chipsOf(cards()[2]).find((c) => c.dataset.shift === OTHER_SHIFT) as HTMLButtonElement;
     target.click();
     for (const card of cards()) expect(pressedOf(card)).toEqual([OTHER_SHIFT]);
-    expect(litMap()).toEqual(only(2));
+    expect(litMap()).toEqual(only(1));
     confirm();
-    expect(onConfirm).toHaveBeenCalledWith(THIRD, OTHER_SHIFT, DEFAULT_KIT);
+    expect(onConfirm).toHaveBeenCalledWith(SECOND, OTHER_SHIFT, DEFAULT_KIT);
   });
 
   it('opens on the stored pick (initialShift)', () => {

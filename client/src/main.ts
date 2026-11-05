@@ -33,6 +33,7 @@ import {
   SLOT_COUNT,
   FOG_NO_CUT,
   type Island,
+  type InputMsg,
   type ContactBody,
   type DeniedView,
   type ConsumableKit,
@@ -123,7 +124,7 @@ import { conningFlag, founderDue, isSinkingNow } from './sim/sinkingWindow.js';
 import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
 import { OwnFireLatch } from './sim/ownFire.js';
 import { OwnBattery } from './sim/ownBattery.js';
-import { batteryClickPrediction, predictBatteryClick, stepOwnBattery } from './sim/ownBatteryTick.js';
+import { batteryClickPrediction, predictBatteryClick, stepOwnBattery, type OwnBatteryGate } from './sim/ownBatteryTick.js';
 import { startLoop, type LoopCallbacks, type LoopPhase } from './app/loop.js';
 import { makeReturnToPort } from './app/returnToPort.js';
 import { collapseLanding, makeRequeue } from './app/requeue.js';
@@ -2279,6 +2280,7 @@ function setupViewport(
   nowServer: () => number,
   fireLocked: () => boolean,
   onSlotPress: (p: ScreenPoint) => boolean,
+  overHotbar: (p: ScreenPoint) => boolean,
 ): {
   camera: Camera;
   keyboard: KeyboardInput;
@@ -2318,7 +2320,9 @@ function setupViewport(
   // canvas contextmenu is suppressed.
   // `onSlotPress` is the hotbar gate (Story 2.2): a canvas press over a slot is
   // that slot's key-equivalent action and is swallowed, never a shot.
-  const mouse = new MouseInput(nowServer, fireLocked, onSlotPress);
+  // `overHotbar` is its side-effect-free twin (review gate C3a): the right
+  // button's secondaries are swallowed over the bar and act on nothing.
+  const mouse = new MouseInput(nowServer, fireLocked, onSlotPress, overHotbar);
   mouse.attach(stage.app.canvas);
 
   // Guessed-class hull until the first frame confirms/corrects it, in the OWN
@@ -2856,7 +2860,7 @@ function buildGame(
   // pointerdown fire-time stamp (D1, resolved at click time), and the refit-modal lockout.
   // The mouse's fire lockout covers EVERY suspending surface (Story 2.3): the
   // refit modal as ever, plus the settings overlay and the results modal.
-  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, cls, keyboardHooks(() => gRef, audio), () => (gRef?.clock ? gRef.clock.serverNow() : 0), () => combatLocked(gRef), (p) => handleHotbarPress(gRef, p));
+  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, cls, keyboardHooks(() => gRef, audio), () => (gRef?.clock ? gRef.clock.serverNow() : 0), () => combatLocked(gRef), (p) => handleHotbarPress(gRef, p), (p) => hotbarCovers(gRef, p));
   const stats = effectiveStats(CONFIG.shipClasses[cls]);
   // The `plate` CHART LAYER, not a root — over terrain and hulls, under the
   // reticle; screen-space via applyCamera's inverse (render/stage.ts).
@@ -3625,6 +3629,13 @@ function handleHotbarPress(g: Game | null, p: ScreenPoint): boolean {
   return g.hudBar.press(hudPoint(g, p), (slot) => g.keyboard.slotAction(slot));
 }
 
+/** Would a press at `p` be swallowed by the hotbar? Acts on nothing (review
+ *  gate C3a — the right button's gate; a left press goes through
+ *  handleHotbarPress, which acts). */
+function hotbarCovers(g: Game | null, p: ScreenPoint): boolean {
+  return g !== null && g.hudBar.covers(hudPoint(g, p));
+}
+
 /**
  * Weapon arc/marker + crosshair while alive; hidden once sunk. Also derives
  * the denied-click predicate — a fresh click (clickCount advanced since last
@@ -3896,7 +3907,7 @@ function clickPrediction(
   const a = you?.ammo[primedSlot] ?? null;
   // STORY 10.4 (R4): the MAIN BATTERY fires whenever ANY turret is ready — read
   // off the predicted turrets — and is never out of arc (`arcFor` is full).
-  if (g.ownSlots[primedSlot] === 'mainBattery') return batteryClickPrediction(g.ownBattery, conningNow(g) ?? false);
+  if (g.ownSlots[primedSlot] === 'mainBattery') return batteryClickPrediction(g.ownBattery, conningNow(g) ?? false, aim, aimDist);
   return {
     // Story 5.2: WIDENED through the sinking window — a click from a sinking
     // hull genuinely fires (the server's gate re-opens for it), so it must also
@@ -3924,6 +3935,21 @@ function clickPrediction(
  */
 function stampOwnStream(g: Game, sec: boolean): void {
   if (sec) g.ownFire.holdStream(g.clock.serverNow());
+}
+
+/**
+ * THE OWN BATTERY'S GATE this tick (review gate C1) — the server's two answers:
+ * the turret angles chase the aim only while AFLOAT; the secondaries run on the
+ * real right-button level while the hull is afloat OR SINKING (`conningNow`,
+ * the widened flag every control gate reads) AND the weapons lock is not
+ * holding (`atStartLine` — the held start line, the client's mirror of the
+ * server's frozen room; the same lockout `combatLocked` drops clicks on).
+ */
+function ownBatteryGate(g: Game): OwnBatteryGate {
+  return {
+    afloat: g.state.net.you?.alive === true,
+    weaponsLive: conningNow(g) === true && !atStartLine(g),
+  };
 }
 
 /** The pose the own battery steps from: the PREDICTED hull (the pose the
@@ -3988,7 +4014,8 @@ function armPrimeRevert(g: Game, clickSeq: number): void {
   if (g.mouse.releasedClickSeq === clickSeq) g.keyboard.consumeReleaseRevert(clickSeq);
 }
 
-function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: number, fireSeq: number): void {
+function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: number, wire: Pick<InputMsg, 'fireSeq' | 'seq'>): void {
+  const fireSeq = wire.fireSeq;
   const clickSeq = g.mouse.clickCount;
   const newClick = clickSeq !== g.lastTickClick;
   g.lastTickClick = clickSeq;
@@ -3996,9 +4023,10 @@ function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: n
   const p = clickPrediction(g, primedSlot, aim, aimDist);
   latchOwnFire(g, primedSlot, p);
   // Story 10.4: a predicted main-battery shot starts the picked turret's reload
-  // locally (the next own frame corrects it).
+  // locally, tagged with this input's seq (a frame older than it keeps the
+  // reload — review gate C2; the acking frame corrects it).
   if (p.alive && p.loaded && g.ownSlots[primedSlot] === 'mainBattery') {
-    predictBatteryClick(g.ownBattery, ownBatteryPose(g), aim, aimDist, g.ownStats.equipment.mainBattery.reloadMs);
+    predictBatteryClick(g.ownBattery, ownBatteryPose(g), aim, aimDist, g.ownStats.equipment.mainBattery.reloadMs, wire.seq);
   }
   // ARM, DON'T REVERT (Story 8.5, ruling 9 / UX-DR42). The PREDICATE still
   // decides here, at pointerdown, where the fire input and its D1 fire-time
@@ -4894,8 +4922,8 @@ function makeCallbacks(g: Game): LoopCallbacks {
       // traverse + reload with this input's aim, THEN fire control reads them,
       // so a turret that comes on target or finishes reloading this tick
       // counts this tick.
-      stepOwnBattery(g.ownBattery, ownBatteryPose(g), input, g.state.net.you?.alive === true);
-      consumePrimeOnFire(g, primedSlot, aim, aimDist, input.fireSeq);
+      stepOwnBattery(g.ownBattery, ownBatteryPose(g), input, ownBatteryGate(g));
+      consumePrimeOnFire(g, primedSlot, aim, aimDist, input);
       stampOwnStream(g, input.sec);
     },
     render: (alpha, frameDt) => {

@@ -5,7 +5,7 @@
 // listener a real e.target, exactly like a browser).
 
 import { CLIENT_CONFIG } from '../config.js';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { MouseInput, worldAim, worldAimDist } from '../input/mouse.js';
 import { Camera } from '../render/camera.js';
 
@@ -46,10 +46,11 @@ function withMouse(
   nowServer?: () => number,
   isLocked?: () => boolean,
   onSlotPress?: (p: { x: number; y: number }) => boolean,
+  overHotbar?: (p: { x: number; y: number }) => boolean,
 ): void {
   const canvas = document.createElement('canvas');
   document.body.appendChild(canvas);
-  const m = new MouseInput(nowServer, isLocked, onSlotPress);
+  const m = new MouseInput(nowServer, isLocked, onSlotPress, overHotbar);
   m.attach(canvas);
   try {
     run(m, canvas);
@@ -468,17 +469,95 @@ describe('MouseInput.secHeld / consumeSec — the secondaries level (Story 10.4)
     );
   });
 
-  it('is swallowed over a hotbar slot', () => {
+  // REVIEW GATE C3(a): swallowed with NO side effect — the acting gate
+  // (`onSlotPress`, which burns the Shift / a consumable or changes the prime)
+  // is never called; only the side-effect-free hit test is.
+  it('is swallowed over a hotbar slot WITHOUT activating the slot (review C3a)', () => {
+    const onSlotPress = vi.fn(() => true);
+    const overHotbar = vi.fn(() => true);
     withMouse(
       (m, canvas) => {
         fire(canvas, 'pointerdown', { button: 2, buttons: 2, clientX: 5, clientY: 5 });
         expect(m.secHeld).toBe(false);
         expect(m.consumeSec()).toBe(false);
+        fire(canvas, 'pointermove', { button: 2, buttons: 3, clientX: 5, clientY: 5 }); // the chord path too
+        expect(m.secHeld).toBe(false);
       },
       undefined,
       undefined,
-      () => true,
+      onSlotPress,
+      overHotbar,
     );
+    expect(onSlotPress).not.toHaveBeenCalled();
+    expect(overHotbar).toHaveBeenCalled();
+  });
+
+  // REVIEW GATE C3(b): a button-0 chord edge is read off the PHYSICAL state
+  // (`buttons`), not off whether the right press was accepted.
+  it('a chorded LEFT press counts a click even when the right press was rejected over a slot (review C3b)', () => {
+    withMouse(
+      (m, canvas) => {
+        fire(canvas, 'pointerdown', { button: 2, buttons: 2, clientX: 5, clientY: 5 }); // rejected
+        expect(m.secHeld).toBe(false);
+        fire(canvas, 'pointermove', { button: 0, buttons: 3, clientX: 300, clientY: 300 });
+        expect(m.clickCount).toBe(1);
+        expect(m.isHeld).toBe(true);
+      },
+      undefined,
+      undefined,
+      undefined,
+      (p) => p.x < 10,
+    );
+  });
+
+  it('a chorded LEFT release closes the hold even when the right press landed on DOM chrome (review C3b)', () => {
+    withMouse((m, canvas) => {
+      const card = document.createElement('button');
+      document.body.appendChild(card);
+      fire(canvas, 'pointerdown', { button: 0, buttons: 1 }); // left hold open
+      fire(card, 'pointermove', { button: 2, buttons: 3 }); // right chord on chrome: rejected
+      expect(m.secHeld).toBe(false);
+      fire(card, 'pointermove', { button: 0, buttons: 2 }); // left released, right still down
+      expect(m.isHeld).toBe(false);
+      expect(m.releasedClickSeq).toBe(1);
+      card.remove();
+    });
+  });
+
+  // REVIEW GATE C3(c): a right release we never heard cannot stream forever.
+  it('a pointermove whose buttons lack the secondary bit releases the level (review C3c)', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
+      expect(m.secHeld).toBe(true);
+      fire(canvas, 'pointermove', { button: -1, buttons: 0, clientX: 9, clientY: 9 });
+      expect(m.secHeld).toBe(false);
+      expect(m.consumeSec()).toBe(true); // the press latch still pays its one sample
+      expect(m.consumeSec()).toBe(false);
+    });
+  });
+
+  it('a pointermove with the secondary bit still set keeps the level', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 2, buttons: 2 });
+      fire(canvas, 'pointermove', { button: -1, buttons: 2, clientX: 9, clientY: 9 });
+      expect(m.secHeld).toBe(true);
+    });
+  });
+
+  it('leaving the WINDOW releases the level; the left hold is untouched (review C3c)', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 0, buttons: 1 });
+      fire(canvas, 'pointermove', { button: 2, buttons: 3 });
+      expect(m.secHeld).toBe(true);
+      const inner = document.createElement('div');
+      document.body.appendChild(inner);
+      fire(canvas, 'pointerout', { relatedTarget: inner, buttons: 3, button: -1 }); // within the page
+      expect(m.secHeld).toBe(true);
+      fire(canvas, 'pointerout', { relatedTarget: null, buttons: 3, button: -1 }); // out of the window
+      expect(m.secHeld).toBe(false);
+      expect(m.isHeld).toBe(true);
+      inner.remove();
+    });
   });
 
   // Pointer Events report a SECOND button pressed during a hold as a

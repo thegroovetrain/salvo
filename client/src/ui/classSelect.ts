@@ -352,8 +352,10 @@ export function shiftChipWidth(id: ShiftId): number {
  * THE `SPECIAL` ROW (Story 10.4 — the retired DECK GUN row's grammar): the key
  * on its own line and the three Shift chips under it, wrapping. A chip is a
  * `<button>` painted in the card's own selected/unselected register by
- * `paintChips`. It does NOT stop propagation: picking a Shift on a card also
- * highlights that card, exactly like its in-card SELECT button.
+ * `paintChips`. It STOPS propagation (review gate C4): the Shift is the
+ * captain's, independent of the hull, so a chip click — or a focused chip's
+ * Enter/Space, which is the same native `click` — sets the Shift only and never
+ * reaches the card root that would re-select that card's hull.
  */
 function buildShiftRow(onShift: (id: ShiftId) => void): { el: HTMLElement; chips: Map<ShiftId, HTMLButtonElement> } {
   const row = document.createElement('div');
@@ -371,7 +373,8 @@ function buildShiftRow(onShift: (id: ShiftId) => void): { el: HTMLElement; chips
       `${registerCss('hudMicro')};letter-spacing:${SHIFT_CHIP_TRACKING_EM}em;flex:0 0 auto;white-space:nowrap;` +
       `padding:5px ${SHIFT_CHIP_PAD_X_PX}px;border:${SHIFT_CHIP_BORDER_PX}px solid var(--hc-hairline);` +
       'border-radius:6px;background:transparent;cursor:pointer;box-sizing:border-box';
-    chip.addEventListener('click', () => {
+    chip.addEventListener('click', (e) => {
+      e.stopPropagation(); // the Shift only — never the card's hull (C4)
       onShift(id);
       // Release focus so Enter/Space reach the layer again.
       chip.blur();
@@ -781,8 +784,8 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
     panel.setAttribute('inert', ''); // the layer's buttons are out of the tab order while the picker is up
     repaint();
   }
-  /** A Shift chip: move the ONE Shift pick and repaint. The chip's click then
-   *  bubbles to its card, which highlights that card too. */
+  /** A Shift chip: move the ONE Shift pick and repaint. The chip's click
+   *  stops at the chip — the highlighted hull never moves (review gate C4). */
   function pickShift(id: ShiftId): void {
     shift = id;
     repaint();

@@ -284,7 +284,7 @@ export interface RoomBindingDeps {
    * frame — the turrets and the secondaries heat snap to the server's. Optional
    * so headless harnesses with no battery behave as before.
    */
-  ownBattery?: { correct(you: OwnShip): void };
+  ownBattery?: { correct(you: OwnShip, ackSeq: number): void };
   /**
    * A SELF-PRIVATE server denial arrived on the frame (Story 1.10 —
    * FrameMsg.denied, one call per entry). main.ts routes it through the
@@ -751,7 +751,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     net.you = f.you;
     if (statsChanged) deps.onOwnStats(f.you.cls, f.you.cards, f.you.shift, f.you.kit);
     // Story 10.4: the own turrets + secondaries heat snap to the server's.
-    deps.ownBattery?.correct(f.you);
+    deps.ownBattery?.correct(f.you, f.ackSeq);
     deps.state.phase = 'active';
     if (f.you.alive) deps.state.respawnEta = null;
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });

@@ -16,15 +16,8 @@
 
 import type { ShipClassId } from '@salvo/shared';
 
-/**
- * u per metre — the R5 scale, "as drawn" (epic-10 amendment 9; Iowa 270.4 m →
- * 124.0 u). THE SOURCE IS `U_PER_M` IN shared/src/constants.ts, which is a
- * module-local `const` there and NOT exported from the barrel, so it is
- * restated here (Story 10.4 wave 2c: reported for shared to export). The
- * hull-art tests pin this value to the shared hull table (CONFIG hull length ÷
- * the real length overall), so the two cannot drift apart silently.
- */
-export const U_PER_M = 0.4585;
+// THE SCALE (u per metre) is shared's `U_PER_M` (shared/src/constants.ts) —
+// ONE constant, imported where the metres become units (shapes.ts).
 
 /** A point as the page writes it: [fraction of length from the bow, fraction of beam]. */
 export type FracPoint = readonly [number, number];
@@ -198,12 +191,4 @@ export const FEATURES: Readonly<Record<ShipClassId, readonly Feature[]>> = {
     { t: 'rail', x0: 0.9, y0: 0.1, x1: 0.975, y1: 0.2 },
     { t: 'crane', x: 0.945, y: 0, a: 180, l: 10 },
   ],
-};
-
-/** The page's `SHIPS[].loa` (length overall, metres) — the U_PER_M pin's input. */
-export const LOA_M: Readonly<Record<ShipClassId, number>> = {
-  yamato: 263.0,
-  bismarck: 251.0,
-  warspite: 196.2,
-  iowa: 270.4,
 };

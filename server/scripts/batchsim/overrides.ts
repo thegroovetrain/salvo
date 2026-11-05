@@ -586,8 +586,8 @@ const UNIT_INTERVAL_KEYS = new Set(['offer.weighting.factor', 'offer.weighting.f
  *  arms; outside it is not a probability. */
 const PROBABILITY_KEYS = new Set(['vision.dropout.kneeP', 'vision.dropout.rimP']);
 
-/** The bot dials on CLOSED [0, 1] (Story 9.13 wave 3; see the `bots.` family). */
-const BOT_FRACTION_KEYS = new Set(['bots.disengageHysteresis', 'bots.decoyDemote']);
+/** The bot dials on CLOSED [0, 1] (Story 9.13 wave 3; the secondaries heat lines since Story 10.4; see the `bots.` family). */
+const BOT_FRACTION_KEYS = new Set(['bots.disengageHysteresis', 'bots.decoyDemote', 'bots.secReleaseHeat', 'bots.secRepressHeat']);
 /** A per-gun doctrine band end — `bots.gunBand.<gun>.0` (min) / `.1` (max). */
 const BOT_GUN_BAND = /^bots\.gunBand\.[A-Za-z]+\.[01]$/;
 /** The routing dials: counts / lengths / clocks, floored at 1 … */

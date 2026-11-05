@@ -1528,6 +1528,44 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft / newR).toBeCloseTo(left / oldR, 12);
   });
 
+  // The deleted deck-gun case, restored for the MAIN BATTERY (Story 10.4 gate
+  // S1): slot 0's {n, reloadMsLeft} is DERIVED from the turrets, so the
+  // progress-fraction rule (Eric 2026-08-04) must land on the TURRETS' own
+  // clocks — scaling the derived pair is overwritten next tick.
+  it('a mid-reload RELOAD grant rescales a fired TURRET\'s clock by new/old; a loaded turret is untouched', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    expect(a.loadout[SLOT_GUN].equipmentId).toBe('mainBattery');
+    expect(a.turrets.length).toBeGreaterThan(1);
+    fire(a, 1, SLOT_GUN, 300);
+    w.step(); // one turret fires, its full reload starts
+    a.input = { ...a.input!, fireSeq: 0, seq: 2 };
+    const firedIdx = a.turrets.findIndex((t) => t.reloadMsLeft > 0);
+    expect(firedIdx).toBeGreaterThanOrEqual(0);
+    expect(a.turrets.filter((t) => t.reloadMsLeft > 0)).toHaveLength(1);
+    const oldR = a.stats.equipment.mainBattery.reloadMs;
+    const quarter = Math.floor(oldR / 4 / DT);
+    for (let i = 0; i < quarter; i++) w.step();
+    const left = a.turrets[firedIdx].reloadMsLeft;
+    expect(left).toBeGreaterThan(0);
+    expect(left).toBeLessThan(oldR);
+
+    w.applyCard(a, 'reload');
+    const newR = a.stats.equipment.mainBattery.reloadMs;
+    expect(newR).toBeLessThan(oldR);
+    const want = left * (newR / oldR);
+    expect(a.turrets[firedIdx].reloadMsLeft).toBeCloseTo(want, 9);
+    a.turrets.forEach((t, i) => {
+      if (i !== firedIdx) expect(t.reloadMsLeft).toBe(0); // loaded: no clock to move
+    });
+    // ...and slot 0's pair re-derives from the rescaled turret.
+    expect(a.loadout[SLOT_GUN].state).toEqual({ n: a.turrets.length - 1, reloadMsLeft: a.turrets[firedIdx].reloadMsLeft });
+    // The next tick (syncBatterySlot) keeps the rescaled clock, one DT down.
+    w.step();
+    expect(a.turrets[firedIdx].reloadMsLeft).toBeCloseTo(want - DT, 9);
+    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBeCloseTo(want - DT, 9);
+  });
+
   it('the rescale is NEVER a free round — the pool is untouched and the timer stays positive', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);

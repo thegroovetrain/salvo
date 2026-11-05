@@ -7,7 +7,8 @@
 // re-drawn every tick, because the aim it writes into `InputMsg.aim` /
 // `aimDist` every tick IS the point every turret chases at a finite traverse
 // rate: a per-tick jitter would keep the turrets forever just off it. The
-// offset is re-drawn after each click. The bot CLICKS only when a turret is
+// offset is re-drawn after each click, and whenever the target changes
+// (`BotMind.batteryScatterKey`). The bot CLICKS only when a turret is
 // READY AND ON TARGET for the aim it is holding — read off its OWN turret
 // states (`BotSelf.turrets`, exactly the `OwnShip.turrets` a human client is
 // sent), stepped one tick ahead through the SHARED `stepTurrets` the server
@@ -19,15 +20,15 @@
 //
 // SECONDARIES. Held (`InputMsg.sec`) while the bot has a LIVE hull target
 // inside `stats.secondaryRangeU`, with a burst discipline: released once heat
-// reaches SEC_RELEASE_HEAT, not pressed again until it has cooled to
-// SEC_REPRESS_HEAT (or a lock has cleared). They fire along the same aim.
+// reaches CONFIG.bots.secReleaseHeat, not pressed again until it has cooled to
+// CONFIG.bots.secRepressHeat (or a lock has cleared). They fire along the same aim.
 //
 // Pure apart from the two mind seats it owns (`batteryScatter`,
 // `secResting`) and the scatter draws off the mind's rng. No `world.js`.
 
 import {
   CONFIG,
-  aimPointOf,
+  batteryAimPoint,
   bearing,
   copyTurrets,
   pickTurret,
@@ -39,14 +40,6 @@ import type { BotSituation, BotTrack } from './utility.js';
 import { reachOf } from './doctrine.js';
 import { distTo, leadPoint, scatterOffset, shotReaches, stamped, type EquipmentTactic, type Shot, type TacticContext } from './tacticKit.js';
 
-/** Heat (0..1) at which a bot RELEASES the secondaries — orchestrator reading
- *  of record for Story 10.4 (CONFIG.bots is shared and not this wave's to
- *  edit; flagged for promotion there). */
-export const SEC_RELEASE_HEAT = 0.8;
-/** Heat (0..1) the secondaries must cool to before a resting bot presses
- *  again — orchestrator reading of record (see SEC_RELEASE_HEAT). */
-export const SEC_REPRESS_HEAT = 0.2;
-
 /** The bot's held aim for the main battery: bearing + distance from the hull
  *  centre to the led, scattered point. */
 export interface BatteryAim {
@@ -56,12 +49,18 @@ export interface BatteryAim {
   point: Vec2;
 }
 
-/** The held scatter offset, drawn on first use (range-scaled at the draw). */
+/** The held scatter offset, drawn on first use (range-scaled at the draw) and
+ *  KEYED to the target it was drawn for (gate S4): a different target key —
+ *  the bot switched before clicking — redraws, so one target's range-scaled
+ *  offset never lands on another. The same target draws nothing. */
 function heldScatter(mind: BotMind, range: number): Vec2 {
-  if (mind.batteryScatter === undefined || mind.batteryScatter === null) {
-    mind.batteryScatter = scatterOffset(range, mind.rng);
-  }
-  return mind.batteryScatter;
+  const key = mind.targetKey;
+  const held = mind.batteryScatter;
+  if (held !== undefined && held !== null && mind.batteryScatterKey === key) return held;
+  const drawn = scatterOffset(range, mind.rng);
+  mind.batteryScatter = drawn;
+  mind.batteryScatterKey = key;
+  return drawn;
 }
 
 /** Does this hull carry a battery at all (a self-read)? */
@@ -83,8 +82,9 @@ export function batteryAim(self: BotSelf, mind: BotMind, sit: BotSituation, t: B
 export function readyOnTarget(self: BotSelf, aim: BatteryAim): boolean {
   const own = self.turrets;
   if (own === undefined || own.length === 0) return false;
+  const p = batteryAimPoint(self.state, aim.aim, aim.aimDist);
+  if (p === null) return false; // no aim (gate S2): the server would refuse the click
   const next = copyTurrets([], own);
-  const p = aimPointOf(self.state, aim.aim, aim.aimDist);
   stepTurrets(next, self.hullId, self.state, p, CONFIG.tick.simDtMs);
   return pickTurret(next, self.hullId, self.state, p)?.onTarget === true;
 }
@@ -122,17 +122,17 @@ function secTarget(sit: BotSituation, t: BotTrack | null): boolean {
 
 /**
  * The secondaries level this tick, with the burst discipline: a resting bot
- * waits for heat ≤ SEC_REPRESS_HEAT with the lock cleared; a firing bot rests
- * once heat ≥ SEC_RELEASE_HEAT. No secondaries (absent `sec`) → false.
+ * waits for heat ≤ CONFIG.bots.secRepressHeat with the lock cleared; a firing bot rests
+ * once heat ≥ CONFIG.bots.secReleaseHeat. No secondaries (absent `sec`) → false.
  */
 export function secondariesHeld(self: BotSelf, mind: BotMind, sit: BotSituation, t: BotTrack | null): boolean {
   const sec = self.sec;
   if (sec === undefined) return false;
   if (mind.secResting === true) {
-    if (sec.locked || sec.heat > SEC_REPRESS_HEAT) return false;
+    if (sec.locked || sec.heat > CONFIG.bots.secRepressHeat) return false;
     mind.secResting = false;
   }
-  if (sec.locked || sec.heat >= SEC_RELEASE_HEAT) {
+  if (sec.locked || sec.heat >= CONFIG.bots.secReleaseHeat) {
     mind.secResting = true;
     return false;
   }

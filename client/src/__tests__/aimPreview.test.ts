@@ -1103,4 +1103,11 @@ describe('the MAIN BATTERY preview — the shared turret pick and salvo', () => 
       expect(m.bursts[k].y).toBeCloseTo(sh.target.y, 9);
     });
   });
+  // REVIEW GATE C5: a zero / non-finite aim distance is NO AIM
+  // (`batteryAimPoint` → null) — the server holds and denies, so the preview
+  // draws no fall of shot for the battery.
+  it('NO AIM (aimDist 0 or not finite) previews nothing', () => {
+    expect(computeAimPreview(battery({ aimDist: 0 }))).toEqual(EMPTY_MODEL);
+    expect(computeAimPreview(battery({ aimDist: Number.NaN }))).toEqual(EMPTY_MODEL);
+  });
 });

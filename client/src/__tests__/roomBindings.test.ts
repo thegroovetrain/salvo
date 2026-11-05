@@ -122,17 +122,17 @@ function setup(extra: Record<string, unknown> = {}) {
 // --- STORY 10.4: THE OWN BATTERY + THE SEAT SHIFT ---------------------------
 
 describe('bindRoom own frame — the own battery is corrected from every own frame', () => {
-  it('calls deps.ownBattery.correct(you) with the frame\'s own ship, every frame', () => {
+  it("calls deps.ownBattery.correct(you, ackSeq) with the frame's own ship and its ack, every frame", () => {
     const correct = vi.fn();
     const { sink } = setup({ ownBattery: { correct } });
-    const f1 = ownFrame(1, 2) as { you: unknown };
+    const f1 = ownFrame(1, 2) as { you: unknown; ackSeq: number };
     sink.handler(f1);
     expect(correct).toHaveBeenCalledTimes(1);
-    expect(correct).toHaveBeenCalledWith(f1.you);
-    const f2 = ownFrame(3, 4) as { you: unknown };
+    expect(correct).toHaveBeenCalledWith(f1.you, f1.ackSeq);
+    const f2 = { ...(ownFrame(3, 4) as object), ackSeq: 7 } as { you: unknown; ackSeq: number };
     sink.handler(f2);
     expect(correct).toHaveBeenCalledTimes(2);
-    expect(correct).toHaveBeenLastCalledWith(f2.you);
+    expect(correct).toHaveBeenLastCalledWith(f2.you, 7);
   });
 
   it('is optional — an own frame flows through with no ownBattery dep', () => {

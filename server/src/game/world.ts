@@ -44,7 +44,7 @@ import {
   DEFAULT_SHIFT,
   SLOT_GUN,
   WEAPON_SLOTS,
-  aimPointOf,
+  batteryAimPoint,
   initialSecondaries,
   initialTurrets,
   reloadAllTurrets,
@@ -3848,13 +3848,31 @@ export class World {
       // life, so the `left <= 0` guard below would skip it anyway — the
       // narrowing guard is what makes the equipmentReloadMs reads type-honest.
       if (isConsumableId(id)) continue;
-      const left = slot.state.reloadMsLeft;
-      if (left <= 0) continue; // idle slot: nothing in flight
       const oldMs = equipmentReloadMs(prevStats, id);
       const newMs = equipmentReloadMs(ship.stats, id);
-      if (oldMs <= 0 || oldMs === newMs) continue; // no ratio, or nothing moved
+      if (!Number.isFinite(oldMs) || oldMs <= 0 || oldMs === newMs) continue; // no ratio, or nothing moved
+      if (id === 'mainBattery') {
+        World.rescaleTurretReloads(ship, slot, newMs / oldMs);
+        continue;
+      }
+      const left = slot.state.reloadMsLeft;
+      if (left <= 0) continue; // idle slot: nothing in flight
       slot.state.reloadMsLeft = left * (newMs / oldMs);
     }
+  }
+
+  /**
+   * THE MAIN BATTERY'S share of `rescaleReloadTimers` (Story 10.4 gate S1):
+   * slot 0's `{n, reloadMsLeft}` is DERIVED (`syncBatterySlot` overwrites it
+   * every tick), so the progress-fraction rule lands on EACH turret's own
+   * running clock; a loaded turret (0) has nothing in flight. The slot pair is
+   * then re-derived from the turrets.
+   */
+  private static rescaleTurretReloads(ship: ShipRecord, slot: LoadoutSlot, ratio: number): void {
+    for (const t of ship.turrets) {
+      if (t.reloadMsLeft > 0) t.reloadMsLeft *= ratio;
+    }
+    syncBatterySlot(ship, slot);
   }
 
   /**
@@ -6997,8 +7015,9 @@ export class World {
   /**
    * THE TURRET STEP (Story 10.4; see the STEP_ORDER row): every hull with a
    * battery steps its turrets through the shared stepper. An AFLOAT hull's
-   * turrets chase the latest input's aim point (`aimPointOf` — the same aim
-   * `InputMsg.aim` / `aimDist` the client predicts with); a SINKING or dead
+   * turrets chase the latest input's aim point (`batteryAimPoint` — the same
+   * aim `InputMsg.aim` / `aimDist` the client predicts with; an input with no
+   * positive aimDist is NO AIM and holds every angle, gate S2); a SINKING or dead
    * hull's turrets HOLD their angles (aimPoint null — orchestrator ruling,
    * wave-1 gate) while their reloads still count down, so a dying captain can
    * still fire whatever is ready (amendment 10). A fleet hull has no turrets
@@ -7007,7 +7026,7 @@ export class World {
   private stepTurrets(dtMs: number): void {
     for (const ship of this.ships.values()) {
       if (ship.turrets.length === 0) continue;
-      const aim = isAfloat(ship.lifecycle) ? aimPointOf(ship.state, ship.input.aim, ship.input.aimDist) : null;
+      const aim = isAfloat(ship.lifecycle) ? batteryAimPoint(ship.state, ship.input.aim, ship.input.aimDist) : null;
       stepTurrets(ship.turrets, ship.hullId, ship.state, aim, dtMs);
     }
   }

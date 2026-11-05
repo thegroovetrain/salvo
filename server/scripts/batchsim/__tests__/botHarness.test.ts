@@ -768,6 +768,8 @@ describe('Story 9.13 — the --tune bots.* family', () => {
     expect(() => parseArgs(['--bots', '4', '--tune', 'bots.nonsense=1'])).toThrow(/does not exist|not a numeric/);
     expect(() => parseArgs(['--bots', '4', '--tune', 'bots.profiles.0=1'])).toThrow(/not a numeric/);
     expect(() => parseArgs(['--bots', '4', '--tune', 'bots.decoyDemote=1.5'])).toThrow(/\[0, 1\]/);
+    expect(() => parseArgs(['--bots', '4', '--tune', 'bots.secReleaseHeat=1.5'])).toThrow(/\[0, 1\]/);
+    expect(() => parseArgs(['--bots', '4', '--tune', 'bots.secRepressHeat=-0.1'])).toThrow(/\[0, 1\]/);
     expect(() => parseArgs(['--bots', '4', '--tune', 'bots.gunBand.flak.1=-0.1'])).toThrow(/\[0, 1\]/);
     expect(() => parseArgs(['--bots', '4', '--tune', 'bots.nav.avoidRays=0'])).toThrow(/>= 1/);
     expect(() => parseArgs(['--bots', '4', '--tune', 'bots.stuckMs=-1'])).toThrow(/>= 0/);

@@ -33,7 +33,7 @@
 import {
   CONFIG,
   EQUIPMENT_IS_WEAPON,
-  aimPointOf,
+  batteryAimPoint,
   batterySummary,
   fireTurret,
   gunReachU as sharedGunReachU,
@@ -59,7 +59,12 @@ export function syncBatterySlot(ship: ShipRecord, slot: LoadoutSlot): void {
 function fireSalvo(ctx: ActivationContext): ActivationResult {
   const ship = ctx.ship;
   const pose = ship.state;
-  const pick = pickTurret(ship.turrets, ship.hullId, pose, aimPointOf(pose, ship.input.aim, ship.input.aimDist));
+  // NO AIM (gate S2): a click whose aimDist is not positive names no point.
+  // A real client always sends a positive aimDist when it clicks, so this is
+  // refused exactly as nothing-ready is, consuming nothing.
+  const aimPt = batteryAimPoint(pose, ship.input.aim, ship.input.aimDist);
+  if (aimPt === null) return { ok: false, reason: 'no-ammo' };
+  const pick = pickTurret(ship.turrets, ship.hullId, pose, aimPt);
   if (pick === null) return { ok: false, reason: 'no-ammo' }; // every turret reloading → `cooling` on the wire
   const row = ship.stats.equipment.mainBattery;
   const reachU = sharedGunReachU(pick.station, pick.bearing, pick.aimDistU, row.rangeU, ctx.mapRadius, ctx.ownLitZones());
