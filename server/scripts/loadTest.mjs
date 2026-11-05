@@ -139,7 +139,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
-import { CONFIG, MSG, PROTOCOL_VERSION } from '@salvo/shared';
+import { CONFIG, MSG, PROTOCOL_VERSION, SHIP_CLASS_IDS } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const EVIDENCE_DIR = path.join(REPO, '_bmad-output/implementation-artifacts/perf-gate');
@@ -354,7 +354,7 @@ function bindArena(ctx, room) {
   room.onLeave((code) => { ctx.arenaLeft = code; });
 }
 
-const HULLS = ['torpedoBoat', 'battleship', 'mineLayer'];
+const HULLS = SHIP_CLASS_IDS; // Story 10.4: the four battleships
 
 function makeCtx(id, kind) {
   return {
@@ -392,7 +392,7 @@ async function joinQueue(cfg, ctx, headers) {
 async function createSolo(cfg, ctx, headers) {
   ctx.client = new Client(cfg.origin, headers ? { headers } : undefined);
   const room = await withDeadline(
-    ctx.client.create('arena', { name: ctx.id, pv: PROTOCOL_VERSION, solo: true, cls: 'battleship' }),
+    ctx.client.create('arena', { name: ctx.id, pv: PROTOCOL_VERSION, solo: true, cls: 'yamato' }),
     45000, // a solo create runs a full map generation + 19-bot fleet build
     `${ctx.id} create('arena',{solo:true})`,
   );
@@ -457,7 +457,7 @@ function makeInputDriver(clients) {
           fireT: 0,
           actSeq: 0,
           actSlot: 0,
-          hornSeq: 0, held: false,
+          hornSeq: 0, held: false, sec: false,
         });
         ctx.inputs += 1;
         sent += 1;

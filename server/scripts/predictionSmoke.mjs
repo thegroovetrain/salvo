@@ -24,7 +24,7 @@
 //   node server/scripts/predictionSmoke.mjs
 
 import { Client } from '@colyseus/sdk';
-import { CONFIG, PROTOCOL_VERSION, stepShip } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, PROTOCOL_VERSION, effectiveStats, stepShip } from '@salvo/shared';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
 const DT = CONFIG.tick.simDtMs / 1000;
@@ -35,9 +35,14 @@ function assert(cond, msg) {
   if (!cond) throw new Error(msg);
 }
 
+/** Smoke clients join with no class option -> the server seats DEFAULT_CLASS_ID
+ *  (Story 10.4: Bismarck). Its kinematics are the FOLDED ones (the ENGINES /
+ *  RUDDER indices), from the same effectiveStats() the server runs. */
+const DEFAULT_HULL = CONFIG.shipClasses[DEFAULT_CLASS_ID];
+const DEFAULT_KIN = effectiveStats(DEFAULT_HULL, []).kinematics;
+
 function step(state, inp) {
-  // Smoke clients join with no class option -> server defaults to 'torpedoBoat'.
-  stepShip(state, inp, CONFIG.shipClasses.torpedoBoat.kinematics, DT);
+  stepShip(state, inp, DEFAULT_KIN, DT);
   return state;
 }
 
@@ -63,9 +68,9 @@ async function joinClient(name) {
 
 /** Scripted input for seq n: full ahead, rudder square wave. Seq 0 = neutral. */
 function scriptInput(seq) {
-  if (seq === 0) return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+  if (seq === 0) return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
   const rudder = seq % 30 < 15 ? 0.7 : -0.7;
-  return { seq, throttle: 1, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+  return { seq, throttle: 1, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
 }
 
 function sendScript(ctx) {
@@ -178,7 +183,7 @@ async function main() {
   // against the server tick grid). Gate loosely at one ship length; the real
   // client reconciles every frame, so what the player sees is maxCorrectionU
   // per frame, absorbed by visualError.
-  assert(prediction.max < CONFIG.shipClasses.torpedoBoat.hull.length, `prediction divergence too high: ${prediction.max}`);
+  assert(prediction.max < DEFAULT_HULL.hull.length, `prediction divergence too high: ${prediction.max}`);
 
   console.log('PREDICTION SMOKE OK:', {
     room: a.room.roomId,

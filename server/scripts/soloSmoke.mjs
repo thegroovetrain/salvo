@@ -14,8 +14,9 @@
 //           the PROTOCOL_VERSION gate runs FIRST on this door too.
 //       A2. solo:true is admitted, and the room comes up with a FULL ROSTER:
 //           CONFIG.map.playerCap rows (the captain + playerCap-1 bots), every
-//           bot carrying a real callsign and a real Regatta hue — never the
-//           255 drone-grey sentinel, never a duplicate. This is the story's
+//           bot carrying a real callsign, never a duplicate (the Regatta hue
+//           check is GONE with the hue wheel — Story 10.4, R6: linework is
+//           own-cyan / enemy-red, client-side). This is the story's
 //           whole point: without these rows the player meets nineteen
 //           amber-hollow UNKNOWN VESSELs while the chrome bar reads 1 AFLOAT.
 //       A3. the countdown ARMS WITH ONE HUMAN (no second captain ever
@@ -36,7 +37,7 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
-import { CONFIG, MSG, PROTOCOL_VERSION, REGATTA_HUES, REGATTA_NO_HUE } from '@salvo/shared';
+import { CONFIG, MSG, PROTOCOL_VERSION } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 // Free ports: matchSmoke/zoneSmoke 2599, reconnect/latency 2601, queue 2603,
@@ -155,7 +156,7 @@ const phase = (ctx) => ctx.room.state?.matchPhase ?? 'unknown';
 function roster(ctx) {
   const rows = [];
   ctx.room.state.players.forEach((meta, id) => {
-    rows.push({ id, name: meta.name, color: meta.color, alive: meta.alive, placement: meta.placement });
+    rows.push({ id, name: meta.name, alive: meta.alive, placement: meta.placement });
   });
   return rows;
 }
@@ -196,16 +197,12 @@ function proveFullRoster(ctx) {
   assert(me, 'the human captain has no roster row');
   for (const r of rows) {
     assert(r.name.length > 0, `roster row ${r.id} has an EMPTY callsign`);
-    assert(r.color !== REGATTA_NO_HUE, `roster row ${r.id} flies the drone-grey sentinel (${REGATTA_NO_HUE})`);
-    assert(r.color >= 0 && r.color < REGATTA_HUES.length, `roster row ${r.id} has an off-wheel hue ${r.color}`);
   }
-  const hues = new Set(rows.map((r) => r.color));
-  assert(hues.size === CAP, `hues collide: ${hues.size} distinct across ${CAP} hulls`);
   const names = new Set(rows.map((r) => r.name.toUpperCase()));
   assert(names.size === CAP, `callsigns collide: ${names.size} distinct across ${CAP} hulls`);
   const afloat = rows.filter((r) => r.alive).length;
   assert(afloat === CAP, `${afloat} AFLOAT, expected ${CAP}`);
-  return `roster: ${CAP} rows (${BOTS} AI captains), ${hues.size} distinct hues, no 255 sentinel, ${CAP} AFLOAT`;
+  return `roster: ${CAP} rows (${BOTS} AI captains), ${names.size} distinct callsigns, ${CAP} AFLOAT`;
 }
 
 // --- PHASE B: results ---------------------------------------------------------
@@ -241,7 +238,7 @@ async function runPhaseA(log) {
     log.push(await proveDoorRefusesNonSolo(PORT_PROD));
     log.push(await proveDoorRunsThePvGate(PORT_PROD));
 
-    const a = await createSolo(PORT_PROD, { name: 'ERIC', cls: 'battleship' });
+    const a = await createSolo(PORT_PROD, { name: 'ERIC', cls: 'yamato' });
     await waitFor(() => a.welcome !== null, 10000, 'welcome');
     // The countdown must arm with ONE human aboard — nobody else is coming.
     await waitFor(() => phase(a) === 'countdown', 10000, 'countdown without a second captain');
