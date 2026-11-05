@@ -2,8 +2,12 @@
 // nine squares and one framed belt, drawn in Pixi over the water at the
 // geometry `render/hudBar.ts` hands it:
 //
-//   HP globe | Gun  Shift  Q  E  R | [ 1  2  3  4 ] | helm globe
-//                                    ^ the belt frame this module draws
+//   HP globe | Gun  Sec  Shift  Q  E  R | [ 1  2  3  4 ] | helm globe
+//                                         ^ the belt frame this module draws
+//
+// `Sec` (Story 10.4) is the SECONDARIES HEAT square — keyless and slotless, so
+// it is not one of the nine slot models; its pure look is render/secHeat.ts and
+// `drawSec` below paints it in the shipped skins.
 //
 // Since Story 9.2 every consumable kind owns one fixed belt square and key
 // (keys 1–6 then, epic-9 amendment 21), and a kind at zero stock keeps its square in
@@ -78,6 +82,7 @@ import {
   type ConsumableKit,
   type EquipmentId,
   type EffectiveStats,
+  type SecondariesHeat,
   type ShipClassId,
   type SlotItemId,
   type WeaponAmmo,
@@ -90,6 +95,7 @@ import { monoTextWidth } from '../ui/refitCardFit.js';
 import { drawEquipmentIcon, drawDashGlyph } from './equipmentIcons.js';
 import { drawWipeDark, drawWipeScrim, wipeLabel } from './cooldownWipe.js';
 import { microScale, type HudBarLayout, type Rect } from './hudBar.js';
+import { secHeatLook } from './secHeat.js';
 import { SLOT_KEY_GLYPHS, stockBadgeText, equipmentInfo, slotTier, type EquipmentInfo } from './equipmentInfo.js';
 // THE TOOLTIP CORE MOVED OUT in Story 8.7 (ruling 13): `render/slotTooltip.ts`
 // owns the hover dwell, the stat-line model, the container-fit model and the
@@ -309,6 +315,9 @@ export interface HotbarView {
    *  sampler sends as `InputMsg.held`). With the machine gun mounted and shells
    *  in the magazine it lights the held-fire drain. Absent = not held. */
   held?: boolean;
+  /** The own SECONDARIES heat + lock (Story 10.4 — the predicted
+   *  `ownBattery.heat` / `.locked`) for the heat square. Absent = cold. */
+  sec?: SecondariesHeat | null;
 }
 
 /** The stream is live only with the machine gun mounted AND the gun the
@@ -882,6 +891,14 @@ function slotColumn(layout: HudBarLayout, slot: number): Rect {
   return { x: sq.x, y: sq.y, w: sq.w, h: chip.y + B.chipH - sq.y };
 }
 
+/** Pure: the SECONDARIES HEAT square's column (square + seam + its ghost chip)
+ *  — chrome, so a press there is swallowed like the HP globe's (Story 10.4);
+ *  it opens no tooltip (no copy exists for it yet). */
+export function secColumn(layout: HudBarLayout): Rect {
+  const sq = layout.sec;
+  return { x: sq.x, y: sq.y, w: sq.w, h: layout.secChip.y + B.chipH - sq.y };
+}
+
 /**
  * Pure: the slot whose COLUMN (square + seam + key chip) or AMMO BADGE contains
  * a screen point, or null.
@@ -951,7 +968,7 @@ export function hoverTargetAt(p: ScreenPoint, layout: HudBarLayout | null): Hove
  */
 export function hotbarPress(p: ScreenPoint, layout: HudBarLayout | null, slotAction: (slot: number) => void): boolean {
   const target = hoverTargetAt(p, layout);
-  if (target === null) return false;
+  if (target === null) return layout !== null && inRect(p, secColumn(layout));
   if (target !== 'ship') slotAction(target);
   return true;
 }
@@ -1234,6 +1251,7 @@ export class Hotbar {
     this.drawBeltFrame(layout);
     const breath = activeBreath(this.advanceBreath(view.nowSec), motionScaled(ACTIVE_PULSE_AMP, view.motion ?? 'full'));
     for (const m of models) this.drawSlot(m, layout, breath);
+    this.drawSec(view.sec ?? null, layout);
     this.drawFitFrame(view, layout);
     this.updateTooltip(view, layout, models, cursor, nowMs);
   }
@@ -1278,6 +1296,29 @@ export class Hotbar {
     this.drawBadge(m, layout);
     this.drawChip(m, layout);
     this.drawNumeral(m, square);
+  }
+
+  /**
+   * THE SECONDARIES HEAT SQUARE (Story 10.4 — render/secHeat.ts): the ready-
+   * weapon frame (the denied frame while locked) with its glow, the heat fill
+   * rising from the floor under the glyph (the held-fire drain's fill + 1px top
+   * edge, in the skin's accent), and the machine-gun glyph. Its chip is a
+   * ghost, like the gun's: nothing is painted under it.
+   */
+  private drawSec(sec: SecondariesHeat | null, layout: HudBarLayout): void {
+    const sq = layout.sec;
+    const look = secHeatLook(sec);
+    const skin = slotSkin(look.state, motionIntensity(settings.current.motion));
+    const g = this.gfx;
+    g.rect(sq.x, sq.y, sq.w, sq.h).stroke({ width: skin.borderWidth, color: skin.border, alpha: skin.borderAlpha });
+    this.drawGlow(sq, skin);
+    if (look.fill > 0) {
+      const r = drainRect(sq, look.fill);
+      g.rect(r.x, r.y, r.w, r.h).fill({ color: look.color, alpha: HELD_DRAIN_ALPHA });
+      g.moveTo(r.x, r.y).lineTo(r.x + r.w, r.y).stroke({ width: 1, color: look.color, alpha: 1 });
+    }
+    const style = { width: 1.5, color: skin.icon, alpha: skin.iconAlpha };
+    drawEquipmentIcon(g, 'machineGun', sq.x + sq.w / 2, sq.y + sq.h / 2, B.icon, style);
   }
 
   /**

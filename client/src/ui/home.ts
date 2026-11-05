@@ -99,7 +99,7 @@ import { textFieldElement } from '../input/keyboard.js';
 import { cssRgba } from '../util/color.js';
 import { registerCss } from './theme.js';
 import { makePrivateRow, type PrivateRow } from './privateRow.js';
-import { silhouetteSvg } from '../util/silhouetteSvg.js';
+import { hullArtSvg, sharedFitPxPerU } from '../render/hullArt/svgArt.js';
 import { pickTagline } from './taglines.js';
 import { OWN_ACCENT, type OwnAccent } from './ownAccent.js';
 import {
@@ -558,7 +558,8 @@ function makeChip(onOpen: () => void): ChipEls {
   root.setAttribute('title', 'Open the class-select layer');
   root.tabIndex = 0;
   const sil = document.createElement('span');
-  sil.style.cssText = 'display:flex;align-items:center;justify-content:center;width:44px;min-height:44px';
+  sil.style.cssText =
+    `display:flex;align-items:center;justify-content:center;width:${CLIENT_CONFIG.home.chipArtW}px;min-height:44px`;
   const meta = document.createElement('span');
   meta.style.cssText = 'display:flex;flex-direction:column;min-width:0';
   const role = document.createElement('span');
@@ -980,6 +981,18 @@ function paintStatus(h: Home, text: string, tone: StatusTone): void {
 }
 
 /**
+ * The chip's ship (Story 10.4 wave 2c): the hull's battleship art
+ * (render/hullArt/svgArt — the canvas art's own shapes), bow right, own
+ * relation linework, fitted to the chip's art box (`home.chipArtW` × `chipArtH`)
+ * at a lighter hull line than the cards' (the art is a third of their size).
+ */
+function chipArt(cls: ShipClassId): string {
+  const H = CLIENT_CONFIG.home;
+  const pxPerU = sharedFitPxPerU([cls], H.chipArtW, H.chipArtH);
+  return hullArtSvg(cls, 'own', { pxPerU, hullPx: H.chipArtHullPx });
+}
+
+/**
  * Rebuild the chip contents for the current class + own accent. The border
  * and silhouette take the RAW accent (graphic marks); the class name is TEXT, so it
  * takes the WCAG-lifted `accentText` (textSafe) instead. No loadout sub-line —
@@ -996,9 +1009,7 @@ function repaintChip(h: Home): void {
     h.chip.name.textContent = 'CHOOSE A HULL';
     return;
   }
-  h.chip.sil.innerHTML = silhouetteSvg(h.currentClass, { stroke: accent, fill: h.accent.accentFill, strokeWidth: 2 });
-  const svg = h.chip.sil.firstElementChild as HTMLElement | null;
-  if (svg) svg.style.cssText = 'height:40px;width:auto';
+  h.chip.sil.innerHTML = chipArt(h.currentClass);
   h.chip.role.textContent = 'YOUR SHIP';
   h.chip.name.textContent = CLASS_DISPLAY_NAMES[h.currentClass];
 }

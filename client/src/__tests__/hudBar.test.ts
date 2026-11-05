@@ -55,7 +55,8 @@ describe('(a) CLIENT_CONFIG.hudBar — the relations its numbers must keep', () 
 
 describe('(b) hudBarLayout — the bar, derived and anchored', () => {
   it('derives the bar width from the parts, and never from a literal', () => {
-    const slots = 5 * B.slot + 4 * B.slotGap;
+    // Six seats: the five weapon-row slots + Story 10.4's secondaries heat square.
+    const slots = 6 * B.slot + 5 * B.slotGap;
     const belt = B.beltPad.side * 2 + BELT_ROW.length * B.beltSlot + (BELT_ROW.length - 1) * B.beltGap;
     expect(HUD_BAR_WIDTH).toBe(B.globe + B.globeGap + slots + B.globeGap + belt + B.globeGap + B.globe);
     expect(hudBarLayout(REF_W, REF_H).bar.w).toBe(HUD_BAR_WIDTH);
@@ -100,7 +101,7 @@ describe('(b) hudBarLayout — the bar, derived and anchored', () => {
 
   it('carries the belt frame as its one grouping rect', () => {
     const L = hudBarLayout(REF_W, REF_H);
-    expect(Object.keys(L).sort()).toEqual(['bar', 'belt', 'chips', 'dimGroups', 'helmGlobe', 'hpGlobe', 'squares', 'strip']);
+    expect(Object.keys(L).sort()).toEqual(['bar', 'belt', 'chips', 'dimGroups', 'helmGlobe', 'hpGlobe', 'sec', 'secChip', 'squares', 'strip']);
   });
 });
 
@@ -123,8 +124,10 @@ describe('(b) the squares — five weapons, the kit belt', () => {
 
   it('runs the weapons left to right at an 8px gap, starting one gap past the HP globe', () => {
     expect(L.squares[WEAPON_ROW[0]].x).toBe(L.bar.x + B.globe + B.globeGap);
-    for (let k = 1; k < WEAPON_ROW.length; k++) {
-      const [a, b] = [L.squares[WEAPON_ROW[k - 1]], L.squares[WEAPON_ROW[k]]];
+    // Story 10.4: the secondaries heat square takes the seat right after the gun.
+    const run = [L.squares[WEAPON_ROW[0]], L.sec, ...WEAPON_ROW.slice(1).map((i) => L.squares[i])];
+    for (let k = 1; k < run.length; k++) {
+      const [a, b] = [run[k - 1], run[k]];
       expect(b.x - a.x, `gap ${k}`).toBe(B.slot + B.slotGap);
       expect(b.y).toBe(a.y);
     }
@@ -234,7 +237,7 @@ describe('(b) dimGroups — EXACTLY two, and the globes/strip are in neither', (
     expect(L.dimGroups[0]).toEqual({
       x: L.squares[SLOT_GUN].x,
       y: L.squares[SLOT_GUN].y,
-      w: 5 * B.slot + 4 * B.slotGap,
+      w: 6 * B.slot + 5 * B.slotGap,
       h: B.slot + B.chipGap + B.chipH,
     });
     expect(L.dimGroups[1]).toEqual(L.belt);

@@ -29,11 +29,13 @@ import {
 } from '../ui/classSelect.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
 import { pipFill } from '../util/pips.js';
+import { indexWord } from '../ui/boonCopy.js';
 import { CLIENT_CONFIG } from '../config.js';
 import {
   CONFIG,
   DEFAULT_KIT,
   DEFAULT_SHIFT,
+  INDEX_IDS,
   KIT_SIZE,
   SHIFT_IDS,
   SHIP_CLASS_IDS,
@@ -60,14 +62,18 @@ function confirmButtonIn(root: ParentNode): HTMLButtonElement {
 describe('cardViewModel — pips, keys, loadout', () => {
   // Objective anchor rework (Eric ruling 2026-08-03): pips derive from the
   // absolute {base, step} ladders in CLIENT_CONFIG.home.pip, not a relative
-  // fraction of a class-roster maximum. Since Story 10.3 the three rows are
-  // INDICES — ENGINES / ARMOR / RUDDER — read off the hull envelope's own
-  // `index` (never a derived speed or turn rate) on index anchors.
-  it('each pip row is its index on its own anchor (Story 10.3)', () => {
+  // fraction of a class-roster maximum. Since Story 10.3 the rows are INDICES
+  // read off the hull envelope's own `index` on index anchors; Story 10.4 wave
+  // 2c shows ARMOR / POWER / ENGINES, in the SHIP panel's (INDEX_IDS) order and
+  // with that panel's own words.
+  it('each pip row is its index on its own anchor, in the SHIP panel order and words', () => {
     const anchors = CLIENT_CONFIG.home.pip;
     for (const cls of SHIP_CLASS_IDS) {
       const vm = cardViewModel(cls);
-      expect(vm.pips.map((p) => p.index), cls).toEqual(['engines', 'armor', 'rudder']);
+      const idx = vm.pips.map((p) => p.index);
+      expect(idx, cls).toEqual(INDEX_IDS.filter((id) => (idx as readonly string[]).includes(id)));
+      expect(idx, cls).not.toContain('rudder'); // the same on all four hulls: it tells the player nothing
+      for (const pip of vm.pips) expect(pip.label).toBe(indexWord(pip.index));
       for (const pip of vm.pips) {
         expect(pip.filled, `${cls} ${pip.index}`).toBe(pipFill(CONFIG.shipClasses[cls].index[pip.index], anchors[pip.index]));
       }

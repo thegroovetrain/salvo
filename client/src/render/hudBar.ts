@@ -6,8 +6,13 @@
 // three corners (bottom-left hotbar stack, bottom-right vitals cluster,
 // bottom-left XP rail). Left to right it reads
 //
-//   HP globe | Gun  Shift  Q  E  R | [ 1 2 3 4 ] | helm globe
-//                                   ^ the framed consumable belt
+//   HP globe | Gun  Sec  Shift  Q  E  R | [ 1 2 3 4 ] | helm globe
+//                                        ^ the framed consumable belt
+//
+// `Sec` is Story 10.4's SECONDARIES HEAT square (render/secHeat.ts): keyless,
+// slotless (the secondaries occupy no loadout slot), directly after the gun.
+// It is a seat in the weapon run, not a slot, so `squares` stays indexed by
+// loadout slot and the heat square has its own `sec` rect.
 //
 // with the XP strip's row beneath the whole thing. Every number comes from
 // `mockups/hud-composite-3.html` through `CLIENT_CONFIG.hudBar` — the mock is
@@ -108,6 +113,10 @@ export interface HudBarLayout {
   helmGlobe: Circle;
   squares: Rect[];
   chips: ChipAnchor[];
+  /** The SECONDARIES HEAT square (Story 10.4) — the weapon run's second seat,
+   *  between the gun and the Shift — and its (ghost) chip anchor. */
+  sec: Rect;
+  secChip: ChipAnchor;
   belt: Rect;
   strip: StripLayout;
   dimGroups: Rect[];
@@ -117,8 +126,19 @@ export interface HudBarLayout {
 const BELT_COUNT = CONSUMABLE_SLOTS.length;
 const WEAPON_ROW_COUNT = SLOT_COUNT - BELT_COUNT;
 
-/** The five-square weapon run: 5 x 54 + 4 x 8 = 302. */
-const SLOT_RUN_W = WEAPON_ROW_COUNT * B.slot + (WEAPON_ROW_COUNT - 1) * B.slotGap;
+/** The weapon run's SEATS: the five weapon-row slots plus the secondaries heat
+ *  square (Story 10.4), which sits in seat `SEC_SEAT`, right after the gun. */
+const SEC_SEAT = 1;
+export const RUN_SEATS = WEAPON_ROW_COUNT + 1;
+
+/** The six-seat weapon run: 6 x 54 + 5 x 8 = 364. */
+const SLOT_RUN_W = RUN_SEATS * B.slot + (RUN_SEATS - 1) * B.slotGap;
+
+/** Pure: the weapon-run seat of weapon-row slot `i` — the gun keeps seat 0,
+ *  every later slot steps over the heat square. */
+function seatOf(i: number): number {
+  return i < SEC_SEAT ? i : i + 1;
+}
 
 /** The belt FRAME: its padding encloses BELT_COUNT 44 px squares AND their
  *  chips — 8 + n x 44 + (n - 1) x 6 + 8. */
@@ -131,7 +151,8 @@ const BELT_COL_H = B.beltPad.top + B.beltSlot + B.chipGap + B.chipH + B.beltPad.
 
 /**
  * THE BAR'S WIDTH (px) — DERIVED, never a literal:
- *   104 + 16 + (5 x 54 + 4 x 8) + 16 + BELT_W + 16 + 104
+ *   104 + 16 + (6 x 54 + 5 x 8) + 16 + BELT_W + 16 + 104
+ * (the weapon run's sixth seat is Story 10.4's secondaries heat square)
  * (Story 8.6's four-square belt, widened to six by 9.11, back to the kit's
  * four by Story 10.1 — only BELT_COUNT moves).
  */
@@ -184,16 +205,19 @@ export function hudBarLayout(screenW: number, screenH: number): HudBarLayout {
   const colTop = y + (MAIN_ROW_H - SLOT_COL_H) / 2;
   const belt: Rect = { x: beltX, y: y + (MAIN_ROW_H - BELT_COL_H) / 2, w: BELT_W, h: BELT_COL_H };
 
+  const seatX = (k: number): number => slotsX + k * (B.slot + B.slotGap);
   const squares: Rect[] = [];
   for (let i = 0; i < WEAPON_ROW_COUNT; i++) {
-    squares.push({ x: slotsX + i * (B.slot + B.slotGap), y: colTop, w: B.slot, h: B.slot });
+    squares.push({ x: seatX(seatOf(i)), y: colTop, w: B.slot, h: B.slot });
   }
+  const sec: Rect = { x: seatX(SEC_SEAT), y: colTop, w: B.slot, h: B.slot };
   const beltTop = belt.y + B.beltPad.top;
   for (let i = 0; i < BELT_COUNT; i++) {
     const bx = belt.x + B.beltPad.side + i * (B.beltSlot + B.beltGap);
     squares.push({ x: bx, y: beltTop, w: B.beltSlot, h: B.beltSlot });
   }
-  const chips: ChipAnchor[] = squares.map((s) => ({ cx: s.x + s.w / 2, y: s.y + s.h + B.chipGap }));
+  const chipOf = (s: Rect): ChipAnchor => ({ cx: s.x + s.w / 2, y: s.y + s.h + B.chipGap });
+  const chips: ChipAnchor[] = squares.map(chipOf);
 
   return {
     bar,
@@ -201,6 +225,8 @@ export function hudBarLayout(screenW: number, screenH: number): HudBarLayout {
     helmGlobe,
     squares,
     chips,
+    sec,
+    secChip: chipOf(sec),
     belt,
     strip: stripLayout(bar),
     dimGroups: [{ x: slotsX, y: colTop, w: SLOT_RUN_W, h: SLOT_COL_H }, belt],

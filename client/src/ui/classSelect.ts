@@ -3,9 +3,10 @@
 // (home-class-picker-1.html `.layer`). Since Story 10.4: FOUR ship cards (356px)
 // on a horizontal scroll rail (the dashed "more classes" ghost card is gone —
 // four cards fill the panel), each card carrying the
-// differences that matter: hull silhouette (the shared polygon via
-// util/silhouetteSvg), three real-value pip scales (util/pips against
-// absolute anchors). The weapon-row block is EMPTY on every card since Story
+// differences that matter: the hull's battleship art (render/hullArt/svgArt —
+// the canvas art's own shapes, at one shared scale so the four keep their true
+// relative sizes), seven index pip scales (util/pips against absolute
+// anchors). The weapon-row block is EMPTY on every card since Story
 // 8.10 (amendment 62 — no hull spawns with a class weapon any more). Story 10.4
 // replaces the DECK GUN chip row with the SHIFT pick in the same chip grammar:
 // row key `SPECIAL`, three chips SPEED BOOST · INSTANT RELOAD · HUNKER — ONE
@@ -30,6 +31,7 @@ import {
   DEFAULT_KIT,
   DEFAULT_SHIFT,
   SHIFT_IDS,
+  INDEX_IDS,
   SHIP_CLASS_IDS,
   isConsumableKit,
   type ConsumableKit,
@@ -39,7 +41,9 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import { applyViewportCap } from './fit.js';
 import { cssHex, cssRgba } from '../util/color.js';
-import { silhouetteSvg } from '../util/silhouetteSvg.js';
+import { hullArtSvg, sharedFitPxPerU } from '../render/hullArt/svgArt.js';
+import { indexWord } from './boonCopy.js';
+import { CARD_INNER_PX } from './loadoutGrammar.js';
 import { pipFill } from '../util/pips.js';
 import { OWN_ACCENT, type OwnAccent } from './ownAccent.js';
 import { registerCss } from './theme.js';
@@ -127,16 +131,23 @@ interface PipRow {
   filled: number; // 1..5
 }
 
-/** The three indices the hull card shows, in row order (Story 10.3). */
+/** The indices the hull card shows (Story 10.3; re-cut in Story 10.4). */
 type PipIndex = keyof typeof CLIENT_CONFIG.home.pip;
 
-/** The three pip rows: ENGINES / ARMOR / RUDDER (Story 10.3 — the index words;
- *  until 10.3 SPEED / HULL / TURNING on raw speed, hp and turn rate). */
-const PIP_ROWS: readonly { label: string; index: PipIndex }[] = [
-  { label: 'ENGINES', index: 'engines' },
-  { label: 'ARMOR', index: 'armor' },
-  { label: 'RUDDER', index: 'rudder' },
-];
+/**
+ * The pip rows: ARMOR / POWER / ENGINES (Story 10.4 wave 2c), in the HP globe's
+ * SHIP panel order and labelled with that panel's own words (`indexWord` — no
+ * new copy). The Story 10.3 set (ENGINES / ARMOR / RUDDER) showed RUDDER, which
+ * is 100 on all four hulls. All SEVEN indices were tried first and measured on
+ * the rendered page at 1366×768: each row is 23 px, so four more rows pushed
+ * the card to 589 px and its SELECT button under the fold (bottom 760 px of a
+ * 742 px visible layer). Three rows keep the card on screen; ARMOR / POWER /
+ * ENGINES are the three where the hulls differ most. [Story 10.4 reading]
+ */
+const PIP_INDICES: readonly PipIndex[] = ['armor', 'power', 'engines'];
+const PIP_ROWS: readonly { label: string; index: PipIndex }[] = INDEX_IDS.filter((id): id is PipIndex =>
+  (PIP_INDICES as readonly string[]).includes(id),
+).map((index) => ({ label: indexWord(index), index }));
 
 export interface CardViewModel {
   cls: ShipClassId;
@@ -253,11 +264,14 @@ function buildCardHead(vm: CardViewModel): HTMLElement {
   return head;
 }
 
+/** The silhouette box's height (px) — the ratified mock's 158. */
+const SILBOX_H_PX = 158;
+
 function buildSilbox(): HTMLElement {
   const box = document.createElement('div');
   box.style.cssText =
-    'height:158px;display:flex;align-items:center;justify-content:center;background:var(--hc-void);' +
-    'border:1px solid var(--hc-hairline);border-radius:7px;margin:12px 0 14px';
+    `height:${SILBOX_H_PX}px;display:flex;align-items:center;justify-content:center;background:var(--hc-void);` +
+    'border:1px solid var(--hc-hairline);border-radius:7px;margin:12px 0 14px;box-sizing:border-box';
   return box;
 }
 
@@ -267,7 +281,7 @@ function pipCell(): HTMLElement {
   return p;
 }
 
-/** A pip-scale grid (ENGINES/ARMOR/RUDDER × 5 bars); returns the row cells. */
+/** A pip-scale grid (one row per index × 5 bars); returns the row cells. */
 function buildPips(vm: CardViewModel): { el: HTMLElement; rows: HTMLElement[][] } {
   const grid = document.createElement('div');
   grid.style.cssText =
@@ -400,7 +414,7 @@ function buildCard(
   loadout.appendChild(shiftRow.el);
   root.append(head, silbox, pips.el, loadout, pickRow);
   root.addEventListener('click', () => onSelect(vm.cls));
-  return {
+  const card: CardEls = {
     cls: vm.cls,
     root,
     silbox,
@@ -411,6 +425,8 @@ function buildCard(
     chips: shiftRow.chips,
     silverStroke: cssHex(C.silver),
   };
+  setSilhouette(card);
+  return card;
 }
 
 // --- card paint (selection treatment) ----------------------------------------
@@ -419,9 +435,8 @@ function buildCard(
  *  card's Shift chips for the one shared Shift pick. */
 function paintCards(cards: CardEls[], highlight: number, accent: OwnAccent, shift: ShiftId): void {
   const n = accent.accentValue;
-  const fill = accent.accentFill;
   cards.forEach((card, i) => {
-    paintCard(card, i === highlight, n, fill);
+    paintCard(card, i === highlight, n);
     paintChips(card, shift, n);
   });
 }
@@ -444,24 +459,42 @@ function paintChips(card: CardEls, shift: ShiftId, accentN: number): void {
   }
 }
 
-function paintCard(card: CardEls, on: boolean, accentN: number, fill: string): void {
-  if (on) paintCardOn(card, accentN, fill);
+function paintCard(card: CardEls, on: boolean, accentN: number): void {
+  if (on) paintCardOn(card, accentN);
   else paintCardOff(card);
 }
 
-function setSilhouette(card: CardEls, stroke: string, fill: string): void {
-  card.silbox.innerHTML = silhouetteSvg(card.cls, { stroke, fill, strokeWidth: 2 });
-  const svg = card.silbox.firstElementChild as HTMLElement | null;
-  if (svg) svg.style.cssText = 'height:140px;width:auto;max-width:100%';
+/**
+ * THE CARD ART (Story 10.4 wave 2c): the hull's battleship art (render/hullArt —
+ * the same shapes the canvas draws), bow RIGHT, turrets at rest, linework in the
+ * OWN relation color (it is the ship you would sail). ONE scale across the four
+ * cards (`sharedFitPxPerU`), fitted so the longest hull fills the box: the
+ * hulls keep their TRUE relative sizes, so Warspite reads shorter. Built once
+ * per card; a repaint only moves its opacity.
+ */
+let cardArtPxPerU = 0;
+
+function setSilhouette(card: CardEls): void {
+  if (cardArtPxPerU === 0) {
+    const pad = 2 + 2 * CLIENT_CONFIG.home.cardArtPadPx;
+    cardArtPxPerU = sharedFitPxPerU(SHIP_CLASS_IDS, CARD_INNER_PX - pad, SILBOX_H_PX - pad);
+  }
+  card.silbox.innerHTML = hullArtSvg(card.cls, 'own', { pxPerU: cardArtPxPerU });
 }
 
-function paintCardOn(card: CardEls, accentN: number, fill: string): void {
+/** The art's opacity: full on the picked card, dimmed on the others. */
+function paintArt(card: CardEls, on: boolean): void {
+  const svg = card.silbox.firstElementChild as HTMLElement | null;
+  if (svg) svg.style.opacity = on ? '1' : String(CLIENT_CONFIG.home.cardArtOffAlpha);
+}
+
+function paintCardOn(card: CardEls, accentN: number): void {
   const accent = cssHex(accentN);
   card.root.style.borderColor = accent;
   card.root.style.boxShadow = `0 0 26px ${cssRgba(accentN, 0.13)}`;
   card.silbox.style.borderColor = accent;
   card.cname.style.color = accent;
-  setSilhouette(card, accent, fill);
+  paintArt(card, true);
   paintPips(card, accent);
   card.pickBtn.textContent = 'SELECTED ✓';
   card.pickBtn.style.borderColor = accent;
@@ -475,7 +508,7 @@ function paintCardOff(card: CardEls): void {
   card.root.style.boxShadow = 'none';
   card.silbox.style.borderColor = hair;
   card.cname.style.color = cssHex(C.textPrimary);
-  setSilhouette(card, card.silverStroke, 'none');
+  paintArt(card, false);
   paintPips(card, card.silverStroke);
   card.pickBtn.textContent = 'SELECT';
   card.pickBtn.style.borderColor = hair;

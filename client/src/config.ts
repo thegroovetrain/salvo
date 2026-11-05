@@ -973,22 +973,56 @@ export const CLIENT_CONFIG = {
     /** The relation hull's dark interior: the stroke at HSV value ×0.45, per
      *  sRGB channel — the rule the retired wheel's fills used (render/relationColor.ts). */
     relationFillValue: 0.45,
-    /** The hull's one relation stroke (world u — the pre-10.4 literal). */
+    /** A DRONE hull's one stroke (world u — the pre-10.4 literal; drones keep
+     *  today's look exactly). Captain hulls draw with `art` below. */
     hullStrokeU: 1.5,
     /**
-     * THE PLAIN TURRETS (Story 10.4 functional pass — placeholders the hull-art
-     * wave replaces; nothing here is a ruled look). Sized off the hull's beam
-     * so a turret scales with its hull: gunhouse box `houseBeamFrac` of the beam
-     * across and `houseLenBeamFrac` of it along the barrels; barrels run from
-     * the pivot out to `barrelBeamFrac` of the beam, spread over
-     * `barrelSpreadFrac` of the house width.
+     * THE BATTLESHIP ART (Story 10.4 wave 2c — render/hullArt/*, the sitting
+     * page's `drawHull` + `drawFeatures` ported). Epic-10 amendment 7(m)/(o):
+     * EVERY line is the relation color; the HULL OUTLINE is the one bold line;
+     * every inner line (barbettes, gunhouse edges, tiers, tower rings, funnel
+     * rims, secondaries, casemates, deck lines) is the same color at about a
+     * third of its weight; rails and cranes 1.5× the inner weight. Fills are
+     * the skin (`CLIENT_CONFIG.skins`). Candidate values for Eric's look on the
+     * rendered page — none is ruled.
+     *
+     * IN-GAME WEIGHTS ARE WORLD UNITS (the hull layer is camera-scaled and the
+     * art is built once, never per frame or per zoom). The default framing is
+     * `zoom.defaultSpanU` 1320 u across the short axis — 0.58 logical px per u
+     * at 768 px tall — and the close limit 880 u (0.87 px/u). The hulls are
+     * 14.5–17.8 u in the beam (8–10 px at the default framing), so 1.5 u (the
+     * pre-10.4 hull stroke) reads as a ~0.9 px hull line at the default framing
+     * (~1.3 px close) without eating the deck; 2.4 u was tried on the rendered
+     * page and swallowed a fifth of the beam. The inner lines (0.5 u) are
+     * sub-pixel at the default framing — the deck detail reads as its fills
+     * there and as linework close in. The page's 2.5–4 px / 0.8–1.2 px were for
+     * a page drawn at several px per u.
      */
-    turret: {
-      houseBeamFrac: 0.5,
-      houseLenBeamFrac: 0.4,
-      barrelBeamFrac: 0.75,
-      barrelSpreadFrac: 0.6,
-      strokeU: 1,
+    art: {
+      /** The hull outline (u). */
+      hullLineU: 1.5,
+      /** Inner line weight as a fraction of the hull line (7(o): "about a third"). */
+      innerLineFrac: 1 / 3,
+      /** Rails and cranes, × the inner weight (7(o)). */
+      heavyLineMult: 1.5,
+      /** The page's deck `line` feature is drawn at this alpha. */
+      deckLineAlpha: 0.6,
+      /** A funnel's dark mouth, as a fraction of the funnel ellipse (the page
+       *  insets it by a fixed 2.5 px at its own scale — a scale-free reading). */
+      funnelMouthFrac: 0.7,
+      /** Barrel thickness (m) — main guns and secondaries (the page's widths). */
+      mainBarrelM: 1.1,
+      secBarrelM: 0.5,
+      /** Main barrels start this far (m) behind the gunhouse face. */
+      mainBarrelBackM: 2,
+      /** A crane's post disc radius (m). */
+      craneHubM: 1.6,
+      /**
+       * DOM (SVG) art weights in SCREEN px (`vector-effect: non-scaling-stroke`,
+       * so the weight holds whatever size the art is fitted to): the page's
+       * floor values — hull 2.5 px, inner a third of it.
+       */
+      svgHullPx: 2.5,
     },
     /**
      * How far along the settle the OWN hull is ever allowed to travel.
@@ -1009,6 +1043,29 @@ export const CLIENT_CONFIG = {
      * ~70% of its green and blue and reads as itself, dimmed.
      */
     ownSettleMax: 0.3,
+  },
+
+  /**
+   * THE SKINS (Story 10.4, epic-10 amendments 7(k)–(n)): a skin is the hull's
+   * INTERIOR — every fill — never its linework, which is always the relation
+   * color (render/relationColor.ts). Only the DEFAULT skin ships in 10.4 (R6:
+   * the picker and Gold / Pride / Funny are a later story). Values are the
+   * sitting page's `SKINS.default` (+ its shared `GREY` works) verbatim:
+   * Yamato linoleum-tan deck / grey works, Bismarck wood deck / grey,
+   * Warspite steel-grey deck / RN grey, Iowa Measure-22 deck blue / navy.
+   * `tier` is levels 1..3; `round` the tower rings and tubs; `sec` the
+   * secondary houses and casemates; `turret` the main gunhouses; `barrel`
+   * every barrel (barrels are fills — 7(m)). `funnelMouth` is the page's one
+   * skin-independent fill: the dark inside of every funnel.
+   */
+  skins: {
+    funnelMouth: 0x0b0f13,
+    default: {
+      yamato: { deck: 0xb8a874, tier: [0x8d969c, 0x7d868c, 0x6f787e], round: 0x9aa3a8, funnel: 0x2f3539, sec: 0x8a9399, turret: 0x7a838a, barrel: 0x3f474c },
+      bismarck: { deck: 0xc4a86f, tier: [0x8d969c, 0x7d868c, 0x6f787e], round: 0x9aa3a8, funnel: 0x2f3539, sec: 0x8a9399, turret: 0x7a838a, barrel: 0x3f474c },
+      warspite: { deck: 0x6b7176, tier: [0x9aa5ab, 0x8c979d, 0x7e898f], round: 0xa8b2b8, funnel: 0x2f3539, sec: 0x95a0a6, turret: 0x8b969c, barrel: 0x3b4246 },
+      iowa: { deck: 0x2f4a6b, tier: [0x3f5f80, 0x365373, 0x2e4866], round: 0x4d6d8e, funnel: 0x1b2838, sec: 0x3b5878, turret: 0x3b5878, barrel: 0x1f2f42 },
+    },
   },
 
   /**
@@ -1169,11 +1226,23 @@ export const CLIENT_CONFIG = {
     // 100), +1 pip per +20 (one ship-ladder card's step). [Story 10.3 reading]
     // Under the scaffold every hull reads the same ARMOR — the truth of it.
     // (Until 10.3: SPEED 30 kn +5, HULL 200 hp +50, TURNING 0.2 rad/s +0.2.)
+    // STORY 10.4 wave 2c: ARMOR / POWER / ENGINES (RUDDER is 100 on all four
+    // hulls; seven rows measured too tall for the card at 1366×768 — see
+    // ui/classSelect.ts PIP_ROWS). [Story 10.4 reading]
     pip: {
-      engines: { base: 100, step: 20 },
       armor: { base: 100, step: 20 },
-      rudder: { base: 100, step: 20 },
+      power: { base: 100, step: 20 },
+      engines: { base: 100, step: 20 },
     },
+    /** Ship-card art (Story 10.4 wave 2c): the inset (px) between the 158 px
+     *  silhouette box and the art, and the art's opacity on an UNSELECTED card
+     *  (the retired silver outline's job: the picked card's ship reads first). */
+    cardArtPadPx: 16,
+    cardArtOffAlpha: 0.55,
+    /** The home class chip's art box (px) — bow right, fitted to the width. */
+    chipArtW: 88,
+    chipArtH: 40,
+    chipArtHullPx: 1.5,
 
     /**
      * THE HOME SCENE (render/ambientScene.ts + render/ambient.ts) — the game

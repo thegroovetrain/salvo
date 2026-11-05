@@ -350,6 +350,12 @@ const INDEX_WORDS: Readonly<Record<IndexId, string>> = {
   range: 'Range',
 };
 
+/** Pure: an index's ONE word in the HUD / card register (uppercase) — the
+ *  SHIP panel's row label, reused by the ship cards' pip rows. */
+export function indexWord(id: IndexId): string {
+  return INDEX_WORDS[id].toUpperCase();
+}
+
 /** One index's stat line: its word, read bare off its own index path (`num`
  *  prints the whole number with no unit — `ARMOR 100 → 120`). */
 function indexLine(id: IndexId): StatLine {

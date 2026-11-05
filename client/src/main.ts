@@ -3601,6 +3601,8 @@ function hotbarView(g: Game, status: OwnStatus): HotbarView {
     nowSec: g.clock.serverNow() / 1000,
     // Story 8.15 (UX-DR52): the live hold, for the machine gun's held-fire drain.
     held: g.mouse.isHeld,
+    // Story 10.4: the predicted secondaries heat + lock, for the heat square.
+    sec: { heat: g.ownBattery.heat, locked: g.ownBattery.locked },
   };
 }
 

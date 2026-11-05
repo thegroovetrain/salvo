@@ -107,11 +107,14 @@ describe('ShipView.setColors — the recolor path', () => {
     expect(count).toBeGreaterThan(0);
     const own = relationStyle('own');
     view.setColors(own.stroke, own.fill);
-    expect(strokeColorsOf(view)).toEqual([own.stroke]);
+    // Story 10.4 wave 2c: EVERY line of a captain hull is the one line color
+    // (amendment 7(m)) — deck detail, the outline and every turret.
+    expect(new Set(strokeColorsOf(view))).toEqual(new Set([own.stroke]));
+    expect(strokesOf(view.outline)).toEqual([own.stroke]);
     for (let i = 0; i < count; i++) expect(new Set(turretStrokes(view, i))).toEqual(new Set([own.stroke]));
     expect(view.turretCount).toBe(count);
-    view.setColors(C.amber, null); // back to hollow fallback
-    expect(strokeColorsOf(view)).toEqual([C.amber]);
+    view.setColors(C.amber, null); // back to the fallback linework
+    expect(new Set(strokeColorsOf(view))).toEqual(new Set([C.amber]));
     for (let i = 0; i < count; i++) expect(new Set(turretStrokes(view, i))).toEqual(new Set([C.amber]));
     expect(view.turretCount).toBe(count);
     view.destroy();
@@ -276,7 +279,9 @@ describe('ShipView.draw — bounds match the shared silhouette dims for each cla
       expect(maxY - minY).toBeCloseTo(beam, 6); // silhouette span == CONFIG beam
 
       const view = new ShipView(FALLBACK_STYLE, id);
-      const b = view.hull.getLocalBounds();
+      // A captain's hull LINE is its outline layer (deck features and secondary
+      // barrels may overhang it, as on the sitting page); a drone's is `hull`.
+      const b = (isDroneHull(id) ? view.hull : view.outline).getLocalBounds();
       expect(b.width).toBeGreaterThanOrEqual(length - 1e-6); // stroke inflates outward…
       expect(b.height).toBeGreaterThanOrEqual(beam - 1e-6);
       expect(b.width).toBeLessThan(length + STROKE_SLOP); // …but only by the stroke/miter
@@ -391,10 +396,12 @@ describe('droneRankTicks — the tier rides the silhouette as a countable mark',
     }
   });
 
-  it('adds exactly ONE stroke pass, and only for a fleet hull', () => {
-    // A captain hull must be byte-identical to what it drew before Story 7.6.
+  it('adds the tick pass only for a fleet hull — a captain carries no rank ticks', () => {
+    // Since Story 10.4 a captain hull is the battleship art: its outline layer
+    // is exactly ONE stroke (the hull line) and its deck carries no tick pass.
     const cap = new ShipView(FALLBACK_STYLE, DEFAULT_CLASS_ID);
-    expect(strokeColorsOf(cap)).toEqual([C.amber]);
+    expect(strokesOf(cap.outline)).toEqual([C.amber]);
+    expect(droneRankTicks(DEFAULT_CLASS_ID)).toEqual([]);
     cap.destroy();
   });
 });

@@ -9,25 +9,25 @@
 // own cyan, everyone else red) as one stroke over that color's dark interior.
 // Drones wear the drone greys. The style is per-view and swappable (setColors).
 //
-// TURRETS (Story 10.4): a captain hull carries one plain turret Graphics per
-// mount of its shared `battery` — a gunhouse box plus one line per barrel — as a
-// CHILD of the view's container at `turretStation(hullId, i)`, rotated by the
-// turret's hull-relative angle (`setTurretAngles`). Children inherit the hull's
-// pose, settle, sight fade and hit-flash tint for free. Drones have no battery
-// and draw none.
-//
-// THE ART SEAM (for the hull-art wave): `drawHull(g, hullId, style)` and
-// `drawTurret(g, hullId, i, style)` are the ONLY two functions that put pixels
-// down; `ShipView` builds its Graphics once through them and per frame only
-// writes rotations. Swap those two (or the Graphics they fill) and no caller
-// changes.
+// THE BATTLESHIP ART (Story 10.4 wave 2c — render/hullArt/*): a captain hull
+// is three layers in the view's container — the DECK Graphics (skin fill,
+// superstructure tiers, tower rings, funnels, secondaries, casemates, rails,
+// cranes, barbette rings), one Graphics per main turret of its shared
+// `battery` at `turretStation(hullId, i)` rotated by its hull-relative angle
+// (`setTurretAngles`), and the OUTLINE Graphics on top (the one bold relation
+// line). Fills are the hull's skin, every line the relation color (epic-10
+// amendment 7(m)). The geometry lives in shared Pixi `GraphicsContext`s built
+// once per (hull, line color) and borrowed by every view — per frame only
+// rotations and the container's pose / tint / alpha / scale are written.
+// Children inherit the hull's pose, settle, sight fade and hit-flash tint for
+// free. Drones have no battery, draw none, and keep today's drone look.
 //
 // The render polygon is the shared local-frame silhouette VERBATIM (bow at +x,
 // origin-centered, world units) — no independent geometry, so what you see is
 // the collision/hit-test hull. The view is added to a camera-transformed layer,
 // so world heading == sprite rotation (no y-flip — see camera.ts).
 
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, type GraphicsContext } from 'pixi.js';
 import {
   DEFAULT_CLASS_ID,
   DRONE_HULL_IDS,
@@ -38,12 +38,14 @@ import {
   turretRest,
   turretStation,
   type HullId,
+  type ShipClassId,
   type Vec2,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import type { WorldFlashGate } from './effects.js';
 import { relationStyle, type Relation, type ShipStyle } from './relationColor.js';
+import { deckContext, outlineContext, turretContext } from './hullArt/pixiArt.js';
 
 export type { ShipStyle } from './relationColor.js';
 
@@ -300,10 +302,11 @@ function tracePolygon(g: Graphics, poly: readonly Vec2[]): void {
 }
 
 /**
- * THE HULL ART SEAM (Story 10.4): draw `hullId` in `style` onto `g` (cleared
- * first) — the shared silhouette as a solid relation-dark interior under ONE
- * relation stroke (a null fill leaves a hollow outline), plus a fleet hull's
- * rank ticks. The hull-art wave replaces this body.
+ * THE DRONE HULL (and the art seam's fallback): draw `hullId` in `style` onto
+ * `g` (cleared first) — the shared silhouette as a solid interior under ONE
+ * stroke (a null fill leaves a hollow outline), plus a fleet hull's rank
+ * ticks. Drones keep exactly this look (Story 10.4 wave 2c); a captain hull
+ * draws through the battleship art instead (`ShipView`, render/hullArt/*).
  */
 export function drawHull(g: Graphics, hullId: HullId, style: ShipStyle): void {
   g.clear();
@@ -330,59 +333,27 @@ function drawRankTicks(g: Graphics, hullId: HullId, stroke: number): void {
   g.stroke({ width: CLIENT_CONFIG.droneRank.widthU, color: stroke, alpha: 1 });
 }
 
-/** Pure: the plain turret's geometry for mount `i` of `hullId`, in the turret's
- *  own frame (barrels along +x, pivot at the origin), sized off the hull beam. */
-export interface TurretGeometry {
-  /** Gunhouse box: half-length along the barrels and half-width across. */
-  houseHalfLen: number;
-  houseHalfWid: number;
-  /** Barrel tip x (barrels run from the pivot to here). */
-  barrelLen: number;
-  /** Across-track y of each barrel. */
-  barrelYs: readonly number[];
-}
-
-export function turretGeometry(hullId: HullId, i: number): TurretGeometry {
-  const cfg = CLIENT_CONFIG.ship.turret;
-  const { beamU } = hullExtent(hullSilhouette(hullId));
-  const guns = turretMounts(hullId)[i]?.guns ?? 0;
-  const houseHalfWid = (beamU * cfg.houseBeamFrac) / 2;
-  const span = houseHalfWid * cfg.barrelSpreadFrac * 2;
-  const barrelYs: number[] = [];
-  for (let k = 0; k < guns; k++) barrelYs.push(guns === 1 ? 0 : -span / 2 + (span * k) / (guns - 1));
-  return {
-    houseHalfLen: (beamU * cfg.houseLenBeamFrac) / 2,
-    houseHalfWid,
-    barrelLen: beamU * cfg.barrelBeamFrac,
-    barrelYs,
-  };
-}
-
-/**
- * THE TURRET ART SEAM (Story 10.4): draw turret `i` of `hullId` onto `g`
- * (cleared first) in its own frame — a gunhouse box and one line per barrel
- * along +x. The hull-art wave replaces this body.
- */
-export function drawTurret(g: Graphics, hullId: HullId, i: number, style: ShipStyle): void {
-  const t = turretGeometry(hullId, i);
-  const w = CLIENT_CONFIG.ship.turret.strokeU;
-  g.clear();
-  for (const y of t.barrelYs) {
-    g.moveTo(0, y);
-    g.lineTo(t.barrelLen, y);
-  }
-  g.stroke({ width: w, color: style.stroke, alpha: 1 });
-  g.rect(-t.houseHalfLen, -t.houseHalfWid, t.houseHalfLen * 2, t.houseHalfWid * 2);
-  if (style.fill !== null) g.fill({ color: style.fill, alpha: 1 });
-  g.stroke({ width: w, color: style.stroke, alpha: 1 });
+/** A captain hull id (one with the battleship art), or null for a drone. */
+function captainOf(hullId: HullId): ShipClassId | null {
+  return isDroneHull(hullId) ? null : (hullId as ShipClassId);
 }
 
 export class ShipView {
   /** The view's root — position, heading, settle, fade and flash tint live
    *  here and reach the hull and every turret child. */
   readonly gfx: Container;
-  /** The hull Graphics (the `drawHull` seam's target). */
+  /** The hull's DECK Graphics — for a captain the battleship art's deck layer
+   *  (skin fill, features, barbette rings); for a drone the whole drone hull
+   *  (`drawHull`). Under the turrets. */
   readonly hull: Graphics;
+  /** The captain hull's ONE bold relation line (amendment 7(o)), drawn over
+   *  the turrets so nothing covers it (the sitting page's order). Empty on a
+   *  drone, whose stroke is part of `hull`. */
+  readonly outline: Graphics;
+  /** The two contexts this view owns (used for a drone hull); a captain view
+   *  borrows the shared, cached art contexts instead (render/hullArt/pixiArt). */
+  private readonly ownHull: GraphicsContext;
+  private readonly ownOutline: GraphicsContext;
   /** One Graphics per battery mount, bow to stern (empty for a drone). */
   private turrets: Graphics[] = [];
   /** THE SETTLE (Story 5.2 fix): progress through the sinking window, [0,1].
@@ -402,7 +373,10 @@ export class ShipView {
   constructor(style: ShipStyle, hullId: HullId = DEFAULT_CLASS_ID) {
     this.gfx = new Container();
     this.hull = new Graphics();
-    this.gfx.addChild(this.hull);
+    this.outline = new Graphics();
+    this.ownHull = this.hull.context;
+    this.ownOutline = this.outline.context;
+    this.gfx.addChild(this.hull, this.outline);
     this.style = style;
     this.hullId = hullId;
     this.draw();
@@ -419,13 +393,15 @@ export class ShipView {
     this.buildTurrets();
   }
 
-  /** Swap the hull colors: stroke = the relation's bright linework, fill = its
-   *  dark interior (null = hollow outline). Redraws hull and turrets in place. */
+  /** Swap the hull colors: stroke = the linework (a captain's every line —
+   *  the relation color), fill = a drone's interior (null = hollow). A
+   *  captain's fills are its skin, so only the stroke moves its art. Swaps
+   *  contexts in place; nothing is redrawn unless the style changed. */
   setColors(stroke: number, fill: number | null): void {
     if (stroke === this.style.stroke && fill === this.style.fill) return;
     this.style = { stroke, fill };
     this.draw();
-    for (let i = 0; i < this.turrets.length; i++) drawTurret(this.turrets[i], this.hullId, i, this.style);
+    this.skinTurrets();
   }
 
   /** How many turret children this view carries (tests/debug). */
@@ -451,21 +427,41 @@ export class ShipView {
     }
   }
 
+  /** Point the deck and outline Graphics at this hull's art: the shared cached
+   *  contexts for a captain, the view's own (drawn here) for a drone. */
   private draw(): void {
-    drawHull(this.hull, this.hullId, this.style);
+    const cls = captainOf(this.hullId);
+    if (cls === null) {
+      this.hull.context = this.ownHull;
+      this.outline.context = this.ownOutline;
+      drawHull(this.hull, this.hullId, this.style);
+      return;
+    }
+    this.hull.context = deckContext(cls, this.style.stroke);
+    this.outline.context = outlineContext(cls, this.style.stroke);
   }
 
+  /** Re-point every turret at the shared context for the current stroke. */
+  private skinTurrets(): void {
+    const cls = captainOf(this.hullId);
+    if (cls === null) return;
+    for (let i = 0; i < this.turrets.length; i++) this.turrets[i].context = turretContext(cls, i, this.style.stroke);
+  }
+
+  /** One turret Graphics per mount, borrowing its shared art context, seated
+   *  at its shared station between the deck and the outline. */
   private buildTurrets(): void {
     for (const t of this.turrets) t.destroy();
     this.turrets = [];
-    const mounts = turretMounts(this.hullId);
+    const cls = captainOf(this.hullId);
+    if (cls === null) return;
+    const mounts = turretMounts(cls);
     for (let i = 0; i < mounts.length; i++) {
-      const g = new Graphics();
-      drawTurret(g, this.hullId, i, this.style);
-      const p = turretStation(this.hullId, i);
+      const g = new Graphics(turretContext(cls, i, this.style.stroke));
+      const p = turretStation(cls, i);
       g.position.set(p.x, p.y);
       g.rotation = turretRest(mounts[i]);
-      this.gfx.addChild(g);
+      this.gfx.addChildAt(g, 1 + i);
       this.turrets.push(g);
     }
   }
