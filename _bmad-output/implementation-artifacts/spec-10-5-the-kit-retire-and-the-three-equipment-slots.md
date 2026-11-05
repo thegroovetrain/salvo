@@ -1,0 +1,143 @@
+---
+title: 'Story 10.5: The Kit Retire and the Three Equipment Slots'
+type: 'feature'
+created: '2026-11-05'
+status: 'in-progress'
+baseline_revision: 'f063f3be'
+review_loop_iteration: 0
+context:
+  - '{project-root}/_bmad-output/project-context.md'
+  - '{project-root}/_bmad-output/implementation-artifacts/epic-10-context-amendments.md'
+warnings: ['oversized']
+---
+
+<intent-contract>
+
+## Intent
+
+**Problem:** The four-key consumable kit (Stories 10.1 / 10.2) was "too many buttons to manage, not broken". Eric's slice replaces it with two universal cooldown abilities and three card-filled equipment slots, and drops the shield and the four buoys.
+
+**Approach:** Delete the consumable system (kit, stock, belt, picker, drone drops), SHIELD BLOCK and every shield term, and the decoy / buoy machinery. HULL REPAIR (`C`) and SMOKE (`V`) become per-ship cooldown abilities. The three weapon slots become FAMILY slots — `Q` torpedo, `E` mine, `R` special shell — one kind per slot for the match; FLASH SHELLS, FOULING SHELL and SUPERCAVITATING TORPEDO move from stock items to reloading slot weapons. The hotbar is re-cut for Shift · Q · E · R · C · V.
+
+## Eric's rulings for this story (2026-11-05, AskUserQuestion at the spec step — literal spec, to be recorded as epic-10 amendment 10)
+
+- **R1 HULL REPAIR cooldown: 90 s.** Heal stays 100 at once + 100 over 5 s (amendment 8(f)). Rejected: 60 / 120 / 180 s.
+- **R2 SMOKE cooldown: 60 s**, counted from the press; the 9.3 cloud is unchanged (15 s, 150 → 300 u). Rejected: 30 / 45 / 90 s.
+- **R3 RELOAD shortens NEITHER cooldown** — both are fixed for every ship. Rejected: smoke only; both.
+- **R4 Reloads** (Eric, free text: *"FLASH SHELL 30, FOULING SHELL 30 (you forgot these), SUPERCAV 45."*): FLASH SHELLS 30 s, FOULING SHELL 30 s, SUPERCAVITATING TORPEDO 45 s. The FOULING SHELL is therefore a special-shell option NOW (closes the story's "10.6 `[unruled]`").
+- **R5 A drone kill pays XP only** until 10.8; the consumable drop roll is removed. Rejected: XP + a little hull.
+- **R6 BROADSIDE leaves the deal** — kept in the file for reference like the deck guns. Rejected: a special-shell option.
+- **R7 FLASH and FOULING shell tiers widen the burst: +25 u per tier, 150 → 250 u** at Tier V, on top of the standard 5 % shorter reload per tier. Rejected: reload only; a longer effect; +15 u; +37.5 u. SUPERCAV tiers are amendment 8(e): 400 → 800 damage, +100 a tier.
+- **R8 PASSIVE HEALING IS BACK** (Eric 2026-11-05, chat, mid-run, verbatim: *"Also we need to add back in the 2% missing HP passive healing after 30 seconds of not taking damage. It wont make combat any less deadly, but it will allow ships who survive to recover."*): a hull that has taken no hull damage for 30 s heals 2 % of its MISSING hp per second. Supersedes amendment 6(b)(6) "passive healing DIES", amendment 8's regen removal and this story's "HULL REPAIR is the ONLY heal" clause; the PASSIVE HEALING card ladder stays deleted (he did not ask for it).
+
+## Boundaries & Constraints
+
+**Always:**
+- `CONFIG` holds every number above. Ability cooldowns and slot-family rules live in `shared/src/sim` as pure functions both sides call; no per-side fork.
+- Player intent enters only through `game/inputs.ts` (validated, malformed dropped). Own cooldown state rides the own-ship block, self-private. The SIX perception exceptions stay six; the invariant tests are trimmed for removed channels and EXTENDED for anything added.
+- AMENDMENT 5's flash whiteout (sight law, overlay, burst disc incl. the victim and interception arms, DAZZLED tell) and the 9.3 countermeasure cloud survive behaviorally unchanged.
+- `PROTOCOL_VERSION` 96 → 97 with a history note. No friendly fire. ESLint complexity ≤ 10. Tests assert contracts and relations — never bare CONFIG literals, copy, or a coincidence of ruled numbers; each removed feature's tests are deleted, not skipped.
+- The hotbar candidate is RENDERED from the real client modules to an artifact page and shown to Eric before the PR is opened.
+
+**Block If:**
+- A change would need a seventh perception exception.
+- A gameplay number outside R1–R7 and the readings in Design Notes is needed.
+- `npm run check`, `matchSmoke` or `weaponsSmoke` cannot be made green without working around an error.
+
+**Never:**
+- No HULL REPAIR / SMOKE tier-up cards, no index-card or offer-composition changes, no kind re-cut beyond the lines named here (10.6 / 10.7). No drone removal (10.8). No bot tuning beyond "functional" (10.12).
+- No How-to-Play / GDD / catalog-v3 copy edits (10.14); no CLAUDE.md edit; no new in-game explanatory copy; no batch sims; no skipped tests.
+- No heal beyond HULL REPAIR and the R8 passive regen; no regen card ladder; no shield or temporary HP term left reachable.
+
+## I/O & Edge-Case Matrix
+
+| Scenario | Input / State | Expected Output / Behavior | Error Handling |
+|----------|--------------|---------------------------|----------------|
+| Repair | `C`, hull below full, ability ready | 100 hp now + 100 pooled over 5 s; 90 s cooldown starts | none |
+| Repair at full | `C`, hull full | nothing; cooldown NOT started | denial |
+| Repair cooling | `C` inside 90 s | nothing | denial `cooling` |
+| Smoke | `V`, ready | the 9.3 cloud; 60 s cooldown starts at the press | none |
+| RELOAD cards | any RELOAD index | `C` / `V` cooldowns unchanged; slot-weapon reloads scale as today | none |
+| Empty slot | `Q` / `E` / `R` with nothing fitted | no ready; left click fires a turret | press refused |
+| Ready and fire | `Q` then left click | the torpedo fires instead of a turret shot; the ready ends (today's revert) | out-of-arc / reloading denial as today |
+| Cancel | weapon readied, right click | ready cancelled; that press fires no secondaries | none |
+| Readied blocks secondaries | weapon readied, right held | no secondary round until cancelled or fired | none |
+| First card of a family | LIGHT TORPEDO card, torpedo slot empty | fills the `Q` slot | none |
+| Other kind, filled slot | HEAVY / SUPERCAV after LIGHT is slotted | never in an offer; a forced pick is refused | refusal |
+| Tier-up | same kind again | tier rises to cap 5; stays in offers below cap | at cap: excluded |
+| Shell tiers | FLASH / FOULING SHELL tier N | burst radius 150 + 25 × (N − 1) u | none |
+| Legacy client data | saved `hullcracker.kit`, join option `kit` | ignored | none, no log needed |
+| Drone kill | captain sinks a drone | XP only; no drop event | none |
+| Passive regen | hurt hull, 30 s since the last blow that removed hull hp | heals 2 % of missing hp per second, every tick | none |
+| Regen interrupted | any hull damage (shell, torpedo, mine, ram, storm, burn) | regen stops; the 30 s clock restarts | none |
+| Regen + repair | `C` pressed while regenerating | both apply; neither resets the other | none |
+
+</intent-contract>
+
+## Code Map
+
+- `shared/src/sim/loadout.ts` -- 9-slot model (`KIT_SIZE`, `CONSUMABLE_SLOTS`, `ConsumableKit`, `DEFAULT_KIT`, `SlotItemId`, `CONSUMABLE_IS_WEAPON`), `WEAPON_SLOTS` [2,3,4], `loadoutFor`.
+- `shared/src/sim/catalog.ts` -- 28 lines; `consumable()` builder; equipment lines; `depthCharge` stub.
+- `shared/src/sim/boons.ts`, `draw.ts`, `offers.ts` -- kit functions (`isConsumableKit`, `rollKit`, `dealableConsumables`, `stockSlotFor`), `pickRefusal`, `applySlotEffect` (first-empty-slot fill, no one-kind rule), `eligibleLines`, level-zero guarantee, kind shares.
+- `shared/src/sim/effects.ts`, `stats.ts`, `arcs.ts` (`consumableArc`), `shell.ts` (`'decoy'` target, `acquireNearest` buoy preference), `buoy.ts` -- consumable ids, stat rows, decoy/buoy math.
+- `shared/src/constants.ts` -- `hullRepair`, `countermeasure`, `shieldBlock`, `buoy`, `flashShells`, `foulingShell`, `supercavTorpedo`, `droneDrops`.
+- `shared/src/types.ts`, `index.ts` -- `InputMsg.actSlot`, `OwnShip.kit` / `shield` / `buoyShield` / `speedBuoyAt`, `DecoyView`, `FrameMsg.decoys`, `ReturnBlipEvent.src`, `DropEvent`, PV 96.
+- `server/src/game/equipment/` -- `consumables.ts` + `consumables/*` rows, `index.ts` registries and `ActivationContext`.
+- `server/src/game/world.ts` -- `STEP_ORDER` (`stepClouds`, `expireBuoys`, `applyBuoyEffects`, `tickRepairs`), kit seam, `consumeClick` / `consumePress`, `applyDamage` shield order, `rollDroneDrops`, decoy store.
+- `server/src/game/{inputs,frames,signals,perception,decoys}.ts`, `server/src/rooms/*` -- sanitizer, own block, `decoy` signal row, kit at join.
+- `server/src/game/ai/{consumables,equipment,tactics,spending,profiles,posture,types}.ts` -- consumable tactics, kit-aware spend, decoy odds.
+- `server/scripts/*.mjs`, `scripts/batchsim/*`, `scripts/rl/*` -- literal inputs, `rollKit`, decoy readouts.
+- `client/src/input/{keyboard,mouse}.ts`, `sim/inputSampler.ts` -- Q/E/R prime model (exists), belt keys 1–4, right mouse = secondaries only.
+- `client/src/render/{hudBar,hotbar,equipmentInfo,hpGlobe,decoys,buoyRings,buoySweep,buoyMarks,aimPreview,weaponArc}.ts`, `config.ts` -- bar layout, belt frame, shield fill, buoy rendering.
+- `client/src/ui/{kitPicker,classSelect,home,settings,boonCopy,upgradeMenu,refitTooltip}.ts`, `net/{connection,lobby,roomBindings}.ts`, `main.ts`, `sim/prediction.ts` -- picker, kit storage and join, keys copy, speed-buoy term.
+
+## Tasks & Acceptance
+
+**Execution:**
+- [ ] `shared/src/constants.ts` -- add the R1 / R2 cooldowns and R4 reloads, the R7 radius step; delete `shieldBlock`, `buoy`, `droneDrops` -- numbers.
+- [ ] `shared/src/sim/{loadout,catalog,boons,draw,effects,stats,arcs}.ts` -- five slots (battery, Shift, torpedo, mine, shell); slot families; one kind per slot in the draw and the refusal gate; `supercavTorpedo` / `dazzleShells` / `foulingShell` become equipment lines with tiers (R4, R7, 8(e)); consumable lines, kit functions and stock deleted; `broadside` undealable with a dated note; `depthCharge` stays a stub -- slot and catalog model.
+- [ ] `shared/src/sim/abilities.ts` (new), `shell.ts`, `buoy.ts` (deleted), `types.ts`, `index.ts` -- pure cooldown law for `C` / `V`; decoy target kind and buoy preference removed; wire: ability press, own cooldown fields, removed kit / shield / buoy / decoy / drop fields; PV 97 -- wire contract.
+- [ ] `shared/src/constants.ts`, `shared/src/sim/regen.ts` (new), `server/src/game/world.ts` -- `CONFIG.regen` (R8: 0.02 of missing per second, 30 000 ms wait) and one pure regen law read by the heal step off `lastDamagedAt` (already written at the one damage gate, reader-less since 10.3); the client learns hp from frames as today -- passive regen.
+- [ ] `shared/src/__tests__/*` -- unit tests for the matrix rows that are pure (cooldown law, family fill, one-kind refusal, tier radius, draw never offers a second kind); delete kit / buoy / shield tests -- contracts.
+- [ ] `server/src/game/equipment/*`, `world.ts`, `decoys.ts` (deleted) -- two cooldown abilities; the three moved weapons on the reload pool; consumable rows, shield order, decoy store, buoy steps and drone drops removed; `STEP_ORDER` re-declared -- authoritative sim.
+- [ ] `server/src/game/{inputs,frames,signals,perception}.ts`, `server/src/rooms/*` -- validate the ability press; own block; remove the `decoy` channel and kit join path; trim and extend the invariant tests; re-record goldenFrames with a dated note -- chokepoint and join.
+- [ ] `server/src/game/ai/*` -- bots press `C` when hurt and `V` under fire on the cooldowns, and fire slot weapons through the existing tactics (flash / fouling / supercav tactics move to the weapon table); kit, buoy and shield logic removed -- functional bots.
+- [ ] `server/scripts/**` -- smokes and harness lose kits, decoys and drops; `weaponsSmoke` gains a HULL REPAIR cooldown phase, a SMOKE phase and a one-kind-per-slot phase -- smokes.
+- [ ] `client/src/input/*`, `sim/*`, `main.ts`, `net/*` -- `C` / `V` presses; right click cancels a ready and a ready blocks secondaries; belt keys 1–4 keep only the refit pick; kit, shield, buoy and drop plumbing removed -- input and state.
+- [ ] `client/src/render/*`, `config.ts` -- hotbar Gun · Sec · Shift · Q · E · R · C · V with cooldown wipes, empty-slot look for an unfilled family slot, belt frame gone; shield fill and buoy renderers deleted; the flash burst disc draws the tiered radius -- HUD.
+- [ ] `client/src/ui/*` -- kit picker and CONSUMABLES row deleted; `settings.ts` key rows for Q / E / R, C, V, right click; card copy rows for the three moved lines -- chrome.
+- [ ] `_bmad-output/**`, `VERSION`, `package.json` -- amendment 10 (rulings verbatim + readings) in the amendments file AND the compiled context, DESIGN.md dated stamps, deferred-work, both trackers one line each, 0.19.7 -- records.
+
+**Acceptance Criteria:**
+- Given a fresh match, when a captain spawns, then the three equipment slots are empty, `C` and `V` are ready, and no consumable, shield or buoy can be obtained by any path (offer, dev fit, drone kill).
+- Given a captain with a slotted torpedo, when offers are drawn for the rest of the match, then no other torpedo kind ever appears (property test over random card histories).
+- Given any frame to any observer, when it is built, then it carries no kit, shield, buoy or decoy field, and another captain's cooldowns never appear (invariant tests).
+- Given a full bot match, when it runs to a winner, then bots use both abilities and at least one slot weapon, and nothing throws.
+- Given the finished tree, when `npm run check`, `matchSmoke` and `weaponsSmoke` run, then all pass first try.
+
+## Spec Change Log
+
+## Review Triage Log
+
+## Design Notes
+
+Implementer readings of record (each Eric's to veto on staging; none is a ruling):
+- **Slots:** `SLOT_COUNT` 5 — 0 battery, 1 Shift, 2 torpedo `Q`, 3 mine `E`, 4 special shell `R`. Families: torpedo = light / heavy / supercav; mine = naval / captive / fouling; shell = star / phosphor / flash / fouling shell. `C` / `V` occupy no slot.
+- **Abilities:** both ready at spawn; the cooldown starts at a successful press; a sinking hull cannot press; the server is the authority and the client shows the wipe from the own-block field. The wire names the ability, not a belt slot (encoding is the shared wave's call).
+- **Ready-and-click is today's prime model** (client-local; each click carries its slot; the server keeps no ready state, so nothing about a ready reaches another client). The ready ends after the shot as today.
+- **Right click with a ready** cancels it and that press fires nothing; a fresh press fires secondaries.
+- **Moved weapons:** one round, the R4 reload scaled by RELOAD and the tier step like every slot weapon; arcs and reach as today (`consumableArc` rows move to the equipment arcs). The flash / fouling burst's actual radius rides the existing burst row under its existing gate; the in-radius victim arm uses that radius.
+- **Level-zero guarantee:** card 0 is a weapon that fills an empty slot. With the consumable kind gone, the remaining kind shares keep their relative weights (10.7 re-cuts the law).
+- **Deleted, not dormant:** shield, buoys, decoys, kit, drops (git history keeps them). The main shell's mask becomes hull only. `depthCharge` stays the one stub line.
+- **Bots:** repair below a hull threshold and smoke when under fire — thresholds in `CONFIG.bots`; favorite-consumable profile fields removed. The bot kit stream is deleted; the hull / Shift stream is untouched so pinned-seed seats hold.
+- **Passive regen (R8):** "2 %" is read as PER SECOND, the rate of the law 10.3 removed (epic-9 amendments 90–92, 100); the clock is the last blow that removed hull hp from ANY source, storm included (amendment 92 as built — with the shield gone every landed blow resets it); fixed for every hull, drones and bots included as before, not a stat, no card, not scaled by any index; no new HUD readout or in-game copy; bots get no "wait to heal" behavior (10.12).
+- **Version** 0.19.7, cycle 213, PV 97.
+
+## Verification
+
+**Commands:**
+- `npm run check` -- expected: exit 0 (lint, tsc ×3, all tests, hook test).
+- `HC_DEV_OPTIONS=1` server from `server/` on a scratch `PORT`, then `node server/scripts/matchSmoke.mjs` and `node server/scripts/weaponsSmoke.mjs` (one at a time) -- expected: both OK first try; the server PID and its tsx child killed after.
+
+**Manual checks (if no CLI):**
+- Candidate artifact page rendered from the real client modules at 1366×768: the hotbar with empty slots, a filled and readied slot, and `C` / `V` ready and cooling.
