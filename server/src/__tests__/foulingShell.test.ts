@@ -30,6 +30,7 @@ import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
+import { neutralize } from './deckGunFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 const FS = CONFIG.foulingShell;
@@ -44,8 +45,9 @@ function bareWorld(seed = 3): World {
   return w;
 }
 
-function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
+function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'bismarck'): ShipRecord {
+  // NEUTRAL index (deckGunFixture, Story 10.4): this suite reads CONFIG numbers verbatim.
+  const rec = neutralize(w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined));
   fitClassWeapons(w, rec);
   rec.state = { x, y, heading, speed: 0 };
   return rec;
@@ -53,7 +55,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0, hull: Sh
 
 /** Set a full, valid InputMsg on a ship (fireSeq 0 ⇒ no click by default). */
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Fire `slot` at (aim, aimDist) and step until the shell BURSTS or is
@@ -73,7 +75,7 @@ const kinds = (events: readonly GameEvent[]): string[] => events.map((e) => e.k)
 
 /** A Battleship at the origin holding ONE FOULING SHELL copy, aimed east. */
 function armed(w: World, id = 'a'): ShipRecord {
-  const a = place(w, id, 0, 0, 0, 'battleship');
+  const a = place(w, id, 0, 0, 0, 'yamato');
   w.applyCard(a, 'foulingShell');
   expect(a.loadout[SLOT]).toEqual({ equipmentId: 'foulingShell', state: { n: 1, reloadMsLeft: 0 } });
   return a;
@@ -266,7 +268,10 @@ describe('FOULING SHELL — the stamp refreshes, lingers, never stacks (amendmen
     // The caps: both hulls plateau at the SAME speed — one factor, not two.
     setInput(single, { throttle: 1 });
     setInput(double, { throttle: 1 });
-    for (let i = 0; i < 80; i++) w.step();
+    // Long enough to reach the fouled cap from rest at the hull's own accel
+    // (derived — the four battleships accelerate slower than the old classes).
+    const plateauTicks = Math.ceil((double.stats.kinematics.maxSpeed * FS.slowFactor) / double.stats.kinematics.accel * 1000 / CONFIG.tick.simDtMs) + 20;
+    for (let i = 0; i < plateauTicks; i++) w.step();
     expect(double.state.speed).toBeCloseTo(single.state.speed, 9);
     expect(double.state.speed).toBeCloseTo(double.stats.kinematics.maxSpeed * FS.slowFactor, 1);
     expect(double.state.speed).toBeGreaterThan(double.stats.kinematics.maxSpeed * FS.slowFactor * FS.slowFactor + 1);

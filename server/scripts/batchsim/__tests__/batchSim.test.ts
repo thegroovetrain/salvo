@@ -12,9 +12,13 @@ import { describe, it, expect } from 'vitest';
 import {
   CATALOG,
   CONFIG,
-  GUN_IDS,
+  DEFAULT_CLASS_ID,
+  DEFAULT_SHIFT,
   LIFECYCLE_ALIVE,
+  SHIFT_IDS,
   SHIP_CLASS_IDS,
+  SLOT_BOOST,
+  SLOT_GUN,
   angleDiff,
   effectiveStats,
   hullEnvelope,
@@ -23,6 +27,7 @@ import {
   sunkAt,
   zoneEndgameAtMs,
   type HullId,
+  type ShiftId,
 } from '@salvo/shared';
 import { World } from '../../../src/game/world.js';
 import { UsageError, buildVariants, parseArgs } from '../args.js';
@@ -33,7 +38,7 @@ import { mixSeed, percentile, summarize } from '../stats.js';
 import { CONTROL_REGISTRY } from '../controls.js';
 import { pickSpendChoice } from '../spendPolicy.js';
 import { Match } from '../../../src/game/match.js';
-import { MatchCollector, botGunDealer, buildBotLobby, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
+import { MatchCollector, botShiftDealer, buildBotLobby, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
 import { buildAggregate, renderBatchReport } from '../report.js';
 import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 
@@ -295,11 +300,11 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
   });
 
   it('reaches a nested equipment dial (shipClasses.*)', () => {
-    const before = CONFIG.shipClasses.battleship.hp;
-    const restore = applyOverrides({}, { 'shipClasses.battleship.hp': 200 });
-    expect(CONFIG.shipClasses.battleship.hp).toBe(200);
+    const before = CONFIG.shipClasses.bismarck.hp;
+    const restore = applyOverrides({}, { 'shipClasses.bismarck.hp': 200 });
+    expect(CONFIG.shipClasses.bismarck.hp).toBe(200);
     restore();
-    expect(CONFIG.shipClasses.battleship.hp).toBe(before);
+    expect(CONFIG.shipClasses.bismarck.hp).toBe(before);
   });
 
   it('parses --tune key=value and rejects a malformed pair', () => {
@@ -417,30 +422,30 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
   it('floors the leaves the SIM DIVIDES BY: a 0 there NaNs or inerts the campaign', () => {
     // steerageSpeed: shared/src/sim/ship.ts computes speed/steerageSpeed, so 0
     // is 0/0 = NaN straight into heading and position.
-    expect(() => parseArgs(['--tune', 'shipClasses.torpedoBoat.kinematics.steerageSpeed=0'])).toThrow(TunableError);
-    expect(() => parseArgs(['--tune', 'shipClasses.torpedoBoat.kinematics.steerageSpeed=0'])).toThrow(/>= 1/);
+    expect(() => parseArgs(['--tune', 'shipClasses.warspite.kinematics.steerageSpeed=0'])).toThrow(TunableError);
+    expect(() => parseArgs(['--tune', 'shipClasses.warspite.kinematics.steerageSpeed=0'])).toThrow(/>= 1/);
     // THE INDICES the fold derives from (Story 10.3): RUDDER becomes the turn
     // rate the AI divides by (a 0 there was the old `turnRate` NaN-steer
     // hazard), and clampStats floors reload / engines / rudder / intel /
     // range at 1 — so a 0 arm would print as moved while the sim ran 1.
     for (const id of ['reload', 'engines', 'rudder', 'intel', 'range']) {
-      expect(() => parseArgs(['--tune', `shipClasses.battleship.index.${id}=0`])).toThrow(/>= 1/);
+      expect(() => parseArgs(['--tune', `shipClasses.bismarck.index.${id}=0`])).toThrow(/>= 1/);
     }
     // ...while ARMOR / POWER keep floor 0 (the fold floors them at 0).
-    expect(() => parseArgs(['--tune', 'shipClasses.battleship.index.armor=0'])).not.toThrow();
-    expect(() => parseArgs(['--tune', 'shipClasses.battleship.index.power=0'])).not.toThrow();
+    expect(() => parseArgs(['--tune', 'shipClasses.bismarck.index.armor=0'])).not.toThrow();
+    expect(() => parseArgs(['--tune', 'shipClasses.bismarck.index.power=0'])).not.toThrow();
     // shellSpeed / torpedo.speed: the lead solve divides by the ordnance speed.
     expect(() => parseArgs(['--tune', 'gun.shellSpeed=0'])).toThrow(/>= 1/);
     expect(() => parseArgs(['--tune', 'torpedo.speed=0'])).toThrow(/>= 1/);
     // hp seeds EffectiveStats.maxHp, which world.ts divides by unguarded.
-    expect(() => parseArgs(['--tune', 'shipClasses.mineLayer.hp=0'])).toThrow(/>= 1/);
+    expect(() => parseArgs(['--tune', 'shipClasses.iowa.hp=0'])).toThrow(/>= 1/);
     // Apply-time too, and a legitimate low value still passes.
-    expect(() => applyOverrides({}, { 'shipClasses.battleship.index.rudder': 0 })).toThrow(TunableError);
-    const shipped = CONFIG.shipClasses.battleship.index.rudder;
-    const restore = applyOverrides({}, { 'shipClasses.battleship.index.rudder': shipped + 1 });
-    expect(CONFIG.shipClasses.battleship.index.rudder).toBe(shipped + 1);
+    expect(() => applyOverrides({}, { 'shipClasses.bismarck.index.rudder': 0 })).toThrow(TunableError);
+    const shipped = CONFIG.shipClasses.bismarck.index.rudder;
+    const restore = applyOverrides({}, { 'shipClasses.bismarck.index.rudder': shipped + 1 });
+    expect(CONFIG.shipClasses.bismarck.index.rudder).toBe(shipped + 1);
     restore();
-    expect(CONFIG.shipClasses.battleship.index.rudder).toBe(shipped);
+    expect(CONFIG.shipClasses.bismarck.index.rudder).toBe(shipped);
   });
 
   it('refuses a DERIVED path that the stats firewall re-pins post-fold', () => {
@@ -511,8 +516,13 @@ describe('overrides — the --tune equipment surface (balance-sim harness prep)'
   /** The boost reload a maxed RELOAD ladder folds the SHIPPED raw reload to,
    *  over the raw reload — the scale the cross-key check judges through. */
   const reloadCapScale = (): number =>
-    effectiveStats(CONFIG.shipClasses.torpedoBoat, Array.from({ length: CATALOG.reload.cap }, () => 'reload'))
-      .equipment.boost.reloadMs / CONFIG.boost.reloadMs;
+    Math.min(
+      ...SHIP_CLASS_IDS.map(
+        (id) =>
+          effectiveStats(CONFIG.shipClasses[id], Array.from({ length: CATALOG.reload.cap }, () => 'reload')).equipment.boost
+            .reloadMs / CONFIG.boost.reloadMs,
+      ),
+    );
 
   it('REFUSES boost.reloadMs < boost.durationMs from EITHER direction, after every key is written', () => {
     const reload = CONFIG.boost.reloadMs;
@@ -673,9 +683,11 @@ describe('roster — even bot hulls (balance-sim harness prep)', () => {
     expect(Math.max(...total) - Math.min(...total)).toBeLessThanOrEqual(1);
   });
 
-  it('is EXACTLY even when the match count is a multiple of 3', () => {
-    // 20 bots x 3 matches = 60 = 20 per class, thanks to the `+ index` offset.
-    expect(totals(campaign('even', 3))).toEqual([20, 20, 20]);
+  it('is EXACTLY even when the match count is a multiple of the class count', () => {
+    // One full rotation of the `+ index` offset: bots x N matches over N
+    // classes is exactly `bots` per class, whatever the lobby size.
+    const n = SHIP_CLASS_IDS.length;
+    expect(totals(campaign('even', n))).toEqual(Array(n).fill(20));
   });
 
   it('the pin discriminates: the DEFAULT rolled roster is measurably SKEWED', () => {
@@ -697,10 +709,11 @@ describe('roster — even bot hulls (balance-sim harness prep)', () => {
     try {
       const even = runBatch({ seed: 5, matches: 3, captains: 2, bots: 0, roster: 'even' });
       const cls = even.matches.map((m) => m.captains.map((c) => c.cls));
+      const at = (k: number) => SHIP_CLASS_IDS[k % SHIP_CLASS_IDS.length];
       expect(cls).toEqual([
-        [SHIP_CLASS_IDS[0], SHIP_CLASS_IDS[1]],
-        [SHIP_CLASS_IDS[1], SHIP_CLASS_IDS[2]],
-        [SHIP_CLASS_IDS[2], SHIP_CLASS_IDS[0]],
+        [at(0), at(1)],
+        [at(1), at(2)],
+        [at(2), at(3)],
       ]);
       // ...and the DEFAULT captain deal is byte-identical to the shipped one
       // (`i % 3`, no offset), which is what preserves every existing run key.
@@ -807,7 +820,7 @@ describe('controls — determinism', () => {
    *  gunner this block used to drive is deleted). */
   function inputStream(worldSeed: number, controlSeed: number, ticks: number): string {
     const w = new World(worldSeed, CONFIG.match.fillTo);
-    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined);
+    w.addShip('cap-1', 'CAP-01', 'captain', 'warspite', undefined, undefined);
     const control = CONTROL_REGISTRY.pacifist('cap-1', controlSeed);
     const lines: string[] = [];
     for (let t = 0; t < ticks; t += 1) {
@@ -956,11 +969,11 @@ describe('controls — the pacifist posture is the SCRIPT, not a deck (Story 8.1
     expect(Object.hasOwn(control, 'deck')).toBe(false);
   });
 
-  it('a harness captain draws from the COMMON POOL on the default gun', () => {
+  it('a harness captain draws from the COMMON POOL on the default Shift', () => {
     const w = new World(1, CONFIG.map.playerCap, CONFIG.zone);
     w.map.islands.length = 0;
-    const rec = w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined);
-    expect(rec.gun).toBe('deckGun');
+    const rec = w.addShip('cap-1', 'CAP-01', 'captain', 'warspite', undefined, undefined);
+    expect(rec.shift).toBe(DEFAULT_SHIFT);
     expect(rec.cards).toEqual([]);
     // ...and a level really does materialize a hand out of the pool.
     w.grantXp(rec, 1);
@@ -973,7 +986,7 @@ describe('controls — the pacifist posture is the SCRIPT, not a deck (Story 8.1
     w.map.islands.length = 0;
     const rec = w.addBot(undefined, undefined);
     expect(SHIP_CLASS_IDS).toContain(rec.hullId as (typeof SHIP_CLASS_IDS)[number]);
-    expect(rec.gun).toBe('deckGun');
+    expect(rec.shift).toBe(DEFAULT_SHIFT);
     expect(w.weightsFor(rec).size).toBe(0); // nothing taken yet
     w.grantXp(rec, 1);
     expect(rec.offer).toHaveLength(CONFIG.offer.size);
@@ -993,7 +1006,7 @@ describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
     // comes from BOTS (--bots), which are pinned in server/src/__tests__.
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined);
+    w.addShip('cap-1', 'CAP-01', 'captain', 'warspite', undefined, undefined);
     const target = w.addShip('drone-1', 'DRONE-01', 'fleet', 'droneSmall', undefined, undefined);
     const cap = w.ships.get('cap-1')!;
     // Park a live target right inside comfortable gun range.
@@ -1025,7 +1038,7 @@ describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
     // would pass or fail on the seed rather than on the spend. With the hull's
     // default deck the control's spend has a hand to take from, which is what
     // this pin is actually about.
-    w.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined);
+    w.addShip('cap-1', 'CAP-01', 'captain', 'warspite', undefined, undefined);
     const cap = w.ships.get('cap-1')!;
     const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
     w.grantXp(cap, 3);
@@ -1039,7 +1052,7 @@ describe('controls — the pacifist storm-pacing control (Story 3.1)', () => {
   it('is deterministic per seed', () => {
     const run = (): string => {
       const w = new World(9, CONFIG.match.fillTo);
-      w.addShip('cap-1', 'CAP-01', 'captain', 'battleship', undefined, undefined);
+      w.addShip('cap-1', 'CAP-01', 'captain', 'bismarck', undefined, undefined);
       const control = CONTROL_REGISTRY.pacifist('cap-1', 5);
       const lines: string[] = [];
       for (let t = 0; t < 150; t += 1) {
@@ -1069,6 +1082,12 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
    *  seed that happens to beach a ship. `island` optionally places a rock the
    *  control's turn-sign logic can see, at the given bearing offset from the
    *  hull's heading. */
+  /** The slowest of the four hulls by its folded top speed (derived, never named). */
+  const slowestHull = (): HullId =>
+    [...SHIP_CLASS_IDS].sort(
+      (p, q) => effectiveStats(hullEnvelope(p)).kinematics.maxSpeed - effectiveStats(hullEnvelope(q)).kinematics.maxSpeed,
+    )[0];
+
   function beachTrace(
     factory: (typeof CONTROL_REGISTRY)['pacifist'],
     ticks: number,
@@ -1076,7 +1095,7 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
   ): { throttles: number[]; rudders: number[]; headings: number[]; fireSeq: number } {
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', opts.hull ?? 'battleship', undefined, undefined); // slowest hull by default
+    w.addShip('cap-1', 'CAP-01', 'captain', opts.hull ?? slowestHull(), undefined, undefined); // slowest hull by default
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
     if (opts.islandOffsetRad !== undefined) {
@@ -1171,7 +1190,7 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
     // read the rudder the control answers with.
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', 'battleship', undefined, undefined);
+    w.addShip('cap-1', 'CAP-01', 'captain', 'bismarck', undefined, undefined);
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
     const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
@@ -1221,7 +1240,7 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
 
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', 'captain', 'battleship', undefined, undefined);
+    w.addShip('cap-1', 'CAP-01', 'captain', 'bismarck', undefined, undefined);
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
     const control = CONTROL_REGISTRY.pacifist('cap-1', 42);
@@ -1290,7 +1309,7 @@ describe('controls — un-beach seamanship (Story 3.4, amendment 25)', () => {
 describe('botMetrics — endCause reads the contact kind, not only the killer (Story 9.5 review gate)', () => {
   it('a death by wreck contact is sunkByContact (hull contact, nobody credited); the coast is ranAground; the bleed is contact too', () => {
     const w = new World(1, CONFIG.map.playerCap, CONFIG.zone);
-    const v = w.addShip('v', 'V', 'captain', 'torpedoBoat', undefined, undefined);
+    const v = w.addShip('v', 'V', 'captain', 'warspite', undefined, undefined);
     v.lastDamageSrc = 'contact';
     v.lastContactWasLand = false;
     expect(endCause(w, undefined, v)).toBe('sunkByContact'); // a sinking wreck: no killer, still a hull
@@ -1343,14 +1362,14 @@ describe('report — resolved-only conclusion evidence (Story 3.4)', () => {
   // the two, and this evidence line is about the Story 3.4 endgame.
   const closureS = zoneEndgameAtMs(CONFIG.zone) / 1000;
   const sample = (over: Partial<MatchSample>): MatchSample => ({
-    index: 0, seed: 1, durationS: 100, endedBy: 'fieldCleared', winnerClass: 'torpedoBoat',
+    index: 0, seed: 1, durationS: 100, endedBy: 'fieldCleared', winnerClass: 'warspite',
     stormDeaths: 0, killsByVictimTier: {}, captains: [], departedCaptains: [], ...over,
   });
 
   it('excludes cap-outs from resolvedDurationS and from the past-closure rate', () => {
     const matches = [
       sample({ index: 0, durationS: closureS + 60 }),
-      sample({ index: 1, durationS: closureS - 60, winnerClass: 'battleship' }),
+      sample({ index: 1, durationS: closureS - 60, winnerClass: 'bismarck' }),
       // The cap-out sits WAY past closure — if it leaked into either stat it
       // would inflate both (2/3 past-closure, a max at the budget edge).
       sample({ index: 2, durationS: closureS + 600, endedBy: 'unresolved', winnerClass: null }),
@@ -1360,7 +1379,7 @@ describe('report — resolved-only conclusion evidence (Story 3.4)', () => {
     expect(agg.resolvedDurationS.n).toBe(2);
     expect(agg.resolvedDurationS.max).toBe(closureS + 60);
     expect(agg.pastEndgameRate).toBe(0.5);
-    expect(agg.winnerClass).toEqual({ torpedoBoat: 1, battleship: 1, none: 1 });
+    expect(agg.winnerClass).toEqual({ warspite: 1, bismarck: 1, none: 1 });
   });
 
   it('an all-unresolved batch renders n=0 rather than crashing or faking percentiles', () => {
@@ -1412,7 +1431,7 @@ describe('runner — at-cap classification keeps a real conclusion (review FIX 5
     const world = new World(21, 4);
     const hooks = { lock: () => {}, unlock: () => {}, broadcastResults: () => {}, requeue: () => {}, disconnect: () => {} };
     const match = new Match(world, { countdownMs: 100, resultsMs: 1000, joinWindowMs: 0, minHumans: 1 }, hooks);
-    world.addShip('cap-1', 'CAP-01', 'captain', 'torpedoBoat', undefined, undefined);
+    world.addShip('cap-1', 'CAP-01', 'captain', 'warspite', undefined, undefined);
     match.notifyRosterChanged();
     for (let t = 0; t < 100 && match.phase !== 'finished'; t += 1) {
       world.step();
@@ -1468,13 +1487,13 @@ describe('runner — a captain who leaves mid-match (review gate 2026-07-31)', (
 describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () => {
   it('aggregates a 200k-captain batch without an argument-spread RangeError', () => {
     const captain: CaptainSample = {
-      id: 'cap-1', cls: 'torpedoBoat', finalLevel: 2, kills: 1, deaths: 0, picks: 2,
+      id: 'cap-1', cls: 'warspite', finalLevel: 2, kills: 1, deaths: 0, picks: 2,
       boonsFitted: 2, cappedLines: 0,
       boonTimesS: new Array<number | null>(10).fill(null),
       firstDoctrineOffered: null, firstDoctrineFitted: null, levelCurve: [1, 2],
     };
     const match: MatchSample = {
-      index: 0, seed: 1, durationS: 60, endedBy: 'fieldCleared', winnerClass: 'torpedoBoat', stormDeaths: 0,
+      index: 0, seed: 1, durationS: 60, endedBy: 'fieldCleared', winnerClass: 'warspite', stormDeaths: 0,
       killsByVictimTier: {}, captains: new Array<CaptainSample>(200000).fill(captain),
       departedCaptains: [],
     };
@@ -1495,57 +1514,73 @@ describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () 
 // pins that the two flags are UNKNOWN ARGUMENTS now, which is the strongest
 // statement that they are gone.
 
-describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
-  it('accepts each of the three guns with --bots, and stores the forced id', () => {
-    for (const gun of GUN_IDS) {
-      expect(parseArgs(['--bots', '4', '--gun', gun]).botGun).toBe(gun);
+describe('--shift (Story 10.4 — the --gun arm\'s successor) and the tune families', () => {
+  it('accepts every Shift with --bots, and stores the forced id', () => {
+    for (const shift of SHIFT_IDS) {
+      expect(parseArgs(['--bots', '4', '--shift', shift]).botShift).toBe(shift);
     }
-    expect(parseArgs(['--bots', '4']).botGun).toBeNull();
+    expect(parseArgs(['--bots', '4']).botShift).toBeNull();
   });
 
-  it('refuses an unknown gun (naming the legal set) and a --gun with no bots', () => {
-    expect(() => parseArgs(['--bots', '4', '--gun', 'missile'])).toThrow(UsageError);
-    expect(new Set(listIn(thrown(() => parseArgs(['--bots', '4', '--gun', 'missile'])), 'available'))).toEqual(new Set(GUN_IDS));
-    // The ENGINE id `gun` is not a seat gun id: the pick is deckGun.
-    expect(() => parseArgs(['--bots', '4', '--gun', 'gun'])).toThrow(UsageError);
-    expect(() => parseArgs(['--gun', 'flak'])).toThrow(/--gun needs --bots/);
+  it('refuses an unknown Shift (naming the legal set), the retired --gun, and a --shift with no bots', () => {
+    expect(() => parseArgs(['--bots', '4', '--shift', 'missile'])).toThrow(UsageError);
+    expect(new Set(listIn(thrown(() => parseArgs(['--bots', '4', '--shift', 'missile'])), 'available'))).toEqual(new Set(SHIFT_IDS));
+    expect(() => parseArgs(['--bots', '4', '--gun', 'flak'])).toThrow(UsageError);
+    expect(() => parseArgs(['--shift', SHIFT_IDS[0]])).toThrow(/--shift needs --bots/);
   });
 
-  it('forced: every bot mounts the one gun', () => {
-    const deal = botGunDealer({ botGun: 'machineGun' }, 1234);
-    for (let i = 0; i < 20; i += 1) expect(deal()).toBe('machineGun');
+  it('forced: every bot takes the one Shift', () => {
+    const forced = SHIFT_IDS[SHIFT_IDS.length - 1];
+    const deal = botShiftDealer({ botShift: forced }, 1234);
+    for (let i = 0; i < 20; i += 1) expect(deal()).toBe(forced);
   });
 
-  it('unforced: a SEEDED uniform mix — deterministic per match seed, all three guns reached', () => {
+  it('unforced: a SEEDED uniform mix — deterministic per match seed, every Shift reached', () => {
     const draw = (seed: number): string[] => {
-      const deal = botGunDealer({}, seed);
+      const deal = botShiftDealer({}, seed);
       return Array.from({ length: 19 }, () => deal());
     };
     expect(draw(mixSeed(7, 0))).toEqual(draw(mixSeed(7, 0)));
     expect(draw(mixSeed(7, 0))).not.toEqual(draw(mixSeed(7, 1)));
     const seen = new Set<string>();
     for (let m = 0; m < 5; m += 1) for (const g of draw(mixSeed(7, m))) seen.add(g);
-    expect([...seen].sort()).toEqual([...GUN_IDS].sort());
+    expect([...seen].sort()).toEqual([...SHIFT_IDS].sort());
   });
 
-  it('the harness lobby mounts the dealt gun in slot 0 — forced, and the seeded mix', () => {
-    const mounted = (spec: { botGun?: 'deckGun' | 'machineGun' | 'flak' }, matchSeed: number): string[] => {
+  it('the harness lobby seats the dealt Shift in slot 1 and the main battery in slot 0 — forced, and the seeded mix', () => {
+    const seated = (spec: { botShift?: ShiftId }, matchSeed: number): { slot0: string[]; shift: string[] } => {
       const world = new World(matchSeed, 20);
       const ids = buildBotLobby(world, { seed: 1, matches: 1, captains: 0, ...spec }, 12, matchSeed, 0);
-      return ids.map((id) => String(world.ships.get(id)!.loadout[0].equipmentId));
+      const ships = ids.map((id) => world.ships.get(id)!);
+      for (const ship of ships) expect(ship.loadout[SLOT_BOOST].equipmentId).toBe(ship.shift);
+      return { slot0: ships.map((sh) => String(sh.loadout[SLOT_GUN].equipmentId)), shift: ships.map((sh) => sh.shift) };
     };
-    expect(mounted({ botGun: 'flak' }, 99)).toEqual(Array(12).fill('flak'));
-    // Unforced: the seat gun deckGun mounts the engine id `gun`; the mix is the
-    // dealer's sequence, byte-identical for the same match seed.
+    const forced = SHIFT_IDS[SHIFT_IDS.length - 1];
+    const f = seated({ botShift: forced }, 99);
+    expect(f.shift).toEqual(Array(12).fill(forced));
+    // No bot ever mounts a deck gun: slot 0 is the main battery on every captain hull.
+    expect(new Set(f.slot0)).toEqual(new Set(['mainBattery']));
+    // Unforced: the dealer's sequence, byte-identical for the same match seed.
     const expected = (() => {
-      const deal = botGunDealer({}, 99);
-      return Array.from({ length: 12 }, () => {
-        const g = deal();
-        return g === 'deckGun' ? 'gun' : g;
-      });
+      const deal = botShiftDealer({}, 99);
+      return Array.from({ length: 12 }, () => deal());
     })();
-    expect(mounted({}, 99)).toEqual(expected);
-    expect(mounted({}, 99)).toEqual(mounted({}, 99));
+    expect(seated({}, 99).shift).toEqual(expected);
+    expect(seated({}, 99)).toEqual(seated({}, 99));
+  });
+
+  it('--tune mainBattery.* and secondaries.* are live dials (and restore)', () => {
+    const before = CONFIG.mainBattery.reloadMs;
+    const restore = applyOverrides({}, { 'mainBattery.reloadMs': before + 1, 'secondaries.damage': CONFIG.secondaries.damage + 1 });
+    expect(CONFIG.mainBattery.reloadMs).toBe(before + 1);
+    restore();
+    expect(CONFIG.mainBattery.reloadMs).toBe(before);
+    // The divide-or-spin floors: a turret reload, the main reach, the round's
+    // speed and the three secondaries clocks are floored at 1.
+    for (const key of ['mainBattery.reloadMs', 'mainBattery.rangeU', 'mainBattery.shellSpeed', 'secondaries.rateMs', 'secondaries.overheatMs', 'secondaries.coolMs']) {
+      expect(() => parseArgs(['--tune', `${key}=0`]), key).toThrow(/>= 1/);
+      expect(() => parseArgs(['--tune', `${key}=1`]), key).not.toThrow();
+    }
   });
 
   it('--tune machineGun.damage is a live dial (and restores); every new family passes the gate', () => {
@@ -1575,9 +1610,13 @@ describe('--gun and the Story 8.15 tune families (amendment 109)', () => {
       expect(() => parseArgs(['--tune', `${row}.rangeU=0`]), row).toThrow(/>= 1/);
     }
     const before = CONFIG.gun.rangeU;
+    // The fold's reach at the shipped base, then at the tuned base: the dial
+    // moves the folded reach in proportion (RANGE scales it once, whatever the
+    // hull's index — Story 10.4's hulls are not all RANGE 100).
+    const folded = effectiveStats(hullEnvelope(DEFAULT_CLASS_ID)).equipment.gun.rangeU;
     const restore = applyOverrides({}, { 'gun.rangeU': before - 100 });
     try {
-      expect(effectiveStats(hullEnvelope('battleship')).equipment.gun.rangeU).toBe(before - 100);
+      expect(effectiveStats(hullEnvelope(DEFAULT_CLASS_ID)).equipment.gun.rangeU).toBeCloseTo((folded * (before - 100)) / before, 9);
     } finally {
       restore();
     }

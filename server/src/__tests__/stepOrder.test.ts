@@ -75,12 +75,19 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       'expireLitZones',
       'expireBurnZones', // Story 8.17: the PHOSPHOR burning zone's expiry sweep, beside the lit zones'
       'expireFoulZones', // Story 9.4: the FOULING SHELL foul zone's expiry sweep, beside the burn zones'
+      // Story 10.4's TURRET STEP — directly before the click channel, so a
+      // turret arriving on the aim point (or finishing its reload) this tick
+      // fires this tick. See the row comment in world.ts.
+      'stepTurrets',
       'fireControl',
       // Story 8.15's held-fire stream — the machine gun's LEVEL channel,
       // a deliberate insertion right after the click channel (the reloads
       // have ticked; a click on a stream row was already skipped). See the
       // row comment in world.ts.
       'streamControl',
+      // Story 10.4's SECONDARIES — the second level channel, directly after
+      // the first (same latest input, same refusal gate).
+      'secondariesControl',
       'activationControl',
       'hornControl',
       'advanceSweeps',

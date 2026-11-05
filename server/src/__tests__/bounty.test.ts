@@ -36,7 +36,7 @@ function bareWorld(seed = 7): World {
   return w;
 }
 
-function place(w: World, id: string, x = 0, y = 0, hull: HullId = 'torpedoBoat', drone = false): ShipRecord {
+function place(w: World, id: string, x = 0, y = 0, hull: HullId = 'bismarck', drone = false): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), drone ? 'fleet' : 'captain', hull, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
@@ -351,7 +351,7 @@ describe('World — the sunk emission names WHICH participant held the throne (b
     // never appear on a drone wreck — a drone can never hold the throne.
     const w = bareWorld();
     place(w, 'a');
-    place(w, 'd', 100, 0, 'torpedoBoat', true); // a drone
+    place(w, 'd', 100, 0, 'bismarck', true); // a drone
     captainKill(w, 'a'); // a holds the throne
     w.step();
     w.sinkShip('d', 'a');

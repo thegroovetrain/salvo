@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CONFIG, FLASH_WINDOW_MS, DEFAULT_KIT, SLOT_COUNT, type ConsumableKit } from '@salvo/shared';
+import { isAfloat, CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, FLASH_WINDOW_MS, DEFAULT_KIT, SLOT_COUNT, encodeTurretAngles, type ConsumableKit } from '@salvo/shared';
 
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -14,13 +14,13 @@ const input = (seq: number, extra = {}) => ({
   slot: 0,
   fireT: 0,
   actSeq: 0,
-  actSlot: 0, hornSeq: 0, held: false,
+  actSlot: 0, hornSeq: 0, held: false, sec: false,
   ...extra,
 });
 
 /** Add a ship and teleport it to an exact pose (speed 0). */
 function place(w: World, id: string, x: number, y: number): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', DEFAULT_CLASS_ID, undefined, undefined);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = 0;
@@ -33,7 +33,7 @@ function makeWorld(): World {
   const w = new World(42);
   w.map.islands.length = 0;
   place(w, 'a', 0, 0);
-  place(w, 'b', 100, 0);
+  place(w, 'b', 0, -150); // abeam, clear of a's hull (Story 10.4: the battleships are ~115 u long)
   return w;
 }
 
@@ -59,25 +59,30 @@ describe('buildFrame — shape and clock', () => {
       y: ship.state.y,
       heading: ship.state.heading,
       speed: ship.state.speed,
-      hp: CONFIG.shipClasses.torpedoBoat.hp,
+      hp: CONFIG.shipClasses[DEFAULT_CLASS_ID].hp,
       alive: true,
       // Slot-aligned ammo: length SLOT_COUNT (nine since Story 10.1: five
-      // fixed slots + one per carried kit line), null for every empty slot. Gun in 0, the universal boost in 1, and every
-      // other slot empty since Story 8.10 deleted the spawn seed: a fresh
-      // hull's weapon row is bare until its first card, and every kit line's
-      // slot is empty until it is stocked.
+      // fixed slots + one per carried kit line), null for every empty slot.
+      // The MAIN BATTERY's derived pair in 0 (Story 10.4: n = turrets ready —
+      // all of them, fresh), the default Shift in 1, and every other slot
+      // empty since Story 8.10 deleted the spawn seed.
       ammo: [
-        { n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 },
+        { n: ship.stats.equipment.mainBattery.maxAmmo, reloadMsLeft: 0 },
         { n: CONFIG.boost.maxAmmo, reloadMsLeft: 0 },
         ...Array.from({ length: SLOT_COUNT - 2 }, () => null),
       ],
       sweep: ship.sweepAngle,
-      cls: 'torpedoBoat',
-      // THE SEAT'S GUN (Story 8.14, amendment 95) — self-private beside `cls`,
-      // and the deck gun unless the client picked otherwise at the door.
-      gun: 'deckGun',
-      // THE SEAT'S KIT (Story 10.1) — self-private beside `gun`; this fixture
-      // names none, so the hull sails the default four.
+      cls: DEFAULT_CLASS_ID,
+      // THE SEAT'S SHIFT (Story 10.4 — the seat gun's successor) —
+      // self-private beside `cls`, the default unless picked at the door.
+      shift: DEFAULT_SHIFT,
+      // THE TURRETS (Story 10.4) — angle + remaining reload per turret, the
+      // record's own (one step of traverse toward the input's aim has landed).
+      turrets: ship.turrets.map((t) => ({ a: t.a, reloadMsLeft: t.reloadMsLeft })),
+      // THE SECONDARIES' HEAT — `{heat, locked}` only; cold and unlocked.
+      sec: { heat: 0, locked: false },
+      // THE SEAT'S KIT (Story 10.1) — self-private beside the Shift; this
+      // fixture names none, so the hull sails the default four.
       kit: [...DEFAULT_KIT],
       // (upg died with the legacy upgrade economy — Story 2.8 strip; slowedUntil
       // / fouledUntil are OMITTED, not 0, while inactive.)
@@ -98,12 +103,18 @@ describe('buildFrame — shape and clock', () => {
       xp: CONFIG.tick.simDtMs / CONFIG.xp.levelMs,
     });
     expect(f.spec).toBeUndefined();
+    // THE FIELD ORDER (contract §7): cls, shift, turrets, sec, kit — adjacent.
+    const keys = Object.keys(f.you!);
+    const at = keys.indexOf('cls');
+    expect(keys.slice(at, at + 5)).toEqual(['cls', 'shift', 'turrets', 'sec', 'kit']);
+    expect(f.you!.turrets).toHaveLength(ship.stats.equipment.mainBattery.maxAmmo);
+    expect(f.you!.turrets).not.toBe(ship.turrets); // a copy, never the live array
   });
 
   it('the seat\'s KIT rides `you` as the hull\'s own four, in key order, and as a copy (Story 10.1)', () => {
     const w = new World(1);
     const kit: ConsumableKit = ['healingBuoy', 'foulingShell', 'shieldBlock', 'supercavTorpedo'];
-    const ship = w.addShip('k', 'K', 'captain', 'torpedoBoat', undefined, undefined, undefined, kit);
+    const ship = w.addShip('k', 'K', 'captain', DEFAULT_CLASS_ID, undefined, undefined, undefined, kit);
     const you = buildFrame(w, 'k').you!;
     expect(you.kit).toEqual(kit);
     expect(you.kit).not.toBe(ship.kit); // a mutation on the wire copy never reaches the record
@@ -156,7 +167,8 @@ describe('buildFrame — contacts (fogged via perception)', () => {
       y: b.state.y,
       heading: b.state.heading,
       speed: b.state.speed,
-      cls: 'torpedoBoat',
+      cls: DEFAULT_CLASS_ID,
+      tu: encodeTurretAngles(b.turrets, b.hullId), // Story 10.4: angles, last
     });
   });
 
@@ -219,10 +231,10 @@ describe('buildFrame — events (fogged via perception)', () => {
     // The KILLER's row additionally carries `vcls` (Story 5.6, amendment 43):
     // the victim's hull id, to the credited killer alone. Everyone else's row
     // — witness or public — is the shipped shape, byte for byte.
-    const killerRow = { ...seen, vcls: 'torpedoBoat' };
+    const killerRow = { ...seen, vcls: DEFAULT_CLASS_ID };
     // The killer additionally gets its self-private banked-point pt event.
     const aEvents = buildFrame(w, 'a').events;
-    expect(aEvents.filter((e) => e.k === 'sunk')).toEqual([killerRow]); // wreck 100u away — witnessed
+    expect(aEvents.filter((e) => e.k === 'sunk')).toEqual([killerRow]); // wreck 150u away — witnessed
     expect(aEvents.filter((e) => e.k === 'pt')).toEqual([{ k: 'pt', id: 'a' }]);
     expect(buildFrame(w, 'b').events).toEqual([seen]); // victim always told (own hull ⇒ seen), never the killer's point
     // The public register: c never saw the wreck — the feed line's identity

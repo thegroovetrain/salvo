@@ -6,7 +6,7 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, FLASH_WINDOW_MS, SHELL_FAMILIES, paintCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type DecoyView, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, FLASH_WINDOW_MS, SHELL_FAMILIES, encodeTurretAngles, paintCoverage, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type DecoyView, type HealEvent, type HitCallEvent, type MineView, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
@@ -173,7 +173,7 @@ describe('SIGNAL_REGISTRY — row shape', () => {
 // ---------- key-order guards (the load-bearing msgpack rule) -----------------
 
 describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () => {
-  it('contact row: [id,x,y,heading,speed,cls]', () => {
+  it('contact row: [id,x,y,heading,speed,cls,tu] — a captain hull appends its turret angles LAST (Story 10.4)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const b = place(w, 'b', 100, 0, 1.2);
@@ -182,7 +182,33 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const ctx = foggedCtx(w, a);
     expect(row.visible(ctx, b)).toBe(true);
     const wire = row.materialize(ctx, b);
+    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'heading', 'speed', 'cls', 'tu']);
+    // ANGLES ONLY: one whole number per turret, the shared encoding — no reload.
+    expect(wire.tu).toEqual(encodeTurretAngles(b.turrets, b.hullId));
+    expect(wire.tu!.every((q) => Number.isInteger(q))).toBe(true);
+  });
+
+  it('contact row: a hull with NO battery (a drone) omits `tu` — never an empty array', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const d = w.addShip('d', 'DRONE', 'fleet', 'droneSmall', undefined, { x: 100, y: 0 });
+    const row = SIGNAL_REGISTRY.contact;
+    const ctx = foggedCtx(w, a);
+    expect(row.visible(ctx, d)).toBe(true);
+    const wire = row.materialize(ctx, d);
+    expect('tu' in (wire as object)).toBe(false);
     expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'heading', 'speed', 'cls']);
+  });
+
+  it('contact row: `tu` follows the hull\'s live turrets (a traversed turret re-encodes)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 100, 0, 1.2);
+    const before = SIGNAL_REGISTRY.contact.materialize(foggedCtx(w, a), b).tu!;
+    b.turrets[0].a += 0.5; // traverse the bow turret half a radian (inside its train)
+    const after = SIGNAL_REGISTRY.contact.materialize(foggedCtx(w, a), b).tu!;
+    expect(after[0]).not.toBe(before[0]);
+    expect(after.slice(1)).toEqual(before.slice(1));
   });
 
   it('blip row: [k,t,gx,gy,w,h,bits] — the identity-free coverage footprint (cycle 63)', () => {
@@ -201,7 +227,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(row.visible(ctx, b)).toBe(true);
     const wire = row.materialize(ctx, b);
     expect(Object.keys(wire as object)).toEqual(['k', 't', 'gx', 'gy', 'w', 'h', 'bits']);
-    const c = paintCoverage('torpedoBoat', B_X, 0, 1.2, CONFIG.vision.radarCellU, w.now);
+    const c = paintCoverage(DEFAULT_CLASS_ID, B_X, 0, 1.2, CONFIG.vision.radarCellU, w.now);
     expect(wire).toEqual({ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
   });
 

@@ -1,31 +1,28 @@
-// THE CLASS SHIFTS (Story 8.15, Eric rulings 2026-09-21/28, epic-8 amendments
-// 89(c) and 97–102) — slot 1 is a FIXED ability per hull: SPEED BOOST on the
-// Torpedo Boat (boost.test.ts), INSTANT RELOAD on the Mine Layer, HUNKER (was DAMAGE CUT until Story 9.9) on
-// the Battleship. This file pins:
-//   * slot 1 per hull, from `classShift`, on every life boundary;
+// THE SHIFTS (Story 8.15, Eric rulings 2026-09-21/28, epic-8 amendments
+// 89(c) and 97–102; Story 10.4 made the Shift the SEAT's pick, epic-10
+// amendment 9) — slot 1 holds SPEED BOOST (boost.test.ts), INSTANT RELOAD or
+// HUNKER (was DAMAGE CUT until Story 9.9), whichever the captain picked. This
+// file pins:
+//   * slot 1 = the seat's Shift on every hull, on every life boundary;
 //   * INSTANT RELOAD: finishes exactly ONE reload per running weapon slot
-//     (cannon / torpedo / mines; the MG magazine fills), the belt and the
-//     Shift itself untouched, a 60 s cooldown (Eric 2026-10-02, amendment
-//     232; was 45 s), `cooling` on a second press;
-//   * HUNKER: a 10 s window (epic-9 amendment 88; was 8 s) on a 30 s cooldown, `hunkerUntil` on the
-//     own frame only — never a contact or spectator field;
-//   * THE NINE-COMBO PIN: every hull × every gun in a World mounts the gun's
-//     module in slot 0, lands ONE hit for the CONFIG damage (5 direct / 12
-//     burst / 15 burst), reveals with the matching `w`, and holds its Shift.
+//     (torpedo / mines) and EVERY main-battery turret (Story 10.4), the belt
+//     and the Shift itself untouched, its cooldown, `cooling` on a second press;
+//   * HUNKER: its window on its cooldown, `hunkerUntil` on the own frame only —
+//     never a contact or spectator field;
+//   * every hull × every Shift mounts the MAIN BATTERY in slot 0 and the
+//     seat's Shift in slot 1.
 
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  GUN_IDS,
-  MOUNTED_GUN,
+  DEFAULT_SHIFT,
+  SHIFT_IDS,
   SHIP_CLASS_IDS,
   SLOT_BOOST,
   WEAPON_SLOTS,
-  classShift,
   damageMultiplierFor,
-  type GameEvent,
-  type GunId,
   type InputMsg,
+  type ShiftId,
   type ShipClassId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
@@ -42,14 +39,14 @@ function bareWorld(seed = 17): World {
   return w;
 }
 
-function place(w: World, id: string, hull: ShipClassId, gun: GunId = 'deckGun', x = 0, y = 0, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, gun);
+function place(w: World, id: string, hull: ShipClassId, shift: ShiftId = DEFAULT_SHIFT, x = 0, y = 0, heading = 0): ShipRecord {
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, shift);
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }
 
 function makeInput(patch: Partial<InputMsg>): InputMsg {
-  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
+  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Press the Shift (actSeq edge on slot 1) and step once. */
@@ -60,20 +57,22 @@ function pressShift(w: World, id: string, seq: number): void {
 
 // ---------- slot 1 per hull ---------------------------------------------------
 
-describe('slot 1 is the hull\'s CLASS SHIFT (amendment 89(c))', () => {
-  it.each([['torpedoBoat', 'boost'], ['mineLayer', 'instantReload'], ['battleship', 'hunker']] as const)(
-    '%s fits %s in slot 1 with a full single charge, and keeps it across redeploy and respawn',
-    (hull, shift) => {
-      const w = bareWorld();
-      const a = place(w, 'a', hull);
-      expect(classShift(hull)).toBe(shift);
-      expect(a.loadout[SLOT_BOOST].equipmentId).toBe(shift);
-      expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 1, reloadMsLeft: 0 });
-      w.resetForMatchStart();
-      expect(a.loadout[SLOT_BOOST].equipmentId).toBe(shift);
-      w.sinkShip('a', undefined);
-      for (let i = 0; i < Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 2; i++) w.step();
-      expect(a.loadout[SLOT_BOOST].equipmentId).toBe(shift);
+describe('slot 1 is the SEAT\'s Shift (Story 10.4)', () => {
+  it.each(SHIFT_IDS.map((sh) => [sh] as const))(
+    '%s fits slot 1 with a full single charge on every hull, and keeps it across redeploy and respawn',
+    (shift) => {
+      for (const hull of SHIP_CLASS_IDS) {
+        const w = bareWorld();
+        const a = place(w, 'a', hull, shift);
+        expect(a.shift).toBe(shift);
+        expect(a.loadout[SLOT_BOOST].equipmentId).toBe(shift);
+        expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 1, reloadMsLeft: 0 });
+        w.resetForMatchStart();
+        expect(a.loadout[SLOT_BOOST].equipmentId).toBe(shift);
+        w.sinkShip('a', undefined);
+        for (let i = 0; i < Math.ceil(CONFIG.ship.sinkingWindowMs / DT) + 2; i++) w.step();
+        expect(a.loadout[SLOT_BOOST].equipmentId).toBe(shift);
+      }
     },
   );
 
@@ -85,8 +84,8 @@ describe('slot 1 is the hull\'s CLASS SHIFT (amendment 89(c))', () => {
 
   it('the two new Shifts take the RELOAD ladder\'s cooldownScale like every row; HUNKER\'s window is not a reload', () => {
     const w = bareWorld();
-    const ml = place(w, 'ml', 'mineLayer');
-    const bs = place(w, 'bs', 'battleship');
+    const ml = place(w, 'ml', 'warspite', 'instantReload');
+    const bs = place(w, 'bs', 'yamato', 'hunker');
     for (let i = 0; i < 5; i++) {
       w.applyCard(ml, 'reload');
       w.applyCard(bs, 'reload');
@@ -100,17 +99,17 @@ describe('slot 1 is the hull\'s CLASS SHIFT (amendment 89(c))', () => {
 
 // ---------- INSTANT RELOAD ----------------------------------------------------
 
-describe('INSTANT RELOAD — the Mine Layer\'s Shift (amendments 97–98)', () => {
-  /** A Mine Layer with cannon reloading (0, 2.1 s left), torpedo reloading
+describe('INSTANT RELOAD (amendments 97–98; every turret since Story 10.4)', () => {
+  /** An INSTANT RELOAD seat with every turret reloading, torpedo reloading
    *  (0), mines 1/2 reloading, and two HULL REPAIR copies in the belt. */
   function loaded(w: World): ShipRecord {
-    const a = place(w, 'a', 'mineLayer');
+    const a = place(w, 'a', 'warspite', 'instantReload');
     w.applyCard(a, 'heavyTorpedo');
     w.applyCard(a, 'navalMines');
     w.applyCard(a, 'navalMines'); // tier II: a 2-round rack
     w.applyCard(a, 'hullRepair');
     w.applyCard(a, 'hullRepair');
-    a.loadout[SLOT_GUN].state = { n: 0, reloadMsLeft: 2100 };
+    a.turrets.forEach((t, i) => (t.reloadMsLeft = 2100 + i * 1000));
     a.loadout[WEAPON_SLOTS[0]].state = { n: 0, reloadMsLeft: 12000 };
     const rackMax = a.stats.equipment.navalMines.maxAmmo;
     expect(rackMax).toBeGreaterThanOrEqual(2);
@@ -119,12 +118,15 @@ describe('INSTANT RELOAD — the Mine Layer\'s Shift (amendments 97–98)', () =
     return a;
   }
 
-  it('finishes exactly ONE reload per running slot: cannon 1/0, torp 1/0, mines 2/0; the belt untouched; the Shift spent for its full cooldown', () => {
+  it('finishes EVERY turret (angles untouched) and exactly ONE reload per running Q/E/R slot; the belt untouched; the Shift spent for its full cooldown', () => {
     const w = bareWorld();
     const a = loaded(w);
     const belt = a.loadout.slice(5).map((s) => ({ ...s, state: s.state === null ? null : { ...s.state } }));
+    const heat = { ...a.sec };
     pressShift(w, 'a', 1);
-    expect(a.loadout[SLOT_GUN].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(a.turrets.every((t) => t.reloadMsLeft === 0)).toBe(true);
+    expect(a.sec).toEqual(heat); // the secondaries' heat is untouched
+    expect(a.loadout[SLOT_GUN].state).toEqual({ n: a.stats.equipment.mainBattery.maxAmmo, reloadMsLeft: 0 });
     expect(a.loadout[WEAPON_SLOTS[0]].state).toEqual({ n: 1, reloadMsLeft: 0 });
     expect(a.loadout[WEAPON_SLOTS[1]].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 });
     expect(a.loadout.slice(5)).toEqual(belt); // HULL REPAIR ×2, byte-identical
@@ -133,7 +135,7 @@ describe('INSTANT RELOAD — the Mine Layer\'s Shift (amendments 97–98)', () =
 
   it('a weapon that is NOT reloading is untouched, and a deep deficit tops up by ONE round only (never a refill)', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 'mineLayer');
+    const a = place(w, 'a', 'warspite', 'instantReload');
     w.applyCard(a, 'heavyTorpedo');
     w.applyCard(a, 'navalMines');
     for (let i = 0; i < 3; i++) w.applyCard(a, 'navalMines'); // tier IV: a deeper rack
@@ -151,34 +153,21 @@ describe('INSTANT RELOAD — the Mine Layer\'s Shift (amendments 97–98)', () =
     expect(a.loadout[WEAPON_SLOTS[1]].state!.n).toBe(1); // still 1 a tick later
   });
 
-  it('the MACHINE GUN magazine FILLS from a partial swap to maxAmmo, timer 0; an idle full magazine is untouched', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 'mineLayer', 'machineGun');
-    const mag = a.stats.equipment.machineGun.maxAmmo;
-    expect(mag).toBeGreaterThan(5);
-    a.loadout[SLOT_GUN].state = { n: 5, reloadMsLeft: 9000 };
-    pressShift(w, 'a', 1);
-    expect(a.loadout[SLOT_GUN].state).toEqual({ n: mag, reloadMsLeft: 0 });
-    const w2 = bareWorld();
-    const b = place(w2, 'b', 'mineLayer', 'machineGun');
-    pressShift(w2, 'b', 1);
-    expect(b.loadout[SLOT_GUN].state).toEqual({ n: b.stats.equipment.machineGun.maxAmmo, reloadMsLeft: 0 });
-  });
-
   it('a second press inside the 60 s is refused no-ammo -> `cooling` on the wire, and touches nothing', () => {
     const w = bareWorld();
     const a = loaded(w);
     pressShift(w, 'a', 1);
-    a.loadout[SLOT_GUN].state = { n: 0, reloadMsLeft: 2000 }; // the cannon fires again meanwhile
+    a.turrets.forEach((t) => (t.reloadMsLeft = 2000)); // the battery fires again meanwhile
     pressShift(w, 'a', 2);
     expect(w.denialsFor('a')).toEqual([{ slot: SLOT_BOOST, reason: 'no-ammo', seq: 2 }]);
-    expect(a.loadout[SLOT_GUN].state!.n).toBe(0); // nothing finished
+    expect(a.turrets.every((t) => t.reloadMsLeft > 0)).toBe(true); // nothing finished
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
     expect(w.sinkingActivationGate(a, SLOT_BOOST)).toEqual({ ok: false, reason: 'no-ammo' });
   });
 
   it('never touches ITSELF, and a click (fireSeq) on slot 1 is inert', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 'mineLayer');
+    const a = place(w, 'a', 'warspite', 'instantReload');
     a.loadout[SLOT_BOOST].state = { n: 0, reloadMsLeft: 20000 };
     w.submitInput('a', makeInput({ seq: 1, fireSeq: 1, slot: SLOT_BOOST }));
     w.step();
@@ -189,13 +178,13 @@ describe('INSTANT RELOAD — the Mine Layer\'s Shift (amendments 97–98)', () =
 
 // ---------- HUNKER --------------------------------------------------------
 
-describe('HUNKER — the Battleship\'s Shift (amendments 99–102)', () => {
+describe('HUNKER (amendments 99–102)', () => {
   // Re-based by Story 9.7 (epic-9 amendments 86–88 / 110–117): the window is 10 s and the cut is +5
   // temporary Armor — at Tier 0 that is Armor 5 → ×0.5 (Story 9.9: +100 at K 100 → E 100,
   // still ×0.5, epic-9 amendment 144), so 15 → 7 still holds.
   it('opens the window at server apply time on its cooldown; inside it the next blow takes the armorBonus multiply, after it full damage (amendment 144)', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 'battleship');
+    const a = place(w, 'a', 'yamato', 'hunker');
     const hk = a.stats.equipment.hunker;
     pressShift(w, 'a', 1);
     expect(a.hunkerUntil).toBe(w.now + hk.durationMs);
@@ -213,14 +202,18 @@ describe('HUNKER — the Battleship\'s Shift (amendments 99–102)', () => {
     // After the window: full damage.
     for (let i = 0; i < hk.durationMs / DT; i++) w.step();
     expect(w.now).toBeGreaterThanOrEqual(a.hunkerUntil);
+    // Full damage = the hull's OWN Armor curve with no bonus (the four hulls
+    // do not sit at the index base, Story 10.4).
+    const full = Math.max(1, Math.floor(15 * damageMultiplierFor(a.stats.armor - CONFIG.index.base)));
+    expect(full).toBeGreaterThan(cut);
     gate.applyDamage(a, 15, 'shell', 'b');
-    expect(a.hp).toBe(a.stats.maxHp - cut - 15);
+    expect(a.hp).toBe(a.stats.maxHp - cut - full);
   });
 
   it('`hunkerUntil` rides the OWN frame only — never a contact, an event, or an enemy\'s frame; omitted until a cut is opened', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 'battleship');
-    const b = place(w, 'b', 'torpedoBoat', 'deckGun', 100, 0); // inside a's sight
+    const a = place(w, 'a', 'yamato', 'hunker');
+    const b = place(w, 'b', 'bismarck', DEFAULT_SHIFT, 100, 0); // inside a's sight
     expect('hunkerUntil' in buildFrame(w, 'a').you!).toBe(false); // nothing opened yet
     pressShift(w, 'a', 1);
     const own = buildFrame(w, 'a');
@@ -234,42 +227,18 @@ describe('HUNKER — the Battleship\'s Shift (amendments 99–102)', () => {
   });
 });
 
-// ---------- THE NINE-COMBO PIN ------------------------------------------------
+// ---------- every hull × every Shift ------------------------------------------
 
-describe('every hull × every gun (the nine-combo pin)', () => {
-  // Each gun's BASE damage per shell, read off CONFIG. The click lands on the
-  // target's centre at 300 u (inside half of every gun's reach — no range
-  // attenuation), so the flak rim (D at the centre) takes nothing off. The
-  // cannon fires its TWO barrels per click (Story 9.12), both on the target.
-  const EXPECTED_DAMAGE: Record<GunId, number> = {
-    deckGun: CONFIG.gun.damage,
-    machineGun: CONFIG.machineGun.damage,
-    flak: CONFIG.flak.damage,
-  };
-  const EXPECTED_FAMILY: Record<GunId, string> = { deckGun: 'cannon', machineGun: 'mg', flak: 'flak' };
-
+describe('every hull × every Shift (Story 10.4)', () => {
   for (const hull of SHIP_CLASS_IDS) {
-    for (const gun of GUN_IDS) {
-      it(`${hull} × ${gun}: slot 0 mounts ${MOUNTED_GUN[gun]}, each shell lands ${EXPECTED_DAMAGE[gun]}, reveals w:'${EXPECTED_FAMILY[gun]}', slot 1 holds ${classShift(hull)}`, () => {
+    for (const shift of SHIFT_IDS) {
+      it(`${hull} × ${shift}: slot 0 mounts the main battery (one pool entry per turret), slot 1 the seat's Shift`, () => {
         const w = bareWorld();
-        const a = place(w, 'a', hull, gun);
-        const target = place(w, 't', 'battleship', 'deckGun', 300, 0, Math.PI / 2); // broadside-on at 300 u
-        expect(a.loadout[SLOT_GUN].equipmentId).toBe(MOUNTED_GUN[gun]);
-        expect(a.loadout[SLOT_BOOST].equipmentId).toBe(classShift(hull));
-        // Cannon and flak: one click at the target. Machine gun: one held sample.
-        const held = gun === 'machineGun';
-        w.submitInput('a', makeInput({ seq: 1, fireSeq: held ? 0 : 1, aimDist: 300, held }));
-        const log: GameEvent[] = [];
-        for (let i = 0; i < 40 && target.hp === target.stats.maxHp; i++) {
-          if (i > 0) w.submitInput('a', makeInput({ seq: i + 1, fireSeq: held ? 0 : 1, aimDist: 300, held: false }));
-          w.step();
-          log.push(...w.tickEvents);
-        }
-        const shells = gun === 'deckGun' ? a.stats.equipment.gun.barrels : 1; // one click / one held sample
-        expect(target.hp).toBe(target.stats.maxHp - shells * EXPECTED_DAMAGE[gun]);
-        expect(log.filter((e) => e.k === 'shell')).toHaveLength(shells);
-        for (const e of log) if (e.k === 'shell') expect(e.w).toBe(EXPECTED_FAMILY[gun]);
-        expect(log.filter((e) => e.k === 'hc')).toHaveLength(shells);
+        const a = place(w, 'a', hull, shift);
+        expect(a.loadout[SLOT_GUN].equipmentId).toBe('mainBattery');
+        expect(a.loadout[SLOT_GUN].state).toEqual({ n: a.turrets.length, reloadMsLeft: 0 });
+        expect(a.turrets.length).toBe(a.stats.equipment.mainBattery.maxAmmo);
+        expect(a.loadout[SLOT_BOOST].equipmentId).toBe(shift);
       });
     }
   }

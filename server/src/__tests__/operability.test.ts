@@ -30,7 +30,7 @@ const SUMMARY: MatchEndSummary = {
   rosterSize: 6,
   rosterByClass: { torpedoBoat: 2, battleship: 2, droneSmall: 2 },
   durationS: 42.5,
-  winnerClass: 'torpedoBoat',
+  winnerClass: 'bismarck',
   killsByClass: { torpedoBoat: 5, battleship: 0, droneSmall: 0 },
   pveKillsByClass: { droneSmall: 3 }, // operator-only (amendment 44) — keyed by VICTIM hull
   stormDeaths: 1,

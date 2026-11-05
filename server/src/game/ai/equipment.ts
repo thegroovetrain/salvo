@@ -65,6 +65,7 @@ import {
 } from './utility.js';
 import type { BotProfile } from './profiles.js';
 import { LONGEST_HULL_U, TRACK_PERSIST_MS, trackVelocity } from './plot.js';
+import { mainBatteryTactic } from './battery.js';
 import {
   APPETITE_EAGER,
   APPETITE_NEUTRAL,
@@ -691,6 +692,7 @@ export const WEAPON_TACTICS: Readonly<Record<WeaponLineId, EquipmentTactic>> = d
   gun: gunTactic,
   machineGun: machineGunTactic,
   flak: flakTactic,
+  mainBattery: mainBatteryTactic, // Story 10.4: the captain's slot 0 (ai/battery.ts)
   heavyTorpedo: torpedoTactic,
   lightTorpedo: lightTorpedoTactic,
   navalMines: mineTactic,

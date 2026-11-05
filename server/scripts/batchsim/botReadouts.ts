@@ -88,9 +88,10 @@ export interface BotReadouts {
    *  (shell / burst / torpedo / mine / burn / storm / contact / grind;
    *  'unknown' when the record or the stamp is gone). Sums to `kills`. */
   killsBySource: Record<string, number>;
-  /** Deck-gun shells this bot put in the air (cannon row, MG, flak — never a
+  /** Slot-0 gun shells this bot put in the air (the main battery and the
+   *  secondaries since Story 10.4; the cannon row, MG, flak — never a
    *  broadside, star, phosphor or fouling shell): the denominator for the
-   *  two counters below. Per SHELL, so a two-barrel cannon click is two. */
+   *  two counters below. Per SHELL, so a three-gun turret salvo is three. */
   gunShells: number;
   /** Shells (any gun-pattern shell with an aim point) whose aim point fell
    *  within CONFIG.buoy.sizeU + CONFIG.vision.radarCellU of an ENEMY decoy
@@ -190,15 +191,21 @@ const bump = (rec: Record<string, number>, key: string, by = 1): void => {
   rec[key] = (rec[key] ?? 0) + by;
 };
 
-/** True for a DECK-GUN ROW shell (the cannon's own volley, the MG, the flak):
+/** True for a SLOT-0 GUN shell — the captain's MAIN BATTERY (Story 10.4), the
+ *  drones' cannon, and any `mg` / `flak` round (the secondaries fly `mg`):
  *  keyed on the family AND the row's own fields, because the broadside, the
  *  star / phosphor / fouling shells all fly `family: 'cannon'` and also lack
- *  `attenRangeU`. The tagged three carry `lit` / `burn` / `foul`; the broadside
- *  carries CONFIG.broadside.hits, never the cannon row's CONFIG.gun.hits. */
+ *  `attenRangeU`. The tagged three carry `lit` / `burn` / `foul`. The cannon
+ *  row is CONFIG.gun.hits. The main battery shares its mask object with the
+ *  broadside, so it is told apart by the broadside's own rule — a broadside
+ *  interceptor takes the shell's full damage (contactDamage === damage) and
+ *  a broadside shell never carries `attenRangeU`; a main-battery shell has a
+ *  smaller bodyblock or an attenuation reference. */
 export function isDeckGunShell(s: ShellState): boolean {
   if (s.family === null || s.kind !== 'shell') return false;
   if (s.lit !== undefined || s.burn !== undefined || s.foul !== undefined) return false;
-  return s.family !== 'cannon' || s.hits === CONFIG.gun.hits;
+  if (s.family !== 'cannon' || s.hits === CONFIG.gun.hits) return true;
+  return s.hits === CONFIG.mainBattery.hits && (s.attenRangeU !== undefined || s.contactDamage !== s.damage);
 }
 
 /** Ticks a landContact run must last to count as a stuck episode. */

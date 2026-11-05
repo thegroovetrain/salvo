@@ -22,7 +22,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { CONFIG, CATALOG, MULLIGAN_CHOICE, SLOT_COUNT, boonStackCount, isStubLine, type LineId } from '@salvo/shared';
-import { DEFAULT_GUN } from '@salvo/shared';
+import { DEFAULT_SHIFT } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 
@@ -37,13 +37,13 @@ function bareWorld(seed = 4, opts = {}): World {
 }
 
 /** A captain drawing from the common pool on the default seat gun. */
-function captain(w: World, id: string, hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat'): ShipRecord {
+function captain(w: World, id: string, hull: 'bismarck' | 'yamato' | 'warspite' = 'bismarck'): ShipRecord {
   return w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
 }
 
 /** An AI captain (a participant, never a human) — the same economy. */
 function bot(w: World, id: string): ShipRecord {
-  return w.addShip(id, id.toUpperCase(), 'bot', 'torpedoBoat', undefined, undefined);
+  return w.addShip(id, id.toUpperCase(), 'bot', 'bismarck', undefined, undefined);
 }
 
 /** A PvE fleet hull — world content, never draws, no economy. */
@@ -65,7 +65,7 @@ describe('grantOpening — one banked level and a guaranteed hand, participants 
   it('captains and bots bank LV 0 / pts 1 / xp 0 / offer[4]; fleet hulls get NOTHING', () => {
     const w = bareWorld();
     const a = captain(w, 'a');
-    const b = captain(w, 'b', 'battleship');
+    const b = captain(w, 'b', 'yamato');
     const ai = bot(w, 'bot-1');
     const drone = fleet(w, 'fleet-1');
 
@@ -89,7 +89,7 @@ describe('grantOpening — one banked level and a guaranteed hand, participants 
     // The first offer must never be four ladders on a hull with no weapon —
     // card 0 is drawn uniformly over the usable lines (amendment 93: level
     // zero and its redraw only).
-    for (const hull of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
+    for (const hull of ['bismarck', 'yamato', 'warspite'] as const) {
       for (let seed = 1; seed <= 12; seed += 1) {
         const w = bareWorld(seed);
         const a = captain(w, 'a', hull);
@@ -129,7 +129,7 @@ describe('grantOpening — one banked level and a guaranteed hand, participants 
   // is not a state production can reach.
   it('an all-stub catalog is the ONLY empty draw, and it banks the level in silence', () => {
     const w = bareWorld(4, { catalog: { ghost: { id: 'ghost', kind: 'consumable', cap: 5, stub: true, tiers: [] } } });
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     w.grantOpening();
     expect(a.bankedLevels).toBe(1);
     expect(a.offer).toBeNull(); // an offer-less level advertises no refit
@@ -418,9 +418,9 @@ function fitted(
   w: World,
   id: string,
   fit: readonly string[],
-  hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
+  hull: 'bismarck' | 'yamato' | 'warspite' = 'bismarck',
 ): ShipRecord {
-  return w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, DEFAULT_GUN, undefined, fit);
+  return w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined, DEFAULT_SHIFT, undefined, fit);
 }
 
 const slotIds = (rec: ShipRecord): (string | null)[] => rec.loadout.map((s) => s.equipmentId);
@@ -429,7 +429,7 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
     const w = bareWorld();
     const a = fitted(w, 'a', ['heavyTorpedo']);
     expect(a.cards).toEqual(['heavyTorpedo']);
-    expect(slotIds(a)).toEqual(['gun', 'boost', 'heavyTorpedo', ...new Array<null>(SLOT_COUNT - 3).fill(null)]);
+    expect(slotIds(a)).toEqual(['mainBattery', 'boost', 'heavyTorpedo', ...new Array<null>(SLOT_COUNT - 3).fill(null)]);
     // A fit is a real fit: the slot arrives LOADED, like any pick (amendment 41).
     expect(a.loadout[2].state).toEqual({ n: a.stats.equipment.heavyTorpedo.maxAmmo, reloadMsLeft: 0 });
     // ...and it goes through applyCard, so it COUNTS AS A TAKE (Story 8.14):
@@ -459,7 +459,7 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
     const w = bareWorld();
     // Story 8.14: with the decks retired there is no per-hull list to pay a
     // copy out of, so a Battleship can be handed the Torpedo Boat's fish.
-    const b = fitted(w, 'b', ['broadside', 'heavyTorpedo', 'starShells'], 'battleship');
+    const b = fitted(w, 'b', ['broadside', 'heavyTorpedo', 'starShells'], 'yamato');
     expect(b.cards).toEqual(['broadside', 'heavyTorpedo', 'starShells']);
     // ...but the line's own cap still bounds it, and an unknown/stub id drops.
     const cap = CATALOG.armor.cap;
@@ -470,13 +470,13 @@ describe('the dev spawn fit — fitOverride, captains only, bounded by the cap',
 
   it('NEVER a bot and NEVER a fleet hull — the same option buys them nothing', () => {
     const w = bareWorld();
-    const ai = w.addShip('bot-1', 'BOT-1', 'bot', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, undefined, ['heavyTorpedo']);
-    const drone = w.addShip('fleet-1', 'FLEET-1', 'fleet', 'droneSmall', undefined, undefined, DEFAULT_GUN, undefined, ['heavyTorpedo']);
+    const ai = w.addShip('bot-1', 'BOT-1', 'bot', 'bismarck', undefined, undefined, DEFAULT_SHIFT, undefined, ['heavyTorpedo']);
+    const drone = w.addShip('fleet-1', 'FLEET-1', 'fleet', 'droneSmall', undefined, undefined, DEFAULT_SHIFT, undefined, ['heavyTorpedo']);
     for (const s of [ai, drone]) {
       expect(s.devFit, s.id).toEqual([]);
       expect(s.cards, s.id).toEqual([]);
     }
-    expect(slotIds(ai)).toEqual(['gun', 'boost', ...new Array<null>(SLOT_COUNT - 2).fill(null)]);
+    expect(slotIds(ai)).toEqual(['mainBattery', 'boost', ...new Array<null>(SLOT_COUNT - 2).fill(null)]);
     expect(slotIds(drone)[1]).toBeNull(); // a drone never even grows a boost
   });
 
@@ -561,7 +561,7 @@ describe('the dev spawn fit — a refused line is logged, not silently dropped (
 
 describe('addShip — an invalid kit is a programming error and throws (Story 10.1 F2)', () => {
   const seat = (w: World, id: string, kit: readonly string[]): ShipRecord =>
-    w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, kit as never);
+    w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined, DEFAULT_SHIFT, kit as never);
 
   it('throws on an empty kit and on a kit with a repeat, seating nothing', () => {
     const w = bareWorld();
@@ -574,6 +574,6 @@ describe('addShip — an invalid kit is a programming error and throws (Story 10
     const w = bareWorld();
     const kit = ['healingBuoy', 'foulingShell', 'hullRepair', 'shieldBlock'];
     expect(seat(w, 'a', kit).kit).toEqual(kit);
-    expect(() => w.addBot('torpedoBoat', undefined, DEFAULT_GUN, [] as never)).toThrow(/addShip: invalid kit/);
+    expect(() => w.addBot('bismarck', undefined, DEFAULT_SHIFT, [] as never)).toThrow(/addShip: invalid kit/);
   });
 });

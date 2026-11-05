@@ -46,7 +46,7 @@ export const AIM_DIST_MAX = 4 * CONFIG.map.baseRadius;
 
 /** Neutral input applied to a ship before its client ever sends one. */
 export function neutralInput(): InputMsg {
-  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
 }
 
 function isFiniteNumber(v: unknown): v is number {
@@ -123,7 +123,10 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
   // same sanitize law as every field above. It is never clamped or coerced:
   // a level is either down or up. The World reads it off the LATEST stored
   // input (never the intent queue) for the machine gun's stream.
-  if (typeof m.held !== 'boolean') return null;
+  // Story 10.4 (R3): the SECONDARIES level (`sec`, right mouse held) is a
+  // REQUIRED boolean under exactly `held`'s grammar — anything else drops the
+  // WHOLE message. Both levels are checked in one helper (complexity budget).
+  if (!levelsValid(m)) return null;
   const seq = m.seq as number;
   if (seq <= lastSeq) return null;
   return {
@@ -138,8 +141,15 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
     actSeq: m.actSeq,
     actSlot: m.actSlot,
     hornSeq: m.hornSeq,
-    held: m.held,
+    held: m.held as boolean,
+    sec: m.sec as boolean,
   };
+}
+
+/** The two LEVEL fields — `held` (Story 8.15) and `sec` (Story 10.4) — are
+ *  required booleans: never clamped, never coerced. */
+function levelsValid(m: Record<string, unknown>): boolean {
+  return typeof m.held === 'boolean' && typeof m.sec === 'boolean';
 }
 
 /** Everything clampFireTime needs to turn a claimed fire time into a safe one. */
@@ -254,7 +264,9 @@ export class InputStore {
    */
   releaseHeld(id: string): void {
     const last = this.latest.get(id);
-    if (last?.held) this.latest.set(id, { ...last, held: false });
+    // Story 10.4: the SECONDARIES level is released by the same path, so a
+    // ghost never streams secondaries through the reconnect grace either.
+    if (last?.held === true || last?.sec === true) this.latest.set(id, { ...last, held: false, sec: false });
   }
 
   /** Forget a client entirely (on leave). */

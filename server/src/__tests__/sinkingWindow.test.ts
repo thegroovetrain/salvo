@@ -19,7 +19,10 @@ import {
   CONFIG,
   consumableSlotFor,
   DEFAULT_KIT,
+  DEFAULT_SHIFT,
   SLOT_BOOST,
+  encodeTurretAngles,
+  turretMounts,
   founderDeadline,
   isAfloat,
   isSinking,
@@ -29,6 +32,7 @@ import {
   type GameEvent,
   type InputMsg,
   type ResultsMsg,
+  type ShiftId,
   type ShipClassId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
@@ -54,9 +58,9 @@ function bareWorld(seed = 11): World {
   return w;
 }
 
-function place(w: World, id: string, x: number, y: number, cls: ShipClassId = 'torpedoBoat'): ShipRecord {
-  // The hull's default deck (Story 8.2): what the door admits for a captain.
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', cls, undefined, undefined);
+function place(w: World, id: string, x: number, y: number, cls: ShipClassId = 'bismarck', shift: ShiftId = DEFAULT_SHIFT): ShipRecord {
+  // The seat's pick (Story 10.4): hull + Shift, as the door admits a captain.
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', cls, undefined, undefined, shift);
   // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
   // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
   // weapon row, so this fixture fits it explicitly through the same applyCard
@@ -81,7 +85,7 @@ function input(seq: number, extra: Partial<InputMsg> = {}): InputMsg {
     fireT: 0,
     actSeq: 0,
     actSlot: 0,
-    hornSeq: 0, held: false,
+    hornSeq: 0, held: false, sec: false,
     ...extra,
   };
 }
@@ -225,16 +229,17 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
     // fit (amendment 22) and was deleted outright in Story 8.16
     // — so this sweep now covers six of the seven rows, and the Battleship's
     // two-line seed covers the fourth slot.
-    // Slot 1 is the hull's CLASS SHIFT since Story 8.15 (amendment 89(c)):
-    // boost / hunker / instantReload — all three ride the sinking window
-    // exactly as the universal boost did (amendment 10).
-    const fits: [ShipClassId, string[]][] = [
-      ['torpedoBoat', ['gun', 'boost', 'heavyTorpedo']],
-      ['battleship', ['gun', 'hunker', 'broadside', 'starShells']],
-      ['mineLayer', ['gun', 'instantReload', 'navalMines']],
+    // Slot 0 is the MAIN BATTERY and slot 1 the SEAT's Shift since Story
+    // 10.4 — boost / hunker / instantReload, one per seat here — and all of
+    // them ride the sinking window exactly as the universal boost did
+    // (amendment 10).
+    const fits: [ShipClassId, ShiftId, string[]][] = [
+      ['bismarck', 'boost', ['mainBattery', 'boost', 'heavyTorpedo']],
+      ['yamato', 'hunker', ['mainBattery', 'hunker', 'broadside', 'starShells']],
+      ['warspite', 'instantReload', ['mainBattery', 'instantReload', 'navalMines']],
     ];
-    for (const [cls, expected] of fits) {
-      const ship = place(w, `s-${cls}`, 0, 0, cls);
+    for (const [cls, shift, expected] of fits) {
+      const ship = place(w, `s-${cls}`, 0, 0, cls, shift);
       ship.input = input(1, { aim: Math.PI / 2, aimDist: 200 }); // abeam: inside the broadside's beam sector
       w.sinkShip(ship.id);
       expect(isSinking(ship.lifecycle)).toBe(true);
@@ -247,14 +252,18 @@ describe('weapons seam (amendment 10) — everything in a slot, plus the foghorn
     }
   });
 
-  it('a real click through the input path fires the gun while sinking', () => {
+  it('a real click through the input path fires the main battery while sinking', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0);
+    const a = place(w, 'a', 0, 0);
     w.respawnEnabled = false;
     w.sinkShip('a');
     w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aim: 0, aimDist: 300 }));
     w.step();
-    expect(w.shells.size).toBe(w.ships.get('a')!.stats.equipment.gun.barrels); // the volley left the tubes
+    // ONE turret fired (R4 — the click always fires when a turret is ready),
+    // and its whole salvo left the barrels: one shell per gun of THAT turret.
+    const fired = a.turrets.flatMap((t, i) => (t.reloadMsLeft > 0 ? [i] : []));
+    expect(fired).toHaveLength(1);
+    expect(w.shells.size).toBe(turretMounts(a.hullId)[fired[0]].guns);
   });
 
   it('the horn still sounds while sinking', () => {
@@ -415,7 +424,9 @@ describe('perceivability (amendments 15/16) — still a contact, still a blip, n
     const b = w.ships.get('b')!;
     const f = buildFrame(w, 'a', 'active');
     expect(f.contacts).toEqual([
-      { id: 'b', x: b.state.x, y: b.state.y, heading: b.state.heading, speed: b.state.speed, cls: 'torpedoBoat' },
+      // ...turret angles included (Story 10.4 `tu`, the live-hull shape — a
+      // sinking hull's turrets hold their angles; nothing names the window).
+      { id: 'b', x: b.state.x, y: b.state.y, heading: b.state.heading, speed: b.state.speed, cls: b.hullId, tu: encodeTurretAngles(b.turrets, b.hullId) },
     ]);
     // NOTHING anywhere in the observer's frame names the window (amendment 16
     // — the `sunk` event is the ruled-public register and carries no window
@@ -433,7 +444,7 @@ describe('perceivability (amendments 15/16) — still a contact, still a blip, n
     w.sinkShip('b', 'a');
     windowAround(a, 0); // beam over b's bearing this tick
     const blips = buildFrame(w, 'a', 'active').events.filter((e) => e.k === 'blip');
-    const c = paintCoverage('torpedoBoat', b.state.x, b.state.y, 0, CONFIG.vision.radarCellU, w.now);
+    const c = paintCoverage('bismarck', b.state.x, b.state.y, 0, CONFIG.vision.radarCellU, w.now);
     expect(blips).toEqual([{ k: 'blip', t: w.now, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits }]);
   });
 

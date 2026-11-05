@@ -53,8 +53,6 @@
 import {
   CATALOG,
   CONFIG,
-  DEFAULT_GUN,
-  MOUNTED_GUN,
   SLOT_COUNT,
   SLOT_GUN,
   boonStackCount,
@@ -144,11 +142,12 @@ function spendableIndices(s: BotSpendState, catalog: Catalog): number[] {
   return out;
 }
 
-/** The equipment row slot 0 carries — the cannon's when the caller supplied
- *  no slots (or slot 0 holds nothing a gun ladder could name). */
+/** The equipment row slot 0 carries — the captain's MAIN BATTERY (Story
+ *  10.4) when the caller supplied no slots (or slot 0 holds nothing a gun
+ *  ladder could name). */
 function mountedGunOf(s: BotSpendState): EquipmentId {
   const g = s.slotIds?.[SLOT_GUN] ?? null;
-  return g === null || isConsumableId(g) ? MOUNTED_GUN[DEFAULT_GUN] : g;
+  return g === null || isConsumableId(g) ? 'mainBattery' : g;
 }
 
 /** Does this line belong to the bot's UPGRADEABLE SET — a ship ladder, a
@@ -291,9 +290,7 @@ function breakTie(ties: readonly number[], rng?: Rng): number | null {
  * to break a tie; a `spend: 'random'` test profile's uniform offer pick
  * consumes it; a random profile handed no rng — only reachable from a
  * hand-built test call, never from the driver, which always threads the
- * mind's spendRng — falls through to the scorer. A `spend: 'gunFirst'`
- * (harness-only) row takes the mounted gun's ladder card when dealt, else the
- * scorer.
+ * mind's spendRng — falls through to the scorer.
  */
 export function chooseSpend(
   profile: BotProfile,
@@ -304,24 +301,7 @@ export function chooseSpend(
   if (s.bankedLevels <= 0) return null;
   if (s.offer === null || s.offer.length === 0) return null;
   if (profile.spend === 'random' && rng !== undefined) return randomSpendable(s, catalog, rng);
-  const gun = profile.spend === 'gunFirst' ? gunLadderIndex(s, catalog) : null;
-  if (gun !== null) return gun;
   return breakTie(topIndices(profile, s, catalog), rng);
-}
-
-/** The `spend: 'gunFirst'` harness mode's pick (batch-sim `--bot-spend gun`):
- *  the first SPENDABLE offer index whose line is the MOUNTED gun's ladder
- *  (a ladder whose host row is slot 0's module — the `deckGun` / `machineGun`
- *  / `flak` card for that seat gun), or null when the hand deals none, and
- *  the caller falls through to the weighted scorer. No rng: deterministic. */
-function gunLadderIndex(s: BotSpendState, catalog: Catalog): number | null {
-  const offer = s.offer ?? [];
-  const mounted = mountedGunOf(s);
-  for (const i of spendableIndices(s, catalog)) {
-    const line = catalog[offer[i]];
-    if (line?.kind === 'ladder' && ladderHost(line) === mounted) return i;
-  }
-  return null;
 }
 
 /** The `spend: 'random'` test profile's uniform pick, over the SPENDABLE cards

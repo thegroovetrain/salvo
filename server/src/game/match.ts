@@ -53,7 +53,7 @@ import {
   CONFIG,
   isAfloat,
   isSinking,
-  type GunId,
+  type ShiftId,
   type HullId,
   type LineId,
   type MatchPhase,
@@ -344,11 +344,11 @@ export interface Participant {
   pveKills: Record<string, number>;
   damageDealt: number;
   /** THE BUILD AND THE HAND LOG (Story 8.21, R3 "leavers yes"): the seat's
-   *  gun, the fitted card ids (fit order, repeats intact), every hand dealt and
+   *  Shift (Story 10.4 — was the gun), the fitted card ids (fit order, repeats intact), every hand dealt and
    *  the levels still unspent — snapshotted with the tallies at leave and at
    *  finish, COPIED (hands deep), so `buildMatchRecord` reads a leaver whose
    *  record is long gone. Server-private: never on `ResultsMsg`. */
-  gun: GunId;
+  shift: ShiftId;
   cards: LineId[];
   hands: HandRecord[];
   bankedLevels: number;
@@ -365,7 +365,7 @@ function participantOf(ship: ShipRecord): Participant {
     kills: ship.kills,
     pveKills: { ...ship.pveKills },
     damageDealt: ship.damageDealt,
-    gun: ship.gun,
+    shift: ship.shift,
     cards: [...ship.cards] as LineId[],
     hands: ship.hands.map((h) => ({ ...h, offered: [...h.offered] })),
     bankedLevels: ship.bankedLevels,
@@ -1160,7 +1160,7 @@ export class Match {
     p.kills = fresh.kills;
     p.pveKills = fresh.pveKills;
     p.damageDealt = fresh.damageDealt;
-    p.gun = fresh.gun;
+    p.shift = fresh.shift;
     p.cards = fresh.cards;
     p.hands = fresh.hands;
     p.bankedLevels = fresh.bankedLevels;

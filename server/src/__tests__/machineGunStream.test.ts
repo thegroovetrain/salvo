@@ -35,6 +35,7 @@ import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
 import { machineGunEquipment } from '../game/equipment/machineGun.js';
 import type { ActivationContext } from '../game/equipment/index.js';
+import { mountDeckGun, neutralize } from './deckGunFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 const MG = CONFIG.machineGun;
@@ -49,13 +50,13 @@ function bareWorld(seed = 15): World {
 
 /** A machine-gun captain parked at (x, y), bow along +x. */
 function gunner(w: World, id: string, x = 0, y = 0, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, 'machineGun');
+  const rec = mountDeckGun(neutralize(w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined)), 'machineGun');
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }
 
 function makeInput(patch: Partial<InputMsg>): InputMsg {
-  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 400, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
+  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 400, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Drive `ticks` ticks with the given level, collecting every tick's events. */
@@ -272,7 +273,7 @@ describe('the stream — one direct shell per rateMs while held (amendment 103)'
   it('a direct hit deals the FULL damage as a contact hit: one `hc`, no burst', () => {
     const w = bareWorld();
     const a = gunner(w, 'a');
-    const b = w.addShip('b', 'B', 'captain', 'battleship', undefined, undefined);
+    const b = neutralize(w.addShip('b', 'B', 'captain', 'yamato', undefined, undefined));
     b.state = { x: 300, y: 0, heading: Math.PI / 2, speed: 0 }; // broadside-on at 300 u
     const log: GameEvent[] = [];
     hold(w, 'a', true, 1, 0, log);
@@ -583,7 +584,7 @@ describe('the stream honours the click channel\'s gates', () => {
 
   it('a CANNON seat ignores the level entirely: held:true on a deck gun fires nothing', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, 'deckGun');
+    const a = mountDeckGun(neutralize(w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined)), 'gun');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const log: GameEvent[] = [];
     hold(w, 'a', true, 20, 0, log);

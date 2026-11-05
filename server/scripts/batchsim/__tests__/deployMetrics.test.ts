@@ -23,7 +23,7 @@ import { addMine } from '../../../src/game/equipment/mines.js';
 describe('botMetrics — placeables that actually reached the water', () => {
   it('counts a real decoy and a real mine against their OWNER, once each', () => {
     const world = new World(11, 20);
-    const bot = world.addBot('mineLayer', undefined);
+    const bot = world.addBot('warspite', undefined);
     const col = new BotCollector([bot.id]);
 
     col.observe(world, 1); // nothing on the water yet
@@ -47,7 +47,7 @@ describe('botMetrics — placeables that actually reached the water', () => {
 
   it('DISCRIMINATES a deployment from a denied request — the whole point', () => {
     const world = new World(12, 20);
-    const bot = world.addBot('mineLayer', undefined);
+    const bot = world.addBot('warspite', undefined);
     const col = new BotCollector([bot.id]);
 
     // The denied-request case, staged directly: the fire sequence advances
@@ -74,8 +74,8 @@ describe('botMetrics — placeables that actually reached the water', () => {
 
   it('ignores a placement owned by someone who is not an enrolled bot', () => {
     const world = new World(13, 20);
-    const bot = world.addBot('mineLayer', undefined);
-    const other = world.addBot('torpedoBoat', undefined);
+    const bot = world.addBot('warspite', undefined);
+    const other = world.addBot('iowa', undefined);
     const col = new BotCollector([bot.id]); // `other` is deliberately NOT enrolled
 
     addMine(world.mines, other.id, 300, 300, world.now, 'm7');

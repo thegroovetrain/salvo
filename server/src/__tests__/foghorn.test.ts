@@ -223,7 +223,7 @@ describe('world — foghorn emission (hornSeq grammar, the actSeq consumption pa
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     expect(a.horn).toBe(DEFAULT_HORN_ID);
-    const b = w.addShip('b', 'B', 'captain', 'torpedoBoat', 'standard', undefined);
+    const b = w.addShip('b', 'B', 'captain', 'bismarck', 'standard', undefined);
     expect(b.horn).toBe('standard');
   });
 });

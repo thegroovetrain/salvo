@@ -14,8 +14,8 @@
 // construction.
 
 import { CloseCode, ErrorCode, matchMaker, type Client } from 'colyseus';
-import { sanitizeClassId, sanitizeHornId, MSG, type ConsumableKit, type GunId } from '@salvo/shared';
-import { sanitizeColorPref, sanitizeName, type JoinOptions } from './roomOptions.js';
+import { sanitizeClassId, sanitizeHornId, MSG, type ConsumableKit, type ShiftId } from '@salvo/shared';
+import { sanitizeName, type JoinOptions } from './roomOptions.js';
 import type { LogFields, Logger } from '../log.js';
 
 /** The room name captains are seated into — must match app.config.ts. */
@@ -45,16 +45,17 @@ export interface SeatedCaptain {
    */
   options: JoinOptions;
   /**
-   * THE FROZEN GUN (Story 8.14, amendment 95): which gun this captain picked,
-   * sanitized at the front door and written into the seat reservation's
+   * THE FROZEN SHIFT (Story 10.4 — the frozen gun's successor, Story 8.14
+   * amendment 95): which Shift this captain picked, sanitized at the front
+   * door (`sanitizeShift`) and written into the seat reservation's
    * SERVER-ONLY `auth` payload — never into `options`, which a client can
-   * shape. ArenaRoom.onJoin reads it back off `client.auth.gun`.
+   * shape. ArenaRoom.onJoin reads it back off `client.auth.shift`.
    */
-  gun: GunId;
+  shift: ShiftId;
   /**
    * THE FROZEN KIT (Story 10.1, epic-10 amendment 3): the captain's four
    * consumable lines, sanitized at the front door (`sanitizeKit`) and written
-   * into the same server-only `auth` payload as the gun. ArenaRoom.onJoin
+   * into the same server-only `auth` payload as the Shift. ArenaRoom.onJoin
    * reads it back off `client.auth.kit`.
    */
   kit: ConsumableKit;
@@ -79,13 +80,13 @@ export interface FormArenaRequest {
  * — a static `onAuth` returning the bare verdict `true` is mapped to
  * `undefined` by @colyseus/core 0.18.13's `callOnAuth`, and `_onJoin` assigns
  * only a TRUTHY `authData`; Epic 9 puts the account there) plus the frozen
- * GUN and KIT (Story 10.1). Only an OBJECT is spread: a primitive verdict would otherwise be lost
+ * SHIFT (Story 10.4) and KIT (Story 10.1). Only an OBJECT is spread: a primitive verdict would otherwise be lost
  * silently and a hostile shape can never reach here (auth is server-written).
  */
-export function seatAuth(client: Client, gun: GunId, kit: ConsumableKit): Record<string, unknown> {
+export function seatAuth(client: Client, shift: ShiftId, kit: ConsumableKit): Record<string, unknown> {
   const base: unknown = client.auth;
   const carried = typeof base === 'object' && base !== null ? (base as Record<string, unknown>) : {};
-  return { ...carried, gun, kit: [...kit] };
+  return { ...carried, shift, kit: [...kit] };
 }
 
 /**
@@ -113,14 +114,13 @@ export function sanitizeArenaOptions(options: JoinOptions): JoinOptions {
     name: sanitizeName(options.name),
     cls: sanitizeClassId(options.cls),
     horn: sanitizeHornId(options.horn),
-    colorPref: sanitizeColorPref(options.colorPref),
   };
-  // THE GUN DOES NOT TRAVEL IN `options` (Story 8.14): like the deck before
-  // it, it rides the seat's server-only `auth` — see seatAuth — so the arena
-  // never re-reads a client-shapeable gun off a seated captain. Deck-shaped
-  // keys (`deck`, `deckId`, `deckOverride`) are gone entirely and are dropped
-  // here like any other unknown key. THE KIT (Story 10.1) follows the gun
-  // byte for byte: it rides `auth`, never `options`, and is dropped here.
+  // THE SHIFT DOES NOT TRAVEL IN `options` (Story 10.4, the gun's rule from
+  // Story 8.14): it rides the seat's server-only `auth` — see seatAuth — so
+  // the arena never re-reads a client-shapeable pick off a seated captain.
+  // Deck-shaped keys, the legacy `gun` and the retired `colorPref` (Story
+  // 10.4, R6) are dropped here like any other unknown key. THE KIT (Story
+  // 10.1) follows the Shift byte for byte: it rides `auth`, never `options`.
   return out;
 }
 
@@ -133,7 +133,7 @@ export function sanitizeArenaOptions(options: JoinOptions): JoinOptions {
 export async function formArena(req: FormArenaRequest): Promise<boolean> {
   try {
     const arena = await matchMaker.createRoom(ARENA_ROOM, req.createOptions);
-    // THE GUN RIDES `auth`, NEVER `options` (Story 8.14): the arena cannot
+    // THE SHIFT RIDES `auth`, NEVER `options` (Story 8.14 / 10.4): the arena cannot
     // tell a reservation's options from a direct join's, but a reservation's
     // `auth` is written only by server code and surfaces as `client.auth` in
     // ArenaRoom.onJoin. Verified against @colyseus/core 0.18.13:
@@ -143,7 +143,7 @@ export async function formArena(req: FormArenaRequest): Promise<boolean> {
     // onJoin :1125.
     const reserved = await matchMaker.reserveMultipleSeatsFor(
       arena,
-      req.seated.map((p) => ({ sessionId: p.client.sessionId, options: p.options, auth: seatAuth(p.client, p.gun, p.kit) })),
+      req.seated.map((p) => ({ sessionId: p.client.sessionId, options: p.options, auth: seatAuth(p.client, p.shift, p.kit) })),
     );
     deliverSeats(req, arena, reserved);
     return true;

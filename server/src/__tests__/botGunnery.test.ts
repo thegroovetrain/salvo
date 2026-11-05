@@ -96,16 +96,24 @@ function buildRig(start: { x: number; y: number }): Rig {
   // still cast radar shadows: install genuinely open ocean.
   w.map.heightRaster = flatRaster(1000);
   assertOpenOcean(w);
-  const bot = w.addBot('torpedoBoat', 'duelist', 'machineGun');
+  const bot = w.addBot('bismarck', 'duelist');
   // MG-only: every slot but 0 is emptied, so hp lost is machine-gun damage.
+  // Since Story 10.4 no captain MOUNTS the machine gun (slot 0 is the main
+  // battery); these pins measure the bot's PLOT ESTIMATOR and LEAD through the
+  // machine gun's stream, so the rig fits the drone-era MG module into slot 0
+  // by hand (a fixture, not a fit any production path makes). The
+  // secondaries are held locked every tick (reseat) so no second 'mg'
+  // stream confounds the count.
   bot.loadout.forEach((_slot, i) => {
-    if (i !== 0) bot.loadout[i] = { equipmentId: null, state: null };
+    bot.loadout[i] = i === 0
+      ? { equipmentId: 'machineGun', state: { n: bot.stats.equipment.machineGun.maxAmmo, reloadMsLeft: 0 } }
+      : { equipmentId: null, state: null };
   });
   widenForDoctrine(bot);
   bot.state.x = 0;
   bot.state.y = 0;
   bot.prevPose = { ...bot.state };
-  const tgt = w.addShip('tgt', 'TGT', 'captain', 'torpedoBoat', undefined, start);
+  const tgt = w.addShip('tgt', 'TGT', 'captain', 'bismarck', undefined, start);
   const minds = (w.bots as unknown as { minds: Map<string, BotMind> }).minds;
   return { w, foreign: 0, bot, tgt, minds, seq: 0 };
 }
@@ -113,6 +121,8 @@ function buildRig(start: { x: number; y: number }): Rig {
 /** Pin the bot in place (heading stays free) and re-seat the target. */
 function reseat(rig: Rig, pose: Pose): void {
   const { bot, tgt } = rig;
+  bot.sec.heat = 1; // the secondaries stay dark (see buildRig)
+  bot.sec.locked = true;
   bot.state.x = 0;
   bot.state.y = 0;
   bot.state.speed = 0;
@@ -126,7 +136,7 @@ function pushTargetInput(rig: Rig, throttle: number): void {
   rig.seq += 1;
   rig.w.submitInput('tgt', {
     seq: rig.seq, throttle, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0,
-    fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
+    fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
   });
 }
 

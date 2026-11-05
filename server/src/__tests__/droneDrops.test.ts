@@ -54,7 +54,7 @@ function place(
   id: string,
   x = 0,
   y = 0,
-  hull: HullId = 'torpedoBoat',
+  hull: HullId = 'bismarck',
   role: 'captain' | 'fleet' | 'bot' = 'captain',
   kit: ConsumableKit = KIT,
 ): ShipRecord {
@@ -309,7 +309,7 @@ describe('drone drops — the eligible set is the refit card\'s predicate', () =
 describe('drone drops — who rolls', () => {
   it('a BOT killer gets the copy by the same rule', () => {
     const w = bareWorld();
-    const bot = place(w, 'bot1', 0, 0, 'torpedoBoat', 'bot');
+    const bot = place(w, 'bot1', 0, 0, 'bismarck', 'bot');
     const before = [...bot.cards];
     const d = place(w, 'd', 200, 0, 'droneSmall', 'fleet');
     scriptDrops(w, [PASS], [0]);
@@ -360,7 +360,7 @@ describe('drone drops — who rolls', () => {
   it('a BOT victim rolls nothing either', () => {
     const w = bareWorld();
     const a = place(w, 'a');
-    place(w, 'bot1', 100, 0, 'torpedoBoat', 'bot');
+    place(w, 'bot1', 100, 0, 'bismarck', 'bot');
     const log = scriptDrops(w, []);
     w.sinkShip('bot1', 'a');
     expect(log.coins).toBe(0);
@@ -401,7 +401,7 @@ describe('drone drops — determinism and stream isolation', () => {
       // The killer's own draw stream: three draws off it now must match the twin.
       const aDraws = [a.drawRng.next(), a.drawRng.next(), a.drawRng.next()];
       // The spawn stream: a fresh join lands where it would have.
-      const late = w.addShip('late', 'LATE', 'captain', 'torpedoBoat', undefined, undefined);
+      const late = w.addShip('late', 'LATE', 'captain', 'bismarck', undefined, undefined);
       // Another captain's first offer (a human kill banks a level).
       w.sinkShip('v', 'c');
       return { cards: [...a.cards], aDraws, spawn: { x: late.state.x, y: late.state.y }, offer: c.offer };
@@ -503,7 +503,7 @@ describe('drone drops — confined to the captain\'s four (Story 10.1, Eric ruli
    *  narrow the set for a reason other than the kit). Returns every line dropped. */
   function dropsFor(kit: ConsumableKit, seed: number): Set<string> {
     const w = bareWorld(seed);
-    const a = place(w, 'a', 0, 0, 'torpedoBoat', 'captain', kit);
+    const a = place(w, 'a', 0, 0, 'bismarck', 'captain', kit);
     const seen = new Set<string>();
     for (let i = 0; i < ROLLS; i += 1) {
       pickDrop(w, a);

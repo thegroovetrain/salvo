@@ -25,14 +25,14 @@
 import {
   CATALOG,
   CONFIG,
-  GUN_IDS,
+  SHIFT_IDS,
   SHIP_CLASS_IDS,
   mulberry32,
   rollKit,
   zoneClosedAtMs,
   zoneGroups,
   type ConsumableKit,
-  type GunId,
+  type ShiftId,
   type ShipClassId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../../src/game/world.js';
@@ -63,7 +63,7 @@ const COUNTDOWN_MS = 1000;
 const ZONE_SEED_ORDINAL = 0x7a0e;
 /** mixSeed ordinal reserved for a match's BOT-GUN stream (Story 8.15) — outside
  *  the captain band (0x100 + i) and the zone band (ZONE_SEED_ORDINAL + ring). */
-const BOT_GUN_SEED_ORDINAL = 0x6a4e;
+const BOT_SHIFT_SEED_ORDINAL = 0x6a4e;
 /** mixSeed ordinal reserved for a match's BOT-KIT stream (Story 10.1) — its own
  *  stream beside the gun's, so rolling kits moves no other roll. Outside the
  *  captain band (0x100 + i), the zone band and the bot-gun ordinal. */
@@ -82,8 +82,8 @@ export interface RunSpec {
   bots?: number;
   /**
    * TEST-ONLY profile forcing (Story 7-6 wave 4): a TestProfileId forces every
-   * bot onto that row; the 'random' scheme deals the three test rows
-   * round-robin (TB, BS, ML). Validated upstream by args.ts — only test ids
+   * bot onto that row; the 'random' scheme deals the test rows round-robin
+   * (one per hull, hull order). Validated upstream by args.ts — only test ids
    * ever arrive here, so the in-game rolled path (undefined) is the only way
    * an in-game profile is assigned. A forced profile governs the hull, so
    * addBot is called with the profile alone.
@@ -96,18 +96,18 @@ export interface RunSpec {
    *  (BotController.spend — the engage-gate seam's sibling). Default
    *  undefined = 'profile', the shipped weighted policy, byte-identical.
    *  'gun' takes the mounted gun's ladder card whenever dealt, else weighted. */
-  botSpend?: 'profile' | 'random' | 'gun';
+  botSpend?: 'profile' | 'random';
   /** Force every rolled-path bot's hull (mono-class arms with tuned
    *  temperaments); personalities still roll among all six (Story 8.20: any
    *  personality on any hull). args.ts
    *  refuses the combinations this would contradict (--bot-profile, --roster
    *  even). */
   botHull?: ShipClassId;
-  /** FORCED GUN for every bot (Story 8.15, `--gun`). Undefined = production's
-   *  rule: each bot mounts a gun drawn UNIFORMLY off a seeded per-match stream
-   *  (the ArenaRoom.buildBotFleet rule, amendment 109), so a harness run
-   *  fights all three guns exactly as staging does. */
-  botGun?: GunId;
+  /** FORCED SHIFT for every bot (Story 10.4, `--shift` — the `--gun` arm's
+   *  successor). Undefined = production's rule: each bot picks a Shift drawn
+   *  UNIFORMLY off a seeded per-match stream (the ArenaRoom.buildBotFleet
+   *  rule), so a harness run fights every Shift exactly as staging does. */
+  botShift?: ShiftId;
   /** Scripted captain control factory; defaults to the storm-pacing pacifist
    *  (CONTROL_REGISTRY.pacifist — the only row there is). */
   control?: ControlFactory;
@@ -165,42 +165,43 @@ export function buildBotLobby(world: World, spec: RunSpec, botCount: number, mat
   if (spec.botEngage !== undefined) world.bots.engage = spec.botEngage;
   // BEFORE any enrollment — the mode is stamped onto each mind at enroll.
   if (spec.botSpend !== undefined) world.bots.spend = spec.botSpend;
-  const guns = botGunDealer(spec, matchSeed);
+  const shifts = botShiftDealer(spec, matchSeed);
   const kits = botKitDealer(matchSeed);
   const ids: string[] = [];
   for (let i = 0; i < botCount; i += 1) {
     const profile = botProfileFor(spec, i, index);
     // WHICH DEALER WINS THE HULL. A forced TEST profile is per-hull
-    // (randomTorpedoBoat / randomBattleship / randomMineLayer), so it governs
-    // the class and the roster policy must not fight it — passing a hull too
-    // would let `--roster even` silently put a randomMineLayer row on a
-    // battleship. On the rolled path (no forcing) a forced --bot-hull beats
+    // (one random* row per hull), so it governs the class and the roster
+    // policy must not fight it — passing a hull too would let `--roster even`
+    // silently put one hull's test row on another hull. On the rolled path
+    // (no forcing) a forced --bot-hull beats
     // the roster deal (args.ts refuses the ambiguous combinations), else the
     // roster policy deals as it does for captains.
     // Bots draw from the SAME common pool a captain draws from (Story 8.14)
-    // and MOUNT A GUN (Story 8.15): the forced --gun, else a seeded uniform
-    // draw — production's rule (see botGunDealer).
+    // and PICK A SHIFT (Story 10.4): the forced --shift, else a seeded uniform
+    // draw — production's rule (see botShiftDealer).
     const hull = profile === undefined ? (spec.botHull ?? botHull(spec, index, i)) : undefined;
     // ...and CARRY A RANDOM FOUR (Story 10.1, ruling 6) off the kit stream.
-    ids.push(world.addBot(hull, profile, guns(), kits()).id);
+    ids.push(world.addBot(hull, profile, shifts(), kits()).id);
   }
   return ids;
 }
 
 /**
- * THE BOT GUN DEAL (Story 8.15, amendment 109). `--gun` forces every bot onto
- * one gun; without it each bot draws one of GUN_IDS UNIFORMLY off a stream
- * seeded from the MATCH seed on its own ordinal — the mirror of
- * ArenaRoom.buildBotFleet's seeded draw, so a harness lobby fights the gun mix
- * staging fights, and the deal is part of the reproducible run key. A stream
- * of its own, never the World's or the controller's: drawing guns must not
- * move any other roll. Exported for the determinism pin.
+ * THE BOT SHIFT DEAL (Story 10.4 — the Story 8.15 gun deal's successor, on
+ * the same seed ordinal). `--shift` forces every bot onto one Shift; without
+ * it each bot draws one of SHIFT_IDS UNIFORMLY off a stream seeded from the
+ * MATCH seed on its own ordinal — the mirror of ArenaRoom.buildBotFleet's
+ * seeded draw, so a harness lobby fights the Shift mix staging fights, and the
+ * deal is part of the reproducible run key. A stream of its own, never the
+ * World's or the controller's: drawing Shifts must not move any other roll.
+ * Exported for the determinism pin.
  */
-export function botGunDealer(spec: Pick<RunSpec, 'botGun'>, matchSeed: number): () => GunId {
-  const forced = spec.botGun;
+export function botShiftDealer(spec: Pick<RunSpec, 'botShift'>, matchSeed: number): () => ShiftId {
+  const forced = spec.botShift;
   if (forced !== undefined) return () => forced;
-  const rng = mulberry32(mixSeed(matchSeed, BOT_GUN_SEED_ORDINAL));
-  return () => GUN_IDS[rng.int(0, GUN_IDS.length - 1)];
+  const rng = mulberry32(mixSeed(matchSeed, BOT_SHIFT_SEED_ORDINAL));
+  return () => SHIFT_IDS[rng.int(0, SHIFT_IDS.length - 1)];
 }
 
 /**

@@ -27,7 +27,7 @@
 // walks any dotted path, array indices included). map.baseRadius joins for the
 // 3.1 map-radius × ring evidence sweeps (amendment 7).
 
-import { CATALOG, CONFIG, TERRAIN_PARAMS, effectiveStats } from '@salvo/shared';
+import { CATALOG, CONFIG, SHIP_CLASS_IDS, TERRAIN_PARAMS, effectiveStats } from '@salvo/shared';
 
 /** Unknown / non-tunable / non-numeric --set key — main prints and exits 2. */
 export class TunableError extends Error {}
@@ -63,6 +63,16 @@ export function isTunableKey(key: string): boolean {
 // deleted in Story 8.16) are in.
 // Keep this list in step with the top-level equipment blocks of CONFIG.
 const TUNE_FAMILIES = [
+  // THE MAIN BATTERY and THE SECONDARIES (Story 10.4, epic-10 amendment 9 R2/
+  // R3): the captain's turret battery (reach, per-turret reload, traverse,
+  // on-target tolerance, the shell) and the heat-limited secondaries (damage,
+  // rate, heat clocks, reach fraction, the round). `mainBattery.reloadMs` is
+  // floored by the reload suffix rule, `rangeU` / `shellSpeed` by their leaf;
+  // the three secondaries clocks are floored by exact key
+  // (TUNE_MIN_ONE_KEYS) — the heat stepper divides by them.
+  'mainBattery.',
+  'secondaries.',
+  // The deck gun — the PvE drones' gun since Story 10.4 (no captain mounts it).
   'gun.',
   // Story 8.15: the two pickable guns and the two new class Shifts — every
   // number Eric ruled for them is a harness dial (amendments 97-105).
@@ -485,6 +495,11 @@ const TUNE_MIN_ONE_LEAVES = new Set([
  *  flip from the hull outward). The pair relations (start < knee < radar, rim ≤ knee
  *  probability) are refused on the finished CONFIG in validateDropoutCurve. */
 const TUNE_MIN_ONE_KEYS = new Set([
+  // Story 10.4: the secondaries' heat clocks and cadence (sim/secondaries.ts
+  // divides by the two heat clocks; a 0 rate is a round every step).
+  'secondaries.rateMs',
+  'secondaries.overheatMs',
+  'secondaries.coolMs',
   'vision.dropout.startU',
   'vision.dropout.kneeU',
   // THE FOG FIELD (Story 9.10) — see the `fog.` family note in TUNE_FAMILIES.
@@ -748,8 +763,8 @@ function validateUnitInterval(key: string, value: number): void {
  * at the worst case the ladder can reach: `effectiveStats()` on a class with
  * RELOAD stacked to `CATALOG.reload.cap` copies, which is CONFIG-live so a
  * tuned `boost.reloadMs`/`boost.durationMs` is exactly what gets folded. The
- * class chosen (torpedoBoat) is arbitrary — the boost row carries no
- * per-class numbers (see boostRow) — so any class would fold identically.
+ * Since Story 10.4 the hulls' RELOAD indices differ and the Shift is any
+ * seat's pick, so the check folds EVERY hull and binds the shortest result.
  *
  * `boost.maxAmmo` (Story 8.9 REVIEW, Edge Case Hunter): the reload/duration
  * relation assumes a single charge. A second charge lets a mid-window tap
@@ -777,10 +792,13 @@ function validateCrossKeyInvariants(): void {
     );
   }
   const rawReloadMs = CONFIG.boost.reloadMs;
-  const maxedReloadMs = effectiveStats(
-    CONFIG.shipClasses.torpedoBoat,
-    Array.from({ length: CATALOG.reload.cap }, () => 'reload'),
-  ).equipment.boost.reloadMs;
+  // Story 10.4: the Shift is any seat's pick, so the check binds the hull
+  // whose maxed reload is SHORTEST (the highest RELOAD index) — every hull.
+  const maxedReloadMs = Math.min(
+    ...SHIP_CLASS_IDS.map(
+      (id) => effectiveStats(CONFIG.shipClasses[id], Array.from({ length: CATALOG.reload.cap }, () => 'reload')).equipment.boost.reloadMs,
+    ),
+  );
   if (maxedReloadMs < durationMs) {
     throw new TunableError(
       `'boost.reloadMs' × the RELOAD ladder at cap must stay >= 'boost.durationMs' (raw ${rawReloadMs} ` +

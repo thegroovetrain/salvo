@@ -7,14 +7,14 @@
 // a fixed seed or scripted input.
 
 import { describe, it, expect } from 'vitest';
-import { isAfloat, CATALOG, CONFIG, SLOT_BOOST, SLOT_COUNT, consumableSlotFor, effectiveStats, type InputMsg, type ShipClassId } from '@salvo/shared';
+import { isAfloat, CATALOG, CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, SHIFT_IDS, SHIP_CLASS_IDS, SLOT_BOOST, SLOT_COUNT, consumableSlotFor, effectiveStats, type InputMsg, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { buildFrame } from '../game/frames.js';
 
 const DT = CONFIG.tick.simDtMs;
 const BOOST = CONFIG.boost;
-const TB_MAX = effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics.maxSpeed; // 45
+const TB_MAX = effectiveStats(CONFIG.shipClasses.bismarck).kinematics.maxSpeed; // 45
 // SLOT_BOOST is now SHARED (= 1): since Story 8.5 the boost sits in the same
 // fixed slot on EVERY captain hull (amendment 23), so this file no longer
 // authors its own constant.
@@ -32,7 +32,7 @@ function bareWorld(seed = 21): World {
 }
 
 /** Add a ship at the origin at a known heading (speed 0). */
-function place(w: World, id: string, hull: ShipClassId = 'torpedoBoat', heading = 0): ShipRecord {
+function place(w: World, id: string, hull: ShipClassId = 'bismarck', heading = 0): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
   // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
@@ -45,12 +45,12 @@ function place(w: World, id: string, hull: ShipClassId = 'torpedoBoat', heading 
 
 /** A full, valid input; fireSeq 0 / actSeq 0 mean no click / no activation. */
 function makeInput(patch: Partial<InputMsg>): InputMsg {
-  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
+  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Submit an activation press (actSeq advance) for `id`. */
 function pressActivate(w: World, id: string, seq: number, actSeq: number, actSlot: number, throttle = 0): void {
-  w.submitInput(id, makeInput({ seq, throttle, actSeq, actSlot, hornSeq: 0, held: false }));
+  w.submitInput(id, makeInput({ seq, throttle, actSeq, actSlot, hornSeq: 0, held: false, sec: false }));
 }
 
 // ---------- structural invariant ---------------------------------------------
@@ -75,7 +75,7 @@ describe('activate a ready boost (Torpedo Boat, slot 1)', () => {
     pressActivate(w, 'a', 1, 1, SLOT_BOOST);
     w.step(); // applyInputs -> ... -> activationControl fires the boost
     expect(a.boostUntil).toBe(w.now + BOOST.durationMs);
-    expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: BOOST.reloadMs });
+    expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: a.stats.equipment.boost.reloadMs }); // the RELOAD-folded reload
     expect(a.lastActSeq).toBe(1);
   });
 
@@ -276,32 +276,34 @@ describe('actSeq is inert on a weapon or empty slot', () => {
 
 // ---------- THE BOOST IS THE TORPEDO BOAT'S CLASS SHIFT (Story 8.15) -------
 
-describe('the boost is the Torpedo Boat\'s Shift again (Story 8.15, amendment 89(c))', () => {
-  // Story 8.5 (amendment 23) made the boost UNIVERSAL — slot 1 on every
-  // captain. Story 8.15 REVERSED that: hull identity is envelope + a FIXED
-  // class Shift, so the Torpedo Boat keeps SPEED BOOST while the Battleship
-  // fits HUNKER (was DAMAGE CUT until Story 9.9) and the Mine Layer INSTANT RELOAD (both pinned in
-  // shift.test.ts). The boost's own numbers are untouched — a 10 s window on
-  // a 25 s reload (amendment 54).
-  it('a torpedoBoat fits boost in slot 1 and a press opens the CONFIG window on the CONFIG reload', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 'torpedoBoat');
-    expect(a.loadout[SLOT_BOOST].equipmentId).toBe('boost');
-    expect(a.loadout[SLOT_BOOST].state).toEqual({ n: BOOST.maxAmmo, reloadMsLeft: 0 });
-    pressActivate(w, 'a', 1, 1, SLOT_BOOST);
-    w.step();
-    expect(a.boostUntil).toBe(w.now + BOOST.durationMs);
-    expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: BOOST.reloadMs });
-  });
-
-  it.each([['battleship', 'hunker'], ['mineLayer', 'instantReload']] as const)(
-    'a %s no longer carries the boost: slot 1 holds %s, and a Shift press there opens NO boost window',
-    (hull, shift) => {
+describe('the boost is the SEAT\'s Shift pick (Story 10.4 — no longer a class Shift)', () => {
+  // Story 8.15 bound a FIXED Shift to each class; Story 10.4 (epic-10
+  // amendment 9) made the Shift the SEAT's pick: slot 1 mounts whatever the
+  // captain picked on any hull, Speed Boost by default (R7). The boost's own
+  // window and reload law are untouched.
+  it('the default seat fits boost in slot 1 on every hull, and a press opens the CONFIG window', () => {
+    for (const hull of SHIP_CLASS_IDS) {
       const w = bareWorld();
       const a = place(w, 'a', hull);
+      expect(a.shift).toBe(DEFAULT_SHIFT);
+      expect(a.loadout[SLOT_BOOST].equipmentId).toBe(DEFAULT_SHIFT);
+      expect(a.loadout[SLOT_BOOST].state).toEqual({ n: BOOST.maxAmmo, reloadMsLeft: 0 });
+      pressActivate(w, 'a', 1, 1, SLOT_BOOST);
+      w.step();
+      expect(a.boostUntil).toBe(w.now + BOOST.durationMs);
+      expect(a.loadout[SLOT_BOOST].state).toEqual({ n: 0, reloadMsLeft: a.stats.equipment.boost.reloadMs });
+    }
+  });
+
+  it.each(SHIFT_IDS.filter((id) => id !== 'boost'))(
+    'a seat that picked %s carries it in slot 1 and no boost: a Shift press opens NO boost window',
+    (shift) => {
+      const w = bareWorld();
+      const a = w.addShip('a', 'A', 'captain', DEFAULT_CLASS_ID, undefined, undefined, shift);
+      a.state = { x: 0, y: 0, heading: 0, speed: 0 };
       expect(a.loadout[SLOT_BOOST].equipmentId).toBe(shift);
       expect(a.loadout.some((s) => s.equipmentId === 'boost')).toBe(false);
-      const cap = effectiveStats(CONFIG.shipClasses[hull]).kinematics.maxSpeed;
+      const cap = a.stats.kinematics.maxSpeed;
       a.state.speed = cap;
       pressActivate(w, 'a', 1, 1, SLOT_BOOST, 1); // full ahead + the Shift edge
       for (let i = 0; i < 40; i++) w.step();
@@ -382,9 +384,9 @@ describe('the actSeq gate is monotonic', () => {
     expect(openWindow).toBeGreaterThan(0);
     expect(a.lastActSeq).toBe(5);
     // Repeat the SAME counter (5) then a LOWER one (3): neither out-runs lastActSeq.
-    w.submitInput('a', makeInput({ seq: 2, actSeq: 5, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
+    w.submitInput('a', makeInput({ seq: 2, actSeq: 5, actSlot: SLOT_BOOST, hornSeq: 0, held: false, sec: false }));
     w.step();
-    w.submitInput('a', makeInput({ seq: 3, actSeq: 3, actSlot: SLOT_BOOST, hornSeq: 0, held: false }));
+    w.submitInput('a', makeInput({ seq: 3, actSeq: 3, actSlot: SLOT_BOOST, hornSeq: 0, held: false, sec: false }));
     w.step();
     expect(a.lastActSeq).toBe(5); // never regressed
     // Even if the pool had a charge, no NEW activation happened (window unchanged

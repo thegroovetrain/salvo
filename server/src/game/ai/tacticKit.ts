@@ -92,6 +92,7 @@ const BASE_APPETITE: Readonly<Record<EquipmentId, number>> = Object.freeze({
   gun: 0.5,
   machineGun: 0.5,
   flak: 0.5,
+  mainBattery: 0.5, // Story 10.4: the captain's slot 0 — the always-available fallback, tried last
   boost: APPETITE_NEUTRAL,
   instantReload: APPETITE_NEUTRAL,
   hunker: APPETITE_NEUTRAL,
@@ -226,10 +227,17 @@ export function leadPoint(sit: BotSituation, t: BotTrack, speed: number): Vec2 {
  * The mind's rng feeds this and nothing else.
  */
 function scatter(p: Vec2, sit: BotSituation, rng: Rng): Vec2 {
-  const range = Math.hypot(p.x - sit.x, p.y - sit.y);
+  const o = scatterOffset(Math.hypot(p.x - sit.x, p.y - sit.y), rng);
+  return { x: p.x + o.x, y: p.y + o.y };
+}
+
+/** The scatter's OFFSET alone at `range` u (the same two draws, same order)
+ *  — exported so the main battery can HOLD one offset across ticks
+ *  (ai/battery.ts) instead of re-drawing it every tick. */
+export function scatterOffset(range: number, rng: Rng): Vec2 {
   const r = Math.sqrt(rng.next()) * CONFIG.bots.aimScatterU * (range / CONFIG.bots.aimScatterRefU);
   const a = rng.float(0, TAU);
-  return { x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r };
+  return { x: Math.cos(a) * r, y: Math.sin(a) * r };
 }
 
 /** The scattered lead solution for one weapon against one track. */

@@ -35,7 +35,7 @@ function bareWorld(seed = 1009): World {
   return w;
 }
 
-function place(w: World, id: string, x: number, y: number, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
+function place(w: World, id: string, x: number, y: number, hull: ShipClassId = 'bismarck'): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
   rec.state = { x, y, heading: 0, speed: 0 };
   return rec;
@@ -142,7 +142,7 @@ describe('SHIELD BUOY — a ramping second pool, eaten after armor and before th
     const RAW = 60;
     const armoredBlow = (): number => {
       const w = bareWorld();
-      const v = place(w, 'v', 0, 0, 'battleship');
+      const v = place(w, 'v', 0, 0, 'yamato');
       place(w, 'e', 400, 0);
       v.hunkerUntil = w.now + 60_000;
       const before = v.hp;
@@ -155,7 +155,7 @@ describe('SHIELD BUOY — a ramping second pool, eaten after armor and before th
     // A buoy pool BIGGER than the blow eats all of it; the block and the hull are untouched.
     {
       const w = bareWorld();
-      const v = place(w, 'v', 0, 0, 'battleship');
+      const v = place(w, 'v', 0, 0, 'yamato');
       place(w, 'e', 400, 0);
       v.hunkerUntil = w.now + 60_000;
       v.buoyShield = { hpLeft: D + 5, insideAt: w.now };
@@ -169,7 +169,7 @@ describe('SHIELD BUOY — a ramping second pool, eaten after armor and before th
     // A SMALLER buoy pool is spent first (null), the block takes the rest, the hull nothing.
     {
       const w = bareWorld();
-      const v = place(w, 'v', 0, 0, 'battleship');
+      const v = place(w, 'v', 0, 0, 'yamato');
       place(w, 'e', 400, 0);
       v.hunkerUntil = w.now + 60_000;
       v.buoyShield = { hpLeft: 3, insideAt: w.now };

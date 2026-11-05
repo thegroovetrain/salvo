@@ -113,7 +113,7 @@ function activate(h: Harness): void {
 }
 
 function input(seq: number, throttle: number, rudder = 0): unknown {
-  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
 }
 
 // --- dropPolicy --------------------------------------------------------------
@@ -314,7 +314,7 @@ describe('deferred teardown (grace window)', () => {
     activate(h);
     // One click (fireSeq 1) fires once; the SAME held value must not fire again.
     expect(
-      h.w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false }),
+      h.w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false }),
     ).toBe(true);
     step(h); // click consumed this tick (lastFireSeq catches up)
     const shellsAfterClick = h.w.shells.size;
@@ -537,15 +537,14 @@ describe('ArenaRoom.onReconnect (Story 6.7 — the welcome re-send)', () => {
     expect(sent[1]).not.toBe(sent[0]);
   });
 
-  it('THE SECOND-HULL REGRESSION: a resume adds no ship, no roster row, no hue draw', () => {
+  it('THE SECOND-HULL REGRESSION: a resume adds no ship and no roster row', () => {
     const room = resumeRoom();
     const c = resumeClient('alice');
     room.clients.push(c);
-    room.onJoin(c, { name: 'ALICE', cls: 'battleship' });
+    room.onJoin(c, { name: 'ALICE', cls: 'yamato' });
     const shipsAfterJoin = room.world.ships.size;
     const record = room.world.ships.get('alice');
     const meta = room.state.players.get('alice');
-    const hue = meta?.color;
     expect(shipsAfterJoin).toBe(1);
     expect(record).toBeDefined();
 
@@ -555,10 +554,9 @@ describe('ArenaRoom.onReconnect (Story 6.7 — the welcome re-send)', () => {
     // sharing its id (which would silently reset pose, hp, boons and class).
     expect(room.world.ships.size).toBe(shipsAfterJoin);
     expect(room.world.ships.get('alice')).toBe(record);
-    // The roster is untouched: one row, same object, same personal hue.
+    // The roster is untouched: one row, same object.
     expect(room.state.players.size).toBe(1);
     expect(room.state.players.get('alice')).toBe(meta);
-    expect(room.state.players.get('alice')?.color).toBe(hue);
   });
 
   it('is TOTAL — a throwing send is swallowed, because core answers a throw by ABORTING the resume', () => {

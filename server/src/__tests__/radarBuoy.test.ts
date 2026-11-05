@@ -33,7 +33,7 @@ function bareWorld(seed = 1095): World {
 }
 
 function place(w: World, id: string, x: number, y: number): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined);
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined);
   rec.state = { x, y, heading: 0, speed: 0 };
   rec.prevSweepAngle = 2; // every hull's OWN beam parked away from bearing 0 —
   rec.sweepAngle = 2.05; // only a buoy's beam can paint in these cases

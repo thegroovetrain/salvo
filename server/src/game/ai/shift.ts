@@ -1,23 +1,18 @@
-// THE CLASS SHIFTS — the three hull specials, each FIXED on slot 1 by its hull
-// (`CONFIG.shipClasses.<id>.shift`, Story 8.15, amendment 89(c)): SPEED BOOST
-// on the Torpedo Boat, INSTANT RELOAD on the Mine Layer, HUNKER (was DAMAGE CUT until Story 9.9) on the
-// Battleship. All three are abilities on the actSeq channel (chooseAct).
-//
-// `SHIFT_TACTICS` is TOTAL over ShipClassId — a new hull cannot land without a
-// bot row for its Shift (the compiler refuses the record) — and botTactics
-// pins that each hull's row is the Shift its CONFIG entry names. The registry
-// (ai/tacticRegistry.ts) also files the three rows under their own equipment
-// ids in the total EQUIPMENT_TACTICS, which is what a fitted slot resolves
-// through.
+// THE SHIFTS — the three slot-1 specials: SPEED BOOST, INSTANT RELOAD and
+// HUNKER (was DAMAGE CUT until Story 9.9). Since Story 10.4 the Shift is the
+// SEAT's pick (a bot's is dealt by the room), never the hull's, so the rows
+// are keyed by `ShiftId` alone (`SHIFT_ROWS`, TOTAL over ShiftId — a new Shift
+// cannot land without a bot row). All three are abilities on the actSeq
+// channel (chooseAct). The registry (ai/tacticRegistry.ts) files the rows
+// under their own equipment ids in the total EQUIPMENT_TACTICS, which is what
+// a fitted slot resolves through.
 
 import {
   SLOT_GUN,
   WEAPON_SLOTS,
-  classShift,
   isConsumableId,
   type EffectiveStats,
   type ShiftId,
-  type ShipClassId,
 } from '@salvo/shared';
 import type { BotPosture, BotSelf } from './types.js';
 import { gunRangeU, mountedBandOf, mountedGun } from './doctrine.js';
@@ -32,7 +27,7 @@ import {
 } from './tacticKit.js';
 
 // ---------------------------------------------------------------------------
-// SPEED BOOST (the Torpedo Boat's Shift): +25 % of the ladder-raised cap for
+// SPEED BOOST: +25 % of the ladder-raised cap for
 // 10 s on a 25 s reload (Story 8.9).
 // ---------------------------------------------------------------------------
 
@@ -68,12 +63,12 @@ const boostTactic: EquipmentTactic = {
 };
 
 // ---------------------------------------------------------------------------
-// INSTANT RELOAD (the Mine Layer's Shift).
+// INSTANT RELOAD (Story 10.4: on a captain it finishes every turret).
 // ---------------------------------------------------------------------------
 
-/** The mounted gun's reach — "in range" for the INSTANT RELOAD rule. Each
- *  gun's reach is its own tiered dial since Story 9.8 (ruling 125), so the
- *  mounted row is read through the doctrine's one resolver (ai/doctrine.ts). */
+/** The mounted gun's reach — "in range" for the INSTANT RELOAD rule (the main
+ *  battery's folded reach on a captain), read through the doctrine's one
+ *  resolver (ai/doctrine.ts). */
 function mountedGunReachU(self: BotSelf, stats: EffectiveStats): number {
   return gunRangeU(stats, mountedGun(self.loadout[SLOT_GUN]?.equipmentId));
 }
@@ -107,7 +102,7 @@ const instantReloadTactic: EquipmentTactic = {
 };
 
 // ---------------------------------------------------------------------------
-// HUNKER (the Battleship's Shift).
+// HUNKER.
 // ---------------------------------------------------------------------------
 
 /**
@@ -135,19 +130,4 @@ export const SHIFT_ROWS: Readonly<Record<ShiftId, EquipmentTactic>> = deepFreeze
   boost: boostTactic,
   instantReload: instantReloadTactic,
   hunker: hunkerTactic,
-});
-
-/** A hull's Shift row, read through the shared hull->Shift source of truth
- *  (`classShift`, i.e. `CONFIG.shipClasses.<id>.shift`) — never a second,
- *  hand-written hull->Shift map that could drift from it. */
-function shiftRowOf(hull: ShipClassId): EquipmentTactic {
-  return SHIFT_ROWS[classShift(hull)];
-}
-
-/** Each hull's Shift tactic. TOTAL over ShipClassId (the object literal names
- *  every hull, so a new one fails to type-check), deep-frozen. */
-export const SHIFT_TACTICS: Readonly<Record<ShipClassId, EquipmentTactic>> = Object.freeze({
-  torpedoBoat: shiftRowOf('torpedoBoat'),
-  mineLayer: shiftRowOf('mineLayer'),
-  battleship: shiftRowOf('battleship'),
 });

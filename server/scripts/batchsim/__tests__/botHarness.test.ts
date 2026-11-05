@@ -11,12 +11,12 @@
 // NEVER import ../main.ts here — it runs the CLI (process.exit) at import time.
 
 import { beforeAll, describe, it, expect } from 'vitest';
-import { CONFIG, SHIP_CLASS_IDS, type Island } from '@salvo/shared';
+import { CONFIG, DEFAULT_CLASS_ID, DEFAULT_SHIFT, SHIFT_IDS, SHIP_CLASS_IDS, turretMounts, type Island } from '@salvo/shared';
 import { World } from '../../../src/game/world.js';
 import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 import { UsageError, parseArgs } from '../args.js';
 import { applyOverrides } from '../overrides.js';
-import { BotCollector, hullTouchesLand, lifeSamples, type BotSample } from '../botMetrics.js';
+import { BotCollector, hullTouchesLand, layoutOf, lifeSamples, type BotSample } from '../botMetrics.js';
 import { buildBotAggregate, renderBotReport } from '../botReport.js';
 import type { GameEvent } from '@salvo/shared';
 import { botProfileFor, runMatch, type BatchResult, type MatchSample } from '../runner.js';
@@ -65,7 +65,7 @@ describe('args — the --bots flag', () => {
 
 /** A ship record shaped just enough for hullTouchesLand (pose + hull id). */
 function poseShip(x: number, y: number, heading = 0) {
-  return { hullId: 'battleship' as const, state: { x, y, heading, speed: 0 } };
+  return { hullId: 'bismarck' as const, state: { x, y, heading, speed: 0 } };
 }
 
 describe('botMetrics — the land-contact proxy', () => {
@@ -108,7 +108,7 @@ function sample(over: Partial<BotSample> = {}): BotSample {
   return {
     id: 'bot-1',
     name: 'ALBATROSS',
-    cls: 'torpedoBoat',
+    cls: 'warspite',
     profile: 'raider',
     kills: 0,
     pveKills: 0,
@@ -133,9 +133,8 @@ function sample(over: Partial<BotSample> = {}): BotSample {
     offersSeen: {},
     offerHands: 0,
     placement: null,
-    gun: 'deckGun',
-    gunTier: 1,
-    killsByTier: [0, 0, 0, 0, 0, 0],
+    shift: DEFAULT_SHIFT,
+    layout: layoutOf(DEFAULT_CLASS_ID),
     ...emptyBotReadouts(),
     ...over,
   };
@@ -149,7 +148,7 @@ function result(bots: BotSample[][], over: Partial<MatchSample> = {}): BatchResu
       seed: index,
       durationS: 400,
       endedBy: 'fieldCleared' as const,
-      winnerClass: 'torpedoBoat',
+      winnerClass: 'warspite',
       stormDeaths: 0,
       killsByVictimTier: {},
       captains: [],
@@ -204,14 +203,14 @@ describe('botReport — the quality bars', () => {
       result([[
         sample({ ticks: 1000, draftTicks: 300 }),
         sample({ id: 'b2', ticks: 3000, draftTicks: 100 }),
-        sample({ id: 'b3', profile: 'siege', cls: 'battleship', ticks: 500, draftTicks: 0 }),
+        sample({ id: 'b3', profile: 'siege', cls: 'bismarck', ticks: 500, draftTicks: 0 }),
       ]]),
       3,
     );
     // 400 / 4000 = 10%, not the 16.7% a per-bot mean would report.
     expect(agg.byProfile.find((g) => g.key === 'raider')!.draftRate).toBeCloseTo(0.1, 6);
-    expect(agg.byClass.find((g) => g.key === 'torpedoBoat')!.draftRate).toBeCloseTo(0.1, 6);
-    expect(agg.byClass.find((g) => g.key === 'battleship')!.draftRate).toBe(0);
+    expect(agg.byClass.find((g) => g.key === 'warspite')!.draftRate).toBeCloseTo(0.1, 6);
+    expect(agg.byClass.find((g) => g.key === 'bismarck')!.draftRate).toBe(0);
     const text = renderBotReport('baseline', agg);
     expect(text.join('\n')).toContain('10.0%');
   });
@@ -258,20 +257,20 @@ describe('botReport — the quality bars', () => {
     const agg = buildBotAggregate(
       result([
         [
-          sample({ profile: 'trapper', cls: 'mineLayer' }),
-          sample({ id: 'b2', profile: 'raider', cls: 'torpedoBoat' }),
-          sample({ id: 'b3', profile: 'raider', cls: 'torpedoBoat' }),
+          sample({ profile: 'trapper', cls: 'iowa' }),
+          sample({ id: 'b2', profile: 'raider', cls: 'warspite' }),
+          sample({ id: 'b3', profile: 'raider', cls: 'warspite' }),
         ],
       ]),
       3,
     );
     expect(agg.byProfile.map((g) => g.key)).toEqual(['raider', 'trapper']);
     expect(agg.byProfile.find((g) => g.key === 'raider')!.n).toBe(2);
-    expect(agg.byClass.map((g) => g.key)).toEqual(['mineLayer', 'torpedoBoat']);
+    expect(agg.byClass.map((g) => g.key)).toEqual(['iowa', 'warspite']);
   });
 
   it('renders a deterministic body (same aggregate => byte-identical lines)', () => {
-    const r = result([[sample({ kills: 2 }), sample({ id: 'b2', profile: 'siege', cls: 'battleship' })]]);
+    const r = result([[sample({ kills: 2 }), sample({ id: 'b2', profile: 'siege', cls: 'bismarck' })]]);
     const a = renderBotReport('baseline', buildBotAggregate(r, 2));
     const b = renderBotReport('baseline', buildBotAggregate(r, 2));
     expect(a).toEqual(b);
@@ -284,15 +283,15 @@ describe('botReport — the quality bars', () => {
     const agg = buildBotAggregate(
       result([
         [
-          sample({ id: 'b1', cls: 'torpedoBoat', lifeS: 42.3 }),
-          sample({ id: 'b2', cls: 'torpedoBoat', lifeS: 10.5 }),
-          sample({ id: 'b3', cls: 'battleship', lifeS: 200 }),
+          sample({ id: 'b1', cls: 'warspite', lifeS: 42.3 }),
+          sample({ id: 'b2', cls: 'warspite', lifeS: 10.5 }),
+          sample({ id: 'b3', cls: 'bismarck', lifeS: 200 }),
         ],
       ]),
       3,
     );
-    const tb = agg.byClass.find((g) => g.key === 'torpedoBoat')!;
-    const bs = agg.byClass.find((g) => g.key === 'battleship')!;
+    const tb = agg.byClass.find((g) => g.key === 'warspite')!;
+    const bs = agg.byClass.find((g) => g.key === 'bismarck')!;
     // Present, an array of raw numbers, length === the group's n.
     expect(Array.isArray(tb.lifeSamples)).toBe(true);
     expect(tb.lifeSamples).toHaveLength(tb.n);
@@ -316,8 +315,8 @@ describe('botReport — the quality bars', () => {
     // wired to something else entirely — the expectation has to be independent
     // of the code under test to be able to fail at all.
     expect(lifeSamples(rows)).toEqual([1, 3, 5]);
-    const agg = buildBotAggregate(result([rows.map((r) => ({ ...r, cls: 'mineLayer' }))]), 3);
-    expect(agg.byClass.find((g) => g.key === 'mineLayer')!.lifeSamples).toEqual([1, 3, 5]);
+    const agg = buildBotAggregate(result([rows.map((r) => ({ ...r, cls: 'iowa' }))]), 3);
+    expect(agg.byClass.find((g) => g.key === 'iowa')!.lifeSamples).toEqual([1, 3, 5]);
   });
 });
 
@@ -402,39 +401,43 @@ describe('args — the --bot-profile and --bot-engage flags (wave 4)', () => {
 describe('runner — forced test profiles and the engage gate (wave 4)', () => {
   it('botProfileFor: a named id forces every bot; the scheme deals round-robin', () => {
     for (let i = 0; i < 6; i += 1) {
-      expect(botProfileFor({ botProfile: 'randomBattleship' }, i)).toBe('randomBattleship');
-      expect(botProfileFor({ botProfile: 'random' }, i)).toBe(TEST_PROFILE_IDS[i % 3]);
+      expect(botProfileFor({ botProfile: 'randomBismarck' }, i)).toBe('randomBismarck');
+      expect(botProfileFor({ botProfile: 'random' }, i)).toBe(TEST_PROFILE_IDS[i % TEST_PROFILE_IDS.length]);
       expect(botProfileFor({}, i)).toBeUndefined();
     }
   });
 
   it('the scheme deal is OFFSET BY MATCH INDEX, so no class is short in every match', () => {
-    // 20 bots over 3 classes is 7/7/6 — without the offset the SAME test row
-    // is short in every match (the rotate() representation artefact, on the
+    // A lobby that is not a multiple of the row count deals one row short —
+    // without the offset the SAME test row is short in every match (the rotate() representation artefact, on the
     // one path --roster even cannot reach because the forced profile governs
     // the hull). A named id stays offset-invariant.
     for (let i = 0; i < 6; i += 1) {
       for (let index = 0; index < 4; index += 1) {
-        expect(botProfileFor({ botProfile: 'random' }, i, index)).toBe(TEST_PROFILE_IDS[(i + index) % 3]);
-        expect(botProfileFor({ botProfile: 'randomMineLayer' }, i, index)).toBe('randomMineLayer');
+        expect(botProfileFor({ botProfile: 'random' }, i, index)).toBe(TEST_PROFILE_IDS[(i + index) % TEST_PROFILE_IDS.length]);
+        expect(botProfileFor({ botProfile: 'randomIowa' }, i, index)).toBe('randomIowa');
       }
     }
-    // Across 3 consecutive matches of 20, each row totals exactly 20.
+    // Across one full rotation of consecutive matches (as many as there are
+    // rows) of a lobby one bot over a multiple, every row totals the same.
+    const rows = TEST_PROFILE_IDS.length;
+    const lobby = rows * 4 + 1;
     const totals = new Map<string, number>();
-    for (let index = 0; index < 3; index += 1) {
-      for (let i = 0; i < 20; i += 1) {
+    for (let index = 0; index < rows; index += 1) {
+      for (let i = 0; i < lobby; i += 1) {
         const p = botProfileFor({ botProfile: 'random' }, i, index)!;
         totals.set(p, (totals.get(p) ?? 0) + 1);
       }
     }
-    expect([...totals.values()]).toEqual([20, 20, 20]);
+    expect([...totals.values()]).toEqual(Array(rows).fill(lobby));
   });
 
   it('a forced run carries ONLY test profiles in its bot rows, one hull per row', () => {
     const restore = applyOverrides({ 'zone.beatMs': 4000 });
     try {
-      const m = runMatch(0, { seed: 4242, matches: 1, captains: 0, bots: 3, botProfile: 'random' });
-      expect(m.bots).toHaveLength(3);
+      const n = TEST_PROFILE_IDS.length;
+      const m = runMatch(0, { seed: 4242, matches: 1, captains: 0, bots: n, botProfile: 'random' });
+      expect(m.bots).toHaveLength(n);
       const profiles = m.bots!.map((b) => b.profile).sort();
       expect(profiles).toEqual([...TEST_PROFILE_IDS].sort());
       for (const b of m.bots!) {
@@ -460,58 +463,53 @@ describe('runner — forced test profiles and the engage gate (wave 4)', () => {
   });
 });
 
-describe('botMetrics/botReport — gun and gun tier (balance campaign)', () => {
-  it('gunTier is the mounted gun module tier: 1 bare, +1 per copy of the gun line', () => {
+describe('botMetrics/botReport — hull layout and Shift (Story 10.4)', () => {
+  it('a bot row carries its seat\'s Shift and its hull\'s layout off the shared turret mounts', () => {
     const world = new World(31, 20);
-    const bot = world.addBot('torpedoBoat', undefined, 'deckGun');
-    const col = new BotCollector([bot.id]);
-    col.observe(world, 1);
-    expect(col.samples(world)[0]).toMatchObject({ gun: 'deckGun', gunTier: 1 });
-
-    bot.bankedLevels = 1;
-    bot.offer = ['deckGun', 'reload', 'intel', 'engines'] as never;
-    expect(world.spendPoint(bot.id, 0)).toBe(true);
-    col.observe(world, 1);
-    const s = col.samples(world)[0];
-    expect(s.gunTier).toBe(2);
-    expect(s.gunTier).toBe(1 + bot.cards.filter((c) => c === 'deckGun').length);
+    for (const hull of SHIP_CLASS_IDS) {
+      for (const shift of SHIFT_IDS) {
+        const bot = world.addBot(hull, undefined, shift);
+        const col = new BotCollector([bot.id]);
+        col.observe(world, 1);
+        const mounts = turretMounts(hull);
+        expect(col.samples(world)[0]).toMatchObject({ shift, layout: `${mounts.length}x${mounts[0].guns}` });
+      }
+    }
   });
 
-  it('killsByTier stamps the killer\'s CURRENT tier; fleet kills stay out', () => {
-    const world = new World(32, 20);
-    const killer = world.addBot('torpedoBoat', undefined, 'flak');
-    const victim = world.addBot('torpedoBoat', undefined);
-    const col = new BotCollector([killer.id, victim.id]);
-    killer.stats = { ...killer.stats, equipment: { ...killer.stats.equipment, flak: { ...killer.stats.equipment.flak, tier: 3 } } };
-    const events: GameEvent[] = [{ k: 'sunk', id: victim.id, by: killer.id } as GameEvent];
-    Object.defineProperty(world, 'tickEvents', { value: events, configurable: true });
-    col.observe(world, 1);
-    const row = col.samples(world).find((r) => r.id === killer.id)!;
-    expect(row.kills).toBe(1);
-    expect(row.killsByTier).toEqual([0, 0, 0, 1, 0, 0]);
+  it('layoutOf is turrets x guns, and every hull has a uniform layout', () => {
+    for (const hull of SHIP_CLASS_IDS) {
+      const mounts = turretMounts(hull);
+      expect(new Set(mounts.map((m) => m.guns)).size).toBe(1);
+      expect(layoutOf(hull)).toBe(`${mounts.length}x${mounts[0].guns}`);
+    }
   });
 
-  it('byGun / byGunTier group by gun and gun/Tn; a draw\'s placement 1 is not a win', () => {
+  it('byLayout / byShift group by their key; a draw\'s placement 1 is not a win', () => {
+    const [s0, s1] = SHIFT_IDS;
     const agg = buildBotAggregate(
       {
         ...result([
           [
-            sample({ gun: 'flak', gunTier: 3, placement: 1, end: 'alive', kills: 2, killsByTier: [0, 1, 0, 1, 0, 0] }),
-            sample({ id: 'b2', gun: 'deckGun', gunTier: 1, placement: 2 }),
+            sample({ shift: s1, layout: 'L2', placement: 1, end: 'alive', kills: 2 }),
+            sample({ id: 'b2', shift: s0, layout: 'L1', placement: 2 }),
           ],
         ]),
       },
       2,
     );
-    const draw = buildBotAggregate(result([[sample({ gun: 'flak', gunTier: 3, placement: 1 })]], { winnerClass: null }), 1);
-    expect(agg.byGunTier.map((g) => g.key)).toEqual(['deckGun/T1', 'flak/T3']);
-    expect(agg.byGun.map((g) => g.key)).toEqual(['deckGun', 'flak']);
-    const flak = agg.byGunTier.find((g) => g.key === 'flak/T3')!;
-    expect(flak).toMatchObject({ n: 1, wins: 1, winRate: 1, meanPlacement: 1 });
-    expect(flak.killsByTierTotal).toEqual([0, 1, 0, 1, 0, 0]);
-    expect(agg.byGun.find((g) => g.key === 'deckGun')!.wins).toBe(0);
-    expect(draw.byGunTier[0].wins).toBe(0);
-    expect(renderBotReport('x', agg).join('\n')).toContain('flak/T3');
+    const draw = buildBotAggregate(result([[sample({ shift: s1, layout: 'L2', placement: 1 })]], { winnerClass: null }), 1);
+    expect(agg.byLayout.map((g) => g.key)).toEqual(['L1', 'L2']);
+    expect(agg.byShift.map((g) => g.key)).toEqual([s0, s1].sort());
+    const won = agg.byLayout.find((g) => g.key === 'L2')!;
+    expect(won).toMatchObject({ n: 1, wins: 1, winRate: 1, meanPlacement: 1 });
+    expect(agg.byShift.find((g) => g.key === s1)!.wins).toBe(1);
+    expect(agg.byShift.find((g) => g.key === s0)!.wins).toBe(0);
+    expect(draw.byLayout[0].wins).toBe(0);
+    expect(draw.byShift[0].wins).toBe(0);
+    const text = renderBotReport('x', agg).join('\n');
+    expect(text).toContain('L2');
+    expect(text).toContain(s1);
   });
 });
 

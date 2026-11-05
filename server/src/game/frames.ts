@@ -98,14 +98,21 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // hull ids exist only on drones, which have no client). Contacts carry the
     // full HullId instead — that lives in signals.ts's contact row.
     cls: ship.hullId as ShipClassId,
-    // THE SEAT'S GUN (Story 8.14, amendments 89d/95) — SELF-PRIVATE on exactly
-    // the terms `cls` is: it rides `you` and NOTHING else, because which gun an
-    // enemy picked is build information. The client replays `loadoutFor(stats,
-    // false, gun, shift)` from it, which is the only reason it rides at all.
-    // Slot 0 mounts each gun's OWN module since Story 8.15.
-    gun: ship.gun,
+    // THE SEAT'S SHIFT (Story 10.4, epic-10 amendment 9 — in the seat GUN's
+    // place) — SELF-PRIVATE on exactly the terms `cls` is: it rides `you` and
+    // NOTHING else, because which Shift an enemy picked is build information.
+    // The client replays `loadoutFor(stats, false, shift)` from it.
+    shift: ship.shift,
+    // THE TURRETS (Story 10.4, R2/R4) — angle + remaining reload per turret,
+    // full precision, SELF-PRIVATE: the client corrects its own predicted
+    // turrets from it (`copyTurrets`). An enemy sees a sighted hull's ANGLES
+    // only, through its contact row (`Contact.tu`) — never a reload.
+    turrets: ship.turrets.map((t) => ({ a: t.a, reloadMsLeft: t.reloadMsLeft })),
+    // THE SECONDARIES' HEAT (Story 10.4, R3) — `{heat, locked}` ONLY,
+    // SELF-PRIVATE; the round phase (`untilRoundMs`) never leaves the server.
+    sec: { heat: ship.sec.heat, locked: ship.sec.locked },
     // THE SEAT'S KIT (Story 10.1, epic-10 amendment 3) — SELF-PRIVATE on the
-    // gun's exact terms: the viewer's own four consumable lines, in key order,
+    // Shift's exact terms: the viewer's own four consumable lines, in key order,
     // riding `you` and nothing else (non-spatial; not a perception exception).
     // The client derives every kind -> slot answer from it. Defensively copied.
     kit: [...ship.kit],

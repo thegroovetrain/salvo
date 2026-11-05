@@ -15,6 +15,7 @@ import { describe, it, expect } from 'vitest';
 import { CONFIG, rangeAttenuation, settleBlow, type GameEvent, type InputMsg, type ShellState } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
+import { mountDeckGun, neutralize } from './deckGunFixture.js';
 
 function bareWorld(seed = 1912): World {
   const w = new World(seed);
@@ -23,8 +24,9 @@ function bareWorld(seed = 1912): World {
   return w;
 }
 
-function captain(w: World, id: string, gun?: 'machineGun' | 'flak'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, { x: 0, y: 0 }, gun);
+function captain(w: World, id: string, gun: 'gun' | 'machineGun' | 'flak' = 'gun'): ShipRecord {
+  // NEUTRAL index + the deck-gun row under test (deckGunFixture; the cannon by default).
+  const rec = mountDeckGun(neutralize(w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, { x: 0, y: 0 })), gun);
   rec.state = { x: 0, y: 0, heading: 0, speed: 0 };
   return rec;
 }
@@ -34,7 +36,7 @@ function lay(w: World, id: string, x: number, y: number, hp: number = CONFIG.min
 }
 
 function input(patch: Partial<InputMsg>): InputMsg {
-  return { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
+  return { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Fire along +x at `dist` (one machine-gun shell, or one click) and step

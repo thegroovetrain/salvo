@@ -1,5 +1,5 @@
 import { Schema, MapSchema, type } from '@colyseus/schema';
-import { REGATTA_NO_HUE } from '@salvo/shared';
+
 
 /**
  * Public per-player roster entry. Carries no position data — the fogged
@@ -15,14 +15,8 @@ export class PlayerMeta extends Schema {
   @type('float32') damageDealt = 0;
   /** Final placement (1 = winner); 0 until determined at match end. */
   @type('uint8') placement = 0;
-  /**
-   * Regatta Hoist personal-hue index into the shared REGATTA_HUES wheel (0..19),
-   * assigned FCFS at join (game/regatta.ts) so every screen agrees on who is who.
-   * REGATTA_NO_HUE (255) is the sentinel — drones always, and any human before
-   * assignment lands — rendering the drone greys everywhere, never a wheel hue.
-   * The color index rides ONLY the roster schema, never a spatial frame.
-   */
-  @type('uint8') color = REGATTA_NO_HUE;
+  // (The Regatta `color` hue index is GONE — Story 10.4, R6: "the hue wheel is
+  // removed EVERYWHERE"; own linework is cyan, every enemy red, client-side.)
 }
 
 /**

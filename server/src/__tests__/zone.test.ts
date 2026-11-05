@@ -51,10 +51,16 @@ function placeClear(world: World, id: string, d: number): void {
   const ship = world.ships.get(id)!;
   for (let i = 0; i < 360; i++) {
     const a = (i * Math.PI) / 180;
-    const x = Math.cos(a) * d;
-    const y = Math.sin(a) * d;
+    // A float hair past `d` (in the shared squared test) on some bearings would read as OUTSIDE an
+    // inclusive-safe ring; pull such a point back by one ulp-scale step so
+    // "on the ring" means on it to float precision (Story 10.4: the longer
+    // hull clearance moved the first clear bearing onto such an angle).
+    let k = 1;
+    while ((Math.cos(a) * d * k) ** 2 + (Math.sin(a) * d * k) ** 2 > d * d) k -= Number.EPSILON;
+    const x = Math.cos(a) * d * k;
+    const y = Math.sin(a) * d * k;
     const clear = world.map.islands.every(
-      (is) => pointPolygonDistance({ x, y }, is.poly) > CONFIG.shipClasses.torpedoBoat.hull.length,
+      (is) => pointPolygonDistance({ x, y }, is.poly) > CONFIG.shipClasses.bismarck.hull.length,
     );
     if (clear) {
       ship.state.x = x;
@@ -77,7 +83,7 @@ describe('zone lifecycle — starts ONLY via startZone', () => {
     expect(w.zoneCurrentRing).toEqual({ cx: 0, cy: 0, r: w.map.radius });
     expect(w.zoneRevealedNextRing).toBeNull();
     for (let i = 0; i < 10; i++) w.step();
-    expect(rec.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp); // idle zone deals no storm damage
+    expect(rec.hp).toBe(CONFIG.shipClasses.bismarck.hp); // idle zone deals no storm damage
   });
 
   it('startZone anchors the timeline and is idempotent (rings roll once)', () => {
@@ -292,14 +298,14 @@ describe('the collapse group — the whole map is storm at closure', () => {
     placeClear(w, 'c', terminal * 0.9);
     stepTo(w, 3 * GROUP + 3 * TICKS_PER_BEAT); // the collapse close STARTS
     expect(w.zonePhase).toBe('closing');
-    for (const rec of crew) expect(rec.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp); // untouched by the descent
+    for (const rec of crew) expect(rec.hp).toBe(CONFIG.shipClasses.bismarck.hp); // untouched by the descent
     // Through the close the shrinking ring overtakes the outer two in turn —
     // ordinary storm behavior, just aimed at a point. The hull ON the point is
     // the one that matters here: it is safe until the very last instant.
     const onPoint = crew[0];
     stepTo(w, 4 * GROUP - 1); // the last CLOSING tick
     expect(w.zonePhase).toBe('closing');
-    expect(onPoint.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
+    expect(onPoint.hp).toBe(CONFIG.shipClasses.bismarck.hp);
     const before = crew.map((rec) => rec.hp);
     stepTo(w, 4 * GROUP + 1);
     expect(w.zonePhase).toBe('closed');
@@ -320,13 +326,13 @@ describe('the collapse group — the whole map is storm at closure', () => {
     // The Endgame Guarantee's teeth: the toughest hull in the game, alone in a
     // fully collapsed storm, must go down.
     const w = new World(22, CONFIG.match.fillTo, collapsing());
-    const rec = w.addShip('a', 'ALPHA', 'captain', 'battleship', undefined, undefined);
+    const rec = w.addShip('a', 'ALPHA', 'captain', 'yamato', undefined, undefined);
     w.startZone(0);
     placeClear(w, 'a', 0); // on the collapse point: nothing survives there either
     stepTo(w, 4 * GROUP - 1); // the last tick before the ring reaches r=0
     expect(w.zonePhase).toBe('closing');
-    expect(rec.hp).toBe(CONFIG.shipClasses.battleship.hp); // full HP into the collapse
-    const sunkS = CONFIG.shipClasses.battleship.hp / stormDpsFor({ phase: 'closed', groupIndex: 0 }, CONFIG.zone);
+    expect(rec.hp).toBe(CONFIG.shipClasses.yamato.hp); // full HP into the collapse
+    const sunkS = CONFIG.shipClasses.yamato.hp / stormDpsFor({ phase: 'closed', groupIndex: 0 }, CONFIG.zone);
     // NOTHING LENGTHENS THE TAIL ANY MORE (Story 8.8, epic-8 amendments 46 +
     // 47). The free per-level auto-heal that used to patch levelMissingPct of
     // this hull's MISSING hp on every level it earned while dying is GONE, and
@@ -362,9 +368,9 @@ describe('storm damage', () => {
     w.step();
     const ring = w.zoneLiveRing;
     expect(isOutside(rec.state, ring.cx, ring.cy, ring.r)).toBe(true);
-    expect(rec.hp).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.hp - perTick, 6);
+    expect(rec.hp).toBeCloseTo(CONFIG.shipClasses.bismarck.hp - perTick, 6);
     w.step();
-    expect(rec.hp).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.hp - 2 * perTick, 6);
+    expect(rec.hp).toBeCloseTo(CONFIG.shipClasses.bismarck.hp - 2 * perTick, 6);
   });
 
   it('bites in EVERY phase — a holding (clear) beat is no safe harbor outside the ring', () => {
@@ -422,7 +428,7 @@ describe('storm damage', () => {
     for (let i = 0; i < 20; i++) w.step();
     const ring = w.zoneLiveRing;
     expect(isOutside(rec.state, ring.cx, ring.cy, ring.r)).toBe(false);
-    expect(rec.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
+    expect(rec.hp).toBe(CONFIG.shipClasses.bismarck.hp);
   });
 
   it('deals NO damage to a ship exactly ON the ring (boundary inclusive-safe)', () => {
@@ -477,7 +483,7 @@ describe('storm damage', () => {
     placeClear(w, 'a', w.map.radius * 0.8);
     w.startZone();
     w.step();
-    expect(rec.hp).toBeLessThan(CONFIG.shipClasses.torpedoBoat.hp); // took storm damage
+    expect(rec.hp).toBeLessThan(CONFIG.shipClasses.bismarck.hp); // took storm damage
     expect(w.tickEvents.some((e) => e.k === 'dmg')).toBe(false); // but emitted no dmg spam
   });
 });

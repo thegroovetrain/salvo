@@ -28,12 +28,10 @@ import {
   rollKit,
   EQUIPMENT_IDS,
   SLOT_COUNT,
-  GUN_IDS,
-  MOUNTED_GUN,
+  SHIFT_IDS,
   MULLIGAN_CHOICE,
   SHIP_CLASS_IDS,
   WEAPON_SLOTS,
-  classShift,
   consumableSlotFor,
   drawOffer,
   effectiveStats,
@@ -47,6 +45,7 @@ import {
   type EquipmentId,
   type GameEvent,
   type HullId,
+  type ShipClassId,
   type LineId,
   type Rng,
   type SlotItemId,
@@ -111,7 +110,7 @@ function view(over: Partial<PerceptionView> = {}): PerceptionView {
   return { contacts: [], events: [], mines: [], litZones: [], burnZones: [], foulZones: [], decoys: [], clouds: [], ...over };
 }
 
-function contact(id: string, x: number, y: number, cls: HullId = 'battleship'): Contact {
+function contact(id: string, x: number, y: number, cls: HullId = 'yamato'): Contact {
   return { id, x, y, heading: 0, speed: 20, cls };
 }
 
@@ -123,7 +122,7 @@ function returnBlip(gx: number, gy: number, t: number): GameEvent {
 
 const CELL = CONFIG.vision.radarCellU;
 
-function stats(cls: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'battleship'): EffectiveStats {
+function stats(cls: ShipClassId = 'yamato'): EffectiveStats {
   return effectiveStats(hullEnvelope(cls));
 }
 
@@ -133,16 +132,16 @@ const WIDE_RING: ZoneRing = { cx: 0, cy: 0, r: 100000 };
  *  hulls). A test FIXTURE, not a game rule: each in-game row keeps sailing the
  *  hull it was written against so every stats-dependent expectation below
  *  reads exactly as before; a test row reads its bound hull. */
-const FIXTURE_HULL: Readonly<Record<BotProfileId, 'torpedoBoat' | 'battleship' | 'mineLayer'>> = {
-  raider: 'torpedoBoat',
-  duelist: 'torpedoBoat',
-  bulwark: 'battleship',
-  siege: 'battleship',
-  forager: 'mineLayer',
-  trapper: 'mineLayer',
+const FIXTURE_HULL: Readonly<Record<BotProfileId, ShipClassId>> = {
+  raider: 'bismarck',
+  duelist: 'bismarck',
+  bulwark: 'yamato',
+  siege: 'yamato',
+  forager: 'warspite',
+  trapper: 'warspite',
 };
 
-function fixtureHull(id: AnyProfileId): 'torpedoBoat' | 'battleship' | 'mineLayer' {
+function fixtureHull(id: AnyProfileId): ShipClassId {
   return isTestProfileId(id) ? TEST_PROFILE_HULL[id] : FIXTURE_HULL[id];
 }
 
@@ -199,7 +198,7 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
 
   it('appetiteFor reads the row\'s own entry, else the neutral base — and the guns sit below neutral (the fallback, tried last)', () => {
     const bare = { ...profileOf('raider'), appetite: {} };
-    const GUNS: readonly string[] = ['gun', 'machineGun', 'flak'];
+    const GUNS: readonly string[] = ['gun', 'machineGun', 'flak', 'mainBattery'];
     for (const eq of EQUIPMENT_IDS) {
       expect(appetiteFor({ ...bare, appetite: { [eq]: 7 } as Partial<Record<EquipmentId, number>> }, eq), eq).toBe(7);
       if (GUNS.includes(eq)) expect(appetiteFor(bare, eq), eq).toBeLessThan(APPETITE_NEUTRAL);
@@ -233,7 +232,7 @@ describe('ai/profiles — six priority profiles, one competence level', () => {
   // profiles.ts engagementBand is deleted; the doctrine band (ai/doctrine.ts
   // gunBand) carries the same contract.
   it('the doctrine band anchors on the MOUNTED gun, scales with its reach, ignores radar', () => {
-    const base = stats('battleship');
+    const base = stats('yamato');
     const siege = profileOf('siege');
     const longGun = { ...base, equipment: { ...base.equipment, gun: { ...base.equipment.gun, rangeU: base.equipment.gun.rangeU * 2 } } };
     expect(gunBand(siege, longGun).max).toBeCloseTo(gunBand(siege, base).max * 2, 6);
@@ -462,7 +461,7 @@ describe('ai/utility — LAND IN THE WAY is scored and postured on', () => {
       speed: 0,
       seenAt: 10000,
       live: true,
-      cls: 'battleship' as HullId,
+      cls: 'yamato' as HullId,
       fleet: false,
       firstSeenAt: 0,
       hits: 0,
@@ -495,14 +494,14 @@ describe('ai/utility — LAND IN THE WAY is scored and postured on', () => {
     const m = mind('forager');
     m.contacts.set('behindRock', plotTrack({ id: 'behindRock', x: 400, y: 0, fleet: true, cls: 'droneSmall' as HullId }));
     m.contacts.set('openWater', plotTrack({ id: 'openWater', x: 0, y: 400 }));
-    const sit = situation({ profile: profileOf('forager'), stats: stats('mineLayer'), islands: [ROCK] });
+    const sit = situation({ profile: profileOf('forager'), stats: stats('warspite'), islands: [ROCK] });
     expect(selectTarget(m, sit)?.id).toBe('openWater');
     // With the rock gone the fleet weight wins, exactly as it always did.
-    expect(selectTarget(m, situation({ profile: profileOf('forager'), stats: stats('mineLayer') }))?.id).toBe('behindRock');
+    expect(selectTarget(m, situation({ profile: profileOf('forager'), stats: stats('warspite') }))?.id).toBe('behindRock');
   });
 
   it('forces PURSUE over the band postures, so the bot opens the angle', () => {
-    const st = stats('torpedoBoat');
+    const st = stats('bismarck');
     const t = plotTrack({ x: Math.min(400, st.equipment.gun.rangeU * 0.5), y: 0 });
     const sit = () => situation({ profile: profileOf('duelist'), stats: st });
     expect(choosePosture(sit(), t)).toBe('engage'); // in own reach, clear water (amendment 194)
@@ -541,7 +540,7 @@ describe('ai/utility — self-private Hit Calls (hc)', () => {
   it('hits raise a track\'s score — a hurt target is a better target', () => {
     const m = mind();
     foldView(m, view({ contacts: [contact('e1', 200, 0)] }), 1000);
-    const sit = situation({ now: 2000, profile: profileOf('raider'), stats: stats('torpedoBoat') });
+    const sit = situation({ now: 2000, profile: profileOf('raider'), stats: stats('bismarck') });
     const before = scoreTrack(onlyTrack(m), sit, tracksOf(m));
     foldView(m, view({ events: [{ k: 'hc', id: 'me', x: 200, y: 0 }] }), 1500);
     const after = scoreTrack(onlyTrack(m), sit, tracksOf(m));
@@ -582,17 +581,17 @@ describe('ai/utility — profile-weighted target selection', () => {
   const NOW = 20000;
 
   function twoTargets(m: BotMind): void {
-    foldView(m, view({ contacts: [contact('cap', 200, 0, 'battleship'), contact('fleet', 210, 0, 'droneSmall')] }), 1000);
+    foldView(m, view({ contacts: [contact('cap', 200, 0, 'yamato'), contact('fleet', 210, 0, 'droneSmall')] }), 1000);
   }
 
   it('forager prefers the fleet hull; duelist prefers the captain', () => {
     const mf = mind('forager');
     twoTargets(mf);
-    expect(selectTarget(mf, situation({ now: NOW, profile: profileOf('forager'), stats: stats('mineLayer') }))?.id).toBe('fleet');
+    expect(selectTarget(mf, situation({ now: NOW, profile: profileOf('forager'), stats: stats('warspite') }))?.id).toBe('fleet');
 
     const md = mind('duelist');
     twoTargets(md);
-    expect(selectTarget(md, situation({ now: NOW, profile: profileOf('duelist'), stats: stats('torpedoBoat') }))?.id).toBe('cap');
+    expect(selectTarget(md, situation({ now: NOW, profile: profileOf('duelist'), stats: stats('bismarck') }))?.id).toBe('cap');
   });
 
   it('a human is a contact like any other (ruling B3) — only KIND is weighed', () => {
@@ -605,7 +604,7 @@ describe('ai/utility — profile-weighted target selection', () => {
     // mirror images 19 s later — the pin is about identity, not motion.
     const still = (c: Contact): Contact => ({ ...c, speed: 0 });
     foldView(m, view({ contacts: [still(contact('human', 200, 0)), still(contact('bot-3', -200, 0))] }), 1000);
-    const sit = situation({ now: NOW, profile: profileOf('duelist'), stats: stats('torpedoBoat') });
+    const sit = situation({ now: NOW, profile: profileOf('duelist'), stats: stats('bismarck') });
     const all = tracksOf(m);
     expect(scoreTrack(all[0], sit, all)).toBeCloseTo(scoreTrack(all[1], sit, all), 9);
   });
@@ -613,7 +612,7 @@ describe('ai/utility — profile-weighted target selection', () => {
   it('an isolated target outscores one with company, for a raider', () => {
     const m = mind('raider');
     foldView(m, view({ contacts: [contact('lone', 250, 0), contact('pair', -250, 0), contact('escort', -260, 10)] }), 1000);
-    const sit = situation({ now: NOW, profile: profileOf('raider'), stats: stats('torpedoBoat') });
+    const sit = situation({ now: NOW, profile: profileOf('raider'), stats: stats('bismarck') });
     expect(selectTarget(m, sit)?.id).toBe('lone');
   });
 
@@ -633,7 +632,7 @@ describe('ai/utility — profile-weighted target selection', () => {
 
 describe('ai/utility — THE RAM TRIGGER [DRAFT] (Story 9.5, amendment 77)', () => {
   const NOW = 20000;
-  const TB = stats('torpedoBoat');
+  const TB = stats('bismarck');
   const raider = profileOf('raider');
   /** hp — just under the profile's disengage fraction: a BROKEN hull. */
   const broken = TB.maxHp * raider.disengageHpFrac - 1;
@@ -669,9 +668,9 @@ describe('ai/utility — THE RAM TRIGGER [DRAFT] (Story 9.5, amendment 77)', () 
   });
 
   it('holds with a healthy target the hit cannot sink: the broken hull disengages instead', () => {
-    const healthy = sighted('battleship', 150, 0);
-    const hit = contactHitDamage(TB.armor, hullEnvelope('battleship').index.armor, TB.kinematics.maxSpeed, CONFIG.ram).b;
-    expect(hit).toBeLessThan(hullEnvelope('battleship').hp);
+    const healthy = sighted('yamato', 150, 0);
+    const hit = contactHitDamage(TB.armor, hullEnvelope('yamato').index.armor, TB.kinematics.maxSpeed, CONFIG.ram).b;
+    expect(hit).toBeLessThan(hullEnvelope('yamato').hp);
     expect(choosePosture(sit(), healthy)).toBe('disengage');
   });
 
@@ -769,15 +768,15 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
 
   it('no target = reposition; in own reach = engage; beyond it on good odds = pursue (epic-9 amendments 193–195)', () => {
     const duelist = profileOf('duelist');
-    const st = stats('torpedoBoat');
+    const st = stats('bismarck');
     const reach = st.equipment.gun.rangeU;
-    const sit = situation({ now: NOW, profile: duelist, stats: st, hullId: 'torpedoBoat', maxHp: st.maxHp, hp: st.maxHp });
+    const sit = situation({ now: NOW, profile: duelist, stats: st, hullId: 'bismarck', maxHp: st.maxHp, hp: st.maxHp });
     expect(choosePosture(sit, null)).toBe('reposition');
     expect(choosePosture(sit, target(mind('duelist'), reach - 10))).toBe('engage');
     // A peer-classed target (its own hull is the duelist's) beyond reach: the
     // odds read a full hull against a peer — 1.0, past the duelist's bar.
     const far = mind('duelist');
-    foldView(far, view({ contacts: [{ ...contact('e1', reach + 200, 0, 'torpedoBoat'), speed: 0 }] }), 1000);
+    foldView(far, view({ contacts: [{ ...contact('e1', reach + 200, 0, 'bismarck'), speed: 0 }] }), 1000);
     expect(choosePosture(sit, onlyTrack(far))).toBe('pursue');
   });
 
@@ -794,7 +793,7 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
     const m = mind('bulwark');
     const t = target(m, 40);
     const ring: ZoneRing = { cx: 0, cy: 0, r: 500 };
-    const st = stats('battleship');
+    const st = stats('yamato');
     const margin = ringDeadband(st, 0);
     const at = (x: number, prev: BotPosture): BotPosture =>
       choosePosture(situation({ now: NOW, profile: profileOf('bulwark'), stats: st, ring, x, y: 0 }), t, prev);
@@ -819,11 +818,20 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
     }
     // The ordering is the whole point: the hull that takes longest to turn
     // around gets the most water to do it in.
-    expect(ringDeadband(stats('battleship'), 0)).toBeGreaterThan(ringDeadband(stats('mineLayer'), 0));
-    expect(ringDeadband(stats('mineLayer'), 0)).toBeGreaterThan(ringDeadband(stats('torpedoBoat'), 0));
+    // (Story 10.4: the four hulls share one turn rate, so the radius orders by
+    // top speed — read off the stats, never a hand-written hull order.)
+    const radius = (cls: ShipClassId): number => {
+      const k = effectiveStats(CONFIG.shipClasses[cls]).kinematics;
+      return k.maxSpeed / k.turnRate;
+    };
+    for (const a of SHIP_CLASS_IDS) {
+      for (const b of SHIP_CLASS_IDS) {
+        if (radius(a) > radius(b)) expect(ringDeadband(stats(a), 0)).toBeGreaterThan(ringDeadband(stats(b), 0));
+      }
+    }
     // NEVER a fraction of ring radius: that would be widest on the opening
     // 2800u ring and tightest on the 660u endgame ring, i.e. backwards.
-    expect(ringDeadband(stats('battleship'), 0)).toBeLessThan(CONFIG.vision.radar);
+    expect(ringDeadband(stats('yamato'), 0)).toBeLessThan(CONFIG.vision.radar);
   });
 
   /**
@@ -835,7 +843,7 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
    * missed, and the cross-model review caught it. This pins the pair.
    */
   it('BOTH RING LENGTHS ARE BOOST-AWARE, and rated speed is a FLOOR', () => {
-    const st = stats('torpedoBoat');
+    const st = stats('bismarck');
     const rated = st.kinematics.maxSpeed;
     const boosted = rated * 1.3; // roughly what a `raider` makes under boost
 
@@ -880,8 +888,8 @@ describe('ai/utility — posture, and the dominance of ring escape', () => {
     const m = mind('forager');
     foldView(m, view({ contacts: [contact('d1', 100, 0, 'droneSmall')] }), 1000);
     const t = onlyTrack(m);
-    expect(choosePosture(situation({ now: NOW, profile: profileOf('forager'), stats: stats('mineLayer') }), t)).toBe('farm');
-    expect(choosePosture(situation({ now: NOW, profile: profileOf('duelist'), stats: stats('torpedoBoat') }), t)).not.toBe('farm');
+    expect(choosePosture(situation({ now: NOW, profile: profileOf('forager'), stats: stats('warspite') }), t)).toBe('farm');
+    expect(choosePosture(situation({ now: NOW, profile: profileOf('duelist'), stats: stats('bismarck') }), t)).not.toBe('farm');
   });
 });
 
@@ -1039,7 +1047,7 @@ describe('ai/spending — the card policy', () => {
       expect(calls(), id).toBe(0);
     }
     // ...and a RANDOM profile holds it too, rather than rolling a dead index.
-    expect(chooseSpend(profileOf('randomMineLayer'), spendState({ cards: capped, offer: ['hullRepair', 'armor'] }),
+    expect(chooseSpend(profileOf('randomWarspite'), spendState({ cards: capped, offer: ['hullRepair', 'armor'] }),
       undefined, mulberry32(3))).toBeNull();
   });
 
@@ -1231,10 +1239,16 @@ describe('ai/spending — the points scorer (Story 8.20 matrix)', () => {
   it('"gun" favors EVERY ladder of the mounted gun, and style reads only the MOUNTED gun\'s ladders', () => {
     const forager = profileOf('forager'); // rounded; favorites gun + reload
     const s = spendState({ cards: ['armor'] });
-    // The cannon mounted: its one ladder (turret + barrel are its rungs) is a favorite and sit at min(U) = 0.
+    // The cannon mounted (a hand-built slot 0 — since Story 10.4 a captain
+    // mounts the main battery, the cannon is the drones'): its one ladder is a
+    // favorite and sits at min(U) = 0.
+    const cannon = { ...s, slotIds: slotsOf([], [], 'gun') };
     for (const l of ['deckGun']) {
-      expect(cardScore(forager, s, l), l).toBe(P.base + P.favorite + P.style);
+      expect(cardScore(forager, cannon, l), l).toBe(P.base + P.favorite + P.style);
     }
+    // No slots supplied = a captain's default slot 0, the MAIN BATTERY (Story
+    // 10.4), which hosts no ladder: the cannon's ladder is out of U.
+    expect(cardScore(forager, s, 'deckGun')).toBe(P.base + P.favorite);
     // The machine gun mounted: its ladder is the gun favorite and in U...
     const mg = { ...s, slotIds: slotsOf([], [], 'machineGun') };
     expect(cardScore(forager, mg, 'machineGun')).toBe(P.base + P.favorite + P.style);
@@ -1294,7 +1308,7 @@ describe('ai/spending — ten seeded levels through the real draw (Story 8.20)',
   function runOnce(id: BotProfileId, seed: number): RunResult {
     const pickRng = mulberry32((seed * 7919 + 17) >>> 0);
     const cls = pickRng.pick(SHIP_CLASS_IDS);
-    const gun = pickRng.pick(GUN_IDS);
+    const shift = pickRng.pick(SHIFT_IDS); // the seat's pick (Story 10.4 — was the seat gun)
     // A random four per run (Story 10.1, ruling 6), off the same pick stream.
     const kit = rollKit(pickRng.next);
     const drawRng = mulberry32(seed);
@@ -1303,11 +1317,11 @@ describe('ai/spending — ten seeded levels through the real draw (Story 8.20)',
     const cards: string[] = [];
     let wasted = 0;
     const slotIds = (): (SlotItemId | null)[] =>
-      slotsWithCards(effectiveStats(hullEnvelope(cls), cards), cards, kit, CATALOG, false, gun, classShift(cls))
+      slotsWithCards(effectiveStats(hullEnvelope(cls), cards), cards, kit, CATALOG, false, shift)
         .map((s) => s.equipmentId);
     for (let level = 0; level < LEVELS; level += 1) {
       const ids = slotIds();
-      const ship = { held: cards as readonly LineId[], slotIds: ids, mountedGun: MOUNTED_GUN[gun], kit };
+      const ship = { held: cards as readonly LineId[], slotIds: ids, mountedGun: 'mainBattery' as const, kit };
       const offer = drawOffer(ship, new Map(), drawRng, CATALOG, { guarantee: level === 0 });
       const choice = chooseSpend(profile, spendState({ offer, cards, slotIds: ids, kit }), CATALOG, spendRng);
       if (choice === null) wasted += 1;
@@ -1416,7 +1430,8 @@ describe('ai/profiles — the TEST-ONLY random-spend rows (wave 4)', () => {
     // flat list — and from BOT_PROFILES entirely — is therefore proof of
     // unreachability, not a probabilistic claim.
     const testIds = Object.keys(TEST_PROFILES);
-    expect(testIds.sort()).toEqual(['randomBattleship', 'randomMineLayer', 'randomTorpedoBoat']);
+    // One test row per hull (Story 10.4: the four battleships).
+    expect(testIds.map((id) => TEST_PROFILE_HULL[id as keyof typeof TEST_PROFILE_HULL]).sort()).toEqual([...SHIP_CLASS_IDS].sort());
     for (const id of CONFIG.bots.profiles) expect(testIds).not.toContain(id);
     for (const id of testIds) expect(Object.hasOwn(BOT_PROFILES, id)).toBe(false);
   });
@@ -1443,7 +1458,7 @@ describe('ai/profiles — the TEST-ONLY random-spend rows (wave 4)', () => {
       // …with the gun ladder still the LOWEST entries (the universal fallback
       // order). Story 8.20 writes the two pickable guns explicitly at the
       // gun's own 2.0 (the numbers the retired family fallback resolved).
-      const GUNS = ['gun', 'machineGun', 'flak'];
+      const GUNS = ['gun', 'machineGun', 'flak', 'mainBattery'];
       for (const [eq, v] of Object.entries(row.appetite)) {
         if (GUNS.includes(eq)) expect(v).toBe(appetiteFor(row, 'gun'));
         else expect(v).toBeGreaterThan(appetiteFor(row, 'gun'));
@@ -1454,7 +1469,7 @@ describe('ai/profiles — the TEST-ONLY random-spend rows (wave 4)', () => {
   it('every in-game row spends WEIGHTED; profileOf resolves both id spaces', () => {
     for (const p of Object.values(BOT_PROFILES)) expect(p.spend).toBe('weighted');
     expect(profileOf('raider')).toBe(BOT_PROFILES.raider);
-    expect(profileOf('randomBattleship')).toBe(TEST_PROFILES.randomBattleship);
+    expect(profileOf('randomYamato')).toBe(TEST_PROFILES.randomYamato);
   });
 });
 
@@ -1478,7 +1493,7 @@ describe('ai/spending — random mode (wave 4)', () => {
   });
 
   it('a random profile picks UNIFORMLY over the offer off its own stream', () => {
-    const row = profileOf('randomMineLayer');
+    const row = profileOf('randomWarspite');
     const offer = ['deckGun', 'heavyTorpedo', 'armor', 'engines'];
     // The policy must be exactly one rng.int(0, offer.length - 1) draw: replay
     // the same seed independently and demand index equality, draw for draw.
@@ -1495,7 +1510,7 @@ describe('ai/spending — random mode (wave 4)', () => {
   });
 
   it('a hurt random profile picks a card like any other — the heal branch is gone', () => {
-    const row = profileOf('randomTorpedoBoat');
+    const row = profileOf('randomBismarck');
     const hurt = row.healHpFrac * 100 - 1;
     const rng = mulberry32(7);
     expect(chooseSpend(row, spendState({ hp: hurt, offer: ['deckGun', 'armor'] }), undefined, rng))
@@ -1503,7 +1518,7 @@ describe('ai/spending — random mode (wave 4)', () => {
   });
 
   it('nothing banked / no offer stay null in random mode, same as weighted', () => {
-    const row = profileOf('randomBattleship');
+    const row = profileOf('randomYamato');
     const rng = mulberry32(3);
     expect(chooseSpend(row, spendState({ bankedLevels: 0, offer: ['x'] }), undefined, rng)).toBeNull();
     expect(chooseSpend(row, spendState({ offer: null }), undefined, rng)).toBeNull();
@@ -1523,6 +1538,7 @@ describe('Story 8.15 — the new ids read their family\'s appetite', () => {
       const row = profileOf(id);
       expect(appetiteFor(row, 'machineGun'), id).toBe(appetiteFor(row, 'gun'));
       expect(appetiteFor(row, 'flak'), id).toBe(appetiteFor(row, 'gun'));
+      expect(appetiteFor(row, 'mainBattery'), id).toBe(appetiteFor(row, 'gun')); // Story 10.4: the captain's slot 0, same family
       expect(appetiteFor(row, 'instantReload'), id).toBe(appetiteFor(row, 'boost'));
       expect(appetiteFor(row, 'hunker'), id).toBe(appetiteFor(row, 'boost'));
     }

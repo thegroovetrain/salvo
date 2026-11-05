@@ -29,6 +29,7 @@ import {
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { broadsideAim } from '../game/equipment/index.js';
+import { neutralize } from './deckGunFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 /** Battleship slot indices under the NINE-SLOT spawn (Story 8.5):
@@ -91,8 +92,9 @@ function bareWorld(seed = 7, opts: WorldOptions = { catalog: BROADSIDE_LADDERS }
  *  this suite fits the broadside (and the Battleship's star shells) explicitly,
  *  through the same applyCard path a real pick takes. Nothing about the arcs,
  *  the pools or the barrage below changed; only how the guns got aboard. */
-function place(w: World, id: string, hull: 'battleship' | 'torpedoBoat' | 'mineLayer', x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
+function place(w: World, id: string, hull: 'yamato' | 'bismarck' | 'warspite', x: number, y: number, heading = 0): ShipRecord {
+  // NEUTRAL index (deckGunFixture, Story 10.4): this suite reads CONFIG numbers verbatim.
+  const rec = neutralize(w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined));
   fitClassWeapons(w, rec);
   rec.state = { x, y, heading, speed: 0 };
   return rec;
@@ -100,7 +102,7 @@ function place(w: World, id: string, hull: 'battleship' | 'torpedoBoat' | 'mineL
 
 /** Set a full, valid InputMsg on a ship (fireSeq 0 => no click by default). */
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Every live shell's (bearing, range) from `from`. */
@@ -112,18 +114,18 @@ function polar(w: World, from: { x: number; y: number }): { bearing: number; ran
 }
 
 describe('broadside — server loadout + barrage construction', () => {
-  it('a Battleship with both class cards fitted reads [gun, hunker, broadside, starShells, empty x5], full idle pools', () => {
+  it('a hull with both class cards fitted reads [mainBattery, its Shift, broadside, starShells, empty…], full idle pools', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     expect(bb.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'hunker', 'broadside', 'starShells', ...new Array<null>(SLOT_COUNT - 4).fill(null), // slot 1: the Battleship's Shift (8.15)
+      'mainBattery', bb.shift, 'broadside', 'starShells', ...new Array<null>(SLOT_COUNT - 4).fill(null), // slot 1: the seat's Shift (Story 10.4)
     ]);
     expect(bb.loadout[SLOT_BROADSIDE].state).toEqual({ n: CONFIG.broadside.maxAmmo, reloadMsLeft: 0 });
   });
 
   it('firing spawns `turrets` shells carrying the CONFIG.broadside speed, damage and burst, and no lit tag', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     setInput(bb, { aim: ABEAM, aimDist: 300, slot: SLOT_BROADSIDE });
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
     expect(w.shells.size).toBe(CONFIG.broadside.turrets); // 3 base — ONE click, N shells
@@ -141,7 +143,7 @@ describe('broadside — server loadout + barrage construction', () => {
 
   it('RANGE IS ITS OWN DIAL: a click beyond reach clamps to the Tier I reach, NOT the radar horizon (Story 9.8, ruling 125)', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     expect(bb.stats.equipment.broadside.rangeU).toBeCloseTo(TIER_I_REACH, 9);
     expect(bb.stats.equipment.broadside.rangeU).toBeLessThan(bb.stats.radarRange);
     expect(bb.stats.equipment.broadside.rangeU).toBeLessThan(bb.stats.equipment.gun.rangeU); // the FIRST short-reach weapon
@@ -167,7 +169,7 @@ describe('broadside — server loadout + barrage construction', () => {
   it('D1: the validated fire time becomes EVERY shell of the barrage bornAt', () => {
     const w = bareWorld();
     for (let i = 0; i < 40; i++) w.step(); // give the clock room to back-date into
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     setInput(bb, { aim: ABEAM, aimDist: 300, slot: SLOT_BROADSIDE });
     const fireT = w.now - 100;
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE, fireT)).toEqual({ ok: true });
@@ -178,7 +180,7 @@ describe('broadside — server loadout + barrage construction', () => {
 describe('broadside — the TWIN-SECTOR arc (R2.1/R2.2)', () => {
   it('a click DEAD AHEAD is denied out-of-arc and consumes NOTHING', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     setInput(bb, { aim: 0, aimDist: 300, slot: SLOT_BROADSIDE }); // bow dead zone
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: false, reason: 'out-of-arc' });
     expect(w.shells.size).toBe(0);
@@ -187,7 +189,7 @@ describe('broadside — the TWIN-SECTOR arc (R2.1/R2.2)', () => {
 
   it('a click DEAD ASTERN is denied too — both dead zones, 60° wide each', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     setInput(bb, { aim: Math.PI, aimDist: 300, slot: SLOT_BROADSIDE });
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: false, reason: 'out-of-arc' });
     expect(w.shells.size).toBe(0);
@@ -196,7 +198,7 @@ describe('broadside — the TWIN-SECTOR arc (R2.1/R2.2)', () => {
   it('BOTH beams fire — port (+90°) and starboard (−90°) are mirrored and equally legal', () => {
     for (const sign of [1, -1]) {
       const w = bareWorld();
-      const bb = place(w, 'a', 'battleship', 0, 0);
+      const bb = place(w, 'a', 'yamato', 0, 0);
       setInput(bb, { aim: sign * ABEAM, aimDist: 300, slot: SLOT_BROADSIDE });
       expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
       expect(w.shells.size).toBe(CONFIG.broadside.turrets);
@@ -209,7 +211,7 @@ describe('broadside — the TWIN-SECTOR arc (R2.1/R2.2)', () => {
     const hi = CONFIG.broadside.arcOffsetDeg + CONFIG.broadside.arcHalfArcDeg;
     for (const [bearingDeg, ok] of [[lo + 1, true], [hi - 1, true], [lo - 1, false], [hi + 1, false]] as const) {
       const w = bareWorld();
-      const bb = place(w, 'a', 'battleship', 0, 0);
+      const bb = place(w, 'a', 'yamato', 0, 0);
       setInput(bb, { aim: deg(bearingDeg), aimDist: 300, slot: SLOT_BROADSIDE });
       const res = w.sinkingActivationGate(bb, SLOT_BROADSIDE);
       expect(res.ok, `${bearingDeg}deg`).toBe(ok);
@@ -218,7 +220,7 @@ describe('broadside — the TWIN-SECTOR arc (R2.1/R2.2)', () => {
 
   it('the arc is tested against the HULL HEADING, not world north', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0, ABEAM); // bow points +y
+    const bb = place(w, 'a', 'yamato', 0, 0, ABEAM); // bow points +y
     // World-north is now DEAD AHEAD for this hull: denied.
     setInput(bb, { aim: ABEAM, aimDist: 300, slot: SLOT_BROADSIDE });
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: false, reason: 'out-of-arc' });
@@ -231,7 +233,7 @@ describe('broadside — the TWIN-SECTOR arc (R2.1/R2.2)', () => {
 describe('broadside — per-turret arcs: each gun fires as close to the click as it can (Eric 2026-08-20)', () => {
   it('every turret that BEARS fires EXACTLY at the click — a lined-up salvo fully converges', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     // THE TOP-RUNG PAYOFF (Eric ruling 2026-08-27). Under the zero-overlap
     // ladder the BASE battery converges at NO range at all — the mounts sit
     // ±28°/±9.33° off the beam under only ±6° of traverse. Full convergence is
@@ -251,7 +253,7 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
 
   it('a turret that CANNOT bear fires at its arc LIMIT, still at the click\'s range from its muzzle', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     // THE ZERO-OVERLAP CASE (Eric ruling 2026-08-24). A dead-abeam click at the
     // base rung falls in the GAP between the two inner wedges — the four mounts
     // sit ±28°/±9.33° off the beam with only ±6° of traverse each — so NO gun
@@ -280,7 +282,7 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
   it('ZERO OVERLAP AT BASE: an abeam click puts NO gun on it, at any range', () => {
     const onClick = (aimDist: number, spread = 0): number => {
       const w = bareWorld();
-      const bb = place(w, 'a', 'battleship', 0, 0);
+      const bb = place(w, 'a', 'yamato', 0, 0);
       for (let i = 0; i < spread; i += 1) w.applyCard(bb, 'broadsideSpread');
       setInput(bb, { aim: ABEAM, aimDist, slot: SLOT_BROADSIDE });
       return broadsideAim(bb, 1, w.map.radius).filter((t) => t.onClick).length;
@@ -299,7 +301,7 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
 
   it('BROADSIDE SPREAD moves BOTH arc ladders: wider arcs, mounts swung inward', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     const baseTraverse = bb.stats.equipment.broadside.traverseRad;
     const baseMounts = bb.stats.equipment.broadside.mountSpreadRad;
     setInput(bb, { aim: ABEAM, aimDist: 350, slot: SLOT_BROADSIDE });
@@ -320,7 +322,7 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
 
   it('BROADSIDE TURRETS adds a gun per card up to its cap — every added gun fires its own shell from its own arc', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     w.applyCard(bb, 'broadsideTurrets');
     w.applyCard(bb, 'broadsideTurrets');
     const six = CONFIG.broadside.turrets + 2; // the injected ladder: +1 per card, cap 2
@@ -339,7 +341,7 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
 
   it('the fire path and broadsideAim agree exactly — ONE geometry, not two', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 40, -25, 1.1);
+    const bb = place(w, 'a', 'yamato', 40, -25, 1.1);
     setInput(bb, { aim: 1.1 + Math.PI / 2, aimDist: 220, slot: SLOT_BROADSIDE });
     const predicted = broadsideAim(bb, 1, w.map.radius);
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: true });
@@ -352,21 +354,21 @@ describe('broadside — per-turret arcs: each gun fires as close to the click as
 describe('broadside — per-shell signals (R2.5, Eric A2)', () => {
   /** Click through the real input channel and return this tick's event kinds. */
   function clickAndStep(w: World, id: string, patch: Partial<InputMsg>): string[] {
-    w.submitInput(id, { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch });
+    w.submitInput(id, { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch });
     w.step();
     return w.tickEvents.map((e) => e.k);
   }
 
   it('N turrets emit N muzzle flashes — a barrage lights the whole engaged beam', () => {
     const w = bareWorld();
-    place(w, 'a', 'battleship', 0, 0);
+    place(w, 'a', 'yamato', 0, 0);
     const kinds = clickAndStep(w, 'a', {});
     expect(kinds.filter((k) => k === 'mz')).toHaveLength(CONFIG.broadside.turrets);
   });
 
   it('the count FOLLOWS the turret stat — one flash per turret after the card (no salvo aggregation)', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     w.applyCard(bb, 'broadsideTurrets');
     w.applyCard(bb, 'broadsideTurrets');
     expect(bb.stats.equipment.broadside.turrets).toBeGreaterThan(CONFIG.broadside.turrets);
@@ -375,7 +377,7 @@ describe('broadside — per-shell signals (R2.5, Eric A2)', () => {
 
   it('THE GUN IS UNCHANGED: a multi-barrel gun click still collapses to ONE flash', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     w.applyCard(bb, 'testGunBarrel'); // a second barrel — two shells, one flash
     expect(bb.stats.equipment.gun.barrels).toBeGreaterThan(1);
     const kinds = clickAndStep(w, 'a', { slot: 0, aim: 0 });
@@ -385,8 +387,8 @@ describe('broadside — per-shell signals (R2.5, Eric A2)', () => {
 
   it('every MISSING shell of a barrage splashes on its own — N fall-of-shot marks, not one', () => {
     const w = bareWorld();
-    place(w, 'a', 'battleship', 0, 0);
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    place(w, 'a', 'yamato', 0, 0);
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
     let splashes = 0;
     for (let i = 0; i < 60 && splashes === 0; i++) {
       w.step();
@@ -400,7 +402,7 @@ describe('broadside — burst + interceptor outcomes (end-to-end steps)', () => 
   /** Click for `firer` via the real input channel and step until a burst or
    *  boom lands (or `maxTicks`). Returns the events seen. */
   function fireAndResolve(w: World, firer: string, input: Partial<InputMsg>, maxTicks = 80): string[] {
-    w.submitInput(firer, { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 0, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...input });
+    w.submitInput(firer, { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 0, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...input });
     const seen: string[] = [];
     for (let i = 0; i < maxTicks; i++) {
       w.step();
@@ -412,8 +414,8 @@ describe('broadside — burst + interceptor outcomes (end-to-end steps)', () => 
 
   it('bursts at each shell point: an enemy hull inside the burst takes the full broadside damage (owner excluded)', () => {
     const w = bareWorld();
-    place(w, 'a', 'battleship', 0, 0);
-    const e = place(w, 'e', 'battleship', 0, 300); // hull straddles the click point
+    place(w, 'a', 'yamato', 0, 0);
+    const e = place(w, 'e', 'yamato', 0, 300); // hull straddles the click point
     const seen = fireAndResolve(w, 'a', { aimDist: 300 });
     expect(seen).toContain('burst');
     expect(e.hp).toBeLessThanOrEqual(e.stats.maxHp - CONFIG.broadside.damage);
@@ -421,8 +423,8 @@ describe('broadside — burst + interceptor outcomes (end-to-end steps)', () => 
 
   it('an early interceptor stops its shell — the barrage never overflies a hull', () => {
     const w = bareWorld();
-    place(w, 'a', 'battleship', 0, 0);
-    const mid = place(w, 'mid', 'battleship', 0, 200); // bodyblocks the 400u shot
+    place(w, 'a', 'yamato', 0, 0);
+    const mid = place(w, 'mid', 'yamato', 0, 200); // bodyblocks the 400u shot
     const seen = fireAndResolve(w, 'a', { aimDist: 400 });
     expect(seen).toContain('boom');
     expect(mid.hp).toBeLessThan(mid.stats.maxHp);
@@ -432,7 +434,7 @@ describe('broadside — burst + interceptor outcomes (end-to-end steps)', () => 
 describe('broadside — denials + cross-hull parity', () => {
   it('cooling (empty pool) denies no-ammo and changes nothing', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     setInput(bb, { aim: ABEAM, aimDist: 300, slot: SLOT_BROADSIDE });
     bb.loadout[SLOT_BROADSIDE].state = { n: 0, reloadMsLeft: CONFIG.broadside.reloadMs };
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: false, reason: 'no-ammo' });
@@ -441,7 +443,7 @@ describe('broadside — denials + cross-hull parity', () => {
 
   it('the ARC is judged BEFORE the pool: a dead-zone click on an empty pool is out-of-arc', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     setInput(bb, { aim: 0, aimDist: 300, slot: SLOT_BROADSIDE });
     bb.loadout[SLOT_BROADSIDE].state = { n: 0, reloadMsLeft: CONFIG.broadside.reloadMs };
     expect(w.sinkingActivationGate(bb, SLOT_BROADSIDE)).toEqual({ ok: false, reason: 'out-of-arc' });
@@ -449,7 +451,7 @@ describe('broadside — denials + cross-hull parity', () => {
 
   it('a dead Battleship is refused first (dead)', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     setInput(bb, { aim: ABEAM, aimDist: 300, slot: SLOT_BROADSIDE });
     w.respawnEnabled = false;
     w.sinkShip('a');
@@ -461,16 +463,16 @@ describe('broadside — denials + cross-hull parity', () => {
 
   it('a forged click on the empty WEAPON slot denies empty-slot; the click channel stays inert', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     expect(w.sinkingActivationGate(bb, SLOT_EMPTY)).toEqual({ ok: false, reason: 'empty-slot' });
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_EMPTY, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_EMPTY, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
     w.step();
     expect(w.shells.size).toBe(0);
   });
 
   it('the broadside reloads every tick while another slot is in use (FR5 parity)', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     setInput(bb, { slot: 0 }); // gun named, no click
     bb.loadout[SLOT_BROADSIDE].state = { n: 0, reloadMsLeft: CONFIG.broadside.reloadMs };
     w.step();
@@ -479,12 +481,12 @@ describe('broadside — denials + cross-hull parity', () => {
 
   it('no other hull carries it: the TB seeds a torpedo into slot 2, the ML a mine — never a broadside shell', () => {
     const w = bareWorld();
-    const tb = place(w, 'tb', 'torpedoBoat', 0, 0);
+    const tb = place(w, 'tb', 'bismarck', 0, 0);
     expect(tb.loadout[SLOT_BROADSIDE].equipmentId).toBe('heavyTorpedo'); // same slot index, other hull
     setInput(tb, { aim: tb.state.heading, slot: SLOT_BROADSIDE }); // over the bow — in arc
     expect(w.sinkingActivationGate(tb, SLOT_BROADSIDE)).toEqual({ ok: true });
     expect([...w.shells.values()].map((s) => s.kind)).toEqual(['torp']);
-    const ml = place(w, 'ml', 'mineLayer', 0, 300);
+    const ml = place(w, 'ml', 'warspite', 0, 300);
     expect(ml.loadout[SLOT_BROADSIDE].equipmentId).toBe('navalMines');
     expect(ml.loadout.map((s) => s.equipmentId)).not.toContain('broadside');
   });
@@ -510,7 +512,7 @@ describe('broadside — limit shots are clamped to the water disk (ONE shared an
    *  point would land OUTSIDE the disk. Scales with R, so it holds at any
    *  roster-derived map size. */
   function rimBattleship(w: World): ShipRecord {
-    const bb = place(w, 'a', 'battleship', w.map.radius * 0.98, 0, RIM_AIM - Math.PI / 2);
+    const bb = place(w, 'a', 'yamato', w.map.radius * 0.98, 0, RIM_AIM - Math.PI / 2);
     setInput(bb, { aim: RIM_AIM, aimDist: w.map.radius, slot: SLOT_BROADSIDE });
     return bb;
   }
@@ -579,7 +581,7 @@ describe('broadside - every shell fires from its OWN turret', () => {
 
   it('N shells spawn at N DISTINCT points, not N copies of one muzzle', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     setInput(bb, { aim: ABEAM, aimDist: 300, slot: SLOT_BROADSIDE });
     const origins = fired(w, bb);
     expect(origins).toHaveLength(CONFIG.broadside.turrets);
@@ -589,7 +591,7 @@ describe('broadside - every shell fires from its OWN turret', () => {
 
   it('THE ONE-FUNCTION PIN: the spawn points ARE shared turretMuzzles(), index for index', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 40, -25, 1.1);
+    const bb = place(w, 'a', 'yamato', 40, -25, 1.1);
     setInput(bb, { aim: 1.1 + Math.PI / 2, aimDist: 300, slot: SLOT_BROADSIDE });
     const origins = fired(w, bb);
     // The SAME call the client's broadsidePreview makes (render/aimPreview.ts),
@@ -607,12 +609,12 @@ describe('broadside - every shell fires from its OWN turret', () => {
   it('the muzzles are EVENLY SPACED along the hull, on the ENGAGED beam only', () => {
     for (const [aim, side] of [[ABEAM, 1], [-ABEAM, -1]] as const) {
       const w = bareWorld();
-      const bb = place(w, 'a', 'battleship', 0, 0);
+      const bb = place(w, 'a', 'yamato', 0, 0);
       setInput(bb, { aim, aimDist: 300, slot: SLOT_BROADSIDE });
       const origins = fired(w, bb).sort((p, q) => p.x - q.x);
       // Heading 0, so the beam offset is pure +/-y and the spacing is pure x.
       for (const p of origins) {
-        expect(p.y).toBeCloseTo((side * CONFIG.shipClasses.battleship.hull.beam) / 2, 9);
+        expect(p.y).toBeCloseTo((side * CONFIG.shipClasses.yamato.hull.beam) / 2, 9);
       }
       const gaps = origins.slice(1).map((p, i) => p.x - origins[i].x);
       for (const g of gaps) expect(g).toBeCloseTo(gaps[0], 9);
@@ -623,7 +625,7 @@ describe('broadside - every shell fires from its OWN turret', () => {
   it('BROADSIDE TURRETS RE-SPACES the same span: each added gun packs tighter, never longer', () => {
     const spanAndGap = (boons: number): { span: number; gap: number; n: number } => {
       const w = bareWorld();
-      const bb = place(w, 'a', 'battleship', 0, 0);
+      const bb = place(w, 'a', 'yamato', 0, 0);
       for (let i = 0; i < boons; i += 1) w.applyCard(bb, 'broadsideTurrets');
       setInput(bb, { aim: ABEAM, aimDist: 300, slot: SLOT_BROADSIDE });
       const xs = fired(w, bb).map((p) => p.x).sort((a, b) => a - b);
@@ -644,8 +646,8 @@ describe('broadside - every shell fires from its OWN turret', () => {
 
   it('EACH TURRET GETS ITS OWN MUZZLE FLASH, at the turret (R2.5, now per POINT)', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    const bb = place(w, 'a', 'yamato', 0, 0);
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 300, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
     w.step();
     const flashes = w.tickEvents.filter((e) => e.k === 'mz') as { x: number; y: number }[];
     expect(flashes).toHaveLength(CONFIG.broadside.turrets);
@@ -658,7 +660,7 @@ describe('broadside - every shell fires from its OWN turret', () => {
 
   it('THE BEARING GUN\'S SHOT STILL LANDS EXACTLY ON THE CLICK, from its own turret', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     // READ AT THE ×4 SPREAD CAP since 2026-08-27. Eric's *"one shell will
     // absolutely hit at the target point"* is RETIRED as a base-rung promise
     // (2026-08-24: zero overlap, dead gaps, an inaccurate shotgun) — what
@@ -682,11 +684,11 @@ describe('broadside - every shell fires from its OWN turret', () => {
     expect(offs[0]).toBeCloseTo(-offs[1], 9);
     expect(Math.abs(offs[0])).toBeGreaterThan(0);
     for (const t of bearing) {
-      expect(t.muzzle.y).toBeCloseTo(CONFIG.shipClasses.battleship.hull.beam / 2, 9);
+      expect(t.muzzle.y).toBeCloseTo(CONFIG.shipClasses.yamato.hull.beam / 2, 9);
     }
     // ...and end to end, a bearing shell's fall of shot lands ON the clicked
     // point — the promise, at the rung that now carries it.
-    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 150, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 150, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
     const splashes: { x: number; y: number }[] = [];
     for (let i = 0; i < 60 && splashes.length === 0; i += 1) {
       w.step();
@@ -701,9 +703,9 @@ describe('broadside - every shell fires from its OWN turret', () => {
     // A point-blank click abeam: every turret is aimed at a target only ~20u
     // off the hull, so the forward gun's line grazes the ship's own silhouette.
     const w = bareWorld();
-    const bb = place(w, 'a', 'battleship', 0, 0);
+    const bb = place(w, 'a', 'yamato', 0, 0);
     const before = bb.hp;
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 20, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: ABEAM, fireSeq: 1, aimDist: 20, slot: SLOT_BROADSIDE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
     for (let i = 0; i < 40; i += 1) w.step();
     expect(bb.hp).toBe(before);
   });

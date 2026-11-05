@@ -19,7 +19,7 @@ import { CONSUMABLE_TACTICS, consumableAppetite } from './consumables.js';
 import { appetiteFor, deepFreezeRows, type EquipmentTactic, type SlotTactic } from './tacticKit.js';
 
 export { CONSUMABLE_TACTICS } from './consumables.js';
-export { SHIFT_TACTICS } from './shift.js';
+export { SHIFT_ROWS } from './shift.js';
 
 /** Every equipment id's tactic: the weapon rows plus the three Shift rows.
  *  TOTAL over EquipmentId, deep-frozen. */

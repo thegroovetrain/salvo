@@ -75,7 +75,7 @@ function fleetShip(w: World, id: string, size: DroneSizeId, x: number, y: number
 }
 
 function captain(w: World, id: string, x = 0, y = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', DEFAULT_HORN_ID, { x, y });
+  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', DEFAULT_HORN_ID, { x, y });
   return rec;
 }
 
@@ -276,7 +276,7 @@ describe('fleet hulls — roving', () => {
       return w.inputs.get('f')!.rudder;
     };
     const mate = hullBumper(droneHullOf('medium'), droneHullOf('medium'));
-    const prey = hullBumper(droneHullOf('medium'), 'torpedoBoat');
+    const prey = hullBumper(droneHullOf('medium'), 'bismarck');
     expect(mate).toBeLessThan(CONFIG.bots.hullLookaheadU);
     // A FLEET-MATE 120 u ahead to port: inside the probe, outside the bumper — no bias.
     expect(run((w, d) => void fleetShip(w, 'f2', 'medium', d.state.x - 120, d.state.y - 20, 1))).toBe(0);

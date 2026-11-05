@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { isAfloat, CONFIG, effectiveStats, hullSilhouette, polygonMaxRadius, transformPolygon, wrapPositive } from '@salvo/shared';
+import { isAfloat, CONFIG, SHIP_CLASS_IDS, effectiveStats, hullSilhouette, polygonMaxRadius, transformPolygon, wrapPositive } from '@salvo/shared';
 import { World } from '../game/world.js';
 
 const SIM_DT = CONFIG.tick.simDtMs;
@@ -16,7 +16,7 @@ const input = (seq: number, throttle = 1, rudder = 0, extra = {}) => ({
   slot: 0,
   fireT: 0,
   actSeq: 0,
-  actSlot: 0, hornSeq: 0, held: false,
+  actSlot: 0, hornSeq: 0, held: false, sec: false,
   ...extra,
 });
 
@@ -37,7 +37,7 @@ describe('World clock + lifecycle', () => {
   it('addShip creates a full-hp living ship and removeShip forgets it', () => {
     const w = new World(1);
     const rec = w.addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
-    expect(rec.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
+    expect(rec.hp).toBe(CONFIG.shipClasses.bismarck.hp);
     expect(isAfloat(rec.lifecycle)).toBe(true);
     expect(rec.role).toBe('captain');
     expect(w.ships.size).toBe(1);
@@ -47,16 +47,16 @@ describe('World clock + lifecycle', () => {
 
   it('addShip defaults to the torpedoBoat class', () => {
     const rec = new World(1).addShip('a', 'ALPHA', undefined, undefined, undefined, undefined);
-    expect(rec.hullId).toBe('torpedoBoat');
-    expect(rec.cls).toBe(CONFIG.shipClasses.torpedoBoat);
+    expect(rec.hullId).toBe('bismarck');
+    expect(rec.cls).toBe(CONFIG.shipClasses.bismarck);
   });
 
   it('addShip applies the requested class (id, cached cls, and hp)', () => {
     const w = new World(1);
-    const bb = w.addShip('b', 'BRAVO', 'captain', 'battleship', undefined, undefined);
-    expect(bb.hullId).toBe('battleship');
-    expect(bb.cls).toBe(CONFIG.shipClasses.battleship);
-    expect(bb.hp).toBe(CONFIG.shipClasses.battleship.hp);
+    const bb = w.addShip('b', 'BRAVO', 'captain', 'yamato', undefined, undefined);
+    expect(bb.hullId).toBe('yamato');
+    expect(bb.cls).toBe(CONFIG.shipClasses.yamato);
+    expect(bb.hp).toBe(CONFIG.shipClasses.yamato.hp);
   });
 
   it('addShip resolves a drone hull id to its CONFIG.drones envelope', () => {
@@ -72,20 +72,23 @@ describe('World clock + lifecycle', () => {
 });
 
 describe('World step — per-class kinematics', () => {
-  it('a torpedo boat out-accelerates a battleship under full throttle', () => {
+  it('every hull accelerates at its OWN folded kinematics under full throttle (Story 10.4: four hulls, one kinematics row)', () => {
+    // The four battleships share the retired battleship's accel row (wave-1
+    // reading), so the relation pinned is per hull: one tick of full ahead
+    // lands exactly that hull's folded accel × dt — the class envelope and
+    // nothing else drives it.
     const w = new World(1);
-    const dd = w.addShip('dd', 'DD', 'captain', 'torpedoBoat', undefined, undefined);
-    const bb = w.addShip('bb', 'BB', 'captain', 'battleship', undefined, undefined);
-    // Same fresh pose so only kinematics differ.
-    dd.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    bb.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('dd', input(1, 1, 0));
-    w.submitInput('bb', input(1, 1, 0));
+    w.map.islands.length = 0;
+    const recs = SHIP_CLASS_IDS.map((id, i) => {
+      const r = w.addShip(`s${i}`, `S${i}`, 'captain', id, undefined, undefined);
+      r.state = { x: i * 400, y: 0, heading: 0, speed: 0 }; // apart: no hull contact
+      w.submitInput(r.id, input(1, 1, 0));
+      return r;
+    });
     w.step();
-    // One tick of accel: torpedoBoat accel 12 > battleship accel 5.
-    expect(dd.state.speed).toBeGreaterThan(bb.state.speed);
-    expect(dd.state.speed).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.kinematics.accel * (SIM_DT / 1000), 9);
-    expect(bb.state.speed).toBeCloseTo(CONFIG.shipClasses.battleship.kinematics.accel * (SIM_DT / 1000), 9);
+    for (const r of recs) {
+      expect(r.state.speed).toBeCloseTo(effectiveStats(r.cls).kinematics.accel * (SIM_DT / 1000), 9);
+    }
   });
 });
 
@@ -162,13 +165,13 @@ describe('World step — boundary', () => {
     rec.state.x = w.map.radius - 1;
     rec.state.y = 0;
     rec.state.heading = 0;
-    rec.state.speed = effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics.maxSpeed;
+    rec.state.speed = effectiveStats(CONFIG.shipClasses.bismarck).kinematics.maxSpeed;
     w.submitInput('a', input(1, 1, 0));
     w.step();
     const d = Math.hypot(rec.state.x, rec.state.y);
     // Bow-on, the hull stops with its BOW on the boundary — strictly further
     // out than the old bounding-circle wall, and the silhouette still fits.
-    const local = hullSilhouette('torpedoBoat');
+    const local = hullSilhouette('bismarck');
     const bow = Math.max(...local.map((p) => p.x));
     expect(d).toBeCloseTo(w.map.radius - bow, 6);
     expect(d).toBeGreaterThan(w.map.radius - polygonMaxRadius(local));
@@ -176,7 +179,7 @@ describe('World step — boundary', () => {
       expect(Math.hypot(v.x, v.y)).toBeLessThanOrEqual(w.map.radius + 1e-6);
     }
     // Full way kept, so full rudder authority: the edge costs nothing.
-    expect(rec.state.speed).toBeCloseTo(effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics.maxSpeed, 9);
+    expect(rec.state.speed).toBeCloseTo(effectiveStats(CONFIG.shipClasses.bismarck).kinematics.maxSpeed, 9);
   });
 
   it('never lets a ship escape the map over a long full-throttle run', () => {
@@ -222,7 +225,7 @@ describe('World step — sweep + respawn', () => {
     expect(isAfloat(rec.lifecycle)).toBe(false);
     w.step();
     expect(isAfloat(rec.lifecycle)).toBe(true);
-    expect(rec.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
+    expect(rec.hp).toBe(CONFIG.shipClasses.bismarck.hp);
     expect(rec.respawnAt).toBe(0);
     expect(Math.hypot(rec.state.x, rec.state.y)).toBeCloseTo(w.map.spawnRing, 6);
   });

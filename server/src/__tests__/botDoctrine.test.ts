@@ -22,7 +22,7 @@ import { World, type ShipRecord } from '../game/world.js';
 import { circleIsland } from './islandFixture.js';
 import { fitClassWeapons } from './classWeapons.js';
 import { COMBAT_BRAIN, situationOf } from '../game/ai/tactics.js';
-import { CONSUMABLE_TACTICS, EQUIPMENT_TACTICS, SHIFT_TACTICS } from '../game/ai/tacticRegistry.js';
+import { CONSUMABLE_TACTICS, EQUIPMENT_TACTICS, SHIFT_ROWS } from '../game/ai/tacticRegistry.js';
 import { FLARE_TO_SHOOT } from '../game/ai/equipment.js';
 import { profileOf, type BotProfile } from '../game/ai/profiles.js';
 import { effectiveReach, gunBand, mountedGun, ownLitZones } from '../game/ai/doctrine.js';
@@ -104,7 +104,7 @@ function track(now: number, over: Partial<RememberedContact> = {}): RememberedCo
     seenAt: now,
     live: true,
     sunk: false,
-    cls: 'torpedoBoat' as HullId,
+    cls: 'bismarck' as HullId,
     fleet: false,
     firstSeenAt: now - CONFIG.bots.reactionMs * 4,
     hits: 0,
@@ -152,7 +152,7 @@ const withNudge = (p: BotProfile, bandNudge: number): BotProfile => ({ ...p, ban
 describe('the doctrine band (amendment 198)', () => {
   it('the cannon band is CONFIG.bots.gunBand.cannon × rangeU, both edges shifted by the profile nudge', () => {
     const w = openWorld(9131);
-    const rec = mkBot(w, 'battleship');
+    const rec = mkBot(w, 'yamato');
     const R = rec.stats.equipment.gun.rangeU;
     const [lo, hi] = CONFIG.bots.gunBand.cannon;
     for (const n of [0, 0.1, -0.05]) {
@@ -165,7 +165,7 @@ describe('the doctrine band (amendment 198)', () => {
 
   it('the machine gun and flak close (min 0) and their far edge is the hold-fire line', () => {
     const w = openWorld(9132);
-    const rec = mkBot(w, 'torpedoBoat');
+    const rec = mkBot(w, 'bismarck');
     for (const gun of ['machineGun', 'flak'] as const) {
       const R = rec.stats.equipment[gun].rangeU;
       const band = gunBand(withNudge(profileOf('bulwark'), 0.05), rec.stats, gun);
@@ -181,7 +181,7 @@ describe('the doctrine band (amendment 198)', () => {
     expect(mountedGun('gun')).toBe('gun');
     expect(mountedGun(null)).toBe('gun');
     const w = openWorld(9133);
-    const rec = mkBot(w, 'battleship');
+    const rec = mkBot(w, 'yamato');
     const reach = effectiveReach({ stats: rec.stats, ownLitZones: [], origin: { x: 0, y: 0 } }, 'gun');
     expect(reach.maxU).toBe(rec.stats.equipment.gun.rangeU);
     expect(reach.fullU).toBeCloseTo(CONFIG.gunAttenuation.fullFrac * reach.maxU, 9);
@@ -198,7 +198,7 @@ describe('the MG / flak hold and the lit lift (amendments 187, 198)', () => {
   it('MACHINE GUN: past the hold line it holds fire; inside it it streams', () => {
     const w = openWorld(9134);
     const port = fakePort(w);
-    const rec = mkBot(w, 'torpedoBoat');
+    const rec = mkBot(w, 'bismarck');
     mountGun(rec, 'machineGun');
     const R = rec.stats.equipment.machineGun.rangeU;
     const hold = gunBand(profileOf('bulwark'), rec.stats, 'machineGun').holdFireAboveU;
@@ -215,7 +215,7 @@ describe('the MG / flak hold and the lit lift (amendments 187, 198)', () => {
   it('FLAK: bursts only inside the hold line', () => {
     const w = openWorld(9135);
     const port = fakePort(w);
-    const rec = mkBot(w, 'battleship');
+    const rec = mkBot(w, 'yamato');
     mountGun(rec, 'flak');
     const R = rec.stats.equipment.flak.rangeU;
     const hold = gunBand(profileOf('bulwark'), rec.stats, 'flak').holdFireAboveU;
@@ -238,7 +238,7 @@ describe('the MG / flak hold and the lit lift (amendments 187, 198)', () => {
       const t = plot(mind, track(port.now, { x: rec.state.x + 0.8 * rec.stats.equipment[gun].rangeU, y: rec.state.y }));
       return EQUIPMENT_TACTICS[gun].solve(ctxOf(rec, mind, port, posture, t));
     };
-    for (const [hull, gun] of [['torpedoBoat', 'machineGun'], ['battleship', 'flak']] as const) {
+    for (const [hull, gun] of [['bismarck', 'machineGun'], ['yamato', 'flak']] as const) {
       expect(gunBand(profileOf('bulwark'), mkBot(w, hull).stats, gun).holdFireAboveU).toBeLessThan(
         0.8 * mkBot(w, hull).stats.equipment[gun].rangeU,
       );
@@ -247,9 +247,9 @@ describe('the MG / flak hold and the lit lift (amendments 187, 198)', () => {
       expect(solveAt(hull, gun, 'kite'), `${gun} kite`).not.toBeNull();
     }
     // The cannon never held: it fires at 0.8 × range in every posture.
-    for (const posture of ['engage', 'pursue', 'kite'] as const) expect(solveAt('battleship', 'gun', posture), posture).not.toBeNull();
+    for (const posture of ['engage', 'pursue', 'kite'] as const) expect(solveAt('yamato', 'gun', posture), posture).not.toBeNull();
     // The band read itself: shadowing lifts the MG / flak line to the full rangeU.
-    const tb = mkBot(w, 'torpedoBoat');
+    const tb = mkBot(w, 'bismarck');
     expect(gunBand(profileOf('bulwark'), tb.stats, 'machineGun', true).holdFireAboveU).toBe(tb.stats.equipment.machineGun.rangeU);
     expect(gunBand(profileOf('bulwark'), tb.stats, 'gun', true).holdFireAboveU).toBe(Infinity);
   });
@@ -257,7 +257,7 @@ describe('the MG / flak hold and the lit lift (amendments 187, 198)', () => {
   it('a shot beyond range into an OWN live lit zone is solved; into another\'s, or an expired own one, refused', () => {
     const w = openWorld(9136);
     const port = fakePort(w);
-    const rec = mkBot(w, 'battleship');
+    const rec = mkBot(w, 'yamato');
     mountGun(rec, 'gun');
     const x = rec.stats.equipment.gun.rangeU + 150;
     const solveWith = (zones: LitZoneView[]): ReturnType<typeof EQUIPMENT_TACTICS.gun.solve> => {
@@ -276,7 +276,7 @@ describe('the MG / flak hold and the lit lift (amendments 187, 198)', () => {
   it('the MG hold is waived inside own light: past the hold line, and past reach, a lit plot streams', () => {
     const w = openWorld(9137);
     const port = fakePort(w);
-    const rec = mkBot(w, 'torpedoBoat');
+    const rec = mkBot(w, 'bismarck');
     mountGun(rec, 'machineGun');
     const x = rec.stats.equipment.machineGun.rangeU + 100;
     const mind = mkMind('bulwark');
@@ -294,7 +294,7 @@ describe('flare to shoot (amendment 198)', () => {
   function setup(seed: number): { port: BotWorldPort & { now: number }; rec: ShipRecord; mind: BotMind; t: RememberedContact; flares: number } {
     const w = openWorld(seed);
     const port = fakePort(w);
-    const rec = mkBot(w, 'battleship');
+    const rec = mkBot(w, 'yamato');
     const flares = rec.loadout.findIndex((s) => s.equipmentId === 'starShells');
     expect(flares).toBeGreaterThanOrEqual(0);
     const gunR = rec.stats.equipment.gun.rangeU;
@@ -353,9 +353,9 @@ describe('special / consumable triggers (amendment 199)', () => {
   it('HUNKER and SHIELD BLOCK: pressed in pursue / kite / disengage / hide with a hostile in weapon reach — not without', () => {
     const w = openWorld(9142);
     const port = fakePort(w);
-    const bs = mkBot(w, 'battleship');
+    const bs = mkBot(w, 'yamato');
     const R = bs.stats.equipment.gun.rangeU;
-    const hunker = SHIFT_TACTICS.battleship;
+    const hunker = SHIFT_ROWS.hunker;
     const shield = CONSUMABLE_TACTICS.shieldBlock;
     for (const posture of ['pursue', 'kite', 'disengage', 'hide'] as const) {
       const near = mkMind('bulwark');
@@ -378,7 +378,7 @@ describe('special / consumable triggers (amendment 199)', () => {
   it('HUNKER in the last seconds before a ram: the ram posture with the target inside ramReachU', () => {
     const w = openWorld(9143);
     const port = fakePort(w);
-    const bs = mkBot(w, 'battleship');
+    const bs = mkBot(w, 'yamato');
     const mind = mkMind('raider');
     const t = plot(mind, track(port.now, { x: CONFIG.bots.ramReachU * 0.9 }));
     expect(hunkerCues(ctxOf(bs, mind, port, 'ram', t))).toBe(true);
@@ -392,7 +392,7 @@ describe('special / consumable triggers (amendment 199)', () => {
   it('COUNTERMEASURE on a declined fight: a healthy bot kiting / hiding / repositioning with a hostile on radar presses once — never over its own cloud', () => {
     const w = openWorld(9144);
     const port = fakePort(w);
-    const tb = mkBot(w, 'torpedoBoat');
+    const tb = mkBot(w, 'bismarck');
     const cm = CONSUMABLE_TACTICS.countermeasure;
     const plotX = (CONFIG.vision.sight + tb.stats.radarRange) / 2;
     for (const posture of ['kite', 'hide', 'reposition'] as const) {
@@ -420,7 +420,7 @@ describe('special / consumable triggers (amendment 199)', () => {
   it('RADAR BUOY (the DECOY BUOY\'s radar-decoy want, Story 10.9): dropped astern when breaking off from a radar chaser — not with an own RADAR buoy already out, not for a sighted contact', () => {
     const w = openWorld(9145);
     const port = fakePort(w);
-    const tb = mkBot(w, 'torpedoBoat');
+    const tb = mkBot(w, 'bismarck');
     w.applyCard(tb, 'radarBuoy');
     const slot = tb.loadout.findIndex((s) => s.equipmentId === 'radarBuoy');
     const decoy = CONSUMABLE_TACTICS.radarBuoy;
@@ -454,7 +454,7 @@ describe('special / consumable triggers (amendment 199)', () => {
   it('THE FOUR BUOYS (Story 10.9, ruling 7): HEALING when hurt (HULL REPAIR\'s read), SHIELD when engaged, SPEED when disengaging — never with an own buoy of that kind live', () => {
     const w = openWorld(9147);
     const port = fakePort(w);
-    const tb = mkBot(w, 'torpedoBoat');
+    const tb = mkBot(w, 'bismarck');
     const want = (id: 'healingBuoy' | 'shieldBuoy' | 'speedBuoy', posture: BotPosture, mind = mkMind('duelist')): boolean => {
       if (mind.view === null) setView(mind, {});
       return CONSUMABLE_TACTICS[id].want(ctxOf(tb, mind, port, posture, null));
@@ -490,7 +490,7 @@ describe('special / consumable triggers (amendment 199)', () => {
   it('THE BUOY RING SOLVER (ruling 9): dead astern on open water; round the circle when astern is ashore; null when every bearing is', () => {
     const w = openWorld(9148);
     const port = fakePort(w);
-    const tb = mkBot(w, 'torpedoBoat', 0, 0, 0); // bow +x: astern is −x
+    const tb = mkBot(w, 'bismarck', 0, 0, 0); // bow +x: astern is −x
     w.applyCard(tb, 'shieldBuoy');
     const slot = tb.loadout.findIndex((s) => s.equipmentId === 'shieldBuoy');
     const row = CONSUMABLE_TACTICS.shieldBuoy;
@@ -517,7 +517,7 @@ describe('special / consumable triggers (amendment 199)', () => {
   it('FOULING SHELL in pursue: at the nearest live contact in sight that is moving AWAY — not one closing', () => {
     const w = openWorld(9146);
     const port = fakePort(w);
-    const tb = mkBot(w, 'torpedoBoat');
+    const tb = mkBot(w, 'bismarck');
     w.applyCard(tb, 'foulingShell');
     const slot = tb.loadout.findIndex((s) => s.equipmentId === 'foulingShell');
     const foul = CONSUMABLE_TACTICS.foulingShell;
@@ -536,15 +536,15 @@ describe('special / consumable triggers (amendment 199)', () => {
 
   it('SUPERCAV: its credible range reads CONFIG.bots.supercavCredibleU', () => {
     const w = openWorld(9147);
-    const tb = mkBot(w, 'torpedoBoat');
+    const tb = mkBot(w, 'bismarck');
     expect(CONSUMABLE_TACTICS.supercavTorpedo.reachU(tb.stats)).toBe(CONFIG.bots.supercavCredibleU);
   });
 
   it('SPEED BOOST is never spent closing in kite, hold or hide-as-approach; pursue past the band boosts, hide always boosts', () => {
     const w = openWorld(9148);
     const port = fakePort(w);
-    const tb = mkBot(w, 'torpedoBoat');
-    const boost = SHIFT_TACTICS.torpedoBoat;
+    const tb = mkBot(w, 'bismarck');
+    const boost = SHIFT_ROWS.boost;
     const far = gunBand(profileOf('raider'), tb.stats).max + 50;
     const at = (posture: BotPosture): boolean => {
       const mind = mkMind('raider');

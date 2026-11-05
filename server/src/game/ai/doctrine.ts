@@ -32,18 +32,23 @@ import type { BotSelf } from './types.js';
 import type { BotProfile } from './profiles.js';
 import type { TacticContext } from './tacticKit.js';
 
-/** The three deck guns (slot 0) — the only weapons the lit lift serves. */
-export type DeckGun = 'gun' | 'machineGun' | 'flak';
+/** The slot-0 guns — the only weapons the lit lift serves: the captain's MAIN
+ *  BATTERY (Story 10.4) and the three deck guns (the drones' `gun` today; the
+ *  machine gun and flak rows stay for reference). */
+export type DeckGun = 'gun' | 'machineGun' | 'flak' | 'mainBattery';
 
-/** The gun mounted in slot 0 (Story 8.15): the machine gun and flak by their
- *  own ids, anything else (the cannon, an empty or unknown slot) the cannon. */
+/** The gun mounted in slot 0: the main battery, the machine gun and flak by
+ *  their own ids, anything else (the cannon, an empty or unknown slot) the
+ *  cannon. */
 export function mountedGun(gunId: SlotItemId | null | undefined): DeckGun {
-  return gunId === 'machineGun' || gunId === 'flak' ? gunId : 'gun';
+  return gunId === 'machineGun' || gunId === 'flak' || gunId === 'mainBattery' ? gunId : 'gun';
 }
 
-/** The CONFIG.bots.gunBand key for a deck gun (the cannon's row is `cannon`). */
+/** The CONFIG.bots.gunBand key for a slot-0 gun: the cannon's row is `cannon`,
+ *  and the MAIN BATTERY flies today's cannon shell, so it holds the cannon's
+ *  band too (Story 10.4 orchestrator reading) over its own folded reach. */
 function bandKey(gun: DeckGun): keyof typeof CONFIG.bots.gunBand {
-  return gun === 'gun' ? 'cannon' : gun;
+  return gun === 'gun' || gun === 'mainBattery' ? 'cannon' : gun;
 }
 
 /** u — a deck gun's folded reach. */
@@ -84,7 +89,7 @@ export function gunBand(profile: BotProfile, stats: EffectiveStats, gunId?: Slot
   const nudge = bandNudgeOf(profile);
   const edge = (f: number): number => Math.min(rangeU, Math.max(0, (f + nudge) * rangeU));
   const max = edge(maxFrac);
-  if (gun === 'gun') return { min: Math.min(max, edge(minFrac)), max, holdFireAboveU: Infinity };
+  if (bandKey(gun) === 'cannon') return { min: Math.min(max, edge(minFrac)), max, holdFireAboveU: Infinity };
   return { min: 0, max, holdFireAboveU: shadowing ? rangeU : max };
 }
 

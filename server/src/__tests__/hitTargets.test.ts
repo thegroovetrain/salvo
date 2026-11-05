@@ -41,6 +41,7 @@ import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { addDecoy } from '../game/decoys.js';
 import { flatRaster } from './islandFixture.js';
+import { mountDeckGun, neutralize } from './deckGunFixture.js';
 
 const SLOT_GUN = 0;
 
@@ -57,9 +58,10 @@ function place(
   x: number,
   y: number,
   heading = 0,
-  hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat',
+  hull: 'bismarck' | 'yamato' | 'warspite' = 'bismarck',
 ): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
+  // NEUTRAL index (deckGunFixture, Story 10.4): this suite reads CONFIG numbers verbatim.
+  const rec = neutralize(w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined));
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }
@@ -102,7 +104,7 @@ const kinds = (ts: readonly Target[]): TargetKind[] => ts.map((t) => t.kind);
 function shootAt(w: World, shooter: string, dist: number, seq = 9): void {
   w.submitInput(shooter, {
     seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: dist,
-    slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
+    slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
   });
   for (let i = 0; i < 60; i += 1) {
     w.step();
@@ -200,7 +202,7 @@ describe('hitTargets — the four kinds', () => {
     // are gone; whether a shell hurts a listed mine is the LANDING TEST's
     // question (CONFIG.mine.hitRadiusU at the point the shell lands).
     const w = bareWorld();
-    place(w, 'cap', 800, 800, 0, 'mineLayer');
+    place(w, 'cap', 800, 800, 0, 'warspite');
     mine(w, 'armed', 'b', 100, 0);
     mine(w, 'arming', 'b', 150, 0, 999_999);
     mine(w, 'captive', 'cap', 200, 0, 0, 'captive');
@@ -277,10 +279,12 @@ describe('hitTargets — the four kinds', () => {
 // ---------------------------------------------------------------------------
 
 describe('gunfire and mines (amendments 18/20/200)', () => {
-  /** The shooter alone at the origin, gun pointing +x. */
+  /** The shooter alone at the origin, gun pointing +x. Story 10.4: the
+   *  shooter mounts the CANNON row (the drones' gun, which keeps its mine bit —
+   *  a captain's main battery never touches a mine; mineHp.test.ts pins that). */
   function board(seed = 21): World {
     const w = bareWorld(seed);
-    place(w, 'a', 0, 0, 0, 'mineLayer');
+    mountDeckGun(place(w, 'a', 0, 0, 0, 'warspite'), 'gun');
     return w;
   }
 
@@ -298,7 +302,7 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
     for (const [id, owner, x, y] of mines) mine(w, id, owner, x, y);
     w.submitInput('a', {
       seq: 9, throttle: 0, rudder: 0, aim: 0, fireSeq: 9, aimDist: dist,
-      slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
+      slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
     });
     const frames: GameEvent[][] = [];
     for (let i = 0; i < 40; i += 1) {
@@ -401,7 +405,7 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
 
   it('(c) a NAVAL pop CHAINS ACROSS OWNERS in the same tick (amendments 18/200), skipping captives and arming mines', () => {
     const w = board(24);
-    place(w, 'cap', 900, 900, 0, 'mineLayer');
+    place(w, 'cap', 900, 900, 0, 'warspite');
     mine(w, 'shot', 'x', 600, 0); // the one the shell LANDS on
     mine(w, 'mine-mine', 'a', 600, 40); // within the 48u blast — a DIFFERENT owner
     mine(w, 'third', 'y', 600, 80); // chained off the second, a THIRD owner
@@ -438,7 +442,7 @@ describe('gunfire and mines (amendments 18/20/200)', () => {
 
   it('(d) a CAPTIVE mine the shell lands on is DESTROYED: a boom, no blast victim, no fish (amendment 200)', () => {
     const w = board(26);
-    place(w, 'cap', 900, 900, 0, 'mineLayer');
+    place(w, 'cap', 900, 900, 0, 'warspite');
     mine(w, 'm1', 'cap', 600, 0, 0, 'captive');
     shootAt(w, 'a', 600);
     expect(w.mines.has('m1')).toBe(false);
@@ -536,7 +540,7 @@ describe('P2 — the interception dispatches by KIND, not by store membership', 
     // 20 keeps mines out of the sweep entirely); the KIND dispatch survives
     // because hull-vs-decoy still turns on it.
     const w = bareWorld(44);
-    place(w, 'a', 0, 0, 0, 'mineLayer');
+    place(w, 'a', 0, 0, 0, 'warspite');
     const b = place(w, 'collide', 200, 0);
     mine(w, 'collide', 'x', 4000, 4000); // same id, parked far away
     const hp0 = b.hp;
@@ -566,7 +570,7 @@ describe('P3 — a destroyed decoy invalidates the memo THE SAME TICK (Story 8.1
 
   it('a NEW decoy is a target the same tick it lands (spawnDecoy bumps the generation)', () => {
     const w = bareWorld(46);
-    const a = place(w, 'a', 0, 0, 0, 'mineLayer');
+    const a = place(w, 'a', 0, 0, 0, 'warspite');
     expect(ids(w.hitTargets(['decoy']))).toEqual([]); // memoized empty
     const inner = w as unknown as { spawnDecoy(owner: ShipRecord, x: number, y: number): void };
     inner.spawnDecoy(a, -60, 0);
@@ -575,7 +579,7 @@ describe('P3 — a destroyed decoy invalidates the memo THE SAME TICK (Story 8.1
 
   it('two shells in one tick: the first kills the decoy, the second is NOT consumed by it', () => {
     const w = bareWorld(47);
-    const a = place(w, 'a', 0, 0, 0, 'mineLayer');
+    const a = place(w, 'a', 0, 0, 0, 'warspite');
     decoy(w, 'b1', 'x', 300, 1);
     const inner = w as unknown as {
       resolveShell(shell: unknown, outcome: unknown, hulls: readonly Target[]): void;
@@ -630,8 +634,8 @@ describe('P8 — wrecksInBurst honours the fleet friendly filter', () => {
     // all (stepShells filter, amendment 36). Counting one here would let the
     // wreck list re-admit through the back door what the damage path refuses.
     const w = bareWorld(49);
-    w.addShip('fleetA', 'F1', 'fleet', 'torpedoBoat', undefined, { x: 0, y: 0 });
-    const f2 = w.addShip('fleetB', 'F2', 'fleet', 'torpedoBoat', undefined, { x: 300, y: 0 });
+    w.addShip('fleetA', 'F1', 'fleet', 'bismarck', undefined, { x: 0, y: 0 });
+    const f2 = w.addShip('fleetB', 'F2', 'fleet', 'bismarck', undefined, { x: 300, y: 0 });
     f2.state = { x: 300, y: 0, heading: 0, speed: 0 };
     w.sinkShip('fleetB', undefined);
     const inner = w as unknown as {

@@ -19,17 +19,16 @@ import {
   isAfloat,
   CATALOG,
   CONFIG,
-  classShift,
   equipmentMaxAmmo,
   MULLIGAN_CHOICE,
   CONSUMABLE_SLOTS,
   DEFAULT_KIT,
   dealableConsumables,
   SLOT_COUNT,
-  DEFAULT_GUN,
-  GUN_IDS,
+  DEFAULT_SHIFT,
+  SHIFT_IDS,
+  SHIP_CLASS_IDS,
   LINE_IDS,
-  MOUNTED_GUN,
   eligibleLines,
   SLOT_BOOST,
   WEAPON_SLOTS,
@@ -82,7 +81,7 @@ function bareWorld(seed = 1, opts?: WorldOptions): World {
   return w;
 }
 
-function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
+function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'bismarck'): ShipRecord {
   // The seat's DEFAULT gun (Story 8.14): every captain draws from the same
   // common pool, so a fixture says nothing about cards at all.
   const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
@@ -108,7 +107,7 @@ function windowAround(me: ShipRecord, brg: number, halfWidth = 0.02): void {
 /** Park a complete InputMsg carrying ONE click on `slot` (fireSeq doubles as
  *  seq — a fresh fireSeq is what the world reads as a pending press). */
 function fire(ship: ShipRecord, fireSeq: number, slot: number, aimDist: number, aim = 0): void {
-  ship.input = { seq: fireSeq, throttle: 0, rudder: 0, aim, fireSeq, aimDist, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+  ship.input = { seq: fireSeq, throttle: 0, rudder: 0, aim, fireSeq, aimDist, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
 }
 
 /** Stack `count` copies of one catalog line through the real grant seam. */
@@ -169,12 +168,12 @@ const eligibleFor = (ship: ShipRecord): string[] =>
   eligibleLines({
     held: ship.cards as readonly LineId[],
     slotIds: ship.loadout.map((s) => s.equipmentId),
-    mountedGun: MOUNTED_GUN[ship.gun],
+    mountedGun: 'mainBattery', // every captain's slot 0 since Story 10.4
     kit: ship.kit,
   }).map((e) => e.id);
 
 describe('the common pool — every dealable line, for every hull (Story 8.14)', () => {
-  const HULLS: ShipClassId[] = ['torpedoBoat', 'battleship', 'mineLayer'];
+  const HULLS: readonly ShipClassId[] = SHIP_CLASS_IDS;
 
   for (const hull of HULLS) {
     it(`${hull}: draws from the WHOLE catalog less its stubs — no per-hull list at all`, () => {
@@ -182,22 +181,22 @@ describe('the common pool — every dealable line, for every hull (Story 8.14)',
       const rec = place(w, 'a', 0, 0, 0, hull);
       // THE POOL IS THE CATALOG (amendment 89a). A fresh hull holds nothing and
       // has all three weapon slots open, so every non-stub line is eligible for
-      // it except the GUN LADDERS of guns it has not mounted — and it mounts
-      // the deck gun, whose ladder IS eligible.
+      // it except the GUN LADDERS — slot 0 is the MAIN BATTERY on every captain
+      // since Story 10.4, which hosts no ladder, so no deck-gun ladder is ever
+      // eligible.
       const eligible = new Set(eligibleFor(rec));
       for (const id of LINE_IDS) {
         const line = CATALOG[id];
         const gunLadder = line.kind === 'ladder' && line.appliesTo !== undefined;
-        const mounted = gunLadder && line.appliesTo!.includes(MOUNTED_GUN[rec.gun]);
         // ...and a consumable OUTSIDE the hull's kit is never a candidate
         // (Story 10.1, the one gate): only its four are dealt.
         const offKit = line.kind === 'consumable' && !(rec.kit as readonly string[]).includes(id);
-        const want = !isStubLine(id) && (!gunLadder || mounted) && !offKit;
+        const want = !isStubLine(id) && !gunLadder && !offKit;
         expect(eligible.has(id), `${hull}/${id}`).toBe(want);
       }
       // ...and it is IDENTICAL across hulls: class identity is the envelope and
       // the Shift now, never the cards a hull is allowed to draw.
-      expect([...eligible].sort()).toEqual(eligibleFor(place(w, `x-${hull}`, 0, 0, 0, 'torpedoBoat')).sort());
+      expect([...eligible].sort()).toEqual(eligibleFor(place(w, `x-${hull}`, 0, 0, 0, 'bismarck')).sort());
       for (const dead of DEAD_RELOAD_IDS) expect(Object.hasOwn(CATALOG, dead)).toBe(false);
     });
   }
@@ -209,10 +208,10 @@ describe('the common pool — every dealable line, for every hull (Story 8.14)',
     }
   });
 
-  it('a captain added with no gun sails the DEFAULT one, and the World never picks a deck', () => {
+  it('a captain added with no Shift sails the DEFAULT one, and the World never picks a deck', () => {
     const w = bareWorld();
-    const bare = w.addShip('bare', 'BARE', 'captain', 'torpedoBoat', undefined, undefined);
-    expect(bare.gun).toBe(DEFAULT_GUN);
+    const bare = w.addShip('bare', 'BARE', 'captain', 'bismarck', undefined, undefined);
+    expect(bare.shift).toBe(DEFAULT_SHIFT);
     expect(bare.cards).toEqual([]);
     // ...and a level banks WITH a real offer: the pool is never empty.
     w.grantXp(bare, 1);
@@ -220,15 +219,15 @@ describe('the common pool — every dealable line, for every hull (Story 8.14)',
     expect(bare.offer).toHaveLength(CONFIG.offer.size);
   });
 
-  it('the SEAT GUN rides the record and mounts slot 0 through MOUNTED_GUN', () => {
+  it('the SEAT SHIFT rides the record into slot 1; slot 0 is the main battery, one round per turret, loaded', () => {
     const w = bareWorld();
-    for (const gun of GUN_IDS) {
-      const rec = w.addShip(`g-${gun}`, 'G', 'captain', 'torpedoBoat', undefined, undefined, gun);
-      expect(rec.gun).toBe(gun);
-      // Each gun mounts its OWN module since Story 8.15 (amendments 103–105).
-      expect(rec.loadout[SLOT_GUN].equipmentId).toBe(MOUNTED_GUN[gun]);
-      expect(rec.loadout[SLOT_GUN].equipmentId).toBe(gun === 'deckGun' ? 'gun' : gun);
-      expect(rec.loadout[SLOT_GUN].state).toEqual({ n: equipmentMaxAmmo(rec.stats, MOUNTED_GUN[gun]), reloadMsLeft: 0 });
+    for (const shift of SHIFT_IDS) {
+      const rec = w.addShip(`s-${shift}`, 'S', 'captain', 'bismarck', undefined, undefined, shift);
+      expect(rec.shift).toBe(shift);
+      expect(rec.loadout[SLOT_BOOST].equipmentId).toBe(shift);
+      expect(rec.loadout[SLOT_GUN].equipmentId).toBe('mainBattery');
+      expect(rec.loadout[SLOT_GUN].state).toEqual({ n: equipmentMaxAmmo(rec.stats, 'mainBattery'), reloadMsLeft: 0 });
+      expect(equipmentMaxAmmo(rec.stats, 'mainBattery')).toBe(rec.turrets.length);
     }
   });
 
@@ -559,10 +558,10 @@ describe('level bank — lazy front offer, front on the wire, reroll-proof', () 
   // catalog holds.
   it('exactly ONE draw per level across grant/spend/heal interleavings (the draw stream counts them)', () => {
     const line = (id: string): CatalogLine =>
-      ({ id, kind: 'ladder', cap: 9, tiers: new Array(9).fill([{ kind: 'stat', path: 'equipment.gun.damage', add: 1 }]) }) as unknown as CatalogLine;
+      ({ id, kind: 'ladder', cap: 9, tiers: new Array(9).fill([{ kind: 'stat', path: 'armor', add: 1 }]) }) as unknown as CatalogLine;
     const catalog: Catalog = { c1: line('c1'), c2: line('c2'), c3: line('c3'), c4: line('c4'), c5: line('c5'), c6: line('c6') };
     const w = bareWorld(3, { catalog });
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     a.state.speed = 0;
     // Count the stream instead of a deleted counter: wrap this ship's own rng.
     let rolls = 0;
@@ -946,7 +945,7 @@ describe('equipment lines — copy 1 fits the weapon into the first EMPTY weapon
    *  the fixture only has to hand the ship the offer. */
   function fitBoard(extraLevels = 0): { w: World; a: ShipRecord } {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     a.state.speed = 0;
     a.bankedLevels = 1 + extraLevels;
     a.offer = ['navalMines', 'deckGun', 'armor', 'intel'];
@@ -960,7 +959,7 @@ describe('equipment lines — copy 1 fits the weapon into the first EMPTY weapon
     // pick takes slot 2 (Q) — first-empty-first across the row, never a fixed
     // 'extra' slot.
     expect(a.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'boost', 'navalMines', ...new Array<null>(SLOT_COUNT - 3).fill(null),
+      'mainBattery', 'boost', 'navalMines', ...new Array<null>(SLOT_COUNT - 3).fill(null),
     ]);
     expect(a.loadout[2].state).toEqual({ n: a.stats.equipment.navalMines.maxAmmo, reloadMsLeft: 0 });
   });
@@ -981,7 +980,7 @@ describe('equipment lines — copy 1 fits the weapon into the first EMPTY weapon
   it('a gun LADDER card moves its row\'s numbers and never fits a slot', () => {
     const { w, a } = fitBoard();
     // The machine gun's line is a LADDER now (amendment 104): forced past the
-    // pool onto a cannon seat it moves the machineGun ROW's numbers and fits
+    // pool onto a main-battery seat it moves the machineGun ROW's numbers and fits
     // nothing — the weapon row is untouched (a ladder has no slotFill).
     const before = effectiveStats(a.cls);
     expect(() => w.applyCard(a, 'machineGun')).not.toThrow();
@@ -1032,91 +1031,21 @@ describe('grant-time effects — no grant heals, and raised-cap top-ups', () => 
     expect(a.hp).toBe(40);
   });
 
-  // A CANNON rung that raises the gun pool fills it the same tick (amendment
-  // 41). WHICH copy carries the turret rung is Eric's ladder, so it is found
-  // through the one fold (effectiveStats) rather than restated here.
-  /** The deckGun copy count at which the gun pool cap first rises, or null. */
-  function firstGunPoolRaise(a: ShipRecord): number | null {
-    const base = effectiveStats(a.cls).equipment.gun.maxAmmo;
-    for (let k = 1; k <= CATALOG.deckGun.cap; k++) {
-      if (effectiveStats(a.cls, new Array<string>(k).fill('deckGun')).equipment.gun.maxAmmo > base) return k;
-    }
-    return null;
-  }
-
-  it('a CANNON rung that raises the gun pool cap fills the pool immediately (amendment 41)', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    const base = a.stats.equipment.gun.maxAmmo;
-    expect(a.loadout[SLOT_GUN].state).toEqual({ n: base, reloadMsLeft: 0 });
-    const k = firstGunPoolRaise(a);
-    expect(k).not.toBeNull(); // non-vacuity: the ladder raises the pool somewhere
-    for (let i = 1; i < k!; i++) w.applyCard(a, 'deckGun'); // the rungs below the raise
-    expect(a.stats.equipment.gun.maxAmmo).toBe(base);
-    expect(a.loadout[SLOT_GUN].state!.n).toBe(base);
-    w.applyCard(a, 'deckGun'); // the raising rung
-    expect(a.stats.equipment.gun.maxAmmo).toBeGreaterThan(base);
-    expect(a.loadout[SLOT_GUN].state!.n).toBe(a.stats.equipment.gun.maxAmmo); // topped to the new cap — arrives loaded
-  });
-
-  // What is pinned here is that a mid-reload slot fills the moment its cap
-  // moves, through the same raising rung.
-  it('a mid-reload slot fills to a raised cap immediately (amendment 41, gun pool)', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    const k = firstGunPoolRaise(a);
-    expect(k).not.toBeNull();
-    for (let i = 1; i < k!; i++) w.applyCard(a, 'deckGun');
-    a.loadout[SLOT_GUN].state = { n: 0, reloadMsLeft: 3000 };
-    w.applyCard(a, 'deckGun'); // the raising rung
-    expect(a.loadout[SLOT_GUN].state!.n).toBe(a.stats.equipment.gun.maxAmmo); // everything arrives loaded
-  });
-
-  // The FLAK ladder's turrets (amendment 197): a turret rung ONLY adds rounds.
-  // Pinned through the REAL flak module and the ordinary consume/tickReload
-  // pool — no flak-specific pool code exists. Which rung adds the turret is
-  // Eric's ladder, so the test climbs until one lands.
-  it('a FLAK turret rung grows the ordinary pool: it fires N rounds before the reload and refills to N', () => {
-    const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, 'flak');
-    a.state.speed = 0;
-    expect(a.loadout[SLOT_GUN].equipmentId).toBe('flak');
-    expect(a.stats.equipment.flak.maxAmmo).toBe(CONFIG.flak.maxAmmo); // tier I: the CONFIG seat
-    for (let c = 0; c < CATALOG.flak.cap && a.stats.equipment.flak.maxAmmo === CONFIG.flak.maxAmmo; c++) {
-      w.applyCard(a, 'flak');
-    }
-    const N = a.stats.equipment.flak.maxAmmo;
-    expect(N).toBeGreaterThan(CONFIG.flak.maxAmmo); // non-vacuity: some rung adds a turret
-    expect(a.loadout[SLOT_GUN].state).toEqual({ n: N, reloadMsLeft: 0 });
-    const reloadMs = a.stats.equipment.flak.reloadMs;
-    let flakShells = 0;
-    const click = (seq: number, aim: number): void => {
-      fire(a, seq, SLOT_GUN, 300, aim);
-      w.step();
-      for (const e of w.tickEvents) if (e.k === 'shell' && e.w === 'flak') flakShells += 1;
-    };
-    for (let r = 1; r <= N; r++) {
-      click(r, (r * Math.PI) / 2); // no reload in between
-      expect(a.loadout[SLOT_GUN].state!.n).toBe(N - r);
-    }
-    expect(flakShells).toBe(N);
-    click(N + 1, Math.PI); // the pool is dry: refused, no extra shell
-    expect(w.denialsFor('a')).toEqual([{ slot: SLOT_GUN, reason: 'cooling', seq: N + 1 }]);
-    expect(flakShells).toBe(N);
-    // The reload refills one round per reloadMs, back to the N-round cap.
-    const ticks = Math.ceil((N * reloadMs) / CONFIG.tick.simDtMs) + 1;
-    for (let i = 0; i < ticks; i++) w.step();
-    expect(a.loadout[SLOT_GUN].state).toEqual({ n: N, reloadMsLeft: 0 });
-  });
+  // (The CANNON-rung and FLAK-turret-rung pool raises pinned here until Story
+  // 10.4 are retired with the captain's deck gun: slot 0 is the main battery,
+  // which hosts no ladder, so no captain can climb either ladder. Amendment
+  // 41's arrives-loaded rule for a raised cap is still pinned on the weapon
+  // row by the mine rack's tier II below.)
 });
 
 // ---------- empty deck -------------------------------------------------------
 
 /** A plain universal ladder line for the injected-catalog boards below: `cap`
- *  identical +1-gun-damage tiers, so a board can say "cap 1" or "cap 9" and
- *  mean only that. */
+ *  identical +1-Armor tiers (a stat on no equipment row, so a UNIVERSAL
+ *  ladder — a gun-row path would host it on the drones' gun, Story 10.4), so
+ *  a board can say "cap 1" or "cap 9" and mean only that. */
 function ladderLine(id: string, cap = 1): CatalogLine {
-  const tier = [{ kind: 'stat', path: 'equipment.gun.damage', add: 1 }];
+  const tier = [{ kind: 'stat', path: 'armor', add: 1 }];
   return { id, kind: 'ladder', cap, tiers: new Array(cap).fill(tier) } as unknown as CatalogLine;
 }
 
@@ -1151,7 +1080,7 @@ describe('the offer is never empty — consumables are never filtered out (Story
     // holding every other kind can never crowd one out.
     // Since Story 10.1 "every other kind" is every other kind OF THE KIT.
     const w = bareWorld(1, { catalog: BELT_CATALOG });
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, undefined, BELT_KIT);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined, undefined, BELT_KIT);
     a.state.speed = 0;
     const others = BELT_KIT.filter((k) => k !== 'healingBuoy');
     for (const id of others) w.applyCard(a, id);
@@ -1212,7 +1141,7 @@ describe('the offer is never empty — consumables are never filtered out (Story
   it('a FOUR-LINE dev fitOverride fits THREE weapons and drops the fourth — ledger included', () => {
     const w = bareWorld();
     // Four equipment lines, one weapon row three wide.
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, undefined,
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined, DEFAULT_SHIFT, undefined,
       ['heavyTorpedo', 'navalMines', 'broadside', 'starShells']);
     expect(a.cards).toEqual(['heavyTorpedo', 'navalMines', 'broadside']);
     expect(WEAPON_SLOTS.map((i) => a.loadout[i].equipmentId)).toEqual(['heavyTorpedo', 'navalMines', 'broadside']);
@@ -1229,7 +1158,7 @@ describe('the offer is never empty — consumables are never filtered out (Story
     // row, which is the reachable path to the F2 bug: `usableLines` used to be
     // a pure fact about the HOLD and would name copy 1 of an unheld weapon.
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined, DEFAULT_GUN, undefined,
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined, DEFAULT_SHIFT, undefined,
       ['heavyTorpedo', 'navalMines', 'broadside']);
     expect(WEAPON_SLOTS.every((i) => a.loadout[i].equipmentId !== null)).toBe(true);
     w.grantOpening();
@@ -1242,7 +1171,7 @@ describe('the offer is never empty — consumables are never filtered out (Story
   it('with FEWER dealable lines than the offer size the hand is SHORT, never padded, never repeated', () => {
     const catalog: Catalog = { a1: ladderLine('a1', 9), a2: ladderLine('a2', 9) };
     const w = bareWorld(1, { catalog });
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     a.state.speed = 0;
     w.grantXp(a, 1);
     w.step();
@@ -1253,7 +1182,7 @@ describe('the offer is never empty — consumables are never filtered out (Story
   it('an ALL-STUB catalog is the only empty draw left: the level banks in silence, no latch anywhere', () => {
     const catalog: Catalog = { ghost: { ...ladderLine('ghost', 9), stub: true } as CatalogLine };
     const w = bareWorld(1, { catalog });
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     a.state.speed = 0;
     w.grantXp(a, 1);
     w.step();
@@ -1285,7 +1214,7 @@ describe('the at-cap guard — the draw reads the ship\'s OWN cards (Story 8.3)'
     // unguarded, this draw would return TWO different lines.
     const catalog: Catalog = { hog: ladderLine('hog', 1), spare: ladderLine('spare', 9) };
     const w = bareWorld(5, { catalog });
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     a.state.speed = 0;
     // Reach the cap through the real grant seam.
     w.applyCard(a, 'hog');
@@ -1299,7 +1228,7 @@ describe('the at-cap guard — the draw reads the ship\'s OWN cards (Story 8.3)'
   it('a line held BELOW its cap is untouched — the guard excludes only AT the cap', () => {
     const catalog: Catalog = { hog: ladderLine('hog', 2) };
     const w = bareWorld(5, { catalog });
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     a.state.speed = 0;
     w.applyCard(a, 'hog'); // held 1 of 2 — below the cap
     w.grantXp(a, 1);
@@ -1366,7 +1295,7 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
   // runner and the RL env build a Match without `expectedCaptains`).
   it('redeployShip (match start) PRESERVES the build, the bank, the hand and the draw stream', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined);
+    const a = w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined);
     a.state.speed = 0;
     // Fit an equipment line so the live FIT diverges hard from a fresh build.
     a.bankedLevels = 1;
@@ -1385,7 +1314,7 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     expect(a.xpMs).toBe(0);
     expect(a.stats).toEqual(effectiveStats(a.cls, ['navalMines']));
     expect(a.loadout.map((s) => s.equipmentId)).toEqual([
-      'gun', 'boost', 'navalMines', ...new Array<null>(SLOT_COUNT - 3).fill(null),
+      'mainBattery', 'boost', 'navalMines', ...new Array<null>(SLOT_COUNT - 3).fill(null),
     ]);
     // ...on a FRESH clock: the loadout is REBUILT from the kept cards, so no
     // pool is short and nothing is reloading.
@@ -1474,7 +1403,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
    *  index (the hull's own + every rung's step, additive) through Eric's haste
    *  law 1 / (1 + (RELOAD − base) / base) — Story 10.3 ruling 14; never a
    *  compounded product of per-card scales. */
-  const reloadLadderScale = (cls: ShipClassId = 'torpedoBoat'): number => {
+  const reloadLadderScale = (cls: ShipClassId = 'bismarck'): number => {
     const steps = CATALOG.reload.tiers
       .flat()
       .reduce((sum, e) => sum + (e.kind === 'stat' && e.path === 'reload' ? (e.add ?? 0) : 0), 0);
@@ -1482,7 +1411,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     return Math.round((1 / (1 + (reload - CONFIG.index.base) / CONFIG.index.base)) * 1000) / 1000;
   };
 
-  it('RELOAD: ONE card shortens EVERY equipment — a consumed gun AND torpedo round both start the SCALED reload', () => {
+  it('RELOAD: ONE card shortens EVERY equipment — a fired TURRET and a consumed torpedo round both start the SCALED reload', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     // THE TUBES ARE A CARD NOW (Story 8.10): the spawn seed is gone, so this
@@ -1496,15 +1425,16 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     // multiplies (shared/src/sim/stats.ts), so a full stack carries NO float
     // dust — the regression the exact-tick refill pins below depend on.
     expect(scale).toBe(Math.round(scale * 1000) / 1000);
-    expect(a.stats.equipment.gun.reloadMs).toBe(CONFIG.gun.reloadMs * scale);
+    const R = a.stats.equipment.mainBattery.reloadMs;
+    expect(R).toBeLessThan(effectiveStats(a.cls).equipment.mainBattery.reloadMs); // the card shortened the turrets
     expect(a.stats.equipment.heavyTorpedo.reloadMs).toBe(CONFIG.torpedo.reloadMs * scale);
 
-    // The GUN's fire path reads the scaled reload, not raw CONFIG.
+    // The MAIN BATTERY's fire path reads the scaled reload, not raw CONFIG:
+    // exactly ONE turret fires and starts exactly R (Story 10.4).
     fire(a, 1, SLOT_GUN, 300);
     w.step();
-    expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
-    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(CONFIG.gun.reloadMs * scale);
-    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBeLessThan(CONFIG.gun.reloadMs); // strictly shorter than base
+    expect(a.turrets.filter((t) => t.reloadMsLeft > 0).map((t) => t.reloadMsLeft)).toEqual([R]);
+    expect(a.loadout[SLOT_GUN].state).toEqual({ n: a.turrets.length - 1, reloadMsLeft: R });
 
     // ...and so does the TORPEDO's — the SAME single card, a different weapon.
     fire(a, 2, SLOT_TORPEDO, 0);
@@ -1516,7 +1446,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
 
   it('RELOAD: the BROADSIDE reads the same global scale off the Battleship fit, and returns on exactly the scaled clock', () => {
     const w = bareWorld();
-    const bb = place(w, 'a', 0, 0, 0, 'battleship');
+    const bb = place(w, 'a', 0, 0, 0, 'yamato');
     fitClassWeapons(w, bb); // the class cards, fitted explicitly (Story 8.10)
     stack(w, bb, 'reload', CATALOG.reload.cap);
     const R = bb.stats.equipment.broadside.reloadMs;
@@ -1539,28 +1469,26 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     expect(ticks * DT).toBeLessThan(CONFIG.broadside.reloadMs); // the base clock would still be running
   });
 
-  it('RELOAD: the AUTHORITATIVE ammo tick restores the round on the SCALED clock, to the tick, not the base clock', () => {
+  it('RELOAD: the AUTHORITATIVE turret step restores the fired turret on the SCALED clock, to the tick, not the base clock', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     stack(w, a, 'reload', CATALOG.reload.cap);
-    const R = a.stats.equipment.gun.reloadMs;
+    const R = a.stats.equipment.mainBattery.reloadMs;
+    const full = a.turrets.length;
     fire(a, 1, SLOT_GUN, 300);
-    w.step(); // the shot: the pool empties, the scaled reload starts
+    w.step(); // the salvo: one turret's scaled reload starts
     a.input = { ...a.input!, fireSeq: 0, seq: 2 }; // stop clicking — just let the world tick
-    expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(full - 1);
 
-    // One tick short of the scaled clock: still empty.
+    // One tick short of the scaled clock: still reloading.
     const ticks = Math.ceil(R / DT);
     for (let i = 0; i < ticks - 1; i++) w.step();
-    expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
-    // ONE more and the round is BACK. Before the clampStats rounding fix the
-    // accumulated scale carried float dust and the refill took a full extra
-    // tick to cross zero — the defect this pin regresses (with the 3-decimal
-    // scale pin above).
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(full - 1);
+    // ONE more and the turret is BACK (the 3-decimal scale pin above keeps the
+    // clock free of float dust).
     w.step();
-    expect(a.loadout[SLOT_GUN].state!.n).toBe(1);
-    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(0);
-    expect(ticks * DT).toBeLessThan(CONFIG.gun.reloadMs); // the proof: the base clock would still be running
+    expect(a.loadout[SLOT_GUN].state).toEqual({ n: full, reloadMsLeft: 0 });
+    expect(ticks * DT).toBeLessThan(effectiveStats(a.cls).equipment.mainBattery.reloadMs); // the base clock would still be running
   });
 
   // ---------- mid-reload renormalization (Eric ruling 2026-08-04) ------------
@@ -1568,56 +1496,60 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
   // IN-FLIGHT timer by the same ratio, so the progress FRACTION survives the
   // fit. Never a free round: `n` does not move and the scaled timer stays
   // positive. Driven through the real World tick, not effectiveStats.
+  // STORY 10.4: slot 0 is the main battery, whose pool is DERIVED from the
+  // turrets (contract §8.10: a turret's running reload keeps its countdown),
+  // so the per-round slot these pins measure is the HEAVY TORPEDO in Q.
 
-  /** Fire the gun and let the world tick until roughly half the reload is
+  /** Fire the torpedo and let the world tick until roughly half the reload is
    *  spent (whole ticks, so the remainder is read back, never assumed). */
-  function gunAtHalfReload(w: World, a: ShipRecord): void {
-    fire(a, 1, SLOT_GUN, 300);
+  function torpAtHalfReload(w: World, a: ShipRecord): void {
+    w.applyCard(a, 'heavyTorpedo');
+    fire(a, 1, SLOT_TORPEDO, 300);
     w.step(); // the shot: the pool empties, the full-length reload starts
     a.input = { ...a.input!, fireSeq: 0, seq: 2 }; // stop clicking
-    const half = Math.floor(a.stats.equipment.gun.reloadMs / 2 / DT);
+    const half = Math.floor(a.stats.equipment.heavyTorpedo.reloadMs / 2 / DT);
     for (let i = 0; i < half; i++) w.step();
   }
 
   it('a mid-reload RELOAD grant PRESERVES the progress fraction on the new clock', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    gunAtHalfReload(w, a);
-    const oldR = a.stats.equipment.gun.reloadMs;
-    const left = a.loadout[SLOT_GUN].state!.reloadMsLeft;
+    torpAtHalfReload(w, a);
+    const oldR = a.stats.equipment.heavyTorpedo.reloadMs;
+    const left = a.loadout[SLOT_TORPEDO].state!.reloadMsLeft;
     expect(left).toBeGreaterThan(0);
     expect(left).toBeLessThan(oldR);
 
     w.applyCard(a, 'reload');
-    const newR = a.stats.equipment.gun.reloadMs;
+    const newR = a.stats.equipment.heavyTorpedo.reloadMs;
     expect(newR).toBeLessThan(oldR);
     // left × (new / old) — the same fraction remaining, on the new clock.
-    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBeCloseTo(left * (newR / oldR), 9);
-    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft / newR).toBeCloseTo(left / oldR, 12);
+    expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBeCloseTo(left * (newR / oldR), 9);
+    expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft / newR).toBeCloseTo(left / oldR, 12);
   });
 
   it('the rescale is NEVER a free round — the pool is untouched and the timer stays positive', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    gunAtHalfReload(w, a);
-    const nBefore = a.loadout[SLOT_GUN].state!.n;
+    torpAtHalfReload(w, a);
+    const nBefore = a.loadout[SLOT_TORPEDO].state!.n;
     w.applyCard(a, 'reload');
-    expect(a.loadout[SLOT_GUN].state!.n).toBe(nBefore); // 0 — no round handed out
-    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBeGreaterThan(0);
+    expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(nBefore); // 0 — no round handed out
+    expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBeGreaterThan(0);
     // ...and the very next tick does not conjure one either.
     w.step();
-    expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
+    expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(0);
   });
 
   it('a mid-reload full RELOAD stack lands the round on the RESCALED clock, not the time it had left', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    gunAtHalfReload(w, a);
-    const oldR = a.stats.equipment.gun.reloadMs;
-    const left = a.loadout[SLOT_GUN].state!.reloadMsLeft;
+    torpAtHalfReload(w, a);
+    const oldR = a.stats.equipment.heavyTorpedo.reloadMs;
+    const left = a.loadout[SLOT_TORPEDO].state!.reloadMsLeft;
     stack(w, a, 'reload', CATALOG.reload.cap);
-    const rescaled = left * (a.stats.equipment.gun.reloadMs / oldR);
-    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBeCloseTo(rescaled, 6);
+    const rescaled = left * (a.stats.equipment.heavyTorpedo.reloadMs / oldR);
+    expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBeCloseTo(rescaled, 6);
 
     // One tick short of the rescaled remainder: not yet. On the un-rescaled
     // clock `left` remained, so nothing but the renormalization can land the
@@ -1625,45 +1557,18 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     const ticks = Math.ceil(rescaled / DT);
     expect(ticks).toBeLessThan(Math.ceil(left / DT)); // non-vacuity
     for (let i = 0; i < ticks - 1; i++) w.step();
-    expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
+    expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(0);
     w.step();
-    expect(a.loadout[SLOT_GUN].state!.n).toBe(1);
+    expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(1);
   });
 
   it('a card that does not touch reloads leaves every in-flight timer BYTE-identical', () => {
-    // No production GUN card leaves the gun tier alone any more (amendment
-    // 185 folded TURRET/BARREL into the CANNON ladder), so the gun-side half
-    // of this pin injects a TEST line: a gun stat card with no tier step.
-    const testGunBarrel: CatalogLine = {
-      id: 'testGunBarrel', kind: 'ladder', cap: 1,
-      tiers: [[{ kind: 'stat', path: 'equipment.gun.barrels', add: 1 }]],
-    } as unknown as CatalogLine;
-    const w = bareWorld(1, { catalog: { ...CATALOG, testGunBarrel } });
-    const a = place(w, 'a', 0, 0);
-    gunAtHalfReload(w, a);
-    const before = a.loadout[SLOT_GUN].state!.reloadMsLeft;
-    w.applyCard(a, 'armor'); // a ladder that moves no reload: ratio 1
-    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(before);
-    w.applyCard(a, 'testGunBarrel'); // a GUN card whose tier does not move: ratio 1
-    expect(a.stats.equipment.gun.barrels).toBe(CONFIG.gun.barrels + 1); // the card did land
-    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(before);
-    expect(a.stats.equipment.gun.reloadMs).toBe(CONFIG.gun.reloadMs); // untouched base
-  });
-
-  it('the DECK GUN tier step moves the gun clock, and the in-flight timer rescales with it', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    gunAtHalfReload(w, a);
-    const oldR = a.stats.equipment.gun.reloadMs;
-    const left = a.loadout[SLOT_GUN].state!.reloadMsLeft;
-    // The DECK GUN's per-tier reload half is DERIVED from `equipment.gun.tier`
-    // in clampStats, not authored as an effect — so the ladder moves the clock
-    // exactly as the global RELOAD ladder does, through the one derivation.
-    w.applyCard(a, 'deckGun'); // tier 1 -> 2
-    expect(a.stats.equipment.gun.tier).toBe(2);
-    const newR = a.stats.equipment.gun.reloadMs;
-    expect(newR).toBeLessThan(oldR);
-    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBeCloseTo(left * (newR / oldR), 9); // the fraction survives
+    torpAtHalfReload(w, a);
+    const before = a.loadout[SLOT_TORPEDO].state!.reloadMsLeft;
+    w.applyCard(a, 'armor'); // a ladder that moves no reload: ratio 1
+    expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBe(before);
   });
 
   it('an IDLE slot (and a slot filled by this very grant) stays at reloadMsLeft 0', () => {
@@ -1679,42 +1584,29 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
       if (slot.state === null) continue;
       expect(slot.state.reloadMsLeft).toBe(0);
     }
-    expect(a.loadout[SLOT_GUN].state!.n).toBe(a.stats.equipment.gun.maxAmmo);
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(a.stats.equipment.mainBattery.maxAmmo);
   });
 
-  // The fire path reads EFFECTIVE stats, never raw CONFIG. Catalog v3 gave the
-  // gun a damage writer again (the DECK GUN ladder — per-rung whole-number
-  // steps — 8/10/11/12/13 since Eric 2026-10-16, Story 9.12; was
-  // 12/12/15/15/18, the 2026-10-13 experiment), so the pin
-  // asserts BOTH ends of the seam: the base shell carries the CONFIG number,
-  // and a laddered one carries the laddered number.
-  it('gun damage rides the EFFECTIVE stat — base, and up the DECK GUN ladder', () => {
-    const fireOne = (cards: number): { damage: number; contactDamage: number; burstRadius: number; effective: number; barrels: number; shells: number } => {
-      const w = bareWorld();
-      const a = place(w, 'a', 0, 0);
-      stack(w, a, 'deckGun', cards);
-      a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
-      w.step();
-      const shells = [...w.shells.values()];
-      for (const s of shells) expect(s.damage).toBe(shells[0].damage); // every barrel carries the same number
-      return { ...shells[0], effective: a.stats.equipment.gun.damage, barrels: a.stats.equipment.gun.barrels, shells: shells.length };
-    };
-    const base = fireOne(0);
-    expect(base.damage).toBe(base.effective);
-    expect(base.damage).toBe(CONFIG.gun.damage); // zero cards: effective === base
-    expect(base.contactDamage).toBe(CONFIG.gun.contactDamage);
-    expect(base.burstRadius).toBe(CONFIG.gun.burstRadius);
-    expect(base.shells).toBe(CONFIG.gun.barrels); // two barrels at Tier I (Story 9.12)
-    const capped = fireOne(CATALOG['deckGun'].cap);
-    expect(capped.damage).toBe(capped.effective);
-    // Tier V = base + every damage step the CANNON ladder authors, read off
-    // CONFIG and the catalog (Eric 2026-10-16, Story 9.12: 8/10/11/12/13).
-    const ladderAdds = CATALOG['deckGun'].tiers
-      .flat()
-      .reduce((sum, e) => sum + (e.kind === 'stat' && e.path === 'equipment.gun.damage' ? (e.add ?? 0) : 0), 0);
-    expect(ladderAdds).toBeGreaterThan(0); // the ladder really writes damage
-    expect(capped.damage).toBe(CONFIG.gun.damage + ladderAdds);
-    expect(capped.shells).toBe(capped.barrels); // the fire path reads the EFFECTIVE barrel count
+  // The fire path reads EFFECTIVE stats, never raw CONFIG (Story 10.4: the
+  // main battery's row — no ladder writes it today, so the seam is the row
+  // itself: every shell of a salvo carries the row's numbers, one shell per
+  // gun of the turret that fired).
+  it('main-battery shells ride the EFFECTIVE row — damage, contact damage, burst radius, one per gun', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
+    w.step();
+    const shells = [...w.shells.values()];
+    const row = a.stats.equipment.mainBattery;
+    for (const s of shells) {
+      expect(s.damage).toBe(row.damage);
+      expect(s.contactDamage).toBe(row.contactDamage);
+      expect(s.burstRadius).toBe(row.burstRadius);
+      expect(s.family).toBe('cannon');
+    }
+    const fired = a.turrets.findIndex((t) => t.reloadMsLeft > 0);
+    expect(fired).toBeGreaterThanOrEqual(0);
+    expect(shells).toHaveLength(CONFIG.shipClasses.bismarck.battery.turrets[fired].guns);
   });
 
   // TORPEDO SPEED is gone with the v2 torpedo ladder (Story 8.13 authors the
@@ -1727,7 +1619,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     const a = place(w, 'a', 0, 0);
     fitClassWeapons(w, a); // the tubes are a card (Story 8.10)
     w.step(); // flush the join spawn
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false };
     w.step();
     const ev = w.tickEvents.find((e): e is BallisticEvent => e.k === 'torp');
     expect(ev).toBeDefined();
@@ -1745,7 +1637,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     const SLOT_MINE_ML = 2; // ML fit: [gun, boost, navalMines, empty x6]
     const dropMines = (drops: number): number => {
       const w = bareWorld();
-      const a = place(w, 'a', 0, 0, 0, 'mineLayer');
+      const a = place(w, 'a', 0, 0, 0, 'warspite');
       fitClassWeapons(w, a); // the rack is a card (Story 8.10)
       expect('maxLive' in a.stats.equipment.navalMines).toBe(false);
       w.step();
@@ -1754,7 +1646,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
         // Mines are an aimed WEAPON (Story 2.8): each placement is one rear-arc click.
         w.submitInput('a', {
           seq: i + 1, throttle: 0, rudder: 0, aim: Math.PI,
-          fireSeq: i + 1, aimDist: 40 + i, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false,
+          fireSeq: i + 1, aimDist: 40 + i, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false,
         });
         w.step();
       }
@@ -1771,13 +1663,13 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     place(w, 'base', 0, 200);
     stack(w, up, 'engines', 2);
     for (let tick = 1; tick <= 200; tick++) {
-      w.submitInput('up', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
-      w.submitInput('base', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+      w.submitInput('up', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
+      w.submitInput('base', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
       w.step();
     }
-    expect(up.stats.kinematics.maxSpeed).toBeGreaterThan(effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics.maxSpeed);
+    expect(up.stats.kinematics.maxSpeed).toBeGreaterThan(effectiveStats(CONFIG.shipClasses.bismarck).kinematics.maxSpeed);
     expect(w.ships.get('up')!.state.speed).toBeCloseTo(up.stats.kinematics.maxSpeed, 6);
-    expect(w.ships.get('base')!.state.speed).toBeCloseTo(effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics.maxSpeed, 6);
+    expect(w.ships.get('base')!.state.speed).toBeCloseTo(effectiveStats(CONFIG.shipClasses.bismarck).kinematics.maxSpeed, 6);
   });
 });
 
@@ -1801,7 +1693,7 @@ describe('STUB lines can never be fitted (server gate + shared replay)', () => {
 
   it('applyCard on a stub id moves nothing: not cards, not the fit, not the stats', () => {
     const w = bareWorld(1, { catalog: STUB_CATALOG });
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    const a = place(w, 'a', 0, 0, 0, 'yamato');
     const cardsBefore = [...a.cards];
     const fitBefore = a.loadout.map((s) => s.equipmentId);
     const statsBefore = a.stats;
@@ -1813,7 +1705,7 @@ describe('STUB lines can never be fitted (server gate + shared replay)', () => {
 
   it('the respawn replay re-derives the SAME loadout even off a stub id in cards', () => {
     const w = bareWorld(1, { catalog: STUB_CATALOG });
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    const a = place(w, 'a', 0, 0, 0, 'yamato');
     a.cards.push('ghostRack'); // however it got there, it fits nothing
     const fitBefore = a.loadout.map((s) => s.equipmentId);
     w.sinkShip('a');
@@ -1844,9 +1736,9 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
   // 27 -> 30 and the Mine Layer 27 -> 29; the Battleship's three lines are all
   // still Story 8.14's, so it stays at 27 until they land.
   const HULLS: [ShipClassId, string[]][] = [
-    ['torpedoBoat', ['heavyTorpedo']],
-    ['battleship', ['broadside', 'starShells']],
-    ['mineLayer', ['navalMines']],
+    ['bismarck', ['heavyTorpedo']],
+    ['yamato', ['broadside', 'starShells']],
+    ['warspite', ['navalMines']],
   ];
 
   for (const [hull, formerSeed] of HULLS) {
@@ -1857,16 +1749,16 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
       // The line the hull used to hold is an ORDINARY pool line now — eligible
       // for this hull exactly as it is for every other (Story 8.14).
       for (const id of formerSeed) expect(eligibleFor(a), id).toContain(id);
-      // ...and the fit is the bare universal loadout, byte for byte: gun,
-      // the hull's CLASS SHIFT (Story 8.15), seven empty slots. `loadoutFor`
-      // IS the spawn now.
+      // ...and the fit is the bare universal loadout, byte for byte: the main
+      // battery, the SEAT's Shift (Story 10.4), seven empty slots.
+      // `loadoutFor` IS the spawn now.
       expect(a.stats).toEqual(effectiveStats(a.cls));
-      expect(a.loadout).toEqual(loadoutFor(a.stats, false, DEFAULT_GUN, classShift(hull)));
-      expect(a.loadout).toEqual(slotsWithCards(a.stats, a.cards, a.kit, CATALOG, false, DEFAULT_GUN, classShift(hull)));
+      expect(a.loadout).toEqual(loadoutFor(a.stats, false, a.shift));
+      expect(a.loadout).toEqual(slotsWithCards(a.stats, a.cards, a.kit, CATALOG, false, a.shift));
       for (const i of WEAPON_SLOTS) expect(a.loadout[i]).toEqual({ equipmentId: null, state: null });
       for (const i of CONSUMABLE_SLOTS) expect(a.loadout[i]).toEqual({ equipmentId: null, state: null });
-      expect(a.loadout[SLOT_GUN].equipmentId).toBe('gun');
-      expect(a.loadout[SLOT_BOOST].equipmentId).toBe(classShift(hull));
+      expect(a.loadout[SLOT_GUN].equipmentId).toBe('mainBattery');
+      expect(a.loadout[SLOT_BOOST].equipmentId).toBe(DEFAULT_SHIFT);
     });
   }
 
@@ -1897,7 +1789,7 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
   // the spawn state (Story 8.10 review, P1): it keeps the build on every path.
   it('redeployShip (no hold) KEEPS the build; only a fresh ADDSHIP holds nothing', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    const a = place(w, 'a', 0, 0, 0, 'yamato');
     w.applyCard(a, 'broadside');
     w.applyCard(a, 'armor');
     w.resetForMatchStart();
@@ -1905,11 +1797,11 @@ describe('THE SPAWN HOLDS NOTHING — gun + Shift, an empty weapon row (Story 8.
     expect(a.stats).toEqual(effectiveStats(a.cls, ['broadside', 'armor']));
     expect(a.loadout[WEAPON_SLOTS[0]].equipmentId).toBe('broadside');
     // A hull that JOINS, by contrast, still comes up with nothing at all.
-    const fresh = place(w, 'fresh', 0, 0, 0, 'battleship');
+    const fresh = place(w, 'fresh', 0, 0, 0, 'yamato');
     expect(fresh.cards).toEqual([]);
     expect(fresh.mulliganed).toBe(false);
     expect(fresh.stats).toEqual(effectiveStats(fresh.cls));
-    expect(fresh.loadout).toEqual(loadoutFor(fresh.stats, false, DEFAULT_GUN, 'hunker')); // the Battleship's Shift
+    expect(fresh.loadout).toEqual(loadoutFor(fresh.stats, false, fresh.shift)); // the seat's Shift
   });
 
   it('DRONES still draw nothing, and hold no cards to speak of either', () => {
@@ -1985,7 +1877,7 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
    *  retired them. */
   function placeBelt(w: World, id: string, list: readonly LineId[]): ShipRecord {
     void list;
-    const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, undefined, BELT_KIT);
+    const rec = w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined, undefined, BELT_KIT);
     rec.state.x = 0;
     rec.state.y = 0;
     rec.state.speed = 0;
@@ -2009,7 +1901,7 @@ describe('the consumable slots — stock, the cap refusal, use, and clear-at-zer
 
   /** A complete InputMsg through the REAL wire entry point. */
   function send(w: World, id: string, seq: number, extra: Partial<InputMsg>): void {
-    w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...extra });
+    w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...extra });
   }
 
   // --- stock ---------------------------------------------------------------

@@ -11,30 +11,38 @@
 // in-game rows — never test rows — for exactly that hull.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, SHIP_CLASS_IDS } from '@salvo/shared';
 import { parseArgs, UsageError } from '../args.js';
 import { runMatch } from '../runner.js';
 import { applyOverrides } from '../overrides.js';
+
+/** Any of the four hulls (Story 10.4) — the last, so the pins never lean on
+ *  the default hull. */
+const HULL = SHIP_CLASS_IDS[SHIP_CLASS_IDS.length - 1];
 
 describe('args — --bot-spend / --bot-hull', () => {
   it('parses both; defaults are profile/null', () => {
     const d = parseArgs([]);
     expect(d.botSpend).toBe('profile');
     expect(d.botHull).toBeNull();
-    const o = parseArgs(['--bots', '3', '--bot-spend', 'random', '--bot-hull', 'mineLayer']);
+    const o = parseArgs(['--bots', '3', '--bot-spend', 'random', '--bot-hull', HULL]);
     expect(o.botSpend).toBe('random');
-    expect(o.botHull).toBe('mineLayer');
+    expect(o.botHull).toBe(HULL);
   });
 
   it('refuses the incoherent combinations', () => {
     expect(() => parseArgs(['--bot-spend', 'random'])).toThrow(/needs --bots/);
-    expect(() => parseArgs(['--bot-hull', 'mineLayer'])).toThrow(/needs --bots/);
+    expect(() => parseArgs(['--bot-hull', HULL])).toThrow(/needs --bots/);
     expect(() => parseArgs(['--bots', '2', '--bot-spend', 'sometimes'])).toThrow(UsageError);
+    // The retired gun-first mode (`--bot-spend gun`, Story 10.4) is refused like any unknown mode.
+    expect(() => parseArgs(['--bots', '2', '--bot-spend', 'gun'])).toThrow(UsageError);
+    // A retired class id is no hull (Story 10.4: the four battleships).
+    expect(() => parseArgs(['--bots', '2', '--bot-hull', 'mineLayer'])).toThrow(/unknown class/);
     expect(() => parseArgs(['--bots', '2', '--bot-hull', 'submarine'])).toThrow(/unknown class/);
-    expect(() => parseArgs(['--bots', '2', '--bot-hull', 'mineLayer', '--bot-profile', 'random'])).toThrow(
+    expect(() => parseArgs(['--bots', '2', '--bot-hull', HULL, '--bot-profile', 'random'])).toThrow(
       /conflicts with --bot-profile/,
     );
-    expect(() => parseArgs(['--bots', '2', '--bot-hull', 'mineLayer', '--roster', 'even'])).toThrow(
+    expect(() => parseArgs(['--bots', '2', '--bot-hull', HULL, '--roster', 'even'])).toThrow(
       /conflicts with --roster even/,
     );
   });
@@ -44,10 +52,10 @@ describe('runner — the tuned-profile measurement lobby', () => {
   it('--bot-hull forces the class; profiles are IN-GAME rows (any personality, Story 8.20)', () => {
     const restore = applyOverrides({ 'zone.beatMs': 3000 });
     try {
-      const m = runMatch(0, { seed: 909, matches: 1, captains: 0, bots: 4, botHull: 'mineLayer', botSpend: 'random' });
+      const m = runMatch(0, { seed: 909, matches: 1, captains: 0, bots: 4, botHull: HULL, botSpend: 'random' });
       expect(m.bots!.length).toBe(4);
       for (const b of m.bots!) {
-        expect(b.cls).toBe('mineLayer');
+        expect(b.cls).toBe(HULL);
         // In-game rows — never a test row (the test id space is only reachable
         // through --bot-profile). Any personality sails any hull (Story 8.20).
         expect(CONFIG.bots.profiles as readonly string[]).toContain(b.profile);

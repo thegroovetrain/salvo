@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest';
 import {
   isAfloat,
   CONFIG,
+  damageMultiplierFor,
   hullSilhouette,
   inArc,
   pointPolygonDistance,
@@ -33,6 +34,13 @@ import { circleIsland } from './islandFixture.js';
 const HALF_PI = Math.PI / 2;
 const SLOT_GUN = 0;
 
+/** What the damage gate LANDS for a raw blow `raw` from `by` on `victim` —
+ *  the one armor curve (× damageMultiplierFor(victim ARMOR − attacker POWER),
+ *  floored, never below 1). No shipped hull sits at index 100 since Story
+ *  10.4, so every expectation reads it rather than the raw row number. */
+const blow = (raw: number, victim: ShipRecord, by: ShipRecord): number =>
+  raw > 0 ? Math.max(1, Math.floor(raw * damageMultiplierFor(victim.stats.armor - by.stats.power))) : 0;
+
 describe('clampToArc (kept for the torpedo bow arc)', () => {
   it('returns the aim unchanged when already inside the arc', () => {
     expect(clampToArc(HALF_PI, HALF_PI, 0.5)).toBeCloseTo(HALF_PI, 9);
@@ -50,10 +58,10 @@ describe('clampToArc (kept for the torpedo bow arc)', () => {
 /** A gun-click input aimed at `aim` with a click distance of `aimDist`.
  *  fireT defaults to the no-claim sentinel (zero latency compensation). */
 const gunInput = (aim: number, aimDist = 1000, fireSeq = 1, seq = 1, fireT = 0) =>
-  ({ seq, throttle: 0, rudder: 0, aim, fireSeq, aimDist, slot: SLOT_GUN as 0, fireT, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+  ({ seq, throttle: 0, rudder: 0, aim, fireSeq, aimDist, slot: SLOT_GUN as 0, fireT, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
 
 /** A bare world (islands cleared) with one ship pinned at the origin. */
-function armed(seed = 5, hullId: HullId = 'torpedoBoat'): { w: World; a: ShipRecord } {
+function armed(seed = 5, hullId: HullId = 'bismarck'): { w: World; a: ShipRecord } {
   const w = new World(seed);
   w.map.islands.length = 0;
   const a = w.addShip('a', 'A', 'captain', hullId, undefined, undefined);
@@ -62,8 +70,21 @@ function armed(seed = 5, hullId: HullId = 'torpedoBoat'): { w: World; a: ShipRec
   // weapon row, so this fixture fits it explicitly through the same applyCard
   // path a real pick takes. Every case below keeps its subject.
   fitClassWeapons(w, a);
+  mountDeckGun(a);
   a.state = { x: 0, y: 0, heading: 0, speed: 0 };
   return { w, a };
+}
+
+/**
+ * THE DECK GUN ON THE BENCH (Story 10.4). A captain's slot 0 is the MAIN
+ * BATTERY now; the cannon row (`'gun'`) survives as the PvE drones' gun. This
+ * suite guards that ROW's mechanics — 360°, the burst hit rule, the parallel
+ * straddle, the lit lift, the D1 back-date — so the fixture mounts it into
+ * slot 0 directly (full pool), exactly the slot a drone carries it in. The
+ * main battery's own behaviour is pinned in its own suite.
+ */
+function mountDeckGun(a: ShipRecord): void {
+  a.loadout[SLOT_GUN] = { equipmentId: 'gun', state: { n: a.stats.equipment.gun.maxAmmo, reloadMsLeft: 0 } };
 }
 
 /** ONE BARREL — the PvE fleet gun's mount (`cls.gun` keeps one; the player
@@ -77,7 +98,7 @@ function oneBarrel(a: ShipRecord): void {
 }
 
 /** `armed` with the single-barrel mount (see `oneBarrel`). */
-function armedOne(seed = 5, hullId: HullId = 'torpedoBoat'): { w: World; a: ShipRecord } {
+function armedOne(seed = 5, hullId: HullId = 'bismarck'): { w: World; a: ShipRecord } {
   const r = armed(seed, hullId);
   oneBarrel(r.a);
   return r;
@@ -125,7 +146,7 @@ describe('gun activation — 360°, never out-of-arc', () => {
     a.input = gunInput(0, 300);
     expect(w.sinkingActivationGate(a, SLOT_GUN)).toEqual({ ok: true }); // pool 1 -> 0
     expect(w.sinkingActivationGate(a, SLOT_GUN)).toEqual({ ok: false, reason: 'no-ammo' });
-    expect(a.loadout[SLOT_GUN].state).toEqual({ n: 0, reloadMsLeft: CONFIG.gun.reloadMs });
+    expect(a.loadout[SLOT_GUN].state).toEqual({ n: 0, reloadMsLeft: a.stats.equipment.gun.reloadMs });
   });
 });
 
@@ -148,13 +169,13 @@ describe('gun shell construction — the burst hit rule rides the projectile', (
   it('gunTarget clamps the click to the effective range, measured from the CENTER', () => {
     const { w, a } = armedOne();
     a.input = gunInput(0, 5000);
-    // Base effective range IS the gun's own Tier I dial (Story 9.8, ruling 125
-    // — no longer the radar rung; single source, no duplicated literal).
-    expect(a.stats.equipment.gun.rangeU).toBe(CONFIG.gun.rangeU);
-    expect(gunTarget(a, w.map.radius).x).toBeCloseTo(CONFIG.gun.rangeU, 9);
+    // The clamp is the EFFECTIVE folded reach (the hull's RANGE index scales
+    // the row once, Story 10.3) — read off stats, never CONFIG.
+    const reach = a.stats.equipment.gun.rangeU;
+    expect(gunTarget(a, w.map.radius).x).toBeCloseTo(reach, 9);
     w.sinkingActivationGate(a, SLOT_GUN);
     const [shell] = [...w.shells.values()];
-    expect(shell.targetX).toBeCloseTo(CONFIG.gun.rangeU, 9); // center-measured — the muzzle never extends reach
+    expect(shell.targetX).toBeCloseTo(reach, 9); // center-measured — the muzzle never extends reach
     expect(shell.targetY).toBeCloseTo(0, 9);
   });
 
@@ -182,13 +203,13 @@ describe('gun shell spawn — hull silhouette edge, NO dead ring', () => {
   }
 
   it.each([
-    ['torpedoBoat bow', 'torpedoBoat', 0],
-    ['torpedoBoat abeam', 'torpedoBoat', HALF_PI],
-    ['torpedoBoat astern', 'torpedoBoat', Math.PI],
-    ['battleship bow', 'battleship', 0],
-    ['battleship abeam', 'battleship', HALF_PI],
-    ['battleship quarter', 'battleship', (3 * Math.PI) / 4],
-    ['mineLayer astern (transom notch bearing)', 'mineLayer', Math.PI],
+    ['torpedoBoat bow', 'bismarck', 0],
+    ['torpedoBoat abeam', 'bismarck', HALF_PI],
+    ['torpedoBoat astern', 'bismarck', Math.PI],
+    ['battleship bow', 'yamato', 0],
+    ['battleship abeam', 'yamato', HALF_PI],
+    ['battleship quarter', 'yamato', (3 * Math.PI) / 4],
+    ['mineLayer astern (transom notch bearing)', 'warspite', Math.PI],
   ] as const)('%s: spawns just outside the silhouette boundary', (_label, hullId, aim) => {
     const { shell, a } = spawnFor(hullId, aim);
     const poly = transformPolygon(hullSilhouette(hullId), a.state.x, a.state.y, a.state.heading);
@@ -198,8 +219,8 @@ describe('gun shell spawn — hull silhouette edge, NO dead ring', () => {
   });
 
   it('REGRESSION (1.3 deferred dead ring): an abeam battleship shell spawns at ~beam/2, not length/2', () => {
-    const { shell } = spawnFor('battleship', HALF_PI);
-    const bb = CONFIG.shipClasses.battleship.hull;
+    const { shell } = spawnFor('yamato', HALF_PI);
+    const bb = CONFIG.shipClasses.yamato.hull;
     expect(shell.y).toBeLessThanOrEqual(bb.beam / 2 + 2 * CONFIG.gun.shellRadius + 1); // ~20u
     expect(shell.y).toBeLessThan(bb.length / 2); // the old 62u+ offset is gone
   });
@@ -219,9 +240,9 @@ describe('World combat — burst at the clicked point', () => {
     expect(bursts).toHaveLength(1);
     expect(bursts[0].x).toBeCloseTo(0, 4);
     expect(bursts[0].y).toBeCloseTo(100, 4);
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.gun.damage); // full burst damage
+    expect(b.hp).toBe(b.stats.maxHp - blow(a.stats.equipment.gun.damage, b, a)); // full burst damage
     expect(dmgsOf(events)).toEqual([
-      { k: 'dmg', id: 'b', amount: CONFIG.gun.damage, hp: b.hp },
+      { k: 'dmg', id: 'b', amount: blow(a.stats.equipment.gun.damage, b, a), hp: b.hp },
     ]);
   });
 
@@ -239,9 +260,9 @@ describe('World combat — burst at the clicked point', () => {
     expect(burstsOf(events)).toHaveLength(1); // ONE burst event, ever
     const dmgs = dmgsOf(events);
     expect(dmgs.map((e) => e.id).sort()).toEqual(['b', 'c']); // one victim-private dmg each
-    for (const dmg of dmgs) expect(dmg.amount).toBe(CONFIG.gun.damage);
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.gun.damage);
-    expect(c.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.gun.damage);
+    for (const dmg of dmgs) expect(dmg.amount).toBe(blow(a.stats.equipment.gun.damage, b, a));
+    expect(b.hp).toBe(b.stats.maxHp - blow(a.stats.equipment.gun.damage, b, a));
+    expect(c.hp).toBe(c.stats.maxHp - blow(a.stats.equipment.gun.damage, c, a));
   });
 
   it('bodyblock FAR from the target: interceptor takes contactDamage, NO burst, shell stops', () => {
@@ -255,9 +276,9 @@ describe('World combat — burst at the clicked point', () => {
     const boom = boomsOf(events).find((e) => e.hit === 'b');
     expect(boom).toBeDefined();
     expect(boom!.y).toBeLessThan(300); // stopped at b's hull, well short of the 500u click
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.gun.contactDamage); // the SMALLER contact damage
+    expect(b.hp).toBe(b.stats.maxHp - blow(a.stats.equipment.gun.contactDamage, b, a)); // the SMALLER contact damage
     expect(dmgsOf(events)).toEqual([
-      { k: 'dmg', id: 'b', amount: CONFIG.gun.contactDamage, hp: b.hp },
+      { k: 'dmg', id: 'b', amount: blow(a.stats.equipment.gun.contactDamage, b, a), hp: b.hp },
     ]);
   });
 
@@ -265,16 +286,19 @@ describe('World combat — burst at the clicked point', () => {
     const { w, a } = armedOne(1);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined); // hull straddles the click point itself
-    b.state = { x: 0, y: 495, heading: HALF_PI, speed: 0 };
-    w.submitInput('a', gunInput(HALF_PI, 500));
+    // Inside the gun's full-damage radius (Story 9.12 attenuation): the click
+    // sits well under half the folded reach, so the burst lands unattenuated.
+    const click = 0.4 * a.stats.equipment.gun.rangeU;
+    b.state = { x: 0, y: click - 5, heading: HALF_PI, speed: 0 };
+    w.submitInput('a', gunInput(HALF_PI, click));
     const events = stepCollect(w, 90);
     const bursts = burstsOf(events);
     expect(bursts).toHaveLength(1);
-    expect(bursts[0].y).toBeCloseTo(500, 4); // burst ALWAYS centers on the target xy
+    expect(bursts[0].y).toBeCloseTo(click, 4); // burst ALWAYS centers on the target xy
     // Burst damage only — never contact + burst on the same shell.
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.gun.damage);
+    expect(b.hp).toBe(b.stats.maxHp - blow(a.stats.equipment.gun.damage, b, a));
     expect(dmgsOf(events)).toEqual([
-      { k: 'dmg', id: 'b', amount: CONFIG.gun.damage, hp: b.hp },
+      { k: 'dmg', id: 'b', amount: blow(a.stats.equipment.gun.damage, b, a), hp: b.hp },
     ]);
   });
 
@@ -284,7 +308,7 @@ describe('World combat — burst at the clicked point', () => {
     w.submitInput('a', gunInput(HALF_PI, 5)); // click right at the own hull
     const events = stepCollect(w, 10);
     expect(burstsOf(events)).toHaveLength(1); // it DOES burst at the click point...
-    expect(a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp); // ...harmlessly (owner immunity)
+    expect(a.hp).toBe(a.stats.maxHp); // ...harmlessly (owner immunity)
     expect(dmgsOf(events)).toEqual([]);
   });
 
@@ -294,20 +318,20 @@ describe('World combat — burst at the clicked point', () => {
     // a ~64u inner dead zone. The shell now spawns AT the click, so the next
     // tick bursts there (independent of muzzle velocity, standardized at
     // 500 u/s for the whole gun family — Eric ruling 2026-07-25).
-    const { w, a } = armedOne(1, 'battleship');
+    const { w, a } = armedOne(1, 'yamato');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Hulls are SOLID since Story 9.5: the enemy cannot sit inside the
     // battleship's beam any more, so it stands bow-on to the click — its tip
     // 12 u from (40,0), clear of the battleship's flank there.
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
-    b.state = { x: 40, y: 62, heading: -HALF_PI, speed: 0 };
+    b.state = { x: 40, y: 12 + b.cls.hull.length / 2, heading: -HALF_PI, speed: 0 }; // tip 12 u off the click
     w.submitInput('a', gunInput(0, 40)); // 40u off the bow — well inside the muzzle
     const events = stepCollect(w, 5);
     const bursts = burstsOf(events);
     expect(bursts).toHaveLength(1);
     expect(bursts[0].x).toBeCloseTo(40, 3);
     expect(bursts[0].y).toBeCloseTo(0, 3);
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.gun.damage); // full burst
+    expect(b.hp).toBe(b.stats.maxHp - blow(a.stats.equipment.gun.damage, b, a)); // full burst
   });
 
   it('aimDist 0 bursts at the OWN center: owner immune, an adjacent enemy still takes full damage', () => {
@@ -315,18 +339,19 @@ describe('World combat — burst at the clicked point', () => {
     // 15 u burst of a battleship's centre without being inside the
     // battleship, so the shooter is a torpedo boat and the enemy stands
     // bow-on to its beam, tip 7 u from the burst point.
-    const { w, a } = armedOne(1, 'torpedoBoat');
+    const { w, a } = armedOne(1, 'bismarck');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
-    b.state = { x: 0, y: 57, heading: -HALF_PI, speed: 0 };
+    // Tip just clear of the shooter's half-beam, inside the 15 u burst.
+    b.state = { x: 0, y: a.cls.hull.beam / 2 + 2 + b.cls.hull.length / 2, heading: -HALF_PI, speed: 0 };
     w.submitInput('a', gunInput(HALF_PI, 0)); // aimDist 0 — target = own center
     const events = stepCollect(w, 5);
     const bursts = burstsOf(events);
     expect(bursts).toHaveLength(1);
     expect(bursts[0].x).toBeCloseTo(0, 3);
     expect(bursts[0].y).toBeCloseTo(0, 3);
-    expect(a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp); // owner immune to its own burst
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.gun.damage);
+    expect(a.hp).toBe(a.stats.maxHp); // owner immune to its own burst
+    expect(b.hp).toBe(b.stats.maxHp - blow(a.stats.equipment.gun.damage, b, a));
   });
 
   it('MAP EDGE: a rim ship firing outward at an in-range point bursts at the clamped point, not the rim', () => {
@@ -351,7 +376,7 @@ describe('World combat — burst at the clicked point', () => {
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const b = w.addShip('b', 'B', undefined, undefined, undefined, undefined);
     b.state = { x: 0, y: 100, heading: 0, speed: 0 };
-    b.hp = CONFIG.gun.damage; // one burst finishes it
+    b.hp = blow(a.stats.equipment.gun.damage, b, a); // one burst finishes it
     w.submitInput('a', gunInput(HALF_PI, 100));
     const events = stepCollect(w, 25);
     expect(isAfloat(b.lifecycle)).toBe(false);
@@ -371,7 +396,7 @@ describe('World combat — burst at the clicked point', () => {
     const events = stepCollect(w, 60);
     expect(burstsOf(events)).toEqual([]);
     expect(dmgsOf(events)).toEqual([]);
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
+    expect(b.hp).toBe(b.stats.maxHp);
     const [boom] = boomsOf(events);
     expect(boom.hit).toBeUndefined();
     expect(boom.y).toBeLessThan(100); // splashed on the rock's near face
@@ -441,8 +466,8 @@ describe('multi-barrel click — every shell that connects deals its own damage'
     // ledger allowed exactly one).
     const dmgs = dmgsOf(events).filter((e) => e.id === 'b');
     expect(dmgs).toHaveLength(2);
-    for (const d of dmgs) expect(d.amount).toBe(a.stats.equipment.gun.damage);
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - 2 * a.stats.equipment.gun.damage);
+    for (const d of dmgs) expect(d.amount).toBe(blow(a.stats.equipment.gun.damage, b, a));
+    expect(b.hp).toBe(b.stats.maxHp - 2 * blow(a.stats.equipment.gun.damage, b, a));
     // A tier-II twin mount is 2 × its tier damage into the hull — a real bite, not a kill.
     expect(isAfloat(b.lifecycle)).toBe(true);
   });
@@ -464,8 +489,8 @@ describe('multi-barrel click — every shell that connects deals its own damage'
     const hitsOn = (id: string) => dmgs.filter((e) => e.id === id);
     expect(hitsOn('b')).toHaveLength(2);
     expect(hitsOn('c')).toHaveLength(2);
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - 2 * a.stats.equipment.gun.damage);
-    expect(c.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - 2 * a.stats.equipment.gun.damage);
+    expect(b.hp).toBe(b.stats.maxHp - 2 * blow(a.stats.equipment.gun.damage, b, a));
+    expect(c.hp).toBe(c.stats.maxHp - 2 * blow(a.stats.equipment.gun.damage, c, a));
   });
 
   it('CONTACT from one shell and BURST from another both land on the same hull', () => {
@@ -490,8 +515,8 @@ describe('multi-barrel click — every shell that connects deals its own damage'
     // deleted ledger would have allowed only the first, so the pair also fails
     // if the salvo rule returns.
     expect(amounts).toHaveLength(2);
-    expect([...amounts].sort((x, y) => x - y)).toEqual([a.stats.equipment.gun.contactDamage, a.stats.equipment.gun.damage]);
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - a.stats.equipment.gun.contactDamage - a.stats.equipment.gun.damage);
+    expect([...amounts].sort((x, y) => x - y)).toEqual([blow(a.stats.equipment.gun.contactDamage, b, a), blow(a.stats.equipment.gun.damage, b, a)].sort((x, y) => x - y));
+    expect(b.hp).toBe(b.stats.maxHp - blow(a.stats.equipment.gun.contactDamage, b, a) - blow(a.stats.equipment.gun.damage, b, a));
   });
 });
 
@@ -630,7 +655,7 @@ describe('the star-shell gun reach (R2.15) — an OWN lit zone extends the gun',
   });
 
   it('the zone extends the GUN ONLY — a beyond-range STAR SHELL still clamps to its own range', () => {
-    const { w, a } = armed(34, 'battleship');
+    const { w, a } = armed(34, 'yamato');
     const slot = a.loadout.findIndex((s) => s.equipmentId === 'starShells');
     expect(slot).toBeGreaterThan(0);
     w.litZones.set('z1', {
@@ -772,7 +797,7 @@ const SLOT_MINE_ML = 2;
 
 /** A weapon-slot click input (torpedo/mine are direction-only; aimDist ignored). */
 const slotInput = (slot: number, fireSeq = 1, seq = 1, fireT = 0) =>
-  ({ seq, throttle: 0, rudder: 0, aim: 0, fireSeq, aimDist: 0, slot, fireT, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+  ({ seq, throttle: 0, rudder: 0, aim: 0, fireSeq, aimDist: 0, slot, fireT, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
 
 describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
   it('an honored claim pre-advances the shell by comp along its velocity; the WIRE reveal (frames/perception) shows it further along its flight', () => {
@@ -880,7 +905,7 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
     const events = [...w.tickEvents];
     expect(burstsOf(events)).toEqual([]); // no burst — the rock ate it
     expect(dmgsOf(events)).toEqual([]); // no rewind kill
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
+    expect(b.hp).toBe(b.stats.maxHp);
     const [boom] = boomsOf(events);
     expect(boom.hit).toBeUndefined();
     expect(boom.y).toBeGreaterThan(5); // splashed on the island's near face...
@@ -936,14 +961,14 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
     // FR7: the pre-step ran against CURRENT hulls including the owner's own —
     // permanent owner immunity means the fish is alive and the owner unhurt.
     expect(back.w.shells.size).toBe(1);
-    expect(back.a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
+    expect(back.a.hp).toBe(CONFIG.shipClasses.bismarck.hp);
   });
 
   it('MINE (Story 2.8 aimed weapon): an honored fireT claim back-dates the arm clock (armedAt = fireT + armDelay)', () => {
     // The 2.8 flip of the 1.8 no-compensation pin: mines ride the CLICK
     // channel again, so the D1-validated fire time is the placement time and
     // the 3s arm delay counts from it.
-    const { w, a } = armed(7, 'mineLayer'); // weapon slot 2 = mine (Story 8.5 spawn seed)
+    const { w, a } = armed(7, 'warspite'); // weapon slot 2 = mine (Story 8.5 spawn seed)
     for (let i = 0; i < 40; i++) w.step(); // give the clock room to back-date into
     w.setRtt('a', 80); // allowance = min(80+30, 150) = 110
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
@@ -955,7 +980,7 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
   });
 
   it('MINE without a claim: armedAt = now + armDelay (the click baseline)', () => {
-    const { w, a } = armed(7, 'mineLayer');
+    const { w, a } = armed(7, 'warspite');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.submitInput('a', { ...slotInput(SLOT_MINE_ML, 1, 1, 0), aim: Math.PI, aimDist: 40 });
     w.step();

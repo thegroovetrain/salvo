@@ -22,10 +22,11 @@ import {
   hullSilhouette,
   islandDistance,
   isAfloat,
-  MOUNTED_GUN,
   transformPolygon,
-  type GunId,
+  turretMounts,
+  type HullId,
   type Island,
+  type ShiftId,
   type Vec2,
 } from '@salvo/shared';
 import type { World, ShipRecord } from '../../src/game/world.js';
@@ -179,25 +180,25 @@ export interface BotSample extends BotReadouts {
    *  instead of merely red. */
   landEpisodes: number;
   maxLandRunTicks: number;
-  /** The gun this bot mounted (`ship.gun` — fixed for the whole match). */
-  gun: GunId;
-  /** The gun's ladder rung (1..5) at the last AFLOAT reading, read off
-   *  `ship.stats.equipment[MOUNTED_GUN[gun]].tier` — the tier effectiveStats
-   *  itself derives (1 + copies of the gun's line in ship.cards). */
-  gunTier: number;
-  /** PARTICIPANT kills bucketed by this bot's gun tier AT THE MOMENT of the
-   *  kill. Length 6, indexed by tier directly: index 0 is always 0 (unused),
-   *  1..5 = tier I..V. Sums to `kills` (PvE fleet kills are not counted). */
-  killsByTier: number[];
+  /** The Shift this bot's seat picked (`ship.shift` — fixed for the whole
+   *  match; Story 10.4, in the seat gun's place). */
+  shift: ShiftId;
+  /** The hull's main-battery LAYOUT (Story 10.4): `${turrets}x${guns}` off
+   *  the shared turret mounts (`layoutOf`) — the gun × tier readout's
+   *  successor, since the main battery has no ladder. */
+  layout: string;
 }
 
-/** A zeroed killsByTier column (see BotSample.killsByTier). */
-export const emptyKillsByTier = (): number[] => [0, 0, 0, 0, 0, 0];
-
-/** The ship's current gun-ladder rung — the canonical reading effectiveStats
- *  pins on the mounted gun module's equipment row. */
-export function gunTierOf(ship: Pick<ShipRecord, 'gun' | 'stats'>): number {
-  return ship.stats.equipment[MOUNTED_GUN[ship.gun]].tier;
+/**
+ * A hull's main-battery LAYOUT key: turret count × guns per turret, read off
+ * the shared `turretMounts` (never a hand table), e.g. `3x3` or `4x2`. A hull
+ * whose turrets carried mixed gun counts would read `${n}x${a}+${b}` (none
+ * does today); a hull with no battery (a drone) reads `0x0`.
+ */
+export function layoutOf(hullId: HullId): string {
+  const mounts = turretMounts(hullId);
+  const guns = [...new Set(mounts.map((m) => m.guns))].sort((a, b) => a - b);
+  return `${mounts.length}x${guns.length === 0 ? 0 : guns.join('+')}`;
 }
 
 /** Mutable per-bot accumulation; frozen into a BotSample at the finish. */
@@ -227,8 +228,6 @@ interface BotTrack {
   picks: BotPick[];
   offersSeen: Record<string, number>;
   offerHands: number;
-  gunTier: number;
-  killsByTier: number[];
   /** The offer array reference last tallied (CatalogCollector.seenOffer's
    *  exact mechanism — an offer is materialized once and frozen). */
   lastOffer: unknown;
@@ -259,8 +258,6 @@ function newTrack(): BotTrack {
     picks: [],
     offersSeen: {},
     offerHands: 0,
-    gunTier: 1,
-    killsByTier: emptyKillsByTier(),
     lastOffer: null,
   };
 }
@@ -429,11 +426,6 @@ export class BotCollector {
     }
     track.kills += 1;
     this.readouts.noteKill(by, victim);
-    // The killer's CURRENT rung; a killer whose record is gone (never a bot —
-    // only fleet hulls are removed early) falls back to the last reading.
-    const killer = world.ships.get(by);
-    const tier = killer === undefined ? track.gunTier : gunTierOf(killer);
-    track.killsByTier[tier] = (track.killsByTier[tier] ?? 0) + 1;
   }
 
   /** Freeze every track into a report row. `profileOf` comes from the live
@@ -473,9 +465,8 @@ export class BotCollector {
         offersSeen: track.offersSeen,
         offerHands: track.offerHands,
         placement: placements?.get(id) ?? null,
-        gun: ship.gun,
-        gunTier: track.gunTier,
-        killsByTier: track.killsByTier.slice(),
+        shift: ship.shift,
+        layout: layoutOf(ship.hullId),
         ...this.readouts.sample(id),
       });
     }
@@ -550,7 +541,6 @@ function readEconomy(track: BotTrack, ship: ShipRecord): void {
   track.damageDealt = Math.round(ship.damageDealt * 10) / 10;
   track.contactDamageTaken = ship.contactDamageTaken;
   track.landDamageTaken = ship.landDamageTaken;
-  track.gunTier = gunTierOf(ship);
   // Copy-on-grow keeps the 20Hz loop allocation-light: boons is append-only
   // within a life and a bot has exactly one, so length IS the change signal.
   if (ship.cards.length !== track.boons.length) track.boons = ship.cards.slice();

@@ -34,7 +34,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
 /** Drive `id` full ahead for `ticks` ticks. */
 function drive(w: World, id: string, ticks: number): void {
   for (let t = 1; t <= ticks; t++) {
-    w.submitInput(id, { seq: t, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false });
+    w.submitInput(id, { seq: t, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false });
     w.step();
   }
 }
@@ -65,7 +65,7 @@ describe('world — wake ribbon store (Story 4.12)', () => {
     // budget uses.
     // Story 10.9 (ruling 6): the Shift and a SPEED BUOY add on the base —
     // the first fold stage's one combined factor.
-    const base = effectiveStats(CONFIG.shipClasses.torpedoBoat).kinematics.maxSpeed;
+    const base = effectiveStats(CONFIG.shipClasses.bismarck).kinematics.maxSpeed;
     const boosted = base + base * (CONFIG.boost.factor + CONFIG.buoy.speed.factor);
     const top = boosted + boosted * CONFIG.wake.draft.lift;
     expect(a.wake.cap).toBe(wakeCapacity(top, CONFIG.vision.wakeLifeMs));

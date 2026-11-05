@@ -12,6 +12,7 @@ import { CONFIG, consumableSlotFor,
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { flatRaster } from './islandFixture.js';
+import { neutralize } from './deckGunFixture.js';
 
 const BELT = consumableSlotFor(DEFAULT_KIT, 'shieldBlock')!;
 
@@ -33,8 +34,9 @@ function bareWorld(seed = 816): World {
   return w;
 }
 
-function place(w: World, id: string, x = 0, y = 0, hull: 'torpedoBoat' | 'battleship' = 'torpedoBoat'): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
+function place(w: World, id: string, x = 0, y = 0, hull: 'bismarck' | 'yamato' = 'bismarck'): ShipRecord {
+  // NEUTRAL index (deckGunFixture, Story 10.4): this suite reads CONFIG numbers verbatim.
+  const rec = neutralize(w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined));
   rec.state = { x, y, heading: 0, speed: 0 };
   return rec;
 }
@@ -92,7 +94,7 @@ describe('SHIELD BLOCK — the row (Story 8.16)', () => {
 describe('SHIELD BLOCK — the gate (I/O matrix, amendments 100/118)', () => {
   it('CUT THEN SHIELD: a Battleship with HUNKER up takes a 55 hp mine -> only the armored remainder reaches the shield, hull untouched, dmg 0, combat clock unmoved', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 'battleship');
+    const a = place(w, 'a', 0, 0, 'yamato');
     const b = place(w, 'b', 400, 0);
     a.hunkerUntil = w.now + CONFIG.hunker.durationMs;
     expect(stockAndFire(w, a)).toEqual({ ok: true });

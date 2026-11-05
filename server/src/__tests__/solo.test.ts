@@ -11,7 +11,8 @@
 //                   identity surface (`n AFLOAT`, hull colour, nameplates, the
 //                   kill feed), while the results table would still be right.
 //                   Nothing throws; the player just meets nineteen amber-hollow
-//                   UNKNOWN VESSELs. So the rows, hues and names are pinned.
+//                   UNKNOWN VESSELs. So the rows and names are pinned (the
+//                   hue wheel is gone since Story 10.4, R6).
 //   THE TIMING    — bots MUST be in world.ships before the Match.update() that
 //                   activates: activate() snapshots participants and checkWin()
 //                   runs in that same update, so a roster holding only the human
@@ -32,14 +33,11 @@ import { ClientState } from 'colyseus';
 import {
   CONFIG,
   DEFAULT_KIT,
-  GUN_IDS,
   dealableConsumables,
   isConsumableKit,
-  MOUNTED_GUN,
   mulberry32,
   PROTOCOL_VERSION,
-  REGATTA_HUES,
-  REGATTA_NO_HUE,
+  SHIFT_IDS,
   SHIP_CLASS_IDS,
   isAfloat,
   type ShipClassId,
@@ -48,7 +46,6 @@ import { ArenaRoom, ARENA_DIRECT_JOIN_ERROR } from '../rooms/ArenaRoom.js';
 import { protocolVersionError, sanitizeSolo, type RoomOptions } from '../rooms/roomOptions.js';
 import { lobbyTicket } from '../rooms/lobbyTicket.js';
 import { World } from '../game/world.js';
-import { assignHue } from '../game/regatta.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
 import type { ArenaState, PlayerMeta } from '../rooms/schema/ArenaState.js';
 
@@ -167,12 +164,6 @@ function bots(r: SoloRoom): { id: string; name: string; hullId: string }[] {
   return [...r.world.ships.values()].filter((s) => s.role === 'bot');
 }
 
-function rosterColors(r: SoloRoom): number[] {
-  const out: number[] = [];
-  r.state.players.forEach((meta: PlayerMeta) => out.push(meta.color));
-  return out;
-}
-
 describe('the solo room — construction', () => {
   beforeEach(() => {
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -211,16 +202,14 @@ describe('the solo room — construction', () => {
     expect(r.state.players.size).toBe(0);
   });
 
-  it('gives every bot a roster row with a REAL Regatta hue — never the drone-grey sentinel', () => {
+  it('gives every bot a roster row (and no hue — the wheel is gone, Story 10.4 R6)', () => {
     const r = soloRoom();
     expect(r.state.players.size).toBe(BOTS);
-    const colors = rosterColors(r);
-    for (const c of colors) {
-      expect(c).not.toBe(REGATTA_NO_HUE);
-      expect(c).toBeGreaterThanOrEqual(0);
-      expect(c).toBeLessThan(REGATTA_HUES.length);
+    for (const b of bots(r)) {
+      const meta = r.state.players.get(b.id)!;
+      expect(meta.name).toBe(b.name);
+      expect('color' in meta).toBe(false);
     }
-    expect(new Set(colors).size).toBe(BOTS); // distinct — no two bots share a hue
   });
 
   it('names every bot from the callsign pool, without repeat', () => {
@@ -243,29 +232,29 @@ describe('the solo room — construction', () => {
     expect([...counts.values()].sort()).toEqual(want);
   });
 
-  // Story 8.15 (amendment 109): every bot MOUNTS A RANDOM GUN, drawn
-  // uniformly off the room's seeded stream — the hue RNG every other room roll
-  // rides — so a pinned map seed seats a pinned fleet and staging fights all
-  // three guns from this cycle. Never Math.random.
-  it('seats every bot with a gun off the SEEDED stream: a pinned seed yields the same guns twice, and all three guns appear across a few seeds', () => {
+  // Story 10.4: every bot picks A RANDOM SHIFT (the seat pick that replaced
+  // the gun), drawn uniformly off the room's seeded bot-fleet stream, so a
+  // pinned map seed seats a pinned fleet and staging fights every Shift.
+  // Slot 0 is the MAIN BATTERY on every bot (no bot mounts a deck gun) and
+  // slot 1 is the drawn Shift. Never Math.random.
+  it('seats every bot with a Shift off the SEEDED stream: a pinned seed yields the same Shifts twice, slot 1 mounts it, slot 0 is the main battery, and every Shift appears across a few seeds', () => {
     process.env.HC_DEV_OPTIONS = '1'; // a pinned map seed is a dev-only option
-    const gunsOf = (r: SoloRoom): string[] => bots(r).map((b) => r.world.ships.get(b.id)!.gun);
-    const first = gunsOf(soloRoom({ mapSeed: 7 }));
+    const shiftsOf = (r: SoloRoom): string[] => bots(r).map((b) => r.world.ships.get(b.id)!.shift);
+    const first = shiftsOf(soloRoom({ mapSeed: 7 }));
     expect(first).toHaveLength(BOTS);
-    expect(gunsOf(soloRoom({ mapSeed: 7 }))).toEqual(first); // the same seed, the same fleet
-    for (const g of first) expect(GUN_IDS).toContain(g);
-    // Slot 0 mounts the drawn gun's OWN module (MOUNTED_GUN), never the cannon
-    // for all three.
+    expect(shiftsOf(soloRoom({ mapSeed: 7 }))).toEqual(first); // the same seed, the same fleet
+    for (const s of first) expect(SHIFT_IDS).toContain(s);
     const r = soloRoom({ mapSeed: 7 });
     for (const b of bots(r)) {
       const rec = r.world.ships.get(b.id)!;
-      expect(rec.loadout[0].equipmentId).toBe(MOUNTED_GUN[rec.gun]);
+      expect(rec.loadout[0].equipmentId).toBe('mainBattery');
+      expect(rec.loadout[1].equipmentId).toBe(rec.shift);
     }
     const seen = new Set<string>();
-    for (let seed = 1; seed <= 6 && seen.size < GUN_IDS.length; seed += 1) {
-      for (const g of gunsOf(soloRoom({ mapSeed: seed }))) seen.add(g);
+    for (let seed = 1; seed <= 6 && seen.size < SHIFT_IDS.length; seed += 1) {
+      for (const s of shiftsOf(soloRoom({ mapSeed: seed }))) seen.add(s);
     }
-    expect([...seen].sort()).toEqual([...GUN_IDS].sort());
+    expect([...seen].sort()).toEqual([...SHIFT_IDS].sort());
   });
 
   // Story 10.1 (Eric ruling 6): every bot CARRIES A RANDOM FOUR consumable
@@ -286,12 +275,12 @@ describe('the solo room — construction', () => {
     expect([...seen].sort()).toEqual([...dealableConsumables()].sort());
   });
 
-  // Story 10.1 review gate (F3): the kit roll rides its OWN stream (hue seed
-  // ^ 0x6b17), so the room's hue stream — and with it every class, gun and hue
-  // of a pinned seed — is exactly what it was before kits. The relation:
-  // replaying the hue stream ALONE in the pre-10.1 draw order (class shuffle,
-  // then per bot: gun, hue) reproduces the seated fleet.
-  it('the kit roll never touches the hue stream: a replay of the pre-kit draw order reproduces every class, gun and hue', () => {
+  // Story 10.1 review gate (F3): the kit roll rides its OWN stream (map seed
+  // ^ 0x6b17), so the room's bot-fleet stream (born as the hue stream; the
+  // hues are gone since Story 10.4) — and with it every class and Shift of a
+  // pinned seed — is untouched by kits. The relation: replaying the fleet
+  // stream ALONE (class shuffle, then one Shift per bot) reproduces the fleet.
+  it('the kit roll never touches the bot-fleet stream: a replay of the class shuffle and the Shift draws reproduces every class and Shift', () => {
     process.env.HC_DEV_OPTIONS = '1'; // a pinned map seed is a dev-only option
     for (const mapSeed of [7, 12345]) {
       const r = soloRoom({ mapSeed });
@@ -301,15 +290,11 @@ describe('the solo room — construction', () => {
         const j = rng.int(0, i);
         [order[i], order[j]] = [order[j], order[i]];
       }
-      const used = new Set<number>();
       bots(r).forEach((b, i) => {
-        const gun = GUN_IDS[rng.int(0, GUN_IDS.length - 1)];
-        const hue = assignHue(used, undefined, rng, i + 1);
-        used.add(hue);
+        const shift = SHIFT_IDS[rng.int(0, SHIFT_IDS.length - 1)];
         const at = `seed ${mapSeed} ${b.id}`;
         expect(b.hullId, at).toBe(order[i % order.length]);
-        expect(r.world.ships.get(b.id)!.gun, at).toBe(gun);
-        expect(r.state.players.get(b.id)!.color, at).toBe(hue);
+        expect(r.world.ships.get(b.id)!.shift, at).toBe(shift);
       });
     }
   });
@@ -396,45 +381,6 @@ describe('the solo room — the human joins', () => {
     expect(r.world.ships.size).toBe(CONFIG.map.playerCap);
     step(r, 20);
     expect(r.match?.phase).toBe('active'); // still a match, a full lobby in
-  });
-
-  it('the human KEEPS a preference a bot is already flying — the two SWAP hues', () => {
-    const r = soloRoom();
-    // Take a hue a bot is DEMONSTRABLY flying (a literal would be the free hue
-    // one room in several, and the swap would never be exercised).
-    const holder = bots(r)[0];
-    const pref = r.state.players.get(holder.id)!.color;
-    const before = rosterColors(r);
-    join(r, 'alice', { colorPref: pref });
-    expect(r.state.players.get('alice')!.color).toBe(pref); // the player keeps their choice
-    expect(r.state.players.get(holder.id)!.color).not.toBe(pref);
-    // ...and the bot took the hue the human would otherwise have flown: every
-    // hull still flies a DISTINCT hue off the wheel, and every hue the fleet
-    // flew before is still flown. (Was a bijection over the 20-hue wheel at the
-    // 20-captain cap; 16 captains since Story 9.8 fly 16 of its 20 hues.)
-    const after = rosterColors(r);
-    expect(new Set(after).size).toBe(CONFIG.map.playerCap);
-    for (const h of after) expect(h >= 0 && h < REGATTA_HUES.length).toBe(true);
-    for (const h of before) expect(after).toContain(h);
-    expect(before).toHaveLength(BOTS);
-  });
-
-  it('grants a FREE preference verbatim with no swap at all', () => {
-    const r = soloRoom();
-    const taken = new Set(rosterColors(r));
-    const free = [...Array(REGATTA_HUES.length).keys()].find((h) => !taken.has(h))!;
-    join(r, 'alice', { colorPref: free });
-    expect(r.state.players.get('alice')!.color).toBe(free);
-    expect(new Set(rosterColors(r)).size).toBe(CONFIG.map.playerCap);
-  });
-
-  it('with NO preference the human simply takes the free hue (no bot is disturbed)', () => {
-    const r = soloRoom();
-    const before = new Map<string, number>();
-    r.state.players.forEach((meta: PlayerMeta, id: string) => before.set(id, meta.color));
-    join(r, 'alice');
-    for (const [id, hue] of before) expect(r.state.players.get(id)!.color).toBe(hue);
-    expect(new Set(rosterColors(r)).size).toBe(CONFIG.map.playerCap);
   });
 
   it('redraws a BOT whose callsign collides with the player’s (case-insensitively)', () => {
@@ -542,7 +488,7 @@ describe('World.addBot — the optional class (Story 6.5)', () => {
     const b = new World(9);
     b.map.islands.length = 0;
     a.addBot(undefined, undefined);
-    b.addBot('battleship', undefined);
+    b.addBot('yamato', undefined);
     expect(a.addBot(undefined, undefined).hullId).toBe(b.addBot(undefined, undefined).hullId);
     expect([...a.ships.values()].map((s) => s.name)).toEqual([...b.ships.values()].map((s) => s.name));
   });
@@ -552,13 +498,13 @@ describe('World.renameBot', () => {
   it('draws a fresh unused callsign and leaves the hull alone', () => {
     const w = new World(3);
     w.map.islands.length = 0;
-    const rec = w.addBot('mineLayer', undefined);
+    const rec = w.addBot('warspite', undefined);
     const was = rec.name;
     const next = w.renameBot(rec.id);
     expect(next).not.toBeNull();
     expect(next).not.toBe(was);
     expect(rec.name).toBe(next);
-    expect(rec.hullId).toBe('mineLayer'); // nothing but the name moved
+    expect(rec.hullId).toBe('warspite'); // nothing but the name moved
     expect(rec.role).toBe('bot');
   });
 

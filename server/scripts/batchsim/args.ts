@@ -2,13 +2,14 @@
 // `--flag value` pairs, fail-fast with a usage message on anything unknown).
 // Pure over argv — unit-testable without a process.
 
-import { GUN_IDS, SHIP_CLASS_IDS, isGunId, type GunId, type ShipClassId } from '@salvo/shared';
+import { SHIFT_IDS, SHIP_CLASS_IDS, isShiftId, type ShiftId, type ShipClassId } from '@salvo/shared';
 import { validateTunableKey, validateTunableValue, validateTuneKey, validateTuneValue } from './overrides.js';
 import { CONTROL_REGISTRY } from './controls.js';
 import { BOT_PROFILES, TEST_PROFILE_IDS } from '../../src/game/ai/profiles.js';
 
-/** The scheme keyword for --bot-profile: deal the three test rows round-robin
- *  (TB, BS, ML), so one flag exercises all three hulls in a balanced spread. */
+/** The scheme keyword for --bot-profile: deal the test rows round-robin (one
+ *  per hull, hull order — Story 10.4's four), so one flag exercises every hull
+ *  in a balanced spread. */
 export const BOT_PROFILE_SCHEME = 'random';
 
 /** Bad command line — main prints .message and exits 2. */
@@ -41,15 +42,15 @@ export interface CliOptions {
    *  weighted policy) | 'random' — rolled IN-GAME profiles keep their whole
    *  temperament but pick cards uniformly at random, the tuned-profile
    *  instance of the blind-vacuum measurement design. */
-  botSpend: 'profile' | 'random' | 'gun';
+  botSpend: 'profile' | 'random';
   /** FORCED HULL for every bot on the ROLLED-profile path (mono-class arms
    *  with tuned temperaments): each bot still rolls an in-game profile for
    *  that hull. Null = the roster policy deals as usual. */
   botHull: ShipClassId | null;
-  /** FORCED GUN for every bot (Story 8.15, amendment 109: "a harness/dev arm
-   *  may force every bot to one gun"). Null = production's rule — each bot
-   *  mounts a seeded uniform gun off the match seed (runner.ts botGunFor). */
-  botGun: GunId | null;
+  /** FORCED SHIFT for every bot (Story 10.4 — the Story 8.15 `--gun` arm's
+   *  successor). Null = production's rule — each bot picks a seeded uniform
+   *  Shift off the match seed (runner.ts botShiftDealer). */
+  botShift: ShiftId | null;
   /** CONFIG overrides (tunable dials only), applied before any World is built. */
   set: Record<string, number>;
   /** HARNESS SPAWN LAYOUT (Epic 9 tuning pass, 2026-10-06): rings of
@@ -113,7 +114,9 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
   --sweep key=v1,v2  run the full batch per value and compare side-by-side
                      (repeatable; repeats form a cartesian variant grid)
   --tune key=value   EQUIPMENT CONFIG override, repeatable. Combat dials only:
-                     gun.*, machineGun.*, flak.*, gunAttenuation.*,
+                     mainBattery.*, secondaries.*,
+                     gun.* (the drones' gun), machineGun.*, flak.*,
+                     gunAttenuation.*,
                      broadside.*, torpedo.*,
                      mine.*, starShells.*, boost.*, instantReload.*,
                      hunker.*, armor.*, shipClasses.*, offer.weighting.*,
@@ -128,7 +131,7 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
                      earns its information through perception.observe()
   --bot-profile NAME force every bot onto a TEST-ONLY profile (blind-vacuum
                      rig): one of ${TEST_PROFILE_IDS.join(' | ')},
-                     or '${BOT_PROFILE_SCHEME}' to deal all three round-robin (TB, BS, ML).
+                     or '${BOT_PROFILE_SCHEME}' to deal them round-robin (hull order).
                      In-game profile ids are refused — test rows are a separate
                      id space and cannot reach a real Solo vs AI lobby
   --bot-engage MODE  'always' (default) or 'endgame': under 'endgame' bots hold
@@ -137,16 +140,14 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
   --bot-spend MODE   'profile' (default; the shipped weighted boon policy) or
                      'random': rolled in-game profiles keep their temperament
                      but pick cards uniformly at random (tuned-profile
-                     instance of the randomized-pick measurement design), or
-                     'gun': take the mounted gun's ladder card whenever the
-                     hand deals it, else the weighted policy (reaches tier V)
+                     instance of the randomized-pick measurement design)
   --bot-hull CLASS   force every rolled-path bot onto one hull
                      (${SHIP_CLASS_IDS.join(' | ')}); personalities still roll
                      among all six, as on any hull. Mono-class arms with tuned
                      temperaments. Not valid with --bot-profile or --roster even
-  --gun GUN          force every bot's deck gun (${GUN_IDS.join(' | ')}).
-                     Without it each bot mounts a seeded uniform gun off the
-                     match seed — production's rule (amendment 109). Needs --bots
+  --shift SHIFT      force every bot's Shift (${SHIFT_IDS.join(' | ')}).
+                     Without it each bot picks a seeded uniform Shift off the
+                     match seed — production's rule. Needs --bots
   --raw              include raw per-match bot rows (builds, pick timing,
                      offers seen, placement) in the --json envelope
   --json PATH        also write the machine-readable report to PATH
@@ -164,7 +165,7 @@ function defaults(): CliOptions {
     botEngage: 'always',
     botSpend: 'profile',
     botHull: null,
-    botGun: null,
+    botShift: null,
     set: {},
     spawnRings: null,
     tune: {},
@@ -291,8 +292,8 @@ const VALUE_FLAGS: Record<string, ValueHandler> = {
     o.botEngage = v;
   },
   '--bot-spend': (o, v) => {
-    if (v !== 'profile' && v !== 'random' && v !== 'gun') {
-      throw new UsageError(`--bot-spend: expected 'profile', 'random' or 'gun', got '${v}'`);
+    if (v !== 'profile' && v !== 'random') {
+      throw new UsageError(`--bot-spend: expected 'profile' or 'random', got '${v}'`);
     }
     o.botSpend = v;
   },
@@ -302,9 +303,9 @@ const VALUE_FLAGS: Record<string, ValueHandler> = {
     }
     o.botHull = v as ShipClassId;
   },
-  '--gun': (o, v) => {
-    if (!isGunId(v)) throw new UsageError(`--gun: unknown gun '${v}' (available: ${GUN_IDS.join(', ')})`);
-    o.botGun = v;
+  '--shift': (o, v) => {
+    if (!isShiftId(v)) throw new UsageError(`--shift: unknown Shift '${v}' (available: ${SHIFT_IDS.join(', ')})`);
+    o.botShift = v;
   },
   '--set': parseSet,
   '--sweep': parseSweep,
@@ -381,8 +382,8 @@ function assertBotFlagsCoherent(opts: CliOptions): void {
   if (opts.botSpend !== 'profile' && opts.bots === 0) {
     throw new UsageError('--bot-spend needs --bots N: there is no bot to apply it to');
   }
-  if (opts.botGun !== null && opts.bots === 0) {
-    throw new UsageError('--gun needs --bots N: there is no bot to mount it on');
+  if (opts.botShift !== null && opts.bots === 0) {
+    throw new UsageError('--shift needs --bots N: there is no bot to give it to');
   }
   if (opts.botHull === null) return;
   if (opts.bots === 0) throw new UsageError('--bot-hull needs --bots N: there is no bot to force it onto');

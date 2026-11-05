@@ -12,9 +12,20 @@
 //   * the reveal carries `w: 'flak'`; a click while reloading is `cooling`.
 
 import { describe, it, expect, vi } from 'vitest';
-import { CONFIG, flakRimFactor, settleBlow, type GameEvent, type InputMsg, type ShellState } from '@salvo/shared';
+import {
+  CONFIG,
+  flakRimFactor,
+  hullSilhouette,
+  pointPolygonDistance,
+  settleBlow,
+  transformPolygon,
+  type GameEvent,
+  type InputMsg,
+  type ShellState,
+} from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { flatRaster } from './islandFixture.js';
+import { mountDeckGun, neutralize } from './deckGunFixture.js';
 
 const FLAK = CONFIG.flak;
 const SLOT_GUN = 0;
@@ -27,19 +38,20 @@ function bareWorld(seed = 16): World {
 }
 
 function flakker(w: World, id: string, x = 0, y = 0, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'torpedoBoat', undefined, undefined, 'flak');
+  // NEUTRAL index (deckGunFixture): this file reads CONFIG.flak verbatim.
+  const rec = mountDeckGun(neutralize(w.addShip(id, id.toUpperCase(), 'captain', 'bismarck', undefined, undefined)), 'flak');
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }
 
 function hull(w: World, id: string, x: number, y: number, heading = Math.PI / 2): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), 'captain', 'battleship', undefined, undefined);
+  const rec = neutralize(w.addShip(id, id.toUpperCase(), 'captain', 'yamato', undefined, undefined));
   rec.state = { x, y, heading, speed: 0 };
   return rec;
 }
 
 function makeInput(patch: Partial<InputMsg>): InputMsg {
-  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
+  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 /** Click at `dist` along `aim`, then run until the shell resolves. */
@@ -76,7 +88,15 @@ const falloffAt = (d: number): number =>
 /** Every click distance this file uses: at most half the flak's Tier I reach,
  *  so the shell flies less than `fullFrac` of it — no attenuation. */
 const NEAR_CLICK = 300;
-/** The fixture used across this file: a broadside-on battleship at (300, 92), bow tip 30 u off the burst. */
+/** u — how far the target hull's (the default hull, broadside-on along y,
+ *  heading π/2) NEAREST outline point toward a burst dead astern sits short of
+ *  its centre: measured off the shared silhouette (Story 10.4 — the traced
+ *  hulls have blunt ends, so it is read, never hand-copied). */
+const TIP_U = ((): number => {
+  const y0 = 1000;
+  return y0 - pointPolygonDistance({ x: 0, y: 0 }, transformPolygon(hullSilhouette('yamato'), 0, y0, Math.PI / 2));
+})();
+/** The fixture used across this file: a broadside-on hull at (300, TIP_U + 30), stern 30 u off the burst. */
 const AT_30U = falloffAt(30);
 
 describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amendment 105)', () => {
@@ -95,7 +115,7 @@ describe('the flak gun — a cannon-pattern burst gun with Eric\'s numbers (amen
   it('a click at 300 u: the shell bursts AT the click, the falloff hit to a hull 30 u off the point, one `hc`, `w: flak`', () => {
     const w = bareWorld();
     const a = flakker(w, 'a');
-    const b = hull(w, 'b', 300, 92); // broadside-on, its bow tip 30 u off the burst point: inside r50, clear of the shell's path
+    const b = hull(w, 'b', 300, TIP_U + 30); // broadside-on, its bow tip 30 u off the burst point: inside r50, clear of the shell's path
     const log = click(w, 'a', 300);
     expect(count(log, 'burst')).toBe(1);
     const burst = log.find((e) => e.k === 'burst') as { x: number; y: number };
@@ -204,7 +224,7 @@ describe('the ORDNANCE side effect (amendment 105) — a burst removes ENEMY fis
   it('the shooter\'s OWN fish inside the blast is untouched — and a hull in the same blast still takes its hit', () => {
     const w = bareWorld();
     const a = flakker(w, 'a');
-    const b = hull(w, 'b', 300, 92); // bow tip 30 u off the point (see above)
+    const b = hull(w, 'b', 300, TIP_U + 30); // bow tip 30 u off the point (see above)
     fish(w, 'own-fish', 'a', 300, -20);
     fish(w, 'enemy-fish', 'b', 300, -25);
     const log = click(w, 'a', 300);
@@ -307,7 +327,6 @@ describe('the ORDNANCE side effect (amendment 105) — a burst removes ENEMY fis
 describe('the flak burst falls from D at the centre to HALF at the rim (Story 9.12)', () => {
   const D = FLAK.damage;
   const R = FLAK.burstRadius;
-  const TIP_U = 62; // the battleship silhouette's half-length (bow / stern tip, local x ±62)
 
   it('the premise: every click in this file flies under fullFrac of the flak reach (no attenuation)', () => {
     expect(NEAR_CLICK).toBeLessThanOrEqual(CONFIG.gunAttenuation.fullFrac * FLAK.rangeU);
@@ -415,7 +434,8 @@ describe('the flak burst falls from D at the centre to HALF at the rim (Story 9.
 
   it('FLAK ONLY: a cannon burst catching a hull at its rim still deals its flat damage', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'torpedoBoat', undefined, undefined); // the default gun: the cannon
+    // The cannon row (the drones' gun since Story 10.4), mounted for the contrast.
+    const a = mountDeckGun(neutralize(w.addShip('a', 'A', 'captain', 'bismarck', undefined, undefined)), 'gun');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     expect(a.loadout[SLOT_GUN].equipmentId).not.toBe('flak');
     const b = hull(w, 'b', 300, TIP_U + CONFIG.gun.burstRadius - 0.01); // tip at the cannon's rim

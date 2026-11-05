@@ -77,8 +77,25 @@ function lay(w: World, id: string, ownerId: string, x: number, y: number, kind: 
   w.mines.set(id, { id, ownerId, x, y, armedAt, kind, hp: 10 });
 }
 
-function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
+/**
+ * A hull ON THE INDEX BASE (Story 10.4): the four battleships sit off the
+ * base on ARMOR / POWER / ENGINES / RANGE (epic-10 amendment 9, R1), so a
+ * blow's CONFIG number no longer lands verbatim on them. These suites pin a
+ * WEAPON's own numbers (mine, star-shell, phosphor, captive and torpedo
+ * rows), so their hulls are rebuilt with every index at the base — the shared
+ * suite's NEUTRAL_HULL trick (contract §8.12). The envelope stays on the
+ * record, so every re-fold (`applyCard`) keeps it.
+ */
+function neutralize(rec: ShipRecord): void {
+  const index = Object.fromEntries(Object.keys(rec.cls.index).map((k) => [k, CONFIG.index.base])) as typeof rec.cls.index;
+  rec.cls = { ...rec.cls, index };
+  rec.stats = effectiveStats(rec.cls, rec.cards);
+  rec.hp = rec.stats.maxHp;
+}
+
+function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'bismarck'): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), 'captain', hull, undefined, undefined);
+  neutralize(rec);
   // THE CLASS WEAPON IS A CARD NOW (Story 8.10, amendment 62): the interim
   // spawn seed is deleted and a hull comes up with gun + Shift and an EMPTY
   // weapon row, so this fixture fits it explicitly through the same applyCard
@@ -90,7 +107,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0, hull: Sh
 
 /** Set a full, valid InputMsg on a ship (fireSeq 0 ⇒ no click by default). */
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, held: false, sec: false, ...patch };
 }
 
 const dmgFor = (events: readonly GameEvent[], id: string) =>
@@ -365,7 +382,7 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
    *  lines on the layer (the kind of the mine never follows from them). */
   function captiveBoard(extra: readonly string[] = []): { w: World; o: ShipRecord; b: ShipRecord } {
     const w = bareWorld();
-    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    const o = place(w, 'o', 600, 600, 0, 'warspite');
     w.applyCard(o, 'captiveMines');
     for (const id of extra) w.applyCard(o, id);
     const b = place(w, 'b', 0, 25); // silhouette ~15u out: inside the 32u burst
@@ -391,7 +408,7 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
 
   it('the fish runs at the FAMILY speed and deals the CAPTIVE row\'s damage at its fixed CONFIG burst', () => {
     const w = bareWorld();
-    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    const o = place(w, 'o', 600, 600, 0, 'warspite');
     // The layer's own TUBES are maxed: a torpedo tier the LAYER holds must not
     // reach the mine's fish, because the fish belongs to the MINE (R2.12).
     // The heavy line's tiers now move speed for real, so this is no longer a
@@ -422,7 +439,7 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
     let prevRate = -1;
     for (const copies of [1, 2, 5] as const) {
       const w = bareWorld(40 + copies);
-      const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+      const o = place(w, 'o', 600, 600, 0, 'warspite');
       fitTier(w, o, 'captiveMines', copies);
       const expected = o.stats.equipment.captiveMines.homingTurnRate;
       // Tier I is a straight runner; the rate climbs from tier II and stays
@@ -457,7 +474,7 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
   // is fixed, so the line grows the reach of the trap and never the bang.
   it('the trip ring at tier V is the CONFIG ring × 1.1⁴ and the burst is still the fixed CONFIG burst', () => {
     const w = bareWorld(46);
-    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    const o = place(w, 'o', 600, 600, 0, 'warspite');
     fitTier(w, o, 'captiveMines', 5);
     const row = o.stats.equipment.captiveMines;
     expect(row.tier).toBe(5);
@@ -476,7 +493,7 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
 
   it('leads a MOVING target: the fish is aimed ahead of the hull, not at it', () => {
     const w = bareWorld();
-    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    const o = place(w, 'o', 600, 600, 0, 'warspite');
     w.applyCard(o, 'captiveMines');
     // A hull crossing the trip ring to port at speed, 120u up the y axis.
     const b = place(w, 'b', 0, 120, Math.PI); // bow -x
@@ -514,7 +531,7 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
   // vacated owner still takes with it is the TIER.
   it('a VACATED owner keeps the KIND and loses only the TIER — the orphan still launches, at CONFIG base', () => {
     const w = bareWorld(47);
-    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    const o = place(w, 'o', 600, 600, 0, 'warspite');
     fitTier(w, o, 'captiveMines', 5); // tier V: 75 dmg, a homing fish
     expect(o.stats.equipment.captiveMines.damage).toBeGreaterThan(CONFIG.captiveMines.damage);
     const b = place(w, 'b', 0, 25);
@@ -535,7 +552,7 @@ describe('CAPTIVE MINES — the mine never detonates; its torpedo is the attack'
 describe('CAPTIVE MINES — "HOSTILE" (R2.13): drones only count while they are hunting you', () => {
   function droneBoard(): { w: World; o: ShipRecord; d: ShipRecord } {
     const w = bareWorld();
-    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    const o = place(w, 'o', 600, 600, 0, 'warspite');
     w.applyCard(o, 'captiveMines');
     const d = w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 40 });
     w.drones.add('d', 'medium', 1, { x: 0, y: 0 });
@@ -582,7 +599,7 @@ describe('CAPTIVE MINES — "HOSTILE" (R2.13): drones only count while they are 
   // instead: the fish steers at its victim and at nobody else.
   it('a tier-II fish keeps steering at the HOSTILE captain past a nearer neutral drone', () => {
     const w = bareWorld(51);
-    const o = place(w, 'o', 900, 900, 0, 'mineLayer');
+    const o = place(w, 'o', 900, 900, 0, 'warspite');
     fitTier(w, o, 'captiveMines', 2); // tier II: the first rung that steers
     // The HOSTILE captain trips the mine from −y...
     const cap = place(w, 'cap', 0, -60);
@@ -613,7 +630,7 @@ describe('CAPTIVE MINES — "HOSTILE" (R2.13): drones only count while they are 
   it('THE GATE IS CAPTIVE-ONLY: a NAVAL and a FOULING mine both still trip on a neutral drone', () => {
     for (const kind of ['naval', 'fouling'] as const) {
       const w = bareWorld(kind === 'naval' ? 3 : 5);
-      const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+      const o = place(w, 'o', 600, 600, 0, 'warspite');
       if (kind === 'fouling') w.applyCard(o, 'foulingMines');
       w.addShip('d', 'DRONE', 'fleet', droneHullOf('medium'), DEFAULT_HORN_ID, { x: 0, y: 20 });
       w.drones.add('d', 'medium', 1, { x: 0, y: 0 });
@@ -634,8 +651,8 @@ describe('CAPTIVE MINES — "HOSTILE" (R2.13): drones only count while they are 
 describe('same-tick mine cascade — every mine detonates exactly ONCE', () => {
   it('two same-owner mines that trip together each boom once and damage once', () => {
     const w = bareWorld();
-    const o = place(w, 'o', 600, 600, 0, 'mineLayer'); // owner far away, immune anyway
-    const victim = place(w, 'v', 0, 0, 0, 'battleship'); // fat enough to survive both blasts
+    const o = place(w, 'o', 600, 600, 0, 'warspite'); // owner far away, immune anyway
+    const victim = place(w, 'v', 0, 0, 0, 'yamato'); // fat enough to survive both blasts
     // Both mines are armed, both inside the OTHER's blast radius (48u), and the
     // victim's silhouette trips BOTH in the same tick.
     lay(w, 'm1', 'o', 20, 0, 'naval');
@@ -649,16 +666,17 @@ describe('same-tick mine cascade — every mine detonates exactly ONCE', () => {
     expect(victim.hp).toBeCloseTo(victim.stats.maxHp - 2 * o.stats.equipment.navalMines.damage, 6);
   });
 
-  it('a gun click ON a same-owner cluster pops each mine once (landing test ∩ cascade, amendment 200)', () => {
+  it('a SECONDARIES stream ON a same-owner cluster pops each mine once (landing test ∩ cascade, amendment 200; Story 10.4: the secondaries are the captain\'s mine-hurting weapon)', () => {
     const w = bareWorld();
-    const o = place(w, 'o', 0, 0, 0, 'mineLayer');
+    const o = place(w, 'o', 0, 0, 0, 'warspite');
     // Three mines clustered so the LANDING TEST (m1 and m2 are 5u off the
     // click, inside the 10u disc) AND the chain (m3, 15u off) both reach them:
     // m1's pop chains m2 and m3, and the landing loop then finds m2 gone.
     lay(w, 'm1', 'o', 200, 0, 'naval');
     lay(w, 'm2', 'o', 210, 0, 'naval');
     lay(w, 'm3', 'o', 220, 0, 'naval');
-    setInput(o, { aim: 0, aimDist: 205, slot: 0, fireSeq: 1, seq: 2 }); // gun click on the cluster
+    expect(205).toBeLessThan(o.stats.secondaryRangeU); // the cluster is inside the secondaries' reach
+    setInput(o, { aim: 0, aimDist: 205, sec: true, seq: 2 }); // the secondaries held on the cluster
     const seen: GameEvent[] = [];
     for (let i = 0; i < 60 && w.mines.size > 0; i++) {
       w.step();
@@ -675,7 +693,7 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
    *  mine at the origin and a hull sitting on it. */
   function foulBoard(copies = 1): { w: World; o: ShipRecord; b: ShipRecord } {
     const w = bareWorld();
-    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    const o = place(w, 'o', 600, 600, 0, 'warspite');
     fitTier(w, o, 'foulingMines', copies);
     const b = place(w, 'b', 0, 10); // trips the mine below on the first step
     lay(w, 'm1', 'o', 0, 0, 'fouling');
@@ -711,9 +729,9 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
   // the later hit. The reverse (a deeper mine after a shallow one) deepens.
   it('a LATER WEAKER fouling keeps the STRONGEST factor and refreshes the clock — never multiplies, never lifts', () => {
     const w = bareWorld(51);
-    const deep = place(w, 'deep', 600, 600, 0, 'mineLayer');
+    const deep = place(w, 'deep', 600, 600, 0, 'warspite');
     fitTier(w, deep, 'foulingMines', 5); // tier V: ×0.55
-    const shallow = place(w, 'shallow', -600, 600, 0, 'mineLayer');
+    const shallow = place(w, 'shallow', -600, 600, 0, 'warspite');
     fitTier(w, shallow, 'foulingMines', 1); // tier I: ×0.75
     const deepF = deep.stats.equipment.foulingMines.slowFactor;
     const shallowF = shallow.stats.equipment.foulingMines.slowFactor;
@@ -732,9 +750,9 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
 
   it('a LATER DEEPER fouling deepens the factor; a fouling after the window lapsed lands as-is', () => {
     const w = bareWorld(52);
-    const deep = place(w, 'deep', 600, 600, 0, 'mineLayer');
+    const deep = place(w, 'deep', 600, 600, 0, 'warspite');
     fitTier(w, deep, 'foulingMines', 5);
-    const shallow = place(w, 'shallow', -600, 600, 0, 'mineLayer');
+    const shallow = place(w, 'shallow', -600, 600, 0, 'warspite');
     fitTier(w, shallow, 'foulingMines', 1);
     const deepF = deep.stats.equipment.foulingMines.slowFactor;
     const shallowF = shallow.stats.equipment.foulingMines.slowFactor;
@@ -771,7 +789,7 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
   // rack with the add-on card; this is the pin that keeps it gone.
   it('a NAVAL mine never fouls — full naval damage, no clock, no factor', () => {
     const w = bareWorld(52);
-    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    const o = place(w, 'o', 600, 600, 0, 'warspite');
     fitTier(w, o, 'foulingMines', 5); // the fouling rack IS aboard, deep
     const b = place(w, 'b', 0, 10);
     lay(w, 'm1', 'o', 0, 0, 'naval'); // ...but THIS mine came off the naval rack
@@ -787,7 +805,11 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
     w.step(); // the blast lands; b is fouled
     setInput(b, { throttle: 1 });
     b.input.throttle = 1;
-    for (let i = 0; i < 60; i++) w.step(); // 3s at full throttle, well inside the window
+    // Long enough at full throttle to reach the fouled cap (Story 10.4: the
+    // battleships throttle up slowly), still well inside the window.
+    const climb = Math.ceil((b.stats.kinematics.maxSpeed * factor) / b.stats.kinematics.accel / (DT / 1000)) + 2;
+    expect(climb * DT).toBeLessThan(CONFIG.foulingMines.slowDurationMs);
+    for (let i = 0; i < climb; i++) w.step();
     expect(b.state.speed).toBeLessThanOrEqual(b.stats.kinematics.maxSpeed * factor + 1e-9);
     expect(b.state.speed).toBeCloseTo(b.stats.kinematics.maxSpeed * factor, 1);
     // The window expires; the hull works back up to its full cap.
@@ -802,7 +824,8 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
     b.boostUntil = Number.MAX_SAFE_INTEGER; // hold the boost window open
     b.slowedUntil = Number.MAX_SAFE_INTEGER; // hold the slow too — isolate the composition
     b.input.throttle = 1;
-    for (let i = 0; i < 100; i++) w.step();
+    const climbTo = (b.stats.kinematics.maxSpeed * (1 + CONFIG.boost.factor) * factor) / b.stats.kinematics.accel;
+    for (let i = 0; i < Math.ceil(climbTo / (DT / 1000)) + 10; i++) w.step();
     // Amendment 55: the boost bonus is CONFIG.boost.factor x the POST-FOLD max
     // (the one shared boostedKinematics hook), NOT a flat per-row speedBonus.
     const boostedMax = b.stats.kinematics.maxSpeed + b.stats.kinematics.maxSpeed * CONFIG.boost.factor;
@@ -829,7 +852,7 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
   // observer's payload would still be a structural tell.
   it('slowFactor rides `you` on the FOULED victim alone — the LAYER\'s tiered number, never a contact', () => {
     const w = bareWorld(53);
-    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    const o = place(w, 'o', 600, 600, 0, 'warspite');
     fitTier(w, o, 'foulingMines', 5); // tier V: ×0.55
     const b = place(w, 'b', 0, 10);
     // Well outside the tier-V blast (72 × 1.1^4 ≈ 105 u) but inside sight of
@@ -881,7 +904,7 @@ describe('FOULING MINES — its own tiered line: 10 damage, a wide blast, a tier
 describe('vacated owner — mines fall back to CONFIG bases (pinned)', () => {
   it('a blast-booned owner leaves; the orphan mine uses the CONFIG blast ring and CONFIG damage', () => {
     const w = bareWorld();
-    const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+    const o = place(w, 'o', 600, 600, 0, 'warspite');
     // FOUR MORE COPIES OF THE REAL LINE (Story 8.13 authored its tiers): the
     // class fit is copy 1, so this is tier V — 48 → 48 × 1.1^4 ≈ 70.3u.
     fitTier(w, o, 'navalMines', 4);
@@ -939,7 +962,7 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
    *  considered — a TB is 100 u long, so both sit beam-on to the burst). */
   function board(extraCopies = 0): { w: World; a: ShipRecord; inside: ShipRecord; outside: ShipRecord } {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    const a = place(w, 'a', 0, 0, 0, 'yamato');
     fitTier(w, a, 'starShells', extraCopies);
     const inside = place(w, 'inside', 460, 0, Math.PI / 2); // 60 u from the burst point
     const outside = place(w, 'outside', 400, 300, 0); // nearest hull point 295.5 u away — clear even of the tier-V 241.6 u circle
@@ -981,7 +1004,7 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
 
   it('the OWNER inside its own lit circle is immune (permanent owner immunity)', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 300, 0, 0, 'battleship'); // 100 u short of the burst point: inside r165
+    const a = place(w, 'a', 300, 0, 0, 'yamato'); // 100 u short of the burst point: inside r165
     const b = place(w, 'b', 460, 0, Math.PI / 2);
     fireUntilStop(w, a, SLOT_SEED_2, 0, 100);
     expect(a.hp).toBe(a.stats.maxHp);
@@ -990,7 +1013,7 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
 
   it('a flare over empty water splashes (`sp`), lights its zone and hurts nobody', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    const a = place(w, 'a', 0, 0, 0, 'yamato');
     const { seen } = fireUntilStop(w, a, SLOT_SEED_2, 0, 400);
     expect(kinds(seen)).toContain('sp');
     expect(kinds(seen)).not.toContain('hc');
@@ -1010,7 +1033,7 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
 
   it('an early interceptor takes the tier damage as CONTACT damage, and the flare STILL lights at the stop point', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    const a = place(w, 'a', 0, 0, 0, 'yamato');
     const mid = place(w, 'mid', 300, 0, 0); // bodyblocks a 650 u click
     const { seen } = fireUntilStop(w, a, SLOT_SEED_2, 0, 650);
     expect(kinds(seen)).toContain('boom');
@@ -1022,7 +1045,7 @@ describe('STAR SHELLS — a tiered damage weapon: the burst hurts everything ins
 
   it('a lit zone carries NO verbs and burns/blinds nobody — it only lights (amendment 134)', () => {
     const w = bareWorld();
-    place(w, 'a', 400, 0, 0, 'battleship');
+    place(w, 'a', 400, 0, 0, 'yamato');
     const b = place(w, 'b', 420, 30);
     w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: 165, until: 999_999 });
     for (let i = 0; i < 20; i++) w.step();
@@ -1039,7 +1062,7 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
    *  the tier-I r100 zone), `C` clear of it (nearest hull point 165.5 u). */
   function board(copies = 1): { w: World; a: ShipRecord; slot: number; A: ShipRecord; B: ShipRecord; C: ShipRecord } {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    const a = place(w, 'a', 0, 0, 0, 'yamato');
     fitTier(w, a, 'phosphorShells', copies);
     const slot = slotOf(a, 'phosphorShells');
     const A = place(w, 'A', 460, 0, Math.PI / 2);
@@ -1080,7 +1103,7 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
     expect(w.mines.get('m0')!.hp).toBe(CONFIG.mine.hp);
     // THE CONTROL: the same mine under a STAR SHELL burst stands (HITS_HULL_DECOY).
     const w2 = bareWorld();
-    const a2 = place(w2, 'a', 0, 0, 0, 'battleship');
+    const a2 = place(w2, 'a', 0, 0, 0, 'yamato');
     lay(w2, 'm1', 'a', 340, 40, 'naval');
     fireUntilStop(w2, a2, SLOT_SEED_2, 0, 400);
     expect(w2.mines.has('m1')).toBe(true);
@@ -1115,7 +1138,7 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
 
   it('non-owner hulls inside burn at the zone’s dps through the `burn` seat (victim-private dmg, kill credit); the owner never burns', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 400, 0, 0, 'battleship'); // owner INSIDE its own zone
+    const a = place(w, 'a', 400, 0, 0, 'yamato'); // owner INSIDE its own zone
     const b = place(w, 'b', 420, 30); // enemy inside
     const c = place(w, 'c', 900, 900); // far outside
     w.burnZones.set('bz1', { id: 'bz1', ownerId: 'a', x: 400, y: 0, r: 100, until: 999_999, dps: CONFIG.phosphorShells.dps });
@@ -1140,7 +1163,7 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
 
   it('the dmg EVENT is AGGREGATED into 500 ms windows while hp bleeds every tick; a leaving/expiring pair flushes at once', () => {
     const w = bareWorld();
-    place(w, 'a', 400, 0, 0, 'battleship');
+    place(w, 'a', 400, 0, 0, 'yamato');
     const b = place(w, 'b', 420, 30);
     w.burnZones.set('bz1', { id: 'bz1', ownerId: 'a', x: 400, y: 0, r: 100, until: 999_999, dps: CONFIG.phosphorShells.dps });
     const hp0 = b.hp;
@@ -1161,7 +1184,7 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
 
   it('resetForMatchStart drops open burn buckets — no phantom dmg against a redeployed hull (Story 8.17 review)', () => {
     const w = bareWorld();
-    place(w, 'a', 400, 0, 0, 'battleship');
+    place(w, 'a', 400, 0, 0, 'yamato');
     const b = place(w, 'b', 420, 30);
     w.burnZones.set('bz1', { id: 'bz1', ownerId: 'a', x: 400, y: 0, r: 100, until: 999_999, dps: CONFIG.phosphorShells.dps });
     w.step();
@@ -1178,7 +1201,7 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
 
   it('a lethal bite flushes the bucket BEFORE the sink — a killing burn is never unreported', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 400, 0, 0, 'battleship');
+    const a = place(w, 'a', 400, 0, 0, 'yamato');
     const b = place(w, 'b', 420, 30);
     w.burnZones.set('bz1', { id: 'bz1', ownerId: 'a', x: 400, y: 0, r: 100, until: 999_999, dps: CONFIG.phosphorShells.dps });
     b.hp = 0.2;
@@ -1198,8 +1221,8 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
 
   it('two overlapping zones of ONE owner bite once per tick (the stronger); zones of two owners each bite', () => {
     const w = bareWorld();
-    place(w, 'a', 900, 900, 0, 'battleship');
-    place(w, 'o', -900, -900, 0, 'battleship');
+    place(w, 'a', 900, 900, 0, 'yamato');
+    place(w, 'o', -900, -900, 0, 'yamato');
     const b = place(w, 'b', 0, 0);
     w.burnZones.set('bz1', { id: 'bz1', ownerId: 'a', x: 0, y: 0, r: 100, until: 999_999, dps: 5 });
     w.burnZones.set('bz2', { id: 'bz2', ownerId: 'a', x: 10, y: 0, r: 100, until: 999_999, dps: 8 });
@@ -1240,7 +1263,7 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
 
   it('the zone REVEALS NOTHING: a hull inside the firer’s burn zone but outside its sight is not a contact (amendment 135(e))', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0, 'battleship');
+    const a = place(w, 'a', 0, 0, 0, 'yamato');
     a.prevSweepAngle = Math.PI; // park the firer's own radar beam away from the target bearing
     a.sweepAngle = Math.PI + 0.0001;
     fitTier(w, a, 'phosphorShells', 1);
@@ -1255,7 +1278,7 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
 
   it('the ready room never burns: a zone on the water with damage suppressed bites nobody', () => {
     const w = bareWorld();
-    place(w, 'a', 400, 0, 0, 'battleship');
+    place(w, 'a', 400, 0, 0, 'yamato');
     const b = place(w, 'b', 420, 30);
     w.burnZones.set('bz1', { id: 'bz1', ownerId: 'a', x: 400, y: 0, r: 100, until: 999_999, dps: 5 });
     w.damageEnabled = false;
@@ -1265,7 +1288,7 @@ describe('PHOSPHOR SHELLS — its own weapon: burst damage over the zone, then a
 
   it('resetForMatchStart clears practice-field burn zones (the lit-zone / mines precedent)', () => {
     const w = bareWorld();
-    place(w, 'a', 0, 0, 0, 'battleship');
+    place(w, 'a', 0, 0, 0, 'yamato');
     w.burnZones.set('bz1', { id: 'bz1', ownerId: 'a', x: 400, y: 0, r: 100, until: 999_999, dps: 5 });
     w.resetForMatchStart();
     expect(w.burnZones.size).toBe(0);
@@ -1292,7 +1315,7 @@ describe('FLASH SHELLS (`dazzleShells`) — a consumable whose one-time burst da
    *  sees A as a contact. */
   function board(): { w: World; a: ShipRecord; A: ShipRecord; B: ShipRecord; watcher: ShipRecord } {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'battleship', undefined, undefined, undefined, FLASH_KIT);
+    const a = w.addShip('a', 'A', 'captain', 'yamato', undefined, undefined, undefined, FLASH_KIT);
     fitClassWeapons(w, a);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.applyCard(a, 'dazzleShells');
@@ -1361,7 +1384,7 @@ describe('FLASH SHELLS (`dazzleShells`) — a consumable whose one-time burst da
 
   it('an interception en route flashes at the STOP POINT, exactly as a flare lights there; the interceptor takes 0', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'battleship', undefined, undefined, undefined, FLASH_KIT);
+    const a = w.addShip('a', 'A', 'captain', 'yamato', undefined, undefined, undefined, FLASH_KIT);
     fitClassWeapons(w, a);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.applyCard(a, 'dazzleShells');
@@ -1402,7 +1425,7 @@ describe('FLASH SHELLS (`dazzleShells`) — a consumable whose one-time burst da
     // stream is compared tick for tick: a flash blinds, it never deafens.
     const twin = (): { w: World; bot: ShipRecord } => {
       const w = bareWorld(21);
-      const bot = w.addShip('bot', 'BOT', 'bot', 'torpedoBoat', undefined, { x: 0, y: 0 });
+      const bot = w.addShip('bot', 'BOT', 'bot', 'bismarck', undefined, { x: 0, y: 0 });
       bot.state = { x: 0, y: 0, heading: 0, speed: 0 };
       place(w, 't', 100, 0, Math.PI / 2); // inside sight; radar paints it too
       return { w, bot };
@@ -1462,7 +1485,7 @@ describe('FLASH SHELLS (`dazzleShells`) — a consumable whose one-time burst da
 
   it('an INTERCEPTED flash round also emits the flash burst (`f: true`) at the STOP POINT — the owner and a sighted bystander get it beside the ordinary boom; an intercepted CANNON round emits a boom and NO burst (gate fix F1)', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', 'captain', 'battleship', undefined, undefined, undefined, FLASH_KIT);
+    const a = w.addShip('a', 'A', 'captain', 'yamato', undefined, undefined, undefined, FLASH_KIT);
     fitClassWeapons(w, a);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.applyCard(a, 'dazzleShells');
@@ -1486,7 +1509,7 @@ describe('FLASH SHELLS (`dazzleShells`) — a consumable whose one-time burst da
     }
     // ...and an intercepted cannon round (slot 0) bursts nowhere: boom only.
     const w2 = bareWorld();
-    const a2 = place(w2, 'a', 0, 0, 0, 'battleship');
+    const a2 = place(w2, 'a', 0, 0, 0, 'yamato');
     place(w2, 'mid', 300, 0, 0);
     place(w2, 'far', 650, 0, Math.PI / 2);
     const { seen: seen2 } = fireUntilStop(w2, a2, 0, 0, 650);
