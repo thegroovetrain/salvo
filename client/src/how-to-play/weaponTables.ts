@@ -115,7 +115,7 @@ export function tierTable(lineId: string, cls: ShipClassId = TABLE_HULL): StatTa
 }
 
 /** Pure: a consumable's table — always null since the kit retired (Story
- *  10.5, 2026-11-05, epic-10 amendment 10: no consumable line exists, so every
+ *  10.5, 2026-11-05, epic-10 amendment 11: no consumable line exists, so every
  *  entry still tagged `consumable` renders without a table until the page's
  *  copy pass, Story 10.14). */
 export function consumableTable(_id: string): StatTable | null {

@@ -28,7 +28,7 @@
 //
 // Pure, zero I/O.
 //
-// STORY 10.5 (Eric 2026-11-05, epic-10 amendment 10): the kit is retired. The
+// STORY 10.5 (Eric 2026-11-05, epic-10 amendment 11): the kit is retired. The
 // `consumable` kind is gone from the draw (two kinds, `weapon` and `upgrade`),
 // an offer may be short or EMPTY, a bare weapon is eligible only while ITS
 // FAMILY'S slot is empty (one kind per slot — the property block below), the
@@ -510,7 +510,7 @@ describe('drawOffer — the shape of an offer', () => {
 });
 
 // ---------------------------------------------------------------------------
-// ONE KIND PER SLOT (Story 10.5, Eric 2026-11-05, epic-10 amendment 10): once a
+// ONE KIND PER SLOT (Story 10.5, Eric 2026-11-05, epic-10 amendment 11): once a
 // family's slot holds a kind, no OTHER kind of that family may ever be offered
 // for the rest of the match — the acceptance criterion's property, over random
 // card histories built the way the server builds them (offer → legal pick).

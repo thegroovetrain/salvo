@@ -1,7 +1,7 @@
 // THE CATALOG (Story 8.1) — catalog v3's identity, its authoring validator and
 // THE ORDER-INDEPENDENCE PROPERTY.
 //
-// STORY 10.5 (Eric 2026-11-05, epic-10 amendment 10): 28/137 -> 21/102 — the
+// STORY 10.5 (Eric 2026-11-05, epic-10 amendment 11): 28/137 -> 21/102 — the
 // kit is retired. Seven consumable lines are DELETED (HULL REPAIR, SHIELD
 // BLOCK, the COUNTERMEASURE line, the four buoys), three become EQUIPMENT
 // lines in their seats (SUPERCAV TORPEDO, FOULING SHELL, FLASH SHELLS), the
@@ -360,7 +360,7 @@ describe('catalog v3 identity', () => {
     }
   });
 
-  it('resolves NO line Story 10.5 deleted with the kit (Eric 2026-11-05, epic-10 amendment 10) — a dead id on the wire is dropped', () => {
+  it('resolves NO line Story 10.5 deleted with the kit (Eric 2026-11-05, epic-10 amendment 11) — a dead id on the wire is dropped', () => {
     for (const dead of [
       'hullRepair', 'shieldBlock', 'countermeasure', 'radarBuoy', 'healingBuoy', 'shieldBuoy', 'speedBuoy', 'decoyBuoy',
     ]) {

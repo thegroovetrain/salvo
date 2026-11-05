@@ -118,7 +118,7 @@ const LINE_NAMES: Readonly<Record<LineId, string>> = {
   // FOULING MINES joined them in Story 8.13 (epic-8 amendment 81 — the add-on
   // card was deleted and the line took its place) and keeps its sheet name
   // verbatim. SUPERCAV TORPEDO, FLASH SHELLS and FOULING SHELL are equipment
-  // lines again since Story 10.5 (2026-11-05, epic-10 amendment 10).
+  // lines again since Story 10.5 (2026-11-05, epic-10 amendment 11).
   lightTorpedo: 'LIGHT TORPEDO',
   heavyTorpedo: 'HEAVY TORPEDO',
   navalMines: 'NAVAL MINES',
@@ -170,7 +170,7 @@ const KIND_LABELS: Readonly<Record<LineKind, string>> = {
 
 /**
  * THE TWO COOLDOWN ABILITIES' NAMES (Story 10.5, 2026-11-05, epic-10 amendment
- * 10) — HULL REPAIR (`C`) and SMOKE (`V`) were consumable LINES until the kit
+ * 11) — HULL REPAIR (`C`) and SMOKE (`V`) were consumable LINES until the kit
  * retired; their shipped card names carry over to the bar's tooltip verbatim.
  */
 const ABILITY_NAMES: Readonly<Record<CooldownAbilityId, string>> = {
@@ -971,7 +971,7 @@ function triggerFollows(field: string, fields: readonly string[]): boolean {
 
 /**
  * THE TWO COOLDOWN ABILITIES' ROWS (Story 10.5, 2026-11-05, epic-10 amendment
- * 10) — the rows HULL REPAIR and SMOKE SCREEN printed as consumable cards
+ * 11) — the rows HULL REPAIR and SMOKE SCREEN printed as consumable cards
  * (Stories 8.8 / 9.3), kept verbatim for the bar's `C` / `V` tooltip. Every row
  * is ABSOLUTE (`cur` null) and every number is read off `CONFIG`, never a
  * literal.

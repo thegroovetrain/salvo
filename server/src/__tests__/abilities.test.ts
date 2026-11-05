@@ -1,5 +1,5 @@
 // THE TWO COOLDOWN ABILITIES on the server (Story 10.5, Eric 2026-11-05,
-// epic-10 amendment 10, R1–R3, R5): HULL REPAIR (`C`) and SMOKE (`V`) are
+// epic-10 amendment 11, R1–R3, R5): HULL REPAIR (`C`) and SMOKE (`V`) are
 // per-ship cooldowns driven by `InputMsg.act` on an actSeq edge — fixed for
 // every hull, never shortened by RELOAD, never touched by INSTANT RELOAD,
 // ready at spawn and again at every fresh life. Plus R5: a drone kill pays XP

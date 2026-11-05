@@ -1,5 +1,5 @@
 // PASSIVE HEALING (sim/regen.ts — Story 10.5, Eric 2026-11-05, epic-10
-// amendment 10, R8): a hull that has lost no hull hp for the CONFIG wait heals
+// amendment 11, R8): a hull that has lost no hull hp for the CONFIG wait heals
 // a CONFIG fraction of its MISSING hp per second. Relations only: every
 // number is read from CONFIG.regen, never typed.
 

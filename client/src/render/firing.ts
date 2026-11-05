@@ -266,7 +266,7 @@ export class FiringUX {
     if (kind === 'sector') this.drawSectorArc(id, aim, heading, ammo, denied);
     if (kind === 'twin') this.drawTwinArcs(id, aim, heading, ammo, denied, broadside);
     // (The four buoys' 360° placement DISC left with the buoys — 2026-11-05,
-    // Story 10.5, epic-10 amendment 10: the mines' wedge is the only
+    // Story 10.5, epic-10 amendment 11: the mines' wedge is the only
     // placement shape.)
   }
 

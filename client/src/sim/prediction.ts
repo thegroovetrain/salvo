@@ -726,7 +726,7 @@ export class Predictor {
    */
   private tickKin(t: number, seq: number): ShipConfig {
     // STAGE ONE: the Shift's boost on the RATED kinematics — the speed buoy's
-    // tail left with the buoys (2026-11-05, Story 10.5, epic-10 amendment 10).
+    // tail left with the buoys (2026-11-05, Story 10.5, epic-10 amendment 11).
     const boosted = boostedKinematics(this.kin, this.boost.factor, this.boostActiveAt(t, seq));
     const slowed = slowedKinematics(boosted, this.authSlowFactor, this.slowActiveAt(t));
     const fouled = slowedKinematics(slowed, CONFIG.foulingShell.slowFactor, this.foulActiveAt(t));

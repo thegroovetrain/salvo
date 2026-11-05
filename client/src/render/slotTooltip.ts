@@ -94,7 +94,7 @@ export interface TooltipModel {
  * line's tier reads it.
  *
  * A COOLDOWN-ABILITY square (`C` HULL REPAIR / `V` SMOKE — Story 10.5,
- * 2026-11-05, epic-10 amendment 10) reads like the Shift square: its name and
+ * 2026-11-05, epic-10 amendment 11) reads like the Shift square: its name and
  * its rows (the card face's former rows for the line, off CONFIG), with no
  * interaction word — an ability has no tier.
  */

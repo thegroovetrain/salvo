@@ -74,7 +74,7 @@ export function initialSecondaries(): SecondariesState {
 
 /**
  * INSTANT RELOAD VENTS THE SECONDARIES (2026-11-05, Story 10.5, R10, epic-10
- * amendment 10 — supersedes amendment 9(h) R7 "heat untouched"): heat to
+ * amendment 11 — supersedes amendment 9(h) R7 "heat untouched"): heat to
  * zero and the overheat lock cleared. Returns a FRESH state (the input is not
  * mutated); every other field — the running round's rate window included —
  * carries over unchanged. The one law the server's press and any client

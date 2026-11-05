@@ -703,7 +703,7 @@ export const WEAPON_TACTICS: Readonly<Record<WeaponLineId, EquipmentTactic>> = d
   broadside: broadsideTactic,
   starShells: starShellsTactic,
   phosphorShells: phosphorShellsTactic,
-  // Story 10.5 (epic-10 amendment 10): the three lines that left the belt.
+  // Story 10.5 (epic-10 amendment 11): the three lines that left the belt.
   supercavTorpedo: supercavTorpedoTactic,
   dazzleShells: dazzleShellsTactic,
   foulingShell: foulingShellTactic,

@@ -47,7 +47,7 @@ import { ABILITY_KEY_GLYPHS, ABILITY_SQUARES } from './hotbarSquares.js';
  *
  * Slots 2-4 are the three FAMILY weapon slots (torpedo / mine / special
  * shell); the two after them are the cooldown abilities HULL REPAIR (`C`) and
- * SMOKE (`V`) — 2026-11-05, Story 10.5, epic-10 amendment 10: the kit's digit
+ * SMOKE (`V`) — 2026-11-05, Story 10.5, epic-10 amendment 11: the kit's digit
  * squares are gone with the kit.
  *
  * THE GUN'S CHIP SPELLS `LMB` (Eric 2026-11-05: *"LMB/RMB"* — the main battery
@@ -102,7 +102,7 @@ export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
   // turrets — it reuses the cannon's shipped name (no new copy; the full UI
   // pass names it).
   mainBattery: 'Cannon',
-  // STORY 10.5 (2026-11-05, epic-10 amendment 10): the three moved weapons are
+  // STORY 10.5 (2026-11-05, epic-10 amendment 11): the three moved weapons are
   // slot equipment again — their card names (ui/boonCopy.ts), title-cased.
   supercavTorpedo: 'Supercav Torpedo',
   dazzleShells: 'Flash Shells',

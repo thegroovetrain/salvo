@@ -1,5 +1,5 @@
 // The hotbar's square index space (Story 10.5, 2026-11-05, epic-10 amendment
-// 10): the loadout slots keep their indices, and the two cooldown abilities
+// 11): the loadout slots keep their indices, and the two cooldown abilities
 // (`C` HULL REPAIR, `V` SMOKE) take the squares right after them.
 
 import { describe, it, expect } from 'vitest';

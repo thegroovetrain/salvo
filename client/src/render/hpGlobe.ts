@@ -90,7 +90,7 @@ export { hullPercent };
 
 // (The SHIELDED readout — hull + shield in `info`, Story 8.16 / 10.9 — left
 // with SHIELD BLOCK and the shield buoy: 2026-11-05, Story 10.5, epic-10
-// amendment 10. The numeral is the hull alone, always `textPrimary`.)
+// amendment 11. The numeral is the hull alone, always `textPrimary`.)
 
 /**
  * Pure: HP fill color by remaining fraction (UX-DR15 + amendment 27's bands).

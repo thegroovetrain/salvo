@@ -80,7 +80,7 @@ describe('sanitizeInput — validation table', () => {
     ['fractional actSeq', { ...valid(), actSeq: 1.5 }],
     ['string actSeq', { ...valid(), actSeq: '5' }],
     ['boolean actSeq', { ...valid(), actSeq: true }],
-    // Story 10.5 (epic-10 amendment 10): `act` — the ABILITY CODE — must be
+    // Story 10.5 (epic-10 amendment 11): `act` — the ABILITY CODE — must be
     // one `abilityFromCode` names; anything else drops the whole message.
     ['missing act', { ...valid(), act: undefined }],
     ['act past the last ability', { ...valid(), act: ABILITY_IDS.length }],

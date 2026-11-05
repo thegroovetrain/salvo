@@ -60,7 +60,7 @@ export const U_PER_M = 0.4585;
  * ordnanceMasksAreServerOnly test), so adding or changing these rows never by
  * itself bumps PROTOCOL_VERSION.
  */
-// THE `decoy` KIND IS GONE (2026-11-05, Story 10.5, epic-10 amendment 10): the
+// THE `decoy` KIND IS GONE (2026-11-05, Story 10.5, epic-10 amendment 11): the
 // four buoys and their sponge body are deleted, so every mask that named it
 // reads hulls (plus its own mine / ordnance bits) alone.
 const HITS_HULL_MINE_ORDNANCE: readonly TargetKind[] = ['hull', 'mine', 'ordnance'];
@@ -200,7 +200,7 @@ export const CONFIG = {
    *     turrets, 27 on the two-gun turrets — guns × shellDamage sums to the
    *     same broadside on every hull, a RELATION the tests assert). Turret
    *     order is bow to stern; that index is the turret's identity on the
-   *     wire and the R4 tie-break order (sim/turrets.ts).
+   *     wire and the pick's tie-break order (sim/turrets.ts).
    *
    * THE CLASS `shift` FIELD IS GONE (and `classShift()` with it): the Shift
    * is the SEAT's pick now, in the retired deck-gun pick's place (R7 default
@@ -634,7 +634,7 @@ export const CONFIG = {
     /**
      * Fraction of max hp below which a bot PRESSES HULL REPAIR (epic-8
      * amendment 49) — the `C` cooldown ability since Story 10.5 (2026-11-05,
-     * epic-10 amendment 10; a stocked consumable copy before it). Above it,
+     * epic-10 amendment 11; a stocked consumable copy before it). Above it,
      * bots never heal.
      */
     healHpFrac: 0.5,
@@ -947,7 +947,7 @@ export const CONFIG = {
      * specialist = its highest). A weapon for its empty family slot scores
      * `weapon` flat, a favorite weapon `favoriteWeapon`. The consumable rows
      * (`beltHunger`, `carried`, `hurtRepair`) left with the kit (2026-11-05,
-     * Story 10.5, epic-10 amendment 10).
+     * Story 10.5, epic-10 amendment 11).
      */
     cardPoints: {
       base: 2,
@@ -1635,10 +1635,11 @@ export const CONFIG = {
    * an angle that traverses toward the one aim point at `traverseDegPerS` with
    * a HARD STOP at the hull's train limit (amendment 7(e)/(j): load-bearing,
    * 90°/s, never through the blind sector), and its own reload. A click fires
-   * ONE turret (R4): a ready turret that is ON the aim point (inside its arc
-   * and within `onTargetDeg` of the bearing it wants) wins, lowest index
-   * first; otherwise the ready turret with the smallest error fires along its
-   * CURRENT bearing; nothing ready fires nothing. The turret's guns fire as
+   * ONE turret, and only a READY turret whose arc holds the aim point (arc-only
+   * fire, Eric 2026-11-05, epic-10 amendment 10): one that is ON the aim point
+   * (within `onTargetDeg` of the bearing it wants) wins, lowest index first;
+   * otherwise the bearing turret with the smallest error fires along its
+   * CURRENT bearing; no ready turret bears → nothing fires. The turret's guns fire as
    * one salvo on PARALLEL tracks `barrelSpacingU` apart (sim/spread.ts — the
    * cannon's barrel law), each shell `shipClasses.<id>.battery.shellDamage`.
    *
@@ -1656,7 +1657,7 @@ export const CONFIG = {
    * (R3 — the secondaries are the only thing that hurts one).
    */
   mainBattery: {
-    arc: 'full', // every bearing is inside SOME turret's arc on every hull, and a click always fires (R4)
+    arc: 'full', // every bearing is inside SOME turret's arc on every hull (which turrets may fire: sim/turrets.ts pickTurret)
     hits: HITS_HULL, // hulls only; NO mine bit (R3)
     rangeU: RUNG * 8, // u — the cannon's Tier I reach at RANGE 100 (R2)
     reloadMs: 10000, // ms per turret, before RELOAD (R2)
@@ -1756,8 +1757,8 @@ export const CONFIG = {
     maxAmmo: 1, // one fish in the tube pool; the line's +0.5 on the rungs to II and III only → tubes 1,1,2,2,2
     // ms — reload between fish (commitment spike). RETUNED 12000 → 30000 (Eric
     // ruling 2026-08-04, weapon balance pass): the heavier warhead buys a much
-    // longer commitment cycle. (RELOAD no longer scales it — Story 10.5,
-    // R9: a slot weapon reloads on its own number and tier step.)
+    // longer commitment cycle. A max RELOAD build (cooldownScale 0.5) lands
+    // it at 15 s (Story 10.5, R11: RELOAD scales the Q / E / R weapons).
     reloadMs: 30000,
     hitRadius: 2, // u — torpedo collision radius added to the hull capsule
     // --- HOMING — the family's shared fields (epic-8 amendment 84e). A homing
@@ -1828,7 +1829,7 @@ export const CONFIG = {
 
   /**
    * SUPERCAVITATING TORPEDO — a TORPEDO-SLOT weapon (`Q`) since Story 10.5
-   * (Eric 2026-11-05, epic-10 amendment 10, R4: "SUPERCAV 45"): one torpedo
+   * (Eric 2026-11-05, epic-10 amendment 11, R4: "SUPERCAV 45"): one torpedo
    * in the tube on a 45 s reload, scaled by RELOAD and the −5 %/tier step like
    * every slot weapon; ready it, click inside the bow ±15° sector, one torpedo.
    * From Story 8.13 to 10.5 it was a prime-and-click CONSUMABLE with no reload
@@ -1922,7 +1923,7 @@ export const CONFIG = {
     maxAmmo: 2,
     // ms — reload between drops. RETUNED 8000 → 15000 (Eric ruling 2026-08-04,
     // weapon balance pass): the rack got deeper, so each round costs more.
-    // (RELOAD no longer scales it — Story 10.5, R9.)
+    // A max RELOAD build (cooldownScale 0.5) lands it at 7.5 s (Story 10.5, R11).
     reloadMs: 15000,
     // MINES HAVE NO CAP (Story 8.4, FR57/AR48). `maxLive` (the per-player live
     // board cap, with its silent oldest-eviction) and `globalCap` (the room
@@ -2407,7 +2408,7 @@ export const CONFIG = {
   /**
    * FOULING SHELL (Story 9.4, Eric ruling 2026-10-11, epic-9 amendments
    * 61–68) — a SPECIAL-SHELL-SLOT weapon (`R`) since Story 10.5 (Eric
-   * 2026-11-05, epic-10 amendment 10, R4: "FOULING SHELL 30"): one round on a
+   * 2026-11-05, epic-10 amendment 11, R4: "FOULING SHELL 30"): one round on a
    * 30 s reload, scaled by RELOAD and the −5 %/tier step like every slot
    * weapon (it was a no-reload consumable until then). Ready it and a click
    * fires ONE 360° gun-pattern shell to `rangeU` (ruling 125 — a fixed dial,
@@ -2521,7 +2522,7 @@ export const CONFIG = {
    * and 4, BESIDE the FOULING SHELL that replaced it in Story 9.4) — the
    * DAZZLE SHELLS line (display name FLASH SHELLS; the internal id stays
    * `dazzleShells`). A SPECIAL-SHELL-SLOT weapon (`R`) since Story 10.5 (Eric
-   * 2026-11-05, epic-10 amendment 10, R4: "FLASH SHELL 30"): one round on a
+   * 2026-11-05, epic-10 amendment 11, R4: "FLASH SHELL 30"): one round on a
    * 30 s reload, scaled by RELOAD and the −5 %/tier step like every slot
    * weapon (a no-reload consumable until then). Ready it and a click fires
    * ONE 360° gun-pattern shell on the FOULING SHELL's click path that bursts
@@ -2567,7 +2568,7 @@ export const CONFIG = {
    * MULTI-SPECTRAL COUNTERMEASURE (Story 9.3, Eric rulings 2026-10-11, epic-9
    * amendments 40–47; re-cut by Story 9.3 session 2, Eric 2026-10-12) — the
    * SMOKE ability on `V` since Story 10.5 (Eric 2026-11-05, epic-10 amendment
-   * 10, R2/R3): every ship carries it, ready at spawn, on a FIXED
+   * 11, R2/R3): every ship carries it, ready at spawn, on a FIXED
    * `cooldownMs` counted from the press that no RELOAD index or card shortens
    * (sim/abilities.ts). It was a key-fired consumable until then. In plain
    * words:
@@ -2828,7 +2829,7 @@ export const CONFIG = {
    * are `[DRAFT]` harness dials, reachable by `--tune`.
    *
    * AN OFFER MAY BE SHORT OR EMPTY (2026-11-05, Story 10.5, epic-10
-   * amendment 10): amendment 94's "never empty" rested on the consumable
+   * amendment 11): amendment 94's "never empty" rested on the consumable
    * lines, which were dealt even at their cap, and they are gone. An offer is
    * SHORTER than `size` when fewer than `size` lines are still eligible for
    * the ship, and empty once it holds every ladder and every slotted weapon at
@@ -2886,7 +2887,7 @@ export const CONFIG = {
    * +20+20 per rung, five rungs — which Story 10.6 builds (ruling 8); nothing
    * of it is authored here. 150 + 150 and a 200 + 200 base were rejected.
    *
-   * STORY 10.5 (Eric 2026-11-05, epic-10 amendment 10, R1/R3): HULL REPAIR is
+   * STORY 10.5 (Eric 2026-11-05, epic-10 amendment 11, R1/R3): HULL REPAIR is
    * the `C` ABILITY — no card, no stock: every ship carries it, ready at
    * spawn, on a FIXED `cooldownMs` that no RELOAD index or card shortens
    * (sim/abilities.ts). A press on a full hull is refused and starts no
@@ -2917,7 +2918,7 @@ export const CONFIG = {
   },
 
   /**
-   * PASSIVE HEALING (Eric 2026-11-05, Story 10.5, epic-10 amendment 10, R8,
+   * PASSIVE HEALING (Eric 2026-11-05, Story 10.5, epic-10 amendment 11, R8,
    * verbatim: *"Also we need to add back in the 2% missing HP passive healing
    * after 30 seconds of not taking damage. It wont make combat any less
    * deadly, but it will allow ships who survive to recover."*). A hull that

@@ -65,7 +65,7 @@ interface Disc {
 /**
  * Pure: the disc's radius (world units) for one burst — the server's STAMPED
  * radius off the wire (`BurstEvent.r`, Story 10.5, 2026-11-05, epic-10
- * amendment 10: R7's +25 u a tier, stamped at launch), falling back to the base
+ * amendment 11: R7's +25 u a tier, stamped at launch), falling back to the base
  * `CONFIG.flashShells.radius` only when `r` is absent or unusable (a finite
  * positive number is the only thing a disc can be drawn at).
  */

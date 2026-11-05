@@ -15,7 +15,7 @@
 // the selection accent is the OWN relation color (ui/ownAccent.ts). The footer
 // carries CONFIRM SELECTION — which saves the pick and returns to port (the
 // CONSUMABLES row left with the kit — 2026-11-05, Story 10.5, epic-10
-// amendment 10). It never deploys: PLAY is the single launch path.
+// amendment 11). It never deploys: PLAY is the single launch path.
 //
 // Card click (whole card, including its in-card SELECT button — same element)
 // only HIGHLIGHTS: it moves the highlight to that card and repaints, exactly

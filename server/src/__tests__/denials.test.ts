@@ -95,14 +95,17 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     // Story 10.4: slot 0 is the MAIN BATTERY — one click fires ONE ready
-    // turret (R4), so every turret is spent click by click first.
+    // turret whose arc holds the aim (arc-only fire, epic-10 amendment 10), so
+    // the clicks aim at the BEAM, where every turret bears, and every turret
+    // is spent click by click first.
+    const BEAM = Math.PI / 2;
     const turrets = a.stats.equipment.mainBattery.maxAmmo;
     for (let k = 1; k <= turrets; k += 1) {
-      w.submitInput('a', input(k, { fireSeq: k, slot: 0, aimDist: 100 }));
+      w.submitInput('a', input(k, { fireSeq: k, slot: 0, aim: BEAM, aimDist: 100 }));
       w.step(); // click k fires one turret (its reload starts)
       expect('denied' in buildFrame(w, 'a')).toBe(false);
     }
-    w.submitInput('a', input(turrets + 1, { fireSeq: turrets + 1, slot: 0, aimDist: 100 }));
+    w.submitInput('a', input(turrets + 1, { fireSeq: turrets + 1, slot: 0, aim: BEAM, aimDist: 100 }));
     w.step(); // every turret reloading — the previously-silent case
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: 0, reason: 'cooling', seq: turrets + 1 }]);
     // Nothing further spent: the pool stays empty with its reload running.
@@ -131,7 +134,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
   const repairDenial = (seq: number, reason: string) => ({ slot: abilitySlot('repair'), reason, seq, act: abilityCode('repair') });
 
   it("blocked (full hull): a HULL REPAIR press at full hp denies {'blocked'} and starts NO cooldown", () => {
-    // Story 10.5 (epic-10 amendment 10): HULL REPAIR is the `C` cooldown
+    // Story 10.5 (epic-10 amendment 11): HULL REPAIR is the `C` cooldown
     // ability. Its refusal reaches the wire because the client pre-denies the
     // same case locally and the two must agree.
     const w = bareWorld();

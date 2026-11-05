@@ -29,7 +29,7 @@
 // TWIN sector on both beams, and the SUPERCAV TORPEDO declares the bow ±15°
 // sector, so every predicate below is keyed on the shared `arcFor` descriptor
 // or on an explicit, pinned id SET, never on `id === 'navalMines'` /
-// `id === 'heavyTorpedo'`. Since Story 10.5 (2026-11-05, epic-10 amendment 10)
+// `id === 'heavyTorpedo'`. Since Story 10.5 (2026-11-05, epic-10 amendment 11)
 // every id is an `EquipmentId` again: the supercav, FLASH SHELLS and the
 // FOULING SHELL are slot weapons, and the buoys are gone.
 

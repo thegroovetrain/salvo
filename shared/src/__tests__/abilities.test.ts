@@ -1,5 +1,5 @@
 // THE ABILITY COOLDOWN LAW (sim/abilities.ts — Story 10.5, Eric 2026-11-05,
-// epic-10 amendment 10, R1–R3): HULL REPAIR (`C`) and SMOKE (`V`) are ready at
+// epic-10 amendment 11, R1–R3): HULL REPAIR (`C`) and SMOKE (`V`) are ready at
 // spawn, go on a FIXED cooldown from a successful press, and no RELOAD index
 // or card shortens it; a HULL REPAIR press on a full hull is refused and
 // starts nothing. Every expectation is a relation over CONFIG and the law's

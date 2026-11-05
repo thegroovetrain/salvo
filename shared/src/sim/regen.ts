@@ -1,4 +1,4 @@
-// PASSIVE HEALING (Story 10.5, Eric 2026-11-05, epic-10 amendment 10, R8,
+// PASSIVE HEALING (Story 10.5, Eric 2026-11-05, epic-10 amendment 11, R8,
 // verbatim: *"Also we need to add back in the 2% missing HP passive healing
 // after 30 seconds of not taking damage. It wont make combat any less deadly,
 // but it will allow ships who survive to recover."*).

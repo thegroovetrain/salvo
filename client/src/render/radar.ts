@@ -254,7 +254,7 @@ interface PendingEcho {
 
 /** Where an echo is marched FROM, and the antenna range that bounds the
  *  march: the own hull at `radarRange` (the radar buoy's second origin went
- *  with the buoys — 2026-11-05, Story 10.5, epic-10 amendment 10). */
+ *  with the buoys — 2026-11-05, Story 10.5, epic-10 amendment 11). */
 interface EchoOrigin {
   x: number;
   y: number;

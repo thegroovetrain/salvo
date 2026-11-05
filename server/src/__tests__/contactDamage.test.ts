@@ -367,7 +367,7 @@ describe('the BLEED (amendment 83 — sliding + pressing speed, delivered like t
     for (const e of reports) expect(e.amount).toBeGreaterThan(0);
   });
   // ((d), the SHIELD BLOCK absorbing the bleed, was deleted with the shield —
-  // Story 10.5, epic-10 amendment 10.)
+  // Story 10.5, epic-10 amendment 11.)
 });
 
 describe('LAND (amendment 81: the strike on the edge, the scrape on the sliding speed, a pinned or parked hull pays nothing more)', () => {

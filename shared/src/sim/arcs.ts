@@ -17,7 +17,7 @@
 // STORY 8.13: the LIGHT TORPEDO declares a TWIN SECTOR (both beams, ±45°,
 // catalog-v3 R18) and FOULING MINES joins the rear placement sector.
 //
-// STORY 10.5 (2026-11-05, epic-10 amendment 10): the consumable arcs are gone
+// STORY 10.5 (2026-11-05, epic-10 amendment 11): the consumable arcs are gone
 // with the kit. The three moved weapons keep the arcs they had as consumables,
 // declared as equipment now — the SUPERCAV TORPEDO's bow ±15° sector, the
 // FOULING SHELL and FLASH SHELLS at 360° — and `arcFor` takes an `EquipmentId`

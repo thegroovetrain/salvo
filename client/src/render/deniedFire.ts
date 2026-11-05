@@ -121,7 +121,7 @@ export const DEDUP_KEY_CAP = 64;
  * live key); serverDenied() also marks, so a duplicate server denial for the
  * same press could never double-fire either.
  *
- * THE PRESS SOURCE (Story 10.5, 2026-11-05, epic-10 amendment 10): an ABILITY
+ * THE PRESS SOURCE (Story 10.5, 2026-11-05, epic-10 amendment 11): an ABILITY
  * press is keyed by its ability (`DeniedView.act`, `denialSource`), never its
  * slot — `C` / `V` hold no slot, and the wire names the ability.
  */

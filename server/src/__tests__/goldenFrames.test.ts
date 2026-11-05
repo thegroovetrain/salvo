@@ -39,6 +39,29 @@
 // a stop, so `you.turrets[].a` / contact `tu` read the rest angles and the
 // salvos fired after it leave from the rested bearings (six ballistic events'
 // x / y / vx / vy).
+//
+// RE-RECORDED 2026-11-05 (arc-only fire, Eric 2026-11-05, epic-10 amendment
+// 10: a ready turret whose arc does not hold the aim point never fires). Only
+// the denial scenario moved: its clicks aim dead ahead, where only the forward
+// turrets bear, so it now spends just those. The two frames in which the aft
+// turrets fired backward off their stops (each one `mz` + two `shell`
+// events) are gone, and the `cooling` press lands two ticks sooner (tick 4,
+// fireSeq 4) with the aft turrets still loaded (`ammo[0].n` 2, their reloads
+// 0). That frame also carries the tick-2 salvo's terminal burst + `hc` pair and
+// the ability's `no-ammo`. Three captured frames became one; no key, event
+// kind or proof was added or removed, and every other scenario is unchanged.
+//
+// …and HOLD OUTSIDE THE ARC (Eric 2026-11-05, same amendment): a turret whose
+// arc does not hold the aim point holds its angle instead of traveling to a
+// stop. Values only, in 34 frames: 59 `you.turrets[].a` (an aft turret that
+// used to creep from π toward its stop while the aim sat ahead now stays at
+// rest, e.g. 3.0631 → π) and 6 contact `tu` entries (e.g. −4 → 0). No event,
+// salvo, key or proof moved.
+//
+// RE-RECORDED AT THE MERGE of development (arc-only fire, above) into Story
+// 10.5 (2026-11-05): the snapshot is the story's frames with the arc-only-fire
+// changes laid on top, token-diffed against both parents; see the Story 10.5
+// notes on the R6 battery below.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -50,6 +73,8 @@ import {
   DEFAULT_CLASS_ID,
   coverageHas,
   wrapPositive,
+  aimPointOf,
+  turretBears,
   type BallisticEvent,
   type BlipEvent,
   type FrameMsg,
@@ -744,16 +769,20 @@ function scnDenied(g: Golden): void {
   w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 100, slot: 0, fireT: 0, actSeq: 1, act: 0, hornSeq: 0, held: false, sec: false });
   w.step();
   const salvoFrames: FrameMsg[] = [cap(g, w, 'a')]; // no denial: the shell reveal + a clean frame
-  // Story 10.4: every OTHER turret is ready, so each further click fires one
-  // (R4 — along its current bearing); spend them all, one click per tick.
+  // Story 10.4: every OTHER turret whose arc holds the aim is ready, so each
+  // further click fires one; spend them, one click per tick. ARC-ONLY FIRE
+  // (Eric 2026-11-05, epic-10 amendment 10): the aim is dead ahead, so only the
+  // forward turrets bear — the aft turrets stay loaded and are never spent.
+  const bearingTurrets = aRec.turrets.filter((_, i) => turretBears(aRec.hullId, i, aRec.state, aimPointOf(aRec.state, 0, 100))).length;
   let seq = 3;
   let fireSeq = 3;
-  for (let k = 1; k < aRec.turrets.length; k++) {
+  for (let k = 1; k < bearingTurrets; k++) {
     w.submitInput('a', { seq: seq++, throttle: 0, rudder: 0, aim: 0, fireSeq: fireSeq++, aimDist: 100, slot: 0, fireT: 0, actSeq: 1, act: 0, hornSeq: 0, held: false, sec: false });
     w.step();
     salvoFrames.push(cap(g, w, 'a'));
   }
-  // The denial tick: both channels re-press against their empty pools.
+  // The denial tick: both channels re-press — the main battery with only
+  // non-bearing (aft) turrets loaded, which is the `cooling` refusal.
   const deniedSeq = fireSeq;
   w.submitInput('a', { seq: seq++, throttle: 0, rudder: 0, aim: 0, fireSeq: deniedSeq, aimDist: 100, slot: 0, fireT: 0, actSeq: 2, act: 0, hornSeq: 0, held: false, sec: false });
   w.step();
@@ -1280,7 +1309,7 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
   // position, channel or event TYPE was added or removed.
   it('RETURN grammar (R6): the full battery — the one radar, byte-identical to production', () => {
     // REGENERATED KNOWINGLY IN STORY 10.5 (2026-11-05, PV 97, THE KIT RETIRE
-    // AND THE THREE EQUIPMENT SLOTS — epic-10 amendment 10). Read by diffing
+    // AND THE THREE EQUIPMENT SLOTS — epic-10 amendment 11). Read by diffing
     // old against new with the structural fields masked; every change is one
     // of: (1) `you.ammo` is five entries (gun, Shift, torpedo, mine, special
     // shell) — a Warspite's rack now sits in the MINE slot (3), so its pool
@@ -1302,6 +1331,14 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     // Bismarck rows' Speed Boost / heavy-torpedo reloads now run on their own
     // unscaled numbers (20000 / 25000 / 30000 at the press) instead of the
     // hull's RELOAD index scale. Diffed token by token: no other byte moved.
+    // RE-RECORDED AGAIN 2026-11-05 (Story 10.5, R11 — R9 reversed, RELOAD
+    // scales the Q / E / R weapons again; merged with development's arc-only
+    // fire): the five slot-weapon values of the note above return to their
+    // pre-R9 numbers (the Yamato star shell 20000 / 19000 / 8950 → 28580 /
+    // 27580 / 17530, the Bismarck heavy torpedo 30000 / 14600 → 28560 /
+    // 13160); the Speed Boost values stay unscaled (R10). Against
+    // development, the only other moves are the story's own (five-entry
+    // `ammo`, no `kit`, the cards / offer / denial / HULL REPAIR rows above).
     expect(runBattery()).toMatchSnapshot();
   });
 });

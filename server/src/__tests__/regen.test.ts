@@ -1,5 +1,5 @@
 // THE PASSIVE REGEN on the server (Story 10.5, Eric 2026-11-05, epic-10
-// amendment 10, R8 — "add back in the 2% missing HP passive healing ...
+// amendment 11, R8 — "add back in the 2% missing HP passive healing ...
 // Make it 15, 30 was too long."): a hull that has lost no hull hp for
 // `CONFIG.regen.outOfCombatMs` heals the shared `regenGain` of its MISSING hp
 // every tick (tickRepairs), until the next blow that removes hull hp — from

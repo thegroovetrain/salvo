@@ -31,7 +31,7 @@
 //
 // THREE TABLES, ONE LOOKUP. `GLYPHS` is keyed by `EquipmentId` (what a weapon
 // slot holds), `ABILITY_GLYPHS` by cooldown ability (the bar's `C` / `V`
-// squares — Story 10.5, 2026-11-05, epic-10 amendment 10: the consumable table
+// squares — Story 10.5, 2026-11-05, epic-10 amendment 11: the consumable table
 // retired with the kit, its HULL REPAIR and SMOKE SCREEN drawings moved here
 // and its three weapons into `GLYPHS`), and `LINE_GLYPHS` by the CARD LINES
 // that are neither — the ship ladders and the CANNON ladder (`deckGun`, drawn
@@ -420,7 +420,7 @@ const GLYPHS: Partial<Record<EquipmentId, GlyphPaths>> = {
   broadside,
   starShells,
   phosphorShells, // Story 8.17 DRAFT (above)
-  // STORY 10.5 (2026-11-05, epic-10 amendment 10): the three moved weapons
+  // STORY 10.5 (2026-11-05, epic-10 amendment 11): the three moved weapons
   // are slot equipment again and keep the drawings they had as consumables.
   supercavTorpedo,
   dazzleShells,

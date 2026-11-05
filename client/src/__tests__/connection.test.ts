@@ -463,7 +463,7 @@ describe('connect', () => {
     expect(lastJoinOpts).not.toHaveProperty('colorPref');
   });
 
-  // Story 10.5 (2026-11-05, epic-10 amendment 10): the consumable kit left
+  // Story 10.5 (2026-11-05, epic-10 amendment 11): the consumable kit left
   // the join with the kit — no `kit` key is ever sent.
   it('sends no `kit` key (the kit retired)', async () => {
     await connectAndWelcome();

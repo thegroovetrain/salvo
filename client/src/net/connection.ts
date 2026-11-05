@@ -197,7 +197,7 @@ function waitForWelcome(room: Room): Promise<WelcomeMsg> {
  *  `startGame` → `connect(…, shift)`. Always SENT, never omitted. No `gun` and
  *  no color preference ride the join any more (R6: the hue wheel is gone). The
  *  consumable `kit` left the join with the kit (Story 10.5, 2026-11-05,
- *  epic-10 amendment 10). */
+ *  epic-10 amendment 11). */
 export function joinOptions(
   name?: string,
   cls?: string,

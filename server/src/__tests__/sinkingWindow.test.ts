@@ -315,7 +315,7 @@ describe('refit closed — "once sinking, you\'re done"', () => {
     w.sinkShip('a');
     expect(w.spendPoint('a', 0)).toBe(false); // card pick: clean denial
     // HULL REPAIR is a cooldown ability since Story 10.5 (epic-10 amendment
-    // 10): a sinking press is refused 'blocked' — no hp comes back in the
+    // 11): a sinking press is refused 'blocked' — no hp comes back in the
     // window (amendment 10) and the cooldown is NOT started.
     a.hp = a.stats.maxHp - 50; // so "full hull" is not what refuses it
     const hp = a.hp;

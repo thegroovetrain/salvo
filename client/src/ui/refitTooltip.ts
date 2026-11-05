@@ -180,7 +180,7 @@ export function refitTooltipWidestToken(model: RefitTooltipModel): number {
 /**
  * Pure: the hover panel's model for one offered line (Story 8.7, ruling 13):
  * the name over its stat rows. (The consumable card's interaction line left
- * with the kit — Story 10.5, 2026-11-05, epic-10 amendment 10; the model keeps
+ * with the kit — Story 10.5, 2026-11-05, epic-10 amendment 11; the model keeps
  * its optional `interaction` field for the panel's fit arithmetic.)
  */
 export function refitTooltipModel(name: string, stats: readonly CardStatRow[]): RefitTooltipModel {

@@ -6,7 +6,7 @@
 // everything else; the RADAR BUOY's `buoy` channel was deleted with the buoy
 // in Story 8.16, and the DECOY BUOY's `decoy` channel that took its seat was
 // deleted with the buoys and the drone drops' `dp` row in Story 10.5,
-// epic-10 amendment 10; the SMOKE SCREEN's `smoke` channel joined in
+// epic-10 amendment 11; the SMOKE SCREEN's `smoke` channel joined in
 // Story 8.18 and became the MULTI-SPECTRAL COUNTERMEASURE's `cloud` channel
 // in Story 9.3; the FOULING SHELL's `foulzone` channel joined in Story 9.4 on
 // the burn zone's gate). FOG IS NOT A CHANNEL (Story 9.10, Eric 2026-10-15):

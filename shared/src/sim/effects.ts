@@ -14,7 +14,7 @@
 //                   empty and stays empty).
 // The fifth, `stock` (one copy of a CONSUMABLE into its rack, Story 8.7), is
 // DELETED with the consumable id space (2026-11-05, Story 10.5, epic-10
-// amendment 10): the kit is retired and nothing stocks.
+// amendment 11): the kit is retired and nothing stocks.
 // `slotReplace` is DELETED (Story 8.1): nothing in catalog v3 swaps one piece
 // of equipment for another — equipment lines fit, they never replace.
 
@@ -109,7 +109,7 @@ export const EQUIPMENT_STAT_FIELDS = {
   // it today; `reloadMs` and `rangeU` are row fields so RELOAD and RANGE reach
   // them through the one multiply each.
   mainBattery: ['reloadMs', 'rangeU', 'damage', 'contactDamage', 'burstRadius'],
-  // THE THREE MOVED WEAPONS (2026-11-05, Story 10.5, epic-10 amendment 10).
+  // THE THREE MOVED WEAPONS (2026-11-05, Story 10.5, epic-10 amendment 11).
   // SUPERCAV steps `damage` (+100 a rung, amendment 8(e)); `homingTurnRate` is
   // deliberately ABSENT — it never homes (amendment 74), so no card may ever
   // give it a turn rate. FLASH SHELLS and the FOULING SHELL step `radius`

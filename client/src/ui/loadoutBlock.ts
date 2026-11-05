@@ -5,7 +5,7 @@
 // `countdown-results-1.html` frame 2: a section head `LOADOUT`, then the HUD
 // bar's own slot row AS IT ENDED at scale .72 (gun · Shift · Q E R, each with
 // its key chip), then the line of the ship ladders. STORY 10.5 (2026-11-05,
-// epic-10 amendment 10): the framed consumable belt left with the kit. The two
+// epic-10 amendment 11): the framed consumable belt left with the kit. The two
 // cooldown abilities (`C` HULL REPAIR / `V` SMOKE) close the row after `R`, in
 // the bar's own square order (Eric 2026-11-05: the strip draws C and V too) —
 // the square index space is render/hotbarSquares.ts.

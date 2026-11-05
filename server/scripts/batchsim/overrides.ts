@@ -754,7 +754,7 @@ function validateUnitInterval(key: string, value: number): void {
  *
  * 2026-11-05 (Story 10.5, R10): the Story 8.9 review branch that folded the
  * reload through a MAXED RELOAD ladder is gone — RELOAD no longer scales any
- * Shift cooldown (it is the main battery's stat alone), so the live boost
+ * Shift cooldown (`RELOAD_UNSCALED_ROWS`), so the live boost
  * reload IS the raw one and the raw pair is the whole relation again.
  *
  * `boost.maxAmmo` (Story 8.9 REVIEW, Edge Case Hunter): the reload/duration

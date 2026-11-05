@@ -36,7 +36,7 @@ import { consume, tickReload } from './ammo.js';
 import { launchTorpedo, type TorpedoLaunchContext } from './torpedoCore.js';
 
 /** The three lines this module fits. The SUPERCAVITATING torpedo joined the
- *  slot weapons in Story 10.5 (Eric 2026-11-05, epic-10 amendment 10): a pool
+ *  slot weapons in Story 10.5 (Eric 2026-11-05, epic-10 amendment 11): a pool
  *  on the standard reload, its numbers off its own effective row — the row's
  *  `homingTurnRate` is 0 at every tier, so it stays a straight-runner. */
 export type TorpedoLineId = 'heavyTorpedo' | 'lightTorpedo' | 'supercavTorpedo';

@@ -1210,7 +1210,7 @@ describe('weapons — every shot is a LEGAL shot', () => {
   });
 
   // HULL REPAIR (`C`) IS A COOLDOWN ABILITY (Story 10.5, epic-10 amendment
-  // 10). Every hull carries it, ready at spawn; the bot presses it on the
+  // 11). Every hull carries it, ready at spawn; the bot presses it on the
   // belt row's own hurt read and the shared refusal law (sim/abilities.ts).
   it('a hurt bot presses HULL REPAIR (its wire code) when ready; a full hull, or one still cooling, does not', () => {
     const w = openWorld(212);

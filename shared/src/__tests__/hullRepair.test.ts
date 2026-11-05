@@ -1,5 +1,5 @@
 // HULL REPAIR (catalog-v3 R13; Eric rulings 2026-08-04) — the `C` cooldown
-// ability since Story 10.5 (Eric 2026-11-05, epic-10 amendment 10): its CONFIG
+// ability since Story 10.5 (Eric 2026-11-05, epic-10 amendment 11): its CONFIG
 // shape. Relations only (Story 9.14): the pool pays its whole amount over its
 // whole window, the heal is a fixed fraction of the one 1000 hp hull. The
 // cooldown law and the full-hull refusal are abilities.test.ts; the passive

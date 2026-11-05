@@ -7,16 +7,18 @@
 // the very calls the client predicts with — so nothing here re-derives a
 // turret's geometry.
 //
-// A CLICK (R4, "The turret fires wherever it is currently pointing, even if it
-// is the wrong direction. However if *any* turret is ready and pointed that
-// way, it should fire instead."): the shared `pickTurret` chooses the turret —
-// a ready one ON the aim point first (lowest index), else the ready one with
-// the smallest angular error, firing along its CURRENT bearing — and
-// `turretSalvo` lays its shells on parallel tracks. The reach is the row's
-// folded `rangeU`, lifted by the firer's OWN live lit zones exactly as the
-// cannon's was (shared `gunReachU`, measured from the chosen turret's
-// station). Only the fired turret's reload starts (`fireTurret`). No turret
-// ready → 'no-ammo', which the World's wire mapping sends as `cooling`.
+// A CLICK (arc-only fire, Eric 2026-11-05, epic-10 amendment 10: "If my cursor
+// is not within the arc of one of my turrets, it should *not* fire when
+// clicked."): the shared `pickTurret` chooses among the READY turrets whose
+// arc holds the aim point — one ON the aim point first (lowest index), else
+// the one with the smallest angular error, firing early along its CURRENT
+// bearing — and `turretSalvo` lays its shells on parallel tracks. The reach is
+// the row's folded `rangeU`, lifted by the firer's OWN live lit zones exactly
+// as the cannon's was (shared `gunReachU`, measured from the chosen turret's
+// station). Only the fired turret's reload starts (`fireTurret`). No ready
+// turret bears → 'no-ammo', which the World's wire mapping sends as `cooling`
+// (every bearing is inside some turret's arc, so the turrets that could bear
+// are reloading); nothing fires and no reload starts.
 //
 // THE SHELL IS TODAY'S CANNON SHELL (reading of record): family `'cannon'`,
 // a burst of `burstRadius`, the contact damage, the attenuation reference
@@ -55,7 +57,7 @@ export function syncBatterySlot(ship: ShipRecord, slot: LoadoutSlot): void {
 }
 
 /** Fire ONE turret's salvo for the click under `ctx.ship.input` (the World
- *  installs the click's own input), or refuse when no turret is ready. */
+ *  installs the click's own input), or refuse when no ready turret bears. */
 function fireSalvo(ctx: ActivationContext): ActivationResult {
   const ship = ctx.ship;
   const pose = ship.state;
@@ -65,7 +67,7 @@ function fireSalvo(ctx: ActivationContext): ActivationResult {
   const aimPt = batteryAimPoint(pose, ship.input.aim, ship.input.aimDist);
   if (aimPt === null) return { ok: false, reason: 'no-ammo' };
   const pick = pickTurret(ship.turrets, ship.hullId, pose, aimPt);
-  if (pick === null) return { ok: false, reason: 'no-ammo' }; // every turret reloading → `cooling` on the wire
+  if (pick === null) return { ok: false, reason: 'no-ammo' }; // no ready turret bears → `cooling` on the wire
   const row = ship.stats.equipment.mainBattery;
   const reachU = sharedGunReachU(pick.station, pick.bearing, pick.aimDistU, row.rangeU, ctx.mapRadius, ctx.ownLitZones());
   const salvo = turretSalvo(pick, ship.hullId, pose, reachU, ctx.mapRadius);

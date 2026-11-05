@@ -563,7 +563,7 @@ export function shouldAutoOpen(s: { latched: boolean; phase: string; visible: bo
  * evaluates before it mutates anything. Two evaluations of one function, so the
  * greyed face and the server's refusal can never disagree. (The kit argument
  * and the consumable-at-cap grey left with the kit — Story 10.5, 2026-11-05,
- * epic-10 amendment 10; the draw never offers a refused card, so a grey is
+ * epic-10 amendment 11; the draw never offers a refused card, so a grey is
  * only ever the fail-closed twin of the server's guard.)
  */
 export function cardGreyed(

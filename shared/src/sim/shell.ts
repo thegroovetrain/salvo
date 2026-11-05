@@ -196,7 +196,7 @@ export interface ShellState {
    * `acquireRange` and steers its velocity direction toward it at up to
    * `turnRate` rad/s — the NEAREST HULL (`acquireNearest`). The buoy-first
    * pass of Story 10.9 is gone with the buoys (2026-11-05, Story 10.5,
-   * epic-10 amendment 10).
+   * epic-10 amendment 11).
    *
    * "Target" is whatever the caller puts in `ctx.targets` (live hulls). Speed
    * magnitude is never changed; expiry/range semantics are untouched.
@@ -232,7 +232,7 @@ export interface ShellState {
  *                 105), and like `mine` it is BURST-ONLY: the World strips it
  *                 from the sweep mask, so nothing in flight collides with it.
  * The fourth kind, `decoy` (a dropped buoy's body, Story 8.16 / 10.9), is
- * DELETED with the buoys (2026-11-05, Story 10.5, epic-10 amendment 10).
+ * DELETED with the buoys (2026-11-05, Story 10.5, epic-10 amendment 11).
  * Pure geometry: shared knows nothing about owners' doctrine, drones or the
  * damage gate — the OUTCOME of touching a kind lives entirely in world.ts.
  */

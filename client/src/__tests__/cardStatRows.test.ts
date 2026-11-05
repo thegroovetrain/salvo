@@ -330,7 +330,7 @@ describe('cardStatRows — the CANNON rungs that carry a turret or a barrel', ()
 // --- THE THREE STORY 10.5 SLOT WEAPONS -----------------------------------------
 //
 // SUPERCAV TORPEDO, FLASH SHELLS and the FOULING SHELL left the consumable kit
-// (2026-11-05, epic-10 amendment 10) for the slot families: their card face is
+// (2026-11-05, epic-10 amendment 11) for the slot families: their card face is
 // the ordinary WEAPON grammar now — copy 1 prints the weapon's whole table,
 // every later copy its RELOAD step and its authored tier step (R7: the shells'
 // burst radius; 8(e): the supercav's damage). Every number off the fold.

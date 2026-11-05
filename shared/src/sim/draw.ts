@@ -17,7 +17,7 @@
 //   - an `equipment` line the ship holds NO copy of is copy 1, i.e. THE BARE
 //     WEAPON, so it is eligible only while ITS FAMILY'S SLOT is empty — and
 //     its kind is `weapon`. ONE KIND PER SLOT FOR THE MATCH (Story 10.5, Eric
-//     2026-11-05, epic-10 amendment 10): once LIGHT TORPEDO holds `Q`, HEAVY
+//     2026-11-05, epic-10 amendment 11): once LIGHT TORPEDO holds `Q`, HEAVY
 //     and SUPERCAV are never eligible again, and the same for the mine and
 //     special-shell families. Held 1..cap-1 it is a TIER card: kind
 //     `upgrade`. At `cap` it is out (a sixth copy is not a card). A weapon

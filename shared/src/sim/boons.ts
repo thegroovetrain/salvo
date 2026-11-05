@@ -13,7 +13,7 @@
 //   4. `behavior(hookId, params)` executes registered hooks (sim/hooks.ts)
 //      per-tick on BOTH sides, so prediction survives.
 // The fifth path, `stock` (a consumable copy into its kit slot), is DELETED
-// with the kit (2026-11-05, Story 10.5, epic-10 amendment 10).
+// with the kit (2026-11-05, Story 10.5, epic-10 amendment 11).
 // Nothing else moves — a stat-only card leaves the loadout reference-equal, a
 // slot-only card leaves stats byte-identical (property-pinned in tests).
 //
@@ -247,7 +247,7 @@ function freshSlotState(stats: EffectiveStats, id: EquipmentId): LoadoutSlot['st
  *     a prototype key are both refusals, never a grant).
  *   - `atCap` — the ship already holds `cap` copies.
  *   - `noWeaponSlot` — copy 1 of an equipment line (the bare weapon) with
- *     NOWHERE TO GO. Since Story 10.5 (Eric 2026-11-05, epic-10 amendment 10 —
+ *     NOWHERE TO GO. Since Story 10.5 (Eric 2026-11-05, epic-10 amendment 11 —
  *     one kind per slot for the match) that means: the weapon's FAMILY slot
  *     already holds a DIFFERENT kind (HEAVY or SUPERCAV after LIGHT is
  *     slotted), or the weapon has no family slot at all (BROADSIDE, which left
@@ -296,7 +296,7 @@ function familySlotRefusal(line: CatalogLine, slotIds: readonly (EquipmentId | n
  * on grant) and the client (slotsWithCards, replayed over loadoutFor output).
  * `stat`/`behavior`/`doctrine` effects are structural no-ops here.
  *
- * THE FILL RULE (Story 10.5, Eric 2026-11-05, epic-10 amendment 10): a
+ * THE FILL RULE (Story 10.5, Eric 2026-11-05, epic-10 amendment 11): a
  * `slotFill` goes into the equipment's FAMILY SLOT — a torpedo into `Q`, a
  * mine into `E`, a special shell into `R` (sim/loadout.ts `familySlotFor`) —
  * and ONLY while that slot is empty. It touches NOTHING else: no other slot's

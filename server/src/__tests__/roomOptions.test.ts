@@ -340,7 +340,7 @@ describe('sanitizeName — options.name is client-supplied and untrusted', () =>
 // `cls` and `horn`, not a privileged override: it fails OPEN to DEFAULT_SHIFT
 // and can never refuse a join.
 
-// THE LEGACY KIT OPTION (Story 10.5, 2026-11-05, epic-10 amendment 10): the
+// THE LEGACY KIT OPTION (Story 10.5, 2026-11-05, epic-10 amendment 11): the
 // seat's consumable kit is gone with the kit. A client still sending `kit`
 // (a saved `hullracker.kit`) is silently IGNORED — never refused, no log —
 // exactly as the legacy `gun` option: the front door drops it from the

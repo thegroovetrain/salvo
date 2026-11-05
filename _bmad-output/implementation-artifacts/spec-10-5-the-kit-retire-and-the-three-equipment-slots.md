@@ -19,7 +19,7 @@ warnings: ['oversized']
 
 **Approach:** Delete the consumable system (kit, stock, belt, picker, drone drops), SHIELD BLOCK and every shield term, and the decoy / buoy machinery. HULL REPAIR (`C`) and SMOKE (`V`) become per-ship cooldown abilities. The three weapon slots become FAMILY slots — `Q` torpedo, `E` mine, `R` special shell — one kind per slot for the match; FLASH SHELLS, FOULING SHELL and SUPERCAVITATING TORPEDO move from stock items to reloading slot weapons. The hotbar is re-cut for Shift · Q · E · R · C · V.
 
-## Eric's rulings for this story (2026-11-05, AskUserQuestion at the spec step — literal spec, to be recorded as epic-10 amendment 10)
+## Eric's rulings for this story (2026-11-05, AskUserQuestion at the spec step — literal spec, to be recorded as epic-10 amendment 11)
 
 - **R1 HULL REPAIR cooldown: 90 s.** Heal stays 100 at once + 100 over 5 s (amendment 8(f)). Rejected: 60 / 120 / 180 s.
 - **R2 SMOKE cooldown: 60 s**, counted from the press; the 9.3 cloud is unchanged (15 s, 150 → 300 u). Rejected: 30 / 45 / 90 s.
@@ -111,7 +111,7 @@ warnings: ['oversized']
 - [ ] `client/src/input/*`, `sim/*`, `main.ts`, `net/*` -- `C` / `V` presses; right click cancels a ready and a ready blocks secondaries; belt keys 1–4 keep only the refit pick; kit, shield, buoy and drop plumbing removed -- input and state.
 - [ ] `client/src/render/*`, `config.ts` -- hotbar Gun · Sec · Shift · Q · E · R · C · V with cooldown wipes, empty-slot look for an unfilled family slot, belt frame gone; shield fill and buoy renderers deleted; the flash burst disc draws the tiered radius -- HUD.
 - [ ] `client/src/ui/*` -- kit picker and CONSUMABLES row deleted; `settings.ts` key rows for Q / E / R, C, V, right click; card copy rows for the three moved lines -- chrome.
-- [ ] `_bmad-output/**`, `VERSION`, `package.json` -- amendment 10 (rulings verbatim + readings) in the amendments file AND the compiled context, DESIGN.md dated stamps, deferred-work, both trackers one line each, 0.19.7 -- records.
+- [ ] `_bmad-output/**`, `VERSION`, `package.json` -- amendment 11 (rulings verbatim + readings) in the amendments file AND the compiled context, DESIGN.md dated stamps, deferred-work, both trackers one line each, 0.19.8 -- records.
 
 **Acceptance Criteria:**
 - Given a fresh match, when a captain spawns, then the three equipment slots are empty, `C` and `V` are ready, and no consumable, shield or buoy can be obtained by any path (offer, dev fit, drone kill).
@@ -139,7 +139,7 @@ Implementer readings of record (each Eric's to veto on staging; none is a ruling
 - **Empty offer — RULED mid-run** (Eric 2026-11-05, chat, on the wave-1 finding that a hull holding every ladder and three capped slot weapons draws nothing): *"Empty offer is fine, I think what should happen is you get some random stats. But I don't think ships reaching that level will be overly common. We'll address in 10.7"*. Built here: an empty offer never opens the refit window and never throws; a short offer shows fewer cards. Owed to Story 10.7: an exhausted hull gets random stats (ledger entry).
 - **R9 was built, then reversed by R11** the same day: RELOAD scales slot weapons; the Yamato consequence is Eric's accepted tradeoff.
 - **Hotbar candidate — Eric 2026-11-05** (AskUserQuestion on https://claude.ai/artifact/JnVc6K2ihRxPmr6LEtRtLZ): *"Almost right. I want the empty, grayed out slots to at least indicate what kind of slot they are, if that makes sense? Visually?"* → an empty Q / E / R square draws its family's glyph dimmed (reading: one existing glyph per family, no label). Also ruled there: the C / V tooltips show a cooldown row; the results LOADOUT strip draws C and V after R.
-- **Version** 0.19.7, cycle 213, PV 97.
+- **Version** 0.19.8, cycle 214, PV 97.
 
 ## Verification
 

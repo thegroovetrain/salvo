@@ -348,7 +348,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
   });
 
   // RETIRED (Story 7-5 wave 2 / Story 10.5): every `decoy` row pin — the row
-  // and the DECOY BUOY are deleted (2026-11-05, epic-10 amendment 10).
+  // and the DECOY BUOY are deleted (2026-11-05, epic-10 amendment 11).
   it('no decoy row exists, and a fabricated k:\'decoy\' or k:\'dp\' world event never dispatches', () => {
     expect('decoy' in SIGNAL_REGISTRY).toBe(false);
     expect(signalFor('decoy')).toBeUndefined();

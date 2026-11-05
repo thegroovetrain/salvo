@@ -10,7 +10,7 @@
 // the gun's chip spells `LMB` and the Sec square's spells `RMB`
 // (equipmentInfo.ts `SLOT_KEY_GLYPHS` / `SEC_KEY_GLYPH`).
 //
-// STORY 10.5 (2026-11-05, epic-10 amendment 10): the framed consumable BELT
+// STORY 10.5 (2026-11-05, epic-10 amendment 11): the framed consumable BELT
 // (keys 1–4, the kit) is GONE. `Q` / `E` / `R` are the three FAMILY weapon
 // slots (torpedo / mine / special shell — an unfilled one keeps the empty
 // look), and `C` (HULL REPAIR) / `V` (SMOKE) are two cooldown ABILITY squares

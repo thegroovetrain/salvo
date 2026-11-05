@@ -1,6 +1,6 @@
 // THE FOULING SHELL, end to end (Story 9.4, Eric ruling 2026-10-11, epic-9
 // amendments 61–68; a special-shell SLOT WEAPON on the reload pool since Story
-// 10.5, epic-10 amendment 10 — it was a belt consumable):
+// 10.5, epic-10 amendment 11 — it was a belt consumable):
 // one click-aimed, zero-damage shell whose stop point (burst or interception)
 // leaves a stationary FOUL ZONE; every afloat hull whose OUTLINE touches the
 // zone — the owner, enemies and PvE drones alike, sinking hulls excluded — is

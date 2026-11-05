@@ -622,7 +622,7 @@ describe('burstVictims — kinds (Story 8.4)', () => {
 describe('CONFIG ordnance masks (AR44)', () => {
   it('the shipped rows declare exactly the ruled masks; no stub row exists', () => {
     // THE `decoy` KIND IS GONE (Story 10.5, Eric 2026-11-05, epic-10 amendment
-    // 10): the buoys are deleted, so no mask names it.
+    // 11): the buoys are deleted, so no mask names it.
     expect(CONFIG.gun.hits).toEqual(['hull', 'mine']);
     // Amendment 200 (Eric 2026-10-01): only the three DECK GUNS damage a mine
     // (by landing on it) — the broadside barrage and phosphor shells lost `mine`.

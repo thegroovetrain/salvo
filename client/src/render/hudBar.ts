@@ -13,7 +13,7 @@
 // It is a seat in the run, not a square, so `squares` stays indexed by HOTBAR
 // SQUARE (render/hotbarSquares.ts) and the heat square has its own `sec` rect.
 //
-// STORY 10.5 (2026-11-05, epic-10 amendment 10): THE BELT IS GONE with the
+// STORY 10.5 (2026-11-05, epic-10 amendment 11): THE BELT IS GONE with the
 // consumable kit. `C` (HULL REPAIR) and `V` (SMOKE) are cooldown ABILITIES in
 // the Shift square's family, so they join the ONE run at the weapon square's
 // size after `R` — no frame, no second square size. The run is one dim group.

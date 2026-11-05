@@ -1828,7 +1828,7 @@ export const CLIENT_CONFIG = {
    * both). Story 9.2's two-row D-prime stack (`mockups/hud-consumables-1.html`)
    * is RETIRED: Eric 2026-10-14 (epic-9 amendment 151) put the bar back on the
    * literal 8.6 one-row geometry. STORY 10.5 (2026-11-05, epic-10 amendment
-   * 10) retired the framed consumable belt with the kit: `C` (HULL REPAIR) and
+   * 11) retired the framed consumable belt with the kit: `C` (HULL REPAIR) and
    * `V` (SMOKE) are two more 54 px squares in the one run, after `R`.
    *
    * Anatomy of the bar, left to right (the width is DERIVED — render/hudBar.ts

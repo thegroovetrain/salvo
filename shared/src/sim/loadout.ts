@@ -4,7 +4,7 @@
 // for every captain hull — [battery, Shift, torpedo, mine, special shell] —
 // each either empty or holding one equipment id + its state.
 //
-// STORY 10.5 (Eric 2026-11-05, epic-10 amendment 10): THE KIT IS RETIRED. The
+// STORY 10.5 (Eric 2026-11-05, epic-10 amendment 11): THE KIT IS RETIRED. The
 // four consumable slots, the per-ship `ConsumableKit` and the whole consumable
 // id space are deleted; the three weapon slots become FAMILY SLOTS — `Q`
 // torpedo, `E` mine, `R` special shell — ONE KIND PER SLOT FOR THE MATCH
@@ -72,7 +72,7 @@ import type { EffectiveStats } from './stats.js';
  * The legacy flat-bonus boost id is GONE (Story 8.9): the v3 `boost` id IS the
  * speed boost.
  *
- * STORY 10.5 BROUGHT THREE BACK (Eric 2026-11-05, epic-10 amendment 10):
+ * STORY 10.5 BROUGHT THREE BACK (Eric 2026-11-05, epic-10 amendment 11):
  * `supercavTorpedo`, `dazzleShells` (FLASH SHELLS — the locked id is kept) and
  * `foulingShell` are RELOADING SLOT WEAPONS again, with a stat row and five
  * tiers each; the consumable id space they sat in from 8.13 / 8.17 / 9.4 is
@@ -237,7 +237,7 @@ export const SLOT_BOOST = 1;
 export const WEAPON_SLOTS = [2, 3, 4] as const;
 
 /**
- * THE THREE SLOT FAMILIES (Story 10.5, Eric 2026-11-05, epic-10 amendment 10),
+ * THE THREE SLOT FAMILIES (Story 10.5, Eric 2026-11-05, epic-10 amendment 11),
  * in slot order: `Q` holds a TORPEDO, `E` a MINE, `R` a SPECIAL SHELL. A slot
  * holds ONE KIND of its family for the whole match — the first card of the
  * family picks it, later copies of that kind tier it up, and no other kind of
@@ -324,9 +324,9 @@ export function equipmentMaxAmmo(stats: EffectiveStats, id: EquipmentId): number
 }
 
 /** The effective reload (ms) for a piece of equipment. Every row carries
- *  `reloadMs` (Story 8.1), post-tier-step — and post-cooldownScale on the
- *  main battery and the legacy deck-gun rows only (Story 10.5, R9 / R10:
- *  `RELOAD_SCALED_ROWS` in sim/stats.ts). */
+ *  `reloadMs` (Story 8.1), post-tier-step — and post-cooldownScale on every
+ *  row but the Shifts (Story 10.5, R10 / R11: `RELOAD_UNSCALED_ROWS` in
+ *  sim/stats.ts). */
 export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): number {
   return stats.equipment[id].reloadMs;
 }

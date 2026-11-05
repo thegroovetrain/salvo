@@ -99,7 +99,7 @@ export interface BindingRow {
  * gave them (`REFIT_DIGIT_CODES` with the window open, `CONSUMABLE_KEY_CODES` with it
  * closed), which is what the row now states. The numpad aliasing is unchanged.
  *
- * STORY 10.5 (2026-11-05, epic-10 amendment 10) re-cut it again: the digits
+ * STORY 10.5 (2026-11-05, epic-10 amendment 11) re-cut it again: the digits
  * keep only the refit pick (the kit keys left with the kit), `C` / `V` are the
  * two cooldown abilities, and the right button cancels a readied weapon.
  *
@@ -113,7 +113,7 @@ export function bindingRows(): BindingRow[] {
     { keys: 'W / S (+ ARROWS)', action: 'ENGINE TELEGRAPH — ONE DETENT PER TAP' },
     { keys: 'A / D (+ ARROWS)', action: 'RUDDER — HELD' },
     { keys: '(NONE)', action: 'GUN — ALWAYS SELECTED; CLICK ITS HOTBAR TILE TO RESELECT' },
-    // Story 10.5 (2026-11-05, epic-10 amendment 10): the three family slots, the
+    // Story 10.5 (2026-11-05, epic-10 amendment 11): the three family slots, the
     // two cooldown abilities, the right button and the digits' one meaning.
     { keys: 'Q / E / R', action: 'TORPEDO / MINE / SPECIAL SHELL — PRESS TO READY, AGAIN TO CANCEL' },
     { keys: 'C', action: 'HULL REPAIR' },

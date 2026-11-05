@@ -1425,7 +1425,7 @@ describe('the Shift pick — persistence and the deploy doors (Story 10.4)', () 
     expect(localStorage.getItem(SHIFT_KEY)).toBe(OTHER_SHIFT);
   });
 
-  // Story 10.5 (2026-11-05, epic-10 amendment 10): a saved `hullcracker.kit`
+  // Story 10.5 (2026-11-05, epic-10 amendment 11): a saved `hullcracker.kit`
   // from before the kit retired is simply never read — the deploy carries the
   // callsign, the hull and the Shift, and nothing else.
   it('ignores a legacy stored kit: PLAY deploys the identity without it', () => {

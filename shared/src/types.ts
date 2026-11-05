@@ -318,7 +318,7 @@ export interface InputMsg {
   actSeq: number;
   /**
    * WHICH ABILITY the current activation presses (Story 10.5, Eric 2026-11-05,
-   * epic-10 amendment 10 — it REPLACES `actSlot`): the ability's WIRE CODE, its
+   * epic-10 amendment 11 — it REPLACES `actSlot`): the ability's WIRE CODE, its
    * index in `ABILITY_IDS` (sim/abilities.ts) — `0` the seat's SHIFT (slot 1),
    * `1` HULL REPAIR (`C`), `2` SMOKE (`V`). Read only on an `actSeq` advance.
    * `0` is what every driver that never presses an ability sends. Validated
@@ -651,7 +651,7 @@ export interface OwnShip {
   hunkerUntil?: number;
   /**
    * ms — server-clock time HULL REPAIR (`C`) is READY again (Story 10.5, Eric
-   * 2026-11-05, epic-10 amendment 10, R1): `press + CONFIG.hullRepair
+   * 2026-11-05, epic-10 amendment 11, R1): `press + CONFIG.hullRepair
    * .cooldownMs`, stamped by `abilityReadyAt` on a SUCCESSFUL press only (a
    * refused press — cooling, or a full hull — stamps nothing). OMITTED while
    * the ability is ready (never 0, never an `undefined` value — the
@@ -977,7 +977,7 @@ export interface TorpedoUpdateEvent {
  * constant tag, no origin.
  *
  * `r` — THE FLASH DISC'S RADIUS (Story 10.5, Eric 2026-11-05, epic-10
- * amendment 10, R7). The flash radius is TIERED now (150 u + 25 u a tier), so
+ * amendment 11, R7). The flash radius is TIERED now (150 u + 25 u a tier), so
  * it no longer ships in CONFIG: the server sends the radius it STAMPED on the
  * round at launch (`ShellState.flash.radius`, from the firer's `dazzleShells`
  * row) and the client draws the disc at exactly that size — the in-radius

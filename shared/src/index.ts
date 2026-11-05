@@ -4,7 +4,7 @@
 
 /** Bumped on any breaking change to the client/server wire protocol.
  *  97 — Story 10.5 THE KIT RETIRE AND THE THREE EQUIPMENT SLOTS (Eric
- *  2026-11-05, epic-10 amendment 10): the consumable kit is GONE — join option
+ *  2026-11-05, epic-10 amendment 11): the consumable kit is GONE — join option
  *  `kit`, `OwnShip.kit`, `ConsumableKit` / `ConsumableId`, the `stock` effect
  *  and the `consumable` line and draw kinds; SLOT_COUNT 9 → 5 (`InputMsg.slot`
  *  0..4, `OwnShip.ammo` length 5) with slots 2 / 3 / 4 the torpedo / mine /

@@ -39,7 +39,7 @@
 //   • ability-vs-prime on a belt slot comes from `isWeaponItem` — a consumable
 //     that is not `isWeapon` activates, and the decoy shape primes like Q/E/R.
 //
-// STORY 10.5 (2026-11-05, epic-10 amendment 10) RETIRED THE KIT: the digits
+// STORY 10.5 (2026-11-05, epic-10 amendment 11) RETIRED THE KIT: the digits
 // keep ONLY the refit pick (with the window closed they do nothing, and the
 // close grace went with the second meaning); `C` / `V` press the two cooldown
 // abilities through the ability FIFO, carrying the ability's wire code

@@ -1,5 +1,5 @@
 // THE TWO COOLDOWN ABILITIES' BOT ROWS (Story 10.5, Eric 2026-11-05,
-// epic-10 amendment 10) — HULL REPAIR (`C`) and SMOKE (`V`). Every hull has
+// epic-10 amendment 11) — HULL REPAIR (`C`) and SMOKE (`V`). Every hull has
 // both; neither sits in a slot, so they are NOT tactic-registry rows: the
 // brain asks `chooseCooldownAbility` after the Shift (tactics.ts chooseAct)
 // and the driver sends the ability's wire code on `InputMsg.act`.

@@ -322,7 +322,7 @@ export interface ResultsOwn {
   /** Slot-aligned equipment ids of the own loadout as it ended (`g.ownSlots`:
    *  the replayed `slotIdsFor`), `null` for an empty square. (The kit and the
    *  belt's stock left with the kit — Story 10.5, 2026-11-05, epic-10
-   *  amendment 10.) */
+   *  amendment 11.) */
   slots: readonly (EquipmentId | null)[];
   /** The own effective stats (`g.ownStats`, the hotbar's own fold) — the gun's
    *  tier is read off it, never re-derived. */

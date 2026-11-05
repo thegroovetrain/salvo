@@ -3082,7 +3082,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
 
 /**
  * THE SELF-PRIVATE OWN WINDOWS — `dazzledUntil` (the FLASH SHELLS mark, Story
- * 10.9) and, since Story 10.5 (epic-10 amendment 10), the two COOLDOWN
+ * 10.9) and, since Story 10.5 (epic-10 amendment 11), the two COOLDOWN
  * ABILITIES' `repairReadyAt` / `smokeReadyAt`. NONE is a perception exception
  * (the count stays SIX): each is the viewer's own seat (the `fouledUntil`
  * idiom) and may exist NOWHERE but `you` — so another captain's cooldown

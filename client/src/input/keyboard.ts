@@ -21,7 +21,7 @@
 //                  26: a pulse and a tone, nothing on the wire); ALL suspended
 //                  while the refit modal is open
 //   C / V          the two COOLDOWN ABILITIES (Story 10.5, 2026-11-05, epic-10
-//                  amendment 10): C = HULL REPAIR, V = SMOKE. A TAP through the
+//                  amendment 11): C = HULL REPAIR, V = SMOKE. A TAP through the
 //                  same ability FIFO the Shift uses, carrying the ability's wire
 //                  code; a press the client already knows is refused (cooling,
 //                  or a repair on a full hull — shared `repairRefusal` /
@@ -165,7 +165,7 @@ export const REFIT_DIGIT_CODES: Record<string, number> = {
 };
 
 /**
- * THE TWO COOLDOWN-ABILITY KEYS (Story 10.5, 2026-11-05, epic-10 amendment 10):
+ * THE TWO COOLDOWN-ABILITY KEYS (Story 10.5, 2026-11-05, epic-10 amendment 11):
  * key code → the ability it presses. `C` HULL REPAIR, `V` SMOKE.
  */
 export const ABILITY_KEY_CODES: Readonly<Record<string, CooldownAbilityId>> = { KeyC: 'repair', KeyV: 'smoke' };

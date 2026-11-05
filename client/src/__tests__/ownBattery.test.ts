@@ -1,8 +1,9 @@
 // Story 10.4 — the own battery's predict-and-correct (contract section 4): the
 // client steps its turrets and secondaries heat with the SAME shared steppers
 // the server runs, overwrites them from every own frame, and re-seeds on a
-// hull change. Plus the R4 click verdict: a click fires whenever any turret is
-// ready and is never out of arc.
+// hull change. Plus the click verdict (arc-only fire, epic-10 amendment 10): a
+// click fires exactly when the shared pick names a ready turret whose arc holds
+// the aim, and the weapon is never out of arc.
 
 import { describe, expect, it } from 'vitest';
 import {
@@ -14,6 +15,7 @@ import {
   initialTurrets,
   pickTurret,
   stepSecondaries,
+  turretBears,
   stepTurrets,
   turretMounts,
   ventSecondaries,
@@ -21,7 +23,7 @@ import {
 } from '@salvo/shared';
 import { OwnBattery } from '../sim/ownBattery.js';
 import { PENDING_CAPACITY } from '../sim/prediction.js';
-import { batteryClickPrediction, predictBatteryClick, stepOwnBattery } from '../sim/ownBatteryTick.js';
+import { batteryClickPrediction, batteryWouldFire, predictBatteryClick, stepOwnBattery } from '../sim/ownBatteryTick.js';
 
 const DT = CONFIG.tick.simDtMs;
 const POSE: AimPose = { x: 0, y: 0, heading: 0 };
@@ -35,7 +37,7 @@ describe('OwnBattery — seeded at rest, loaded, cold', () => {
       const b = new OwnBattery(id);
       expect(b.turrets).toEqual(initialTurrets(id));
       expect(b.sec).toEqual(initialSecondaries());
-      expect(b.anyReady()).toBe(true);
+      expect(b.summary().n).toBe(initialTurrets(id).length);
       expect(b.angles()).toEqual(initialTurrets(id).map((t) => t.a));
     }
   });
@@ -125,19 +127,48 @@ describe('OwnBattery.reset — class change / respawn / new match', () => {
   });
 });
 
-describe('the main-battery click (R4)', () => {
-  it('fires while any turret is ready and is never out of arc', () => {
+describe('the main-battery click (arc-only fire)', () => {
+  it('fires while a ready turret bears and is never out of arc', () => {
     const b = new OwnBattery(DEFAULT_CLASS_ID);
-    expect(batteryClickPrediction(b, true, AIM, AIM_DIST)).toEqual({ alive: true, loaded: true, inArc: true });
+    expect(batteryClickPrediction(b, true, POSE, AIM, AIM_DIST)).toEqual({ alive: true, loaded: true, inArc: true });
   });
 
-  it('is denied (cooling) only when nothing is ready', () => {
+  it('is denied (cooling) when nothing is ready', () => {
     const b = new OwnBattery(DEFAULT_CLASS_ID);
     for (let i = 0; i < b.turrets.length; i++) b.fire(i, 5000);
-    const p = batteryClickPrediction(b, true, AIM, AIM_DIST);
+    const p = batteryClickPrediction(b, true, POSE, AIM, AIM_DIST);
     expect(p.loaded).toBe(false);
     expect(p.inArc).toBe(true);
     expect(predictBatteryClick(b, POSE, AIM, AIM_DIST, 5000, 1)).toBeNull();
+  });
+
+  it.each(SHIP_CLASS_IDS)('%s: only NON-BEARING turrets ready (aim dead ahead, the forward turrets spent) — the click is not predicted to fire and no local reload starts', (id) => {
+    const b = new OwnBattery(id);
+    const AHEAD = 0;
+    const point = aimPointOf(POSE, AHEAD, AIM_DIST * 10);
+    turretMounts(id).forEach((m, i) => {
+      expect(turretBears(id, i, POSE, point), `${i}`).toBe(m.facing === 'fwd'); // the premise
+      if (m.facing === 'fwd') b.fire(i, 5000);
+    });
+    const before = b.turrets.map((t) => t.reloadMsLeft);
+    expect(b.summary().n).toBeGreaterThan(0); // the hotbar still counts the loaded aft turrets
+    expect(batteryWouldFire(b, POSE, AHEAD, AIM_DIST * 10)).toBe(false);
+    expect(batteryClickPrediction(b, true, POSE, AHEAD, AIM_DIST * 10)).toEqual({ alive: true, loaded: false, inArc: true });
+    expect(predictBatteryClick(b, POSE, AHEAD, AIM_DIST * 10, 5000, 1)).toBeNull();
+    expect(b.turrets.map((t) => t.reloadMsLeft)).toEqual(before);
+    // …and swing the aim onto the beam: the loaded aft turrets bear, the click fires.
+    expect(batteryClickPrediction(b, true, POSE, AIM, AIM_DIST).loaded).toBe(true);
+  });
+
+  it('the verdict agrees with the shared pick everywhere around the compass, and with no pose nothing fires', () => {
+    const b = new OwnBattery(DEFAULT_CLASS_ID);
+    b.fire(0, 5000);
+    for (let k = 0; k < 72; k++) {
+      const aim = (k * Math.PI) / 36;
+      const pick = pickTurret(b.turrets, DEFAULT_CLASS_ID, POSE, aimPointOf(POSE, aim, AIM_DIST));
+      expect(batteryWouldFire(b, POSE, aim, AIM_DIST), `${k}`).toBe(pick !== null);
+    }
+    expect(batteryClickPrediction(b, true, null, AIM, AIM_DIST).loaded).toBe(false);
   });
 
   it('a predicted shot fires the shared pick and starts exactly that turret reloading', () => {
@@ -215,10 +246,10 @@ describe('no aim (review C5)', () => {
 
   it('a click with aimDist 0 is not predicted to fire and starts no reload', () => {
     const b = new OwnBattery(DEFAULT_CLASS_ID);
-    expect(batteryClickPrediction(b, true, AIM, 0).loaded).toBe(false);
+    expect(batteryClickPrediction(b, true, POSE, AIM, 0).loaded).toBe(false);
     expect(predictBatteryClick(b, POSE, AIM, 0, 5000, 1)).toBeNull();
     expect(b.turrets.every((t) => t.reloadMsLeft === 0)).toBe(true);
-    expect(batteryClickPrediction(b, true, AIM, AIM_DIST).loaded).toBe(true);
+    expect(batteryClickPrediction(b, true, POSE, AIM, AIM_DIST).loaded).toBe(true);
   });
 });
 

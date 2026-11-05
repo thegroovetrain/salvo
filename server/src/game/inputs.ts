@@ -109,7 +109,7 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
   if (!numericFieldsFinite(m)) return null;
   if (!isSlotIndex(m.slot)) return null;
   // Story 1.6 ability-activation fields, validated like their precedents:
-  // actSeq the fireSeq-style counter, and (Story 10.5, epic-10 amendment 10)
+  // actSeq the fireSeq-style counter, and (Story 10.5, epic-10 amendment 11)
   // `act` the ABILITY CODE — the shared `abilityFromCode` must name one
   // (0 Shift, 1 HULL REPAIR, 2 SMOKE); an unknown code drops the whole
   // message, never partially applying.

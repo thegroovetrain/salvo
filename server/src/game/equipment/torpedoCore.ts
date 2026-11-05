@@ -6,7 +6,7 @@
 //   heavyTorpedo    — equipment, bow sector (CONFIG.torpedo)
 //   lightTorpedo    — equipment, TWIN beam sectors (CONFIG.lightTorpedo)
 //   supercavTorpedo — equipment, bow +/-15 deg (CONFIG.supercavTorpedo; a
-//                     slot weapon again since Story 10.5, epic-10 amendment 10)
+//                     slot weapon again since Story 10.5, epic-10 amendment 11)
 //
 // Everything else about a fish is the FAMILY's (epic-8 amendment 84e —
 // `CONFIG.torpedo` is the heavy's block AND the family's shared fields): the

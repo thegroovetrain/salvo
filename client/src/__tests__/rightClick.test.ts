@@ -1,5 +1,5 @@
 // THE RIGHT BUTTON WITH A READIED WEAPON (Story 10.5, 2026-11-05, epic-10
-// amendment 10 — orchestrator ruling B). The pure decision
+// amendment 11 — orchestrator ruling B). The pure decision
 // (input/rightClick.ts) and its wiring through the real MouseInput +
 // KeyboardInput pair (the prime model is the keyboard's): a right PRESS with a
 // weapon readied cancels the ready and fires NO secondaries; while a weapon is

@@ -1,4 +1,4 @@
-// THE ABILITIES (Story 10.5, Eric 2026-11-05, epic-10 amendment 10) — the
+// THE ABILITIES (Story 10.5, Eric 2026-11-05, epic-10 amendment 11) — the
 // three instant, un-aimed presses every captain has: the seat's SHIFT (slot 1,
 // unchanged — its pool and reload are an equipment row), and the two UNIVERSAL
 // COOLDOWN ABILITIES that replaced the consumable kit: HULL REPAIR on `C` and

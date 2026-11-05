@@ -1,5 +1,5 @@
 // THE TWO BURST SHELLS AS SLOT WEAPONS (Story 10.5, Eric 2026-11-05, epic-10
-// amendment 10, R4 / R7): FLASH SHELLS (`dazzleShells`) and the FOULING SHELL
+// amendment 11, R4 / R7): FLASH SHELLS (`dazzleShells`) and the FOULING SHELL
 // sit in the special-shell family slot on the standard reload pool, and their
 // TIER widens the burst — `CONFIG.<block>.radius + radiusStepPerTier × (N − 1)`
 // at tier N. The radius is STAMPED on the shell at launch and is the one the

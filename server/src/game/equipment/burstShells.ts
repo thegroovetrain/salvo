@@ -1,10 +1,10 @@
 // THE TWO BURST SHELLS — FLASH SHELLS (id `dazzleShells`) and the FOULING
-// SHELL — as SLOT WEAPONS (Story 10.5, Eric 2026-11-05, epic-10 amendment 10,
+// SHELL — as SLOT WEAPONS (Story 10.5, Eric 2026-11-05, epic-10 amendment 11,
 // R4 / R7). Both were belt consumables (Story 8.17 / 9.4 / 10.9); both now sit
 // in the special-shell slot (`R`) on the standard reload pool (equipment/
-// ammo.ts): one round, R4's reload and the −5 %/tier step folded into the row
-// by `effectiveStats`, like every slot weapon (RELOAD never touches it —
-// Story 10.5, R9).
+// ammo.ts): one round, R4's reload, the −5 %/tier step and RELOAD's scale
+// folded into the row by `effectiveStats`, like every slot weapon (Story
+// 10.5, R11).
 //
 // THE FIRE FLOW IS UNCHANGED: a CLICK fires ONE 360° gun-pattern shell to the
 // click, clamped at the row's `rangeU` (the fouling shell's reach — one dial

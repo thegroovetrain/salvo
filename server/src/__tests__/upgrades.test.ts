@@ -764,7 +764,7 @@ function ladderLine(id: string, cap = 1): CatalogLine {
 // ---------- the EXHAUSTED hull: a short or EMPTY offer (Story 10.5) ----------
 //
 // Amendment 94's "the offer is never empty" stood on the consumables, which
-// were ALWAYS eligible. They are gone (Story 10.5, epic-10 amendment 10), so a
+// were ALWAYS eligible. They are gone (Story 10.5, epic-10 amendment 11), so a
 // hull holding every ladder and all three family-slot weapons at cap has
 // NOTHING left to draw. Orchestrator ruling: an empty offer is never opened as
 // a refit window and never throws — the level banks with no hand behind it.
@@ -1156,12 +1156,14 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     return Math.round((1 / (1 + (reload - CONFIG.index.base) / CONFIG.index.base)) * 1000) / 1000;
   };
 
-  it('RELOAD shortens the TURRETS only — a fired turret starts the SCALED reload, a consumed torpedo round its OWN unscaled reload (Story 10.5, R9)', () => {
+  it('RELOAD: ONE stack shortens the turrets AND the Q / E / R weapons — a fired TURRET and a consumed torpedo round both start the SCALED reload (Story 10.5, R11)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     // THE TUBES ARE A CARD NOW (Story 8.10): the spawn seed is gone, so this
     // fire-path fixture fits the TB's torpedo explicitly.
     fitClassWeapons(w, a);
+    // The torpedo row before the stack, as read through the hull's own scale.
+    const torpBefore = a.stats.equipment.heavyTorpedo.reloadMs / a.stats.cooldownScale;
     stack(w, a, 'reload', CATALOG.reload.cap); // the full stack
     const scale = a.stats.cooldownScale;
     expect(scale).toBeLessThan(1); // non-vacuity: the ladder shortens reloads
@@ -1172,9 +1174,10 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     expect(scale).toBe(Math.round(scale * 1000) / 1000);
     const R = a.stats.equipment.mainBattery.reloadMs;
     expect(R).toBeLessThan(effectiveStats(a.cls).equipment.mainBattery.reloadMs); // the card shortened the turrets
-    // R9: the slot weapon reloads on its own number and tier step alone.
-    const T = effectiveStats(a.cls, ['heavyTorpedo']).equipment.heavyTorpedo.reloadMs;
-    expect(a.stats.equipment.heavyTorpedo.reloadMs).toBe(T);
+    // R11: the slot weapon takes the same scale on top of its own tier step.
+    const T = a.stats.equipment.heavyTorpedo.reloadMs;
+    expect(T).toBeCloseTo(torpBefore * scale, 6);
+    expect(T).toBeLessThan(effectiveStats(a.cls, ['heavyTorpedo']).equipment.heavyTorpedo.reloadMs);
 
     // The MAIN BATTERY's fire path reads the scaled reload, not raw CONFIG:
     // exactly ONE turret fires and starts exactly R (Story 10.4).
@@ -1183,34 +1186,38 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     expect(a.turrets.filter((t) => t.reloadMsLeft > 0).map((t) => t.reloadMsLeft)).toEqual([R]);
     expect(a.loadout[SLOT_GUN].state).toEqual({ n: a.turrets.length - 1, reloadMsLeft: R });
 
-    // ...but the TORPEDO's fire path starts its own, unscaled reload.
+    // ...and so does the TORPEDO's — the SAME stack, a different weapon.
     fire(a, 2, SLOT_TORPEDO, 0);
     w.step();
     expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(0);
     expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBe(T);
   });
 
-  it('RELOAD leaves the (seated, undealt) BROADSIDE alone: it returns on exactly its own clock (Story 10.5, R9 / R10)', () => {
+  it('RELOAD: the (seated, undealt) BROADSIDE takes the same scale like the slot weapons and returns on exactly the scaled clock (Story 10.5, R11)', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 0, 0, 0, 'yamato');
     fitClassWeapons(w, bb); // the class cards, fitted explicitly (Story 8.10)
-    const R = bb.stats.equipment.broadside.reloadMs;
+    const unscaled = bb.stats.equipment.broadside.reloadMs;
+    const scaleBefore = bb.stats.cooldownScale;
     stack(w, bb, 'reload', CATALOG.reload.cap);
-    expect(bb.stats.cooldownScale).toBeLessThan(1);
-    expect(bb.stats.equipment.broadside.reloadMs).toBe(R);
+    expect(bb.stats.cooldownScale).toBeLessThan(scaleBefore);
+    const R = bb.stats.equipment.broadside.reloadMs;
+    expect(R).toBeCloseTo((unscaled / scaleBefore) * bb.stats.cooldownScale, 6);
     fire(bb, 1, SLOT_BROADSIDE, 300, Math.PI / 2); // abeam — inside the beam sector
     w.step();
     expect(bb.loadout[SLOT_BROADSIDE].state!.n).toBe(0);
     expect(bb.loadout[SLOT_BROADSIDE].state!.reloadMsLeft).toBe(R);
 
-    // ...and the authoritative tick returns the barrage on that clock: still
-    // empty one tick short of it, back on the tick that crosses zero.
+    // ...and the authoritative tick returns the barrage on the scaled clock:
+    // still empty one tick short of it, back on the tick that crosses zero —
+    // never one tick of float-dust slop later.
     bb.input = { ...bb.input!, fireSeq: 0, seq: 2 };
     const ticks = Math.ceil(R / DT);
     for (let i = 0; i < ticks - 1; i++) w.step();
     expect(bb.loadout[SLOT_BROADSIDE].state!.n).toBe(0);
     w.step();
     expect(bb.loadout[SLOT_BROADSIDE].state!.n).toBe(1);
+    expect(ticks * DT).toBeLessThan(unscaled); // the pre-stack clock would still be running
   });
 
   it('RELOAD: the AUTHORITATIVE turret step restores the fired turret on the SCALED clock, to the tick, not the base clock', () => {
@@ -1242,11 +1249,12 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
   // positive. Driven through the real World tick, not effectiveStats.
   // STORY 10.4: slot 0 is the main battery, whose pool is DERIVED from the
   // turrets (contract §8.10: a turret's running reload keeps its countdown),
-  // STORY 10.5 (R9 / R10): a RELOAD card moves only the TURRETS' clocks; a
-  // slot weapon's clock moves only under its OWN tier card. The per-round
-  // slot these pins measure is the HEAVY TORPEDO in Q, held at TORP_BASE_TIER
-  // so the next copies step the reload WITHOUT adding a tube (a tube-up tier
-  // raises the cap, and "everything arrives loaded" would fill the pool).
+  // STORY 10.5 (R10 / R11): a RELOAD card moves the turrets' and the slot
+  // weapons' clocks (never a Shift's); a slot weapon's OWN tier card moves its
+  // clock the same way. The per-round slot these pins measure is the HEAVY
+  // TORPEDO in Q, held at TORP_BASE_TIER so the next copies step the reload
+  // WITHOUT adding a tube (a tube-up tier raises the cap, and "everything
+  // arrives loaded" would fill the pool).
 
   /** Heavy-torpedo copies held before the measured tier card: the last tier
    *  that adds a tube, so every later copy is a reload-only step. */
@@ -1264,17 +1272,21 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     for (let i = 0; i < half; i++) w.step();
   }
 
-  it('a mid-reload RELOAD grant leaves a slot weapon\'s running clock BYTE-identical (Story 10.5, R9)', () => {
+  it('a mid-reload RELOAD grant PRESERVES a slot weapon\'s progress fraction on the new clock (Story 10.5, R11)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     torpAtHalfReload(w, a);
-    const R = a.stats.equipment.heavyTorpedo.reloadMs;
+    const oldR = a.stats.equipment.heavyTorpedo.reloadMs;
     const left = a.loadout[SLOT_TORPEDO].state!.reloadMsLeft;
     expect(left).toBeGreaterThan(0);
-    stack(w, a, 'reload', CATALOG.reload.cap);
-    expect(a.stats.cooldownScale).toBeLessThan(1);
-    expect(a.stats.equipment.heavyTorpedo.reloadMs).toBe(R);
-    expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBe(left);
+    expect(left).toBeLessThan(oldR);
+
+    w.applyCard(a, 'reload');
+    const newR = a.stats.equipment.heavyTorpedo.reloadMs;
+    expect(newR).toBeLessThan(oldR);
+    // left × (new / old) — the same fraction remaining, on the new clock.
+    expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBeCloseTo(left * (newR / oldR), 9);
+    expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft / newR).toBeCloseTo(left / oldR, 12);
   });
 
   it('a mid-reload TIER card of the weapon itself PRESERVES the progress fraction on the new clock', () => {
@@ -1339,7 +1351,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     const a = place(w, 'a', 0, 0);
     torpAtHalfReload(w, a);
     const nBefore = a.loadout[SLOT_TORPEDO].state!.n;
-    w.applyCard(a, 'heavyTorpedo');
+    w.applyCard(a, 'reload');
     expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(nBefore); // no round handed out
     expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBeGreaterThan(0);
     // ...and the very next tick does not conjure one either.
@@ -1347,14 +1359,14 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(nBefore);
   });
 
-  it('a mid-reload run of the weapon\'s own tier cards to its cap lands the round on the RESCALED clock, not the time it had left', () => {
+  it('a mid-reload full RELOAD stack lands the round on the RESCALED clock, not the time it had left', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     torpAtHalfReload(w, a);
     const oldR = a.stats.equipment.heavyTorpedo.reloadMs;
     const left = a.loadout[SLOT_TORPEDO].state!.reloadMsLeft;
     const nBefore = a.loadout[SLOT_TORPEDO].state!.n;
-    stack(w, a, 'heavyTorpedo', CATALOG.heavyTorpedo.cap - TORP_BASE_TIER);
+    stack(w, a, 'reload', CATALOG.reload.cap);
     const rescaled = left * (a.stats.equipment.heavyTorpedo.reloadMs / oldR);
     expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBeCloseTo(rescaled, 6);
 
@@ -1386,7 +1398,7 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
       if (slot.state === null) continue;
       expect(slot.state.reloadMsLeft).toBe(0);
     }
-    stack(w, a, 'reload', CATALOG.reload.cap); // the turret reloads move; no timer is running
+    stack(w, a, 'reload', CATALOG.reload.cap); // every weapon reload moves; no timer is running
     for (const slot of a.loadout) {
       if (slot.state === null) continue;
       expect(slot.state.reloadMsLeft).toBe(0);

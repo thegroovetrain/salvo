@@ -63,7 +63,7 @@ describe('STEP_ORDER identity (exact ratified tick order)', () => {
       // expiry sweep below. See the row comment in world.ts.
       'applyFoulZones',
       // (Story 10.9's `expireBuoys` and `applyBuoyEffects` rows left with the
-      // buoys, Story 10.5 — 2026-11-05, epic-10 amendment 10.) tickRepairs
+      // buoys, Story 10.5 — 2026-11-05, epic-10 amendment 11.) tickRepairs
       // pays the HULL REPAIR pool and, since Story 10.5 (R8), the passive
       // regen — still dead last among the hp movers.
       'tickRepairs',

@@ -45,7 +45,7 @@ describe('the refit card rows — an unresolvable hull renders nothing, never th
 
 describe('cooldownAbilityDenied — an unresolvable hull never claims FULL', () => {
   // STORY 8.8's belt guard, RE-HOMED on the `C` key by Story 10.5 (2026-11-05,
-  // epic-10 amendment 10): a HULL REPAIR press pre-denies at full hull, so the
+  // epic-10 amendment 11): a HULL REPAIR press pre-denies at full hull, so the
   // same fail-open rule has to hold — an unknown hull must NOT be told it is
   // full. The stamp is absent (ready) throughout, so only the hull decides.
   const facts = (hp: number, maxHp: number, sinking = false) => ({ hp, maxHp, sinking, now: 0 });

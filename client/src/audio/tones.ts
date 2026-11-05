@@ -84,7 +84,7 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // (a flare climbing into the sky), no heavy noise: not a gun, not a fish.
   fireStarShells: { freqStart: 360, freqMid: 640, freqEnd: 900, duration: 0.13, volume: 0.4, type: 'triangle' },
   // (The decoy/buoy placement cue left with the buoys — Story 10.5,
-  // 2026-11-05, epic-10 amendment 10: nothing is placed but a mine.)
+  // 2026-11-05, epic-10 amendment 11: nothing is placed but a mine.)
   // Denied press (Story 1.10 — FR12 "never silence"): a curt low square BLAT,
   // pitched fast downward with no noise layer — reads as a refusal, distinct
   // from every success cue (the gun family cracks start ≥520Hz with noise, the

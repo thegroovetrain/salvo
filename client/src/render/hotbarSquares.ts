@@ -1,5 +1,5 @@
 // THE HOTBAR'S SQUARE INDEX SPACE (Story 10.5, 2026-11-05, epic-10 amendment
-// 10). The bar draws one square per LOADOUT SLOT (shared `SLOT_COUNT` — gun,
+// 11). The bar draws one square per LOADOUT SLOT (shared `SLOT_COUNT` — gun,
 // Shift, Q / E / R) and then one per COOLDOWN ABILITY that holds no slot:
 // HULL REPAIR on `C` and SMOKE on `V` (shared sim/abilities.ts). A square index
 // below `SLOT_COUNT` IS the loadout slot; the two after it are the abilities,

@@ -53,8 +53,8 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
       expect(arcFor(id), id).toEqual({ kind: 'full' });
     }
     // …and so is THE MAIN BATTERY (Story 10.4): every bearing is inside some
-    // turret's arc and a click always fires (R4), so the weapon is never
-    // denied out-of-arc. Which turrets bear is sim/turrets.ts.
+    // turret's arc, so the weapon as a whole is never denied out-of-arc.
+    // Which turrets bear (and so may fire) is sim/turrets.ts.
     expect(arcFor('mainBattery')).toEqual({ kind: CONFIG.mainBattery.arc });
     expect(arcFor('mainBattery')).toEqual({ kind: 'full' });
   });

@@ -6,7 +6,7 @@
 // and the one STUB line (DEPTH CHARGE, 5).
 //
 // THE COUNT MOVED 28/137 -> 21/102 IN STORY 10.5 (Eric 2026-11-05, epic-10
-// amendment 10): THE KIT IS RETIRED. Seven consumable lines are DELETED —
+// amendment 11): THE KIT IS RETIRED. Seven consumable lines are DELETED —
 // HULL REPAIR and SMOKE (`countermeasure`) became the `C` / `V` cooldown
 // abilities every ship carries (sim/abilities.ts), SHIELD BLOCK and the four
 // buoys are gone outright — and three CHANGED KIND in their seats, consumable
@@ -143,7 +143,7 @@ import {
  * re-sort it.
  *
  * STORY 10.5 DELETED SEVEN AND MOVED NOTHING (28 -> 21; Eric 2026-11-05,
- * epic-10 amendment 10): `hullRepair`, `shieldBlock`, `countermeasure`,
+ * epic-10 amendment 11): `hullRepair`, `shieldBlock`, `countermeasure`,
  * `radarBuoy`, `healingBuoy`, `shieldBuoy` and `speedBuoy` are GONE — no
  * alias, their seats close. `supercavTorpedo`, `foulingShell` and
  * `dazzleShells` KEEP their seats and change KIND to `equipment` (the
@@ -236,7 +236,7 @@ export const LINE_IDS = [
   'starShells',
   // --- the one STUB ----------------------------------------------------------
   // `hullRepair`, `shieldBlock` and `countermeasure` sat here until Story 10.5
-  // DELETED them with the kit (Eric 2026-11-05, epic-10 amendment 10).
+  // DELETED them with the kit (Eric 2026-11-05, epic-10 amendment 11).
   // DEPTH CHARGE (Eric ruling 2026-09-19, epic-8 amendments 80/83): Eric's
   // line, mechanism a later story — never dealt.
   'depthCharge',
@@ -262,7 +262,7 @@ export type LineId = (typeof LINE_IDS)[number];
  * amendment 8): an `equipment` line whose copy 1 fits a weapon, a universal
  * `ladder` of stat steps, an `addon` that bolts a verb onto equipment it
  * names. The fourth, `consumable` (copies stocked a rack), is DELETED with the
- * kit (2026-11-05, Story 10.5, epic-10 amendment 10).
+ * kit (2026-11-05, Story 10.5, epic-10 amendment 11).
  */
 export type LineKind = 'equipment' | 'ladder' | 'addon';
 
@@ -546,7 +546,7 @@ function phosphorTier(damageStep: number, dpsStep: number, durationStepMs: numbe
 
 /**
  * One upgrade tier of FLASH SHELLS or the FOULING SHELL (Eric 2026-11-05,
- * Story 10.5, epic-10 amendment 10, R7): the burst radius +`radiusStepPerTier`
+ * Story 10.5, epic-10 amendment 11, R7): the burst radius +`radiusStepPerTier`
  * (25 u — 150 → 250 at V). The step is read from CONFIG ONCE, at module load
  * (the `rangeStep` precedent above): the catalog is frozen at load, so a
  * harness `--tune` moves the Tier I base only. The −5 %/tier reload is the
@@ -662,11 +662,11 @@ export const CATALOG: Catalog = deepFreezeRows({
   // +20 RELOAD per tier; cooldownScale = 1 / (1 + (RELOAD − 100) / 100), so
   // 120 = ×0.833 and 200 = ×0.5 at the cap (was −5 % additive per tier,
   // 1.0 → 0.75). MULTIPLICATIVE on the index: each card buys a little less
-  // than the last. Scope (Story 10.5, R9 / R10, epic-10 amendment 10 —
+  // than the last. Scope (Story 10.5, R10 / R11, epic-10 amendment 11 —
   // supersedes R40's "every equipment reload AND the Shift cooldowns"): the
-  // MAIN BATTERY's turret reloads only (plus the legacy deck-gun rows,
-  // `RELOAD_SCALED_ROWS` in sim/stats.ts). NOT the Q / E / R weapons, NOT
-  // the Shifts, NOT the secondaries, NOT `C` / `V` (R3).
+  // main battery's turret reloads and every Q / E / R weapon (plus the legacy
+  // deck-gun rows). NOT the Shifts (`RELOAD_UNSCALED_ROWS` in sim/stats.ts),
+  // NOT the secondaries, NOT `C` / `V` (R3).
   reload: ladder('reload', 5, [statEffect('reload', { add: 20 })]),
   // PASSIVE HEALING (+0.6 %/s missing hull, −1 s wait ×5) sat here until
   // Story 10.3 DELETED it (Eric 2026-11-04, epic-10 amendment 8) together
@@ -732,7 +732,7 @@ export const CATALOG: Catalog = deepFreezeRows({
     torpedoTier('heavyTorpedo', 75, false),
   ]),
   // SUPERCAVITATING TORPEDO (Eric 2026-11-05, Story 10.5, epic-10 amendment
-  // 10, R4): a TORPEDO-SLOT equipment line again (a consumable from amendment
+  // 11, R4): a TORPEDO-SLOT equipment line again (a consumable from amendment
   // 74 until then) — one tube, 45 s reload. Tiers II–V each +100 damage
   // (400/500/600/700/800 — epic-10 amendment 8(e): "SUPERCAVITATING 400 → 800
   // over their tiers") and nothing else: it never homes, the speed and the
@@ -829,7 +829,7 @@ export const CATALOG: Catalog = deepFreezeRows({
   ]),
   // --- the one STUB ----------------------------------------------------------
   // HULL REPAIR, SHIELD BLOCK and the COUNTERMEASURE line sat here until Story
-  // 10.5 deleted them with the kit (Eric 2026-11-05, epic-10 amendment 10):
+  // 10.5 deleted them with the kit (Eric 2026-11-05, epic-10 amendment 11):
   // HULL REPAIR and SMOKE are the `C` / `V` abilities (sim/abilities.ts,
   // CONFIG.hullRepair / CONFIG.countermeasure), the shield is gone.
   // DEPTH CHARGE (amendment 83): Eric's line, mechanism a later story — a STUB
@@ -852,7 +852,7 @@ export const CATALOG: Catalog = deepFreezeRows({
   // FOULING SHELL (Story 9.4, Eric 2026-10-11, epic-9 amendments 61–68): one
   // 360° shell whose burst leaves a stationary zone that slows every hull
   // whose outline touches it, the firer's included. A SPECIAL-SHELL-SLOT
-  // equipment line since Story 10.5 (Eric 2026-11-05, epic-10 amendment 10,
+  // equipment line since Story 10.5 (Eric 2026-11-05, epic-10 amendment 11,
   // R4 / R7): 30 s reload; tiers II–V each +25 u of zone radius (150 → 250).
   // CONFIG.foulingShell.
   foulingShell: tieredWeapon(
@@ -877,7 +877,7 @@ export const CATALOG: Catalog = deepFreezeRows({
   // FLASH SHELLS (epic-8 amendment 132, restored by 10.9): one 360° shell on
   // the FOULING SHELL's click path (same reach) whose burst whites out every
   // non-owner hull inside it. A SPECIAL-SHELL-SLOT equipment line since Story
-  // 10.5 (Eric 2026-11-05, epic-10 amendment 10, R4 / R7): 30 s reload; tiers
+  // 10.5 (Eric 2026-11-05, epic-10 amendment 11, R4 / R7): 30 s reload; tiers
   // II–V each +25 u of burst radius (150 → 250). CONFIG.flashShells.
   // (The four buoys that followed it here are DELETED by Story 10.5.)
   dazzleShells: tieredWeapon(

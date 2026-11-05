@@ -1,5 +1,5 @@
 // THE RIGHT BUTTON'S TWO MEANINGS (Story 10.5, 2026-11-05, epic-10 amendment
-// 10 — orchestrator ruling B). Pure, no DOM.
+// 11 — orchestrator ruling B). Pure, no DOM.
 //
 // With a slot WEAPON READIED (Q / E / R primed — the client-local prime model,
 // input/keyboard.ts), a right PRESS CANCELS the ready and fires nothing: the

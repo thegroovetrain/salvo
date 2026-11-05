@@ -381,7 +381,7 @@ describe('stormEnterEdge', () => {
 
 describe('fitDetune — one fit family, four kind voices', () => {
   // The THREE kinds the catalog's type declares since Story 10.5 deleted the
-  // `consumable` kind with the kit (2026-11-05, epic-10 amendment 10).
+  // `consumable` kind with the kit (2026-11-05, epic-10 amendment 11).
   const KINDS: readonly LineKind[] = ['equipment', 'ladder', 'addon'];
   const USED = [...new Set(Object.values(CATALOG).map((line) => line.kind))];
 

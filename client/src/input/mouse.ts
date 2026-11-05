@@ -64,7 +64,7 @@
 // so a sub-sample tap still yields one `sec: true`. Pointer Events report a
 // SECOND button pressed during a hold as a `pointermove` carrying that
 // `button` (not a pointerdown), so the move handler reads the right button's
-// THE READIED WEAPON (Story 10.5, 2026-11-05, epic-10 amendment 10 — ruling
+// THE READIED WEAPON (Story 10.5, 2026-11-05, epic-10 amendment 11 — ruling
 // B): with a slot weapon readied, a right PRESS cancels the ready and fires
 // nothing (input/rightClick.ts `rightPressVerdict`), and the secondaries level
 // is masked for as long as the ready lasts (`secondariesLevel`). Both read the

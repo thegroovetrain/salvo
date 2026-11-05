@@ -5,7 +5,7 @@
 // literally (epic-8 amendment 31 — the July 1.6x micro lift does NOT apply to
 // the bar's surfaces), with the one ruled change that BOTH globes are 104 px
 // (amendment 32; the mock draws the HP globe at 96 and the helm at 104).
-// STORY 10.5 (2026-11-05, epic-10 amendment 10) retired the framed consumable
+// STORY 10.5 (2026-11-05, epic-10 amendment 11) retired the framed consumable
 // belt with the kit: the run reads Gun · Sec · Shift · Q · E · R · C · V, every
 // square at the one slot size, and the width FORMULA is what is pinned, never a
 // count or a pixel total.

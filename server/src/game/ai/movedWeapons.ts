@@ -1,5 +1,5 @@
 // THE THREE MOVED WEAPONS' BOT ROWS (Story 10.5, Eric 2026-11-05, epic-10
-// amendment 10) — the SUPERCAVITATING TORPEDO, FLASH SHELLS (`dazzleShells`)
+// amendment 11) — the SUPERCAVITATING TORPEDO, FLASH SHELLS (`dazzleShells`)
 // and the FOULING SHELL were belt consumables; they are slot weapons now (`Q`
 // torpedo, `R` special shell) on the standard reload pool, so their rows sit
 // in the WEAPON table (ai/equipment.ts `WEAPON_TACTICS`) and fire through the

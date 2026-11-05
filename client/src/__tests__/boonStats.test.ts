@@ -162,18 +162,18 @@ describe('HUD denominators react to effective stats', () => {
   // PIN INVERTED (2026-08-04): the per-equipment reload lines are gone and ONE
   // universal RELOAD card scales every cooldown at once. RETUNED by catalog v3
   // (R12, Eric's sheet): −5 % per tier over five tiers, cap 25 % — was −10 %
-  // per copy to 50 %. RE-SCOPED by Story 10.5 (R9 / R10, epic-10 amendment
-  // 10): RELOAD is the MAIN BATTERY's stat (the legacy deck gun keeps it); a
-  // Q / E / R weapon, BROADSIDE and the Shifts reload on their own numbers.
-  it('cooldown chips: ONE RELOAD stack scales the main battery (and the deck gun) and NO slot weapon or Shift', () => {
+  // per copy to 50 %. RE-SCOPED by Story 10.5 (R10 / R11, epic-10 amendment
+  // 11): RELOAD scales the main battery and the Q / E / R weapons (BROADSIDE
+  // and the legacy deck gun too); the Shifts reload on their own numbers.
+  it('cooldown chips: ONE RELOAD stack scales the main battery and every slot weapon, and NO Shift', () => {
     const base = effectiveStats(TB);
     const drilled = statsFor(TB, { reload: 1 });
     expect(drilled.cooldownScale).toBeLessThan(1);
     expect(drilled.cooldownScale).toBeGreaterThan(0);
-    for (const id of ['mainBattery', 'gun'] as const) {
-      expect(equipmentReloadMs(drilled, id), id).toBe(equipmentReloadMs(base, id) * drilled.cooldownScale);
+    for (const id of ['mainBattery', 'gun', 'broadside', 'heavyTorpedo', 'navalMines', 'starShells'] as const) {
+      expect(equipmentReloadMs(drilled, id), id).toBeCloseTo(equipmentReloadMs(base, id) * drilled.cooldownScale, 9);
     }
-    for (const id of ['broadside', 'heavyTorpedo', 'navalMines', 'starShells', 'boost'] as const) {
+    for (const id of ['boost', 'instantReload', 'hunker'] as const) {
       expect(equipmentReloadMs(drilled, id), id).toBe(equipmentReloadMs(base, id));
     }
     // ...and nothing that is not a cooldown moves with it.
@@ -196,7 +196,8 @@ describe('HUD denominators react to effective stats', () => {
     expect(maxed.cooldownScale).toBeCloseTo(1 / (1 + (maxed.reload - base) / base), 3);
     expect(maxed.cooldownScale).not.toBeCloseTo(one.cooldownScale ** 5, 3);
     expect(equipmentReloadMs(maxed, 'gun')).toBe(CONFIG.gun.reloadMs * maxed.cooldownScale);
-    expect(equipmentReloadMs(maxed, 'broadside')).toBe(CONFIG.broadside.reloadMs); // R9 / R10: unscaled
+    expect(equipmentReloadMs(maxed, 'broadside')).toBeCloseTo(CONFIG.broadside.reloadMs * maxed.cooldownScale, 9); // R11: scaled
+    expect(equipmentReloadMs(maxed, 'boost')).toBe(CONFIG.boost.reloadMs); // R10: a Shift is unscaled
   });
 
   // The whole ladder, rung by rung: 1 / .95 / .9 / .85 / .8 / .75 — every step
@@ -210,7 +211,7 @@ describe('HUD denominators react to effective stats', () => {
       if (n > 0) expect(scale, `stack ${n}`).toBeLessThan(ladder[n - 1]);
       const s = statsFor(TB, { reload: n });
       expect(equipmentReloadMs(s, 'gun'), `gun @ ${n}`).toBe(CONFIG.gun.reloadMs * scale);
-      expect(equipmentReloadMs(s, 'broadside'), `broadside @ ${n}`).toBe(CONFIG.broadside.reloadMs); // R9 / R10: unscaled
+      expect(equipmentReloadMs(s, 'broadside'), `broadside @ ${n}`).toBeCloseTo(CONFIG.broadside.reloadMs * scale, 9); // R11: scaled
     });
   });
 

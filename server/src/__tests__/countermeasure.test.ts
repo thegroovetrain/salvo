@@ -4,7 +4,7 @@
 // cloud is a CLIENT VISUAL OVERLAY; the server hides nothing):
 //
 //   • the PRESS — the SMOKE ability on `V` since Story 10.5 (2026-11-05,
-//     epic-10 amendment 10, R2): a press makes ONE stationary cloud at the
+//     epic-10 amendment 11, R2): a press makes ONE stationary cloud at the
 //     hull's CENTRE, born now, deleted at now + lifeMs, and starts the fixed
 //     cooldown (`smokeReadyAt = abilityReadyAt(now, 'smoke')`); a press inside
 //     the cooldown is refused `cooling`; a ready RE-PRESS makes a second full

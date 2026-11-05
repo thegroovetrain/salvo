@@ -117,7 +117,7 @@ const CLASS_KEY = 'hullcracker.class';
  *  pick), stored beside the class. */
 export const SHIFT_KEY = 'hullcracker.shift';
 // (`hullcracker.kit` — the consumable kit — is never read since Story 10.5,
-// 2026-11-05, epic-10 amendment 10: a saved value is simply ignored.)
+// 2026-11-05, epic-10 amendment 11: a saved value is simply ignored.)
 const MODE_KEY = 'hullcracker.mode';
 
 const NOTE_CONNECTING = 'CONNECTING…'; // re-asserted when PLAY is pressed mid-connect

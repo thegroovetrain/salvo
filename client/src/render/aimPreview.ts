@@ -326,12 +326,14 @@ function asLoaded(turrets: readonly TurretState[]): readonly TurretState[] {
 }
 
 /**
- * THE MAIN BATTERY (Story 10.4, R4): the SHARED turret pick + salvo — the two
- * calls the server fires with — over the predicted turret state, so the preview
- * is where the next salvo lands: on the aim point when a ready turret is on
- * target, along that turret's current bearing otherwise. Nothing ready: the
- * pick is made as if every turret were loaded (the turret that will fire first
- * is the one the player is waiting on). One line + one burst per shell.
+ * THE MAIN BATTERY (Story 10.4; arc-only fire, epic-10 amendment 10): the
+ * SHARED turret pick + salvo — the two calls the server fires with — over the
+ * predicted turret state, so the preview is where the next salvo lands: on the
+ * aim point when a ready bearing turret is on target, along that turret's
+ * current bearing otherwise. No ready turret bears: the pick is made as if
+ * every turret were loaded — still only among the turrets whose arc holds the
+ * aim (the turret that will fire first is the one the player is waiting on).
+ * One line + one burst per shell.
  */
 function mainBatteryPreview(inp: AimPreviewInput): AimPreviewModel {
   const row = inp.stats.equipment.mainBattery;
@@ -508,7 +510,7 @@ function phosphorShellPreview(inp: AimPreviewInput): AimPreviewModel {
  * THE FOULING SHELL (Story 9.4, epic-9 amendments 61–68): the star-shell
  * preview pattern — one 360° shell to the click at its OWN reach (the row's
  * `rangeU`), with the foul zone's circle at the row's TIERED `radius` (Story
- * 10.5, 2026-11-05, epic-10 amendment 10 — R7: +25 u a tier; a slot weapon
+ * 10.5, 2026-11-05, epic-10 amendment 11 — R7: +25 u a tier; a slot weapon
  * reads its fold, never CONFIG). Drawn in the quieter EFFECT register like the
  * flare: the shell deals no damage.
  */

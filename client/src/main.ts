@@ -122,7 +122,7 @@ import { conningFlag, founderDue, isSinkingNow } from './sim/sinkingWindow.js';
 import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
 import { OwnFireLatch } from './sim/ownFire.js';
 import { OwnBattery } from './sim/ownBattery.js';
-import { batteryClickPrediction, predictBatteryClick, stepOwnBattery, type OwnBatteryGate } from './sim/ownBatteryTick.js';
+import { batteryClickPrediction, batteryWouldFire, predictBatteryClick, stepOwnBattery, type OwnBatteryGate } from './sim/ownBatteryTick.js';
 import { startLoop, type LoopCallbacks, type LoopPhase } from './app/loop.js';
 import { makeReturnToPort } from './app/returnToPort.js';
 import { collapseLanding, makeRequeue } from './app/requeue.js';
@@ -2509,7 +2509,7 @@ function overlayFocused(g: Game | null): boolean {
 
 /**
  * An ability-activation keypress landed — the Shift (slot 1), or since Story
- * 10.5 (2026-11-05, epic-10 amendment 10) `C` HULL REPAIR / `V` SMOKE, which
+ * 10.5 (2026-11-05, epic-10 amendment 11) `C` HULL REPAIR / `V` SMOKE, which
  * hold no slot. The keyboard has QUEUED the press (it rides a later input,
  * drained one-per-tick so the server's one-ability-per-tick gate fires each in
  * turn) — the server decides. Here the client only predicts the verdict, at
@@ -3650,7 +3650,7 @@ function renderFiring(
   // clickInArc is always true for it), never on a slot-index literal.
   const slot = g.keyboard.primedSlot;
   const a = status.ammo[slot] ?? null;
-  const hasAmmo = slotHasRound(g, slot, a);
+  const hasAmmo = slotHasRound(g, slot, a, aim, Math.hypot(cursor.x - pose.x, cursor.y - pose.y));
   // EFFECTIVE reload duration (per-weapon reload upgrades) from the OWN
   // loadout's slot id — a primed slot always holds a weapon (the ability path
   // never primes), so the null branch is defensive only.
@@ -3719,10 +3719,12 @@ function renderFiring(
 }
 
 /** Does the primed slot have a round? The pool count off the server's ammo —
- *  except the MAIN BATTERY (Story 10.4), which is "loaded" when any PREDICTED
- *  turret is ready: the same read the sim-tick click prediction makes. */
-function slotHasRound(g: Game, slot: number, a: WeaponAmmo | null): boolean {
-  if (g.ownSlots[slot] === 'mainBattery') return g.ownBattery.anyReady();
+ *  except the MAIN BATTERY (Story 10.4), which is "loaded" when the shared pick
+ *  would fire a PREDICTED turret for this aim (a ready turret whose arc holds
+ *  it — arc-only fire, epic-10 amendment 10): the same read the sim-tick click
+ *  prediction makes. */
+function slotHasRound(g: Game, slot: number, a: WeaponAmmo | null, aim: number, aimDist: number): boolean {
+  if (g.ownSlots[slot] === 'mainBattery') return batteryWouldFire(g.ownBattery, ownBatteryPose(g), aim, aimDist);
   return !!a && a.n > 0;
 }
 
@@ -3819,9 +3821,12 @@ function clickPrediction(
 ): { alive: boolean; loaded: boolean; inArc: boolean } {
   const you = g.state.net.you;
   const a = you?.ammo[primedSlot] ?? null;
-  // STORY 10.4 (R4): the MAIN BATTERY fires whenever ANY turret is ready — read
-  // off the predicted turrets — and is never out of arc (`arcFor` is full).
-  if (g.ownSlots[primedSlot] === 'mainBattery') return batteryClickPrediction(g.ownBattery, conningNow(g) ?? false, aim, aimDist);
+  // STORY 10.4: the MAIN BATTERY fires when the shared pick names a ready
+  // turret whose arc holds the aim (arc-only fire, epic-10 amendment 10) — read
+  // off the predicted turrets — and is never out of arc as a weapon (`arcFor` is full).
+  if (g.ownSlots[primedSlot] === 'mainBattery') {
+    return batteryClickPrediction(g.ownBattery, conningNow(g) ?? false, ownBatteryPose(g), aim, aimDist);
+  }
   return {
     // Story 5.2: WIDENED through the sinking window — a click from a sinking
     // hull genuinely fires (the server's gate re-opens for it), so it must also

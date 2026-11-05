@@ -266,7 +266,7 @@ describe('shared barrel', () => {
       expect(abilityFromCode(code), id).toBe(id);
     });
     // DELETED with the kit, the shield, the buoys and the drone drops (Eric
-    // 2026-11-05, epic-10 amendment 10) — no alias survives on the barrel.
+    // 2026-11-05, epic-10 amendment 11) — no alias survives on the barrel.
     const ns = shared as Record<string, unknown>;
     for (const gone of [
       'canStock', 'CONSUMABLE_KEY_ORDER', 'CONSUMABLE_IDS', 'CONSUMABLE_IS_WEAPON', 'CONSUMABLE_SLOTS',

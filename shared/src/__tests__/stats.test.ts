@@ -47,11 +47,12 @@ import {
   type EquipmentId,
   type LineId,
 } from '../index.js';
-import { RELOAD_SCALED_ROWS, captiveTriggerRadius, deriveMineRings, mineTriggerRadius } from '../sim/stats.js';
+import { RELOAD_UNSCALED_ROWS, captiveTriggerRadius, deriveMineRings, mineTriggerRadius } from '../sim/stats.js';
 
-/** Does the RELOAD scale reach this row? (Story 10.5, R9 / R10 — the main
- *  battery and the legacy deck-gun rows only.) */
-const reloadScaled = (id: (typeof EQUIPMENT_IDS)[number]): boolean => RELOAD_SCALED_ROWS.includes(id);
+/** Does the RELOAD scale reach this row? (Story 10.5, R10 / R11 — every row
+ *  but the three Shifts.) */
+const reloadScaled = (id: (typeof EQUIPMENT_IDS)[number]): boolean => !RELOAD_UNSCALED_ROWS.includes(id);
+const RELOAD_SCALED_IDS = EQUIPMENT_IDS.filter(reloadScaled);
 import { NEUTRAL_HULL, NEUTRAL_INDEX } from './neutralHull.js';
 
 // THE NEUTRAL HULL (every index at the base) — no shipped battleship is 100
@@ -276,7 +277,7 @@ describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () 
           burstRadius: CONFIG.mainBattery.burstRadius,
         },
         // THE THREE MOVED WEAPONS (Story 10.5, Eric 2026-11-05, epic-10
-        // amendment 10): slot weapons with a row again. The supercav never
+        // amendment 11): slot weapons with a row again. The supercav never
         // homes; the flash reads the fouling shell's reach (one dial).
         supercavTorpedo: {
           tier: 1,
@@ -339,7 +340,7 @@ describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () 
   });
 
   // THE THREE MOVED WEAPONS (Story 10.5, Eric 2026-11-05, epic-10 amendment
-  // 10) — tiered through the one stat machinery, never an ad hoc derive.
+  // 11) — tiered through the one stat machinery, never an ad hoc derive.
   it.each([
     ['dazzleShells', CONFIG.flashShells],
     ['foulingShell', CONFIG.foulingShell],
@@ -370,19 +371,18 @@ describe('effectiveStats — ZERO-CARD identity (the 8.1 equipment record)', () 
   });
 
   it.each(['supercavTorpedo', 'dazzleShells', 'foulingShell'] as const)(
-    '%s reloads like every slot weapon: the tier step only — RELOAD never touches it (R4, R9)',
+    '%s reloads like every slot weapon: the tier step, then RELOAD (R4, R11)',
     (id) => {
       const base = effectiveStats(BASE, [id]).equipment[id].reloadMs;
       const cap = CATALOG[id].cap;
-      // Each tier shortens the reload; RELOAD cards leave it alone (Story 10.5, R9).
+      // Each tier shortens the reload; RELOAD cards shorten it further by the one scale (R11).
       for (let n = 2; n <= cap; n += 1) {
         const at = effectiveStats(BASE, stack(id, n)).equipment[id].reloadMs;
         expect(at, `${id} tier ${n}`).toBeCloseTo(base * (1 - CONFIG.catalog.reloadStepPerTier * (n - 1)), 6);
       }
       const hasted = effectiveStats(BASE, [id, ...stack('reload', 5)]);
-      expect(hasted.equipment[id].reloadMs).toBe(base);
       expect(hasted.cooldownScale).toBeLessThan(1);
-      expect(hasted.equipment.mainBattery.reloadMs).toBeLessThan(effectiveStats(BASE, [id]).equipment.mainBattery.reloadMs);
+      expect(hasted.equipment[id].reloadMs).toBeCloseTo(base * hasted.cooldownScale, 6);
     },
   );
 
@@ -614,24 +614,25 @@ describe('effectiveStats — the six universal ladders (catalog-v3 §4 + Stories
     expect(atCap).toBe(round3(CONFIG.index.base / reloadAtCap)); // the algebraic twin
   });
 
-  it('RELOAD scales the main battery (and the legacy deck-gun rows) once, post-fold — and NO other row (Story 10.5, R9 / R10)', () => {
+  it('RELOAD scales every row but the Shifts once, post-fold (Story 10.5, R10 / R11)', () => {
     const base = effectiveStats(BASE);
     const capped = effectiveStats(BASE, stack('reload', 5));
-    expect(RELOAD_SCALED_ROWS).toContain('mainBattery');
     for (const id of EQUIPMENT_IDS) {
       const want = base.equipment[id].reloadMs * (reloadScaled(id) ? capped.cooldownScale : 1);
       expect(capped.equipment[id].reloadMs, id).toBeCloseTo(want, 9);
     }
-    // The Q / E / R families, BROADSIDE and the three Shifts are NOT scaled.
-    for (const id of ['lightTorpedo', 'heavyTorpedo', 'supercavTorpedo', 'navalMines', 'captiveMines', 'foulingMines',
-      'starShells', 'phosphorShells', 'dazzleShells', 'foulingShell', 'broadside', 'boost', 'instantReload', 'hunker'] as const) {
-      expect(reloadScaled(id), id).toBe(false);
+    // The main battery and the Q / E / R families ARE scaled (R11); the three
+    // Shifts are NOT (R10).
+    for (const id of ['mainBattery', 'lightTorpedo', 'heavyTorpedo', 'supercavTorpedo', 'navalMines', 'captiveMines',
+      'foulingMines', 'starShells', 'phosphorShells', 'dazzleShells', 'foulingShell'] as const) {
+      expect(reloadScaled(id), id).toBe(true);
     }
+    for (const id of ['boost', 'instantReload', 'hunker'] as const) expect(reloadScaled(id), id).toBe(false);
   });
 
   it('RELOAD moves ONLY its index, the scale and the scaled rows\' reloads (flatten diff)', () => {
     const paths = changed(effectiveStats(BASE), effectiveStats(BASE, stack('reload', 5)));
-    expect(paths).toEqual(['reload', 'cooldownScale', ...RELOAD_SCALED_ROWS.map((id) => `equipment.${id}.reloadMs`)].sort());
+    expect(paths).toEqual(['reload', 'cooldownScale', ...RELOAD_SCALED_IDS.map((id) => `equipment.${id}.reloadMs`)].sort());
   });
 
   it('OVER-STACK (defensive, unreachable through a deck): the scale floors at 0.1, never zero or non-finite', () => {
@@ -1013,14 +1014,14 @@ describe('STORY 8.17 — the star shell, broadside and phosphor ladders (amendme
     expect(s.equipment.phosphorShells).toEqual(effectiveStats(BASE, ['phosphorShells']).equipment.phosphorShells);
   });
 
-  it('the three lines reload on their own tier step alone — a maxed RELOAD ladder leaves the tier-V reload untouched (Story 10.5, R9)', () => {
+  it('the three lines take the global RELOAD ladder after their own tier step (tier-V reload × the maxed cooldownScale; Story 10.5, R11)', () => {
     const s = effectiveStats(BASE, [
       ...stack('starShells', 5), ...stack('broadside', 5), ...stack('phosphorShells', 5), ...stack('reload', 5),
     ]);
     expect(s.cooldownScale).toBeLessThan(1);
     for (const id of ['starShells', 'broadside', 'phosphorShells'] as const) {
       const solo = effectiveStats(BASE, stack(id, 5)).equipment[id].reloadMs;
-      expect(s.equipment[id].reloadMs, id).toBe(solo);
+      expect(s.equipment[id].reloadMs, id).toBeCloseTo(solo * s.cooldownScale, 6);
     }
   });
 });
@@ -1374,11 +1375,12 @@ describe('equipment helpers', () => {
       expect(equipmentMaxAmmo(s, id), id).toBe(s.equipment[id].maxAmmo);
       expect(equipmentReloadMs(s, id), id).toBe(s.equipment[id].reloadMs);
     }
-    // ONE RELOAD copy scales the main-battery / deck-gun lookups by the haste
-    // law (Story 10.3, ruling 14) and leaves a slot weapon's alone (Story
-    // 10.5, R9).
+    // ONE RELOAD copy scales the weapon lookups by the haste law (Story 10.3,
+    // ruling 14), slot weapons included (Story 10.5, R11); a Shift's is left
+    // alone (R10).
     expect(s.cooldownScale).toBeLessThan(1);
-    expect(equipmentReloadMs(s, 'navalMines')).toBe(CONFIG.mine.reloadMs);
+    expect(equipmentReloadMs(s, 'navalMines')).toBeCloseTo(CONFIG.mine.reloadMs * s.cooldownScale, 9);
+    expect(equipmentReloadMs(s, 'boost')).toBe(CONFIG.boost.reloadMs);
     expect(equipmentReloadMs(s, 'gun')).toBeCloseTo(CONFIG.gun.reloadMs * s.cooldownScale, 9);
   });
 
@@ -1397,8 +1399,8 @@ describe('equipment helpers', () => {
     };
     const base = effectiveStats(BASE);
     const capped = effectiveStats(BASE, stack('reload', 5));
-    // Only the rows RELOAD reaches (Story 10.5, R9 / R10) carry the scale.
-    for (const id of RELOAD_SCALED_ROWS) {
+    // Only the rows RELOAD reaches (Story 10.5, R10 / R11) carry the scale.
+    for (const id of RELOAD_SCALED_IDS) {
       // The independent oracle: the haste law as exact INTEGER arithmetic —
       // base × 100 / RELOAD at the cap (ruling 14's algebraic twin), never
       // through the folded float scale.

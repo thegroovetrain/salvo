@@ -99,7 +99,7 @@ describe('consumable tables', () => {
   it('a consumable entry derives no table since the kit retired (Story 10.5; the copy is 10.14\'s)', () => {
     // The page's copy is FROZEN until Story 10.14 and still tags some entries
     // `consumable`; no consumable line exists any more (2026-11-05, epic-10
-    // amendment 10), so each renders without a table until the copy pass.
+    // amendment 11), so each renders without a table until the copy pass.
     const entries = HOWTO_SECTIONS.flatMap((s) => s.entries ?? []).filter((e) => e.table === 'consumable');
     for (const e of entries) expect(consumableTable(e.lineId), e.lineId).toBeNull();
   });

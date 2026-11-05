@@ -908,7 +908,7 @@ export interface ShipRecord {
   streamLive: boolean;
   /**
    * hp — the REMAINING PAID HULL REPAIR pool (Eric rulings 2026-08-04; a
-   * cooldown ABILITY on `C` since Story 10.5, epic-10 amendment 10); 0 =
+   * cooldown ABILITY on `C` since Story 10.5, epic-10 amendment 11); 0 =
    * nothing draining. Written ONLY by World.applyRepair (the repair press —
    * `repairHp = CONFIG.hullRepair.regenHp`, a re-press REPLACES the pool,
    * amendment 141; the rate never changes) and drained by tickRepairs at the
@@ -920,7 +920,7 @@ export interface ShipRecord {
   repairHp: number;
   /**
    * ms — server time HULL REPAIR (`C`) is ready again (Story 10.5, Eric
-   * 2026-11-05, epic-10 amendment 10, R1/R3); 0 = ready. Stamped ONLY on a
+   * 2026-11-05, epic-10 amendment 11, R1/R3); 0 = ready. Stamped ONLY on a
    * successful press (`abilityReadyAt(now, 'repair')` — fixed, never scaled by
    * RELOAD, never touched by INSTANT RELOAD). Mirrored onto the SELF-PRIVATE
    * `OwnShip.repairReadyAt` by frames.ts while in the future. Reset to 0 at
@@ -937,7 +937,7 @@ export interface ShipRecord {
    * burn ticks, storm bites). Storm and burn both route through the one gate,
    * so "the storm resets the clock" is structural rather than a second rule.
    *
-   * ITS READER IS BACK (Story 10.5, Eric 2026-11-05, epic-10 amendment 10,
+   * ITS READER IS BACK (Story 10.5, Eric 2026-11-05, epic-10 amendment 11,
    * R8): the passive regen in tickRepairs (`regenDue(now, lastDamagedAt)` —
    * 2 % of missing hp per second after 15 s without a blow). SERVER-PRIVATE —
    * never on the wire.
@@ -3039,7 +3039,7 @@ export class World {
       // fleet tonnage. An AI captain sunk in 6.4 is a captain kill, not PvE.
       if (roleIsFleetHull(victim)) {
         // A DRONE KILL PAYS XP ONLY (Story 10.5, Eric 2026-11-05, epic-10
-        // amendment 10, R5): the drop roll is gone.
+        // amendment 11, R5): the drop roll is gone.
         killer.pveKills[victim.hullId] = (killer.pveKills[victim.hullId] ?? 0) + 1;
       } else killer.kills += 1;
       if (victimHeldBounty) this.grantXp(killer, CONFIG.bounty.killLevels);
@@ -3505,8 +3505,9 @@ export class World {
    * ratio, preserving the progress fraction — never a free round
    * (rescaleReloadTimers). The per-tier −5 % reload step is DERIVED from the
    * tier in clampStats, so an equipment-ladder copy moves those timers too.
-   * Since Story 10.5 (R9 / R10) a RELOAD card moves only the TURRETS' clocks:
-   * the fold no longer scales a slot weapon or a Shift, so their ratio is 1.
+   * Since Story 10.5 (R10 / R11) a RELOAD card moves the turrets' and the
+   * Q / E / R weapons' clocks; the fold no longer scales a Shift, so its
+   * ratio is 1.
    *
    * Fail-closed: an id the world's catalog cannot resolve is REFUSED outright
    * (8.14 review F1 — `pickRefusal` reads an id the catalog does not OWN as a
@@ -3627,11 +3628,9 @@ export class World {
    * prev-vs-new `equipmentReloadMs` per fitted slot, so a ratio of 1 (any boon
    * that does not touch reloads) leaves every timer byte-identical, and a
    * weapon's own tier card gets the same treatment for free. SINCE STORY 10.5
-   * (R9 / R10, epic-10 amendment 10) a RELOAD card reaches the main battery
-   * only (sim/stats.ts `RELOAD_SCALED_ROWS`), so it rescales the TURRETS'
-   * running clocks and nothing else — a Q / E / R weapon or a Shift reads an
-   * unchanged reload (ratio 1) and keeps its countdown; that weapon's OWN tier
-   * card still rescales it by new / old.
+   * (R10 / R11, epic-10 amendment 11) a RELOAD card rescales the turrets' and
+   * the Q / E / R weapons' running clocks; a Shift reads an unchanged reload
+   * (ratio 1, sim/stats.ts `RELOAD_UNSCALED_ROWS`) and keeps its countdown.
    *
    * ORDER — this runs AFTER reconcilePools deliberately. The two touch disjoint
    * fields (counts vs timer) and both read the same untouched `prevStats`, so
@@ -4918,7 +4917,7 @@ export class World {
 
   /**
    * THE TWO WAYS HP COMES BACK (Eric rulings 2026-08-04; re-cut by epic-8
-   * amendments 46-48; Story 10.5, Eric 2026-11-05, epic-10 amendment 10) —
+   * amendments 46-48; Story 10.5, Eric 2026-11-05, epic-10 amendment 11) —
    * applyStorm's structural INVERSE: per-tick fractional hp against the same
    * float, clamped, with NO per-tick event (that would spam ~20/s; the owner
    * already receives live `hp` AND `repairHp` on every frame via OwnShip, so
@@ -5598,7 +5597,7 @@ export class World {
    *       its window is open, minus the attacker's POWER read live
    *       (armorDamage below; Story 10.3 renamed ARMOR PIERCING to POWER).
    *   (c) (THE SHIELDS — the SHIELD BLOCK and the SHIELD BUOY — were DELETED
-   *       by Story 10.5, epic-10 amendment 10; nothing absorbs a blow now.)
+   *       by Story 10.5, epic-10 amendment 11; nothing absorbs a blow now.)
    *   (d) The overkill clamp, the ONE hp write, and the COMBAT CLOCK stamp
    *       (amendment 47 — one hook for every damage source, storm included). `dealt` is read BEFORE the
    *       write (Eric 2026-08-22: *"if i do 50 damage to someone with 1 HP
@@ -6722,7 +6721,7 @@ export class World {
    * same monotonic grammar. A stored actSeq newer than lastActSeq is ONE pending
    * press; lastActSeq advances EVERY tick (even dead or inert, exactly like
    * lastFireSeq), so a stale counter never re-reads as a fresh press. Since
-   * Story 10.5 (epic-10 amendment 10) the press NAMES its ability
+   * Story 10.5 (epic-10 amendment 11) the press NAMES its ability
    * (`InputMsg.act`, validated by inputs.ts): the SHIFT (slot 1, through the
    * single sinking gate exactly as before), or one of the two COOLDOWN
    * ABILITIES — HULL REPAIR (`C`) and SMOKE (`V`) — which hold no slot and are
@@ -6775,7 +6774,7 @@ export class World {
 
   /**
    * HULL REPAIR (`C`) and SMOKE (`V`) — the two per-ship COOLDOWN ABILITIES
-   * (Story 10.5, Eric 2026-11-05, epic-10 amendment 10, R1–R3). Every ship
+   * (Story 10.5, Eric 2026-11-05, epic-10 amendment 11, R1–R3). Every ship
    * has both, ready at spawn; neither sits in a slot. The refusal law is the
    * SHARED one both sides call (`repairRefusal` — 'cooling' inside the
    * cooldown, else 'blocked' on a full hull; `smokeRefusal` — 'cooling'), and
@@ -6959,7 +6958,7 @@ export class World {
    * visited, and neither are the HULL REPAIR / SMOKE cooldowns (Story 10.5,
    * R3 / R10 — they are not reloads). THE SECONDARIES are vented — heat to
    * zero, the overheat lock cleared (2026-11-05, Story 10.5, R10, epic-10
-   * amendment 10; supersedes amendment 9(h) R7 "heat untouched") — through
+   * amendment 11; supersedes amendment 9(h) R7 "heat untouched") — through
    * the shared `ventSecondaries` law.
    */
   private static finishReloads(ship: ShipRecord): void {

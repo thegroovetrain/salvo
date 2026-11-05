@@ -73,7 +73,7 @@ describe('slot-grammar constants — the fixed roles (Story 8.5; five slots sinc
     const mod = (await import('../index.js')) as Record<string, unknown>;
     for (const name of [
       'SLOT_EXTRA', 'specialsFor', 'CONSUMABLE_KEY_ORDER',
-      // Story 10.5 (Eric 2026-11-05, epic-10 amendment 10): the kit is retired.
+      // Story 10.5 (Eric 2026-11-05, epic-10 amendment 11): the kit is retired.
       'KIT_SIZE', 'DEFAULT_KIT', 'CONSUMABLE_SLOTS', 'CONSUMABLE_IDS', 'CONSUMABLE_IS_WEAPON',
       'consumableSlotFor', 'consumableKindAt', 'isConsumableKit', 'isConsumableId', 'rollKit', 'KitRollError',
       'dealableConsumables', 'stockSlotFor', 'slotMaxAmmo', 'isWeaponItem',
@@ -84,7 +84,7 @@ describe('slot-grammar constants — the fixed roles (Story 8.5; five slots sinc
 });
 
 // ---------------------------------------------------------------------------
-// THE THREE FAMILY SLOTS (Story 10.5, Eric 2026-11-05, epic-10 amendment 10):
+// THE THREE FAMILY SLOTS (Story 10.5, Eric 2026-11-05, epic-10 amendment 11):
 // `Q` holds a torpedo, `E` a mine, `R` a special shell — one kind per slot.
 // These pin the MODEL (every weapon has exactly one home, every home is a
 // weapon slot); what the fold and the draw do with it is familySlots.test.ts.

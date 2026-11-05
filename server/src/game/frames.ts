@@ -194,7 +194,7 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // blip, a ballistic event or a spectator payload — so the master
     // perception invariant keeps exactly SIX declared exceptions.
     ...(ship.hunkerUntil > 0 ? { hunkerUntil: ship.hunkerUntil } : {}),
-    // THE TWO COOLDOWN ABILITIES (Story 10.5, epic-10 amendment 10, R1/R2):
+    // THE TWO COOLDOWN ABILITIES (Story 10.5, epic-10 amendment 11, R1/R2):
     // HULL REPAIR's and SMOKE's ready times, each PRESENT IFF still in the
     // future (cooling) and OMITTED while ready — never 0, never `undefined`
     // (the slowedUntil precedent). SELF-PRIVATE BY CONSTRUCTION on the
