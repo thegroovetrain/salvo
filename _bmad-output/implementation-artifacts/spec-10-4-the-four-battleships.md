@@ -2,7 +2,7 @@
 title: 'Story 10.4: The Four Battleships'
 type: 'feature'
 created: '2026-11-04'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '0faac312'
 review_loop_iteration: 0
 context:
