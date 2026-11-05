@@ -441,6 +441,15 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
     expect(slotsWithCards(stats, ['broadside'])).toEqual(loadoutFor(stats));
   });
 
+  // Review gate (Edge Case Hunter 5): the documented answer for an id outside
+  // EQUIPMENT_FAMILY is `null`, never `undefined` (a `!== null` caller would
+  // otherwise treat it as fitted somewhere).
+  it('familySlotFor: an id outside EQUIPMENT_FAMILY (unknown, or an Object.prototype key) answers null', () => {
+    for (const id of ['notAnEquipment', 'toString', '__proto__', '']) {
+      expect(familySlotFor(id as EquipmentId), id).toBeNull();
+    }
+  });
+
   it('a short or malformed loadout is fail-closed: a missing family slot is never filled', () => {
     const short = loadoutFor(stats).slice(0, FAMILY_SLOT.torpedo);
     applySlotEffect(short, fill(FIRST_OF.torpedo), stats);

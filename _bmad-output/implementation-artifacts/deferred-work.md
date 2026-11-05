@@ -3663,3 +3663,19 @@ Eric-approved 2026-11-04. Append-only entry — the older text in this ledger st
   status: open - cleanup - 2026-11-05 (Story 10.5, cycle 214)
   summary: CLIENT LEFTOVERS - the `interaction` model field in `client/src/ui/refitTooltip.ts` is unused, and the tint primitives in `equipmentIcons` are unused.
   evidence: Story 10.5 client follow-ups.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - owned by Story 10.7 - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
+  summary: AN EXHAUSTED HULL KEEPS BANKING LEVELS - with every eligible line at cap (45 cards) a hull still banks levels: `you.pts` stays above 0 with an empty offer, and the XP strip's banked-level chip and its pulse keep advertising levels that cannot be spent. Rides with Eric's 2026-11-05 ruling "Empty offer is fine … We'll address in 10.7" (random stats for an exhausted hull).
+  evidence: both Fable hunters (probe: 80 levels → 45 picks, 35 banked, offer null); `server/src/game/world.ts` `grantPoint` / `materializeOffer`, `server/src/game/frames.ts` `pts`, `client/src/render/xpStrip.ts` `chipLabel` / `nextChipState`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - owned by the full HUD / UX pass or a later client story - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
+  summary: INSTANT RELOAD IS NOT PREDICTED ON THE CLIENT - after the press the turrets and the secondaries heat show the old state until the next own frame. Turret reloads behaved this way before this story; the heat vent is new with R10. Recorded reading: the own frame corrects.
+  evidence: Codex, confirmed; `client/src/main.ts` `handleShiftPress` predicts only Speed Boost.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - owned by Story 10.6 - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
+  summary: ADD-ON ELIGIBILITY STILL ASKS "ANY WEAPON SLOT OPEN", NOT "THE HOST'S FAMILY SLOT" - under one kind per slot an add-on whose hosts all sit in a family held by another kind could be dealt though its host can never be fitted. Latent: the only add-on line is the undealable `depthCharge` stub.
+  evidence: Edge Case Hunter; `shared/src/sim/draw.ts` `addonKind` / `weaponRowOpen`.
+- source_spec: `_bmad-output/implementation-artifacts/spec-10-5-the-kit-retire-and-the-three-equipment-slots.md`
+  status: open - low, no owner story - 2026-11-05 (Story 10.5 review gate, cycle 214, epic-10 amendment 11 (q))
+  summary: AN `actSeq` JUMP OF MORE THAN ONE EVALUATES ONLY THE NEWEST `act` - a skipped press (rate cap, queue cap, a dropped message) is lost with no denial; since this story the lost press can be a different ability than the one that fires. Needs a throttled or modified client; the grammar predates the story.
+  evidence: Edge Case Hunter; `server/src/game/world.ts` `consumePress`.

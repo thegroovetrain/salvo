@@ -23,7 +23,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DEFAULT_SHIFT, SHIP_CLASS_IDS, effectiveStats, isAfloat } from '@salvo/shared';
+import { CONFIG, DEFAULT_SHIFT, SHIP_CLASS_IDS, abilityCode, effectiveStats, isAfloat } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { BotController, botPhase } from '../game/ai/botDriver.js';
 import type { BotWorldPort } from '../game/ai/types.js';
@@ -381,6 +381,39 @@ describe('input emission — the same validated path a human uses, same-tick con
     w.helmEnabled = true;
     for (let t = 0; t < CADENCE_TICKS; t += 1) w.step();
     for (const id of ids) expect(w.bots.viewAtOf(id)).toBeGreaterThan(0);
+  });
+
+  // Story 10.5 review gate (Blind Hunter F3): the frozen gate refuses a
+  // cooldown-ability press SILENTLY (no stamp, no denial), so a want that read
+  // only the shared refusal would press again every tick. Counted per press
+  // edge, as the world consumes it (actSeq advance with the ability's code).
+  it('a HURT bot in a frozen room presses no cooldown ability; once live it presses its repair once', () => {
+    const { w, ids } = botWorld(42, 1);
+    const rec = w.ships.get(ids[0])!;
+    rec.hp = Math.floor(rec.stats.maxHp * 0.1); // hurt, well under healHpFrac
+    const repairCode = abilityCode('repair');
+    let lastSeq = rec.input.actSeq;
+    const pressesOver = (ticks: number, code: number): number => {
+      let n = 0;
+      for (let t = 0; t < ticks; t += 1) {
+        w.step();
+        if (rec.input.actSeq > lastSeq && rec.input.act === code) n += 1;
+        lastSeq = rec.input.actSeq;
+      }
+      return n;
+    };
+    // The room as Match.applyPolicy freezes it: helm, weapons and radar together.
+    w.helmEnabled = false;
+    w.weaponsEnabled = false;
+    w.radarEnabled = false;
+    expect(pressesOver(CADENCE_TICKS * 6, repairCode)).toBe(0);
+    expect(rec.input.actSeq).toBe(0);
+    expect(rec.repairReadyAt).toBe(0);
+    w.helmEnabled = true;
+    w.weaponsEnabled = true;
+    w.radarEnabled = true;
+    expect(pressesOver(CADENCE_TICKS * 6, repairCode)).toBe(1);
+    expect(rec.repairReadyAt).toBeGreaterThan(w.now);
   });
 });
 

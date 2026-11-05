@@ -76,6 +76,7 @@ import { BlurFilter, Container, Graphics, Text } from 'pixi.js';
 import {
   SLOT_GUN,
   abilityCooldownFraction,
+  abilityCooldownMs,
   equipmentMaxAmmo,
   type CooldownAbilityId,
   type EquipmentId,
@@ -434,7 +435,12 @@ export function slotDegraded(view: HotbarView, slot: number, denied: boolean): b
  * still to run (the numeral's input). The remaining fraction is shared
  * `abilityCooldownFraction` — the one law the server stamps against — so the
  * square can never disagree with a refusal. A never-pressed ability (`readyAt`
- * 0 / absent) and an absent clock read READY.
+ * 0 / absent) and an absent clock read READY. An UNREADABLE (NaN) clock or
+ * stamp reads COOLING with the full wipe and no numeral (`msLeft` Infinity —
+ * `wipeLabel` prints nothing for a non-finite time), the shared law's
+ * fail-closed answer and the key's pre-denial alike (review gate, Edge Case
+ * Hunter 3); the ms left never exceeds the whole cooldown, so a client clock
+ * far behind the stamp cannot print more seconds than the ability has.
  */
 export function abilityCooldownView(
   id: CooldownAbilityId,
@@ -444,7 +450,9 @@ export function abilityCooldownView(
   if (nowMs === undefined || readyAt === undefined) return { coolFrac: 0, msLeft: 0 };
   const remaining = abilityCooldownFraction(nowMs, readyAt, id);
   if (remaining <= 0) return { coolFrac: 0, msLeft: 0 };
-  return { coolFrac: 1 - remaining, msLeft: Math.max(0, readyAt - nowMs) };
+  const left = readyAt - nowMs;
+  const msLeft = Number.isNaN(left) ? Infinity : Math.min(abilityCooldownMs(id), left);
+  return { coolFrac: 1 - remaining, msLeft };
 }
 
 /**

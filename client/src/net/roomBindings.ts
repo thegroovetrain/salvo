@@ -277,6 +277,10 @@ export interface RoomBindingDeps {
    * so headless harnesses with no battery behave as before.
    */
   ownBattery?: { correct(you: OwnShip, ackSeq: number): void };
+  /** Every own frame's block, after the mirror advanced (Story 10.5 review
+   *  gate — the C / V press latch, sim/abilityLatch.ts). Optional, like
+   *  ownBattery. */
+  onOwnFrame?: (you: OwnShip) => void;
   /**
    * A SELF-PRIVATE server denial arrived on the frame (Story 1.10 —
    * FrameMsg.denied, one call per entry). main.ts routes it through the
@@ -744,6 +748,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
     if (statsChanged) deps.onOwnStats(f.you.cls, f.you.cards, f.you.shift);
     // Story 10.4: the own turrets + secondaries heat snap to the server's.
     deps.ownBattery?.correct(f.you, f.ackSeq);
+    deps.onOwnFrame?.(f.you);
     deps.state.phase = 'active';
     if (f.you.alive) deps.state.respawnEta = null;
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });

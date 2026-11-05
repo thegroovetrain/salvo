@@ -57,9 +57,11 @@ import {
   SLOT_COUNT,
   SLOT_GUN,
   WEAPON_SLOTS,
+  abilityCooldownFraction,
   abilityCooldownMs,
   effectiveStats,
   slotsWithCards,
+  smokeRefusal,
   type EffectiveStats,
   type EquipmentId,
   type ShipClassId,
@@ -1126,6 +1128,30 @@ describe('the C / V squares — two cooldown abilities in the Shift square\'s fa
     const full = abilityCooldownView('smoke', NOW, NOW + abilityCooldownMs('smoke'));
     expect(full.coolFrac).toBe(0); // the press instant: nothing has elapsed yet…
     expect(full.msLeft).toBe(abilityCooldownMs('smoke')); // …and the whole cooldown is left
+  });
+
+  // Review gate (Edge Case Hunter 3): the view agrees with the shared law and
+  // the key's pre-denial — an UNREADABLE clock or stamp is cooling (fail
+  // closed), never READY; and a clock far behind the stamp never prints more
+  // than the whole cooldown.
+  it('abilityCooldownView: an unreadable clock or stamp reads COOLING (full wipe, no numeral), as the key refuses it', () => {
+    for (const [now, readyAt] of [[Number.NaN, NOW], [NOW, Number.NaN], [Number.NaN, Number.NaN]]) {
+      const cd = abilityCooldownView('repair', now, readyAt);
+      expect(cd.coolFrac).toBe(1 - abilityCooldownFraction(now, readyAt, 'repair'));
+      expect(cd.msLeft).toBeGreaterThan(0); // the square is cooling…
+      expect(wipeLabel(cd.msLeft)).toBe(''); // …with no invented seconds on it
+      expect(smokeRefusal(now, readyAt)).not.toBeNull(); // the key's own read of the same stamp
+    }
+    const view = viewFor(TORPEDO_HULL, { serverNowMs: NOW, abilityReadyAt: { repair: Number.NaN } });
+    const repair = slotViewModels(view)[REPAIR_SQ];
+    expect(repair.state).toBe('cooling');
+    expect(slotNumeral(repair)).toBe('');
+  });
+
+  it('abilityCooldownView: a client clock far behind the stamp never reads more than the whole cooldown', () => {
+    const cd = abilityCooldownView('smoke', NOW, NOW + 10 * abilityCooldownMs('smoke'));
+    expect(cd.msLeft).toBe(abilityCooldownMs('smoke'));
+    expect(cd.coolFrac).toBe(0);
   });
 
   it('take the denied and activated one-shots like every square', () => {

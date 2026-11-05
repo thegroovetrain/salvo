@@ -284,9 +284,11 @@ export const EQUIPMENT_FAMILY: Readonly<Record<EquipmentId, SlotFamily | null>> 
 });
 
 /** The slot `id` is fitted into, or `null` for equipment no family slot holds
- *  (see `EQUIPMENT_FAMILY`). THE one kind → slot answer on both sides. */
+ *  (see `EQUIPMENT_FAMILY`) — and for an id outside that table (own keys
+ *  only, so a prototype key is outside too). THE one kind → slot answer on
+ *  both sides. */
 export function familySlotFor(id: EquipmentId): number | null {
-  const family = EQUIPMENT_FAMILY[id];
+  const family = Object.hasOwn(EQUIPMENT_FAMILY, id) ? EQUIPMENT_FAMILY[id] : null;
   return family === null ? null : FAMILY_SLOT[family];
 }
 

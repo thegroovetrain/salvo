@@ -124,6 +124,23 @@ warnings: ['oversized']
 
 ## Review Triage Log
 
+### 2026-11-05 — Review pass (Fable Blind Hunter + Fable Edge Case Hunter + Codex `gpt-5.6-sol`, on `git diff f83440fc HEAD`)
+
+Verdicts: Blind Hunter BUILD-ON-IT (3 low findings, 7 suspicion areas traced clean with probes), Edge Case Hunter 5 unhandled cases (1 reachable in principle, 4 latent), Codex FIX-FIRST (2 findings; perception traced clean).
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4 (low 4; one test-only, see below)
+- defer: 4 (low 4)
+- reject: 1
+- addressed_findings:
+  - `[low]` `[patch]` Blind Hunter: a double `C` / `V` press inside one round trip showed ACTIVATED then DENIED → a per-ability press latch (`client/src/sim/abilityLatch.ts`, wired in `main.ts` / `roomBindings.onOwnFrame`): a second press is refused locally until the stamp or a denial arrives, 64-own-frame valve (`PENDING_CAPACITY`); test red first.
+  - `[low]` `[patch]` Blind Hunter: a hurt bot in a weapons-frozen room pressed repair every tick → test only, no code change: the Match freezes helm and weapons together and the driver skips the brain on the port's `helmEnabled`; the repro needs weapons off with the helm live (no production path), the port has no weapons read (none added); the pin (`bots.test.ts`) was green on its first run.
+  - `[low]` `[patch]` Edge Case Hunter: the `C` / `V` wipe read READY on a NaN clock or stamp → reads cooling with the full wipe and no numeral, numeral clamped to the whole cooldown (`client/src/render/hotbar.ts` `abilityCooldownView`); test red first.
+  - `[low]` `[patch]` Edge Case Hunter: `familySlotFor` returned `undefined` for an unknown id → `null`, own keys only (`shared/src/sim/loadout.ts`); test red first.
+- deferred (ledger): exhausted hull keeps banking levels (10.7); INSTANT RELOAD unpredicted on the client (HUD / UX pass); add-on eligibility vs the host's family slot (10.6); an `actSeq` jump evaluates only the newest `act` (no owner).
+- rejected: How-to-Play staleness (frozen until 10.14, already on the ledger).
+
 ## Design Notes
 
 Implementer readings of record (each Eric's to veto on staging; none is a ruling):

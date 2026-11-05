@@ -122,6 +122,7 @@ import { conningFlag, founderDue, isSinkingNow } from './sim/sinkingWindow.js';
 import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
 import { OwnFireLatch } from './sim/ownFire.js';
 import { OwnBattery } from './sim/ownBattery.js';
+import { OPEN_LATCHES, latchHolds, latchOnOwnFrame, latchPress, latchRelease, type AbilityLatches } from './sim/abilityLatch.js';
 import { batteryClickPrediction, batteryWouldFire, predictBatteryClick, stepOwnBattery, type OwnBatteryGate } from './sim/ownBatteryTick.js';
 import { startLoop, type LoopCallbacks, type LoopPhase } from './app/loop.js';
 import { makeReturnToPort } from './app/returnToPort.js';
@@ -452,6 +453,10 @@ interface Game {
    *  Story 1.10: predicted denials mark their key; a matching server denial
    *  is suppressed; an unmatched one fires the feedback late-but-explicit. */
   denialDedup: DenialDedup;
+  /** The C / V press latch (sim/abilityLatch.ts, Story 10.5 review gate): an
+   *  accepted press of a cooldown ability refuses further presses of it until
+   *  the server's word (the stamp on an own frame, or a denial) arrives. */
+  abilityLatch: AbilityLatches;
   /** One-shot latch: an UNMATCHED server denial landed on a WEAPON slot since
    *  the last render frame — consumed by renderFiring into the full denied
    *  pulse (arc/reticle red), the same visual a predicted denied click drives. */
@@ -1837,6 +1842,7 @@ function resetOwnOrders(g: Game): void {
   // a still-marked (slot, seq), suppressing a genuine later server denial as an
   // echo.
   g.denialDedup.clear();
+  g.abilityLatch = OPEN_LATCHES;
 }
 
 /** The elimination modal: personal score + placement, SPECTATE + RETURN TO PORT. */
@@ -2357,6 +2363,9 @@ function flashSlotDenied(g: Game, slot: number): void {
  */
 function cooldownPressRefused(g: Game | null, id: CooldownAbilityId): boolean {
   if (g === null) return false;
+  // A press of this ability already accepted and awaiting the server's word
+  // (sim/abilityLatch.ts): refused like a cooling press, never sent again.
+  if (latchHolds(g.abilityLatch, id)) return true;
   const you = g.state.net.you;
   const now = g.clock.serverNow();
   return cooldownAbilityDenied(id, {
@@ -2531,6 +2540,7 @@ function handleAbilityPress(g: Game, id: AbilityId, actSeq: number): void {
   // the effect both arrive with the server's frame).
   if (id !== 'shift') {
     g.abilityActivatedPress[abilitySquare(id)] = true;
+    g.abilityLatch = latchPress(g.abilityLatch, id); // shut until the server answers
     return;
   }
   handleShiftPress(g, actSeq);
@@ -2879,7 +2889,7 @@ function buildGame(
     shake: new ShakeDriver(),
     flashBudget,
     deniedPulse: new DeniedPulse(), deniedFlash: false, deniedDegraded: false,
-    denialDedup: new DenialDedup(), serverDeniedClick: false,
+    denialDedup: new DenialDedup(), serverDeniedClick: false, abilityLatch: OPEN_LATCHES,
     deniedToneFloor: deniedToneFloor(),
     ...abilityFeedbackState(),
     audio, portal,
@@ -3128,6 +3138,10 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
     colors: (id) => feedColor(g, id),
     // Story 10.4: the own turrets + secondaries heat, corrected per own frame.
     ownBattery: g.ownBattery,
+    // Story 10.5 review gate: the C / V press latch reads every own frame.
+    onOwnFrame: (you) => {
+      g.abilityLatch = latchOnOwnFrame(g.abilityLatch, you, g.clock.serverNow());
+    },
     // Every observed sinking feeds the personal-score accumulator; our own
     // sinking in a live match opens the elimination modal (amendments 22/23).
     onSunkObserved: (victimId, killerId, killerCls) => handleSunkObserved(g, victimId, killerId, killerCls),
@@ -3197,6 +3211,7 @@ function bindGameRoom(g: Game, conn: Connection): RoomUnbind {
       g.score = scoreAfterReconnect(g.score);
       g.keyboard.clearActivations(); // drop presses queued during the outage (FINDING A)
       g.denialDedup.clear(); // paired with the queue drop — no reused (slot, seq)
+      g.abilityLatch = OPEN_LATCHES; // a dropped press's answer may never come
     },
   });
 }
@@ -3997,6 +4012,7 @@ function consumePrimeOnRelease(g: Game): void {
  * a weapon slot — the arc/reticle red pulse a predicted denied click drives.
  */
 function handleServerDenial(g: Game, d: DeniedView): void {
+  releaseAbilityLatch(g, d);
   if (g.state.spectating) return; // no live conning UI to feed back into
   // A denial for a pre-death press is moot once sunk: renderFiring discards
   // serverDeniedClick on a dead frame, so play the whole path only while there
@@ -4022,6 +4038,15 @@ function handleServerDenial(g: Game, d: DeniedView): void {
   // otherwise flash the GUN's reticle. The per-slot chip flash + tone above are
   // already slot-correct; the arc pulse is the only slot-sensitive piece.
   if (id !== null && EQUIPMENT_IS_WEAPON[id] && d.slot === g.keyboard.primedSlot) g.serverDeniedClick = true;
+}
+
+/** A server denial of a `C` / `V` press is that press's answer: open its latch
+ *  (sim/abilityLatch.ts) before any feedback guard, so a denial that plays no
+ *  feedback still frees the key. */
+function releaseAbilityLatch(g: Game, d: DeniedView): void {
+  const ability = d.act === undefined ? null : abilityFromCode(d.act);
+  if (ability === null || ability === 'shift') return;
+  g.abilityLatch = latchRelease(g.abilityLatch, ability);
 }
 
 /**
@@ -4518,6 +4543,7 @@ function enterSpectateVisuals(g: Game): void {
   // Reset the denial dedup with the queue drop (Story 1.10): a dropped press
   // must not leave a marked (slot, seq) the next life's press can reuse.
   g.denialDedup.clear();
+  g.abilityLatch = OPEN_LATCHES;
 }
 
 /**
